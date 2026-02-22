@@ -1,0 +1,41 @@
+/* Material Design 3 Tokens - D-PlaneOS Theme */
+
+:root {
+    /* Colors - Dark Theme */
+    --md-sys-color-background: #0a0a0a;
+    --md-sys-color-surface: rgba(255, 255, 255, 0.03);
+    --md-sys-color-surface-variant: rgba(255, 255, 255, 0.05);
+    --md-sys-color-on-surface: #ffffff;
+    --md-sys-color-on-surface-variant: rgba(255, 255, 255, 0.7);
+    
+    /* Primary - Purple Gradient */
+    --md-sys-color-primary: #8a9cff;
+    --md-sys-color-primary-end: #764ba2;
+    --md-sys-color-on-primary: #ffffff;
+    
+    /* Success */
+    --md-sys-color-success: #10B981;
+    --md-sys-color-on-success: #ffffff;
+    
+    /* Borders */
+    --md-sys-color-outline: rgba(255, 255, 255, 0.08);
+    --md-sys-color-outline-variant: rgba(255, 255, 255, 0.1);
+    
+    /* Typography */
+    --md-sys-typescale-display-large: 48px;
+    --md-sys-typescale-headline-large: 32px;
+    --md-sys-typescale-title-large: 24px;
+    --md-sys-typescale-body-large: 18px;
+    --md-sys-typescale-body-medium: 15px;
+    --md-sys-typescale-body-small: 13px;
+    
+    /* Shape */
+    --md-sys-shape-corner-large: 16px;
+    --md-sys-shape-corner-medium: 12px;
+    --md-sys-shape-corner-small: 8px;
+    
+    /* Elevation */
+    --md-sys-elevation-1: 0 2px 8px rgba(0, 0, 0, 0.3);
+    --md-sys-elevation-2: 0 4px 16px rgba(0, 0, 0, 0.3);
+    --md-sys-elevation-3: 0 8px 32px rgba(102, 126, 234, 0.4);
+}

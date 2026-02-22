@@ -1,0 +1,42 @@
+{
+  "id": "smb-server",
+  "name": "SMB/CIFS Server",
+  "description": "Share folders over SMB/CIFS protocol (Windows file sharing)",
+  "version": "1.0.0",
+  "author": "D-PlaneOS Team",
+  "license": "GPL-3.0",
+  "category": "storage-protocols",
+  "icon": "folder_shared",
+  
+  "requirements": {
+    "os": ["ubuntu-24.04"],
+    "min_ram_mb": 512,
+    "min_disk_mb": 50,
+    "zfs": false,
+    "docker": false
+  },
+  
+  "dependencies": {
+    "apt": ["samba", "samba-common-bin"],
+    "modules": []
+  },
+  
+  "permissions": [
+    "files.read",
+    "files.write",
+    "network.configure"
+  ],
+  
+  "ports": [
+    {"port": 139, "protocol": "tcp", "description": "SMB over NetBIOS"},
+    {"port": 445, "protocol": "tcp", "description": "SMB"}
+  ],
+  
+  "config_schema": {
+    "workgroup": {
+      "type": "string",
+      "default": "WORKGROUP",
+      "description": "Windows workgroup name"
+    }
+  }
+}

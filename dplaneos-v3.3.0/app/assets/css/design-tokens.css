@@ -1,0 +1,170 @@
+/**
+ * D-PlaneOS Design Tokens
+ * Matches dplaneos-demo-final.html design system
+ * Version: 3.2.0
+ */
+
+:root {
+  /* ===== BRAND COLORS ===== */
+  --primary: #8a9cff;
+  --primary-bg: rgba(138, 156, 255, 0.1);
+  --primary-hover: #9eadff;
+  --primary-active: #7a8cff;
+  
+  /* ===== SEMANTIC COLORS ===== */
+  --success: #00ff7f;
+  --success-bg: rgba(0, 255, 127, 0.1);
+  --success-border: rgba(0, 255, 127, 0.3);
+  
+  --error: #ff5252;
+  --error-bg: rgba(255, 82, 82, 0.1);
+  --error-border: rgba(255, 82, 82, 0.3);
+  
+  --warning: #ffca28;
+  --warning-bg: rgba(255, 202, 40, 0.1);
+  --warning-border: rgba(255, 202, 40, 0.3);
+  
+  --info: #64b5f6;
+  --info-bg: rgba(100, 181, 246, 0.1);
+  --info-border: rgba(100, 181, 246, 0.3);
+  
+  /* ===== NEUTRALS ===== */
+  --bg: #0a0a0a;
+  --bg-elevated: #0f0f0f;
+  
+  --surface: rgba(255, 255, 255, 0.05);
+  --surface-variant: rgba(255, 255, 255, 0.08);
+  --surface-hover: rgba(255, 255, 255, 0.10);
+  
+  --border: rgba(255, 255, 255, 0.1);
+  --border-strong: rgba(255, 255, 255, 0.15);
+  --border-subtle: rgba(255, 255, 255, 0.05);
+  
+  --text: #ffffff;
+  --text-dim: rgba(255, 255, 255, 0.5);
+  --text-dimmer: rgba(255, 255, 255, 0.3);
+  --text-on-primary: #000000;
+  
+  /* ===== SPACING ===== */
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 12px;
+  --space-lg: 16px;
+  --space-xl: 20px;
+  --space-2xl: 24px;
+  --space-3xl: 32px;
+  --space-4xl: 40px;
+  --space-5xl: 48px;
+  
+  /* ===== BORDER RADIUS ===== */
+  --radius-xs: 4px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
+  --radius-2xl: 24px;
+  --radius-full: 9999px;
+  
+  /* ===== TYPOGRAPHY ===== */
+  /* Font Sizes */
+  --font-2xs: 10px;
+  --font-xs: 11px;
+  --font-sm: 13px;
+  --font-base: 14px;
+  --font-md: 15px;
+  --font-lg: 18px;
+  --font-xl: 20px;
+  --font-2xl: 24px;
+  --font-3xl: 32px;
+  --font-4xl: 40px;
+  
+  /* Font Weights */
+  --weight-normal: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+  --weight-bold: 700;
+  --weight-extrabold: 800;
+  --weight-black: 900;
+  
+  /* Line Heights */
+  --leading-tight: 1.25;
+  --leading-snug: 1.375;
+  --leading-normal: 1.5;
+  --leading-relaxed: 1.625;
+  --leading-loose: 2;
+  
+  /* ===== SHADOWS ===== */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.2);
+  --shadow-md: 0 4px 8px rgba(0, 0, 0, 0.3);
+  --shadow-lg: 0 8px 16px rgba(0, 0, 0, 0.4);
+  --shadow-xl: 0 12px 24px rgba(0, 0, 0, 0.5);
+  --shadow-2xl: 0 24px 48px rgba(0, 0, 0, 0.6);
+  
+  /* ===== TRANSITIONS ===== */
+  --transition-fast: 0.15s ease;
+  --transition-base: 0.2s ease;
+  --transition-slow: 0.3s ease;
+  --transition-slower: 0.4s ease;
+  
+  /* ===== Z-INDEX ===== */
+  --z-base: 1;
+  --z-dropdown: 1000;
+  --z-sticky: 1100;
+  --z-modal-backdrop: 1200;
+  --z-modal: 1300;
+  --z-popover: 1400;
+  --z-tooltip: 1500;
+  --z-toast: 1600;
+  --z-navigation: 2000;
+  
+  /* ===== LAYOUT ===== */
+  --container-max-width: 1600px;
+  --container-padding: 40px;
+  --nav-height: 72px;
+  --subnav-height: 50px;
+  --content-top-margin: 160px; /* nav + subnav + spacing */
+  
+  /* ===== ANIMATION ===== */
+  --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-out: cubic-bezier(0, 0, 0.2, 1);
+  --ease-in: cubic-bezier(0.4, 0, 1, 1);
+  --ease-spring: cubic-bezier(0.68, -0.55, 0.265, 1.55);
+}
+
+/* ===== RESPONSIVE BREAKPOINTS ===== */
+/* These are used in media queries, not as CSS variables */
+/*
+  --breakpoint-sm: 640px;
+  --breakpoint-md: 768px;
+  --breakpoint-lg: 1024px;
+  --breakpoint-xl: 1280px;
+  --breakpoint-2xl: 1536px;
+*/
+
+/* ===== DARK MODE OVERRIDES ===== */
+/* Currently only dark mode, but structure for future light mode */
+@media (prefers-color-scheme: light) {
+  :root {
+    /* Override tokens here if light mode is added */
+  }
+}
+
+/* ===== UTILITY CLASSES ===== */
+
+/* Quick color utilities */
+.text-primary { color: var(--primary) !important; }
+.text-success { color: var(--success) !important; }
+.text-error { color: var(--error) !important; }
+.text-warning { color: var(--warning) !important; }
+.text-dim { color: var(--text-dim) !important; }
+
+.bg-primary { background: var(--primary) !important; }
+.bg-success { background: var(--success-bg) !important; }
+.bg-error { background: var(--error-bg) !important; }
+.bg-warning { background: var(--warning-bg) !important; }
+
+/* Border utilities */
+.border-primary { border-color: var(--primary) !important; }
+.border-success { border-color: var(--success-border) !important; }
+.border-error { border-color: var(--error-border) !important; }
+.border-warning { border-color: var(--warning-border) !important; }

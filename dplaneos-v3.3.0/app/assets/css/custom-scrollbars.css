@@ -1,0 +1,117 @@
+/* Custom Scrollbars - Obsidian Flow Design */
+/* Applied globally for dark theme consistency */
+
+/* Default Scrollbar */
+::-webkit-scrollbar {
+    width: 12px;
+    height: 12px;
+}
+
+::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.02);
+    border-radius: 6px;
+}
+
+::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.12);
+    border-radius: 6px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+    transition: background 0.2s ease;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.20);
+    background-clip: padding-box;
+}
+
+::-webkit-scrollbar-thumb:active {
+    background: rgba(255, 255, 255, 0.28);
+    background-clip: padding-box;
+}
+
+/* Horizontal Scrollbar */
+::-webkit-scrollbar-horizontal {
+    height: 8px;
+}
+
+/* Corner */
+::-webkit-scrollbar-corner {
+    background: transparent;
+}
+
+/* Thin Scrollbar Variant (for modals, small containers) */
+.thin-scrollbar::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+
+.thin-scrollbar::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.01);
+}
+
+.thin-scrollbar::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.10);
+    border-radius: 3px;
+}
+
+.thin-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.16);
+}
+
+/* Code/Log Scrollbar Variant (monospace areas) */
+.code-scrollbar::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+.code-scrollbar::-webkit-scrollbar-track {
+    background: rgba(0, 0, 0, 0.2);
+    border-radius: 4px;
+}
+
+.code-scrollbar::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.15);
+    border-radius: 4px;
+}
+
+.code-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.25);
+}
+
+/* Firefox Fallback */
+* {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.12) rgba(255, 255, 255, 0.02);
+}
+
+/* Light Theme Override (if ever needed) */
+@media (prefers-color-scheme: light) {
+    ::-webkit-scrollbar-track {
+        background: rgba(0, 0, 0, 0.04);
+    }
+    
+    ::-webkit-scrollbar-thumb {
+        background: rgba(0, 0, 0, 0.20);
+    }
+    
+    ::-webkit-scrollbar-thumb:hover {
+        background: rgba(0, 0, 0, 0.32);
+    }
+    
+    * {
+        scrollbar-color: rgba(0, 0, 0, 0.20) rgba(0, 0, 0, 0.04);
+    }
+}
+
+/* Apply to specific elements */
+textarea,
+pre,
+code,
+.modal-content,
+.table-container,
+.log-console-content,
+.permission-categories {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.12) rgba(255, 255, 255, 0.02);
+}

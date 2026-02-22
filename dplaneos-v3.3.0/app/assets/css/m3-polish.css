@@ -1,0 +1,182 @@
+/**
+ * D-PlaneOS v5.1.3 - Global M3 UI Hardening
+ * 
+ * Eliminates native browser elements for seamless M3 integration
+ * Based on community feedback and professional UI audit
+ */
+
+/* =================================================================
+   1. M3 Custom Scrollbars (Slim & Rounded)
+   ================================================================= */
+
+::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+::-webkit-scrollbar-track {
+    background: rgba(28, 27, 31, 0.1); /* Surface-Container Low */
+}
+
+::-webkit-scrollbar-thumb {
+    background: rgba(73, 69, 79, 0.5); /* Outline-Variant */
+    border-radius: 10px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: rgba(208, 188, 255, 0.4); /* Primary Container Alpha */
+}
+
+/* Firefox scrollbar */
+* {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(73, 69, 79, 0.5) rgba(28, 27, 31, 0.1);
+}
+
+/* =================================================================
+   2. Global Dropdown & Select Hardening
+   ================================================================= */
+
+select {
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    
+    /* M3 Material Symbol dropdown arrow */
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' height='24' viewBox='0 -960 960 960' width='24' fill='%23D0BCFF'%3E%3Cpath d='M480-345 240-585l56-56 184 184 184-184 56 56-240 240Z'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+    background-size: 18px;
+    padding-right: 40px !important;
+    cursor: pointer;
+    
+    /* M3 styling */
+    font-family: 'Roboto', system-ui, -apple-system, sans-serif;
+    font-size: 0.875rem;
+    padding: 12px 40px 12px 16px;
+    border: 1px solid var(--md-sys-color-outline);
+    border-radius: 4px;
+    background-color: var(--md-sys-color-surface-container);
+    color: var(--md-sys-color-on-surface);
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+select:hover {
+    background-color: var(--md-sys-color-surface-container-high);
+    border-color: var(--md-sys-color-primary);
+}
+
+select:focus {
+    outline: 2px solid var(--md-sys-color-primary);
+    outline-offset: 2px;
+    border-color: var(--md-sys-color-primary);
+}
+
+select:disabled {
+    opacity: 0.38;
+    cursor: not-allowed;
+}
+
+/* =================================================================
+   3. Checkbox & Radio M3 Styling
+   ================================================================= */
+
+input[type="checkbox"], 
+input[type="radio"] {
+    accent-color: #D0BCFF; /* M3 Primary Light / Dark */
+    cursor: pointer;
+    transition: transform 0.2s cubic-bezier(0.05, 0.7, 0.1, 1);
+    
+    /* Sizing */
+    width: 18px;
+    height: 18px;
+    min-width: 18px;
+    min-height: 18px;
+}
+
+input[type="checkbox"]:active,
+input[type="radio"]:active {
+    transform: scale(0.9);
+}
+
+input[type="checkbox"]:disabled,
+input[type="radio"]:disabled {
+    opacity: 0.38;
+    cursor: not-allowed;
+}
+
+/* =================================================================
+   4. Text Selection Color (M3 Primary)
+   ================================================================= */
+
+::selection {
+    background-color: rgba(208, 188, 255, 0.3);
+    color: inherit;
+}
+
+::-moz-selection {
+    background-color: rgba(208, 188, 255, 0.3);
+    color: inherit;
+}
+
+/* =================================================================
+   5. Focus Visible (Keyboard Navigation)
+   ================================================================= */
+
+*:focus-visible {
+    outline: 2px solid var(--md-sys-color-primary);
+    outline-offset: 2px;
+}
+
+/* =================================================================
+   6. Thin Scrollbars for Code/Logs
+   ================================================================= */
+
+pre::-webkit-scrollbar,
+code::-webkit-scrollbar,
+.log-viewer::-webkit-scrollbar,
+.terminal-output::-webkit-scrollbar,
+.docker-log-viewer::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+
+/* =================================================================
+   7. Accessibility Enhancements
+   ================================================================= */
+
+/* High contrast mode */
+@media (prefers-contrast: high) {
+    ::-webkit-scrollbar-thumb {
+        background: rgba(208, 188, 255, 0.8);
+    }
+    
+    select {
+        border-width: 2px;
+    }
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+    * {
+        transition: none !important;
+        animation: none !important;
+    }
+}
+
+/* =================================================================
+   8. Print Styles
+   ================================================================= */
+
+@media print {
+    ::-webkit-scrollbar {
+        display: none;
+    }
+    
+    select {
+        border: 1px solid #000;
+        background-image: none;
+    }
+}

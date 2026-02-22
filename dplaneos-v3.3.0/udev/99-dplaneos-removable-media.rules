@@ -1,0 +1,28 @@
+# D-PlaneOS - udev Rules for Removable Media Detection
+#
+# This file enables automatic detection of:
+# - USB drives (flash/HDD/SSD)
+# - Optical drives (CD/DVD/BluRay)
+# - Media insertion/removal events
+#
+# Install to: /etc/udev/rules.d/99-dplaneos-removable-media.rules
+# Then reload: sudo udevadm control --reload-rules
+#
+
+# USB Storage Devices
+# Trigger on add/remove events for USB block devices
+ACTION=="add", SUBSYSTEMS=="usb", KERNEL=="sd[a-z][0-9]*", ENV{DEVTYPE}=="partition", RUN+="/opt/dplaneos/scripts/notify-device-added.sh '%E{DEVNAME}' 'usb'"
+ACTION=="remove", SUBSYSTEMS=="usb", KERNEL=="sd[a-z][0-9]*", ENV{DEVTYPE}=="partition", RUN+="/opt/dplaneos/scripts/notify-device-removed.sh '%E{DEVNAME}' 'usb'"
+
+# USB Mass Storage (whole disk)
+ACTION=="add", SUBSYSTEMS=="usb", KERNEL=="sd[a-z]", ENV{DEVTYPE}=="disk", RUN+="/opt/dplaneos/scripts/notify-device-added.sh '%E{DEVNAME}' 'usb-disk'"
+ACTION=="remove", SUBSYSTEMS=="usb", KERNEL=="sd[a-z]", ENV{DEVTYPE}=="disk", RUN+="/opt/dplaneos/scripts/notify-device-removed.sh '%E{DEVNAME}' 'usb-disk'"
+
+# Optical Drives - Device Added
+ACTION=="add", KERNEL=="sr[0-9]*", SUBSYSTEM=="block", RUN+="/opt/dplaneos/scripts/notify-device-added.sh '%E{DEVNAME}' 'optical'"
+
+# Optical Drives - Media Change (disc inserted/removed)
+ACTION=="change", KERNEL=="sr[0-9]*", ENV{DISK_MEDIA_CHANGE}=="1", RUN+="/opt/dplaneos/scripts/notify-optical-media-change.sh '%E{DEVNAME}'"
+
+# Optical Drives - Eject Button Pressed
+ACTION=="change", KERNEL=="sr[0-9]*", ENV{DISK_EJECT_REQUEST}=="1", RUN+="/opt/dplaneos/scripts/handle-eject-request.sh '%E{DEVNAME}'"

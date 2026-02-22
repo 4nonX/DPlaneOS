@@ -1,0 +1,374 @@
+/* Responsive Tables - Obsidian Flow Design */
+/* Optimized for mobile without sacrificing desktop experience */
+
+/* ============================================================================
+   DESKTOP TABLES (Default)
+   ============================================================================ */
+
+.table-container {
+    overflow-x: auto;
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.02);
+}
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+}
+
+thead {
+    background: rgba(255, 255, 255, 0.05);
+    border-bottom: 2px solid rgba(255, 255, 255, 0.1);
+}
+
+th {
+    text-align: left;
+    padding: 16px;
+    font-weight: 500;
+    font-size: 13px;
+    color: rgba(255, 255, 255, 0.7);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+td {
+    padding: 16px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    color: #E8EAED;
+}
+
+tbody tr {
+    transition: background 0.2s ease;
+}
+
+tbody tr:hover {
+    background: rgba(255, 255, 255, 0.04);
+}
+
+tbody tr:last-child td {
+    border-bottom: none;
+}
+
+/* ============================================================================
+   TABLE ACTIONS
+   ============================================================================ */
+
+.table-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.table-action-btn {
+    padding: 6px 12px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 6px;
+    color: #E8EAED;
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.table-action-btn:hover {
+    background: rgba(255, 255, 255, 0.1);
+    border-color: rgba(255, 255, 255, 0.2);
+}
+
+.table-action-btn .material-icons {
+    font-size: 16px;
+}
+
+/* Icon-only buttons */
+.table-action-icon {
+    padding: 8px;
+    background: transparent;
+    border: none;
+    color: rgba(255, 255, 255, 0.6);
+    cursor: pointer;
+    border-radius: 6px;
+    transition: all 0.2s ease;
+}
+
+.table-action-icon:hover {
+    background: rgba(255, 255, 255, 0.08);
+    color: #E8EAED;
+}
+
+.table-action-icon .material-icons {
+    font-size: 20px;
+}
+
+/* ============================================================================
+   TABLE STATUS BADGES
+   ============================================================================ */
+
+.status-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 12px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 500;
+}
+
+.status-badge.active {
+    background: rgba(52, 168, 83, 0.15);
+    color: #81C995;
+    border: 1px solid rgba(52, 168, 83, 0.3);
+}
+
+.status-badge.inactive {
+    background: rgba(255, 255, 255, 0.1);
+    color: rgba(255, 255, 255, 0.6);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.status-badge.error {
+    background: rgba(234, 67, 53, 0.15);
+    color: #F28B82;
+    border: 1px solid rgba(234, 67, 53, 0.3);
+}
+
+.status-badge.warning {
+    background: rgba(251, 188, 5, 0.15);
+    color: #FDD663;
+    border: 1px solid rgba(251, 188, 5, 0.3);
+}
+
+.status-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+}
+
+/* ============================================================================
+   MOBILE OPTIMIZATIONS (Tablet & Phone)
+   ============================================================================ */
+
+@media (max-width: 1024px) {
+    /* Slightly reduce padding on tablets */
+    th, td {
+        padding: 12px;
+    }
+    
+    table {
+        font-size: 13px;
+    }
+}
+
+@media (max-width: 768px) {
+    /* Card-based layout for phones */
+    .table-container {
+        background: transparent;
+        overflow: visible;
+    }
+    
+    table, thead, tbody, th, td, tr {
+        display: block;
+    }
+    
+    thead {
+        display: none;
+    }
+    
+    tbody tr {
+        background: rgba(255, 255, 255, 0.04);
+        border-radius: 12px;
+        margin-bottom: 12px;
+        padding: 16px;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+    
+    tbody tr:hover {
+        background: rgba(255, 255, 255, 0.06);
+    }
+    
+    td {
+        padding: 8px 0;
+        border: none;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+    
+    td:before {
+        content: attr(data-label);
+        font-weight: 500;
+        color: rgba(255, 255, 255, 0.6);
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        flex: 0 0 40%;
+    }
+    
+    td:last-child {
+        padding-bottom: 0;
+    }
+    
+    /* Actions go full width at bottom */
+    .table-actions {
+        justify-content: flex-end;
+        padding-top: 12px;
+        margin-top: 12px;
+        border-top: 1px solid rgba(255, 255, 255, 0.08);
+    }
+    
+    /* Icons slightly larger on mobile */
+    .table-action-icon .material-icons {
+        font-size: 22px;
+    }
+}
+
+/* ============================================================================
+   LOADING STATE
+   ============================================================================ */
+
+.table-loading {
+    text-align: center;
+    padding: 48px 24px;
+    color: rgba(255, 255, 255, 0.5);
+}
+
+.table-loading .spinner {
+    width: 32px;
+    height: 32px;
+    border: 3px solid rgba(255, 255, 255, 0.1);
+    border-top-color: var(--md-sys-color-primary);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    margin: 0 auto 16px;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+/* ============================================================================
+   EMPTY STATE
+   ============================================================================ */
+
+.table-empty {
+    text-align: center;
+    padding: 64px 24px;
+    color: rgba(255, 255, 255, 0.5);
+}
+
+.table-empty .material-icons {
+    font-size: 64px;
+    opacity: 0.3;
+    margin-bottom: 16px;
+}
+
+.table-empty h3 {
+    font-size: 18px;
+    font-weight: 400;
+    margin-bottom: 8px;
+    color: #E8EAED;
+}
+
+.table-empty p {
+    font-size: 14px;
+}
+
+/* ============================================================================
+   SORTABLE HEADERS
+   ============================================================================ */
+
+th.sortable {
+    cursor: pointer;
+    user-select: none;
+    position: relative;
+    padding-right: 32px;
+}
+
+th.sortable:hover {
+    color: #E8EAED;
+}
+
+th.sortable:after {
+    content: 'unfold_more';
+    font-family: 'Material Icons';
+    position: absolute;
+    right: 12px;
+    font-size: 16px;
+    opacity: 0.3;
+}
+
+th.sortable.asc:after {
+    content: 'arrow_upward';
+    opacity: 1;
+}
+
+th.sortable.desc:after {
+    content: 'arrow_downward';
+    opacity: 1;
+}
+
+/* ============================================================================
+   PAGINATION
+   ============================================================================ */
+
+.table-pagination {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 16px;
+    padding: 16px;
+    background: rgba(255, 255, 255, 0.02);
+    border-radius: 12px;
+}
+
+.pagination-info {
+    font-size: 13px;
+    color: rgba(255, 255, 255, 0.6);
+}
+
+.pagination-controls {
+    display: flex;
+    gap: 8px;
+}
+
+.pagination-btn {
+    padding: 8px 16px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+    color: #E8EAED;
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.pagination-btn:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.1);
+    border-color: rgba(255, 255, 255, 0.2);
+}
+
+.pagination-btn:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+}
+
+.pagination-btn.active {
+    background: var(--md-sys-color-primary);
+    border-color: var(--md-sys-color-primary);
+}
+
+@media (max-width: 768px) {
+    .table-pagination {
+        flex-direction: column;
+        gap: 12px;
+    }
+    
+    .pagination-controls {
+        width: 100%;
+        justify-content: center;
+    }
+}

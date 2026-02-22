@@ -1,0 +1,328 @@
+/* ============================================================
+   D-PlaneOS UI Polish Layer — v2.0.0
+   ============================================================
+   
+   OVERRIDE-ONLY file. Loaded AFTER all base CSS.
+   Harmonizes timing, easing, state clarity, and spacing.
+   
+   Design tokens:
+     --dp-ease:       cubic-bezier(0.4, 0.0, 0.2, 1)   Material standard
+     --dp-ease-soft:  cubic-bezier(0.22, 1, 0.36, 1)    Decelerate (for panels)
+     --dp-micro:      140ms   (hover, highlight, press)
+     --dp-panel:      260ms   (subnav, modals, drawers)
+     --dp-content:    200ms   (page swap, fade-in)
+     --dp-grid:       8px     (spacing unit)
+   ============================================================ */
+
+:root {
+  --dp-ease:       cubic-bezier(0.4, 0.0, 0.2, 1);
+  --dp-ease-soft:  cubic-bezier(0.22, 1, 0.36, 1);
+  --dp-micro:      140ms;
+  --dp-panel:      260ms;
+  --dp-content:    200ms;
+  --dp-grid:       8px;
+}
+
+
+/* ============================================================
+   1. TIMING HARMONIZATION
+   Micro interactions → 140ms
+   Panels / SubNav    → 260ms
+   Content swap       → 200ms (JS-controlled, CSS backup)
+   ============================================================ */
+
+/* Nav links — micro timing */
+.nav-link {
+  transition: color var(--dp-micro) var(--dp-ease),
+              border-bottom-color var(--dp-micro) var(--dp-ease);
+}
+
+/* Sub-links — micro timing */
+.sub-link {
+  transition: color var(--dp-micro) var(--dp-ease),
+              background var(--dp-micro) var(--dp-ease);
+}
+
+/* Buttons — micro timing */
+.btn {
+  transition: background var(--dp-micro) var(--dp-ease),
+              color var(--dp-micro) var(--dp-ease),
+              box-shadow var(--dp-micro) var(--dp-ease),
+              transform 80ms var(--dp-ease);
+}
+
+/* Icon buttons */
+.icon-btn {
+  transition: background var(--dp-micro) var(--dp-ease),
+              color var(--dp-micro) var(--dp-ease);
+}
+
+/* Cards — content timing for entrance */
+.card {
+  animation-duration: var(--dp-content);
+  animation-timing-function: var(--dp-ease-soft);
+}
+
+/* SubNav panel — panel timing */
+.nav-sub.active {
+  animation: slideDown var(--dp-panel) var(--dp-ease-soft);
+}
+
+/* Modal overlay — panel timing */
+.modal-overlay {
+  transition: opacity var(--dp-panel) var(--dp-ease);
+}
+
+/* Modal content — panel timing */
+.modal-content {
+  animation-duration: var(--dp-panel);
+  animation-timing-function: var(--dp-ease-soft);
+}
+
+/* Toast notifications — content timing */
+.toast {
+  animation-duration: var(--dp-content);
+  animation-timing-function: var(--dp-ease-soft);
+}
+
+/* Form inputs — micro timing */
+.modal-input,
+.form-input,
+textarea,
+select {
+  transition: border-color var(--dp-micro) var(--dp-ease),
+              box-shadow var(--dp-micro) var(--dp-ease);
+}
+
+/* Toggle switch — micro timing */
+.toggle {
+  transition: background var(--dp-micro) var(--dp-ease);
+}
+
+/* Table rows — micro timing */
+tr {
+  transition: background var(--dp-micro) var(--dp-ease);
+}
+
+/* Sidebar / context menu — panel timing */
+.context-menu {
+  animation-duration: var(--dp-panel);
+  animation-timing-function: var(--dp-ease-soft);
+}
+
+/* Fade-in utility class — content timing */
+.fade-in {
+  animation: fadeIn var(--dp-content) var(--dp-ease);
+}
+
+/* Slide-up utility class — content timing */
+.slide-up {
+  animation: slideUp var(--dp-content) var(--dp-ease-soft);
+}
+
+
+/* ============================================================
+   2. EASING CONSISTENCY
+   Override scattered 'ease' / 'ease-in-out' with system curve
+   ============================================================ */
+
+/* Progress bars keep their own timing (functional, not decorative) */
+/* Spinners keep linear (correct for rotation) */
+/* Everything else gets the standard curve via the rules above */
+
+
+/* ============================================================
+   3. ACTIVE / HOVER / FOCUS STATE CLARITY
+   Active  → dominant, stable
+   Hover   → subtle, transient
+   Focus   → visible ring, not loud
+   ============================================================ */
+
+/* --- Nav links --- */
+.nav-link:hover {
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.nav-link.active {
+  color: #fff;
+  border-bottom-color: #8a9cff;
+  border-bottom-width: 3px;
+}
+
+/* --- Sub-links: clearer state separation --- */
+.sub-link:hover {
+  color: rgba(255, 255, 255, 0.9);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.sub-link.active {
+  color: #8a9cff;
+  background: rgba(138, 156, 255, 0.12);
+  font-weight: 600;
+  box-shadow: inset 0 0 0 1px rgba(138, 156, 255, 0.2);
+}
+
+/* --- Buttons: press state + hover clarity --- */
+.btn:hover {
+  filter: brightness(1.12);
+}
+
+.btn:active {
+  transform: scale(0.97);
+  filter: brightness(0.95);
+}
+
+/* Primary button hover/active */
+.btn-primary:hover {
+  filter: brightness(1.15);
+  box-shadow: 0 4px 16px rgba(138, 156, 255, 0.3);
+}
+
+.btn-primary:active {
+  transform: scale(0.97);
+  filter: brightness(0.92);
+  box-shadow: 0 2px 8px rgba(138, 156, 255, 0.2);
+}
+
+/* --- Focus ring (keyboard navigation) --- */
+.btn:focus-visible,
+.icon-btn:focus-visible,
+.nav-link:focus-visible,
+.sub-link:focus-visible,
+.modal-input:focus-visible,
+.form-input:focus-visible {
+  outline: 2px solid rgba(138, 156, 255, 0.6);
+  outline-offset: 2px;
+}
+
+/* --- Table row hover --- */
+tr:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+/* --- Card hover (subtle lift) --- */
+.card:hover {
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+
+/* ============================================================
+   4. SPACING RHYTHM (8px baseline grid)
+   ============================================================ */
+
+/* Page header — consistent spacing */
+.page-header {
+  margin-bottom: 32px;      /* 4 × 8 */
+  padding-bottom: 24px;     /* 3 × 8 */
+}
+
+.page-title {
+  gap: 12px;                /* 1.5 × 8, already fine */
+}
+
+/* Card padding — always 24px or 32px */
+/* (m3-components already uses 32px, enhanced-ui doesn't override padding) */
+/* No change needed — just documenting the 4×8 = 32px grid compliance */
+
+/* Card title bottom margin — snap to grid */
+.card-title {
+  margin-bottom: 24px;      /* 3 × 8 (was 20px) */
+}
+
+/* Section spacing between cards */
+.card + .card {
+  margin-top: 24px;         /* 3 × 8 */
+}
+
+/* Modal padding — snap to grid */
+.modal-content {
+  padding: 32px;            /* 4 × 8 */
+}
+
+/* Modal header bottom spacing */
+.modal-header {
+  margin-bottom: 24px;      /* 3 × 8 */
+}
+
+/* Form element vertical spacing */
+.form-group + .form-group {
+  margin-top: 16px;         /* 2 × 8 */
+}
+
+/* Table cell padding — snap to grid */
+td, th {
+  padding: 12px 16px;       /* 1.5×8 vertical, 2×8 horizontal */
+}
+
+/* Status badges — consistent padding */
+.badge, .status-badge, .role-badge {
+  padding: 4px 12px;        /* 0.5×8 vertical, 1.5×8 horizontal */
+}
+
+
+/* ============================================================
+   5. CONTENT SWAP PERCEPTION
+   Subtle slide + fade for organic feel
+   ============================================================ */
+
+/* This targets the hybrid-router content swap */
+.main {
+  will-change: opacity;
+}
+
+/* Slide-up keyframe with micro offset for organic feel */
+@keyframes slideUpPolish {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Cards entering on page load: stagger with micro-slide */
+.card {
+  animation-name: slideUpPolish;
+}
+
+
+/* ============================================================
+   6. FEEDBACK SNAPPINESS
+   Immediate visual acknowledgment on interaction
+   ============================================================ */
+
+/* Immediate opacity drop on press (before transition completes) */
+.btn:active,
+.icon-btn:active,
+.sub-link:active,
+.context-menu-item:active {
+  transition-duration: 60ms;
+}
+
+/* Nav link immediate press feedback */
+.nav-link:active {
+  color: #fff;
+  transition-duration: 60ms;
+}
+
+/* Input focus — immediate ring */
+.modal-input:focus,
+.form-input:focus,
+textarea:focus {
+  border-color: rgba(138, 156, 255, 0.5);
+  box-shadow: 0 0 0 3px rgba(138, 156, 255, 0.1);
+}
+
+
+/* ============================================================
+   7. REDUCED MOTION — respect user preference
+   ============================================================ */
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

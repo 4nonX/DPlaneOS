@@ -1,0 +1,25 @@
+[Unit]
+Description=D-PlaneOS Real-time Event Daemon
+Documentation=https://github.com/dplaneos/dplaneos
+After=network.target dplaneos-init-db.service
+Requires=dplaneos-init-db.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/dplaneos/daemon
+ExecStartPre=/bin/bash -c 'timeout=30; while [ ! -f /var/lib/dplaneos/dplaneos.db ] && [ $timeout -gt 0 ]; do echo "Waiting for database..."; sleep 1; timeout=$((timeout-1)); done; [ -f /var/lib/dplaneos/dplaneos.db ] || (echo "Database not ready" && exit 1)'
+ExecStart=/opt/dplaneos/daemon/dplaneos-daemon
+Restart=on-failure
+RestartSec=5s
+StandardOutput=journal
+StandardError=journal
+
+# Security hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/dplaneos /var/log/dplaneos /var/run/dplaneos
+
+[Install]
+WantedBy=multi-user.target

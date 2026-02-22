@@ -1,0 +1,19 @@
+[Unit]
+Description=D-PlaneOS ZFS Pool Mount Readiness Gate
+Documentation=https://github.com/4nonX/homelab
+# Must run after ZFS has imported pools AND mounted datasets
+After=zfs-import-cache.service zfs-import-scan.service zfs-mount.service zfs.target
+Requires=zfs-import-cache.service zfs-mount.service
+Before=docker.service dplaned.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/opt/dplaneos/scripts/zfs-mount-wait.sh
+TimeoutStartSec=300
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=dplaneos-zfs-gate
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,62 @@
+# D-PlaneOS Indexing Configuration
+# Defines how different paths are monitored and indexed
+
+global:
+  # Inotify watch limit (system-wide)
+  # Conservative default: 100K watches
+  # Can be increased up to system limit (check: cat /proc/sys/fs/inotify/max_user_watches)
+  inotify_limit: 100000
+  
+  # What to do when inotify limit is reached
+  # Options: periodic, on_demand, disabled
+  fallback_strategy: periodic
+  
+  # Default scan interval for periodic strategy (when not specified)
+  default_scan_interval: 30m
+
+# Indexing strategies for different paths
+# Strategies:
+#   realtime  - Uses inotify, <1s latency (limited by inotify_limit)
+#   periodic  - Background scans, 5-60min latency (unlimited)
+#   on_demand - Only scans when user accesses (unlimited)
+#   disabled  - Not indexed at all
+
+strategies:
+  # Example: Documents (frequently changing, needs real-time)
+  # - path: /data/documents
+  #   strategy: realtime
+  #   priority: 10
+  #   recursive: true
+  
+  # Example: Photos (current year only real-time)
+  # - path: /data/photos/2024
+  #   strategy: realtime
+  #   priority: 9
+  #   recursive: true
+  
+  # Example: Media library (periodic scan)
+  # - path: /data/media
+  #   strategy: periodic
+  #   scan_interval: 15m
+  #   recursive: true
+  #   exclude:
+  #     - "*.tmp"
+  #     - ".DS_Store"
+  
+  # Example: Backups (infrequent scan)
+  # - path: /data/backups
+  #   strategy: periodic
+  #   scan_interval: 1h
+  #   recursive: true
+  
+  # Example: Old archives (on-demand only)
+  # - path: /data/archive
+  #   strategy: on_demand
+  #   recursive: false
+
+# Notes:
+# 1. Priority only matters for realtime strategy
+#    Higher priority = gets inotify watches first when limit is reached
+# 2. Periodic and on_demand have NO limits - use freely for large datasets
+# 3. Start with periodic for everything, add realtime only for critical paths
+# 4. Monitor usage: http://your-nas/pages/indexing-config.html

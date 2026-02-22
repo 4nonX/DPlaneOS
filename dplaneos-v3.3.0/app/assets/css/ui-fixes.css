@@ -1,0 +1,260 @@
+/**
+ * D-PlaneOS UI Bug Fixes
+ * 
+ * FIX 1: Z-index collision between modals and progress bars
+ * FIX 2: Mobile navigation overflow on small screens
+ */
+
+/* =================================================================
+   FIX 1: Z-index Hierarchy
+   ================================================================= */
+
+/* 
+ * Establish proper z-index layering to prevent overlaps
+ * Modals should ALWAYS be on top of everything else
+ */
+
+:root {
+    --z-base: 1;
+    --z-dropdown: 100;
+    --z-sticky: 200;
+    --z-progress-bar: 300;
+    --z-overlay: 900;
+    --z-modal: 1000;
+    --z-toast: 1100;
+}
+
+/* Progress bars */
+.progress-container,
+.docker-pull-progress,
+.upload-progress {
+    position: relative;
+    z-index: var(--z-progress-bar) !important;
+}
+
+/* Modals and overlays */
+.modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: var(--z-overlay) !important;
+}
+
+.modal,
+.dialog,
+.keyboard-help-modal {
+    position: fixed;
+    z-index: var(--z-modal) !important;
+}
+
+/* Keyboard shortcuts help */
+.keyboard-help-modal {
+    /* Ensure it's above everything else */
+    z-index: calc(var(--z-modal) + 100) !important;
+}
+
+/* Toast notifications */
+.toast,
+.notification {
+    position: fixed;
+    z-index: var(--z-toast) !important;
+}
+
+/* Dropdowns */
+.dropdown-menu,
+.context-menu {
+    position: absolute;
+    z-index: var(--z-dropdown);
+}
+
+/* =================================================================
+   FIX 2: Mobile Navigation Overflow
+   ================================================================= */
+
+/* 
+ * Fix sub-navigation on very small screens (iPhone SE, etc.)
+ * Make it responsive and prevent text overflow
+ */
+
+@media (max-width: 375px) {
+    /* Sub-navigation in header */
+    .sub-nav {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.25rem;
+        padding: 0.5rem;
+    }
+    
+    .sub-nav-item {
+        display: flex;
+        align-items: center;
+        gap: 0.25rem;
+        padding: 0.375rem 0.5rem;
+        font-size: 0.75rem;
+        white-space: nowrap;
+        border-radius: 4px;
+    }
+    
+    /* Icon only on very small screens */
+    .sub-nav-item .material-symbols-rounded {
+        font-size: 16px;
+    }
+    
+    /* Hide text labels on smallest screens, show icon only */
+    .sub-nav-item-text {
+        display: none;
+    }
+    
+    /* Show tooltips on hover instead */
+    .sub-nav-item {
+        position: relative;
+    }
+    
+    .sub-nav-item::after {
+        content: attr(data-label);
+        position: absolute;
+        bottom: 100%;
+        left: 50%;
+        transform: translateX(-50%);
+        background: var(--md-sys-color-inverse-surface);
+        color: var(--md-sys-color-inverse-on-surface);
+        padding: 0.25rem 0.5rem;
+        border-radius: 4px;
+        font-size: 0.75rem;
+        white-space: nowrap;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.2s;
+        z-index: var(--z-dropdown);
+    }
+    
+    .sub-nav-item:hover::after,
+    .sub-nav-item:focus::after {
+        opacity: 1;
+    }
+}
+
+/* Slightly larger screens - show text but compact */
+@media (min-width: 376px) and (max-width: 480px) {
+    .sub-nav {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        padding: 0.5rem;
+    }
+    
+    .sub-nav-item {
+        display: flex;
+        align-items: center;
+        gap: 0.375rem;
+        padding: 0.5rem 0.75rem;
+        font-size: 0.875rem;
+    }
+    
+    .sub-nav-item .material-symbols-rounded {
+        font-size: 18px;
+    }
+    
+    .sub-nav-item-text {
+        display: inline;
+    }
+}
+
+/* =================================================================
+   Additional Mobile Improvements
+   ================================================================= */
+
+/* Make file manager table responsive */
+@media (max-width: 640px) {
+    .file-table {
+        font-size: 0.875rem;
+    }
+    
+    .file-table th,
+    .file-table td {
+        padding: 0.5rem 0.25rem;
+    }
+    
+    /* Hide less important columns on mobile */
+    .file-table .column-size,
+    .file-table .column-modified {
+        display: none;
+    }
+}
+
+/* Make cards stack on mobile */
+@media (max-width: 768px) {
+    .hardware-grid,
+    .dashboard-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* Fix modal width on mobile */
+@media (max-width: 640px) {
+    .modal {
+        width: calc(100vw - 2rem);
+        max-width: none;
+        margin: 1rem;
+    }
+}
+
+/* =================================================================
+   Accessibility Improvements
+   ================================================================= */
+
+/* Ensure touch targets are large enough on mobile */
+@media (max-width: 768px) {
+    button,
+    .btn,
+    a.nav-link {
+        min-height: 44px;
+        min-width: 44px;
+    }
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+    .modal-overlay {
+        background: rgba(0, 0, 0, 0.8);
+    }
+    
+    .modal {
+        border: 2px solid var(--md-sys-color-outline);
+    }
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+    * {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+    }
+}
+
+/* =================================================================
+   Print Styles
+   ================================================================= */
+
+@media print {
+    /* Hide UI chrome when printing */
+    .nav,
+    .sub-nav,
+    .sidebar,
+    .modal-overlay,
+    .progress-container,
+    button:not(.print-button) {
+        display: none !important;
+    }
+    
+    /* Expand main content */
+    .content {
+        margin: 0;
+        padding: 0;
+        max-width: none;
+    }
+}

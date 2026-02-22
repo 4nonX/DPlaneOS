@@ -1,0 +1,7 @@
+/* material-theme.css - Compatibility shim
+   Redirects to current design system files.
+   Referenced by: setup-wizard.html, reset-wizard.html,
+   rbac-management.html, system-settings.html */
+@import url('/assets/css/design-tokens.css');
+@import url('/assets/css/m3-tokens.css');
+@import url('/assets/css/m3-components.css');

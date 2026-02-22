@@ -1,0 +1,165 @@
+/* UI Consistency - Modern form elements */
+
+select, .form-select {
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%2358a6ff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+    background-size: 20px;
+    padding-right: 44px;
+    min-height: 44px;
+    border-radius: 8px;
+    border: 1px solid var(--md-sys-color-outline, #30363d);
+    background-color: var(--md-sys-color-surface, #161b22);
+    color: var(--md-sys-color-on-surface, #e6edf3);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    font-size: 14px;
+    padding: 12px 44px 12px 12px;
+    transition: all 0.2s ease;
+    cursor: pointer;
+}
+
+select:hover, .form-select:hover {
+    border-color: var(--md-sys-color-primary, #58a6ff);
+    background-color: var(--md-sys-color-surface-container-high, #1c2128);
+}
+
+select:focus, .form-select:focus {
+    outline: none;
+    border-color: var(--md-sys-color-primary, #58a6ff);
+    box-shadow: 0 0 0 3px rgba(88, 166, 255, 0.15);
+    background-color: var(--md-sys-color-surface-container-high, #1c2128);
+}
+
+input[type="text"],
+input[type="email"],
+input[type="password"],
+input[type="number"],
+input[type="url"],
+input[type="search"],
+input[type="tel"],
+textarea,
+.form-input {
+    min-height: 44px;
+    border-radius: 8px;
+    border: 1px solid var(--md-sys-color-outline, #30363d);
+    background-color: var(--md-sys-color-surface, #161b22);
+    color: var(--md-sys-color-on-surface, #e6edf3);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    font-size: 14px;
+    padding: 12px;
+    transition: all 0.2s ease;
+}
+
+input:hover, textarea:hover {
+    border-color: var(--md-sys-color-primary, #58a6ff);
+    background-color: var(--md-sys-color-surface-container-high, #1c2128);
+}
+
+input:focus, textarea:focus {
+    outline: none;
+    border-color: var(--md-sys-color-primary, #58a6ff);
+    box-shadow: 0 0 0 3px rgba(88, 166, 255, 0.15);
+    background-color: var(--md-sys-color-surface-container-high, #1c2128);
+}
+
+button, .btn {
+    min-height: 40px;
+    padding: 10px 20px;
+    border-radius: 8px;
+    border: none;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+}
+
+.btn-primary {
+    background: var(--md-sys-color-primary, #58a6ff);
+    color: var(--md-sys-color-on-primary, #ffffff);
+}
+
+.btn-primary:hover {
+    background: var(--md-sys-color-primary-container, #1f6feb);
+    box-shadow: 0 2px 8px rgba(88, 166, 255, 0.3);
+}
+
+.btn-secondary {
+    background: var(--md-sys-color-surface-container-high, #1c2128);
+    color: var(--md-sys-color-on-surface, #e6edf3);
+    border: 1px solid var(--md-sys-color-outline, #30363d);
+}
+
+.btn-secondary:hover {
+    background: var(--md-sys-color-surface-container-highest, #30363d);
+}
+
+input[type="checkbox"] {
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    width: 20px;
+    height: 20px;
+    border: 2px solid var(--md-sys-color-outline, #30363d);
+    border-radius: 4px;
+    background: var(--md-sys-color-surface, #161b22);
+    cursor: pointer;
+    position: relative;
+    transition: all 0.2s ease;
+}
+
+input[type="checkbox"]:checked {
+    background: var(--md-sys-color-primary, #58a6ff);
+    border-color: var(--md-sys-color-primary, #58a6ff);
+}
+
+input[type="checkbox"]:checked::after {
+    content: '✓';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    color: white;
+    font-size: 14px;
+    font-weight: bold;
+}
+
+input[type="checkbox"]:hover {
+    border-color: var(--md-sys-color-primary, #58a6ff);
+}
+
+.container-icon {
+    border-radius: 8px;
+    object-fit: contain;
+    background: var(--md-sys-color-surface-container);
+    padding: 4px;
+}
+
+*:focus {
+    outline: none;
+}
+
+::-webkit-scrollbar {
+    width: 12px;
+    height: 12px;
+}
+
+::-webkit-scrollbar-track {
+    background: var(--md-sys-color-surface-container, #161b22);
+}
+
+::-webkit-scrollbar-thumb {
+    background: var(--md-sys-color-outline, #30363d);
+    border-radius: 6px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: var(--md-sys-color-primary, #58a6ff);
+}

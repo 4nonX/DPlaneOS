@@ -1,0 +1,309 @@
+/* Health Widget Styles */
+
+.health-widget {
+    background: var(--md-sys-color-surface);
+    border-radius: 12px;
+    padding: 24px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.12);
+    margin-bottom: 24px;
+}
+
+.health-widget-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 24px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--md-sys-color-outline-variant);
+}
+
+.health-widget-header h3 {
+    margin: 0;
+    font-size: 20px;
+    font-weight: 500;
+    color: var(--md-sys-color-on-surface);
+}
+
+.health-widget-updated {
+    font-size: 12px;
+    color: var(--md-sys-color-on-surface-variant);
+}
+
+.health-widget-content {
+    display: grid;
+    gap: 24px;
+}
+
+/* Health Section */
+.health-section {
+    background: var(--md-sys-color-surface-container-low);
+    border-radius: 8px;
+    padding: 16px;
+}
+
+.health-section-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 16px;
+    font-weight: 500;
+    color: var(--md-sys-color-on-surface);
+    margin-bottom: 16px;
+}
+
+.health-section-title .material-symbols-outlined {
+    font-size: 20px;
+}
+
+.health-section-content {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+/* Health Status */
+.health-status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px;
+    border-radius: 6px;
+    font-weight: 500;
+}
+
+.health-status-ok {
+    background: var(--md-sys-color-success-container);
+    color: var(--md-sys-color-on-success-container);
+}
+
+.health-status-warning {
+    background: var(--md-sys-color-warning-container);
+    color: var(--md-sys-color-on-warning-container);
+}
+
+.health-status-error {
+    background: var(--md-sys-color-error-container);
+    color: var(--md-sys-color-on-error-container);
+}
+
+.health-status .material-symbols-outlined {
+    font-size: 24px;
+}
+
+/* Health Details */
+.health-details {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.health-detail-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 0;
+}
+
+.health-detail-label {
+    font-size: 14px;
+    color: var(--md-sys-color-on-surface-variant);
+}
+
+.health-detail-value {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--md-sys-color-on-surface);
+}
+
+.health-detail-row.health-error .health-detail-value {
+    color: var(--md-sys-color-error);
+}
+
+/* Progress Bar */
+.health-progress-bar {
+    width: 100%;
+    height: 8px;
+    background: var(--md-sys-color-surface-container-highest);
+    border-radius: 4px;
+    overflow: hidden;
+    margin: 8px 0;
+}
+
+.health-progress-fill {
+    height: 100%;
+    background: var(--md-sys-color-primary);
+    transition: width 0.3s ease;
+}
+
+/* Temperature Grid */
+.health-temp-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 12px;
+}
+
+.health-temp-card {
+    background: var(--md-sys-color-surface);
+    border: 1px solid var(--md-sys-color-outline-variant);
+    border-radius: 8px;
+    padding: 12px;
+    transition: all 0.2s ease;
+}
+
+.health-temp-card:hover {
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+.health-temp-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+}
+
+.health-temp-device {
+    font-weight: 500;
+    font-size: 14px;
+    color: var(--md-sys-color-on-surface);
+}
+
+.health-temp-body {
+    text-align: center;
+    margin: 12px 0;
+}
+
+.health-temp-value {
+    font-size: 32px;
+    font-weight: 600;
+    color: var(--md-sys-color-on-surface);
+}
+
+.health-temp-warning {
+    font-size: 12px;
+    font-weight: 500;
+    margin-top: 4px;
+}
+
+.health-temp-footer {
+    text-align: center;
+    padding-top: 8px;
+    border-top: 1px solid var(--md-sys-color-outline-variant);
+}
+
+.health-temp-model {
+    font-size: 11px;
+    color: var(--md-sys-color-on-surface-variant);
+    display: block;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Temperature Status Colors */
+.health-temp-ok {
+    border-color: var(--md-sys-color-success);
+}
+
+.health-temp-ok .material-symbols-outlined {
+    color: var(--md-sys-color-success);
+}
+
+.health-temp-elevated {
+    border-color: var(--md-sys-color-info);
+}
+
+.health-temp-elevated .material-symbols-outlined {
+    color: var(--md-sys-color-info);
+}
+
+.health-temp-elevated .health-temp-warning {
+    color: var(--md-sys-color-info);
+}
+
+.health-temp-warning {
+    border-color: var(--md-sys-color-warning);
+    background: var(--md-sys-color-warning-container);
+}
+
+.health-temp-warning .material-symbols-outlined {
+    color: var(--md-sys-color-warning);
+}
+
+.health-temp-warning .health-temp-warning {
+    color: var(--md-sys-color-warning);
+}
+
+.health-temp-critical {
+    border-color: var(--md-sys-color-error);
+    background: var(--md-sys-color-error-container);
+    animation: pulse 2s ease-in-out infinite;
+}
+
+.health-temp-critical .material-symbols-outlined {
+    color: var(--md-sys-color-error);
+}
+
+.health-temp-critical .health-temp-warning {
+    color: var(--md-sys-color-error);
+}
+
+@keyframes pulse {
+    0%, 100% {
+        box-shadow: 0 0 0 0 rgba(var(--md-sys-color-error-rgb), 0.4);
+    }
+    50% {
+        box-shadow: 0 0 0 8px rgba(var(--md-sys-color-error-rgb), 0);
+    }
+}
+
+/* Error State */
+.health-widget-error {
+    text-align: center;
+    padding: 48px 24px;
+}
+
+.health-error-icon .material-symbols-outlined {
+    font-size: 48px;
+    color: var(--md-sys-color-error);
+}
+
+.health-error-message {
+    margin: 16px 0;
+    color: var(--md-sys-color-on-surface-variant);
+}
+
+.health-retry-btn {
+    background: var(--md-sys-color-primary);
+    color: var(--md-sys-color-on-primary);
+    border: none;
+    border-radius: 20px;
+    padding: 10px 24px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.health-retry-btn:hover {
+    background: var(--md-sys-color-primary-container);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+}
+
+/* Info State */
+.health-info {
+    color: var(--md-sys-color-on-surface-variant);
+    font-size: 14px;
+    text-align: center;
+    padding: 16px;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+    .health-temp-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    .health-widget {
+        padding: 16px;
+    }
+}

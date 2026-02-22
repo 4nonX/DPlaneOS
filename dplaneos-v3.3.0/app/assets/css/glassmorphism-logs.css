@@ -1,0 +1,289 @@
+/* Glassmorphism Log Console - Obsidian Flow Design */
+
+.log-console {
+    background: rgba(28, 28, 32, 0.85);
+    backdrop-filter: blur(16px) saturate(180%);
+    -webkit-backdrop-filter: blur(16px) saturate(180%);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 16px;
+    padding: 20px;
+    margin: 16px 0;
+    box-shadow: 
+        0 8px 32px 0 rgba(0, 0, 0, 0.37),
+        inset 0 1px 0 0 rgba(255, 255, 255, 0.05);
+    font-family: 'Roboto Mono', 'Courier New', monospace;
+    font-size: 13px;
+    line-height: 1.6;
+    color: #E8EAED;
+    overflow: hidden;
+}
+
+.log-console-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.log-console-title {
+    font-size: 14px;
+    font-weight: 500;
+    color: #E8EAED;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.log-console-title .material-icons {
+    font-size: 18px;
+    color: var(--md-sys-color-primary);
+}
+
+.log-console-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.log-console-button {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+    padding: 6px 12px;
+    font-size: 12px;
+    color: #E8EAED;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.log-console-button:hover {
+    background: rgba(255, 255, 255, 0.1);
+    border-color: rgba(255, 255, 255, 0.2);
+    transform: translateY(-1px);
+}
+
+.log-console-button .material-icons {
+    font-size: 16px;
+}
+
+.log-console-content {
+    max-height: 400px;
+    overflow-y: auto;
+    padding-right: 8px;
+}
+
+/* Custom Scrollbar for Logs */
+.log-console-content::-webkit-scrollbar {
+    width: 8px;
+}
+
+.log-console-content::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.02);
+    border-radius: 4px;
+}
+
+.log-console-content::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 4px;
+    transition: background 0.2s;
+}
+
+.log-console-content::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.2);
+}
+
+/* Log Entry Styles */
+.log-entry {
+    display: flex;
+    gap: 12px;
+    padding: 8px 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+    animation: logFadeIn 0.3s ease;
+}
+
+.log-entry:last-child {
+    border-bottom: none;
+}
+
+@keyframes logFadeIn {
+    from {
+        opacity: 0;
+        transform: translateX(-10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+.log-timestamp {
+    color: rgba(255, 255, 255, 0.4);
+    font-size: 11px;
+    white-space: nowrap;
+    min-width: 85px;
+}
+
+.log-level {
+    min-width: 60px;
+    font-weight: 500;
+    font-size: 11px;
+    text-transform: uppercase;
+    padding: 2px 8px;
+    border-radius: 4px;
+    text-align: center;
+}
+
+.log-level.info {
+    background: rgba(66, 133, 244, 0.15);
+    color: #8AB4F8;
+    border: 1px solid rgba(66, 133, 244, 0.3);
+}
+
+.log-level.success {
+    background: rgba(52, 168, 83, 0.15);
+    color: #81C995;
+    border: 1px solid rgba(52, 168, 83, 0.3);
+}
+
+.log-level.warning {
+    background: rgba(251, 188, 5, 0.15);
+    color: #FDD663;
+    border: 1px solid rgba(251, 188, 5, 0.3);
+}
+
+.log-level.error {
+    background: rgba(234, 67, 53, 0.15);
+    color: #F28B82;
+    border: 1px solid rgba(234, 67, 53, 0.3);
+}
+
+.log-level.debug {
+    background: rgba(138, 180, 248, 0.15);
+    color: #AECBFA;
+    border: 1px solid rgba(138, 180, 248, 0.3);
+}
+
+.log-message {
+    flex: 1;
+    color: #E8EAED;
+    word-break: break-word;
+}
+
+/* Log Stats */
+.log-stats {
+    display: flex;
+    gap: 16px;
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.5);
+}
+
+.log-stat {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.log-stat .material-icons {
+    font-size: 14px;
+}
+
+/* Empty State */
+.log-console-empty {
+    text-align: center;
+    padding: 48px 24px;
+    color: rgba(255, 255, 255, 0.4);
+}
+
+.log-console-empty .material-icons {
+    font-size: 48px;
+    margin-bottom: 12px;
+    opacity: 0.3;
+}
+
+.log-console-empty p {
+    font-size: 14px;
+}
+
+/* Live Indicator */
+.log-live-indicator {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    background: rgba(52, 168, 83, 0.15);
+    border: 1px solid rgba(52, 168, 83, 0.3);
+    border-radius: 12px;
+    font-size: 11px;
+    color: #81C995;
+}
+
+.log-live-dot {
+    width: 6px;
+    height: 6px;
+    background: #81C995;
+    border-radius: 50%;
+    animation: livePulse 2s ease-in-out infinite;
+}
+
+@keyframes livePulse {
+    0%, 100% {
+        opacity: 1;
+        transform: scale(1);
+    }
+    50% {
+        opacity: 0.5;
+        transform: scale(0.8);
+    }
+}
+
+/* Compact Mode */
+.log-console.compact {
+    padding: 12px;
+}
+
+.log-console.compact .log-console-content {
+    max-height: 200px;
+}
+
+.log-console.compact .log-entry {
+    padding: 4px 0;
+}
+
+/* Dark Theme Optimization */
+@media (prefers-color-scheme: dark) {
+    .log-console {
+        box-shadow: 
+            0 8px 32px 0 rgba(0, 0, 0, 0.5),
+            inset 0 1px 0 0 rgba(255, 255, 255, 0.08);
+    }
+}
+
+/* Mobile Responsive */
+@media (max-width: 768px) {
+    .log-console {
+        border-radius: 12px;
+        padding: 16px;
+    }
+    
+    .log-timestamp {
+        min-width: auto;
+        font-size: 10px;
+    }
+    
+    .log-level {
+        min-width: 50px;
+        font-size: 10px;
+        padding: 2px 6px;
+    }
+    
+    .log-console-content {
+        max-height: 300px;
+    }
+}

@@ -1,0 +1,341 @@
+/* UPS Widget Styles */
+
+.ups-widget {
+    background: var(--md-sys-color-surface);
+    border-radius: 12px;
+    padding: 24px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.12);
+    margin-bottom: 24px;
+}
+
+.ups-widget-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 24px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--md-sys-color-outline-variant);
+}
+
+.ups-widget-header h3 {
+    margin: 0;
+    font-size: 20px;
+    font-weight: 500;
+    color: var(--md-sys-color-on-surface);
+}
+
+/* Status Badge */
+.ups-status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 16px;
+    border-radius: 20px;
+    font-weight: 500;
+    font-size: 14px;
+}
+
+.ups-status .material-symbols-outlined {
+    font-size: 20px;
+}
+
+.ups-status-online {
+    background: var(--md-sys-color-success-container);
+    color: var(--md-sys-color-on-success-container);
+}
+
+.ups-status-battery {
+    background: var(--md-sys-color-warning-container);
+    color: var(--md-sys-color-on-warning-container);
+    animation: pulse-warning 2s ease-in-out infinite;
+}
+
+.ups-status-critical {
+    background: var(--md-sys-color-error-container);
+    color: var(--md-sys-color-on-error-container);
+    animation: pulse-critical 1s ease-in-out infinite;
+}
+
+.ups-status-charging {
+    background: var(--md-sys-color-primary-container);
+    color: var(--md-sys-color-on-primary-container);
+}
+
+@keyframes pulse-warning {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.7; }
+}
+
+@keyframes pulse-critical {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.05); }
+}
+
+/* Sections */
+.ups-widget-content {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+.ups-section {
+    background: var(--md-sys-color-surface-container-low);
+    border-radius: 8px;
+    padding: 16px;
+}
+
+.ups-section-title {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--md-sys-color-on-surface-variant);
+    margin-bottom: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+/* Battery Display */
+.ups-battery-display {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.ups-battery-icon {
+    position: relative;
+    width: 100%;
+    height: 60px;
+    background: var(--md-sys-color-surface-container-highest);
+    border-radius: 8px;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.ups-battery-fill {
+    position: absolute;
+    left: 0;
+    top: 0;
+    height: 100%;
+    background: linear-gradient(90deg, 
+        var(--md-sys-color-success) 0%, 
+        var(--md-sys-color-primary) 100%);
+    transition: width 0.5s ease;
+}
+
+.ups-battery-critical .ups-battery-fill {
+    background: var(--md-sys-color-error);
+}
+
+.ups-battery-low .ups-battery-fill {
+    background: linear-gradient(90deg, 
+        var(--md-sys-color-warning) 0%, 
+        var(--md-sys-color-primary) 100%);
+}
+
+.ups-battery-percent {
+    position: relative;
+    z-index: 2;
+    font-size: 24px;
+    font-weight: 600;
+    color: var(--md-sys-color-on-surface);
+    text-shadow: 0 1px 2px rgba(0,0,0,0.3);
+}
+
+.ups-battery-runtime {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    justify-content: center;
+    color: var(--md-sys-color-on-surface-variant);
+    font-size: 14px;
+}
+
+.ups-battery-runtime .material-symbols-outlined {
+    font-size: 18px;
+}
+
+/* Power Display */
+.ups-power-grid {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    gap: 16px;
+    align-items: center;
+}
+
+.ups-power-card {
+    background: var(--md-sys-color-surface);
+    border-radius: 8px;
+    padding: 16px;
+    text-align: center;
+}
+
+.ups-power-label {
+    font-size: 12px;
+    color: var(--md-sys-color-on-surface-variant);
+    margin-bottom: 8px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.ups-power-value {
+    font-size: 28px;
+    font-weight: 600;
+    color: var(--md-sys-color-on-surface);
+}
+
+.ups-power-arrow {
+    font-size: 24px;
+    color: var(--md-sys-color-primary);
+}
+
+/* Load Display */
+.ups-load-display {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+.ups-load-bar {
+    flex: 1;
+    height: 24px;
+    background: var(--md-sys-color-surface-container-highest);
+    border-radius: 12px;
+    overflow: hidden;
+}
+
+.ups-load-fill {
+    height: 100%;
+    background: linear-gradient(90deg, 
+        var(--md-sys-color-primary) 0%, 
+        var(--md-sys-color-tertiary) 100%);
+    transition: width 0.5s ease;
+}
+
+.ups-load-text {
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--md-sys-color-on-surface);
+    min-width: 50px;
+    text-align: right;
+}
+
+/* Device Info */
+.ups-device-info {
+    margin-top: 8px;
+    padding-top: 16px;
+    border-top: 1px solid var(--md-sys-color-outline-variant);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.ups-device-model {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--md-sys-color-on-surface);
+}
+
+.ups-device-updated {
+    font-size: 11px;
+    color: var(--md-sys-color-on-surface-variant);
+}
+
+/* Not Available State */
+.ups-widget-not-available {
+    text-align: center;
+}
+
+.ups-not-available-content {
+    padding: 48px 24px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 24px;
+}
+
+.ups-not-available-icon .material-symbols-outlined {
+    font-size: 72px;
+    color: var(--md-sys-color-on-surface-variant);
+    opacity: 0.5;
+}
+
+.ups-not-available-text h4 {
+    margin: 0 0 8px 0;
+    font-size: 18px;
+    color: var(--md-sys-color-on-surface);
+}
+
+.ups-not-available-text p {
+    margin: 0;
+    color: var(--md-sys-color-on-surface-variant);
+    font-size: 14px;
+}
+
+.ups-setup-btn {
+    background: var(--md-sys-color-primary);
+    color: var(--md-sys-color-on-primary);
+    border: none;
+    border-radius: 20px;
+    padding: 12px 32px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.ups-setup-btn:hover {
+    background: var(--md-sys-color-primary-container);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+}
+
+/* Error State */
+.ups-widget-error {
+    text-align: center;
+    padding: 48px 24px;
+}
+
+.ups-error-icon .material-symbols-outlined {
+    font-size: 48px;
+    color: var(--md-sys-color-error);
+}
+
+.ups-error-message {
+    margin: 16px 0;
+    color: var(--md-sys-color-on-surface-variant);
+}
+
+.ups-retry-btn {
+    background: var(--md-sys-color-primary);
+    color: var(--md-sys-color-on-primary);
+    border: none;
+    border-radius: 20px;
+    padding: 10px 24px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.ups-retry-btn:hover {
+    background: var(--md-sys-color-primary-container);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+    .ups-power-grid {
+        grid-template-columns: 1fr;
+        gap: 12px;
+    }
+    
+    .ups-power-arrow {
+        transform: rotate(90deg);
+    }
+    
+    .ups-device-info {
+        flex-direction: column;
+        gap: 8px;
+        text-align: center;
+    }
+}
