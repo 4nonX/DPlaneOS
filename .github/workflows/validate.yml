@@ -162,7 +162,7 @@ jobs:
             -H "Content-Type: application/json" -d '{"username":"bad user<>","password":"x"}')
           [ "$CODE" = "400" ] && ok "Malformed username → 400" || fail "Malformed username → $CODE (want 400)"
 
-          WEAK=$(curl -sf -X POST $BASE/api/auth/change-password \
+          WEAK=$(curl -s --max-time 15 -X POST $BASE/api/auth/change-password \
             -H "X-Session-ID: $SESSION" -H "X-User: admin" -H "Content-Type: application/json" \
             -d "{\"current_password\":\"$CI_PASS\",\"new_password\":\"weak\"}")
           assert_json "Weak password rejected" "$WEAK" "success" "false"
