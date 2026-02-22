@@ -127,8 +127,8 @@ jobs:
 
           # ── Auth ─────────────────────────────────────────────────────────────
 
-          assert_json "/health ok"             "$(curl -sf $BASE/health)"  "status" "ok"
-          assert_json "/api/csrf returns token" "$(curl -sf $BASE/api/csrf)" "csrf_token"
+          assert_json "/health ok"             "$(curl -s $BASE/health)"  "status" "ok"
+          assert_json "/api/csrf returns token" "$(curl -s $BASE/api/csrf)" "csrf_token"
 
           # Use curl -s (no -f) so we capture the response body on 4xx; assert_json then reports the failure instead of exiting with 22
           LOGIN=$(curl -s -X POST $BASE/api/auth/login \
@@ -155,7 +155,7 @@ jobs:
             -H "Content-Type: application/json" -d '{"username":"bad user<>","password":"x"}')
           [ "$CODE" = "400" ] && ok "Malformed username → 400" || fail "Malformed username → $CODE (want 400)"
 
-          WEAK=$(curl -sf -X POST $BASE/api/auth/change-password \
+          WEAK=$(curl -s -X POST $BASE/api/auth/change-password \
             -H "X-Session-ID: $SESSION" -H "X-User: admin" -H "Content-Type: application/json" \
             -d "{\"current_password\":\"$CI_PASS\",\"new_password\":\"weak\"}")
           assert_json "Weak password rejected" "$WEAK" "success" "false"
@@ -280,15 +280,15 @@ jobs:
           echo "$INJECT" | grep -q '"success":false\|Forbidden\|not allowed' \
             && ok "Command injection blocked" || fail "Command injection NOT blocked"
 
-  PROM=$(curl -s --max-time 5 $BASE/metrics \
-    -H "X-Session-ID: $SESSION" -H "X-User: admin" 2>/dev/null || echo "")
+          PROM=$(curl -s --max-time 5 $BASE/metrics \
+            -H "X-Session-ID: $SESSION" -H "X-User: admin" 2>/dev/null || echo "")
           [ -n "$PROM" ] && ok "Prometheus /metrics responds" || fail "Prometheus /metrics no response"
 
           # ── Logout ────────────────────────────────────────────────────────────
 
           assert_json "Logout" "$(api POST /api/auth/logout)" "success" "true"
-  AUTHED=$(curl -s $BASE/api/auth/check -H "X-Session-ID: $SESSION" | \
-    python3 -c "import sys,json; print(json.load(sys.stdin).get('authenticated'))" 2>/dev/null)
+          AUTHED=$(curl -s $BASE/api/auth/check -H "X-Session-ID: $SESSION" | \
+            python3 -c "import sys,json; print(json.load(sys.stdin).get('authenticated'))" 2>/dev/null)
           [ "$AUTHED" = "False" ] || [ "$AUTHED" = "false" ] \
             && ok "Session dead after logout" \
             || fail "Session still valid after logout"
