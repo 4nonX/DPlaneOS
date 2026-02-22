@@ -257,9 +257,10 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	if totpEnabled == 1 {
 		// Create a short-lived pending session (5 minutes) for TOTP verification
 		pendingExpiry := time.Now().Add(5 * time.Minute).Unix()
+		pendingCreated := time.Now().Unix()
 		_, err = h.db.Exec(
-			`INSERT INTO sessions (session_id, user_id, username, expires_at, status) VALUES (?, ?, ?, ?, 'pending_totp')`,
-			sessionID, userID, req.Username, pendingExpiry,
+			`INSERT INTO sessions (session_id, user_id, username, created_at, expires_at, status) VALUES (?, ?, ?, ?, ?, 'pending_totp')`,
+			sessionID, userID, req.Username, pendingCreated, pendingExpiry,
 		)
 		if err != nil {
 			log.Printf("AUTH ERROR: failed to create pending session: %v", err)
@@ -277,10 +278,11 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Insert full active session
+	// Insert full active session (created_at has DEFAULT in schema; set explicitly for compatibility with existing DBs)
+	createdAt := time.Now().Unix()
 	_, err = h.db.Exec(
-		`INSERT INTO sessions (session_id, user_id, username, expires_at, status) VALUES (?, ?, ?, ?, 'active')`,
-		sessionID, userID, req.Username, expiresAt,
+		`INSERT INTO sessions (session_id, user_id, username, created_at, expires_at, status) VALUES (?, ?, ?, ?, ?, 'active')`,
+		sessionID, userID, req.Username, createdAt, expiresAt,
 	)
 	if err != nil {
 		log.Printf("AUTH ERROR: failed to create session: %v", err)

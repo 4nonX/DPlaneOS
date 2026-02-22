@@ -34,7 +34,7 @@ func initSchema(db *sql.DB) error {
 			username TEXT NOT NULL,
 			ip_address TEXT NOT NULL DEFAULT '',
 			user_agent TEXT NOT NULL DEFAULT '',
-			created_at INTEGER NOT NULL,
+			created_at INTEGER NOT NULL DEFAULT (strftime('%s','now')),
 			expires_at INTEGER,
 			last_activity INTEGER NOT NULL DEFAULT (strftime('%s','now')),
 			FOREIGN KEY (username) REFERENCES users(username)
