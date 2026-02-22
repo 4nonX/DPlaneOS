@@ -130,7 +130,8 @@ jobs:
           assert_json "/health ok"             "$(curl -sf $BASE/health)"  "status" "ok"
           assert_json "/api/csrf returns token" "$(curl -sf $BASE/api/csrf)" "csrf_token"
 
-          LOGIN=$(curl -sf -X POST $BASE/api/auth/login \
+          # Use curl -s (no -f) so we capture the response body on 4xx; assert_json then reports the failure instead of exiting with 22
+          LOGIN=$(curl -s -X POST $BASE/api/auth/login \
             -H "Content-Type: application/json" \
             -d "{\"username\":\"admin\",\"password\":\"$CI_PASS\"}")
           assert_json "Login succeeds"        "$LOGIN" "success" "true"
