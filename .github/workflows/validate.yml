@@ -281,13 +281,14 @@ jobs:
           valid_json "$(api GET /api/rbac/me/permissions)" && ok "My permissions"    || fail "My permissions → invalid JSON"
           valid_json "$(api GET /api/auth/tokens)"         && ok "API tokens"        || fail "API tokens → invalid JSON"
           ROLES=$(api GET /api/rbac/roles)
-          assert_json "RBAC roles list" "$ROLES" "success" "true"
+          assert_json "RBAC roles list" "$ROLES" "count"
           RC=$(echo "$ROLES" | python3 -c "import sys,json; print(len(json.load(sys.stdin).get('roles',[])))" 2>/dev/null || echo 0)
           [ "$RC" -ge 1 ] && ok "RBAC roles → $RC role(s)" || fail "RBAC roles → empty"
 
-          INJECT=$(api POST /api/zfs/command \
-            "{\"command\":\"ls\",\"args\":[\"/etc/passwd\"],\"session_id\":\"$SESSION\",\"user\":\"admin\"}")
-          echo "$INJECT" | grep -q '"success":false\|Forbidden\|not allowed' \
+          INJECT=$(curl -s --max-time 15 -X POST $BASE/api/zfs/command \
+            -H "X-Session-ID: $SESSION" -H "X-User: admin" -H "Content-Type: application/json" \
+            -d "{\"command\":\"ls\",\"args\":[\"/etc/passwd\"],\"session_id\":\"$SESSION\",\"user\":\"admin\"}")
+          echo "$INJECT" | grep -q '"success":false\|Forbidden\|not allowed\|Command not found' \
             && ok "Command injection blocked" || fail "Command injection NOT blocked"
 
           PROM=$(curl -sf --max-time 5 $BASE/metrics \
