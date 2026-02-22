@@ -6,24 +6,27 @@ on:
   pull_request:
     branches: ["main", "master"]
 
-# What this CI does and does NOT do:
+# Purpose: Give confidence that install will work and the system will deliver
+# promised capabilities after install. This workflow does NOT fully meet that
+# standard on its own; it is a strong smoke test of the daemon + API.
 #
-# DOES:
-#   - Confirms the daemon compiles without errors
-#   - Spins up the daemon against a real ZFS pool (loopback-backed)
-#   - Seeds a known user and logs in — confirms auth works end to end
-#   - Hits every API endpoint and asserts valid responses
-#   - Verifies ZFS operations (create/snapshot/rollback/destroy) at the OS level
-#   - Checks security boundaries (401 on unauth, bad session, injection blocked)
+# WHAT THIS WORKFLOW DOES:
+#   - Builds daemon, starts it with a real ZFS pool and DB (same init path as install)
+#   - Auth: login, session, logout, change-password, 401/400 behaviour
+#   - RBAC: user list, create user, session role, /me/permissions, API tokens
+#   - ZFS: pools, datasets, snapshots (create/rollback/destroy), health, iostat, capacity, SMART, schedules
+#   - System: status, profile, preflight, settings, network, logs, disks, NTP, UPS
+#   - One valid_json hit per subsystem: shares, NFS, Docker, git-sync, webhooks, SMTP, LDAP,
+#     firewall, HA, iSCSI, sandbox, trash, removable, power, certs
+#   - Security: weak password rejected, command injection blocked, Prometheus /metrics
 #
-# DOES NOT:
-#   - Test the frontend (requires a browser on real hardware)
-#   - Test frontend-backend integration (use integration-test.sh on real hardware)
-#   - Verify UI displays correct data (same — real hardware only)
-#   - Run install.sh (requires actual root environment, not a CI VM)
-#
-# For full system validation including UI, install, and onboarding:
-#   sudo ./scripts/integration-test.sh
+# GAPS VS "INSTALL WORKS + ALL PROMISED CAPABILITIES":
+#   - Does not run install.sh (cannot in CI; use integration-test.sh on real hardware)
+#   - Does not test setup wizard APIs: setup-admin, setup-complete, pool/create via API
+#   - Does not test: replication, timemachine, cloud-sync, backup/rsync, ZFS encryption,
+#     NixOS, gitops, ACL, scrub schedule, Telegram, files (list/upload), many write paths
+#   - Many endpoints only assert "valid JSON", not success or required shape
+#   - Frontend/UI not tested (use: sudo ./scripts/integration-test.sh)
 
 jobs:
   ci:
@@ -277,6 +280,10 @@ jobs:
           valid_json "$(api GET /api/certs/list)"          && ok "Certs"             || fail "Certs → invalid JSON"
           valid_json "$(api GET /api/rbac/me/permissions)" && ok "My permissions"    || fail "My permissions → invalid JSON"
           valid_json "$(api GET /api/auth/tokens)"         && ok "API tokens"        || fail "API tokens → invalid JSON"
+          ROLES=$(api GET /api/rbac/roles)
+          assert_json "RBAC roles list" "$ROLES" "success" "true"
+          RC=$(echo "$ROLES" | python3 -c "import sys,json; print(len(json.load(sys.stdin).get('roles',[])))" 2>/dev/null || echo 0)
+          [ "$RC" -ge 1 ] && ok "RBAC roles → $RC role(s)" || fail "RBAC roles → empty"
 
           INJECT=$(api POST /api/zfs/command \
             "{\"command\":\"ls\",\"args\":[\"/etc/passwd\"],\"session_id\":\"$SESSION\",\"user\":\"admin\"}")
