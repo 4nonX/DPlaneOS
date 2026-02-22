@@ -26,8 +26,8 @@ eject "$DEVICE" 2>/dev/null || true
 rm -f "/var/lib/dplaneos/notifications/optical-$(basename $DEVICE).json"
 
 # Trigger notification via daemon (if available)
-if [ -S /run/dplaneos/dplaneos.sock ]; then
-    echo "notify:device_ejected:$DEVICE" | nc -U /run/dplaneos/dplaneos.sock || true
+if [ -S /var/run/dplaneos-daemon.sock ]; then
+    echo "notify:device_ejected:$DEVICE" | nc -U /var/run/dplaneos-daemon.sock || true
 fi
 
 exit 0

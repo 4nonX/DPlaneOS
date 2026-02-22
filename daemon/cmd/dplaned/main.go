@@ -9,10 +9,9 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"path/filepath"
-	"strings"
 	"sync"
 	"syscall"
+	"strings"
 	"time"
 
 	"dplaned/internal/audit"
@@ -127,12 +126,8 @@ func main() {
 		if dbBackupDest == "" {
 			dbBackupDest = *dbPath + ".backup"
 		}
-		if err := validateBackupPath(dbBackupDest); err != nil {
-			log.Printf("Warning: backup path invalid, skipping DB backup: %v", err)
-			return
-		}
 
-		// Backup immediately on startup (SQLite/go-sqlite3 support ? for VACUUM INTO)
+		// Backup immediately on startup
 		if _, err := db.Exec("VACUUM INTO ?", dbBackupDest); err != nil {
 			log.Printf("Warning: startup DB backup failed: %v", err)
 		} else {
@@ -754,27 +749,6 @@ func healthCheckHandler(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `{"status":"ok","version":"%s"}`, Version)
 }
 
-// validateBackupPath ensures -backup-path is safe for VACUUM INTO: absolute,
-// no path traversal, and under an allowed root (/var/lib/dplaneos, /var/lib,
-// /mnt, /media) to prevent writing outside intended locations.
-func validateBackupPath(path string) error {
-	cleaned := filepath.Clean(path)
-	abs, err := filepath.Abs(cleaned)
-	if err != nil {
-		return fmt.Errorf("backup path: %w", err)
-	}
-	if strings.Contains(abs, "..") {
-		return fmt.Errorf("backup path must not contain ..")
-	}
-	allowedPrefixes := []string{"/var/lib/dplaneos", "/var/lib", "/mnt", "/media"}
-	for _, prefix := range allowedPrefixes {
-		if abs == prefix || strings.HasPrefix(abs, prefix+"/") {
-			return nil
-		}
-	}
-	return fmt.Errorf("backup path must be under one of: /var/lib/dplaneos, /var/lib, /mnt, /media")
-}
-
 func loggingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
@@ -831,11 +805,10 @@ func rateLimitMiddleware(next http.Handler) http.Handler {
 // Session validation middleware
 func sessionMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Skip validation for public endpoints (auth, csrf, health, HA heartbeat)
+		// Skip validation for public endpoints (auth, csrf, health)
 		if r.URL.Path == "/health" ||
 			strings.HasPrefix(r.URL.Path, "/api/auth/") ||
-			r.URL.Path == "/api/csrf" ||
-			r.URL.Path == "/api/ha/heartbeat" {
+			r.URL.Path == "/api/csrf" {
 			next.ServeHTTP(w, r)
 			return
 		}

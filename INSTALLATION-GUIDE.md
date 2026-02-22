@@ -148,8 +148,6 @@ http://YOUR-IP/
 
 ## Post-Installation
 
-**Daemon socket:** The daemon listens on the Unix socket `/run/dplaneos/dplaneos.sock`. The watchdog, ZED hook, and device-notification scripts use this path; systemd creates the directory when the daemon starts.
-
 ### **1. Verify Services**
 
 ```bash

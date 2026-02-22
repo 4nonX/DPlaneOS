@@ -14,7 +14,6 @@
 #   ZEVENT_VDEV_STATE_STR — New device state
 
 NOTIFY_DIR="/var/lib/dplaneos/notifications"
-# Canonical daemon socket (same as watchdog and other scripts; see INSTALLATION-GUIDE)
 DAEMON_SOCKET="/run/dplaneos/dplaneos.sock"
 LOG_TAG="dplaneos-zed"
 

@@ -18,8 +18,7 @@ set -euo pipefail
 
 # Configuration
 DAEMON_NAME="dplaned"
-# Canonical daemon socket (must match ZED and notify scripts; see INSTALLATION-GUIDE)
-SOCKET_PATH="/run/dplaneos/dplaneos.sock"
+SOCKET_PATH="/var/run/dplaneos.sock"
 MAX_MEMORY_MB=200  # Alert if daemon uses >200MB
 MAX_RESTART_PER_HOUR=3
 LOG_FILE="/var/log/dplaneos-watchdog.log"
@@ -85,8 +84,9 @@ get_restart_count() {
 record_restart() {
     echo "$(date +%s)|restart" >> "$STATE_FILE"
     
-    # Clean old entries (older than 24h) — keep only lines with timestamp > cutoff
+    # Clean old entries (older than 24h)
     local day_ago=$(date -d "1 day ago" +%s)
+    grep -v "^[0-9]*|" "$STATE_FILE" > "${STATE_FILE}.tmp" 2>/dev/null || true
     awk -F'|' -v cutoff="$day_ago" '$1 > cutoff' "$STATE_FILE" > "${STATE_FILE}.tmp" 2>/dev/null || true
     mv "${STATE_FILE}.tmp" "$STATE_FILE" 2>/dev/null || true
 }
