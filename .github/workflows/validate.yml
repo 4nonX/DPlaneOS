@@ -96,9 +96,9 @@ jobs:
         run: |
           CI_PASS="CiAdmin1!Test"
           CI_HASH=$(python3 -c "import bcrypt; print(bcrypt.hashpw(b'$CI_PASS', bcrypt.gensalt(rounds=10)).decode())")
+          # Update existing admin row (created by daemon seed) so login works; avoid REPLACE to keep row identity
           sudo sqlite3 /var/lib/dplaneos/dplaneos.db \
-            "INSERT OR REPLACE INTO users (username, password_hash, active, role, must_change_password)
-             VALUES ('admin', '$CI_HASH', 1, 'admin', 0);"
+            "UPDATE users SET password_hash='$(echo "$CI_HASH" | sed "s/'/''/g")', active=1, role='admin', must_change_password=0 WHERE username='admin';"
           echo "CI_PASS=$CI_PASS" >> $GITHUB_ENV
 
       - name: API integration tests
@@ -130,9 +130,15 @@ jobs:
           assert_json "/health ok"             "$(curl -sf $BASE/health)"  "status" "ok"
           assert_json "/api/csrf returns token" "$(curl -sf $BASE/api/csrf)" "csrf_token"
 
-          LOGIN=$(curl -sf -X POST $BASE/api/auth/login \
+          LOGIN_HTTP=$(curl -s -w "\n%{http_code}" -X POST $BASE/api/auth/login \
             -H "Content-Type: application/json" \
             -d "{\"username\":\"admin\",\"password\":\"$CI_PASS\"}")
+          LOGIN=$(echo "$LOGIN_HTTP" | sed '$d')
+          LOGIN_CODE=$(echo "$LOGIN_HTTP" | tail -n1)
+          if [ "$LOGIN_CODE" != "200" ]; then
+            echo "Login failed (HTTP $LOGIN_CODE): $LOGIN"
+            exit 1
+          fi
           assert_json "Login succeeds"        "$LOGIN" "success" "true"
           assert_json "Login returns session" "$LOGIN" "session_id"
 
