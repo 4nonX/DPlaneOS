@@ -167,6 +167,8 @@ func initSchema(db *sql.DB) error {
 		`ALTER TABLE sessions ADD COLUMN status TEXT NOT NULL DEFAULT 'active'`,
 		`ALTER TABLE users ADD COLUMN totp_enabled INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE users ADD COLUMN display_name TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'user'`,
+		`ALTER TABLE users ADD COLUMN must_change_password INTEGER NOT NULL DEFAULT 0`,
 
 		// ── Git Sync ──
 		`CREATE TABLE IF NOT EXISTS git_sync_config (
