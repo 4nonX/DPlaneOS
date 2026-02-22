@@ -148,17 +148,17 @@ jobs:
           SESSION=$(echo "$LOGIN" | python3 -c \
             "import sys,json; print(json.load(sys.stdin).get('session_id',''))" 2>/dev/null)
 
-          CODE=$(curl -sf -o /dev/null -w "%{http_code}" $BASE/api/zfs/pools)
+          CODE=$(curl -s -o /dev/null -w "%{http_code}" $BASE/api/zfs/pools)
           [ "$CODE" = "401" ] && ok "Unauth request → 401" || fail "Unauth request → $CODE (want 401)"
 
-          CODE=$(curl -sf -o /dev/null -w "%{http_code}" $BASE/api/zfs/pools -H "X-Session-ID: garbage")
+          CODE=$(curl -s -o /dev/null -w "%{http_code}" $BASE/api/zfs/pools -H "X-Session-ID: garbage")
           [ "$CODE" = "401" ] && ok "Bad session → 401" || fail "Bad session → $CODE (want 401)"
 
-          CODE=$(curl -sf -o /dev/null -w "%{http_code}" -X POST $BASE/api/auth/login \
+          CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST $BASE/api/auth/login \
             -H "Content-Type: application/json" -d '{"username":"admin","password":"wrong"}')
           [ "$CODE" = "401" ] && ok "Wrong password → 401" || fail "Wrong password → $CODE (want 401)"
 
-          CODE=$(curl -sf -o /dev/null -w "%{http_code}" -X POST $BASE/api/auth/login \
+          CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST $BASE/api/auth/login \
             -H "Content-Type: application/json" -d '{"username":"bad user<>","password":"x"}')
           [ "$CODE" = "400" ] && ok "Malformed username → 400" || fail "Malformed username → $CODE (want 400)"
 
