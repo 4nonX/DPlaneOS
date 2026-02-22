@@ -63,8 +63,8 @@ func RequirePermission(resource, action string) func(http.Handler) http.Handler 
 func RequireAnyPermission(permissions ...security.Permission) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			user := r.Context().Value(UserContextKey).(*User)
-			if user == nil {
+			user, ok := r.Context().Value(UserContextKey).(*User)
+			if !ok || user == nil {
 				respondJSON(w, http.StatusUnauthorized, map[string]string{
 					"error": "Unauthorized",
 				})
@@ -96,8 +96,8 @@ func RequireAnyPermission(permissions ...security.Permission) func(http.Handler)
 func RequireAllPermissions(permissions ...security.Permission) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			user := r.Context().Value(UserContextKey).(*User)
-			if user == nil {
+			user, ok := r.Context().Value(UserContextKey).(*User)
+			if !ok || user == nil {
 				respondJSON(w, http.StatusUnauthorized, map[string]string{
 					"error": "Unauthorized",
 				})
@@ -129,8 +129,8 @@ func RequireAllPermissions(permissions ...security.Permission) func(http.Handler
 func RequireRole(roleName string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			user := r.Context().Value(UserContextKey).(*User)
-			if user == nil {
+			user, ok := r.Context().Value(UserContextKey).(*User)
+			if !ok || user == nil {
 				respondJSON(w, http.StatusUnauthorized, map[string]string{
 					"error": "Unauthorized",
 				})

@@ -161,7 +161,7 @@ func initSchema(db *sql.DB) error {
 		`CREATE INDEX IF NOT EXISTS idx_sessions_session_id ON sessions(session_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at)`,
 
-		// Migration: Add last_activity if missing (idempotent)
+		// Migration: ADD COLUMN statements are idempotent; "duplicate column name" is expected on existing DBs and ignored below.
 		`ALTER TABLE sessions ADD COLUMN last_activity INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE sessions ADD COLUMN user_id INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE sessions ADD COLUMN status TEXT NOT NULL DEFAULT 'active'`,

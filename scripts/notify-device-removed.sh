@@ -27,8 +27,8 @@ cat > "$NOTIFY_DIR/removed-$(basename $DEVICE).json" <<EOJSON
 EOJSON
 
 # Trigger notification via daemon (if available)
-if [ -S /var/run/dplaneos-daemon.sock ]; then
-    echo "notify:device_removed:$DEVICE" | nc -U /var/run/dplaneos-daemon.sock || true
+if [ -S /run/dplaneos/dplaneos.sock ]; then
+    echo "notify:device_removed:$DEVICE" | nc -U /run/dplaneos/dplaneos.sock || true
 fi
 
 exit 0

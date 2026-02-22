@@ -35,8 +35,8 @@ EOJSON
 fi
 
 # Trigger notification via daemon (if available)
-if [ -S /var/run/dplaneos-daemon.sock ]; then
-    echo "notify:optical_change:$DEVICE" | nc -U /var/run/dplaneos-daemon.sock || true
+if [ -S /run/dplaneos/dplaneos.sock ]; then
+    echo "notify:optical_change:$DEVICE" | nc -U /run/dplaneos/dplaneos.sock || true
 fi
 
 exit 0

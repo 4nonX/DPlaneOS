@@ -19,8 +19,8 @@ if [ "$SCRIPT_NAME" = "notify-device-removed.sh" ]; then
     rm -f "$NOTIFY_DIR/device-$(basename $DEVICE).json"
     
     # Notify daemon
-    if [ -S /var/run/dplaneos-daemon.sock ]; then
-        echo "notify:device_removed:$DEVICE" | nc -U /var/run/dplaneos-daemon.sock || true
+    if [ -S /run/dplaneos/dplaneos.sock ]; then
+        echo "notify:device_removed:$DEVICE" | nc -U /run/dplaneos/dplaneos.sock || true
     fi
     
     exit 0
@@ -65,8 +65,8 @@ if [ "$SCRIPT_NAME" = "notify-optical-media-change.sh" ]; then
 EOF
         
         # Notify daemon
-        if [ -S /var/run/dplaneos-daemon.sock ]; then
-            echo "notify:media_inserted:$DEVICE:$MEDIA_TYPE" | nc -U /var/run/dplaneos-daemon.sock || true
+        if [ -S /run/dplaneos/dplaneos.sock ]; then
+            echo "notify:media_inserted:$DEVICE:$MEDIA_TYPE" | nc -U /run/dplaneos/dplaneos.sock || true
         fi
     else
         # Media removed
@@ -74,8 +74,8 @@ EOF
         
         rm -f "/var/lib/dplaneos/notifications/optical-$(basename $DEVICE).json"
         
-        if [ -S /var/run/dplaneos-daemon.sock ]; then
-            echo "notify:media_removed:$DEVICE" | nc -U /var/run/dplaneos-daemon.sock || true
+        if [ -S /run/dplaneos/dplaneos.sock ]; then
+            echo "notify:media_removed:$DEVICE" | nc -U /run/dplaneos/dplaneos.sock || true
         fi
     fi
     
@@ -104,8 +104,8 @@ if [ "$SCRIPT_NAME" = "handle-eject-request.sh" ]; then
             logger -t dplaneos "Cannot eject $DEVICE - device in use"
             
             # Notify user
-            if [ -S /var/run/dplaneos-daemon.sock ]; then
-                echo "notify:eject_failed:$DEVICE:Device in use" | nc -U /var/run/dplaneos-daemon.sock || true
+            if [ -S /run/dplaneos/dplaneos.sock ]; then
+                echo "notify:eject_failed:$DEVICE:Device in use" | nc -U /run/dplaneos/dplaneos.sock || true
             fi
         fi
     else
