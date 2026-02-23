@@ -18,7 +18,7 @@ set -euo pipefail
 
 # Configuration
 DAEMON_NAME="dplaned"
-SOCKET_PATH="/var/run/dplaneos.sock"
+SOCKET_PATH="/run/dplaneos/dplaneos.sock"
 MAX_MEMORY_MB=200  # Alert if daemon uses >200MB
 MAX_RESTART_PER_HOUR=3
 LOG_FILE="/var/log/dplaneos-watchdog.log"

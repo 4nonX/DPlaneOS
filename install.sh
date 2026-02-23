@@ -695,6 +695,24 @@ else
     warn "ZFS mount gate not found — Docker may race with ZFS on boot"
 fi
 
+# DB init service (must start before dplaned and dplaneos-realtime)
+if [ -f "${INSTALL_DIR}/systemd/dplaneos-init-db.service" ]; then
+    cp "${INSTALL_DIR}/systemd/dplaneos-init-db.service" /etc/systemd/system/
+    systemctl enable dplaneos-init-db.service 2>/dev/null || true
+    log "DB init service installed"
+else
+    warn "dplaneos-init-db.service not found — daemon may race with DB init on first boot"
+fi
+
+# Realtime monitor service
+if [ -f "${INSTALL_DIR}/systemd/dplaneos-realtime.service" ]; then
+    cp "${INSTALL_DIR}/systemd/dplaneos-realtime.service" /etc/systemd/system/
+    systemctl enable dplaneos-realtime.service 2>/dev/null || true
+    log "Realtime monitor service installed"
+else
+    warn "dplaneos-realtime.service not found — realtime monitoring unavailable"
+fi
+
 # Main daemon service
 if [ -f "${INSTALL_DIR}/systemd/dplaned.service" ]; then
     cp "${INSTALL_DIR}/systemd/dplaned.service" /etc/systemd/system/dplaned.service
@@ -702,8 +720,8 @@ else
     cat > /etc/systemd/system/dplaned.service <<UNIT
 [Unit]
 Description=D-PlaneOS System Daemon v${VERSION}
-After=network.target zfs.target dplaneos-zfs-mount-wait.service
-Requires=dplaneos-zfs-mount-wait.service
+After=network.target zfs.target dplaneos-zfs-mount-wait.service dplaneos-init-db.service
+Requires=dplaneos-zfs-mount-wait.service dplaneos-init-db.service
 Wants=zfs.target
 [Service]
 Type=simple

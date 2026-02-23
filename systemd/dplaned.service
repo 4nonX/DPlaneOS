@@ -3,8 +3,8 @@ Description=D-PlaneOS System Daemon
 # Hard gate: dplaned MUST NOT start before ZFS pools are fully mounted.
 # dplaneos-zfs-mount-wait.service polls until all pools are ONLINE + writable,
 # preventing the Docker-before-ZFS silent data loss race condition.
-After=network.target zfs.target dplaneos-zfs-mount-wait.service
-Requires=dplaneos-zfs-mount-wait.service
+After=network.target zfs.target dplaneos-zfs-mount-wait.service dplaneos-init-db.service
+Requires=dplaneos-zfs-mount-wait.service dplaneos-init-db.service
 Wants=zfs.target
 Documentation=https://github.com/4nonX/homelab
 
