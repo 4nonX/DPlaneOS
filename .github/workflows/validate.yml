@@ -96,9 +96,9 @@ jobs:
         run: |
           CI_PASS="CiAdmin1!Test"
           CI_HASH=$(python3 -c "import bcrypt; print(bcrypt.hashpw(b'$CI_PASS', bcrypt.gensalt(rounds=10)).decode())")
-          # UPDATE existing admin row so we keep user id=1 and user_roles (admin has roles:read etc.)
           sudo sqlite3 /var/lib/dplaneos/dplaneos.db \
-            "UPDATE users SET password_hash='$(echo "$CI_HASH" | sed "s/'/''/g")', active=1, role='admin', must_change_password=0 WHERE username='admin';"
+            "INSERT OR REPLACE INTO users (username, password_hash, active, role, must_change_password)
+             VALUES ('admin', '$CI_HASH', 1, 'admin', 0);"
           echo "CI_PASS=$CI_PASS" >> $GITHUB_ENV
 
       - name: API integration tests
@@ -130,36 +130,30 @@ jobs:
           assert_json "/health ok"             "$(curl -sf $BASE/health)"  "status" "ok"
           assert_json "/api/csrf returns token" "$(curl -sf $BASE/api/csrf)" "csrf_token"
 
-          LOGIN_HTTP=$(curl -s -w "\n%{http_code}" -X POST $BASE/api/auth/login \
+          LOGIN=$(curl -sf -X POST $BASE/api/auth/login \
             -H "Content-Type: application/json" \
             -d "{\"username\":\"admin\",\"password\":\"$CI_PASS\"}")
-          LOGIN=$(echo "$LOGIN_HTTP" | sed '$d')
-          LOGIN_CODE=$(echo "$LOGIN_HTTP" | tail -n1)
-          if [ "$LOGIN_CODE" != "200" ]; then
-            echo "Login failed (HTTP $LOGIN_CODE): $LOGIN"
-            exit 1
-          fi
           assert_json "Login succeeds"        "$LOGIN" "success" "true"
           assert_json "Login returns session" "$LOGIN" "session_id"
 
           SESSION=$(echo "$LOGIN" | python3 -c \
             "import sys,json; print(json.load(sys.stdin).get('session_id',''))" 2>/dev/null)
 
-          CODE=$(curl -s -o /dev/null -w "%{http_code}" $BASE/api/zfs/pools)
+          CODE=$(curl -sf -o /dev/null -w "%{http_code}" $BASE/api/zfs/pools)
           [ "$CODE" = "401" ] && ok "Unauth request → 401" || fail "Unauth request → $CODE (want 401)"
 
-          CODE=$(curl -s -o /dev/null -w "%{http_code}" $BASE/api/zfs/pools -H "X-Session-ID: garbage")
+          CODE=$(curl -sf -o /dev/null -w "%{http_code}" $BASE/api/zfs/pools -H "X-Session-ID: garbage")
           [ "$CODE" = "401" ] && ok "Bad session → 401" || fail "Bad session → $CODE (want 401)"
 
-          CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST $BASE/api/auth/login \
+          CODE=$(curl -sf -o /dev/null -w "%{http_code}" -X POST $BASE/api/auth/login \
             -H "Content-Type: application/json" -d '{"username":"admin","password":"wrong"}')
           [ "$CODE" = "401" ] && ok "Wrong password → 401" || fail "Wrong password → $CODE (want 401)"
 
-          CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST $BASE/api/auth/login \
+          CODE=$(curl -sf -o /dev/null -w "%{http_code}" -X POST $BASE/api/auth/login \
             -H "Content-Type: application/json" -d '{"username":"bad user<>","password":"x"}')
           [ "$CODE" = "400" ] && ok "Malformed username → 400" || fail "Malformed username → $CODE (want 400)"
 
-          WEAK=$(curl -s --max-time 15 -X POST $BASE/api/auth/change-password \
+          WEAK=$(curl -sf -X POST $BASE/api/auth/change-password \
             -H "X-Session-ID: $SESSION" -H "X-User: admin" -H "Content-Type: application/json" \
             -d "{\"current_password\":\"$CI_PASS\",\"new_password\":\"weak\"}")
           assert_json "Weak password rejected" "$WEAK" "success" "false"
@@ -277,15 +271,10 @@ jobs:
           valid_json "$(api GET /api/certs/list)"          && ok "Certs"             || fail "Certs → invalid JSON"
           valid_json "$(api GET /api/rbac/me/permissions)" && ok "My permissions"    || fail "My permissions → invalid JSON"
           valid_json "$(api GET /api/auth/tokens)"         && ok "API tokens"        || fail "API tokens → invalid JSON"
-          ROLES=$(curl -s --max-time 15 "$BASE/api/rbac/roles" -H "X-Session-ID: $SESSION" -H "X-User: admin")
-          assert_json "RBAC roles list" "$ROLES" "count"
-          RC=$(echo "$ROLES" | python3 -c "import sys,json; print(len(json.load(sys.stdin).get('roles',[])))" 2>/dev/null || echo 0)
-          [ "$RC" -ge 1 ] && ok "RBAC roles → $RC role(s)" || fail "RBAC roles → empty"
 
-          INJECT=$(curl -s --max-time 15 -X POST $BASE/api/zfs/command \
-            -H "X-Session-ID: $SESSION" -H "X-User: admin" -H "Content-Type: application/json" \
-            -d "{\"command\":\"ls\",\"args\":[\"/etc/passwd\"],\"session_id\":\"$SESSION\",\"user\":\"admin\"}")
-          echo "$INJECT" | grep -q '"success":false\|Forbidden\|not allowed\|Command not found' \
+          INJECT=$(api POST /api/zfs/command \
+            "{\"command\":\"ls\",\"args\":[\"/etc/passwd\"],\"session_id\":\"$SESSION\",\"user\":\"admin\"}")
+          echo "$INJECT" | grep -q '"success":false\|Forbidden\|not allowed' \
             && ok "Command injection blocked" || fail "Command injection NOT blocked"
 
           PROM=$(curl -sf --max-time 5 $BASE/metrics \

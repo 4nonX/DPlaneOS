@@ -477,18 +477,30 @@ PRAGMA journal_mode = WAL;
 PRAGMA foreign_keys = ON;
 PRAGMA busy_timeout = 5000;
 CREATE TABLE IF NOT EXISTS users (
-    id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE NOT NULL,
-    password_hash TEXT NOT NULL, email TEXT, role TEXT DEFAULT 'user',
-    active INTEGER DEFAULT 1, must_change_password INTEGER DEFAULT 0,
-    created_at INTEGER DEFAULT (strftime('%s', 'now'))
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT NOT NULL UNIQUE,
+    password_hash TEXT NOT NULL DEFAULT '',
+    display_name TEXT NOT NULL DEFAULT '',
+    email TEXT NOT NULL DEFAULT '',
+    role TEXT NOT NULL DEFAULT 'user',
+    active INTEGER NOT NULL DEFAULT 1,
+    must_change_password INTEGER NOT NULL DEFAULT 0,
+    source TEXT NOT NULL DEFAULT 'local',
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
-INSERT OR IGNORE INTO users (username, password_hash, email, role, active, must_change_password)
-    VALUES ('admin', '__HASH__', 'admin@localhost', 'admin', 1, 1);
+INSERT OR IGNORE INTO users (username, password_hash, display_name, email, role, active, must_change_password, source)
+    VALUES ('admin', '__HASH__', 'Administrator', 'admin@localhost', 'admin', 1, 1, 'local');
 CREATE TABLE IF NOT EXISTS sessions (
-    id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT UNIQUE NOT NULL,
-    user_id INTEGER, username TEXT, expires_at INTEGER,
-    created_at INTEGER DEFAULT (strftime('%s', 'now')),
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id TEXT NOT NULL UNIQUE,
+    username TEXT NOT NULL,
+    ip_address TEXT NOT NULL DEFAULT '',
+    user_agent TEXT NOT NULL DEFAULT '',
+    created_at INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+    expires_at INTEGER,
+    last_activity INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+    FOREIGN KEY (username) REFERENCES users(username)
 );
 CREATE INDEX IF NOT EXISTS idx_sessions_token   ON sessions(session_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at);
