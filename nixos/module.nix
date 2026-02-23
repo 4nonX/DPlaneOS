@@ -138,7 +138,7 @@ in {
           "${pkgs.coreutils}/bin/chmod 755 /run/dplaneos"
         ];
         ExecStart       = "${pkgs.dplaneos-daemon}/bin/dplaned -db ${cfg.dbPath} -listen ${cfg.listenAddress}:${toString cfg.listenPort}";
-        WorkingDirectory = "/opt/dplaneos";
+        WorkingDirectory = "/var/lib/dplaneos";
         Restart         = "on-failure";
         RestartSec      = "5s";
 
