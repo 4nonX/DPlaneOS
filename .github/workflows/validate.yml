@@ -277,7 +277,7 @@ jobs:
           valid_json "$(api GET /api/certs/list)"          && ok "Certs"             || fail "Certs → invalid JSON"
           valid_json "$(api GET /api/rbac/me/permissions)" && ok "My permissions"    || fail "My permissions → invalid JSON"
           valid_json "$(api GET /api/auth/tokens)"         && ok "API tokens"        || fail "API tokens → invalid JSON"
-          ROLES=$(api GET /api/rbac/roles)
+          ROLES=$(curl -s --max-time 15 "$BASE/api/rbac/roles" -H "X-Session-ID: $SESSION" -H "X-User: admin")
           assert_json "RBAC roles list" "$ROLES" "count"
           RC=$(echo "$ROLES" | python3 -c "import sys,json; print(len(json.load(sys.stdin).get('roles',[])))" 2>/dev/null || echo 0)
           [ "$RC" -ge 1 ] && ok "RBAC roles → $RC role(s)" || fail "RBAC roles → empty"
