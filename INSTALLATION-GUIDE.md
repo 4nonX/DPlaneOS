@@ -1,6 +1,6 @@
 # D-PlaneOS v3.3.0 Installation Guide
 
-**Complete enterprise NAS with RBAC - Production Ready**
+**Complete enterprise NAS with RBAC**
 
 ---
 
