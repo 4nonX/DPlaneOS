@@ -96,9 +96,9 @@ jobs:
         run: |
           CI_PASS="CiAdmin1!Test"
           CI_HASH=$(python3 -c "import bcrypt; print(bcrypt.hashpw(b'$CI_PASS', bcrypt.gensalt(rounds=10)).decode())")
+          # UPDATE existing admin row so we keep user id=1 and user_roles (admin has roles:read etc.)
           sudo sqlite3 /var/lib/dplaneos/dplaneos.db \
-            "INSERT OR REPLACE INTO users (username, password_hash, active, role, must_change_password)
-             VALUES ('admin', '$CI_HASH', 1, 'admin', 0);"
+            "UPDATE users SET password_hash='$(echo "$CI_HASH" | sed "s/'/''/g")', active=1, role='admin', must_change_password=0 WHERE username='admin';"
           echo "CI_PASS=$CI_PASS" >> $GITHUB_ENV
 
       - name: API integration tests
