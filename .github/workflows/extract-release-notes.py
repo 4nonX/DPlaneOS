@@ -1,4 +1,4 @@
-import re, os, sys
+import re, os
 
 version = os.environ["GITHUB_REF_NAME"]
 repo    = os.environ["GITHUB_REPOSITORY"]
@@ -16,14 +16,22 @@ else:
 
 notes += (
     "\n\n---\n\n"
-    "**Installation:**\n"
+    "## Installation\n\n"
+    "### Debian / Ubuntu\n"
     "```bash\n"
     "tar xzf dplaneos-" + version + ".tar.gz\n"
     "cd dplaneos-" + version + "\n"
     "sudo make install\n"
     "sudo systemctl start dplaned\n"
     "```\n\n"
-    "**Verify checksum:**\n"
+    "### NixOS\n"
+    "```bash\n"
+    "tar xzf dplaneos-" + version + ".tar.gz\n"
+    "cd dplaneos-" + version + "/nixos\n"
+    "sudo bash setup-nixos.sh\n"
+    "sudo nixos-rebuild switch\n"
+    "```\n\n"
+    "### Verify checksum\n"
     "```bash\n"
     "sha256sum -c dplaneos-" + version + ".tar.gz.sha256\n"
     "```\n"
