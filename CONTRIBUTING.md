@@ -133,6 +133,73 @@ All PRs touching the backend must:
 
 PRs that introduce security issues will be closed without merge regardless of other quality.
 
+## Release Process
+
+Releases are fully automated via `.github/workflows/release.yml`. Release notes are extracted automatically from `CHANGELOG.md`.
+
+### Versioning
+
+D-PlaneOS follows [Semantic Versioning](https://semver.org/):
+
+| Change type | Version bump | Examples |
+|---|---|---|
+| Breaking changes, architecture rewrites | **Major** (x.0.0) | PHP→Go rewrite, incompatible API changes |
+| New features, drop-in compatible | **Minor** (x.y.0) | New API endpoints, new UI pages |
+| Bug fixes, security patches, docs | **Patch** (x.y.z) | CVE fix, vendor sync, typo |
+
+**Rule of thumb:** if users need to change their workflow or config → Major. If they get new features for free → Minor. If it just gets better/safer → Patch.
+
+### Before Every Release
+
+1. Add a new entry at the top of `CHANGELOG.md` following the existing format:
+   ```markdown
+   ## vX.Y.Z (YYYY-MM-DD) — **"Release Title"**
+   ...
+   ```
+2. Commit and push to `main`
+3. Verify CI passes on `main`
+
+### Creating a Release
+
+**Option A — GitHub browser (recommended):**
+1. Go to Releases → "Draft a new release"
+2. Enter the tag (e.g. `v3.4.0`) and a title
+3. Click "Publish release"
+4. The workflow builds the daemon, packages the tarball, extracts release notes from `CHANGELOG.md`, and attaches everything automatically
+
+**Option B — Command line:**
+```bash
+git tag v3.4.0
+git push origin v3.4.0
+```
+GitHub Release is created automatically with the same result.
+
+### What the Workflow Does
+
+1. Verifies `vendor/` is consistent with `go.mod` (fails fast if not)
+2. Builds the daemon with the version number embedded (`-X main.Version=vX.Y.Z`)
+3. Packages a release tarball excluding `.git`, `.github`, `legacy/`
+4. Generates a SHA256 checksum
+5. Extracts the matching `## vX.Y.Z` section from `CHANGELOG.md` as release notes
+6. Creates (or updates) the GitHub Release with tarball + checksum attached
+
+> **Note:** Tags matching `*-rc`, `*-beta`, or `*-alpha` are automatically marked as pre-releases.
+
+### Keeping vendor/ in Sync
+
+Before tagging, always ensure the Go vendor directory is consistent:
+
+```bash
+cd daemon
+go mod tidy
+go mod vendor
+git add go.mod go.sum vendor/
+git commit -m "chore: sync vendor"
+git push
+```
+
+The release workflow will fail with a clear error if `vendor/` is out of sync.
+
 ## License
 
 By contributing, you agree your contributions are licensed under the project's [PolyForm Shield License 1.0.0](LICENSE).
