@@ -78,13 +78,22 @@ jobs:
           echo "CHECKSUM=/tmp/$(basename $TARBALL).sha256" >> $GITHUB_ENV
 
       - name: Extract release notes from CHANGELOG.md
-        run: python3 scripts/extract-release-notes.py
+        run: python3 .github/workflows/extract-release-notes.py
+
+      - name: Set release title
+        id: title
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            echo "value=${{ github.event.release.name }}" >> $GITHUB_OUTPUT
+          else
+            echo "value=D-PlaneOS ${{ github.ref_name }}" >> $GITHUB_OUTPUT
+          fi
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
-          name: ${{ github.event_name == 'push' && format('D-PlaneOS {0}', github.ref_name) || github.event.release.name }}
+          name: ${{ steps.title.outputs.value }}
           body_path: /tmp/release-notes.md
           files: |
             ${{ env.TARBALL }}
