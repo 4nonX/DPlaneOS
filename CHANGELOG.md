@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ---
+# D-PlaneOS Changelog
+
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
+
+---
+
+## v3.3.1 (2026-02-24) — **"Dependency Hygiene"**
+
+Upgrade from: v3.3.0 — Drop-in upgrade via `sudo ./scripts/upgrade-with-rollback.sh`
+
+### 🔧 Maintenance
+
+- Fixed vendor/go.mod version mismatch: `golang.org/x/crypto` bumped from v0.13.0 to v0.14.0
+- Synced `go.sum` and `vendor/` via `go mod tidy && go mod vendor`
+- `make test` now works correctly in clean environments
+
+### ✅ Compatibility
+
+Drop-in replacement for v3.3.0. No schema changes, no API changes, no config changes.
+
+---
 
 ## v3.3.0 (2026-02-22) — **"UX / Security Hardening"**
 
