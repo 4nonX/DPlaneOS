@@ -1,0 +1,136 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  release:
+    types: [created]
+
+jobs:
+  release:
+    name: Build + Package + Release
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: daemon/go.mod
+          cache-dependency-path: daemon/go.sum
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y gcc libc6-dev
+
+      - name: Verify vendor consistency
+        working-directory: daemon
+        run: |
+          go mod verify
+          go mod vendor
+          git diff --exit-code vendor/ go.sum || {
+            echo "ERROR: vendor or go.sum is out of sync with go.mod"
+            echo "Run: cd daemon && go mod tidy && go mod vendor"
+            exit 1
+          }
+
+      - name: Build daemon
+        working-directory: daemon
+        run: |
+          VERSION="${GITHUB_REF_NAME}"
+          CGO_ENABLED=1 go build \
+            -tags sqlite_fts5 \
+            -ldflags="-s -w -X main.Version=${VERSION}" \
+            -o ../build/dplaned \
+            ./cmd/dplaned/
+          echo "Built: $(file ../build/dplaned)"
+
+      - name: Package release tarball
+        run: |
+          VERSION="${GITHUB_REF_NAME}"
+          DIRNAME="dplaneos-${VERSION}"
+          TARBALL="${DIRNAME}.tar.gz"
+
+          mkdir -p "/tmp/${DIRNAME}"
+          rsync -a \
+            --exclude='.git' \
+            --exclude='.github' \
+            --exclude='*.tar.gz' \
+            --exclude='legacy/' \
+            --exclude='PROJECT-ASSESSMENT.md' \
+            ./ "/tmp/${DIRNAME}/"
+
+          cp build/dplaned "/tmp/${DIRNAME}/build/dplaned"
+
+          tar -czf "/tmp/${TARBALL}" -C /tmp "${DIRNAME}"
+          echo "TARBALL=/tmp/${TARBALL}" >> $GITHUB_ENV
+          echo "VERSION=${VERSION}"      >> $GITHUB_ENV
+          echo "Tarball size: $(du -sh /tmp/${TARBALL} | cut -f1)"
+
+      - name: Generate SHA256 checksum
+        run: |
+          cd /tmp
+          sha256sum "$(basename $TARBALL)" > "$(basename $TARBALL).sha256"
+          cat "$(basename $TARBALL).sha256"
+          echo "CHECKSUM=/tmp/$(basename $TARBALL).sha256" >> $GITHUB_ENV
+
+      - name: Extract release notes from CHANGELOG.md
+        run: |
+          python3 << 'PYEOF'
+          import re, os
+
+          version = os.environ["GITHUB_REF_NAME"]
+          repo    = os.environ["GITHUB_REPOSITORY"]
+
+          with open("CHANGELOG.md") as f:
+              changelog = f.read()
+
+          pattern = r"(## " + re.escape(version) + r" .*?)(?=\n## v|\Z)"
+          match = re.search(pattern, changelog, re.DOTALL)
+
+          if match:
+              notes = match.group(1).strip()
+          else:
+              notes = "See [CHANGELOG.md](https://github.com/" + repo + "/blob/main/CHANGELOG.md) for release notes."
+
+          notes += """
+
+---
+
+**Installation:**
+```bash
+tar xzf dplaneos-""" + version + """.tar.gz
+cd dplaneos-""" + version + """
+sudo make install
+sudo systemctl start dplaned
+```
+
+**Verify checksum:**
+```bash
+sha256sum -c dplaneos-""" + version + """.tar.gz.sha256
+```
+"""
+          with open("/tmp/release-notes.md", "w") as f:
+              f.write(notes)
+          print("Extracted", len(notes), "chars for", version)
+          PYEOF
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          # For push.tags: set title automatically
+          # For release.created: title already set by user in browser — don't override
+          name: ${{ github.event_name == 'push' && format('D-PlaneOS {0}', github.ref_name) || github.event.release.name }}
+          body_path: /tmp/release-notes.md
+          files: |
+            ${{ env.TARBALL }}
+            ${{ env.CHECKSUM }}
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-rc') || contains(github.ref_name, '-beta') || contains(github.ref_name, '-alpha') }}
