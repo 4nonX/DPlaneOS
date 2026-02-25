@@ -5,7 +5,10 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ---
+## v3.3.1 (2026-02-25) — **"Installer Bugfix"**
+- fixed version mismatch in install.sh leading to install process hanging on Debian/Ubuntu image.
 
+Upgrade from: v3.2.1, v3.2.0, or v3.1.x — Drop-in upgrade via `sudo ./scripts/upgrade-with-rollback.sh`
 ## v3.3.0 (2026-02-22) — **"UX / Security Hardening"**
 
 Upgrade from: v3.2.1, v3.2.0, or v3.1.x — Drop-in upgrade via `sudo ./scripts/upgrade-with-rollback.sh`
