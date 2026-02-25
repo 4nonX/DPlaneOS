@@ -74,36 +74,33 @@ if [ ! -f /etc/os-release ]; then
     exit 1
 fi
 
-# Safe extraction — avoids Ubuntu's readonly VERSION variable crash
-OS_ID=$(grep -E '^ID=' /etc/os-release | cut -d= -f2 | tr -d '"')
-OS_PRETTY=$(grep -E '^PRETTY_NAME=' /etc/os-release | cut -d= -f2 | tr -d '"')
-OS_VERSION_ID=$(grep -E '^VERSION_ID=' /etc/os-release | cut -d= -f2 | tr -d '"')
+source /etc/os-release
 
 SUPPORTED_OS=("debian" "ubuntu")
 OS_SUPPORTED=false
 
 for os in "${SUPPORTED_OS[@]}"; do
-    if [[ "${OS_ID,,}" == "$os" ]]; then
+    if [[ "${ID,,}" == "$os" ]]; then
         OS_SUPPORTED=true
         break
     fi
 done
 
 if $OS_SUPPORTED; then
-    log_pass "OS: ${OS_PRETTY:-$OS_ID} (supported)"
+    log_pass "OS: $PRETTY_NAME (supported)"
 else
-    log_fail "OS: ${OS_PRETTY:-$OS_ID} (not supported)"
+    log_fail "OS: $PRETTY_NAME (not supported)"
     log_info "Supported: Debian 11+, Ubuntu 22.04+"
 fi
 
 # Check version
-if [[ "${OS_ID,,}" == "debian" ]]; then
-    if [ "${OS_VERSION_ID}" -lt 11 ]; then
-        log_warn "Debian version $OS_VERSION_ID may not be fully supported (recommend 11+)"
+if [[ "${ID,,}" == "debian" ]]; then
+    if [ "${VERSION_ID}" -lt 11 ]; then
+        log_warn "Debian version $VERSION_ID may not be fully supported (recommend 11+)"
     fi
 elif [[ "${ID,,}" == "ubuntu" ]]; then
     if [ "${VERSION_ID%%.*}" -lt 22 ]; then
-        log_warn "Ubuntu version $OS_VERSION_ID may not be fully supported (recommend 22.04+)"
+        log_warn "Ubuntu version $VERSION_ID may not be fully supported (recommend 22.04+)"
     fi
 fi
 

@@ -168,12 +168,19 @@ step "Phase 0/12: Pre-flight checks"
 # ────────────────────────────────────────────────────────────────────────────
 
 [ -f /etc/os-release ] || die "Cannot detect OS"
-. /etc/os-release
-case "${ID,,}" in
+# Safe extraction — avoids Ubuntu's readonly VERSION variable crash
+OS_ID=$(grep -E '^ID=' /etc/os-release | cut -d= -f2 | tr -d '"')
+OS_PRETTY=$(grep -E '^PRETTY_NAME=' /etc/os-release | cut -d= -f2 | tr -d '"')
+OS_VERSION_ID=$(grep -E '^VERSION_ID=' /etc/os-release | cut -d= -f2 | tr -d '"')
+case "${OS_ID,,}" in
     debian|ubuntu|raspbian|linuxmint|pop)
-        log "OS: $PRETTY_NAME" ;;
+        log "OS: ${OS_PRETTY:-$OS_ID}" ;;
+    nixos)
+        # NixOS detected — warn but do NOT terminate; NixOS users should use nixos/ directory
+        warn "NixOS detected. Native package management is handled via nixos/. Proceeding with best-effort install."
+        warn "For a fully declarative NixOS setup, see nixos/NIXOS-INSTALL-GUIDE.md instead." ;;
     *)
-        die "Unsupported OS: ${PRETTY_NAME:-unknown}
+        die "Unsupported OS: ${OS_PRETTY:-unknown}
   Supported: Debian 11+, Ubuntu 20.04+, Raspberry Pi OS
   Other distros: install manually — see docs/manual-install.md" ;;
 esac
@@ -813,13 +820,25 @@ fi
 # ── Success ───────────────────────────────────────────────────────────────────
 trap - EXIT   # disarm rollback trap
 
-MY_IP=$(hostname -I 2>/dev/null | awk '{print $1}' || echo "your-server-ip")
+# Task 3: Dynamic IP notification
+PRIMARY_IP=$(hostname -I | awk '{print $1}')
+MY_IP="${PRIMARY_IP:-your-server-ip}"
 PORT_SUFFIX=$( [ "$OPT_PORT" = "80" ] && echo "" || echo ":${OPT_PORT}" )
 
 clear
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo -e "${BOLD}${GREEN}    D-PlaneOS v${DPLANEOS_VERSION} — Installation Complete!${NC}"
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo -e "${BOLD}${GREEN}"
+echo "╔══════════════════════════════════════════════════════╗"
+echo "║       D-PlaneOS v${DPLANEOS_VERSION} — Installation Complete!        ║"
+echo "╠══════════════════════════════════════════════════════╣"
+echo "║                                                      ║"
+printf "║  🌐  Access your dashboard at:                       ║\n"
+printf "║      %-48s  ║\n" "http://${MY_IP}${PORT_SUFFIX}"
+echo "║                                                      ║"
+echo "║  ⚠️   NOTE: The VM screen may remain BLACK after      ║"
+echo "║       install. This is normal — use the URL above.   ║"
+echo "║                                                      ║"
+echo "╚══════════════════════════════════════════════════════╝"
+echo -e "${NC}"
 echo ""
 echo -e "  🌐  Open ${BOLD}http://${MY_IP}${PORT_SUFFIX}${NC} in your browser"
 echo ""

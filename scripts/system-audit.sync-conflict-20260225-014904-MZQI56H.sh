@@ -168,33 +168,30 @@ fi
 section "2. OPERATING SYSTEM"
 # ════════════════════════════════════════════════════════════════
 
-# Safe extraction — avoids Ubuntu's readonly VERSION variable crash
-[[ -f /etc/os-release ]] && OS_ID=$(grep -E '^ID=' /etc/os-release | cut -d= -f2 | tr -d '"')
-[[ -f /etc/os-release ]] && OS_PRETTY=$(grep -E '^PRETTY_NAME=' /etc/os-release | cut -d= -f2 | tr -d '"')
-[[ -f /etc/os-release ]] && OS_VERSION_ID=$(grep -E '^VERSION_ID=' /etc/os-release | cut -d= -f2 | tr -d '"')
-info "OS       : ${OS_PRETTY:-unknown}"
+. /etc/os-release 2>/dev/null || true
+info "OS       : ${PRETTY_NAME:-unknown}"
 info "Kernel   : $(uname -r)"
 info "Arch     : $(uname -m)"
 
 # OS support check
-case "${OS_ID,,}" in
+case "${ID,,}" in
     ubuntu)
-        VER_MAJOR="${OS_VERSION_ID%%.*}"
+        VER_MAJOR="${VERSION_ID%%.*}"
         if [ "$VER_MAJOR" -ge 22 ]; then
-            pass "Ubuntu ${OS_VERSION_ID} — supported"
+            pass "Ubuntu ${VERSION_ID} — supported"
         else
-            warn "Ubuntu ${OS_VERSION_ID} — minimum is 20.04, 22.04+ recommended"
+            warn "Ubuntu ${VERSION_ID} — minimum is 20.04, 22.04+ recommended"
         fi ;;
     debian)
-        if [ "${OS_VERSION_ID:-0}" -ge 11 ]; then
-            pass "Debian ${OS_VERSION_ID} — supported"
+        if [ "${VERSION_ID:-0}" -ge 11 ]; then
+            pass "Debian ${VERSION_ID} — supported"
         else
-            warn "Debian ${OS_VERSION_ID} — minimum is 11 (Bullseye)"
+            warn "Debian ${VERSION_ID} — minimum is 11 (Bullseye)"
         fi ;;
     nixos)
         pass "NixOS — supported" ;;
     *)
-        warn "OS '${OS_ID}' is not in the supported list (Debian/Ubuntu/NixOS)" ;;
+        warn "OS '${ID}' is not in the supported list (Debian/Ubuntu/NixOS)" ;;
 esac
 
 # Pending updates

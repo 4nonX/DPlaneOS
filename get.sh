@@ -62,15 +62,17 @@ if [ ! -f /etc/os-release ]; then
     die "Cannot detect OS. Supported: Debian 11+, Ubuntu 20.04+, Raspberry Pi OS"
 fi
 
-. /etc/os-release
+# Safe extraction — avoids Ubuntu's readonly VERSION variable crash
+OS_ID=$(grep -E '^ID=' /etc/os-release | cut -d= -f2 | tr -d '"')
+OS_PRETTY=$(grep -E '^PRETTY_NAME=' /etc/os-release | cut -d= -f2 | tr -d '"')
 
-case "${ID,,}" in
+case "${OS_ID,,}" in
     debian|ubuntu|raspbian|linuxmint|pop)
         PKG_MANAGER="apt"
-        ok "OS: $PRETTY_NAME"
+        ok "OS: ${OS_PRETTY:-$OS_ID}"
         ;;
     *)
-        die "Unsupported OS: $PRETTY_NAME. Supported: Debian, Ubuntu, Raspberry Pi OS."
+        die "Unsupported OS: ${OS_PRETTY:-unknown}. Supported: Debian, Ubuntu, Raspberry Pi OS."
         ;;
 esac
 
