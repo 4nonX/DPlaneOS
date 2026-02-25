@@ -1,4 +1,4 @@
-# D-PlaneOS v3.3.0 — Enterprise NAS Operating System
+# D-PlaneOS v3.3.1 — Enterprise NAS Operating System
 
 Source-available NAS OS with Material Design 3 UI, ZFS storage, Docker containers, RBAC, and LDAP/Active Directory integration.
 
