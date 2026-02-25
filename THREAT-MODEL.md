@@ -1,4 +1,4 @@
-# D-PlaneOS v3.3.0 — Threat Model
+# D-PlaneOS — Threat Model
 
 ## System Context
 
