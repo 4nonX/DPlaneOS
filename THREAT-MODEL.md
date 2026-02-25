@@ -227,7 +227,7 @@ Run behind a VPN or reverse proxy with authentication (e.g. WireGuard, Tailscale
 
 ---
 
-## Known Gaps (not mitigated in v3.3.0)
+## Known Gaps (not mitigated in v3.3.1)
 
 - **Partial RBAC coverage** — many operational routes (ZFS, Docker, snapshots, replication, system) are session-authenticated but lack per-route `RequirePermission` checks
 - **ZFS keys not auto-locked on shutdown** — `zfs unload-key` must be called manually before powering down if encryption-at-rest is required
