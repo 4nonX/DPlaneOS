@@ -87,7 +87,7 @@ Navigate to **Identity → Directory Service** to configure. Supports:
 
 ## Documentation
 
-- `CHANGELOG.md` — Full version history including v3.0.0 through v3.2.0
+- `CHANGELOG.md` — Full version history including v3.0.0 through v3.3.1
 - `CHANGELOG.md` — Full version history
 - `ADMIN-GUIDE.md` — Full administration guide
 - `ERROR-REFERENCE.md` — API error codes and diagnostics
