@@ -283,7 +283,7 @@ The system now:
 | Auto Sudoers Sync | ✅ YES | ❌ No | ❌ No | N/A |
 | **Fully Autonomous** | ✅ **YES** | ❌ No | ❌ No | ⚠️ Partial |
 
-**D-PlaneOS is now the ONLY truly autonomous open-source NAS.**
+**D-PlaneOS is now the ONLY truly autonomous source-available NAS.**
 
 ---
 

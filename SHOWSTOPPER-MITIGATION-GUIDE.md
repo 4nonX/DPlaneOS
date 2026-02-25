@@ -207,7 +207,7 @@ curl -s -X POST http://nas-b:9000/api/ha/peers/nas-a/role \
 
 The Go daemon (`dplaned`) ships as a compiled binary. Users who require source-level auditability before trusting a privileged process cannot verify the binary matches the source without building it themselves.
 
-**Who is affected:** security auditors, organisations with supply-chain review requirements, open-source purists.
+**Who is affected:** security auditors, organisations with supply-chain review requirements, source-available purists.
 
 **Who is not affected:** home users, homelabs, small offices — the daemon source is published and the build is reproducible.
 

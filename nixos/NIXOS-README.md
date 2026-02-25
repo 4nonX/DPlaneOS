@@ -60,7 +60,7 @@ D-PlaneOS is licensed under **PolyForm Shield 1.0.0**. This means:
 - You **can** distribute copies (with the license attached)
 - You **cannot** use it to build a competing commercial NAS product
 
-This is not an OSI-approved open-source license. It exists to prevent large
+This is not an OSI-approved source-available license. It exists to prevent large
 companies from rebranding a solo developer's work as their own commercial
 product. The code is fully source-available and you can read every line.
 
@@ -68,7 +68,7 @@ product. The code is fully source-available and you can read every line.
 The D-PlaneOS flake handles this automatically — it marks only the three
 D-PlaneOS packages (dplaned, frontend, recovery CLI) as unfree via
 `allowUnfreePredicate`. All system packages (ZFS, Samba, Docker, nginx, etc.)
-remain under their own open-source licenses and are unaffected.
+remain under their own source-available licenses and are unaffected.
 
 If your system-wide Nix config has `allowUnfree = false` (the default), the
 flake still works because the predicate is scoped to the flake's own package
