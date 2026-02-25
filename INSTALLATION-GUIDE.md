@@ -1,4 +1,4 @@
-# D-PlaneOS v3.3.0 Installation Guide
+# D-PlaneOS Installation Guide
 
 **Complete enterprise NAS with RBAC**
 
@@ -67,15 +67,15 @@
 wget https://github.com/4nonX/D-PlaneOS/releases/download/v3.3.0/dplaneos-v3.3.0.tar.gz
 
 # Verify SHA256
-sha256sum dplaneos-v3.3.0.tar.gz
+sha256sum dplaneos-v3.3.1.tar.gz
 # SHA256 published with each release on GitHub
 ```
 
 ### **Step 2: Extract**
 
 ```bash
-tar -xzf dplaneos-v3.3.0.tar.gz
-cd dplaneos-v3.3.0
+tar -xzf dplaneos-v3.3.1.tar.gz
+cd dplaneos-v3.3.1
 ```
 
 ### **Step 3: Run Installer**
@@ -223,11 +223,11 @@ sudo systemctl restart fail2ban
 
 ---
 
-## Upgrading from v3.2.0
+## Upgrading from v3.3.0
 
-**Note:** v3.3.0 is backward compatible. Upgrade preserves all data and configuration.
+**Note:** v3.3.1 is backward compatible. Upgrade preserves all data and configuration.
 
-**If you have data in v3.2.0:**
+**If you have data in v3.3.0:**
 
 1. Backup your data:
    ```bash
@@ -235,7 +235,7 @@ sudo systemctl restart fail2ban
    zfs send tank@pre-upgrade > /backup/tank-pre-upgrade.zfs
    ```
 
-2. Fresh install v3.3.0
+2. Fresh install
 
 3. Import existing pool:
    ```bash
@@ -297,7 +297,7 @@ ls -lh /var/lib/dplaneos/dplaneos.db
 ## Uninstall
 
 ```bash
-cd dplaneos-v3.3.0
+cd dplaneos-v3.3.1
 sudo ./uninstall.sh
 
 # Remove all data (WARNING: destroys everything)
