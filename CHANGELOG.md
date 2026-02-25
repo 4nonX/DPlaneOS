@@ -6,6 +6,46 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ---
 
+## v3.3.1 (2026-02-25) — **"Universal Compatibility"**
+
+Upgrade from: v3.3.0, v3.2.1, or any v3.x — Drop-in upgrade via `sudo ./scripts/upgrade-with-rollback.sh`
+
+### 🐛 Bug Fixes
+
+- **Ubuntu readonly variable crash (Phase 0):** `install.sh`, `get.sh`, `scripts/pre-flight.sh`, and `scripts/system-audit.sh` previously sourced `/etc/os-release` directly, which caused Ubuntu to abort with `/etc/os-release: line 4: VERSION: readonly variable` and fail at Phase 0 before any installation occurred. All four files now use safe `grep`-based extraction into scoped variables — the OS-managed `VERSION` variable is never touched.
+
+- **`TERM environment variable not set` warning:** `install.sh` called `clear` unconditionally at startup and on the completion screen. In non-interactive contexts (serial console, VM without TTY, piped install) this emitted a `TERM` warning that polluted output and confused users expecting a clean install log. Both `clear` calls are now guarded with `[ -n "$TERM" ]`.
+
+### 🐧 NixOS Compatibility
+
+- **NixOS no longer causes install termination:** `install.sh` Phase 0 OS detection previously treated any unrecognised `$ID` as a fatal error. NixOS is now detected as a named case, emits an informational warning directing users to `nixos/NIXOS-INSTALL-GUIDE.md`, and continues rather than aborting. All NixOS-specific files remain untouched under `nixos/`.
+
+### 🚀 Phase 12: Dynamic IP Notification
+
+- **Access URL displayed at completion:** Phase 12 now calculates the primary IPv4 address via `hostname -I` and displays it in a clearly bordered completion box — `http://<PRIMARY_IP>` — along with a notice that the VM screen may remain black after install. Eliminates the most common post-install support question.
+
+### 📋 CI / Release Pipeline
+
+- **Syncthing conflict file guard:** Both `validate.yml` and `release.yml` now fail immediately at checkout with a clear error listing any `.sync-conflict-*.go` files present in the tree, preventing the duplicate symbol build failures caused by Syncthing writing conflict copies into the working directory.
+- **`*.sync-conflict-*` excluded from release tarballs:** `rsync` in the package step explicitly excludes all Syncthing conflict files regardless of the guard.
+- **`build/` directory pre-created before daemon build:** `go build` does not create parent directories; the `mkdir -p ../build` step was missing, which would cause the release build to fail if `build/` did not already exist in the workspace.
+- **`sha256sum` step simplified:** Removed fragile `cd /tmp && basename` pattern; checksum is now generated directly from the full `$TARBALL` path.
+- **Double-trigger removed from `release.yml`:** The `on: release: types: [created]` trigger was firing the release job a second time when GitHub auto-created the release after a tag push. Now triggers only on `push: tags: v*`.
+- **bcrypt CI password injection fixed:** `validate.yml` was embedding `CI_PASS` directly into a Python string literal via shell substitution. Password is now passed via `env:` and read with `os.environ` inside Python, making it safe for passwords containing `!`, `$`, or `'`.
+- **ZFS cleanup order fixed:** `validate.yml` cleanup was calling `losetup -d` on all loop devices in a single command before `zpool destroy`, which hangs ZFS when its backing devices are detached first. Now destroys the pool first, then detaches each loop device individually.
+- **Release notes regex hardened:** `extract-release-notes.py` now matches CHANGELOG headings with or without the `v` prefix (`## v3.3.1` or `## 3.3.1`).
+- **Wrong install command in release notes:** The generated installation instructions used `sudo make install` (no `Makefile` exists); corrected to `sudo bash install.sh`.
+
+### 📄 Licensing & Documentation
+
+- **Corrected "open-source" misidentification:** D-PlaneOS is licensed under PolyForm Shield 1.0.0, which is **source-available**, not OSI-approved open-source. Corrected in `README.md`, `SHOWSTOPPER-MITIGATION-GUIDE.md`, `docs/SHOWSTOPPER-MITIGATION-GUIDE.md`, and `nixos/NIXOS-README.md`. Third-party dependency references (ZFS, Samba, Docker, nginx) correctly retain their "open-source" descriptions as those packages use OSI-approved licenses.
+
+### ✅ Compatibility
+
+Drop-in replacement for v3.3.0. No schema changes, no migrations, no config changes required.
+
+---
+
 ## v3.3.0 (2026-02-22) — **"UX / Security Hardening"**
 
 Upgrade from: v3.2.1, v3.2.0, or v3.1.x — Drop-in upgrade via `sudo ./scripts/upgrade-with-rollback.sh`
