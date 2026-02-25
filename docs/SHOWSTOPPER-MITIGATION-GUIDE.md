@@ -25,7 +25,7 @@ This guide provides:
 
 **Who's affected:**
 - Security auditors
-- Open-source purists
+- Users requiring OSI-approved open-source licensing
 - Organizations requiring source-level review
 
 **Severity:** 🔴 HIGH for security-critical environments

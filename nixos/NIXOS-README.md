@@ -60,7 +60,7 @@ D-PlaneOS is licensed under **PolyForm Shield 1.0.0**. This means:
 - You **can** distribute copies (with the license attached)
 - You **cannot** use it to build a competing commercial NAS product
 
-This is not an OSI-approved open-source license. It exists to prevent large
+This is not an OSI-approved open-source license. It is a **source-available** license (PolyForm Shield 1.0.0) that exists to prevent large
 companies from rebranding a solo developer's work as their own commercial
 product. The code is fully source-available and you can read every line.
 
