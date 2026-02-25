@@ -1,0 +1,32 @@
+{
+  "id": "monitoring",
+  "name": "System Monitoring",
+  "description": "Real-time system monitoring with Prometheus + Grafana",
+  "version": "1.0.0",
+  "author": "D-PlaneOS Team",
+  "license": "GPL-3.0",
+  "category": "monitoring",
+  "icon": "monitoring",
+  
+  "requirements": {
+    "os": ["ubuntu-24.04"],
+    "min_ram_mb": 1024,
+    "min_disk_mb": 500,
+    "docker": true
+  },
+  
+  "dependencies": {
+    "apt": [],
+    "modules": []
+  },
+  
+  "permissions": [
+    "system.read",
+    "docker.manage"
+  ],
+  
+  "ports": [
+    {"port": 9090, "protocol": "tcp", "description": "Prometheus"},
+    {"port": 3000, "protocol": "tcp", "description": "Grafana"}
+  ]
+}

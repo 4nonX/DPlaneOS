@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Settings - D-PlaneOS v1.14.0</title>
+    <link rel="stylesheet" href="/css/main.css">
+    <style>
+        .info-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(180px,1fr)); gap:12px; margin-bottom:20px; }
+        .info-box { background:var(--color-surface-light); border-radius:10px; padding:14px; }
+        .info-label { font-size:10px; color:var(--color-text-muted); text-transform:uppercase; letter-spacing:0.7px; margin-bottom:4px; }
+        .info-value { font-size:16px; font-weight:600; color:var(--color-text-primary); }
+        .info-value.mono { font-family:monospace; font-size:14px; color:var(--color-primary-light); }
+
+        .form-input {
+            width:100%; padding:9px 12px; border-radius:6px;
+            background:var(--color-surface-light); border:1px solid var(--color-border);
+            color:var(--color-text-primary); font-size:13px; outline:none;
+        }
+        .form-input:focus { border-color:var(--color-primary); }
+        .form-label { display:block; font-size:11px; color:var(--color-text-secondary); margin-bottom:3px; text-transform:uppercase; letter-spacing:0.5px; }
+
+        /* Services table */
+        .svc-row {
+            display:flex; justify-content:space-between; align-items:center;
+            padding:10px 0; border-bottom:1px solid var(--color-border);
+        }
+        .svc-row:last-child { border-bottom:none; }
+        .svc-left { display:flex; align-items:center; gap:10px; }
+        .svc-dot { width:9px; height:9px; border-radius:50%; flex-shrink:0; }
+        .svc-dot.active { background:var(--color-success); box-shadow:0 0 5px rgba(16,185,129,0.4); }
+        .svc-dot.inactive { background:var(--color-text-muted); }
+        .svc-name { font-size:13px; font-weight:600; }
+        .svc-desc { font-size:10px; color:var(--color-text-muted); margin-top:1px; }
+        .svc-actions { display:flex; gap:4px; }
+
+        /* Log viewer */
+        #logOutput {
+            width:100%; height:240px; padding:12px; border-radius:8px;
+            background:#0a0f1c; border:1px solid var(--color-border);
+            color:#6ee7b7; font-family:monospace; font-size:11px;
+            overflow-y:auto; resize:vertical; white-space:pre-wrap;
+        }
+
+        /* Danger zone */
+        .danger-card { border-color:rgba(239,68,68,0.3) !important; background:rgba(239,68,68,0.05) !important; }
+        .btn-danger {
+            background:rgba(239,68,68,0.15); color:var(--color-error);
+            border:1px solid rgba(239,68,68,0.3); border-radius:8px;
+            padding:8px 18px; font-size:13px; font-weight:500; cursor:pointer; transition:all 0.2s;
+        }
+        .btn-danger:hover { background:rgba(239,68,68,0.3); }
+
+        .log-controls { display:flex; gap:8px; align-items:center; margin-bottom:10px; flex-wrap:wrap; }
+        .log-controls select { padding:7px 10px; border-radius:6px; background:var(--color-surface-light); border:1px solid var(--color-border); color:var(--color-text-primary); font-size:12px; outline:none; }
+    </style>
+</head>
+<body>
+    <div id="app" class="flex" style="height: 100vh;">
+        <div id="sidebar-container"></div>
+        <main style="flex: 1; overflow-y: auto; padding: 32px;">
+            <div style="max-width: 1200px; margin: 0 auto;">
+
+                <!-- Header -->
+                <div class="flex justify-between items-center mb-6">
+                    <div>
+                        <h1 class="text-2xl gradient-text">Settings</h1>
+                        <p style="color: var(--color-text-secondary); margin-top: 8px;">System configuration and service management</p>
+                    </div>
+                    <button class="btn-secondary" onclick="loadAll()">🔄 Refresh</button>
+                </div>
+
+                <!-- ═══ SYSTEM INFO ═══ -->
+                <div class="glass-card" style="margin-bottom:20px;">
+                    <h2 style="font-size:16px; font-weight:600; margin-bottom:14px;">ℹ️ System Information</h2>
+                    <div class="info-grid">
+                        <div class="info-box"><div class="info-label">Hostname</div><div class="info-value" id="sysHostname">—</div></div>
+                        <div class="info-box"><div class="info-label">OS</div><div class="info-value" id="sysOS" style="font-size:13px;">—</div></div>
+                        <div class="info-box"><div class="info-label">Kernel</div><div class="info-value mono" id="sysKernel">—</div></div>
+                        <div class="info-box"><div class="info-label">Uptime</div><div class="info-value" id="sysUptime">—</div></div>
+                        <div class="info-box"><div class="info-label">Timezone</div><div class="info-value mono" id="sysTZ">—</div></div>
+                    </div>
+
+                    <!-- Timezone change -->
+                    <div style="display:flex; gap:10px; align-items:flex-end; margin-top:4px;">
+                        <div style="flex:1; max-width:300px;">
+                            <label class="form-label">Change Timezone</label>
+                            <select class="form-input" id="tzSelect" onchange="setTimezone()">
+                                <option value="">— select —</option>
+                                <option value="UTC">UTC</option>
+                                <option value="Europe/Berlin">Europe/Berlin</option>
+                                <option value="Europe/London">Europe/London</option>
+                                <option value="Europe/Paris">Europe/Paris</option>
+                                <option value="Europe/Moscow">Europe/Moscow</option>
+                                <option value="America/New_York">America/New_York</option>
+                                <option value="America/Chicago">America/Chicago</option>
+                                <option value="America/Denver">America/Denver</option>
+                                <option value="America/Los_Angeles">America/Los_Angeles</option>
+                                <option value="Asia/Tokyo">Asia/Tokyo</option>
+                                <option value="Asia/Shanghai">Asia/Shanghai</option>
+                                <option value="Asia/Seoul">Asia/Seoul</option>
+                                <option value="Asia/Kolkata">Asia/Kolkata</option>
+                                <option value="Australia/Sydney">Australia/Sydney</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ═══ SERVICES ═══ -->
+                <div class="glass-card" style="margin-bottom:20px;">
+                    <h2 style="font-size:16px; font-weight:600; margin-bottom:14px;">⚙️ Services</h2>
+                    <div id="servicesList"><p style="color:var(--color-text-muted); font-size:13px; padding:20px 0;">Loading…</p></div>
+                </div>
+
+                <!-- ═══ LOGS ═══ -->
+                <div class="glass-card" style="margin-bottom:20px;">
+                    <h2 style="font-size:16px; font-weight:600; margin-bottom:12px;">📋 System Logs</h2>
+                    <div class="log-controls">
+                        <select id="logService" onchange="loadLogs()">
+                            <option value="">All Services</option>
+                            <option value="smbd">smbd</option>
+                            <option value="nmbd">nmbd</option>
+                            <option value="apache2">apache2</option>
+                            <option value="tailscaled">tailscaled</option>
+                            <option value="docker">docker</option>
+                        </select>
+                        <select id="logLines" onchange="loadLogs()">
+                            <option value="50">Last 50 lines</option>
+                            <option value="100" selected>Last 100 lines</option>
+                            <option value="500">Last 500 lines</option>
+                        </select>
+                        <button class="btn-secondary" style="padding:6px 12px; font-size:12px;" onclick="loadLogs()">🔄 Refresh</button>
+                    </div>
+                    <div id="logOutput">Loading…</div>
+                </div>
+
+                <!-- ═══ UPDATES ═══ -->
+                <div class="glass-card" style="margin-bottom:20px;">
+                    <h2 style="font-size:16px; font-weight:600; margin-bottom:14px;">📦 System Updates</h2>
+                    <div style="display:flex; gap:12px; align-items:center;">
+                        <button class="btn-secondary" style="padding:8px 18px;" onclick="checkUpdates()">🔍 Check for Updates</button>
+                        <span id="updateStatus" style="font-size:13px; color:var(--color-text-secondary);">—</span>
+                    </div>
+                    <div id="installUpdateBtn" style="display:none; margin-top:12px;">
+                        <button class="btn-primary" style="padding:8px 18px;" onclick="installUpdates()">⬇️ Install Updates</button>
+                    </div>
+                </div>
+
+                <!-- ═══ DANGER ZONE ═══ -->
+                <div class="glass-card danger-card">
+                    <h2 style="font-size:16px; font-weight:600; margin-bottom:6px; color:var(--color-error);">⚠️ Danger Zone</h2>
+                    <p style="font-size:12px; color:var(--color-text-muted); margin-bottom:16px;">These actions affect the entire system. Use with caution.</p>
+                    <div style="display:flex; gap:10px;">
+                        <button class="btn-danger" onclick="rebootSystem()">🔄 Reboot</button>
+                        <button class="btn-danger" onclick="shutdownSystem()">⏻ Shutdown</button>
+                    </div>
+                </div>
+
+            </div>
+        </main>
+    </div>
+
+    <script src="/js/sidebar.js"></script>
+    <script>
+    async function loadAll() {
+        await loadSystemInfo();
+        await loadServices();
+        await loadLogs();
+    }
+
+    // ─── SYSTEM INFO ───
+    async function loadSystemInfo() {
+        const res  = await fetch('/api/settings.php?action=info');
+        const info = await res.json();
+        document.getElementById('sysHostname').textContent = info.hostname || '—';
+        document.getElementById('sysOS').textContent       = info.os       || '—';
+        document.getElementById('sysKernel').textContent   = info.kernel   || '—';
+        document.getElementById('sysUptime').textContent   = info.uptime   || '—';
+        document.getElementById('sysTZ').textContent       = info.timezone || '—';
+    }
+
+    async function setTimezone() {
+        const tz = document.getElementById('tzSelect').value;
+        if (!tz) return;
+        const res = await fetch('/api/settings.php?action=set_timezone', {
+            method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({ timezone: tz })
+        });
+        const r = await res.json();
+        if (r.success) { await loadSystemInfo(); }
+        else { alert('Failed: ' + r.error); }
+        document.getElementById('tzSelect').value = '';
+    }
+
+    // ─── SERVICES ───
+    async function loadServices() {
+        const res  = await fetch('/api/settings.php?action=services');
+        const data = await res.json();
+        const services = data.services || [];
+        const el   = document.getElementById('servicesList');
+
+        if (services.length === 0) {
+            el.innerHTML = '<p style="color:var(--color-text-muted); font-size:13px;">No services found.</p>';
+            return;
+        }
+
+        el.innerHTML = services.map(s => `
+            <div class="svc-row">
+                <div class="svc-left">
+                    <div class="svc-dot ${s.active === 'active' ? 'active' : 'inactive'}"></div>
+                    <div>
+                        <div class="svc-name">${s.name}</div>
+                        <div class="svc-desc">${s.description || s.sub}</div>
+                    </div>
+                </div>
+                <div class="svc-actions">
+                    <button class="btn-secondary" style="padding:4px 8px; font-size:11px;" onclick="svcAction('${s.name}','start')">▶</button>
+                    <button class="btn-secondary" style="padding:4px 8px; font-size:11px;" onclick="svcAction('${s.name}','stop')">■</button>
+                    <button class="btn-secondary" style="padding:4px 8px; font-size:11px;" onclick="svcAction('${s.name}','restart')">🔄</button>
+                    <button class="btn-secondary" style="padding:4px 8px; font-size:11px;" onclick="svcAction('${s.name}','enable')">🔒</button>
+                    <button class="btn-secondary" style="padding:4px 8px; font-size:11px;" onclick="svcAction('${s.name}','disable')">🔓</button>
+                </div>
+            </div>
+        `).join('');
+    }
+
+    async function svcAction(service, action) {
+        const res = await fetch('/api/settings.php?action=' + action + '_service', {
+            method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({ service })
+        });
+        const r = await res.json();
+        if (!r.success) { alert(`${action} failed: ` + r.error); }
+        await loadServices();
+    }
+
+    // ─── LOGS ───
+    async function loadLogs() {
+        const service = document.getElementById('logService').value;
+        const lines   = document.getElementById('logLines').value;
+        let url = '/api/settings.php?action=logs&lines=' + lines;
+        if (service) url += '&service=' + service;
+
+        const res  = await fetch(url);
+        const data = await res.json();
+        document.getElementById('logOutput').textContent = data.logs || 'No logs.';
+    }
+
+    // ─── UPDATES ───
+    async function checkUpdates() {
+        document.getElementById('updateStatus').textContent = 'Checking…';
+        const res  = await fetch('/api/settings.php?action=check_updates');
+        const data = await res.json();
+        const count = data.available || 0;
+
+        if (count > 0) {
+            document.getElementById('updateStatus').textContent = count + ' update(s) available';
+            document.getElementById('updateStatus').style.color = 'var(--color-warning)';
+            document.getElementById('installUpdateBtn').style.display = 'block';
+        } else {
+            document.getElementById('updateStatus').textContent = 'System is up to date.';
+            document.getElementById('updateStatus').style.color = 'var(--color-success)';
+            document.getElementById('installUpdateBtn').style.display = 'none';
+        }
+    }
+
+    async function installUpdates() {
+        if (!confirm('Install system updates? This may take a while.')) return;
+        document.getElementById('updateStatus').textContent = 'Installing…';
+        const res  = await fetch('/api/settings.php?action=install_updates', { method:'POST', headers:{'Content-Type':'application/json'}, body:'{}' });
+        const r    = await res.json();
+        if (r.success) {
+            document.getElementById('updateStatus').textContent = 'Updates installed.';
+            document.getElementById('updateStatus').style.color = 'var(--color-success)';
+            document.getElementById('installUpdateBtn').style.display = 'none';
+        } else {
+            document.getElementById('updateStatus').textContent = 'Install failed: ' + r.error;
+            document.getElementById('updateStatus').style.color = 'var(--color-error)';
+        }
+    }
+
+    // ─── DANGER ───
+    async function rebootSystem() {
+        if (!confirm('Reboot the system? It will be unavailable for a minute.')) return;
+        const res = await fetch('/api/settings.php?action=reboot', { method:'POST', headers:{'Content-Type':'application/json'}, body:'{}' });
+        const r   = await res.json();
+        alert(r.message || 'Reboot scheduled.');
+    }
+
+    async function shutdownSystem() {
+        if (!confirm('Shut down the system? You will need physical access to turn it back on.')) return;
+        const res = await fetch('/api/settings.php?action=shutdown', { method:'POST', headers:{'Content-Type':'application/json'}, body:'{}' });
+        const r   = await res.json();
+        alert(r.message || 'Shutdown scheduled.');
+    }
+
+    loadAll();
+    </script>
+</body>
+</html>

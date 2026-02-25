@@ -1,0 +1,524 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Backup - D-PlaneOS v1.14.0</title>
+    <link rel="stylesheet" href="/css/main.css">
+</head>
+<body>
+    <div id="app" class="flex" style="height: 100vh;">
+        <div id="sidebar-container"></div>
+        
+        <main style="flex: 1; overflow-y: auto; padding: 32px;">
+            <div style="max-width: 1200px; margin: 0 auto;">
+                <!-- Header -->
+                <div class="flex justify-between items-center mb-6">
+                    <div>
+                        <h1 class="text-2xl gradient-text">Backup & Restore</h1>
+                        <p style="color: var(--color-text-secondary); margin-top: 8px;">
+                            System Snapshots & Data Protection
+                        </p>
+                    </div>
+                    <button class="btn-primary" onclick="showCreateBackup()">
+                        ➕ Create Backup
+                    </button>
+                </div>
+
+                <!-- Backup Stats -->
+                <div class="grid-3 mb-6">
+                    <div class="glass-card">
+                        <div class="stat-label">Total Backups</div>
+                        <div id="totalBackups" class="stat-value">0</div>
+                        <p style="color: var(--color-text-secondary); font-size: 14px; margin-top: 8px;">
+                            Stored locally & remote
+                        </p>
+                    </div>
+                    <div class="glass-card">
+                        <div class="stat-label">Last Backup</div>
+                        <div id="lastBackup" class="stat-value">Never</div>
+                        <p style="color: var(--color-text-secondary); font-size: 14px; margin-top: 8px;">
+                            Last successful backup
+                        </p>
+                    </div>
+                    <div class="glass-card">
+                        <div class="stat-label">Backup Size</div>
+                        <div id="backupSize" class="stat-value">0 GB</div>
+                        <p style="color: var(--color-text-secondary); font-size: 14px; margin-top: 8px;">
+                            Total backup storage
+                        </p>
+                    </div>
+                </div>
+
+                <!-- Quick Actions -->
+                <div class="glass-card mb-6">
+                    <h2 class="text-lg font-bold mb-4">Quick Actions</h2>
+                    <div class="grid-3 gap-4">
+                        <div class="quick-action-card" onclick="quickBackup('system')">
+                            <div style="font-size: 32px; margin-bottom: 12px;">⚙️</div>
+                            <div class="font-bold mb-2">System Config</div>
+                            <p style="font-size: 14px; color: var(--color-text-secondary);">
+                                Backup system configuration
+                            </p>
+                        </div>
+                        <div class="quick-action-card" onclick="quickBackup('data')">
+                            <div style="font-size: 32px; margin-bottom: 12px;">💾</div>
+                            <div class="font-bold mb-2">User Data</div>
+                            <p style="font-size: 14px; color: var(--color-text-secondary);">
+                                Backup all user files
+                            </p>
+                        </div>
+                        <div class="quick-action-card" onclick="quickBackup('full')">
+                            <div style="font-size: 32px; margin-bottom: 12px;">📦</div>
+                            <div class="font-bold mb-2">Full System</div>
+                            <p style="font-size: 14px; color: var(--color-text-secondary);">
+                                Complete system backup
+                            </p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Backup List -->
+                <div class="glass-card mb-6">
+                    <div class="flex justify-between items-center mb-4">
+                        <h2 class="text-lg font-bold">Recent Backups</h2>
+                        <button class="btn-secondary" onclick="loadBackups()">🔄 Refresh</button>
+                    </div>
+                    <div id="backupsList">
+                        <div class="text-center" style="padding: 40px; color: var(--color-text-secondary);">
+                            <div class="spinner" style="margin: 0 auto 16px;"></div>
+                            <p>Loading backups...</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Auto Backup Schedule -->
+                <div class="glass-card">
+                    <h2 class="text-lg font-bold mb-4">Automatic Backup Schedule</h2>
+                    
+                    <div class="mb-4">
+                        <label class="flex items-center gap-3" style="cursor: pointer;">
+                            <input type="checkbox" id="autoBackupEnabled" onchange="toggleAutoBackup()" 
+                                   style="width: 20px; height: 20px;">
+                            <span class="font-bold">Enable Automatic Backups</span>
+                        </label>
+                    </div>
+
+                    <div id="scheduleSettings" style="display: none;">
+                        <div class="grid-2 gap-4 mb-4">
+                            <div>
+                                <label class="stat-label">Frequency</label>
+                                <select id="backupFrequency" class="w-full p-3 mt-2" 
+                                        style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 8px; color: var(--color-text-primary);">
+                                    <option value="daily">Daily</option>
+                                    <option value="weekly">Weekly</option>
+                                    <option value="monthly">Monthly</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="stat-label">Time</label>
+                                <input type="time" id="backupTime" value="02:00" 
+                                       class="w-full p-3 mt-2" 
+                                       style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 8px; color: var(--color-text-primary);">
+                            </div>
+                        </div>
+
+                        <div class="mb-4">
+                            <label class="stat-label">Retention (Keep last N backups)</label>
+                            <input type="number" id="backupRetention" value="7" min="1" max="365"
+                                   class="w-full p-3 mt-2" 
+                                   style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 8px; color: var(--color-text-primary);">
+                        </div>
+
+                        <button class="btn-primary" onclick="saveSchedule()">Save Schedule</button>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Create Backup Modal -->
+    <div id="createBackupModal" class="modal" style="display: none;">
+        <div class="modal-content glass-card" style="max-width: 600px; margin: 50px auto;">
+            <h2 class="text-lg font-bold mb-4">Create New Backup</h2>
+            
+            <div class="mb-4">
+                <label class="stat-label">Backup Name</label>
+                <input type="text" id="backupName" placeholder="e.g., weekly-backup" 
+                       class="w-full p-3 mt-2" style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 8px; color: var(--color-text-primary);">
+            </div>
+
+            <div class="mb-4">
+                <label class="stat-label">Backup Type</label>
+                <select id="backupType" class="w-full p-3 mt-2" style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 8px; color: var(--color-text-primary);">
+                    <option value="system">System Configuration Only</option>
+                    <option value="data">User Data Only</option>
+                    <option value="full">Full System Backup</option>
+                </select>
+            </div>
+
+            <div class="mb-4">
+                <label class="stat-label">Destination</label>
+                <select id="backupDest" class="w-full p-3 mt-2" style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 8px; color: var(--color-text-primary);">
+                    <option value="local">Local Storage</option>
+                    <option value="usb">External USB Drive</option>
+                    <option value="remote">Remote Server (SSH)</option>
+                </select>
+            </div>
+
+            <div class="mb-6">
+                <label class="flex items-center gap-3" style="cursor: pointer;">
+                    <input type="checkbox" id="encryptBackup" style="width: 20px; height: 20px;">
+                    <span>Encrypt backup (recommended)</span>
+                </label>
+            </div>
+
+            <div class="flex gap-4">
+                <button class="btn-primary" onclick="startBackup()">Start Backup</button>
+                <button class="btn-secondary" onclick="closeCreateBackup()">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Restore Modal -->
+    <div id="restoreModal" class="modal" style="display: none;">
+        <div class="modal-content glass-card" style="max-width: 600px; margin: 50px auto;">
+            <h2 class="text-lg font-bold mb-4" style="color: var(--color-warning);">⚠️ Restore Backup</h2>
+            
+            <div class="mb-4" style="background: rgba(245, 158, 11, 0.1); border: 1px solid var(--color-warning); border-radius: 8px; padding: 16px;">
+                <p style="color: var(--color-warning); font-weight: 600;">Warning!</p>
+                <p style="color: var(--color-text-secondary); font-size: 14px; margin-top: 8px;">
+                    Restoring a backup will overwrite current data. This action cannot be undone.
+                </p>
+            </div>
+
+            <div id="restoreDetails" class="mb-6">
+                <!-- Populated dynamically -->
+            </div>
+
+            <div class="flex gap-4">
+                <button class="btn-primary" onclick="confirmRestore()">Confirm Restore</button>
+                <button class="btn-secondary" onclick="closeRestore()">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <style>
+        .modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            backdrop-filter: blur(8px);
+            z-index: 1000;
+            overflow-y: auto;
+        }
+
+        .modal-content {
+            animation: fadeIn 0.3s ease;
+        }
+
+        .quick-action-card {
+            padding: 24px;
+            background: rgba(30, 41, 59, 0.5);
+            border: 1px solid var(--color-border);
+            border-radius: 12px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .quick-action-card:hover {
+            border-color: var(--color-primary);
+            box-shadow: 0 8px 24px rgba(124, 58, 237, 0.2);
+            transform: translateY(-2px);
+        }
+
+        .backup-item {
+            background: rgba(30, 41, 59, 0.4);
+            border: 1px solid var(--color-border);
+            border-radius: 12px;
+            padding: 16px;
+            margin-bottom: 12px;
+            transition: all 0.3s ease;
+        }
+
+        .backup-item:hover {
+            border-color: var(--color-border-light);
+        }
+
+        .backup-status {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .backup-status.success {
+            background: rgba(16, 185, 129, 0.2);
+            color: var(--color-success);
+        }
+
+        .backup-status.running {
+            background: rgba(59, 130, 246, 0.2);
+            color: var(--color-info);
+        }
+    </style>
+
+    <script src="/js/sidebar.js"></script>
+    <script>
+        let currentBackup = null;
+
+        // Load backups on page load
+        loadBackups();
+        loadScheduleSettings();
+
+        async function loadBackups() {
+            try {
+                const response = await fetch('/api/backup.php?action=list');
+                const data = await response.json();
+                
+                renderBackups(data.backups || []);
+                updateStats(data.stats || {});
+            } catch (error) {
+                console.error('Failed to load backups:', error);
+                document.getElementById('backupsList').innerHTML = 
+                    '<p class="text-center" style="color: var(--color-error); padding: 40px;">Failed to load backups</p>';
+            }
+        }
+
+        function renderBackups(backups) {
+            const container = document.getElementById('backupsList');
+            
+            if (backups.length === 0) {
+                container.innerHTML = '<p class="text-center" style="color: var(--color-text-secondary); padding: 40px;">No backups found. Create your first backup!</p>';
+                return;
+            }
+
+            container.innerHTML = backups.map(backup => `
+                <div class="backup-item">
+                    <div class="flex justify-between items-start mb-3">
+                        <div>
+                            <div class="font-bold text-lg">${backup.name}</div>
+                            <div style="color: var(--color-text-secondary); font-size: 14px; margin-top: 4px;">
+                                ${backup.type} • ${backup.date}
+                            </div>
+                        </div>
+                        <span class="backup-status ${backup.status}">${backup.status.toUpperCase()}</span>
+                    </div>
+                    
+                    <div class="grid-3 gap-3 mb-3">
+                        <div>
+                            <div class="stat-label" style="font-size: 11px;">Size</div>
+                            <div class="text-sm font-bold mt-1">${backup.size}</div>
+                        </div>
+                        <div>
+                            <div class="stat-label" style="font-size: 11px;">Location</div>
+                            <div class="text-sm font-bold mt-1">${backup.location}</div>
+                        </div>
+                        <div>
+                            <div class="stat-label" style="font-size: 11px;">Duration</div>
+                            <div class="text-sm font-bold mt-1">${backup.duration}</div>
+                        </div>
+                    </div>
+                    
+                    <div class="flex gap-2">
+                        <button class="btn-primary" style="font-size: 12px; padding: 6px 12px;" onclick="restoreBackup('${backup.id}')">↻ Restore</button>
+                        <button class="btn-secondary" style="font-size: 12px; padding: 6px 12px;" onclick="downloadBackup('${backup.id}')">⬇ Download</button>
+                        <button class="btn-secondary" style="font-size: 12px; padding: 6px 12px; color: var(--color-error);" onclick="deleteBackup('${backup.id}')">🗑️ Delete</button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function updateStats(stats) {
+            document.getElementById('totalBackups').textContent = stats.total || 0;
+            document.getElementById('lastBackup').textContent = stats.lastBackup || 'Never';
+            document.getElementById('backupSize').textContent = stats.totalSize || '0 GB';
+        }
+
+        function showCreateBackup() {
+            document.getElementById('createBackupModal').style.display = 'block';
+        }
+
+        function closeCreateBackup() {
+            document.getElementById('createBackupModal').style.display = 'none';
+        }
+
+        async function startBackup() {
+            const name = document.getElementById('backupName').value;
+            const type = document.getElementById('backupType').value;
+            const dest = document.getElementById('backupDest').value;
+            const encrypt = document.getElementById('encryptBackup').checked;
+
+            if (!name) {
+                alert('Please enter a backup name');
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/backup.php', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        action: 'create',
+                        name: name,
+                        type: type,
+                        destination: dest,
+                        encrypt: encrypt
+                    })
+                });
+
+                const result = await response.json();
+                
+                if (result.success) {
+                    alert('Backup started! This may take a while...');
+                    closeCreateBackup();
+                    loadBackups();
+                } else {
+                    alert('Failed to start backup: ' + result.error);
+                }
+            } catch (error) {
+                alert('Failed to start backup: ' + error.message);
+            }
+        }
+
+        function quickBackup(type) {
+            document.getElementById('backupName').value = `${type}-${Date.now()}`;
+            document.getElementById('backupType').value = type;
+            showCreateBackup();
+        }
+
+        function restoreBackup(id) {
+            currentBackup = id;
+            document.getElementById('restoreDetails').innerHTML = `
+                <div class="mb-3">
+                    <div class="stat-label">Backup ID</div>
+                    <div class="font-bold mt-1">${id}</div>
+                </div>
+                <p style="color: var(--color-text-secondary); font-size: 14px;">
+                    This will restore the system to the state of this backup. All current data will be replaced.
+                </p>
+            `;
+            document.getElementById('restoreModal').style.display = 'block';
+        }
+
+        function closeRestore() {
+            document.getElementById('restoreModal').style.display = 'none';
+            currentBackup = null;
+        }
+
+        async function confirmRestore() {
+            if (!currentBackup) return;
+
+            try {
+                const response = await fetch('/api/backup.php', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        action: 'restore',
+                        id: currentBackup
+                    })
+                });
+
+                const result = await response.json();
+                
+                if (result.success) {
+                    alert('Restore started! System will reboot after completion.');
+                    closeRestore();
+                } else {
+                    alert('Failed to restore: ' + result.error);
+                }
+            } catch (error) {
+                alert('Failed to restore: ' + error.message);
+            }
+        }
+
+        function toggleAutoBackup() {
+            const enabled = document.getElementById('autoBackupEnabled').checked;
+            document.getElementById('scheduleSettings').style.display = enabled ? 'block' : 'none';
+        }
+
+        async function loadScheduleSettings() {
+            try {
+                const response = await fetch('/api/backup.php?action=get_schedule');
+                const schedule = await response.json();
+                
+                if (schedule.enabled) {
+                    document.getElementById('autoBackupEnabled').checked = true;
+                    document.getElementById('backupFrequency').value = schedule.frequency || 'daily';
+                    document.getElementById('backupTime').value = schedule.time || '02:00';
+                    document.getElementById('backupRetention').value = schedule.retention || 7;
+                    toggleAutoBackup();
+                }
+            } catch (error) {
+                console.error('Failed to load schedule:', error);
+            }
+        }
+
+        async function saveSchedule() {
+            const enabled = document.getElementById('autoBackupEnabled').checked;
+            const frequency = document.getElementById('backupFrequency').value;
+            const time = document.getElementById('backupTime').value;
+            const retention = document.getElementById('backupRetention').value;
+
+            try {
+                const response = await fetch('/api/backup.php', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        action: 'set_schedule',
+                        enabled: enabled,
+                        frequency: frequency,
+                        time: time,
+                        retention: retention
+                    })
+                });
+
+                const result = await response.json();
+                
+                if (result.success) {
+                    alert('Schedule saved successfully!');
+                } else {
+                    alert('Failed to save schedule: ' + result.error);
+                }
+            } catch (error) {
+                alert('Failed to save schedule: ' + error.message);
+            }
+        }
+
+        async function downloadBackup(id) {
+            window.location.href = `/api/backup.php?action=download&id=${id}`;
+        }
+
+        async function deleteBackup(id) {
+            if (!confirm('Are you sure you want to delete this backup?')) return;
+
+            try {
+                const response = await fetch('/api/backup.php', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        action: 'delete',
+                        id: id
+                    })
+                });
+
+                const result = await response.json();
+                
+                if (result.success) {
+                    alert('Backup deleted successfully!');
+                    loadBackups();
+                } else {
+                    alert('Failed to delete backup: ' + result.error);
+                }
+            } catch (error) {
+                alert('Failed to delete backup: ' + error.message);
+            }
+        }
+    </script>
+</body>
+</html>

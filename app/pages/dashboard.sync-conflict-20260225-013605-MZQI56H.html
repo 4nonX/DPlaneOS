@@ -1,0 +1,574 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard - D-PlaneOS</title>
+    <link rel="stylesheet" href="/assets/css/design-tokens.css?v=3.3.0">
+    <link rel="stylesheet" href="/assets/css/m3-components.css?v=3.3.0">
+    <link rel="stylesheet" href="/assets/css/material-symbols-local.css?v=3.3.0">
+    <style>
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 1.5rem;
+            margin: 2rem 0;
+        }
+        
+        .status-card {
+            background: var(--md-sys-color-surface-container);
+            border: 1px solid var(--md-sys-color-outline-variant);
+            border-radius: 12px;
+            padding: 1.5rem;
+            transition: all 0.2s;
+        }
+        
+        .status-card:hover {
+            border-color: var(--md-sys-color-primary);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        }
+        
+        .status-header {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            margin-bottom: 1rem;
+        }
+        
+        .status-icon {
+            font-size: 48px;
+        }
+        
+        .status-icon.ok { color: var(--md-sys-color-success); }
+        .status-icon.warning { color: var(--md-sys-color-warning); }
+        .status-icon.error { color: var(--md-sys-color-error); }
+        
+        .status-metrics {
+            display: grid;
+            gap: 0.75rem;
+        }
+        
+        .metric {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.5rem;
+            background: var(--md-sys-color-surface);
+            border-radius: 8px;
+        }
+        
+        .metric-value {
+            font-weight: 600;
+            font-size: 1.25rem;
+        }
+        
+        .quick-actions {
+            margin-top: 2rem;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+        }
+        
+        .action-btn {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 1.5rem;
+            background: var(--md-sys-color-primary-container);
+            border: none;
+            border-radius: 12px;
+            cursor: pointer;
+            transition: all 0.2s;
+            text-decoration: none;
+            color: var(--md-sys-color-on-primary-container);
+        }
+        
+        .action-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        }
+        
+        .action-btn .material-symbols-rounded {
+            font-size: 32px;
+        }
+        
+        .alerts {
+            margin-top: 2rem;
+        }
+        
+        .alert {
+            padding: 1rem 1.5rem;
+            border-radius: 8px;
+            margin-bottom: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+        
+        .alert.info {
+            background: var(--md-sys-color-primary-container);
+            color: var(--md-sys-color-on-primary-container);
+        }
+        
+        .alert.warning {
+            background: var(--md-sys-color-warning-container);
+            color: var(--md-sys-color-on-warning-container);
+        }
+        
+        .alert.error {
+            background: var(--md-sys-color-error-container);
+            color: var(--md-sys-color-on-error-container);
+        }
+    </style>
+  <link rel="stylesheet" href="/assets/css/ui-consistency.css?v=3.3.0">
+  <script src="/assets/js/daemon-api.js?v=3.3.0"></script>
+</head>
+<body>
+    <div class="app-shell">
+        <div class="content">
+            <div class="page-header">
+                <h1>System Dashboard</h1>
+                <p>Complete overview of your NAS system</p>
+            </div>
+            
+            <!-- System Alerts -->
+            <div id="alerts" class="alerts"></div>
+            
+            <!-- Status Cards -->
+            <div class="dashboard-grid">
+                <!-- Storage Status -->
+                <div class="status-card">
+                    <div class="status-header">
+                        <span class="status-icon material-symbols-rounded ok" id="storage-status-icon">check_circle</span>
+                        <div>
+                            <h3>Storage</h3>
+                            <p style="margin: 0; color: var(--md-sys-color-on-surface-variant); font-size: 0.875rem;">
+                                ZFS Pools & Datasets
+                            </p>
+                        </div>
+                    </div>
+                    <div class="status-metrics">
+                        <div class="metric">
+                            <span>Total Capacity:</span>
+                            <span class="metric-value" id="storage-capacity">-</span>
+                        </div>
+                        <div class="metric">
+                            <span>Used:</span>
+                            <span class="metric-value" id="storage-used">-</span>
+                        </div>
+                        <div class="metric">
+                            <span>Pools:</span>
+                            <span class="metric-value" id="storage-pools">-</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Docker Status -->
+                <div class="status-card">
+                    <div class="status-header">
+                        <span class="status-icon material-symbols-rounded ok" id="docker-status-icon">check_circle</span>
+                        <div>
+                            <h3>Docker</h3>
+                            <p style="margin: 0; color: var(--md-sys-color-on-surface-variant); font-size: 0.875rem;">
+                                Containers & Images
+                            </p>
+                        </div>
+                    </div>
+                    <div class="status-metrics">
+                        <div class="metric">
+                            <span>Running:</span>
+                            <span class="metric-value status-good" id="docker-running">-</span>
+                        </div>
+                        <div class="metric">
+                            <span>Total:</span>
+                            <span class="metric-value" id="docker-total">-</span>
+                        </div>
+                        <div class="metric">
+                            <span>Images:</span>
+                            <span class="metric-value" id="docker-images">-</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Hardware Status -->
+                <div class="status-card">
+                    <div class="status-header">
+                        <span class="status-icon material-symbols-rounded ok" id="hardware-status-icon">check_circle</span>
+                        <div>
+                            <h3>Hardware</h3>
+                            <p style="margin: 0; color: var(--md-sys-color-on-surface-variant); font-size: 0.875rem;">
+                                System Health
+                            </p>
+                        </div>
+                    </div>
+                    <div class="status-metrics">
+                        <div class="metric">
+                            <span>CPU Temp:</span>
+                            <span class="metric-value" id="hardware-cpu-temp">-</span>
+                        </div>
+                        <div class="metric">
+                            <span>Drives:</span>
+                            <span class="metric-value" id="hardware-drives">-</span>
+                        </div>
+                        <div class="metric">
+                            <span>Network:</span>
+                            <span class="metric-value status-good" id="hardware-network">-</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Network Status -->
+                <div class="status-card">
+                    <div class="status-header">
+                        <span class="status-icon material-symbols-rounded ok" id="network-status-icon">check_circle</span>
+                        <div>
+                            <h3>Network</h3>
+                            <p style="margin: 0; color: var(--md-sys-color-on-surface-variant); font-size: 0.875rem;">
+                                Interfaces & Connectivity
+                            </p>
+                        </div>
+                    </div>
+                    <div class="status-metrics">
+                        <div class="metric">
+                            <span>Active Links:</span>
+                            <span class="metric-value" id="network-active">-</span>
+                        </div>
+                        <div class="metric">
+                            <span>RX:</span>
+                            <span class="metric-value" id="network-rx">-</span>
+                        </div>
+                        <div class="metric">
+                            <span>TX:</span>
+                            <span class="metric-value" id="network-tx">-</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Quick Actions -->
+            <h2>Quick Actions</h2>
+            <div class="quick-actions">
+                <a href="/pages/storage.html" class="action-btn">
+                    <span class="material-symbols-rounded">add_circle</span>
+                    <span>Create Pool</span>
+                </a>
+                <a href="/pages/docker.html" class="action-btn">
+                    <span class="material-symbols-rounded">play_arrow</span>
+                    <span>Start Container</span>
+                </a>
+                <a href="/pages/files.html" class="action-btn">
+                    <span class="material-symbols-rounded">upload</span>
+                    <span>Upload Files</span>
+                </a>
+                <a href="/pages/hardware.html" class="action-btn">
+                    <span class="material-symbols-rounded">insights</span>
+                    <span>View Hardware</span>
+                </a>
+                <a href="/pages/backup.html" class="action-btn">
+                    <span class="material-symbols-rounded">backup</span>
+                    <span>Backup System</span>
+                </a>
+                <a href="/pages/settings.html" class="action-btn">
+                    <span class="material-symbols-rounded">settings</span>
+                    <span>Settings</span>
+                </a>
+            </div>
+        </div>
+    </div>
+    
+    <script src="/assets/js/core.js?v=3.3.0"></script>
+<script src="/assets/js/nav-flyout.js?v=3.3.0"></script>
+<script src="/assets/js/hybrid-router.js?v=3.3.0"></script>
+    <script>
+        // Load dashboard data
+        document.addEventListener('DOMContentLoaded', () => {
+            loadDashboard();
+            
+            // Auto-refresh every 10 seconds
+            setInterval(loadDashboard, 10000);
+        });
+        
+        async function loadDashboard() {
+            // Load all system status
+            await Promise.all([
+                loadStorageStatus(),
+                loadDockerStatus(),
+                loadHardwareStatus(),
+                loadNetworkStatus(),
+                checkAlerts()
+            ]);
+        }
+        
+        async function loadStorageStatus() {
+            try {
+                const response = await daemonAPI.zfs_pools();
+                const data = await response.json();
+                
+                if (data.success && data.pools) {
+                    const pools = data.pools;
+                    document.getElementById('storage-pools').textContent = pools.length;
+                    
+                    // Calculate totals
+                    let totalSize = 0;
+                    let totalUsed = 0;
+                    
+                    pools.forEach(pool => {
+                        totalSize += parseSize(pool.size);
+                        totalUsed += parseSize(pool.alloc);
+                    });
+                    
+                    document.getElementById('storage-capacity').textContent = formatSize(totalSize);
+                    document.getElementById('storage-used').textContent = formatSize(totalUsed);
+                    
+                    updateStatusIcon('storage', pools.filter(p => p.health === 'ONLINE').length === pools.length);
+                }
+            } catch (error) {
+                console.error('Failed to load storage:', error);
+                updateStatusIcon('storage', false);
+            }
+        }
+        
+        async function loadDockerStatus() {
+            try {
+                const response = await daemonAPI.docker_list();
+                const data = await response.json();
+                
+                if (data.success && data.containers) {
+                    const containers = data.containers;
+                    const running = containers.filter(c => c.State === 'running').length;
+                    
+                    document.getElementById('docker-running').textContent = running;
+                    document.getElementById('docker-total').textContent = containers.length;
+                    
+                    updateStatusIcon('docker', true);
+                }
+                
+                // Load images count
+                const imgResponse = await daemonAPI.docker_list() /* images deprecated */;
+                const imgData = await imgResponse.json();
+                
+                if (imgData.success && imgData.images) {
+                    document.getElementById('docker-images').textContent = imgData.images.length;
+                }
+            } catch (error) {
+                console.error('Failed to load docker:', error);
+                updateStatusIcon('docker', false);
+            }
+        }
+        
+        async function loadHardwareStatus() {
+            try {
+                const response = await daemonAPI.system_network();
+                const data = await response.json();
+                
+                if (data.success && data.hardware) {
+                    const hw = data.hardware;
+                    
+                    // CPU temp
+                    if (hw.thermal && hw.thermal.cpu && hw.thermal.cpu.length > 0) {
+                        const temp = hw.thermal.cpu[0].temp;
+                        document.getElementById('hardware-cpu-temp').textContent = temp + '°C';
+                        
+                        updateStatusIcon('hardware', temp < 80);
+                    }
+                    
+                    // Drives
+                    if (hw.storage) {
+                        const drives = hw.storage.length;
+                        const healthy = hw.storage.filter(d => d.smart && d.smart.health === 'passed').length;
+                        document.getElementById('hardware-drives').textContent = `${healthy}/${drives} OK`;
+                    }
+                    
+                    // Network
+                    if (hw.network) {
+                        const active = hw.network.filter(n => n.state === 'up').length;
+                        document.getElementById('hardware-network').textContent = `${active} UP`;
+                    }
+                }
+            } catch (error) {
+                console.error('Failed to load hardware:', error);
+                updateStatusIcon('hardware', false);
+            }
+        }
+        
+        async function loadNetworkStatus() {
+            try {
+                const response = await daemonAPI.system_network();
+                const data = await response.json();
+                
+                if (data.success && data.devices) {
+                    const active = data.devices.filter(d => d.state === 'up').length;
+                    document.getElementById('network-active').textContent = `${active}/${data.devices.length}`;
+                    
+                    // Calculate total RX/TX
+                    let totalRx = 0;
+                    let totalTx = 0;
+                    
+                    data.devices.forEach(dev => {
+                        if (dev.stats) {
+                            totalRx += dev.stats.rx_bytes || 0;
+                            totalTx += dev.stats.tx_bytes || 0;
+                        }
+                    });
+                    
+                    document.getElementById('network-rx').textContent = formatSize(totalRx);
+                    document.getElementById('network-tx').textContent = formatSize(totalTx);
+                    
+                    updateStatusIcon('network', active > 0);
+                }
+            } catch (error) {
+                console.error('Failed to load network:', error);
+                updateStatusIcon('network', false);
+            }
+        }
+        
+        async function checkAlerts() {
+            const alertsEl = document.getElementById('alerts');
+            const alerts = [];
+
+            // Check ECC RAM status — advisory only, never blocks operation
+            try {
+                const r = await csrfFetch('/api/status');
+                const d = await r.json();
+                if (d.success) {
+                    if (d.ecc_warning) {
+                        // Definitive non-ECC detection on physical hardware
+                        alerts.push({
+                            level: 'info',
+                            msg: d.ecc_warning_msg || 'Non-ECC RAM detected. ZFS cannot protect against in-memory bit flips. ECC RAM is recommended.',
+                            link: '/pages/hardware.html',
+                            linkText: 'Learn more'
+                        });
+                    } else if (d.ecc_virtual) {
+                        // Running in VM — ECC detection unreliable, inform neutrally
+                        alerts.push({
+                            level: 'info',
+                            msg: 'Virtual environment detected. ECC RAM status cannot be determined — check your host hardware directly.',
+                            link: '/pages/hardware.html',
+                            linkText: 'Details'
+                        });
+                    }
+                    // ecc_known=false && !ecc_virtual → dmidecode unavailable, show nothing
+                }
+            } catch(e) {}
+
+            // Check ZFS health
+            try {
+                const r = await csrfFetch('/api/zfs/health');
+                const d = await r.json();
+                if (d.success && d.pools) {
+                    d.pools.forEach(p => {
+                        if (p.health !== 'ONLINE') alerts.push({level:'error', msg:`Pool ${p.name}: ${p.health}`});
+                        if (p.errors && p.errors !== 'No known data errors') alerts.push({level:'warning', msg:`Pool ${p.name}: ${p.errors}`});
+                    });
+                }
+            } catch(e) {}
+
+            // Check capacity
+            try {
+                const r = await csrfFetch('/api/zfs/capacity');
+                const d = await r.json();
+                if (d.success && d.pools) {
+                    d.pools.forEach(p => {
+                        if (p.used_percent > 90) alerts.push({level:'error', msg:`Pool ${p.pool}: ${p.used_percent}% full — critical!`});
+                        else if (p.used_percent > 80) alerts.push({level:'warning', msg:`Pool ${p.pool}: ${p.used_percent}% used`});
+                    });
+                }
+            } catch(e) {}
+
+            // Check stale locks
+            try {
+                const r = await csrfFetch('/api/system/stale-locks');
+                const d = await r.json();
+                if (d.success && d.count > 0) alerts.push({level:'warning', msg:`${d.count} stale lock(s) detected`});
+            } catch(e) {}
+
+            // Check disk latency
+            try {
+                const r = await csrfFetch('/api/zfs/disk-latency');
+                const d = await r.json();
+                if (d.success && d.slow_disks && d.slow_disks.length > 0) {
+                    d.slow_disks.forEach(disk => alerts.push({level:'warning', msg:`Slow disk: ${disk.name} (${disk.latency_ms}ms)`}));
+                }
+            } catch(e) {}
+
+            // Render alerts (info=blue advisory, warning=amber, error=red)
+            if (alerts.length === 0) {
+                alertsEl.innerHTML = '<div style="padding:16px;text-align:center;color:rgba(255,255,255,0.3);"><span class="material-symbols-rounded" style="font-size:24px;vertical-align:middle;">check_circle</span> All systems healthy</div>';
+            } else {
+                const el = document.createDocumentFragment();
+                alerts.forEach(a => {
+                    const row = document.createElement('div');
+                    row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:10px 16px;border-bottom:1px solid rgba(255,255,255,0.05);';
+                    const color = a.level==='error'?'#ef4444':a.level==='info'?'#60a5fa':'#f59e0b';
+                    const icon = a.level==='error'?'error':a.level==='info'?'info':'warning';
+                    const ic = document.createElement('span');
+                    ic.className = 'material-symbols-rounded';
+                    ic.style.cssText = `color:${color};font-size:20px;flex-shrink:0;`;
+                    ic.textContent = icon;
+                    const txt = document.createElement('span');
+                    txt.style.fontSize = '14px';
+                    txt.textContent = a.msg;
+                    row.appendChild(ic);
+                    row.appendChild(txt);
+                    if (a.link) {
+                        const lnk = document.createElement('a');
+                        lnk.href = a.link;
+                        lnk.textContent = a.linkText || 'Details';
+                        lnk.style.cssText = `color:${color};font-size:13px;margin-left:auto;white-space:nowrap;`;
+                        row.appendChild(lnk);
+                    }
+                    el.appendChild(row);
+                });
+                alertsEl.innerHTML = '';
+                alertsEl.appendChild(el);
+            }
+        }
+        
+        function updateStatusIcon(component, isOk) {
+            const icon = document.getElementById(`${component}-status-icon`);
+            if (!icon) return;
+            
+            if (isOk) {
+                icon.textContent = 'check_circle';
+                icon.className = 'status-icon material-symbols-rounded ok';
+            } else {
+                icon.textContent = 'error';
+                icon.className = 'status-icon material-symbols-rounded error';
+            }
+        }
+        
+        function parseSize(sizeStr) {
+            if (!sizeStr) return 0;
+            
+            const units = { 'K': 1024, 'M': 1024**2, 'G': 1024**3, 'T': 1024**4 };
+            const match = sizeStr.match(/^([\d.]+)([KMGT])?$/);
+            
+            if (!match) return 0;
+            
+            const value = parseFloat(match[1]);
+            const unit = match[2] || '';
+            
+            return value * (units[unit] || 1);
+        }
+        
+        function formatSize(bytes) {
+            if (bytes === 0) return '0 B';
+            
+            const k = 1024;
+            const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        }
+    </script>
+</body>
+<script>
+async function clearStaleLocks() {
+  try { const r = await csrfFetch('/api/system/stale-locks/clear',{method:'POST'}); const d = await r.json();
+    if (d.success) { ui.toast('Stale locks cleared','success'); loadDashboard(); } else { ui.toast(d.error,'error'); }
+  } catch(e) { ui.toast('Failed','error'); }
+}
+</script>
+</html>

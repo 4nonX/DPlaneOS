@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>UPS Management - D-PlaneOS</title>
+    <link rel="stylesheet" href="/assets/css/design-tokens.css?v=3.3.0">
+    <link rel="stylesheet" href="/assets/css/dplaneos-ui-complete.css?v=3.3.0">
+<link rel="stylesheet" href="/assets/css/m3-tokens.css?v=3.3.0">
+<link rel="stylesheet" href="/assets/css/m3-components.css?v=3.3.0">
+<link rel="stylesheet" href="/assets/css/m3-icons.css?v=3.3.0">
+  <link rel="stylesheet" href="/assets/css/enhanced-ui.css?v=3.3.0">
+<link rel="stylesheet" href="/assets/css/ui-components.css?v=3.3.0">
+<script src="/assets/js/core.js?v=3.3.0"></script>
+<script src="/assets/js/nav-flyout.js?v=3.3.0"></script>
+<script src="/assets/js/hybrid-router.js?v=3.3.0"></script>
+  <script src="/assets/js/enhanced-ui.js?v=3.3.0"></script>
+  <script src="/assets/js/connection-monitor.js?v=3.3.0"></script>
+  <script src="/assets/js/keyboard-shortcuts.js?v=3.3.0"></script>
+  <script src="/assets/js/form-validator.js?v=3.3.0"></script>
+<script src="/assets/js/ui-components.js?v=3.3.0"></script>
+  <link rel="stylesheet" href="/assets/css/material-symbols-local.css?v=3.3.0">
+  <link rel="stylesheet" href="/assets/css/ui-consistency.css?v=3.3.0">
+  <link rel="stylesheet" href="/assets/css/ui-polish.css?v=3.3.0">
+  <script src="/assets/js/daemon-api.js?v=3.3.0"></script>
+</head>
+<body>
+<!-- D-PlaneOS - Hierarchical Navigation -->
+<!-- This navigation maintains all security (CSRF, Auth) and real system state -->
+
+<div id="nav-root"></div>
+
+<script>
+function esc(s){const d=document.createElement('div');d.textContent=String(s==null?'':s);return d.innerHTML;}
+// Navigation behavior
+function navigateToSection(section) {
+  if (section === 'dashboard') {
+    window.location.href = 'index.html';
+  }
+}
+
+function toggleSubNav(section, button) {
+  // Remove active from all nav links
+  document.querySelectorAll('.nav-link').forEach(link => {
+    link.classList.remove('active');
+  });
+  
+  // Add active to clicked button
+  if (button) {
+    button.classList.add('active');
+  }
+  
+  // Hide all sub-navs
+  document.querySelectorAll('.nav-sub').forEach(sub => {
+    sub.classList.remove('active');
+  });
+  
+  // Show selected sub-nav
+  const subNav = document.getElementById(`sub-${section}`);
+  if (subNav) {
+    subNav.classList.add('active');
+    document.body.classList.add('has-subnav');
+  }
+}
+
+// Auto-detect current section and page on load
+(function() {
+  const currentPage = window.location.pathname.split('/').pop() || 'index.html';
+  
+  // Page to section mapping
+  const pageMap = {
+    'acl-manager.html': { section: 'storage', page: 'acl-manager' },
+    'audit.html': { section: 'security', page: 'audit' },
+    'certificates.html': { section: 'security', page: 'certificates' },
+    'cloud-sync.html': { section: 'storage', page: 'cloud-sync' },
+    'directory-service.html': { section: 'identity', page: 'directory-service' },
+    'docker.html': { section: 'compute', page: 'docker' },
+    'files-enhanced.html': { section: 'storage', page: 'files-enhanced' },
+    'files.html': { section: 'storage', page: 'files' },
+    'firewall.html': { section: 'security', page: 'firewall' },
+    'groups.html': { section: 'identity', page: 'groups' },
+    'hardware.html': { section: 'system', page: 'hardware' },
+    'index.html': { section: 'dashboard', page: null },
+    'ipmi.html': { section: 'system', page: 'ipmi' },
+    'logs.html': { section: 'system', page: 'logs' },
+    'modules.html': { section: 'compute', page: 'modules' },
+    'network-dns.html': { section: 'network', page: 'network-dns' },
+    'network-interfaces.html': { section: 'network', page: 'network-interfaces' },
+    'network-routing.html': { section: 'network', page: 'network-routing' },
+    'network.html': { section: 'network', page: 'network' },
+    'pools-advanced.html': { section: 'storage', page: 'pools-advanced' },
+    'pools.html': { section: 'storage', page: 'pools' },
+    'power-management.html': { section: 'system', page: 'power-management' },
+    'quotas.html': { section: 'storage', page: 'quotas' },
+    'rbac-management.html': { section: 'identity', page: 'rbac-management' },
+    'removable-media-ui.html': { section: 'system', page: 'removable-media-ui' },
+    'replication.html': { section: 'storage', page: 'replication' },
+    'reporting.html': { section: 'system', page: 'reporting' },
+    'security.html': { section: 'security', page: 'security' },
+    'settings.html': { section: 'system', page: 'settings' },
+    'shares.html': { section: 'storage', page: 'shares' },
+    'snapshot-scheduler.html': { section: 'storage', page: 'snapshot-scheduler' },
+    'system-monitoring.html': { section: 'system', page: 'system-monitoring' },
+    'system-settings.html': { section: 'system', page: 'system-settings' },
+    'ups.html': { section: 'system', page: 'ups' },
+    'users.html': { section: 'identity', page: 'users' },
+    'zfs-encryption.html': { section: 'storage', page: 'zfs-encryption' }
+  };
+  
+  const current = pageMap[currentPage];
+  if (current) {
+    // Activate section button
+    const sectionBtn = document.querySelector(`[data-section="${current.section}"]`);
+    if (sectionBtn) {
+      sectionBtn.classList.add('active');
+    }
+    
+    // Show and activate sub-nav if not dashboard
+    if (current.section !== 'dashboard') {
+      const subNav = document.getElementById(`sub-${current.section}`);
+      if (subNav) {
+        subNav.classList.add('active');
+        document.body.classList.add('has-subnav');
+        
+        // Activate current page in sub-nav
+        if (current.page) {
+          const pageLink = subNav.querySelector(`[data-page="${current.page}"]`);
+          if (pageLink) {
+            pageLink.classList.add('active');
+          }
+        }
+      }
+    }
+  }
+})();
+
+// Keyboard shortcuts
+function showKeyboardHelp() {
+  if (window.EnhancedUI) {
+    const shortcuts = `Keyboard Shortcuts:
+
+g + d → Dashboard
+g + s → Storage
+g + c → Compute
+g + n → Network
+g + u → Identity
+g + e → Security
+g + y → System
+
+r → Refresh page
+Esc → Close modals
+? → Show this help`;
+    EnhancedUI.toast(shortcuts, 'info', 8000);
+  }
+}
+
+// Enhanced keyboard shortcuts for sections
+(function() {
+  let keySequence = '';
+  let keyTimeout;
+  
+  document.addEventListener('keydown', (e) => {
+    if (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) return;
+    
+    keySequence += e.key;
+    clearTimeout(keyTimeout);
+    
+    const shortcuts = {
+      'gd': 'index.html',
+      'gs': () => toggleSubNav('storage', document.querySelector('[data-section="storage"]')),
+      'gc': () => toggleSubNav('compute', document.querySelector('[data-section="compute"]')),
+      'gn': () => toggleSubNav('network', document.querySelector('[data-section="network"]')),
+      'gu': () => toggleSubNav('identity', document.querySelector('[data-section="identity"]')),
+      'ge': () => toggleSubNav('security', document.querySelector('[data-section="security"]')),
+      'gy': () => toggleSubNav('system', document.querySelector('[data-section="system"]'))
+    };
+    
+    if (shortcuts[keySequence]) {
+      e.preventDefault();
+      const action = shortcuts[keySequence];
+      if (typeof action === 'function') {
+        action();
+      } else {
+        window.location.href = action;
+      }
+      keySequence = '';
+    } else if (e.key === '?') {
+      e.preventDefault();
+      showKeyboardHelp();
+    }
+    
+    keyTimeout = setTimeout(() => keySequence = '', 1000);
+  });
+})();
+
+// Connection status monitoring (integrates with existing connection-monitor.js)
+if (window.ConnectionMonitor) {
+  window.ConnectionMonitor.on('statusChange', (online) => {
+    const status = document.getElementById('navConnectionStatus');
+    if (status) {
+      if (online) {
+        status.classList.remove('offline');
+        status.classList.add('online');
+        status.innerHTML = '<span class="status-dot"></span><span>Connected</span>';
+      } else {
+        status.classList.remove('online');
+        status.classList.add('offline');
+        status.innerHTML = '<span class="status-dot"></span><span>Offline</span>';
+      }
+    }
+  });
+}
+</script>
+
+
+<div class="nav-glass"><div class="nav-inner"><div class="logo" onclick="window.location.href='index.html'">D-PlaneOS</div><div class="nav-links"><a href="index.html" class="nav-link">Dashboard</a><a href="files.html" class="nav-link">Files</a><a href="pools.html" class="nav-link">Storage</a><a href="ups.html" class="nav-link active">UPS</a><a href="settings.html" class="nav-link">Settings</a></div><div class="nav-user"><span class="nav-username" id="currentUser">Loading...</span><button class="btn btn-sm btn-logout" onclick="handleLogout()"><span class="material-symbols-rounded" style="font-size:18px;">logout</span>Logout</button></div></div></div>
+<div class="main"><div class="page-header"><div><h1 class="page-title">UPS Management</h1><p class="page-meta">Monitor battery and configure auto-shutdown</p></div><button class="btn btn-primary" onclick="showConfigModal()"><span class="material-symbols-rounded">settings</span>Configure</button></div><div class="grid grid-3" style="margin-bottom:24px;"><div class="card"><div style="text-align:center;padding:32px;"><div style="font-size:48px;margin-bottom:12px;"><span class="material-symbols-rounded">battery_charging_full</span></div><div class="stat-value" id="batteryCharge">—</div><div class="stat-label">Battery Charge</div></div></div><div class="card"><div style="text-align:center;padding:32px;"><div style="font-size:48px;margin-bottom:12px;"><span class="material-symbols-rounded">schedule</span></div><div class="stat-value" id="batteryRuntime">—</div><div class="stat-label">Runtime</div></div></div><div class="card"><div style="text-align:center;padding:32px;"><div style="font-size:48px;margin-bottom:12px;"><span class="material-symbols-rounded">power</span></div><div class="stat-value" id="upsStatus">—</div><div class="stat-label">Status</div></div></div></div><div class="card"><div class="card-header"><div class="card-title">UPS Information</div></div><div id="upsInfo" style="padding:16px;"></div></div></div>
+<script>
+async function loadUPSStatus(){try{const r=await csrfFetch('/api/system/ups');const d=await r.json();if(d.success&&d.data)displayUPSStatus(d.data);else{document.getElementById('batteryCharge').textContent='N/A';document.getElementById('batteryRuntime').textContent='N/A';document.getElementById('upsStatus').textContent='Not Connected';document.getElementById('upsInfo').innerHTML='<div style="text-align:center;color:rgba(255,255,255,0.5);padding:40px;">No UPS detected<br><br>Connect a UPS device and ensure UPS monitoring software is installed and configured on this system.</div>';}}catch(e){document.getElementById('upsInfo').innerHTML='<div style="text-align:center;color:rgba(255,255,255,0.5);padding:40px;">Failed to load UPS status</div>';}}
+function displayUPSStatus(d){document.getElementById('batteryCharge').textContent=d.battery_charge||'N/A';document.getElementById('batteryRuntime').textContent=d.battery_runtime||'N/A';document.getElementById('upsStatus').textContent=d.status||'Unknown';const html=`<div style="display:grid;gap:12px;"><div class="info-row"><span>Model:</span><span>${esc(d.model||'Unknown')}</span></div><div class="info-row"><span>Manufacturer:</span><span>${esc(d.manufacturer||'Unknown')}</span></div><div class="info-row"><span>Serial:</span><span>${esc(d.serial||'Unknown')}</span></div><div class="info-row"><span>Load:</span><span>${esc(d.load||'0')}%</span></div><div class="info-row"><span>Input Voltage:</span><span>${esc(d.input_voltage||'0')}V</span></div><div class="info-row"><span>Output Voltage:</span><span>${esc(d.output_voltage||'0')}V</span></div></div>`;document.getElementById('upsInfo').innerHTML=html;}
+async function showConfigModal(){const html=`<div class="form-group"><label class="form-label">Low Battery Action</label><select id="action" class="form-input"><option value="shutdown">Shutdown System</option><option value="notify">Notify Only</option></select></div><div class="form-group"><label class="form-label">Battery Threshold (%)</label><input type="number" id="threshold" class="form-input" value="20" min="5" max="50"></div><div class="form-group"><label class="form-label">Grace Period (seconds)</label><input type="number" id="grace" class="form-input" value="300" min="60" max="600"></div>`;const ok=await ui.modal('UPS Configuration',html,[{label:'Cancel',value:false},{label:'Save',value:true,primary:true}]);if(ok)await saveConfig();}
+async function saveConfig(){const action=document.getElementById('action').value,threshold=parseInt(document.getElementById('threshold').value),grace=parseInt(document.getElementById('grace').value);try{const r=await csrfFetch('/api/system/ups',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,threshold,grace})});const d=await r.json();if(d.success)ui.toast('Saved','success');else ui.toast(d.error||'Failed','error');}catch(e){ui.toast('Failed','error');}}
+async function handleLogout(){if(!await ui.confirm('Logout','Sure?'))return;try{const r=await csrfFetch('/api/auth/logout',{method:'POST'});if(r.ok){window.location.href='/login';return;}ui.toast('Logout failed','error');}catch(e){ui.toast('Logout failed','error');}}
+async function loadCurrentUser(){try{const r=await csrfFetch('/api/auth/session');const d=await r.json();if(d.success&&d.user)document.getElementById('currentUser').textContent=d.user.username;}catch(e){}}
+document.addEventListener('DOMContentLoaded',()=>{loadUPSStatus();loadCurrentUser();setInterval(loadUPSStatus,10000);});
+</script>
+<style>
+.info-row{display:flex;justify-content:space-between;padding:8px;background:rgba(255,255,255,0.03);border-radius:8px;}
+.info-row span:first-child{color:rgba(255,255,255,0.5);font-size:13px;}
+.info-row span:last-child{font-weight:600;font-size:13px;}
+</style>
+  <script src="/assets/js/realtime-client.js?v=3.3.0"></script>
+    <script src="/assets/js/nav-flyout.js?v=3.3.0"></script>
+    <script src="/assets/js/nav-shared.js?v=3.3.0"></script>
+</body>
+</html>

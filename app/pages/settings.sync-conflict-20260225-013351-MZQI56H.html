@@ -1,0 +1,2337 @@
+<!DOCTYPE html>
+<!-- saved from url=(0142)settings.html -->
+<html lang="en"><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Settings - D-PlaneOS</title>
+    <link rel="stylesheet" href="/assets/css/design-tokens.css?v=3.3.0">
+    <link rel="stylesheet" href="/assets/css/dplaneos-ui-complete.css?v=3.3.0">
+<link rel="stylesheet" href="/assets/css/m3-tokens.css?v=3.3.0">
+<link rel="stylesheet" href="/assets/css/m3-components.css?v=3.3.0">
+<link rel="stylesheet" href="/assets/css/m3-icons.css?v=3.3.0">
+  <link rel="stylesheet" href="/assets/css/enhanced-ui.css?v=3.3.0">
+<link rel="stylesheet" href="/assets/css/m3-animations.css?v=3.3.0">
+<style>
+.logo { font-size: 20px; font-weight: 800; color: var(--primary); letter-spacing: -0.5px; cursor: pointer; }
+
+
+.nav-link:hover, 
+.main { max-width: 1600px; margin: 140px auto 60px; padding: 0 40px; }
+.page-header { margin-bottom: 48px; }
+.page-title { font-size: 32px; font-weight: 700; letter-spacing: -1.5px; margin-bottom: 12px; }
+.page-subtitle { font-size: 18px; color: rgba(255,255,255,0.6); }
+.section { margin-bottom: 48px; }
+.section-title { font-size: 20px; font-weight: 800; margin-bottom: 24px; }
+.setting-item { background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 12px; padding: 20px 24px; margin-bottom: 12px; display: flex; align-items: center; gap: 16px; }
+.setting-icon { font-size: 32px; color: var(--primary); }
+.setting-info { flex: 1; }
+.setting-name { font-size: 16px; font-weight: 600; margin-bottom: 4px; }
+.setting-desc { font-size: 14px; color: rgba(255,255,255,0.6); }
+.toggle { width: 48px; height: 28px; background: rgba(255,255,255,0.2); border-radius: 14px; position: relative; cursor: pointer; transition: background 0.3s; }
+.toggle.active { background: var(--primary); }
+.toggle::after { content: ''; position: absolute; width: 22px; height: 22px; background: white; border-radius: 50%; top: 3px; left: 3px; transition: transform 0.3s; }
+.toggle.active::after { transform: translateX(20px); }
+.icon-btn { width: 40px; height: 40px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; display: flex; align-items: center; justify-content: center; color: rgba(255,255,255,0.8); cursor: pointer; transition: all 0.3s; border: none; }
+.icon-btn:hover { background: rgba(255,255,255,0.1); color: var(--text); }
+.fab { position: fixed; bottom: 32px; right: 32px; width: 64px; height: 64px; background: linear-gradient(135deg, var(--primary) 0%, var(--primary) 100%); border-radius: 20px; display: flex; align-items: center; justify-content: center; box-shadow: 0 8px 32px rgba(102, 126, 234, 0.4); cursor: pointer; transition: all 0.3s; border: none; color: var(--text); }
+.fab:hover { transform: translateY(-4px); box-shadow: 0 12px 48px rgba(102, 126, 234, 0.6); }
+</style>
+<style type="text/css" id="operaUserStyle"></style><link rel="stylesheet" href="/assets/css/ui-components.css?v=3.3.0">
+<script src="/assets/js/core.js?v=3.3.0"></script>
+<script src="/assets/js/nav-flyout.js?v=3.3.0"></script>
+<script src="/assets/js/hybrid-router.js?v=3.3.0"></script>
+  <script src="/assets/js/enhanced-ui.js?v=3.3.0"></script>
+  <script src="/assets/js/connection-monitor.js?v=3.3.0"></script>
+  <script src="/assets/js/keyboard-shortcuts.js?v=3.3.0"></script>
+  <script src="/assets/js/form-validator.js?v=3.3.0"></script>
+  <link rel="stylesheet" href="/assets/css/material-symbols-local.css?v=3.3.0">
+  <link rel="stylesheet" href="/assets/css/ui-consistency.css?v=3.3.0">
+  <link rel="stylesheet" href="/assets/css/ui-polish.css?v=3.3.0">
+  <script src="/assets/js/daemon-api.js?v=3.3.0"></script>
+  <script src="/assets/js/unsaved-changes.js?v=3.3.0"></script>
+</head>
+<body>
+<!-- D-PlaneOS - Hierarchical Navigation -->
+<!-- This navigation maintains all security (CSRF, Auth) and real system state -->
+
+<div id="nav-root"></div>
+
+<script>
+// Navigation behavior
+function navigateToSection(section) {
+  if (section === 'dashboard') {
+    window.location.href = 'index.html';
+  }
+}
+
+function toggleSubNav(section, button) {
+  // Remove active from all nav links
+  document.querySelectorAll('.nav-link').forEach(link => {
+    link.classList.remove('active');
+  });
+  
+  // Add active to clicked button
+  if (button) {
+    button.classList.add('active');
+  }
+  
+  // Hide all sub-navs
+  document.querySelectorAll('.nav-sub').forEach(sub => {
+    sub.classList.remove('active');
+  });
+  
+  // Show selected sub-nav
+  const subNav = document.getElementById(`sub-${section}`);
+  if (subNav) {
+    subNav.classList.add('active');
+    document.body.classList.add('has-subnav');
+  }
+}
+
+// Auto-detect current section and page on load
+(function() {
+  const currentPage = window.location.pathname.split('/').pop() || 'index.html';
+  
+  // Page to section mapping
+  const pageMap = {
+    'acl-manager.html': { section: 'storage', page: 'acl-manager' },
+    'audit.html': { section: 'security', page: 'audit' },
+    'certificates.html': { section: 'security', page: 'certificates' },
+    'cloud-sync.html': { section: 'storage', page: 'cloud-sync' },
+    'directory-service.html': { section: 'identity', page: 'directory-service' },
+    'docker.html': { section: 'compute', page: 'docker' },
+    'files-enhanced.html': { section: 'storage', page: 'files-enhanced' },
+    'files.html': { section: 'storage', page: 'files' },
+    'firewall.html': { section: 'security', page: 'firewall' },
+    'groups.html': { section: 'identity', page: 'groups' },
+    'hardware.html': { section: 'system', page: 'hardware' },
+    'index.html': { section: 'dashboard', page: null },
+    'ipmi.html': { section: 'system', page: 'ipmi' },
+    'logs.html': { section: 'system', page: 'logs' },
+    'modules.html': { section: 'compute', page: 'modules' },
+    'network-dns.html': { section: 'network', page: 'network-dns' },
+    'network-interfaces.html': { section: 'network', page: 'network-interfaces' },
+    'network-routing.html': { section: 'network', page: 'network-routing' },
+    'network.html': { section: 'network', page: 'network' },
+    'pools-advanced.html': { section: 'storage', page: 'pools-advanced' },
+    'pools.html': { section: 'storage', page: 'pools' },
+    'power-management.html': { section: 'system', page: 'power-management' },
+    'quotas.html': { section: 'storage', page: 'quotas' },
+    'rbac-management.html': { section: 'identity', page: 'rbac-management' },
+    'removable-media-ui.html': { section: 'system', page: 'removable-media-ui' },
+    'replication.html': { section: 'storage', page: 'replication' },
+    'reporting.html': { section: 'system', page: 'reporting' },
+    'security.html': { section: 'security', page: 'security' },
+    'settings.html': { section: 'system', page: 'settings' },
+    'shares.html': { section: 'storage', page: 'shares' },
+    'snapshot-scheduler.html': { section: 'storage', page: 'snapshot-scheduler' },
+    'system-monitoring.html': { section: 'system', page: 'system-monitoring' },
+    'system-settings.html': { section: 'system', page: 'system-settings' },
+    'ups.html': { section: 'system', page: 'ups' },
+    'users.html': { section: 'identity', page: 'users' },
+    'zfs-encryption.html': { section: 'storage', page: 'zfs-encryption' }
+  };
+  
+  const current = pageMap[currentPage];
+  if (current) {
+    // Activate section button
+    const sectionBtn = document.querySelector(`[data-section="${current.section}"]`);
+    if (sectionBtn) {
+      sectionBtn.classList.add('active');
+    }
+    
+    // Show and activate sub-nav if not dashboard
+    if (current.section !== 'dashboard') {
+      const subNav = document.getElementById(`sub-${current.section}`);
+      if (subNav) {
+        subNav.classList.add('active');
+        document.body.classList.add('has-subnav');
+        
+        // Activate current page in sub-nav
+        if (current.page) {
+          const pageLink = subNav.querySelector(`[data-page="${current.page}"]`);
+          if (pageLink) {
+            pageLink.classList.add('active');
+          }
+        }
+      }
+    }
+  }
+})();
+
+// Keyboard shortcuts
+function showKeyboardHelp() {
+  if (window.EnhancedUI) {
+    const shortcuts = `Keyboard Shortcuts:
+
+g + d → Dashboard
+g + s → Storage
+g + c → Compute
+g + n → Network
+g + u → Identity
+g + e → Security
+g + y → System
+
+r → Refresh page
+Esc → Close modals
+? → Show this help`;
+    EnhancedUI.toast(shortcuts, 'info', 8000);
+  }
+}
+
+// Enhanced keyboard shortcuts for sections
+(function() {
+  let keySequence = '';
+  let keyTimeout;
+  
+  document.addEventListener('keydown', (e) => {
+    if (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) return;
+    
+    keySequence += e.key;
+    clearTimeout(keyTimeout);
+    
+    const shortcuts = {
+      'gd': 'index.html',
+      'gs': () => toggleSubNav('storage', document.querySelector('[data-section="storage"]')),
+      'gc': () => toggleSubNav('compute', document.querySelector('[data-section="compute"]')),
+      'gn': () => toggleSubNav('network', document.querySelector('[data-section="network"]')),
+      'gu': () => toggleSubNav('identity', document.querySelector('[data-section="identity"]')),
+      'ge': () => toggleSubNav('security', document.querySelector('[data-section="security"]')),
+      'gy': () => toggleSubNav('system', document.querySelector('[data-section="system"]'))
+    };
+    
+    if (shortcuts[keySequence]) {
+      e.preventDefault();
+      const action = shortcuts[keySequence];
+      if (typeof action === 'function') {
+        action();
+      } else {
+        window.location.href = action;
+      }
+      keySequence = '';
+    } else if (e.key === '?') {
+      e.preventDefault();
+      showKeyboardHelp();
+    }
+    
+    keyTimeout = setTimeout(() => keySequence = '', 1000);
+  });
+})();
+
+// Connection status monitoring (integrates with existing connection-monitor.js)
+if (window.ConnectionMonitor) {
+  window.ConnectionMonitor.on('statusChange', (online) => {
+    const status = document.getElementById('navConnectionStatus');
+    if (status) {
+      if (online) {
+        status.classList.remove('offline');
+        status.classList.add('online');
+        status.innerHTML = '<span class="status-dot"></span><span>Connected</span>';
+      } else {
+        status.classList.remove('online');
+        status.classList.add('offline');
+        status.innerHTML = '<span class="status-dot"></span><span>Offline</span>';
+      }
+    }
+  });
+}
+</script>
+
+<main class="main">
+<div class="page-header">
+<h1 class="page-title">System Settings</h1>
+<p class="page-subtitle">General • Configuration • Power</p>
+</div>
+<div class="consolidation-tabs">
+  <button class="consolidation-tab active" data-tab="general" onclick="switchConsolidatedTab('general')">General</button>
+  <button class="consolidation-tab" data-tab="config" onclick="switchConsolidatedTab('config')">Configuration</button>
+  <button class="consolidation-tab" data-tab="power" onclick="switchConsolidatedTab('power')">Power</button>
+  <button class="consolidation-tab" data-tab="webhooks" onclick="switchConsolidatedTab('webhooks')">Webhooks</button>
+</div>
+
+<div id="tab-general" class="consolidation-content active">
+<script>
+// Navigation behavior
+function navigateToSection(section) {
+  if (section === 'dashboard') {
+    window.location.href = 'index.html';
+  }
+}
+
+function toggleSubNav(section, button) {
+  // Remove active from all nav links
+  document.querySelectorAll('.nav-link').forEach(link => {
+    link.classList.remove('active');
+  });
+  
+  // Add active to clicked button
+  if (button) {
+    button.classList.add('active');
+  }
+  
+  // Hide all sub-navs
+  document.querySelectorAll('.nav-sub').forEach(sub => {
+    sub.classList.remove('active');
+  });
+  
+  // Show selected sub-nav
+  const subNav = document.getElementById(`sub-${section}`);
+  if (subNav) {
+    subNav.classList.add('active');
+    document.body.classList.add('has-subnav');
+  }
+}
+
+// Auto-detect current section and page on load
+(function() {
+  const currentPage = window.location.pathname.split('/').pop() || 'index.html';
+  
+  // Page to section mapping
+  const pageMap = {
+    'acl-manager.html': { section: 'storage', page: 'acl-manager' },
+    'audit.html': { section: 'security', page: 'audit' },
+    'certificates.html': { section: 'security', page: 'certificates' },
+    'cloud-sync.html': { section: 'storage', page: 'cloud-sync' },
+    'directory-service.html': { section: 'identity', page: 'directory-service' },
+    'docker.html': { section: 'compute', page: 'docker' },
+    'files-enhanced.html': { section: 'storage', page: 'files-enhanced' },
+    'files.html': { section: 'storage', page: 'files' },
+    'firewall.html': { section: 'security', page: 'firewall' },
+    'groups.html': { section: 'identity', page: 'groups' },
+    'hardware.html': { section: 'system', page: 'hardware' },
+    'index.html': { section: 'dashboard', page: null },
+    'ipmi.html': { section: 'system', page: 'ipmi' },
+    'logs.html': { section: 'system', page: 'logs' },
+    'modules.html': { section: 'compute', page: 'modules' },
+    'network-dns.html': { section: 'network', page: 'network-dns' },
+    'network-interfaces.html': { section: 'network', page: 'network-interfaces' },
+    'network-routing.html': { section: 'network', page: 'network-routing' },
+    'network.html': { section: 'network', page: 'network' },
+    'pools-advanced.html': { section: 'storage', page: 'pools-advanced' },
+    'pools.html': { section: 'storage', page: 'pools' },
+    'power-management.html': { section: 'system', page: 'power-management' },
+    'quotas.html': { section: 'storage', page: 'quotas' },
+    'rbac-management.html': { section: 'identity', page: 'rbac-management' },
+    'removable-media-ui.html': { section: 'system', page: 'removable-media-ui' },
+    'replication.html': { section: 'storage', page: 'replication' },
+    'reporting.html': { section: 'system', page: 'reporting' },
+    'security.html': { section: 'security', page: 'security' },
+    'settings.html': { section: 'system', page: 'settings' },
+    'shares.html': { section: 'storage', page: 'shares' },
+    'snapshot-scheduler.html': { section: 'storage', page: 'snapshot-scheduler' },
+    'system-monitoring.html': { section: 'system', page: 'system-monitoring' },
+    'system-settings.html': { section: 'system', page: 'system-settings' },
+    'ups.html': { section: 'system', page: 'ups' },
+    'users.html': { section: 'identity', page: 'users' },
+    'zfs-encryption.html': { section: 'storage', page: 'zfs-encryption' }
+  };
+  
+  const current = pageMap[currentPage];
+  if (current) {
+    // Activate section button
+    const sectionBtn = document.querySelector(`[data-section="${current.section}"]`);
+    if (sectionBtn) {
+      sectionBtn.classList.add('active');
+    }
+    
+    // Show and activate sub-nav if not dashboard
+    if (current.section !== 'dashboard') {
+      const subNav = document.getElementById(`sub-${current.section}`);
+      if (subNav) {
+        subNav.classList.add('active');
+        document.body.classList.add('has-subnav');
+        
+        // Activate current page in sub-nav
+        if (current.page) {
+          const pageLink = subNav.querySelector(`[data-page="${current.page}"]`);
+          if (pageLink) {
+            pageLink.classList.add('active');
+          }
+        }
+      }
+    }
+  }
+})();
+
+// Keyboard shortcuts
+function showKeyboardHelp() {
+  if (window.EnhancedUI) {
+    const shortcuts = `Keyboard Shortcuts:
+
+g + d → Dashboard
+g + s → Storage
+g + c → Compute
+g + n → Network
+g + u → Identity
+g + e → Security
+g + y → System
+
+r → Refresh page
+Esc → Close modals
+? → Show this help`;
+    EnhancedUI.toast(shortcuts, 'info', 8000);
+  }
+}
+
+// Enhanced keyboard shortcuts for sections
+(function() {
+  let keySequence = '';
+  let keyTimeout;
+  
+  document.addEventListener('keydown', (e) => {
+    if (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) return;
+    
+    keySequence += e.key;
+    clearTimeout(keyTimeout);
+    
+    const shortcuts = {
+      'gd': 'index.html',
+      'gs': () => toggleSubNav('storage', document.querySelector('[data-section="storage"]')),
+      'gc': () => toggleSubNav('compute', document.querySelector('[data-section="compute"]')),
+      'gn': () => toggleSubNav('network', document.querySelector('[data-section="network"]')),
+      'gu': () => toggleSubNav('identity', document.querySelector('[data-section="identity"]')),
+      'ge': () => toggleSubNav('security', document.querySelector('[data-section="security"]')),
+      'gy': () => toggleSubNav('system', document.querySelector('[data-section="system"]'))
+    };
+    
+    if (shortcuts[keySequence]) {
+      e.preventDefault();
+      const action = shortcuts[keySequence];
+      if (typeof action === 'function') {
+        action();
+      } else {
+        window.location.href = action;
+      }
+      keySequence = '';
+    } else if (e.key === '?') {
+      e.preventDefault();
+      showKeyboardHelp();
+    }
+    
+    keyTimeout = setTimeout(() => keySequence = '', 1000);
+  });
+})();
+
+// Connection status monitoring (integrates with existing connection-monitor.js)
+if (window.ConnectionMonitor) {
+  window.ConnectionMonitor.on('statusChange', (online) => {
+    const status = document.getElementById('navConnectionStatus');
+    if (status) {
+      if (online) {
+        status.classList.remove('offline');
+        status.classList.add('online');
+        status.innerHTML = '<span class="status-dot"></span><span>Connected</span>';
+      } else {
+        status.classList.remove('online');
+        status.classList.add('offline');
+        status.innerHTML = '<span class="status-dot"></span><span>Offline</span>';
+      }
+    }
+  });
+}
+</script>
+
+<div class="page-header">
+<h1 class="page-title">Settings</h1>
+<p class="page-subtitle">System configuration • Users • Updates</p>
+</div>
+<div class="section">
+<h2 class="section-title">System</h2>
+<div class="setting-item">
+<span class="material-symbols-rounded setting-icon">computer</span>
+<div class="setting-info">
+<div class="setting-name">Hostname</div>
+<div class="setting-desc">dplaneos-nas.local</div>
+</div>
+<button class="icon-btn" onclick="editSetting(&#39;hostname&#39;)"><span class="material-symbols-rounded">edit</span></button>
+</div>
+<div class="setting-item">
+<span class="material-symbols-rounded setting-icon">update</span>
+<div class="setting-info">
+<div class="setting-name">System Version</div>
+<div class="setting-desc" id="settings-version">D-PlaneOS</div>
+</div>
+<button class="icon-btn" onclick="checkUpdates()"><span class="material-symbols-rounded">refresh</span></button>
+</div>
+</div>
+<div class="section">
+<h2 class="section-title">Security</h2>
+<div class="setting-item">
+<span class="material-symbols-rounded setting-icon">lock</span>
+<div class="setting-info">
+<div class="setting-name">SSH Access</div>
+<div class="setting-desc">Port 22 • Key authentication</div>
+</div>
+<div class="toggle active" onclick="toggleSetting(this, &#39;ssh&#39;)"></div>
+</div>
+<div class="setting-item">
+<span class="material-symbols-rounded setting-icon">vpn_key</span>
+<div class="setting-info">
+<div class="setting-name">Two-Factor Authentication</div>
+<div class="setting-desc">TOTP-based 2FA</div>
+</div>
+<div class="toggle" onclick="toggleSetting(this, &#39;2fa&#39;)"></div>
+</div>
+</div>
+<div class="section">
+<h2 class="section-title">Notifications</h2>
+<div class="setting-item">
+<span class="material-symbols-rounded setting-icon">notifications</span>
+<div class="setting-info">
+<div class="setting-name">Telegram Alerts</div>
+<div class="setting-desc">Critical system alerts via Telegram</div>
+</div>
+<div class="toggle" id="telegram-toggle" onclick="toggleTelegram(this)"></div>
+</div>
+<div id="telegram-config" style="display:none; margin-top:16px;">
+<div class="setting-item">
+<span class="material-symbols-rounded setting-icon">smart_toy</span>
+<div class="setting-info">
+<div class="setting-name">Bot Token</div>
+<div class="setting-desc">Get from @BotFather on Telegram</div>
+</div>
+<button class="icon-btn" onclick="editTelegramBot()"><span class="material-symbols-rounded">edit</span></button>
+</div>
+<div class="setting-item">
+<span class="material-symbols-rounded setting-icon">chat</span>
+<div class="setting-info">
+<div class="setting-name">Chat ID</div>
+<div class="setting-desc">Your Telegram chat ID</div>
+</div>
+<button class="icon-btn" onclick="editTelegramChat()"><span class="material-symbols-rounded">edit</span></button>
+</div>
+<div class="setting-item">
+<button class="icon-btn" style="width:auto; padding:0 20px;" onclick="testTelegram()">
+<span class="material-symbols-rounded" style="margin-right:8px;">send</span>
+Test Connection
+</button>
+</div>
+</div>
+</div>
+<button class="fab" onclick="checkUpdates()"><span class="material-symbols-rounded" style="font-size:28px;">update</span></button>
+<script src="/assets/js/m3-ripple.js?v=3.3.0"></script>
+<script src="/assets/js/ui-components.js?v=3.3.0"></script>
+<script>
+const ui = new DPlaneUI();
+
+async function toggleSetting(el, setting) {
+  el.classList.toggle('active');
+  const state = el.classList.contains('active');
+  
+  ui.showLoading(`${state ? 'Enabling' : 'Disabling'} ${setting}...`);
+  
+  try {
+    const response = await csrfFetch('/api/settings/telegram', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'toggle', setting: setting, enabled: state })
+    });
+    
+    const result = await response.json();
+    ui.hideLoading();
+    
+    if (result.success) {
+      ui.toast(`${setting.toUpperCase()} ${state ? 'enabled' : 'disabled'}`, 'success');
+    } else {
+      el.classList.toggle('active'); // Revert on error
+      ui.toast(result.error || 'Failed to update setting', 'error');
+    }
+  } catch (error) {
+    el.classList.toggle('active'); // Revert on error
+    ui.hideLoading();
+    ui.toast('Network error: ' + error.message, 'error');
+  }
+}
+
+async function editSetting(setting) {
+  let label = setting.charAt(0).toUpperCase() + setting.slice(1);
+  const result = await ui.form(`Edit ${label}`, [
+    { name: 'value', label: label, type: 'text', required: true }
+  ], 'Save');
+  
+  if (result) {
+    ui.showLoading('Saving...');
+    
+    try {
+      const response = await csrfFetch('/api/settings/telegram', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'update', setting: setting, ...result })
+      });
+      
+      const data = await response.json();
+      ui.hideLoading();
+      
+      if (data.success) {
+        ui.toast('Setting updated', 'success');
+        setTimeout(() => location.reload(), 1000);
+      } else {
+        ui.toast(data.error || 'Failed to update', 'error');
+      }
+    } catch (error) {
+      ui.hideLoading();
+      ui.toast('Network error: ' + error.message, 'error');
+    }
+  }
+}
+
+async function checkUpdates() {
+  ui.showLoading('Checking for updates...');
+  
+  try {
+    const response = await csrfFetch('/api/settings/telegram');
+    const result = await response.json();
+    ui.hideLoading();
+    
+    if (result.updates_available) {
+      if (await ui.confirm('Update Available', `D-PlaneOS ${result.latest_version} is available. Install now?`)) {
+        ui.showLoading('Installing update...');
+        // Handle update installation
+        setTimeout(() => {
+          ui.hideLoading();
+          ui.toast('Update installed successfully', 'success');
+        }, 3000);
+      }
+    } else {
+      ui.toast('System is up to date' + (_settingsVersion ? ' (v' + _settingsVersion + ')' : ''), 'success');
+    }
+  } catch (error) {
+    ui.hideLoading();
+    ui.toast('Network error: ' + error.message, 'error');
+  }
+}
+
+// Telegram Configuration
+let telegramConfig = { bot_token: '', chat_id: '', enabled: false };
+
+async function loadTelegramConfig() {
+  try {
+    const response = await csrfFetch('/api/settings/telegram');
+    if (response.ok) {
+      telegramConfig = await response.json();
+      const toggle = document.getElementById('telegram-toggle');
+      const configDiv = document.getElementById('telegram-config');
+      
+      if (telegramConfig.enabled) {
+        toggle.classList.add('active');
+        configDiv.style.display = 'block';
+      } else {
+        toggle.classList.remove('active');
+        configDiv.style.display = 'none';
+      }
+    }
+  } catch (error) {
+    console.error('Failed to load Telegram config:', error);
+  }
+}
+
+async function toggleTelegram(el) {
+  const wasEnabled = el.classList.contains('active');
+  const configDiv = document.getElementById('telegram-config');
+  
+  if (!wasEnabled) {
+    el.classList.add('active');
+    configDiv.style.display = 'block';
+  } else {
+    el.classList.remove('active');
+    configDiv.style.display = 'none';
+    telegramConfig.enabled = false;
+    await saveTelegramConfig();
+  }
+}
+
+async function editTelegramBot() {
+  const result = await ui.prompt('Telegram Bot Token', 'Enter your bot token from @BotFather:', telegramConfig.bot_token);
+  if (result) {
+    telegramConfig.bot_token = result.value;
+    await saveTelegramConfig();
+  }
+}
+
+async function editTelegramChat() {
+  const result = await ui.prompt('Telegram Chat ID', 'Enter your chat ID:', telegramConfig.chat_id);
+  if (result) {
+    telegramConfig.chat_id = result.value;
+    await saveTelegramConfig();
+  }
+}
+
+async function saveTelegramConfig() {
+  const toggle = document.getElementById('telegram-toggle');
+  telegramConfig.enabled = toggle.classList.contains('active');
+  
+  try {
+    const response = await csrfFetch('/api/settings/telegram', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(telegramConfig)
+    });
+    
+    if (response.ok) {
+      ui.toast('Telegram configuration saved', 'success');
+    } else {
+      ui.toast('Failed to save configuration', 'error');
+    }
+  } catch (error) {
+    ui.toast('Network error: ' + error.message, 'error');
+  }
+}
+
+async function testTelegram() {
+  if (!telegramConfig.bot_token || !telegramConfig.chat_id) {
+    ui.toast('Please configure bot token and chat ID first', 'error');
+    return;
+  }
+  
+  ui.showLoading('Testing Telegram connection...');
+  
+  try {
+    const response = await csrfFetch('/api/settings/telegram/test', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(telegramConfig)
+    });
+    
+    ui.hideLoading();
+    
+    if (response.ok) {
+      const data = await response.json();
+      ui.toast(data.message || 'Test successful!', 'success');
+    } else {
+      ui.toast('Test failed - check your configuration', 'error');
+    }
+  } catch (error) {
+    ui.hideLoading();
+    ui.toast('Network error: ' + error.message, 'error');
+  }
+}
+
+document.addEventListener('DOMContentLoaded', loadTelegramConfig);
+
+// Populate version display from /health (no auth required)
+let _settingsVersion = '';
+fetch('/health').then(r => r.json()).then(d => {
+  if (d.version) {
+    _settingsVersion = d.version;
+    const el = document.getElementById('settings-version');
+    if (el) el.textContent = 'D-PlaneOS v' + d.version;
+  }
+}).catch(() => {});
+</script>
+  <script src="/assets/js/realtime-client.js?v=3.3.0"></script>
+<!-- v3.0.0: NixOS Configuration Guard -->
+</div>
+<div id="tab-config" class="consolidation-content">
+<div class="container">
+        <!-- Header -->
+        <div class="header">
+            <h1>System Settings</h1>
+            <p>Configure resource limits and monitoring thresholds</p>
+        </div>
+
+        <!-- Live Status Overview -->
+        <div class="settings-card">
+            <div class="card-header">
+                <span class="material-symbols-rounded">dashboard</span>
+                <h2>Live System Status</h2>
+            </div>
+            
+            <div class="status-grid">
+                <div class="status-item">
+                    <div class="status-label">Inotify Watches</div>
+                    <div class="status-value" id="inotify-used">-</div>
+                    <div class="status-subtitle">of <span id="inotify-limit">-</span> available</div>
+                    <div class="status-bar">
+                        <div class="status-bar-fill" id="inotify-bar" style="width: 0%"></div>
+                    </div>
+                </div>
+
+                <div class="status-item">
+                    <div class="status-label">Memory Usage</div>
+                    <div class="status-value" id="memory-used">-</div>
+                    <div class="status-subtitle">of <span id="memory-total">-</span> total</div>
+                    <div class="status-bar">
+                        <div class="status-bar-fill" id="memory-bar" style="width: 0%"></div>
+                    </div>
+                </div>
+
+                <div class="status-item">
+                    <div class="status-label">ZFS ARC</div>
+                    <div class="status-value" id="arc-used">-</div>
+                    <div class="status-subtitle">of <span id="arc-limit">-</span> limit</div>
+                    <div class="status-bar">
+                        <div class="status-bar-fill" id="arc-bar" style="width: 0%"></div>
+                    </div>
+                </div>
+
+                <div class="status-item">
+                    <div class="status-label">I/O Wait</div>
+                    <div class="status-value" id="iowait-value">-</div>
+                    <div class="status-subtitle">Current load</div>
+                    <div class="status-bar">
+                        <div class="status-bar-fill" id="iowait-bar" style="width: 0%"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Alerts Container -->
+            <div id="alerts-container"></div>
+        </div>
+
+        <!-- Inotify Settings -->
+        <div class="settings-card">
+            <div class="card-header">
+                <span class="material-symbols-rounded">visibility</span>
+                <h2>File Monitoring (Inotify)</h2>
+            </div>
+
+            <div class="setting-row">
+                <div class="setting-label">
+                    <h3>Real-Time Indexing</h3>
+                    <span class="setting-value" id="indexing-mode-value">Hybrid</span>
+                </div>
+                <div class="setting-description">
+                    Controls how file changes are detected. Real-time uses inotify watches (limited). Periodic scans directories on interval (unlimited).
+                </div>
+                
+                <div class="toggle-row">
+                    <div class="toggle-info">
+                        <h3>Enable Real-Time Monitoring</h3>
+                        <p>Uses inotify watches for instant file detection</p>
+                    </div>
+                    <label class="switch">
+                        <input type="checkbox" id="realtime-toggle" checked style="accent-color:var(--md-sys-color-primary);width:18px;height:18px;">
+                        <span class="switch-slider"></span>
+                    </label>
+                </div>
+
+                <div class="toggle-row">
+                    <div class="toggle-info">
+                        <h3>Periodic Background Scan</h3>
+                        <p>Scans directories every 30 minutes (no watch limit)</p>
+                    </div>
+                    <label class="switch">
+                        <input type="checkbox" id="periodic-toggle" checked style="accent-color:var(--md-sys-color-primary);width:18px;height:18px;">
+                        <span class="switch-slider"></span>
+                    </label>
+                </div>
+            </div>
+        </div>
+
+        <!-- Memory Settings -->
+        <div class="settings-card">
+            <div class="card-header">
+                <span class="material-symbols-rounded">memory</span>
+                <h2>Memory Management</h2>
+            </div>
+
+            <div class="setting-row">
+                <div class="setting-label">
+                    <h3>ZFS ARC Limit</h3>
+                    <span class="setting-value" id="arc-limit-value">8 GB</span>
+                </div>
+                <div class="setting-description">
+                    Maximum memory for ZFS cache. <strong>Warning:</strong> With Non-ECC RAM, keep ≤40% of total RAM to reduce bit-flip risk.
+                </div>
+                <div class="slider-container">
+                    <input type="range" id="arc-slider" min="1" max="32" value="8" step="1">
+                </div>
+                <div class="setting-description" id="arc-recommendation" style="color: var(--md-sys-color-tertiary);"></div>
+            </div>
+
+            <div class="setting-row">
+                <div class="setting-label">
+                    <h3>Swap Aggressiveness</h3>
+                    <span class="setting-value" id="swappiness-value">10</span>
+                </div>
+                <div class="setting-description">
+                    How aggressively the kernel swaps to disk. Lower = keep apps in RAM. Higher = swap more freely.
+                </div>
+                <div class="slider-container">
+                    <input type="range" id="swappiness-slider" min="0" max="100" value="10" step="5">
+                </div>
+            </div>
+        </div>
+
+        <!-- Monitoring Settings -->
+        <div class="settings-card">
+            <div class="card-header">
+                <span class="material-symbols-rounded">notifications</span>
+                <h2>Alert Thresholds</h2>
+            </div>
+
+            <div class="setting-row">
+                <div class="setting-label">
+                    <h3>Inotify Warning Threshold</h3>
+                    <span class="setting-value" id="inotify-warn-value">80%</span>
+                </div>
+                <div class="setting-description">
+                    Alert when inotify watch usage exceeds this percentage
+                </div>
+                <div class="slider-container">
+                    <input type="range" id="inotify-warn-slider" min="50" max="95" value="80" step="5">
+                </div>
+            </div>
+
+            <div class="setting-row">
+                <div class="setting-label">
+                    <h3>Memory Warning Threshold</h3>
+                    <span class="setting-value" id="memory-warn-value">85%</span>
+                </div>
+                <div class="setting-description">
+                    Alert when memory usage exceeds this percentage
+                </div>
+                <div class="slider-container">
+                    <input type="range" id="memory-warn-slider" min="70" max="95" value="85" step="5">
+                </div>
+            </div>
+
+            <div class="setting-row">
+                <div class="setting-label">
+                    <h3>I/O Wait Warning Threshold</h3>
+                    <span class="setting-value" id="iowait-warn-value">20%</span>
+                </div>
+                <div class="setting-description">
+                    Alert when CPU I/O wait exceeds this percentage
+                </div>
+                <div class="slider-container">
+                    <input type="range" id="iowait-warn-slider" min="10" max="50" value="20" step="5">
+                </div>
+            </div>
+
+            <div class="toggle-row">
+                <div class="toggle-info">
+                    <h3>WebSocket Alerts</h3>
+                    <p>Show real-time toast notifications for warnings</p>
+                </div>
+                <label class="switch">
+                    <input type="checkbox" id="websocket-alerts-toggle" checked style="accent-color:var(--md-sys-color-primary);width:18px;height:18px;">
+                    <span class="switch-slider"></span>
+                </label>
+            </div>
+        </div>
+
+        <!-- Action Buttons -->
+        <div class="settings-card">
+            <div class="button-group">
+                <button class="md-button filled" onclick="saveSettings()">
+                    <span class="material-symbols-rounded">save</span>
+                    Save Settings
+                </button>
+                <button class="md-button outlined" onclick="resetToDefaults()">
+                    <span class="material-symbols-rounded">restore</span>
+                    Reset to Defaults
+                </button>
+                <button class="md-button outlined" onclick="runPreFlight()">
+                    <span class="material-symbols-rounded">check_circle</span>
+                    Run Pre-Flight Check
+                </button>
+            </div>
+        </div>
+    </div>
+
+<script>
+// Navigation behavior
+function navigateToSection(section) {
+  if (section === 'dashboard') {
+    window.location.href = 'index.html';
+  }
+}
+
+function toggleSubNav(section, button) {
+  // Remove active from all nav links
+  document.querySelectorAll('.nav-link').forEach(link => {
+    link.classList.remove('active');
+  });
+  
+  // Add active to clicked button
+  if (button) {
+    button.classList.add('active');
+  }
+  
+  // Hide all sub-navs
+  document.querySelectorAll('.nav-sub').forEach(sub => {
+    sub.classList.remove('active');
+  });
+  
+  // Show selected sub-nav
+  const subNav = document.getElementById(`sub-${section}`);
+  if (subNav) {
+    subNav.classList.add('active');
+    document.body.classList.add('has-subnav');
+  }
+}
+
+// Auto-detect current section and page on load
+(function() {
+  const currentPage = window.location.pathname.split('/').pop() || 'index.html';
+  
+  // Page to section mapping
+  const pageMap = {
+    'acl-manager.html': { section: 'storage', page: 'acl-manager' },
+    'audit.html': { section: 'security', page: 'audit' },
+    'certificates.html': { section: 'security', page: 'certificates' },
+    'cloud-sync.html': { section: 'storage', page: 'cloud-sync' },
+    'directory-service.html': { section: 'identity', page: 'directory-service' },
+    'docker.html': { section: 'compute', page: 'docker' },
+    'files-enhanced.html': { section: 'storage', page: 'files-enhanced' },
+    'files.html': { section: 'storage', page: 'files' },
+    'firewall.html': { section: 'security', page: 'firewall' },
+    'groups.html': { section: 'identity', page: 'groups' },
+    'hardware.html': { section: 'system', page: 'hardware' },
+    'index.html': { section: 'dashboard', page: null },
+    'ipmi.html': { section: 'system', page: 'ipmi' },
+    'logs.html': { section: 'system', page: 'logs' },
+    'modules.html': { section: 'compute', page: 'modules' },
+    'network-dns.html': { section: 'network', page: 'network-dns' },
+    'network-interfaces.html': { section: 'network', page: 'network-interfaces' },
+    'network-routing.html': { section: 'network', page: 'network-routing' },
+    'network.html': { section: 'network', page: 'network' },
+    'pools-advanced.html': { section: 'storage', page: 'pools-advanced' },
+    'pools.html': { section: 'storage', page: 'pools' },
+    'power-management.html': { section: 'system', page: 'power-management' },
+    'quotas.html': { section: 'storage', page: 'quotas' },
+    'rbac-management.html': { section: 'identity', page: 'rbac-management' },
+    'removable-media-ui.html': { section: 'system', page: 'removable-media-ui' },
+    'replication.html': { section: 'storage', page: 'replication' },
+    'reporting.html': { section: 'system', page: 'reporting' },
+    'security.html': { section: 'security', page: 'security' },
+    'settings.html': { section: 'system', page: 'settings' },
+    'shares.html': { section: 'storage', page: 'shares' },
+    'snapshot-scheduler.html': { section: 'storage', page: 'snapshot-scheduler' },
+    'system-monitoring.html': { section: 'system', page: 'system-monitoring' },
+    'system-settings.html': { section: 'system', page: 'system-settings' },
+    'ups.html': { section: 'system', page: 'ups' },
+    'users.html': { section: 'identity', page: 'users' },
+    'zfs-encryption.html': { section: 'storage', page: 'zfs-encryption' }
+  };
+  
+  const current = pageMap[currentPage];
+  if (current) {
+    // Activate section button
+    const sectionBtn = document.querySelector(`[data-section="${current.section}"]`);
+    if (sectionBtn) {
+      sectionBtn.classList.add('active');
+    }
+    
+    // Show and activate sub-nav if not dashboard
+    if (current.section !== 'dashboard') {
+      const subNav = document.getElementById(`sub-${current.section}`);
+      if (subNav) {
+        subNav.classList.add('active');
+        document.body.classList.add('has-subnav');
+        
+        // Activate current page in sub-nav
+        if (current.page) {
+          const pageLink = subNav.querySelector(`[data-page="${current.page}"]`);
+          if (pageLink) {
+            pageLink.classList.add('active');
+          }
+        }
+      }
+    }
+  }
+})();
+
+// Keyboard shortcuts
+function showKeyboardHelp() {
+  if (window.EnhancedUI) {
+    const shortcuts = `Keyboard Shortcuts:
+
+g + d → Dashboard
+g + s → Storage
+g + c → Compute
+g + n → Network
+g + u → Identity
+g + e → Security
+g + y → System
+
+r → Refresh page
+Esc → Close modals
+? → Show this help`;
+    EnhancedUI.toast(shortcuts, 'info', 8000);
+  }
+}
+
+// Enhanced keyboard shortcuts for sections
+(function() {
+  let keySequence = '';
+  let keyTimeout;
+  
+  document.addEventListener('keydown', (e) => {
+    if (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) return;
+    
+    keySequence += e.key;
+    clearTimeout(keyTimeout);
+    
+    const shortcuts = {
+      'gd': 'index.html',
+      'gs': () => toggleSubNav('storage', document.querySelector('[data-section="storage"]')),
+      'gc': () => toggleSubNav('compute', document.querySelector('[data-section="compute"]')),
+      'gn': () => toggleSubNav('network', document.querySelector('[data-section="network"]')),
+      'gu': () => toggleSubNav('identity', document.querySelector('[data-section="identity"]')),
+      'ge': () => toggleSubNav('security', document.querySelector('[data-section="security"]')),
+      'gy': () => toggleSubNav('system', document.querySelector('[data-section="system"]'))
+    };
+    
+    if (shortcuts[keySequence]) {
+      e.preventDefault();
+      const action = shortcuts[keySequence];
+      if (typeof action === 'function') {
+        action();
+      } else {
+        window.location.href = action;
+      }
+      keySequence = '';
+    } else if (e.key === '?') {
+      e.preventDefault();
+      showKeyboardHelp();
+    }
+    
+    keyTimeout = setTimeout(() => keySequence = '', 1000);
+  });
+})();
+
+// Connection status monitoring (integrates with existing connection-monitor.js)
+if (window.ConnectionMonitor) {
+  window.ConnectionMonitor.on('statusChange', (online) => {
+    const status = document.getElementById('navConnectionStatus');
+    if (status) {
+      if (online) {
+        status.classList.remove('offline');
+        status.classList.add('online');
+        status.innerHTML = '<span class="status-dot"></span><span>Connected</span>';
+      } else {
+        status.classList.remove('online');
+        status.classList.add('offline');
+        status.innerHTML = '<span class="status-dot"></span><span>Offline</span>';
+      }
+    }
+  });
+}
+</script>
+</div>
+<div id="tab-power" class="consolidation-content">
+<script>
+// Navigation behavior
+function navigateToSection(section) {
+  if (section === 'dashboard') {
+    window.location.href = 'index.html';
+  }
+}
+
+function toggleSubNav(section, button) {
+  // Remove active from all nav links
+  document.querySelectorAll('.nav-link').forEach(link => {
+    link.classList.remove('active');
+  });
+  
+  // Add active to clicked button
+  if (button) {
+    button.classList.add('active');
+  }
+  
+  // Hide all sub-navs
+  document.querySelectorAll('.nav-sub').forEach(sub => {
+    sub.classList.remove('active');
+  });
+  
+  // Show selected sub-nav
+  const subNav = document.getElementById(`sub-${section}`);
+  if (subNav) {
+    subNav.classList.add('active');
+    document.body.classList.add('has-subnav');
+  }
+}
+
+// Auto-detect current section and page on load
+(function() {
+  const currentPage = window.location.pathname.split('/').pop() || 'index.html';
+  
+  // Page to section mapping
+  const pageMap = {
+    'acl-manager.html': { section: 'storage', page: 'acl-manager' },
+    'audit.html': { section: 'security', page: 'audit' },
+    'certificates.html': { section: 'security', page: 'certificates' },
+    'cloud-sync.html': { section: 'storage', page: 'cloud-sync' },
+    'directory-service.html': { section: 'identity', page: 'directory-service' },
+    'docker.html': { section: 'compute', page: 'docker' },
+    'files-enhanced.html': { section: 'storage', page: 'files-enhanced' },
+    'files.html': { section: 'storage', page: 'files' },
+    'firewall.html': { section: 'security', page: 'firewall' },
+    'groups.html': { section: 'identity', page: 'groups' },
+    'hardware.html': { section: 'system', page: 'hardware' },
+    'index.html': { section: 'dashboard', page: null },
+    'ipmi.html': { section: 'system', page: 'ipmi' },
+    'logs.html': { section: 'system', page: 'logs' },
+    'modules.html': { section: 'compute', page: 'modules' },
+    'network-dns.html': { section: 'network', page: 'network-dns' },
+    'network-interfaces.html': { section: 'network', page: 'network-interfaces' },
+    'network-routing.html': { section: 'network', page: 'network-routing' },
+    'network.html': { section: 'network', page: 'network' },
+    'pools-advanced.html': { section: 'storage', page: 'pools-advanced' },
+    'pools.html': { section: 'storage', page: 'pools' },
+    'power-management.html': { section: 'system', page: 'power-management' },
+    'quotas.html': { section: 'storage', page: 'quotas' },
+    'rbac-management.html': { section: 'identity', page: 'rbac-management' },
+    'removable-media-ui.html': { section: 'system', page: 'removable-media-ui' },
+    'replication.html': { section: 'storage', page: 'replication' },
+    'reporting.html': { section: 'system', page: 'reporting' },
+    'security.html': { section: 'security', page: 'security' },
+    'settings.html': { section: 'system', page: 'settings' },
+    'shares.html': { section: 'storage', page: 'shares' },
+    'snapshot-scheduler.html': { section: 'storage', page: 'snapshot-scheduler' },
+    'system-monitoring.html': { section: 'system', page: 'system-monitoring' },
+    'system-settings.html': { section: 'system', page: 'system-settings' },
+    'ups.html': { section: 'system', page: 'ups' },
+    'users.html': { section: 'identity', page: 'users' },
+    'zfs-encryption.html': { section: 'storage', page: 'zfs-encryption' }
+  };
+  
+  const current = pageMap[currentPage];
+  if (current) {
+    // Activate section button
+    const sectionBtn = document.querySelector(`[data-section="${current.section}"]`);
+    if (sectionBtn) {
+      sectionBtn.classList.add('active');
+    }
+    
+    // Show and activate sub-nav if not dashboard
+    if (current.section !== 'dashboard') {
+      const subNav = document.getElementById(`sub-${current.section}`);
+      if (subNav) {
+        subNav.classList.add('active');
+        document.body.classList.add('has-subnav');
+        
+        // Activate current page in sub-nav
+        if (current.page) {
+          const pageLink = subNav.querySelector(`[data-page="${current.page}"]`);
+          if (pageLink) {
+            pageLink.classList.add('active');
+          }
+        }
+      }
+    }
+  }
+})();
+
+// Keyboard shortcuts
+function showKeyboardHelp() {
+  if (window.EnhancedUI) {
+    const shortcuts = `Keyboard Shortcuts:
+
+g + d → Dashboard
+g + s → Storage
+g + c → Compute
+g + n → Network
+g + u → Identity
+g + e → Security
+g + y → System
+
+r → Refresh page
+Esc → Close modals
+? → Show this help`;
+    EnhancedUI.toast(shortcuts, 'info', 8000);
+  }
+}
+
+// Enhanced keyboard shortcuts for sections
+(function() {
+  let keySequence = '';
+  let keyTimeout;
+  
+  document.addEventListener('keydown', (e) => {
+    if (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) return;
+    
+    keySequence += e.key;
+    clearTimeout(keyTimeout);
+    
+    const shortcuts = {
+      'gd': 'index.html',
+      'gs': () => toggleSubNav('storage', document.querySelector('[data-section="storage"]')),
+      'gc': () => toggleSubNav('compute', document.querySelector('[data-section="compute"]')),
+      'gn': () => toggleSubNav('network', document.querySelector('[data-section="network"]')),
+      'gu': () => toggleSubNav('identity', document.querySelector('[data-section="identity"]')),
+      'ge': () => toggleSubNav('security', document.querySelector('[data-section="security"]')),
+      'gy': () => toggleSubNav('system', document.querySelector('[data-section="system"]'))
+    };
+    
+    if (shortcuts[keySequence]) {
+      e.preventDefault();
+      const action = shortcuts[keySequence];
+      if (typeof action === 'function') {
+        action();
+      } else {
+        window.location.href = action;
+      }
+      keySequence = '';
+    } else if (e.key === '?') {
+      e.preventDefault();
+      showKeyboardHelp();
+    }
+    
+    keyTimeout = setTimeout(() => keySequence = '', 1000);
+  });
+})();
+
+// Connection status monitoring (integrates with existing connection-monitor.js)
+if (window.ConnectionMonitor) {
+  window.ConnectionMonitor.on('statusChange', (online) => {
+    const status = document.getElementById('navConnectionStatus');
+    if (status) {
+      if (online) {
+        status.classList.remove('offline');
+        status.classList.add('online');
+        status.innerHTML = '<span class="status-dot"></span><span>Connected</span>';
+      } else {
+        status.classList.remove('online');
+        status.classList.add('offline');
+        status.innerHTML = '<span class="status-dot"></span><span>Offline</span>';
+      }
+    }
+  });
+}
+</script>
+
+<div class="page-header">
+  <h1 class="page-title">Power Management</h1>
+  <div class="page-actions">
+    <button class="btn" onclick="loadDisks()"><span class="material-symbols-rounded" style="font-size:18px;">refresh</span> Refresh</button>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header"><div class="card-title">Disk Power States</div></div>
+  <div id="diskList" style="padding:20px;text-align:center;color:rgba(255,255,255,0.4);">Loading disk information...</div>
+</div>
+
+<div class="card">
+  <div class="card-header"><div class="card-title">Spindown Presets</div></div>
+  <div style="font-size:13px;color:rgba(255,255,255,0.6);line-height:1.8;">
+    <strong>Spindown timeout values:</strong> The value sets idle time before the drive spins down.
+    Common values: <code style="background:rgba(255,255,255,0.08);padding:2px 6px;border-radius:4px;">0</code> = disabled,
+    <code style="background:rgba(255,255,255,0.08);padding:2px 6px;border-radius:4px;">60</code> = 5 minutes,
+    <code style="background:rgba(255,255,255,0.08);padding:2px 6px;border-radius:4px;">120</code> = 10 minutes,
+    <code style="background:rgba(255,255,255,0.08);padding:2px 6px;border-radius:4px;">240</code> = 20 minutes,
+    <code style="background:rgba(255,255,255,0.08);padding:2px 6px;border-radius:4px;">241</code> = 30 minutes,
+    <code style="background:rgba(255,255,255,0.08);padding:2px 6px;border-radius:4px;">242</code> = 1 hour,
+    <code style="background:rgba(255,255,255,0.08);padding:2px 6px;border-radius:4px;">244</code> = 2 hours.
+    Values 1–240 are multiples of 5 seconds. Values 241–251 are multiples of 30 minutes.
+    Settings persist across reboots via <code style="background:rgba(255,255,255,0.08);padding:2px 6px;border-radius:4px;">/etc/dplaneos/power-management.json</code>.
+  </div>
+</div>
+
+<style>
+.disk-row{display:flex;align-items:center;gap:16px;padding:16px 0;border-bottom:1px solid rgba(255,255,255,0.06);}
+.disk-row:last-child{border-bottom:none;}
+.disk-icon{width:44px;height:44px;border-radius:12px;display:flex;align-items:center;justify-content:center;}
+.disk-icon.hdd{background:rgba(96,165,250,0.1);}
+.disk-icon.hdd span{color:var(--info);}
+.disk-icon.ssd{background:rgba(167,139,250,0.1);}
+.disk-icon.ssd span{color:var(--primary);}
+.disk-info{flex:1;}
+.disk-name{font-weight:600;font-size:15px;margin-bottom:4px;}
+.disk-meta{font-size:12px;color:rgba(255,255,255,0.5);}
+.disk-state{padding:4px 12px;border-radius:20px;font-size:12px;font-weight:600;}
+.disk-state.active{background:rgba(74,222,128,0.15);color:var(--success);}
+.disk-state.standby{background:rgba(251,191,36,0.15);color:var(--warning);}
+.disk-state.unknown{background:rgba(255,255,255,0.08);color:rgba(255,255,255,0.5);}
+.disk-controls{display:flex;gap:8px;align-items:center;}
+.spindown-select{padding:6px 10px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);border-radius:8px;color:var(--text);font-size:12px;}
+</style>
+</div>
+
+</main>
+<button class="fab" onclick="checkUpdates()"><span class="material-symbols-rounded" style="font-size:28px;">update</span></button>
+<script src="/assets/js/m3-ripple.js?v=3.3.0"></script>
+<script src="/assets/js/ui-components.js?v=3.3.0"></script>
+<script>
+const ui = new DPlaneUI();
+
+async function toggleSetting(el, setting) {
+  el.classList.toggle('active');
+  const state = el.classList.contains('active');
+  
+  ui.showLoading(`${state ? 'Enabling' : 'Disabling'} ${setting}...`);
+  
+  try {
+    const response = await csrfFetch('/api/settings/telegram', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'toggle', setting: setting, enabled: state })
+    });
+    
+    const result = await response.json();
+    ui.hideLoading();
+    
+    if (result.success) {
+      ui.toast(`${setting.toUpperCase()} ${state ? 'enabled' : 'disabled'}`, 'success');
+    } else {
+      el.classList.toggle('active'); // Revert on error
+      ui.toast(result.error || 'Failed to update setting', 'error');
+    }
+  } catch (error) {
+    el.classList.toggle('active'); // Revert on error
+    ui.hideLoading();
+    ui.toast('Network error: ' + error.message, 'error');
+  }
+}
+
+async function editSetting(setting) {
+  let label = setting.charAt(0).toUpperCase() + setting.slice(1);
+  const result = await ui.form(`Edit ${label}`, [
+    { name: 'value', label: label, type: 'text', required: true }
+  ], 'Save');
+  
+  if (result) {
+    ui.showLoading('Saving...');
+    
+    try {
+      const response = await csrfFetch('/api/settings/telegram', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'update', setting: setting, ...result })
+      });
+      
+      const data = await response.json();
+      ui.hideLoading();
+      
+      if (data.success) {
+        ui.toast('Setting updated', 'success');
+        setTimeout(() => location.reload(), 1000);
+      } else {
+        ui.toast(data.error || 'Failed to update', 'error');
+      }
+    } catch (error) {
+      ui.hideLoading();
+      ui.toast('Network error: ' + error.message, 'error');
+    }
+  }
+}
+
+async function checkUpdates() {
+  ui.showLoading('Checking for updates...');
+  
+  try {
+    const response = await csrfFetch('/api/settings/telegram');
+    const result = await response.json();
+    ui.hideLoading();
+    
+    if (result.updates_available) {
+      if (await ui.confirm('Update Available', `D-PlaneOS ${result.latest_version} is available. Install now?`)) {
+        ui.showLoading('Installing update...');
+        // Handle update installation
+        setTimeout(() => {
+          ui.hideLoading();
+          ui.toast('Update installed successfully', 'success');
+        }, 3000);
+      }
+    } else {
+      ui.toast('System is up to date' + (_settingsVersion ? ' (v' + _settingsVersion + ')' : ''), 'success');
+    }
+  } catch (error) {
+    ui.hideLoading();
+    ui.toast('Network error: ' + error.message, 'error');
+  }
+}
+
+// Telegram Configuration
+let telegramConfig = { bot_token: '', chat_id: '', enabled: false };
+
+async function loadTelegramConfig() {
+  try {
+    const response = await csrfFetch('/api/settings/telegram');
+    if (response.ok) {
+      telegramConfig = await response.json();
+      const toggle = document.getElementById('telegram-toggle');
+      const configDiv = document.getElementById('telegram-config');
+      
+      if (telegramConfig.enabled) {
+        toggle.classList.add('active');
+        configDiv.style.display = 'block';
+      } else {
+        toggle.classList.remove('active');
+        configDiv.style.display = 'none';
+      }
+    }
+  } catch (error) {
+    console.error('Failed to load Telegram config:', error);
+  }
+}
+
+async function toggleTelegram(el) {
+  const wasEnabled = el.classList.contains('active');
+  const configDiv = document.getElementById('telegram-config');
+  
+  if (!wasEnabled) {
+    el.classList.add('active');
+    configDiv.style.display = 'block';
+  } else {
+    el.classList.remove('active');
+    configDiv.style.display = 'none';
+    telegramConfig.enabled = false;
+    await saveTelegramConfig();
+  }
+}
+
+async function editTelegramBot() {
+  const result = await ui.prompt('Telegram Bot Token', 'Enter your bot token from @BotFather:', telegramConfig.bot_token);
+  if (result) {
+    telegramConfig.bot_token = result.value;
+    await saveTelegramConfig();
+  }
+}
+
+async function editTelegramChat() {
+  const result = await ui.prompt('Telegram Chat ID', 'Enter your chat ID:', telegramConfig.chat_id);
+  if (result) {
+    telegramConfig.chat_id = result.value;
+    await saveTelegramConfig();
+  }
+}
+
+async function saveTelegramConfig() {
+  const toggle = document.getElementById('telegram-toggle');
+  telegramConfig.enabled = toggle.classList.contains('active');
+  
+  try {
+    const response = await csrfFetch('/api/settings/telegram', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(telegramConfig)
+    });
+    
+    if (response.ok) {
+      ui.toast('Telegram configuration saved', 'success');
+    } else {
+      ui.toast('Failed to save configuration', 'error');
+    }
+  } catch (error) {
+    ui.toast('Network error: ' + error.message, 'error');
+  }
+}
+
+async function testTelegram() {
+  if (!telegramConfig.bot_token || !telegramConfig.chat_id) {
+    ui.toast('Please configure bot token and chat ID first', 'error');
+    return;
+  }
+  
+  ui.showLoading('Testing Telegram connection...');
+  
+  try {
+    const response = await csrfFetch('/api/settings/telegram/test', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(telegramConfig)
+    });
+    
+    ui.hideLoading();
+    
+    if (response.ok) {
+      const data = await response.json();
+      ui.toast(data.message || 'Test successful!', 'success');
+    } else {
+      ui.toast('Test failed - check your configuration', 'error');
+    }
+  } catch (error) {
+    ui.hideLoading();
+    ui.toast('Network error: ' + error.message, 'error');
+  }
+}
+
+document.addEventListener('DOMContentLoaded', loadTelegramConfig);
+</script>
+  <script src="/assets/js/realtime-client.js?v=3.3.0"></script>
+<!-- v3.0.0: NixOS Configuration Guard -->
+<div id="tab-webhooks" class="consolidation-content">
+<div style="max-width:900px;">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:24px;">
+    <div>
+      <h2 style="font-size:22px;font-weight:700;margin-bottom:6px;">Webhook Notifications</h2>
+      <p style="color:rgba(255,255,255,0.5);font-size:14px;">Send HTTP POST payloads to external endpoints on system events.</p>
+    </div>
+    <button class="btn btn-primary" onclick="showAddWebhook()"
+      data-permission="system:write" data-permission-mode="disable">
+      <span class="material-symbols-rounded" style="font-size:16px;vertical-align:-3px;">add</span>
+      Add Webhook
+    </button>
+  </div>
+
+  <div id="webhookList" style="display:flex;flex-direction:column;gap:12px;">
+    <div style="text-align:center;padding:40px;color:rgba(255,255,255,0.3);">Loading webhooks...</div>
+  </div>
+
+  <!-- Add/Edit modal structure (inline) -->
+  <div id="webhookModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);
+    z-index:9000;display:flex;align-items:center;justify-content:center;" class="hidden">
+    <div style="background:#1a1a2e;border:1px solid rgba(255,255,255,0.12);border-radius:20px;
+      padding:32px;width:520px;max-width:95vw;max-height:90vh;overflow-y:auto;">
+      <h3 id="webhookModalTitle" style="font-size:18px;font-weight:700;margin-bottom:24px;">Add Webhook</h3>
+
+      <div style="display:flex;flex-direction:column;gap:16px;">
+        <div>
+          <label style="font-size:13px;color:rgba(255,255,255,0.5);display:block;margin-bottom:6px;">Name *</label>
+          <input id="wh-name" type="text" placeholder="My Webhook" style="width:100%;box-sizing:border-box;
+            background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.12);border-radius:10px;
+            padding:10px 14px;color:#fff;font-size:14px;">
+        </div>
+        <div>
+          <label style="font-size:13px;color:rgba(255,255,255,0.5);display:block;margin-bottom:6px;">URL *</label>
+          <input id="wh-url" type="url" placeholder="https://hooks.example.com/..." style="width:100%;box-sizing:border-box;
+            background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.12);border-radius:10px;
+            padding:10px 14px;color:#fff;font-size:14px;">
+        </div>
+        <div>
+          <label style="font-size:13px;color:rgba(255,255,255,0.5);display:block;margin-bottom:6px;">
+            Secret Header Name <span style="color:rgba(255,255,255,0.3)">(optional)</span>
+          </label>
+          <input id="wh-secret-header" type="text" placeholder="X-Webhook-Secret" style="width:100%;box-sizing:border-box;
+            background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.12);border-radius:10px;
+            padding:10px 14px;color:#fff;font-size:14px;">
+        </div>
+        <div>
+          <label style="font-size:13px;color:rgba(255,255,255,0.5);display:block;margin-bottom:6px;">
+            Secret Value <span style="color:rgba(255,255,255,0.3)">(optional, sent as header value)</span>
+          </label>
+          <input id="wh-secret-value" type="password" placeholder="••••••••" style="width:100%;box-sizing:border-box;
+            background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.12);border-radius:10px;
+            padding:10px 14px;color:#fff;font-size:14px;">
+        </div>
+        <div>
+          <label style="font-size:13px;color:rgba(255,255,255,0.5);display:block;margin-bottom:10px;">Events</label>
+          <div id="wh-events" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:13px;">
+          </div>
+        </div>
+        <label style="display:flex;align-items:center;gap:10px;cursor:pointer;">
+          <input id="wh-enabled" type="checkbox" checked style="width:16px;height:16px;">
+          <span style="font-size:14px;">Enabled</span>
+        </label>
+      </div>
+
+      <div style="display:flex;gap:12px;margin-top:24px;justify-content:flex-end;">
+        <button class="btn" onclick="closeWebhookModal()">Cancel</button>
+        <button class="btn btn-primary" onclick="saveWebhook()" id="wh-save-btn">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<script>
+function switchConsolidatedTab(t){document.querySelectorAll('.consolidation-content').forEach(function(c){c.classList.remove('active')});document.querySelectorAll('.consolidation-tab').forEach(function(b){b.classList.remove('active')});var el=document.getElementById('tab-'+t);var btn=document.querySelector('[data-tab="'+t+'"]');if(el)el.classList.add('active');if(btn)btn.classList.add('active');if(typeof window['init_'+t]==='function')window['init_'+t]();}window.addEventListener('load',function(){var h=window.location.hash.replace('#','');if(h&&document.getElementById('tab-'+h))switchConsolidatedTab(h);});
+document.addEventListener('DOMContentLoaded', () => {
+  if (window.UnsavedChanges) window._settingsGuard = UnsavedChanges.watch(document.body);
+  const main = document.querySelector('.main');
+  if (!main) return;
+  const nix = document.createElement('div');
+  nix.style.marginTop = '48px';
+  nix.id = 'nixos-section';
+  nix.innerHTML = `
+    <h2 class="page-title" style="font-size:28px;">NixOS Configuration</h2>
+    <p class="page-subtitle" style="margin-bottom:32px;">Validate • Apply • Diff • Watchdog</p>
+    <div id="nixos-detect" style="margin-bottom:24px;"></div>
+
+    <div class="card" style="padding:32px;margin-bottom:24px;border-left:4px solid #06b6d4;">
+      <div style="display:flex;align-items:center;gap:16px;margin-bottom:20px;">
+        <span class="material-symbols-rounded" style="font-size:32px;color:#06b6d4;">verified_user</span>
+        <div style="flex:1;"><div style="font-size:20px;font-weight:800;">Config Guard</div></div>
+        <div id="watchdog-status"></div>
+      </div>
+      <div style="display:flex;gap:12px;flex-wrap:wrap;">
+        <button class="btn" onclick="nixValidate()" style="background:rgba(255,255,255,0.05);">
+          <span class="material-symbols-rounded" style="font-size:18px;">fact_check</span> Dry-Run Validate</button>
+        <button class="btn btn-primary" onclick="nixApply()">
+          <span class="material-symbols-rounded" style="font-size:18px;">rocket_launch</span> Apply with Watchdog (120s)</button>
+        <button class="btn" onclick="nixConfirm()" style="background:rgba(16,185,129,0.2);border:1px solid rgba(16,185,129,0.3);color:var(--md-sys-color-success);">
+          <span class="material-symbols-rounded" style="font-size:18px;">check_circle</span> Confirm</button>
+        <button class="btn" onclick="nixGenerations()" style="background:rgba(255,255,255,0.05);">
+          <span class="material-symbols-rounded" style="font-size:18px;">history</span> Generations</button>
+        <button class="btn" onclick="nixRollback()" style="background:rgba(239,68,68,0.15);color:#ef4444;">
+          <span class="material-symbols-rounded" style="font-size:18px;">undo</span> Rollback</button>
+      </div>
+      <div id="nix-output" style="margin-top:16px;font-family:monospace;font-size:12px;color:rgba(255,255,255,0.6);padding:12px;background:rgba(0,0,0,0.3);border-radius:var(--md-sys-shape-corner-small);max-height:300px;overflow-y:auto;display:none;"></div>
+    </div>
+
+    <div class="card" style="padding:32px;border-left:4px solid #8b5cf6;">
+      <div style="display:flex;align-items:center;gap:16px;margin-bottom:20px;">
+        <span class="material-symbols-rounded" style="font-size:32px;color:#8b5cf6;">difference</span>
+        <div style="flex:1;"><div style="font-size:20px;font-weight:800;">Generation Diff</div></div>
+      </div>
+      <div style="display:flex;gap:12px;align-items:end;margin-bottom:16px;">
+        <div><label style="font-size:12px;color:rgba(255,255,255,0.5);display:block;margin-bottom:6px;">From Gen #</label>
+          <input id="diff-from" type="number" placeholder="42" style="width:120px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:var(--md-sys-shape-corner-medium);padding:10px 16px;color:#fff;"></div>
+        <div><label style="font-size:12px;color:rgba(255,255,255,0.5);display:block;margin-bottom:6px;">To Gen # (empty=current)</label>
+          <input id="diff-to" type="number" placeholder="current" style="width:120px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:var(--md-sys-shape-corner-medium);padding:10px 16px;color:#fff;"></div>
+        <button class="btn btn-primary" onclick="nixDiff()"><span class="material-symbols-rounded" style="font-size:18px;">compare</span> Compare</button>
+      </div>
+      <div id="diff-output" style="font-family:monospace;font-size:12px;color:rgba(255,255,255,0.6);padding:12px;background:rgba(0,0,0,0.3);border-radius:var(--md-sys-shape-corner-small);max-height:400px;overflow-y:auto;display:none;"></div>
+    </div>
+  `;
+  main.appendChild(nix);
+  detectNixOS();
+});
+async function detectNixOS() {
+  try { const r = await csrfFetch('/api/nixos/detect'); const d = await r.json();
+    const el = document.getElementById('nixos-detect');
+    if (!d.success || !d.is_nixos) { document.getElementById('nixos-section').style.display='none'; return; }
+    el.textContent = `NixOS ${(d.version||'')} • ${d.generation_count||0} generations`; el.className = "badge badge-success"; el.style.cssText = "font-size:14px;padding:8px 16px;";
+    checkWatchdog();
+  } catch(e) { document.getElementById('nixos-section').style.display='none'; }
+}
+async function nixValidate() {
+  try { ui.toast('Validating...','info'); const r = await csrfFetch('/api/nixos/validate',{method:'POST',body:JSON.stringify({flake_path:'/etc/nixos'})}); const d = await r.json();
+    const el = document.getElementById('nix-output'); el.style.display='block';
+    el.textContent = d.output||d.error||'No output'; d.success ? ui.toast('Config valid','success') : ui.toast('Validation failed','error');
+  } catch(e) { ui.toast('Error','error'); }
+}
+async function nixApply() {
+  if (!await ui.confirm('Apply NixOS Config','Apply configuration? Auto-rollback if not confirmed within 120 seconds.')) return;
+  try { ui.toast('Applying...','info'); const r = await csrfFetch('/api/nixos/apply',{method:'POST',body:JSON.stringify({flake_path:'/etc/nixos',timeout_seconds:120})}); const d = await r.json();
+    const el = document.getElementById('nix-output'); el.style.display='block'; el.textContent = d.output||'';
+    d.success ? ui.toast('Applied — confirm within 120s!','warning') : ui.toast('Failed','error'); checkWatchdog();
+  } catch(e) { ui.toast('Error','error'); }
+}
+async function nixConfirm() {
+  try { const r = await csrfFetch('/api/nixos/confirm',{method:'POST'}); const d = await r.json();
+    d.success ? ui.toast('Confirmed — watchdog cancelled','success') : ui.toast(d.error,'error'); checkWatchdog();
+  } catch(e) { ui.toast('Error','error'); }
+}
+async function checkWatchdog() {
+  try { const r = await csrfFetch('/api/nixos/watchdog'); const d = await r.json();
+    document.getElementById('watchdog-status').innerHTML = d.watchdog_active ? `<span class="badge badge-warning">Watchdog: ${esc(String(d.remaining_sec||0))}s remaining</span>` : '';
+  } catch(e) {}
+}
+async function nixDiff() {
+  const from = document.getElementById('diff-from').value;
+  const to = document.getElementById('diff-to').value;
+  if (!from) { ui.toast('Enter "from" generation','warning'); return; }
+  try { const r = await csrfFetch('/api/nixos/diff?from='+from+(to?'&to='+to:'')); const d = await r.json();
+    const el = document.getElementById('diff-output'); el.style.display='block'; el.textContent = d.diff||JSON.stringify(d,null,2);
+  } catch(e) { ui.toast('Error','error'); }
+}
+
+// NixOS Generations
+async function nixGenerations() {
+  try { const r = await csrfFetch('/api/nixos/generations'); const d = await r.json();
+    const el = document.getElementById('diff-output'); el.style.display = 'block';
+    if (d.generations && d.generations.length) {
+      el.innerHTML = d.generations.map(g => '<div style="padding:4px 0;border-bottom:1px solid rgba(255,255,255,0.03);">Gen #'+esc(String(g.number||''))+' — '+esc(g.date||'')+' '+(g.current?' <strong>(current)</strong>':'')+'</div>').join('');
+    } else { el.textContent = d.output || 'No generations found'; }
+  } catch(e) { ui.toast('Error','error'); }
+}
+async function nixRollback() {
+  const gen = await ui.prompt('NixOS Rollback', 'Generation number to rollback to:');
+  if (!gen) return;
+  if (!await ui.confirm('Rollback NixOS', 'Rollback to generation '+gen+'? System will switch config.')) return;
+  try { ui.toast('Rolling back...','info');
+    const r = await csrfFetch('/api/nixos/rollback',{method:'POST',body:JSON.stringify({generation:parseInt(gen)})});
+    const d = await r.json();
+    d.success ? ui.toast('Rolled back to gen '+gen,'success') : ui.toast(d.error,'error');
+  } catch(e) { ui.toast('Error','error'); }
+}
+
+// Inject SMTP + NixOS buttons
+document.addEventListener('DOMContentLoaded', () => {
+  const main = document.querySelector('.main');
+  if (!main) return;
+
+  // SMTP Alert Configuration
+  const smtp = document.createElement('div');
+  smtp.style.marginTop = '48px';
+  smtp.innerHTML = `
+    <h2 class="page-title" style="font-size:28px;">Email Alerts (SMTP)</h2>
+    <p class="page-subtitle" style="margin-bottom:32px;">Get notified about disk failures, capacity warnings, scrub results</p>
+    <div class="card" style="padding:32px;border-left:4px solid #f59e0b;">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+        <div><label style="font-size:12px;color:rgba(255,255,255,0.5);display:block;margin-bottom:6px;">SMTP Host</label>
+          <input id="smtp-host" type="text" placeholder="smtp.gmail.com" style="width:100%;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:var(--md-sys-shape-corner-medium);padding:10px 16px;color:#fff;"></div>
+        <div><label style="font-size:12px;color:rgba(255,255,255,0.5);display:block;margin-bottom:6px;">Port</label>
+          <input id="smtp-port" type="number" value="587" style="width:100%;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:var(--md-sys-shape-corner-medium);padding:10px 16px;color:#fff;"></div>
+        <div><label style="font-size:12px;color:rgba(255,255,255,0.5);display:block;margin-bottom:6px;">Username</label>
+          <input id="smtp-user" type="text" style="width:100%;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:var(--md-sys-shape-corner-medium);padding:10px 16px;color:#fff;"></div>
+        <div><label style="font-size:12px;color:rgba(255,255,255,0.5);display:block;margin-bottom:6px;">Password</label>
+          <input id="smtp-pass" type="password" style="width:100%;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:var(--md-sys-shape-corner-medium);padding:10px 16px;color:#fff;"></div>
+        <div><label style="font-size:12px;color:rgba(255,255,255,0.5);display:block;margin-bottom:6px;">From Address</label>
+          <input id="smtp-from" type="email" placeholder="nas@example.com" style="width:100%;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:var(--md-sys-shape-corner-medium);padding:10px 16px;color:#fff;"></div>
+        <div><label style="font-size:12px;color:rgba(255,255,255,0.5);display:block;margin-bottom:6px;">To Address(es)</label>
+          <input id="smtp-to" type="text" placeholder="admin@example.com" style="width:100%;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:var(--md-sys-shape-corner-medium);padding:10px 16px;color:#fff;"></div>
+      </div>
+      <div style="display:flex;gap:12px;margin-top:20px;justify-content:flex-end;">
+        <button class="btn" onclick="testSMTP()" style="background:rgba(255,255,255,0.05);">Send Test Email</button>
+        <button class="btn btn-primary" onclick="saveSMTP()">Save SMTP Config</button>
+      </div>
+    </div>
+  `;
+  main.appendChild(smtp);
+  loadSMTPConfig();
+});
+
+async function loadSMTPConfig() {
+  try { const r = await csrfFetch('/api/alerts/smtp'); const d = await r.json();
+    if (d.configured && d.config) {
+      document.getElementById('smtp-host').value = d.config.host||'';
+      document.getElementById('smtp-port').value = d.config.port||587;
+      document.getElementById('smtp-user').value = d.config.username||'';
+      document.getElementById('smtp-from').value = d.config.from||'';
+      document.getElementById('smtp-to').value = d.config.to||'';
+    }
+  } catch(e) {}
+}
+function getSMTPData() {
+  return { host: document.getElementById('smtp-host').value, port: parseInt(document.getElementById('smtp-port').value)||587,
+    username: document.getElementById('smtp-user').value, password: document.getElementById('smtp-pass').value,
+    from: document.getElementById('smtp-from').value, to: document.getElementById('smtp-to').value };
+}
+async function saveSMTP() {
+  const data = getSMTPData();
+  if (!data.host || !data.from || !data.to) { ui.toast('Host, from, and to are required','warning'); return; }
+  try { const r = await csrfFetch('/api/alerts/smtp',{method:'POST',body:JSON.stringify(data)}); const d = await r.json();
+    d.success ? ui.toast('SMTP config saved','success') : ui.toast(d.error,'error');
+  } catch(e) { ui.toast('Failed','error'); }
+}
+async function testSMTP() {
+  const data = getSMTPData();
+  if (!data.host) { ui.toast('Configure SMTP first','warning'); return; }
+  try { ui.toast('Sending test email...','info');
+    const r = await csrfFetch('/api/alerts/smtp/test',{method:'POST',body:JSON.stringify(data)}); const d = await r.json();
+    d.success ? ui.toast(d.message||'Test email sent','success') : ui.toast('Failed: '+(d.error||'Unknown'),'error');
+  } catch(e) { ui.toast('Failed','error'); }
+}
+var __config_init=false;function init_config(){if(__config_init)return;__config_init=true;// Initialize
+        let systemProfile = null;
+        let hasECC = false;
+
+        // Load system profile
+        async function loadSystemProfile() {
+            try {
+                const response = await daemonAPI('/api/system/profile');
+                systemProfile = response;
+                hasECC = systemProfile.has_ecc || false;
+                
+                // Update UI based on profile
+                updateARCRecommendation();
+            } catch (error) {
+                console.error('Failed to load system profile:', error);
+            }
+        }
+
+        // Update live metrics
+        async function updateMetrics() {
+            try {
+                const metrics = await daemonAPI('/api/metrics/current');
+                
+                // Inotify
+                document.getElementById('inotify-used').textContent = formatNumber(metrics.inotify.used);
+                document.getElementById('inotify-limit').textContent = formatNumber(metrics.inotify.limit);
+                updateStatusBar('inotify-bar', metrics.inotify.percent);
+                
+                // Memory
+                document.getElementById('memory-used').textContent = formatBytes(metrics.memory.used);
+                document.getElementById('memory-total').textContent = formatBytes(metrics.memory.total);
+                updateStatusBar('memory-bar', metrics.memory.percent);
+                
+                // ZFS ARC
+                document.getElementById('arc-used').textContent = formatBytes(metrics.arc.used);
+                document.getElementById('arc-limit').textContent = formatBytes(metrics.arc.limit);
+                updateStatusBar('arc-bar', metrics.arc.percent);
+                
+                // I/O Wait
+                document.getElementById('iowait-value').textContent = metrics.iowait + '%';
+                updateStatusBar('iowait-bar', metrics.iowait);
+                
+                // Check for alerts
+                checkThresholds(metrics);
+                
+            } catch (error) {
+                console.error('Failed to update metrics:', error);
+            }
+        }
+
+        function updateStatusBar(barId, percent) {
+            const bar = document.getElementById(barId);
+            bar.style.width = percent + '%';
+            
+            // Color coding
+            if (percent < 70) {
+                bar.className = 'status-bar-fill ok';
+            } else if (percent < 90) {
+                bar.className = 'status-bar-fill warning';
+            } else {
+                bar.className = 'status-bar-fill critical';
+            }
+        }
+
+        function checkThresholds(metrics) {
+            const alerts = [];
+            
+            // Inotify
+            const inotifyWarn = parseInt(document.getElementById('inotify-warn-slider').value);
+            if (metrics.inotify.percent >= inotifyWarn) {
+                alerts.push({
+                    type: 'warning',
+                    icon: 'visibility_off',
+                    title: 'Inotify Watches Critical',
+                    message: `Usage at ${metrics.inotify.percent}%. Some file changes may not be detected. Consider stopping unused Docker containers or enabling periodic scan mode.`
+                });
+            }
+            
+            // Memory
+            const memoryWarn = parseInt(document.getElementById('memory-warn-slider').value);
+            if (metrics.memory.percent >= memoryWarn) {
+                alerts.push({
+                    type: 'warning',
+                    icon: 'memory',
+                    title: 'High Memory Usage',
+                    message: `Memory at ${metrics.memory.percent}%. System may start swapping, causing performance degradation.`
+                });
+            }
+            
+            // I/O Wait
+            const iowaitWarn = parseInt(document.getElementById('iowait-warn-slider').value);
+            if (metrics.iowait >= iowaitWarn) {
+                alerts.push({
+                    type: 'warning',
+                    icon: 'hourglass_empty',
+                    title: 'High I/O Wait',
+                    message: `CPU waiting ${metrics.iowait}% for disk I/O. UI may feel laggy. Check if ZFS scrub is running.`
+                });
+            }
+            
+            // Non-ECC Warning
+            if (!hasECC && metrics.arc.percent > 40) {
+                alerts.push({
+                    type: 'error',
+                    icon: 'warning',
+                    title: 'Non-ECC RAM Risk',
+                    message: `ZFS ARC using ${metrics.arc.percent}% of RAM. With Non-ECC RAM, keep ARC ≤40% to reduce bit-flip corruption risk.`
+                });
+            }
+            
+            displayAlerts(alerts);
+        }
+
+        function displayAlerts(alerts) {
+            const container = document.getElementById('alerts-container');
+            
+            if (alerts.length === 0) {
+                container.innerHTML = '';
+                return;
+            }
+            
+            container.innerHTML = alerts.map(alert => `
+                <div class="alert ${alert.type}">
+                    <span class="material-symbols-rounded">${alert.icon}</span>
+                    <div class="alert-content">
+                        <h3>${alert.title}</h3>
+                        <p>${alert.message}</p>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        // Slider updates
+        document.getElementById('arc-slider').addEventListener('input', (e) => {
+            const value = e.target.value;
+            document.getElementById('arc-limit-value').textContent = value + ' GB';
+            updateARCRecommendation();
+        });
+
+        document.getElementById('swappiness-slider').addEventListener('input', (e) => {
+            const value = e.target.value;
+            document.getElementById('swappiness-value').textContent = value;
+        });
+
+        document.getElementById('inotify-warn-slider').addEventListener('input', (e) => {
+            const value = e.target.value;
+            document.getElementById('inotify-warn-value').textContent = value + '%';
+        });
+
+        document.getElementById('memory-warn-slider').addEventListener('input', (e) => {
+            const value = e.target.value;
+            document.getElementById('memory-warn-value').textContent = value + '%';
+        });
+
+        document.getElementById('iowait-warn-slider').addEventListener('input', (e) => {
+            const value = e.target.value;
+            document.getElementById('iowait-warn-value').textContent = value + '%';
+        });
+
+        function updateARCRecommendation() {
+            if (!systemProfile) return;
+            
+            const arcGB = parseInt(document.getElementById('arc-slider').value);
+            const totalRAM = systemProfile.total_ram_gb;
+            const percent = (arcGB / totalRAM * 100).toFixed(0);
+            
+            const recommendation = document.getElementById('arc-recommendation');
+            
+            if (!hasECC && percent > 40) {
+                recommendation.textContent = `⚠️ WARNING: ${percent}% of RAM. With Non-ECC RAM, recommend ≤40% (≤${Math.floor(totalRAM * 0.4)}GB) to reduce corruption risk.`;
+                recommendation.style.color = '#C62828';
+            } else if (percent > 50) {
+                recommendation.textContent = `⚠️ ${percent}% of RAM. May cause memory pressure under heavy load.`;
+                recommendation.style.color = '#F57F17';
+            } else {
+                recommendation.textContent = `✓ ${percent}% of RAM. Safe for your ${totalRAM}GB system${hasECC ? ' with ECC' : ''}.`;
+                recommendation.style.color = 'var(--md-sys-color-tertiary)';
+            }
+        }
+
+        // Save settings
+        async function saveSettings() {
+            const btn = document.querySelector('[onclick="saveSettings()"]');
+            if (btn) btn.disabled = true;
+            const settings = {
+                arc_limit_gb: parseInt(document.getElementById('arc-slider').value),
+                swappiness: parseInt(document.getElementById('swappiness-slider').value),
+                realtime_enabled: document.getElementById('realtime-toggle').checked,
+                periodic_enabled: document.getElementById('periodic-toggle').checked,
+                inotify_warn_threshold: parseInt(document.getElementById('inotify-warn-slider').value),
+                memory_warn_threshold: parseInt(document.getElementById('memory-warn-slider').value),
+                iowait_warn_threshold: parseInt(document.getElementById('iowait-warn-slider').value),
+                websocket_alerts: document.getElementById('websocket-alerts-toggle').checked
+            };
+            
+            try {
+                await daemonAPI('/api/system/settings', 'POST', settings);
+                if (window._settingsGuard) window._settingsGuard.markSaved();
+                showToast('Settings saved successfully', 'success');
+            } catch (error) {
+                showToast('Failed to save settings: ' + error.message, 'error');
+            } finally {
+                if (btn) btn.disabled = false;
+            }
+        }
+
+        async function resetToDefaults() {
+            if (await ui.confirm('Reset Settings', 'Reset all settings to recommended defaults?')) {
+                document.getElementById('arc-slider').value = 8;
+                document.getElementById('swappiness-slider').value = 10;
+                document.getElementById('inotify-warn-slider').value = 80;
+                document.getElementById('memory-warn-slider').value = 85;
+                document.getElementById('iowait-warn-slider').value = 20;
+                
+                // Trigger updates
+                document.getElementById('arc-slider').dispatchEvent(new Event('input'));
+                document.getElementById('swappiness-slider').dispatchEvent(new Event('input'));
+                document.getElementById('inotify-warn-slider').dispatchEvent(new Event('input'));
+                document.getElementById('memory-warn-slider').dispatchEvent(new Event('input'));
+                document.getElementById('iowait-warn-slider').dispatchEvent(new Event('input'));
+                
+                showToast('Settings reset to defaults', 'info');
+            }
+        }
+
+        async function runPreFlight() {
+            try {
+                const result = await daemonAPI('/api/system/preflight');
+                
+                if (result.errors > 0) {
+                    showToast(`Pre-flight check failed with ${result.errors} critical issue(s)`, 'error');
+                } else if (result.warnings > 0) {
+                    showToast(`Pre-flight check passed with ${result.warnings} warning(s)`, 'warning');
+                } else {
+                    showToast('Pre-flight check passed - system ready', 'success');
+                }
+                
+                // Show detailed results
+                window.open('/system/preflight-results', '_blank');
+            } catch (error) {
+                showToast('Failed to run pre-flight check: ' + error.message, 'error');
+            }
+        }
+
+        function formatNumber(num) {
+            if (num >= 1000000) {
+                return (num / 1000000).toFixed(1) + 'M';
+            } else if (num >= 1000) {
+                return (num / 1000).toFixed(1) + 'K';
+            }
+            return num.toString();
+        }
+
+        function formatBytes(bytes) {
+            const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+            let i = 0;
+            while (bytes >= 1024 && i < units.length - 1) {
+                bytes /= 1024;
+                i++;
+            }
+            return bytes.toFixed(1) + ' ' + units[i];
+        }
+
+        function showToast(message, type) {
+            // Simple toast implementation
+            const toast = document.createElement('div');
+            toast.textContent = message;
+            toast.style.cssText = `
+                position: fixed;
+                bottom: 24px;
+                right: 24px;
+                background: ${type === 'error' ? '#C62828' : type === 'warning' ? '#F57F17' : '#2E7D32'};
+                color: white;
+                padding: 16px 24px;
+                border-radius: 8px;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+                z-index: 10000;
+            `;
+            document.body.appendChild(toast);
+            setTimeout(() => toast.remove(), 4000);
+        }
+
+        // Initialize
+        loadSystemProfile();
+        updateMetrics();
+        
+        // Update metrics every 10 seconds
+        setInterval(updateMetrics, 10000);
+        
+        // WebSocket monitoring
+        if (window.monitorWS) {
+            monitorWS.on('inotify_status', (event) => {
+                updateMetrics();
+            });
+        }}
+var __power_init=false;function init_power(){if(__power_init)return;__power_init=true;function getSessionId(){return document.cookie.replace(/(?:(?:^|.*;\s*)session_id\s*=\s*([^;]*).*$)|^.*$/,"$1")||localStorage.getItem("session_id")||"";}
+function getUser(){return document.cookie.replace(/(?:(?:^|.*;\s*)username\s*=\s*([^;]*).*$)|^.*$/,"$1")||localStorage.getItem("username")||"admin";}
+function esc(s){var d=document.createElement("div");d.textContent=s;return d.innerHTML;}
+
+var spindownConf={};
+
+async function loadDisks(){
+  try{
+    var res=await fetch("/api/power/disks",{headers:{"X-Session-ID":getSessionId(),"X-User":getUser()}});
+    var data=await res.json();
+    if(!data.success)return;
+    spindownConf=data.spindown||{};
+    var disks=data.disks||[];
+    
+    if(!disks.length){
+      document.getElementById("diskList").innerHTML="<div style='padding:40px;text-align:center;color:rgba(255,255,255,0.4);'><span class='material-symbols-rounded' style='font-size:48px;display:block;margin-bottom:12px;'>storage</span>No disks detected</div>";
+      return;
+    }
+    
+    var html="";
+    disks.forEach(function(d){
+      var isHDD=d.rotational==="1";
+      var iconClass=isHDD?"hdd":"ssd";
+      var stateClass=(d.power_state||"unknown").toLowerCase();
+      var savedTimeout=spindownConf[d.device]||0;
+      
+      html+="<div class='disk-row'>"+
+        "<div class='disk-icon "+iconClass+"'><span class='material-symbols-rounded'>"+(isHDD?"hard_drive":"memory")+"</span></div>"+
+        "<div class='disk-info'><div class='disk-name'>"+esc(d.device)+"</div>"+
+        "<div class='disk-meta'>"+esc(d.model||"Unknown")+" · "+esc(d.size||"?")+" · "+esc(d.transport||"?")+(d.apm_level?" · APM: "+esc(d.apm_level):"")+"</div></div>"+
+        "<span class='disk-state "+stateClass+"'>"+esc(d.power_state||"unknown")+"</span>"+
+        "<div class='disk-controls'>"+
+        "<select class='spindown-select' onchange=\"setSpindown('"+esc(d.device)+"',this.value)\">"+
+        "<option value='0'"+(savedTimeout===0?" selected":"")+">No spindown</option>"+
+        "<option value='60'"+(savedTimeout===60?" selected":"")+">5 min</option>"+
+        "<option value='120'"+(savedTimeout===120?" selected":"")+">10 min</option>"+
+        "<option value='240'"+(savedTimeout===240?" selected":"")+">20 min</option>"+
+        "<option value='241'"+(savedTimeout===241?" selected":"")+">30 min</option>"+
+        "<option value='242'"+(savedTimeout===242?" selected":"")+">1 hour</option>"+
+        "<option value='244'"+(savedTimeout===244?" selected":"")+">2 hours</option>"+
+        "</select>"+
+        (isHDD?"<button class='btn' onclick=\"spindownNow('"+esc(d.device)+"')\" title='Spindown now' style='padding:6px 10px;font-size:12px;'><span class='material-symbols-rounded' style='font-size:16px;'>power_settings_new</span></button>":"")+
+        "</div></div>";
+    });
+    document.getElementById("diskList").innerHTML=html;
+  }catch(e){document.getElementById("diskList").textContent="Failed to load disk info";}
+}
+
+async function setSpindown(device,timeout){
+  try{
+    await fetch("/api/power/spindown",{method:"POST",headers:{"Content-Type":"application/json","X-Session-ID":getSessionId(),"X-User":getUser()},body:JSON.stringify({device:device,timeout:parseInt(timeout)})});
+    if(window.EnhancedUI)EnhancedUI.toast("Spindown set for "+device,"success");
+  }catch(e){if(window.EnhancedUI)EnhancedUI.toast("Error: "+e.message,"error");}
+}
+
+async function spindownNow(device){
+  try{
+    await fetch("/api/power/spindown-now",{method:"POST",headers:{"Content-Type":"application/json","X-Session-ID":getSessionId(),"X-User":getUser()},body:JSON.stringify({device:device})});
+    if(window.EnhancedUI)EnhancedUI.toast("Spindown command sent to "+device,"success");
+    setTimeout(loadDisks,2000);
+  }catch(e){if(window.EnhancedUI)EnhancedUI.toast("Error: "+e.message,"error");}
+}
+
+document.addEventListener("DOMContentLoaded",loadDisks);
+setInterval(loadDisks,30000);}
+</script>
+    <script src="/assets/js/nav-flyout.js?v=3.3.0"></script>
+    <script src="/assets/js/nav-shared.js?v=3.3.0"></script>
+
+<script>
+// ═══════════════════════════ WEBHOOK MANAGEMENT ═══════════════════════════════
+
+const WEBHOOK_EVENTS = [
+  'pool.degraded', 'pool.faulted', 'pool.imported',
+  'capacity.warning', 'capacity.critical', 'capacity.emergency',
+  'zfs.scrub_complete', 'zfs.scrub_error',
+  'docker.container_stopped', 'docker.container_error',
+  'auth.login_failed', 'auth.brute_force',
+  'system.startup', 'system.shutdown',
+  'gitops.drift', 'gitops.apply_failed',
+];
+
+let editingWebhookId = null;
+
+function init_webhooks() { loadWebhooks(); }
+
+async function loadWebhooks() {
+  const el = document.getElementById('webhookList');
+  if (!el) return;
+  try {
+    const r = await csrfFetch('/api/alerts/webhooks');
+    const d = await r.json();
+    if (!d.success) { el.innerHTML = '<div style="color:#ef9a9a;padding:20px;">'+esc(d.error||'Failed')+'</div>'; return; }
+    const hooks = d.webhooks || [];
+    if (hooks.length === 0) {
+      el.innerHTML = '<div style="text-align:center;padding:40px;color:rgba(255,255,255,0.3);">No webhooks configured. Add one to receive HTTP notifications for system events.</div>';
+      return;
+    }
+    el.innerHTML = hooks.map(h => webhookCard(h)).join('');
+  } catch(e) {
+    el.innerHTML = '<div style="color:#ef9a9a;padding:20px;">Network error: '+esc(e.message)+'</div>';
+  }
+}
+
+function webhookCard(h) {
+  const events = safeParseEvents(h.events);
+  const eventsText = events.length ? events.slice(0,3).join(', ') + (events.length > 3 ? ` +${events.length-3} more` : '') : 'All events';
+  return `<div style="padding:20px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);
+    border-radius:14px;display:flex;align-items:center;gap:16px;">
+    <div style="width:10px;height:10px;border-radius:50%;flex-shrink:0;
+      background:${h.enabled ? '#4caf50' : 'rgba(255,255,255,0.2)'}"></div>
+    <div style="flex:1;min-width:0;">
+      <div style="font-size:15px;font-weight:600;margin-bottom:4px;">${esc(h.name)}</div>
+      <div style="font-size:13px;color:rgba(255,255,255,0.4);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(h.url)}</div>
+      <div style="font-size:12px;color:rgba(255,255,255,0.3);margin-top:4px;">${esc(eventsText)}</div>
+    </div>
+    <div style="display:flex;gap:8px;">
+      <button class="btn" onclick="testWebhook(${h.id})" style="padding:8px 14px;font-size:13px;">Test</button>
+      <button class="btn" onclick="editWebhook(${h.id})" style="padding:8px 14px;font-size:13px;"
+        data-permission="system:write" data-permission-mode="disable">Edit</button>
+      <button class="btn btn-danger" onclick="deleteWebhook(${h.id},'${esc(h.name)}')" 
+        style="padding:8px 14px;font-size:13px;background:rgba(244,67,54,0.1);color:#ef9a9a;
+        border:1px solid rgba(244,67,54,0.2);"
+        data-permission="system:write" data-permission-mode="disable">Delete</button>
+    </div>
+  </div>`;
+}
+
+function safeParseEvents(eventsStr) {
+  if (!eventsStr) return [];
+  try { return JSON.parse(eventsStr); } catch(_) { return []; }
+}
+
+function showAddWebhook() {
+  editingWebhookId = null;
+  document.getElementById('webhookModalTitle').textContent = 'Add Webhook';
+  document.getElementById('wh-name').value = '';
+  document.getElementById('wh-url').value = '';
+  document.getElementById('wh-secret-header').value = '';
+  document.getElementById('wh-secret-value').value = '';
+  document.getElementById('wh-enabled').checked = true;
+  renderEventCheckboxes([]);
+  document.getElementById('webhookModal').classList.remove('hidden');
+  document.getElementById('webhookModal').style.display = 'flex';
+}
+
+async function editWebhook(id) {
+  try {
+    const r = await csrfFetch('/api/alerts/webhooks');
+    const d = await r.json();
+    const hook = (d.webhooks||[]).find(h => h.id === id);
+    if (!hook) { alert('Webhook not found'); return; }
+    editingWebhookId = id;
+    document.getElementById('webhookModalTitle').textContent = 'Edit Webhook';
+    document.getElementById('wh-name').value = hook.name || '';
+    document.getElementById('wh-url').value = hook.url || '';
+    document.getElementById('wh-secret-header').value = hook.secret_header || '';
+    document.getElementById('wh-secret-value').value = '';
+    document.getElementById('wh-enabled').checked = hook.enabled === 1;
+    renderEventCheckboxes(safeParseEvents(hook.events));
+    document.getElementById('webhookModal').classList.remove('hidden');
+    document.getElementById('webhookModal').style.display = 'flex';
+  } catch(e) { alert('Error: '+e.message); }
+}
+
+function renderEventCheckboxes(selected) {
+  const sel = new Set(selected);
+  document.getElementById('wh-events').innerHTML = WEBHOOK_EVENTS.map(ev =>
+    `<label style="display:flex;align-items:center;gap:8px;cursor:pointer;padding:4px 0;">
+      <input type="checkbox" value="${ev}" ${sel.has(ev)?'checked':''} style="width:14px;height:14px;">
+      <span style="color:rgba(255,255,255,0.7);">${ev}</span>
+    </label>`
+  ).join('');
+}
+
+function closeWebhookModal() {
+  document.getElementById('webhookModal').style.display = 'none';
+  document.getElementById('webhookModal').classList.add('hidden');
+}
+
+async function saveWebhook() {
+  const name = document.getElementById('wh-name').value.trim();
+  const url  = document.getElementById('wh-url').value.trim();
+  if (!name || !url) { alert('Name and URL are required'); return; }
+
+  const selectedEvents = [...document.querySelectorAll('#wh-events input:checked')].map(i => i.value);
+  const payload = {
+    name, url,
+    secret_header: document.getElementById('wh-secret-header').value.trim(),
+    secret_value:  document.getElementById('wh-secret-value').value,
+    enabled: document.getElementById('wh-enabled').checked ? 1 : 0,
+    events: JSON.stringify(selectedEvents),
+  };
+  if (editingWebhookId) payload.id = editingWebhookId;
+
+  const btn = document.getElementById('wh-save-btn');
+  btn.disabled = true; btn.textContent = 'Saving…';
+  try {
+    const r = await csrfFetch('/api/alerts/webhooks', {method:'POST', body:JSON.stringify(payload)});
+    const d = await r.json();
+    if (d.success) {
+      closeWebhookModal();
+      loadWebhooks();
+      if (window.ui) ui.toast('Webhook saved', 'success');
+    } else {
+      alert('Save failed: ' + (d.error || 'Unknown error'));
+    }
+  } catch(e) { alert('Error: '+e.message); }
+  finally { btn.disabled=false; btn.textContent='Save'; }
+}
+
+async function deleteWebhook(id, name) {
+  if (!confirm('Delete webhook "' + name + '"?')) return;
+  try {
+    const r = await csrfFetch('/api/alerts/webhooks/'+id, {method:'DELETE'});
+    const d = await r.json();
+    if (d.success) { loadWebhooks(); if(window.ui) ui.toast('Webhook deleted','success'); }
+    else alert('Delete failed: '+(d.error||'error'));
+  } catch(e) { alert('Error: '+e.message); }
+}
+
+async function testWebhook(id) {
+  const btn = event.target;
+  btn.disabled=true; btn.textContent='Sending…';
+  try {
+    const r = await csrfFetch('/api/alerts/webhooks/'+id+'/test', {method:'POST'});
+    const d = await r.json();
+    if (d.success) { if(window.ui) ui.toast('Test sent successfully','success'); else alert('Test sent!'); }
+    else alert('Test failed: '+(d.error||'error'));
+  } catch(e) { alert('Error: '+e.message); }
+  finally { btn.disabled=false; btn.textContent='Test'; }
+}
+
+function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+// Close modal on backdrop click
+document.getElementById('webhookModal').addEventListener('click', function(e) {
+  if (e.target === this) closeWebhookModal();
+});
+</script>
+
+</body></html>

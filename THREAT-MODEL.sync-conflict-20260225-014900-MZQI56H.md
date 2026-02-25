@@ -1,0 +1,236 @@
+# D-PlaneOS v3.3.0 — Threat Model
+
+## System Context
+
+D-PlaneOS is a NAS management layer running on top of NixOS or Debian/Ubuntu. It manages storage (ZFS), containers (Docker), network (systemd-networkd), and identity on a single server. It runs as one Go binary (`dplaned`) listening on `127.0.0.1:9000` by default. External access is via reverse proxy (nginx/Caddy/Pangolin).
+
+**Trust boundary**: the reverse proxy. Everything behind it (dplaned, SQLite, ZFS/Docker/systemd commands) is trusted. Everything in front (browser, network) is untrusted.
+
+```
+┌──────────────────────────────────────────────────────────┐
+│                       UNTRUSTED                          │
+│  Browser ──── Internet ──── Reverse Proxy (TLS)          │
+└──────────────────────────┬───────────────────────────────┘
+                           │ TLS terminated, localhost only
+┌──────────────────────────┴───────────────────────────────┐
+│                        TRUSTED                           │
+│  dplaned (Go) ─┬─ SQLite (dplaneos.db)                  │
+│                ├─ exec.Command → zfs / zpool / docker    │
+│                ├─ networkdwriter → /etc/systemd/network/ │
+│                └─ /dev/sd* │ /mnt/* │ /var/lib/dplaneos/ │
+└──────────────────────────────────────────────────────────┘
+```
+
+## Assets
+
+| Asset | Value | Location |
+|-------|-------|----------|
+| User data (files, datasets) | CRITICAL | ZFS pools on `/mnt/*` |
+| ZFS pool metadata | CRITICAL | Pool vdevs |
+| ZFS encryption keys (loaded) | CRITICAL | Kernel memory |
+| SQLite database | HIGH | `/var/lib/dplaneos/dplaneos.db` |
+| Session tokens | HIGH | SQLite `sessions` table |
+| LDAP bind password | HIGH | SQLite `ldap_config` table (redacted in API responses) |
+| Telegram bot token | MEDIUM | SQLite `telegram_config` table |
+| TOTP secrets | HIGH | SQLite `totp_secrets` table |
+| Audit log + HMAC key | MEDIUM | SQLite `audit_logs` + `/var/lib/dplaneos/audit.key` |
+| Configuration | LOW | SQLite tables + CLI flags |
+
+## Threat Actors
+
+| Actor | Capability | Goal |
+|-------|-----------|------|
+| Remote unauthenticated | HTTP to reverse proxy | Data theft, service disruption |
+| Remote authenticated (low-priv) | Valid session, `viewer` or `user` role | Privilege escalation, unauthorized data access |
+| Local network attacker | Direct access to port 9000 if misconfigured | Full API access without TLS |
+| Physical attacker | Access to hardware | Disk theft, boot manipulation |
+| Malicious container | Docker container with host mounts | Escape to host filesystem |
+
+---
+
+## Threats & Mitigations
+
+### T1: Command Injection via API Parameters
+
+**Vector**: Attacker sends `{"pool":"tank; rm -rf /"}` to a ZFS endpoint.
+
+**Mitigation**:
+- All parameters validated by allowlist regex validators (`ValidatePoolName`, `ValidateDevicePath`, `ValidateDatasetName`, etc.) — rejects shell metacharacters with HTTP 400 before any command is executed
+- Go `exec.Command` passes arguments as a string array — no shell expansion, no `/bin/sh -c`
+- networkdwriter (network persistence) writes files directly, no shell involved; `networkctl reload` is called with fixed args, no user input in the command line
+
+**Residual risk**: LOW. Requires a bug in Go's `exec.Command` internals or a gap in the allowlist validators.
+
+---
+
+### T2: Authentication Bypass
+
+**Vector**: Attacker crafts API requests without a valid session.
+
+**Mitigation**:
+- `sessionMiddleware` runs globally on all routes via `r.Use()`
+- Public exceptions are explicitly allowlisted in the middleware: `/health`, `/api/auth/*`, `/api/csrf`
+- All other routes — including all ZFS, Docker, system, and RBAC routes — require a valid `X-Session-ID` header
+- Session validation: token format check + DB lookup + username-header match; fail-closed (DB error → 401)
+- TOTP: if enabled for a user, login issues a `pending_totp` session that can only call `/api/auth/totp/verify` — all other routes reject it
+
+**Residual risk**: LOW.
+
+---
+
+### T3: Privilege Escalation (RBAC Bypass)
+
+**Vector**: A `viewer`-role user attempts `storage:write` operations.
+
+**Mitigation**:
+- `permRoute()` helper wraps sensitive handlers with `RequirePermission(resource, action)` middleware
+- System roles (`admin`, `operator`, `user`, `viewer`) are immutable in the DB (`is_system = 1`)
+- Role assignments support expiry dates
+
+**Residual risk**: MEDIUM. Session middleware enforces authentication on all routes, but `permRoute()` is not applied to every operational route — several ZFS, Docker, snapshot, and system routes are session-authenticated only, without a per-route RBAC permission check. Any authenticated user (including `viewer`) can reach them. This is a known gap.
+
+---
+
+### T4: SQL Injection
+
+**Vector**: Malicious input in API parameters reaches SQL queries.
+
+**Mitigation**:
+- All SQL uses `?` parameterized queries — no string concatenation in query construction
+- Allowlist input validation rejects metacharacters before they reach the DB layer
+
+**Residual risk**: NEGLIGIBLE.
+
+---
+
+### T5: Cross-Site Scripting (XSS)
+
+**Vector**: Stored XSS via file names, share names, alert titles, or other server-sourced strings rendered in the UI.
+
+**Mitigation**:
+- CSP header set in `nginx-dplaneos.conf`: `default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ws: wss:; font-src 'self'; frame-ancestors 'self';`
+- API responses are JSON, not rendered HTML
+- All server-sourced values interpolated into `innerHTML` are passed through an `esc()` / `escapeHtml()` sanitiser before insertion — applied consistently across all frontend pages and the alert system (v3.3.0)
+
+**Residual risk**: LOW. CSP `'unsafe-inline'` remains present for style/script compatibility; the sanitiser closes the practical injection vector. Residual theoretical risk requires both a server-side data injection and a sanitiser bypass simultaneously.
+
+---
+
+### T6: Cross-Site Request Forgery (CSRF)
+
+**Vector**: Malicious page tricks an authenticated browser into making state-changing API requests.
+
+**Mitigation**:
+- `GET /api/csrf` issues a CSRF token stored server-side in the session
+- Token is required on state-changing requests (validated in `sessionMiddleware`)
+- Session tokens are transmitted in `X-Session-ID` header (not cookies), which browsers do not auto-send cross-origin
+
+**Residual risk**: LOW. Header-based sessions are inherently CSRF-resistant. CSRF token provides defence-in-depth.
+
+---
+
+### T7: Denial of Service
+
+**Vector**: Flood of API requests exhausts resources.
+
+**Mitigation**:
+- In-process rate limiter: 100 requests/minute per source IP; returns HTTP 429 and logs a security event
+- systemd `MemoryMax=512M`, `MemoryHigh=384M` — OOM kill before system is starved
+- SQLite `busy_timeout=30000` prevents lock starvation under concurrent load
+- Buffered audit logging prevents I/O stalls on high event volume
+- Graceful shutdown (15 s timeout) drains in-flight requests on SIGTERM
+
+**Residual risk**: MEDIUM. A valid authenticated user can trigger expensive operations (ZFS scrub, Docker image pull, dataset encryption) that the rate limiter does not separately throttle. The 100 req/min limit applies uniformly, not per-operation cost.
+
+---
+
+### T8: Data at Rest (Stolen Hardware)
+
+**Vector**: Attacker steals physical server or individual disks.
+
+**Mitigation**:
+- ZFS native encryption (AES-256-GCM or AES-128-CCM) supported per dataset
+- UI exposes lock / unlock / change-key operations (`/api/zfs/encryption/*`)
+- `zfs unload-key` available via UI; not automatically called on daemon SIGTERM — operator must lock datasets before physical removal
+
+**Residual risk**: LOW if encryption is enabled and keys are locked. HIGH if encryption is not enabled — plaintext data on disks. SQLite DB is also plaintext on disk; ZFS pool-level encryption covers it only if the DB lives on an encrypted dataset.
+
+---
+
+### T9: Man-in-the-Middle
+
+**Vector**: Attacker intercepts traffic between browser and server.
+
+**Mitigation**:
+- `dplaned` defaults to `127.0.0.1:9000` — not reachable from the network without explicit reconfiguration
+- TLS terminated at reverse proxy (nginx/Caddy/Pangolin)
+- Session tokens transmitted in request headers, not URL parameters
+
+**Residual risk**: LOW with correct reverse proxy setup. HIGH if the daemon is exposed directly to the network or TLS is misconfigured.
+
+---
+
+### T10: LDAP Credential Exposure
+
+**Vector**: LDAP bind password compromised via DB access or API.
+
+**Mitigation**:
+- Bind password stored in SQLite (not in a plaintext config file)
+- GET `/api/ldap/config` redacts the password field
+- Only accessible via authenticated + RBAC-checked API endpoint
+
+**Residual risk**: MEDIUM. Root access to the host exposes the DB file directly. Inherent to single-server NAS architecture.
+
+---
+
+### T11: Container Escape
+
+**Vector**: Malicious Docker container with host filesystem bind mount.
+
+**Mitigation**:
+- D-PlaneOS manages container lifecycle but does not enforce container security policies
+- Users are responsible for configuring bind mounts and network policies
+
+**Residual risk**: HIGH. Docker-level concern outside D-PlaneOS's control.
+
+---
+
+### T12: Audit Log Tampering
+
+**Vector**: Attacker with DB write access removes or alters audit entries.
+
+**Mitigation**:
+- HMAC-SHA256 chain: each audit row includes a `row_hash` computed over its content + the previous row's hash, keyed by `audit.key`
+- Chain integrity verifiable via `GET /api/system/audit/verify-chain`
+- `audit.key` is a 32-byte random key stored separately from the DB
+
+**Residual risk**: LOW if `audit.key` is protected. An attacker with both DB write access and the key can forge the chain — but these together represent full root compromise.
+
+---
+
+## Attack Surface Summary
+
+| Surface | Exposure | Auth | Notes |
+|---------|----------|------|-------|
+| HTTP API (~196 routes) | All routes require session except `/health` and `/api/auth/*` | Session middleware (global) | ~24 routes also have per-route RBAC; remainder session-only |
+| WebSocket (`/api/ws/monitor`) | Authenticated | Session middleware | Validated before upgrade |
+| `exec.Command` (zfs, zpool, docker, networkctl, systemctl) | Internal only | Input allowlist validators | Fixed argument arrays; no shell |
+| networkdwriter file writes | `/etc/systemd/network/50-dplane-*` | Root filesystem permissions | Pure file I/O; `networkctl reload` fixed args |
+| SQLite database | Filesystem (`/var/lib/dplaneos/`) | OS file permissions (root) | WAL mode; HMAC audit chain |
+| systemd service | Root process | `CapabilityBoundingSet`, `NoNewPrivileges`, `MemoryMax` | Not a dedicated non-root user |
+
+---
+
+## Recommended Deployment
+
+Run behind a VPN or reverse proxy with authentication (e.g. WireGuard, Tailscale, Cloudflare, Pangolin). Enable ZFS dataset encryption with a strong passphrase for protection against physical access. Do not expose port 9000 directly to the internet. For internet-facing deployments, layered security middlewares are strongly recommended: CrowdSec (proactive IP reputation), GeoBlock (country-level filtering), and Fail2ban (reactive ban on suspicious behaviour) in front of the reverse proxy.
+
+---
+
+## Known Gaps (not mitigated in v3.3.0)
+
+- **Partial RBAC coverage** — many operational routes (ZFS, Docker, snapshots, replication, system) are session-authenticated but lack per-route `RequirePermission` checks
+- **ZFS keys not auto-locked on shutdown** — `zfs unload-key` must be called manually before powering down if encryption-at-rest is required
+- **SQLite plaintext** — DB is not encrypted independently; relies on ZFS pool-level encryption if the pool is configured that way
+- **No API request signing** — no HMAC or nonce scheme for critical destructive operations (pool export, dataset destroy, Docker remove)
+- **CSP not set by daemon** — CSP only present in nginx config; direct connections to port 9000 have no CSP

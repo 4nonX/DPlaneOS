@@ -1,0 +1,62 @@
+# D-PlaneOS .gitignore
+
+# ── Compiled binaries ─────────────────────────────────────────────────────────
+daemon/dplaned
+daemon/dplaned-*
+*.exe
+*.out
+
+# ── Go build artifacts ────────────────────────────────────────────────────────
+daemon/vendor/
+# Note: go.sum IS committed (reproducible builds)
+
+# ── Database files ────────────────────────────────────────────────────────────
+*.db
+*.db-shm
+*.db-wal
+*.db.backup
+*.sqlite
+*.sqlite3
+
+# ── Release tarballs ──────────────────────────────────────────────────────────
+*.tar.gz
+*.tar.xz
+*.zip
+dplaneos-v*.tar.*
+release*/
+dist/
+
+# ── rclone config (contains credentials) ─────────────────────────────────────
+/etc/dplaneos/rclone.conf
+rclone.conf
+
+# ── Local dev / IDE ───────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# ── Logs ─────────────────────────────────────────────────────────────────────
+*.log
+logs/
+
+# ── Test artifacts ────────────────────────────────────────────────────────────
+/tmp/
+coverage.out
+coverage.html
+
+# ── NixOS build outputs ───────────────────────────────────────────────────────
+nixos/result
+nixos/result-*
+
+# ── SSH keys / secrets ────────────────────────────────────────────────────────
+*.pem
+*.key
+*.crt
+id_rsa
+id_ed25519
+*.p12
+*.pfx

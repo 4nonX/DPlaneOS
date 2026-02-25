@@ -1,0 +1,572 @@
+<!DOCTYPE html>
+<!-- saved from url=(0141)network.html -->
+<html lang="en"><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>App Modules - D-PlaneOS</title>
+    <link rel="stylesheet" href="/assets/css/design-tokens.css?v=3.3.0">
+    <link rel="stylesheet" href="/assets/css/dplaneos-ui-complete.css?v=3.3.0">
+<link rel="stylesheet" href="/assets/css/m3-tokens.css?v=3.3.0">
+<link rel="stylesheet" href="/assets/css/m3-components.css?v=3.3.0">
+<link rel="stylesheet" href="/assets/css/m3-icons.css?v=3.3.0">
+  <link rel="stylesheet" href="/assets/css/enhanced-ui.css?v=3.3.0">
+<link rel="stylesheet" href="/assets/css/m3-animations.css?v=3.3.0">
+<style>
+.logo { font-size: 20px; font-weight: 800; color: var(--primary); letter-spacing: -0.5px; cursor: pointer; }
+
+
+.nav-link:hover, 
+.main { max-width: 1600px; margin: 140px auto 60px; padding: 0 40px; }
+.page-header { margin-bottom: 48px; }
+.page-title { font-size: 32px; font-weight: 700; letter-spacing: -1.5px; margin-bottom: 12px; }
+.page-subtitle { font-size: 18px; color: rgba(255,255,255,0.6); }
+.interface-card { background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: var(--radius-xl); padding: 32px; margin-bottom: 24px; border-left: 4px solid var(--primary); }
+.interface-header { display: flex; align-items: center; gap: 20px; margin-bottom: 20px; }
+.interface-icon { font-size: 32px; color: var(--primary); }
+.interface-info { flex: 1; }
+.interface-name { font-size: 20px; font-weight: 800; margin-bottom: 6px; }
+.interface-details { font-size: 15px; color: rgba(255,255,255,0.6); }
+/* Badge styles are in m3-components.css */
+.icon-btn { width: 40px; height: 40px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; display: flex; align-items: center; justify-content: center; color: rgba(255,255,255,0.8); cursor: pointer; transition: all 0.3s; border: none; }
+.icon-btn:hover { background: rgba(255,255,255,0.1); color: var(--text); }
+.fab { position: fixed; bottom: 32px; right: 32px; width: 64px; height: 64px; background: linear-gradient(135deg, var(--primary) 0%, var(--primary) 100%); border-radius: 20px; display: flex; align-items: center; justify-content: center; box-shadow: 0 8px 32px rgba(102, 126, 234, 0.4); cursor: pointer; transition: all 0.3s; border: none; color: var(--text); }
+.fab:hover { transform: translateY(-4px); box-shadow: 0 12px 48px rgba(102, 126, 234, 0.6); }
+</style>
+<style type="text/css" id="operaUserStyle"></style><link rel="stylesheet" href="/assets/css/ui-components.css?v=3.3.0">
+<script src="/assets/js/core.js?v=3.3.0"></script>
+<script src="/assets/js/nav-flyout.js?v=3.3.0"></script>
+<script src="/assets/js/hybrid-router.js?v=3.3.0"></script>
+  <script src="/assets/js/enhanced-ui.js?v=3.3.0"></script>
+  <script src="/assets/js/connection-monitor.js?v=3.3.0"></script>
+  <script src="/assets/js/keyboard-shortcuts.js?v=3.3.0"></script>
+  <script src="/assets/js/form-validator.js?v=3.3.0"></script>
+  <link rel="stylesheet" href="/assets/css/material-symbols-local.css?v=3.3.0">
+  <link rel="stylesheet" href="/assets/css/ui-consistency.css?v=3.3.0">
+  <link rel="stylesheet" href="/assets/css/ui-polish.css?v=3.3.0">
+  <script src="/assets/js/daemon-api.js?v=3.3.0"></script>
+</head>
+<body>
+<!-- D-PlaneOS - Hierarchical Navigation -->
+<!-- This navigation maintains all security (CSRF, Auth) and real system state -->
+
+<div id="nav-root"></div>
+
+<script>
+// Navigation behavior
+function navigateToSection(section) {
+  if (section === 'dashboard') {
+    window.location.href = 'index.html';
+  }
+}
+
+function toggleSubNav(section, button) {
+  // Remove active from all nav links
+  document.querySelectorAll('.nav-link').forEach(link => {
+    link.classList.remove('active');
+  });
+  
+  // Add active to clicked button
+  if (button) {
+    button.classList.add('active');
+  }
+  
+  // Hide all sub-navs
+  document.querySelectorAll('.nav-sub').forEach(sub => {
+    sub.classList.remove('active');
+  });
+  
+  // Show selected sub-nav
+  const subNav = document.getElementById(`sub-${section}`);
+  if (subNav) {
+    subNav.classList.add('active');
+    document.body.classList.add('has-subnav');
+  }
+}
+
+// Auto-detect current section and page on load
+(function() {
+  const currentPage = window.location.pathname.split('/').pop() || 'index.html';
+  
+  // Page to section mapping
+  const pageMap = {
+    'acl-manager.html': { section: 'storage', page: 'acl-manager' },
+    'audit.html': { section: 'security', page: 'audit' },
+    'certificates.html': { section: 'security', page: 'certificates' },
+    'cloud-sync.html': { section: 'storage', page: 'cloud-sync' },
+    'directory-service.html': { section: 'identity', page: 'directory-service' },
+    'docker.html': { section: 'compute', page: 'docker' },
+    'files-enhanced.html': { section: 'storage', page: 'files-enhanced' },
+    'files.html': { section: 'storage', page: 'files' },
+    'firewall.html': { section: 'security', page: 'firewall' },
+    'groups.html': { section: 'identity', page: 'groups' },
+    'hardware.html': { section: 'system', page: 'hardware' },
+    'index.html': { section: 'dashboard', page: null },
+    'ipmi.html': { section: 'system', page: 'ipmi' },
+    'logs.html': { section: 'system', page: 'logs' },
+    'modules.html': { section: 'compute', page: 'modules' },
+    'network-dns.html': { section: 'network', page: 'network-dns' },
+    'network-interfaces.html': { section: 'network', page: 'network-interfaces' },
+    'network-routing.html': { section: 'network', page: 'network-routing' },
+    'network.html': { section: 'network', page: 'network' },
+    'pools-advanced.html': { section: 'storage', page: 'pools-advanced' },
+    'pools.html': { section: 'storage', page: 'pools' },
+    'power-management.html': { section: 'system', page: 'power-management' },
+    'quotas.html': { section: 'storage', page: 'quotas' },
+    'rbac-management.html': { section: 'identity', page: 'rbac-management' },
+    'removable-media-ui.html': { section: 'system', page: 'removable-media-ui' },
+    'replication.html': { section: 'storage', page: 'replication' },
+    'reporting.html': { section: 'system', page: 'reporting' },
+    'security.html': { section: 'security', page: 'security' },
+    'settings.html': { section: 'system', page: 'settings' },
+    'shares.html': { section: 'storage', page: 'shares' },
+    'snapshot-scheduler.html': { section: 'storage', page: 'snapshot-scheduler' },
+    'system-monitoring.html': { section: 'system', page: 'system-monitoring' },
+    'system-settings.html': { section: 'system', page: 'system-settings' },
+    'ups.html': { section: 'system', page: 'ups' },
+    'users.html': { section: 'identity', page: 'users' },
+    'zfs-encryption.html': { section: 'storage', page: 'zfs-encryption' }
+  };
+  
+  const current = pageMap[currentPage];
+  if (current) {
+    // Activate section button
+    const sectionBtn = document.querySelector(`[data-section="${current.section}"]`);
+    if (sectionBtn) {
+      sectionBtn.classList.add('active');
+    }
+    
+    // Show and activate sub-nav if not dashboard
+    if (current.section !== 'dashboard') {
+      const subNav = document.getElementById(`sub-${current.section}`);
+      if (subNav) {
+        subNav.classList.add('active');
+        document.body.classList.add('has-subnav');
+        
+        // Activate current page in sub-nav
+        if (current.page) {
+          const pageLink = subNav.querySelector(`[data-page="${current.page}"]`);
+          if (pageLink) {
+            pageLink.classList.add('active');
+          }
+        }
+      }
+    }
+  }
+})();
+
+// Keyboard shortcuts
+function showKeyboardHelp() {
+  if (window.EnhancedUI) {
+    const shortcuts = `Keyboard Shortcuts:
+
+g + d → Dashboard
+g + s → Storage
+g + c → Compute
+g + n → Network
+g + u → Identity
+g + e → Security
+g + y → System
+
+r → Refresh page
+Esc → Close modals
+? → Show this help`;
+    EnhancedUI.toast(shortcuts, 'info', 8000);
+  }
+}
+
+// Enhanced keyboard shortcuts for sections
+(function() {
+  let keySequence = '';
+  let keyTimeout;
+  
+  document.addEventListener('keydown', (e) => {
+    if (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) return;
+    
+    keySequence += e.key;
+    clearTimeout(keyTimeout);
+    
+    const shortcuts = {
+      'gd': 'index.html',
+      'gs': () => toggleSubNav('storage', document.querySelector('[data-section="storage"]')),
+      'gc': () => toggleSubNav('compute', document.querySelector('[data-section="compute"]')),
+      'gn': () => toggleSubNav('network', document.querySelector('[data-section="network"]')),
+      'gu': () => toggleSubNav('identity', document.querySelector('[data-section="identity"]')),
+      'ge': () => toggleSubNav('security', document.querySelector('[data-section="security"]')),
+      'gy': () => toggleSubNav('system', document.querySelector('[data-section="system"]'))
+    };
+    
+    if (shortcuts[keySequence]) {
+      e.preventDefault();
+      const action = shortcuts[keySequence];
+      if (typeof action === 'function') {
+        action();
+      } else {
+        window.location.href = action;
+      }
+      keySequence = '';
+    } else if (e.key === '?') {
+      e.preventDefault();
+      showKeyboardHelp();
+    }
+    
+    keyTimeout = setTimeout(() => keySequence = '', 1000);
+  });
+})();
+
+// Connection status monitoring (integrates with existing connection-monitor.js)
+if (window.ConnectionMonitor) {
+  window.ConnectionMonitor.on('statusChange', (online) => {
+    const status = document.getElementById('navConnectionStatus');
+    if (status) {
+      if (online) {
+        status.classList.remove('offline');
+        status.classList.add('online');
+        status.innerHTML = '<span class="status-dot"></span><span>Connected</span>';
+      } else {
+        status.classList.remove('online');
+        status.classList.add('offline');
+        status.innerHTML = '<span class="status-dot"></span><span>Offline</span>';
+      }
+    }
+  });
+}
+</script>
+
+<main class="main">
+<div class="page-header">
+<h1 class="page-title">Network</h1>
+<p class="page-subtitle">Configuration • VPN • Remote access</p>
+</div>
+<div id="network-interfaces-container">
+        <main class="main">
+            <div class="page-header">
+                <h1 class="page-title">Module Marketplace</h1>
+                <p class="page-subtitle">Extend D-PlaneOS with powerful features</p>
+            </div>
+
+            <!-- Filter Bar -->
+            <div class="filter-bar">
+                <input type="text" placeholder="Search modules..." id="module-search" class="search-input">
+                <select id="category-filter" class="select">
+                    <option value="all">All Categories</option>
+                    <option value="storage-protocols">Storage Protocols</option>
+                    <option value="virtualization">Virtualization</option>
+                    <option value="monitoring">Monitoring</option>
+                    <option value="network">Network</option>
+                </select>
+                <select id="status-filter" class="select">
+                    <option value="all">All Status</option>
+                    <option value="installed">Installed</option>
+                    <option value="available">Available</option>
+                </select>
+            </div>
+
+            <!-- Module Grid -->
+            <div id="module-grid" class="module-grid"></div>
+        </main>
+    </div>
+
+    <script src="../assets/js/core.js"></script>
+    <script>
+    let allModules = [];
+
+    async function loadModules() {
+        try {
+            showLoading();
+            const response = await csrfFetch('/api/docker/containers');
+            const data = await response.json();
+            
+            if (data.success) {
+                const raw = data.data || data.modules || [];
+                allModules = raw.map(m => ({
+                    id: m.id || m.ID || (Array.isArray(m.Names) ? (m.Names[0] || '').replace(/^\//, '') : m.Names) || m.name || 'unknown',
+                    name: m.name || (Array.isArray(m.Names) ? (m.Names[0] || '').replace(/^\//, '') : m.Names) || m.Image || 'Container',
+                    description: m.description || ('Docker image: ' + (m.Image || 'unknown')),
+                    version: m.version || m.Image || '-',
+                    installed: m.installed !== undefined ? m.installed : true,
+                    category: m.category || 'virtualization',
+                    icon: m.icon || 'deployed_code',
+                    dependencies: m.dependencies || {}
+                }));
+                renderModules(allModules);
+            } else {
+                showToast(data.error || 'Failed to load modules', 'error');
+            }
+        } catch (error) {
+            console.error('Error loading modules:', error);
+            showToast('Failed to load modules', 'error');
+        } finally {
+            hideLoading();
+        }
+    }
+
+    function renderModules(modules) {
+        const grid = document.getElementById('module-grid');
+        grid.innerHTML = '';
+
+        if (modules.length === 0) {
+            grid.innerHTML = '<div class="empty-state">No modules found</div>';
+            return;
+        }
+
+        modules.forEach(module => {
+            const card = createModuleCard(module);
+            grid.appendChild(card);
+        });
+    }
+
+    function createModuleCard(module) {
+        const card = document.createElement('div');
+        card.className = 'module-card' + (module.installed ? ' installed' : '');
+
+        const icon = module.icon || 'extension';
+        const category = module.category || 'other';
+        const size = module.dependencies?.apt?.length || 0;
+
+        card.innerHTML = `
+            <div class="module-icon">
+                <span class="material-symbols-rounded">${icon}</span>
+            </div>
+            <h3 class="module-name">${escapeHtml(module.name)}</h3>
+            <p class="module-description">${escapeHtml(module.description)}</p>
+            <div class="module-meta">
+                <span class="badge">${category}</span>
+                <span>${module.version}</span>
+            </div>
+            <div class="module-actions">
+                ${module.installed ?
+                    `<button class="btn" data-action="stop" data-module-id="${escapeHtml(module.id)}">Stop</button>
+                     <button class="btn btn-primary" data-action="configure" data-module-id="${escapeHtml(module.id)}">Configure</button>` :
+                    `<button class="btn btn-primary" data-action="start" data-module-id="${escapeHtml(module.id)}">Start</button>`
+                }
+            </div>
+        `;
+
+        return card;
+    }
+
+    async function startContainer(moduleId) {
+        if (!await ui.confirm('Start Container', 'Start this container?')) {
+            return;
+        }
+
+        try {
+            showLoading('Starting container...');
+            const response = await csrfFetch('/api/docker/action', {
+                method: 'POST',
+                body: JSON.stringify({
+                    action: 'start',
+                    container_id: moduleId, session_id: getSessionId(), user: getUser()
+                })
+            });
+
+            const data = await response.json();
+
+            if (data.success) {
+                showToast('Container started successfully', 'success');
+                loadModules();
+            } else {
+                showToast(data.error || 'Failed to start container', 'error');
+            }
+        } catch (error) {
+            console.error('Error starting container:', error);
+            showToast('Failed to start container', 'error');
+        } finally {
+            hideLoading();
+        }
+    }
+
+    async function stopContainer(moduleId) {
+        if (!await ui.confirm('Stop Container', 'Stop this container?')) {
+            return;
+        }
+
+        try {
+            showLoading('Stopping container...');
+            const response = await csrfFetch('/api/docker/action', {
+                method: 'POST',
+                body: JSON.stringify({
+                    action: 'stop',
+                    container_id: moduleId, session_id: getSessionId(), user: getUser()
+                })
+            });
+
+            const data = await response.json();
+
+            if (data.success) {
+                showToast('Container stopped successfully', 'success');
+                loadModules();
+            } else {
+                showToast(data.error || 'Failed to stop container', 'error');
+            }
+        } catch (error) {
+            console.error('Error stopping container:', error);
+            showToast('Failed to stop container', 'error');
+        } finally {
+            hideLoading();
+        }
+    }
+
+    function configureModule(moduleId) {
+        // Redirect to appropriate configuration page based on module
+        if (moduleId === 'smb-server' || moduleId === 'nfs-server') {
+            window.location.href = 'shares.html';
+        } else if (moduleId === 'docker') {
+            window.location.href = 'docker.html';
+        } else if (moduleId === 'snapshot-manager') {
+            window.location.href = 'pools-advanced.html';
+        } else {
+            showToast(`Configure ${moduleId} in Settings`, 'info');
+            setTimeout(() => window.location.href = 'settings.html', 1500);
+        }
+    }
+
+    document.getElementById('module-grid').addEventListener('click', (event) => {
+        const button = event.target.closest('button[data-action][data-module-id]');
+        if (!button) return;
+        const moduleId = button.dataset.moduleId;
+        if (!moduleId) return;
+        if (button.dataset.action === 'start') {
+            startContainer(moduleId);
+        } else if (button.dataset.action === 'stop') {
+            stopContainer(moduleId);
+        } else if (button.dataset.action === 'configure') {
+            configureModule(moduleId);
+        }
+    });
+
+    // Search and filter
+    document.getElementById('module-search').addEventListener('input', filterModules);
+    document.getElementById('category-filter').addEventListener('change', filterModules);
+    document.getElementById('status-filter').addEventListener('change', filterModules);
+
+    function filterModules() {
+        const search = document.getElementById('module-search').value.toLowerCase();
+        const category = document.getElementById('category-filter').value;
+        const status = document.getElementById('status-filter').value;
+
+        const filtered = allModules.filter(module => {
+            const matchesSearch = module.name.toLowerCase().includes(search) ||
+                                module.description.toLowerCase().includes(search);
+            const matchesCategory = category === 'all' || module.category === category;
+            const matchesStatus = status === 'all' ||
+                                (status === 'installed' && module.installed) ||
+                                (status === 'available' && !module.installed);
+
+            return matchesSearch && matchesCategory && matchesStatus;
+        });
+
+        renderModules(filtered);
+    }
+
+    // Load modules on page load
+    document.addEventListener('DOMContentLoaded', loadModules);
+    </script>
+
+    <style>
+    .module-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+        gap: 24px;
+        padding: 24px 0;
+    }
+
+    .module-card {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 24px;
+        transition: all 0.2s;
+    }
+
+    .module-card:hover {
+        background: var(--surface-hover);
+        transform: translateY(-2px);
+    }
+
+    .module-card.installed {
+        border-color: var(--primary);
+        background: var(--surface-variant);
+    }
+
+    .module-icon {
+        width: 56px;
+        height: 56px;
+        background: linear-gradient(135deg, var(--primary) 0%, var(--primary) 100%);
+        border-radius: 12px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin-bottom: 16px;
+    }
+
+    .module-icon span {
+        color: var(--text-on-primary);
+        font-size: 32px;
+    }
+
+    .module-name {
+        font-size: 18px;
+        font-weight: 600;
+        margin: 0 0 8px 0;
+    }
+
+    .module-description {
+        color: var(--text-dim);
+        font-size: 14px;
+        line-height: 1.5;
+        margin: 0 0 16px 0;
+        min-height: 60px;
+    }
+
+    .module-meta {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        margin-bottom: 16px;
+        font-size: 12px;
+        color: var(--text-dim);
+    }
+
+    .badge {
+        background: var(--surface-variant);
+        padding: 4px 8px;
+        border-radius: 4px;
+        font-size: 12px;
+    }
+
+    .module-actions {
+        display: flex;
+        gap: 8px;
+    }
+
+    .module-actions .btn {
+        flex: 1;
+    }
+
+    .filter-bar {
+        display: flex;
+        gap: 12px;
+        margin-bottom: 24px;
+    }
+
+    .filter-bar .search-input {
+        flex: 1;
+    }
+
+    .filter-bar .select {
+        min-width: 180px;
+    }
+
+    .empty-state {
+        text-align: center;
+        padding: 60px 20px;
+        color: var(--text-dim);
+        font-size: 16px;
+    }
+    </style>
+  <script src="/assets/js/realtime-client.js?v=3.3.0"></script>
+    <script src="/assets/js/nav-flyout.js?v=3.3.0"></script>
+    <script src="/assets/js/nav-shared.js?v=3.3.0"></script>
+</body>
+</html>

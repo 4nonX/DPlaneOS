@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Users - D-PlaneOS v1.14.0</title>
+    <link rel="stylesheet" href="/css/main.css">
+    <style>
+        .tab-bar { display:flex; gap:8px; margin-bottom:20px; }
+        .panel { display:none; } .panel.active { display:block; }
+        .user-row {
+            display:flex; justify-content:space-between; align-items:center;
+            padding:12px 0; border-bottom:1px solid var(--color-border);
+        }
+        .user-row:last-child { border-bottom:none; }
+        .user-left { display:flex; align-items:center; gap:12px; }
+        .avatar {
+            width:38px; height:38px; border-radius:50%; background:var(--gradient-primary);
+            display:flex; align-items:center; justify-content:center;
+            color:#fff; font-weight:600; font-size:15px; flex-shrink:0;
+        }
+        .user-name { font-size:14px; font-weight:600; }
+        .user-meta { font-size:11px; color:var(--color-text-muted); margin-top:1px; }
+        .user-actions { display:flex; gap:5px; }
+
+        .form-row { display:grid; grid-template-columns:1fr 1fr 1fr; gap:12px; margin-bottom:12px; }
+        .form-row.two { grid-template-columns:1fr 1fr; }
+        .form-label { display:block; font-size:11px; color:var(--color-text-secondary); margin-bottom:3px; text-transform:uppercase; letter-spacing:0.5px; }
+        .form-input {
+            width:100%; padding:9px 12px; border-radius:6px;
+            background:var(--color-surface-light); border:1px solid var(--color-border);
+            color:var(--color-text-primary); font-size:13px; outline:none;
+        }
+        .form-input:focus { border-color:var(--color-primary); }
+        .check-row { display:flex; align-items:center; gap:8px; font-size:13px; color:var(--color-text-secondary); cursor:pointer; margin-bottom:12px; }
+        .check-row input { accent-color:var(--color-primary); }
+
+        .group-row {
+            display:flex; justify-content:space-between; align-items:center;
+            padding:11px 0; border-bottom:1px solid var(--color-border);
+        }
+        .group-row:last-child { border-bottom:none; }
+        .group-name { font-size:14px; font-weight:600; }
+        .group-members { font-size:11px; color:var(--color-text-secondary); margin-top:2px; }
+        .group-right { display:flex; gap:6px; align-items:center; }
+        .group-right select {
+            padding:5px 8px; border-radius:5px; background:var(--color-surface-light);
+            border:1px solid var(--color-border); color:var(--color-text-primary); font-size:11px; outline:none;
+        }
+    </style>
+</head>
+<body>
+    <div id="app" class="flex" style="height: 100vh;">
+        <div id="sidebar-container"></div>
+        <main style="flex: 1; overflow-y: auto; padding: 32px;">
+            <div style="max-width: 1200px; margin: 0 auto;">
+
+                <!-- Header -->
+                <div class="flex justify-between items-center mb-6">
+                    <div>
+                        <h1 class="text-2xl gradient-text">Users & Groups</h1>
+                        <p style="color: var(--color-text-secondary); margin-top: 8px;">System user and group management</p>
+                    </div>
+                    <button class="btn-secondary" onclick="loadAll()">🔄 Refresh</button>
+                </div>
+
+                <!-- Tabs -->
+                <div class="tab-bar">
+                    <button id="tabUsers" class="btn-primary" style="padding:8px 20px;" onclick="switchTab('users')">👤 Users</button>
+                    <button id="tabGroups" class="btn-secondary" style="padding:8px 20px;" onclick="switchTab('groups')">👥 Groups</button>
+                </div>
+
+                <!-- ═══ USERS ═══ -->
+                <div id="panelUsers" class="panel active">
+                    <div class="glass-card" style="margin-bottom:20px;">
+                        <h2 style="font-size:16px; font-weight:600; margin-bottom:14px;">➕ Add User</h2>
+                        <div class="form-row">
+                            <div><label class="form-label">Username *</label><input class="form-input" id="newUsername" placeholder="johndoe"></div>
+                            <div><label class="form-label">Full Name</label><input class="form-input" id="newFullname" placeholder="John Doe"></div>
+                            <div><label class="form-label">Password *</label><input class="form-input" id="newPassword" type="password" placeholder="••••••••"></div>
+                        </div>
+                        <label class="check-row"><input id="newCreateHome" type="checkbox" checked> Create home directory</label>
+                        <button class="btn-primary" style="padding:8px 18px;" onclick="addUser()">+ Add User</button>
+                    </div>
+
+                    <div class="glass-card">
+                        <h2 style="font-size:16px; font-weight:600; margin-bottom:14px;">👤 Users</h2>
+                        <div id="userList"><p style="color:var(--color-text-muted); font-size:13px; padding:20px 0;">Loading…</p></div>
+                    </div>
+                </div>
+
+                <!-- ═══ GROUPS ═══ -->
+                <div id="panelGroups" class="panel">
+                    <div class="glass-card" style="margin-bottom:20px;">
+                        <h2 style="font-size:16px; font-weight:600; margin-bottom:14px;">➕ Add Group</h2>
+                        <div class="form-row two">
+                            <div><label class="form-label">Group Name *</label><input class="form-input" id="newGroupName" placeholder="media"></div>
+                            <div style="display:flex; align-items:flex-end;"><button class="btn-primary" style="padding:8px 18px;" onclick="addGroup()">+ Add Group</button></div>
+                        </div>
+                    </div>
+
+                    <div class="glass-card">
+                        <h2 style="font-size:16px; font-weight:600; margin-bottom:14px;">👥 Groups</h2>
+                        <div id="groupList"><p style="color:var(--color-text-muted); font-size:13px; padding:20px 0;">Loading…</p></div>
+                    </div>
+                </div>
+
+            </div>
+        </main>
+    </div>
+
+    <script src="/js/sidebar.js"></script>
+    <script>
+    let allUsers = [];
+
+    function switchTab(tab) {
+        document.getElementById('panelUsers').classList.toggle('active',  tab === 'users');
+        document.getElementById('panelGroups').classList.toggle('active', tab === 'groups');
+        document.getElementById('tabUsers').className  = (tab === 'users')  ? 'btn-primary'  : 'btn-secondary';
+        document.getElementById('tabGroups').className = (tab === 'groups') ? 'btn-primary'  : 'btn-secondary';
+        document.getElementById('tabUsers').style.padding  = '8px 20px';
+        document.getElementById('tabGroups').style.padding = '8px 20px';
+    }
+
+    async function loadAll() { await loadUsers(); await loadGroups(); }
+
+    // ─── USERS ───
+    async function loadUsers() {
+        const res  = await fetch('/api/users.php?action=list');
+        const data = await res.json();
+        allUsers   = data.users || [];
+        const el   = document.getElementById('userList');
+
+        if (allUsers.length === 0) {
+            el.innerHTML = '<p style="color:var(--color-text-muted); font-size:13px; padding:20px 0;">No users found.</p>';
+            return;
+        }
+
+        el.innerHTML = allUsers.map(u => `
+            <div class="user-row">
+                <div class="user-left">
+                    <div class="avatar">${u.username.charAt(0).toUpperCase()}</div>
+                    <div>
+                        <div class="user-name">${u.username} <span style="color:var(--color-text-muted); font-weight:400; font-size:11px;">UID ${u.uid}</span></div>
+                        <div class="user-meta">${u.fullname || '—'} &nbsp;•&nbsp; ${u.home} &nbsp;•&nbsp; ${u.shell}</div>
+                    </div>
+                </div>
+                <div class="user-actions">
+                    <button class="btn-secondary" style="padding:5px 10px; font-size:11px;" onclick="changePassword('${u.username}')">🔑 Password</button>
+                    <button class="btn-secondary" style="padding:5px 10px; font-size:11px;" onclick="removeUser('${u.username}')">🗑️</button>
+                </div>
+            </div>
+        `).join('');
+    }
+
+    async function addUser() {
+        const username   = document.getElementById('newUsername').value.trim();
+        const fullname   = document.getElementById('newFullname').value.trim();
+        const password   = document.getElementById('newPassword').value;
+        const createHome = document.getElementById('newCreateHome').checked;
+        if (!username || !password) { alert('Username and password are required.'); return; }
+
+        const res = await fetch('/api/users.php?action=add', {
+            method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({ username, fullname, password, createHome })
+        });
+        const r = await res.json();
+        if (r.success) {
+            document.getElementById('newUsername').value  = '';
+            document.getElementById('newFullname').value  = '';
+            document.getElementById('newPassword').value  = '';
+            await loadUsers();
+        } else { alert('Failed: ' + r.error); }
+    }
+
+    async function removeUser(username) {
+        if (!confirm(`Delete user "${username}"?\nHome directory will be removed.`)) return;
+        const res = await fetch('/api/users.php?action=remove', {
+            method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({ username, removeHome: true })
+        });
+        const r = await res.json();
+        if (r.success) { await loadUsers(); } else { alert('Failed: ' + r.error); }
+    }
+
+    async function changePassword(username) {
+        const pw = prompt(`New password for "${username}":`);
+        if (!pw) return;
+        const res = await fetch('/api/users.php?action=change_password', {
+            method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({ username, password: pw })
+        });
+        const r = await res.json();
+        if (!r.success) { alert('Failed: ' + r.error); }
+    }
+
+    // ─── GROUPS ───
+    async function loadGroups() {
+        const res  = await fetch('/api/users.php?action=list_groups');
+        const data = await res.json();
+        const groups = data.groups || [];
+        const el   = document.getElementById('groupList');
+
+        if (groups.length === 0) {
+            el.innerHTML = '<p style="color:var(--color-text-muted); font-size:13px; padding:20px 0;">No groups found.</p>';
+            return;
+        }
+
+        el.innerHTML = groups.map(g => {
+            // Build add-member select from allUsers not already in group
+            const candidates = allUsers.filter(u => !g.members.includes(u.username));
+            const opts = candidates.map(u => `<option value="${u.username}">${u.username}</option>`).join('');
+
+            return `
+                <div class="group-row">
+                    <div>
+                        <div class="group-name">${g.name} <span style="color:var(--color-text-muted); font-weight:400; font-size:11px;">GID ${g.gid}</span></div>
+                        <div class="group-members">${g.members.length > 0 ? g.members.map(m => '<span style="display:inline-flex;align-items:center;gap:3px;background:rgba(124,58,237,0.15);border:1px solid rgba(124,58,237,0.3);border-radius:12px;padding:2px 7px;font-size:11px;margin:1px 2px;color:var(--color-primary-light);">' + m + ' <button onclick="removeFromGroup(\'${g.name}\',\'' + m + '\')" style="background:none;border:none;color:var(--color-error);cursor:pointer;font-size:11px;padding:0;line-height:1;">✕</button></span>').join('') : '<span style="color:var(--color-text-muted);">No members</span>'}</div>
+                    </div>
+                    <div class="group-right">
+                        <select id="addMember_${g.name}"><option value="">+ Add member…</option>${opts}</select>
+                        <button class="btn-secondary" style="padding:4px 8px; font-size:11px;" onclick="addToGroup('${g.name}')">➕</button>
+                        <button class="btn-secondary" style="padding:4px 8px; font-size:11px;" onclick="removeGroup('${g.name}')">🗑️</button>
+                    </div>
+                </div>`;
+        }).join('');
+    }
+
+    async function addGroup() {
+        const name = document.getElementById('newGroupName').value.trim();
+        if (!name) { alert('Group name required.'); return; }
+        const res = await fetch('/api/users.php?action=add_group', {
+            method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({ name })
+        });
+        const r = await res.json();
+        if (r.success) { document.getElementById('newGroupName').value = ''; await loadGroups(); }
+        else { alert('Failed: ' + r.error); }
+    }
+
+    async function removeGroup(name) {
+        if (!confirm(`Delete group "${name}"?`)) return;
+        const res = await fetch('/api/users.php?action=remove_group', {
+            method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({ name })
+        });
+        const r = await res.json();
+        if (r.success) { await loadGroups(); } else { alert('Failed: ' + r.error); }
+    }
+
+    async function addToGroup(groupname) {
+        const sel      = document.getElementById('addMember_' + groupname);
+        const username = sel ? sel.value : '';
+        if (!username) return;
+        const res = await fetch('/api/users.php?action=add_to_group', {
+            method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({ username, group: groupname })
+        });
+        const r = await res.json();
+        if (r.success) { await loadGroups(); } else { alert('Failed: ' + r.error); }
+    }
+
+    async function removeFromGroup(groupname, username) {
+        const res = await fetch('/api/users.php?action=remove_from_group', {
+            method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({ username, group: groupname })
+        });
+        const r = await res.json();
+        if (r.success) { await loadGroups(); } else { alert('Failed: ' + r.error); }
+    }
+
+    loadAll();
+    </script>
+</body>
+</html>

@@ -1,0 +1,7 @@
+# D-PlaneOS — no upload size limit
+# Complements the ini_set() calls in files.php.
+# Takes effect if your PHP build ignores runtime ini_set for upload settings.
+php_value upload_max_filesize 512G
+php_value post_max_size       512G
+php_value max_execution_time  0
+php_value max_input_time      -1

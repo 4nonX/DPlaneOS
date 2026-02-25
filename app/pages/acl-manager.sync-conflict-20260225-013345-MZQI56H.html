@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>ACL Manager - D-PlaneOS</title>
+    <link rel="stylesheet" href="/assets/css/design-tokens.css?v=3.3.0">
+    <link rel="stylesheet" href="/assets/css/dplaneos-ui-complete.css?v=3.3.0">
+<link rel="stylesheet" href="/assets/css/m3-tokens.css?v=3.3.0">
+<link rel="stylesheet" href="/assets/css/m3-components.css?v=3.3.0">
+<link rel="stylesheet" href="/assets/css/m3-icons.css?v=3.3.0">
+  <link rel="stylesheet" href="/assets/css/enhanced-ui.css?v=3.3.0">
+<link rel="stylesheet" href="/assets/css/ui-components.css?v=3.3.0">
+<script src="/assets/js/core.js?v=3.3.0"></script>
+<script src="/assets/js/nav-flyout.js?v=3.3.0"></script>
+<script src="/assets/js/hybrid-router.js?v=3.3.0"></script>
+  <script src="/assets/js/enhanced-ui.js?v=3.3.0"></script>
+  <script src="/assets/js/connection-monitor.js?v=3.3.0"></script>
+  <script src="/assets/js/keyboard-shortcuts.js?v=3.3.0"></script>
+  <script src="/assets/js/form-validator.js?v=3.3.0"></script>
+<script src="/assets/js/ui-components.js?v=3.3.0"></script>
+  <link rel="stylesheet" href="/assets/css/material-symbols-local.css?v=3.3.0">
+  <link rel="stylesheet" href="/assets/css/ui-consistency.css?v=3.3.0">
+  <link rel="stylesheet" href="/assets/css/ui-polish.css?v=3.3.0">
+  <script src="/assets/js/daemon-api.js?v=3.3.0"></script>
+</head>
+<body>
+<!-- D-PlaneOS - Hierarchical Navigation -->
+<!-- This navigation maintains all security (CSRF, Auth) and real system state -->
+
+<div id="nav-root"></div>
+
+<script>
+// Navigation behavior
+function navigateToSection(section) {
+  if (section === 'dashboard') {
+    window.location.href = 'index.html';
+  }
+}
+
+function toggleSubNav(section, button) {
+  // Remove active from all nav links
+  document.querySelectorAll('.nav-link').forEach(link => {
+    link.classList.remove('active');
+  });
+  
+  // Add active to clicked button
+  if (button) {
+    button.classList.add('active');
+  }
+  
+  // Hide all sub-navs
+  document.querySelectorAll('.nav-sub').forEach(sub => {
+    sub.classList.remove('active');
+  });
+  
+  // Show selected sub-nav
+  const subNav = document.getElementById(`sub-${section}`);
+  if (subNav) {
+    subNav.classList.add('active');
+    document.body.classList.add('has-subnav');
+  }
+}
+
+// Auto-detect current section and page on load
+(function() {
+  const currentPage = window.location.pathname.split('/').pop() || 'index.html';
+  
+  // Page to section mapping
+  const pageMap = {
+    'acl-manager.html': { section: 'storage', page: 'acl-manager' },
+    'audit.html': { section: 'security', page: 'audit' },
+    'certificates.html': { section: 'security', page: 'certificates' },
+    'cloud-sync.html': { section: 'storage', page: 'cloud-sync' },
+    'directory-service.html': { section: 'identity', page: 'directory-service' },
+    'docker.html': { section: 'compute', page: 'docker' },
+    'files-enhanced.html': { section: 'storage', page: 'files-enhanced' },
+    'files.html': { section: 'storage', page: 'files' },
+    'firewall.html': { section: 'security', page: 'firewall' },
+    'groups.html': { section: 'identity', page: 'groups' },
+    'hardware.html': { section: 'system', page: 'hardware' },
+    'index.html': { section: 'dashboard', page: null },
+    'ipmi.html': { section: 'system', page: 'ipmi' },
+    'logs.html': { section: 'system', page: 'logs' },
+    'modules.html': { section: 'compute', page: 'modules' },
+    'network-dns.html': { section: 'network', page: 'network-dns' },
+    'network-interfaces.html': { section: 'network', page: 'network-interfaces' },
+    'network-routing.html': { section: 'network', page: 'network-routing' },
+    'network.html': { section: 'network', page: 'network' },
+    'pools-advanced.html': { section: 'storage', page: 'pools-advanced' },
+    'pools.html': { section: 'storage', page: 'pools' },
+    'power-management.html': { section: 'system', page: 'power-management' },
+    'quotas.html': { section: 'storage', page: 'quotas' },
+    'rbac-management.html': { section: 'identity', page: 'rbac-management' },
+    'removable-media-ui.html': { section: 'system', page: 'removable-media-ui' },
+    'replication.html': { section: 'storage', page: 'replication' },
+    'reporting.html': { section: 'system', page: 'reporting' },
+    'security.html': { section: 'security', page: 'security' },
+    'settings.html': { section: 'system', page: 'settings' },
+    'shares.html': { section: 'storage', page: 'shares' },
+    'snapshot-scheduler.html': { section: 'storage', page: 'snapshot-scheduler' },
+    'system-monitoring.html': { section: 'system', page: 'system-monitoring' },
+    'system-settings.html': { section: 'system', page: 'system-settings' },
+    'ups.html': { section: 'system', page: 'ups' },
+    'users.html': { section: 'identity', page: 'users' },
+    'zfs-encryption.html': { section: 'storage', page: 'zfs-encryption' }
+  };
+  
+  const current = pageMap[currentPage];
+  if (current) {
+    // Activate section button
+    const sectionBtn = document.querySelector(`[data-section="${current.section}"]`);
+    if (sectionBtn) {
+      sectionBtn.classList.add('active');
+    }
+    
+    // Show and activate sub-nav if not dashboard
+    if (current.section !== 'dashboard') {
+      const subNav = document.getElementById(`sub-${current.section}`);
+      if (subNav) {
+        subNav.classList.add('active');
+        document.body.classList.add('has-subnav');
+        
+        // Activate current page in sub-nav
+        if (current.page) {
+          const pageLink = subNav.querySelector(`[data-page="${current.page}"]`);
+          if (pageLink) {
+            pageLink.classList.add('active');
+          }
+        }
+      }
+    }
+  }
+})();
+
+// Keyboard shortcuts
+function showKeyboardHelp() {
+  if (window.EnhancedUI) {
+    const shortcuts = `Keyboard Shortcuts:
+
+g + d → Dashboard
+g + s → Storage
+g + c → Compute
+g + n → Network
+g + u → Identity
+g + e → Security
+g + y → System
+
+r → Refresh page
+Esc → Close modals
+? → Show this help`;
+    EnhancedUI.toast(shortcuts, 'info', 8000);
+  }
+}
+
+// Enhanced keyboard shortcuts for sections
+(function() {
+  let keySequence = '';
+  let keyTimeout;
+  
+  document.addEventListener('keydown', (e) => {
+    if (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) return;
+    
+    keySequence += e.key;
+    clearTimeout(keyTimeout);
+    
+    const shortcuts = {
+      'gd': 'index.html',
+      'gs': () => toggleSubNav('storage', document.querySelector('[data-section="storage"]')),
+      'gc': () => toggleSubNav('compute', document.querySelector('[data-section="compute"]')),
+      'gn': () => toggleSubNav('network', document.querySelector('[data-section="network"]')),
+      'gu': () => toggleSubNav('identity', document.querySelector('[data-section="identity"]')),
+      'ge': () => toggleSubNav('security', document.querySelector('[data-section="security"]')),
+      'gy': () => toggleSubNav('system', document.querySelector('[data-section="system"]'))
+    };
+    
+    if (shortcuts[keySequence]) {
+      e.preventDefault();
+      const action = shortcuts[keySequence];
+      if (typeof action === 'function') {
+        action();
+      } else {
+        window.location.href = action;
+      }
+      keySequence = '';
+    } else if (e.key === '?') {
+      e.preventDefault();
+      showKeyboardHelp();
+    }
+    
+    keyTimeout = setTimeout(() => keySequence = '', 1000);
+  });
+})();
+
+// Connection status monitoring (integrates with existing connection-monitor.js)
+if (window.ConnectionMonitor) {
+  window.ConnectionMonitor.on('statusChange', (online) => {
+    const status = document.getElementById('navConnectionStatus');
+    if (status) {
+      if (online) {
+        status.classList.remove('offline');
+        status.classList.add('online');
+        status.innerHTML = '<span class="status-dot"></span><span>Connected</span>';
+      } else {
+        status.classList.remove('online');
+        status.classList.add('offline');
+        status.innerHTML = '<span class="status-dot"></span><span>Offline</span>';
+      }
+    }
+  });
+}
+</script>
+
+<main class="main">
+<div class="page-header">
+  <h1 class="page-title">ACL Manager</h1>
+  <div class="page-meta">POSIX Access Control Lists</div>
+</div>
+
+<div class="card">
+  <div class="card-header"><div class="card-title">Path</div></div>
+  <div style="display:flex;gap:12px;padding:4px 0;">
+    <input type="text" id="aclPath" value="/mnt/" placeholder="/mnt/pool/dataset/folder" style="flex:1;padding:10px 14px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);border-radius:8px;color:#fff;font-size:14px;">
+    <button class="btn btn-primary" onclick="loadACL()"><span class="material-symbols-rounded" style="font-size:18px;">search</span> Load ACL</button>
+  </div>
+</div>
+
+<div class="card" id="aclResultCard" style="display:none;">
+  <div class="card-header">
+    <div class="card-title" id="aclResultTitle">ACL Entries</div>
+    <div class="card-action" onclick="loadACL()"><span class="material-symbols-rounded" style="font-size:18px;">refresh</span></div>
+  </div>
+  <div id="aclStatInfo" style="padding:0 0 16px;font-size:13px;color:rgba(255,255,255,0.5);border-bottom:1px solid rgba(255,255,255,0.06);margin-bottom:16px;"></div>
+  <div id="aclEntries"></div>
+  <div style="border-top:1px solid rgba(255,255,255,0.06);padding-top:20px;margin-top:16px;">
+    <h4 style="font-size:14px;margin:0 0 12px;color:rgba(255,255,255,0.7);">Add ACL Entry</h4>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:end;">
+      <div>
+        <label style="display:block;font-size:12px;color:rgba(255,255,255,0.5);margin-bottom:4px;">Type</label>
+        <select class="form-input" id="aclType" style="padding:8px 12px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);border-radius:8px;color:#fff;font-size:13px;">
+          <option value="u">User (u)</option>
+          <option value="g">Group (g)</option>
+          <option value="o">Other (o)</option>
+          <option value="m">Mask (m)</option>
+        </select>
+      </div>
+      <div>
+        <label style="display:block;font-size:12px;color:rgba(255,255,255,0.5);margin-bottom:4px;">Name</label>
+        <input type="text" id="aclName" placeholder="username or group" style="padding:8px 12px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);border-radius:8px;color:#fff;font-size:13px;width:140px;">
+      </div>
+      <div>
+        <label style="display:block;font-size:12px;color:rgba(255,255,255,0.5);margin-bottom:4px;">Permissions</label>
+        <div style="display:flex;gap:8px;">
+          <label style="display:flex;align-items:center;gap:4px;font-size:13px;color:rgba(255,255,255,0.7);cursor:pointer;"><input type="checkbox" id="aclR" checked style="accent-color:var(--md-sys-color-primary);width:16px;height:16px;"> r</label>
+          <label style="display:flex;align-items:center;gap:4px;font-size:13px;color:rgba(255,255,255,0.7);cursor:pointer;"><input type="checkbox" id="aclW" style="accent-color:var(--md-sys-color-primary);width:16px;height:16px;"> w</label>
+          <label style="display:flex;align-items:center;gap:4px;font-size:13px;color:rgba(255,255,255,0.7);cursor:pointer;"><input type="checkbox" id="aclX" style="accent-color:var(--md-sys-color-primary);width:16px;height:16px;"> x</label>
+        </div>
+      </div>
+      <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:rgba(255,255,255,0.6);cursor:pointer;"><input type="checkbox" id="aclRecursive" style="accent-color:var(--md-sys-color-primary);width:16px;height:16px;"> Recursive</label>
+      <button class="btn btn-primary" onclick="addACLEntry()" style="height:38px;"><span class="material-symbols-rounded" style="font-size:16px;">add</span> Add</button>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header"><div class="card-title">Quick Reference</div></div>
+  <div style="font-size:13px;color:rgba(255,255,255,0.6);line-height:1.8;">
+    <code style="background:rgba(255,255,255,0.08);padding:2px 6px;border-radius:4px;">u:john:rwx</code> — User "john" gets full access<br>
+    <code style="background:rgba(255,255,255,0.08);padding:2px 6px;border-radius:4px;">g:media:r-x</code> — Group "media" gets read + execute<br>
+    <code style="background:rgba(255,255,255,0.08);padding:2px 6px;border-radius:4px;">o::r--</code> — Others get read only<br>
+    <code style="background:rgba(255,255,255,0.08);padding:2px 6px;border-radius:4px;">m::rwx</code> — Effective rights mask
+  </div>
+</div>
+
+<style>
+.acl-entry{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid rgba(255,255,255,0.04);}
+.acl-entry:last-child{border-bottom:none;}
+.acl-type{padding:3px 8px;border-radius:6px;font-size:12px;font-weight:600;min-width:50px;text-align:center;}
+.acl-type.user{background:rgba(96,165,250,0.15);color:var(--info);}
+.acl-type.group{background:rgba(167,139,250,0.15);color:var(--primary);}
+.acl-type.other{background:rgba(251,191,36,0.15);color:var(--warning);}
+.acl-type.mask{background:rgba(248,113,113,0.15);color:var(--error);}
+.acl-name{flex:1;font-size:14px;}
+.acl-perms{font-family:monospace;font-size:14px;letter-spacing:1px;}
+.acl-perms .set{color:var(--success);font-weight:700;}
+.acl-perms .unset{color:rgba(255,255,255,0.2);}
+.acl-remove{padding:4px;border:none;background:none;color:rgba(255,255,255,0.3);cursor:pointer;border-radius:6px;}
+.acl-remove:hover{background:rgba(239,68,68,0.15);color:var(--error);}
+</style>
+
+<script>
+function getSessionId(){return document.cookie.replace(/(?:(?:^|.*;\s*)session_id\s*=\s*([^;]*).*$)|^.*$/,"$1")||localStorage.getItem("session_id")||"";}
+function getUser(){return document.cookie.replace(/(?:(?:^|.*;\s*)username\s*=\s*([^;]*).*$)|^.*$/,"$1")||localStorage.getItem("username")||"admin";}
+function esc(s){var d=document.createElement("div");d.textContent=s;return d.innerHTML;}
+
+async function loadACL(){
+  var path=document.getElementById("aclPath").value.trim();
+  if(!path||!path.startsWith("/mnt/")){if(window.EnhancedUI)EnhancedUI.toast("Path must start with /mnt/","error");return;}
+  try{
+    var res=await fetch("/api/acl/get?path="+encodeURIComponent(path),{headers:{"X-Session-ID":getSessionId(),"X-User":getUser()}});
+    var data=await res.json();
+    if(!data.success){if(window.EnhancedUI)EnhancedUI.toast("Failed to load ACL","error");return;}
+    document.getElementById("aclResultCard").style.display="block";
+    document.getElementById("aclResultTitle").textContent="ACL: "+path;
+    document.getElementById("aclStatInfo").textContent="Owner: "+data.stat;
+    renderACL(data.acl, path);
+  }catch(e){if(window.EnhancedUI)EnhancedUI.toast("Error: "+e.message,"error");}
+}
+
+function renderACL(aclText, path){
+  var el=document.getElementById("aclEntries");
+  var lines=aclText.split("\n").filter(function(l){return l&&!l.startsWith("#")&&l.includes(":");});
+  if(!lines.length){el.innerHTML="<div style='padding:20px;text-align:center;color:rgba(255,255,255,0.4);'>No ACL entries found</div>";return;}
+  var html="";
+  lines.forEach(function(line){
+    var parts=line.split(":");
+    if(parts.length<3)return;
+    var type=parts[0],name=parts[1],perms=parts[2];
+    var typeLabel={user:"user",group:"group",other:"other",mask:"mask"}[type]||type;
+    var typeClass=typeLabel;
+    var displayName=name||"(default)";
+    var permHtml="";
+    "rwx".split("").forEach(function(p,i){
+      permHtml+="<span class='"+(perms[i]&&perms[i]!=="-"?"set":"unset")+"'>"+p+"</span>";
+    });
+    html+="<div class='acl-entry'>"+
+      "<span class='acl-type "+esc(typeClass)+"'>"+esc(typeLabel)+"</span>"+
+      "<span class='acl-name'>"+esc(displayName)+"</span>"+
+      "<span class='acl-perms'>"+permHtml+"</span>"+
+      "<button class='acl-remove' onclick=\"removeACL('"+esc(type)+":"+esc(name)+":"+esc(perms)+"')\" title='Remove'><span class='material-symbols-rounded' style='font-size:18px;'>close</span></button>"+
+      "</div>";
+  });
+  el.innerHTML=html;
+}
+
+async function addACLEntry(){
+  var type=document.getElementById("aclType").value;
+  var name=document.getElementById("aclName").value.trim();
+  var perms=(document.getElementById("aclR").checked?"r":"-")+(document.getElementById("aclW").checked?"w":"-")+(document.getElementById("aclX").checked?"x":"-");
+  var recursive=document.getElementById("aclRecursive").checked;
+  var entry=type+":"+name+":"+perms;
+  var path=document.getElementById("aclPath").value.trim();
+  try{
+    var res=await fetch("/api/acl/set",{method:"POST",headers:{"Content-Type":"application/json","X-Session-ID":getSessionId(),"X-User":getUser()},body:JSON.stringify({path:path,entry:entry,recursive:recursive,remove:false})});
+    var data=await res.json();
+    if(data.success){if(window.EnhancedUI)EnhancedUI.toast("ACL entry added","success");loadACL();}
+    else{if(window.EnhancedUI)EnhancedUI.toast("Failed to add ACL","error");}
+  }catch(e){if(window.EnhancedUI)EnhancedUI.toast("Error: "+e.message,"error");}
+}
+
+async function removeACL(entry){
+  if(!await ui.confirm("Remove ACL","Remove ACL entry: "+entry+"?"))return;
+  var path=document.getElementById("aclPath").value.trim();
+  var parts=entry.split(":");
+  try{
+    await fetch("/api/acl/set",{method:"POST",headers:{"Content-Type":"application/json","X-Session-ID":getSessionId(),"X-User":getUser()},body:JSON.stringify({path:path,entry:parts[0]+":"+parts[1]+":"+parts[2],recursive:false,remove:true})});
+    if(window.EnhancedUI)EnhancedUI.toast("ACL entry removed","success");
+    loadACL();
+  }catch(e){if(window.EnhancedUI)EnhancedUI.toast("Error: "+e.message,"error");}
+}
+
+// Support URL param: acl-manager.html?path=/mnt/tank/data
+(function(){
+  var params=new URLSearchParams(window.location.search);
+  var p=params.get("path");
+  if(p){document.getElementById("aclPath").value=p;loadACL();}
+})();
+</script>
+<script src="/assets/js/realtime-client.js?v=3.3.0"></script>
+    <script src="/assets/js/nav-flyout.js?v=3.3.0"></script>
+    <script src="/assets/js/nav-shared.js?v=3.3.0"></script>
+</body></html>

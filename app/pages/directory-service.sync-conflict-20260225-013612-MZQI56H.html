@@ -1,0 +1,936 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Directory Service - D-PlaneOS</title>
+    <link rel="stylesheet" href="/assets/css/design-tokens.css?v=3.3.0">
+    <link rel="stylesheet" href="/assets/css/dplaneos-ui-complete.css?v=3.3.0">
+  <link rel="stylesheet" href="/assets/css/m3-tokens.css?v=3.3.0">
+  <link rel="stylesheet" href="/assets/css/m3-components.css?v=3.3.0">
+  <link rel="stylesheet" href="/assets/css/m3-icons.css?v=3.3.0">
+  <link rel="stylesheet" href="/assets/css/enhanced-ui.css?v=3.3.0">
+  <link rel="stylesheet" href="/assets/css/m3-animations.css?v=3.3.0">
+  <link rel="stylesheet" href="/assets/css/ui-components.css?v=3.3.0">
+  <link rel="stylesheet" href="/assets/css/material-symbols-local.css?v=3.3.0">
+  <link rel="stylesheet" href="/assets/css/ui-consistency.css?v=3.3.0">
+  <link rel="stylesheet" href="/assets/css/ui-polish.css?v=3.3.0">
+  <script src="/assets/js/core.js?v=3.3.0"></script>
+<script src="/assets/js/nav-flyout.js?v=3.3.0"></script>
+<script src="/assets/js/hybrid-router.js?v=3.3.0"></script>
+  <script src="/assets/js/enhanced-ui.js?v=3.3.0"></script>
+  <script src="/assets/js/connection-monitor.js?v=3.3.0"></script>
+  <script src="/assets/js/keyboard-shortcuts.js?v=3.3.0"></script>
+  <script src="/assets/js/form-validator.js?v=3.3.0"></script>
+  <script src="/assets/js/daemon-api.js?v=3.3.0"></script>
+<style>
+.main { max-width: 1600px; margin: 140px auto 60px; padding: 0 40px; }
+.page-header { margin-bottom: 48px; }
+.page-title { font-size: 32px; font-weight: 700; letter-spacing: -1.5px; margin-bottom: 12px; }
+.page-subtitle { font-size: 18px; color: rgba(255,255,255,0.6); }
+.section { margin-bottom: 48px; }
+.section-title { font-size: 20px; font-weight: 800; margin-bottom: 24px; display: flex; align-items: center; gap: 10px; }
+
+/* Card pattern from settings.html */
+.card { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 20px; padding: 24px; margin-bottom: 24px; }
+.card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+.card-title { font-size: 18px; font-weight: 700; display: flex; align-items: center; gap: 10px; }
+
+/* Toggle from settings.html */
+.toggle { width: 48px; height: 28px; background: rgba(255,255,255,0.2); border-radius: 14px; position: relative; cursor: pointer; transition: background 0.3s; flex-shrink: 0; }
+.toggle.active { background: var(--primary); }
+.toggle::after { content: ''; position: absolute; width: 22px; height: 22px; background: white; border-radius: 50%; top: 3px; left: 3px; transition: transform 0.3s; }
+.toggle.active::after { transform: translateX(20px); }
+
+/* Setting item pattern */
+.setting-item { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; padding: 20px 24px; margin-bottom: 12px; display: flex; align-items: center; gap: 16px; }
+.setting-icon { font-size: 32px; color: var(--primary); flex-shrink: 0; }
+.setting-info { flex: 1; min-width: 0; }
+.setting-name { font-size: 16px; font-weight: 600; margin-bottom: 4px; }
+.setting-desc { font-size: 14px; color: rgba(255,255,255,0.6); }
+
+/* Form fields */
+.form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.form-group { margin-bottom: 16px; }
+.form-label { display: block; font-size: 13px; font-weight: 600; color: rgba(255,255,255,0.7); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px; }
+.form-input { width: 100%; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.12); border-radius: 12px; padding: 12px 16px; color: var(--text); font-size: 14px; transition: border-color 0.3s, box-shadow 0.3s; outline: none; }
+.form-input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(138,156,255,0.15); }
+.form-input::placeholder { color: rgba(255,255,255,0.3); }
+.form-hint { font-size: 12px; color: rgba(255,255,255,0.4); margin-top: 4px; }
+select.form-input { appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='rgba(255,255,255,0.5)' viewBox='0 0 16 16'%3E%3Cpath d='M8 12L2 6h12z'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 16px center; padding-right: 40px; }
+select.form-input option { background: var(--bg-elevated); color: var(--text); }
+
+/* Password field with toggle */
+.password-wrap { position: relative; }
+.password-wrap .form-input { padding-right: 48px; }
+.password-toggle { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); background: none; border: none; color: rgba(255,255,255,0.5); cursor: pointer; padding: 4px; }
+.password-toggle:hover { color: rgba(255,255,255,0.8); }
+
+/* Buttons matching demo.html */
+.btn { padding: 10px 20px; border-radius: 12px; border: none; cursor: pointer; font-weight: 700; display: inline-flex; align-items: center; gap: 8px; transition: all 0.2s; font-size: 14px; }
+.btn-primary { background: var(--primary); color: var(--text-on-primary); }
+.btn-primary:hover { filter: brightness(1.1); transform: translateY(-1px); box-shadow: 0 4px 16px rgba(138,156,255,0.3); }
+.btn-ghost { background: rgba(255,255,255,0.05); color: var(--text); border: 1px solid rgba(255,255,255,0.1); }
+.btn-ghost:hover { background: rgba(255,255,255,0.08); }
+.btn-danger { background: rgba(255,82,82,0.15); color: var(--error); border: 1px solid rgba(255,82,82,0.3); }
+.btn-danger:hover { background: rgba(255,82,82,0.25); }
+.btn-sm { padding: 6px 12px; font-size: 13px; border-radius: 8px; }
+.btn:disabled { opacity: 0.4; cursor: not-allowed; pointer-events: none; }
+
+/* Badge from demo.html */
+.badge { padding: 4px 10px; border-radius: 8px; font-size: 11px; font-weight: 800; text-transform: uppercase; }
+.badge-success { background: rgba(0,255,127,0.1); color: var(--success); }
+.badge-error { background: rgba(255,82,82,0.1); color: var(--error); }
+.badge-warning { background: rgba(255,202,40,0.1); color: var(--warning); }
+.badge-info { background: rgba(138,156,255,0.1); color: var(--primary); }
+
+/* Status panel with glassmorphism */
+.status-panel { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 16px; padding: 20px; backdrop-filter: blur(10px); }
+.status-row { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid rgba(255,255,255,0.04); }
+.status-row:last-child { border-bottom: none; }
+.status-label { font-size: 14px; color: rgba(255,255,255,0.6); }
+.status-value { font-size: 14px; font-weight: 600; }
+
+/* Live dot */
+.live-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 6px; }
+.live-dot.green { background: var(--success); box-shadow: 0 0 8px var(--success); animation: pulse 2s infinite; }
+.live-dot.red { background: var(--error); box-shadow: 0 0 8px var(--error); }
+.live-dot.grey { background: rgba(255,255,255,0.3); }
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+
+/* Mapping table */
+.mapping-table { width: 100%; border-collapse: collapse; }
+.mapping-table th { text-align: left; color: rgba(255,255,255,0.5); font-size: 11px; padding: 12px 16px; border-bottom: 1px solid rgba(255,255,255,0.08); text-transform: uppercase; letter-spacing: 0.5px; }
+.mapping-table td { padding: 14px 16px; border-bottom: 1px solid rgba(255,255,255,0.03); font-size: 14px; }
+.mapping-arrow { color: var(--primary); font-size: 20px; }
+.empty-state { text-align: center; padding: 40px 20px; color: rgba(255,255,255,0.4); }
+.empty-state .material-symbols-rounded { font-size: 48px; margin-bottom: 12px; display: block; opacity: 0.3; }
+
+/* Preset selector */
+.preset-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-bottom: 20px; }
+.preset-card { background: rgba(255,255,255,0.03); border: 2px solid rgba(255,255,255,0.08); border-radius: 12px; padding: 16px; cursor: pointer; transition: all 0.3s; text-align: center; }
+.preset-card:hover { border-color: rgba(138,156,255,0.4); background: rgba(255,255,255,0.05); }
+.preset-card.selected { border-color: var(--primary); background: rgba(138,156,255,0.08); }
+.preset-card .material-symbols-rounded { font-size: 32px; color: var(--primary); margin-bottom: 8px; }
+.preset-name { font-weight: 700; font-size: 14px; margin-bottom: 4px; }
+.preset-desc { font-size: 12px; color: rgba(255,255,255,0.5); }
+
+/* Collapsible section */
+.collapse-trigger { cursor: pointer; user-select: none; }
+.collapse-trigger .expand-icon { transition: transform 0.3s; }
+.collapse-trigger.open .expand-icon { transform: rotate(180deg); }
+.collapse-body { max-height: 0; overflow: hidden; transition: max-height 0.4s ease; }
+.collapse-body.open { max-height: 2000px; }
+
+/* Feedback animation on test */
+.test-success { animation: testGlow 1s ease; }
+@keyframes testGlow { 0% { box-shadow: 0 0 0 0 rgba(0,255,127,0.4); } 50% { box-shadow: 0 0 20px 4px rgba(0,255,127,0.2); } 100% { box-shadow: none; } }
+.test-fail { animation: testFail 0.5s ease; }
+@keyframes testFail { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-4px); } 75% { transform: translateX(4px); } }
+
+/* Responsive */
+@media (max-width: 768px) {
+  .main { margin-top: 140px; padding: 0 20px; }
+  .page-title { font-size: 24px; }
+  .form-grid { grid-template-columns: 1fr; }
+  .preset-cards { grid-template-columns: 1fr; }
+}
+
+/* Page transition */
+.fade-in { animation: fadeIn 0.4s ease; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+</style>
+</head>
+<body>
+<!-- D-PlaneOS - Hierarchical Navigation -->
+<div id="nav-root"></div>
+
+<script>
+function navigateToSection(s){if(s==='dashboard')window.location.href='index.html';}
+function toggleSubNav(section,button){
+  document.querySelectorAll('.nav-link').forEach(l=>l.classList.remove('active'));
+  if(button)button.classList.add('active');
+  document.querySelectorAll('.nav-sub').forEach(s=>s.classList.remove('active'));
+  const sub=document.getElementById('sub-'+section);
+  if(sub){sub.classList.add('active');document.body.classList.add('has-subnav');}
+}
+(function(){
+  const currentPage=window.location.pathname.split('/').pop()||'index.html';
+  const pageMap={
+    'index.html':{section:'dashboard',page:null},
+    'pools.html':{section:'storage',page:'pools'},
+    'pools-advanced.html':{section:'storage',page:'pools-advanced'},
+    'shares.html':{section:'storage',page:'shares'},
+    'replication.html':{section:'storage',page:'replication'},
+    'files.html':{section:'storage',page:'files'},
+    'quotas.html':{section:'storage',page:'quotas'},
+    'docker.html':{section:'compute',page:'docker'},
+    'modules.html':{section:'compute',page:'modules'},
+    'network.html':{section:'network',page:'network'},
+    'users.html':{section:'identity',page:'users'},
+    'groups.html':{section:'identity',page:'groups'},
+    'directory-service.html':{section:'identity',page:'directory-service'},
+    'security.html':{section:'security',page:'security'},
+    'audit.html':{section:'security',page:'audit'},
+    'settings.html':{section:'system',page:'settings'},
+    'logs.html':{section:'system',page:'logs'},
+    'ups.html':{section:'system',page:'ups'}
+  };
+  const c=pageMap[currentPage];
+  if(c){
+    const btn=document.querySelector(`[data-section="${c.section}"]`);
+    if(btn)btn.classList.add('active');
+    if(c.section!=='dashboard'){
+      const sub=document.getElementById('sub-'+c.section);
+      if(sub){sub.classList.add('active');document.body.classList.add('has-subnav');
+        if(c.page){const pl=sub.querySelector(`[data-page="${c.page}"]`);if(pl)pl.classList.add('active');}
+      }
+    }
+  }
+})();
+function showKeyboardHelp(){if(window.EnhancedUI)EnhancedUI.toast('g+d Dashboard | g+u Identity | ? Help','info',5000);}
+</script>
+
+<!-- ===== MAIN CONTENT ===== -->
+<div class="main fade-in">
+  <div class="page-header">
+    <div>
+      <h1 class="page-title">Directory Service</h1>
+      <p class="page-subtitle">Connect LDAP or Active Directory for centralized authentication</p>
+    </div>
+  </div>
+
+  <!-- ===== STATUS PANEL ===== -->
+  <div class="status-panel" id="statusPanel" style="margin-bottom: 32px;">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <span class="material-symbols-rounded" style="color: var(--primary);">cloud_sync</span>
+        <span style="font-weight: 700;">Connection Status</span>
+      </div>
+      <span id="statusBadge" class="badge badge-info">Not Configured</span>
+    </div>
+    <div class="status-row">
+      <span class="status-label">Service</span>
+      <span class="status-value" id="statusService"><span class="live-dot grey"></span>Disabled</span>
+    </div>
+    <div class="status-row">
+      <span class="status-label">Last Test</span>
+      <span class="status-value" id="statusTest">Never</span>
+    </div>
+    <div class="status-row">
+      <span class="status-label">Last Sync</span>
+      <span class="status-value" id="statusSync">Never</span>
+    </div>
+    <div class="status-row">
+      <span class="status-label">Users Synced</span>
+      <span class="status-value" id="statusUsers">0</span>
+    </div>
+  </div>
+
+  <!-- ===== QUICK SETUP PRESETS ===== -->
+  <div class="section">
+    <h3 class="section-title"><span class="material-symbols-rounded">bolt</span> Quick Setup</h3>
+    <div class="preset-cards">
+      <div class="preset-card" onclick="applyPreset('ad')">
+        <span class="material-symbols-rounded">domain</span>
+        <div class="preset-name">Active Directory</div>
+        <div class="preset-desc">Windows Server AD DS</div>
+      </div>
+      <div class="preset-card" onclick="applyPreset('openldap')">
+        <span class="material-symbols-rounded">storage</span>
+        <div class="preset-name">OpenLDAP</div>
+        <div class="preset-desc">Standard OpenLDAP server</div>
+      </div>
+      <div class="preset-card" onclick="applyPreset('freeipa')">
+        <span class="material-symbols-rounded">security</span>
+        <div class="preset-name">FreeIPA</div>
+        <div class="preset-desc">Red Hat IdM / FreeIPA</div>
+      </div>
+      <div class="preset-card" onclick="applyPreset('custom')">
+        <span class="material-symbols-rounded">tune</span>
+        <div class="preset-name">Custom</div>
+        <div class="preset-desc">Manual configuration</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== ENABLE + SERVER CONFIG ===== -->
+  <div class="section">
+    <div class="card" id="serverCard">
+      <div class="card-header">
+        <div class="card-title">
+          <span class="material-symbols-rounded" style="color: var(--primary);">dns</span>
+          LDAP / Active Directory
+        </div>
+        <div class="toggle" id="toggleEnabled" onclick="toggleLDAP()"></div>
+      </div>
+
+      <div class="form-grid">
+        <div class="form-group">
+          <label class="form-label">Server Address</label>
+          <input type="text" id="ldapServer" class="form-input" placeholder="dc.company.local">
+          <div class="form-hint">Hostname or IP of your LDAP/AD server</div>
+        </div>
+        <div class="form-group" style="display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: end;">
+          <div>
+            <label class="form-label">Port</label>
+            <input type="number" id="ldapPort" class="form-input" value="389" min="1" max="65535">
+          </div>
+          <div style="padding-bottom: 4px;">
+            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 13px; white-space: nowrap;">
+              <input type="checkbox" id="ldapTLS" checked style="accent-color: var(--primary); width: 18px; height: 18px;">
+              Use TLS
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <div class="form-grid">
+        <div class="form-group">
+          <label class="form-label">Bind DN</label>
+          <input type="text" id="ldapBindDN" class="form-input" placeholder="cn=service-account,dc=company,dc=local">
+          <div class="form-hint">Service account for directory queries</div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Bind Password</label>
+          <div class="password-wrap">
+            <input type="password" id="ldapBindPwd" class="form-input" placeholder="Service account password">
+            <button class="password-toggle" onclick="togglePwd('ldapBindPwd', this)" type="button">
+              <span class="material-symbols-rounded" style="font-size: 20px;">visibility</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Base DN</label>
+        <input type="text" id="ldapBaseDN" class="form-input" placeholder="dc=company,dc=local">
+        <div class="form-hint">The root of your directory tree for searches</div>
+      </div>
+
+      <div style="display: flex; gap: 12px; margin-top: 20px;">
+        <button class="btn btn-primary" id="btnTest" onclick="testConnection()">
+          <span class="material-symbols-rounded" style="font-size: 18px;">cable</span>
+          Test Connection
+        </button>
+        <button class="btn btn-ghost" onclick="saveConfig()">
+          <span class="material-symbols-rounded" style="font-size: 18px;">save</span>
+          Save Configuration
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== USER MAPPING ===== -->
+  <div class="section">
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">
+          <span class="material-symbols-rounded" style="color: var(--primary);">person_search</span>
+          User Attribute Mapping
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">User Search Filter</label>
+        <input type="text" id="ldapUserFilter" class="form-input" value="(&(objectClass=user)(sAMAccountName={username}))">
+        <div class="form-hint">Must contain <code style="background:rgba(255,255,255,0.08);padding:2px 6px;border-radius:4px;font-size:12px;">{username}</code> placeholder</div>
+      </div>
+
+      <div class="form-grid" style="grid-template-columns: 1fr 1fr 1fr;">
+        <div class="form-group">
+          <label class="form-label">User ID Attribute</label>
+          <input type="text" id="ldapUserIDAttr" class="form-input" value="sAMAccountName">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Display Name Attribute</label>
+          <input type="text" id="ldapUserNameAttr" class="form-input" value="displayName">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Email Attribute</label>
+          <input type="text" id="ldapUserEmailAttr" class="form-input" value="mail">
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== GROUP MAPPING ===== -->
+  <div class="section">
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">
+          <span class="material-symbols-rounded" style="color: var(--primary);">group_work</span>
+          Group → Role Mapping
+        </div>
+        <button class="btn btn-primary btn-sm" onclick="showAddMapping()">
+          <span class="material-symbols-rounded" style="font-size: 16px;">add</span>
+          Add Mapping
+        </button>
+      </div>
+
+      <div class="form-grid" style="margin-bottom: 20px;">
+        <div class="form-group">
+          <label class="form-label">Group Base DN</label>
+          <input type="text" id="ldapGroupBaseDN" class="form-input" placeholder="ou=Groups,dc=company,dc=local">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Group Search Filter</label>
+          <input type="text" id="ldapGroupFilter" class="form-input" value="(&(objectClass=group)(member={user_dn}))">
+        </div>
+      </div>
+
+      <div id="mappingsContainer">
+        <table class="mapping-table" id="mappingsTable" style="display:none;">
+          <thead>
+            <tr><th>LDAP Group</th><th></th><th>D-PlaneOS Role</th><th style="width:60px;"></th></tr>
+          </thead>
+          <tbody id="mappingsBody"></tbody>
+        </table>
+        <div class="empty-state" id="mappingsEmpty">
+          <span class="material-symbols-rounded">link_off</span>
+          <div style="font-size: 16px; font-weight: 600; margin-bottom: 4px;">No group mappings</div>
+          <div style="font-size: 13px;">Map LDAP/AD groups to D-PlaneOS roles to auto-assign permissions</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== ADVANCED SETTINGS (Collapsible) ===== -->
+  <div class="section">
+    <div class="card">
+      <div class="card-header collapse-trigger" onclick="toggleCollapse('advancedBody', this)">
+        <div class="card-title">
+          <span class="material-symbols-rounded" style="color: var(--primary);">settings</span>
+          Advanced Settings
+        </div>
+        <span class="material-symbols-rounded expand-icon" style="color: rgba(255,255,255,0.5);">expand_more</span>
+      </div>
+
+      <div class="collapse-body" id="advancedBody">
+        <div style="padding-top: 16px;">
+          <div class="setting-item">
+            <span class="material-symbols-rounded setting-icon">person_add</span>
+            <div class="setting-info">
+              <div class="setting-name">Just-In-Time Provisioning</div>
+              <div class="setting-desc">Automatically create local user on first LDAP login</div>
+            </div>
+            <div class="toggle active" id="toggleJIT" onclick="this.classList.toggle('active')"></div>
+          </div>
+
+          <div class="form-grid">
+            <div class="form-group">
+              <label class="form-label">Default Role</label>
+              <select id="ldapDefaultRole" class="form-input">
+                <option value="user">User</option>
+                <option value="readonly">Read Only</option>
+                <option value="power_user">Power User</option>
+                <option value="admin">Administrator</option>
+              </select>
+              <div class="form-hint">Role assigned when no group mapping matches</div>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Sync Interval</label>
+              <select id="ldapSyncInterval" class="form-input">
+                <option value="1800">Every 30 minutes</option>
+                <option value="3600" selected>Every hour</option>
+                <option value="7200">Every 2 hours</option>
+                <option value="21600">Every 6 hours</option>
+                <option value="86400">Daily</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="form-grid">
+            <div class="form-group">
+              <label class="form-label">Connection Timeout (seconds)</label>
+              <input type="number" id="ldapTimeout" class="form-input" value="10" min="5" max="60">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Group Member Attribute</label>
+              <input type="text" id="ldapGroupMemberAttr" class="form-input" value="member">
+            </div>
+          </div>
+
+          <div style="display: flex; gap: 12px; margin-top: 16px;">
+            <button class="btn btn-ghost" onclick="triggerSync()">
+              <span class="material-symbols-rounded" style="font-size: 18px;">sync</span>
+              Sync Now
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== SYNC LOG ===== -->
+  <div class="section">
+    <div class="card">
+      <div class="card-header collapse-trigger" onclick="toggleCollapse('syncLogBody', this)">
+        <div class="card-title">
+          <span class="material-symbols-rounded" style="color: var(--primary);">history</span>
+          Sync History
+        </div>
+        <span class="material-symbols-rounded expand-icon" style="color: rgba(255,255,255,0.5);">expand_more</span>
+      </div>
+      <div class="collapse-body" id="syncLogBody">
+        <div style="padding-top: 16px;">
+          <table class="mapping-table" id="syncLogTable">
+            <thead><tr><th>Time</th><th>Type</th><th>Result</th><th>Users</th><th>Duration</th></tr></thead>
+            <tbody id="syncLogBody2"></tbody>
+          </table>
+          <div class="empty-state" id="syncLogEmpty">
+            <span class="material-symbols-rounded">schedule</span>
+            <div>No sync history yet</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== ADD MAPPING MODAL ===== -->
+<div id="mappingModal" style="display:none; position:fixed; inset:0; z-index:9999; background:rgba(0,0,0,0.7); backdrop-filter:blur(4px); display:none; align-items:center; justify-content:center;">
+  <div style="background:#141414; border:1px solid rgba(255,255,255,0.1); border-radius:20px; padding:32px; max-width:480px; width:90%; animation: fadeIn 0.3s ease;">
+    <h3 style="margin-bottom:24px; font-size:20px;">Add Group Mapping</h3>
+    <div class="form-group">
+      <label class="form-label">LDAP Group Name</label>
+      <input type="text" id="newMappingGroup" class="form-input" placeholder="e.g. Storage_Admins, Domain Users">
+    </div>
+    <div class="form-group">
+      <label class="form-label">D-PlaneOS Role</label>
+      <select id="newMappingRole" class="form-input">
+        <option value="admin">Administrator — Full access</option>
+        <option value="power_user">Power User — Storage, Docker, Shares</option>
+        <option value="user" selected>User — Files, Dashboard</option>
+        <option value="readonly">Read Only — View only</option>
+      </select>
+    </div>
+    <div style="display:flex; gap:12px; justify-content:flex-end; margin-top:24px;">
+      <button class="btn btn-ghost" onclick="hideModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="addMapping()">Add Mapping</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ===== API HELPERS =====
+const API = '/api/ldap';
+async function apiFetch(path, opts = {}) {
+  const fn = typeof csrfFetch === 'function' ? csrfFetch : fetch;
+  return fn(API + path, { headers: { 'Content-Type': 'application/json' }, ...opts });
+}
+function toast(msg, type) {
+  if (window.EnhancedUI) EnhancedUI.toast(msg, type, 4000);
+  else if (window.ui) ui.toast(msg, type);
+  else ui.toast(msg, 'error');
+}
+
+// ===== LOAD STATE ON PAGE LOAD =====
+async function loadAll() {
+  await Promise.all([loadConfig(), loadStatus(), loadMappings(), loadSyncLog()]);
+}
+
+async function loadConfig() {
+  try {
+    const r = await apiFetch('/config');
+    const d = await r.json();
+    if (!d.success) return;
+    const c = d.data;
+    document.getElementById('ldapServer').value = c.server || '';
+    document.getElementById('ldapPort').value = c.port || 389;
+    document.getElementById('ldapTLS').checked = c.use_tls == 1;
+    document.getElementById('ldapBindDN').value = c.bind_dn || '';
+    document.getElementById('ldapBaseDN').value = c.base_dn || '';
+    document.getElementById('ldapUserFilter').value = c.user_filter || '';
+    document.getElementById('ldapUserIDAttr').value = c.user_id_attr || 'sAMAccountName';
+    document.getElementById('ldapUserNameAttr').value = c.user_name_attr || 'displayName';
+    document.getElementById('ldapUserEmailAttr').value = c.user_email_attr || 'mail';
+    document.getElementById('ldapGroupBaseDN').value = c.group_base_dn || '';
+    document.getElementById('ldapGroupFilter').value = c.group_filter || '';
+    document.getElementById('ldapGroupMemberAttr').value = c.group_member_attr || 'member';
+    document.getElementById('ldapDefaultRole').value = c.default_role || 'user';
+    document.getElementById('ldapSyncInterval').value = c.sync_interval || 3600;
+    document.getElementById('ldapTimeout').value = c.timeout || 10;
+    if (c.enabled == 1) document.getElementById('toggleEnabled').classList.add('active');
+    else document.getElementById('toggleEnabled').classList.remove('active');
+    if (c.jit_provisioning == 1) document.getElementById('toggleJIT').classList.add('active');
+    else document.getElementById('toggleJIT').classList.remove('active');
+    if (c.has_password) document.getElementById('ldapBindPwd').placeholder = '••••••••  (saved)';
+  } catch (e) { console.error('Config load error:', e); }
+}
+
+async function loadStatus() {
+  try {
+    const r = await apiFetch('/status');
+    const d = await r.json();
+    if (!d.success) return;
+    const s = d.data;
+    const enabled = s.enabled == 1;
+    document.getElementById('statusBadge').className = 'badge ' + (enabled ? (s.last_test_ok ? 'badge-success' : 'badge-warning') : 'badge-info');
+    document.getElementById('statusBadge').textContent = enabled ? (s.last_test_ok ? 'Connected' : 'Configured') : 'Disabled';
+    document.getElementById('statusService').innerHTML = enabled
+      ? `<span class="live-dot ${s.last_test_ok?'green':'red'}"></span>${s.last_test_ok?'Active':'Error'}`
+      : '<span class="live-dot grey"></span>Disabled';
+    document.getElementById('statusTest').textContent = s.last_test_at ? timeAgo(s.last_test_at) + (s.last_test_ok ? ' ✓' : ' ✗') : 'Never';
+    document.getElementById('statusSync').textContent = s.last_sync_at ? timeAgo(s.last_sync_at) : 'Never';
+    document.getElementById('statusUsers').textContent = s.last_sync_count || '0';
+  } catch (e) {}
+}
+
+async function loadMappings() {
+  try {
+    const r = await apiFetch('/mappings');
+    const d = await r.json();
+    if (!d.success) return;
+    const list = d.data;
+    const tbody = document.getElementById('mappingsBody');
+    const table = document.getElementById('mappingsTable');
+    const empty = document.getElementById('mappingsEmpty');
+    if (list.length === 0) { table.style.display = 'none'; empty.style.display = 'block'; return; }
+    table.style.display = 'table'; empty.style.display = 'none';
+    const roleLabels = { admin: 'Administrator', power_user: 'Power User', user: 'User', readonly: 'Read Only' };
+    const roleColors = { admin: 'error', power_user: 'warning', user: 'info', readonly: '' };
+    tbody.innerHTML = list.map(m => `<tr>
+      <td style="font-weight:600;">${esc(m.ldap_group)}</td>
+      <td><span class="material-symbols-rounded mapping-arrow">arrow_forward</span></td>
+      <td><span class="badge badge-${roleColors[m.role_name]||'info'}">${roleLabels[m.role_name]||m.role_name}</span></td>
+      <td><button class="btn btn-danger btn-sm" onclick="deleteMapping(${m.id})" title="Remove"><span class="material-symbols-rounded" style="font-size:16px;">delete</span></button></td>
+    </tr>`).join('');
+  } catch (e) {}
+}
+
+async function loadSyncLog() {
+  try {
+    const r = await apiFetch('/sync-log?limit=10');
+    const d = await r.json();
+    if (!d.success) return;
+    const list = d.data;
+    const tbody = document.getElementById('syncLogBody2');
+    const empty = document.getElementById('syncLogEmpty');
+    if (list.length === 0) { empty.style.display = 'block'; return; }
+    empty.style.display = 'none';
+    tbody.innerHTML = list.map(e => `<tr>
+      <td>${timeAgo(e.created_at)}</td>
+      <td><span class="badge badge-info">${esc(e.sync_type)}</span></td>
+      <td>${e.success ? '<span class="badge badge-success">OK</span>' : '<span class="badge badge-error">FAIL</span>'}</td>
+      <td>${e.users_synced}</td>
+      <td>${e.duration_ms}ms</td>
+    </tr>`).join('');
+  } catch (e) {}
+}
+
+// ===== ACTIONS =====
+function toggleLDAP() { document.getElementById('toggleEnabled').classList.toggle('active'); }
+
+async function saveConfig() {
+  const cfg = gatherConfig();
+  try {
+    const r = await apiFetch('/config', { method: 'POST', body: JSON.stringify(cfg) });
+    const d = await r.json();
+    if (d.success) { toast('Configuration saved', 'success'); loadStatus(); }
+    else toast(d.error || 'Save failed', 'error');
+  } catch (e) { toast('Network error', 'error'); }
+}
+
+async function testConnection() {
+  const btn = document.getElementById('btnTest');
+  const card = document.getElementById('serverCard');
+  btn.disabled = true; btn.innerHTML = '<span class="material-symbols-rounded" style="font-size:18px;animation:spin 1s linear infinite;">sync</span> Testing...';
+
+  // Save first so test uses current values
+  const cfg = gatherConfig();
+  await apiFetch('/config', { method: 'POST', body: JSON.stringify(cfg) });
+
+  try {
+    const r = await apiFetch('/test', { method: 'POST' });
+    const d = await r.json();
+    if (d.success) {
+      toast('Connection successful! ' + (d.data?.message || ''), 'success');
+      card.classList.add('test-success'); setTimeout(() => card.classList.remove('test-success'), 1000);
+    } else {
+      toast(d.error || 'Connection failed', 'error');
+      card.classList.add('test-fail'); setTimeout(() => card.classList.remove('test-fail'), 500);
+    }
+  } catch (e) { toast('Network error', 'error'); }
+  btn.disabled = false; btn.innerHTML = '<span class="material-symbols-rounded" style="font-size:18px;">cable</span> Test Connection';
+  loadStatus();
+}
+
+async function triggerSync() {
+  try {
+    const r = await apiFetch('/sync', { method: 'POST' });
+    const d = await r.json();
+    if (d.success) toast('Sync completed', 'success');
+    else toast(d.error || 'Sync failed', 'error');
+    loadStatus(); loadSyncLog();
+  } catch (e) { toast('Sync error', 'error'); }
+}
+
+function showAddMapping() {
+  document.getElementById('mappingModal').style.display = 'flex';
+  document.getElementById('newMappingGroup').value = '';
+  document.getElementById('newMappingGroup').focus();
+}
+function hideModal() { document.getElementById('mappingModal').style.display = 'none'; }
+
+async function addMapping() {
+  const group = document.getElementById('newMappingGroup').value.trim();
+  const role = document.getElementById('newMappingRole').value;
+  if (!group) { toast('Group name required', 'error'); return; }
+  try {
+    const r = await apiFetch('/mappings', { method: 'POST', body: JSON.stringify({ ldap_group: group, role_name: role }) });
+    const d = await r.json();
+    if (d.success) { toast('Mapping added', 'success'); hideModal(); loadMappings(); }
+    else toast(d.error || 'Failed', 'error');
+  } catch (e) { toast('Error', 'error'); }
+}
+
+async function deleteMapping(id) {
+  if (!await ui.confirm('Remove Mapping', 'Remove this group mapping?')) return;
+  try {
+    const r = await apiFetch('/mappings?id=' + id, { method: 'DELETE' });
+    const d = await r.json();
+    if (d.success) { toast('Mapping removed', 'success'); loadMappings(); }
+    else toast(d.error || 'Failed', 'error');
+  } catch (e) { toast('Error', 'error'); }
+}
+
+// ===== PRESETS =====
+function applyPreset(type) {
+  document.querySelectorAll('.preset-card').forEach(c => c.classList.remove('selected'));
+  event.currentTarget.classList.add('selected');
+
+  const presets = {
+    ad: {
+      port: 636, tls: true,
+      userFilter: '(&(objectClass=user)(sAMAccountName={username}))',
+      uidAttr: 'sAMAccountName', nameAttr: 'displayName', emailAttr: 'mail',
+      groupFilter: '(&(objectClass=group)(member={user_dn}))', memberAttr: 'member'
+    },
+    openldap: {
+      port: 389, tls: true,
+      userFilter: '(&(objectClass=inetOrgPerson)(uid={username}))',
+      uidAttr: 'uid', nameAttr: 'cn', emailAttr: 'mail',
+      groupFilter: '(&(objectClass=groupOfNames)(member={user_dn}))', memberAttr: 'member'
+    },
+    freeipa: {
+      port: 636, tls: true,
+      userFilter: '(&(objectClass=person)(uid={username}))',
+      uidAttr: 'uid', nameAttr: 'cn', emailAttr: 'mail',
+      groupFilter: '(&(objectClass=groupOfNames)(member={user_dn}))', memberAttr: 'member'
+    },
+    custom: { port: 389, tls: false, userFilter: '(uid={username})', uidAttr: 'uid', nameAttr: 'cn', emailAttr: 'mail', groupFilter: '(member={user_dn})', memberAttr: 'member' }
+  };
+  const p = presets[type];
+  if (!p) return;
+  document.getElementById('ldapPort').value = p.port;
+  document.getElementById('ldapTLS').checked = p.tls;
+  document.getElementById('ldapUserFilter').value = p.userFilter;
+  document.getElementById('ldapUserIDAttr').value = p.uidAttr;
+  document.getElementById('ldapUserNameAttr').value = p.nameAttr;
+  document.getElementById('ldapUserEmailAttr').value = p.emailAttr;
+  document.getElementById('ldapGroupFilter').value = p.groupFilter;
+  document.getElementById('ldapGroupMemberAttr').value = p.memberAttr;
+  toast(`${type.toUpperCase()} preset applied — fill in server details`, 'info');
+}
+
+// ===== UTILITIES =====
+function gatherConfig() {
+  return {
+    enabled: document.getElementById('toggleEnabled').classList.contains('active') ? 1 : 0,
+    server: document.getElementById('ldapServer').value.trim(),
+    port: parseInt(document.getElementById('ldapPort').value) || 389,
+    use_tls: document.getElementById('ldapTLS').checked ? 1 : 0,
+    bind_dn: document.getElementById('ldapBindDN').value.trim(),
+    bind_password: document.getElementById('ldapBindPwd').value,
+    base_dn: document.getElementById('ldapBaseDN').value.trim(),
+    user_filter: document.getElementById('ldapUserFilter').value.trim(),
+    user_id_attr: document.getElementById('ldapUserIDAttr').value.trim(),
+    user_name_attr: document.getElementById('ldapUserNameAttr').value.trim(),
+    user_email_attr: document.getElementById('ldapUserEmailAttr').value.trim(),
+    group_base_dn: document.getElementById('ldapGroupBaseDN').value.trim(),
+    group_filter: document.getElementById('ldapGroupFilter').value.trim(),
+    group_member_attr: document.getElementById('ldapGroupMemberAttr').value.trim(),
+    jit_provisioning: document.getElementById('toggleJIT').classList.contains('active') ? 1 : 0,
+    default_role: document.getElementById('ldapDefaultRole').value,
+    sync_interval: parseInt(document.getElementById('ldapSyncInterval').value) || 3600,
+    timeout: parseInt(document.getElementById('ldapTimeout').value) || 10
+  };
+}
+
+function togglePwd(id, btn) {
+  const input = document.getElementById(id);
+  const icon = btn.querySelector('.material-symbols-rounded');
+  if (input.type === 'password') { input.type = 'text'; icon.textContent = 'visibility_off'; }
+  else { input.type = 'password'; icon.textContent = 'visibility'; }
+}
+
+function toggleCollapse(id, trigger) {
+  const body = document.getElementById(id);
+  body.classList.toggle('open');
+  trigger.classList.toggle('open');
+}
+
+function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+function timeAgo(iso) {
+  if (!iso) return 'Never';
+  const d = new Date(iso.replace(' ', 'T') + (iso.includes('Z') ? '' : 'Z'));
+  const s = Math.floor((Date.now() - d.getTime()) / 1000);
+  if (s < 60) return 'Just now';
+  if (s < 3600) return Math.floor(s / 60) + 'm ago';
+  if (s < 86400) return Math.floor(s / 3600) + 'h ago';
+  return Math.floor(s / 86400) + 'd ago';
+}
+
+// CSS for spin animation
+const style = document.createElement('style');
+style.textContent = '@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }';
+document.head.appendChild(style);
+
+// ===== INIT =====
+document.addEventListener('DOMContentLoaded', loadAll);
+</script>
+<script src="/assets/js/realtime-client.js?v=3.3.0"></script>
+<!-- v3.0.0: LDAP Circuit Breaker + Full LDAP Management -->
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  const main = document.querySelector('.main');
+  if (!main) return;
+
+  // Circuit breaker (existing)
+  const cb = document.createElement('div');
+  cb.style.marginTop = '48px';
+  cb.innerHTML = `
+    <div class="card" style="padding:32px;border-left:4px solid #f59e0b;margin-bottom:24px;">
+      <div style="display:flex;align-items:center;gap:16px;margin-bottom:16px;">
+        <span class="material-symbols-rounded" style="font-size:32px;color:#f59e0b;">electric_bolt</span>
+        <div style="flex:1;"><div style="font-size:20px;font-weight:800;">LDAP Circuit Breaker</div>
+          <div style="font-size:14px;color:rgba(255,255,255,0.5);">Protects against slow/dead LDAP servers</div></div>
+        <div id="cb-badge"></div>
+        <button class="btn" onclick="resetCB()" style="background:rgba(255,255,255,0.05);">Reset</button>
+      </div>
+      <div id="cb-details" style="font-size:13px;color:rgba(255,255,255,0.6);"></div>
+    </div>
+
+    <h2 class="page-title" style="font-size:28px;">LDAP Configuration</h2>
+    <p class="page-subtitle" style="margin-bottom:32px;">Server • Sync • Users • Mappings</p>
+
+    <!-- LDAP Status + Test -->
+    <div class="card" style="padding:32px;margin-bottom:24px;border-left:4px solid var(--md-sys-color-primary);">
+      <div style="display:flex;align-items:center;gap:16px;margin-bottom:20px;">
+        <span class="material-symbols-rounded" style="font-size:32px;color:var(--md-sys-color-primary);">dns</span>
+        <div style="flex:1;"><div style="font-size:20px;font-weight:800;">Connection Status</div></div>
+        <div id="ldap-status-badge"></div>
+        <button class="btn" onclick="testLDAP()" style="background:rgba(255,255,255,0.05);">Test Connection</button>
+        <button class="btn btn-primary" onclick="syncLDAP()">Sync Now</button>
+      </div>
+      <div id="ldap-status" style="font-size:13px;color:rgba(255,255,255,0.6);"></div>
+    </div>
+
+    <!-- LDAP Config -->
+    <div class="card" style="padding:32px;margin-bottom:24px;border-left:4px solid #06b6d4;">
+      <div style="display:flex;align-items:center;gap:16px;margin-bottom:20px;">
+        <span class="material-symbols-rounded" style="font-size:32px;color:#06b6d4;">settings</span>
+        <div><div style="font-size:20px;font-weight:800;">Server Configuration</div></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;" id="ldap-config-form">
+        <div><label style="font-size:12px;color:rgba(255,255,255,0.5);display:block;margin-bottom:6px;">Server URL</label>
+          <input id="ldap-url" type="text" placeholder="ldap://dc.example.com:389" style="width:100%;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:var(--md-sys-shape-corner-medium);padding:10px 16px;color:#fff;font-family:monospace;"></div>
+        <div><label style="font-size:12px;color:rgba(255,255,255,0.5);display:block;margin-bottom:6px;">Base DN</label>
+          <input id="ldap-base" type="text" placeholder="dc=example,dc=com" style="width:100%;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:var(--md-sys-shape-corner-medium);padding:10px 16px;color:#fff;font-family:monospace;"></div>
+        <div><label style="font-size:12px;color:rgba(255,255,255,0.5);display:block;margin-bottom:6px;">Bind DN</label>
+          <input id="ldap-bind" type="text" placeholder="cn=admin,dc=example,dc=com" style="width:100%;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:var(--md-sys-shape-corner-medium);padding:10px 16px;color:#fff;font-family:monospace;"></div>
+        <div><label style="font-size:12px;color:rgba(255,255,255,0.5);display:block;margin-bottom:6px;">Bind Password</label>
+          <input id="ldap-pass" type="password" style="width:100%;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:var(--md-sys-shape-corner-medium);padding:10px 16px;color:#fff;"></div>
+      </div>
+      <div style="margin-top:16px;display:flex;justify-content:flex-end;"><button class="btn btn-primary" onclick="saveLDAPConfig()">Save Config</button></div>
+    </div>
+
+    <!-- User Search -->
+    <div class="card" style="padding:32px;margin-bottom:24px;border-left:4px solid var(--md-sys-color-success);">
+      <div style="display:flex;align-items:center;gap:16px;margin-bottom:20px;">
+        <span class="material-symbols-rounded" style="font-size:32px;color:var(--md-sys-color-success);">person_search</span>
+        <div style="flex:1;"><div style="font-size:20px;font-weight:800;">Search LDAP Users</div></div>
+      </div>
+      <div style="display:flex;gap:12px;align-items:end;">
+        <div style="flex:1;"><input id="ldap-search-query" type="text" placeholder="Search username or CN..." style="width:100%;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:var(--md-sys-shape-corner-medium);padding:10px 16px;color:#fff;"></div>
+        <button class="btn btn-primary" onclick="searchLDAPUser()">Search</button>
+      </div>
+      <div id="ldap-search-results" style="margin-top:12px;font-family:monospace;font-size:13px;max-height:300px;overflow-y:auto;"></div>
+    </div>
+
+    <!-- Sync Log -->
+    <div class="card" style="padding:32px;border-left:4px solid #8b5cf6;">
+      <div style="display:flex;align-items:center;gap:16px;margin-bottom:16px;">
+        <span class="material-symbols-rounded" style="font-size:32px;color:#8b5cf6;">sync</span>
+        <div style="flex:1;"><div style="font-size:20px;font-weight:800;">Sync Log</div></div>
+        <button class="btn" onclick="loadSyncLog()" style="background:rgba(255,255,255,0.05);">Refresh</button>
+      </div>
+      <div id="sync-log" style="font-family:monospace;font-size:12px;color:rgba(255,255,255,0.5);max-height:200px;overflow-y:auto;"></div>
+    </div>
+  `;
+  main.appendChild(cb);
+  loadCB(); loadLDAPStatus(); loadLDAPConfig(); loadSyncLog();
+});
+
+async function loadCB() {
+  try { const r = await csrfFetch('/api/ldap/circuit-breaker'); const d = await r.json();
+    const colors = {closed:'var(--md-sys-color-success)',open:'#ef4444','half-open':'#f59e0b'};
+    document.getElementById('cb-badge').innerHTML = '<span class="badge" style="background:'+( colors[d.state]||'#666')+';color:#fff;">'+esc(d.state||'')+'</span>';
+    document.getElementById('cb-details').innerHTML = 'Failures: '+(d.failures||0)+'/'+(d.max_failures||5)+' • Cached: '+(d.cached_users||0)+(d.degraded_mode?' • <strong style="color:#ef4444;">DEGRADED</strong>':'');
+  } catch(e) {}
+}
+async function resetCB() { try { await csrfFetch('/api/ldap/circuit-breaker/reset',{method:'POST'}); ui.toast('Reset','success'); loadCB(); } catch(e){} }
+async function loadLDAPStatus() {
+  try { const r = await csrfFetch('/api/ldap/status'); const d = await r.json();
+    document.getElementById('ldap-status-badge').innerHTML = d.connected ? '<span class="badge badge-success">Connected</span>' : '<span class="badge badge-error">Disconnected</span>';
+    document.getElementById('ldap-status').textContent = d.message || (d.connected ? 'LDAP server reachable' : 'Not connected');
+  } catch(e) { document.getElementById('ldap-status').textContent = 'Could not check status'; }
+}
+async function loadLDAPConfig() {
+  try { const r = await csrfFetch('/api/ldap/config'); const d = await r.json();
+    if (d.success && d.config) { document.getElementById('ldap-url').value = d.config.server_url||''; document.getElementById('ldap-base').value = d.config.base_dn||''; document.getElementById('ldap-bind').value = d.config.bind_dn||''; }
+  } catch(e) {}
+}
+async function saveLDAPConfig() {
+  const data = { server_url: document.getElementById('ldap-url').value, base_dn: document.getElementById('ldap-base').value, bind_dn: document.getElementById('ldap-bind').value, bind_password: document.getElementById('ldap-pass').value };
+  try { const r = await csrfFetch('/api/ldap/config',{method:'POST',body:JSON.stringify(data)}); const d = await r.json();
+    d.success ? ui.toast('Config saved','success') : ui.toast(d.error,'error');
+  } catch(e) { ui.toast('Failed','error'); }
+}
+async function testLDAP() {
+  try { ui.toast('Testing...','info'); const r = await csrfFetch('/api/ldap/test',{method:'POST'}); const d = await r.json();
+    d.success ? ui.toast('Connection OK ('+( d.response_ms||0)+'ms)','success') : ui.toast('Failed: '+(d.error||'Unknown'),'error'); loadLDAPStatus();
+  } catch(e) { ui.toast('Failed','error'); }
+}
+async function syncLDAP() {
+  try { ui.toast('Syncing...','info'); const r = await csrfFetch('/api/ldap/sync',{method:'POST'}); const d = await r.json();
+    d.success ? ui.toast('Synced '+(d.users_synced||0)+' users','success') : ui.toast(d.error,'error'); loadSyncLog();
+  } catch(e) { ui.toast('Failed','error'); }
+}
+async function searchLDAPUser() {
+  const q = document.getElementById('ldap-search-query').value;
+  if (!q) return;
+  try { const r = await csrfFetch('/api/ldap/search-user',{method:'POST',body:JSON.stringify({username:q})}); const d = await r.json();
+    const el = document.getElementById('ldap-search-results');
+    if (!d.success) { el.innerHTML = '<div style="padding:16px;color:#EF4444;">'+esc(d.error||'Search failed')+'</div>'; return; }
+    const data = d.data || {};
+    el.innerHTML = '<div style="padding:12px 0;"><strong>User:</strong> '+esc(data.username||q)+'</div>'
+      + '<div style="padding:8px 0;color:rgba(255,255,255,0.75);"><strong>Filter:</strong> '+esc(data.filter||'')+'</div>'
+      + '<div style="padding:8px 0;color:rgba(255,255,255,0.75);"><strong>Base DN:</strong> '+esc(data.base_dn||'')+'</div>'
+      + '<div style="padding:8px 0;color:rgba(255,255,255,0.55);">'+esc(data.message||'Search request sent')+'</div>';
+  } catch(e) { ui.toast('Search failed','error'); }
+}
+async function loadSyncLog() {
+  try { const r = await csrfFetch('/api/ldap/sync-log'); const d = await r.json();
+    const el = document.getElementById('sync-log');
+    if (!d.logs || !d.logs.length) { el.textContent = 'No sync history'; return; }
+    el.innerHTML = d.logs.map(l => '<div style="padding:4px 0;border-bottom:1px solid rgba(255,255,255,0.03);">'+esc(l.timestamp||'')+' — '+(l.success?'✓':'✗')+' '+esc(l.message||String(l.users_synced||0)+' users')+'</div>').join('');
+  } catch(e) {}
+}
+</script>
+    <script src="/assets/js/nav-flyout.js?v=3.3.0"></script>
+    <script src="/assets/js/nav-shared.js?v=3.3.0"></script>
+</body>
+</html>

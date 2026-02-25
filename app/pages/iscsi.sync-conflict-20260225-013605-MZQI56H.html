@@ -1,0 +1,479 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>iSCSI Targets - D-PlaneOS</title>
+<link rel="stylesheet" href="/assets/css/design-tokens.css?v=3.3.0">
+<link rel="stylesheet" href="/assets/css/dplaneos-ui-complete.css?v=3.3.0">
+<link rel="stylesheet" href="/assets/css/m3-tokens.css?v=3.3.0">
+<link rel="stylesheet" href="/assets/css/m3-components.css?v=3.3.0">
+<link rel="stylesheet" href="/assets/css/m3-icons.css?v=3.3.0">
+<link rel="stylesheet" href="/assets/css/enhanced-ui.css?v=3.3.0">
+<link rel="stylesheet" href="/assets/css/m3-animations.css?v=3.3.0">
+<link rel="stylesheet" href="/assets/css/material-symbols-local.css?v=3.3.0">
+<link rel="stylesheet" href="/assets/css/ui-consistency.css?v=3.3.0">
+<link rel="stylesheet" href="/assets/css/ui-polish.css?v=3.3.0">
+<link rel="stylesheet" href="/assets/css/ui-components.css?v=3.3.0">
+<script src="/assets/js/core.js?v=3.3.0"></script>
+<script src="/assets/js/nav-shared.js?v=3.3.0"></script>
+<script src="/assets/js/nav-flyout.js?v=3.3.0"></script>
+<script src="/assets/js/enhanced-ui.js?v=3.3.0"></script>
+<script src="/assets/js/connection-monitor.js?v=3.3.0"></script>
+<script src="/assets/js/permission-checker.js?v=3.3.0"></script>
+<style>
+.main { max-width: 1100px; margin: 140px auto 60px; padding: 0 40px; }
+.page-title { font-size: 32px; font-weight: 700; letter-spacing: -1.5px; margin-bottom: 8px; }
+.page-subtitle { font-size: 16px; color: rgba(255,255,255,0.5); margin-bottom: 32px; }
+
+.tabs { display: flex; gap: 4px; margin-bottom: 32px;
+  background: rgba(255,255,255,0.03); padding: 6px; border-radius: 14px;
+  border: 1px solid rgba(255,255,255,0.06); width: fit-content; }
+.tab-btn { padding: 10px 24px; border-radius: 10px; border: none; cursor: pointer;
+  font-size: 14px; font-weight: 500; color: rgba(255,255,255,0.5);
+  background: transparent; transition: all 0.2s; display: flex; align-items: center; gap: 6px; }
+.tab-btn.active { background: var(--primary); color: #fff; box-shadow: 0 4px 12px rgba(138,156,255,0.4); }
+.tab-btn:hover:not(.active) { background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.8); }
+.tab-pane { display: none; }
+.tab-pane.active { display: block; }
+
+.card { padding: 28px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 16px; margin-bottom: 20px; }
+.card-title { font-size: 16px; font-weight: 700; margin-bottom: 16px; display: flex; align-items: center; gap: 8px; }
+
+.form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.form-group { display: flex; flex-direction: column; gap: 6px; }
+.form-group.span2 { grid-column: 1 / -1; }
+.form-label { font-size: 13px; color: rgba(255,255,255,0.6); }
+.form-input { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 10px; padding: 10px 14px; color: #fff; font-size: 14px; width: 100%; box-sizing: border-box; }
+.form-input:focus { outline: none; border-color: var(--primary); }
+.form-hint { font-size: 12px; color: rgba(255,255,255,0.35); margin-top: 2px; }
+select.form-input option { background: #1a1a2e; }
+
+.btn { padding: 10px 20px; border-radius: 12px; border: none; cursor: pointer;
+  font-size: 14px; font-weight: 600; transition: all 0.2s; display: inline-flex; align-items: center; gap: 6px; }
+.btn-primary { background: var(--primary); color: #fff; }
+.btn-primary:hover { opacity: 0.85; }
+.btn-ghost { background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.7);
+  border: 1px solid rgba(255,255,255,0.1); }
+.btn-ghost:hover { background: rgba(255,255,255,0.1); color: #fff; }
+.btn-danger { background: rgba(244,67,54,0.12); color: #ef9a9a; border: 1px solid rgba(244,67,54,0.2); }
+.btn-danger:hover { background: rgba(244,67,54,0.22); }
+.btn-sm { padding: 6px 14px; font-size: 13px; border-radius: 8px; }
+.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.btn-row { display: flex; gap: 8px; margin-top: 20px; flex-wrap: wrap; }
+
+.status-bar { display: flex; align-items: center; gap: 16px; padding: 16px 20px;
+  background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 12px; margin-bottom: 24px; }
+.status-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+.status-dot.online { background: #4caf50; box-shadow: 0 0 6px #4caf50; }
+.status-dot.offline { background: #f44336; }
+.status-label { font-size: 14px; font-weight: 600; }
+.status-meta { font-size: 13px; color: rgba(255,255,255,0.5); }
+
+.target-item { padding: 18px 20px; background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.07); border-radius: 12px; margin-bottom: 10px;
+  display: flex; align-items: center; gap: 16px; }
+.target-iqn { font-family: monospace; font-size: 13px; color: rgba(255,255,255,0.85); flex: 1;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.target-actions { display: flex; gap: 8px; flex-shrink: 0; }
+
+.acl-item { padding: 12px 16px; background: rgba(255,255,255,0.02);
+  border: 1px solid rgba(255,255,255,0.06); border-radius: 10px; margin-bottom: 8px;
+  display: flex; align-items: center; gap: 12px; }
+.acl-iqn { font-family: monospace; font-size: 13px; color: rgba(255,255,255,0.7); flex: 1; }
+
+.empty-state { text-align: center; padding: 48px 24px; color: rgba(255,255,255,0.3);
+  border: 1px dashed rgba(255,255,255,0.1); border-radius: 12px; }
+
+.info-box { background: var(--primary-bg); border: 1px solid rgba(138,156,255,0.2);
+  border-radius: 10px; padding: 14px 18px; font-size: 13px; color: rgba(255,255,255,0.6);
+  margin-bottom: 20px; display: flex; gap: 10px; align-items: flex-start; }
+.info-box .icon { font-size: 18px; color: var(--primary); flex-shrink: 0; margin-top: 1px; }
+
+.zvol-select { display: flex; flex-direction: column; gap: 4px; }
+</style>
+</head>
+<body>
+<div id="nav-placeholder"></div>
+
+<div class="main">
+  <div class="page-title">iSCSI Targets</div>
+  <div class="page-subtitle">Manage iSCSI block storage targets (LIO/targetcli)</div>
+
+  <!-- Service status -->
+  <div class="status-bar" id="statusBar">
+    <div class="status-dot offline" id="statusDot"></div>
+    <div class="status-label" id="statusLabel">Checking…</div>
+    <div class="status-meta" id="statusMeta"></div>
+  </div>
+
+  <!-- Tabs -->
+  <div class="tabs">
+    <button class="tab-btn active" onclick="switchTab('targets')">
+      <span class="material-symbols-outlined" style="font-size:18px">storage</span>Targets
+    </button>
+    <button class="tab-btn" onclick="switchTab('acls')">
+      <span class="material-symbols-outlined" style="font-size:18px">lock</span>Initiator ACLs
+    </button>
+    <button class="tab-btn" onclick="switchTab('create')">
+      <span class="material-symbols-outlined" style="font-size:18px">add_circle</span>Create Target
+    </button>
+  </div>
+
+  <!-- Targets tab -->
+  <div class="tab-pane active" id="tab-targets">
+    <div class="card">
+      <div class="card-title">
+        <span class="material-symbols-outlined">storage</span>
+        Configured Targets
+        <button class="btn btn-ghost btn-sm" style="margin-left:auto" onclick="loadTargets()">
+          <span class="material-symbols-outlined" style="font-size:16px">refresh</span>Refresh
+        </button>
+      </div>
+      <div id="targetsList">
+        <div class="empty-state">Loading targets…</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ACLs tab -->
+  <div class="tab-pane" id="tab-acls">
+    <div class="card">
+      <div class="card-title">
+        <span class="material-symbols-outlined">lock</span>
+        Initiator Access Control
+      </div>
+      <div class="info-box">
+        <span class="material-symbols-outlined icon">info</span>
+        ACLs restrict which iSCSI initiators (clients) can access a target. Select a target below to manage its ACLs.
+      </div>
+      <div class="form-group" style="margin-bottom:20px">
+        <label class="form-label">Target IQN</label>
+        <select class="form-input" id="aclTargetSelect" onchange="loadACLs()">
+          <option value="">-- select target --</option>
+        </select>
+      </div>
+      <div id="aclsList">
+        <div class="empty-state" style="padding:24px">Select a target to view its ACLs</div>
+      </div>
+    </div>
+
+    <div class="card" id="addACLCard" style="display:none">
+      <div class="card-title">Add Initiator ACL</div>
+      <div class="form-grid">
+        <div class="form-group">
+          <label class="form-label">Initiator IQN</label>
+          <input class="form-input" id="aclInitiatorIQN" type="text"
+            placeholder="iqn.2025-01.com.example:host1">
+        </div>
+        <div class="form-group">
+          <label class="form-label">CHAP Username (optional)</label>
+          <input class="form-input" id="aclCHAPUser" type="text" placeholder="chapuser">
+        </div>
+        <div class="form-group">
+          <label class="form-label">CHAP Password (optional)</label>
+          <input class="form-input" id="aclCHAPPass" type="password" placeholder="12+ chars">
+        </div>
+      </div>
+      <div class="btn-row">
+        <button class="btn btn-primary" onclick="addACL()">
+          <span class="material-symbols-outlined" style="font-size:16px">add</span>Add ACL
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Create Target tab -->
+  <div class="tab-pane" id="tab-create">
+    <div class="card">
+      <div class="card-title">
+        <span class="material-symbols-outlined">add_circle</span>
+        Create iSCSI Target
+      </div>
+      <div class="info-box">
+        <span class="material-symbols-outlined icon">info</span>
+        iSCSI targets use ZFS zvols as backing devices. Create a zvol first via Storage → Pools,
+        then select it here. The daemon uses <code>targetcli</code> (LIO) to configure the target.
+      </div>
+      <div class="form-grid">
+        <div class="form-group span2">
+          <label class="form-label">Target IQN</label>
+          <input class="form-input" id="createIQN" type="text"
+            placeholder="iqn.2025-01.com.dplaneos:nas1-lun0">
+          <span class="form-hint">Format: iqn.YYYY-MM.reverse.domain:identifier</span>
+        </div>
+        <div class="form-group span2">
+          <label class="form-label">Backing ZFS Volume</label>
+          <select class="form-input" id="createZvol">
+            <option value="">Loading zvols…</option>
+          </select>
+          <span class="form-hint">ZFS volumes (zvols) to expose as block devices</span>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Portal IP</label>
+          <input class="form-input" id="createPortalIP" type="text" value="0.0.0.0"
+            placeholder="0.0.0.0 = all interfaces">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Portal Port</label>
+          <input class="form-input" id="createPortalPort" type="number" value="3260" min="1" max="65535">
+        </div>
+      </div>
+      <div class="btn-row">
+        <button class="btn btn-primary" onclick="createTarget()" id="createBtn">
+          <span class="material-symbols-outlined" style="font-size:16px">add_circle</span>Create Target
+        </button>
+        <button class="btn btn-ghost" onclick="generateIQN()">
+          <span class="material-symbols-outlined" style="font-size:16px">auto_fix_high</span>Auto-Generate IQN
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+function esc(s){const d=document.createElement('div');d.textContent=String(s==null?'':s);return d.innerHTML;}
+const csrfToken = () => document.cookie.match(/csrf_token=([^;]+)/)?.[1] || '';
+const session = () => localStorage.getItem('sessionId') || '';
+const user = () => localStorage.getItem('username') || '';
+
+const headers = () => ({
+  'Content-Type': 'application/json',
+  'X-Session-ID': session(),
+  'X-User': user(),
+  'X-CSRF-Token': csrfToken(),
+});
+
+// ── Tab switching ─────────────────────────────────────────────
+function switchTab(name) {
+  document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('tab-' + name).classList.add('active');
+  event.currentTarget.classList.add('active');
+  if (name === 'create') loadZvols();
+}
+
+// ── Status ────────────────────────────────────────────────────
+async function loadStatus() {
+  try {
+    const r = await fetch('/api/iscsi/status', { headers: headers() });
+    const d = await r.json();
+    const dot = document.getElementById('statusDot');
+    const lbl = document.getElementById('statusLabel');
+    const meta = document.getElementById('statusMeta');
+    if (d.service?.active) {
+      dot.className = 'status-dot online';
+      lbl.textContent = 'Service Active';
+    } else {
+      dot.className = 'status-dot offline';
+      lbl.textContent = 'Service Inactive';
+    }
+    meta.textContent = `${d.target_count ?? 0} target(s) configured`;
+  } catch {
+    document.getElementById('statusLabel').textContent = 'Status unavailable';
+  }
+}
+
+// ── Targets ───────────────────────────────────────────────────
+async function loadTargets() {
+  const el = document.getElementById('targetsList');
+  try {
+    const r = await fetch('/api/iscsi/targets', { headers: headers() });
+    const d = await r.json();
+    const targets = d.targets || [];
+
+    // also populate ACL target select
+    const sel = document.getElementById('aclTargetSelect');
+    sel.innerHTML = '<option value="">-- select target --</option>';
+
+    if (!targets.length) {
+      el.innerHTML = '<div class="empty-state">No iSCSI targets configured. Create one in the "Create Target" tab.</div>';
+      return;
+    }
+
+    el.innerHTML = targets.map(t => `
+      <div class="target-item">
+        <span class="material-symbols-outlined" style="color:var(--primary);flex-shrink:0">storage</span>
+        <span class="target-iqn" title="${t.iqn}">${t.iqn}</span>
+        <div class="target-actions">
+          <button class="btn btn-ghost btn-sm" onclick="viewACLs('${t.iqn}')">ACLs</button>
+          <button class="btn btn-danger btn-sm" onclick="deleteTarget('${t.iqn}')">Delete</button>
+        </div>
+      </div>`).join('');
+
+    targets.forEach(t => {
+      const opt = document.createElement('option');
+      opt.value = t.iqn;
+      opt.textContent = t.iqn;
+      sel.appendChild(opt);
+    });
+  } catch (e) {
+    el.innerHTML = `<div class="empty-state">Failed to load targets: ${esc(e.message)}</div>`;
+  }
+}
+
+async function deleteTarget(iqn) {
+  if (!confirm(`Delete target ${iqn}?\n\nThis will disconnect all initiators.`)) return;
+  const iqnEnc = encodeURIComponent(iqn);
+  const r = await fetch(`/api/iscsi/targets/${iqnEnc}`, {
+    method: 'DELETE', headers: headers()
+  });
+  const d = await r.json();
+  if (d.success) {
+    loadTargets();
+    loadStatus();
+  } else {
+    alert('Delete failed: ' + (d.error || 'unknown error'));
+  }
+}
+
+function viewACLs(iqn) {
+  // Switch to ACLs tab with pre-selected target
+  document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('tab-acls').classList.add('active');
+  document.querySelectorAll('.tab-btn')[1].classList.add('active');
+  document.getElementById('aclTargetSelect').value = iqn;
+  loadACLs();
+}
+
+// ── ACLs ──────────────────────────────────────────────────────
+async function loadACLs() {
+  const iqn = document.getElementById('aclTargetSelect').value;
+  const el = document.getElementById('aclsList');
+  const addCard = document.getElementById('addACLCard');
+
+  if (!iqn) {
+    el.innerHTML = '<div class="empty-state" style="padding:24px">Select a target to view its ACLs</div>';
+    addCard.style.display = 'none';
+    return;
+  }
+  addCard.style.display = 'block';
+  el.innerHTML = '<div style="padding:8px;color:rgba(255,255,255,0.4)">Loading…</div>';
+
+  try {
+    const r = await fetch(`/api/iscsi/acls?target=${encodeURIComponent(iqn)}`, { headers: headers() });
+    const d = await r.json();
+    const acls = d.acls || [];
+    if (!acls.length) {
+      el.innerHTML = '<div class="empty-state" style="padding:24px">No ACLs — all initiators are denied. Add at least one.</div>';
+      return;
+    }
+    el.innerHTML = acls.map(a => `
+      <div class="acl-item">
+        <span class="material-symbols-outlined" style="color:rgba(255,255,255,0.4);font-size:18px">person</span>
+        <span class="acl-iqn">${a.initiator_iqn}</span>
+        <button class="btn btn-danger btn-sm" onclick="deleteACL('${iqn}','${a.initiator_iqn}')">Remove</button>
+      </div>`).join('');
+  } catch (e) {
+    el.innerHTML = `<div class="empty-state">Error: ${esc(e.message)}</div>`;
+  }
+}
+
+async function addACL() {
+  const target = document.getElementById('aclTargetSelect').value;
+  const initiator = document.getElementById('aclInitiatorIQN').value.trim();
+  const chapUser = document.getElementById('aclCHAPUser').value.trim();
+  const chapPass = document.getElementById('aclCHAPPass').value;
+
+  if (!target || !initiator) { alert('Select a target and enter an initiator IQN.'); return; }
+
+  const body = { target_iqn: target, initiator_iqn: initiator };
+  if (chapUser) { body.chap_user = chapUser; body.chap_pass = chapPass; }
+
+  const r = await fetch('/api/iscsi/acls', {
+    method: 'POST', headers: headers(), body: JSON.stringify(body)
+  });
+  const d = await r.json();
+  if (d.success) {
+    document.getElementById('aclInitiatorIQN').value = '';
+    document.getElementById('aclCHAPUser').value = '';
+    document.getElementById('aclCHAPPass').value = '';
+    loadACLs();
+  } else {
+    alert('Failed: ' + (d.error || 'unknown error'));
+  }
+}
+
+async function deleteACL(target, initiator) {
+  if (!confirm(`Remove initiator ${initiator} from ${target}?`)) return;
+  const r = await fetch('/api/iscsi/acls', {
+    method: 'DELETE', headers: headers(),
+    body: JSON.stringify({ target_iqn: target, initiator_iqn: initiator })
+  });
+  const d = await r.json();
+  if (d.success) loadACLs();
+  else alert('Failed: ' + (d.error || 'unknown error'));
+}
+
+// ── Create target ─────────────────────────────────────────────
+async function loadZvols() {
+  const sel = document.getElementById('createZvol');
+  try {
+    const r = await fetch('/api/iscsi/zvols', { headers: headers() });
+    const d = await r.json();
+    const zvols = d.zvols || [];
+    if (!zvols.length) {
+      sel.innerHTML = '<option value="">No zvols found — create one in Storage → Pools</option>';
+      return;
+    }
+    sel.innerHTML = zvols.map(z =>
+      `<option value="${z.dev}">${z.name} (${z.size})</option>`
+    ).join('');
+  } catch {
+    sel.innerHTML = '<option value="">Failed to load zvols</option>';
+  }
+}
+
+async function createTarget() {
+  const iqn = document.getElementById('createIQN').value.trim();
+  const backingDev = document.getElementById('createZvol').value;
+  const portalIP = document.getElementById('createPortalIP').value.trim();
+  const portalPort = parseInt(document.getElementById('createPortalPort').value);
+
+  if (!iqn) { alert('Enter a target IQN.'); return; }
+  if (!backingDev) { alert('Select a backing zvol.'); return; }
+
+  const btn = document.getElementById('createBtn');
+  btn.disabled = true;
+  btn.textContent = 'Creating…';
+
+  try {
+    const r = await fetch('/api/iscsi/targets', {
+      method: 'POST', headers: headers(),
+      body: JSON.stringify({ iqn, backing_dev: backingDev, portal_ip: portalIP, portal_port: portalPort })
+    });
+    const d = await r.json();
+    if (d.success) {
+      alert('Target created: ' + d.iqn);
+      document.getElementById('createIQN').value = '';
+      loadTargets();
+      loadStatus();
+    } else {
+      alert('Failed: ' + (d.error || 'unknown'));
+    }
+  } catch (e) {
+    alert('Error: ' + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<span class="material-symbols-outlined" style="font-size:16px">add_circle</span>Create Target';
+  }
+}
+
+function generateIQN() {
+  const now = new Date();
+  const yyyy = now.getFullYear();
+  const mm = String(now.getMonth() + 1).padStart(2, '0');
+  const rand = Math.random().toString(36).slice(2, 7);
+  document.getElementById('createIQN').value = `iqn.${yyyy}-${mm}.com.dplaneos:nas-${rand}`;
+}
+
+// ── Init ──────────────────────────────────────────────────────
+loadStatus();
+loadTargets();
+</script>
+</body>
+</html>

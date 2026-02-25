@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Shares - D-PlaneOS v1.14.0</title>
+    <link rel="stylesheet" href="/css/main.css">
+    <style>
+        .tab-bar { display:flex; gap:8px; margin-bottom:20px; }
+        .panel { display:none; } .panel.active { display:block; }
+
+        .share-row {
+            display:flex; justify-content:space-between; align-items:center;
+            padding:13px 0; border-bottom:1px solid var(--color-border);
+        }
+        .share-row:last-child { border-bottom:none; }
+        .share-name { font-size:14px; font-weight:600; }
+        .share-path { font-size:11px; color:var(--color-text-muted); font-family:monospace; margin-top:2px; }
+        .share-meta { font-size:11px; color:var(--color-text-secondary); margin-top:2px; }
+        .share-actions { display:flex; gap:5px; flex-shrink:0; }
+
+        .form-row { display:grid; gap:12px; margin-bottom:12px; }
+        .form-row.two { grid-template-columns:1fr 1fr; }
+        .form-row.three { grid-template-columns:1fr 1fr 1fr; }
+        .form-label { display:block; font-size:11px; color:var(--color-text-secondary); margin-bottom:3px; text-transform:uppercase; letter-spacing:0.5px; }
+        .form-input {
+            width:100%; padding:9px 12px; border-radius:6px;
+            background:var(--color-surface-light); border:1px solid var(--color-border);
+            color:var(--color-text-primary); font-size:13px; outline:none;
+        }
+        .form-input:focus { border-color:var(--color-primary); }
+        .check-row { display:flex; align-items:center; gap:8px; font-size:13px; color:var(--color-text-secondary); cursor:pointer; margin-bottom:12px; }
+        .check-row input { accent-color:var(--color-primary); }
+
+        .status-dot { width:9px; height:9px; border-radius:50%; display:inline-block; margin-right:6px; vertical-align:middle; }
+        .status-dot.active { background:var(--color-success); box-shadow:0 0 5px rgba(16,185,129,0.4); }
+        .status-dot.inactive { background:var(--color-text-muted); }
+    </style>
+</head>
+<body>
+    <div id="app" class="flex" style="height: 100vh;">
+        <div id="sidebar-container"></div>
+        <main style="flex: 1; overflow-y: auto; padding: 32px;">
+            <div style="max-width: 1200px; margin: 0 auto;">
+
+                <!-- Header -->
+                <div class="flex justify-between items-center mb-6">
+                    <div>
+                        <h1 class="text-2xl gradient-text">Shares</h1>
+                        <p style="color: var(--color-text-secondary); margin-top: 8px;">SMB and NFS network file sharing</p>
+                    </div>
+                    <button class="btn-secondary" onclick="loadAll()">🔄 Refresh</button>
+                </div>
+
+                <!-- Tabs -->
+                <div class="tab-bar">
+                    <button id="tabSMB" class="btn-primary" style="padding:8px 20px;" onclick="switchTab('smb')">🖥️ SMB / Samba</button>
+                    <button id="tabNFS" class="btn-secondary" style="padding:8px 20px;" onclick="switchTab('nfs')">🖨️ NFS</button>
+                </div>
+
+                <!-- ═══ SMB ═══ -->
+                <div id="panelSMB" class="panel active">
+                    <!-- Status bar -->
+                    <div class="glass-card" style="margin-bottom:16px; padding:14px 20px;">
+                        <div style="display:flex; gap:24px; align-items:center;">
+                            <span style="font-size:13px;"><span class="status-dot" id="smbdDot"></span>smbd <span id="smbdStatus" style="color:var(--color-text-muted); font-size:11px;"></span></span>
+                            <span style="font-size:13px;"><span class="status-dot" id="nmbdDot"></span>nmbd <span id="nmbdStatus" style="color:var(--color-text-muted); font-size:11px;"></span></span>
+                            <button class="btn-secondary" style="padding:4px 10px; font-size:11px; margin-left:auto;" onclick="restartSMB()">🔄 Restart Samba</button>
+                        </div>
+                    </div>
+
+                    <!-- Add Share -->
+                    <div class="glass-card" style="margin-bottom:20px;">
+                        <h2 style="font-size:16px; font-weight:600; margin-bottom:14px;">➕ Add SMB Share</h2>
+                        <div class="form-row three">
+                            <div><label class="form-label">Share Name *</label><input class="form-input" id="smbName" placeholder="Media"></div>
+                            <div><label class="form-label">Path *</label><input class="form-input" id="smbPath" placeholder="/mnt/tank/media"></div>
+                            <div><label class="form-label">Comment</label><input class="form-input" id="smbComment" placeholder="Media files"></div>
+                        </div>
+                        <label class="check-row"><input id="smbGuest" type="checkbox"> Allow guest access</label>
+                        <button class="btn-primary" style="padding:8px 18px;" onclick="addSMBShare()">+ Add Share</button>
+                    </div>
+
+                    <!-- Share List -->
+                    <div class="glass-card" style="margin-bottom:20px;">
+                        <h2 style="font-size:16px; font-weight:600; margin-bottom:14px;">🖥️ SMB Shares</h2>
+                        <div id="smbShares"><p style="color:var(--color-text-muted); font-size:13px; padding:20px 0;">Loading…</p></div>
+                    </div>
+
+                    <!-- SMB Users -->
+                    <div class="glass-card">
+                        <h2 style="font-size:16px; font-weight:600; margin-bottom:14px;">👤 SMB Users</h2>
+                        <div class="form-row two" style="margin-bottom:12px;">
+                            <div><label class="form-label">Username *</label><input class="form-input" id="smbUserName" placeholder="johndoe"></div>
+                            <div><label class="form-label">Password *</label><input class="form-input" id="smbUserPass" type="password" placeholder="••••••••"></div>
+                        </div>
+                        <button class="btn-primary" style="padding:7px 16px; font-size:12px; margin-bottom:16px;" onclick="addSMBUser()">+ Add SMB User</button>
+                        <div id="smbUsers"><p style="color:var(--color-text-muted); font-size:13px;">Loading…</p></div>
+                    </div>
+                </div>
+
+                <!-- ═══ NFS ═══ -->
+                <div id="panelNFS" class="panel">
+                    <!-- Add Export -->
+                    <div class="glass-card" style="margin-bottom:20px;">
+                        <h2 style="font-size:16px; font-weight:600; margin-bottom:14px;">➕ Add NFS Export</h2>
+                        <div class="form-row three">
+                            <div><label class="form-label">Path *</label><input class="form-input" id="nfsPath" placeholder="/mnt/tank/media"></div>
+                            <div><label class="form-label">Client (default: *)</label><input class="form-input" id="nfsClient" placeholder="192.168.1.0/24"></div>
+                            <div><label class="form-label">Options</label><input class="form-input" id="nfsOptions" value="rw,sync,no_subtree_check"></div>
+                        </div>
+                        <button class="btn-primary" style="padding:8px 18px;" onclick="addNFSExport()">+ Add Export</button>
+                    </div>
+
+                    <!-- Export List -->
+                    <div class="glass-card" style="margin-bottom:20px;">
+                        <h2 style="font-size:16px; font-weight:600; margin-bottom:14px;">🖨️ NFS Exports</h2>
+                        <div id="nfsExports"><p style="color:var(--color-text-muted); font-size:13px; padding:20px 0;">Loading…</p></div>
+                    </div>
+
+                    <!-- Active Exports (read-only status) -->
+                    <div class="glass-card">
+                        <h2 style="font-size:16px; font-weight:600; margin-bottom:14px;">📡 Active Exports</h2>
+                        <pre id="nfsActive" style="color:var(--color-text-secondary); font-size:12px; white-space:pre-wrap; font-family:monospace; padding:8px 0;">Loading…</pre>
+                        <button class="btn-secondary" style="padding:5px 12px; font-size:11px; margin-top:8px;" onclick="reloadNFS()">🔄 Reload Exports</button>
+                    </div>
+                </div>
+
+            </div>
+        </main>
+    </div>
+
+    <script src="/js/sidebar.js"></script>
+    <script>
+    function switchTab(tab) {
+        document.getElementById('panelSMB').classList.toggle('active', tab === 'smb');
+        document.getElementById('panelNFS').classList.toggle('active', tab === 'nfs');
+        document.getElementById('tabSMB').className = (tab === 'smb') ? 'btn-primary'  : 'btn-secondary';
+        document.getElementById('tabNFS').className = (tab === 'nfs') ? 'btn-primary'  : 'btn-secondary';
+        document.getElementById('tabSMB').style.padding = '8px 20px';
+        document.getElementById('tabNFS').style.padding = '8px 20px';
+    }
+
+    async function loadAll() {
+        await loadSMBStatus();
+        await loadSMBShares();
+        await loadSMBUsers();
+        await loadNFSExports();
+        await loadNFSActive();
+    }
+
+    // ─── SMB STATUS ───
+    async function loadSMBStatus() {
+        const res  = await fetch('/api/smb.php?action=status');
+        const data = await res.json();
+        const s = data.status || {};
+        setDot('smbdDot',  'smbdStatus',  s.smbd);
+        setDot('nmbdDot',  'nmbdStatus',  s.nmbd);
+    }
+    function setDot(dotId, labelId, status) {
+        const isActive = (status === 'active');
+        document.getElementById(dotId).classList.toggle('active',   isActive);
+        document.getElementById(dotId).classList.toggle('inactive', !isActive);
+        document.getElementById(labelId).textContent = isActive ? '● running' : '○ stopped';
+    }
+
+    async function restartSMB() {
+        const res = await fetch('/api/smb.php?action=restart', { method:'POST', headers:{'Content-Type':'application/json'}, body:'{}' });
+        const r   = await res.json();
+        if (!r.success) { alert('Restart failed: ' + r.error); }
+        await loadSMBStatus();
+    }
+
+    // ─── SMB SHARES ───
+    async function loadSMBShares() {
+        const res  = await fetch('/api/smb.php?action=list');
+        const data = await res.json();
+        const shares = data.shares || [];
+        const el   = document.getElementById('smbShares');
+
+        if (shares.length === 0) {
+            el.innerHTML = '<p style="color:var(--color-text-muted); font-size:13px; padding:16px 0;">No SMB shares configured.</p>';
+            return;
+        }
+
+        el.innerHTML = shares.map(s => `
+            <div class="share-row">
+                <div>
+                    <div class="share-name">🖥️ ${s.name}</div>
+                    <div class="share-path">${s.path || '—'}</div>
+                </div>
+                <div class="share-actions">
+                    <button class="btn-secondary" style="padding:5px 10px; font-size:11px;" onclick="removeSMBShare('${s.name}')">🗑️ Remove</button>
+                </div>
+            </div>
+        `).join('');
+    }
+
+    async function addSMBShare() {
+        const name    = document.getElementById('smbName').value.trim();
+        const path    = document.getElementById('smbPath').value.trim();
+        const comment = document.getElementById('smbComment').value.trim();
+        const guest   = document.getElementById('smbGuest').checked;
+        if (!name || !path) { alert('Share name and path are required.'); return; }
+
+        const res = await fetch('/api/smb.php?action=add', {
+            method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({ name, path, comment, guest })
+        });
+        const r = await res.json();
+        if (r.success) {
+            document.getElementById('smbName').value    = '';
+            document.getElementById('smbPath').value    = '';
+            document.getElementById('smbComment').value = '';
+            document.getElementById('smbGuest').checked = false;
+            await loadSMBShares();
+        } else { alert('Failed: ' + r.error); }
+    }
+
+    async function removeSMBShare(name) {
+        if (!confirm(`Remove SMB share "${name}"?`)) return;
+        const res = await fetch('/api/smb.php?action=remove', {
+            method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({ name })
+        });
+        const r = await res.json();
+        if (r.success) { await loadSMBShares(); } else { alert('Failed: ' + r.error); }
+    }
+
+    // ─── SMB USERS ───
+    async function loadSMBUsers() {
+        const res  = await fetch('/api/smb.php?action=users');
+        const data = await res.json();
+        const users = data.users || [];
+        const el   = document.getElementById('smbUsers');
+
+        if (users.length === 0) {
+            el.innerHTML = '<p style="color:var(--color-text-muted); font-size:13px; padding:12px 0;">No SMB users.</p>';
+            return;
+        }
+
+        el.innerHTML = users.map(u => `
+            <div class="share-row">
+                <div>
+                    <div class="share-name">👤 ${u.username}</div>
+                    <div class="share-meta">UID ${u.uid} ${u.fullname ? '• ' + u.fullname : ''}</div>
+                </div>
+                <div class="share-actions">
+                    <button class="btn-secondary" style="padding:5px 10px; font-size:11px;" onclick="removeSMBUser('${u.username}')">🗑️</button>
+                </div>
+            </div>
+        `).join('');
+    }
+
+    async function addSMBUser() {
+        const username = document.getElementById('smbUserName').value.trim();
+        const password = document.getElementById('smbUserPass').value;
+        if (!username || !password) { alert('Username and password required.'); return; }
+
+        const res = await fetch('/api/smb.php?action=add_user', {
+            method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({ username, password })
+        });
+        const r = await res.json();
+        if (r.success) {
+            document.getElementById('smbUserName').value = '';
+            document.getElementById('smbUserPass').value = '';
+            await loadSMBUsers();
+        } else { alert('Failed: ' + r.error); }
+    }
+
+    async function removeSMBUser(username) {
+        if (!confirm(`Remove SMB user "${username}"?`)) return;
+        const res = await fetch('/api/smb.php?action=remove_user', {
+            method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({ username })
+        });
+        const r = await res.json();
+        if (r.success) { await loadSMBUsers(); } else { alert('Failed: ' + r.error); }
+    }
+
+    // ─── NFS ───
+    async function loadNFSExports() {
+        const res  = await fetch('/api/nfs.php?action=list');
+        const data = await res.json();
+        const shares = data.shares || [];
+        const el   = document.getElementById('nfsExports');
+
+        if (shares.length === 0) {
+            el.innerHTML = '<p style="color:var(--color-text-muted); font-size:13px; padding:16px 0;">No NFS exports configured.</p>';
+            return;
+        }
+
+        el.innerHTML = shares.map(s => `
+            <div class="share-row">
+                <div>
+                    <div class="share-name">🖨️ ${s.path}</div>
+                    <div class="share-meta">${s.clients}</div>
+                </div>
+                <div class="share-actions">
+                    <button class="btn-secondary" style="padding:5px 10px; font-size:11px;" onclick="removeNFSExport('${s.path}')">🗑️ Remove</button>
+                </div>
+            </div>
+        `).join('');
+    }
+
+    async function addNFSExport() {
+        const path    = document.getElementById('nfsPath').value.trim();
+        const client  = document.getElementById('nfsClient').value.trim() || '*';
+        const options = document.getElementById('nfsOptions').value.trim() || 'rw,sync,no_subtree_check';
+        if (!path) { alert('Path is required.'); return; }
+
+        const res = await fetch('/api/nfs.php?action=add', {
+            method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({ path, client, options })
+        });
+        const r = await res.json();
+        if (r.success) {
+            document.getElementById('nfsPath').value   = '';
+            document.getElementById('nfsClient').value = '';
+            document.getElementById('nfsOptions').value = 'rw,sync,no_subtree_check';
+            await loadNFSExports();
+            await loadNFSActive();
+        } else { alert('Failed: ' + r.error); }
+    }
+
+    async function removeNFSExport(path) {
+        if (!confirm(`Remove NFS export "${path}"?`)) return;
+        const res = await fetch('/api/nfs.php?action=remove', {
+            method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({ path })
+        });
+        const r = await res.json();
+        if (r.success) { await loadNFSExports(); await loadNFSActive(); }
+        else { alert('Failed: ' + r.error); }
+    }
+
+    async function loadNFSActive() {
+        const res  = await fetch('/api/nfs.php?action=active');
+        const data = await res.json();
+        document.getElementById('nfsActive').textContent = data.exports || 'No active exports.';
+    }
+
+    async function reloadNFS() {
+        const res = await fetch('/api/nfs.php?action=reload', { method:'POST', headers:{'Content-Type':'application/json'}, body:'{}' });
+        const r   = await res.json();
+        if (!r.success) { alert('Reload failed: ' + r.error); }
+        await loadNFSActive();
+    }
+
+    loadAll();
+    </script>
+</body>
+</html>

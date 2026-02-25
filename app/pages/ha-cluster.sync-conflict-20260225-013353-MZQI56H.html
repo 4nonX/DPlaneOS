@@ -1,0 +1,474 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HA Cluster - D-PlaneOS</title>
+<link rel="stylesheet" href="/assets/css/design-tokens.css?v=3.3.0">
+<link rel="stylesheet" href="/assets/css/dplaneos-ui-complete.css?v=3.3.0">
+<link rel="stylesheet" href="/assets/css/m3-tokens.css?v=3.3.0">
+<link rel="stylesheet" href="/assets/css/m3-components.css?v=3.3.0">
+<link rel="stylesheet" href="/assets/css/m3-icons.css?v=3.3.0">
+<link rel="stylesheet" href="/assets/css/enhanced-ui.css?v=3.3.0">
+<link rel="stylesheet" href="/assets/css/m3-animations.css?v=3.3.0">
+<link rel="stylesheet" href="/assets/css/material-symbols-local.css?v=3.3.0">
+<link rel="stylesheet" href="/assets/css/ui-consistency.css?v=3.3.0">
+<link rel="stylesheet" href="/assets/css/ui-polish.css?v=3.3.0">
+<link rel="stylesheet" href="/assets/css/ui-components.css?v=3.3.0">
+<script src="/assets/js/core.js?v=3.3.0"></script>
+<script src="/assets/js/nav-shared.js?v=3.3.0"></script>
+<script src="/assets/js/nav-flyout.js?v=3.3.0"></script>
+<script src="/assets/js/enhanced-ui.js?v=3.3.0"></script>
+<script src="/assets/js/connection-monitor.js?v=3.3.0"></script>
+<script src="/assets/js/permission-checker.js?v=3.3.0"></script>
+<style>
+.main { max-width: 1200px; margin: 140px auto 60px; padding: 0 40px; }
+.page-title { font-size: 32px; font-weight: 700; letter-spacing: -1.5px; margin-bottom: 8px; }
+.page-subtitle { font-size: 16px; color: rgba(255,255,255,0.5); margin-bottom: 32px; }
+
+/* Status overview */
+.cluster-overview { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 32px; }
+.overview-card { padding: 24px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 16px; display: flex; flex-direction: column; gap: 8px; }
+.overview-label { font-size: 12px; color: rgba(255,255,255,0.4); text-transform: uppercase; letter-spacing: 0.8px; }
+.overview-value { font-size: 24px; font-weight: 700; }
+.overview-sub { font-size: 13px; color: rgba(255,255,255,0.5); }
+
+/* Node cards */
+.nodes-grid { display: flex; flex-direction: column; gap: 12px; margin-bottom: 32px; }
+.node-card { padding: 24px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 16px; display: flex; align-items: flex-start; gap: 20px; transition: all 0.2s; }
+.node-card:hover { background: rgba(255,255,255,0.05); }
+.node-card.is-local { border-color: rgba(102,126,234,0.4); background: rgba(102,126,234,0.05); }
+.node-status-dot { width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; margin-top: 4px; }
+.dot-healthy   { background: #4caf50; box-shadow: 0 0 8px rgba(76,175,80,0.5); }
+.dot-degraded  { background: #ff9800; box-shadow: 0 0 8px rgba(255,152,0,0.5); }
+.dot-unreachable { background: #f44336; box-shadow: 0 0 8px rgba(244,67,54,0.5); animation: pulse 2s infinite; }
+.dot-unknown   { background: rgba(255,255,255,0.2); }
+@keyframes pulse { 0%,100%{opacity:1}50%{opacity:0.4} }
+.node-info { flex: 1; min-width: 0; }
+.node-name { font-size: 18px; font-weight: 700; margin-bottom: 4px; display: flex; align-items: center; gap: 8px; }
+.node-addr { font-size: 13px; color: rgba(255,255,255,0.4); margin-bottom: 8px; font-family: monospace; }
+.node-meta { display: flex; gap: 16px; flex-wrap: wrap; }
+.node-meta-item { font-size: 13px; color: rgba(255,255,255,0.5); }
+.node-meta-item strong { color: rgba(255,255,255,0.8); }
+.node-actions { display: flex; gap: 8px; align-items: center; flex-shrink: 0; }
+.role-badge { padding: 4px 12px; border-radius: 8px; font-size: 12px; font-weight: 700; letter-spacing: 0.5px; }
+.role-active  { background: rgba(76,175,80,0.2);  color: #81c784; border: 1px solid rgba(76,175,80,0.3); }
+.role-standby { background: rgba(33,150,243,0.2); color: #64b5f6; border: 1px solid rgba(33,150,243,0.3); }
+.local-badge  { background: rgba(102,126,234,0.2); color: #9fa8da; border: 1px solid rgba(102,126,234,0.3);
+  padding: 3px 8px; border-radius: 6px; font-size: 11px; }
+
+/* Missed beats warning */
+.beats-warn { color: #ff9800; font-weight: 600; }
+.beats-ok   { color: rgba(255,255,255,0.5); }
+
+/* Section header */
+.section-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+.section-title { font-size: 18px; font-weight: 700; }
+
+/* Add peer form */
+.add-peer-form { padding: 24px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 16px; margin-bottom: 32px; display: none; }
+.add-peer-form.open { display: block; }
+.form-row { display: grid; grid-template-columns: 1fr 1fr 1fr auto; gap: 12px; align-items: end; }
+.form-group { display: flex; flex-direction: column; gap: 6px; }
+.form-label { font-size: 13px; color: rgba(255,255,255,0.6); }
+.form-input { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 10px; padding: 10px 14px; color: #fff; font-size: 14px; width: 100%; }
+.form-input:focus { outline: none; border-color: var(--primary); background: rgba(102,126,234,0.08); }
+select.form-input option { background: #1a1a2e; }
+
+/* Info box */
+.info-box { padding: 16px 20px; background: rgba(33,150,243,0.08); border: 1px solid rgba(33,150,243,0.2);
+  border-radius: 12px; font-size: 14px; color: rgba(255,255,255,0.7); display: flex; gap: 12px; margin-bottom: 24px; }
+.warn-box { background: rgba(255,152,0,0.08); border-color: rgba(255,152,0,0.2); }
+
+/* btn */
+.btn { padding: 10px 20px; border-radius: 12px; border: none; cursor: pointer; font-size: 14px;
+  font-weight: 600; transition: all 0.2s; display: inline-flex; align-items: center; gap: 6px; }
+.btn-primary { background: var(--primary); color: #fff; }
+.btn-primary:hover { opacity: 0.85; transform: translateY(-1px); }
+.btn-ghost { background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.7);
+  border: 1px solid rgba(255,255,255,0.1); }
+.btn-ghost:hover { background: rgba(255,255,255,0.1); color: #fff; }
+.btn-danger { background: rgba(244,67,54,0.15); color: #ef9a9a; border: 1px solid rgba(244,67,54,0.25); }
+.btn-danger:hover { background: rgba(244,67,54,0.25); }
+.btn-sm { padding: 6px 14px; font-size: 13px; border-radius: 8px; }
+.btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+
+/* Quorum indicator */
+.quorum-ok  { color: #81c784; }
+.quorum-no  { color: #ef9a9a; }
+
+/* Failover section */
+.failover-card { padding: 24px; background: rgba(244,67,54,0.04); border: 1px solid rgba(244,67,54,0.15);
+  border-radius: 16px; margin-bottom: 32px; }
+.failover-title { font-size: 16px; font-weight: 700; color: #ef9a9a; margin-bottom: 8px; display: flex; align-items: center; gap: 8px; }
+.failover-desc { font-size: 14px; color: rgba(255,255,255,0.5); margin-bottom: 16px; line-height: 1.6; }
+
+/* Spinner */
+.spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid rgba(255,255,255,0.2);
+  border-top-color: rgba(255,255,255,0.8); border-radius: 50%; animation: spin 0.6s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Last-updated */
+.last-updated { font-size: 12px; color: rgba(255,255,255,0.3); text-align: right; margin-top: 8px; }
+</style>
+</head>
+<body>
+<div id="nav-root"></div>
+
+<div class="main">
+  <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:32px;">
+    <div>
+      <h1 class="page-title">HA Cluster</h1>
+      <p class="page-subtitle">High Availability — active/standby node coordination</p>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center;">
+      <button class="btn btn-ghost btn-sm" onclick="loadAll()" id="refreshBtn">
+        <span class="material-symbols-rounded" style="font-size:16px;">refresh</span> Refresh
+      </button>
+      <button class="btn btn-primary btn-sm" onclick="toggleAddForm()" id="addPeerBtn">
+        <span class="material-symbols-rounded" style="font-size:16px;">add</span> Add Peer
+      </button>
+    </div>
+  </div>
+
+  <!-- Cluster overview -->
+  <div class="cluster-overview" id="overviewCards">
+    <div class="overview-card">
+      <div class="overview-label">Cluster Status</div>
+      <div class="overview-value" id="ovStatus">—</div>
+      <div class="overview-sub" id="ovQuorum">Checking…</div>
+    </div>
+    <div class="overview-card">
+      <div class="overview-label">Active Node</div>
+      <div class="overview-value" id="ovActiveNode">—</div>
+      <div class="overview-sub" id="ovActiveAddr">No active node identified</div>
+    </div>
+    <div class="overview-card">
+      <div class="overview-label">Peer Nodes</div>
+      <div class="overview-value" id="ovPeerCount">—</div>
+      <div class="overview-sub" id="ovHealthy">— healthy</div>
+    </div>
+  </div>
+
+  <!-- Info box -->
+  <div class="info-box">
+    <span class="material-symbols-rounded" style="flex-shrink:0;color:#64b5f6;">info</span>
+    <div>
+      <strong>Passive active/standby coordination.</strong> D-PlaneOS HA prevents accidental pool imports on standby nodes.
+      Failover is triggered manually or via this UI when a node becomes unreachable.
+      The <strong>active</strong> node holds ZFS pools. Standby nodes heartbeat every 15 seconds.
+    </div>
+  </div>
+
+  <!-- Add peer form -->
+  <div class="add-peer-form" id="addPeerForm">
+    <div style="font-size:16px;font-weight:700;margin-bottom:16px;">Register New Peer Node</div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Node ID *</label>
+        <input type="text" class="form-input" id="peerID" placeholder="nas-b or UUID">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Display Name *</label>
+        <input type="text" class="form-input" id="peerName" placeholder="NAS-B Standby">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Daemon Address *</label>
+        <input type="text" class="form-input" id="peerAddr" placeholder="http://10.0.0.2:5050">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Role</label>
+        <select class="form-input" id="peerRole">
+          <option value="standby">Standby</option>
+          <option value="active">Active</option>
+        </select>
+      </div>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:16px;">
+      <button class="btn btn-primary" onclick="registerPeer()" id="savePeerBtn">
+        <span class="material-symbols-rounded" style="font-size:16px;">save</span> Register
+      </button>
+      <button class="btn btn-ghost" onclick="toggleAddForm()">Cancel</button>
+    </div>
+  </div>
+
+  <!-- Nodes list -->
+  <div>
+    <div class="section-header">
+      <div class="section-title">Cluster Nodes</div>
+      <div class="last-updated" id="lastUpdated"></div>
+    </div>
+    <div class="nodes-grid" id="nodesGrid">
+      <div style="text-align:center;padding:40px;color:rgba(255,255,255,0.3);">
+        <span class="spinner"></span>
+        <div style="margin-top:12px;">Loading cluster status…</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Manual failover -->
+  <div class="failover-card" id="failoverSection" style="display:none;">
+    <div class="failover-title">
+      <span class="material-symbols-rounded">warning</span>
+      Manual Failover
+    </div>
+    <div class="failover-desc">
+      Promote a standby node to active. This transfers ZFS pool control to the selected node.
+      Ensure the current active node is actually unreachable before triggering failover to prevent split-brain.
+    </div>
+    <div id="failoverNodeList" style="display:flex;flex-direction:column;gap:8px;"></div>
+  </div>
+
+</div>
+
+<script>
+let clusterData = null;
+let pollTimer = null;
+
+// ── Load everything ──────────────────────────────────────────────────────────
+async function loadAll() {
+  const btn = document.getElementById('refreshBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> Refreshing';
+  try {
+    const [statusRes, localRes] = await Promise.all([
+      csrfFetch('/api/ha/status'),
+      csrfFetch('/api/ha/local')
+    ]);
+    const statusData = await statusRes.json();
+    const localData = await localRes.json();
+    if (statusData.success || statusData.cluster) {
+      clusterData = statusData.cluster || statusData;
+      renderCluster(clusterData, localData);
+    } else {
+      renderError(statusData.error || 'Failed to load cluster status');
+    }
+  } catch (e) {
+    renderError('Network error: ' + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<span class="material-symbols-rounded" style="font-size:16px;">refresh</span> Refresh';
+  }
+}
+
+function renderCluster(cluster, local) {
+  const localID = (local && (local.id || local.node_id)) || '';
+
+  // Overview cards
+  const peers = cluster.peers || [];
+  const localNode = cluster.local_node || {};
+  const allNodes = [localNode, ...peers].filter(n => n && n.id);
+  const healthyCount = allNodes.filter(n => n.state === 'healthy').length;
+  const activeNode = cluster.active_node || allNodes.find(n => n.role === 'active');
+
+  document.getElementById('ovStatus').textContent = cluster.quorum ? 'Quorum' : 'No Quorum';
+  document.getElementById('ovStatus').className = 'overview-value ' + (cluster.quorum ? 'quorum-ok' : 'quorum-no');
+  document.getElementById('ovQuorum').textContent = cluster.quorum
+    ? `${healthyCount}/${allNodes.length} nodes reachable`
+    : 'Majority of nodes unreachable';
+  document.getElementById('ovActiveNode').textContent = activeNode ? (activeNode.name || activeNode.id) : 'None';
+  document.getElementById('ovActiveAddr').textContent = activeNode ? (activeNode.address || '—') : '—';
+  document.getElementById('ovPeerCount').textContent = peers.length;
+  document.getElementById('ovHealthy').textContent = healthyCount + ' healthy';
+  document.getElementById('lastUpdated').textContent =
+    'Updated ' + new Date(cluster.last_updated || Date.now()).toLocaleTimeString();
+
+  // Nodes
+  const grid = document.getElementById('nodesGrid');
+  if (allNodes.length === 0) {
+    grid.innerHTML = '<div style="text-align:center;padding:40px;color:rgba(255,255,255,0.3);">No nodes registered. This is the only node in standalone mode.</div>';
+    return;
+  }
+
+  grid.innerHTML = allNodes.map(node => renderNodeCard(node, localID)).join('');
+
+  // Failover section - show if there are standby peers
+  const standbyPeers = peers.filter(p => p.role === 'standby' || p.role !== 'active');
+  const failoverSection = document.getElementById('failoverSection');
+  if (standbyPeers.length > 0) {
+    failoverSection.style.display = 'block';
+    document.getElementById('failoverNodeList').innerHTML = standbyPeers.map(p => `
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;
+        background:rgba(255,255,255,0.03);border-radius:10px;border:1px solid rgba(255,255,255,0.06);">
+        <div>
+          <span style="font-weight:600;">${esc(p.name || p.id)}</span>
+          <span style="font-size:13px;color:rgba(255,255,255,0.4);margin-left:8px;">${esc(p.address || '')}</span>
+        </div>
+        <button class="btn btn-sm" style="background:rgba(255,152,0,0.15);color:#ffb74d;border:1px solid rgba(255,152,0,0.25);"
+          onclick="promoteToActive('${esc(p.id)}', '${esc(p.name || p.id)}')">
+          <span class="material-symbols-rounded" style="font-size:14px;">swap_horiz</span> Promote to Active
+        </button>
+      </div>
+    `).join('');
+  } else {
+    failoverSection.style.display = 'none';
+  }
+}
+
+function renderNodeCard(node, localID) {
+  if (!node || !node.id) return '';
+  const isLocal = node.id === localID;
+  const dotClass = {
+    healthy: 'dot-healthy',
+    degraded: 'dot-degraded',
+    unreachable: 'dot-unreachable',
+    unknown: 'dot-unknown'
+  }[node.state] || 'dot-unknown';
+
+  const missedBeats = node.missed_beats || 0;
+  const beatsClass = missedBeats > 2 ? 'beats-warn' : 'beats-ok';
+  const lastSeen = node.last_seen ? new Date(node.last_seen).toLocaleString() : 'Never';
+
+  return `
+  <div class="node-card ${isLocal ? 'is-local' : ''}">
+    <div class="node-status-dot ${dotClass}" title="${node.state || 'unknown'}"></div>
+    <div class="node-info">
+      <div class="node-name">
+        ${esc(node.name || node.id)}
+        ${isLocal ? '<span class="local-badge">This Node</span>' : ''}
+        <span class="role-badge ${node.role === 'active' ? 'role-active' : 'role-standby'}">${node.role || 'unknown'}</span>
+      </div>
+      <div class="node-addr">${esc(node.address || 'no address')}</div>
+      <div class="node-meta">
+        <div class="node-meta-item">State: <strong>${node.state || 'unknown'}</strong></div>
+        <div class="node-meta-item">Version: <strong>${esc(node.version || '—')}</strong></div>
+        <div class="node-meta-item">Last seen: <strong>${lastSeen}</strong></div>
+        <div class="node-meta-item ${beatsClass}">Missed beats: <strong>${missedBeats}</strong></div>
+        <div class="node-meta-item">Node ID: <code style="font-size:11px;opacity:0.6;">${esc(node.id)}</code></div>
+      </div>
+    </div>
+    ${!isLocal ? `
+    <div class="node-actions">
+      <button class="btn btn-ghost btn-sm" onclick="removePeer('${esc(node.id)}', '${esc(node.name || node.id)}')"
+        title="Remove peer">
+        <span class="material-symbols-rounded" style="font-size:14px;">delete</span>
+      </button>
+    </div>` : ''}
+  </div>`;
+}
+
+function renderError(msg) {
+  document.getElementById('nodesGrid').innerHTML =
+    `<div style="padding:24px;color:#ef9a9a;text-align:center;">${esc(msg)}</div>`;
+  document.getElementById('ovStatus').textContent = 'Error';
+}
+
+// ── Register peer ─────────────────────────────────────────────────────────────
+async function registerPeer() {
+  const id = document.getElementById('peerID').value.trim();
+  const name = document.getElementById('peerName').value.trim();
+  const address = document.getElementById('peerAddr').value.trim();
+  const role = document.getElementById('peerRole').value;
+
+  if (!id || !address) {
+    if (window.EnhancedUI) EnhancedUI.toast('Node ID and address are required', 'error');
+    return;
+  }
+
+  const btn = document.getElementById('savePeerBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> Registering…';
+
+  try {
+    const res = await csrfFetch('/api/ha/peers', {
+      method: 'POST',
+      body: JSON.stringify({ id, name: name || id, address, role })
+    });
+    const data = await res.json();
+    if (data.success) {
+      if (window.EnhancedUI) EnhancedUI.toast('Peer registered — heartbeat starting', 'success');
+      toggleAddForm();
+      document.getElementById('peerID').value = '';
+      document.getElementById('peerName').value = '';
+      document.getElementById('peerAddr').value = '';
+      setTimeout(loadAll, 2000);
+    } else {
+      if (window.EnhancedUI) EnhancedUI.toast(data.error || 'Registration failed', 'error');
+    }
+  } catch (e) {
+    if (window.EnhancedUI) EnhancedUI.toast('Network error: ' + e.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<span class="material-symbols-rounded" style="font-size:16px;">save</span> Register';
+  }
+}
+
+// ── Remove peer ───────────────────────────────────────────────────────────────
+async function removePeer(id, name) {
+  if (!confirm(`Remove peer "${name}" from the cluster?\n\nThis stops heartbeat monitoring for this node.`)) return;
+  try {
+    const res = await csrfFetch(`/api/ha/peers/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    const data = await res.json();
+    if (data.success) {
+      if (window.EnhancedUI) EnhancedUI.toast('Peer removed', 'success');
+      loadAll();
+    } else {
+      if (window.EnhancedUI) EnhancedUI.toast(data.error || 'Failed to remove peer', 'error');
+    }
+  } catch (e) {
+    if (window.EnhancedUI) EnhancedUI.toast('Network error: ' + e.message, 'error');
+  }
+}
+
+// ── Promote to active ─────────────────────────────────────────────────────────
+async function promoteToActive(id, name) {
+  const confirmed = confirm(
+    `Promote "${name}" to ACTIVE?\n\n` +
+    `⚠ This transfers ZFS pool control to that node.\n` +
+    `⚠ Verify the current active node is unreachable before proceeding.\n` +
+    `⚠ Running both nodes as active simultaneously can cause data corruption (split-brain).`
+  );
+  if (!confirmed) return;
+
+  try {
+    const res = await csrfFetch(`/api/ha/peers/${encodeURIComponent(id)}/role`, {
+      method: 'POST',
+      body: JSON.stringify({ role: 'active' })
+    });
+    const data = await res.json();
+    if (data.success) {
+      if (window.EnhancedUI) EnhancedUI.toast(`${name} promoted to active`, 'success');
+      loadAll();
+    } else {
+      if (window.EnhancedUI) EnhancedUI.toast(data.error || 'Promotion failed', 'error');
+    }
+  } catch (e) {
+    if (window.EnhancedUI) EnhancedUI.toast('Network error: ' + e.message, 'error');
+  }
+}
+
+// ── UI helpers ────────────────────────────────────────────────────────────────
+function toggleAddForm() {
+  const form = document.getElementById('addPeerForm');
+  form.classList.toggle('open');
+  const btn = document.getElementById('addPeerBtn');
+  if (form.classList.contains('open')) {
+    btn.innerHTML = '<span class="material-symbols-rounded" style="font-size:16px;">close</span> Cancel';
+    document.getElementById('peerID').focus();
+  } else {
+    btn.innerHTML = '<span class="material-symbols-rounded" style="font-size:16px;">add</span> Add Peer';
+  }
+}
+
+function esc(s) {
+  if (!s) return '';
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ── Auto-refresh every 15 seconds ────────────────────────────────────────────
+function startPolling() {
+  if (pollTimer) clearInterval(pollTimer);
+  pollTimer = setInterval(loadAll, 15000);
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  loadAll();
+  startPolling();
+});
+</script>
+</body>
+</html>

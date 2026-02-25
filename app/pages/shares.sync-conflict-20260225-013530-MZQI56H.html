@@ -1,0 +1,489 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Shares - D-PlaneOS</title>
+    <link rel="stylesheet" href="/assets/css/design-tokens.css?v=3.3.0">
+    <link rel="stylesheet" href="/assets/css/dplaneos-ui-complete.css?v=3.3.0">
+<link rel="stylesheet" href="/assets/css/m3-tokens.css?v=3.3.0">
+<link rel="stylesheet" href="/assets/css/m3-components.css?v=3.3.0">
+<link rel="stylesheet" href="/assets/css/m3-icons.css?v=3.3.0">
+  <link rel="stylesheet" href="/assets/css/enhanced-ui.css?v=3.3.0">
+<link rel="stylesheet" href="/assets/css/m3-animations.css?v=3.3.0">
+<style>
+.logo { font-size: 20px; font-weight: 800; color: var(--primary); letter-spacing: -0.5px; cursor: pointer; }
+
+
+.nav-link:hover, 
+.main { max-width: 1600px; margin: 140px auto 60px; padding: 0 40px; }
+.page-header { margin-bottom: 48px; }
+.page-title { font-size: 32px; font-weight: 700; letter-spacing: -1.5px; margin-bottom: 12px; }
+.page-subtitle { font-size: 18px; color: rgba(255,255,255,0.6); }
+.share-card { background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: var(--radius-xl); padding: 32px; margin-bottom: 24px; border-left: 4px solid var(--primary); }
+.share-header { display: flex; align-items: center; gap: 20px; margin-bottom: 20px; }
+.share-icon { font-size: 32px; color: var(--primary); }
+.share-info { flex: 1; }
+.share-name { font-size: 20px; font-weight: 800; margin-bottom: 6px; }
+.share-path { font-size: 14px; color: rgba(255,255,255,0.5); font-family: monospace; }
+.share-actions { display: flex; gap: 12px; }
+.icon-btn { width: 40px; height: 40px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; display: flex; align-items: center; justify-content: center; color: rgba(255,255,255,0.8); cursor: pointer; transition: all 0.3s; border: none; }
+.icon-btn:hover { background: rgba(255,255,255,0.1); color: var(--text); }
+.fab { position: fixed; bottom: 32px; right: 32px; width: 64px; height: 64px; background: linear-gradient(135deg, var(--primary) 0%, var(--primary) 100%); border-radius: 20px; display: flex; align-items: center; justify-content: center; box-shadow: 0 8px 32px rgba(102, 126, 234, 0.4); cursor: pointer; transition: all 0.3s; border: none; color: var(--text); }
+.fab:hover { transform: translateY(-4px); box-shadow: 0 12px 48px rgba(102, 126, 234, 0.6); }
+</style>
+<link rel="stylesheet" href="/assets/css/ui-components.css?v=3.3.0">
+<script src="/assets/js/core.js?v=3.3.0"></script>
+<script src="/assets/js/nav-flyout.js?v=3.3.0"></script>
+<script src="/assets/js/hybrid-router.js?v=3.3.0"></script>
+  <script src="/assets/js/enhanced-ui.js?v=3.3.0"></script>
+  <script src="/assets/js/connection-monitor.js?v=3.3.0"></script>
+  <script src="/assets/js/keyboard-shortcuts.js?v=3.3.0"></script>
+  <script src="/assets/js/form-validator.js?v=3.3.0"></script>
+  <link rel="stylesheet" href="/assets/css/material-symbols-local.css?v=3.3.0">
+  <link rel="stylesheet" href="/assets/css/ui-consistency.css?v=3.3.0">
+  <link rel="stylesheet" href="/assets/css/ui-polish.css?v=3.3.0">
+  <script src="/assets/js/daemon-api.js?v=3.3.0"></script>
+</head>
+<body>
+<!-- D-PlaneOS - Hierarchical Navigation -->
+<!-- This navigation maintains all security (CSRF, Auth) and real system state -->
+
+<div id="nav-root"></div>
+
+<script>
+function escapeHtml(s) {
+  if (s == null) return '';
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#039;');
+}
+
+// Navigation behavior
+function navigateToSection(section) {
+  if (section === 'dashboard') {
+    window.location.href = 'index.html';
+  }
+}
+
+function toggleSubNav(section, button) {
+  // Remove active from all nav links
+  document.querySelectorAll('.nav-link').forEach(link => {
+    link.classList.remove('active');
+  });
+  
+  // Add active to clicked button
+  if (button) {
+    button.classList.add('active');
+  }
+  
+  // Hide all sub-navs
+  document.querySelectorAll('.nav-sub').forEach(sub => {
+    sub.classList.remove('active');
+  });
+  
+  // Show selected sub-nav
+  const subNav = document.getElementById(`sub-${section}`);
+  if (subNav) {
+    subNav.classList.add('active');
+    document.body.classList.add('has-subnav');
+  }
+}
+
+// Auto-detect current section and page on load
+(function() {
+  const currentPage = window.location.pathname.split('/').pop() || 'index.html';
+  
+  // Page to section mapping
+  const pageMap = {
+    'acl-manager.html': { section: 'storage', page: 'acl-manager' },
+    'audit.html': { section: 'security', page: 'audit' },
+    'certificates.html': { section: 'security', page: 'certificates' },
+    'cloud-sync.html': { section: 'storage', page: 'cloud-sync' },
+    'directory-service.html': { section: 'identity', page: 'directory-service' },
+    'docker.html': { section: 'compute', page: 'docker' },
+    'files-enhanced.html': { section: 'storage', page: 'files-enhanced' },
+    'files.html': { section: 'storage', page: 'files' },
+    'firewall.html': { section: 'security', page: 'firewall' },
+    'groups.html': { section: 'identity', page: 'groups' },
+    'hardware.html': { section: 'system', page: 'hardware' },
+    'index.html': { section: 'dashboard', page: null },
+    'ipmi.html': { section: 'system', page: 'ipmi' },
+    'logs.html': { section: 'system', page: 'logs' },
+    'modules.html': { section: 'compute', page: 'modules' },
+    'network-dns.html': { section: 'network', page: 'network-dns' },
+    'network-interfaces.html': { section: 'network', page: 'network-interfaces' },
+    'network-routing.html': { section: 'network', page: 'network-routing' },
+    'network.html': { section: 'network', page: 'network' },
+    'pools-advanced.html': { section: 'storage', page: 'pools-advanced' },
+    'pools.html': { section: 'storage', page: 'pools' },
+    'power-management.html': { section: 'system', page: 'power-management' },
+    'quotas.html': { section: 'storage', page: 'quotas' },
+    'rbac-management.html': { section: 'identity', page: 'rbac-management' },
+    'removable-media-ui.html': { section: 'system', page: 'removable-media-ui' },
+    'replication.html': { section: 'storage', page: 'replication' },
+    'reporting.html': { section: 'system', page: 'reporting' },
+    'security.html': { section: 'security', page: 'security' },
+    'settings.html': { section: 'system', page: 'settings' },
+    'shares.html': { section: 'storage', page: 'shares' },
+    'snapshot-scheduler.html': { section: 'storage', page: 'snapshot-scheduler' },
+    'system-monitoring.html': { section: 'system', page: 'system-monitoring' },
+    'system-settings.html': { section: 'system', page: 'system-settings' },
+    'ups.html': { section: 'system', page: 'ups' },
+    'users.html': { section: 'identity', page: 'users' },
+    'zfs-encryption.html': { section: 'storage', page: 'zfs-encryption' }
+  };
+  
+  const current = pageMap[currentPage];
+  if (current) {
+    // Activate section button
+    const sectionBtn = document.querySelector(`[data-section="${current.section}"]`);
+    if (sectionBtn) {
+      sectionBtn.classList.add('active');
+    }
+    
+    // Show and activate sub-nav if not dashboard
+    if (current.section !== 'dashboard') {
+      const subNav = document.getElementById(`sub-${current.section}`);
+      if (subNav) {
+        subNav.classList.add('active');
+        document.body.classList.add('has-subnav');
+        
+        // Activate current page in sub-nav
+        if (current.page) {
+          const pageLink = subNav.querySelector(`[data-page="${current.page}"]`);
+          if (pageLink) {
+            pageLink.classList.add('active');
+          }
+        }
+      }
+    }
+  }
+})();
+
+// Keyboard shortcuts
+function showKeyboardHelp() {
+  if (window.EnhancedUI) {
+    const shortcuts = `Keyboard Shortcuts:
+
+g + d → Dashboard
+g + s → Storage
+g + c → Compute
+g + n → Network
+g + u → Identity
+g + e → Security
+g + y → System
+
+r → Refresh page
+Esc → Close modals
+? → Show this help`;
+    EnhancedUI.toast(shortcuts, 'info', 8000);
+  }
+}
+
+// Enhanced keyboard shortcuts for sections
+(function() {
+  let keySequence = '';
+  let keyTimeout;
+  
+  document.addEventListener('keydown', (e) => {
+    if (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) return;
+    
+    keySequence += e.key;
+    clearTimeout(keyTimeout);
+    
+    const shortcuts = {
+      'gd': 'index.html',
+      'gs': () => toggleSubNav('storage', document.querySelector('[data-section="storage"]')),
+      'gc': () => toggleSubNav('compute', document.querySelector('[data-section="compute"]')),
+      'gn': () => toggleSubNav('network', document.querySelector('[data-section="network"]')),
+      'gu': () => toggleSubNav('identity', document.querySelector('[data-section="identity"]')),
+      'ge': () => toggleSubNav('security', document.querySelector('[data-section="security"]')),
+      'gy': () => toggleSubNav('system', document.querySelector('[data-section="system"]'))
+    };
+    
+    if (shortcuts[keySequence]) {
+      e.preventDefault();
+      const action = shortcuts[keySequence];
+      if (typeof action === 'function') {
+        action();
+      } else {
+        window.location.href = action;
+      }
+      keySequence = '';
+    } else if (e.key === '?') {
+      e.preventDefault();
+      showKeyboardHelp();
+    }
+    
+    keyTimeout = setTimeout(() => keySequence = '', 1000);
+  });
+})();
+
+// Connection status monitoring (integrates with existing connection-monitor.js)
+if (window.ConnectionMonitor) {
+  window.ConnectionMonitor.on('statusChange', (online) => {
+    const status = document.getElementById('navConnectionStatus');
+    if (status) {
+      if (online) {
+        status.classList.remove('offline');
+        status.classList.add('online');
+        status.innerHTML = '<span class="status-dot"></span><span>Connected</span>';
+      } else {
+        status.classList.remove('online');
+        status.classList.add('offline');
+        status.innerHTML = '<span class="status-dot"></span><span>Offline</span>';
+      }
+    }
+  });
+}
+</script>
+
+<main class="main">
+<div class="page-header">
+<h1 class="page-title">Network Shares</h1>
+<p class="page-subtitle">SMB • NFS • AFP</p>
+</div>
+<div id="shares-container">
+<div class="share-card">
+<div style="text-align: center; padding: 40px;">
+<p style="color: rgba(255,255,255,0.5);">Loading shares...</p>
+</div>
+</div>
+</div>
+</main>
+<button class="fab" onclick="createShare()"><span class="material-symbols-rounded" style="font-size:28px;">add</span></button>
+<script src="/assets/js/m3-ripple.js?v=3.3.0"></script>
+<script src="/assets/js/ui-components.js?v=3.3.0"></script>
+<script>
+const ui = new DPlaneUI();
+
+async function loadShares() {
+  try {
+    const response = await csrfFetch('/api/shares');
+    const data = await response.json();
+    
+    if (data.success && data.shares && data.shares.length > 0) {
+      renderShares(data.shares);
+    } else {
+      document.getElementById('shares-container').innerHTML = '<div class="share-card"><p style="color: rgba(255,255,255,0.5); text-align: center; padding: 40px;">No shares configured</p></div>';
+    }
+  } catch (error) {
+    document.getElementById('shares-container').innerHTML = '<div class="share-card"><p style="color: #ef4444; text-align: center; padding: 40px;">Failed to load shares</p></div>';
+  }
+}
+
+function renderShares(shares) {
+  const container = document.getElementById('shares-container');
+  container.innerHTML = '';
+  
+  shares.forEach(share => {
+    const card = document.createElement('div');
+    card.className = 'share-card';
+    
+    const protocols = [];
+    if (share.enabled !== false) protocols.push('<span class="badge badge-success">SMB</span>');
+    if (share.read_only) protocols.push('<span class="badge badge-warning">Read Only</span>');
+    if (share.guest_ok) protocols.push('<span class="badge">Guest OK</span>');
+    
+    card.innerHTML = `
+      <div class="share-header">
+        <span class="material-symbols-rounded share-icon">share</span>
+        <div class="share-info">
+          <div class="share-name">${escapeHtml(share.name)}</div>
+          <div class="share-path">${escapeHtml(share.path)}</div>
+        </div>
+        <div class="share-actions">
+          ${protocols.join(' ')}
+          <button class="icon-btn" onclick="editShare(${share.id})"><span class="material-symbols-rounded">edit</span></button>
+          <button class="icon-btn" onclick="deleteShare(${share.id}, '"+JSON.stringify(share.name)+"')" style="color: #ef4444;"><span class="material-symbols-rounded">delete</span></button>
+        </div>
+      </div>
+      ${share.description ? `<div style="color: rgba(255,255,255,0.6); font-size: 14px; margin-top: 12px;">${escapeHtml(share.comment)}</div>` : ''}
+    `;
+    
+    container.appendChild(card);
+  });
+}
+
+async function createShare() {
+  const result = await ui.form('Create Share', [
+    { name: 'name', label: 'Share Name', type: 'text', required: true, placeholder: 'e.g., photos' },
+    { name: 'path', label: 'Path', type: 'text', required: true, placeholder: '/pool/dataset/share' },
+    { name: 'comment', label: 'Description', type: 'text', placeholder: 'Optional description' },
+    { name: 'read_only', label: 'Read Only', type: 'checkbox' },
+    { name: 'guest_ok', label: 'Allow Guest Access', type: 'checkbox' }
+  ], 'Create');
+  
+  if (result) {
+    ui.showLoading('Creating share...');
+    
+    try {
+      const response = await csrfFetch('/api/shares', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'create', ...result })
+      });
+      
+      const data = await response.json();
+      ui.hideLoading();
+      
+      if (data.success) {
+        ui.toast('Share created successfully', 'success');
+        loadShares();
+      } else {
+        ui.toast(data.error || 'Failed to create share', 'error');
+      }
+    } catch (error) {
+      ui.hideLoading();
+      ui.toast('Error: ' + error.message, 'error');
+    }
+  }
+}
+
+async function editShare(id) {
+  ui.showLoading('Loading share...');
+  
+  try {
+    const response = await csrfFetch(`/api/shares?id=${id}`);
+    const data = await response.json();
+    ui.hideLoading();
+    
+    if (data.success && data.share) {
+      const share = data.share;
+      const result = await ui.form('Edit Share', [
+        { name: 'name', label: 'Share Name', type: 'text', required: true, value: share.name },
+        { name: 'path', label: 'Path', type: 'text', required: true, value: share.path },
+        { name: 'comment', label: 'Description', type: 'text', value: share.comment || '' },
+        { name: 'read_only', label: 'Read Only', type: 'checkbox', checked: share.read_only },
+        { name: 'guest_ok', label: 'Allow Guest Access', type: 'checkbox', checked: share.guest_ok }
+      ], 'Save');
+      
+      if (result) {
+        ui.showLoading('Updating share...');
+        
+        const updateResponse = await csrfFetch('/api/shares', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'update', id, ...result })
+        });
+        
+        const updateData = await updateResponse.json();
+        ui.hideLoading();
+        
+        if (updateData.success) {
+          ui.toast('Share updated successfully', 'success');
+          loadShares();
+        } else {
+          ui.toast(updateData.error || 'Failed to update share', 'error');
+        }
+      }
+    } else {
+      ui.toast('Failed to load share', 'error');
+    }
+  } catch (error) {
+    ui.hideLoading();
+    ui.toast('Error: ' + error.message, 'error');
+  }
+}
+
+async function deleteShare(id, name) {
+  const confirmed = await ui.confirm(`Delete share "${name}"?`, 'This action cannot be undone.');
+  
+  if (confirmed) {
+    ui.showLoading('Deleting share...');
+    
+    try {
+      const response = await csrfFetch('/api/shares', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'delete', id })
+      });
+      
+      const data = await response.json();
+      ui.hideLoading();
+      
+      if (data.success) {
+        ui.toast('Share deleted successfully', 'success');
+        loadShares();
+      } else {
+        ui.toast(data.error || 'Failed to delete share', 'error');
+      }
+    } catch (error) {
+      ui.hideLoading();
+      ui.toast('Error: ' + error.message, 'error');
+    }
+  }
+}
+
+// Load shares on page load
+loadShares();
+</script>
+  <script src="/assets/js/realtime-client.js?v=3.3.0"></script>
+<!-- v3.0.0: SMB VFS Module Configuration -->
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  const main = document.querySelector('.main');
+  if (!main) return;
+  const vfsSection = document.createElement('div');
+  vfsSection.style.marginTop = '48px';
+  vfsSection.innerHTML = `
+    <h2 class="page-title" style="font-size:28px;">Advanced Share Features</h2>
+    <p class="page-subtitle" style="margin-bottom:32px;">VFS Modules • macOS • Windows • Recycle</p>
+
+    <div class="card" style="padding:32px;margin-bottom:24px;">
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:24px;">
+        <div style="background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.06);border-radius:var(--md-sys-shape-corner-large);padding:24px;text-align:center;">
+          <span class="material-symbols-rounded" style="font-size:40px;color:#8b5cf6;">laptop_mac</span>
+          <div style="font-size:18px;font-weight:700;margin:12px 0 8px;">Time Machine</div>
+          <div style="font-size:13px;color:rgba(255,255,255,0.5);margin-bottom:16px;">macOS backup via vfs_fruit</div>
+          <label style="display:flex;align-items:center;justify-content:center;gap:8px;cursor:pointer;">
+            <input type="checkbox" id="vfs-timemachine" style="accent-color:var(--md-sys-color-primary);width:18px;height:18px;">
+            <span style="font-size:14px;">Enable</span>
+          </label>
+        </div>
+        <div style="background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.06);border-radius:var(--md-sys-shape-corner-large);padding:24px;text-align:center;">
+          <span class="material-symbols-rounded" style="font-size:40px;color:#3b82f6;">history</span>
+          <div style="font-size:18px;font-weight:700;margin:12px 0 8px;">Shadow Copies</div>
+          <div style="font-size:13px;color:rgba(255,255,255,0.5);margin-bottom:16px;">Windows Previous Versions via ZFS snapshots</div>
+          <label style="display:flex;align-items:center;justify-content:center;gap:8px;cursor:pointer;">
+            <input type="checkbox" id="vfs-shadowcopy" style="accent-color:var(--md-sys-color-primary);width:18px;height:18px;">
+            <span style="font-size:14px;">Enable</span>
+          </label>
+        </div>
+        <div style="background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.06);border-radius:var(--md-sys-shape-corner-large);padding:24px;text-align:center;">
+          <span class="material-symbols-rounded" style="font-size:40px;color:var(--md-sys-color-success);">delete_sweep</span>
+          <div style="font-size:18px;font-weight:700;margin:12px 0 8px;">Recycle Bin</div>
+          <div style="font-size:13px;color:rgba(255,255,255,0.5);margin-bottom:16px;">Recover deleted files via vfs_recycle</div>
+          <label style="display:flex;align-items:center;justify-content:center;gap:8px;cursor:pointer;">
+            <input type="checkbox" id="vfs-recycle" style="accent-color:var(--md-sys-color-primary);width:18px;height:18px;">
+            <span style="font-size:14px;">Enable</span>
+          </label>
+        </div>
+      </div>
+      <div style="margin-top:24px;display:flex;justify-content:flex-end;">
+        <button class="btn btn-primary" onclick="applyVFS()">
+          <span class="material-symbols-rounded" style="font-size:18px;">save</span> Apply VFS Settings
+        </button>
+      </div>
+    </div>
+  `;
+  main.appendChild(vfsSection);
+});
+
+async function applyVFS() {
+  const data = {
+    share_name: '_global',
+    time_machine: document.getElementById('vfs-timemachine').checked,
+    shadow_copy: document.getElementById('vfs-shadowcopy').checked,
+    recycle_bin: document.getElementById('vfs-recycle').checked
+  };
+  try {
+    const r = await csrfFetch('/api/smb/vfs', { method:'POST', body:JSON.stringify(data) });
+    const d = await r.json();
+    d.success ? ui.toast('VFS modules configured — add generated lines to smb.conf', 'success') : ui.toast(d.error, 'error');
+  } catch(e) { ui.toast('Failed', 'error'); }
+}
+</script>
+    <script src="/assets/js/nav-flyout.js?v=3.3.0"></script>
+    <script src="/assets/js/nav-shared.js?v=3.3.0"></script>
+</body>
+</html>

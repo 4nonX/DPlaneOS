@@ -1,0 +1,372 @@
+/* D-PlaneOS v3.0.0 Complete UI System */
+/* Single CSS entry point — import together with design-tokens.css.           */
+
+/* =============================================================================
+   GLOBAL RESET & BASE — centralises the inline reset repeated across ~16 pages.
+   ============================================================================= */
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+html  { background: var(--bg, #0a0a0a); }
+body  { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+        background: var(--bg, #0a0a0a); color: var(--text, #fff);
+        overflow-x: hidden; -webkit-font-smoothing: antialiased; }
+
+/* ============================================================================
+   CORE THEME (Material Design 3 Base)
+   ============================================================================ */
+@import url('material-theme.css');
+
+/* ============================================================================
+   COMPONENTS (UI Elements)
+   ============================================================================ */
+@import url('custom-forms.css');
+@import url('custom-scrollbars.css');
+@import url('glassmorphism-logs.css');
+@import url('responsive-tables.css');
+
+/* ============================================================================
+   GLOBAL RESETS & BASELINE
+   ============================================================================ */
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+html {
+    font-size: 16px;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+    font-family: 'Roboto', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: var(--md-sys-color-background);
+    color: var(--md-sys-color-on-surface);
+    line-height: 1.5;
+    overflow-x: hidden;
+}
+
+/* ============================================================================
+   AMBIENT SHADOW SYSTEM (Consistent Elevations)
+   ============================================================================ */
+
+.elevation-0 {
+    box-shadow: none;
+}
+
+.elevation-1 {
+    box-shadow: 
+        0 1px 2px 0 rgba(0, 0, 0, 0.05),
+        0 2px 4px 1px rgba(0, 0, 0, 0.06);
+}
+
+.elevation-2 {
+    box-shadow: 
+        0 2px 4px 0 rgba(0, 0, 0, 0.08),
+        0 4px 8px 2px rgba(0, 0, 0, 0.10),
+        0 8px 16px 4px rgba(0, 0, 0, 0.12);
+}
+
+.elevation-3 {
+    box-shadow: 
+        0 1px 2px 0 rgba(0, 0, 0, 0.05),
+        0 2px 6px 2px rgba(0, 0, 0, 0.08),
+        0 8px 16px 4px rgba(0, 0, 0, 0.10);
+}
+
+.elevation-4 {
+    box-shadow: 
+        0 2px 8px 0 rgba(0, 0, 0, 0.10),
+        0 6px 12px 4px rgba(0, 0, 0, 0.12),
+        0 12px 24px 8px rgba(0, 0, 0, 0.14);
+}
+
+/* ============================================================================
+   CONTAINER & LAYOUT
+   ============================================================================ */
+
+.container {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 24px;
+}
+
+.container-fluid {
+    width: 100%;
+    padding: 24px;
+}
+
+/* ============================================================================
+   GRID SYSTEM (8px base)
+   ============================================================================ */
+
+.grid {
+    display: grid;
+    gap: var(--grid-gap, 16px);
+}
+
+.grid-cols-1 { grid-template-columns: repeat(1, 1fr); }
+.grid-cols-2 { grid-template-columns: repeat(2, 1fr); }
+.grid-cols-3 { grid-template-columns: repeat(3, 1fr); }
+.grid-cols-4 { grid-template-columns: repeat(4, 1fr); }
+
+@media (max-width: 1024px) {
+    .grid-cols-4 { grid-template-columns: repeat(2, 1fr); }
+    .grid-cols-3 { grid-template-columns: repeat(2, 1fr); }
+}
+
+@media (max-width: 768px) {
+    .grid-cols-4,
+    .grid-cols-3,
+    .grid-cols-2 { 
+        grid-template-columns: 1fr; 
+    }
+}
+
+/* ============================================================================
+   CARDS
+   ============================================================================ */
+
+.card {
+    background: var(--md-sys-color-surface-container);
+    border-radius: 16px;
+    padding: 24px;
+    box-shadow: 
+        0 1px 2px 0 rgba(0, 0, 0, 0.05),
+        0 2px 4px 1px rgba(0, 0, 0, 0.06);
+    transition: all 0.2s ease;
+}
+
+.card:hover {
+    transform: translateY(-2px);
+    box-shadow: 
+        0 2px 4px 0 rgba(0, 0, 0, 0.08),
+        0 4px 8px 2px rgba(0, 0, 0, 0.10),
+        0 8px 16px 4px rgba(0, 0, 0, 0.12);
+}
+
+.card-header {
+    margin-bottom: 16px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.card-title {
+    font-size: 20px;
+    font-weight: 500;
+    color: var(--md-sys-color-on-surface);
+}
+
+.card-subtitle {
+    font-size: 14px;
+    color: var(--md-sys-color-on-surface-variant);
+    margin-top: 4px;
+}
+
+.card-content {
+    padding: 16px 0;
+}
+
+.card-actions {
+    display: flex;
+    gap: 12px;
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+/* ============================================================================
+   BUTTONS (Material Design 3)
+   ============================================================================ */
+
+.md-button {
+    padding: 10px 24px;
+    border-radius: 20px;
+    border: none;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-family: 'Roboto', sans-serif;
+    position: relative;
+    overflow: hidden;
+}
+
+.md-button.filled {
+    background: var(--md-sys-color-primary);
+    color: var(--md-sys-color-on-primary);
+}
+
+.md-button.filled:hover {
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+    transform: translateY(-2px);
+}
+
+.md-button.outlined {
+    background: transparent;
+    color: var(--md-sys-color-primary);
+    border: 1px solid var(--md-sys-color-outline);
+}
+
+.md-button.outlined:hover {
+    background: rgba(66, 133, 244, 0.08);
+}
+
+.md-button.text {
+    background: transparent;
+    color: var(--md-sys-color-primary);
+    padding: 10px 12px;
+}
+
+.md-button.text:hover {
+    background: rgba(66, 133, 244, 0.08);
+}
+
+.md-button:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+    transform: none;
+}
+
+/* Button Ripple Effect */
+.md-button:after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 0;
+    height: 0;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.3);
+    transform: translate(-50%, -50%);
+    transition: width 0.6s, height 0.6s;
+}
+
+.md-button:active:after {
+    width: 200px;
+    height: 200px;
+}
+
+/* ============================================================================
+   UTILITIES
+   ============================================================================ */
+
+.mt-8 { margin-top: 8px; }
+.mt-16 { margin-top: 16px; }
+.mt-24 { margin-top: 24px; }
+.mt-32 { margin-top: 32px; }
+
+.mb-8 { margin-bottom: 8px; }
+.mb-16 { margin-bottom: 16px; }
+.mb-24 { margin-bottom: 24px; }
+.mb-32 { margin-bottom: 32px; }
+
+.p-8 { padding: 8px; }
+.p-16 { padding: 16px; }
+.p-24 { padding: 24px; }
+.p-32 { padding: 32px; }
+
+.text-center { text-align: center; }
+.text-left { text-align: left; }
+.text-right { text-align: right; }
+
+.flex { display: flex; }
+.flex-col { flex-direction: column; }
+.items-center { align-items: center; }
+.justify-center { justify-content: center; }
+.justify-between { justify-content: space-between; }
+.gap-8 { gap: 8px; }
+.gap-16 { gap: 16px; }
+.gap-24 { gap: 24px; }
+
+.hidden { display: none; }
+.visible { display: block; }
+
+/* ============================================================================
+   ANIMATIONS
+   ============================================================================ */
+
+@keyframes fadeIn {
+    from { 
+        opacity: 0; 
+        transform: translateY(10px); 
+    }
+    to { 
+        opacity: 1; 
+        transform: translateY(0); 
+    }
+}
+
+@keyframes slideIn {
+    from { 
+        opacity: 0; 
+        transform: translateX(-20px); 
+    }
+    to { 
+        opacity: 1; 
+        transform: translateX(0); 
+    }
+}
+
+@keyframes pulse {
+    0%, 100% { 
+        opacity: 1; 
+    }
+    50% { 
+        opacity: 0.5; 
+    }
+}
+
+.fade-in {
+    animation: fadeIn 0.3s ease;
+}
+
+.slide-in {
+    animation: slideIn 0.3s ease;
+}
+
+/* ============================================================================
+   RESPONSIVE TYPOGRAPHY
+   ============================================================================ */
+
+h1 { font-size: 32px; font-weight: 400; line-height: 1.2; }
+h2 { font-size: 24px; font-weight: 500; line-height: 1.3; }
+h3 { font-size: 20px; font-weight: 500; line-height: 1.4; }
+h4 { font-size: 18px; font-weight: 500; line-height: 1.4; }
+h5 { font-size: 16px; font-weight: 500; line-height: 1.5; }
+h6 { font-size: 14px; font-weight: 500; line-height: 1.5; }
+
+@media (max-width: 768px) {
+    h1 { font-size: 28px; }
+    h2 { font-size: 22px; }
+    h3 { font-size: 18px; }
+    h4 { font-size: 16px; }
+    
+    .container {
+        padding: 16px;
+    }
+}
+
+/* ============================================================================
+   PRINT STYLES
+   ============================================================================ */
+
+@media print {
+    body {
+        background: white;
+        color: black;
+    }
+    
+    .no-print {
+        display: none !important;
+    }
+    
+    .card {
+        box-shadow: none;
+        border: 1px solid #ccc;
+    }
+}

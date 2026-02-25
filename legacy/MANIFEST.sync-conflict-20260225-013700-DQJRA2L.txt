@@ -1,0 +1,242 @@
+D-PlaneOS v1.8.0 - Emergency Security Cleanup + Internet-Facing Hardening
+==========================================================================
+
+PACKAGE CONTENTS:
+
+Documentation:
+  README.md                      - Main project documentation
+  CHANGELOG.md                   - Complete version history
+  INSTALL-SAFETY.md              - Installation safety features guide
+  SECURITY-AUDIT.md              - Honest security assessment
+  INTERNET-DEPLOYMENT.md         - NEW: Complete internet-facing deployment guide
+  SECURITY-QUICK-REF.md          - NEW: Security quick reference card
+  THREAT-MODEL.md                - Threat analysis
+  SECURITY.md                    - Security policies
+  RECOVERY.md                    - Recovery procedures
+  MANIFEST.txt                   - This file
+  LICENSE                        - MIT License
+
+Installation:
+  install.sh                     - Installation script with safety rails
+  SHA256SUMS                     - Integrity verification for critical files
+
+Database:
+  database/                      - SQLite database schema and initialization
+
+System:
+  system/bin/                    - System binaries (monitor.sh, etc.)
+  system/config/                 - Configuration files (sudoers.enhanced, etc.)
+  system/dashboard/              - Web dashboard (PHP, HTML, CSS, JS)
+    api/                         - REST API endpoints
+      csrf-token.php             - NEW: CSRF token endpoint
+    assets/                      - Static assets (CSS, JS, images)
+    includes/                    - PHP includes
+      auth.php                   - Authentication (UPDATED with security layer)
+      security.php               - NEW: Comprehensive security hardening
+      command-broker.php         - Command execution broker
+      shares.php                 - Share management
+      rclone.php                 - Cloud sync
+    index.php                    - Main dashboard interface
+    login.php                    - Authentication (UPDATED with brute force protection)
+
+WHAT'S NEW IN v1.8.0 (INTERNET-READY):
+
+CRITICAL SECURITY HARDENING:
+  ✅ Rate limiting (100 req/5min → 1hr ban)
+  ✅ Brute force protection (5 attempts/5min → 30min ban)
+  ✅ CSRF protection on all state-changing requests
+  ✅ Session hijacking detection
+  ✅ IP allowlisting capability
+  ✅ Security headers (HSTS, CSP, X-Frame-Options, etc.)
+  ✅ Force HTTPS redirect
+  ✅ Secure session cookies (HttpOnly, Secure, SameSite)
+
+PACKAGING FIXES:
+  ✅ Removed nested v1.6.0 directory
+  ✅ Fixed version banner (v1.5.0 → v1.8.0)
+  ✅ Fixed VERSION file (1.5.0 → 1.8.0)
+  ✅ Added SHA256SUMS integrity verification
+
+INSTALLATION SAFETY:
+  ✅ Dry-run mode (--dry-run flag)
+  ✅ Enhanced error handling (set -u, set -o pipefail)
+  ✅ Timestamped backups for critical files
+  ✅ Automatic rollback on sudoers failure
+  ✅ Comprehensive pre-flight checks
+  ✅ Disk space verification
+  ✅ Sudoers syntax validation
+
+NEW DOCUMENTATION:
+  ✅ INTERNET-DEPLOYMENT.md - Complete deployment guide
+  ✅ SECURITY-QUICK-REF.md - Quick reference card
+  ✅ INSTALL-SAFETY.md - Safety features guide
+  ✅ SECURITY-AUDIT.md - Honest security assessment
+
+DEPLOYMENT FEATURES:
+  ✅ Nginx configuration with rate limiting
+  ✅ Fail2ban rules for auto-banning
+  ✅ SSL/TLS configuration (Let's Encrypt)
+  ✅ Security testing procedures
+  ✅ Emergency procedures
+  ✅ Monitoring & alerting setup
+
+PACKAGE INTEGRITY:
+  SHA256 checksums available in SHA256SUMS
+  Verify before installation: sha256sum -c SHA256SUMS
+
+INSTALLATION MODES:
+  1. Dry-run:  sudo bash install.sh --dry-run
+  2. Normal:   sudo bash install.sh
+  3. Upgrade:  sudo bash install.sh (auto-detected if /var/dplane exists)
+
+MINIMUM REQUIREMENTS:
+  - Debian/Ubuntu Linux
+  - Root access
+  - 500MB disk space in /var
+  - ZFS kernel module (optional, for storage features)
+  - Docker (optional, for container management)
+  - PHP 8.2 with FPM
+  - Nginx
+  - UFW firewall
+  - Fail2ban (for internet deployment)
+  - Valid SSL certificate (for internet deployment)
+
+SECURITY NOTES:
+  ⚠️ Read INTERNET-DEPLOYMENT.md BEFORE deploying to internet
+  ⚠️ Change default password IMMEDIATELY after install
+  ⚠️ Configure fail2ban BEFORE exposing to internet
+  ⚠️ Use HTTPS only (HTTP automatically redirects)
+  ✅ NOW SUITABLE for internet-facing deployment (when properly configured)
+  ✅ Multiple layers of defense (firewall, fail2ban, nginx, PHP, application)
+  ✅ Tested security features (rate limiting, brute force, CSRF)
+
+DEPLOYMENT CHECKLIST:
+  □ Read INTERNET-DEPLOYMENT.md completely
+  □ Configure UFW firewall
+  □ Install & configure fail2ban
+  □ Set up Nginx with HTTPS
+  □ Verify package integrity (sha256sum -c SHA256SUMS)
+  □ Run dry-run test (install.sh --dry-run)
+  □ Install (install.sh)
+  □ Change default password
+  □ Configure IP allowlist (optional but recommended)
+  □ Test all security features
+  □ Enable monitoring
+  □ Configure backups
+  □ Review SECURITY-QUICK-REF.md
+
+VERSION VERIFICATION:
+  After install: cat /var/dplane/VERSION
+  Should output: 1.8.0
+
+SECURITY TESTING:
+  - Rate limiting: curl loop 110 times → HTTP 429
+  - Brute force: 6 wrong passwords → HTTP 403
+  - CSRF: POST without token → HTTP 403
+  - SSL: nmap ssl-enum-ciphers → TLSv1.2/1.3 only
+  - Headers: curl -I → HSTS, CSP, X-Frame-Options present
+
+SUPPORT:
+  Issues: Create GitHub issue
+  Security: See SECURITY.md for private reporting
+  Documentation: See README.md and INTERNET-DEPLOYMENT.md
+
+BUILD DATE: 2026-01-28
+BUILD TYPE: Emergency Security Cleanup + Internet-Facing Hardening
+RELEASE STATUS: Production Ready (when properly configured)
+INTERNET READY: YES (follow INTERNET-DEPLOYMENT.md)
+TESTED FOR: Rate limiting, brute force, CSRF, session hijacking, injection attacks
+
+PACKAGE CONTENTS:
+
+Documentation:
+  README.md              - Main project documentation
+  CHANGELOG.md           - Complete version history
+  INSTALL-SAFETY.md      - NEW: Installation safety features guide
+  SECURITY-AUDIT.md      - NEW: Honest security assessment and fixes
+  THREAT-MODEL.md        - Threat analysis
+  SECURITY.md            - Security policies
+  RECOVERY.md            - Recovery procedures
+  LICENSE                - MIT License
+
+Installation:
+  install.sh             - FIXED: Installation script with safety rails
+  SHA256SUMS             - NEW: Integrity verification for critical files
+
+Database:
+  database/              - SQLite database schema and initialization
+
+System:
+  system/bin/            - System binaries (monitor.sh, etc.)
+  system/config/         - Configuration files (sudoers.enhanced, etc.)
+  system/dashboard/      - Web dashboard (PHP, HTML, CSS, JS)
+    api/                 - REST API endpoints
+    assets/              - Static assets (CSS, JS, images)
+    includes/            - PHP includes (auth, database, utilities)
+    index.php            - Main dashboard interface
+    login.php            - Authentication interface
+
+WHAT'S NEW IN v1.8.0:
+
+CRITICAL FIXES:
+  ✅ Removed nested v1.6.0 directory (packaging disaster)
+  ✅ Fixed version banner (was v1.5.0, now v1.8.0)
+  ✅ Fixed VERSION file (was 1.5.0, now 1.8.0)
+  ✅ Added sudoers validation with automatic rollback
+  ✅ Added SHA256SUMS integrity verification
+  ✅ Added comprehensive pre-flight system checks
+
+SAFETY IMPROVEMENTS:
+  ✅ Dry-run mode (--dry-run flag)
+  ✅ Enhanced error handling (set -u, set -o pipefail)
+  ✅ Timestamped backups for critical files
+  ✅ Automatic rollback on sudoers failure
+  ✅ File copy error detection
+  ✅ Disk space verification
+
+DOCUMENTATION:
+  ✅ INSTALL-SAFETY.md - Complete safety features guide
+  ✅ SECURITY-AUDIT.md - Honest assessment of fixes and remaining work
+
+REMOVED:
+  ❌ dplaneos-v1.6.0/   - Nested version directory (packaging error)
+  ❌ Version badge from dashboard (not supposed to be there)
+
+PACKAGE INTEGRITY:
+  SHA256 checksums available in SHA256SUMS
+  Verify before installation: sha256sum -c SHA256SUMS
+
+INSTALLATION MODES:
+  1. Dry-run:  sudo bash install.sh --dry-run
+  2. Normal:   sudo bash install.sh
+  3. Upgrade:  sudo bash install.sh (auto-detected if /var/dplane exists)
+
+MINIMUM REQUIREMENTS:
+  - Debian/Ubuntu Linux
+  - Root access
+  - 500MB disk space in /var
+  - ZFS kernel module (optional, for storage features)
+  - Docker (optional, for container management)
+  - PHP 8.2 with FPM
+  - Nginx
+
+SECURITY NOTES:
+  - Read SECURITY-AUDIT.md before deploying
+  - Change default password immediately after install
+  - Not suitable for internet exposure (yet)
+  - API security audit pending (within 48 hours)
+  - Suitable for isolated homelab use only
+
+VERSION VERIFICATION:
+  After install: cat /var/dplane/VERSION
+  Should output: 1.8.0
+
+SUPPORT:
+  Issues: Create GitHub issue
+  Security: See SECURITY.md for private reporting
+  Documentation: See README.md
+
+BUILD DATE: 2026-01-28
+BUILD TYPE: Emergency Security Cleanup
+RELEASE STATUS: Stable (for homelab use)
+PRODUCTION READY: Not yet (API audit pending)

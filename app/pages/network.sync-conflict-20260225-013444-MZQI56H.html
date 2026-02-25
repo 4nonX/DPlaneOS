@@ -1,0 +1,1076 @@
+<!DOCTYPE html>
+<!-- saved from url=(0141)network.html -->
+<html lang="en"><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Network - D-PlaneOS</title>
+    <link rel="stylesheet" href="/assets/css/design-tokens.css?v=3.3.0">
+    <link rel="stylesheet" href="/assets/css/dplaneos-ui-complete.css?v=3.3.0">
+<link rel="stylesheet" href="/assets/css/m3-tokens.css?v=3.3.0">
+<link rel="stylesheet" href="/assets/css/m3-components.css?v=3.3.0">
+<link rel="stylesheet" href="/assets/css/m3-icons.css?v=3.3.0">
+  <link rel="stylesheet" href="/assets/css/enhanced-ui.css?v=3.3.0">
+<link rel="stylesheet" href="/assets/css/m3-animations.css?v=3.3.0">
+<style>
+.logo { font-size: 20px; font-weight: 800; color: var(--primary); letter-spacing: -0.5px; cursor: pointer; }
+
+
+.nav-link:hover, 
+.main { max-width: 1600px; margin: 140px auto 60px; padding: 0 40px; }
+.page-header { margin-bottom: 48px; }
+.page-title { font-size: 32px; font-weight: 700; letter-spacing: -1.5px; margin-bottom: 12px; }
+.page-subtitle { font-size: 18px; color: rgba(255,255,255,0.6); }
+.interface-card { background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: var(--radius-xl); padding: 32px; margin-bottom: 24px; border-left: 4px solid var(--primary); }
+.interface-header { display: flex; align-items: center; gap: 20px; margin-bottom: 20px; }
+.interface-icon { font-size: 32px; color: var(--primary); }
+.interface-info { flex: 1; }
+.interface-name { font-size: 20px; font-weight: 800; margin-bottom: 6px; }
+.interface-details { font-size: 15px; color: rgba(255,255,255,0.6); }
+/* Badge styles are in m3-components.css */
+.icon-btn { width: 40px; height: 40px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; display: flex; align-items: center; justify-content: center; color: rgba(255,255,255,0.8); cursor: pointer; transition: all 0.3s; border: none; }
+.icon-btn:hover { background: rgba(255,255,255,0.1); color: var(--text); }
+.fab { position: fixed; bottom: 32px; right: 32px; width: 64px; height: 64px; background: linear-gradient(135deg, var(--primary) 0%, var(--primary) 100%); border-radius: 20px; display: flex; align-items: center; justify-content: center; box-shadow: 0 8px 32px rgba(102, 126, 234, 0.4); cursor: pointer; transition: all 0.3s; border: none; color: var(--text); }
+.fab:hover { transform: translateY(-4px); box-shadow: 0 12px 48px rgba(102, 126, 234, 0.6); }
+</style>
+<style type="text/css" id="operaUserStyle"></style><link rel="stylesheet" href="/assets/css/ui-components.css?v=3.3.0">
+<script src="/assets/js/core.js?v=3.3.0"></script>
+<script src="/assets/js/nav-flyout.js?v=3.3.0"></script>
+<script src="/assets/js/hybrid-router.js?v=3.3.0"></script>
+  <script src="/assets/js/enhanced-ui.js?v=3.3.0"></script>
+  <script src="/assets/js/connection-monitor.js?v=3.3.0"></script>
+  <script src="/assets/js/keyboard-shortcuts.js?v=3.3.0"></script>
+  <script src="/assets/js/form-validator.js?v=3.3.0"></script>
+  <link rel="stylesheet" href="/assets/css/material-symbols-local.css?v=3.3.0">
+  <link rel="stylesheet" href="/assets/css/ui-consistency.css?v=3.3.0">
+  <link rel="stylesheet" href="/assets/css/ui-polish.css?v=3.3.0">
+  <script src="/assets/js/daemon-api.js?v=3.3.0"></script>
+  <script src="/assets/js/unsaved-changes.js?v=3.3.0"></script>
+</head>
+<body>
+<!-- D-PlaneOS - Hierarchical Navigation -->
+<!-- This navigation maintains all security (CSRF, Auth) and real system state -->
+
+<div id="nav-root"></div>
+
+<script src="/assets/js/nav-shared.js?v=3.3.0"></script>
+
+<main class="main">
+<div class="page-header">
+<h1 class="page-title">Network</h1>
+<p class="page-subtitle">VLAN & Bonding • Interfaces • DNS • Routing</p>
+</div>
+<div class="consolidation-tabs">
+  <button class="consolidation-tab active" data-tab="vlan" onclick="switchConsolidatedTab('vlan')">VLAN & Bonding</button>
+  <button class="consolidation-tab" data-tab="interfaces" onclick="switchConsolidatedTab('interfaces')">Interfaces</button>
+  <button class="consolidation-tab" data-tab="dns" onclick="switchConsolidatedTab('dns')">DNS</button>
+  <button class="consolidation-tab" data-tab="routing" onclick="switchConsolidatedTab('routing')">Routing</button>
+</div>
+
+<div id="tab-vlan" class="consolidation-content active">
+
+
+<div class="page-header">
+<h1 class="page-title">Network</h1>
+<p class="page-subtitle">Configuration • VPN • Remote access</p>
+</div>
+<div id="network-interfaces-container">
+  <div class="interface-card">
+    <div style="text-align: center; padding: 40px;">
+      <p style="color: rgba(255,255,255,0.5);">Loading network interfaces...</p>
+    </div>
+  </div>
+</div>
+<button class="fab" onclick="testNetwork()"><span class="material-symbols-rounded" style="font-size:28px;">network_check</span></button>
+<script src="/assets/js/m3-ripple.js?v=3.3.0"></script>
+<script src="/assets/js/ui-components.js?v=3.3.0"></script>
+<script>
+window.ui = window.ui || new DPlaneUI();
+
+// IPv4 validation helper — shared by all configureInterface instances
+function isValidIPv4(ip) {
+  if (!ip || !ip.trim()) return true; // empty = skip (field might be optional)
+  return /^(\d{1,3}\.){3}\d{1,3}$/.test(ip.trim()) && ip.trim().split('.').every(n => parseInt(n) <= 255);
+}
+
+// After a static IP change, show a countdown and redirect to the new IP
+function startIPRedirect(newIP) {
+  const overlay = document.createElement('div');
+  overlay.id = 'ip-redirect-overlay';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.88);z-index:99999;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;color:#fff;font-size:18px;backdrop-filter:blur(4px);';
+  let remaining = 10;
+  const render = () => {
+    overlay.innerHTML = '<span class="material-symbols-rounded" style="font-size:48px;color:#F59E0B;">wifi_tethering</span>'
+      + '<strong>IP Address Changed</strong>'
+      + '<span style="font-size:14px;color:rgba(255,255,255,0.6);">Reconnecting to <code style="background:rgba(255,255,255,0.1);padding:2px 8px;border-radius:4px;">' + newIP + '</code></span>'
+      + '<span style="font-size:14px;">Redirecting in ' + remaining + 's…</span>'
+      + '<a href="http://' + newIP + '" style="margin-top:8px;padding:10px 24px;background:var(--primary,#667eea);border-radius:8px;color:#fff;text-decoration:none;font-size:14px;">Go Now</a>';
+  };
+  render();
+  document.body.appendChild(overlay);
+  const t = setInterval(() => { remaining--; if (remaining <= 0) { clearInterval(t); window.location.href = 'http://' + newIP; } else { render(); } }, 1000);
+}
+
+async function configureInterface(name) {
+  const result = await ui.form(`Configure ${name}`, [
+    { name: 'address', label: 'IP Address', type: 'text', placeholder: '192.168.1.100' },
+    { name: 'netmask', label: 'Netmask', type: 'text', placeholder: '255.255.255.0' },
+    { name: 'gateway', label: 'Gateway', type: 'text', placeholder: '192.168.1.1' },
+    { name: 'dns', label: 'DNS Server', type: 'text', value: '1.1.1.1' }
+  ], 'Apply');
+  
+  if (result) {
+    ui.showLoading('Applying network configuration...');
+    
+    try {
+      const response = await csrfFetch('/api/network/apply', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'configure', interface: name, ...result })
+      });
+      
+      const data = await response.json();
+      ui.hideLoading();
+      
+      if (data.success) {
+        ui.toast('Network configured successfully', 'success');
+        setTimeout(() => location.reload(), 2000);
+      } else {
+        ui.toast(data.error || 'Failed to configure network', 'error');
+      }
+    } catch (error) {
+      ui.hideLoading();
+      ui.toast('Network error: ' + error.message, 'error');
+    }
+  }
+}
+
+async function configureVPN() {
+  const result = await ui.form('VPN Settings', [
+    { name: 'enabled', label: 'Enable VPN', type: 'checkbox', checked: true },
+    { name: 'key', label: 'Auth Key', type: 'text' }
+  ], 'Save');
+  
+  if (result) {
+    ui.showLoading('Saving VPN settings...');
+    
+    try {
+      const response = await csrfFetch('/api/network/apply', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'vpn', ...result })
+      });
+      
+      const data = await response.json();
+      ui.hideLoading();
+      
+      if (data.success) {
+        ui.toast('VPN settings saved', 'success');
+      } else {
+        ui.toast(data.error || 'Failed to save settings', 'error');
+      }
+    } catch (error) {
+      ui.hideLoading();
+      ui.toast('Network error: ' + error.message, 'error');
+    }
+  }
+}
+
+async function testNetwork() {
+  ui.showLoading('Testing network connection...');
+  
+  try {
+    const response = await csrfFetch('/api/system/network');
+    const result = await response.json();
+    ui.hideLoading();
+    
+    if (result.success) {
+      ui.toast(`✓ Network OK (${result.latency}ms)`, 'success');
+    } else {
+      ui.toast('Network test failed', 'error');
+    }
+  } catch (error) {
+    ui.hideLoading();
+    ui.toast('Network error: ' + error.message, 'error');
+  }
+}
+
+async function loadNetworkInterfaces() {
+  try {
+    const response = await csrfFetch('/api/system/network');
+    const data = await response.json();
+    
+    if (data.success && data.interfaces) {
+      renderInterfaces(data.interfaces);
+    } else {
+      document.getElementById('network-interfaces-container').innerHTML = '<div class="interface-card"><p style="color: rgba(255,255,255,0.5); text-align: center; padding: 40px;">No network interfaces found</p></div>';
+    }
+  } catch (error) {
+    document.getElementById('network-interfaces-container').innerHTML = '<div class="interface-card"><p style="color: #ef4444; text-align: center; padding: 40px;">Failed to load network interfaces</p></div>';
+  }
+}
+
+function renderInterfaces(interfaces) {
+  const container = document.getElementById('network-interfaces-container');
+  container.innerHTML = '';
+  
+  interfaces.forEach(iface => {
+    const card = document.createElement('div');
+    card.className = 'interface-card';
+    
+    const icon = iface.type === 'vpn' ? 'vpn_lock' : 'lan';
+    const statusIcon = iface.status === 'up' ? 'link' : 'link_off';
+    const statusText = iface.status === 'up' ? 'Connected' : 'Disconnected';
+    
+    const header = document.createElement('div');
+    header.className = 'interface-header';
+    const iconEl = document.createElement('span');
+    iconEl.className = 'material-symbols-rounded interface-icon';
+    iconEl.textContent = icon;
+    const info = document.createElement('div');
+    info.className = 'interface-info';
+    const nameEl = document.createElement('div');
+    nameEl.className = 'interface-name';
+    nameEl.textContent = `${iface.name || ''}${iface.primary ? ' (Primary)' : ''}`;
+    const detailsEl = document.createElement('div');
+    detailsEl.className = 'interface-details';
+    detailsEl.textContent = `${iface.ip || 'No IP'} • ${iface.speed || 'Unknown'} • Gateway: ${iface.gateway || 'None'}`;
+    info.append(nameEl, detailsEl);
+    const badge = document.createElement('div');
+    badge.className = 'badge';
+    const badgeIcon = document.createElement('span');
+    badgeIcon.className = 'material-symbols-rounded';
+    badgeIcon.style.fontSize = '16px';
+    badgeIcon.textContent = statusIcon;
+    badge.append(badgeIcon, document.createTextNode(` ${statusText}`));
+    const btn = document.createElement('button');
+    btn.className = 'icon-btn';
+    btn.addEventListener('click', () => configureInterface(iface.name));
+    btn.innerHTML = '<span class="material-symbols-rounded">settings</span>';
+    header.append(iconEl, info, badge, btn);
+    card.appendChild(header);
+    if (Array.isArray(iface.details) && iface.details.length) {
+      const detailsWrap = document.createElement('div');
+      detailsWrap.style.display = 'flex';
+      detailsWrap.style.gap = '12px';
+      iface.details.forEach((d) => {
+        const chip = document.createElement('span');
+        chip.style.cssText = 'padding:6px 12px;background:rgba(255,255,255,0.05);border-radius:8px;font-size:13px;';
+        chip.textContent = String(d || '');
+        detailsWrap.appendChild(chip);
+      });
+      card.appendChild(detailsWrap);
+    }
+    
+    container.appendChild(card);
+  });
+}
+
+// Load interfaces on page load
+loadNetworkInterfaces();
+
+</script>
+  <script src="/assets/js/realtime-client.js?v=3.3.0"></script>
+<!-- v3.0.0: VLAN, Bond/LACP, NTP -->
+</div>
+<div id="tab-interfaces" class="consolidation-content">
+<h1>Network Interfaces</h1>
+  
+  <div id="interfaceList">
+    <div style="text-align: center; padding: 60px; color: var(--text-dim);">
+      <span class="material-symbols-rounded" style="font-size: 32px; opacity: 0.3;">refresh</span>
+      <p>Loading interfaces...</p>
+    </div>
+  </div>
+</div>
+<div id="tab-dns" class="consolidation-content">
+<div style="max-width: 1600px; margin: 160px auto 60px; padding: 0 40px;">
+  <h1 style="font-size: 32px; font-weight: 700; margin-bottom: 30px;">DNS Configuration</h1>
+
+  <div style="background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-xl); padding: 24px; margin-bottom: 24px;">
+    <h3 style="font-size: 18px; font-weight: 700; margin-bottom: 20px;">Nameservers</h3>
+    <div id="dnsServers"></div>
+    <button class="btn btn-primary" onclick="addDNS()" style="margin-top: 16px;">
+      <span class="material-symbols-rounded" style="font-size: 18px;">add</span>
+      Add Nameserver
+    </button>
+  </div>
+
+  <div style="background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-xl); padding: 24px;">
+    <h3 style="font-size: 18px; font-weight: 700; margin-bottom: 20px;">Search Domains</h3>
+    <div id="searchDomains"></div>
+    <button class="btn btn-primary" onclick="addSearchDomain()" style="margin-top: 16px;">
+      <span class="material-symbols-rounded" style="font-size: 18px;">add</span>
+      Add Search Domain
+    </button>
+  </div>
+</div>
+
+
+</div>
+<div id="tab-routing" class="consolidation-content">
+<div style="max-width: 1600px; margin: 160px auto 60px; padding: 0 40px;">
+  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px;">
+    <h1 style="font-size: 32px; font-weight: 700; margin: 0;">Network Routing</h1>
+    <button class="btn btn-primary" onclick="addRoute()">
+      <span class="material-symbols-rounded" style="font-size: 18px;">add</span>
+      Add Route
+    </button>
+  </div>
+
+  <div style="background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-xl); padding: 24px;">
+    <table style="width: 100%; border-collapse: collapse;">
+      <thead>
+        <tr>
+          <th style="text-align: left; color: var(--text-dim); font-size: 11px; padding: 12px; border-bottom: 1px solid var(--border); text-transform: uppercase; font-weight: 700;">Destination</th>
+          <th style="text-align: left; color: var(--text-dim); font-size: 11px; padding: 12px; border-bottom: 1px solid var(--border); text-transform: uppercase; font-weight: 700;">Gateway</th>
+          <th style="text-align: left; color: var(--text-dim); font-size: 11px; padding: 12px; border-bottom: 1px solid var(--border); text-transform: uppercase; font-weight: 700;">Interface</th>
+          <th style="text-align: left; color: var(--text-dim); font-size: 11px; padding: 12px; border-bottom: 1px solid var(--border); text-transform: uppercase; font-weight: 700;">Metric</th>
+          <th style="text-align: left; color: var(--text-dim); font-size: 11px; padding: 12px; border-bottom: 1px solid var(--border); text-transform: uppercase; font-weight: 700;">Actions</th>
+        </tr>
+      </thead>
+      <tbody id="routeTable">
+        <tr><td colspan="5" style="text-align: center; padding: 40px; color: var(--text-dim);">Loading routes...</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+
+</div>
+
+</main>
+<button class="fab" onclick="testNetwork()"><span class="material-symbols-rounded" style="font-size:28px;">network_check</span></button>
+<script src="/assets/js/m3-ripple.js?v=3.3.0"></script>
+<script src="/assets/js/ui-components.js?v=3.3.0"></script>
+<script>
+window.ui = window.ui || new DPlaneUI();
+
+async function configureInterface(name) {
+  const result = await ui.form(`Configure ${name}`, [
+    { name: 'address', label: 'IP Address', type: 'text', placeholder: '192.168.1.100' },
+    { name: 'netmask', label: 'Netmask', type: 'text', placeholder: '255.255.255.0' },
+    { name: 'gateway', label: 'Gateway', type: 'text', placeholder: '192.168.1.1' },
+    { name: 'dns', label: 'DNS Server', type: 'text', value: '1.1.1.1' }
+  ], 'Apply');
+  
+  if (result) {
+    ui.showLoading('Applying network configuration...');
+    
+    try {
+      const response = await csrfFetch('/api/network/apply', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'configure', interface: name, ...result })
+      });
+      
+      const data = await response.json();
+      ui.hideLoading();
+      
+      if (data.success) {
+        ui.toast('Network configured successfully', 'success');
+        setTimeout(() => location.reload(), 2000);
+      } else {
+        ui.toast(data.error || 'Failed to configure network', 'error');
+      }
+    } catch (error) {
+      ui.hideLoading();
+      ui.toast('Network error: ' + error.message, 'error');
+    }
+  }
+}
+
+async function configureVPN() {
+  const result = await ui.form('VPN Settings', [
+    { name: 'enabled', label: 'Enable VPN', type: 'checkbox', checked: true },
+    { name: 'key', label: 'Auth Key', type: 'text' }
+  ], 'Save');
+  
+  if (result) {
+    ui.showLoading('Saving VPN settings...');
+    
+    try {
+      const response = await csrfFetch('/api/network/apply', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'vpn', ...result })
+      });
+      
+      const data = await response.json();
+      ui.hideLoading();
+      
+      if (data.success) {
+        ui.toast('VPN settings saved', 'success');
+      } else {
+        ui.toast(data.error || 'Failed to save settings', 'error');
+      }
+    } catch (error) {
+      ui.hideLoading();
+      ui.toast('Network error: ' + error.message, 'error');
+    }
+  }
+}
+
+async function testNetwork() {
+  ui.showLoading('Testing network connection...');
+  
+  try {
+    const response = await csrfFetch('/api/system/network');
+    const result = await response.json();
+    ui.hideLoading();
+    
+    if (result.success) {
+      ui.toast(`✓ Network OK (${result.latency}ms)`, 'success');
+    } else {
+      ui.toast('Network test failed', 'error');
+    }
+  } catch (error) {
+    ui.hideLoading();
+    ui.toast('Network error: ' + error.message, 'error');
+  }
+}
+
+async function loadNetworkInterfaces() {
+  try {
+    const response = await csrfFetch('/api/system/network');
+    const data = await response.json();
+    
+    if (data.success && data.interfaces) {
+      renderInterfaces(data.interfaces);
+    } else {
+      document.getElementById('network-interfaces-container').innerHTML = '<div class="interface-card"><p style="color: rgba(255,255,255,0.5); text-align: center; padding: 40px;">No network interfaces found</p></div>';
+    }
+  } catch (error) {
+    document.getElementById('network-interfaces-container').innerHTML = '<div class="interface-card"><p style="color: #ef4444; text-align: center; padding: 40px;">Failed to load network interfaces</p></div>';
+  }
+}
+
+function renderInterfaces(interfaces) {
+  const container = document.getElementById('network-interfaces-container');
+  container.innerHTML = '';
+  
+  interfaces.forEach(iface => {
+    const card = document.createElement('div');
+    card.className = 'interface-card';
+    
+    const icon = iface.type === 'vpn' ? 'vpn_lock' : 'lan';
+    const statusIcon = iface.status === 'up' ? 'link' : 'link_off';
+    const statusText = iface.status === 'up' ? 'Connected' : 'Disconnected';
+    
+    const header = document.createElement('div');
+    header.className = 'interface-header';
+    const iconEl = document.createElement('span');
+    iconEl.className = 'material-symbols-rounded interface-icon';
+    iconEl.textContent = icon;
+    const info = document.createElement('div');
+    info.className = 'interface-info';
+    const nameEl = document.createElement('div');
+    nameEl.className = 'interface-name';
+    nameEl.textContent = `${iface.name || ''}${iface.primary ? ' (Primary)' : ''}`;
+    const detailsEl = document.createElement('div');
+    detailsEl.className = 'interface-details';
+    detailsEl.textContent = `${iface.ip || 'No IP'} • ${iface.speed || 'Unknown'} • Gateway: ${iface.gateway || 'None'}`;
+    info.append(nameEl, detailsEl);
+    const badge = document.createElement('div');
+    badge.className = 'badge';
+    const badgeIcon = document.createElement('span');
+    badgeIcon.className = 'material-symbols-rounded';
+    badgeIcon.style.fontSize = '16px';
+    badgeIcon.textContent = statusIcon;
+    badge.append(badgeIcon, document.createTextNode(` ${statusText}`));
+    const btn = document.createElement('button');
+    btn.className = 'icon-btn';
+    btn.addEventListener('click', () => configureInterface(iface.name));
+    btn.innerHTML = '<span class="material-symbols-rounded">settings</span>';
+    header.append(iconEl, info, badge, btn);
+    card.appendChild(header);
+    if (Array.isArray(iface.details) && iface.details.length) {
+      const detailsWrap = document.createElement('div');
+      detailsWrap.style.display = 'flex';
+      detailsWrap.style.gap = '12px';
+      iface.details.forEach((d) => {
+        const chip = document.createElement('span');
+        chip.style.cssText = 'padding:6px 12px;background:rgba(255,255,255,0.05);border-radius:8px;font-size:13px;';
+        chip.textContent = String(d || '');
+        detailsWrap.appendChild(chip);
+      });
+      card.appendChild(detailsWrap);
+    }
+    
+    container.appendChild(card);
+  });
+}
+
+// Load interfaces on page load
+loadNetworkInterfaces();
+
+</script>
+  <script src="/assets/js/realtime-client.js?v=3.3.0"></script>
+<!-- v3.0.0: VLAN, Bond/LACP, NTP -->
+<script>
+function switchConsolidatedTab(t){document.querySelectorAll('.consolidation-content').forEach(function(c){c.classList.remove('active')});document.querySelectorAll('.consolidation-tab').forEach(function(b){b.classList.remove('active')});var el=document.getElementById('tab-'+t);var btn=document.querySelector('[data-tab="'+t+'"]');if(el)el.classList.add('active');if(btn)btn.classList.add('active');if(typeof window['init_'+t]==='function')window['init_'+t]();}window.addEventListener('load',function(){var h=window.location.hash.replace('#','');if(h&&document.getElementById('tab-'+h))switchConsolidatedTab(h);});
+document.addEventListener('DOMContentLoaded', () => {
+  // Unsaved-changes guard for the whole page
+  if (window.UnsavedChanges) {
+    window._networkGuard = UnsavedChanges.watch(document.body);
+  }
+  const main = document.querySelector('.main');
+  if (!main) return;
+  const adv = document.createElement('div');
+  adv.style.marginTop = '48px';
+  adv.innerHTML = `
+    <h2 class="page-title" style="font-size:28px;">Advanced Networking</h2>
+    <p class="page-subtitle" style="margin-bottom:32px;">VLAN • Bond/LACP • NTP</p>
+
+    <!-- VLAN -->
+    <div class="card" style="padding:32px;margin-bottom:24px;border-left:4px solid #06b6d4;">
+      <div style="display:flex;align-items:center;gap:16px;margin-bottom:20px;">
+        <span class="material-symbols-rounded" style="font-size:32px;color:#06b6d4;">lan</span>
+        <div style="flex:1;"><div style="font-size:20px;font-weight:800;">VLAN (802.1Q)</div></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:12px;align-items:end;">
+        <div><label style="font-size:12px;color:rgba(255,255,255,0.5);display:block;margin-bottom:6px;">Parent</label>
+          <input id="vlan-parent" type="text" placeholder="eth0" style="width:100%;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:var(--md-sys-shape-corner-medium);padding:10px 16px;color:#fff;font-family:monospace;"></div>
+        <div><label style="font-size:12px;color:rgba(255,255,255,0.5);display:block;margin-bottom:6px;">VLAN ID</label>
+          <input id="vlan-id" type="number" min="1" max="4094" placeholder="100" style="width:100%;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:var(--md-sys-shape-corner-medium);padding:10px 16px;color:#fff;"></div>
+        <div><label style="font-size:12px;color:rgba(255,255,255,0.5);display:block;margin-bottom:6px;">IP (optional)</label>
+          <input id="vlan-ip" type="text" placeholder="10.0.100.1/24" style="width:100%;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:var(--md-sys-shape-corner-medium);padding:10px 16px;color:#fff;font-family:monospace;"></div>
+        <button class="btn btn-primary" onclick="createVLAN()"><span class="material-symbols-rounded" style="font-size:18px;">add</span> Create</button>
+      </div>
+      <div id="vlan-list" style="margin-top:16px;font-family:monospace;font-size:13px;color:rgba(255,255,255,0.6);"></div>
+    </div>
+
+    <!-- Bond/LACP -->
+    <div class="card" style="padding:32px;margin-bottom:24px;border-left:4px solid #f59e0b;">
+      <div style="display:flex;align-items:center;gap:16px;margin-bottom:20px;">
+        <span class="material-symbols-rounded" style="font-size:32px;color:#f59e0b;">cable</span>
+        <div style="flex:1;"><div style="font-size:20px;font-weight:800;">Link Aggregation / LACP</div></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:12px;align-items:end;">
+        <div><label style="font-size:12px;color:rgba(255,255,255,0.5);display:block;margin-bottom:6px;">Bond Name</label>
+          <input id="bond-name" type="text" placeholder="bond0" style="width:100%;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:var(--md-sys-shape-corner-medium);padding:10px 16px;color:#fff;font-family:monospace;"></div>
+        <div><label style="font-size:12px;color:rgba(255,255,255,0.5);display:block;margin-bottom:6px;">Slaves</label>
+          <input id="bond-slaves" type="text" placeholder="eth0,eth1" style="width:100%;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:var(--md-sys-shape-corner-medium);padding:10px 16px;color:#fff;font-family:monospace;"></div>
+        <div><label style="font-size:12px;color:rgba(255,255,255,0.5);display:block;margin-bottom:6px;">Mode</label>
+          <select class="form-input" id="bond-mode" style="width:100%;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:var(--md-sys-shape-corner-medium);padding:10px 16px;color:#fff;appearance:none;">
+            <option value="802.3ad">802.3ad (LACP)</option>
+            <option value="active-backup">Active-Backup</option>
+            <option value="balance-rr">Balance Round-Robin</option>
+            <option value="balance-alb">Adaptive Load Balance</option>
+          </select></div>
+        <button class="btn btn-primary" onclick="createBondUI()"><span class="material-symbols-rounded" style="font-size:18px;">add</span> Create</button>
+      </div>
+    </div>
+
+    <!-- NTP -->
+    <div class="card" style="padding:32px;margin-bottom:24px;border-left:4px solid var(--md-sys-color-primary);">
+      <div style="display:flex;align-items:center;gap:16px;margin-bottom:20px;">
+        <span class="material-symbols-rounded" style="font-size:32px;color:var(--md-sys-color-primary);">schedule</span>
+        <div style="flex:1;"><div style="font-size:20px;font-weight:800;">Time Synchronization (NTP)</div></div>
+        <div id="ntp-sync-badge"></div>
+      </div>
+      <div id="ntp-details" style="font-family:monospace;font-size:13px;color:rgba(255,255,255,0.6);padding:12px;background:rgba(0,0,0,0.3);border-radius:var(--md-sys-shape-corner-small);max-height:200px;overflow-y:auto;"></div>
+    </div>
+  `;
+  main.appendChild(adv);
+  loadVLANs(); loadNTP();
+});
+
+async function createVLAN() {
+  const data = { parent: document.getElementById('vlan-parent').value, vlan_id: parseInt(document.getElementById('vlan-id').value), ip: document.getElementById('vlan-ip').value };
+  if (!data.parent || !data.vlan_id) { ui.toast('Parent and VLAN ID required', 'warning'); return; }
+  try { const r = await csrfFetch('/api/network/vlan', {method:'POST',body:JSON.stringify(data)}); const d = await r.json(); d.success ? (ui.toast('VLAN created','success'), loadVLANs()) : ui.toast(d.error,'error'); } catch(e) { ui.toast('Failed','error'); }
+}
+async function loadVLANs() {
+  try { const r = await csrfFetch('/api/network/vlan'); const d = await r.json(); document.getElementById('vlan-list').textContent = d.vlans || 'No VLANs configured'; } catch(e) {}
+}
+async function createBondUI() {
+  const data = { name: document.getElementById('bond-name').value, slaves: document.getElementById('bond-slaves').value.split(',').map(s=>s.trim()), mode: document.getElementById('bond-mode').value };
+  if (!data.name || !data.slaves.length) { ui.toast('Name and slaves required','warning'); return; }
+  if (!await ui.confirm('Create Bond', `Create ${data.name} (${data.mode}) with ${data.slaves.join(', ')}?`)) return;
+  try { const r = await csrfFetch('/api/network/bond', {method:'POST',body:JSON.stringify(data)}); const d = await r.json(); if (d.success) { ui.toast('Bond created','success'); setTimeout(() => loadNetworkInterfaces(), 1000); } else { ui.toast(d.error,'error'); } } catch(e) { ui.toast('Failed','error'); }
+}
+async function loadNTP() {
+  try { const r = await csrfFetch('/api/system/ntp'); const d = await r.json();
+    document.getElementById('ntp-sync-badge').innerHTML = d.synced ? '<span class="badge badge-success">Synchronized</span>' : '<span class="badge badge-warning">Not synced</span>';
+    document.getElementById('ntp-details').textContent = d.details || 'No NTP data'; } catch(e) {}
+}
+
+// Network apply with rollback timer
+async function applyNetworkChanges() {
+  if (!await ui.confirm(
+    'Apply Network Configuration',
+    'Changes will be applied immediately.\n\nA 30-second confirmation window will open. If you do not confirm that the network is working, the change will be automatically rolled back.\n\nYou may temporarily lose access to this page if the IP address changes.'
+  )) return;
+
+  const applyBtns = document.querySelectorAll('[onclick*="applyNetworkChanges"]');
+  applyBtns.forEach(b => { b.disabled = true; });
+
+  try {
+    const r = await csrfFetch('/api/network/apply', { method: 'POST', body: JSON.stringify({ timeout_seconds: 30 }) });
+    const d = await r.json();
+    if (d.success) {
+      if (window._networkGuard) window._networkGuard.markSaved();
+      showNetworkConfirmModal(30);
+    } else {
+      ui.toast(d.error || 'Apply failed', 'error');
+    }
+  } catch(e) {
+    ui.toast('Apply failed — network may have changed', 'error');
+  } finally {
+    applyBtns.forEach(b => { b.disabled = false; });
+  }
+}
+
+function showNetworkConfirmModal(seconds) {
+  // Remove any existing modal
+  const existing = document.getElementById('net-confirm-modal');
+  if (existing) existing.remove();
+
+  const modal = document.createElement('div');
+  modal.id = 'net-confirm-modal';
+  modal.style.cssText = [
+    'position:fixed;inset:0;z-index:99999;',
+    'background:rgba(0,0,0,0.82);backdrop-filter:blur(4px);',
+    'display:flex;align-items:center;justify-content:center;',
+  ].join('');
+
+  modal.innerHTML = `
+    <div style="background:var(--surface,#1e1e2e);border:1px solid rgba(255,255,255,0.12);border-radius:16px;padding:32px;max-width:420px;width:90%;text-align:center;">
+      <span class="material-symbols-rounded" style="font-size:40px;color:#F59E0B;margin-bottom:12px;display:block;">wifi_tethering</span>
+      <h2 style="font-size:20px;font-weight:700;margin-bottom:8px;">Network Change Applied</h2>
+      <p style="font-size:14px;color:rgba(255,255,255,0.6);margin-bottom:4px;">
+        If this page is still reachable and your network is working correctly, confirm now.
+      </p>
+      <p style="font-size:14px;color:rgba(255,255,255,0.6);margin-bottom:24px;">
+        If you do not confirm within <strong id="net-countdown" style="color:#F59E0B;">${seconds}s</strong>, the configuration will be <strong>automatically rolled back</strong>.
+      </p>
+      <button id="net-confirm-btn" onclick="confirmNetwork()" style="
+        width:100%;padding:14px;font-size:16px;font-weight:700;
+        background:linear-gradient(135deg,#10B981,#059669);
+        border:none;border-radius:10px;color:#fff;cursor:pointer;
+        box-shadow:0 4px 20px rgba(16,185,129,0.4);
+      ">
+        <span class="material-symbols-rounded" style="vertical-align:middle;font-size:18px;margin-right:6px;">check_circle</span>
+        Network is working — Confirm
+      </button>
+      <p style="font-size:12px;color:rgba(255,255,255,0.3);margin-top:16px;">
+        Do not close this window. Closing without confirming will trigger rollback.
+      </p>
+    </div>
+  `;
+  document.body.appendChild(modal);
+
+  let remaining = seconds;
+  const tick = setInterval(() => {
+    remaining--;
+    const el = document.getElementById('net-countdown');
+    if (el) el.textContent = remaining + 's';
+    if (remaining <= 0) {
+      clearInterval(tick);
+      const m = document.getElementById('net-confirm-modal');
+      if (m) {
+        m.querySelector('h2').textContent = 'Rolling Back…';
+        m.querySelector('p').textContent = 'Confirmation window expired. Restoring previous network configuration.';
+        const btn = document.getElementById('net-confirm-btn');
+        if (btn) btn.remove();
+        setTimeout(() => { if (m) m.remove(); location.reload(); }, 4000);
+      }
+    }
+  }, 1000);
+  modal._tick = tick;
+}
+
+async function confirmNetwork() {
+  try {
+    const r = await csrfFetch('/api/network/confirm', { method: 'POST' });
+    const d = await r.json();
+    const modal = document.getElementById('net-confirm-modal');
+    if (modal && modal._tick) clearInterval(modal._tick);
+    if (modal) modal.remove();
+    if (d.success) {
+      ui.toast('Network configuration confirmed and saved', 'success');
+    } else {
+      ui.toast(d.error || 'Confirm failed', 'error');
+    }
+  } catch(e) {
+    ui.toast('Could not reach server — rollback may have occurred', 'error');
+  }
+}
+var __interfaces_init=false;function init_interfaces(){if(__interfaces_init)return;__interfaces_init=true;window.ui = window.ui || new DPlaneUI();
+
+async function loadInterfaces() {
+  try {
+    const response = await csrfFetch('/api/system/network');
+    const data = await response.json();
+    
+    if (data.success && data.interfaces) {
+      displayInterfaces(data.interfaces);
+    } else {
+      ui.toast('Failed to load interfaces: ' + (data.error || 'Unknown error'), 'error');
+    }
+  } catch (error) {
+    ui.toast('Network error: ' + error.message, 'error');
+  }
+}
+
+function displayInterfaces(interfaces) {
+  const container = document.getElementById('interfaceList');
+  
+  if (interfaces.length === 0) {
+    container.innerHTML = `
+      <div style="text-align: center; padding: 60px; color: var(--text-dim);">
+        <span class="material-symbols-rounded" style="font-size: 32px; opacity: 0.3;">lan</span>
+        <p>No network interfaces found</p>
+      </div>
+    `;
+    return;
+  }
+  
+  let html = '';
+  
+  interfaces.forEach(iface => {
+    const statusBadge = iface.status === 'UP' 
+      ? '<span class="badge badge-success">UP</span>' 
+      : '<span class="badge badge-error">DOWN</span>';
+    
+    const speedColor = iface.link === 'yes' ? 'var(--success)' : 'var(--text-dim)';
+    
+    html += `
+      <div class="interface-card">
+        <span class="material-symbols-rounded interface-icon">lan</span>
+        <div class="interface-info">
+          <div class="interface-name">${iface.name}</div>
+          <div class="interface-type">${iface.type || 'Ethernet'}</div>
+          
+          <div class="interface-stats">
+            <div class="stat-item">
+              <span class="stat-label">IP Address</span>
+              <span class="stat-value">${iface.ip || 'N/A'}</span>
+            </div>
+            <div class="stat-item">
+              <span class="stat-label">Speed</span>
+              <span class="stat-value" style="color: ${speedColor};">${iface.speed || 'Unknown'}</span>
+            </div>
+            <div class="stat-item">
+              <span class="stat-label">MAC Address</span>
+              <span class="stat-value" style="font-family: monospace; font-size: 12px;">${iface.mac || 'N/A'}</span>
+            </div>
+          </div>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 8px; align-items: flex-end;">
+          ${statusBadge}
+          <button class="btn btn-ghost" onclick="configureInterface('"+JSON.stringify(iface.name)+"')">
+            <span class="material-symbols-rounded" style="font-size: 18px;">settings</span>
+            Configure
+          </button>
+        </div>
+      </div>
+    `;
+  });
+  
+  container.innerHTML = html;
+}
+
+async function configureInterface(name) {
+  // Get current config
+  const response = await csrfFetch(`/api/system/network?interface=${name}`);
+  const data = await response.json();
+  
+  if (!data.success) {
+    ui.toast('Failed to load interface config', 'error');
+    return;
+  }
+  
+  const iface = data.interface;
+  
+  const result = await ui.form(`Configure ${name}`, [
+    { 
+      name: 'method', 
+      label: 'Configuration Method', 
+      type: 'select', 
+      value: iface.method || 'dhcp',
+      options: [
+        { value: 'dhcp', label: 'DHCP (Automatic)' },
+        { value: 'static', label: 'Static IP' }
+      ]
+    },
+    { 
+      name: 'ip', 
+      label: 'IP Address', 
+      type: 'text', 
+      value: iface.ip || '',
+      placeholder: '192.168.1.100'
+    },
+    { 
+      name: 'netmask', 
+      label: 'Netmask', 
+      type: 'text', 
+      value: iface.netmask || '255.255.255.0',
+      placeholder: '255.255.255.0'
+    },
+    { 
+      name: 'gateway', 
+      label: 'Gateway', 
+      type: 'text', 
+      value: iface.gateway || '',
+      placeholder: '192.168.1.1'
+    },
+    {
+      name: 'dns',
+      label: 'DNS Servers (comma-separated)',
+      type: 'text',
+      value: iface.dns || '1.1.1.1, 8.8.8.8',
+      placeholder: '1.1.1.1, 8.8.8.8'
+    }
+  ], 'Apply');
+  
+  if (result) {
+    // Validate IP fields before sending
+    if (!isValidIPv4(result.ip)) { ui.toast('Invalid IP address — use x.x.x.x format', 'error'); return; }
+    if (!isValidIPv4(result.gateway)) { ui.toast('Invalid gateway — use x.x.x.x format', 'error'); return; }
+    if (result.dns) {
+      const dnsServers = result.dns.split(',').map(s => s.trim()).filter(Boolean);
+      const badDNS = dnsServers.find(s => !isValidIPv4(s));
+      if (badDNS) { ui.toast('Invalid DNS server: ' + badDNS + ' — use x.x.x.x format', 'error'); return; }
+    }
+
+    const newIP = (result.method === 'static' && result.ip) ? result.ip.trim() : null;
+    const currentIP = window.location.hostname;
+    const ipChanged = newIP && newIP !== currentIP;
+
+    ui.showLoading('Applying network configuration...');
+    
+    try {
+      const applyResponse = await csrfFetch('/api/network/apply', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'configure',
+          interface: name,
+          ...result
+        })
+      });
+      
+      const applyData = await applyResponse.json();
+      ui.hideLoading();
+      
+      if (applyData.success) {
+        if (ipChanged) { startIPRedirect(newIP); }
+        else { ui.toast('Network configuration applied', 'success'); setTimeout(() => loadInterfaces(), 2000); }
+      } else {
+        ui.toast(applyData.error || 'Failed to apply configuration', 'error');
+      }
+    } catch (error) {
+      ui.hideLoading();
+      if (ipChanged) { startIPRedirect(newIP); }
+      else { ui.toast('Network error: ' + error.message, 'error'); }
+    }
+  }
+}
+
+// Load interfaces on page load
+document.addEventListener('DOMContentLoaded', loadInterfaces);
+
+// Refresh every 30 seconds
+setInterval(loadInterfaces, 30000);}
+var __dns_init=false;function init_dns(){if(__dns_init)return;__dns_init=true;window.ui = window.ui || new DPlaneUI();
+
+async function loadDNS() {
+  try {
+    const response = await csrfFetch('/api/system/network');
+    const data = await response.json();
+    
+    if (data.success) {
+      displayDNS(data.dns);
+    } else {
+      ui.toast('Failed to load DNS config', 'error');
+    }
+  } catch (error) {
+    ui.toast('Network error: ' + error.message, 'error');
+  }
+}
+
+function displayDNS(dns) {
+  const serversDiv = document.getElementById('dnsServers');
+  const domainsDiv = document.getElementById('searchDomains');
+  
+  serversDiv.innerHTML = (dns.nameservers || []).map((ns, i) => `
+    <div style="display: flex; align-items: center; gap: 12px; padding: 12px; background: var(--surface-variant); border-radius: var(--radius-md); margin-bottom: 8px;">
+      <span style="flex: 1; font-family: monospace;">${ns}</span>
+      <button class="btn btn-ghost" style="padding: 6px 12px;" onclick="removeDNS(${i})">
+        <span class="material-symbols-rounded" style="font-size: 16px;">delete</span>
+      </button>
+    </div>
+  `).join('') || '<div style="color: var(--text-dim); padding: 12px;">No nameservers configured</div>';
+  
+  domainsDiv.innerHTML = (dns.search || []).map((domain, i) => `
+    <div style="display: flex; align-items: center; gap: 12px; padding: 12px; background: var(--surface-variant); border-radius: var(--radius-md); margin-bottom: 8px;">
+      <span style="flex: 1;">${domain}</span>
+      <button class="btn btn-ghost" style="padding: 6px 12px;" onclick="removeSearchDomain(${i})">
+        <span class="material-symbols-rounded" style="font-size: 16px;">delete</span>
+      </button>
+    </div>
+  `).join('') || '<div style="color: var(--text-dim); padding: 12px;">No search domains configured</div>';
+}
+
+async function addDNS() {
+  const result = await ui.form('Add Nameserver', [
+    { name: 'server', label: 'DNS Server', type: 'text', required: true, placeholder: '1.1.1.1 or 8.8.8.8' }
+  ], 'Add');
+  
+  if (result) {
+    if (!isValidIPv4(result.server)) {
+      ui.toast('Invalid DNS format — use x.x.x.x (e.g. 8.8.8.8)', 'error'); return;
+    }
+    await saveDNSChange({ action: 'add_nameserver', server: result.server });
+  }
+}
+
+async function removeDNS(index) {
+  await saveDNSChange({ action: 'remove_nameserver', index });
+}
+
+async function addSearchDomain() {
+  const result = await ui.form('Add Search Domain', [
+    { name: 'domain', label: 'Domain', type: 'text', required: true, placeholder: 'example.com' }
+  ], 'Add');
+  
+  if (result) {
+    await saveDNSChange({ action: 'add_search', domain: result.domain });
+  }
+}
+
+async function removeSearchDomain(index) {
+  await saveDNSChange({ action: 'remove_search', index });
+}
+
+async function saveDNSChange(data) {
+  ui.showLoading('Updating DNS configuration...');
+  
+  try {
+    const response = await csrfFetch('/api/network/apply', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    
+    const result = await response.json();
+    ui.hideLoading();
+    
+    if (result.success) {
+      ui.toast('DNS configuration updated', 'success');
+      loadDNS();
+    } else {
+      ui.toast(result.error || 'Failed to update DNS', 'error');
+    }
+  } catch (error) {
+    ui.hideLoading();
+    ui.toast('Network error: ' + error.message, 'error');
+  }
+}
+
+document.addEventListener('DOMContentLoaded', loadDNS);}
+var __routing_init=false;function init_routing(){if(__routing_init)return;__routing_init=true;window.ui = window.ui || new DPlaneUI();
+
+async function loadRoutes() {
+  try {
+    const response = await csrfFetch('/api/system/network');
+    const data = await response.json();
+    
+    if (data.success && data.routes) {
+      displayRoutes(data.routes);
+    } else {
+      ui.toast('Failed to load routes: ' + (data.error || 'Unknown error'), 'error');
+    }
+  } catch (error) {
+    ui.toast('Network error: ' + error.message, 'error');
+  }
+}
+
+function displayRoutes(routes) {
+  const tbody = document.getElementById('routeTable');
+  
+  if (routes.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; padding: 40px; color: var(--text-dim);">No routes configured</td></tr>';
+    return;
+  }
+  
+  tbody.innerHTML = routes.map(route => `
+    <tr style="border-bottom: 1px solid rgba(255,255,255,0.03);">
+      <td style="padding: 16px; font-family: monospace;">${route.destination}</td>
+      <td style="padding: 16px; font-family: monospace;">${route.gateway}</td>
+      <td style="padding: 16px;">${route.interface}</td>
+      <td style="padding: 16px;">${route.metric || '-'}</td>
+      <td style="padding: 16px;">
+        <button class="btn btn-ghost" style="padding: 6px 12px; font-size: 13px;" onclick='deleteRoute(${JSON.stringify(route)})'>
+          <span class="material-symbols-rounded" style="font-size: 16px;">delete</span>
+        </button>
+      </td>
+    </tr>
+  `).join('');
+}
+
+async function addRoute() {
+  const result = await ui.form('Add Route', [
+    { name: 'destination', label: 'Destination', type: 'text', required: true, placeholder: '0.0.0.0/0 or 192.168.1.0/24' },
+    { name: 'gateway', label: 'Gateway', type: 'text', required: true, placeholder: '192.168.1.1' },
+    { name: 'interface', label: 'Interface', type: 'text', required: true, placeholder: 'eth0' },
+    { name: 'metric', label: 'Metric (optional)', type: 'text', placeholder: '100' }
+  ], 'Add');
+  
+  if (result) {
+    ui.showLoading('Adding route...');
+    
+    try {
+      const response = await csrfFetch('/api/network/apply', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'add', ...result })
+      });
+      
+      const data = await response.json();
+      ui.hideLoading();
+      
+      if (data.success) {
+        ui.toast('Route added', 'success');
+        loadRoutes();
+      } else {
+        ui.toast(data.error || 'Failed to add route', 'error');
+      }
+    } catch (error) {
+      ui.hideLoading();
+      ui.toast('Network error: ' + error.message, 'error');
+    }
+  }
+}
+
+async function deleteRoute(route) {
+  if (await ui.confirm('Delete Route?', `Remove route to ${route.destination} via ${route.gateway}?`)) {
+    ui.showLoading('Deleting route...');
+    
+    try {
+      const response = await csrfFetch('/api/network/apply', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'delete', destination: route.destination, gateway: route.gateway })
+      });
+      
+      const data = await response.json();
+      ui.hideLoading();
+      
+      if (data.success) {
+        ui.toast('Route deleted', 'success');
+        loadRoutes();
+      } else {
+        ui.toast(data.error || 'Failed to delete route', 'error');
+      }
+    } catch (error) {
+      ui.hideLoading();
+      ui.toast('Network error: ' + error.message, 'error');
+    }
+  }
+}
+
+document.addEventListener('DOMContentLoaded', loadRoutes);}
+</script>
+</body></html>

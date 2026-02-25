@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Audit Logs - D-PlaneOS</title>
+    <link rel="stylesheet" href="/assets/css/design-tokens.css?v=3.3.0">
+    <link rel="stylesheet" href="/assets/css/dplaneos-ui-complete.css?v=3.3.0">
+<link rel="stylesheet" href="/assets/css/m3-tokens.css?v=3.3.0">
+<link rel="stylesheet" href="/assets/css/m3-components.css?v=3.3.0">
+<link rel="stylesheet" href="/assets/css/m3-icons.css?v=3.3.0">
+  <link rel="stylesheet" href="/assets/css/enhanced-ui.css?v=3.3.0">
+<link rel="stylesheet" href="/assets/css/ui-components.css?v=3.3.0">
+<script src="/assets/js/core.js?v=3.3.0"></script>
+<script src="/assets/js/nav-flyout.js?v=3.3.0"></script>
+<script src="/assets/js/hybrid-router.js?v=3.3.0"></script>
+  <script src="/assets/js/enhanced-ui.js?v=3.3.0"></script>
+  <script src="/assets/js/connection-monitor.js?v=3.3.0"></script>
+  <script src="/assets/js/keyboard-shortcuts.js?v=3.3.0"></script>
+  <script src="/assets/js/form-validator.js?v=3.3.0"></script>
+<script src="/assets/js/ui-components.js?v=3.3.0"></script>
+  <link rel="stylesheet" href="/assets/css/material-symbols-local.css?v=3.3.0">
+  <link rel="stylesheet" href="/assets/css/ui-consistency.css?v=3.3.0">
+  <link rel="stylesheet" href="/assets/css/ui-polish.css?v=3.3.0">
+  <script src="/assets/js/daemon-api.js?v=3.3.0"></script>
+</head>
+<body>
+<!-- D-PlaneOS - Hierarchical Navigation -->
+<!-- This navigation maintains all security (CSRF, Auth) and real system state -->
+
+<div id="nav-root"></div>
+
+<script>
+function esc(s){const d=document.createElement('div');d.textContent=String(s==null?'':s);return d.innerHTML;}
+// Navigation behavior
+function navigateToSection(section) {
+  if (section === 'dashboard') {
+    window.location.href = 'index.html';
+  }
+}
+
+function toggleSubNav(section, button) {
+  // Remove active from all nav links
+  document.querySelectorAll('.nav-link').forEach(link => {
+    link.classList.remove('active');
+  });
+  
+  // Add active to clicked button
+  if (button) {
+    button.classList.add('active');
+  }
+  
+  // Hide all sub-navs
+  document.querySelectorAll('.nav-sub').forEach(sub => {
+    sub.classList.remove('active');
+  });
+  
+  // Show selected sub-nav
+  const subNav = document.getElementById(`sub-${section}`);
+  if (subNav) {
+    subNav.classList.add('active');
+    document.body.classList.add('has-subnav');
+  }
+}
+
+// Auto-detect current section and page on load
+(function() {
+  const currentPage = window.location.pathname.split('/').pop() || 'index.html';
+  
+  // Page to section mapping
+  const pageMap = {
+    'acl-manager.html': { section: 'storage', page: 'acl-manager' },
+    'audit.html': { section: 'security', page: 'audit' },
+    'certificates.html': { section: 'security', page: 'certificates' },
+    'cloud-sync.html': { section: 'storage', page: 'cloud-sync' },
+    'directory-service.html': { section: 'identity', page: 'directory-service' },
+    'docker.html': { section: 'compute', page: 'docker' },
+    'files-enhanced.html': { section: 'storage', page: 'files-enhanced' },
+    'files.html': { section: 'storage', page: 'files' },
+    'firewall.html': { section: 'security', page: 'firewall' },
+    'groups.html': { section: 'identity', page: 'groups' },
+    'hardware.html': { section: 'system', page: 'hardware' },
+    'index.html': { section: 'dashboard', page: null },
+    'ipmi.html': { section: 'system', page: 'ipmi' },
+    'logs.html': { section: 'system', page: 'logs' },
+    'modules.html': { section: 'compute', page: 'modules' },
+    'network-dns.html': { section: 'network', page: 'network-dns' },
+    'network-interfaces.html': { section: 'network', page: 'network-interfaces' },
+    'network-routing.html': { section: 'network', page: 'network-routing' },
+    'network.html': { section: 'network', page: 'network' },
+    'pools-advanced.html': { section: 'storage', page: 'pools-advanced' },
+    'pools.html': { section: 'storage', page: 'pools' },
+    'power-management.html': { section: 'system', page: 'power-management' },
+    'quotas.html': { section: 'storage', page: 'quotas' },
+    'rbac-management.html': { section: 'identity', page: 'rbac-management' },
+    'removable-media-ui.html': { section: 'system', page: 'removable-media-ui' },
+    'replication.html': { section: 'storage', page: 'replication' },
+    'reporting.html': { section: 'system', page: 'reporting' },
+    'security.html': { section: 'security', page: 'security' },
+    'settings.html': { section: 'system', page: 'settings' },
+    'shares.html': { section: 'storage', page: 'shares' },
+    'snapshot-scheduler.html': { section: 'storage', page: 'snapshot-scheduler' },
+    'system-monitoring.html': { section: 'system', page: 'system-monitoring' },
+    'system-settings.html': { section: 'system', page: 'system-settings' },
+    'ups.html': { section: 'system', page: 'ups' },
+    'users.html': { section: 'identity', page: 'users' },
+    'zfs-encryption.html': { section: 'storage', page: 'zfs-encryption' }
+  };
+  
+  const current = pageMap[currentPage];
+  if (current) {
+    // Activate section button
+    const sectionBtn = document.querySelector(`[data-section="${current.section}"]`);
+    if (sectionBtn) {
+      sectionBtn.classList.add('active');
+    }
+    
+    // Show and activate sub-nav if not dashboard
+    if (current.section !== 'dashboard') {
+      const subNav = document.getElementById(`sub-${current.section}`);
+      if (subNav) {
+        subNav.classList.add('active');
+        document.body.classList.add('has-subnav');
+        
+        // Activate current page in sub-nav
+        if (current.page) {
+          const pageLink = subNav.querySelector(`[data-page="${current.page}"]`);
+          if (pageLink) {
+            pageLink.classList.add('active');
+          }
+        }
+      }
+    }
+  }
+})();
+
+// Keyboard shortcuts
+function showKeyboardHelp() {
+  if (window.EnhancedUI) {
+    const shortcuts = `Keyboard Shortcuts:
+
+g + d → Dashboard
+g + s → Storage
+g + c → Compute
+g + n → Network
+g + u → Identity
+g + e → Security
+g + y → System
+
+r → Refresh page
+Esc → Close modals
+? → Show this help`;
+    EnhancedUI.toast(shortcuts, 'info', 8000);
+  }
+}
+
+// Enhanced keyboard shortcuts for sections
+(function() {
+  let keySequence = '';
+  let keyTimeout;
+  
+  document.addEventListener('keydown', (e) => {
+    if (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) return;
+    
+    keySequence += e.key;
+    clearTimeout(keyTimeout);
+    
+    const shortcuts = {
+      'gd': 'index.html',
+      'gs': () => toggleSubNav('storage', document.querySelector('[data-section="storage"]')),
+      'gc': () => toggleSubNav('compute', document.querySelector('[data-section="compute"]')),
+      'gn': () => toggleSubNav('network', document.querySelector('[data-section="network"]')),
+      'gu': () => toggleSubNav('identity', document.querySelector('[data-section="identity"]')),
+      'ge': () => toggleSubNav('security', document.querySelector('[data-section="security"]')),
+      'gy': () => toggleSubNav('system', document.querySelector('[data-section="system"]'))
+    };
+    
+    if (shortcuts[keySequence]) {
+      e.preventDefault();
+      const action = shortcuts[keySequence];
+      if (typeof action === 'function') {
+        action();
+      } else {
+        window.location.href = action;
+      }
+      keySequence = '';
+    } else if (e.key === '?') {
+      e.preventDefault();
+      showKeyboardHelp();
+    }
+    
+    keyTimeout = setTimeout(() => keySequence = '', 1000);
+  });
+})();
+
+// Connection status monitoring (integrates with existing connection-monitor.js)
+if (window.ConnectionMonitor) {
+  window.ConnectionMonitor.on('statusChange', (online) => {
+    const status = document.getElementById('navConnectionStatus');
+    if (status) {
+      if (online) {
+        status.classList.remove('offline');
+        status.classList.add('online');
+        status.innerHTML = '<span class="status-dot"></span><span>Connected</span>';
+      } else {
+        status.classList.remove('online');
+        status.classList.add('offline');
+        status.innerHTML = '<span class="status-dot"></span><span>Offline</span>';
+      }
+    }
+  });
+}
+</script>
+
+
+<div class="nav-glass"><div class="nav-inner"><div class="logo" onclick="window.location.href='index.html'">D-PlaneOS</div><div class="nav-links"><a href="index.html" class="nav-link">Dashboard</a><a href="files.html" class="nav-link">Files</a><a href="logs.html" class="nav-link">Logs</a><a href="audit.html" class="nav-link active">Audit</a><a href="settings.html" class="nav-link">Settings</a></div><div class="nav-user"><span class="nav-username" id="currentUser">Loading...</span><button class="btn btn-sm btn-logout" onclick="handleLogout()"><span class="material-symbols-rounded" style="font-size:18px;">logout</span>Logout</button></div></div></div>
+<div class="main"><div class="page-header"><div><h1 class="page-title">Audit Logs</h1><p class="page-meta">User activity and security events</p></div><button class="btn btn-primary" onclick="exportLogs()"><span class="material-symbols-rounded">download</span>Export CSV</button></div><div class="card" style="margin-bottom:16px;"><div style="display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:16px;padding:16px;"><div><label class="form-label">User</label><select id="filterUser" class="form-input" onchange="loadLogs()"><option value="">All Users</option></select></div><div><label class="form-label">Action Type</label><select id="filterAction" class="form-input" onchange="loadLogs()"><option value="">All Actions</option><option value="login">Login</option><option value="logout">Logout</option><option value="user_created">User Created</option><option value="user_deleted">User Deleted</option><option value="password_changed">Password Changed</option><option value="security">Security</option></select></div><div><label class="form-label">Date Range</label><select id="filterDate" class="form-input" onchange="loadLogs()"><option value="1">Last 24 hours</option><option value="7">Last 7 days</option><option value="30">Last 30 days</option><option value="0">All time</option></select></div><div style="display:flex;align-items:end;"><button class="btn" onclick="clearFilters()">Clear</button></div></div></div><div class="card"><table class="table"><thead><tr><th>Timestamp</th><th>User</th><th>Action</th><th>Details</th><th>IP Address</th></tr></thead><tbody id="logTableBody"><tr><td colspan="5" class="text-center">Loading...</td></tr></tbody></table></div></div>
+<script>
+let allLogs=[];
+async function loadLogs(){try{const r=await csrfFetch('/api/system/logs');const d=await r.json();if(d.success){allLogs=d.logs;displayLogs();populateUserFilter();}}catch(e){ui.toast('Failed','error');}}
+function displayLogs(){const tbody=document.getElementById('logTableBody');const userFilter=document.getElementById('filterUser').value;const actionFilter=document.getElementById('filterAction').value;const dateFilter=parseInt(document.getElementById('filterDate').value);let filtered=allLogs;if(userFilter)filtered=filtered.filter(l=>l.username===userFilter);if(actionFilter)filtered=filtered.filter(l=>l.action.includes(actionFilter));if(dateFilter>0){const cutoff=new Date();cutoff.setDate(cutoff.getDate()-dateFilter);filtered=filtered.filter(l=>new Date(l.timestamp)>=cutoff);}
+if(filtered.length===0){tbody.innerHTML='<tr><td colspan="5" class="text-center">No logs found</td></tr>';return;}
+tbody.innerHTML=filtered.slice(0,100).map(l=>`<tr><td>${new Date(l.timestamp).toLocaleString()}</td><td><span class="badge">${esc(l.username||'System')}</span></td><td><span class="badge badge-${esc(getActionColor(l.action))}">${esc(l.action)}</span></td><td style="font-size:13px;max-width:300px;overflow:hidden;text-overflow:ellipsis;">${esc(l.details||'-')}</td><td style="font-family:monospace;font-size:12px;">${esc(l.ip_address||'-')}</td></tr>`).join('');if(filtered.length>100)tbody.innerHTML+='<tr><td colspan="5" class="text-center" style="color:rgba(255,255,255,0.5);">Showing first 100 of '+filtered.length+' logs</td></tr>';}
+function getActionColor(action){if(action.includes('login_success'))return'success';if(action.includes('failed')||action.includes('error')||action.includes('denied'))return'error';if(action.includes('security')||action.includes('blocked'))return'warning';return'default';}
+function populateUserFilter(){const select=document.getElementById('filterUser');const users=new Set(allLogs.map(l=>l.username).filter(u=>u));const current=select.value;select.innerHTML='<option value="">All Users</option>'+[...users].sort().map(u=>`<option value="${esc(u)}">${esc(u)}</option>`).join('');select.value=current;}
+function clearFilters(){document.getElementById('filterUser').value='';document.getElementById('filterAction').value='';document.getElementById('filterDate').value='1';loadLogs();}
+async function exportLogs(){const csv='Timestamp,User,Action,Details,IP Address\n'+allLogs.map(l=>`"${l.timestamp}","${esc(l.username||'System')}","${esc(l.action)}","${(l.details||'').replace(/"/g,'""')}","${esc(l.ip_address||'-')}"`).join('\n');const blob=new Blob([csv],{type:'text/csv'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='audit-logs-'+new Date().toISOString().split('T')[0]+'.csv';a.click();}
+async function handleLogout(){if(!await ui.confirm('Logout','Sure?'))return;try{const r=await csrfFetch('/api/auth/logout',{method:'POST'});if(r.ok){window.location.href='/login';return;}ui.toast('Logout failed','error');}catch(e){ui.toast('Logout failed','error');}}
+async function loadCurrentUser(){try{const r=await csrfFetch('/api/auth/session');const d=await r.json();if(d.success&&d.user)document.getElementById('currentUser').textContent=d.user.username;}catch(e){}}
+document.addEventListener('DOMContentLoaded',()=>{loadLogs();loadCurrentUser();});
+</script>
+  <script src="/assets/js/realtime-client.js?v=3.3.0"></script>
+<!-- v3.0.0: Audit Log Rotation & Stats -->
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  const main = document.querySelector('.main');
+  if (!main) return;
+  const s = document.createElement('div');
+  s.style.marginTop = '48px';
+  s.innerHTML = `
+    <div class="card" style="padding:32px;border-left:4px solid var(--md-sys-color-primary);">
+      <div style="display:flex;align-items:center;gap:16px;margin-bottom:20px;">
+        <span class="material-symbols-rounded" style="font-size:32px;color:var(--md-sys-color-primary);">auto_delete</span>
+        <div style="flex:1;"><div style="font-size:20px;font-weight:800;">Log Management</div></div>
+      </div>
+      <div id="audit-stats" style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:20px;"></div>
+      <div style="display:flex;gap:12px;align-items:center;">
+        <span style="font-size:14px;color:rgba(255,255,255,0.5);">Keep logs for</span>
+        <select class="form-input" id="rotate-days" style="background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:var(--md-sys-shape-corner-medium);padding:8px 16px;color:#fff;appearance:none;">
+          <option value="30">30 days</option><option value="90" selected>90 days</option><option value="180">180 days</option><option value="365">1 year</option>
+        </select>
+        <button class="btn btn-primary" onclick="rotateAudit()"><span class="material-symbols-rounded" style="font-size:18px;">cleaning_services</span> Rotate Now</button>
+      </div>
+    </div>
+  `;
+  main.appendChild(s);
+  loadAuditStats();
+});
+async function loadAuditStats() {
+  try { const r = await csrfFetch('/api/system/audit/stats'); const d = await r.json();
+    document.getElementById('audit-stats').innerHTML = [
+      {label:'Total Entries',value:d.total_entries,icon:'receipt_long'},
+      {label:'Oldest',value:d.oldest_entry?.split(' ')[0]||'—',icon:'history'},
+      {label:'Newest',value:d.newest_entry?.split(' ')[0]||'—',icon:'update'},
+      {label:'DB Size',value:d.db_size||'—',icon:'storage'}
+    ].map(s=>`<div style="background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.06);border-radius:var(--md-sys-shape-corner-medium);padding:16px;text-align:center;">
+      <span class="material-symbols-rounded" style="font-size:24px;color:var(--md-sys-color-primary);">${s.icon}</span>
+      <div style="font-size:20px;font-weight:700;margin:8px 0 4px;">${s.value}</div>
+      <div style="font-size:12px;color:rgba(255,255,255,0.5);">${s.label}</div></div>`).join('');
+  } catch(e) {}
+}
+async function rotateAudit() {
+  const days = parseInt(document.getElementById('rotate-days').value);
+  if (!await ui.confirm('Rotate Logs',`Delete audit logs older than ${days} days?`)) return;
+  try { const r = await csrfFetch('/api/system/audit/rotate',{method:'POST',body:JSON.stringify({keep_days:days})}); const d = await r.json();
+    d.success ? (ui.toast(`Rotated: ${d.before_count} → ${d.after_count} entries`,'success'), loadAuditStats()) : ui.toast(d.error,'error');
+  } catch(e) { ui.toast('Failed','error'); }
+}
+</script>
+    <script src="/assets/js/nav-flyout.js?v=3.3.0"></script>
+    <script src="/assets/js/nav-shared.js?v=3.3.0"></script>
+
+<!-- Support Bundle + Audit Chain Verify UI -->
+<div class="main" style="margin-top:24px;">
+
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:24px;">
+
+    <!-- Audit Chain Integrity -->
+    <div style="padding:24px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:16px;">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
+        <span class="material-symbols-rounded" style="color:var(--primary);font-size:24px;">verified</span>
+        <div>
+          <div style="font-size:16px;font-weight:600;">Audit Chain Integrity</div>
+          <div style="font-size:13px;color:rgba(255,255,255,0.4);">Verify HMAC chain for tamper detection</div>
+        </div>
+      </div>
+      <div id="chainStatus" style="padding:12px;border-radius:10px;background:rgba(255,255,255,0.02);
+        border:1px solid rgba(255,255,255,0.06);font-size:13px;color:rgba(255,255,255,0.5);
+        margin-bottom:16px;min-height:40px;">
+        Click Verify to check audit log integrity.
+      </div>
+      <div style="display:flex;gap:8px;">
+        <button onclick="verifyChain()" style="padding:10px 20px;border-radius:10px;border:none;
+          background:var(--primary);color:#fff;cursor:pointer;font-size:14px;font-weight:500;"
+          data-permission="audit:read" data-permission-mode="disable">
+          <span class="material-symbols-rounded" style="font-size:16px;vertical-align:-3px;">security</span>
+          Verify Chain
+        </button>
+        <button onclick="getAuditStats()" style="padding:10px 20px;border-radius:10px;border:none;
+          background:rgba(255,255,255,0.08);color:rgba(255,255,255,0.8);cursor:pointer;font-size:14px;">
+          Stats
+        </button>
+      </div>
+    </div>
+
+    <!-- Support Bundle -->
+    <div style="padding:24px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:16px;">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
+        <span class="material-symbols-rounded" style="color:var(--primary);font-size:24px;">folder_zip</span>
+        <div>
+          <div style="font-size:16px;font-weight:600;">Support Bundle</div>
+          <div style="font-size:13px;color:rgba(255,255,255,0.4);">Download diagnostic archive for support</div>
+        </div>
+      </div>
+      <div style="font-size:13px;color:rgba(255,255,255,0.5);margin-bottom:16px;line-height:1.6;">
+        Generates a .tar.gz containing: ZFS pool status, SMART data, journal logs (last 500 lines), 
+        audit tail, and system info. No passwords or keys are included.
+      </div>
+      <button onclick="downloadBundle()" id="bundleBtn" style="padding:10px 20px;border-radius:10px;border:none;
+        background:var(--primary);color:#fff;cursor:pointer;font-size:14px;font-weight:500;"
+        data-permission="system:admin" data-permission-mode="disable">
+        <span class="material-symbols-rounded" style="font-size:16px;vertical-align:-3px;">download</span>
+        Generate &amp; Download
+      </button>
+    </div>
+  </div>
+
+</div>
+
+<script>
+async function verifyChain() {
+  const el = document.getElementById('chainStatus');
+  el.style.color = 'rgba(255,255,255,0.5)';
+  el.textContent = 'Verifying…';
+  try {
+    const r = await csrfFetch('/api/system/audit/verify-chain');
+    const d = await r.json();
+    if (d.valid) {
+      el.style.background = 'rgba(76,175,80,0.1)';
+      el.style.border = '1px solid rgba(76,175,80,0.3)';
+      el.style.color = '#a5d6a7';
+      el.innerHTML = '✓ Audit chain is intact — ' + (d.rows_verified || 0) + ' entries verified. No tampering detected.';
+    } else {
+      el.style.background = 'rgba(244,67,54,0.1)';
+      el.style.border = '1px solid rgba(244,67,54,0.3)';
+      el.style.color = '#ef9a9a';
+      el.innerHTML = '✗ Chain integrity FAILED: ' + (d.error || 'tampered entry detected') +
+        (d.first_bad_row ? ' (first bad row: ' + d.first_bad_row + ')' : '');
+    }
+  } catch(e) {
+    el.textContent = 'Error: ' + e.message;
+    el.style.color = '#ef9a9a';
+  }
+}
+
+async function getAuditStats() {
+  const el = document.getElementById('chainStatus');
+  try {
+    const r = await csrfFetch('/api/system/audit/stats');
+    const d = await r.json();
+    el.style.background = 'rgba(255,255,255,0.02)';
+    el.style.border = '1px solid rgba(255,255,255,0.06)';
+    el.style.color = 'rgba(255,255,255,0.7)';
+    el.innerHTML = '<strong>Audit Stats</strong><br>Total entries: ' + (d.total_entries || 0) +
+      ' | Size: ' + (d.size_mb ? d.size_mb + ' MB' : 'N/A') +
+      (d.oldest_entry ? ' | Oldest: ' + new Date(d.oldest_entry).toLocaleDateString() : '');
+  } catch(e) { el.textContent = 'Error: ' + e.message; }
+}
+
+async function downloadBundle() {
+  const btn = document.getElementById('bundleBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<span style="display:inline-block;width:14px;height:14px;border:2px solid rgba(255,255,255,0.3);border-top-color:#fff;border-radius:50%;animation:spin 0.8s linear infinite;vertical-align:-3px;"></span> Generating…';
+
+  try {
+    const r = await csrfFetch('/api/system/support-bundle', { method: 'POST' });
+    if (!r.ok) {
+      const d = await r.json().catch(() => ({}));
+      alert('Failed: ' + (d.error || r.statusText));
+      return;
+    }
+    // Stream download
+    const blob = await r.blob();
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    const ts   = new Date().toISOString().replace(/[:.]/g,'-').slice(0,19);
+    a.href     = url;
+    a.download = 'dplaneos-support-' + ts + '.tar.gz';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  } catch(e) {
+    alert('Error: ' + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<span class="material-symbols-rounded" style="font-size:16px;vertical-align:-3px;">download</span> Generate & Download';
+  }
+}
+</script>
+<style>@keyframes spin{to{transform:rotate(360deg)}}</style>
+
+</body>
+</html>

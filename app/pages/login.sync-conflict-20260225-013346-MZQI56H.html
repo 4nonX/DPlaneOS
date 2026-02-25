@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Login - D-PlaneOS</title>
+<link rel="stylesheet" href="/assets/css/design-tokens.css?v=3.3.0">
+<link rel="stylesheet" href="/assets/css/material-symbols-local.css?v=3.3.0">
+<style>
+* { margin:0; padding:0; box-sizing:border-box; font-family:'Segoe UI',system-ui,sans-serif; }
+body { background:var(--bg,#0a0a0a); color:var(--text,#fff); min-height:100vh; display:flex; align-items:center; justify-content:center; }
+.login-box { width:100%; max-width:400px; padding:40px; }
+.logo { font-size:28px; font-weight:800; background:linear-gradient(135deg,#8a9cff 0%,#764ba2 100%); -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text; text-align:center; margin-bottom:8px; letter-spacing:-1px; }
+.subtitle { text-align:center; color:var(--text-dim,rgba(255,255,255,.5)); font-size:14px; margin-bottom:40px; }
+.card { background:var(--surface,rgba(255,255,255,.05)); border:1px solid var(--border,rgba(255,255,255,.1)); border-radius:16px; padding:32px; }
+.form-group { margin-bottom:20px; }
+.form-label { display:block; font-size:13px; color:var(--text-dim,rgba(255,255,255,.5)); margin-bottom:8px; font-weight:600; }
+.form-input { width:100%; padding:12px 16px; background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.15); border-radius:10px; color:var(--text,#fff); font-size:15px; outline:none; transition:border-color .15s; }
+.form-input:focus { border-color:var(--primary,#8a9cff); box-shadow:0 0 0 3px rgba(138,156,255,.15); }
+/* password wrapper for show/hide toggle */
+.pw-wrap { position:relative; display:flex; align-items:center; }
+.pw-wrap .form-input { padding-right:44px; }
+.btn-login { width:100%; padding:14px; background:linear-gradient(135deg,var(--primary,#8a9cff) 0%,#764ba2 100%); color:#fff; border:none; border-radius:10px; font-size:15px; font-weight:700; cursor:pointer; transition:opacity .15s, box-shadow .15s; }
+.btn-login:hover { opacity:.9; box-shadow:0 4px 20px rgba(138,156,255,.35); }
+.btn-login:disabled { opacity:.5; cursor:not-allowed; box-shadow:none; }
+.error-msg { display:none; background:var(--error-bg,rgba(255,82,82,.1)); border:1px solid var(--error-border,rgba(255,82,82,.3)); border-radius:10px; color:var(--error,#ff5252); font-size:13px; padding:10px 14px; margin-top:16px; display:none; align-items:center; gap:8px; }
+.error-msg.visible { display:flex; }
+.version { text-align:center; color:rgba(255,255,255,.2); font-size:12px; margin-top:24px; }
+</style>
+</head>
+<body>
+<div class="login-box">
+  <div class="logo">D-PlaneOS</div>
+  <div class="subtitle">NAS Operating System</div>
+  <div class="card">
+    <div class="form-group">
+      <label class="form-label">Username</label>
+      <input type="text" id="username" class="form-input" placeholder="admin" autocomplete="username" autofocus>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Password</label>
+      <div class="pw-wrap">
+        <input type="password" id="password" class="form-input" placeholder="••••••••" autocomplete="current-password">
+        <button id="pwToggle" type="button" aria-label="Show password"
+          style="position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;padding:4px;cursor:pointer;color:rgba(255,255,255,.4);font-family:'Material Symbols Rounded';font-size:20px;line-height:1;transition:color .15s;">visibility</button>
+      </div>
+    </div>
+    <button id="loginBtn" class="btn-login" onclick="doLogin()">Sign In</button>
+    <div id="errorMsg" class="error-msg" role="alert">
+      <span style="font-family:'Material Symbols Rounded';font-size:18px;flex-shrink:0;">error</span>
+      <span id="errorText"></span>
+    </div>
+  </div>
+  <div class="version" id="login-version"></div>
+</div>
+
+<script>
+// Show version
+fetch('/health').then(r => r.json()).then(d => {
+  const el = document.getElementById('login-version');
+  if (el && d.version) el.textContent = 'v' + d.version;
+}).catch(() => {});
+
+// Show/hide password toggle
+(function() {
+  const pwInput = document.getElementById('password');
+  const btn = document.getElementById('pwToggle');
+  if (!btn || !pwInput) return;
+  btn.addEventListener('click', () => {
+    const show = pwInput.type === 'password';
+    pwInput.type = show ? 'text' : 'password';
+    btn.textContent = show ? 'visibility_off' : 'visibility';
+    btn.setAttribute('aria-label', show ? 'Hide password' : 'Show password');
+    btn.style.color = show ? 'var(--primary,#8a9cff)' : 'rgba(255,255,255,.4)';
+  });
+})();
+
+// Keyboard navigation
+document.getElementById('password').addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') doLogin();
+});
+document.getElementById('username').addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') document.getElementById('password').focus();
+});
+
+function showError(msg) {
+  const el = document.getElementById('errorMsg');
+  document.getElementById('errorText').textContent = msg;
+  el.classList.add('visible');
+}
+function clearError() {
+  document.getElementById('errorMsg').classList.remove('visible');
+}
+
+async function doLogin() {
+  const username = document.getElementById('username').value.trim();
+  const password = document.getElementById('password').value;
+  const btn = document.getElementById('loginBtn');
+
+  clearError();
+
+  if (!username || !password) {
+    showError('Please enter username and password');
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = 'Signing in…';
+
+  try {
+    const resp = await fetch('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password })
+    });
+    const data = await resp.json();
+
+    if (data.success) {
+      sessionStorage.setItem('session_id', data.session_id);
+      sessionStorage.setItem('username', data.username);
+      window.location.href = '/pages/index.html';
+    } else {
+      showError(data.error || 'Login failed');
+      btn.disabled = false;
+      btn.textContent = 'Sign In';
+    }
+  } catch (err) {
+    showError('Connection error — is the server running?');
+    btn.disabled = false;
+    btn.textContent = 'Sign In';
+  }
+}
+</script>
+</body>
+</html>

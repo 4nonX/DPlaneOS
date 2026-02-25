@@ -1,0 +1,546 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Network - D-PlaneOS v1.14.0</title>
+    <link rel="stylesheet" href="/main.css">
+</head>
+<body>
+    <div id="app" class="flex" style="height: 100vh;">
+        <div id="sidebar-container"></div>
+        <main style="flex: 1; overflow-y: auto; padding: 24px;">
+            <div class="container">
+
+                <!-- Page Header -->
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:24px;">
+                    <h1 style="font-size:28px; font-weight:700;">🌐 Network</h1>
+                    <button class="btn-secondary" onclick="refreshAll()">🔄 Refresh</button>
+                </div>
+
+                <!-- ════════════════════════════════════════════════════
+                     TAILSCALE CARD
+                     ════════════════════════════════════════════════════ -->
+                <div class="glass-card" style="margin-bottom:24px; border:1px solid var(--color-border);">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+                        <h2 style="font-size:20px; font-weight:600; display:flex; align-items:center; gap:10px;">
+                            <span style="font-size:24px;">🦮</span> Tailscale
+                        </h2>
+                        <span id="ts-badge" class="badge badge-info" style="font-size:12px;">Checking...</span>
+                    </div>
+                    <p style="color:var(--color-text-secondary); font-size:14px; margin-bottom:16px;">
+                        Make this server reachable from anywhere without opening firewall ports — secure WireGuard tunnel, zero config.
+                    </p>
+
+                    <!-- State: not installed -->
+                    <div id="ts-not-installed" style="display:none;">
+                        <div class="alert alert-info" style="margin-bottom:14px; font-size:13px;">
+                            <strong>ℹ️ Requires internet</strong> — Installation downloads ~5 MB from tailscale.com.
+                        </div>
+                        <button class="btn-primary" id="tsInstallBtn" onclick="installTailscale()">📦 Install Tailscale</button>
+                    </div>
+
+                    <!-- State: installed, not connected -->
+                    <div id="ts-not-connected" style="display:none;">
+                        <button class="btn-primary" id="tsConnectBtn" onclick="connectTailscale()">🔗 Connect</button>
+                    </div>
+
+                    <!-- State: waiting for browser auth -->
+                    <div id="ts-auth-pending" style="display:none;">
+                        <div class="alert alert-warning" style="margin-bottom:12px; font-size:13px;">
+                            <strong>⏳ Waiting for authentication</strong><br>
+                            Open the link below in your browser, then click Check Status.
+                        </div>
+                        <div id="ts-auth-url" style="
+                            background:var(--color-surface-light);
+                            border:1px solid var(--color-border);
+                            border-radius:8px;
+                            padding:10px 14px;
+                            font-family:monospace;
+                            font-size:12px;
+                            word-break:break-all;
+                            color:var(--color-primary);
+                            cursor:pointer;
+                            margin-bottom:12px;
+                        " onclick="copyAuthUrl(this)">
+                            (waiting for URL…)
+                        </div>
+                        <div style="display:flex; gap:8px;">
+                            <button class="btn-secondary btn-sm" onclick="refreshTailscaleStatus()">🔄 Check Status</button>
+                            <button class="btn-secondary btn-sm" onclick="disconnectTailscale()">✕ Cancel</button>
+                        </div>
+                    </div>
+
+                    <!-- State: connected -->
+                    <div id="ts-connected" style="display:none;">
+                        <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:16px;">
+                            <div style="background:var(--color-surface-light); border-radius:8px; padding:12px;">
+                                <div style="font-size:11px; color:var(--color-text-secondary); text-transform:uppercase; margin-bottom:4px;">Tailscale IP</div>
+                                <div id="ts-ip" style="font-weight:600; font-family:monospace;">—</div>
+                            </div>
+                            <div style="background:var(--color-surface-light); border-radius:8px; padding:12px;">
+                                <div style="font-size:11px; color:var(--color-text-secondary); text-transform:uppercase; margin-bottom:4px;">Peers</div>
+                                <div id="ts-peers" style="font-weight:600;">0</div>
+                            </div>
+                        </div>
+                        <button class="btn-secondary btn-sm" onclick="disconnectTailscale()">⏻ Disconnect</button>
+                    </div>
+                </div>
+
+                <!-- ════════════════════════════════════════════════════
+                     NETWORK INTERFACES CARD
+                     ════════════════════════════════════════════════════ -->
+                <div class="glass-card" style="border:1px solid var(--color-border); margin-bottom:24px;">
+                    <h2 style="font-size:20px; font-weight:600; margin-bottom:16px;">🔌 Interfaces</h2>
+                    <div id="interfaces-list">
+                        <p style="color:var(--color-text-secondary); font-size:14px;">Loading…</p>
+                    </div>
+                </div>
+
+                <!-- ════════════════════════════════════════════════════
+                     HOSTNAME CARD
+                     ════════════════════════════════════════════════════ -->
+                <div class="glass-card" style="border:1px solid var(--color-border); margin-bottom:24px;">
+                    <h2 style="font-size:20px; font-weight:600; margin-bottom:12px;">🏷️ Hostname</h2>
+                    <div style="display:flex; gap:8px; align-items:center;">
+                        <input id="hostnameInput" type="text" placeholder="my-nas"
+                               style="padding:8px 12px; border-radius:6px; flex:1; max-width:280px; background:var(--color-surface-light); border:1px solid var(--color-border); color:var(--color-text-primary); font-size:14px; outline:none; font-family:monospace;"
+                               onkeydown="if(event.key==='Enter') setHostname();">
+                        <button class="btn-primary" style="padding:7px 14px; font-size:13px;" onclick="setHostname()">Set</button>
+                    </div>
+                </div>
+
+                <!-- ════════════════════════════════════════════════════
+                     DNS CARD
+                     ════════════════════════════════════════════════════ -->
+                <div class="glass-card" style="border:1px solid var(--color-border); margin-bottom:24px;">
+                    <h2 style="font-size:20px; font-weight:600; margin-bottom:12px;">🌍 DNS Servers</h2>
+                    <div id="dnsList" style="margin-bottom:12px; min-height:24px;"></div>
+                    <div style="display:flex; gap:8px; align-items:center;">
+                        <input id="dnsInput" type="text" placeholder="1.1.1.1"
+                               style="padding:7px 12px; border-radius:6px; width:180px; background:var(--color-surface-light); border:1px solid var(--color-border); color:var(--color-text-primary); font-size:13px; outline:none; font-family:monospace;"
+                               onkeydown="if(event.key==='Enter') addDNS();">
+                        <button class="btn-secondary" style="padding:6px 12px; font-size:12px;" onclick="addDNS()">+ Add</button>
+                    </div>
+                </div>
+
+                <!-- ════════════════════════════════════════════════════
+                     IP / DHCP CARD
+                     ════════════════════════════════════════════════════ -->
+                <div class="glass-card" style="border:1px solid var(--color-border); margin-bottom:24px;">
+                    <h2 style="font-size:20px; font-weight:600; margin-bottom:12px;">🖥️ IP Configuration</h2>
+                    <div style="display:flex; gap:8px; align-items:center; margin-bottom:12px; flex-wrap:wrap;">
+                        <select id="ipInterface"
+                                style="padding:7px 10px; border-radius:6px; background:var(--color-surface-light); border:1px solid var(--color-border); color:var(--color-text-primary); font-size:13px; outline:none;">
+                            <option value="">Select interface…</option>
+                        </select>
+                        <button class="btn-secondary" style="padding:6px 12px; font-size:12px;" onclick="setDHCP()">⚡ DHCP</button>
+                    </div>
+                    <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                        <input id="ipAddr" type="text" placeholder="192.168.1.100"
+                               style="padding:6px 10px; border-radius:6px; width:160px; background:var(--color-surface-light); border:1px solid var(--color-border); color:var(--color-text-primary); font-size:12px; outline:none; font-family:monospace;">
+                        <input id="ipNetmask" type="text" placeholder="255.255.255.0"
+                               style="padding:6px 10px; border-radius:6px; width:160px; background:var(--color-surface-light); border:1px solid var(--color-border); color:var(--color-text-primary); font-size:12px; outline:none; font-family:monospace;">
+                        <button class="btn-primary" style="padding:6px 12px; font-size:12px;" onclick="setStaticIP()">Set Static</button>
+                    </div>
+                </div>
+
+                <!-- ════════════════════════════════════════════════════
+                     ROUTES CARD
+                     ════════════════════════════════════════════════════ -->
+                <div class="glass-card" style="border:1px solid var(--color-border); margin-bottom:24px;">
+                    <h2 style="font-size:20px; font-weight:600; margin-bottom:12px;">🗺️ Routes</h2>
+                    <div id="routesList" style="margin-bottom:12px; min-height:24px;"></div>
+                    <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                        <input id="routeDest" type="text" placeholder="10.0.0.0/24"
+                               style="padding:6px 10px; border-radius:6px; width:150px; background:var(--color-surface-light); border:1px solid var(--color-border); color:var(--color-text-primary); font-size:12px; outline:none; font-family:monospace;">
+                        <input id="routeGw" type="text" placeholder="192.168.1.1"
+                               style="padding:6px 10px; border-radius:6px; width:150px; background:var(--color-surface-light); border:1px solid var(--color-border); color:var(--color-text-primary); font-size:12px; outline:none; font-family:monospace;">
+                        <select id="routeIface"
+                                style="padding:6px 10px; border-radius:6px; background:var(--color-surface-light); border:1px solid var(--color-border); color:var(--color-text-primary); font-size:12px; outline:none;">
+                            <option value="">Any iface</option>
+                        </select>
+                        <button class="btn-secondary" style="padding:6px 12px; font-size:12px;" onclick="addRoute()">+ Add</button>
+                    </div>
+                </div>
+
+                <!-- ════════════════════════════════════════════════════
+                     FIREWALL CARD
+                     ════════════════════════════════════════════════════ -->
+                <div class="glass-card" style="border:1px solid var(--color-border);">
+                    <h2 style="font-size:20px; font-weight:600; margin-bottom:12px;">🔒 Firewall (iptables)</h2>
+                    <div id="firewallRules" style="margin-bottom:12px; min-height:40px;
+                        background:var(--color-surface-light); border-radius:6px; padding:12px;
+                        font-family:monospace; font-size:11px; color:var(--color-text-secondary);
+                        white-space:pre-wrap; max-height:260px; overflow-y:auto; line-height:1.5;">
+                        Loading…
+                    </div>
+                    <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                        <select id="fwChain"
+                                style="padding:6px 10px; border-radius:6px; background:var(--color-surface-light); border:1px solid var(--color-border); color:var(--color-text-primary); font-size:12px; outline:none;">
+                            <option value="INPUT">INPUT</option>
+                            <option value="FORWARD">FORWARD</option>
+                            <option value="OUTPUT">OUTPUT</option>
+                        </select>
+                        <input id="fwRule" type="text" placeholder="-p tcp --dport 22 -j ACCEPT"
+                               style="padding:6px 10px; border-radius:6px; flex:1; min-width:220px; background:var(--color-surface-light); border:1px solid var(--color-border); color:var(--color-text-primary); font-size:12px; outline:none; font-family:monospace;"
+                               onkeydown="if(event.key==='Enter') addFirewallRule();">
+                        <button class="btn-primary" style="padding:6px 12px; font-size:12px;" onclick="addFirewallRule()">+ Add Rule</button>
+                    </div>
+                </div>
+
+            </div>
+        </main>
+    </div>
+
+    <script src="/sidebar.js"></script>
+    <script>
+    // ═══════════════════════════════════════════════════════════════
+    // TAILSCALE
+    // ═══════════════════════════════════════════════════════════════
+    let currentAuthUrl = null;
+    let cachedInterfaces = []; // shared across sections
+
+    async function refreshTailscaleStatus() {
+        try {
+            const res  = await fetch('/api/network.php?action=tailscale_status');
+            const data = await res.json();
+            renderTailscaleState(data);
+        } catch (e) {
+            console.error('Tailscale status fetch failed', e);
+        }
+    }
+
+    function renderTailscaleState(data) {
+        ['ts-not-installed','ts-not-connected','ts-auth-pending','ts-connected']
+            .forEach(id => document.getElementById(id).style.display = 'none');
+
+        const badge = document.getElementById('ts-badge');
+
+        if (!data.installed) {
+            document.getElementById('ts-not-installed').style.display = 'block';
+            badge.textContent = 'Not Installed';
+            badge.className   = 'badge badge-warning';
+            currentAuthUrl    = null;
+
+        } else if (data.status === 'connected') {
+            document.getElementById('ts-connected').style.display = 'block';
+            document.getElementById('ts-ip').textContent    = data.ip || '—';
+            document.getElementById('ts-peers').textContent = data.peers || 0;
+            badge.textContent = 'Connected';
+            badge.className   = 'badge badge-success';
+            currentAuthUrl    = null;
+
+        } else if (data.status === 'waiting_auth' && currentAuthUrl) {
+            document.getElementById('ts-auth-pending').style.display = 'block';
+            document.getElementById('ts-auth-url').textContent = currentAuthUrl;
+            badge.textContent = 'Waiting';
+            badge.className   = 'badge badge-warning';
+
+        } else {
+            document.getElementById('ts-not-connected').style.display = 'block';
+            badge.textContent = data.running ? 'Not Connected' : 'Installed';
+            badge.className   = 'badge badge-info';
+        }
+    }
+
+    async function installTailscale() {
+        const btn = document.getElementById('tsInstallBtn');
+        btn.disabled    = true;
+        btn.textContent = '⏳ Installing…';
+        try {
+            const res  = await fetch('/api/network.php?action=tailscale_install', { method: 'POST' });
+            const data = await res.json();
+            if (!data.success) { alert('Install failed: ' + data.error); }
+            await refreshTailscaleStatus();
+        } catch (e) { alert('Install failed: ' + e.message); }
+        btn.disabled    = false;
+        btn.textContent = '📦 Install Tailscale';
+    }
+
+    async function connectTailscale() {
+        const btn = document.getElementById('tsConnectBtn');
+        btn.disabled    = true;
+        btn.textContent = '⏳ Connecting…';
+        try {
+            const res  = await fetch('/api/network.php?action=tailscale_up', { method: 'POST' });
+            const data = await res.json();
+            if (data.success && data.auth_url) {
+                currentAuthUrl = data.auth_url;
+                ['ts-not-installed','ts-not-connected','ts-connected']
+                    .forEach(id => document.getElementById(id).style.display = 'none');
+                document.getElementById('ts-auth-pending').style.display = 'block';
+                document.getElementById('ts-auth-url').textContent = data.auth_url;
+                document.getElementById('ts-badge').textContent = 'Waiting';
+                document.getElementById('ts-badge').className   = 'badge badge-warning';
+            } else {
+                await refreshTailscaleStatus();
+            }
+        } catch (e) { alert('Connect failed: ' + e.message); }
+        btn.disabled    = false;
+        btn.textContent = '🔗 Connect';
+    }
+
+    async function disconnectTailscale() {
+        try {
+            await fetch('/api/network.php?action=tailscale_down', { method: 'POST' });
+            currentAuthUrl = null;
+            await refreshTailscaleStatus();
+        } catch (e) { alert('Disconnect failed: ' + e.message); }
+    }
+
+    function copyAuthUrl(el) {
+        if (!currentAuthUrl) return;
+        navigator.clipboard.writeText(currentAuthUrl).then(function() {
+            el.textContent = '✓ Copied!';
+            setTimeout(function() { el.textContent = currentAuthUrl; }, 1800);
+        });
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // INTERFACES
+    // ═══════════════════════════════════════════════════════════════
+    async function loadInterfaces() {
+        try {
+            const res  = await fetch('/api/network.php?action=list');
+            const data = await res.json();
+            cachedInterfaces = data.interfaces || [];
+            const list = document.getElementById('interfaces-list');
+
+            if (cachedInterfaces.length === 0) {
+                list.innerHTML = '<p style="color:var(--color-text-secondary); font-size:14px;">No interfaces found.</p>';
+            } else {
+                list.innerHTML = cachedInterfaces.map(function(iface) {
+                    var stateColor = iface.state === 'up' ? 'var(--color-success)' : 'var(--color-text-secondary)';
+                    var addrs      = (iface.addresses || []).join(', ') || '—';
+                    return (
+                        '<div style="display:flex; justify-content:space-between; align-items:center; padding:12px 0; border-bottom:1px solid var(--color-border);">' +
+                            '<div style="display:flex; align-items:center; gap:12px;">' +
+                                '<div style="width:10px;height:10px;border-radius:50%;background:' + stateColor + ';"></div>' +
+                                '<div>' +
+                                    '<div style="font-weight:600; font-size:15px;">' + iface.name + '</div>' +
+                                    '<div style="font-size:12px; color:var(--color-text-secondary);">' + (iface.mac || '—') + '</div>' +
+                                '</div>' +
+                            '</div>' +
+                            '<div style="text-align:right;">' +
+                                '<div style="font-size:13px; font-family:monospace;">' + addrs + '</div>' +
+                                '<div style="font-size:11px; color:var(--color-text-secondary);">MTU ' + (iface.mtu || '—') + ' • ' + iface.state + '</div>' +
+                            '</div>' +
+                        '</div>'
+                    );
+                }).join('');
+            }
+
+            // Populate interface selects shared by IP and Route cards
+            populateIfaceSelects();
+        } catch (e) { console.error('Failed to load interfaces', e); }
+    }
+
+    function populateIfaceSelects() {
+        var opts = '<option value="">Select interface…</option>' +
+            cachedInterfaces.filter(function(i) { return i.state === 'up' && i.name !== 'lo'; })
+                .map(function(i) { return '<option value="' + i.name + '">' + i.name + ' (' + (i.addresses||[]).join(', ') + ')</option>'; }).join('');
+        document.getElementById('ipInterface').innerHTML = opts;
+
+        var ropts = '<option value="">Any iface</option>' +
+            cachedInterfaces.filter(function(i) { return i.name !== 'lo'; })
+                .map(function(i) { return '<option value="' + i.name + '">' + i.name + '</option>'; }).join('');
+        document.getElementById('routeIface').innerHTML = ropts;
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // HOSTNAME
+    // ═══════════════════════════════════════════════════════════════
+    async function loadHostname() {
+        try {
+            var res  = await fetch('/api/network.php?action=get_hostname');
+            var data = await res.json();
+            document.getElementById('hostnameInput').value = data.hostname || '';
+        } catch (e) { console.error('Failed to load hostname', e); }
+    }
+
+    async function setHostname() {
+        var val = document.getElementById('hostnameInput').value.trim();
+        if (!val) { alert('Hostname cannot be empty'); return; }
+        var res = await fetch('/api/network.php?action=set_hostname', {
+            method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({ hostname: val })
+        });
+        var r = await res.json();
+        if (!r.success) { alert('Failed: ' + r.error); }
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // DNS
+    // ═══════════════════════════════════════════════════════════════
+    var dnsServers = [];
+
+    async function loadDNS() {
+        try {
+            var res  = await fetch('/api/network.php?action=get_dns');
+            var data = await res.json();
+            dnsServers = data.servers || [];
+            renderDNS();
+        } catch (e) { console.error('Failed to load DNS', e); }
+    }
+
+    function renderDNS() {
+        var el = document.getElementById('dnsList');
+        if (dnsServers.length === 0) {
+            el.innerHTML = '<span style="color:var(--color-text-muted); font-size:12px;">No DNS servers configured</span>';
+            return;
+        }
+        el.innerHTML = dnsServers.map(function(s, i) {
+            return '<span style="display:inline-flex;align-items:center;gap:4px;background:rgba(124,58,237,0.12);border:1px solid rgba(124,58,237,0.25);border-radius:14px;padding:3px 10px;margin:2px;font-size:12px;font-family:monospace;color:var(--color-primary-light);">' +
+                s + ' <button onclick="removeDNS(' + i + ')" style="background:none;border:none;color:var(--color-error);cursor:pointer;font-size:12px;padding:0;">✕</button></span>';
+        }).join('');
+    }
+
+    function addDNS() {
+        var val = document.getElementById('dnsInput').value.trim();
+        if (!val || dnsServers.indexOf(val) !== -1) return;
+        dnsServers.push(val);
+        document.getElementById('dnsInput').value = '';
+        saveDNS();
+    }
+
+    function removeDNS(idx) {
+        dnsServers.splice(idx, 1);
+        saveDNS();
+    }
+
+    async function saveDNS() {
+        renderDNS();
+        var res = await fetch('/api/network.php?action=set_dns', {
+            method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({ servers: dnsServers })
+        });
+        var r = await res.json();
+        if (!r.success) { alert('DNS save failed: ' + r.error); }
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // IP / DHCP
+    // ═══════════════════════════════════════════════════════════════
+    async function setStaticIP() {
+        var iface   = document.getElementById('ipInterface').value;
+        var ip      = document.getElementById('ipAddr').value.trim();
+        var netmask = document.getElementById('ipNetmask').value.trim();
+        if (!iface) { alert('Select an interface'); return; }
+        if (!ip || !netmask) { alert('IP and netmask required'); return; }
+        var res = await fetch('/api/network.php?action=set_ip', {
+            method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({ interface: iface, ip: ip, netmask: netmask })
+        });
+        var r = await res.json();
+        if (r.success) { await loadInterfaces(); }
+        else { alert('Failed: ' + r.error); }
+    }
+
+    async function setDHCP() {
+        var iface = document.getElementById('ipInterface').value;
+        if (!iface) { alert('Select an interface'); return; }
+        var res = await fetch('/api/network.php?action=set_dhcp', {
+            method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({ interface: iface })
+        });
+        var r = await res.json();
+        if (r.success) { await loadInterfaces(); }
+        else { alert('Failed: ' + r.error); }
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // ROUTES
+    // ═══════════════════════════════════════════════════════════════
+    async function loadRoutes() {
+        try {
+            var res  = await fetch('/api/network.php?action=routes');
+            var data = await res.json();
+            var routes = data.routes || [];
+            var el = document.getElementById('routesList');
+            if (routes.length === 0) {
+                el.innerHTML = '<span style="color:var(--color-text-muted); font-size:12px;">No routes</span>';
+                return;
+            }
+            el.innerHTML = routes.map(function(r) {
+                var dest = r.dst || r.default ? 'default' : r.dst;
+                var gw   = r.gateway || '—';
+                var dev  = r.dev || '—';
+                return '<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--color-border);">' +
+                    '<span style="font-family:monospace;font-size:12px;"><strong>' + dest + '</strong> via ' + gw + ' dev ' + dev + '</span>' +
+                    (r.dst ? '<button onclick="deleteRoute(\'' + r.dst + '\')" style="background:none;border:none;color:var(--color-error);cursor:pointer;font-size:12px;">🗑️</button>' : '<span style="font-size:10px;color:var(--color-text-muted);">(default)</span>') +
+                '</div>';
+            }).join('');
+        } catch (e) { console.error('Failed to load routes', e); }
+    }
+
+    async function addRoute() {
+        var dest  = document.getElementById('routeDest').value.trim();
+        var gw    = document.getElementById('routeGw').value.trim();
+        var iface = document.getElementById('routeIface').value;
+        if (!dest || !gw) { alert('Destination and gateway required'); return; }
+        var res = await fetch('/api/network.php?action=add_route', {
+            method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({ destination: dest, gateway: gw, interface: iface || null })
+        });
+        var r = await res.json();
+        if (r.success) {
+            document.getElementById('routeDest').value = '';
+            document.getElementById('routeGw').value = '';
+            await loadRoutes();
+        } else { alert('Failed: ' + r.error); }
+    }
+
+    async function deleteRoute(dest) {
+        if (!confirm('Delete route to ' + dest + '?')) return;
+        var res = await fetch('/api/network.php?action=delete_route', {
+            method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({ destination: dest })
+        });
+        var r = await res.json();
+        if (r.success) { await loadRoutes(); } else { alert('Failed: ' + r.error); }
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // FIREWALL
+    // ═══════════════════════════════════════════════════════════════
+    async function loadFirewall() {
+        try {
+            var res  = await fetch('/api/network.php?action=firewall');
+            var data = await res.json();
+            document.getElementById('firewallRules').textContent = data.rules || 'Firewall not available';
+        } catch (e) { console.error('Failed to load firewall', e); }
+    }
+
+    async function addFirewallRule() {
+        var chain = document.getElementById('fwChain').value;
+        var rule  = document.getElementById('fwRule').value.trim();
+        if (!rule) return;
+        var res = await fetch('/api/network.php?action=add_firewall_rule', {
+            method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({ chain: chain, rule: rule })
+        });
+        var r = await res.json();
+        if (r.success) {
+            document.getElementById('fwRule').value = '';
+            await loadFirewall();
+        } else { alert('Failed: ' + r.error); }
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // INIT
+    // ═══════════════════════════════════════════════════════════════
+    function refreshAll() {
+        refreshTailscaleStatus();
+        loadInterfaces().then(function() {
+            // hostname/DNS/routes/firewall can load in parallel after interfaces
+            loadHostname();
+            loadDNS();
+            loadRoutes();
+            loadFirewall();
+        });
+    }
+    refreshAll();
+    </script>
+</body>
+</html>
