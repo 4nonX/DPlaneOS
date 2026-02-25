@@ -68,7 +68,7 @@ product. The code is fully source-available and you can read every line.
 The D-PlaneOS flake handles this automatically — it marks only the three
 D-PlaneOS packages (dplaned, frontend, recovery CLI) as unfree via
 `allowUnfreePredicate`. All system packages (ZFS, Samba, Docker, nginx, etc.)
-remain under their own source-available licenses and are unaffected.
+remain under their own open-source licenses and are unaffected.
 
 If your system-wide Nix config has `allowUnfree = false` (the default), the
 flake still works because the predicate is scoped to the flake's own package
