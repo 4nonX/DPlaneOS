@@ -1,0 +1,15 @@
+// Ignore Go sync conflict files
+*.sync-conflict-*.go
+
+// Ignore build artifacts
+/build/dplaned
+*.o
+*.a
+
+// Ignore Go test cache
+/daemon/.cache
+
+// Ignore database files
+*.db
+*.db-wal
+*.db-shm
