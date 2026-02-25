@@ -1,4 +1,4 @@
-# D-PlaneOS v3.3.0 — API Error Reference
+# D-PlaneOS — API Error Reference
 
 Quick reference for all HTTP error codes and their meaning.
 
