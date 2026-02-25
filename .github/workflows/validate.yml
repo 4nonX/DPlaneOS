@@ -37,6 +37,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Check for Syncthing conflict files
+        run: |
+          CONFLICTS=$(find . -name "*.sync-conflict-*.go" 2>/dev/null)
+          if [ -n "$CONFLICTS" ]; then
+            echo "ERROR: Syncthing conflict files found — these will cause duplicate symbol errors:"
+            echo "$CONFLICTS"
+            exit 1
+          fi
+
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
@@ -98,11 +107,18 @@ jobs:
       - name: Seed CI user
         run: |
           CI_PASS="CiAdmin1!Test"
-          CI_HASH=$(python3 -c "import bcrypt; print(bcrypt.hashpw(b'$CI_PASS', bcrypt.gensalt(rounds=10)).decode())")
-          # Update existing admin row (created by daemon seed) so login works; avoid REPLACE to keep row identity
+          # Write hash to a file to avoid shell quoting issues with special characters
+          python3 -c "
+          import bcrypt, os
+          pw = os.environ['CI_PASS'].encode()
+          print(bcrypt.hashpw(pw, bcrypt.gensalt(rounds=10)).decode())
+          " > /tmp/ci_hash.txt
+          CI_HASH=$(cat /tmp/ci_hash.txt)
           sudo sqlite3 /var/lib/dplaneos/dplaneos.db \
             "UPDATE users SET password_hash='$(echo "$CI_HASH" | sed "s/'/''/g")', active=1, role='admin', must_change_password=0 WHERE username='admin';"
           echo "CI_PASS=$CI_PASS" >> $GITHUB_ENV
+        env:
+          CI_PASS: "CiAdmin1!Test"
 
       - name: API integration tests
         run: |
@@ -323,5 +339,8 @@ jobs:
         if: always()
         run: |
           [ -f /tmp/dplaned.pid ] && sudo kill $(cat /tmp/dplaned.pid) 2>/dev/null || true
+          # Pool must be destroyed BEFORE loop devices are detached — detaching first causes zpool destroy to hang
           sudo zpool destroy testpool 2>/dev/null || true
-          sudo losetup -d "$LOOP0" "$LOOP1" "$LOOP2" 2>/dev/null || true
+          sudo losetup -d "$LOOP0" 2>/dev/null || true
+          sudo losetup -d "$LOOP1" 2>/dev/null || true
+          sudo losetup -d "$LOOP2" 2>/dev/null || true

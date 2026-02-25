@@ -152,7 +152,7 @@ cleanup() {
 trap cleanup EXIT
 
 # ── Banner ────────────────────────────────────────────────────────────────────
-clear
+[ -n "$TERM" ] && clear || true
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo -e "${BOLD}    D-PlaneOS v${DPLANEOS_VERSION} — Installer${NC}"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -825,7 +825,7 @@ PRIMARY_IP=$(hostname -I | awk '{print $1}')
 MY_IP="${PRIMARY_IP:-your-server-ip}"
 PORT_SUFFIX=$( [ "$OPT_PORT" = "80" ] && echo "" || echo ":${OPT_PORT}" )
 
-clear
+[ -n "$TERM" ] && clear || true
 echo -e "${BOLD}${GREEN}"
 echo "╔══════════════════════════════════════════════════════╗"
 echo "║       D-PlaneOS v${DPLANEOS_VERSION} — Installation Complete!        ║"

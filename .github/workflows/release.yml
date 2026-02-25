@@ -4,8 +4,6 @@ on:
   push:
     tags:
       - "v*"
-  release:
-    types: [created]
 
 jobs:
   release:
@@ -17,6 +15,15 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Check for Syncthing conflict files
+        run: |
+          CONFLICTS=$(find . -name "*.sync-conflict-*.go" 2>/dev/null)
+          if [ -n "$CONFLICTS" ]; then
+            echo "ERROR: Syncthing conflict files found in release commit:"
+            echo "$CONFLICTS"
+            exit 1
+          fi
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -44,6 +51,7 @@ jobs:
         working-directory: daemon
         run: |
           VERSION="${GITHUB_REF_NAME}"
+          mkdir -p ../build
           CGO_ENABLED=1 go build \
             -tags sqlite_fts5 \
             -ldflags="-s -w -X main.Version=${VERSION}" \
@@ -61,10 +69,10 @@ jobs:
             --exclude='.git' \
             --exclude='.github' \
             --exclude='*.tar.gz' \
+            --exclude='*.sync-conflict-*' \
             --exclude='legacy/' \
             --exclude='PROJECT-ASSESSMENT.md' \
             ./ "/tmp/${DIRNAME}/"
-          cp build/dplaned "/tmp/${DIRNAME}/build/dplaned"
           tar -czf "/tmp/${TARBALL}" -C /tmp "${DIRNAME}"
           echo "TARBALL=/tmp/${TARBALL}" >> $GITHUB_ENV
           echo "VERSION=${VERSION}"      >> $GITHUB_ENV
@@ -72,10 +80,9 @@ jobs:
 
       - name: Generate SHA256 checksum
         run: |
-          cd /tmp
-          sha256sum "$(basename $TARBALL)" > "$(basename $TARBALL).sha256"
-          cat "$(basename $TARBALL).sha256"
-          echo "CHECKSUM=/tmp/$(basename $TARBALL).sha256" >> $GITHUB_ENV
+          sha256sum "${TARBALL}" > "${TARBALL}.sha256"
+          cat "${TARBALL}.sha256"
+          echo "CHECKSUM=${TARBALL}.sha256" >> $GITHUB_ENV
 
       - name: Extract release notes from CHANGELOG.md
         run: python3 .github/workflows/extract-release-notes.py
