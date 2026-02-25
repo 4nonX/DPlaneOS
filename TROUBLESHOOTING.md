@@ -1,4 +1,4 @@
-# D-PlaneOS v3.3.0 - Troubleshooting Guide
+# D-PlaneOS - Troubleshooting Guide
 
 **Critical Issues & Solutions**
 
