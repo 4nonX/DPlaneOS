@@ -98,4 +98,4 @@ Navigate to **Identity → Directory Service** to configure. Supports:
 
 ## License
 
-Open source. See LICENSE file.
+ Source Available. See LICENSE file.
