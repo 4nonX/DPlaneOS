@@ -6,7 +6,7 @@ Source-available NAS OS with Material Design 3 UI, ZFS storage, Docker container
 
 ### Debian/Ubuntu
 ```bash
-tar xzf dplaneos-v3.3.0.tar.gz
+tar xzf dplaneos-v3.3.1.tar.gz
 cd dplaneos
 sudo make install   # Pre-built binary, no compiler needed
 sudo systemctl start dplaned
