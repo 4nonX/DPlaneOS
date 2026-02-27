@@ -69,6 +69,7 @@
   <button class="consolidation-tab" data-tab="advanced" onclick="switchConsolidatedTab('advanced')">Advanced</button>
   <button class="consolidation-tab" data-tab="quotas" onclick="switchConsolidatedTab('quotas')">Quotas</button>
   <button class="consolidation-tab" data-tab="encryption" onclick="switchConsolidatedTab('encryption')">Encryption</button>
+  <button class="consolidation-tab" data-tab="scheduler" onclick="switchConsolidatedTab('scheduler')">Scheduler</button>
 </div>
 
 <div id="tab-pools" class="consolidation-content active">
@@ -566,24 +567,667 @@ document.addEventListener('click', (e) => {
 </div>
 <div id="tab-quotas" class="consolidation-content">
 
+<div class="page-header" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:32px;">
+  <div>
+    <h1 class="page-title" style="font-size:28px;margin-bottom:6px;">Quota Management</h1>
+    <p class="page-subtitle" style="font-size:15px;color:rgba(255,255,255,0.5);">Dataset space limits and per-user/group quotas</p>
+  </div>
+  <button class="btn btn-primary" onclick="quota_openSetModal()">
+    <span class="material-symbols-rounded" style="font-size:18px;">data_usage</span> Set Dataset Quota
+  </button>
+</div>
 
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-bottom:32px;">
+  <!-- Dataset Quotas -->
+  <div class="card">
+    <div class="card-header" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+      <h3 style="margin:0;font-size:16px;font-weight:600;">Dataset Quotas</h3>
+      <button class="btn" onclick="quota_loadDatasets()" style="padding:6px 14px;font-size:13px;">
+        <span class="material-symbols-rounded" style="font-size:16px;">refresh</span> Refresh
+      </button>
+    </div>
+    <div id="quota_dataset_select_wrap" style="margin-bottom:16px;">
+      <label style="display:block;font-size:13px;color:rgba(255,255,255,0.6);margin-bottom:6px;">Select Dataset</label>
+      <select id="quota_dataset_sel" class="form-control" onchange="quota_loadDatasetQuota(this.value)"
+              style="width:100%;padding:10px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);border-radius:8px;color:#fff;font-size:14px;">
+        <option value="">— choose a dataset —</option>
+      </select>
+    </div>
+    <div id="quota_dataset_info" style="display:none;">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;">
+        <div style="padding:12px;background:rgba(255,255,255,0.04);border-radius:8px;">
+          <div style="font-size:12px;color:rgba(255,255,255,0.5);margin-bottom:4px;">Used</div>
+          <div id="quota_used" style="font-size:18px;font-weight:700;">—</div>
+        </div>
+        <div style="padding:12px;background:rgba(255,255,255,0.04);border-radius:8px;">
+          <div style="font-size:12px;color:rgba(255,255,255,0.5);margin-bottom:4px;">Available</div>
+          <div id="quota_avail" style="font-size:18px;font-weight:700;">—</div>
+        </div>
+        <div style="padding:12px;background:rgba(255,255,255,0.04);border-radius:8px;">
+          <div style="font-size:12px;color:rgba(255,255,255,0.5);margin-bottom:4px;">Ref Quota</div>
+          <div id="quota_refquota" style="font-size:18px;font-weight:700;">—</div>
+        </div>
+        <div style="padding:12px;background:rgba(255,255,255,0.04);border-radius:8px;">
+          <div style="font-size:12px;color:rgba(255,255,255,0.5);margin-bottom:4px;">Ref Reservation</div>
+          <div id="quota_refreserv" style="font-size:18px;font-weight:700;">—</div>
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;">
+        <button class="btn btn-primary" onclick="quota_openEditModal()" style="flex:1;">Edit Quotas</button>
+        <button class="btn" onclick="quota_clearQuotas()" style="color:#ef4444;border-color:rgba(239,68,68,0.3);">Clear All</button>
+      </div>
+    </div>
+  </div>
 
-<div class="nav-glass"><div class="nav-inner"><div class="logo" onclick="window.location.href='index.html'">D-PlaneOS</div><div class="nav-links"><a href="index.html" class="nav-link">Dashboard</a><a href="files.html" class="nav-link">Files</a><a href="pools.html" class="nav-link">Storage</a><a href="quotas.html" class="nav-link active">Quotas</a><a href="users.html" class="nav-link">Users</a><a href="settings.html" class="nav-link">Settings</a></div><div class="nav-user"><span class="nav-username" id="currentUser">Loading...</span><button class="btn btn-sm btn-logout" onclick="handleLogout()"><span class="material-symbols-rounded" style="font-size:18px;">logout</span>Logout</button></div></div></div>
-<div class="main"><div class="page-header"><div><h1 class="page-title">Quota Management</h1><p class="page-meta">Manage dataset quotas and usage limits</p></div><button class="btn btn-primary" onclick="showSetQuotaModal()"><span class="material-symbols-rounded">data_usage</span>Set Quota</button></div><div id="quotaList"></div></div>
+  <!-- User/Group Quotas -->
+  <div class="card">
+    <div class="card-header" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+      <h3 style="margin:0;font-size:16px;font-weight:600;">User &amp; Group Quotas</h3>
+      <button class="btn" onclick="quota_loadUserGroup()" style="padding:6px 14px;font-size:13px;">
+        <span class="material-symbols-rounded" style="font-size:16px;">refresh</span> Refresh
+      </button>
+    </div>
+    <div style="margin-bottom:12px;">
+      <select id="quota_ug_dataset" class="form-control" onchange="quota_loadUserGroup()"
+              style="width:100%;padding:10px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);border-radius:8px;color:#fff;font-size:14px;">
+        <option value="">— choose a dataset —</option>
+      </select>
+    </div>
+    <div id="quota_ug_list" style="max-height:240px;overflow-y:auto;">
+      <div style="color:rgba(255,255,255,0.4);font-size:13px;text-align:center;padding:32px;">Select a dataset to view user/group quotas</div>
+    </div>
+    <button class="btn btn-primary" onclick="quota_openUGModal()" style="width:100%;margin-top:12px;">
+      <span class="material-symbols-rounded" style="font-size:16px;">add</span> Set User/Group Quota
+    </button>
+  </div>
+</div>
+
+<!-- Set/Edit Dataset Quota Modal -->
+<div id="quota_modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:9000;align-items:center;justify-content:center;">
+<div style="background:#1e2132;border-radius:16px;padding:32px;width:100%;max-width:480px;border:1px solid rgba(255,255,255,0.1);">
+  <h3 style="margin:0 0 24px;font-size:18px;" id="quota_modal_title">Set Dataset Quota</h3>
+  <div style="margin-bottom:16px;">
+    <label style="display:block;font-size:13px;color:rgba(255,255,255,0.6);margin-bottom:6px;">Dataset</label>
+    <select id="quota_modal_dataset" class="form-control"
+            style="width:100%;padding:10px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);border-radius:8px;color:#fff;font-size:14px;">
+    </select>
+  </div>
+  <div style="margin-bottom:16px;">
+    <label style="display:block;font-size:13px;color:rgba(255,255,255,0.6);margin-bottom:6px;">Ref Quota (e.g. 500G, 1T, or "none" to clear)</label>
+    <input id="quota_modal_refquota" type="text" placeholder="none" class="form-control"
+           style="width:100%;padding:10px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);border-radius:8px;color:#fff;font-size:14px;">
+  </div>
+  <div style="margin-bottom:24px;">
+    <label style="display:block;font-size:13px;color:rgba(255,255,255,0.6);margin-bottom:6px;">Ref Reservation (e.g. 100G, or "none" to clear)</label>
+    <input id="quota_modal_refreserv" type="text" placeholder="none" class="form-control"
+           style="width:100%;padding:10px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);border-radius:8px;color:#fff;font-size:14px;">
+  </div>
+  <div style="display:flex;gap:12px;justify-content:flex-end;">
+    <button class="btn" onclick="quota_closeModal()">Cancel</button>
+    <button class="btn btn-primary" onclick="quota_saveDatasetQuota()">Save</button>
+  </div>
+</div></div>
+
+<!-- User/Group Quota Modal -->
+<div id="quota_ug_modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:9000;align-items:center;justify-content:center;">
+<div style="background:#1e2132;border-radius:16px;padding:32px;width:100%;max-width:480px;border:1px solid rgba(255,255,255,0.1);">
+  <h3 style="margin:0 0 24px;font-size:18px;">Set User/Group Quota</h3>
+  <div style="margin-bottom:16px;">
+    <label style="display:block;font-size:13px;color:rgba(255,255,255,0.6);margin-bottom:6px;">Dataset</label>
+    <select id="quota_ug_modal_dataset" class="form-control"
+            style="width:100%;padding:10px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);border-radius:8px;color:#fff;font-size:14px;">
+    </select>
+  </div>
+  <div style="margin-bottom:16px;">
+    <label style="display:block;font-size:13px;color:rgba(255,255,255,0.6);margin-bottom:6px;">Type</label>
+    <select id="quota_ug_type" class="form-control"
+            style="width:100%;padding:10px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);border-radius:8px;color:#fff;font-size:14px;">
+      <option value="userquota">User Quota</option>
+      <option value="groupquota">Group Quota</option>
+    </select>
+  </div>
+  <div style="margin-bottom:16px;">
+    <label style="display:block;font-size:13px;color:rgba(255,255,255,0.6);margin-bottom:6px;">User/Group name or UID/GID</label>
+    <input id="quota_ug_name" type="text" placeholder="e.g. alice or 1001" class="form-control"
+           style="width:100%;padding:10px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);border-radius:8px;color:#fff;font-size:14px;">
+  </div>
+  <div style="margin-bottom:24px;">
+    <label style="display:block;font-size:13px;color:rgba(255,255,255,0.6);margin-bottom:6px;">Quota size (e.g. 50G, or "none" to clear)</label>
+    <input id="quota_ug_size" type="text" placeholder="none" class="form-control"
+           style="width:100%;padding:10px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);border-radius:8px;color:#fff;font-size:14px;">
+  </div>
+  <div style="display:flex;gap:12px;justify-content:flex-end;">
+    <button class="btn" onclick="document.getElementById('quota_ug_modal').style.display='none'">Cancel</button>
+    <button class="btn btn-primary" onclick="quota_saveUGQuota()">Save</button>
+  </div>
+</div></div>
+
+<script>
+// ── Quota tab: all functions prefixed quota_ to avoid conflicts ──
+var quota_datasets = [];
+
+function init_quotas() {
+  quota_loadDatasets();
+}
+
+async function quota_loadDatasets() {
+  try {
+    var r = await csrfFetch('/api/zfs/datasets');
+    var d = await r.json();
+    var datasets = (d.datasets || []).map(function(ds) { return typeof ds === 'string' ? ds : ds.name; });
+    quota_datasets = datasets;
+    // Populate all dataset selects
+    ['quota_dataset_sel','quota_modal_dataset','quota_ug_dataset','quota_ug_modal_dataset'].forEach(function(id) {
+      var el = document.getElementById(id);
+      if (!el) return;
+      var cur = el.value;
+      el.innerHTML = '<option value="">— choose a dataset —</option>' +
+        datasets.map(function(n){ return '<option value="'+n+'"'+(n===cur?' selected':'')+'>'+n+'</option>'; }).join('');
+    });
+  } catch(e) {
+    console.error('quota_loadDatasets:', e);
+  }
+}
+
+async function quota_loadDatasetQuota(dataset) {
+  if (!dataset) { document.getElementById('quota_dataset_info').style.display='none'; return; }
+  try {
+    var r = await csrfFetch('/api/zfs/dataset/quota?dataset=' + encodeURIComponent(dataset));
+    var d = await r.json();
+    if (d.success) {
+      document.getElementById('quota_used').textContent = d.used || '—';
+      document.getElementById('quota_avail').textContent = d.available || '—';
+      document.getElementById('quota_refquota').textContent = d.refquota === '0' ? 'none' : (d.refquota || 'none');
+      document.getElementById('quota_refreserv').textContent = d.refreservation === '0' ? 'none' : (d.refreservation || 'none');
+      document.getElementById('quota_dataset_info').style.display='block';
+    }
+  } catch(e) { console.error('quota_loadDatasetQuota:', e); }
+}
+
+function quota_openSetModal() {
+  document.getElementById('quota_modal_title').textContent = 'Set Dataset Quota';
+  document.getElementById('quota_modal_refquota').value = '';
+  document.getElementById('quota_modal_refreserv').value = '';
+  document.getElementById('quota_modal').style.display = 'flex';
+}
+
+function quota_openEditModal() {
+  var ds = document.getElementById('quota_dataset_sel').value;
+  document.getElementById('quota_modal_title').textContent = 'Edit Quota — ' + ds;
+  document.getElementById('quota_modal_dataset').value = ds;
+  document.getElementById('quota_modal_refquota').value = document.getElementById('quota_refquota').textContent === '—' ? '' : document.getElementById('quota_refquota').textContent;
+  document.getElementById('quota_modal_refreserv').value = document.getElementById('quota_refreserv').textContent === '—' ? '' : document.getElementById('quota_refreserv').textContent;
+  document.getElementById('quota_modal').style.display = 'flex';
+}
+
+function quota_closeModal() {
+  document.getElementById('quota_modal').style.display = 'none';
+}
+
+async function quota_saveDatasetQuota() {
+  var dataset = document.getElementById('quota_modal_dataset').value;
+  var refquota = document.getElementById('quota_modal_refquota').value.trim() || 'none';
+  var refreserv = document.getElementById('quota_modal_refreserv').value.trim() || 'none';
+  if (!dataset) { if(window.EnhancedUI) EnhancedUI.toast('Select a dataset', 'error'); return; }
+  try {
+    var r = await csrfFetch('/api/zfs/dataset/quota', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ dataset: dataset, refquota: refquota, refreservation: refreserv })
+    });
+    var d = await r.json();
+    if (d.success) {
+      if(window.EnhancedUI) EnhancedUI.toast('Quota saved', 'success');
+      quota_closeModal();
+      quota_loadDatasetQuota(dataset);
+    } else {
+      if(window.EnhancedUI) EnhancedUI.toast(d.error || 'Failed to set quota', 'error');
+    }
+  } catch(e) { if(window.EnhancedUI) EnhancedUI.toast('Error: '+e.message,'error'); }
+}
+
+async function quota_clearQuotas() {
+  var ds = document.getElementById('quota_dataset_sel').value;
+  if (!ds) return;
+  if (!await ui.confirm('Clear Quotas', 'Remove all quotas/reservations from ' + ds + '?')) return;
+  try {
+    var r = await csrfFetch('/api/zfs/dataset/quota', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ dataset: ds, refquota: 'none', refreservation: 'none' })
+    });
+    var d = await r.json();
+    if (d.success) {
+      if(window.EnhancedUI) EnhancedUI.toast('Quotas cleared', 'success');
+      quota_loadDatasetQuota(ds);
+    } else {
+      if(window.EnhancedUI) EnhancedUI.toast(d.error || 'Failed', 'error');
+    }
+  } catch(e) { if(window.EnhancedUI) EnhancedUI.toast('Error: '+e.message,'error'); }
+}
+
+async function quota_loadUserGroup() {
+  var ds = document.getElementById('quota_ug_dataset').value;
+  var list = document.getElementById('quota_ug_list');
+  if (!ds) { list.innerHTML='<div style="color:rgba(255,255,255,0.4);font-size:13px;text-align:center;padding:32px;">Select a dataset to view user/group quotas</div>'; return; }
+  list.innerHTML='<div style="color:rgba(255,255,255,0.4);font-size:13px;padding:16px;">Loading...</div>';
+  try {
+    var r = await csrfFetch('/api/zfs/quota/usergroup?dataset='+encodeURIComponent(ds));
+    var d = await r.json();
+    if (!d.success || !(d.entries||[]).length) {
+      list.innerHTML='<div style="color:rgba(255,255,255,0.4);font-size:13px;text-align:center;padding:32px;">No user/group quotas set on this dataset</div>';
+      return;
+    }
+    list.innerHTML = d.entries.map(function(e){
+      return '<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid rgba(255,255,255,0.06);">' +
+        '<div><div style="font-size:14px;font-weight:600;">'+e.name+'</div><div style="font-size:12px;color:rgba(255,255,255,0.4);">'+e.type+' — used: '+e.used+'</div></div>' +
+        '<div style="display:flex;align-items:center;gap:8px;"><span style="font-size:14px;font-weight:600;">'+e.quota+'</span></div>' +
+        '</div>';
+    }).join('');
+  } catch(e) { list.innerHTML='<div style="color:#ef4444;font-size:13px;padding:16px;">Error loading quotas</div>'; }
+}
+
+function quota_openUGModal() {
+  var ds = document.getElementById('quota_ug_dataset').value;
+  if (ds) document.getElementById('quota_ug_modal_dataset').value = ds;
+  document.getElementById('quota_ug_name').value = '';
+  document.getElementById('quota_ug_size').value = '';
+  document.getElementById('quota_ug_modal').style.display = 'flex';
+}
+
+async function quota_saveUGQuota() {
+  var dataset = document.getElementById('quota_ug_modal_dataset').value;
+  var qtype   = document.getElementById('quota_ug_type').value;
+  var name    = document.getElementById('quota_ug_name').value.trim();
+  var size    = document.getElementById('quota_ug_size').value.trim() || 'none';
+  if (!dataset || !name) { if(window.EnhancedUI) EnhancedUI.toast('Dataset and user/group name required', 'error'); return; }
+  try {
+    var r = await csrfFetch('/api/zfs/quota/usergroup', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ dataset: dataset, type: qtype, name: name, quota: size })
+    });
+    var d = await r.json();
+    if (d.success) {
+      if(window.EnhancedUI) EnhancedUI.toast('Quota set', 'success');
+      document.getElementById('quota_ug_modal').style.display = 'none';
+      document.getElementById('quota_ug_dataset').value = dataset;
+      quota_loadUserGroup();
+    } else {
+      if(window.EnhancedUI) EnhancedUI.toast(d.error || 'Failed', 'error');
+    }
+  } catch(e) { if(window.EnhancedUI) EnhancedUI.toast('Error: '+e.message,'error'); }
+}
+</script>
+
 </div>
 <div id="tab-encryption" class="consolidation-content">
-<h1>ZFS Encryption Management</h1>
 
-<div class="toolbar">
-  <button class="btn" onclick="loadDatasets()">🔄 Refresh</button>
-  <button class="btn" onclick="createEncryptedDataset()">➕ Create Encrypted Dataset</button>
+<div class="page-header" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:32px;">
+  <div>
+    <h1 class="page-title" style="font-size:28px;margin-bottom:6px;">ZFS Encryption</h1>
+    <p class="page-subtitle" style="font-size:15px;color:rgba(255,255,255,0.5);">Manage encrypted datasets — lock, unlock, rotate keys</p>
+  </div>
+  <div style="display:flex;gap:12px;">
+    <button class="btn" onclick="enc_load()">
+      <span class="material-symbols-rounded" style="font-size:18px;">refresh</span> Refresh
+    </button>
+    <button class="btn btn-primary" onclick="enc_openCreateModal()">
+      <span class="material-symbols-rounded" style="font-size:18px;">add</span> Create Encrypted Dataset
+    </button>
+  </div>
 </div>
 
-<div id="status" class="loading">Loading...</div>
-<div id="datasets" class="dataset-list"></div>
+<div id="enc_list" style="display:grid;gap:12px;">
+  <div style="color:rgba(255,255,255,0.4);text-align:center;padding:48px;font-size:14px;">Loading encrypted datasets...</div>
+</div>
 
+<!-- Unlock Modal -->
+<div id="enc_unlock_modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:9000;align-items:center;justify-content:center;">
+<div style="background:#1e2132;border-radius:16px;padding:32px;width:100%;max-width:440px;border:1px solid rgba(255,255,255,0.1);">
+  <h3 style="margin:0 0 8px;font-size:18px;">Unlock Dataset</h3>
+  <p id="enc_unlock_name" style="margin:0 0 20px;font-size:13px;color:rgba(255,255,255,0.5);"></p>
+  <div style="margin-bottom:20px;">
+    <label style="display:block;font-size:13px;color:rgba(255,255,255,0.6);margin-bottom:6px;">Passphrase</label>
+    <input id="enc_unlock_key" type="password" placeholder="Enter passphrase" class="form-control"
+           style="width:100%;padding:10px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);border-radius:8px;color:#fff;font-size:14px;"
+           onkeydown="if(event.key==='Enter')enc_doUnlock()">
+  </div>
+  <div style="display:flex;gap:12px;justify-content:flex-end;">
+    <button class="btn" onclick="document.getElementById(&apos;enc_unlock_modal&apos;).style.display=&apos;none&apos;">Cancel</button>
+    <button class="btn btn-primary" onclick="enc_doUnlock()">
+      <span class="material-symbols-rounded" style="font-size:16px;">lock_open</span> Unlock
+    </button>
+  </div>
+</div></div>
+
+<!-- Change Key Modal -->
+<div id="enc_changekey_modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:9000;align-items:center;justify-content:center;">
+<div style="background:#1e2132;border-radius:16px;padding:32px;width:100%;max-width:440px;border:1px solid rgba(255,255,255,0.1);">
+  <h3 style="margin:0 0 8px;font-size:18px;">Change Encryption Key</h3>
+  <p id="enc_ck_name" style="margin:0 0 20px;font-size:13px;color:rgba(255,255,255,0.5);"></p>
+  <div style="margin-bottom:16px;">
+    <label style="display:block;font-size:13px;color:rgba(255,255,255,0.6);margin-bottom:6px;">Current Passphrase</label>
+    <input id="enc_ck_old" type="password" placeholder="Current passphrase" class="form-control"
+           style="width:100%;padding:10px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);border-radius:8px;color:#fff;font-size:14px;">
+  </div>
+  <div style="margin-bottom:16px;">
+    <label style="display:block;font-size:13px;color:rgba(255,255,255,0.6);margin-bottom:6px;">New Passphrase</label>
+    <input id="enc_ck_new" type="password" placeholder="New passphrase" class="form-control"
+           style="width:100%;padding:10px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);border-radius:8px;color:#fff;font-size:14px;">
+  </div>
+  <div style="margin-bottom:24px;">
+    <label style="display:block;font-size:13px;color:rgba(255,255,255,0.6);margin-bottom:6px;">Confirm New Passphrase</label>
+    <input id="enc_ck_confirm" type="password" placeholder="Confirm new passphrase" class="form-control"
+           style="width:100%;padding:10px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);border-radius:8px;color:#fff;font-size:14px;">
+  </div>
+  <div style="display:flex;gap:12px;justify-content:flex-end;">
+    <button class="btn" onclick="document.getElementById(&apos;enc_changekey_modal&apos;).style.display=&apos;none&apos;">Cancel</button>
+    <button class="btn btn-primary" onclick="enc_doChangeKey()">Change Key</button>
+  </div>
+</div></div>
+
+<!-- Create Encrypted Dataset Modal -->
+<div id="enc_create_modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:9000;align-items:center;justify-content:center;">
+<div style="background:#1e2132;border-radius:16px;padding:32px;width:100%;max-width:480px;border:1px solid rgba(255,255,255,0.1);">
+  <h3 style="margin:0 0 24px;font-size:18px;">Create Encrypted Dataset</h3>
+  <div style="margin-bottom:16px;">
+    <label style="display:block;font-size:13px;color:rgba(255,255,255,0.6);margin-bottom:6px;">Dataset Name (e.g. tank/secure)</label>
+    <input id="enc_create_name" type="text" placeholder="pool/dataset" class="form-control"
+           style="width:100%;padding:10px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);border-radius:8px;color:#fff;font-size:14px;">
+  </div>
+  <div style="margin-bottom:16px;">
+    <label style="display:block;font-size:13px;color:rgba(255,255,255,0.6);margin-bottom:6px;">Encryption Algorithm</label>
+    <select id="enc_create_algo" class="form-control"
+            style="width:100%;padding:10px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);border-radius:8px;color:#fff;font-size:14px;">
+      <option value="aes-256-gcm" selected>aes-256-gcm (recommended)</option>
+      <option value="aes-192-gcm">aes-192-gcm</option>
+      <option value="aes-128-gcm">aes-128-gcm</option>
+      <option value="aes-256-ccm">aes-256-ccm</option>
+      <option value="aes-192-ccm">aes-192-ccm</option>
+      <option value="aes-128-ccm">aes-128-ccm</option>
+    </select>
+  </div>
+  <div style="margin-bottom:16px;">
+    <label style="display:block;font-size:13px;color:rgba(255,255,255,0.6);margin-bottom:6px;">Passphrase</label>
+    <input id="enc_create_key" type="password" placeholder="Strong passphrase" class="form-control"
+           style="width:100%;padding:10px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);border-radius:8px;color:#fff;font-size:14px;">
+  </div>
+  <div style="margin-bottom:24px;">
+    <label style="display:block;font-size:13px;color:rgba(255,255,255,0.6);margin-bottom:6px;">Confirm Passphrase</label>
+    <input id="enc_create_confirm" type="password" placeholder="Confirm passphrase" class="form-control"
+           style="width:100%;padding:10px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);border-radius:8px;color:#fff;font-size:14px;">
+  </div>
+  <div style="margin-bottom:24px;padding:12px;background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.3);border-radius:8px;font-size:12px;color:rgba(245,158,11,0.9);">
+    <span class="material-symbols-rounded" style="font-size:14px;vertical-align:middle;">warning</span>
+    If you lose this passphrase, the data is <strong>permanently unrecoverable</strong>. Store it securely.
+  </div>
+  <div style="display:flex;gap:12px;justify-content:flex-end;">
+    <button class="btn" onclick="document.getElementById(&apos;enc_create_modal&apos;).style.display=&apos;none&apos;">Cancel</button>
+    <button class="btn btn-primary" onclick="enc_doCreate()">
+      <span class="material-symbols-rounded" style="font-size:16px;">enhanced_encryption</span> Create
+    </button>
+  </div>
+</div></div>
+
+<script>
+var enc_target_dataset = "";
+
+function init_encryption() { enc_load(); }
+
+async function enc_load() {
+  var list = document.getElementById("enc_list");
+  list.innerHTML = "<div style=\"color:rgba(255,255,255,0.4);text-align:center;padding:48px;font-size:14px;\">Loading...</div>";
+  try {
+    var r = await csrfFetch("/api/zfs/encryption/list");
+    var d = await r.json();
+    var datasets = d.datasets || [];
+    if (!datasets.length) {
+      list.innerHTML = "<div style=\"color:rgba(255,255,255,0.4);text-align:center;padding:48px;font-size:14px;\">No encrypted datasets found.</div>";
+      return;
+    }
+    list.innerHTML = datasets.map(function(ds) {
+      var locked = ds.keystatus === "unavailable";
+      var sc = locked ? "#ef4444" : "#4ade80";
+      var sl = locked ? "Locked" : "Unlocked";
+      var si = locked ? "lock" : "lock_open";
+      var n  = enc_esc(ds.name);
+      return "<div style=\"display:flex;align-items:center;justify-content:space-between;padding:20px 24px;background:rgba(255,255,255,0.03);border-radius:12px;border:1px solid rgba(255,255,255,0.08);margin-bottom:8px;\">" +
+        "<div style=\"flex:1;\">" +
+          "<div style=\"font-size:15px;font-weight:700;margin-bottom:4px;\">" + n + "</div>" +
+          "<div style=\"font-size:12px;color:rgba(255,255,255,0.4);\">" + enc_esc(ds.encryption) + " &nbsp;·&nbsp; keyformat: " + enc_esc(ds.keyformat) + "</div>" +
+        "</div>" +
+        "<div style=\"display:flex;align-items:center;gap:10px;\">" +
+          "<span style=\"display:inline-flex;align-items:center;gap:4px;padding:4px 10px;border-radius:20px;background:" + sc + "22;color:" + sc + ";font-size:12px;font-weight:600;\">" +
+            "<span class=\"material-symbols-rounded\" style=\"font-size:14px;\">" + si + "</span>" + sl + "</span>" +
+          (locked ?
+            "<button class=\"btn btn-primary\" onclick=\"enc_openUnlock('" + n + "')\" style=\"padding:6px 14px;font-size:13px;\"><span class=\"material-symbols-rounded\" style=\"font-size:15px;\">lock_open</span> Unlock</button>" :
+            "<button class=\"btn\" onclick=\"enc_doLock('" + n + "')\" style=\"padding:6px 14px;font-size:13px;\"><span class=\"material-symbols-rounded\" style=\"font-size:15px;\">lock</span> Lock</button>"
+          ) +
+          "<button class=\"btn\" onclick=\"enc_openChangeKey('" + n + "')\" style=\"padding:6px 14px;font-size:13px;\" title=\"Change passphrase\"><span class=\"material-symbols-rounded\" style=\"font-size:15px;\">key</span></button>" +
+        "</div></div>";
+    }).join("");
+  } catch(e) {
+    list.innerHTML = "<div style=\"color:#ef4444;text-align:center;padding:32px;\">Error loading encrypted datasets</div>";
+  }
+}
+
+function enc_esc(s) {
+  return String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+}
+
+function enc_openUnlock(name) {
+  enc_target_dataset = name;
+  document.getElementById("enc_unlock_name").textContent = name;
+  document.getElementById("enc_unlock_key").value = "";
+  document.getElementById("enc_unlock_modal").style.display = "flex";
+  setTimeout(function(){ document.getElementById("enc_unlock_key").focus(); }, 100);
+}
+
+async function enc_doUnlock() {
+  var key = document.getElementById("enc_unlock_key").value;
+  if (!key) { if(window.EnhancedUI) EnhancedUI.toast("Passphrase required","error"); return; }
+  try {
+    var r = await csrfFetch("/api/zfs/encryption/unlock", {
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({ dataset: enc_target_dataset, key: key })
+    });
+    var d = await r.json();
+    if (d.success) {
+      if(window.EnhancedUI) EnhancedUI.toast("Dataset unlocked","success");
+      document.getElementById("enc_unlock_modal").style.display = "none";
+      enc_load();
+    } else { if(window.EnhancedUI) EnhancedUI.toast(d.error||"Failed to unlock","error"); }
+  } catch(e) { if(window.EnhancedUI) EnhancedUI.toast("Error: "+e.message,"error"); }
+}
+
+async function enc_doLock(name) {
+  if (!await ui.confirm("Lock Dataset","Lock " + name + "? Files become inaccessible until unlocked.")) return;
+  try {
+    var r = await csrfFetch("/api/zfs/encryption/lock", {
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({ dataset: name })
+    });
+    var d = await r.json();
+    if (d.success) {
+      if(window.EnhancedUI) EnhancedUI.toast("Dataset locked","success");
+      enc_load();
+    } else { if(window.EnhancedUI) EnhancedUI.toast(d.error||"Failed to lock","error"); }
+  } catch(e) { if(window.EnhancedUI) EnhancedUI.toast("Error: "+e.message,"error"); }
+}
+
+function enc_openChangeKey(name) {
+  enc_target_dataset = name;
+  document.getElementById("enc_ck_name").textContent = name;
+  ["enc_ck_old","enc_ck_new","enc_ck_confirm"].forEach(function(id){ document.getElementById(id).value=""; });
+  document.getElementById("enc_changekey_modal").style.display = "flex";
+}
+
+async function enc_doChangeKey() {
+  var old_key = document.getElementById("enc_ck_old").value;
+  var new_key = document.getElementById("enc_ck_new").value;
+  var confirm = document.getElementById("enc_ck_confirm").value;
+  if (!old_key||!new_key) { if(window.EnhancedUI) EnhancedUI.toast("All fields required","error"); return; }
+  if (new_key !== confirm) { if(window.EnhancedUI) EnhancedUI.toast("New passphrases do not match","error"); return; }
+  try {
+    var r = await csrfFetch("/api/zfs/encryption/change-key", {
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({ dataset: enc_target_dataset, old_key: old_key, new_key: new_key })
+    });
+    var d = await r.json();
+    if (d.success) {
+      if(window.EnhancedUI) EnhancedUI.toast("Encryption key changed","success");
+      document.getElementById("enc_changekey_modal").style.display = "none";
+    } else { if(window.EnhancedUI) EnhancedUI.toast(d.error||"Failed to change key","error"); }
+  } catch(e) { if(window.EnhancedUI) EnhancedUI.toast("Error: "+e.message,"error"); }
+}
+
+function enc_openCreateModal() {
+  ["enc_create_name","enc_create_key","enc_create_confirm"].forEach(function(id){ document.getElementById(id).value=""; });
+  document.getElementById("enc_create_modal").style.display = "flex";
+}
+
+async function enc_doCreate() {
+  var name    = document.getElementById("enc_create_name").value.trim();
+  var algo    = document.getElementById("enc_create_algo").value;
+  var key     = document.getElementById("enc_create_key").value;
+  var confirm = document.getElementById("enc_create_confirm").value;
+  if (!name)        { if(window.EnhancedUI) EnhancedUI.toast("Dataset name required","error"); return; }
+  if (!key)         { if(window.EnhancedUI) EnhancedUI.toast("Passphrase required","error"); return; }
+  if (key!==confirm){ if(window.EnhancedUI) EnhancedUI.toast("Passphrases do not match","error"); return; }
+  try {
+    var r = await csrfFetch("/api/zfs/encryption/create", {
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({ name: name, encryption: algo, key: key })
+    });
+    var d = await r.json();
+    if (d.success) {
+      if(window.EnhancedUI) EnhancedUI.toast("Encrypted dataset created","success");
+      document.getElementById("enc_create_modal").style.display = "none";
+      enc_load();
+    } else { if(window.EnhancedUI) EnhancedUI.toast(d.error||"Failed to create dataset","error"); }
+  } catch(e) { if(window.EnhancedUI) EnhancedUI.toast("Error: "+e.message,"error"); }
+}
+</script>
 
 </div>
+
+<div id="tab-scheduler" class="consolidation-content">
+
+<style>
+.sched-row{display:flex;align-items:center;gap:16px;padding:16px 20px;border-bottom:1px solid rgba(255,255,255,0.06);}
+.sched-row:last-child{border-bottom:none;}
+.sched-info{flex:1;}
+.sched-dataset{font-weight:600;font-size:15px;margin-bottom:4px;}
+.sched-meta{font-size:13px;color:rgba(255,255,255,0.5);}
+.sched-toggle{width:44px;height:24px;border-radius:12px;background:rgba(255,255,255,0.15);position:relative;cursor:pointer;transition:background 0.2s;flex-shrink:0;}
+.sched-toggle.active{background:var(--success,#4ade80);}
+.sched-toggle::after{content:"";position:absolute;width:18px;height:18px;border-radius:50%;background:var(--text,#fff);top:3px;left:3px;transition:transform 0.2s;}
+.sched-toggle.active::after{transform:translateX(20px);}
+.sched-actions{display:flex;gap:8px;}
+.sched-btn{padding:6px 12px;border-radius:8px;border:1px solid rgba(255,255,255,0.15);background:none;color:rgba(255,255,255,0.8);cursor:pointer;font-size:12px;display:flex;align-items:center;gap:4px;}
+.sched-btn:hover{background:rgba(255,255,255,0.08);}
+.sched-btn.danger:hover{background:rgba(239,68,68,0.15);border-color:rgba(239,68,68,0.4);color:#ef4444;}
+.sched-add-modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:9999;align-items:center;justify-content:center;}
+.sched-add-modal.open{display:flex;}
+</style>
+
+<div class="page-header" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:32px;">
+  <div>
+    <h1 class="page-title" style="font-size:28px;margin-bottom:6px;">Snapshot Scheduler</h1>
+    <p class="page-subtitle" style="font-size:15px;color:rgba(255,255,255,0.5);">Automated ZFS snapshot schedules with retention management</p>
+  </div>
+  <button class="btn btn-primary" onclick="sched_addSchedule()">
+    <span class="material-symbols-rounded" style="font-size:18px;">add</span> Add Schedule
+  </button>
+</div>
+
+<div class="card" id="sched_schedulesCard">
+  <div class="card-header">
+    <div class="card-title">Automatic Snapshot Schedules</div>
+    <div class="card-action" onclick="sched_loadSchedules()">
+      <span class="material-symbols-rounded" style="font-size:18px;">refresh</span>
+    </div>
+  </div>
+  <div id="sched_schedulesList" style="padding:20px;text-align:center;color:rgba(255,255,255,0.5);">
+    Loading schedules…
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header"><div class="card-title">How Snapshot Scheduling Works</div></div>
+  <div style="padding:4px 0;color:rgba(255,255,255,0.7);font-size:14px;line-height:1.6;">
+    Schedules are managed as system cron jobs under
+    <code style="background:rgba(255,255,255,0.1);padding:2px 6px;border-radius:4px;">/etc/cron.d/dplaneos-snapshots</code>.
+    Each schedule creates ZFS snapshots at the configured interval and automatically prunes old snapshots
+    beyond the retention count. Use <strong>Run Now</strong> to create an immediate snapshot without
+    waiting for the next scheduled run.
+  </div>
+</div>
+
+<!-- Time Machine Browse & Restore -->
+<div style="margin-top:48px;">
+  <h2 class="page-title" style="font-size:24px;margin-bottom:8px;">Time Machine</h2>
+  <p class="page-subtitle" style="margin-bottom:32px;font-size:14px;color:rgba(255,255,255,0.5);">
+    Browse snapshots and restore individual files
+  </p>
+  <div class="card" style="padding:32px;border-left:4px solid #8b5cf6;">
+    <div style="display:grid;grid-template-columns:1fr 1fr auto;gap:12px;align-items:end;margin-bottom:20px;">
+      <div>
+        <label style="font-size:12px;color:rgba(255,255,255,0.5);display:block;margin-bottom:6px;">Snapshot</label>
+        <input id="sched_tm_snapshot" type="text" placeholder="tank/data@daily-2025-01-01"
+          style="width:100%;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:8px;padding:10px 16px;color:#fff;font-family:monospace;box-sizing:border-box;">
+      </div>
+      <div>
+        <label style="font-size:12px;color:rgba(255,255,255,0.5);display:block;margin-bottom:6px;">Path</label>
+        <input id="sched_tm_path" type="text" value="/"
+          style="width:100%;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:8px;padding:10px 16px;color:#fff;font-family:monospace;box-sizing:border-box;">
+      </div>
+      <button class="btn btn-primary" onclick="sched_browseTM()">
+        <span class="material-symbols-rounded" style="font-size:18px;">folder_open</span> Browse
+      </button>
+    </div>
+    <div id="sched_tm_files" style="font-family:monospace;font-size:13px;max-height:400px;overflow-y:auto;"></div>
+  </div>
+</div>
+
+<!-- Add Schedule Modal -->
+<div id="sched_addModal" class="sched-add-modal">
+  <div style="background:rgba(30,41,59,0.98);border-radius:16px;padding:32px;max-width:500px;width:90%;border:1px solid rgba(255,255,255,0.1);">
+    <h3 style="margin:0 0 24px;font-size:18px;">Add Snapshot Schedule</h3>
+    <div style="display:grid;gap:16px;">
+      <div>
+        <label style="display:block;font-size:13px;color:rgba(255,255,255,0.6);margin-bottom:6px;">Dataset</label>
+        <select id="sched_dataset" style="width:100%;padding:10px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);border-radius:8px;color:#fff;font-size:14px;"></select>
+      </div>
+      <div>
+        <label style="display:block;font-size:13px;color:rgba(255,255,255,0.6);margin-bottom:6px;">Frequency</label>
+        <select id="sched_freq" style="width:100%;padding:10px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);border-radius:8px;color:#fff;font-size:14px;">
+          <option value="hourly">Hourly</option>
+          <option value="daily" selected>Daily (2:00 AM)</option>
+          <option value="weekly">Weekly (Sunday 3:00 AM)</option>
+          <option value="monthly">Monthly (1st, 4:00 AM)</option>
+        </select>
+      </div>
+      <div>
+        <label style="display:block;font-size:13px;color:rgba(255,255,255,0.6);margin-bottom:6px;">Retention (keep last N snapshots)</label>
+        <input type="number" id="sched_retention" value="7" min="1" max="1000"
+          style="width:100%;padding:10px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);border-radius:8px;color:#fff;font-size:14px;">
+      </div>
+      <div>
+        <label style="display:block;font-size:13px;color:rgba(255,255,255,0.6);margin-bottom:6px;">Prefix</label>
+        <input type="text" id="sched_prefix" value="auto"
+          style="width:100%;padding:10px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);border-radius:8px;color:#fff;font-size:14px;">
+      </div>
+    </div>
+    <div style="display:flex;gap:12px;justify-content:flex-end;margin-top:24px;">
+      <button class="btn" onclick="sched_closeAddModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="sched_saveNewSchedule()">Add Schedule</button>
+    </div>
+  </div>
+</div>
+
+</div><!-- end tab-scheduler -->
 
 </main>
 <button class="fab" onclick="showPoolMenu()"><span class="material-symbols-rounded" style="font-size:28px;">add</span></button>
@@ -1711,5 +2355,225 @@ async function createEncryptedDataset() {
 }
 
 document.addEventListener('DOMContentLoaded', loadDatasets);}
+</script>
+
+<!-- ═══════════════════════════════════════════════════════════
+     SCHEDULER TAB — Snapshot Schedules + Time Machine
+     Content migrated from standalone snapshot-scheduler.html
+     Init is lazy: switchConsolidatedTab calls init_scheduler()
+     ═══════════════════════════════════════════════════════════ -->
+
+<script>
+// ── Scheduler tab: all functions prefixed sched_ to avoid conflicts ──────────
+var sched_schedules = [];
+var sched_datasets  = [];
+var __scheduler_init = false;
+
+function init_scheduler() {
+  if (__scheduler_init) return;
+  __scheduler_init = true;
+  sched_loadSchedules();
+}
+
+function sched_getHeaders() {
+  return {
+    'X-Session-ID': document.cookie.replace(/(?:(?:^|.*;\\s*)session_id\\s*=\\s*([^;]*).*$)|^.*$/, '$1') || '',
+    'X-User':       document.cookie.replace(/(?:(?:^|.*;\\s*)username\\s*=\\s*([^;]*).*$)|^.*$/, '$1') || 'admin'
+  };
+}
+
+function sched_esc(s) {
+  var d = document.createElement('div');
+  d.textContent = String(s == null ? '' : s);
+  return d.innerHTML;
+}
+
+async function sched_loadSchedules() {
+  try {
+    var res = await fetch('/api/snapshots/schedules', { headers: sched_getHeaders() });
+    var data = await res.json();
+    if (data.success) {
+      sched_schedules = data.schedules || [];
+      sched_renderSchedules();
+    } else {
+      document.getElementById('sched_schedulesList').textContent = 'Failed to load schedules: ' + (data.error || 'unknown');
+    }
+  } catch(e) {
+    document.getElementById('sched_schedulesList').textContent = 'Failed to load schedules: ' + e.message;
+  }
+}
+
+async function sched_loadDatasets() {
+  try {
+    var res = await fetch('/api/zfs/datasets', { headers: sched_getHeaders() });
+    var data = await res.json();
+    if (data.success) {
+      sched_datasets = data.datasets || [];
+      var sel = document.getElementById('sched_dataset');
+      if (!sel) return;
+      sel.innerHTML = '';
+      sched_datasets.forEach(function(d) {
+        var opt = document.createElement('option');
+        opt.value = d.name;
+        opt.textContent = d.name + (d.used ? ' (' + d.used + ')' : '');
+        sel.appendChild(opt);
+      });
+    }
+  } catch(e) { /* graceful */ }
+}
+
+function sched_renderSchedules() {
+  var el = document.getElementById('sched_schedulesList');
+  if (!el) return;
+  if (!sched_schedules.length) {
+    el.innerHTML = '<div style="padding:40px;text-align:center;color:rgba(255,255,255,0.4);">' +
+      '<span class="material-symbols-rounded" style="font-size:48px;display:block;margin-bottom:12px;">schedule</span>' +
+      'No snapshot schedules configured<br>' +
+      '<span style="font-size:13px;">Click <strong>Add Schedule</strong> to create one</span></div>';
+    return;
+  }
+  var freqLabels = {
+    hourly: 'Every hour',
+    daily: 'Daily at 2:00 AM',
+    weekly: 'Weekly (Sun 3:00 AM)',
+    monthly: 'Monthly (1st, 4:00 AM)'
+  };
+  var html = '';
+  sched_schedules.forEach(function(s, i) {
+    var freqLabel = freqLabels[s.frequency] || s.frequency;
+    html += '<div class="sched-row">' +
+      '<div class="sched-toggle' + (s.enabled ? ' active' : '') + '" onclick="sched_toggleSchedule(' + i + ')" title="' + (s.enabled ? 'Disable' : 'Enable') + '"></div>' +
+      '<div class="sched-info">' +
+        '<div class="sched-dataset">' + sched_esc(s.dataset) + '</div>' +
+        '<div class="sched-meta">' + sched_esc(freqLabel) + ' · Keep last ' + (s.retention || 7) + ' · Prefix: ' + sched_esc(s.prefix || 'auto') + '</div>' +
+      '</div>' +
+      '<div class="sched-actions">' +
+        '<button class="sched-btn" onclick="sched_runNow(' + i + ')">' +
+          '<span class="material-symbols-rounded" style="font-size:16px;">play_arrow</span> Run Now' +
+        '</button>' +
+        '<button class="sched-btn danger" onclick="sched_removeSchedule(' + i + ')">' +
+          '<span class="material-symbols-rounded" style="font-size:16px;">delete</span>' +
+        '</button>' +
+      '</div></div>';
+  });
+  el.innerHTML = html;
+}
+
+function sched_toggleSchedule(i) {
+  sched_schedules[i].enabled = !sched_schedules[i].enabled;
+  sched_saveAllSchedules();
+}
+
+async function sched_removeSchedule(i) {
+  if (!await ui.confirm('Remove Schedule', 'Remove schedule for ' + sched_schedules[i].dataset + '?')) return;
+  sched_schedules.splice(i, 1);
+  sched_saveAllSchedules();
+}
+
+async function sched_saveAllSchedules() {
+  try {
+    var r = await csrfFetch('/api/snapshots/schedules', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(sched_schedules)
+    });
+    var d = await r.json();
+    if (d.success || r.ok) {
+      sched_renderSchedules();
+      if (window.EnhancedUI) EnhancedUI.toast('Schedules saved', 'success');
+    } else {
+      if (window.EnhancedUI) EnhancedUI.toast('Failed to save: ' + (d.error || 'Unknown error'), 'error');
+    }
+  } catch(e) {
+    if (window.EnhancedUI) EnhancedUI.toast('Failed to save: ' + e.message, 'error');
+  }
+}
+
+async function sched_runNow(i) {
+  var s = sched_schedules[i];
+  try {
+    var res = await csrfFetch('/api/snapshots/run-now', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dataset: s.dataset, prefix: s.prefix || ('auto-' + s.frequency) })
+    });
+    var data = await res.json();
+    if (data.success) {
+      if (window.EnhancedUI) EnhancedUI.toast('Snapshot created: ' + data.snapshot, 'success');
+    } else {
+      if (window.EnhancedUI) EnhancedUI.toast('Snapshot failed: ' + (data.error || ''), 'error');
+    }
+  } catch(e) {
+    if (window.EnhancedUI) EnhancedUI.toast('Error: ' + e.message, 'error');
+  }
+}
+
+function sched_addSchedule() {
+  sched_loadDatasets();
+  var m = document.getElementById('sched_addModal');
+  if (m) m.classList.add('open');
+}
+
+function sched_closeAddModal() {
+  var m = document.getElementById('sched_addModal');
+  if (m) m.classList.remove('open');
+}
+
+function sched_saveNewSchedule() {
+  var ds  = document.getElementById('sched_dataset').value;
+  var freq = document.getElementById('sched_freq').value;
+  var ret  = parseInt(document.getElementById('sched_retention').value) || 7;
+  var prefix = document.getElementById('sched_prefix').value || 'auto';
+  if (!ds) { if (window.EnhancedUI) EnhancedUI.toast('Select a dataset', 'warning'); return; }
+  sched_schedules.push({ dataset: ds, frequency: freq, retention: ret, enabled: true, prefix: prefix });
+  sched_closeAddModal();
+  sched_saveAllSchedules();
+}
+
+// ── Time Machine ─────────────────────────────────────────────────────────────
+async function sched_browseTM() {
+  var snap = document.getElementById('sched_tm_snapshot').value;
+  var path = document.getElementById('sched_tm_path').value || '/';
+  if (!snap) { if (window.EnhancedUI) EnhancedUI.toast('Enter a snapshot name', 'warning'); return; }
+  try {
+    var r = await csrfFetch('/api/timemachine/browse?snapshot=' + encodeURIComponent(snap) + '&path=' + encodeURIComponent(path));
+    var d = await r.json();
+    if (!d.success) { if (window.EnhancedUI) EnhancedUI.toast(d.error || 'Failed', 'error'); return; }
+    var el = document.getElementById('sched_tm_files');
+    if (!d.files || !d.files.length) {
+      el.innerHTML = '<div style="padding:20px;text-align:center;color:rgba(255,255,255,0.4);">Empty directory</div>';
+      return;
+    }
+    el.innerHTML = d.files.map(function(f) {
+      var isDir = f.is_dir;
+      var filePath = (path === '/' ? '' : path) + '/' + f.name;
+      return '<div style="display:flex;align-items:center;gap:12px;padding:8px 12px;border-bottom:1px solid rgba(255,255,255,0.05);cursor:' + (isDir ? 'pointer' : 'default') + ';"' +
+        (isDir ? ' onclick="document.getElementById(\'sched_tm_path\').value=\'' + filePath.replace(/'/g, '') + '\';sched_browseTM()"' : '') + '>' +
+        '<span class="material-symbols-rounded" style="font-size:20px;color:' + (isDir ? '#f59e0b' : 'rgba(255,255,255,0.4)') + ';">' + (isDir ? 'folder' : 'description') + '</span>' +
+        '<span style="flex:1;">' + sched_esc(f.name) + '</span>' +
+        '<span style="color:rgba(255,255,255,0.3);font-size:12px;">' + sched_esc(f.size_human || '') + '</span>' +
+        (!isDir ? '<button class="btn" style="padding:4px 12px;font-size:12px;background:rgba(255,255,255,0.05);" onclick="event.stopPropagation();sched_restoreFile(' + JSON.stringify(snap) + ',' + JSON.stringify(filePath) + ')">Restore</button>' : '') +
+        '</div>';
+    }).join('');
+  } catch(e) {
+    if (window.EnhancedUI) EnhancedUI.toast('Error: ' + e.message, 'error');
+  }
+}
+
+async function sched_restoreFile(snap, filePath) {
+  if (!await ui.confirm('Restore File', 'Restore ' + filePath + ' from snapshot ' + snap + '?')) return;
+  try {
+    var r = await csrfFetch('/api/timemachine/restore', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ snapshot: snap, source_path: filePath })
+    });
+    var d = await r.json();
+    d.success ? (window.EnhancedUI && EnhancedUI.toast('File restored', 'success'))
+              : (window.EnhancedUI && EnhancedUI.toast(d.error || 'Failed', 'error'));
+  } catch(e) {
+    if (window.EnhancedUI) EnhancedUI.toast('Error: ' + e.message, 'error');
+  }
+}
 </script>
 </body></html>

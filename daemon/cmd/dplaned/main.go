@@ -493,7 +493,14 @@ func main() {
 	// Shares handlers (config management)
 	r.HandleFunc("/api/shares/smb/reload", handlers.ReloadSMBConfig).Methods("POST")
 	r.HandleFunc("/api/shares/smb/test", handlers.TestSMBConfig).Methods("POST")
-	// NFS management is out of scope for v3.3.1 — SMB via Samba covers the use case
+	// NFS Export Management
+	nfsHandler := handlers.NewNFSHandler(db)
+	r.HandleFunc("/api/nfs/status", nfsHandler.GetNFSStatus).Methods("GET")
+	r.HandleFunc("/api/nfs/exports", nfsHandler.ListNFSExports).Methods("GET")
+	r.Handle("/api/nfs/exports", permRoute("shares", "write", nfsHandler.CreateNFSExport)).Methods("POST")
+	r.Handle("/api/nfs/exports/{id}", permRoute("shares", "write", nfsHandler.UpdateNFSExport)).Methods("PUT")
+	r.Handle("/api/nfs/exports/{id}", permRoute("shares", "write", nfsHandler.DeleteNFSExport)).Methods("DELETE")
+	r.Handle("/api/nfs/reload", permRoute("shares", "write", nfsHandler.ReloadNFSExportsHandler)).Methods("POST")
 
 	// Shares CRUD handlers
 	shareCRUDHandler := handlers.NewShareCRUDHandler(db, *smbConfPath)

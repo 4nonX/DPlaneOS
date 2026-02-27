@@ -740,6 +740,30 @@ else
     log "Samba not installed — SMB shares unavailable (install with: apt install samba)"
 fi
 
+# NFS — bootstrap /etc/exports if nfs-kernel-server is installed
+if command -v exportfs &>/dev/null; then
+    NFS_EXPORTS="/etc/exports"
+    if [ ! -f "$NFS_EXPORTS" ]; then
+        echo "# D-PlaneOS NFS exports — managed automatically, do not edit by hand" > "$NFS_EXPORTS"
+        log "NFS /etc/exports created"
+    else
+        log "NFS /etc/exports already exists"
+    fi
+    systemctl enable nfs-kernel-server 2>/dev/null || true
+    systemctl is-active nfs-kernel-server &>/dev/null || systemctl start nfs-kernel-server 2>/dev/null || true
+else
+    log "NFS server not installed — NFS exports unavailable (install with: apt install nfs-kernel-server)"
+fi
+
+# iSCSI — enable LIO target service if targetcli is installed
+if command -v targetcli &>/dev/null; then
+    systemctl enable target 2>/dev/null || true
+    systemctl is-active target &>/dev/null || systemctl start target 2>/dev/null || true
+    log "iSCSI target service enabled"
+else
+    log "targetcli not installed — iSCSI unavailable (install with: apt install targetcli-fb)"
+fi
+
 # ZFS mount gate
 if [ -f "${INSTALL_DIR}/systemd/dplaneos-zfs-mount-wait.service" ]; then
     cp "${INSTALL_DIR}/systemd/dplaneos-zfs-mount-wait.service" /etc/systemd/system/

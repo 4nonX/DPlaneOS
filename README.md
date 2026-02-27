@@ -43,7 +43,7 @@ Creates a VACUUM INTO backup on startup + every 24 hours.
 - **Identity:** User management, groups, LDAP/Active Directory
 - **Security:** RBAC (4 roles), audit logging, API tokens, firewall
 - **System:** Settings, logs, UPS management, hardware detection
-- **Sharing:** SMB/Windows shares via Samba (install separately: `apt install samba`)
+- **Sharing:** SMB (Samba), NFS exports, iSCSI block targets — each optional, each fully managed through the UI
 - **UI:** Material Design 3, dark theme, responsive, keyboard shortcuts
 
 ## Features (v3.3.1)
@@ -79,7 +79,7 @@ Navigate to **Identity → Directory Service** to configure. Supports:
 ## Architecture
 
 - **Frontend:** HTML5 + Material Design 3, flyout navigation, no framework dependencies
-- **Backend:** Go daemon (`dplaned`, 8MB) on port 9000, 249 API routes
+- **Backend:** Go daemon (`dplaned`, 8MB) on port 9000, 256 API routes
 - **Database:** SQLite with WAL mode, `synchronous=FULL`, daily `.backup` (WAL-safe)
 - **Web Server:** nginx reverse proxy (TLS termination)
 - **Storage:** ZFS (native kernel module) + ZED hook for real-time disk failure alerts

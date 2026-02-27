@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NFS Exports - D-PlaneOS</title>
+<link rel="stylesheet" href="/assets/css/design-tokens.css?v=3.3.1">
+<link rel="stylesheet" href="/assets/css/dplaneos-ui-complete.css?v=3.3.1">
+<link rel="stylesheet" href="/assets/css/m3-tokens.css?v=3.3.1">
+<link rel="stylesheet" href="/assets/css/m3-components.css?v=3.3.1">
+<link rel="stylesheet" href="/assets/css/m3-icons.css?v=3.3.1">
+<link rel="stylesheet" href="/assets/css/enhanced-ui.css?v=3.3.1">
+<link rel="stylesheet" href="/assets/css/m3-animations.css?v=3.3.1">
+<link rel="stylesheet" href="/assets/css/material-symbols-local.css?v=3.3.1">
+<link rel="stylesheet" href="/assets/css/ui-consistency.css?v=3.3.1">
+<link rel="stylesheet" href="/assets/css/ui-polish.css?v=3.3.1">
+<link rel="stylesheet" href="/assets/css/ui-components.css?v=3.3.1">
+<script src="/assets/js/core.js?v=3.3.1"></script>
+<script src="/assets/js/nav-shared.js?v=3.3.1"></script>
+<script src="/assets/js/nav-flyout.js?v=3.3.1"></script>
+<script src="/assets/js/enhanced-ui.js?v=3.3.1"></script>
+<script src="/assets/js/connection-monitor.js?v=3.3.1"></script>
+<script src="/assets/js/permission-checker.js?v=3.3.1"></script>
+<style>
+.main { max-width: 1100px; margin: 140px auto 60px; padding: 0 40px; }
+.page-title { font-size: 32px; font-weight: 700; letter-spacing: -1.5px; margin-bottom: 8px; }
+.page-subtitle { font-size: 16px; color: rgba(255,255,255,0.5); margin-bottom: 32px; }
+
+.tabs { display: flex; gap: 4px; margin-bottom: 32px;
+  background: rgba(255,255,255,0.03); padding: 6px; border-radius: 14px;
+  border: 1px solid rgba(255,255,255,0.06); width: fit-content; }
+.tab-btn { padding: 10px 24px; border-radius: 10px; border: none; cursor: pointer;
+  font-size: 14px; font-weight: 500; color: rgba(255,255,255,0.5);
+  background: transparent; transition: all 0.2s; display: flex; align-items: center; gap: 6px; }
+.tab-btn.active { background: var(--primary); color: #fff; box-shadow: 0 4px 12px rgba(138,156,255,0.4); }
+.tab-btn:hover:not(.active) { background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.8); }
+.tab-pane { display: none; }
+.tab-pane.active { display: block; }
+
+.card { padding: 28px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 16px; margin-bottom: 20px; }
+.card-title { font-size: 16px; font-weight: 700; margin-bottom: 16px; display: flex; align-items: center; gap: 8px; }
+
+.form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.form-group { display: flex; flex-direction: column; gap: 6px; }
+.form-group.span2 { grid-column: 1 / -1; }
+.form-label { font-size: 13px; color: rgba(255,255,255,0.6); }
+.form-input { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 10px; padding: 10px 14px; color: #fff; font-size: 14px; width: 100%; box-sizing: border-box; }
+.form-input:focus { outline: none; border-color: var(--primary); }
+.form-hint { font-size: 12px; color: rgba(255,255,255,0.35); margin-top: 2px; }
+select.form-input option { background: #1a1a2e; }
+
+.btn { padding: 10px 20px; border-radius: 12px; border: none; cursor: pointer;
+  font-size: 14px; font-weight: 600; transition: all 0.2s; display: inline-flex; align-items: center; gap: 6px; }
+.btn-primary { background: var(--primary); color: #fff; }
+.btn-primary:hover { opacity: 0.85; }
+.btn-ghost { background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.7);
+  border: 1px solid rgba(255,255,255,0.1); }
+.btn-ghost:hover { background: rgba(255,255,255,0.1); color: #fff; }
+.btn-danger { background: rgba(244,67,54,0.12); color: #ef9a9a; border: 1px solid rgba(244,67,54,0.2); }
+.btn-danger:hover { background: rgba(244,67,54,0.22); }
+.btn-sm { padding: 6px 14px; font-size: 13px; border-radius: 8px; }
+.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.btn-row { display: flex; gap: 8px; margin-top: 20px; flex-wrap: wrap; }
+
+.status-bar { display: flex; align-items: center; gap: 16px; padding: 16px 20px;
+  background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 12px; margin-bottom: 24px; }
+.status-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+.status-dot.online  { background: #4caf50; box-shadow: 0 0 6px #4caf50; }
+.status-dot.offline { background: #f44336; }
+.status-dot.unknown { background: #9e9e9e; }
+.status-label { font-size: 14px; font-weight: 600; }
+.status-meta  { font-size: 13px; color: rgba(255,255,255,0.5); }
+
+.export-item { padding: 18px 20px; background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.07); border-radius: 12px; margin-bottom: 10px; }
+.export-top  { display: flex; align-items: center; gap: 14px; }
+.export-path { font-family: monospace; font-size: 14px; font-weight: 600; flex: 1; }
+.export-meta { font-size: 12px; color: rgba(255,255,255,0.45); margin-top: 8px; font-family: monospace; }
+.export-badge { font-size: 11px; padding: 2px 8px; border-radius: 6px; font-weight: 600; }
+.badge-enabled  { background: rgba(76,175,80,0.15); color: #81c784; }
+.badge-disabled { background: rgba(158,158,158,0.15); color: #9e9e9e; }
+
+.empty-state { text-align: center; padding: 48px 24px; color: rgba(255,255,255,0.3);
+  border: 1px dashed rgba(255,255,255,0.1); border-radius: 12px; }
+
+.info-box { background: rgba(138,156,255,0.07); border: 1px solid rgba(138,156,255,0.2);
+  border-radius: 10px; padding: 14px 18px; font-size: 13px; color: rgba(255,255,255,0.65);
+  margin-bottom: 20px; display: flex; gap: 10px; align-items: flex-start; }
+.info-box .icon { font-size: 18px; color: var(--primary); flex-shrink: 0; margin-top: 1px; }
+
+.warn-box { background: rgba(255,152,0,0.07); border: 1px solid rgba(255,152,0,0.25);
+  border-radius: 10px; padding: 14px 18px; font-size: 13px; color: rgba(255,255,255,0.7);
+  margin-bottom: 24px; display: flex; gap: 10px; align-items: flex-start; }
+.warn-box .icon { font-size: 18px; color: #ffb74d; flex-shrink: 0; margin-top: 1px; }
+
+.edit-row { display: flex; gap: 8px; margin-top: 12px; padding-top: 12px;
+  border-top: 1px solid rgba(255,255,255,0.05); flex-wrap: wrap; }
+</style>
+</head>
+<body>
+<div id="nav-placeholder"></div>
+
+<div class="main">
+  <div class="page-title">NFS Exports</div>
+  <div class="page-subtitle">Network File System — Unix/Linux file sharing</div>
+
+  <!-- Service status -->
+  <div class="status-bar" id="statusBar">
+    <div class="status-dot unknown" id="statusDot"></div>
+    <div class="status-label" id="statusLabel">Checking…</div>
+    <div class="status-meta"  id="statusMeta"></div>
+    <div style="margin-left:auto">
+      <button class="btn btn-ghost btn-sm" onclick="reload()">
+        <span class="material-symbols-rounded" style="font-size:16px">refresh</span>Refresh
+      </button>
+    </div>
+  </div>
+
+  <!-- Not-installed warning (shown/hidden by JS) -->
+  <div class="warn-box" id="notInstalledBox" style="display:none">
+    <span class="material-symbols-rounded icon">warning</span>
+    <div>
+      <strong>NFS server not installed.</strong> Install it with:<br>
+      <code style="font-family:monospace;font-size:13px">sudo apt install nfs-kernel-server</code><br>
+      Then reload this page.
+    </div>
+  </div>
+
+  <!-- Tabs -->
+  <div class="tabs" id="mainTabs" style="display:none">
+    <button class="tab-btn active" onclick="switchTab('exports')">
+      <span class="material-symbols-rounded" style="font-size:16px">share</span>Exports
+    </button>
+    <button class="tab-btn" onclick="switchTab('create')">
+      <span class="material-symbols-rounded" style="font-size:16px">add_circle</span>Add Export
+    </button>
+  </div>
+
+  <!-- EXPORTS LIST TAB -->
+  <div class="tab-pane active" id="tab-exports">
+    <div class="info-box">
+      <span class="material-symbols-rounded icon">info</span>
+      <div>
+        Exports are written to <code>/etc/exports</code> and applied immediately with
+        <code>exportfs -ra</code>. Changes take effect without restarting the NFS service.
+      </div>
+    </div>
+    <div id="exportsList">
+      <div class="empty-state">Loading exports…</div>
+    </div>
+  </div>
+
+  <!-- CREATE EXPORT TAB -->
+  <div class="tab-pane" id="tab-create">
+    <div class="card">
+      <div class="card-title">
+        <span class="material-symbols-rounded">add_circle</span>Add NFS Export
+      </div>
+
+      <div class="form-grid">
+        <div class="form-group span2">
+          <label class="form-label">Export Path <span style="color:#ef9a9a">*</span></label>
+          <input class="form-input" id="createPath" type="text" placeholder="/mnt/tank/data">
+          <div class="form-hint">Absolute path to the directory to export. Must already exist.</div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Allowed Clients <span style="color:#ef9a9a">*</span></label>
+          <input class="form-input" id="createClients" type="text" placeholder="192.168.1.0/24" value="*">
+          <div class="form-hint">
+            IP, subnet (192.168.1.0/24), hostname, or * for all.<br>
+            Separate multiple with spaces: <code>10.0.0.0/8 192.168.1.5</code>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Options</label>
+          <input class="form-input" id="createOptions" type="text"
+                 value="rw,sync,no_subtree_check,no_root_squash">
+          <div class="form-hint">
+            Common: <code>rw</code> or <code>ro</code>, <code>sync</code>,
+            <code>no_subtree_check</code>, <code>no_root_squash</code> or <code>root_squash</code>
+          </div>
+        </div>
+      </div>
+
+      <div class="info-box" style="margin-top:20px">
+        <span class="material-symbols-rounded icon">shield</span>
+        <div>
+          <strong>Security note:</strong> <code>no_root_squash</code> allows root on the client
+          to act as root on the server. Use <code>root_squash</code> for untrusted networks.
+          Restrict <em>Allowed Clients</em> to specific IPs — avoid <code>*</code> in production.
+        </div>
+      </div>
+
+      <div class="btn-row">
+        <button class="btn btn-primary" onclick="createExport()" id="createBtn">
+          <span class="material-symbols-rounded" style="font-size:16px">add_circle</span>Add Export
+        </button>
+        <button class="btn btn-ghost" onclick="switchTab('exports')">Cancel</button>
+      </div>
+    </div>
+
+    <!-- Quick reference -->
+    <div class="card">
+      <div class="card-title"><span class="material-symbols-rounded">menu_book</span>Common Option Combinations</div>
+      <table style="width:100%;font-size:13px;border-collapse:collapse">
+        <thead>
+          <tr style="color:rgba(255,255,255,0.45);text-align:left">
+            <th style="padding:8px 12px;border-bottom:1px solid rgba(255,255,255,0.07)">Use case</th>
+            <th style="padding:8px 12px;border-bottom:1px solid rgba(255,255,255,0.07)">Options</th>
+          </tr>
+        </thead>
+        <tbody id="optionsRef">
+          <tr>
+            <td style="padding:8px 12px;border-bottom:1px solid rgba(255,255,255,0.04)">Read-write, trusted LAN</td>
+            <td style="padding:8px 12px;border-bottom:1px solid rgba(255,255,255,0.04);font-family:monospace;font-size:12px">
+              <span class="opt-link" onclick="useOptions('rw,sync,no_subtree_check,no_root_squash')" style="cursor:pointer;color:var(--primary)">
+                rw,sync,no_subtree_check,no_root_squash
+              </span>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:8px 12px;border-bottom:1px solid rgba(255,255,255,0.04)">Read-write, untrusted</td>
+            <td style="padding:8px 12px;border-bottom:1px solid rgba(255,255,255,0.04);font-family:monospace;font-size:12px">
+              <span class="opt-link" onclick="useOptions('rw,sync,no_subtree_check,root_squash')" style="cursor:pointer;color:var(--primary)">
+                rw,sync,no_subtree_check,root_squash
+              </span>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:8px 12px;border-bottom:1px solid rgba(255,255,255,0.04)">Read-only media share</td>
+            <td style="padding:8px 12px;border-bottom:1px solid rgba(255,255,255,0.04);font-family:monospace;font-size:12px">
+              <span class="opt-link" onclick="useOptions('ro,sync,no_subtree_check,root_squash')" style="cursor:pointer;color:var(--primary)">
+                ro,sync,no_subtree_check,root_squash
+              </span>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:8px 12px">Async (faster, less safe)</td>
+            <td style="padding:8px 12px;font-family:monospace;font-size:12px">
+              <span class="opt-link" onclick="useOptions('rw,async,no_subtree_check,no_root_squash')" style="cursor:pointer;color:var(--primary)">
+                rw,async,no_subtree_check,no_root_squash
+              </span>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── Auth headers ──────────────────────────────────────────────
+function headers() {
+  const token = document.cookie.split(';').map(c => c.trim())
+    .find(c => c.startsWith('csrf_token='))?.split('=')[1] || '';
+  return { 'Content-Type': 'application/json', 'X-CSRF-Token': token };
+}
+
+function esc(s) {
+  const d = document.createElement('div');
+  d.textContent = String(s == null ? '' : s);
+  return d.innerHTML;
+}
+
+// ── Tab switching ─────────────────────────────────────────────
+function switchTab(name) {
+  document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('tab-' + name).classList.add('active');
+  const tabs = document.querySelectorAll('.tab-btn');
+  const idx = name === 'exports' ? 0 : 1;
+  tabs[idx].classList.add('active');
+  if (name === 'exports') loadExports();
+}
+
+// ── Status ────────────────────────────────────────────────────
+async function loadStatus() {
+  try {
+    const r = await fetch('/api/nfs/status', { headers: headers() });
+    const d = await r.json();
+    const dot = document.getElementById('statusDot');
+    const lbl = document.getElementById('statusLabel');
+    const meta = document.getElementById('statusMeta');
+
+    if (!d.installed) {
+      dot.className = 'status-dot offline';
+      lbl.textContent = 'NFS Not Installed';
+      meta.textContent = d.message || '';
+      document.getElementById('notInstalledBox').style.display = 'flex';
+      document.getElementById('mainTabs').style.display = 'none';
+      return;
+    }
+
+    document.getElementById('notInstalledBox').style.display = 'none';
+    document.getElementById('mainTabs').style.display = 'flex';
+
+    if (d.active) {
+      dot.className = 'status-dot online';
+      lbl.textContent = 'NFS Service Active';
+    } else {
+      dot.className = 'status-dot offline';
+      lbl.textContent = 'NFS Service Inactive';
+    }
+    meta.textContent = `${d.export_count ?? 0} export(s) enabled`;
+  } catch (e) {
+    document.getElementById('statusLabel').textContent = 'Status unavailable';
+  }
+}
+
+// ── Export list ───────────────────────────────────────────────
+async function loadExports() {
+  const el = document.getElementById('exportsList');
+  el.innerHTML = '<div class="empty-state">Loading…</div>';
+  try {
+    const r = await fetch('/api/nfs/exports', { headers: headers() });
+    const d = await r.json();
+    const exports = d.exports || [];
+
+    if (!exports.length) {
+      el.innerHTML = `<div class="empty-state">
+        <span class="material-symbols-rounded" style="font-size:48px;display:block;margin-bottom:12px;opacity:0.3">dns</span>
+        No NFS exports configured.<br>
+        <button class="btn btn-primary" style="margin-top:16px" onclick="switchTab('create')">Add First Export</button>
+      </div>`;
+      return;
+    }
+
+    el.innerHTML = exports.map(e => `
+      <div class="export-item" id="export-${e.id}">
+        <div class="export-top">
+          <span class="material-symbols-rounded" style="color:var(--primary);flex-shrink:0">dns</span>
+          <span class="export-path">${esc(e.path)}</span>
+          <span class="export-badge ${e.enabled ? 'badge-enabled' : 'badge-disabled'}">
+            ${e.enabled ? 'enabled' : 'disabled'}
+          </span>
+          <div style="display:flex;gap:6px;flex-shrink:0">
+            <button class="btn btn-ghost btn-sm" onclick="toggleExport(${e.id}, ${e.enabled})">
+              ${e.enabled ? 'Disable' : 'Enable'}
+            </button>
+            <button class="btn btn-danger btn-sm" onclick="deleteExport(${e.id}, '${esc(e.path)}')">Delete</button>
+          </div>
+        </div>
+        <div class="export-meta">
+          clients: ${esc(e.clients)} &nbsp;|&nbsp; options: ${esc(e.options)}
+        </div>
+      </div>
+    `).join('');
+  } catch (e) {
+    el.innerHTML = `<div class="empty-state">Failed to load exports: ${esc(e.message)}</div>`;
+  }
+}
+
+// ── Toggle enable/disable ─────────────────────────────────────
+async function toggleExport(id, currentlyEnabled) {
+  const enabled = !currentlyEnabled;
+  try {
+    const r = await fetch(`/api/nfs/exports/${id}`, {
+      method: 'PUT',
+      headers: headers(),
+      body: JSON.stringify({ enabled })
+    });
+    const d = await r.json();
+    if (d.success) {
+      loadExports();
+      loadStatus();
+    } else {
+      alert('Failed: ' + (d.error || 'unknown'));
+    }
+  } catch (e) {
+    alert('Error: ' + e.message);
+  }
+}
+
+// ── Delete ────────────────────────────────────────────────────
+async function deleteExport(id, path) {
+  if (!confirm(`Delete NFS export: ${path}?\n\nClients will lose access immediately.`)) return;
+  try {
+    const r = await fetch(`/api/nfs/exports/${id}`, {
+      method: 'DELETE',
+      headers: headers()
+    });
+    const d = await r.json();
+    if (d.success) {
+      loadExports();
+      loadStatus();
+    } else {
+      alert('Failed: ' + (d.error || 'unknown'));
+    }
+  } catch (e) {
+    alert('Error: ' + e.message);
+  }
+}
+
+// ── Create ────────────────────────────────────────────────────
+async function createExport() {
+  const path    = document.getElementById('createPath').value.trim();
+  const clients = document.getElementById('createClients').value.trim();
+  const options = document.getElementById('createOptions').value.trim();
+
+  if (!path)    { alert('Enter an export path.'); return; }
+  if (!path.startsWith('/')) { alert('Path must be absolute (start with /).'); return; }
+  if (!clients) { alert('Enter at least one allowed client.'); return; }
+
+  const btn = document.getElementById('createBtn');
+  btn.disabled = true;
+  btn.textContent = 'Adding…';
+
+  try {
+    const r = await fetch('/api/nfs/exports', {
+      method: 'POST',
+      headers: headers(),
+      body: JSON.stringify({ path, clients, options })
+    });
+    const d = await r.json();
+    if (d.success) {
+      document.getElementById('createPath').value    = '';
+      document.getElementById('createClients').value = '*';
+      document.getElementById('createOptions').value = 'rw,sync,no_subtree_check,no_root_squash';
+      switchTab('exports');
+      loadStatus();
+    } else {
+      alert('Failed: ' + (d.error || 'unknown'));
+    }
+  } catch (e) {
+    alert('Error: ' + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<span class="material-symbols-rounded" style="font-size:16px">add_circle</span>Add Export';
+  }
+}
+
+// ── Quick reload ──────────────────────────────────────────────
+async function reload() {
+  await loadStatus();
+  await loadExports();
+}
+
+// ── Options quick-fill ────────────────────────────────────────
+function useOptions(opts) {
+  document.getElementById('createOptions').value = opts;
+  switchTab('create');
+}
+
+// ── Init ──────────────────────────────────────────────────────
+loadStatus();
+loadExports();
+</script>
+</body>
+</html>

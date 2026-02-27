@@ -97,12 +97,12 @@ sudo ./install.sh
 | Feature | Install command | Notes |
 |---|---|---|
 | SMB/Windows shares | `sudo apt install samba` | D-PlaneOS configures and manages smb.conf |
+| NFS exports | `sudo apt install nfs-kernel-server` | D-PlaneOS writes /etc/exports and runs exportfs |
+| iSCSI targets | `sudo apt install targetcli-fb` | D-PlaneOS manages LIO targets via targetcli |
 | Docker containers | See [Docker install docs](https://docs.docker.com/engine/install/ubuntu/) | D-PlaneOS manages containers, stacks, images |
 | UPS monitoring | `sudo apt install nut` | D-PlaneOS reads UPS status via `upsc` |
 
 D-PlaneOS detects whether each of these is installed and enables the relevant UI automatically. If a service is not installed, a clear message explains what to install rather than failing silently.
-
-> **Note:** NFS share management is not included in this release. Samba (SMB) covers Windows, macOS (with Time Machine), and Linux file sharing.
 
 **Installation time:** ~5-10 minutes (depending on internet speed)
 
