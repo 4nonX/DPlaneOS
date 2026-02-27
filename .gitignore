@@ -60,3 +60,8 @@ id_rsa
 id_ed25519
 *.p12
 *.pfx
+
+# Syncthing conflict files — these cause duplicate symbol build failures in Go.
+# They are created when Syncthing detects a conflict between two versions of a file.
+# The correct fix is to resolve the conflict and delete the conflict copy.
+*.sync-conflict-*
