@@ -101,8 +101,8 @@ if [[ "${OS_ID,,}" == "debian" ]]; then
     if [ "${OS_VERSION_ID}" -lt 11 ]; then
         log_warn "Debian version $OS_VERSION_ID may not be fully supported (recommend 11+)"
     fi
-elif [[ "${ID,,}" == "ubuntu" ]]; then
-    if [ "${VERSION_ID%%.*}" -lt 22 ]; then
+elif [[ "${OS_ID,,}" == "ubuntu" ]]; then
+    if [ "${OS_VERSION_ID%%.*}" -lt 22 ]; then
         log_warn "Ubuntu version $OS_VERSION_ID may not be fully supported (recommend 22.04+)"
     fi
 fi

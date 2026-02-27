@@ -19,6 +19,15 @@ func ReloadSMBConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Check smbd is installed before trying to reload it
+	if _, err := cmdutil.RunFast("which", "smbd"); err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Samba not installed. Install with: sudo apt install samba",
+		})
+		return
+	}
+
 	output, err := cmdutil.RunFast("systemctl", "reload", "smbd")
 
 	audit.LogActivity(user, "samba_reload", map[string]interface{}{
@@ -26,7 +35,10 @@ func ReloadSMBConfig(w http.ResponseWriter, r *http.Request) {
 	})
 
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
 		return
 	}
 
@@ -68,6 +80,15 @@ func ReloadNFSExports(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Check exportfs is installed before trying to run it
+	if _, err := cmdutil.RunFast("which", "exportfs"); err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "NFS server not installed. Install with: sudo apt install nfs-kernel-server",
+		})
+		return
+	}
+
 	output, err := cmdutil.RunFast("exportfs", "-ra")
 
 	audit.LogActivity(user, "nfs_reload", map[string]interface{}{
@@ -75,7 +96,10 @@ func ReloadNFSExports(w http.ResponseWriter, r *http.Request) {
 	})
 
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
 		return
 	}
 

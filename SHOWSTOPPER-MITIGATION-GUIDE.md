@@ -1,4 +1,4 @@
-# D-PlaneOS — Showstopper Mitigation Guide
+# D-PlaneOS v3.2.1 — Showstopper Mitigation Guide
 
 **Updated:** 2026-02-22  
 **Replaces:** 2026-02-07 edition (stale — referenced PHP layer that no longer exists)  

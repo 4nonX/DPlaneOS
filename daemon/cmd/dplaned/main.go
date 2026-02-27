@@ -402,6 +402,8 @@ func main() {
 	r.HandleFunc("/api/git-sync/repos/pull", gitReposHandler.PullRepo).Methods("POST")
 	r.HandleFunc("/api/git-sync/repos/push", gitReposHandler.PushRepo).Methods("POST")
 	r.HandleFunc("/api/git-sync/repos/deploy", gitReposHandler.DeployRepo).Methods("POST")
+	r.HandleFunc("/api/git-sync/repos/browse", gitReposHandler.BrowseFiles).Methods("GET")
+	r.HandleFunc("/api/git-sync/credentials/branches", gitReposHandler.ListBranches).Methods("GET")
 	r.HandleFunc("/api/git-sync/repos/export", gitReposHandler.ExportToRepo).Methods("POST")
 	gitSyncHandler.StartAutoSync()
 
@@ -491,8 +493,7 @@ func main() {
 	// Shares handlers (config management)
 	r.HandleFunc("/api/shares/smb/reload", handlers.ReloadSMBConfig).Methods("POST")
 	r.HandleFunc("/api/shares/smb/test", handlers.TestSMBConfig).Methods("POST")
-	r.HandleFunc("/api/shares/nfs/reload", handlers.ReloadNFSExports).Methods("POST")
-	r.HandleFunc("/api/shares/nfs/list", handlers.ListNFSExports).Methods("GET")
+	// NFS management is out of scope for v3.3.1 — SMB via Samba covers the use case
 
 	// Shares CRUD handlers
 	shareCRUDHandler := handlers.NewShareCRUDHandler(db, *smbConfPath)
@@ -621,6 +622,17 @@ func main() {
 	metricsHandler := handlers.NewMetricsHandler()
 	r.HandleFunc("/api/metrics/current", metricsHandler.GetCurrentMetrics).Methods("GET")
 	r.HandleFunc("/api/metrics/history", metricsHandler.GetHistory).Methods("GET")
+
+	// Background metrics collection — writes to /var/lib/dplaneos/metrics/*.json
+	// Powers the history charts in reporting.html
+	go func() {
+		metricsHandler.CollectAndStore() // collect immediately on startup
+		ticker := time.NewTicker(60 * time.Second)
+		defer ticker.Stop()
+		for range ticker.C {
+			metricsHandler.CollectAndStore()
+		}
+	}()
 
 	// Firewall (v2.0.0)
 	firewallHandler := handlers.NewFirewallHandler()

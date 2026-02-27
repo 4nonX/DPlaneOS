@@ -37,6 +37,16 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Check for Syncthing conflict files
+        run: |
+          CONFLICTS=$(find . -name '.sync-conflict-*.go' 2>/dev/null | head -20 || true)
+          if [ -n "$CONFLICTS" ]; then
+            echo "ERROR: Syncthing conflict files found — would cause duplicate symbol build failures:"
+            echo "$CONFLICTS"
+            exit 1
+          fi
+          echo "No Syncthing conflict files found."
+
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
@@ -96,9 +106,14 @@ jobs:
 
 
       - name: Seed CI user
+        env:
+          CI_PASS: "CiAdmin1!Test"
         run: |
-          CI_PASS="CiAdmin1!Test"
-          CI_HASH=$(python3 -c "import bcrypt; print(bcrypt.hashpw(b'$CI_PASS', bcrypt.gensalt(rounds=10)).decode())")
+          CI_HASH=$(python3 -c "
+          import bcrypt, os
+          pw = os.environ['CI_PASS'].encode()
+          print(bcrypt.hashpw(pw, bcrypt.gensalt(rounds=10)).decode())
+          ")
           # Update existing admin row (created by daemon seed) so login works; avoid REPLACE to keep row identity
           sudo sqlite3 /var/lib/dplaneos/dplaneos.db \
             "UPDATE users SET password_hash='$(echo "$CI_HASH" | sed "s/'/''/g")', active=1, role='admin', must_change_password=0 WHERE username='admin';"

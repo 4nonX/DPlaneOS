@@ -112,15 +112,18 @@ func (h *HybridIndexer) addRealtimeWatch(config WatchConfig) error {
 		return h.addPeriodicScanner(config)
 	}
 	
-	// TODO: Implement actual inotify watch
-	// For now, simulate
-	h.realtimeWatches[config.Path] = nil
+	// Real inotify integration uses the monitoring package's inotify watch counter.
+	// At the indexing layer, realtime strategy uses the periodic scanner at a short interval
+	// (30s) to stay honest about what the OS watch limit means in practice.
+	config.Strategy = StrategyPeriodic
+	if config.ScanInterval == 0 {
+		config.ScanInterval = 30 * time.Second
+	}
+	h.realtimeWatches[config.Path] = nil // track for status reporting
 	h.inotifyUsed++
-	
-	log.Printf("Added real-time inotify watch: %s (%d/%d used)",
+	log.Printf("Added fast-periodic index watch (30s): %s (%d/%d slots used)",
 		config.Path, h.inotifyUsed, h.inotifyLimit)
-	
-	return nil
+	return h.addPeriodicScanner(config)
 }
 
 // addPeriodicScanner creates a background scanner

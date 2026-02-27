@@ -507,9 +507,16 @@ if (window.ConnectionMonitor) {
 
 <script>
 // Configuration
-const API_BASE = '/api/metrics/current';
+const API_BASE = '/api/system/ipmi';
 let currentOperation = null;
 let refreshInterval = null;
+
+function getHeaders() {
+  return {
+    'X-Session-ID': sessionStorage.getItem('session_id') || '',
+    'X-User': sessionStorage.getItem('username') || ''
+  };
+}
 
 // CSRF Token
 function getCSRFToken() {
@@ -532,10 +539,26 @@ function showToast(message, type = 'success') {
   }, 3000);
 }
 
+// Categorise sensors by unit/name heuristics
+function categorizeSensors(sensors) {
+  const cats = { temperature: [], fan: [], voltage: [], power: [], current: [], other: [] };
+  sensors.forEach(s => {
+    const u = (s.unit || '').toLowerCase();
+    const n = (s.name || '').toLowerCase();
+    if (u.includes('c') || u.includes('f') || n.includes('temp')) cats.temperature.push(s);
+    else if (u.includes('rpm') || n.includes('fan')) cats.fan.push(s);
+    else if (u.includes('v') || n.includes('volt')) cats.voltage.push(s);
+    else if (u.includes('w') || n.includes('power')) cats.power.push(s);
+    else if (u.includes('a') || n.includes('current') || n.includes('amp')) cats.current.push(s);
+    else cats.other.push(s);
+  });
+  return cats;
+}
+
 // Check IPMI status
 async function checkIPMIStatus() {
   try {
-    const response = await fetch(`${API_BASE}?action=status`);
+    const response = await fetch(API_BASE, { headers: getHeaders() });
     const data = await response.json();
     
     const banner = document.getElementById('statusBanner');
@@ -543,37 +566,31 @@ async function checkIPMIStatus() {
     const title = banner.querySelector('.status-title');
     const message = banner.querySelector('.status-message');
     
-    if (data.success && data.ipmi_available) {
+    if (data.available) {
       banner.className = 'status-banner online';
       icon.textContent = 'check_circle';
       icon.className = 'material-symbols-rounded status-icon online';
       title.textContent = 'IPMI Available';
-      message.textContent = data.message;
+      message.textContent = `${(data.sensors || []).length} sensor(s) found`;
       
-      // Load sensors and events
-      loadSensors();
-      loadEvents();
+      renderSensorsFromResponse(data);
       
       // Start auto-refresh
       if (!refreshInterval) {
-        refreshInterval = setInterval(() => {
-          loadSensors();
-          loadEvents();
-        }, 5000);
+        refreshInterval = setInterval(checkIPMIStatus, 10000);
       }
     } else {
       banner.className = 'status-banner offline';
       icon.textContent = 'error';
       icon.className = 'material-symbols-rounded status-icon offline';
       title.textContent = 'IPMI Not Available';
-      message.textContent = data.message || 'IPMI/BMC not accessible';
+      message.textContent = data.reason || 'IPMI/BMC not accessible';
       
       document.getElementById('sensorsLoading').classList.remove('active');
       document.getElementById('sensorsEmpty').style.display = 'block';
       document.getElementById('eventsLoading').classList.remove('active');
       document.getElementById('eventsEmpty').style.display = 'block';
       
-      // Disable all power buttons when IPMI is not available
       document.querySelectorAll('.power-btn').forEach(btn => {
         btn.disabled = true;
         btn.title = 'IPMI not available on this system';
@@ -585,35 +602,34 @@ async function checkIPMIStatus() {
   }
 }
 
-// Load sensors
-async function loadSensors() {
-  try {
-    const response = await fetch(`${API_BASE}?action=sensors`);
-    const data = await response.json();
-    
-    document.getElementById('sensorsLoading').classList.remove('active');
-    
-    if (data.success && data.sensors) {
-      // Update statistics
-      document.getElementById('statTotal').textContent = data.statistics.total;
-      document.getElementById('statOk').textContent = data.statistics.ok;
-      document.getElementById('statWarning').textContent = data.statistics.warning;
-      document.getElementById('statCritical').textContent = data.statistics.critical;
-      
-      // Render sensor categories
-      renderSensorCategory('temperature', data.sensors.temperature, 'tempGrid', 'temperatureSensors');
-      renderSensorCategory('fan', data.sensors.fan, 'fanGrid', 'fanSensors');
-      renderSensorCategory('voltage', data.sensors.voltage, 'voltageGrid', 'voltageSensors');
-      renderSensorCategory('power', data.sensors.power, 'powerGrid', 'powerSensors');
-      renderSensorCategory('current', data.sensors.current, 'currentGrid', 'currentSensors');
-    } else {
-      document.getElementById('sensorsEmpty').style.display = 'block';
-    }
-  } catch (error) {
-    console.error('Failed to load sensors:', error);
-    document.getElementById('sensorsLoading').classList.remove('active');
-    document.getElementById('sensorsEmpty').style.display = 'block';
-  }
+// Load sensors — now just calls checkIPMIStatus which does everything
+async function loadSensors() { await checkIPMIStatus(); }
+
+function renderSensorsFromResponse(data) {
+  const sensors = data.sensors || [];
+  const cats = categorizeSensors(sensors);
+  
+  // Stats
+  const ok = sensors.filter(s => s.status === 'ok').length;
+  const warn = sensors.filter(s => s.status === 'warn').length;
+  const crit = sensors.filter(s => s.status === 'critical').length;
+  document.getElementById('statTotal').textContent = sensors.length;
+  document.getElementById('statOk').textContent = ok;
+  document.getElementById('statWarning').textContent = warn;
+  document.getElementById('statCritical').textContent = crit;
+  
+  renderSensorCategory('temperature', cats.temperature, 'tempGrid', 'temperatureSensors');
+  renderSensorCategory('fan',         cats.fan,         'fanGrid',  'fanSensors');
+  renderSensorCategory('voltage',     cats.voltage,     'voltageGrid', 'voltageSensors');
+  renderSensorCategory('power',       cats.power,       'powerGrid',   'powerSensors');
+  renderSensorCategory('current',     cats.current,     'currentGrid', 'currentSensors');
+  
+  document.getElementById('sensorsLoading').classList.remove('active');
+  if (sensors.length === 0) document.getElementById('sensorsEmpty').style.display = 'block';
+  
+  // Events not provided by ipmitool sdr - hide events section gracefully
+  document.getElementById('eventsLoading').classList.remove('active');
+  document.getElementById('eventsEmpty').style.display = 'block';
 }
 
 // Render sensor category
@@ -646,43 +662,11 @@ function renderSensorCategory(category, sensors, gridId, containerId) {
 }
 
 // Load events
+// Events are not available via ipmitool sdr — ipmitool sel requires additional BMC permissions.
+// The refresh button in the UI triggers this; show a graceful "not available" message.
 async function loadEvents() {
-  try {
-    const response = await fetch(`${API_BASE}?action=events&limit=50`);
-    const data = await response.json();
-    
-    document.getElementById('eventsLoading').classList.remove('active');
-    
-    if (data.success && data.events && data.events.length > 0) {
-      const eventList = document.getElementById('eventList');
-      eventList.style.display = 'block';
-      eventList.innerHTML = '';
-      
-      data.events.forEach(event => {
-        const item = document.createElement('div');
-        item.className = 'event-item';
-        item.innerHTML = `
-          <span class="material-symbols-rounded event-severity-icon ${event.severity}">
-            ${getSeverityIcon(event.severity)}
-          </span>
-          <div class="event-content">
-            <div class="event-header">
-              <div class="event-sensor">${event.sensor}</div>
-              <div class="event-time">${event.timestamp}</div>
-            </div>
-            <div class="event-message">${event.event}</div>
-          </div>
-        `;
-        eventList.appendChild(item);
-      });
-    } else {
-      document.getElementById('eventsEmpty').style.display = 'block';
-    }
-  } catch (error) {
-    console.error('Failed to load events:', error);
-    document.getElementById('eventsLoading').classList.remove('active');
-    document.getElementById('eventsEmpty').style.display = 'block';
-  }
+  document.getElementById('eventsLoading').classList.remove('active');
+  document.getElementById('eventsEmpty').style.display = 'block';
 }
 
 // Get severity icon

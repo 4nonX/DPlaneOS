@@ -71,7 +71,7 @@
 
 <div class="page-header">
 <h1 class="page-title">Network</h1>
-<p class="page-subtitle">Configuration • VPN • Remote access</p>
+<p class="page-subtitle">Configuration • Remote access</p>
 </div>
 <div id="network-interfaces-container">
   <div class="interface-card">
@@ -144,36 +144,6 @@ async function configureInterface(name) {
   }
 }
 
-async function configureVPN() {
-  const result = await ui.form('VPN Settings', [
-    { name: 'enabled', label: 'Enable VPN', type: 'checkbox', checked: true },
-    { name: 'key', label: 'Auth Key', type: 'text' }
-  ], 'Save');
-  
-  if (result) {
-    ui.showLoading('Saving VPN settings...');
-    
-    try {
-      const response = await csrfFetch('/api/network/apply', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'vpn', ...result })
-      });
-      
-      const data = await response.json();
-      ui.hideLoading();
-      
-      if (data.success) {
-        ui.toast('VPN settings saved', 'success');
-      } else {
-        ui.toast(data.error || 'Failed to save settings', 'error');
-      }
-    } catch (error) {
-      ui.hideLoading();
-      ui.toast('Network error: ' + error.message, 'error');
-    }
-  }
-}
 
 async function testNetwork() {
   ui.showLoading('Testing network connection...');
@@ -379,36 +349,6 @@ async function configureInterface(name) {
   }
 }
 
-async function configureVPN() {
-  const result = await ui.form('VPN Settings', [
-    { name: 'enabled', label: 'Enable VPN', type: 'checkbox', checked: true },
-    { name: 'key', label: 'Auth Key', type: 'text' }
-  ], 'Save');
-  
-  if (result) {
-    ui.showLoading('Saving VPN settings...');
-    
-    try {
-      const response = await csrfFetch('/api/network/apply', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'vpn', ...result })
-      });
-      
-      const data = await response.json();
-      ui.hideLoading();
-      
-      if (data.success) {
-        ui.toast('VPN settings saved', 'success');
-      } else {
-        ui.toast(data.error || 'Failed to save settings', 'error');
-      }
-    } catch (error) {
-      ui.hideLoading();
-      ui.toast('Network error: ' + error.message, 'error');
-    }
-  }
-}
 
 async function testNetwork() {
   ui.showLoading('Testing network connection...');
@@ -922,12 +862,12 @@ async function addDNS() {
     if (!isValidIPv4(result.server)) {
       ui.toast('Invalid DNS format — use x.x.x.x (e.g. 8.8.8.8)', 'error'); return;
     }
-    await saveDNSChange({ action: 'add_nameserver', server: result.server });
+    await modifyDNS(ns => ({ nameservers: [...ns.nameservers, result.server], search: ns.search }));
   }
 }
 
 async function removeDNS(index) {
-  await saveDNSChange({ action: 'remove_nameserver', index });
+  await modifyDNS(ns => ({ nameservers: ns.nameservers.filter((_, i) => i !== index), search: ns.search }));
 }
 
 async function addSearchDomain() {
@@ -936,32 +876,41 @@ async function addSearchDomain() {
   ], 'Add');
   
   if (result) {
-    await saveDNSChange({ action: 'add_search', domain: result.domain });
+    await modifyDNS(ns => ({ nameservers: ns.nameservers, search: [...ns.search, result.domain] }));
   }
 }
 
 async function removeSearchDomain(index) {
-  await saveDNSChange({ action: 'remove_search', index });
+  await modifyDNS(ns => ({ nameservers: ns.nameservers, search: ns.search.filter((_, i) => i !== index) }));
 }
 
-async function saveDNSChange(data) {
+// Read current DNS, apply a transform function, then write the whole set back.
+// Uses /api/system/network (read) + action=set_dns (write) — both are real endpoints.
+async function modifyDNS(transform) {
   ui.showLoading('Updating DNS configuration...');
-  
   try {
-    const response = await csrfFetch('/api/network/apply', {
+    // Read current state
+    const readResp = await csrfFetch('/api/system/network');
+    const readData = await readResp.json();
+    if (!readData.success) throw new Error(readData.error || 'Failed to read DNS config');
+    const current = { nameservers: readData.dns?.nameservers || [], search: readData.dns?.search || [] };
+    
+    // Apply transform
+    const updated = transform(current);
+    
+    // Write back via set_dns action on /api/system/network
+    const writeResp = await csrfFetch('/api/system/network', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data)
+      body: JSON.stringify({ action: 'set_dns', nameservers: updated.nameservers, search: updated.search })
     });
-    
-    const result = await response.json();
+    const writeData = await writeResp.json();
     ui.hideLoading();
-    
-    if (result.success) {
+    if (writeData.success) {
       ui.toast('DNS configuration updated', 'success');
       loadDNS();
     } else {
-      ui.toast(result.error || 'Failed to update DNS', 'error');
+      ui.toast(writeData.error || 'Failed to update DNS', 'error');
     }
   } catch (error) {
     ui.hideLoading();

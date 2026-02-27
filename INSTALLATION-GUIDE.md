@@ -30,7 +30,7 @@
   - Home use / media library: acceptable risk with regular scrubs and backups
   - Business / critical data / databases: not recommended
 
-  **D-PlaneOS v3.3.0 behaviour:**
+  **D-PlaneOS v3.3.1 behaviour:**
   - Detects ECC presence via `dmidecode` on startup
   - Shows a persistent advisory notice in the dashboard if non-ECC RAM is found
   - **Never blocks installation or operation** — ECC is your choice, not ours
@@ -64,7 +64,7 @@
 
 ```bash
 # Download latest release
-wget https://github.com/4nonX/D-PlaneOS/releases/download/v3.3.0/dplaneos-v3.3.0.tar.gz
+wget https://github.com/4nonX/D-PlaneOS/releases/download/v3.3.1/dplaneos-v3.3.1.tar.gz
 
 # Verify SHA256
 sha256sum dplaneos-v3.3.1.tar.gz
@@ -84,13 +84,25 @@ cd dplaneos-v3.3.1
 sudo ./install.sh
 ```
 
-**What happens:**
-1. System dependencies installed (ZFS, Docker, SQLite, Go)
-2. D-PlaneOS daemon compiled
-3. Database initialized with RBAC schema
-4. systemd service created
-5. nginx reverse proxy configured
-6. First admin user setup prompt
+**What the installer does automatically:**
+1. Installs system packages: ZFS (`zfsutils-linux`), nginx, SQLite, git, smartmontools, hdparm, acl, ufw, openssl, iproute2
+2. Compiles the D-PlaneOS daemon from source (requires internet for Go compiler download if not present)
+3. Initialises the SQLite database with full RBAC schema
+4. Creates and enables systemd services
+5. Configures nginx as a reverse proxy
+6. Generates a first-run admin password
+
+**Optional services — install separately before or after D-PlaneOS:**
+
+| Feature | Install command | Notes |
+|---|---|---|
+| SMB/Windows shares | `sudo apt install samba` | D-PlaneOS configures and manages smb.conf |
+| Docker containers | See [Docker install docs](https://docs.docker.com/engine/install/ubuntu/) | D-PlaneOS manages containers, stacks, images |
+| UPS monitoring | `sudo apt install nut` | D-PlaneOS reads UPS status via `upsc` |
+
+D-PlaneOS detects whether each of these is installed and enables the relevant UI automatically. If a service is not installed, a clear message explains what to install rather than failing silently.
+
+> **Note:** NFS share management is not included in this release. Samba (SMB) covers Windows, macOS (with Time Machine), and Linux file sharing.
 
 **Installation time:** ~5-10 minutes (depending on internet speed)
 
@@ -223,11 +235,11 @@ sudo systemctl restart fail2ban
 
 ---
 
-## Upgrading from v3.3.0
+## Upgrading from v3.2.0
 
 **Note:** v3.3.1 is backward compatible. Upgrade preserves all data and configuration.
 
-**If you have data in v3.3.0:**
+**If you have data in v3.2.0:**
 
 1. Backup your data:
    ```bash
@@ -235,7 +247,7 @@ sudo systemctl restart fail2ban
    zfs send tank@pre-upgrade > /backup/tank-pre-upgrade.zfs
    ```
 
-2. Fresh install
+2. Fresh install v3.3.1
 
 3. Import existing pool:
    ```bash

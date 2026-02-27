@@ -88,27 +88,16 @@ func (h *GitReposHandler) SaveCredential(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// For SSH: write key to file under /var/lib/dplaneos/ssh-keys/
-	sshKeyPath := ""
-	if req.AuthType == "ssh" && req.SSHKey != "" {
-		keyDir := "/var/lib/dplaneos/ssh-keys"
-		os.MkdirAll(keyDir, 0700)
-		keyPath := filepath.Join(keyDir, "git-"+sanitizeName(req.Name))
-		if err := os.WriteFile(keyPath, []byte(req.SSHKey), 0600); err != nil {
-			respondJSON(w, 500, map[string]interface{}{"success": false, "error": "Failed to write SSH key"})
-			return
-		}
-		sshKeyPath = keyPath
-	}
-
+	// SSH key is stored as text in the DB (not written to disk here).
+	// buildCredentialEnv writes it to a temp file only when needed for a git operation.
 	if req.ID != nil {
 		// Update existing — only update token/key if non-empty (empty = keep existing)
 		if req.Token != "" && req.AuthType == "token" {
-			h.db.Exec(`UPDATE git_credentials SET name=?, host=?, auth_type=?, token=?, notes=? WHERE id=?`,
+			h.db.Exec(`UPDATE git_credentials SET name=?, host=?, auth_type=?, token=?, ssh_key='', notes=? WHERE id=?`,
 				req.Name, req.Host, req.AuthType, req.Token, req.Notes, *req.ID)
-		} else if req.AuthType == "ssh" && sshKeyPath != "" {
-			h.db.Exec(`UPDATE git_credentials SET name=?, host=?, auth_type=?, ssh_key=?, notes=? WHERE id=?`,
-				req.Name, req.Host, req.AuthType, sshKeyPath, req.Notes, *req.ID)
+		} else if req.AuthType == "ssh" && req.SSHKey != "" {
+			h.db.Exec(`UPDATE git_credentials SET name=?, host=?, auth_type=?, token='', ssh_key=?, notes=? WHERE id=?`,
+				req.Name, req.Host, req.AuthType, req.SSHKey, req.Notes, *req.ID)
 		} else {
 			h.db.Exec(`UPDATE git_credentials SET name=?, host=?, auth_type=?, notes=? WHERE id=?`,
 				req.Name, req.Host, req.AuthType, req.Notes, *req.ID)
@@ -117,9 +106,9 @@ func (h *GitReposHandler) SaveCredential(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// Insert
-	sshKeyStore := sshKeyPath
+	// Insert — store key text directly in DB
 	tokenStore := req.Token
+	sshKeyStore := req.SSHKey
 	if req.AuthType == "ssh" {
 		tokenStore = ""
 	} else {
@@ -199,6 +188,160 @@ func (h *GitReposHandler) DeleteCredential(w http.ResponseWriter, r *http.Reques
 	}
 	h.db.Exec(`DELETE FROM git_credentials WHERE id = ?`, idStr)
 	respondJSON(w, 200, map[string]interface{}{"success": true})
+}
+
+// ListBranches — GET /api/git-sync/credentials/branches?id=N&url=...
+// Lists remote branches for a repo URL using the given credential.
+// Mirrors Arcane's ListBranches — used by the UI to populate branch dropdowns.
+func (h *GitReposHandler) ListBranches(w http.ResponseWriter, r *http.Request) {
+	credIDStr := r.URL.Query().Get("id")
+	repoURL := r.URL.Query().Get("url")
+	if repoURL == "" {
+		respondJSON(w, 400, map[string]interface{}{"success": false, "error": "url is required"})
+		return
+	}
+	if err := validateRepoURL(repoURL); err != nil {
+		respondJSON(w, 400, map[string]interface{}{"success": false, "error": err.Error()})
+		return
+	}
+
+	var env []string
+	if credIDStr != "" && credIDStr != "0" {
+		var credID int
+		fmt.Sscanf(credIDStr, "%d", &credID)
+		cred, err := h.loadCredential(credID)
+		if err != nil {
+			respondJSON(w, 404, map[string]interface{}{"success": false, "error": "Credential not found"})
+			return
+		}
+		env = buildCredentialEnv(cred)
+		defer cleanupAskpass()
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "git", "ls-remote", "--heads", "--refs", repoURL)
+	cmd.Env = append(os.Environ(), env...)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		respondJSON(w, 200, map[string]interface{}{
+			"success": false,
+			"error":   "Failed to list branches: " + strings.TrimSpace(string(out)),
+			"hint":    credentialHint(func() string {
+				if credIDStr != "" && credIDStr != "0" { return "token" }
+				return "none"
+			}()),
+		})
+		return
+	}
+
+	// Parse output: "abc123\trefs/heads/main"
+	var branches []map[string]interface{}
+	defaultBranch := "main"
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		parts := strings.SplitN(line, "\t", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		ref := strings.TrimPrefix(strings.TrimSpace(parts[1]), "refs/heads/")
+		branches = append(branches, map[string]interface{}{
+			"name":       ref,
+			"is_default": ref == defaultBranch,
+		})
+	}
+	if branches == nil {
+		branches = []map[string]interface{}{}
+	}
+	respondJSON(w, 200, map[string]interface{}{"success": true, "branches": branches})
+}
+
+// BrowseFiles — GET /api/git-sync/repos/browse?id=N&path=subdir
+// Clones the repo (or reuses existing clone) and returns the file tree at path.
+// Mirrors Arcane's BrowseFiles — used by the UI to pick the compose file path.
+func (h *GitReposHandler) BrowseFiles(w http.ResponseWriter, r *http.Request) {
+	idStr := r.URL.Query().Get("id")
+	browsePath := r.URL.Query().Get("path") // relative path within repo, default ""
+
+	repo, err := h.loadRepo(idStr)
+	if err != nil {
+		respondJSON(w, 404, map[string]interface{}{"success": false, "error": "Repo not found"})
+		return
+	}
+	if _, err := os.Stat(filepath.Join(repo.LocalPath, ".git")); err != nil {
+		respondJSON(w, 400, map[string]interface{}{
+			"success": false,
+			"error":   "Repository not cloned yet — pull first to enable file browsing",
+		})
+		return
+	}
+
+	// Validate the requested browse path to prevent traversal
+	absBase := filepath.Clean(repo.LocalPath)
+	var absTarget string
+	if browsePath == "" || browsePath == "." {
+		absTarget = absBase
+	} else {
+		// filepath.Clean resolves ".." before we check the prefix
+		absTarget = filepath.Clean(filepath.Join(absBase, browsePath))
+		if !strings.HasPrefix(absTarget+string(filepath.Separator), absBase+string(filepath.Separator)) {
+			respondJSON(w, 400, map[string]interface{}{"success": false, "error": "path traversal detected"})
+			return
+		}
+	}
+
+	info, err := os.Stat(absTarget)
+	if err != nil {
+		respondJSON(w, 404, map[string]interface{}{"success": false, "error": "path not found"})
+		return
+	}
+	if !info.IsDir() {
+		respondJSON(w, 400, map[string]interface{}{"success": false, "error": "path is not a directory"})
+		return
+	}
+
+	entries, err := os.ReadDir(absTarget)
+	if err != nil {
+		respondJSON(w, 500, map[string]interface{}{"success": false, "error": "failed to read directory"})
+		return
+	}
+
+	type fileNode struct {
+		Name string `json:"name"`
+		Path string `json:"path"` // relative to repo root
+		Type string `json:"type"` // "file" or "directory"
+		Size int64  `json:"size,omitempty"`
+	}
+	var nodes []fileNode
+	for _, entry := range entries {
+		if entry.Name() == ".git" {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil {
+			continue
+		}
+		nodeType := "file"
+		if entry.IsDir() {
+			nodeType = "directory"
+		}
+		relPath := filepath.Join(browsePath, entry.Name())
+		nodes = append(nodes, fileNode{
+			Name: entry.Name(),
+			Path: relPath,
+			Type: nodeType,
+			Size: info.Size(),
+		})
+	}
+	if nodes == nil {
+		nodes = []fileNode{}
+	}
+
+	respondJSON(w, 200, map[string]interface{}{
+		"success": true,
+		"path":    browsePath,
+		"files":   nodes,
+	})
 }
 
 // ─────────────────────────────────────────────
@@ -674,7 +817,16 @@ func buildCredentialEnv(cred *gitCredential) []string {
 		}
 	}
 	if cred.AuthType == "ssh" && cred.SSHKey != "" {
-		sshCmd := fmt.Sprintf("ssh -i %s -o StrictHostKeyChecking=accept-new", cred.SSHKey)
+		// Write SSH key text from DB to a temp file for this git operation.
+		// The temp file is cleaned up by the deferred cleanupAskpass() call in the caller.
+		keyFile, err := os.CreateTemp("", ".dplaneos-sshkey-*")
+		if err != nil {
+			return nil
+		}
+		keyFile.Write([]byte(cred.SSHKey))
+		keyFile.Chmod(0600)
+		keyFile.Close()
+		sshCmd := fmt.Sprintf("ssh -i %s -o StrictHostKeyChecking=accept-new", keyFile.Name())
 		return []string{"GIT_SSH_COMMAND=" + sshCmd}
 	}
 	return nil

@@ -1,16 +1,16 @@
-name: Release
+name: D-PlaneOS Release
 
+# Trigger only on version tag push — prevents double-trigger from GitHub
+# auto-creating a release when a tag is pushed.
 on:
   push:
     tags:
-      - "v*"
+      - 'v*'
 
 jobs:
   release:
-    name: Build + Package + Release
+    name: Build & Publish Release
     runs-on: ubuntu-22.04
-    permissions:
-      contents: write
 
     steps:
       - name: Checkout
@@ -18,12 +18,28 @@ jobs:
 
       - name: Check for Syncthing conflict files
         run: |
-          CONFLICTS=$(find . -name "*.sync-conflict-*.go" 2>/dev/null)
+          CONFLICTS=$(find . -name '.sync-conflict-*.go' 2>/dev/null | head -20 || true)
           if [ -n "$CONFLICTS" ]; then
-            echo "ERROR: Syncthing conflict files found in release commit:"
+            echo "ERROR: Syncthing conflict files found — would cause duplicate symbol build failures:"
             echo "$CONFLICTS"
             exit 1
           fi
+          echo "No Syncthing conflict files found."
+
+      - name: Extract version from tag
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          echo "Building release v$VERSION"
+
+      - name: Verify VERSION file matches tag
+        run: |
+          FILE_VERSION="$(cat VERSION | tr -d '[:space:]')"
+          if [ "$FILE_VERSION" != "$VERSION" ]; then
+            echo "ERROR: VERSION file ($FILE_VERSION) does not match tag ($VERSION)"
+            exit 1
+          fi
+          echo "Version match: $VERSION"
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -34,76 +50,90 @@ jobs:
       - name: Install build dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y gcc libc6-dev
+          sudo apt-get install -y gcc libc6-dev sqlite3
 
-      - name: Verify vendor consistency
+      - name: Vendor dependencies
         working-directory: daemon
         run: |
-          go mod verify
+          go mod tidy
           go mod vendor
-          git diff --exit-code vendor/ go.sum || {
-            echo "ERROR: vendor or go.sum is out of sync with go.mod"
-            echo "Run: cd daemon && go mod tidy && go mod vendor"
-            exit 1
-          }
 
-      - name: Build daemon
+      - name: go vet
+        working-directory: daemon
+        run: go vet -mod=vendor ./...
+
+      - name: Pre-create build directory
+        run: mkdir -p build
+
+      - name: Build daemon (amd64)
         working-directory: daemon
         run: |
-          VERSION="${GITHUB_REF_NAME}"
-          mkdir -p ../build
           CGO_ENABLED=1 go build \
+            -mod=vendor \
             -tags sqlite_fts5 \
             -ldflags="-s -w -X main.Version=${VERSION}" \
-            -o ../build/dplaned \
+            -o ../build/dplaned-linux-amd64 \
             ./cmd/dplaned/
-          echo "Built: $(file ../build/dplaned)"
+          echo "Binary size: $(du -h ../build/dplaned-linux-amd64 | cut -f1)"
 
-      - name: Package release tarball
+      - name: Smoke test binary
         run: |
-          VERSION="${GITHUB_REF_NAME}"
-          DIRNAME="dplaneos-${VERSION}"
-          TARBALL="${DIRNAME}.tar.gz"
-          mkdir -p "/tmp/${DIRNAME}"
-          rsync -a \
+          SMOKE_DB=$(mktemp /tmp/smoke-XXXXX.db)
+          ./build/dplaned-linux-amd64 -db "$SMOKE_DB" -listen 127.0.0.1:19876 &
+          PID=$!
+          for i in $(seq 1 15); do
+            curl -sf http://127.0.0.1:19876/health | grep -q '"ok"' && break
+            sleep 1
+          done
+          curl -sf http://127.0.0.1:19876/health | grep -q '"ok"' || (kill $PID; echo "Health check failed"; exit 1)
+          kill $PID
+          rm -f "$SMOKE_DB" "${SMOKE_DB}.backup" "${SMOKE_DB}-wal" "${SMOKE_DB}-shm"
+          echo "Smoke test passed"
+
+      - name: Extract release notes
+        run: |
+          python3 scripts/extract-release-notes.py "$VERSION" CHANGELOG.md > /tmp/release-notes.md
+          echo "Release notes extracted"
+          head -5 /tmp/release-notes.md
+
+      - name: Package release tarballs
+        run: |
+          TARBALL="dplaneos-v${VERSION}-linux-amd64.tar.gz"
+
+          # Copy binary into build/ for packaging
+          cp build/dplaned-linux-amd64 build/dplaned
+
+          tar czf "$TARBALL" \
+            --transform="s|^|dplaneos-v${VERSION}/|" \
+            --exclude='*.bak' \
+            --exclude='.sync-conflict-*' \
+            --exclude='daemon/vendor' \
+            --exclude='release' \
             --exclude='.git' \
             --exclude='.github' \
-            --exclude='*.tar.gz' \
-            --exclude='*.sync-conflict-*' \
-            --exclude='legacy/' \
-            --exclude='PROJECT-ASSESSMENT.md' \
-            ./ "/tmp/${DIRNAME}/"
-          tar -czf "/tmp/${TARBALL}" -C /tmp "${DIRNAME}"
-          echo "TARBALL=/tmp/${TARBALL}" >> $GITHUB_ENV
-          echo "VERSION=${VERSION}"      >> $GITHUB_ENV
-          echo "Tarball size: $(du -sh /tmp/${TARBALL} | cut -f1)"
+            app/ build/dplaned daemon/ scripts/ systemd/ nixos/ udev/ zed/ \
+            config/ install.sh get.sh Makefile VERSION LICENSE README.md \
+            CHANGELOG.md INSTALLATION-GUIDE.md ADMIN-GUIDE.md
+
+          echo "TARBALL=$TARBALL" >> $GITHUB_ENV
+          echo "Tarball: $(du -h $TARBALL | cut -f1)"
 
       - name: Generate SHA256 checksum
         run: |
-          sha256sum "${TARBALL}" > "${TARBALL}.sha256"
+          sha256sum "$TARBALL" > "${TARBALL}.sha256"
+          echo "Checksum:"
           cat "${TARBALL}.sha256"
-          echo "CHECKSUM=${TARBALL}.sha256" >> $GITHUB_ENV
 
-      - name: Extract release notes from CHANGELOG.md
-        run: python3 .github/workflows/extract-release-notes.py
-
-      - name: Set release title
-        id: title
-        run: |
-          if [ "${{ github.event_name }}" = "release" ]; then
-            echo "value=${{ github.event.release.name }}" >> $GITHUB_OUTPUT
-          else
-            echo "value=D-PlaneOS ${{ github.ref_name }}" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Create GitHub Release
+      - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
-          name: ${{ steps.title.outputs.value }}
+          name: D-PlaneOS v${{ env.VERSION }}
           body_path: /tmp/release-notes.md
           files: |
             ${{ env.TARBALL }}
-            ${{ env.CHECKSUM }}
+            ${{ env.TARBALL }}.sha256
           draft: false
-          prerelease: ${{ contains(github.ref_name, '-rc') || contains(github.ref_name, '-beta') || contains(github.ref_name, '-alpha') }}
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

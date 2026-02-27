@@ -1,36 +1,36 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<style>html{background:var(--bg)}</style>
+<style>html{background:#080c14}</style>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Git Sync — D-PlaneOS</title>
-<link rel="stylesheet" href="/assets/css/design-tokens.css?v=3.3.0">
-<link rel="stylesheet" href="/assets/css/m3-tokens.css?v=3.3.0">
-<link rel="stylesheet" href="/assets/css/m3-components.css?v=3.3.0">
-<link rel="stylesheet" href="/assets/css/m3-icons.css?v=3.3.0">
-<link rel="stylesheet" href="/assets/css/enhanced-ui.css?v=3.3.0">
-<link rel="stylesheet" href="/assets/css/material-symbols-local.css?v=3.3.0">
-<link rel="stylesheet" href="/assets/css/ui-components.css?v=3.3.0">
-<link rel="stylesheet" href="/assets/css/ui-consistency.css?v=3.3.0">
-<link rel="stylesheet" href="/assets/css/ui-polish.css?v=3.3.0">
-<script src="/assets/js/core.js?v=3.3.0"></script>
-<script src="/assets/js/nav-flyout.js?v=3.3.0"></script>
-<script src="/assets/js/enhanced-ui.js?v=3.3.0"></script>
-<script src="/assets/js/connection-monitor.js?v=3.3.0"></script>
-<script src="/assets/js/daemon-api.js?v=3.3.0"></script>
+<link rel="stylesheet" href="/assets/css/design-tokens.css">
+<link rel="stylesheet" href="/assets/css/m3-tokens.css">
+<link rel="stylesheet" href="/assets/css/m3-components.css">
+<link rel="stylesheet" href="/assets/css/m3-icons.css">
+<link rel="stylesheet" href="/assets/css/enhanced-ui.css">
+<link rel="stylesheet" href="/assets/css/material-symbols-local.css">
+<link rel="stylesheet" href="/assets/css/ui-components.css">
+<link rel="stylesheet" href="/assets/css/ui-consistency.css">
+<link rel="stylesheet" href="/assets/css/ui-polish.css">
+<script src="/assets/js/core.js"></script>
+<script src="/assets/js/nav-flyout.js"></script>
+<script src="/assets/js/enhanced-ui.js"></script>
+<script src="/assets/js/connection-monitor.js"></script>
+<script src="/assets/js/daemon-api.js"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-body{font-family:'JetBrains Mono',ui-monospace,'Cascadia Code',monospace;background:var(--bg);color:var(--text);min-height:100vh;overflow-x:hidden}
-:root{--accent:var(--info);--accent2:var(--primary);--green:var(--success);--amber:var(--warning);--red:var(--error);--surface:var(--surface);--border:var(--border);--text-muted:var(--text-dim)}
+body{font-family:'JetBrains Mono',ui-monospace,'Cascadia Code',monospace;background:#080c14;color:#e2e8f0;min-height:100vh;overflow-x:hidden}
+:root{--accent:#3b82f6;--accent2:#8b5cf6;--green:#22c55e;--amber:#f59e0b;--red:#ef4444;--surface:rgba(255,255,255,0.03);--border:rgba(255,255,255,0.07);--text-muted:rgba(255,255,255,0.4)}
 
 /* Nav */
 .nav{position:fixed;top:0;left:0;right:0;z-index:100;background:rgba(8,12,20,0.92);backdrop-filter:blur(16px);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 32px;height:64px;gap:24px}
-.nav-logo{font-size:16px;font-weight:700;color:var(--text);letter-spacing:-0.5px;cursor:pointer;font-family:'JetBrains Mono',monospace}
+.nav-logo{font-size:16px;font-weight:700;color:#fff;letter-spacing:-0.5px;cursor:pointer;font-family:'JetBrains Mono',monospace}
 .nav-logo span{color:var(--accent)}
 .nav-links{display:flex;gap:4px;margin-left:16px}
 .nav-link{font-size:13px;color:rgba(255,255,255,0.5);padding:6px 12px;border-radius:8px;cursor:pointer;text-decoration:none;transition:all 0.2s;font-family:inherit}
-.nav-link:hover,.nav-link.active{color:var(--text);background:rgba(255,255,255,0.07)}
+.nav-link:hover,.nav-link.active{color:#fff;background:rgba(255,255,255,0.07)}
 .nav-spacer{flex:1}
 .nav-user{display:flex;align-items:center;gap:12px;font-size:13px;color:rgba(255,255,255,0.5)}
 .btn-logout{background:none;border:1px solid var(--border);color:rgba(255,255,255,0.4);padding:6px 12px;border-radius:8px;cursor:pointer;font-size:12px;font-family:inherit;transition:all 0.2s}
@@ -46,8 +46,8 @@ body{font-family:'JetBrains Mono',ui-monospace,'Cascadia Code',monospace;backgro
 /* Tabs */
 .tabs{display:flex;gap:2px;background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:12px;padding:4px;margin-bottom:32px;width:fit-content}
 .tab{padding:8px 20px;border-radius:9px;cursor:pointer;font-size:13px;color:var(--text-muted);transition:all 0.2s;border:none;background:none;color:inherit;font-family:inherit;display:flex;align-items:center;gap:8px}
-.tab:hover{color:var(--text);background:rgba(255,255,255,0.05)}
-.tab.active{background:var(--accent);color:var(--text);font-weight:600}
+.tab:hover{color:#fff;background:rgba(255,255,255,0.05)}
+.tab.active{background:var(--accent);color:#fff;font-weight:600}
 .tab-badge{background:rgba(255,255,255,0.2);border-radius:4px;padding:1px 6px;font-size:11px}
 
 /* Cards */
@@ -93,9 +93,9 @@ body{font-family:'JetBrains Mono',ui-monospace,'Cascadia Code',monospace;backgro
 
 /* Buttons */
 .btn{display:inline-flex;align-items:center;gap:7px;padding:9px 18px;border-radius:9px;font-size:13px;font-weight:600;cursor:pointer;border:none;font-family:inherit;transition:all 0.2s;text-decoration:none;white-space:nowrap}
-.btn-primary{background:var(--accent);color:var(--text)}
-.btn-primary:hover{background:var(--info);box-shadow:0 4px 16px rgba(59,130,246,0.35)}
-.btn-secondary{background:rgba(255,255,255,0.07);color:var(--text);border:1px solid var(--border)}
+.btn-primary{background:var(--accent);color:#fff}
+.btn-primary:hover{background:#2563eb;box-shadow:0 4px 16px rgba(59,130,246,0.35)}
+.btn-secondary{background:rgba(255,255,255,0.07);color:#fff;border:1px solid var(--border)}
 .btn-secondary:hover{background:rgba(255,255,255,0.12)}
 .btn-success{background:rgba(34,197,94,0.15);color:var(--green);border:1px solid rgba(34,197,94,0.2)}
 .btn-success:hover{background:rgba(34,197,94,0.25)}
@@ -108,7 +108,7 @@ body{font-family:'JetBrains Mono',ui-monospace,'Cascadia Code',monospace;backgro
 
 /* Modal */
 .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.7);backdrop-filter:blur(4px);z-index:1000;display:flex;align-items:center;justify-content:center;padding:24px}
-.modal{background:var(--bg);border:1px solid var(--border);border-radius:20px;padding:32px;width:100%;max-width:600px;max-height:90vh;overflow-y:auto}
+.modal{background:#0f1623;border:1px solid var(--border);border-radius:20px;padding:32px;width:100%;max-width:600px;max-height:90vh;overflow-y:auto}
 .modal-title{font-size:20px;font-weight:700;letter-spacing:-0.5px;margin-bottom:24px;display:flex;align-items:center;gap:10px}
 .modal-title .material-symbols-rounded{color:var(--accent);font-size:22px}
 .modal-footer{display:flex;gap:12px;justify-content:flex-end;margin-top:28px;padding-top:24px;border-top:1px solid var(--border)}
@@ -116,7 +116,7 @@ body{font-family:'JetBrains Mono',ui-monospace,'Cascadia Code',monospace;backgro
 /* Forms */
 .form-group{margin-bottom:18px}
 .form-label{display:block;font-size:12px;font-weight:600;color:rgba(255,255,255,0.6);margin-bottom:7px;text-transform:uppercase;letter-spacing:0.5px}
-.form-input,.form-select,.form-textarea{width:100%;background:rgba(0,0,0,0.3);border:1px solid var(--border);border-radius:10px;padding:11px 14px;color:var(--text);font-size:14px;font-family:inherit;transition:border-color 0.2s;outline:none}
+.form-input,.form-select,.form-textarea{width:100%;background:rgba(0,0,0,0.3);border:1px solid var(--border);border-radius:10px;padding:11px 14px;color:#e2e8f0;font-size:14px;font-family:inherit;transition:border-color 0.2s;outline:none}
 .form-input:focus,.form-select:focus,.form-textarea:focus{border-color:var(--accent)}
 .form-textarea{min-height:100px;resize:vertical;font-family:'JetBrains Mono',monospace;font-size:13px}
 .form-hint{font-size:11px;color:var(--text-muted);margin-top:5px;line-height:1.5}
@@ -132,7 +132,7 @@ body{font-family:'JetBrains Mono',ui-monospace,'Cascadia Code',monospace;backgro
 .pat-wizard-title .material-symbols-rounded{font-size:16px}
 .pat-steps{display:flex;flex-direction:column;gap:6px}
 .pat-step{font-size:12px;color:rgba(255,255,255,0.6);display:flex;align-items:flex-start;gap:8px;line-height:1.5}
-.pat-step-num{width:18px;height:18px;background:var(--accent);border-radius:50%;font-size:11px;font-weight:700;color:var(--text);display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px}
+.pat-step-num{width:18px;height:18px;background:var(--accent);border-radius:50%;font-size:11px;font-weight:700;color:#fff;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px}
 .pat-step a{color:var(--accent);text-decoration:none}
 .pat-step a:hover{text-decoration:underline}
 .scope-badge{display:inline-flex;align-items:center;gap:3px;background:rgba(34,197,94,0.1);color:var(--green);border:1px solid rgba(34,197,94,0.2);border-radius:5px;padding:1px 7px;font-size:11px;font-weight:600;font-family:'JetBrains Mono',monospace}
@@ -149,7 +149,7 @@ body{font-family:'JetBrains Mono',ui-monospace,'Cascadia Code',monospace;backgro
 @keyframes spin{to{transform:rotate(360deg)}}
 
 /* YAML Preview */
-.yaml-block{background:rgba(0,0,0,0.4);border:1px solid var(--border);border-radius:10px;padding:14px;font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--success);white-space:pre;overflow-x:auto;max-height:280px;overflow-y:auto;line-height:1.5}
+.yaml-block{background:rgba(0,0,0,0.4);border:1px solid var(--border);border-radius:10px;padding:14px;font-family:'JetBrains Mono',monospace;font-size:12px;color:#4ade80;white-space:pre;overflow-x:auto;max-height:280px;overflow-y:auto;line-height:1.5}
 
 /* Notification dot */
 .status-dot{width:8px;height:8px;border-radius:50%;display:inline-block;flex-shrink:0}
@@ -162,6 +162,28 @@ body{font-family:'JetBrains Mono',ui-monospace,'Cascadia Code',monospace;backgro
 /* Divider */
 .section-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--text-muted);margin:24px 0 14px;display:flex;align-items:center;gap:8px}
 .section-label::after{content:'';flex:1;height:1px;background:var(--border)}
+
+/* Branch picker & file browser */
+.input-with-btn{display:flex;gap:8px;align-items:flex-start}
+.input-with-btn .form-input{flex:1}
+.branch-list{background:#0f1623;border:1px solid var(--border);border-radius:10px;margin-top:4px;max-height:180px;overflow-y:auto;display:none;position:relative;z-index:10}
+.branch-item{padding:9px 14px;font-size:13px;cursor:pointer;display:flex;align-items:center;gap:8px;transition:background 0.15s}
+.branch-item:hover{background:rgba(59,130,246,0.1)}
+.branch-item .material-symbols-rounded{font-size:14px;color:var(--text-muted)}
+.branch-item.is-default{color:var(--accent)}
+.filebrowser{background:#0f1623;border:1px solid var(--border);border-radius:12px;overflow:hidden;display:none;margin-top:6px}
+.fb-bar{display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid var(--border);font-size:12px;color:var(--text-muted)}
+.fb-bar .fb-path{flex:1;font-family:'JetBrains Mono',monospace;color:var(--accent);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fb-body{max-height:220px;overflow-y:auto}
+.fb-row{display:flex;align-items:center;gap:10px;padding:8px 14px;font-size:13px;cursor:pointer;transition:background 0.15s;border-bottom:1px solid rgba(255,255,255,0.03)}
+.fb-row:hover{background:rgba(255,255,255,0.04)}
+.fb-row .material-symbols-rounded{font-size:16px;flex-shrink:0}
+.fb-dir .material-symbols-rounded{color:#f59e0b}
+.fb-file .material-symbols-rounded{color:var(--text-muted)}
+.fb-compose .material-symbols-rounded{color:var(--green)}
+.fb-row .fb-name{flex:1}
+.fb-row .fb-size{font-size:11px;color:var(--text-muted)}
+.fb-loading{padding:20px;text-align:center;font-size:12px;color:var(--text-muted);display:flex;align-items:center;justify-content:center;gap:8px}
 </style>
 </head>
 <body>
@@ -275,7 +297,13 @@ body{font-family:'JetBrains Mono',ui-monospace,'Cascadia Code',monospace;backgro
       </div>
       <div class="form-group">
         <label class="form-label">Branch</label>
-        <input type="text" class="form-input" id="repo-branch" value="main">
+        <div class="input-with-btn">
+          <input type="text" class="form-input" id="repo-branch" value="main" placeholder="main">
+          <button class="btn btn-secondary btn-sm" id="btn-branches" onclick="fetchBranches()" style="flex-shrink:0;height:38px" title="List remote branches">
+            <span class="material-symbols-rounded">call_split</span> Browse
+          </button>
+        </div>
+        <div class="branch-list" id="branch-dropdown"></div>
       </div>
     </div>
 
@@ -287,8 +315,25 @@ body{font-family:'JetBrains Mono',ui-monospace,'Cascadia Code',monospace;backgro
 
     <div class="form-group">
       <label class="form-label">Compose File Path <span style="font-weight:400;color:var(--text-muted)">(relative to repo root)</span></label>
-      <input type="text" class="form-input" id="repo-compose" value="docker-compose.yml">
-      <div class="form-hint">e.g. <code>stacks/nextcloud/compose.yml</code> — use the file browser icon in Arcane style</div>
+      <div class="input-with-btn">
+        <input type="text" class="form-input" id="repo-compose" value="docker-compose.yml">
+        <button class="btn btn-secondary btn-sm" id="btn-browse" onclick="openFileBrowser()" style="flex-shrink:0;height:38px" title="Browse cloned repo">
+          <span class="material-symbols-rounded">folder_open</span> Browse
+        </button>
+      </div>
+      <div class="form-hint" id="compose-hint">e.g. <code>stacks/nextcloud/compose.yml</code> — pull the repo first to enable file browsing</div>
+      <div class="filebrowser" id="filebrowser">
+        <div class="fb-bar">
+          <button class="btn btn-secondary btn-sm btn-icon" onclick="fbUp()" title="Up a level">
+            <span class="material-symbols-rounded" style="font-size:14px">arrow_upward</span>
+          </button>
+          <span class="fb-path" id="fb-path">/</span>
+          <button class="btn btn-secondary btn-sm btn-icon" onclick="closeFb()" title="Close">
+            <span class="material-symbols-rounded" style="font-size:14px">close</span>
+          </button>
+        </div>
+        <div class="fb-body" id="fb-body"></div>
+      </div>
     </div>
 
     <div class="form-group">
@@ -455,7 +500,7 @@ body{font-family:'JetBrains Mono',ui-monospace,'Cascadia Code',monospace;backgro
   </div>
 </div>
 
-<script src="/assets/js/nav-shared.js?v=3.3.0"></script>
+<script src="/assets/js/nav-shared.js"></script>
 <script>
 // ── State ──────────────────────────────────────────────────────
 let repos = [], credentials = [];
@@ -637,6 +682,9 @@ function openAddRepoModal() {
   document.getElementById('repo-commit-name').value = 'D-PlaneOS';
   document.getElementById('repo-commit-email').value = 'dplaneos@localhost';
   document.getElementById('interval-group').style.display = 'none';
+  document.getElementById('branch-dropdown').style.display = 'none';
+  document.getElementById('filebrowser').style.display = 'none';
+  document.getElementById('compose-hint').innerHTML = 'e.g. <code>stacks/nextcloud/compose.yml</code> — pull the repo first to enable file browsing';
   populateCredSelect(null);
   document.getElementById('modal-repo').style.display = 'flex';
 }
@@ -655,6 +703,11 @@ function editRepo(id) {
   document.getElementById('repo-commit-name').value = repo.commit_name;
   document.getElementById('repo-commit-email').value = repo.commit_email;
   document.getElementById('interval-group').style.display = repo.auto_sync ? '' : 'none';
+  document.getElementById('branch-dropdown').style.display = 'none';
+  document.getElementById('filebrowser').style.display = 'none';
+  document.getElementById('compose-hint').innerHTML = repo.last_commit
+    ? 'Click Browse to pick a file from the cloned repo.'
+    : 'Pull the repo first to enable file browsing.';
   populateCredSelect(repo.cred_id);
   document.getElementById('modal-repo').style.display = 'flex';
 }
@@ -710,12 +763,10 @@ async function saveRepo() {
 
 async function deleteRepo(id, name) {
   if (!await ui.confirm('Delete Sync', 'Delete "' + name + '"? The local clone will not be removed.')) return;
-  try {
-    const r = await csrfFetch('/api/git-sync/repos/delete?id=' + id, {method:'POST'});
-    const d = await r.json();
-    if (d.success) { ui.toast('Sync deleted', 'success'); loadRepos(); }
-    else ui.toast(d.error || 'Failed to delete', 'error');
-  } catch(e) { ui.toast('Error: ' + e.message, 'error'); }
+  const r = await csrfFetch('/api/git-sync/repos/delete?id=' + id, {method:'POST'});
+  const d = await r.json();
+  if (d.success) { ui.toast('Sync deleted', 'success'); loadRepos(); }
+  else ui.toast(d.error || 'Failed', 'error');
 }
 
 // ── Repo Actions ───────────────────────────────────────────────
@@ -890,12 +941,10 @@ async function testCred() {
 
 async function deleteCred(id, name) {
   if (!await ui.confirm('Delete Credential', 'Delete "' + name + '"? Syncs using this credential will stop authenticating.')) return;
-  try {
-    const r = await csrfFetch('/api/git-sync/credentials/delete?id=' + id, {method:'POST'});
-    const d = await r.json();
-    if (d.success) { ui.toast('Credential deleted', 'success'); loadCredentials(); }
-    else ui.toast(d.error || 'Failed to delete', 'error');
-  } catch(e) { ui.toast('Error: ' + e.message, 'error'); }
+  const r = await csrfFetch('/api/git-sync/credentials/delete?id=' + id, {method:'POST'});
+  const d = await r.json();
+  if (d.success) { ui.toast('Credential deleted', 'success'); loadCredentials(); }
+  else ui.toast(d.error || 'Failed', 'error');
 }
 
 // ── Legacy Status ──────────────────────────────────────────────
@@ -954,6 +1003,113 @@ async function handleLogout() {
     if (r.ok) { window.location.href = '/login'; return; }
     ui.toast('Logout failed', 'error');
   } catch(e) { ui.toast('Logout failed', 'error'); }
+}
+
+// ── Branch picker ──────────────────────────────────────────────
+async function fetchBranches() {
+  const url = document.getElementById('repo-url').value.trim();
+  if (!url) { ui.toast('Enter a repository URL first', 'error'); return; }
+  const credId = document.getElementById('repo-cred').value;
+  const btn = document.getElementById('btn-branches');
+  const dd  = document.getElementById('branch-dropdown');
+  btn.disabled = true;
+  btn.innerHTML = '<div class="spinner" style="width:14px;height:14px"></div>';
+  dd.style.display = 'none';
+  dd.innerHTML = '';
+  try {
+    const qs = new URLSearchParams({url});
+    if (credId) qs.set('id', credId);
+    const r = await csrfFetch('/api/git-sync/credentials/branches?' + qs);
+    const d = await r.json();
+    if (!d.success || !d.branches?.length) { ui.toast(d.error || 'No branches found', 'error'); return; }
+    dd.innerHTML = d.branches.map(b =>
+      '<div class="branch-item' + (b.is_default ? ' is-default' : '') + '" onclick="selectBranch(\'' + esc(b.name) + '\')">' +
+      '<span class="material-symbols-rounded">call_split</span>' + esc(b.name) +
+      (b.is_default ? '<span style="font-size:11px;opacity:0.6;margin-left:auto">default</span>' : '') +
+      '</div>'
+    ).join('');
+    dd.style.display = '';
+  } catch(e) { ui.toast('Failed to fetch branches: ' + e.message, 'error'); }
+  finally {
+    btn.disabled = false;
+    btn.innerHTML = '<span class="material-symbols-rounded">call_split</span> Browse';
+  }
+}
+
+function selectBranch(name) {
+  document.getElementById('repo-branch').value = name;
+  document.getElementById('branch-dropdown').style.display = 'none';
+}
+
+document.addEventListener('click', function(e) {
+  const dd = document.getElementById('branch-dropdown');
+  if (dd && !dd.contains(e.target) && e.target.id !== 'repo-branch' && !e.target.closest('#btn-branches'))
+    dd.style.display = 'none';
+});
+
+// ── File browser ───────────────────────────────────────────────
+let fbRepoId = null, fbCurrentPath = '';
+
+function openFileBrowser() {
+  const editId = document.getElementById('repo-edit-id').value;
+  if (!editId) { ui.toast('Save the sync first, then pull — file browsing requires a local clone', 'info'); return; }
+  const repo = repos.find(r => r.id === parseInt(editId));
+  if (!repo || !repo.last_commit) { ui.toast('Pull the repo first to enable file browsing', 'info'); return; }
+  fbRepoId = editId;
+  fbCurrentPath = '';
+  document.getElementById('filebrowser').style.display = '';
+  fbLoad('');
+}
+
+async function fbLoad(path) {
+  const body = document.getElementById('fb-body');
+  document.getElementById('fb-path').textContent = '/' + path;
+  body.innerHTML = '<div class="fb-loading"><div class="spinner" style="width:14px;height:14px"></div> Loading…</div>';
+  try {
+    const qs = new URLSearchParams({id: fbRepoId, path});
+    const r = await csrfFetch('/api/git-sync/repos/browse?' + qs);
+    const d = await r.json();
+    if (!d.success) { body.innerHTML = '<div class="fb-loading" style="color:var(--red)">' + esc(d.error) + '</div>'; return; }
+    const files = d.files || [];
+    if (!files.length && !path) { body.innerHTML = '<div class="fb-loading">Empty repository</div>'; return; }
+    let rows = '';
+    if (path) {
+      const parent = path.includes('/') ? path.substring(0, path.lastIndexOf('/')) : '';
+      rows += '<div class="fb-row fb-dir" onclick="fbNav(\'' + parent + '\')" style="color:var(--accent2)"><span class="material-symbols-rounded">arrow_upward</span><span class="fb-name">..</span></div>';
+    }
+    const dirs = files.filter(f => f.type === 'directory');
+    const fls  = files.filter(f => f.type === 'file');
+    [...dirs, ...fls].forEach(function(f) {
+      const isDir     = f.type === 'directory';
+      const isCompose = !isDir && /^(docker-compose|compose)\.(ya?ml)$/i.test(f.name);
+      const cls  = isDir ? 'fb-dir' : (isCompose ? 'fb-file fb-compose' : 'fb-file');
+      const icon = isDir ? 'folder' : (isCompose ? 'deployed_code' : 'description');
+      const sz   = !isDir && f.size > 0 ? '<span class="fb-size">' + fmtSize(f.size) + '</span>' : '';
+      const act  = isDir
+        ? 'onclick="fbNav(\'' + esc(f.path) + '\')"'
+        : 'onclick="fbSelect(\'' + esc(f.path) + '\')" title="Use this file"';
+      rows += '<div class="fb-row ' + cls + '" ' + act + '><span class="material-symbols-rounded">' + icon + '</span><span class="fb-name">' + esc(f.name) + '</span>' + sz + '</div>';
+    });
+    body.innerHTML = rows;
+  } catch(e) { body.innerHTML = '<div class="fb-loading" style="color:var(--red)">Error: ' + esc(e.message) + '</div>'; }
+}
+
+function fbNav(path) { fbCurrentPath = path; fbLoad(path); }
+function fbUp() {
+  const parent = fbCurrentPath.includes('/') ? fbCurrentPath.substring(0, fbCurrentPath.lastIndexOf('/')) : '';
+  fbCurrentPath = parent;
+  fbLoad(parent);
+}
+function fbSelect(path) {
+  document.getElementById('repo-compose').value = path;
+  closeFb();
+  ui.toast('Compose path set: ' + path, 'success');
+}
+function closeFb() { document.getElementById('filebrowser').style.display = 'none'; }
+function fmtSize(b) {
+  if (b < 1024) return b + ' B';
+  if (b < 1048576) return (b/1024).toFixed(0) + ' KB';
+  return (b/1048576).toFixed(1) + ' MB';
 }
 </script>
 </body>

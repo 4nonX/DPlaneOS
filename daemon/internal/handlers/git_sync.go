@@ -469,7 +469,7 @@ func (h *GitSyncHandler) buildGitEnv(cfg *gitSyncConfig) []string {
 
 // cleanupAskpass removes any temporary askpass and token files
 func cleanupAskpass() {
-	for _, pattern := range []string{"/tmp/.dplaneos-askpass-*", "/tmp/.dplaneos-token-*"} {
+	for _, pattern := range []string{"/tmp/.dplaneos-askpass-*", "/tmp/.dplaneos-token-*", "/tmp/.dplaneos-sshkey-*"} {
 		matches, _ := filepath.Glob(pattern)
 		for _, m := range matches {
 			os.Remove(m)
