@@ -1,4 +1,4 @@
-# D-PlaneOS — ZFA-first NAS Operating System
+# D-PlaneOS — ZFS-first NAS Operating System
 
 ZFS-first NAS operating system for advanced homelab operators.
 Designed around immutability, safe container lifecycle management, and reproducible infrastructure.
