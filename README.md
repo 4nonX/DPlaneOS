@@ -1,6 +1,7 @@
-# D-PlaneOS — Enterprise NAS Operating System
+# D-PlaneOS — ZFA-first NAS Operating System
 
-Source-available NAS OS with Material Design 3 UI, ZFS storage, Docker containers, RBAC, full NAS protocol support, and LDAP / Active Directory integration.
+ZFS-first NAS operating system for advanced homelab operators.
+Designed around immutability, safe container lifecycle management, and reproducible infrastructure.
 
 ## Quick Start
 
