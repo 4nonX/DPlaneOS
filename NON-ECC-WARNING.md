@@ -50,7 +50,7 @@ From ZFS's perspective:
 
 ---
 
-## What D-PlaneOS v3.3.0 Can Do
+## What D-PlaneOS Can Do
 
 ### 1. Pool Heartbeat (✅ Implemented)
 - **What it does:** Detects when ZFS pool stalls
@@ -69,7 +69,7 @@ From ZFS's perspective:
 
 ---
 
-## What D-PlaneOS v3.3.0 Cannot Do
+## What D-PlaneOS Cannot Do
 
 ### ❌ Prevent Silent Data Corruption
 **Why:** Software cannot fix hardware problems.
@@ -156,7 +156,7 @@ or rsync to an external drive. D-PlaneOS's Replication page automates this.
 - ✅ Recovers from silent corruption IF backup was taken before the corrupt write
 - ❌ Does not prevent corruption
 
-### 4. Dashboard Advisory ✅ Implemented in v3.3.0
+### 4. Dashboard Advisory ✅ Implemented in
 The D-PlaneOS dashboard detects non-ECC RAM at startup via `dmidecode`
 and displays a persistent informational notice. This is **advisory only** —
 it never blocks operation or prevents pool creation.
@@ -173,7 +173,7 @@ apt install memtest86+
 
 ### 6. Monitor for Anomalies ✅ Implemented
 ```
-D-PlaneOS v3.3.0 monitors:
+D-PlaneOS monitors:
 - Pool health (ZFS heartbeat with write probe)
 - SMART drive temperatures and health
 - Inotify usage (exhaustion prevention)
@@ -276,7 +276,7 @@ D-PlaneOS v3.3.0 monitors:
 ### For Your Use Case (Home Media NAS)
 
 **Current Setup:**
-- ✅ D-PlaneOS v3.3.0 configured optimally
+- ✅ D-PlaneOS configured optimally
 - ✅ 4GB ARC limit (appropriate for 16GB Non-ECC)
 - ✅ RAIDZ2 (survives 2 disk failures)
 - ✅ All software mitigations in place
@@ -307,7 +307,7 @@ D-PlaneOS v3.3.0 monitors:
 
 ## Conclusion
 
-**D-PlaneOS v3.3.0 is production-ready** for what software can control:
+**D-PlaneOS is production-ready** for what software can control:
 - ✅ Pool management
 - ✅ Concurrent access
 - ✅ Monitoring

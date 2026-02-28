@@ -441,6 +441,16 @@ func (h *SystemHandler) handleNetworkPost(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	// DNS and VPN actions: return explicit not-implemented so frontends don't show false success
+	if strings.HasPrefix(action, "add_") || strings.HasPrefix(action, "remove_") {
+		respondErrorSimple(w, fmt.Sprintf("network action not implemented: %s", action), http.StatusNotImplemented)
+		return
+	}
+	if action == "vpn" {
+		respondErrorSimple(w, "network action not implemented: vpn", http.StatusNotImplemented)
+		return
+	}
+
 	respondErrorSimple(w, "Unsupported network action", http.StatusBadRequest)
 }
 

@@ -1,4 +1,4 @@
-# D-PlaneOS v3.2.1 — Showstopper Mitigation Guide
+# D-PlaneOS — Showstopper Mitigation Guide
 
 **Updated:** 2026-02-22  
 **Replaces:** 2026-02-07 edition (stale — referenced PHP layer that no longer exists)  
@@ -12,7 +12,7 @@ Each item is classified as one of:
 
 - ✅ **RESOLVED** — was a showstopper in an earlier version, no longer is
 - ⚠️ **PARTIAL** — real implementation exists but with documented limits
-- 🔴 **OPEN** — still a genuine limitation in v3.2.1
+- 🔴 **OPEN** — still a genuine limitation in
 
 ---
 
@@ -22,9 +22,9 @@ Each item is classified as one of:
 
 > `app/api/replication.php` line 121: `// Send snapshot (simulated)` — the GUI returns "success" but does nothing.
 
-### What Is Actually True in v3.2.1
+### What Is Actually True in
 
-`app/api/replication.php` **does not exist**. It was removed when the PHP layer was replaced by the Go daemon in v3.0.0.
+`app/api/replication.php` **does not exist**. It was removed when the PHP layer was replaced by the Go daemon in.
 
 The real implementation lives in `daemon/internal/handlers/replication_remote.go`. It performs:
 
@@ -57,9 +57,9 @@ Then point the GUI's SSH key path field at `/root/.ssh/replication_key`.
 
 ### What the Old Guide Said
 
-> v3.2.1 requires PostgreSQL (+100–200 MB RAM). Raspberry Pi users and low-RAM systems are affected.
+> requires PostgreSQL (+100–200 MB RAM). Raspberry Pi users and low-RAM systems are affected.
 
-### What Is Actually True in v3.2.1
+### What Is Actually True in
 
 **There is no PostgreSQL**. The database backend is SQLite with FTS5, built directly into the daemon binary at compile time (`-tags sqlite_fts5`). `install.sh` installs `sqlite3` and initialises the schema at `/var/lib/dplaneos/dplaneos.db`. No external database process runs.
 
@@ -79,7 +79,7 @@ The old guide's RAM figures (400 MB idle, 650 MB active) came from a different v
 
 > If a v4 upgrade fails the system can be "bricked". No rollback mechanism exists.
 
-### What Is Actually True in v3.2.1
+### What Is Actually True in
 
 `scripts/upgrade-with-rollback.sh` ships in the release tarball. It:
 
@@ -118,7 +118,7 @@ df -h /var/www/dplaneos
 
 > No clustering, no failover, no redundancy. HA requires fundamental redesign.
 
-### What Is Actually True in v3.2.1
+### What Is Actually True in
 
 A real active/standby coordination layer exists in `daemon/internal/ha/cluster.go`. It is not marketing — it runs in the daemon process and is tested in CI.
 
@@ -190,9 +190,9 @@ curl -s -X POST http://nas-b:9000/api/ha/peers/nas-a/role \
 **RTO (manual): 5–10 minutes**  
 **RPO: time since last successful replication run**
 
-### What HA Is NOT Suitable for in v3.2.1
+### What HA Is NOT Suitable for in
 
-| Requirement | v3.2.1 | Alternative |
+| Requirement | | Alternative |
 |---|---|---|
 | Automatic failover < 60 s | ❌ | TrueNAS SCALE Enterprise / Proxmox HA |
 | Split-brain safe auto-promotion | ❌ | Pacemaker + STONITH |
@@ -259,9 +259,9 @@ No specific roadmap date. Reproducible build verification (publishing expected h
 
 | Item | Status | Target |
 |---|---|---|
-| Replication GUI (real implementation) | ✅ Done as of v3.0.0 | — |
+| Replication GUI (real implementation) | ✅ Done as of | — |
 | SQLite-only (no PostgreSQL dependency) | ✅ Done | — |
-| Upgrade rollback script | ✅ Done as of v3.2.1 | — |
+| Upgrade rollback script | ✅ Done as of | — |
 | Active/standby coordination layer | ✅ Done (manual failover) | — |
 | Reproducible build verification / hash attestation | Planned | TBD |
 | Automated failover with fencing | Not planned | Scope exceeds single-node NAS design |

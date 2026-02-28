@@ -1,8 +1,6 @@
-# D-PlaneOS v3.3.0 Administrator Guide
+# D-PlaneOS Administrator Guide
 
-**Complete guide for system administration and user management**
-
-> Updated for v3.3.0: RBAC, LDAP/AD, ZFS encryption, injection-hardened, OOM-protected
+**Complete guide for system administration, storage management, sharing protocols, and identity management.**
 
 ---
 

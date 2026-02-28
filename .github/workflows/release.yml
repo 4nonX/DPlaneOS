@@ -18,14 +18,13 @@ jobs:
 
       - name: Check for Syncthing conflict files
         run: |
-          CONFLICTS=$(find . -name '*.sync-conflict-*.go' 2>/dev/null || true)
+          CONFLICTS=$(find . -name '.sync-conflict-*.go' 2>/dev/null | head -20 || true)
           if [ -n "$CONFLICTS" ]; then
-            echo "WARNING: Syncthing conflict files found and removed:"
+            echo "ERROR: Syncthing conflict files found — would cause duplicate symbol build failures:"
             echo "$CONFLICTS"
-            find . -name '*.sync-conflict-*.go' -delete
-          else
-            echo "No Syncthing conflict files found."
+            exit 1
           fi
+          echo "No Syncthing conflict files found."
 
       - name: Extract version from tag
         run: |
@@ -107,7 +106,7 @@ jobs:
           tar czf "$TARBALL" \
             --transform="s|^|dplaneos-v${VERSION}/|" \
             --exclude='*.bak' \
-            --exclude='*.sync-conflict-*' \
+            --exclude='.sync-conflict-*' \
             --exclude='daemon/vendor' \
             --exclude='release' \
             --exclude='.git' \

@@ -6,7 +6,7 @@ Thank you for helping make D-PlaneOS better. This document explains how to contr
 
 ```bash
 # Prerequisites: Go 1.22+, gcc (for SQLite CGO), make
-git clone https://github.com/YOUR_ORG/dplaneos
+git clone https://github.com/4nonX/D-PlaneOS
 cd dplaneos
 
 # Build the daemon

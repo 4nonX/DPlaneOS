@@ -71,7 +71,7 @@
 
 <div class="page-header">
 <h1 class="page-title">Network</h1>
-<p class="page-subtitle">Configuration • Remote access</p>
+<p class="page-subtitle">Configuration • VPN • Remote access</p>
 </div>
 <div id="network-interfaces-container">
   <div class="interface-card">
@@ -144,6 +144,36 @@ async function configureInterface(name) {
   }
 }
 
+async function configureVPN() {
+  const result = await ui.form('VPN Settings', [
+    { name: 'enabled', label: 'Enable VPN', type: 'checkbox', checked: true },
+    { name: 'key', label: 'Auth Key', type: 'text' }
+  ], 'Save');
+  
+  if (result) {
+    ui.showLoading('Saving VPN settings...');
+    
+    try {
+      const response = await csrfFetch('/api/network/apply', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'vpn', ...result })
+      });
+      
+      const data = await response.json();
+      ui.hideLoading();
+      
+      if (data.success) {
+        ui.toast('VPN settings saved', 'success');
+      } else {
+        ui.toast(data.error || 'Failed to save settings', 'error');
+      }
+    } catch (error) {
+      ui.hideLoading();
+      ui.toast('Network error: ' + error.message, 'error');
+    }
+  }
+}
 
 async function testNetwork() {
   ui.showLoading('Testing network connection...');
@@ -349,6 +379,36 @@ async function configureInterface(name) {
   }
 }
 
+async function configureVPN() {
+  const result = await ui.form('VPN Settings', [
+    { name: 'enabled', label: 'Enable VPN', type: 'checkbox', checked: true },
+    { name: 'key', label: 'Auth Key', type: 'text' }
+  ], 'Save');
+  
+  if (result) {
+    ui.showLoading('Saving VPN settings...');
+    
+    try {
+      const response = await csrfFetch('/api/network/apply', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'vpn', ...result })
+      });
+      
+      const data = await response.json();
+      ui.hideLoading();
+      
+      if (data.success) {
+        ui.toast('VPN settings saved', 'success');
+      } else {
+        ui.toast(data.error || 'Failed to save settings', 'error');
+      }
+    } catch (error) {
+      ui.hideLoading();
+      ui.toast('Network error: ' + error.message, 'error');
+    }
+  }
+}
 
 async function testNetwork() {
   ui.showLoading('Testing network connection...');

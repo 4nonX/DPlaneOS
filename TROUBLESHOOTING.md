@@ -1,4 +1,4 @@
-# D-PlaneOS v3.3.0 - Troubleshooting Guide
+# D-PlaneOS Troubleshooting Guide
 
 **Critical Issues & Solutions**
 
@@ -181,7 +181,7 @@ sudo systemctl restart dplaneos
 - Background: Docker trying to pull images from DockerHub but failing
 
 ### Root Cause
-System is behind strict firewall or requires HTTP proxy. Docker daemon cannot reach DockerHub. The GUI has no download progress indicator in v3.3.0.
+System is behind strict firewall or requires HTTP proxy. Docker daemon cannot reach DockerHub. The GUI has no download progress indicator — check the Docker daemon log for pull progress.
 
 ### Diagnosis
 ```bash
@@ -248,7 +248,6 @@ docker pull <image-name>
 
 This tests Docker Hub connectivity and warns if unreachable.
 
-### Fixed in v3.3.0
 - Download progress indicator in GUI
 - Better error messages
 - Retry logic with exponential backoff
@@ -259,7 +258,7 @@ This tests Docker Hub connectivity and warns if unreachable.
 ## 4️⃣ Service Worker Cache Mismatch (LOW)
 
 ### Symptom
-- Upgrade from v3.0.x to v3.3.0
+- Upgrade from an older version
 - Browser still open from a previous v3.x session
 - After upgrade: Page layout "tears apart"
 - Buttons don't work
@@ -330,7 +329,7 @@ Application → Service Workers
 nano /var/www/dplaneos/app/sw.js
 
 # Change CACHE_NAME
-const CACHE_NAME = 'dplaneos-v3.3.0';  // Increment version on each release
+const CACHE_NAME = 'dplaneos-' + VERSION; // Update VERSION on each release
 
 # Users will auto-update on next visit
 ```
@@ -340,7 +339,7 @@ const CACHE_NAME = 'dplaneos-v3.3.0';  // Increment version on each release
 ```
 ⚠️  CRITICAL: Browser Cache
 
-If you're upgrading from v3.0.x, v3.1.x, or v3.2.0:
+If you're upgrading from an older version:
 YOU MUST CLEAR YOUR BROWSER CACHE!
 
 Chrome:  Ctrl+Shift+R
@@ -350,7 +349,6 @@ Safari:  Cmd+Option+R
 Why? Service Worker cache mismatch will break the UI
 ```
 
-### Fixed in v3.3.0
 - Service Worker version check on page load
 - Auto-prompt user to refresh if cache mismatch detected
 - Graceful degradation without Service Worker

@@ -17,7 +17,7 @@ Security issues in D-PlaneOS are taken seriously. If you discover a vulnerabilit
 ### How to Report
 
 **Email:** Create a GitHub Security Advisory at:
-`https://github.com/YOUR_ORG/dplaneos/security/advisories/new`
+`https://github.com/4nonX/D-PlaneOS/security/advisories/new`
 
 Or email the maintainer directly (see profile). Please include:
 

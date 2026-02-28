@@ -1,6 +1,6 @@
 # D-PlaneOS Codebase — Architecture Diagrams
 
-Visual overview of the D-PlaneOS v3.2.1 codebase. Render this file in any Mermaid-compatible viewer (e.g. GitHub, VS Code with Mermaid extension, or [mermaid.live](https://mermaid.live)).
+Visual overview of the D-PlaneOS codebase. Render this file in any Mermaid-compatible viewer (e.g. GitHub, VS Code with Mermaid extension, or [mermaid.live](https://mermaid.live)).
 
 ---
 
@@ -270,4 +270,4 @@ sequenceDiagram
 
 ---
 
-*Generated for D-PlaneOS v3.2.1. Update this doc when adding major modules or routes.*
+*Generated for D-PlaneOS. Update this doc when adding major modules or routes.*

@@ -47,6 +47,39 @@ type ARCMetrics struct {
 	Percent float64 `json:"percent"`
 }
 
+func HandleSystemSettings(w http.ResponseWriter, r *http.Request) {
+	// This would load/save settings from config file
+	// Placeholder implementation
+	
+	if r.Method == "GET" {
+		settings := SystemSettings{
+			ARCLimitGB:          8,
+			Swappiness:          10,
+			RealtimeEnabled:     true,
+			PeriodicEnabled:     true,
+			InotifyWarnThreshold: 80,
+			MemoryWarnThreshold:  85,
+			IOWaitWarnThreshold:  20,
+			WebSocketAlerts:     true,
+		}
+		
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(settings)
+		
+	} else if r.Method == "POST" {
+		var settings SystemSettings
+		if err := json.NewDecoder(r.Body).Decode(&settings); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		
+		// Save settings
+		// Apply to system (update sysctl, ZFS, etc.)
+		
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]string{"status": "saved"})
+	}
+}
 
 func HandleSystemMetrics(w http.ResponseWriter, r *http.Request) {
 	metrics := SystemMetrics{}

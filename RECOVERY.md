@@ -1,4 +1,4 @@
-# D-PlaneOS v3.3.0 — Recovery & Administration Guide
+# D-PlaneOS — Recovery & Administration Guide
 
 ## Quick Reference
 
@@ -267,7 +267,7 @@ sudo sqlite3 /var/lib/dplaneos/dplaneos.db "
 sudo systemctl stop dplaneos
 
 # Install new version
-tar xzf dplaneos-v3.3.0.tar.gz
+tar xzf dplaneos.tar.gz
 cd dplaneos
 sudo make install
 

@@ -79,13 +79,9 @@ func runTargetcli(args ...string) (string, error) {
 // GetISCSITargets lists all iSCSI targets
 // GET /api/iscsi/targets
 func GetISCSITargets(w http.ResponseWriter, r *http.Request) {
-	if !iscsiInstalled() {
-		respondOK(w, map[string]interface{}{"success": true, "targets": []interface{}{}})
-		return
-	}
 	out, err := runTargetcli("/iscsi", "ls")
 	if err != nil {
-		respondOK(w, map[string]interface{}{"success": true, "targets": []interface{}{}, "error": "targetcli: " + err.Error()})
+		http.Error(w, "targetcli unavailable: "+err.Error(), http.StatusServiceUnavailable)
 		return
 	}
 
@@ -100,10 +96,6 @@ func GetISCSITargets(w http.ResponseWriter, r *http.Request) {
 // CreateISCSITarget creates a new iSCSI target with one LUN
 // POST /api/iscsi/targets
 func CreateISCSITarget(w http.ResponseWriter, r *http.Request) {
-	if !iscsiInstalled() {
-		respondErrorSimple(w, "targetcli not installed. Run: sudo apt install targetcli-fb", http.StatusServiceUnavailable)
-		return
-	}
 	var req ISCSICreateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid JSON", http.StatusBadRequest)
@@ -170,29 +162,19 @@ func CreateISCSITarget(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// DeleteISCSITarget removes an iSCSI target and its backing storage object
+// DeleteISCSITarget removes an iSCSI target
 // DELETE /api/iscsi/targets/{iqn}
 func DeleteISCSITarget(w http.ResponseWriter, r *http.Request) {
-	if !iscsiInstalled() {
-		respondErrorSimple(w, "targetcli not installed", http.StatusServiceUnavailable)
-		return
-	}
 	iqn := strings.TrimPrefix(r.URL.Path, "/api/iscsi/targets/")
 	if err := validateIQN(iqn); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	// Delete the target (detaches LUNs automatically)
 	if _, err := runTargetcli("/iscsi", "delete", iqn); err != nil {
 		http.Error(w, "failed to delete target: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-
-	// Delete the backing storage object to avoid orphaned backstores
-	storageName := sanitizeForTargetcli(iqn)
-	runTargetcli("/backstores/block", "delete", storageName) //nolint — best-effort cleanup
-
 	runTargetcli("/", "saveconfig") //nolint
 
 	respondOK(w, map[string]interface{}{
@@ -291,24 +273,9 @@ func DeleteISCSIACL(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// iscsiInstalled checks that targetcli is available
-func iscsiInstalled() bool {
-	_, err := executeCommandWithTimeout(TimeoutFast, "which", []string{"targetcli"})
-	return err == nil
-}
-
 // GetISCSIStatus returns overall iSCSI service status
 // GET /api/iscsi/status
 func GetISCSIStatus(w http.ResponseWriter, r *http.Request) {
-	if !iscsiInstalled() {
-		respondOK(w, map[string]interface{}{
-			"success":   true,
-			"installed": false,
-			"message":   "targetcli not installed. Run: sudo apt install targetcli-fb",
-		})
-		return
-	}
-
 	out, err := executeCommandWithTimeout(TimeoutFast, "/bin/systemctl", []string{"is-active", "target"})
 	active := err == nil && strings.TrimSpace(out) == "active"
 
@@ -319,7 +286,6 @@ func GetISCSIStatus(w http.ResponseWriter, r *http.Request) {
 
 	respondOK(w, map[string]interface{}{
 		"success":      true,
-		"installed":    true,
 		"service":      map[string]interface{}{"active": active},
 		"target_count": targetCount,
 	})
@@ -369,7 +335,7 @@ func sanitizeForTargetcli(iqn string) string {
 // GetISCSIZvolList returns ZFS zvols suitable for iSCSI backing
 // GET /api/iscsi/zvols
 func GetISCSIZvolList(w http.ResponseWriter, r *http.Request) {
-	out, err := executeCommandWithTimeout(TimeoutFast, "zfs",
+	out, err := executeCommandWithTimeout(TimeoutFast, "/run/current-system/sw/bin/zfs",
 		[]string{"list", "-t", "volume", "-H", "-o", "name,volsize"})
 	if err != nil {
 		respondOK(w, map[string]interface{}{"success": true, "zvols": []interface{}{}})

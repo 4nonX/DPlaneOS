@@ -756,7 +756,12 @@ else
     fail "Shares list: invalid JSON"
 fi
 
-# NFS management not implemented in v3.3.1 — /api/shares/nfs/* routes removed
+NFS_LIST=$(api GET /api/shares/nfs/list)
+if echo "$NFS_LIST" | python3 -c "import sys,json; json.load(sys.stdin)" 2>/dev/null; then
+    pass "NFS exports list: valid JSON"
+else
+    fail "NFS exports list: invalid JSON"
+fi
 
 # ════════════════════════════════════════════════════════════════
 section "PHASE 10: Git sync"

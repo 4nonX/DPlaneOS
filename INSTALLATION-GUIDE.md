@@ -1,6 +1,6 @@
-# D-PlaneOS v3.3.1 Installation Guide
+# D-PlaneOS Installation Guide
 
-**Complete enterprise NAS with RBAC**
+Complete enterprise NAS with RBAC, NFS, and iSCSI
 
 ---
 
@@ -30,7 +30,7 @@
   - Home use / media library: acceptable risk with regular scrubs and backups
   - Business / critical data / databases: not recommended
 
-  **D-PlaneOS v3.3.1 behaviour:**
+  **D-PlaneOS behaviour:**
   - Detects ECC presence via `dmidecode` on startup
   - Shows a persistent advisory notice in the dashboard if non-ECC RAM is found
   - **Never blocks installation or operation** — ECC is your choice, not ours
@@ -64,18 +64,18 @@
 
 ```bash
 # Download latest release
-wget https://github.com/4nonX/D-PlaneOS/releases/download/v3.3.1/dplaneos-v3.3.1.tar.gz
+wget https://github.com/4nonX/D-PlaneOS/releases/latest/download/dplaneos.tar.gz
 
 # Verify SHA256
-sha256sum dplaneos-v3.3.1.tar.gz
-# SHA256 published with each release on GitHub
+sha256sum dplaneos.tar.gz
+# SHA256 is published alongside each release on GitHub
 ```
 
 ### **Step 2: Extract**
 
 ```bash
-tar -xzf dplaneos-v3.3.1.tar.gz
-cd dplaneos-v3.3.1
+tar -xzf dplaneos.tar.gz
+cd dplaneos
 ```
 
 ### **Step 3: Run Installer**
@@ -84,25 +84,13 @@ cd dplaneos-v3.3.1
 sudo ./install.sh
 ```
 
-**What the installer does automatically:**
-1. Installs system packages: ZFS (`zfsutils-linux`), nginx, SQLite, git, smartmontools, hdparm, acl, ufw, openssl, iproute2
-2. Compiles the D-PlaneOS daemon from source (requires internet for Go compiler download if not present)
-3. Initialises the SQLite database with full RBAC schema
-4. Creates and enables systemd services
-5. Configures nginx as a reverse proxy
-6. Generates a first-run admin password
-
-**Optional services — install separately before or after D-PlaneOS:**
-
-| Feature | Install command | Notes |
-|---|---|---|
-| SMB/Windows shares | `sudo apt install samba` | D-PlaneOS configures and manages smb.conf |
-| NFS exports | `sudo apt install nfs-kernel-server` | D-PlaneOS writes /etc/exports and runs exportfs |
-| iSCSI targets | `sudo apt install targetcli-fb` | D-PlaneOS manages LIO targets via targetcli |
-| Docker containers | See [Docker install docs](https://docs.docker.com/engine/install/ubuntu/) | D-PlaneOS manages containers, stacks, images |
-| UPS monitoring | `sudo apt install nut` | D-PlaneOS reads UPS status via `upsc` |
-
-D-PlaneOS detects whether each of these is installed and enables the relevant UI automatically. If a service is not installed, a clear message explains what to install rather than failing silently.
+**What happens:**
+1. System dependencies installed (ZFS, Docker, SQLite, Go)
+2. D-PlaneOS daemon compiled
+3. Database initialized with RBAC schema
+4. systemd service created
+5. nginx reverse proxy configured
+6. First admin user setup prompt
 
 **Installation time:** ~5-10 minutes (depending on internet speed)
 
@@ -155,6 +143,28 @@ http://YOUR-IP/
 - Click "Go to Dashboard"
 
 **Total setup time: 3 minutes**
+
+---
+
+## Optional Protocols
+
+D-PlaneOS auto-detects these packages and fully manages them once installed. Install any you need after the initial setup:
+
+```bash
+# NFS exports (Linux clients)
+sudo apt install nfs-kernel-server
+
+# iSCSI block targets
+sudo apt install targetcli-fb
+
+# SMB / Windows shares + AFP / Time Machine
+sudo apt install samba
+
+# UPS monitoring
+sudo apt install nut
+```
+
+The UI will show a clear install prompt for any protocol that is not yet present.
 
 ---
 
@@ -235,11 +245,11 @@ sudo systemctl restart fail2ban
 
 ---
 
-## Upgrading from v3.2.0
+## Upgrading
 
-**Note:** v3.3.1 is backward compatible. Upgrade preserves all data and configuration.
+D-PlaneOS upgrades are backward-compatible. All data and configuration are preserved.
 
-**If you have data in v3.2.0:**
+If you have an existing pool:
 
 1. Backup your data:
    ```bash
@@ -247,7 +257,7 @@ sudo systemctl restart fail2ban
    zfs send tank@pre-upgrade > /backup/tank-pre-upgrade.zfs
    ```
 
-2. Fresh install v3.3.1
+2. Run the installer
 
 3. Import existing pool:
    ```bash
@@ -309,7 +319,7 @@ ls -lh /var/lib/dplaneos/dplaneos.db
 ## Uninstall
 
 ```bash
-cd dplaneos-v3.3.1
+cd dplaneos
 sudo ./uninstall.sh
 
 # Remove all data (WARNING: destroys everything)

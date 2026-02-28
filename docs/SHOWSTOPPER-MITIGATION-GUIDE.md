@@ -1,4 +1,4 @@
-# D-PlaneOS v3.3.0 - Showstopper Mitigation Guide
+# D-PlaneOS - Showstopper Mitigation Guide
 
 **Date:** 2026-02-07  
 **Purpose:** Honest assessment + workarounds for remaining limitations
@@ -7,13 +7,13 @@
 
 ## 🎯 EXECUTIVE SUMMARY
 
-D-PlaneOS v3.3.0 has **ZERO technical bugs** but **5 strategic limitations** that may be showstoppers for specific use cases.
+D-PlaneOS has **ZERO technical bugs** but **5 strategic limitations** that may be showstoppers for specific use cases.
 
 This guide provides:
 - Honest assessment of each limitation
 - Workarounds (where possible)
 - Migration timeline for fixes
-- Decision matrix: "Should I use v3.3.0?"
+- Decision matrix: "Should I use?"
 
 ---
 
@@ -92,7 +92,7 @@ echo "*/5 * * * * /usr/local/bin/dplaneos-watchdog.sh" | sudo crontab -
 
 ### Decision Matrix
 
-| Your Requirement | v3.3.0 Suitable? | Recommendation |
+| Your Requirement | Suitable? | Recommendation |
 |------------------|------------------|----------------|
 | Home use | ✅ YES | Use as-is |
 | Small business | ✅ YES | Use with monitoring |
@@ -260,11 +260,11 @@ sudo syncoid tank/important root@backup-nas:backup/important
 | Need replication NOW | Use syncoid (Option B) |
 | Comfortable with CLI | Manual script (Option A) |
 | Want GUI only | Planned feature (Option C) |
-| Testing/Development | v3.3.0 OK (just don't rely on it) |
+| Testing/Development | OK (just don't rely on it) |
 
 ### CRITICAL WARNING
 
-**DO NOT rely on v3.3.0 replication GUI for production!**
+**DO NOT rely on replication GUI for production!**
 
 If you:
 - Click "Execute Replication" in GUI
@@ -394,7 +394,7 @@ define('MATERIAL_ANIMATIONS', false);
 
 ### Decision Matrix
 
-| Your Hardware | v3.3.0 Suitable? | Configuration |
+| Your Hardware | Suitable? | Configuration |
 |---------------|------------------|---------------|
 | 4GB+ RAM | ✅ YES | Default (PostgreSQL) |
 | 2GB RAM | ⚠️ YES | SQLite + ZFS ARC limit |
@@ -432,7 +432,7 @@ define('MATERIAL_ANIMATIONS', false);
 
 ### Mitigation: Auto-Backup + Rollback Script
 
-**Included in v3.3.0:** `/var/www/dplaneos/scripts/upgrade-with-rollback.sh`
+**Included in:** `/var/www/dplaneos/scripts/upgrade-with-rollback.sh`
 
 **Features:**
 - ✅ Auto-backup before upgrade
@@ -685,7 +685,7 @@ fi
 
 ### Decision Matrix
 
-| Your Requirement | v3.3.0 Suitable? | Recommendation |
+| Your Requirement | Suitable? | Recommendation |
 |------------------|------------------|----------------|
 | Home/Lab | ✅ YES | Use as single node |
 | Small business | ⚠️ MAYBE | Manual failover (Option A) |
@@ -697,7 +697,7 @@ fi
 
 ## 📊 FINAL DECISION MATRIX
 
-### Should YOU use D-PlaneOS v3.3.0?
+### Should YOU use D-PlaneOS?
 
 | Use Case | Recommendation | Confidence |
 |----------|----------------|------------|
@@ -724,20 +724,20 @@ fi
 | #1 Binary Trust | Future (eBPF monitoring) | TBD | Planned |
 | #2 Replication | v4.1 (Full implementation) | Q2 2026 | **In Progress** |
 | #3 Resources | v4.1 (Optimizations) | Q2 2026 | Planned |
-| #4 Rollback | v3.3.0 (**Included!**) | NOW | ✅ **DONE** |
+| #4 Rollback | (**Included!**) | NOW | ✅ **DONE** |
 | #5 HA | Future Enterprise tier | TBD | Planned |
 
 ---
 
 ## ✅ CONCLUSION
 
-**D-PlaneOS v3.3.0 is production-ready for:**
+**D-PlaneOS is production-ready for:**
 - Home users ✅
 - Small offices ✅
 - Homelabs ✅
 - Docker enthusiasts ✅
 
-**D-PlaneOS v3.3.0 is NOT ready for:**
+**D-PlaneOS is NOT ready for:**
 - Enterprise HA ❌
 - GUI-only replication ❌
 - Ultra-low-end hardware ❌

@@ -6,43 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ---
 
-## v3.3.1 (2026-02-27) — **"Universal Compatibility"**
+## v3.3.1 (2026-02-25) — **"Universal Compatibility"**
 
 Upgrade from: v3.3.0, v3.2.1, or any v3.x — Drop-in upgrade via `sudo ./scripts/upgrade-with-rollback.sh`
-
-### ✅ NFS Export Management (new)
-
-Full NFS server management added. Requires `nfs-kernel-server` (install separately).
-
-- **`/api/nfs/status`** — reports whether nfs-kernel-server is installed and the service is active
-- **`/api/nfs/exports`** — full CRUD: list, create, update (enable/disable/edit), delete
-- **`/api/nfs/reload`** — regenerates `/etc/exports` from the database and calls `exportfs -ra`
-- **`nfs.html`** — dedicated management page with exports list, add-export form, quick-fill option presets, and inline security guidance
-- **`/etc/exports` generation** — D-PlaneOS writes the file directly; comments warn against manual editing
-- **Input validation** — path (absolute, exists, no `..`), clients (IP/subnet/hostname/wildcard), and options (allowlist regex) all validated before write
-- **Graceful degradation** — all endpoints return a clear "not installed" message rather than 500 when `nfs-kernel-server` is absent
-- **Navigation** — NFS Exports link added to Storage section of the flyout nav
-- **`install.sh`** — bootstraps `/etc/exports` and enables `nfs-kernel-server` if already installed
-
-### ✅ iSCSI Target Management (completed)
-
-iSCSI had a backend and routes but several critical bugs prevented real use. All fixed. Requires `targetcli-fb` (install separately).
-
-- **Hardcoded NixOS path fixed** — `GetISCSIZvolList` was calling `/run/current-system/sw/bin/zfs` (NixOS-only). Now uses plain `zfs` from PATH, works on all platforms
-- **Storage object leak fixed** — `DeleteISCSITarget` now cleans up the backing `/backstores/block` object after removing the target, preventing orphaned backstores accumulating in targetcli
-- **Graceful degradation** — `GetISCSIStatus`, `GetISCSITargets`, `CreateISCSITarget`, `DeleteISCSITarget` all check `which targetcli` first and return a structured "not installed" response rather than a raw error
-- **`install.sh`** — enables the `target` systemd service if targetcli is already installed
-- **INSTALLATION-GUIDE.md** — documents `targetcli-fb` as an optional dependency
-
-### 🔧 False Claims Removed
-
-- `shares.html` subtitle changed from `"SMB • NFS • AFP"` to `"SMB • AFP (via Samba fruit)"` (NFS now has its own page)
-- `README.md` Quick Start fixed — `sudo make install` replaced with `sudo ./install.sh` (Makefile doesn't set up nginx, database, or admin user)
-- `README.md` default credentials fixed — `admin/admin` never existed; installer generates a random password
-- `README.md` route count corrected from 171 → 256
-- `INSTALLATION-GUIDE.md` "NFS not included" note removed (NFS is now implemented)
-
-
 
 ### 🐛 Bug Fixes
 

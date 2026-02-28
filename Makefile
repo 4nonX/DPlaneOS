@@ -94,7 +94,7 @@ audit:
 	sudo tail -f /var/log/dplaneos/audit.log
 
 help:
-	@echo "D-PlaneOS v3.3.1 Build System"
+	@echo "D-PlaneOS v3.3.0 Build System"
 	@echo ""
 	@echo "Targets:"
 	@echo "  deps         - Resolve Go dependencies (needs internet)"

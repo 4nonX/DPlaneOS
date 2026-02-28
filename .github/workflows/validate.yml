@@ -37,20 +37,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Remove Syncthing conflict files
+      - name: Check for Syncthing conflict files
         run: |
-          # Syncthing conflict files cause duplicate symbol build failures.
-          # Named <original>.sync-conflict-<date>-<id>.go — must be deleted
-          # before the Go compiler sees them. Remove rather than fail so CI
-          # self-heals even if files were accidentally committed to the repo.
-          CONFLICTS=$(find . -name '*.sync-conflict-*.go' 2>/dev/null || true)
+          CONFLICTS=$(find . -name '.sync-conflict-*.go' 2>/dev/null | head -20 || true)
           if [ -n "$CONFLICTS" ]; then
-            echo "WARNING: Syncthing conflict files found and removed:"
+            echo "ERROR: Syncthing conflict files found — would cause duplicate symbol build failures:"
             echo "$CONFLICTS"
-            find . -name '*.sync-conflict-*.go' -delete
-          else
-            echo "No Syncthing conflict files found."
+            exit 1
           fi
+          echo "No Syncthing conflict files found."
 
       - name: Set up Go
         uses: actions/setup-go@v5

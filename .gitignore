@@ -30,14 +30,51 @@ dist/
 /etc/dplaneos/rclone.conf
 rclone.conf
 
+# ── Sync conflict files ───────────────────────────────────────────────────────
+# Syncthing
+*.sync-conflict-*
+.stfolder
+.stignore
+# Dropbox
+*.dropbox
+.dropbox
+.dropbox.attr
+# Nextcloud / ownCloud
+*_conflict-*
+# OneDrive
+*.~lock.*
+
+# ── macOS artifacts ───────────────────────────────────────────────────────────
+.DS_Store
+.DS_Store?
+._*
+.AppleDouble
+.LSOverride
+.Spotlight-V100
+.Trashes
+.fseventsd
+.TemporaryItems
+.VolumeIcon.icns
+
+# ── Windows artifacts ─────────────────────────────────────────────────────────
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+Desktop.ini
+$RECYCLE.BIN/
+*.lnk
+
+# ── Linux desktop artifacts ───────────────────────────────────────────────────
+.directory
+.Trash-*
+
 # ── Local dev / IDE ───────────────────────────────────────────────────────────
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
-.DS_Store
-Thumbs.db
 
 # ── Logs ─────────────────────────────────────────────────────────────────────
 *.log
@@ -60,8 +97,3 @@ id_rsa
 id_ed25519
 *.p12
 *.pfx
-
-# Syncthing conflict files — these cause duplicate symbol build failures in Go.
-# They are created when Syncthing detects a conflict between two versions of a file.
-# The correct fix is to resolve the conflict and delete the conflict copy.
-*.sync-conflict-*

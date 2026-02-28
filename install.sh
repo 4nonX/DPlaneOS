@@ -705,65 +705,6 @@ INSTALL_PHASE=11
 step "Phase 11/12: Services"
 # ────────────────────────────────────────────────────────────────────────────
 
-# Samba base config — only if samba is installed
-# D-PlaneOS writes share definitions to /var/lib/dplaneos/smb-shares.conf
-# A base /etc/samba/smb.conf must exist and include that file for Samba to pick it up.
-if command -v smbd &>/dev/null; then
-    SMB_CONF="/etc/samba/smb.conf"
-    DPLANEOS_SMB_CONF="/var/lib/dplaneos/smb-shares.conf"
-    # Create base smb.conf if it doesn't already include our generated file
-    if [ ! -f "$SMB_CONF" ] || ! grep -q "$DPLANEOS_SMB_CONF" "$SMB_CONF" 2>/dev/null; then
-        mkdir -p /etc/samba
-        cat > "$SMB_CONF" <<SMBCONF
-# D-PlaneOS managed smb.conf
-# Share definitions are written by dplaned to: $DPLANEOS_SMB_CONF
-# Do not add shares here manually — use the D-PlaneOS web UI.
-
-[global]
-   workgroup = WORKGROUP
-   server string = D-PlaneOS NAS
-   security = user
-   map to guest = Bad User
-   log file = /var/log/samba/log.%m
-   max log size = 1000
-
-# D-PlaneOS generated share definitions
-include = $DPLANEOS_SMB_CONF
-SMBCONF
-        log "Samba base config written (includes $DPLANEOS_SMB_CONF)"
-    else
-        log "Samba config already includes D-PlaneOS generated file"
-    fi
-    # Create the generated file if it doesn't exist yet (dplaned writes it on first share creation)
-    touch "$DPLANEOS_SMB_CONF" 2>/dev/null || true
-else
-    log "Samba not installed — SMB shares unavailable (install with: apt install samba)"
-fi
-
-# NFS — bootstrap /etc/exports if nfs-kernel-server is installed
-if command -v exportfs &>/dev/null; then
-    NFS_EXPORTS="/etc/exports"
-    if [ ! -f "$NFS_EXPORTS" ]; then
-        echo "# D-PlaneOS NFS exports — managed automatically, do not edit by hand" > "$NFS_EXPORTS"
-        log "NFS /etc/exports created"
-    else
-        log "NFS /etc/exports already exists"
-    fi
-    systemctl enable nfs-kernel-server 2>/dev/null || true
-    systemctl is-active nfs-kernel-server &>/dev/null || systemctl start nfs-kernel-server 2>/dev/null || true
-else
-    log "NFS server not installed — NFS exports unavailable (install with: apt install nfs-kernel-server)"
-fi
-
-# iSCSI — enable LIO target service if targetcli is installed
-if command -v targetcli &>/dev/null; then
-    systemctl enable target 2>/dev/null || true
-    systemctl is-active target &>/dev/null || systemctl start target 2>/dev/null || true
-    log "iSCSI target service enabled"
-else
-    log "targetcli not installed — iSCSI unavailable (install with: apt install targetcli-fb)"
-fi
-
 # ZFS mount gate
 if [ -f "${INSTALL_DIR}/systemd/dplaneos-zfs-mount-wait.service" ]; then
     cp "${INSTALL_DIR}/systemd/dplaneos-zfs-mount-wait.service" /etc/systemd/system/
