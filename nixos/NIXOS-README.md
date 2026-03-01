@@ -1,7 +1,7 @@
 # D-PlaneOS on NixOS — The Immutable NAS
 
 NixOS is a **first-class platform** for D-PlaneOS. The combination gives you
-something no other NAS can offer:
+a deeply coherent approach to NAS reliability:
 
 | Layer | Technology | What it means |
 |-------|-----------|--------------|
@@ -10,7 +10,7 @@ something no other NAS can offer:
 | Containers | GitOps | Docker stacks version-controlled in Git repos |
 
 Every piece of your NAS state is either **declarative** (Nix), **snapshotted** (ZFS),
-or **version-controlled** (Git). Nothing is ever lost.
+or **version-controlled** (Git). Recovering from a bad change is a one-command operation at every layer.
 
 ## Quick Start
 
