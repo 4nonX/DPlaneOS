@@ -1,6 +1,6 @@
 package handlers
 
-// system_health.go — D-PlaneOS v3.3.0
+// system_health.go — D-PlaneOS v3.3.2
 //
 // Provides /api/system/health which the frontend polls to surface:
 //   - Read-Only filesystem detection (SD card wear / unexpected mount)

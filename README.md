@@ -45,12 +45,12 @@ Creates a `VACUUM INTO` backup on startup and every 24 hours.
 - **Network:** Interface config, bonding, VLANs, routing, DNS
 - **Identity:** Users, groups, LDAP / Active Directory, 2FA, API tokens
 - **Security:** RBAC (4 roles, 34 permissions), audit log with HMAC integrity chain, firewall, TLS certificates
-- **System:** Settings, logs, UPS management, IPMI / sensors, hardware detection, cloud sync (rclone), HA cluster
+- **System:** Settings, logs, UPS management, IPMI / sensors, hardware detection, cloud sync (rclone), HA node monitoring
 - **GitOps:** Git-sync repositories, state reconciliation
 - **UI:** Material Design 3, dark theme, responsive, keyboard shortcuts, realtime metrics WebSocket
 
 ### Safe Container Updates
-`POST /api/docker/update` — ZFS snapshot → pull → restart → health check. On failure: instant rollback. No other NAS OS does this.
+`POST /api/docker/update` — ZFS snapshot → pull → restart → health check. On failure: instant rollback. Updates are atomic: either the new image runs cleanly, or the previous state is restored automatically.
 
 ### ZFS Time Machine
 Browse any snapshot like a folder. Find a deleted file from yesterday, restore just that one file — no full rollback needed.
@@ -65,11 +65,19 @@ Deep pool health monitoring: per-disk error tracking, checksum error detection, 
 On NixOS systems: validate `configuration.nix` before applying, list / rollback generations, dry-activate checks. Cannot brick your system.
 
 ### ZFS Replication (Remote)
-Native `zfs send | ssh remote zfs recv` — block-level replication that is 100× faster than rsync and preserves all snapshots on the remote.
+Native `zfs send | ssh remote zfs recv` — block-level replication that transfers only changed blocks and preserves all snapshots on the remote. Substantially faster than rsync for large datasets because only deltas are transferred after the initial seed.
 
 ---
 
-## Optional Protocols
+## HA Node Monitoring
+
+D-PlaneOS includes lightweight active/standby node monitoring: standby nodes heartbeat the active node and alert if it becomes unreachable. Manual promotion is available via API.
+
+**What this is:** A coordination layer to prevent accidental pool imports on standby nodes, with a clean manual failover workflow.
+
+**What this is not:** A replacement for Pacemaker/Corosync. There is no STONITH, no automatic failover, and no split-brain protection. Do not use for production HA without independent fencing at the infrastructure level.
+
+---
 
 Install separately; auto-detected and fully managed by D-PlaneOS once present.
 
@@ -91,7 +99,8 @@ Navigate to **Identity → Directory Service** to configure. Supports:
 
 - Active Directory, OpenLDAP, FreeIPA (one-click presets)
 - Group → Role mapping (auto-assign permissions)
-- Just-In-Time user provisioning
+- Full directory sync: fetches all matching users, upserts into local accounts with correct roles
+- Just-In-Time user provisioning on first login
 - Background sync with audit trail
 - TLS 1.2+ enforced
 
@@ -104,7 +113,7 @@ Navigate to **Identity → Directory Service** to configure. Supports:
 - **Database:** SQLite with WAL mode, `synchronous=FULL`, daily `.backup` (WAL-safe)
 - **Web Server:** nginx reverse proxy (TLS termination)
 - **Storage:** ZFS (native kernel module) + ZED hook for real-time disk failure alerts
-- **Security:** Input validation on all exec.Command (regex whitelist), RBAC (4 roles, 34 permissions), injection-hardened, OOM-protected (1 GB limit)
+- **Security:** Allowlist-based input validation on all exec.Command calls, RBAC (4 roles, 34 permissions), HMAC audit chain, OOM-protected (1 GB limit)
 - **NixOS:** Full support via Flake — entire NAS defined in a single `configuration.nix`
 
 ---

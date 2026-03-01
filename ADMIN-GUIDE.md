@@ -624,7 +624,7 @@ When enabled (default), users who authenticate via LDAP are automatically create
 
 ### Sync Behavior
 
-- **Automatic:** Runs at the configured interval (default: every hour)
+- **Full directory sync** (`POST /api/ldap/sync`): fetches all users matching the configured User Filter, then upserts them into local accounts with correct roles. Returns counts for users found, created, updated, and skipped, plus any per-user errors. Runs at the configured interval (default: every hour) and can be triggered manually from the UI.
 - **Manual:** Click "Sync Now" in Advanced Settings
 - **Sync Log:** View history in the collapsible Sync History section
 

@@ -52,14 +52,15 @@ D-PlaneOS is a NAS management layer running on top of NixOS or Debian/Ubuntu. It
 
 ### T1: Command Injection via API Parameters
 
-**Vector**: Attacker sends `{"pool":"tank; rm -rf /"}` to a ZFS endpoint.
+**Vector**: Attacker sends `{"pool":"tank; rm -rf /"}` to a ZFS endpoint, or manipulates replication parameters to inject shell commands.
 
 **Mitigation**:
 - All parameters validated by allowlist regex validators (`ValidatePoolName`, `ValidateDevicePath`, `ValidateDatasetName`, etc.) — rejects shell metacharacters with HTTP 400 before any command is executed
-- Go `exec.Command` passes arguments as a string array — no shell expansion, no `/bin/sh -c`
+- Go `exec.Command` passes arguments as a string array — no shell expansion, no `/bin/sh -c` for standard operations
 - networkdwriter (network persistence) writes files directly, no shell involved; `networkctl reload` is called with fixed args, no user input in the command line
+- **v3.3.2 fix:** The ZFS replication handler (`replication_remote.go`) previously constructed shell commands via `fmt.Sprintf` and executed them with `bash -c`. This has been replaced with `execPipedZFSSend()`, which connects `zfs send`, `pv` (optional), and `ssh recv` as discrete `exec.Command` processes linked via Go `io.Pipe`. No shell is invoked. Resume tokens are now validated with `isValidResumeToken()` before use as arguments.
 
-**Residual risk**: LOW. Requires a bug in Go's `exec.Command` internals or a gap in the allowlist validators.
+**Residual risk**: LOW. Requires a gap in the allowlist regex validators or a bug in Go's `exec.Command` internals. The former attack surface is reduced in v3.3.2 by eliminating the last `bash -c` call in the hot path.
 
 ---
 
@@ -205,6 +206,17 @@ D-PlaneOS is a NAS management layer running on top of NixOS or Debian/Ubuntu. It
 - `audit.key` is a 32-byte random key stored separately from the DB
 
 **Residual risk**: LOW if `audit.key` is protected. An attacker with both DB write access and the key can forge the chain — but these together represent full root compromise.
+
+### T13: HA Split-Brain / Data Corruption on Failover
+
+**Vector**: Network partition isolates the active node from standby. Operator promotes standby. Both nodes now consider themselves active and attempt to import the same ZFS pools.
+
+**Mitigation**:
+- Promotion is manual-only — no automatic failover, so split-brain cannot occur without deliberate operator action
+- The HA module's `cluster.go` documents these limitations explicitly
+- Recommended mitigation: implement infrastructure-level fencing (e.g. IPMI power-off of the old active node) *before* promoting standby
+
+**Residual risk**: HIGH if fencing is not in place. An operator who promotes a standby while the active node is partitioned-but-alive can cause pool imports on both nodes simultaneously, leading to ZFS pool corruption. This is an architectural limitation of the current HA implementation — it is not Pacemaker/Corosync. See `cluster.go` package documentation for full details.
 
 ---
 

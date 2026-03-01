@@ -6,6 +6,46 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ---
 
+## v3.3.2 (2026-03-01) — **"Runtime fixes"**
+
+Upgrade from: v3.3.1, v3.3.0, or any v3.x — Drop-in upgrade via `sudo ./scripts/upgrade-with-rollback.sh`
+
+### 🔒 Security: Eliminated `bash -c` Shell Construction in Replication
+
+- **`replication_remote.go` — shell injection vector removed:** Both the normal and resume-token replication paths previously built a complete shell pipeline string via `fmt.Sprintf` and executed it with `executeCommand("/bin/bash", []string{"-c", fullCmd})`. Despite upstream input validation, string-formatted shell commands are an inherently fragile security boundary. The entire replication pipeline (`zfs send` → optional `pv` → `ssh recv`) is now implemented as three discrete `exec.Command` processes connected via Go `io.Pipe` in a new `execPipedZFSSend()` helper. No shell is invoked at any point.
+
+- **Resume token validation added:** ZFS resume tokens are now validated with `isValidResumeToken()` (alphanumeric + base64 characters only, max 4096 bytes) before being used as a command argument. Previously the token was passed directly from the SSH remote into `fmt.Sprintf`.
+
+- **Error responses no longer leak command strings:** The `"command": fullCmd` field previously included in replication failure responses exposed the full constructed shell command to API callers. This field has been removed.
+
+### 🔒 Security: iSCSI Authentication Default Made Explicit
+
+- **`iscsi.go` — `authentication=0` is now an explicit opt-out, not a silent default:** Every new iSCSI target previously had CHAP authentication disabled silently. A new `require_chap` boolean field has been added to `ISCSICreateRequest`. When `require_chap: true`, the TPG is created with `authentication=1`. When `require_chap: false` (the current default for backward compatibility), `authentication=0` is still set but a `SECURITY NOTICE` log line is emitted, making the decision auditable. This is a **non-breaking change** — existing API callers that do not include `require_chap` behave identically to before.
+
+### 🐛 Bug: LDAP `TriggerSync` - Full Implementation
+
+- **`ldap.go` + `ldap/client.go` — sync now actually syncs:** `POST /api/ldap/sync` previously connected to the LDAP server, bound the service account, and immediately returned `{"success": true}` with 0 users found/created/updated. No directory data was read or written. This has been replaced with a full implementation:
+  - New `SyncAll()` method on the LDAP client performs a wildcard search against the configured `BaseDN` using the configured `UserFilter`, fetches all matching entries, and retrieves group memberships for each
+  - `TriggerSync` upserts each user into the `users` table (`source='ldap'`, empty `password_hash`) applying group→role mapping via the existing `GroupMappings` config
+  - Response now returns real counts: `users_found`, `users_created`, `users_updated`, `users_skipped`, and `errors` per user
+
+### 🐛 Bug: Version String Never Embedded in Binary
+
+- **`daemon/cmd/dplaned/main.go` — `Version` changed from `const` to `var`:** The `Version` identifier was declared as a `const`, but Go's `-ldflags "-X main.Version=..."` mechanism only works with package-level `var` declarations. As a result, all previous release builds reported `version: "dev"` at `/health` and in startup logs regardless of the version tag. Changed to `var` — version is now correctly embedded at build time and visible in the health endpoint.
+
+- **README:** Removed "No other NAS OS does this" from the container update description (snapshot+rollback is standard practice in the NAS space). Removed unsupported "100× faster" benchmark claim from replication description. Changed "injection-hardened" to "allowlist-based input validation" (more accurate). Added explicit HA limitations section. Fixed LDAP feature list to reflect actual implementation.
+- **INSTALLATION-GUIDE:** Removed "enterprise NAS" language.
+- **SECURITY.md:** Updated command execution description to reflect the `bash -c` removal. Added HA and LDAP known limitations to the Known Limitations section.
+- **THREAT-MODEL.md:** Updated T1 (Command Injection) to document the replication fix. Added T13 (HA Split-Brain) as a new threat entry with HIGH residual risk rating and mitigation guidance.
+- **ADMIN-GUIDE:** Updated LDAP sync documentation to accurately describe the full-directory sync behavior.
+- **HA `cluster.go`:** Package comment expanded with explicit NO-STONITH, NO-automatic-failover, NO-split-brain-protection, and NO-quorum warnings.
+
+### ✅ Compatibility
+
+Drop-in replacement for v3.3.1. No schema changes, no migrations, no configuration changes required. The `require_chap` field in iSCSI create requests defaults to `false` — existing API integrations are unaffected.
+
+---
+
 ## v3.3.1 (2026-02-25) — **"Universal Compatibility"**
 
 Upgrade from: v3.3.0, v3.2.1, or any v3.x — Drop-in upgrade via `sudo ./scripts/upgrade-with-rollback.sh`

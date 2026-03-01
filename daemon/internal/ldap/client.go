@@ -339,3 +339,84 @@ func ValidateConfig(config *Config) error {
 	
 	return nil
 }
+
+// SyncResult holds the outcome of a full directory sync.
+type SyncResult struct {
+	UsersFound   int
+	UsersCreated int
+	UsersUpdated int
+	UsersSkipped int
+	Errors       []string
+}
+
+// SyncAll fetches all users matching the configured UserFilter from the directory
+// and returns them so the handler can upsert them into the local database.
+// The client must already be connected and bound before calling SyncAll.
+func (c *Client) SyncAll() (*SyncResult, []*User, error) {
+	if c.conn == nil {
+		return nil, nil, fmt.Errorf("not connected to LDAP server")
+	}
+
+	// Replace {username} with wildcard for a full-directory search.
+	filter := strings.ReplaceAll(c.config.UserFilter, "{username}", "*")
+
+	attrs := []string{
+		c.config.UserIDAttribute,
+		c.config.UserNameAttribute,
+		c.config.UserEmailAttribute,
+		"cn",
+		"displayName",
+		"memberOf",
+	}
+
+	req := ldap.NewSearchRequest(
+		c.config.BaseDN,
+		ldap.ScopeWholeSubtree,
+		ldap.NeverDerefAliases,
+		0, // size limit — 0 means server decides
+		0, // time limit
+		false,
+		filter,
+		attrs,
+		nil,
+	)
+
+	result, err := c.conn.Search(req)
+	if err != nil {
+		return nil, nil, fmt.Errorf("LDAP search failed: %w", err)
+	}
+
+	res := &SyncResult{UsersFound: len(result.Entries)}
+	var users []*User
+
+	for _, entry := range result.Entries {
+		username := entry.GetAttributeValue(c.config.UserIDAttribute)
+		if username == "" {
+			res.UsersSkipped++
+			continue
+		}
+
+		u := &User{
+			DN:         entry.DN,
+			Username:   username,
+			Email:      entry.GetAttributeValue(c.config.UserEmailAttribute),
+			FullName:   entry.GetAttributeValue("displayName"),
+			Attributes: make(map[string][]string),
+		}
+		if u.FullName == "" {
+			u.FullName = entry.GetAttributeValue("cn")
+		}
+
+		// Fetch group memberships so role mapping can be applied.
+		groups, err := c.getUserGroups(entry.DN)
+		if err != nil {
+			res.Errors = append(res.Errors, fmt.Sprintf("group fetch for %s: %v", username, err))
+		} else {
+			u.Groups = groups
+		}
+
+		users = append(users, u)
+	}
+
+	return res, users, nil
+}

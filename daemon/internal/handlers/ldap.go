@@ -278,15 +278,90 @@ func (h *LDAPHandler) TriggerSync(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ms := time.Since(start).Milliseconds()
-	h.logSync("manual", true, 0, 0, 0, 0, "Sync completed successfully", int(ms))
-
-	if _, err := h.db.Exec(`UPDATE ldap_config SET last_sync_at=datetime('now'), last_sync_ok=1, last_sync_msg='Manual sync completed' WHERE id=1`); err != nil {
-		log.Printf("LDAP: failed to update sync status: %v", err)
+	// Actually fetch all users from the directory.
+	syncRes, users, err := client.SyncAll()
+	if err != nil {
+		h.logSync("manual", false, 0, 0, 0, 0, err.Error(), 0)
+		writeJSON(w, 200, ldapResp{Success: false, Error: "Sync search failed: " + err.Error()})
+		return
 	}
 
-	audit.Log(audit.AuditLog{Level: audit.LevelInfo, Command: "LDAP_SYNC_MANUAL", User: r.Header.Get("X-User"), Success: true})
-	writeJSON(w, 200, ldapResp{Success: true, Data: map[string]interface{}{"message": "Sync completed", "duration_ms": ms}})
+	// Upsert each user into the local users table (source='ldap').
+	// LDAP users get an empty password_hash — they authenticate via LDAP bind,
+	// never via local password. role defaults to 'user' unless a group mapping matches.
+	for _, u := range users {
+		roleIDs := client.MapGroupsToRoles(u.Groups)
+		role := cfg.DefaultRole
+		if role == "" {
+			role = "user"
+		}
+		// Use the first mapped role if available. Roles are stored as names in the users table.
+		if len(roleIDs) > 0 && len(cfg.GroupMappings) > 0 {
+			for _, gm := range cfg.GroupMappings {
+				if gm.RoleID == roleIDs[0] && gm.RoleName != "" {
+					role = gm.RoleName
+					break
+				}
+			}
+		}
+
+		var existing int
+		row := h.db.QueryRow(`SELECT COUNT(*) FROM users WHERE username=? AND source='ldap'`, u.Username)
+		if scanErr := row.Scan(&existing); scanErr != nil {
+			syncRes.Errors = append(syncRes.Errors, "db scan for "+u.Username+": "+scanErr.Error())
+			syncRes.UsersSkipped++
+			continue
+		}
+
+		if existing == 0 {
+			_, dbErr := h.db.Exec(
+				`INSERT INTO users (username, email, display_name, role, source, password_hash, updated_at)
+				 VALUES (?, ?, ?, ?, 'ldap', '', datetime('now'))`,
+				u.Username, u.Email, u.FullName, role,
+			)
+			if dbErr != nil {
+				syncRes.Errors = append(syncRes.Errors, "insert "+u.Username+": "+dbErr.Error())
+				syncRes.UsersSkipped++
+			} else {
+				syncRes.UsersCreated++
+			}
+		} else {
+			_, dbErr := h.db.Exec(
+				`UPDATE users SET email=?, display_name=?, role=?, updated_at=datetime('now')
+				 WHERE username=? AND source='ldap'`,
+				u.Email, u.FullName, role, u.Username,
+			)
+			if dbErr != nil {
+				syncRes.Errors = append(syncRes.Errors, "update "+u.Username+": "+dbErr.Error())
+				syncRes.UsersSkipped++
+			} else {
+				syncRes.UsersUpdated++
+			}
+		}
+	}
+
+	ms := int(time.Since(start).Milliseconds())
+	success := len(syncRes.Errors) == 0
+	msg := fmt.Sprintf("Sync completed: found=%d created=%d updated=%d skipped=%d",
+		syncRes.UsersFound, syncRes.UsersCreated, syncRes.UsersUpdated, syncRes.UsersSkipped)
+
+	h.logSync("manual", success, syncRes.UsersFound, syncRes.UsersCreated, syncRes.UsersUpdated, syncRes.UsersSkipped, msg, ms)
+
+	if _, dbErr := h.db.Exec(`UPDATE ldap_config SET last_sync_at=datetime('now'), last_sync_ok=?, last_sync_msg=? WHERE id=1`,
+		success, msg); dbErr != nil {
+		log.Printf("LDAP: failed to update sync status: %v", dbErr)
+	}
+
+	audit.Log(audit.AuditLog{Level: audit.LevelInfo, Command: "LDAP_SYNC_MANUAL", User: r.Header.Get("X-User"), Success: success})
+	writeJSON(w, 200, ldapResp{Success: success, Data: map[string]interface{}{
+		"message":       msg,
+		"duration_ms":   ms,
+		"users_found":   syncRes.UsersFound,
+		"users_created": syncRes.UsersCreated,
+		"users_updated": syncRes.UsersUpdated,
+		"users_skipped": syncRes.UsersSkipped,
+		"errors":        syncRes.Errors,
+	}})
 }
 
 // ============================================================

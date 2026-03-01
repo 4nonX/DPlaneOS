@@ -30,7 +30,7 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
-const (
+var (
 	Version = "dev" // overridden at build time via: -ldflags "-X main.Version=$(cat VERSION)"
 )
 

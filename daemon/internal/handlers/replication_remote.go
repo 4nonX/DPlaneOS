@@ -1,9 +1,12 @@
 package handlers
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os/exec"
 	"strings"
 	"time"
 )
@@ -94,17 +97,24 @@ func (h *ReplicationHandler) ReplicateToRemote(w http.ResponseWriter, r *http.Re
 	if req.Resume {
 		token := getResumeToken(sshArgs, sshTarget, remoteDataset)
 		if token != "" {
-			// Resume interrupted transfer
-			fullCmd := fmt.Sprintf(
-				"/usr/sbin/zfs send -t %s | /usr/bin/ssh %s %s /usr/sbin/zfs recv -s -F %s",
-				token,
-				strings.Join(sshArgs, " "),
-				sshTarget,
-				remoteDataset,
-			)
+			// Validate the resume token before using it in a command arg.
+			// Tokens are base64url-encoded opaque blobs from ZFS — only
+			// alphanumeric + +/= are valid; reject anything else.
+			if !isValidResumeToken(token) {
+				respondErrorSimple(w, "Invalid resume token format", http.StatusBadRequest)
+				return
+			}
 
+			// Resume interrupted transfer.
+			// Use two separate exec.Command calls connected via a pipe,
+			// not bash -c with string interpolation (prevents shell injection).
 			start := time.Now()
-			output, err := executeCommand("/bin/bash", []string{"-c", fullCmd})
+			output, err := execPipedZFSSend(
+				[]string{"send", "-t", token},
+				sshArgs, sshTarget,
+				[]string{"recv", "-s", "-F", remoteDataset},
+				nil, // no rate limit for resume
+			)
 			duration := time.Since(start)
 
 			if err != nil {
@@ -147,24 +157,21 @@ func (h *ReplicationHandler) ReplicateToRemote(w http.ResponseWriter, r *http.Re
 	}
 	sendArgs = append(sendArgs, req.Snapshot)
 
-	// Full command with -s on receive side for resume support
-	// Optional: pv -L rate for bandwidth throttling
-	pvPipe := ""
+	// Full command with -s on receive side for resume support.
+	// execPipedZFSSend connects zfs-send stdout → (optional pv) → ssh stdin
+	// using Go pipes — no shell, no string interpolation.
+	var rateLimitBytes []string
 	if req.RateLimit != "" && !strings.ContainsAny(req.RateLimit, ";|&$`\\\"' ") {
-		pvPipe = fmt.Sprintf(" | /usr/bin/pv -q -L %s", req.RateLimit)
+		rateLimitBytes = []string{req.RateLimit}
 	}
 
-	fullCmd := fmt.Sprintf(
-		"/usr/sbin/zfs %s%s | /usr/bin/ssh %s %s /usr/sbin/zfs recv -s -F %s",
-		strings.Join(sendArgs, " "),
-		pvPipe,
-		strings.Join(sshArgs, " "),
-		sshTarget,
-		remoteDataset,
-	)
-
 	start := time.Now()
-	output, err := executeCommand("/bin/bash", []string{"-c", fullCmd})
+	output, err := execPipedZFSSend(
+		sendArgs,
+		sshArgs, sshTarget,
+		[]string{"recv", "-s", "-F", remoteDataset},
+		rateLimitBytes,
+	)
 	duration := time.Since(start)
 
 	if err != nil {
@@ -172,7 +179,6 @@ func (h *ReplicationHandler) ReplicateToRemote(w http.ResponseWriter, r *http.Re
 			"success":     false,
 			"error":       fmt.Sprintf("Replication failed: %v", err),
 			"output":      output,
-			"command":     fullCmd,
 			"duration_ms": duration.Milliseconds(),
 			"hint":        "If transfer was interrupted, retry with resume=true to continue from where it stopped.",
 		})
@@ -256,9 +262,98 @@ func (h *ReplicationHandler) TestRemoteConnection(w http.ResponseWriter, r *http
 	})
 }
 
+
+// isValidResumeToken checks that a ZFS resume token contains only safe characters.
+// ZFS tokens are base64url-encoded opaque blobs. Reject anything with shell metacharacters.
+func isValidResumeToken(token string) bool {
+	if len(token) == 0 || len(token) > 4096 {
+		return false
+	}
+	for _, c := range token {
+		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+			(c >= '0' && c <= '9') || c == '+' || c == '/' || c == '=' || c == '-' || c == '_') {
+			return false
+		}
+	}
+	return true
+}
+
+// execPipedZFSSend performs: zfs send <sendArgs> [| pv -q -L rateLimit] | ssh <sshArgs> sshTarget zfs <recvArgs>
+//
+// All processes are connected with Go pipes — no shell, no string interpolation,
+// no bash -c. Each argument is a discrete element in argv, so shell metacharacter
+// injection is not possible.
+func execPipedZFSSend(
+	sendArgs []string,
+	sshArgs []string,
+	sshTarget string,
+	recvArgs []string,
+	rateLimit []string, // nil = no rate limit; []string{"50M"} = pv -q -L 50M
+) (string, error) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	sshFullArgs := append([]string{}, sshArgs...)
+	sshFullArgs = append(sshFullArgs, sshTarget, "/usr/sbin/zfs")
+	sshFullArgs = append(sshFullArgs, recvArgs...)
+
+	sender := exec.CommandContext(ctx, "/usr/sbin/zfs", sendArgs...)
+	sendOut, err := sender.StdoutPipe()
+	if err != nil {
+		return "", fmt.Errorf("send stdout pipe: %w", err)
+	}
+	var senderStderr bytes.Buffer
+	sender.Stderr = &senderStderr
+
+	receiver := exec.CommandContext(ctx, "/usr/bin/ssh", sshFullArgs...)
+	var recvStdout, recvStderr bytes.Buffer
+	receiver.Stdout = &recvStdout
+	receiver.Stderr = &recvStderr
+
+	if len(rateLimit) == 1 {
+		throttle := exec.CommandContext(ctx, "/usr/bin/pv", "-q", "-L", rateLimit[0])
+		throttleOut, err := throttle.StdoutPipe()
+		if err != nil {
+			return "", fmt.Errorf("pv stdout pipe: %w", err)
+		}
+		throttle.Stdin = sendOut
+		receiver.Stdin = throttleOut
+		if err := sender.Start(); err != nil {
+			return "", fmt.Errorf("start zfs send: %w", err)
+		}
+		if err := throttle.Start(); err != nil {
+			sender.Wait() //nolint
+			return "", fmt.Errorf("start pv: %w", err)
+		}
+		if err := receiver.Start(); err != nil {
+			sender.Wait()   //nolint
+			throttle.Wait() //nolint
+			return "", fmt.Errorf("start ssh recv: %w", err)
+		}
+		sender.Wait()   //nolint
+		throttle.Wait() //nolint
+	} else {
+		receiver.Stdin = sendOut
+		if err := sender.Start(); err != nil {
+			return "", fmt.Errorf("start zfs send: %w", err)
+		}
+		if err := receiver.Start(); err != nil {
+			sender.Wait() //nolint
+			return "", fmt.Errorf("start ssh recv: %w", err)
+		}
+		sender.Wait() //nolint
+	}
+
+	if err := receiver.Wait(); err != nil {
+		combined := strings.TrimSpace(recvStderr.String() + " " + senderStderr.String())
+		return combined, fmt.Errorf("replication failed: %w", err)
+	}
+	return recvStdout.String(), nil
+}
+
 // getResumeToken checks if the remote side has a resume token for an interrupted transfer
 // isValidSSHUser validates SSH usernames: alphanumeric, dot, dash, underscore only.
-// Prevents shell injection when RemoteUser is interpolated into bash -c commands.
+// Applied before RemoteUser is passed as an exec.Command argument.
 func isValidSSHUser(user string) bool {
 	if len(user) == 0 || len(user) > 64 {
 		return false

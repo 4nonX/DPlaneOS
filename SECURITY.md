@@ -52,13 +52,11 @@ D-PlaneOS is designed as an internal network appliance. **It is not designed to 
 - **2FA:** TOTP (RFC 6238) with ±1 window clock drift tolerance, bcrypt-hashed backup codes
 - **API Tokens:** SHA-256 hashed, prefixed `dpl_`, scope-limited (read/write/admin)
 - **RBAC:** 4 roles (viewer, operator, admin, system) enforced at handler level
-- **Command execution:** Whitelist-only via `internal/security/whitelist.go` — no shell interpolation
-- **Input validation:** Allowlist regexes on all user-supplied strings before syscall/exec
-- **XSS:** All HTML output escaped; `Content-Security-Policy` via nginx
-- **Transport:** nginx TLS termination recommended; see `nginx-dplaneos.conf`
+- **Command execution:** Allowlist-based validation via `internal/security/whitelist.go`; arguments are passed as separate slice elements to `exec.Command` (no shell). The replication path previously used `bash -c` with string interpolation — this was replaced in v3.3.2 with proper Go process piping (`execPipedZFSSend`)
 
 ## Known Limitations
 
+- **HA is node monitoring, not true HA:** The cluster module provides heartbeat detection and manual promotion. There is no STONITH, no automatic failover, and no split-brain protection. A network partition between nodes cannot be distinguished from a node failure without external fencing. Do not rely on automatic failover for critical data without additional infrastructure-level isolation.
 - **ZFS delegation** (`zfs allow`) is complex; review carefully before enabling
 - **rclone credentials** are stored in `/etc/dplaneos/rclone.conf` — restrict file permissions
 - **Docker socket** is accessible to the daemon — containers with host mounts can escalate

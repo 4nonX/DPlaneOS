@@ -1,6 +1,6 @@
 # D-PlaneOS Installation Guide
 
-Complete enterprise NAS with RBAC, NFS, and iSCSI
+ZFS-first NAS management system with RBAC, NFS, and iSCSI
 
 ---
 
@@ -358,7 +358,7 @@ After installation:
 
 ---
 
-**Installation complete! Your enterprise NAS is ready.**
+**Installation complete! D-PlaneOS is ready.**
 
 
 ---

@@ -1,12 +1,36 @@
 // Package ha provides cluster node registration and health monitoring for D-PlaneOS.
 //
-// Architecture: passive active/standby. One node holds ZFS pools ("active").
+// # Architecture
+//
+// Passive active/standby. One node holds ZFS pools ("active").
 // Standby nodes heartbeat the active node. If heartbeat fails, standby alerts
-// and can be manually (or auto-) promoted via the API.
+// and can be manually promoted via the API.
 //
 // This is NOT Pacemaker/Corosync — it is a lightweight coordination layer
 // that prevents accidental pool imports on standby nodes and provides a clean
 // manual failover workflow.
+//
+// # Known Limitations (read before deploying)
+//
+//   - NO STONITH / fencing: If the active node becomes partitioned but not dead,
+//     promoting a standby while the active still holds the ZFS pools WILL cause
+//     split-brain and data corruption. There is no automatic mechanism to power-off
+//     or isolate the old active node before promotion.
+//
+//   - NO automatic failover: Promotion is always manual (POST /api/ha/promote).
+//     The heartbeat loop detects failure and changes node state to "unreachable",
+//     but it never promotes a standby on its own.
+//
+//   - NO shared-storage arbitration: ZFS pools must be physically connected to
+//     only one node at a time, or accessed via iSCSI/NVMe-oF with SCSI reservations.
+//     This package does not enforce or coordinate storage exclusivity.
+//
+//   - NO quorum: A two-node cluster cannot distinguish "the other node died"
+//     from "the network between us failed". Always use a third node or a
+//     quorum device (e.g. a shared iSCSI disk) to break ties in production.
+//
+// For production HA with ZFS, consider Pacemaker + Corosync + DRBD or
+// a ZFS-native replication approach (e.g. scheduled zfs send with monitoring).
 package ha
 
 import (

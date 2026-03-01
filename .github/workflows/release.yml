@@ -85,10 +85,13 @@ jobs:
             curl -sf http://127.0.0.1:19876/health | grep -q '"ok"' && break
             sleep 1
           done
-          curl -sf http://127.0.0.1:19876/health | grep -q '"ok"' || (kill $PID; echo "Health check failed"; exit 1)
+          HEALTH=$(curl -sf http://127.0.0.1:19876/health)
+          echo "Health: $HEALTH"
+          echo "$HEALTH" | grep -q '"ok"' || (kill $PID; echo "Health check failed"; exit 1)
+          echo "$HEALTH" | grep -q "\"$VERSION\"" || (kill $PID; echo "Version mismatch in health endpoint: $HEALTH"; exit 1)
           kill $PID
           rm -f "$SMOKE_DB" "${SMOKE_DB}.backup" "${SMOKE_DB}-wal" "${SMOKE_DB}-shm"
-          echo "Smoke test passed"
+          echo "Smoke test passed — version $VERSION confirmed"
 
       - name: Extract release notes
         run: |
@@ -107,16 +110,24 @@ jobs:
             --transform="s|^|dplaneos-v${VERSION}/|" \
             --exclude='*.bak' \
             --exclude='.sync-conflict-*' \
-            --exclude='daemon/vendor' \
-            --exclude='release' \
             --exclude='.git' \
-            --exclude='.github' \
-            app/ build/dplaned daemon/ scripts/ systemd/ nixos/ udev/ zed/ \
-            config/ install.sh get.sh Makefile VERSION LICENSE README.md \
-            CHANGELOG.md INSTALLATION-GUIDE.md ADMIN-GUIDE.md
+            --exclude='legacy' \
+            app/ build/dplaned build/.gitkeep daemon/ scripts/ systemd/ nixos/ udev/ zed/ \
+            config/ docs/ \
+            .github/ .gitignore \
+            install.sh get.sh Makefile nginx-dplaneos.conf VERSION LICENSE \
+            README.md CHANGELOG.md \
+            ADMIN-GUIDE.md INSTALLATION-GUIDE.md SECURITY.md THREAT-MODEL.md \
+            TROUBLESHOOTING.md CONTRIBUTING.md DEPENDENCIES.md ERROR-REFERENCE.md \
+            HARDWARE-COMPATIBILITY.md NON-ECC-WARNING.md RECOVERY.md \
+            SHOWSTOPPER-MITIGATION-GUIDE.md \
+            RELEASE-NOTES-v3.2.0.md RELEASE-NOTES-v3.2.1.md \
+            RELEASE-NOTES-v3.3.0.md RELEASE-NOTES-v3.3.1.md \
+            RELEASE-NOTES-v3.3.2.md
 
           echo "TARBALL=$TARBALL" >> $GITHUB_ENV
           echo "Tarball: $(du -h $TARBALL | cut -f1)"
+          echo "File count: $(tar tzf $TARBALL | wc -l)"
 
       - name: Generate SHA256 checksum
         run: |

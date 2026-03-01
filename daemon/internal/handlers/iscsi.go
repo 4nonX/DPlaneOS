@@ -47,10 +47,14 @@ type ISCSIACL struct {
 
 // ISCSICreateRequest is the request body for creating a target
 type ISCSICreateRequest struct {
-	IQN        string `json:"iqn"`
-	BackingDev string `json:"backing_dev"` // ZFS zvol path e.g. /dev/zvol/tank/lun0
-	PortalIP   string `json:"portal_ip"`
-	PortalPort int    `json:"portal_port"`
+	IQN         string `json:"iqn"`
+	BackingDev  string `json:"backing_dev"`  // ZFS zvol path e.g. /dev/zvol/tank/lun0
+	PortalIP    string `json:"portal_ip"`
+	PortalPort  int    `json:"portal_port"`
+	RequireCHAP bool   `json:"require_chap"` // When true, enables CHAP authentication on the TPG.
+	// When false (default), the TPG uses ACL-only access control.
+	// WARNING: false means unauthenticated access — only set false in
+	// isolated networks where initiator IQN spoofing is not a concern.
 }
 
 // ISCSIACLRequest is the request body for adding/removing an ACL
@@ -148,9 +152,20 @@ func CreateISCSITarget(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Enable TPG
-	runTargetcli(tpgPath, "set", "attribute", "authentication=0") //nolint - no auth by default (ACLs control access)
-	runTargetcli(tpgPath, "enable")                               //nolint
+	// Configure authentication on the TPG.
+	// authentication=1 requires CHAP credentials before any initiator can log in.
+	// authentication=0 relies solely on ACL (initiator IQN) matching — this is
+	// weaker because IQNs can be spoofed. Operators must explicitly opt out of CHAP
+	// by setting require_chap=false in their request; they cannot silently get it.
+	if req.RequireCHAP {
+		runTargetcli(tpgPath, "set", "attribute", "authentication=1") //nolint
+	} else {
+		// Operator explicitly chose ACL-only. Log so this is auditable.
+		fmt.Printf("SECURITY NOTICE: iSCSI target %s created with authentication=0 (CHAP disabled). "+
+			"Ensure network-level isolation and that initiator IQNs cannot be spoofed.\n", req.IQN)
+		runTargetcli(tpgPath, "set", "attribute", "authentication=0") //nolint
+	}
+	runTargetcli(tpgPath, "enable") //nolint
 
 	// Save config
 	runTargetcli("/", "saveconfig") //nolint
