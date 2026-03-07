@@ -2,7 +2,7 @@
 
 > Your complete NAS defined in a single text file. Reproducible, versioned, rollback-safe.
 
-**License:** D-PlaneOS uses [PolyForm Shield 1.0.0](https://polyformproject.org/licenses/shield/1.0.0/).
+**License:** D-PlaneOS uses [GNU Affero General Public License v3.0 (AGPLv3)](https://www.gnu.org/licenses/agpl-3.0.html).
 Free to use and modify — see [NIXOS-README.md](NIXOS-README.md#a-note-on-licensing-and-nix-unfree) for
 how this works with Nix's unfree package handling (short version: it's handled automatically).
 

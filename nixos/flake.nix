@@ -108,9 +108,7 @@
           options   = "--delete-older-than 14d";
         };
 
-        # License allowlist
-        nixpkgs.config.allowUnfreePredicate = pkg:
-          builtins.elem (nixpkgs.lib.getName pkg) [ "dplaneos-daemon" ];
+        # License: AGPLv3 — OSI-approved, no allowUnfreePredicate needed.
       };
 
     in
@@ -169,7 +167,7 @@
           meta = with nixpkgs.lib; {
             description = "D-PlaneOS NAS daemon — static musl build";
             homepage    = "https://github.com/4nonX/D-PlaneOS";
-            license     = licenses.unfree;
+            license     = licenses.agpl3Only;
             platforms   = supportedSystems;
           };
         };
@@ -188,7 +186,7 @@
           ldflags = [ "-s" "-w" "-X" "main.Version=${dplaneosVersion}" ];
           meta = with nixpkgs.lib; {
             description = "D-PlaneOS NAS daemon — glibc dynamic build (dev only)";
-            license     = licenses.unfree;
+            license     = licenses.agpl3Only;
           };
         };
 

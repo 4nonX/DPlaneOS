@@ -29,13 +29,11 @@ NixOS is a Linux distribution where the **entire system is defined in a single t
 
 ## License
 
-D-PlaneOS is free to use on your own hardware. It's licensed under
-[PolyForm Shield 1.0.0](https://polyformproject.org/licenses/shield/1.0.0/) —
-you can use, modify, and share it, but you can't use it to build a competing
-commercial NAS product. Nix will classify it as "unfree" software; the
-D-PlaneOS flake handles this automatically. See
-[NIXOS-README.md](NIXOS-README.md#a-note-on-licensing-and-nix-unfree) if you
-run into issues.
+D-PlaneOS is licensed under the [GNU Affero General Public License v3.0 (AGPLv3)](https://www.gnu.org/licenses/agpl-3.0.html).
+You can use, modify, and distribute it freely. If you run a modified version
+as a network service, you must make your modified source available to users
+of that service. AGPLv3 is OSI-approved — NixOS treats it as free software
+and no special configuration is required.
 
 ---
 

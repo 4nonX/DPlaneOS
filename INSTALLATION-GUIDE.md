@@ -367,24 +367,7 @@ After installation:
 
 For the full NixOS installation guide, see **INSTALLATION-GUIDE-NIXOS.md** (in the release archive or at the repository root).
 
-**Quick note on PolyForm licensing and `nixpkgs.config.allowUnfreePredicate`:**
-
-NixOS classifies packages by license. D-PlaneOS uses the PolyForm Shield 1.0.0 license — source-available but not OSI-approved, so NixOS marks it as `unfree`. This means a plain `nixos-rebuild switch` will fail with:
-
-```
-error: Package 'dplaneos-daemon' has an unfree license 'PolyForm Shield 1.0.0',
-refusing to evaluate.
-```
-
-The `configuration-standalone.nix` provided in `nixos/` already handles this with a **targeted allowlist** — it permits only the D-PlaneOS daemon, not all unfree packages globally:
-
-```nix
-nixpkgs.config.allowUnfreePredicate = pkg:
-  builtins.elem (lib.getName pkg) [
-    "dplaneos-daemon"
-  ];
-```
-
-This is already present in the config file. You do not need to add it manually.
-
-If you prefer to audit it yourself before building, open `/etc/nixos/configuration.nix` and verify this block is present before running `nixos-rebuild switch`.
+**Note on licensing:** D-PlaneOS is licensed under the GNU AGPLv3 — an
+OSI-approved free software license. NixOS correctly recognises it as free
+software. No `allowUnfreePredicate` or `allowUnfree` configuration is needed.
+You can run `nixos-rebuild switch` directly without any extra config.

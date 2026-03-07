@@ -78,7 +78,7 @@ Upgrade from: v3.3.0, v3.2.1, or any v3.x — Drop-in upgrade via `sudo ./script
 
 ### 📄 Licensing & Documentation
 
-- **Corrected "open-source" misidentification:** D-PlaneOS is licensed under PolyForm Shield 1.0.0, which is **source-available**, not OSI-approved open-source. Corrected in `README.md`, `SHOWSTOPPER-MITIGATION-GUIDE.md`, `docs/SHOWSTOPPER-MITIGATION-GUIDE.md`, and `nixos/NIXOS-README.md`. Third-party dependency references (ZFS, Samba, Docker, nginx) correctly retain their "open-source" descriptions as those packages use OSI-approved licenses.
+- **Corrected "open-source" misidentification:** D-PlaneOS is licensed under GNU Affero General Public License v3.0 (AGPLv3), which is **source-available**, not OSI-approved open-source. Corrected in `README.md`, `SHOWSTOPPER-MITIGATION-GUIDE.md`, `docs/SHOWSTOPPER-MITIGATION-GUIDE.md`, and `nixos/NIXOS-README.md`. Third-party dependency references (ZFS, Samba, Docker, nginx) correctly retain their "open-source" descriptions as those packages use OSI-approved licenses.
 
 ### ✅ Compatibility
 
@@ -428,7 +428,7 @@ First fully production-ready PHP release. Fixes 7 critical infrastructure bugs.
 
 - ETag-based smart polling (95% bandwidth reduction, 88% CPU reduction)
 - ZFS snapshot-based update system with automatic rollback
-- License: MIT → PolyForm Noncommercial License 1.0.0
+- License: MIT → GNU Affero General Public License v3.0 (AGPLv3)
 
 ---
 

@@ -133,4 +133,4 @@ Navigate to **Identity → Directory Service** to configure. Supports:
 
 ## License
 
-Source-available under [PolyForm Shield 1.0.0](LICENSE). See LICENSE file.
+Licensed under the [GNU Affero General Public License v3.0 (AGPLv3)](https://www.gnu.org/licenses/agpl-3.0.html). See LICENSE file and CLA-INDIVIDUAL.md.

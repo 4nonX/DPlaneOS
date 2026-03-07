@@ -135,4 +135,4 @@ PRs that introduce security issues will be closed without merge regardless of ot
 
 ## License
 
-By contributing, you agree your contributions are licensed under the project's [PolyForm Shield License 1.0.0](LICENSE).
+By contributing, you agree your contributions are licensed under the project's [GNU Affero General Public License v3.0 (AGPLv3)](https://www.gnu.org/licenses/agpl-3.0.html).

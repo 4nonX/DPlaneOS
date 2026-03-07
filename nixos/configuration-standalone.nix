@@ -51,15 +51,9 @@
     ./modules/samba.nix
   ];
 
-  # ─── Allow D-PlaneOS (PolyForm Shield license) ──────────────────────────
-  # NixOS classifies non-OSI-approved licenses as "unfree".
-  # PolyForm Shield 1.0.0 is source-available but restricts commercial
-  # competition — it is not OSI-approved, so this flag is required.
-  # This only permits the D-PlaneOS daemon specifically.
-  nixpkgs.config.allowUnfreePredicate = pkg:
-    builtins.elem (lib.getName pkg) [
-      "dplaneos-daemon"
-    ];
+  # ─── License: AGPLv3 ────────────────────────────────────────────────────
+  # D-PlaneOS is licensed under the GNU AGPLv3 — an OSI-approved free
+  # software license. No allowUnfreePredicate is required.
 
   # ─── Boot loader ────────────────────────────────────────────────────────
   # H610I uses UEFI. systemd-boot is preferred over GRUB on appliances:
