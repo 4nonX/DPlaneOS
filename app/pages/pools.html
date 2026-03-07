@@ -167,7 +167,7 @@ document.addEventListener('click', (e) => {
                         <input type="password" id="enc-passphrase" class="form-input">
                     </div>
                     <div class="warning-box">
-                        ⚠️ <strong>WARNING:</strong> Store your passphrase securely! Lost passphrase = permanent data loss.
+                        <strong>WARNING:</strong> Store your passphrase securely! Lost passphrase = permanent data loss.
                     </div>
                     <button class="btn btn-primary" onclick="createEncryptedDataset()">Create Encrypted Dataset</button>
                 </div>
@@ -231,7 +231,7 @@ document.addEventListener('click', (e) => {
                 <div class="card">
                     <h2>Deduplication</h2>
                     <div class="warning-box">
-                        ⚠️ <strong>WARNING:</strong> Dedup requires ~5GB RAM per 1TB of data!
+                        <strong>WARNING:</strong> Dedup requires ~5GB RAM per 1TB of data!
                     </div>
                     <div class="form-group">
                         <label>Dataset</label>
@@ -1559,7 +1559,7 @@ const opts=d.datasets.map(ds=>`<option value="${ds.name}">${ds.name}</option>`).
 async function editQuota(ds,currentBytes){const gb=Math.round(currentBytes/1024/1024/1024);const html=`<div class="form-group"><label class="form-label">Dataset</label><input type="text" value="${ds}" class="form-input" disabled></div><div class="form-group"><label class="form-label">Quota (GB)</label><input type="number" id="quota" class="form-input" value="${gb}" min="1" required></div>`;const ok=await ui.modal('Edit Quota',html,[{label:'Cancel',value:false},{label:'Save',value:true,primary:true}]);if(ok){const q=parseInt(document.getElementById('quota').value);if(q>0)await setQuota(ds,q*1024*1024*1024);}}
 async function setQuota(dataset,bytes){try{const r=await csrfFetch('/api/zfs/datasets',{method:'POST',body:JSON.stringify({action:'set_quota',dataset:dataset,quota:bytes})});const d=await r.json();if(d.success){ui.toast('Quota set','success');loadQuotas();}else ui.toast(d.error||'Failed','error');}catch(e){ui.toast('Failed','error');}}
 async function removeQuota(dataset){const ok=await ui.confirm('Remove Quota',`Remove limit from ${dataset}?`);if(ok){try{const r=await csrfFetch('/api/zfs/datasets',{method:'POST',body:JSON.stringify({action:'set_quota',dataset:dataset,quota:0})});const d=await r.json();if(d.success){ui.toast('Removed','success');loadQuotas();}else ui.toast(d.error||'Failed','error');}catch(e){ui.toast('Failed','error');}}}
-async function handleLogout(){if(!await ui.confirm('Logout','Sure?'))return;try{const r=await csrfFetch('/api/auth/logout',{method:'POST'});if(r.ok){window.location.href='/login';return;}ui.toast('Logout failed','error');}catch(e){ui.toast('Logout failed','error');}}
+async function handleLogout(){if(!await ui.confirm('Logout','Sure?'))return;try{const r=await csrfFetch('/api/auth/logout',{method:'POST'});if(r.ok){window.location.href='/pages/login.html';return;}ui.toast('Logout failed','error');}catch(e){ui.toast('Logout failed','error');}}
 async function loadCurrentUser(){try{const r=await csrfFetch('/api/auth/session');const d=await r.json();if(d.success&&d.user)document.getElementById('currentUser').textContent=d.user.username;}catch(e){}}
 document.addEventListener('DOMContentLoaded',()=>{loadQuotas();loadCurrentUser();});}
 var __encryption_init=false;function init_encryption(){if(__encryption_init)return;__encryption_init=true;async function loadDatasets() {
@@ -1591,13 +1591,13 @@ var __encryption_init=false;function init_encryption(){if(__encryption_init)retu
       item.className = 'dataset-item ' + (isLocked ? 'locked' : 'unlocked');
       
       const statusBadge = isLocked ? 
-        '<span class="dataset-status status-unavailable">🔒 LOCKED</span>' :
-        '<span class="dataset-status status-available">🔓 UNLOCKED</span>';
+        '<span class="dataset-status status-unavailable"><span class="material-symbols-rounded" style="font-size:14px;">lock</span> LOCKED</span>' :
+        '<span class="dataset-status status-available"><span class="material-symbols-rounded" style="font-size:14px;">lock_open</span> UNLOCKED</span>';
       
       const actions = isLocked ?
-        `<button class="btn" onclick="unlockDataset('"+JSON.stringify(dataset.name)+"')">🔓 Unlock</button>` :
-        `<button class="btn btn-danger" onclick="lockDataset('"+JSON.stringify(dataset.name)+"')">🔒 Lock</button>
-         <button class="btn" onclick="changeKey('"+JSON.stringify(dataset.name)+"')">🔑 Change Key</button>`;
+        `<button class="btn" onclick="unlockDataset('"+JSON.stringify(dataset.name)+"')"><span class="material-symbols-rounded" style="font-size:16px;">lock_open</span> Unlock</button>` :
+        `<button class="btn btn-danger" onclick="lockDataset('"+JSON.stringify(dataset.name)+"')"><span class="material-symbols-rounded" style="font-size:16px;">lock</span> Lock</button>
+         <button class="btn" onclick="changeKey('"+JSON.stringify(dataset.name)+"')"><span class="material-symbols-rounded" style="font-size:16px;">key</span> Change Key</button>`;
       
       item.innerHTML = `
         <div class="dataset-header">

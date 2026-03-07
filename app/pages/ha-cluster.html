@@ -418,9 +418,9 @@ async function removePeer(id, name) {
 async function promoteToActive(id, name) {
   const confirmed = confirm(
     `Promote "${name}" to ACTIVE?\n\n` +
-    `⚠ This transfers ZFS pool control to that node.\n` +
-    `⚠ Verify the current active node is unreachable before proceeding.\n` +
-    `⚠ Running both nodes as active simultaneously can cause data corruption (split-brain).`
+    `WARNING: This transfers ZFS pool control to that node.\n` +
+    `WARNING: Verify the current active node is unreachable before proceeding.\n` +
+    `WARNING: Running both nodes as active simultaneously can cause data corruption (split-brain).`
   );
   if (!confirmed) return;
 

@@ -1000,7 +1000,7 @@ async function handleLogout() {
   if (!await ui.confirm('Logout', 'Are you sure?')) return;
   try {
     const r = await csrfFetch('/api/auth/logout', {method:'POST'});
-    if (r.ok) { window.location.href = '/login'; return; }
+    if (r.ok) { window.location.href = '/pages/login.html'; return; }
     ui.toast('Logout failed', 'error');
   } catch(e) { ui.toast('Logout failed', 'error'); }
 }

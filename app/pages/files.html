@@ -87,10 +87,10 @@ body { font-family: sans-serif; margin: 0; padding: 20px; background: var(--bg);
 <h1>File Manager</h1>
 
 <div class="toolbar">
-  <button class="btn" onclick="goUp()">⬆️ Up</button>
-  <button class="btn" onclick="refresh()">🔄 Refresh</button>
-  <button class="btn" onclick="createFolder()">📁 New Folder</button>
-  <button class="btn" onclick="toggleTrashPanel()" style="margin-left:auto;">♻ Recycle Bin</button>
+  <button class="btn" onclick="goUp()"><span class="material-symbols-rounded">arrow_upward</span> Up</button>
+  <button class="btn" onclick="refresh()"><span class="material-symbols-rounded">refresh</span> Refresh</button>
+  <button class="btn" onclick="createFolder()"><span class="material-symbols-rounded">create_new_folder</span> New Folder</button>
+  <button class="btn" onclick="toggleTrashPanel()" style="margin-left:auto;"><span class="material-symbols-rounded">delete</span> Recycle Bin</button>
 </div>
 
 <div class="breadcrumb" id="breadcrumb">/</div>
@@ -594,7 +594,7 @@ async function loadFiles(path = currentPath) {
       const item = document.createElement('div');
       item.className = 'file-item';
       
-      const icon = file.is_dir ? '📁' : '📄';
+      const icon = file.is_dir ? '<span class="material-symbols-rounded">folder</span>' : '<span class="material-symbols-rounded">description</span>';
       const size = file.is_dir ? 'Directory' : formatSize(file.size);
       const date = new Date(file.mod_time * 1000).toLocaleString();
       

@@ -245,11 +245,7 @@ let providers=[],selProvider=null,wStep=1,syncRemote=null,syncDir='upload',delTa
 
 document.addEventListener('DOMContentLoaded',()=>{loadStatus();loadRemotes();});
 
-function csrfFetch(url,opts={}){
-  const tok=document.cookie.match(/csrf_token=([^;]+)/)?.[1]||'';
-  opts.headers={...(opts.headers||{}),'X-CSRF-Token':tok};
-  return fetch(url,opts);
-}
+// Use global csrfFetch from core.js if available, otherwise define minimal version
 async function apiGet(action){return(await csrfFetch(`${API}?action=${action}`)).json();}
 async function apiPost(action,body){return(await csrfFetch(API,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,...body})})).json();}
 

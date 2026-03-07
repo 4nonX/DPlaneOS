@@ -299,19 +299,23 @@ async function loadDevices() {
       item.className = 'device-item' + (device.mounted ? ' mounted' : '');
       
       const statusBadge = device.mounted ?
-        '<span class="device-status status-mounted">✓ MOUNTED</span>' :
-        '<span class="device-status status-unmounted">○ UNMOUNTED</span>';
+        '<span class="device-status status-mounted"><span class="material-symbols-rounded" style="font-size:14px;">check_circle</span> MOUNTED</span>' :
+        '<span class="device-status status-unmounted"><span class="material-symbols-rounded" style="font-size:14px;">radio_button_unchecked</span> UNMOUNTED</span>';
       
       const actions = device.mounted ?
-        `<button class="btn btn-danger" onclick="unmountDevice('"+JSON.stringify(device.path)+"')">⏏️ Unmount</button>
-         <button class="btn btn-danger" onclick="ejectDevice('"+JSON.stringify(device.path)+"')">📤 Eject</button>` :
-        `<button class="btn" onclick="mountDevice('"+JSON.stringify(device.path)+"')">📥 Mount</button>`;
+        `<button class="btn btn-danger" onclick="unmountDevice('"+JSON.stringify(device.path)+"')"><span class="material-symbols-rounded" style="font-size:16px;">eject</span> Unmount</button>
+         <button class="btn btn-danger" onclick="ejectDevice('"+JSON.stringify(device.path)+"')"><span class="material-symbols-rounded" style="font-size:16px;">logout</span> Eject</button>` :
+        `<button class="btn" onclick="mountDevice('"+JSON.stringify(device.path)+"')"><span class="material-symbols-rounded" style="font-size:16px;">folder_open</span> Mount</button>`;
       
       item.innerHTML = `
         <div class="device-header">
           <div>
-            <div class="device-name">💾 ${escapeHtml(device.name)} ${statusBadge}</div>
+            <div class="device-name"><span class="material-symbols-rounded" style="font-size:18px;vertical-align:middle;">storage</span> ${escapeHtml(device.name)} ${statusBadge}
           </div>
+          <div class="device-actions">
+            ${actions}
+          </div>
+        </div>
           <div class="device-actions">
             ${actions}
           </div>

@@ -574,7 +574,7 @@ if (window.ConnectionMonitor) {
       `;
       card.innerHTML = `
         <div class="card-header">
-          <div class="card-title">⚡ UPS Status</div>
+          <div class="card-title"><span class="material-symbols-rounded" style="font-size:20px;vertical-align:middle;">bolt</span> UPS Status</div>
         </div>
         <div style="display: grid; gap: 12px;">
           <div style="display: flex; justify-content: space-between;">
@@ -737,7 +737,7 @@ if (window.ConnectionMonitor) {
       // Hardware events (disk add/remove)
       window.DPlaneRT.on('hardwareEvent', (event) => {
         const action = event.action === 'add' ? 'connected' : 'removed';
-        ui.toast(`💾 Disk ${action}: ${event.device}`, 'info', 8000);
+        ui.toast(`Disk ${action}: ${event.device}`, 'info', 8000);
         
         // Refresh pool list if on Storage page
         if (window.location.pathname.includes('pools.html')) {
@@ -748,7 +748,7 @@ if (window.ConnectionMonitor) {
       // Resilver events
       window.DPlaneRT.on('resilver_started', (event) => {
         showResilverCard(event);
-        ui.toast(`🔄 Resilver started: ${event.pool}`, 'info');
+        ui.toast(`Resilver started: ${event.pool}`, 'info');
       });
       
       window.DPlaneRT.on('resilver_progress', (event) => {
@@ -757,13 +757,13 @@ if (window.ConnectionMonitor) {
       
       window.DPlaneRT.on('resilver_completed', (event) => {
         hideResilverCard();
-        ui.toast(`✓ Resilver completed: ${event.pool}`, 'success', 10000);
+        ui.toast(`Resilver completed: ${event.pool}`, 'success', 10000);
       });
       
       // Disk temperature warnings
       window.DPlaneRT.on('disk_temperature_warning', (event) => {
         ui.toast(
-          `⚠️ High disk temperature: ${event.device} at ${event.temp}°C`,
+          `Warning: High disk temperature: ${event.device} at ${event.temp}°C`,
           'warning',
           15000
         );
@@ -772,7 +772,7 @@ if (window.ConnectionMonitor) {
       // Pool health changes
       window.DPlaneRT.on('pool_health_change', (event) => {
         const type = event.health === 'DEGRADED' ? 'error' : 'warning';
-        ui.toast(`⚠️ Pool ${event.pool}: ${event.health}`, type, 15000);
+        ui.toast(`Warning: Pool ${event.pool}: ${event.health}`, type, 15000);
         setTimeout(() => loadDashboard(), 1000);
       });
     }

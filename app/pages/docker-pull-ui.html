@@ -495,7 +495,7 @@
                 html += `
                     <div class="pull-stats">
                         <div class="stat">
-                            <span>✅ Pull completed in</span>
+                            <span>[OK] Pull completed in</span>
                             <span class="stat-value">${elapsedMin}m ${elapsedSec}s</span>
                         </div>
                     </div>
@@ -503,7 +503,7 @@
             } else if (progress.status === 'failed') {
                 html += `
                     <div class="error-message">
-                        ❌ Pull failed: ${progress.error || 'Unknown error'}
+                        [FAILED] Pull failed: ${progress.error || 'Unknown error'}
                     </div>
                 `;
             }

@@ -268,13 +268,13 @@ async function previewBundleContents() {
   btn.innerHTML = '<span class="spinner"></span> Loading…';
   // Show what's included
   const contents = [
-    '📁 zfs-status.txt      — zpool status + zfs list output',
-    '📁 smart/              — smartctl JSON for each disk',
-    '📁 journal.txt         — last 1000 system journal lines',
-    '📁 network.txt         — ip addr, ip route output',
-    '📁 audit.tail.jsonl    — last 100 audit log entries',
-    '📁 daemon-info.json    — daemon version, uptime, config',
-    '📁 os-release.txt      — NixOS version information',
+    '[file] zfs-status.txt      — zpool status + zfs list output',
+    '[dir]  smart/              — smartctl JSON for each disk',
+    '[file] journal.txt         — last 1000 system journal lines',
+    '[file] network.txt         — ip addr, ip route output',
+    '[file] audit.tail.jsonl    — last 100 audit log entries',
+    '[file] daemon-info.json    — daemon version, uptime, config',
+    '[file] os-release.txt     — NixOS version information',
   ];
   const html = contents.map(c => `<div style="font-family:monospace;font-size:13px;padding:4px 0;color:rgba(255,255,255,0.7);">${esc(c)}</div>`).join('');
   showResult('bundleResult', 'info', '<strong>Bundle contents:</strong><br><div style="margin-top:8px;">' + html + '</div>');
@@ -297,7 +297,7 @@ async function verifyAuditChain() {
 
     const ok = data.valid || data.success || data.ok;
     const fields = [
-      { key: 'Status',         val: ok ? '✓ VALID — chain integrity confirmed' : '✗ INVALID — tampering detected' },
+      { key: 'Status',         val: ok ? '[OK] VALID — chain integrity confirmed' : '[FAILED] INVALID — tampering detected' },
       { key: 'Total entries',  val: data.total_entries || data.count || '—' },
       { key: 'Checked',        val: data.checked || data.verified || '—' },
       { key: 'First entry',    val: data.first_entry || data.oldest || '—' },

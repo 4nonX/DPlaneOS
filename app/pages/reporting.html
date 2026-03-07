@@ -825,7 +825,7 @@ window.addEventListener('DOMContentLoaded', () => {
   });
   
   monitorWS.on('disconnected', () => {
-    document.getElementById('wsStatus').textContent = '🔴 Reconnecting...';
+    document.getElementById('wsStatus').textContent = '[RECONNECTING...]';
     document.getElementById('wsStatus').style.color = '#f44336';
   });
   
@@ -839,7 +839,7 @@ function updateInotifyDisplay(data) {
   const cardClass = data.critical ? 'critical' : (data.warning ? 'warning' : '');
   const barClass = data.critical ? 'critical' : (data.warning ? 'warning' : '');
   const statusClass = data.critical ? 'status-critical' : (data.warning ? 'status-warning' : 'status-ok');
-  const statusText = data.critical ? '🔴 CRITICAL' : (data.warning ? '⚠️ WARNING' : '✅ OK');
+  const statusText = data.critical ? '[CRITICAL]' : (data.warning ? '[WARNING]' : '[OK]');
   
   const updateTime = lastInotifyUpdate ? lastInotifyUpdate.toLocaleTimeString() : 'Never';
   
@@ -860,14 +860,14 @@ function updateInotifyDisplay(data) {
       
       ${data.warning ? `
         <div style="margin-top: 15px; padding: 10px; background: rgba(245, 158, 11, 0.1); border-radius: 4px; font-size: 13px;">
-          <strong>⚠️ Inotify watches at ${data.percent.toFixed(1)}%</strong><br>
+          <strong>WARNING: Inotify watches at ${data.percent.toFixed(1)}%</strong><br>
           Real-time file monitoring may fail soon. Consider increasing the limit in /etc/sysctl.conf or reducing watched directories.
         </div>
       ` : ''}
       
       ${data.critical ? `
         <div style="margin-top: 15px; padding: 10px; background: rgba(244, 67, 54, 0.1); border-radius: 4px; font-size: 13px;">
-          <strong>🔴 CRITICAL: Inotify exhaustion imminent!</strong><br>
+          <strong>CRITICAL: Inotify exhaustion imminent!</strong><br>
           File indexing may fail silently. Immediately increase fs.inotify.max_user_watches or disable file watching.
         </div>
       ` : ''}
@@ -908,7 +908,7 @@ function showToast(data, level) {
     z-index: 10000;
     font-weight: bold;
   `;
-  toast.textContent = `${level === 'critical' ? '🔴' : '⚠️'} Inotify at ${data.percent.toFixed(1)}%`;
+  toast.textContent = `${level === 'critical' ? '[CRITICAL]' : '[WARNING]'} Inotify at ${data.percent.toFixed(1)}%`;
   
   document.body.appendChild(toast);
   

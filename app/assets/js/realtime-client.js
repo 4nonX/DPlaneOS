@@ -32,13 +32,11 @@
       this.connecting = true;
       
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const host = window.location.hostname;
-      const port = 8081;
+      const wsUrl = `${protocol}//${window.location.host}/ws/monitor`;
       
-      console.log(`Connecting to WebSocket: ${protocol}//${host}:${port}`);
+      console.log(`Connecting to WebSocket: ${wsUrl}`);
       
-      this.ws = new WebSocket(`${protocol}//${host}:${port}`);
-      
+      this.ws = new WebSocket(wsUrl);
       this.ws.onopen = () => this.onOpen();
       this.ws.onmessage = (event) => this.onMessage(event);
       this.ws.onclose = () => this.onClose();
@@ -46,7 +44,7 @@
     }
     
     onOpen() {
-      console.log('✓ WebSocket connected');
+      console.log('[WS] Connected');
       this.connecting = false;
       this.reconnectAttempts = 0;
       this.reconnectDelay = 1000;
@@ -59,7 +57,7 @@
           session_id: sessionId
         });
       } else {
-        console.error('No session ID found - cannot authenticate');
+        console.error('[WS] No session ID found - cannot authenticate');
         this.ws.close();
         return;
       }
@@ -73,9 +71,8 @@
     }
     
     getSessionId() {
-      // Get PHP session ID from cookie
-      const match = document.cookie.match(/PHPSESSID=([^;]+)/);
-      return match ? match[1] : null;
+      // Get session ID from sessionStorage (set by login)
+      return sessionStorage.getItem('session_id');
     }
     
     onMessage(event) {
@@ -122,7 +119,7 @@
     }
     
     onClose() {
-      console.log('✗ WebSocket disconnected');
+      console.log('[WS] Disconnected');
       this.connecting = false;
       
       this.updateConnectionStatus(false);
@@ -206,18 +203,18 @@
           break;
         
         case 'resilver_completed':
-          message = `✓ ZFS Resilver abgeschlossen auf Pool "${event.pool}"`;
+          message = `[OK] ZFS Resilver completed on pool "${event.pool}"`;
           if (window.EnhancedUI) {
             EnhancedUI.toast(message, 'success', 10000);
           }
           break;
         
         case 'scrub_started':
-          message = `ZFS Scrub gestartet auf Pool "${event.pool}"`;
+          message = `ZFS Scrub started on pool "${event.pool}"`;
           break;
         
         case 'scrub_completed':
-          message = `✓ ZFS Scrub abgeschlossen auf Pool "${event.pool}"`;
+          message = `[OK] ZFS Scrub completed on pool "${event.pool}"`;
           if (window.EnhancedUI) {
             EnhancedUI.toast(message, 'success', 8000);
           }
@@ -228,7 +225,7 @@
     }
     
     handlePoolHealthChange(event) {
-      const message = `⚠ Pool "${event.pool}": ${event.old_health} → ${event.new_health}`;
+      const message = `Warning: Pool "${event.pool}": ${event.old_health} → ${event.new_health}`;
       
       if (window.EnhancedUI) {
         const type = event.new_health === 'ONLINE' ? 'success' : 'error';
@@ -237,7 +234,7 @@
     }
     
     handleDiskAlert(event) {
-      const message = `⚠ Festplattentemperatur: ${event.disk} = ${event.temperature}°C`;
+      const message = `Warning: Disk temperature: ${event.disk} = ${event.temperature}°C`;
       
       if (window.EnhancedUI) {
         EnhancedUI.toast(message, 'warning', 10000);
@@ -248,7 +245,7 @@
     
     handleDiskChange(event) {
       if (event.type === 'disk_added') {
-        const message = `Neue Festplatte erkannt: ${event.disk} (${event.model}, ${event.size})`;
+        const message = `New disk detected: ${event.disk} (${event.model}, ${event.size})`;
         if (window.EnhancedUI) {
           EnhancedUI.toast(message, 'success', 10000);
         }
