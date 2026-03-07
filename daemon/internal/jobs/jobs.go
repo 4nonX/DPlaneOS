@@ -60,11 +60,22 @@ func (j *Job) Fail(errMsg string) {
 	j.FinishedAt = &now
 }
 
-// Snapshot returns a copy of the job safe to marshal without holding the lock.
-func (j *Job) Snapshot() Job {
+// JobSnapshot is a mutex-free copy of Job fields, safe to marshal directly.
+type JobSnapshot struct {
+	ID         string                 `json:"id"`
+	Type       string                 `json:"type"`
+	Status     string                 `json:"status"`
+	Result     map[string]interface{} `json:"result,omitempty"`
+	Error      string                 `json:"error,omitempty"`
+	StartedAt  time.Time              `json:"started_at"`
+	FinishedAt *time.Time             `json:"finished_at,omitempty"`
+}
+
+// Snapshot returns a mutex-free copy of the job safe to marshal without holding the lock.
+func (j *Job) Snapshot() JobSnapshot {
 	j.mu.Lock()
 	defer j.mu.Unlock()
-	return Job{
+	return JobSnapshot{
 		ID:         j.ID,
 		Type:       j.Type,
 		Status:     j.Status,
