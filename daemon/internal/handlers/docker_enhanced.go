@@ -13,6 +13,7 @@ import (
 	"dplaned/internal/audit"
 	"dplaned/internal/cmdutil"
 	"dplaned/internal/dockerclient"
+	"dplaned/internal/jobs"
 )
 
 // ═══════════════════════════════════════════════════════════════
@@ -38,166 +39,158 @@ func (h *DockerHandler) SafeUpdate(w http.ResponseWriter, r *http.Request) {
 		respondErrorSimple(w, "container_name is required", http.StatusBadRequest)
 		return
 	}
-
-	// Sanitize container name
 	if !isValidContainerName(req.ContainerName) {
 		respondErrorSimple(w, "Invalid container name", http.StatusBadRequest)
 		return
 	}
+	if req.ZfsDataset != "" && !req.SkipSnapshot && !isValidDataset(req.ZfsDataset) {
+		respondErrorSimple(w, "Invalid ZFS dataset name", http.StatusBadRequest)
+		return
+	}
 
-	steps := []UpdateStep{}
-	startTime := time.Now()
-	var snapshotName string
-	dockerClient := dockerclient.New()
+	id := jobs.Start("docker_safe_update", func(j *jobs.Job) {
+		steps := []UpdateStep{}
+		startTime := time.Now()
+		var snapshotName string
+		dockerClient := dockerclient.New()
 
-	// Step 1: ZFS Snapshot (if dataset provided and not skipped)
-	if req.ZfsDataset != "" && !req.SkipSnapshot {
-		if !isValidDataset(req.ZfsDataset) {
-			respondErrorSimple(w, "Invalid ZFS dataset name", http.StatusBadRequest)
-			return
+		// Step 1: ZFS Snapshot (if dataset provided and not skipped)
+		if req.ZfsDataset != "" && !req.SkipSnapshot {
+			snapshotName = fmt.Sprintf("%s@pre-update-%s-%s",
+				req.ZfsDataset,
+				req.ContainerName,
+				time.Now().Format("20060102-150405"),
+			)
+			_, err := executeCommand("/usr/sbin/zfs", []string{"snapshot", snapshotName})
+			if err != nil {
+				steps = append(steps, UpdateStep{"zfs_snapshot", false, err.Error()})
+				j.Fail(fmt.Sprintf("Failed to create safety snapshot: %v", err))
+				return
+			}
+			steps = append(steps, UpdateStep{"zfs_snapshot", true, snapshotName})
+		} else {
+			steps = append(steps, UpdateStep{"zfs_snapshot", true, "skipped"})
 		}
 
-		snapshotName = fmt.Sprintf("%s@pre-update-%s-%s",
-			req.ZfsDataset,
-			req.ContainerName,
-			time.Now().Format("20060102-150405"),
-		)
+		// Step 2: Pull new image
+		image := req.Image
+		if image == "" {
+			ctxDetect, cancelDetect := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancelDetect()
+			detail, err := dockerClient.Inspect(ctxDetect, req.ContainerName)
+			if err != nil {
+				steps = append(steps, UpdateStep{"detect_image", false, err.Error()})
+				j.Fail("Could not detect container image. Provide 'image' field.")
+				return
+			}
+			image = detail.Config.Image
+		}
 
-		_, err := executeCommand("/usr/sbin/zfs", []string{"snapshot", snapshotName})
-		if err != nil {
-			steps = append(steps, UpdateStep{"zfs_snapshot", false, err.Error()})
-			respondOK(w, UpdateResult{
-				Success:  false,
-				Steps:    steps,
-				Error:    fmt.Sprintf("Failed to create safety snapshot: %v", err),
-				Duration: time.Since(startTime).Milliseconds(),
+		ctxPull, cancelPull := context.WithTimeout(context.Background(), 10*time.Minute)
+		defer cancelPull()
+		if err := dockerClient.PullImage(ctxPull, image); err != nil {
+			steps = append(steps, UpdateStep{"pull", false, err.Error()})
+			j.Done(map[string]interface{}{
+				"success":  false,
+				"steps":    steps,
+				"error":    fmt.Sprintf("Failed to pull image: %v", err),
+				"rollback": snapshotName,
+				"duration_ms": time.Since(startTime).Milliseconds(),
 			})
 			return
 		}
-		steps = append(steps, UpdateStep{"zfs_snapshot", true, snapshotName})
-	} else {
-		steps = append(steps, UpdateStep{"zfs_snapshot", true, "skipped"})
-	}
+		steps = append(steps, UpdateStep{"pull", true, image})
 
-	// Step 2: Pull new image
-	image := req.Image
-	if image == "" {
-		// Get image from running container via Docker API
-		ctxDetect, cancelDetect := context.WithTimeout(r.Context(), 10*time.Second)
-		defer cancelDetect()
-		detail, err := dockerClient.Inspect(ctxDetect, req.ContainerName)
-		if err != nil {
-			steps = append(steps, UpdateStep{"detect_image", false, err.Error()})
-			respondOK(w, UpdateResult{
-				Success: false, Steps: steps,
-				Error:    "Could not detect container image. Provide 'image' field.",
-				Duration: time.Since(startTime).Milliseconds(),
+		// Step 3: Inspect
+		ctxInspect, cancelInspect := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancelInspect()
+		if _, err := dockerClient.Inspect(ctxInspect, req.ContainerName); err != nil {
+			steps = append(steps, UpdateStep{"inspect", false, err.Error()})
+			j.Done(map[string]interface{}{
+				"success":  false,
+				"steps":    steps,
+				"error":    "Failed to inspect container config",
+				"rollback": snapshotName,
+				"duration_ms": time.Since(startTime).Milliseconds(),
 			})
 			return
 		}
-		image = detail.Config.Image
-	}
+		steps = append(steps, UpdateStep{"inspect", true, "config saved"})
 
-	ctxPull, cancelPull := context.WithTimeout(r.Context(), 10*time.Minute)
-	defer cancelPull()
-	if err := dockerClient.PullImage(ctxPull, image); err != nil {
-		steps = append(steps, UpdateStep{"pull", false, err.Error()})
-		respondOK(w, UpdateResult{
-			Success:  false,
-			Steps:    steps,
-			Error:    fmt.Sprintf("Failed to pull image: %v", err),
-			Rollback: snapshotName,
-			Duration: time.Since(startTime).Milliseconds(),
+		// Step 4: Stop container
+		ctxStop, cancelStop := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancelStop()
+		if err := dockerClient.Stop(ctxStop, req.ContainerName, 10); err != nil {
+			steps = append(steps, UpdateStep{"stop", false, err.Error()})
+			ctxRecover, cancelRecover := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancelRecover()
+			_ = dockerClient.Start(ctxRecover, req.ContainerName)
+			j.Done(map[string]interface{}{
+				"success":  false,
+				"steps":    steps,
+				"error":    "Failed to stop container, restarted original",
+				"rollback": snapshotName,
+				"duration_ms": time.Since(startTime).Milliseconds(),
+			})
+			return
+		}
+		steps = append(steps, UpdateStep{"stop", true, ""})
+
+		// Step 5: Start with new image
+		ctxStart, cancelStart := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancelStart()
+		if err := dockerClient.Start(ctxStart, req.ContainerName); err != nil {
+			steps = append(steps, UpdateStep{"start", false, err.Error()})
+			j.Done(map[string]interface{}{
+				"success": false,
+				"steps":   steps,
+				"error": fmt.Sprintf("Container failed to start after update. "+
+					"Your data is safe in snapshot: %s. "+
+					"Rollback with: zfs rollback %s", snapshotName, snapshotName),
+				"rollback":    snapshotName,
+				"duration_ms": time.Since(startTime).Milliseconds(),
+			})
+			return
+		}
+		steps = append(steps, UpdateStep{"start", true, ""})
+
+		// Step 6: Health check
+		hcTimeout := req.HealthCheckSeconds
+		if hcTimeout <= 0 {
+			hcTimeout = 30
+		}
+		ctxHC, cancelHC := context.WithTimeout(context.Background(), time.Duration(hcTimeout+5)*time.Second)
+		defer cancelHC()
+		running, hcErr := dockerClient.WaitForHealthy(ctxHC, req.ContainerName,
+			time.Duration(hcTimeout)*time.Second)
+
+		if hcErr != nil || !running {
+			steps = append(steps, UpdateStep{"health_check", false,
+				fmt.Sprintf("container not healthy after %ds: %v", hcTimeout, hcErr)})
+			j.Done(map[string]interface{}{
+				"success": false,
+				"steps":   steps,
+				"error": fmt.Sprintf("Container not healthy after update (waited %ds). "+
+					"Rollback data with: zfs rollback %s", hcTimeout, snapshotName),
+				"rollback":    snapshotName,
+				"duration_ms": time.Since(startTime).Milliseconds(),
+			})
+			return
+		}
+		steps = append(steps, UpdateStep{"health_check", true, "running"})
+
+		audit.LogCommand(audit.LevelInfo, "system", "docker_safe_update",
+			[]string{req.ContainerName, image}, true, time.Since(startTime), nil)
+
+		j.Done(map[string]interface{}{
+			"success":     true,
+			"steps":       steps,
+			"snapshot":    snapshotName,
+			"duration_ms": time.Since(startTime).Milliseconds(),
 		})
-		return
-	}
-	steps = append(steps, UpdateStep{"pull", true, image})
-
-	// Step 3: Inspect current config (preserved for recovery reference)
-	ctxInspect, cancelInspect := context.WithTimeout(r.Context(), 10*time.Second)
-	defer cancelInspect()
-	_, inspectErr := dockerClient.Inspect(ctxInspect, req.ContainerName)
-	if inspectErr != nil {
-		steps = append(steps, UpdateStep{"inspect", false, inspectErr.Error()})
-		respondOK(w, UpdateResult{
-			Success: false, Steps: steps,
-			Error:    "Failed to inspect container config",
-			Rollback: snapshotName,
-			Duration: time.Since(startTime).Milliseconds(),
-		})
-		return
-	}
-	steps = append(steps, UpdateStep{"inspect", true, "config saved"})
-
-	// Step 4: Stop container
-	ctxStop, cancelStop := context.WithTimeout(r.Context(), 30*time.Second)
-	defer cancelStop()
-	if err := dockerClient.Stop(ctxStop, req.ContainerName, 10); err != nil {
-		steps = append(steps, UpdateStep{"stop", false, err.Error()})
-		// Try to restart on failure
-		ctxRecover, cancelRecover := context.WithTimeout(r.Context(), 10*time.Second)
-		defer cancelRecover()
-		_ = dockerClient.Start(ctxRecover, req.ContainerName)
-		respondOK(w, UpdateResult{
-			Success: false, Steps: steps,
-			Error:    "Failed to stop container, restarted original",
-			Rollback: snapshotName,
-			Duration: time.Since(startTime).Milliseconds(),
-		})
-		return
-	}
-	steps = append(steps, UpdateStep{"stop", true, ""})
-
-	// Step 5: Start with new image
-	ctxStart, cancelStart := context.WithTimeout(r.Context(), 30*time.Second)
-	defer cancelStart()
-	if err := dockerClient.Start(ctxStart, req.ContainerName); err != nil {
-		steps = append(steps, UpdateStep{"start", false, err.Error()})
-		respondOK(w, UpdateResult{
-			Success: false, Steps: steps,
-			Error: fmt.Sprintf("Container failed to start after update. "+
-				"Your data is safe in snapshot: %s. "+
-				"Rollback with: zfs rollback %s", snapshotName, snapshotName),
-			Rollback: snapshotName,
-			Duration: time.Since(startTime).Milliseconds(),
-		})
-		return
-	}
-	steps = append(steps, UpdateStep{"start", true, ""})
-
-	// Step 6: Health check via Docker API — respects HEALTHCHECK, configurable timeout
-	hcTimeout := req.HealthCheckSeconds
-	if hcTimeout <= 0 {
-		hcTimeout = 30
-	}
-	ctxHC, cancelHC := context.WithTimeout(r.Context(), time.Duration(hcTimeout+5)*time.Second)
-	defer cancelHC()
-	running, hcErr := dockerClient.WaitForHealthy(ctxHC, req.ContainerName,
-		time.Duration(hcTimeout)*time.Second)
-
-	if hcErr != nil || !running {
-		steps = append(steps, UpdateStep{"health_check", false,
-			fmt.Sprintf("container not healthy after %ds: %v", hcTimeout, hcErr)})
-		respondOK(w, UpdateResult{
-			Success: false, Steps: steps,
-			Error: fmt.Sprintf("Container not healthy after update (waited %ds). "+
-				"Rollback data with: zfs rollback %s. Tip: increase health_check_seconds for slow-starting apps.", hcTimeout, snapshotName),
-			Rollback: snapshotName,
-			Duration: time.Since(startTime).Milliseconds(),
-		})
-		return
-	}
-	steps = append(steps, UpdateStep{"health_check", true, "running"})
-
-	audit.LogCommand(audit.LevelInfo, "system", "docker_safe_update",
-		[]string{req.ContainerName, image}, true, time.Since(startTime), nil)
-
-	respondOK(w, UpdateResult{
-		Success:  true,
-		Steps:    steps,
-		Snapshot: snapshotName,
-		Duration: time.Since(startTime).Milliseconds(),
 	})
+
+	respondOK(w, map[string]interface{}{"job_id": id})
 }
 
 type UpdateStep struct {
@@ -229,33 +222,30 @@ func (h *DockerHandler) PullImage(w http.ResponseWriter, r *http.Request) {
 		respondErrorSimple(w, "Invalid request", http.StatusBadRequest)
 		return
 	}
-
 	if req.Image == "" || len(req.Image) > 256 {
 		respondErrorSimple(w, "Invalid image name", http.StatusBadRequest)
 		return
 	}
 
-	start := time.Now()
-	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Minute)
-	defer cancel()
-	dockerClient := dockerclient.New()
-	err := dockerClient.PullImage(ctx, req.Image)
-	duration := time.Since(start)
-
-	if err != nil {
-		respondOK(w, map[string]interface{}{
-			"success":     false,
-			"error":       fmt.Sprintf("Pull failed: %v", err),
+	image := req.Image
+	id := jobs.Start("docker_pull", func(j *jobs.Job) {
+		start := time.Now()
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+		defer cancel()
+		dockerClient := dockerclient.New()
+		err := dockerClient.PullImage(ctx, image)
+		duration := time.Since(start)
+		if err != nil {
+			j.Fail(fmt.Sprintf("Pull failed: %v", err))
+			return
+		}
+		j.Done(map[string]interface{}{
+			"image":       image,
 			"duration_ms": duration.Milliseconds(),
 		})
-		return
-	}
-
-	respondOK(w, map[string]interface{}{
-		"success":     true,
-		"image":       req.Image,
-		"duration_ms": duration.Milliseconds(),
 	})
+
+	respondOK(w, map[string]interface{}{"job_id": id})
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -364,24 +354,21 @@ func (h *DockerHandler) ComposeUp(w http.ResponseWriter, r *http.Request) {
 		args = append(args, "-d")
 	}
 
-	start := time.Now()
-	output, err := cmdutil.RunSlow("/usr/bin/docker", args...)
-	duration := time.Since(start)
-
-	if err != nil {
-		respondOK(w, map[string]interface{}{
-			"success": false,
-			"error":   err.Error(),
-			"output":  string(output),
+	id := jobs.Start("compose_up", func(j *jobs.Job) {
+		start := time.Now()
+		output, err := cmdutil.RunSlow("/usr/bin/docker", args...)
+		duration := time.Since(start)
+		if err != nil {
+			j.Fail(fmt.Sprintf("%v\n%s", err, string(output)))
+			return
+		}
+		j.Done(map[string]interface{}{
+			"output":      string(output),
+			"duration_ms": duration.Milliseconds(),
 		})
-		return
-	}
-
-	respondOK(w, map[string]interface{}{
-		"success":     true,
-		"output":      string(output),
-		"duration_ms": duration.Milliseconds(),
 	})
+
+	respondOK(w, map[string]interface{}{"job_id": id})
 }
 
 // ComposeDown stops a docker-compose stack
@@ -407,20 +394,16 @@ func (h *DockerHandler) ComposeDown(w http.ResponseWriter, r *http.Request) {
 		args = append(args, "-v")
 	}
 
-	output, err := cmdutil.RunMedium("/usr/bin/docker", args...)
-	if err != nil {
-		respondOK(w, map[string]interface{}{
-			"success": false,
-			"error":   err.Error(),
-			"output":  string(output),
-		})
-		return
-	}
-
-	respondOK(w, map[string]interface{}{
-		"success": true,
-		"output":  string(output),
+	id := jobs.Start("compose_down", func(j *jobs.Job) {
+		output, err := cmdutil.RunMedium("/usr/bin/docker", args...)
+		if err != nil {
+			j.Fail(fmt.Sprintf("%v\n%s", err, string(output)))
+			return
+		}
+		j.Done(map[string]interface{}{"output": string(output)})
 	})
+
+	respondOK(w, map[string]interface{}{"job_id": id})
 }
 
 // ComposeStatus shows status of a docker-compose stack

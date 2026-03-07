@@ -441,8 +441,8 @@ async function testExisting(name){
   toast(`Testing ${name}…`,'info');
   try{
     const d=await apiPost('test',{remote:name});
-    if(d.success&&d.connected)toast(`✓ ${name}: connected`,'success');
-    else toast(`✗ ${name}: ${d.error||'failed'}`,'error');
+    if(d.success&&d.connected)toast(`${name}: connected`,'success');
+    else toast(`${name}: ${d.error||'failed'}`,'error');
   }catch(e){toast(`Test error: ${e.message}`,'error');}
 }
 

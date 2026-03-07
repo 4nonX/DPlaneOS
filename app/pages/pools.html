@@ -1052,7 +1052,7 @@ async function importPool() {
     ui.hideLoading();
     
     if (result.success) {
-      ui.toast(`✓ Pool ${selectedPool.pool} imported successfully`, 'success', 5000);
+      ui.toast(`Pool ${selectedPool.pool} imported successfully`, 'success', 5000);
       setTimeout(() => location.reload(), 2000);
     } else {
       ui.toast(result.error || 'Import failed', 'error');

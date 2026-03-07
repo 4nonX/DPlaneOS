@@ -605,9 +605,9 @@ async function loadFiles(path = currentPath) {
           <div class="file-meta">${size} • ${file.mode} • ${date}</div>
         </div>
         <div class="file-actions">
-          ${file.is_dir ? '' : '<button onclick="downloadFile(event, \'' + escapeHtml(file.path) + '\')">⬇️</button>'}
-          <button onclick="moveToTrash(event, '${escapeHtml(file.path)}')" title="Move to Trash" style="font-size:14px;">♻</button>
-          <button onclick="deleteFile(event, '${escapeHtml(file.path)}')" title="Delete permanently" style="opacity:0.4;font-size:10px;">✕</button>
+          ${file.is_dir ? '' : '<button onclick="downloadFile(event, \'' + escapeHtml(file.path) + '\')"><span class="material-symbols-rounded" style="font-size:16px;">download</span></button>'}
+          <button onclick="moveToTrash(event, '${escapeHtml(file.path)}')" title="Move to Trash" style="font-size:14px;"><span class="material-symbols-rounded" style="font-size:16px;">delete</span></button>
+          <button onclick="deleteFile(event, '${escapeHtml(file.path)}')" title="Delete permanently" style="opacity:0.4;font-size:10px;"><span class="material-symbols-rounded" style="font-size:14px;">close</span></button>
         </div>
       `;
       

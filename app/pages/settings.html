@@ -1967,13 +1967,13 @@ var __config_init=false;function init_config(){if(__config_init)return;__config_
             const recommendation = document.getElementById('arc-recommendation');
             
             if (!hasECC && percent > 40) {
-                recommendation.textContent = `⚠️ WARNING: ${percent}% of RAM. With Non-ECC RAM, recommend ≤40% (≤${Math.floor(totalRAM * 0.4)}GB) to reduce corruption risk.`;
+                recommendation.textContent = `WARNING: ${percent}% of RAM. With Non-ECC RAM, recommend <=40% (<=${Math.floor(totalRAM * 0.4)}GB) to reduce corruption risk.`;
                 recommendation.style.color = '#C62828';
             } else if (percent > 50) {
-                recommendation.textContent = `⚠️ ${percent}% of RAM. May cause memory pressure under heavy load.`;
+                recommendation.textContent = `WARNING: ${percent}% of RAM. May cause memory pressure under heavy load.`;
                 recommendation.style.color = '#F57F17';
             } else {
-                recommendation.textContent = `✓ ${percent}% of RAM. Safe for your ${totalRAM}GB system${hasECC ? ' with ECC' : ''}.`;
+                recommendation.textContent = `[OK] ${percent}% of RAM. Safe for your ${totalRAM}GB system${hasECC ? ' with ECC' : ''}.`;
                 recommendation.style.color = 'var(--md-sys-color-tertiary)';
             }
         }

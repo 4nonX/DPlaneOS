@@ -19,6 +19,7 @@ import (
 	"dplaned/internal/middleware"
 	"dplaned/internal/alerts"
 	"dplaned/internal/handlers"
+	"dplaned/internal/jobs"
 	"dplaned/internal/monitoring"
 	"dplaned/internal/security"
 	"dplaned/internal/websocket"
@@ -236,6 +237,9 @@ func main() {
 	bgMonitor.Start()
 	defer bgMonitor.Stop()
 
+	// Start job reaper: remove finished jobs after 1 hour
+	jobs.StartReaper(1 * time.Hour)
+
 	// Create router
 	r := mux.NewRouter()
 
@@ -274,6 +278,9 @@ func main() {
 	}()
 
 	r.HandleFunc("/health", healthCheckHandler).Methods("GET")
+
+	// Job status polling — used by async operations (replication, rsync, docker pull, etc.)
+	r.HandleFunc("/api/jobs/{id}", handlers.HandleJobStatus).Methods("GET")
 
 	// ZFS handlers
 	zfsHandler := handlers.NewZFSHandler()

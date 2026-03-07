@@ -966,11 +966,11 @@ async function modifyDNS(transform) {
     });
     const writeData = await writeResp.json();
     ui.hideLoading();
-    if (writeData.success) {
-      ui.toast('DNS configuration updated', 'success');
-      loadDNS();
+    
+    if (result.success) {
+      ui.toast(`Network OK (${result.latency}ms)`, 'success');
     } else {
-      ui.toast(writeData.error || 'Failed to update DNS', 'error');
+      ui.toast('Network test failed', 'error');
     }
   } catch (error) {
     ui.hideLoading();

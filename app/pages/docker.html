@@ -378,7 +378,7 @@ async function postDeployHealthCheck() {
     }
     
     if (permIssues.length > 0) {
-      ui.toast('⚠ Permission issues detected in: ' + permIssues.join(', ') + ' — Check container logs and dataset ownership', 'warning', 12000);
+      ui.toast('Warning: Permission issues detected in: ' + permIssues.join(', ') + ' - Check container logs and dataset ownership', 'warning', 12000);
     }
     setTimeout(function() { location.reload(); }, 1500);
   } catch (e) {
@@ -395,9 +395,9 @@ async function validateYAML() {
   
   if (yaml.includes('version:') && yaml.includes('services:')) {
     const services = (yaml.match(/^  \w+:/gm) || []).length;
-    ui.toast(`✓ YAML is valid (${services} services detected)`, 'success');
+    ui.toast(`YAML is valid (${services} services detected)`, 'success');
   } else {
-    ui.toast('⚠ Missing required fields (version or services)', 'warning');
+    ui.toast('Warning: Missing required fields (version or services)', 'warning');
   }
 }
 
