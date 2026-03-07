@@ -378,7 +378,7 @@ async function postDeployHealthCheck() {
     }
     
     if (permIssues.length > 0) {
-      ui.toast('Warning: Permission issues detected in: ' + permIssues.join(', ') + ' - Check container logs and dataset ownership', 'warning', 12000);
+      ui.toast('⚠ Permission issues detected in: ' + permIssues.join(', ') + ' — Check container logs and dataset ownership', 'warning', 12000);
     }
     setTimeout(function() { location.reload(); }, 1500);
   } catch (e) {
@@ -395,9 +395,9 @@ async function validateYAML() {
   
   if (yaml.includes('version:') && yaml.includes('services:')) {
     const services = (yaml.match(/^  \w+:/gm) || []).length;
-    ui.toast(`YAML is valid (${services} services detected)`, 'success');
+    ui.toast(`✓ YAML is valid (${services} services detected)`, 'success');
   } else {
-    ui.toast('Warning: Missing required fields (version or services)', 'warning');
+    ui.toast('⚠ Missing required fields (version or services)', 'warning');
   }
 }
 
@@ -620,18 +620,29 @@ document.addEventListener('DOMContentLoaded', () => {
 async function composeUp() {
   const path = document.getElementById('compose-path').value;
   if (!path) { ui.toast('Enter compose file path', 'warning'); return; }
-  ui.toast('Starting stack...', 'info');
-  try { const r = await csrfFetch('/api/docker/compose/up',{method:'POST',body:JSON.stringify({path})}); const d = await r.json();
-    showOutput('compose-output', d.output || d.error); if (d.success) { ui.toast('Stack started', 'success'); setTimeout(() => loadContainers(), 1500); } else { ui.toast(d.error, 'error'); }
-  } catch(e) { ui.toast('Failed', 'error'); }
+  try {
+    const r = await csrfFetch('/api/docker/compose/up', {method:'POST', body:JSON.stringify({path})});
+    const d = await r.json();
+    if (!d.job_id) { ui.toast(d.error || 'Failed to start job', 'error'); return; }
+    const job = await ui.pollJob(d.job_id, 'Starting stack…');
+    showOutput('compose-output', (job.result && job.result.output) || job.error || '');
+    if (job.status === 'done') { ui.toast('Stack started', 'success'); setTimeout(() => loadContainers(), 1500); }
+    else { ui.toast(job.error || 'Stack failed to start', 'error'); }
+  } catch(e) { ui.hideLoading(); ui.toast('Failed: ' + e.message, 'error'); }
 }
 async function composeDown() {
   const path = document.getElementById('compose-path').value;
   if (!path) { ui.toast('Enter compose file path', 'warning'); return; }
   if (!await ui.confirm('Compose Down', 'Stop and remove all containers in this stack?')) return;
-  try { const r = await csrfFetch('/api/docker/compose/down',{method:'POST',body:JSON.stringify({path})}); const d = await r.json();
-    showOutput('compose-output', d.output || d.error); if (d.success) { ui.toast('Stack stopped', 'success'); setTimeout(() => loadContainers(), 1500); } else { ui.toast(d.error, 'error'); }
-  } catch(e) { ui.toast('Failed', 'error'); }
+  try {
+    const r = await csrfFetch('/api/docker/compose/down', {method:'POST', body:JSON.stringify({path})});
+    const d = await r.json();
+    if (!d.job_id) { ui.toast(d.error || 'Failed to start job', 'error'); return; }
+    const job = await ui.pollJob(d.job_id, 'Stopping stack…');
+    showOutput('compose-output', (job.result && job.result.output) || job.error || '');
+    if (job.status === 'done') { ui.toast('Stack stopped', 'success'); setTimeout(() => loadContainers(), 1500); }
+    else { ui.toast(job.error || 'Stack failed to stop', 'error'); }
+  } catch(e) { ui.hideLoading(); ui.toast('Failed: ' + e.message, 'error'); }
 }
 async function composeStatus() {
   const path = document.getElementById('compose-path').value;
@@ -643,10 +654,14 @@ async function composeStatus() {
 async function pullImage() {
   const image = document.getElementById('pull-image').value;
   if (!image) { ui.toast('Enter image name', 'warning'); return; }
-  ui.toast('Pulling ' + image + '...', 'info');
-  try { const r = await csrfFetch('/api/docker/pull',{method:'POST',body:JSON.stringify({image})}); const d = await r.json();
-    showOutput('container-output', d.output || d.error); d.success ? ui.toast('Pull complete', 'success') : ui.toast(d.error, 'error');
-  } catch(e) { ui.toast('Failed', 'error'); }
+  try {
+    const r = await csrfFetch('/api/docker/pull', {method:'POST', body:JSON.stringify({image})});
+    const d = await r.json();
+    if (!d.job_id) { ui.toast(d.error || 'Failed to start job', 'error'); return; }
+    const job = await ui.pollJob(d.job_id, 'Pulling ' + image + '…');
+    showOutput('container-output', (job.result && job.result.image) || job.error || '');
+    job.status === 'done' ? ui.toast('Pull complete: ' + image, 'success') : ui.toast(job.error || 'Pull failed', 'error');
+  } catch(e) { ui.hideLoading(); ui.toast('Failed: ' + e.message, 'error'); }
 }
 async function removeContainer() {
   const name = document.getElementById('container-name').value;
@@ -660,10 +675,16 @@ async function updateContainer() {
   const name = document.getElementById('container-name').value;
   if (!name) { ui.toast('Enter container name', 'warning'); return; }
   if (!await ui.confirm('Update Container', 'Pull latest image and recreate ' + name + '?')) return;
-  ui.toast('Updating...', 'info');
-  try { const r = await csrfFetch('/api/docker/update',{method:'POST',body:JSON.stringify({container:name})}); const d = await r.json();
-    showOutput('container-output', d.output || d.error); if (d.success) { ui.toast('Updated', 'success'); setTimeout(() => loadContainers(), 1000); } else { ui.toast(d.error, 'error'); }
-  } catch(e) { ui.toast('Failed', 'error'); }
+  try {
+    const r = await csrfFetch('/api/docker/update', {method:'POST', body:JSON.stringify({container_name:name})});
+    const d = await r.json();
+    if (!d.job_id) { ui.toast(d.error || 'Failed to start job', 'error'); return; }
+    const job = await ui.pollJob(d.job_id, 'Updating ' + name + '…');
+    const res = job.result || {};
+    showOutput('container-output', res.steps ? JSON.stringify(res.steps, null, 2) : job.error || '');
+    if (job.status === 'done' && res.success !== false) { ui.toast('Updated: ' + name, 'success'); setTimeout(() => loadContainers(), 1000); }
+    else { ui.toast(res.error || job.error || 'Update failed', 'error'); }
+  } catch(e) { ui.hideLoading(); ui.toast('Failed: ' + e.message, 'error'); }
 }
 async function containerStats() {
   const name = document.getElementById('container-name').value;

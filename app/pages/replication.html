@@ -332,23 +332,17 @@ async function editTask(id) {
 
 async function runTask(id) {
   if (await ui.confirm('Run Task Now?', `Run ${id} replication now? This may take some time.`)) {
-    ui.showLoading('Starting replication...');
-    
     try {
       const response = await csrfFetch('/api/replication/send', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'run', task_id: id })
       });
-      
       const data = await response.json();
-      ui.hideLoading();
-      
-      if (data.success) {
-        ui.toast('Replication task started', 'success');
-      } else {
-        ui.toast(data.error || 'Failed to start task', 'error');
-      }
+      if (!data.job_id) { ui.toast(data.error || 'Failed to start job', 'error'); return; }
+      const job = await ui.pollJob(data.job_id, 'Running replication task…');
+      if (job.status === 'done') { ui.toast('Replication task complete', 'success'); }
+      else { ui.toast(job.error || 'Replication task failed', 'error'); }
     } catch (error) {
       ui.hideLoading();
       ui.toast('Network error: ' + error.message, 'error');
@@ -630,22 +624,21 @@ async function startReplication() {
   if (!data.snapshot||!data.remote_host||!data.remote_pool) { ui.toast('Fill all required fields','warning'); return; }
   const btn = document.querySelector('[onclick*="startReplication"]');
   if (btn) { btn.disabled = true; btn.textContent = 'Replicating…'; }
-  ui.showLoading('Replicating data — this may take several minutes for large datasets…');
   try {
-    const r = await csrfFetch('/api/replication/remote',{method:'POST',body:JSON.stringify(data)});
+    const r = await csrfFetch('/api/replication/remote', {method:'POST', body:JSON.stringify(data)});
     const d = await r.json();
-    ui.hideLoading();
-    if (btn) { btn.disabled = false; btn.textContent = 'Start Replication'; }
-    if (d.success) {
-      const ms = d.duration_ms || 0;
-      const sec = (ms/1000).toFixed(1);
-      ui.toast('Replication complete in '+sec+'s', 'success');
+    if (!d.job_id) { ui.toast(d.error || 'Failed to start job', 'error'); return; }
+    const job = await ui.pollJob(d.job_id, 'Replicating data — this may take several minutes for large datasets…');
+    if (btn) { btn.disabled = false; btn.innerHTML = '<span class="material-symbols-rounded" style="font-size:18px;">send</span> Replicate'; }
+    if (job.status === 'done') {
+      const ms = (job.result && job.result.duration_ms) || 0;
+      ui.toast('Replication complete in ' + (ms/1000).toFixed(1) + 's', 'success');
     } else {
-      ui.toast(d.error||'Replication failed', 'error');
+      ui.toast(job.error || 'Replication failed', 'error');
     }
   } catch(e) {
     ui.hideLoading();
-    if (btn) { btn.disabled = false; btn.textContent = 'Start Replication'; }
+    if (btn) { btn.disabled = false; btn.innerHTML = '<span class="material-symbols-rounded" style="font-size:18px;">send</span> Replicate'; }
     ui.toast('Error: '+e.message, 'error');
   }
 }

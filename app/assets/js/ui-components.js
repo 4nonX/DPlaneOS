@@ -639,6 +639,46 @@ class DPlaneUI {
         // ESC to close modals/menus handled in modal/context menu code
         // Page-specific shortcuts should be handled per-page
     }
+
+    /**
+     * Poll a background job until it completes or fails.
+     *
+     * Usage:
+     *   const result = await ui.pollJob(jobId, 'Replicating data…');
+     *   if (result.status === 'done')   { use result.result }
+     *   if (result.status === 'failed') { use result.error  }
+     *
+     * The loading overlay (showLoading) is kept visible throughout.
+     * intervalMs: how often to poll (default 2000ms)
+     * maxWaitMs:  give up after this many ms (default 30 min)
+     */
+    async pollJob(jobId, loadingMessage = 'Running…', intervalMs = 2000, maxWaitMs = 30 * 60 * 1000) {
+        this.showLoading(loadingMessage);
+        const deadline = Date.now() + maxWaitMs;
+
+        while (Date.now() < deadline) {
+            await new Promise(r => setTimeout(r, intervalMs));
+            try {
+                const resp = await csrfFetch('/api/jobs/' + jobId, { showLoading: false, showError: false });
+                if (!resp.ok) {
+                    this.hideLoading();
+                    return { status: 'failed', error: 'Job status unavailable (HTTP ' + resp.status + ')' };
+                }
+                const job = await resp.json();
+                if (job.status === 'done' || job.status === 'failed') {
+                    this.hideLoading();
+                    return job;
+                }
+                // Still running — update message to show it's alive
+                this.showLoading(loadingMessage);
+            } catch (e) {
+                // Network blip — keep polling
+            }
+        }
+
+        this.hideLoading();
+        return { status: 'failed', error: 'Timed out waiting for job to complete' };
+    }
 }
 
 // Initialize UI system
