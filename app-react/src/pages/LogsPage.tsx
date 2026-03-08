@@ -274,6 +274,11 @@ export function LogsPage() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 0, maxWidth: 1300, height: 'calc(100vh - 140px)' }}>
 
+      <div className="page-header">
+        <h1 className="page-title">Logs</h1>
+        <p className="page-subtitle">Live and historical system journal entries</p>
+      </div>
+
       {/* Toolbar */}
       <div style={{
         display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap',

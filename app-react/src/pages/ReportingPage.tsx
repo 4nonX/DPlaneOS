@@ -353,6 +353,11 @@ export function ReportingPage() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24, maxWidth: 1200 }}>
 
+      <div className="page-header">
+        <h1 className="page-title">Reporting</h1>
+        <p className="page-subtitle">System metrics history and performance trends</p>
+      </div>
+
       {/* Current metrics row */}
       {currentQ.isLoading ? (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 18 }}>

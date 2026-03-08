@@ -192,6 +192,11 @@ export function HardwarePage() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24, maxWidth: 1100 }}>
 
+      <div className="page-header">
+        <h1 className="page-title">Hardware</h1>
+        <p className="page-subtitle">Disks, SMART health, and system component status</p>
+      </div>
+
       {/* Disk temperature warning banner (from WS) */}
       {tempWarning && (
         <div className="alert alert-error">

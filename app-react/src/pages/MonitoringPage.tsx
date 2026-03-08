@@ -225,6 +225,11 @@ export function MonitoringPage() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24, maxWidth: 900 }}>
 
+      <div className="page-header">
+        <h1 className="page-title">Monitoring</h1>
+        <p className="page-subtitle">Kernel resource limits and real-time watchdog status</p>
+      </div>
+
       {/* Explanatory header */}
       <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)',
         borderRadius: 'var(--radius-xl)', padding: '20px 24px',
