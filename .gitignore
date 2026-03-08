@@ -26,6 +26,10 @@ dplaneos-v*.tar.*
 release*/
 dist/
 
+# ── Frontend build output (intermediate dir, outDir is ../app) ────────────────
+app-built/
+app-react/dist/
+
 # ── rclone config (contains credentials) ─────────────────────────────────────
 /etc/dplaneos/rclone.conf
 rclone.conf
