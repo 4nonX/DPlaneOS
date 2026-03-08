@@ -9,7 +9,6 @@
  *   GET /api/system/preflight  → { success, status: "pass"|"warn"|"fail", checks: Check[] }
  */
 
-import type React from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
 import { api } from '@/lib/api'
@@ -31,21 +30,6 @@ interface PreflightResponse {
   success: boolean
   status:  'pass' | 'warn' | 'fail' | string
   checks:  PreflightCheck[]
-}
-
-// ---------------------------------------------------------------------------
-// Styles
-// ---------------------------------------------------------------------------
-
-const btnGhost: React.CSSProperties = {
-  padding: '8px 14px', background: 'var(--surface)', color: 'var(--text-secondary)',
-  border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', cursor: 'pointer',
-  fontSize: 'var(--text-sm)', fontWeight: 500, display: 'inline-flex', alignItems: 'center', gap: 6,
-}
-const btnPrimary: React.CSSProperties = {
-  padding: '9px 20px', background: 'var(--primary)', color: '#000',
-  border: 'none', borderRadius: 'var(--radius-sm)', cursor: 'pointer',
-  fontSize: 'var(--text-sm)', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 6,
 }
 
 // ---------------------------------------------------------------------------
@@ -145,13 +129,9 @@ export function UpdatesPage() {
 
   return (
     <div style={{ maxWidth: 860 }}>
-      <div style={{ marginBottom: 28 }}>
-        <h1 style={{ fontSize: 'var(--text-3xl)', fontWeight: 700, letterSpacing: '-1px', marginBottom: 6 }}>
-          System Readiness
-        </h1>
-        <p style={{ color: 'var(--text-secondary)', fontSize: 'var(--text-md)' }}>
-          Preflight checks for system dependencies and resources
-        </p>
+      <div className="page-header">
+        <h1 className="page-title">System Readiness</h1>
+        <p className="page-subtitle">Preflight checks for system dependencies and resources</p>
       </div>
 
       {preflightQ.isLoading && <Skeleton height={360} />}
@@ -190,7 +170,7 @@ export function UpdatesPage() {
             <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
               <button
                 onClick={() => qc.invalidateQueries({ queryKey: ['system', 'preflight'] })}
-                style={btnGhost}
+                className="btn btn-ghost"
               >
                 <Icon name="refresh" size={14} />Re-run
               </button>
@@ -225,7 +205,7 @@ export function UpdatesPage() {
             </div>
             <button
               onClick={() => navigate({ to: '/settings' })}
-              style={btnPrimary}
+              className="btn btn-primary"
             >
               <Icon name="settings" size={15} />Open Settings
             </button>

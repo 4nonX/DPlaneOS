@@ -62,30 +62,11 @@ interface CircuitBreaker {
 }
 
 // ---------------------------------------------------------------------------
-// Styles
-// ---------------------------------------------------------------------------
-
-const btnGhost: React.CSSProperties = {
-  padding: '8px 14px', background: 'var(--surface)', color: 'var(--text-secondary)',
-  border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', cursor: 'pointer',
-  fontSize: 'var(--text-sm)', fontWeight: 500, display: 'inline-flex', alignItems: 'center', gap: 6,
-}
-const btnPrimary: React.CSSProperties = {
-  padding: '9px 20px', background: 'var(--primary)', color: '#000',
-  border: 'none', borderRadius: 'var(--radius-sm)', cursor: 'pointer',
-  fontSize: 'var(--text-sm)', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 6,
-}
-const inputStyle: React.CSSProperties = {
-  background: 'var(--surface)', border: '1px solid var(--border)',
-  borderRadius: 'var(--radius-sm)', padding: '8px 12px',
-  color: 'var(--text)', fontSize: 'var(--text-sm)', width: '100%',
-  fontFamily: 'var(--font-ui)', outline: 'none', boxSizing: 'border-box',
-}
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <label style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-      <span style={{ fontSize: 'var(--text-xs)', fontWeight: 600, color: 'var(--text-secondary)' }}>{label}</span>
+    <label className="field">
+      <span className="field-label">{label}</span>
       {children}
     </label>
   )
@@ -113,7 +94,7 @@ function StatusBar({ status, onSync }: { status: LdapStatus; onSync: () => void 
         {status.last_sync && <span style={{ marginLeft: 12, fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }}>Last sync: {fmtDate(status.last_sync)}</span>}
         {status.error && <span style={{ marginLeft: 12, fontSize: 'var(--text-xs)', color: 'var(--error)' }}>{status.error}</span>}
       </div>
-      <button onClick={onSync} style={btnGhost}><Icon name="sync" size={14} />Sync Now</button>
+      <button onClick={onSync} className="btn btn-ghost"><Icon name="sync" size={14} />Sync Now</button>
     </div>
   )
 }
@@ -184,31 +165,31 @@ function ConfigTab() {
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 120px', gap: 12 }}>
           <Field label="LDAP Host">
-            <input value={formCfg.host ?? ''} onChange={e => set('host', e.target.value)} placeholder="ldap.example.com" style={inputStyle} />
+            <input value={formCfg.host ?? ''} onChange={e => set('host', e.target.value)} placeholder="ldap.example.com" className="input" />
           </Field>
           <Field label="Port">
-            <input type="number" value={formCfg.port ?? 389} onChange={e => set('port', Number(e.target.value))} style={inputStyle} />
+            <input type="number" value={formCfg.port ?? 389} onChange={e => set('port', Number(e.target.value))} className="input" />
           </Field>
         </div>
 
         <Field label="Bind DN">
-          <input value={formCfg.bind_dn ?? ''} onChange={e => set('bind_dn', e.target.value)} placeholder="cn=admin,dc=example,dc=com" style={{ ...inputStyle, fontFamily: 'var(--font-mono)' }} />
+          <input value={formCfg.bind_dn ?? ''} onChange={e => set('bind_dn', e.target.value)} placeholder="cn=admin,dc=example,dc=com" className="input" style={{ fontFamily: 'var(--font-mono)' }} />
         </Field>
 
         <Field label="Bind Password">
-          <input type="password" value={formCfg.bind_pass ?? ''} onChange={e => set('bind_pass', e.target.value)} style={inputStyle} autoComplete="new-password" />
+          <input type="password" value={formCfg.bind_pass ?? ''} onChange={e => set('bind_pass', e.target.value)} className="input" autoComplete="new-password" />
         </Field>
 
         <Field label="Base DN">
-          <input value={formCfg.base_dn ?? ''} onChange={e => set('base_dn', e.target.value)} placeholder="dc=example,dc=com" style={{ ...inputStyle, fontFamily: 'var(--font-mono)' }} />
+          <input value={formCfg.base_dn ?? ''} onChange={e => set('base_dn', e.target.value)} placeholder="dc=example,dc=com" className="input" style={{ fontFamily: 'var(--font-mono)' }} />
         </Field>
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
           <Field label="User Filter">
-            <input value={formCfg.user_filter ?? ''} onChange={e => set('user_filter', e.target.value)} placeholder="(objectClass=person)" style={{ ...inputStyle, fontFamily: 'var(--font-mono)' }} />
+            <input value={formCfg.user_filter ?? ''} onChange={e => set('user_filter', e.target.value)} placeholder="(objectClass=person)" className="input" style={{ fontFamily: 'var(--font-mono)' }} />
           </Field>
           <Field label="Group Filter">
-            <input value={formCfg.group_filter ?? ''} onChange={e => set('group_filter', e.target.value)} placeholder="(objectClass=groupOfNames)" style={{ ...inputStyle, fontFamily: 'var(--font-mono)' }} />
+            <input value={formCfg.group_filter ?? ''} onChange={e => set('group_filter', e.target.value)} placeholder="(objectClass=groupOfNames)" className="input" style={{ fontFamily: 'var(--font-mono)' }} />
           </Field>
         </div>
 
@@ -219,10 +200,10 @@ function ConfigTab() {
         </label>
 
         <div style={{ display: 'flex', gap: 8, paddingTop: 8 }}>
-          <button onClick={() => save.mutate()} disabled={save.isPending} style={btnPrimary}>
+          <button onClick={() => save.mutate()} disabled={save.isPending} className="btn btn-primary">
             <Icon name="save" size={15} />{save.isPending ? 'Saving…' : 'Save'}
           </button>
-          <button onClick={() => test.mutate()} disabled={test.isPending} style={btnGhost}>
+          <button onClick={() => test.mutate()} disabled={test.isPending} className="btn btn-ghost">
             <Icon name="cable" size={15} />{test.isPending ? 'Testing…' : 'Test Connection'}
           </button>
         </div>
@@ -263,12 +244,12 @@ function MappingsTab() {
     <>
       <div style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap' }}>
         <input value={ldapGroup} onChange={e => setLdapGroup(e.target.value)} placeholder="LDAP group DN or name"
-          style={{ ...inputStyle, flex: 1, minWidth: 200, fontFamily: 'var(--font-mono)' }} />
+          className="input" style={{ flex: 1, minWidth: 200, fontFamily: 'var(--font-mono)' }} />
         <select value={localRole} onChange={e => setLocalRole(e.target.value)}
-          style={{ ...inputStyle, width: 120 }}>
+          className="input" style={{ width: 120 }}>
           {['admin', 'user', 'readonly'].map(r => <option key={r} value={r}>{r}</option>)}
         </select>
-        <button onClick={() => add.mutate()} disabled={!ldapGroup.trim() || add.isPending} style={btnPrimary}>
+        <button onClick={() => add.mutate()} disabled={!ldapGroup.trim() || add.isPending} className="btn btn-primary">
           <Icon name="add" size={15} />{add.isPending ? 'Adding…' : 'Add Mapping'}
         </button>
       </div>
@@ -282,7 +263,7 @@ function MappingsTab() {
             <Icon name="account_tree" size={16} style={{ color: 'var(--primary)', flexShrink: 0 }} />
             <code style={{ flex: 1, fontSize: 'var(--text-xs)', fontFamily: 'var(--font-mono)', color: 'var(--text-secondary)' }}>{m.ldap_group}</code>
             <Icon name="arrow_forward" size={14} style={{ color: 'var(--text-tertiary)', flexShrink: 0 }} />
-            <span style={{ padding: '2px 8px', borderRadius: 'var(--radius-sm)', background: 'var(--primary-bg)', color: 'var(--primary)', fontSize: 'var(--text-xs)', fontWeight: 700 }}>{m.local_role}</span>
+            <span className="badge badge-primary">{m.local_role}</span>
             <button onClick={() => remove.mutate(m.id ?? m.ldap_group)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-tertiary)', padding: 4, borderRadius: 'var(--radius-xs)', display: 'flex' }}
               onMouseEnter={e => (e.currentTarget.style.color = 'var(--error)')}
               onMouseLeave={e => (e.currentTarget.style.color = 'var(--text-tertiary)')}>
@@ -335,7 +316,7 @@ function SyncLogTab() {
             {cb.failures !== undefined && <span style={{ marginLeft: 10, fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }}>{cb.failures} failure{cb.failures !== 1 ? 's' : ''}</span>}
           </div>
           {cb.state !== 'closed' && (
-            <button onClick={() => resetCB.mutate()} disabled={resetCB.isPending} style={btnGhost}>
+            <button onClick={() => resetCB.mutate()} disabled={resetCB.isPending} className="btn btn-ghost">
               <Icon name="restart_alt" size={14} />{resetCB.isPending ? 'Resetting…' : 'Reset'}
             </button>
           )}
@@ -370,14 +351,14 @@ export function DirectoryPage() {
 
   return (
     <div style={{ maxWidth: 860 }}>
-      <div style={{ marginBottom: 28 }}>
-        <h1 style={{ fontSize: 'var(--text-3xl)', fontWeight: 700, letterSpacing: '-1px', marginBottom: 6 }}>Directory Service</h1>
-        <p style={{ color: 'var(--text-secondary)', fontSize: 'var(--text-md)' }}>LDAP integration for centralized authentication</p>
+      <div className="page-header">
+        <h1 className="page-title">Directory Service</h1>
+        <p className="page-subtitle">LDAP integration for centralized authentication</p>
       </div>
 
-      <div style={{ display: 'flex', gap: 4, marginBottom: 24, borderBottom: '1px solid var(--border)' }}>
+      <div className="tabs-underline">
         {TABS.map(t => (
-          <button key={t.id} onClick={() => setTab(t.id)} style={{ padding: '10px 20px', background: 'none', border: 'none', cursor: 'pointer', fontSize: 'var(--text-sm)', fontWeight: 600, color: tab === t.id ? 'var(--primary)' : 'var(--text-secondary)', borderBottom: tab === t.id ? '2px solid var(--primary)' : '2px solid transparent', marginBottom: -1, display: 'flex', alignItems: 'center', gap: 6 }}>
+          <button key={t.id} onClick={() => setTab(t.id)} className={`tab-underline${tab === t.id ? ' active' : ''}`}>
             <Icon name={t.icon} size={16} />{t.label}
           </button>
         ))}

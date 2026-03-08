@@ -24,6 +24,7 @@ import { Icon } from '@/components/ui/Icon'
 import { ErrorState } from '@/components/ui/ErrorState'
 import { Skeleton } from '@/components/ui/LoadingSpinner'
 import { toast } from '@/hooks/useToast'
+import { Modal } from '@/components/ui/Modal'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -73,32 +74,6 @@ function fileIcon(entry: FileEntry): string {
   if (['pdf'].includes(ext)) return 'picture_as_pdf'
   if (['txt','md','log','conf','yaml','yml','json','toml','sh','py','go','ts','tsx'].includes(ext)) return 'description'
   return 'insert_drive_file'
-}
-
-// ---------------------------------------------------------------------------
-// Styles
-// ---------------------------------------------------------------------------
-
-const btnGhost: React.CSSProperties = {
-  padding: '7px 13px', background: 'var(--surface)', color: 'var(--text-secondary)',
-  border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', cursor: 'pointer',
-  fontSize: 'var(--text-sm)', fontWeight: 500, display: 'inline-flex', alignItems: 'center', gap: 6,
-}
-const btnPrimary: React.CSSProperties = {
-  padding: '8px 16px', background: 'var(--primary)', color: '#000',
-  border: 'none', borderRadius: 'var(--radius-sm)', cursor: 'pointer',
-  fontSize: 'var(--text-sm)', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 6,
-}
-const btnDanger: React.CSSProperties = {
-  padding: '6px 12px', background: 'var(--error-bg)', border: '1px solid var(--error-border)',
-  borderRadius: 'var(--radius-sm)', cursor: 'pointer', color: 'var(--error)',
-  fontSize: 'var(--text-xs)', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 4,
-}
-const inputStyle: React.CSSProperties = {
-  background: 'var(--surface)', border: '1px solid var(--border)',
-  borderRadius: 'var(--radius-sm)', padding: '8px 12px',
-  color: 'var(--text)', fontSize: 'var(--text-sm)', width: '100%',
-  fontFamily: 'var(--font-ui)', outline: 'none', boxSizing: 'border-box',
 }
 
 // ---------------------------------------------------------------------------
@@ -161,7 +136,7 @@ function RenameModal({ entry, onClose, onDone }: { entry: FileEntry; onClose: ()
   })
   return (
     <Modal title="Rename" onClose={onClose}>
-      <input value={name} onChange={e => setName(e.target.value)} style={inputStyle} autoFocus
+      <input value={name} onChange={e => setName(e.target.value)} className="input" autoFocus
         onKeyDown={e => e.key === 'Enter' && mutation.mutate()} />
       <ModalFooter onClose={onClose} onConfirm={() => mutation.mutate()} loading={mutation.isPending} label="Rename" />
     </Modal>
@@ -177,7 +152,7 @@ function MkdirModal({ currentPath, onClose, onDone }: { currentPath: string; onC
   })
   return (
     <Modal title="New Folder" onClose={onClose}>
-      <input value={name} onChange={e => setName(e.target.value)} placeholder="Folder name" style={inputStyle} autoFocus
+      <input value={name} onChange={e => setName(e.target.value)} placeholder="Folder name" className="input" autoFocus
         onKeyDown={e => e.key === 'Enter' && mutation.mutate()} />
       <ModalFooter onClose={onClose} onConfirm={() => mutation.mutate()} loading={mutation.isPending} label="Create" />
     </Modal>
@@ -195,13 +170,13 @@ function ChownModal({ entry, onClose, onDone }: { entry: FileEntry; onClose: () 
   return (
     <Modal title={`Change Owner — ${entry.name}`} onClose={onClose}>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-        <label style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-          <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>Owner</span>
-          <input value={owner} onChange={e => setOwner(e.target.value)} placeholder="root" style={inputStyle} />
+        <label className="field">
+          <span className="field-label">Owner</span>
+          <input value={owner} onChange={e => setOwner(e.target.value)} placeholder="root" className="input" />
         </label>
-        <label style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-          <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>Group</span>
-          <input value={group} onChange={e => setGroup(e.target.value)} placeholder="root" style={inputStyle} />
+        <label className="field">
+          <span className="field-label">Group</span>
+          <input value={group} onChange={e => setGroup(e.target.value)} placeholder="root" className="input" />
         </label>
       </div>
       <ModalFooter onClose={onClose} onConfirm={() => mutation.mutate()} loading={mutation.isPending} label="Apply" />
@@ -218,9 +193,9 @@ function ChmodModal({ entry, onClose, onDone }: { entry: FileEntry; onClose: () 
   })
   return (
     <Modal title={`Change Mode — ${entry.name}`} onClose={onClose}>
-      <label style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-        <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>Octal mode</span>
-        <input value={mode} onChange={e => setMode(e.target.value)} placeholder="755" style={{ ...inputStyle, fontFamily: 'var(--font-mono)' }} autoFocus
+      <label className="field">
+        <span className="field-label">Octal mode</span>
+        <input value={mode} onChange={e => setMode(e.target.value)} placeholder="755" className="input" style={{ fontFamily: 'var(--font-mono)' }} autoFocus
           onKeyDown={e => e.key === 'Enter' && mutation.mutate()} />
       </label>
       <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', marginTop: 4 }}>
@@ -231,24 +206,11 @@ function ChmodModal({ entry, onClose, onDone }: { entry: FileEntry; onClose: () 
   )
 }
 
-// Generic modal frame
-function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
-  return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }}
-      onClick={e => e.target === e.currentTarget && onClose()}>
-      <div style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 'var(--radius-xl)', padding: 28, width: 440, maxWidth: '90vw', display: 'flex', flexDirection: 'column', gap: 16 }}>
-        <div style={{ fontWeight: 700, fontSize: 'var(--text-lg)' }}>{title}</div>
-        {children}
-      </div>
-    </div>
-  )
-}
-
 function ModalFooter({ onClose, onConfirm, loading, label }: { onClose: () => void; onConfirm: () => void; loading: boolean; label: string }) {
   return (
     <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-      <button onClick={onClose} style={btnGhost}>Cancel</button>
-      <button onClick={onConfirm} disabled={loading} style={btnPrimary}>{loading ? 'Working…' : label}</button>
+      <button onClick={onClose} className="btn btn-ghost">Cancel</button>
+      <button onClick={onConfirm} disabled={loading} className="btn btn-primary">{loading ? 'Working…' : label}</button>
     </div>
   )
 }
@@ -305,8 +267,8 @@ function UploadPanel({ currentPath, onDone }: { currentPath: string; onDone: () 
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: files.length ? 12 : 0 }}>
         <input ref={inputRef} type="file" multiple style={{ display: 'none' }}
           onChange={e => setFiles(f => [...f, ...Array.from(e.target.files ?? [])]) } />
-        <button onClick={() => inputRef.current?.click()} style={btnGhost}><Icon name="upload_file" size={15} />Select Files</button>
-        {files.length > 0 && <button onClick={startAll} style={btnPrimary}><Icon name="upload" size={15} />Upload {files.length} file{files.length > 1 ? 's' : ''}</button>}
+        <button onClick={() => inputRef.current?.click()} className="btn btn-ghost"><Icon name="upload_file" size={15} />Select Files</button>
+        {files.length > 0 && <button onClick={startAll} className="btn btn-primary"><Icon name="upload" size={15} />Upload {files.length} file{files.length > 1 ? 's' : ''}</button>}
       </div>
       {files.map(f => (
         <div key={f.name} style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 8 }}>
@@ -356,7 +318,7 @@ function TrashTab() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
         <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>{items.length} item{items.length !== 1 ? 's' : ''} in trash</span>
         {items.length > 0 && (
-          <button onClick={() => empty.mutate()} disabled={empty.isPending} style={btnDanger}>
+          <button onClick={() => empty.mutate()} disabled={empty.isPending} className="btn btn-danger">
             <Icon name="delete_forever" size={14} />{empty.isPending ? 'Emptying…' : 'Empty Trash'}
           </button>
         )}
@@ -376,7 +338,7 @@ function TrashTab() {
               {item.original_path && <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', fontFamily: 'var(--font-mono)' }}>{item.original_path}</div>}
             </div>
             {item.deleted_at && <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', flexShrink: 0 }}>{fmtDate(item.deleted_at)}</span>}
-            <button onClick={() => restore.mutate(item.name)} style={btnGhost}><Icon name="restore" size={14} />Restore</button>
+            <button onClick={() => restore.mutate(item.name)} className="btn btn-ghost"><Icon name="restore" size={14} />Restore</button>
           </div>
         ))}
       </div>
@@ -448,10 +410,10 @@ function FileBrowser() {
     <>
       {/* Toolbar */}
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 12 }}>
-        <button onClick={upDir} style={btnGhost} title="Up" disabled={path === '/' || path === '/mnt'}>
+        <button onClick={upDir} className="btn btn-ghost" title="Up" disabled={path === '/' || path === '/mnt'}>
           <Icon name="arrow_upward" size={15} />
         </button>
-        <button onClick={refresh} style={btnGhost} title="Refresh"><Icon name="refresh" size={15} /></button>
+        <button onClick={refresh} className="btn btn-ghost" title="Refresh"><Icon name="refresh" size={15} /></button>
 
         {/* Breadcrumb / path input */}
         <form onSubmit={e => { e.preventDefault(); navigate(inputPath) }} style={{ flex: 1 }}>
@@ -480,8 +442,8 @@ function FileBrowser() {
           </div>
         </form>
 
-        <button onClick={() => setShowMkdir(true)} style={btnGhost}><Icon name="create_new_folder" size={15} />New Folder</button>
-        <button onClick={() => setShowUpload(u => !u)} style={showUpload ? { ...btnGhost, borderColor: 'var(--primary)', color: 'var(--primary)' } : btnGhost}>
+        <button onClick={() => setShowMkdir(true)} className="btn btn-ghost"><Icon name="create_new_folder" size={15} />New Folder</button>
+        <button onClick={() => setShowUpload(u => !u)} className="btn btn-ghost" style={showUpload ? { borderColor: 'var(--primary)', color: 'var(--primary)' } : undefined}>
           <Icon name="upload" size={15} />Upload
         </button>
       </div>
@@ -501,11 +463,11 @@ function FileBrowser() {
 
       {sorted.length > 0 && (
         <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', overflow: 'hidden' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <table className="data-table">
             <thead>
               <tr style={{ background: 'rgba(255,255,255,0.03)' }}>
                 {['Name', 'Size', 'Owner', 'Mode', 'Modified'].map(h => (
-                  <th key={h} style={{ padding: '9px 14px', textAlign: 'left', fontSize: 'var(--text-2xs)', fontWeight: 700, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.5px', borderBottom: '1px solid var(--border)' }}>{h}</th>
+                  <th key={h}>{h}</th>
                 ))}
               </tr>
             </thead>
@@ -514,26 +476,26 @@ function FileBrowser() {
                 <tr key={entry.path}
                   onDoubleClick={() => entry.is_dir && navigate(entry.path)}
                   onContextMenu={e => handleCtx(e, entry)}
-                  style={{ borderBottom: '1px solid var(--border)', cursor: entry.is_dir ? 'pointer' : 'default', transition: 'background 0.1s' }}
+                  style={{ cursor: entry.is_dir ? 'pointer' : 'default' }}
                   onMouseEnter={e => (e.currentTarget.style.background = 'var(--bg-card-hover)')}
                   onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
                 >
-                  <td style={{ padding: '10px 14px' }}>
+                  <td>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
                       <Icon name={fileIcon(entry)} size={17} style={{ color: entry.is_dir ? 'var(--primary)' : 'var(--text-tertiary)', flexShrink: 0 }} />
                       <span style={{ fontSize: 'var(--text-sm)', fontWeight: entry.is_dir ? 600 : 400 }}>{entry.name}</span>
                     </div>
                   </td>
-                  <td style={{ padding: '10px 14px', fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap' }}>
+                  <td style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap' }}>
                     {entry.is_dir ? '—' : fmtSize(entry.size)}
                   </td>
-                  <td style={{ padding: '10px 14px', fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', whiteSpace: 'nowrap' }}>
+                  <td style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', whiteSpace: 'nowrap' }}>
                     {entry.owner ?? '—'}{entry.group ? `:${entry.group}` : ''}
                   </td>
-                  <td style={{ padding: '10px 14px', fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', fontFamily: 'var(--font-mono)' }}>
+                  <td style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', fontFamily: 'var(--font-mono)' }}>
                     {entry.permissions ?? entry.mode ?? '—'}
                   </td>
-                  <td style={{ padding: '10px 14px', fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', whiteSpace: 'nowrap' }}>
+                  <td style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', whiteSpace: 'nowrap' }}>
                     {fmtDate(entry.mtime)}
                   </td>
                 </tr>
@@ -571,9 +533,9 @@ function CopyForm({ entry, onClose, onDone }: { entry: FileEntry; onClose: () =>
   })
   return (
     <>
-      <label style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-        <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>Destination path</span>
-        <input value={dest} onChange={e => setDest(e.target.value)} style={{ ...inputStyle, fontFamily: 'var(--font-mono)' }} autoFocus />
+      <label className="field">
+        <span className="field-label">Destination path</span>
+        <input value={dest} onChange={e => setDest(e.target.value)} className="input" style={{ fontFamily: 'var(--font-mono)' }} autoFocus />
       </label>
       <ModalFooter onClose={onClose} onConfirm={() => mutation.mutate()} loading={mutation.isPending} label="Copy" />
     </>
@@ -596,14 +558,14 @@ export function FilesPage() {
 
   return (
     <div style={{ maxWidth: 1100 }}>
-      <div style={{ marginBottom: 28 }}>
-        <h1 style={{ fontSize: 'var(--text-3xl)', fontWeight: 700, letterSpacing: '-1px', marginBottom: 6 }}>Files</h1>
-        <p style={{ color: 'var(--text-secondary)', fontSize: 'var(--text-md)' }}>Browse, upload, rename, manage permissions</p>
+      <div className="page-header">
+        <h1 className="page-title">Files</h1>
+        <p className="page-subtitle">Browse, upload, rename, manage permissions</p>
       </div>
 
-      <div style={{ display: 'flex', gap: 4, marginBottom: 24, borderBottom: '1px solid var(--border)' }}>
+      <div className="tabs-underline">
         {TABS.map(t => (
-          <button key={t.id} onClick={() => setTab(t.id)} style={{ padding: '10px 20px', background: 'none', border: 'none', cursor: 'pointer', fontSize: 'var(--text-sm)', fontWeight: 600, color: tab === t.id ? 'var(--primary)' : 'var(--text-secondary)', borderBottom: tab === t.id ? '2px solid var(--primary)' : '2px solid transparent', marginBottom: -1, display: 'flex', alignItems: 'center', gap: 6 }}>
+          <button key={t.id} onClick={() => setTab(t.id)} className={`tab-underline${tab === t.id ? ' active' : ''}`}>
             <Icon name={t.icon} size={16} />{t.label}
           </button>
         ))}

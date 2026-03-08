@@ -229,7 +229,7 @@ export function LoginPage() {
                   autoComplete="username"
                   autoFocus
                   disabled={loading}
-                  style={inputStyle}
+                  className="input"
                 />
               </div>
 
@@ -248,7 +248,8 @@ export function LoginPage() {
                     onChange={(e) => setPassword(e.target.value)}
                     autoComplete="current-password"
                     disabled={loading}
-                    style={{ ...inputStyle, paddingRight: 44 }}
+                    className="input"
+                    style={{ paddingRight: 44 }}
                   />
                   <button
                     type="button"
@@ -276,7 +277,8 @@ export function LoginPage() {
               <button
                 type="submit"
                 disabled={loading}
-                style={submitButtonStyle}
+                className="btn btn-primary"
+                style={{ width: '100%' }}
               >
                 {loading ? (
                   <span style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'center' }}>
@@ -308,11 +310,17 @@ export function LoginPage() {
                   onChange={(e) => setTotpCode(e.target.value.replace(/\D/g, ''))}
                   autoComplete="one-time-code"
                   disabled={loading}
-                  style={{ ...inputStyle, fontFamily: 'var(--font-mono)', fontSize: 24, letterSpacing: 8, textAlign: 'center' }}
+                  className="input"
+                  style={{ fontFamily: 'var(--font-mono)', fontSize: 24, letterSpacing: 8, textAlign: 'center' }}
                 />
               </div>
 
-              <button type="submit" disabled={loading || totpCode.length < 6} style={submitButtonStyle}>
+              <button
+                type="submit"
+                disabled={loading || totpCode.length < 6}
+                className="btn btn-primary"
+                style={{ width: '100%' }}
+              >
                 {loading ? (
                   <span style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'center' }}>
                     <Spinner size={16} color="rgba(0,0,0,0.7)" />
@@ -346,33 +354,6 @@ export function LoginPage() {
       </div>
     </div>
   )
-}
-
-const inputStyle: React.CSSProperties = {
-  width: '100%',
-  padding: '10px 14px',
-  background: 'var(--surface)',
-  border: '1px solid var(--border)',
-  borderRadius: 'var(--radius-sm)',
-  color: 'var(--text)',
-  fontSize: 'var(--text-base)',
-  fontFamily: 'var(--font-ui)',
-  outline: 'none',
-  transition: 'border-color 0.15s',
-}
-
-const submitButtonStyle: React.CSSProperties = {
-  width: '100%',
-  padding: '12px',
-  background: 'var(--primary)',
-  border: 'none',
-  borderRadius: 'var(--radius-sm)',
-  color: 'var(--text-on-primary)',
-  fontSize: 'var(--text-base)',
-  fontWeight: 600,
-  fontFamily: 'var(--font-ui)',
-  cursor: 'pointer',
-  transition: 'opacity 0.15s',
 }
 
 import type React from 'react'

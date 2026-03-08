@@ -15,7 +15,6 @@
  */
 
 import { useState } from 'react'
-import type React from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { Icon } from '@/components/ui/Icon'
@@ -36,27 +35,6 @@ interface SSHKeyResponse { success: boolean; public_key?: string; error?: string
 interface JobStartResponse { job_id: string }
 
 // ---------------------------------------------------------------------------
-// Styles
-// ---------------------------------------------------------------------------
-
-const inputStyle: React.CSSProperties = {
-  background: 'var(--surface)', border: '1px solid var(--border)',
-  borderRadius: 'var(--radius-sm)', padding: '9px 13px',
-  color: 'var(--text)', fontSize: 'var(--text-sm)', width: '100%',
-  fontFamily: 'var(--font-ui)', outline: 'none', boxSizing: 'border-box',
-}
-const btnPrimary: React.CSSProperties = {
-  padding: '10px 22px', background: 'var(--primary)', color: '#000',
-  border: 'none', borderRadius: 'var(--radius-sm)', cursor: 'pointer',
-  fontSize: 'var(--text-sm)', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 7,
-}
-const btnGhost: React.CSSProperties = {
-  padding: '9px 16px', background: 'var(--surface)', color: 'var(--text-secondary)',
-  border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', cursor: 'pointer',
-  fontSize: 'var(--text-sm)', fontWeight: 500, display: 'inline-flex', alignItems: 'center', gap: 6,
-}
-
-// ---------------------------------------------------------------------------
 // JobStatusBanner
 // ---------------------------------------------------------------------------
 
@@ -66,8 +44,8 @@ function JobStatusBanner({ jobId, onDone }: { jobId: string | null; onDone?: () 
   if (!jobId) return null
 
   if (job.isLoading) return (
-    <div style={{ padding: '12px 16px', background: 'var(--info-bg)', border: '1px solid var(--info-border)', borderRadius: 'var(--radius-md)', display: 'flex', alignItems: 'center', gap: 10, fontSize: 'var(--text-sm)' }}>
-      <Icon name="sync" size={16} style={{ color: 'var(--info)', animation: 'spin 1s linear infinite' }} />
+    <div className="alert alert-info" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+      <Icon name="sync" size={16} style={{ animation: 'spin 1s linear infinite' }} />
       Starting job…
     </div>
   )
@@ -75,15 +53,15 @@ function JobStatusBanner({ jobId, onDone }: { jobId: string | null; onDone?: () 
   const status = job.data?.status
 
   if (job.interrupted) return (
-    <div style={{ padding: '12px 16px', background: 'var(--warning-bg)', border: '1px solid var(--warning-border)', borderRadius: 'var(--radius-md)', display: 'flex', alignItems: 'center', gap: 10, fontSize: 'var(--text-sm)', color: 'var(--warning)' }}>
+    <div className="alert alert-warning" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
       <Icon name="warning" size={16} />
       Job interrupted — daemon may have restarted
     </div>
   )
 
   if (status === 'running') return (
-    <div style={{ padding: '12px 16px', background: 'var(--info-bg)', border: '1px solid var(--info-border)', borderRadius: 'var(--radius-md)', display: 'flex', alignItems: 'center', gap: 10, fontSize: 'var(--text-sm)' }}>
-      <Icon name="sync" size={16} style={{ color: 'var(--info)' }} />
+    <div className="alert alert-info" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+      <Icon name="sync" size={16} />
       <span style={{ flex: 1 }}>Replication running… <span style={{ color: 'var(--text-tertiary)', fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)' }}>job:{jobId.slice(0, 8)}</span></span>
     </div>
   )
@@ -91,7 +69,7 @@ function JobStatusBanner({ jobId, onDone }: { jobId: string | null; onDone?: () 
   if (status === 'done') {
     onDone?.()
     return (
-      <div style={{ padding: '12px 16px', background: 'var(--success-bg)', border: '1px solid var(--success-border)', borderRadius: 'var(--radius-md)', display: 'flex', alignItems: 'center', gap: 10, fontSize: 'var(--text-sm)', color: 'var(--success)' }}>
+      <div className="alert alert-success" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
         <Icon name="check_circle" size={16} />
         Replication completed successfully
       </div>
@@ -99,7 +77,7 @@ function JobStatusBanner({ jobId, onDone }: { jobId: string | null; onDone?: () 
   }
 
   if (status === 'failed') return (
-    <div style={{ padding: '12px 16px', background: 'var(--error-bg)', border: '1px solid var(--error-border)', borderRadius: 'var(--radius-md)', display: 'flex', alignItems: 'center', gap: 10, fontSize: 'var(--text-sm)', color: 'var(--error)' }}>
+    <div className="alert alert-error" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
       <Icon name="error" size={16} />
       Replication failed: {job.data?.error ?? 'unknown error'}
     </div>
@@ -172,7 +150,7 @@ function ReplicateForm({ datasets }: { datasets: ZFSDataset[] }) {
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
         <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>Source Dataset</span>
-          <select value={dataset} onChange={e => setDataset(e.target.value)} style={inputStyle}>
+          <select value={dataset} onChange={e => setDataset(e.target.value)} className="input">
             {datasets.map(d => <option key={d.name} value={d.name}>{d.name}</option>)}
           </select>
         </label>
@@ -180,23 +158,23 @@ function ReplicateForm({ datasets }: { datasets: ZFSDataset[] }) {
         <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>Target Dataset (optional)</span>
           <input value={targetDataset} onChange={e => setTargetDataset(e.target.value)}
-            placeholder="Leave empty to match source" style={inputStyle} />
+            placeholder="Leave empty to match source" className="input" />
         </label>
 
         <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>Target Host</span>
           <input value={targetHost} onChange={e => setTargetHost(e.target.value)}
-            placeholder="192.168.1.50 or nas.local" style={inputStyle} />
+            placeholder="192.168.1.50 or nas.local" className="input" />
         </label>
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 80px', gap: 8 }}>
           <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>SSH User</span>
-            <input value={targetUser} onChange={e => setTargetUser(e.target.value)} style={inputStyle} />
+            <input value={targetUser} onChange={e => setTargetUser(e.target.value)} className="input" />
           </label>
           <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>Port</span>
-            <input value={targetPort} onChange={e => setTargetPort(e.target.value)} style={inputStyle} />
+            <input value={targetPort} onChange={e => setTargetPort(e.target.value)} className="input" />
           </label>
         </div>
 
@@ -214,10 +192,10 @@ function ReplicateForm({ datasets }: { datasets: ZFSDataset[] }) {
       )}
 
       <div style={{ display: 'flex', gap: 8, marginTop: 20 }}>
-        <button onClick={() => testMutation.mutate()} disabled={testMutation.isPending || !targetHost} style={btnGhost}>
+        <button onClick={() => testMutation.mutate()} disabled={testMutation.isPending || !targetHost} className="btn btn-ghost">
           <Icon name="wifi" size={16} />{testMutation.isPending ? 'Testing…' : 'Test Connection'}
         </button>
-        <button onClick={start} disabled={isRunning} style={btnPrimary}>
+        <button onClick={start} disabled={isRunning} className="btn btn-primary">
           <Icon name={incremental ? 'sync' : 'send'} size={17} />
           {isRunning ? 'Starting…' : incremental ? 'Send Incremental' : 'Start Replication'}
         </button>
@@ -290,10 +268,10 @@ function SSHKeyManager() {
       </div>
 
       <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
-        <button onClick={() => keygen.mutate()} disabled={keygen.isPending} style={btnGhost}>
+        <button onClick={() => keygen.mutate()} disabled={keygen.isPending} className="btn btn-ghost">
           <Icon name="vpn_key" size={16} />{keygen.isPending ? 'Generating…' : 'Generate Key'}
         </button>
-        <button onClick={() => getPubKey.mutate()} disabled={getPubKey.isPending} style={btnGhost}>
+        <button onClick={() => getPubKey.mutate()} disabled={getPubKey.isPending} className="btn btn-ghost">
           <Icon name="content_copy" size={16} />Show Public Key
         </button>
       </div>
@@ -305,7 +283,7 @@ function SSHKeyManager() {
             {pubKey}
           </div>
           <button onClick={() => { navigator.clipboard.writeText(pubKey); toast.success('Copied') }}
-            style={{ ...btnGhost, marginTop: 8, fontSize: 'var(--text-xs)' }}>
+            className="btn btn-ghost" style={{ marginTop: 8, fontSize: 'var(--text-xs)' }}>
             <Icon name="content_copy" size={13} /> Copy to clipboard
           </button>
         </div>
@@ -314,12 +292,12 @@ function SSHKeyManager() {
       <div style={{ borderTop: '1px solid var(--border)', paddingTop: 20 }}>
         <div style={{ fontSize: 'var(--text-sm)', fontWeight: 600, marginBottom: 14 }}>Auto-deploy via ssh-copy-id</div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 100px', gap: 8, marginBottom: 8 }}>
-          <input value={targetHost} onChange={e => setTargetHost(e.target.value)} placeholder="Target host" style={inputStyle} />
-          <input value={targetUser} onChange={e => setTargetUser(e.target.value)} placeholder="User" style={inputStyle} />
+          <input value={targetHost} onChange={e => setTargetHost(e.target.value)} placeholder="Target host" className="input" />
+          <input value={targetUser} onChange={e => setTargetUser(e.target.value)} placeholder="User" className="input" />
         </div>
         <input type="password" value={targetPass} onChange={e => setTargetPass(e.target.value)}
-          placeholder="Target SSH password (one-time use)" style={{ ...inputStyle, marginBottom: 10 }} />
-        <button onClick={() => copyId.mutate()} disabled={copyId.isPending || !targetHost} style={btnPrimary}>
+          placeholder="Target SSH password (one-time use)" className="input" style={{ marginBottom: 10 }} />
+        <button onClick={() => copyId.mutate()} disabled={copyId.isPending || !targetHost} className="btn btn-primary">
           <Icon name="upload" size={16} />{copyId.isPending ? 'Deploying…' : 'Deploy Key'}
         </button>
       </div>
@@ -351,21 +329,21 @@ export function ReplicationPage() {
 
   return (
     <div style={{ maxWidth: 900 }}>
-      <div style={{ marginBottom: 32 }}>
-        <h1 style={{ fontSize: 'var(--text-3xl)', fontWeight: 700, letterSpacing: '-1px', marginBottom: 6 }}>Replication</h1>
-        <p style={{ color: 'var(--text-secondary)', fontSize: 'var(--text-md)' }}>ZFS send/receive — replicate datasets to remote hosts</p>
+      <div className="page-header">
+        <h1 className="page-title">Replication</h1>
+        <p className="page-subtitle">ZFS send/receive — replicate datasets to remote hosts</p>
       </div>
 
       {/* Info banner */}
-      <div style={{ marginBottom: 24, padding: '12px 16px', background: 'var(--info-bg)', border: '1px solid var(--info-border)', borderRadius: 'var(--radius-md)', display: 'flex', gap: 10, fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>
-        <Icon name="info" size={16} style={{ color: 'var(--info)', flexShrink: 0, marginTop: 1 }} />
+      <div className="alert alert-info" style={{ marginBottom: 24, display: 'flex', gap: 10 }}>
+        <Icon name="info" size={16} style={{ flexShrink: 0, marginTop: 1 }} />
         Replication jobs run asynchronously. Long transfers may take hours — job status updates every 2s.
       </div>
 
       {/* Tabs */}
-      <div style={{ display: 'flex', gap: 4, marginBottom: 28, borderBottom: '1px solid var(--border)' }}>
+      <div className="tabs-underline" style={{ marginBottom: 28 }}>
         {TABS.map(t => (
-          <button key={t.id} onClick={() => setTab(t.id)} style={{ padding: '10px 20px', background: 'none', border: 'none', cursor: 'pointer', fontSize: 'var(--text-sm)', fontWeight: 600, color: tab === t.id ? 'var(--primary)' : 'var(--text-secondary)', borderBottom: tab === t.id ? '2px solid var(--primary)' : '2px solid transparent', marginBottom: -1, display: 'flex', alignItems: 'center', gap: 6 }}>
+          <button key={t.id} onClick={() => setTab(t.id)} className={`tab-underline${tab === t.id ? ' active' : ''}`}>
             <Icon name={t.icon} size={16} />{t.label}
           </button>
         ))}

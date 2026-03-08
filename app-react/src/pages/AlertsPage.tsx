@@ -26,6 +26,7 @@ import { Icon } from '@/components/ui/Icon'
 import { ErrorState } from '@/components/ui/ErrorState'
 import { Skeleton } from '@/components/ui/LoadingSpinner'
 import { toast } from '@/hooks/useToast'
+import { Modal } from '@/components/ui/Modal'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -62,35 +63,11 @@ interface Webhook {
 interface WebhooksResponse { success: boolean; webhooks: Webhook[] }
 
 // ---------------------------------------------------------------------------
-// Shared styles
-// ---------------------------------------------------------------------------
-
-const btnGhost: React.CSSProperties = {
-  padding: '8px 14px', background: 'var(--surface)', color: 'var(--text-secondary)',
-  border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', cursor: 'pointer',
-  fontSize: 'var(--text-sm)', fontWeight: 500, display: 'inline-flex', alignItems: 'center', gap: 6,
-}
-const btnPrimary: React.CSSProperties = {
-  padding: '9px 20px', background: 'var(--primary)', color: '#000',
-  border: 'none', borderRadius: 'var(--radius-sm)', cursor: 'pointer',
-  fontSize: 'var(--text-sm)', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 6,
-}
-const btnDanger: React.CSSProperties = {
-  padding: '6px 12px', background: 'var(--error-bg)', border: '1px solid var(--error-border)',
-  borderRadius: 'var(--radius-sm)', cursor: 'pointer', color: 'var(--error)',
-  fontSize: 'var(--text-xs)', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 4,
-}
-const inputStyle: React.CSSProperties = {
-  background: 'var(--surface)', border: '1px solid var(--border)',
-  borderRadius: 'var(--radius-sm)', padding: '9px 13px',
-  color: 'var(--text)', fontSize: 'var(--text-sm)', width: '100%',
-  fontFamily: 'var(--font-ui)', outline: 'none', boxSizing: 'border-box',
-}
 
 function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-      <label style={{ fontSize: 'var(--text-xs)', fontWeight: 600, color: 'var(--text-secondary)' }}>{label}</label>
+    <div className="field">
+      <label className="field-label">{label}</label>
       {children}
       {hint && <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }}>{hint}</span>}
     </div>
@@ -164,19 +141,19 @@ function TelegramTab() {
         <Field label="Bot Token" hint="From @BotFather — starts with numbers:letters">
           <input value={token} onChange={e => setToken(e.target.value)}
             placeholder="1234567890:ABCdefGHIjklMNOpqrSTUvwxYZ"
-            style={{ ...inputStyle, fontFamily: 'var(--font-mono)' }} type="password" autoComplete="off" />
+            className="input" style={{ fontFamily: 'var(--font-mono)' }} type="password" autoComplete="off" />
         </Field>
 
         <Field label="Chat ID" hint="Numeric ID of the chat or channel to send alerts to">
           <input value={chatId} onChange={e => setChatId(e.target.value)}
-            placeholder="-1001234567890" style={{ ...inputStyle, fontFamily: 'var(--font-mono)' }} />
+            placeholder="-1001234567890" className="input" style={{ fontFamily: 'var(--font-mono)' }} />
         </Field>
 
         <div style={{ display: 'flex', gap: 8, paddingTop: 4 }}>
-          <button onClick={() => save.mutate()} disabled={save.isPending} style={btnPrimary}>
+          <button onClick={() => save.mutate()} disabled={save.isPending} className="btn btn-primary">
             <Icon name="save" size={15} />{save.isPending ? 'Saving…' : 'Save'}
           </button>
-          <button onClick={() => test.mutate()} disabled={test.isPending || !token || !chatId} style={btnGhost}>
+          <button onClick={() => test.mutate()} disabled={test.isPending || !token || !chatId} className="btn btn-ghost">
             <Icon name="send" size={14} />{test.isPending ? 'Sending…' : 'Send Test'}
           </button>
         </div>
@@ -246,24 +223,24 @@ function SMTPTab() {
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 120px', gap: 12 }}>
           <Field label="SMTP Host">
-            <input value={host} onChange={e => setHost(e.target.value)} placeholder="smtp.gmail.com" style={inputStyle} />
+            <input value={host} onChange={e => setHost(e.target.value)} placeholder="smtp.gmail.com" className="input" />
           </Field>
           <Field label="Port">
-            <input type="number" value={port} onChange={e => setPort(e.target.value)} style={inputStyle} min={1} max={65535} />
+            <input type="number" value={port} onChange={e => setPort(e.target.value)} className="input" min={1} max={65535} />
           </Field>
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
           <Field label="Username">
-            <input value={username} onChange={e => setUsername(e.target.value)} placeholder="user@example.com" style={inputStyle} autoComplete="off" />
+            <input value={username} onChange={e => setUsername(e.target.value)} placeholder="user@example.com" className="input" autoComplete="off" />
           </Field>
           <Field label="Password">
-            <input type="password" value={password} onChange={e => setPassword(e.target.value)} style={inputStyle} autoComplete="new-password" />
+            <input type="password" value={password} onChange={e => setPassword(e.target.value)} className="input" autoComplete="new-password" />
           </Field>
         </div>
 
         <Field label="From Address" hint="Sender address shown in received emails">
-          <input value={from} onChange={e => setFrom(e.target.value)} placeholder="dplaneos@example.com" style={inputStyle} />
+          <input value={from} onChange={e => setFrom(e.target.value)} placeholder="dplaneos@example.com" className="input" />
         </Field>
 
         <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
@@ -273,10 +250,10 @@ function SMTPTab() {
         </label>
 
         <div style={{ display: 'flex', gap: 8, paddingTop: 4 }}>
-          <button onClick={() => save.mutate()} disabled={save.isPending} style={btnPrimary}>
+          <button onClick={() => save.mutate()} disabled={save.isPending} className="btn btn-primary">
             <Icon name="save" size={15} />{save.isPending ? 'Saving…' : 'Save'}
           </button>
-          <button onClick={() => test.mutate()} disabled={test.isPending || !host} style={btnGhost}>
+          <button onClick={() => test.mutate()} disabled={test.isPending || !host} className="btn btn-ghost">
             <Icon name="mail" size={14} />{test.isPending ? 'Sending…' : 'Send Test Email'}
           </button>
         </div>
@@ -320,24 +297,21 @@ function WebhookModal({ onClose, onDone }: { onClose: () => void; onDone: () => 
   })
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.65)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }}
-      onClick={e => e.target === e.currentTarget && onClose()}>
-      <div style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 'var(--radius-xl)', padding: 28, width: 560, maxWidth: '92vw', display: 'flex', flexDirection: 'column', gap: 18, maxHeight: '90vh', overflow: 'auto' }}>
-        <div style={{ fontWeight: 700, fontSize: 'var(--text-lg)' }}>Create Webhook</div>
-
+    <Modal title="Create Webhook" onClose={onClose} size="lg">
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
         <Field label="Name">
-          <input value={name} onChange={e => setName(e.target.value)} placeholder="Slack alert" style={inputStyle} autoFocus />
+          <input value={name} onChange={e => setName(e.target.value)} placeholder="Slack alert" className="input" autoFocus />
         </Field>
 
         <div style={{ display: 'grid', gridTemplateColumns: '80px 1fr', gap: 10 }}>
           <Field label="Method">
-            <select value={method} onChange={e => setMethod(e.target.value)} style={{ ...inputStyle, appearance: 'none' }}>
+            <select value={method} onChange={e => setMethod(e.target.value)} className="input" style={{ appearance: 'none' }}>
               {['POST', 'GET', 'PUT', 'PATCH'].map(m => <option key={m} value={m}>{m}</option>)}
             </select>
           </Field>
           <Field label="URL">
             <input value={url} onChange={e => setUrl(e.target.value)}
-              placeholder="https://hooks.slack.com/services/..." style={{ ...inputStyle, fontFamily: 'var(--font-mono)', fontSize: 12 }} />
+              placeholder="https://hooks.slack.com/services/..." className="input" style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }} />
           </Field>
         </div>
 
@@ -359,26 +333,26 @@ function WebhookModal({ onClose, onDone }: { onClose: () => void; onDone: () => 
             ))}
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 8 }}>
-            <input value={hdrKey} onChange={e => setHdrKey(e.target.value)} placeholder="Header-Name" style={{ ...inputStyle, fontFamily: 'var(--font-mono)', fontSize: 12 }} />
-            <input value={hdrVal} onChange={e => setHdrVal(e.target.value)} placeholder="value" style={{ ...inputStyle, fontFamily: 'var(--font-mono)', fontSize: 12 }} onKeyDown={e => e.key === 'Enter' && addHeader()} />
-            <button onClick={addHeader} style={btnGhost}><Icon name="add" size={14} /></button>
+            <input value={hdrKey} onChange={e => setHdrKey(e.target.value)} placeholder="Header-Name" className="input" style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }} />
+            <input value={hdrVal} onChange={e => setHdrVal(e.target.value)} placeholder="value" className="input" style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }} onKeyDown={e => e.key === 'Enter' && addHeader()} />
+            <button onClick={addHeader} className="btn btn-ghost"><Icon name="add" size={14} /></button>
           </div>
         </div>
 
         {/* Body template */}
         <Field label="Body Template" hint="Variables: {{event}}, {{message}}, {{timestamp}}, {{severity}}">
           <textarea value={bodyTpl} onChange={e => setBodyTpl(e.target.value)}
-            rows={4} style={{ ...inputStyle, fontFamily: 'var(--font-mono)', fontSize: 11, resize: 'vertical', lineHeight: 1.6 }} />
+            rows={4} className="input" style={{ fontFamily: 'var(--font-mono)', fontSize: 11, resize: 'vertical', lineHeight: 1.6 }} />
         </Field>
 
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-          <button onClick={onClose} style={btnGhost}>Cancel</button>
-          <button onClick={() => create.mutate()} disabled={create.isPending} style={btnPrimary}>
+          <button onClick={onClose} className="btn btn-ghost">Cancel</button>
+          <button onClick={() => create.mutate()} disabled={create.isPending} className="btn btn-primary">
             <Icon name="add" size={15} />{create.isPending ? 'Creating…' : 'Create'}
           </button>
         </div>
       </div>
-    </div>
+    </Modal>
   )
 }
 
@@ -412,7 +386,7 @@ function WebhooksTab() {
   return (
     <>
       <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 16 }}>
-        <button onClick={() => setShowCreate(true)} style={btnPrimary}><Icon name="add" size={15} />New Webhook</button>
+        <button onClick={() => setShowCreate(true)} className="btn btn-primary"><Icon name="add" size={15} />New Webhook</button>
       </div>
 
       {hooksQ.isLoading && <Skeleton height={180} />}
@@ -434,11 +408,11 @@ function WebhooksTab() {
                 )}
               </div>
               <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
-                <button onClick={() => testHook.mutate(hook.id)} disabled={testHook.isPending} style={btnGhost}>
+                <button onClick={() => testHook.mutate(hook.id)} disabled={testHook.isPending} className="btn btn-ghost">
                   <Icon name="send" size={13} />Test
                 </button>
                 <button onClick={() => { if (window.confirm(`Delete webhook "${hook.name}"?`)) deleteHook.mutate(hook.id) }}
-                  style={btnDanger}>
+                  className="btn btn-danger">
                   <Icon name="delete" size={13} />
                 </button>
               </div>
@@ -477,14 +451,14 @@ export function AlertsPage() {
 
   return (
     <div style={{ maxWidth: 860 }}>
-      <div style={{ marginBottom: 28 }}>
-        <h1 style={{ fontSize: 'var(--text-3xl)', fontWeight: 700, letterSpacing: '-1px', marginBottom: 6 }}>Alerts</h1>
-        <p style={{ color: 'var(--text-secondary)', fontSize: 'var(--text-md)' }}>Configure notification channels for system events</p>
+      <div className="page-header">
+        <h1 className="page-title">Alerts</h1>
+        <p className="page-subtitle">Configure notification channels for system events</p>
       </div>
 
-      <div style={{ display: 'flex', gap: 4, marginBottom: 24, borderBottom: '1px solid var(--border)' }}>
+      <div className="tabs-underline">
         {TABS.map(t => (
-          <button key={t.id} onClick={() => setTab(t.id)} style={{ padding: '10px 20px', background: 'none', border: 'none', cursor: 'pointer', fontSize: 'var(--text-sm)', fontWeight: 600, color: tab === t.id ? 'var(--primary)' : 'var(--text-secondary)', borderBottom: tab === t.id ? '2px solid var(--primary)' : '2px solid transparent', marginBottom: -1, display: 'flex', alignItems: 'center', gap: 6 }}>
+          <button key={t.id} onClick={() => setTab(t.id)} className={`tab-underline${tab === t.id ? ' active' : ''}`}>
             <Icon name={t.icon} size={16} />{t.label}
           </button>
         ))}

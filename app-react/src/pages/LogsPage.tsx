@@ -326,12 +326,8 @@ export function LogsPage() {
             placeholder="Filter logs…"
             value={searchText}
             onChange={(e) => setSearch(e.target.value)}
-            style={{
-              width: '100%', padding: '7px 12px 7px 32px',
-              background: 'var(--surface)', border: '1px solid var(--border)',
-              borderRadius: 'var(--radius-sm)', color: 'var(--text)',
-              fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', outline: 'none',
-            }}
+            className="input"
+            style={{ paddingLeft: 32 }}
           />
         </div>
 
@@ -340,11 +336,8 @@ export function LogsPage() {
           <select
             value={historyLimit}
             onChange={(e) => setLimit(parseInt(e.target.value, 10))}
-            style={{
-              padding: '7px 10px', background: 'var(--surface)', border: '1px solid var(--border)',
-              borderRadius: 'var(--radius-sm)', color: 'var(--text)',
-              fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', cursor: 'pointer', outline: 'none',
-            }}
+            className="input"
+            style={{ width: 'auto' }}
           >
             {[50, 100, 200, 500].map(n => (
               <option key={n} value={n}>{n} lines</option>
@@ -377,14 +370,8 @@ export function LogsPage() {
         {mode === 'history' && (
           <button onClick={() => logsQ.refetch()}
             disabled={logsQ.isFetching}
-            style={{
-              display: 'flex', alignItems: 'center', gap: 5,
-              padding: '5px 10px', background: 'var(--surface)',
-              border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)',
-              color: 'var(--text-secondary)', cursor: 'pointer',
-              fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)',
-              opacity: logsQ.isFetching ? 0.5 : 1,
-            }}>
+            className="btn btn-ghost"
+            style={{ opacity: logsQ.isFetching ? 0.5 : 1 }}>
             <Icon name="refresh" size={16} style={{
               animation: logsQ.isFetching ? 'spin 1s linear infinite' : 'none',
             }} />

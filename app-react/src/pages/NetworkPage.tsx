@@ -23,6 +23,7 @@ import { Icon } from '@/components/ui/Icon'
 import { ErrorState } from '@/components/ui/ErrorState'
 import { Skeleton } from '@/components/ui/LoadingSpinner'
 import { toast } from '@/hooks/useToast'
+import { Modal } from '@/components/ui/Modal'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -58,43 +59,6 @@ interface NTPResponse {
 }
 
 // ---------------------------------------------------------------------------
-// Shared styles
-// ---------------------------------------------------------------------------
-
-const btnGhost: React.CSSProperties = {
-  padding: '7px 13px', background: 'var(--surface)', color: 'var(--text-secondary)',
-  border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', cursor: 'pointer',
-  fontSize: 'var(--text-sm)', fontWeight: 500, display: 'inline-flex', alignItems: 'center', gap: 6,
-}
-const btnPrimary: React.CSSProperties = {
-  padding: '8px 18px', background: 'var(--primary)', color: '#000',
-  border: 'none', borderRadius: 'var(--radius-sm)', cursor: 'pointer',
-  fontSize: 'var(--text-sm)', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 6,
-}
-const inputStyle: React.CSSProperties = {
-  background: 'var(--surface)', border: '1px solid var(--border)',
-  borderRadius: 'var(--radius-sm)', padding: '8px 12px',
-  color: 'var(--text)', fontSize: 'var(--text-sm)', width: '100%',
-  fontFamily: 'var(--font-ui)', outline: 'none', boxSizing: 'border-box',
-}
-
-// ---------------------------------------------------------------------------
-// Modal wrapper
-// ---------------------------------------------------------------------------
-
-function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
-  return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.65)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }}
-      onClick={e => e.target === e.currentTarget && onClose()}>
-      <div style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 'var(--radius-xl)', padding: 28, width: 520, maxWidth: '92vw', display: 'flex', flexDirection: 'column', gap: 18 }}>
-        <div style={{ fontWeight: 700, fontSize: 'var(--text-lg)' }}>{title}</div>
-        {children}
-      </div>
-    </div>
-  )
-}
-
-// ---------------------------------------------------------------------------
 // Configure Interface Modal
 // Sends: POST /api/network/apply { action:'configure', interface, dhcp, ip?, netmask?, gateway?, mtu }
 // After success, caller shows the 30-second confirm banner.
@@ -127,8 +91,8 @@ function ConfigureIfaceModal({ iface, onClose, onDone }: {
 
   function labelRow(label: string, children: React.ReactNode) {
     return (
-      <label style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-        <span style={{ fontSize: 'var(--text-xs)', fontWeight: 600, color: 'var(--text-secondary)' }}>{label}</span>
+      <label className="field">
+        <span className="field-label">{label}</span>
         {children}
       </label>
     )
@@ -150,26 +114,26 @@ function ConfigureIfaceModal({ iface, onClose, onDone }: {
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
           {labelRow('IP Address',
             <input value={ip} onChange={e => setIp(e.target.value)} placeholder="192.168.1.100"
-              style={{ ...inputStyle, fontFamily: 'var(--font-mono)' }} autoFocus />
+              className="input" style={{ fontFamily: 'var(--font-mono)' }} autoFocus />
           )}
           {labelRow('Subnet Mask',
             <input value={netmask} onChange={e => setNetmask(e.target.value)} placeholder="255.255.255.0"
-              style={{ ...inputStyle, fontFamily: 'var(--font-mono)' }} />
+              className="input" style={{ fontFamily: 'var(--font-mono)' }} />
           )}
           {labelRow('Default Gateway',
             <input value={gateway} onChange={e => setGateway(e.target.value)} placeholder="192.168.1.1"
-              style={{ ...inputStyle, fontFamily: 'var(--font-mono)' }} />
+              className="input" style={{ fontFamily: 'var(--font-mono)' }} />
           )}
           {labelRow('MTU',
-            <input type="number" value={mtu} onChange={e => setMtu(e.target.value)} min={576} max={9000} style={inputStyle} />
+            <input type="number" value={mtu} onChange={e => setMtu(e.target.value)} min={576} max={9000} className="input" />
           )}
         </div>
       )}
 
       {dhcp && (
-        <label style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-          <span style={{ fontSize: 'var(--text-xs)', fontWeight: 600, color: 'var(--text-secondary)' }}>MTU</span>
-          <input type="number" value={mtu} onChange={e => setMtu(e.target.value)} min={576} max={9000} style={{ ...inputStyle, width: 120 }} />
+        <label className="field">
+          <span className="field-label">MTU</span>
+          <input type="number" value={mtu} onChange={e => setMtu(e.target.value)} min={576} max={9000} className="input" style={{ width: 120 }} />
         </label>
       )}
 
@@ -179,8 +143,8 @@ function ConfigureIfaceModal({ iface, onClose, onDone }: {
       </div>
 
       <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-        <button onClick={onClose} style={btnGhost}>Cancel</button>
-        <button onClick={() => save.mutate()} disabled={save.isPending} style={btnPrimary}>
+        <button onClick={onClose} className="btn btn-ghost">Cancel</button>
+        <button onClick={() => save.mutate()} disabled={save.isPending} className="btn btn-primary">
           <Icon name="save" size={15} />{save.isPending ? 'Applying…' : 'Apply'}
         </button>
       </div>
@@ -213,10 +177,10 @@ function ConfirmBanner({ onConfirm, onDismiss }: { onConfirm: () => void; onDism
         <div style={{ fontWeight: 700, color: 'rgba(251,191,36,0.9)' }}>Network changes applied</div>
         <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>Auto-reverting in {secs}s — confirm to keep the new configuration</div>
       </div>
-      <button onClick={onConfirm} style={{ ...btnPrimary, background: 'rgba(251,191,36,0.9)' }}>
+      <button onClick={onConfirm} className="btn btn-primary" style={{ background: 'rgba(251,191,36,0.9)' }}>
         <Icon name="check" size={15} />Confirm
       </button>
-      <button onClick={onDismiss} style={btnGhost}>Discard</button>
+      <button onClick={onDismiss} className="btn btn-ghost">Discard</button>
     </div>
   )
 }
@@ -290,7 +254,7 @@ function InterfacesTab() {
                 </div>
               </div>
 
-              <button onClick={() => setConfigIface(iface)} style={btnGhost}>
+              <button onClick={() => setConfigIface(iface)} className="btn btn-ghost">
                 <Icon name="settings" size={14} />Configure
               </button>
             </div>
@@ -356,23 +320,23 @@ function VLANsTab() {
       <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: '20px 24px', marginBottom: 24 }}>
         <div style={{ fontWeight: 700, marginBottom: 16 }}>Create VLAN Interface</div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 100px', gap: 12, marginBottom: 12 }}>
-          <label style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-            <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', fontWeight: 600 }}>Interface Name</span>
-            <input value={name} onChange={e => setName(e.target.value)} placeholder="vlan10" style={inputStyle} />
+          <label className="field">
+            <span className="field-label">Interface Name</span>
+            <input value={name} onChange={e => setName(e.target.value)} placeholder="vlan10" className="input" />
           </label>
-          <label style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-            <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', fontWeight: 600 }}>Parent Interface</span>
-            <select value={parent} onChange={e => setParent(e.target.value)} style={{ ...inputStyle, appearance: 'none' }}>
+          <label className="field">
+            <span className="field-label">Parent Interface</span>
+            <select value={parent} onChange={e => setParent(e.target.value)} className="input" style={{ appearance: 'none' }}>
               <option value="">Select…</option>
               {physIfaces.map(i => <option key={i.name} value={i.name}>{i.name}</option>)}
             </select>
           </label>
-          <label style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-            <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', fontWeight: 600 }}>VLAN ID</span>
-            <input type="number" value={vlanId} onChange={e => setVlanId(e.target.value)} placeholder="10" min={1} max={4094} style={inputStyle} />
+          <label className="field">
+            <span className="field-label">VLAN ID</span>
+            <input type="number" value={vlanId} onChange={e => setVlanId(e.target.value)} placeholder="10" min={1} max={4094} className="input" />
           </label>
         </div>
-        <button onClick={() => create.mutate()} disabled={create.isPending || !name || !parent || !vlanId} style={btnPrimary}>
+        <button onClick={() => create.mutate()} disabled={create.isPending || !name || !parent || !vlanId} className="btn btn-primary">
           <Icon name="add" size={15} />{create.isPending ? 'Creating…' : 'Create VLAN'}
         </button>
       </div>
@@ -438,24 +402,24 @@ function BondingTab() {
         <div style={{ fontWeight: 700, marginBottom: 16 }}>Create Bond Interface</div>
         <div style={{ display: 'grid', gap: 14 }}>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-            <label style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-              <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', fontWeight: 600 }}>Bond Name</span>
-              <input value={bondName} onChange={e => setBondName(e.target.value)} style={inputStyle} placeholder="bond0" />
+            <label className="field">
+              <span className="field-label">Bond Name</span>
+              <input value={bondName} onChange={e => setBondName(e.target.value)} className="input" placeholder="bond0" />
             </label>
-            <label style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-              <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', fontWeight: 600 }}>Bonding Mode</span>
-              <select value={mode} onChange={e => setMode(e.target.value)} style={{ ...inputStyle, appearance: 'none' }}>
+            <label className="field">
+              <span className="field-label">Bonding Mode</span>
+              <select value={mode} onChange={e => setMode(e.target.value)} className="input" style={{ appearance: 'none' }}>
                 {BOND_MODES.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
               </select>
             </label>
           </div>
-          <label style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-            <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', fontWeight: 600 }}>Slave Interfaces</span>
-            <input value={slavesStr} onChange={e => setSlavesStr(e.target.value)} placeholder="eth0, eth1" style={inputStyle} />
+          <label className="field">
+            <span className="field-label">Slave Interfaces</span>
+            <input value={slavesStr} onChange={e => setSlavesStr(e.target.value)} placeholder="eth0, eth1" className="input" />
             <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }}>Comma-separated. Minimum 2 interfaces required.</span>
           </label>
           <div>
-            <button onClick={() => create.mutate()} disabled={create.isPending} style={btnPrimary}>
+            <button onClick={() => create.mutate()} disabled={create.isPending} className="btn btn-primary">
               <Icon name="cable" size={15} />{create.isPending ? 'Creating…' : 'Create Bond'}
             </button>
           </div>
@@ -556,8 +520,8 @@ function DnsNtpTab() {
             <div style={{ display: 'flex', gap: 10 }}>
               <input value={dnsStr} onChange={e => setDnsStr(e.target.value)}
                 placeholder="8.8.8.8, 8.8.4.4, 1.1.1.1"
-                style={{ ...inputStyle, flex: 1, fontFamily: 'var(--font-mono)' }} />
-              <button onClick={() => saveDns.mutate()} disabled={saveDns.isPending} style={btnPrimary}>
+                className="input" style={{ flex: 1, fontFamily: 'var(--font-mono)' }} />
+              <button onClick={() => saveDns.mutate()} disabled={saveDns.isPending} className="btn btn-primary">
                 {saveDns.isPending ? 'Saving…' : 'Save'}
               </button>
             </div>
@@ -587,8 +551,8 @@ function DnsNtpTab() {
             <div style={{ display: 'flex', gap: 10, marginBottom: 12, marginTop: 12 }}>
               <input value={ntpStr} onChange={e => setNtpStr(e.target.value)}
                 placeholder="0.pool.ntp.org, 1.pool.ntp.org"
-                style={{ ...inputStyle, flex: 1, fontFamily: 'var(--font-mono)' }} />
-              <button onClick={() => saveNtp.mutate()} disabled={saveNtp.isPending} style={btnPrimary}>
+                className="input" style={{ flex: 1, fontFamily: 'var(--font-mono)' }} />
+              <button onClick={() => saveNtp.mutate()} disabled={saveNtp.isPending} className="btn btn-primary">
                 {saveNtp.isPending ? 'Saving…' : 'Save'}
               </button>
             </div>
@@ -625,14 +589,14 @@ export function NetworkPage() {
 
   return (
     <div style={{ maxWidth: 1000 }}>
-      <div style={{ marginBottom: 28 }}>
-        <h1 style={{ fontSize: 'var(--text-3xl)', fontWeight: 700, letterSpacing: '-1px', marginBottom: 6 }}>Network</h1>
-        <p style={{ color: 'var(--text-secondary)', fontSize: 'var(--text-md)' }}>Interfaces, VLANs, bonding, DNS and NTP</p>
+      <div className="page-header">
+        <h1 className="page-title">Network</h1>
+        <p className="page-subtitle">Interfaces, VLANs, bonding, DNS and NTP</p>
       </div>
 
-      <div style={{ display: 'flex', gap: 4, marginBottom: 24, borderBottom: '1px solid var(--border)' }}>
+      <div className="tabs-underline">
         {TABS.map(t => (
-          <button key={t.id} onClick={() => setTab(t.id)} style={{ padding: '10px 20px', background: 'none', border: 'none', cursor: 'pointer', fontSize: 'var(--text-sm)', fontWeight: 600, color: tab === t.id ? 'var(--primary)' : 'var(--text-secondary)', borderBottom: tab === t.id ? '2px solid var(--primary)' : '2px solid transparent', marginBottom: -1, display: 'flex', alignItems: 'center', gap: 6 }}>
+          <button key={t.id} onClick={() => setTab(t.id)} className={`tab-underline${tab === t.id ? ' active' : ''}`}>
             <Icon name={t.icon} size={16} />{t.label}
           </button>
         ))}

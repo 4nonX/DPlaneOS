@@ -14,7 +14,6 @@
  */
 
 import { useState } from 'react'
-import type React from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { Icon } from '@/components/ui/Icon'
@@ -50,22 +49,6 @@ interface GitStacksResponse { success: boolean; stacks: GitStack[] }
 interface JobStartResponse { job_id: string }
 
 // ---------------------------------------------------------------------------
-// Styles
-// ---------------------------------------------------------------------------
-
-const btnGhost: React.CSSProperties = {
-  padding: '8px 14px', background: 'var(--surface)', color: 'var(--text-secondary)',
-  border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', cursor: 'pointer',
-  fontSize: 'var(--text-sm)', fontWeight: 500, display: 'inline-flex', alignItems: 'center', gap: 6,
-  transition: 'all 0.15s',
-}
-const btnPrimary: React.CSSProperties = {
-  padding: '8px 16px', background: 'var(--primary)', color: '#000',
-  border: 'none', borderRadius: 'var(--radius-sm)', cursor: 'pointer',
-  fontSize: 'var(--text-sm)', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 6,
-}
-
-// ---------------------------------------------------------------------------
 // StackCard
 // ---------------------------------------------------------------------------
 
@@ -95,7 +78,7 @@ function StackCard({ stack, onRefresh }: { stack: ComposeStack; onRefresh: () =>
           <div style={{ fontWeight: 700, fontSize: 'var(--text-lg)', marginBottom: 2 }}>{stack.name}</div>
           <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', fontFamily: 'var(--font-mono)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{stack.path}</div>
         </div>
-        <span style={{ padding: '4px 12px', borderRadius: 'var(--radius-full)', flexShrink: 0, background: stack.running ? 'var(--success-bg)' : 'var(--surface)', border: `1px solid ${stack.running ? 'var(--success-border)' : 'var(--border)'}`, color: stack.running ? 'var(--success)' : 'var(--text-tertiary)', fontSize: 'var(--text-xs)', fontWeight: 700 }}>
+        <span className={`badge ${stack.running ? 'badge-success' : 'badge-neutral'}`}>
           {stack.running ? 'RUNNING' : 'STOPPED'}
         </span>
       </div>
@@ -136,15 +119,15 @@ function StackCard({ stack, onRefresh }: { stack: ComposeStack; onRefresh: () =>
       <div style={{ display: 'flex', gap: 8 }}>
         {stack.running ? (
           <>
-            <button onClick={() => startJob('update', `Updating ${stack.name}…`)} disabled={busy} style={btnGhost}>
+            <button onClick={() => startJob('update', `Updating ${stack.name}…`)} disabled={busy} className="btn btn-ghost">
               <Icon name="system_update_alt" size={15} />Update
             </button>
-            <button onClick={() => startJob('down', `Stopping ${stack.name}…`)} disabled={busy} style={{ ...btnGhost, color: 'var(--error)', borderColor: 'var(--error-border)' }}>
+            <button onClick={() => startJob('down', `Stopping ${stack.name}…`)} disabled={busy} className="btn btn-ghost" style={{ color: 'var(--error)', borderColor: 'var(--error-border)' }}>
               <Icon name="stop" size={15} />Stop
             </button>
           </>
         ) : (
-          <button onClick={() => startJob('up', `Starting ${stack.name}…`)} disabled={busy} style={btnPrimary}>
+          <button onClick={() => startJob('up', `Starting ${stack.name}…`)} disabled={busy} className="btn btn-primary">
             <Icon name="play_arrow" size={15} />Start
           </button>
         )}
@@ -201,14 +184,14 @@ export function ModulesPage() {
           <h1 style={{ fontSize: 'var(--text-3xl)', fontWeight: 700, letterSpacing: '-1px', marginBottom: 6 }}>App Modules</h1>
           <p style={{ color: 'var(--text-secondary)', fontSize: 'var(--text-md)' }}>Compose stacks — start, stop, update</p>
         </div>
-        <button onClick={refresh} style={btnGhost}><Icon name="refresh" size={15} />Refresh</button>
+        <button onClick={refresh} className="btn btn-ghost"><Icon name="refresh" size={15} />Refresh</button>
       </div>
 
       {/* Search */}
       <div style={{ marginBottom: 24, position: 'relative' }}>
         <Icon name="search" size={16} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-tertiary)', pointerEvents: 'none' }} />
         <input value={filter} onChange={e => setFilter(e.target.value)} placeholder="Filter modules…"
-          style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '9px 13px 9px 36px', color: 'var(--text)', fontSize: 'var(--text-sm)', width: '100%', maxWidth: 360, outline: 'none', fontFamily: 'var(--font-ui)' }} />
+          className="input" style={{ maxWidth: 360, paddingLeft: 36 }} />
       </div>
 
       {(composeQ.isError || gitStacksQ.isError) && (

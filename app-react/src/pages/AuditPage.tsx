@@ -85,9 +85,9 @@ export function AuditPage() {
 
   return (
     <div style={{ maxWidth: 1100 }}>
-      <div style={{ marginBottom: 28 }}>
-        <h1 style={{ fontSize:'var(--text-3xl)', fontWeight:700, letterSpacing:'-1px', marginBottom:6 }}>Audit Log</h1>
-        <p style={{ color:'var(--text-secondary)' }}>Immutable tamper-evident log of all system actions</p>
+      <div className="page-header">
+        <h1 className="page-title">Audit Log</h1>
+        <p className="page-subtitle">Immutable tamper-evident log of all system actions</p>
       </div>
 
       {/* Stats row */}
@@ -114,25 +114,24 @@ export function AuditPage() {
       {/* Toolbar */}
       <div style={{ display:'flex', gap:8, marginBottom:16, flexWrap:'wrap' }}>
         <select value={filterUser} onChange={e=>setFilterUser(e.target.value)}
-          style={{ background:'var(--surface)', border:'1px solid var(--border)', borderRadius:'var(--radius-sm)', padding:'7px 11px', color:'var(--text)', fontSize:'var(--text-sm)', outline:'none', appearance:'none', minWidth:130 }}>
+          className="input" style={{ width:'auto', minWidth:130, appearance:'none' }}>
           <option value="">All Users</option>
           {users.map(u => <option key={u} value={u}>{u}</option>)}
         </select>
-        <input value={filterAction} onChange={e=>setFilterAction(e.target.value)} placeholder="Filter action…"
-          style={{ background:'var(--surface)', border:'1px solid var(--border)', borderRadius:'var(--radius-sm)', padding:'7px 11px', color:'var(--text)', fontSize:'var(--text-sm)', outline:'none', fontFamily:'var(--font-ui)', width:160 }}/>
+        <input value={filterAction} onChange={e=>setFilterAction(e.target.value)}
+          placeholder="Filter action…" className="input" style={{ width:160 }} />
         <select value={filterDays} onChange={e=>setFilterDays(e.target.value)}
-          style={{ background:'var(--surface)', border:'1px solid var(--border)', borderRadius:'var(--radius-sm)', padding:'7px 11px', color:'var(--text)', fontSize:'var(--text-sm)', outline:'none', appearance:'none' }}>
+          className="input" style={{ width:'auto', appearance:'none' }}>
           <option value="0">All time</option>
           <option value="1">Last 24h</option>
           <option value="7">Last 7d</option>
           <option value="30">Last 30d</option>
         </select>
         <div style={{ flex:1 }}/>
-        <button onClick={exportCSV} style={{ padding:'7px 14px', background:'var(--surface)', color:'var(--text-secondary)', border:'1px solid var(--border)', borderRadius:'var(--radius-sm)', cursor:'pointer', fontSize:'var(--text-sm)', fontWeight:500, display:'inline-flex', alignItems:'center', gap:6 }}>
+        <button onClick={exportCSV} className="btn btn-ghost">
           <Icon name="download" size={14}/>Export CSV
         </button>
-        <button onClick={() => rotate.mutate()} disabled={rotate.isPending}
-          style={{ padding:'7px 14px', background:'var(--surface)', color:'var(--text-secondary)', border:'1px solid var(--border)', borderRadius:'var(--radius-sm)', cursor:'pointer', fontSize:'var(--text-sm)', fontWeight:500, display:'inline-flex', alignItems:'center', gap:6 }}>
+        <button onClick={() => rotate.mutate()} disabled={rotate.isPending} className="btn btn-ghost">
           <Icon name="rotate_right" size={14}/>{rotate.isPending?'Rotating…':'Rotate Logs'}
         </button>
       </div>
@@ -142,28 +141,30 @@ export function AuditPage() {
       {logsQ.isError   && <ErrorState error={logsQ.error} onRetry={()=>qc.invalidateQueries({queryKey:['audit','logs']})}/>}
       {!logsQ.isLoading && !logsQ.isError && (
         <div style={{ background:'var(--bg-card)', border:'1px solid var(--border)', borderRadius:'var(--radius-lg)', overflow:'hidden' }}>
-          <table style={{ width:'100%', borderCollapse:'collapse' }}>
-            <thead><tr style={{ background:'rgba(255,255,255,0.03)' }}>
-              {['Timestamp','User','Action','Details','IP'].map(h=>(
-                <th key={h} style={{ padding:'10px 14px', textAlign:'left', fontSize:'var(--text-2xs)', fontWeight:700, color:'var(--text-tertiary)', textTransform:'uppercase', letterSpacing:'0.5px', borderBottom:'1px solid var(--border)' }}>{h}</th>
-              ))}
-            </tr></thead>
+          <table className="data-table">
+            <thead>
+              <tr>
+                {['Timestamp','User','Action','Details','IP'].map(h=>(
+                  <th key={h}>{h}</th>
+                ))}
+              </tr>
+            </thead>
             <tbody>
               {filtered.map((entry, i) => {
                 const color = actionColor(entry.action)
                 return (
-                  <tr key={i} style={{ borderBottom:'1px solid var(--border)' }}
+                  <tr key={i}
                     onMouseEnter={e=>(e.currentTarget.style.background='rgba(255,255,255,0.02)')}
                     onMouseLeave={e=>(e.currentTarget.style.background='transparent')}>
-                    <td style={{ padding:'10px 14px', fontSize:'var(--text-xs)', color:'var(--text-tertiary)', whiteSpace:'nowrap', fontFamily:'var(--font-mono)' }}>{fmtDate(entry.timestamp)}</td>
-                    <td style={{ padding:'10px 14px' }}>
-                      <span style={{ padding:'2px 7px', borderRadius:'var(--radius-full)', background:'var(--surface)', border:'1px solid var(--border)', fontSize:'var(--text-xs)', fontWeight:600 }}>{entry.username || 'System'}</span>
+                    <td style={{ color:'var(--text-tertiary)', whiteSpace:'nowrap', fontFamily:'var(--font-mono)' }}>{fmtDate(entry.timestamp)}</td>
+                    <td>
+                      <span className="badge badge-neutral">{entry.username || 'System'}</span>
                     </td>
-                    <td style={{ padding:'10px 14px' }}>
+                    <td>
                       <span style={{ padding:'2px 7px', borderRadius:'var(--radius-sm)', background:`${color}18`, border:`1px solid ${color}30`, color, fontSize:'var(--text-xs)', fontFamily:'var(--font-mono)', fontWeight:600 }}>{entry.action}</span>
                     </td>
-                    <td style={{ padding:'10px 14px', fontSize:'var(--text-xs)', color:'var(--text-secondary)', maxWidth:300, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{entry.details || '—'}</td>
-                    <td style={{ padding:'10px 14px', fontFamily:'var(--font-mono)', fontSize:'var(--text-xs)', color:'var(--text-tertiary)' }}>{entry.ip_address || '—'}</td>
+                    <td style={{ color:'var(--text-secondary)', maxWidth:300, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{entry.details || '—'}</td>
+                    <td style={{ fontFamily:'var(--font-mono)', color:'var(--text-tertiary)' }}>{entry.ip_address || '—'}</td>
                   </tr>
                 )
               })}
@@ -171,7 +172,7 @@ export function AuditPage() {
                 <tr><td colSpan={5} style={{ padding:'40px 14px', textAlign:'center', color:'var(--text-tertiary)' }}>No entries match filters</td></tr>
               )}
               {filtered.length === 200 && allLogs.length > 200 && (
-                <tr><td colSpan={5} style={{ padding:'12px 14px', textAlign:'center', fontSize:'var(--text-xs)', color:'var(--text-tertiary)' }}>Showing first 200 of {allLogs.length} entries — export CSV for full log</td></tr>
+                <tr><td colSpan={5} style={{ textAlign:'center', color:'var(--text-tertiary)' }}>Showing first 200 of {allLogs.length} entries — export CSV for full log</td></tr>
               )}
             </tbody>
           </table>

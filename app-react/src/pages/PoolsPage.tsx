@@ -14,7 +14,6 @@
  */
 
 import { useState, useEffect } from 'react'
-import type React from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { Icon } from '@/components/ui/Icon'
@@ -22,6 +21,7 @@ import { ErrorState } from '@/components/ui/ErrorState'
 import { Skeleton } from '@/components/ui/LoadingSpinner'
 import { toast } from '@/hooks/useToast'
 import { useWsStore } from '@/stores/ws'
+import { Modal } from '@/components/ui/Modal'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -79,36 +79,6 @@ function buildTree(datasets: ZFSDataset[], poolName: string): TreeNode[] {
 }
 
 // ---------------------------------------------------------------------------
-// Styles
-// ---------------------------------------------------------------------------
-
-const inputStyle: React.CSSProperties = {
-  background: 'var(--surface)', border: '1px solid var(--border)',
-  borderRadius: 'var(--radius-sm)', padding: '9px 13px',
-  color: 'var(--text)', fontSize: 'var(--text-sm)', width: '100%',
-  fontFamily: 'var(--font-ui)', outline: 'none', boxSizing: 'border-box',
-}
-const btnPrimary: React.CSSProperties = {
-  padding: '9px 20px', background: 'var(--primary)', color: '#000',
-  border: 'none', borderRadius: 'var(--radius-sm)', cursor: 'pointer',
-  fontSize: 'var(--text-sm)', fontWeight: 600,
-}
-const btnGhost: React.CSSProperties = {
-  padding: '9px 20px', background: 'var(--surface)', color: 'var(--text-secondary)',
-  border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', cursor: 'pointer',
-  fontSize: 'var(--text-sm)', fontWeight: 500, display: 'inline-flex', alignItems: 'center', gap: 6,
-}
-const btnSm: React.CSSProperties = {
-  padding: '5px 14px', background: 'var(--surface)', border: '1px solid var(--border)',
-  borderRadius: 'var(--radius-sm)', cursor: 'pointer', color: 'var(--text)',
-  fontSize: 'var(--text-xs)', fontWeight: 600,
-}
-const btnSmDanger: React.CSSProperties = {
-  ...btnSm, background: 'var(--error-bg)',
-  border: '1px solid var(--error-border)', color: 'var(--error)',
-}
-
-// ---------------------------------------------------------------------------
 // DatasetNode (recursive)
 // ---------------------------------------------------------------------------
 
@@ -146,7 +116,7 @@ function DatasetNode({ node, depth, onCreateChild }: {
             <div style={{ fontSize: 'var(--text-sm)', fontFamily: 'var(--font-mono)' }}>{node.avail || '—'}</div>
             <div style={{ fontSize: 'var(--text-2xs)', color: 'var(--text-tertiary)' }}>avail</div>
           </div>
-          <button onClick={() => onCreateChild(node.name)} style={btnSm} title="New child dataset">
+          <button onClick={() => onCreateChild(node.name)} className="btn btn-sm btn-ghost" title="New child dataset">
             <Icon name="add" size={13} />
           </button>
         </div>
@@ -185,40 +155,34 @@ function CreateDatasetModal({ parentName, onClose, onCreated }: {
   }
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }}
-      onClick={e => e.target === e.currentTarget && onClose()}>
-      <div style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 'var(--radius-xl)', padding: 32, width: 440, maxWidth: '90vw' }}>
-        <h3 style={{ fontSize: 'var(--text-lg)', fontWeight: 700, marginBottom: 20 }}>
-          New Dataset under <span style={{ color: 'var(--primary)', fontFamily: 'var(--font-mono)' }}>{parentName}</span>
-        </h3>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-          <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>Dataset Name</span>
-            <input value={childName} onChange={e => setChildName(e.target.value)} placeholder="e.g. photos"
-              style={inputStyle} onKeyDown={e => e.key === 'Enter' && submit()} autoFocus />
-          </label>
-          <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>Compression</span>
-            <select value={compression} onChange={e => setCompression(e.target.value)} style={inputStyle}>
-              <option value="lz4">LZ4 (recommended)</option>
-              <option value="zstd">ZSTD (best ratio)</option>
-              <option value="gzip">GZIP</option>
-              <option value="off">Off</option>
-            </select>
-          </label>
-          <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>Quota (optional, e.g. 100G)</span>
-            <input value={quota} onChange={e => setQuota(e.target.value)} placeholder="100G" style={inputStyle} />
-          </label>
-        </div>
-        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 24 }}>
-          <button onClick={onClose} style={btnGhost}>Cancel</button>
-          <button onClick={submit} disabled={mutation.isPending} style={btnPrimary}>
-            {mutation.isPending ? 'Creating…' : 'Create Dataset'}
-          </button>
-        </div>
+    <Modal title={<>New Dataset under <span style={{ color: 'var(--primary)', fontFamily: 'var(--font-mono)' }}>{parentName}</span></>} onClose={onClose}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <label className="field">
+          <span className="field-label">Dataset Name</span>
+          <input value={childName} onChange={e => setChildName(e.target.value)} placeholder="e.g. photos"
+            className="input" onKeyDown={e => e.key === 'Enter' && submit()} autoFocus />
+        </label>
+        <label className="field">
+          <span className="field-label">Compression</span>
+          <select value={compression} onChange={e => setCompression(e.target.value)} className="input">
+            <option value="lz4">LZ4 (recommended)</option>
+            <option value="zstd">ZSTD (best ratio)</option>
+            <option value="gzip">GZIP</option>
+            <option value="off">Off</option>
+          </select>
+        </label>
+        <label className="field">
+          <span className="field-label">Quota (optional, e.g. 100G)</span>
+          <input value={quota} onChange={e => setQuota(e.target.value)} placeholder="100G" className="input" />
+        </label>
       </div>
-    </div>
+      <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 24 }}>
+        <button onClick={onClose} className="btn btn-ghost">Cancel</button>
+        <button onClick={submit} disabled={mutation.isPending} className="btn btn-primary">
+          {mutation.isPending ? 'Creating…' : 'Create Dataset'}
+        </button>
+      </div>
+    </Modal>
   )
 }
 
@@ -385,8 +349,8 @@ function EncryptionTab() {
               {locked ? 'LOCKED' : 'UNLOCKED'}
             </span>
             {locked
-              ? <button style={btnSm} onClick={() => { setUnlockTarget(d.name); setPassphrase('') }}>Unlock</button>
-              : <button style={btnSmDanger} onClick={() => lock.mutate(d.name)} disabled={lock.isPending}>Lock</button>
+              ? <button className="btn btn-sm btn-ghost" onClick={() => { setUnlockTarget(d.name); setPassphrase('') }}>Unlock</button>
+              : <button className="btn btn-sm btn-danger" onClick={() => lock.mutate(d.name)} disabled={lock.isPending}>Lock</button>
             }
           </div>
         )
@@ -394,23 +358,19 @@ function EncryptionTab() {
 
       {/* Unlock modal */}
       {unlockTarget && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }}
-          onClick={e => e.target === e.currentTarget && setUnlockTarget(null)}>
-          <div style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 'var(--radius-xl)', padding: 32, width: 400, maxWidth: '90vw' }}>
-            <h3 style={{ fontWeight: 700, marginBottom: 8 }}>Unlock Dataset</h3>
-            <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', marginBottom: 20, fontFamily: 'var(--font-mono)' }}>{unlockTarget}</p>
-            <input type="password" value={passphrase} onChange={e => setPassphrase(e.target.value)}
-              placeholder="Passphrase" style={inputStyle} autoFocus
-              onKeyDown={e => e.key === 'Enter' && passphrase && unlock.mutate({ name: unlockTarget, passphrase })}
-            />
-            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 20 }}>
-              <button onClick={() => setUnlockTarget(null)} style={btnGhost}>Cancel</button>
-              <button disabled={!passphrase || unlock.isPending} onClick={() => unlock.mutate({ name: unlockTarget, passphrase })} style={btnPrimary}>
-                {unlock.isPending ? 'Unlocking…' : 'Unlock'}
-              </button>
-            </div>
+        <Modal title="Unlock Dataset" onClose={() => setUnlockTarget(null)}>
+          <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', marginBottom: 20, fontFamily: 'var(--font-mono)' }}>{unlockTarget}</p>
+          <input type="password" value={passphrase} onChange={e => setPassphrase(e.target.value)}
+            placeholder="Passphrase" className="input" autoFocus
+            onKeyDown={e => e.key === 'Enter' && passphrase && unlock.mutate({ name: unlockTarget, passphrase })}
+          />
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 20 }}>
+            <button onClick={() => setUnlockTarget(null)} className="btn btn-ghost">Cancel</button>
+            <button disabled={!passphrase || unlock.isPending} onClick={() => unlock.mutate({ name: unlockTarget, passphrase })} className="btn btn-primary">
+              {unlock.isPending ? 'Unlocking…' : 'Unlock'}
+            </button>
           </div>
-        </div>
+        </Modal>
       )}
     </div>
   )
@@ -488,13 +448,13 @@ export function PoolsPage() {
           <h1 style={{ fontSize: 'var(--text-3xl)', fontWeight: 700, letterSpacing: '-1px', marginBottom: 6 }}>ZFS Storage</h1>
           <p style={{ color: 'var(--text-secondary)', fontSize: 'var(--text-md)' }}>Pools · Datasets · Scrub · Encryption</p>
         </div>
-        <button onClick={refresh} style={btnGhost} title="Refresh"><Icon name="refresh" size={16} /></button>
+        <button onClick={refresh} className="btn btn-ghost" title="Refresh"><Icon name="refresh" size={16} /></button>
       </div>
 
       {/* Tabs */}
-      <div style={{ display: 'flex', gap: 4, marginBottom: 28, borderBottom: '1px solid var(--border)' }}>
+      <div className="tabs-underline" style={{ marginBottom: 28 }}>
         {TABS.map(t => (
-          <button key={t.id} onClick={() => setTab(t.id)} style={{ padding: '10px 20px', background: 'none', border: 'none', cursor: 'pointer', fontSize: 'var(--text-sm)', fontWeight: 600, color: tab === t.id ? 'var(--primary)' : 'var(--text-secondary)', borderBottom: tab === t.id ? '2px solid var(--primary)' : '2px solid transparent', marginBottom: -1, display: 'flex', alignItems: 'center', gap: 6 }}>
+          <button key={t.id} onClick={() => setTab(t.id)} className={`tab-underline${tab === t.id ? ' active' : ''}`}>
             <Icon name={t.icon} size={16} />{t.label}
           </button>
         ))}
@@ -525,7 +485,7 @@ export function PoolsPage() {
       {/* Encryption content */}
       {tab === 'encryption' && (
         <>
-          <div style={{ marginBottom: 16, padding: '12px 16px', background: 'var(--info-bg)', border: '1px solid var(--info-border)', borderRadius: 'var(--radius-md)', display: 'flex', gap: 10, fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>
+          <div className="alert alert-info" style={{ marginBottom: 16 }}>
             <Icon name="info" size={18} style={{ color: 'var(--info)', flexShrink: 0, marginTop: 1 }} />
             ZFS native encryption. Locked datasets are inaccessible until unlocked with the passphrase.
           </div>

@@ -6,6 +6,54 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ---
 
+## [4.1.1] — 2026-03-09 — "Design System"
+
+### Changed
+
+- **Design system adoption (all pages):** 27 pages previously defined
+  per-file `const btnPrimary / btnGhost / btnDanger / inputStyle` objects,
+  producing inconsistent padding, missing hover states, and divergent font
+  weights across the UI. All removed and replaced with the CSS design system:
+  `.btn .btn-primary`, `.btn .btn-ghost`, `.btn .btn-danger`, `.btn-sm`,
+  `.input`, `.data-table`.
+
+- **New `.tabs-line` CSS variant:** The existing `.tabs` is a pill/segment
+  control. Pages use an underline tab pattern — this is now a first-class
+  design system member (`.tabs-line` wrapper + `.tab` / `.tab-active`),
+  replacing 13 pages of duplicated inline `borderBottom` logic.
+
+- **Hover / focus states restored uniformly:** Inline style buttons had no
+  `:hover` or `:focus-visible` states. All buttons now inherit the glow and
+  colour transitions from `index.css`.
+
+- **Unused `import type React` removed** from 14 pages (was only needed
+  for `React.CSSProperties` on the deleted style objects).
+  Bundle size: −18 KB minified.
+
+### Fixed
+
+- **AppShell:** `ForcePasswordChange` overlay gates the full UI when
+  `must_change_password` is set. Strength bar mirrors daemon
+  `validatePasswordStrength` rules exactly (8 chars, upper+lower+digit+special).
+
+- **SecurityPage:** New **Password** tab (first tab, default) exposes
+  `POST /api/auth/change-password` to all logged-in users at any time.
+  Session remains valid after change.
+
+- **LoginPage:** `pending_token` for TOTP verification now sent in JSON body
+  as daemon `HandleTOTPVerify` expects, not as a request header.
+
+### Stats
+
+| Metric | Before | After |
+|--------|--------|-------|
+| Pages with inline style objects | 25 | 0 |
+| Pages using CSS design system | 2 | 38 |
+| Unused React imports | 14 | 0 |
+| JS bundle (minified) | 951 KB | 933 KB |
+
+---
+
 ## [4.1.0] — 2026-03-08 — "Terminal"
 
 ### Feature: Embedded PTY Terminal

@@ -10,7 +10,6 @@
  */
 
 import { useState } from 'react'
-import type React from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { Icon } from '@/components/ui/Icon'
@@ -45,27 +44,6 @@ interface UPSResponse {
   port?:   number
   name?:   string
   shutdown_level?: number
-}
-
-// ---------------------------------------------------------------------------
-// Styles
-// ---------------------------------------------------------------------------
-
-const btnGhost: React.CSSProperties = {
-  padding: '8px 14px', background: 'var(--surface)', color: 'var(--text-secondary)',
-  border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', cursor: 'pointer',
-  fontSize: 'var(--text-sm)', fontWeight: 500, display: 'inline-flex', alignItems: 'center', gap: 6,
-}
-const btnPrimary: React.CSSProperties = {
-  padding: '9px 20px', background: 'var(--primary)', color: '#000',
-  border: 'none', borderRadius: 'var(--radius-sm)', cursor: 'pointer',
-  fontSize: 'var(--text-sm)', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 6,
-}
-const inputStyle: React.CSSProperties = {
-  background: 'var(--surface)', border: '1px solid var(--border)',
-  borderRadius: 'var(--radius-sm)', padding: '8px 12px',
-  color: 'var(--text)', fontSize: 'var(--text-sm)', width: '100%',
-  fontFamily: 'var(--font-ui)', outline: 'none', boxSizing: 'border-box',
 }
 
 // ---------------------------------------------------------------------------
@@ -142,34 +120,34 @@ function ConfigPanel({ initial }: { initial: UPSResponse }) {
         <Icon name="settings" size={18} style={{ color: 'var(--primary)' }} />Configure NUT Connection
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 80px', gap: 14, marginBottom: 14 }}>
-        <label style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-          <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', fontWeight: 600 }}>Driver</span>
-          <select value={driver} onChange={e => setDriver(e.target.value)} style={{ ...inputStyle, appearance: 'none' }}>
+        <label className="field">
+          <span className="field-label">Driver</span>
+          <select value={driver} onChange={e => setDriver(e.target.value)} className="input" style={{ appearance: 'none' }}>
             {['usbhid-ups', 'blazer_usb', 'blazer_ser', 'snmp-ups', 'nutdrv_qx'].map(d => (
               <option key={d} value={d}>{d}</option>
             ))}
           </select>
         </label>
-        <label style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-          <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', fontWeight: 600 }}>NUT Host</span>
-          <input value={host} onChange={e => setHost(e.target.value)} placeholder="localhost" style={inputStyle} />
+        <label className="field">
+          <span className="field-label">NUT Host</span>
+          <input value={host} onChange={e => setHost(e.target.value)} placeholder="localhost" className="input" />
         </label>
-        <label style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-          <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', fontWeight: 600 }}>Port</span>
-          <input type="number" value={port} onChange={e => setPort(e.target.value)} style={inputStyle} />
+        <label className="field">
+          <span className="field-label">Port</span>
+          <input type="number" value={port} onChange={e => setPort(e.target.value)} className="input" />
         </label>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 120px', gap: 14, marginBottom: 16 }}>
-        <label style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-          <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', fontWeight: 600 }}>UPS Name</span>
-          <input value={name} onChange={e => setName(e.target.value)} placeholder="ups" style={{ ...inputStyle, fontFamily: 'var(--font-mono)' }} />
+        <label className="field">
+          <span className="field-label">UPS Name</span>
+          <input value={name} onChange={e => setName(e.target.value)} placeholder="ups" className="input" style={{ fontFamily: 'var(--font-mono)' }} />
         </label>
-        <label style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-          <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', fontWeight: 600 }}>Shutdown %</span>
-          <input type="number" value={shutLevel} onChange={e => setShutLevel(e.target.value)} min={5} max={95} style={inputStyle} />
+        <label className="field">
+          <span className="field-label">Shutdown %</span>
+          <input type="number" value={shutLevel} onChange={e => setShutLevel(e.target.value)} min={5} max={95} className="input" />
         </label>
       </div>
-      <button onClick={() => save.mutate()} disabled={save.isPending} style={btnPrimary}>
+      <button onClick={() => save.mutate()} disabled={save.isPending} className="btn btn-primary">
         <Icon name="save" size={15} />{save.isPending ? 'Saving…' : 'Save Config'}
       </button>
     </div>
@@ -201,19 +179,17 @@ export function UPSPage() {
 
   return (
     <div style={{ maxWidth: 860 }}>
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 28 }}>
-        <div>
-          <h1 style={{ fontSize: 'var(--text-3xl)', fontWeight: 700, letterSpacing: '-1px', marginBottom: 6 }}>UPS Management</h1>
-          <p style={{ color: 'var(--text-secondary)', fontSize: 'var(--text-md)' }}>Monitor battery status and configure auto-shutdown</p>
-        </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <button onClick={() => qc.invalidateQueries({ queryKey: ['system', 'ups'] })} style={btnGhost}>
-            <Icon name="refresh" size={14} />Refresh
-          </button>
-          <button onClick={() => setShowConfig(!showConfig)} style={btnGhost}>
-            <Icon name="settings" size={14} />{showConfig ? 'Hide Config' : 'Configure'}
-          </button>
-        </div>
+      <div className="page-header">
+        <h1 className="page-title">UPS Management</h1>
+        <p className="page-subtitle">Monitor battery status and configure auto-shutdown</p>
+      </div>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 28 }}>
+        <button onClick={() => qc.invalidateQueries({ queryKey: ['system', 'ups'] })} className="btn btn-ghost">
+          <Icon name="refresh" size={14} />Refresh
+        </button>
+        <button onClick={() => setShowConfig(!showConfig)} className="btn btn-ghost">
+          <Icon name="settings" size={14} />{showConfig ? 'Hide Config' : 'Configure'}
+        </button>
       </div>
 
       {!hasData ? (
@@ -223,7 +199,7 @@ export function UPSPage() {
           <div style={{ color: 'var(--text-tertiary)', fontSize: 'var(--text-sm)', maxWidth: 380, textAlign: 'center' }}>
             Connect a UPS device and ensure NUT (Network UPS Tools) is installed and configured.
           </div>
-          <button onClick={() => setShowConfig(true)} style={btnPrimary}><Icon name="settings" size={15} />Configure NUT</button>
+          <button onClick={() => setShowConfig(true)} className="btn btn-primary"><Icon name="settings" size={15} />Configure NUT</button>
         </div>
       ) : (
         <>

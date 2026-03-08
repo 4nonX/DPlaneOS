@@ -40,7 +40,7 @@ interface TokensResponse    { success: boolean; tokens: ApiToken[] }
 interface AuditStats        { success: boolean; total_entries?: number; last_entry?: string; chain_valid?: boolean }
 
 // ---------------------------------------------------------------------------
-// Helper functions
+// Helpers
 // ---------------------------------------------------------------------------
 
 function fmtDate(s?: string) {
@@ -176,7 +176,8 @@ function PasswordTab() {
                 onChange={e => setCurrent(e.target.value)}
                 autoComplete="current-password"
                 required
-                className="input" style={{ paddingRight: 40 }}
+                className="input"
+                style={{ paddingRight: 40 }}
               />
               <button type="button" onClick={() => setShowCurrent(v => !v)}
                 style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)',
@@ -200,7 +201,8 @@ function PasswordTab() {
                 onChange={e => setNext(e.target.value)}
                 autoComplete="new-password"
                 required
-                className="input" style={{ paddingRight: 40 }}
+                className="input"
+                style={{ paddingRight: 40 }}
               />
               <button type="button" onClick={() => setShowNext(v => !v)}
                 style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)',
@@ -224,7 +226,10 @@ function PasswordTab() {
               onChange={e => setConfirm(e.target.value)}
               autoComplete="new-password"
               required
-              className="input" style={{ borderColor: mismatch ? 'var(--error-border)' : 'var(--border)' }}
+              className="input"
+              style={{
+                borderColor: mismatch ? 'var(--error-border)' : 'var(--border)',
+              }}
             />
             {mismatch && (
               <div style={{ fontSize: 'var(--text-xs)', color: 'var(--error)', marginTop: 4 }}>
@@ -343,7 +348,8 @@ function TOTPTab() {
                   <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', marginBottom: 6 }}>Enter 6-digit code from your app to verify</div>
                   <input value={code} onChange={e => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
                     placeholder="000000" maxLength={6}
-                    className="input" style={{ fontFamily: 'var(--font-mono)', letterSpacing: '4px', fontSize: 'var(--text-xl)', textAlign: 'center' }}
+                    className="input"
+                    style={{ fontFamily: 'var(--font-mono)', letterSpacing: '4px', fontSize: 'var(--text-xl)', textAlign: 'center' }}
                     autoFocus onKeyDown={e => e.key === 'Enter' && code.length === 6 && verify.mutate()} />
                 </div>
                 <div style={{ display: 'flex', gap: 8 }}>
@@ -392,7 +398,7 @@ function TokensTab() {
   return (
     <>
       {newToken && (
-        <div style={{ marginBottom: 20, padding: 20, background: 'var(--success-bg)', border: '1px solid var(--success-border)', borderRadius: 'var(--radius-lg)' }}>
+        <div className="alert alert-success" style={{ marginBottom: 20 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
             <Icon name="check_circle" size={16} style={{ color: 'var(--success)' }} />
             <span style={{ fontWeight: 700, color: 'var(--success)' }}>Token created — copy it now, it won't be shown again</span>
@@ -515,22 +521,16 @@ export function SecurityPage() {
 
   return (
     <div style={{ maxWidth: 860 }}>
-      <div style={{ marginBottom: 28 }}>
-        <h1 style={{ fontSize: 'var(--text-3xl)', fontWeight: 700, letterSpacing: '-1px', marginBottom: 6 }}>Security</h1>
-        <p style={{ color: 'var(--text-secondary)', fontSize: 'var(--text-md)' }}>
+      <div className="page-header">
+        <h1 className="page-title">Security</h1>
+        <p className="page-subtitle">
           Password, two-factor authentication, API tokens and audit chain
         </p>
       </div>
 
-      <div style={{ display: 'flex', gap: 4, marginBottom: 24, borderBottom: '1px solid var(--border)' }}>
+      <div className="tabs-underline">
         {TABS.map(t => (
-          <button key={t.id} onClick={() => setTab(t.id)} style={{
-            padding: '10px 20px', background: 'none', border: 'none', cursor: 'pointer',
-            fontSize: 'var(--text-sm)', fontWeight: 600,
-            color: tab === t.id ? 'var(--primary)' : 'var(--text-secondary)',
-            borderBottom: tab === t.id ? '2px solid var(--primary)' : '2px solid transparent',
-            marginBottom: -1, display: 'flex', alignItems: 'center', gap: 6,
-          }}>
+          <button key={t.id} onClick={() => setTab(t.id)} className={`tab-underline${tab === t.id ? ' active' : ''}`}>
             <Icon name={t.icon} size={16} />{t.label}
           </button>
         ))}

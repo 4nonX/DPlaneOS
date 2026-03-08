@@ -13,7 +13,6 @@
  */
 
 import { useState } from 'react'
-import type React from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { Icon } from '@/components/ui/Icon'
@@ -52,30 +51,6 @@ interface HALocalResponse  {
 }
 
 // ---------------------------------------------------------------------------
-// Styles
-// ---------------------------------------------------------------------------
-
-const btnGhost: React.CSSProperties = {
-  padding: '7px 13px', background: 'var(--surface)', color: 'var(--text-secondary)',
-  border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', cursor: 'pointer',
-  fontSize: 'var(--text-sm)', fontWeight: 500, display: 'inline-flex', alignItems: 'center', gap: 6,
-}
-const btnPrimary: React.CSSProperties = {
-  padding: '8px 18px', background: 'var(--primary)', color: '#000',
-  border: 'none', borderRadius: 'var(--radius-sm)', cursor: 'pointer',
-  fontSize: 'var(--text-sm)', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 6,
-}
-const btnDanger: React.CSSProperties = {
-  padding: '6px 12px', background: 'var(--error-bg)', border: '1px solid var(--error-border)',
-  borderRadius: 'var(--radius-sm)', cursor: 'pointer', color: 'var(--error)',
-  fontSize: 'var(--text-xs)', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 4,
-}
-const inputStyle: React.CSSProperties = {
-  background: 'var(--surface)', border: '1px solid var(--border)',
-  borderRadius: 'var(--radius-sm)', padding: '8px 12px',
-  color: 'var(--text)', fontSize: 'var(--text-sm)', width: '100%',
-  fontFamily: 'var(--font-ui)', outline: 'none', boxSizing: 'border-box',
-}
 
 function fmtDate(s?: string): string {
   if (!s) return 'Never'
@@ -121,19 +96,13 @@ function NodeCard({ node, isLocal, canPromote, onPromote, onRemove, pending }: {
           <span style={{ fontWeight: 700 }}>{node.name ?? node.id}</span>
 
           {isLocal && (
-            <span style={{ padding: '1px 6px', borderRadius: 'var(--radius-xs)', background: 'var(--primary-bg)', color: 'var(--primary)', fontSize: 10, fontWeight: 700 }}>
-              THIS NODE
-            </span>
+            <span className="badge badge-primary">THIS NODE</span>
           )}
           {isActive && (
-            <span style={{ padding: '1px 6px', borderRadius: 'var(--radius-xs)', background: 'rgba(76,175,80,0.2)', color: '#81c784', border: '1px solid rgba(76,175,80,0.3)', fontSize: 10, fontWeight: 700 }}>
-              ACTIVE
-            </span>
+            <span className="badge badge-success">ACTIVE</span>
           )}
           {!isActive && node.role === 'standby' && (
-            <span style={{ padding: '1px 6px', borderRadius: 'var(--radius-xs)', background: 'rgba(33,150,243,0.2)', color: '#64b5f6', border: '1px solid rgba(33,150,243,0.3)', fontSize: 10, fontWeight: 700 }}>
-              STANDBY
-            </span>
+            <span className="badge badge-neutral">STANDBY</span>
           )}
 
           {/* Online dot */}
@@ -151,11 +120,11 @@ function NodeCard({ node, isLocal, canPromote, onPromote, onRemove, pending }: {
       {!isLocal && (
         <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
           {canPromote && !isActive && (
-            <button onClick={onPromote} disabled={pending} style={btnPrimary}>
+            <button onClick={onPromote} disabled={pending} className="btn btn-primary">
               <Icon name="upgrade" size={14} />Promote
             </button>
           )}
-          <button onClick={onRemove} disabled={pending} style={btnDanger}>
+          <button onClick={onRemove} disabled={pending} className="btn btn-danger">
             <Icon name="delete" size={13} />
           </button>
         </div>
@@ -188,33 +157,33 @@ function AddPeerForm({ onAdd, pending }: {
     <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: '20px 24px', marginTop: 24 }}>
       <div style={{ fontWeight: 700, marginBottom: 16 }}>Register Peer Node</div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 120px', gap: 12, marginBottom: 12 }}>
-        <label style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-          <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', fontWeight: 600 }}>Node ID</span>
+        <label className="field">
+          <span className="field-label">Node ID</span>
           <input value={id} onChange={e => setId(e.target.value)} placeholder="node-2"
-            style={{ ...inputStyle, fontFamily: 'var(--font-mono)' }} />
+            className="input" style={{ fontFamily: 'var(--font-mono)' }} />
         </label>
 
-        <label style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-          <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', fontWeight: 600 }}>Display Name</span>
-          <input value={name} onChange={e => setName(e.target.value)} placeholder="NAS-2 (optional)" style={inputStyle} />
+        <label className="field">
+          <span className="field-label">Display Name</span>
+          <input value={name} onChange={e => setName(e.target.value)} placeholder="NAS-2 (optional)" className="input" />
         </label>
 
-        <label style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-          <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', fontWeight: 600 }}>Address</span>
+        <label className="field">
+          <span className="field-label">Address</span>
           <input value={address} onChange={e => setAddress(e.target.value)} placeholder="192.168.1.11:9000"
-            style={{ ...inputStyle, fontFamily: 'var(--font-mono)' }} />
+            className="input" style={{ fontFamily: 'var(--font-mono)' }} />
         </label>
 
-        <label style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-          <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', fontWeight: 600 }}>Role</span>
-          <select value={role} onChange={e => setRole(e.target.value)} style={{ ...inputStyle, appearance: 'none' }}>
+        <label className="field">
+          <span className="field-label">Role</span>
+          <select value={role} onChange={e => setRole(e.target.value)} className="input" style={{ appearance: 'none' }}>
             <option value="standby">Standby</option>
             <option value="active">Active</option>
           </select>
         </label>
       </div>
 
-      <button onClick={submit} disabled={pending} style={btnPrimary}>
+      <button onClick={submit} disabled={pending} className="btn btn-primary">
         <Icon name="add" size={15} />{pending ? 'Registering…' : 'Register Peer'}
       </button>
     </div>
@@ -299,15 +268,15 @@ export function HAPage() {
     <div style={{ maxWidth: 900 }}>
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 28 }}>
         <div>
-          <h1 style={{ fontSize: 'var(--text-3xl)', fontWeight: 700, letterSpacing: '-1px', marginBottom: 6 }}>HA Cluster</h1>
-          <p style={{ color: 'var(--text-secondary)', fontSize: 'var(--text-md)' }}>High availability — nodes, quorum and failover</p>
+          <h1 className="page-title">HA Cluster</h1>
+          <p className="page-subtitle">High availability — nodes, quorum and failover</p>
         </div>
         <button
           onClick={() => {
             qc.invalidateQueries({ queryKey: ['ha', 'status'] })
             qc.invalidateQueries({ queryKey: ['ha', 'local'] })
           }}
-          style={btnGhost}
+          className="btn btn-ghost"
         >
           <Icon name="refresh" size={14} />Refresh
         </button>

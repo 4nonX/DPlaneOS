@@ -12,7 +12,6 @@
  */
 
 import { useState } from 'react'
-import type React from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { Icon } from '@/components/ui/Icon'
@@ -40,32 +39,6 @@ interface FirewallStatus {
 }
 
 // ---------------------------------------------------------------------------
-// Styles
-// ---------------------------------------------------------------------------
-
-const btnGhost: React.CSSProperties = {
-  padding: '7px 13px', background: 'var(--surface)', color: 'var(--text-secondary)',
-  border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', cursor: 'pointer',
-  fontSize: 'var(--text-sm)', fontWeight: 500, display: 'inline-flex', alignItems: 'center', gap: 6,
-}
-const btnPrimary: React.CSSProperties = {
-  padding: '8px 18px', background: 'var(--primary)', color: '#000',
-  border: 'none', borderRadius: 'var(--radius-sm)', cursor: 'pointer',
-  fontSize: 'var(--text-sm)', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 6,
-}
-const btnDanger: React.CSSProperties = {
-  padding: '7px 14px', background: 'var(--error-bg)', border: '1px solid var(--error-border)',
-  borderRadius: 'var(--radius-sm)', cursor: 'pointer', color: 'var(--error)',
-  fontSize: 'var(--text-sm)', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 6,
-}
-const inputStyle: React.CSSProperties = {
-  background: 'var(--surface)', border: '1px solid var(--border)',
-  borderRadius: 'var(--radius-sm)', padding: '8px 12px',
-  color: 'var(--text)', fontSize: 'var(--text-sm)', width: '100%',
-  fontFamily: 'var(--font-ui)', outline: 'none', boxSizing: 'border-box',
-}
-
-// ---------------------------------------------------------------------------
 // Status banner
 // ---------------------------------------------------------------------------
 
@@ -83,7 +56,7 @@ function StatusBanner({ active, onToggle, pending }: { active: boolean; onToggle
           {active ? 'nftables rules are applied and protecting the system' : 'No firewall rules are active — all traffic is allowed'}
         </div>
       </div>
-      <button onClick={onToggle} disabled={pending} style={active ? btnDanger : btnPrimary}>
+      <button onClick={onToggle} disabled={pending} className={active ? 'btn btn-danger' : 'btn btn-primary'}>
         <Icon name={active ? 'shield_x' : 'shield'} size={15} />
         {pending ? (active ? 'Disabling…' : 'Enabling…') : (active ? 'Disable' : 'Enable')}
       </button>
@@ -111,36 +84,36 @@ function AddRuleForm({ onAdd, pending }: { onAdd: (rule: { action: string; port:
     <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: '18px 22px', marginBottom: 24 }}>
       <div style={{ fontWeight: 700, marginBottom: 14 }}>Add Rule</div>
       <div style={{ display: 'grid', gridTemplateColumns: '100px 100px 1fr 1fr auto', gap: 10, alignItems: 'end' }}>
-        <label style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-          <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', fontWeight: 600 }}>Action</span>
-          <select value={action} onChange={e => setAction(e.target.value as 'allow' | 'deny')} style={{ ...inputStyle, appearance: 'none' }}>
+        <label className="field">
+          <span className="field-label">Action</span>
+          <select value={action} onChange={e => setAction(e.target.value as 'allow' | 'deny')} className="input" style={{ appearance: 'none' }}>
             <option value="allow">Allow</option>
             <option value="deny">Deny</option>
           </select>
         </label>
 
-        <label style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-          <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', fontWeight: 600 }}>Protocol</span>
-          <select value={proto} onChange={e => setProto(e.target.value)} style={{ ...inputStyle, appearance: 'none' }}>
+        <label className="field">
+          <span className="field-label">Protocol</span>
+          <select value={proto} onChange={e => setProto(e.target.value)} className="input" style={{ appearance: 'none' }}>
             <option value="tcp">tcp</option>
             <option value="udp">udp</option>
             <option value="both">tcp+udp</option>
           </select>
         </label>
 
-        <label style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-          <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', fontWeight: 600 }}>Port / Range</span>
+        <label className="field">
+          <span className="field-label">Port / Range</span>
           <input value={port} onChange={e => setPort(e.target.value)} placeholder="80  or  8000:8100"
-            style={{ ...inputStyle, fontFamily: 'var(--font-mono)' }} onKeyDown={e => e.key === 'Enter' && submit()} />
+            className="input" style={{ fontFamily: 'var(--font-mono)' }} onKeyDown={e => e.key === 'Enter' && submit()} />
         </label>
 
-        <label style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-          <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', fontWeight: 600 }}>Source IP (optional)</span>
+        <label className="field">
+          <span className="field-label">Source IP (optional)</span>
           <input value={from} onChange={e => setFrom(e.target.value)} placeholder="192.168.1.0/24 or any"
-            style={{ ...inputStyle, fontFamily: 'var(--font-mono)' }} onKeyDown={e => e.key === 'Enter' && submit()} />
+            className="input" style={{ fontFamily: 'var(--font-mono)' }} onKeyDown={e => e.key === 'Enter' && submit()} />
         </label>
 
-        <button onClick={submit} disabled={pending} style={{ ...btnPrimary, alignSelf: 'flex-end' }}>
+        <button onClick={submit} disabled={pending} className="btn btn-primary" style={{ alignSelf: 'flex-end' }}>
           <Icon name="add" size={15} />{pending ? 'Adding…' : 'Add'}
         </button>
       </div>
@@ -181,9 +154,9 @@ export function FirewallPage() {
 
   return (
     <div style={{ maxWidth: 900 }}>
-      <div style={{ marginBottom: 28 }}>
-        <h1 style={{ fontSize: 'var(--text-3xl)', fontWeight: 700, letterSpacing: '-1px', marginBottom: 6 }}>Firewall</h1>
-        <p style={{ color: 'var(--text-secondary)', fontSize: 'var(--text-md)' }}>nftables rules — allow and deny traffic by port and source</p>
+      <div className="page-header">
+        <h1 className="page-title">Firewall</h1>
+        <p className="page-subtitle">nftables rules — allow and deny traffic by port and source</p>
       </div>
 
       <StatusBanner
@@ -201,10 +174,10 @@ export function FirewallPage() {
       <div style={{ marginBottom: 14, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div style={{ fontWeight: 700 }}>Active Rules ({rules.length})</div>
         <div style={{ display: 'flex', gap: 8 }}>
-          <button onClick={() => qc.invalidateQueries({ queryKey: ['firewall', 'status'] })} style={btnGhost}>
+          <button onClick={() => qc.invalidateQueries({ queryKey: ['firewall', 'status'] })} className="btn btn-ghost">
             <Icon name="refresh" size={14} />Refresh
           </button>
-          <button onClick={() => syncMut.mutate()} disabled={syncMut.isPending} style={btnGhost}>
+          <button onClick={() => syncMut.mutate()} disabled={syncMut.isPending} className="btn btn-ghost">
             <Icon name="sync" size={14} />{syncMut.isPending ? 'Syncing…' : 'Sync to NixOS'}
           </button>
         </div>
@@ -212,37 +185,34 @@ export function FirewallPage() {
 
       {rules.length > 0 ? (
         <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', overflow: 'hidden' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <table className="data-table">
             <thead>
               <tr style={{ background: 'rgba(255,255,255,0.03)' }}>
                 {['Action', 'Protocol', 'Port', 'Source', ''].map(h => (
-                  <th key={h} style={{ padding: '10px 16px', textAlign: 'left', fontSize: 'var(--text-2xs)', fontWeight: 700, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.5px', borderBottom: '1px solid var(--border)' }}>{h}</th>
+                  <th key={h}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {rules.map((rule, idx) => (
-                <tr key={rule.id ?? idx} style={{ borderBottom: '1px solid var(--border)' }}
+                <tr key={rule.id ?? idx}
                   onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.02)')}
                   onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
-                  <td style={{ padding: '11px 16px' }}>
-                    <span style={{ padding: '3px 10px', borderRadius: 'var(--radius-sm)', fontSize: 'var(--text-xs)', fontWeight: 700,
-                      background: rule.action === 'allow' ? 'var(--success-bg)' : 'var(--error-bg)',
-                      border:     rule.action === 'allow' ? '1px solid var(--success-border)' : '1px solid var(--error-border)',
-                      color:      rule.action === 'allow' ? 'var(--success)' : 'var(--error)' }}>
+                  <td>
+                    <span className={rule.action === 'allow' ? 'badge badge-success' : 'badge badge-error'}>
                       {rule.action.toUpperCase()}
                     </span>
                   </td>
-                  <td style={{ padding: '11px 16px', fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>
+                  <td style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>
                     {rule.proto ?? 'tcp'}
                   </td>
-                  <td style={{ padding: '11px 16px', fontFamily: 'var(--font-mono)', fontSize: 'var(--text-sm)', fontWeight: 600 }}>
+                  <td style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-sm)', fontWeight: 600 }}>
                     {rule.port ?? '—'}
                   </td>
-                  <td style={{ padding: '11px 16px', fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>
+                  <td style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>
                     {rule.from ?? 'any'}
                   </td>
-                  <td style={{ padding: '11px 16px', textAlign: 'right' }}>
+                  <td style={{ textAlign: 'right' }}>
                     <button onClick={() => rulesMut.mutate({ action: 'remove', id: rule.id, port: rule.port, from: rule.from })}
                       disabled={rulesMut.isPending}
                       style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-tertiary)', padding: 4, borderRadius: 'var(--radius-xs)', display: 'inline-flex' }}

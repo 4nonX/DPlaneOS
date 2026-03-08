@@ -31,12 +31,6 @@ function parseSize(s:string):number {
   return Math.round(parseFloat(m[1])*(mul[(m[2]||'B').toLowerCase()]??1))
 }
 
-const S = {
-  btn:  { padding:'7px 12px', background:'var(--surface)', color:'var(--text-secondary)', border:'1px solid var(--border)', borderRadius:'var(--radius-sm)', cursor:'pointer', fontSize:'var(--text-sm)', fontWeight:500, display:'inline-flex', alignItems:'center', gap:6 } as React.CSSProperties,
-  btnP: { padding:'8px 16px', background:'var(--primary)', color:'#000', border:'none', borderRadius:'var(--radius-sm)', cursor:'pointer', fontSize:'var(--text-sm)', fontWeight:700, display:'inline-flex', alignItems:'center', gap:6 } as React.CSSProperties,
-  inp:  { background:'var(--surface)', border:'1px solid var(--border)', borderRadius:'var(--radius-sm)', padding:'8px 12px', color:'var(--text)', fontSize:'var(--text-sm)', width:'100%', outline:'none', boxSizing:'border-box' as const, fontFamily:'var(--font-ui)' },
-}
-
 function DatasetQuotaLookup() {
   const [dataset, setDataset] = useState('')
   const [queried, setQueried] = useState<string|null>(null)
@@ -64,8 +58,8 @@ function DatasetQuotaLookup() {
     <div style={{ background:'var(--bg-card)', border:'1px solid var(--border)', borderRadius:'var(--radius-xl)', padding:22, marginBottom:24 }}>
       <div style={{ fontWeight:700, marginBottom:14 }}>Dataset Quota</div>
       <div style={{ display:'flex', gap:8, marginBottom:14 }}>
-        <input value={dataset} onChange={e=>setDataset(e.target.value)} placeholder="tank/data" style={{ ...S.inp, flex:1, fontFamily:'var(--font-mono)' }} onKeyDown={e=>e.key==='Enter'&&setQueried(dataset)} />
-        <button onClick={()=>setQueried(dataset)} style={S.btnP}><Icon name="search" size={14}/>Load</button>
+        <input value={dataset} onChange={e=>setDataset(e.target.value)} placeholder="tank/data" className="input" style={{ flex:1, fontFamily:'var(--font-mono)' }} onKeyDown={e=>e.key==='Enter'&&setQueried(dataset)} />
+        <button onClick={()=>setQueried(dataset)} className="btn btn-primary"><Icon name="search" size={14}/>Load</button>
       </div>
       {quotaQ.isLoading && <Skeleton height={60}/>}
       {quotaQ.data && queried && (
@@ -76,12 +70,12 @@ function DatasetQuotaLookup() {
       )}
       {queried && !quotaQ.isLoading && (
         <div style={{ display:'flex', gap:8, alignItems:'flex-end' }}>
-          <label style={{ display:'flex', flexDirection:'column', gap:5, flex:1 }}>
-            <span style={{ fontSize:'var(--text-xs)', color:'var(--text-secondary)' }}>New quota (e.g. 100GB)</span>
-            <input value={quota} onChange={e=>setQuota(e.target.value)} placeholder="100GB" style={S.inp}/>
+          <label className="field" style={{ flex:1 }}>
+            <span className="field-label">New quota (e.g. 100GB)</span>
+            <input value={quota} onChange={e=>setQuota(e.target.value)} placeholder="100GB" className="input"/>
           </label>
-          <button onClick={()=>setQ.mutate()} disabled={!quota.trim()||setQ.isPending} style={S.btnP}><Icon name="save" size={14}/>{setQ.isPending?'Setting…':'Set'}</button>
-          <button onClick={()=>removeQ.mutate()} disabled={removeQ.isPending} style={{ ...S.btn, color:'var(--error)', borderColor:'var(--error-border)' }}><Icon name="delete" size={14}/>Remove</button>
+          <button onClick={()=>setQ.mutate()} disabled={!quota.trim()||setQ.isPending} className="btn btn-primary"><Icon name="save" size={14}/>{setQ.isPending?'Setting…':'Set'}</button>
+          <button onClick={()=>removeQ.mutate()} disabled={removeQ.isPending} className="btn btn-ghost" style={{ color:'var(--error)', borderColor:'var(--error-border)' }}><Icon name="delete" size={14}/>Remove</button>
         </div>
       )}
     </div>
@@ -107,20 +101,20 @@ function UserGroupQuotas() {
       <div style={{ fontWeight:700, marginBottom:14 }}>User / Group Quotas</div>
       <div style={{ display:'grid', gridTemplateColumns:'1fr 80px 1fr 100px auto', gap:8, alignItems:'flex-end', marginBottom:20 }}>
         {[['Dataset','text',ds,setDs,'tank/home'],['User/Group ID','text',uid,setUid,'1000']].map(([lbl,t,val,setter,ph])=>(
-          <label key={lbl as string} style={{ display:'flex', flexDirection:'column', gap:5 }}>
-            <span style={{ fontSize:'var(--text-xs)', color:'var(--text-secondary)' }}>{lbl as string}</span>
-            <input type={t as string} value={val as string} onChange={e=>(setter as React.Dispatch<React.SetStateAction<string>>)(e.target.value)} placeholder={ph as string} style={S.inp}/>
+          <label key={lbl as string} className="field">
+            <span className="field-label">{lbl as string}</span>
+            <input type={t as string} value={val as string} onChange={e=>(setter as React.Dispatch<React.SetStateAction<string>>)(e.target.value)} placeholder={ph as string} className="input"/>
           </label>
         ))}
-        <label style={{ display:'flex', flexDirection:'column', gap:5 }}>
-          <span style={{ fontSize:'var(--text-xs)', color:'var(--text-secondary)' }}>Type</span>
-          <select value={type} onChange={e=>setType(e.target.value as 'user'|'group')} style={{ ...S.inp, appearance:'none' }}><option value="user">user</option><option value="group">group</option></select>
+        <label className="field">
+          <span className="field-label">Type</span>
+          <select value={type} onChange={e=>setType(e.target.value as 'user'|'group')} className="input" style={{appearance:'none'}}><option value="user">user</option><option value="group">group</option></select>
         </label>
-        <label style={{ display:'flex', flexDirection:'column', gap:5 }}>
-          <span style={{ fontSize:'var(--text-xs)', color:'var(--text-secondary)' }}>Quota</span>
-          <input value={quota} onChange={e=>setQuota(e.target.value)} placeholder="50GB" style={S.inp}/>
+        <label className="field">
+          <span className="field-label">Quota</span>
+          <input value={quota} onChange={e=>setQuota(e.target.value)} placeholder="50GB" className="input"/>
         </label>
-        <button onClick={()=>set.mutate()} disabled={!ds.trim()||!uid.trim()||!quota.trim()||set.isPending} style={{ ...S.btnP, alignSelf:'flex-end' }}><Icon name="add" size={14}/>{set.isPending?'Setting…':'Set'}</button>
+        <button onClick={()=>set.mutate()} disabled={!ds.trim()||!uid.trim()||!quota.trim()||set.isPending} className="btn btn-primary" style={{ alignSelf:'flex-end' }}><Icon name="add" size={14}/>{set.isPending?'Setting…':'Set'}</button>
       </div>
       {ugQ.isLoading&&<Skeleton height={100}/>}
       {ugQ.isError&&<ErrorState error={ugQ.error}/>}
@@ -145,7 +139,10 @@ function UserGroupQuotas() {
 export function QuotasPage() {
   return (
     <div style={{ maxWidth:900 }}>
-      <div style={{ marginBottom:28 }}><h1 style={{ fontSize:'var(--text-3xl)', fontWeight:700, letterSpacing:'-1px', marginBottom:6 }}>Quotas</h1><p style={{ color:'var(--text-secondary)' }}>ZFS dataset, user and group space limits</p></div>
+      <div className="page-header">
+        <h1 className="page-title">Quotas</h1>
+        <p className="page-subtitle">ZFS dataset, user and group space limits</p>
+      </div>
       <DatasetQuotaLookup/>
       <UserGroupQuotas/>
     </div>

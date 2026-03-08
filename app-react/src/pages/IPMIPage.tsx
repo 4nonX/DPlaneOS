@@ -8,7 +8,6 @@
  *   GET  /api/system/ipmi   → { success, sensors: { temp:[], fan:[], voltage:[] } }
  */
 
-import type React from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { Icon } from '@/components/ui/Icon'
@@ -33,16 +32,6 @@ interface IPMIResponse {
     fan?:     Sensor[]
     voltage?: Sensor[]
   }
-}
-
-// ---------------------------------------------------------------------------
-// Styles
-// ---------------------------------------------------------------------------
-
-const btnGhost: React.CSSProperties = {
-  padding: '7px 13px', background: 'var(--surface)', color: 'var(--text-secondary)',
-  border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', cursor: 'pointer',
-  fontSize: 'var(--text-sm)', fontWeight: 500, display: 'inline-flex', alignItems: 'center', gap: 6,
 }
 
 // ---------------------------------------------------------------------------
@@ -133,12 +122,12 @@ function SensorSection({ icon, title, sensors, emptyMsg }: {
         {title}
         <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }}>({sensors.length})</span>
         {criticalCount > 0 && (
-          <span style={{ padding: '1px 7px', borderRadius: 'var(--radius-xs)', background: 'var(--error-bg)', color: 'var(--error)', fontSize: 10, fontWeight: 700, marginLeft: 4 }}>
+          <span className="badge badge-error">
             {criticalCount} CRITICAL
           </span>
         )}
         {warningCount > 0 && (
-          <span style={{ padding: '1px 7px', borderRadius: 'var(--radius-xs)', background: 'rgba(251,191,36,0.1)', color: 'rgba(251,191,36,0.9)', fontSize: 10, fontWeight: 700 }}>
+          <span className="badge badge-warning">
             {warningCount} WARNING
           </span>
         )}
@@ -177,15 +166,15 @@ export function IPMIPage() {
           <h1 style={{ fontSize: 'var(--text-3xl)', fontWeight: 700, letterSpacing: '-1px', marginBottom: 6 }}>IPMI Sensors</h1>
           <p style={{ color: 'var(--text-secondary)', fontSize: 'var(--text-md)' }}>Temperature, fan speed and voltage readings from BMC</p>
         </div>
-        <button onClick={() => qc.invalidateQueries({ queryKey: ['system', 'ipmi'] })} style={btnGhost}>
+        <button onClick={() => qc.invalidateQueries({ queryKey: ['system', 'ipmi'] })} className="btn btn-ghost">
           <Icon name="refresh" size={14} />Refresh
         </button>
       </div>
 
       {hasCritical && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 18px', background: 'var(--error-bg)', border: '1px solid var(--error-border)', borderRadius: 'var(--radius-lg)', marginBottom: 24 }}>
-          <Icon name="error" size={18} style={{ color: 'var(--error)', flexShrink: 0 }} />
-          <span style={{ fontWeight: 700, color: 'var(--error)' }}>Critical sensor readings detected — immediate attention required</span>
+        <div className="alert alert-error" style={{ marginBottom: 24 }}>
+          <Icon name="error" size={18} style={{ flexShrink: 0 }} />
+          <span style={{ fontWeight: 700 }}>Critical sensor readings detected — immediate attention required</span>
         </div>
       )}
 

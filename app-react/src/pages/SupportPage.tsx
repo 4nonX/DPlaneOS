@@ -71,9 +71,9 @@ export function SupportPage() {
 
   return (
     <div style={{ maxWidth: 900 }}>
-      <div style={{ marginBottom:28 }}>
-        <h1 style={{ fontSize:'var(--text-3xl)', fontWeight:700, letterSpacing:'-1px', marginBottom:6 }}>Support</h1>
-        <p style={{ color:'var(--text-secondary)' }}>Diagnostics · system info · support bundle</p>
+      <div className="page-header">
+        <h1 className="page-title">Support</h1>
+        <p className="page-subtitle">Diagnostics · system info · support bundle</p>
       </div>
 
       {/* Support bundle */}
@@ -86,8 +86,7 @@ export function SupportPage() {
             <div style={{ fontWeight:700, fontSize:'var(--text-lg)' }}>Support Bundle</div>
             <div style={{ fontSize:'var(--text-sm)', color:'var(--text-secondary)' }}>Download a compressed archive of logs, config and system state for troubleshooting</div>
           </div>
-          <button onClick={downloadBundle} disabled={downloading}
-            style={{ padding:'10px 22px', background:'var(--primary)', color:'#000', border:'none', borderRadius:'var(--radius-sm)', cursor:'pointer', fontSize:'var(--text-sm)', fontWeight:700, display:'inline-flex', alignItems:'center', gap:8 }}>
+          <button onClick={downloadBundle} disabled={downloading} className="btn btn-primary">
             <Icon name="download" size={16}/>{downloading ? 'Generating…' : 'Download Bundle'}
           </button>
         </div>
@@ -124,7 +123,7 @@ export function SupportPage() {
                   <div style={{ fontWeight:600, fontSize:'var(--text-sm)' }}>Audit Chain</div>
                   <div style={{ fontSize:'var(--text-xs)', color:'var(--text-tertiary)' }}>{chainOk ? 'Integrity verified' : 'Chain broken — data may be compromised'}</div>
                 </div>
-                <span style={{ padding:'2px 8px', borderRadius:'var(--radius-full)', background:chainOk?'var(--success-bg)':'var(--error-bg)', border:`1px solid ${chainOk?'var(--success-border)':'var(--error-border)'}`, color:chainOk?'var(--success)':'var(--error)', fontSize:'var(--text-2xs)', fontWeight:700 }}>
+                <span className={`badge ${chainOk ? 'badge-success' : 'badge-error'}`}>
                   {chainOk ? 'OK' : 'FAIL'}
                 </span>
               </div>

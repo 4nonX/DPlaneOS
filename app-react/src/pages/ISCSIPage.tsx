@@ -12,7 +12,6 @@
  */
 
 import { useState } from 'react'
-import type React from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { Icon } from '@/components/ui/Icon'
@@ -22,13 +21,6 @@ import { toast } from '@/hooks/useToast'
 
 interface Target { iqn: string; zvol?: string; sessions?: number; size?: number }
 interface ACL    { iqn: string; initiator: string }
-
-const S = {
-  btn:  { padding:'7px 13px', background:'var(--surface)', color:'var(--text-secondary)', border:'1px solid var(--border)', borderRadius:'var(--radius-sm)', cursor:'pointer', fontSize:'var(--text-sm)', fontWeight:500, display:'inline-flex', alignItems:'center', gap:6 } as React.CSSProperties,
-  btnP: { padding:'8px 16px', background:'var(--primary)', color:'#000', border:'none', borderRadius:'var(--radius-sm)', cursor:'pointer', fontSize:'var(--text-sm)', fontWeight:700, display:'inline-flex', alignItems:'center', gap:6 } as React.CSSProperties,
-  btnD: { padding:'6px 11px', background:'var(--error-bg)', border:'1px solid var(--error-border)', borderRadius:'var(--radius-sm)', cursor:'pointer', color:'var(--error)', fontSize:'var(--text-xs)', fontWeight:600, display:'inline-flex', alignItems:'center', gap:4 } as React.CSSProperties,
-  inp:  { background:'var(--surface)', border:'1px solid var(--border)', borderRadius:'var(--radius-sm)', padding:'8px 12px', color:'var(--text)', fontSize:'var(--text-sm)', width:'100%', outline:'none', boxSizing:'border-box' as const, fontFamily:'var(--font-ui)' },
-}
 
 function fmtSize(b?: number) { if (!b) return '—'; const u=['B','KB','MB','GB','TB']; const i=Math.min(Math.floor(Math.log(b)/Math.log(1024)),4); return `${(b/1024**i).toFixed(1)} ${u[i]}` }
 
@@ -84,9 +76,9 @@ export function ISCSIPage() {
 
   return (
     <div style={{ maxWidth: 960 }}>
-      <div style={{ marginBottom: 28 }}>
-        <h1 style={{ fontSize:'var(--text-3xl)', fontWeight:700, letterSpacing:'-1px', marginBottom:6 }}>iSCSI</h1>
-        <p style={{ color:'var(--text-secondary)' }}>Block storage over IP — targets and initiator ACLs</p>
+      <div className="page-header">
+        <h1 className="page-title">iSCSI</h1>
+        <p className="page-subtitle">Block storage over IP — targets and initiator ACLs</p>
       </div>
 
       {/* Status */}
@@ -98,9 +90,9 @@ export function ISCSIPage() {
       )}
 
       {/* Tabs */}
-      <div style={{ display:'flex', gap:4, marginBottom:22, borderBottom:'1px solid var(--border)' }}>
+      <div className="tabs-underline" style={{ marginBottom:22 }}>
         {TABS.map(t => (
-          <button key={t.id} onClick={()=>setTab(t.id)} style={{ padding:'10px 20px', background:'none', border:'none', cursor:'pointer', fontSize:'var(--text-sm)', fontWeight:600, color:tab===t.id?'var(--primary)':'var(--text-secondary)', borderBottom:tab===t.id?'2px solid var(--primary)':'2px solid transparent', marginBottom:-1, display:'flex', alignItems:'center', gap:6 }}>
+          <button key={t.id} onClick={()=>setTab(t.id)} className={`tab-underline${tab === t.id ? ' active' : ''}`}>
             <Icon name={t.icon} size={16}/>{t.label}
           </button>
         ))}
@@ -113,22 +105,22 @@ export function ISCSIPage() {
           <div style={{ background:'var(--bg-card)', border:'1px solid var(--border)', borderRadius:'var(--radius-xl)', padding:22, marginBottom:22 }}>
             <div style={{ fontWeight:700, marginBottom:14 }}>Create Target</div>
             <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr auto', gap:10, alignItems:'flex-end' }}>
-              <label style={{ display:'flex', flexDirection:'column', gap:5 }}>
-                <span style={{ fontSize:'var(--text-xs)', color:'var(--text-secondary)' }}>IQN</span>
-                <input value={iqn} onChange={e=>setIqn(e.target.value)} style={{ ...S.inp, fontFamily:'var(--font-mono)' }}/>
+              <label className="field">
+                <span className="field-label">IQN</span>
+                <input value={iqn} onChange={e=>setIqn(e.target.value)} className="input" style={{ fontFamily:'var(--font-mono)' }}/>
               </label>
-              <label style={{ display:'flex', flexDirection:'column', gap:5 }}>
-                <span style={{ fontSize:'var(--text-xs)', color:'var(--text-secondary)' }}>ZVol</span>
+              <label className="field">
+                <span className="field-label">ZVol</span>
                 {zvols.length > 0 ? (
-                  <select value={zvol} onChange={e=>setZvol(e.target.value)} style={{ ...S.inp, appearance:'none' }}>
+                  <select value={zvol} onChange={e=>setZvol(e.target.value)} className="input" style={{ appearance:'none' }}>
                     <option value="">Select zvol…</option>
                     {zvols.map(z => <option key={z} value={z}>{z}</option>)}
                   </select>
                 ) : (
-                  <input value={zvol} onChange={e=>setZvol(e.target.value)} placeholder="tank/zvols/target0" style={{ ...S.inp, fontFamily:'var(--font-mono)' }}/>
+                  <input value={zvol} onChange={e=>setZvol(e.target.value)} placeholder="tank/zvols/target0" className="input" style={{ fontFamily:'var(--font-mono)' }}/>
                 )}
               </label>
-              <button onClick={()=>createTarget.mutate()} disabled={!iqn.trim()||!zvol.trim()||createTarget.isPending} style={S.btnP}>
+              <button onClick={()=>createTarget.mutate()} disabled={!iqn.trim()||!zvol.trim()||createTarget.isPending} className="btn btn-primary">
                 <Icon name="add" size={14}/>{createTarget.isPending?'Creating…':'Create'}
               </button>
             </div>
@@ -138,21 +130,21 @@ export function ISCSIPage() {
           {targetsQ.isError   && <ErrorState error={targetsQ.error}/>}
 
           <div style={{ background:'var(--bg-card)', border:'1px solid var(--border)', borderRadius:'var(--radius-lg)', overflow:'hidden' }}>
-            <table style={{ width:'100%', borderCollapse:'collapse' }}>
-              <thead><tr style={{ background:'rgba(255,255,255,0.03)' }}>
+            <table className="data-table">
+              <thead><tr>
                 {['IQN','ZVol','Sessions','Size','Actions'].map(h=>(
-                  <th key={h} style={{ padding:'10px 16px', textAlign:'left', fontSize:'var(--text-2xs)', fontWeight:700, color:'var(--text-tertiary)', textTransform:'uppercase', letterSpacing:'0.5px', borderBottom:'1px solid var(--border)' }}>{h}</th>
+                  <th key={h}>{h}</th>
                 ))}
               </tr></thead>
               <tbody>
                 {targets.map(t=>(
-                  <tr key={t.iqn} style={{ borderBottom:'1px solid var(--border)' }} onMouseEnter={e=>(e.currentTarget.style.background='rgba(255,255,255,0.02)')} onMouseLeave={e=>(e.currentTarget.style.background='transparent')}>
-                    <td style={{ padding:'12px 16px', fontFamily:'var(--font-mono)', fontSize:'var(--text-xs)', color:'var(--primary)' }}>{t.iqn}</td>
-                    <td style={{ padding:'12px 16px', fontFamily:'var(--font-mono)', fontSize:'var(--text-xs)', color:'var(--text-secondary)' }}>{t.zvol||'—'}</td>
-                    <td style={{ padding:'12px 16px', fontSize:'var(--text-sm)' }}>{t.sessions ?? 0}</td>
-                    <td style={{ padding:'12px 16px', fontSize:'var(--text-sm)', color:'var(--text-secondary)' }}>{fmtSize(t.size)}</td>
-                    <td style={{ padding:'12px 16px' }}>
-                      <button onClick={()=>{ if(window.confirm(`Delete target "${t.iqn}"?`)) deleteTarget.mutate(t.iqn) }} style={S.btnD}><Icon name="delete" size={13}/>Delete</button>
+                  <tr key={t.iqn} onMouseEnter={e=>(e.currentTarget.style.background='rgba(255,255,255,0.02)')} onMouseLeave={e=>(e.currentTarget.style.background='transparent')}>
+                    <td style={{ fontFamily:'var(--font-mono)', fontSize:'var(--text-xs)', color:'var(--primary)' }}>{t.iqn}</td>
+                    <td style={{ fontFamily:'var(--font-mono)', fontSize:'var(--text-xs)', color:'var(--text-secondary)' }}>{t.zvol||'—'}</td>
+                    <td>{t.sessions ?? 0}</td>
+                    <td style={{ color:'var(--text-secondary)' }}>{fmtSize(t.size)}</td>
+                    <td>
+                      <button onClick={()=>{ if(window.confirm(`Delete target "${t.iqn}"?`)) deleteTarget.mutate(t.iqn) }} className="btn btn-sm btn-danger"><Icon name="delete" size={13}/>Delete</button>
                     </td>
                   </tr>
                 ))}
@@ -171,22 +163,22 @@ export function ISCSIPage() {
           <div style={{ background:'var(--bg-card)', border:'1px solid var(--border)', borderRadius:'var(--radius-xl)', padding:22, marginBottom:22 }}>
             <div style={{ fontWeight:700, marginBottom:14 }}>Add Initiator ACL</div>
             <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr auto', gap:10, alignItems:'flex-end' }}>
-              <label style={{ display:'flex', flexDirection:'column', gap:5 }}>
-                <span style={{ fontSize:'var(--text-xs)', color:'var(--text-secondary)' }}>Target IQN</span>
+              <label className="field">
+                <span className="field-label">Target IQN</span>
                 {targets.length > 0 ? (
-                  <select value={aclIqn} onChange={e=>setAclIqn(e.target.value)} style={{ ...S.inp, appearance:'none' }}>
+                  <select value={aclIqn} onChange={e=>setAclIqn(e.target.value)} className="input" style={{ appearance:'none' }}>
                     <option value="">Select target…</option>
                     {targets.map(t=><option key={t.iqn} value={t.iqn}>{t.iqn}</option>)}
                   </select>
                 ) : (
-                  <input value={aclIqn} onChange={e=>setAclIqn(e.target.value)} placeholder="iqn.…" style={{ ...S.inp, fontFamily:'var(--font-mono)' }}/>
+                  <input value={aclIqn} onChange={e=>setAclIqn(e.target.value)} placeholder="iqn.…" className="input" style={{ fontFamily:'var(--font-mono)' }}/>
                 )}
               </label>
-              <label style={{ display:'flex', flexDirection:'column', gap:5 }}>
-                <span style={{ fontSize:'var(--text-xs)', color:'var(--text-secondary)' }}>Initiator IQN (or ALL)</span>
-                <input value={initiator} onChange={e=>setInitiator(e.target.value)} placeholder="iqn.… or ALL" style={{ ...S.inp, fontFamily:'var(--font-mono)' }}/>
+              <label className="field">
+                <span className="field-label">Initiator IQN (or ALL)</span>
+                <input value={initiator} onChange={e=>setInitiator(e.target.value)} placeholder="iqn.… or ALL" className="input" style={{ fontFamily:'var(--font-mono)' }}/>
               </label>
-              <button onClick={()=>addACL.mutate()} disabled={!aclIqn.trim()||!initiator.trim()||addACL.isPending} style={S.btnP}>
+              <button onClick={()=>addACL.mutate()} disabled={!aclIqn.trim()||!initiator.trim()||addACL.isPending} className="btn btn-primary">
                 <Icon name="add" size={14}/>{addACL.isPending?'Adding…':'Add'}
               </button>
             </div>
@@ -203,7 +195,7 @@ export function ISCSIPage() {
                   <div style={{ fontFamily:'var(--font-mono)', fontSize:'var(--text-xs)', color:'var(--primary)' }}>{a.iqn}</div>
                   <div style={{ fontSize:'var(--text-xs)', color:'var(--text-tertiary)', marginTop:2 }}>Initiator: <span style={{ fontFamily:'var(--font-mono)' }}>{a.initiator}</span></div>
                 </div>
-                <button onClick={()=>removeACL.mutate({ iqn:a.iqn, initiator:a.initiator })} style={S.btnD}><Icon name="delete" size={13}/>Remove</button>
+                <button onClick={()=>removeACL.mutate({ iqn:a.iqn, initiator:a.initiator })} className="btn btn-sm btn-danger"><Icon name="delete" size={13}/>Remove</button>
               </div>
             ))}
             {!aclsQ.isLoading && acls.length===0 && (

@@ -11,13 +11,14 @@
  */
 
 import { useState } from 'react'
-import type React from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { Icon } from '@/components/ui/Icon'
 import { ErrorState } from '@/components/ui/ErrorState'
 import { Skeleton } from '@/components/ui/LoadingSpinner'
 import { toast } from '@/hooks/useToast'
+import { Modal } from '@/components/ui/Modal'
+import type React from 'react'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -38,30 +39,11 @@ interface CertsResponse {
 }
 
 // ---------------------------------------------------------------------------
-// Styles
-// ---------------------------------------------------------------------------
-
-const btnGhost: React.CSSProperties = {
-  padding: '7px 13px', background: 'var(--surface)', color: 'var(--text-secondary)',
-  border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', cursor: 'pointer',
-  fontSize: 'var(--text-sm)', fontWeight: 500, display: 'inline-flex', alignItems: 'center', gap: 6,
-}
-const btnPrimary: React.CSSProperties = {
-  padding: '8px 18px', background: 'var(--primary)', color: '#000',
-  border: 'none', borderRadius: 'var(--radius-sm)', cursor: 'pointer',
-  fontSize: 'var(--text-sm)', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 6,
-}
-const inputStyle: React.CSSProperties = {
-  background: 'var(--surface)', border: '1px solid var(--border)',
-  borderRadius: 'var(--radius-sm)', padding: '8px 12px',
-  color: 'var(--text)', fontSize: 'var(--text-sm)', width: '100%',
-  fontFamily: 'var(--font-ui)', outline: 'none', boxSizing: 'border-box',
-}
 
 function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-      <label style={{ fontSize: 'var(--text-xs)', fontWeight: 600, color: 'var(--text-secondary)' }}>{label}</label>
+    <div className="field">
+      <label className="field-label">{label}</label>
       {children}
       {hint && <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }}>{hint}</span>}
     </div>
@@ -124,37 +106,34 @@ function GenerateModal({ onClose, onDone }: { onClose: () => void; onDone: () =>
   })
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.65)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }}
-      onClick={e => e.target === e.currentTarget && onClose()}>
-      <div style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 'var(--radius-xl)', padding: 28, width: 500, maxWidth: '92vw', display: 'flex', flexDirection: 'column', gap: 18 }}>
-        <div style={{ fontWeight: 700, fontSize: 'var(--text-lg)' }}>Generate Self-Signed Certificate</div>
-
+    <Modal title="Generate Self-Signed Certificate" onClose={onClose}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
         <Field label="Certificate Name" hint="Used as the filename on disk">
-          <input value={name} onChange={e => setName(e.target.value)} placeholder="server" style={inputStyle} autoFocus />
+          <input value={name} onChange={e => setName(e.target.value)} placeholder="server" className="input" autoFocus />
         </Field>
 
         <Field label="Common Name (CN)" hint="Hostname or domain this certificate is for">
           <input value={cn} onChange={e => setCn(e.target.value)} placeholder="dplaneos.local"
-            style={{ ...inputStyle, fontFamily: 'var(--font-mono)' }} />
+            className="input" style={{ fontFamily: 'var(--font-mono)' }} />
         </Field>
 
         <Field label="Subject Alternative Names" hint="Comma-separated DNS names or IPs (optional)">
           <input value={sans} onChange={e => setSans(e.target.value)} placeholder="192.168.1.100, dplaneos.local"
-            style={{ ...inputStyle, fontFamily: 'var(--font-mono)' }} />
+            className="input" style={{ fontFamily: 'var(--font-mono)' }} />
         </Field>
 
         <Field label="Validity (days)">
-          <input type="number" value={days} onChange={e => setDays(e.target.value)} min={1} max={3650} style={{ ...inputStyle, width: 120 }} />
+          <input type="number" value={days} onChange={e => setDays(e.target.value)} min={1} max={3650} className="input" style={{ width: 120 }} />
         </Field>
 
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-          <button onClick={onClose} style={btnGhost}>Cancel</button>
-          <button onClick={() => generate.mutate()} disabled={generate.isPending} style={btnPrimary}>
+          <button onClick={onClose} className="btn btn-ghost">Cancel</button>
+          <button onClick={() => generate.mutate()} disabled={generate.isPending} className="btn btn-primary">
             <Icon name="verified_user" size={15} />{generate.isPending ? 'Generating…' : 'Generate'}
           </button>
         </div>
       </div>
-    </div>
+    </Modal>
   )
 }
 
@@ -187,9 +166,9 @@ function CertCard({ cert, isActive, onActivate, activating }: {
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 3 }}>
             <span style={{ fontWeight: 700 }}>{cert.name}</span>
-            {isActive  && <span style={{ padding: '1px 7px', borderRadius: 'var(--radius-xs)', background: 'var(--primary-bg)', color: 'var(--primary)', fontSize: 10, fontWeight: 700 }}>ACTIVE</span>}
-            {expired   && <span style={{ padding: '1px 7px', borderRadius: 'var(--radius-xs)', background: 'var(--error-bg)', color: 'var(--error)', fontSize: 10, fontWeight: 700 }}>EXPIRED</span>}
-            {expiring  && !expired && <span style={{ padding: '1px 7px', borderRadius: 'var(--radius-xs)', background: 'rgba(251,191,36,0.1)', color: 'rgba(251,191,36,0.9)', fontSize: 10, fontWeight: 700 }}>EXPIRING SOON</span>}
+            {isActive  && <span className="badge badge-primary">ACTIVE</span>}
+            {expired   && <span className="badge badge-error">EXPIRED</span>}
+            {expiring  && !expired && <span className="badge badge-warning">EXPIRING SOON</span>}
           </div>
           <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', display: 'flex', gap: 12, flexWrap: 'wrap' }}>
             {cn     && <span>CN: {cn}</span>}
@@ -200,12 +179,12 @@ function CertCard({ cert, isActive, onActivate, activating }: {
 
         <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
           {!isActive && (
-            <button onClick={onActivate} disabled={activating} style={btnPrimary}>
+            <button onClick={onActivate} disabled={activating} className="btn btn-primary">
               <Icon name="check_circle" size={14} />{activating ? 'Activating…' : 'Activate'}
             </button>
           )}
           {details && (
-            <button onClick={() => setExpanded(!expanded)} style={btnGhost}>
+            <button onClick={() => setExpanded(!expanded)} className="btn btn-ghost">
               <Icon name={expanded ? 'expand_less' : 'expand_more'} size={15} />
             </button>
           )}
@@ -247,9 +226,9 @@ export function CertificatesPage() {
 
   return (
     <div style={{ maxWidth: 860 }}>
-      <div style={{ marginBottom: 28 }}>
-        <h1 style={{ fontSize: 'var(--text-3xl)', fontWeight: 700, letterSpacing: '-1px', marginBottom: 6 }}>Certificates</h1>
-        <p style={{ color: 'var(--text-secondary)', fontSize: 'var(--text-md)' }}>TLS certificates for the web interface — self-signed or custom</p>
+      <div className="page-header">
+        <h1 className="page-title">Certificates</h1>
+        <p className="page-subtitle">TLS certificates for the web interface — self-signed or custom</p>
       </div>
 
       {/* Active cert info */}
@@ -262,7 +241,7 @@ export function CertificatesPage() {
       )}
 
       <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 16 }}>
-        <button onClick={() => setShowGenerate(true)} style={btnPrimary}>
+        <button onClick={() => setShowGenerate(true)} className="btn btn-primary">
           <Icon name="add" size={15} />Generate Self-Signed
         </button>
       </div>

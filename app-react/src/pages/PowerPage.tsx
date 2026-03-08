@@ -11,7 +11,6 @@
  */
 
 import { useState } from 'react'
-import type React from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { Icon } from '@/components/ui/Icon'
@@ -37,16 +36,6 @@ interface PowerResponse {
   success:  boolean
   disks:    Disk[]
   spindown: Record<string, number>
-}
-
-// ---------------------------------------------------------------------------
-// Styles
-// ---------------------------------------------------------------------------
-
-const btnGhost: React.CSSProperties = {
-  padding: '6px 12px', background: 'var(--surface)', color: 'var(--text-secondary)',
-  border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', cursor: 'pointer',
-  fontSize: 'var(--text-xs)', fontWeight: 500, display: 'inline-flex', alignItems: 'center', gap: 5,
 }
 
 // Spindown timeout options matching hdparm -S encoding
@@ -134,7 +123,7 @@ function DiskRow({ disk, savedTimeout, onSpindown, onSpindownNow, pending }: {
 
       {/* Spindown now */}
       {isHDD && (
-        <button onClick={() => onSpindownNow(disk.device)} disabled={pending} style={btnGhost} title="Spin down immediately">
+        <button onClick={() => onSpindownNow(disk.device)} disabled={pending} className="btn btn-ghost" title="Spin down immediately">
           <Icon name="power_settings_new" size={14} />Spindown
         </button>
       )}
@@ -186,11 +175,11 @@ export function PowerPage() {
   return (
     <div style={{ maxWidth: 900 }}>
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 28 }}>
-        <div>
-          <h1 style={{ fontSize: 'var(--text-3xl)', fontWeight: 700, letterSpacing: '-1px', marginBottom: 6 }}>Disk Power</h1>
-          <p style={{ color: 'var(--text-secondary)', fontSize: 'var(--text-md)' }}>Spindown timeouts and on-demand park for HDDs</p>
+        <div className="page-header">
+          <h1 className="page-title">Disk Power</h1>
+          <p className="page-subtitle">Spindown timeouts and on-demand park for HDDs</p>
         </div>
-        <button onClick={() => qc.invalidateQueries({ queryKey: ['power', 'disks'] })} style={{ ...btnGhost, fontSize: 'var(--text-sm)' }}>
+        <button onClick={() => qc.invalidateQueries({ queryKey: ['power', 'disks'] })} className="btn btn-ghost">
           <Icon name="refresh" size={14} />Refresh
         </button>
       </div>

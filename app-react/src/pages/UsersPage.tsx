@@ -19,13 +19,13 @@
  */
 
 import { useState } from 'react'
-import type React from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { Icon } from '@/components/ui/Icon'
 import { ErrorState } from '@/components/ui/ErrorState'
 import { Skeleton } from '@/components/ui/LoadingSpinner'
 import { toast } from '@/hooks/useToast'
+import { Modal } from '@/components/ui/Modal'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -60,42 +60,8 @@ interface GroupsResponse { success: boolean; groups: Group[] }
 interface RolesResponse  { success: boolean; roles:  Role[]  }
 
 // ---------------------------------------------------------------------------
-// Styles
+// Helpers
 // ---------------------------------------------------------------------------
-
-const btnGhost: React.CSSProperties = {
-  padding: '7px 13px', background: 'var(--surface)', color: 'var(--text-secondary)',
-  border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', cursor: 'pointer',
-  fontSize: 'var(--text-sm)', fontWeight: 500, display: 'inline-flex', alignItems: 'center', gap: 6,
-}
-const btnPrimary: React.CSSProperties = {
-  padding: '8px 16px', background: 'var(--primary)', color: '#000',
-  border: 'none', borderRadius: 'var(--radius-sm)', cursor: 'pointer',
-  fontSize: 'var(--text-sm)', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 6,
-}
-const btnDanger: React.CSSProperties = {
-  padding: '6px 12px', background: 'var(--error-bg)', border: '1px solid var(--error-border)',
-  borderRadius: 'var(--radius-sm)', cursor: 'pointer', color: 'var(--error)',
-  fontSize: 'var(--text-xs)', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 4,
-}
-const inputStyle: React.CSSProperties = {
-  background: 'var(--surface)', border: '1px solid var(--border)',
-  borderRadius: 'var(--radius-sm)', padding: '8px 12px',
-  color: 'var(--text)', fontSize: 'var(--text-sm)', width: '100%',
-  fontFamily: 'var(--font-ui)', outline: 'none', boxSizing: 'border-box',
-}
-
-function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
-  return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }}
-      onClick={e => e.target === e.currentTarget && onClose()}>
-      <div style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 'var(--radius-xl)', padding: 28, width: 480, maxWidth: '90vw', display: 'flex', flexDirection: 'column', gap: 16 }}>
-        <div style={{ fontWeight: 700, fontSize: 'var(--text-lg)' }}>{title}</div>
-        {children}
-      </div>
-    </div>
-  )
-}
 
 function fmtDate(s?: string) {
   if (!s) return 'Never'
@@ -148,31 +114,31 @@ function UserModal({ user, onClose, onDone }: { user?: User; onClose: () => void
   return (
     <Modal title={isEdit ? `Edit: ${user!.username}` : 'Create User'} onClose={onClose}>
       {!isEdit && (
-        <label style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-          <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>Username</span>
-          <input value={username} onChange={e => setUsername(e.target.value)} style={inputStyle} autoFocus />
+        <label className="field">
+          <span className="field-label">Username</span>
+          <input value={username} onChange={e => setUsername(e.target.value)} className="input" autoFocus />
         </label>
       )}
-      <label style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-        <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>Email</span>
-        <input type="email" value={email} onChange={e => setEmail(e.target.value)} style={inputStyle} />
+      <label className="field">
+        <span className="field-label">Email</span>
+        <input type="email" value={email} onChange={e => setEmail(e.target.value)} className="input" />
       </label>
-      <label style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-        <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>Role</span>
+      <label className="field">
+        <span className="field-label">Role</span>
         <select value={role} onChange={e => setRole(e.target.value)}
-          style={{ ...inputStyle, appearance: 'none' }}>
+          className="input" style={{ appearance: 'none' }}>
           {['admin', 'user', 'readonly'].map(r => <option key={r} value={r}>{r}</option>)}
         </select>
       </label>
-      <label style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-        <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>
+      <label className="field">
+        <span className="field-label">
           {isEdit ? 'New Password (leave blank to keep current)' : 'Password'}
         </span>
-        <input type="password" value={password} onChange={e => setPassword(e.target.value)} style={inputStyle} autoComplete="new-password" />
+        <input type="password" value={password} onChange={e => setPassword(e.target.value)} className="input" autoComplete="new-password" />
       </label>
       <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-        <button onClick={onClose} style={btnGhost}>Cancel</button>
-        <button onClick={() => mutation.mutate()} disabled={mutation.isPending} style={btnPrimary}>
+        <button onClick={onClose} className="btn btn-ghost">Cancel</button>
+        <button onClick={() => mutation.mutate()} disabled={mutation.isPending} className="btn btn-primary">
           {mutation.isPending ? 'Saving…' : isEdit ? 'Save' : 'Create'}
         </button>
       </div>
@@ -207,7 +173,7 @@ function UsersTab() {
   return (
     <>
       <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 16 }}>
-        <button onClick={() => setShowCreate(true)} style={btnPrimary}><Icon name="person_add" size={15} />New User</button>
+        <button onClick={() => setShowCreate(true)} className="btn btn-primary"><Icon name="person_add" size={15} />New User</button>
       </div>
 
       {usersQ.isLoading && <Skeleton height={200} />}
@@ -215,21 +181,21 @@ function UsersTab() {
 
       {!usersQ.isLoading && !usersQ.isError && (
         <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', overflow: 'hidden' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <table className="data-table">
             <thead>
               <tr style={{ background: 'rgba(255,255,255,0.03)' }}>
                 {['User', 'Email', 'Role', 'Last Login', 'Status', 'Actions'].map(h => (
-                  <th key={h} style={{ padding: '10px 16px', textAlign: 'left', fontSize: 'var(--text-2xs)', fontWeight: 700, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.5px', borderBottom: '1px solid var(--border)' }}>{h}</th>
+                  <th key={h}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {users.map(u => (
-                <tr key={u.id} style={{ borderBottom: '1px solid var(--border)', transition: 'background 0.1s' }}
+                <tr key={u.id}
                   onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.02)')}
                   onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
                 >
-                  <td style={{ padding: '12px 16px' }}>
+                  <td>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                       <div style={{ width: 32, height: 32, borderRadius: '50%', background: 'var(--primary-bg)', border: '1px solid rgba(138,156,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 'var(--text-sm)', color: 'var(--primary)', flexShrink: 0 }}>
                         {u.username.charAt(0).toUpperCase()}
@@ -240,19 +206,19 @@ function UsersTab() {
                       </div>
                     </div>
                   </td>
-                  <td style={{ padding: '12px 16px', fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>{u.email ?? '—'}</td>
-                  <td style={{ padding: '12px 16px' }}><RoleBadge role={u.role} /></td>
-                  <td style={{ padding: '12px 16px', fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', whiteSpace: 'nowrap' }}>{fmtDate(u.last_login_at)}</td>
-                  <td style={{ padding: '12px 16px' }}>
+                  <td style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>{u.email ?? '—'}</td>
+                  <td><RoleBadge role={u.role} /></td>
+                  <td style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', whiteSpace: 'nowrap' }}>{fmtDate(u.last_login_at)}</td>
+                  <td>
                     {isLocked(u)
-                      ? <span style={{ padding: '2px 8px', borderRadius: 'var(--radius-sm)', background: 'var(--error-bg)', border: '1px solid var(--error-border)', color: 'var(--error)', fontSize: 'var(--text-xs)', fontWeight: 700 }}>Locked</span>
-                      : <span style={{ padding: '2px 8px', borderRadius: 'var(--radius-sm)', background: 'var(--success-bg)', border: '1px solid var(--success-border)', color: 'var(--success)', fontSize: 'var(--text-xs)', fontWeight: 700 }}>Active</span>
+                      ? <span className="badge badge-error">Locked</span>
+                      : <span className="badge badge-success">Active</span>
                     }
                   </td>
-                  <td style={{ padding: '12px 16px' }}>
+                  <td>
                     <div style={{ display: 'flex', gap: 6 }}>
-                      <button onClick={() => setEditUser(u)} style={btnGhost}><Icon name="edit" size={14} /></button>
-                      <button onClick={() => { if (window.confirm(`Delete "${u.username}"?`)) deleteUser.mutate(u.id) }} style={btnDanger}><Icon name="delete" size={14} /></button>
+                      <button onClick={() => setEditUser(u)} className="btn btn-ghost"><Icon name="edit" size={14} /></button>
+                      <button onClick={() => { if (window.confirm(`Delete "${u.username}"?`)) deleteUser.mutate(u.id) }} className="btn btn-danger"><Icon name="delete" size={14} /></button>
                     </div>
                   </td>
                 </tr>
@@ -292,21 +258,21 @@ function GroupModal({ group, onClose, onDone }: { group?: Group; onClose: () => 
 
   return (
     <Modal title={isEdit ? `Edit: ${group!.name}` : 'Create Group'} onClose={onClose}>
-      <label style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-        <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>Group Name</span>
-        <input value={name} onChange={e => setName(e.target.value)} style={inputStyle} autoFocus disabled={isEdit} />
+      <label className="field">
+        <span className="field-label">Group Name</span>
+        <input value={name} onChange={e => setName(e.target.value)} className="input" autoFocus disabled={isEdit} />
       </label>
-      <label style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-        <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>GID (optional)</span>
-        <input type="number" value={gid} onChange={e => setGid(e.target.value)} style={inputStyle} placeholder="auto" />
+      <label className="field">
+        <span className="field-label">GID (optional)</span>
+        <input type="number" value={gid} onChange={e => setGid(e.target.value)} className="input" placeholder="auto" />
       </label>
-      <label style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-        <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>Members (comma-separated usernames)</span>
-        <input value={members} onChange={e => setMembers(e.target.value)} style={inputStyle} placeholder="alice, bob" />
+      <label className="field">
+        <span className="field-label">Members (comma-separated usernames)</span>
+        <input value={members} onChange={e => setMembers(e.target.value)} className="input" placeholder="alice, bob" />
       </label>
       <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-        <button onClick={onClose} style={btnGhost}>Cancel</button>
-        <button onClick={() => mutation.mutate()} disabled={mutation.isPending} style={btnPrimary}>
+        <button onClick={onClose} className="btn btn-ghost">Cancel</button>
+        <button onClick={() => mutation.mutate()} disabled={mutation.isPending} className="btn btn-primary">
           {mutation.isPending ? 'Saving…' : isEdit ? 'Save' : 'Create'}
         </button>
       </div>
@@ -341,7 +307,7 @@ function GroupsTab() {
   return (
     <>
       <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 16 }}>
-        <button onClick={() => setShowCreate(true)} style={btnPrimary}><Icon name="group_add" size={15} />New Group</button>
+        <button onClick={() => setShowCreate(true)} className="btn btn-primary"><Icon name="group_add" size={15} />New Group</button>
       </div>
 
       {groupsQ.isLoading && <Skeleton height={200} />}
@@ -359,8 +325,8 @@ function GroupsTab() {
               </div>
             </div>
             <div style={{ display: 'flex', gap: 6 }}>
-              <button onClick={() => setEditGroup(g)} style={btnGhost}><Icon name="edit" size={14} /></button>
-              <button onClick={() => { if (window.confirm(`Delete group "${g.name}"?`)) deleteGroup.mutate(g.name) }} style={btnDanger}><Icon name="delete" size={14} /></button>
+              <button onClick={() => setEditGroup(g)} className="btn btn-ghost"><Icon name="edit" size={14} /></button>
+              <button onClick={() => { if (window.confirm(`Delete group "${g.name}"?`)) deleteGroup.mutate(g.name) }} className="btn btn-danger"><Icon name="delete" size={14} /></button>
             </div>
           </div>
         ))}
@@ -421,7 +387,7 @@ function RolesTab() {
                 ))}
               </div>
               <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-                <button onClick={() => { if (window.confirm(`Delete role "${role.name}"?`)) deleteRole.mutate(role.id) }} style={btnDanger}>
+                <button onClick={() => { if (window.confirm(`Delete role "${role.name}"?`)) deleteRole.mutate(role.id) }} className="btn btn-danger">
                   <Icon name="delete" size={13} />Delete Role
                 </button>
               </div>
@@ -453,14 +419,14 @@ export function UsersPage() {
 
   return (
     <div style={{ maxWidth: 1000 }}>
-      <div style={{ marginBottom: 28 }}>
-        <h1 style={{ fontSize: 'var(--text-3xl)', fontWeight: 700, letterSpacing: '-1px', marginBottom: 6 }}>Users & Groups</h1>
-        <p style={{ color: 'var(--text-secondary)', fontSize: 'var(--text-md)' }}>Local user accounts, groups and RBAC roles</p>
+      <div className="page-header">
+        <h1 className="page-title">Users &amp; Groups</h1>
+        <p className="page-subtitle">Local user accounts, groups and RBAC roles</p>
       </div>
 
-      <div style={{ display: 'flex', gap: 4, marginBottom: 24, borderBottom: '1px solid var(--border)' }}>
+      <div className="tabs-underline">
         {TABS.map(t => (
-          <button key={t.id} onClick={() => setTab(t.id)} style={{ padding: '10px 20px', background: 'none', border: 'none', cursor: 'pointer', fontSize: 'var(--text-sm)', fontWeight: 600, color: tab === t.id ? 'var(--primary)' : 'var(--text-secondary)', borderBottom: tab === t.id ? '2px solid var(--primary)' : '2px solid transparent', marginBottom: -1, display: 'flex', alignItems: 'center', gap: 6 }}>
+          <button key={t.id} onClick={() => setTab(t.id)} className={`tab-underline${tab === t.id ? ' active' : ''}`}>
             <Icon name={t.icon} size={16} />{t.label}
           </button>
         ))}

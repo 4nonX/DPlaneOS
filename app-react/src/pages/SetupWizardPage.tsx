@@ -15,7 +15,6 @@
  */
 
 import { useState, useCallback } from 'react'
-import type React from 'react'
 import { useQuery, useMutation } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
 import { api } from '@/lib/api'
@@ -48,31 +47,6 @@ interface PoolSuggestion {
 interface DisksResponse {
   disks:       DiskInfo[]
   suggestions: PoolSuggestion[]
-}
-
-// ---------------------------------------------------------------------------
-// Shared styles
-// ---------------------------------------------------------------------------
-
-const inp: React.CSSProperties = {
-  background: 'var(--surface)', border: '1px solid var(--border)',
-  borderRadius: 'var(--radius-sm)', padding: '10px 14px',
-  color: 'var(--text)', fontSize: 'var(--text-sm)', width: '100%',
-  outline: 'none', boxSizing: 'border-box', fontFamily: 'var(--font-ui)',
-}
-
-const btnPrimary: React.CSSProperties = {
-  padding: '11px 28px', background: 'var(--primary)', color: '#000',
-  border: 'none', borderRadius: 'var(--radius-sm)', cursor: 'pointer',
-  fontSize: 'var(--text-sm)', fontWeight: 700,
-  display: 'inline-flex', alignItems: 'center', gap: 8,
-}
-
-const btnGhost: React.CSSProperties = {
-  padding: '11px 20px', background: 'transparent', color: 'var(--text-secondary)',
-  border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', cursor: 'pointer',
-  fontSize: 'var(--text-sm)', fontWeight: 500,
-  display: 'inline-flex', alignItems: 'center', gap: 8,
 }
 
 // ---------------------------------------------------------------------------
@@ -145,7 +119,7 @@ function StepWelcome({ onNext }: { onNext: () => void }) {
         This wizard will guide you through initial setup. You'll create an admin account,
         configure your storage pool, and set basic system options.
       </p>
-      <button onClick={onNext} style={{ ...btnPrimary, fontSize: 'var(--text-md)', padding: '14px 36px' }}>
+      <button onClick={onNext} className="btn btn-primary" style={{ fontSize: 'var(--text-md)', padding: '14px 36px' }}>
         Get Started <Icon name="arrow_forward" size={18} />
       </button>
     </div>
@@ -191,7 +165,7 @@ function StepAdmin({ onNext }: { onNext: () => void }) {
             value={username}
             onChange={e => setUsername(e.target.value)}
             placeholder="admin"
-            style={inp}
+            className="input"
             autoComplete="username"
           />
         </label>
@@ -204,7 +178,8 @@ function StepAdmin({ onNext }: { onNext: () => void }) {
               value={password}
               onChange={e => setPassword(e.target.value)}
               placeholder="Min. 8 characters"
-              style={{ ...inp, paddingRight: 40 }}
+              className="input"
+              style={{ paddingRight: 40 }}
               autoComplete="new-password"
             />
             <button
@@ -224,7 +199,8 @@ function StepAdmin({ onNext }: { onNext: () => void }) {
             value={confirm}
             onChange={e => setConfirm(e.target.value)}
             placeholder="Repeat password"
-            style={{ ...inp, borderColor: confirm && confirm !== password ? 'var(--error)' : '' }}
+            className="input"
+            style={{ borderColor: confirm && confirm !== password ? 'var(--error)' : '' }}
             autoComplete="new-password"
             onKeyDown={e => e.key === 'Enter' && submit()}
           />
@@ -254,7 +230,7 @@ function StepAdmin({ onNext }: { onNext: () => void }) {
           </div>
         )}
 
-        <button onClick={submit} disabled={save.isPending} style={{ ...btnPrimary, marginTop: 8 }}>
+        <button onClick={submit} disabled={save.isPending} className="btn btn-primary" style={{ marginTop: 8 }}>
           {save.isPending ? 'Creating…' : 'Continue'} <Icon name="arrow_forward" size={16} />
         </button>
       </div>
@@ -405,13 +381,14 @@ function StepDisks({
       )}
 
       <div style={{ display: 'flex', gap: 10, justifyContent: 'space-between' }}>
-        <button onClick={onSkip} style={btnGhost}>
+        <button onClick={onSkip} className="btn btn-ghost">
           Skip (create pool later)
         </button>
         <button
           onClick={onNext}
           disabled={selectedDisks.size === 0}
-          style={{ ...btnPrimary, opacity: selectedDisks.size === 0 ? 0.4 : 1 }}
+          className="btn btn-primary"
+          style={{ opacity: selectedDisks.size === 0 ? 0.4 : 1 }}
         >
           Continue ({selectedDisks.size} selected) <Icon name="arrow_forward" size={16} />
         </button>
@@ -493,7 +470,8 @@ function StepPool({
             value={poolName}
             onChange={e => setPoolName(e.target.value.toLowerCase())}
             placeholder="tank"
-            style={{ ...inp, fontFamily: 'var(--font-mono)' }}
+            className="input"
+            style={{ fontFamily: 'var(--font-mono)' }}
           />
         </label>
 
@@ -546,10 +524,10 @@ function StepPool({
         )}
 
         <div style={{ display: 'flex', gap: 10 }}>
-          <button onClick={onBack} style={btnGhost}>
+          <button onClick={onBack} className="btn btn-ghost">
             <Icon name="arrow_back" size={16} /> Back
           </button>
-          <button onClick={submit} disabled={create.isPending} style={btnPrimary}>
+          <button onClick={submit} disabled={create.isPending} className="btn btn-primary">
             {create.isPending ? 'Creating Pool…' : 'Create Pool'} <Icon name="arrow_forward" size={16} />
           </button>
         </div>
@@ -597,7 +575,8 @@ function StepSystem({
             value={hostname}
             onChange={e => setHostname(e.target.value)}
             placeholder="dplaneos"
-            style={{ ...inp, fontFamily: 'var(--font-mono)' }}
+            className="input"
+            style={{ fontFamily: 'var(--font-mono)' }}
           />
           <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>
             Lowercase letters, numbers, hyphens only.
@@ -611,7 +590,7 @@ function StepSystem({
             onChange={e => setTimezone(e.target.value)}
             list="tz-list"
             placeholder="UTC"
-            style={inp}
+            className="input"
           />
           <datalist id="tz-list">
             {COMMON_TIMEZONES.map(tz => <option key={tz} value={tz} />)}
@@ -622,10 +601,10 @@ function StepSystem({
         </label>
 
         <div style={{ display: 'flex', gap: 10, marginTop: 8 }}>
-          <button onClick={onBack} style={btnGhost}>
+          <button onClick={onBack} className="btn btn-ghost">
             <Icon name="arrow_back" size={16} /> Back
           </button>
-          <button onClick={submit} style={btnPrimary}>
+          <button onClick={submit} className="btn btn-primary">
             Finish Setup <Icon name="arrow_forward" size={16} />
           </button>
         </div>
@@ -661,7 +640,7 @@ function StepComplete({ hostname, onGoToLogin }: { hostname: string; onGoToLogin
       <p style={{ color: 'var(--text-tertiary)', fontSize: 'var(--text-sm)', marginBottom: 36 }}>
         You can configure shares, users, and more from the dashboard.
       </p>
-      <button onClick={onGoToLogin} style={{ ...btnPrimary, fontSize: 'var(--text-md)', padding: '14px 36px' }}>
+      <button onClick={onGoToLogin} className="btn btn-primary" style={{ fontSize: 'var(--text-md)', padding: '14px 36px' }}>
         Go to Login <Icon name="login" size={18} />
       </button>
     </div>

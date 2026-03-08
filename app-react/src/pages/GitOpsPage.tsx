@@ -11,7 +11,6 @@
  */
 
 import { useState } from 'react'
-import type React from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { Icon } from '@/components/ui/Icon'
@@ -21,12 +20,6 @@ import { toast } from '@/hooks/useToast'
 
 interface GitopsStatus { success: boolean; state?: string; pending_changes?: number; last_applied?: string; drift?: boolean }
 interface Change       { resource?: string; action?: 'create'|'update'|'delete'|string; description?: string }
-
-const S = {
-  btn:  { padding:'8px 14px', background:'var(--surface)', color:'var(--text-secondary)', border:'1px solid var(--border)', borderRadius:'var(--radius-sm)', cursor:'pointer', fontSize:'var(--text-sm)', fontWeight:500, display:'inline-flex', alignItems:'center', gap:6 } as React.CSSProperties,
-  btnP: { padding:'9px 20px', background:'var(--primary)', color:'#000', border:'none', borderRadius:'var(--radius-sm)', cursor:'pointer', fontSize:'var(--text-sm)', fontWeight:700, display:'inline-flex', alignItems:'center', gap:6 } as React.CSSProperties,
-  ta:   { background:'var(--surface)', border:'1px solid var(--border)', borderRadius:'var(--radius-sm)', padding:'12px 14px', color:'var(--text)', fontSize:12, width:'100%', outline:'none', boxSizing:'border-box' as const, fontFamily:'var(--font-mono)', resize:'vertical' as const, minHeight:280 },
-}
 
 function fmtDate(s?:string){if(!s)return'—';try{return new Date(s).toLocaleString('de-DE',{dateStyle:'short',timeStyle:'short'})}catch{return s}}
 
@@ -59,7 +52,10 @@ export function GitOpsPage() {
 
   return (
     <div style={{ maxWidth: 1000 }}>
-      <div style={{ marginBottom:28 }}><h1 style={{ fontSize:'var(--text-3xl)', fontWeight:700, letterSpacing:'-1px', marginBottom:6 }}>GitOps</h1><p style={{ color:'var(--text-secondary)' }}>Declarative infrastructure state management</p></div>
+      <div className="page-header">
+        <h1 className="page-title">GitOps</h1>
+        <p className="page-subtitle">Declarative infrastructure state management</p>
+      </div>
 
       {/* Status bar */}
       {statusQ.isLoading && <Skeleton height={80} style={{ marginBottom:20 }} />}
@@ -73,9 +69,9 @@ export function GitOpsPage() {
             {st.last_applied && <span style={{ marginLeft:10, fontSize:'var(--text-xs)', color:'var(--text-tertiary)' }}>Last applied: {fmtDate(st.last_applied)}</span>}
           </div>
           <div style={{ display:'flex', gap:8 }}>
-            <button onClick={()=>check.mutate()} disabled={check.isPending} style={S.btn}><Icon name="fact_check" size={14}/>{check.isPending?'Checking…':'Check'}</button>
-            <button onClick={()=>apply.mutate()} disabled={apply.isPending} style={S.btnP}><Icon name="rocket_launch" size={14}/>{apply.isPending?'Applying…':'Apply'}</button>
-            <button onClick={()=>approve.mutate()} disabled={approve.isPending} style={S.btn}><Icon name="verified" size={14}/>{approve.isPending?'Approving…':'Approve'}</button>
+            <button onClick={()=>check.mutate()} disabled={check.isPending} className="btn btn-ghost"><Icon name="fact_check" size={14}/>{check.isPending?'Checking…':'Check'}</button>
+            <button onClick={()=>apply.mutate()} disabled={apply.isPending} className="btn btn-primary"><Icon name="rocket_launch" size={14}/>{apply.isPending?'Applying…':'Apply'}</button>
+            <button onClick={()=>approve.mutate()} disabled={approve.isPending} className="btn btn-ghost"><Icon name="verified" size={14}/>{approve.isPending?'Approving…':'Approve'}</button>
           </div>
         </div>
       )}
@@ -111,15 +107,15 @@ export function GitOpsPage() {
         <div>
           <div style={{ fontWeight:700, marginBottom:12, display:'flex', alignItems:'center', gap:8 }}>
             <Icon name="code" size={18} style={{ color:'var(--primary)' }}/>Desired State
-            <button onClick={()=>setStateEdit(stateText||'')} style={{ ...S.btn, marginLeft:'auto', fontSize:'var(--text-xs)', padding:'4px 10px' }}><Icon name="edit" size={13}/>Edit</button>
+            <button onClick={()=>setStateEdit(stateText||'')} className="btn btn-ghost" style={{ marginLeft:'auto', fontSize:'var(--text-xs)', padding:'4px 10px' }}><Icon name="edit" size={13}/>Edit</button>
           </div>
           {stateQ.isLoading && <Skeleton height={280} />}
           {stateEdit !== null ? (
             <>
-              <textarea value={stateEdit} onChange={e=>setStateEdit(e.target.value)} style={S.ta} />
+              <textarea value={stateEdit} onChange={e=>setStateEdit(e.target.value)} className="input" style={{ fontFamily:'var(--font-mono)', fontSize:12, resize:'vertical', minHeight:280 }} />
               <div style={{ display:'flex', gap:8, marginTop:8 }}>
-                <button onClick={()=>setStateEdit(null)} style={S.btn}>Cancel</button>
-                <button onClick={()=>saveState.mutate()} disabled={saveState.isPending} style={S.btnP}><Icon name="save" size={14}/>{saveState.isPending?'Saving…':'Save'}</button>
+                <button onClick={()=>setStateEdit(null)} className="btn btn-ghost">Cancel</button>
+                <button onClick={()=>saveState.mutate()} disabled={saveState.isPending} className="btn btn-primary"><Icon name="save" size={14}/>{saveState.isPending?'Saving…':'Save'}</button>
               </div>
             </>
           ) : (

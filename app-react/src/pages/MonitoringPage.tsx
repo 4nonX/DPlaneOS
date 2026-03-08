@@ -140,9 +140,7 @@ function InotifyCard({ stats, lastUpdated }: InotifyCardProps) {
 
       {/* Advisory messages */}
       {stats.warning && !stats.critical && (
-        <div style={{ padding: '12px 14px', background: 'var(--warning-bg)',
-          border: '1px solid var(--warning-border)', borderRadius: 'var(--radius-md)',
-          fontSize: 'var(--text-sm)', color: 'var(--warning)', marginBottom: 12 }}>
+        <div className="alert alert-warning" style={{ marginBottom: 12 }}>
           <strong>Watches at {stats.percent.toFixed(1)}%.</strong> Real-time file monitoring may
           fail soon. Consider increasing <code style={{ fontFamily: 'var(--font-mono)',
             background: 'rgba(0,0,0,0.2)', padding: '1px 4px', borderRadius: 2 }}>
@@ -152,9 +150,7 @@ function InotifyCard({ stats, lastUpdated }: InotifyCardProps) {
         </div>
       )}
       {stats.critical && (
-        <div style={{ padding: '12px 14px', background: 'var(--error-bg)',
-          border: '1px solid var(--error-border)', borderRadius: 'var(--radius-md)',
-          fontSize: 'var(--text-sm)', color: 'var(--error)', marginBottom: 12 }}>
+        <div className="alert alert-error" style={{ marginBottom: 12 }}>
           <strong>Inotify exhaustion imminent.</strong> File indexing may fail silently.
           Immediately increase <code style={{ fontFamily: 'var(--font-mono)',
             background: 'rgba(0,0,0,0.2)', padding: '1px 4px', borderRadius: 2 }}>

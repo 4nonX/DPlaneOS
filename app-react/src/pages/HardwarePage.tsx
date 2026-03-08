@@ -194,9 +194,7 @@ export function HardwarePage() {
 
       {/* Disk temperature warning banner (from WS) */}
       {tempWarning && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 18px',
-          background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.3)',
-          borderRadius: 'var(--radius-md)', fontSize: 'var(--text-sm)', color: 'var(--error)' }}>
+        <div className="alert alert-error">
           <Icon name="device_thermostat" size={18} />
           <span>
             <strong>/dev/{tempWarning.device}</strong> temperature warning: {tempWarning.temp}°C
@@ -212,27 +210,21 @@ export function HardwarePage() {
 
       {/* Health alerts */}
       {healthQ.data?.filesystem_ro && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 18px',
-          background: 'var(--error-bg)', border: '1px solid var(--error-border)',
-          borderRadius: 'var(--radius-md)', fontSize: 'var(--text-sm)', color: 'var(--error)' }}>
+        <div className="alert alert-error">
           <Icon name="error" size={18} />
           Read-only filesystem detected: {healthQ.data.ro_partitions.join(', ')}
         </div>
       )}
 
       {!healthQ.data?.ntp_synced && healthQ.data !== undefined && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 18px',
-          background: 'var(--warning-bg)', border: '1px solid var(--warning-border)',
-          borderRadius: 'var(--radius-md)', fontSize: 'var(--text-sm)', color: 'var(--warning)' }}>
+        <div className="alert alert-warning">
           <Icon name="schedule" size={18} />
           NTP clock not synchronised — certificate validation and logging may be affected
         </div>
       )}
 
       {anySmartFail && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 18px',
-          background: 'var(--error-bg)', border: '1px solid var(--error-border)',
-          borderRadius: 'var(--radius-md)', fontSize: 'var(--text-sm)', color: 'var(--error)' }}>
+        <div className="alert alert-error">
           <Icon name="hard_drive" size={18} />
           One or more disks are reporting SMART failure — immediate attention required
         </div>
@@ -287,11 +279,11 @@ export function HardwarePage() {
                   /dev/{d.device}
                 </div>
                 <div style={{ overflowX: 'auto' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 'var(--text-xs)', fontFamily: 'var(--font-mono)' }}>
+                  <table className="data-table" style={{ fontSize: 'var(--text-xs)', fontFamily: 'var(--font-mono)' }}>
                     <thead>
-                      <tr style={{ borderBottom: '1px solid var(--border)' }}>
+                      <tr>
                         {['ID','Attribute','Value','Worst','Threshold','Raw'].map(h => (
-                          <th key={h} style={{ padding: '6px 12px', textAlign: 'left', color: 'var(--text-tertiary)', fontWeight: 500 }}>{h}</th>
+                          <th key={h}>{h}</th>
                         ))}
                       </tr>
                     </thead>
@@ -299,13 +291,13 @@ export function HardwarePage() {
                       {filtered.map(a => {
                         const isBad = a.value <= a.thresh
                         return (
-                          <tr key={a.id} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
-                            <td style={{ padding: '6px 12px', color: 'var(--text-tertiary)' }}>{a.id}</td>
-                            <td style={{ padding: '6px 12px', color: isBad ? 'var(--error)' : 'var(--text)' }}>{a.name}</td>
-                            <td style={{ padding: '6px 12px', color: isBad ? 'var(--error)' : 'var(--success)' }}>{a.value}</td>
-                            <td style={{ padding: '6px 12px' }}>{a.worst}</td>
-                            <td style={{ padding: '6px 12px', color: 'var(--text-tertiary)' }}>{a.thresh}</td>
-                            <td style={{ padding: '6px 12px' }}>{a.raw.string}</td>
+                          <tr key={a.id}>
+                            <td style={{ color: 'var(--text-tertiary)' }}>{a.id}</td>
+                            <td style={{ color: isBad ? 'var(--error)' : 'var(--text)' }}>{a.name}</td>
+                            <td style={{ color: isBad ? 'var(--error)' : 'var(--success)' }}>{a.value}</td>
+                            <td>{a.worst}</td>
+                            <td style={{ color: 'var(--text-tertiary)' }}>{a.thresh}</td>
+                            <td>{a.raw.string}</td>
                           </tr>
                         )
                       })}

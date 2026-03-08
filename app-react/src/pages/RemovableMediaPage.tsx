@@ -9,12 +9,12 @@
  */
 
 import { useState } from 'react'
-import type React from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { Icon } from '@/components/ui/Icon'
 import { ErrorState } from '@/components/ui/ErrorState'
 import { Skeleton } from '@/components/ui/LoadingSpinner'
+import { Modal } from '@/components/ui/Modal'
 import { toast } from '@/hooks/useToast'
 
 // ---------------------------------------------------------------------------
@@ -37,32 +37,6 @@ interface RemovableDevice {
 interface DevicesResponse { success: boolean; devices: RemovableDevice[] }
 
 // ---------------------------------------------------------------------------
-// Styles
-// ---------------------------------------------------------------------------
-
-const btnGhost: React.CSSProperties = {
-  padding: '8px 14px', background: 'var(--surface)', color: 'var(--text-secondary)',
-  border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', cursor: 'pointer',
-  fontSize: 'var(--text-sm)', fontWeight: 500, display: 'inline-flex', alignItems: 'center', gap: 6,
-}
-const btnPrimary: React.CSSProperties = {
-  padding: '8px 16px', background: 'var(--primary)', color: '#000',
-  border: 'none', borderRadius: 'var(--radius-sm)', cursor: 'pointer',
-  fontSize: 'var(--text-sm)', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 6,
-}
-const btnDanger: React.CSSProperties = {
-  padding: '8px 14px', background: 'var(--error-bg)', border: '1px solid var(--error-border)',
-  borderRadius: 'var(--radius-sm)', cursor: 'pointer', color: 'var(--error)',
-  fontSize: 'var(--text-sm)', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 6,
-}
-const inputStyle: React.CSSProperties = {
-  background: 'var(--surface)', border: '1px solid var(--border)',
-  borderRadius: 'var(--radius-sm)', padding: '8px 12px',
-  color: 'var(--text)', fontSize: 'var(--text-sm)', width: '100%',
-  fontFamily: 'var(--font-mono)', outline: 'none', boxSizing: 'border-box',
-}
-
-// ---------------------------------------------------------------------------
 // MountModal
 // ---------------------------------------------------------------------------
 
@@ -77,23 +51,19 @@ function MountModal({ device, onClose, onDone }: { device: RemovableDevice; onCl
   })
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }}
-      onClick={e => e.target === e.currentTarget && onClose()}>
-      <div style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 'var(--radius-xl)', padding: 28, width: 420, maxWidth: '90vw', display: 'flex', flexDirection: 'column', gap: 16 }}>
-        <div style={{ fontWeight: 700, fontSize: 'var(--text-lg)' }}>Mount {device.path}</div>
-        <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>Mount point</span>
-          <input value={mountPoint} onChange={e => setMountPoint(e.target.value)} style={inputStyle} autoFocus
-            onKeyDown={e => e.key === 'Enter' && mutation.mutate()} />
-        </label>
-        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-          <button onClick={onClose} style={btnGhost}>Cancel</button>
-          <button onClick={() => mutation.mutate()} disabled={mutation.isPending} style={btnPrimary}>
-            <Icon name="folder_open" size={15} />{mutation.isPending ? 'Mounting…' : 'Mount'}
-          </button>
-        </div>
+    <Modal title={`Mount ${device.path}`} onClose={onClose} size="sm">
+      <label className="field">
+        <span className="field-label">Mount point</span>
+        <input value={mountPoint} onChange={e => setMountPoint(e.target.value)} className="input" autoFocus
+          onKeyDown={e => e.key === 'Enter' && mutation.mutate()} />
+      </label>
+      <div className="modal-footer">
+        <button onClick={onClose} className="btn btn-ghost">Cancel</button>
+        <button onClick={() => mutation.mutate()} disabled={mutation.isPending} className="btn btn-primary">
+          <Icon name="folder_open" size={15} />{mutation.isPending ? 'Mounting…' : 'Mount'}
+        </button>
       </div>
-    </div>
+    </Modal>
   )
 }
 
@@ -130,7 +100,7 @@ function DeviceCard({ device, onRefresh }: { device: RemovableDevice; onRefresh:
             </div>
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }}>{device.path}</div>
           </div>
-          <span style={{ padding: '4px 12px', borderRadius: 'var(--radius-full)', background: device.mounted ? 'var(--success-bg)' : 'var(--surface)', border: `1px solid ${device.mounted ? 'var(--success-border)' : 'var(--border)'}`, color: device.mounted ? 'var(--success)' : 'var(--text-tertiary)', fontSize: 'var(--text-xs)', fontWeight: 700, flexShrink: 0 }}>
+          <span className={`badge ${device.mounted ? 'badge-success' : 'badge-neutral'}`}>
             {device.mounted ? 'MOUNTED' : 'NOT MOUNTED'}
           </span>
         </div>
@@ -155,15 +125,15 @@ function DeviceCard({ device, onRefresh }: { device: RemovableDevice; onRefresh:
         <div style={{ display: 'flex', gap: 8 }}>
           {device.mounted ? (
             <>
-              <button onClick={() => unmount.mutate()} disabled={busy} style={btnGhost}>
+              <button onClick={() => unmount.mutate()} disabled={busy} className="btn btn-ghost">
                 <Icon name="eject" size={15} />{unmount.isPending ? 'Unmounting…' : 'Unmount'}
               </button>
-              <button onClick={() => eject.mutate()} disabled={busy} style={btnDanger}>
+              <button onClick={() => eject.mutate()} disabled={busy} className="btn btn-danger">
                 <Icon name="logout" size={15} />{eject.isPending ? 'Ejecting…' : 'Eject'}
               </button>
             </>
           ) : (
-            <button onClick={() => setShowMount(true)} style={btnPrimary}>
+            <button onClick={() => setShowMount(true)} className="btn btn-primary">
               <Icon name="folder_open" size={15} />Mount
             </button>
           )}
@@ -201,7 +171,7 @@ export function RemovableMediaPage() {
           <h1 style={{ fontSize: 'var(--text-3xl)', fontWeight: 700, letterSpacing: '-1px', marginBottom: 6 }}>Removable Media</h1>
           <p style={{ color: 'var(--text-secondary)', fontSize: 'var(--text-md)' }}>USB drives, external disks — mount, unmount, eject</p>
         </div>
-        <button onClick={refresh} style={btnGhost}><Icon name="refresh" size={15} />Refresh</button>
+        <button onClick={refresh} className="btn btn-ghost"><Icon name="refresh" size={15} />Refresh</button>
       </div>
 
       {devicesQ.isLoading && (

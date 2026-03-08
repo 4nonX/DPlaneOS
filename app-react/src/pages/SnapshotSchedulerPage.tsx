@@ -10,13 +10,13 @@
  */
 
 import { useState } from 'react'
-import type React from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { Icon } from '@/components/ui/Icon'
 import { ErrorState } from '@/components/ui/ErrorState'
 import { Skeleton } from '@/components/ui/LoadingSpinner'
 import { toast } from '@/hooks/useToast'
+import { Modal } from '@/components/ui/Modal'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -39,25 +39,6 @@ interface Snapshot { name: string; used: string; creation: string }
 interface SnapshotsResponse { success: boolean; snapshots?: Snapshot[]; data?: Snapshot[] }
 
 // ---------------------------------------------------------------------------
-// Styles
-// ---------------------------------------------------------------------------
-
-const inputStyle: React.CSSProperties = {
-  background: 'var(--surface)', border: '1px solid var(--border)',
-  borderRadius: 'var(--radius-sm)', padding: '9px 13px',
-  color: 'var(--text)', fontSize: 'var(--text-sm)', width: '100%',
-  fontFamily: 'var(--font-ui)', outline: 'none', boxSizing: 'border-box',
-}
-const btnPrimary: React.CSSProperties = {
-  padding: '9px 20px', background: 'var(--primary)', color: '#000',
-  border: 'none', borderRadius: 'var(--radius-sm)', cursor: 'pointer',
-  fontSize: 'var(--text-sm)', fontWeight: 600,
-}
-const btnGhost: React.CSSProperties = {
-  padding: '9px 16px', background: 'var(--surface)', color: 'var(--text-secondary)',
-  border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', cursor: 'pointer',
-  fontSize: 'var(--text-sm)', fontWeight: 500, display: 'inline-flex', alignItems: 'center', gap: 6,
-}
 
 const FREQ_LABELS: Record<SnapshotSchedule['frequency'], string> = {
   hourly: 'Hourly', daily: 'Daily', weekly: 'Weekly', monthly: 'Monthly',
@@ -86,41 +67,37 @@ function CreateScheduleModal({ datasets, onClose, onSaved }: {
   }
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }}
-      onClick={e => e.target === e.currentTarget && onClose()}>
-      <div style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 'var(--radius-xl)', padding: 32, width: 460, maxWidth: '92vw' }}>
-        <h3 style={{ fontSize: 'var(--text-lg)', fontWeight: 700, marginBottom: 24 }}>New Snapshot Schedule</h3>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-          <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>Dataset</span>
-            <select value={dataset} onChange={e => setDataset(e.target.value)} style={inputStyle}>
-              {datasets.map(d => <option key={d.name} value={d.name}>{d.name}</option>)}
-            </select>
-          </label>
-          <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>Frequency</span>
-            <select value={frequency} onChange={e => setFrequency(e.target.value as SnapshotSchedule['frequency'])} style={inputStyle}>
-              {(Object.keys(FREQ_LABELS) as SnapshotSchedule['frequency'][]).map(f => (
-                <option key={f} value={f}>{FREQ_LABELS[f]}</option>
-              ))}
-            </select>
-          </label>
-          <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>Keep (count)</span>
-            <input type="number" value={retention} min={1} max={365}
-              onChange={e => setRetention(parseInt(e.target.value) || 1)} style={inputStyle} />
-          </label>
-          <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>Prefix</span>
-            <input value={prefix} onChange={e => setPrefix(e.target.value)} placeholder="auto" style={inputStyle} />
-          </label>
-        </div>
-        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 24 }}>
-          <button onClick={onClose} style={btnGhost}>Cancel</button>
-          <button onClick={submit} style={btnPrimary}>Create Schedule</button>
-        </div>
+    <Modal title="New Snapshot Schedule" onClose={onClose}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <label className="field">
+          <span className="field-label">Dataset</span>
+          <select value={dataset} onChange={e => setDataset(e.target.value)} className="input">
+            {datasets.map(d => <option key={d.name} value={d.name}>{d.name}</option>)}
+          </select>
+        </label>
+        <label className="field">
+          <span className="field-label">Frequency</span>
+          <select value={frequency} onChange={e => setFrequency(e.target.value as SnapshotSchedule['frequency'])} className="input">
+            {(Object.keys(FREQ_LABELS) as SnapshotSchedule['frequency'][]).map(f => (
+              <option key={f} value={f}>{FREQ_LABELS[f]}</option>
+            ))}
+          </select>
+        </label>
+        <label className="field">
+          <span className="field-label">Keep (count)</span>
+          <input type="number" value={retention} min={1} max={365}
+            onChange={e => setRetention(parseInt(e.target.value) || 1)} className="input" />
+        </label>
+        <label className="field">
+          <span className="field-label">Prefix</span>
+          <input value={prefix} onChange={e => setPrefix(e.target.value)} placeholder="auto" className="input" />
+        </label>
       </div>
-    </div>
+      <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 24 }}>
+        <button onClick={onClose} className="btn btn-ghost">Cancel</button>
+        <button onClick={submit} className="btn btn-primary">Create Schedule</button>
+      </div>
+    </Modal>
   )
 }
 
@@ -148,19 +125,19 @@ function ScheduleRow({ schedule, index: _index, onToggle, onDelete, onRunNow, ru
         {schedule.enabled ? 'ACTIVE' : 'DISABLED'}
       </span>
       <div style={{ display: 'flex', gap: 6 }}>
-        <button onClick={onRunNow} disabled={running} style={btnGhost} title="Run now">
+        <button onClick={onRunNow} disabled={running} className="btn btn-ghost" title="Run now">
           <Icon name="play_arrow" size={14} />{running ? 'Running…' : 'Run Now'}
         </button>
-        <button onClick={onToggle} style={btnGhost} title={schedule.enabled ? 'Disable' : 'Enable'}>
+        <button onClick={onToggle} className="btn btn-ghost" title={schedule.enabled ? 'Disable' : 'Enable'}>
           <Icon name={schedule.enabled ? 'pause_circle' : 'play_circle'} size={14} />
         </button>
         {!confirming
-          ? <button onClick={() => setConfirming(true)} style={{ ...btnGhost, color: 'var(--error)', borderColor: 'var(--error-border)' }}>
+          ? <button onClick={() => setConfirming(true)} className="btn btn-ghost" style={{ color: 'var(--error)', borderColor: 'var(--error-border)' }}>
               <Icon name="delete" size={14} />
             </button>
           : <>
-              <button onClick={onDelete} style={{ ...btnGhost, color: 'var(--error)' }}>Delete</button>
-              <button onClick={() => setConfirming(false)} style={btnGhost}>Cancel</button>
+              <button onClick={onDelete} className="btn btn-ghost" style={{ color: 'var(--error)' }}>Delete</button>
+              <button onClick={() => setConfirming(false)} className="btn btn-ghost">Cancel</button>
             </>
         }
       </div>
@@ -271,20 +248,20 @@ export function SnapshotSchedulerPage() {
     <div style={{ maxWidth: 1000 }}>
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 32 }}>
         <div>
-          <h1 style={{ fontSize: 'var(--text-3xl)', fontWeight: 700, letterSpacing: '-1px', marginBottom: 6 }}>Snapshot Scheduler</h1>
-          <p style={{ color: 'var(--text-secondary)', fontSize: 'var(--text-md)' }}>Automated ZFS snapshots with retention policies</p>
+          <h1 className="page-title">Snapshot Scheduler</h1>
+          <p className="page-subtitle">Automated ZFS snapshots with retention policies</p>
         </div>
         {tab === 'schedules' && (
-          <button onClick={() => setShowCreate(true)} style={btnPrimary}>
+          <button onClick={() => setShowCreate(true)} className="btn btn-primary">
             <Icon name="add" size={16} /> Add Schedule
           </button>
         )}
       </div>
 
       {/* Tabs */}
-      <div style={{ display: 'flex', gap: 4, marginBottom: 28, borderBottom: '1px solid var(--border)' }}>
+      <div className="tabs-underline" style={{ marginBottom: 28 }}>
         {TABS.map(t => (
-          <button key={t.id} onClick={() => setTab(t.id)} style={{ padding: '10px 20px', background: 'none', border: 'none', cursor: 'pointer', fontSize: 'var(--text-sm)', fontWeight: 600, color: tab === t.id ? 'var(--primary)' : 'var(--text-secondary)', borderBottom: tab === t.id ? '2px solid var(--primary)' : '2px solid transparent', marginBottom: -1, display: 'flex', alignItems: 'center', gap: 6 }}>
+          <button key={t.id} onClick={() => setTab(t.id)} className={`tab-underline${tab === t.id ? ' active' : ''}`}>
             <Icon name={t.icon} size={16} />{t.label}
           </button>
         ))}

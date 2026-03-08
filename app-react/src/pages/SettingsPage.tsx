@@ -37,30 +37,6 @@ interface Generation       { number: number; date: string; current: boolean; des
 interface GenerationsResp  { success: boolean; generations: Generation[] }
 
 // ---------------------------------------------------------------------------
-// Shared styles
-// ---------------------------------------------------------------------------
-
-const btnGhost: React.CSSProperties = {
-  padding: '8px 14px', background: 'var(--surface)', color: 'var(--text-secondary)',
-  border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', cursor: 'pointer',
-  fontSize: 'var(--text-sm)', fontWeight: 500, display: 'inline-flex', alignItems: 'center', gap: 6,
-}
-const btnPrimary: React.CSSProperties = {
-  padding: '9px 20px', background: 'var(--primary)', color: '#000',
-  border: 'none', borderRadius: 'var(--radius-sm)', cursor: 'pointer',
-  fontSize: 'var(--text-sm)', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 6,
-}
-const btnDanger: React.CSSProperties = {
-  padding: '7px 14px', background: 'var(--error-bg)', border: '1px solid var(--error-border)',
-  borderRadius: 'var(--radius-sm)', cursor: 'pointer', color: 'var(--error)',
-  fontSize: 'var(--text-sm)', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 6,
-}
-const inputStyle: React.CSSProperties = {
-  background: 'var(--surface)', border: '1px solid var(--border)',
-  borderRadius: 'var(--radius-sm)', padding: '9px 13px',
-  color: 'var(--text)', fontSize: 'var(--text-sm)', width: '100%',
-  fontFamily: 'var(--font-ui)', outline: 'none', boxSizing: 'border-box',
-}
 
 function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
   return (
@@ -125,13 +101,13 @@ function GeneralTab() {
     <div style={{ maxWidth: 560, display: 'flex', flexDirection: 'column', gap: 20 }}>
       <Field label="Hostname" hint="Applied immediately via hostnamectl">
         <input value={hostname} onChange={e => setHostname(e.target.value)}
-          placeholder="dplaneos" style={{ ...inputStyle, fontFamily: 'var(--font-mono)' }} />
+          placeholder="dplaneos" className="input" style={{ fontFamily: 'var(--font-mono)' }} />
       </Field>
 
       <Field label="Timezone" hint="Applied immediately via timedatectl">
         {/* Combo: free-text with datalist for common zones */}
         <input value={timezone} onChange={e => setTimezone(e.target.value)}
-          list="tz-list" placeholder="Europe/Berlin" style={inputStyle} />
+          list="tz-list" placeholder="Europe/Berlin" className="input" />
         <datalist id="tz-list">
           {TIMEZONES.map(tz => <option key={tz} value={tz} />)}
         </datalist>
@@ -140,11 +116,11 @@ function GeneralTab() {
       <Field label="Message of the Day (MOTD)" hint="Shown on the dashboard and login page">
         <textarea value={motd} onChange={e => setMotd(e.target.value)}
           rows={4} placeholder="Welcome to D-PlaneOS"
-          style={{ ...inputStyle, resize: 'vertical', lineHeight: 1.6, fontFamily: 'var(--font-ui)' }} />
+          className="input" style={{ resize: 'vertical', lineHeight: 1.6, fontFamily: 'var(--font-ui)' }} />
       </Field>
 
       <div>
-        <button onClick={() => save.mutate()} disabled={save.isPending} style={btnPrimary}>
+        <button onClick={() => save.mutate()} disabled={save.isPending} className="btn btn-primary">
           <Icon name="save" size={15} />{save.isPending ? 'Saving…' : 'Save Settings'}
         </button>
       </div>
@@ -177,10 +153,10 @@ function NixOSConfirmBanner({ onConfirm, onDismiss }: { onConfirm: () => void; o
         <div style={{ fontWeight: 700, color: 'rgba(251,191,36,0.9)' }}>NixOS rebuild applied</div>
         <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>Auto-rolling back in {secs}s — confirm to keep this generation</div>
       </div>
-      <button onClick={onConfirm} style={{ ...btnPrimary, background: 'rgba(251,191,36,0.9)' }}>
+      <button onClick={onConfirm} className="btn btn-primary" style={{ background: 'rgba(251,191,36,0.9)' }}>
         <Icon name="check" size={15} />Confirm
       </button>
-      <button onClick={onDismiss} style={btnGhost}>Rollback</button>
+      <button onClick={onDismiss} className="btn btn-ghost">Rollback</button>
     </div>
   )
 }
@@ -262,7 +238,7 @@ function NixOSTab() {
         <div style={{ fontWeight: 700, marginBottom: 16 }}>Apply Configuration</div>
         <div style={{ display: 'flex', gap: 10, marginBottom: 12 }}>
           <input value={flakePath} onChange={e => setFlakePath(e.target.value)}
-            style={{ ...inputStyle, flex: 1, fontFamily: 'var(--font-mono)' }}
+            className="input" style={{ flex: 1, fontFamily: 'var(--font-mono)' }}
             placeholder="/etc/nixos" />
         </div>
 
@@ -283,10 +259,10 @@ function NixOSTab() {
         )}
 
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <button onClick={() => validate.mutate()} disabled={validate.isPending} style={btnGhost}>
+          <button onClick={() => validate.mutate()} disabled={validate.isPending} className="btn btn-ghost">
             <Icon name="fact_check" size={15} />{validate.isPending ? 'Validating…' : 'Validate'}
           </button>
-          <button onClick={() => apply.mutate()} disabled={apply.isPending} style={btnPrimary}>
+          <button onClick={() => apply.mutate()} disabled={apply.isPending} className="btn btn-primary">
             <Icon name="rocket_launch" size={15} />{apply.isPending ? 'Rebuilding…' : 'nixos-rebuild switch'}
           </button>
         </div>
@@ -306,7 +282,7 @@ function NixOSTab() {
               <div style={{ flex: 1 }}>
                 <div style={{ fontWeight: 600, fontSize: 'var(--text-sm)', display: 'flex', alignItems: 'center', gap: 8 }}>
                   Generation {gen.number}
-                  {gen.current && <span style={{ padding: '1px 7px', borderRadius: 'var(--radius-xs)', background: 'var(--primary-bg)', color: 'var(--primary)', fontSize: 10, fontWeight: 700 }}>CURRENT</span>}
+                  {gen.current && <span className="badge badge-primary">CURRENT</span>}
                 </div>
                 <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', marginTop: 2 }}>
                   {gen.date}{gen.description ? ` — ${gen.description}` : ''}
@@ -314,7 +290,7 @@ function NixOSTab() {
               </div>
               {!gen.current && (
                 <button onClick={() => { if (window.confirm(`Roll back to generation ${gen.number}?`)) rollback.mutate(gen.number) }}
-                  disabled={rollback.isPending} style={btnDanger}>
+                  disabled={rollback.isPending} className="btn btn-danger">
                   <Icon name="history" size={14} />Rollback
                 </button>
               )}
@@ -345,14 +321,14 @@ export function SettingsPage() {
 
   return (
     <div style={{ maxWidth: 860 }}>
-      <div style={{ marginBottom: 28 }}>
-        <h1 style={{ fontSize: 'var(--text-3xl)', fontWeight: 700, letterSpacing: '-1px', marginBottom: 6 }}>System Settings</h1>
-        <p style={{ color: 'var(--text-secondary)', fontSize: 'var(--text-md)' }}>Hostname, timezone, MOTD and NixOS configuration</p>
+      <div className="page-header">
+        <h1 className="page-title">System Settings</h1>
+        <p className="page-subtitle">Hostname, timezone, MOTD and NixOS configuration</p>
       </div>
 
-      <div style={{ display: 'flex', gap: 4, marginBottom: 24, borderBottom: '1px solid var(--border)' }}>
+      <div className="tabs-underline">
         {TABS.map(t => (
-          <button key={t.id} onClick={() => setTab(t.id)} style={{ padding: '10px 20px', background: 'none', border: 'none', cursor: 'pointer', fontSize: 'var(--text-sm)', fontWeight: 600, color: tab === t.id ? 'var(--primary)' : 'var(--text-secondary)', borderBottom: tab === t.id ? '2px solid var(--primary)' : '2px solid transparent', marginBottom: -1, display: 'flex', alignItems: 'center', gap: 6 }}>
+          <button key={t.id} onClick={() => setTab(t.id)} className={`tab-underline${tab === t.id ? ' active' : ''}`}>
             <Icon name={t.icon} size={16} />{t.label}
           </button>
         ))}

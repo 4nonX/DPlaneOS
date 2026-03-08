@@ -65,23 +65,6 @@ function entriesToAclString(entries: AclEntry[]): string {
 }
 
 // ---------------------------------------------------------------------------
-// Styles
-// ---------------------------------------------------------------------------
-
-
-const btnPrimary: React.CSSProperties = {
-  padding: '9px 20px', background: 'var(--primary)', color: '#000',
-  border: 'none', borderRadius: 'var(--radius-sm)', cursor: 'pointer',
-  fontSize: 'var(--text-sm)', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 6,
-}
-const inputStyle: React.CSSProperties = {
-  background: 'var(--surface)', border: '1px solid var(--border)',
-  borderRadius: 'var(--radius-sm)', padding: '9px 13px',
-  color: 'var(--text)', fontSize: 'var(--text-sm)', width: '100%',
-  fontFamily: 'var(--font-mono)', outline: 'none', boxSizing: 'border-box',
-}
-
-// ---------------------------------------------------------------------------
 // Type badge colors
 // ---------------------------------------------------------------------------
 
@@ -165,7 +148,7 @@ function AddEntryForm({ onAdd }: { onAdd: (e: AclEntry) => void }) {
         <option value="mask">mask</option>
       </select>
       <input value={name} onChange={e => setName(e.target.value)} placeholder="username or empty"
-        style={{ ...inputStyle, width: 180, padding: '6px 10px' }} />
+        className="input" style={{ width: 180, padding: '6px 10px' }} />
       {(['read', 'write', 'exec'] as const).map((bit, i) => (
         <label key={bit} style={{ display: 'flex', alignItems: 'center', gap: 5, cursor: 'pointer', fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>
           <input type="checkbox" checked={bit === 'read' ? read : bit === 'write' ? write : exec}
@@ -174,7 +157,7 @@ function AddEntryForm({ onAdd }: { onAdd: (e: AclEntry) => void }) {
           {'rwx'[i]}
         </label>
       ))}
-      <button onClick={add} style={btnPrimary}><Icon name="add" size={15} />Add</button>
+      <button onClick={add} className="btn btn-primary"><Icon name="add" size={15} />Add</button>
     </div>
   )
 }
@@ -217,17 +200,17 @@ export function ACLPage() {
 
   return (
     <div style={{ maxWidth: 860 }}>
-      <div style={{ marginBottom: 32 }}>
-        <h1 style={{ fontSize: 'var(--text-3xl)', fontWeight: 700, letterSpacing: '-1px', marginBottom: 6 }}>ACL Manager</h1>
-        <p style={{ color: 'var(--text-secondary)', fontSize: 'var(--text-md)' }}>POSIX Access Control Lists — getfacl / setfacl</p>
+      <div className="page-header">
+        <h1 className="page-title">ACL Manager</h1>
+        <p className="page-subtitle">POSIX Access Control Lists — getfacl / setfacl</p>
       </div>
 
       {/* Path input */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 24 }}>
         <input value={pathInput} onChange={e => setPathInput(e.target.value)}
-          placeholder="/mnt/tank/share" style={{ ...inputStyle, flex: 1 }}
+          placeholder="/mnt/tank/share" className="input" style={{ flex: 1 }}
           onKeyDown={e => e.key === 'Enter' && loadMutation.mutate()} />
-        <button onClick={() => loadMutation.mutate()} disabled={loading} style={btnPrimary}>
+        <button onClick={() => loadMutation.mutate()} disabled={loading} className="btn btn-primary">
           <Icon name="manage_search" size={16} />{loading ? 'Loading…' : 'Load ACL'}
         </button>
       </div>
@@ -242,7 +225,7 @@ export function ACLPage() {
               <div style={{ fontWeight: 700, fontFamily: 'var(--font-mono)', fontSize: 'var(--text-md)' }}>{loadedPath}</div>
               {statInfo && <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', marginTop: 2 }}>{statInfo}</div>}
             </div>
-            <button onClick={() => setMutation.mutate()} disabled={setMutation.isPending} style={btnPrimary}>
+            <button onClick={() => setMutation.mutate()} disabled={setMutation.isPending} className="btn btn-primary">
               <Icon name="save" size={15} />{setMutation.isPending ? 'Applying…' : 'Apply ACL'}
             </button>
           </div>

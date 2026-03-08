@@ -12,12 +12,12 @@
  */
 
 import { useState } from 'react'
-import type React from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { Icon } from '@/components/ui/Icon'
 import { ErrorState } from '@/components/ui/ErrorState'
 import { Skeleton } from '@/components/ui/LoadingSpinner'
+import { Modal } from '@/components/ui/Modal'
 import { toast } from '@/hooks/useToast'
 
 // ---------------------------------------------------------------------------
@@ -35,32 +35,6 @@ interface Share {
 }
 
 interface SharesListResponse { success: boolean; shares?: Share[]; data?: Share[] }
-
-// ---------------------------------------------------------------------------
-// Styles
-// ---------------------------------------------------------------------------
-
-const inputStyle: React.CSSProperties = {
-  background: 'var(--surface)', border: '1px solid var(--border)',
-  borderRadius: 'var(--radius-sm)', padding: '9px 13px',
-  color: 'var(--text)', fontSize: 'var(--text-sm)', width: '100%',
-  fontFamily: 'var(--font-ui)', outline: 'none', boxSizing: 'border-box',
-}
-const btnPrimary: React.CSSProperties = {
-  padding: '9px 20px', background: 'var(--primary)', color: '#000',
-  border: 'none', borderRadius: 'var(--radius-sm)', cursor: 'pointer',
-  fontSize: 'var(--text-sm)', fontWeight: 600,
-}
-const btnGhost: React.CSSProperties = {
-  padding: '9px 16px', background: 'var(--surface)', color: 'var(--text-secondary)',
-  border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', cursor: 'pointer',
-  fontSize: 'var(--text-sm)', fontWeight: 500, display: 'inline-flex', alignItems: 'center', gap: 6,
-}
-const btnDanger: React.CSSProperties = {
-  padding: '7px 14px', background: 'var(--error-bg)', border: '1px solid var(--error-border)',
-  borderRadius: 'var(--radius-sm)', cursor: 'pointer', color: 'var(--error)',
-  fontSize: 'var(--text-xs)', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 5,
-}
 
 // ---------------------------------------------------------------------------
 // CreateShareModal
@@ -88,41 +62,37 @@ function CreateShareModal({ onClose, onCreated }: { onClose: () => void; onCreat
   }
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }}
-      onClick={e => e.target === e.currentTarget && onClose()}>
-      <div style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 'var(--radius-xl)', padding: 32, width: 480, maxWidth: '90vw' }}>
-        <h3 style={{ fontSize: 'var(--text-lg)', fontWeight: 700, marginBottom: 24 }}>Create SMB Share</h3>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-          <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>Share Name</span>
-            <input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. media" style={inputStyle} autoFocus
-              onKeyDown={e => e.key === 'Enter' && submit()} />
-          </label>
-          <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>Path</span>
-            <input value={path} onChange={e => setPath(e.target.value)} placeholder="/tank/media" style={inputStyle} />
-          </label>
-          <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>Comment (optional)</span>
-            <input value={comment} onChange={e => setComment(e.target.value)} placeholder="Media library" style={inputStyle} />
-          </label>
-          <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>Valid Users (optional, space-separated)</span>
-            <input value={validusers} onChange={e => setValidusers(e.target.value)} placeholder="alice bob @media" style={inputStyle} />
-          </label>
-          <div style={{ display: 'flex', gap: 24 }}>
-            <CheckRow label="Read-only" checked={readonly} onChange={setReadonly} />
-            <CheckRow label="Guest access" checked={guestok} onChange={setGuestok} />
-          </div>
-        </div>
-        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 24 }}>
-          <button onClick={onClose} style={btnGhost}>Cancel</button>
-          <button onClick={submit} disabled={mutation.isPending} style={btnPrimary}>
-            {mutation.isPending ? 'Creating…' : 'Create Share'}
-          </button>
+    <Modal title="Create SMB Share" onClose={onClose}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <label className="field">
+          <span className="field-label">Share Name</span>
+          <input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. media" className="input" autoFocus
+            onKeyDown={e => e.key === 'Enter' && submit()} />
+        </label>
+        <label className="field">
+          <span className="field-label">Path</span>
+          <input value={path} onChange={e => setPath(e.target.value)} placeholder="/tank/media" className="input" />
+        </label>
+        <label className="field">
+          <span className="field-label">Comment (optional)</span>
+          <input value={comment} onChange={e => setComment(e.target.value)} placeholder="Media library" className="input" />
+        </label>
+        <label className="field">
+          <span className="field-label">Valid Users (optional, space-separated)</span>
+          <input value={validusers} onChange={e => setValidusers(e.target.value)} placeholder="alice bob @media" className="input" />
+        </label>
+        <div style={{ display: 'flex', gap: 24 }}>
+          <CheckRow label="Read-only" checked={readonly} onChange={setReadonly} />
+          <CheckRow label="Guest access" checked={guestok} onChange={setGuestok} />
         </div>
       </div>
-    </div>
+      <div className="modal-footer">
+        <button onClick={onClose} className="btn btn-ghost">Cancel</button>
+        <button onClick={submit} disabled={mutation.isPending} className="btn btn-primary">
+          {mutation.isPending ? 'Creating…' : 'Create Share'}
+        </button>
+      </div>
+    </Modal>
   )
 }
 
@@ -164,13 +134,13 @@ function ShareCard({ share, onDeleted }: { share: Share; onDeleted: () => void }
       </div>
       <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
         {!confirming
-          ? <button style={btnDanger} onClick={() => setConfirming(true)}><Icon name="delete" size={14} />Delete</button>
+          ? <button className="btn btn-danger" onClick={() => setConfirming(true)}><Icon name="delete" size={14} />Delete</button>
           : <>
               <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', alignSelf: 'center' }}>Sure?</span>
-              <button style={btnDanger} onClick={() => deleteMutation.mutate()} disabled={deleteMutation.isPending}>
+              <button className="btn btn-danger" onClick={() => deleteMutation.mutate()} disabled={deleteMutation.isPending}>
                 {deleteMutation.isPending ? '…' : 'Yes'}
               </button>
-              <button style={btnGhost} onClick={() => setConfirming(false)}>No</button>
+              <button className="btn btn-ghost" onClick={() => setConfirming(false)}>No</button>
             </>
         }
       </div>
@@ -230,16 +200,16 @@ export function SharesPage() {
           <p style={{ color: 'var(--text-secondary)', fontSize: 'var(--text-md)' }}>SMB network shares</p>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
-          <button onClick={() => smbTest.mutate()} disabled={smbTest.isPending} style={btnGhost} title="Test SMB config">
+          <button onClick={() => smbTest.mutate()} disabled={smbTest.isPending} className="btn btn-ghost" title="Test SMB config">
             <Icon name="bug_report" size={16} />{smbTest.isPending ? 'Testing…' : 'Test Config'}
           </button>
-          <button onClick={() => smbReload.mutate()} disabled={smbReload.isPending} style={btnGhost} title="Reload SMB">
+          <button onClick={() => smbReload.mutate()} disabled={smbReload.isPending} className="btn btn-ghost" title="Reload SMB">
             <Icon name="restart_alt" size={16} />{smbReload.isPending ? 'Reloading…' : 'Reload SMB'}
           </button>
-          <button onClick={() => nfsReload.mutate()} disabled={nfsReload.isPending} style={btnGhost} title="Reload NFS exports">
+          <button onClick={() => nfsReload.mutate()} disabled={nfsReload.isPending} className="btn btn-ghost" title="Reload NFS exports">
             <Icon name="sync" size={16} />{nfsReload.isPending ? 'Reloading…' : 'Reload NFS'}
           </button>
-          <button onClick={() => setShowCreate(true)} style={btnPrimary}>
+          <button onClick={() => setShowCreate(true)} className="btn btn-primary">
             <Icon name="add" size={16} /> Add Share
           </button>
         </div>

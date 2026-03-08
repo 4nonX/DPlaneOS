@@ -18,13 +18,13 @@
  */
 
 import { useState, useEffect, useRef } from 'react'
-import type React from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { Icon } from '@/components/ui/Icon'
 import { ErrorState } from '@/components/ui/ErrorState'
 import { Skeleton } from '@/components/ui/LoadingSpinner'
 import { JobProgress } from '@/components/ui/JobProgress'
+import { Modal } from '@/components/ui/Modal'
 import { toast } from '@/hooks/useToast'
 import { useWsStore } from '@/stores/ws'
 
@@ -78,28 +78,6 @@ interface JobStartResponse { job_id: string }
 interface LogsResponse { success: boolean; logs: string }
 
 // ---------------------------------------------------------------------------
-// Styles
-// ---------------------------------------------------------------------------
-
-const btnGhost: React.CSSProperties = {
-  padding: '7px 13px', background: 'var(--surface)', color: 'var(--text-secondary)',
-  border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', cursor: 'pointer',
-  fontSize: 'var(--text-xs)', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 5,
-  transition: 'all 0.15s',
-}
-const btnPrimary: React.CSSProperties = {
-  padding: '9px 20px', background: 'var(--primary)', color: '#000',
-  border: 'none', borderRadius: 'var(--radius-sm)', cursor: 'pointer',
-  fontSize: 'var(--text-sm)', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 6,
-}
-const inputStyle: React.CSSProperties = {
-  background: 'var(--surface)', border: '1px solid var(--border)',
-  borderRadius: 'var(--radius-sm)', padding: '9px 13px',
-  color: 'var(--text)', fontSize: 'var(--text-sm)', width: '100%',
-  fontFamily: 'var(--font-ui)', outline: 'none', boxSizing: 'border-box',
-}
-
-// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
@@ -136,25 +114,21 @@ function LogsModal({ containerName, onClose }: { containerName: string; onClose:
   }, [logsQ.data])
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }}
-      onClick={e => e.target === e.currentTarget && onClose()}>
-      <div style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 'var(--radius-xl)', width: 860, maxWidth: '94vw', maxHeight: '82vh', display: 'flex', flexDirection: 'column' }}>
-        <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <span style={{ fontWeight: 700, fontSize: 'var(--text-md)' }}>
-            <Icon name="description" size={16} style={{ verticalAlign: 'middle', marginRight: 8, color: 'var(--primary)' }} />
-            {containerName}
-          </span>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', fontSize: 22, lineHeight: 1 }}>×</button>
-        </div>
+    <Modal
+      title={<><Icon name="description" size={16} style={{ verticalAlign: 'middle', marginRight: 8, color: 'var(--primary)' }} />{containerName}</>}
+      onClose={onClose}
+      size="lg"
+    >
+      <div style={{ maxHeight: '60vh', overflow: 'hidden', display: 'flex', flexDirection: 'column', margin: '-4px -4px' }}>
         {logsQ.isLoading && <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-tertiary)' }}>Loading logs…</div>}
         {logsQ.isError && <div style={{ padding: 16 }}><ErrorState error={logsQ.error} /></div>}
         {logsQ.data && (
-          <pre ref={ref} style={{ flex: 1, padding: '16px 20px', fontFamily: 'var(--font-mono)', fontSize: 11, lineHeight: 1.6, overflow: 'auto', margin: 0, color: 'rgba(255,255,255,0.75)', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+          <pre ref={ref} style={{ flex: 1, padding: '12px 16px', fontFamily: 'var(--font-mono)', fontSize: 11, lineHeight: 1.6, overflow: 'auto', margin: 0, color: 'rgba(255,255,255,0.75)', whiteSpace: 'pre-wrap', wordBreak: 'break-all', background: 'rgba(0,0,0,0.3)', borderRadius: 'var(--radius-md)' }}>
             {logsQ.data.logs || '(no output)'}
           </pre>
         )}
       </div>
-    </div>
+    </Modal>
   )
 }
 
@@ -258,20 +232,20 @@ function ContainerRow({ container, onRefresh }: { container: Container; onRefres
         {/* Actions */}
         <td style={{ padding: '14px 16px' }}>
           <div style={{ display: 'flex', gap: 5 }}>
-            <button onClick={() => setShowLogs(true)} style={btnGhost} title="Logs">
+            <button onClick={() => setShowLogs(true)} className="btn btn-ghost" title="Logs">
               <Icon name="description" size={14} />
             </button>
             {isRunning ? (
               <>
-                <button onClick={() => action.mutate({ act: 'restart', id })} disabled={!!actionPending} style={btnGhost} title="Restart">
+                <button onClick={() => action.mutate({ act: 'restart', id })} disabled={!!actionPending} className="btn btn-ghost" title="Restart">
                   <Icon name="restart_alt" size={14} />
                 </button>
-                <button onClick={() => action.mutate({ act: 'stop', id })} disabled={!!actionPending} style={btnGhost} title="Stop">
+                <button onClick={() => action.mutate({ act: 'stop', id })} disabled={!!actionPending} className="btn btn-ghost" title="Stop">
                   <Icon name="stop_circle" size={14} />
                 </button>
               </>
             ) : (
-              <button onClick={() => action.mutate({ act: 'start', id })} disabled={!!actionPending} style={btnGhost} title="Start">
+              <button onClick={() => action.mutate({ act: 'start', id })} disabled={!!actionPending} className="btn btn-ghost" title="Start">
                 <Icon name="play_circle" size={14} />
               </button>
             )}
@@ -352,15 +326,15 @@ function ContainersTab() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
         <div style={{ display: 'flex', gap: 4 }}>
           {(['stacks', 'list'] as const).map(v => (
-            <button key={v} onClick={() => setViewMode(v)} style={{ ...btnGhost, background: viewMode === v ? 'var(--primary-bg)' : 'var(--surface)', color: viewMode === v ? 'var(--primary)' : 'var(--text-secondary)', borderColor: viewMode === v ? 'rgba(138,156,255,0.3)' : 'var(--border)' }}>
+            <button key={v} onClick={() => setViewMode(v)} className="btn btn-ghost" style={{ background: viewMode === v ? 'var(--primary-bg)' : 'var(--surface)', color: viewMode === v ? 'var(--primary)' : 'var(--text-secondary)', borderColor: viewMode === v ? 'rgba(138,156,255,0.3)' : 'var(--border)' }}>
               <Icon name={v === 'stacks' ? 'folder' : 'list'} size={14} />
               {v === 'stacks' ? 'Group by Stack' : 'List View'}
             </button>
           ))}
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
-          <button onClick={refresh} style={btnGhost}><Icon name="refresh" size={14} />Refresh</button>
-          <button onClick={() => prune.mutate()} disabled={prune.isPending} style={{ ...btnGhost, color: 'var(--error)', borderColor: 'var(--error-border)' }}>
+          <button onClick={refresh} className="btn btn-ghost"><Icon name="refresh" size={14} />Refresh</button>
+          <button onClick={() => prune.mutate()} disabled={prune.isPending} className="btn btn-ghost" style={{ color: 'var(--error)', borderColor: 'var(--error-border)' }}>
             <Icon name="delete_sweep" size={14} />{prune.isPending ? 'Pruning…' : 'Prune'}
           </button>
         </div>
@@ -416,11 +390,11 @@ function StackSection({ stack, onRefresh }: { stack: Stack; onRefresh: () => voi
 function ContainerTable({ containers, onRefresh, topBorder = true }: { containers: Container[]; onRefresh: () => void; topBorder?: boolean }) {
   return (
     <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', ...(topBorder ? { borderRadius: 'var(--radius-lg)' } : { borderTop: 'none', borderRadius: '0 0 var(--radius-lg) var(--radius-lg)' }), overflow: 'hidden' }}>
-      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+      <table className="data-table">
         <thead>
           <tr style={{ background: 'rgba(255,255,255,0.03)' }}>
             {['Container', 'State', 'Ports', 'Resources', 'Uptime', 'Actions'].map(h => (
-              <th key={h} style={{ padding: '10px 16px', textAlign: 'left', fontSize: 'var(--text-2xs)', fontWeight: 700, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.5px', borderBottom: '1px solid var(--border)' }}>{h}</th>
+              <th key={h}>{h}</th>
             ))}
           </tr>
         </thead>
@@ -466,14 +440,14 @@ function PullTab() {
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 120px', gap: 10, marginBottom: 16 }}>
-          <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>Image Name</span>
+          <label className="field">
+            <span className="field-label">Image Name</span>
             <input value={image} onChange={e => setImage(e.target.value)} placeholder="nginx, ghcr.io/user/repo"
-              style={inputStyle} autoFocus onKeyDown={e => e.key === 'Enter' && start()} />
+              className="input" autoFocus onKeyDown={e => e.key === 'Enter' && start()} />
           </label>
-          <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>Tag</span>
-            <input value={tag} onChange={e => setTag(e.target.value)} placeholder="latest" style={inputStyle} />
+          <label className="field">
+            <span className="field-label">Tag</span>
+            <input value={tag} onChange={e => setTag(e.target.value)} placeholder="latest" className="input" />
           </label>
         </div>
 
@@ -489,7 +463,7 @@ function PullTab() {
           </div>
         )}
 
-        <button onClick={start} disabled={pull.isPending} style={btnPrimary}>
+        <button onClick={start} disabled={pull.isPending} className="btn btn-primary">
           <Icon name="download" size={16} />{pull.isPending ? 'Starting…' : 'Pull Image'}
         </button>
       </div>
@@ -582,10 +556,10 @@ function ComposeTab() {
                 {stack.running ? 'UP' : 'DOWN'}
               </span>
               <div style={{ display: 'flex', gap: 6 }}>
-                <button onClick={() => composeAction(stack.name, 'up')} disabled={isPending} style={btnGhost}>
+                <button onClick={() => composeAction(stack.name, 'up')} disabled={isPending} className="btn btn-ghost">
                   <Icon name="play_arrow" size={14} />Up
                 </button>
-                <button onClick={() => composeAction(stack.name, 'down')} disabled={isPending} style={{ ...btnGhost, color: 'var(--error)', borderColor: 'var(--error-border)' }}>
+                <button onClick={() => composeAction(stack.name, 'down')} disabled={isPending} className="btn btn-ghost" style={{ color: 'var(--error)', borderColor: 'var(--error-border)' }}>
                   <Icon name="stop" size={14} />Down
                 </button>
               </div>
@@ -614,15 +588,15 @@ export function DockerPage() {
 
   return (
     <div style={{ maxWidth: 1200 }}>
-      <div style={{ marginBottom: 32 }}>
-        <h1 style={{ fontSize: 'var(--text-3xl)', fontWeight: 700, letterSpacing: '-1px', marginBottom: 6 }}>Docker</h1>
-        <p style={{ color: 'var(--text-secondary)', fontSize: 'var(--text-md)' }}>Containers · Images · Compose Stacks</p>
+      <div className="page-header">
+        <h1 className="page-title">Docker</h1>
+        <p className="page-subtitle">Containers · Images · Compose Stacks</p>
       </div>
 
       {/* Tabs */}
-      <div style={{ display: 'flex', gap: 4, marginBottom: 28, borderBottom: '1px solid var(--border)' }}>
+      <div className="tabs-underline" style={{ marginBottom: 28 }}>
         {TABS.map(t => (
-          <button key={t.id} onClick={() => setTab(t.id)} style={{ padding: '10px 20px', background: 'none', border: 'none', cursor: 'pointer', fontSize: 'var(--text-sm)', fontWeight: 600, color: tab === t.id ? 'var(--primary)' : 'var(--text-secondary)', borderBottom: tab === t.id ? '2px solid var(--primary)' : '2px solid transparent', marginBottom: -1, display: 'flex', alignItems: 'center', gap: 6 }}>
+          <button key={t.id} onClick={() => setTab(t.id)} className={`tab-underline${tab === t.id ? ' active' : ''}`}>
             <Icon name={t.icon} size={16} />{t.label}
           </button>
         ))}
