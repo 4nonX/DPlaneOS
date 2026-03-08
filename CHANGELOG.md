@@ -6,6 +6,32 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ---
 
+## [4.1.0] — 2026-03-08 — "Terminal"
+
+### Feature: Embedded PTY Terminal
+
+- **New `/ws/terminal` WebSocket endpoint (daemon):** Spawns a `bash --login` PTY via `creack/pty` and pipes stdin/stdout over WebSocket. Authenticated by the global `sessionMiddleware` — same session validation as all other endpoints. Each connection gets its own isolated PTY; connections are torn down cleanly when the WebSocket closes.
+- **Terminal resize support:** Client sends `{"type":"resize","cols":N,"rows":N}` messages; daemon calls `pty.Setsize()` so shell-aware programs (vim, htop, man) render correctly at any window size.
+- **New `TerminalPage` (frontend):** Full xterm.js terminal (`@xterm/xterm` v5) with `FitAddon` (auto-resize) and `WebLinksAddon` (clickable URLs). Colour scheme matches the D-PlaneOS dark theme. Reconnect and Clear buttons in the title bar. Connection status indicator (green/amber/red dot).
+- **Sidebar:** Terminal added to the System group (`terminal` icon).
+- **Font regression fixed:** `index.html` was loading fonts from `fonts.googleapis.com`. All three fonts (Outfit, JetBrains Mono, Material Symbols Rounded) now load exclusively from `/assets/fonts/` — zero external requests at runtime, fully airgap-safe.
+
+### Added
+- `daemon/internal/handlers/terminal_handler.go` — PTY handler
+- `daemon/vendor/github.com/creack/pty` v1.1.24
+- `app-react/src/pages/TerminalPage.tsx`
+- `@xterm/xterm`, `@xterm/addon-fit`, `@xterm/addon-web-links` npm dependencies
+
+### Fixed
+- `index.html` CDN font references removed; replaced with `/assets/fonts/fonts.css`
+- `fonts.css` updated to use absolute paths (`/assets/fonts/...`)
+- Dead `react-vendor` Rollup manual chunk removed from `vite.config.ts`
+
+---
+
+
+---
+
 
 ## v4.0.0 (2026-03-08) — **"React SPA"**
 

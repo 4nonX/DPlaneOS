@@ -702,6 +702,10 @@ func main() {
 	wsHandler := handlers.NewWebSocketHandler(wsHub)
 	r.HandleFunc("/ws/monitor", wsHandler.HandleMonitor)
 
+	// v4.1.0: PTY terminal over WebSocket (authenticated via sessionMiddleware)
+	termHandler := handlers.NewTerminalHandler()
+	r.HandleFunc("/ws/terminal", termHandler.HandleTerminal)
+
 	// v3.2.0: iSCSI target management (Phase 2)
 	r.HandleFunc("/api/iscsi/status", handlers.GetISCSIStatus).Methods("GET")
 	r.HandleFunc("/api/iscsi/targets", handlers.GetISCSITargets).Methods("GET")

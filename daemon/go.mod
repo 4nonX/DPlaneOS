@@ -3,6 +3,7 @@ module dplaned
 go 1.21
 
 require (
+	github.com/creack/pty v1.1.24
 	github.com/go-ldap/ldap/v3 v3.4.6
 	github.com/gorilla/mux v1.8.1
 	github.com/gorilla/websocket v1.5.1
