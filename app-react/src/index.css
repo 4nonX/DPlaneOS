@@ -1,0 +1,181 @@
+/* ============================================================
+   D-PlaneOS v4.0 — Global Design Tokens & Base Styles
+   Fonts: Outfit (UI chrome) + JetBrains Mono (data / code)
+   Icons: Material Symbols Rounded (self-hosted in production)
+   ============================================================ */
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+:root {
+  /* ── Brand / Accent ────────────────────────────────────── */
+  --primary:         #8a9cff;
+  --primary-bg:      rgba(138, 156, 255, 0.10);
+  --primary-hover:   #9eadff;
+  --primary-active:  #7a8cff;
+  --primary-glow:    rgba(138, 156, 255, 0.25);
+
+  /* ── Semantic ──────────────────────────────────────────── */
+  --success:         #10b981;
+  --success-bg:      rgba(16, 185, 129, 0.10);
+  --success-border:  rgba(16, 185, 129, 0.25);
+
+  --error:           #ef4444;
+  --error-bg:        rgba(239, 68, 68, 0.10);
+  --error-border:    rgba(239, 68, 68, 0.25);
+
+  --warning:         #f59e0b;
+  --warning-bg:      rgba(245, 158, 11, 0.10);
+  --warning-border:  rgba(245, 158, 11, 0.25);
+
+  --info:            #3b82f6;
+  --info-bg:         rgba(59, 130, 246, 0.10);
+  --info-border:     rgba(59, 130, 246, 0.25);
+
+  /* ── Neutrals ──────────────────────────────────────────── */
+  --bg:              #0a0a0a;
+  --bg-elevated:     #0f0f0f;
+  --bg-card:         rgba(255, 255, 255, 0.03);
+  --bg-card-hover:   rgba(255, 255, 255, 0.05);
+
+  --surface:         rgba(255, 255, 255, 0.05);
+  --surface-hover:   rgba(255, 255, 255, 0.08);
+  --surface-active:  rgba(255, 255, 255, 0.10);
+
+  --border:          rgba(255, 255, 255, 0.08);
+  --border-strong:   rgba(255, 255, 255, 0.14);
+  --border-subtle:   rgba(255, 255, 255, 0.04);
+
+  --text:            #ffffff;
+  --text-secondary:  rgba(255, 255, 255, 0.60);
+  --text-tertiary:   rgba(255, 255, 255, 0.35);
+  --text-on-primary: #000000;
+
+  /* ── Typography ────────────────────────────────────────── */
+  --font-ui:   'Outfit', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Courier New', monospace;
+
+  --text-2xs:  10px;
+  --text-xs:   11px;
+  --text-sm:   13px;
+  --text-base: 14px;
+  --text-md:   15px;
+  --text-lg:   18px;
+  --text-xl:   20px;
+  --text-2xl:  24px;
+  --text-3xl:  32px;
+
+  /* ── Spacing ───────────────────────────────────────────── */
+  --space-1:  4px;
+  --space-2:  8px;
+  --space-3:  12px;
+  --space-4:  16px;
+  --space-5:  20px;
+  --space-6:  24px;
+  --space-8:  32px;
+  --space-10: 40px;
+  --space-12: 48px;
+
+  /* ── Radius ────────────────────────────────────────────── */
+  --radius-xs:   4px;
+  --radius-sm:   8px;
+  --radius-md:   12px;
+  --radius-lg:   16px;
+  --radius-xl:   20px;
+  --radius-full: 9999px;
+
+  /* ── Layout ────────────────────────────────────────────── */
+  --sidebar-width:           240px;
+  --sidebar-width-collapsed: 64px;
+  --topbar-height:           60px;
+
+  /* ── Z-index ───────────────────────────────────────────── */
+  --z-dropdown:  100;
+  --z-modal:     200;
+  --z-toast:     300;
+  --z-overlay:   400;
+}
+
+/* ── Base ─────────────────────────────────────────────────── */
+
+html, body, #root {
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: var(--text-base);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ── Scrollbar ────────────────────────────────────────────── */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: var(--radius-full);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.22);
+}
+
+/* ── Focus ring ───────────────────────────────────────────── */
+:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+/* ── Links ────────────────────────────────────────────────── */
+a {
+  color: var(--primary);
+  text-decoration: none;
+}
+a:hover {
+  text-decoration: underline;
+}
+
+/* ── Mono spans ───────────────────────────────────────────── */
+code, pre, .mono {
+  font-family: var(--font-mono);
+}
+
+/* ── Material Symbols class helper ───────────────────────── */
+.ms {
+  font-family: 'Material Symbols Rounded';
+  font-weight: normal;
+  font-style: normal;
+  font-size: 20px;
+  line-height: 1;
+  letter-spacing: normal;
+  text-transform: none;
+  display: inline-block;
+  white-space: nowrap;
+  word-wrap: normal;
+  direction: ltr;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+  /* Variable font axes: FILL=0 (outlined), wght=400, GRAD=0, opsz=24 */
+  font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+}
+
+/* ── Utility: visually hidden ─────────────────────────────── */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
