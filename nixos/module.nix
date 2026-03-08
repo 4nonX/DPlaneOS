@@ -13,6 +13,18 @@ in {
   options.services.dplaneos = {
     enable = lib.mkEnableOption "D-PlaneOS NAS daemon";
 
+    daemonPackage = lib.mkOption {
+      type        = lib.types.package;
+      description = ''
+        The dplaned binary package. Set this to the output of the flake's
+        dplaneos-daemon derivation. In flake.nix this is wired automatically
+        via specialArgs; standalone users set it to a local derivation or a
+        pre-built store path.
+        Example (in configuration.nix with flake):
+          services.dplaneos.daemonPackage = self.packages.x86_64-linux.dplaneos-daemon;
+      '';
+    };
+
     listenAddress = lib.mkOption {
       type    = lib.types.str;
       default = "127.0.0.1";
@@ -137,7 +149,7 @@ in {
           "${pkgs.coreutils}/bin/mkdir -p /var/lib/dplaneos /var/log/dplaneos /run/dplaneos /etc/dplaneos"
           "${pkgs.coreutils}/bin/chmod 755 /run/dplaneos"
         ];
-        ExecStart       = "${pkgs.dplaneos-daemon}/bin/dplaned -db ${cfg.dbPath} -listen ${cfg.listenAddress}:${toString cfg.listenPort}";
+        ExecStart       = "${cfg.daemonPackage}/bin/dplaned -db ${cfg.dbPath} -listen ${cfg.listenAddress}:${toString cfg.listenPort}";
         WorkingDirectory = "/var/lib/dplaneos";
         Restart         = "on-failure";
         RestartSec      = "5s";

@@ -1,11 +1,24 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta http-equiv="refresh" content="0;url=/pages/index.html">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>D-PlaneOS</title>
-</head>
-<body>
-    <p>Redirecting to <a href="/pages/index.html">D-PlaneOS Dashboard</a>...</p>
-</body>
+    <meta name="description" content="D-PlaneOS — NAS Operating System" />
+    <!--
+      Fonts loaded from /assets/fonts/ (self-hosted, installed by install.sh).
+      No outbound network requests are made at runtime — NAS-safe.
+      Falls back to system-ui / monospace if fonts dir is absent.
+    -->
+    <link rel="stylesheet" href="/assets/fonts/fonts.css" />
+    <link rel="manifest" href="/manifest.json" />
+    <link rel="modulepreload" crossorigin href="/assets/tanstack-router-1QFdAePO.js">
+    <link rel="modulepreload" crossorigin href="/assets/tanstack-query-xWSg4tmo.js">
+    <link rel="modulepreload" crossorigin href="/assets/zustand-BHE02xjL.js">
+    <link rel="stylesheet" crossorigin href="/assets/index-BS7Cs4Vs.css">
+    <script type="module" crossorigin src="/assets/index-kaG0blBu.js"></script>
+  </head>
+  <body>
+    <div id="root"></div>
+  </body>
 </html>

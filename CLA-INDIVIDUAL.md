@@ -57,7 +57,8 @@ proprietary and commercial license terms.
 
 This includes, without limitation, the right to:
 
-- License Your Contribution under GNU AGPLv3 (the current Project license);
+- License Your Contribution under PolyForm Shield 1.0.0 (the current Project
+  license);
 - Re-license the Project and Your Contribution under a different open-source,
   source-available, or proprietary license in the future, including for
   commercial purposes;

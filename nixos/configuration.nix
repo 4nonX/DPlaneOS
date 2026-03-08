@@ -1,5 +1,5 @@
 # ═══════════════════════════════════════════════════════════════
-#  D-PlaneOS v3.3.2 — NixOS Configuration
+#  D-PlaneOS v4.0.0 — NixOS Configuration
 # ═══════════════════════════════════════════════════════════════
 #
 #  The Immutable NAS: NixOS (system) + ZFS (data) + GitOps (containers)
@@ -40,7 +40,7 @@ in {
   #  SYSTEM BASICS
   # ═══════════════════════════════════════════════════════════
 
-  system.stateVersion = "24.11";
+  system.stateVersion = "25.11";
 
   nix.settings.experimental-features = [ "nix-command" "flakes" ];
 
@@ -236,7 +236,7 @@ in {
           '';
         };
 
-        "/" = { tryFiles = "$uri $uri/ /pages/index.html"; };
+        "/" = { tryFiles = "$uri $uri/ /index.html"; };
 
         "/api/" = {
           proxyPass = "http://127.0.0.1:9000";

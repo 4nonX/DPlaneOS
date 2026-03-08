@@ -5,18 +5,20 @@ Thank you for helping make D-PlaneOS better. This document explains how to contr
 ## Quick Start
 
 ```bash
-# Prerequisites: Go 1.22+, gcc (for SQLite CGO), make
+# Prerequisites: Go 1.22+, gcc (for SQLite CGO), Node.js 20+, make
 git clone https://github.com/4nonX/D-PlaneOS
-cd dplaneos
+cd D-PlaneOS
 
 # Build the daemon
 cd daemon && go build -o dplaned ./cmd/dplaned && cd ..
 
 # Run locally (will use /tmp/dplaneos-dev.db)
-sudo ./daemon/dplaned -db /tmp/dplaneos-dev.db -backup-path "" 
+sudo ./daemon/dplaned -db /tmp/dplaneos-dev.db -backup-path ""
 
-# Frontend: just open app/ in a browser pointed at the daemon
-# (serve with any static server: python3 -m http.server 8080)
+# Frontend dev server (hot reload, proxies API to daemon)
+cd app-react
+npm install
+npm run dev
 ```
 
 ## Project Structure
@@ -27,15 +29,23 @@ dplaneos/
 │   ├── cmd/dplaned/            # Entry point (main.go, schema.go, routes)
 │   └── internal/
 │       ├── handlers/           # HTTP handlers (one file per feature)
+│       ├── jobs/               # Async job store (in-memory, ephemeral)
 │       ├── audit/              # Audit logging
 │       ├── cmdutil/            # Safe command execution (timeout-aware)
 │       ├── netlinkx/           # Netlink syscalls (no CGO, no ip(8))
 │       └── security/           # CSRF, session validation, command whitelist
-├── app/                        # Frontend (vanilla HTML/JS/CSS, no build step)
-│   ├── pages/                  # One HTML file per page / feature area
-│   └── assets/
-│       ├── js/core.js          # Shared UI utilities (toast, confirm, csrfFetch)
-│       └── css/design-tokens.css
+├── app/                        # Built frontend (output of `npm run build`)
+│   ├── index.html              # SPA entry point
+│   ├── assets/                 # Vite-built JS/CSS bundles + bundled fonts
+│   └── modules/                # Installable module definitions
+├── app-react/                  # Frontend source (React 19 + TypeScript + Vite)
+│   ├── src/
+│   │   ├── routes/             # TanStack Router pages (one file per page)
+│   │   ├── components/         # Shared components (layout, ui/)
+│   │   ├── stores/             # Zustand stores (auth, websocket)
+│   │   ├── hooks/              # Shared hooks (useJob, useToast, etc.)
+│   │   └── lib/api.ts          # Typed API client (CSRF, session, 401 redirect)
+│   └── vite.config.ts
 ├── nixos/                      # NixOS module + setup scripts
 └── nginx-dplaneos.conf         # Reference nginx config
 ```
@@ -76,6 +86,7 @@ Open an issue tagged `enhancement`. Describe:
 - **New exec commands** require an entry in `internal/security/whitelist.go` — no exceptions
 - **Error handling** — always return a JSON error via `respondErrorSimple()`, never `http.Error()` on API routes
 - **Audit logging** — use `audit.LogAction()` for any state-changing operation
+- **Long-running operations** — use `jobs.Start()` and return the job ID immediately; never block the HTTP connection
 - **Tests** — add tests in `_test.go` files; table-driven tests preferred
 
 ```go
@@ -95,31 +106,62 @@ func (h *MyHandler) DoThing(w http.ResponseWriter, r *http.Request) {
     audit.LogAction("mything", user, "Did thing: "+req.Name, true, 0)
     respondJSON(w, http.StatusOK, map[string]interface{}{"success": true})
 }
+
+// Good: long-running operation returned as async job
+func (h *MyHandler) DoSlowThing(w http.ResponseWriter, r *http.Request) {
+    jobID := jobs.Start("slow_thing", func(j *jobs.Job) {
+        output, err := cmdutil.RunSlow("zfs", "send", "-R", snapshot)
+        if err != nil { j.Fail(err.Error()); return }
+        j.Done(map[string]interface{}{"output": string(output)})
+    })
+    respondJSON(w, http.StatusAccepted, map[string]interface{}{"job_id": jobID})
+}
 ```
 
-### Frontend (HTML/JS)
+### Frontend (TypeScript/React)
 
-- **No frameworks, no bundlers** — vanilla JS only, runs from static files
-- **Always use `csrfFetch()`** for API calls — never raw `fetch()` on mutating requests
-- **Always handle errors** — every API call needs a `.catch()` or `try/catch` with a user-facing `showToast()`
-- **Refresh UI after mutations** — after create/update/delete, reload the relevant list
-- **Use `ui.confirm()`** before destructive actions (delete, reset, disable)
-- **Escape user-supplied HTML** — use the `escHtml()` helper, never `innerHTML = userString`
-- **Design tokens** — use CSS variables from `design-tokens.css` — no hardcoded colours
+- **TanStack Query for all data fetching** — use `useQuery` / `useMutation`, not raw `fetch`
+- **Always use `api.get/post/put/delete`** from `src/lib/api.ts` — handles CSRF, session headers, and 401 redirect
+- **Long-running mutations** — use the `useJob` hook to poll `GET /api/jobs/{id}` after receiving a `job_id`
+- **Always handle errors** — every mutation needs an `onError` handler with a `toast.error()` call
+- **Use `toast` from `useToast`** for user feedback — never `alert()`
+- **Use `<Icon name="..." />` from `src/components/ui/Icon.tsx`** for all icons (Material Symbols Rounded)
+- **Design tokens** — use CSS variables; no hardcoded colours
 
-```js
-// Good: validated, CSRF-protected, error-handled, UI refreshed
-async function deleteItem(id, name) {
-    if (!await ui.confirm('Delete', `Delete "${name}"? This cannot be undone.`)) return;
-    try {
-        const r = await csrfFetch('/api/items/' + id, { method: 'DELETE' });
-        const d = await r.json();
-        if (d.success) { showToast('Deleted', 'success'); loadItems(); }
-        else showToast(d.error || 'Failed to delete', 'error');
-    } catch(e) {
-        showToast('Network error', 'error');
-    }
+```tsx
+// Good: typed, error-handled, with async job polling
+function DeleteShare({ id, name }: { id: number; name: string }) {
+    const { toast } = useToast();
+    const queryClient = useQueryClient();
+
+    const mutation = useMutation({
+        mutationFn: () => api.delete(`/api/shares/${id}`),
+        onSuccess: () => {
+            toast.success(`Deleted "${name}"`);
+            queryClient.invalidateQueries({ queryKey: ['shares'] });
+        },
+        onError: (e) => toast.error(e.message),
+    });
+
+    return (
+        <button onClick={() => mutation.mutate()} disabled={mutation.isPending}>
+            Delete
+        </button>
+    );
 }
+```
+
+## Building for Release
+
+```bash
+# Build frontend into app/
+cd app-react && npm run build && cd ..
+
+# Build daemon binary
+cd daemon
+go build -mod=vendor -tags "sqlite_fts5" \
+  -ldflags "-s -w -X main.Version=$(cat ../VERSION)" \
+  -o ../build/dplaned ./cmd/dplaned/
 ```
 
 ## Security Requirements for PRs
@@ -130,9 +172,10 @@ All PRs touching the backend must:
 - [ ] Not introduce new exec calls outside `cmdutil` + `whitelist.go`
 - [ ] Not weaken authentication or authorization checks
 - [ ] Include audit logging for state changes
+- [ ] Use `jobs.Start()` for any operation that may take more than a few seconds
 
 PRs that introduce security issues will be closed without merge regardless of other quality.
 
 ## License
 
-By contributing, you agree your contributions are licensed under the project's [GNU Affero General Public License v3.0 (AGPLv3)](https://www.gnu.org/licenses/agpl-3.0.html).
+By contributing, you agree your contributions are licensed under the project's [GNU Affero General Public License v3.0 (AGPLv3)](https://www.gnu.org/licenses/agpl-3.0.html). See `CLA-INDIVIDUAL.md` for details.

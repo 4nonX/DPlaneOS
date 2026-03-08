@@ -5,27 +5,30 @@
   #
   # PINNING STRATEGY (Task 4.3):
   #
-  # nixpkgs is pinned to nixos-24.11 (the LTS channel at time of writing).
+  # nixpkgs is pinned to nixos-25.11 (the current stable channel).
   # We do NOT track nixpkgs-unstable — appliance builds must be reproducible.
   #
   # Kernel pin: 6.6 LTS
   #   Linux 6.6 is an LTS kernel supported until December 2026.
-  #   It has proven ZFS compatibility with OpenZFS 2.2.
-  #   nixpkgs 24.11 ships linux_6_6 — no overlay needed.
+  #   nixpkgs 25.11 DEFAULT kernel is 6.12 (changed from 6.6 in 25.05).
+  #   We explicitly pin to 6.6 for proven ZFS compat — still available in
+  #   25.11 as pkgs.linuxPackages_6_6, just no longer the default.
   #   Set via: boot.kernelPackages = pkgs.linuxPackages_6_6
   #
-  # ZFS pin: OpenZFS 2.2
-  #   nixpkgs 24.11 ships OpenZFS 2.2.x as the default zfs package.
+  # ZFS pin: stable (LTS) branch
+  #   As of early 2026: OpenZFS current = 2.4.x, LTS = 2.3.x.
+  #   nixpkgs pkgs.zfs tracks the LTS branch; pkgs.zfs_unstable tracks current.
   #   Pinned via: boot.zfs.package = pkgs.zfs  (NOT pkgs.zfs_unstable)
+  #   Verify actual version: nix eval nixpkgs#zfs.version
   #
   # Both pins are validated by NixOS assertions — if the pinned version is
   # unavailable in the nixpkgs revision, nixos-rebuild fails at eval time.
   #
   inputs = {
     # ── NixOS base (LTS channel) ───────────────────────────────────────────
-    # Pin to 24.11. Update policy: bump only after 3-month soak period.
+    # Pin to 25.11. Update policy: bump only after 3-month soak period.
     # To update: nix flake update nixpkgs
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-24.11";
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.11";
 
     flake-utils.url = "github:numtide/flake-utils";
 
@@ -52,14 +55,15 @@
 
         # ── TASK 4.3: Version Pinning ──────────────────────────────────────
 
-        # Kernel: Linux 6.6 LTS
+        # Kernel: Linux 6.6 LTS (explicit pin — 25.11 default is 6.12)
         # pkgs.linuxPackages_6_6 selects the 6.6.x series from nixpkgs.
         # NixOS will not auto-upgrade across this pin.
         # Upgrade path: linuxPackages_6_6 → linuxPackages_6_12 after ZFS compat check.
         boot.kernelPackages = pkgs.linuxPackages_6_6;
 
-        # ZFS: OpenZFS 2.2
-        # pkgs.zfs = stable 2.2.x. pkgs.zfs_unstable tracks 2.3+ dev builds.
+        # ZFS: stable (LTS) branch via pkgs.zfs
+        # pkgs.zfs = LTS branch (2.3.x as of NixOS 25.11). pkgs.zfs_unstable = current (2.4.x).
+        # Verify: nix eval nixpkgs#zfs.version
         boot.zfs.package = pkgs.zfs;
 
         # ZFS ARC limit: 16 GiB. Prevents ARC from starving Docker containers.
@@ -80,8 +84,8 @@
           }
           {
             assertion = lib.versionAtLeast
-              config.boot.zfs.package.version "2.2";
-            message = "D-PlaneOS requires OpenZFS >= 2.2. "
+              config.boot.zfs.package.version "2.3";
+            message = "D-PlaneOS requires OpenZFS >= 2.3 (LTS branch). "
               + "Current: ${config.boot.zfs.package.version}. "
               + "Ensure boot.zfs.package = pkgs.zfs (not pkgs.zfs_unstable).";
           }
@@ -141,7 +145,10 @@
           # CGO_ENABLED=1 required for mattn/go-sqlite3 (C amalgamation)
           # musl-gcc provides the static C runtime; no glibc dependency.
           CGO_ENABLED  = "1";
-          vendorHash   = null;
+          # vendorHash: run `nix build .#dplaneos-daemon 2>&1 | grep "got:"` to
+          # find the correct hash after any go.sum change, then update this value.
+          # Use nixpkgs.lib.fakeHash during initial setup to trigger the hash error.
+          vendorHash   = nixpkgs.lib.fakeHash;
           subPackages  = [ "daemon/cmd/dplaned" ];
           nativeBuildInputs = with pkgsStatic; [ musl.dev gcc ];
           # -tags sqlite_fts5   : enables FTS5 full-text search in the
@@ -179,7 +186,7 @@
           version      = dplaneosVersion;
           src          = ../.;
           CGO_ENABLED  = "1";
-          vendorHash   = null;
+          vendorHash   = nixpkgs.lib.fakeHash;  # update after go.sum changes
           subPackages  = [ "daemon/cmd/dplaned" ];
           nativeBuildInputs = with pkgs; [ gcc ];
           tags    = [ "sqlite_fts5" ];
@@ -212,14 +219,17 @@
         system      = "x86_64-linux";
         specialArgs = { inherit self; };
         modules     = [
-          ./configuration-standalone.nix    # hardware + locale + networking
-          self.nixosModules.dplaneos         # daemon service, firewall, ZFS gate
-          disko.nixosModules.disko           # partition layout declarations
-          ./disko.nix                        # A/B + persist layout (Task 4.1)
+          ./configuration-standalone.nix
+          self.nixosModules.dplaneos
+          disko.nixosModules.disko
+          ./disko.nix
           impermanence.nixosModules.impermanence
-          ./impermanence.nix                 # ephemeral root (Task 4.4)
-          ./ota-module.nix                   # OTA timer + health check (Task 4.2)
-          applianceConfig                    # kernel/ZFS pins + assertions (Task 4.3)
+          ./impermanence.nix
+          ./ota-module.nix
+          applianceConfig
+          # Wire the daemon package into the module option
+          { services.dplaneos.daemonPackage =
+              self.packages.x86_64-linux.dplaneos-daemon; }
         ];
       };
 
@@ -236,6 +246,8 @@
           ./impermanence.nix
           ./ota-module.nix
           applianceConfig
+          { services.dplaneos.daemonPackage =
+              self.packages.aarch64-linux.dplaneos-daemon; }
         ];
       };
     };

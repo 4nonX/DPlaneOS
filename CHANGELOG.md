@@ -6,6 +6,128 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ---
 
+
+## v4.0.0 (2026-03-08) — **"React SPA"**
+
+Upgrade from: v3.3.3 — Drop-in upgrade via `sudo ./scripts/upgrade-with-rollback.sh`
+
+### ⚡ Architecture: Full React SPA Migration
+
+The entire frontend has been rewritten from scratch. 41 standalone vanilla HTML/JS pages replaced by a single-page application built on React 19 + TypeScript + Vite + TanStack Query. The daemon is unchanged — this is a pure frontend replacement.
+
+**Stack:**
+- React 19 + TypeScript (0 type errors at build)
+- TanStack Router (type-safe navigation — TS error on unregistered routes)
+- TanStack Query (data fetching, caching, background refresh)
+- Zustand (auth state, WebSocket hub)
+- Vite build (tree-shaken, code-split by route)
+
+**37 pages implemented across 10 phases:**
+
+| Phase | Pages |
+|-------|-------|
+| 0 — Scaffold | AppShell, Sidebar, TopBar, auth/session infrastructure |
+| 1 — Core Read-Only | Dashboard, Reporting, Hardware, Logs, Monitoring |
+| 2 — Storage | Pools, Shares, NFS, Snapshot Scheduler, Replication |
+| 3 — Docker | Docker (containers + compose tabs), Modules |
+| 4 — Files | Files, ACL, Removable Media |
+| 5 — Users & Security | Users (users/groups/roles tabs), Security, Directory (LDAP) |
+| 6 — Network & System | Network, Settings, Alerts, Firewall, Certificates, UPS, Power, IPMI, HA |
+| 7 — DevOps | Git Sync, GitOps, Cloud Sync |
+| 8 — Admin | Audit, Support, Updates |
+| 9 — Wizards | Setup Wizard |
+| 10 — WebSocket | Real-time push for Docker state, pool health, disk temps |
+
+### 🐛 Bug Fix: NFS Routes Not Registered (Daemon)
+
+`nfs_handler.go` existed but its routes were never registered in `main.go`. NFS CRUD (`/api/nfs/exports`, `/api/nfs/status`, `/api/nfs/reload`) were silently unreachable in all previous v3.x releases. Routes are now registered.
+
+### 🏗️ Infrastructure: Fully Offline Fonts
+
+All three fonts are bundled in `app/assets/fonts/` — zero external requests at runtime:
+
+| Font | Format | Purpose |
+|------|--------|---------|
+| `MaterialSymbolsRounded.woff2` | Variable | All icons |
+| `outfit.woff2` | Variable (100–900) | UI chrome |
+| `jetbrains-mono.woff2` | Variable (100–900) | Code / data display |
+
+### 🏗️ Infrastructure: NixOS Deployment (Corrected)
+
+NixOS configuration updated to reflect accurate current-state facts:
+- `system.stateVersion` and `nixpkgs.url` corrected to `25.11` (current stable)
+- Default kernel for NixOS 25.11 is `6.12`; our explicit pin to `6.6 LTS` is documented as intentional
+- OpenZFS LTS branch is `2.3.x` (not 2.2); ZFS assertion updated to `>= 2.3`
+- `lib.fakeHash` → `nixpkgs.lib.fakeHash` (was not in scope in `eachSystem` block — would have caused eval error)
+
+### ✅ Compatibility
+
+Drop-in replacement for v3.3.2. Daemon is unchanged. No schema changes, no migrations, no configuration changes required. The new frontend serves from the same `/opt/dplaneos/app` path.
+
+
+---
+
+## v3.3.3 (2026-03-07) — **"Async & Governance"**
+
+Upgrade from: v3.3.2, v3.3.1, v3.3.0, or any v3.x — Drop-in upgrade via `sudo ./scripts/upgrade-with-rollback.sh`
+
+### ⚖️ Governance: License Changed to AGPLv3
+
+- **License changed from PolyForm Shield 1.0.0 to GNU Affero General Public License v3.0 (AGPLv3):** D-PlaneOS is now licensed under an OSI-approved open-source license. The AGPLv3 permits free use, modification, and distribution. Modified versions run as a network service must make their source available to users of that service. SPDX identifier: `AGPL-3.0-only`.
+
+- **NixOS users — remove `allowUnfreePredicate`:** Under PolyForm Shield the Nix `meta.license` was set to `licenses.unfree`, requiring `allowUnfreePredicate` or `allowUnfree = true`. AGPLv3 is a free software license. Remove any `allowUnfreePredicate` blocks referencing `dplaneos-daemon` — they are now dead code. The flake's `meta.license` is updated to `licenses.agpl3Only`.
+
+- **Contributor License Agreement introduced:** `CLA-INDIVIDUAL.md` and `CLA-ENTITY.md` added to the repository root. The CLA grants the maintainer the right to re-license commercially in the future; contributors retain full ownership. Signing is handled via CLA Assistant bot on pull requests.
+
+### ⚡ Feature: Async Job Store (Daemon)
+
+- **New `daemon/internal/jobs/jobs.go` package:** In-process, in-memory job store for long-running operations. Each job has a UUID, status (`running` → `done` / `failed`), result payload, and error string. Concurrent-safe. State is ephemeral — does not survive daemon restarts, acceptable because all jobs are short-lived.
+
+- **New `GET /api/jobs/{id}` route (`jobs_handler.go`):** Poll for job status. Returns `{"status":"running"}` while in progress, `{"status":"done","result":{...}}` on success, or `{"status":"failed","error":"..."}` on failure.
+
+- **8 blocking endpoints converted to async (HTTP 202):**
+
+  | Endpoint | Typical duration |
+  |---|---|
+  | `POST /api/replication/send` | Seconds – hours |
+  | `POST /api/replication/send-incremental` | Seconds – hours |
+  | `POST /api/replication/receive` | Seconds – hours |
+  | `POST /api/backup/rsync` | Minutes – hours |
+  | `POST /api/docker/pull` | 30s – 10 min |
+  | `POST /api/docker/update` | 1 – 5 min |
+  | `POST /api/docker/compose/up` | 10s – 5 min |
+  | `POST /api/docker/compose/down` | 5 – 60s |
+
+  **Breaking change:** These endpoints now return `{"job_id":"<uuid>"}` immediately. API consumers that expect a result in the response body must update to the poll pattern.
+
+### ⚡ Feature: Frontend Async Polling — `ui.pollJob()`
+
+- **New `DPlaneUI.pollJob()` in `ui-components.js`:** Single consistent polling loop for all async operations. Shows loading overlay immediately, polls `GET /api/jobs/{id}` every 2 seconds, retries on transient network errors, enforces 30-minute hard timeout, hides overlay in all exit paths.
+
+- **`docker.html` — 4 operations updated:** `composeUp`, `composeDown`, `pullImage`, `updateContainer` now dispatch via `ui.pollJob()`.
+
+- **`replication.html` — 2 operations updated:** `runTask` and `startReplication` dispatch via `ui.pollJob()`. Replication start button now correctly restores its icon on job completion.
+
+### 🐛 Bug: Navigation Stub Redirects and Missing NFS Entry
+
+- **5 nav stub redirects replaced with direct links** in `nav-shared.js`: Interfaces → `network.html#interfaces`, DNS → `network.html#dns`, Routing → `network.html#routing`, System Settings → `settings.html`, File Upload → `files.html`. Stubs retained for existing bookmarks.
+
+- **`data-page` mismatch fixed:** File Upload nav entry had `data-page="files-enhanced"`, breaking the active-page highlight on `files.html`. Fixed to `data-page="files"`.
+
+- **NFS Exports added to nav:** `nfs.html` has been a complete, functional NFS management page since v3.x but had no navigation entry — unreachable without a direct URL. Now listed under Storage → NFS Exports (between Shares and Replication).
+
+### 🏗️ NixOS: `ota-module.nix` Options
+
+- **`options.services.dplaneos.ota` namespace added:** Two new tunable options: `ota.enable` (default: `true`) to disable the health-check timer independently of the daemon, and `ota.healthCheckDelay` (default: `"90s"`) to tune the post-boot wait. Module is gated on `lib.mkIf (cfg.enable && cfg.ota.enable)`.
+
+### ✅ Compatibility
+
+Drop-in replacement for v3.3.2 with one exception: the 8 async endpoints now return `{"job_id":"..."}` with HTTP 202 instead of blocking. All other API surface, schema, and configuration unchanged.
+
+**NixOS users only:** Remove any `allowUnfreePredicate` or `allowUnfree` blocks referencing `dplaneos-daemon`.
+
+---
+
 ## v3.3.2 (2026-03-01) — **"Runtime fixes"**
 
 Upgrade from: v3.3.1, v3.3.0, or any v3.x — Drop-in upgrade via `sudo ./scripts/upgrade-with-rollback.sh`

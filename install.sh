@@ -268,7 +268,7 @@ export DEBIAN_FRONTEND=noninteractive
 
 # Enable extra repos required for zfsutils-linux and python3-bcrypt
 # Ubuntu: universe   Debian: contrib
-case "${ID,,}" in
+case "${OS_ID,,}" in
     ubuntu|pop|linuxmint|raspbian)
         if ! apt-cache show zfsutils-linux &>/dev/null 2>&1; then
             apt-get install -y -qq software-properties-common &>/dev/null
@@ -278,6 +278,7 @@ case "${ID,,}" in
         ;;
     debian)
         if ! grep -qE "contrib" /etc/apt/sources.list /etc/apt/sources.list.d/*.list 2>/dev/null; then
+            # Enable contrib for zfsutils-linux on Debian
             sed -i 's/^\(deb .*\)main$/\1main contrib non-free/' /etc/apt/sources.list
             log "Debian contrib/non-free enabled"
         fi
@@ -286,11 +287,18 @@ esac
 
 apt-get update -qq 2>&1 | tail -1
 
-PACKAGES=(nginx sqlite3 smartmontools lsof udev zfsutils-linux
+PACKAGES=(nginx sqlite3 smartmontools lsof udev
           acl ufw hdparm git openssh-client openssl ca-certificates
           iproute2 procps coreutils
           python3-bcrypt apache2-utils
-          musl-tools)  # enables fully static binary (glibc-independent)
+          musl-tools            # enables fully static binary (glibc-independent)
+          samba                 # SMB/CIFS file shares
+          nfs-kernel-server     # NFS file shares
+          avahi-daemon          # mDNS — makes NAS visible as hostname.local
+          )
+
+# ZFS needs both the utils AND matching kernel headers (for DKMS module build)
+PACKAGES+=(zfsutils-linux "linux-headers-$(uname -r)")
 
 for pkg in "${PACKAGES[@]}"; do
     if dpkg -l "$pkg" 2>/dev/null | grep -q "^ii"; then
@@ -396,13 +404,20 @@ if [ -n "$BINARY_SRC" ]; then
 elif command -v go &>/dev/null; then
     info "Building from source (Go detected — ~2 min)..."
     cd "${INSTALL_DIR}/daemon"
-    go mod tidy -e 2>&1 | tail -3
+    # Use vendor dir if present (airgap/offline install — no network needed)
+    if [ -d "vendor" ]; then
+        BUILD_MOD="-mod=vendor"
+        info "Using vendored dependencies (offline/airgap mode)"
+    else
+        BUILD_MOD=""
+        go mod tidy -e 2>&1 | tail -3
+    fi
 
     # Attempt fully static build via musl (preferred: survives glibc updates)
     if command -v musl-gcc &>/dev/null; then
         info "musl-gcc found — building fully static binary (glibc-independent)..."
         CC=musl-gcc CGO_ENABLED=1 \
-            go build \
+            go build $BUILD_MOD \
             -tags "sqlite_fts5" \
             -ldflags="-s -w -X main.Version=${DPLANEOS_VERSION} -linkmode external -extldflags -static" \
             -o "${INSTALL_DIR}/daemon/dplaned" ./cmd/dplaned/ 2>&1 | tail -5
@@ -411,7 +426,7 @@ elif command -v go &>/dev/null; then
         else
             warn "musl build produced dynamic binary — falling back to glibc build"
             CGO_ENABLED=1 \
-                go build -tags "sqlite_fts5" \
+                go build $BUILD_MOD -tags "sqlite_fts5" \
                 -ldflags="-s -w -X main.Version=${DPLANEOS_VERSION}" \
                 -o "${INSTALL_DIR}/daemon/dplaned" ./cmd/dplaned/ 2>&1 | tail -5
         fi
@@ -419,7 +434,7 @@ elif command -v go &>/dev/null; then
         # Standard glibc build — requires glibc ≥ 2.34 (Ubuntu 22.04+)
         info "Building with glibc (install musl-tools for a glibc-independent binary)..."
         CGO_ENABLED=1 \
-            go build -tags "sqlite_fts5" \
+            go build $BUILD_MOD -tags "sqlite_fts5" \
             -ldflags="-s -w -X main.Version=${DPLANEOS_VERSION}" \
             -o "${INSTALL_DIR}/daemon/dplaned" ./cmd/dplaned/ 2>&1 | tail -5
     fi
@@ -628,7 +643,7 @@ server {
     add_header Referrer-Policy "strict-origin-when-cross-origin" always;
     add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ws: wss:; font-src 'self'; frame-ancestors 'self';" always;
     add_header Permissions-Policy "camera=(), microphone=(), geolocation=()" always;
-    location / { try_files \$uri \$uri/ /pages/index.html; }
+    location / { try_files \$uri \$uri/ /index.html; }
     location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)\$ {
         expires 1y; add_header Cache-Control "public, immutable"; }
     location /api/ {
@@ -657,6 +672,16 @@ rm -f /var/www/html/index.html /var/www/html/index.nginx-debian.html 2>/dev/null
 nginx -t 2>&1 || die "nginx config invalid — check /etc/nginx/sites-available/dplaneos"
 log "nginx configured (port ${OPT_PORT})"
 
+# ── Download web fonts (Outfit, JetBrains Mono, Material Symbols Rounded) ───
+# Fonts are served from /opt/dplaneos/app/assets/fonts/ so the SPA works
+# completely offline after install. If the download fails, UI falls back to
+# system-ui and monospace — fully functional, just different look.
+if bash "${INSTALL_DIR}/scripts/download-fonts.sh" "${INSTALL_DIR}/app/assets/fonts" 2>&1; then
+    log "Web fonts ready (offline mode)"
+else
+    warn "Font download failed — UI will use system fonts (no functionality impact)"
+fi
+
 INSTALL_PHASE=9
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -684,19 +709,38 @@ step "Phase 10/12: Docker (optional)"
 # ────────────────────────────────────────────────────────────────────────────
 
 if command -v docker &>/dev/null; then
-    DOCKER_FS=$(df -T /var/lib/docker 2>/dev/null | awk 'NR==2{print $2}' || echo "")
+    log "Docker already installed"
+else
+    info "Docker not found — installing via official script..."
+    if curl -fsSL https://get.docker.com -o /tmp/install-docker.sh 2>/dev/null; then
+        sh /tmp/install-docker.sh --quiet 2>&1 | tail -5 && log "Docker installed" \
+            || warn "Docker install script failed — containers unavailable (install manually later)"
+        rm -f /tmp/install-docker.sh
+    else
+        warn "Could not reach get.docker.com — Docker not installed (containers unavailable)"
+        warn "Install later: curl -fsSL https://get.docker.com | sh"
+    fi
+fi
+
+if command -v docker &>/dev/null; then
     mkdir -p /etc/docker
+    DOCKER_FS=$(df -T /var/lib/docker 2>/dev/null | awk 'NR==2{print $2}' || echo "overlay2")
     if [ "$DOCKER_FS" = "zfs" ]; then
-        cat > /etc/docker/daemon.json <<'DOCKERCFG'
+        cat > /etc/docker/daemon.json \
+            <<'DOCKERCFG'
 {"storage-driver":"zfs","log-driver":"json-file","log-opts":{"max-size":"10m","max-file":"3"}}
 DOCKERCFG
-        systemctl is-active docker &>/dev/null && systemctl restart docker || true
-        log "Docker: ZFS native driver configured"
+        log "Docker: ZFS native storage driver configured"
     else
-        log "Docker: keeping default driver ($DOCKER_FS)"
+        cat > /etc/docker/daemon.json \
+            <<'DOCKERCFG'
+{"log-driver":"json-file","log-opts":{"max-size":"10m","max-file":"3"}}
+DOCKERCFG
+        log "Docker: overlay2 driver (default)"
     fi
-else
-    log "Docker not installed — skipping"
+    systemctl enable docker &>/dev/null && systemctl start docker 2>/dev/null \
+        && log "Docker service enabled" \
+        || warn "Docker service did not start cleanly"
 fi
 
 INSTALL_PHASE=11

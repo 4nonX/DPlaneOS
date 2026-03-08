@@ -503,6 +503,15 @@ func main() {
 	r.HandleFunc("/api/shares/nfs/reload", handlers.ReloadNFSExports).Methods("POST")
 	r.HandleFunc("/api/shares/nfs/list", handlers.ListNFSExports).Methods("GET")
 
+	// NFS CRUD handler — NFSHandler manages /etc/exports via SQLite
+	nfsHandler := handlers.NewNFSHandler(db)
+	r.HandleFunc("/api/nfs/status", nfsHandler.GetNFSStatus).Methods("GET")
+	r.HandleFunc("/api/nfs/exports", nfsHandler.ListNFSExports).Methods("GET")
+	r.HandleFunc("/api/nfs/exports", nfsHandler.CreateNFSExport).Methods("POST")
+	r.HandleFunc("/api/nfs/exports/{id}/update", nfsHandler.UpdateNFSExport).Methods("POST")
+	r.HandleFunc("/api/nfs/exports/{id}", nfsHandler.DeleteNFSExport).Methods("DELETE")
+	r.HandleFunc("/api/nfs/reload", nfsHandler.ReloadNFSExportsHandler).Methods("POST")
+
 	// Shares CRUD handlers
 	shareCRUDHandler := handlers.NewShareCRUDHandler(db, *smbConfPath)
 	r.HandleFunc("/api/shares/list", shareCRUDHandler.HandleShares).Methods("GET")

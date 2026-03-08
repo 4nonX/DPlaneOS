@@ -1,444 +1,132 @@
-# D-PlaneOS - Dependencies
+# D-PlaneOS — Dependencies
 
-**Vollständige Abhängigkeitsliste**
-
----
-
-## ✅ Alle Abhängigkeiten sind enthalten
-
-Das Package enthält **ALLE** notwendigen PHP-Includes, CSS, JavaScript und Konfigurationsdateien.
+All internal dependencies are bundled in the release tarball. Only system-level tools need to be installed separately.
 
 ---
 
-## 📦 Interne Abhängigkeiten (IM PACKAGE)
+## Bundled (no installation required)
 
-### PHP Includes (22 Dateien)
+### Frontend — `app/`
 
-Alle in: `app/includes/`
+The React SPA is pre-built. No Node.js or npm required at runtime.
 
-**Core:**
-- ✅ `config.php` - System-Konfiguration
-- ✅ `auth.php` - Authentifizierung
-- ✅ `rbac.php` - Role-Based Access Control
-- ✅ `security.php` - Security-Funktionen & Logger-Klasse
-- ✅ `security-middleware.php` - Security Middleware
-- ✅ `functions.php` - Helper-Funktionen
+| Asset | Description |
+|-------|-------------|
+| `app/index.html` | SPA entry point |
+| `app/assets/index-*.js` | Application bundle (React 19, TanStack Router, TanStack Query, Zustand) |
+| `app/assets/react-vendor-*.js` | React runtime |
+| `app/assets/tanstack-*.js` | Router + Query split chunks |
+| `app/assets/zustand-*.js` | State management |
+| `app/assets/index-*.css` | Compiled styles |
+| `app/assets/fonts/outfit.woff2` | UI font (variable, 100–900) |
+| `app/assets/fonts/jetbrains-mono.woff2` | Monospace font (variable, 100–900) |
+| `app/assets/fonts/MaterialSymbolsRounded.woff2` | Icon font (5MB variable) |
+| `app/assets/fonts/fonts.css` | Font-face declarations |
 
-**Database:**
-- ✅ `db.php` - Database Abstraction
-- ✅ `db-factory.php` - Database Factory (SQLite/PostgreSQL)
+**Zero external requests at runtime** — all fonts and assets are local. No CDN dependencies.
 
-**Features:**
-- ✅ `permissions.php` - Permission Management
-- ✅ `encryption.php` - Encryption Library
-- ✅ `totp.php` - Two-Factor Authentication
-- ✅ `password_reset.php` - Password Reset Logic
-- ✅ `external-auth.php` - External Auth (LDAP, etc.)
+### Daemon Go vendor — `daemon/vendor/`
 
-**System:**
-- ✅ `daemon-client.php` - Go Daemon Communication
-- ✅ `router.php` - Request Router
-- ✅ `command.php` - Command Execution
-- ✅ `zfs_helper.php` - ZFS Helper Functions
-- ✅ `module_manager.php` - Module Management
-- ✅ `nut-monitor.php` - UPS Monitoring
+All Go dependencies are vendored. No internet access needed to build.
 
-**Navigation:**
-- ✅ `navigation.html` - Main Navigation
-- ✅ `nav-production.html` - Production Navigation
-
-### CSS Assets (7 Dateien)
-
-Alle in: `app/assets/css/`
-
-**Material Design 3:**
-- ✅ `m3-tokens.css` - Design Tokens
-- ✅ `m3-components.css` - Material Components
-- ✅ `m3-animations.css` - Animations
-- ✅ `m3-icons.css` - Icon Styles
-- ✅ `design-tokens.css` - Custom Design Tokens
-
-**UI:**
-- ✅ `ui-components.css` - UI Component Styles
-- ✅ `enhanced-ui.css` - Enhanced UI Styles
-
-### JavaScript Assets (10 Dateien)
-
-Alle in: `app/assets/js/`
-
-**Core:**
-- ✅ `core.js` - Core Functions
-- ✅ `ui-components.js` - UI Components
-- ✅ `enhanced-ui.js` - Enhanced UI Features
-
-**Features:**
-- ✅ `form-validator.js` - Form Validation
-- ✅ `connection-monitor.js` - Connection Monitoring
-- ✅ `keyboard-shortcuts.js` - Keyboard Shortcuts
-- ✅ `theme-engine.js` - Theme Management
-- ✅ `realtime-client.js` - Real-time Updates
-
-**Material Design:**
-- ✅ `m3-ripple.js` - Material Ripple Effect
-
-**Legacy:**
-- ✅ `ui-components-old.js` - Old UI Components (backward compat)
-
-### PWA Assets (2 Dateien)
-
-- ✅ `app/sw.js` - Service Worker
-- ✅ `app/manifest.json` - PWA Manifest
+| Package | Purpose |
+|---------|---------|
+| `github.com/gorilla/mux` | HTTP router |
+| `github.com/gorilla/websocket` | WebSocket (real-time monitor) |
+| `github.com/mattn/go-sqlite3` | SQLite driver (CGO) |
+| `github.com/google/uuid` | Job store UUIDs |
+| `github.com/go-ldap/ldap/v3` | LDAP/AD integration |
+| `github.com/Azure/go-ntlmssp` | NTLM auth (LDAP) |
+| `golang.org/x/crypto` | bcrypt password hashing |
 
 ---
 
-## 🌐 Externe Abhängigkeiten (CDN)
+## System Dependencies
 
-### Material Symbols Icons
+### Required
 
-**Verwendet in:** IPMI UI, Cloud Sync UI
+These must be present on the target system. `install.sh` installs them automatically on Debian/Ubuntu and RHEL-family systems.
 
-**CDN:**
-```html
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200">
-```
+| Dependency | Purpose | Debian/Ubuntu | RHEL/Rocky |
+|------------|---------|---------------|------------|
+| `nginx` | Reverse proxy / static file server | `apt install nginx` | `dnf install nginx` |
+| `zfsutils-linux` | ZFS pool and dataset management | `apt install zfsutils-linux` | `dnf install zfs` |
+| `gcc` / `build-essential` | CGO build of SQLite | `apt install build-essential` | `dnf install gcc` |
 
-**Fallback:** System funktioniert ohne Icons, aber weniger schön
+### Optional (feature-dependent)
 
-**Offline Alternative:**
-```bash
-# Icons lokal hosten (optional)
-wget https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200 -O material-symbols.css
-# In HTML ersetzen mit lokalem Pfad
-```
+| Dependency | Feature | Install |
+|------------|---------|---------|
+| `docker` + `docker compose` | Container management | `curl -fsSL https://get.docker.com \| sh` |
+| `ipmitool` | IPMI / BMC monitoring | `apt install ipmitool` |
+| `rclone` | Cloud sync | `curl https://rclone.org/install.sh \| bash` |
+| `samba` | SMB/CIFS shares | `apt install samba` |
+| `nfs-kernel-server` | NFS exports | `apt install nfs-kernel-server` |
+| `avahi-daemon` | mDNS / Bonjour discovery | `apt install avahi-daemon` |
+| `nut` | UPS monitoring | `apt install nut` |
 
----
+### Build-time only (not needed on the NAS)
 
-## 🐧 System-Abhängigkeiten (extern zu installieren)
+| Dependency | Purpose |
+|------------|---------|
+| Go 1.22+ | Rebuild the daemon from source |
+| Node.js 20+ + npm | Rebuild the frontend from source |
+| gcc / CGO | Required when building `go-sqlite3` |
 
-### Erforderlich (Basis-System)
-
-**Linux:**
-- Ubuntu 22.04+ / Debian 12+ (empfohlen)
-- RHEL 8+ / Rocky Linux 8+ / AlmaLinux 8+
-- Oder jede moderne Linux-Distribution
-
-**Web Server:**
-```bash
-# Apache (empfohlen)
-sudo apt install apache2 php libapache2-mod-php
-
-# ODER Nginx
-sudo apt install nginx php-fpm
-```
-
-**PHP:**
-```bash
-# PHP 8.0+ mit Extensions
-sudo apt install php8.1 php8.1-{cli,fpm,mbstring,xml,zip,pdo,sqlite3,pgsql,curl,json}
-
-# Prüfen
-php -v
-php -m | grep -E "pdo|mbstring|json|zip"
-```
-
-**Database:**
-```bash
-# SQLite (Standard, wird automatisch installiert mit PHP)
-sudo apt install sqlite3 php8.1-sqlite3
-
-# ODER PostgreSQL (optional)
-sudo apt install postgresql postgresql-contrib php8.1-pgsql
-```
-
-### Optional (Features)
-
-**ZFS Support:**
-```bash
-# Ubuntu/Debian
-sudo apt install zfsutils-linux
-
-# RHEL/Rocky/Alma
-sudo dnf install zfs
-sudo modprobe zfs
-```
-
-**Docker:**
-```bash
-# Official Docker Installation
-curl -fsSL https://get.docker.com -o get-docker.sh
-sudo sh get-docker.sh
-
-# Add web user to docker group
-sudo usermod -aG docker www-data
-```
-
-**IPMI Monitoring:**
-```bash
-# ipmitool für IPMI-Features
-sudo apt install ipmitool    # Debian/Ubuntu
-sudo yum install ipmitool    # RHEL/CentOS
-```
-
-**Cloud Sync:**
-```bash
-# rclone für Cloud-Sync-Features
-curl https://rclone.org/install.sh | sudo bash
-```
-
-**Go Compiler (Daemon):**
-```bash
-# Go 1.19+ für Daemon-Compilation
-wget https://go.dev/dl/go1.21.6.linux-amd64.tar.gz
-sudo tar -C /usr/local -xzf go1.21.6.linux-amd64.tar.gz
-export PATH=$PATH:/usr/local/go/bin
-```
+Pre-built binaries are included in the release tarball — you do not need Go or Node.js to install or run D-PlaneOS.
 
 ---
 
-## 📋 Installation Command-Übersicht
-
-### Debian/Ubuntu Minimal
-
-```bash
-# Basis-System
-sudo apt update
-sudo apt install -y apache2 php php-{cli,mbstring,xml,zip,pdo,sqlite3,curl,json}
-
-# ZFS (für Storage)
-sudo apt install -y zfsutils-linux
-
-# Docker (für Container)
-curl -fsSL https://get.docker.com -o get-docker.sh
-sudo sh get-docker.sh
-sudo usermod -aG docker www-data
-```
-
-### Debian/Ubuntu Komplett
-
-```bash
-# Alles installieren
-sudo apt update
-sudo apt install -y \
-    apache2 \
-    php php-{cli,fpm,mbstring,xml,zip,pdo,sqlite3,pgsql,curl,json} \
-    zfsutils-linux \
-    sqlite3 \
-    ipmitool
-
-# Docker
-curl -fsSL https://get.docker.com -o get-docker.sh
-sudo sh get-docker.sh
-sudo usermod -aG docker www-data
-
-# rclone
-curl https://rclone.org/install.sh | sudo bash
-
-# Go (optional, für Daemon-Compilation)
-wget https://go.dev/dl/go1.21.6.linux-amd64.tar.gz
-sudo tar -C /usr/local -xzf go1.21.6.linux-amd64.tar.gz
-```
-
-### RHEL/Rocky/Alma Minimal
-
-```bash
-# Basis-System
-sudo yum install -y httpd php php-{cli,mbstring,xml,pdo,mysqlnd,json}
-
-# ZFS
-sudo yum install -y zfs
-sudo modprobe zfs
-
-# Docker
-sudo yum install -y docker
-sudo systemctl enable --now docker
-sudo usermod -aG docker apache
-```
-
----
-
-## ✅ Dependencies Check Script
-
-**Erstelle:** `check-dependencies.sh`
+## Dependency Check
 
 ```bash
 #!/bin/bash
-# D-PlaneOS - Dependency Checker
+# Quick check of runtime dependencies
 
 echo "=== D-PlaneOS Dependency Check ==="
-echo ""
 
-# PHP
-echo -n "PHP: "
-if command -v php &> /dev/null; then
-    PHP_VERSION=$(php -v | head -1 | cut -d' ' -f2 | cut -d'.' -f1,2)
-    echo "✓ Found ($PHP_VERSION)"
-else
-    echo "✗ Not found - REQUIRED"
-fi
+check() {
+    local name=$1; local cmd=$2
+    printf "%-20s" "$name:"
+    if command -v $cmd &>/dev/null; then echo "✓"; else echo "✗ missing"; fi
+}
 
-# PHP Extensions
-echo "PHP Extensions:"
-for ext in pdo mbstring json zip sqlite3; do
-    echo -n "  $ext: "
-    if php -m | grep -q "^$ext$"; then
-        echo "✓"
-    else
-        echo "✗ Missing"
-    fi
-done
+check_service() {
+    local name=$1; local svc=$2
+    printf "%-20s" "$name:"
+    systemctl is-active --quiet $svc 2>/dev/null && echo "✓ running" || echo "⚠ not running"
+}
 
-# Web Server
-echo -n "Web Server: "
-if systemctl is-active --quiet apache2 || systemctl is-active --quiet httpd; then
-    echo "✓ Apache running"
-elif systemctl is-active --quiet nginx; then
-    echo "✓ Nginx running"
-else
-    echo "✗ No active web server"
-fi
-
-# ZFS
-echo -n "ZFS: "
-if command -v zpool &> /dev/null; then
-    echo "✓ Installed"
-else
-    echo "⚠ Not installed (optional)"
-fi
-
-# Docker
-echo -n "Docker: "
-if command -v docker &> /dev/null; then
-    echo "✓ Installed"
-else
-    echo "⚠ Not installed (optional)"
-fi
-
-# IPMI
-echo -n "ipmitool: "
-if command -v ipmitool &> /dev/null; then
-    echo "✓ Installed"
-else
-    echo "⚠ Not installed (optional)"
-fi
-
-# rclone
-echo -n "rclone: "
-if command -v rclone &> /dev/null; then
-    echo "✓ Installed"
-else
-    echo "⚠ Not installed (optional)"
-fi
+check "nginx"         nginx
+check "zpool (ZFS)"   zpool
+check "docker"        docker
+check "ipmitool"      ipmitool
+check "rclone"        rclone
+check "samba"         smbd
+check "nfs"           exportfs
 
 echo ""
-echo "=== Summary ==="
-echo "✓ = Installed/Working"
-echo "✗ = Missing/Required"
-echo "⚠ = Optional (feature-dependent)"
-```
-
-**Verwendung:**
-```bash
-chmod +x check-dependencies.sh
-./check-dependencies.sh
+check_service "dplaned"  dplaned
+check_service "nginx"    nginx
+check_service "docker"   docker
 ```
 
 ---
 
-## 🔍 Was ist NICHT im Package
+## Building from Source
 
-### Nicht enthalten (muss installiert werden):
-
-1. **Linux Kernel & OS** - Basis-System
-2. **PHP Interpreter** - sudo apt install php
-3. **Web Server** - Apache oder Nginx
-4. **ZFS Kernel Module** - sudo apt install zfsutils-linux
-5. **Docker Engine** - curl https://get.docker.com | sh
-6. **ipmitool** - sudo apt install ipmitool
-7. **rclone** - curl https://rclone.org/install.sh | bash
-8. **Go Compiler** - wget https://go.dev/dl/...
-
-### Warum nicht enthalten?
-
-- **Linux/PHP/Web Server:** System-Level, über Paketmanager
-- **ZFS/Docker:** Kernel-Module & System-Services
-- **ipmitool/rclone:** Optional, nutzer-spezifisch
-- **Go:** Nur für Daemon-Compilation nötig
-
----
-
-## 📊 Dependency-Matrix
-
-| Komponente | Abhängig von | Erforderlich | Im Package |
-|------------|-------------|--------------|------------|
-| **PHP Includes** | PHP | ✓ | ✓ |
-| **CSS/JS Assets** | Web Server | ✓ | ✓ |
-| **PWA** | Browser | ✓ | ✓ |
-| **Material Icons** | Google CDN | ✗ | ✗ (extern) |
-| **Storage Management** | ZFS | ✓ | ✗ (system) |
-| **Docker Management** | Docker | ✓ | ✗ (system) |
-| **IPMI Monitor** | ipmitool | ✗ | ✗ (optional) |
-| **Cloud Sync** | rclone | ✗ | ✗ (optional) |
-| **Go Daemon** | Go | ✗ | ✗ (optional) |
-
-**Legende:**
-- ✓ Im Package = Datei enthalten
-- ✗ Extern = Muss separat installiert werden
-- ✓ Erforderlich = Notwendig für Basis-Funktion
-- ✗ Optional = Nur für spezifische Features
-
----
-
-## 🎯 Zusammenfassung
-
-### ✅ Komplett im Package:
-
-- Alle PHP Includes (22 Dateien)
-- Alle CSS Assets (7 Dateien)
-- Alle JavaScript Assets (10 Dateien)
-- PWA Support (sw.js, manifest.json)
-- Alle UI Pages (22 HTML Dateien)
-- Alle APIs (18 PHP Dateien)
-- Installation Scripts
-- Dokumentation
-
-### 🌐 Externe Abhängigkeiten:
-
-**CDN (Internet-Verbindung):**
-- Material Symbols Icons (Google Fonts)
-
-**System-Packages:**
-- Linux OS
-- PHP 8.0+
-- Web Server (Apache/Nginx)
-- SQLite oder PostgreSQL
-
-**Optional (Features):**
-- ZFS (Storage Management)
-- Docker (Container Management)
-- ipmitool (IPMI Monitoring)
-- rclone (Cloud Sync)
-- Go (Daemon Compilation)
-
----
-
-## ✅ Installation-Reihenfolge
+Only needed if you want to modify the daemon or frontend.
 
 ```bash
-# 1. System-Dependencies installieren
-sudo apt install apache2 php php-{...} zfsutils-linux
+# Daemon (requires Go 1.22+ and gcc)
+cd daemon
+go build -mod=vendor -tags "sqlite_fts5" \
+  -ldflags "-s -w -X main.Version=$(cat ../VERSION)" \
+  -o ../build/dplaned ./cmd/dplaned/
 
-# 2. Optional: Docker, ipmitool, rclone
-sudo apt install docker.io ipmitool
-curl https://rclone.org/install.sh | bash
-
-# 3. D-PlaneOS installieren
-tar -xzf dplaneos.tar.gz
-cd dplaneos
-sudo ./install.sh
-
-# 4. Fertig!
+# Frontend (requires Node.js 20+ and npm)
+cd app-react
+npm install
+npm run build
+# Output goes to ../app/
 ```
-
----
-
-**Das Package ist komplett - alle internen Abhängigkeiten sind enthalten. Nur System-Level-Tools müssen separat installiert werden (wie bei jedem Webserver-Projekt).**

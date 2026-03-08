@@ -62,9 +62,9 @@
   boot.loader.efi.canTouchEfiVariables = true;
 
   # ─── Kernel ─────────────────────────────────────────────────────────────
-  # Kernel pinned to 6.6 LTS in flake.nix via applianceConfig.
-  # Raptor Lake is fully supported from 6.2+. 6.6 LTS is preferred over
-  # linuxPackages_latest because the LTS series has verified OpenZFS compat.
+  # Kernel explicitly pinned to 6.6 LTS in flake.nix via applianceConfig.
+  # NixOS 25.11 default is 6.12; we pin 6.6 for verified ZFS compatibility.
+  # Raptor Lake is fully supported from 6.2+.
   boot.initrd.availableKernelModules = [
     "nvme"     # Patriot P300 NVMe boot drive
     "ahci"     # SATA controller for WD/Seagate data drives
