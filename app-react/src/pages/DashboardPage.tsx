@@ -1,10 +1,10 @@
 /**
  * pages/DashboardPage.tsx — D-PlaneOS Dashboard
  *
- * Calls (matching daemon routes exactly):
+ * APIs:
  *   GET /api/system/metrics      → SystemMetrics
  *   GET /api/system/status       → version, uptime, ecc_warning
- *   GET /api/zfs/pools            → pools list
+ *   GET /api/zfs/pools           → pools list
  *   GET /api/docker/containers   → containers list
  *   GET /api/system/ups          → UPS status
  *   WS  /ws/monitor              → live state_update events
@@ -18,7 +18,6 @@ import { useWsStore } from '@/stores/ws'
 import { ErrorState } from '@/components/ui/ErrorState'
 import { Skeleton } from '@/components/ui/LoadingSpinner'
 import { Icon } from '@/components/ui/Icon'
-import type React from 'react'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -30,57 +29,21 @@ interface SystemMetrics {
   arc:     { used: number; limit: number; percent: number }
   iowait:  number
 }
-
 interface SystemStatus {
-  success:        boolean
-  version:        string
-  uptime_seconds: number
-  ecc_warning:    boolean
-  ecc_warning_msg:string
+  success: boolean; version: string; uptime_seconds: number
+  ecc_warning: boolean; ecc_warning_msg: string
 }
-
 interface ZFSPool {
-  name:   string
-  size:   string
-  alloc:  string
-  free:   string
-  health: string
+  name: string; size: string; alloc: string; free: string; health: string
 }
-
-interface PoolsResponse {
-  success: boolean
-  data:    ZFSPool[]
-}
-
-interface DockerContainer {
-  Id:    string
-  Names: string[]
-  Image: string
-  State: string
-  Status:string
-}
-
-interface ContainersResponse {
-  success:          boolean
-  containers:       DockerContainer[]
-  total_containers: number
-}
-
-interface UPSData {
-  status:          string
-  battery_charge:  string
-  battery_runtime: string
-}
-
-interface UPSResponse {
-  success: boolean
-  data?:   UPSData
-}
-
+interface PoolsResponse { success: boolean; data: ZFSPool[] }
+interface DockerContainer { Id: string; Names: string[]; Image: string; State: string; Status: string }
+interface ContainersResponse { success: boolean; containers: DockerContainer[]; total_containers: number }
+interface UPSData { status: string; battery_charge: string; battery_runtime: string }
+interface UPSResponse { success: boolean; data?: UPSData }
 interface WsStateUpdate {
   memory?: { percent: number; used: number; total: number }
-  iowait?: number
-  ups?:    UPSData
+  iowait?: number; ups?: UPSData
 }
 
 // ---------------------------------------------------------------------------
@@ -89,7 +52,7 @@ interface WsStateUpdate {
 
 function fmtBytes(b: number): string {
   if (b <= 0) return '0 B'
-  const u = ['B', 'KB', 'MB', 'GB', 'TB']
+  const u = ['B','KB','MB','GB','TB']
   const i = Math.min(Math.floor(Math.log(b) / Math.log(1024)), u.length - 1)
   return `${(b / Math.pow(1024, i)).toFixed(1)} ${u[i]}`
 }
@@ -101,52 +64,84 @@ function fmtUptime(s: number): string {
   return `${m}m`
 }
 
-// ---------------------------------------------------------------------------
-// StatCard
-// ---------------------------------------------------------------------------
-
-interface StatCardProps {
-  icon: string; label: string; value: string; sub?: string
-  percent?: number; loading?: boolean; onClick?: () => void
+function pctColor(pct: number) {
+  if (pct > 85) return 'var(--error)'
+  if (pct > 70) return 'var(--warning)'
+  return 'var(--primary)'
 }
 
-function StatCard({ icon, label, value, sub, percent, loading, onClick }: StatCardProps) {
-  const [hovered, setHovered] = useState(false)
+// ---------------------------------------------------------------------------
+// MetricCard — glowing accent number with mini progress bar
+// ---------------------------------------------------------------------------
+
+interface MetricCardProps {
+  icon: string; label: string; value: string; sub?: string
+  percent?: number; loading?: boolean; onClick?: () => void
+  accent?: string
+}
+
+function MetricCard({ icon, label, value, sub, percent, loading, onClick, accent }: MetricCardProps) {
+  const [hov, setHov] = useState(false)
+  const color = accent ?? (percent !== undefined ? pctColor(percent) : 'var(--primary)')
+
   return (
     <div
       onClick={onClick}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
+      onMouseEnter={() => setHov(true)}
+      onMouseLeave={() => setHov(false)}
       style={{
         background: 'var(--bg-card)',
-        border: `1px solid ${hovered && onClick ? 'rgba(138,156,255,0.4)' : 'var(--border)'}`,
+        border: `1px solid ${hov && onClick ? 'rgba(138,156,255,0.25)' : 'var(--border)'}`,
         borderRadius: 'var(--radius-xl)',
-        padding: 24,
+        padding: '20px 22px',
         cursor: onClick ? 'pointer' : 'default',
-        transform: hovered && onClick ? 'translateY(-2px)' : 'none',
-        transition: 'border-color 0.2s, transform 0.2s',
+        transform: hov && onClick ? 'translateY(-2px)' : 'none',
+        transition: 'all var(--transition-base)',
+        position: 'relative', overflow: 'hidden',
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
-        <Icon name={icon} size={22} style={{ color: 'var(--primary)' }} />
-        <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', fontWeight: 500 }}>{label}</span>
+      {/* Subtle top-left glow */}
+      <div style={{
+        position: 'absolute', top: -20, left: -20,
+        width: 80, height: 80, borderRadius: '50%',
+        background: `radial-gradient(circle, ${color}18 0%, transparent 70%)`,
+        pointerEvents: 'none',
+      }} />
+
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+        <div style={{
+          width: 34, height: 34, borderRadius: 10,
+          background: `${color}18`,
+          border: `1px solid ${color}30`,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>
+          <Icon name={icon} size={18} style={{ color }} />
+        </div>
+        {onClick && <Icon name="open_in_new" size={14} style={{ color: 'var(--text-tertiary)', opacity: hov ? 1 : 0, transition: 'opacity 0.15s' }} />}
       </div>
+
       {loading ? (
         <>
-          <Skeleton height={30} width="55%" style={{ marginBottom: 6 }} />
-          <Skeleton height={12} width="40%" />
+          <Skeleton height={28} width="60%" style={{ marginBottom: 6 }} />
+          <Skeleton height={11} width="45%" />
         </>
       ) : (
         <>
-          <div style={{ fontSize: 26, fontWeight: 700, marginBottom: 4, fontFamily: 'var(--font-mono)' }}>{value}</div>
-          {sub && <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }}>{sub}</div>}
+          <div style={{
+            fontFamily: 'var(--font-mono)', fontSize: 26, fontWeight: 800,
+            color, lineHeight: 1, marginBottom: 4,
+            textShadow: `0 0 20px ${color}40`,
+          }}>
+            {value}
+          </div>
+          <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', marginBottom: 4 }}>{label}</div>
+          {sub && <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>{sub}</div>}
           {percent !== undefined && (
-            <div style={{ height: 4, background: 'rgba(255,255,255,0.08)', borderRadius: 2, marginTop: 10, overflow: 'hidden' }}>
+            <div style={{ height: 3, background: 'rgba(255,255,255,0.07)', borderRadius: 999, marginTop: 12, overflow: 'hidden' }}>
               <div style={{
-                height: '100%',
-                width: `${Math.min(percent, 100)}%`,
-                background: percent > 85 ? 'var(--error)' : percent > 70 ? 'var(--warning)' : 'var(--primary)',
-                borderRadius: 2, transition: 'width 0.5s ease',
+                height: '100%', width: `${Math.min(percent, 100)}%`, borderRadius: 999,
+                background: color, transition: 'width 0.6s ease',
+                boxShadow: percent > 70 ? `0 0 6px ${color}` : 'none',
               }} />
             </div>
           )}
@@ -167,28 +162,26 @@ function SectionCard({ title, icon, children, onAction, actionLabel }: {
   return (
     <div style={{
       background: 'var(--bg-card)', border: '1px solid var(--border)',
-      borderRadius: 'var(--radius-xl)', padding: 24,
-      display: 'flex', flexDirection: 'column', gap: 14,
+      borderRadius: 'var(--radius-xl)', overflow: 'hidden',
     }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+      <div style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        padding: '16px 20px', borderBottom: '1px solid var(--border-subtle)',
+      }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <Icon name={icon} size={18} style={{ color: 'var(--primary)' }} />
+          <Icon name={icon} size={17} style={{ color: 'var(--primary)' }} />
           <span style={{ fontWeight: 700, fontSize: 'var(--text-md)' }}>{title}</span>
         </div>
         {onAction && (
-          <button onClick={onAction} style={{
-            background: 'var(--surface)', border: '1px solid var(--border)',
-            borderRadius: 'var(--radius-sm)', padding: '4px 10px',
-            fontSize: 'var(--text-xs)', color: 'var(--text-secondary)',
-            cursor: 'pointer', fontFamily: 'var(--font-ui)',
-            display: 'flex', alignItems: 'center', gap: 4,
-          }}>
+          <button onClick={onAction} className="btn btn-ghost btn-xs" style={{ gap: 4 }}>
             <Icon name="open_in_new" size={12} />
             {actionLabel ?? 'View all'}
           </button>
         )}
       </div>
-      {children}
+      <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 4 }}>
+        {children}
+      </div>
     </div>
   )
 }
@@ -201,25 +194,41 @@ function PoolRow({ pool, onClick }: { pool: ZFSPool; onClick: () => void }) {
   const [hov, setHov] = useState(false)
   const isOnline = pool.health === 'ONLINE'
   const isDeg    = pool.health === 'DEGRADED'
+  const badgeCls = isOnline ? 'badge-success' : isDeg ? 'badge-warning' : 'badge-error'
+
+  // Parse alloc/size to get percent — daemon returns human strings like "1.23T"
+  // Best effort: just show health badge
   return (
-    <div onClick={onClick} onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)}
+    <div
+      onClick={onClick}
+      onMouseEnter={() => setHov(true)}
+      onMouseLeave={() => setHov(false)}
       style={{
-        display: 'flex', alignItems: 'center', gap: 14,
-        padding: '12px 14px', background: hov ? 'var(--surface)' : 'rgba(255,255,255,0.02)',
-        border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)',
-        cursor: 'pointer', transition: 'background 0.15s',
-      }}>
-      <Icon name="storage" size={26} style={{ color: 'var(--primary)', flexShrink: 0 }} />
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontWeight: 600, fontSize: 'var(--text-md)', marginBottom: 2 }}>{pool.name}</div>
-        <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }}>{pool.alloc} used / {pool.size}</div>
-      </div>
-      <span style={{
-        padding: '3px 8px', borderRadius: 'var(--radius-xs)', fontSize: 'var(--text-xs)', fontWeight: 600,
+        display: 'flex', alignItems: 'center', gap: 12,
+        padding: '10px 12px', borderRadius: 'var(--radius-md)',
+        background: hov ? 'var(--surface)' : 'transparent',
+        cursor: 'pointer', transition: 'background var(--transition-fast)',
+      }}
+    >
+      <div style={{
+        width: 36, height: 36, borderRadius: 10,
         background: isOnline ? 'var(--success-bg)' : isDeg ? 'var(--warning-bg)' : 'var(--error-bg)',
-        color:      isOnline ? 'var(--success)'    : isDeg ? 'var(--warning)'    : 'var(--error)',
         border: `1px solid ${isOnline ? 'var(--success-border)' : isDeg ? 'var(--warning-border)' : 'var(--error-border)'}`,
-      }}>{pool.health}</span>
+        display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+      }}>
+        <Icon name="storage" size={18}
+          style={{ color: isOnline ? 'var(--success)' : isDeg ? 'var(--warning)' : 'var(--error)' }} />
+      </div>
+
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontWeight: 600, fontSize: 'var(--text-sm)', marginBottom: 2 }}>{pool.name}</div>
+        <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)',
+          fontFamily: 'var(--font-mono)' }}>
+          {pool.alloc} used / {pool.size}
+        </div>
+      </div>
+
+      <span className={`badge ${badgeCls}`}>{pool.health}</span>
     </div>
   )
 }
@@ -231,24 +240,31 @@ function PoolRow({ pool, onClick }: { pool: ZFSPool; onClick: () => void }) {
 function ContainerRow({ c, onClick }: { c: DockerContainer; onClick: () => void }) {
   const [hov, setHov] = useState(false)
   const name = c.Names[0]?.replace(/^\//, '') ?? c.Id.slice(0, 12)
+  const running = c.State === 'running'
+
   return (
-    <div onClick={onClick} onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)}
+    <div
+      onClick={onClick}
+      onMouseEnter={() => setHov(true)}
+      onMouseLeave={() => setHov(false)}
       style={{
-        display: 'flex', alignItems: 'center', gap: 12,
+        display: 'flex', alignItems: 'center', gap: 10,
         padding: '8px 12px', borderRadius: 'var(--radius-sm)',
         background: hov ? 'var(--surface)' : 'transparent',
-        cursor: 'pointer', transition: 'background 0.15s',
-      }}>
-      <span style={{
-        width: 8, height: 8, borderRadius: '50%', flexShrink: 0,
-        background: c.State === 'running' ? 'var(--success)' : 'var(--error)',
-        boxShadow: c.State === 'running' ? '0 0 5px var(--success)' : undefined,
-      }} />
+        cursor: 'pointer', transition: 'background var(--transition-fast)',
+      }}
+    >
+      <span className={`status-dot ${running ? 'online' : 'offline'}`} />
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontWeight: 500, fontSize: 'var(--text-sm)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{name}</div>
-        <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.Image}</div>
+        <div style={{ fontWeight: 500, fontSize: 'var(--text-sm)',
+          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</div>
+        <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)',
+          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+          fontFamily: 'var(--font-mono)' }}>{c.Image}</div>
       </div>
-      <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', flexShrink: 0 }}>{c.Status}</span>
+      <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', flexShrink: 0 }}>
+        {c.Status}
+      </span>
     </div>
   )
 }
@@ -257,153 +273,138 @@ function ContainerRow({ c, onClick }: { c: DockerContainer; onClick: () => void 
 // Dashboard
 // ---------------------------------------------------------------------------
 
+import type React from 'react'
+
 export function DashboardPage() {
-  const navigate = useNavigate()
-  const wsOn = useWsStore((s) => s.on)
-  const [liveState, setLiveState] = useState<WsStateUpdate | null>(null)
+  const navigate  = useNavigate()
+  const wsOn      = useWsStore((s) => s.on)
+  const [live, setLive] = useState<WsStateUpdate | null>(null)
 
-  useEffect(() => {
-    return wsOn('stateUpdate', (data) => setLiveState(data as WsStateUpdate))
-  }, [wsOn])
+  useEffect(() => wsOn('stateUpdate', (d) => setLive(d as WsStateUpdate)), [wsOn])
 
-  const metricsQ = useQuery({
-    queryKey: ['system', 'metrics'],
-    queryFn: ({ signal }) => api.get<SystemMetrics>('/api/system/metrics', signal),
-    refetchInterval: 30_000,
-  })
-  const statusQ = useQuery({
-    queryKey: ['system', 'status'],
-    queryFn: ({ signal }) => api.get<SystemStatus>('/api/system/status', signal),
-    refetchInterval: 60_000,
-  })
-  const poolsQ = useQuery({
-    queryKey: ['zfs', 'pools'],
-    queryFn: ({ signal }) => api.get<PoolsResponse>('/api/zfs/pools', signal),
-    refetchInterval: 30_000,
-  })
-  const containersQ = useQuery({
-    queryKey: ['docker', 'containers'],
-    queryFn: ({ signal }) => api.get<ContainersResponse>('/api/docker/containers', signal),
-    refetchInterval: 30_000,
-  })
-  const upsQ = useQuery({
-    queryKey: ['system', 'ups'],
-    queryFn: ({ signal }) => api.get<UPSResponse>('/api/system/ups', signal),
-    refetchInterval: 60_000,
-  })
+  const metricsQ    = useQuery({ queryKey: ['system','metrics'],     queryFn: ({ signal }) => api.get<SystemMetrics>('/api/system/metrics', signal),     refetchInterval: 30_000 })
+  const statusQ     = useQuery({ queryKey: ['system','status'],      queryFn: ({ signal }) => api.get<SystemStatus>('/api/system/status', signal),       refetchInterval: 60_000 })
+  const poolsQ      = useQuery({ queryKey: ['zfs','pools'],          queryFn: ({ signal }) => api.get<PoolsResponse>('/api/zfs/pools', signal),           refetchInterval: 30_000 })
+  const containersQ = useQuery({ queryKey: ['docker','containers'],  queryFn: ({ signal }) => api.get<ContainersResponse>('/api/docker/containers', signal), refetchInterval: 30_000 })
+  const upsQ        = useQuery({ queryKey: ['system','ups'],         queryFn: ({ signal }) => api.get<UPSResponse>('/api/system/ups', signal),            refetchInterval: 60_000 })
 
-  // Prefer live WS data for latency-sensitive metrics
-  const memPct   = liveState?.memory?.percent   ?? metricsQ.data?.memory.percent   ?? 0
-  const memUsed  = liveState?.memory?.used       ?? metricsQ.data?.memory.used      ?? 0
-  const memTotal = liveState?.memory?.total      ?? metricsQ.data?.memory.total     ?? 0
-  const iowait   = liveState?.iowait             ?? metricsQ.data?.iowait           ?? 0
-  const pools    = poolsQ.data?.data             ?? []
+  const memPct   = live?.memory?.percent ?? metricsQ.data?.memory.percent   ?? 0
+  const memUsed  = live?.memory?.used    ?? metricsQ.data?.memory.used      ?? 0
+  const memTotal = live?.memory?.total   ?? metricsQ.data?.memory.total     ?? 0
+  const iowait   = live?.iowait          ?? metricsQ.data?.iowait           ?? 0
+  const pools    = poolsQ.data?.data     ?? []
   const containers = containersQ.data?.containers ?? []
   const running  = containers.filter((c) => c.State === 'running')
-  const ups      = liveState?.ups ?? upsQ.data?.data
+  const ups      = live?.ups ?? upsQ.data?.data
   const upsAlert = ups && ups.status !== 'OL' && ups.status !== 'ONLINE'
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 24, maxWidth: 1400 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 20, maxWidth: 1400 }}>
 
       {/* ECC warning */}
       {statusQ.data?.ecc_warning && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 18px',
-          background: 'var(--warning-bg)', border: '1px solid var(--warning-border)',
-          borderRadius: 'var(--radius-md)', fontSize: 'var(--text-sm)', color: 'var(--warning)' }}>
-          <Icon name="warning" size={18} />
+        <div className="alert alert-warning">
+          <Icon name="warning" size={16} />
           {statusQ.data.ecc_warning_msg || 'Non-ECC RAM detected — ZFS data integrity risk.'}
         </div>
       )}
 
       {/* UPS alert */}
       {upsAlert && ups && (
-        <div onClick={() => navigate({ to: '/ups' })} style={{
-          display: 'flex', alignItems: 'center', gap: 10, padding: '12px 18px', cursor: 'pointer',
-          background: parseInt(ups.battery_charge) < 20 ? 'var(--error-bg)' : 'var(--warning-bg)',
-          border: `1px solid ${parseInt(ups.battery_charge) < 20 ? 'var(--error-border)' : 'var(--warning-border)'}`,
-          borderRadius: 'var(--radius-md)', fontSize: 'var(--text-sm)',
-          color: parseInt(ups.battery_charge) < 20 ? 'var(--error)' : 'var(--warning)',
-        }}>
-          <Icon name="battery_alert" size={18} />
+        <div
+          className={`alert ${parseInt(ups.battery_charge) < 20 ? 'alert-error' : 'alert-warning'}`}
+          onClick={() => navigate({ to: '/ups' })}
+          style={{ cursor: 'pointer' }}
+        >
+          <Icon name="battery_alert" size={16} />
           <span>UPS on battery — {ups.battery_charge}% charge · runtime {ups.battery_runtime}</span>
           <span style={{ marginLeft: 'auto', fontSize: 'var(--text-xs)', opacity: 0.7 }}>View UPS →</span>
         </div>
       )}
 
-      {/* Stats */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 18 }}>
-        <StatCard icon="developer_board" label="Memory"
+      {/* Metric cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 14 }}>
+        <MetricCard
+          icon="memory" label="Memory"
           value={metricsQ.isLoading ? '…' : `${Math.round(memPct)}%`}
-          sub={metricsQ.isLoading ? undefined : `${fmtBytes(memUsed)} / ${fmtBytes(memTotal)}`}
+          sub={!metricsQ.isLoading ? `${fmtBytes(memUsed)} / ${fmtBytes(memTotal)}` : undefined}
           percent={memPct} loading={metricsQ.isLoading}
           onClick={() => navigate({ to: '/reporting' })} />
 
-        <StatCard icon="dns" label="ZFS ARC"
+        <MetricCard
+          icon="dns" label="ZFS ARC"
           value={metricsQ.isLoading ? '…' : `${Math.round(metricsQ.data?.arc.percent ?? 0)}%`}
-          sub={metricsQ.isLoading ? undefined : `${fmtBytes(metricsQ.data?.arc.used ?? 0)} / ${fmtBytes(metricsQ.data?.arc.limit ?? 0)}`}
+          sub={!metricsQ.isLoading ? `${fmtBytes(metricsQ.data?.arc.used ?? 0)} / ${fmtBytes(metricsQ.data?.arc.limit ?? 0)}` : undefined}
           percent={metricsQ.data?.arc.percent} loading={metricsQ.isLoading}
-          onClick={() => navigate({ to: '/pools' })} />
+          accent="var(--info)"
+          onClick={() => navigate({ to: '/reporting' })} />
 
-        <StatCard icon="storage" label="Storage Pools"
+        <MetricCard
+          icon="speed" label="I/O Wait"
+          value={metricsQ.isLoading ? '…' : `${iowait}%`}
+          percent={iowait} loading={metricsQ.isLoading}
+          accent={iowait > 20 ? 'var(--warning)' : 'var(--success)'}
+          onClick={() => navigate({ to: '/reporting' })} />
+
+        <MetricCard
+          icon="storage" label="Pools"
           value={poolsQ.isLoading ? '…' : String(pools.length)}
           sub={!poolsQ.isLoading ? `${pools.filter(p => p.health === 'ONLINE').length} online` : undefined}
           loading={poolsQ.isLoading}
+          accent={pools.some(p => p.health !== 'ONLINE') ? 'var(--warning)' : 'var(--success)'}
           onClick={() => navigate({ to: '/pools' })} />
 
-        <StatCard icon="deployed_code" label="Containers"
+        <MetricCard
+          icon="deployed_code" label="Containers"
           value={containersQ.isLoading ? '…' : String(running.length)}
           sub={!containersQ.isLoading ? `${containers.length} total` : undefined}
           loading={containersQ.isLoading}
           onClick={() => navigate({ to: '/docker' })} />
 
-        <StatCard icon="speed" label="I/O Wait"
-          value={metricsQ.isLoading ? '…' : `${iowait}%`}
-          percent={iowait} loading={metricsQ.isLoading}
-          onClick={() => navigate({ to: '/reporting' })} />
-
         {statusQ.isLoading
-          ? <StatCard icon="timer" label="Uptime" value="…" loading />
+          ? <MetricCard icon="timer" label="Uptime" value="…" loading />
           : statusQ.data
-            ? <StatCard icon="timer" label="Uptime"
+            ? <MetricCard icon="timer" label="Uptime"
                 value={fmtUptime(statusQ.data.uptime_seconds)}
-                sub={`D-PlaneOS ${statusQ.data.version}`} />
+                sub={`v${statusQ.data.version}`}
+                accent="var(--text-secondary)" />
             : null}
       </div>
 
-      {/* Metrics errors */}
+      {/* Errors */}
       {metricsQ.isError && (
         <ErrorState error={metricsQ.error} title="Failed to load system metrics" onRetry={() => metricsQ.refetch()} />
       )}
 
       {/* Pools + Containers */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: 20 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: 16 }}>
         <SectionCard title="Storage Pools" icon="database" onAction={() => navigate({ to: '/pools' })}>
-          {poolsQ.isLoading && <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {[1,2].map(k => <Skeleton key={k} height={56} borderRadius="var(--radius-md)" />)}</div>}
+          {poolsQ.isLoading && [1,2].map(k => <Skeleton key={k} height={56} borderRadius="var(--radius-md)" />)}
           {poolsQ.isError && <ErrorState error={poolsQ.error} onRetry={() => poolsQ.refetch()} />}
           {!poolsQ.isLoading && !poolsQ.isError && pools.length === 0 && (
-            <div style={{ padding: '20px 0', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 'var(--text-sm)' }}>
-              No ZFS pools found
+            <div style={{ padding: '24px 0', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 'var(--text-sm)' }}>
+              No ZFS pools configured
             </div>
           )}
           {pools.map(p => <PoolRow key={p.name} pool={p} onClick={() => navigate({ to: '/pools' })} />)}
         </SectionCard>
 
         <SectionCard title="Running Containers" icon="deployed_code" onAction={() => navigate({ to: '/docker' })}>
-          {containersQ.isLoading && <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {[1,2,3].map(k => <Skeleton key={k} height={44} borderRadius="var(--radius-sm)" />)}</div>}
+          {containersQ.isLoading && [1,2,3].map(k => <Skeleton key={k} height={44} borderRadius="var(--radius-sm)" />)}
           {containersQ.isError && <ErrorState error={containersQ.error} onRetry={() => containersQ.refetch()} />}
           {!containersQ.isLoading && !containersQ.isError && running.length === 0 && (
-            <div style={{ padding: '20px 0', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 'var(--text-sm)' }}>
+            <div style={{ padding: '24px 0', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 'var(--text-sm)' }}>
               No running containers
             </div>
           )}
           {running.slice(0, 8).map(c => <ContainerRow key={c.Id} c={c} onClick={() => navigate({ to: '/docker' })} />)}
           {running.length > 8 && (
-            <div onClick={() => navigate({ to: '/docker' })}
-              style={{ fontSize: 'var(--text-xs)', color: 'var(--primary)', textAlign: 'center', cursor: 'pointer', paddingTop: 4 }}>
-              +{running.length - 8} more
+            <div
+              onClick={() => navigate({ to: '/docker' })}
+              style={{ fontSize: 'var(--text-xs)', color: 'var(--primary)', textAlign: 'center',
+                cursor: 'pointer', paddingTop: 6, paddingBottom: 4 }}
+            >
+              +{running.length - 8} more →
             </div>
           )}
         </SectionCard>
@@ -411,11 +412,11 @@ export function DashboardPage() {
 
       {/* inotify warning */}
       {metricsQ.data && metricsQ.data.inotify.percent > 70 && (
-        <div onClick={() => navigate({ to: '/monitoring' })} style={{
-          display: 'flex', alignItems: 'center', gap: 10, padding: '12px 18px',
-          background: 'var(--warning-bg)', border: '1px solid var(--warning-border)',
-          borderRadius: 'var(--radius-md)', fontSize: 'var(--text-sm)', color: 'var(--warning)', cursor: 'pointer',
-        }}>
+        <div
+          className="alert alert-warning"
+          onClick={() => navigate({ to: '/monitoring' })}
+          style={{ cursor: 'pointer' }}
+        >
           <Icon name="notifications_active" size={16} />
           inotify at {Math.round(metricsQ.data.inotify.percent)}% capacity
           ({metricsQ.data.inotify.used.toLocaleString()} / {metricsQ.data.inotify.limit.toLocaleString()} watches)

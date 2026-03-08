@@ -121,15 +121,15 @@ export const NAV: NavItem[] = [
  * Returns the NavLeaf for a given route path, plus its parent group id (if any).
  * Used by the sidebar to auto-expand the active group and highlight the active leaf.
  */
-export function findNavEntry(route: string): { leaf: NavLeaf; groupId: string | null } | null {
+export function findNavEntry(route: string): { leaf: NavLeaf; groupId: string | null; groupLabel: string | null } | null {
   for (const item of NAV) {
     if (item.kind === 'leaf' && item.route === route) {
-      return { leaf: item, groupId: null }
+      return { leaf: item, groupId: null, groupLabel: null }
     }
     if (item.kind === 'group') {
       for (const child of item.children) {
         if (child.route === route) {
-          return { leaf: child, groupId: item.id }
+          return { leaf: child, groupId: item.id, groupLabel: item.label }
         }
       }
     }

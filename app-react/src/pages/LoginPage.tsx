@@ -111,15 +111,12 @@ export function LoginPage() {
     setError(null)
     setLoading(true)
     try {
-      // TOTP verify uses the pending_token as session for this one call
+      // Daemon expects pending_token + code in JSON body
       const res = await fetch('/api/auth/totp/verify', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Session-ID': pendingToken,
-        },
+        headers: { 'Content-Type': 'application/json' },
         credentials: 'same-origin',
-        body: JSON.stringify({ code: totpCode }),
+        body: JSON.stringify({ pending_token: pendingToken, code: totpCode }),
       })
       const data = (await res.json()) as TotpVerifyResponse
       if (!data.success) {

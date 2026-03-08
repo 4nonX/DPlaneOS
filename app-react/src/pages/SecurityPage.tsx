@@ -1,17 +1,24 @@
 /**
- * pages/SecurityPage.tsx — Security (Phase 5)
+ * pages/SecurityPage.tsx
  *
- * Tabs: TOTP | API Tokens | Audit Log
+ * Tabs: Password | 2FA / TOTP | API Tokens | Audit Log
  *
- * Calls:
- *   GET    /api/auth/totp/setup           → { success, secret, otpauth_uri }
- *   POST   /api/auth/totp/setup           → { code } verify+enable
- *   DELETE /api/auth/totp/setup           → disable TOTP
- *   GET    /api/auth/tokens               → { success, tokens: ApiToken[] }
- *   POST   /api/auth/tokens  { name }     → { success, token: string (shown once) }
- *   DELETE /api/auth/tokens  { id }       → revoke token
- *   GET    /api/system/audit/stats        → { success, ... }
- *   GET    /api/system/audit/verify-chain → { success, valid: bool }
+ * POST /api/auth/change-password { current_password, new_password }
+ *   → daemon: verifies current via bcrypt, enforces strength rules,
+ *     bcrypt-hashes new password, writes to users.password_hash,
+ *     clears must_change_password=0. Session stays valid.
+ *
+ * Strength rules (daemon validatePasswordStrength):
+ *   min 8 chars, uppercase, lowercase, digit, special char.
+ *
+ * GET    /api/auth/totp/setup           → { success, secret, otpauth_uri }
+ * POST   /api/auth/totp/setup { code }  → verify+enable
+ * DELETE /api/auth/totp/setup           → disable
+ * GET    /api/auth/tokens               → { success, tokens: ApiToken[] }
+ * POST   /api/auth/tokens { name }      → { success, token: string (shown once) }
+ * DELETE /api/auth/tokens { id }        → revoke
+ * GET    /api/system/audit/stats        → { success, total_entries, last_entry }
+ * GET    /api/system/audit/verify-chain → { success, valid: bool }
  */
 
 import { useState } from 'react'
@@ -27,13 +34,13 @@ import { toast } from '@/hooks/useToast'
 // Types
 // ---------------------------------------------------------------------------
 
-interface TotpSetupResponse  { success: boolean; secret?: string; otpauth_uri?: string; enabled?: boolean }
-interface ApiToken           { id: number | string; name: string; created_at: string; last_used?: string; prefix?: string }
-interface TokensResponse     { success: boolean; tokens: ApiToken[] }
-interface AuditStats         { success: boolean; total_entries?: number; last_entry?: string; chain_valid?: boolean }
+interface TotpSetupResponse { success: boolean; secret?: string; otpauth_uri?: string; enabled?: boolean }
+interface ApiToken          { id: number | string; name: string; created_at: string; last_used?: string; prefix?: string }
+interface TokensResponse    { success: boolean; tokens: ApiToken[] }
+interface AuditStats        { success: boolean; total_entries?: number; last_entry?: string; chain_valid?: boolean }
 
 // ---------------------------------------------------------------------------
-// Styles
+// Shared styles
 // ---------------------------------------------------------------------------
 
 const btnGhost: React.CSSProperties = {
@@ -65,12 +72,222 @@ function fmtDate(s?: string) {
 }
 
 // ---------------------------------------------------------------------------
-// QR Code renderer (uses Google Charts — no external dep)
+// PasswordStrengthBar — mirrors daemon validatePasswordStrength rules exactly
+// ---------------------------------------------------------------------------
+
+interface StrengthResult {
+  score: number   // 0-4
+  label: string
+  color: string
+  missing: string[]
+}
+
+function checkStrength(pw: string): StrengthResult {
+  if (!pw) return { score: 0, label: '', color: 'var(--border)', missing: [] }
+  let hasUpper = false, hasLower = false, hasDigit = false, hasSpecial = false
+  for (const ch of pw) {
+    if (/[A-Z]/.test(ch)) hasUpper = true
+    else if (/[a-z]/.test(ch)) hasLower = true
+    else if (/[0-9]/.test(ch)) hasDigit = true
+    else hasSpecial = true
+  }
+  const missing: string[] = []
+  if (!hasUpper)   missing.push('uppercase')
+  if (!hasLower)   missing.push('lowercase')
+  if (!hasDigit)   missing.push('number')
+  if (!hasSpecial) missing.push('special char')
+  if (pw.length < 8) missing.push('8+ characters')
+
+  const score = 4 - missing.length + (pw.length >= 8 ? 0 : -1)
+  const clamped = Math.max(0, Math.min(4, score))
+  const labels = ['', 'Weak', 'Fair', 'Good', 'Strong']
+  const colors = ['var(--border)', 'var(--error)', 'var(--warning)', 'var(--info, #3b82f6)', 'var(--success)']
+  return { score: clamped, label: labels[clamped] ?? '', color: colors[clamped] ?? 'var(--border)', missing }
+}
+
+function PasswordStrengthBar({ password }: { password: string }) {
+  if (!password) return null
+  const { score, label, color, missing } = checkStrength(password)
+  return (
+    <div style={{ marginTop: 8 }}>
+      <div style={{ display: 'flex', gap: 4, marginBottom: 4 }}>
+        {[1,2,3,4].map(i => (
+          <div key={i} style={{
+            flex: 1, height: 3, borderRadius: 2,
+            background: i <= score ? color : 'var(--border)',
+            transition: 'background 0.2s',
+          }} />
+        ))}
+        <span style={{ fontSize: 'var(--text-xs)', color, fontWeight: 600, minWidth: 44, textAlign: 'right' }}>{label}</span>
+      </div>
+      {missing.length > 0 && (
+        <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }}>
+          Needs: {missing.join(', ')}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// PasswordTab — change own password via POST /api/auth/change-password
+// ---------------------------------------------------------------------------
+
+function PasswordTab() {
+  const [current, setCurrent]   = useState('')
+  const [next, setNext]         = useState('')
+  const [confirm, setConfirm]   = useState('')
+  const [showCurrent, setShowCurrent] = useState(false)
+  const [showNext, setShowNext]       = useState(false)
+
+  const strength = checkStrength(next)
+  const mismatch = confirm.length > 0 && next !== confirm
+
+  const change = useMutation({
+    mutationFn: () => api.post('/api/auth/change-password', {
+      current_password: current,
+      new_password: next,
+    }),
+    onSuccess: () => {
+      toast.success('Password changed successfully')
+      setCurrent(''); setNext(''); setConfirm('')
+    },
+    onError: (e: Error) => toast.error(e.message),
+  })
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    if (next !== confirm) { toast.error('Passwords do not match'); return }
+    if (strength.missing.length > 0) { toast.error('Password does not meet requirements'); return }
+    change.mutate()
+  }
+
+  return (
+    <div style={{ maxWidth: 440 }}>
+      <div style={{
+        background: 'var(--bg-card)', border: '1px solid var(--border)',
+        borderRadius: 'var(--radius-xl)', padding: 28,
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 24 }}>
+          <div style={{
+            width: 44, height: 44, background: 'var(--primary-bg)',
+            border: '1px solid rgba(138,156,255,0.2)', borderRadius: 'var(--radius-md)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}>
+            <Icon name="lock" size={22} style={{ color: 'var(--primary)' }} />
+          </div>
+          <div>
+            <div style={{ fontWeight: 700, fontSize: 'var(--text-lg)' }}>Change Password</div>
+            <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>
+              Update your account password
+            </div>
+          </div>
+        </div>
+
+        <form onSubmit={handleSubmit} noValidate>
+          {/* Current password */}
+          <div style={{ marginBottom: 16 }}>
+            <label style={{ display: 'block', fontSize: 'var(--text-xs)', fontWeight: 600,
+              color: 'var(--text-secondary)', marginBottom: 6 }}>
+              Current password
+            </label>
+            <div style={{ position: 'relative' }}>
+              <input
+                type={showCurrent ? 'text' : 'password'}
+                value={current}
+                onChange={e => setCurrent(e.target.value)}
+                autoComplete="current-password"
+                required
+                style={{ ...inputStyle, paddingRight: 40 }}
+              />
+              <button type="button" onClick={() => setShowCurrent(v => !v)}
+                style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)',
+                  background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-tertiary)',
+                  display: 'flex', alignItems: 'center', padding: 4 }}>
+                <Icon name={showCurrent ? 'visibility_off' : 'visibility'} size={16} />
+              </button>
+            </div>
+          </div>
+
+          {/* New password */}
+          <div style={{ marginBottom: 16 }}>
+            <label style={{ display: 'block', fontSize: 'var(--text-xs)', fontWeight: 600,
+              color: 'var(--text-secondary)', marginBottom: 6 }}>
+              New password
+            </label>
+            <div style={{ position: 'relative' }}>
+              <input
+                type={showNext ? 'text' : 'password'}
+                value={next}
+                onChange={e => setNext(e.target.value)}
+                autoComplete="new-password"
+                required
+                style={{ ...inputStyle, paddingRight: 40 }}
+              />
+              <button type="button" onClick={() => setShowNext(v => !v)}
+                style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)',
+                  background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-tertiary)',
+                  display: 'flex', alignItems: 'center', padding: 4 }}>
+                <Icon name={showNext ? 'visibility_off' : 'visibility'} size={16} />
+              </button>
+            </div>
+            <PasswordStrengthBar password={next} />
+          </div>
+
+          {/* Confirm */}
+          <div style={{ marginBottom: 24 }}>
+            <label style={{ display: 'block', fontSize: 'var(--text-xs)', fontWeight: 600,
+              color: 'var(--text-secondary)', marginBottom: 6 }}>
+              Confirm new password
+            </label>
+            <input
+              type="password"
+              value={confirm}
+              onChange={e => setConfirm(e.target.value)}
+              autoComplete="new-password"
+              required
+              style={{
+                ...inputStyle,
+                borderColor: mismatch ? 'var(--error-border)' : 'var(--border)',
+              }}
+            />
+            {mismatch && (
+              <div style={{ fontSize: 'var(--text-xs)', color: 'var(--error)', marginTop: 4 }}>
+                Passwords do not match
+              </div>
+            )}
+          </div>
+
+          <button
+            type="submit"
+            className="btn btn-primary"
+            disabled={change.isPending || !current || !next || !confirm || mismatch || strength.missing.length > 0}
+            style={{ width: '100%' }}
+          >
+            <Icon name="lock_reset" size={16} />
+            {change.isPending ? 'Changing…' : 'Change password'}
+          </button>
+        </form>
+
+        <div style={{ marginTop: 20, padding: '12px 16px', background: 'var(--surface)',
+          borderRadius: 'var(--radius-sm)', fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }}>
+          <Icon name="info" size={13} style={{ verticalAlign: 'middle', marginRight: 6 }} />
+          Your session remains active after changing your password.
+          Other sessions are not invalidated.
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// QR Code renderer
 // ---------------------------------------------------------------------------
 
 function QRImage({ uri }: { uri: string }) {
   const url = `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(uri)}`
-  return <img src={url} alt="TOTP QR Code" width={180} height={180} style={{ borderRadius: 8, border: '4px solid #fff', display: 'block' }} />
+  return <img src={url} alt="TOTP QR Code" width={180} height={180}
+    style={{ borderRadius: 8, border: '4px solid #fff', display: 'block' }} />
 }
 
 // ---------------------------------------------------------------------------
@@ -150,7 +367,8 @@ function TOTPTab() {
                 <div style={{ marginBottom: 16 }}>
                   <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', marginBottom: 6 }}>Enter 6-digit code from your app to verify</div>
                   <input value={code} onChange={e => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                    placeholder="000000" maxLength={6} style={{ ...inputStyle, fontFamily: 'var(--font-mono)', letterSpacing: '4px', fontSize: 'var(--text-xl)', textAlign: 'center' }}
+                    placeholder="000000" maxLength={6}
+                    style={{ ...inputStyle, fontFamily: 'var(--font-mono)', letterSpacing: '4px', fontSize: 'var(--text-xl)', textAlign: 'center' }}
                     autoFocus onKeyDown={e => e.key === 'Enter' && code.length === 6 && verify.mutate()} />
                 </div>
                 <div style={{ display: 'flex', gap: 8 }}>
@@ -198,7 +416,6 @@ function TokensTab() {
 
   return (
     <>
-      {/* New token display — shown once */}
       {newToken && (
         <div style={{ marginBottom: 20, padding: 20, background: 'var(--success-bg)', border: '1px solid var(--success-border)', borderRadius: 'var(--radius-lg)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
@@ -217,7 +434,6 @@ function TokensTab() {
         </div>
       )}
 
-      {/* Create form */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
         <input value={newName} onChange={e => setNewName(e.target.value)} placeholder="Token name (e.g. backup-script)"
           style={{ ...inputStyle, flex: 1 }} onKeyDown={e => e.key === 'Enter' && newName.trim() && create.mutate()} />
@@ -310,35 +526,45 @@ function AuditTab() {
 // SecurityPage
 // ---------------------------------------------------------------------------
 
-type Tab = 'totp' | 'tokens' | 'audit'
+type Tab = 'password' | 'totp' | 'tokens' | 'audit'
 
 export function SecurityPage() {
-  const [tab, setTab] = useState<Tab>('totp')
+  const [tab, setTab] = useState<Tab>('password')
 
   const TABS: { id: Tab; label: string; icon: string }[] = [
-    { id: 'totp',   label: '2FA / TOTP',  icon: 'phonelink_lock' },
-    { id: 'tokens', label: 'API Tokens',  icon: 'key' },
-    { id: 'audit',  label: 'Audit Log',   icon: 'policy' },
+    { id: 'password', label: 'Password',    icon: 'lock' },
+    { id: 'totp',     label: '2FA / TOTP',  icon: 'phonelink_lock' },
+    { id: 'tokens',   label: 'API Tokens',  icon: 'key' },
+    { id: 'audit',    label: 'Audit Log',   icon: 'policy' },
   ]
 
   return (
     <div style={{ maxWidth: 860 }}>
       <div style={{ marginBottom: 28 }}>
         <h1 style={{ fontSize: 'var(--text-3xl)', fontWeight: 700, letterSpacing: '-1px', marginBottom: 6 }}>Security</h1>
-        <p style={{ color: 'var(--text-secondary)', fontSize: 'var(--text-md)' }}>Two-factor authentication, API tokens and audit chain</p>
+        <p style={{ color: 'var(--text-secondary)', fontSize: 'var(--text-md)' }}>
+          Password, two-factor authentication, API tokens and audit chain
+        </p>
       </div>
 
       <div style={{ display: 'flex', gap: 4, marginBottom: 24, borderBottom: '1px solid var(--border)' }}>
         {TABS.map(t => (
-          <button key={t.id} onClick={() => setTab(t.id)} style={{ padding: '10px 20px', background: 'none', border: 'none', cursor: 'pointer', fontSize: 'var(--text-sm)', fontWeight: 600, color: tab === t.id ? 'var(--primary)' : 'var(--text-secondary)', borderBottom: tab === t.id ? '2px solid var(--primary)' : '2px solid transparent', marginBottom: -1, display: 'flex', alignItems: 'center', gap: 6 }}>
+          <button key={t.id} onClick={() => setTab(t.id)} style={{
+            padding: '10px 20px', background: 'none', border: 'none', cursor: 'pointer',
+            fontSize: 'var(--text-sm)', fontWeight: 600,
+            color: tab === t.id ? 'var(--primary)' : 'var(--text-secondary)',
+            borderBottom: tab === t.id ? '2px solid var(--primary)' : '2px solid transparent',
+            marginBottom: -1, display: 'flex', alignItems: 'center', gap: 6,
+          }}>
             <Icon name={t.icon} size={16} />{t.label}
           </button>
         ))}
       </div>
 
-      {tab === 'totp'   && <TOTPTab />}
-      {tab === 'tokens' && <TokensTab />}
-      {tab === 'audit'  && <AuditTab />}
+      {tab === 'password' && <PasswordTab />}
+      {tab === 'totp'     && <TOTPTab />}
+      {tab === 'tokens'   && <TokensTab />}
+      {tab === 'audit'    && <AuditTab />}
     </div>
   )
 }
