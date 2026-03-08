@@ -40,30 +40,8 @@ interface TokensResponse    { success: boolean; tokens: ApiToken[] }
 interface AuditStats        { success: boolean; total_entries?: number; last_entry?: string; chain_valid?: boolean }
 
 // ---------------------------------------------------------------------------
-// Shared styles
+// Helper functions
 // ---------------------------------------------------------------------------
-
-const btnGhost: React.CSSProperties = {
-  padding: '8px 14px', background: 'var(--surface)', color: 'var(--text-secondary)',
-  border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', cursor: 'pointer',
-  fontSize: 'var(--text-sm)', fontWeight: 500, display: 'inline-flex', alignItems: 'center', gap: 6,
-}
-const btnPrimary: React.CSSProperties = {
-  padding: '9px 20px', background: 'var(--primary)', color: '#000',
-  border: 'none', borderRadius: 'var(--radius-sm)', cursor: 'pointer',
-  fontSize: 'var(--text-sm)', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 6,
-}
-const btnDanger: React.CSSProperties = {
-  padding: '6px 12px', background: 'var(--error-bg)', border: '1px solid var(--error-border)',
-  borderRadius: 'var(--radius-sm)', cursor: 'pointer', color: 'var(--error)',
-  fontSize: 'var(--text-xs)', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 4,
-}
-const inputStyle: React.CSSProperties = {
-  background: 'var(--surface)', border: '1px solid var(--border)',
-  borderRadius: 'var(--radius-sm)', padding: '9px 13px',
-  color: 'var(--text)', fontSize: 'var(--text-sm)', width: '100%',
-  fontFamily: 'var(--font-ui)', outline: 'none', boxSizing: 'border-box',
-}
 
 function fmtDate(s?: string) {
   if (!s) return 'Never'
@@ -198,7 +176,7 @@ function PasswordTab() {
                 onChange={e => setCurrent(e.target.value)}
                 autoComplete="current-password"
                 required
-                style={{ ...inputStyle, paddingRight: 40 }}
+                className="input" style={{ paddingRight: 40 }}
               />
               <button type="button" onClick={() => setShowCurrent(v => !v)}
                 style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)',
@@ -222,7 +200,7 @@ function PasswordTab() {
                 onChange={e => setNext(e.target.value)}
                 autoComplete="new-password"
                 required
-                style={{ ...inputStyle, paddingRight: 40 }}
+                className="input" style={{ paddingRight: 40 }}
               />
               <button type="button" onClick={() => setShowNext(v => !v)}
                 style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)',
@@ -246,10 +224,7 @@ function PasswordTab() {
               onChange={e => setConfirm(e.target.value)}
               autoComplete="new-password"
               required
-              style={{
-                ...inputStyle,
-                borderColor: mismatch ? 'var(--error-border)' : 'var(--border)',
-              }}
+              className="input" style={{ borderColor: mismatch ? 'var(--error-border)' : 'var(--border)' }}
             />
             {mismatch && (
               <div style={{ fontSize: 'var(--text-xs)', color: 'var(--error)', marginTop: 4 }}>
@@ -339,8 +314,8 @@ function TOTPTab() {
               <span style={{ color: 'var(--text-secondary)' }}>TOTP status is per-session. Click Setup to generate a new secret and QR code.</span>
             </div>
             <div style={{ display: 'flex', gap: 8 }}>
-              <button onClick={() => setStep('setup')} style={btnPrimary}><Icon name="add_circle" size={15} />Setup TOTP</button>
-              <button onClick={() => disable.mutate()} disabled={disable.isPending} style={btnDanger}>
+              <button onClick={() => setStep('setup')} className="btn btn-primary"><Icon name="add_circle" size={15} />Setup TOTP</button>
+              <button onClick={() => disable.mutate()} disabled={disable.isPending} className="btn btn-danger">
                 <Icon name="delete" size={14} />{disable.isPending ? 'Disabling…' : 'Disable TOTP'}
               </button>
             </div>
@@ -368,12 +343,12 @@ function TOTPTab() {
                   <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', marginBottom: 6 }}>Enter 6-digit code from your app to verify</div>
                   <input value={code} onChange={e => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
                     placeholder="000000" maxLength={6}
-                    style={{ ...inputStyle, fontFamily: 'var(--font-mono)', letterSpacing: '4px', fontSize: 'var(--text-xl)', textAlign: 'center' }}
+                    className="input" style={{ fontFamily: 'var(--font-mono)', letterSpacing: '4px', fontSize: 'var(--text-xl)', textAlign: 'center' }}
                     autoFocus onKeyDown={e => e.key === 'Enter' && code.length === 6 && verify.mutate()} />
                 </div>
                 <div style={{ display: 'flex', gap: 8 }}>
-                  <button onClick={() => setStep('idle')} style={btnGhost}>Cancel</button>
-                  <button onClick={() => verify.mutate()} disabled={verify.isPending || code.length !== 6} style={btnPrimary}>
+                  <button onClick={() => setStep('idle')} className="btn btn-ghost">Cancel</button>
+                  <button onClick={() => verify.mutate()} disabled={verify.isPending || code.length !== 6} className="btn btn-primary">
                     <Icon name="verified" size={15} />{verify.isPending ? 'Verifying…' : 'Verify & Enable'}
                   </button>
                 </div>
@@ -426,9 +401,9 @@ function TokensTab() {
             <code style={{ flex: 1, fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)', background: 'var(--surface)', padding: '10px 14px', borderRadius: 'var(--radius-sm)', overflow: 'auto', wordBreak: 'break-all', color: 'var(--text)' }}>
               {newToken}
             </code>
-            <button onClick={() => { navigator.clipboard.writeText(newToken); toast.success('Copied') }} style={btnGhost}><Icon name="content_copy" size={14} /></button>
+            <button onClick={() => { navigator.clipboard.writeText(newToken); toast.success('Copied') }} className="btn btn-ghost"><Icon name="content_copy" size={14} /></button>
           </div>
-          <button onClick={() => setNewToken(null)} style={{ ...btnGhost, marginTop: 10, fontSize: 'var(--text-xs)' }}>
+          <button onClick={() => setNewToken(null)} className="btn btn-ghost" style={{ marginTop: 10, fontSize: 'var(--text-xs)' }}>
             <Icon name="close" size={14} />Dismiss
           </button>
         </div>
@@ -436,8 +411,8 @@ function TokensTab() {
 
       <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
         <input value={newName} onChange={e => setNewName(e.target.value)} placeholder="Token name (e.g. backup-script)"
-          style={{ ...inputStyle, flex: 1 }} onKeyDown={e => e.key === 'Enter' && newName.trim() && create.mutate()} />
-        <button onClick={() => create.mutate()} disabled={!newName.trim() || create.isPending} style={btnPrimary}>
+          className="input" style={{ flex: 1 }} onKeyDown={e => e.key === 'Enter' && newName.trim() && create.mutate()} />
+        <button onClick={() => create.mutate()} disabled={!newName.trim() || create.isPending} className="btn btn-primary">
           <Icon name="add" size={15} />{create.isPending ? 'Creating…' : 'Create Token'}
         </button>
       </div>
@@ -457,7 +432,7 @@ function TokensTab() {
                 {token.prefix && ` · ${token.prefix}…`}
               </div>
             </div>
-            <button onClick={() => { if (window.confirm(`Revoke token "${token.name}"?`)) revoke.mutate(token.id) }} style={btnDanger}>
+            <button onClick={() => { if (window.confirm(`Revoke token "${token.name}"?`)) revoke.mutate(token.id) }} className="btn btn-danger">
               <Icon name="delete" size={13} />Revoke
             </button>
           </div>
@@ -516,7 +491,7 @@ function AuditTab() {
       )}
 
       <div style={{ marginTop: 16 }}>
-        <button onClick={() => qc.invalidateQueries({ queryKey: ['audit'] })} style={btnGhost}><Icon name="refresh" size={14} />Refresh</button>
+        <button onClick={() => qc.invalidateQueries({ queryKey: ['audit'] })} className="btn btn-ghost"><Icon name="refresh" size={14} />Refresh</button>
       </div>
     </div>
   )
