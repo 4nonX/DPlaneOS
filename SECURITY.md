@@ -4,8 +4,9 @@
 
 | Version | Supported |
 |---------|-----------|
-| 3.x     | ✅ Yes — active development |
-| 2.x     | ⚠️ Critical fixes only |
+| 4.x     | ✅ Yes — active development |
+| 3.x     | ⚠️ Critical fixes only |
+| 2.x     | ❌ No — upgrade required |
 | < 2.0   | ❌ No — upgrade required |
 
 ## Reporting a Vulnerability
