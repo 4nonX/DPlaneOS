@@ -5,6 +5,7 @@ on:
     branches: ["main", "master"]
   pull_request:
     branches: ["main", "master"]
+  workflow_call:  # allow release.yml to invoke this as a gate
 
 # Purpose: Give confidence that install will work and the system will deliver
 # promised capabilities after install. This workflow does NOT fully meet that

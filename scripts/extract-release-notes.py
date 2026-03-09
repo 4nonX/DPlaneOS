@@ -3,18 +3,22 @@
 Extract release notes for a specific version from CHANGELOG.md.
 
 Usage: python3 extract-release-notes.py <version> <changelog>
-  version:   e.g. 3.3.1 or v3.3.1 (v prefix optional)
+  version:   e.g. 4.1.1 or v4.1.1 (v prefix optional)
   changelog: path to CHANGELOG.md
+
+Supports heading formats:
+  ## v4.1.1 (2026-03-09) — "Design System"
+  ## [4.1.1] — 2026-03-09 — "Design System"   (legacy, still matched)
 
 Exits 0 and prints notes to stdout.
 Exits 1 if version not found.
 
-Also appends standard installation instructions using the correct
-command: sudo bash install.sh  (NOT sudo make install — no Makefile exists)
+Appends standard installation/upgrade instructions.
 """
 
 import sys
 import re
+
 
 def main():
     if len(sys.argv) < 3:
@@ -25,17 +29,19 @@ def main():
     changelog_path = sys.argv[2]
 
     try:
-        with open(changelog_path, 'r') as f:
+        with open(changelog_path, 'r', encoding='utf-8') as f:
             content = f.read()
     except OSError as e:
         print(f"Cannot read {changelog_path}: {e}", file=sys.stderr)
         sys.exit(1)
 
-    # Match heading with or without v prefix: ## v3.3.1 or ## 3.3.1
-    # Escaped dots so 3.3.1 doesn't match 3x3x1
     escaped = re.escape(version)
+
+    # Match both formats:
+    #   ## v4.1.1 (2026-03-09) — "Design System"
+    #   ## [4.1.1] — 2026-03-09 — "Design System"
     heading_re = re.compile(
-        r'^##\s+v?' + escaped + r'\b[^\n]*\n',
+        r'^##\s+(?:v|\[)' + escaped + r'[\] ][^\n]*\n',
         re.MULTILINE
     )
 
@@ -44,17 +50,17 @@ def main():
         print(f"Version {version} not found in {changelog_path}", file=sys.stderr)
         sys.exit(1)
 
-    start = match.start()
-    # Find the next ## heading after this one
+    # Capture the heading line as the release title (strip the leading ## )
+    heading_line = match.group().strip()
+    title = re.sub(r'^##\s+', '', heading_line)
+
+    # Find content up to the next ## heading
     next_heading = re.search(r'^##\s+', content[match.end():], re.MULTILINE)
-    if next_heading:
-        end = match.end() + next_heading.start()
-    else:
-        end = len(content)
+    end = match.end() + next_heading.start() if next_heading else len(content)
 
-    notes = content[start:end].strip()
+    notes = content[match.start():end].strip()
 
-    # Append installation instructions with correct command
+    # Append installation instructions
     install_block = f"""
 
 ---
@@ -81,6 +87,7 @@ sudo bash install.sh --upgrade
 """
 
     print(notes + install_block)
+
 
 if __name__ == '__main__':
     main()

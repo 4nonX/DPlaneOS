@@ -98,11 +98,17 @@ jobs:
           rm -f "$SMOKE_DB" "${SMOKE_DB}.backup" "${SMOKE_DB}-wal" "${SMOKE_DB}-shm"
           echo "Smoke test passed — version $VERSION confirmed"
 
-      - name: Extract release notes
+      - name: Extract release notes and title
         run: |
           python3 scripts/extract-release-notes.py "$VERSION" CHANGELOG.md > /tmp/release-notes.md
           echo "Release notes extracted"
-          head -5 /tmp/release-notes.md
+          head -3 /tmp/release-notes.md
+          # Extract codename from heading: v4.1.1 (2026-03-09) — "Design System" → Design System
+          CODENAME=$(grep "^## v${VERSION}" CHANGELOG.md | sed 's/.*— "\(.*\)"/\1/' | head -1)
+          DATE=$(grep "^## v${VERSION}" CHANGELOG.md | grep -oP '\d{4}-\d{2}-\d{2}' | head -1)
+          RELEASE_TITLE="v${VERSION} (${DATE}) — \"${CODENAME}\""
+          echo "RELEASE_TITLE=$RELEASE_TITLE" >> $GITHUB_ENV
+          echo "Title: $RELEASE_TITLE"
 
       - name: Package release tarballs
         run: |
@@ -135,19 +141,21 @@ jobs:
 
       - name: Generate SHA256 checksum
         run: |
-          sha256sum "$TARBALL" > "${TARBALL}.sha256"
+          SHA256FILE="dplaneos-v${VERSION}-linux-amd64.tar.gz.sha256"
+          sha256sum "$TARBALL" > "$SHA256FILE"
+          echo "SHA256FILE=$SHA256FILE" >> $GITHUB_ENV
           echo "Checksum:"
-          cat "${TARBALL}.sha256"
+          cat "$SHA256FILE"
 
-      - name: Publish GitHub Release
+      - name: Publish GitHub Release (draft — edit notes then publish)
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
-          name: D-PlaneOS v${{ env.VERSION }}
+          name: ${{ env.RELEASE_TITLE }}
           body_path: /tmp/release-notes.md
           files: |
             ${{ env.TARBALL }}
-            ${{ env.TARBALL }}.sha256
+            ${{ env.SHA256FILE }}
           draft: true
           prerelease: false
         env:

@@ -6,7 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ---
 
-## [4.1.1] — 2026-03-09 — "Design System"
+## v4.1.1 (2026-03-09) — "Design System"
 
 ### Changed
 
@@ -54,7 +54,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ---
 
-## [4.1.0] — 2026-03-08 — "Terminal"
+## v4.1.0 (2026-03-08) — "Terminal"
 
 ### Feature: Embedded PTY Terminal
 
