@@ -28,6 +28,7 @@ import { JobProgress } from '@/components/ui/JobProgress'
 import { Modal } from '@/components/ui/Modal'
 import { toast } from '@/hooks/useToast'
 import { useWsStore } from '@/stores/ws'
+import type { IconMapEntry, IconMapResponse } from '@/lib/iconTypes'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -279,8 +280,7 @@ function ContainerRow({ container, onRefresh }: { container: Container; onRefres
 // ContainersTab
 // ---------------------------------------------------------------------------
 
-interface IconMapEntry { match: string; icon: string }
-interface IconMapResponse { success: boolean; map: IconMapEntry[] }
+// IconMapEntry and IconMapResponse are imported from @/lib/iconTypes
 
 function ContainersTab() {
   const qc   = useQueryClient()
@@ -415,7 +415,23 @@ function ContainerTable({ containers, onRefresh, topBorder = true }: { container
       <table className="data-table">
         <thead>
           <tr style={{ background: 'rgba(255,255,255,0.03)' }}>
-            {['Container', 'State', 'Ports', 'Resources', 'Uptime', 'Actions'].map(h => (
+            <th>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                Container
+                <span
+                  title={
+                    'Custom icon: add a dplaneos.icon label in docker-compose.yaml\n' +
+                    '  dplaneos.icon: jellyfin        → Material Symbol name\n' +
+                    '  dplaneos.icon: mylogo.svg       → file in /var/lib/dplaneos/custom_icons/\n' +
+                    '  dplaneos.icon: https://…/logo.png → remote URL'
+                  }
+                  style={{ cursor: 'help', color: 'var(--text-tertiary)', display: 'inline-flex' }}
+                >
+                  <Icon name="info" size={12} />
+                </span>
+              </span>
+            </th>
+            {['State', 'Ports', 'Resources', 'Uptime', 'Actions'].map(h => (
               <th key={h}>{h}</th>
             ))}
           </tr>

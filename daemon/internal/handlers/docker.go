@@ -165,15 +165,36 @@ func containerToMap(c dockerclient.Container) map[string]interface{} {
 }
 
 func groupContainersByStack(containers []dockerclient.Container) []map[string]interface{} {
-	grouped := map[string][]map[string]interface{}{}
+	type stackEntry struct {
+		containers []map[string]interface{}
+		originals  []dockerclient.Container
+	}
+	grouped := map[string]*stackEntry{}
 	for _, c := range containers {
-		stack := c.StackName()
-		grouped[stack] = append(grouped[stack], containerToMap(c))
+		name := c.StackName()
+		if grouped[name] == nil {
+			grouped[name] = &stackEntry{}
+		}
+		grouped[name].containers = append(grouped[name].containers, containerToMap(c))
+		grouped[name].originals = append(grouped[name].originals, c)
 	}
 	stacks := make([]map[string]interface{}, 0, len(grouped))
-	for name, cs := range grouped {
+	for name, entry := range grouped {
+		running := 0
+		totalPorts := 0
+		for _, c := range entry.originals {
+			if c.State == "running" {
+				running++
+			}
+			totalPorts += len(c.Ports)
+		}
 		stacks = append(stacks, map[string]interface{}{
-			"name": name, "containers": cs, "count": len(cs),
+			"name":               name,
+			"containers":         entry.containers,
+			"count":              len(entry.containers),
+			"total_containers":   len(entry.containers),
+			"running_containers": running,
+			"total_ports":        totalPorts,
 		})
 	}
 	return stacks

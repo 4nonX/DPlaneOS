@@ -366,6 +366,9 @@ func main() {
 	r.HandleFunc("/api/docker/containers", dockerHandler.ListContainers).Methods("GET")
 	r.HandleFunc("/api/docker/icon-map", handlers.HandleDockerIconMap).Methods("GET")
 	// Custom icon assets — served from /var/lib/dplaneos/custom_icons/
+	// ORDER MATTERS: the exact /list route must be registered before the PathPrefix
+	// catch-all, because gorilla/mux matches in registration order and PathPrefix
+	// would otherwise intercept /api/assets/custom-icons/list.
 	r.HandleFunc("/api/assets/custom-icons/list", handlers.HandleCustomIconList).Methods("GET")
 	r.PathPrefix("/api/assets/custom-icons/").HandlerFunc(handlers.HandleCustomIconFile).Methods("GET")
 	r.Handle("/api/docker/action", permRoute("docker", "write", dockerHandler.ContainerAction)).Methods("POST")

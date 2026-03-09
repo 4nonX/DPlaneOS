@@ -59,7 +59,10 @@ func HandleCustomIconFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Detect MIME type from extension
+	// Detect MIME type from extension.
+	// mime.TypeByExtension relies on the OS mime.types database which may be
+	// absent on minimal Linux installs (e.g. Alpine, minimal Debian).
+	// The explicit fallback switch covers every extension accepted by the frontend.
 	ext := strings.ToLower(filepath.Ext(name))
 	ct := mime.TypeByExtension(ext)
 	if ct == "" {
@@ -70,6 +73,10 @@ func HandleCustomIconFile(w http.ResponseWriter, r *http.Request) {
 			ct = "image/png"
 		case ".webp":
 			ct = "image/webp"
+		case ".jpg", ".jpeg":
+			ct = "image/jpeg"
+		case ".gif":
+			ct = "image/gif"
 		default:
 			ct = "application/octet-stream"
 		}

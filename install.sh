@@ -360,7 +360,15 @@ fi
 
 chown -R root:root "${INSTALL_DIR}"
 chown -R www-data:www-data "${INSTALL_DIR}/app" 2>/dev/null || true
+# /var/lib/dplaneos: root-owned, root-only access at directory level.
+# Subdirectories get their own explicit permissions below.
 chmod 700 /var/lib/dplaneos
+# custom_icons: root-owned, world-readable so nginx can also serve them
+# if configured as a static location. The daemon (running as root) always
+# has write access. To upload icons without root, copy files here via SSH
+# or use the daemon's /api/assets/custom-icons upload endpoint (if configured).
+chown root:root /var/lib/dplaneos/custom_icons
+chmod 755 /var/lib/dplaneos/custom_icons
 log "Files installed to $INSTALL_DIR"
 
 INSTALL_PHASE=5

@@ -22,22 +22,22 @@ import { ErrorState } from '@/components/ui/ErrorState'
 import { Skeleton } from '@/components/ui/LoadingSpinner'
 import { JobProgress } from '@/components/ui/JobProgress'
 import { toast } from '@/hooks/useToast'
-
-interface IconMapEntry { match: string; icon: string }
-interface IconMapResponse { success: boolean; map: IconMapEntry[] }
+import type { IconMapEntry, IconMapResponse } from '@/lib/iconTypes'
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
 interface ComposeStack {
-  name:      string
-  path:      string
-  running:   boolean
-  services:  number
-  status?:   string
-  git_url?:  string
+  name:       string
+  path:       string
+  running:    boolean
+  services:   number
+  status?:    string
+  git_url?:   string
   last_pull?: string
+  /** Stack-level labels forwarded from the daemon (e.g. dplaneos.icon). */
+  labels?:    Record<string, string>
 }
 interface ComposeStatusResponse { success: boolean; stacks: ComposeStack[] }
 
@@ -56,7 +56,11 @@ interface JobStartResponse { job_id: string }
 // StackCard
 // ---------------------------------------------------------------------------
 
-function StackCard({ stack, onRefresh, iconMap }: { stack: ComposeStack; onRefresh: () => void; iconMap?: IconMapEntry[] }) {
+function StackCard({ stack, onRefresh, iconMap }: {
+  stack: ComposeStack
+  onRefresh: () => void
+  iconMap?: IconMapEntry[]
+}) {
   const [jobId, setJobId] = useState<string | null>(null)
   const [jobLabel, setJobLabel] = useState('')
 
@@ -76,7 +80,7 @@ function StackCard({ stack, onRefresh, iconMap }: { stack: ComposeStack; onRefre
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 16, marginBottom: 16 }}>
         <div style={{ width: 44, height: 44, background: 'var(--primary-bg)', border: '1px solid rgba(138,156,255,0.2)', borderRadius: 'var(--radius-md)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-          <ContainerIcon image={stack.name} iconMap={iconMap} size={22} />
+          <ContainerIcon image={stack.name} labels={stack.labels} iconMap={iconMap} size={22} />
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontWeight: 700, fontSize: 'var(--text-lg)', marginBottom: 2 }}>{stack.name}</div>

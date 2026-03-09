@@ -6,6 +6,80 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ---
 
+## v4.3.1 (2026-03-09) — "Icon System Fixes"
+
+Upgrade from: v4.3.0 — Drop-in upgrade via `sudo bash install.sh --upgrade`
+
+### Fixed
+
+- **`Stack` interface fields never populated (`running_containers`, `total_containers`, `total_ports` always `undefined`):**
+  `groupContainersByStack` in `docker.go` emitted only `name`, `containers`, and `count`. The frontend
+  `ContainersTab` reads `stack.running_containers` and `stack.total_containers` to render the "N/M running"
+  badge in every stack header — these were always `undefined`, rendering as `undefined/undefined running`.
+  `groupContainersByStack` now iterates the original `dockerclient.Container` slice to compute all three
+  fields before serialising. (`daemon/internal/handlers/docker.go`)
+
+- **`dplaneos.icon` label silently ignored for all stack cards in ModulesPage:**
+  `StackCard` passed `image={stack.name}` to `ContainerIcon` but never passed the `labels` prop, so the
+  `dplaneos.icon` resolution path (priority 1) was permanently skipped for every module card even when the
+  label was set. `ComposeStack` type gains an optional `labels` field; `StackCard` now forwards it.
+  (`app-react/src/pages/ModulesPage.tsx`)
+
+- **`IconMapEntry` type duplicated in three files — structural divergence risk:**
+  `ContainerIcon.tsx`, `DockerPage.tsx`, and `ModulesPage.tsx` each declared their own `interface IconMapEntry`
+  and `interface IconMapResponse`. These are now centralised in `app-react/src/lib/iconTypes.ts` and imported
+  everywhere. (`app-react/src/lib/iconTypes.ts`, all three consumers)
+
+- **Dead-code redundancy in `resolveIcon` image matching:**
+  `ContainerIcon.tsx` called `nameLower(namePart).includes(entry.match) || nameLower(imageLower).includes(entry.match)`.
+  `namePart` is a substring of `imageLower`, so the first condition is always a strict subset of the second —
+  it could never be true when the second was false. The `nameLower()` wrapper was also a no-op (both inputs
+  were already lowercased). Both simplified to a single `imageLower.includes(entry.match)` check.
+  (`app-react/src/components/ui/ContainerIcon.tsx`)
+
+- **`.jpg`, `.jpeg`, `.gif` accepted by frontend but missing from daemon MIME fallback:**
+  `ContainerIcon.tsx`'s `IMAGE_EXTS` array includes `.jpg`, `.jpeg`, and `.gif`, so users can set
+  `dplaneos.icon: mylogo.jpg`. The daemon's `HandleCustomIconFile` MIME fallback `switch` only covered
+  `.svg`, `.png`, `.webp` — on minimal Linux systems without `/etc/mime.types` the file would be served
+  as `application/octet-stream`, preventing browser rendering. Added `case ".jpg", ".jpeg": "image/jpeg"`
+  and `case ".gif": "image/gif"` to the fallback switch.
+  (`daemon/internal/handlers/docker_icons.go`)
+
+- **Route ordering dependency in `main.go` undocumented:**
+  `GET /api/assets/custom-icons/list` must be registered before the `PathPrefix` catch-all or gorilla/mux
+  would route list requests to the file handler (returning 404). The ordering dependency is now documented
+  with an explicit comment. (`daemon/cmd/dplaned/main.go`)
+
+- **`custom_icons/` directory behind `chmod 700` parent — files inaccessible to non-root:**
+  `install.sh` set `chmod 700 /var/lib/dplaneos` but never set explicit permissions on the
+  `custom_icons/` subdirectory. Because the parent had `700`, no non-root process could traverse
+  into it even if the subdirectory itself had permissive permissions. `custom_icons/` is now
+  explicitly set to `root:root 755` so nginx (if configured as a static server) and other
+  authorised processes can read icon files. (`install.sh`)
+
+### Added
+
+- **`app-react/src/lib/iconTypes.ts`:** New shared module exporting `IconMapEntry` and `IconMapResponse`.
+  Single source of truth for icon map types across all frontend consumers.
+
+- **`dplaneos.icon` label help tooltip in Docker containers table:**
+  An `ⓘ` icon now appears next to the "Container" column header in the containers table. Hovering it
+  shows a tooltip explaining the three supported `dplaneos.icon` label value formats (Material Symbol
+  name, local icon filename, remote URL) and the custom icons directory path.
+  (`app-react/src/pages/DockerPage.tsx`)
+
+### Stats
+
+| What | Before | After |
+|------|--------|-------|
+| `running_containers` in stack header | always `undefined` | correct live count |
+| `dplaneos.icon` label honoured in ModulesPage | never | always |
+| `IconMapEntry` declaration sites | 3 | 1 (shared) |
+| MIME types with reliable fallback | 3 (svg/png/webp) | 6 (+jpg/jpeg/gif) |
+| User-facing `dplaneos.icon` documentation | none | tooltip in Docker page |
+
+---
+
 ## v4.3.0 (2026-03-09) — "Automation"
 
 Upgrade from: v4.2.0 — Drop-in upgrade via `sudo bash install.sh --upgrade`
