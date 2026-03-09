@@ -885,6 +885,36 @@ if [ -f "${INSTALL_DIR}/scripts/recovery-cli.sh" ]; then
     log "Recovery CLI: /usr/local/bin/dplaneos-recovery"
 fi
 
+# udev rules — removable media + hot-swap pool disks
+if [ -f "${INSTALL_DIR}/udev/99-dplaneos-removable-media.rules" ]; then
+    cp "${INSTALL_DIR}/udev/99-dplaneos-removable-media.rules" /etc/udev/rules.d/
+    log "udev: removable media rules installed"
+else
+    warn "udev/99-dplaneos-removable-media.rules not found — USB detection unavailable"
+fi
+if [ -f "${INSTALL_DIR}/udev/99-dplaneos-hotswap.rules" ]; then
+    cp "${INSTALL_DIR}/udev/99-dplaneos-hotswap.rules" /etc/udev/rules.d/
+    log "udev: hot-swap rules installed"
+else
+    warn "udev/99-dplaneos-hotswap.rules not found — hot-swap pool disk detection unavailable"
+fi
+udevadm control --reload-rules 2>/dev/null && log "udev rules reloaded" || warn "udevadm reload failed (rules will apply on reboot)"
+
+# Hot-swap notification scripts
+mkdir -p "${INSTALL_DIR}/scripts"
+for script in \
+    notify-device-added.sh \
+    notify-device-removed.sh \
+    notify-disk-added.sh \
+    notify-disk-removed.sh; do
+    if [ -f "${INSTALL_DIR}/scripts/${script}" ]; then
+        chmod +x "${INSTALL_DIR}/scripts/${script}"
+        log "scripts/${script} installed and marked executable"
+    else
+        warn "scripts/${script} not found — some udev notifications may not fire"
+    fi
+done
+
 # Watchdog cron
 if [ -f "${INSTALL_DIR}/scripts/dplaneos-watchdog.sh" ]; then
     cp "${INSTALL_DIR}/scripts/dplaneos-watchdog.sh" /usr/local/bin/dplaneos-watchdog

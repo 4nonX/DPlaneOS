@@ -104,6 +104,7 @@ func main() {
 	}
 	handlers.SetNixWriter(nixWriter)
 	handlers.SetReconcilerDB(db)
+	handlers.SetRegistryDB(db)
 
 	// Boot reconciler: fallback for systems where networkd was not active when
 	// files were written, or for Debian/Ubuntu with NetworkManager instead of networkd.
@@ -231,6 +232,10 @@ func main() {
 	// Initialize WebSocket Hub for real-time monitoring
 	wsHub := websocket.NewMonitorHub()
 	go wsHub.Run()
+
+	// Wire the WS hub into disk-event handlers so they can broadcast
+	// diskAdded / diskRemoved / poolHealthChanged events.
+	handlers.SetDiskEventHub(wsHub)
 
 	// Initialize Background Monitor (30s interval)
 	// Broadcasts inotify stats to WebSocket clients
@@ -552,6 +557,9 @@ func main() {
 	// Disk discovery (setup wizard)
 	r.HandleFunc("/api/system/disks", handlers.HandleDiskDiscovery).Methods("GET")
 	r.Handle("/api/system/pool/create", permRoute("storage", "write", handlers.HandlePoolCreate)).Methods("POST")
+
+	// Disk lifecycle event endpoint (localhost only — called by udev/systemd)
+	r.HandleFunc("/api/internal/disk-event", handlers.HandleDiskEvent).Methods("POST")
 
 	// Files handlers
 	filesHandler := handlers.NewFilesExtendedHandler()

@@ -7,6 +7,7 @@
  *   GET  /api/zfs/smart                  → SMART health per disk
  *   POST /api/zfs/smart/test             → { device, type } → { success, output, estimate }
  *   GET  /api/zfs/smart/results?device=X → { success, device, results }
+ *   POST /api/zfs/pool/replace           → { pool, old_disk, new_disk } → { success, job_id }
  */
 
 import { useState, useEffect } from 'react'
@@ -26,11 +27,17 @@ import { toast } from '@/hooks/useToast'
 interface DiskInfo {
   name:        string
   size:        string
-  type:        string
+  type:        string   // HDD | SSD | NVMe | SAS | USB | unknown
   model:       string
   serial:      string
   in_use:      boolean
   mount_point: string
+  // Extended fields (may be absent on older daemon versions)
+  wwn?:        string
+  by_id_path?: string   // full /dev/disk/by-id/... path
+  pool_name?:  string   // pool this disk belongs to (if any)
+  pool_health?: string  // ONLINE | DEGRADED | FAULTED | ...
+  vdev_state?: string   // ONLINE | FAULTED | DEGRADED | ...
 }
 
 interface DisksResponse {
@@ -75,6 +82,33 @@ interface SMARTResultsResponse {
   device?:  string
   results?: string
   error?:   string
+}
+
+interface ReplaceResponse {
+  success: boolean
+  job_id?: string
+  error?:  string
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/** Derive a human-readable type label and badge color from DiskInfo.type */
+function diskTypeMeta(type: string): { label: string; color: string } {
+  const t = (type ?? '').toUpperCase()
+  if (t === 'NVME')  return { label: 'NVMe', color: 'var(--info)' }
+  if (t === 'SSD')   return { label: 'SSD',  color: 'var(--primary)' }
+  if (t === 'SAS')   return { label: 'SAS',  color: '#a78bfa' }
+  if (t === 'USB')   return { label: 'USB',  color: 'var(--text-secondary)' }
+  if (t === 'HDD')   return { label: 'HDD',  color: 'var(--text-secondary)' }
+  return { label: type || 'Disk', color: 'var(--text-tertiary)' }
+}
+
+/** Extract the last path segment of a /dev/disk/by-id/... path */
+function byIdShort(path: string): string {
+  if (!path) return ''
+  return path.split('/').pop() ?? path
 }
 
 // ---------------------------------------------------------------------------
@@ -132,22 +166,186 @@ function SmartResultsModal({ device, onClose }: { device: string; onClose: () =>
 }
 
 // ---------------------------------------------------------------------------
+// ReplaceDiskModal
+// ---------------------------------------------------------------------------
+
+interface ReplaceDiskModalProps {
+  pool:      string
+  oldDisk:   DiskInfo
+  freeDisk:  DiskInfo[]
+  onClose:   () => void
+  onSuccess: () => void
+}
+
+function ReplaceDiskModal({ pool, oldDisk, freeDisk, onClose, onSuccess }: ReplaceDiskModalProps) {
+  const [selected, setSelected] = useState<string>(freeDisk[0]?.name ?? '')
+  const [jobId, setJobId] = useState<string | null>(null)
+
+  const replaceMutation = useMutation({
+    mutationFn: () =>
+      api.post<ReplaceResponse>('/api/zfs/pool/replace', {
+        pool,
+        old_disk: `/dev/${oldDisk.name}`,
+        new_disk: `/dev/${selected}`,
+      }),
+    onSuccess: (data) => {
+      if (data.success) {
+        setJobId(data.job_id ?? null)
+        toast.success(`zpool replace started for ${pool}`)
+        onSuccess()
+      } else {
+        toast.error(data.error ?? 'Replace failed')
+      }
+    },
+    onError: (err: Error) => toast.error(`Replace failed: ${err.message}`),
+  })
+
+  const newDisk = freeDisk.find(d => d.name === selected)
+
+  return (
+    <Modal
+      title={
+        <>
+          Replace Disk in{' '}
+          <span style={{ color: 'var(--primary)', fontFamily: 'var(--font-mono)' }}>{pool}</span>
+        </>
+      }
+      onClose={onClose}
+    >
+      {jobId ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <div className="alert alert-success">
+            <Icon name="check_circle" size={16} />
+            Replace operation started (job: <code style={{ fontFamily: 'var(--font-mono)' }}>{jobId}</code>).
+            ZFS resilver will begin automatically.
+          </div>
+          <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>
+            Monitor resilver progress on the ZFS Storage page.
+          </p>
+          <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+            <button className="btn btn-primary" onClick={onClose}>Done</button>
+          </div>
+        </div>
+      ) : (
+        <>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            {/* Failed disk summary */}
+            <div style={{
+              background: 'var(--error-bg)', border: '1px solid var(--error-border)',
+              borderRadius: 'var(--radius-md)', padding: '12px 14px',
+              display: 'flex', alignItems: 'center', gap: 10,
+            }}>
+              <Icon name="hard_drive" size={20} style={{ color: 'var(--error)', flexShrink: 0 }} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontWeight: 600, fontSize: 'var(--text-sm)', color: 'var(--error)' }}>
+                  Failed: /dev/{oldDisk.name}
+                </div>
+                <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)', marginTop: 2 }}>
+                  {oldDisk.model && <span>{oldDisk.model} · </span>}
+                  {oldDisk.size && <span>{oldDisk.size}</span>}
+                  {oldDisk.vdev_state && (
+                    <span style={{ marginLeft: 8, color: 'var(--error)', textTransform: 'uppercase' }}>
+                      {oldDisk.vdev_state}
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Replacement disk selector */}
+            {freeDisk.length === 0 ? (
+              <div className="alert alert-warning">
+                <Icon name="warning" size={16} />
+                No free disks available. Connect a replacement disk first.
+              </div>
+            ) : (
+              <label className="field">
+                <span className="field-label">Replacement Disk</span>
+                <select
+                  value={selected}
+                  onChange={e => setSelected(e.target.value)}
+                  className="input"
+                >
+                  {freeDisk.map(d => (
+                    <option key={d.name} value={d.name}>
+                      /dev/{d.name} — {d.model || 'Unknown'} ({d.size})
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+
+            {/* Command preview */}
+            {selected && (
+              <div style={{
+                background: 'var(--surface)', border: '1px solid var(--border)',
+                borderRadius: 'var(--radius-sm)', padding: '10px 14px',
+                fontSize: 'var(--text-xs)', fontFamily: 'var(--font-mono)',
+                color: 'var(--text-secondary)',
+              }}>
+                <div style={{ fontSize: 'var(--text-2xs)', textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--text-tertiary)', marginBottom: 4 }}>
+                  Command that will run:
+                </div>
+                zpool replace {pool} /dev/{oldDisk.name} /dev/{selected}
+              </div>
+            )}
+
+            {/* New disk info */}
+            {newDisk && (
+              <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                {newDisk.serial && (
+                  <span>Serial: <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-secondary)' }}>{newDisk.serial}</span></span>
+                )}
+                {newDisk.wwn && (
+                  <span>WWN: <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-secondary)' }}>{newDisk.wwn}</span></span>
+                )}
+              </div>
+            )}
+          </div>
+
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 20 }}>
+            <button className="btn btn-ghost" onClick={onClose} disabled={replaceMutation.isPending}>
+              Cancel
+            </button>
+            <button
+              className="btn btn-danger"
+              onClick={() => replaceMutation.mutate()}
+              disabled={replaceMutation.isPending || !selected || freeDisk.length === 0}
+            >
+              {replaceMutation.isPending ? (
+                <><Spinner size={14} /> Replacing…</>
+              ) : (
+                <>
+                  <Icon name="swap_horiz" size={15} />
+                  Replace Disk
+                </>
+              )}
+            </button>
+          </div>
+        </>
+      )}
+    </Modal>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // DiskRow
 // ---------------------------------------------------------------------------
 
 interface DiskRowProps {
-  disk: DiskInfo
-  smart?: SMARTDisk
-  onShortTest: () => void
-  onLongTest:  () => void
+  disk:          DiskInfo
+  smart?:        SMARTDisk
+  onShortTest:   () => void
+  onLongTest:    () => void
   onViewResults: () => void
+  onReplace?:    () => void
   isTestRunning: boolean
-  testResult: SMARTTestResponse | null
+  testResult:    SMARTTestResponse | null
 }
 
 function DiskRow({
   disk, smart,
-  onShortTest, onLongTest, onViewResults,
+  onShortTest, onLongTest, onViewResults, onReplace,
   isTestRunning, testResult,
 }: DiskRowProps) {
   const passed     = smart?.smart_status?.passed
@@ -156,21 +354,31 @@ function DiskRow({
   const hours      = smart?.power_on_hours?.hours
   const hasError   = !!smart?.error
 
+  const typeMeta   = diskTypeMeta(disk.type)
+  const byIdSeg    = disk.by_id_path ? byIdShort(disk.by_id_path) : null
+  const isFaulted  = disk.vdev_state === 'FAULTED' || (!smart?.error && smart && passed === false)
+  const poolDeg    = disk.pool_health === 'DEGRADED' || disk.pool_health === 'FAULTED'
+  const showReplace = (isFaulted || poolDeg) && !!onReplace
+
   return (
     <div style={{
       padding: '14px 16px', background: 'rgba(255,255,255,0.02)',
-      border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)',
+      border: `1px solid ${isFaulted ? 'var(--error-border)' : 'var(--border-subtle)'}`,
+      borderRadius: 'var(--radius-md)',
+      borderLeft: isFaulted ? '3px solid var(--error)' : undefined,
     }}>
       {/* Main row */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
         {/* Disk icon */}
         <Icon
           name={disk.type === 'SSD' || disk.type === 'NVMe' ? 'memory' : 'hard_drive'}
-          size={32} style={{ color: 'var(--primary)', flexShrink: 0 }}
+          size={32}
+          style={{ color: isFaulted ? 'var(--error)' : 'var(--primary)', flexShrink: 0 }}
         />
 
         {/* Info */}
         <div style={{ flex: 1, minWidth: 0 }}>
+          {/* Name + model */}
           <div style={{ fontWeight: 600, fontSize: 'var(--text-md)', marginBottom: 2 }}>
             /dev/{disk.name}
             {disk.model && (
@@ -179,36 +387,98 @@ function DiskRow({
               </span>
             )}
           </div>
+
+          {/* Meta row: size, serial, hours */}
           <div style={{ display: 'flex', gap: 16, fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', flexWrap: 'wrap' }}>
             <span>{disk.size}</span>
-            {disk.type && <span>{disk.type}</span>}
-            {disk.serial && <span style={{ fontFamily: 'var(--font-mono)' }}>{disk.serial}</span>}
+            {disk.serial && (
+              <span style={{ fontFamily: 'var(--font-mono)' }}>{disk.serial}</span>
+            )}
             {hours !== undefined && <span>{hours.toLocaleString()}h power-on</span>}
           </div>
+
+          {/* Stable-path row: WWN + by-id */}
+          {(disk.wwn || byIdSeg) && (
+            <div style={{ display: 'flex', gap: 12, fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', marginTop: 3, flexWrap: 'wrap' }}>
+              {disk.wwn && (
+                <span
+                  title={disk.wwn}
+                  style={{ fontFamily: 'var(--font-mono)', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'inline-block', cursor: 'default' }}
+                >
+                  WWN: {disk.wwn}
+                </span>
+              )}
+              {byIdSeg && (
+                <span
+                  title={disk.by_id_path}
+                  style={{ fontFamily: 'var(--font-mono)', maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'inline-block', cursor: 'default' }}
+                >
+                  {byIdSeg}
+                </span>
+              )}
+            </div>
+          )}
         </div>
+
+        {/* Type badge */}
+        <span style={{
+          padding: '3px 8px', borderRadius: 'var(--radius-xs)',
+          fontSize: 'var(--text-xs)', fontWeight: 600, flexShrink: 0,
+          background: `${typeMeta.color}18`,
+          color: typeMeta.color,
+          border: `1px solid ${typeMeta.color}40`,
+        }}>
+          {typeMeta.label}
+        </span>
 
         {/* Temperature */}
         {temp !== undefined && (
           <div style={{
-            display: 'flex', alignItems: 'center', gap: 4,
+            display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0,
             color: tempWarn === 'critical' ? 'var(--error)' : tempWarn === 'warning' ? 'var(--warning)' : 'var(--text-secondary)',
-            fontSize: 'var(--text-sm)', flexShrink: 0,
+            fontSize: 'var(--text-sm)',
           }}>
             <Icon name="thermostat" size={16} />
             {temp}°C
           </div>
         )}
 
-        {/* In-use badge */}
-        <span style={{
-          padding: '3px 8px', borderRadius: 'var(--radius-xs)', fontSize: 'var(--text-xs)', fontWeight: 600,
-          background: disk.in_use ? 'var(--primary-bg)' : 'var(--surface)',
-          color: disk.in_use ? 'var(--primary)' : 'var(--text-secondary)',
-          border: `1px solid ${disk.in_use ? 'rgba(138,156,255,0.25)' : 'var(--border)'}`,
-          flexShrink: 0,
-        }}>
-          {disk.in_use ? 'In use' : 'Free'}
-        </span>
+        {/* Pool membership badge */}
+        {disk.pool_name && (
+          <a
+            href="#pools-section"
+            onClick={e => {
+              e.preventDefault()
+              document.getElementById('pools-section')?.scrollIntoView({ behavior: 'smooth' })
+            }}
+            style={{
+              padding: '3px 8px', borderRadius: 'var(--radius-xs)',
+              fontSize: 'var(--text-xs)', fontWeight: 600, flexShrink: 0,
+              background: poolDeg ? 'var(--warning-bg)' : 'var(--primary-bg)',
+              color: poolDeg ? 'var(--warning)' : 'var(--primary)',
+              border: `1px solid ${poolDeg ? 'var(--warning-border)' : 'rgba(138,156,255,0.25)'}`,
+              textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 4,
+            }}
+            title={`Pool: ${disk.pool_name} (${disk.pool_health ?? 'unknown'})`}
+          >
+            <Icon name="storage" size={12} />
+            {disk.pool_name}
+            {poolDeg && <Icon name="warning" size={11} />}
+          </a>
+        )}
+
+        {/* In-use badge (shown only when no pool membership) */}
+        {!disk.pool_name && (
+          <span style={{
+            padding: '3px 8px', borderRadius: 'var(--radius-xs)', fontSize: 'var(--text-xs)', fontWeight: 600,
+            background: disk.in_use ? 'var(--primary-bg)' : 'var(--surface)',
+            color: disk.in_use ? 'var(--primary)' : 'var(--text-secondary)',
+            border: `1px solid ${disk.in_use ? 'rgba(138,156,255,0.25)' : 'var(--border)'}`,
+            flexShrink: 0,
+          }}>
+            {disk.in_use ? 'In use' : 'Free'}
+          </span>
+        )}
 
         {/* SMART status */}
         {hasError ? (
@@ -225,6 +495,19 @@ function DiskRow({
             </span>
           </div>
         ) : null}
+
+        {/* Replace button */}
+        {showReplace && (
+          <button
+            className="btn btn-danger"
+            onClick={onReplace}
+            title={`Replace this faulted disk in pool ${disk.pool_name}`}
+            style={{ fontSize: 'var(--text-xs)', padding: '5px 12px', flexShrink: 0, display: 'flex', alignItems: 'center', gap: 5 }}
+          >
+            <Icon name="swap_horiz" size={14} />
+            Replace
+          </button>
+        )}
 
         {/* SMART test buttons */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
@@ -265,7 +548,7 @@ function DiskRow({
         </div>
       </div>
 
-      {/* Test result banner (shown inline under this disk row) */}
+      {/* Test result banner */}
       {testResult && !isTestRunning && (
         <div
           className={testResult.success ? 'alert alert-success' : 'alert alert-error'}
@@ -292,18 +575,45 @@ export function HardwarePage() {
   // WS: disk temperature warning → immediate SMART refresh + banner
   const [tempWarning, setTempWarning] = useState<{ device: string; temp: number } | null>(null)
 
+  // WS: disk add/remove → refetch disk list
+  useEffect(() => {
+    const unsubAdded = wsOn('hardwareEvent', (data) => {
+      const d = data as { event?: string; action?: string; model?: string; device?: string }
+      const action = d.event ?? d.action ?? ''
+      if (action === 'diskAdded' || action === 'disk_added') {
+        toast.success(`Disk connected: ${d.model ?? d.device ?? 'new disk'}`)
+        qc.invalidateQueries({ queryKey: ['system', 'disks'] })
+      } else if (action === 'diskRemoved' || action === 'disk_removed') {
+        toast.info(`Disk removed: ${d.device ?? 'unknown'}`)
+        qc.invalidateQueries({ queryKey: ['system', 'disks'] })
+      }
+    })
+    return unsubAdded
+  }, [wsOn, qc])
+
   useEffect(() => {
     return wsOn('diskTempWarning', (data) => {
       const d = data as { device?: string; temp?: number }
       if (d?.device) setTempWarning({ device: d.device, temp: d.temp ?? 0 })
+      toast.warning(`Temperature warning: /dev/${d.device} at ${d.temp ?? '?'}°C`)
       qc.invalidateQueries({ queryKey: ['zfs', 'smart'] })
     })
   }, [wsOn, qc])
 
-  // Per-disk test state: which disk is running, results per disk
-  const [runningDevice, setRunningDevice]   = useState<string | null>(null)
-  const [testResults, setTestResults]       = useState<Record<string, SMARTTestResponse>>({})
+  // WS: pool health changed → refetch pools + disks (pool_health on DiskInfo may change)
+  useEffect(() => {
+    return wsOn('poolHealthChange', () => {
+      qc.invalidateQueries({ queryKey: ['system', 'disks'] })
+    })
+  }, [wsOn, qc])
+
+  // Per-disk test state
+  const [runningDevice, setRunningDevice]           = useState<string | null>(null)
+  const [testResults, setTestResults]               = useState<Record<string, SMARTTestResponse>>({})
   const [resultsModalDevice, setResultsModalDevice] = useState<string | null>(null)
+
+  // Replace modal state
+  const [replaceTarget, setReplaceTarget] = useState<DiskInfo | null>(null)
 
   const smartTestMutation = useMutation({
     mutationFn: (vars: { device: string; type: 'short' | 'long' }) =>
@@ -350,6 +660,7 @@ export function HardwarePage() {
   })
 
   const disks = disksQ.data?.disks ?? []
+  const freeDisk = disks.filter(d => !d.in_use)
 
   // Index SMART data by device name for fast lookup
   const smartByDevice: Record<string, SMARTDisk> = {}
@@ -359,6 +670,10 @@ export function HardwarePage() {
 
   const anySmartFail = (smartQ.data?.disks ?? []).some(
     d => !d.error && d.smart_status && !d.smart_status.passed
+  )
+
+  const anyPoolDegraded = disks.some(
+    d => d.pool_health === 'DEGRADED' || d.pool_health === 'FAULTED'
   )
 
   return (
@@ -407,8 +722,18 @@ export function HardwarePage() {
         </div>
       )}
 
+      {anyPoolDegraded && (
+        <div className="alert alert-warning">
+          <Icon name="warning" size={18} />
+          One or more pools are DEGRADED or have FAULTED vdevs — use the Replace button to begin resilver
+        </div>
+      )}
+
       {/* Disk list */}
-      <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-xl)', padding: 24 }}>
+      <div
+        id="pools-section"
+        style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-xl)', padding: 24 }}
+      >
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 20 }}>
           <Icon name="hard_drive" size={18} style={{ color: 'var(--primary)' }} />
           <span style={{ fontWeight: 700, fontSize: 'var(--text-md)' }}>Physical Disks</span>
@@ -438,12 +763,13 @@ export function HardwarePage() {
               onShortTest={() => smartTestMutation.mutate({ device: d.name, type: 'short' })}
               onLongTest={() => smartTestMutation.mutate({ device: d.name, type: 'long' })}
               onViewResults={() => setResultsModalDevice(d.name)}
+              onReplace={d.pool_name ? () => setReplaceTarget(d) : undefined}
             />
           ))}
         </div>
       </div>
 
-      {/* SMART detail table for failed or warned disks */}
+      {/* SMART detail table for disks with ATA attributes */}
       {smartQ.data && smartQ.data.disks.some(d => d.ata_smart_attributes?.table.length) && (
         <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-xl)', padding: 24 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 20 }}>
@@ -454,7 +780,6 @@ export function HardwarePage() {
           {smartQ.data.disks.map(d => {
             const attrs = d.ata_smart_attributes?.table ?? []
             if (!attrs.length) return null
-            // Only show key attributes: reallocated, pending, uncorrectable, temperature
             const keyIds = new Set([1, 5, 187, 188, 190, 194, 196, 197, 198, 199])
             const filtered = attrs.filter(a => keyIds.has(a.id))
             if (!filtered.length) return null
@@ -505,6 +830,21 @@ export function HardwarePage() {
         <SmartResultsModal
           device={resultsModalDevice}
           onClose={() => setResultsModalDevice(null)}
+        />
+      )}
+
+      {/* Replace Disk Modal */}
+      {replaceTarget && (
+        <ReplaceDiskModal
+          pool={replaceTarget.pool_name!}
+          oldDisk={replaceTarget}
+          freeDisk={freeDisk}
+          onClose={() => setReplaceTarget(null)}
+          onSuccess={() => {
+            qc.invalidateQueries({ queryKey: ['system', 'disks'] })
+            qc.invalidateQueries({ queryKey: ['zfs', 'pools'] })
+            setReplaceTarget(null)
+          }}
         />
       )}
     </div>

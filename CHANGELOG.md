@@ -6,6 +6,96 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ---
 
+## v4.2.0 (2026-03-09) — "Disk Lifecycle"
+
+Upgrade from: v4.1.2 — Drop-in upgrade via `sudo bash install.sh --upgrade`
+
+### Architecture
+
+This release implements the four pillars of disk lifecycle management —
+the foundation required for serious NAS infrastructure:
+
+**1. Disk Discovery (enriched)**
+`GET /api/system/disks` now returns stable identifiers for every disk:
+`by_id_path` (`/dev/disk/by-id/wwn-0x…`), `by_path_path`, `wwn`, `size_bytes`,
+`rpm`, `pool_name`, `health`, `temp_c`. Type detection extended to SAS and USB.
+Pool membership and per-vdev health resolved from a single `zpool status -P -v`
+pass at discovery time.
+
+**2. Device Renaming / Stable Identifiers (enforced)**
+Pool creation via the UI now enforces `/dev/disk/by-id/` paths — matching
+the GitOps engine which has always enforced this. Short `/dev/sdX` names
+submitted to `POST /api/system/pool/create` are auto-promoted to their by-id
+path via sysfs; if promotion fails the request is rejected with a clear error.
+Suggestions from the setup wizard use by-id paths.
+
+A new SQLite table `disk_registry` (migration 010) persists serial, WWN,
+by-id path, model, pool membership, and last-seen timestamp for every disk
+the system has ever encountered. This is the source of truth for identity
+across reboots and physical replacements.
+
+**3. Hot-Swap Detection (end-to-end)**
+- New `udev/99-dplaneos-hotswap.rules`: covers SATA, SAS, NVMe add/remove
+  events for internal pool disks (USB excluded to avoid double-firing with
+  the existing removable media rules).
+- New `scripts/notify-disk-added.sh` / `notify-disk-removed.sh`: send HTTP
+  POST to `http://127.0.0.1:9000/api/internal/disk-event` via curl — replacing
+  the broken `nc -U` Unix socket approach.
+- New `POST /api/internal/disk-event` (localhost-only): updates disk registry,
+  broadcasts `diskAdded`/`diskRemoved`/`poolHealthChanged` WebSocket events.
+
+**4. Pool Import Recovery (automatic)**
+On a `diskAdded` event the daemon now:
+1. Waits 2 seconds for the kernel to settle the device tree.
+2. Runs `zpool import -d /dev/disk/by-id` to enumerate importable pools.
+3. Cross-references against the pool registry for any previously-known pool
+   whose vdevs match the arriving disk's serial or WWN.
+4. If a match is found: runs `zpool import -d /dev/disk/by-id <poolname>`
+   automatically and logs the result to the audit chain.
+5. Broadcasts `poolHealthChanged` so connected UI clients update instantly.
+
+### Added
+
+- `disk_registry` SQLite table (migration 010): persists full disk identity
+  history including `removed_at` timestamp for disks that have been pulled.
+- `GET /api/system/disks` enriched fields: `by_id_path`, `by_path_path`,
+  `wwn`, `size_bytes`, `rpm`, `pool_name`, `health`, `temp_c`, `dev_path`.
+- `POST /api/internal/disk-event`: internal hot-swap notification endpoint.
+- `udev/99-dplaneos-hotswap.rules`: hot-swap rules for pool disks.
+- `scripts/notify-disk-added.sh`, `scripts/notify-disk-removed.sh`.
+- **HardwarePage**: WWN, by-id path, SAS/USB type badges, pool membership
+  badge, disk replacement workflow (modal → `POST /api/zfs/pool/replace`).
+- **Dashboard**: "Disk Health" section shows SMART failures and high-temp
+  warnings across all disks with link to Hardware page.
+- **Background monitor**: `CheckMountStatus()` implemented — write-tests each
+  pool's mountpoint every 60 seconds, broadcasts `mountError` on failure.
+- **Disk temperature monitoring**: reads `/sys/class/hwmon/` sensors every
+  5 minutes, falls back to `smartctl`, broadcasts `diskTempWarning` at 45°C
+  warning / 55°C critical thresholds.
+
+### Fixed
+
+- `diskTempWarning` WebSocket event was subscribed in frontend but never
+  broadcast by daemon — now implemented end-to-end.
+- `CheckMountStatus` was an empty stub — now performs real write-test.
+- Pool creation accepted raw `/dev/sdX` paths that become invalid after
+  reboot — now auto-promotes to by-id or rejects with actionable error.
+- Disk type detection did not distinguish SAS from HDD, or USB from SATA —
+  now uses vendor string and subsystem symlink for accurate classification.
+
+### Stats
+
+| Metric | Before | After |
+|--------|--------|-------|
+| Disk identity fields returned | 6 | 14 |
+| Hot-swap detection (internal disks) | None | SATA + SAS + NVMe |
+| Automatic pool re-import | Manual only | Automatic on disk add |
+| Pool creation using stable paths | GitOps only | UI + GitOps |
+| Disk registry (persistent identity) | None | SQLite, full history |
+| `diskTempWarning` WS events | Dead code | Live, hwmon + smartctl |
+
+---
+
 ## v4.1.2 (2026-03-09) — "Completeness"
 
 Upgrade from: v4.1.1 — Drop-in upgrade via `sudo bash install.sh --upgrade`

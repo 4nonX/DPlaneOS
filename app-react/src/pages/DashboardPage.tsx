@@ -5,12 +5,13 @@
  *   GET /api/system/metrics      → SystemMetrics
  *   GET /api/system/status       → version, uptime, ecc_warning
  *   GET /api/zfs/pools           → pools list
+ *   GET /api/zfs/smart           → SMART health summary
  *   GET /api/docker/containers   → containers list
  *   GET /api/system/ups          → UPS status
- *   WS  /ws/monitor              → live state_update events
+ *   WS  /ws/monitor              → live state_update, poolHealthChange, diskTempWarning
  */
 
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { api } from '@/lib/api'
@@ -41,6 +42,16 @@ interface DockerContainer { Id: string; Names: string[]; Image: string; State: s
 interface ContainersResponse { success: boolean; containers: DockerContainer[]; total_containers: number }
 interface UPSData { status: string; battery_charge: string; battery_runtime: string }
 interface UPSResponse { success: boolean; data?: UPSData }
+
+interface SMARTDisk {
+  device:        string
+  error?:        string
+  smart_status?: { passed: boolean }
+  temperature?:  { current: number }
+  temp_warning?: string
+}
+interface SMARTResponse { success: boolean; disks: SMARTDisk[] }
+
 interface WsStateUpdate {
   memory?: { percent: number; used: number; total: number }
   iowait?: number; ups?: UPSData
@@ -196,8 +207,6 @@ function PoolRow({ pool, onClick }: { pool: ZFSPool; onClick: () => void }) {
   const isDeg    = pool.health === 'DEGRADED'
   const badgeCls = isOnline ? 'badge-success' : isDeg ? 'badge-warning' : 'badge-error'
 
-  // Parse alloc/size to get percent — daemon returns human strings like "1.23T"
-  // Best effort: just show health badge
   return (
     <div
       onClick={onClick}
@@ -270,6 +279,53 @@ function ContainerRow({ c, onClick }: { c: DockerContainer; onClick: () => void 
 }
 
 // ---------------------------------------------------------------------------
+// DiskHealthRow — compact warning row inside Disk Health section card
+// ---------------------------------------------------------------------------
+
+function DiskHealthRow({ disk, onClick }: { disk: SMARTDisk; onClick: () => void }) {
+  const [hov, setHov] = useState(false)
+  const passed  = disk.smart_status?.passed
+  const temp    = disk.temperature?.current
+  const tempBad = disk.temp_warning === 'critical' || disk.temp_warning === 'warning' || (temp !== undefined && temp > 50)
+
+  return (
+    <div
+      onClick={onClick}
+      onMouseEnter={() => setHov(true)}
+      onMouseLeave={() => setHov(false)}
+      style={{
+        display: 'flex', alignItems: 'center', gap: 10,
+        padding: '8px 12px', borderRadius: 'var(--radius-sm)',
+        background: hov ? 'var(--surface)' : 'transparent',
+        cursor: 'pointer', transition: 'background var(--transition-fast)',
+      }}
+    >
+      <Icon
+        name={passed === false ? 'error' : 'device_thermostat'}
+        size={16}
+        style={{ color: passed === false ? 'var(--error)' : 'var(--warning)', flexShrink: 0 }}
+      />
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontWeight: 600, fontSize: 'var(--text-sm)', fontFamily: 'var(--font-mono)' }}>
+          /dev/{disk.device}
+        </div>
+        <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', display: 'flex', gap: 10, marginTop: 1 }}>
+          {passed === false && (
+            <span style={{ color: 'var(--error)', fontWeight: 600 }}>SMART FAIL</span>
+          )}
+          {temp !== undefined && (
+            <span style={{ color: tempBad ? 'var(--warning)' : 'var(--text-tertiary)' }}>
+              {temp}°C
+            </span>
+          )}
+        </div>
+      </div>
+      <Icon name="chevron_right" size={14} style={{ color: 'var(--text-tertiary)', opacity: hov ? 1 : 0.3 }} />
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Dashboard
 // ---------------------------------------------------------------------------
 
@@ -277,16 +333,44 @@ import type React from 'react'
 
 export function DashboardPage() {
   const navigate  = useNavigate()
+  const qc        = useQueryClient()
   const wsOn      = useWsStore((s) => s.on)
   const [live, setLive] = useState<WsStateUpdate | null>(null)
 
+  // Inline disk temperature alert from WS (separate from toast)
+  const [diskTempAlert, setDiskTempAlert] = useState<{ device: string; temp: number } | null>(null)
+
   useEffect(() => wsOn('stateUpdate', (d) => setLive(d as WsStateUpdate)), [wsOn])
+
+  // WS: pool health changed → immediate pools refetch
+  useEffect(() => {
+    return wsOn('poolHealthChange', () => {
+      qc.invalidateQueries({ queryKey: ['zfs', 'pools'] })
+    })
+  }, [wsOn, qc])
+
+  // WS: disk temperature warning → show inline alert + refresh SMART data
+  useEffect(() => {
+    return wsOn('diskTempWarning', (data) => {
+      const d = data as { device?: string; temp?: number }
+      if (d?.device) setDiskTempAlert({ device: d.device, temp: d.temp ?? 0 })
+      qc.invalidateQueries({ queryKey: ['zfs', 'smart'] })
+    })
+  }, [wsOn, qc])
 
   const metricsQ    = useQuery({ queryKey: ['system','metrics'],     queryFn: ({ signal }) => api.get<SystemMetrics>('/api/system/metrics', signal),     refetchInterval: 30_000 })
   const statusQ     = useQuery({ queryKey: ['system','status'],      queryFn: ({ signal }) => api.get<SystemStatus>('/api/system/status', signal),       refetchInterval: 60_000 })
   const poolsQ      = useQuery({ queryKey: ['zfs','pools'],          queryFn: ({ signal }) => api.get<PoolsResponse>('/api/zfs/pools', signal),           refetchInterval: 30_000 })
   const containersQ = useQuery({ queryKey: ['docker','containers'],  queryFn: ({ signal }) => api.get<ContainersResponse>('/api/docker/containers', signal), refetchInterval: 30_000 })
   const upsQ        = useQuery({ queryKey: ['system','ups'],         queryFn: ({ signal }) => api.get<UPSResponse>('/api/system/ups', signal),            refetchInterval: 60_000 })
+
+  // SMART summary — 5-minute stale time, not re-fetched too aggressively
+  const smartQ = useQuery({
+    queryKey: ['zfs','smart'],
+    queryFn: ({ signal }) => api.get<SMARTResponse>('/api/zfs/smart', signal),
+    staleTime: 5 * 60_000,
+    refetchInterval: 5 * 60_000,
+  })
 
   const memPct   = live?.memory?.percent ?? metricsQ.data?.memory.percent   ?? 0
   const memUsed  = live?.memory?.used    ?? metricsQ.data?.memory.used      ?? 0
@@ -297,6 +381,20 @@ export function DashboardPage() {
   const running  = containers.filter((c) => c.State === 'running')
   const ups      = live?.ups ?? upsQ.data?.data
   const upsAlert = ups && ups.status !== 'OL' && ups.status !== 'ONLINE'
+
+  // SMART summary stats
+  const smartDisks = smartQ.data?.disks ?? []
+  const smartWarnings = smartDisks.filter(
+    d => !d.error && (
+      (d.smart_status && !d.smart_status.passed) ||
+      (d.temperature?.current !== undefined && d.temperature.current > 50) ||
+      d.temp_warning === 'warning' || d.temp_warning === 'critical'
+    )
+  )
+  const smartCritical = smartDisks.filter(
+    d => !d.error && d.smart_status && !d.smart_status.passed
+  )
+  const hasSmartIssues = smartWarnings.length > 0
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20, maxWidth: 1400 }}>
@@ -319,6 +417,22 @@ export function DashboardPage() {
           <Icon name="battery_alert" size={16} />
           <span>UPS on battery — {ups.battery_charge}% charge · runtime {ups.battery_runtime}</span>
           <span style={{ marginLeft: 'auto', fontSize: 'var(--text-xs)', opacity: 0.7 }}>View UPS →</span>
+        </div>
+      )}
+
+      {/* WS disk temperature inline alert */}
+      {diskTempAlert && (
+        <div className="alert alert-warning" style={{ cursor: 'pointer' }} onClick={() => navigate({ to: '/hardware' })}>
+          <Icon name="device_thermostat" size={16} />
+          <span>
+            Temperature warning on <strong>/dev/{diskTempAlert.device}</strong>: {diskTempAlert.temp}°C
+          </span>
+          <button
+            onClick={e => { e.stopPropagation(); setDiskTempAlert(null) }}
+            style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--warning)', display: 'flex' }}
+          >
+            <Icon name="close" size={15} />
+          </button>
         </div>
       )}
 
@@ -409,6 +523,76 @@ export function DashboardPage() {
           )}
         </SectionCard>
       </div>
+
+      {/* Disk Health summary */}
+      <SectionCard
+        title="Disk Health"
+        icon="hard_drive"
+        onAction={() => navigate({ to: '/hardware' })}
+        actionLabel="View All"
+      >
+        {smartQ.isLoading && (
+          <div style={{ padding: '12px 0', display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {[1,2].map(k => <Skeleton key={k} height={44} borderRadius="var(--radius-sm)" />)}
+          </div>
+        )}
+
+        {smartQ.isError && (
+          <div style={{ padding: '8px 0' }}>
+            <ErrorState error={smartQ.error} title="SMART data unavailable" onRetry={() => smartQ.refetch()} />
+          </div>
+        )}
+
+        {!smartQ.isLoading && !smartQ.isError && smartDisks.length > 0 && (
+          <>
+            {/* Summary line */}
+            <div style={{
+              display: 'flex', gap: 16, padding: '8px 12px',
+              fontSize: 'var(--text-sm)', color: 'var(--text-secondary)',
+              borderBottom: hasSmartIssues ? '1px solid var(--border-subtle)' : undefined,
+              marginBottom: hasSmartIssues ? 4 : 0,
+              flexWrap: 'wrap',
+            }}>
+              <span>
+                <strong style={{ color: 'var(--text)' }}>{smartDisks.length}</strong> disk{smartDisks.length !== 1 ? 's' : ''}
+              </span>
+              {smartWarnings.length > 0 && (
+                <span style={{ color: 'var(--warning)', display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <Icon name="warning" size={14} />
+                  <strong>{smartWarnings.length}</strong> warning{smartWarnings.length !== 1 ? 's' : ''}
+                </span>
+              )}
+              {smartCritical.length > 0 && (
+                <span style={{ color: 'var(--error)', display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <Icon name="error" size={14} />
+                  <strong>{smartCritical.length}</strong> critical
+                </span>
+              )}
+              {!hasSmartIssues && (
+                <span style={{ color: 'var(--success)', display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <Icon name="check_circle" size={14} />
+                  All healthy
+                </span>
+              )}
+            </div>
+
+            {/* Warning rows */}
+            {smartWarnings.map(d => (
+              <DiskHealthRow
+                key={d.device}
+                disk={d}
+                onClick={() => navigate({ to: '/hardware' })}
+              />
+            ))}
+          </>
+        )}
+
+        {!smartQ.isLoading && !smartQ.isError && smartDisks.length === 0 && (
+          <div style={{ padding: '24px 0', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 'var(--text-sm)' }}>
+            No disk data available
+          </div>
+        )}
+      </SectionCard>
 
       {/* inotify warning */}
       {metricsQ.data && metricsQ.data.inotify.percent > 70 && (
