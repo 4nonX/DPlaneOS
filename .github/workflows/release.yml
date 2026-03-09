@@ -158,5 +158,6 @@ jobs:
             ${{ env.SHA256FILE }}
           draft: true
           prerelease: false
+          make_latest: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
