@@ -10,9 +10,14 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
+	"time"
 
 	"dplaned/internal/audit"
 	"dplaned/internal/cmdutil"
+	"dplaned/internal/jobs"
+
+	"github.com/google/uuid"
 )
 
 // CloudSyncHandler manages rclone-based cloud storage remotes and sync jobs.
@@ -151,6 +156,74 @@ func validateConfigKey(k string) bool {
 	return k != ""
 }
 
+// ── In-memory cloud sync job tracking ────────────────────────────────────────
+
+// CloudSyncJob records one rclone sync/copy operation.
+type CloudSyncJob struct {
+	ID          string     `json:"id"`
+	Provider    string     `json:"provider"`
+	Action      string     `json:"action"`
+	Source      string     `json:"source"`
+	Destination string     `json:"destination"`
+	Status      string     `json:"status"` // running, done, failed
+	StartedAt   time.Time  `json:"started_at"`
+	FinishedAt  *time.Time `json:"finished_at,omitempty"`
+	Error       string     `json:"error,omitempty"`
+	JobID       string     `json:"job_id"`
+}
+
+var (
+	cloudJobsMu sync.Mutex
+	cloudJobs   []*CloudSyncJob
+)
+
+// addCloudJob appends a new job to the in-memory slice. Thread-safe.
+func addCloudJob(j *CloudSyncJob) {
+	cloudJobsMu.Lock()
+	defer cloudJobsMu.Unlock()
+	cloudJobs = append(cloudJobs, j)
+}
+
+// updateCloudJob applies fn to the job with the given ID. Thread-safe.
+func updateCloudJob(id string, fn func(j *CloudSyncJob)) {
+	cloudJobsMu.Lock()
+	defer cloudJobsMu.Unlock()
+	for _, j := range cloudJobs {
+		if j.ID == id {
+			fn(j)
+			return
+		}
+	}
+}
+
+// listJobs returns up to the 20 most recent cloud sync jobs, newest first.
+func listJobs() []*CloudSyncJob {
+	cloudJobsMu.Lock()
+	defer cloudJobsMu.Unlock()
+
+	limit := 20
+	n := len(cloudJobs)
+	if n == 0 {
+		return []*CloudSyncJob{}
+	}
+	// Newest-first: reverse-copy up to 20 entries.
+	result := make([]*CloudSyncJob, 0, limit)
+	for i := n - 1; i >= 0 && len(result) < limit; i-- {
+		result = append(result, cloudJobs[i])
+	}
+	return result
+}
+
+// HandleCloudSyncJobs is the GET handler for /api/cloud-sync/jobs.
+func HandleCloudSyncJobs(w http.ResponseWriter, r *http.Request) {
+	respondJSON(w, http.StatusOK, map[string]interface{}{
+		"success": true,
+		"jobs":    listJobs(),
+	})
+}
+
+// ── Main router ───────────────────────────────────────────────────────────────
+
 // HandleCloudSync is the main router for cloud sync operations
 func (h *CloudSyncHandler) HandleCloudSync(w http.ResponseWriter, r *http.Request) {
 	if err := ensureConfigDir(); err != nil {
@@ -163,7 +236,9 @@ func (h *CloudSyncHandler) HandleCloudSync(w http.ResponseWriter, r *http.Reques
 		// Peek at body to get action
 		body, _ := io.ReadAll(r.Body)
 		r.Body = io.NopCloser(bytes.NewBuffer(body))
-		var peek struct{ Action string `json:"action"` }
+		var peek struct {
+			Action string `json:"action"`
+		}
 		json.Unmarshal(body, &peek)
 		action = peek.Action
 	}
@@ -178,7 +253,7 @@ func (h *CloudSyncHandler) HandleCloudSync(w http.ResponseWriter, r *http.Reques
 		case "remotes":
 			h.listRemotes(w)
 		case "jobs":
-			h.listJobs(w)
+			h.listJobsHandler(w)
 		default:
 			respondErrorSimple(w, "Unknown GET action: "+action, http.StatusBadRequest)
 		}
@@ -190,7 +265,7 @@ func (h *CloudSyncHandler) HandleCloudSync(w http.ResponseWriter, r *http.Reques
 			h.testRemote(w, r)
 		case "delete":
 			h.deleteRemote(w, r)
-		case "sync":
+		case "sync", "copy":
 			h.runSync(w, r)
 		default:
 			respondErrorSimple(w, "Unknown POST action: "+action, http.StatusBadRequest)
@@ -277,12 +352,11 @@ func (h *CloudSyncHandler) listRemotes(w http.ResponseWriter) {
 	})
 }
 
-func (h *CloudSyncHandler) listJobs(w http.ResponseWriter) {
-	// Sync jobs are currently fire-and-forget (no job queue yet)
+// listJobsHandler serves ?action=jobs on the main cloud-sync endpoint.
+func (h *CloudSyncHandler) listJobsHandler(w http.ResponseWriter) {
 	respondJSON(w, http.StatusOK, map[string]interface{}{
 		"success": true,
-		"jobs":    []interface{}{},
-		"note":    "Sync runs synchronously; job history coming in a future release.",
+		"jobs":    listJobs(),
 	})
 }
 
@@ -335,7 +409,9 @@ func (h *CloudSyncHandler) testRemote(w http.ResponseWriter, r *http.Request) {
 	// Support both body JSON and query param
 	remoteName := r.URL.Query().Get("remote")
 	if remoteName == "" {
-		var req struct{ Remote string `json:"remote"` }
+		var req struct {
+			Remote string `json:"remote"`
+		}
 		json.NewDecoder(r.Body).Decode(&req)
 		remoteName = req.Remote
 	}
@@ -366,7 +442,9 @@ func (h *CloudSyncHandler) deleteRemote(w http.ResponseWriter, r *http.Request) 
 	user := r.Header.Get("X-User")
 	remoteName := r.URL.Query().Get("remote")
 	if remoteName == "" {
-		var req struct{ Remote string `json:"remote"` }
+		var req struct {
+			Remote string `json:"remote"`
+		}
 		json.NewDecoder(r.Body).Decode(&req)
 		remoteName = req.Remote
 	}
@@ -396,6 +474,7 @@ func (h *CloudSyncHandler) runSync(w http.ResponseWriter, r *http.Request) {
 		LocalPath string `json:"local_path"`
 		Direction string `json:"direction"` // "upload" or "download"
 		DryRun    bool   `json:"dry_run"`
+		Action    string `json:"action"` // "sync" or "copy"
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		respondErrorSimple(w, "Invalid request", http.StatusBadRequest)
@@ -431,23 +510,64 @@ func (h *CloudSyncHandler) runSync(w http.ResponseWriter, r *http.Request) {
 		dst = req.Remote + ":"
 	}
 
-	args := []string{"sync", src, dst, "--stats-one-line", "--stats", "5s"}
+	// Default rclone sub-command is "sync"; "copy" is supported too.
+	rcloneCmd := "sync"
+	actionLabel := req.Action
+	if req.Action == "copy" {
+		rcloneCmd = "copy"
+	}
+	if actionLabel == "" {
+		actionLabel = "sync"
+	}
+
+	args := []string{rcloneCmd, src, dst, "--stats-one-line", "--stats", "5s"}
 	if req.DryRun {
 		args = append(args, "--dry-run")
 	}
 
-	out, err := runRcloneSlow(args...)
-	audit.LogAction("cloud_sync", user, fmt.Sprintf("Sync %s ↔ %s (%s)", req.Remote, req.LocalPath, req.Direction), err == nil, 0)
-	if err != nil {
-		respondJSON(w, http.StatusOK, map[string]interface{}{
-			"success": false,
-			"error":   strings.TrimSpace(string(out)),
-		})
-		return
+	// Create an in-memory tracking record for this job.
+	cj := &CloudSyncJob{
+		ID:          uuid.New().String(),
+		Provider:    req.Remote,
+		Action:      actionLabel,
+		Source:      src,
+		Destination: dst,
+		Status:      jobs.StatusRunning,
+		StartedAt:   time.Now(),
 	}
+	addCloudJob(cj)
+	cjID := cj.ID
+
+	jobID := jobs.Start("cloud_sync", func(j *jobs.Job) {
+		out, err := runRcloneSlow(args...)
+		audit.LogAction("cloud_sync", user, fmt.Sprintf("Sync %s ↔ %s (%s)", req.Remote, req.LocalPath, req.Direction), err == nil, 0)
+
+		now := time.Now()
+		if err != nil {
+			errMsg := strings.TrimSpace(string(out))
+			j.Fail(errMsg)
+			updateCloudJob(cjID, func(cj *CloudSyncJob) {
+				cj.Status = jobs.StatusFailed
+				cj.FinishedAt = &now
+				cj.Error = errMsg
+			})
+			return
+		}
+		j.Done(map[string]interface{}{"output": strings.TrimSpace(string(out))})
+		updateCloudJob(cjID, func(cj *CloudSyncJob) {
+			cj.Status = jobs.StatusDone
+			cj.FinishedAt = &now
+		})
+	})
+
+	updateCloudJob(cjID, func(cj *CloudSyncJob) {
+		cj.JobID = jobID
+	})
 
 	respondJSON(w, http.StatusOK, map[string]interface{}{
-		"success": true,
-		"output":  strings.TrimSpace(string(out)),
+		"success":      true,
+		"job_id":       jobID,
+		"cloud_job_id": cjID,
+		"message":      fmt.Sprintf("Sync started: %s → %s", src, dst),
 	})
 }

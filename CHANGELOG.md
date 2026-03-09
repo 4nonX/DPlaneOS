@@ -6,6 +6,86 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ---
 
+## v4.1.2 (2026-03-09) — "Completeness"
+
+Upgrade from: v4.1.1 — Drop-in upgrade via `sudo bash install.sh --upgrade`
+
+### Fixed
+
+- **`/api/system/metrics` shape mismatch:** `SupportPage` was showing dashes for
+  CPU model, CPU %, uptime, OS, kernel. `HandleSystemMetrics` now returns all
+  fields the frontend expects: `cpu_model`, `cpu_percent`, `memory_total`,
+  `memory_used`, `uptime`, `os`, `kernel`, `load_avg`. CPU % is sampled over
+  200 ms for accuracy.
+
+- **`HandleSystemSettings` was dead code:** The system tuning handler
+  (ARC limit, swappiness, inotify thresholds) was never registered and returned
+  hardcoded stubs. Now registered at `GET/POST /api/system/tuning`, persists to
+  `ConfigDir/system-settings.json`, and applies immediately to the running
+  system: ARC limit → `/sys/module/zfs/parameters/zfs_arc_max` +
+  `/etc/modprobe.d/zfs.conf`; swappiness → `/proc/sys/vm/swappiness` +
+  `/etc/sysctl.d/99-dplaneos.conf`.
+
+- **`install.sh` fatal-die on systems without Go:** If no pre-built binary is
+  found and Go is not installed, `install.sh` now auto-downloads the release
+  tarball from GitHub Releases, extracts the binary, and continues. Falls back
+  to a clear actionable error message if the download also fails. GitHub URL
+  corrected throughout (`4nonX/D-PlaneOS`).
+
+- **inotify file watching was a stub:** `HybridIndexer.addRealtimeWatch` stored
+  `nil` in the watch map. Now opens a real `inotify_init1` fd per watched path,
+  registers `IN_CREATE | IN_DELETE | IN_MODIFY | IN_MOVED_FROM | IN_MOVED_TO |
+  IN_CLOSE_WRITE`, and drains events in a per-path goroutine. `RemoveWatch`
+  properly closes the fd.
+
+- **Rsync backup task history was always empty:** `GET /api/backup/rsync`
+  returned an empty list on every load. Tasks are now persisted to
+  `ConfigDir/backup-tasks.json`. Each task record captures ID, source,
+  destination, status, start/finish times, exit code, and job ID. Last 50 tasks
+  returned newest-first. New `DELETE /api/backup/rsync/{id}` clears a record.
+
+- **Cloud sync had no job tracking:** `listJobs` always returned empty.
+  Sync and copy actions now create in-memory `CloudSyncJob` records (ID,
+  provider, action, source, destination, status, timing). `GET
+  /api/cloud-sync/jobs` returns the last 20 jobs newest-first.
+
+### Added
+
+- **OS package updates (Debian/Ubuntu):** New `UpdatesPage` tab "OS Packages"
+  surfaces four new endpoints:
+  - `GET /api/system/updates/check` — runs `apt-get update` + `apt list
+    --upgradable`, returns structured package list with security flag, non-blocking via job queue
+  - `POST /api/system/updates/apply` — runs `apt-get upgrade -y`, non-blocking
+  - `POST /api/system/updates/apply-security` — security-only upgrade via
+    `unattended-upgrades`, non-blocking
+  - `GET /api/system/updates/daemon-version` — checks GitHub Releases API,
+    returns current vs latest version with update-available flag
+
+- **ZFS Sandbox page** (`/sandbox`): UI for the existing sandbox backend
+  (ephemeral ZFS clones backed by Docker). Create named sandboxes from any
+  dataset, destroy to revert all changes, clean orphaned volumes.
+
+- **ZFS Delegation page** (`/delegation`): UI for `zfs allow`. Add and revoke
+  fine-grained ZFS permissions per user/group per dataset. Full permission
+  checkbox grid (create, destroy, mount, snapshot, rollback, clone, send,
+  receive, quota, reservation, hold, release).
+
+- **SMART test trigger in Hardware page:** Per-disk "Short Test" and "Long
+  Test" buttons trigger `POST /api/zfs/smart/test`. Results viewable in a modal
+  via `GET /api/zfs/smart/results?device=X`.
+
+### Stats
+
+| Metric | Before | After |
+|--------|--------|-------|
+| Stub/dead handler functions | 3 | 0 |
+| Frontend pages with blank metric fields | 1 | 0 |
+| Missing frontend pages (backend existed) | 2 | 0 |
+| install.sh fatal on no-Go systems | yes | no |
+| Real inotify file watching | no | yes |
+
+---
+
 ## v4.1.1 (2026-03-09) — "Design System"
 
 ### Changed

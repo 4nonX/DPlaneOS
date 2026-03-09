@@ -56,6 +56,8 @@ import { IPMIPage }          from '@/pages/IPMIPage'
 import { HAPage }            from '@/pages/HAPage'
 import { SupportPage }       from '@/pages/SupportPage'
 import { TerminalPage }      from '@/pages/TerminalPage'
+import { SandboxPage }       from '@/pages/SandboxPage'
+import { DelegationPage }    from '@/pages/DelegationPage'
 
 // Silence unused React import warning (needed for JSX in some tsx files)
 void React
@@ -94,42 +96,44 @@ const protectedRoute = createRoute({
 
 // ── Protected children ──────────────────────────────────────────────────────
 
-const dashboardRoute = createRoute({ getParentRoute: () => protectedRoute, path: '/',              component: DashboardPage })
-const poolsRoute     = createRoute({ getParentRoute: () => protectedRoute, path: '/pools',         component: PoolsPage })
-const sharesRoute    = createRoute({ getParentRoute: () => protectedRoute, path: '/shares',        component: SharesPage })
-const nfsRoute       = createRoute({ getParentRoute: () => protectedRoute, path: '/nfs',           component: NFSPage })
-const snapshotsRoute = createRoute({ getParentRoute: () => protectedRoute, path: '/snapshots',     component: SnapshotSchedulerPage })
-const replRoute      = createRoute({ getParentRoute: () => protectedRoute, path: '/replication',   component: ReplicationPage })
-const filesRoute     = createRoute({ getParentRoute: () => protectedRoute, path: '/files',         component: FilesPage })
-const quotasRoute    = createRoute({ getParentRoute: () => protectedRoute, path: '/quotas',        component: QuotasPage })
-const aclRoute       = createRoute({ getParentRoute: () => protectedRoute, path: '/acl',           component: ACLPage })
-const iscsiRoute     = createRoute({ getParentRoute: () => protectedRoute, path: '/iscsi',         component: ISCSIPage })
-const cloudRoute     = createRoute({ getParentRoute: () => protectedRoute, path: '/cloud-sync',    component: CloudSyncPage })
-const dockerRoute    = createRoute({ getParentRoute: () => protectedRoute, path: '/docker',        component: DockerPage })
-const modulesRoute   = createRoute({ getParentRoute: () => protectedRoute, path: '/modules',       component: ModulesPage })
-const gitSyncRoute   = createRoute({ getParentRoute: () => protectedRoute, path: '/git-sync',      component: GitSyncPage })
-const gitOpsRoute    = createRoute({ getParentRoute: () => protectedRoute, path: '/gitops',        component: GitOpsPage })
-const networkRoute   = createRoute({ getParentRoute: () => protectedRoute, path: '/network',       component: NetworkPage })
-const removableRoute = createRoute({ getParentRoute: () => protectedRoute, path: '/removable',     component: RemovableMediaPage })
-const usersRoute     = createRoute({ getParentRoute: () => protectedRoute, path: '/users',         component: UsersPage })
-const directoryRoute = createRoute({ getParentRoute: () => protectedRoute, path: '/directory',     component: DirectoryPage })
-const securityRoute  = createRoute({ getParentRoute: () => protectedRoute, path: '/security',      component: SecurityPage })
-const auditRoute     = createRoute({ getParentRoute: () => protectedRoute, path: '/audit',         component: AuditPage })
-const firewallRoute  = createRoute({ getParentRoute: () => protectedRoute, path: '/firewall',      component: FirewallPage })
-const certsRoute     = createRoute({ getParentRoute: () => protectedRoute, path: '/certificates',  component: CertificatesPage })
-const settingsRoute  = createRoute({ getParentRoute: () => protectedRoute, path: '/settings',      component: SettingsPage })
-const updatesRoute   = createRoute({ getParentRoute: () => protectedRoute, path: '/updates',       component: UpdatesPage })
-const alertsRoute    = createRoute({ getParentRoute: () => protectedRoute, path: '/alerts',        component: AlertsPage })
-const upsRoute       = createRoute({ getParentRoute: () => protectedRoute, path: '/ups',           component: UPSPage })
-const powerRoute     = createRoute({ getParentRoute: () => protectedRoute, path: '/power',         component: PowerPage })
-const hardwareRoute  = createRoute({ getParentRoute: () => protectedRoute, path: '/hardware',      component: HardwarePage })
-const ipmiRoute      = createRoute({ getParentRoute: () => protectedRoute, path: '/ipmi',          component: IPMIPage })
-const haRoute        = createRoute({ getParentRoute: () => protectedRoute, path: '/ha',            component: HAPage })
-const monitoringRoute= createRoute({ getParentRoute: () => protectedRoute, path: '/monitoring',    component: MonitoringPage })
-const logsRoute      = createRoute({ getParentRoute: () => protectedRoute, path: '/logs',          component: LogsPage })
-const reportingRoute = createRoute({ getParentRoute: () => protectedRoute, path: '/reporting',     component: ReportingPage })
-const supportRoute   = createRoute({ getParentRoute: () => protectedRoute, path: '/support',       component: SupportPage })
-const terminalRoute  = createRoute({ getParentRoute: () => protectedRoute, path: '/terminal',      component: TerminalPage })
+const dashboardRoute  = createRoute({ getParentRoute: () => protectedRoute, path: '/',              component: DashboardPage })
+const poolsRoute      = createRoute({ getParentRoute: () => protectedRoute, path: '/pools',         component: PoolsPage })
+const sharesRoute     = createRoute({ getParentRoute: () => protectedRoute, path: '/shares',        component: SharesPage })
+const nfsRoute        = createRoute({ getParentRoute: () => protectedRoute, path: '/nfs',           component: NFSPage })
+const snapshotsRoute  = createRoute({ getParentRoute: () => protectedRoute, path: '/snapshots',     component: SnapshotSchedulerPage })
+const replRoute       = createRoute({ getParentRoute: () => protectedRoute, path: '/replication',   component: ReplicationPage })
+const filesRoute      = createRoute({ getParentRoute: () => protectedRoute, path: '/files',         component: FilesPage })
+const quotasRoute     = createRoute({ getParentRoute: () => protectedRoute, path: '/quotas',        component: QuotasPage })
+const aclRoute        = createRoute({ getParentRoute: () => protectedRoute, path: '/acl',           component: ACLPage })
+const iscsiRoute      = createRoute({ getParentRoute: () => protectedRoute, path: '/iscsi',         component: ISCSIPage })
+const cloudRoute      = createRoute({ getParentRoute: () => protectedRoute, path: '/cloud-sync',    component: CloudSyncPage })
+const sandboxRoute    = createRoute({ getParentRoute: () => protectedRoute, path: '/sandbox',       component: SandboxPage })
+const delegationRoute = createRoute({ getParentRoute: () => protectedRoute, path: '/delegation',    component: DelegationPage })
+const dockerRoute     = createRoute({ getParentRoute: () => protectedRoute, path: '/docker',        component: DockerPage })
+const modulesRoute    = createRoute({ getParentRoute: () => protectedRoute, path: '/modules',       component: ModulesPage })
+const gitSyncRoute    = createRoute({ getParentRoute: () => protectedRoute, path: '/git-sync',      component: GitSyncPage })
+const gitOpsRoute     = createRoute({ getParentRoute: () => protectedRoute, path: '/gitops',        component: GitOpsPage })
+const networkRoute    = createRoute({ getParentRoute: () => protectedRoute, path: '/network',       component: NetworkPage })
+const removableRoute  = createRoute({ getParentRoute: () => protectedRoute, path: '/removable',     component: RemovableMediaPage })
+const usersRoute      = createRoute({ getParentRoute: () => protectedRoute, path: '/users',         component: UsersPage })
+const directoryRoute  = createRoute({ getParentRoute: () => protectedRoute, path: '/directory',     component: DirectoryPage })
+const securityRoute   = createRoute({ getParentRoute: () => protectedRoute, path: '/security',      component: SecurityPage })
+const auditRoute      = createRoute({ getParentRoute: () => protectedRoute, path: '/audit',         component: AuditPage })
+const firewallRoute   = createRoute({ getParentRoute: () => protectedRoute, path: '/firewall',      component: FirewallPage })
+const certsRoute      = createRoute({ getParentRoute: () => protectedRoute, path: '/certificates',  component: CertificatesPage })
+const settingsRoute   = createRoute({ getParentRoute: () => protectedRoute, path: '/settings',      component: SettingsPage })
+const updatesRoute    = createRoute({ getParentRoute: () => protectedRoute, path: '/updates',       component: UpdatesPage })
+const alertsRoute     = createRoute({ getParentRoute: () => protectedRoute, path: '/alerts',        component: AlertsPage })
+const upsRoute        = createRoute({ getParentRoute: () => protectedRoute, path: '/ups',           component: UPSPage })
+const powerRoute      = createRoute({ getParentRoute: () => protectedRoute, path: '/power',         component: PowerPage })
+const hardwareRoute   = createRoute({ getParentRoute: () => protectedRoute, path: '/hardware',      component: HardwarePage })
+const ipmiRoute       = createRoute({ getParentRoute: () => protectedRoute, path: '/ipmi',          component: IPMIPage })
+const haRoute         = createRoute({ getParentRoute: () => protectedRoute, path: '/ha',            component: HAPage })
+const monitoringRoute = createRoute({ getParentRoute: () => protectedRoute, path: '/monitoring',    component: MonitoringPage })
+const logsRoute       = createRoute({ getParentRoute: () => protectedRoute, path: '/logs',          component: LogsPage })
+const reportingRoute  = createRoute({ getParentRoute: () => protectedRoute, path: '/reporting',     component: ReportingPage })
+const supportRoute    = createRoute({ getParentRoute: () => protectedRoute, path: '/support',       component: SupportPage })
+const terminalRoute   = createRoute({ getParentRoute: () => protectedRoute, path: '/terminal',      component: TerminalPage })
 
 // ── Route tree ───────────────────────────────────────────────────────────────
 
@@ -139,6 +143,7 @@ const routeTree = rootRoute.addChildren([
   protectedRoute.addChildren([
     dashboardRoute, poolsRoute, sharesRoute, nfsRoute, snapshotsRoute, replRoute,
     filesRoute, quotasRoute, aclRoute, iscsiRoute, cloudRoute,
+    sandboxRoute, delegationRoute,
     dockerRoute, modulesRoute, gitSyncRoute, gitOpsRoute,
     networkRoute, removableRoute,
     usersRoute, directoryRoute,

@@ -2,18 +2,22 @@
  * pages/HardwarePage.tsx — Hardware Overview
  *
  * APIs:
- *   GET /api/system/health            → RO filesystem, NTP
- *   GET /api/system/disks             → disk list (lsblk) with pool usage
- *   GET /api/zfs/smart                → SMART health per disk
+ *   GET  /api/system/health              → RO filesystem, NTP
+ *   GET  /api/system/disks               → disk list (lsblk) with pool usage
+ *   GET  /api/zfs/smart                  → SMART health per disk
+ *   POST /api/zfs/smart/test             → { device, type } → { success, output, estimate }
+ *   GET  /api/zfs/smart/results?device=X → { success, device, results }
  */
 
 import { useState, useEffect } from 'react'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { ErrorState } from '@/components/ui/ErrorState'
-import { LoadingState, Skeleton } from '@/components/ui/LoadingSpinner'
+import { LoadingState, Skeleton, Spinner } from '@/components/ui/LoadingSpinner'
 import { Icon } from '@/components/ui/Icon'
+import { Modal } from '@/components/ui/Modal'
 import { useWsStore } from '@/stores/ws'
+import { toast } from '@/hooks/useToast'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -57,11 +61,95 @@ interface SMARTResponse {
   disks:   SMARTDisk[]
 }
 
+interface SMARTTestResponse {
+  success:  boolean
+  device?:  string
+  type?:    string
+  estimate?: string
+  output?:  string
+  error?:   string
+}
+
+interface SMARTResultsResponse {
+  success:  boolean
+  device?:  string
+  results?: string
+  error?:   string
+}
+
+// ---------------------------------------------------------------------------
+// SmartResultsModal
+// ---------------------------------------------------------------------------
+
+function SmartResultsModal({ device, onClose }: { device: string; onClose: () => void }) {
+  const { data, isLoading, isError, error } = useQuery({
+    queryKey: ['smart', 'results', device],
+    queryFn: ({ signal }) =>
+      api.get<SMARTResultsResponse>(`/api/zfs/smart/results?device=${encodeURIComponent(device)}`, signal),
+  })
+
+  return (
+    <Modal title={`SMART Test Results — /dev/${device}`} onClose={onClose} size="lg">
+      <div style={{ padding: '0 0 4px' }}>
+        {isLoading && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '16px 0', color: 'var(--text-secondary)', fontSize: 'var(--text-sm)' }}>
+            <Spinner size={16} />
+            Loading results…
+          </div>
+        )}
+        {isError && <ErrorState error={error} title="Failed to load results" />}
+        {data && !data.success && (
+          <div className="alert alert-error">
+            <Icon name="error" size={16} />
+            {data.error ?? 'Failed to retrieve results'}
+          </div>
+        )}
+        {data?.success && (
+          <pre style={{
+            fontFamily: 'var(--font-mono)',
+            fontSize: 'var(--text-xs)',
+            color: 'var(--text-secondary)',
+            background: 'var(--surface)',
+            border: '1px solid var(--border)',
+            borderRadius: 'var(--radius-sm)',
+            padding: '14px 16px',
+            overflowX: 'auto',
+            whiteSpace: 'pre-wrap',
+            wordBreak: 'break-word',
+            maxHeight: 420,
+            overflowY: 'auto',
+            margin: 0,
+          }}>
+            {data.results || '(no results)'}
+          </pre>
+        )}
+      </div>
+      <div className="modal-footer">
+        <button className="btn btn-ghost" onClick={onClose}>Close</button>
+      </div>
+    </Modal>
+  )
+}
+
 // ---------------------------------------------------------------------------
 // DiskRow
 // ---------------------------------------------------------------------------
 
-function DiskRow({ disk, smart }: { disk: DiskInfo; smart?: SMARTDisk }) {
+interface DiskRowProps {
+  disk: DiskInfo
+  smart?: SMARTDisk
+  onShortTest: () => void
+  onLongTest:  () => void
+  onViewResults: () => void
+  isTestRunning: boolean
+  testResult: SMARTTestResponse | null
+}
+
+function DiskRow({
+  disk, smart,
+  onShortTest, onLongTest, onViewResults,
+  isTestRunning, testResult,
+}: DiskRowProps) {
   const passed     = smart?.smart_status?.passed
   const temp       = smart?.temperature?.current
   const tempWarn   = smart?.temp_warning
@@ -72,70 +160,123 @@ function DiskRow({ disk, smart }: { disk: DiskInfo; smart?: SMARTDisk }) {
     <div style={{
       padding: '14px 16px', background: 'rgba(255,255,255,0.02)',
       border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)',
-      display: 'flex', alignItems: 'center', gap: 16,
     }}>
-      {/* Disk icon */}
-      <Icon
-        name={disk.type === 'SSD' || disk.type === 'NVMe' ? 'memory' : 'hard_drive'}
-        size={32} style={{ color: 'var(--primary)', flexShrink: 0 }}
-      />
+      {/* Main row */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+        {/* Disk icon */}
+        <Icon
+          name={disk.type === 'SSD' || disk.type === 'NVMe' ? 'memory' : 'hard_drive'}
+          size={32} style={{ color: 'var(--primary)', flexShrink: 0 }}
+        />
 
-      {/* Info */}
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontWeight: 600, fontSize: 'var(--text-md)', marginBottom: 2 }}>
-          /dev/{disk.name}
-          {disk.model && (
-            <span style={{ fontWeight: 400, color: 'var(--text-secondary)', marginLeft: 8, fontSize: 'var(--text-sm)' }}>
-              {disk.model}
-            </span>
-          )}
+        {/* Info */}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontWeight: 600, fontSize: 'var(--text-md)', marginBottom: 2 }}>
+            /dev/{disk.name}
+            {disk.model && (
+              <span style={{ fontWeight: 400, color: 'var(--text-secondary)', marginLeft: 8, fontSize: 'var(--text-sm)' }}>
+                {disk.model}
+              </span>
+            )}
+          </div>
+          <div style={{ display: 'flex', gap: 16, fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', flexWrap: 'wrap' }}>
+            <span>{disk.size}</span>
+            {disk.type && <span>{disk.type}</span>}
+            {disk.serial && <span style={{ fontFamily: 'var(--font-mono)' }}>{disk.serial}</span>}
+            {hours !== undefined && <span>{hours.toLocaleString()}h power-on</span>}
+          </div>
         </div>
-        <div style={{ display: 'flex', gap: 16, fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', flexWrap: 'wrap' }}>
-          <span>{disk.size}</span>
-          {disk.type && <span>{disk.type}</span>}
-          {disk.serial && <span style={{ fontFamily: 'var(--font-mono)' }}>{disk.serial}</span>}
-          {hours !== undefined && <span>{hours.toLocaleString()}h power-on</span>}
+
+        {/* Temperature */}
+        {temp !== undefined && (
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 4,
+            color: tempWarn === 'critical' ? 'var(--error)' : tempWarn === 'warning' ? 'var(--warning)' : 'var(--text-secondary)',
+            fontSize: 'var(--text-sm)', flexShrink: 0,
+          }}>
+            <Icon name="thermostat" size={16} />
+            {temp}°C
+          </div>
+        )}
+
+        {/* In-use badge */}
+        <span style={{
+          padding: '3px 8px', borderRadius: 'var(--radius-xs)', fontSize: 'var(--text-xs)', fontWeight: 600,
+          background: disk.in_use ? 'var(--primary-bg)' : 'var(--surface)',
+          color: disk.in_use ? 'var(--primary)' : 'var(--text-secondary)',
+          border: `1px solid ${disk.in_use ? 'rgba(138,156,255,0.25)' : 'var(--border)'}`,
+          flexShrink: 0,
+        }}>
+          {disk.in_use ? 'In use' : 'Free'}
+        </span>
+
+        {/* SMART status */}
+        {hasError ? (
+          <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', flexShrink: 0 }}>SMART N/A</span>
+        ) : smart ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+            <Icon
+              name={passed ? 'check_circle' : 'error'}
+              size={18}
+              style={{ color: passed ? 'var(--success)' : 'var(--error)' }}
+            />
+            <span style={{ fontSize: 'var(--text-xs)', color: passed ? 'var(--success)' : 'var(--error)', fontWeight: 600 }}>
+              {passed ? 'SMART OK' : 'SMART FAIL'}
+            </span>
+          </div>
+        ) : null}
+
+        {/* SMART test buttons */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+          {isTestRunning ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>
+              <Spinner size={14} />
+              <span>Running…</span>
+            </div>
+          ) : (
+            <>
+              <button
+                className="btn btn-ghost"
+                onClick={onShortTest}
+                title="Run short SMART self-test (~2 min)"
+                style={{ fontSize: 'var(--text-xs)', padding: '4px 10px' }}
+              >
+                Short Test
+              </button>
+              <button
+                className="btn btn-ghost"
+                onClick={onLongTest}
+                title="Run long SMART self-test (hours)"
+                style={{ fontSize: 'var(--text-xs)', padding: '4px 10px' }}
+              >
+                Long Test
+              </button>
+              <button
+                className="btn btn-ghost"
+                onClick={onViewResults}
+                title="View last SMART test results"
+                style={{ fontSize: 'var(--text-xs)', padding: '4px 10px' }}
+              >
+                <Icon name="analytics" size={14} style={{ marginRight: 4 }} />
+                View Results
+              </button>
+            </>
+          )}
         </div>
       </div>
 
-      {/* Temperature */}
-      {temp !== undefined && (
-        <div style={{
-          display: 'flex', alignItems: 'center', gap: 4,
-          color: tempWarn === 'critical' ? 'var(--error)' : tempWarn === 'warning' ? 'var(--warning)' : 'var(--text-secondary)',
-          fontSize: 'var(--text-sm)', flexShrink: 0,
-        }}>
-          <Icon name="thermostat" size={16} />
-          {temp}°C
+      {/* Test result banner (shown inline under this disk row) */}
+      {testResult && !isTestRunning && (
+        <div
+          className={testResult.success ? 'alert alert-success' : 'alert alert-error'}
+          style={{ marginTop: 10, fontSize: 'var(--text-xs)' }}
+        >
+          <Icon name={testResult.success ? 'check_circle' : 'error'} size={14} />
+          {testResult.success
+            ? `${testResult.type === 'long' ? 'Long' : 'Short'} test started — estimated duration: ${testResult.estimate ?? 'unknown'}`
+            : testResult.error ?? 'Test failed'}
         </div>
       )}
-
-      {/* In-use badge */}
-      <span style={{
-        padding: '3px 8px', borderRadius: 'var(--radius-xs)', fontSize: 'var(--text-xs)', fontWeight: 600,
-        background: disk.in_use ? 'var(--primary-bg)' : 'var(--surface)',
-        color: disk.in_use ? 'var(--primary)' : 'var(--text-secondary)',
-        border: `1px solid ${disk.in_use ? 'rgba(138,156,255,0.25)' : 'var(--border)'}`,
-        flexShrink: 0,
-      }}>
-        {disk.in_use ? 'In use' : 'Free'}
-      </span>
-
-      {/* SMART status */}
-      {hasError ? (
-        <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', flexShrink: 0 }}>SMART N/A</span>
-      ) : smart ? (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
-          <Icon
-            name={passed ? 'check_circle' : 'error'}
-            size={18}
-            style={{ color: passed ? 'var(--success)' : 'var(--error)' }}
-          />
-          <span style={{ fontSize: 'var(--text-xs)', color: passed ? 'var(--success)' : 'var(--error)', fontWeight: 600 }}>
-            {passed ? 'SMART OK' : 'SMART FAIL'}
-          </span>
-        </div>
-      ) : null}
     </div>
   )
 }
@@ -158,6 +299,37 @@ export function HardwarePage() {
       qc.invalidateQueries({ queryKey: ['zfs', 'smart'] })
     })
   }, [wsOn, qc])
+
+  // Per-disk test state: which disk is running, results per disk
+  const [runningDevice, setRunningDevice]   = useState<string | null>(null)
+  const [testResults, setTestResults]       = useState<Record<string, SMARTTestResponse>>({})
+  const [resultsModalDevice, setResultsModalDevice] = useState<string | null>(null)
+
+  const smartTestMutation = useMutation({
+    mutationFn: (vars: { device: string; type: 'short' | 'long' }) =>
+      api.post<SMARTTestResponse>('/api/zfs/smart/test', vars),
+    onMutate: (vars) => {
+      setRunningDevice(vars.device)
+      setTestResults((prev) => {
+        const next = { ...prev }
+        delete next[vars.device]
+        return next
+      })
+    },
+    onSuccess: (data, vars) => {
+      setRunningDevice(null)
+      setTestResults((prev) => ({ ...prev, [vars.device]: data }))
+      if (data.success) {
+        toast.success(`SMART ${vars.type} test started on /dev/${vars.device}`)
+      } else {
+        toast.error(`SMART test failed: ${data.error ?? 'Unknown error'}`)
+      }
+    },
+    onError: (err, vars) => {
+      setRunningDevice(null)
+      toast.error(`Failed to start SMART test on /dev/${vars.device}: ${(err as Error).message}`)
+    },
+  })
 
   const disksQ = useQuery({
     queryKey: ['system', 'disks'],
@@ -257,7 +429,16 @@ export function HardwarePage() {
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {disks.map(d => (
-            <DiskRow key={d.name} disk={d} smart={smartByDevice[d.name]} />
+            <DiskRow
+              key={d.name}
+              disk={d}
+              smart={smartByDevice[d.name]}
+              isTestRunning={runningDevice === d.name}
+              testResult={testResults[d.name] ?? null}
+              onShortTest={() => smartTestMutation.mutate({ device: d.name, type: 'short' })}
+              onLongTest={() => smartTestMutation.mutate({ device: d.name, type: 'long' })}
+              onViewResults={() => setResultsModalDevice(d.name)}
+            />
           ))}
         </div>
       </div>
@@ -318,6 +499,14 @@ export function HardwarePage() {
       {/* SMART loading / error */}
       {smartQ.isLoading && <Skeleton height={80} borderRadius="var(--radius-xl)" />}
       {smartQ.isError && <ErrorState error={smartQ.error} title="SMART data unavailable" />}
+
+      {/* SMART Results Modal */}
+      {resultsModalDevice && (
+        <SmartResultsModal
+          device={resultsModalDevice}
+          onClose={() => setResultsModalDevice(null)}
+        />
+      )}
     </div>
   )
 }

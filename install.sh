@@ -369,6 +369,54 @@ INSTALL_PHASE=5
 step "Phase 5/12: Daemon binary"
 # ────────────────────────────────────────────────────────────────────────────
 
+# try_download_binary: download a pre-built release tarball from GitHub when
+# no Go toolchain is present and no pre-built binary was found locally.
+try_download_binary() {
+    local dl_arch
+    case "$(uname -m)" in
+        x86_64)        dl_arch="amd64" ;;
+        aarch64|arm64) dl_arch="arm64" ;;
+        *)
+            echo ""
+            echo "ERROR: No Go toolchain found and auto-download failed."
+            echo "  Download the release tarball from: https://github.com/4nonX/D-PlaneOS/releases/latest"
+            echo "  Extract it and run install.sh from the extracted directory."
+            exit 1
+            ;;
+    esac
+
+    local tarball_url="https://github.com/4nonX/D-PlaneOS/releases/latest/download/dplaneos-v${DPLANEOS_VERSION}-linux-${dl_arch}.tar.gz"
+    local tmp_tar
+    tmp_tar=$(mktemp --suffix=".tar.gz")
+
+    info "No Go toolchain found — attempting binary download for linux-${dl_arch}..."
+    info "  URL: ${tarball_url}"
+
+    if curl -fsSL --max-time 120 -o "$tmp_tar" "$tarball_url" 2>/dev/null; then
+        mkdir -p "${INSTALL_DIR}/build"
+        if tar -xzf "$tmp_tar" -C "${INSTALL_DIR}/build" --wildcards --no-anchored 'dplaned' 2>/dev/null \
+            || tar -xzf "$tmp_tar" -O --wildcards --no-anchored 'dplaned' > "${INSTALL_DIR}/build/dplaned" 2>/dev/null; then
+            chmod +x "${INSTALL_DIR}/build/dplaned"
+            log "Binary downloaded and extracted to ${INSTALL_DIR}/build/dplaned"
+        else
+            rm -f "$tmp_tar"
+            echo ""
+            echo "ERROR: No Go toolchain found and auto-download failed."
+            echo "  Download the release tarball from: https://github.com/4nonX/D-PlaneOS/releases/latest"
+            echo "  Extract it and run install.sh from the extracted directory."
+            exit 1
+        fi
+        rm -f "$tmp_tar"
+    else
+        rm -f "$tmp_tar"
+        echo ""
+        echo "ERROR: No Go toolchain found and auto-download failed."
+        echo "  Download the release tarball from: https://github.com/4nonX/D-PlaneOS/releases/latest"
+        echo "  Extract it and run install.sh from the extracted directory."
+        exit 1
+    fi
+}
+
 BINARY_SRC=""
 
 # Arch to ELF identifier mapping
@@ -441,10 +489,7 @@ elif command -v go &>/dev/null; then
     cd "$SCRIPT_DIR"
     log "Built from source"
 else
-    die "No pre-built binary for $ARCH_TAG and Go is not installed.
-  Option A: Install Go  →  https://go.dev/dl/  then re-run install.sh
-  Option B: Download pre-built binary for $ARCH_TAG from:
-            https://github.com/4nonX/dplaneos/releases/v${DPLANEOS_VERSION}"
+    try_download_binary
 fi
 
 INSTALL_PHASE=6
