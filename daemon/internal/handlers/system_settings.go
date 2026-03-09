@@ -270,8 +270,8 @@ func HandleSystemMetrics(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// ── Load average ─────────────────────────────────────────
-	if loadAvg, err := readLoadAvg(); err == nil {
-		metrics.LoadAvg = loadAvg
+	if l1, l5, l15, err := readLoadAvg(); err == nil {
+		metrics.LoadAvg = []float64{l1, l5, l15}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -492,23 +492,4 @@ func readKernelVersion() (string, error) {
 	return strings.TrimSpace(out.String()), nil
 }
 
-// readLoadAvg parses /proc/loadavg and returns the first three fields.
-func readLoadAvg() ([]float64, error) {
-	data, err := os.ReadFile("/proc/loadavg")
-	if err != nil {
-		return nil, err
-	}
-	fields := strings.Fields(string(data))
-	if len(fields) < 3 {
-		return nil, fmt.Errorf("unexpected /proc/loadavg format")
-	}
-	result := make([]float64, 3)
-	for i := 0; i < 3; i++ {
-		v, err := strconv.ParseFloat(fields[i], 64)
-		if err != nil {
-			return nil, err
-		}
-		result[i] = v
-	}
-	return result, nil
-}
+// readLoadAvg is defined in prometheus.go — returns (load1, load5, load15 float64, err error)
