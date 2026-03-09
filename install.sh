@@ -344,7 +344,7 @@ INSTALL_PHASE=4
 step "Phase 4/12: Installing files"
 # ────────────────────────────────────────────────────────────────────────────
 
-mkdir -p "$INSTALL_DIR" /var/lib/dplaneos/{backups,git-stacks} /var/log/dplaneos /etc/dplaneos
+mkdir -p "$INSTALL_DIR" /var/lib/dplaneos/{backups,git-stacks,custom_icons} /var/log/dplaneos /etc/dplaneos
 
 if $OPT_UPGRADE; then
     # rsync: skip DB files, keep user data

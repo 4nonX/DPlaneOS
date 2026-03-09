@@ -21,6 +21,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { Icon } from '@/components/ui/Icon'
+import { ContainerIcon } from '@/components/ui/ContainerIcon'
 import { ErrorState } from '@/components/ui/ErrorState'
 import { Skeleton } from '@/components/ui/LoadingSpinner'
 import { JobProgress } from '@/components/ui/JobProgress'
@@ -48,6 +49,7 @@ interface Container {
   web_links?:   WebLink[]
   stack?:       string
   resources?:   Resources
+  Labels?:      Record<string, string>  // Docker labels — includes dplaneos.icon
 }
 
 interface Stack {
@@ -137,6 +139,11 @@ function LogsModal({ containerName, onClose }: { containerName: string; onClose:
 // ---------------------------------------------------------------------------
 
 function ContainerRow({ container, onRefresh }: { container: Container; onRefresh: () => void }) {
+  const iconMapQ = useQuery({
+    queryKey: ['docker', 'icon-map'],
+    queryFn: ({ signal }) => api.get<IconMapResponse>('/api/docker/icon-map', signal),
+    staleTime: 60 * 60 * 1000,
+  })
   const [showLogs, setShowLogs] = useState(false)
   const [actionPending, setActionPending] = useState<string | null>(null)
 
@@ -160,8 +167,18 @@ function ContainerRow({ container, onRefresh }: { container: Container; onRefres
       >
         {/* Name + image */}
         <td style={{ padding: '14px 16px' }}>
-          <div style={{ fontWeight: 600, fontSize: 'var(--text-sm)' }}>{container.name.replace(/^\//, '')}</div>
-          <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', fontFamily: 'var(--font-mono)', marginTop: 2 }}>{container.image}</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <ContainerIcon
+              image={container.image}
+              labels={container.Labels}
+              iconMap={iconMapQ.data?.map}
+              size={24}
+            />
+            <div>
+              <div style={{ fontWeight: 600, fontSize: 'var(--text-sm)' }}>{container.name.replace(/^\//, '')}</div>
+              <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', fontFamily: 'var(--font-mono)', marginTop: 2 }}>{container.image}</div>
+            </div>
+          </div>
         </td>
 
         {/* State */}
@@ -262,6 +279,9 @@ function ContainerRow({ container, onRefresh }: { container: Container; onRefres
 // ContainersTab
 // ---------------------------------------------------------------------------
 
+interface IconMapEntry { match: string; icon: string }
+interface IconMapResponse { success: boolean; map: IconMapEntry[] }
+
 function ContainersTab() {
   const qc   = useQueryClient()
   const wsOn = useWsStore((s) => s.on)
@@ -269,8 +289,10 @@ function ContainersTab() {
   const containersQ = useQuery({
     queryKey: ['docker', 'containers'],
     queryFn: ({ signal }) => api.get<ContainersResponse>('/api/docker/containers', signal),
-    refetchInterval: 15_000, // reduced — WS stateUpdate supplements
+    refetchInterval: 15_000,
   })
+
+
 
   // WS stateUpdate fires every ~30s from daemon background monitor.
   // Use it as a push-triggered refetch so container state stays live.

@@ -17,10 +17,14 @@ import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { Icon } from '@/components/ui/Icon'
+import { ContainerIcon } from '@/components/ui/ContainerIcon'
 import { ErrorState } from '@/components/ui/ErrorState'
 import { Skeleton } from '@/components/ui/LoadingSpinner'
 import { JobProgress } from '@/components/ui/JobProgress'
 import { toast } from '@/hooks/useToast'
+
+interface IconMapEntry { match: string; icon: string }
+interface IconMapResponse { success: boolean; map: IconMapEntry[] }
 
 // ---------------------------------------------------------------------------
 // Types
@@ -52,7 +56,7 @@ interface JobStartResponse { job_id: string }
 // StackCard
 // ---------------------------------------------------------------------------
 
-function StackCard({ stack, onRefresh }: { stack: ComposeStack; onRefresh: () => void }) {
+function StackCard({ stack, onRefresh, iconMap }: { stack: ComposeStack; onRefresh: () => void; iconMap?: IconMapEntry[] }) {
   const [jobId, setJobId] = useState<string | null>(null)
   const [jobLabel, setJobLabel] = useState('')
 
@@ -72,7 +76,7 @@ function StackCard({ stack, onRefresh }: { stack: ComposeStack; onRefresh: () =>
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 16, marginBottom: 16 }}>
         <div style={{ width: 44, height: 44, background: 'var(--primary-bg)', border: '1px solid rgba(138,156,255,0.2)', borderRadius: 'var(--radius-md)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-          <Icon name="deployed_code" size={22} style={{ color: 'var(--primary)' }} />
+          <ContainerIcon image={stack.name} iconMap={iconMap} size={22} />
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontWeight: 700, fontSize: 'var(--text-lg)', marginBottom: 2 }}>{stack.name}</div>
@@ -154,6 +158,11 @@ export function ModulesPage() {
     queryFn: ({ signal }) => api.get<GitStacksResponse>('/api/git-sync/stacks', signal),
     refetchInterval: 30_000,
   })
+  const iconMapQ = useQuery({
+    queryKey: ['docker', 'icon-map'],
+    queryFn: ({ signal }) => api.get<IconMapResponse>('/api/docker/icon-map', signal),
+    staleTime: 60 * 60 * 1000,
+  })
 
   function refresh() {
     qc.invalidateQueries({ queryKey: ['docker', 'compose', 'status'] })
@@ -218,7 +227,7 @@ export function ModulesPage() {
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: 20 }}>
         {filtered.map(stack => (
-          <StackCard key={stack.name} stack={stack} onRefresh={refresh} />
+          <StackCard key={stack.name} stack={stack} onRefresh={refresh} iconMap={iconMapQ.data?.map} />
         ))}
       </div>
     </div>

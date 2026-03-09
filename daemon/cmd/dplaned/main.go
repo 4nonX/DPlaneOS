@@ -364,6 +364,10 @@ func main() {
 	// Docker handlers
 	dockerHandler := handlers.NewDockerHandler()
 	r.HandleFunc("/api/docker/containers", dockerHandler.ListContainers).Methods("GET")
+	r.HandleFunc("/api/docker/icon-map", handlers.HandleDockerIconMap).Methods("GET")
+	// Custom icon assets — served from /var/lib/dplaneos/custom_icons/
+	r.HandleFunc("/api/assets/custom-icons/list", handlers.HandleCustomIconList).Methods("GET")
+	r.PathPrefix("/api/assets/custom-icons/").HandlerFunc(handlers.HandleCustomIconFile).Methods("GET")
 	r.Handle("/api/docker/action", permRoute("docker", "write", dockerHandler.ContainerAction)).Methods("POST")
 	r.HandleFunc("/api/docker/logs", dockerHandler.ContainerLogs).Methods("GET")
 	// v3.0.0: Docker enhanced
