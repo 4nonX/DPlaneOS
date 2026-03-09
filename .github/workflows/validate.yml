@@ -86,7 +86,7 @@ jobs:
       - name: Initialise database
         run: |
           sudo mkdir -p /var/lib/dplaneos
-          sudo bash scripts/init-database-with-lock.sh
+          sudo bash install/scripts/init-database-with-lock.sh
 
       - name: Start daemon
         run: |

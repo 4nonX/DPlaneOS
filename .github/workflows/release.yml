@@ -100,12 +100,12 @@ jobs:
 
       - name: Extract release notes and title
         run: |
-          python3 scripts/extract-release-notes.py "$VERSION" CHANGELOG.md > /tmp/release-notes.md
+          python3 install/scripts/extract-release-notes.py "$VERSION" docs/reference/CHANGELOG.md > /tmp/release-notes.md
           echo "Release notes extracted"
           head -3 /tmp/release-notes.md
           # Extract codename from heading: v4.1.1 (2026-03-09) — "Design System" → Design System
-          CODENAME=$(grep "^## v${VERSION}" CHANGELOG.md | sed 's/.*— "\(.*\)"/\1/' | head -1)
-          DATE=$(grep "^## v${VERSION}" CHANGELOG.md | grep -oP '\d{4}-\d{2}-\d{2}' | head -1)
+          CODENAME=$(grep "^## v${VERSION}" docs/reference/CHANGELOG.md | sed 's/.*— "\(.*\)"/\1/' | head -1)
+          DATE=$(grep "^## v${VERSION}" docs/reference/CHANGELOG.md | grep -oP '\d{4}-\d{2}-\d{2}' | head -1)
           RELEASE_TITLE="v${VERSION} (${DATE}) — \"${CODENAME}\""
           echo "RELEASE_TITLE=$RELEASE_TITLE" >> $GITHUB_ENV
           echo "Title: $RELEASE_TITLE"
@@ -124,16 +124,10 @@ jobs:
             --exclude='.git' \
             --exclude='legacy' \
             --exclude='app-built' \
-            app/ build/dplaned build/.gitkeep daemon/ scripts/ systemd/ nixos/ udev/ zed/ \
-            config/ docs/ \
+            app/ build/dplaned build/.gitkeep daemon/ install/ nixos/ docs/ \
             .github/ .gitattributes .gitignore \
-            install.sh get.sh Makefile nginx-dplaneos.conf VERSION LICENSE \
-            README.md CHANGELOG.md \
-            ADMIN-GUIDE.md INSTALLATION-GUIDE.md SECURITY.md THREAT-MODEL.md \
-            TROUBLESHOOTING.md CONTRIBUTING.md DEPENDENCIES.md ERROR-REFERENCE.md \
-            HARDWARE-COMPATIBILITY.md NON-ECC-WARNING.md RECOVERY.md \
-            SHOWSTOPPER-MITIGATION-GUIDE.md \
-            CLA-INDIVIDUAL.md CLA-ENTITY.md
+            install.sh get.sh Makefile VERSION LICENSE \
+            README.md CONTRIBUTING.md SECURITY.md CLA-INDIVIDUAL.md CLA-ENTITY.md
 
           echo "TARBALL=$TARBALL" >> $GITHUB_ENV
           echo "Tarball: $(du -h $TARBALL | cut -f1)"
