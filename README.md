@@ -2,7 +2,7 @@
 
 ZFS-first NAS operating system for homelab and small-office deployments. Runs as a single Go daemon behind nginx, backed by SQLite, with a React UI served locally — no cloud dependencies, no mandatory subscriptions.
 
-**Current version:** 4.3.0 &nbsp;|&nbsp; **License:** AGPLv3 &nbsp;|&nbsp; **Platforms:** Debian · Ubuntu · Raspberry Pi OS · NixOS
+**Current version:** 4.3.1 &nbsp;|&nbsp; **License:** AGPLv3 &nbsp;|&nbsp; **Platforms:** Debian · Ubuntu · Raspberry Pi OS · NixOS
 
 ---
 
