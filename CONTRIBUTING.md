@@ -12,7 +12,7 @@ cd D-PlaneOS
 # Build the daemon
 cd daemon && go build -o dplaned ./cmd/dplaned && cd ..
 
-# Run locally (will use /tmp/dplaneos-dev.db)
+# Run locally (uses /tmp/dplaneos-dev.db)
 sudo ./daemon/dplaned -db /tmp/dplaneos-dev.db -backup-path ""
 
 # Frontend dev server (hot reload, proxies API to daemon)
@@ -24,30 +24,33 @@ npm run dev
 ## Project Structure
 
 ```
-dplaneos/
+D-PlaneOS/
 ├── daemon/                     # Go backend
 │   ├── cmd/dplaned/            # Entry point (main.go, schema.go, routes)
 │   └── internal/
-│       ├── handlers/           # HTTP handlers (one file per feature)
+│       ├── handlers/           # HTTP handlers (one file per feature area)
 │       ├── jobs/               # Async job store (in-memory, ephemeral)
-│       ├── audit/              # Audit logging
-│       ├── cmdutil/            # Safe command execution (timeout-aware)
+│       ├── audit/              # Audit logging (buffered, HMAC chain)
+│       ├── cmdutil/            # Safe exec.Command wrappers (timeout-aware)
 │       ├── netlinkx/           # Netlink syscalls (no CGO, no ip(8))
 │       └── security/           # CSRF, session validation, command whitelist
 ├── app/                        # Built frontend (output of `npm run build`)
 │   ├── index.html              # SPA entry point
-│   ├── assets/                 # Vite-built JS/CSS bundles + bundled fonts
-│   └── modules/                # Installable module definitions
+│   └── assets/                 # Vite-built JS/CSS bundles + self-hosted fonts
 ├── app-react/                  # Frontend source (React 19 + TypeScript + Vite)
-│   ├── src/
-│   │   ├── routes/             # TanStack Router pages (one file per page)
-│   │   ├── components/         # Shared components (layout, ui/)
-│   │   ├── stores/             # Zustand stores (auth, websocket)
-│   │   ├── hooks/              # Shared hooks (useJob, useToast, etc.)
-│   │   └── lib/api.ts          # Typed API client (CSRF, session, 401 redirect)
-│   └── vite.config.ts
-├── nixos/                      # NixOS module + setup scripts
-└── nginx-dplaneos.conf         # Reference nginx config
+│   └── src/
+│       ├── routes/             # TanStack Router pages (one file per page)
+│       ├── components/         # Shared components (layout, ui/)
+│       ├── stores/             # Zustand stores (auth, websocket)
+│       ├── hooks/              # Shared hooks (useJob, useToast, etc.)
+│       └── lib/api.ts          # Typed API client (CSRF, session, 401 redirect)
+├── docs/                       # All documentation
+├── scripts/                    # Install-time and operational scripts
+├── systemd/                    # systemd unit files
+├── udev/                       # udev rules (hot-swap, removable media)
+├── zed/                        # ZED hook for real-time ZFS event notification
+├── nixos/                      # NixOS module and setup scripts
+└── nginx-dplaneos.conf         # Reference nginx configuration
 ```
 
 ## How to Contribute
@@ -65,32 +68,32 @@ dplaneos/
 ### Suggesting Features
 
 Open an issue tagged `enhancement`. Describe:
-- The use case (not just the feature)
+- The use case, not just the feature
 - How it fits with D-PlaneOS's focus (NAS appliance, not general-purpose Linux)
-- Any API/UI mockups if applicable
+- API or UI mockups if applicable
 
 ### Submitting Code
 
-1. **Fork** the repository and create a feature branch: `git checkout -b feat/my-feature`
-2. **Follow the conventions below**
-3. **Test your change** — run `cd daemon && go test ./...`
-4. **Open a PR** against `main` with a clear description
+1. Fork the repository and create a feature branch: `git checkout -b feat/my-feature`
+2. Follow the conventions below
+3. Test your change: `cd daemon && go test ./...`
+4. Open a PR against `main` with a clear description
 
 ## Coding Conventions
 
 ### Backend (Go)
 
-- **One handler file per feature area** — don't add unrelated code to existing files
-- **Validate before executing** — all user input must be validated with allowlist patterns before any exec/syscall
-- **No shell=true, no fmt.Sprintf for commands** — use `cmdutil.RunFast()` / `cmdutil.RunSlow()`
+- **One handler file per feature area** — do not add unrelated code to existing files
+- **Validate before executing** — all user input must pass allowlist validation before any exec or syscall
+- **No `shell=true`, no `fmt.Sprintf` for commands** — use `cmdutil.RunFast()` / `cmdutil.RunSlow()`
 - **New exec commands** require an entry in `internal/security/whitelist.go` — no exceptions
-- **Error handling** — always return a JSON error via `respondErrorSimple()`, never `http.Error()` on API routes
+- **Error handling** — return JSON errors via `respondErrorSimple()`, never `http.Error()` on API routes
 - **Audit logging** — use `audit.LogAction()` for any state-changing operation
 - **Long-running operations** — use `jobs.Start()` and return the job ID immediately; never block the HTTP connection
 - **Tests** — add tests in `_test.go` files; table-driven tests preferred
 
 ```go
-// Good: validated, audited, error-handled
+// Correct: validated, audited, error-handled
 func (h *MyHandler) DoThing(w http.ResponseWriter, r *http.Request) {
     user := r.Header.Get("X-User")
     var req struct { Name string `json:"name"` }
@@ -107,7 +110,7 @@ func (h *MyHandler) DoThing(w http.ResponseWriter, r *http.Request) {
     respondJSON(w, http.StatusOK, map[string]interface{}{"success": true})
 }
 
-// Good: long-running operation returned as async job
+// Correct: long-running operation returned as async job
 func (h *MyHandler) DoSlowThing(w http.ResponseWriter, r *http.Request) {
     jobID := jobs.Start("slow_thing", func(j *jobs.Job) {
         output, err := cmdutil.RunSlow("zfs", "send", "-R", snapshot)
@@ -118,38 +121,15 @@ func (h *MyHandler) DoSlowThing(w http.ResponseWriter, r *http.Request) {
 }
 ```
 
-### Frontend (TypeScript/React)
+### Frontend (TypeScript / React)
 
 - **TanStack Query for all data fetching** — use `useQuery` / `useMutation`, not raw `fetch`
 - **Always use `api.get/post/put/delete`** from `src/lib/api.ts` — handles CSRF, session headers, and 401 redirect
 - **Long-running mutations** — use the `useJob` hook to poll `GET /api/jobs/{id}` after receiving a `job_id`
-- **Always handle errors** — every mutation needs an `onError` handler with a `toast.error()` call
-- **Use `toast` from `useToast`** for user feedback — never `alert()`
-- **Use `<Icon name="..." />` from `src/components/ui/Icon.tsx`** for all icons (Material Symbols Rounded)
-- **Design tokens** — use CSS variables; no hardcoded colours
-
-```tsx
-// Good: typed, error-handled, with async job polling
-function DeleteShare({ id, name }: { id: number; name: string }) {
-    const { toast } = useToast();
-    const queryClient = useQueryClient();
-
-    const mutation = useMutation({
-        mutationFn: () => api.delete(`/api/shares/${id}`),
-        onSuccess: () => {
-            toast.success(`Deleted "${name}"`);
-            queryClient.invalidateQueries({ queryKey: ['shares'] });
-        },
-        onError: (e) => toast.error(e.message),
-    });
-
-    return (
-        <button onClick={() => mutation.mutate()} disabled={mutation.isPending}>
-            Delete
-        </button>
-    );
-}
-```
+- **Error handling** — every mutation needs an `onError` handler with a `toast.error()` call
+- **User feedback** — use `toast` from `useToast()`; never use `alert()`
+- **Icons** — use `<Icon name="..." />` from `src/components/ui/Icon.tsx` (Material Symbols Rounded)
+- **Styling** — use CSS variables; no hardcoded colours
 
 ## Building for Release
 
@@ -167,6 +147,7 @@ go build -mod=vendor -tags "sqlite_fts5" \
 ## Security Requirements for PRs
 
 All PRs touching the backend must:
+
 - [ ] Validate all input with allowlist patterns before use
 - [ ] Use parameterized SQL queries (never string concatenation)
 - [ ] Not introduce new exec calls outside `cmdutil` + `whitelist.go`
@@ -174,7 +155,7 @@ All PRs touching the backend must:
 - [ ] Include audit logging for state changes
 - [ ] Use `jobs.Start()` for any operation that may take more than a few seconds
 
-PRs that introduce security issues will be closed without merge regardless of other quality.
+PRs that introduce security regressions will be closed without merge.
 
 ## License
 

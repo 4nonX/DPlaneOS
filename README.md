@@ -1,136 +1,115 @@
-# D-PlaneOS — ZFS-first NAS Operating System
+# D-PlaneOS
 
-ZFS-first NAS operating system for advanced homelab operators.
-Designed around immutability, safe container lifecycle management, and reproducible infrastructure.
+ZFS-first NAS operating system for advanced homelab and small-office deployments.
 
-## Quick Start
+---
 
-### Ubuntu / Debian
+## Quick Install
+
 ```bash
 tar xzf dplaneos-*.tar.gz
 cd dplaneos
 sudo bash install.sh
 ```
 
-Access the web UI at `http://your-server` immediately after install.
+Access the web UI at `http://your-server-ip` immediately after install. The installer prints a randomly generated admin password at completion; you are required to change it on first login.
 
-**Default login:** `admin` / `admin` — change immediately after first login.
-
-> **Rebuilding from source?** You need Go 1.22+ and gcc: `make build` compiles fresh.
-
-### NixOS
+**NixOS:**
 ```bash
 cd nixos
 sudo bash setup-nixos.sh
 sudo nixos-rebuild switch --flake .#dplaneos
 ```
 
-See [nixos/README.md](nixos/README.md) for the complete NixOS guide.
-
-### Off-Pool Database Backup (recommended for large pools)
-
-Edit `/etc/systemd/system/dplaned.service` and add `-backup-path`:
-```
-ExecStart=/opt/dplaneos/daemon/dplaned -db /var/lib/dplaneos/dplaneos.db -backup-path /mnt/usb/dplaneos.db.backup
-```
-Creates a `VACUUM INTO` backup on startup and every 24 hours.
+**Rebuilding from source:** Go 1.22+ and gcc are required — `make build` compiles everything from scratch.
 
 ---
 
 ## Features
 
-- **Storage:** ZFS pools, datasets, snapshots, replication, encryption, quotas, SMART monitoring, file explorer with chunked uploads
-- **Sharing:** SMB / AFP / Time Machine, NFS exports, iSCSI block targets — all managed via the UI
-- **Compute:** Docker container management, Compose stacks, ephemeral sandbox clones, safe rollback-aware updates
-- **Network:** Interface config, bonding, VLANs, routing, DNS
-- **Identity:** Users, groups, LDAP / Active Directory, 2FA, API tokens
-- **Security:** RBAC (4 roles, 34 permissions), audit log with HMAC integrity chain, firewall, TLS certificates
-- **System:** Settings, logs, UPS management, IPMI / sensors, hardware detection, cloud sync (rclone), HA node monitoring
-- **GitOps:** Git-sync repositories, state reconciliation
-- **UI:** Material Design 3, dark theme, responsive, keyboard shortcuts, realtime metrics WebSocket
+**Storage:** ZFS pools, datasets, snapshots, replication, encryption, quotas, S.M.A.R.T. monitoring, file explorer with chunked uploads, hot-swap disk detection with automatic pool re-import.
 
-### Safe Container Updates
-`POST /api/docker/update` — ZFS snapshot → pull → restart → health check. On failure: instant rollback. Updates are atomic: either the new image runs cleanly, or the previous state is restored automatically.
+**Sharing:** SMB / AFP / Time Machine, NFS exports, iSCSI block targets — all managed via the UI.
 
-### ZFS Time Machine
-Browse any snapshot like a folder. Find a deleted file from yesterday, restore just that one file — no full rollback needed.
+**Compute:** Docker container management, Compose stacks, ephemeral sandbox clones, safe rollback-aware updates.
 
-### Ephemeral Docker Sandbox
-Test any container on a ZFS clone (zero disk cost). Stop the container, the clone disappears. No residue.
+**Network:** Interface configuration, bonding, VLANs, routing, DNS.
 
-### ZFS Health Predictor
-Deep pool health monitoring: per-disk error tracking, checksum error detection, risk levels (low / medium / high / critical), S.M.A.R.T. integration. Warns you before a disk dies, not after.
+**Identity:** Users, groups, LDAP / Active Directory, 2FA (TOTP), API tokens.
 
-### NixOS Config Guard
-On NixOS systems: validate `configuration.nix` before applying, list / rollback generations, dry-activate checks. Cannot brick your system.
+**Security:** RBAC (4 roles, 34 permissions), bcrypt passwords, HMAC audit chain, CSRF protection, firewall management, TLS certificates.
 
-### ZFS Replication (Remote)
-Native `zfs send | ssh remote zfs recv` — block-level replication that transfers only changed blocks and preserves all snapshots on the remote. Substantially faster than rsync for large datasets because only deltas are transferred after the initial seed.
+**System:** Dashboard, logs, UPS management, IPMI / sensors, hardware detection, cloud sync (rclone), HA node monitoring.
 
----
+**GitOps:** Git-sync repositories, state reconciliation.
 
-## HA Node Monitoring
-
-D-PlaneOS includes lightweight active/standby node monitoring: standby nodes heartbeat the active node and alert if it becomes unreachable. Manual promotion is available via API.
-
-**What this is:** A coordination layer to prevent accidental pool imports on standby nodes, with a clean manual failover workflow.
-
-**What this is not:** A replacement for Pacemaker/Corosync. There is no STONITH, no automatic failover, and no split-brain protection. Do not use for production HA without independent fencing at the infrastructure level.
-
----
-
-Install separately; auto-detected and fully managed by D-PlaneOS once present.
-
-| Protocol | Install command | Notes |
-|---|---|---|
-| SMB / Windows shares | `sudo apt install samba` | D-PlaneOS writes and manages `smb.conf` |
-| AFP / Time Machine (macOS) | included with Samba | Uses Samba's `fruit` module — no extra package |
-| NFS exports | `sudo apt install nfs-kernel-server` | D-PlaneOS writes `/etc/exports` and runs `exportfs -ra` |
-| iSCSI block targets | `sudo apt install targetcli-fb` | D-PlaneOS manages LIO targets via `targetcli` |
-| UPS monitoring | `sudo apt install nut` | D-PlaneOS reads status via `upsc` |
-
-If a protocol package is not installed, the UI shows a clear message with the install command rather than returning an error.
-
----
-
-## LDAP / Active Directory
-
-Navigate to **Identity → Directory Service** to configure. Supports:
-
-- Active Directory, OpenLDAP, FreeIPA (one-click presets)
-- Group → Role mapping (auto-assign permissions)
-- Full directory sync: fetches all matching users, upserts into local accounts with correct roles
-- Just-In-Time user provisioning on first login
-- Background sync with audit trail
-- TLS 1.2+ enforced
+**UI:** Material Design 3, dark theme, responsive, realtime metrics via WebSocket.
 
 ---
 
 ## Architecture
 
-- **Frontend:** HTML5 + Material Design 3, flyout navigation, no framework dependencies
-- **Backend:** Go daemon (`dplaned`, ~8 MB) on port 9000, 256 API routes
-- **Database:** SQLite with WAL mode, `synchronous=FULL`, daily `.backup` (WAL-safe)
-- **Web Server:** nginx reverse proxy (TLS termination)
-- **Storage:** ZFS (native kernel module) + ZED hook for real-time disk failure alerts
-- **Security:** Allowlist-based input validation on all exec.Command calls, RBAC (4 roles, 34 permissions), HMAC audit chain, OOM-protected (1 GB limit)
-- **NixOS:** Full support via Flake — entire NAS defined in a single `configuration.nix`
+| Component | Details |
+|-----------|---------|
+| Frontend | React 19 + TypeScript + Vite, pre-built, zero runtime dependencies |
+| Backend | Go daemon (`dplaned`, ~8 MB), port 9000, ~256 API routes |
+| Database | SQLite with WAL mode, FTS5 full-text search, daily `VACUUM INTO` backup |
+| Web server | nginx reverse proxy |
+| Storage | ZFS kernel module + ZED hook for real-time disk failure alerts |
+| Auth | bcrypt, TOTP 2FA, session tokens, CSRF double-submit |
+
+---
+
+## Optional Protocols
+
+Install separately; auto-detected and fully managed by D-PlaneOS once present.
+
+| Protocol | Install |
+|----------|---------|
+| SMB / Windows shares and AFP / Time Machine | `sudo apt install samba` |
+| NFS exports | `sudo apt install nfs-kernel-server` |
+| iSCSI block targets | `sudo apt install targetcli-fb` |
+| UPS monitoring | `sudo apt install nut` |
 
 ---
 
 ## Documentation
 
-- [`CHANGELOG.md`](CHANGELOG.md) — Full version history
-- [`INSTALLATION-GUIDE.md`](INSTALLATION-GUIDE.md) — Detailed installation steps
-- [`ADMIN-GUIDE.md`](ADMIN-GUIDE.md) — Full administration guide
-- [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md) — Build issues, ZED setup, common fixes
-- [`ERROR-REFERENCE.md`](ERROR-REFERENCE.md) — API error codes and diagnostics
-- [`SECURITY.md`](SECURITY.md) — Security policy and architecture
-- [`CONTRIBUTING.md`](CONTRIBUTING.md) — How to contribute
-- [`nixos/README.md`](nixos/README.md) — NixOS installation and configuration
+### Getting Started
+
+- [Installation Guide](docs/admin/INSTALLATION-GUIDE.md) — system requirements, install steps, upgrade, uninstall
+- [Administrator Guide](docs/admin/ADMIN-GUIDE.md) — users, roles, storage, containers, LDAP, custom icons
+- [Troubleshooting](docs/admin/TROUBLESHOOTING.md) — build issues, ZED setup, common failures, recovery
+- [Recovery Guide](docs/admin/RECOVERY.md) — database recovery, authentication recovery, ZFS recovery, rollback
+
+### Reference
+
+- [Changelog](docs/reference/CHANGELOG.md) — full version history
+- [Error Reference](docs/reference/ERROR-REFERENCE.md) — API error codes and diagnostics
+- [Showstopper Mitigation Guide](docs/reference/SHOWSTOPPER-MITIGATION-GUIDE.md) — honest assessment of limitations and workarounds
+- [Threat Model](docs/reference/THREAT-MODEL.md) — security architecture, threats, mitigations, known gaps
+- [Dependencies](docs/reference/DEPENDENCIES.md) — bundled and system dependencies, build instructions
+
+### Hardware
+
+- [Hardware Compatibility](docs/hardware/HARDWARE-COMPATIBILITY.md) — supported CPUs, RAM, storage, network, auto-tuning
+- [Non-ECC Warning](docs/hardware/NON-ECC-WARNING.md) — ZFS on non-ECC RAM: risks, mitigations, decision guidance
+
+### Development
+
+- [Contributing](CONTRIBUTING.md) — how to contribute, coding conventions, security requirements
+- [Codebase Diagram](docs/development/CODEBASE-DIAGRAM.md) — architecture diagrams (Mermaid)
+- [NixOS Guide](nixos/README.md) — NixOS module, flake setup, declarative configuration
+
+### Legal
+
+- [License](LICENSE) — GNU AGPLv3
+- [Individual CLA](CLA-INDIVIDUAL.md) — contributor license agreement for individuals
+- [Entity CLA](CLA-ENTITY.md) — contributor license agreement for organisations
+- [Security Policy](SECURITY.md) — vulnerability reporting and safe harbour
 
 ---
 
 ## License
 
-Licensed under the [GNU Affero General Public License v3.0 (AGPLv3)](https://www.gnu.org/licenses/agpl-3.0.html). See LICENSE file and CLA-INDIVIDUAL.md.
+Licensed under the [GNU Affero General Public License v3.0 (AGPLv3)](https://www.gnu.org/licenses/agpl-3.0.html).
