@@ -721,7 +721,7 @@ log "nginx configured (port ${OPT_PORT})"
 # Fonts are served from /opt/dplaneos/app/assets/fonts/ so the SPA works
 # completely offline after install. If the download fails, UI falls back to
 # system-ui and monospace — fully functional, just different look.
-if bash "${INSTALL_DIR}/scripts/download-fonts.sh" "${INSTALL_DIR}/app/assets/fonts" 2>&1; then
+if bash "${INSTALL_DIR}/install/scripts/download-fonts.sh" "${INSTALL_DIR}/app/assets/fonts" 2>&1; then
     log "Web fonts ready (offline mode)"
 else
     warn "Font download failed — UI will use system fonts (no functionality impact)"
@@ -795,11 +795,11 @@ step "Phase 11/12: Services"
 # ────────────────────────────────────────────────────────────────────────────
 
 # ZFS mount gate
-if [ -f "${INSTALL_DIR}/systemd/dplaneos-zfs-mount-wait.service" ]; then
-    cp "${INSTALL_DIR}/systemd/dplaneos-zfs-mount-wait.service" /etc/systemd/system/
+if [ -f "${INSTALL_DIR}/install/systemd/dplaneos-zfs-mount-wait.service" ]; then
+    cp "${INSTALL_DIR}/install/systemd/dplaneos-zfs-mount-wait.service" /etc/systemd/system/
     mkdir -p /etc/systemd/system/docker.service.d
-    [ -f "${INSTALL_DIR}/systemd/docker.service.d/zfs-dependency.conf" ] \
-        && cp "${INSTALL_DIR}/systemd/docker.service.d/zfs-dependency.conf" \
+    [ -f "${INSTALL_DIR}/install/systemd/docker.service.d/zfs-dependency.conf" ] \
+        && cp "${INSTALL_DIR}/install/systemd/docker.service.d/zfs-dependency.conf" \
               /etc/systemd/system/docker.service.d/
     systemctl enable dplaneos-zfs-mount-wait.service 2>/dev/null || true
     log "ZFS mount gate installed"
@@ -808,8 +808,8 @@ else
 fi
 
 # DB init service (must start before dplaned and dplaneos-realtime)
-if [ -f "${INSTALL_DIR}/systemd/dplaneos-init-db.service" ]; then
-    cp "${INSTALL_DIR}/systemd/dplaneos-init-db.service" /etc/systemd/system/
+if [ -f "${INSTALL_DIR}/install/systemd/dplaneos-init-db.service" ]; then
+    cp "${INSTALL_DIR}/install/systemd/dplaneos-init-db.service" /etc/systemd/system/
     systemctl enable dplaneos-init-db.service 2>/dev/null || true
     log "DB init service installed"
 else
@@ -817,8 +817,8 @@ else
 fi
 
 # Realtime monitor service
-if [ -f "${INSTALL_DIR}/systemd/dplaneos-realtime.service" ]; then
-    cp "${INSTALL_DIR}/systemd/dplaneos-realtime.service" /etc/systemd/system/
+if [ -f "${INSTALL_DIR}/install/systemd/dplaneos-realtime.service" ]; then
+    cp "${INSTALL_DIR}/install/systemd/dplaneos-realtime.service" /etc/systemd/system/
     systemctl enable dplaneos-realtime.service 2>/dev/null || true
     log "Realtime monitor service installed"
 else
@@ -826,8 +826,8 @@ else
 fi
 
 # Main daemon service
-if [ -f "${INSTALL_DIR}/systemd/dplaned.service" ]; then
-    cp "${INSTALL_DIR}/systemd/dplaned.service" /etc/systemd/system/dplaned.service
+if [ -f "${INSTALL_DIR}/install/systemd/dplaned.service" ]; then
+    cp "${INSTALL_DIR}/install/systemd/dplaned.service" /etc/systemd/system/dplaned.service
 else
     cat > /etc/systemd/system/dplaned.service <<UNIT
 [Unit]
@@ -879,45 +879,45 @@ else
 fi
 
 # Recovery CLI
-if [ -f "${INSTALL_DIR}/scripts/recovery-cli.sh" ]; then
-    cp "${INSTALL_DIR}/scripts/recovery-cli.sh" /usr/local/bin/dplaneos-recovery
+if [ -f "${INSTALL_DIR}/install/scripts/recovery-cli.sh" ]; then
+    cp "${INSTALL_DIR}/install/scripts/recovery-cli.sh" /usr/local/bin/dplaneos-recovery
     chmod +x /usr/local/bin/dplaneos-recovery
     log "Recovery CLI: /usr/local/bin/dplaneos-recovery"
 fi
 
 # udev rules — removable media + hot-swap pool disks
-if [ -f "${INSTALL_DIR}/udev/99-dplaneos-removable-media.rules" ]; then
-    cp "${INSTALL_DIR}/udev/99-dplaneos-removable-media.rules" /etc/udev/rules.d/
+if [ -f "${INSTALL_DIR}/install/udev/99-dplaneos-removable-media.rules" ]; then
+    cp "${INSTALL_DIR}/install/udev/99-dplaneos-removable-media.rules" /etc/udev/rules.d/
     log "udev: removable media rules installed"
 else
-    warn "udev/99-dplaneos-removable-media.rules not found — USB detection unavailable"
+    warn "install/udev/99-dplaneos-removable-media.rules not found — USB detection unavailable"
 fi
-if [ -f "${INSTALL_DIR}/udev/99-dplaneos-hotswap.rules" ]; then
-    cp "${INSTALL_DIR}/udev/99-dplaneos-hotswap.rules" /etc/udev/rules.d/
+if [ -f "${INSTALL_DIR}/install/udev/99-dplaneos-hotswap.rules" ]; then
+    cp "${INSTALL_DIR}/install/udev/99-dplaneos-hotswap.rules" /etc/udev/rules.d/
     log "udev: hot-swap rules installed"
 else
-    warn "udev/99-dplaneos-hotswap.rules not found — hot-swap pool disk detection unavailable"
+    warn "install/udev/99-dplaneos-hotswap.rules not found — hot-swap pool disk detection unavailable"
 fi
 udevadm control --reload-rules 2>/dev/null && log "udev rules reloaded" || warn "udevadm reload failed (rules will apply on reboot)"
 
 # Hot-swap notification scripts
-mkdir -p "${INSTALL_DIR}/scripts"
+mkdir -p "${INSTALL_DIR}/install/scripts"
 for script in \
     notify-device-added.sh \
     notify-device-removed.sh \
     notify-disk-added.sh \
     notify-disk-removed.sh; do
-    if [ -f "${INSTALL_DIR}/scripts/${script}" ]; then
-        chmod +x "${INSTALL_DIR}/scripts/${script}"
-        log "scripts/${script} installed and marked executable"
+    if [ -f "${INSTALL_DIR}/install/scripts/${script}" ]; then
+        chmod +x "${INSTALL_DIR}/install/scripts/${script}"
+        log "install/scripts/${script} marked executable"
     else
-        warn "scripts/${script} not found — some udev notifications may not fire"
+        warn "install/scripts/${script} not found — some udev notifications may not fire"
     fi
 done
 
 # Watchdog cron
-if [ -f "${INSTALL_DIR}/scripts/dplaneos-watchdog.sh" ]; then
-    cp "${INSTALL_DIR}/scripts/dplaneos-watchdog.sh" /usr/local/bin/dplaneos-watchdog
+if [ -f "${INSTALL_DIR}/install/scripts/dplaneos-watchdog.sh" ]; then
+    cp "${INSTALL_DIR}/install/scripts/dplaneos-watchdog.sh" /usr/local/bin/dplaneos-watchdog
     chmod +x /usr/local/bin/dplaneos-watchdog
     (crontab -l 2>/dev/null | grep -q dplaneos-watchdog) \
         || { crontab -l 2>/dev/null; echo "*/5 * * * * /usr/local/bin/dplaneos-watchdog >/dev/null 2>&1"; } | crontab -
@@ -930,8 +930,8 @@ INSTALL_PHASE=12
 step "Phase 12/12: Validation"
 # ────────────────────────────────────────────────────────────────────────────
 
-if [ -f "${INSTALL_DIR}/scripts/post-install-validation.sh" ]; then
-    bash "${INSTALL_DIR}/scripts/post-install-validation.sh" \
+if [ -f "${INSTALL_DIR}/install/scripts/post-install-validation.sh" ]; then
+    bash "${INSTALL_DIR}/install/scripts/post-install-validation.sh" \
         && log "All checks passed" \
         || warn "Some checks failed — run: sudo dplaneos-recovery"
 fi

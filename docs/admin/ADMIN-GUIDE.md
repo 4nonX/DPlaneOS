@@ -173,7 +173,7 @@ Settings → System → Network → configure interface, IP address, gateway, an
 
 ### Notifications
 
-Settings → System → Notifications — configure SMTP for email alerts. The ZED hook also supports direct Telegram alerts for critical ZFS events (pool degraded, disk faulted). See `zed/dplaneos-notify.sh` for configuration details (reads `telegram_config` from the database).
+Settings → System → Notifications — configure SMTP for email alerts. The ZED hook also supports direct Telegram alerts for critical ZFS events (pool degraded, disk faulted). See `install/zed/dplaneos-notify.sh` for configuration details (reads `telegram_config` from the database).
 
 ---
 

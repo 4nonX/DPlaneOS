@@ -62,7 +62,7 @@ The daemon creates a `VACUUM INTO` backup on startup and every 24 hours.
 
 **Fix:**
 ```bash
-sudo cp /opt/dplaneos/zed/dplaneos-notify.sh /etc/zfs/zed.d/
+sudo cp /opt/dplaneos/install/zed/dplaneos-notify.sh /etc/zfs/zed.d/
 sudo chmod +x /etc/zfs/zed.d/dplaneos-notify.sh
 sudo systemctl restart zed
 ```

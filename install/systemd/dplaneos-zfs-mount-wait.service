@@ -9,7 +9,7 @@ Before=docker.service dplaned.service
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-ExecStart=/opt/dplaneos/scripts/zfs-mount-wait.sh
+ExecStart=/opt/dplaneos/install/scripts/zfs-mount-wait.sh
 TimeoutStartSec=300
 StandardOutput=journal
 StandardError=journal

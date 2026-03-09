@@ -59,7 +59,7 @@ if [ -z "$UPS_DETECTED" ]; then
     warn "No UPS detected"
     info "If you have a UPS:"
     info "  1. Connect it via USB"
-    info "  2. Run: sudo /opt/dplaneos/scripts/ups-setup.sh"
+    info "  2. Run: sudo /opt/dplaneos/install/scripts/ups-setup.sh"
     echo ""
     info "UPS support installed but not configured"
     exit 0
@@ -147,7 +147,7 @@ MONITOR dplaneos-ups@localhost 1 dplaneos $MONITOR_PASSWORD master
 SHUTDOWNCMD "/sbin/shutdown -h +0"
 
 # Notify command
-NOTIFYCMD /opt/dplaneos/scripts/ups-notify.sh
+NOTIFYCMD /opt/dplaneos/install/scripts/ups-notify.sh
 
 # Notification flags
 NOTIFYFLAG ONBATT   SYSLOG+WALL+EXEC
@@ -187,9 +187,9 @@ log "nut.conf configured"
 
 info "Creating notification script..."
 
-mkdir -p /opt/dplaneos/scripts
+mkdir -p /opt/dplaneos/install/scripts
 
-cat > /opt/dplaneos/scripts/ups-notify.sh <<'EONOTIFY'
+cat > /opt/dplaneos/install/scripts/ups-notify.sh <<'EONOTIFY'
 #!/bin/bash
 #
 # UPS Event Notification Script
@@ -201,7 +201,7 @@ UPS="$2"
 case "$NOTIFYTYPE" in
     ONBATT)
         # On battery power
-        /opt/dplaneos/scripts/create-alert.sh \
+        /opt/dplaneos/install/scripts/create-alert.sh \
             "ups_battery" \
             "warning" \
             "UPS: On Battery Power" \
@@ -210,7 +210,7 @@ case "$NOTIFYTYPE" in
         ;;
     LOWBATT)
         # Low battery
-        /opt/dplaneos/scripts/create-alert.sh \
+        /opt/dplaneos/install/scripts/create-alert.sh \
             "ups_low_battery" \
             "critical" \
             "UPS: Low Battery!" \
@@ -219,7 +219,7 @@ case "$NOTIFYTYPE" in
         ;;
     ONLINE)
         # Back on AC power
-        /opt/dplaneos/scripts/create-alert.sh \
+        /opt/dplaneos/install/scripts/create-alert.sh \
             "ups_online" \
             "info" \
             "UPS: Power Restored" \
@@ -228,7 +228,7 @@ case "$NOTIFYTYPE" in
         ;;
     REPLBATT)
         # Replace battery
-        /opt/dplaneos/scripts/create-alert.sh \
+        /opt/dplaneos/install/scripts/create-alert.sh \
             "ups_replace_battery" \
             "warning" \
             "UPS: Replace Battery" \
@@ -242,7 +242,7 @@ case "$NOTIFYTYPE" in
 esac
 EONOTIFY
 
-chmod +x /opt/dplaneos/scripts/ups-notify.sh
+chmod +x /opt/dplaneos/install/scripts/ups-notify.sh
 
 log "Notification script created"
 

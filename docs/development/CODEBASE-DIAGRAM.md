@@ -109,7 +109,7 @@ sequenceDiagram
 %%{init: {'theme':'base'}}%%
 flowchart TD
     A["Physical disk connected"] --> B["udev: 99-dplaneos-hotswap.rules"]
-    B --> C["scripts/notify-disk-added.sh"]
+    B --> C["install/scripts/notify-disk-added.sh"]
     C --> D["POST /api/internal/disk-event\n(localhost only)"]
     D --> E["Enrich device\n(by-id, WWN, size, type, temp)"]
     E --> F["Upsert disk registry (SQLite)"]

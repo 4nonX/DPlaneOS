@@ -37,19 +37,19 @@ install:
 	sudo mkdir -p /var/lib/dplaneos/notifications
 	sudo mkdir -p /run/dplaneos
 	sudo install -m 755 $(BUILD_DIR)/$(BINARY_NAME) $(INSTALL_DIR)/daemon/
-	sudo install -m 644 systemd/dplaned.service /etc/systemd/system/
+	sudo install -m 644 install/systemd/dplaned.service /etc/systemd/system/
 	sudo cp -r app/* $(INSTALL_DIR)/app/ 2>/dev/null || true
-	sudo cp scripts/*.sh $(INSTALL_DIR)/scripts/ 2>/dev/null && sudo chmod +x $(INSTALL_DIR)/scripts/*.sh || true
+	sudo cp install/scripts/*.sh $(INSTALL_DIR)/install/scripts/ 2>/dev/null && sudo chmod +x $(INSTALL_DIR)/install/scripts/*.sh || true
 	# ZED hook for real-time ZFS event notification
 	@if [ -d /etc/zfs/zed.d ]; then \
-		sudo install -m 755 zed/dplaneos-notify.sh /etc/zfs/zed.d/ && \
-		echo "✓ ZED hook installed"; \
+		sudo install -m 755 install/zed/dplaneos-notify.sh /etc/zfs/zed.d/ && \
+		echo "ZED hook installed"; \
 	else \
-		echo "⚠ /etc/zfs/zed.d not found — ZED hook skipped (install ZFS first)"; \
+		echo "Warning: /etc/zfs/zed.d not found — ZED hook skipped (install ZFS first)"; \
 	fi
 	# udev rules for removable media detection
-	sudo install -m 644 udev/99-dplaneos-removable-media.rules /etc/udev/rules.d/ 2>/dev/null && \
-		sudo udevadm control --reload-rules 2>/dev/null && echo "✓ udev rules installed" || true
+	sudo install -m 644 install/udev/99-dplaneos-removable-media.rules /etc/udev/rules.d/ 2>/dev/null && \
+		sudo udevadm control --reload-rules 2>/dev/null && echo "udev rules installed" || true
 	sudo systemctl daemon-reload
 	@echo ""
 	@echo "═══════════════════════════════════════"
@@ -94,7 +94,7 @@ audit:
 	sudo tail -f /var/log/dplaneos/audit.log
 
 help:
-	@echo "D-PlaneOS v3.3.0 Build System"
+	@echo "D-PlaneOS Build System"
 	@echo ""
 	@echo "Targets:"
 	@echo "  deps         - Resolve Go dependencies (needs internet)"

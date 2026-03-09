@@ -9,22 +9,22 @@
 # SATA/SAS disk added (whole disk, non-USB)
 ACTION=="add", SUBSYSTEM=="block", KERNEL=="sd[a-z]", ENV{DEVTYPE}=="disk", \
     ENV{ID_BUS}!="usb", \
-    RUN+="/opt/dplaneos/scripts/notify-disk-added.sh '%E{DEVNAME}' 'sata' '%E{ID_SERIAL}' '%E{ID_WWN}'"
+    RUN+="/opt/dplaneos/install/scripts/notify-disk-added.sh '%E{DEVNAME}' 'sata' '%E{ID_SERIAL}' '%E{ID_WWN}'"
 
 # SATA/SAS disk removed (whole disk, non-USB)
 ACTION=="remove", SUBSYSTEM=="block", KERNEL=="sd[a-z]", ENV{DEVTYPE}=="disk", \
     ENV{ID_BUS}!="usb", \
-    RUN+="/opt/dplaneos/scripts/notify-disk-removed.sh '%E{DEVNAME}' 'sata' '%E{ID_SERIAL}'"
+    RUN+="/opt/dplaneos/install/scripts/notify-disk-removed.sh '%E{DEVNAME}' 'sata' '%E{ID_SERIAL}'"
 
 # NVMe disk added
 ACTION=="add", SUBSYSTEM=="block", KERNEL=="nvme[0-9]*n[0-9]*", ENV{DEVTYPE}=="disk", \
-    RUN+="/opt/dplaneos/scripts/notify-disk-added.sh '%E{DEVNAME}' 'nvme' '%E{ID_SERIAL}' '%E{ID_WWN}'"
+    RUN+="/opt/dplaneos/install/scripts/notify-disk-added.sh '%E{DEVNAME}' 'nvme' '%E{ID_SERIAL}' '%E{ID_WWN}'"
 
 # NVMe disk removed
 ACTION=="remove", SUBSYSTEM=="block", KERNEL=="nvme[0-9]*n[0-9]*", ENV{DEVTYPE}=="disk", \
-    RUN+="/opt/dplaneos/scripts/notify-disk-removed.sh '%E{DEVNAME}' 'nvme' '%E{ID_SERIAL}'"
+    RUN+="/opt/dplaneos/install/scripts/notify-disk-removed.sh '%E{DEVNAME}' 'nvme' '%E{ID_SERIAL}'"
 
 # SAS/SCSI disk added (sd* with SCSI bus, takes priority over generic sata rule above)
 ACTION=="add", SUBSYSTEM=="block", KERNEL=="sd[a-z]", ENV{DEVTYPE}=="disk", \
     ENV{ID_BUS}=="scsi", \
-    RUN+="/opt/dplaneos/scripts/notify-disk-added.sh '%E{DEVNAME}' 'sas' '%E{ID_SERIAL}' '%E{ID_WWN}'"
+    RUN+="/opt/dplaneos/install/scripts/notify-disk-added.sh '%E{DEVNAME}' 'sas' '%E{ID_SERIAL}' '%E{ID_WWN}'"

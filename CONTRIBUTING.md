@@ -45,12 +45,14 @@ D-PlaneOS/
 │       ├── hooks/              # Shared hooks (useJob, useToast, etc.)
 │       └── lib/api.ts          # Typed API client (CSRF, session, 401 redirect)
 ├── docs/                       # All documentation
-├── scripts/                    # Install-time and operational scripts
-├── systemd/                    # systemd unit files
-├── udev/                       # udev rules (hot-swap, removable media)
-├── zed/                        # ZED hook for real-time ZFS event notification
-├── nixos/                      # NixOS module and setup scripts
-└── nginx-dplaneos.conf         # Reference nginx configuration
+├── install/                    # Install-time system files (copied to /opt/dplaneos/install/)
+│   ├── config/                 # Default configuration templates
+│   ├── scripts/                # Operational and install-time scripts
+│   ├── systemd/                # systemd unit files
+│   ├── udev/                   # udev rules (hot-swap, removable media)
+│   ├── zed/                    # ZED hook for real-time ZFS event notification
+│   └── nginx-dplaneos.conf     # Reference nginx configuration
+└── nixos/                      # NixOS module and setup scripts
 ```
 
 ## How to Contribute

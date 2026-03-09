@@ -248,7 +248,7 @@ fi
 # 9. Create security monitoring script
 echo -e "${YELLOW}[9/10] Setting up security monitoring...${NC}"
 
-cat > /opt/dplaneos/scripts/security-monitor.sh <<'EOF'
+cat > /opt/dplaneos/install/scripts/security-monitor.sh <<'EOF'
 #!/bin/bash
 # Security monitoring script
 # Run via cron every 5 minutes
@@ -277,10 +277,10 @@ if [ "$DISK_USAGE" -gt 90 ]; then
 fi
 EOF
 
-chmod +x /opt/dplaneos/scripts/security-monitor.sh
+chmod +x /opt/dplaneos/install/scripts/security-monitor.sh
 
 # Add to crontab
-(crontab -l 2>/dev/null; echo "*/5 * * * * /opt/dplaneos/scripts/security-monitor.sh") | crontab -
+(crontab -l 2>/dev/null; echo "*/5 * * * * /opt/dplaneos/install/scripts/security-monitor.sh") | crontab -
 
 echo -e "${GREEN}✓ Security monitoring configured${NC}"
 
