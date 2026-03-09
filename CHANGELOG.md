@@ -6,6 +6,81 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ---
 
+## v4.3.0 (2026-03-09) — "Automation"
+
+Upgrade from: v4.2.0 — Drop-in upgrade via `sudo bash install.sh --upgrade`
+
+### Fixed
+
+- **DEGRADED pools were never alerted on:** `pool_heartbeat.go` only caught
+  SUSPENDED/UNAVAIL. Now detects DEGRADED via `zpool list -H -o name,health`
+  every 30 seconds and fires a WARNING-level alert through all channels.
+  Per-pool per-event de-duplication prevents spam; clears when pool recovers.
+
+- **All alert channels were dead code:** `SendWebhookAlert`, `SendSMTPAlert`,
+  and Telegram were defined but had zero callers for pool/disk/capacity events.
+  New `alert_dispatch.go` provides `DispatchAlert(level, event, resource, msg)`
+  as a single call site. All subsystems now route through it.
+
+- **Webhook body templates were ignored:** UI allowed template variables but
+  backend sent fixed JSON regardless. Now rendered via `strings.NewReplacer`.
+  Custom `Content-Type` header also honoured.
+
+- **`ReplaceDisk` never returned a `job_id`:** Now runs async via job queue;
+  `job_id` returned immediately so UI can poll progress.
+
+- **Resilver progress was unparsed raw text:** New `HandleResilverStatus`
+  (`GET /api/zfs/resilver/status`) parses `percent_done`, `bytes_done`,
+  `eta`, `errors`, `completed`. PoolsPage shows live progress bar with ETA.
+
+- **Snapshot cron written to wrong directory:** Fixed from `ConfigDir/cron-snapshots`
+  to `/etc/cron.d/dplaneos-snapshots`.
+
+- **SMART prediction logic was dead code:** `TranslateSMARTAttribute()` now
+  called by `GET /api/zfs/smart/predict` and a 6-hour background monitor
+  that fires `DispatchAlert` on warning/critical predictions.
+
+### Added
+
+- **Central alert dispatch** (`alert_dispatch.go`): single `DispatchAlert(level,
+  event, resource, msg)` routes to webhook + SMTP + Telegram. All subsystems use it.
+
+- **Capacity alerts wired:** WARNING (≥80%), CRITICAL (≥90%), EMERGENCY (≥95%)
+  with per-pool de-duplication.
+
+- **Automatic disk replacement suggestion:** On hot-swap disk arrival, daemon
+  cross-references faulted vdevs. Broadcasts `diskReplacementAvailable` WS event.
+  HardwarePage auto-opens Replace modal with suggestion pre-populated.
+
+- **Scrub schedule UI in PoolsPage:** Per-pool schedule modal (daily/weekly/monthly).
+
+- **Replication schedules** (`GET/POST/DELETE /api/replication/schedules`):
+  hourly/daily/weekly/manual intervals plus `trigger_on_snapshot` mode.
+  ReplicationPage gains a Schedules tab.
+
+- **Post-snapshot replication hook** (`POST /api/zfs/snapshots/cron-hook`):
+  Cron jobs call this endpoint enabling Go-side hooks — snapshot, retain, replicate.
+
+- **Time-based snapshot retention:** `retention_days` field on schedules.
+
+- **Dataset search** (`GET /api/zfs/datasets/search?q=<query>`): PoolsPage
+  live filter bar with match count and `pool:` prefix support.
+
+- **`GET /api/zfs/resilver/status`**: Parsed resilver progress.
+
+### Stats
+
+| Metric | Before | After |
+|--------|--------|-------|
+| Alert event constants with zero callers | 8 | 0 |
+| DEGRADED pool detection | None | 30 s heartbeat |
+| SMART prediction calls | 0 | Background every 6 h |
+| Replication triggers | Manual only | Scheduled + post-snapshot |
+| Dataset search/filter | None | Live filter + API |
+| Resilver progress | Raw string | Parsed %, ETA, bytes |
+
+---
+
 ## v4.2.0 (2026-03-09) — "Disk Lifecycle"
 
 Upgrade from: v4.1.2 — Drop-in upgrade via `sudo bash install.sh --upgrade`

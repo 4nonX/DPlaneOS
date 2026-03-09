@@ -30,8 +30,11 @@ type PoolHeartbeat struct {
 	lastSuccess   time.Time
 	lastError     error
 	stopChan      chan struct{}
-	// Optional callback for critical errors (e.g., Telegram alerts)
+
+	// Callbacks for CRITICAL errors (e.g. SUSPENDED/UNAVAIL/write-fail)
 	onCriticalError func(poolName string, err error, details map[string]string)
+	// Callback for DEGRADED warnings (pool running but a disk is failed)
+	onDegradedWarning func(poolName string, err error, details map[string]string)
 
 	// When true: run `systemctl stop docker` if pool goes SUSPENDED/UNAVAIL/read-only.
 	// This prevents containers from writing to the bare mountpoint directory on the
@@ -40,6 +43,34 @@ type PoolHeartbeat struct {
 
 	// Track whether we already stopped docker in this failure window (avoid repeating)
 	dockerStopped bool
+
+	// De-duplication: last alerted state per event type.
+	// Key: event type string (e.g. "SUSPENDED", "DEGRADED").
+	// Value: the pool health string that was last alerted.
+	// When the pool recovers (health becomes ONLINE), the entry is cleared so the
+	// next occurrence re-fires the alert.
+	lastAlertedState map[string]string
+}
+
+// alertSenders are package-level dispatch functions set from main.go.
+// Using package-level vars (not per-instance) matches how SendWebhookAlert and
+// SendSMTPAlert are currently package-level functions in the handlers package.
+var (
+	alertSenderMu      sync.RWMutex
+	webhookAlertSender func(event, pool, msg string)
+	smtpAlertSender    func(subject, body string)
+)
+
+// SetAlertSenders wires outbound webhook + SMTP functions into the heartbeat
+// package. Call this from main.go after alert subsystems are initialized.
+func SetAlertSenders(
+	webhook func(event, pool, msg string),
+	smtp func(subject, body string),
+) {
+	alertSenderMu.Lock()
+	defer alertSenderMu.Unlock()
+	webhookAlertSender = webhook
+	smtpAlertSender = smtp
 }
 
 func NewPoolHeartbeat(poolName string, mountPoint string, checkInterval time.Duration) *PoolHeartbeat {
@@ -48,11 +79,12 @@ func NewPoolHeartbeat(poolName string, mountPoint string, checkInterval time.Dur
 	}
 
 	return &PoolHeartbeat{
-		poolName:      poolName,
-		mountPoint:    mountPoint,
-		checkInterval: checkInterval,
-		heartbeatFile: filepath.Join(mountPoint, ".dplaneos_heartbeat"),
-		stopChan:      make(chan struct{}),
+		poolName:         poolName,
+		mountPoint:       mountPoint,
+		checkInterval:    checkInterval,
+		heartbeatFile:    filepath.Join(mountPoint, ".dplaneos_heartbeat"),
+		stopChan:         make(chan struct{}),
+		lastAlertedState: make(map[string]string),
 	}
 }
 
@@ -82,7 +114,7 @@ func (ph *PoolHeartbeat) performCheck() {
 	ph.mu.Lock()
 	defer ph.mu.Unlock()
 
-	// Check pool status
+	// ── Step 1: zpool status — catches SUSPENDED / UNAVAIL ──────────────────
 	cmd := exec.Command("zpool", "status", ph.poolName)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -94,39 +126,93 @@ func (ph *PoolHeartbeat) performCheck() {
 	status := string(output)
 	if strings.Contains(status, "SUSPENDED") || strings.Contains(status, "UNAVAIL") {
 		newErr := fmt.Errorf("pool is SUSPENDED or UNAVAIL")
-		
-		// Only alert if this is a NEW error (state change)
-		if ph.lastError == nil || ph.lastError.Error() != newErr.Error() {
+
+		// Only alert if this is a NEW error (state change / de-duplication)
+		if ph.lastAlertedState["CRITICAL"] != "SUSPENDED/UNAVAIL" {
 			log.Printf("CRITICAL: ZFS pool %s is SUSPENDED/UNAVAIL!", ph.poolName)
-			ph.triggerAlert(newErr, map[string]string{
+			details := map[string]string{
 				"Pool":   ph.poolName,
 				"Status": "SUSPENDED/UNAVAIL",
 				"Action": "Check pool status immediately",
-			})
+			}
+			ph.triggerCriticalAlert(newErr, details)
+			ph.sendAlert("critical", "pool.critical", ph.poolName,
+				fmt.Sprintf("Pool '%s' is SUSPENDED or UNAVAIL — I/O is halted", ph.poolName))
 			ph.maybeStopDocker("SUSPENDED/UNAVAIL")
+			ph.lastAlertedState["CRITICAL"] = "SUSPENDED/UNAVAIL"
 		}
-		
+
 		ph.lastError = newErr
 		return
 	}
 
-	// Active I/O test
+	// ── Step 2: zpool list — catches DEGRADED (disk failed, pool still running) ──
+	healthCmd := exec.Command("zpool", "list", "-H", "-o", "name,health")
+	healthOut, healthErr := healthCmd.CombinedOutput()
+	if healthErr == nil {
+		for _, line := range strings.Split(strings.TrimSpace(string(healthOut)), "\n") {
+			fields := strings.Fields(line)
+			if len(fields) < 2 {
+				continue
+			}
+			if fields[0] != ph.poolName {
+				continue
+			}
+			health := strings.TrimSpace(fields[1])
+
+			if health == "DEGRADED" {
+				degradedErr := fmt.Errorf("pool is DEGRADED (a disk has failed)")
+
+				// De-duplicate: only alert if not already in DEGRADED state
+				if ph.lastAlertedState["DEGRADED"] != "DEGRADED" {
+					log.Printf("WARNING: ZFS pool %s is DEGRADED — a disk has failed", ph.poolName)
+					details := map[string]string{
+						"Pool":   ph.poolName,
+						"Status": "DEGRADED",
+						"Action": "Replace failed disk as soon as possible",
+					}
+					ph.triggerDegradedAlert(degradedErr, details)
+					ph.sendAlert("warning", "pool.degraded", ph.poolName,
+						fmt.Sprintf("Pool '%s' is DEGRADED — a disk has failed. Replace it soon.", ph.poolName))
+					ph.lastAlertedState["DEGRADED"] = "DEGRADED"
+				}
+
+				// DEGRADED doesn't prevent writes — don't block I/O test, but do
+				// record it as the last error so IsHealthy() reflects the state.
+				ph.lastError = degradedErr
+				return
+			}
+
+			// Pool is ONLINE — clear DEGRADED de-dup state so next occurrence re-fires
+			if health == "ONLINE" {
+				ph.lastAlertedState["DEGRADED"] = ""
+			}
+		}
+	}
+
+	// Pool is not SUSPENDED/UNAVAIL/DEGRADED — clear CRITICAL de-dup state
+	ph.lastAlertedState["CRITICAL"] = ""
+
+	// ── Step 3: Active I/O test ──────────────────────────────────────────────
 	testData := []byte(fmt.Sprintf("heartbeat:%d\n", time.Now().Unix()))
 	err = os.WriteFile(ph.heartbeatFile, testData, 0644)
 	if err != nil {
 		newErr := fmt.Errorf("write failed: %w", err)
-		
+
 		// Only alert on NEW write errors
 		if ph.lastError == nil || !strings.Contains(ph.lastError.Error(), "write failed") {
 			log.Printf("CRITICAL: ZFS pool %s cannot write", ph.poolName)
-			ph.triggerAlert(newErr, map[string]string{
+			details := map[string]string{
 				"Pool":   ph.poolName,
 				"Error":  "Write failed",
 				"Action": "Pool may be read-only or suspended",
-			})
+			}
+			ph.triggerCriticalAlert(newErr, details)
+			ph.sendAlert("critical", "pool.critical", ph.poolName,
+				fmt.Sprintf("Pool '%s' cannot write — may be read-only or suspended", ph.poolName))
 			ph.maybeStopDocker("read-only/write-failed")
 		}
-		
+
 		ph.lastError = newErr
 		return
 	}
@@ -147,6 +233,24 @@ func (ph *PoolHeartbeat) performCheck() {
 	ph.lastSuccess = time.Now()
 	ph.lastError = nil
 	ph.dockerStopped = false // pool recovered — reset guard
+}
+
+// sendAlert dispatches an alert through the package-level webhook + SMTP senders.
+// level: "critical" | "warning"
+// event: event constant string (e.g. "pool.degraded", "pool.critical")
+func (ph *PoolHeartbeat) sendAlert(level, event, pool, message string) {
+	alertSenderMu.RLock()
+	wh := webhookAlertSender
+	sm := smtpAlertSender
+	alertSenderMu.RUnlock()
+
+	if wh != nil {
+		wh(event, pool, message)
+	}
+	if sm != nil && (level == "critical" || level == "warning") {
+		subject := fmt.Sprintf("[D-PlaneOS] %s: %s", event, pool)
+		sm(subject, message)
+	}
 }
 
 func (ph *PoolHeartbeat) GetStatus() (time.Time, error) {
@@ -228,11 +332,18 @@ func DiscoverPools() ([]PoolInfo, error) {
 	return pools, nil
 }
 
-// SetErrorCallback sets an optional callback for critical errors
+// SetErrorCallback sets an optional callback for CRITICAL errors.
 func (ph *PoolHeartbeat) SetErrorCallback(callback func(poolName string, err error, details map[string]string)) {
 	ph.mu.Lock()
 	defer ph.mu.Unlock()
 	ph.onCriticalError = callback
+}
+
+// SetDegradedCallback sets an optional callback for DEGRADED (WARNING) events.
+func (ph *PoolHeartbeat) SetDegradedCallback(callback func(poolName string, err error, details map[string]string)) {
+	ph.mu.Lock()
+	defer ph.mu.Unlock()
+	ph.onDegradedWarning = callback
 }
 
 // maybeStopDocker stops the Docker service if StopDockerOnFailure is enabled.
@@ -255,9 +366,16 @@ func (ph *PoolHeartbeat) maybeStopDocker(reason string) {
 	}
 }
 
-// triggerAlert calls the error callback if set
-func (ph *PoolHeartbeat) triggerAlert(err error, details map[string]string) {
+// triggerCriticalAlert calls the onCriticalError callback if set.
+func (ph *PoolHeartbeat) triggerCriticalAlert(err error, details map[string]string) {
 	if ph.onCriticalError != nil {
 		ph.onCriticalError(ph.poolName, err, details)
+	}
+}
+
+// triggerDegradedAlert calls the onDegradedWarning callback if set.
+func (ph *PoolHeartbeat) triggerDegradedAlert(err error, details map[string]string) {
+	if ph.onDegradedWarning != nil {
+		ph.onDegradedWarning(ph.poolName, err, details)
 	}
 }

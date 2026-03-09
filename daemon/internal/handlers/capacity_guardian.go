@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -175,11 +176,11 @@ func (h *CapacityGuardianHandler) SetupReserve(w http.ResponseWriter, r *http.Re
 	}
 
 	respondOK(w, map[string]interface{}{
-		"success":        true,
-		"pool":           pool,
-		"reserve_bytes":  reserveBytes,
-		"reserve_human":  humanizeBytes(reserveBytes),
-		"reserve_pct":    2.0,
+		"success":       true,
+		"pool":          pool,
+		"reserve_bytes": reserveBytes,
+		"reserve_human": humanizeBytes(reserveBytes),
+		"reserve_pct":   2.0,
 	})
 }
 
@@ -279,17 +280,40 @@ func RunCapacityCheck(warningPct, criticalPct, emergencyPct float64) []PoolCapac
 	return alerts
 }
 
-// StartCapacityMonitor runs a background goroutine that checks capacity every 5 minutes
-// Uses default thresholds — the handler instance thresholds are for API responses
+// capacityAlertMu guards the per-pool last-alerted state map.
+var (
+	capacityAlertMu   sync.Mutex
+	capacityLastState = make(map[string]string) // pool → last alerted state
+)
+
+// StartCapacityMonitor runs a background goroutine that checks capacity every 5 minutes.
+// Uses default thresholds — the handler instance thresholds are for API responses.
+// Fires DispatchAlert on WARNING and EMERGENCY states with de-duplication so the
+// same state doesn't spam on every poll cycle.
 func StartCapacityMonitor() {
 	go func() {
 		ticker := time.NewTicker(5 * time.Minute)
 		defer ticker.Stop()
 		for range ticker.C {
 			alerts := RunCapacityCheck(80, 90, 95)
+
+			// Track which pools we saw this cycle so we can clear de-dup state
+			// for pools that have recovered below the warning threshold.
+			seenPools := make(map[string]bool)
+
 			for _, a := range alerts {
+				seenPools[a.Pool] = true
+
+				// De-duplication: don't re-alert unless the state has changed
+				capacityAlertMu.Lock()
+				alreadyAlerted := capacityLastState[a.Pool] == a.State
+				if !alreadyAlerted {
+					capacityLastState[a.Pool] = a.State
+				}
+				capacityAlertMu.Unlock()
+
 				if a.State == "emergency" {
-					// Auto-release reserve if pool is at emergency level
+					// Auto-release reserve so the operator has space to clean up
 					if checkReserveExists(a.Pool) {
 						executeCommandWithTimeout(TimeoutMedium, "/usr/sbin/zfs", []string{
 							"set", "reservation=none", a.Pool + "/dplane-reserved",
@@ -298,8 +322,42 @@ func StartCapacityMonitor() {
 							"destroy", a.Pool + "/dplane-reserved",
 						})
 					}
+
+					if !alreadyAlerted {
+						msg := fmt.Sprintf(
+							"Pool '%s' is at %.0f%% capacity (EMERGENCY — ≥95%%). Emergency reserve released. Delete data immediately.",
+							a.Pool, a.UsedPct,
+						)
+						DispatchAlert("critical", EventCapacityEmergency, a.Pool, msg)
+					}
+				} else if a.State == "critical" {
+					if !alreadyAlerted {
+						msg := fmt.Sprintf(
+							"Pool '%s' is at %.0f%% capacity (CRITICAL — ≥90%%). Free up space soon.",
+							a.Pool, a.UsedPct,
+						)
+						DispatchAlert("critical", EventCapacityCritical, a.Pool, msg)
+					}
+				} else if a.State == "warning" {
+					if !alreadyAlerted {
+						msg := fmt.Sprintf(
+							"Pool '%s' is at %.0f%% capacity (WARNING — ≥80%%). Consider adding storage or deleting data.",
+							a.Pool, a.UsedPct,
+						)
+						DispatchAlert("warning", EventCapacityWarning, a.Pool, msg)
+					}
 				}
 			}
+
+			// Clear de-dup state for pools that recovered below the warning threshold
+			// so that the next time they cross the line they re-alert.
+			capacityAlertMu.Lock()
+			for pool, state := range capacityLastState {
+				if state != "" && !seenPools[pool] {
+					capacityLastState[pool] = ""
+				}
+			}
+			capacityAlertMu.Unlock()
 		}
 	}()
 }

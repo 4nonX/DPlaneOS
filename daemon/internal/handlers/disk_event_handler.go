@@ -23,6 +23,8 @@ package handlers
 //  3. Broadcast diskAdded WS event.
 //  4. Check for FAULTED/UNAVAIL pools that can be re-imported.
 //  5. Attempt import; broadcast poolHealthChanged.
+//  6. Cross-reference against faulted vdevs; broadcast diskReplacementAvailable
+//     if a faulted vdev exists that the new disk could replace.
 //
 // On "removed":
 //  1. Mark disk removed in registry.
@@ -143,10 +145,12 @@ func handleDiskAdded(devName string, req diskEventRequest) {
 	broadcastDiskEvent("diskAdded", diskInfo, "info")
 
 	// 4. Check for pools that might be importable now that this disk appeared.
+	// Also check for faulted vdevs that this disk could replace.
 	go func() {
 		// Small delay — give the kernel time to fully register the device.
 		time.Sleep(2 * time.Second)
 		attemptPoolImport(diskInfo)
+		checkAndSuggestReplacement(diskInfo)
 	}()
 }
 
@@ -215,6 +219,134 @@ func attemptPoolImport(disk DiskInfo) {
 	// Even if no import was attempted, broadcast a health refresh so the UI
 	// can pick up any state change caused by the disk appearing.
 	broadcastPoolHealthChanged()
+}
+
+// FaultedVdev describes a single faulted vdev extracted from zpool status output.
+type FaultedVdev struct {
+	Pool     string `json:"pool"`
+	VdevPath string `json:"path"`
+	State    string `json:"state"`
+}
+
+// findFaultedVdevs parses `zpool status -P -v` output and returns all vdevs
+// whose state is FAULTED, REMOVED, or UNAVAIL.
+//
+// The relevant section of zpool status looks like:
+//
+//	pool: tank
+//	...
+//	config:
+//	        NAME              STATE     READ WRITE CKSUM
+//	        tank              DEGRADED     0     0     0
+//	          mirror-0        DEGRADED     0     0     0
+//	            /dev/sda      ONLINE       0     0     0
+//	            /dev/sdb      FAULTED      0     0     2
+func findFaultedVdevs(poolStatus string) []FaultedVdev {
+	var result []FaultedVdev
+	currentPool := ""
+	inConfig := false
+
+	for _, line := range strings.Split(poolStatus, "\n") {
+		trimmed := strings.TrimSpace(line)
+
+		if strings.HasPrefix(trimmed, "pool:") {
+			currentPool = strings.TrimSpace(strings.TrimPrefix(trimmed, "pool:"))
+			inConfig = false
+			continue
+		}
+
+		if strings.HasPrefix(trimmed, "config:") {
+			inConfig = true
+			continue
+		}
+
+		if !inConfig || currentPool == "" {
+			continue
+		}
+
+		// New top-level field ends the config section
+		if !strings.HasPrefix(line, "\t") && !strings.HasPrefix(line, " ") && trimmed != "" {
+			inConfig = false
+			continue
+		}
+
+		// Parse vdev lines: they contain a path/name + state
+		fields := strings.Fields(trimmed)
+		if len(fields) < 2 {
+			continue
+		}
+
+		vdevName := fields[0]
+		state := fields[1]
+
+		if state == "FAULTED" || state == "REMOVED" || state == "UNAVAIL" {
+			// Only report real device paths or short names — skip pool/vdev-group names
+			if strings.HasPrefix(vdevName, "/dev/") ||
+				(!strings.HasPrefix(vdevName, "mirror") &&
+					!strings.HasPrefix(vdevName, "raidz") &&
+					!strings.HasPrefix(vdevName, "spare") &&
+					vdevName != currentPool) {
+				result = append(result, FaultedVdev{
+					Pool:     currentPool,
+					VdevPath: vdevName,
+					State:    state,
+				})
+			}
+		}
+	}
+
+	return result
+}
+
+// checkAndSuggestReplacement checks if the newly-added disk can replace any
+// faulted vdev and, if so, broadcasts a diskReplacementAvailable WS event.
+func checkAndSuggestReplacement(newDisk DiskInfo) {
+	if diskEventHub == nil {
+		return
+	}
+
+	statusOut, err := runWithTimeout(30*time.Second, "zpool", "status", "-P", "-v")
+	if err != nil {
+		log.Printf("DISK EVENT: zpool status failed during replacement check: %v", err)
+		return
+	}
+
+	faultedVdevs := findFaultedVdevs(string(statusOut))
+	if len(faultedVdevs) == 0 {
+		return
+	}
+
+	// Exclude the new disk itself from faulted vdevs (it shouldn't be faulted
+	// unless re-added after a previous failure, but be safe).
+	newDiskPaths := map[string]bool{
+		"/dev/" + newDisk.Name: true,
+		newDisk.ByIDPath:       true,
+		newDisk.ByPathPath:     true,
+	}
+
+	var candidates []FaultedVdev
+	for _, fv := range faultedVdevs {
+		if !newDiskPaths[fv.VdevPath] {
+			candidates = append(candidates, fv)
+		}
+	}
+
+	if len(candidates) == 0 {
+		return
+	}
+
+	log.Printf("DISK EVENT: new disk /dev/%s may replace %d faulted vdev(s) — broadcasting suggestion",
+		newDisk.Name, len(candidates))
+
+	diskEventHub.Broadcast("diskReplacementAvailable", map[string]interface{}{
+		"new_disk": map[string]interface{}{
+			"dev":   "/dev/" + newDisk.Name,
+			"by_id": newDisk.ByIDPath,
+			"model": newDisk.Model,
+			"size":  newDisk.Size, // already human-readable from lsblk
+		},
+		"faulted_vdevs": candidates,
+	}, "warning")
 }
 
 // ── Removed ───────────────────────────────────────────────────────────────────

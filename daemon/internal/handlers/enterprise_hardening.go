@@ -188,8 +188,8 @@ func (h *NixOSGuardHandler) DiffGenerations(w http.ResponseWriter, r *http.Reque
 		toPkgs, _ := executeCommandWithTimeout(TimeoutFast, "/bin/ls", []string{toPath + "/sw/bin/"})
 
 		respondOK(w, map[string]interface{}{
-			"success":      true,
-			"method":       "package-list",
+			"success":       true,
+			"method":        "package-list",
 			"from_packages": strings.Fields(fromPkgs),
 			"to_packages":   strings.Fields(toPkgs),
 		})
@@ -204,6 +204,7 @@ func (h *NixOSGuardHandler) DiffGenerations(w http.ResponseWriter, r *http.Reque
 		"diff":    strings.TrimSpace(output),
 	})
 }
+
 // ═══════════════════════════════════════════════════════════════════════════════
 //  PRE-UPGRADE ZFS SNAPSHOT
 //  Called before every nixos-rebuild switch. Best-effort: failure is logged
@@ -260,7 +261,6 @@ func snapshotAllPoolsPreUpgrade(db *sql.DB, applyTarget string) ([]string, []str
 	}
 	return snapshots, errs
 }
-
 
 // ═══════════════════════════════════════════════════════════════
 //  NIXOS BOOT WATCHDOG
@@ -336,11 +336,11 @@ func (h *NixOSGuardHandler) ApplyWithWatchdog(w http.ResponseWriter, r *http.Req
 
 	if err != nil {
 		respondOK(w, map[string]interface{}{
-			"success":          false,
-			"error":            fmt.Sprintf("Apply failed: %v", err),
-			"output":           output,
-			"pre_snapshots":    preSnapshots,
-			"snapshot_errors":  preSnapErrs,
+			"success":         false,
+			"error":           fmt.Sprintf("Apply failed: %v", err),
+			"output":          output,
+			"pre_snapshots":   preSnapshots,
+			"snapshot_errors": preSnapErrs,
 		})
 		return
 	}
@@ -359,22 +359,22 @@ func (h *NixOSGuardHandler) ApplyWithWatchdog(w http.ResponseWriter, r *http.Req
 		if watchdogActive {
 			// Auto-rollback — nobody confirmed
 			if _, err := cmdutil.RunSlow("/run/current-system/sw/bin/nixos-rebuild", "switch", "--rollback"); err != nil {
-			log.Printf("ERROR: nixos rollback failed: %v", err)
-		}
+				log.Printf("ERROR: nixos rollback failed: %v", err)
+			}
 			watchdogActive = false
 		}
 	})
 	watchdogMu.Unlock()
 
 	respondOK(w, map[string]interface{}{
-		"success":          true,
-		"output":           output,
-		"watchdog_active":  true,
-		"confirm_before":   watchdogDeadline.Format(time.RFC3339),
-		"timeout_seconds":  req.TimeoutSeconds,
-		"pre_snapshots":    preSnapshots,
-		"snapshot_errors":  preSnapErrs,
-		"message":          fmt.Sprintf("Config applied. Confirm within %d seconds or auto-rollback.", req.TimeoutSeconds),
+		"success":         true,
+		"output":          output,
+		"watchdog_active": true,
+		"confirm_before":  watchdogDeadline.Format(time.RFC3339),
+		"timeout_seconds": req.TimeoutSeconds,
+		"pre_snapshots":   preSnapshots,
+		"snapshot_errors": preSnapErrs,
+		"message":         fmt.Sprintf("Config applied. Confirm within %d seconds or auto-rollback.", req.TimeoutSeconds),
 	})
 }
 
@@ -460,9 +460,9 @@ func (h *DockerHandler) PreFlightCheck(w http.ResponseWriter, r *http.Request) {
 	} else {
 		healthy := !strings.Contains(poolOut, "DEGRADED") && !strings.Contains(poolOut, "FAULTED")
 		checks = append(checks, map[string]interface{}{
-			"check":   "zfs_pools",
-			"pass":    healthy,
-			"pools":   strings.TrimSpace(poolOut),
+			"check": "zfs_pools",
+			"pass":  healthy,
+			"pools": strings.TrimSpace(poolOut),
 		})
 	}
 
@@ -493,9 +493,9 @@ func (h *DockerHandler) PreFlightCheck(w http.ResponseWriter, r *http.Request) {
 	}
 
 	respondOK(w, map[string]interface{}{
-		"success":   true,
-		"all_pass":  allPass,
-		"checks":    checks,
+		"success":  true,
+		"all_pass": allPass,
+		"checks":   checks,
 	})
 }
 
@@ -540,17 +540,17 @@ func (h *AuditRotationHandler) RotateAuditLogs(w http.ResponseWriter, r *http.Re
 	// Delete old entries
 	cutoff := time.Now().AddDate(0, 0, -req.KeepDays).Format("2006-01-02 15:04:05")
 	rotDB, dbErr := sql.Open("sqlite3", "/var/lib/dplaneos/dplaneos.db?_journal_mode=WAL&_busy_timeout=30000&cache=shared&_synchronous=FULL")
-	var err error
+	var rotErr error
 	if dbErr == nil {
 		defer rotDB.Close()
-		_, err = rotDB.Exec("DELETE FROM audit_logs WHERE timestamp < ?", cutoff)
+		_, rotErr = rotDB.Exec("DELETE FROM audit_logs WHERE timestamp < ?", cutoff)
 	} else {
-		err = dbErr
+		rotErr = dbErr
 	}
-	if err != nil {
+	if rotErr != nil {
 		respondOK(w, map[string]interface{}{
 			"success": false,
-			"error":   fmt.Sprintf("Rotation failed: %v", err),
+			"error":   fmt.Sprintf("Rotation failed: %v", rotErr),
 		})
 		return
 	}
@@ -709,7 +709,15 @@ var CommonSMARTWarnings = map[int]string{
 	201: "Soft Read Error Rate — read retries needed (pre-failure)",
 }
 
+// SMARTAttribute represents a single parsed SMART attribute.
+type SMARTAttribute struct {
+	ID       int    `json:"id"`
+	Name     string `json:"name"`
+	RawValue int64  `json:"raw_value"`
+}
+
 // TranslateSMARTAttribute returns a human-readable warning for a SMART attribute
+// and a severity level: "info", "warning", or "critical".
 func TranslateSMARTAttribute(id int, rawValue int64) (string, string) {
 	if warning, ok := CommonSMARTWarnings[id]; ok {
 		severity := "info"
@@ -724,6 +732,201 @@ func TranslateSMARTAttribute(id int, rawValue int64) (string, string) {
 		return warning, severity
 	}
 	return "", ""
+}
+
+// PredictDiskFailure analyses a slice of SMART attributes and returns an
+// aggregate risk level and a list of human-readable reasons.
+//
+// risk: "ok" | "warning" | "critical"
+func PredictDiskFailure(attrs []SMARTAttribute) (risk string, reasons []string) {
+	risk = "ok"
+	for _, attr := range attrs {
+		desc, severity := TranslateSMARTAttribute(attr.ID, attr.RawValue)
+		if desc == "" {
+			continue // attribute not in our warning map — ignore
+		}
+		reason := fmt.Sprintf("Attr %d (%s): %s [raw=%d]", attr.ID, attr.Name, desc, attr.RawValue)
+		switch severity {
+		case "critical":
+			reasons = append(reasons, reason)
+			risk = "critical"
+		case "warning":
+			reasons = append(reasons, reason)
+			if risk != "critical" {
+				risk = "warning"
+			}
+		}
+	}
+	return risk, reasons
+}
+
+// ── SMART prediction HTTP handler ──────────────────────────────────────────────
+
+// HandleSMARTPrediction serves GET /api/zfs/smart/predict?device=sda
+// Runs smartctl -A -j on the device, parses ATA attributes, calls
+// PredictDiskFailure, and returns a structured prediction.
+func HandleSMARTPrediction(w http.ResponseWriter, r *http.Request) {
+	device := r.URL.Query().Get("device")
+	if device == "" {
+		respondErrorSimple(w, "device query parameter is required (e.g. ?device=sda)", http.StatusBadRequest)
+		return
+	}
+
+	// Whitelist: only accept bare device names (sda, nvme0n1, etc.) — no slashes
+	if strings.ContainsAny(device, "/\\;|&$`'\"") {
+		respondErrorSimple(w, "invalid device name", http.StatusBadRequest)
+		return
+	}
+
+	devicePath := "/dev/" + device
+	output, err := executeCommandWithTimeout(TimeoutMedium, "/usr/sbin/smartctl", []string{
+		"-A", "-j", devicePath,
+	})
+	if err != nil && output == "" {
+		respondOK(w, map[string]interface{}{
+			"success": false,
+			"device":  device,
+			"error":   "smartctl failed: " + err.Error(),
+		})
+		return
+	}
+
+	attrs := parseSMARTAttributes(output)
+	risk, reasons := PredictDiskFailure(attrs)
+
+	recommendation := "No action needed."
+	switch risk {
+	case "warning":
+		recommendation = "Monitor this disk closely. Consider scheduling a replacement soon."
+	case "critical":
+		recommendation = "Replace this disk immediately. Back up all data now."
+	}
+
+	respondOK(w, map[string]interface{}{
+		"success":        true,
+		"device":         device,
+		"risk":           risk,
+		"reasons":        reasons,
+		"recommendation": recommendation,
+		"attrs_checked":  len(attrs),
+	})
+}
+
+// parseSMARTAttributes parses the output of `smartctl -A -j` and returns the
+// ATA SMART attributes as a slice of SMARTAttribute.
+func parseSMARTAttributes(output string) []SMARTAttribute {
+	var result struct {
+		ATASmartAttributes struct {
+			Table []struct {
+				ID   int    `json:"id"`
+				Name string `json:"name"`
+				Raw  struct {
+					Value int64 `json:"value"`
+				} `json:"raw"`
+			} `json:"table"`
+		} `json:"ata_smart_attributes"`
+	}
+
+	if err := json.Unmarshal([]byte(output), &result); err != nil {
+		return nil
+	}
+
+	attrs := make([]SMARTAttribute, 0, len(result.ATASmartAttributes.Table))
+	for _, row := range result.ATASmartAttributes.Table {
+		attrs = append(attrs, SMARTAttribute{
+			ID:       row.ID,
+			Name:     row.Name,
+			RawValue: row.Raw.Value,
+		})
+	}
+	return attrs
+}
+
+// ── SMART background monitor ────────────────────────────────────────────────────
+
+// smartLastAlerted tracks the last alerted risk level per device.
+// Prevents duplicate alerts if the same bad state persists across polling cycles.
+var (
+	smartAlertMu     sync.Mutex
+	smartLastAlerted = make(map[string]string) // device → last alerted risk
+)
+
+// StartSMARTMonitor launches a background goroutine that polls S.M.A.R.T. data
+// for all disks every 6 hours, runs PredictDiskFailure on each, and calls
+// DispatchAlert for any device whose risk is "warning" or "critical".
+//
+// Call this from main.go after SetAlertDispatchers() has been wired up.
+func StartSMARTMonitor() {
+	go func() {
+		// Wait a short time at startup so other subsystems (DB, alerts) are ready.
+		time.Sleep(30 * time.Second)
+
+		runSMARTScan()
+
+		ticker := time.NewTicker(6 * time.Hour)
+		defer ticker.Stop()
+		for range ticker.C {
+			runSMARTScan()
+		}
+	}()
+}
+
+func runSMARTScan() {
+	// Enumerate all block devices
+	output, err := executeCommandWithTimeout(TimeoutFast, "/bin/lsblk", []string{
+		"-d", "-n", "-o", "NAME",
+	})
+	if err != nil || strings.TrimSpace(output) == "" {
+		log.Printf("SMART monitor: lsblk failed: %v", err)
+		return
+	}
+
+	for _, line := range strings.Split(strings.TrimSpace(output), "\n") {
+		device := strings.TrimSpace(line)
+		if device == "" {
+			continue
+		}
+
+		devicePath := "/dev/" + device
+		smartOut, smartErr := executeCommandWithTimeout(TimeoutMedium, "/usr/sbin/smartctl", []string{
+			"-A", "-j", devicePath,
+		})
+		if smartErr != nil && smartOut == "" {
+			continue // device doesn't support SMART or smartctl unavailable
+		}
+
+		attrs := parseSMARTAttributes(smartOut)
+		if len(attrs) == 0 {
+			continue
+		}
+
+		risk, reasons := PredictDiskFailure(attrs)
+		if risk == "ok" {
+			// Clear de-dup state so a future failure re-alerts
+			smartAlertMu.Lock()
+			smartLastAlerted[device] = ""
+			smartAlertMu.Unlock()
+			continue
+		}
+
+		// De-duplicate: don't re-alert the same risk level for this device
+		smartAlertMu.Lock()
+		alreadyAlerted := smartLastAlerted[device] == risk
+		if !alreadyAlerted {
+			smartLastAlerted[device] = risk
+		}
+		smartAlertMu.Unlock()
+
+		if alreadyAlerted {
+			continue
+		}
+
+		msg := fmt.Sprintf("Device /dev/%s SMART risk=%s: %s",
+			device, risk, strings.Join(reasons, "; "))
+		log.Printf("SMART monitor: %s", msg)
+
+		DispatchAlert(risk, EventDiskSmartFail, device, msg)
+	}
 }
 
 // ═══════════════════════════════════════════════════════════════

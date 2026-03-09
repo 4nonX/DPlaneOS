@@ -23,7 +23,9 @@ import (
 //
 //  Events (string constants used by callers):
 //    EventPoolDegraded      "pool.degraded"
+//    EventPoolCritical      "pool.critical"
 //    EventPoolScrubError    "pool.scrub_error"
+//    EventCapacityWarning   "capacity.warning"
 //    EventCapacityCritical  "capacity.critical"
 //    EventCapacityEmergency "capacity.emergency"
 //    EventDiskSmartFail     "disk.smart_fail"
@@ -35,7 +37,9 @@ import (
 // Webhook event name constants — used by callers of SendWebhookAlert.
 const (
 	EventPoolDegraded      = "pool.degraded"
+	EventPoolCritical      = "pool.critical"
 	EventPoolScrubError    = "pool.scrub_error"
+	EventCapacityWarning   = "capacity.warning"
 	EventCapacityCritical  = "capacity.critical"
 	EventCapacityEmergency = "capacity.emergency"
 	EventDiskSmartFail     = "disk.smart_fail"
@@ -61,13 +65,15 @@ type webhookConfig struct {
 	URL          string `json:"url"`
 	SecretHeader string `json:"secret_header"`
 	SecretValue  string `json:"secret_value,omitempty"` // omitted on list responses
+	ContentType  string `json:"content_type"`           // default: application/json
+	BodyTemplate string `json:"body_template"`          // optional; supports {{event}}, {{pool}}, {{message}}, {{timestamp}}, {{hostname}}
 	Enabled      int    `json:"enabled"`
 	Events       string `json:"events"` // JSON array string, e.g. '["pool.degraded","capacity.critical"]'
 	CreatedAt    string `json:"created_at"`
 	UpdatedAt    string `json:"updated_at"`
 }
 
-// webhookPayload is the JSON body sent to each configured endpoint.
+// webhookPayload is the default JSON body sent when no body_template is set.
 type webhookPayload struct {
 	Event     string                 `json:"event"`
 	Hostname  string                 `json:"hostname"`
@@ -83,7 +89,7 @@ type webhookPayload struct {
 // GET /api/alerts/webhooks
 func (h *WebhookHandler) ListWebhooks(w http.ResponseWriter, r *http.Request) {
 	rows, err := h.db.Query(`
-		SELECT id, name, url, secret_header, enabled, events, created_at, updated_at
+		SELECT id, name, url, secret_header, content_type, body_template, enabled, events, created_at, updated_at
 		FROM webhook_configs
 		ORDER BY id ASC
 	`)
@@ -96,7 +102,11 @@ func (h *WebhookHandler) ListWebhooks(w http.ResponseWriter, r *http.Request) {
 	var configs []webhookConfig
 	for rows.Next() {
 		var c webhookConfig
-		if err := rows.Scan(&c.ID, &c.Name, &c.URL, &c.SecretHeader, &c.Enabled, &c.Events, &c.CreatedAt, &c.UpdatedAt); err != nil {
+		if err := rows.Scan(
+			&c.ID, &c.Name, &c.URL, &c.SecretHeader,
+			&c.ContentType, &c.BodyTemplate,
+			&c.Enabled, &c.Events, &c.CreatedAt, &c.UpdatedAt,
+		); err != nil {
 			continue
 		}
 		// Never return the secret value in list responses.
@@ -112,7 +122,7 @@ func (h *WebhookHandler) ListWebhooks(w http.ResponseWriter, r *http.Request) {
 
 // SaveWebhook creates or updates a webhook configuration.
 // POST /api/alerts/webhooks
-// Body: { name, url, secret_header, secret_value, enabled, events }
+// Body: { name, url, secret_header, secret_value, content_type, body_template, enabled, events }
 func (h *WebhookHandler) SaveWebhook(w http.ResponseWriter, r *http.Request) {
 	var req webhookConfig
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -129,6 +139,11 @@ func (h *WebhookHandler) SaveWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Default content type
+	if strings.TrimSpace(req.ContentType) == "" {
+		req.ContentType = "application/json"
+	}
+
 	// Validate events JSON array
 	var eventList []string
 	if req.Events != "" {
@@ -143,9 +158,11 @@ func (h *WebhookHandler) SaveWebhook(w http.ResponseWriter, r *http.Request) {
 	if req.ID == 0 {
 		// Create
 		result, err := h.db.Exec(`
-			INSERT INTO webhook_configs (name, url, secret_header, secret_value, enabled, events)
-			VALUES (?, ?, ?, ?, ?, ?)`,
-			req.Name, req.URL, req.SecretHeader, req.SecretValue, req.Enabled, req.Events,
+			INSERT INTO webhook_configs (name, url, secret_header, secret_value, content_type, body_template, enabled, events)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+			req.Name, req.URL, req.SecretHeader, req.SecretValue,
+			req.ContentType, req.BodyTemplate,
+			req.Enabled, req.Events,
 		)
 		if err != nil {
 			if strings.Contains(err.Error(), "UNIQUE constraint") {
@@ -163,16 +180,24 @@ func (h *WebhookHandler) SaveWebhook(w http.ResponseWriter, r *http.Request) {
 		var query string
 		if req.SecretValue != "" {
 			query = `UPDATE webhook_configs
-				SET name=?, url=?, secret_header=?, secret_value=?, enabled=?, events=?,
-				    updated_at=datetime('now')
+				SET name=?, url=?, secret_header=?, secret_value=?, content_type=?, body_template=?,
+				    enabled=?, events=?, updated_at=datetime('now')
 				WHERE id=?`
-			args = []interface{}{req.Name, req.URL, req.SecretHeader, req.SecretValue, req.Enabled, req.Events, req.ID}
+			args = []interface{}{
+				req.Name, req.URL, req.SecretHeader, req.SecretValue,
+				req.ContentType, req.BodyTemplate,
+				req.Enabled, req.Events, req.ID,
+			}
 		} else {
 			query = `UPDATE webhook_configs
-				SET name=?, url=?, secret_header=?, enabled=?, events=?,
-				    updated_at=datetime('now')
+				SET name=?, url=?, secret_header=?, content_type=?, body_template=?,
+				    enabled=?, events=?, updated_at=datetime('now')
 				WHERE id=?`
-			args = []interface{}{req.Name, req.URL, req.SecretHeader, req.Enabled, req.Events, req.ID}
+			args = []interface{}{
+				req.Name, req.URL, req.SecretHeader,
+				req.ContentType, req.BodyTemplate,
+				req.Enabled, req.Events, req.ID,
+			}
 		}
 		if _, err := h.db.Exec(query, args...); err != nil {
 			respondError(w, http.StatusInternalServerError, "Failed to update webhook", err)
@@ -200,9 +225,12 @@ func (h *WebhookHandler) TestWebhook(w http.ResponseWriter, r *http.Request) {
 
 	var cfg webhookConfig
 	err := h.db.QueryRow(`
-		SELECT id, name, url, secret_header, secret_value, enabled, events
+		SELECT id, name, url, secret_header, secret_value, content_type, body_template, enabled, events
 		FROM webhook_configs WHERE id = ?`, idStr,
-	).Scan(&cfg.ID, &cfg.Name, &cfg.URL, &cfg.SecretHeader, &cfg.SecretValue, &cfg.Enabled, &cfg.Events)
+	).Scan(
+		&cfg.ID, &cfg.Name, &cfg.URL, &cfg.SecretHeader, &cfg.SecretValue,
+		&cfg.ContentType, &cfg.BodyTemplate, &cfg.Enabled, &cfg.Events,
+	)
 	if err != nil {
 		respondError(w, http.StatusNotFound, "Webhook not found", err)
 		return
@@ -238,7 +266,7 @@ func SendWebhookAlert(db *sql.DB, event, severity, message string, data map[stri
 	}
 
 	rows, err := db.Query(`
-		SELECT id, name, url, secret_header, secret_value, enabled, events
+		SELECT id, name, url, secret_header, secret_value, content_type, body_template, enabled, events
 		FROM webhook_configs
 		WHERE enabled = 1
 	`)
@@ -260,7 +288,10 @@ func SendWebhookAlert(db *sql.DB, event, severity, message string, data map[stri
 
 	for rows.Next() {
 		var cfg webhookConfig
-		if err := rows.Scan(&cfg.ID, &cfg.Name, &cfg.URL, &cfg.SecretHeader, &cfg.SecretValue, &cfg.Enabled, &cfg.Events); err != nil {
+		if err := rows.Scan(
+			&cfg.ID, &cfg.Name, &cfg.URL, &cfg.SecretHeader, &cfg.SecretValue,
+			&cfg.ContentType, &cfg.BodyTemplate, &cfg.Enabled, &cfg.Events,
+		); err != nil {
 			continue
 		}
 		// Check if this config is subscribed to this event
@@ -296,6 +327,12 @@ func webhookSubscribed(eventsJSON, event string) bool {
 
 // dispatchWebhook sends a single webhook payload synchronously.
 // Used by TestWebhook (needs the error returned to the caller).
+//
+// Body rendering:
+//   - If cfg.BodyTemplate is non-empty, the template string is rendered with
+//     simple token substitution and sent verbatim with cfg.ContentType.
+//   - If cfg.BodyTemplate is empty, the default JSON webhookPayload is sent.
+//
 // daemonVersion is set at startup via SetDaemonVersion — populated from main.Version.
 var daemonVersion = "dev"
 
@@ -303,16 +340,56 @@ var daemonVersion = "dev"
 func SetDaemonVersion(v string) { daemonVersion = v }
 
 func dispatchWebhook(cfg webhookConfig, payload webhookPayload) error {
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return fmt.Errorf("marshal payload: %w", err)
+	var bodyBytes []byte
+	contentType := "application/json"
+
+	if strings.TrimSpace(cfg.BodyTemplate) != "" {
+		// Render the body template with token substitution.
+		hostname := payload.Hostname
+		if hostname == "" {
+			hostname = safeHostname()
+		}
+		rendered := strings.NewReplacer(
+			"{{event}}", payload.Event,
+			"{{pool}}", func() string {
+				// pool name may be in Data["pool"] or in the message
+				if payload.Data != nil {
+					if p, ok := payload.Data["pool"].(string); ok {
+						return p
+					}
+					if p, ok := payload.Data["resource"].(string); ok {
+						return p
+					}
+				}
+				return ""
+			}(),
+			"{{message}}", payload.Message,
+			"{{timestamp}}", time.Now().UTC().Format(time.RFC3339),
+			"{{hostname}}", hostname,
+			"{{severity}}", payload.Severity,
+		).Replace(cfg.BodyTemplate)
+		bodyBytes = []byte(rendered)
+
+		if strings.TrimSpace(cfg.ContentType) != "" {
+			contentType = cfg.ContentType
+		}
+	} else {
+		// Default: marshal the standard JSON payload.
+		var err error
+		bodyBytes, err = json.Marshal(payload)
+		if err != nil {
+			return fmt.Errorf("marshal payload: %w", err)
+		}
+		if strings.TrimSpace(cfg.ContentType) != "" {
+			contentType = cfg.ContentType
+		}
 	}
 
-	req, err := http.NewRequest("POST", cfg.URL, bytes.NewReader(body))
+	req, err := http.NewRequest("POST", cfg.URL, bytes.NewReader(bodyBytes))
 	if err != nil {
 		return fmt.Errorf("create request: %w", err)
 	}
-	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Content-Type", contentType)
 	req.Header.Set("User-Agent", "D-PlaneOS/"+daemonVersion)
 	if cfg.SecretHeader != "" && cfg.SecretValue != "" {
 		req.Header.Set(cfg.SecretHeader, cfg.SecretValue)

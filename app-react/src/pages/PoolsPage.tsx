@@ -9,16 +9,20 @@
  *   POST /api/zfs/encryption/lock
  *   POST /api/zfs/scrub/start
  *   POST /api/zfs/scrub/stop
- *   GET  /api/zfs/scrub/status
+ *   GET  /api/zfs/scrub/status?pool=X
+ *   GET  /api/zfs/scrub/schedule?pool=X
+ *   POST /api/zfs/scrub/schedule
+ *   GET  /api/zfs/resilver/status?pool=X
  *   POST /api/zfs/datasets           (create dataset)
+ *   GET  /api/zfs/datasets/search    (global dataset search — used by search bar)
  */
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { Icon } from '@/components/ui/Icon'
 import { ErrorState } from '@/components/ui/ErrorState'
-import { Skeleton } from '@/components/ui/LoadingSpinner'
+import { Skeleton, Spinner } from '@/components/ui/LoadingSpinner'
 import { toast } from '@/hooks/useToast'
 import { useWsStore } from '@/stores/ws'
 import { Modal } from '@/components/ui/Modal'
@@ -44,7 +48,36 @@ interface EncryptedDataset {
 }
 interface EncryptionListResponse { success: boolean; datasets: EncryptedDataset[] }
 
-interface ScrubStatusResponse { success: boolean; scrub: string }
+interface ScrubStatusResponse {
+  success: boolean
+  scrub: string
+  in_progress?: boolean
+  percent_done?: number
+  bytes_done?: string
+  eta?: string
+  errors?: number
+  completed?: boolean
+  completed_at?: string | null
+}
+
+interface ScrubSchedule {
+  pool: string
+  interval: string  // daily | weekly | monthly
+  hour: number
+  day: number       // day_of_week for weekly (0=Sun), day_of_month for monthly
+}
+interface ScrubSchedulesResponse { success: boolean; schedules: ScrubSchedule[] }
+
+interface ResilverStatusResponse {
+  pool: string
+  resilvering: boolean
+  percent_done: number
+  bytes_done: string
+  eta: string
+  errors: number
+  completed: boolean
+  completed_at: string | null
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -63,6 +96,16 @@ function parseCapacityPct(capacity: string): number {
   return Math.min(100, Math.max(0, parseInt((capacity || '0').replace('%', '')) || 0))
 }
 
+const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+
+function formatScrubSchedule(s: ScrubSchedule): string {
+  const hourStr = `${String(s.hour).padStart(2, '0')}:00`
+  if (s.interval === 'daily') return `Daily at ${hourStr}`
+  if (s.interval === 'weekly') return `Weekly on ${DAY_NAMES[s.day] ?? `Day ${s.day}`} at ${hourStr}`
+  if (s.interval === 'monthly') return `Monthly on day ${s.day} at ${hourStr}`
+  return s.interval
+}
+
 interface TreeNode extends ZFSDataset { children: TreeNode[] }
 
 function buildTree(datasets: ZFSDataset[], poolName: string): TreeNode[] {
@@ -76,6 +119,48 @@ function buildTree(datasets: ZFSDataset[], poolName: string): TreeNode[] {
     }
   })
   return nodes[poolName] ? [nodes[poolName]] : []
+}
+
+// ---------------------------------------------------------------------------
+// DatasetSearchBar
+// ---------------------------------------------------------------------------
+
+interface SearchBarProps {
+  query:      string
+  onChange:   (q: string) => void
+  matchCount: number
+  totalCount: number
+}
+
+function DatasetSearchBar({ query, onChange, matchCount, totalCount }: SearchBarProps) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+      <div style={{ position: 'relative', flex: 1, maxWidth: 380 }}>
+        <Icon name="search" size={16} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-tertiary)', pointerEvents: 'none' }} />
+        <input
+          value={query}
+          onChange={e => onChange(e.target.value)}
+          placeholder="Filter datasets…"
+          className="input"
+          style={{ paddingLeft: 34, paddingRight: query ? 32 : 12 }}
+        />
+        {query && (
+          <button
+            onClick={() => onChange('')}
+            style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-tertiary)', display: 'flex', padding: 2 }}
+            title="Clear filter"
+          >
+            <Icon name="close" size={14} />
+          </button>
+        )}
+      </div>
+      {query && (
+        <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', whiteSpace: 'nowrap' }}>
+          {matchCount} of {totalCount} datasets
+        </span>
+      )}
+    </div>
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -187,21 +272,252 @@ function CreateDatasetModal({ parentName, onClose, onCreated }: {
 }
 
 // ---------------------------------------------------------------------------
+// ScrubScheduleModal
+// ---------------------------------------------------------------------------
+
+function ScrubScheduleModal({ pool, current, onClose, onSaved }: {
+  pool: string
+  current: ScrubSchedule | null
+  onClose: () => void
+  onSaved: () => void
+}) {
+  const [interval, setInterval] = useState<string>(current?.interval ?? 'weekly')
+  const [hour, setHour] = useState<number>(current?.hour ?? 2)
+  const [day, setDay] = useState<number>(current?.day ?? 0)
+
+  const saveMutation = useMutation({
+    mutationFn: () => {
+      const payload: ScrubSchedule[] = interval === 'disabled'
+        ? []
+        : [{ pool, interval, hour, day }]
+      return api.post('/api/zfs/scrub/schedule', payload)
+    },
+    onSuccess: () => {
+      toast.success(interval === 'disabled'
+        ? `Scrub schedule removed for ${pool}`
+        : `Scrub schedule saved for ${pool}`)
+      onSaved()
+      onClose()
+    },
+    onError: (e: Error) => toast.error(`Failed to save schedule: ${e.message}`),
+  })
+
+  const hours = Array.from({ length: 24 }, (_, i) => i)
+
+  return (
+    <Modal
+      title={
+        <>
+          Scrub Schedule —{' '}
+          <span style={{ color: 'var(--primary)', fontFamily: 'var(--font-mono)' }}>{pool}</span>
+        </>
+      }
+      onClose={onClose}
+    >
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <label className="field">
+          <span className="field-label">Frequency</span>
+          <select value={interval} onChange={e => setInterval(e.target.value)} className="input">
+            <option value="disabled">Disabled (no automatic scrubs)</option>
+            <option value="daily">Daily</option>
+            <option value="weekly">Weekly</option>
+            <option value="monthly">Monthly</option>
+          </select>
+        </label>
+
+        {interval !== 'disabled' && (
+          <label className="field">
+            <span className="field-label">Hour of day</span>
+            <select value={hour} onChange={e => setHour(Number(e.target.value))} className="input">
+              {hours.map(h => (
+                <option key={h} value={h}>{String(h).padStart(2, '0')}:00</option>
+              ))}
+            </select>
+          </label>
+        )}
+
+        {interval === 'weekly' && (
+          <label className="field">
+            <span className="field-label">Day of week</span>
+            <select value={day} onChange={e => setDay(Number(e.target.value))} className="input">
+              {DAY_NAMES.map((d, i) => (
+                <option key={i} value={i}>{d}</option>
+              ))}
+            </select>
+          </label>
+        )}
+
+        {interval === 'monthly' && (
+          <label className="field">
+            <span className="field-label">Day of month</span>
+            <select value={day} onChange={e => setDay(Number(e.target.value))} className="input">
+              {Array.from({ length: 28 }, (_, i) => i + 1).map(d => (
+                <option key={d} value={d}>{d}</option>
+              ))}
+            </select>
+          </label>
+        )}
+
+        {interval !== 'disabled' && (
+          <div style={{
+            padding: '8px 12px', background: 'var(--surface)', border: '1px solid var(--border)',
+            borderRadius: 'var(--radius-sm)', fontSize: 'var(--text-xs)', color: 'var(--text-secondary)',
+          }}>
+            Schedule: <strong>{formatScrubSchedule({ pool, interval, hour, day })}</strong>
+          </div>
+        )}
+      </div>
+
+      <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 24 }}>
+        <button onClick={onClose} className="btn btn-ghost">Cancel</button>
+        <button
+          onClick={() => saveMutation.mutate()}
+          disabled={saveMutation.isPending}
+          className="btn btn-primary"
+        >
+          {saveMutation.isPending ? <><Spinner size={14} /> Saving…</> : 'Save Schedule'}
+        </button>
+      </div>
+    </Modal>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// ResilverProgressCard
+// ---------------------------------------------------------------------------
+
+function ResilverProgressCard({ pool }: { pool: string }) {
+  const resilverQ = useQuery({
+    queryKey: ['zfs', 'resilver', pool],
+    queryFn: ({ signal }) =>
+      api.get<ResilverStatusResponse>(`/api/zfs/resilver/status?pool=${encodeURIComponent(pool)}`, signal),
+    refetchInterval: (query) => {
+      // Auto-refresh every 10s while active; stop polling once completed
+      const d = query.state.data
+      if (d?.resilvering && !d?.completed) return 10_000
+      return false
+    },
+  })
+
+  const data = resilverQ.data
+  if (!data || !data.resilvering) return null
+
+  const pct = Math.min(100, Math.max(0, data.percent_done ?? 0))
+  const isComplete = data.completed
+
+  return (
+    <div style={{
+      background: 'var(--bg-card)',
+      border: `1px solid ${isComplete ? 'var(--success-border)' : 'var(--warning-border)'}`,
+      borderLeft: `4px solid ${isComplete ? 'var(--success)' : 'var(--warning)'}`,
+      borderRadius: 'var(--radius-xl)',
+      padding: '18px 22px',
+      display: 'flex',
+      flexDirection: 'column',
+      gap: 12,
+    }}>
+      {/* Header */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <Icon
+          name={isComplete ? 'check_circle' : 'sync'}
+          size={20}
+          style={{ color: isComplete ? 'var(--success)' : 'var(--warning)', flexShrink: 0 }}
+        />
+        <div style={{ flex: 1 }}>
+          <div style={{ fontWeight: 700, fontSize: 'var(--text-md)' }}>
+            {isComplete ? 'Resilver Complete' : 'Resilver In Progress'}
+          </div>
+          <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>
+            Pool: {pool}
+          </div>
+        </div>
+        {!isComplete && (
+          <div style={{ fontSize: 'var(--text-sm)', fontWeight: 700, color: 'var(--warning)', flexShrink: 0 }}>
+            {pct.toFixed(1)}%
+          </div>
+        )}
+      </div>
+
+      {/* Progress bar */}
+      {!isComplete && (
+        <div>
+          <div style={{ height: 8, background: 'rgba(255,255,255,0.07)', borderRadius: 999, overflow: 'hidden' }}>
+            <div style={{
+              height: '100%',
+              width: `${pct}%`,
+              background: 'var(--warning)',
+              borderRadius: 999,
+              transition: 'width 1s',
+            }} />
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6, fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }}>
+            <span>{data.bytes_done ? `${data.bytes_done} resilvered` : ''}</span>
+            <span>{data.eta ? `ETA ${data.eta}` : ''}</span>
+          </div>
+        </div>
+      )}
+
+      {/* Completed summary */}
+      {isComplete && (
+        <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>
+          {data.bytes_done && <span>{data.bytes_done} resilvered · </span>}
+          {data.errors === 0 ? (
+            <span style={{ color: 'var(--success)' }}>No errors</span>
+          ) : (
+            <span style={{ color: 'var(--error)' }}>{data.errors} error{data.errors !== 1 ? 's' : ''}</span>
+          )}
+          {data.completed_at && (
+            <span style={{ marginLeft: 8, color: 'var(--text-tertiary)' }}>
+              Completed {data.completed_at}
+            </span>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // PoolCard
 // ---------------------------------------------------------------------------
 
-function PoolCard({ pool, datasets, onRefresh }: { pool: ZFSPool; datasets: ZFSDataset[]; onRefresh: () => void }) {
+function PoolCard({ pool, datasets, filter, onRefresh }: { pool: ZFSPool; datasets: ZFSDataset[]; filter?: string; onRefresh: () => void }) {
   const qc = useQueryClient()
   const [treeOpen, setTreeOpen] = useState(true)
   const [createParent, setCreateParent] = useState<string | null>(null)
+  const [showScheduleModal, setShowScheduleModal] = useState(false)
   const pct = parseCapacityPct(pool.capacity)
-  const tree = buildTree(datasets, pool.name)
 
+  // Apply client-side filter
+  const filterLower = (filter ?? '').toLowerCase()
+  const effectiveFilter = filterLower.startsWith('pool:') ? filterLower.slice(5) : filterLower
+  const filteredDatasets = effectiveFilter
+    ? datasets.filter(d => {
+        const nameLower = d.name.toLowerCase()
+        const mntLower  = (d.mountpoint || '').toLowerCase()
+        return nameLower.includes(effectiveFilter) || mntLower.includes(effectiveFilter)
+      })
+    : datasets
+
+  const tree = buildTree(filteredDatasets, pool.name)
+
+  // ── Scrub status ──────────────────────────────────────────────────────────
   const scrubQ = useQuery({
     queryKey: ['zfs', 'scrub', 'status', pool.name],
-    queryFn: ({ signal }) => api.get<ScrubStatusResponse>(`/api/zfs/scrub/status?pool=${encodeURIComponent(pool.name)}`, signal),
+    queryFn: ({ signal }) =>
+      api.get<ScrubStatusResponse>(`/api/zfs/scrub/status?pool=${encodeURIComponent(pool.name)}`, signal),
     refetchInterval: 10_000,
   })
+
+  // ── Scrub schedule ────────────────────────────────────────────────────────
+  const scheduleQ = useQuery({
+    queryKey: ['zfs', 'scrub', 'schedule', pool.name],
+    queryFn: ({ signal }) =>
+      api.get<ScrubSchedulesResponse>(`/api/zfs/scrub/schedule?pool=${encodeURIComponent(pool.name)}`, signal),
+  })
+  const currentSchedule = scheduleQ.data?.schedules?.[0] ?? null
+
+  // ── Scrub mutations ───────────────────────────────────────────────────────
   const scrubStart = useMutation({
     mutationFn: () => api.post('/api/zfs/scrub/start', { pool: pool.name }),
     onSuccess: () => { toast.success('Scrub started'); qc.invalidateQueries({ queryKey: ['zfs', 'scrub', 'status', pool.name] }) },
@@ -213,8 +529,12 @@ function PoolCard({ pool, datasets, onRefresh }: { pool: ZFSPool; datasets: ZFSD
     onError: (e: Error) => toast.error(e.message),
   })
 
-  const scrubText = scrubQ.data?.scrub || ''
-  const isScrubbing = /in progress|scrubbing/i.test(scrubText)
+  const scrubStatus = scrubQ.data
+  const isScrubbing = scrubStatus?.in_progress ?? /in progress|scrubbing/i.test(scrubStatus?.scrub ?? '')
+  const scrubPct = scrubStatus?.percent_done ?? 0
+  const scrubEta = scrubStatus?.eta ?? ''
+  const scrubDone = scrubStatus?.bytes_done ?? ''
+  const scrubText = scrubStatus?.scrub || ''
 
   return (
     <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-xl)', padding: 28, borderLeft: `4px solid ${healthColor(pool.health)}` }}>
@@ -258,12 +578,88 @@ function PoolCard({ pool, datasets, onRefresh }: { pool: ZFSPool; datasets: ZFSD
             {m.label}: <strong>{m.value}</strong>
           </span>
         ))}
-        {scrubText && (
+        {scrubText && !isScrubbing && (
           <span style={{ padding: '4px 10px', background: 'var(--surface)', borderRadius: 'var(--radius-sm)', fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>
             {scrubText.split('\n')[0].trim().slice(0, 60)}
           </span>
         )}
       </div>
+
+      {/* ── Scrub progress (shown when in progress) ───────────────────────── */}
+      {isScrubbing && (
+        <div style={{
+          background: 'var(--warning-bg)',
+          border: '1px solid var(--warning-border)',
+          borderRadius: 'var(--radius-md)',
+          padding: '12px 14px',
+          marginBottom: 16,
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 'var(--text-sm)', color: 'var(--warning)', fontWeight: 600 }}>
+              <Spinner size={14} />
+              Scrubbing…
+            </div>
+            <div style={{ fontSize: 'var(--text-sm)', fontWeight: 700, color: 'var(--warning)' }}>
+              {scrubPct > 0 ? `${scrubPct.toFixed(1)}%` : ''}
+            </div>
+          </div>
+          {scrubPct > 0 && (
+            <>
+              <div className="progress" style={{ height: 6, background: 'rgba(255,255,255,0.1)', borderRadius: 999, overflow: 'hidden' }}>
+                <div
+                  className="progress-fill"
+                  style={{ height: '100%', width: `${scrubPct}%`, background: 'var(--warning)', borderRadius: 999, transition: 'width 0.5s' }}
+                />
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4, fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }}>
+                <span>{scrubDone ? `${scrubDone} scanned` : ''}</span>
+                <span>{scrubEta ? `ETA ${scrubEta}` : ''}</span>
+              </div>
+            </>
+          )}
+          {scrubPct === 0 && scrubText && (
+            <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>
+              {scrubText.split('\n')[0].trim().slice(0, 80)}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Scrub schedule section ────────────────────────────────────────── */}
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 10,
+        marginBottom: 16,
+        padding: '10px 14px',
+        background: 'var(--surface)',
+        border: '1px solid var(--border)',
+        borderRadius: 'var(--radius-md)',
+      }}>
+        <Icon name="event_repeat" size={16} style={{ color: 'var(--text-tertiary)', flexShrink: 0 }} />
+        <div style={{ flex: 1 }}>
+          {currentSchedule ? (
+            <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>
+              Scrubs <strong>{formatScrubSchedule(currentSchedule)}</strong>
+            </span>
+          ) : (
+            <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }}>
+              No automatic scrub scheduled
+            </span>
+          )}
+        </div>
+        <button
+          className="btn btn-ghost"
+          onClick={() => setShowScheduleModal(true)}
+          style={{ fontSize: 'var(--text-xs)', padding: '4px 10px', flexShrink: 0 }}
+        >
+          <Icon name="edit_calendar" size={13} style={{ marginRight: 4 }} />
+          Configure Schedule
+        </button>
+      </div>
+
+      {/* Resilver progress card */}
+      <ResilverProgressCard pool={pool.name} />
 
       {/* Dataset tree */}
       {tree.length > 0 && (
@@ -271,9 +667,14 @@ function PoolCard({ pool, datasets, onRefresh }: { pool: ZFSPool; datasets: ZFSD
           <button onClick={() => setTreeOpen(o => !o)} style={{ width: '100%', background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0 8px', color: 'var(--text-tertiary)', fontSize: 'var(--text-xs)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
             <Icon name={treeOpen ? 'expand_more' : 'chevron_right'} size={16} />
             <Icon name="account_tree" size={14} />
-            Datasets ({datasets.length})
+            Datasets ({effectiveFilter ? `${filteredDatasets.length} of ` : ''}{datasets.length})
           </button>
           {treeOpen && tree.map(n => <DatasetNode key={n.name} node={n} depth={0} onCreateChild={setCreateParent} />)}
+          {treeOpen && effectiveFilter && filteredDatasets.length === 0 && (
+            <div style={{ padding: '16px 12px', color: 'var(--text-tertiary)', fontSize: 'var(--text-sm)', textAlign: 'center' }}>
+              No datasets match "{filter}"
+            </div>
+          )}
         </div>
       )}
 
@@ -291,6 +692,15 @@ function PoolCard({ pool, datasets, onRefresh }: { pool: ZFSPool; datasets: ZFSD
           parentName={createParent}
           onClose={() => setCreateParent(null)}
           onCreated={() => { qc.invalidateQueries({ queryKey: ['zfs', 'datasets'] }); onRefresh() }}
+        />
+      )}
+
+      {showScheduleModal && (
+        <ScrubScheduleModal
+          pool={pool.name}
+          current={currentSchedule}
+          onClose={() => setShowScheduleModal(false)}
+          onSaved={() => qc.invalidateQueries({ queryKey: ['zfs', 'scrub', 'schedule', pool.name] })}
         />
       )}
     </div>
@@ -384,6 +794,7 @@ type Tab = 'pools' | 'encryption'
 
 export function PoolsPage() {
   const [tab, setTab] = useState<Tab>('pools')
+  const [datasetFilter, setDatasetFilter] = useState('')
   const qc   = useQueryClient()
   const wsOn = useWsStore((s) => s.on)
 
@@ -412,24 +823,41 @@ export function PoolsPage() {
     })
   }, [wsOn, qc])
 
-  // WS: resilver events → refetch pools + show toast on complete
+  // WS: resilver events → refetch pools + resilver status + show toast on complete
   useEffect(() => {
     const unsub1 = wsOn('resilverStarted', () => {
       qc.invalidateQueries({ queryKey: ['zfs', 'pools'] })
+      qc.invalidateQueries({ queryKey: ['zfs', 'resilver'] })
       toast.info('Resilver started')
     })
     const unsub2 = wsOn('resilverProgress', () => {
-      qc.invalidateQueries({ queryKey: ['zfs', 'pools'] })
+      qc.invalidateQueries({ queryKey: ['zfs', 'resilver'] })
     })
     const unsub3 = wsOn('resilverCompleted', () => {
       qc.invalidateQueries({ queryKey: ['zfs', 'pools'] })
+      qc.invalidateQueries({ queryKey: ['zfs', 'resilver'] })
       toast.success('Resilver completed')
     })
     return () => { unsub1(); unsub2(); unsub3() }
   }, [wsOn, qc])
 
-  const pools = poolsQ.data?.pools ?? poolsQ.data?.data ?? []
+  const pools    = poolsQ.data?.pools ?? poolsQ.data?.data ?? []
   const datasets = datasetsQ.data?.data ?? []
+
+  // Compute global match count for the search bar summary
+  const { totalDatasets, filteredDatasetCount } = useMemo(() => {
+    const total = datasets.length
+    if (!datasetFilter) return { totalDatasets: total, filteredDatasetCount: total }
+    const effectiveFilter = datasetFilter.startsWith('pool:')
+      ? datasetFilter.slice(5).toLowerCase()
+      : datasetFilter.toLowerCase()
+    const count = datasets.filter(d => {
+      const n = d.name.toLowerCase()
+      const m = (d.mountpoint || '').toLowerCase()
+      return n.includes(effectiveFilter) || m.includes(effectiveFilter)
+    }).length
+    return { totalDatasets: total, filteredDatasetCount: count }
+  }, [datasets, datasetFilter])
 
   function refresh() {
     qc.invalidateQueries({ queryKey: ['zfs', 'pools'] })
@@ -471,10 +899,20 @@ export function PoolsPage() {
               <div style={{ fontSize: 'var(--text-lg)', fontWeight: 600 }}>No ZFS pools found</div>
             </div>
           )}
+          {/* Dataset search / filter bar */}
+          {!datasetsQ.isLoading && datasets.length > 0 && (
+            <DatasetSearchBar
+              query={datasetFilter}
+              onChange={setDatasetFilter}
+              matchCount={filteredDatasetCount}
+              totalCount={totalDatasets}
+            />
+          )}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
             {pools.map(pool => (
               <PoolCard key={pool.name} pool={pool}
                 datasets={datasets.filter(d => d.name === pool.name || d.name.startsWith(pool.name + '/'))}
+                filter={datasetFilter}
                 onRefresh={refresh}
               />
             ))}

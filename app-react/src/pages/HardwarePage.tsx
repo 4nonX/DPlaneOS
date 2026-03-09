@@ -8,6 +8,12 @@
  *   POST /api/zfs/smart/test             → { device, type } → { success, output, estimate }
  *   GET  /api/zfs/smart/results?device=X → { success, device, results }
  *   POST /api/zfs/pool/replace           → { pool, old_disk, new_disk } → { success, job_id }
+ *
+ * WS events handled:
+ *   hardwareEvent / diskAdded / diskRemoved → refresh disk list
+ *   diskTempWarning → show banner, refresh SMART
+ *   poolHealthChange → refresh disk list
+ *   diskReplacementAvailable → pre-populate replace modal with faulted vdev suggestion
  */
 
 import { useState, useEffect } from 'react'
@@ -90,6 +96,22 @@ interface ReplaceResponse {
   error?:  string
 }
 
+// diskReplacementAvailable WS payload
+interface FaultedVdevSuggestion {
+  pool:   string
+  path:   string
+  state:  string
+}
+interface ReplacementSuggestion {
+  new_disk: {
+    dev:   string
+    by_id: string
+    model: string
+    size:  string
+  }
+  faulted_vdevs: FaultedVdevSuggestion[]
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -109,6 +131,11 @@ function diskTypeMeta(type: string): { label: string; color: string } {
 function byIdShort(path: string): string {
   if (!path) return ''
   return path.split('/').pop() ?? path
+}
+
+/** Strip /dev/ prefix */
+function devName(devPath: string): string {
+  return devPath.replace(/^\/dev\//, '')
 }
 
 // ---------------------------------------------------------------------------
@@ -170,15 +197,21 @@ function SmartResultsModal({ device, onClose }: { device: string; onClose: () =>
 // ---------------------------------------------------------------------------
 
 interface ReplaceDiskModalProps {
-  pool:      string
-  oldDisk:   DiskInfo
-  freeDisk:  DiskInfo[]
-  onClose:   () => void
-  onSuccess: () => void
+  pool:            string
+  oldDisk:         DiskInfo
+  freeDisk:        DiskInfo[]
+  onClose:         () => void
+  onSuccess:       () => void
+  /** When set (from diskReplacementAvailable WS event), pre-select this disk */
+  suggestedNewDev?: string
 }
 
-function ReplaceDiskModal({ pool, oldDisk, freeDisk, onClose, onSuccess }: ReplaceDiskModalProps) {
-  const [selected, setSelected] = useState<string>(freeDisk[0]?.name ?? '')
+function ReplaceDiskModal({
+  pool, oldDisk, freeDisk, onClose, onSuccess, suggestedNewDev,
+}: ReplaceDiskModalProps) {
+  const [selected, setSelected] = useState<string>(
+    suggestedNewDev ?? freeDisk[0]?.name ?? ''
+  )
   const [jobId, setJobId] = useState<string | null>(null)
 
   const replaceMutation = useMutation({
@@ -269,9 +302,16 @@ function ReplaceDiskModal({ pool, oldDisk, freeDisk, onClose, onSuccess }: Repla
                   {freeDisk.map(d => (
                     <option key={d.name} value={d.name}>
                       /dev/{d.name} — {d.model || 'Unknown'} ({d.size})
+                      {suggestedNewDev === d.name ? ' ✓ Suggested' : ''}
                     </option>
                   ))}
                 </select>
+                {suggestedNewDev && freeDisk.some(d => d.name === suggestedNewDev) && (
+                  <div style={{ fontSize: 'var(--text-xs)', color: 'var(--info)', marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <Icon name="lightbulb" size={12} />
+                    Auto-suggested based on newly connected disk
+                  </div>
+                )}
               </label>
             )}
 
@@ -607,13 +647,38 @@ export function HardwarePage() {
     })
   }, [wsOn, qc])
 
+  // WS: diskReplacementAvailable → pre-populate the replace modal
+  useEffect(() => {
+    return wsOn('diskReplacementAvailable', (data) => {
+      const suggestion = data as ReplacementSuggestion
+      if (!suggestion?.faulted_vdevs?.length || !suggestion?.new_disk) return
+
+      const fv = suggestion.faulted_vdevs[0]
+      // Find the faulted disk in the current disk list by matching /dev/ path or by_id
+      qc.invalidateQueries({ queryKey: ['system', 'disks'] })
+
+      // Show a toast that also describes the suggestion
+      toast.info(
+        `New disk connected — suggested to replace faulted ${fv.path} in pool ${fv.pool}`,
+        8000
+      )
+
+      // Store the suggestion so the UI can open the modal when disks reload
+      setReplacementSuggestion(suggestion)
+    })
+  }, [wsOn, qc])
+
   // Per-disk test state
   const [runningDevice, setRunningDevice]           = useState<string | null>(null)
   const [testResults, setTestResults]               = useState<Record<string, SMARTTestResponse>>({})
   const [resultsModalDevice, setResultsModalDevice] = useState<string | null>(null)
 
   // Replace modal state
-  const [replaceTarget, setReplaceTarget] = useState<DiskInfo | null>(null)
+  const [replaceTarget, setReplaceTarget]           = useState<DiskInfo | null>(null)
+  const [suggestedNewDev, setSuggestedNewDev]       = useState<string | null>(null)
+
+  // Pending replacement suggestion from WS (resolved after disk list refreshes)
+  const [replacementSuggestion, setReplacementSuggestion] = useState<ReplacementSuggestion | null>(null)
 
   const smartTestMutation = useMutation({
     mutationFn: (vars: { device: string; type: 'short' | 'long' }) =>
@@ -661,6 +726,27 @@ export function HardwarePage() {
 
   const disks = disksQ.data?.disks ?? []
   const freeDisk = disks.filter(d => !d.in_use)
+
+  // When disk list refreshes, try to resolve any pending replacement suggestion
+  useEffect(() => {
+    if (!replacementSuggestion || disks.length === 0) return
+
+    const fv = replacementSuggestion.faulted_vdevs[0]
+    const newDiskDev = devName(replacementSuggestion.new_disk.dev)
+
+    // Find the faulted disk object by matching its dev path or by_id against the faulted vdev path
+    const faultedDisk = disks.find(d => {
+      const dPath = '/dev/' + d.name
+      const dById = d.by_id_path ?? ''
+      return dPath === fv.path || dById === fv.path || d.name === fv.path
+    })
+
+    if (faultedDisk) {
+      setSuggestedNewDev(newDiskDev)
+      setReplaceTarget(faultedDisk)
+      setReplacementSuggestion(null)
+    }
+  }, [disks, replacementSuggestion])
 
   // Index SMART data by device name for fast lookup
   const smartByDevice: Record<string, SMARTDisk> = {}
@@ -763,7 +849,7 @@ export function HardwarePage() {
               onShortTest={() => smartTestMutation.mutate({ device: d.name, type: 'short' })}
               onLongTest={() => smartTestMutation.mutate({ device: d.name, type: 'long' })}
               onViewResults={() => setResultsModalDevice(d.name)}
-              onReplace={d.pool_name ? () => setReplaceTarget(d) : undefined}
+              onReplace={d.pool_name ? () => { setReplaceTarget(d); setSuggestedNewDev(null) } : undefined}
             />
           ))}
         </div>
@@ -839,11 +925,13 @@ export function HardwarePage() {
           pool={replaceTarget.pool_name!}
           oldDisk={replaceTarget}
           freeDisk={freeDisk}
-          onClose={() => setReplaceTarget(null)}
+          suggestedNewDev={suggestedNewDev ?? undefined}
+          onClose={() => { setReplaceTarget(null); setSuggestedNewDev(null) }}
           onSuccess={() => {
             qc.invalidateQueries({ queryKey: ['system', 'disks'] })
             qc.invalidateQueries({ queryKey: ['zfs', 'pools'] })
             setReplaceTarget(null)
+            setSuggestedNewDev(null)
           }}
         />
       )}

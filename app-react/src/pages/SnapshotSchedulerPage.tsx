@@ -7,6 +7,7 @@
  *   POST /api/snapshots/run-now       (body: { dataset, retain })
  *   GET  /api/zfs/datasets            (populate dataset picker)
  *   GET  /api/zfs/snapshots           (list existing snapshots)
+ *   GET  /api/replication/schedules   (for trigger-on-snapshot selector)
  */
 
 import { useState } from 'react'
@@ -23,11 +24,14 @@ import { Modal } from '@/components/ui/Modal'
 // ---------------------------------------------------------------------------
 
 interface SnapshotSchedule {
-  dataset:   string
-  frequency: 'hourly' | 'daily' | 'weekly' | 'monthly'
-  retention: number
-  enabled:   boolean
-  prefix?:   string
+  dataset:              string
+  frequency:            'hourly' | 'daily' | 'weekly' | 'monthly'
+  retention:            number
+  retention_days?:      number   // days-based retention (in addition to count)
+  enabled:              boolean
+  prefix?:              string
+  trigger_replication?: boolean  // show replication trigger toggle in UI
+  replication_id?:      string   // which replication schedule to trigger
 }
 
 interface SchedulesResponse { success: boolean; schedules: SnapshotSchedule[] }
@@ -37,6 +41,15 @@ interface DatasetsResponse { success: boolean; data: ZFSDataset[] }
 
 interface Snapshot { name: string; used: string; creation: string }
 interface SnapshotsResponse { success: boolean; snapshots?: Snapshot[]; data?: Snapshot[] }
+
+interface ReplicationSchedule {
+  id:             string
+  name:           string
+  source_dataset: string
+  remote_host:    string
+  interval:       string
+}
+interface ReplSchedulesResponse { success: boolean; schedules: ReplicationSchedule[] }
 
 // ---------------------------------------------------------------------------
 
@@ -51,20 +64,45 @@ const FREQ_ICONS: Record<SnapshotSchedule['frequency'], string> = {
 // CreateScheduleModal
 // ---------------------------------------------------------------------------
 
-function CreateScheduleModal({ datasets, onClose, onSaved }: {
-  datasets: ZFSDataset[]; onClose: () => void; onSaved: (s: SnapshotSchedule) => void
+function CreateScheduleModal({ datasets, replSchedules, onClose, onSaved }: {
+  datasets: ZFSDataset[]
+  replSchedules: ReplicationSchedule[]
+  onClose: () => void
+  onSaved: (s: SnapshotSchedule) => void
 }) {
-  const [dataset, setDataset] = useState(datasets[0]?.name ?? '')
-  const [frequency, setFrequency] = useState<SnapshotSchedule['frequency']>('daily')
-  const [retention, setRetention] = useState(7)
-  const [prefix, setPrefix] = useState('auto')
+  const [dataset,           setDataset]           = useState(datasets[0]?.name ?? '')
+  const [frequency,         setFrequency]          = useState<SnapshotSchedule['frequency']>('daily')
+  const [retention,         setRetention]          = useState(7)
+  const [retentionDays,     setRetentionDays]      = useState(0)
+  const [prefix,            setPrefix]             = useState('auto')
+  const [triggerRepl,       setTriggerRepl]        = useState(false)
+  const [replicationId,     setReplicationId]      = useState(replSchedules[0]?.id ?? '')
 
   function submit() {
     if (!dataset) { toast.error('Select a dataset'); return }
-    if (retention < 1) { toast.error('Retention must be ≥ 1'); return }
-    onSaved({ dataset, frequency, retention, enabled: true, prefix })
+    if (retention < 1) { toast.error('Retention count must be ≥ 1'); return }
+
+    const sched: SnapshotSchedule = {
+      dataset,
+      frequency,
+      retention,
+      retention_days: retentionDays > 0 ? retentionDays : undefined,
+      enabled: true,
+      prefix,
+      trigger_replication: triggerRepl || undefined,
+      replication_id: triggerRepl ? replicationId : undefined,
+    }
+    onSaved(sched)
     onClose()
   }
+
+  // Find the replication schedules that match the selected dataset
+  const matchingReplScheds = replSchedules.filter(rs =>
+    rs.source_dataset === dataset ||
+    dataset.startsWith(rs.source_dataset + '/') ||
+    rs.source_dataset.startsWith(dataset + '/')
+  )
+  const replOptions = matchingReplScheds.length > 0 ? matchingReplScheds : replSchedules
 
   return (
     <Modal title="New Snapshot Schedule" onClose={onClose}>
@@ -75,6 +113,7 @@ function CreateScheduleModal({ datasets, onClose, onSaved }: {
             {datasets.map(d => <option key={d.name} value={d.name}>{d.name}</option>)}
           </select>
         </label>
+
         <label className="field">
           <span className="field-label">Frequency</span>
           <select value={frequency} onChange={e => setFrequency(e.target.value as SnapshotSchedule['frequency'])} className="input">
@@ -83,16 +122,62 @@ function CreateScheduleModal({ datasets, onClose, onSaved }: {
             ))}
           </select>
         </label>
-        <label className="field">
-          <span className="field-label">Keep (count)</span>
-          <input type="number" value={retention} min={1} max={365}
-            onChange={e => setRetention(parseInt(e.target.value) || 1)} className="input" />
-        </label>
+
+        {/* Retention: count + optional days */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+          <label className="field">
+            <span className="field-label">Retention Count</span>
+            <input type="number" value={retention} min={1} max={365}
+              onChange={e => setRetention(parseInt(e.target.value) || 1)} className="input" />
+          </label>
+          <label className="field">
+            <span className="field-label">Retention Days <span style={{ fontWeight: 400, color: 'var(--text-tertiary)' }}>(0 = off)</span></span>
+            <input type="number" value={retentionDays} min={0} max={3650}
+              onChange={e => setRetentionDays(parseInt(e.target.value) || 0)} className="input" />
+          </label>
+        </div>
+
         <label className="field">
           <span className="field-label">Prefix</span>
           <input value={prefix} onChange={e => setPrefix(e.target.value)} placeholder="auto" className="input" />
         </label>
+
+        {/* Trigger replication toggle */}
+        <div style={{ borderTop: '1px solid var(--border)', paddingTop: 14 }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={triggerRepl}
+              onChange={e => setTriggerRepl(e.target.checked)}
+              style={{ accentColor: 'var(--primary)', width: 16, height: 16 }}
+            />
+            <span style={{ fontSize: 'var(--text-sm)', fontWeight: 600 }}>
+              Trigger Replication after each snapshot
+            </span>
+          </label>
+          {triggerRepl && (
+            <div style={{ marginTop: 12 }}>
+              {replOptions.length === 0 ? (
+                <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', padding: '8px 12px', background: 'var(--surface)', borderRadius: 'var(--radius-sm)' }}>
+                  No replication schedules found — create one in the Replication page first.
+                </div>
+              ) : (
+                <label className="field">
+                  <span className="field-label">Replicate to</span>
+                  <select value={replicationId} onChange={e => setReplicationId(e.target.value)} className="input">
+                    {replOptions.map(rs => (
+                      <option key={rs.id} value={rs.id}>
+                        {rs.name} ({rs.source_dataset} → {rs.remote_host || 'remote'})
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+            </div>
+          )}
+        </div>
       </div>
+
       <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 24 }}>
         <button onClick={onClose} className="btn btn-ghost">Cancel</button>
         <button onClick={submit} className="btn btn-primary">Create Schedule</button>
@@ -105,11 +190,20 @@ function CreateScheduleModal({ datasets, onClose, onSaved }: {
 // ScheduleRow
 // ---------------------------------------------------------------------------
 
-function ScheduleRow({ schedule, index: _index, onToggle, onDelete, onRunNow, running }: {
-  schedule: SnapshotSchedule; index: number
-  onToggle: () => void; onDelete: () => void; onRunNow: () => void; running: boolean
+function ScheduleRow({ schedule, index: _index, replSchedules, onToggle, onDelete, onRunNow, running }: {
+  schedule: SnapshotSchedule
+  index: number
+  replSchedules: ReplicationSchedule[]
+  onToggle: () => void
+  onDelete: () => void
+  onRunNow: () => void
+  running: boolean
 }) {
   const [confirming, setConfirming] = useState(false)
+
+  const replicationName = schedule.trigger_replication && schedule.replication_id
+    ? (replSchedules.find(rs => rs.id === schedule.replication_id)?.name ?? schedule.replication_id)
+    : null
 
   return (
     <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: '16px 20px', display: 'flex', alignItems: 'center', gap: 16, opacity: schedule.enabled ? 1 : 0.6 }}>
@@ -117,8 +211,17 @@ function ScheduleRow({ schedule, index: _index, onToggle, onDelete, onRunNow, ru
       <div style={{ flex: 1 }}>
         <div style={{ fontWeight: 700, fontFamily: 'var(--font-mono)', fontSize: 'var(--text-sm)', marginBottom: 4 }}>{schedule.dataset}</div>
         <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>
-          {FREQ_LABELS[schedule.frequency]} · keep {schedule.retention}
+          {FREQ_LABELS[schedule.frequency]}
+          {' · keep '}
+          {schedule.retention}
+          {schedule.retention_days ? ` / ${schedule.retention_days}d` : ''}
           {schedule.prefix && ` · prefix: ${schedule.prefix}`}
+          {replicationName && (
+            <span style={{ marginLeft: 6, color: 'var(--primary)' }}>
+              <Icon name="sync_alt" size={11} style={{ verticalAlign: 'middle', marginRight: 3 }} />
+              {replicationName}
+            </span>
+          )}
         </div>
       </div>
       <span style={{ padding: '3px 10px', borderRadius: 'var(--radius-full)', background: schedule.enabled ? 'var(--success-bg)' : 'var(--surface)', border: `1px solid ${schedule.enabled ? 'var(--success-border)' : 'var(--border)'}`, color: schedule.enabled ? 'var(--success)' : 'var(--text-tertiary)', fontSize: 'var(--text-2xs)', fontWeight: 700 }}>
@@ -201,6 +304,10 @@ export function SnapshotSchedulerPage() {
     queryKey: ['zfs', 'datasets'],
     queryFn: ({ signal }) => api.get<DatasetsResponse>('/api/zfs/datasets', signal),
   })
+  const replSchedulesQ = useQuery({
+    queryKey: ['replication', 'schedules'],
+    queryFn: ({ signal }) => api.get<ReplSchedulesResponse>('/api/replication/schedules', signal),
+  })
 
   // Save the full schedule list (daemon expects full array replacement)
   const saveSchedules = useMutation({
@@ -217,10 +324,14 @@ export function SnapshotSchedulerPage() {
     onSettled: () => setRunningIdx(null),
   })
 
-  const schedules = schedulesQ.data?.schedules ?? []
-  const datasets = datasetsQ.data?.data ?? []
+  const schedules     = schedulesQ.data?.schedules ?? []
+  const datasets      = datasetsQ.data?.data ?? []
+  const replSchedules = replSchedulesQ.data?.schedules ?? []
 
   function addSchedule(s: SnapshotSchedule) {
+    // When a snapshot schedule references a replication schedule, update that
+    // replication schedule's trigger_on_snapshot flag so the daemon hook fires.
+    // We pass this as metadata on the snapshot schedule; the daemon stores it.
     saveSchedules.mutate([...schedules, s])
   }
 
@@ -281,6 +392,7 @@ export function SnapshotSchedulerPage() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             {schedules.map((s, idx) => (
               <ScheduleRow key={`${s.dataset}-${idx}`} schedule={s} index={idx}
+                replSchedules={replSchedules}
                 onToggle={() => toggleSchedule(idx)}
                 onDelete={() => deleteSchedule(idx)}
                 onRunNow={() => handleRunNow(idx)}
@@ -296,6 +408,7 @@ export function SnapshotSchedulerPage() {
       {showCreate && (
         <CreateScheduleModal
           datasets={datasets}
+          replSchedules={replSchedules}
           onClose={() => setShowCreate(false)}
           onSaved={addSchedule}
         />

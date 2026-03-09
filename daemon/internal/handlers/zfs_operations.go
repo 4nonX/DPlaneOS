@@ -4,10 +4,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 
 	"dplaned/internal/cmdutil"
+	"dplaned/internal/jobs"
 )
 
 // ═══════════════════════════════════════════════════════════════
@@ -62,6 +64,65 @@ func StopScrub(w http.ResponseWriter, r *http.Request) {
 	respondOK(w, map[string]interface{}{"success": true, "message": "Scrub stopped"})
 }
 
+// ScrubScanInfo holds parsed scan-line data common to both scrub and resilver.
+type ScrubScanInfo struct {
+	InProgress  bool    `json:"in_progress"`
+	PercentDone float64 `json:"percent_done"`
+	BytesDone   string  `json:"bytes_done"`
+	ETA         string  `json:"eta"`
+	Errors      int     `json:"errors"`
+	Completed   bool    `json:"completed"`
+	CompletedAt string  `json:"completed_at,omitempty"`
+	RawScanLine string  `json:"raw_scan_line"`
+}
+
+// parseScanLine parses a `zpool status` scan: line.
+// It handles both in-progress and completed resilver/scrub lines.
+//
+// Example in-progress:
+//
+//	scan: resilver in progress since Mon Jan  1 00:00:00 2024
+//	      1.23G done, 42.70% done, ETA 00:14:22
+//
+// Example completed:
+//
+//	scan: resilvered 3.45G in 00:22:10 with 0 errors on Mon Jan  1 00:30:00 2024
+func parseScanLine(rawLine string) ScrubScanInfo {
+	info := ScrubScanInfo{RawScanLine: rawLine}
+
+	// In-progress pattern: "X.XXG done, XX.XX% done, ETA HH:MM:SS"
+	pctRe := regexp.MustCompile(`([\d.]+)%\s+done`)
+	etaRe := regexp.MustCompile(`ETA\s+(\S+)`)
+	bytesRe := regexp.MustCompile(`([\d.]+[KMGT]?)\s+done`)
+
+	if strings.Contains(rawLine, "in progress") {
+		info.InProgress = true
+		if m := pctRe.FindStringSubmatch(rawLine); len(m) > 1 {
+			info.PercentDone, _ = strconv.ParseFloat(m[1], 64)
+		}
+		if m := etaRe.FindStringSubmatch(rawLine); len(m) > 1 {
+			info.ETA = m[1]
+		}
+		if m := bytesRe.FindStringSubmatch(rawLine); len(m) > 1 {
+			info.BytesDone = m[1]
+		}
+		return info
+	}
+
+	// Completed scrub: "scrub repaired X in HH:MM:SS with N errors on ..."
+	// Completed resilver: "resilvered X in HH:MM:SS with N errors on ..."
+	completedRe := regexp.MustCompile(`(?:resilvered|scrub repaired)\s+([\d.]+[KMGT]?)\s+in\s+\S+\s+with\s+(\d+)\s+errors?\s+on\s+(.+)`)
+	if m := completedRe.FindStringSubmatch(rawLine); len(m) > 3 {
+		info.Completed = true
+		info.BytesDone = m[1]
+		info.Errors, _ = strconv.Atoi(m[2])
+		info.CompletedAt = strings.TrimSpace(m[3])
+		return info
+	}
+
+	return info
+}
+
 // GetScrubStatus returns current scrub progress
 // GET /api/zfs/scrub/status?pool=tank
 func GetScrubStatus(w http.ResponseWriter, r *http.Request) {
@@ -77,19 +138,128 @@ func GetScrubStatus(w http.ResponseWriter, r *http.Request) {
 		respondOK(w, map[string]interface{}{"success": false, "error": err.Error()})
 		return
 	}
-	// Extract scan line
-	scrubInfo := "none"
-	for _, line := range strings.Split(output, "\n") {
+
+	// Collect all scan-related lines (the continuation line follows the scan: line)
+	var scanLines []string
+	lines := strings.Split(output, "\n")
+	inScan := false
+	for _, line := range lines {
 		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "scan:") || strings.HasPrefix(trimmed, "scrub") {
-			scrubInfo = trimmed
-			break
+		if strings.HasPrefix(trimmed, "scan:") {
+			inScan = true
+			scanLines = append(scanLines, trimmed)
+			continue
+		}
+		if inScan {
+			// Continuation lines are indented and don't start a new field
+			if strings.HasPrefix(line, "\t") || (len(line) > 0 && line[0] == ' ') {
+				if !strings.Contains(trimmed, ":") || strings.HasPrefix(trimmed, "scan:") {
+					scanLines = append(scanLines, trimmed)
+					continue
+				}
+			}
+			inScan = false
 		}
 	}
+
+	rawScan := strings.Join(scanLines, " ")
+
+	// Only parse scrub lines (not resilver) for this endpoint
+	scrubInfo := "none"
+	if rawScan != "" {
+		scrubInfo = rawScan
+	}
+
+	parsed := parseScanLine(rawScan)
+
 	respondOK(w, map[string]interface{}{
-		"success": true,
-		"pool":    pool,
-		"scrub":   scrubInfo,
+		"success":      true,
+		"pool":         pool,
+		"scrub":        scrubInfo,
+		"in_progress":  parsed.InProgress,
+		"percent_done": parsed.PercentDone,
+		"bytes_done":   parsed.BytesDone,
+		"eta":          parsed.ETA,
+		"errors":       parsed.Errors,
+		"completed":    parsed.Completed,
+		"completed_at": parsed.CompletedAt,
+	})
+}
+
+// HandleResilverStatus returns resilver progress for a pool
+// GET /api/zfs/resilver/status?pool=tank
+func HandleResilverStatus(w http.ResponseWriter, r *http.Request) {
+	pool := r.URL.Query().Get("pool")
+	if pool == "" || !isValidDataset(pool) {
+		respondErrorSimple(w, "Invalid pool", http.StatusBadRequest)
+		return
+	}
+
+	output, err := executeCommandWithTimeout(TimeoutFast, "/usr/sbin/zpool", []string{
+		"status", "-P", pool,
+	})
+	if err != nil {
+		respondOK(w, map[string]interface{}{"success": false, "error": err.Error()})
+		return
+	}
+
+	// Collect scan: line and its continuations
+	var scanLines []string
+	lines := strings.Split(output, "\n")
+	inScan := false
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "scan:") {
+			inScan = true
+			scanLines = append(scanLines, trimmed)
+			continue
+		}
+		if inScan {
+			if strings.HasPrefix(line, "\t") || (len(line) > 0 && line[0] == ' ') {
+				// Only collect if it doesn't start a new top-level field
+				if !strings.Contains(trimmed, ":") || strings.HasPrefix(trimmed, "scan:") {
+					scanLines = append(scanLines, trimmed)
+					continue
+				}
+			}
+			inScan = false
+		}
+	}
+
+	rawScan := strings.Join(scanLines, " ")
+
+	// Only return resilver data — not scrub
+	isResilver := strings.Contains(rawScan, "resilver")
+	if !isResilver {
+		respondOK(w, map[string]interface{}{
+			"pool":         pool,
+			"resilvering":  false,
+			"percent_done": 0,
+			"bytes_done":   "",
+			"eta":          "",
+			"errors":       0,
+			"completed":    false,
+			"completed_at": nil,
+		})
+		return
+	}
+
+	parsed := parseScanLine(rawScan)
+
+	var completedAt interface{} = nil
+	if parsed.CompletedAt != "" {
+		completedAt = parsed.CompletedAt
+	}
+
+	respondOK(w, map[string]interface{}{
+		"pool":         pool,
+		"resilvering":  parsed.InProgress || parsed.Completed,
+		"percent_done": parsed.PercentDone,
+		"bytes_done":   parsed.BytesDone,
+		"eta":          parsed.ETA,
+		"errors":       parsed.Errors,
+		"completed":    parsed.Completed,
+		"completed_at": completedAt,
 	})
 }
 
@@ -187,7 +357,7 @@ func RemoveCacheOrLog(w http.ResponseWriter, r *http.Request) {
 //  6. DISK REPLACEMENT (zpool replace)
 // ═══════════════════════════════════════════════════════════════
 
-// ReplaceDisk replaces a failed disk and starts resilver
+// ReplaceDisk replaces a failed disk and starts resilver via the jobs system
 // POST /api/zfs/pool/replace { "pool": "tank", "old_disk": "sda", "new_disk": "sde" }
 func ReplaceDisk(w http.ResponseWriter, r *http.Request) {
 	var req struct {
@@ -205,7 +375,7 @@ func ReplaceDisk(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	for _, d := range []string{req.OldDisk, req.NewDisk} {
-		if strings.ContainsAny(d, ";|&$`\\\"' /") || len(d) > 64 {
+		if strings.ContainsAny(d, ";|&$`\\\"' /") || len(d) > 128 {
 			respondErrorSimple(w, "Invalid disk name", http.StatusBadRequest)
 			return
 		}
@@ -217,21 +387,34 @@ func ReplaceDisk(w http.ResponseWriter, r *http.Request) {
 	}
 	args = append(args, req.Pool, req.OldDisk, req.NewDisk)
 
-	output, err := executeCommandWithTimeout(TimeoutMedium, "/usr/sbin/zpool", args)
-	if err != nil {
-		respondOK(w, map[string]interface{}{
-			"success": false,
-			"error":   fmt.Sprintf("Replace failed: %v", err),
-			"output":  output,
+	// Snapshot local copies for the closure
+	pool := req.Pool
+	oldDisk := req.OldDisk
+	newDisk := req.NewDisk
+	argsCopy := append([]string(nil), args...)
+
+	jobID := jobs.Start("zpool-replace", func(j *jobs.Job) {
+		output, err := executeCommandWithTimeout(TimeoutMedium, "/usr/sbin/zpool", argsCopy)
+		if err != nil {
+			j.Fail(fmt.Sprintf("zpool replace failed: %v — %s", err, strings.TrimSpace(output)))
+			return
+		}
+		j.Done(map[string]interface{}{
+			"success":  true,
+			"pool":     pool,
+			"old_disk": oldDisk,
+			"new_disk": newDisk,
+			"output":   strings.TrimSpace(output),
 		})
-		return
-	}
+	})
+
 	respondOK(w, map[string]interface{}{
 		"success":  true,
-		"pool":     req.Pool,
-		"old_disk": req.OldDisk,
-		"new_disk": req.NewDisk,
-		"message":  "Resilver started. Monitor progress via /api/zfs/scrub/status",
+		"job_id":   jobID,
+		"pool":     pool,
+		"old_disk": oldDisk,
+		"new_disk": newDisk,
+		"message":  fmt.Sprintf("Replacement started. Track progress: GET /api/zfs/resilver/status?pool=%s", pool),
 	})
 }
 
@@ -507,7 +690,7 @@ type safeTimer struct{ t interface{ Stop() bool } }
 // POST /api/network/apply { "timeout_seconds": 60 }
 func ApplyNetworkWithRollback(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		ConfigPath     string `json:"config_path"`     // /etc/network/interfaces or /etc/netplan/...
+		ConfigPath     string `json:"config_path"` // /etc/network/interfaces or /etc/netplan/...
 		NewConfig      string `json:"new_config"`
 		TimeoutSeconds int    `json:"timeout_seconds"` // default 60
 	}

@@ -35,6 +35,10 @@ type EventMap = {
   resilverCompleted: (data: unknown) => void
   poolHealthChange: (data: unknown) => void
   diskTempWarning: (data: unknown) => void
+  diskAdded: (data: unknown) => void
+  diskRemoved: (data: unknown) => void
+  diskReplacementAvailable: (data: unknown) => void
+  mountError: (data: unknown) => void
   scrubEvent: (data: unknown) => void
   inotifyStats: (data: unknown) => void
 }

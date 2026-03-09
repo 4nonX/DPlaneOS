@@ -276,11 +276,18 @@ func initSchema(db *sql.DB) error {
 			url           TEXT NOT NULL,
 			secret_header TEXT NOT NULL DEFAULT '',
 			secret_value  TEXT NOT NULL DEFAULT '',
+			content_type  TEXT NOT NULL DEFAULT 'application/json',
+			body_template TEXT NOT NULL DEFAULT '',
 			enabled       INTEGER NOT NULL DEFAULT 1,
 			events        TEXT NOT NULL DEFAULT '[]',
 			created_at    TEXT NOT NULL DEFAULT (datetime('now')),
 			updated_at    TEXT NOT NULL DEFAULT (datetime('now'))
 		)`,
+
+		// ── Migration: add content_type + body_template to webhook_configs ──
+		// ALTER TABLE is idempotent via the "duplicate column" guard in initSchema.
+		`ALTER TABLE webhook_configs ADD COLUMN content_type  TEXT NOT NULL DEFAULT 'application/json'`,
+		`ALTER TABLE webhook_configs ADD COLUMN body_template TEXT NOT NULL DEFAULT ''`,
 
 		// ── Phase 1: Audit HMAC chain columns ──
 		`ALTER TABLE audit_logs ADD COLUMN prev_hash TEXT NOT NULL DEFAULT ''`,

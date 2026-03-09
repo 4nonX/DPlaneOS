@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"net/smtp"
+	"os"
 	"strings"
 	"time"
 
@@ -156,6 +157,9 @@ type ScrubSchedule struct {
 // GetScrubSchedules returns configured scrub schedules
 // GET /api/zfs/scrub/schedule
 func GetScrubSchedules(w http.ResponseWriter, r *http.Request) {
+	// Support filtering by pool name
+	pool := r.URL.Query().Get("pool")
+
 	db, err := sql.Open("sqlite3", alertDBPath+"?_journal_mode=WAL&_busy_timeout=30000&cache=shared&_synchronous=FULL")
 	if err != nil {
 		respondOK(w, map[string]interface{}{"success": true, "schedules": []ScrubSchedule{}})
@@ -171,6 +175,22 @@ func GetScrubSchedules(w http.ResponseWriter, r *http.Request) {
 	}
 	var schedules []ScrubSchedule
 	json.Unmarshal([]byte(value), &schedules)
+
+	// Filter by pool if requested
+	if pool != "" {
+		var filtered []ScrubSchedule
+		for _, s := range schedules {
+			if s.Pool == pool {
+				filtered = append(filtered, s)
+			}
+		}
+		if filtered == nil {
+			filtered = []ScrubSchedule{}
+		}
+		respondOK(w, map[string]interface{}{"success": true, "schedules": filtered})
+		return
+	}
+
 	respondOK(w, map[string]interface{}{"success": true, "schedules": schedules})
 }
 
@@ -194,6 +214,10 @@ func SaveScrubSchedules(w http.ResponseWriter, r *http.Request) {
 			respondErrorSimple(w, "Invalid interval (daily/weekly/monthly)", http.StatusBadRequest)
 			return
 		}
+		if s.Hour < 0 || s.Hour > 23 {
+			respondErrorSimple(w, "Hour must be 0-23", http.StatusBadRequest)
+			return
+		}
 	}
 
 	// Save to DB (prepared statement — safe against SQL injection)
@@ -210,29 +234,33 @@ func SaveScrubSchedules(w http.ResponseWriter, r *http.Request) {
 
 	// Generate crontab entries
 	var crontab strings.Builder
-	crontab.WriteString("# D-PlaneOS ZFS Scrub Schedules (auto-generated)\n")
+	crontab.WriteString("# D-PlaneOS ZFS Scrub Schedules (auto-generated — do not edit manually)\n")
+	crontab.WriteString("SHELL=/bin/bash\n")
+	crontab.WriteString("PATH=/usr/sbin:/usr/bin:/sbin:/bin\n\n")
 	for _, s := range schedules {
 		var cronExpr string
 		switch s.Interval {
 		case "daily":
-			cronExpr = fmt.Sprintf("%d %d * * *", 0, s.Hour)
+			cronExpr = fmt.Sprintf("0 %d * * *", s.Hour)
 		case "weekly":
-			cronExpr = fmt.Sprintf("%d %d * * %d", 0, s.Hour, s.Day)
+			cronExpr = fmt.Sprintf("0 %d * * %d", s.Hour, s.Day)
 		case "monthly":
 			day := s.Day
 			if day < 1 {
 				day = 1
 			}
-			cronExpr = fmt.Sprintf("%d %d %d * *", 0, s.Hour, day)
+			cronExpr = fmt.Sprintf("0 %d %d * *", s.Hour, day)
 		}
-		crontab.WriteString(fmt.Sprintf("%s /usr/sbin/zpool scrub %s\n", cronExpr, s.Pool))
+		crontab.WriteString(fmt.Sprintf("%s root /usr/sbin/zpool scrub %s\n", cronExpr, s.Pool))
 	}
 
-	// Write to crontab file and install
+	// Write directly to /etc/cron.d/ (same pattern as scrub cron)
 	cronFile := "/etc/cron.d/dplaneos-scrub"
-	executeCommandWithTimeout(TimeoutFast, "/bin/bash", []string{
-		"-c", fmt.Sprintf("echo '%s' > %s && chmod 644 %s", crontab.String(), cronFile, cronFile),
-	})
+	if err := os.WriteFile(cronFile, []byte(crontab.String()), 0644); err != nil {
+		log.Printf("ERROR: failed to write scrub cron file %s: %v", cronFile, err)
+		respondErrorSimple(w, "Failed to write cron file: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
 
 	respondOK(w, map[string]interface{}{
 		"success":   true,

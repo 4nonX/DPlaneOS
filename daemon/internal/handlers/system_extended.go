@@ -26,12 +26,13 @@ func NewSnapshotScheduleHandler() *SnapshotScheduleHandler {
 }
 
 type SnapshotSchedule struct {
-	Dataset    string `json:"dataset"`
-	Frequency  string `json:"frequency"` // hourly, daily, weekly, monthly
-	Retention  int    `json:"retention"` // number of snapshots to keep
-	Enabled    bool   `json:"enabled"`
-	Prefix     string `json:"prefix"` // auto-hourly, auto-daily, etc.
-	LastRun    string `json:"last_run,omitempty"`
+	Dataset       string `json:"dataset"`
+	Frequency     string `json:"frequency"`      // hourly, daily, weekly, monthly
+	Retention     int    `json:"retention"`      // number of snapshots to keep (count-based)
+	RetentionDays int    `json:"retention_days"` // destroy snapshots older than N days (0 = disabled)
+	Enabled       bool   `json:"enabled"`
+	Prefix        string `json:"prefix"` // auto-hourly, auto-daily, etc.
+	LastRun       string `json:"last_run,omitempty"`
 }
 
 // ConfigDir is the base directory for D-PlaneOS config files.
@@ -109,7 +110,9 @@ func (h *SnapshotScheduleHandler) SaveSchedules(w http.ResponseWriter, r *http.R
 }
 
 func (h *SnapshotScheduleHandler) regenerateCron(schedules []SnapshotSchedule) {
-	cronFile := configPath("cron-snapshots")
+	// Write to /etc/cron.d/ so cron picks it up automatically (no crontab install needed).
+	// 644 ownership matches /etc/cron.d/dplaneos-scrub convention.
+	cronFile := "/etc/cron.d/dplaneos-snapshots"
 	var lines []string
 	lines = append(lines, "# D-PlaneOS Automatic Snapshot Schedules")
 	lines = append(lines, "# Auto-generated — do not edit manually")
@@ -125,9 +128,6 @@ func (h *SnapshotScheduleHandler) regenerateCron(schedules []SnapshotSchedule) {
 		if prefix == "" {
 			prefix = "auto-" + s.Frequency
 		}
-		snapName := fmt.Sprintf("%s-%s-$(date +%%Y%%m%%d-%%H%%M)", prefix, s.Dataset)
-		// Sanitize for cron
-		snapName = strings.ReplaceAll(snapName, "/", "-")
 
 		var cronExpr string
 		switch s.Frequency {
@@ -143,12 +143,30 @@ func (h *SnapshotScheduleHandler) regenerateCron(schedules []SnapshotSchedule) {
 			continue
 		}
 
-		// Snapshot + prune old ones
+		// Use the cron-hook endpoint so Go can fire post-snapshot replication.
+		// The hook creates the snapshot, prunes old ones, and triggers replication.
+		// Pass retention_days so the hook can also apply age-based pruning.
+		payload := fmt.Sprintf(
+			`{"dataset":"%s","prefix":"%s","retention":%d,"retention_days":%d}`,
+			s.Dataset, prefix, s.Retention, s.RetentionDays,
+		)
 		cmd := fmt.Sprintf(
-			`/usr/sbin/zfs snapshot %s@%s && /usr/sbin/zfs list -t snapshot -o name -s creation -H %s 2>/dev/null | grep '@%s-' | head -n -%d | xargs -r -n1 /usr/sbin/zfs destroy`,
-			s.Dataset, snapName, s.Dataset, prefix, s.Retention,
+			`curl -sf -X POST http://127.0.0.1:9000/api/zfs/snapshots/cron-hook -H 'Content-Type: application/json' -d '%s'`,
+			payload,
 		)
 		lines = append(lines, fmt.Sprintf("%s root %s", cronExpr, cmd))
+
+		// Additionally, if RetentionDays > 0, emit a standalone age-based pruning
+		// entry that runs independently from the cron-hook (belt-and-suspenders).
+		if s.RetentionDays > 0 {
+			pruneCmd := fmt.Sprintf(
+				`/usr/sbin/zfs list -H -t snapshot -o name,creation -s creation -d 1 %s `+
+					`| awk -v cutoff="$(date -d '-%d days' +%%s)" '$2 < cutoff {print $1}' `+
+					`| xargs -r /usr/sbin/zfs destroy`,
+				s.Dataset, s.RetentionDays,
+			)
+			lines = append(lines, fmt.Sprintf("%s root %s", cronExpr, pruneCmd))
+		}
 	}
 
 	if err := os.WriteFile(cronFile, []byte(strings.Join(lines, "\n")+"\n"), 0644); err != nil {
@@ -186,8 +204,97 @@ func (h *SnapshotScheduleHandler) RunNow(w http.ResponseWriter, r *http.Request)
 	}
 
 	audit.LogAction("snapshot_run_now", user, fmt.Sprintf("Created %s@%s", req.Dataset, snapName), true, duration)
+
+	// Fire post-snapshot replication for matching schedules
+	go TriggerPostSnapshotReplication(req.Dataset)
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "snapshot": req.Dataset + "@" + snapName})
+}
+
+// RunCronHook is called by the cron job instead of running `zfs snapshot` directly.
+// It creates the snapshot, prunes old ones, and fires post-snapshot replication.
+// POST /api/zfs/snapshots/cron-hook
+func (h *SnapshotScheduleHandler) RunCronHook(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Dataset   string `json:"dataset"`
+		Prefix    string `json:"prefix"`
+		Retention int    `json:"retention"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	datasetPattern := regexp.MustCompile(`^[a-zA-Z0-9_\-/.@]+$`)
+	if !datasetPattern.MatchString(req.Dataset) {
+		http.Error(w, "Invalid dataset name", http.StatusBadRequest)
+		return
+	}
+	if req.Prefix == "" {
+		req.Prefix = "auto"
+	}
+	if req.Retention < 1 {
+		req.Retention = 7
+	}
+
+	snapName := fmt.Sprintf("%s-%s", req.Prefix, time.Now().Format("20060102-1504"))
+	fullName := req.Dataset + "@" + snapName
+
+	// Create snapshot
+	start := time.Now()
+	output, err := cmdutil.RunZFS("/usr/sbin/zfs", "snapshot", fullName)
+	duration := time.Since(start)
+	if err != nil {
+		audit.LogAction("snapshot_cron", "cron", fmt.Sprintf("Failed: %s: %s", fullName, string(output)), false, duration)
+		http.Error(w, "Snapshot failed: "+string(output), http.StatusInternalServerError)
+		return
+	}
+	audit.LogAction("snapshot_cron", "cron", fmt.Sprintf("Created %s", fullName), true, duration)
+
+	// Prune old snapshots beyond retention count (best-effort, non-fatal)
+	pruneOldSnapshots(req.Dataset, req.Prefix, req.Retention)
+
+	// Fire post-snapshot replication asynchronously
+	go TriggerPostSnapshotReplication(req.Dataset)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "snapshot": fullName})
+}
+
+// pruneOldSnapshots destroys snapshots beyond the retention count for a dataset+prefix.
+func pruneOldSnapshots(dataset, prefix string, retention int) {
+	output, err := cmdutil.RunZFS("/usr/sbin/zfs",
+		"list", "-t", "snapshot", "-o", "name", "-s", "creation", "-H", dataset)
+	if err != nil {
+		return
+	}
+	var matching []string
+	for _, line := range strings.Split(strings.TrimSpace(string(output)), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		// Only consider snapshots with our prefix
+		atIdx := strings.Index(line, "@")
+		if atIdx < 0 {
+			continue
+		}
+		snapPart := line[atIdx+1:]
+		if strings.HasPrefix(snapPart, prefix+"-") {
+			matching = append(matching, line)
+		}
+	}
+
+	// matching is sorted oldest-first (zfs list -s creation)
+	if len(matching) > retention {
+		toDelete := matching[:len(matching)-retention]
+		for _, snap := range toDelete {
+			if _, err := cmdutil.RunZFS("/usr/sbin/zfs", "destroy", snap); err != nil {
+				log.Printf("WARN: pruneOldSnapshots: failed to destroy %s: %v", snap, err)
+			}
+		}
+	}
 }
 
 // ============================================================
@@ -474,10 +581,10 @@ func (h *FirewallHandler) SetRule(w http.ResponseWriter, r *http.Request) {
 	user := r.Header.Get("X-User")
 
 	var req struct {
-		Action    string `json:"action"`    // allow, deny, delete, enable, disable, reset
-		Port      string `json:"port"`      // e.g. "80/tcp", "443", "22/tcp"
-		From      string `json:"from"`      // source IP/CIDR (optional)
-		RuleNum   int    `json:"rule_num"`  // for delete
+		Action  string `json:"action"`   // allow, deny, delete, enable, disable, reset
+		Port    string `json:"port"`     // e.g. "80/tcp", "443", "22/tcp"
+		From    string `json:"from"`     // source IP/CIDR (optional)
+		RuleNum int    `json:"rule_num"` // for delete
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
@@ -546,7 +653,6 @@ func (h *FirewallHandler) SetRule(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "output": string(output)})
 }
 
-
 // ============================================================
 // SSL/TLS CERTIFICATES
 // ============================================================
@@ -602,10 +708,10 @@ func (h *CertHandler) GenerateSelfSigned(w http.ResponseWriter, r *http.Request)
 	user := r.Header.Get("X-User")
 
 	var req struct {
-		Name    string `json:"name"`
-		CN      string `json:"cn"` // Common Name
-		Days    int    `json:"days"`
-		SANs    string `json:"sans"` // comma-separated
+		Name string `json:"name"`
+		CN   string `json:"cn"` // Common Name
+		Days int    `json:"days"`
+		SANs string `json:"sans"` // comma-separated
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)

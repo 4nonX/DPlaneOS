@@ -197,6 +197,40 @@ func main() {
 		}
 	}
 
+	// ── Wire central alert dispatchers ─────────────────────────────────────
+	// Must be called after DB is open (needed by SendWebhookAlert) and after
+	// Telegram is initialized (alerts.SendAlert).
+	// All subsystems (heartbeat, SMART monitor, capacity guardian, scrub monitor)
+	// call handlers.DispatchAlert() which routes to these three functions.
+	handlers.SetAlertDispatchers(
+		// Webhook: send to all enabled, subscribed webhook configs
+		func(event, resource, message string) {
+			handlers.SendWebhookAlert(db, event, "critical", message,
+				map[string]interface{}{"resource": resource})
+		},
+		// SMTP: uses the package-level sender which reads config from DB
+		handlers.SendSMTPAlert,
+		// Telegram: forward to the alerts package
+		func(message string) {
+			_ = alerts.SendAlert(alerts.TelegramAlert{
+				Level:   "CRITICAL",
+				Title:   "D-PlaneOS Alert",
+				Message: message,
+				Details: nil,
+			})
+		},
+	)
+
+	// Wire webhook + SMTP senders into the ZFS heartbeat package so that
+	// pool CRITICAL / DEGRADED events also reach webhook and SMTP channels.
+	zfs.SetAlertSenders(
+		func(event, pool, msg string) {
+			handlers.SendWebhookAlert(db, event, "critical", msg,
+				map[string]interface{}{"pool": pool})
+		},
+		handlers.SendSMTPAlert,
+	)
+
 	// Initialize ZFS pool heartbeat monitoring
 	poolList, err := zfs.DiscoverPools()
 	if err != nil {
@@ -209,7 +243,7 @@ func main() {
 			// on the root FS — the same data-loss scenario the boot gate prevents.
 			heartbeat.StopDockerOnFailure = true
 
-			// Set up Telegram alert callback if configured
+			// CRITICAL callback: Telegram + (webhook/SMTP via sendAlert inside heartbeat)
 			heartbeat.SetErrorCallback(func(poolName string, err error, details map[string]string) {
 				alertErr := alerts.SendAlert(alerts.TelegramAlert{
 					Level:   "CRITICAL",
@@ -219,6 +253,19 @@ func main() {
 				})
 				if alertErr != nil {
 					log.Printf("Failed to send Telegram alert: %v", alertErr)
+				}
+			})
+
+			// DEGRADED callback: Telegram warning
+			heartbeat.SetDegradedCallback(func(poolName string, err error, details map[string]string) {
+				alertErr := alerts.SendAlert(alerts.TelegramAlert{
+					Level:   "WARNING",
+					Title:   fmt.Sprintf("ZFS Pool Degraded: %s", poolName),
+					Message: err.Error(),
+					Details: details,
+				})
+				if alertErr != nil {
+					log.Printf("Failed to send Telegram degraded alert: %v", alertErr)
 				}
 			})
 
@@ -461,6 +508,9 @@ func main() {
 	r.HandleFunc("/api/zfs/scrub/stop", handlers.StopScrub).Methods("POST")
 	r.HandleFunc("/api/zfs/scrub/status", handlers.GetScrubStatus).Methods("GET")
 
+	// Resilver progress (separate from scrub — parses resilver-specific scan lines)
+	r.HandleFunc("/api/zfs/resilver/status", handlers.HandleResilverStatus).Methods("GET")
+
 	// v3.0.0: VDEV / Pool expansion
 	r.Handle("/api/zfs/pool/add-vdev", permRoute("storage", "write", handlers.AddVdevToPool)).Methods("POST")
 	r.HandleFunc("/api/zfs/pool/remove-device", handlers.RemoveCacheOrLog).Methods("POST")
@@ -477,6 +527,8 @@ func main() {
 	// v3.0.0: S.M.A.R.T. tests
 	r.HandleFunc("/api/zfs/smart/test", handlers.RunSMARTTest).Methods("POST")
 	r.HandleFunc("/api/zfs/smart/results", handlers.GetSMARTTestResults).Methods("GET")
+	// SMART failure prediction (calls PredictDiskFailure via TranslateSMARTAttribute)
+	r.HandleFunc("/api/zfs/smart/predict", handlers.HandleSMARTPrediction).Methods("GET")
 
 	// v3.0.0: ZFS delegation (zfs allow)
 	r.HandleFunc("/api/zfs/delegation", handlers.SetZFSDelegation).Methods("POST")
@@ -647,6 +699,9 @@ func main() {
 	r.HandleFunc("/api/snapshots/schedules", snapScheduleHandler.ListSchedules).Methods("GET")
 	r.HandleFunc("/api/snapshots/schedules", snapScheduleHandler.SaveSchedules).Methods("POST")
 	r.HandleFunc("/api/snapshots/run-now", snapScheduleHandler.RunNow).Methods("POST")
+	// Cron hook: called by generated crontab instead of raw zfs snapshot
+	// Handles snapshot creation, retention pruning, and post-snapshot replication trigger
+	r.HandleFunc("/api/zfs/snapshots/cron-hook", snapScheduleHandler.RunCronHook).Methods("POST")
 
 	// ACL Management (v2.0.0)
 	aclHandler := handlers.NewACLHandler()
@@ -706,6 +761,9 @@ func main() {
 
 	// Start background monitors
 	handlers.StartScrubMonitor()
+	handlers.StartReplicationMonitor()
+	// SMART background monitor: polls every 6 hours, calls DispatchAlert on risk
+	handlers.StartSMARTMonitor()
 
 	// ── High Availability cluster endpoints ──
 	r.HandleFunc("/api/ha/status", haHandler.GetStatus).Methods("GET")
@@ -736,6 +794,15 @@ func main() {
 
 	// v3.2.0: Prometheus metrics exporter (Phase 2)
 	r.HandleFunc("/metrics", handlers.HandlePrometheusMetrics).Methods("GET")
+
+	// Dataset search
+	r.HandleFunc("/api/zfs/datasets/search", handlers.HandleDatasetSearch).Methods("GET")
+
+	// Replication schedules
+	r.HandleFunc("/api/replication/schedules", handlers.HandleListReplicationSchedules).Methods("GET")
+	r.HandleFunc("/api/replication/schedules", handlers.HandleCreateReplicationSchedule).Methods("POST")
+	r.HandleFunc("/api/replication/schedules/{id}", handlers.HandleDeleteReplicationSchedule).Methods("DELETE")
+	r.HandleFunc("/api/replication/schedules/{id}/run", handlers.HandleRunReplicationScheduleNow).Methods("POST")
 
 	// Create server
 	srv := &http.Server{

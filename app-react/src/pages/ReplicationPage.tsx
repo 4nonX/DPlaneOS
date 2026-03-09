@@ -9,6 +9,10 @@
  *   GET  /api/replication/ssh-pubkey
  *   POST /api/replication/ssh-copy-id
  *   GET  /api/zfs/datasets                (populate dataset picker)
+ *   GET  /api/replication/schedules       (schedules tab)
+ *   POST /api/replication/schedules       (create schedule)
+ *   DELETE /api/replication/schedules/{id}
+ *   POST /api/replication/schedules/{id}/run
  *
  * Both send endpoints return { job_id } immediately (v3.3.2+ async).
  * Poll GET /api/jobs/{id} via useJob() hook.
@@ -22,6 +26,7 @@ import { ErrorState } from '@/components/ui/ErrorState'
 import { Skeleton } from '@/components/ui/LoadingSpinner'
 import { useJob } from '@/hooks/useJob'
 import { toast } from '@/hooks/useToast'
+import { Modal } from '@/components/ui/Modal'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -33,6 +38,27 @@ interface DatasetsResponse { success: boolean; data: ZFSDataset[] }
 interface TestResult { success: boolean; error?: string; latency_ms?: number }
 interface SSHKeyResponse { success: boolean; public_key?: string; error?: string }
 interface JobStartResponse { job_id: string }
+
+interface ReplicationSchedule {
+  id:                   string
+  name:                 string
+  source_dataset:       string
+  remote_id?:           string
+  remote_host:          string
+  remote_user:          string
+  remote_port:          number
+  remote_pool:          string
+  ssh_key_path?:        string
+  interval:             'hourly' | 'daily' | 'weekly' | 'manual'
+  trigger_on_snapshot:  boolean
+  compress:             boolean
+  rate_limit_mb:        number
+  enabled:              boolean
+  last_run?:            string
+  last_status?:         string
+  last_job_id?:         string
+}
+interface ReplSchedulesResponse { success: boolean; schedules: ReplicationSchedule[] }
 
 // ---------------------------------------------------------------------------
 // JobStatusBanner
@@ -100,7 +126,6 @@ function ReplicateForm({ datasets }: { datasets: ZFSDataset[] }) {
   const [compress, setCompress] = useState(true)
   const [jobId, setJobId] = useState<string | null>(null)
 
-  // Clear job on new submission
   function clearJob() { setJobId(null) }
 
   const testMutation = useMutation({
@@ -184,7 +209,6 @@ function ReplicateForm({ datasets }: { datasets: ZFSDataset[] }) {
         </div>
       </div>
 
-      {/* Job status */}
       {jobId && (
         <div style={{ marginTop: 16 }}>
           <JobStatusBanner jobId={jobId} onDone={clearJob} />
@@ -306,10 +330,311 @@ function SSHKeyManager() {
 }
 
 // ---------------------------------------------------------------------------
+// Status badge helper
+// ---------------------------------------------------------------------------
+
+function StatusBadge({ status }: { status?: string }) {
+  if (!status) return <span style={{ color: 'var(--text-tertiary)', fontSize: 'var(--text-xs)' }}>—</span>
+
+  const colors: Record<string, { bg: string; border: string; text: string }> = {
+    running: { bg: 'var(--info-bg,#1a2a3a)', border: 'var(--info-border,#2a4a6a)', text: 'var(--info,#60a5fa)' },
+    done:    { bg: 'var(--success-bg)',      border: 'var(--success-border)',       text: 'var(--success)' },
+    failed:  { bg: 'var(--error-bg)',        border: 'var(--error-border)',         text: 'var(--error)' },
+    pending: { bg: 'var(--surface)',         border: 'var(--border)',               text: 'var(--text-secondary)' },
+  }
+  const c = colors[status] ?? colors.pending
+
+  return (
+    <span style={{ padding: '2px 8px', borderRadius: 'var(--radius-full)', background: c.bg, border: `1px solid ${c.border}`, color: c.text, fontSize: 'var(--text-2xs)', fontWeight: 700, textTransform: 'uppercase' }}>
+      {status}
+    </span>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// AddScheduleModal
+// ---------------------------------------------------------------------------
+
+const INTERVAL_LABELS: Record<ReplicationSchedule['interval'], string> = {
+  hourly: 'Hourly', daily: 'Daily', weekly: 'Weekly', manual: 'Manual only',
+}
+
+function AddScheduleModal({ datasets, onClose, onCreated }: {
+  datasets: ZFSDataset[]
+  onClose: () => void
+  onCreated: () => void
+}) {
+  const [name,              setName]              = useState('')
+  const [sourceDataset,     setSourceDataset]     = useState(datasets[0]?.name ?? '')
+  const [remoteHost,        setRemoteHost]        = useState('')
+  const [remoteUser,        setRemoteUser]        = useState('root')
+  const [remotePort,        setRemotePort]        = useState('22')
+  const [remotePool,        setRemotePool]        = useState('')
+  const [sshKeyPath,        setSshKeyPath]        = useState('')
+  const [interval,          setInterval]          = useState<ReplicationSchedule['interval']>('daily')
+  const [triggerOnSnapshot, setTriggerOnSnapshot] = useState(false)
+  const [compress,          setCompress]          = useState(true)
+  const [rateLimitMB,       setRateLimitMB]       = useState(0)
+  const [enabled,           setEnabled]           = useState(true)
+
+  const createMutation = useMutation({
+    mutationFn: (s: Partial<ReplicationSchedule>) =>
+      api.post<{ success: boolean; schedule: ReplicationSchedule }>('/api/replication/schedules', s),
+    onSuccess: () => { toast.success('Replication schedule created'); onCreated(); onClose() },
+    onError: (e: Error) => toast.error(e.message),
+  })
+
+  function submit() {
+    if (!name.trim()) { toast.error('Name is required'); return }
+    if (!sourceDataset) { toast.error('Source dataset is required'); return }
+    if (!remoteHost.trim()) { toast.error('Remote host is required'); return }
+    createMutation.mutate({
+      name,
+      source_dataset:      sourceDataset,
+      remote_host:         remoteHost,
+      remote_user:         remoteUser || 'root',
+      remote_port:         parseInt(remotePort) || 22,
+      remote_pool:         remotePool || sourceDataset,
+      ssh_key_path:        sshKeyPath || undefined,
+      interval,
+      trigger_on_snapshot: triggerOnSnapshot,
+      compress,
+      rate_limit_mb:       rateLimitMB,
+      enabled,
+    })
+  }
+
+  return (
+    <Modal title="New Replication Schedule" onClose={onClose}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <label className="field">
+          <span className="field-label">Name</span>
+          <input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. tank-to-backup" className="input" autoFocus />
+        </label>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+          <label className="field">
+            <span className="field-label">Source Dataset</span>
+            <select value={sourceDataset} onChange={e => setSourceDataset(e.target.value)} className="input">
+              {datasets.map(d => <option key={d.name} value={d.name}>{d.name}</option>)}
+            </select>
+          </label>
+
+          <label className="field">
+            <span className="field-label">Interval</span>
+            <select value={interval} onChange={e => setInterval(e.target.value as ReplicationSchedule['interval'])} className="input">
+              {(Object.keys(INTERVAL_LABELS) as ReplicationSchedule['interval'][]).map(i => (
+                <option key={i} value={i}>{INTERVAL_LABELS[i]}</option>
+              ))}
+            </select>
+          </label>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 100px', gap: 10 }}>
+          <label className="field">
+            <span className="field-label">Remote Host</span>
+            <input value={remoteHost} onChange={e => setRemoteHost(e.target.value)} placeholder="192.168.1.50" className="input" />
+          </label>
+          <label className="field">
+            <span className="field-label">Port</span>
+            <input value={remotePort} onChange={e => setRemotePort(e.target.value)} className="input" />
+          </label>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+          <label className="field">
+            <span className="field-label">Remote User</span>
+            <input value={remoteUser} onChange={e => setRemoteUser(e.target.value)} placeholder="root" className="input" />
+          </label>
+          <label className="field">
+            <span className="field-label">Remote Pool / Dataset</span>
+            <input value={remotePool} onChange={e => setRemotePool(e.target.value)} placeholder="backup/tank" className="input" />
+          </label>
+        </div>
+
+        <label className="field">
+          <span className="field-label">SSH Key Path <span style={{ fontWeight: 400, color: 'var(--text-tertiary)' }}>(optional)</span></span>
+          <input value={sshKeyPath} onChange={e => setSshKeyPath(e.target.value)} placeholder="/root/.ssh/id_ed25519" className="input" />
+        </label>
+
+        <label className="field">
+          <span className="field-label">Rate Limit MB/s <span style={{ fontWeight: 400, color: 'var(--text-tertiary)' }}>(0 = unlimited)</span></span>
+          <input type="number" value={rateLimitMB} min={0}
+            onChange={e => setRateLimitMB(parseInt(e.target.value) || 0)} className="input" />
+        </label>
+
+        <div style={{ display: 'flex', gap: 24 }}>
+          <CheckRow label="Compress stream" checked={compress} onChange={setCompress} />
+          <CheckRow label="Trigger after each snapshot" checked={triggerOnSnapshot} onChange={setTriggerOnSnapshot} />
+          <CheckRow label="Enabled" checked={enabled} onChange={setEnabled} />
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 24 }}>
+        <button onClick={onClose} className="btn btn-ghost">Cancel</button>
+        <button onClick={submit} disabled={createMutation.isPending} className="btn btn-primary">
+          {createMutation.isPending ? 'Creating…' : 'Create Schedule'}
+        </button>
+      </div>
+    </Modal>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// SchedulesTab
+// ---------------------------------------------------------------------------
+
+function SchedulesTab({ datasets }: { datasets: ZFSDataset[] }) {
+  const qc = useQueryClient()
+  const [showAdd, setShowAdd] = useState(false)
+  const [runningId, setRunningId] = useState<string | null>(null)
+  const [runJobId, setRunJobId] = useState<string | null>(null)
+
+  const schedulesQ = useQuery({
+    queryKey: ['replication', 'schedules'],
+    queryFn: ({ signal }) => api.get<ReplSchedulesResponse>('/api/replication/schedules', signal),
+    refetchInterval: 30_000,
+  })
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => api.delete(`/api/replication/schedules/${id}`),
+    onSuccess: () => { toast.success('Schedule deleted'); qc.invalidateQueries({ queryKey: ['replication', 'schedules'] }) },
+    onError: (e: Error) => toast.error(e.message),
+  })
+
+  const runNowMutation = useMutation({
+    mutationFn: (id: string) =>
+      api.post<{ success: boolean; job_id: string }>(`/api/replication/schedules/${id}/run`, {}),
+    onSuccess: (data, id) => {
+      toast.success('Replication job started')
+      setRunJobId(data.job_id)
+      setRunningId(id)
+      qc.invalidateQueries({ queryKey: ['replication', 'schedules'] })
+    },
+    onError: (e: Error) => { toast.error(e.message); setRunningId(null) },
+  })
+
+  const schedules = schedulesQ.data?.schedules ?? []
+
+  function formatLastRun(ts?: string) {
+    if (!ts) return '—'
+    try {
+      return new Date(ts).toLocaleString()
+    } catch {
+      return ts
+    }
+  }
+
+  return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 16 }}>
+        <button onClick={() => setShowAdd(true)} className="btn btn-primary">
+          <Icon name="add" size={16} /> Add Schedule
+        </button>
+      </div>
+
+      {runJobId && (
+        <div style={{ marginBottom: 16 }}>
+          <JobStatusBanner jobId={runJobId} onDone={() => { setRunJobId(null); setRunningId(null) }} />
+        </div>
+      )}
+
+      {schedulesQ.isLoading && <Skeleton height={200} />}
+      {schedulesQ.isError && <ErrorState error={schedulesQ.error} onRetry={() => qc.invalidateQueries({ queryKey: ['replication', 'schedules'] })} />}
+
+      {!schedulesQ.isLoading && !schedulesQ.isError && schedules.length === 0 && (
+        <div style={{ textAlign: 'center', padding: '64px 24px', border: '1px dashed var(--border)', borderRadius: 'var(--radius-xl)', color: 'var(--text-tertiary)' }}>
+          <Icon name="sync_alt" size={48} style={{ opacity: 0.3, display: 'block', margin: '0 auto 12px' }} />
+          <div style={{ fontSize: 'var(--text-lg)', fontWeight: 600 }}>No replication schedules</div>
+          <div style={{ fontSize: 'var(--text-sm)', marginTop: 6 }}>Add a schedule to automate ZFS replication</div>
+        </div>
+      )}
+
+      {schedules.length > 0 && (
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 'var(--text-sm)' }}>
+            <thead>
+              <tr style={{ borderBottom: '1px solid var(--border)', color: 'var(--text-tertiary)', fontSize: 'var(--text-xs)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                {['Name', 'Source Dataset', 'Remote', 'Interval', 'Trigger on Snap', 'Status', 'Last Run', 'Actions'].map(h => (
+                  <th key={h} style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 600 }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {schedules.map(s => (
+                <tr key={s.id} style={{ borderBottom: '1px solid var(--border)', opacity: s.enabled ? 1 : 0.6 }}>
+                  <td style={{ padding: '12px 12px', fontWeight: 600 }}>{s.name}</td>
+                  <td style={{ padding: '12px 12px', fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>{s.source_dataset}</td>
+                  <td style={{ padding: '12px 12px', color: 'var(--text-secondary)' }}>
+                    {s.remote_host
+                      ? <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)' }}>{s.remote_user}@{s.remote_host}:{s.remote_port || 22}</span>
+                      : <span style={{ color: 'var(--text-tertiary)' }}>—</span>
+                    }
+                  </td>
+                  <td style={{ padding: '12px 12px' }}>
+                    <span style={{ padding: '2px 8px', background: 'var(--surface)', borderRadius: 'var(--radius-sm)', fontSize: 'var(--text-xs)', border: '1px solid var(--border)' }}>
+                      {INTERVAL_LABELS[s.interval] ?? s.interval}
+                    </span>
+                  </td>
+                  <td style={{ padding: '12px 12px' }}>
+                    {s.trigger_on_snapshot
+                      ? <Icon name="check_circle" size={16} style={{ color: 'var(--success)' }} />
+                      : <Icon name="remove" size={16} style={{ color: 'var(--text-tertiary)' }} />
+                    }
+                  </td>
+                  <td style={{ padding: '12px 12px' }}>
+                    <StatusBadge status={s.last_status} />
+                  </td>
+                  <td style={{ padding: '12px 12px', fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }}>
+                    {formatLastRun(s.last_run)}
+                  </td>
+                  <td style={{ padding: '12px 12px' }}>
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      <button
+                        onClick={() => runNowMutation.mutate(s.id)}
+                        disabled={runNowMutation.isPending && runningId === s.id}
+                        className="btn btn-sm btn-ghost"
+                        title="Run Now"
+                      >
+                        <Icon name="play_arrow" size={14} />
+                        {runNowMutation.isPending && runningId === s.id ? 'Starting…' : 'Run'}
+                      </button>
+                      <button
+                        onClick={() => {
+                          if (confirm(`Delete schedule "${s.name}"?`)) deleteMutation.mutate(s.id)
+                        }}
+                        disabled={deleteMutation.isPending}
+                        className="btn btn-sm btn-ghost"
+                        style={{ color: 'var(--error)' }}
+                        title="Delete"
+                      >
+                        <Icon name="delete" size={14} />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {showAdd && (
+        <AddScheduleModal
+          datasets={datasets}
+          onClose={() => setShowAdd(false)}
+          onCreated={() => qc.invalidateQueries({ queryKey: ['replication', 'schedules'] })}
+        />
+      )}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // ReplicationPage
 // ---------------------------------------------------------------------------
 
-type Tab = 'replicate' | 'ssh'
+type Tab = 'replicate' | 'ssh' | 'schedules'
 
 export function ReplicationPage() {
   const [tab, setTab] = useState<Tab>('replicate')
@@ -323,12 +648,13 @@ export function ReplicationPage() {
   const datasets = datasetsQ.data?.data ?? []
 
   const TABS: { id: Tab; label: string; icon: string }[] = [
-    { id: 'replicate', label: 'Replicate', icon: 'sync_alt' },
-    { id: 'ssh', label: 'SSH Keys', icon: 'key' },
+    { id: 'replicate',  label: 'Replicate',  icon: 'sync_alt' },
+    { id: 'schedules',  label: 'Schedules',  icon: 'schedule' },
+    { id: 'ssh',        label: 'SSH Keys',   icon: 'key' },
   ]
 
   return (
-    <div style={{ maxWidth: 900 }}>
+    <div style={{ maxWidth: 1100 }}>
       <div className="page-header">
         <h1 className="page-title">Replication</h1>
         <p className="page-subtitle">ZFS send/receive — replicate datasets to remote hosts</p>
@@ -355,6 +681,15 @@ export function ReplicationPage() {
           {datasetsQ.isError && <ErrorState error={datasetsQ.error} onRetry={() => qc.invalidateQueries({ queryKey: ['zfs', 'datasets'] })} />}
           {!datasetsQ.isLoading && !datasetsQ.isError && (
             <ReplicateForm datasets={datasets} />
+          )}
+        </>
+      )}
+
+      {tab === 'schedules' && (
+        <>
+          {datasetsQ.isLoading && <Skeleton height={200} style={{ borderRadius: 'var(--radius-xl)' }} />}
+          {!datasetsQ.isLoading && (
+            <SchedulesTab datasets={datasets} />
           )}
         </>
       )}
