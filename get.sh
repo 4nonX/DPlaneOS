@@ -23,7 +23,7 @@ set -euo pipefail
 
 VERSION="$(cat "$(dirname "$0")/VERSION" 2>/dev/null | tr -d '[:space:]')"
 [ -z "$VERSION" ] && { echo "ERROR: Could not read VERSION file" >&2; exit 1; }
-RELEASE_BASE="https://github.com/4nonX/dplaneos/releases/download/v${VERSION}"
+RELEASE_BASE="https://github.com/4nonX/D-PlaneOS/releases/download/v${VERSION}"
 # Fallback mirror if GitHub is unreachable
 MIRROR_BASE="https://releases.dplaneos.io/v${VERSION}"
 

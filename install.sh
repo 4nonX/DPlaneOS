@@ -735,6 +735,57 @@ else
     warn "Font download failed — UI will use system fonts (no functionality impact)"
 fi
 
+INSTALL_PHASE=8
+
+# ────────────────────────────────────────────────────────────────────────────
+step "Phase 8b/12: Samba configuration"
+# ────────────────────────────────────────────────────────────────────────────
+# The daemon writes share definitions to /var/lib/dplaneos/smb-shares.conf.
+# Samba reads /etc/samba/smb.conf by default. Bridge the two with an include
+# directive so shares created in the UI are immediately visible to smbd.
+
+SMB_DAEMON_CONF="/var/lib/dplaneos/smb-shares.conf"
+SMB_SYSTEM_CONF="/etc/samba/smb.conf"
+
+# Seed the daemon config file so it exists before smbd first reads it
+if [ ! -f "$SMB_DAEMON_CONF" ]; then
+    cat > "$SMB_DAEMON_CONF" <<'SMBSEED'
+# D-PlaneOS share definitions — managed by the daemon, do not edit manually.
+# Regenerated on every share create/update/delete via the web UI.
+SMBSEED
+    log "Samba daemon config seeded: $SMB_DAEMON_CONF"
+fi
+
+# Write /etc/samba/smb.conf with a global section and an include pointing at
+# the daemon's file. If a previous config exists we back it up first.
+if [ -f "$SMB_SYSTEM_CONF" ] && ! grep -q "dplaneos" "$SMB_SYSTEM_CONF" 2>/dev/null; then
+    cp "$SMB_SYSTEM_CONF" "${SMB_SYSTEM_CONF}.pre-dplaneos.bak" 2>/dev/null || true
+fi
+
+cat > "$SMB_SYSTEM_CONF" <<SMBCONF
+# /etc/samba/smb.conf — managed by D-PlaneOS install.sh
+# Global settings are here; per-share definitions are in the include below.
+[global]
+    workgroup = WORKGROUP
+    server string = D-PlaneOS NAS
+    security = user
+    map to guest = Bad User
+    log file = /var/log/samba/log.%m
+    max log size = 1000
+    dns proxy = no
+    # Include the daemon-managed share definitions
+    include = ${SMB_DAEMON_CONF}
+SMBCONF
+log "Samba /etc/samba/smb.conf written (includes daemon share file)"
+
+# Enable and start smbd/nmbd
+if command -v systemctl &>/dev/null; then
+    systemctl enable smbd nmbd 2>/dev/null || true
+    systemctl restart smbd nmbd 2>/dev/null \
+        && log "Samba services started (smbd + nmbd)" \
+        || warn "Samba services did not start — check: systemctl status smbd"
+fi
+
 INSTALL_PHASE=9
 
 # ────────────────────────────────────────────────────────────────────────────

@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"dplaned/internal/cmdutil"
 	"dplaned/internal/jobs"
@@ -40,6 +41,30 @@ func StartScrub(w http.ResponseWriter, r *http.Request) {
 	if diskEventHub != nil {
 		diskEventHub.Broadcast("scrub_started", map[string]interface{}{"pool": req.Pool}, "info")
 	}
+
+	// Poll for natural completion every 10 s and broadcast scrub_completed.
+	// This fires when scrub finishes on its own (not via StopScrub).
+	// The goroutine exits as soon as the scrub is no longer in progress.
+	pool := req.Pool
+	go func() {
+		for {
+			time.Sleep(10 * time.Second)
+			out, err := executeCommandWithTimeout(TimeoutFast, "/usr/sbin/zpool", []string{"status", pool})
+			if err != nil {
+				return // pool gone or zpool failed — stop polling
+			}
+			if !strings.Contains(out, "scrub in progress") {
+				if diskEventHub != nil {
+					diskEventHub.Broadcast("scrub_completed", map[string]interface{}{
+						"pool":      pool,
+						"cancelled": false,
+					}, "info")
+				}
+				return
+			}
+		}
+	}()
+
 	respondOK(w, map[string]interface{}{
 		"success": true,
 		"message": fmt.Sprintf("Scrub started on pool %s (idle I/O priority)", req.Pool),

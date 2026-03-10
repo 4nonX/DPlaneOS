@@ -204,7 +204,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		// Constant-time: still do a bcrypt compare to prevent timing attacks
 		bcrypt.CompareHashAndPassword([]byte("$2a$10$dummyhashfortimingoracle000000000000000000000000000000"), []byte(req.Password))
 		recordLoginFailure(clientIP)
-		log.Printf("AUTH FAIL: unknown user %q from %s", req.Username, r.RemoteAddr)
+		log.Printf("AUTH FAIL: unknown user %q from %s", req.Username, clientIP)
 		respondJSON(w, http.StatusUnauthorized, map[string]interface{}{
 			"success": false, "error": "Invalid credentials",
 		})
@@ -219,7 +219,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 
 	if active != 1 {
 		recordLoginFailure(clientIP)
-		log.Printf("AUTH FAIL: disabled user %q from %s", req.Username, r.RemoteAddr)
+		log.Printf("AUTH FAIL: disabled user %q from %s", req.Username, clientIP)
 		respondJSON(w, http.StatusUnauthorized, map[string]interface{}{
 			"success": false, "error": "Account disabled",
 		})
@@ -229,7 +229,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	// Verify password (bcrypt)
 	if err := bcrypt.CompareHashAndPassword([]byte(storedHash), []byte(req.Password)); err != nil {
 		recordLoginFailure(clientIP)
-		log.Printf("AUTH FAIL: wrong password for %q from %s", req.Username, r.RemoteAddr)
+		log.Printf("AUTH FAIL: wrong password for %q from %s", req.Username, clientIP)
 		respondJSON(w, http.StatusUnauthorized, map[string]interface{}{
 			"success": false, "error": "Invalid credentials",
 		})
@@ -269,11 +269,11 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 			})
 			return
 		}
-		log.Printf("AUTH PENDING TOTP: %q from %s", req.Username, r.RemoteAddr)
+		log.Printf("AUTH PENDING TOTP: %q from %s", req.Username, clientIP)
 		respondJSON(w, http.StatusOK, map[string]interface{}{
-			"success":        true,
-			"requires_totp":  true,
-			"pending_token":  sessionID,
+			"success":       true,
+			"requires_totp": true,
+			"pending_token": sessionID,
 		})
 		return
 	}
@@ -294,9 +294,9 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 
 	// Audit log
 	recordLoginSuccess(clientIP)
-	h.auditLog(req.Username, "login", "Session created", r.RemoteAddr)
+	h.auditLog(req.Username, "login", "Session created", clientIP)
 
-	log.Printf("AUTH OK: %q from %s", req.Username, r.RemoteAddr)
+	log.Printf("AUTH OK: %q from %s", req.Username, clientIP)
 
 	respondJSON(w, http.StatusOK, map[string]interface{}{
 		"success":              true,
@@ -315,8 +315,12 @@ func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
 
 	if sessionID != "" {
 		h.db.Exec(`DELETE FROM sessions WHERE session_id = ?`, sessionID)
-		h.auditLog(username, "logout", "Session destroyed", r.RemoteAddr)
-		log.Printf("LOGOUT: %q from %s", username, r.RemoteAddr)
+		clientIP := r.RemoteAddr
+		if forwarded := r.Header.Get("X-Forwarded-For"); forwarded != "" {
+			clientIP = strings.Split(forwarded, ",")[0]
+		}
+		h.auditLog(username, "logout", "Session destroyed", clientIP)
+		log.Printf("LOGOUT: %q from %s", username, clientIP)
 	}
 
 	respondJSON(w, http.StatusOK, map[string]interface{}{
@@ -391,11 +395,11 @@ func (h *AuthHandler) Session(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, map[string]interface{}{
 		"success": true,
 		"user": map[string]interface{}{
-			"id":                    userID,
-			"username":              username,
-			"email":                 email,
-			"role":                  role,
-			"must_change_password":  mustChange == 1,
+			"id":                   userID,
+			"username":             username,
+			"email":                email,
+			"role":                 role,
+			"must_change_password": mustChange == 1,
 		},
 	})
 }
@@ -492,8 +496,12 @@ func (h *AuthHandler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.auditLog(username, "password_changed", "Password changed", r.RemoteAddr)
-	log.Printf("PASSWORD CHANGED: %q from %s", username, r.RemoteAddr)
+	clientIP := r.RemoteAddr
+	if forwarded := r.Header.Get("X-Forwarded-For"); forwarded != "" {
+		clientIP = strings.Split(forwarded, ",")[0]
+	}
+	h.auditLog(username, "password_changed", "Password changed", clientIP)
+	log.Printf("PASSWORD CHANGED: %q from %s", username, clientIP)
 
 	respondJSON(w, http.StatusOK, map[string]interface{}{
 		"success": true,
@@ -523,7 +531,6 @@ func (h *AuthHandler) auditLog(user, action, details, ip string) {
 	)
 }
 
-
 func isAlphanumericDash(s string) bool {
 	for _, c := range s {
 		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' || c == '_' || c == '.') {
@@ -544,4 +551,3 @@ func (h *AuthHandler) CleanExpiredSessions() {
 		log.Printf("Cleaned %d expired sessions", count)
 	}
 }
-

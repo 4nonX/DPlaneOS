@@ -974,7 +974,7 @@ func sessionMiddleware(next http.Handler) http.Handler {
 		user := r.Header.Get("X-User")
 
 		if sessionID == "" || user == "" {
-			audit.LogSecurityEvent("Missing session or user header", user, r.RemoteAddr)
+			audit.LogSecurityEvent("Missing session or user header", user, realIP(r))
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return
 		}
@@ -985,14 +985,14 @@ func sessionMiddleware(next http.Handler) http.Handler {
 			// DB error means we cannot verify the session — reject with 401
 			// (Do NOT fall through without user context: downstream RBAC handlers
 			//  depend on the context value being present and will panic/misbehave.)
-			audit.LogSecurityEvent("Session validation DB error: "+err.Error(), user, r.RemoteAddr)
+			audit.LogSecurityEvent("Session validation DB error: "+err.Error(), user, realIP(r))
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return
 		}
 
 		// Verify header user matches session user
 		if sessionUser.Username != user {
-			audit.LogSecurityEvent("Session user mismatch", user, r.RemoteAddr)
+			audit.LogSecurityEvent("Session user mismatch", user, realIP(r))
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return
 		}
