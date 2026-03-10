@@ -143,6 +143,13 @@
     # ── Individual files to bind from /persist ────────────────────────────
     files = [
 
+      # ── D-PlaneOS JSON state (v5.0 JSON-to-Nix bridge) ───────────────────
+      # dplane-state.json is written by the daemon on every UI change.
+      # It is read by dplane-generated.nix at nixos-rebuild eval time.
+      # Must survive reboots — without this, all UI-configured network/samba
+      # settings revert to NixOS defaults on every reboot.
+      "/var/lib/dplaneos/dplane-state.json"
+
       # ── Machine ID ───────────────────────────────────────────────────────
       # A stable machine-id ensures journald cursors survive reboots.
       # Without this, log rotation and journald forwarding break across reboots.

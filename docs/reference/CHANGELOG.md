@@ -6,6 +6,41 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ---
 
+## v5.0.0 (2026-03-10) — "Solid State"
+
+Upgrade from: v4.3.2 — **Breaking change for NixOS users only** (run `setup-nixos.sh` once after upgrade).
+
+### Architectural Pivot: JSON-to-Nix Bridge
+
+Previous versions used "The Surgeon": the Go daemon built raw Nix syntax strings in Go templates and wrote them directly to `dplane-generated.nix`. Any special character in a user-supplied value (apostrophe in a hostname, backslash in an `extraGlobalConfig`, multiline string) could produce a `.nix` file that fails `nix-instantiate --parse`, silently breaking `nixos-rebuild`.
+
+v5.0 replaces this with the **JSON-to-Nix Bridge**:
+
+- Daemon writes one file: `/var/lib/dplaneos/dplane-state.json` (pure JSON via `encoding/json`).
+- `nixos/dplane-generated.nix` is now **static** — installed once by `setup-nixos.sh`, never modified by the daemon. It reads the JSON at eval time via `builtins.fromJSON` and maps keys to NixOS module options with `s.key or default` guards.
+- Zero dynamic Nix syntax generated anywhere. Zero Surgeon. Zero injection risk.
+
+### Changed
+
+- **`daemon/internal/nixwriter/writer.go`**: Complete rewrite. Removed all string-template stanza builders. New `DPlaneState` struct + atomic JSON write. Same `Set*()` caller API — no handler changes required. `validateIP` now uses `net.ParseIP` (was a lax character-range check).
+- **`nixos/dplane-generated.nix`**: New static bridge file. Reads `/var/lib/dplaneos/dplane-state.json` at eval time. `builtins.pathExists` guard for first-boot safety. Nix helper functions map JSON maps to correct `systemd.network` attrset shapes.
+- **`nixos/setup-nixos.sh`**: Installs bridge file, seeds empty `{}` state file, auto-adds import to `configuration.nix`.
+- **`nixos/configuration.nix`**: Added `imports = [ ./dplane-generated.nix ./modules/samba.nix ]`.
+- **`nixos/flake.nix`**: Added bridge and samba module to both x86_64 and aarch64 module lists.
+- **`nixos/impermanence.nix`**: Added `dplane-state.json` to persisted files — without this, all UI settings revert on every reboot on the appliance build.
+
+### Migration (NixOS)
+
+```bash
+git pull
+sudo bash nixos/setup-nixos.sh   # installs bridge, seeds state file
+sudo nixos-rebuild switch --flake nixos#dplaneos
+```
+
+Re-apply any network/samba settings via the web UI after upgrading — the daemon writes them to the JSON file and the next rebuild picks them up.
+
+---
+
 ## v4.3.2 (2026-03-10) — "WebSocket & API Wiring"
 
 Upgrade from: v4.3.1 — Drop-in upgrade via `sudo bash install.sh --upgrade`

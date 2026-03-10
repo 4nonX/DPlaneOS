@@ -1,5 +1,5 @@
 {
-  description = "D-PlaneOS — NAS Operating System (Appliance Build)";
+  description = "D-PlaneOS v5.0 — NAS Operating System (Appliance Build)";
 
   # ── Inputs ─────────────────────────────────────────────────────────────────
   #
@@ -226,6 +226,8 @@
           impermanence.nixosModules.impermanence
           ./impermanence.nix
           ./ota-module.nix
+          ./modules/samba.nix
+          ./dplane-generated.nix   # v5.0: static JSON-to-Nix bridge
           applianceConfig
           # Wire the daemon package into the module option
           { services.dplaneos.daemonPackage =
@@ -245,6 +247,8 @@
           impermanence.nixosModules.impermanence
           ./impermanence.nix
           ./ota-module.nix
+          ./modules/samba.nix
+          ./dplane-generated.nix   # v5.0: static JSON-to-Nix bridge
           applianceConfig
           { services.dplaneos.daemonPackage =
               self.packages.aarch64-linux.dplaneos-daemon; }

@@ -16,6 +16,11 @@
 
 { config, pkgs, lib, dplaned, dplaneos-frontend, dplaneos-recovery, ... }:
 
+# dplane-generated.nix is the v5.0 JSON-to-Nix bridge.
+# The daemon writes /var/lib/dplaneos/dplane-state.json (pure JSON).
+# That file is read here at eval time — no dynamic Nix syntax, no Surgeon.
+# setup-nixos.sh installs the bridge and seeds an empty state file on first boot.
+
 let
 
   # ┌─────────────────────────────────────────────────────────┐
@@ -39,6 +44,11 @@ in {
   # ═══════════════════════════════════════════════════════════
   #  SYSTEM BASICS
   # ═══════════════════════════════════════════════════════════
+
+  imports = [
+    ./dplane-generated.nix   # v5.0 JSON-to-Nix bridge (written by daemon, read by Nix)
+    ./modules/samba.nix      # D-PlaneOS Samba integration module
+  ];
 
   system.stateVersion = "25.11";
 
