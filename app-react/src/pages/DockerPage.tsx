@@ -28,7 +28,7 @@ import { JobProgress } from '@/components/ui/JobProgress'
 import { Modal } from '@/components/ui/Modal'
 import { toast } from '@/hooks/useToast'
 import { useWsStore } from '@/stores/ws'
-import type { IconMapEntry, IconMapResponse } from '@/lib/iconTypes'
+import type { IconMapResponse } from '@/lib/iconTypes'
 
 // ---------------------------------------------------------------------------
 // Types
