@@ -101,7 +101,7 @@ func main() {
 	nixWriter := nixwriter.DefaultWriter()
 	_ = nixWriter.LoadFromDisk()
 	if nixWriter.IsNixOS() {
-		log.Printf("NixOS detected — Nix fragment writer active for firewall+samba: %s", nixwriter.DefaultFragmentPath)
+		log.Printf("NixOS detected — JSON state writer active: %s", nixwriter.StateJSONPath)
 	}
 	handlers.SetNixWriter(nixWriter)
 	handlers.SetReconcilerDB(db)
