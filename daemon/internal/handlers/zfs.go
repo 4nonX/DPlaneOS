@@ -121,7 +121,8 @@ func (h *ZFSHandler) ListPools(w http.ResponseWriter, r *http.Request) {
 	}
 
 	start := time.Now()
-	output, err := executeCommand("/usr/sbin/zpool", []string{"list", "-H", "-o", "name,size,alloc,free,cap,health,type"})
+	// cap = capacity percentage. 'type' is not a valid zpool list column (it's zfs list only).
+	output, err := executeCommand("/usr/sbin/zpool", []string{"list", "-H", "-o", "name,size,alloc,free,cap,health"})
 	duration := time.Since(start)
 
 	audit.LogCommand(audit.LevelInfo, user, "zpool_list", nil, err == nil, duration, err)
@@ -294,7 +295,8 @@ func executeCommand(path string, args []string) (string, error) {
 	return stdout.String(), err
 }
 
-// parseZpoolList parses `zpool list -H -o name,size,alloc,free,cap,health,type` output.
+// parseZpoolList parses `zpool list -H -o name,size,alloc,free,cap,health` output.
+// Note: 'type' is not a valid zpool list property (it is a zfs list property).
 // Uses tab-delimited split (ZFS -H flag outputs tabs) and validates field count
 // to prevent partial or malformed lines from producing garbage data.
 func parseZpoolList(output string) []map[string]string {
@@ -330,15 +332,12 @@ func parseZpoolList(output string) []map[string]string {
 			"alloc": fields[2],
 			"free":  fields[3],
 		}
-		// cap, health, type are additional fields (safe to access if present)
+		// cap and health are the 5th and 6th columns
 		if len(fields) > 4 {
 			pool["capacity"] = fields[4]
 		}
 		if len(fields) > 5 {
 			pool["health"] = fields[5]
-		}
-		if len(fields) > 6 {
-			pool["type"] = fields[6]
 		}
 		// compression and dedup are not in `zpool list` — set empty so frontend
 		// knows they're unavailable (these come from `zfs get` per-dataset, not pool level)
