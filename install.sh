@@ -181,7 +181,7 @@ case "${OS_ID,,}" in
         warn "For a fully declarative NixOS setup, see nixos/NIXOS-INSTALL-GUIDE.md instead." ;;
     *)
         die "Unsupported OS: ${OS_PRETTY:-unknown}
-  Supported: Debian 11+, Ubuntu 20.04+, Raspberry Pi OS
+  Supported: Debian 12+, Ubuntu 22.04+, Raspberry Pi OS (64-bit, Debian 12 based)
   Other distros: install manually — see docs/manual-install.md" ;;
 esac
 

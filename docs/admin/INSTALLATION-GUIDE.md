@@ -32,10 +32,13 @@ D-PlaneOS detects ECC presence via `dmidecode` at startup and shows an advisory 
 
 - Ubuntu 24.04 LTS (recommended)
 - Ubuntu 22.04 LTS
-- Debian 12
-- Debian 11
-- Raspberry Pi OS (64-bit)
+- Debian 12 (Bookworm)
+- Raspberry Pi OS 64-bit (Debian 12 based)
 - NixOS — see [nixos/README.md](../../nixos/README.md)
+
+> **Note:** Debian 11 and Ubuntu 20.04 are not supported. Both ship glibc 2.31 and the
+> pre-built daemon binary requires glibc 2.34+. The installer will complete but the daemon
+> will fail to start with `GLIBC_2.34 not found`. Use Debian 12 or Ubuntu 22.04+.
 
 ---
 

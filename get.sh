@@ -16,7 +16,7 @@
 #   2. Downloads the correct D-PlaneOS release tarball
 #   3. Extracts it and hands off to install.sh
 #
-# Supports: Debian 11+, Ubuntu 20.04+, Raspberry Pi OS (arm64/armhf)
+# Supports: Debian 12+, Ubuntu 22.04+, Raspberry Pi OS 64-bit (arm64/armhf)
 #
 
 set -euo pipefail
@@ -59,7 +59,7 @@ banner
 info "Detecting system..."
 
 if [ ! -f /etc/os-release ]; then
-    die "Cannot detect OS. Supported: Debian 11+, Ubuntu 20.04+, Raspberry Pi OS"
+    die "Cannot detect OS. Supported: Debian 12+, Ubuntu 22.04+, Raspberry Pi OS 64-bit"
 fi
 
 # Safe extraction — avoids Ubuntu's readonly VERSION variable crash

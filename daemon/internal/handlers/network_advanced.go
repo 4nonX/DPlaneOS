@@ -15,46 +15,56 @@ import (
 
 // SMBGlobalConfig represents configurable global SMB settings
 type SMBGlobalConfig struct {
-	Workgroup      string `json:"workgroup"`
-	ServerString   string `json:"server_string"`
-	TimeMachine    bool   `json:"time_machine"`     // enables vfs_fruit globally
-	ShadowCopy     bool   `json:"shadow_copy"`      // enables vfs_shadow_copy2
-	RecycleBin     bool   `json:"recycle_bin"`       // enables vfs_recycle
-	ExtraGlobal    string `json:"extra_global"`      // custom global params
+	Workgroup    string `json:"workgroup"`
+	ServerString string `json:"server_string"`
+	TimeMachine  bool   `json:"time_machine"` // enables vfs_fruit globally
+	ShadowCopy   bool   `json:"shadow_copy"`  // enables vfs_shadow_copy2
+	RecycleBin   bool   `json:"recycle_bin"`  // enables vfs_recycle
+	ExtraGlobal  string `json:"extra_global"` // custom global params
 }
 
 // SMBShareVFS represents per-share VFS module options
 type SMBShareVFS struct {
 	ShareName      string `json:"share_name"`
-	TimeMachine    bool   `json:"time_machine"`      // vfs_fruit per share
-	ShadowCopy     bool   `json:"shadow_copy"`       // vfs_shadow_copy2 per share
-	RecycleBin     bool   `json:"recycle_bin"`        // vfs_recycle per share
-	RecycleMaxAge  int    `json:"recycle_max_age"`    // days (0=infinite)
-	RecycleMaxSize int    `json:"recycle_max_size"`   // MB (0=infinite)
-	ExtraParams    string `json:"extra_params"`       // custom per-share params
+	TimeMachine    bool   `json:"time_machine"`     // vfs_fruit per share
+	ShadowCopy     bool   `json:"shadow_copy"`      // vfs_shadow_copy2 per share
+	RecycleBin     bool   `json:"recycle_bin"`      // vfs_recycle per share
+	RecycleMaxAge  int    `json:"recycle_max_age"`  // days (0=infinite)
+	RecycleMaxSize int    `json:"recycle_max_size"` // MB (0=infinite)
+	ExtraParams    string `json:"extra_params"`     // custom per-share params
 }
 
 // GetSMBVFSConfig returns current VFS module configuration
 // GET /api/smb/vfs
 func GetSMBVFSConfig(w http.ResponseWriter, r *http.Request) {
-	// Read current smb.conf and parse VFS settings
-	output, err := executeCommandWithTimeout(TimeoutFast, "/bin/cat", []string{"/etc/samba/smb.conf"})
-	if err != nil {
+	// The daemon writes share definitions (including VFS settings) to its own
+	// managed file, not the system smb.conf.  Read both so we see the full
+	// effective configuration: the system file includes the daemon file via
+	// "include = /var/lib/dplaneos/smb-shares.conf".
+	combined := ""
+	for _, path := range []string{"/etc/samba/smb.conf", "/var/lib/dplaneos/smb-shares.conf"} {
+		out, err := executeCommandWithTimeout(TimeoutFast, "/bin/cat", []string{path})
+		if err == nil {
+			combined += out + "\n"
+		}
+	}
+
+	if combined == "" {
 		respondOK(w, map[string]interface{}{
-			"success":       true,
-			"time_machine":  false,
-			"shadow_copy":   false,
-			"recycle_bin":   false,
+			"success":      true,
+			"time_machine": false,
+			"shadow_copy":  false,
+			"recycle_bin":  false,
 		})
 		return
 	}
 
 	respondOK(w, map[string]interface{}{
-		"success":       true,
-		"time_machine":  strings.Contains(output, "vfs_fruit"),
-		"shadow_copy":   strings.Contains(output, "shadow_copy2"),
-		"recycle_bin":   strings.Contains(output, "vfs_recycle"),
-		"raw_config":    output,
+		"success":      true,
+		"time_machine": strings.Contains(combined, "vfs_fruit"),
+		"shadow_copy":  strings.Contains(combined, "shadow_copy2"),
+		"recycle_bin":  strings.Contains(combined, "vfs_recycle"),
+		"raw_config":   combined,
 	})
 }
 

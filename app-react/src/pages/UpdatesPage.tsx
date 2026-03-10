@@ -26,8 +26,9 @@ import { toast } from '@/hooks/useToast'
 // Types
 // ---------------------------------------------------------------------------
 
-interface PreflightCheck  { name: string; status: 'pass'|'warn'|'fail'|string; message: string }
+interface PreflightCheck    { name: string; status: 'pass'|'warn'|'fail'|string; message: string }
 interface PreflightResponse { success: boolean; status: 'pass'|'warn'|'fail'|string; checks: PreflightCheck[] }
+interface NixOSDetectResponse { success: boolean; is_nixos: boolean; message?: string }
 
 interface VersionResponse {
   success:          boolean
@@ -81,6 +82,12 @@ export function UpdatesPage() {
   const preflightQ = useQuery({
     queryKey: ['system', 'preflight'],
     queryFn:  ({ signal }) => api.get<PreflightResponse>('/api/system/preflight', signal),
+  })
+
+  const nixosQ = useQuery({
+    queryKey: ['nixos', 'detect'],
+    queryFn:  ({ signal }) => api.get<NixOSDetectResponse>('/api/nixos/detect', signal),
+    staleTime: 60 * 60_000, // OS type doesn't change — cache for 1 hour
   })
 
   const versionQ = useQuery({
@@ -158,7 +165,7 @@ export function UpdatesPage() {
 
   const checks      = preflightQ.data?.checks ?? []
   const overall     = preflightQ.data?.status ?? 'pass'
-  const isNixOS     = checks.some(c => c.name.toLowerCase().includes('nixos') || c.message.toLowerCase().includes('nixos'))
+  const isNixOS     = nixosQ.data?.is_nixos === true
   const secCount    = packages?.filter(p => p.security).length ?? 0
   const totalCount  = packages?.length ?? 0
 
