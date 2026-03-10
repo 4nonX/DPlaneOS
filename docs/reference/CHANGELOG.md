@@ -6,6 +6,57 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ---
 
+## v5.1.0 (2026-03-10) — "Template Library"
+
+Upgrade from: v5.0.0 — Drop-in. `sudo bash install.sh --upgrade`
+
+### Added
+
+**Multi-Stack Template System**
+
+Templates are Git repositories where each sub-directory containing a `docker-compose.yml` is an independently deployed stack. Templates may also include:
+- `template.json` — name, description, icon, ordered stack list, user-configurable variables
+- `dplane-requirements.json` — ZFS datasets to create and firewall ports to open before deployment
+
+**Backend (`daemon/internal/handlers/docker_templates.go`):**
+- `GET /api/docker/templates` — built-in template catalogue (3 templates shipped: *arr Media Suite, Monitoring Suite, Home Automation)
+- `GET /api/docker/templates/installed` — all deployed stacks grouped by `template_id`; standalone stacks (no template) grouped under `__standalone__`
+- `POST /api/docker/templates/deploy` — clones template Git repo, processes `dplane-requirements.json` (creates ZFS datasets, logs required firewall ports), creates shared Docker network if specified, deploys each sub-stack, substitutes `${VAR}` placeholders in compose/env files, writes `.dplane-template` JSON marker in each stack directory
+- Variable substitution: `${KEY}` placeholders in `docker-compose.yml` and `.env` are replaced with user-supplied values from the deploy request
+- ZFS-aware: `dplane-requirements.json` datasets created with `zfs create -p` before stacks start; quota and mountpoint supported
+
+**`daemon/internal/handlers/docker_stacks.go`:**
+- `StackInfo` gains `template_id` and `template_name` fields
+- `ListStacks` reads `.dplane-template` marker from each stack directory
+
+**`daemon/cmd/dplaned/main.go`:**
+- Stack CRUD routes registered (were missing — `DeployStack`, `GetStackYAML`, `UpdateStackYAML`, `DeleteStack`, `StackAction`, `ConvertDockerRun`)
+- 3 template routes registered
+
+**`daemon/internal/jobs/jobs.go`:**
+- `Job` and `JobSnapshot` gain `Logs []string` field
+- `Job.Log(line string)` method: appends a progress line under mutex; visible to any caller polling `GET /api/jobs/{id}`. Long-running jobs (template deploy, ZFS send, apt upgrade) now surface step-by-step progress.
+
+**Frontend (`app-react/src/pages/ModulesPage.tsx` — rewrite):**
+- **Installed tab**: template groups shown as collapsible cards with aggregate `N/M running` badge and template icon. Each group expands to compact per-stack cards. Standalone stacks shown as full cards below.
+- **Template Catalogue tab**: grid of available templates with icon, description, stack list, and tags. "Deploy" opens a variable-input modal.
+- **TemplateDeployModal**: renders each `TemplateVariable` as a labelled input (type=password for `secret: true`). Required fields validated before submit.
+- **StackCard**: compact mode (inside group) and full mode (standalone). Shows per-service status dots. Restart/Stop/Start actions with job progress inline.
+- **TemplateGroupCard**: collapsible. Running count badge colour: green (all running), amber (partial), grey (stopped).
+- All existing `ContainerIcon`, `dplaneos.icon` label resolution, icon map, and port link behaviour fully preserved.
+
+### Stats
+
+| What | Before | After |
+|------|--------|-------|
+| Template deployment | Manual git clone + per-stack deploy | One-click with variable prompts |
+| Stack grouping in UI | Flat list | Grouped by template with aggregate status |
+| Job progress visibility | Status only (running/done/failed) | Step-by-step log lines |
+| ZFS dataset provisioning | Manual | Automatic from `dplane-requirements.json` |
+| Stack routes registered | Missing from main.go | Fully registered |
+
+---
+
 ## v5.0.0 (2026-03-10) — "Solid State"
 
 Upgrade from: v4.3.2 — **Breaking change for NixOS users only** (run `setup-nixos.sh` once after upgrade).
