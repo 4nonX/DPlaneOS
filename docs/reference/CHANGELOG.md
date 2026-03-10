@@ -6,6 +6,88 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ---
 
+## v4.3.2 (2026-03-10) — "WebSocket & API Wiring"
+
+Upgrade from: v4.3.1 — Drop-in upgrade via `sudo bash install.sh --upgrade`
+
+### Fixed
+
+- **Pool health WS events never reached the UI:** `broadcastPoolHealthChanged` in
+  `disk_event_handler.go` broadcast the event as `"poolHealthChanged"` (camelCase)
+  but `ws.ts` switch handled `'pool_health_change'` (snake_case). Every hot-swap
+  and pool recovery event was silently dropped. Event name corrected to
+  `"pool_health_change"` on the daemon side. `PoolsPage`, `DashboardPage`, and
+  `HardwarePage` now receive live pool health push as intended.
+  (`daemon/internal/handlers/disk_event_handler.go:407`)
+
+- **`diskAdded` / `diskRemoved` events broadcast but never routed in frontend:**
+  The daemon correctly broadcasts `"diskAdded"` and `"diskRemoved"` on hot-swap.
+  `ws.ts`'s `EventMap` declared `diskAdded` and `diskRemoved` subscribers, but the
+  `onmessage` switch had no `case` for either string — both events were silently
+  dropped. Cases added. Additionally, each event now also emits `hardwareEvent`
+  with the action embedded, so `HardwarePage`'s existing `wsOn('hardwareEvent', ...)`
+  subscription fires correctly without any page changes.
+  (`app-react/src/stores/ws.ts`)
+
+- **Scrub and resilver WS events never broadcast by daemon:** `ws.ts` handled
+  `scrub_started`, `scrub_completed`, `resilver_started`, `resilver_progress`, and
+  `resilver_completed` — but the daemon never called `Broadcast` for any of these.
+  `StartScrub` now broadcasts `scrub_started`; `StopScrub` broadcasts `scrub_completed`.
+  `ReplaceDisk` job broadcasts `resilver_started` at job start and `resilver_completed`
+  (with success/failure) at job end. `PoolsPage` live-refresh subscriptions now work.
+  (`daemon/internal/handlers/zfs_operations.go`)
+
+- **`gitops.drift` event broadcast by daemon but unhandled in frontend:** The GitOps
+  drift detector broadcasts `"gitops.drift"` whenever declarative state diverges from
+  runtime. `ws.ts` had no `case` for it and no `EventMap` entry. Added `gitopsDrift`
+  to `EventMap` and the switch. (`app-react/src/stores/ws.ts`)
+
+- **`mount_health_<pool>` events unreachable in frontend:** The background mount monitor
+  broadcasts per-pool events like `"mount_health_tank"`. `ws.ts` declared `mountError`
+  in `EventMap` but had no switch handler. Added a `default` branch that matches any
+  `msg.type.startsWith('mount_health_')` and emits to `mountError` subscribers.
+  (`app-react/src/stores/ws.ts`)
+
+- **`DELETE /api/shares` unregistered — share deletion always returned 405:**
+  `SharesPage` calls `DELETE /api/shares` with `{ name }` in the body. The route was
+  only registered for `GET` and `POST`. Added `DELETE` registration in `main.go` and a
+  new `deleteShareByName` method on `ShareCRUDHandler` that looks up the share by name,
+  deletes it, and regenerates `smb.conf`. The existing `deleteShare` (used by POST
+  action-dispatch with an `id`) is unchanged.
+  (`daemon/cmd/dplaned/main.go:587`, `daemon/internal/handlers/shares_crud.go`)
+
+- **`GET/POST /api/system/tuning` handler implemented but route never registered:**
+  `HandleSystemSettings` (ARC limit, swappiness, inotify/memory/iowait thresholds) was
+  fully implemented in `system_settings.go` and documented in the CHANGELOG since v4.1.2
+  but the route was never added to `main.go`. Registered at
+  `GET /api/system/tuning` and `POST /api/system/tuning`.
+  (`daemon/cmd/dplaned/main.go`)
+
+- **Rate limiter used `r.RemoteAddr` — all traffic from a reverse proxy shared one bucket:**
+  When the daemon runs behind nginx (standard production setup), every request arrives
+  with `RemoteAddr = 127.0.0.1`. All users shared a single rate-limit bucket, so a
+  single active user could exhaust the 100 req/min limit for everyone. The limiter
+  now uses a new `realIP()` helper: for direct connections it trusts `RemoteAddr`; for
+  loopback connections it falls back to `X-Real-IP` then `X-Forwarded-For` (safe because
+  only a trusted local proxy can set these headers on loopback).
+  (`daemon/cmd/dplaned/main.go`)
+
+### Stats
+
+| What | Before | After |
+|------|--------|-------|
+| Pool health WS push | Silently dropped | Live |
+| Hot-swap disk WS push | Silently dropped | Live |
+| Scrub WS events | Never emitted | Emitted on start/stop |
+| Resilver WS events | Never emitted | Emitted on replace job start/end |
+| `gitops.drift` WS event | Unhandled | Routed to `gitopsDrift` subscribers |
+| `mountError` WS event | Unhandled | Routed via `mount_health_` prefix match |
+| Share deletion (DELETE) | 405 Method Not Allowed | Works |
+| `/api/system/tuning` | 404 | Registered |
+| Rate limiter (behind proxy) | 1 bucket for all users | Per-client IP |
+
+---
+
 ## v4.3.1 (2026-03-09) — "Icon System Fixes"
 
 Upgrade from: v4.3.0 — Drop-in upgrade via `sudo bash install.sh --upgrade`

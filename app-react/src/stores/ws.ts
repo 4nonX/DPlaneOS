@@ -7,15 +7,20 @@
  * Distributes events to subscriber callbacks.
  *
  * WebSocket message types from daemon:
- *   initial_state | state_update   → stateUpdate subscribers
- *   hardware_event                 → hardwareEvent subscribers
- *   resilver_started               → resilverStarted subscribers
- *   resilver_progress              → resilverProgress subscribers
- *   resilver_completed             → resilverCompleted subscribers
- *   pool_health_change             → poolHealthChange subscribers
- *   disk_temperature_warning       → diskTempWarning subscribers
- *   scrub_started | scrub_completed → scrubEvent subscribers
- *   inotify_stats                  → inotifyStats subscribers
+ *   initial_state | state_update        → stateUpdate subscribers
+ *   hardware_event                       → hardwareEvent subscribers
+ *   diskAdded                            → diskAdded subscribers
+ *   diskRemoved                          → diskRemoved subscribers
+ *   diskReplacementAvailable             → diskReplacementAvailable subscribers
+ *   resilver_started                     → resilverStarted subscribers
+ *   resilver_progress                    → resilverProgress subscribers
+ *   resilver_completed                   → resilverCompleted subscribers
+ *   pool_health_change                   → poolHealthChange subscribers
+ *   disk_temperature_warning             → diskTempWarning subscribers
+ *   scrub_started | scrub_completed      → scrubEvent subscribers
+ *   inotify_status                       → inotifyStats subscribers
+ *   mount_health_<poolname>              → mountError subscribers
+ *   gitops.drift                         → gitopsDrift subscribers
  */
 
 import { create } from 'zustand'
@@ -30,17 +35,18 @@ export type WsStatus = 'connecting' | 'connected' | 'disconnected'
 type EventMap = {
   stateUpdate: (data: unknown) => void
   hardwareEvent: (data: unknown) => void
+  diskAdded: (data: unknown) => void
+  diskRemoved: (data: unknown) => void
+  diskReplacementAvailable: (data: unknown) => void
   resilverStarted: (data: unknown) => void
   resilverProgress: (data: unknown) => void
   resilverCompleted: (data: unknown) => void
   poolHealthChange: (data: unknown) => void
   diskTempWarning: (data: unknown) => void
-  diskAdded: (data: unknown) => void
-  diskRemoved: (data: unknown) => void
-  diskReplacementAvailable: (data: unknown) => void
-  mountError: (data: unknown) => void
   scrubEvent: (data: unknown) => void
   inotifyStats: (data: unknown) => void
+  mountError: (data: unknown) => void
+  gitopsDrift: (data: unknown) => void
 }
 
 type EventName = keyof EventMap
@@ -144,6 +150,18 @@ export const useWsStore = create<WsState>((set) => {
         case 'hardware_event':
           emit('hardwareEvent', msg.data ?? msg)
           break
+        case 'diskAdded':
+          emit('diskAdded', msg.data ?? msg)
+          // Also emit hardwareEvent so HardwarePage's existing handler fires
+          emit('hardwareEvent', { ...(msg.data as object ?? {}), event: 'diskAdded' })
+          break
+        case 'diskRemoved':
+          emit('diskRemoved', msg.data ?? msg)
+          emit('hardwareEvent', { ...(msg.data as object ?? {}), event: 'diskRemoved' })
+          break
+        case 'diskReplacementAvailable':
+          emit('diskReplacementAvailable', msg.data ?? msg)
+          break
         case 'resilver_started':
           emit('resilverStarted', msg.data ?? msg)
           break
@@ -167,7 +185,16 @@ export const useWsStore = create<WsState>((set) => {
         case 'inotify_status':
           emit('inotifyStats', msg.data ?? msg)
           break
-        // pong — no-op
+        case 'gitops.drift':
+          emit('gitopsDrift', msg.data ?? msg)
+          break
+        default:
+          // mount_health_<poolname> events from the background monitor
+          if (msg.type.startsWith('mount_health_')) {
+            emit('mountError', msg.data ?? msg)
+          }
+          // pong and unknown types — no-op
+          break
       }
     }
 

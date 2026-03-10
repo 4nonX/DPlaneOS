@@ -584,6 +584,7 @@ func main() {
 	r.HandleFunc("/api/shares/list", shareCRUDHandler.HandleShares).Methods("GET")
 	r.HandleFunc("/api/shares", shareCRUDHandler.HandleShares).Methods("GET")
 	r.Handle("/api/shares", permRoute("shares", "write", shareCRUDHandler.HandleShares)).Methods("POST")
+	r.Handle("/api/shares", permRoute("shares", "write", shareCRUDHandler.HandleShares)).Methods("DELETE")
 
 	// User & Group CRUD handlers
 	userGroupHandler := handlers.NewUserGroupHandler(db)
@@ -612,6 +613,7 @@ func main() {
 	r.HandleFunc("/api/status", systemStatusHandler.HandleStatus).Methods("GET")
 	r.HandleFunc("/api/system/setup-complete", systemStatusHandler.HandleSetupComplete).Methods("POST")
 	r.HandleFunc("/api/system/metrics", handlers.HandleSystemMetrics).Methods("GET")
+	r.HandleFunc("/api/system/tuning", handlers.HandleSystemSettings).Methods("GET", "POST")
 
 	// Disk discovery (setup wizard)
 	r.HandleFunc("/api/system/disks", handlers.HandleDiskDiscovery).Methods("GET")
@@ -890,9 +892,38 @@ var (
 	timeWindow    = time.Minute
 )
 
+// realIP extracts the client IP for rate limiting.
+// When the daemon is behind a reverse proxy (e.g. nginx on 127.0.0.1), every
+// request arrives with RemoteAddr = "127.0.0.1:PORT".  In that case we fall
+// back to the X-Real-IP or X-Forwarded-For header set by the proxy.
+// RemoteAddr is always preferred for direct connections.
+func realIP(r *http.Request) string {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		host = r.RemoteAddr
+	}
+	ip := net.ParseIP(host)
+	if ip != nil && !ip.IsLoopback() {
+		return host // direct connection — trust RemoteAddr
+	}
+	// Behind a proxy — trust forwarded headers (proxy is on loopback, so not
+	// externally injectable).
+	if v := r.Header.Get("X-Real-IP"); v != "" {
+		return v
+	}
+	if v := r.Header.Get("X-Forwarded-For"); v != "" {
+		// X-Forwarded-For may be "client, proxy1, proxy2" — take the first entry.
+		if idx := strings.Index(v, ","); idx != -1 {
+			return strings.TrimSpace(v[:idx])
+		}
+		return strings.TrimSpace(v)
+	}
+	return host
+}
+
 func rateLimitMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ip := r.RemoteAddr
+		ip := realIP(r)
 
 		rateLimitMu.Lock()
 		now := time.Now()

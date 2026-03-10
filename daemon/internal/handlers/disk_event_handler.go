@@ -404,7 +404,8 @@ func broadcastPoolHealthChanged() {
 	}
 
 	poolHealthMap := parsePoolHealthSummary(string(statusOut))
-	diskEventHub.Broadcast("poolHealthChanged", poolHealthMap, "info")
+	// Event name matches ws.ts switch case 'pool_health_change'
+	diskEventHub.Broadcast("pool_health_change", poolHealthMap, "info")
 }
 
 // ── zpool output parsers ──────────────────────────────────────────────────────

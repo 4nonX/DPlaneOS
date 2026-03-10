@@ -41,7 +41,7 @@ func (h *ShareCRUDHandler) initTable() {
 	)`)
 }
 
-// HandleShares — GET: list shares, POST: create/update/delete
+// HandleShares — GET: list shares, POST: create/update/delete, DELETE: delete by name
 func (h *ShareCRUDHandler) HandleShares(w http.ResponseWriter, r *http.Request) {
 	h.initTable()
 
@@ -50,6 +50,8 @@ func (h *ShareCRUDHandler) HandleShares(w http.ResponseWriter, r *http.Request) 
 		h.listShares(w, r)
 	case http.MethodPost:
 		h.shareAction(w, r)
+	case http.MethodDelete:
+		h.deleteShareByName(w, r)
 	default:
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 	}
@@ -136,19 +138,19 @@ func (h *ShareCRUDHandler) getShare(w http.ResponseWriter, id string) {
 }
 
 type shareActionRequest struct {
-	Action       string `json:"action"` // create, update, delete
-	ID           int    `json:"id"`
-	Name         string `json:"name"`
-	Path         string `json:"path"`
-	Comment      string `json:"comment"`
-	Browsable    *bool  `json:"browsable"`
-	ReadOnly     *bool  `json:"read_only"`
-	GuestOk      *bool  `json:"guest_ok"`
-	ValidUsers   string `json:"valid_users"`
-	WriteList    string `json:"write_list"`
-	CreateMask   string `json:"create_mask"`
+	Action        string `json:"action"` // create, update, delete
+	ID            int    `json:"id"`
+	Name          string `json:"name"`
+	Path          string `json:"path"`
+	Comment       string `json:"comment"`
+	Browsable     *bool  `json:"browsable"`
+	ReadOnly      *bool  `json:"read_only"`
+	GuestOk       *bool  `json:"guest_ok"`
+	ValidUsers    string `json:"valid_users"`
+	WriteList     string `json:"write_list"`
+	CreateMask    string `json:"create_mask"`
 	DirectoryMask string `json:"directory_mask"`
-	Enabled      *bool  `json:"enabled"`
+	Enabled       *bool  `json:"enabled"`
 }
 
 func (h *ShareCRUDHandler) shareAction(w http.ResponseWriter, r *http.Request) {
@@ -296,6 +298,39 @@ func (h *ShareCRUDHandler) deleteShare(w http.ResponseWriter, req shareActionReq
 	h.db.Exec(`DELETE FROM smb_shares WHERE id = ?`, req.ID)
 	h.regenerateSMBConf()
 
+	respondJSON(w, http.StatusOK, map[string]interface{}{
+		"success": true,
+		"message": "Share deleted",
+	})
+}
+
+// deleteShareByName handles DELETE /api/shares with a JSON body { "name": "sharename" }.
+// This is how the frontend deletes shares (it knows the name, not the DB id).
+func (h *ShareCRUDHandler) deleteShareByName(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondErrorSimple(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+	if req.Name == "" {
+		respondErrorSimple(w, "name is required", http.StatusBadRequest)
+		return
+	}
+
+	result, err := h.db.Exec(`DELETE FROM smb_shares WHERE name = ?`, req.Name)
+	if err != nil {
+		respondErrorSimple(w, "Database error: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	rows, _ := result.RowsAffected()
+	if rows == 0 {
+		respondErrorSimple(w, "Share not found: "+req.Name, http.StatusNotFound)
+		return
+	}
+
+	h.regenerateSMBConf()
 	respondJSON(w, http.StatusOK, map[string]interface{}{
 		"success": true,
 		"message": "Share deleted",

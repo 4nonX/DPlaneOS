@@ -36,6 +36,10 @@ func StartScrub(w http.ResponseWriter, r *http.Request) {
 		respondOK(w, map[string]interface{}{"success": false, "error": err.Error()})
 		return
 	}
+	// Broadcast scrub_started so the frontend (PoolsPage) can react in real time.
+	if diskEventHub != nil {
+		diskEventHub.Broadcast("scrub_started", map[string]interface{}{"pool": req.Pool}, "info")
+	}
 	respondOK(w, map[string]interface{}{
 		"success": true,
 		"message": fmt.Sprintf("Scrub started on pool %s (idle I/O priority)", req.Pool),
@@ -60,6 +64,10 @@ func StopScrub(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		respondOK(w, map[string]interface{}{"success": false, "error": err.Error()})
 		return
+	}
+	// Broadcast scrub_completed so PoolsPage knows the scrub has ended.
+	if diskEventHub != nil {
+		diskEventHub.Broadcast("scrub_completed", map[string]interface{}{"pool": req.Pool, "cancelled": true}, "info")
 	}
 	respondOK(w, map[string]interface{}{"success": true, "message": "Scrub stopped"})
 }
@@ -394,10 +402,32 @@ func ReplaceDisk(w http.ResponseWriter, r *http.Request) {
 	argsCopy := append([]string(nil), args...)
 
 	jobID := jobs.Start("zpool-replace", func(j *jobs.Job) {
+		// Broadcast resilver_started immediately so PoolsPage shows live state.
+		if diskEventHub != nil {
+			diskEventHub.Broadcast("resilver_started", map[string]interface{}{
+				"pool":     pool,
+				"old_disk": oldDisk,
+				"new_disk": newDisk,
+			}, "info")
+		}
+
 		output, err := executeCommandWithTimeout(TimeoutMedium, "/usr/sbin/zpool", argsCopy)
 		if err != nil {
+			if diskEventHub != nil {
+				diskEventHub.Broadcast("resilver_completed", map[string]interface{}{
+					"pool":    pool,
+					"success": false,
+					"error":   err.Error(),
+				}, "warning")
+			}
 			j.Fail(fmt.Sprintf("zpool replace failed: %v — %s", err, strings.TrimSpace(output)))
 			return
+		}
+		if diskEventHub != nil {
+			diskEventHub.Broadcast("resilver_completed", map[string]interface{}{
+				"pool":    pool,
+				"success": true,
+			}, "info")
 		}
 		j.Done(map[string]interface{}{
 			"success":  true,
