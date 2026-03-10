@@ -270,11 +270,16 @@ jobs:
           [ "$CODE" = "200" ] && ok "GET /api/system/status accessible without session" \
             || fail "GET /api/system/status requires session (want 200, got $CODE) — first-boot broken"
 
+          # Use CI_PASS so that if setup-admin succeeds (200) the password it sets
+          # is the same one the login step expects. The DB was pre-seeded by the
+          # "Seed CI user" step but setup_complete is NOT yet set, so setup-admin
+          # will return 200 and set the password. If setup_complete were already
+          # set it would return 403 — either is correct; 401 is the bug.
           CODE=$(curl -s -o /dev/null -w "%{http_code}" \
             -X POST "$BASE/api/system/setup-admin" \
             -H "Content-Type: application/json" \
-            -d '{"username":"admin","password":"InitialSetup1!"}')
-          # 200 = set password. 403 = setup already done (pre-seeded DB). Both are correct.
+            -d "{\"username\":\"admin\",\"password\":\"$CI_PASS\"}")
+          # 200 = password set (setup not yet complete). 403 = already done. Both correct.
           # 401 = blocked by middleware — that's the bug we're guarding against.
           [ "$CODE" = "200" ] || [ "$CODE" = "403" ] \
             && ok "POST /api/system/setup-admin accessible without session (HTTP $CODE)" \
