@@ -1,10 +1,11 @@
 // Package dockerclient provides a minimal Docker API client over the Unix socket.
 //
 // Why not the official Docker SDK?
-//   The official docker/docker SDK pulls in golang.org/x/crypto and dozens of
-//   other heavy dependencies. For a NAS daemon that just needs container
-//   lifecycle management, a thin stdlib client is safer, faster to compile,
-//   and has zero supply-chain surface beyond the Go standard library.
+//
+//	The official docker/docker SDK pulls in golang.org/x/crypto and dozens of
+//	other heavy dependencies. For a NAS daemon that just needs container
+//	lifecycle management, a thin stdlib client is safer, faster to compile,
+//	and has zero supply-chain surface beyond the Go standard library.
 //
 // API version: v1.41 (Docker Engine 20.10+). All NAS-relevant distros ship 20.10+.
 package dockerclient
@@ -24,7 +25,7 @@ import (
 
 const (
 	socketPath = "/var/run/docker.sock"
-	apiVersion = "3.2.1"
+	apiVersion = "v1.41" // Docker Engine REST API version (Engine 20.10+)
 )
 
 // Client is a minimal Docker API client using the Unix socket.
@@ -101,19 +102,19 @@ func expectOK(resp *http.Response) error {
 
 // Container is the condensed container summary from /containers/json.
 type Container struct {
-	ID      string            `json:"Id"`
-	Names   []string          `json:"Names"`
-	Image   string            `json:"Image"`
-	ImageID string            `json:"ImageID"`
-	Command string            `json:"Command"`
-	Created int64             `json:"Created"`
-	State   string            `json:"State"`  // "running", "exited", etc.
-	Status  string            `json:"Status"` // human-readable e.g. "Up 2 hours"
-	Ports   []ContainerPort   `json:"Ports"`
-	Labels  map[string]string `json:"Labels"`
-	Mounts  []Mount           `json:"Mounts"`
-	SizeRw     int64 `json:"SizeRw,omitempty"`
-	SizeRootFs int64 `json:"SizeRootFs,omitempty"`
+	ID         string            `json:"Id"`
+	Names      []string          `json:"Names"`
+	Image      string            `json:"Image"`
+	ImageID    string            `json:"ImageID"`
+	Command    string            `json:"Command"`
+	Created    int64             `json:"Created"`
+	State      string            `json:"State"`  // "running", "exited", etc.
+	Status     string            `json:"Status"` // human-readable e.g. "Up 2 hours"
+	Ports      []ContainerPort   `json:"Ports"`
+	Labels     map[string]string `json:"Labels"`
+	Mounts     []Mount           `json:"Mounts"`
+	SizeRw     int64             `json:"SizeRw,omitempty"`
+	SizeRootFs int64             `json:"SizeRootFs,omitempty"`
 }
 
 // ShortName returns the container's primary name without the leading slash.

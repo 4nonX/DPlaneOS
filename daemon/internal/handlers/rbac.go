@@ -8,7 +8,7 @@ import (
 
 	"dplaned/internal/middleware"
 	"dplaned/internal/security"
-	
+
 	"github.com/gorilla/mux"
 )
 
@@ -369,6 +369,7 @@ func HandleGetMyPermissions(w http.ResponseWriter, r *http.Request) {
 	}
 
 	respondJSON(w, http.StatusOK, map[string]interface{}{
+		"success":     true,
 		"permissions": permissions,
 		"can":         permMap,
 		"count":       len(permissions),
@@ -418,9 +419,9 @@ func HandleCheckPermission(w http.ResponseWriter, r *http.Request) {
 	}
 
 	respondJSON(w, http.StatusOK, map[string]interface{}{
-		"resource":   resource,
-		"action":     action,
-		"permitted":  hasPermission,
+		"resource":  resource,
+		"action":    action,
+		"permitted": hasPermission,
 	})
 }
 
