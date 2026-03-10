@@ -121,7 +121,7 @@ func (h *ZFSHandler) ListPools(w http.ResponseWriter, r *http.Request) {
 	}
 
 	start := time.Now()
-	output, err := executeCommand("/usr/sbin/zpool", []string{"list", "-H", "-o", "name,size,alloc,free,health"})
+	output, err := executeCommand("/usr/sbin/zpool", []string{"list", "-H", "-o", "name,size,alloc,free,cap,health,type"})
 	duration := time.Since(start)
 
 	audit.LogCommand(audit.LevelInfo, user, "zpool_list", nil, err == nil, duration, err)
@@ -160,7 +160,7 @@ func (h *ZFSHandler) ListDatasets(w http.ResponseWriter, r *http.Request) {
 	}
 
 	start := time.Now()
-	output, err := executeCommand("/usr/sbin/zfs", []string{"list", "-H", "-o", "name,used,avail,refer,mountpoint", "-t", "filesystem"})
+	output, err := executeCommand("/usr/sbin/zfs", []string{"list", "-H", "-o", "name,used,avail,quota,mountpoint", "-t", "filesystem"})
 	duration := time.Since(start)
 
 	audit.LogCommand(audit.LevelInfo, user, "zfs_list", nil, err == nil, duration, err)
@@ -274,7 +274,6 @@ func (h *ZFSHandler) CreateDataset(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-
 // Stderr is logged separately to prevent warning messages (e.g. "pool is DEGRADED")
 // from being misinterpreted as data by the ZFS parsers.
 func executeCommand(path string, args []string) (string, error) {
@@ -295,7 +294,7 @@ func executeCommand(path string, args []string) (string, error) {
 	return stdout.String(), err
 }
 
-// parseZpoolList parses `zpool list -H -o name,size,alloc,free,health` output.
+// parseZpoolList parses `zpool list -H -o name,size,alloc,free,cap,health,type` output.
 // Uses tab-delimited split (ZFS -H flag outputs tabs) and validates field count
 // to prevent partial or malformed lines from producing garbage data.
 func parseZpoolList(output string) []map[string]string {
@@ -325,13 +324,28 @@ func parseZpoolList(output string) []map[string]string {
 			continue
 		}
 
-		pools = append(pools, map[string]string{
-			"name":   fields[0],
-			"size":   fields[1],
-			"alloc":  fields[2],
-			"free":   fields[3],
-			"health": fields[4],
-		})
+		pool := map[string]string{
+			"name":  fields[0],
+			"size":  fields[1],
+			"alloc": fields[2],
+			"free":  fields[3],
+		}
+		// cap, health, type are additional fields (safe to access if present)
+		if len(fields) > 4 {
+			pool["capacity"] = fields[4]
+		}
+		if len(fields) > 5 {
+			pool["health"] = fields[5]
+		}
+		if len(fields) > 6 {
+			pool["type"] = fields[6]
+		}
+		// compression and dedup are not in `zpool list` — set empty so frontend
+		// knows they're unavailable (these come from `zfs get` per-dataset, not pool level)
+		pool["compression"] = ""
+		pool["dedup"] = ""
+
+		pools = append(pools, pool)
 	}
 
 	return pools
@@ -370,7 +384,7 @@ func parseZfsList(output string) []map[string]string {
 			"name":       fields[0],
 			"used":       fields[1],
 			"avail":      fields[2],
-			"refer":      fields[3],
+			"quota":      fields[3],
 			"mountpoint": fields[4],
 		})
 	}

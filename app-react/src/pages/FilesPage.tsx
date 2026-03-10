@@ -16,7 +16,7 @@
  *   POST /api/trash/empty
  */
 
-import { useState, useRef } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 import type React from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api, getSessionId, getUsername, getCsrfToken } from '@/lib/api'
@@ -88,6 +88,8 @@ function ContextMenu({ state, onClose, onAction }: {
   onAction: (action: string, entry: FileEntry) => void
 }) {
   const items = [
+    ...(state.entry.is_dir ? [] : [{ label: 'Edit', icon: 'edit_note', action: 'edit' }]),
+    ...(state.entry.is_dir ? [] : [{ label: 'Download', icon: 'download', action: 'download' }]),
     { label: 'Rename', icon: 'edit', action: 'rename' },
     { label: 'Copy', icon: 'content_copy', action: 'copy' },
     { label: 'Change Owner', icon: 'manage_accounts', action: 'chown' },
@@ -347,6 +349,90 @@ function TrashTab() {
 }
 
 // ---------------------------------------------------------------------------
+// Quick-access bookmarks
+// ---------------------------------------------------------------------------
+
+const BOOKMARKS = [
+  { label: 'mnt',         path: '/mnt',                      icon: 'storage' },
+  { label: 'home',        path: '/home',                     icon: 'home' },
+  { label: 'stacks',      path: '/var/lib/dplaneos/stacks',  icon: 'deployed_code' },
+  { label: 'custom icons',path: '/var/lib/dplaneos/custom_icons', icon: 'image' },
+  { label: 'tmp',         path: '/tmp',                      icon: 'folder_special' },
+]
+
+// ---------------------------------------------------------------------------
+// TextEditorModal — inline text editor (≤ 2 MB files)
+// ---------------------------------------------------------------------------
+
+interface ReadFileResponse { success: boolean; content?: string; error?: string; too_large?: boolean; size?: number }
+
+function TextEditorModal({ entry, onClose, onSaved }: { entry: FileEntry; onClose: () => void; onSaved: () => void }) {
+  const [content, setContent] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [saving,  setSaving]  = useState(false)
+  const [dirty,   setDirty]   = useState(false)
+
+  useEffect(() => {
+    api.get<ReadFileResponse>(`/api/files/read?path=${encodeURIComponent(entry.path)}`)
+      .then(d => {
+        if (d.success) { setContent(d.content ?? ''); setLoading(false) }
+        else           { toast.error(d.error ?? 'Cannot read file'); onClose() }
+      })
+      .catch((e: Error) => { toast.error(e.message); onClose() })
+  }, [entry.path, onClose])
+
+  function save() {
+    if (content === null) return
+    setSaving(true)
+    api.post('/api/files/write', { path: entry.path, content })
+      .then(() => { toast.success('Saved'); setDirty(false); onSaved() })
+      .catch((e: Error) => toast.error(e.message))
+      .finally(() => setSaving(false))
+  }
+
+  // Ctrl+S / Cmd+S
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); save() }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  })
+
+  return (
+    <Modal title={`Edit — ${entry.name}`} onClose={onClose} size="lg">
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12, height: '70vh' }}>
+        {loading && <Skeleton height={300} />}
+        {!loading && content !== null && (
+          <textarea
+            value={content}
+            onChange={e => { setContent(e.target.value); setDirty(true) }}
+            spellCheck={false}
+            style={{
+              flex: 1, resize: 'none', fontFamily: 'var(--font-mono)', fontSize: 13,
+              lineHeight: 1.6, background: 'var(--surface)', border: '1px solid var(--border)',
+              borderRadius: 'var(--radius-sm)', padding: '10px 14px', color: 'var(--text)',
+              outline: 'none', tabSize: 2,
+            }}
+          />
+        )}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }}>
+            {dirty ? 'Unsaved changes · Ctrl+S to save' : 'No unsaved changes'}
+          </span>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={onClose} className="btn btn-ghost">Cancel</button>
+            <button onClick={save} disabled={saving || !dirty} className="btn btn-primary">
+              {saving ? 'Saving…' : 'Save'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </Modal>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // FileBrowser (main tab)
 // ---------------------------------------------------------------------------
 
@@ -358,11 +444,97 @@ function FileBrowser() {
   const [showMkdir, setShowMkdir] = useState(false)
   const [ctx, setCtx] = useState<CtxMenuState | null>(null)
   const [modal, setModal] = useState<{ type: string; entry: FileEntry } | null>(null)
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [dragOver, setDragOver] = useState(false)
+  const dropZoneRef = useRef<HTMLDivElement>(null)
 
   const filesQ = useQuery({
     queryKey: ['files', 'list', path],
     queryFn: ({ signal }) => api.get<FilesListResponse>(`/api/files/list?path=${encodeURIComponent(path)}`, signal),
   })
+
+  // ── Multi-select ─────────────────────────────────────────────────────────
+  function toggleSelect(entryPath: string, e: React.MouseEvent) {
+    if (!e.shiftKey && !e.ctrlKey && !e.metaKey) return // only on modifier click
+    e.preventDefault()
+    setSelected(prev => {
+      const next = new Set(prev)
+      next.has(entryPath) ? next.delete(entryPath) : next.add(entryPath)
+      return next
+    })
+  }
+  function selectAll() {
+    const all = filesQ.data?.files ?? []
+    setSelected(new Set(all.map(f => f.path)))
+  }
+  function clearSelection() { setSelected(new Set()) }
+
+  // ── Download ─────────────────────────────────────────────────────────────
+  function downloadFile(entry: FileEntry) {
+    const sid = getSessionId()
+    const usr = getUsername()
+    const csrf = getCsrfToken()
+    const url = `/api/files/download?path=${encodeURIComponent(entry.path)}`
+    // Create a hidden <a> with auth headers via a fetch + blob approach
+    fetch(url, {
+      headers: {
+        'X-Session-ID': sid ?? '',
+        'X-User': usr ?? '',
+        'X-CSRF-Token': csrf,
+      }
+    })
+      .then(r => r.blob())
+      .then(blob => {
+        const a = document.createElement('a')
+        a.href = URL.createObjectURL(blob)
+        a.download = entry.name
+        a.click()
+        URL.revokeObjectURL(a.href)
+      })
+      .catch(() => toast.error('Download failed'))
+  }
+
+  // ── Drag-and-drop upload ──────────────────────────────────────────────────
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    setDragOver(true)
+  }, [])
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    if (!dropZoneRef.current?.contains(e.relatedTarget as Node)) setDragOver(false)
+  }, [])
+  const handleDrop = useCallback(async (e: React.DragEvent) => {
+    e.preventDefault()
+    setDragOver(false)
+    const droppedFiles = Array.from(e.dataTransfer.files)
+    if (!droppedFiles.length) return
+    toast.success(`Uploading ${droppedFiles.length} file${droppedFiles.length > 1 ? 's' : ''}…`)
+    for (const file of droppedFiles) {
+      const CHUNK = 10 * 1024 * 1024
+      const totalChunks = Math.ceil(file.size / CHUNK)
+      try {
+        for (let i = 0; i < totalChunks; i++) {
+          const blob = file.slice(i * CHUNK, Math.min((i + 1) * CHUNK, file.size))
+          const fd = new FormData()
+          fd.append('file', blob, file.name)
+          fd.append('filename', file.name)
+          fd.append('path', path)
+          fd.append('chunk', String(i))
+          fd.append('totalChunks', String(totalChunks))
+          const headers: Record<string, string> = {}
+          const sid = getSessionId(); if (sid) headers['X-Session-ID'] = sid
+          const usr = getUsername(); if (usr) headers['X-User'] = usr
+          headers['X-CSRF-Token'] = getCsrfToken()
+          const res = await fetch('/api/files/upload', { method: 'POST', headers, body: fd })
+          const data = await res.json()
+          if (!data.success) throw new Error(data.error ?? 'Upload failed')
+        }
+        toast.success(`Uploaded: ${file.name}`)
+      } catch (err) {
+        toast.error(`${file.name}: ${(err as Error).message}`)
+      }
+    }
+    qc.invalidateQueries({ queryKey: ['files', 'list', path] })
+  }, [path, qc])
 
   const deleteMutation = useMutation({
     mutationFn: (p: string) => api.post('/api/files/delete', { path: p }),
@@ -391,7 +563,8 @@ function FileBrowser() {
   }
 
   function handleAction(action: string, entry: FileEntry) {
-    if (action === 'trash') { trashMutation.mutate(entry.path); return }
+    if (action === 'trash')    { trashMutation.mutate(entry.path); return }
+    if (action === 'download') { downloadFile(entry); return }
     if (action === 'delete') {
       if (window.confirm(`Permanently delete "${entry.name}"?`)) deleteMutation.mutate(entry.path)
       return
@@ -407,7 +580,24 @@ function FileBrowser() {
   const sorted = [...dirs, ...regular]
 
   return (
-    <>
+    <div style={{ display: 'flex', gap: 0 }}>
+      {/* Bookmark sidebar */}
+      <div style={{ width: 140, flexShrink: 0, paddingRight: 12, borderRight: '1px solid var(--border)', marginRight: 16 }}>
+        <div style={{ fontSize: 'var(--text-2xs)', fontWeight: 700, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8 }}>Quick Access</div>
+        {BOOKMARKS.map(bm => (
+          <button key={bm.path} onClick={() => navigate(bm.path)}
+            style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 7, padding: '7px 8px', background: path === bm.path ? 'var(--primary-bg)' : 'none', border: 'none', borderRadius: 'var(--radius-sm)', cursor: 'pointer', color: path === bm.path ? 'var(--primary)' : 'var(--text-secondary)', fontSize: 'var(--text-xs)', textAlign: 'left', transition: 'background 0.1s' }}
+            onMouseEnter={e => { if (path !== bm.path) e.currentTarget.style.background = 'var(--surface)' }}
+            onMouseLeave={e => { if (path !== bm.path) e.currentTarget.style.background = 'none' }}
+          >
+            <Icon name={bm.icon} size={14} style={{ flexShrink: 0 }} />
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{bm.label}</span>
+          </button>
+        ))}
+      </div>
+
+      {/* Main browser pane */}
+      <div style={{ flex: 1, minWidth: 0 }}>
       {/* Toolbar */}
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 12 }}>
         <button onClick={upDir} className="btn btn-ghost" title="Up" disabled={path === '/' || path === '/mnt'}>
@@ -446,10 +636,35 @@ function FileBrowser() {
         <button onClick={() => setShowUpload(u => !u)} className="btn btn-ghost" style={showUpload ? { borderColor: 'var(--primary)', color: 'var(--primary)' } : undefined}>
           <Icon name="upload" size={15} />Upload
         </button>
+        {selected.size > 0 && (
+          <span style={{ marginLeft: 4, fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: 6 }}>
+            {selected.size} selected
+            <button onClick={clearSelection} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-tertiary)', display: 'flex' }}>
+              <Icon name="close" size={13} />
+            </button>
+          </span>
+        )}
       </div>
 
       {/* Upload panel */}
       {showUpload && <UploadPanel currentPath={path} onDone={refresh} />}
+
+      {/* Drag-and-drop zone wraps the file list */}
+      <div
+        ref={dropZoneRef}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+        style={{ position: 'relative', borderRadius: 'var(--radius-lg)', transition: 'box-shadow 0.15s', boxShadow: dragOver ? '0 0 0 2px var(--primary)' : 'none' }}
+      >
+        {dragOver && (
+          <div style={{ position: 'absolute', inset: 0, zIndex: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(138,156,255,0.07)', borderRadius: 'var(--radius-lg)', border: '2px dashed var(--primary)', pointerEvents: 'none' }}>
+            <div style={{ textAlign: 'center', color: 'var(--primary)' }}>
+              <Icon name="upload" size={36} style={{ display: 'block', margin: '0 auto 8px' }} />
+              <div style={{ fontWeight: 700 }}>Drop files to upload</div>
+            </div>
+          </div>
+        )}
 
       {/* File list */}
       {filesQ.isLoading && <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>{[0,1,2,3].map(i => <Skeleton key={i} height={44} style={{ borderRadius: 'var(--radius-sm)' }} />)}</div>}
@@ -457,7 +672,7 @@ function FileBrowser() {
       {!filesQ.isLoading && !filesQ.isError && sorted.length === 0 && (
         <div style={{ textAlign: 'center', padding: '48px 0', color: 'var(--text-tertiary)' }}>
           <Icon name="folder_open" size={40} style={{ opacity: 0.3, display: 'block', margin: '0 auto 12px' }} />
-          Empty directory
+          Empty directory — drag files here to upload
         </div>
       )}
 
@@ -466,44 +681,81 @@ function FileBrowser() {
           <table className="data-table">
             <thead>
               <tr style={{ background: 'rgba(255,255,255,0.03)' }}>
-                {['Name', 'Size', 'Owner', 'Mode', 'Modified'].map(h => (
+                <th style={{ width: 28 }}>
+                  <input type="checkbox"
+                    checked={selected.size === sorted.length && sorted.length > 0}
+                    onChange={e => e.target.checked ? selectAll() : clearSelection()}
+                    style={{ cursor: 'pointer' }}
+                  />
+                </th>
+                {['Name', 'Size', 'Owner', 'Mode', 'Modified', ''].map(h => (
                   <th key={h}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
-              {sorted.map(entry => (
-                <tr key={entry.path}
-                  onDoubleClick={() => entry.is_dir && navigate(entry.path)}
-                  onContextMenu={e => handleCtx(e, entry)}
-                  style={{ cursor: entry.is_dir ? 'pointer' : 'default' }}
-                  onMouseEnter={e => (e.currentTarget.style.background = 'var(--bg-card-hover)')}
-                  onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
-                >
-                  <td>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
-                      <Icon name={fileIcon(entry)} size={17} style={{ color: entry.is_dir ? 'var(--primary)' : 'var(--text-tertiary)', flexShrink: 0 }} />
-                      <span style={{ fontSize: 'var(--text-sm)', fontWeight: entry.is_dir ? 600 : 400 }}>{entry.name}</span>
-                    </div>
-                  </td>
-                  <td style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap' }}>
-                    {entry.is_dir ? '—' : fmtSize(entry.size)}
-                  </td>
-                  <td style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', whiteSpace: 'nowrap' }}>
-                    {entry.owner ?? '—'}{entry.group ? `:${entry.group}` : ''}
-                  </td>
-                  <td style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', fontFamily: 'var(--font-mono)' }}>
-                    {entry.permissions ?? entry.mode ?? '—'}
-                  </td>
-                  <td style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', whiteSpace: 'nowrap' }}>
-                    {fmtDate(entry.mtime)}
-                  </td>
-                </tr>
-              ))}
+              {sorted.map(entry => {
+                const isSelected = selected.has(entry.path)
+                return (
+                  <tr key={entry.path}
+                    onDoubleClick={() => entry.is_dir ? navigate(entry.path) : setModal({ type: 'edit', entry })}
+                    onContextMenu={e => handleCtx(e, entry)}
+                    onClick={e => toggleSelect(entry.path, e)}
+                    style={{ cursor: 'default', background: isSelected ? 'rgba(138,156,255,0.07)' : 'transparent' }}
+                    onMouseEnter={e => { if (!isSelected) e.currentTarget.style.background = 'var(--bg-card-hover)' }}
+                    onMouseLeave={e => { if (!isSelected) e.currentTarget.style.background = 'transparent' }}
+                  >
+                    <td style={{ padding: '10px 10px' }}>
+                      <input type="checkbox" checked={isSelected}
+                        onChange={() => setSelected(prev => { const n = new Set(prev); n.has(entry.path) ? n.delete(entry.path) : n.add(entry.path); return n })}
+                        onClick={e => e.stopPropagation()}
+                        style={{ cursor: 'pointer' }}
+                      />
+                    </td>
+                    <td>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+                        <Icon name={fileIcon(entry)} size={17} style={{ color: entry.is_dir ? 'var(--primary)' : 'var(--text-tertiary)', flexShrink: 0 }} />
+                        <span style={{ fontSize: 'var(--text-sm)', fontWeight: entry.is_dir ? 600 : 400 }}>{entry.name}</span>
+                      </div>
+                    </td>
+                    <td style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap' }}>
+                      {entry.is_dir ? '—' : fmtSize(entry.size)}
+                    </td>
+                    <td style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', whiteSpace: 'nowrap' }}>
+                      {entry.owner ?? '—'}{entry.group ? `:${entry.group}` : ''}
+                    </td>
+                    <td style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', fontFamily: 'var(--font-mono)' }}>
+                      {entry.permissions ?? entry.mode ?? '—'}
+                    </td>
+                    <td style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', whiteSpace: 'nowrap' }}>
+                      {fmtDate(entry.mtime)}
+                    </td>
+                    <td style={{ padding: '6px 10px', textAlign: 'right' }}>
+                      <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end', opacity: 0 }} className="row-actions"
+                        onMouseEnter={e => (e.currentTarget.style.opacity = '1')}
+                      >
+                        {!entry.is_dir && (
+                          <>
+                            <button title="Edit" onClick={e => { e.stopPropagation(); setModal({ type: 'edit', entry }) }}
+                              className="btn btn-ghost" style={{ padding: '3px 7px' }}>
+                              <Icon name="edit_note" size={14} />
+                            </button>
+                            <button title="Download" onClick={e => { e.stopPropagation(); downloadFile(entry) }}
+                              className="btn btn-ghost" style={{ padding: '3px 7px' }}>
+                              <Icon name="download" size={14} />
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
         </div>
       )}
+      </div>{/* end drag-drop zone */}
 
       {/* Context menu */}
       {ctx && <ContextMenu state={ctx} onClose={() => setCtx(null)} onAction={handleAction} />}
@@ -512,6 +764,7 @@ function FileBrowser() {
       {modal?.type === 'rename' && <RenameModal entry={modal.entry} onClose={() => setModal(null)} onDone={refresh} />}
       {modal?.type === 'chown'  && <ChownModal  entry={modal.entry} onClose={() => setModal(null)} onDone={refresh} />}
       {modal?.type === 'chmod'  && <ChmodModal  entry={modal.entry} onClose={() => setModal(null)} onDone={refresh} />}
+      {modal?.type === 'edit'   && <TextEditorModal entry={modal.entry} onClose={() => setModal(null)} onSaved={refresh} />}
       {modal?.type === 'copy'   && (
         <Modal title={`Copy — ${modal.entry.name}`} onClose={() => setModal(null)}>
           <CopyForm entry={modal.entry} onClose={() => setModal(null)} onDone={refresh} />
@@ -520,7 +773,8 @@ function FileBrowser() {
 
       {/* Mkdir */}
       {showMkdir && <MkdirModal currentPath={path} onClose={() => setShowMkdir(false)} onDone={refresh} />}
-    </>
+    </div>
+    </div>
   )
 }
 

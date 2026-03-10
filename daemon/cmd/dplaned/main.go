@@ -643,8 +643,12 @@ func main() {
 	filesHandler := handlers.NewFilesExtendedHandler()
 	r.HandleFunc("/api/files/list", filesHandler.ListFiles).Methods("GET")
 	r.HandleFunc("/api/files/properties", filesHandler.GetFileProperties).Methods("GET")
+	r.HandleFunc("/api/files/read", filesHandler.ReadFile).Methods("GET")
+	r.HandleFunc("/api/files/download", filesHandler.DownloadFile).Methods("GET")
 	r.HandleFunc("/api/files/rename", filesHandler.RenameFile).Methods("POST")
 	r.HandleFunc("/api/files/copy", filesHandler.CopyFile).Methods("POST")
+	r.HandleFunc("/api/files/move", filesHandler.MoveFile).Methods("POST")
+	r.HandleFunc("/api/files/write", filesHandler.WriteFile).Methods("POST")
 	r.HandleFunc("/api/files/upload", filesHandler.UploadChunk).Methods("POST")
 	r.HandleFunc("/api/files/mkdir", handlers.CreateDirectory).Methods("POST")
 	r.HandleFunc("/api/files/delete", handlers.DeletePath).Methods("POST")
@@ -830,12 +834,19 @@ func main() {
 	r.HandleFunc("/api/replication/schedules/{id}", handlers.HandleDeleteReplicationSchedule).Methods("DELETE")
 	r.HandleFunc("/api/replication/schedules/{id}/run", handlers.HandleRunReplicationScheduleNow).Methods("POST")
 
-	// Create server
+	// Create server.
+	// WriteTimeout is set to 0 (no timeout) because several routes need to
+	// stream indefinitely: /api/system/logs/stream (SSE), /ws/monitor,
+	// /ws/terminal, /api/files/download (large files). Per-route timeouts
+	// are enforced inside the handlers themselves where needed.
+	// ReadTimeout covers request body reading — 30s is sufficient for all
+	// non-upload routes; chunked uploads reset the deadline per chunk via
+	// the 32 MB ParseMultipartForm call.
 	srv := &http.Server{
 		Addr:         *listenAddr,
 		Handler:      r,
 		ReadTimeout:  30 * time.Second,
-		WriteTimeout: 30 * time.Second,
+		WriteTimeout: 0, // streaming routes need no global write deadline
 		IdleTimeout:  120 * time.Second,
 	}
 
@@ -978,10 +989,21 @@ func rateLimitMiddleware(next http.Handler) http.Handler {
 // Session validation middleware
 func sessionMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Skip validation for public endpoints (auth, csrf, health)
-		if r.URL.Path == "/health" ||
-			strings.HasPrefix(r.URL.Path, "/api/auth/") ||
-			r.URL.Path == "/api/csrf" {
+		// Skip validation for public endpoints
+		p := r.URL.Path
+		if p == "/health" ||
+			strings.HasPrefix(p, "/api/auth/") ||
+			p == "/api/csrf" ||
+			// Setup wizard — no session exists yet on fresh installs
+			p == "/api/system/setup-admin" ||
+			p == "/api/system/setup-complete" ||
+			p == "/api/system/status" || // dashboard needs status before login to detect setup_complete
+			// HA heartbeat — called by peer daemons that have no user session
+			p == "/api/ha/heartbeat" ||
+			// Internal disk events — called by udev scripts on localhost
+			p == "/api/internal/disk-event" ||
+			// Prometheus metrics — scraped by external monitoring without session
+			p == "/metrics" {
 			next.ServeHTTP(w, r)
 			return
 		}

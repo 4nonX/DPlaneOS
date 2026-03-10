@@ -148,19 +148,37 @@ func (h *DockerHandler) ContainerAction(w http.ResponseWriter, r *http.Request) 
 // ─────────────────────────────────────────────
 
 func containerToMap(c dockerclient.Container) map[string]interface{} {
+	// Build ports in both Docker API format (PascalCase) and frontend format (snake_case)
 	ports := make([]map[string]interface{}, 0, len(c.Ports))
 	for _, p := range c.Ports {
 		ports = append(ports, map[string]interface{}{
+			// Docker API PascalCase (kept for any tooling that reads raw data)
 			"IP": p.IP, "PrivatePort": p.PrivatePort,
 			"PublicPort": p.PublicPort, "Type": p.Type,
+			// Frontend snake_case aliases
+			"host_port":      p.PublicPort,
+			"container_port": p.PrivatePort,
+			"protocol":       p.Type,
 		})
 	}
+	shortName := c.ShortName()
 	return map[string]interface{}{
+		// Docker API PascalCase originals
 		"Id": c.ID, "Names": c.Names, "Image": c.Image,
 		"ImageID": c.ImageID, "Command": c.Command,
 		"Created": c.Created, "State": c.State, "Status": c.Status,
 		"Ports": ports, "Labels": c.Labels,
-		"Name": c.ShortName(), "Stack": c.StackName(),
+		// Frontend-expected lowercase aliases (matches Container interface in DockerPage.tsx)
+		"id":     c.ID,
+		"name":   shortName,
+		"image":  c.Image,
+		"state":  c.State,
+		"status": c.Status,
+		"ports":  ports,
+		"stack":  c.StackName(),
+		// Convenience
+		"Name":  shortName,
+		"Stack": c.StackName(),
 	}
 }
 

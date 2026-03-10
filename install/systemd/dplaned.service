@@ -38,9 +38,21 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/var/log/dplaneos /var/lib/dplaneos /opt/dplaneos /etc/dplaneos /run/dplaneos /etc/crontab /etc/exports /etc/systemd/network
-# Note: /etc/samba removed — NixOS owns smb.conf via modules/samba.nix
-# Daemon writes per-share config to /var/lib/dplaneos/smb-shares.conf
+ReadWritePaths=/var/log/dplaneos /var/lib/dplaneos /opt/dplaneos /etc/dplaneos /run/dplaneos \
+               /etc/crontab /etc/exports /etc/exports.d /etc/systemd/network \
+               /etc/samba \
+               /mnt /tank /data /media \
+               /tmp /home \
+               /etc/modprobe.d /etc/sysctl.d \
+               /etc/nginx/sites-available /etc/nginx/sites-enabled \
+               /etc/udev/rules.d \
+               /usr/local/bin \
+               /etc/iscsi \
+               /etc/ssh
+# /etc/samba: daemon writes /etc/samba/smb.conf on Debian installs
+# /mnt /tank /data /media: ZFS pool mount points — file manager needs write access
+# /tmp /home: file manager and upload targets
+# Remaining paths: installer scripts, nginx reconfig, udev rules, watchdog
 
 # Capabilities (ZFS requires SYS_ADMIN, network config requires NET_ADMIN)
 AmbientCapabilities=CAP_SYS_ADMIN CAP_NET_ADMIN CAP_DAC_READ_SEARCH CAP_CHOWN CAP_FOWNER

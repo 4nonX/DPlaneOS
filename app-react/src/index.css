@@ -323,3 +323,6 @@ textarea.input { resize: vertical; min-height: 80px; }
 .empty-state-icon { opacity: 0.25; display: block; margin: 0 auto 12px; }
 .empty-state-title { font-size: var(--text-lg); font-weight: 600; margin-bottom: 4px; }
 .empty-state-body  { font-size: var(--text-sm); }
+
+/* File manager row hover actions — shown on tr:hover */
+tr:hover .row-actions { opacity: 1 !important; }

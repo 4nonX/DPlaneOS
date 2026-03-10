@@ -25,13 +25,13 @@ import { toast } from '@/hooks/useToast'
 // ---------------------------------------------------------------------------
 
 interface Share {
-  name:        string
-  path:        string
-  comment:     string
-  readonly:    boolean
-  guestok:     boolean
-  browseable:  boolean
-  validusers?: string
+  name:          string
+  path:          string
+  comment:       string
+  read_only:     boolean  // backend field name
+  guest_ok:      boolean  // backend field name
+  browsable:     boolean  // backend field name
+  valid_users?:  string   // backend field name
 }
 
 interface SharesListResponse { success: boolean; shares?: Share[]; data?: Share[] }
@@ -49,7 +49,7 @@ function CreateShareModal({ onClose, onCreated }: { onClose: () => void; onCreat
   const [validusers, setValidusers] = useState('')
 
   const mutation = useMutation({
-    mutationFn: () => api.post('/api/shares', { name, path, comment, readonly, guestok, browseable: true, validusers }),
+    mutationFn: () => api.post('/api/shares', { action: 'create', name, path, comment, read_only: readonly, guest_ok: guestok, browsable: true, valid_users: validusers }),
     onSuccess: () => { toast.success(`Share "${name}" created`); onCreated(); onClose() },
     onError: (e: Error) => toast.error(e.message),
   })
@@ -127,9 +127,9 @@ function ShareCard({ share, onDeleted }: { share: Share; onDeleted: () => void }
         <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-tertiary)', fontFamily: 'var(--font-mono)', marginBottom: 8 }}>{share.path}</div>
         {share.comment && <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', marginBottom: 8 }}>{share.comment}</div>}
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          {share.readonly && <Badge label="Read-only" color="var(--warning)" />}
-          {share.guestok && <Badge label="Guest OK" color="var(--info)" />}
-          {share.validusers && <Badge label={`Users: ${share.validusers}`} color="var(--text-tertiary)" />}
+          {share.read_only && <Badge label="Read-only" color="var(--warning)" />}
+          {share.guest_ok && <Badge label="Guest OK" color="var(--info)" />}
+          {share.valid_users && <Badge label={`Users: ${share.valid_users}`} color="var(--text-tertiary)" />}
         </div>
       </div>
       <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>

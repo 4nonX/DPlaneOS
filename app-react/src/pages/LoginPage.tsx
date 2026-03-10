@@ -94,6 +94,12 @@ export function LoginPage() {
       } catch {
         // Non-critical — proceed to dashboard
       }
+      // Redirect to security page if password change is required
+      const user = useAuthStore.getState().user
+      if (user?.must_change_password) {
+        navigate({ to: '/security' })
+        return
+      }
       navigate({ to: '/' })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Login failed')

@@ -164,7 +164,7 @@ echo "  Log          : $LOG_FILE"
 echo ""
 
 # ────────────────────────────────────────────────────────────────────────────
-step "Phase 0/12: Pre-flight checks"
+step "Phase 0/13: Pre-flight checks"
 # ────────────────────────────────────────────────────────────────────────────
 
 [ -f /etc/os-release ] || die "Cannot detect OS"
@@ -216,7 +216,7 @@ $OPT_UPGRADE && log "Mode: Upgrade (data preserved)" || log "Mode: Fresh install
 INSTALL_PHASE=1
 
 # ────────────────────────────────────────────────────────────────────────────
-step "Phase 1/12: Backup"
+step "Phase 1/13: Backup"
 # ────────────────────────────────────────────────────────────────────────────
 
 if $OPT_UPGRADE; then
@@ -261,7 +261,7 @@ fi
 INSTALL_PHASE=2
 
 # ────────────────────────────────────────────────────────────────────────────
-step "Phase 2/12: System dependencies"
+step "Phase 2/13: System dependencies"
 # ────────────────────────────────────────────────────────────────────────────
 
 export DEBIAN_FRONTEND=noninteractive
@@ -313,7 +313,7 @@ done
 INSTALL_PHASE=3
 
 # ────────────────────────────────────────────────────────────────────────────
-step "Phase 3/12: ZFS setup"
+step "Phase 3/13: ZFS setup"
 # ────────────────────────────────────────────────────────────────────────────
 
 if ! lsmod | grep -q "^zfs "; then
@@ -341,7 +341,7 @@ log "ZFS ARC: ${ARC_MAX_GB}GB of ${TOTAL_RAM_GB}GB RAM"
 INSTALL_PHASE=4
 
 # ────────────────────────────────────────────────────────────────────────────
-step "Phase 4/12: Installing files"
+step "Phase 4/13: Installing files"
 # ────────────────────────────────────────────────────────────────────────────
 
 mkdir -p "$INSTALL_DIR" /var/lib/dplaneos/{backups,git-stacks,custom_icons} /var/log/dplaneos /etc/dplaneos
@@ -374,7 +374,7 @@ log "Files installed to $INSTALL_DIR"
 INSTALL_PHASE=5
 
 # ────────────────────────────────────────────────────────────────────────────
-step "Phase 5/12: Daemon binary"
+step "Phase 5/13: Daemon binary"
 # ────────────────────────────────────────────────────────────────────────────
 
 # try_download_binary: download a pre-built release tarball from GitHub when
@@ -503,7 +503,7 @@ fi
 INSTALL_PHASE=6
 
 # ────────────────────────────────────────────────────────────────────────────
-step "Phase 6/12: sudoers"
+step "Phase 6/13: sudoers"
 # ────────────────────────────────────────────────────────────────────────────
 
 SUDOERS_TMP=$(mktemp)
@@ -535,7 +535,7 @@ rm -f "$SUDOERS_TMP"
 INSTALL_PHASE=7
 
 # ────────────────────────────────────────────────────────────────────────────
-step "Phase 7/12: Database"
+step "Phase 7/13: Database"
 # ────────────────────────────────────────────────────────────────────────────
 
 mkdir -p "$(dirname "$DB_PATH")"
@@ -679,7 +679,7 @@ chmod 600 "$DB_PATH"
 INSTALL_PHASE=8
 
 # ────────────────────────────────────────────────────────────────────────────
-step "Phase 8/12: nginx"
+step "Phase 8/13: nginx"
 # ────────────────────────────────────────────────────────────────────────────
 
 cat > /etc/nginx/sites-available/dplaneos <<NGINX
@@ -735,10 +735,10 @@ else
     warn "Font download failed — UI will use system fonts (no functionality impact)"
 fi
 
-INSTALL_PHASE=8
+INSTALL_PHASE=9
 
 # ────────────────────────────────────────────────────────────────────────────
-step "Phase 8b/12: Samba configuration"
+step "Phase 9/13: Samba configuration"
 # ────────────────────────────────────────────────────────────────────────────
 # The daemon writes share definitions to /var/lib/dplaneos/smb-shares.conf.
 # Samba reads /etc/samba/smb.conf by default. Bridge the two with an include
@@ -786,10 +786,10 @@ if command -v systemctl &>/dev/null; then
         || warn "Samba services did not start — check: systemctl status smbd"
 fi
 
-INSTALL_PHASE=9
+INSTALL_PHASE=10
 
 # ────────────────────────────────────────────────────────────────────────────
-step "Phase 9/12: Kernel tuning"
+step "Phase 10/13: Kernel tuning"
 # ────────────────────────────────────────────────────────────────────────────
 
 cat > /etc/sysctl.d/99-dplaneos.conf <<'SYSCTL'
@@ -806,10 +806,10 @@ SYSCTL
 sysctl -p /etc/sysctl.d/99-dplaneos.conf >/dev/null 2>&1 || warn "sysctl failed (will apply on reboot)"
 log "Kernel tuning applied"
 
-INSTALL_PHASE=10
+INSTALL_PHASE=11
 
 # ────────────────────────────────────────────────────────────────────────────
-step "Phase 10/12: Docker (optional)"
+step "Phase 11/13: Docker (optional)"
 # ────────────────────────────────────────────────────────────────────────────
 
 if command -v docker &>/dev/null; then
@@ -847,10 +847,10 @@ DOCKERCFG
         || warn "Docker service did not start cleanly"
 fi
 
-INSTALL_PHASE=11
+INSTALL_PHASE=12
 
 # ────────────────────────────────────────────────────────────────────────────
-step "Phase 11/12: Services"
+step "Phase 12/13: Services"
 # ────────────────────────────────────────────────────────────────────────────
 
 # ZFS mount gate
@@ -896,14 +896,27 @@ Requires=dplaneos-zfs-mount-wait.service dplaneos-init-db.service
 Wants=zfs.target
 [Service]
 Type=simple
+ExecStartPre=/bin/mkdir -p /var/run/dplaneos /var/lib/dplaneos /var/log/dplaneos /etc/dplaneos
 ExecStart=${INSTALL_DIR}/daemon/dplaned -db ${DB_PATH} -listen 127.0.0.1:9000 -smb-conf /var/lib/dplaneos/smb-shares.conf
 WorkingDirectory=${INSTALL_DIR}
 Restart=always
 RestartSec=5
 User=root
+Group=root
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/log/dplaneos /var/lib/dplaneos /opt/dplaneos /etc/dplaneos /run/dplaneos /etc/crontab /etc/exports /etc/exports.d /etc/systemd/network /etc/samba /mnt /tank /data /media /tmp /home /etc/modprobe.d /etc/sysctl.d /etc/nginx/sites-available /etc/nginx/sites-enabled /usr/local/bin /etc/iscsi /etc/ssh
+AmbientCapabilities=CAP_SYS_ADMIN CAP_NET_ADMIN CAP_DAC_READ_SEARCH CAP_CHOWN CAP_FOWNER
+CapabilityBoundingSet=CAP_SYS_ADMIN CAP_NET_ADMIN CAP_DAC_READ_SEARCH CAP_CHOWN CAP_FOWNER
 StandardOutput=journal
 StandardError=journal
+SyslogIdentifier=dplaned
 LimitNOFILE=65536
+MemoryMax=512M
+MemoryHigh=384M
+OOMScoreAdjust=-900
 StartLimitIntervalSec=60
 StartLimitBurst=5
 [Install]
@@ -983,10 +996,10 @@ if [ -f "${INSTALL_DIR}/install/scripts/dplaneos-watchdog.sh" ]; then
     log "Watchdog: every 5 min via cron"
 fi
 
-INSTALL_PHASE=12
+INSTALL_PHASE=13
 
 # ────────────────────────────────────────────────────────────────────────────
-step "Phase 12/12: Validation"
+step "Phase 13/13: Validation"
 # ────────────────────────────────────────────────────────────────────────────
 
 if [ -f "${INSTALL_DIR}/install/scripts/post-install-validation.sh" ]; then

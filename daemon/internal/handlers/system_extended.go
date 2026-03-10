@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -562,19 +563,59 @@ type FirewallHandler struct{}
 func NewFirewallHandler() *FirewallHandler { return &FirewallHandler{} }
 
 func (h *FirewallHandler) GetStatus(w http.ResponseWriter, r *http.Request) {
-	// Get ufw status
 	output, err := cmdutil.RunFast("/usr/sbin/ufw", "status", "numbered")
 	status := "inactive"
-	if err == nil && strings.Contains(string(output), "Status: active") {
-		status = "active"
+	rawOutput := ""
+	if err == nil {
+		rawOutput = string(output)
+		if strings.Contains(rawOutput, "Status: active") {
+			status = "active"
+		}
 	}
+
+	// Parse `ufw status numbered` lines into structured rules.
+	// Each line looks like:  [ 1] 80/tcp                     ALLOW IN    Anywhere
+	rules := parseUFWRules(rawOutput)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success": true,
-		"status":  status,
-		"rules":   string(output),
+		"success":   true,
+		"status":    status,
+		"rules":     rules,     // always a []map — never a raw string
+		"rules_raw": rawOutput, // raw text for debugging
 	})
+}
+
+// parseUFWRules converts `ufw status numbered` output into a slice of rule maps.
+func parseUFWRules(output string) []map[string]interface{} {
+	rules := []map[string]interface{}{}
+	ruleRe := regexp.MustCompile(`^\[\s*(\d+)\]\s+(\S+)\s+(ALLOW|DENY|REJECT|LIMIT)\s+(IN|OUT|FWD)?\s*(.*)`)
+	for _, line := range strings.Split(output, "\n") {
+		m := ruleRe.FindStringSubmatch(strings.TrimSpace(line))
+		if m == nil {
+			continue
+		}
+		num, _ := strconv.Atoi(m[1])
+		portProto := m[2]
+		action := strings.ToLower(m[3])
+		from := strings.TrimSpace(m[5])
+
+		proto := "tcp"
+		port := portProto
+		if idx := strings.Index(portProto, "/"); idx >= 0 {
+			port = portProto[:idx]
+			proto = portProto[idx+1:]
+		}
+
+		rules = append(rules, map[string]interface{}{
+			"id":     num,
+			"action": action,
+			"port":   port,
+			"proto":  proto,
+			"from":   from,
+		})
+	}
+	return rules
 }
 
 func (h *FirewallHandler) SetRule(w http.ResponseWriter, r *http.Request) {
