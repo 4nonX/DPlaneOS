@@ -48,6 +48,44 @@ jobs:
           fi
           echo "No Syncthing conflict files found."
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: app-react/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: app-react
+        run: npm ci
+
+      - name: TypeScript typecheck
+        working-directory: app-react
+        run: npx tsc --noEmit
+
+      - name: Verify app/ bundle is up to date
+        run: |
+          # Rebuild the frontend (vite.config.ts hard-codes outDir: '../app').
+          # If the committed app/ differs from a fresh build, the developer
+          # forgot to run `npm run build` and commit the result.
+          cd app-react
+          npm run build 2>&1
+          cd ..
+          # Any modifications to app/ mean the bundle was stale.
+          CHANGED=$(git diff --name-only -- app/)
+          NEW=$(git ls-files --others --exclude-standard -- app/)
+          DELETED=$(git ls-files --deleted -- app/)
+          if [ -n "$CHANGED" ] || [ -n "$NEW" ] || [ -n "$DELETED" ]; then
+            echo "ERROR: committed app/ bundle is stale — these files differ after rebuilding:"
+            [ -n "$CHANGED"  ] && echo "  Modified: $CHANGED"
+            [ -n "$NEW"      ] && echo "  Added:    $NEW"
+            [ -n "$DELETED"  ] && echo "  Deleted:  $DELETED"
+            echo ""
+            echo "Run 'npm run build' in app-react/ and commit the updated app/ directory."
+            exit 1
+          fi
+          echo "Bundle up to date: $(ls app/assets/index-*.js | head -1 | xargs basename)"
+
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
