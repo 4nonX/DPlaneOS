@@ -8,7 +8,7 @@
  *   GET /api/zfs/smart           → SMART health summary
  *   GET /api/docker/containers   → containers list
  *   GET /api/system/ups          → UPS status
- *   WS  /ws/monitor              → live state_update, poolHealthChange, diskTempWarning
+ *   WS  /ws/monitor              → state_update, poolHealthChange, diskTempWarning, mountError
  */
 
 import { useQuery, useQueryClient } from '@tanstack/react-query'
@@ -339,6 +339,8 @@ export function DashboardPage() {
 
   // Inline disk temperature alert from WS (separate from toast)
   const [diskTempAlert, setDiskTempAlert] = useState<{ device: string; temp: number } | null>(null)
+  // Inline mount error alert — cleared when pool health recovers
+  const [mountAlert, setMountAlert] = useState<{ pool: string; mountpoint: string; error: string } | null>(null)
 
   useEffect(() => wsOn('stateUpdate', (d) => setLive(d as WsStateUpdate)), [wsOn])
 
@@ -355,6 +357,21 @@ export function DashboardPage() {
       const d = data as { device?: string; temp?: number }
       if (d?.device) setDiskTempAlert({ device: d.device, temp: d.temp ?? 0 })
       qc.invalidateQueries({ queryKey: ['zfs', 'smart'] })
+    })
+  }, [wsOn, qc])
+
+  // WS: mount error → show inline alert + force pool refetch
+  useEffect(() => {
+    return wsOn('mountError', (data) => {
+      const d = data as { pool?: string; mountpoint?: string; error?: string }
+      if (!d?.pool) return
+      if (d.error && d.error !== 'clear') {
+        setMountAlert({ pool: d.pool, mountpoint: d.mountpoint ?? '', error: d.error })
+        qc.invalidateQueries({ queryKey: ['zfs', 'pools'] })
+      } else {
+        // level=clear from background monitor — pool recovered
+        setMountAlert(prev => prev?.pool === d.pool ? null : prev)
+      }
     })
   }, [wsOn, qc])
 
@@ -430,6 +447,22 @@ export function DashboardPage() {
           <button
             onClick={e => { e.stopPropagation(); setDiskTempAlert(null) }}
             style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--warning)', display: 'flex' }}
+          >
+            <Icon name="close" size={15} />
+          </button>
+        </div>
+      )}
+
+      {/* WS mount error inline alert */}
+      {mountAlert && (
+        <div className="alert alert-error" style={{ cursor: 'pointer' }} onClick={() => navigate({ to: '/pools' })}>
+          <Icon name="folder_off" size={16} />
+          <span>
+            Pool <strong>{mountAlert.pool}</strong> mountpoint <strong>{mountAlert.mountpoint}</strong> is not writable — filesystem may be full or read-only.
+          </span>
+          <button
+            onClick={e => { e.stopPropagation(); setMountAlert(null) }}
+            style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--error)', display: 'flex' }}
           >
             <Icon name="close" size={15} />
           </button>

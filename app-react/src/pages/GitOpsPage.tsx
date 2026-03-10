@@ -10,16 +10,29 @@
  * POST /api/gitops/approve
  */
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { Icon } from '@/components/ui/Icon'
 import { ErrorState } from '@/components/ui/ErrorState'
 import { Skeleton } from '@/components/ui/LoadingSpinner'
 import { toast } from '@/hooks/useToast'
+import { useWsStore } from '@/stores/ws'
 
 interface GitopsStatus { success: boolean; state?: string; pending_changes?: number; last_applied?: string; drift?: boolean }
 interface Change       { resource?: string; action?: 'create'|'update'|'delete'|string; description?: string }
+
+// Payload from daemon gitops.drift WS event
+interface DriftPayload {
+  drifted:       boolean
+  error?:        string
+  checked_at:    string
+  create_count:  number
+  modify_count:  number
+  delete_count:  number
+  blocked_count: number
+  safe_to_apply: boolean
+}
 
 function fmtDate(s?:string){if(!s)return'—';try{return new Date(s).toLocaleString('de-DE',{dateStyle:'short',timeStyle:'short'})}catch{return s}}
 
@@ -31,14 +44,35 @@ function changeColor(a?:string):string {
 
 export function GitOpsPage() {
   const qc = useQueryClient()
+  const wsOn = useWsStore((s) => s.on)
   const [stateEdit, setStateEdit] = useState<string|null>(null)
+  const [driftAlert, setDriftAlert] = useState<DriftPayload | null>(null)
 
   const statusQ = useQuery({ queryKey:['gitops','status'], queryFn:({signal})=>api.get<GitopsStatus>('/api/gitops/status',signal), refetchInterval:15_000 })
   const planQ   = useQuery({ queryKey:['gitops','plan'],   queryFn:({signal})=>api.get<{success:boolean;changes:Change[]}>('/api/gitops/plan',signal) })
   const stateQ  = useQuery({ queryKey:['gitops','state'],  queryFn:({signal})=>api.get<{success:boolean;state:string}>('/api/gitops/state',signal) })
 
+  // WS: drift detected → update status immediately + show banner
+  useEffect(() => {
+    return wsOn('gitopsDrift', (data) => {
+      const d = data as DriftPayload
+      if (d.drifted || d.error) {
+        setDriftAlert(d)
+        const msg = d.error
+          ? `GitOps error: ${d.error}`
+          : `Drift detected — ${d.create_count + d.modify_count + d.delete_count} change(s) pending${d.blocked_count > 0 ? `, ${d.blocked_count} blocked` : ''}`
+        toast.warning(msg)
+      } else {
+        setDriftAlert(null)
+      }
+      // Refresh the status and plan queries so counts + last_checked update
+      qc.invalidateQueries({ queryKey: ['gitops', 'status'] })
+      qc.invalidateQueries({ queryKey: ['gitops', 'plan'] })
+    })
+  }, [wsOn, qc])
+
   const check   = useMutation({ mutationFn: () => api.post('/api/gitops/check',{}), onSuccess: () => toast.success('Config valid'), onError: (e:Error)=>toast.error(e.message) })
-  const apply   = useMutation({ mutationFn: () => api.post('/api/gitops/apply',{}), onSuccess: () => { toast.success('Applied'); qc.invalidateQueries({queryKey:['gitops']}) }, onError: (e:Error)=>toast.error(e.message) })
+  const apply   = useMutation({ mutationFn: () => api.post('/api/gitops/apply',{}), onSuccess: () => { toast.success('Applied'); setDriftAlert(null); qc.invalidateQueries({queryKey:['gitops']}) }, onError: (e:Error)=>toast.error(e.message) })
   const approve = useMutation({ mutationFn: () => api.post('/api/gitops/approve',{}), onSuccess: () => { toast.success('Approved'); qc.invalidateQueries({queryKey:['gitops']}) }, onError: (e:Error)=>toast.error(e.message) })
   const saveState = useMutation({
     mutationFn: () => api.put('/api/gitops/state', { state: stateEdit }),
@@ -56,6 +90,22 @@ export function GitOpsPage() {
         <h1 className="page-title">GitOps</h1>
         <p className="page-subtitle">Declarative infrastructure state management</p>
       </div>
+
+      {/* Live drift alert — shown when daemon broadcasts a drift event */}
+      {driftAlert && (
+        <div className={`alert ${driftAlert.blocked_count > 0 ? 'alert-error' : 'alert-warning'}`} style={{ marginBottom: 12 }}>
+          <Icon name={driftAlert.blocked_count > 0 ? 'error' : 'warning'} size={16} />
+          <span>
+            {driftAlert.error
+              ? `GitOps error: ${driftAlert.error}`
+              : <>Drift detected at {fmtDate(driftAlert.checked_at)} — <strong>{driftAlert.create_count + driftAlert.modify_count + driftAlert.delete_count}</strong> pending change(s){driftAlert.blocked_count > 0 && <>, <strong>{driftAlert.blocked_count}</strong> blocked</>}. {driftAlert.safe_to_apply ? 'Safe to apply.' : 'Manual review required.'}</>
+            }
+          </span>
+          <button onClick={() => setDriftAlert(null)} style={{ marginLeft:'auto', background:'none', border:'none', cursor:'pointer', color:'inherit', display:'flex' }}>
+            <Icon name="close" size={15} />
+          </button>
+        </div>
+      )}
 
       {/* Status bar */}
       {statusQ.isLoading && <Skeleton height={80} style={{ marginBottom:20 }} />}

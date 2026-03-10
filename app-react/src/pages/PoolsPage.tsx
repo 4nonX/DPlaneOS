@@ -797,6 +797,7 @@ export function PoolsPage() {
   const [datasetFilter, setDatasetFilter] = useState('')
   const qc   = useQueryClient()
   const wsOn = useWsStore((s) => s.on)
+  const [mountAlert, setMountAlert] = useState<{ pool: string; mountpoint: string } | null>(null)
 
   const poolsQ = useQuery({
     queryKey: ['zfs', 'pools'],
@@ -820,6 +821,21 @@ export function PoolsPage() {
   useEffect(() => {
     return wsOn('scrubEvent', () => {
       qc.invalidateQueries({ queryKey: ['zfs', 'pools'] })
+    })
+  }, [wsOn, qc])
+
+  // WS: mount error → show inline banner + refetch pools
+  useEffect(() => {
+    return wsOn('mountError', (data) => {
+      const d = data as { pool?: string; mountpoint?: string; error?: string }
+      if (!d?.pool) return
+      if (d.error && d.error !== 'clear') {
+        setMountAlert({ pool: d.pool, mountpoint: d.mountpoint ?? '' })
+        toast.error(`Mount error on pool ${d.pool}: ${d.error}`)
+        qc.invalidateQueries({ queryKey: ['zfs', 'pools'] })
+      } else {
+        setMountAlert(prev => prev?.pool === d.pool ? null : prev)
+      }
     })
   }, [wsOn, qc])
 
@@ -878,6 +894,19 @@ export function PoolsPage() {
         </div>
         <button onClick={refresh} className="btn btn-ghost" title="Refresh"><Icon name="refresh" size={16} /></button>
       </div>
+
+      {/* Mount error alert — shown when background monitor detects an unwritable mountpoint */}
+      {mountAlert && (
+        <div className="alert alert-error" style={{ marginBottom: 16 }}>
+          <Icon name="folder_off" size={16} />
+          <span>
+            Pool <strong>{mountAlert.pool}</strong> mountpoint <strong>{mountAlert.mountpoint}</strong> is not writable. The pool may be full, read-only, or the filesystem may have errors.
+          </span>
+          <button onClick={() => setMountAlert(null)} style={{ marginLeft:'auto', background:'none', border:'none', cursor:'pointer', color:'var(--error)', display:'flex' }}>
+            <Icon name="close" size={15} />
+          </button>
+        </div>
+      )}
 
       {/* Tabs */}
       <div className="tabs-underline" style={{ marginBottom: 28 }}>
