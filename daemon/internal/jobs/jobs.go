@@ -22,22 +22,31 @@ import (
 
 // Status values
 const (
-	StatusRunning  = "running"
-	StatusDone     = "done"
-	StatusFailed   = "failed"
+	StatusRunning = "running"
+	StatusDone    = "done"
+	StatusFailed  = "failed"
 )
 
 // Job holds state for one background operation.
 type Job struct {
-	ID        string                 `json:"id"`
-	Type      string                 `json:"type"`
-	Status    string                 `json:"status"`
-	Result    map[string]interface{} `json:"result,omitempty"`
-	Error     string                 `json:"error,omitempty"`
-	StartedAt time.Time              `json:"started_at"`
-	FinishedAt *time.Time            `json:"finished_at,omitempty"`
+	ID         string                 `json:"id"`
+	Type       string                 `json:"type"`
+	Status     string                 `json:"status"`
+	Result     map[string]interface{} `json:"result,omitempty"`
+	Error      string                 `json:"error,omitempty"`
+	Logs       []string               `json:"logs,omitempty"` // streaming progress lines
+	StartedAt  time.Time              `json:"started_at"`
+	FinishedAt *time.Time             `json:"finished_at,omitempty"`
 
 	mu sync.Mutex
+}
+
+// Log appends a progress line visible to callers polling GET /api/jobs/{id}.
+// Safe to call from the job goroutine at any time.
+func (j *Job) Log(line string) {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	j.Logs = append(j.Logs, line)
 }
 
 // Done marks the job as completed with a result payload.
@@ -67,6 +76,7 @@ type JobSnapshot struct {
 	Status     string                 `json:"status"`
 	Result     map[string]interface{} `json:"result,omitempty"`
 	Error      string                 `json:"error,omitempty"`
+	Logs       []string               `json:"logs,omitempty"`
 	StartedAt  time.Time              `json:"started_at"`
 	FinishedAt *time.Time             `json:"finished_at,omitempty"`
 }
@@ -75,12 +85,15 @@ type JobSnapshot struct {
 func (j *Job) Snapshot() JobSnapshot {
 	j.mu.Lock()
 	defer j.mu.Unlock()
+	logsCopy := make([]string, len(j.Logs))
+	copy(logsCopy, j.Logs)
 	return JobSnapshot{
 		ID:         j.ID,
 		Type:       j.Type,
 		Status:     j.Status,
 		Result:     j.Result,
 		Error:      j.Error,
+		Logs:       logsCopy,
 		StartedAt:  j.StartedAt,
 		FinishedAt: j.FinishedAt,
 	}

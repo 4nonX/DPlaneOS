@@ -175,13 +175,15 @@ func (h *StackHandler) DeployStack(w http.ResponseWriter, r *http.Request) {
 // ─────────────────────────────────────────────────────────────
 
 type StackInfo struct {
-	Name      string                   `json:"name"`
-	Path      string                   `json:"path"`
-	Status    string                   `json:"status"`    // "running", "partial", "stopped", "unknown"
-	Services  []map[string]interface{} `json:"services"`  // compose ps output
-	FileSize  int64                    `json:"file_size"`
-	CreatedAt string                   `json:"created_at"`
-	UpdatedAt string                   `json:"updated_at"`
+	Name         string                   `json:"name"`
+	Path         string                   `json:"path"`
+	Status       string                   `json:"status"`   // "running", "partial", "stopped", "unknown"
+	Services     []map[string]interface{} `json:"services"` // compose ps output
+	FileSize     int64                    `json:"file_size"`
+	CreatedAt    string                   `json:"created_at"`
+	UpdatedAt    string                   `json:"updated_at"`
+	TemplateID   string                   `json:"template_id,omitempty"`   // set if deployed from a template
+	TemplateName string                   `json:"template_name,omitempty"` // human-readable template name
 }
 
 func (h *StackHandler) ListStacks(w http.ResponseWriter, r *http.Request) {
@@ -229,6 +231,16 @@ func (h *StackHandler) ListStacks(w http.ResponseWriter, r *http.Request) {
 			Name:     name,
 			Path:     dir,
 			FileSize: fileInfo.Size(),
+		}
+
+		// Read template marker if present
+		markerPath := filepath.Join(dir, ".dplane-template")
+		if markerData, err := os.ReadFile(markerPath); err == nil {
+			var m map[string]string
+			if json.Unmarshal(markerData, &m) == nil {
+				stack.TemplateID = m["template_id"]
+				stack.TemplateName = m["template_name"]
+			}
 		}
 
 		// Get timestamps
@@ -630,15 +642,15 @@ func (h *StackHandler) ConvertDockerRun(w http.ResponseWriter, r *http.Request) 
 // Best-effort parser covering common flags.
 func parseDockerRun(cmd string) (string, string) {
 	var (
-		image      string
-		name       = "app"
-		ports      []string
-		volumes    []string
-		envVars    []string
-		restart    string
-		detach     bool
-		networks   []string
-		extraArgs  []string
+		image     string
+		name      = "app"
+		ports     []string
+		volumes   []string
+		envVars   []string
+		restart   string
+		detach    bool
+		networks  []string
+		extraArgs []string
 	)
 
 	args := shellSplit(cmd)

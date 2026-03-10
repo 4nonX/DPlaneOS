@@ -477,6 +477,22 @@ func main() {
 	r.HandleFunc("/api/git-sync/repos/export", gitReposHandler.ExportToRepo).Methods("POST")
 	gitSyncHandler.StartAutoSync()
 
+	// v5.1: Compose stack management
+	stackHandler := handlers.NewStackHandler()
+	r.HandleFunc("/api/docker/stacks", stackHandler.ListStacks).Methods("GET")
+	r.Handle("/api/docker/stacks/deploy", permRoute("docker", "write", stackHandler.DeployStack)).Methods("POST")
+	r.HandleFunc("/api/docker/stacks/yaml", stackHandler.GetStackYAML).Methods("GET")
+	r.Handle("/api/docker/stacks/yaml", permRoute("docker", "write", stackHandler.UpdateStackYAML)).Methods("PUT")
+	r.Handle("/api/docker/stacks", permRoute("docker", "write", stackHandler.DeleteStack)).Methods("DELETE")
+	r.Handle("/api/docker/stacks/action", permRoute("docker", "write", stackHandler.StackAction)).Methods("POST")
+	r.Handle("/api/docker/convert-run", permRoute("docker", "write", stackHandler.ConvertDockerRun)).Methods("POST")
+
+	// v5.1: Multi-stack templates
+	templateHandler := handlers.NewTemplateHandler()
+	r.HandleFunc("/api/docker/templates", templateHandler.ListTemplates).Methods("GET")
+	r.HandleFunc("/api/docker/templates/installed", templateHandler.ListInstalledTemplates).Methods("GET")
+	r.Handle("/api/docker/templates/deploy", permRoute("docker", "write", templateHandler.DeployTemplate)).Methods("POST")
+
 	// v3.0.0: Audit log rotation
 	auditRotationHandler := handlers.NewAuditRotationHandler()
 	r.Handle("/api/system/audit/rotate", permRoute("system", "admin", auditRotationHandler.RotateAuditLogs)).Methods("POST")
