@@ -6,6 +6,51 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ---
 
+## v5.1.1 (2026-03-10) — "System Audit"
+
+Upgrade from: v5.1.0 — Drop-in. `sudo bash install.sh --upgrade`
+
+### Fixed
+
+**Critical — broken on first interaction**
+
+- **Docker page: all containers showed blank names, images, and state** — `containerToMap` emitted PascalCase Docker SDK keys (`Id`, `Image`, `State`). Frontend expected lowercase. Fixed: added lowercase aliases. Ports now also include `host_port`/`container_port`/`protocol`.
+- **ZFS pool capacity bars always 0%** — `ListPools` fetched only `name,size,alloc,free,health`, never `cap`. Fixed: added `cap,health` columns. Also removed invalid `type` property (not a `zpool list` column — caused `exit status 2` and `success:false` on every `GET /api/zfs/pools` call, confirmed in CI).
+- **ZFS dataset quota column always empty** — `ListDatasets` fetched `refer` instead of `quota`. Fixed.
+- **Firewall rules page crashed on load** — `GetStatus` returned `rules` as raw `ufw status numbered` text. Frontend called `.map()` on a string — runtime crash. Fixed: new `parseUFWRules()` returns structured `[]map`.
+- **Setup wizard failed on fresh DB** — `HandleStatus` and `HandleSetupAdmin` both `SELECT` from `system_config` before creating the table. Fixed: `CREATE TABLE IF NOT EXISTS` before any query.
+- **`must_change_password` never acted on** — backend sets this flag on the auto-generated admin account; login page never checked it and never redirected. Fixed: redirects to `/security` after login when flag is set.
+
+**High — specific features silently broken**
+
+- **SMB share create/edit always used defaults** — `Share` interface used `readonly`/`guestok`/`browseable`; backend returns/expects `read_only`/`guest_ok`/`browsable`. Every create ignored the user's checkbox selections. Fixed: aligned field names throughout `SharesPage.tsx`.
+- **File manager writes blocked by systemd `ProtectSystem=strict`** — `ReadWritePaths` didn't include `/mnt`, `/tank`, `/data`, `/media`, `/etc/samba`, `/etc/exports`, `/etc/iscsi`, `/etc/ssh`, `/tmp`, `/home`. Every file write returned permission denied. Fixed in `dplaned.service` and `install.sh` inline unit.
+- **Log streams, WebSocket, and large downloads cut at 30s** — `WriteTimeout: 30s` on the HTTP server. SSE, both WebSocket endpoints, and file downloads were terminated. Fixed: `WriteTimeout: 0`.
+- **`chmod` always 400** — frontend sends `{ mode }`, backend expected `{ permissions }`. Fixed: both accepted.
+- **File rename always 400** — frontend sends `{ new_name }` (filename only), backend expected `{ new_path }` (full path). Fixed.
+- **Chunked upload wrote empty files** — frontend sends field `chunk`, backend read `chunkIndex`. Every chunk 0 truncated with no data. Fixed.
+- **Setup wizard, HA heartbeat, udev disk events, and Prometheus blocked by session middleware** — no exemptions for these legitimately public routes. Fixed: all five paths added to bypass list.
+
+**Medium**
+
+- **Install phase numbering collision** — two phases both labelled `8`. Renumbered to clean 0–13 sequence.
+- **`/etc/exports` not in `ReadWritePaths`** — NFS export writes would fail. Added.
+- **File manager: four missing features added** — inline text editor (Ctrl+S, dirty tracking, 2 MB guard), download button per row, drag-and-drop upload with chunked upload, multi-select with checkbox column, quick-access bookmark sidebar.
+- **Login `must_change_password` redirect** — added to `LoginPage.tsx`.
+
+### Stats
+
+| What | Before | After |
+|------|--------|-------|
+| Docker page container display | All blank | Correct |
+| ZFS pool capacity bar | Always 0% | Correct |
+| Firewall rules table | JS crash | Structured table |
+| SMB share settings honoured | Never | Always |
+| File manager features | 4 missing | Complete |
+| CI: ZFS pools test | ✗ (exit 2) | ✓ |
+
+---
+
 ## v5.1.0 (2026-03-10) — "Template Library"
 
 Upgrade from: v5.0.0 — Drop-in. `sudo bash install.sh --upgrade`
