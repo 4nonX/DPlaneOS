@@ -17,6 +17,7 @@ import (
 
 	"dplaned/internal/alerts"
 	"dplaned/internal/audit"
+	"dplaned/internal/gitops"
 	"dplaned/internal/ha"
 	"dplaned/internal/handlers"
 	"dplaned/internal/jobs"
@@ -511,6 +512,12 @@ func main() {
 	// Phase 3: GitOps — declarative state reconciliation
 	gitopsHandler := handlers.NewGitOpsHandler(db, *gitopsStatePath, *smbConfPath, wsHub)
 	defer gitopsHandler.Stop()
+
+	// Start GitOps drift detector — polls every 5 minutes and broadcasts
+	// "gitops.drift" WS events so GitOpsPage reacts in real time.
+	driftDetector := gitops.NewDriftDetector(db, *gitopsStatePath, 5*time.Minute, wsHub)
+	driftDetector.Start()
+	defer driftDetector.Stop()
 	r.HandleFunc("/api/gitops/status", gitopsHandler.Status).Methods("GET")
 	r.HandleFunc("/api/gitops/plan", gitopsHandler.Plan).Methods("GET")
 	r.Handle("/api/gitops/apply", permRoute("system", "admin", gitopsHandler.Apply)).Methods("POST")

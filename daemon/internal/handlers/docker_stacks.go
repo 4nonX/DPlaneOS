@@ -184,6 +184,7 @@ type StackInfo struct {
 	UpdatedAt    string                   `json:"updated_at"`
 	TemplateID   string                   `json:"template_id,omitempty"`   // set if deployed from a template
 	TemplateName string                   `json:"template_name,omitempty"` // human-readable template name
+	Labels       map[string]string        `json:"labels,omitempty"`        // dplaneos.* labels from first container
 }
 
 func (h *StackHandler) ListStacks(w http.ResponseWriter, r *http.Request) {
@@ -261,6 +262,27 @@ func (h *StackHandler) ListStacks(w http.ResponseWriter, r *http.Request) {
 			services := parseComposePS(output)
 			stack.Services = services
 			stack.Status = computeStackStatus(services)
+		}
+
+		// Extract dplaneos.icon label from the first running container in this
+		// stack so ModulesPage can resolve a custom icon without needing per-container data.
+		// Uses `docker ps --filter label=com.docker.compose.project=<name>` to find
+		// containers belonging to this stack.
+		labelOut, labelErr := cmdutil.RunFast("/usr/bin/docker", "ps",
+			"--filter", "label=com.docker.compose.project="+name,
+			"--format", "{{.Label \"dplaneos.icon\"}}",
+			"--no-trunc")
+		if labelErr == nil {
+			for _, line := range strings.Split(strings.TrimSpace(string(labelOut)), "\n") {
+				line = strings.TrimSpace(line)
+				if line != "" {
+					if stack.Labels == nil {
+						stack.Labels = map[string]string{}
+					}
+					stack.Labels["dplaneos.icon"] = line
+					break // use first non-empty value found
+				}
+			}
 		}
 
 		stacks = append(stacks, stack)
