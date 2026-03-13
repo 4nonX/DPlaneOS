@@ -27,6 +27,7 @@ import { Skeleton } from '@/components/ui/LoadingSpinner'
 import { useJob } from '@/hooks/useJob'
 import { toast } from '@/hooks/useToast'
 import { Modal } from '@/components/ui/Modal'
+import { useConfirm } from '@/components/ui/ConfirmDialog'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -599,17 +600,17 @@ function SchedulesTab({ datasets }: { datasets: ZFSDataset[] }) {
                         <Icon name="play_arrow" size={14} />
                         {runNowMutation.isPending && runningId === s.id ? 'Starting…' : 'Run'}
                       </button>
-                      <button
-                        onClick={() => {
-                          if (confirm(`Delete schedule "${s.name}"?`)) deleteMutation.mutate(s.id)
-                        }}
-                        disabled={deleteMutation.isPending}
-                        className="btn btn-sm btn-ghost"
-                        style={{ color: 'var(--error)' }}
-                        title="Delete"
-                      >
-                        <Icon name="delete" size={14} />
-                      </button>
+                       <button
+                         onClick={async () => {
+                           if (await confirm({ title: `Delete schedule "${s.name}"?`, danger: true, confirmLabel: 'Delete' })) deleteMutation.mutate(s.id)
+                         }}
+                         disabled={deleteMutation.isPending}
+                         className="btn btn-sm btn-ghost"
+                         style={{ color: 'var(--error)' }}
+                         title="Delete"
+                       >
+                         <Icon name="delete" size={14} />
+                       </button>
                     </div>
                   </td>
                 </tr>
@@ -639,6 +640,7 @@ type Tab = 'replicate' | 'ssh' | 'schedules'
 export function ReplicationPage() {
   const [tab, setTab] = useState<Tab>('replicate')
   const qc = useQueryClient()
+  const { confirm, ConfirmDialog } = useConfirm()
 
   const datasetsQ = useQuery({
     queryKey: ['zfs', 'datasets'],
