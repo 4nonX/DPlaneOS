@@ -485,7 +485,7 @@ function AddScheduleModal({ datasets, onClose, onCreated }: {
 // SchedulesTab
 // ---------------------------------------------------------------------------
 
-function SchedulesTab({ datasets }: { datasets: ZFSDataset[] }) {
+function SchedulesTab({ datasets, confirm }: { datasets: ZFSDataset[]; confirm: (opts: { title: string; message?: string; confirmLabel?: string; cancelLabel?: string; danger?: boolean }) => Promise<boolean> }) {
   const qc = useQueryClient()
   const [showAdd, setShowAdd] = useState(false)
   const [runningId, setRunningId] = useState<string | null>(null)
@@ -601,9 +601,9 @@ function SchedulesTab({ datasets }: { datasets: ZFSDataset[] }) {
                         {runNowMutation.isPending && runningId === s.id ? 'Starting…' : 'Run'}
                       </button>
                        <button
-                         onClick={async () => {
-                           if (await confirm({ title: `Delete schedule "${s.name}"?`, danger: true, confirmLabel: 'Delete' })) deleteMutation.mutate(s.id)
-                         }}
+                          onClick={async () => {
+                            if (await confirm({ title: `Delete schedule "${s.name}"?`, message: 'This cannot be undone.', danger: true, confirmLabel: 'Delete' })) deleteMutation.mutate(s.id)
+                          }}
                          disabled={deleteMutation.isPending}
                          className="btn btn-sm btn-ghost"
                          style={{ color: 'var(--error)' }}
@@ -691,12 +691,13 @@ export function ReplicationPage() {
         <>
           {datasetsQ.isLoading && <Skeleton height={200} style={{ borderRadius: 'var(--radius-xl)' }} />}
           {!datasetsQ.isLoading && (
-            <SchedulesTab datasets={datasets} />
+            <SchedulesTab datasets={datasets} confirm={confirm} />
           )}
         </>
       )}
 
-      {tab === 'ssh' && <SSHKeyManager />}
-    </div>
-  )
+       {tab === 'ssh' && <SSHKeyManager />}
+       <ConfirmDialog />
+     </div>
+   );
 }
