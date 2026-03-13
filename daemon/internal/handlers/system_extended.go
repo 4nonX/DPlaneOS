@@ -1186,6 +1186,7 @@ func (h *PowerMgmtHandler) SpindownNow(w http.ResponseWriter, r *http.Request) {
 		respondErrorSimple(w, "Operation failed", http.StatusInternalServerError)
 		return
 	}
+	_ = output // hdparm -y output not needed
 
 	audit.LogAction("power_spindown_now", user, fmt.Sprintf("Spindown %s", req.Device), true, 0)
 	w.Header().Set("Content-Type", "application/json")
