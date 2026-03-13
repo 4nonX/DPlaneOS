@@ -29,6 +29,7 @@ import { Icon } from '@/components/ui/Icon'
 import { ErrorState } from '@/components/ui/ErrorState'
 import { Skeleton } from '@/components/ui/LoadingSpinner'
 import { toast } from '@/hooks/useToast'
+import { useConfirm } from '@/components/ui/ConfirmDialog'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -373,6 +374,7 @@ function TOTPTab() {
 
 function TokensTab() {
   const qc = useQueryClient()
+  const { confirm, ConfirmDialog } = useConfirm()
   const [newName, setNewName] = useState('')
   const [newToken, setNewToken] = useState<string | null>(null)
 
@@ -438,7 +440,7 @@ function TokensTab() {
                 {token.prefix && ` · ${token.prefix}…`}
               </div>
             </div>
-            <button onClick={() => { if (window.confirm(`Revoke token "${token.name}"?`)) revoke.mutate(token.id) }} className="btn btn-danger">
+            <button onClick={async () => { if (await confirm({ title: `Revoke "${token.name}"?`, message: 'Any scripts using this token will stop working.', danger: true, confirmLabel: 'Revoke' })) revoke.mutate(token.id) }} className="btn btn-danger">
               <Icon name="delete" size={13} />Revoke
             </button>
           </div>
@@ -447,6 +449,7 @@ function TokensTab() {
           <div style={{ textAlign: 'center', padding: '32px 0', color: 'var(--text-tertiary)' }}>No API tokens created yet</div>
         )}
       </div>
+      <ConfirmDialog />
     </>
   )
 }

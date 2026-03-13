@@ -17,12 +17,13 @@ import { Icon } from '@/components/ui/Icon'
 import { ErrorState } from '@/components/ui/ErrorState'
 import { Skeleton } from '@/components/ui/LoadingSpinner'
 import { toast } from '@/hooks/useToast'
+import { useConfirm } from '@/components/ui/ConfirmDialog'
 
 interface Remote   { name: string; type?: string; status?: string; last_sync?: string; config?: Record<string,unknown> }
 interface Provider { id: string; name: string; icon?: string; fields?: ProviderField[] }
 interface ProviderField { key: string; label: string; type?: string; required?: boolean }
 
-const cardStyle = { background:'var(--bg-card)', border:'1px solid var(--border)', borderRadius:'var(--radius-xl)', padding:20 }
+
 
 function statusDot(s?: string) {
   const c = s === 'ok' ? 'var(--success)' : s === 'syncing' ? 'var(--primary)' : s === 'error' ? 'var(--error)' : 'var(--text-tertiary)'
@@ -35,6 +36,7 @@ const PROVIDER_ICONS: Record<string,string> = { s3:'cloud', b2:'cloud', gdrive:'
 
 export function CloudSyncPage() {
   const qc = useQueryClient()
+  const { confirm, ConfirmDialog } = useConfirm()
   const [selectedProvider, setSelectedProvider] = useState<Provider|null>(null)
   const [configName, setConfigName] = useState('')
   const [configFields, setConfigFields] = useState<Record<string,string>>({})
@@ -79,7 +81,7 @@ export function CloudSyncPage() {
 
       {/* Provider picker */}
       {!selectedProvider && (
-        <div style={{ ...cardStyle, marginBottom:24 }}>
+        <div className="card card-xl" style={{ marginBottom:24 }}>
           <div style={{ fontWeight:700, marginBottom:14 }}>Add Remote</div>
           {providersQ.isLoading ? <Skeleton height={80}/> : (
             <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(120px,1fr))', gap:8 }}>
@@ -106,7 +108,7 @@ export function CloudSyncPage() {
 
       {/* Config form */}
       {selectedProvider && (
-        <div style={{ ...cardStyle, marginBottom:24 }}>
+        <div className="card card-xl" style={{ marginBottom:24 }}>
           <div style={{ fontWeight:700, marginBottom:14 }}>Configure: {selectedProvider.name}</div>
           <div style={{ display:'grid', gap:10 }}>
             <label className="field">
@@ -142,7 +144,7 @@ export function CloudSyncPage() {
       {remotesQ.isError  && <ErrorState error={remotesQ.error}/>}
       <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(280px,1fr))', gap:14, marginBottom:28 }}>
         {remotes.map(r => (
-          <div key={r.name} style={cardStyle}>
+          <div key={r.name} className="card card-xl">
             <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:10 }}>
               <Icon name={PROVIDER_ICONS[r.type||'']||'cloud'} size={22} style={{ color:'var(--primary)', flexShrink:0 }}/>
               <div style={{ flex:1 }}><div style={{ fontWeight:700 }}>{r.name}</div><div style={{ fontSize:'var(--text-xs)', color:'var(--text-tertiary)' }}>{r.type}{r.last_sync && ` · ${fmtDate(r.last_sync)}`}</div></div>
@@ -151,7 +153,7 @@ export function CloudSyncPage() {
             <div style={{ display:'flex', gap:6 }}>
               <button onClick={()=>testRemote.mutate(r.name)} disabled={testRemote.isPending} className="btn btn-ghost"><Icon name="cable" size={13}/>Test</button>
               <button onClick={()=>{ setSyncRemote(r.name) }} className="btn btn-ghost"><Icon name="sync" size={13}/>Sync</button>
-              <button onClick={()=>{ if(window.confirm(`Remove "${r.name}"?`)) del.mutate(r.name) }} className="btn btn-ghost" style={{ color:'var(--error)', borderColor:'var(--error-border)' }}><Icon name="delete" size={13}/></button>
+              <button onClick={async ()=>{ if(await confirm({ title:`Remove "${r.name}"?`, message:'This will disconnect the remote and delete its configuration.', danger:true, confirmLabel:'Remove' })) del.mutate(r.name) }} className="btn btn-ghost" style={{ color:'var(--error)', borderColor:'var(--error-border)' }}><Icon name="delete" size={13}/></button>
             </div>
           </div>
         ))}
@@ -164,7 +166,7 @@ export function CloudSyncPage() {
 
       {/* Sync panel */}
       {syncRemote && (
-        <div style={{ ...cardStyle, border:'1px solid rgba(138,156,255,0.3)' }}>
+        <div className="card card-xl" style={{ border:'1px solid rgba(138,156,255,0.3)' }}>
           <div style={{ fontWeight:700, marginBottom:14 }}>Sync: {syncRemote}</div>
           <div style={{ display:'grid', gridTemplateColumns:'1fr 120px auto', gap:8, alignItems:'flex-end', marginBottom:10 }}>
             <label className="field">
@@ -188,6 +190,7 @@ export function CloudSyncPage() {
           </label>
         </div>
       )}
+      <ConfirmDialog />
     </div>
   )
 }

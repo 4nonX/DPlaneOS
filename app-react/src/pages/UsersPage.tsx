@@ -25,6 +25,7 @@ import { Icon } from '@/components/ui/Icon'
 import { ErrorState } from '@/components/ui/ErrorState'
 import { Skeleton } from '@/components/ui/LoadingSpinner'
 import { toast } from '@/hooks/useToast'
+import { useConfirm } from '@/components/ui/ConfirmDialog'
 import { Modal } from '@/components/ui/Modal'
 
 // ---------------------------------------------------------------------------
@@ -152,6 +153,7 @@ function UserModal({ user, onClose, onDone }: { user?: User; onClose: () => void
 
 function UsersTab() {
   const qc = useQueryClient()
+  const { confirm, ConfirmDialog: ConfirmUsers } = useConfirm()
   const [showCreate, setShowCreate] = useState(false)
   const [editUser, setEditUser] = useState<User | null>(null)
 
@@ -218,7 +220,7 @@ function UsersTab() {
                   <td>
                     <div style={{ display: 'flex', gap: 6 }}>
                       <button onClick={() => setEditUser(u)} className="btn btn-ghost"><Icon name="edit" size={14} /></button>
-                      <button onClick={() => { if (window.confirm(`Delete "${u.username}"?`)) deleteUser.mutate(u.id) }} className="btn btn-danger"><Icon name="delete" size={14} /></button>
+                      <button onClick={async () => { if (await confirm({ title: `Delete "${u.username}"?`, message: 'This user will be permanently removed.', danger: true, confirmLabel: 'Delete' })) deleteUser.mutate(u.id) }} className="btn btn-danger"><Icon name="delete" size={14} /></button>
                     </div>
                   </td>
                 </tr>
@@ -233,6 +235,7 @@ function UsersTab() {
 
       {showCreate && <UserModal onClose={() => setShowCreate(false)} onDone={refresh} />}
       {editUser   && <UserModal user={editUser} onClose={() => setEditUser(null)} onDone={refresh} />}
+      <ConfirmUsers />
     </>
   )
 }
@@ -286,6 +289,7 @@ function GroupModal({ group, onClose, onDone }: { group?: Group; onClose: () => 
 
 function GroupsTab() {
   const qc = useQueryClient()
+  const { confirm, ConfirmDialog: ConfirmGroups } = useConfirm()
   const [showCreate, setShowCreate] = useState(false)
   const [editGroup, setEditGroup] = useState<Group | null>(null)
 
@@ -326,7 +330,7 @@ function GroupsTab() {
             </div>
             <div style={{ display: 'flex', gap: 6 }}>
               <button onClick={() => setEditGroup(g)} className="btn btn-ghost"><Icon name="edit" size={14} /></button>
-              <button onClick={() => { if (window.confirm(`Delete group "${g.name}"?`)) deleteGroup.mutate(g.name) }} className="btn btn-danger"><Icon name="delete" size={14} /></button>
+              <button onClick={async () => { if (await confirm({ title: `Delete group "${g.name}"?`, message: 'Members will not be deleted, only the group.', danger: true, confirmLabel: 'Delete' })) deleteGroup.mutate(g.name) }} className="btn btn-danger"><Icon name="delete" size={14} /></button>
             </div>
           </div>
         ))}
@@ -337,6 +341,7 @@ function GroupsTab() {
 
       {showCreate && <GroupModal onClose={() => setShowCreate(false)} onDone={refresh} />}
       {editGroup  && <GroupModal group={editGroup} onClose={() => setEditGroup(null)} onDone={refresh} />}
+      <ConfirmGroups />
     </>
   )
 }
@@ -347,6 +352,7 @@ function GroupsTab() {
 
 function RolesTab() {
   const qc = useQueryClient()
+  const { confirm, ConfirmDialog: ConfirmRoles } = useConfirm()
   const [expanded, setExpanded] = useState<string | number | null>(null)
 
   const rolesQ = useQuery({
@@ -387,7 +393,7 @@ function RolesTab() {
                 ))}
               </div>
               <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-                <button onClick={() => { if (window.confirm(`Delete role "${role.name}"?`)) deleteRole.mutate(role.id) }} className="btn btn-danger">
+                <button onClick={async () => { if (await confirm({ title: `Delete role "${role.name}"?`, message: 'Users assigned this role will lose its permissions.', danger: true, confirmLabel: 'Delete' })) deleteRole.mutate(role.id) }} className="btn btn-danger">
                   <Icon name="delete" size={13} />Delete Role
                 </button>
               </div>
@@ -398,6 +404,7 @@ function RolesTab() {
       {roles.length === 0 && (
         <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text-tertiary)' }}>No custom roles defined</div>
       )}
+      <ConfirmRoles />
     </div>
   )
 }

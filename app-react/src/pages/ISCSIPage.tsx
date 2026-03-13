@@ -18,6 +18,7 @@ import { Icon } from '@/components/ui/Icon'
 import { ErrorState } from '@/components/ui/ErrorState'
 import { Skeleton } from '@/components/ui/LoadingSpinner'
 import { toast } from '@/hooks/useToast'
+import { useConfirm } from '@/components/ui/ConfirmDialog'
 
 interface Target { iqn: string; zvol?: string; sessions?: number; size?: number }
 interface ACL    { iqn: string; initiator: string }
@@ -29,7 +30,7 @@ type ITab = 'targets' | 'acls'
 export function ISCSIPage() {
   const [tab, setTab] = useState<ITab>('targets')
   const TABS = [{ id:'targets' as ITab, label:'Targets', icon:'storage' }, { id:'acls' as ITab, label:'ACLs / Initiators', icon:'lock' }]
-
+  const { confirm, ConfirmDialog } = useConfirm()
   const qc = useQueryClient()
 
   // Status
@@ -144,7 +145,7 @@ export function ISCSIPage() {
                     <td>{t.sessions ?? 0}</td>
                     <td style={{ color:'var(--text-secondary)' }}>{fmtSize(t.size)}</td>
                     <td>
-                      <button onClick={()=>{ if(window.confirm(`Delete target "${t.iqn}"?`)) deleteTarget.mutate(t.iqn) }} className="btn btn-sm btn-danger"><Icon name="delete" size={13}/>Delete</button>
+                      <button onClick={async ()=>{ if(await confirm({ title:`Delete target "${t.iqn}"?`, message:'All ACLs for this target will also be removed.', danger:true, confirmLabel:'Delete' })) deleteTarget.mutate(t.iqn) }} className="btn btn-sm btn-danger"><Icon name="delete" size={13}/>Delete</button>
                     </td>
                   </tr>
                 ))}
@@ -204,6 +205,7 @@ export function ISCSIPage() {
           </div>
         </>
       )}
+      <ConfirmDialog />
     </div>
   )
 }

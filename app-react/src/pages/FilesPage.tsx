@@ -25,6 +25,7 @@ import { ErrorState } from '@/components/ui/ErrorState'
 import { Skeleton } from '@/components/ui/LoadingSpinner'
 import { toast } from '@/hooks/useToast'
 import { Modal } from '@/components/ui/Modal'
+import { useConfirm } from '@/components/ui/ConfirmDialog'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -438,6 +439,7 @@ function TextEditorModal({ entry, onClose, onSaved }: { entry: FileEntry; onClos
 
 function FileBrowser() {
   const qc = useQueryClient()
+  const { confirm, ConfirmDialog } = useConfirm()
   const [path, setPath] = useState('/mnt')
   const [inputPath, setInputPath] = useState('/mnt')
   const [showUpload, setShowUpload] = useState(false)
@@ -566,7 +568,8 @@ function FileBrowser() {
     if (action === 'trash')    { trashMutation.mutate(entry.path); return }
     if (action === 'download') { downloadFile(entry); return }
     if (action === 'delete') {
-      if (window.confirm(`Permanently delete "${entry.name}"?`)) deleteMutation.mutate(entry.path)
+      confirm({ title: `Delete "${entry.name}"?`, message: 'This is permanent and cannot be undone.', danger: true, confirmLabel: 'Delete' })
+        .then(ok => { if (ok) deleteMutation.mutate(entry.path) })
       return
     }
     setModal({ type: action, entry })
@@ -773,6 +776,8 @@ function FileBrowser() {
 
       {/* Mkdir */}
       {showMkdir && <MkdirModal currentPath={path} onClose={() => setShowMkdir(false)} onDone={refresh} />}
+
+      <ConfirmDialog />
     </div>
     </div>
   )

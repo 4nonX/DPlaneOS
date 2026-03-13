@@ -19,6 +19,7 @@ import { Icon } from '@/components/ui/Icon'
 import { ErrorState } from '@/components/ui/ErrorState'
 import { Skeleton } from '@/components/ui/LoadingSpinner'
 import { toast } from '@/hooks/useToast'
+import { useConfirm } from '@/components/ui/ConfirmDialog'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -196,6 +197,7 @@ function AddPeerForm({ onAdd, pending }: {
 
 export function HAPage() {
   const qc = useQueryClient()
+  const { confirm, ConfirmDialog } = useConfirm()
 
   const statusQ = useQuery({
     queryKey: ['ha', 'status'],
@@ -333,13 +335,13 @@ export function HAPage() {
             node={node}
             isLocal={node.id === localID}
             canPromote={allNodes.length >= 2}
-            onPromote={() => {
-              if (window.confirm(`Promote ${node.name ?? node.id} to active?\n\nThis will trigger a failover.`)) {
+            onPromote={async () => {
+              if (await confirm({ title: `Promote ${node.name ?? node.id} to active?`, message: 'This will trigger an immediate failover. The current active node will become standby.', danger: false, confirmLabel: 'Promote' })) {
                 promotePeer.mutate({ id: node.id, name: node.name ?? node.id })
               }
             }}
-            onRemove={() => {
-              if (window.confirm(`Remove peer ${node.name ?? node.id} from the cluster?`)) {
+            onRemove={async () => {
+              if (await confirm({ title: `Remove ${node.name ?? node.id}?`, message: 'This node will be removed from the cluster.', danger: true, confirmLabel: 'Remove' })) {
                 removePeer.mutate(node.id)
               }
             }}
@@ -366,6 +368,7 @@ export function HAPage() {
         onAdd={peer => addPeer.mutate(peer)}
         pending={pending}
       />
+      <ConfirmDialog />
     </div>
   )
 }

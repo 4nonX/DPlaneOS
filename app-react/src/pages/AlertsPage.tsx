@@ -27,6 +27,7 @@ import { ErrorState } from '@/components/ui/ErrorState'
 import { Skeleton } from '@/components/ui/LoadingSpinner'
 import { toast } from '@/hooks/useToast'
 import { Modal } from '@/components/ui/Modal'
+import { useConfirm } from '@/components/ui/ConfirmDialog'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -363,6 +364,7 @@ function WebhookModal({ onClose, onDone }: { onClose: () => void; onDone: () => 
 function WebhooksTab() {
   const qc = useQueryClient()
   const [showCreate, setShowCreate] = useState(false)
+  const { confirm, ConfirmDialog } = useConfirm()
 
   const hooksQ = useQuery({
     queryKey: ['alerts', 'webhooks'],
@@ -411,7 +413,7 @@ function WebhooksTab() {
                 <button onClick={() => testHook.mutate(hook.id)} disabled={testHook.isPending} className="btn btn-ghost">
                   <Icon name="send" size={13} />Test
                 </button>
-                <button onClick={() => { if (window.confirm(`Delete webhook "${hook.name}"?`)) deleteHook.mutate(hook.id) }}
+                <button onClick={async () => { if (await confirm({ title: `Delete webhook "${hook.name}"?`, danger: true, confirmLabel: 'Delete' })) deleteHook.mutate(hook.id) }}
                   className="btn btn-danger">
                   <Icon name="delete" size={13} />
                 </button>
@@ -430,6 +432,7 @@ function WebhooksTab() {
           onDone={() => qc.invalidateQueries({ queryKey: ['alerts', 'webhooks'] })}
         />
       )}
+      <ConfirmDialog />
     </>
   )
 }

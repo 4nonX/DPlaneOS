@@ -25,6 +25,7 @@ import { Icon } from '@/components/ui/Icon'
 import { ErrorState } from '@/components/ui/ErrorState'
 import { Skeleton } from '@/components/ui/LoadingSpinner'
 import { toast } from '@/hooks/useToast'
+import { useConfirm } from '@/components/ui/ConfirmDialog'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -167,6 +168,7 @@ function NixOSConfirmBanner({ onConfirm, onDismiss }: { onConfirm: () => void; o
 
 function NixOSTab() {
   const qc = useQueryClient()
+  const { confirm, ConfirmDialog } = useConfirm()
   const [flakePath,      setFlakePath]      = useState('/etc/nixos')
   const [pendingConfirm, setPendingConfirm] = useState(false)
   const [validateResult, setValidateResult] = useState<NixOSValidate | null>(null)
@@ -193,7 +195,7 @@ function NixOSTab() {
     onError: (e: Error) => toast.error(e.message),
   })
 
-  const confirm = useMutation({
+  const confirmGeneration = useMutation({
     mutationFn: () => api.post('/api/nixos/confirm', {}),
     onSuccess: () => { toast.success('Generation confirmed'); setPendingConfirm(false) },
     onError: (e: Error) => toast.error(e.message),
@@ -228,7 +230,7 @@ function NixOSTab() {
     <div style={{ maxWidth: 720, display: 'flex', flexDirection: 'column', gap: 24 }}>
       {pendingConfirm && (
         <NixOSConfirmBanner
-          onConfirm={() => confirm.mutate()}
+          onConfirm={() => confirmGeneration.mutate()}
           onDismiss={() => setPendingConfirm(false)}
         />
       )}
@@ -289,7 +291,7 @@ function NixOSTab() {
                 </div>
               </div>
               {!gen.current && (
-                <button onClick={() => { if (window.confirm(`Roll back to generation ${gen.number}?`)) rollback.mutate(gen.number) }}
+                <button onClick={async () => { if (await confirm({ title: `Roll back to generation ${gen.number}?`, message: 'The system will switch to this NixOS generation. Current generation will be kept as a fallback.', danger: true, confirmLabel: 'Rollback' })) rollback.mutate(gen.number) }}
                   disabled={rollback.isPending} className="btn btn-danger">
                   <Icon name="history" size={14} />Rollback
                 </button>
@@ -301,6 +303,7 @@ function NixOSTab() {
           )}
         </div>
       </div>
+      <ConfirmDialog />
     </div>
   )
 }

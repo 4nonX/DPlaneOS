@@ -23,11 +23,12 @@ import { Icon } from '@/components/ui/Icon'
 import { ErrorState } from '@/components/ui/ErrorState'
 import { Skeleton } from '@/components/ui/LoadingSpinner'
 import { toast } from '@/hooks/useToast'
+import { useConfirm } from '@/components/ui/ConfirmDialog'
 
 interface Repo { id: string|number; url: string; branch?: string; path?: string; name?: string; status?: string; last_sync?: string; credential_id?: string|number }
 interface Cred { id: string|number; name: string; type?: 'ssh'|'token'|'password'; username?: string }
 
-const cardStyle = { background:'var(--bg-card)', border:'1px solid var(--border)', borderRadius:'var(--radius-xl)', padding:20 }
+
 
 function statusDot(s?: string) {
   const c = s === 'synced' ? 'var(--success)' : s === 'syncing' ? 'var(--primary)' : s === 'error' ? 'var(--error)' : 'var(--text-tertiary)'
@@ -46,7 +47,7 @@ function RepoForm({ onDone, creds }: { onDone: () => void; creds: Cred[] }) {
     onError: (e: Error) => toast.error(e.message),
   })
   return (
-    <div style={{ ...cardStyle, marginBottom: 24 }}>
+    <div className="card card-xl" style={{ marginBottom: 24 }}>
       <div style={{ fontWeight: 700, marginBottom: 14 }}>Add Repository</div>
       <div style={{ display: 'grid', gap: 10 }}>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 120px', gap: 8 }}>
@@ -108,6 +109,7 @@ function ReposTab() {
 }
 
 function RepoCard({ repo, onRefresh }: { repo: Repo; onRefresh: () => void }) {
+  const { confirm, ConfirmDialog } = useConfirm()
   const pull   = useMutation({ mutationFn: () => api.post('/api/git-sync/repos/pull',   { id: repo.id }), onSuccess: () => { toast.success('Pulled'); onRefresh() }, onError: (e: Error) => toast.error(e.message) })
   const push   = useMutation({ mutationFn: () => api.post('/api/git-sync/repos/push',   { id: repo.id }), onSuccess: () => { toast.success('Pushed'); onRefresh() }, onError: (e: Error) => toast.error(e.message) })
   const deploy = useMutation({ mutationFn: () => api.post('/api/git-sync/repos/deploy', { id: repo.id }), onSuccess: () => toast.success('Deployed'), onError: (e: Error) => toast.error(e.message) })
@@ -115,7 +117,7 @@ function RepoCard({ repo, onRefresh }: { repo: Repo; onRefresh: () => void }) {
   const busy   = pull.isPending || push.isPending || deploy.isPending || del.isPending
 
   return (
-    <div style={cardStyle}>
+    <div className="card card-xl">
       <div style={{ display:'flex', alignItems:'flex-start', gap:12, marginBottom:12 }}>
         {statusDot(repo.status)}
         <div style={{ flex:1, minWidth:0 }}>
@@ -130,9 +132,10 @@ function RepoCard({ repo, onRefresh }: { repo: Repo; onRefresh: () => void }) {
         <button onClick={() => pull.mutate()}   disabled={busy} className="btn btn-ghost"><Icon name="download" size={13} />{pull.isPending ? 'Pulling…' : 'Pull'}</button>
         <button onClick={() => push.mutate()}   disabled={busy} className="btn btn-ghost"><Icon name="upload" size={13} />{push.isPending ? 'Pushing…' : 'Push'}</button>
         <button onClick={() => deploy.mutate()} disabled={busy} className="btn btn-ghost"><Icon name="rocket_launch" size={13} />{deploy.isPending ? 'Deploying…' : 'Deploy'}</button>
-        <button onClick={() => { if (window.confirm('Remove this repo?')) del.mutate() }} disabled={busy}
+        <button onClick={async () => { if (await confirm({ title: 'Remove this repo?', message: 'The repository will be removed from Git Sync. Local files are not affected.', danger: true, confirmLabel: 'Remove' })) del.mutate() }} disabled={busy}
           className="btn btn-ghost" style={{ color:'var(--error)', borderColor:'var(--error-border)' }}><Icon name="delete" size={13} />Remove</button>
       </div>
+      <ConfirmDialog />
     </div>
   )
 }
@@ -164,7 +167,7 @@ function CredentialsTab() {
 
   return (
     <>
-      <div style={{ ...cardStyle, marginBottom: 20 }}>
+      <div className="card card-xl" style={{ marginBottom: 20 }}>
         <div style={{ fontWeight: 700, marginBottom: 14 }}>Add Credential</div>
         <div style={{ display:'grid', gridTemplateColumns:'1fr 120px 1fr 1fr auto', gap:8, alignItems:'flex-end' }}>
           {[['Name', name, setName, 'my-github'], ['Username', user, setUser, 'git']].map(([lbl, val, setter, ph]) => (
@@ -192,7 +195,7 @@ function CredentialsTab() {
       {credsQ.isLoading && <Skeleton height={100} />}
       <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
         {creds.map(c => (
-          <div key={c.id} style={{ ...cardStyle, display:'flex', alignItems:'center', gap:12 }}>
+          <div key={c.id} className="card card-xl" style={{ display:'flex', alignItems:'center', gap:12 }}>
             <Icon name="key" size={18} style={{ color:'var(--primary)', flexShrink:0 }} />
             <div style={{ flex:1 }}>
               <div style={{ fontWeight:600 }}>{c.name}</div>
