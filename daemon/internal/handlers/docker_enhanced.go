@@ -12,6 +12,7 @@ import (
 
 	"dplaned/internal/audit"
 	"dplaned/internal/cmdutil"
+	"dplaned/internal/config"
 	"dplaned/internal/dockerclient"
 	"dplaned/internal/jobs"
 )
@@ -28,7 +29,7 @@ func (h *DockerHandler) SafeUpdate(w http.ResponseWriter, r *http.Request) {
 		Image              string `json:"image"`                // e.g. "lscr.io/linuxserver/plex:latest"
 		ZfsDataset         string `json:"zfs_dataset"`          // e.g. "tank/docker"
 		HealthCheckSeconds int    `json:"health_check_seconds"` // 0 = use default (30s) (optional, auto-detected)
-		SkipSnapshot  bool   `json:"skip_snapshot"`   // skip ZFS snapshot
+		SkipSnapshot       bool   `json:"skip_snapshot"`        // skip ZFS snapshot
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		respondErrorSimple(w, "Invalid request body", http.StatusBadRequest)
@@ -91,10 +92,10 @@ func (h *DockerHandler) SafeUpdate(w http.ResponseWriter, r *http.Request) {
 		if err := dockerClient.PullImage(ctxPull, image); err != nil {
 			steps = append(steps, UpdateStep{"pull", false, err.Error()})
 			j.Done(map[string]interface{}{
-				"success":  false,
-				"steps":    steps,
-				"error":    fmt.Sprintf("Failed to pull image: %v", err),
-				"rollback": snapshotName,
+				"success":     false,
+				"steps":       steps,
+				"error":       fmt.Sprintf("Failed to pull image: %v", err),
+				"rollback":    snapshotName,
 				"duration_ms": time.Since(startTime).Milliseconds(),
 			})
 			return
@@ -107,10 +108,10 @@ func (h *DockerHandler) SafeUpdate(w http.ResponseWriter, r *http.Request) {
 		if _, err := dockerClient.Inspect(ctxInspect, req.ContainerName); err != nil {
 			steps = append(steps, UpdateStep{"inspect", false, err.Error()})
 			j.Done(map[string]interface{}{
-				"success":  false,
-				"steps":    steps,
-				"error":    "Failed to inspect container config",
-				"rollback": snapshotName,
+				"success":     false,
+				"steps":       steps,
+				"error":       "Failed to inspect container config",
+				"rollback":    snapshotName,
 				"duration_ms": time.Since(startTime).Milliseconds(),
 			})
 			return
@@ -126,10 +127,10 @@ func (h *DockerHandler) SafeUpdate(w http.ResponseWriter, r *http.Request) {
 			defer cancelRecover()
 			_ = dockerClient.Start(ctxRecover, req.ContainerName)
 			j.Done(map[string]interface{}{
-				"success":  false,
-				"steps":    steps,
-				"error":    "Failed to stop container, restarted original",
-				"rollback": snapshotName,
+				"success":     false,
+				"steps":       steps,
+				"error":       "Failed to stop container, restarted original",
+				"rollback":    snapshotName,
 				"duration_ms": time.Since(startTime).Milliseconds(),
 			})
 			return
@@ -420,9 +421,9 @@ func (h *DockerHandler) ComposeStatus(w http.ResponseWriter, r *http.Request) {
 		"compose", "-f", path+"/docker-compose.yml", "ps", "--format", "json")
 	if err != nil {
 		respondOK(w, map[string]interface{}{
-			"success":    true,
-			"services":   []interface{}{},
-			"error":      "Compose stack not found or not running",
+			"success":  true,
+			"services": []interface{}{},
+			"error":    "Compose stack not found or not running",
 		})
 		return
 	}
@@ -458,7 +459,6 @@ func isValidContainerName(name string) bool {
 
 // waitForHealthy is implemented in internal/dockerclient — use dockerClient.WaitForHealthy()
 
-
 // validateComposeDirPath validates a directory path for docker compose operations.
 // Rules:
 //   - Must be an absolute path
@@ -484,7 +484,7 @@ func validateComposeDirPath(p string) (string, error) {
 		"/opt/",
 		"/srv/",
 		"/home/",
-		"/var/lib/dplaneos/",
+		config.DBDir + "/",
 		"/mnt/",
 		"/data/",
 		"/tank/",
@@ -495,5 +495,5 @@ func validateComposeDirPath(p string) (string, error) {
 			return clean, nil
 		}
 	}
-	return "", fmt.Errorf("path must be under /opt, /srv, /home, /var/lib/dplaneos, /mnt, /data, /tank, or /pool")
+	return "", fmt.Errorf("path must be under /opt, /srv, /home, %s, /mnt, /data, /tank, or /pool", config.DBDir)
 }

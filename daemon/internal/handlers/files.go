@@ -8,6 +8,7 @@ import (
 
 	"dplaned/internal/audit"
 	"dplaned/internal/cmdutil"
+	"dplaned/internal/config"
 	"dplaned/internal/security"
 )
 
@@ -21,7 +22,7 @@ var allowedBasePaths = []string{
 	"/mnt/",
 	"/home/",
 	"/tmp/",
-	"/var/lib/dplaneos/",
+	config.DBDir + "/",
 	"/tank/",  // common direct ZFS pool mount
 	"/data/",  // common alternative pool name
 	"/media/", // common removable media mount
