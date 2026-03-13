@@ -30,7 +30,7 @@ func (h *UserGroupHandler) HandleUsers(w http.ResponseWriter, r *http.Request) {
 	case http.MethodPost:
 		h.userAction(w, r)
 	default:
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		respondErrorSimple(w, "Method not allowed", http.StatusMethodNotAllowed)
 	}
 }
 
@@ -289,7 +289,7 @@ func (h *UserGroupHandler) HandleGroups(w http.ResponseWriter, r *http.Request) 
 	case http.MethodPost:
 		h.groupAction(w, r)
 	default:
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		respondErrorSimple(w, "Method not allowed", http.StatusMethodNotAllowed)
 	}
 }
 

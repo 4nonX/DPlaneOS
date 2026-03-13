@@ -29,7 +29,7 @@ func NewSystemStatusHandler(db *sql.DB, version string) *SystemStatusHandler {
 
 func (h *SystemStatusHandler) HandleStatus(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		respondErrorSimple(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 	// Ensure table exists — this is the first endpoint hit on fresh installs
@@ -69,7 +69,7 @@ func (h *SystemStatusHandler) HandleStatus(w http.ResponseWriter, r *http.Reques
 
 func (h *SystemStatusHandler) HandleSetupComplete(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		respondErrorSimple(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 	h.db.Exec(`CREATE TABLE IF NOT EXISTS system_config (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP)`)
@@ -100,7 +100,7 @@ func (h *SystemStatusHandler) HandleSetupComplete(w http.ResponseWriter, r *http
 
 func (h *SystemStatusHandler) HandleProfile(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		respondErrorSimple(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 	hostname, err := os.Hostname()
@@ -135,7 +135,7 @@ func (h *SystemStatusHandler) HandleProfile(w http.ResponseWriter, r *http.Reque
 
 func (h *SystemStatusHandler) HandlePreflight(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		respondErrorSimple(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 	type check struct {
@@ -240,7 +240,7 @@ func (h *SystemStatusHandler) HandleSettings(w http.ResponseWriter, r *http.Requ
 		}
 		respondJSON(w, http.StatusOK, map[string]interface{}{"success": true, "message": fmt.Sprintf("%d settings saved", len(body))})
 	default:
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		respondErrorSimple(w, "Method not allowed", http.StatusMethodNotAllowed)
 	}
 }
 
@@ -316,7 +316,7 @@ func isVirtualMachine() bool {
 // GET /api/system/zfs-gate-status
 func (h *SystemStatusHandler) HandleZFSGateStatus(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		respondErrorSimple(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 	const markerPath = "/run/dplaneos/zfs-ready"
@@ -454,7 +454,7 @@ func splitValueUnit(raw string) (string, string) {
 // This endpoint is public (no session required) but is gated by setup_complete flag.
 func (h *SystemStatusHandler) HandleSetupAdmin(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		respondErrorSimple(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 

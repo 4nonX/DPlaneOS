@@ -38,7 +38,7 @@ func (h *SettingsHandler) GetTelegramConfig(w http.ResponseWriter, r *http.Reque
 		// No config yet, return empty
 		config = TelegramConfig{Enabled: false}
 	} else if err != nil {
-		http.Error(w, "Failed to get config", http.StatusInternalServerError)
+		respondErrorSimple(w, "Failed to get config", http.StatusInternalServerError)
 		return
 	}
 	
@@ -50,7 +50,7 @@ func (h *SettingsHandler) GetTelegramConfig(w http.ResponseWriter, r *http.Reque
 func (h *SettingsHandler) SaveTelegramConfig(w http.ResponseWriter, r *http.Request) {
 	var config TelegramConfig
 	if err := json.NewDecoder(r.Body).Decode(&config); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		respondErrorSimple(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	
@@ -66,7 +66,7 @@ func (h *SettingsHandler) SaveTelegramConfig(w http.ResponseWriter, r *http.Requ
 	`, config.BotToken, config.ChatID, boolToInt(config.Enabled), time.Now().Unix())
 	
 	if err != nil {
-		http.Error(w, "Failed to save config", http.StatusInternalServerError)
+		respondErrorSimple(w, "Failed to save config", http.StatusInternalServerError)
 		return
 	}
 	
@@ -78,12 +78,12 @@ func (h *SettingsHandler) SaveTelegramConfig(w http.ResponseWriter, r *http.Requ
 func (h *SettingsHandler) TestTelegramConfig(w http.ResponseWriter, r *http.Request) {
 	var config TelegramConfig
 	if err := json.NewDecoder(r.Body).Decode(&config); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		respondErrorSimple(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
 
 	if config.BotToken == "" || config.ChatID == "" {
-		http.Error(w, "Bot token and chat ID are required", http.StatusBadRequest)
+		respondErrorSimple(w, "Bot token and chat ID are required", http.StatusBadRequest)
 		return
 	}
 

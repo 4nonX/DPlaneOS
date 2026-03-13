@@ -26,7 +26,7 @@ func NewDockerHandler() *DockerHandler {
 // GET /api/docker/containers
 func (h *DockerHandler) ListContainers(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		respondErrorSimple(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
@@ -78,7 +78,7 @@ func (h *DockerHandler) ListContainers(w http.ResponseWriter, r *http.Request) {
 // POST /api/docker/action
 func (h *DockerHandler) ContainerAction(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		respondErrorSimple(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 

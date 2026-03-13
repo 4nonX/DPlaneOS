@@ -70,7 +70,7 @@ type diskEventRequest struct {
 func HandleDiskEvent(w http.ResponseWriter, r *http.Request) {
 	// ── Localhost-only guard ──────────────────────────────────────────────────
 	if !isLocalhostRequest(r) {
-		http.Error(w, "forbidden: disk-event is localhost-only", http.StatusForbidden)
+		respondErrorSimple(w, "forbidden: disk-event is localhost-only", http.StatusForbidden)
 		return
 	}
 
@@ -84,7 +84,7 @@ func HandleDiskEvent(w http.ResponseWriter, r *http.Request) {
 	req.Action = strings.TrimSpace(req.Action)
 
 	if req.Device == "" || (req.Action != "added" && req.Action != "removed") {
-		http.Error(w, "device and action (added|removed) are required", http.StatusBadRequest)
+		respondErrorSimple(w, "device and action (added|removed) are required", http.StatusBadRequest)
 		return
 	}
 

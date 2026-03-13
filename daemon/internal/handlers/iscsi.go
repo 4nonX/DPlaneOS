@@ -102,17 +102,17 @@ func GetISCSITargets(w http.ResponseWriter, r *http.Request) {
 func CreateISCSITarget(w http.ResponseWriter, r *http.Request) {
 	var req ISCSICreateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid JSON", http.StatusBadRequest)
+		respondErrorSimple(w, "invalid JSON", http.StatusBadRequest)
 		return
 	}
 
 	// Validate
 	if err := validateIQN(req.IQN); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		respondError(w, http.StatusBadRequest, "Invalid request", err)
 		return
 	}
 	if req.BackingDev == "" {
-		http.Error(w, "backing_dev is required", http.StatusBadRequest)
+		respondErrorSimple(w, "backing_dev is required", http.StatusBadRequest)
 		return
 	}
 	if req.PortalPort == 0 {
@@ -182,7 +182,7 @@ func CreateISCSITarget(w http.ResponseWriter, r *http.Request) {
 func DeleteISCSITarget(w http.ResponseWriter, r *http.Request) {
 	iqn := strings.TrimPrefix(r.URL.Path, "/api/iscsi/targets/")
 	if err := validateIQN(iqn); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		respondError(w, http.StatusBadRequest, "Invalid request", err)
 		return
 	}
 
@@ -203,7 +203,7 @@ func DeleteISCSITarget(w http.ResponseWriter, r *http.Request) {
 func GetISCSIACLs(w http.ResponseWriter, r *http.Request) {
 	target := r.URL.Query().Get("target")
 	if err := validateIQN(target); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		respondError(w, http.StatusBadRequest, "Invalid request", err)
 		return
 	}
 
@@ -226,7 +226,7 @@ func GetISCSIACLs(w http.ResponseWriter, r *http.Request) {
 func AddISCSIACL(w http.ResponseWriter, r *http.Request) {
 	var req ISCSIACLRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid JSON", http.StatusBadRequest)
+		respondErrorSimple(w, "invalid JSON", http.StatusBadRequest)
 		return
 	}
 	if err := validateIQN(req.TargetIQN); err != nil {
@@ -263,7 +263,7 @@ func AddISCSIACL(w http.ResponseWriter, r *http.Request) {
 func DeleteISCSIACL(w http.ResponseWriter, r *http.Request) {
 	var req ISCSIACLRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid JSON", http.StatusBadRequest)
+		respondErrorSimple(w, "invalid JSON", http.StatusBadRequest)
 		return
 	}
 	if err := validateIQN(req.TargetIQN); err != nil {

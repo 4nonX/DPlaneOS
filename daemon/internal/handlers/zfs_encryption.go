@@ -29,7 +29,7 @@ func (h *ZFSEncryptionHandler) ListEncryptedDatasets(w http.ResponseWriter, r *h
 	out, err := cmdutil.RunFast("zfs", "list", "-H", "-o", "name,encryption,keystatus,keylocation,keyformat", "-t", "filesystem,volume")
 
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to list datasets: %v", err), http.StatusInternalServerError)
+		respondErrorSimple(w, "Operation failed", http.StatusInternalServerError)
 		return
 	}
 
@@ -67,17 +67,17 @@ func (h *ZFSEncryptionHandler) UnlockDataset(w http.ResponseWriter, r *http.Requ
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		respondErrorSimple(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
 
 	if err := security.ValidateDatasetName(req.Dataset); err != nil {
-		http.Error(w, "Invalid dataset name: "+err.Error(), http.StatusBadRequest)
+		respondError(w, http.StatusBadRequest, "Invalid dataset name", err)
 		return
 	}
 
 	if req.Key == "" {
-		http.Error(w, "key is required", http.StatusBadRequest)
+		respondErrorSimple(w, "key is required", http.StatusBadRequest)
 		return
 	}
 
@@ -104,12 +104,12 @@ func (h *ZFSEncryptionHandler) LockDataset(w http.ResponseWriter, r *http.Reques
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		respondErrorSimple(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
 
 	if err := security.ValidateDatasetName(req.Dataset); err != nil {
-		http.Error(w, "Invalid dataset name: "+err.Error(), http.StatusBadRequest)
+		respondError(w, http.StatusBadRequest, "Invalid dataset name", err)
 		return
 	}
 
@@ -136,7 +136,7 @@ func (h *ZFSEncryptionHandler) CreateEncryptedDataset(w http.ResponseWriter, r *
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		respondErrorSimple(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
 
@@ -145,19 +145,19 @@ func (h *ZFSEncryptionHandler) CreateEncryptedDataset(w http.ResponseWriter, r *
 	}
 
 	if req.Key == "" {
-		http.Error(w, "key is required", http.StatusBadRequest)
+		respondErrorSimple(w, "key is required", http.StatusBadRequest)
 		return
 	}
 
 	if err := security.ValidateDatasetName(req.Name); err != nil {
-		http.Error(w, "Invalid dataset name: "+err.Error(), http.StatusBadRequest)
+		respondError(w, http.StatusBadRequest, "Invalid dataset name", err)
 		return
 	}
 
 	// Whitelist encryption algorithms
 	validAlgos := map[string]bool{"aes-128-ccm": true, "aes-192-ccm": true, "aes-256-ccm": true, "aes-128-gcm": true, "aes-192-gcm": true, "aes-256-gcm": true}
 	if !validAlgos[req.Encryption] {
-		http.Error(w, "Invalid encryption algorithm", http.StatusBadRequest)
+		respondErrorSimple(w, "Invalid encryption algorithm", http.StatusBadRequest)
 		return
 	}
 
@@ -191,17 +191,17 @@ func (h *ZFSEncryptionHandler) ChangeKey(w http.ResponseWriter, r *http.Request)
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		respondErrorSimple(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
 
 	if err := security.ValidateDatasetName(req.Dataset); err != nil {
-		http.Error(w, "Invalid dataset name: "+err.Error(), http.StatusBadRequest)
+		respondError(w, http.StatusBadRequest, "Invalid dataset name", err)
 		return
 	}
 
 	if req.OldKey == "" || req.NewKey == "" {
-		http.Error(w, "old_key and new_key are required", http.StatusBadRequest)
+		respondErrorSimple(w, "old_key and new_key are required", http.StatusBadRequest)
 		return
 	}
 

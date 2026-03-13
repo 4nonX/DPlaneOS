@@ -62,7 +62,7 @@ type blockDevice struct {
 func HandleDiskDiscovery(w http.ResponseWriter, r *http.Request) {
 	disks, err := discoverDisks()
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		respondError(w, http.StatusInternalServerError, "Operation failed", err)
 		return
 	}
 
@@ -536,16 +536,16 @@ func HandlePoolCreate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		respondError(w, http.StatusBadRequest, "Invalid request", err)
 		return
 	}
 
 	if request.Name == "" {
-		http.Error(w, "pool name is required", http.StatusBadRequest)
+		respondErrorSimple(w, "pool name is required", http.StatusBadRequest)
 		return
 	}
 	if len(request.Disks) == 0 {
-		http.Error(w, "at least one disk is required", http.StatusBadRequest)
+		respondErrorSimple(w, "at least one disk is required", http.StatusBadRequest)
 		return
 	}
 
@@ -572,7 +572,7 @@ func HandlePoolCreate(w http.ResponseWriter, r *http.Request) {
 	case "RAID-Z3":
 		args = append(args, "raidz3")
 	default:
-		http.Error(w, "invalid pool type", http.StatusBadRequest)
+		respondErrorSimple(w, "invalid pool type", http.StatusBadRequest)
 		return
 	}
 

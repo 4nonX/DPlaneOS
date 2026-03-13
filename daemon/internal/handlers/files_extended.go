@@ -207,17 +207,17 @@ func (h *FilesExtendedHandler) WriteFile(w http.ResponseWriter, r *http.Request)
 func (h *FilesExtendedHandler) DownloadFile(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Query().Get("path")
 	if path == "" {
-		http.Error(w, "path required", http.StatusBadRequest)
+		respondErrorSimple(w, "path required", http.StatusBadRequest)
 		return
 	}
 	safePath, ok := validateFilePath(filepath.Clean(path))
 	if !ok {
-		http.Error(w, "Path not allowed", http.StatusForbidden)
+		respondErrorSimple(w, "Path not allowed", http.StatusForbidden)
 		return
 	}
 	info, err := os.Stat(safePath)
 	if err != nil || info.IsDir() {
-		http.Error(w, "File not found", http.StatusNotFound)
+		respondErrorSimple(w, "File not found", http.StatusNotFound)
 		return
 	}
 	f, err := os.Open(safePath)

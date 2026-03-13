@@ -17,7 +17,7 @@ func ZFSSend(w http.ResponseWriter, r *http.Request) {
 	sessionID := r.Header.Get("X-Session-ID")
 
 	if valid, _ := security.ValidateSession(sessionID, user); !valid {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		respondErrorSimple(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
 
@@ -25,7 +25,7 @@ func ZFSSend(w http.ResponseWriter, r *http.Request) {
 		Snapshot string `json:"snapshot"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request", http.StatusBadRequest)
+		respondErrorSimple(w, "Invalid request", http.StatusBadRequest)
 		return
 	}
 	if err := security.ValidateSnapshotName(req.Snapshot); err != nil {
@@ -56,7 +56,7 @@ func ZFSSendIncremental(w http.ResponseWriter, r *http.Request) {
 	sessionID := r.Header.Get("X-Session-ID")
 
 	if valid, _ := security.ValidateSession(sessionID, user); !valid {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		respondErrorSimple(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
 
@@ -65,7 +65,7 @@ func ZFSSendIncremental(w http.ResponseWriter, r *http.Request) {
 		NewSnapshot  string `json:"new_snapshot"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request", http.StatusBadRequest)
+		respondErrorSimple(w, "Invalid request", http.StatusBadRequest)
 		return
 	}
 	if err := security.ValidateSnapshotName(req.BaseSnapshot); err != nil {
@@ -101,7 +101,7 @@ func ZFSReceive(w http.ResponseWriter, r *http.Request) {
 	sessionID := r.Header.Get("X-Session-ID")
 
 	if valid, _ := security.ValidateSession(sessionID, user); !valid {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		respondErrorSimple(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
 
@@ -109,11 +109,11 @@ func ZFSReceive(w http.ResponseWriter, r *http.Request) {
 		Dataset string `json:"dataset"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request", http.StatusBadRequest)
+		respondErrorSimple(w, "Invalid request", http.StatusBadRequest)
 		return
 	}
 	if err := security.ValidateDatasetName(req.Dataset); err != nil {
-		http.Error(w, "Invalid dataset name: "+err.Error(), http.StatusBadRequest)
+		respondError(w, http.StatusBadRequest, "Invalid dataset name", err)
 		return
 	}
 

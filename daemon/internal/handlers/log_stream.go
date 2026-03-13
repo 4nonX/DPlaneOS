@@ -29,7 +29,7 @@ import (
 func LogStreamHandler(w http.ResponseWriter, r *http.Request) {
 	// Require GET
 	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		respondErrorSimple(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
@@ -39,7 +39,7 @@ func LogStreamHandler(w http.ResponseWriter, r *http.Request) {
 		for _, c := range unit {
 			if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
 				(c >= '0' && c <= '9') || c == '-' || c == '_' || c == '.') {
-				http.Error(w, "Invalid unit name", http.StatusBadRequest)
+				respondErrorSimple(w, "Invalid unit name", http.StatusBadRequest)
 				return
 			}
 		}
@@ -48,7 +48,7 @@ func LogStreamHandler(w http.ResponseWriter, r *http.Request) {
 	// Check SSE is supported
 	flusher, ok := w.(http.Flusher)
 	if !ok {
-		http.Error(w, "Streaming not supported", http.StatusInternalServerError)
+		respondErrorSimple(w, "Streaming not supported", http.StatusInternalServerError)
 		return
 	}
 

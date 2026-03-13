@@ -122,7 +122,7 @@ func (h *APITokenHandler) HandleTokens(w http.ResponseWriter, r *http.Request) {
 	case http.MethodDelete:
 		h.revokeTokenByID(w, r, userID, user)
 	default:
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		respondErrorSimple(w, "Method not allowed", http.StatusMethodNotAllowed)
 	}
 }
 

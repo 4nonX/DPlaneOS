@@ -36,7 +36,7 @@ func HandleCustomIconFile(w http.ResponseWriter, r *http.Request) {
 	name = filepath.Base(name) // prevent path traversal
 
 	if name == "" || name == "." {
-		http.Error(w, "filename required", http.StatusBadRequest)
+		respondErrorSimple(w, "filename required", http.StatusBadRequest)
 		return
 	}
 
@@ -45,14 +45,14 @@ func HandleCustomIconFile(w http.ResponseWriter, r *http.Request) {
 	// Validate the resolved path is still inside customIconsDir
 	abs, err := filepath.Abs(path)
 	if err != nil || !strings.HasPrefix(abs, customIconsDir) {
-		http.Error(w, "invalid path", http.StatusBadRequest)
+		respondErrorSimple(w, "invalid path", http.StatusBadRequest)
 		return
 	}
 
 	data, err := os.ReadFile(abs)
 	if err != nil {
 		if os.IsNotExist(err) {
-			http.Error(w, "not found", http.StatusNotFound)
+			respondErrorSimple(w, "not found", http.StatusNotFound)
 		} else {
 			http.Error(w, "read error", http.StatusInternalServerError)
 		}

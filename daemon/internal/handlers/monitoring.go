@@ -17,7 +17,7 @@ func NewMonitoringHandler() *MonitoringHandler {
 func (h *MonitoringHandler) GetInotifyStats(w http.ResponseWriter, r *http.Request) {
 	stats, err := monitoring.GetInotifyStats()
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		respondError(w, http.StatusInternalServerError, "Operation failed", err)
 		return
 	}
 	

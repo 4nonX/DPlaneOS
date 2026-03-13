@@ -31,7 +31,7 @@ func (h *RemovableMediaHandler) ListDevices(w http.ResponseWriter, r *http.Reque
 	output, err := cmdutil.RunFast("lsblk", "-J", "-o", "NAME,SIZE,MODEL,MOUNTPOINT,RM,TYPE")
 	
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to list devices: %v", err), http.StatusInternalServerError)
+		respondErrorSimple(w, "Operation failed", http.StatusInternalServerError)
 		return
 	}
 
@@ -48,7 +48,7 @@ func (h *RemovableMediaHandler) ListDevices(w http.ResponseWriter, r *http.Reque
 	}
 
 	if err := json.Unmarshal(output, &lsblkOutput); err != nil {
-		http.Error(w, fmt.Sprintf("Failed to parse lsblk output: %v", err), http.StatusInternalServerError)
+		respondErrorSimple(w, "Operation failed", http.StatusInternalServerError)
 		return
 	}
 
@@ -82,17 +82,17 @@ func (h *RemovableMediaHandler) MountDevice(w http.ResponseWriter, r *http.Reque
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		respondErrorSimple(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
 
 	// Validate inputs before exec.Command — prevents injection
 	if err := security.ValidateDevicePath(req.Device); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		respondError(w, http.StatusBadRequest, "Invalid request", err)
 		return
 	}
 	if err := security.ValidateMountPoint(req.MountPoint); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		respondError(w, http.StatusBadRequest, "Invalid request", err)
 		return
 	}
 
@@ -121,12 +121,12 @@ func (h *RemovableMediaHandler) UnmountDevice(w http.ResponseWriter, r *http.Req
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		respondErrorSimple(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
 
 	if err := security.ValidateDevicePath(req.Device); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		respondError(w, http.StatusBadRequest, "Invalid request", err)
 		return
 	}
 
@@ -151,12 +151,12 @@ func (h *RemovableMediaHandler) EjectDevice(w http.ResponseWriter, r *http.Reque
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		respondErrorSimple(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
 
 	if err := security.ValidateDevicePath(req.Device); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		respondError(w, http.StatusBadRequest, "Invalid request", err)
 		return
 	}
 

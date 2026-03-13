@@ -39,7 +39,7 @@ func NewZFSHandler() *ZFSHandler {
 
 func (h *ZFSHandler) HandleCommand(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		respondErrorSimple(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
@@ -107,7 +107,7 @@ func (h *ZFSHandler) HandleCommand(w http.ResponseWriter, r *http.Request) {
 
 func (h *ZFSHandler) ListPools(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		respondErrorSimple(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
@@ -147,7 +147,7 @@ func (h *ZFSHandler) ListPools(w http.ResponseWriter, r *http.Request) {
 
 func (h *ZFSHandler) ListDatasets(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		respondErrorSimple(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
@@ -188,7 +188,7 @@ func (h *ZFSHandler) ListDatasets(w http.ResponseWriter, r *http.Request) {
 // Body: { "name": "tank/photos", "mountpoint": "/tank/photos", "quota": "100G", "compression": "lz4" }
 func (h *ZFSHandler) CreateDataset(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		respondErrorSimple(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 

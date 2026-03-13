@@ -13,7 +13,7 @@ import (
 // GET /api/docker/logs?container=NAME&lines=100
 func (h *DockerHandler) ContainerLogs(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		respondErrorSimple(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 

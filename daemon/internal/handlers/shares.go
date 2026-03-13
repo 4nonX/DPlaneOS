@@ -15,7 +15,7 @@ func ReloadSMBConfig(w http.ResponseWriter, r *http.Request) {
 	sessionID := r.Header.Get("X-Session-ID")
 
 	if valid, _ := security.ValidateSession(sessionID, user); !valid {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		respondErrorSimple(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
 
@@ -26,7 +26,7 @@ func ReloadSMBConfig(w http.ResponseWriter, r *http.Request) {
 	})
 
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		respondError(w, http.StatusInternalServerError, "Operation failed", err)
 		return
 	}
 
@@ -42,7 +42,7 @@ func TestSMBConfig(w http.ResponseWriter, r *http.Request) {
 	sessionID := r.Header.Get("X-Session-ID")
 
 	if valid, _ := security.ValidateSession(sessionID, user); !valid {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		respondErrorSimple(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
 
@@ -64,7 +64,7 @@ func ReloadNFSExports(w http.ResponseWriter, r *http.Request) {
 	sessionID := r.Header.Get("X-Session-ID")
 
 	if valid, _ := security.ValidateSession(sessionID, user); !valid {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		respondErrorSimple(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
 
@@ -75,7 +75,7 @@ func ReloadNFSExports(w http.ResponseWriter, r *http.Request) {
 	})
 
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		respondError(w, http.StatusInternalServerError, "Operation failed", err)
 		return
 	}
 

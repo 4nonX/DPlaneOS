@@ -480,11 +480,11 @@ func DeleteBond(w http.ResponseWriter, r *http.Request) {
 	name := parts[0]
 
 	if strings.ContainsAny(name, ";|&$`\\\"' /") || len(name) > 16 || name == "" {
-		http.Error(w, "invalid bond name", http.StatusBadRequest)
+		respondErrorSimple(w, "invalid bond name", http.StatusBadRequest)
 		return
 	}
 	if !strings.HasPrefix(name, "bond") {
-		http.Error(w, "name must start with 'bond'", http.StatusBadRequest)
+		respondErrorSimple(w, "name must start with 'bond'", http.StatusBadRequest)
 		return
 	}
 

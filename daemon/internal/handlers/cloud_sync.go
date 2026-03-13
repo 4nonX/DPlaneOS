@@ -271,7 +271,7 @@ func (h *CloudSyncHandler) HandleCloudSync(w http.ResponseWriter, r *http.Reques
 			respondErrorSimple(w, "Unknown POST action: "+action, http.StatusBadRequest)
 		}
 	default:
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		respondErrorSimple(w, "Method not allowed", http.StatusMethodNotAllowed)
 	}
 }
 

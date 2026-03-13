@@ -26,7 +26,7 @@ func NewSystemHandler() *SystemHandler {
 
 func (h *SystemHandler) GetUPSStatus(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		respondErrorSimple(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
@@ -103,7 +103,7 @@ func (h *SystemHandler) GetUPSStatus(w http.ResponseWriter, r *http.Request) {
 // Persists UPS shutdown action and thresholds to /etc/nut/upsmon.conf
 func (h *SystemHandler) SaveUPSConfig(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		respondErrorSimple(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
@@ -188,7 +188,7 @@ func (h *SystemHandler) GetNetworkInfo(w http.ResponseWriter, r *http.Request) {
 		h.handleNetworkPost(w, r, user)
 		return
 	}
-	http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	respondErrorSimple(w, "Method not allowed", http.StatusMethodNotAllowed)
 }
 
 func (h *SystemHandler) handleNetworkGet(w http.ResponseWriter, r *http.Request, user string) {
@@ -456,7 +456,7 @@ func (h *SystemHandler) handleNetworkPost(w http.ResponseWriter, r *http.Request
 
 func (h *SystemHandler) GetSystemLogs(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		respondErrorSimple(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 

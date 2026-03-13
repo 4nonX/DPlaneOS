@@ -28,13 +28,13 @@ func HandleJobStatus(w http.ResponseWriter, r *http.Request) {
 	id := parts[0]
 
 	if id == "" {
-		http.Error(w, "missing job id", http.StatusBadRequest)
+		respondErrorSimple(w, "missing job id", http.StatusBadRequest)
 		return
 	}
 
 	j := jobs.Get(id)
 	if j == nil {
-		http.Error(w, "job not found", http.StatusNotFound)
+		respondErrorSimple(w, "job not found", http.StatusNotFound)
 		return
 	}
 

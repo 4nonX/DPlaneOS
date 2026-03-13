@@ -56,7 +56,7 @@ func CreateDirectory(w http.ResponseWriter, r *http.Request) {
 	sessionID := r.Header.Get("X-Session-ID")
 
 	if valid, _ := security.ValidateSession(sessionID, user); !valid {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		respondErrorSimple(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
 
@@ -65,7 +65,7 @@ func CreateDirectory(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request", http.StatusBadRequest)
+		respondErrorSimple(w, "Invalid request", http.StatusBadRequest)
 		return
 	}
 
@@ -83,7 +83,7 @@ func CreateDirectory(w http.ResponseWriter, r *http.Request) {
 	})
 
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		respondError(w, http.StatusInternalServerError, "Operation failed", err)
 		return
 	}
 
@@ -100,7 +100,7 @@ func DeletePath(w http.ResponseWriter, r *http.Request) {
 	sessionID := r.Header.Get("X-Session-ID")
 
 	if valid, _ := security.ValidateSession(sessionID, user); !valid {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		respondErrorSimple(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
 
@@ -109,7 +109,7 @@ func DeletePath(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request", http.StatusBadRequest)
+		respondErrorSimple(w, "Invalid request", http.StatusBadRequest)
 		return
 	}
 
@@ -128,7 +128,7 @@ func DeletePath(w http.ResponseWriter, r *http.Request) {
 	})
 
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		respondError(w, http.StatusInternalServerError, "Operation failed", err)
 		return
 	}
 
@@ -145,7 +145,7 @@ func ChangeOwnership(w http.ResponseWriter, r *http.Request) {
 	sessionID := r.Header.Get("X-Session-ID")
 
 	if valid, _ := security.ValidateSession(sessionID, user); !valid {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		respondErrorSimple(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
 
@@ -156,7 +156,7 @@ func ChangeOwnership(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request", http.StatusBadRequest)
+		respondErrorSimple(w, "Invalid request", http.StatusBadRequest)
 		return
 	}
 
@@ -182,7 +182,7 @@ func ChangeOwnership(w http.ResponseWriter, r *http.Request) {
 	})
 
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		respondError(w, http.StatusInternalServerError, "Operation failed", err)
 		return
 	}
 
@@ -198,7 +198,7 @@ func ChangePermissions(w http.ResponseWriter, r *http.Request) {
 	sessionID := r.Header.Get("X-Session-ID")
 
 	if valid, _ := security.ValidateSession(sessionID, user); !valid {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		respondErrorSimple(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
 
@@ -209,7 +209,7 @@ func ChangePermissions(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request", http.StatusBadRequest)
+		respondErrorSimple(w, "Invalid request", http.StatusBadRequest)
 		return
 	}
 	// Accept either field name
@@ -217,7 +217,7 @@ func ChangePermissions(w http.ResponseWriter, r *http.Request) {
 		req.Mode = req.Permissions
 	}
 	if req.Mode == "" {
-		http.Error(w, "mode is required", http.StatusBadRequest)
+		respondErrorSimple(w, "mode is required", http.StatusBadRequest)
 		return
 	}
 
@@ -237,7 +237,7 @@ func ChangePermissions(w http.ResponseWriter, r *http.Request) {
 	})
 
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		respondError(w, http.StatusInternalServerError, "Operation failed", err)
 		return
 	}
 

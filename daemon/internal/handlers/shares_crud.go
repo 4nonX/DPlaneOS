@@ -53,7 +53,7 @@ func (h *ShareCRUDHandler) HandleShares(w http.ResponseWriter, r *http.Request) 
 	case http.MethodDelete:
 		h.deleteShareByName(w, r)
 	default:
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		respondErrorSimple(w, "Method not allowed", http.StatusMethodNotAllowed)
 	}
 }
 

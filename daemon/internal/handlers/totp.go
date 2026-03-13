@@ -135,7 +135,7 @@ func (h *TOTPHandler) HandleTOTPSetup(w http.ResponseWriter, r *http.Request) {
 	case http.MethodDelete:
 		h.disableTOTP(w, r, userID, user)
 	default:
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		respondErrorSimple(w, "Method not allowed", http.StatusMethodNotAllowed)
 	}
 }
 
@@ -296,7 +296,7 @@ func (h *TOTPHandler) disableTOTP(w http.ResponseWriter, r *http.Request, userID
 // POST /api/auth/totp-verify
 func (h *TOTPHandler) HandleTOTPVerify(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		respondErrorSimple(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 

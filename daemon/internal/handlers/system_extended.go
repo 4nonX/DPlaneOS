@@ -64,7 +64,7 @@ func (h *SnapshotScheduleHandler) ListSchedules(w http.ResponseWriter, r *http.R
 
 	var schedules []SnapshotSchedule
 	if err := json.Unmarshal(data, &schedules); err != nil {
-		http.Error(w, "Failed to parse schedules", http.StatusInternalServerError)
+		respondErrorSimple(w, "Failed to parse schedules", http.StatusInternalServerError)
 		return
 	}
 
@@ -77,7 +77,7 @@ func (h *SnapshotScheduleHandler) SaveSchedules(w http.ResponseWriter, r *http.R
 
 	var schedules []SnapshotSchedule
 	if err := json.NewDecoder(r.Body).Decode(&schedules); err != nil {
-		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		respondErrorSimple(w, "Invalid JSON", http.StatusBadRequest)
 		return
 	}
 
@@ -89,7 +89,7 @@ func (h *SnapshotScheduleHandler) SaveSchedules(w http.ResponseWriter, r *http.R
 			return
 		}
 		if s.Retention < 1 || s.Retention > 1000 {
-			http.Error(w, "Retention must be 1-1000", http.StatusBadRequest)
+			respondErrorSimple(w, "Retention must be 1-1000", http.StatusBadRequest)
 			return
 		}
 	}
@@ -98,7 +98,7 @@ func (h *SnapshotScheduleHandler) SaveSchedules(w http.ResponseWriter, r *http.R
 	os.MkdirAll(ConfigDir, 0755)
 	data, _ := json.MarshalIndent(schedules, "", "  ")
 	if err := os.WriteFile(configPath("snapshot-schedules.json"), data, 0644); err != nil {
-		http.Error(w, "Failed to save schedules", http.StatusInternalServerError)
+		respondErrorSimple(w, "Failed to save schedules", http.StatusInternalServerError)
 		return
 	}
 
@@ -183,13 +183,13 @@ func (h *SnapshotScheduleHandler) RunNow(w http.ResponseWriter, r *http.Request)
 		Prefix  string `json:"prefix"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		respondErrorSimple(w, "Invalid JSON", http.StatusBadRequest)
 		return
 	}
 
 	datasetPattern := regexp.MustCompile(`^[a-zA-Z0-9_\-/.@]+$`)
 	if !datasetPattern.MatchString(req.Dataset) {
-		http.Error(w, "Invalid dataset name", http.StatusBadRequest)
+		respondErrorSimple(w, "Invalid dataset name", http.StatusBadRequest)
 		return
 	}
 
@@ -200,7 +200,7 @@ func (h *SnapshotScheduleHandler) RunNow(w http.ResponseWriter, r *http.Request)
 
 	if err != nil {
 		audit.LogAction("snapshot_run_now", user, fmt.Sprintf("Failed: %s@%s: %s", req.Dataset, snapName, string(output)), false, duration)
-		http.Error(w, "Snapshot failed: "+string(output), http.StatusInternalServerError)
+		respondErrorSimple(w, "Snapshot failed", http.StatusInternalServerError)
 		return
 	}
 
@@ -223,13 +223,13 @@ func (h *SnapshotScheduleHandler) RunCronHook(w http.ResponseWriter, r *http.Req
 		Retention int    `json:"retention"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		respondErrorSimple(w, "Invalid JSON", http.StatusBadRequest)
 		return
 	}
 
 	datasetPattern := regexp.MustCompile(`^[a-zA-Z0-9_\-/.@]+$`)
 	if !datasetPattern.MatchString(req.Dataset) {
-		http.Error(w, "Invalid dataset name", http.StatusBadRequest)
+		respondErrorSimple(w, "Invalid dataset name", http.StatusBadRequest)
 		return
 	}
 	if req.Prefix == "" {
@@ -248,7 +248,7 @@ func (h *SnapshotScheduleHandler) RunCronHook(w http.ResponseWriter, r *http.Req
 	duration := time.Since(start)
 	if err != nil {
 		audit.LogAction("snapshot_cron", "cron", fmt.Sprintf("Failed: %s: %s", fullName, string(output)), false, duration)
-		http.Error(w, "Snapshot failed: "+string(output), http.StatusInternalServerError)
+		respondErrorSimple(w, "Snapshot failed", http.StatusInternalServerError)
 		return
 	}
 	audit.LogAction("snapshot_cron", "cron", fmt.Sprintf("Created %s", fullName), true, duration)
@@ -309,14 +309,14 @@ func NewACLHandler() *ACLHandler { return &ACLHandler{} }
 func (h *ACLHandler) GetACL(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Query().Get("path")
 	if path == "" || !strings.HasPrefix(path, "/mnt/") {
-		http.Error(w, "Path must start with /mnt/", http.StatusBadRequest)
+		respondErrorSimple(w, "Path must start with /mnt/", http.StatusBadRequest)
 		return
 	}
 
 	// Get POSIX ACL
 	output, err := cmdutil.RunFast("/usr/bin/getfacl", "-p", path)
 	if err != nil {
-		http.Error(w, "getfacl failed: "+string(output), http.StatusInternalServerError)
+		respondErrorSimple(w, "getfacl failed", http.StatusInternalServerError)
 		return
 	}
 
@@ -342,19 +342,19 @@ func (h *ACLHandler) SetACL(w http.ResponseWriter, r *http.Request) {
 		Remove    bool   `json:"remove"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		respondErrorSimple(w, "Invalid JSON", http.StatusBadRequest)
 		return
 	}
 
 	if !strings.HasPrefix(req.Path, "/mnt/") {
-		http.Error(w, "Path must start with /mnt/", http.StatusBadRequest)
+		respondErrorSimple(w, "Path must start with /mnt/", http.StatusBadRequest)
 		return
 	}
 
 	// Validate ACL entry format: type:name:perms
 	aclPattern := regexp.MustCompile(`^(u|g|o|m)(:[a-zA-Z0-9_.\-]*)?:[rwx\-]{0,3}$`)
 	if !aclPattern.MatchString(req.Entry) {
-		http.Error(w, "Invalid ACL entry format. Use: u:user:rwx, g:group:rx, etc.", http.StatusBadRequest)
+		respondErrorSimple(w, "Invalid ACL entry format. Use: u:user:rwx, g:group:rx, etc.", http.StatusBadRequest)
 		return
 	}
 
@@ -404,7 +404,7 @@ func (h *ACLHandler) SetACL(w http.ResponseWriter, r *http.Request) {
 
 	if err != nil {
 		audit.LogAction("acl_"+action, user, fmt.Sprintf("Failed on %s: %s", req.Path, string(output)), false, duration)
-		http.Error(w, "setfacl failed: "+string(output), http.StatusInternalServerError)
+		respondErrorSimple(w, "Operation failed", http.StatusInternalServerError)
 		return
 	}
 
@@ -628,7 +628,7 @@ func (h *FirewallHandler) SetRule(w http.ResponseWriter, r *http.Request) {
 		RuleNum int    `json:"rule_num"` // for delete
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		respondErrorSimple(w, "Invalid JSON", http.StatusBadRequest)
 		return
 	}
 
@@ -640,18 +640,18 @@ func (h *FirewallHandler) SetRule(w http.ResponseWriter, r *http.Request) {
 		args = []string{"disable"}
 	case "allow", "deny":
 		if req.Port == "" {
-			http.Error(w, "Port is required", http.StatusBadRequest)
+			respondErrorSimple(w, "Port is required", http.StatusBadRequest)
 			return
 		}
 		portPattern := regexp.MustCompile(`^[0-9]+(/tcp|/udp)?$`)
 		if !portPattern.MatchString(req.Port) {
-			http.Error(w, "Invalid port format", http.StatusBadRequest)
+			respondErrorSimple(w, "Invalid port format", http.StatusBadRequest)
 			return
 		}
 		if req.From != "" {
 			ipPattern := regexp.MustCompile(`^[0-9a-fA-F./:]+$`)
 			if !ipPattern.MatchString(req.From) {
-				http.Error(w, "Invalid source IP", http.StatusBadRequest)
+				respondErrorSimple(w, "Invalid source IP", http.StatusBadRequest)
 				return
 			}
 			args = []string{req.Action, "from", req.From, "to", "any", "port", strings.Split(req.Port, "/")[0]}
@@ -663,12 +663,12 @@ func (h *FirewallHandler) SetRule(w http.ResponseWriter, r *http.Request) {
 		}
 	case "delete":
 		if req.RuleNum < 1 {
-			http.Error(w, "Rule number required", http.StatusBadRequest)
+			respondErrorSimple(w, "Rule number required", http.StatusBadRequest)
 			return
 		}
 		args = []string{"--force", "delete", fmt.Sprintf("%d", req.RuleNum)}
 	default:
-		http.Error(w, "Invalid action", http.StatusBadRequest)
+		respondErrorSimple(w, "Invalid action", http.StatusBadRequest)
 		return
 	}
 
@@ -678,7 +678,7 @@ func (h *FirewallHandler) SetRule(w http.ResponseWriter, r *http.Request) {
 
 	if err != nil {
 		audit.LogAction("firewall", user, fmt.Sprintf("Failed: ufw %s: %s", strings.Join(args, " "), string(output)), false, duration)
-		http.Error(w, "ufw failed: "+string(output), http.StatusInternalServerError)
+		respondErrorSimple(w, "Operation failed", http.StatusInternalServerError)
 		return
 	}
 
@@ -755,13 +755,13 @@ func (h *CertHandler) GenerateSelfSigned(w http.ResponseWriter, r *http.Request)
 		SANs string `json:"sans"` // comma-separated
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		respondErrorSimple(w, "Invalid JSON", http.StatusBadRequest)
 		return
 	}
 
 	namePattern := regexp.MustCompile(`^[a-zA-Z0-9_\-]+$`)
 	if !namePattern.MatchString(req.Name) {
-		http.Error(w, "Invalid certificate name", http.StatusBadRequest)
+		respondErrorSimple(w, "Invalid certificate name", http.StatusBadRequest)
 		return
 	}
 	if req.Days < 1 || req.Days > 3650 {
@@ -800,7 +800,7 @@ func (h *CertHandler) GenerateSelfSigned(w http.ResponseWriter, r *http.Request)
 
 	if err != nil {
 		audit.LogAction("cert_generate", user, fmt.Sprintf("Failed: %s", string(output)), false, duration)
-		http.Error(w, "Certificate generation failed: "+string(output), http.StatusInternalServerError)
+		respondErrorSimple(w, "Operation failed", http.StatusInternalServerError)
 		return
 	}
 
@@ -817,7 +817,7 @@ func (h *CertHandler) ActivateCert(w http.ResponseWriter, r *http.Request) {
 		Name string `json:"name"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		respondErrorSimple(w, "Invalid JSON", http.StatusBadRequest)
 		return
 	}
 
@@ -825,11 +825,11 @@ func (h *CertHandler) ActivateCert(w http.ResponseWriter, r *http.Request) {
 	keyFile := filepath.Join(configPath("ssl"), req.Name+".key")
 
 	if _, err := os.Stat(certFile); os.IsNotExist(err) {
-		http.Error(w, "Certificate not found", http.StatusNotFound)
+		respondErrorSimple(w, "Certificate not found", http.StatusNotFound)
 		return
 	}
 	if _, err := os.Stat(keyFile); os.IsNotExist(err) {
-		http.Error(w, "Key file not found", http.StatusNotFound)
+		respondErrorSimple(w, "Key file not found", http.StatusNotFound)
 		return
 	}
 
@@ -857,7 +857,7 @@ func (h *CertHandler) ActivateCert(w http.ResponseWriter, r *http.Request) {
 	testOut, testErr := cmdutil.RunFast("/usr/sbin/nginx", "-t")
 	if testErr != nil {
 		audit.LogAction("cert_activate", user, fmt.Sprintf("nginx test failed: %s", string(testOut)), false, 0)
-		http.Error(w, "nginx config test failed: "+string(testOut), http.StatusInternalServerError)
+		respondErrorSimple(w, "Operation failed", http.StatusInternalServerError)
 		return
 	}
 
@@ -886,17 +886,17 @@ func (h *TrashHandler) MoveToTrash(w http.ResponseWriter, r *http.Request) {
 		Path string `json:"path"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		respondErrorSimple(w, "Invalid JSON", http.StatusBadRequest)
 		return
 	}
 
 	if !strings.HasPrefix(req.Path, "/mnt/") {
-		http.Error(w, "Can only trash files under /mnt/", http.StatusBadRequest)
+		respondErrorSimple(w, "Can only trash files under /mnt/", http.StatusBadRequest)
 		return
 	}
 
 	if _, err := os.Stat(req.Path); os.IsNotExist(err) {
-		http.Error(w, "File not found", http.StatusNotFound)
+		respondErrorSimple(w, "File not found", http.StatusNotFound)
 		return
 	}
 
@@ -970,7 +970,7 @@ func (h *TrashHandler) RestoreFromTrash(w http.ResponseWriter, r *http.Request) 
 		Name string `json:"name"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		respondErrorSimple(w, "Invalid JSON", http.StatusBadRequest)
 		return
 	}
 
@@ -978,7 +978,7 @@ func (h *TrashHandler) RestoreFromTrash(w http.ResponseWriter, r *http.Request) 
 	metaPath := trashPath + ".meta"
 
 	if _, err := os.Stat(trashPath); os.IsNotExist(err) {
-		http.Error(w, "Item not found in trash", http.StatusNotFound)
+		respondErrorSimple(w, "Item not found in trash", http.StatusNotFound)
 		return
 	}
 
@@ -1047,7 +1047,7 @@ func (h *PowerMgmtHandler) GetDiskStatus(w http.ResponseWriter, r *http.Request)
 	// List all block devices
 	output, err := cmdutil.RunFast("/usr/bin/lsblk", "-dpno", "NAME,SIZE,MODEL,ROTA,TRAN,STATE")
 	if err != nil {
-		http.Error(w, "lsblk failed: "+string(output), http.StatusInternalServerError)
+		respondErrorSimple(w, "Operation failed", http.StatusInternalServerError)
 		return
 	}
 
@@ -1121,17 +1121,17 @@ func (h *PowerMgmtHandler) SetSpindown(w http.ResponseWriter, r *http.Request) {
 		Timeout int    `json:"timeout"` // 0=disabled, 1-240 (values*5 seconds), 241-251 (30min increments)
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		respondErrorSimple(w, "Invalid JSON", http.StatusBadRequest)
 		return
 	}
 
 	devicePattern := regexp.MustCompile(`^/dev/(sd[a-z]+|nvme[0-9]+n[0-9]+(p[0-9]+)?)$`)
 	if !devicePattern.MatchString(req.Device) {
-		http.Error(w, "Invalid device path", http.StatusBadRequest)
+		respondErrorSimple(w, "Invalid device path", http.StatusBadRequest)
 		return
 	}
 	if req.Timeout < 0 || req.Timeout > 251 {
-		http.Error(w, "Timeout must be 0-251", http.StatusBadRequest)
+		respondErrorSimple(w, "Timeout must be 0-251", http.StatusBadRequest)
 		return
 	}
 
@@ -1141,7 +1141,7 @@ func (h *PowerMgmtHandler) SetSpindown(w http.ResponseWriter, r *http.Request) {
 
 	if err != nil {
 		audit.LogAction("power_spindown", user, fmt.Sprintf("Failed: %s on %s: %s", req.Device, fmt.Sprintf("%d", req.Timeout), string(output)), false, duration)
-		http.Error(w, "hdparm failed: "+string(output), http.StatusInternalServerError)
+		respondErrorSimple(w, "Operation failed", http.StatusInternalServerError)
 		return
 	}
 
@@ -1171,19 +1171,19 @@ func (h *PowerMgmtHandler) SpindownNow(w http.ResponseWriter, r *http.Request) {
 		Device string `json:"device"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		respondErrorSimple(w, "Invalid JSON", http.StatusBadRequest)
 		return
 	}
 
 	devicePattern := regexp.MustCompile(`^/dev/(sd[a-z]+|nvme[0-9]+n[0-9]+(p[0-9]+)?)$`)
 	if !devicePattern.MatchString(req.Device) {
-		http.Error(w, "Invalid device path", http.StatusBadRequest)
+		respondErrorSimple(w, "Invalid device path", http.StatusBadRequest)
 		return
 	}
 
 	output, err := cmdutil.RunFast("/usr/sbin/hdparm", "-y", req.Device)
 	if err != nil {
-		http.Error(w, "hdparm failed: "+string(output), http.StatusInternalServerError)
+		respondErrorSimple(w, "Operation failed", http.StatusInternalServerError)
 		return
 	}
 
@@ -1198,7 +1198,7 @@ func (h *PowerMgmtHandler) SpindownNow(w http.ResponseWriter, r *http.Request) {
 // Called by UI after any firewall change to keep NixOS in sync.
 func (h *FirewallHandler) SyncFirewallToNix(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		respondErrorSimple(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 	if NixWriter == nil || !NixWriter.IsNixOS() {

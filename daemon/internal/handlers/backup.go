@@ -103,7 +103,7 @@ func ExecuteRsync(w http.ResponseWriter, r *http.Request) {
 	sessionID := r.Header.Get("X-Session-ID")
 
 	if valid, _ := security.ValidateSession(sessionID, user); !valid {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		respondErrorSimple(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
 
@@ -126,7 +126,7 @@ func ExecuteRsync(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		respondErrorSimple(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
@@ -136,7 +136,7 @@ func ExecuteRsync(w http.ResponseWriter, r *http.Request) {
 		Options     string `json:"options"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request", http.StatusBadRequest)
+		respondErrorSimple(w, "Invalid request", http.StatusBadRequest)
 		return
 	}
 
@@ -190,13 +190,13 @@ func DeleteBackupTask(w http.ResponseWriter, r *http.Request) {
 	sessionID := r.Header.Get("X-Session-ID")
 
 	if valid, _ := security.ValidateSession(sessionID, user); !valid {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		respondErrorSimple(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
 
 	id := mux.Vars(r)["id"]
 	if id == "" {
-		http.Error(w, "Missing task ID", http.StatusBadRequest)
+		respondErrorSimple(w, "Missing task ID", http.StatusBadRequest)
 		return
 	}
 
@@ -218,7 +218,7 @@ func DeleteBackupTask(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !found {
-		http.Error(w, "Task not found", http.StatusNotFound)
+		respondErrorSimple(w, "Task not found", http.StatusNotFound)
 		return
 	}
 

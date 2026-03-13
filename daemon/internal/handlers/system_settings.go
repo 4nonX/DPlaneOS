@@ -133,11 +133,11 @@ func HandleSystemSettings(w http.ResponseWriter, r *http.Request) {
 
 		// Basic validation
 		if settings.ARCLimitGB < 1 {
-			http.Error(w, "arc_limit_gb must be >= 1", http.StatusBadRequest)
+			respondErrorSimple(w, "arc_limit_gb must be >= 1", http.StatusBadRequest)
 			return
 		}
 		if settings.Swappiness < 0 || settings.Swappiness > 100 {
-			http.Error(w, "swappiness must be 0–100", http.StatusBadRequest)
+			respondErrorSimple(w, "swappiness must be 0–100", http.StatusBadRequest)
 			return
 		}
 
