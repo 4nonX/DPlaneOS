@@ -6,6 +6,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ---
 
+## v5.2.0 (2026-03-13) — "Reliability & Consistency"
+
+Upgrade from: v5.1.2 — Drop-in. `sudo bash install.sh --upgrade`
+
+### Fixed
+
+**Critical — silent database errors on user/group operations**
+
+- **User update/delete silently failed** — `users_groups.go` was ignoring DB errors on several operations. Fixed: all DB errors are now checked and returned to the UI properly. Previously, operations could fail without the user knowing.
+
+**Reliability — database connection pooling**
+
+- **SMTP alerting opened new DB connection per request** — `alerting_smtp.go` was calling `sql.Open()` on every HTTP request, creating connection overhead. Fixed: refactored to use a shared pooled `*sql.DB` via `AlertingHandler` struct, consistent with all other handlers.
+
+### Refactored
+
+- **HTTP error response consistency** — replaced ~160 `http.Error` calls with `respondError`/`respondErrorSimple` for consistent JSON error format throughout the API. Now returns `{"success":false,"error":"message"}` on all error paths instead of plain text.
+- **Config package** — added centralized path constants in `internal/config/paths.go` for `/var/lib/dplaneos/*` paths.
+
+---
+
 ## v5.1.3 (2026-03-13) — "Reliability Fixes"
 
 Upgrade from: v5.1.2 — Drop-in. `sudo bash install.sh --upgrade`
