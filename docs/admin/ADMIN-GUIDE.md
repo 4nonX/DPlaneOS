@@ -287,16 +287,33 @@ sudo sqlite3 /var/lib/dplaneos/dplaneos.db "SELECT r.name FROM roles r \
 
 To add a mapping: click **Add Mapping**, enter the LDAP group name, select the role, click **Add Mapping**.
 
-### Just-In-Time Provisioning
+### Authentication Model
 
-When enabled (default), users who authenticate via LDAP are automatically created as local accounts on first login. Role is determined by group mappings, falling back to the configured default role.
+D-PlaneOS uses **directory-sourced user provisioning with local authentication**. This is intentionally different from live LDAP auth:
+
+- Users are **synced from the directory** into the local database (`POST /api/ldap/sync`), with group-to-role mappings applied at sync time.
+- At login, synced users authenticate via **LDAP bind** — the daemon connects to the directory server and verifies credentials in real time.
+- Local accounts (including the system administrator) always authenticate via bcrypt regardless of LDAP state.
+- If the LDAP server is unreachable, **all local accounts continue to work** — the UI is never fully locked out.
+
+This model gives you directory-controlled access without making the management UI dependent on directory availability.
+
+> **Note:** Unlike TrueNAS Scale and Unraid, which only use LDAP/AD for SMB share authentication, D-PlaneOS uses LDAP credentials to authenticate web UI logins for directory-sourced accounts.
+
+### Sync vs Live Auth
+
+| Account type | How it authenticates |
+|---|---|
+| `source=local` | bcrypt against local `password_hash` |
+| `source=ldap` | Real-time LDAP bind against the configured server |
+| User ID 1 (admin) | Always local bcrypt, even if `source=ldap` |
 
 ### Security Notes
 
 - The system administrator (user ID 1) always uses local authentication, even when LDAP is enabled, preventing lockout if the directory server goes down.
 - TLS is enforced by default (TLS 1.2+).
 - The bind password is stored in SQLite — use a read-only service account.
-- If the LDAP server is unreachable, local authentication continues to work for all local accounts.
+- If the LDAP server is unreachable, local accounts continue to work. Directory-sourced accounts will fail login until the server is reachable again.
 
 ### LDAP API
 

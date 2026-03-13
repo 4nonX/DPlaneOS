@@ -40,7 +40,7 @@ The installer handles everything: ZFS kernel module, nginx, database, systemd un
 | **Sharing** | SMB / AFP / Time Machine, NFS exports, iSCSI block targets — all configured through the UI |
 | **Containers** | Docker management, Compose stacks, ephemeral ZFS-clone sandboxes, atomic updates with automatic rollback |
 | **Network** | Interface config, bonding, VLANs, routing, DNS |
-| **Identity** | Local users, LDAP / Active Directory with group-to-role mapping and JIT provisioning, TOTP 2FA, API tokens |
+| **Identity** | Local users, LDAP / Active Directory with group-to-role mapping and directory-sourced UI login, TOTP 2FA, API tokens |
 | **Security** | RBAC (4 roles, 34 permissions), HMAC audit chain, CSRF protection, firewall, TLS certificates |
 | **System** | Dashboard, logs, UPS (NUT), IPMI / sensors, hardware auto-tuning, cloud sync (rclone), HA node monitoring |
 | **GitOps** | Git-sync repositories, state reconciliation |
@@ -65,7 +65,7 @@ Browser
 | Frontend | React 19 + TypeScript + Vite, pre-built — no Node.js needed at runtime |
 | Backend | Go daemon, ~256 API routes, allowlist-validated exec calls, no shell |
 | Database | SQLite WAL + FTS5, daily `VACUUM INTO` backup, HMAC audit chain |
-| Auth | bcrypt passwords, TOTP 2FA, 32-byte session tokens, CSRF double-submit |
+| Auth | bcrypt passwords (local), LDAP bind (directory accounts), TOTP 2FA, 32-byte session tokens, CSRF double-submit |
 | ZFS events | ZED hook delivers pool fault/scrub/resilver events in real time |
 
 ---

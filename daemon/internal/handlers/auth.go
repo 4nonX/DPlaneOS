@@ -13,6 +13,7 @@ import (
 	"time"
 	"unicode"
 
+	ldapinternal "dplaned/internal/ldap"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -193,12 +194,12 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 
 	// Lookup user
 	var userID int
-	var storedHash string
+	var storedHash, source string
 	var active, mustChange int
 	err := h.db.QueryRow(
-		`SELECT id, password_hash, active, COALESCE(must_change_password, 0) FROM users WHERE username = ? LIMIT 1`,
+		`SELECT id, password_hash, active, COALESCE(must_change_password, 0), COALESCE(source,'local') FROM users WHERE username = ? LIMIT 1`,
 		req.Username,
-	).Scan(&userID, &storedHash, &active, &mustChange)
+	).Scan(&userID, &storedHash, &active, &mustChange, &source)
 
 	if err == sql.ErrNoRows {
 		// Constant-time: still do a bcrypt compare to prevent timing attacks
@@ -226,14 +227,25 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Verify password (bcrypt)
-	if err := bcrypt.CompareHashAndPassword([]byte(storedHash), []byte(req.Password)); err != nil {
-		recordLoginFailure(clientIP)
-		log.Printf("AUTH FAIL: wrong password for %q from %s", req.Username, clientIP)
-		respondJSON(w, http.StatusUnauthorized, map[string]interface{}{
-			"success": false, "error": "Invalid credentials",
-		})
-		return
+	// Verify password — LDAP users bind against the directory; local users use bcrypt
+	if source == "ldap" {
+		if authErr := h.ldapAuthenticate(req.Username, req.Password); authErr != nil {
+			recordLoginFailure(clientIP)
+			log.Printf("AUTH FAIL: LDAP bind failed for %q from %s: %v", req.Username, clientIP, authErr)
+			respondJSON(w, http.StatusUnauthorized, map[string]interface{}{
+				"success": false, "error": "Invalid credentials",
+			})
+			return
+		}
+	} else {
+		if err := bcrypt.CompareHashAndPassword([]byte(storedHash), []byte(req.Password)); err != nil {
+			recordLoginFailure(clientIP)
+			log.Printf("AUTH FAIL: wrong password for %q from %s", req.Username, clientIP)
+			respondJSON(w, http.StatusUnauthorized, map[string]interface{}{
+				"success": false, "error": "Invalid credentials",
+			})
+			return
+		}
 	}
 
 	// Generate session token (32 bytes = 64 hex chars)
@@ -538,6 +550,48 @@ func isAlphanumericDash(s string) bool {
 		}
 	}
 	return len(s) > 0
+}
+
+// ldapAuthenticate binds against the configured LDAP server to verify credentials
+// for users whose source='ldap'. Returns nil on success, error on failure.
+// Falls back gracefully if LDAP is not configured.
+func (h *AuthHandler) ldapAuthenticate(username, password string) error {
+	var server, bindDN, bindPassword, baseDN, userFilter, userIDAttr, userNameAttr, userEmailAttr string
+	var port, useTLS int
+	err := h.db.QueryRow(`
+		SELECT server, port, bind_dn, COALESCE(bind_password,''), base_dn,
+		       COALESCE(user_filter,'(sAMAccountName={username})'),
+		       COALESCE(user_id_attribute,'sAMAccountName'),
+		       COALESCE(user_name_attribute,'displayName'),
+		       COALESCE(user_email_attribute,'mail'),
+		       COALESCE(use_tls,1)
+		FROM ldap_config WHERE id=1`).Scan(
+		&server, &port, &bindDN, &bindPassword, &baseDN,
+		&userFilter, &userIDAttr, &userNameAttr, &userEmailAttr, &useTLS,
+	)
+	if err != nil || server == "" {
+		return fmt.Errorf("LDAP not configured")
+	}
+
+	cfg := &ldapinternal.Config{
+		Server:             server,
+		Port:               port,
+		BindDN:             bindDN,
+		BindPassword:       bindPassword,
+		BaseDN:             baseDN,
+		UserFilter:         userFilter,
+		UserIDAttribute:    userIDAttr,
+		UserNameAttribute:  userNameAttr,
+		UserEmailAttribute: userEmailAttr,
+		UseTLS:             useTLS == 1,
+	}
+
+	client, err := ldapinternal.NewClient(cfg)
+	if err != nil {
+		return fmt.Errorf("LDAP client error: %w", err)
+	}
+	_, err = client.Authenticate(username, password)
+	return err
 }
 
 // CleanExpiredSessions removes expired sessions (call periodically)
