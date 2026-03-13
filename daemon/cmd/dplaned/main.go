@@ -687,6 +687,19 @@ func main() {
 	r.Handle("/api/alerts/telegram", permRoute("system", "write", settingsHandler.SaveTelegramConfig)).Methods("POST")
 	r.HandleFunc("/api/alerts/telegram/test", settingsHandler.TestTelegramConfig).Methods("POST")
 
+	// Alerting handlers (SMTP + Scrub schedules) - uses pooled DB connection
+	alertingHandler := handlers.NewAlertingHandler(db)
+	handlers.SetAlertingHandler(alertingHandler)
+	r.HandleFunc("/api/alerts/smtp", alertingHandler.GetSMTPConfig).Methods("GET")
+	r.Handle("/api/alerts/smtp", permRoute("system", "write", alertingHandler.SaveSMTPConfig)).Methods("POST")
+	r.HandleFunc("/api/alerts/smtp/test", handlers.TestSMTP).Methods("POST")
+
+	// ZFS Scrub Scheduler
+	r.HandleFunc("/api/zfs/scrub/schedule", alertingHandler.GetScrubSchedules).Methods("GET")
+	r.HandleFunc("/api/zfs/scrub/schedule", alertingHandler.SaveScrubSchedules).Methods("POST")
+
+	handlers.StartScrubMonitor()
+
 	// Removable Media handlers
 	removableHandler := handlers.NewRemovableMediaHandler()
 	r.HandleFunc("/api/removable/list", removableHandler.ListDevices).Methods("GET")
@@ -787,17 +800,7 @@ func main() {
 	r.HandleFunc("/api/power/spindown", powerHandler.SetSpindown).Methods("POST")
 	r.HandleFunc("/api/power/spindown-now", powerHandler.SpindownNow).Methods("POST")
 
-	// SMTP Email Alerting
-	r.HandleFunc("/api/alerts/smtp", handlers.GetSMTPConfig).Methods("GET")
-	r.Handle("/api/alerts/smtp", permRoute("system", "write", handlers.SaveSMTPConfig)).Methods("POST")
-	r.HandleFunc("/api/alerts/smtp/test", handlers.TestSMTP).Methods("POST")
-
-	// ZFS Scrub Scheduler
-	r.HandleFunc("/api/zfs/scrub/schedule", handlers.GetScrubSchedules).Methods("GET")
-	r.HandleFunc("/api/zfs/scrub/schedule", handlers.SaveScrubSchedules).Methods("POST")
-
 	// Start background monitors
-	handlers.StartScrubMonitor()
 	handlers.StartReplicationMonitor()
 	// SMART background monitor: polls every 6 hours, calls DispatchAlert on risk
 	handlers.StartSMARTMonitor()

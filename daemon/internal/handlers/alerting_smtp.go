@@ -14,8 +14,15 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
-// Shared DB path for settings access
-var alertDBPath = "/var/lib/dplaneos/dplaneos.db"
+// AlertingHandler handles SMTP alerting and scrub scheduling
+type AlertingHandler struct {
+	db *sql.DB
+}
+
+// NewAlertingHandler creates a new AlertingHandler with pooled DB connection
+func NewAlertingHandler(db *sql.DB) *AlertingHandler {
+	return &AlertingHandler{db: db}
+}
 
 // ═══════════════════════════════════════════════════════════════
 //  SMTP EMAIL ALERTING
@@ -33,16 +40,9 @@ type SMTPConfig struct {
 
 // GetSMTPConfig returns current SMTP configuration
 // GET /api/alerts/smtp
-func GetSMTPConfig(w http.ResponseWriter, r *http.Request) {
-	db, err := sql.Open("sqlite3", alertDBPath+"?_journal_mode=WAL&_busy_timeout=30000&cache=shared&_synchronous=FULL")
-	if err != nil {
-		respondOK(w, map[string]interface{}{"success": true, "configured": false})
-		return
-	}
-	defer db.Close()
-
+func (h *AlertingHandler) GetSMTPConfig(w http.ResponseWriter, r *http.Request) {
 	var value string
-	err = db.QueryRow("SELECT value FROM settings WHERE key = ?", "smtp_config").Scan(&value)
+	err := h.db.QueryRow("SELECT value FROM settings WHERE key = ?", "smtp_config").Scan(&value)
 	if err != nil || value == "" {
 		respondOK(w, map[string]interface{}{"success": true, "configured": false})
 		return
@@ -58,7 +58,7 @@ func GetSMTPConfig(w http.ResponseWriter, r *http.Request) {
 
 // SaveSMTPConfig saves SMTP settings
 // POST /api/alerts/smtp
-func SaveSMTPConfig(w http.ResponseWriter, r *http.Request) {
+func (h *AlertingHandler) SaveSMTPConfig(w http.ResponseWriter, r *http.Request) {
 	var cfg SMTPConfig
 	if err := json.NewDecoder(r.Body).Decode(&cfg); err != nil {
 		respondErrorSimple(w, "Invalid request", http.StatusBadRequest)
@@ -74,15 +74,10 @@ func SaveSMTPConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	db, err := sql.Open("sqlite3", alertDBPath+"?_journal_mode=WAL&_busy_timeout=30000&cache=shared&_synchronous=FULL")
-	if err != nil {
-		respondErrorSimple(w, "Database error", http.StatusInternalServerError)
-		return
-	}
-	defer db.Close()
-	_, err = db.Exec("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", "smtp_config", string(data))
+	_, err = h.db.Exec("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", "smtp_config", string(data))
 	if err != nil {
 		respondErrorSimple(w, "Failed to save", http.StatusInternalServerError)
+		log.Printf("SMTP CONFIG SAVE ERROR: %v", err)
 		return
 	}
 	respondOK(w, map[string]interface{}{"success": true})
@@ -112,16 +107,27 @@ func TestSMTP(w http.ResponseWriter, r *http.Request) {
 	respondOK(w, map[string]interface{}{"success": true, "message": "Test email sent to " + cfg.To})
 }
 
+// Global alerting handler for fire-and-forget calls
+var alertingHandler *AlertingHandler
+
+// SetAlertingHandler sets the global alerting handler for SendSMTPAlert
+func SetAlertingHandler(h *AlertingHandler) {
+	alertingHandler = h
+}
+
 // SendSMTPAlert sends an alert email (called internally by other handlers)
+// Uses the global alertingHandler for pooled DB connection
 func SendSMTPAlert(subject, body string) {
-	db, err := sql.Open("sqlite3", alertDBPath+"?_journal_mode=WAL&_busy_timeout=30000&cache=shared&_synchronous=FULL")
-	if err != nil {
+	if alertingHandler == nil {
+		log.Printf("SMTP ALERT ERROR: alerting handler not initialized")
 		return
 	}
-	defer db.Close()
+	alertingHandler.sendSMTPAlert(subject, body)
+}
 
+func (h *AlertingHandler) sendSMTPAlert(subject, body string) {
 	var value string
-	err = db.QueryRow("SELECT value FROM settings WHERE key = ?", "smtp_config").Scan(&value)
+	err := h.db.QueryRow("SELECT value FROM settings WHERE key = ?", "smtp_config").Scan(&value)
 	if err != nil || value == "" {
 		return // SMTP not configured
 	}
@@ -156,19 +162,12 @@ type ScrubSchedule struct {
 
 // GetScrubSchedules returns configured scrub schedules
 // GET /api/zfs/scrub/schedule
-func GetScrubSchedules(w http.ResponseWriter, r *http.Request) {
+func (h *AlertingHandler) GetScrubSchedules(w http.ResponseWriter, r *http.Request) {
 	// Support filtering by pool name
 	pool := r.URL.Query().Get("pool")
 
-	db, err := sql.Open("sqlite3", alertDBPath+"?_journal_mode=WAL&_busy_timeout=30000&cache=shared&_synchronous=FULL")
-	if err != nil {
-		respondOK(w, map[string]interface{}{"success": true, "schedules": []ScrubSchedule{}})
-		return
-	}
-	defer db.Close()
-
 	var value string
-	err = db.QueryRow("SELECT value FROM settings WHERE key = ?", "scrub_schedules").Scan(&value)
+	err := h.db.QueryRow("SELECT value FROM settings WHERE key = ?", "scrub_schedules").Scan(&value)
 	if err != nil || value == "" {
 		respondOK(w, map[string]interface{}{"success": true, "schedules": []ScrubSchedule{}})
 		return
@@ -196,7 +195,7 @@ func GetScrubSchedules(w http.ResponseWriter, r *http.Request) {
 
 // SaveScrubSchedules saves and installs scrub cron jobs
 // POST /api/zfs/scrub/schedule
-func SaveScrubSchedules(w http.ResponseWriter, r *http.Request) {
+func (h *AlertingHandler) SaveScrubSchedules(w http.ResponseWriter, r *http.Request) {
 	var schedules []ScrubSchedule
 	if err := json.NewDecoder(r.Body).Decode(&schedules); err != nil {
 		respondErrorSimple(w, "Invalid request", http.StatusBadRequest)
@@ -226,10 +225,11 @@ func SaveScrubSchedules(w http.ResponseWriter, r *http.Request) {
 		respondErrorSimple(w, "Failed to encode schedules", http.StatusInternalServerError)
 		return
 	}
-	db, err := sql.Open("sqlite3", alertDBPath+"?_journal_mode=WAL&_busy_timeout=30000&cache=shared&_synchronous=FULL")
-	if err == nil {
-		defer db.Close()
-		db.Exec("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", "scrub_schedules", string(data))
+	_, err = h.db.Exec("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", "scrub_schedules", string(data))
+	if err != nil {
+		respondErrorSimple(w, "Failed to save schedules", http.StatusInternalServerError)
+		log.Printf("SCRUB SCHEDULES SAVE ERROR: %v", err)
+		return
 	}
 
 	// Generate crontab entries
