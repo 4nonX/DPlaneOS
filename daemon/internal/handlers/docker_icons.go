@@ -24,9 +24,11 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"dplaned/internal/config"
 )
 
-const customIconsDir = "/var/lib/dplaneos/custom_icons"
+const customIconsDir = config.CustomIconsDir
 
 // HandleCustomIconFile serves a single icon file from the custom icons directory.
 // GET /api/assets/custom-icons/<filename>
@@ -54,7 +56,7 @@ func HandleCustomIconFile(w http.ResponseWriter, r *http.Request) {
 		if os.IsNotExist(err) {
 			respondErrorSimple(w, "not found", http.StatusNotFound)
 		} else {
-			http.Error(w, "read error", http.StatusInternalServerError)
+			respondErrorSimple(w, "read error", http.StatusInternalServerError)
 		}
 		return
 	}
@@ -98,7 +100,7 @@ func HandleCustomIconList(w http.ResponseWriter, r *http.Request) {
 			json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "icons": []string{}})
 			return
 		}
-		http.Error(w, "cannot read icons directory", http.StatusInternalServerError)
+		respondErrorSimple(w, "cannot read icons directory", http.StatusInternalServerError)
 		return
 	}
 

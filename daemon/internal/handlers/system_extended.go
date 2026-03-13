@@ -14,6 +14,7 @@ import (
 
 	"dplaned/internal/audit"
 	"dplaned/internal/cmdutil"
+	"dplaned/internal/config"
 )
 
 // ============================================================
@@ -85,7 +86,7 @@ func (h *SnapshotScheduleHandler) SaveSchedules(w http.ResponseWriter, r *http.R
 	datasetPattern := regexp.MustCompile(`^[a-zA-Z0-9_\-/.@]+$`)
 	for _, s := range schedules {
 		if !datasetPattern.MatchString(s.Dataset) {
-			http.Error(w, "Invalid dataset name: "+s.Dataset, http.StatusBadRequest)
+			respondErrorSimple(w, "Invalid dataset name: "+s.Dataset, http.StatusBadRequest)
 			return
 		}
 		if s.Retention < 1 || s.Retention > 1000 {
@@ -370,14 +371,14 @@ func (h *ACLHandler) SetACL(w http.ResponseWriter, r *http.Request) {
 			// Validate user exists via NSS (covers local + LDAP + SSSD)
 			if out, err := cmdutil.RunFast("/usr/bin/getent", "passwd", entryName); err != nil {
 				audit.LogAction("acl_validate", user, fmt.Sprintf("User '%s' not found in NSS (LDAP down?): %s", entryName, string(out)), false, 0)
-				http.Error(w, fmt.Sprintf("User '%s' not found. If using LDAP, check directory service connectivity.", entryName), http.StatusBadRequest)
+				respondErrorSimple(w, fmt.Sprintf("User '%s' not found. If using LDAP, check directory service connectivity.", entryName), http.StatusBadRequest)
 				return
 			}
 		} else if entryType == "g" {
 			// Validate group exists via NSS
 			if out, err := cmdutil.RunFast("/usr/bin/getent", "group", entryName); err != nil {
 				audit.LogAction("acl_validate", user, fmt.Sprintf("Group '%s' not found in NSS (LDAP down?): %s", entryName, string(out)), false, 0)
-				http.Error(w, fmt.Sprintf("Group '%s' not found. If using LDAP, check directory service connectivity.", entryName), http.StatusBadRequest)
+				respondErrorSimple(w, fmt.Sprintf("Group '%s' not found. If using LDAP, check directory service connectivity.", entryName), http.StatusBadRequest)
 				return
 			}
 		}
@@ -421,7 +422,7 @@ type MetricsHandler struct{}
 
 func NewMetricsHandler() *MetricsHandler { return &MetricsHandler{} }
 
-const metricsDir = "/var/lib/dplaneos/metrics"
+const metricsDir = config.MetricsDir
 
 func (h *MetricsHandler) GetCurrentMetrics(w http.ResponseWriter, r *http.Request) {
 	metrics := map[string]interface{}{}
@@ -837,7 +838,7 @@ func (h *CertHandler) ActivateCert(w http.ResponseWriter, r *http.Request) {
 	nginxConf := "/etc/nginx/sites-enabled/dplaneos"
 	data, err := os.ReadFile(nginxConf)
 	if err != nil {
-		http.Error(w, "Cannot read nginx config", http.StatusInternalServerError)
+		respondErrorSimple(w, "Cannot read nginx config", http.StatusInternalServerError)
 		return
 	}
 
@@ -849,7 +850,7 @@ func (h *CertHandler) ActivateCert(w http.ResponseWriter, r *http.Request) {
 	content = keyLine.ReplaceAllString(content, "ssl_certificate_key "+keyFile+";")
 
 	if err := os.WriteFile(nginxConf, []byte(content), 0644); err != nil {
-		http.Error(w, "Cannot write nginx config", http.StatusInternalServerError)
+		respondErrorSimple(w, "Cannot write nginx config", http.StatusInternalServerError)
 		return
 	}
 
@@ -857,7 +858,7 @@ func (h *CertHandler) ActivateCert(w http.ResponseWriter, r *http.Request) {
 	testOut, testErr := cmdutil.RunFast("/usr/sbin/nginx", "-t")
 	if testErr != nil {
 		audit.LogAction("cert_activate", user, fmt.Sprintf("nginx test failed: %s", string(testOut)), false, 0)
-		respondErrorSimple(w, "Operation failed", http.StatusInternalServerError)
+		respondErrorSimple(w, "nginx config test failed", http.StatusInternalServerError)
 		return
 	}
 
@@ -920,7 +921,7 @@ func (h *TrashHandler) MoveToTrash(w http.ResponseWriter, r *http.Request) {
 		// Cross-device? Try mv command
 		if _, mvErr := cmdutil.RunNoTimeout("/bin/mv", req.Path, trashPath); mvErr != nil {
 			audit.LogAction("trash", user, fmt.Sprintf("Failed to trash %s: %v", req.Path, mvErr), false, duration)
-			http.Error(w, "Failed to move to trash: "+mvErr.Error(), http.StatusInternalServerError)
+			respondErrorSimple(w, "Failed to move to trash", http.StatusInternalServerError)
 			return
 		}
 	}
@@ -989,7 +990,7 @@ func (h *TrashHandler) RestoreFromTrash(w http.ResponseWriter, r *http.Request) 
 	}
 
 	if originalPath == "" {
-		http.Error(w, "Cannot determine original path", http.StatusInternalServerError)
+		respondErrorSimple(w, "Cannot determine original path", http.StatusInternalServerError)
 		return
 	}
 
@@ -998,14 +999,14 @@ func (h *TrashHandler) RestoreFromTrash(w http.ResponseWriter, r *http.Request) 
 
 	// Check if target already exists
 	if _, err := os.Stat(originalPath); err == nil {
-		http.Error(w, "Target path already exists: "+originalPath, http.StatusConflict)
+		respondErrorSimple(w, "Target path already exists: "+originalPath, http.StatusConflict)
 		return
 	}
 
 	err := os.Rename(trashPath, originalPath)
 	if err != nil {
 		if _, mvErr := cmdutil.RunNoTimeout("/bin/mv", trashPath, originalPath); mvErr != nil {
-			http.Error(w, "Failed to restore: "+mvErr.Error(), http.StatusInternalServerError)
+			respondErrorSimple(w, "Failed to restore", http.StatusInternalServerError)
 			return
 		}
 	}
@@ -1025,7 +1026,7 @@ func (h *TrashHandler) EmptyTrash(w http.ResponseWriter, r *http.Request) {
 
 	if err != nil {
 		audit.LogAction("trash_empty", user, fmt.Sprintf("Failed: %v", err), false, duration)
-		http.Error(w, "Failed to empty trash: "+err.Error(), http.StatusInternalServerError)
+		respondErrorSimple(w, "Failed to empty trash", http.StatusInternalServerError)
 		return
 	}
 

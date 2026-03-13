@@ -29,7 +29,7 @@ func ZFSSend(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := security.ValidateSnapshotName(req.Snapshot); err != nil {
-		http.Error(w, "Invalid snapshot name: "+err.Error(), http.StatusBadRequest)
+		respondErrorSimple(w, "Invalid request", http.StatusBadRequest)
 		return
 	}
 
@@ -69,11 +69,11 @@ func ZFSSendIncremental(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := security.ValidateSnapshotName(req.BaseSnapshot); err != nil {
-		http.Error(w, "Invalid base snapshot: "+err.Error(), http.StatusBadRequest)
+		respondErrorSimple(w, "Invalid request", http.StatusBadRequest)
 		return
 	}
 	if err := security.ValidateSnapshotName(req.NewSnapshot); err != nil {
-		http.Error(w, "Invalid new snapshot: "+err.Error(), http.StatusBadRequest)
+		respondErrorSimple(w, "Invalid request", http.StatusBadRequest)
 		return
 	}
 

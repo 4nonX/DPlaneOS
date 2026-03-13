@@ -127,7 +127,7 @@ func HandleSystemSettings(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodPost {
 		var settings SystemSettings
 		if err := json.NewDecoder(r.Body).Decode(&settings); err != nil {
-			http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
+			respondErrorSimple(w, "Invalid request", http.StatusBadRequest)
 			return
 		}
 
@@ -153,7 +153,7 @@ func HandleSystemSettings(w http.ResponseWriter, r *http.Request) {
 
 		// Persist to JSON (all fields including monitoring thresholds)
 		if err := saveSystemSettings(settings); err != nil {
-			http.Error(w, "failed to save settings: "+err.Error(), http.StatusInternalServerError)
+			respondErrorSimple(w, "Invalid request", http.StatusBadRequest)
 			return
 		}
 
@@ -168,7 +168,7 @@ func HandleSystemSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	respondErrorSimple(w, "Method not allowed", http.StatusMethodNotAllowed)
 }
 
 // ── Metrics ───────────────────────────────────────────────────────────────────

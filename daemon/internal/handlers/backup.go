@@ -223,7 +223,7 @@ func DeleteBackupTask(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := saveTasks(filtered); err != nil {
-		http.Error(w, "Failed to save tasks", http.StatusInternalServerError)
+		respondErrorSimple(w, "Failed to save tasks", http.StatusInternalServerError)
 		return
 	}
 

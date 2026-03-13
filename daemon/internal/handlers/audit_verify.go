@@ -11,10 +11,12 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+
+	"dplaned/internal/config"
 )
 
-const auditKeyPath = "/var/lib/dplaneos/audit.key"
-const auditDBPath  = "/var/lib/dplaneos/dplaneos.db"
+const auditKeyPath = config.AuditKeyPath
+const auditDBPath = config.DBDatabase
 
 // verifyComputeHash re-implements the HMAC formula from buffered_logger.go.
 // Must stay in sync with computeRowHash() in the audit package.
@@ -74,11 +76,11 @@ func (h *AuditRotationHandler) VerifyAuditChain(w http.ResponseWriter, r *http.R
 	defer rows.Close()
 
 	var (
-		total          int
-		skipped        int  // rows pre-dating the chain (empty row_hash)
-		checked        int
-		valid          = true
-		firstBrokenID  int64
+		total         int
+		skipped       int // rows pre-dating the chain (empty row_hash)
+		checked       int
+		valid         = true
+		firstBrokenID int64
 	)
 
 	// prevHashSeen tracks the row_hash of the previous chained row.
@@ -89,7 +91,7 @@ func (h *AuditRotationHandler) VerifyAuditChain(w http.ResponseWriter, r *http.R
 	for rows.Next() {
 		var (
 			id             int64
-			ts             int64  // stored as Unix epoch integer
+			ts             int64 // stored as Unix epoch integer
 			user           string
 			action         string
 			resource       string
@@ -135,11 +137,11 @@ func (h *AuditRotationHandler) VerifyAuditChain(w http.ResponseWriter, r *http.R
 	}
 
 	result := map[string]interface{}{
-		"success":       true,
-		"valid":         valid,
-		"total_rows":    total,
-		"checked_rows":  checked,
-		"skipped_rows":  skipped, // pre-migration rows without a hash
+		"success":      true,
+		"valid":        valid,
+		"total_rows":   total,
+		"checked_rows": checked,
+		"skipped_rows": skipped, // pre-migration rows without a hash
 	}
 	if !valid && firstBrokenID != 0 {
 		result["first_broken_at_id"] = firstBrokenID

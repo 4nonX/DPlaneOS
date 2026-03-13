@@ -222,7 +222,7 @@ func (h *FilesExtendedHandler) DownloadFile(w http.ResponseWriter, r *http.Reque
 	}
 	f, err := os.Open(safePath)
 	if err != nil {
-		http.Error(w, "Cannot open file", http.StatusInternalServerError)
+		respondErrorSimple(w, "Cannot open file", http.StatusInternalServerError)
 		return
 	}
 	defer f.Close()

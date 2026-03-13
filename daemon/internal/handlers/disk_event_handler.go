@@ -76,7 +76,7 @@ func HandleDiskEvent(w http.ResponseWriter, r *http.Request) {
 
 	var req diskEventRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid request body: "+err.Error(), http.StatusBadRequest)
+		respondErrorSimple(w, "Invalid request", http.StatusBadRequest)
 		return
 	}
 

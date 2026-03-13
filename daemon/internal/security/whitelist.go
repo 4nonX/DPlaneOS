@@ -10,7 +10,7 @@ import (
 type Command struct {
 	Name        string
 	Path        string
-	AllowedArgs []string        // Exact arg matches
+	AllowedArgs []string         // Exact arg matches
 	ArgPatterns []*regexp.Regexp // Regex patterns for args
 	Description string
 }
@@ -97,9 +97,9 @@ var CommandWhitelist = map[string]Command{
 		Path:        "/usr/sbin/zpool",
 		AllowedArgs: []string{"add"},
 		ArgPatterns: []*regexp.Regexp{
-			regexp.MustCompile(`^[a-zA-Z0-9_\-]+$`),     // pool name
-			regexp.MustCompile(`^cache$`),                 // "cache" keyword
-			regexp.MustCompile(`^[a-zA-Z0-9_\-/]+$`),    // device path
+			regexp.MustCompile(`^[a-zA-Z0-9_\-]+$`),  // pool name
+			regexp.MustCompile(`^cache$`),            // "cache" keyword
+			regexp.MustCompile(`^[a-zA-Z0-9_\-/]+$`), // device path
 		},
 		Description: "Add L2ARC cache device to pool",
 	},
@@ -108,9 +108,9 @@ var CommandWhitelist = map[string]Command{
 		Path:        "/usr/sbin/zpool",
 		AllowedArgs: []string{"add"},
 		ArgPatterns: []*regexp.Regexp{
-			regexp.MustCompile(`^[a-zA-Z0-9_\-]+$`),     // pool name
-			regexp.MustCompile(`^(?:log|mirror)$`),        // "log" or "mirror"
-			regexp.MustCompile(`^[a-zA-Z0-9_\-/]+$`),    // device path
+			regexp.MustCompile(`^[a-zA-Z0-9_\-]+$`),  // pool name
+			regexp.MustCompile(`^(?:log|mirror)$`),   // "log" or "mirror"
+			regexp.MustCompile(`^[a-zA-Z0-9_\-/]+$`), // device path
 		},
 		Description: "Add ZIL log device to pool",
 	},
@@ -119,8 +119,8 @@ var CommandWhitelist = map[string]Command{
 		Path:        "/usr/sbin/zpool",
 		AllowedArgs: []string{"remove"},
 		ArgPatterns: []*regexp.Regexp{
-			regexp.MustCompile(`^[a-zA-Z0-9_\-]+$`),    // pool name
-			regexp.MustCompile(`^[a-zA-Z0-9_\-/]+$`),   // device path
+			regexp.MustCompile(`^[a-zA-Z0-9_\-]+$`),  // pool name
+			regexp.MustCompile(`^[a-zA-Z0-9_\-/]+$`), // device path
 		},
 		Description: "Remove cache or log device from pool",
 	},
@@ -143,11 +143,11 @@ var CommandWhitelist = map[string]Command{
 		AllowedArgs: []string{"set"},
 		ArgPatterns: []*regexp.Regexp{
 			regexp.MustCompile(`^[a-zA-Z0-9_\-\./:]+=[a-zA-Z0-9_\-\.:/]+$`), // property=value (/ allowed for mountpoint=/tank/data)
-			regexp.MustCompile(`^[a-zA-Z0-9_\-\./]+$`),                     // dataset name
+			regexp.MustCompile(`^[a-zA-Z0-9_\-\./]+$`),                      // dataset name
 		},
 		Description: "Set ZFS property (mountpoint, quota, compression, etc.)",
 	},
-	
+
 	// Network Management
 	"ip_addr_show": {
 		Name:        "ip_addr_show",
@@ -189,7 +189,7 @@ var CommandWhitelist = map[string]Command{
 		AllowedArgs: []string{"apply"},
 		Description: "Apply network configuration (netplan)",
 	},
-	
+
 	// ZFS Replication Operations
 	"zfs_send": {
 		Name:        "zfs_send",
@@ -230,7 +230,7 @@ var CommandWhitelist = map[string]Command{
 		Description: "Test Samba configuration",
 	},
 
-	// NFS Operations  
+	// NFS Operations
 	"exportfs_reload": {
 		Name:        "exportfs_reload",
 		Path:        "/usr/sbin/exportfs",
@@ -260,19 +260,19 @@ var CommandWhitelist = map[string]Command{
 		Description: "Remove directory recursively",
 	},
 	"chown": {
-		Name:        "chown",
-		Path:        "/usr/bin/chown",
+		Name: "chown",
+		Path: "/usr/bin/chown",
 		ArgPatterns: []*regexp.Regexp{
 			regexp.MustCompile(`^[a-z_][a-z0-9_-]*(:?[a-z_]?[a-z0-9_-]*)?$`), // user:group
-			regexp.MustCompile(`^/[a-zA-Z0-9/_\-\. ]+$`), // path
+			regexp.MustCompile(`^/[a-zA-Z0-9/_\-\. ]+$`),                     // path
 		},
 		Description: "Change file ownership",
 	},
 	"chmod": {
-		Name:        "chmod",
-		Path:        "/usr/bin/chmod",
+		Name: "chmod",
+		Path: "/usr/bin/chmod",
 		ArgPatterns: []*regexp.Regexp{
-			regexp.MustCompile(`^[0-7]{3,4}$`), // octal permissions
+			regexp.MustCompile(`^[0-7]{3,4}$`),           // octal permissions
 			regexp.MustCompile(`^/[a-zA-Z0-9/_\-\. ]+$`), // path
 		},
 		Description: "Change file permissions",
@@ -284,7 +284,7 @@ var CommandWhitelist = map[string]Command{
 		Path:        "/usr/bin/rsync",
 		AllowedArgs: []string{"-avz", "--progress"},
 		ArgPatterns: []*regexp.Regexp{
-			regexp.MustCompile(`^/[a-zA-Z0-9/_\-\. ]+$`), // source
+			regexp.MustCompile(`^/[a-zA-Z0-9/_\-\. ]+$`),                                                     // source
 			regexp.MustCompile(`^(/[a-zA-Z0-9/_\-\. ]+|[a-z0-9\.\-_]+@[a-z0-9\.\-]+:/[a-zA-Z0-9/_\-\. ]+)$`), // dest (local or remote)
 		},
 		Description: "File synchronization",
@@ -628,4 +628,58 @@ func ValidateMountPoint(path string) error {
 		return fmt.Errorf("invalid mount point: %q (must be under /mnt/ or /media/)", path)
 	}
 	return nil
+}
+
+// AllowedBasePaths defines directories that are allowed for file operations
+var AllowedBasePaths = []string{"/mnt", "/home", "/tmp", "/var/lib/dplaneos", "/tank", "/data", "/opt", "/srv"}
+
+// IsValidPath checks if a path is safe for file operations.
+// Returns false if the path contains traversal attempts or is outside allowed directories.
+func IsValidPath(path string) bool {
+	if path == "" {
+		return false
+	}
+
+	// Check for path traversal attempts
+	if strings.Contains(path, "..") {
+		return false
+	}
+
+	// Normalize path and check it starts with an allowed prefix
+	cleanPath := path
+	if !strings.HasPrefix(cleanPath, "/") {
+		cleanPath = "/" + cleanPath
+	}
+
+	for _, base := range AllowedBasePaths {
+		if strings.HasPrefix(cleanPath, base+"/") || cleanPath == base {
+			return true
+		}
+	}
+
+	return false
+}
+
+// IsSafeFilename checks if a filename doesn't contain path traversal or dangerous characters.
+func IsSafeFilename(filename string) bool {
+	if filename == "" {
+		return false
+	}
+
+	// Check for null bytes
+	if strings.Contains(filename, "\x00") {
+		return false
+	}
+
+	// Check for path traversal
+	if strings.Contains(filename, "..") {
+		return false
+	}
+
+	// Check for path separators
+	if strings.Contains(filename, "/") && strings.Contains(filename, "\\") {
+		return false
+	}
+
+	return true
 }

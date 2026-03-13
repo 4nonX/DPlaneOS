@@ -4,6 +4,7 @@ import (
 	"database/sql"
 
 	"dplaned/internal/cmdutil"
+	"dplaned/internal/config"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -531,7 +532,7 @@ func (h *AuditRotationHandler) RotateAuditLogs(w http.ResponseWriter, r *http.Re
 	// Count before
 	countBefore := "unknown"
 	if out, err := executeCommandWithTimeout(TimeoutFast, "/usr/bin/sqlite3", []string{
-		"/var/lib/dplaneos/dplaneos.db",
+		config.DBDatabase,
 		"SELECT COUNT(*) FROM audit_logs;",
 	}); err == nil {
 		countBefore = strings.TrimSpace(out)
@@ -539,7 +540,7 @@ func (h *AuditRotationHandler) RotateAuditLogs(w http.ResponseWriter, r *http.Re
 
 	// Delete old entries
 	cutoff := time.Now().AddDate(0, 0, -req.KeepDays).Format("2006-01-02 15:04:05")
-	rotDB, dbErr := sql.Open("sqlite3", "/var/lib/dplaneos/dplaneos.db?_journal_mode=WAL&_busy_timeout=30000&cache=shared&_synchronous=FULL")
+	rotDB, dbErr := sql.Open("sqlite3", config.DBDatabase+"?_journal_mode=WAL&_busy_timeout=30000&cache=shared&_synchronous=FULL")
 	var rotErr error
 	if dbErr == nil {
 		defer rotDB.Close()
@@ -558,7 +559,7 @@ func (h *AuditRotationHandler) RotateAuditLogs(w http.ResponseWriter, r *http.Re
 	// Count after
 	countAfter := "unknown"
 	if out, err := executeCommandWithTimeout(TimeoutFast, "/usr/bin/sqlite3", []string{
-		"/var/lib/dplaneos/dplaneos.db",
+		config.DBDatabase,
 		"SELECT COUNT(*) FROM audit_logs;",
 	}); err == nil {
 		countAfter = strings.TrimSpace(out)
@@ -576,7 +577,7 @@ func (h *AuditRotationHandler) RotateAuditLogs(w http.ResponseWriter, r *http.Re
 // GetAuditStats returns audit log statistics
 // GET /api/system/audit/stats
 func (h *AuditRotationHandler) GetAuditStats(w http.ResponseWriter, r *http.Request) {
-	dbPath := "/var/lib/dplaneos/dplaneos.db"
+	dbPath := config.DBDatabase
 
 	count := "0"
 	if out, err := executeCommandWithTimeout(TimeoutFast, "/usr/bin/sqlite3", []string{

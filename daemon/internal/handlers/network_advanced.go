@@ -406,7 +406,7 @@ func SetNTPServers(w http.ResponseWriter, r *http.Request) {
 func ListBonds(w http.ResponseWriter, r *http.Request) {
 	links, err := netlinkx.LinkList()
 	if err != nil {
-		http.Error(w, "failed to list interfaces: "+err.Error(), http.StatusInternalServerError)
+		respondErrorSimple(w, "Invalid request", http.StatusBadRequest)
 		return
 	}
 
@@ -492,7 +492,7 @@ func DeleteBond(w http.ResponseWriter, r *http.Request) {
 	_ = netlinkx.LinkSetDown(name)
 
 	if err := netlinkx.LinkDel(name); err != nil {
-		http.Error(w, "failed to delete bond: "+err.Error(), http.StatusInternalServerError)
+		respondErrorSimple(w, "Invalid request", http.StatusBadRequest)
 		return
 	}
 

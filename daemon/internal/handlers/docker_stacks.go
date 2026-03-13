@@ -13,6 +13,7 @@ import (
 
 	"dplaned/internal/audit"
 	"dplaned/internal/cmdutil"
+	"dplaned/internal/config"
 )
 
 // ═══════════════════════════════════════════════════════════════
@@ -30,7 +31,7 @@ import (
 //    DELETE /api/docker/stacks          — compose down + remove directory
 //    POST   /api/docker/stacks/action   — start/stop/restart a stack
 
-const defaultStacksDir = "/var/lib/dplaneos/stacks"
+const defaultStacksDir = config.StacksDir
 
 // validStackNameRe: lowercase alphanumeric, hyphens, underscores. No dots, no spaces.
 var validStackNameRe = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,62}$`)

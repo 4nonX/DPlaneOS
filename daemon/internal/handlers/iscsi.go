@@ -85,7 +85,7 @@ func runTargetcli(args ...string) (string, error) {
 func GetISCSITargets(w http.ResponseWriter, r *http.Request) {
 	out, err := runTargetcli("/iscsi", "ls")
 	if err != nil {
-		http.Error(w, "targetcli unavailable: "+err.Error(), http.StatusServiceUnavailable)
+		respondErrorSimple(w, "targetcli unavailable", http.StatusServiceUnavailable)
 		return
 	}
 
@@ -124,7 +124,7 @@ func CreateISCSITarget(w http.ResponseWriter, r *http.Request) {
 
 	// Create target
 	if _, err := runTargetcli("/iscsi", "create", req.IQN); err != nil {
-		http.Error(w, "failed to create target: "+err.Error(), http.StatusInternalServerError)
+		respondErrorSimple(w, "Failed to create target", http.StatusInternalServerError)
 		return
 	}
 
@@ -133,14 +133,14 @@ func CreateISCSITarget(w http.ResponseWriter, r *http.Request) {
 	if _, err := runTargetcli("/backstores/block", "create", storageName, req.BackingDev); err != nil {
 		// Best-effort cleanup
 		runTargetcli("/iscsi/"+req.IQN, "delete") //nolint
-		http.Error(w, "failed to create storage object: "+err.Error(), http.StatusInternalServerError)
+		respondErrorSimple(w, "Failed to create storage object", http.StatusInternalServerError)
 		return
 	}
 
 	// Create LUN
 	tpgPath := fmt.Sprintf("/iscsi/%s/tpg1", req.IQN)
 	if _, err := runTargetcli(tpgPath+"/luns", "create", "/backstores/block/"+storageName); err != nil {
-		http.Error(w, "failed to create LUN: "+err.Error(), http.StatusInternalServerError)
+		respondErrorSimple(w, "Failed to create LUN", http.StatusInternalServerError)
 		return
 	}
 
@@ -148,7 +148,7 @@ func CreateISCSITarget(w http.ResponseWriter, r *http.Request) {
 	portalAddr := fmt.Sprintf("%s:%d", req.PortalIP, req.PortalPort)
 	runTargetcli(tpgPath+"/portals", "delete", "0.0.0.0", "3260") //nolint - remove default portal
 	if _, err := runTargetcli(tpgPath+"/portals", "create", portalAddr); err != nil {
-		http.Error(w, "failed to set portal: "+err.Error(), http.StatusInternalServerError)
+		respondErrorSimple(w, "Failed to set portal", http.StatusInternalServerError)
 		return
 	}
 
@@ -187,7 +187,7 @@ func DeleteISCSITarget(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if _, err := runTargetcli("/iscsi", "delete", iqn); err != nil {
-		http.Error(w, "failed to delete target: "+err.Error(), http.StatusInternalServerError)
+		respondErrorSimple(w, "Failed to delete target", http.StatusInternalServerError)
 		return
 	}
 	runTargetcli("/", "saveconfig") //nolint
@@ -210,7 +210,7 @@ func GetISCSIACLs(w http.ResponseWriter, r *http.Request) {
 	tpgPath := fmt.Sprintf("/iscsi/%s/tpg1/acls", target)
 	out, err := runTargetcli(tpgPath, "ls")
 	if err != nil {
-		http.Error(w, "failed to list ACLs: "+err.Error(), http.StatusInternalServerError)
+		respondErrorSimple(w, "Failed to list ACLs", http.StatusInternalServerError)
 		return
 	}
 
@@ -230,17 +230,17 @@ func AddISCSIACL(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := validateIQN(req.TargetIQN); err != nil {
-		http.Error(w, "target: "+err.Error(), http.StatusBadRequest)
+		respondError(w, http.StatusBadRequest, "Invalid target", err)
 		return
 	}
 	if err := validateIQN(req.InitiatorIQN); err != nil {
-		http.Error(w, "initiator: "+err.Error(), http.StatusBadRequest)
+		respondError(w, http.StatusBadRequest, "Invalid initiator", err)
 		return
 	}
 
 	aclPath := fmt.Sprintf("/iscsi/%s/tpg1/acls", req.TargetIQN)
 	if _, err := runTargetcli(aclPath, "create", req.InitiatorIQN); err != nil {
-		http.Error(w, "failed to add ACL: "+err.Error(), http.StatusInternalServerError)
+		respondErrorSimple(w, "Failed to add ACL", http.StatusInternalServerError)
 		return
 	}
 
@@ -267,17 +267,17 @@ func DeleteISCSIACL(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := validateIQN(req.TargetIQN); err != nil {
-		http.Error(w, "target: "+err.Error(), http.StatusBadRequest)
+		respondError(w, http.StatusBadRequest, "Invalid target", err)
 		return
 	}
 	if err := validateIQN(req.InitiatorIQN); err != nil {
-		http.Error(w, "initiator: "+err.Error(), http.StatusBadRequest)
+		respondError(w, http.StatusBadRequest, "Invalid initiator", err)
 		return
 	}
 
 	aclPath := fmt.Sprintf("/iscsi/%s/tpg1/acls", req.TargetIQN)
 	if _, err := runTargetcli(aclPath, "delete", req.InitiatorIQN); err != nil {
-		http.Error(w, "failed to delete ACL: "+err.Error(), http.StatusInternalServerError)
+		respondErrorSimple(w, "Failed to delete ACL", http.StatusInternalServerError)
 		return
 	}
 	runTargetcli("/", "saveconfig") //nolint
