@@ -6,6 +6,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ---
 
+## v5.2.1 (2026-03-13) — "Complete Consistency"
+
+Upgrade from: v5.1.2 — Drop-in. `sudo bash install.sh --upgrade`
+
+### Fixed
+
+**Critical — silent database errors on user/group operations**
+
+- **User update/delete silently failed** — `users_groups.go` was ignoring DB errors on several operations. Fixed: all DB errors are now checked and returned to the UI properly.
+
+**Reliability — database connection pooling**
+
+- **SMTP alerting opened new DB connection per request** — `alerting_smtp.go` was calling `sql.Open()` on every HTTP request. Fixed: refactored to use a shared pooled `*sql.DB` via `AlertingHandler` struct.
+
+### Refactored
+
+- **HTTP error response consistency** — replaced all ~195 `http.Error` calls with `respondError`/`respondErrorSimple` for consistent JSON error format throughout the API.
+- **Config package** — centralized `/var/lib/dplaneos/*` paths in `internal/config/paths.go`. Migrated enterprise_hardening.go, audit_verify.go, docker_icons.go, docker_stacks.go, system_extended.go.
+
+### Tests Added
+
+- **validateRepoURL** — tests for blocking dangerous URL schemes (ext://, file://, fd://)
+- **Path traversal prevention** — IsValidPath and IsSafeFilename functions with tests
+- **Auth handlers** — respondError JSON format tests
+
+---
+
 ## v5.2.0 (2026-03-13) — "Reliability & Consistency"
 
 Upgrade from: v5.1.2 — Drop-in. `sudo bash install.sh --upgrade`
