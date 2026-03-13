@@ -6,6 +6,37 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ---
 
+## v5.1.2 (2026-03-13) — "Auth Integrity"
+
+Upgrade from: v5.1.1 — Drop-in. `sudo bash install.sh --upgrade`
+
+### Added
+
+- **Docker template library** — one-click deployment of pre-configured application stacks (Home Assistant, Plex, Nextcloud, etc.) via `GET /api/docker/templates` and `POST /api/docker/templates/deploy`. Templates can be git repos or built-in. Deployed as independent Compose stacks with atomic rollback on failure.
+
+### Fixed
+
+**Critical — LDAP-sourced users could not log in**
+
+- **LDAP users were permanently locked out of the UI** — the login handler only performed bcrypt comparison against `password_hash`. LDAP-synced accounts have an intentionally empty `password_hash` (they authenticate via directory bind). Any login attempt by an LDAP account failed silently with "Invalid credentials". Fixed: `Login()` now reads the `source` column; when `source='ldap'` it calls `ldapAuthenticate()` which loads LDAP config from the database and performs a real-time bind to verify credentials. Local accounts and user ID 1 remain on bcrypt regardless of LDAP state.
+- **LDAP circuit breaker** — when the directory server is unreachable, each login attempt would block for the full TCP timeout. Added circuit breaker: after 3 consecutive connection failures, LDAP authentication fails immediately for 30 seconds rather than waiting for TCP timeouts. Connection-level errors (vs. credential errors) are tracked separately from authentication failures.
+
+**UI — eliminated all browser-native dialogs**
+
+- **`window.confirm()` used in 13 places across 9 pages** — browser-native confirm dialogs are visually inconsistent and cannot be styled. Replaced with `useConfirm()` hook that renders inline modal dialogs using the existing design system. Each dialog has a context-appropriate title, descriptive message, and correct danger/warning variant. Pages updated: AlertsPage, CloudSyncPage, FilesPage, GitSyncPage, HAPage, ISCSIPage, SecurityPage, SettingsPage, UsersPage.
+
+**Code quality**
+
+- **Syncthing conflict files in vendor** — 1,260 `.sync-conflict-*` files in `daemon/vendor/` caused duplicate symbol build failures locally. Removed.
+- **Duplicate inline style definitions** — `btnPrimary`, `btnGhost`, `btnDanger`, `inputStyle`, `cardStyle` were independently defined across 15–20 page files. Pages now use global CSS classes from `index.css`.
+
+### Documentation
+
+- **ADMIN-GUIDE.md** — replaced incorrect "JIT provisioning on first login" with accurate model: sync populates local DB, login performs real-time LDAP bind for directory accounts, local accounts always use bcrypt. Added note that D-PlaneOS uses LDAP for web UI login (unlike TrueNAS Scale / Unraid which use it for SMB auth only).
+- **README.md** — corrected Identity and Auth architecture descriptions.
+
+---
+
 ## v5.1.1 (2026-03-10) — "System Audit"
 
 Upgrade from: v5.1.0 — Drop-in. `sudo bash install.sh --upgrade`

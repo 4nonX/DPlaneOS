@@ -552,22 +552,73 @@ func isAlphanumericDash(s string) bool {
 	return len(s) > 0
 }
 
+// ── LDAP circuit breaker ──────────────────────────────────────────────────────
+// Prevents cascading login timeouts when the LDAP server is unreachable.
+// After ldapCBThreshold consecutive connection failures the breaker opens for
+// ldapCBResetAfter, during which all LDAP logins fail immediately.
+// Successful authentications reset the failure counter.
+
+const (
+	ldapCBThreshold  = 3                // open after this many consecutive failures
+	ldapCBResetAfter = 30 * time.Second // half-open after this duration
+)
+
+var (
+	ldapCBMu        sync.Mutex
+	ldapCBFailures  int
+	ldapCBOpenUntil time.Time
+)
+
+func ldapCBAllow() bool {
+	ldapCBMu.Lock()
+	defer ldapCBMu.Unlock()
+	if ldapCBFailures >= ldapCBThreshold {
+		if time.Now().Before(ldapCBOpenUntil) {
+			return false // breaker open — reject immediately
+		}
+		// Half-open: allow one attempt through
+		ldapCBFailures = ldapCBThreshold - 1
+	}
+	return true
+}
+
+func ldapCBSuccess() {
+	ldapCBMu.Lock()
+	ldapCBFailures = 0
+	ldapCBMu.Unlock()
+}
+
+func ldapCBFailure() {
+	ldapCBMu.Lock()
+	ldapCBFailures++
+	if ldapCBFailures >= ldapCBThreshold {
+		ldapCBOpenUntil = time.Now().Add(ldapCBResetAfter)
+		log.Printf("AUTH: LDAP circuit breaker opened — server unreachable (%d consecutive failures)", ldapCBFailures)
+	}
+	ldapCBMu.Unlock()
+}
+
 // ldapAuthenticate binds against the configured LDAP server to verify credentials
 // for users whose source='ldap'. Returns nil on success, error on failure.
-// Falls back gracefully if LDAP is not configured.
+// Uses a circuit breaker to fail fast when the LDAP server is unreachable.
 func (h *AuthHandler) ldapAuthenticate(username, password string) error {
+	if !ldapCBAllow() {
+		return fmt.Errorf("LDAP server unavailable (circuit breaker open) — try again shortly")
+	}
+
 	var server, bindDN, bindPassword, baseDN, userFilter, userIDAttr, userNameAttr, userEmailAttr string
-	var port, useTLS int
+	var port, useTLS, timeout int
 	err := h.db.QueryRow(`
 		SELECT server, port, bind_dn, COALESCE(bind_password,''), base_dn,
 		       COALESCE(user_filter,'(sAMAccountName={username})'),
 		       COALESCE(user_id_attribute,'sAMAccountName'),
 		       COALESCE(user_name_attribute,'displayName'),
 		       COALESCE(user_email_attribute,'mail'),
-		       COALESCE(use_tls,1)
+		       COALESCE(use_tls,1),
+		       COALESCE(timeout,10)
 		FROM ldap_config WHERE id=1`).Scan(
 		&server, &port, &bindDN, &bindPassword, &baseDN,
-		&userFilter, &userIDAttr, &userNameAttr, &userEmailAttr, &useTLS,
+		&userFilter, &userIDAttr, &userNameAttr, &userEmailAttr, &useTLS, &timeout,
 	)
 	if err != nil || server == "" {
 		return fmt.Errorf("LDAP not configured")
@@ -584,14 +635,44 @@ func (h *AuthHandler) ldapAuthenticate(username, password string) error {
 		UserNameAttribute:  userNameAttr,
 		UserEmailAttribute: userEmailAttr,
 		UseTLS:             useTLS == 1,
+		Timeout:            timeout,
 	}
 
 	client, err := ldapinternal.NewClient(cfg)
 	if err != nil {
+		ldapCBFailure()
 		return fmt.Errorf("LDAP client error: %w", err)
 	}
+
 	_, err = client.Authenticate(username, password)
-	return err
+	if err != nil {
+		// Only count connection-level failures toward the breaker,
+		// not credential failures (wrong password is not a server outage).
+		if isLDAPConnError(err) {
+			ldapCBFailure()
+		} else {
+			ldapCBSuccess() // server responded — reset breaker
+		}
+		return err
+	}
+
+	ldapCBSuccess()
+	return nil
+}
+
+// isLDAPConnError returns true for errors that indicate the server is
+// unreachable (connection refused, timeout, TLS handshake failure) as
+// opposed to a valid "wrong credentials" response from a reachable server.
+func isLDAPConnError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "connection refused") ||
+		strings.Contains(msg, "i/o timeout") ||
+		strings.Contains(msg, "no such host") ||
+		strings.Contains(msg, "tls:") ||
+		strings.Contains(msg, "EOF")
 }
 
 // CleanExpiredSessions removes expired sessions (call periodically)

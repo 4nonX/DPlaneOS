@@ -2,7 +2,7 @@
 
 ZFS-first NAS operating system for homelab and small-office deployments. Runs as a single Go daemon behind nginx, backed by SQLite, with a React UI served locally — no cloud dependencies, no mandatory subscriptions.
 
-**Current version:** 5.1.1 &nbsp;|&nbsp; **License:** AGPLv3 &nbsp;|&nbsp; **Platforms:** Debian · Ubuntu · Raspberry Pi OS · NixOS
+**Current version:** 5.1.2 &nbsp;|&nbsp; **License:** AGPLv3 &nbsp;|&nbsp; **Platforms:** Debian · Ubuntu · Raspberry Pi OS · NixOS
 
 [![CI Status](https://github.com/4nonX/D-PlaneOS/actions/workflows/validate.yml/badge.svg)](https://github.com/4nonX/D-PlaneOS/actions)
 ---
@@ -37,8 +37,8 @@ The installer handles everything: ZFS kernel module, nginx, database, systemd un
 |------|-------------|
 | **Storage** | ZFS pools, datasets, snapshots, replication (`zfs send`), encryption, quotas, S.M.A.R.T., file explorer with chunked uploads |
 | **Hot-swap** | udev rules detect disk add/remove; daemon auto-imports FAULTED/UNAVAIL pools and suggests vdev replacements via the UI |
-| **Sharing** | SMB / AFP / Time Machine, NFS exports, iSCSI block targets — all configured through the UI |
-| **Containers** | Docker management, Compose stacks, ephemeral ZFS-clone sandboxes, atomic updates with automatic rollback |
+| **Sharing** | SMB shares with Time Machine support (Samba vfs_fruit), NFS exports, iSCSI block targets — all configured through the UI |
+| **Containers** | Docker management, Compose stacks, template library (one-click deploy), ephemeral ZFS-clone sandboxes, atomic updates with automatic rollback |
 | **Network** | Interface config, bonding, VLANs, routing, DNS |
 | **Identity** | Local users, LDAP / Active Directory with group-to-role mapping and directory-sourced UI login, TOTP 2FA, API tokens |
 | **Security** | RBAC (4 roles, 34 permissions), HMAC audit chain, CSRF protection, firewall, TLS certificates |
@@ -75,7 +75,7 @@ Browser
 Auto-detected and fully managed once installed. The UI shows an install prompt for anything not yet present.
 
 ```bash
-sudo apt install samba            # SMB shares + AFP / Time Machine
+sudo apt install samba            # SMB shares + Time Machine (vfs_fruit)
 sudo apt install nfs-kernel-server   # NFS exports
 sudo apt install targetcli-fb     # iSCSI block targets
 sudo apt install nut              # UPS monitoring
@@ -117,7 +117,7 @@ sudo apt install nut              # UPS monitoring
 
 | Document | What it covers |
 |----------|---------------|
-| [Changelog](docs/reference/CHANGELOG.md) | Full version history from v1.x through v4.3.0 |
+| [Changelog](docs/reference/CHANGELOG.md) | Full version history from v1.x through v5.1.2 |
 | [Error Reference](docs/reference/ERROR-REFERENCE.md) | Every HTTP error code the API returns, with cause and fix |
 | [Showstopper Mitigation Guide](docs/reference/SHOWSTOPPER-MITIGATION-GUIDE.md) | Honest assessment of HA limits, binary-trust, resolved vs open issues |
 | [Threat Model](docs/reference/THREAT-MODEL.md) | Security architecture, all 13 threat scenarios, mitigations, residual risks, known gaps |
