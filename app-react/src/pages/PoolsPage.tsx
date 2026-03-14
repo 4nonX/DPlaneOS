@@ -23,6 +23,8 @@ import { api } from '@/lib/api'
 import { Icon } from '@/components/ui/Icon'
 import { ErrorState } from '@/components/ui/ErrorState'
 import { Skeleton, Spinner } from '@/components/ui/LoadingSpinner'
+import { Tooltip } from '@/components/ui/Tooltip'
+import { Popover } from '@/components/ui/Popover'
 import { toast } from '@/hooks/useToast'
 import { useWsStore } from '@/stores/ws'
 import { Modal } from '@/components/ui/Modal'
@@ -145,13 +147,14 @@ function DatasetSearchBar({ query, onChange, matchCount, totalCount }: SearchBar
           style={{ paddingLeft: 34, paddingRight: query ? 32 : 12 }}
         />
         {query && (
-          <button
-            onClick={() => onChange('')}
-            style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-tertiary)', display: 'flex', padding: 2 }}
-            title="Clear filter"
-          >
-            <Icon name="close" size={14} />
-          </button>
+          <Tooltip content="Clear filter">
+            <button
+              onClick={() => onChange('')}
+              style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-tertiary)', display: 'flex', padding: 2 }}
+            >
+              <Icon name="close" size={14} />
+            </button>
+          </Tooltip>
         )}
       </div>
       {query && (

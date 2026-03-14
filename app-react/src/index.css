@@ -326,3 +326,147 @@ textarea.input { resize: vertical; min-height: 80px; }
 
 /* File manager row hover actions — shown on tr:hover */
 tr:hover .row-actions { opacity: 1 !important; }
+
+/* ── Tooltip ───────────────────────────────────────────────── */
+.tooltip-wrapper {
+  position: relative;
+  display: inline-flex;
+}
+
+.tooltip {
+  position: absolute;
+  z-index: var(--z-dropdown);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  padding: 6px 10px;
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  white-space: nowrap;
+  pointer-events: none;
+  animation: tooltipFadeIn 0.15s ease;
+  box-shadow: var(--shadow-md);
+  max-width: 280px;
+  white-space: normal;
+  line-height: 1.4;
+}
+
+.tooltip-top {
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.tooltip-bottom {
+  top: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.tooltip-left {
+  right: calc(100% + 8px);
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.tooltip-right {
+  left: calc(100% + 8px);
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+@keyframes tooltipFadeIn {
+  from { opacity: 0; transform: translateX(-50%) translateY(4px); }
+  to { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+
+.tooltip-left { animation-name: tooltipFadeInLeft; }
+.tooltip-right { animation-name: tooltipFadeInRight; }
+
+@keyframes tooltipFadeInLeft {
+  from { opacity: 0; transform: translateY(-50%) translateX(-4px); }
+  to { opacity: 1; transform: translateY(-50%) translateX(0); }
+}
+
+@keyframes tooltipFadeInRight {
+  from { opacity: 0; transform: translateY(-50%) translateX(4px); }
+  to { opacity: 1; transform: translateY(-50%) translateX(0); }
+}
+
+/* ── Popover (hover card with info) ─────────────────────────── */
+.popover-wrapper {
+  position: relative;
+  display: inline-block;
+}
+
+.popover {
+  position: absolute;
+  z-index: var(--z-dropdown);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  padding: var(--space-3);
+  min-width: 200px;
+  max-width: 320px;
+  pointer-events: none;
+  animation: popoverFadeIn 0.2s ease;
+  box-shadow: var(--shadow-lg);
+}
+
+.popover-top { bottom: calc(100% + 10px); left: 50%; transform: translateX(-50%); }
+.popover-bottom { top: calc(100% + 10px); left: 50%; transform: translateX(-50%); }
+.popover-left { right: calc(100% + 10px); top: 50%; transform: translateY(-50%); }
+.popover-right { left: calc(100% + 10px); top: 50%; transform: translateY(-50%); }
+
+@keyframes popoverFadeIn {
+  from { opacity: 0; transform: translateX(-50%) translateY(6px); }
+  to { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+
+.popover-title {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: var(--space-2);
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.popover-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: var(--text-xs);
+  padding: 2px 0;
+}
+
+.popover-label { color: var(--text-tertiary); }
+.popover-value { color: var(--text); font-weight: 500; font-family: var(--font-mono); }
+
+/* ── Modal enhancements ─────────────────────────────────────── */
+.modal-overlay {
+  animation: modalBackdropFadeIn 0.2s ease;
+}
+
+.modal {
+  animation: modalSlideIn 0.25s ease;
+}
+
+@keyframes modalBackdropFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes modalSlideIn {
+  from { opacity: 0; transform: scale(0.95) translateY(10px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+/* Danger modal variant */
+.modal-danger .modal-title {
+  color: var(--error);
+}
+
+.modal-warning .modal-title {
+  color: var(--warning);
+}
