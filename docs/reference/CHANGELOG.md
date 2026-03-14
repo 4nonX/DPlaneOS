@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ---
 
+## v5.2.2 (2026-03-14) — "UI Polish"
+
+Upgrade from: v5.2.1 — Drop-in. `sudo bash install.sh --upgrade`
+
+### Added
+
+- **Custom Tooltip component** — replaces native browser `title=` tooltips with styled floating tooltips. Supports positioning (top/bottom/left/right) and delay options.
+- **Popover component** — hover cards showing contextual info (pool stats, dataset details, etc.)
+- **Enhanced ConfirmDialog** — supports context info display and typed confirmation for destructive operations.
+
+### UI Improvements
+
+- Modal entrance/exit animations — smoother transitions using scale and fade effects
+- Consistent tooltip/popover styling matching design system
+
+---
+
 ## v5.2.1 (2026-03-13) — "Complete Consistency"
 
 Upgrade from: v5.1.2 — Drop-in. `sudo bash install.sh --upgrade`
