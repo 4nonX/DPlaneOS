@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react'
+import { useState, useRef, type ReactNode } from 'react'
 
 interface PopoverRow {
   label: string
@@ -15,12 +15,22 @@ interface PopoverProps {
 
 export function Popover({ children, title, content, position = 'top', delay = 200 }: PopoverProps) {
   const [visible, setVisible] = useState(false)
+  const timeoutRef = useRef<number | undefined>(undefined)
+
+  const handleMouseEnter = () => {
+    timeoutRef.current = window.setTimeout(() => setVisible(true), delay)
+  }
+
+  const handleMouseLeave = () => {
+    if (timeoutRef.current) clearTimeout(timeoutRef.current)
+    timeoutRef.current = window.setTimeout(() => setVisible(false), 150)
+  }
 
   return (
     <span 
       className="popover-wrapper"
-      onMouseEnter={() => setVisible(true)}
-      onMouseLeave={() => setTimeout(() => setVisible(false), 150)}
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
     >
       {children}
       {visible && (
