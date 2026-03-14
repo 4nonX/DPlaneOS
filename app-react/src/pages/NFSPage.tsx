@@ -18,6 +18,7 @@ import { ErrorState } from '@/components/ui/ErrorState'
 import { Skeleton } from '@/components/ui/LoadingSpinner'
 import { toast } from '@/hooks/useToast'
 import { Modal } from '@/components/ui/Modal'
+import { Tooltip } from '@/components/ui/Tooltip'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -144,9 +145,11 @@ function ExportRow({ exp, onEdit, onDeleted }: {
           </div>
         </div>
         <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
-          <button className="btn btn-ghost" onClick={onEdit} title="Edit">
-            <Icon name="edit" size={14} />
-          </button>
+          <Tooltip content="Edit">
+            <button className="btn btn-ghost" onClick={onEdit}>
+              <Icon name="edit" size={14} />
+            </button>
+          </Tooltip>
           {!confirming
             ? <button className="btn btn-danger" onClick={() => setConfirming(true)}><Icon name="delete" size={14} /></button>
             : <>

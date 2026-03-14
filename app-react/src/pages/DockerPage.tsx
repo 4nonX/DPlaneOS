@@ -26,6 +26,7 @@ import { ErrorState } from '@/components/ui/ErrorState'
 import { Skeleton } from '@/components/ui/LoadingSpinner'
 import { JobProgress } from '@/components/ui/JobProgress'
 import { Modal } from '@/components/ui/Modal'
+import { Tooltip } from '@/components/ui/Tooltip'
 import { toast } from '@/hooks/useToast'
 import { useWsStore } from '@/stores/ws'
 import type { IconMapResponse } from '@/lib/iconTypes'
@@ -250,22 +251,30 @@ function ContainerRow({ container, onRefresh }: { container: Container; onRefres
         {/* Actions */}
         <td style={{ padding: '14px 16px' }}>
           <div style={{ display: 'flex', gap: 5 }}>
-            <button onClick={() => setShowLogs(true)} className="btn btn-ghost" title="Logs">
-              <Icon name="description" size={14} />
-            </button>
+            <Tooltip content="Logs">
+              <button onClick={() => setShowLogs(true)} className="btn btn-ghost">
+                <Icon name="description" size={14} />
+              </button>
+            </Tooltip>
             {isRunning ? (
               <>
-                <button onClick={() => action.mutate({ act: 'restart', id })} disabled={!!actionPending} className="btn btn-ghost" title="Restart">
-                  <Icon name="restart_alt" size={14} />
-                </button>
-                <button onClick={() => action.mutate({ act: 'stop', id })} disabled={!!actionPending} className="btn btn-ghost" title="Stop">
-                  <Icon name="stop_circle" size={14} />
-                </button>
+                <Tooltip content="Restart">
+                  <button onClick={() => action.mutate({ act: 'restart', id })} disabled={!!actionPending} className="btn btn-ghost">
+                    <Icon name="restart_alt" size={14} />
+                  </button>
+                </Tooltip>
+                <Tooltip content="Stop">
+                  <button onClick={() => action.mutate({ act: 'stop', id })} disabled={!!actionPending} className="btn btn-ghost">
+                    <Icon name="stop_circle" size={14} />
+                  </button>
+                </Tooltip>
               </>
             ) : (
-              <button onClick={() => action.mutate({ act: 'start', id })} disabled={!!actionPending} className="btn btn-ghost" title="Start">
-                <Icon name="play_circle" size={14} />
-              </button>
+              <Tooltip content="Start">
+                <button onClick={() => action.mutate({ act: 'start', id })} disabled={!!actionPending} className="btn btn-ghost">
+                  <Icon name="play_circle" size={14} />
+                </button>
+              </Tooltip>
             )}
           </div>
         </td>

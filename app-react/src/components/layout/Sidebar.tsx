@@ -9,6 +9,7 @@ import { useState, useEffect } from 'react'
 import { useRouter, useRouterState } from '@tanstack/react-router'
 import { NAV, findNavEntry, type NavGroup, type NavLeaf } from './navConfig'
 import { Icon } from '@/components/ui/Icon'
+import { Tooltip } from '@/components/ui/Tooltip'
 import { useAuthStore } from '@/stores/auth'
 import { useWsStore } from '@/stores/ws'
 
@@ -234,36 +235,40 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
                 </div>
               )}
             </div>
+            <Tooltip content="Log out">
+              <button
+                onClick={async () => { await logout(); router.navigate({ to: '/login' }) }}
+                aria-label="Log out"
+                style={{
+                  background: 'none', border: 'none', cursor: 'pointer',
+                  color: 'var(--text-tertiary)', display: 'flex', alignItems: 'center',
+                  padding: '4px', borderRadius: 'var(--radius-xs)',
+                  transition: 'color var(--transition-fast)',
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--error)'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-tertiary)'; }}
+              >
+                <Icon name="logout" size={17} />
+              </button>
+            </Tooltip>
+          </div>
+        ) : (
+          <Tooltip content="Log out">
             <button
               onClick={async () => { await logout(); router.navigate({ to: '/login' }) }}
-              aria-label="Log out" title="Log out"
+              aria-label="Log out"
               style={{
                 background: 'none', border: 'none', cursor: 'pointer',
-                color: 'var(--text-tertiary)', display: 'flex', alignItems: 'center',
-                padding: '4px', borderRadius: 'var(--radius-xs)',
+                color: 'var(--text-tertiary)', display: 'flex', justifyContent: 'center',
+                padding: '4px', borderRadius: 'var(--radius-xs)', width: '100%',
                 transition: 'color var(--transition-fast)',
               }}
               onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--error)'; }}
               onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-tertiary)'; }}
             >
-              <Icon name="logout" size={17} />
+              <Icon name="logout" size={18} />
             </button>
-          </div>
-        ) : (
-          <button
-            onClick={async () => { await logout(); router.navigate({ to: '/login' }) }}
-            aria-label="Log out" title="Log out"
-            style={{
-              background: 'none', border: 'none', cursor: 'pointer',
-              color: 'var(--text-tertiary)', display: 'flex', justifyContent: 'center',
-              padding: '4px', borderRadius: 'var(--radius-xs)', width: '100%',
-              transition: 'color var(--transition-fast)',
-            }}
-            onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--error)'; }}
-            onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-tertiary)'; }}
-          >
-            <Icon name="logout" size={18} />
-          </button>
+          </Tooltip>
         )}
       </div>
     </nav>

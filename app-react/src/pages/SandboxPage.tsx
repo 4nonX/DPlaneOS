@@ -19,6 +19,7 @@ import { Icon } from '@/components/ui/Icon'
 import { Modal } from '@/components/ui/Modal'
 import { ErrorState } from '@/components/ui/ErrorState'
 import { LoadingState, Spinner } from '@/components/ui/LoadingSpinner'
+import { Tooltip } from '@/components/ui/Tooltip'
 import { toast } from '@/hooks/useToast'
 
 // ---------------------------------------------------------------------------
@@ -387,18 +388,19 @@ export function SandboxPage() {
           <p className="page-subtitle">Ephemeral ZFS clone environments — test changes safely, destroy to revert</p>
         </div>
         <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexShrink: 0 }}>
-          <button
-            className="btn btn-ghost"
-            onClick={() => cleanupMutation.mutate()}
-            disabled={cleanupMutation.isPending}
-            title="Remove orphaned Docker volumes left by destroyed sandboxes"
-          >
-            {cleanupMutation.isPending ? (
-              <><Spinner size={14} /> Cleaning…</>
-            ) : (
-              <><Icon name="cleaning_services" size={15} /> Clean Orphans</>
-            )}
-          </button>
+          <Tooltip content="Remove orphaned Docker volumes left by destroyed sandboxes">
+            <button
+              className="btn btn-ghost"
+              onClick={() => cleanupMutation.mutate()}
+              disabled={cleanupMutation.isPending}
+            >
+              {cleanupMutation.isPending ? (
+                <><Spinner size={14} /> Cleaning…</>
+              ) : (
+                <><Icon name="cleaning_services" size={15} /> Clean Orphans</>
+              )}
+            </button>
+          </Tooltip>
           <button className="btn btn-primary" onClick={() => setShowNewModal(true)}>
             <Icon name="add" size={15} /> New Sandbox
           </button>
@@ -434,10 +436,10 @@ export function SandboxPage() {
               {sandboxes.length} active
             </span>
           )}
-          <button
-            onClick={() => sandboxesQ.refetch()}
-            title="Refresh"
-            style={{
+          <Tooltip content="Refresh">
+            <button
+              onClick={() => sandboxesQ.refetch()}
+              style={{
               marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer',
               color: 'var(--text-tertiary)', display: 'flex', alignItems: 'center',
               padding: '4px', borderRadius: 'var(--radius-xs)',
@@ -448,6 +450,7 @@ export function SandboxPage() {
           >
             <Icon name="refresh" size={16} />
           </button>
+          </Tooltip>
         </div>
 
         {sandboxesQ.isLoading && <LoadingState message="Loading sandboxes…" />}

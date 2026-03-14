@@ -20,6 +20,7 @@ import { api } from '@/lib/api'
 import { Icon } from '@/components/ui/Icon'
 import { ErrorState } from '@/components/ui/ErrorState'
 import { Skeleton } from '@/components/ui/LoadingSpinner'
+import { Tooltip } from '@/components/ui/Tooltip'
 import { toast } from '@/hooks/useToast'
 
 // ---------------------------------------------------------------------------
@@ -233,28 +234,26 @@ export function UpdatesPage() {
               <Icon name="search" size={14} />
               {jobRunning && activeJobLabel === 'check' ? 'Checking…' : 'Check for updates'}
             </button>
-            <button
+            <Tooltip content={totalCount === 0 ? 'Run "Check for updates" first' : ''}><button
               onClick={() => applySecM.mutate()}
               disabled={busy || totalCount === 0}
               className="btn btn-primary"
-              title={totalCount === 0 ? 'Run "Check for updates" first' : undefined}
             >
               <Icon name="security" size={14} />
               {jobRunning && activeJobLabel === 'Security upgrade'
                 ? 'Applying security…'
                 : `Apply security updates${secCount > 0 ? ` (${secCount})` : ''}`}
-            </button>
-            <button
+            </button></Tooltip>
+            <Tooltip content={totalCount === 0 ? 'Run "Check for updates" first' : ''}><button
               onClick={() => applyAllM.mutate()}
               disabled={busy || totalCount === 0}
               className="btn btn-ghost"
-              title={totalCount === 0 ? 'Run "Check for updates" first' : undefined}
             >
               <Icon name="system_update" size={14} />
               {jobRunning && activeJobLabel === 'Full upgrade'
                 ? 'Upgrading…'
                 : `Apply all updates${totalCount > 0 ? ` (${totalCount})` : ''}`}
-            </button>
+            </button></Tooltip>
           </div>
 
           {/* Running job indicator */}

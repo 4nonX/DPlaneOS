@@ -16,6 +16,7 @@ import { api } from '@/lib/api'
 import { Icon } from '@/components/ui/Icon'
 import { ErrorState } from '@/components/ui/ErrorState'
 import { Skeleton } from '@/components/ui/LoadingSpinner'
+import { Tooltip } from '@/components/ui/Tooltip'
 import { toast } from '@/hooks/useToast'
 
 // ---------------------------------------------------------------------------
@@ -123,9 +124,11 @@ function DiskRow({ disk, savedTimeout, onSpindown, onSpindownNow, pending }: {
 
       {/* Spindown now */}
       {isHDD && (
-        <button onClick={() => onSpindownNow(disk.device)} disabled={pending} className="btn btn-ghost" title="Spin down immediately">
-          <Icon name="power_settings_new" size={14} />Spindown
-        </button>
+        <Tooltip content="Spin down immediately">
+          <button onClick={() => onSpindownNow(disk.device)} disabled={pending} className="btn btn-ghost">
+            <Icon name="power_settings_new" size={14} />Spindown
+          </button>
+        </Tooltip>
       )}
     </div>
   )

@@ -27,6 +27,7 @@ import { Skeleton } from '@/components/ui/LoadingSpinner'
 import { useJob } from '@/hooks/useJob'
 import { toast } from '@/hooks/useToast'
 import { Modal } from '@/components/ui/Modal'
+import { Tooltip } from '@/components/ui/Tooltip'
 import { useConfirm } from '@/components/ui/ConfirmDialog'
 
 // ---------------------------------------------------------------------------
@@ -591,26 +592,28 @@ function SchedulesTab({ datasets, confirm }: { datasets: ZFSDataset[]; confirm: 
                   </td>
                   <td style={{ padding: '12px 12px' }}>
                     <div style={{ display: 'flex', gap: 6 }}>
-                      <button
-                        onClick={() => runNowMutation.mutate(s.id)}
-                        disabled={runNowMutation.isPending && runningId === s.id}
-                        className="btn btn-sm btn-ghost"
-                        title="Run Now"
-                      >
-                        <Icon name="play_arrow" size={14} />
-                        {runNowMutation.isPending && runningId === s.id ? 'Starting…' : 'Run'}
-                      </button>
-                       <button
-                          onClick={async () => {
-                            if (await confirm({ title: `Delete schedule "${s.name}"?`, message: 'This cannot be undone.', danger: true, confirmLabel: 'Delete' })) deleteMutation.mutate(s.id)
-                          }}
-                         disabled={deleteMutation.isPending}
-                         className="btn btn-sm btn-ghost"
-                         style={{ color: 'var(--error)' }}
-                         title="Delete"
-                       >
-                         <Icon name="delete" size={14} />
-                       </button>
+                      <Tooltip content="Run Now">
+                        <button
+                          onClick={() => runNowMutation.mutate(s.id)}
+                          disabled={runNowMutation.isPending && runningId === s.id}
+                          className="btn btn-sm btn-ghost"
+                        >
+                          <Icon name="play_arrow" size={14} />
+                          {runNowMutation.isPending && runningId === s.id ? 'Starting…' : 'Run'}
+                        </button>
+                      </Tooltip>
+                       <Tooltip content="Delete">
+                         <button
+                           onClick={async () => {
+                             if (await confirm({ title: `Delete schedule "${s.name}"?`, message: 'This cannot be undone.', danger: true, confirmLabel: 'Delete' })) deleteMutation.mutate(s.id)
+                           }}
+                          disabled={deleteMutation.isPending}
+                          className="btn btn-sm btn-ghost"
+                          style={{ color: 'var(--error)' }}
+                        >
+                          <Icon name="delete" size={14} />
+                        </button>
+                       </Tooltip>
                     </div>
                   </td>
                 </tr>

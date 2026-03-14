@@ -203,9 +203,11 @@ function DatasetNode({ node, depth, onCreateChild }: {
             <div style={{ fontSize: 'var(--text-sm)', fontFamily: 'var(--font-mono)' }}>{node.avail || '—'}</div>
             <div style={{ fontSize: 'var(--text-2xs)', color: 'var(--text-tertiary)' }}>avail</div>
           </div>
-          <button onClick={() => onCreateChild(node.name)} className="btn btn-sm btn-ghost" title="New child dataset">
-            <Icon name="add" size={13} />
-          </button>
+          <Tooltip content="New child dataset">
+            <button onClick={() => onCreateChild(node.name)} className="btn btn-sm btn-ghost">
+              <Icon name="add" size={13} />
+            </button>
+          </Tooltip>
         </div>
       </div>
       {open && node.children.map(c => <DatasetNode key={c.name} node={c} depth={depth + 1} onCreateChild={onCreateChild} />)}
@@ -894,7 +896,11 @@ export function PoolsPage() {
           <h1 style={{ fontSize: 'var(--text-3xl)', fontWeight: 700, letterSpacing: '-1px', marginBottom: 6 }}>ZFS Storage</h1>
           <p style={{ color: 'var(--text-secondary)', fontSize: 'var(--text-md)' }}>Pools · Datasets · Scrub · Encryption</p>
         </div>
-        <button onClick={refresh} className="btn btn-ghost" title="Refresh"><Icon name="refresh" size={16} /></button>
+        <Tooltip content="Refresh">
+          <button onClick={refresh} className="btn btn-ghost">
+            <Icon name="refresh" size={16} />
+          </button>
+        </Tooltip>
       </div>
 
       {/* Mount error alert — shown when background monitor detects an unwritable mountpoint */}

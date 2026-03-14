@@ -22,6 +22,7 @@ import { Icon } from '@/components/ui/Icon'
 import { Modal } from '@/components/ui/Modal'
 import { ErrorState } from '@/components/ui/ErrorState'
 import { LoadingState, Spinner } from '@/components/ui/LoadingSpinner'
+import { Tooltip } from '@/components/ui/Tooltip'
 import { toast } from '@/hooks/useToast'
 
 // ---------------------------------------------------------------------------
@@ -470,24 +471,25 @@ export function DelegationPage() {
                       </div>
                     </td>
                     <td>
-                      <button
-                        className="btn btn-ghost"
-                        onClick={() => revokeMutation.mutate({
-                          dataset:     d.dataset,
-                          user:        d.principal,
-                          permissions: d.permissions,
-                          entryId:     d.id,
-                        })}
-                        disabled={revokingId === d.id}
-                        style={{ fontSize: 'var(--text-xs)', color: 'var(--error)' }}
-                        title="Revoke this delegation"
-                      >
-                        {revokingId === d.id ? (
-                          <Spinner size={13} />
-                        ) : (
-                          <><Icon name="block" size={14} /> Revoke</>
-                        )}
-                      </button>
+                      <Tooltip content="Revoke this delegation">
+                        <button
+                          className="btn btn-ghost"
+                          onClick={() => revokeMutation.mutate({
+                            dataset:     d.dataset,
+                            user:        d.principal,
+                            permissions: d.permissions,
+                            entryId:     d.id,
+                          })}
+                          disabled={revokingId === d.id}
+                          style={{ fontSize: 'var(--text-xs)', color: 'var(--error)' }}
+                        >
+                          {revokingId === d.id ? (
+                            <Spinner size={13} />
+                          ) : (
+                            <><Icon name="block" size={14} /> Revoke</>
+                          )}
+                        </button>
+                      </Tooltip>
                     </td>
                   </tr>
                 ))}

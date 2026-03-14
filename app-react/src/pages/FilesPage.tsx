@@ -25,6 +25,7 @@ import { ErrorState } from '@/components/ui/ErrorState'
 import { Skeleton } from '@/components/ui/LoadingSpinner'
 import { toast } from '@/hooks/useToast'
 import { Modal } from '@/components/ui/Modal'
+import { Tooltip } from '@/components/ui/Tooltip'
 import { useConfirm } from '@/components/ui/ConfirmDialog'
 
 // ---------------------------------------------------------------------------
@@ -603,10 +604,16 @@ function FileBrowser() {
       <div style={{ flex: 1, minWidth: 0 }}>
       {/* Toolbar */}
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 12 }}>
-        <button onClick={upDir} className="btn btn-ghost" title="Up" disabled={path === '/' || path === '/mnt'}>
-          <Icon name="arrow_upward" size={15} />
-        </button>
-        <button onClick={refresh} className="btn btn-ghost" title="Refresh"><Icon name="refresh" size={15} /></button>
+        <Tooltip content="Up">
+          <button onClick={upDir} className="btn btn-ghost" disabled={path === '/' || path === '/mnt'}>
+            <Icon name="arrow_upward" size={15} />
+          </button>
+        </Tooltip>
+        <Tooltip content="Refresh">
+          <button onClick={refresh} className="btn btn-ghost">
+            <Icon name="refresh" size={15} />
+          </button>
+        </Tooltip>
 
         {/* Breadcrumb / path input */}
         <form onSubmit={e => { e.preventDefault(); navigate(inputPath) }} style={{ flex: 1 }}>
@@ -739,14 +746,18 @@ function FileBrowser() {
                       >
                         {!entry.is_dir && (
                           <>
-                            <button title="Edit" onClick={e => { e.stopPropagation(); setModal({ type: 'edit', entry }) }}
-                              className="btn btn-ghost" style={{ padding: '3px 7px' }}>
-                              <Icon name="edit_note" size={14} />
-                            </button>
-                            <button title="Download" onClick={e => { e.stopPropagation(); downloadFile(entry) }}
-                              className="btn btn-ghost" style={{ padding: '3px 7px' }}>
-                              <Icon name="download" size={14} />
-                            </button>
+                            <Tooltip content="Edit">
+                              <button onClick={e => { e.stopPropagation(); setModal({ type: 'edit', entry }) }}
+                                className="btn btn-ghost" style={{ padding: '3px 7px' }}>
+                                <Icon name="edit_note" size={14} />
+                              </button>
+                            </Tooltip>
+                            <Tooltip content="Download">
+                              <button onClick={e => { e.stopPropagation(); downloadFile(entry) }}
+                                className="btn btn-ghost" style={{ padding: '3px 7px' }}>
+                                <Icon name="download" size={14} />
+                              </button>
+                            </Tooltip>
                           </>
                         )}
                       </div>

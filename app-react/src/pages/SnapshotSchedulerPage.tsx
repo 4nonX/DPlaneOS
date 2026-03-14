@@ -18,6 +18,7 @@ import { ErrorState } from '@/components/ui/ErrorState'
 import { Skeleton } from '@/components/ui/LoadingSpinner'
 import { toast } from '@/hooks/useToast'
 import { Modal } from '@/components/ui/Modal'
+import { Tooltip } from '@/components/ui/Tooltip'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -228,12 +229,16 @@ function ScheduleRow({ schedule, index: _index, replSchedules, onToggle, onDelet
         {schedule.enabled ? 'ACTIVE' : 'DISABLED'}
       </span>
       <div style={{ display: 'flex', gap: 6 }}>
-        <button onClick={onRunNow} disabled={running} className="btn btn-ghost" title="Run now">
-          <Icon name="play_arrow" size={14} />{running ? 'Running…' : 'Run Now'}
-        </button>
-        <button onClick={onToggle} className="btn btn-ghost" title={schedule.enabled ? 'Disable' : 'Enable'}>
-          <Icon name={schedule.enabled ? 'pause_circle' : 'play_circle'} size={14} />
-        </button>
+        <Tooltip content="Run now">
+          <button onClick={onRunNow} disabled={running} className="btn btn-ghost">
+            <Icon name="play_arrow" size={14} />{running ? 'Running…' : 'Run Now'}
+          </button>
+        </Tooltip>
+        <Tooltip content={schedule.enabled ? 'Disable' : 'Enable'}>
+          <button onClick={onToggle} className="btn btn-ghost">
+            <Icon name={schedule.enabled ? 'pause_circle' : 'play_circle'} size={14} />
+          </button>
+        </Tooltip>
         {!confirming
           ? <button onClick={() => setConfirming(true)} className="btn btn-ghost" style={{ color: 'var(--error)', borderColor: 'var(--error-border)' }}>
               <Icon name="delete" size={14} />

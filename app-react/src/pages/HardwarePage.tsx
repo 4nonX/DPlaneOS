@@ -23,6 +23,7 @@ import { ErrorState } from '@/components/ui/ErrorState'
 import { LoadingState, Skeleton, Spinner } from '@/components/ui/LoadingSpinner'
 import { Icon } from '@/components/ui/Icon'
 import { Modal } from '@/components/ui/Modal'
+import { Tooltip } from '@/components/ui/Tooltip'
 import { useWsStore } from '@/stores/ws'
 import { toast } from '@/hooks/useToast'
 
@@ -558,31 +559,34 @@ function DiskRow({
             </div>
           ) : (
             <>
+              <Tooltip content="Run short SMART self-test (~2 min)">
               <button
                 className="btn btn-ghost"
                 onClick={onShortTest}
-                title="Run short SMART self-test (~2 min)"
                 style={{ fontSize: 'var(--text-xs)', padding: '4px 10px' }}
               >
                 Short Test
               </button>
+            </Tooltip>
+            <Tooltip content="Run long SMART self-test (hours)">
               <button
                 className="btn btn-ghost"
                 onClick={onLongTest}
-                title="Run long SMART self-test (hours)"
                 style={{ fontSize: 'var(--text-xs)', padding: '4px 10px' }}
               >
                 Long Test
               </button>
+            </Tooltip>
+            <Tooltip content="View last SMART test results">
               <button
                 className="btn btn-ghost"
                 onClick={onViewResults}
-                title="View last SMART test results"
                 style={{ fontSize: 'var(--text-xs)', padding: '4px 10px' }}
               >
                 <Icon name="analytics" size={14} style={{ marginRight: 4 }} />
                 View Results
               </button>
+            </Tooltip>
             </>
           )}
         </div>

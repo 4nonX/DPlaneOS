@@ -18,6 +18,7 @@ import { Icon } from '@/components/ui/Icon'
 import { ErrorState } from '@/components/ui/ErrorState'
 import { Skeleton } from '@/components/ui/LoadingSpinner'
 import { Modal } from '@/components/ui/Modal'
+import { Tooltip } from '@/components/ui/Tooltip'
 import { toast } from '@/hooks/useToast'
 
 // ---------------------------------------------------------------------------
@@ -200,15 +201,21 @@ export function SharesPage() {
           <p style={{ color: 'var(--text-secondary)', fontSize: 'var(--text-md)' }}>SMB network shares</p>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
-          <button onClick={() => smbTest.mutate()} disabled={smbTest.isPending} className="btn btn-ghost" title="Test SMB config">
-            <Icon name="bug_report" size={16} />{smbTest.isPending ? 'Testing…' : 'Test Config'}
-          </button>
-          <button onClick={() => smbReload.mutate()} disabled={smbReload.isPending} className="btn btn-ghost" title="Reload SMB">
-            <Icon name="restart_alt" size={16} />{smbReload.isPending ? 'Reloading…' : 'Reload SMB'}
-          </button>
-          <button onClick={() => nfsReload.mutate()} disabled={nfsReload.isPending} className="btn btn-ghost" title="Reload NFS exports">
-            <Icon name="sync" size={16} />{nfsReload.isPending ? 'Reloading…' : 'Reload NFS'}
-          </button>
+          <Tooltip content="Test SMB config">
+            <button onClick={() => smbTest.mutate()} disabled={smbTest.isPending} className="btn btn-ghost">
+              <Icon name="bug_report" size={16} />{smbTest.isPending ? 'Testing…' : 'Test Config'}
+            </button>
+          </Tooltip>
+          <Tooltip content="Reload SMB">
+            <button onClick={() => smbReload.mutate()} disabled={smbReload.isPending} className="btn btn-ghost">
+              <Icon name="restart_alt" size={16} />{smbReload.isPending ? 'Reloading…' : 'Reload SMB'}
+            </button>
+          </Tooltip>
+          <Tooltip content="Reload NFS exports">
+            <button onClick={() => nfsReload.mutate()} disabled={nfsReload.isPending} className="btn btn-ghost">
+              <Icon name="sync" size={16} />{nfsReload.isPending ? 'Reloading…' : 'Reload NFS'}
+            </button>
+          </Tooltip>
           <button onClick={() => setShowCreate(true)} className="btn btn-primary">
             <Icon name="add" size={16} /> Add Share
           </button>
