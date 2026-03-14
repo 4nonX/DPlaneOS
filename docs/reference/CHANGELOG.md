@@ -20,10 +20,7 @@ Upgrade from: v5.2.1 — Drop-in. `sudo bash install.sh --upgrade`
 
 - Modal entrance/exit animations — smoother transitions using scale and fade effects
 - Consistent tooltip/popover styling matching design system
-
-### Note
-
-- The Tooltip/Popover components are ready for use. Migration of existing `title=` attributes is incremental — the infrastructure is in place for gradual adoption.
+- All button `title=` attributes replaced with custom Tooltip component
 
 ---
 
