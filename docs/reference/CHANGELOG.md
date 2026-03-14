@@ -12,14 +12,18 @@ Upgrade from: v5.2.1 — Drop-in. `sudo bash install.sh --upgrade`
 
 ### Added
 
-- **Custom Tooltip component** — replaces native browser `title=` tooltips with styled floating tooltips. Supports positioning (top/bottom/left/right) and delay options.
-- **Popover component** — hover cards showing contextual info (pool stats, dataset details, etc.)
-- **Enhanced ConfirmDialog** — supports context info display and typed confirmation for destructive operations.
+- **Custom Tooltip component** — new styled floating tooltip component. Supports positioning (top/bottom/left/right), delay options, and custom styling.
+- **Popover component** — hover cards for showing contextual info.
+- **Enhanced ConfirmDialog** — supports context info display and typed confirmation for destructive operations. Auto-focuses input, blocks confirm until text matches.
 
 ### UI Improvements
 
 - Modal entrance/exit animations — smoother transitions using scale and fade effects
 - Consistent tooltip/popover styling matching design system
+
+### Note
+
+- The Tooltip/Popover components are ready for use. Migration of existing `title=` attributes is incremental — the infrastructure is in place for gradual adoption.
 
 ---
 
