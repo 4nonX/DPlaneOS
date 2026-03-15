@@ -6,7 +6,7 @@ ZFS-first NAS operating system for homelab and small-office deployments. Runs as
 
 [![CI Status](https://github.com/4nonX/D-PlaneOS/actions/workflows/validate.yml/badge.svg)](https://github.com/4nonX/D-PlaneOS/actions)
 
-![D-PlaneOS Demo](demo.webp)
+![D-PlaneOS Demo](demo.gif)
 ---
 
 ## Install
