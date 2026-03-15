@@ -58,6 +58,7 @@ import { SupportPage }       from '@/pages/SupportPage'
 import { TerminalPage }      from '@/pages/TerminalPage'
 import { SandboxPage }       from '@/pages/SandboxPage'
 import { DelegationPage }    from '@/pages/DelegationPage'
+import { getPluginRoutes }   from '@/plugins'
 
 // Silence unused React import warning (needed for JSX in some tsx files)
 void React
@@ -158,6 +159,7 @@ const routeTree = rootRoute.addChildren([
     settingsRoute, updatesRoute, alertsRoute, upsRoute, powerRoute,
     hardwareRoute, ipmiRoute, haRoute, monitoringRoute, logsRoute,
     reportingRoute, supportRoute, terminalRoute,
+    ...getPluginRoutes(protectedRoute),
   ]),
 ])
 

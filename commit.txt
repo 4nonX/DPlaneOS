@@ -1,0 +1,29 @@
+﻿commit 7154e57e5c936bea91c8ad1ef5382de80f15d8b7
+Author: 4nonX <93846287+4nonX@users.noreply.github.com>
+Date:   Sun Mar 15 15:39:06 2026 +0100
+
+    release: v5.3.2 - fix build cleanup and re-verify pool ops
+
+M	VERSION
+A	app-react/public/manifest.json
+A	app-react/public/modules/available/monitoring/install.sh
+A	app-react/public/modules/available/monitoring/module.json
+A	app-react/public/modules/available/nfs-server/install.sh
+A	app-react/public/modules/available/nfs-server/module.json
+A	app-react/public/modules/available/nfs-server/uninstall.sh
+A	app-react/public/modules/available/smb-server/install.sh
+A	app-react/public/modules/available/smb-server/module.json
+A	app-react/public/modules/available/smb-server/uninstall.sh
+M	app-react/vite.config.ts
+D	app/assets/index-nABdU3XR.js
+D	app/assets/tanstack-query-By5bQDnT.js
+D	app/assets/tanstack-router-BqBtk0PK.js
+D	app/assets/zustand-PysFfYEW.js
+A	diff.txt
+A	diff_zfs.txt
+A	diff_zfs_head.txt
+M	docs/reference/CHANGELOG.md
+A	whitelist_tag.go
+A	whitelist_v530.go
+A	zfs_tag.go
+A	zfs_v530.go

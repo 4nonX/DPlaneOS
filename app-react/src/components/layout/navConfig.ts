@@ -24,7 +24,11 @@ export interface NavGroup {
 
 export type NavItem = NavLeaf | NavGroup
 
-export const NAV: NavItem[] = [
+import { pluginNavInject } from '../../plugins'
+
+// ... existing code ...
+
+const initialNav: NavItem[] = [
   {
     kind: 'leaf',
     id: 'dashboard',
@@ -118,6 +122,9 @@ export const NAV: NavItem[] = [
     ],
   },
 ]
+
+export const NAV = [...initialNav]
+pluginNavInject(NAV)
 
 /**
  * Returns the NavLeaf for a given route path, plus its parent group id (if any).
