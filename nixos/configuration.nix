@@ -1,5 +1,5 @@
 # ═══════════════════════════════════════════════════════════════
-#  D-PlaneOS v4.0.0 — NixOS Configuration
+#  D-PlaneOS v5.3.2 — NixOS Configuration
 # ═══════════════════════════════════════════════════════════════
 #
 #  The Immutable NAS: NixOS (system) + ZFS (data) + GitOps (containers)
