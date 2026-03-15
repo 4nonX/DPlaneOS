@@ -89,6 +89,18 @@ logs/
 coverage.out
 coverage.html
 
+# ── Debug / CI output files ─────────────────────────────────────────────────
+*_output.txt
+*_test.txt
+diff.txt
+diff_*.txt
+build_*.txt
+handlers_*.txt
+zfs_*.txt
+whitelist_*.go
+zfs_*.go
+*.bak
+
 # ── NixOS build outputs ───────────────────────────────────────────────────────
 nixos/result
 nixos/result-*
