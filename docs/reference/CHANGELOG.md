@@ -6,6 +6,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ---
 
+## v5.2.3 (2026-03-15) — "More UI Polish"
+
+### Added
+
+- Global Design Tokens (src/index.css)Rich HSL Color Palette: Refactored the base colors (--primary, --success, --warning, --error) from flat hex codes to a deeply saturated and highly controllable HSL spectrum.
+Deep Mesh Background: Upgraded the root background from a basic 2-color radial gradient to a multi-layered, dramatic pseudo-mesh gradient that reacts beautifully underneath glassmorphic elements.
+Shadow and Depth Overhaul: Implemented a new multi-layered robust shadow system (--shadow-sm, --shadow-md, --shadow-lg, and an all-new --shadow-glow variable).
+- The Glassmorphism Aesthetic
+Introduced the --blur-glass: blur(20px) variable.
+Applied backdrop-filter alongside semi-transparent deep-dark backgrounds (hsla(var(--hue-bg), 18%, 10%, 0.5)) to:
+Top navigation bar (TopBar.tsx) Left navigation menu (Sidebar.tsx)
+Dashboard component containers (.card, .alert)
+Input fields, dropdown menus, tooltips, and popovers.
+
+### Fixed
+
+- Codebase-Wide Component Normalization
+Audited the entire src/pages directory (over 40+ route components).
+Discovered extensive usage of hardcoded inline styles (style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}) that bypassed the new glass tokens.
+- Deployed a series of automated AST-like regex replacements across thousands of lines of TypeScript to dynamically strip the static borders/backgrounds and inject the global className="card". This ensures every single view in D-PlaneOS inherits the interactive glassmorphism updates uniformly.
+- Micro-Animations & Dynamic Feedback
+Buttons (.btn): Added inner light-catching borders (box-shadow: inset 0 1px 0 hsla(0,0%,100%,0.3)), scale compression on active clicks (transform: scale(0.97)), and heavy glowing hover shadows.
+Inputs & Tabs: Introduced a var(--transition-bounce) for spring-like fluidity when moving between tab states or focusing on input bars.
+- Dashboard Interactive Cards (.card.interactive): Upgraded dashboard metrics and section cards to smoothly translate Y: -2px with a heightened drop-shadow.
+
 ## v5.2.2 (2026-03-14) — "UI Polish"
 
 Upgrade from: v5.2.1 — Drop-in. `sudo bash install.sh --upgrade`
