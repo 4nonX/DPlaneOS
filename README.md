@@ -5,6 +5,8 @@ ZFS-first NAS operating system for homelab and small-office deployments. Runs as
 **Current version:** 5.3.2 &nbsp;|&nbsp; **License:** AGPLv3 &nbsp;|&nbsp; **Platforms:** Debian · Ubuntu · Raspberry Pi OS · NixOS
 
 [![CI Status](https://github.com/4nonX/D-PlaneOS/actions/workflows/validate.yml/badge.svg)](https://github.com/4nonX/D-PlaneOS/actions)
+
+![D-PlaneOS Demo](demo.webp)
 ---
 
 ## Install
