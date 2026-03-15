@@ -72,12 +72,30 @@ interface AuthState {
 
   /** POST /api/auth/logout */
   logout: () => Promise<void>
+
+  /** Dev-only: bypass backend to preview UI */
+  mockLogin: () => void
 }
 
 export const useAuthStore = create<AuthState>((set) => ({
   user: null,
   isAuthenticated: false,
   isLoading: true,
+
+  mockLogin: () => {
+    sessionStorage.setItem('dplane_mock_active', 'true')
+    set({
+      isAuthenticated: true,
+      user: {
+        id: 1,
+        username: 'admin',
+        email: 'admin@dplaneos.local',
+        role: 'admin',
+        must_change_password: false
+      },
+      isLoading: false
+    })
+  },
 
   validateSession: async () => {
     const sessionId = getSessionId()

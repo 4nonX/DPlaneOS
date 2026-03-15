@@ -456,6 +456,63 @@ function ContainerTable({ containers, onRefresh, topBorder = true }: { container
 // PullTab
 // ---------------------------------------------------------------------------
 
+function DeployComposeSection({ onDone }: { onDone: () => void }) {
+  const [name, setName] = useState('')
+  const [yaml, setYaml] = useState('services:\n  nginx:\n    image: nginx:latest\n    ports:\n      - "80:80"')
+  const [deployJobId, setDeployJobId] = useState<string | null>(null)
+  
+  const deploy = useMutation({
+    mutationFn: (data: { name: string; yaml: string }) => api.post<{ job_id: string }>('/api/docker/compose/deploy', data),
+    onSuccess: (data) => setDeployJobId(data.job_id),
+    onError: (e: Error) => toast.error(e.message),
+  })
+
+  function start() {
+    if (!name.trim()) { toast.error('Stack name required'); return }
+    if (!yaml.trim() || yaml.length < 20) { toast.error('Valid Compose YAML required'); return }
+    setDeployJobId(null)
+    deploy.mutate({ name, yaml })
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <label className="field">
+        <span className="field-label">Stack Name</span>
+        <input value={name} onChange={e => setName(e.target.value.toLowerCase().replace(/[^a-z0-h0-9_-]/g, ''))} 
+          placeholder="my-cool-app" className="input" style={{ maxWidth: 300 }} />
+      </label>
+
+      <label className="field" style={{ flex: 1 }}>
+        <span className="field-label">docker-compose.yml</span>
+        <textarea 
+          value={yaml} 
+          onChange={e => setYaml(e.target.value)} 
+          placeholder="version: '3'..." 
+          className="input" 
+          style={{ height: 240, fontFamily: 'var(--font-mono)', fontSize: 13, lineHeight: 1.5 }}
+        />
+      </label>
+
+      {deployJobId && (
+        <JobProgress
+          jobId={deployJobId}
+          runningLabel={`Deploying ${name} stack…`}
+          doneLabel="Stack deployed successfully"
+          onDone={() => { onDone(); setDeployJobId(null); setName(''); setYaml('services:\n  ') }}
+          onFailed={() => setDeployJobId(null)}
+        />
+      )}
+
+      <div style={{ display: 'flex', gap: 10 }}>
+        <button onClick={start} disabled={deploy.isPending} className="btn btn-primary">
+          <Icon name="rocket_launch" size={16} />{deploy.isPending ? 'Deploying…' : 'Deploy Stack'}
+        </button>
+        <button onClick={() => { setName(''); setYaml('services:\n  ') }} className="btn btn-ghost">Clear</button>
+      </div>
+    </div>
+  )
+}
+
 function PullTab() {
   const [image, setImage] = useState('')
   const [tag, setTag] = useState('latest')
@@ -512,6 +569,19 @@ function PullTab() {
         <button onClick={start} disabled={pull.isPending} className="btn btn-primary">
           <Icon name="download" size={16} />{pull.isPending ? 'Starting…' : 'Pull Image'}
         </button>
+      </div>
+
+      {/* Compose YAML Deployment */}
+      <div className="card" style={{ marginTop: 28, borderRadius: 'var(--radius-xl)', padding: 28 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 24 }}>
+          <Icon name="add_box" size={28} style={{ color: 'var(--primary)' }} />
+          <div>
+            <div style={{ fontWeight: 700, fontSize: 'var(--text-lg)' }}>Deploy Compose Stack</div>
+            <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>Paste a docker-compose.yml to deploy a new stack</div>
+          </div>
+        </div>
+
+        <DeployComposeSection onDone={() => { qc.invalidateQueries({ queryKey: ['docker', 'containers'] }); qc.invalidateQueries({ queryKey: ['docker', 'compose', 'status'] }) }} />
       </div>
 
       {/* Quick reference */}

@@ -15,6 +15,11 @@
  *   GET  /api/zfs/resilver/status?pool=X
  *   POST /api/zfs/datasets           (create dataset)
  *   GET  /api/zfs/datasets/search    (global dataset search — used by search bar)
+ *   // NEW: Pool Lifecycle
+ *   GET  /api/zfs/disks              (get list of unassigned physical disks)
+ *   POST /api/zfs/pools/create       (create a new pool)
+ *   POST /api/zfs/pools/expand       (add VDEV to existing pool)
+ *   POST /api/zfs/pools/destroy      (destroy a pool)
  */
 
 import { useState, useEffect, useMemo } from 'react'
@@ -105,6 +110,29 @@ function formatScrubSchedule(s: ScrubSchedule): string {
   if (s.interval === 'weekly') return `Weekly on ${DAY_NAMES[s.day] ?? `Day ${s.day}`} at ${hourStr}`
   if (s.interval === 'monthly') return `Monthly on day ${s.day} at ${hourStr}`
   return s.interval
+}
+
+/** Helper to parse ZFS human sizes (e.g. 8.2TB, 500GB) into numeric bytes roughly */
+function parseZfsSize(size: string): number {
+  if (!size || size === '0' || size === '—' || size === '-') return 0
+  const match = size.match(/^([\d.]+)([KMGT]B)$/)
+  if (!match) return 0
+  const val = parseFloat(match[1])
+  const unit = match[2]
+  const multipliers: Record<string, number> = {
+    'KB': 1024,
+    'MB': 1024 ** 2,
+    'GB': 1024 ** 3,
+    'TB': 1024 ** 4,
+  }
+  return val * (multipliers[unit] || 1)
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes === 0) return '0 B'
+  const units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB']
+  const i = Math.floor(Math.log(bytes) / Math.log(1024))
+  return `${(bytes / Math.pow(1024, i)).toFixed(1)}${units[i]}`
 }
 
 interface TreeNode extends ZFSDataset { children: TreeNode[] }
@@ -265,13 +293,60 @@ function CreateDatasetModal({ parentName, onClose, onCreated }: {
           <input value={quota} onChange={e => setQuota(e.target.value)} placeholder="100G" className="input" />
         </label>
       </div>
-      <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 24 }}>
+      <div className="modal-footer">
         <button onClick={onClose} className="btn btn-ghost">Cancel</button>
         <button onClick={submit} disabled={mutation.isPending} className="btn btn-primary">
           {mutation.isPending ? 'Creating…' : 'Create Dataset'}
         </button>
       </div>
     </Modal>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// StorageSummary
+// ---------------------------------------------------------------------------
+
+function StorageSummary({ pools }: { pools: ZFSPool[] }) {
+  const totals = useMemo(() => {
+    let total = 0; let used = 0; let free = 0;
+    pools.forEach(p => {
+      total += parseZfsSize(p.size)
+      used += parseZfsSize(p.used || p.alloc)
+      free += parseZfsSize(p.free)
+    })
+    return { total, used, free, pct: total > 0 ? (used / total) * 100 : 0 }
+  }, [pools])
+
+  if (pools.length === 0) return null
+
+  return (
+    <div className="card" style={{ marginBottom: 32, background: 'var(--surface)', padding: '24px 32px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 24 }}>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 8 }}>Overall Storage Efficiency</div>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+            <span style={{ fontSize: 'var(--text-4xl)', fontWeight: 700 }}>{formatBytes(totals.used)}</span>
+            <span style={{ color: 'var(--text-tertiary)', fontSize: 'var(--text-lg)' }}>/ {formatBytes(totals.total)} used</span>
+          </div>
+          <div style={{ height: 10, background: 'rgba(255,255,255,0.05)', borderRadius: 999, overflow: 'hidden', margin: '16px 0 8px' }}>
+            <div style={{ height: '100%', width: `${totals.pct}%`, background: capacityColor(totals.pct), borderRadius: 999, transition: 'width 0.8s' }} />
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }}>
+            <span>{totals.pct.toFixed(1)}% Capacity Used</span>
+            <span>{formatBytes(totals.free)} Available</span>
+          </div>
+        </div>
+        <div style={{ width: 1, height: 80, background: 'var(--border-subtle)' }} />
+        <div style={{ textAlign: 'right', minWidth: 120 }}>
+          <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', fontWeight: 600, textTransform: 'uppercase', marginBottom: 4 }}>Total Pools</div>
+          <div style={{ fontSize: 'var(--text-2xl)', fontWeight: 700 }}>{pools.length}</div>
+          <div style={{ fontSize: 'var(--text-xs)', color: 'var(--success)', fontWeight: 600, marginTop: 4, display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 4 }}>
+            <Icon name="check_circle" size={12} /> All Healthy
+          </div>
+        </div>
+      </div>
+    </div>
   )
 }
 
@@ -370,7 +445,7 @@ function ScrubScheduleModal({ pool, current, onClose, onSaved }: {
         )}
       </div>
 
-      <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 24 }}>
+      <div className="modal-footer">
         <button onClick={onClose} className="btn btn-ghost">Cancel</button>
         <button
           onClick={() => saveMutation.mutate()}
@@ -486,6 +561,8 @@ function PoolCard({ pool, datasets, filter, onRefresh }: { pool: ZFSPool; datase
   const [treeOpen, setTreeOpen] = useState(true)
   const [createParent, setCreateParent] = useState<string | null>(null)
   const [showScheduleModal, setShowScheduleModal] = useState(false)
+  const [showDestroyModal, setShowDestroyModal] = useState(false)
+  const [showExpandModal, setShowExpandModal] = useState(false)
   const pct = parseCapacityPct(pool.capacity)
 
   // Apply client-side filter
@@ -652,6 +729,26 @@ function PoolCard({ pool, datasets, filter, onRefresh }: { pool: ZFSPool; datase
           <Icon name="edit_calendar" size={13} style={{ marginRight: 4 }} />
           Configure Schedule
         </button>
+
+        <div style={{ width: 1, height: 16, background: 'var(--border-subtle)', margin: '0 4px' }} />
+
+        <button
+          className="btn btn-ghost"
+          onClick={() => setShowExpandModal(true)}
+          style={{ fontSize: 'var(--text-xs)', padding: '4px 10px', flexShrink: 0 }}
+        >
+          <Icon name="add_circle" size={13} style={{ marginRight: 4 }} />
+          Expand
+        </button>
+
+        <button
+          className="btn btn-ghost"
+          onClick={() => setShowDestroyModal(true)}
+          style={{ fontSize: 'var(--text-xs)', padding: '4px 10px', flexShrink: 0, color: 'var(--error)' }}
+        >
+          <Icon name="delete" size={13} style={{ marginRight: 4 }} />
+          Destroy
+        </button>
       </div>
 
       {/* Resilver progress card */}
@@ -697,6 +794,21 @@ function PoolCard({ pool, datasets, filter, onRefresh }: { pool: ZFSPool; datase
           current={currentSchedule}
           onClose={() => setShowScheduleModal(false)}
           onSaved={() => qc.invalidateQueries({ queryKey: ['zfs', 'scrub', 'schedule', pool.name] })}
+        />
+      )}
+
+      {showDestroyModal && (
+        <DestroyPoolModal 
+          poolName={pool.name} 
+          onClose={() => setShowDestroyModal(false)} 
+          onDestroyed={onRefresh} 
+        />
+      )}
+
+      {showExpandModal && (
+        <CreatePoolModal 
+          onClose={() => setShowExpandModal(false)} 
+          onCreated={onRefresh} 
         />
       )}
     </div>
@@ -762,7 +874,6 @@ function EncryptionTab() {
         )
       })}
 
-      {/* Unlock modal */}
       {unlockTarget && (
         <Modal title="Unlock Dataset" onClose={() => setUnlockTarget(null)}>
           <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', marginBottom: 20, fontFamily: 'var(--font-mono)' }}>{unlockTarget}</p>
@@ -770,7 +881,7 @@ function EncryptionTab() {
             placeholder="Passphrase" className="input" autoFocus
             onKeyDown={e => e.key === 'Enter' && passphrase && unlock.mutate({ name: unlockTarget, passphrase })}
           />
-          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 20 }}>
+          <div className="modal-footer">
             <button onClick={() => setUnlockTarget(null)} className="btn btn-ghost">Cancel</button>
             <button disabled={!passphrase || unlock.isPending} onClick={() => unlock.mutate({ name: unlockTarget, passphrase })} className="btn btn-primary">
               {unlock.isPending ? 'Unlocking…' : 'Unlock'}
@@ -783,6 +894,119 @@ function EncryptionTab() {
 }
 
 // ---------------------------------------------------------------------------
+// Lifecycle Modals
+// ---------------------------------------------------------------------------
+
+function DestroyPoolModal({ poolName, onClose, onDestroyed }: { poolName: string; onClose: () => void; onDestroyed: () => void }) {
+  const [confirmName, setConfirmName] = useState('')
+  const mutation = useMutation({
+    mutationFn: () => api.post('/api/zfs/pools/destroy', { name: poolName }),
+    onSuccess: () => { toast.success(`Pool ${poolName} destroyed`); onDestroyed(); onClose() },
+    onError: (e: Error) => toast.error(e.message)
+  })
+
+  return (
+    <Modal title={<span style={{ color: 'var(--error)' }}>Destroy Pool</span>} onClose={onClose} size="sm">
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <div className="alert alert-error" style={{ fontSize: 'var(--text-xs)' }}>
+          <Icon name="warning" size={16} />
+          <strong>DANGER:</strong> This will permanently delete all data in pool <strong>{poolName}</strong>. This cannot be undone.
+        </div>
+        <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>
+          To confirm, please type the name of the pool: <strong>{poolName}</strong>
+        </p>
+        <input 
+          value={confirmName} 
+          onChange={e => setConfirmName(e.target.value)} 
+          placeholder={poolName}
+          className="input"
+          autoFocus
+        />
+      </div>
+      <div className="modal-footer">
+        <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
+        <button 
+          className="btn btn-danger" 
+          disabled={confirmName !== poolName || mutation.isPending}
+          onClick={() => mutation.mutate()}
+        >
+          {mutation.isPending ? 'Destroying…' : 'Destroy Pool'}
+        </button>
+      </div>
+    </Modal>
+  )
+}
+
+interface Disk { name: string; size: string; model: string; path: string }
+
+function CreatePoolModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
+  const [name, setName] = useState('')
+  const [layout, setLayout] = useState('stripe')
+  const [selectedDisks, setSelectedDisks] = useState<string[]>([])
+
+  const disksQ = useQuery({
+    queryKey: ['zfs', 'available-disks'],
+    queryFn: () => api.get<{ disks: Disk[] }>('/api/zfs/disks')
+  })
+
+  const mutation = useMutation({
+    mutationFn: () => api.post('/api/zfs/pools/create', { name, layout, disks: selectedDisks }),
+    onSuccess: () => { toast.success(`Pool ${name} created`); onCreated(); onClose() },
+    onError: (e: Error) => toast.error(e.message)
+  })
+
+  const disks = disksQ.data?.disks ?? []
+
+  return (
+    <Modal title="Create New ZFS Pool" onClose={onClose} size="lg">
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <label className="field">
+            <span className="field-label">Pool Name</span>
+            <input value={name} onChange={e => setName(e.target.value)} className="input" placeholder="e.g. tank" />
+          </label>
+          <label className="field">
+            <span className="field-label">Pool Layout</span>
+            <select value={layout} onChange={e => setLayout(e.target.value)} className="input">
+              <option value="stripe">Stripe (No redundancy)</option>
+              <option value="mirror">Mirror (RAID 1)</option>
+              <option value="raidz1">RAID-Z1 (1-disk parity)</option>
+              <option value="raidz2">RAID-Z2 (2-disk parity)</option>
+              <option value="raidz3">RAID-Z3 (3-disk parity)</option>
+            </select>
+          </label>
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <span className="field-label">Select Disks ({selectedDisks.length})</span>
+          <div className="card" style={{ height: 260, overflowY: 'auto', padding: 12, background: 'var(--bg-elevated)' }}>
+            {disks.length === 0 && !disksQ.isLoading && <div style={{ textAlign: 'center', color: 'var(--text-tertiary)', paddingTop: 80, fontSize: 'var(--text-sm)' }}>No unassigned disks found</div>}
+            {disks.map(d => (
+              <label key={d.path} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: 8, borderRadius: 'var(--radius-sm)', cursor: 'pointer', border: '1px solid var(--border-subtle)', marginBottom: 8 }}>
+                <input 
+                  type="checkbox" 
+                  checked={selectedDisks.includes(d.path)}
+                  onChange={e => e.target.checked ? setSelectedDisks([...selectedDisks, d.path]) : setSelectedDisks(selectedDisks.filter(p => p !== d.path))}
+                />
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 'var(--text-sm)', fontWeight: 600 }}>{d.name} ({d.size})</div>
+                  <div style={{ fontSize: 'var(--text-2xs)', color: 'var(--text-tertiary)' }}>{d.model} · {d.path}</div>
+                </div>
+              </label>
+            ))}
+          </div>
+        </div>
+      </div>
+      <div className="modal-footer">
+        <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
+        <button className="btn btn-primary" disabled={!name || selectedDisks.length === 0 || mutation.isPending} onClick={() => mutation.mutate()}>
+          {mutation.isPending ? 'Creating…' : 'Create Pool'}
+        </button>
+      </div>
+    </Modal>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // PoolsPage
 // ---------------------------------------------------------------------------
 
@@ -791,6 +1015,7 @@ type Tab = 'pools' | 'encryption'
 export function PoolsPage() {
   const [tab, setTab] = useState<Tab>('pools')
   const [datasetFilter, setDatasetFilter] = useState('')
+  const [createPoolOpen, setCreatePoolOpen] = useState(false)
   const qc   = useQueryClient()
   const wsOn = useWsStore((s) => s.on)
   const [mountAlert, setMountAlert] = useState<{ pool: string; mountpoint: string } | null>(null)
@@ -888,12 +1113,19 @@ export function PoolsPage() {
           <h1 style={{ fontSize: 'var(--text-3xl)', fontWeight: 700, letterSpacing: '-1px', marginBottom: 6 }}>ZFS Storage</h1>
           <p style={{ color: 'var(--text-secondary)', fontSize: 'var(--text-md)' }}>Pools · Datasets · Scrub · Encryption</p>
         </div>
-        <Tooltip content="Refresh">
-          <button onClick={refresh} className="btn btn-ghost">
-            <Icon name="refresh" size={16} />
+        <div style={{ display: 'flex', gap: 10 }}>
+          <button onClick={() => setCreatePoolOpen(true)} className="btn btn-primary">
+            <Icon name="add_circle" size={18} /> Add Pool
           </button>
-        </Tooltip>
+          <Tooltip content="Refresh">
+            <button onClick={refresh} className="btn btn-ghost">
+              <Icon name="refresh" size={16} />
+            </button>
+          </Tooltip>
+        </div>
       </div>
+
+      <StorageSummary pools={pools} />
 
       {/* Mount error alert — shown when background monitor detects an unwritable mountpoint */}
       {mountAlert && (
@@ -958,6 +1190,10 @@ export function PoolsPage() {
           </div>
           <EncryptionTab />
         </>
+      )}
+
+      {createPoolOpen && (
+        <CreatePoolModal onClose={() => setCreatePoolOpen(false)} onCreated={refresh} />
       )}
     </div>
   )

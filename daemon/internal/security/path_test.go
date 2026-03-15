@@ -76,7 +76,7 @@ func TestIsSafeFilename(t *testing.T) {
 		{
 			name: "Valid with path",
 			file: "folder/document.pdf",
-			want: true,
+			want: false,
 		},
 		{
 			name: "Path traversal in filename",

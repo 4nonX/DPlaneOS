@@ -18,6 +18,7 @@ import { useState, useCallback } from 'react'
 import { useQuery, useMutation } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
 import { api } from '@/lib/api'
+import { useAuthStore } from '@/stores/auth'
 import { Icon } from '@/components/ui/Icon'
 import { Skeleton } from '@/components/ui/LoadingSpinner'
 
@@ -238,7 +239,7 @@ function StepAdmin({ onNext, onBack }: { onNext: () => void; onBack: () => void 
           </div>
         )}
 
-        <div style={{ display: 'flex', gap: 10, marginTop: 8 }}>
+        <div style={{ display: 'flex', gap: 10, marginTop: 8, justifyContent: 'center' }}>
           <button onClick={onBack} className="btn btn-ghost">
             <Icon name="arrow_back" size={16} /> Back
           </button>
@@ -529,7 +530,7 @@ function StepPool({
           </div>
         )}
 
-        <div style={{ display: 'flex', gap: 10 }}>
+        <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
           <button onClick={onBack} className="btn btn-ghost">
             <Icon name="arrow_back" size={16} /> Back
           </button>
@@ -606,7 +607,7 @@ function StepSystem({
           </span>
         </label>
 
-        <div style={{ display: 'flex', gap: 10, marginTop: 8 }}>
+        <div style={{ display: 'flex', gap: 10, marginTop: 8, justifyContent: 'center' }}>
           <button onClick={onBack} className="btn btn-ghost">
             <Icon name="arrow_back" size={16} /> Back
           </button>
@@ -757,8 +758,22 @@ export function SetupWizardPage() {
         </div>
 
         {/* Footer */}
-        <div style={{ textAlign: 'center', marginTop: 24, fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }}>
-          D-PlaneOS · First-run Setup
+        <div style={{ textAlign: 'center', marginTop: 24, display: 'flex', flexDirection: 'column', gap: 12, alignItems: 'center' }}>
+          {!!import.meta.env.DEV && (
+            <button 
+              onClick={() => {
+                useAuthStore.getState().mockLogin()
+                navigate({ to: '/' })
+              }}
+              className="btn btn-ghost" 
+              style={{ fontSize: 11, opacity: 0.6, border: '1px dashed var(--border)' }}
+            >
+              <Icon name="developer_mode" size={14} /> Preview Dashboard UI (Dev)
+            </button>
+          )}
+          <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }}>
+            D-PlaneOS · First-run Setup
+          </div>
         </div>
       </div>
     </div>

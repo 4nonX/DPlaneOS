@@ -15,6 +15,8 @@
  */
 
 import type { ReactNode } from 'react'
+import { createPortal } from 'react-dom'
+import { Icon } from './Icon'
 
 interface ModalProps {
   title?: ReactNode
@@ -25,16 +27,25 @@ interface ModalProps {
 
 export function Modal({ title, onClose, children, size = 'md' }: ModalProps) {
   const sizeClass = size === 'sm' ? 'modal-sm' : size === 'lg' ? 'modal-lg' : ''
+  const modalRoot = document.getElementById('modal-root')
 
-  return (
+  if (!modalRoot) return null
+
+  return createPortal(
     <div
       className="modal-overlay"
       onClick={e => e.target === e.currentTarget && onClose()}
     >
       <div className={`modal ${sizeClass}`}>
-        {title && <div className="modal-title">{title}</div>}
+        <div className="modal-header">
+          {title && <div className="modal-title">{title}</div>}
+          <button className="modal-close" onClick={onClose} aria-label="Close modal">
+            <Icon name="close" size={20} />
+          </button>
+        </div>
         {children}
       </div>
-    </div>
+    </div>,
+    modalRoot
   )
 }

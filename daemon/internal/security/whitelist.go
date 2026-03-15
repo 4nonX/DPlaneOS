@@ -641,7 +641,7 @@ func IsValidPath(path string) bool {
 	}
 
 	// Check for path traversal attempts
-	if strings.Contains(path, "..") {
+	if strings.Contains(path, "..") || strings.Contains(path, "./") {
 		return false
 	}
 
@@ -677,7 +677,7 @@ func IsSafeFilename(filename string) bool {
 	}
 
 	// Check for path separators
-	if strings.Contains(filename, "/") && strings.Contains(filename, "\\") {
+	if strings.Contains(filename, "/") || strings.Contains(filename, "\\") {
 		return false
 	}
 

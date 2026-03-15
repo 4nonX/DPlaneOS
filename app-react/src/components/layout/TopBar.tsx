@@ -8,6 +8,7 @@ import { useRouterState } from '@tanstack/react-router'
 import { Icon } from '@/components/ui/Icon'
 import { useAuthStore } from '@/stores/auth'
 import { findNavEntry } from './navConfig'
+import { api } from '@/lib/api'
 
 interface TopBarProps {
   sidebarCollapsed: boolean
@@ -65,42 +66,61 @@ export function TopBar({ sidebarCollapsed }: TopBarProps) {
       </div>
 
       {/* ── Right: user chip ── */}
-      {user && (
-        <div style={{
-          display: 'flex', alignItems: 'center', gap: 10,
-          padding: '6px 16px 6px 8px',
-          background: 'hsla(0,0%,100%,0.03)',
-          border: '1px solid var(--border-subtle)',
-          borderRadius: 'var(--radius-full)',
-          cursor: 'pointer',
-          transition: 'all var(--transition-fast)',
-          boxShadow: 'inset 0 1px 0 hsla(0,0%,100%,0.02)'}}
-        onMouseEnter={(e) => {
-          e.currentTarget.style.background = 'hsla(0,0%,100%,0.08)'
-          e.currentTarget.style.borderColor = 'var(--border)'
-        }}
-        onMouseLeave={(e) => {
-          e.currentTarget.style.background = 'hsla(0,0%,100%,0.03)'
-          e.currentTarget.style.borderColor = 'var(--border-subtle)'
-        }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+        {api.isMockActive() && (
           <div style={{
-            width: 26, height: 26, borderRadius: '50%',
-            background: 'linear-gradient(135deg, var(--primary) 0%, hsl(260, 100%, 75%) 100%)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: 12, fontWeight: 800, color: '#000', flexShrink: 0,
-            boxShadow: '0 2px 8px var(--primary-glow)'}}>
-            {user.username[0].toUpperCase()}
+            background: 'linear-gradient(90deg, #ff4b2b, #ff416c)',
+            padding: '4px 12px',
+            borderRadius: 6,
+            fontSize: 10,
+            fontWeight: 800,
+            color: '#fff',
+            letterSpacing: '0.5px',
+            textTransform: 'uppercase',
+            boxShadow: '0 4px 12px rgba(255, 75, 43, 0.3)',
+            animation: 'pulse 2s infinite'
+          }}>
+            Preview Mode — Mock Data
           </div>
-          <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text)', fontWeight: 600 }}>
-            {user.username}
-          </span>
-          {user.role && user.role !== 'user' && (
-            <span className="badge badge-primary" style={{ fontSize: 9 }}>
-              {user.role}
+        )}
+
+        {user && (
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 10,
+            padding: '6px 16px 6px 8px',
+            background: 'hsla(0,0%,100%,0.03)',
+            border: '1px solid var(--border-subtle)',
+            borderRadius: 'var(--radius-full)',
+            cursor: 'pointer',
+            transition: 'all var(--transition-fast)',
+            boxShadow: 'inset 0 1px 0 hsla(0,0%,100%,0.02)'}}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.background = 'hsla(0,0%,100%,0.08)'
+            e.currentTarget.style.borderColor = 'var(--border)'
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.background = 'hsla(0,0%,100%,0.03)'
+            e.currentTarget.style.borderColor = 'var(--border-subtle)'
+          }}>
+            <div style={{
+              width: 26, height: 26, borderRadius: '50%',
+              background: 'linear-gradient(135deg, var(--primary) 0%, hsl(260, 100%, 75%) 100%)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: 12, fontWeight: 800, color: '#000', flexShrink: 0,
+              boxShadow: '0 2px 8px var(--primary-glow)'}}>
+              {user.username[0].toUpperCase()}
+            </div>
+            <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text)', fontWeight: 600 }}>
+              {user.username}
             </span>
-          )}
-        </div>
-      )}
+            {user.role && user.role !== 'user' && (
+              <span className="badge badge-primary" style={{ fontSize: 9 }}>
+                {user.role}
+              </span>
+            )}
+          </div>
+        )}
+      </div>
     </header>
   )
 }

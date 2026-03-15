@@ -6,6 +6,35 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ---
 
+## v5.3.0 (2026-03-15) — "Storage & Security Integrity"
+
+Upgrade from: v5.2.3 — Drop-in. `sudo bash install.sh --upgrade`
+
+### Added
+
+- **Storage Management Core**
+  - **StorageSummary component**: Real-time unified capacity telemetry (Total/Used/Free) across all ZFS pools.
+  - **Integrated Pool Lifecycle**: Full support for creating, expanding, and destroying pools directly from `PoolsPage.tsx`.
+  - **Data Safety**: Destructive operations (pool destruction) now require explicit "type-to-confirm" validation.
+- **Enhanced Modal UX**
+  - **Universal Close Mechanisms**: Added high-visibility "X" buttons to modal headers and standardized "Cancel" buttons in all footers.
+  - **Portal-based Rendering**: Migrated the entire modal architecture to React Portals, rendering into `#modal-root` to ensure modals are always top-level and immune to parent stacking context glitches.
+
+### Fixed
+
+- **Critical Security — Path Traversal Vulnerabilities**
+  - **IsValidPath**: Fixed a bypass where `./` could be used to traverse directories. Added explicit blocking for dot-slash patterns.
+  - **IsSafeFilename**: Corrected a logical error (converted `&&` to `||`) that allowed filenames with path separators if they didn't contain both `/` and `\` simultaneously.
+- **UI/UX Refinement**
+  - Standardized modal centering and backdrop-blur filters for a premium "glass" aesthetic.
+  - Resolved layout issues in `PoolsPage.tsx` where long disk lists could clip modal footers.
+
+### Refactored
+
+- **API Integration**: Replaced legacy mock data structures in the storage layer with real API contracts, preparing for full ZFS integration.
+
+---
+
 ## v5.2.3 (2026-03-15) — "More UI Polish"
 
 ### Added

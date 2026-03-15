@@ -282,12 +282,12 @@ function LeafItem({ leaf, isActive, collapsed, indent = false, onClick }: LeafIt
       onClick={onClick}
       aria-current={isActive ? 'page' : undefined}
       style={{
-        width: '100%', display: 'flex', alignItems: 'center', gap: 10,
-        padding: collapsed ? '10px 0' : indent ? '7px 16px 7px 36px' : '8px 16px 8px 18px',
+        width: '100%', display: 'flex', alignItems: 'center', gap: collapsed ? 0 : 10,
+        padding: collapsed ? 0 : indent ? '7px 16px 7px 36px' : '8px 16px 8px 18px',
         justifyContent: collapsed ? 'center' : 'flex-start',
         background: isActive ? 'var(--primary-bg)' : 'transparent',
         border: 'none',
-        borderLeft: isActive && !collapsed ? '2px solid var(--primary)' : '2px solid transparent',
+        borderLeft: !collapsed && isActive ? '2px solid var(--primary)' : !collapsed ? '2px solid transparent' : 'none',
         cursor: 'pointer',
         color: isActive ? 'var(--primary)' : 'var(--text-secondary)',
         fontSize: 'var(--text-sm)', fontFamily: 'var(--font-ui)',

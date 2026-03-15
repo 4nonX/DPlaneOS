@@ -217,10 +217,19 @@ export function AppShell() {
         marginLeft: sidebarWidth,
         marginTop: 'var(--topbar-height)',
         minHeight: 'calc(100vh - var(--topbar-height))',
-        padding: '32px',
         transition: 'margin-left 0.2s ease',
-        maxWidth: '1600px'}}>
-        <Outlet />
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center'
+      }}>
+        <div style={{
+          width: '100%',
+          maxWidth: '1440px',
+          padding: '32px 40px',
+          flex: 1
+        }}>
+          <Outlet />
+        </div>
       </main>
       <ToastContainer />
     </>

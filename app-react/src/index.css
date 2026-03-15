@@ -288,36 +288,86 @@ textarea.input { resize: vertical; min-height: 80px; line-height: 1.5; }
 
 /* ── Modal overlay ────────────────────────────────────────── */
 .modal-overlay {
-  position: fixed; inset: 0;
-  background: hsla(0, 0, 0, 0.4);
-  backdrop-filter: blur(8px);
-  display: flex; align-items: center; justify-content: center;
+  position: fixed;
+  inset: 0;
+  background: hsla(0, 0, 0, 0.6); /* Darker backdrop for better contrast */
+  backdrop-filter: blur(12px); /* Stronger blur to isolate content */
+  display: flex;
+  align-items: center;
+  justify-content: center;
   z-index: var(--z-modal);
-  animation: fadeIn var(--transition-fast);
+  animation: fadeIn 0.2s ease;
+  padding: 20px;
 }
+
 .modal {
   background: var(--bg-elevated);
   border: 1px solid var(--border-highlight);
   border-radius: var(--radius-xl);
   padding: 32px;
-  width: 500px; max-width: 90vw; max-height: 90vh; overflow-y: auto;
-  display: flex; flex-direction: column; gap: 20px;
-  animation: modalSlideIn 0.4s cubic-bezier(0.2,0,0,1);
-  box-shadow: inset 0 1px 0 hsla(0,0%,100%,0.1), var(--shadow-lg), 0 0 80px hsla(0,0%,0%,0.8);
+  width: 500px;
+  max-width: 100%;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  gap: 24px; /* More consistent spacing */
+  animation: modalSlideIn 0.3s cubic-bezier(0.2,0,0,1);
+  box-shadow: 
+    inset 0 1px 0 hsla(0,0%,100%,0.15),
+    var(--shadow-lg), 
+    0 0 100px hsla(0,0%,0%,0.9);
   backdrop-filter: var(--blur-glass);
+  overflow-y: auto;
+  position: relative;
 }
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: -8px; /* Offset gap since title usually has its own spacing */
+}
+
+.modal-close {
+  background: none;
+  border: none;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  padding: 8px;
+  margin: -8px;
+  border-radius: var(--radius-full);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+}
+
+.modal-close:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  transform: rotate(90deg);
+}
+
 .modal-sm { width: 420px; }
-.modal-lg { width: 640px; }
+.modal-lg { width: 680px; }
+
 .modal-title {
-  font-size: var(--text-xl); font-weight: 600;
-  color: var(--text); flex-shrink: 0;
-  letter-spacing: -0.5px;
+  font-size: var(--text-xl);
+  font-weight: 700;
+  color: var(--text);
+  flex-shrink: 0;
+  letter-spacing: -0.6px;
+  line-height: 1.2;
 }
+
 .modal-footer {
-  display: flex; gap: 12px; justify-content: flex-end;
-  padding-top: 12px; flex-shrink: 0;
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+  padding-top: 20px;
+  flex-shrink: 0;
   border-top: 1px solid var(--border-subtle);
-  margin-top: 4px;
+  margin-top: 8px;
 }
 
 /* ── Card ─────────────────────────────────────────────────── */
@@ -384,6 +434,10 @@ tr:hover .row-actions { opacity: 1 !important; }
 .tooltip-wrapper {
   position: relative;
   display: inline-flex;
+  width: 100%;
+}
+#root .sidebar .tooltip-wrapper {
+  display: flex;
 }
 
 .tooltip {

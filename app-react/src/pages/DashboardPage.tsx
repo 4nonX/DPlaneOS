@@ -611,7 +611,7 @@ export function DashboardPage() {
       </SectionCard>
 
       {/* inotify warning */}
-      {metricsQ.data && metricsQ.data.inotify.percent > 70 && (
+      {metricsQ.data?.inotify && metricsQ.data.inotify.percent > 70 && (
         <div
           className="alert alert-warning"
           onClick={() => navigate({ to: '/monitoring' })}
