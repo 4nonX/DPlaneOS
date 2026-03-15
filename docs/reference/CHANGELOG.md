@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ---
 
+## v5.3.2 (2026-03-15) — "Build Integrity & Maintenance"
+
+Upgrade from: v5.3.1 — Drop-in. `sudo bash install.sh --upgrade`
+
+### Added
+
+- **Smarter UI Build Management**
+  - Migrated static assets (`manifest.json`, `modules/`) to the source directory (`app-react/public/`). This enabled the use of Vite's `emptyOutDir` to automatically purge orphaned hashed files (like the stale `index-nABdU3XR.js`) during the build process.
+
+### Fixed
+
+- **Pool Operations Integrity**
+  - Re-verified that `PoolOperations` (`zpool_clear`, `zpool_online`) and their corresponding whitelisted commands are fully present in the release. Addresses reports of accidental feature removal.
+
+---
+
 ## v5.3.1 (2026-03-15) — "CI & Panic Resilience"
 
 Upgrade from: v5.3.0 — Drop-in. `sudo bash install.sh --upgrade`

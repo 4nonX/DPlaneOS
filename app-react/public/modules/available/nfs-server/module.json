@@ -1,0 +1,33 @@
+{
+  "id": "nfs-server",
+  "name": "NFS Server",
+  "description": "Network File System (Unix/Linux file sharing)",
+  "version": "1.0.0",
+  "author": "D-PlaneOS Team",
+  "license": "GPL-3.0",
+  "category": "storage-protocols",
+  "icon": "share",
+  
+  "requirements": {
+    "os": ["ubuntu-24.04"],
+    "min_ram_mb": 512,
+    "min_disk_mb": 50,
+    "zfs": false,
+    "docker": false
+  },
+  
+  "dependencies": {
+    "apt": ["nfs-kernel-server"],
+    "modules": []
+  },
+  
+  "permissions": [
+    "files.read",
+    "files.write",
+    "network.configure"
+  ],
+  
+  "ports": [
+    {"port": 2049, "protocol": "tcp", "description": "NFS"}
+  ]
+}
