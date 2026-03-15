@@ -8,7 +8,9 @@ ZFS-first NAS operating system for homelab and small-office deployments. Runs as
 [![Debian](https://img.shields.io/badge/platform-Debian-A81D33?style=flat-square&logo=debian&logoColor=white)](https://github.com/4nonX/D-PlaneOS/blob/main/docs/admin/INSTALLATION-GUIDE.md)
 [![Ubuntu](https://img.shields.io/badge/platform-Ubuntu-E95420?style=flat-square&logo=ubuntu&logoColor=white)](https://github.com/4nonX/D-PlaneOS/blob/main/docs/admin/INSTALLATION-GUIDE.md)
 [![CI Status](https://github.com/4nonX/D-PlaneOS/actions/workflows/validate.yml/badge.svg)](https://github.com/4nonX/D-PlaneOS/actions)
-## Demo recorded in preview mode — mock data, no real hardware required to evaluate.
+
+*Demo recorded in preview mode — mock data, no real hardware required to evaluate.*
+
 ![D-PlaneOS Demo](demo.gif)
 ---
 
