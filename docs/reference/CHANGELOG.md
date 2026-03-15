@@ -6,6 +6,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ---
 
+## v5.3.1 (2026-03-15) — "CI & Panic Resilience"
+
+Upgrade from: v5.3.0 — Drop-in. `sudo bash install.sh --upgrade`
+
+### Fixed
+
+- **Critical — GetDiskStatus runtime panic**
+  - Resolved `slice bounds out of range` panic in `GetDiskStatus` caused by unsafe parsing of `lsblk` output on loopback devices (commonly seen in CI environments). Implemented field-count safety checks.
+- **ACL Management**
+  - **Route Alignment**: Fixed a mismatch where the daemon expected `/api/acl/get` while tests/frontend might use `/api/system/acl`. Both are now supported via aliasing.
+  - **Diagnostic Visibility**: Added `ACL:` log prefixes to important operations in `GetACL` and `SetACL` to ensure system-level failures (like missing `getfacl`) are visible in daemon logs.
+  - **Bulk API**: Refactored `SetACL` to support the multi-line full ACL format sent by the frontend, ensuring "Apply" works predictably while maintaining compatibility with single-entry CI tests.
+
+### CI/CD
+
+- **Environment Hardening**: Added `acl` and `ipmitool` to standard CI dependencies.
+- **ZFS Integration**: Explicitly enabled `acltype=posixacl` on the test pool to match production-grade ZFS configurations.
+
+---
+
 ## v5.3.0 (2026-03-15) — "Storage & Security Integrity"
 
 Upgrade from: v5.2.3 — Drop-in. `sudo bash install.sh --upgrade`
