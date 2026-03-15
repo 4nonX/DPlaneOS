@@ -449,8 +449,18 @@ jobs:
             || ok "Snapshot gone from system after destroy"
 
           # 4.3. ACL — verify ACL readability on mountpoint
-          ACL_DATA=$(api GET "/api/system/acl?path=/mnt/testpool")
+          ACL_DATA=$(api GET "/api/acl/get?path=/mnt/testpool")
           assert_json "ACL read success" "$ACL_DATA" "success" "true"
+          
+          # Verify write-path: add a test user ACL entry
+          # The backend SetACL expects { path, entry, recursive, remove }
+          assert_json "ACL set success" \
+            "$(api POST /api/acl/set '{"path":"/mnt/testpool","entry":"u:nobody:rwx"}')" \
+            "success" "true"
+          
+          # Read back and verify 'nobody' is mentioned in the ACL output
+          ACL_RECHECK=$(api GET "/api/acl/get?path=/mnt/testpool")
+          echo "$ACL_RECHECK" | grep -q "nobody" && ok "ACL set verified: 'nobody' entry found" || fail "ACL set verified: 'nobody' NOT found"
 
           valid_json "$(api GET /api/zfs/health)"          && ok "ZFS health"         || fail "ZFS health → invalid JSON"
           valid_json "$(api GET /api/zfs/iostat)"          && ok "ZFS iostat"         || fail "ZFS iostat → invalid JSON"

@@ -315,8 +315,10 @@ func (h *ACLHandler) GetACL(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get POSIX ACL
+	log.Printf("ACL: GetACL for path: %s", path)
 	output, err := cmdutil.RunFast("getfacl", "-p", path)
 	if err != nil {
+		log.Printf("ACL: GetACL failed for %s: %v, output: %s", path, err, string(output))
 		respondOK(w, map[string]interface{}{
 			"success": false,
 			"error":   fmt.Sprintf("getfacl failed: %v, output: %s", err, string(output)),
@@ -341,7 +343,8 @@ func (h *ACLHandler) SetACL(w http.ResponseWriter, r *http.Request) {
 
 	var req struct {
 		Path      string `json:"path"`
-		Entry     string `json:"entry"` // e.g. "u:john:rwx" or "g:media:r-x"
+		Entry     string `json:"entry"` // single entry (CI/legacy)
+		ACL       string `json:"acl"`   // multi-line full ACL (frontend)
 		Recursive bool   `json:"recursive"`
 		Remove    bool   `json:"remove"`
 	}
@@ -355,50 +358,78 @@ func (h *ACLHandler) SetACL(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Validate ACL entry format: type:name:perms
-	aclPattern := regexp.MustCompile(`^(u|g|o|m)(:[a-zA-Z0-9_.\-]*)?:[rwx\-]{0,3}$`)
-	if !aclPattern.MatchString(req.Entry) {
-		respondErrorSimple(w, "Invalid ACL entry format. Use: u:user:rwx, g:group:rx, etc.", http.StatusBadRequest)
+	// Validate path exists
+	if _, err := os.Stat(req.Path); os.IsNotExist(err) {
+		respondErrorSimple(w, "Path does not exist", http.StatusBadRequest)
 		return
-	}
-
-	// Fix #4 (LDAP UID Showstopper): Validate user/group exists BEFORE applying ACL.
-	// If LDAP is temporarily down, getent won't resolve the name → we reject early
-	// instead of silently applying ACL to a numeric UID that becomes orphaned.
-	entryParts := strings.SplitN(req.Entry, ":", 3)
-	if len(entryParts) >= 2 && entryParts[1] != "" {
-		entryType := entryParts[0]
-		entryName := entryParts[1]
-
-		if entryType == "u" {
-			// Validate user exists via NSS (covers local + LDAP + SSSD)
-			if out, err := cmdutil.RunFast("/usr/bin/getent", "passwd", entryName); err != nil {
-				audit.LogAction("acl_validate", user, fmt.Sprintf("User '%s' not found in NSS (LDAP down?): %s", entryName, string(out)), false, 0)
-				respondErrorSimple(w, fmt.Sprintf("User '%s' not found. If using LDAP, check directory service connectivity.", entryName), http.StatusBadRequest)
-				return
-			}
-		} else if entryType == "g" {
-			// Validate group exists via NSS
-			if out, err := cmdutil.RunFast("/usr/bin/getent", "group", entryName); err != nil {
-				audit.LogAction("acl_validate", user, fmt.Sprintf("Group '%s' not found in NSS (LDAP down?): %s", entryName, string(out)), false, 0)
-				respondErrorSimple(w, fmt.Sprintf("Group '%s' not found. If using LDAP, check directory service connectivity.", entryName), http.StatusBadRequest)
-				return
-			}
-		}
 	}
 
 	args := []string{}
 	if req.Recursive {
 		args = append(args, "-R")
 	}
-	if req.Remove {
-		args = append(args, "-x", req.Entry, req.Path)
+
+	// Case 1: Full ACL list (frontend)
+	if req.ACL != "" {
+		// Filter out comments and empty lines
+		lines := strings.Split(req.ACL, "\n")
+		var validEntries []string
+		for _, line := range lines {
+			line = strings.TrimSpace(line)
+			if line == "" || strings.HasPrefix(line, "#") {
+				continue
+			}
+			validEntries = append(validEntries, line)
+		}
+		// Apply all at once using --set (replaces entire ACL)
+		combined := strings.Join(validEntries, ",")
+		args = append(args, "--set", combined, req.Path)
+	} else if req.Entry != "" {
+		// Case 2: Single entry (CI/legacy)
+		aclPattern := regexp.MustCompile(`^(u|g|o|m)(:[a-zA-Z0-9_.\-]*)?:[rwx\-]{0,3}$`)
+		if !aclPattern.MatchString(req.Entry) {
+			respondErrorSimple(w, "Invalid ACL entry format. Use: u:user:rwx, g:group:rx, etc.", http.StatusBadRequest)
+			return
+		}
+
+		// Fix #4 (LDAP UID Showstopper): Validate user/group exists BEFORE applying ACL.
+		// If LDAP is temporarily down, getent won't resolve the name → we reject early
+		// instead of silently applying ACL to a numeric UID that becomes orphaned.
+		entryParts := strings.SplitN(req.Entry, ":", 3)
+		if len(entryParts) >= 2 && entryParts[1] != "" {
+			entryType := entryParts[0]
+			entryName := entryParts[1]
+
+			if entryType == "u" {
+				// Validate user exists via NSS (covers local + LDAP + SSSD)
+				if out, err := cmdutil.RunFast("/usr/bin/getent", "passwd", entryName); err != nil {
+					audit.LogAction("acl_validate", user, fmt.Sprintf("User '%s' not found in NSS (LDAP down?): %s", entryName, string(out)), false, 0)
+					respondErrorSimple(w, fmt.Sprintf("User '%s' not found. If using LDAP, check directory service connectivity.", entryName), http.StatusBadRequest)
+					return
+				}
+			} else if entryType == "g" {
+				// Validate group exists via NSS
+				if out, err := cmdutil.RunFast("/usr/bin/getent", "group", entryName); err != nil {
+					audit.LogAction("acl_validate", user, fmt.Sprintf("Group '%s' not found in NSS (LDAP down?): %s", entryName, string(out)), false, 0)
+					respondErrorSimple(w, fmt.Sprintf("Group '%s' not found. If using LDAP, check directory service connectivity.", entryName), http.StatusBadRequest)
+					return
+				}
+			}
+		}
+
+		if req.Remove {
+			args = append(args, "-x", req.Entry, req.Path)
+		} else {
+			args = append(args, "-m", req.Entry, req.Path)
+		}
 	} else {
-		args = append(args, "-m", req.Entry, req.Path)
+		respondErrorSimple(w, "Neither 'acl' nor 'entry' provided", http.StatusBadRequest)
+		return
 	}
 
+	log.Printf("ACL: SetACL for path: %s (args=%v)", req.Path, args)
 	start := time.Now()
-	output, err := cmdutil.RunMedium("/usr/bin/setfacl", args...)
+	output, err := cmdutil.RunFast("setfacl", args...)
 	duration := time.Since(start)
 
 	action := "set"
@@ -407,10 +438,12 @@ func (h *ACLHandler) SetACL(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err != nil {
+		log.Printf("ACL: SetACL failed for %s: %v, output: %s", req.Path, err, string(output))
 		audit.LogAction("acl_"+action, user, fmt.Sprintf("Failed on %s: %s", req.Path, string(output)), false, duration)
-		respondErrorSimple(w, "Operation failed", http.StatusInternalServerError)
+		respondErrorSimple(w, fmt.Sprintf("setfacl failed: %v, output: %s", err, string(output)), http.StatusInternalServerError)
 		return
 	}
+	log.Printf("ACL: SetACL success for %s", req.Path)
 
 	audit.LogAction("acl_"+action, user, fmt.Sprintf("ACL %s on %s: %s", action, req.Path, req.Entry), true, duration)
 	w.Header().Set("Content-Type", "application/json")
@@ -1061,22 +1094,30 @@ func (h *PowerMgmtHandler) GetDiskStatus(w http.ResponseWriter, r *http.Request)
 			continue
 		}
 		fields := strings.Fields(line)
-		if len(fields) < 3 {
+		if len(fields) < 2 {
 			continue
 		}
+
 		disk := map[string]string{
 			"device": fields[0],
 			"size":   fields[1],
-			"model":  strings.Join(fields[2:len(fields)-3], " "),
 		}
-		if len(fields) >= 4 {
-			disk["rotational"] = fields[len(fields)-3]
-		}
-		if len(fields) >= 5 {
-			disk["transport"] = fields[len(fields)-2]
-		}
+
+		// lsblk -dpno NAME,SIZE,MODEL,ROTA,TRAN,STATE
+		// fields[0]: NAME
+		// fields[1]: SIZE
+		// middle: MODEL (can be multiple fields)
+		// fields[N-3]: ROTA
+		// fields[N-2]: TRAN
+		// fields[N-1]: STATE
+
 		if len(fields) >= 6 {
+			disk["model"] = strings.Join(fields[2:len(fields)-3], " ")
+			disk["rotational"] = fields[len(fields)-3]
+			disk["transport"] = fields[len(fields)-2]
 			disk["state"] = fields[len(fields)-1]
+		} else {
+			disk["model"] = "Unknown"
 		}
 
 		// Get hdparm standby status

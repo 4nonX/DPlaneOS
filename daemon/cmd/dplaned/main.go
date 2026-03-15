@@ -760,6 +760,9 @@ func main() {
 	aclHandler := handlers.NewACLHandler()
 	r.HandleFunc("/api/acl/get", aclHandler.GetACL).Methods("GET")
 	r.HandleFunc("/api/acl/set", aclHandler.SetACL).Methods("POST")
+	// Alias for consistency with other system APIs
+	r.HandleFunc("/api/system/acl", aclHandler.GetACL).Methods("GET")
+	r.HandleFunc("/api/system/acl", aclHandler.SetACL).Methods("POST")
 
 	// Metrics / Reporting (v2.0.0)
 	metricsHandler := handlers.NewMetricsHandler()
