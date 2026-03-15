@@ -27,6 +27,7 @@ import { toast } from '@/hooks/useToast'
 import { Modal } from '@/components/ui/Modal'
 import { Tooltip } from '@/components/ui/Tooltip'
 import { useConfirm } from '@/components/ui/ConfirmDialog'
+import { useRouter } from '@tanstack/react-router'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -96,6 +97,7 @@ function ContextMenu({ state, onClose, onAction }: {
     { label: 'Copy', icon: 'content_copy', action: 'copy' },
     { label: 'Change Owner', icon: 'manage_accounts', action: 'chown' },
     { label: 'Change Mode', icon: 'lock', action: 'chmod' },
+    { label: 'Manage ACLs', icon: 'admin_panel_settings', action: 'acl' },
     { label: 'Move to Trash', icon: 'delete', action: 'trash', danger: true },
     { label: 'Delete (permanent)', icon: 'close', action: 'delete', danger: true },
   ]
@@ -437,6 +439,7 @@ function TextEditorModal({ entry, onClose, onSaved }: { entry: FileEntry; onClos
 // ---------------------------------------------------------------------------
 
 function FileBrowser() {
+  const router = useRouter()
   const qc = useQueryClient()
   const { confirm, ConfirmDialog } = useConfirm()
   const [path, setPath] = useState('/mnt')
@@ -569,6 +572,10 @@ function FileBrowser() {
     if (action === 'delete') {
       confirm({ title: `Delete "${entry.name}"?`, message: 'This is permanent and cannot be undone.', danger: true, confirmLabel: 'Delete' })
         .then(ok => { if (ok) deleteMutation.mutate(entry.path) })
+      return
+    }
+    if (action === 'acl') {
+      router.navigate({ to: '/acl', search: { path: entry.path } })
       return
     }
     setModal({ type: action, entry })

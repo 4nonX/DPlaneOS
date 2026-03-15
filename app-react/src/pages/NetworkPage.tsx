@@ -24,6 +24,7 @@ import { ErrorState } from '@/components/ui/ErrorState'
 import { Skeleton } from '@/components/ui/LoadingSpinner'
 import { toast } from '@/hooks/useToast'
 import { Modal } from '@/components/ui/Modal'
+import { useRouter } from '@tanstack/react-router'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -578,6 +579,7 @@ function DnsNtpTab() {
 type Tab = 'interfaces' | 'vlans' | 'bonding' | 'dns'
 
 export function NetworkPage() {
+  const router = useRouter()
   const [tab, setTab] = useState<Tab>('interfaces')
 
   const TABS: { id: Tab; label: string; icon: string }[] = [
@@ -589,9 +591,14 @@ export function NetworkPage() {
 
   return (
     <div style={{ maxWidth: 1000 }}>
-      <div className="page-header">
-        <h1 className="page-title">Network</h1>
-        <p className="page-subtitle">Interfaces, VLANs, bonding, DNS and NTP</p>
+      <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+        <div>
+          <h1 className="page-title">Network</h1>
+          <p className="page-subtitle">Interfaces, VLANs, bonding, DNS and NTP</p>
+        </div>
+        <button onClick={() => router.navigate({ to: '/firewall' })} className="btn btn-ghost" style={{ marginTop: 8 }}>
+          <Icon name="local_fire_department" size={16} />Firewall Settings
+        </button>
       </div>
 
       <div className="tabs-underline">

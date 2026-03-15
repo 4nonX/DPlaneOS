@@ -539,6 +539,9 @@ func main() {
 	r.HandleFunc("/api/zfs/scrub/stop", handlers.StopScrub).Methods("POST")
 	r.HandleFunc("/api/zfs/scrub/status", handlers.GetScrubStatus).Methods("GET")
 
+	// Pool maintenance operations
+	r.Handle("/api/zfs/pool/operations", permRoute("storage", "write", handlers.PoolOperations)).Methods("POST")
+
 	// Resilver progress (separate from scrub — parses resilver-specific scan lines)
 	r.HandleFunc("/api/zfs/resilver/status", handlers.HandleResilverStatus).Methods("GET")
 

@@ -9,9 +9,10 @@
  * setfacl operations send structured entries back to the daemon.
  */
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import type React from 'react'
 import { useMutation } from '@tanstack/react-query'
+import { useSearch } from '@tanstack/react-router'
 import { api } from '@/lib/api'
 import { Icon } from '@/components/ui/Icon'
 import { Skeleton } from '@/components/ui/LoadingSpinner'
@@ -167,7 +168,8 @@ function AddEntryForm({ onAdd }: { onAdd: (e: AclEntry) => void }) {
 // ---------------------------------------------------------------------------
 
 export function ACLPage() {
-  const [pathInput, setPathInput] = useState('/mnt/')
+  const search = useSearch({ from: '/protected/acl' }) as { path?: string }
+  const [pathInput, setPathInput] = useState(search.path || '/mnt/')
   const [loadedPath, setLoadedPath] = useState<string | null>(null)
   const [entries, setEntries] = useState<AclEntry[]>([])
   const [statInfo, setStatInfo] = useState<string | null>(null)
@@ -197,6 +199,13 @@ export function ACLPage() {
   function removeEntry(idx: number) {
     setEntries(prev => prev.filter((_, i) => i !== idx))
   }
+
+  // Auto-load if path is in search params
+  useEffect(() => {
+    if (search.path && !loadedPath && !loading) {
+      loadMutation.mutate()
+    }
+  }, [search.path, loadedPath, loading, loadMutation])
 
   return (
     <div style={{ maxWidth: 860 }}>

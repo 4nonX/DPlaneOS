@@ -563,6 +563,8 @@ function PoolCard({ pool, datasets, filter, onRefresh }: { pool: ZFSPool; datase
   const [showScheduleModal, setShowScheduleModal] = useState(false)
   const [showDestroyModal, setShowDestroyModal] = useState(false)
   const [showExpandModal, setShowExpandModal] = useState(false)
+  const [showFixerModal, setShowFixerModal] = useState(false)
+  const [showCacheModal, setShowCacheModal] = useState(false)
   const pct = parseCapacityPct(pool.capacity)
 
   // Apply client-side filter
@@ -613,19 +615,32 @@ function PoolCard({ pool, datasets, filter, onRefresh }: { pool: ZFSPool; datase
   const scrubDone = scrubStatus?.bytes_done ?? ''
   const scrubText = scrubStatus?.scrub || ''
 
+  // ── Resilver status ───────────────────────────────────────────────────────
+  const resilverQ = useQuery({
+    queryKey: ['zfs', 'resilver', pool.name],
+    queryFn: ({ signal }) =>
+      api.get<ResilverStatusResponse>(`/api/zfs/resilver/status?pool=${encodeURIComponent(pool.name)}`, signal),
+    refetchInterval: (query) => {
+      const d = query.state.data
+      if (d?.resilvering && !d?.completed) return 10_000
+      return false
+    },
+  })
+  const isResilvering = resilverQ.data?.resilvering && !resilverQ.data?.completed
+
   return (
     <div className="card" style={{ borderRadius: 'var(--radius-xl)', padding: 28, borderLeft: `4px solid ${healthColor(pool.health)}` }}>
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 16 }}>
         <Icon name="storage" size={32} style={{ color: 'var(--primary)', flexShrink: 0 }} />
-        <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 'var(--text-xl)', fontWeight: 700 }}>{pool.name}</div>
-          <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', marginTop: 2, fontFamily: 'var(--font-mono)' }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 'var(--text-xl)', fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{pool.name}</div>
+          <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', marginTop: 2, fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
             {pool.type || 'unknown'} · {pool.used || 'N/A'} / {pool.size || 'N/A'} ({pool.capacity || '0%'})
           </div>
         </div>
         {/* Health badge */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 12px', borderRadius: 'var(--radius-full)', background: `${healthColor(pool.health)}18`, border: `1px solid ${healthColor(pool.health)}40`, color: healthColor(pool.health), fontSize: 'var(--text-sm)', fontWeight: 600 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 12px', borderRadius: 'var(--radius-full)', background: `${healthColor(pool.health)}18`, border: `1px solid ${healthColor(pool.health)}40`, color: healthColor(pool.health), fontSize: 'var(--text-sm)', fontWeight: 600, whiteSpace: 'nowrap', flexShrink: 0 }}>
           <Icon name={healthIcon(pool.health)} size={15} />
           {pool.health}
         </div>
@@ -633,7 +648,7 @@ function PoolCard({ pool, datasets, filter, onRefresh }: { pool: ZFSPool; datase
         <button
           onClick={() => isScrubbing ? scrubStop.mutate() : scrubStart.mutate()}
           disabled={scrubStart.isPending || scrubStop.isPending}
-          style={{ background: isScrubbing ? 'var(--warning-bg)' : 'var(--surface)', border: `1px solid ${isScrubbing ? 'var(--warning-border)' : 'var(--border)'}`, borderRadius: 'var(--radius-sm)', padding: '7px 12px', cursor: 'pointer', color: isScrubbing ? 'var(--warning)' : 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: 6, fontSize: 'var(--text-sm)' }}
+          style={{ background: isScrubbing ? 'var(--warning-bg)' : 'var(--surface)', border: `1px solid ${isScrubbing ? 'var(--warning-border)' : 'var(--border)'}`, borderRadius: 'var(--radius-sm)', padding: '7px 12px', cursor: 'pointer', color: isScrubbing ? 'var(--warning)' : 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: 6, fontSize: 'var(--text-sm)', whiteSpace: 'nowrap', flexShrink: 0 }}
         >
           <Icon name={isScrubbing ? 'stop_circle' : 'cleaning_services'} size={16} />
           {isScrubbing ? 'Stop Scrub' : 'Scrub'}
@@ -732,27 +747,26 @@ function PoolCard({ pool, datasets, filter, onRefresh }: { pool: ZFSPool; datase
 
         <div style={{ width: 1, height: 16, background: 'var(--border-subtle)', margin: '0 4px' }} />
 
-        <button
-          className="btn btn-ghost"
-          onClick={() => setShowExpandModal(true)}
-          style={{ fontSize: 'var(--text-xs)', padding: '4px 10px', flexShrink: 0 }}
-        >
-          <Icon name="add_circle" size={13} style={{ marginRight: 4 }} />
-          Expand
-        </button>
-
-        <button
-          className="btn btn-ghost"
-          onClick={() => setShowDestroyModal(true)}
-          style={{ fontSize: 'var(--text-xs)', padding: '4px 10px', flexShrink: 0, color: 'var(--error)' }}
-        >
-          <Icon name="delete" size={13} style={{ marginRight: 4 }} />
-          Destroy
-        </button>
+        <div style={{ display: 'flex', gap: 10, marginTop: 10 }}>
+          {pool.health !== 'ONLINE' && (
+            <button onClick={() => setShowFixerModal(true)} className="btn btn-sm btn-warning">
+              <Icon name="build" size={14} /> Fixer Wizard
+            </button>
+          )}
+          <button onClick={() => setShowCacheModal(true)} className="btn btn-sm btn-ghost">
+            <Icon name="speed" size={14} /> Manage Cache
+          </button>
+          <button onClick={() => setShowExpandModal(true)} className="btn btn-sm btn-ghost">
+            <Icon name="add" size={14} /> Expand Pool
+          </button>
+          <button onClick={() => setShowDestroyModal(true)} className="btn btn-sm btn-ghost btn-danger-hover">
+            <Icon name="delete" size={14} /> Destroy Pool
+          </button>
+        </div>
       </div>
 
       {/* Resilver progress card */}
-      <ResilverProgressCard pool={pool.name} />
+      {isResilvering && <ResilverProgressCard pool={pool.name} />}
 
       {/* Dataset tree */}
       {tree.length > 0 && (
@@ -809,6 +823,22 @@ function PoolCard({ pool, datasets, filter, onRefresh }: { pool: ZFSPool; datase
         <CreatePoolModal 
           onClose={() => setShowExpandModal(false)} 
           onCreated={onRefresh} 
+        />
+      )}
+
+      {showFixerModal && (
+        <PoolFixerWizard 
+          pool={pool} 
+          onClose={() => setShowFixerModal(false)} 
+          onRefresh={onRefresh} 
+        />
+      )}
+
+      {showCacheModal && (
+        <CacheManageModal 
+          pool={pool} 
+          onClose={() => setShowCacheModal(false)} 
+          onRefresh={onRefresh} 
         />
       )}
     </div>
@@ -945,8 +975,8 @@ function CreatePoolModal({ onClose, onCreated }: { onClose: () => void; onCreate
   const [selectedDisks, setSelectedDisks] = useState<string[]>([])
 
   const disksQ = useQuery({
-    queryKey: ['zfs', 'available-disks'],
-    queryFn: () => api.get<{ disks: Disk[] }>('/api/zfs/disks')
+    queryKey: ['system', 'disks'],
+    queryFn: () => api.get<{ disks: Disk[] }>('/api/system/disks')
   })
 
   const mutation = useMutation({
@@ -955,7 +985,7 @@ function CreatePoolModal({ onClose, onCreated }: { onClose: () => void; onCreate
     onError: (e: Error) => toast.error(e.message)
   })
 
-  const disks = disksQ.data?.disks ?? []
+  const disks = (disksQ.data as any)?.disks ?? []
 
   return (
     <Modal title="Create New ZFS Pool" onClose={onClose} size="lg">
@@ -980,7 +1010,7 @@ function CreatePoolModal({ onClose, onCreated }: { onClose: () => void; onCreate
           <span className="field-label">Select Disks ({selectedDisks.length})</span>
           <div className="card" style={{ height: 260, overflowY: 'auto', padding: 12, background: 'var(--bg-elevated)' }}>
             {disks.length === 0 && !disksQ.isLoading && <div style={{ textAlign: 'center', color: 'var(--text-tertiary)', paddingTop: 80, fontSize: 'var(--text-sm)' }}>No unassigned disks found</div>}
-            {disks.map(d => (
+            {disks.map((d: Disk) => (
               <label key={d.path} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: 8, borderRadius: 'var(--radius-sm)', cursor: 'pointer', border: '1px solid var(--border-subtle)', marginBottom: 8 }}>
                 <input 
                   type="checkbox" 
@@ -1196,5 +1226,171 @@ export function PoolsPage() {
         <CreatePoolModal onClose={() => setCreatePoolOpen(false)} onCreated={refresh} />
       )}
     </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// PoolFixerWizard
+// ---------------------------------------------------------------------------
+
+function PoolFixerWizard({ pool, onClose, onRefresh }: { pool: any; onClose: () => void; onRefresh: () => void }) {
+  const [step, setStep] = useState(1)
+  
+  const clearMutation = useMutation({
+    mutationFn: () => api.post('/api/zfs/pool/operations', { pool: pool.name, op: 'clear' }),
+    onSuccess: () => { toast.success('Errors cleared'); onRefresh() },
+    onError: (e: Error) => toast.error(e.message)
+  })
+
+  const onlineMutation = useMutation({
+    mutationFn: (device: string) => api.post('/api/zfs/pool/operations', { pool: pool.name, op: 'online', device }),
+    onSuccess: () => { toast.success('Disk onlined'); onRefresh() },
+    onError: (e: Error) => toast.error(e.message)
+  })
+
+  // Identify unhealthy disks
+  const unhealthyDisks = (pool.disks || []).filter((d: any) => d.state !== 'ONLINE')
+
+  return (
+    <Modal title={`Pool Fixer: ${pool.name}`} onClose={onClose} size="md">
+      <div style={{ padding: '0 8px' }}>
+        {step === 1 && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            <p style={{ fontSize: 'var(--text-sm)' }}>
+              This wizard helps resolve common ZFS pool issues. Your pool is currently <strong>{pool.health}</strong>.
+            </p>
+            <div className="card" style={{ padding: 16, background: 'rgba(255,255,255,0.03)' }}>
+              <h4 style={{ fontSize: 'var(--text-xs)', fontWeight: 800, marginBottom: 8, textTransform: 'uppercase' }}>Recommended First Step</h4>
+              <p style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', marginBottom: 12 }}>
+                Oftentimes, transient errors can be resolved by clearing the pool error count.
+              </p>
+              <button 
+                className="btn btn-sm btn-primary" 
+                onClick={() => clearMutation.mutate()}
+                disabled={clearMutation.isPending}
+              >
+                Clear Pool Errors
+              </button>
+            </div>
+            {unhealthyDisks.length > 0 && (
+              <button className="btn btn-ghost btn-sm" onClick={() => setStep(2)} style={{ alignSelf: 'center' }}>
+                Next: Manage Disks →
+              </button>
+            )}
+          </div>
+        )}
+
+        {step === 2 && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            <h4 style={{ fontSize: 'var(--text-xs)', fontWeight: 800, textTransform: 'uppercase' }}>Unhealthy Disks</h4>
+            {unhealthyDisks.map((d: any) => (
+              <div key={d.device} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', background: 'rgba(255,0,0,0.05)', borderRadius: 'var(--radius-md)', border: '1px solid rgba(255,0,0,0.1)' }}>
+                <div>
+                  <div style={{ fontSize: 'var(--text-sm)', fontWeight: 700 }}>{d.device}</div>
+                  <div style={{ fontSize: 'var(--text-2xs)', color: 'var(--error)' }}>State: {d.state}</div>
+                </div>
+                <button 
+                  className="btn btn-xs btn-primary"
+                  onClick={() => onlineMutation.mutate(d.device)}
+                  disabled={onlineMutation.isPending}
+                >
+                  Try Bring Online
+                </button>
+              </div>
+            ))}
+            <button className="btn btn-ghost btn-sm" onClick={() => setStep(1)} style={{ alignSelf: 'center' }}>
+              ← Return
+            </button>
+          </div>
+        )}
+      </div>
+      <div className="modal-footer">
+        <button className="btn btn-ghost" onClick={onClose}>Finish</button>
+      </div>
+    </Modal>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// CacheManageModal
+// ---------------------------------------------------------------------------
+
+function CacheManageModal({ pool, onClose, onRefresh }: { pool: any; onClose: () => void; onRefresh: () => void }) {
+  const [type, setType] = useState<'cache' | 'log' | 'special'>('cache')
+  const [selectedDisks, setSelectedDisks] = useState<string[]>([])
+
+  const disksQ = useQuery({
+    queryKey: ['system', 'disks'],
+    queryFn: () => api.get<{ disks: Disk[] }>('/api/system/disks')
+  })
+
+  const addMutation = useMutation({
+    mutationFn: () => api.post('/api/zfs/pool/add-vdev', { pool: pool.name, vdev_type: type, disks: selectedDisks }),
+    onSuccess: () => { toast.success(`${type} added`); onRefresh(); onClose() },
+    onError: (e: Error) => toast.error(e.message)
+  })
+
+  const disks = disksQ.data?.disks ?? []
+
+  return (
+    <Modal title={`Manage Cache: ${pool.name}`} onClose={onClose} size="lg">
+      <div style={{ display: 'grid', gridTemplateColumns: '240px 1fr', gap: 24 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <h4 style={{ fontSize: 'var(--text-xs)', fontWeight: 800, textTransform: 'uppercase' }}>VDEV Type</h4>
+          {(['cache', 'log', 'special'] as const).map(t => (
+            <div 
+              key={t}
+              onClick={() => setType(t)}
+              style={{
+                padding: '12px',
+                borderRadius: 'var(--radius-md)',
+                border: '1px solid',
+                borderColor: type === t ? 'var(--primary)' : 'var(--border-subtle)',
+                background: type === t ? 'var(--primary-bg)' : 'transparent',
+                cursor: 'pointer',
+                transition: 'all 0.15s'
+              }}
+            >
+              <div style={{ fontSize: 'var(--text-sm)', fontWeight: 700, textTransform: 'capitalize' }}>{t}</div>
+              <div style={{ fontSize: 'var(--text-3xs)', color: 'var(--text-tertiary)', marginTop: 4 }}>
+                {t === 'cache' && 'L2ARC: Enhances read performance.'}
+                {t === 'log' && 'SLOG: Accelerates synchronous writes.'}
+                {t === 'special' && 'Metadata: Offloads small files/metadata.'}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <h4 style={{ fontSize: 'var(--text-xs)', fontWeight: 800, textTransform: 'uppercase' }}>Select Disks</h4>
+          <div className="card" style={{ height: 260, overflowY: 'auto', padding: 12, background: 'var(--bg-elevated)' }}>
+            {disks.length === 0 && !disksQ.isLoading && <div style={{ textAlign: 'center', color: 'var(--text-tertiary)', paddingTop: 80, fontSize: 'var(--text-sm)' }}>No unassigned disks found</div>}
+            {disks.map((d: Disk) => (
+              <label key={d.path} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: 8, borderRadius: 'var(--radius-sm)', cursor: 'pointer', border: '1px solid var(--border-subtle)', marginBottom: 8 }}>
+                <input 
+                  type="checkbox" 
+                  checked={selectedDisks.includes(d.path)}
+                  onChange={e => e.target.checked ? setSelectedDisks([...selectedDisks, d.path]) : setSelectedDisks(selectedDisks.filter(p => p !== d.path))}
+                />
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 'var(--text-sm)', fontWeight: 600 }}>{d.name} ({d.size})</div>
+                  <div style={{ fontSize: 'var(--text-2xs)', color: 'var(--text-tertiary)' }}>{d.model}</div>
+                </div>
+              </label>
+            ))}
+          </div>
+        </div>
+      </div>
+      <div className="modal-footer">
+        <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
+        <button 
+          className="btn btn-primary" 
+          disabled={selectedDisks.length === 0 || addMutation.isPending}
+          onClick={() => addMutation.mutate()}
+        >
+          Add {type}
+        </button>
+      </div>
+    </Modal>
   )
 }

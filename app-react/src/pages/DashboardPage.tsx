@@ -500,6 +500,17 @@ export function DashboardPage() {
                 sub={`v${statusQ.data.version}`}
                 accent="var(--text-secondary)" />
             : null}
+
+        {ups && (
+          <MetricCard
+            icon="battery_charging_full" label="UPS Status"
+            value={ups.status}
+            sub={`${ups.battery_charge}% charge · ${ups.battery_runtime}`}
+            percent={parseInt(ups.battery_charge) || 0}
+            accent={upsAlert ? 'var(--warning)' : 'var(--success)'}
+            onClick={() => navigate({ to: '/ups' })}
+          />
+        )}
       </div>
 
       {/* Errors */}

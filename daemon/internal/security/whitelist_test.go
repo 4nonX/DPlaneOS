@@ -14,7 +14,7 @@ func TestValidateCommand(t *testing.T) {
 		{
 			name:    "Valid zpool list",
 			cmdName: "zpool_list",
-			args:    []string{"list", "-H", "-o", "name,size,alloc,free,health"},
+			args:    []string{"list", "-H", "-o", "name,size,alloc,free,cap,health"},
 			wantErr: false,
 		},
 		{

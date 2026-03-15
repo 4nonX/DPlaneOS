@@ -12,6 +12,8 @@ import { Icon } from '@/components/ui/Icon'
 import { Tooltip } from '@/components/ui/Tooltip'
 import { useAuthStore } from '@/stores/auth'
 import { useWsStore } from '@/stores/ws'
+import { useQuery } from '@tanstack/react-query'
+import { api } from '@/lib/api'
 
 interface SidebarProps {
   collapsed: boolean
@@ -193,6 +195,9 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
         })}
       </div>
 
+      {/* ── ZFS Events Widget ── */}
+      {!collapsed && <ZFSEventsWidget />}
+
       {/* ── Footer: WS status + user ── */}
       <div style={{
         borderTop: '1px solid var(--border)',
@@ -310,4 +315,74 @@ function LeafItem({ leaf, isActive, collapsed, indent = false, onClick }: LeafIt
   return collapsed ? (
     <Tooltip content={leaf.label} position="right">{btn}</Tooltip>
   ) : btn
+}
+
+// ---------------------------------------------------------------------------
+// ZFSEventsWidget
+// ---------------------------------------------------------------------------
+
+function ZFSEventsWidget() {
+  const eventsQ = useQuery({
+    queryKey: ['zfs', 'events'],
+    queryFn: ({ signal }) => api.get<{ success: boolean; events: { raw: string }[] }>('/api/zfs/events?count=5', signal),
+    refetchInterval: 10_000,
+  })
+
+  const events = eventsQ.data?.events ?? []
+
+  return (
+    <div style={{ 
+      margin: '6px 12px', 
+      padding: '12px',
+      background: 'rgba(255,255,255,0.02)',
+      border: '1px solid var(--border-subtle)',
+      borderRadius: 'var(--radius-md)',
+      display: 'flex',
+      flexDirection: 'column',
+      gap: 8
+    }}>
+      <div style={{ 
+        display: 'flex', 
+        alignItems: 'center', 
+        gap: 6,
+        fontSize: 'var(--text-3xs)',
+        fontWeight: 800,
+        color: 'var(--text-tertiary)',
+        textTransform: 'uppercase',
+        letterSpacing: '0.5px'
+      }}>
+        <Icon name="history" size={12} />
+        Recent Activity
+      </div>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        {events.length === 0 ? (
+          <div style={{ fontSize: 'var(--text-3xs)', color: 'var(--text-tertiary)', fontStyle: 'italic' }}>
+            No recent events
+          </div>
+        ) : (
+          events.map((ev, i) => {
+            // Very basic parser for "class=X" or "type=Y" in raw string
+            const isError = ev.raw.toLowerCase().includes('fail') || ev.raw.toLowerCase().includes('error')
+            const isScrub = ev.raw.toLowerCase().includes('scrub')
+            
+            return (
+              <div key={i} style={{
+                fontSize: '10px',
+                fontFamily: 'var(--font-mono)',
+                color: isError ? 'var(--error)' : isScrub ? 'var(--primary)' : 'var(--text-secondary)',
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                lineHeight: 1.4,
+                opacity: 0.85
+              }}>
+                {ev.raw.split(' ').slice(1).join(' ') || ev.raw}
+              </div>
+            )
+          })
+        )}
+      </div>
+    </div>
+  )
 }

@@ -257,7 +257,7 @@ export function LoginPage() {
                     className="input"
                     style={{ paddingRight: 44 }}
                   />
-                    <button
+                  <button
                     type="button"
                     onClick={() => setShowPassword((v) => !v)}
                     aria-label={showPassword ? 'Hide password' : 'Show password'}
@@ -274,7 +274,11 @@ export function LoginPage() {
                       alignItems: 'center',
                       padding: 4}}
                   >
-                    {showPassword ? '✓' : '👁'}
+                    {showPassword ? (
+                      <span style={{ fontSize: 18 }}>✓</span>
+                    ) : (
+                      <Icon name="visibility" size={18} />
+                    )}
                   </button>
                 </div>
               </div>
@@ -299,6 +303,23 @@ export function LoginPage() {
                   'Sign In'
                 )}
               </button>
+
+              {import.meta.env.DEV && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    sessionStorage.setItem('dplane_mock_active', 'true')
+                    storeSession('mock_session_id', 'demo_admin')
+                    // Force a reload to have the new session picked up by useAuthStore
+                    window.location.href = '/'
+                  }}
+                  className="btn btn-ghost"
+                  style={{ width: '100%', marginTop: 12, border: '1px solid var(--primary-glow)', color: 'var(--primary)' }}
+                >
+                  <Icon name="rocket_launch" size={16} style={{ marginRight: 8 }} />
+                  Enter Preview Mode
+                </button>
+              )}
             </form>
           ) : (
             <form onSubmit={handleTotpSubmit} noValidate>

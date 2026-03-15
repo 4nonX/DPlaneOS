@@ -5,10 +5,24 @@
  */
 
 import { useRouterState } from '@tanstack/react-router'
+import { useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { Icon } from '@/components/ui/Icon'
+import { Tooltip } from '@/components/ui/Tooltip'
 import { useAuthStore } from '@/stores/auth'
+import { useStorageStore } from '@/stores/storage'
 import { findNavEntry } from './navConfig'
 import { api } from '@/lib/api'
+
+interface ZFSPool {
+  name: string
+  size: string
+  alloc: string
+  free: string
+  capacity: string
+  health: string
+}
+interface PoolsResponse { success: boolean; pools?: ZFSPool[]; data?: ZFSPool[] }
 
 interface TopBarProps {
   sidebarCollapsed: boolean
@@ -64,6 +78,9 @@ export function TopBar({ sidebarCollapsed }: TopBarProps) {
           </h1>
         </div>
       </div>
+
+      {/* ── Center: Pool Capacity Bar ── */}
+      <PoolMonitor />
 
       {/* ── Right: user chip ── */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
@@ -122,5 +139,138 @@ export function TopBar({ sidebarCollapsed }: TopBarProps) {
         )}
       </div>
     </header>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// PoolMonitor
+// ---------------------------------------------------------------------------
+
+function PoolMonitor() {
+  const { activePool, setActivePool } = useStorageStore()
+  const [showDropdown, setShowDropdown] = useState(false)
+
+  const poolsQ = useQuery({
+    queryKey: ['zfs', 'pools'],
+    queryFn: ({ signal }) => api.get<PoolsResponse>('/api/zfs/pools', signal),
+    refetchInterval: 30_000,
+  })
+
+  const pools = poolsQ.data?.pools ?? poolsQ.data?.data ?? []
+  
+  // Auto-select first pool if none selected
+  if (!activePool && pools.length > 0) {
+    setActivePool(pools[0].name)
+  }
+
+  const selected = pools.find(p => p.name === activePool) ?? pools[0]
+  if (!selected) return <div style={{ flex: 1 }} />
+
+  const pct = parseInt((selected.capacity || '0').replace('%', '')) || 0
+  const color = pct >= 90 ? 'var(--error)' : pct >= 75 ? 'var(--warning)' : 'var(--primary)'
+
+  return (
+    <div style={{ 
+      flex: 1, 
+      maxWidth: 400, 
+      margin: '0 40px',
+      display: 'flex', 
+      flexDirection: 'column', 
+      gap: 5,
+      position: 'relative'
+    }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div 
+          onClick={() => setShowDropdown(!showDropdown)}
+          style={{ 
+            display: 'flex', 
+            alignItems: 'center', 
+            gap: 4, 
+            cursor: 'pointer',
+            fontSize: 'var(--text-2xs)',
+            fontWeight: 700,
+            color: 'var(--text-secondary)',
+            textTransform: 'uppercase',
+            whiteSpace: 'nowrap',
+            flexShrink: 0
+          }}
+        >
+          <Icon name="storage" size={12} style={{ color }} />
+          {selected.name}
+          <Icon name="arrow_drop_down" size={14} />
+        </div>
+        
+        <Tooltip content={`${selected.alloc} used / ${selected.size}`}>
+          <div style={{ fontSize: 'var(--text-2xs)', color: 'var(--text-tertiary)', fontWeight: 600 }}>
+            {selected.capacity}
+          </div>
+        </Tooltip>
+      </div>
+
+      <div style={{ 
+        height: 6, 
+        background: 'rgba(255,255,255,0.05)', 
+        borderRadius: 999, 
+        overflow: 'hidden',
+        border: '1px solid rgba(255,255,255,0.03)'
+      }}>
+        <div style={{ 
+          height: '100%', 
+          width: `${pct}%`, 
+          background: color, 
+          borderRadius: 999, 
+          transition: 'width 0.8s cubic-bezier(0.34, 1.56, 0.64, 1)',
+          boxShadow: pct > 80 ? `0 0 8px ${color}80` : 'none'
+        }} />
+      </div>
+
+      {showDropdown && (
+        <div style={{
+          position: 'absolute',
+          top: '100%',
+          left: 0,
+          marginTop: 8,
+          background: 'var(--surface)',
+          border: '1px solid var(--border)',
+          borderRadius: 'var(--radius-md)',
+          boxShadow: 'var(--shadow-lg)',
+          zIndex: 100,
+          minWidth: 160,
+          overflow: 'hidden',
+          backdropFilter: 'var(--blur-glass)'
+        }}>
+          {pools.map(p => (
+            <div 
+              key={p.name}
+              onClick={() => { setActivePool(p.name); setShowDropdown(false) }}
+              style={{
+                padding: '10px 14px',
+                cursor: 'pointer',
+                fontSize: 'var(--text-xs)',
+                fontWeight: 600,
+                color: activePool === p.name ? 'var(--primary)' : 'var(--text-secondary)',
+                background: activePool === p.name ? 'rgba(255,255,255,0.03)' : 'transparent',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                transition: 'all 0.15s'
+              }}
+              onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.05)' }}
+              onMouseLeave={e => { if (activePool !== p.name) e.currentTarget.style.background = 'transparent' }}
+            >
+              {p.name}
+              {activePool === p.name && <Icon name="check" size={14} />}
+            </div>
+          ))}
+        </div>
+      )}
+      
+      {showDropdown && (
+        <div 
+          onClick={() => setShowDropdown(false)}
+          style={{ position: 'fixed', inset: 0, zIndex: 99 }} 
+        />
+      )}
+    </div>
   )
 }

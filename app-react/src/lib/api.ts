@@ -146,6 +146,20 @@ export async function apiFetch<T>(
           arc:     { used: 4294967296, limit: 16106127360, percent: 26.6 },
           iowait:  0.2
         },
+        '/api/auth/check': {
+          authenticated: true,
+          username: 'demo_admin'
+        },
+        '/api/auth/session': {
+          success: true,
+          user: {
+            id: 1,
+            username: 'demo_admin',
+            email: 'demo@dplaneos.local',
+            role: 'admin',
+            must_change_password: false
+          }
+        },
         '/api/system/status': {
           success: true,
           version: '4.0.0-stable',
@@ -196,6 +210,24 @@ export async function apiFetch<T>(
             { name: 'post-init-config', created: new Date(Date.now() - 86400000).toISOString(), size: 1048576 * 42 },
             { name: 'pre-kernel-upgrade', created: new Date(Date.now() - 172800000).toISOString(), size: 1048576 * 128 }
           ]
+        },
+        '/api/zfs/events': {
+          success: true,
+          events: [
+            { raw: '2026-03-15 11:30:05 class=storage.zfs.scrub.start pool=tank' },
+            { raw: '2026-03-15 11:42:12 class=storage.zfs.checksum.error device=sda pool=tank' },
+            { raw: '2026-03-15 11:42:15 class=storage.zfs.state.change pool=tank state=DEGRADED' },
+            { raw: '2026-03-15 12:05:01 class=storage.zfs.scrub.finish pool=tank errors=0' },
+            { raw: '2026-03-15 12:10:44 class=storage.zfs.config.sync pool=ssd-cache' }
+          ]
+        },
+        '/api/zfs/pool/operations': {
+          success: true,
+          message: 'Operation mock-executed successfully'
+        },
+        '/api/zfs/pool/add-vdev': {
+          success: true,
+          message: 'Mock VDEV added'
         },
         '/api/docker/compose/deploy': {
           success: true,

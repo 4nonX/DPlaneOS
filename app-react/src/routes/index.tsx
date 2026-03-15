@@ -104,7 +104,14 @@ const snapshotsRoute  = createRoute({ getParentRoute: () => protectedRoute, path
 const replRoute       = createRoute({ getParentRoute: () => protectedRoute, path: '/replication',   component: ReplicationPage })
 const filesRoute      = createRoute({ getParentRoute: () => protectedRoute, path: '/files',         component: FilesPage })
 const quotasRoute     = createRoute({ getParentRoute: () => protectedRoute, path: '/quotas',        component: QuotasPage })
-const aclRoute        = createRoute({ getParentRoute: () => protectedRoute, path: '/acl',           component: ACLPage })
+const aclRoute        = createRoute({
+  getParentRoute: () => protectedRoute,
+  path: '/acl',
+  validateSearch: (search: Record<string, unknown>): { path?: string } => ({
+    path: typeof search.path === 'string' ? search.path : undefined,
+  }),
+  component: ACLPage,
+})
 const iscsiRoute      = createRoute({ getParentRoute: () => protectedRoute, path: '/iscsi',         component: ISCSIPage })
 const cloudRoute      = createRoute({ getParentRoute: () => protectedRoute, path: '/cloud-sync',    component: CloudSyncPage })
 const sandboxRoute    = createRoute({ getParentRoute: () => protectedRoute, path: '/sandbox',       component: SandboxPage })

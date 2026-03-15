@@ -1,3 +1,5 @@
+//go:build linux
+
 // Package netlinkx provides a minimal Linux netlink/rtnetlink client.
 //
 // Why not vishvananda/netlink?

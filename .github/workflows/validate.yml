@@ -129,7 +129,11 @@ jobs:
           echo "LOOP0=$LOOP0" >> $GITHUB_ENV
           echo "LOOP1=$LOOP1" >> $GITHUB_ENV
           echo "LOOP2=$LOOP2" >> $GITHUB_ENV
-          sudo zpool create -f testpool raidz1 "$LOOP0" "$LOOP1" "$LOOP2"
+
+      - name: Create Test ZFS Pool
+        run: |
+          sudo mkdir -p /mnt/testpool
+          sudo zpool create -f -m /mnt/testpool testpool raidz1 "$LOOP0" "$LOOP1" "$LOOP2"
           sudo zpool status testpool
 
       - name: Initialise database
@@ -374,7 +378,7 @@ jobs:
           valid_json "$(api GET /api/system/ups)"             && ok "UPS status"      || fail "UPS status → invalid JSON"
           valid_json "$(api GET /api/monitoring/inotify)"     && ok "Inotify stats"   || fail "Inotify stats → invalid JSON"
 
-          # ── 4. ZFS — shape assertions + write-path round-trips ──────────────────────────
+          # 4. ZFS — shape assertions + write-path round-trips ──────────────────────────
 
           POOLS=$(api GET /api/zfs/pools)
           assert_json "ZFS pools success"     "$POOLS" "success" "true"
@@ -441,6 +445,10 @@ jobs:
           sudo zfs list -t snapshot testpool/ci-test@ci-snap-1 &>/dev/null \
             && fail "Snapshot still exists after destroy" \
             || ok "Snapshot gone from system after destroy"
+
+          # 4.3. ACL — verify ACL readability on mountpoint
+          ACL_DATA=$(api GET "/api/system/acl?path=/mnt/testpool")
+          assert_json "ACL read success" "$ACL_DATA" "success" "true"
 
           valid_json "$(api GET /api/zfs/health)"          && ok "ZFS health"         || fail "ZFS health → invalid JSON"
           valid_json "$(api GET /api/zfs/iostat)"          && ok "ZFS iostat"         || fail "ZFS iostat → invalid JSON"

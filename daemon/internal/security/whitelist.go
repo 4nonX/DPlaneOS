@@ -34,8 +34,8 @@ var CommandWhitelist = map[string]Command{
 	"zpool_list": {
 		Name:        "zpool_list",
 		Path:        "/usr/sbin/zpool",
-		AllowedArgs: []string{"list", "-H", "-o", "name,size,alloc,free,health"},
-		Description: "List ZFS pools",
+		AllowedArgs: []string{"list", "-H", "-o", "name,size,alloc,free,cap,health"},
+		Description: "List ZFS pools with capacity and health",
 	},
 	"zpool_status": {
 		Name:        "zpool_status",
@@ -43,6 +43,23 @@ var CommandWhitelist = map[string]Command{
 		AllowedArgs: []string{"status", "-P"},
 		ArgPatterns: []*regexp.Regexp{regexp.MustCompile(`^[a-zA-Z0-9_\-]+$`)}, // pool name
 		Description: "Get pool status",
+	},
+	"zpool_clear": {
+		Name:        "zpool_clear",
+		Path:        "/usr/sbin/zpool",
+		AllowedArgs: []string{"clear"},
+		ArgPatterns: []*regexp.Regexp{regexp.MustCompile(`^[a-zA-Z0-9_\-]+$`)}, // pool name
+		Description: "Clear device errors in ZFS pool",
+	},
+	"zpool_online": {
+		Name:        "zpool_online",
+		Path:        "/usr/sbin/zpool",
+		AllowedArgs: []string{"online"},
+		ArgPatterns: []*regexp.Regexp{
+			regexp.MustCompile(`^[a-zA-Z0-9_\-]+$`), // pool name
+			regexp.MustCompile(`^[a-zA-Z0-9_\-/]+$`), // device path
+		},
+		Description: "Bring a ZFS device back online",
 	},
 	"zfs_create": {
 		Name:        "zfs_create",
