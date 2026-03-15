@@ -24,6 +24,7 @@
   "devDependencies": {
     "@tanstack/react-query-devtools": "^5.62.7",
     "@tanstack/router-devtools": "^1.93.0",
+    "@types/node": "^25.5.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "@vitejs/plugin-react": "^4.3.4",
