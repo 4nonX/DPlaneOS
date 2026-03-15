@@ -106,7 +106,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y gcc libc6-dev zfsutils-linux sqlite3 python3-bcrypt curl nfs-kernel-server acl ufw
+          sudo apt-get install -y gcc libc6-dev zfsutils-linux sqlite3 python3-bcrypt curl nfs-kernel-server acl ufw ipmitool
           sudo modprobe zfs
 
       - name: Build daemon
@@ -134,6 +134,8 @@ jobs:
         run: |
           sudo mkdir -p /mnt/testpool
           sudo zpool create -f -m /mnt/testpool testpool raidz1 "$LOOP0" "$LOOP1" "$LOOP2"
+          # POSIX ACLs must be explicitly enabled on ZFS datasets for getfacl to work.
+          sudo zfs set acltype=posixacl testpool
           sudo zpool status testpool
 
       - name: Initialise database

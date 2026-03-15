@@ -315,9 +315,12 @@ func (h *ACLHandler) GetACL(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get POSIX ACL
-	output, err := cmdutil.RunFast("/usr/bin/getfacl", "-p", path)
+	output, err := cmdutil.RunFast("getfacl", "-p", path)
 	if err != nil {
-		respondErrorSimple(w, "getfacl failed", http.StatusInternalServerError)
+		respondOK(w, map[string]interface{}{
+			"success": false,
+			"error":   fmt.Sprintf("getfacl failed: %v, output: %s", err, string(output)),
+		})
 		return
 	}
 

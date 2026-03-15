@@ -37,10 +37,7 @@ func HandleDatasetSearch(w http.ResponseWriter, r *http.Request) {
 
 	// Decide whether to also search snapshots
 	includeSnapshots := strings.HasPrefix(q, "@") || strings.Contains(q, "/")
-	snapQuery := q
-	if strings.HasPrefix(snapQuery, "@") {
-		snapQuery = strings.TrimPrefix(snapQuery, "@")
-	}
+	snapQuery := strings.TrimPrefix(q, "@")
 
 	// Fetch datasets: name,used,avail,refer,mountpoint,type
 	dsOut, err := executeCommandWithTimeout(TimeoutFast, "/usr/sbin/zfs",
