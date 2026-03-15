@@ -105,6 +105,9 @@ export async function apiFetch<T>(
   const headers: Record<string, string> = {}
 
   if (isMutating) {
+    if (!csrfToken) {
+      await initCsrf()
+    }
     headers['Content-Type'] = 'application/json'
     headers['X-CSRF-Token'] = getCsrfToken()
   }

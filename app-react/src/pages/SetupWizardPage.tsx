@@ -57,36 +57,49 @@ const STEPS = ['Welcome', 'Admin', 'Disks', 'Pool', 'System', 'Done']
 
 function StepBar({ current }: { current: number }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 0, marginBottom: 48 }}>
+    <div style={{ display: 'flex', justifyContent: 'space-between', margin: '0 auto 48px', position: 'relative', width: '100%', maxWidth: 520 }}>
       {STEPS.map((label, i) => {
         const done    = i < current
         const active  = i === current
         const isLast  = i === STEPS.length - 1
         return (
-          <div key={label} style={{ display: 'flex', alignItems: 'center' }}>
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
-              <div style={{
-                width: 32, height: 32, borderRadius: '50%',
-                background: done ? 'var(--primary)' : active ? 'var(--primary-bg)' : 'var(--surface)',
-                border: `2px solid ${done || active ? 'var(--primary)' : 'var(--border)'}`,
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                fontSize: 12, fontWeight: 700,
-                color: done ? '#000' : active ? 'var(--primary)' : 'var(--text-tertiary)',
-                transition: 'all 0.2s'}}>
-                {done ? <Icon name="check" size={16} /> : i + 1}
-              </div>
-              <span style={{
-                fontSize: 11, fontWeight: active ? 700 : 500,
-                color: active ? 'var(--primary)' : done ? 'var(--text-secondary)' : 'var(--text-tertiary)'}}>
-                {label}
-              </span>
-            </div>
+          <div key={label} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flex: 1, position: 'relative' }}>
+            {/* The line connecting steps */}
             {!isLast && (
               <div style={{
-                width: 48, height: 2, marginBottom: 22,
+                position: 'absolute',
+                top: 15,
+                left: 'calc(50% + 22px)',
+                width: 'calc(100% - 44px)',
+                height: 2,
                 background: done ? 'var(--primary)' : 'var(--border)',
-                transition: 'background 0.3s'}} />
+                transition: 'background 0.3s',
+                zIndex: 0
+              }} />
             )}
+            
+            {/* The circle */}
+            <div style={{
+              position: 'relative', zIndex: 1,
+              width: 32, height: 32, borderRadius: '50%',
+              background: done ? 'var(--primary)' : active ? 'var(--primary-bg)' : 'var(--surface)',
+              border: `2px solid ${done || active ? 'var(--primary)' : 'var(--border)'}`,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: 12, fontWeight: 700,
+              color: done ? '#000' : active ? 'var(--primary)' : 'var(--text-tertiary)',
+              transition: 'all 0.2s'}}>
+              {done ? <Icon name="check" size={16} /> : i + 1}
+            </div>
+
+            {/* The label */}
+            <span style={{
+              marginTop: 10,
+              fontSize: 11, fontWeight: active ? 700 : 500,
+              color: active ? 'var(--primary)' : done ? 'var(--text-secondary)' : 'var(--text-tertiary)',
+              textAlign: 'center'
+            }}>
+              {label}
+            </span>
           </div>
         )
       })}
@@ -126,7 +139,7 @@ function StepWelcome({ onNext }: { onNext: () => void }) {
 // Step 1 — Admin Account
 // ---------------------------------------------------------------------------
 
-function StepAdmin({ onNext }: { onNext: () => void }) {
+function StepAdmin({ onNext, onBack }: { onNext: () => void; onBack: () => void }) {
   const [username, setUsername] = useState('admin')
   const [password, setPassword] = useState('')
   const [confirm,  setConfirm]  = useState('')
@@ -148,13 +161,13 @@ function StepAdmin({ onNext }: { onNext: () => void }) {
   }
 
   return (
-    <div>
+    <div style={{ textAlign: 'center' }}>
       <h2 style={{ fontSize: 'var(--text-xl)', fontWeight: 700, marginBottom: 8 }}>Admin Account</h2>
       <p style={{ color: 'var(--text-secondary)', marginBottom: 28, fontSize: 'var(--text-sm)' }}>
         Create the administrator account for this NAS.
       </p>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 16, maxWidth: 400 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16, maxWidth: 400, margin: '0 auto', textAlign: 'left' }}>
         <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           <span style={{ fontSize: 'var(--text-xs)', fontWeight: 600, color: 'var(--text-secondary)' }}>Username</span>
           <input
@@ -225,9 +238,14 @@ function StepAdmin({ onNext }: { onNext: () => void }) {
           </div>
         )}
 
-        <button onClick={submit} disabled={save.isPending} className="btn btn-primary" style={{ marginTop: 8 }}>
-          {save.isPending ? 'Creating…' : 'Continue'} <Icon name="arrow_forward" size={16} />
-        </button>
+        <div style={{ display: 'flex', gap: 10, marginTop: 8 }}>
+          <button onClick={onBack} className="btn btn-ghost">
+            <Icon name="arrow_back" size={16} /> Back
+          </button>
+          <button onClick={submit} disabled={save.isPending} className="btn btn-primary">
+            {save.isPending ? 'Creating…' : 'Continue'} <Icon name="arrow_forward" size={16} />
+          </button>
+        </div>
       </div>
     </div>
   )
@@ -438,14 +456,14 @@ function StepPool({
   }
 
   return (
-    <div>
+    <div style={{ textAlign: 'center' }}>
       <h2 style={{ fontSize: 'var(--text-xl)', fontWeight: 700, marginBottom: 8 }}>Configure Pool</h2>
       <p style={{ color: 'var(--text-secondary)', marginBottom: 24, fontSize: 'var(--text-sm)' }}>
         {diskCount} disk{diskCount !== 1 ? 's' : ''} selected. Choose your pool topology.
       </p>
 
       {/* Selected disks summary */}
-      <div className="card" style={{ background: 'var(--surface)',  padding: '12px 16px', borderRadius: 'var(--radius-md)', marginBottom: 20, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+      <div className="card" style={{ background: 'var(--surface)',  padding: '12px 16px', borderRadius: 'var(--radius-md)', marginBottom: 20, display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'center' }}>
         {[...selectedDisks].map(d => (
           <span key={d} className="card" style={{ padding: '2px 8px', borderRadius: 'var(--radius-xs)', fontFamily: 'var(--font-mono)', fontSize: 12 }}>
             /dev/{d}
@@ -453,7 +471,7 @@ function StepPool({
         ))}
       </div>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 16, maxWidth: 540 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16, maxWidth: 540, margin: '0 auto', textAlign: 'left' }}>
         <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           <span style={{ fontSize: 'var(--text-xs)', fontWeight: 600, color: 'var(--text-secondary)' }}>Pool Name</span>
           <input
@@ -550,13 +568,13 @@ function StepSystem({
   }
 
   return (
-    <div>
+    <div style={{ textAlign: 'center' }}>
       <h2 style={{ fontSize: 'var(--text-xl)', fontWeight: 700, marginBottom: 8 }}>System Settings</h2>
       <p style={{ color: 'var(--text-secondary)', marginBottom: 28, fontSize: 'var(--text-sm)' }}>
         Set your NAS hostname and timezone. These can be changed later in Settings.
       </p>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 16, maxWidth: 420 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16, maxWidth: 420, margin: '0 auto', textAlign: 'left' }}>
         <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           <span style={{ fontSize: 'var(--text-xs)', fontWeight: 600, color: 'var(--text-secondary)' }}>Hostname</span>
           <input
@@ -690,7 +708,7 @@ export function SetupWizardPage() {
         <div className="card" style={{ borderRadius: 'var(--radius-xl)', padding: '40px 44px'}}>
           {step === 0 && <StepWelcome onNext={next} />}
 
-          {step === 1 && <StepAdmin onNext={next} />}
+          {step === 1 && <StepAdmin onNext={next} onBack={back} />}
 
           {step === 2 && (
             <StepDisks

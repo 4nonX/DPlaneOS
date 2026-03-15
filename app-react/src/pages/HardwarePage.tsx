@@ -436,20 +436,22 @@ function DiskRow({
           {(disk.wwn || byIdSeg) && (
             <div style={{ display: 'flex', gap: 12, fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', marginTop: 3, flexWrap: 'wrap' }}>
               {disk.wwn && (
-                <span
-                  title={disk.wwn}
-                  style={{ fontFamily: 'var(--font-mono)', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'inline-block', cursor: 'default' }}
-                >
-                  WWN: {disk.wwn}
-                </span>
+                <Tooltip content={disk.wwn}>
+                  <span
+                    style={{ fontFamily: 'var(--font-mono)', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'inline-block', cursor: 'default' }}
+                  >
+                    WWN: {disk.wwn}
+                  </span>
+                </Tooltip>
               )}
               {byIdSeg && (
-                <span
-                  title={disk.by_id_path}
-                  style={{ fontFamily: 'var(--font-mono)', maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'inline-block', cursor: 'default' }}
-                >
-                  {byIdSeg}
-                </span>
+                <Tooltip content={disk.by_id_path}>
+                  <span
+                    style={{ fontFamily: 'var(--font-mono)', maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'inline-block', cursor: 'default' }}
+                  >
+                    {byIdSeg}
+                  </span>
+                </Tooltip>
               )}
             </div>
           )}
@@ -478,25 +480,26 @@ function DiskRow({
 
         {/* Pool membership badge */}
         {disk.pool_name && (
-          <a
-            href="#pools-section"
-            onClick={e => {
-              e.preventDefault()
-              document.getElementById('pools-section')?.scrollIntoView({ behavior: 'smooth' })
-            }}
-            style={{
-              padding: '3px 8px', borderRadius: 'var(--radius-xs)',
-              fontSize: 'var(--text-xs)', fontWeight: 600, flexShrink: 0,
-              background: poolDeg ? 'var(--warning-bg)' : 'var(--primary-bg)',
-              color: poolDeg ? 'var(--warning)' : 'var(--primary)',
-              border: `1px solid ${poolDeg ? 'var(--warning-border)' : 'rgba(138,156,255,0.25)'}`,
-              textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 4}}
-            title={`Pool: ${disk.pool_name} (${disk.pool_health ?? 'unknown'})`}
-          >
-            <Icon name="storage" size={12} />
-            {disk.pool_name}
-            {poolDeg && <Icon name="warning" size={11} />}
-          </a>
+          <Tooltip content={`Pool: ${disk.pool_name} (${disk.pool_health ?? 'unknown'})`}>
+            <a
+              href="#pools-section"
+              onClick={e => {
+                e.preventDefault()
+                document.getElementById('pools-section')?.scrollIntoView({ behavior: 'smooth' })
+              }}
+              style={{
+                padding: '3px 8px', borderRadius: 'var(--radius-xs)',
+                fontSize: 'var(--text-xs)', fontWeight: 600, flexShrink: 0,
+                background: poolDeg ? 'var(--warning-bg)' : 'var(--primary-bg)',
+                color: poolDeg ? 'var(--warning)' : 'var(--primary)',
+                border: `1px solid ${poolDeg ? 'var(--warning-border)' : 'rgba(138,156,255,0.25)'}`,
+                textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 4}}
+            >
+              <Icon name="storage" size={12} />
+              {disk.pool_name}
+              {poolDeg && <Icon name="warning" size={11} />}
+            </a>
+          </Tooltip>
         )}
 
         {/* In-use badge (shown only when no pool membership) */}
@@ -529,15 +532,16 @@ function DiskRow({
 
         {/* Replace button */}
         {showReplace && (
-          <button
-            className="btn btn-danger"
-            onClick={onReplace}
-            title={`Replace this faulted disk in pool ${disk.pool_name}`}
-            style={{ fontSize: 'var(--text-xs)', padding: '5px 12px', flexShrink: 0, display: 'flex', alignItems: 'center', gap: 5 }}
-          >
-            <Icon name="swap_horiz" size={14} />
-            Replace
-          </button>
+          <Tooltip content={`Replace this faulted disk in pool ${disk.pool_name}`}>
+            <button
+              className="btn btn-danger"
+              onClick={onReplace}
+              style={{ fontSize: 'var(--text-xs)', padding: '5px 12px', flexShrink: 0, display: 'flex', alignItems: 'center', gap: 5 }}
+            >
+              <Icon name="swap_horiz" size={14} />
+              Replace
+            </button>
+          </Tooltip>
         )}
 
         {/* SMART test buttons */}

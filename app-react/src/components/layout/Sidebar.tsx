@@ -160,20 +160,21 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
 
               {/* Collapsed group: show icon that navigates to first child */}
               {collapsed && (
-                <button
-                  onClick={() => navigate(group.children[0]?.route ?? '/')}
-                  title={group.label}
-                  style={{
-                    width: '100%', display: 'flex', justifyContent: 'center',
-                    padding: '10px 0', background: hasActive ? 'var(--primary-bg)' : 'none',
-                    border: 'none', cursor: 'pointer',
-                    color: hasActive ? 'var(--primary)' : 'var(--text-tertiary)',
-                    transition: 'all var(--transition-fast)'}}
-                  onMouseEnter={(e) => { if (!hasActive) { e.currentTarget.style.background = 'var(--surface)'; e.currentTarget.style.color = 'var(--text)'; } }}
-                  onMouseLeave={(e) => { if (!hasActive) { e.currentTarget.style.background = 'none'; e.currentTarget.style.color = 'var(--text-tertiary)'; } }}
-                >
-                  <Icon name={group.icon} size={20} />
-                </button>
+                <Tooltip content={group.label} position="right">
+                  <button
+                    onClick={() => navigate(group.children[0]?.route ?? '/')}
+                    style={{
+                      width: '100%', display: 'flex', justifyContent: 'center',
+                      padding: '10px 0', background: hasActive ? 'var(--primary-bg)' : 'none',
+                      border: 'none', cursor: 'pointer',
+                      color: hasActive ? 'var(--primary)' : 'var(--text-tertiary)',
+                      transition: 'all var(--transition-fast)'}}
+                    onMouseEnter={(e) => { if (!hasActive) { e.currentTarget.style.background = 'var(--surface)'; e.currentTarget.style.color = 'var(--text)'; } }}
+                    onMouseLeave={(e) => { if (!hasActive) { e.currentTarget.style.background = 'none'; e.currentTarget.style.color = 'var(--text-tertiary)'; } }}
+                  >
+                    <Icon name={group.icon} size={20} />
+                  </button>
+                </Tooltip>
               )}
 
               {/* Children */}
@@ -276,10 +277,9 @@ interface LeafItemProps {
 }
 
 function LeafItem({ leaf, isActive, collapsed, indent = false, onClick }: LeafItemProps) {
-  return (
+  const btn = (
     <button
       onClick={onClick}
-      title={collapsed ? leaf.label : undefined}
       aria-current={isActive ? 'page' : undefined}
       style={{
         width: '100%', display: 'flex', alignItems: 'center', gap: 10,
@@ -306,4 +306,8 @@ function LeafItem({ leaf, isActive, collapsed, indent = false, onClick }: LeafIt
       {!collapsed && <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{leaf.label}</span>}
     </button>
   )
+
+  return collapsed ? (
+    <Tooltip content={leaf.label} position="right">{btn}</Tooltip>
+  ) : btn
 }

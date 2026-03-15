@@ -427,17 +427,16 @@ function ContainerTable({ containers, onRefresh, topBorder = true }: { container
             <th>
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
                 Container
-                <span
-                  title={
+                <Tooltip content={
                     'Custom icon: add a dplaneos.icon label in docker-compose.yaml\n' +
                     '  dplaneos.icon: jellyfin        → Material Symbol name\n' +
                     '  dplaneos.icon: mylogo.svg       → file in /var/lib/dplaneos/custom_icons/\n' +
                     '  dplaneos.icon: https://…/logo.png → remote URL'
-                  }
-                  style={{ cursor: 'help', color: 'var(--text-tertiary)', display: 'inline-flex' }}
-                >
-                  <Icon name="info" size={12} />
-                </span>
+                  }>
+                  <span style={{ cursor: 'help', color: 'var(--text-tertiary)', display: 'inline-flex' }}>
+                    <Icon name="info" size={12} />
+                  </span>
+                </Tooltip>
               </span>
             </th>
             {['State', 'Ports', 'Resources', 'Uptime', 'Actions'].map(h => (

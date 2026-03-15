@@ -9,7 +9,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { useAuthStore } from '@/stores/auth'
-import { api, storeSession } from '@/lib/api'
+import { api, storeSession, initCsrf } from '@/lib/api'
 import { Icon } from '@/components/ui/Icon'
 import { Spinner } from '@/components/ui/LoadingSpinner'
 
@@ -35,8 +35,14 @@ export function LoginPage() {
   const login = useAuthStore((s) => s.login)
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
 
+  const [csrfReady, setCsrfReady] = useState(false)
   const [step, setStep] = useState<LoginStep>('credentials')
   const [pendingToken, setPendingToken] = useState<string>('')
+
+  // Initialize CSRF token before allowing any submissions
+  useEffect(() => {
+    initCsrf().then(() => setCsrfReady(true))
+  }, [])
 
   // Credentials step
   const [username, setUsername] = useState('')
@@ -207,7 +213,7 @@ export function LoginPage() {
                 fontSize: 'var(--text-sm)',
                 color: 'var(--error)'}}
             >
-              <Icon name="error_outline" size={16} style={{ flexShrink: 0 }} />
+              <Icon name="error" size={16} style={{ flexShrink: 0 }} />
               {error}
             </div>
           )}
@@ -251,7 +257,7 @@ export function LoginPage() {
                     className="input"
                     style={{ paddingRight: 44 }}
                   />
-                  <button
+                    <button
                     type="button"
                     onClick={() => setShowPassword((v) => !v)}
                     aria-label={showPassword ? 'Hide password' : 'Show password'}
@@ -268,18 +274,23 @@ export function LoginPage() {
                       alignItems: 'center',
                       padding: 4}}
                   >
-                    <Icon name={showPassword ? 'visibility_off' : 'visibility'} size={20} />
+                    {showPassword ? '✓' : '👁'}
                   </button>
                 </div>
               </div>
 
               <button
                 type="submit"
-                disabled={loading}
+                disabled={!csrfReady || loading}
                 className="btn btn-primary"
                 style={{ width: '100%' }}
               >
-                {loading ? (
+                {!csrfReady ? (
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'center' }}>
+                    <Spinner size={16} color="rgba(0,0,0,0.7)" />
+                    Loading…
+                  </span>
+                ) : loading ? (
                   <span style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'center' }}>
                     <Spinner size={16} color="rgba(0,0,0,0.7)" />
                     Signing in…
