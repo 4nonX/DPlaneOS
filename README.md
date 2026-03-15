@@ -35,7 +35,7 @@ The installer handles everything: ZFS kernel module, nginx, database, systemd un
 
 | Area | Capabilities |
 |------|-------------|
-| **Storage** | ZFS pools, datasets, snapshots, replication (`zfs send`), encryption, quotas, S.M.A.R.T., file explorer with chunked uploads |
+| **Storage** | ZFS pools, datasets, snapshots, replication (`zfs send`), encryption, quotas, S.M.A.R.T., POSIX ACLs, file explorer with chunked uploads |
 | **Hot-swap** | udev rules detect disk add/remove; daemon auto-imports FAULTED/UNAVAIL pools and suggests vdev replacements via the UI |
 | **Sharing** | SMB shares with Time Machine support (Samba vfs_fruit), NFS exports, iSCSI block targets — all configured through the UI |
 | **Containers** | Docker management, Compose stacks, template library (one-click deploy), ephemeral ZFS-clone sandboxes, atomic updates with automatic rollback |

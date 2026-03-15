@@ -9,14 +9,15 @@ Complete reference for system administration, storage management, sharing protoc
 1. [User Management](#user-management)
 2. [Role Management](#role-management)
 3. [Storage Management](#storage-management)
-4. [Container Management](#container-management)
-5. [System Settings](#system-settings)
-6. [Monitoring and Alerts](#monitoring-and-alerts)
-7. [Backup and Recovery](#backup-and-recovery)
-8. [Security Best Practices](#security-best-practices)
-9. [Directory Service (LDAP / Active Directory)](#directory-service-ldap--active-directory)
-10. [Custom Container Icons](#custom-container-icons)
-11. [Troubleshooting](#troubleshooting)
+4. [File Management](#file-management)
+5. [Container Management](#container-management)
+6. [System Settings](#system-settings)
+7. [Monitoring and Alerts](#monitoring-and-alerts)
+8. [Backup and Recovery](#backup-and-recovery)
+9. [Security Best Practices](#security-best-practices)
+10. [Directory Service (LDAP / Active Directory)](#directory-service-ldap--active-directory)
+11. [Custom Container Icons](#custom-container-icons)
+12. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -118,12 +119,47 @@ Scrubs verify on-disk data integrity and auto-repair from parity. Recommended mo
 
 **Via UI:** Storage → Pools → select pool → **Start Scrub**.
 
+### Pool Maintenance (Clear/Online)
+
+For troubleshooting pool errors or managing hot-swap replacements:
+
+- **Clear Errors**: Storage → Pools → select pool → **Clear**. Resets the pool's error counters (useful after a known cable issue or transient fault).
+- **Online Device**: If a device was previously detached or disconnected, use the **Online** action in the disk management view to attempt to bring it back into the pool.
+
 **Via cron:**
 ```bash
 sudo crontab -e
 # Add:
 0 2 1 * * /usr/sbin/zpool scrub tank
 ```
+
+## File Management
+
+### File Explorer
+
+D-PlaneOS includes a web-based file explorer accessible via the **Files** navigation item.
+
+- **Navigation**: Browse datasets and directories in real-time.
+- **Uploads**: Supports large, chunked multi-gigabyte uploads directly to the server.
+- **Operations**: Rename, Copy, Move, and Delete files/directories.
+
+### ACL Management (POSIX ACLs)
+
+For granular access control beyond standard owner/group permissions, the File Explorer supports POSIX ACLs.
+
+1. Navigate to **Files**.
+2. Right-click any file or directory.
+3. Select **Manage Permissions (ACL)**.
+4. From this dialog, you can:
+   - View current ACL entries.
+   - Add new entries for specific users or groups.
+   - Set permissions (Read, Write, Execute).
+   - Apply changes recursively to directory contents.
+
+> [!IMPORTANT]
+> To use ACLs, the underlying ZFS dataset must have `acltype=posixacl` set. The installer enables this by default for new pools created through the UI.
+
+---
 
 ---
 
@@ -170,6 +206,8 @@ Custom icons are served via `GET /api/assets/custom-icons/<filename>`. The full 
 ### Network Configuration
 
 Settings → System → Network → configure interface, IP address, gateway, and DNS → **Apply**.
+
+From this page, you can also quickly access the **Firewall** management UI to configure port rules and security settings.
 
 ### Notifications
 
