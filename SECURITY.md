@@ -4,8 +4,9 @@
 
 | Version | Supported |
 |---------|-----------|
-| 4.x | Active development — all fixes |
-| 3.x | Critical security fixes only |
+| 5.x | Active development — all fixes |
+| 4.x | Critical security fixes only |
+| 3.x | End of life — upgrade required |
 | 2.x | End of life — upgrade required |
 | < 2.0 | End of life — upgrade required |
 
