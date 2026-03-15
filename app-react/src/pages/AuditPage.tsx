@@ -92,7 +92,7 @@ export function AuditPage() {
 
       {/* Stats row */}
       <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(180px,1fr))', gap:12, marginBottom:24 }}>
-        <div style={{ background:'var(--bg-card)', border:'1px solid var(--border)', borderRadius:'var(--radius-lg)', padding:'16px 20px' }}>
+        <div className="card" style={{ borderRadius:'var(--radius-lg)', padding:'16px 20px' }}>
           <div style={{ fontSize:'var(--text-xs)', color:'var(--text-tertiary)', textTransform:'uppercase', letterSpacing:'0.5px', marginBottom:6 }}>Total Entries</div>
           <div style={{ fontSize:26, fontWeight:700, fontFamily:'var(--font-mono)', color:'var(--primary)' }}>{stats?.total_entries?.toLocaleString() ?? allLogs.length.toLocaleString()}</div>
         </div>
@@ -104,7 +104,7 @@ export function AuditPage() {
           </div>
         </div>
         {stats?.last_entry && (
-          <div style={{ background:'var(--bg-card)', border:'1px solid var(--border)', borderRadius:'var(--radius-lg)', padding:'16px 20px' }}>
+          <div className="card" style={{ borderRadius:'var(--radius-lg)', padding:'16px 20px' }}>
             <div style={{ fontSize:'var(--text-xs)', color:'var(--text-tertiary)', textTransform:'uppercase', letterSpacing:'0.5px', marginBottom:6 }}>Last Entry</div>
             <div style={{ fontSize:'var(--text-sm)', fontWeight:600 }}>{fmtDate(stats.last_entry)}</div>
           </div>
@@ -140,7 +140,7 @@ export function AuditPage() {
       {logsQ.isLoading && <Skeleton height={300}/>}
       {logsQ.isError   && <ErrorState error={logsQ.error} onRetry={()=>qc.invalidateQueries({queryKey:['audit','logs']})}/>}
       {!logsQ.isLoading && !logsQ.isError && (
-        <div style={{ background:'var(--bg-card)', border:'1px solid var(--border)', borderRadius:'var(--radius-lg)', overflow:'hidden' }}>
+        <div className="card" style={{ borderRadius:'var(--radius-lg)', overflow:'hidden' }}>
           <table className="data-table">
             <thead>
               <tr>

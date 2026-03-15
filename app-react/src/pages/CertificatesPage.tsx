@@ -260,7 +260,7 @@ export function CertificatesPage() {
           />
         ))}
         {!certsQ.isLoading && certs.length === 0 && (
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '48px 0', gap: 12, background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)' }}>
+          <div className="card" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '48px 0', gap: 12, borderRadius: 'var(--radius-lg)' }}>
             <Icon name="verified_user" size={40} style={{ color: 'var(--text-tertiary)', opacity: 0.4 }} />
             <div style={{ color: 'var(--text-tertiary)', fontSize: 'var(--text-sm)' }}>No certificates installed</div>
             <div style={{ color: 'var(--text-tertiary)', fontSize: 'var(--text-xs)' }}>Generate a self-signed certificate to get started</div>

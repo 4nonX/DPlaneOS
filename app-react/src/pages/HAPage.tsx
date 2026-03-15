@@ -79,15 +79,13 @@ function NodeCard({ node, isLocal, canPromote, onPromote, onRemove, pending }: {
       display: 'flex', alignItems: 'center', gap: 16, padding: '16px 20px',
       background: 'var(--bg-card)',
       border: `1px solid ${isActive ? 'rgba(16,185,129,0.25)' : isLocal ? 'rgba(138,156,255,0.2)' : 'var(--border)'}`,
-      borderRadius: 'var(--radius-lg)',
-    }}>
+      borderRadius: 'var(--radius-lg)'}}>
       {/* Icon */}
       <div style={{
         width: 42, height: 42, borderRadius: 'var(--radius-md)', flexShrink: 0,
         background: isActive ? 'rgba(16,185,129,0.1)' : isLocal ? 'var(--primary-bg)' : 'var(--surface)',
         border: `1px solid ${isActive ? 'rgba(16,185,129,0.25)' : isLocal ? 'rgba(138,156,255,0.2)' : 'var(--border)'}`,
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-      }}>
+        display: 'flex', alignItems: 'center', justifyContent: 'center'}}>
         <Icon name="computer" size={22} style={{ color: isActive ? 'var(--success)' : isLocal ? 'var(--primary)' : 'var(--text-tertiary)' }} />
       </div>
 
@@ -155,7 +153,7 @@ function AddPeerForm({ onAdd, pending }: {
   }
 
   return (
-    <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: '20px 24px', marginTop: 24 }}>
+    <div className="card" style={{ borderRadius: 'var(--radius-lg)', padding: '20px 24px', marginTop: 24 }}>
       <div style={{ fontWeight: 700, marginBottom: 16 }}>Register Peer Node</div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 120px', gap: 12, marginBottom: 12 }}>
         <label className="field">
@@ -291,8 +289,7 @@ export function HAPage() {
         <div style={{
           background: 'var(--bg-card)', borderRadius: 'var(--radius-lg)', padding: '18px 20px',
           display: 'flex', alignItems: 'center', gap: 14,
-          border: `1px solid ${hasQuorum ? 'rgba(16,185,129,0.25)' : 'rgba(239,68,68,0.25)'}`,
-        }}>
+          border: `1px solid ${hasQuorum ? 'rgba(16,185,129,0.25)' : 'rgba(239,68,68,0.25)'}`}}>
           <Icon name={hasQuorum ? 'verified' : 'dangerous'} size={28}
             style={{ color: hasQuorum ? 'var(--success)' : 'var(--error)', flexShrink: 0 }} />
           <div>
@@ -304,7 +301,7 @@ export function HAPage() {
         </div>
 
         {/* Node count */}
-        <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: '18px 20px', display: 'flex', alignItems: 'center', gap: 14 }}>
+        <div className="card" style={{ borderRadius: 'var(--radius-lg)', padding: '18px 20px', display: 'flex', alignItems: 'center', gap: 14 }}>
           <Icon name="computer" size={28} style={{ color: 'var(--primary)', flexShrink: 0 }} />
           <div>
             <div style={{ fontWeight: 700, fontSize: 28, fontFamily: 'var(--font-mono)', lineHeight: 1 }}>
@@ -315,7 +312,7 @@ export function HAPage() {
         </div>
 
         {/* Active node */}
-        <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: '18px 20px', display: 'flex', alignItems: 'center', gap: 14 }}>
+        <div className="card" style={{ borderRadius: 'var(--radius-lg)', padding: '18px 20px', display: 'flex', alignItems: 'center', gap: 14 }}>
           <Icon name="star" size={28} style={{ color: 'rgba(251,191,36,0.9)', flexShrink: 0 }} />
           <div style={{ minWidth: 0 }}>
             <div style={{ fontWeight: 700, fontSize: 'var(--text-md)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -350,11 +347,9 @@ export function HAPage() {
         ))}
 
         {allNodes.length === 0 && (
-          <div style={{
+          <div className="card" style={{
             display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-            padding: '48px 0', gap: 12,
-            background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)',
-          }}>
+            padding: '48px 0', gap: 12, borderRadius: 'var(--radius-lg)'}}>
             <Icon name="device_hub" size={40} style={{ color: 'var(--text-tertiary)', opacity: 0.4 }} />
             <div style={{ color: 'var(--text-tertiary)', fontSize: 'var(--text-sm)' }}>No cluster nodes found</div>
             <div style={{ color: 'var(--text-tertiary)', fontSize: 'var(--text-xs)' }}>

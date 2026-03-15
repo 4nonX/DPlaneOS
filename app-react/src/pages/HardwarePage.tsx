@@ -180,8 +180,7 @@ function SmartResultsModal({ device, onClose }: { device: string; onClose: () =>
             wordBreak: 'break-word',
             maxHeight: 420,
             overflowY: 'auto',
-            margin: 0,
-          }}>
+            margin: 0}}>
             {data.results || '(no results)'}
           </pre>
         )}
@@ -267,8 +266,7 @@ function ReplaceDiskModal({
             <div style={{
               background: 'var(--error-bg)', border: '1px solid var(--error-border)',
               borderRadius: 'var(--radius-md)', padding: '12px 14px',
-              display: 'flex', alignItems: 'center', gap: 10,
-            }}>
+              display: 'flex', alignItems: 'center', gap: 10}}>
               <Icon name="hard_drive" size={20} style={{ color: 'var(--error)', flexShrink: 0 }} />
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontWeight: 600, fontSize: 'var(--text-sm)', color: 'var(--error)' }}>
@@ -318,12 +316,9 @@ function ReplaceDiskModal({
 
             {/* Command preview */}
             {selected && (
-              <div style={{
-                background: 'var(--surface)', border: '1px solid var(--border)',
-                borderRadius: 'var(--radius-sm)', padding: '10px 14px',
+              <div className="card" style={{ background: 'var(--surface)', borderRadius: 'var(--radius-sm)', padding: '10px 14px',
                 fontSize: 'var(--text-xs)', fontFamily: 'var(--font-mono)',
-                color: 'var(--text-secondary)',
-              }}>
+                color: 'var(--text-secondary)'}}>
                 <div style={{ fontSize: 'var(--text-2xs)', textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--text-tertiary)', marginBottom: 4 }}>
                   Command that will run:
                 </div>
@@ -406,8 +401,7 @@ function DiskRow({
       padding: '14px 16px', background: 'rgba(255,255,255,0.02)',
       border: `1px solid ${isFaulted ? 'var(--error-border)' : 'var(--border-subtle)'}`,
       borderRadius: 'var(--radius-md)',
-      borderLeft: isFaulted ? '3px solid var(--error)' : undefined,
-    }}>
+      borderLeft: isFaulted ? '3px solid var(--error)' : undefined}}>
       {/* Main row */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
         {/* Disk icon */}
@@ -467,8 +461,7 @@ function DiskRow({
           fontSize: 'var(--text-xs)', fontWeight: 600, flexShrink: 0,
           background: `${typeMeta.color}18`,
           color: typeMeta.color,
-          border: `1px solid ${typeMeta.color}40`,
-        }}>
+          border: `1px solid ${typeMeta.color}40`}}>
           {typeMeta.label}
         </span>
 
@@ -477,8 +470,7 @@ function DiskRow({
           <div style={{
             display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0,
             color: tempWarn === 'critical' ? 'var(--error)' : tempWarn === 'warning' ? 'var(--warning)' : 'var(--text-secondary)',
-            fontSize: 'var(--text-sm)',
-          }}>
+            fontSize: 'var(--text-sm)'}}>
             <Icon name="thermostat" size={16} />
             {temp}°C
           </div>
@@ -498,8 +490,7 @@ function DiskRow({
               background: poolDeg ? 'var(--warning-bg)' : 'var(--primary-bg)',
               color: poolDeg ? 'var(--warning)' : 'var(--primary)',
               border: `1px solid ${poolDeg ? 'var(--warning-border)' : 'rgba(138,156,255,0.25)'}`,
-              textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 4,
-            }}
+              textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 4}}
             title={`Pool: ${disk.pool_name} (${disk.pool_health ?? 'unknown'})`}
           >
             <Icon name="storage" size={12} />
@@ -515,8 +506,7 @@ function DiskRow({
             background: disk.in_use ? 'var(--primary-bg)' : 'var(--surface)',
             color: disk.in_use ? 'var(--primary)' : 'var(--text-secondary)',
             border: `1px solid ${disk.in_use ? 'rgba(138,156,255,0.25)' : 'var(--border)'}`,
-            flexShrink: 0,
-          }}>
+            flexShrink: 0}}>
             {disk.in_use ? 'In use' : 'Free'}
           </span>
         )}
@@ -822,7 +812,7 @@ export function HardwarePage() {
       {/* Disk list */}
       <div
         id="pools-section"
-        style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-xl)', padding: 24 }}
+        className="card" style={{ borderRadius: 'var(--radius-xl)', padding: 24 }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 20 }}>
           <Icon name="hard_drive" size={18} style={{ color: 'var(--primary)' }} />
@@ -861,7 +851,7 @@ export function HardwarePage() {
 
       {/* SMART detail table for disks with ATA attributes */}
       {smartQ.data && smartQ.data.disks.some(d => d.ata_smart_attributes?.table.length) && (
-        <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-xl)', padding: 24 }}>
+        <div className="card" style={{ borderRadius: 'var(--radius-xl)', padding: 24 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 20 }}>
             <Icon name="analytics" size={18} style={{ color: 'var(--primary)' }} />
             <span style={{ fontWeight: 700, fontSize: 'var(--text-md)' }}>SMART Attributes</span>

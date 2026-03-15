@@ -205,8 +205,7 @@ function StackCard({ stack, onRefresh, iconMap, compact = false }: {
       background: compact ? 'var(--surface)' : 'var(--bg-card)',
       border: '1px solid var(--border)',
       borderRadius: compact ? 'var(--radius-md)' : 'var(--radius-xl)',
-      padding: compact ? '14px 16px' : 24,
-    }}>
+      padding: compact ? '14px 16px' : 24}}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: jobId ? 12 : 8 }}>
         {/* Icon */}
         <div style={{ width: compact ? 32 : 40, height: compact ? 32 : 40, background: 'var(--primary-bg)', border: '1px solid rgba(138,156,255,0.2)', borderRadius: 'var(--radius-md)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
@@ -254,8 +253,7 @@ function StackCard({ stack, onRefresh, iconMap, compact = false }: {
               background: s.State === 'running' ? 'rgba(74,222,128,0.08)' : 'var(--surface)',
               border: `1px solid ${s.State === 'running' ? 'rgba(74,222,128,0.2)' : 'var(--border)'}`,
               fontSize: 'var(--text-2xs)', fontFamily: 'var(--font-mono)',
-              color: s.State === 'running' ? 'var(--success)' : 'var(--text-tertiary)',
-            }}>
+              color: s.State === 'running' ? 'var(--success)' : 'var(--text-tertiary)'}}>
               <span style={{ width: 5, height: 5, borderRadius: '50%', background: 'currentColor', display: 'inline-block' }} />
               {s.Service ?? s.Name ?? `service-${i}`}
             </span>
@@ -300,7 +298,7 @@ function TemplateGroupCard({ group, onRefresh, iconMap }: {
   const noneRunning = running === 0
 
   return (
-    <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-xl)', overflow: 'hidden' }}>
+    <div className="card" style={{ borderRadius: 'var(--radius-xl)', overflow: 'hidden' }}>
       {/* Group header */}
       <button
         onClick={() => setExpanded(p => !p)}
@@ -318,8 +316,7 @@ function TemplateGroupCard({ group, onRefresh, iconMap }: {
               padding: '1px 7px', borderRadius: 'var(--radius-full)', fontSize: 10, fontWeight: 700,
               background: allRunning ? 'rgba(74,222,128,0.12)' : noneRunning ? 'rgba(255,255,255,0.06)' : 'rgba(251,191,36,0.12)',
               color: allRunning ? 'var(--success)' : noneRunning ? 'var(--text-tertiary)' : 'rgba(251,191,36,0.9)',
-              border: `1px solid ${allRunning ? 'rgba(74,222,128,0.25)' : noneRunning ? 'var(--border)' : 'rgba(251,191,36,0.25)'}`,
-            }}>
+              border: `1px solid ${allRunning ? 'rgba(74,222,128,0.25)' : noneRunning ? 'var(--border)' : 'rgba(251,191,36,0.25)'}`}}>
               {running}/{total} running
             </span>
           </div>
@@ -362,7 +359,7 @@ function TemplateCatalogueTab({ onDeploy }: { onDeploy: (t: Template) => void })
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 16 }}>
       {templates.map(t => (
-        <div key={t.id} style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-xl)', padding: 20 }}>
+        <div key={t.id} className="card" style={{ borderRadius: 'var(--radius-xl)', padding: 20 }}>
           <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14, marginBottom: 12 }}>
             <div style={{ width: 44, height: 44, background: 'var(--primary-bg)', border: '1px solid rgba(138,156,255,0.2)', borderRadius: 'var(--radius-md)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
               <Icon name={t.icon ?? 'deployed_code'} size={22} style={{ color: 'var(--primary)' }} />

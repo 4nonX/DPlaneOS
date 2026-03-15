@@ -97,35 +97,28 @@ function MetricCard({ icon, label, value, sub, percent, loading, onClick, accent
 
   return (
     <div
+      className={`card ${onClick ? 'interactive' : ''}`}
       onClick={onClick}
       onMouseEnter={() => setHov(true)}
       onMouseLeave={() => setHov(false)}
       style={{
-        background: 'var(--bg-card)',
-        border: `1px solid ${hov && onClick ? 'rgba(138,156,255,0.25)' : 'var(--border)'}`,
-        borderRadius: 'var(--radius-xl)',
         padding: '20px 22px',
-        cursor: onClick ? 'pointer' : 'default',
-        transform: hov && onClick ? 'translateY(-2px)' : 'none',
-        transition: 'all var(--transition-base)',
         position: 'relative', overflow: 'hidden',
-      }}
+        border: hov && onClick ? `1px solid ${color}` : undefined}}
     >
       {/* Subtle top-left glow */}
       <div style={{
         position: 'absolute', top: -20, left: -20,
-        width: 80, height: 80, borderRadius: '50%',
-        background: `radial-gradient(circle, ${color}18 0%, transparent 70%)`,
-        pointerEvents: 'none',
-      }} />
+        width: 100, height: 100, borderRadius: '50%',
+        background: `radial-gradient(circle, ${color}22 0%, transparent 70%)`,
+        pointerEvents: 'none'}} />
 
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
         <div style={{
           width: 34, height: 34, borderRadius: 10,
           background: `${color}18`,
           border: `1px solid ${color}30`,
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-        }}>
+          display: 'flex', alignItems: 'center', justifyContent: 'center'}}>
           <Icon name={icon} size={18} style={{ color }} />
         </div>
         {onClick && <Icon name="open_in_new" size={14} style={{ color: 'var(--text-tertiary)', opacity: hov ? 1 : 0, transition: 'opacity 0.15s' }} />}
@@ -141,8 +134,7 @@ function MetricCard({ icon, label, value, sub, percent, loading, onClick, accent
           <div style={{
             fontFamily: 'var(--font-mono)', fontSize: 26, fontWeight: 800,
             color, lineHeight: 1, marginBottom: 4,
-            textShadow: `0 0 20px ${color}40`,
-          }}>
+            textShadow: `0 0 20px ${color}40`}}>
             {value}
           </div>
           <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', marginBottom: 4 }}>{label}</div>
@@ -152,8 +144,7 @@ function MetricCard({ icon, label, value, sub, percent, loading, onClick, accent
               <div style={{
                 height: '100%', width: `${Math.min(percent, 100)}%`, borderRadius: 999,
                 background: color, transition: 'width 0.6s ease',
-                boxShadow: percent > 70 ? `0 0 6px ${color}` : 'none',
-              }} />
+                boxShadow: percent > 70 ? `0 0 6px ${color}` : 'none'}} />
             </div>
           )}
         </>
@@ -171,14 +162,11 @@ function SectionCard({ title, icon, children, onAction, actionLabel }: {
   onAction?: () => void; actionLabel?: string
 }) {
   return (
-    <div style={{
-      background: 'var(--bg-card)', border: '1px solid var(--border)',
-      borderRadius: 'var(--radius-xl)', overflow: 'hidden',
-    }}>
+    <div className="card" style={{ padding: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
       <div style={{
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        padding: '16px 20px', borderBottom: '1px solid var(--border-subtle)',
-      }}>
+        padding: '18px 24px', borderBottom: '1px solid var(--border-subtle)',
+        background: 'hsla(0,0%,0%,0.2)'}}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <Icon name={icon} size={17} style={{ color: 'var(--primary)' }} />
           <span style={{ fontWeight: 700, fontSize: 'var(--text-md)' }}>{title}</span>
@@ -216,15 +204,13 @@ function PoolRow({ pool, onClick }: { pool: ZFSPool; onClick: () => void }) {
         display: 'flex', alignItems: 'center', gap: 12,
         padding: '10px 12px', borderRadius: 'var(--radius-md)',
         background: hov ? 'var(--surface)' : 'transparent',
-        cursor: 'pointer', transition: 'background var(--transition-fast)',
-      }}
+        cursor: 'pointer', transition: 'background var(--transition-fast)'}}
     >
       <div style={{
         width: 36, height: 36, borderRadius: 10,
         background: isOnline ? 'var(--success-bg)' : isDeg ? 'var(--warning-bg)' : 'var(--error-bg)',
         border: `1px solid ${isOnline ? 'var(--success-border)' : isDeg ? 'var(--warning-border)' : 'var(--error-border)'}`,
-        display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-      }}>
+        display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0}}>
         <Icon name="storage" size={18}
           style={{ color: isOnline ? 'var(--success)' : isDeg ? 'var(--warning)' : 'var(--error)' }} />
       </div>
@@ -260,8 +246,7 @@ function ContainerRow({ c, onClick }: { c: DockerContainer; onClick: () => void 
         display: 'flex', alignItems: 'center', gap: 10,
         padding: '8px 12px', borderRadius: 'var(--radius-sm)',
         background: hov ? 'var(--surface)' : 'transparent',
-        cursor: 'pointer', transition: 'background var(--transition-fast)',
-      }}
+        cursor: 'pointer', transition: 'background var(--transition-fast)'}}
     >
       <span className={`status-dot ${running ? 'online' : 'offline'}`} />
       <div style={{ flex: 1, minWidth: 0 }}>
@@ -297,8 +282,7 @@ function DiskHealthRow({ disk, onClick }: { disk: SMARTDisk; onClick: () => void
         display: 'flex', alignItems: 'center', gap: 10,
         padding: '8px 12px', borderRadius: 'var(--radius-sm)',
         background: hov ? 'var(--surface)' : 'transparent',
-        cursor: 'pointer', transition: 'background var(--transition-fast)',
-      }}
+        cursor: 'pointer', transition: 'background var(--transition-fast)'}}
     >
       <Icon
         name={passed === false ? 'error' : 'device_thermostat'}
@@ -584,8 +568,7 @@ export function DashboardPage() {
               fontSize: 'var(--text-sm)', color: 'var(--text-secondary)',
               borderBottom: hasSmartIssues ? '1px solid var(--border-subtle)' : undefined,
               marginBottom: hasSmartIssues ? 4 : 0,
-              flexWrap: 'wrap',
-            }}>
+              flexWrap: 'wrap'}}>
               <span>
                 <strong style={{ color: 'var(--text)' }}>{smartDisks.length}</strong> disk{smartDisks.length !== 1 ? 's' : ''}
               </span>

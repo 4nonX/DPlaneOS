@@ -169,7 +169,7 @@ export function GitOpsPage() {
               </div>
             </>
           ) : (
-            <pre style={{ background:'var(--surface)', border:'1px solid var(--border)', borderRadius:'var(--radius-sm)', padding:'12px 14px', fontFamily:'var(--font-mono)', fontSize:11, lineHeight:1.7, overflow:'auto', maxHeight:320, margin:0, color:'rgba(255,255,255,0.7)', whiteSpace:'pre-wrap' }}>
+            <pre className="card" style={{ background: 'var(--surface)', borderRadius:'var(--radius-sm)', padding:'12px 14px', fontFamily:'var(--font-mono)', fontSize:11, lineHeight:1.7, overflow:'auto', maxHeight:320, margin:0, color:'rgba(255,255,255,0.7)', whiteSpace:'pre-wrap' }}>
               {stateQ.data?.state || '(empty)'}
             </pre>
           )}

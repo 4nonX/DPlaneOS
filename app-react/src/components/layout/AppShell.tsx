@@ -104,12 +104,8 @@ function ForcePasswordChange() {
   return (
     <div style={{
       position: 'fixed', inset: 0, zIndex: 9999, background: '#080808',
-      display: 'flex', alignItems: 'center', justifyContent: 'center',
-    }}>
-      <div style={{
-        background: 'var(--bg-card)', border: '1px solid var(--border)',
-        borderRadius: 'var(--radius-xl)', padding: 40, width: 440, maxWidth: '90vw',
-      }}>
+      display: 'flex', alignItems: 'center', justifyContent: 'center'}}>
+      <div className="card" style={{ borderRadius: 'var(--radius-xl)', padding: 40, width: 440, maxWidth: '90vw'}}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
           <Icon name="lock_reset" size={22} style={{ color: 'var(--warning)' }} />
           <h2 style={{ fontSize: 'var(--text-lg)', fontWeight: 700, margin: 0 }}>Set your password</h2>
@@ -223,8 +219,7 @@ export function AppShell() {
         minHeight: 'calc(100vh - var(--topbar-height))',
         padding: '32px',
         transition: 'margin-left 0.2s ease',
-        maxWidth: '1600px',
-      }}>
+        maxWidth: '1600px'}}>
         <Outlet />
       </main>
       <ToastContainer />

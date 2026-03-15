@@ -165,7 +165,7 @@ function ReplicateForm({ datasets }: { datasets: ZFSDataset[] }) {
   const isRunning = sendMutation.isPending
 
   return (
-    <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-xl)', padding: 28 }}>
+    <div className="card" style={{ borderRadius: 'var(--radius-xl)', padding: 28 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 24 }}>
         <Icon name="sync_alt" size={28} style={{ color: 'var(--primary)' }} />
         <div>
@@ -284,7 +284,7 @@ function SSHKeyManager() {
   })
 
   return (
-    <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-xl)', padding: 28 }}>
+    <div className="card" style={{ borderRadius: 'var(--radius-xl)', padding: 28 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 24 }}>
         <Icon name="key" size={28} style={{ color: 'var(--warning)' }} />
         <div>
@@ -305,7 +305,7 @@ function SSHKeyManager() {
       {pubKey && (
         <div style={{ marginBottom: 20 }}>
           <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', marginBottom: 6 }}>Public Key (copy to target ~/.ssh/authorized_keys):</div>
-          <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '10px 14px', fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)', wordBreak: 'break-all', color: 'var(--text-secondary)', maxHeight: 80, overflow: 'auto' }}>
+          <div className="card" style={{ background: 'var(--surface)', borderRadius: 'var(--radius-sm)', padding: '10px 14px', fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)', wordBreak: 'break-all', color: 'var(--text-secondary)', maxHeight: 80, overflow: 'auto' }}>
             {pubKey}
           </div>
           <button onClick={() => { navigator.clipboard.writeText(pubKey); toast.success('Copied') }}

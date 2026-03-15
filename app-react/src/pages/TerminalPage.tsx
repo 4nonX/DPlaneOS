@@ -199,8 +199,7 @@ export function TerminalPage() {
       background: '#0d0f14',
       borderRadius: '12px',
       overflow: 'hidden',
-      border: '1px solid rgba(255,255,255,0.06)',
-    }}>
+      border: '1px solid rgba(255,255,255,0.06)'}}>
       {/* Title bar */}
       <div style={{
         display: 'flex',
@@ -209,8 +208,7 @@ export function TerminalPage() {
         padding: '10px 16px',
         background: 'rgba(255,255,255,0.03)',
         borderBottom: '1px solid rgba(255,255,255,0.06)',
-        flexShrink: 0,
-      }}>
+        flexShrink: 0}}>
         <Icon name="terminal" size={18} style={{ color: '#a78bfa' }} />
         <span style={{ fontSize: '13px', fontWeight: 500, color: '#e2e8f0', letterSpacing: '0.01em' }}>
           System Terminal
@@ -227,8 +225,7 @@ export function TerminalPage() {
                 display: 'flex', alignItems: 'center', gap: '6px',
                 padding: '4px 10px', borderRadius: '6px', border: 'none',
                 background: 'rgba(167,139,250,0.15)', color: '#a78bfa',
-                fontSize: '12px', cursor: 'pointer', fontFamily: 'inherit',
-              }}
+                fontSize: '12px', cursor: 'pointer', fontFamily: 'inherit'}}
             >
               <Icon name="refresh" size={14} />
               Reconnect
@@ -240,8 +237,7 @@ export function TerminalPage() {
               display: 'flex', alignItems: 'center', gap: '6px',
               padding: '4px 10px', borderRadius: '6px', border: 'none',
               background: 'rgba(255,255,255,0.06)', color: '#94a3b8',
-              fontSize: '12px', cursor: 'pointer', fontFamily: 'inherit',
-            }}
+              fontSize: '12px', cursor: 'pointer', fontFamily: 'inherit'}}
           >
             <Icon name="clear_all" size={14} />
             Clear
@@ -280,8 +276,7 @@ function StatusDot({ status }: { status: ConnStatus }) {
       <span style={{
         width: '7px', height: '7px', borderRadius: '50%',
         background: colors[status],
-        boxShadow: status === 'connected' ? `0 0 6px ${colors[status]}` : undefined,
-      }} />
+        boxShadow: status === 'connected' ? `0 0 6px ${colors[status]}` : undefined}} />
       <span style={{ fontSize: '11px', color: '#64748b' }}>{labels[status]}</span>
     </span>
   )

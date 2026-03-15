@@ -81,7 +81,7 @@ function AddRuleForm({ onAdd, pending }: { onAdd: (rule: { action: string; port:
   }
 
   return (
-    <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: '18px 22px', marginBottom: 24 }}>
+    <div className="card" style={{ borderRadius: 'var(--radius-lg)', padding: '18px 22px', marginBottom: 24 }}>
       <div style={{ fontWeight: 700, marginBottom: 14 }}>Add Rule</div>
       <div style={{ display: 'grid', gridTemplateColumns: '100px 100px 1fr 1fr auto', gap: 10, alignItems: 'end' }}>
         <label className="field">
@@ -184,7 +184,7 @@ export function FirewallPage() {
       </div>
 
       {rules.length > 0 ? (
-        <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', overflow: 'hidden' }}>
+        <div className="card" style={{ borderRadius: 'var(--radius-lg)', overflow: 'hidden' }}>
           <table className="data-table">
             <thead>
               <tr style={{ background: 'rgba(255,255,255,0.03)' }}>
@@ -227,7 +227,7 @@ export function FirewallPage() {
           </table>
         </div>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '48px 0', gap: 12, background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)' }}>
+        <div className="card" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '48px 0', gap: 12, borderRadius: 'var(--radius-lg)' }}>
           <Icon name="shield" size={40} style={{ color: 'var(--text-tertiary)', opacity: 0.4 }} />
           <div style={{ color: 'var(--text-tertiary)', fontSize: 'var(--text-sm)' }}>No rules configured</div>
           <div style={{ color: 'var(--text-tertiary)', fontSize: 'var(--text-xs)' }}>Add a rule above to control traffic</div>

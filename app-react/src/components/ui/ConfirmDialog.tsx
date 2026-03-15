@@ -116,8 +116,7 @@ export function useConfirm() {
               width: 44, height: 44, borderRadius: 'var(--radius-md)', flexShrink: 0,
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               background: danger ? 'var(--error-bg)' : 'var(--warning-bg)',
-              border: `1px solid ${danger ? 'var(--error-border)' : 'var(--warning-border)'}`,
-            }}>
+              border: `1px solid ${danger ? 'var(--error-border)' : 'var(--warning-border)'}`}}>
               <Icon
                 name={danger ? 'delete_forever' : 'help'}
                 size={22}

@@ -34,8 +34,7 @@ export function ErrorState({ error, onRetry, title = 'Failed to load data' }: Er
         justifyContent: 'center',
         gap: '12px',
         padding: '40px 24px',
-        textAlign: 'center',
-      }}
+        textAlign: 'center'}}
     >
       <Icon name="error_outline" size={40} style={{ color: 'var(--error)', opacity: 0.7 }} />
       <div style={{ fontWeight: 600, fontSize: 'var(--text-md)' }}>{title}</div>
@@ -49,8 +48,7 @@ export function ErrorState({ error, onRetry, title = 'Failed to load data' }: Er
           borderRadius: 'var(--radius-sm)',
           padding: '8px 14px',
           maxWidth: '480px',
-          wordBreak: 'break-word',
-        }}
+          wordBreak: 'break-word'}}
       >
         {message}
       </div>
@@ -69,8 +67,7 @@ export function ErrorState({ error, onRetry, title = 'Failed to load data' }: Er
             fontFamily: 'var(--font-ui)',
             display: 'flex',
             alignItems: 'center',
-            gap: '6px',
-          }}
+            gap: '6px'}}
         >
           <Icon name="refresh" size={16} />
           Retry

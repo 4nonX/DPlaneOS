@@ -343,7 +343,7 @@ function ContainersTab() {
           { label: 'Stacks', value: stacks.length, icon: 'folder', color: 'var(--info)' },
           { label: 'Ports', value: [...stacks.flatMap(s => s.containers), ...containers].reduce((n, c) => n + (c.ports?.length ?? 0), 0), icon: 'lan', color: 'var(--text-secondary)' },
         ].map(s => (
-          <div key={s.label} style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', padding: '14px 18px' }}>
+          <div key={s.label} className="card" style={{ borderRadius: 'var(--radius-md)', padding: '14px 18px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
               <Icon name={s.icon} size={16} style={{ color: s.color }} />
               <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: 600 }}>{s.label}</span>
@@ -402,7 +402,7 @@ function StackSection({ stack, onRefresh }: { stack: Stack; onRefresh: () => voi
   const isStandalone = !stack.name
   return (
     <div style={{ marginBottom: 20 }}>
-      <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: open ? 'var(--radius-lg) var(--radius-lg) 0 0' : 'var(--radius-lg)', padding: '14px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }}
+      <div className="card" style={{ background: 'var(--surface)', borderRadius: open ? 'var(--radius-lg) var(--radius-lg) 0 0' : 'var(--radius-lg)', padding: '14px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }}
         onClick={() => setOpen(o => !o)}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <Icon name={isStandalone ? 'deployed_code' : 'folder'} size={18} style={{ color: 'var(--primary)' }} />
@@ -420,7 +420,7 @@ function StackSection({ stack, onRefresh }: { stack: Stack; onRefresh: () => voi
 
 function ContainerTable({ containers, onRefresh, topBorder = true }: { containers: Container[]; onRefresh: () => void; topBorder?: boolean }) {
   return (
-    <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', ...(topBorder ? { borderRadius: 'var(--radius-lg)' } : { borderTop: 'none', borderRadius: '0 0 var(--radius-lg) var(--radius-lg)' }), overflow: 'hidden' }}>
+    <div className="card" style={{ background: 'var(--surface)', ...(topBorder ? { borderRadius: 'var(--radius-lg)' } : { borderTop: 'none', borderRadius: '0 0 var(--radius-lg) var(--radius-lg)' }), overflow: 'hidden' }}>
       <table className="data-table">
         <thead>
           <tr style={{ background: 'rgba(255,255,255,0.03)' }}>
@@ -477,7 +477,7 @@ function PullTab() {
 
   return (
     <div style={{ maxWidth: 600 }}>
-      <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-xl)', padding: 28 }}>
+      <div className="card" style={{ borderRadius: 'var(--radius-xl)', padding: 28 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 24 }}>
           <Icon name="download" size={28} style={{ color: 'var(--primary)' }} />
           <div>
@@ -516,7 +516,7 @@ function PullTab() {
       </div>
 
       {/* Quick reference */}
-      <div style={{ marginTop: 20, padding: '16px 20px', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)' }}>
+      <div className="card" style={{ marginTop: 20, padding: '16px 20px', borderRadius: 'var(--radius-lg)' }}>
         <div style={{ fontSize: 'var(--text-sm)', fontWeight: 600, marginBottom: 10, color: 'var(--text-secondary)' }}>Common Images</div>
         {[
           ['nginx', 'latest', 'Web server'],
@@ -592,7 +592,7 @@ function ComposeTab() {
         {stacks.map(stack => {
           const isPending = pendingStack === stack.name && !!jobId
           return (
-            <div key={stack.name} style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: '18px 22px', display: 'flex', alignItems: 'center', gap: 16 }}>
+            <div key={stack.name} className="card" style={{ borderRadius: 'var(--radius-lg)', padding: '18px 22px', display: 'flex', alignItems: 'center', gap: 16 }}>
               <Icon name="folder" size={24} style={{ color: 'var(--primary)', flexShrink: 0 }} />
               <div style={{ flex: 1 }}>
                 <div style={{ fontWeight: 700, marginBottom: 2 }}>{stack.name}</div>

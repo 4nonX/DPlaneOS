@@ -93,7 +93,7 @@ function AclEntryRow({ entry, onChange, onRemove }: {
   }
 
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 16px', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)' }}>
+    <div className="card" style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 16px', borderRadius: 'var(--radius-sm)' }}>
       <span style={typeStyle(entry.type)}>{entry.type}</span>
       <span style={{ flex: 1, fontFamily: 'var(--font-mono)', fontSize: 'var(--text-sm)', color: entry.name ? 'var(--text)' : 'var(--text-tertiary)' }}>
         {entry.name || '(default)'}
@@ -139,9 +139,9 @@ function AddEntryForm({ onAdd }: { onAdd: (e: AclEntry) => void }) {
   }
 
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', flexWrap: 'wrap' }}>
+    <div className="card" style={{ background: 'var(--surface)',  display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px', borderRadius: 'var(--radius-sm)', flexWrap: 'wrap' }}>
       <select value={type} onChange={e => setType(e.target.value as AclEntry['type'])}
-        style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-xs)', padding: '6px 10px', color: 'var(--text)', fontSize: 'var(--text-sm)', outline: 'none' }}>
+        className="card" style={{ background: 'var(--surface)', borderRadius: 'var(--radius-xs)', padding: '6px 10px', color: 'var(--text)', fontSize: 'var(--text-sm)', outline: 'none' }}>
         <option value="user">user</option>
         <option value="group">group</option>
         <option value="other">other</option>
@@ -254,7 +254,7 @@ export function ACLPage() {
           {/* Raw preview */}
           <details>
             <summary style={{ cursor: 'pointer', fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', marginBottom: 8 }}>Raw ACL preview</summary>
-            <pre style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '12px 14px', fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', whiteSpace: 'pre-wrap' }}>
+            <pre className="card" style={{ background: 'var(--surface)', borderRadius: 'var(--radius-sm)', padding: '12px 14px', fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', whiteSpace: 'pre-wrap' }}>
               {entriesToAclString(entries) || '(empty)'}
             </pre>
           </details>

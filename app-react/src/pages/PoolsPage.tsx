@@ -363,10 +363,8 @@ function ScrubScheduleModal({ pool, current, onClose, onSaved }: {
         )}
 
         {interval !== 'disabled' && (
-          <div style={{
-            padding: '8px 12px', background: 'var(--surface)', border: '1px solid var(--border)',
-            borderRadius: 'var(--radius-sm)', fontSize: 'var(--text-xs)', color: 'var(--text-secondary)',
-          }}>
+          <div className="card" style={{ background: 'var(--surface)', 
+            padding: '8px 12px', borderRadius: 'var(--radius-sm)', fontSize: 'var(--text-xs)', color: 'var(--text-secondary)'}}>
             Schedule: <strong>{formatScrubSchedule({ pool, interval, hour, day })}</strong>
           </div>
         )}
@@ -418,8 +416,7 @@ function ResilverProgressCard({ pool }: { pool: string }) {
       padding: '18px 22px',
       display: 'flex',
       flexDirection: 'column',
-      gap: 12,
-    }}>
+      gap: 12}}>
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
         <Icon
@@ -451,8 +448,7 @@ function ResilverProgressCard({ pool }: { pool: string }) {
               width: `${pct}%`,
               background: 'var(--warning)',
               borderRadius: 999,
-              transition: 'width 1s',
-            }} />
+              transition: 'width 1s'}} />
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6, fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }}>
             <span>{data.bytes_done ? `${data.bytes_done} resilvered` : ''}</span>
@@ -541,7 +537,7 @@ function PoolCard({ pool, datasets, filter, onRefresh }: { pool: ZFSPool; datase
   const scrubText = scrubStatus?.scrub || ''
 
   return (
-    <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-xl)', padding: 28, borderLeft: `4px solid ${healthColor(pool.health)}` }}>
+    <div className="card" style={{ borderRadius: 'var(--radius-xl)', padding: 28, borderLeft: `4px solid ${healthColor(pool.health)}` }}>
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 16 }}>
         <Icon name="storage" size={32} style={{ color: 'var(--primary)', flexShrink: 0 }} />
@@ -596,8 +592,7 @@ function PoolCard({ pool, datasets, filter, onRefresh }: { pool: ZFSPool; datase
           border: '1px solid var(--warning-border)',
           borderRadius: 'var(--radius-md)',
           padding: '12px 14px',
-          marginBottom: 16,
-        }}>
+          marginBottom: 16}}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 'var(--text-sm)', color: 'var(--warning)', fontWeight: 600 }}>
               <Spinner size={14} />
@@ -630,16 +625,13 @@ function PoolCard({ pool, datasets, filter, onRefresh }: { pool: ZFSPool; datase
       )}
 
       {/* ── Scrub schedule section ────────────────────────────────────────── */}
-      <div style={{
+      <div className="card" style={{ background: 'var(--surface)', 
         display: 'flex',
         alignItems: 'center',
         gap: 10,
         marginBottom: 16,
         padding: '10px 14px',
-        background: 'var(--surface)',
-        border: '1px solid var(--border)',
-        borderRadius: 'var(--radius-md)',
-      }}>
+        borderRadius: 'var(--radius-md)'}}>
         <Icon name="event_repeat" size={16} style={{ color: 'var(--text-tertiary)', flexShrink: 0 }} />
         <div style={{ flex: 1 }}>
           {currentSchedule ? (
@@ -753,7 +745,7 @@ function EncryptionTab() {
       {datasets.map(d => {
         const locked = d.keystatus === 'unavailable'
         return (
-          <div key={d.name} style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: '16px 20px', display: 'flex', alignItems: 'center', gap: 16 }}>
+          <div key={d.name} className="card" style={{ borderRadius: 'var(--radius-lg)', padding: '16px 20px', display: 'flex', alignItems: 'center', gap: 16 }}>
             <Icon name={locked ? 'lock' : 'lock_open'} size={22} style={{ color: locked ? 'var(--warning)' : 'var(--success)', flexShrink: 0 }} />
             <div style={{ flex: 1 }}>
               <div style={{ fontWeight: 600, fontFamily: 'var(--font-mono)', fontSize: 'var(--text-sm)' }}>{d.name}</div>

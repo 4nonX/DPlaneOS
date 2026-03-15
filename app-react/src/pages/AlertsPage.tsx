@@ -77,7 +77,7 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
 
 function SectionCard({ icon, title, children }: { icon: string; title: string; children: React.ReactNode }) {
   return (
-    <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-xl)', padding: '24px 28px' }}>
+    <div className="card" style={{ borderRadius: 'var(--radius-xl)', padding: '24px 28px' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
         <div style={{ width: 42, height: 42, background: 'var(--primary-bg)', border: '1px solid rgba(138,156,255,0.2)', borderRadius: 'var(--radius-md)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <Icon name={icon} size={22} style={{ color: 'var(--primary)' }} />
@@ -396,7 +396,7 @@ function WebhooksTab() {
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         {hooks.map(hook => (
-          <div key={hook.id} style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: '16px 20px' }}>
+          <div key={hook.id} className="card" style={{ borderRadius: 'var(--radius-lg)', padding: '16px 20px' }}>
             <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14 }}>
               <Icon name="webhook" size={20} style={{ color: 'var(--primary)', flexShrink: 0, marginTop: 2 }} />
               <div style={{ flex: 1, minWidth: 0 }}>

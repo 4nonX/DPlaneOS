@@ -55,7 +55,7 @@ function DatasetQuotaLookup() {
   })
 
   return (
-    <div style={{ background:'var(--bg-card)', border:'1px solid var(--border)', borderRadius:'var(--radius-xl)', padding:22, marginBottom:24 }}>
+    <div className="card" style={{ borderRadius:'var(--radius-xl)', padding:22, marginBottom:24 }}>
       <div style={{ fontWeight:700, marginBottom:14 }}>Dataset Quota</div>
       <div style={{ display:'flex', gap:8, marginBottom:14 }}>
         <input value={dataset} onChange={e=>setDataset(e.target.value)} placeholder="tank/data" className="input" style={{ flex:1, fontFamily:'var(--font-mono)' }} onKeyDown={e=>e.key==='Enter'&&setQueried(dataset)} />
@@ -97,7 +97,7 @@ function UserGroupQuotas() {
   const quotas = ugQ.data?.quotas??[]
 
   return (
-    <div style={{ background:'var(--bg-card)', border:'1px solid var(--border)', borderRadius:'var(--radius-xl)', padding:22 }}>
+    <div className="card" style={{ borderRadius:'var(--radius-xl)', padding:22 }}>
       <div style={{ fontWeight:700, marginBottom:14 }}>User / Group Quotas</div>
       <div style={{ display:'grid', gridTemplateColumns:'1fr 80px 1fr 100px auto', gap:8, alignItems:'flex-end', marginBottom:20 }}>
         {[['Dataset','text',ds,setDs,'tank/home'],['User/Group ID','text',uid,setUid,'1000']].map(([lbl,t,val,setter,ph])=>(

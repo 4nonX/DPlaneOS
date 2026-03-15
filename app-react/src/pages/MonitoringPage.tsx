@@ -81,8 +81,7 @@ function InotifyCard({ stats, lastUpdated }: InotifyCardProps) {
       border: `1px solid ${stats.critical ? 'var(--error-border)' : stats.warning ? 'var(--warning-border)' : 'var(--border)'}`,
       borderRadius: 'var(--radius-xl)',
       padding: 28,
-      maxWidth: 560,
-    }}>
+      maxWidth: 560}}>
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -92,8 +91,7 @@ function InotifyCard({ stats, lastUpdated }: InotifyCardProps) {
         <div style={{ display: 'flex', alignItems: 'center', gap: 6,
           padding: '4px 10px', borderRadius: 'var(--radius-full)',
           background: stats.critical ? 'var(--error-bg)' : stats.warning ? 'var(--warning-bg)' : 'var(--success-bg)',
-          border: `1px solid ${stats.critical ? 'var(--error-border)' : stats.warning ? 'var(--warning-border)' : 'var(--success-border)'}`,
-        }}>
+          border: `1px solid ${stats.critical ? 'var(--error-border)' : stats.warning ? 'var(--warning-border)' : 'var(--success-border)'}`}}>
           <Icon name={icon} size={14} style={{ color }} />
           <span style={{ fontSize: 'var(--text-xs)', fontWeight: 700, color, letterSpacing: '0.5px' }}>{label}</span>
         </div>
@@ -115,8 +113,7 @@ function InotifyCard({ stats, lastUpdated }: InotifyCardProps) {
           height: '100%', width: `${barPct}%`,
           background: barColor, borderRadius: 4,
           transition: 'width 0.6s ease',
-          boxShadow: stats.critical || stats.warning ? `0 0 8px ${barColor}` : 'none',
-        }} />
+          boxShadow: stats.critical || stats.warning ? `0 0 8px ${barColor}` : 'none'}} />
       </div>
 
       {/* Stats grid */}
@@ -231,8 +228,7 @@ export function MonitoringPage() {
       </div>
 
       {/* Explanatory header */}
-      <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)',
-        borderRadius: 'var(--radius-xl)', padding: '20px 24px',
+      <div className="card" style={{ borderRadius: 'var(--radius-xl)', padding: '20px 24px',
         display: 'flex', alignItems: 'flex-start', gap: 14 }}>
         <Icon name="info" size={20} style={{ color: 'var(--primary)', flexShrink: 0, marginTop: 2 }} />
         <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', lineHeight: 1.6 }}>
@@ -251,8 +247,7 @@ export function MonitoringPage() {
       {stats && <InotifyCard stats={stats} lastUpdated={lastUpdated} />}
 
       {/* Prometheus note */}
-      <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)',
-        borderRadius: 'var(--radius-xl)', padding: '20px 24px',
+      <div className="card" style={{ borderRadius: 'var(--radius-xl)', padding: '20px 24px',
         display: 'flex', alignItems: 'center', gap: 14 }}>
         <Icon name="monitoring" size={20} style={{ color: 'var(--primary)', flexShrink: 0 }} />
         <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>

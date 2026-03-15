@@ -87,7 +87,7 @@ export function CloudSyncPage() {
             <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(120px,1fr))', gap:8 }}>
               {providers.map(p => (
                 <button key={p.id} onClick={() => { setSelectedProvider(p); setConfigName(p.id) }}
-                  style={{ background:'var(--surface)', border:'1px solid var(--border)', borderRadius:'var(--radius-md)', padding:'14px 10px', cursor:'pointer', display:'flex', flexDirection:'column', alignItems:'center', gap:6, transition:'all 0.15s' }}
+                  className="card" style={{ background: 'var(--surface)', borderRadius:'var(--radius-md)', padding:'14px 10px', cursor:'pointer', display:'flex', flexDirection:'column', alignItems:'center', gap:6, transition:'all 0.15s' }}
                   onMouseEnter={e=>(e.currentTarget.style.borderColor='var(--primary)')}
                   onMouseLeave={e=>(e.currentTarget.style.borderColor='var(--border)')}>
                   <Icon name={PROVIDER_ICONS[p.id]||'cloud'} size={22} style={{ color:'var(--primary)' }}/>

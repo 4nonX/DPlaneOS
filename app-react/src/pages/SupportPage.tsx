@@ -77,7 +77,7 @@ export function SupportPage() {
       </div>
 
       {/* Support bundle */}
-      <div style={{ background:'var(--bg-card)', border:'1px solid var(--border)', borderRadius:'var(--radius-xl)', padding:24, marginBottom:24 }}>
+      <div className="card" style={{ borderRadius:'var(--radius-xl)', padding:24, marginBottom:24 }}>
         <div style={{ display:'flex', alignItems:'center', gap:14 }}>
           <div style={{ width:48, height:48, background:'var(--primary-bg)', border:'1px solid rgba(138,156,255,0.2)', borderRadius:'var(--radius-md)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
             <Icon name="archive" size={24} style={{ color:'var(--primary)' }}/>
@@ -94,7 +94,7 @@ export function SupportPage() {
 
       <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:20 }}>
         {/* System info */}
-        <div style={{ background:'var(--bg-card)', border:'1px solid var(--border)', borderRadius:'var(--radius-xl)', padding:22 }}>
+        <div className="card" style={{ borderRadius:'var(--radius-xl)', padding:22 }}>
           <div style={{ fontWeight:700, marginBottom:16, display:'flex', alignItems:'center', gap:8 }}>
             <Icon name="computer" size={18} style={{ color:'var(--primary)' }}/>System Info
           </div>
@@ -112,7 +112,7 @@ export function SupportPage() {
 
         {/* Health checks */}
         <div>
-          <div style={{ background:'var(--bg-card)', border:'1px solid var(--border)', borderRadius:'var(--radius-xl)', padding:22, marginBottom:16 }}>
+          <div className="card" style={{ borderRadius:'var(--radius-xl)', padding:22, marginBottom:16 }}>
             <div style={{ fontWeight:700, marginBottom:14, display:'flex', alignItems:'center', gap:8 }}>
               <Icon name="health_and_safety" size={18} style={{ color:'var(--primary)' }}/>Health Checks
             </div>
@@ -131,7 +131,7 @@ export function SupportPage() {
           </div>
 
           {/* Pre-upgrade snapshots */}
-          <div style={{ background:'var(--bg-card)', border:'1px solid var(--border)', borderRadius:'var(--radius-xl)', padding:22 }}>
+          <div className="card" style={{ borderRadius:'var(--radius-xl)', padding:22 }}>
             <div style={{ fontWeight:700, marginBottom:14, display:'flex', alignItems:'center', gap:8 }}>
               <Icon name="history" size={18} style={{ color:'var(--primary)' }}/>Pre-Upgrade Snapshots
             </div>

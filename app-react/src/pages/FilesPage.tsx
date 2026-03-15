@@ -106,8 +106,7 @@ function ContextMenu({ state, onClose, onAction }: {
         position: 'fixed', left: state.x, top: state.y, zIndex: 150,
         background: 'var(--bg-elevated)', border: '1px solid var(--border)',
         borderRadius: 'var(--radius-md)', boxShadow: '0 8px 32px rgba(0,0,0,0.4)',
-        padding: '4px 0', minWidth: 200,
-      }}>
+        padding: '4px 0', minWidth: 200}}>
         <div style={{ padding: '8px 14px 6px', fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', borderBottom: '1px solid var(--border)', marginBottom: 4 }}>
           {state.entry.name}
         </div>
@@ -267,7 +266,7 @@ function UploadPanel({ currentPath, onDone }: { currentPath: string; onDone: () 
   }
 
   return (
-    <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: 16, marginBottom: 12 }}>
+    <div className="card" style={{ borderRadius: 'var(--radius-lg)', padding: 16, marginBottom: 12 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: files.length ? 12 : 0 }}>
         <input ref={inputRef} type="file" multiple style={{ display: 'none' }}
           onChange={e => setFiles(f => [...f, ...Array.from(e.target.files ?? [])]) } />
@@ -335,7 +334,7 @@ function TrashTab() {
       )}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {items.map(item => (
-          <div key={item.name} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)' }}>
+          <div key={item.name} className="card" style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px', borderRadius: 'var(--radius-sm)' }}>
             <Icon name="insert_drive_file" size={16} style={{ color: 'var(--text-tertiary)', flexShrink: 0 }} />
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontSize: 'var(--text-sm)', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.name}</div>
@@ -414,8 +413,7 @@ function TextEditorModal({ entry, onClose, onSaved }: { entry: FileEntry; onClos
               flex: 1, resize: 'none', fontFamily: 'var(--font-mono)', fontSize: 13,
               lineHeight: 1.6, background: 'var(--surface)', border: '1px solid var(--border)',
               borderRadius: 'var(--radius-sm)', padding: '10px 14px', color: 'var(--text)',
-              outline: 'none', tabSize: 2,
-            }}
+              outline: 'none', tabSize: 2}}
           />
         )}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -617,7 +615,7 @@ function FileBrowser() {
 
         {/* Breadcrumb / path input */}
         <form onSubmit={e => { e.preventDefault(); navigate(inputPath) }} style={{ flex: 1 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '0 10px', height: 36 }}>
+          <div className="card" style={{ background: 'var(--surface)',  display: 'flex', alignItems: 'center', gap: 6, borderRadius: 'var(--radius-sm)', padding: '0 10px', height: 36 }}>
             <Icon name="folder" size={14} style={{ color: 'var(--text-tertiary)', flexShrink: 0 }} />
             {/* Breadcrumbs */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 2, flexShrink: 0 }}>
@@ -687,7 +685,7 @@ function FileBrowser() {
       )}
 
       {sorted.length > 0 && (
-        <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', overflow: 'hidden' }}>
+        <div className="card" style={{ borderRadius: 'var(--radius-lg)', overflow: 'hidden' }}>
           <table className="data-table">
             <thead>
               <tr style={{ background: 'rgba(255,255,255,0.03)' }}>

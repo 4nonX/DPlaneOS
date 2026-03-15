@@ -57,13 +57,12 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
       style={{
         position: 'fixed', top: 0, left: 0, height: '100vh',
         width: collapsed ? 'var(--sidebar-width-collapsed)' : 'var(--sidebar-width)',
-        background: 'rgba(6,6,6,0.98)',
-        borderRight: '1px solid var(--border)',
+        background: 'hsla(var(--hue-bg), 18%, 2%, 0.8)',
+        borderRight: '1px solid var(--border-subtle)',
         display: 'flex', flexDirection: 'column',
-        transition: 'width 0.22s cubic-bezier(0.4,0,0.2,1)',
+        transition: 'width var(--transition-bounce)',
         overflow: 'hidden', zIndex: 50,
-        backdropFilter: 'blur(12px)',
-      }}
+        backdropFilter: 'var(--blur-glass)'}}
     >
       {/* ── Logo + collapse toggle ── */}
       <div style={{
@@ -72,8 +71,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
         justifyContent: collapsed ? 'center' : 'space-between',
         padding: collapsed ? '0' : '0 14px 0 18px',
         borderBottom: '1px solid var(--border)',
-        flexShrink: 0,
-      }}>
+        flexShrink: 0}}>
         {!collapsed && (
           <div
             onClick={() => navigate('/')}
@@ -83,16 +81,14 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
               width: 24, height: 24, borderRadius: 6,
               background: 'linear-gradient(135deg, var(--primary) 0%, #6b7fff 100%)',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
-              flexShrink: 0, boxShadow: '0 0 10px rgba(138,156,255,0.3)',
-            }}>
+              flexShrink: 0, boxShadow: '0 0 10px rgba(138,156,255,0.3)'}}>
               <Icon name="dns" size={14} style={{ color: '#000' }} />
             </div>
             <span style={{
               fontWeight: 800, fontSize: 15,
               background: 'linear-gradient(90deg, #fff 0%, rgba(255,255,255,0.7) 100%)',
               WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent',
-              letterSpacing: '-0.3px', whiteSpace: 'nowrap',
-            }}>
+              letterSpacing: '-0.3px', whiteSpace: 'nowrap'}}>
               D-PlaneOS
             </span>
           </div>
@@ -104,8 +100,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
             background: 'none', border: 'none', cursor: 'pointer',
             color: 'var(--text-tertiary)', display: 'flex', alignItems: 'center',
             padding: '6px', borderRadius: 'var(--radius-sm)',
-            transition: 'color var(--transition-fast), background var(--transition-fast)',
-          }}
+            transition: 'color var(--transition-fast), background var(--transition-fast)'}}
           onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--text)'; e.currentTarget.style.background = 'var(--surface)'; }}
           onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-tertiary)'; e.currentTarget.style.background = 'none'; }}
         >
@@ -139,18 +134,17 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
                   style={{
                     width: '100%', display: 'flex', alignItems: 'center', gap: 9,
                     padding: '8px 16px 8px 18px',
-                    background: hasActive ? 'rgba(138,156,255,0.06)' : 'none',
+                    background: hasActive ? 'var(--primary-bg)' : 'transparent',
                     border: 'none', cursor: 'pointer',
                     color: hasActive ? 'var(--primary)' : 'var(--text-secondary)',
                     fontSize: 'var(--text-sm)', fontFamily: 'var(--font-ui)',
                     fontWeight: hasActive ? 600 : 500,
-                    transition: 'background var(--transition-fast), color var(--transition-fast)',
-                  }}
+                    transition: 'all var(--transition-fast)'}}
                   onMouseEnter={(e) => {
-                    if (!hasActive) { e.currentTarget.style.background = 'var(--surface)'; e.currentTarget.style.color = 'var(--text)'; }
+                    if (!hasActive) { e.currentTarget.style.background = 'hsla(0,0%,100%,0.04)'; e.currentTarget.style.color = 'var(--text)'; }
                   }}
                   onMouseLeave={(e) => {
-                    if (!hasActive) { e.currentTarget.style.background = 'none'; e.currentTarget.style.color = 'var(--text-secondary)'; }
+                    if (!hasActive) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-secondary)'; }
                   }}
                 >
                   <Icon name={group.icon} size={17} style={{ flexShrink: 0, opacity: hasActive ? 1 : 0.7 }} />
@@ -160,8 +154,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
                   </span>
                   <Icon name="expand_more" size={15} style={{
                     transform: isOpen ? 'rotate(180deg)' : 'rotate(0deg)',
-                    transition: 'transform 0.2s', flexShrink: 0, opacity: 0.5,
-                  }} />
+                    transition: 'transform var(--transition-bounce)', flexShrink: 0, opacity: 0.5}} />
                 </button>
               )}
 
@@ -175,8 +168,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
                     padding: '10px 0', background: hasActive ? 'var(--primary-bg)' : 'none',
                     border: 'none', cursor: 'pointer',
                     color: hasActive ? 'var(--primary)' : 'var(--text-tertiary)',
-                    transition: 'all var(--transition-fast)',
-                  }}
+                    transition: 'all var(--transition-fast)'}}
                   onMouseEnter={(e) => { if (!hasActive) { e.currentTarget.style.background = 'var(--surface)'; e.currentTarget.style.color = 'var(--text)'; } }}
                   onMouseLeave={(e) => { if (!hasActive) { e.currentTarget.style.background = 'none'; e.currentTarget.style.color = 'var(--text-tertiary)'; } }}
                 >
@@ -204,8 +196,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
       <div style={{
         borderTop: '1px solid var(--border)',
         padding: collapsed ? '10px 0' : '10px 16px',
-        display: 'flex', flexDirection: 'column', gap: 8, flexShrink: 0,
-      }}>
+        display: 'flex', flexDirection: 'column', gap: 8, flexShrink: 0}}>
         {/* WS dot */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: collapsed ? 'center' : 'flex-start', gap: 8 }}>
           <span className={`status-dot ${wsClass}`} />
@@ -221,8 +212,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
               width: 26, height: 26, borderRadius: '50%',
               background: 'linear-gradient(135deg, var(--primary) 0%, #6b7fff 100%)',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
-              flexShrink: 0, fontSize: 11, fontWeight: 800, color: '#000',
-            }}>
+              flexShrink: 0, fontSize: 11, fontWeight: 800, color: '#000'}}>
               {(user?.username ?? '?')[0].toUpperCase()}
             </div>
             <div style={{ flex: 1, minWidth: 0 }}>
@@ -243,8 +233,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
                   background: 'none', border: 'none', cursor: 'pointer',
                   color: 'var(--text-tertiary)', display: 'flex', alignItems: 'center',
                   padding: '4px', borderRadius: 'var(--radius-xs)',
-                  transition: 'color var(--transition-fast)',
-                }}
+                  transition: 'color var(--transition-fast)'}}
                 onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--error)'; }}
                 onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-tertiary)'; }}
               >
@@ -261,8 +250,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
                 background: 'none', border: 'none', cursor: 'pointer',
                 color: 'var(--text-tertiary)', display: 'flex', justifyContent: 'center',
                 padding: '4px', borderRadius: 'var(--radius-xs)', width: '100%',
-                transition: 'color var(--transition-fast)',
-              }}
+                transition: 'color var(--transition-fast)'}}
               onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--error)'; }}
               onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-tertiary)'; }}
             >
@@ -297,24 +285,24 @@ function LeafItem({ leaf, isActive, collapsed, indent = false, onClick }: LeafIt
         width: '100%', display: 'flex', alignItems: 'center', gap: 10,
         padding: collapsed ? '10px 0' : indent ? '7px 16px 7px 36px' : '8px 16px 8px 18px',
         justifyContent: collapsed ? 'center' : 'flex-start',
-        background: isActive ? 'rgba(138,156,255,0.09)' : 'none',
+        background: isActive ? 'var(--primary-bg)' : 'transparent',
         border: 'none',
         borderLeft: isActive && !collapsed ? '2px solid var(--primary)' : '2px solid transparent',
         cursor: 'pointer',
         color: isActive ? 'var(--primary)' : 'var(--text-secondary)',
         fontSize: 'var(--text-sm)', fontFamily: 'var(--font-ui)',
         fontWeight: isActive ? 600 : 400,
-        transition: 'background var(--transition-fast), color var(--transition-fast)',
+        transition: 'all var(--transition-fast)',
         whiteSpace: 'nowrap',
-      }}
+        boxShadow: isActive && collapsed ? 'inset 2px 0 0 var(--primary)' : 'none'}}
       onMouseEnter={(e) => {
-        if (!isActive) { e.currentTarget.style.background = 'var(--surface)'; e.currentTarget.style.color = 'var(--text)'; }
+        if (!isActive) { e.currentTarget.style.background = 'hsla(0,0%,100%,0.04)'; e.currentTarget.style.color = 'var(--text)'; }
       }}
       onMouseLeave={(e) => {
-        if (!isActive) { e.currentTarget.style.background = 'none'; e.currentTarget.style.color = 'var(--text-secondary)'; }
+        if (!isActive) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-secondary)'; }
       }}
     >
-      <Icon name={leaf.icon} size={collapsed ? 21 : 17} style={{ flexShrink: 0, opacity: isActive ? 1 : 0.75 }} />
+      <Icon name={leaf.icon} size={collapsed ? 21 : 17} style={{ flexShrink: 0, opacity: isActive ? 1 : 0.75, filter: isActive ? 'drop-shadow(0 0 6px var(--primary-glow))' : 'none' }} />
       {!collapsed && <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{leaf.label}</span>}
     </button>
   )

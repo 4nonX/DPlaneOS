@@ -183,8 +183,7 @@ export function UpdatesPage() {
           display: 'flex', alignItems: 'center', gap: 14, padding: '14px 20px',
           background: versionQ.data.update_available ? 'rgba(251,191,36,0.08)' : 'var(--bg-card)',
           border: `1px solid ${versionQ.data.update_available ? 'rgba(251,191,36,0.3)' : 'var(--border)'}`,
-          borderRadius: 'var(--radius-lg)', marginBottom: 20,
-        }}>
+          borderRadius: 'var(--radius-lg)', marginBottom: 20}}>
           <Icon name={versionQ.data.update_available ? 'new_releases' : 'verified'} size={20}
             style={{ color: versionQ.data.update_available ? 'rgba(251,191,36,0.9)' : 'var(--success)', flexShrink: 0 }} />
           <div style={{ flex: 1 }}>
@@ -206,10 +205,8 @@ export function UpdatesPage() {
 
       {/* ── NixOS callout ── */}
       {isNixOS ? (
-        <div style={{
-          display: 'flex', alignItems: 'center', gap: 16, padding: '18px 22px',
-          background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-xl)',
-        }}>
+        <div className="card" style={{
+          display: 'flex', alignItems: 'center', gap: 16, padding: '18px 22px', borderRadius: 'var(--radius-xl)'}}>
           <Icon name="terminal" size={24} style={{ color: 'var(--primary)', flexShrink: 0 }} />
           <div style={{ flex: 1 }}>
             <div style={{ fontWeight: 700, marginBottom: 3 }}>NixOS detected</div>
@@ -258,11 +255,8 @@ export function UpdatesPage() {
 
           {/* Running job indicator */}
           {jobRunning && (
-            <div style={{
-              display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px',
-              background: 'var(--bg-card)', border: '1px solid var(--border)',
-              borderRadius: 'var(--radius-lg)', marginBottom: 16,
-            }}>
+            <div className="card" style={{
+              display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px', borderRadius: 'var(--radius-lg)', marginBottom: 16}}>
               <Icon name="autorenew" size={18} style={{ color: 'var(--primary)', animation: 'spin 1s linear infinite' }} />
               <span style={{ fontSize: 'var(--text-sm)' }}>{activeJobLabel}… this may take a minute</span>
             </div>
@@ -279,11 +273,9 @@ export function UpdatesPage() {
                   <Icon name="close" size={15} />
                 </button>
               </div>
-              <pre style={{
-                background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)',
+              <pre className="card" style={{ background: 'var(--surface)', borderRadius: 'var(--radius-sm)',
                 padding: '12px 14px', fontFamily: 'var(--font-mono)', fontSize: 11, lineHeight: 1.6,
-                overflow: 'auto', maxHeight: 300, margin: 0, color: 'rgba(255,255,255,0.75)', whiteSpace: 'pre-wrap',
-              }}>
+                overflow: 'auto', maxHeight: 300, margin: 0, color: 'rgba(255,255,255,0.75)', whiteSpace: 'pre-wrap'}}>
                 {applyOutput}
               </pre>
             </div>
@@ -306,8 +298,7 @@ export function UpdatesPage() {
                       display: 'flex', alignItems: 'center', gap: 12, padding: '9px 14px',
                       background: p.security ? 'rgba(239,68,68,0.06)' : 'var(--bg-card)',
                       border: `1px solid ${p.security ? 'var(--error-border)' : 'var(--border)'}`,
-                      borderRadius: 'var(--radius-md)',
-                    }}>
+                      borderRadius: 'var(--radius-md)'}}>
                       {p.security && <Icon name="security" size={14} style={{ color: 'var(--error)', flexShrink: 0 }} />}
                       <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-sm)', fontWeight: 600, flex: 1 }}>{p.name}</span>
                       <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', fontFamily: 'var(--font-mono)' }}>
@@ -344,8 +335,7 @@ export function UpdatesPage() {
                   <div key={i} style={{
                     display: 'flex', alignItems: 'flex-start', gap: 12, padding: '12px 16px',
                     background: checkBg(c.status), border: `1px solid ${checkBorder(c.status)}`,
-                    borderRadius: 'var(--radius-md)',
-                  }}>
+                    borderRadius: 'var(--radius-md)'}}>
                     <Icon name={checkIcon(c.status)} size={18} style={{ color: checkColor(c.status), flexShrink: 0, marginTop: 1 }} />
                     <div style={{ flex: 1 }}>
                       <div style={{ fontWeight: 700, fontSize: 'var(--text-sm)', marginBottom: 2 }}>{c.name}</div>
@@ -354,8 +344,7 @@ export function UpdatesPage() {
                     <span style={{
                       padding: '2px 7px', borderRadius: 'var(--radius-xs)',
                       background: checkBg(c.status), border: `1px solid ${checkBorder(c.status)}`,
-                      color: checkColor(c.status), fontSize: 10, fontWeight: 700, textTransform: 'uppercase', flexShrink: 0,
-                    }}>{c.status}</span>
+                      color: checkColor(c.status), fontSize: 10, fontWeight: 700, textTransform: 'uppercase', flexShrink: 0}}>{c.status}</span>
                   </div>
                 ))}
               </div>

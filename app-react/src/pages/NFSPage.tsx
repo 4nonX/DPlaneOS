@@ -127,7 +127,7 @@ function ExportRow({ exp, onEdit, onDeleted }: {
   })
 
   return (
-    <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: '16px 20px' }}>
+    <div className="card" style={{ borderRadius: 'var(--radius-lg)', padding: '16px 20px' }}>
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14 }}>
         <Icon name={exp.enabled ? 'share' : 'block'} size={22}
           style={{ color: exp.enabled ? 'var(--primary)' : 'var(--text-tertiary)', flexShrink: 0, marginTop: 2 }} />
@@ -225,7 +225,7 @@ export function NFSPage() {
 
       {/* NFS status bar */}
       {statusQ.data && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '12px 20px', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', marginBottom: 24 }}>
+        <div className="card" style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '12px 20px', borderRadius: 'var(--radius-md)', marginBottom: 24 }}>
           <div style={{ width: 10, height: 10, borderRadius: '50%', background: status?.running ? 'var(--success)' : 'var(--error)', boxShadow: status?.running ? '0 0 6px var(--success)' : 'none', flexShrink: 0 }} />
           <span style={{ fontWeight: 600, fontSize: 'var(--text-sm)' }}>
             NFS {status?.running ? 'Running' : 'Stopped'}

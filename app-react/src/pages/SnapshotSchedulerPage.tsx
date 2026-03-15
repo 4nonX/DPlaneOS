@@ -207,7 +207,7 @@ function ScheduleRow({ schedule, index: _index, replSchedules, onToggle, onDelet
     : null
 
   return (
-    <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: '16px 20px', display: 'flex', alignItems: 'center', gap: 16, opacity: schedule.enabled ? 1 : 0.6 }}>
+    <div className="card" style={{ borderRadius: 'var(--radius-lg)', padding: '16px 20px', display: 'flex', alignItems: 'center', gap: 16, opacity: schedule.enabled ? 1 : 0.6 }}>
       <Icon name={FREQ_ICONS[schedule.frequency]} size={24} style={{ color: 'var(--primary)', flexShrink: 0 }} />
       <div style={{ flex: 1 }}>
         <div style={{ fontWeight: 700, fontFamily: 'var(--font-mono)', fontSize: 'var(--text-sm)', marginBottom: 4 }}>{schedule.dataset}</div>
@@ -278,7 +278,7 @@ function SnapshotsTab() {
         </div>
       )}
       {snaps.map(s => (
-        <div key={s.name} style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 12 }}>
+        <div key={s.name} className="card" style={{ borderRadius: 'var(--radius-sm)', padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 12 }}>
           <Icon name="camera_alt" size={16} style={{ color: 'var(--text-tertiary)', flexShrink: 0 }} />
           <span style={{ flex: 1, fontFamily: 'var(--font-mono)', fontSize: 'var(--text-sm)' }}>{s.name}</span>
           {s.used && <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', fontFamily: 'var(--font-mono)' }}>{s.used}</span>}

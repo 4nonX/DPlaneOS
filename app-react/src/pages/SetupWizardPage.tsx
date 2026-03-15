@@ -72,14 +72,12 @@ function StepBar({ current }: { current: number }) {
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                 fontSize: 12, fontWeight: 700,
                 color: done ? '#000' : active ? 'var(--primary)' : 'var(--text-tertiary)',
-                transition: 'all 0.2s',
-              }}>
+                transition: 'all 0.2s'}}>
                 {done ? <Icon name="check" size={16} /> : i + 1}
               </div>
               <span style={{
                 fontSize: 11, fontWeight: active ? 700 : 500,
-                color: active ? 'var(--primary)' : done ? 'var(--text-secondary)' : 'var(--text-tertiary)',
-              }}>
+                color: active ? 'var(--primary)' : done ? 'var(--text-secondary)' : 'var(--text-tertiary)'}}>
                 {label}
               </span>
             </div>
@@ -87,8 +85,7 @@ function StepBar({ current }: { current: number }) {
               <div style={{
                 width: 48, height: 2, marginBottom: 22,
                 background: done ? 'var(--primary)' : 'var(--border)',
-                transition: 'background 0.3s',
-              }} />
+                transition: 'background 0.3s'}} />
             )}
           </div>
         )
@@ -108,8 +105,7 @@ function StepWelcome({ onNext }: { onNext: () => void }) {
         width: 80, height: 80, borderRadius: '50%',
         background: 'var(--primary-bg)', border: '2px solid rgba(138,156,255,0.3)',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
-        margin: '0 auto 24px',
-      }}>
+        margin: '0 auto 24px'}}>
         <Icon name="storage" size={40} style={{ color: 'var(--primary)' }} />
       </div>
       <h2 style={{ fontSize: 'var(--text-2xl)', fontWeight: 800, marginBottom: 12 }}>
@@ -215,8 +211,7 @@ function StepAdmin({ onNext }: { onNext: () => void }) {
                 background: password.length >= threshold
                   ? password.length >= 16 ? 'var(--success)' : password.length >= 12 ? 'rgba(251,191,36,0.8)' : 'var(--primary)'
                   : 'var(--border)',
-                transition: 'background 0.2s',
-              }} />
+                transition: 'background 0.2s'}} />
             ))}
             <span style={{ fontSize: 10, color: 'var(--text-tertiary)', marginLeft: 6 }}>
               {password.length >= 16 ? 'Strong' : password.length >= 12 ? 'Good' : password.length >= 8 ? 'Weak' : ''}
@@ -302,8 +297,7 @@ function StepDisks({
                   padding: '8px 14px', background: 'var(--surface)', border: '1px solid var(--border)',
                   borderRadius: 'var(--radius-sm)', cursor: 'pointer',
                   fontSize: 'var(--text-xs)', fontWeight: 600, color: 'var(--text-secondary)',
-                  display: 'flex', alignItems: 'center', gap: 6,
-                }}
+                  display: 'flex', alignItems: 'center', gap: 6}}
               >
                 <Icon name="auto_fix_high" size={13} style={{ color: 'var(--primary)' }} />
                 {s.type} — {s.usable_size} usable
@@ -335,16 +329,14 @@ function StepDisks({
                   borderRadius: 'var(--radius-md)',
                   cursor: disabled ? 'not-allowed' : 'pointer',
                   opacity: disabled ? 0.5 : 1,
-                  transition: 'all 0.15s',
-                }}
+                  transition: 'all 0.15s'}}
               >
                 {/* Checkbox */}
                 <div style={{
                   width: 20, height: 20, borderRadius: 4, flexShrink: 0,
                   background: isSelected ? 'var(--primary)' : 'var(--surface)',
                   border: `2px solid ${isSelected ? 'var(--primary)' : 'var(--border)'}`,
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                }}>
+                  display: 'flex', alignItems: 'center', justifyContent: 'center'}}>
                   {isSelected && <Icon name="check" size={14} style={{ color: '#000' }} />}
                 </div>
 
@@ -367,11 +359,9 @@ function StepDisks({
                   </div>
                 </div>
 
-                <div style={{
+                <div className="card" style={{ background: 'var(--surface)', 
                   padding: '3px 9px', borderRadius: 'var(--radius-xs)', flexShrink: 0,
-                  background: 'var(--surface)', border: '1px solid var(--border)',
-                  fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)',
-                }}>
+                  fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)'}}>
                   {disk.size}
                 </div>
               </div>
@@ -455,9 +445,9 @@ function StepPool({
       </p>
 
       {/* Selected disks summary */}
-      <div style={{ padding: '12px 16px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', marginBottom: 20, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+      <div className="card" style={{ background: 'var(--surface)',  padding: '12px 16px', borderRadius: 'var(--radius-md)', marginBottom: 20, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
         {[...selectedDisks].map(d => (
-          <span key={d} style={{ padding: '2px 8px', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-xs)', fontFamily: 'var(--font-mono)', fontSize: 12 }}>
+          <span key={d} className="card" style={{ padding: '2px 8px', borderRadius: 'var(--radius-xs)', fontFamily: 'var(--font-mono)', fontSize: 12 }}>
             /dev/{d}
           </span>
         ))}
@@ -494,14 +484,12 @@ function StepPool({
                     border: `1px solid ${selected ? 'var(--primary)' : 'var(--border)'}`,
                     borderRadius: 'var(--radius-md)',
                     cursor: canUse ? 'pointer' : 'not-allowed',
-                    opacity: canUse ? 1 : 0.4,
-                  }}
+                    opacity: canUse ? 1 : 0.4}}
                 >
                   <div style={{
                     width: 18, height: 18, borderRadius: '50%', flexShrink: 0, marginTop: 1,
                     background: selected ? 'var(--primary)' : 'var(--surface)',
-                    border: `2px solid ${selected ? 'var(--primary)' : 'var(--border)'}`,
-                  }} />
+                    border: `2px solid ${selected ? 'var(--primary)' : 'var(--border)'}`}} />
                   <div>
                     <div style={{ fontWeight: 700, fontSize: 'var(--text-sm)' }}>
                       {t.label}
@@ -624,8 +612,7 @@ function StepComplete({ hostname, onGoToLogin }: { hostname: string; onGoToLogin
         width: 80, height: 80, borderRadius: '50%',
         background: 'rgba(16,185,129,0.1)', border: '2px solid rgba(16,185,129,0.4)',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
-        margin: '0 auto 24px',
-      }}>
+        margin: '0 auto 24px'}}>
         <Icon name="check_circle" size={44} style={{ color: 'var(--success)' }} />
       </div>
       <h2 style={{ fontSize: 'var(--text-2xl)', fontWeight: 800, marginBottom: 12 }}>
@@ -688,8 +675,7 @@ export function SetupWizardPage() {
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
-      padding: 24,
-    }}>
+      padding: 24}}>
       <div style={{ width: '100%', maxWidth: 680 }}>
         {/* Logo */}
         <div style={{ textAlign: 'center', marginBottom: 40 }}>
@@ -701,10 +687,7 @@ export function SetupWizardPage() {
         <StepBar current={step} />
 
         {/* Step content card */}
-        <div style={{
-          background: 'var(--bg-card)', border: '1px solid var(--border)',
-          borderRadius: 'var(--radius-xl)', padding: '40px 44px',
-        }}>
+        <div className="card" style={{ borderRadius: 'var(--radius-xl)', padding: '40px 44px'}}>
           {step === 0 && <StepWelcome onNext={next} />}
 
           {step === 1 && <StepAdmin onNext={next} />}

@@ -152,8 +152,7 @@ export function LoginPage() {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        padding: '24px',
-      }}
+        padding: '24px'}}
     >
       <div style={{ width: '100%', maxWidth: 420 }}>
         {/* Logo */}
@@ -164,8 +163,7 @@ export function LoginPage() {
               fontWeight: 800,
               color: 'var(--primary)',
               letterSpacing: '-1px',
-              marginBottom: 8,
-            }}
+              marginBottom: 8}}
           >
             D-PlaneOS
           </div>
@@ -178,12 +176,9 @@ export function LoginPage() {
 
         {/* Card */}
         <div
-          style={{
-            background: 'rgba(255,255,255,0.03)',
-            border: '1px solid var(--border)',
+          className="card" style={{
             borderRadius: 'var(--radius-xl)',
-            padding: '32px',
-          }}
+            padding: '32px'}}
         >
           <div style={{ marginBottom: 24 }}>
             <h2 style={{ fontSize: 'var(--text-xl)', fontWeight: 700, marginBottom: 4 }}>
@@ -210,8 +205,7 @@ export function LoginPage() {
                 borderRadius: 'var(--radius-sm)',
                 marginBottom: 20,
                 fontSize: 'var(--text-sm)',
-                color: 'var(--error)',
-              }}
+                color: 'var(--error)'}}
             >
               <Icon name="error_outline" size={16} style={{ flexShrink: 0 }} />
               {error}
@@ -272,8 +266,7 @@ export function LoginPage() {
                       color: showPassword ? 'var(--primary)' : 'var(--text-tertiary)',
                       display: 'flex',
                       alignItems: 'center',
-                      padding: 4,
-                    }}
+                      padding: 4}}
                   >
                     <Icon name={showPassword ? 'visibility_off' : 'visibility'} size={20} />
                   </button>
@@ -349,8 +342,7 @@ export function LoginPage() {
                   cursor: 'pointer',
                   color: 'var(--text-secondary)',
                   fontSize: 'var(--text-sm)',
-                  fontFamily: 'var(--font-ui)',
-                }}
+                  fontFamily: 'var(--font-ui)'}}
               >
                 ← Back to login
               </button>

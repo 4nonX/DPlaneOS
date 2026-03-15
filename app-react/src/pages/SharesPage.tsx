@@ -121,7 +121,7 @@ function ShareCard({ share, onDeleted }: { share: Share; onDeleted: () => void }
   })
 
   return (
-    <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: '20px 24px', display: 'flex', alignItems: 'flex-start', gap: 16 }}>
+    <div className="card" style={{ borderRadius: 'var(--radius-lg)', padding: '20px 24px', display: 'flex', alignItems: 'flex-start', gap: 16 }}>
       <Icon name="folder_shared" size={28} style={{ color: 'var(--primary)', flexShrink: 0, marginTop: 2 }} />
       <div style={{ flex: 1 }}>
         <div style={{ fontSize: 'var(--text-md)', fontWeight: 700, marginBottom: 4 }}>{share.name}</div>

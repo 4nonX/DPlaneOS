@@ -110,8 +110,7 @@ function LogRow({ entry }: { entry: LogEntry }) {
       fontFamily: 'var(--font-mono)',
       fontSize: 'var(--text-xs)',
       lineHeight: 1.5,
-      minWidth: 0,
-    }}>
+      minWidth: 0}}>
       <span style={{ color: levelColor(entry.level), fontWeight: entry.level !== 'info' ? 600 : 400, flexShrink: 0 }}>
         {entry.level.toUpperCase()}
       </span>
@@ -140,8 +139,7 @@ function LiveLogRow({ parsed }: { parsed: ReturnType<typeof parseStreamLine> }) 
       borderBottom: '1px solid var(--border-subtle)',
       fontFamily: 'var(--font-mono)',
       fontSize: 'var(--text-xs)',
-      lineHeight: 1.5,
-    }}>
+      lineHeight: 1.5}}>
       <span style={{ color: levelColor(parsed.level), fontWeight: parsed.level !== 'info' ? 600 : 400 }}>
         {parsed.level.toUpperCase()}
       </span>
@@ -280,14 +278,11 @@ export function LogsPage() {
       </div>
 
       {/* Toolbar */}
-      <div style={{
+      <div className="card" style={{
         display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap',
         padding: '14px 16px',
-        background: 'var(--bg-card)',
-        border: '1px solid var(--border)',
         borderRadius: 'var(--radius-xl) var(--radius-xl) 0 0',
-        flexShrink: 0,
-      }}>
+        flexShrink: 0}}>
         {/* Mode tabs */}
         <div style={{ display: 'flex', gap: 4, background: 'var(--surface)',
           borderRadius: 'var(--radius-sm)', padding: 3 }}>
@@ -298,8 +293,7 @@ export function LogsPage() {
               borderRadius: 'var(--radius-xs)',
               background: mode === m ? 'var(--primary)' : 'none',
               color: mode === m ? 'var(--text-on-primary)' : 'var(--text-secondary)',
-              transition: 'background 0.15s, color 0.15s',
-            }}>
+              transition: 'background 0.15s, color 0.15s'}}>
               {m === 'history' ? 'History' : 'Live Stream'}
             </button>
           ))}
@@ -313,8 +307,7 @@ export function LogsPage() {
               cursor: 'pointer', border: `1px solid ${levelFilter === v ? 'var(--primary)' : 'var(--border)'}`,
               borderRadius: 'var(--radius-xs)',
               background: levelFilter === v ? 'var(--primary-bg)' : 'none',
-              color: levelFilter === v ? 'var(--primary)' : 'var(--text-secondary)',
-            }}>
+              color: levelFilter === v ? 'var(--primary)' : 'var(--text-secondary)'}}>
               {label}
             </button>
           ))}
@@ -324,8 +317,7 @@ export function LogsPage() {
         <div style={{ flex: 1, minWidth: 180, position: 'relative' }}>
           <Icon name="search" size={16} style={{
             position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)',
-            color: 'var(--text-tertiary)', pointerEvents: 'none',
-          }} />
+            color: 'var(--text-tertiary)', pointerEvents: 'none'}} />
           <input
             type="text"
             placeholder="Filter logs…"
@@ -354,8 +346,7 @@ export function LogsPage() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <span style={{ width: 8, height: 8, borderRadius: '50%', flexShrink: 0,
               background: streaming ? 'var(--success)' : 'var(--text-tertiary)',
-              boxShadow: streaming ? '0 0 6px var(--success)' : 'none',
-            }} />
+              boxShadow: streaming ? '0 0 6px var(--success)' : 'none'}} />
             <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }}>
               {streaming ? 'Streaming' : 'Stopped'} · {filteredLive.length} lines
             </span>
@@ -363,8 +354,7 @@ export function LogsPage() {
               <button onClick={startStream} style={{
                 padding: '4px 10px', background: 'var(--primary)', border: 'none',
                 borderRadius: 'var(--radius-xs)', color: 'var(--text-on-primary)',
-                cursor: 'pointer', fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xs)', fontWeight: 600,
-              }}>
+                cursor: 'pointer', fontFamily: 'var(--font-ui)', fontSize: 'var(--text-xs)', fontWeight: 600}}>
                 Restart
               </button>
             )}
@@ -378,8 +368,7 @@ export function LogsPage() {
             className="btn btn-ghost"
             style={{ opacity: logsQ.isFetching ? 0.5 : 1 }}>
             <Icon name="refresh" size={16} style={{
-              animation: logsQ.isFetching ? 'spin 1s linear infinite' : 'none',
-            }} />
+              animation: logsQ.isFetching ? 'spin 1s linear infinite' : 'none'}} />
             Refresh
           </button>
         )}
@@ -392,8 +381,7 @@ export function LogsPage() {
         background: 'var(--surface)', borderLeft: '1px solid var(--border)',
         borderRight: '1px solid var(--border)',
         fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)',
-        fontWeight: 600, letterSpacing: '0.5px', textTransform: 'uppercase', flexShrink: 0,
-      }}>
+        fontWeight: 600, letterSpacing: '0.5px', textTransform: 'uppercase', flexShrink: 0}}>
         <span>Level</span>
         <span>Unit / Time</span>
         <span>Message</span>
@@ -401,13 +389,10 @@ export function LogsPage() {
 
       {/* Log body */}
       <div
-        style={{
+        className="card" style={{
           flex: 1, overflowY: 'auto',
-          background: 'rgba(0,0,0,0.4)',
-          border: '1px solid var(--border)',
           borderRadius: '0 0 var(--radius-xl) var(--radius-xl)',
-          fontFamily: 'var(--font-mono)',
-        }}
+          fontFamily: 'var(--font-mono)'}}
         onScroll={(e) => {
           const el = e.currentTarget
           autoScroll.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40
@@ -458,8 +443,7 @@ export function LogsPage() {
       {/* Status bar */}
       <div style={{
         padding: '6px 14px', fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)',
-        display: 'flex', gap: 16, flexShrink: 0,
-      }}>
+        display: 'flex', gap: 16, flexShrink: 0}}>
         {mode === 'history' && logsQ.data && (
           <>
             <span>{filtered.length} / {allEntries.length} entries</span>

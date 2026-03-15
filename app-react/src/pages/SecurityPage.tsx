@@ -94,8 +94,7 @@ function PasswordStrengthBar({ password }: { password: string }) {
           <div key={i} style={{
             flex: 1, height: 3, borderRadius: 2,
             background: i <= score ? color : 'var(--border)',
-            transition: 'background 0.2s',
-          }} />
+            transition: 'background 0.2s'}} />
         ))}
         <span style={{ fontSize: 'var(--text-xs)', color, fontWeight: 600, minWidth: 44, textAlign: 'right' }}>{label}</span>
       </div>
@@ -143,16 +142,12 @@ function PasswordTab() {
 
   return (
     <div style={{ maxWidth: 440 }}>
-      <div style={{
-        background: 'var(--bg-card)', border: '1px solid var(--border)',
-        borderRadius: 'var(--radius-xl)', padding: 28,
-      }}>
+      <div className="card" style={{ borderRadius: 'var(--radius-xl)', padding: 28}}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 24 }}>
           <div style={{
             width: 44, height: 44, background: 'var(--primary-bg)',
             border: '1px solid rgba(138,156,255,0.2)', borderRadius: 'var(--radius-md)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-          }}>
+            display: 'flex', alignItems: 'center', justifyContent: 'center'}}>
             <Icon name="lock" size={22} style={{ color: 'var(--primary)' }} />
           </div>
           <div>
@@ -229,8 +224,7 @@ function PasswordTab() {
               required
               className="input"
               style={{
-                borderColor: mismatch ? 'var(--error-border)' : 'var(--border)',
-              }}
+                borderColor: mismatch ? 'var(--error-border)' : 'var(--border)'}}
             />
             {mismatch && (
               <div style={{ fontSize: 'var(--text-xs)', color: 'var(--error)', marginTop: 4 }}>
@@ -302,7 +296,7 @@ function TOTPTab() {
 
   return (
     <div style={{ maxWidth: 520 }}>
-      <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-xl)', padding: 28 }}>
+      <div className="card" style={{ borderRadius: 'var(--radius-xl)', padding: 28 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 24 }}>
           <div style={{ width: 48, height: 48, background: 'var(--primary-bg)', border: '1px solid rgba(138,156,255,0.2)', borderRadius: 'var(--radius-md)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <Icon name="phonelink_lock" size={24} style={{ color: 'var(--primary)' }} />
@@ -430,7 +424,7 @@ function TokensTab() {
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {tokens.map(token => (
-          <div key={token.id} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '12px 18px', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)' }}>
+          <div key={token.id} className="card" style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '12px 18px', borderRadius: 'var(--radius-md)' }}>
             <Icon name="key" size={18} style={{ color: 'var(--primary)', flexShrink: 0 }} />
             <div style={{ flex: 1 }}>
               <div style={{ fontWeight: 600, fontSize: 'var(--text-sm)' }}>{token.name}</div>
@@ -480,7 +474,7 @@ function AuditTab() {
   return (
     <div style={{ maxWidth: 600 }}>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 24 }}>
-        <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: '18px 22px' }}>
+        <div className="card" style={{ borderRadius: 'var(--radius-lg)', padding: '18px 22px' }}>
           <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 8 }}>Total Entries</div>
           <div style={{ fontSize: 28, fontWeight: 700, fontFamily: 'var(--font-mono)', color: 'var(--primary)' }}>{stats?.total_entries ?? '—'}</div>
         </div>

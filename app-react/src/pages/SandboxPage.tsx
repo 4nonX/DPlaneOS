@@ -168,8 +168,7 @@ function NewSandboxModal({ onClose, datasets, datasetsLoading }: NewSandboxModal
           display: 'flex', gap: 8, padding: '10px 12px',
           background: 'rgba(138,156,255,0.06)', borderRadius: 'var(--radius-sm)',
           border: '1px solid rgba(138,156,255,0.15)', fontSize: 'var(--text-xs)',
-          color: 'var(--text-secondary)',
-        }}>
+          color: 'var(--text-secondary)'}}>
           <Icon name="info" size={14} style={{ color: 'var(--primary)', flexShrink: 0, marginTop: 1 }} />
           <span>
             A snapshot will be taken of the source dataset, then an instant ZFS clone created from it.
@@ -234,16 +233,14 @@ function SandboxCard({ sandbox, onDestroy, isDestroying }: SandboxCardProps) {
       padding: '16px 18px',
       display: 'flex',
       flexDirection: 'column',
-      gap: 10,
-    }}>
+      gap: 10}}>
       {/* Header row */}
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
         <div style={{
           width: 36, height: 36, borderRadius: 'var(--radius-sm)',
           background: 'var(--primary-bg)', display: 'flex', alignItems: 'center',
           justifyContent: 'center', flexShrink: 0,
-          border: '1px solid rgba(138,156,255,0.2)',
-        }}>
+          border: '1px solid rgba(138,156,255,0.2)'}}>
           <Icon name="science" size={18} style={{ color: 'var(--primary)' }} />
         </div>
 
@@ -261,8 +258,7 @@ function SandboxCard({ sandbox, onDestroy, isDestroying }: SandboxCardProps) {
           padding: '3px 9px', borderRadius: 'var(--radius-xs)',
           fontSize: 'var(--text-xs)', fontWeight: 600,
           background: 'var(--success-bg)', color: 'var(--success)',
-          border: '1px solid var(--success-border)', flexShrink: 0,
-        }}>
+          border: '1px solid var(--success-border)', flexShrink: 0}}>
           Active
         </span>
       </div>
@@ -270,8 +266,7 @@ function SandboxCard({ sandbox, onDestroy, isDestroying }: SandboxCardProps) {
       {/* Metadata grid */}
       <div style={{
         display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px 16px',
-        fontSize: 'var(--text-xs)', color: 'var(--text-secondary)',
-      }}>
+        fontSize: 'var(--text-xs)', color: 'var(--text-secondary)'}}>
         <div>
           <span style={{ color: 'var(--text-tertiary)' }}>Source dataset: </span>
           <span style={{ fontFamily: 'var(--font-mono)' }}>{sourceDataset}</span>
@@ -427,7 +422,7 @@ export function SandboxPage() {
       )}
 
       {/* Sandbox list */}
-      <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-xl)', padding: 24 }}>
+      <div className="card" style={{ borderRadius: 'var(--radius-xl)', padding: 24 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 20 }}>
           <Icon name="science" size={18} style={{ color: 'var(--primary)' }} />
           <span style={{ fontWeight: 700, fontSize: 'var(--text-md)' }}>Active Sandboxes</span>
@@ -443,8 +438,7 @@ export function SandboxPage() {
               marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer',
               color: 'var(--text-tertiary)', display: 'flex', alignItems: 'center',
               padding: '4px', borderRadius: 'var(--radius-xs)',
-              transition: 'color var(--transition-fast)',
-            }}
+              transition: 'color var(--transition-fast)'}}
             onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--text)' }}
             onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-tertiary)' }}
           >

@@ -57,8 +57,7 @@ export function Skeleton({ width = '100%', height = 16, borderRadius = 'var(--ra
         background: 'linear-gradient(90deg, var(--surface) 25%, var(--surface-hover) 50%, var(--surface) 75%)',
         backgroundSize: '200% 100%',
         animation: 'shimmer 1.5s infinite',
-        ...style,
-      }}
+        ...style}}
     />
   )
 }
@@ -73,8 +72,7 @@ export function LoadingState({ message = 'Loading…' }: { message?: string }) {
         alignItems: 'center',
         justifyContent: 'center',
         gap: '12px',
-        padding: '40px 24px',
-      }}
+        padding: '40px 24px'}}
     >
       <style>{`@keyframes shimmer { to { background-position: -200% 0 } }`}</style>
       <Spinner size={32} />

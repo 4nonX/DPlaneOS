@@ -103,7 +103,7 @@ export function ISCSIPage() {
       {tab === 'targets' && (
         <>
           {/* Create form */}
-          <div style={{ background:'var(--bg-card)', border:'1px solid var(--border)', borderRadius:'var(--radius-xl)', padding:22, marginBottom:22 }}>
+          <div className="card" style={{ borderRadius:'var(--radius-xl)', padding:22, marginBottom:22 }}>
             <div style={{ fontWeight:700, marginBottom:14 }}>Create Target</div>
             <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr auto', gap:10, alignItems:'flex-end' }}>
               <label className="field">
@@ -130,7 +130,7 @@ export function ISCSIPage() {
           {targetsQ.isLoading && <Skeleton height={160}/>}
           {targetsQ.isError   && <ErrorState error={targetsQ.error}/>}
 
-          <div style={{ background:'var(--bg-card)', border:'1px solid var(--border)', borderRadius:'var(--radius-lg)', overflow:'hidden' }}>
+          <div className="card" style={{ borderRadius:'var(--radius-lg)', overflow:'hidden' }}>
             <table className="data-table">
               <thead><tr>
                 {['IQN','ZVol','Sessions','Size','Actions'].map(h=>(
@@ -161,7 +161,7 @@ export function ISCSIPage() {
       {/* ACLs tab */}
       {tab === 'acls' && (
         <>
-          <div style={{ background:'var(--bg-card)', border:'1px solid var(--border)', borderRadius:'var(--radius-xl)', padding:22, marginBottom:22 }}>
+          <div className="card" style={{ borderRadius:'var(--radius-xl)', padding:22, marginBottom:22 }}>
             <div style={{ fontWeight:700, marginBottom:14 }}>Add Initiator ACL</div>
             <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr auto', gap:10, alignItems:'flex-end' }}>
               <label className="field">
@@ -190,7 +190,7 @@ export function ISCSIPage() {
 
           <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
             {acls.map((a, i)=>(
-              <div key={i} style={{ display:'flex', alignItems:'center', gap:14, padding:'12px 18px', background:'var(--bg-card)', border:'1px solid var(--border)', borderRadius:'var(--radius-md)' }}>
+              <div key={i} className="card" style={{ display:'flex', alignItems:'center', gap:14, padding:'12px 18px', borderRadius:'var(--radius-md)' }}>
                 <Icon name="lock" size={16} style={{ color:'var(--primary)', flexShrink:0 }}/>
                 <div style={{ flex:1 }}>
                   <div style={{ fontFamily:'var(--font-mono)', fontSize:'var(--text-xs)', color:'var(--primary)' }}>{a.iqn}</div>

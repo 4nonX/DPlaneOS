@@ -152,7 +152,7 @@ function ConfigTab() {
 
       <div style={{ display: 'grid', gap: 16 }}>
         {/* Enable toggle */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 18px', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)' }}>
+        <div className="card" style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 18px', borderRadius: 'var(--radius-lg)' }}>
           <input type="checkbox"
             checked={!!(formCfg.enabled)}
             onChange={e => set('enabled', e.target.checked ? 1 : 0)}
@@ -259,7 +259,7 @@ function MappingsTab() {
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {mappings.map(m => (
-          <div key={String(m.id ?? m.ldap_group)} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)' }}>
+          <div key={String(m.id ?? m.ldap_group)} className="card" style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', borderRadius: 'var(--radius-sm)' }}>
             <Icon name="account_tree" size={16} style={{ color: 'var(--primary)', flexShrink: 0 }} />
             <code style={{ flex: 1, fontSize: 'var(--text-xs)', fontFamily: 'var(--font-mono)', color: 'var(--text-secondary)' }}>{m.ldap_group}</code>
             <Icon name="arrow_forward" size={14} style={{ color: 'var(--text-tertiary)', flexShrink: 0 }} />
@@ -326,7 +326,7 @@ function SyncLogTab() {
       {logQ.isLoading && <Skeleton height={200} />}
       {logQ.isError && <ErrorState error={logQ.error} />}
       {logQ.data && (
-        <pre style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: '16px 20px', fontFamily: 'var(--font-mono)', fontSize: 11, lineHeight: 1.7, overflow: 'auto', maxHeight: 420, margin: 0, color: 'rgba(255,255,255,0.7)', whiteSpace: 'pre-wrap' }}>
+        <pre className="card" style={{ background: 'var(--surface)', borderRadius: 'var(--radius-lg)', padding: '16px 20px', fontFamily: 'var(--font-mono)', fontSize: 11, lineHeight: 1.7, overflow: 'auto', maxHeight: 420, margin: 0, color: 'rgba(255,255,255,0.7)', whiteSpace: 'pre-wrap' }}>
           {logQ.data.entries?.join('\n') || '(no sync log entries)'}
         </pre>
       )}

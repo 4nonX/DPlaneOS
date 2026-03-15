@@ -214,7 +214,7 @@ function NixOSTab() {
 
   if (!isNixOS) {
     return (
-      <div style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '24px 28px', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-xl)', maxWidth: 500 }}>
+      <div className="card" style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '24px 28px', borderRadius: 'var(--radius-xl)', maxWidth: 500 }}>
         <Icon name="info" size={24} style={{ color: 'var(--text-tertiary)', flexShrink: 0 }} />
         <div>
           <div style={{ fontWeight: 700, marginBottom: 4 }}>Not running on NixOS</div>
@@ -236,7 +236,7 @@ function NixOSTab() {
       )}
 
       {/* Apply config */}
-      <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: '20px 24px' }}>
+      <div className="card" style={{ borderRadius: 'var(--radius-lg)', padding: '20px 24px' }}>
         <div style={{ fontWeight: 700, marginBottom: 16 }}>Apply Configuration</div>
         <div style={{ display: 'flex', gap: 10, marginBottom: 12 }}>
           <input value={flakePath} onChange={e => setFlakePath(e.target.value)}

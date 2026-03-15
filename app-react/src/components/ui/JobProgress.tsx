@@ -54,8 +54,7 @@ export function JobProgress({
           color: 'var(--warning)',
           display: 'flex',
           alignItems: 'center',
-          gap: '8px',
-        }}
+          gap: '8px'}}
       >
         <Icon name="warning" size={16} />
         Operation interrupted — daemon restarted mid-job. Please retry.
@@ -70,17 +69,14 @@ export function JobProgress({
   if (!data || isPolling) {
     return (
       <div
-        style={{
+        className="card" style={{ background: 'var(--surface)', 
           display: 'flex',
           alignItems: 'center',
           gap: '10px',
           padding: '12px 16px',
-          background: 'var(--surface)',
-          border: '1px solid var(--border)',
           borderRadius: 'var(--radius-sm)',
           fontSize: 'var(--text-sm)',
-          color: 'var(--text-secondary)',
-        }}
+          color: 'var(--text-secondary)'}}
       >
         <Spinner size={16} />
         <span>{runningLabel}</span>
@@ -100,8 +96,7 @@ export function JobProgress({
           border: '1px solid var(--success-border)',
           borderRadius: 'var(--radius-sm)',
           fontSize: 'var(--text-sm)',
-          color: 'var(--success)',
-        }}
+          color: 'var(--success)'}}
       >
         <Icon name="check_circle" size={16} />
         {doneLabel}

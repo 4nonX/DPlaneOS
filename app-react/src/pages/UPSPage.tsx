@@ -66,7 +66,7 @@ function BatteryGauge({ charge }: { charge: number }) {
 
 function StatCard({ icon, label, value, sub, color }: { icon: string; label: string; value: string; sub?: string; color?: string }) {
   return (
-    <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: '20px 24px', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
+    <div className="card" style={{ borderRadius: 'var(--radius-lg)', padding: '20px 24px', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
       <Icon name={icon} size={32} style={{ color: color ?? 'var(--primary)', marginBottom: 4 }} />
       <div style={{ fontSize: 28, fontWeight: 700, fontFamily: 'var(--font-mono)', color: color ?? 'var(--text)', lineHeight: 1 }}>{value}</div>
       <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: 600 }}>{label}</div>
@@ -115,7 +115,7 @@ function ConfigPanel({ initial }: { initial: UPSResponse }) {
   })
 
   return (
-    <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: '20px 24px', marginTop: 24 }}>
+    <div className="card" style={{ borderRadius: 'var(--radius-lg)', padding: '20px 24px', marginTop: 24 }}>
       <div style={{ fontWeight: 700, marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
         <Icon name="settings" size={18} style={{ color: 'var(--primary)' }} />Configure NUT Connection
       </div>
@@ -193,7 +193,7 @@ export function UPSPage() {
       </div>
 
       {!hasData ? (
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '60px 0', gap: 16, background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-xl)' }}>
+        <div className="card" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '60px 0', gap: 16, borderRadius: 'var(--radius-xl)' }}>
           <Icon name="battery_unknown" size={56} style={{ color: 'var(--text-tertiary)', opacity: 0.4 }} />
           <div style={{ fontWeight: 700, color: 'var(--text-secondary)', fontSize: 'var(--text-lg)' }}>No UPS detected</div>
           <div style={{ color: 'var(--text-tertiary)', fontSize: 'var(--text-sm)', maxWidth: 380, textAlign: 'center' }}>
@@ -213,7 +213,7 @@ export function UPSPage() {
 
           {/* Battery gauge */}
           {upsData.battery_charge && (
-            <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: '16px 22px', marginBottom: 20 }}>
+            <div className="card" style={{ borderRadius: 'var(--radius-lg)', padding: '16px 22px', marginBottom: 20 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
                 <span style={{ fontSize: 'var(--text-sm)', fontWeight: 600 }}>Battery Level</span>
                 <span style={{ fontSize: 'var(--text-sm)', fontWeight: 700, color: charge > 60 ? 'var(--success)' : 'var(--error)' }}>{upsData.battery_charge}</span>
@@ -223,7 +223,7 @@ export function UPSPage() {
           )}
 
           {/* UPS info grid */}
-          <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', overflow: 'hidden' }}>
+          <div className="card" style={{ borderRadius: 'var(--radius-lg)', overflow: 'hidden' }}>
             <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--border)', fontWeight: 700 }}>UPS Details</div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 0 }}>
               {[

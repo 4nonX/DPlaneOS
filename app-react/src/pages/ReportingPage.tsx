@@ -142,8 +142,7 @@ function MetricPanel({ label, icon, current, unit, sub, history, color, warn }: 
   return (
     <div style={{
       background: 'var(--bg-card)', border: `1px solid ${warn ? 'var(--warning-border)' : 'var(--border)'}`,
-      borderRadius: 'var(--radius-xl)', padding: 24,
-    }}>
+      borderRadius: 'var(--radius-xl)', padding: 24}}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <Icon name={icon} size={18} style={{ color }} />
@@ -169,8 +168,7 @@ function MetricPanel({ label, icon, current, unit, sub, history, color, warn }: 
         <div style={{
           height: '100%', width: `${Math.min(current, 100)}%`,
           background: current > 85 ? 'var(--error)' : current > 70 ? 'var(--warning)' : color,
-          borderRadius: 2, transition: 'width 0.5s',
-        }} />
+          borderRadius: 2, transition: 'width 0.5s'}} />
       </div>
     </div>
   )
@@ -187,8 +185,7 @@ function PeriodTab({ period, current, onChange }: { period: Period; current: Per
       padding: '6px 14px', background: active ? 'var(--primary-bg)' : 'none',
       border: `1px solid ${active ? 'var(--primary)' : 'var(--border)'}`,
       borderRadius: 'var(--radius-sm)', color: active ? 'var(--primary)' : 'var(--text-secondary)',
-      cursor: 'pointer', fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', fontWeight: active ? 600 : 400,
-    }}>
+      cursor: 'pointer', fontFamily: 'var(--font-ui)', fontSize: 'var(--text-sm)', fontWeight: active ? 600 : 400}}>
       {period === 'hour' ? '1 Hour' : period === 'day' ? '24 Hours' : '7 Days'}
     </button>
   )
@@ -266,8 +263,7 @@ function HealthPanel({ health }: { health: SystemHealth }) {
   return (
     <div style={{
       background: 'var(--bg-card)', border: `1px solid ${ok ? 'var(--border)' : 'var(--warning-border)'}`,
-      borderRadius: 'var(--radius-xl)', padding: 24,
-    }}>
+      borderRadius: 'var(--radius-xl)', padding: 24}}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
         <Icon name={ok ? 'check_circle' : 'warning'} size={18} style={{ color: ok ? 'var(--success)' : 'var(--warning)' }} />
         <span style={{ fontWeight: 700, fontSize: 'var(--text-md)' }}>System Health</span>
@@ -395,7 +391,7 @@ export function ReportingPage() {
       )}
 
       {/* History charts */}
-      <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-xl)', padding: 24 }}>
+      <div className="card" style={{ borderRadius: 'var(--radius-xl)', padding: 24 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <Icon name="monitoring" size={18} style={{ color: 'var(--primary)' }} />

@@ -105,7 +105,7 @@ function SensorSection({ icon, title, sensors, emptyMsg }: {
         <div style={{ fontWeight: 700, marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
           <Icon name={icon} size={18} style={{ color: 'var(--primary)' }} />{title}
         </div>
-        <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 'var(--text-sm)', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)' }}>
+        <div className="card" style={{ padding: '24px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 'var(--text-sm)', borderRadius: 'var(--radius-lg)' }}>
           {emptyMsg}
         </div>
       </div>
@@ -179,7 +179,7 @@ export function IPMIPage() {
       )}
 
       {allSensors.length === 0 ? (
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '60px 0', gap: 12, background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-xl)' }}>
+        <div className="card" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '60px 0', gap: 12, borderRadius: 'var(--radius-xl)' }}>
           <Icon name="developer_board" size={48} style={{ color: 'var(--text-tertiary)', opacity: 0.4 }} />
           <div style={{ color: 'var(--text-tertiary)', fontSize: 'var(--text-sm)' }}>No IPMI sensors detected</div>
           <div style={{ color: 'var(--text-tertiary)', fontSize: 'var(--text-xs)', maxWidth: 340, textAlign: 'center' }}>

@@ -87,9 +87,9 @@ function DiskRow({ disk, savedTimeout, onSpindown, onSpindownNow, pending }: {
   }
 
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '14px 20px', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)' }}>
+    <div className="card" style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '14px 20px', borderRadius: 'var(--radius-lg)' }}>
       {/* Icon */}
-      <div style={{ width: 40, height: 40, borderRadius: 'var(--radius-md)', background: 'var(--surface)', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+      <div className="card" style={{ background: 'var(--surface)',  width: 40, height: 40, borderRadius: 'var(--radius-md)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
         <Icon name={isHDD ? 'hard_drive' : 'memory'} size={22} style={{ color: isHDD ? 'var(--primary)' : 'rgba(99,102,241,0.9)' }} />
       </div>
 
@@ -115,7 +115,7 @@ function DiskRow({ disk, savedTimeout, onSpindown, onSpindownNow, pending }: {
         <select value={timeout}
           onChange={e => handleTimeoutChange(Number(e.target.value))}
           disabled={pending}
-          style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '6px 10px', color: 'var(--text)', fontSize: 'var(--text-xs)', outline: 'none', cursor: 'pointer' }}>
+          className="card" style={{ background: 'var(--surface)', borderRadius: 'var(--radius-sm)', padding: '6px 10px', color: 'var(--text)', fontSize: 'var(--text-xs)', outline: 'none', cursor: 'pointer' }}>
           {SPINDOWN_OPTIONS.map(o => (
             <option key={o.value} value={o.value}>{o.label}</option>
           ))}
@@ -188,7 +188,7 @@ export function PowerPage() {
       </div>
 
       {disks.length === 0 ? (
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '60px 0', gap: 12, background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-xl)' }}>
+        <div className="card" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '60px 0', gap: 12, borderRadius: 'var(--radius-xl)' }}>
           <Icon name="storage" size={48} style={{ color: 'var(--text-tertiary)', opacity: 0.4 }} />
           <div style={{ color: 'var(--text-tertiary)', fontSize: 'var(--text-sm)' }}>No disks detected</div>
         </div>

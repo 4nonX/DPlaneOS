@@ -182,7 +182,7 @@ function UsersTab() {
       {usersQ.isError && <ErrorState error={usersQ.error} onRetry={refresh} />}
 
       {!usersQ.isLoading && !usersQ.isError && (
-        <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', overflow: 'hidden' }}>
+        <div className="card" style={{ borderRadius: 'var(--radius-lg)', overflow: 'hidden' }}>
           <table className="data-table">
             <thead>
               <tr style={{ background: 'rgba(255,255,255,0.03)' }}>
@@ -319,7 +319,7 @@ function GroupsTab() {
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         {groups.map(g => (
-          <div key={g.name} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 18px', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)' }}>
+          <div key={g.name} className="card" style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 18px', borderRadius: 'var(--radius-md)' }}>
             <Icon name="group" size={20} style={{ color: 'var(--primary)', flexShrink: 0 }} />
             <div style={{ flex: 1 }}>
               <div style={{ fontWeight: 700, fontSize: 'var(--text-md)' }}>{g.name}</div>
@@ -374,7 +374,7 @@ function RolesTab() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
       {roles.map(role => (
-        <div key={role.id} style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', overflow: 'hidden' }}>
+        <div key={role.id} className="card" style={{ borderRadius: 'var(--radius-md)', overflow: 'hidden' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 18px', cursor: 'pointer' }}
             onClick={() => setExpanded(expanded === role.id ? null : role.id)}>
             <Icon name="shield" size={18} style={{ color: 'var(--primary)', flexShrink: 0 }} />

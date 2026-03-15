@@ -206,11 +206,9 @@ function AddDelegationModal({ onClose, datasets, datasetsLoading, onAdded }: Add
               </button>
             </div>
           </div>
-          <div style={{
+          <div className="card" style={{ background: 'var(--surface)', 
             display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px 12px',
-            padding: '12px 14px', background: 'var(--surface)',
-            border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)',
-          }}>
+            padding: '12px 14px', borderRadius: 'var(--radius-sm)'}}>
             {ALL_PERMISSIONS.map((p) => (
               <label
                 key={p}
@@ -218,8 +216,7 @@ function AddDelegationModal({ onClose, datasets, datasetsLoading, onAdded }: Add
                   display: 'flex', alignItems: 'center', gap: 7,
                   cursor: 'pointer', fontSize: 'var(--text-sm)',
                   color: selected.has(p) ? 'var(--text)' : 'var(--text-secondary)',
-                  userSelect: 'none',
-                }}
+                  userSelect: 'none'}}
               >
                 <input
                   type="checkbox"
@@ -239,8 +236,7 @@ function AddDelegationModal({ onClose, datasets, datasetsLoading, onAdded }: Add
             fontSize: 'var(--text-xs)', color: 'var(--text-secondary)',
             fontFamily: 'var(--font-mono)', padding: '8px 12px',
             background: 'rgba(138,156,255,0.06)', borderRadius: 'var(--radius-xs)',
-            border: '1px solid rgba(138,156,255,0.15)',
-          }}>
+            border: '1px solid rgba(138,156,255,0.15)'}}>
             {[...selected].join(', ')}
           </div>
         )}
@@ -316,8 +312,7 @@ function DatasetDelegationDetail({ dataset }: { dataset: string }) {
       color: 'var(--text-secondary)', whiteSpace: 'pre-wrap', wordBreak: 'break-word',
       background: 'var(--surface)', border: '1px solid var(--border)',
       borderRadius: 'var(--radius-xs)', padding: '10px 12px',
-      maxHeight: 200, overflowY: 'auto',
-    }}>
+      maxHeight: 200, overflowY: 'auto'}}>
       {data.delegations}
     </pre>
   )
@@ -388,8 +383,7 @@ export function DelegationPage() {
       <div style={{
         display: 'flex', gap: 12, padding: '14px 16px',
         background: 'rgba(138,156,255,0.06)', border: '1px solid rgba(138,156,255,0.18)',
-        borderRadius: 'var(--radius-md)',
-      }}>
+        borderRadius: 'var(--radius-md)'}}>
         <Icon name="info" size={18} style={{ color: 'var(--primary)', flexShrink: 0, marginTop: 1 }} />
         <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', lineHeight: 1.6 }}>
           ZFS delegation (<code>zfs allow</code>) lets you grant specific ZFS operations to non-root
@@ -399,7 +393,7 @@ export function DelegationPage() {
       </div>
 
       {/* Delegations table */}
-      <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-xl)', padding: 24 }}>
+      <div className="card" style={{ borderRadius: 'var(--radius-xl)', padding: 24 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 20 }}>
           <Icon name="lock_open" size={18} style={{ color: 'var(--primary)' }} />
           <span style={{ fontWeight: 700, fontSize: 'var(--text-md)' }}>Delegations</span>
@@ -462,8 +456,7 @@ export function DelegationPage() {
                               fontSize: 'var(--text-2xs)', fontWeight: 600,
                               background: 'var(--primary-bg)', color: 'var(--primary)',
                               border: '1px solid rgba(138,156,255,0.2)',
-                              fontFamily: 'var(--font-mono)',
-                            }}
+                              fontFamily: 'var(--font-mono)'}}
                           >
                             {p.trim()}
                           </span>
@@ -501,7 +494,7 @@ export function DelegationPage() {
 
       {/* Per-dataset raw delegation view */}
       {datasets.length > 0 && (
-        <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-xl)', padding: 24 }}>
+        <div className="card" style={{ borderRadius: 'var(--radius-xl)', padding: 24 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
             <Icon name="terminal" size={18} style={{ color: 'var(--primary)' }} />
             <span style={{ fontWeight: 700, fontSize: 'var(--text-md)' }}>Raw Delegation View</span>
@@ -523,8 +516,7 @@ export function DelegationPage() {
                       border: 'none', cursor: 'pointer',
                       color: isExpanded ? 'var(--primary)' : 'var(--text-secondary)',
                       fontSize: 'var(--text-sm)', fontFamily: 'var(--font-ui)',
-                      textAlign: 'left',
-                    }}
+                      textAlign: 'left'}}
                   >
                     <Icon name="folder" size={15} style={{ flexShrink: 0, opacity: 0.7 }} />
                     <code style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)', flex: 1 }}>

@@ -43,8 +43,7 @@ function ToastItem({ toast }: { toast: Toast }) {
         minWidth: 280, maxWidth: 400,
         pointerEvents: 'all',
         animation: 'slideInRight 0.25s cubic-bezier(0.16,1,0.3,1) both',
-        position: 'relative', overflow: 'hidden',
-      }}
+        position: 'relative', overflow: 'hidden'}}
     >
       <Icon name={cfg.icon} size={18} style={{ color: cfg.color, flexShrink: 0, marginTop: 1 }} />
       <span style={{ flex: 1, fontSize: 'var(--text-sm)', lineHeight: 1.5, color: 'rgba(255,255,255,0.88)' }}>
@@ -57,8 +56,7 @@ function ToastItem({ toast }: { toast: Toast }) {
           background: 'none', border: 'none', cursor: 'pointer',
           color: 'var(--text-tertiary)', display: 'flex', alignItems: 'center',
           flexShrink: 0, padding: 2, marginLeft: 2, borderRadius: 4,
-          transition: 'color var(--transition-fast)',
-        }}
+          transition: 'color var(--transition-fast)'}}
         onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--text)'; }}
         onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-tertiary)'; }}
       >
@@ -71,8 +69,7 @@ function ToastItem({ toast }: { toast: Toast }) {
         height: 2, width: `${progress}%`,
         background: cfg.color, opacity: 0.5,
         transition: 'width 30ms linear',
-        borderRadius: '0 0 0 3px',
-      }} />
+        borderRadius: '0 0 0 3px'}} />
     </div>
   )
 }
@@ -91,8 +88,7 @@ export function ToastContainer() {
         right: '20px',
         zIndex: 'var(--z-toast)' as any,
         display: 'flex', flexDirection: 'column', gap: 8,
-        pointerEvents: 'none',
-      }}
+        pointerEvents: 'none'}}
     >
       {toasts.map((t) => <ToastItem key={t.id} toast={t} />)}
     </div>

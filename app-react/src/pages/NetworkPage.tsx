@@ -317,7 +317,7 @@ function VLANsTab() {
 
   return (
     <>
-      <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: '20px 24px', marginBottom: 24 }}>
+      <div className="card" style={{ borderRadius: 'var(--radius-lg)', padding: '20px 24px', marginBottom: 24 }}>
         <div style={{ fontWeight: 700, marginBottom: 16 }}>Create VLAN Interface</div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 100px', gap: 12, marginBottom: 12 }}>
           <label className="field">
@@ -345,7 +345,7 @@ function VLANsTab() {
       {vlanQ.isLoading && <Skeleton height={80} />}
       {vlanQ.isError   && <ErrorState error={vlanQ.error} onRetry={() => qc.invalidateQueries({ queryKey: ['network', 'vlan'] })} />}
       {vlanQ.data && (
-        <pre style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: '14px 18px', fontFamily: 'var(--font-mono)', fontSize: 12, lineHeight: 1.8, color: 'rgba(255,255,255,0.65)', whiteSpace: 'pre-wrap', margin: 0, maxHeight: 300, overflow: 'auto' }}>
+        <pre className="card" style={{ background: 'var(--surface)', borderRadius: 'var(--radius-lg)', padding: '14px 18px', fontFamily: 'var(--font-mono)', fontSize: 12, lineHeight: 1.8, color: 'rgba(255,255,255,0.65)', whiteSpace: 'pre-wrap', margin: 0, maxHeight: 300, overflow: 'auto' }}>
           {vlanQ.data.vlans || 'No VLANs configured'}
         </pre>
       )}
@@ -398,7 +398,7 @@ function BondingTab() {
 
   return (
     <>
-      <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: '20px 24px', marginBottom: 24 }}>
+      <div className="card" style={{ borderRadius: 'var(--radius-lg)', padding: '20px 24px', marginBottom: 24 }}>
         <div style={{ fontWeight: 700, marginBottom: 16 }}>Create Bond Interface</div>
         <div style={{ display: 'grid', gap: 14 }}>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
@@ -431,7 +431,7 @@ function BondingTab() {
           <div style={{ fontWeight: 700, marginBottom: 12 }}>Active Bond Interfaces</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {existingBonds.map(b => (
-              <div key={b.name} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 18px', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)' }}>
+              <div key={b.name} className="card" style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 18px', borderRadius: 'var(--radius-md)' }}>
                 <Icon name="device_hub" size={20} style={{ color: 'var(--primary)', flexShrink: 0 }} />
                 <div style={{ flex: 1 }}>
                   <div style={{ fontWeight: 700 }}>{b.name}</div>
@@ -510,7 +510,7 @@ function DnsNtpTab() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24, maxWidth: 680 }}>
       {/* DNS */}
-      <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: '20px 24px' }}>
+      <div className="card" style={{ borderRadius: 'var(--radius-lg)', padding: '20px 24px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
           <Icon name="dns" size={20} style={{ color: 'var(--primary)' }} />
           <div style={{ fontWeight: 700, fontSize: 'var(--text-md)' }}>DNS Nameservers</div>
@@ -533,7 +533,7 @@ function DnsNtpTab() {
       </div>
 
       {/* NTP */}
-      <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: '20px 24px' }}>
+      <div className="card" style={{ borderRadius: 'var(--radius-lg)', padding: '20px 24px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
           <Icon name="schedule" size={20} style={{ color: 'var(--primary)' }} />
           <div style={{ fontWeight: 700, fontSize: 'var(--text-md)' }}>NTP Servers</div>

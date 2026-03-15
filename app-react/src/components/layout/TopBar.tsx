@@ -28,14 +28,14 @@ export function TopBar({ sidebarCollapsed }: TopBarProps) {
         position: 'fixed', top: 0,
         left: sidebarCollapsed ? 'var(--sidebar-width-collapsed)' : 'var(--sidebar-width)',
         right: 0, height: 'var(--topbar-height)',
-        background: 'rgba(8,8,8,0.96)',
-        borderBottom: '1px solid var(--border)',
+        background: 'hsla(var(--hue-bg), 18%, 4%, 0.7)',
+        borderBottom: '1px solid var(--border-subtle)',
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        padding: '0 24px',
+        padding: '0 32px',
         zIndex: 40,
-        backdropFilter: 'blur(12px)',
-        transition: 'left 0.22s cubic-bezier(0.4,0,0.2,1)',
-      }}
+        backdropFilter: 'var(--blur-glass)',
+        boxShadow: '0 4px 30px rgba(0, 0, 0, 0.4)',
+        transition: 'left var(--transition-bounce)'}}
     >
       {/* ── Left: breadcrumb + title ── */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -43,8 +43,7 @@ export function TopBar({ sidebarCollapsed }: TopBarProps) {
           width: 30, height: 30, borderRadius: 8,
           background: 'var(--primary-bg)',
           border: '1px solid rgba(138,156,255,0.2)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-        }}>
+          display: 'flex', alignItems: 'center', justifyContent: 'center'}}>
           <Icon name={pageIcon} size={16} style={{ color: 'var(--primary)' }} />
         </div>
 
@@ -53,15 +52,13 @@ export function TopBar({ sidebarCollapsed }: TopBarProps) {
             <div style={{
               fontSize: 'var(--text-2xs)', color: 'var(--text-tertiary)',
               fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.6px',
-              lineHeight: 1, marginBottom: 3,
-            }}>
+              lineHeight: 1, marginBottom: 3}}>
               {groupLabel}
             </div>
           )}
           <h1 style={{
             fontSize: 'var(--text-md)', fontWeight: 700,
-            letterSpacing: '-0.3px', color: 'var(--text)', lineHeight: 1,
-          }}>
+            letterSpacing: '-0.3px', color: 'var(--text)', lineHeight: 1}}>
             {pageTitle}
           </h1>
         </div>
@@ -70,21 +67,31 @@ export function TopBar({ sidebarCollapsed }: TopBarProps) {
       {/* ── Right: user chip ── */}
       {user && (
         <div style={{
-          display: 'flex', alignItems: 'center', gap: 8,
-          padding: '5px 12px 5px 8px',
-          background: 'var(--surface)',
-          border: '1px solid var(--border)',
+          display: 'flex', alignItems: 'center', gap: 10,
+          padding: '6px 16px 6px 8px',
+          background: 'hsla(0,0%,100%,0.03)',
+          border: '1px solid var(--border-subtle)',
           borderRadius: 'var(--radius-full)',
+          cursor: 'pointer',
+          transition: 'all var(--transition-fast)',
+          boxShadow: 'inset 0 1px 0 hsla(0,0%,100%,0.02)'}}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.background = 'hsla(0,0%,100%,0.08)'
+          e.currentTarget.style.borderColor = 'var(--border)'
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.background = 'hsla(0,0%,100%,0.03)'
+          e.currentTarget.style.borderColor = 'var(--border-subtle)'
         }}>
           <div style={{
-            width: 22, height: 22, borderRadius: '50%',
-            background: 'linear-gradient(135deg, var(--primary) 0%, #6b7fff 100%)',
+            width: 26, height: 26, borderRadius: '50%',
+            background: 'linear-gradient(135deg, var(--primary) 0%, hsl(260, 100%, 75%) 100%)',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: 10, fontWeight: 800, color: '#000', flexShrink: 0,
-          }}>
+            fontSize: 12, fontWeight: 800, color: '#000', flexShrink: 0,
+            boxShadow: '0 2px 8px var(--primary-glow)'}}>
             {user.username[0].toUpperCase()}
           </div>
-          <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', fontWeight: 500 }}>
+          <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text)', fontWeight: 600 }}>
             {user.username}
           </span>
           {user.role && user.role !== 'user' && (
