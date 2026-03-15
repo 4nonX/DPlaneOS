@@ -2,8 +2,11 @@
 
 ZFS-first NAS operating system for homelab and small-office deployments. Runs as a single Go daemon behind nginx, backed by SQLite, with a React UI served locally — no cloud dependencies, no mandatory subscriptions.
 
-**Current version:** 5.3.2 &nbsp;|&nbsp; **License:** AGPLv3 &nbsp;|&nbsp; **Platforms:** NixOS  · Debian · Ubuntu
-
+[![Version](https://img.shields.io/github/v/release/4nonX/D-PlaneOS?style=flat-square&label=version)](https://github.com/4nonX/D-PlaneOS/releases/latest)
+[![License](https://img.shields.io/badge/license-AGPLv3-blue?style=flat-square)](https://github.com/4nonX/D-PlaneOS/blob/main/LICENSE)
+[![NixOS](https://img.shields.io/badge/platform-NixOS-5277C3?style=flat-square&logo=nixos&logoColor=white)](https://github.com/4nonX/D-PlaneOS/blob/main/nixos/README.md)
+[![Debian](https://img.shields.io/badge/platform-Debian-A81D33?style=flat-square&logo=debian&logoColor=white)](https://github.com/4nonX/D-PlaneOS/blob/main/docs/admin/INSTALLATION-GUIDE.md)
+[![Ubuntu](https://img.shields.io/badge/platform-Ubuntu-E95420?style=flat-square&logo=ubuntu&logoColor=white)](https://github.com/4nonX/D-PlaneOS/blob/main/docs/admin/INSTALLATION-GUIDE.md)
 [![CI Status](https://github.com/4nonX/D-PlaneOS/actions/workflows/validate.yml/badge.svg)](https://github.com/4nonX/D-PlaneOS/actions)
 ## Demo recorded in preview mode — mock data, no real hardware required to evaluate.
 ![D-PlaneOS Demo](demo.gif)
