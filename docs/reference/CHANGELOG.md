@@ -6,9 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ---
 
-## v5.3.4 (2026-03-16) — "API Auth Patch"
+## v5.3.5 (2026-03-16) — "API Auth Patch"
 
-Upgrade from: v5.3.3 — Drop-in. `sudo bash install.sh --upgrade`
+Upgrade from: v5.3.4 — Drop-in. `sudo bash install.sh --upgrade`
 
 ### Security
 
