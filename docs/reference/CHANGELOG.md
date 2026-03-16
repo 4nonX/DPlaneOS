@@ -6,9 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ---
 
-## v5.3.3 (2026-03-16) — "ZED Integration"
+## v5.3.4 (2026-03-16) — "API Auth Patch"
 
-Upgrade from: v5.3.2 — Drop-in. `sudo bash install.sh --upgrade`
+Upgrade from: v5.3.3 — Drop-in. `sudo bash install.sh --upgrade`
+
+### Security
+
+- **API Authentication**
+  - Patched `sessionMiddleware` to support `Authorization: Bearer` tokens.
+  - Enables secure programmatic access for sidecars and automation using long-lived API tokens.
+  - Backported `ValidateAPITokenAndGetUser` to the security core.
+
+---
+
+## v5.3.3 (2026-03-16) — "ZED Integration"
 
 ### Added
 

@@ -1,8 +1,11 @@
 package security
 
 import (
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"fmt"
+	"strings"
 	"time"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -164,6 +167,61 @@ func ValidateSessionAndGetUser(sessionToken string) (*SessionUser, error) {
 		}
 		return nil, fmt.Errorf("session validation failed: %w", err)
 	}
+
+	return &user, nil
+}
+
+// HashToken hashes a raw token for lookup (mirrored from handlers/api_tokens.go)
+func HashToken(raw string) string {
+	h := sha256.Sum256([]byte(raw))
+	return hex.EncodeToString(h[:])
+}
+
+// ValidateAPITokenAndGetUser validates a bearer token and returns the associated user
+func ValidateAPITokenAndGetUser(token string) (*SessionUser, error) {
+	if db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	// Token must start with dpl_
+	if !strings.HasPrefix(token, "dpl_") {
+		return nil, fmt.Errorf("invalid token format")
+	}
+
+	hash := HashToken(token)
+
+	var user SessionUser
+	var expiresAt *string
+	query := `
+		SELECT u.id, u.username, COALESCE(u.email, ''), at.expires_at
+		FROM api_tokens at
+		JOIN users u ON u.id = at.user_id
+		WHERE at.token_hash = ? AND u.active = 1
+		LIMIT 1
+	`
+
+	err := db.QueryRow(query, hash).Scan(
+		&user.ID, &user.Username, &user.Email, &expiresAt,
+	)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, fmt.Errorf("invalid token")
+		}
+		return nil, fmt.Errorf("token validation failed: %w", err)
+	}
+
+	// Check expiry
+	if expiresAt != nil && *expiresAt != "" {
+		t, err := time.Parse("2006-01-02 15:04:05", *expiresAt)
+		if err == nil && time.Now().After(t) {
+			return nil, fmt.Errorf("token expired")
+		}
+	}
+
+	// Update last_used asynchronously
+	go func() {
+		db.Exec(`UPDATE api_tokens SET last_used = CURRENT_TIMESTAMP WHERE token_hash = ?`, hash)
+	}()
 
 	return &user, nil
 }

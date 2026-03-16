@@ -1039,11 +1039,29 @@ func sessionMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
+		// 1. Check for API Token (Authorization: Bearer dpl_...)
+		authHeader := r.Header.Get("Authorization")
+		if strings.HasPrefix(authHeader, "Bearer ") {
+			token := strings.TrimPrefix(authHeader, "Bearer ")
+			sessionUser, err := security.ValidateAPITokenAndGetUser(token)
+			if err == nil {
+				// Token valid — set user in context and proceed
+				ctx := context.WithValue(r.Context(), middleware.UserContextKey, &middleware.User{
+					ID:       sessionUser.ID,
+					Username: sessionUser.Username,
+					Email:    sessionUser.Email,
+				})
+				next.ServeHTTP(w, r.WithContext(ctx))
+				return
+			}
+			// If token provided but invalid, we fall through to session check or fail later
+		}
+
 		sessionID := r.Header.Get("X-Session-ID")
 		user := r.Header.Get("X-User")
 
 		if sessionID == "" || user == "" {
-			audit.LogSecurityEvent("Missing session or user header", user, realIP(r))
+			audit.LogSecurityEvent("Missing auth (no Bearer token and missing session headers)", user, realIP(r))
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return
 		}
