@@ -89,6 +89,40 @@ in {
     services.zfs.autoScrub.enable   = true;
     services.zfs.autoScrub.interval = "monthly";
     services.zfs.trim.enable        = true;
+    services.zfs.zed.settings = {
+      ZED_DEBUG_LOG = "/var/log/zed.log";
+    };
+    services.zfs.zed.enableMail = false;
+
+    environment.etc."zfs/zed.d/dplaneos-notify.sh" = {
+      source = pkgs.writeShellScript "dplaneos-notify" ''
+        #!/bin/bash
+        DAEMON_SOCKET="/run/dplaneos/dplaneos.sock"
+        LOG_TAG="dplaneos-zed"
+
+        case "$ZEVENT_SUBCLASS" in
+            pool_destroy|vdev_remove|device_removal) SEVERITY="critical" ;;
+            statechange)
+                case "$ZEVENT_VDEV_STATE_STR" in
+                    FAULTED|UNAVAIL|REMOVED) SEVERITY="critical" ;;
+                    DEGRADED) SEVERITY="warning" ;;
+                    *) SEVERITY="info" ;;
+                esac
+                ;;
+            scrub_finish|resilver_finish) SEVERITY="info" ;;
+            io_failure|checksum_failure) SEVERITY="warning" ;;
+            *) SEVERITY="info" ;;
+        esac
+
+        logger -t "$LOG_TAG" "[$SEVERITY] Pool=$ZEVENT_POOL Event=$ZEVENT_SUBCLASS State=$ZEVENT_VDEV_STATE_STR Device=$ZEVENT_VDEV_PATH"
+
+        if [ -S "$DAEMON_SOCKET" ]; then
+            echo "zfs_event:$SEVERITY:$ZEVENT_POOL:$ZEVENT_SUBCLASS:$ZEVENT_VDEV_STATE_STR" | timeout 2 nc -U "$DAEMON_SOCKET" 2>/dev/null || true
+        fi
+        exit 0
+      '';
+      mode = "0755";
+    };
 
     # ─── Docker ──────────────────────────────────────────────────────────
     virtualisation.docker = {
@@ -230,6 +264,7 @@ in {
       "d /var/log/dplaneos 0755 root root -"
       "d /etc/dplaneos     0755 root root -"
       "d /opt/dplaneos/app 0755 root root -"
+      "d /run/dplaneos     0700 root root -"
     ];
   };
 }

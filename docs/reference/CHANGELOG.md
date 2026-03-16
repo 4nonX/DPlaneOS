@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ---
 
+## v5.3.3 (2026-03-16) — "ZED Integration"
+
+Upgrade from: v5.3.2 — Drop-in. `sudo bash install.sh --upgrade`
+
+### Added
+
+- **ZED Hook Integration**
+  - Integrated ZFS Event Daemon (ZED) real-time events into the D-PlaneOS daemon via a Unix domain socket at `/run/dplaneos/dplaneos.sock`.
+  - Bypasses the 30-second polling limitation of the daemon by feeding critical pool and VDEV events immediately to the UI and alert channels.
+  - Replaced the standalone JSON file writing and Telegram alerting in the ZED hook script with a streamlined notification forwarder.
+  - Automatically installed by `install.sh` on Debian/Ubuntu systems and fully declared in `nixos/module.nix` for NixOS systems.
+
+---
+
 ## v5.3.2 (2026-03-15) — "Build Integrity & Maintenance"
 
 Upgrade from: v5.3.1 — Drop-in. `sudo bash install.sh --upgrade`

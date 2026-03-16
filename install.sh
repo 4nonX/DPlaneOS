@@ -972,6 +972,16 @@ else
 fi
 udevadm control --reload-rules 2>/dev/null && log "udev rules reloaded" || warn "udevadm reload failed (rules will apply on reboot)"
 
+# ZED Hook for real-time ZFS events
+if [ -f "${INSTALL_DIR}/install/zed/dplaneos-notify.sh" ]; then
+    mkdir -p /etc/zfs/zed.d
+    cp "${INSTALL_DIR}/install/zed/dplaneos-notify.sh" /etc/zfs/zed.d/
+    chmod +x /etc/zfs/zed.d/dplaneos-notify.sh
+    log "ZED hook installed (/etc/zfs/zed.d/dplaneos-notify.sh)"
+else
+    warn "ZED hook not found — ZFS events will not trigger real-time alerts"
+fi
+
 # Hot-swap notification scripts
 mkdir -p "${INSTALL_DIR}/install/scripts"
 for script in \

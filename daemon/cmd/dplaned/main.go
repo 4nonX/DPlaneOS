@@ -286,6 +286,21 @@ func main() {
 	// diskAdded / diskRemoved / poolHealthChanged events.
 	handlers.SetDiskEventHub(wsHub)
 
+	// Initialize ZED Event Listener (Unix Socket)
+	go zfs.StartZEDListener("/run/dplaneos/dplaneos.sock",
+		func(eventType string, data interface{}, level string) {
+			wsHub.Broadcast(eventType, data, level)
+		},
+		func(event, pool, msg string) {
+			parts := strings.Split(event, ".")
+			level := "warning"
+			if len(parts) >= 2 {
+				level = parts[1]
+			}
+			handlers.DispatchAlert(level, event, pool, msg)
+		},
+	)
+
 	// Initialize Background Monitor (30s interval)
 	// Broadcasts inotify stats to WebSocket clients
 	bgMonitor := monitoring.NewBackgroundMonitor(30*time.Second, func(eventType string, data interface{}, level string) {
