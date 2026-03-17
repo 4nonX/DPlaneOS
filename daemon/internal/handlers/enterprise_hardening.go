@@ -545,6 +545,9 @@ func (h *AuditRotationHandler) RotateAuditLogs(w http.ResponseWriter, r *http.Re
 	if dbErr == nil {
 		defer rotDB.Close()
 		_, rotErr = rotDB.Exec("DELETE FROM audit_logs WHERE timestamp < ?", cutoff)
+		if rotErr == nil {
+			_, rotErr = rotDB.Exec("VACUUM")
+		}
 	} else {
 		rotErr = dbErr
 	}

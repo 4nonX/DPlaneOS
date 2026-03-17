@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -311,6 +312,9 @@ func main() {
 
 	// Start job reaper: remove finished jobs after 1 hour
 	jobs.StartReaper(1 * time.Hour)
+
+	// Start background audit log rotation
+	StartAuditRotation(db)
 
 	// Create router
 	r := mux.NewRouter()
@@ -1102,4 +1106,44 @@ func sessionMiddleware(next http.Handler) http.Handler {
 // Use this for all routes that modify system state or access sensitive data.
 func permRoute(resource, action string, fn http.HandlerFunc) http.Handler {
 	return middleware.RequirePermission(resource, action)(fn)
+}
+
+// StartAuditRotation launches a background goroutine to purge old audit logs weekly
+func StartAuditRotation(db *sql.DB) {
+	go func() {
+		// Run first rotation after 1 minute to avoid startup contention
+		time.Sleep(1 * time.Minute)
+		runRotation(db)
+
+		ticker := time.NewTicker(7 * 24 * time.Hour)
+		defer ticker.Stop()
+		for range ticker.C {
+			runRotation(db)
+		}
+	}()
+}
+
+func runRotation(db *sql.DB) {
+	var retentionStr string
+	err := db.QueryRow("SELECT value FROM system_config WHERE key = 'audit_retention_days'").Scan(&retentionStr)
+	retentionDays := 90
+	if err == nil && retentionStr != "" {
+		if val, err := strconv.Atoi(retentionStr); err == nil {
+			retentionDays = val
+		}
+	}
+
+	cutoff := time.Now().AddDate(0, 0, -retentionDays).Format("2006-01-02 15:04:05")
+	log.Printf("MAINTENANCE: Running audit log rotation (cutoff: %s, retention: %d days)", cutoff, retentionDays)
+
+	if _, err := db.Exec("DELETE FROM audit_logs WHERE timestamp < ?", cutoff); err != nil {
+		log.Printf("ERROR: Automatic audit rotation failed: %v", err)
+		return
+	}
+
+	if _, err := db.Exec("VACUUM"); err != nil {
+		log.Printf("ERROR: Post-rotation VACUUM failed: %v", err)
+	} else {
+		log.Printf("MAINTENANCE: Audit log rotation and VACUUM completed successfully")
+	}
 }

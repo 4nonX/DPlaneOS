@@ -505,5 +505,8 @@ func seedDefaults(db *sql.DB) error {
 		}
 	}
 
+	// ── Ensure default system settings ──
+	db.Exec(`INSERT OR IGNORE INTO system_config (key, value) VALUES ('audit_retention_days', '90')`)
+
 	return nil
 }
