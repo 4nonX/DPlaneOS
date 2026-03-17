@@ -922,6 +922,28 @@ func riskForSystemChanges(changes []string) string {
 	return "medium"
 }
  
+func diffNFS(desired DesiredNFS, live LiveNFSExport) []string {
+	var changes []string
+	if desired.Options != live.Options {
+		changes = append(changes, fmt.Sprintf("options: %q → %q", live.Options, desired.Options))
+	}
+	if desired.Clients != live.Clients {
+		changes = append(changes, fmt.Sprintf("clients: %q → %q", live.Clients, desired.Clients))
+	}
+	if desired.Enabled != live.Enabled {
+		changes = append(changes, fmt.Sprintf("enabled: %v → %v", live.Enabled, desired.Enabled))
+	}
+	return changes
+}
+
+func diffStack(desired DesiredStack, live LiveStack) []string {
+	var changes []string
+	if desired.YAML != live.YAML {
+		changes = append(changes, "yaml: (updated)")
+	}
+	return changes
+}
+
 func diffSystem(desired DesiredSystem, live nixwriter.DPlaneState) []string {
 	var changes []string
 	if desired.Hostname != "" && desired.Hostname != live.Hostname {
@@ -939,10 +961,10 @@ func diffSystem(desired DesiredSystem, live nixwriter.DPlaneState) []string {
 		changes = append(changes, "ntp_servers changed")
 	}
 	// Firewall
-	if !equalIntSlices(desired.Firewall.TCP, live.Firewall.TCP) {
+	if !equalIntSlices(desired.Firewall.TCP, live.FirewallTCP) {
 		changes = append(changes, "firewall_tcp changed")
 	}
-	if !equalIntSlices(desired.Firewall.UDP, live.Firewall.UDP) {
+	if !equalIntSlices(desired.Firewall.UDP, live.FirewallUDP) {
 		changes = append(changes, "firewall_udp changed")
 	}
 	
