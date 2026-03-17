@@ -95,7 +95,6 @@ const initialNav: NavItem[] = [
     icon: 'security',
     children: [
       { kind: 'leaf', id: 'security',     label: 'Security Settings', icon: 'shield',             route: '/security' },
-      { kind: 'leaf', id: 'audit',        label: 'Audit Logs',        icon: 'fact_check',         route: '/audit' },
       { kind: 'leaf', id: 'firewall',     label: 'Firewall',          icon: 'local_fire_department', route: '/firewall' },
       { kind: 'leaf', id: 'certificates', label: 'Certificates',      icon: 'verified_user',      route: '/certificates' },
     ],

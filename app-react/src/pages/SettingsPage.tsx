@@ -26,6 +26,7 @@ import { ErrorState } from '@/components/ui/ErrorState'
 import { Skeleton } from '@/components/ui/LoadingSpinner'
 import { toast } from '@/hooks/useToast'
 import { useConfirm } from '@/components/ui/ConfirmDialog'
+import { pluginSettingsInject } from '../plugins'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -64,7 +65,7 @@ function GeneralTab() {
   const [hostname,       setHostname]       = useState('')
   const [timezone,       setTimezone]       = useState('')
   const [motd,           setMotd]           = useState('')
-  const [auditRetention, setAuditRetention] = useState('90')
+  const [licenseKey,     setLicenseKey]     = useState('')
   const [seeded,         setSeeded]         = useState(false)
 
   useEffect(() => {
@@ -73,7 +74,7 @@ function GeneralTab() {
       setHostname(s['hostname'] ?? '')
       setTimezone(s['timezone'] ?? '')
       setMotd(s['motd'] ?? '')
-      setAuditRetention(s['audit_retention_days'] ?? '90')
+      setLicenseKey(s['license_key'] ?? '')
       setSeeded(true)
     }
   }, [settingsQ.data, seeded])
@@ -84,7 +85,7 @@ function GeneralTab() {
       if (hostname.trim()) body['hostname'] = hostname.trim()
       if (timezone.trim()) body['timezone'] = timezone.trim()
       body['motd'] = motd
-      body['audit_retention_days'] = auditRetention
+      body['license_key'] = licenseKey
       return api.post('/api/system/settings', body)
     },
     onSuccess: () => { toast.success('Settings saved'); qc.invalidateQueries({ queryKey: ['system', 'settings'] }) },
@@ -123,10 +124,17 @@ function GeneralTab() {
           className="input" style={{ resize: 'vertical', lineHeight: 1.6, fontFamily: 'var(--font-ui)' }} />
       </Field>
 
-      <Field label="Audit Log Retention (Days)" hint="Automatically purge and vacuum audit logs older than this. Minimum 1 day.">
-        <input type="number" min="1" max="3650" value={auditRetention} onChange={e => setAuditRetention(e.target.value)}
-          placeholder="90" className="input" style={{ width: 120, fontFamily: 'var(--font-mono)' }} />
+      <Field label="Enterprise License Key" hint="Unlocks cryptographic compliance engine and audit automation">
+        <input type="password" value={licenseKey} onChange={e => setLicenseKey(e.target.value)}
+          placeholder="Unlicensed" className="input" style={{ fontFamily: 'var(--font-mono)' }} />
       </Field>
+
+      {pluginSettingsInject({
+        hostname, setHostname,
+        timezone, setTimezone,
+        motd, setMotd,
+        licenseKey, setLicenseKey
+      }) || null}
 
       <div>
         <button onClick={() => save.mutate()} disabled={save.isPending} className="btn btn-primary">

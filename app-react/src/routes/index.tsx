@@ -44,7 +44,6 @@ import { RemovableMediaPage} from '@/pages/RemovableMediaPage'
 import { UsersPage }         from '@/pages/UsersPage'
 import { DirectoryPage }     from '@/pages/DirectoryPage'
 import { SecurityPage }      from '@/pages/SecurityPage'
-import { AuditPage }         from '@/pages/AuditPage'
 import { FirewallPage }      from '@/pages/FirewallPage'
 import { CertificatesPage }  from '@/pages/CertificatesPage'
 import { SettingsPage }      from '@/pages/SettingsPage'
@@ -126,7 +125,6 @@ const removableRoute  = createRoute({ getParentRoute: () => protectedRoute, path
 const usersRoute      = createRoute({ getParentRoute: () => protectedRoute, path: '/users',         component: UsersPage })
 const directoryRoute  = createRoute({ getParentRoute: () => protectedRoute, path: '/directory',     component: DirectoryPage })
 const securityRoute   = createRoute({ getParentRoute: () => protectedRoute, path: '/security',      component: SecurityPage })
-const auditRoute      = createRoute({ getParentRoute: () => protectedRoute, path: '/audit',         component: AuditPage })
 const firewallRoute   = createRoute({ getParentRoute: () => protectedRoute, path: '/firewall',      component: FirewallPage })
 const certsRoute      = createRoute({ getParentRoute: () => protectedRoute, path: '/certificates',  component: CertificatesPage })
 const settingsRoute   = createRoute({ getParentRoute: () => protectedRoute, path: '/settings',      component: SettingsPage })
@@ -155,7 +153,7 @@ const routeTree = rootRoute.addChildren([
     dockerRoute, modulesRoute, gitSyncRoute, gitOpsRoute,
     networkRoute, removableRoute,
     usersRoute, directoryRoute,
-    securityRoute, auditRoute, firewallRoute, certsRoute,
+    securityRoute, firewallRoute, certsRoute,
     settingsRoute, updatesRoute, alertsRoute, upsRoute, powerRoute,
     hardwareRoute, ipmiRoute, haRoute, monitoringRoute, logsRoute,
     reportingRoute, supportRoute, terminalRoute,
