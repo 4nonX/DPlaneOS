@@ -40,9 +40,9 @@ The installer handles everything: ZFS kernel module, nginx, database, systemd un
 | `--upgrade` | Upgrade in place, preserve all data |
 | `--unattended` | Skip all confirmation prompts (CI/automation) |
 
-**NixOS** — see [nixos/README.md](nixos/README.md) for ISO, Flake, and standalone paths.
+**NixOS** - see [nixos/README.md](nixos/README.md) for ISO, Flake, and standalone paths.
 
-**Air-gapped / offline** — the release tarball ships with a vendored `daemon/vendor/` directory. No internet access needed to build or install.
+**Air-gapped / offline** - the release tarball ships with a vendored `daemon/vendor/` directory. No internet access needed to build or install.
 
 **Rebuilding from source:** requires Go 1.22+ and gcc. Run `make build`.
 
