@@ -385,8 +385,6 @@ func (h *GitOpsHandler) PutState(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-}
-
 // ── GET /api/gitops/settings ──────────────────────────────────────────────────
 
 type GitOpsSettings struct {
