@@ -61,10 +61,11 @@ function GeneralTab() {
     queryFn:  ({ signal }) => api.get<SettingsResponse>('/api/system/settings', signal),
   })
 
-  const [hostname, setHostname] = useState('')
-  const [timezone, setTimezone] = useState('')
-  const [motd,     setMotd]     = useState('')
-  const [seeded,   setSeeded]   = useState(false)
+  const [hostname,       setHostname]       = useState('')
+  const [timezone,       setTimezone]       = useState('')
+  const [motd,           setMotd]           = useState('')
+  const [auditRetention, setAuditRetention] = useState('90')
+  const [seeded,         setSeeded]         = useState(false)
 
   useEffect(() => {
     if (settingsQ.data?.settings && !seeded) {
@@ -72,6 +73,7 @@ function GeneralTab() {
       setHostname(s['hostname'] ?? '')
       setTimezone(s['timezone'] ?? '')
       setMotd(s['motd'] ?? '')
+      setAuditRetention(s['audit_retention_days'] ?? '90')
       setSeeded(true)
     }
   }, [settingsQ.data, seeded])
@@ -82,6 +84,7 @@ function GeneralTab() {
       if (hostname.trim()) body['hostname'] = hostname.trim()
       if (timezone.trim()) body['timezone'] = timezone.trim()
       body['motd'] = motd
+      body['audit_retention_days'] = auditRetention
       return api.post('/api/system/settings', body)
     },
     onSuccess: () => { toast.success('Settings saved'); qc.invalidateQueries({ queryKey: ['system', 'settings'] }) },
@@ -118,6 +121,11 @@ function GeneralTab() {
         <textarea value={motd} onChange={e => setMotd(e.target.value)}
           rows={4} placeholder="Welcome to D-PlaneOS"
           className="input" style={{ resize: 'vertical', lineHeight: 1.6, fontFamily: 'var(--font-ui)' }} />
+      </Field>
+
+      <Field label="Audit Log Retention (Days)" hint="Automatically purge and vacuum audit logs older than this. Minimum 1 day.">
+        <input type="number" min="1" max="3650" value={auditRetention} onChange={e => setAuditRetention(e.target.value)}
+          placeholder="90" className="input" style={{ width: 120, fontFamily: 'var(--font-mono)' }} />
       </Field>
 
       <div>
