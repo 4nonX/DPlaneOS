@@ -176,6 +176,7 @@ func (h *LDAPHandler) SaveConfig(w http.ResponseWriter, r *http.Request) {
 		User: r.Header.Get("X-User"), Success: true,
 		Metadata: map[string]interface{}{"enabled": req.Enabled, "server": req.Server},
 	})
+	var warning string
 	if req.UseTLS == 0 {
 		warning = "TLS is disabled — LDAP credentials will be transmitted in plaintext. Enable TLS for production use."
 	}
