@@ -96,19 +96,19 @@ func CommitAll(db *sql.DB) error {
 func GenerateStateYAML(state *LiveState) string {
 	var sb strings.Builder
 
-	sb.WriteString("version: \"1.0\"\n\n")
+	sb.WriteString("version: \"1\"\n\n")
 
 	if len(state.Pools) > 0 {
 		sb.WriteString("pools:\n")
 		for _, p := range state.Pools {
-			sb.WriteString(fmt.Sprintf("  - name: %s\n", p.Name))
+			sb.WriteString(fmt.Sprintf("  - name: %q\n", p.Name))
 			if len(p.Disks) > 0 {
 				sb.WriteString("    disks: [")
 				for i, d := range p.Disks {
 					if i > 0 {
 						sb.WriteString(", ")
 					}
-					sb.WriteString(fmt.Sprintf("\"%s\"", d))
+					sb.WriteString(fmt.Sprintf("%q", d))
 				}
 				sb.WriteString("]\n")
 			}
@@ -123,12 +123,12 @@ func GenerateStateYAML(state *LiveState) string {
 			if !strings.Contains(d.Name, "/") {
 				continue
 			}
-			sb.WriteString(fmt.Sprintf("  - name: %s\n", d.Name))
+			sb.WriteString(fmt.Sprintf("  - name: %q\n", d.Name))
 			if d.Quota != "none" && d.Quota != "0" && d.Quota != "" {
-				sb.WriteString(fmt.Sprintf("    quota: %s\n", d.Quota))
+				sb.WriteString(fmt.Sprintf("    quota: %q\n", d.Quota))
 			}
 			if d.Compression != "off" && d.Compression != "" {
-				sb.WriteString(fmt.Sprintf("    compression: %s\n", d.Compression))
+				sb.WriteString(fmt.Sprintf("    compression: %q\n", d.Compression))
 			}
 		}
 		sb.WriteString("\n")
@@ -137,13 +137,13 @@ func GenerateStateYAML(state *LiveState) string {
 	if len(state.Shares) > 0 {
 		sb.WriteString("shares:\n")
 		for _, s := range state.Shares {
-			sb.WriteString(fmt.Sprintf("  - name: %s\n", s.Name))
-			sb.WriteString(fmt.Sprintf("    path: %s\n", s.Path))
+			sb.WriteString(fmt.Sprintf("  - name: %q\n", s.Name))
+			sb.WriteString(fmt.Sprintf("    path: %q\n", s.Path))
 			if s.ReadOnly {
 				sb.WriteString("    read_only: true\n")
 			}
 			if s.ValidUsers != "" {
-				sb.WriteString(fmt.Sprintf("    valid_users: %s\n", s.ValidUsers))
+				sb.WriteString(fmt.Sprintf("    valid_users: %q\n", s.ValidUsers))
 			}
 			if s.GuestOK {
 				sb.WriteString("    guest_ok: true\n")
@@ -155,7 +155,7 @@ func GenerateStateYAML(state *LiveState) string {
 	if len(state.Stacks) > 0 {
 		sb.WriteString("stacks:\n")
 		for _, st := range state.Stacks {
-			sb.WriteString(fmt.Sprintf("  - name: %s\n", st.Name))
+			sb.WriteString(fmt.Sprintf("  - name: %q\n", st.Name))
 			sb.WriteString("    yaml: |\n")
 			lines := strings.Split(strings.TrimSpace(st.YAML), "\n")
 			for _, line := range lines {
@@ -168,12 +168,12 @@ func GenerateStateYAML(state *LiveState) string {
 	if len(state.Users) > 0 {
 		sb.WriteString("users:\n")
 		for _, u := range state.Users {
-			sb.WriteString(fmt.Sprintf("  - username: %s\n", u.Username))
+			sb.WriteString(fmt.Sprintf("  - username: %q\n", u.Username))
 			if u.Email != "" {
-				sb.WriteString(fmt.Sprintf("    email: %s\n", u.Email))
+				sb.WriteString(fmt.Sprintf("    email: %q\n", u.Email))
 			}
 			if u.Role != "" {
-				sb.WriteString(fmt.Sprintf("    role: %s\n", u.Role))
+				sb.WriteString(fmt.Sprintf("    role: %q\n", u.Role))
 			}
 			if !u.Active {
 				sb.WriteString("    active: false\n")
@@ -185,9 +185,9 @@ func GenerateStateYAML(state *LiveState) string {
 	if len(state.Groups) > 0 {
 		sb.WriteString("groups:\n")
 		for _, g := range state.Groups {
-			sb.WriteString(fmt.Sprintf("  - name: %s\n", g.Name))
+			sb.WriteString(fmt.Sprintf("  - name: %q\n", g.Name))
 			if g.Description != "" {
-				sb.WriteString(fmt.Sprintf("    description: %s\n", g.Description))
+				sb.WriteString(fmt.Sprintf("    description: %q\n", g.Description))
 			}
 			if g.GID != 0 {
 				sb.WriteString(fmt.Sprintf("    gid: %d\n", g.GID))
@@ -196,7 +196,7 @@ func GenerateStateYAML(state *LiveState) string {
 				sb.WriteString("    members: [")
 				for i, m := range g.Members {
 					if i > 0 { sb.WriteString(", ") }
-					sb.WriteString(fmt.Sprintf("\"%s\"", m))
+					sb.WriteString(fmt.Sprintf("%q", m))
 				}
 				sb.WriteString("]\n")
 			}
@@ -207,11 +207,11 @@ func GenerateStateYAML(state *LiveState) string {
 	if len(state.Replication) > 0 {
 		sb.WriteString("replication:\n")
 		for _, r := range state.Replication {
-			sb.WriteString(fmt.Sprintf("  - name: %s\n", r.Name))
-			sb.WriteString(fmt.Sprintf("    source_dataset: %s\n", r.SourceDataset))
-			sb.WriteString(fmt.Sprintf("    remote_host: %s\n", r.RemoteHost))
+			sb.WriteString(fmt.Sprintf("  - name: %q\n", r.Name))
+			sb.WriteString(fmt.Sprintf("    source_dataset: %q\n", r.SourceDataset))
+			sb.WriteString(fmt.Sprintf("    remote_host: %q\n", r.RemoteHost))
 			sb.WriteString(fmt.Sprintf("    remote_port: %d\n", r.RemotePort))
-			sb.WriteString(fmt.Sprintf("    interval: %s\n", r.Interval))
+			sb.WriteString(fmt.Sprintf("    interval: %q\n", r.Interval))
 			if !r.Enabled {
 				sb.WriteString("    enabled: false\n")
 			}
@@ -222,14 +222,14 @@ func GenerateStateYAML(state *LiveState) string {
 	if state.LDAP != nil {
 		sb.WriteString("ldap:\n")
 		sb.WriteString(fmt.Sprintf("  enabled: %v\n", state.LDAP.Enabled))
-		sb.WriteString(fmt.Sprintf("  server: %s\n", state.LDAP.Server))
+		sb.WriteString(fmt.Sprintf("  server: %q\n", state.LDAP.Server))
 		sb.WriteString(fmt.Sprintf("  port: %d\n", state.LDAP.Port))
 		sb.WriteString(fmt.Sprintf("  use_tls: %v\n", state.LDAP.UseTLS))
-		sb.WriteString(fmt.Sprintf("  bind_dn: %s\n", state.LDAP.BindDN))
-		sb.WriteString(fmt.Sprintf("  base_dn: %s\n", state.LDAP.BaseDN))
-		sb.WriteString(fmt.Sprintf("  user_filter: %s\n", state.LDAP.UserFilter))
+		sb.WriteString(fmt.Sprintf("  bind_dn: %q\n", state.LDAP.BindDN))
+		sb.WriteString(fmt.Sprintf("  base_dn: %q\n", state.LDAP.BaseDN))
+		sb.WriteString(fmt.Sprintf("  user_filter: %q\n", state.LDAP.UserFilter))
 		sb.WriteString(fmt.Sprintf("  jit_provisioning: %v\n", state.LDAP.JITProvisioning))
-		sb.WriteString(fmt.Sprintf("  default_role: %s\n", state.LDAP.DefaultRole))
+		sb.WriteString(fmt.Sprintf("  default_role: %q\n", state.LDAP.DefaultRole))
 		sb.WriteString(fmt.Sprintf("  sync_interval: %d\n", state.LDAP.SyncInterval))
 		sb.WriteString(fmt.Sprintf("  timeout: %d\n", state.LDAP.Timeout))
 		sb.WriteString("\n")
