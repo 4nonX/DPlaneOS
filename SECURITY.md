@@ -1,4 +1,4 @@
-# Security Policy
+﻿# Security Policy
 
 ## Supported Versions
 
@@ -62,3 +62,4 @@ For the full threat model, see [docs/reference/THREAT-MODEL.md](docs/reference/T
 - **rclone credentials** are stored in `/etc/dplaneos/rclone.conf` - restrict file permissions
 - **Docker socket** is accessible to the daemon - containers with host mounts can escalate
 - **LDAP bind password** is stored in SQLite - use a dedicated read-only LDAP account
+
