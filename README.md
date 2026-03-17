@@ -134,7 +134,7 @@ sudo apt install nut              # UPS monitoring
 
 | Document | What it covers |
 |----------|---------------|
-| [Changelog](docs/reference/CHANGELOG.md) | Full version history from v1.x through v5.1.2 |
+| [Changelog](docs/reference/CHANGELOG.md) | Full version history |
 | [Error Reference](docs/reference/ERROR-REFERENCE.md) | Every HTTP error code the API returns, with cause and fix |
 | [Showstopper Mitigation Guide](docs/reference/SHOWSTOPPER-MITIGATION-GUIDE.md) | Honest assessment of HA limits, binary-trust, resolved vs open issues |
 | [Threat Model](docs/reference/THREAT-MODEL.md) | Security architecture, all 13 threat scenarios, mitigations, residual risks, known gaps |
