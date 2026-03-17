@@ -39,6 +39,19 @@ Upgrade from: v5.3.4 — Drop-in. `sudo bash install.sh --upgrade`
 
 ---
 
+## v5.3.4 (2026-03-16) — "Hardened Enterprise Deployment"
+
+Upgrade from: v5.3.3 — Drop-in. `sudo bash install.sh --upgrade`
+
+### Added
+
+- **Enterprise Security Hardening**
+  - **Environment-Based Auth**: Modified the installation process to store sensitive API tokens in a dedicated `EnvironmentFile` (`/etc/dplaneos/daemon.env`) with `0600` permissions.
+  - **Systemd Integration**: Updated service definitions to use `EnvironmentFile` instead of command-line flags, preventing token leakage in process lists (`ps aux`).
+- **Unified Versioning**: Synchronized version identifiers across CE and Enterprise suites for cleaner release tracking.
+
+---
+
 ## v5.3.3 (2026-03-16) — "ZED Integration"
 
 ### Added

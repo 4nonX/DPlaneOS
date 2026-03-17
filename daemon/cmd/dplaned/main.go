@@ -540,6 +540,9 @@ func main() {
 	r.HandleFunc("/api/gitops/check", gitopsHandler.Check).Methods("POST")
 	r.HandleFunc("/api/gitops/state", gitopsHandler.GetState).Methods("GET")
 	r.Handle("/api/gitops/state", permRoute("system", "admin", gitopsHandler.PutState)).Methods("PUT")
+	r.HandleFunc("/api/gitops/settings", gitopsHandler.GetSettings).Methods("GET")
+	r.Handle("/api/gitops/settings", permRoute("system", "admin", gitopsHandler.UpdateSettings)).Methods("PUT")
+	r.Handle("/api/gitops/sync", permRoute("system", "admin", gitopsHandler.SyncNow)).Methods("POST")
 
 	// v3.0.0: Zombie disk watcher
 	zombieHandler := handlers.NewZombieWatcherHandler()

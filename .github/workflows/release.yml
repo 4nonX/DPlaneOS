@@ -132,7 +132,8 @@ jobs:
             --transform="s|^|dplaneos-v${VERSION}/|" \
             --exclude='*.bak' --exclude='.sync-conflict-*' --exclude='.git' --exclude='legacy' --exclude='app-built' \
             app/ build/dplaned build/.gitkeep daemon/ install/ nixos/ docs/ \
-            .github/ .gitattributes .gitignore install.sh get.sh Makefile VERSION LICENSE README.md CONTRIBUTING.md
+            .github/ .gitattributes .gitignore install.sh get.sh Makefile VERSION LICENSE README.md CONTRIBUTING.md \
+            CLA-ENTITY.md CLA-INDIVIDUAL.md SECURITY.md
 
           # Package arm64
           ARM64_TARBALL="dplaneos-v${VERSION}-linux-arm64.tar.gz"
@@ -141,7 +142,8 @@ jobs:
             --transform="s|^|dplaneos-v${VERSION}/|" \
             --exclude='*.bak' --exclude='.sync-conflict-*' --exclude='.git' --exclude='legacy' --exclude='app-built' \
             app/ build/dplaned build/.gitkeep daemon/ install/ nixos/ docs/ \
-            .github/ .gitattributes .gitignore install.sh get.sh Makefile VERSION LICENSE README.md CONTRIBUTING.md
+            .github/ .gitattributes .gitignore install.sh get.sh Makefile VERSION LICENSE README.md CONTRIBUTING.md \
+            CLA-ENTITY.md CLA-INDIVIDUAL.md SECURITY.md
 
           echo "AMD64_TARBALL=$AMD64_TARBALL" >> $GITHUB_ENV
           echo "ARM64_TARBALL=$ARM64_TARBALL" >> $GITHUB_ENV
