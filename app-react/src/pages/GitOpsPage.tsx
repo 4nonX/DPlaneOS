@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { Icon } from '@/components/ui/Icon'
-import { ErrorState } from '@/components/ui/ErrorState'
 import { Skeleton } from '@/components/ui/LoadingSpinner'
 import { toast } from '@/hooks/useToast'
 import { useWsStore } from '@/stores/ws'
@@ -50,7 +49,6 @@ function SettingsTab({ onSyncNow }: { onSyncNow: () => void }) {
   const qc = useQueryClient()
   const settingsQ = useQuery({ queryKey:['gitops','settings'], queryFn:()=>api.get<{success:boolean;settings:GitOpsSettings}>('/api/gitops/settings') })
   const reposQ    = useQuery({ queryKey:['git-sync','repos'], queryFn:()=>api.get<{success:boolean;repos:Repo[]}>('/api/git-sync/repos') })
-  const credsQ    = useQuery({ queryKey:['git-sync','creds'], queryFn:()=>api.get<{success:boolean;credentials:Cred[]}>('/api/git-sync/credentials') })
 
   const updateSettings = useMutation({
     mutationFn: (s: Partial<GitOpsSettings>) => api.put('/api/gitops/settings', { ...settingsQ.data?.settings, ...s }),
@@ -169,7 +167,7 @@ function RepoSyncWizard({ onClose, onComplete }: { onClose: () => void; onComple
   const [step, setStep] = useState(1)
   const [url, setUrl] = useState('')
   const [token, setToken] = useState('')
-  const [tokenName, setTokenName] = useState('GitOps Token')
+  const [tokenName] = useState('GitOps Token')
   const [useExisting, setUseExisting] = useState<string|null>(null)
 
   const credsQ = useQuery({ queryKey:['git-sync','creds'], queryFn:()=>api.get<{success:boolean;credentials:Cred[]}>('/api/git-sync/credentials') })
@@ -257,7 +255,6 @@ export function GitOpsPage() {
   const qc = useQueryClient()
   const wsOn = useWsStore((s) => s.on)
   const [tab, setTab] = useState<GTab>('status')
-  const [stateEdit, setStateEdit] = useState<string|null>(null)
   const [driftAlert, setDriftAlert] = useState<DriftPayload | null>(null)
 
   const statusQ = useQuery({ queryKey:['gitops','status'], queryFn:({signal})=>api.get<GitopsStatus>('/api/gitops/status',signal), refetchInterval:15_000 })
@@ -279,12 +276,6 @@ export function GitOpsPage() {
 
   const check   = useMutation({ mutationFn: () => api.post('/api/gitops/check',{}), onSuccess: () => toast.success('Config valid'), onError: (e:Error)=>toast.error(e.message) })
   const apply   = useMutation({ mutationFn: () => api.post('/api/gitops/apply',{}), onSuccess: () => { toast.success('Applied'); setDriftAlert(null); qc.invalidateQueries({queryKey:['gitops']}) }, onError: (e:Error)=>toast.error(e.message) })
-  const approve = useMutation({ mutationFn: () => api.post('/api/gitops/approve',{}), onSuccess: () => { toast.success('Approved'); qc.invalidateQueries({queryKey:['gitops']}) }, onError: (e:Error)=>toast.error(e.message) })
-  const saveState = useMutation({
-    mutationFn: () => api.put('/api/gitops/state', { state: stateEdit }),
-    onSuccess: () => { toast.success('State saved'); setStateEdit(null); qc.invalidateQueries({queryKey:['gitops']}) },
-    onError: (e:Error)=>toast.error(e.message),
-  })
 
   if (settingsQ.data?.settings && !settingsQ.data.settings.enabled && tab !== 'settings') {
     return (
