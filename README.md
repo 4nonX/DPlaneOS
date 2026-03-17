@@ -1,6 +1,6 @@
 # D-PlaneOS
 
-ZFS-first NAS operating system for homelab and small-office deployments. Runs as a single Go daemon behind nginx, backed by SQLite, with a React UI served locally — no cloud dependencies, no mandatory subscriptions.
+ZFS-first NAS operating system for homelab and small-office deployments. Runs as a single Go daemon behind nginx, backed by SQLite, with a React UI served locally no cloud dependencies, no mandatory subscriptions.
 
 [![Version](https://img.shields.io/github/v/release/4nonX/D-PlaneOS?style=flat-square&label=version)](https://github.com/4nonX/D-PlaneOS/releases/latest)
 [![License](https://img.shields.io/badge/license-AGPLv3-blue?style=flat-square)](https://github.com/4nonX/D-PlaneOS/blob/main/LICENSE)
