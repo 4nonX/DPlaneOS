@@ -12,14 +12,29 @@ deps:
 	cd daemon && $(GO) mod tidy
 	@echo "Dependencies resolved."
 
-build: deps
-	@echo "Building D-PlaneOS Daemon..."
-	@echo "Pre-flight checks..."
-	@command -v go >/dev/null 2>&1 || { echo "ERROR: Go not found. Install with: apt install golang-go"; exit 1; }
-	@command -v gcc >/dev/null 2>&1 || { echo "ERROR: gcc not found (required for CGO/SQLite). Install with: apt install build-essential"; exit 1; }
+VERSION=$(shell cat VERSION 2>/dev/null || echo "unknown")
+
+build: build-amd64
+
+build-amd64: deps
+	@echo "Building D-PlaneOS Daemon (amd64)..."
 	@mkdir -p $(BUILD_DIR)
-	cd daemon && CGO_ENABLED=1 $(GO) build -ldflags="-s -w" -o ../$(BUILD_DIR)/$(BINARY_NAME) ./cmd/dplaned
-	@echo "Build complete: $(BUILD_DIR)/$(BINARY_NAME)"
+	cd daemon && GOOS=linux GOARCH=amd64 CGO_ENABLED=1 $(GO) build \
+		-ldflags="-s -w -X main.Version=$(VERSION)" \
+		-o ../$(BUILD_DIR)/$(BINARY_NAME)-linux-amd64 ./cmd/dplaned
+	@cp $(BUILD_DIR)/$(BINARY_NAME)-linux-amd64 $(BUILD_DIR)/$(BINARY_NAME)
+	@echo "Build complete: $(BUILD_DIR)/$(BINARY_NAME)-linux-amd64"
+
+build-arm64: deps
+	@echo "Building D-PlaneOS Daemon (arm64)..."
+	@mkdir -p $(BUILD_DIR)
+	@if ! command -v aarch64-linux-gnu-gcc >/dev/null 2>&1; then \
+		echo "ERROR: aarch64-linux-gnu-gcc not found. Install with: apt install gcc-aarch64-linux-gnu"; exit 1; \
+	fi
+	cd daemon && GOOS=linux GOARCH=arm64 CGO_ENABLED=1 CC=aarch64-linux-gnu-gcc $(GO) build \
+		-ldflags="-s -w -X main.Version=$(VERSION)" \
+		-o ../$(BUILD_DIR)/$(BINARY_NAME)-linux-arm64 ./cmd/dplaned
+	@echo "Build complete: $(BUILD_DIR)/$(BINARY_NAME)-linux-arm64"
 
 install:
 	@if [ ! -f $(BUILD_DIR)/$(BINARY_NAME) ]; then \

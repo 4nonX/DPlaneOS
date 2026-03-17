@@ -58,6 +58,32 @@ func RunSlow(name string, args ...string) ([]byte, error) {
 	return Run(TimeoutSlow, name, args...)
 }
 
+// RunInDir executes a command with the given timeout in a specific working directory.
+func RunInDir(timeout time.Duration, dir, name string, args ...string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.Dir = dir
+	output, err := cmd.CombinedOutput()
+
+	if ctx.Err() == context.DeadlineExceeded {
+		return output, fmt.Errorf("command timed out after %v in %s: %s %v", timeout, dir, name, args)
+	}
+
+	return output, err
+}
+
+// RunFastInDir executes a command with TimeoutFast (10s) in a specific directory.
+func RunFastInDir(dir, name string, args ...string) ([]byte, error) {
+	return RunInDir(TimeoutFast, dir, name, args...)
+}
+
+// RunMediumInDir executes a command with TimeoutMedium (60s) in a specific directory.
+func RunMediumInDir(dir, name string, args ...string) ([]byte, error) {
+	return RunInDir(TimeoutMedium, dir, name, args...)
+}
+
 // RunNoTimeout executes a command without a timeout (same as exec.Command).
 // Use ONLY for commands that must complete regardless of time (e.g., mv for trash).
 func RunNoTimeout(name string, args ...string) ([]byte, error) {

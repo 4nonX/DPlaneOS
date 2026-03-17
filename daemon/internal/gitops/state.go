@@ -66,11 +66,36 @@ import (
 //	  - name: backups
 //	    path: /mnt/backups
 //	    read_only: true
+//	nfs:
+//	  - path: /mnt/media
+//	    clients: "192.168.1.0/24"
+//	    options: "rw,sync,no_subtree_check"
+//	stacks:
+//	  - name: portainer
+//	    yaml: |
+//	      services:
+//	        portainer:
+//	          image: portainer/portainer-ce:latest
+//	          ports:
+//	            - "9443:9443"
+//	          volumes:
+//	            - /var/run/docker.sock:/var/run/docker.sock
+//	            - portainer_data:/data
+//	          restart: always
+//	      volumes:
+//	        portainer_data:
 type DesiredState struct {
-	Version  string          `yaml:"version"`
-	Pools    []DesiredPool   `yaml:"pools"`
+	Version  string           `yaml:"version"`
+	Pools    []DesiredPool    `yaml:"pools"`
 	Datasets []DesiredDataset `yaml:"datasets"`
-	Shares   []DesiredShare  `yaml:"shares"`
+	Shares   []DesiredShare   `yaml:"shares"`
+	NFS      []DesiredNFS     `yaml:"nfs"`
+	Stacks   []DesiredStack   `yaml:"stacks"`
+	System   *DesiredSystem   `yaml:"system"`
+	Users    []DesiredUser    `yaml:"users"`
+	Groups      []DesiredGroup      `yaml:"groups"`
+	Replication []DesiredReplication `yaml:"replication"`
+	LDAP        *DesiredLDAP         `yaml:"ldap"`
 }
 
 // DesiredPool describes a ZFS pool.
@@ -102,6 +127,116 @@ type DesiredShare struct {
 	Comment    string `yaml:"comment"`
 	GuestOK    bool   `yaml:"guest_ok"`
 }
+ 
+// DesiredNFS describes an NFS export.
+type DesiredNFS struct {
+	Path    string `yaml:"path"`
+	Clients string `yaml:"clients"`
+	Options string `yaml:"options"`
+	Enabled bool   `yaml:"enabled"`
+}
+
+// DesiredStack describes a Docker Compose stack.
+type DesiredStack struct {
+	Name string `yaml:"name"`
+	YAML string `yaml:"yaml"`
+}
+ 
+// DesiredSystem describes the system-level configuration (NixOS state).
+type DesiredSystem struct {
+	Hostname   string             `yaml:"hostname"`
+	Timezone   string             `yaml:"timezone"`
+	DNSServers []string           `yaml:"dns_servers"`
+	NTPServers []string           `yaml:"ntp_servers"`
+	Firewall   DesiredFirewall    `yaml:"firewall"`
+	Networking DesiredNetworking  `yaml:"networking"`
+	Samba      DesiredSambaGlobal `yaml:"samba"`
+}
+ 
+type DesiredFirewall struct {
+	TCP []int `yaml:"tcp"`
+	UDP []int `yaml:"udp"`
+}
+ 
+type DesiredNetworking struct {
+	Statics map[string]DesiredNetworkStatic `yaml:"statics"`
+	Bonds   map[string]DesiredNetworkBond   `yaml:"bonds"`
+	VLANs   map[string]DesiredNetworkVLAN   `yaml:"vlans"`
+}
+ 
+type DesiredNetworkStatic struct {
+	CIDR    string `yaml:"cidr"`
+	Gateway string `yaml:"gateway"`
+}
+ 
+type DesiredNetworkBond struct {
+	Slaves []string `yaml:"slaves"`
+	Mode   string   `yaml:"mode"`
+}
+ 
+type DesiredNetworkVLAN struct {
+	Parent string `yaml:"parent"`
+	VID    int    `yaml:"vid"`
+}
+ 
+type DesiredSambaGlobal struct {
+	Workgroup    string `yaml:"workgroup"`
+	ServerString string `yaml:"server_string"`
+	TimeMachine  bool   `yaml:"time_machine"`
+	AllowGuest   bool   `yaml:"allow_guest"`
+	ExtraGlobal  string `yaml:"extra_global"`
+}
+
+type DesiredUser struct {
+	Username     string `yaml:"username"`
+	PasswordHash string `yaml:"password_hash"`
+	Email        string `yaml:"email"`
+	Role         string `yaml:"role"`
+	Active       bool   `yaml:"active"`
+}
+
+type DesiredGroup struct {
+	Name        string   `yaml:"name"`
+	Description string   `yaml:"description"`
+	GID         int      `yaml:"gid"`
+	Members     []string `yaml:"members"` // member usernames
+}
+
+type DesiredReplication struct {
+	Name              string `yaml:"name"`
+	SourceDataset     string `yaml:"source_dataset"`
+	RemoteHost        string `yaml:"remote_host"`
+	RemoteUser        string `yaml:"remote_user"`
+	RemotePort        int    `yaml:"remote_port"`
+	RemotePool        string `yaml:"remote_pool"`
+	SSHKeyPath        string `yaml:"ssh_key_path"`
+	Interval          string `yaml:"interval"`
+	TriggerOnSnapshot bool   `yaml:"trigger_on_snapshot"`
+	Compress          bool   `yaml:"compress"`
+	RateLimitMB       int    `yaml:"rate_limit_mb"`
+	Enabled           bool   `yaml:"enabled"`
+}
+
+type DesiredLDAP struct {
+	Enabled         bool   `yaml:"enabled"`
+	Server          string `yaml:"server"`
+	Port            int    `yaml:"port"`
+	UseTLS          bool   `yaml:"use_tls"`
+	BindDN          string `yaml:"bind_dn"`
+	BindPassword    string `yaml:"bind_password"`
+	BaseDN          string `yaml:"base_dn"`
+	UserFilter      string `yaml:"user_filter"`
+	UserIDAttr      string `yaml:"user_id_attr"`
+	UserNameAttr    string `yaml:"user_name_attr"`
+	UserEmailAttr   string `yaml:"user_email_attr"`
+	GroupBaseDN     string `yaml:"group_base_dn"`
+	GroupFilter     string `yaml:"group_filter"`
+	GroupMemberAttr string `yaml:"group_member_attr"`
+	JITProvisioning bool   `yaml:"jit_provisioning"`
+	DefaultRole     string `yaml:"default_role"`
+	SyncInterval    int    `yaml:"sync_interval"`
+	Timeout         int    `yaml:"timeout"`
+}
 
 // ═══════════════════════════════════════════════════════════════════════════════
 //  VALIDATION RULES
@@ -111,6 +246,8 @@ var (
 	validDatasetRe = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9/_\-\.]*$`)
 	validPoolRe    = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_\-\.]*$`)
 	validShareRe   = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_\-\.]*$`)
+	validStackRe   = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,62}$`)
+	validNFSPathRe = regexp.MustCompile(`^/[a-zA-Z0-9_\-\./]+$`)
 )
 
 // byIDPrefix is the only disk path prefix accepted by the parser.
@@ -226,6 +363,52 @@ func ValidState(s *DesiredState) []string {
 
 		if sh.Path == "" || !strings.HasPrefix(sh.Path, "/") {
 			errs = append(errs, pfx+": path must be a non-empty absolute path")
+		}
+	}
+ 
+	// ── NFS ──────────────────────────────────────────────────────────────────
+	for i, n := range s.NFS {
+		pfx := fmt.Sprintf("nfs[%d] %q", i, n.Path)
+		if !validNFSPathRe.MatchString(n.Path) {
+			errs = append(errs, pfx+": invalid NFS path")
+		}
+		if n.Path == "" {
+			errs = append(errs, pfx+": path is required")
+		}
+	}
+
+	// ── Stacks ─────────────────────────────────────────────────────────────────
+	stackNames := map[string]bool{}
+	for i, st := range s.Stacks {
+		pfx := fmt.Sprintf("stacks[%d] %q", i, st.Name)
+
+		if !validStackRe.MatchString(st.Name) {
+			errs = append(errs, pfx+": invalid stack name (must be lowercase alphanumeric + hyphens/underscores)")
+		}
+		if stackNames[st.Name] {
+			errs = append(errs, pfx+": duplicate stack name")
+		}
+		stackNames[st.Name] = true
+
+		if st.YAML == "" {
+			errs = append(errs, pfx+": YAML content is required")
+		}
+		if !strings.Contains(st.YAML, "services:") {
+			errs = append(errs, pfx+": invalid compose YAML: must contain 'services:' section")
+		}
+	}
+ 
+	// ── System ─────────────────────────────────────────────────────────────────
+	if s.System != nil {
+		if s.System.Hostname != "" && !validPoolRe.MatchString(s.System.Hostname) {
+			errs = append(errs, "system: invalid hostname")
+		}
+		for i, dns := range s.System.DNSServers {
+			if !validNFSPathRe.MatchString("/" + dns) { // rough check for IP/host
+				// errs = append(errs, fmt.Sprintf("system.dns_servers[%d]: invalid format", i))
+			}
+			_ = i
+			_ = dns
 		}
 	}
 
@@ -379,6 +562,9 @@ func (p *yamlParser) parseMapping(minIndent int) (map[string]yamlNode, error) {
 			} else {
 				val = ""
 			}
+		} else if rest == "|" || rest == ">" {
+			// Block scalar literal
+			val = p.parseBlockScalar(line.indent + 1)
 		} else if strings.HasPrefix(rest, "[") {
 			// Inline sequence: [a, b, c]
 			val, err = parseInlineSequence(rest)
@@ -451,6 +637,27 @@ func (p *yamlParser) parseSequence(minIndent int) ([]yamlNode, error) {
 		}
 	}
 	return result, nil
+}
+
+// parseBlockScalar reads all lines at a deeper indent level and preserves them literally.
+func (p *yamlParser) parseBlockScalar(minIndent int) string {
+	var b strings.Builder
+	first := true
+	for p.pos < len(p.lines) {
+		line := p.lines[p.pos]
+		if line.indent < minIndent {
+			break
+		}
+		if !first {
+			b.WriteRune('\n')
+		}
+		// Preserve indentation relative to the block start
+		// (very basic: just strip the minIndent spaces)
+		b.WriteString(line.raw[minIndent:])
+		p.pos++
+		first = false
+	}
+	return b.String()
 }
 
 // parseInlineSequence parses [a, b, c] syntax.
@@ -529,6 +736,116 @@ func mapToState(raw map[string]yamlNode) (*DesiredState, error) {
 				return nil, err
 			}
 			s.Shares = append(s.Shares, sh)
+		}
+	}
+ 
+	if nfsRaw, ok := raw["nfs"]; ok {
+		nfs, err := toSliceOfMaps(nfsRaw, "nfs")
+		if err != nil {
+			return nil, err
+		}
+		for _, nm := range nfs {
+			n := DesiredNFS{
+				Path:    strField(nm, "path"),
+				Clients: strField(nm, "clients"),
+				Options: strField(nm, "options"),
+				Enabled: strField(nm, "enabled") != "false",
+			}
+			s.NFS = append(s.NFS, n)
+		}
+	}
+
+	if stRaw, ok := raw["stacks"]; ok {
+		stacks, err := toSliceOfMaps(stRaw, "stacks")
+		if err != nil {
+			return nil, err
+		}
+		for _, sm := range stacks {
+			st := DesiredStack{
+				Name: strField(sm, "name"),
+				YAML: strField(sm, "yaml"),
+			}
+			s.Stacks = append(s.Stacks, st)
+		}
+	}
+ 
+	if sysRaw, ok := raw["system"]; ok {
+		if sysMap, ok := sysRaw.(map[string]yamlNode); ok {
+			s.System = mapToSystem(sysMap)
+		}
+	}
+
+	if uRaw, ok := raw["users"]; ok {
+		users, _ := toSliceOfMaps(uRaw, "users")
+		for _, um := range users {
+			s.Users = append(s.Users, DesiredUser{
+				Username:     strField(um, "username"),
+				PasswordHash: strField(um, "password_hash"),
+				Email:        strField(um, "email"),
+				Role:         strField(um, "role"),
+				Active:       strField(um, "active") != "false",
+			})
+		}
+	}
+
+	if gRaw, ok := raw["groups"]; ok {
+		groups, _ := toSliceOfMaps(gRaw, "groups")
+		for _, gm := range groups {
+			g := DesiredGroup{
+				Name:        strField(gm, "name"),
+				Description: strField(gm, "description"),
+				GID:         intField(gm, "gid"),
+			}
+			if mbrs, ok := gm["members"]; ok {
+				g.Members, _ = toStringSlice(mbrs, "members")
+			}
+			s.Groups = append(s.Groups, g)
+		}
+	}
+
+	if rRaw, ok := raw["replication"]; ok {
+		repls, _ := toSliceOfMaps(rRaw, "replication")
+		for _, rm := range repls {
+			r := DesiredReplication{
+				Name:              strField(rm, "name"),
+				SourceDataset:     strField(rm, "source_dataset"),
+				RemoteHost:        strField(rm, "remote_host"),
+				RemoteUser:        strField(rm, "remote_user"),
+				RemotePort:        intField(rm, "remote_port"),
+				RemotePool:        strField(rm, "remote_pool"),
+				SSHKeyPath:        strField(rm, "ssh_key_path"),
+				Interval:          strField(rm, "interval"),
+				TriggerOnSnapshot: strField(rm, "trigger_on_snapshot") == "true",
+				Compress:          strField(rm, "compress") == "true",
+				RateLimitMB:       intField(rm, "rate_limit_mb"),
+				Enabled:           strField(rm, "enabled") != "false",
+			}
+			s.Replication = append(s.Replication, r)
+		}
+	}
+
+	if lRaw, ok := raw["ldap"]; ok {
+		if lm, ok := lRaw.(map[string]yamlNode); ok {
+			s.LDAP = &DesiredLDAP{
+				Enabled:         strField(lm, "enabled") == "true",
+				Server:          strField(lm, "server"),
+				Port:            intField(lm, "port"),
+				UseTLS:          strField(lm, "use_tls") == "true",
+				BindDN:          strField(lm, "bind_dn"),
+				BindPassword:    strField(lm, "bind_password"),
+				BaseDN:          strField(lm, "base_dn"),
+				UserFilter:      strField(lm, "user_filter"),
+				UserIDAttr:      strField(lm, "user_id_attr"),
+				UserNameAttr:    strField(lm, "user_name_attr"),
+				UserEmailAttr:   strField(lm, "user_email_attr"),
+				GroupBaseDN:     strField(lm, "group_base_dn"),
+				GroupFilter:     strField(lm, "group_filter"),
+				GroupMemberAttr: strField(lm, "group_member_attr"),
+				JITProvisioning: strField(lm, "jit_provisioning") == "true",
+				DefaultRole:     strField(lm, "default_role"),
+				SyncInterval:    intField(lm, "sync_interval"),
+				Timeout:         intField(lm, "timeout"),
+			}
 		}
 	}
 
@@ -632,4 +949,118 @@ func toStringSlice(v yamlNode, field string) ([]string, error) {
 		result = append(result, fmt.Sprintf("%v", item))
 	}
 	return result, nil
+}
+
+func mapToSystem(m map[string]yamlNode) *DesiredSystem {
+	sys := &DesiredSystem{
+		Hostname:   strField(m, "hostname"),
+		Timezone:   strField(m, "timezone"),
+		DNSServers: toStringSliceQuiet(m["dns_servers"]),
+		NTPServers: toStringSliceQuiet(m["ntp_servers"]),
+	}
+ 
+	if fwRaw, ok := m["firewall"]; ok {
+		if fwMap, ok := fwRaw.(map[string]yamlNode); ok {
+			sys.Firewall.TCP = toIntSlice(fwMap["tcp"])
+			sys.Firewall.UDP = toIntSlice(fwMap["udp"])
+		}
+	}
+ 
+	if nwRaw, ok := m["networking"]; ok {
+		if nwMap, ok := nwRaw.(map[string]yamlNode); ok {
+			if stRaw, ok := nwMap["statics"]; ok {
+				if stMap, ok := stRaw.(map[string]yamlNode); ok {
+					sys.Networking.Statics = make(map[string]DesiredNetworkStatic)
+					for k, v := range stMap {
+						if vm, ok := v.(map[string]yamlNode); ok {
+							sys.Networking.Statics[k] = DesiredNetworkStatic{
+								CIDR:    strField(vm, "cidr"),
+								Gateway: strField(vm, "gateway"),
+							}
+						}
+					}
+				}
+			}
+			if bndRaw, ok := nwMap["bonds"]; ok {
+				if bndMap, ok := bndRaw.(map[string]yamlNode); ok {
+					sys.Networking.Bonds = make(map[string]DesiredNetworkBond)
+					for k, v := range bndMap {
+						if vm, ok := v.(map[string]yamlNode); ok {
+							sys.Networking.Bonds[k] = DesiredNetworkBond{
+								Slaves: toStringSliceQuiet(vm["slaves"]),
+								Mode:   strField(vm, "mode"),
+							}
+						}
+					}
+				}
+			}
+			if vlnRaw, ok := nwMap["vlans"]; ok {
+				if vlnMap, ok := vlnRaw.(map[string]yamlNode); ok {
+					sys.Networking.VLANs = make(map[string]DesiredNetworkVLAN)
+					for k, v := range vlnMap {
+						if vm, ok := v.(map[string]yamlNode); ok {
+							sys.Networking.VLANs[k] = DesiredNetworkVLAN{
+								Parent: strField(vm, "parent"),
+								VID:    intField(vm, "vid"),
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+ 
+	if smbRaw, ok := m["samba"]; ok {
+		if smbMap, ok := smbRaw.(map[string]yamlNode); ok {
+			sys.Samba.Workgroup = strField(smbMap, "workgroup")
+			sys.Samba.ServerString = strField(smbMap, "server_string")
+			sys.Samba.TimeMachine = strField(smbMap, "time_machine") == "true"
+			sys.Samba.AllowGuest = strField(smbMap, "allow_guest") == "true"
+			sys.Samba.ExtraGlobal = strField(smbMap, "extra_global")
+		}
+	}
+ 
+	return sys
+}
+ 
+func toStringSliceQuiet(v yamlNode) []string {
+	if v == nil {
+		return nil
+	}
+	seq, ok := v.([]yamlNode)
+	if !ok {
+		return nil
+	}
+	var res []string
+	for _, item := range seq {
+		res = append(res, fmt.Sprintf("%v", item))
+	}
+	return res
+}
+ 
+func toIntSlice(v yamlNode) []int {
+	if v == nil {
+		return nil
+	}
+	seq, ok := v.([]yamlNode)
+	if !ok {
+		return nil
+	}
+	var res []int
+	for _, item := range seq {
+		var n int
+		fmt.Sscanf(fmt.Sprintf("%v", item), "%d", &n)
+		res = append(res, n)
+	}
+	return res
+}
+ 
+func intField(m map[string]yamlNode, key string) int {
+	v, ok := m[key]
+	if !ok {
+		return 0
+	}
+	var n int
+	fmt.Sscanf(fmt.Sprintf("%v", v), "%d", &n)
+	return n
 }

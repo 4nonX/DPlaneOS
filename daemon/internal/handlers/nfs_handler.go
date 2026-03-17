@@ -13,6 +13,7 @@ import (
 
 	"dplaned/internal/audit"
 	"dplaned/internal/cmdutil"
+	"dplaned/internal/gitops"
 )
 
 // ═══════════════════════════════════════════════════════════════
@@ -274,6 +275,7 @@ func (h *NFSHandler) CreateNFSExport(w http.ResponseWriter, r *http.Request) {
 		"id":      id,
 		"message": "Export created and applied",
 	})
+	gitops.CommitAll(h.db)
 }
 
 // UpdateNFSExport POST /api/nfs/exports/{id}/update
@@ -367,6 +369,7 @@ func (h *NFSHandler) UpdateNFSExport(w http.ResponseWriter, r *http.Request) {
 	audit.LogActivity(user, "nfs_export_update", map[string]interface{}{"id": id})
 
 	respondOK(w, map[string]interface{}{"success": true, "message": "Export updated and applied"})
+	gitops.CommitAll(h.db)
 }
 
 // DeleteNFSExport DELETE /api/nfs/exports/{id}
@@ -401,6 +404,7 @@ func (h *NFSHandler) DeleteNFSExport(w http.ResponseWriter, r *http.Request) {
 	audit.LogActivity(user, "nfs_export_delete", map[string]interface{}{"id": id, "path": path})
 
 	respondOK(w, map[string]interface{}{"success": true, "message": "Export deleted and applied"})
+	gitops.CommitAll(h.db)
 }
 
 // ReloadNFSExportsHandler POST /api/nfs/reload

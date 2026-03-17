@@ -355,7 +355,7 @@ func main() {
 	r.HandleFunc("/api/jobs/{id}", handlers.HandleJobStatus).Methods("GET")
 
 	// ZFS handlers
-	zfsHandler := handlers.NewZFSHandler()
+	zfsHandler := handlers.NewZFSHandler(db)
 	r.HandleFunc("/api/zfs/command", zfsHandler.HandleCommand).Methods("POST")
 	r.HandleFunc("/api/zfs/pools", zfsHandler.ListPools).Methods("GET")
 	r.HandleFunc("/api/zfs/datasets", zfsHandler.ListDatasets).Methods("GET")
@@ -494,7 +494,7 @@ func main() {
 	gitSyncHandler.StartAutoSync()
 
 	// v5.1: Compose stack management
-	stackHandler := handlers.NewStackHandler()
+	stackHandler := handlers.NewStackHandler(db)
 	r.HandleFunc("/api/docker/stacks", stackHandler.ListStacks).Methods("GET")
 	r.Handle("/api/docker/stacks/deploy", permRoute("docker", "write", stackHandler.DeployStack)).Methods("POST")
 	r.HandleFunc("/api/docker/stacks/yaml", stackHandler.GetStackYAML).Methods("GET")
@@ -860,10 +860,11 @@ func main() {
 	r.HandleFunc("/api/zfs/datasets/search", handlers.HandleDatasetSearch).Methods("GET")
 
 	// Replication schedules
-	r.HandleFunc("/api/replication/schedules", handlers.HandleListReplicationSchedules).Methods("GET")
-	r.HandleFunc("/api/replication/schedules", handlers.HandleCreateReplicationSchedule).Methods("POST")
-	r.HandleFunc("/api/replication/schedules/{id}", handlers.HandleDeleteReplicationSchedule).Methods("DELETE")
-	r.HandleFunc("/api/replication/schedules/{id}/run", handlers.HandleRunReplicationScheduleNow).Methods("POST")
+	replicationScheduleHandler := handlers.NewReplicationScheduleHandler(db)
+	r.HandleFunc("/api/replication/schedules", replicationScheduleHandler.HandleListReplicationSchedules).Methods("GET")
+	r.HandleFunc("/api/replication/schedules", replicationScheduleHandler.HandleCreateReplicationSchedule).Methods("POST")
+	r.HandleFunc("/api/replication/schedules/{id}", replicationScheduleHandler.HandleDeleteReplicationSchedule).Methods("DELETE")
+	r.HandleFunc("/api/replication/schedules/{id}/run", replicationScheduleHandler.HandleRunReplicationScheduleNow).Methods("POST")
 
 	// Create server.
 	// WriteTimeout is set to 0 (no timeout) because several routes need to

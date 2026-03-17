@@ -6,6 +6,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ---
 
+## v6.0.0 (2026-03-17) — "Declarative Freedom"
+
+Upgrade from: v5.3.5 — Drop-in. `sudo bash install.sh --upgrade`
+
+### Added
+
+- **Optional & Granular GitOps**
+  - **Global Toggle**: GitOps functionality can now be entirely enabled or disabled via the UI, making it a non-essential control plane.
+  - **Granular Sync Matrix**: Introduced selective synchronization for six key resource categories: Storage (ZFS), Data Access (SMB/NFS), Applications (Docker), Identity (Users/Groups), Protection (Replication), and System settings.
+  - **GitHub Connect Wizard**: A premium 3-step onboarding flow for linking repositories and managing Personal Access Tokens (PAT) directly within the GitOps settings.
+  - **Manual Sync Fallback**: Added a "Sync Now" button for instant on-demand reconciliation (forced pull, DB write-back, and push).
+  - **Authenticated Git Operations**: Robust support for GitHub PAT and SSH keys using secure `GIT_ASKPASS` and `GIT_SSH_COMMAND` mechanics, preventing credential exposure.
+
+### Fixed
+
+- Improved UI resilience and conditional rendering for unconfigured GitOps states.
+- Enhanced database schema with idempotent seeding for GitOps configuration.
+
+---
+
 ## v5.3.5 (2026-03-16) — "API Auth Patch"
 
 Upgrade from: v5.3.4 — Drop-in. `sudo bash install.sh --upgrade`

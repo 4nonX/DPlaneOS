@@ -133,6 +133,13 @@ func isNixOS() bool {
 
 // IsNixOS reports whether this system is NixOS.
 func (w *Writer) IsNixOS() bool { return w.nixOS }
+ 
+// State returns a copy of the current in-memory state.
+func (w *Writer) State() DPlaneState {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.state
+}
 
 // LoadFromDisk reads an existing dplane-state.json into memory.
 // Called at daemon startup so in-memory state matches the file on disk.

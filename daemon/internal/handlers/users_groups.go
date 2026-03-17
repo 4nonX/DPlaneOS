@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"database/sql"
+	"dplaned/internal/gitops"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -175,6 +176,9 @@ func (h *UserGroupHandler) createUser(w http.ResponseWriter, req userActionReque
 		"id":      id,
 		"message": fmt.Sprintf("User %s created", req.Username),
 	})
+
+	// GITOPS HOOK: write state back to git
+	go gitops.CommitAll(h.db)
 }
 
 func (h *UserGroupHandler) updateUser(w http.ResponseWriter, req userActionRequest) {
@@ -235,6 +239,9 @@ func (h *UserGroupHandler) updateUser(w http.ResponseWriter, req userActionReque
 		"success": true,
 		"message": "User updated",
 	})
+
+	// GITOPS HOOK: write state back to git
+	go gitops.CommitAll(h.db)
 }
 
 func (h *UserGroupHandler) deleteUser(w http.ResponseWriter, req userActionRequest) {
@@ -418,6 +425,9 @@ func (h *UserGroupHandler) groupAction(w http.ResponseWriter, r *http.Request) {
 			"success": true, "id": id, "message": "Group created",
 		})
 
+		// GITOPS HOOK: write state back to git
+		go gitops.CommitAll(h.db)
+
 	case "update":
 		if req.ID == 0 {
 			respondErrorSimple(w, "Group ID required", http.StatusBadRequest)
@@ -460,6 +470,9 @@ func (h *UserGroupHandler) groupAction(w http.ResponseWriter, r *http.Request) {
 			"success": true, "message": "Group updated",
 		})
 
+		// GITOPS HOOK: write state back to git
+		go gitops.CommitAll(h.db)
+
 	case "delete":
 		if req.ID == 0 {
 			respondErrorSimple(w, "Group ID required", http.StatusBadRequest)
@@ -480,6 +493,9 @@ func (h *UserGroupHandler) groupAction(w http.ResponseWriter, r *http.Request) {
 		respondJSON(w, http.StatusOK, map[string]interface{}{
 			"success": true, "message": "Group deleted",
 		})
+
+		// GITOPS HOOK: write state back to git
+		go gitops.CommitAll(h.db)
 
 	default:
 		respondErrorSimple(w, "Unknown action", http.StatusBadRequest)

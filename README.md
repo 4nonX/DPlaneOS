@@ -12,7 +12,17 @@ ZFS-first NAS operating system for homelab and small-office deployments. Runs as
 *Demo recorded in preview mode — mock data, no real hardware required to evaluate.*
 
 ![D-PlaneOS Demo](demo.gif)
+
 ---
+
+## High-Performance, Zero-Pollution Architecture
+
+D-PlaneOS is built for modern hardware. It ships as a single, statically-linked Go binary that manages your entire storage stack with zero external dependencies at runtime.
+
+- **Native Architecture Support:** Full performance on both `x86_64` (amd64) and `aarch64` (arm64/Raspberry Pi 5).
+- **ZFS-First:** Native ZFS integration for data integrity, snapshots, and replication.
+- **GitOps Driven:** Declarative state reconciliation for pools, datasets, and containers.
+- **NixOS Optimized:** Designed to run as a native service on NixOS, but fully supports Debian/Ubuntu.
 
 ## Install
 

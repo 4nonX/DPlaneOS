@@ -302,6 +302,22 @@ func initSchema(db *sql.DB) error {
 			PRIMARY KEY (kind, name)
 		)`,
 
+		// ── Phase 6: Optional Granular GitOps ──
+		`CREATE TABLE IF NOT EXISTS gitops_config (
+			id INTEGER PRIMARY KEY CHECK (id = 1),
+			enabled INTEGER NOT NULL DEFAULT 0,
+			repo_id INTEGER,
+			state_path TEXT NOT NULL DEFAULT 'state.yaml',
+			sync_storage INTEGER NOT NULL DEFAULT 1,
+			sync_access INTEGER NOT NULL DEFAULT 1,
+			sync_app INTEGER NOT NULL DEFAULT 1,
+			sync_identity INTEGER NOT NULL DEFAULT 1,
+			sync_protection INTEGER NOT NULL DEFAULT 1,
+			sync_system INTEGER NOT NULL DEFAULT 1,
+			updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+			FOREIGN KEY (repo_id) REFERENCES git_sync_repos(id)
+		)`,
+
 		`CREATE INDEX IF NOT EXISTS idx_git_repos_name ON git_sync_repos(name)`,
 		`CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_logs(timestamp)`,
 		`CREATE INDEX IF NOT EXISTS idx_audit_user ON audit_logs(user)`,
@@ -478,6 +494,15 @@ func seedDefaults(db *sql.DB) error {
 			db.Exec("INSERT OR IGNORE INTO user_roles (user_id, role_id, granted_by) VALUES (?, ?, 'system')", adminUserID, adminRoleID)
 		}
 		log.Printf("Created default admin user")
+	}
+
+	// ── Ensure gitops config row exists ──
+	var gitopsCount int
+	db.QueryRow("SELECT COUNT(*) FROM gitops_config").Scan(&gitopsCount)
+	if gitopsCount == 0 {
+		if _, err := db.Exec("INSERT INTO gitops_config (id, enabled) VALUES (1, 0)"); err != nil {
+			return fmt.Errorf("gitops default: %w", err)
+		}
 	}
 
 	return nil

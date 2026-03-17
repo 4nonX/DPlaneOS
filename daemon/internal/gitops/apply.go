@@ -2,13 +2,16 @@ package gitops
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"dplaned/internal/cmdutil"
+	"dplaned/internal/nixwriter"
 )
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -47,8 +50,9 @@ type ApplyResult struct {
 
 // ApplyContext carries everything the apply engine needs without global state.
 type ApplyContext struct {
-	DB          *sql.DB
-	SmbConfPath string // path to write smb.conf, e.g. /etc/samba/smb.conf
+	DB             *sql.DB
+	SmbConfPath    string // path to write smb.conf, e.g. /etc/samba/smb.conf
+	NFSExportsPath string // path to write /etc/exports
 }
 
 // ApplyPlan executes the plan against the live system.
@@ -132,6 +136,18 @@ func executeCreate(ctx ApplyContext, item DiffItem) error {
 			return fmt.Errorf("no pool spec in DiffItem for %q", item.Name)
 		}
 		return createPool(*item.DesiredPool)
+	case KindStack:
+		return createStack(item.Name, item.DesiredStack)
+	case KindNFS:
+		return createNFS(ctx.DB, ctx.NFSExportsPath, item.Name, item.DesiredNFS)
+	case KindUser:
+		return reconcileUser(ctx.DB, item.Name, item.DesiredUser)
+	case KindGroup:
+		return reconcileGroup(ctx.DB, item.Name, item.DesiredGroup)
+	case KindReplication:
+		return reconcileReplication(item.Name, item.DesiredReplication)
+	case KindLDAP:
+		return reconcileLDAP(ctx.DB, item.DesiredLDAP)
 	}
 	return fmt.Errorf("unknown kind %q", item.Kind)
 }
@@ -148,6 +164,20 @@ func executeModify(ctx ApplyContext, item DiffItem) error {
 			dp = *item.DesiredPool
 		}
 		return modifyPool(item.Name, item.Changes, dp)
+	case KindStack:
+		return modifyStack(item.Name, item.DesiredStack)
+	case KindNFS:
+		return modifyNFS(ctx.DB, ctx.NFSExportsPath, item.Name, item.DesiredNFS)
+	case KindSystem:
+		return reconcileSystem(item)
+	case KindUser:
+		return reconcileUser(ctx.DB, item.Name, item.DesiredUser)
+	case KindGroup:
+		return reconcileGroup(ctx.DB, item.Name, item.DesiredGroup)
+	case KindReplication:
+		return reconcileReplication(item.Name, item.DesiredReplication)
+	case KindLDAP:
+		return reconcileLDAP(ctx.DB, item.DesiredLDAP)
 	}
 	return fmt.Errorf("unknown kind %q", item.Kind)
 }
@@ -161,6 +191,16 @@ func executeDelete(ctx ApplyContext, item DiffItem) error {
 	case KindPool:
 		// Pool destroy is always BLOCKED — this path only runs when Approved=true.
 		return destroyPool(item.Name)
+	case KindStack:
+		return deleteStack(item.Name)
+	case KindNFS:
+		return deleteNFS(ctx.DB, ctx.NFSExportsPath, item.Name)
+	case KindUser:
+		return deleteUser(ctx.DB, item.Name)
+	case KindGroup:
+		return deleteGroup(ctx.DB, item.Name)
+	case KindReplication:
+		return deleteReplication(item.Name)
 	}
 	return fmt.Errorf("unknown kind %q", item.Kind)
 }
@@ -371,6 +411,128 @@ func deleteShare(db *sql.DB, smbConfPath, name string) error {
 	return nil
 }
 
+// ── Docker Stack operations ──────────────────────────────────────────────────
+
+func createStack(name string, ds *DesiredStack) error {
+	if ds == nil {
+		return fmt.Errorf("no desired stack spec for %q", name)
+	}
+
+	dir := filepath.Join(defaultStacksDir, name)
+	if err := os.MkdirAll(dir, 0750); err != nil {
+		return fmt.Errorf("create stack dir %s: %w", dir, err)
+	}
+
+	composePath := filepath.Join(dir, "docker-compose.yml")
+	if err := os.WriteFile(composePath, []byte(ds.YAML), 0644); err != nil {
+		return fmt.Errorf("write compose file %s: %w", composePath, err)
+	}
+
+	out, err := cmdutil.RunSlow("/usr/bin/docker", "compose", "-f", composePath, "up", "-d", "--remove-orphans")
+	if err != nil {
+		return fmt.Errorf("docker compose up %s: %s: %w", name, string(out), err)
+	}
+
+	log.Printf("GITOPS: deployed stack %q", name)
+	return nil
+}
+
+func modifyStack(name string, ds *DesiredStack) error {
+	// Modify re-uses create (docker compose up -d is idempotent and handles updates)
+	return createStack(name, ds)
+}
+
+func deleteStack(name string) error {
+	dir := filepath.Join(defaultStacksDir, name)
+	composePath := filepath.Join(dir, "docker-compose.yml")
+
+	if _, err := os.Stat(composePath); err == nil {
+		out, err := cmdutil.RunSlow("/usr/bin/docker", "compose", "-f", composePath, "down")
+		if err != nil {
+			log.Printf("GITOPS WARNING: docker compose down %s failed (non-fatal): %s: %v", name, string(out), err)
+		}
+	}
+
+	if err := os.RemoveAll(dir); err != nil {
+		return fmt.Errorf("remove stack dir %s: %w", dir, err)
+	}
+
+	log.Printf("GITOPS: removed stack %q", name)
+	return nil
+}
+ 
+// ── NFS operations ────────────────────────────────────────────────────────────
+ 
+func createNFS(db *sql.DB, exportsPath, path string, dn *DesiredNFS) error {
+	if dn == nil {
+		return fmt.Errorf("no desired NFS spec for %q", path)
+	}
+	enabledInt := 1
+	if !dn.Enabled {
+		enabledInt = 0
+	}
+	_, err := db.Exec(`
+		INSERT INTO nfs_exports (path, clients, options, enabled)
+		VALUES (?, ?, ?, ?)
+		ON CONFLICT(path) DO UPDATE SET
+			clients=excluded.clients, options=excluded.options,
+			enabled=excluded.enabled, updated_at=CURRENT_TIMESTAMP`,
+		path, dn.Clients, dn.Options, enabledInt,
+	)
+	if err != nil {
+		return fmt.Errorf("insert nfs_export %q: %w", path, err)
+	}
+	reloadNFS(exportsPath, db)
+	log.Printf("GITOPS: created NFS export %q", path)
+	return nil
+}
+ 
+func modifyNFS(db *sql.DB, exportsPath, path string, dn *DesiredNFS) error {
+	return createNFS(db, exportsPath, path, dn)
+}
+ 
+func deleteNFS(db *sql.DB, exportsPath, path string) error {
+	if _, err := db.Exec("DELETE FROM nfs_exports WHERE path = ?", path); err != nil {
+		return fmt.Errorf("delete nfs_export %q: %w", path, err)
+	}
+	reloadNFS(exportsPath, db)
+	log.Printf("GITOPS: deleted NFS export %q", path)
+	return nil
+}
+ 
+// reloadNFS regenerates /etc/exports and runs exportfs -ra.
+func reloadNFS(exportsPath string, db *sql.DB) {
+	if exportsPath == "" {
+		return
+	}
+	rows, err := db.Query(`SELECT path, clients, options FROM nfs_exports WHERE enabled=1`)
+	if err != nil {
+		log.Printf("GITOPS: reloadNFS: query failed: %v", err)
+		return
+	}
+	defer rows.Close()
+ 
+	var sb strings.Builder
+	for rows.Next() {
+		var path, clients, options string
+		if err := rows.Scan(&path, &clients, &options); err != nil {
+			continue
+		}
+		// Format: path client(options)
+		sb.WriteString(fmt.Sprintf("%s %s(%s)\n", path, clients, options))
+	}
+ 
+	tmpPath := exportsPath + ".gitops.tmp"
+	if err := writeFileAtomic(tmpPath, exportsPath, []byte(sb.String())); err != nil {
+		log.Printf("GITOPS: reloadNFS: write failed: %v", err)
+		return
+	}
+ 
+	if _, err := cmdutil.RunFast("exportfs", "-ra"); err != nil {
+		log.Printf("GITOPS: reloadNFS: exportfs -ra failed (non-fatal): %v", err)
+	}
+}
+
 // reloadSamba regenerates smb.conf and sends SIGHUP to smbd.
 // Mirrors the pattern in ShareCRUDHandler.regenerateSMBConf().
 func reloadSamba(smbConfPath string, db *sql.DB) {
@@ -460,5 +622,265 @@ func writeFileAtomic(tmp, final string, data []byte) error {
 		os.Remove(tmp)
 		return fmt.Errorf("rename %s → %s: %w", tmp, final, err)
 	}
+	return nil
+}
+
+// ── User operations ───────────────────────────────────────────────────────────
+
+func reconcileUser(db *sql.DB, username string, du *DesiredUser) error {
+	if du == nil {
+		return fmt.Errorf("no desired user spec for %q", username)
+	}
+	activeInt := 0
+	if du.Active {
+		activeInt = 1
+	}
+	
+	// If PasswordHash is empty, we don't update it to avoid wiping existing passwords
+	// unless this is a CREATE.
+	var err error
+	if du.PasswordHash != "" {
+		_, err = db.Exec(`
+			INSERT INTO users (username, password_hash, email, role, active)
+			VALUES (?, ?, ?, ?, ?)
+			ON CONFLICT(username) DO UPDATE SET
+				password_hash=excluded.password_hash,
+				email=excluded.email,
+				role=excluded.role,
+				active=excluded.active,
+				updated_at=CURRENT_TIMESTAMP`,
+			username, du.PasswordHash, du.Email, du.Role, activeInt,
+		)
+	} else {
+		_, err = db.Exec(`
+			INSERT INTO users (username, email, role, active)
+			VALUES (?, ?, ?, ?)
+			ON CONFLICT(username) DO UPDATE SET
+				email=excluded.email,
+				role=excluded.role,
+				active=excluded.active,
+				updated_at=CURRENT_TIMESTAMP`,
+			username, du.Email, du.Role, activeInt,
+		)
+	}
+	
+	if err != nil {
+		return fmt.Errorf("reconcile user %q: %w", username, err)
+	}
+	log.Printf("GITOPS: reconciled user %q", username)
+	return nil
+}
+
+func deleteUser(db *sql.DB, username string) error {
+	if username == "admin" || username == "root" {
+		return fmt.Errorf("refusing to delete protected user %q", username)
+	}
+	_, err := db.Exec("DELETE FROM users WHERE username = ?", username)
+	if err != nil {
+		return fmt.Errorf("delete user %q: %w", username, err)
+	}
+	log.Printf("GITOPS: deleted user %q", username)
+	return nil
+}
+
+// ── Group operations ──────────────────────────────────────────────────────────
+
+func reconcileGroup(db *sql.DB, name string, dg *DesiredGroup) error {
+	if dg == nil {
+		return fmt.Errorf("no desired group spec for %q", name)
+	}
+	
+	_, err := db.Exec(`
+		INSERT INTO groups (name, description, gid)
+		VALUES (?, ?, ?)
+		ON CONFLICT(name) DO UPDATE SET
+			description=excluded.description,
+			gid=excluded.gid,
+			updated_at=CURRENT_TIMESTAMP`,
+		name, dg.Description, dg.GID,
+	)
+	if err != nil {
+		return fmt.Errorf("reconcile group %q: %w", name, err)
+	}
+	
+	// Sync members
+	_, err = db.Exec("DELETE FROM group_members WHERE group_name = ?", name)
+	if err != nil {
+		return fmt.Errorf("clear members for group %q: %w", name, err)
+	}
+	
+	for _, member := range dg.Members {
+		_, err = db.Exec("INSERT INTO group_members (group_name, username) VALUES (?, ?)", name, member)
+		if err != nil {
+			return fmt.Errorf("add member %q to group %q: %w", member, name, err)
+		}
+	}
+	
+	log.Printf("GITOPS: reconciled group %q", name)
+	return nil
+}
+
+func deleteGroup(db *sql.DB, name string) error {
+	// First clear members (foreign key should handle this but let's be explicit)
+	_, _ = db.Exec("DELETE FROM group_members WHERE group_name = ?", name)
+	
+	_, err := db.Exec("DELETE FROM groups WHERE name = ?", name)
+	if err != nil {
+		return fmt.Errorf("delete group %q: %w", name, err)
+	}
+	log.Printf("GITOPS: deleted group %q", name)
+	return nil
+}
+
+// ── Replication operations ────────────────────────────────────────────────────
+
+func reconcileReplication(name string, dr *DesiredReplication) error {
+	if dr == nil {
+		return fmt.Errorf("no desired replication spec for %q", name)
+	}
+	
+	// Replication schedules are managed in a JSON file
+	schedules, err := readReplicationSchedules()
+	if err != nil {
+		return fmt.Errorf("read schedules: %w", err)
+	}
+	
+	found := false
+	for i, s := range schedules {
+		if s.Name == name {
+			schedules[i] = *dr
+			found = true
+			break
+		}
+	}
+	if !found {
+		schedules = append(schedules, *dr)
+	}
+	
+	return writeReplicationSchedules(schedules)
+}
+
+func deleteReplication(name string) error {
+	schedules, err := readReplicationSchedules()
+	if err != nil {
+		return fmt.Errorf("read schedules: %w", err)
+	}
+	
+	newSchedules := []DesiredReplication{}
+	for _, s := range schedules {
+		if s.Name != name {
+			newSchedules = append(newSchedules, s)
+		}
+	}
+	
+	return writeReplicationSchedules(newSchedules)
+}
+
+func readReplicationSchedules() ([]DesiredReplication, error) {
+	path := "/etc/dplane/replication-schedules.json"
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return []DesiredReplication{}, nil
+		}
+		return nil, err
+	}
+	
+	var schedules []DesiredReplication
+	if err := json.Unmarshal(data, &schedules); err != nil {
+		return nil, fmt.Errorf("unmarshal schedules: %w", err)
+	}
+	return schedules, nil
+}
+
+func writeReplicationSchedules(schedules []DesiredReplication) error {
+	path := "/etc/dplane/replication-schedules.json"
+	data, err := json.MarshalIndent(schedules, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal schedules: %w", err)
+	}
+	
+	tmpPath := path + ".gitops.tmp"
+	return writeFileAtomic(tmpPath, path, data)
+}
+ 
+func reconcileSystem(item DiffItem) error {
+	ds := item.DesiredSystem
+	if ds == nil {
+		return nil
+	}
+	w := nixwriter.DefaultWriter()
+ 
+	if ds.Hostname != "" {
+		w.SetHostname(ds.Hostname)
+	}
+	if ds.Timezone != "" {
+		w.SetTimezone(ds.Timezone)
+	}
+	if len(ds.DNSServers) > 0 {
+		w.SetDNSServers(ds.DNSServers)
+	}
+	if len(ds.NTPServers) > 0 {
+		w.SetNTPServers(ds.NTPServers)
+	}
+ 
+	w.SetFirewallPorts(ds.Firewall.TCP, ds.Firewall.UDP)
+ 
+	smb := nixwriter.SambaGlobals{
+		Workgroup:    ds.Samba.Workgroup,
+		ServerString: ds.Samba.ServerString,
+		TimeMachine:  ds.Samba.TimeMachine,
+		AllowGuest:   ds.Samba.AllowGuest,
+		ExtraGlobal:  ds.Samba.ExtraGlobal,
+	}
+	w.SetSambaGlobals(smb)
+ 
+	for iface, st := range ds.Networking.Statics {
+		w.SetStaticInterface(iface, st.CIDR, st.Gateway)
+	}
+	for name, b := range ds.Networking.Bonds {
+		w.SetBond(name, b.Slaves, b.Mode)
+	}
+	for name, v := range ds.Networking.VLANs {
+		w.SetVLAN(name, v.Parent, v.VID)
+	}
+ 
+	return nil // nixwriter flushes on every setter currently
+}
+
+func reconcileLDAP(db *sql.DB, desired *DesiredLDAP) error {
+	if desired == nil {
+		return nil
+	}
+
+	enabled := 0
+	if desired.Enabled {
+		enabled = 1
+	}
+	useTLS := 0
+	if desired.UseTLS {
+		useTLS = 1
+	}
+	jit := 0
+	if desired.JITProvisioning {
+		jit = 1
+	}
+
+	_, err := db.Exec(`UPDATE ldap_config SET
+		enabled=?, server=?, port=?, use_tls=?, bind_dn=?, bind_password=?, base_dn=?,
+		user_filter=?, user_id_attr=?, user_name_attr=?, user_email_attr=?,
+		group_base_dn=?, group_filter=?, group_member_attr=?,
+		jit_provisioning=?, default_role=?, sync_interval=?, timeout=?,
+		updated_at=datetime('now') WHERE id=1`,
+		enabled, desired.Server, desired.Port, useTLS, desired.BindDN, desired.BindPassword, desired.BaseDN,
+		desired.UserFilter, desired.UserIDAttr, desired.UserNameAttr, desired.UserEmailAttr,
+		desired.GroupBaseDN, desired.GroupFilter, desired.GroupMemberAttr,
+		jit, desired.DefaultRole, desired.SyncInterval, desired.Timeout)
+
+	if err != nil {
+		return fmt.Errorf("failed to update ldap_config: %w", err)
+	}
+
+	log.Printf("GITOPS: reconciled LDAP configuration")
 	return nil
 }

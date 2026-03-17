@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"dplaned/internal/audit"
+	"dplaned/internal/gitops"
 	"dplaned/internal/ldap"
 )
 
@@ -175,10 +176,13 @@ func (h *LDAPHandler) SaveConfig(w http.ResponseWriter, r *http.Request) {
 		User: r.Header.Get("X-User"), Success: true,
 		Metadata: map[string]interface{}{"enabled": req.Enabled, "server": req.Server},
 	})
-	warning := ""
 	if req.UseTLS == 0 {
 		warning = "TLS is disabled — LDAP credentials will be transmitted in plaintext. Enable TLS for production use."
 	}
+
+	// Trigger GitOps commit
+	go gitops.CommitAll(h.db)
+
 	writeJSON(w, 200, ldapResp{Success: true, Warning: warning})
 }
 

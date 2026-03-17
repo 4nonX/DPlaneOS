@@ -11,12 +11,16 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"database/sql"
 
 	"dplaned/internal/audit"
+	"dplaned/internal/gitops"
 	"dplaned/internal/security"
 )
 
-type ZFSHandler struct{}
+type ZFSHandler struct {
+	db *sql.DB
+}
 
 type CommandRequest struct {
 	Command   string   `json:"command"`
@@ -33,8 +37,8 @@ type CommandResponse struct {
 	Data     interface{} `json:"data,omitempty"`
 }
 
-func NewZFSHandler() *ZFSHandler {
-	return &ZFSHandler{}
+func NewZFSHandler(db *sql.DB) *ZFSHandler {
+	return &ZFSHandler{db: db}
 }
 
 func (h *ZFSHandler) HandleCommand(w http.ResponseWriter, r *http.Request) {
@@ -103,6 +107,15 @@ func (h *ZFSHandler) HandleCommand(w http.ResponseWriter, r *http.Request) {
 		Output:   output,
 		Duration: duration.Milliseconds(),
 	})
+
+	// GITOPS HOOK: write state back to git if it was a mutating command
+	mutating := map[string]bool{
+		"zfs_create": true, "zfs_destroy": true, "zfs_set_property": true,
+		"zpool_create": true, "zpool_destroy": true, "zpool_add": true,
+	}
+	if mutating[req.Command] {
+		go gitops.CommitAll(h.db)
+	}
 }
 
 func (h *ZFSHandler) ListPools(w http.ResponseWriter, r *http.Request) {
@@ -273,6 +286,9 @@ func (h *ZFSHandler) CreateDataset(w http.ResponseWriter, r *http.Request) {
 		Output:   "Dataset " + req.Name + " created",
 		Duration: time.Since(start).Milliseconds(),
 	})
+
+	// GITOPS HOOK: write state back to git
+	go gitops.CommitAll(h.db)
 }
 
 // Stderr is logged separately to prevent warning messages (e.g. "pool is DEGRADED")

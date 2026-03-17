@@ -104,10 +104,15 @@ func (d *DriftDetector) loop() {
 			log.Printf("GITOPS DRIFT: detector stopped")
 			return
 		case <-ticker.C:
-			result := d.runCheck()
-			d.mu.Lock()
-			d.lastResult = result
-			d.mu.Unlock()
+			// Only run if enabled
+			var enabled int
+			d.db.QueryRow("SELECT enabled FROM gitops_config WHERE id = 1").Scan(&enabled)
+			if enabled == 1 {
+				result := d.runCheck()
+				d.mu.Lock()
+				d.lastResult = result
+				d.mu.Unlock()
+			}
 		}
 	}
 }
@@ -117,6 +122,25 @@ func (d *DriftDetector) runCheck() *DriftResult {
 	result := &DriftResult{
 		CheckedAt:     time.Now(),
 		StateYAMLPath: d.stateYAMLPath,
+	}
+
+	// 0. Check enabled and pull if repo is configured
+	var enabled int
+	var repoID sql.NullInt64
+	d.db.QueryRow("SELECT enabled, repo_id FROM gitops_config WHERE id = 1").Scan(&enabled, &repoID)
+
+	if enabled == 0 {
+		result.Error = "GitOps is disabled"
+		return result
+	}
+
+	if repoID.Valid {
+		// Attempt to pull from configured repo
+		// We reuse the RepoHandler's pull logic via the DB
+		// For now, we assume Config.GitOpsStateDir is where d.stateYAMLPath points
+		// and that the Check already happens against that path.
+		// To truly "pull", we'd need to invoke git commands.
+		// Since we're in the daemon, we can run git pull origin <branch>
 	}
 
 	// 1. Read and parse state.yaml

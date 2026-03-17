@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -14,10 +15,11 @@ import (
 	"dplaned/internal/audit"
 	"dplaned/internal/cmdutil"
 	"dplaned/internal/config"
+	"dplaned/internal/gitops"
 )
 
 // ═══════════════════════════════════════════════════════════════
-//  Docker Stack Management — Dockge-like YAML → Deploy workflow
+//  Docker Stack Management — D-PlaneOS YAML → Deploy workflow
 // ═══════════════════════════════════════════════════════════════
 //
 //  Default stacks directory: /var/lib/dplaneos/stacks/
@@ -37,10 +39,12 @@ const defaultStacksDir = config.StacksDir
 var validStackNameRe = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,62}$`)
 
 // StackHandler manages docker compose stacks
-type StackHandler struct{}
+type StackHandler struct {
+	db *sql.DB
+}
 
-func NewStackHandler() *StackHandler {
-	return &StackHandler{}
+func NewStackHandler(db *sql.DB) *StackHandler {
+	return &StackHandler{db: db}
 }
 
 // stackDir returns the validated directory for a stack name.
@@ -168,6 +172,9 @@ func (h *StackHandler) DeployStack(w http.ResponseWriter, r *http.Request) {
 		"output":      string(output),
 		"duration_ms": duration.Milliseconds(),
 	})
+
+	// GITOPS HOOK: write state back to git
+	go gitops.CommitAll(h.db)
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -423,6 +430,9 @@ func (h *StackHandler) UpdateStackYAML(w http.ResponseWriter, r *http.Request) {
 	}
 
 	respondOK(w, result)
+
+	// GITOPS HOOK: write state back to git
+	go gitops.CommitAll(h.db)
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -479,6 +489,9 @@ func (h *StackHandler) DeleteStack(w http.ResponseWriter, r *http.Request) {
 		"message":     fmt.Sprintf("Stack '%s' removed", name),
 		"duration_ms": duration.Milliseconds(),
 	})
+
+	// GITOPS HOOK: write state back to git
+	go gitops.CommitAll(h.db)
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -552,6 +565,9 @@ func (h *StackHandler) StackAction(w http.ResponseWriter, r *http.Request) {
 		"output":      string(output),
 		"duration_ms": duration.Milliseconds(),
 	})
+
+	// GITOPS HOOK: write state back to git
+	go gitops.CommitAll(h.db)
 }
 
 // ─────────────────────────────────────────────────────────────

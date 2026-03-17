@@ -2,11 +2,14 @@ package gitops
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
+	"os"
 	"strconv"
 	"strings"
 
 	"dplaned/internal/cmdutil"
+	"dplaned/internal/nixwriter"
 )
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -46,12 +49,68 @@ type LiveShare struct {
 	GuestOK    bool
 	Enabled    bool
 }
+ 
+// LiveNFSExport is an NFS export from the daemon DB.
+type LiveNFSExport struct {
+	ID      int64
+	Path    string
+	Clients string
+	Options string
+	Enabled bool
+}
+
+// LiveUser is a user from the daemon DB.
+type LiveUser struct {
+	ID           int64
+	Username     string
+	PasswordHash string
+	Email        string
+	Role         string
+	Active       bool
+}
+
+// LiveGroup is a group from the daemon DB.
+type LiveGroup struct {
+	ID          int64
+	Name        string
+	Description string
+	GID         int
+	Members     []string // usernames
+}
+
+// LiveReplication is a replication schedule from the JSON file.
+type LiveReplication struct {
+	Name              string
+	SourceDataset     string
+	RemoteHost        string
+	RemoteUser        string
+	RemotePort        int
+	RemotePool        string
+	SSHKeyPath        string
+	Interval          string
+	TriggerOnSnapshot bool
+	Compress          bool
+	RateLimitMB       int
+	Enabled           bool
+}
+
+// LiveStack describes a docker-compose stack.
+type LiveStack struct {
+	Name string
+}
 
 // LiveState is the complete observed system state.
 type LiveState struct {
 	Pools    []LivePool
 	Datasets []LiveDataset
 	Shares   []LiveShare
+	NFS      []LiveNFSExport
+	Stacks      []LiveStack
+	System      *nixwriter.DPlaneState
+	Users       []LiveUser
+	Groups      []LiveGroup
+	Replication []LiveReplication
+	LDAP        *DesiredLDAP
 }
 
 // ReadLiveState collects all live state from ZFS and the DB.
@@ -74,6 +133,38 @@ func ReadLiveState(db *sql.DB) (*LiveState, error) {
 	if err != nil {
 		return nil, fmt.Errorf("reading live shares: %w", err)
 	}
+
+	state.Stacks, err = readLiveStacks()
+	if err != nil {
+		return nil, fmt.Errorf("reading live stacks: %w", err)
+	}
+
+	state.Users, err = readLiveUsers(db)
+	if err != nil {
+		return nil, fmt.Errorf("reading live users: %w", err)
+	}
+
+	state.Groups, err = readLiveGroups(db)
+	if err != nil {
+		return nil, fmt.Errorf("reading live groups: %w", err)
+	}
+
+	state.Replication, err = readLiveReplication()
+	if err != nil {
+		return nil, fmt.Errorf("reading live replication: %w", err)
+	}
+
+	state.NFS, err = readLiveNFSExports(db)
+	if err != nil {
+		return nil, fmt.Errorf("reading live NFS: %w", err)
+	}
+ 
+	state.System, err = readLiveSystem()
+	if err != nil {
+		return nil, fmt.Errorf("reading live system: %w", err)
+	}
+
+	state.LDAP, _ = readLDAPConfig(db)
 
 	return state, nil
 }
@@ -230,6 +321,143 @@ func readLiveShares(db *sql.DB) ([]LiveShare, error) {
 	}
 	return shares, nil
 }
+ 
+func readLiveNFSExports(db *sql.DB) ([]LiveNFSExport, error) {
+	rows, err := db.Query(`SELECT id, path, clients, options, enabled FROM nfs_exports ORDER BY id`)
+	if err != nil {
+		// Table might not exist yet if NFS was never used
+		return nil, nil
+	}
+	defer rows.Close()
+ 
+	var exports []LiveNFSExport
+	for rows.Next() {
+		var e LiveNFSExport
+		var enabledInt int
+		if err := rows.Scan(&e.ID, &e.Path, &e.Clients, &e.Options, &enabledInt); err != nil {
+			continue
+		}
+		e.Enabled = enabledInt == 1
+		exports = append(exports, e)
+	}
+	return exports, nil
+}
+
+func readLiveUsers(db *sql.DB) ([]LiveUser, error) {
+	rows, err := db.Query(`SELECT id, username, password_hash, COALESCE(email,''), COALESCE(role,'user'), active FROM users`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var users []LiveUser
+	for rows.Next() {
+		var u LiveUser
+		var active int
+		if err := rows.Scan(&u.ID, &u.Username, &u.PasswordHash, &u.Email, &u.Role, &active); err != nil {
+			return nil, err
+		}
+		u.Active = active == 1
+		users = append(users, u)
+	}
+	return users, nil
+}
+
+func readLiveGroups(db *sql.DB) ([]LiveGroup, error) {
+	rows, err := db.Query(`SELECT id, name, COALESCE(description,''), COALESCE(gid,0) FROM groups`)
+	if err != nil {
+		// Table might not exist yet if zero groups were ever created
+		return nil, nil
+	}
+	defer rows.Close()
+
+	var groups []LiveGroup
+	for rows.Next() {
+		var g LiveGroup
+		if err := rows.Scan(&g.ID, &g.Name, &g.Description, &g.GID); err != nil {
+			return nil, err
+		}
+
+		// Get members
+		mRows, err := db.Query(`SELECT username FROM users JOIN group_members ON users.id = group_members.user_id WHERE group_members.group_id = ?`, g.ID)
+		if err == nil {
+			for mRows.Next() {
+				var username string
+				mRows.Scan(&username)
+				g.Members = append(g.Members, username)
+			}
+			mRows.Close()
+		}
+
+		groups = append(groups, g)
+	}
+	return groups, nil
+}
+
+func readLiveReplication() ([]LiveReplication, error) {
+	// Usually in /etc/dplaneos/config or /var/lib/dplaneos/config
+	// We'll check common paths or use a default.
+	// For this convergence, we assume it's in the same dir as the daemon's working config.
+	path := "/etc/dplaneos/replication-schedules.json"
+	if _, err := os.Stat("/var/lib/dplaneos/config/replication-schedules.json"); err == nil {
+		path = "/var/lib/dplaneos/config/replication-schedules.json"
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	var raw []map[string]interface{}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return nil, err
+	}
+
+	var repls []LiveReplication
+	for _, m := range raw {
+		r := LiveReplication{
+			Name:              fmt.Sprint(m["name"]),
+			SourceDataset:     fmt.Sprint(m["source_dataset"]),
+			RemoteHost:        fmt.Sprint(m["remote_host"]),
+			RemoteUser:        fmt.Sprint(m["remote_user"]),
+			RemotePort:        int(m["remote_port"].(float64)),
+			RemotePool:        fmt.Sprint(m["remote_pool"]),
+			SSHKeyPath:        fmt.Sprint(m["ssh_key_path"]),
+			Interval:          fmt.Sprint(m["interval"]),
+			TriggerOnSnapshot: m["trigger_on_snapshot"] == true,
+			Compress:          m["compress"] == true,
+			RateLimitMB:       int(m["rate_limit_mb"].(float64)),
+			Enabled:           m["enabled"] == true,
+		}
+		repls = append(repls, r)
+	}
+	return repls, nil
+}
+ 
+func readLiveStacks() ([]LiveStack, error) {
+	// Simple directory listing of stacks
+	entries, err := cmdutil.RunFast("ls", "/var/lib/dplaneos/stacks")
+	if err != nil {
+		return nil, nil
+	}
+	var stacks []LiveStack
+	for _, name := range strings.Fields(string(entries)) {
+		stacks = append(stacks, LiveStack{Name: name})
+	}
+	return stacks, nil
+}
+ 
+func readLiveSystem() (*nixwriter.DPlaneState, error) {
+	w := nixwriter.DefaultWriter()
+	if err := w.LoadFromDisk(); err != nil {
+		return nil, err
+	}
+	s := w.State()
+	return &s, nil
+}
 
 // HasActiveSMBConnections returns true if smbstatus reports any active connections
 // to the named share. Uses cmdutil.RunFast — if smbstatus is unavailable or
@@ -264,4 +492,25 @@ func DatasetUsedBytes(name string) uint64 {
 	}
 	n, _ := strconv.ParseUint(strings.TrimSpace(string(out)), 10, 64)
 	return n
+}
+
+func readLDAPConfig(db *sql.DB) (*DesiredLDAP, error) {
+	row := db.QueryRow(`SELECT enabled, server, port, use_tls, bind_dn, COALESCE(bind_password,''), base_dn,
+		user_filter, user_id_attr, user_name_attr, user_email_attr,
+		group_base_dn, group_filter, group_member_attr,
+		jit_provisioning, default_role, sync_interval, timeout FROM ldap_config WHERE id=1`)
+
+	var cfg DesiredLDAP
+	var enabled, useTLS, jit int
+	err := row.Scan(&enabled, &cfg.Server, &cfg.Port, &useTLS, &cfg.BindDN, &cfg.BindPassword, &cfg.BaseDN,
+		&cfg.UserFilter, &cfg.UserIDAttr, &cfg.UserNameAttr, &cfg.UserEmailAttr,
+		&cfg.GroupBaseDN, &cfg.GroupFilter, &cfg.GroupMemberAttr,
+		&jit, &cfg.DefaultRole, &cfg.SyncInterval, &cfg.Timeout)
+	if err != nil {
+		return nil, err
+	}
+	cfg.Enabled = enabled == 1
+	cfg.UseTLS = useTLS == 1
+	cfg.JITProvisioning = jit == 1
+	return &cfg, nil
 }

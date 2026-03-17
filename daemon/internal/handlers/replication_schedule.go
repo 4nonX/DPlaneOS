@@ -1,6 +1,8 @@
 package handlers
 
 import (
+	"database/sql"
+	"dplaned/internal/gitops"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -13,6 +15,14 @@ import (
 	"dplaned/internal/jobs"
 	"github.com/gorilla/mux"
 )
+
+type ReplicationScheduleHandler struct {
+	db *sql.DB
+}
+
+func NewReplicationScheduleHandler(db *sql.DB) *ReplicationScheduleHandler {
+	return &ReplicationScheduleHandler{db: db}
+}
 
 // ============================================================
 // REPLICATION SCHEDULES
@@ -75,7 +85,7 @@ func saveReplicationSchedules(schedules []ReplicationSchedule) error {
 }
 
 // HandleListReplicationSchedules serves GET /api/replication/schedules
-func HandleListReplicationSchedules(w http.ResponseWriter, r *http.Request) {
+func (h *ReplicationScheduleHandler) HandleListReplicationSchedules(w http.ResponseWriter, r *http.Request) {
 	schedules, err := loadReplicationSchedules()
 	if err != nil {
 		respondErrorSimple(w, "Failed to load schedules: "+err.Error(), http.StatusInternalServerError)
@@ -85,7 +95,7 @@ func HandleListReplicationSchedules(w http.ResponseWriter, r *http.Request) {
 }
 
 // HandleCreateReplicationSchedule serves POST /api/replication/schedules
-func HandleCreateReplicationSchedule(w http.ResponseWriter, r *http.Request) {
+func (h *ReplicationScheduleHandler) HandleCreateReplicationSchedule(w http.ResponseWriter, r *http.Request) {
 	var s ReplicationSchedule
 	if err := json.NewDecoder(r.Body).Decode(&s); err != nil {
 		respondErrorSimple(w, "Invalid request body", http.StatusBadRequest)
@@ -129,10 +139,13 @@ func HandleCreateReplicationSchedule(w http.ResponseWriter, r *http.Request) {
 	}
 
 	respondOK(w, map[string]interface{}{"success": true, "schedule": s})
+
+	// GITOPS HOOK: write state back to git
+	go gitops.CommitAll(h.db)
 }
 
 // HandleDeleteReplicationSchedule serves DELETE /api/replication/schedules/{id}
-func HandleDeleteReplicationSchedule(w http.ResponseWriter, r *http.Request) {
+func (h *ReplicationScheduleHandler) HandleDeleteReplicationSchedule(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	id := vars["id"]
 	if id == "" {
@@ -166,10 +179,13 @@ func HandleDeleteReplicationSchedule(w http.ResponseWriter, r *http.Request) {
 	}
 
 	respondOK(w, map[string]interface{}{"success": true})
+
+	// GITOPS HOOK: write state back to git
+	go gitops.CommitAll(h.db)
 }
 
 // HandleRunReplicationScheduleNow serves POST /api/replication/schedules/{id}/run
-func HandleRunReplicationScheduleNow(w http.ResponseWriter, r *http.Request) {
+func (h *ReplicationScheduleHandler) HandleRunReplicationScheduleNow(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	id := vars["id"]
 	if id == "" {

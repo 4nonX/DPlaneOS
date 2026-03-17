@@ -4,6 +4,7 @@ import (
 	"database/sql"
 
 	"dplaned/internal/cmdutil"
+	"dplaned/internal/gitops"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -232,6 +233,9 @@ func (h *ShareCRUDHandler) createShare(w http.ResponseWriter, req shareActionReq
 		"id":      id,
 		"message": fmt.Sprintf("Share %s created", req.Name),
 	})
+
+	// GITOPS HOOK: write state back to git
+	go gitops.CommitAll(h.db)
 }
 
 func (h *ShareCRUDHandler) updateShare(w http.ResponseWriter, req shareActionRequest) {
@@ -287,6 +291,9 @@ func (h *ShareCRUDHandler) updateShare(w http.ResponseWriter, req shareActionReq
 		"success": true,
 		"message": "Share updated",
 	})
+
+	// GITOPS HOOK: write state back to git
+	go gitops.CommitAll(h.db)
 }
 
 func (h *ShareCRUDHandler) deleteShare(w http.ResponseWriter, req shareActionRequest) {
@@ -302,6 +309,9 @@ func (h *ShareCRUDHandler) deleteShare(w http.ResponseWriter, req shareActionReq
 		"success": true,
 		"message": "Share deleted",
 	})
+
+	// GITOPS HOOK: write state back to git
+	go gitops.CommitAll(h.db)
 }
 
 // deleteShareByName handles DELETE /api/shares with a JSON body { "name": "sharename" }.
@@ -335,6 +345,9 @@ func (h *ShareCRUDHandler) deleteShareByName(w http.ResponseWriter, r *http.Requ
 		"success": true,
 		"message": "Share deleted",
 	})
+
+	// GITOPS HOOK: write state back to git
+	go gitops.CommitAll(h.db)
 }
 
 // regenerateSMBConf rebuilds /etc/samba/smb.conf from the database

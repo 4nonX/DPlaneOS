@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+ 
+	"dplaned/internal/nixwriter"
 )
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -65,6 +67,12 @@ const (
 	KindPool    ResourceKind = "pool"
 	KindDataset ResourceKind = "dataset"
 	KindShare   ResourceKind = "share"
+	KindNFS     ResourceKind = "nfs"
+	KindStack   ResourceKind = "stack"
+	KindSystem  ResourceKind = "system"
+	KindUser    ResourceKind = "user"
+	KindGroup   ResourceKind = "group"
+	KindReplication ResourceKind = "replication"
 )
 
 // DiffItem is one entry in the reconciliation plan.
@@ -94,6 +102,12 @@ type DiffItem struct {
 	DesiredPool    *DesiredPool    `json:"desired_pool,omitempty"`
 	DesiredDataset *DesiredDataset `json:"desired_dataset,omitempty"`
 	DesiredShare   *DesiredShare   `json:"desired_share,omitempty"`
+	DesiredNFS     *DesiredNFS     `json:"desired_nfs,omitempty"`
+	DesiredStack   *DesiredStack   `json:"desired_stack,omitempty"`
+	DesiredSystem  *DesiredSystem  `json:"desired_system,omitempty"`
+	DesiredUser    *DesiredUser    `json:"desired_user,omitempty"`
+	DesiredGroup   *DesiredGroup   `json:"desired_group,omitempty"`
+	DesiredReplication *DesiredReplication `json:"desired_replication,omitempty"`
 }
 
 // Plan is the complete reconciliation plan: the ordered list of DiffItems.
@@ -137,6 +151,26 @@ func ComputeDiff(desired *DesiredState, live *LiveState) *Plan {
 	for _, s := range live.Shares {
 		liveShares[s.Name] = s
 	}
+ 
+	liveNFS := make(map[string]LiveNFSExport)
+	for _, e := range live.NFS {
+		liveNFS[e.Path] = e
+	}
+
+	liveUsers := make(map[string]LiveUser)
+	for _, u := range live.Users {
+		liveUsers[u.Username] = u
+	}
+
+	liveGroups := make(map[string]LiveGroup)
+	for _, g := range live.Groups {
+		liveGroups[g.Name] = g
+	}
+
+	liveRepls := make(map[string]LiveReplication)
+	for _, r := range live.Replication {
+		liveRepls[r.Name] = r
+	}
 
 	desiredPools := make(map[string]DesiredPool)
 	for _, p := range desired.Pools {
@@ -151,6 +185,63 @@ func ComputeDiff(desired *DesiredState, live *LiveState) *Plan {
 	desiredShares := make(map[string]DesiredShare)
 	for _, s := range desired.Shares {
 		desiredShares[s.Name] = s
+	}
+
+	desiredNFS := make(map[string]DesiredNFS)
+	for _, n := range desired.NFS {
+		desiredNFS[n.Path] = n
+	}
+
+	desiredStacks := make(map[string]DesiredStack)
+	for _, s := range desired.Stacks {
+		desiredStacks[s.Name] = s
+	}
+
+	liveStacks := make(map[string]LiveStack)
+	for _, s := range live.Stacks {
+		liveStacks[s.Name] = s
+	}
+
+	desiredGroups := make(map[string]DesiredGroup)
+	for _, g := range desired.Groups {
+		desiredGroups[g.Name] = g
+	}
+
+	desiredRepls := make(map[string]DesiredReplication)
+	for _, r := range desired.Replication {
+		desiredRepls[r.Name] = r
+	}
+ 
+	// ── Phase 0: SYSTEM configuration ─────────────────────────────────────────
+	if desired.System != nil {
+		if live.System == nil {
+			// System always exists conceptually, but if for some reason live state 
+			// reading failed, we treat it as a modify if we have desired state.
+			// Actually ReadLiveState always returns a non-nil System if it doesn't error.
+			plan.Items = append(plan.Items, DiffItem{
+				Kind:          KindSystem,
+				Name:          "system",
+				Action:        ActionModify,
+				RiskLevel:     "medium",
+				DesiredSystem: desired.System,
+			})
+		} else {
+			changes := diffSystem(*desired.System, *live.System)
+			if len(changes) > 0 {
+				plan.Items = append(plan.Items, DiffItem{
+					Kind:          KindSystem,
+					Name:          "system",
+					Action:        ActionModify,
+					Changes:       changes,
+					RiskLevel:     riskForSystemChanges(changes),
+					DesiredSystem: desired.System,
+				})
+			} else {
+				plan.Items = append(plan.Items, DiffItem{
+					Kind: KindSystem, Name: "system", Action: ActionNOP, RiskLevel: "low",
+				})
+			}
+		}
 	}
 
 	// ── Phase 1: CREATE items (desired exists, live does not) ─────────────────
@@ -185,13 +276,81 @@ func ComputeDiff(desired *DesiredState, live *LiveState) *Plan {
 	for _, ds := range desired.Shares {
 		if _, exists := liveShares[ds.Name]; !exists {
 			item := ds // copy
-		plan.Items = append(plan.Items, DiffItem{
+			plan.Items = append(plan.Items, DiffItem{
 				Kind:         KindShare,
 				Name:         ds.Name,
 				Action:       ActionCreate,
 				RiskLevel:    "low",
 				DesiredShare: &item,
 			})
+		}
+	}
+ 
+	for _, dn := range desired.NFS {
+		if _, exists := liveNFS[dn.Path]; !exists {
+			item := dn // copy
+			plan.Items = append(plan.Items, DiffItem{
+				Kind:       KindNFS,
+				Name:       dn.Path,
+				Action:     ActionCreate,
+				RiskLevel:  "low",
+				DesiredNFS: &item,
+			})
+		}
+	}
+
+	for _, dst := range desired.Stacks {
+		if _, exists := liveStacks[dst.Name]; !exists {
+			item := dst // copy
+			plan.Items = append(plan.Items, DiffItem{
+				Kind:         KindStack,
+				Name:         dst.Name,
+				Action:       ActionCreate,
+				RiskLevel:    "medium",
+				DesiredStack: &item,
+			})
+		}
+	}
+
+	for _, du := range desired.Users {
+		if _, exists := liveUsers[du.Username]; !exists {
+			item := du
+			plan.Items = append(plan.Items, DiffItem{
+				Kind:        KindUser,
+				Name:        du.Username,
+				Action:      ActionCreate,
+				RiskLevel:   "medium",
+				DesiredUser: &item,
+			})
+			plan.CreateCount++
+		}
+	}
+
+	for _, dg := range desired.Groups {
+		if _, exists := liveGroups[dg.Name]; !exists {
+			item := dg
+			plan.Items = append(plan.Items, DiffItem{
+				Kind:         KindGroup,
+				Name:         dg.Name,
+				Action:       ActionCreate,
+				RiskLevel:    "low",
+				DesiredGroup: &item,
+			})
+			plan.CreateCount++
+		}
+	}
+
+	for _, dr := range desired.Replication {
+		if _, exists := liveRepls[dr.Name]; !exists {
+			item := dr
+			plan.Items = append(plan.Items, DiffItem{
+				Kind:               KindReplication,
+				Name:               dr.Name,
+				Action:             ActionCreate,
+				RiskLevel:          "low",
+				DesiredReplication: &item,
+			})
+			plan.CreateCount++
 		}
 	}
 
@@ -265,6 +424,103 @@ func ComputeDiff(desired *DesiredState, live *LiveState) *Plan {
 			DesiredShare: &dsCopy,
 		})
 	}
+ 
+	for _, dn := range desired.NFS {
+		ln, exists := liveNFS[dn.Path]
+		if !exists {
+			continue
+		}
+		changes := diffNFS(dn, ln)
+		if len(changes) == 0 {
+			plan.Items = append(plan.Items, DiffItem{
+				Kind: KindNFS, Name: dn.Path, Action: ActionNOP, RiskLevel: "low",
+			})
+			continue
+		}
+		dnCopy := dn
+		plan.Items = append(plan.Items, DiffItem{
+			Kind:       KindNFS,
+			Name:       dn.Path,
+			Action:     ActionModify,
+			Changes:    changes,
+			RiskLevel:  "low",
+			DesiredNFS: &dnCopy,
+		})
+	}
+
+	for _, dst := range desired.Stacks {
+		lst, exists := liveStacks[dst.Name]
+		if !exists {
+			continue
+		}
+		changes := diffStack(dst, lst)
+		if len(changes) == 0 {
+			plan.Items = append(plan.Items, DiffItem{
+				Kind: KindStack, Name: dst.Name, Action: ActionNOP, RiskLevel: "low",
+			})
+			continue
+		}
+		dstCopy := dst
+		plan.Items = append(plan.Items, DiffItem{
+			Kind:         KindStack,
+			Name:         dst.Name,
+			Action:       ActionModify,
+			Changes:      changes,
+			RiskLevel:    riskForStackChanges(changes),
+			DesiredStack: &dstCopy,
+		})
+	}
+
+	for _, du := range desired.Users {
+		if l, ok := liveUsers[du.Username]; ok {
+			changes := diffUser(du, l)
+			if len(changes) > 0 {
+				item := du
+				plan.Items = append(plan.Items, DiffItem{
+					Kind:        KindUser,
+					Name:        du.Username,
+					Action:      ActionModify,
+					Changes:     changes,
+					RiskLevel:   "high",
+					DesiredUser: &item,
+				})
+			}
+		}
+	}
+
+	for _, dg := range desired.Groups {
+		if l, ok := liveGroups[dg.Name]; ok {
+			changes := diffGroup(dg, l)
+			if len(changes) > 0 {
+				item := dg
+				plan.Items = append(plan.Items, DiffItem{
+					Kind:         KindGroup,
+					Name:         dg.Name,
+					Action:       ActionModify,
+					Changes:      changes,
+					RiskLevel:    "medium",
+					DesiredGroup: &item,
+				})
+			}
+		}
+	}
+
+	for _, dr := range desired.Replication {
+		if l, ok := liveRepls[dr.Name]; ok {
+			changes := diffReplication(dr, l)
+			if len(changes) > 0 {
+				item := dr
+				plan.Items = append(plan.Items, DiffItem{
+					Kind:               KindReplication,
+					Name:               dr.Name,
+					Action:             ActionModify,
+					Changes:            changes,
+					RiskLevel:          "medium",
+					DesiredReplication: &item,
+				})
+			}
+		}
+	}
 
 	// ── Phase 3: DELETE / BLOCKED (live exists, not in desired) ───────────────
 	// This is where the safety contract is enforced.
@@ -292,6 +548,71 @@ func ComputeDiff(desired *DesiredState, live *LiveState) *Plan {
 		}
 		item := blockedCheckShare(ls)
 		plan.Items = append(plan.Items, item)
+	}
+ 
+	for _, ln := range live.NFS {
+		if _, wanted := desiredNFS[ln.Path]; wanted {
+			continue
+		}
+		// NFS deletion is safe (no data loss)
+		plan.Items = append(plan.Items, DiffItem{
+			Kind:      KindNFS,
+			Name:      ln.Path,
+			Action:    ActionDelete,
+			RiskLevel: "low",
+		})
+	}
+
+	for _, lst := range live.Stacks {
+		if _, wanted := desiredStacks[lst.Name]; wanted {
+			continue
+		}
+		// Stack deletion is safe (ActionDelete), but we mark it high risk
+		plan.Items = append(plan.Items, DiffItem{
+			Kind:      KindStack,
+			Name:      lst.Name,
+			Action:    ActionDelete,
+			RiskLevel: "high",
+		})
+	}
+
+	for _, lu := range live.Users {
+		found := false
+		for _, du := range desired.Users {
+			if du.Username == lu.Username { found = true; break }
+		}
+		if !found && lu.Username != "admin" && lu.Username != "root" {
+			plan.Items = append(plan.Items, DiffItem{
+				Kind:      KindUser,
+				Name:      lu.Username,
+				Action:    ActionDelete,
+				RiskLevel: "high",
+			})
+		}
+	}
+
+	for _, lg := range live.Groups {
+		if _, wanted := desiredGroups[lg.Name]; wanted {
+			continue
+		}
+		plan.Items = append(plan.Items, DiffItem{
+			Kind:      KindGroup,
+			Name:      lg.Name,
+			Action:    ActionDelete,
+			RiskLevel: "medium",
+		})
+	}
+
+	for _, lr := range live.Replication {
+		if _, wanted := desiredRepls[lr.Name]; wanted {
+			continue
+		}
+		plan.Items = append(plan.Items, DiffItem{
+			Kind:      KindReplication,
+			Name:      lr.Name,
+			Action:    ActionDelete,
+			RiskLevel: "low",
+		})
 	}
 
 	// ── Tally ─────────────────────────────────────────────────────────────────
@@ -530,6 +851,123 @@ func riskForDatasetChanges(changes []string) string {
 	return "low"
 }
 
+func riskForStackChanges(changes []string) string {
+	for _, c := range changes {
+		if strings.Contains(c, "yaml") {
+			return "high" // redeploying can be disruptive
+		}
+	}
+	return "medium"
+}
+ 
+func diffUser(desired DesiredUser, live LiveUser) []string {
+	var changes []string
+	if desired.PasswordHash != "" && desired.PasswordHash != live.PasswordHash {
+		changes = append(changes, "password_hash: (hidden) → (updated)")
+	}
+	if desired.Email != live.Email {
+		changes = append(changes, fmt.Sprintf("email: %q → %q", live.Email, desired.Email))
+	}
+	if desired.Role != live.Role {
+		changes = append(changes, fmt.Sprintf("role: %q → %q", live.Role, desired.Role))
+	}
+	if desired.Active != live.Active {
+		changes = append(changes, fmt.Sprintf("active: %v → %v", live.Active, desired.Active))
+	}
+	return changes
+}
+
+func diffGroup(desired DesiredGroup, live LiveGroup) []string {
+	var changes []string
+	if desired.Description != live.Description {
+		changes = append(changes, fmt.Sprintf("description: %q → %q", live.Description, desired.Description))
+	}
+	if desired.GID != 0 && desired.GID != live.GID {
+		changes = append(changes, fmt.Sprintf("gid: %d → %d", live.GID, desired.GID))
+	}
+	if !equalSlices(desired.Members, live.Members) {
+		changes = append(changes, fmt.Sprintf("members: %v → %v", live.Members, desired.Members))
+	}
+	return changes
+}
+
+func diffReplication(desired DesiredReplication, live LiveReplication) []string {
+	var changes []string
+	if desired.SourceDataset != live.SourceDataset {
+		changes = append(changes, fmt.Sprintf("source_dataset: %q → %q", live.SourceDataset, desired.SourceDataset))
+	}
+	if desired.RemoteHost != live.RemoteHost {
+		changes = append(changes, fmt.Sprintf("remote_host: %q → %q", live.RemoteHost, desired.RemoteHost))
+	}
+	if desired.RemotePort != live.RemotePort {
+		changes = append(changes, fmt.Sprintf("remote_port: %d → %d", live.RemotePort, desired.RemotePort))
+	}
+	if desired.Interval != live.Interval {
+		changes = append(changes, fmt.Sprintf("interval: %q → %q", live.Interval, desired.Interval))
+	}
+	if desired.Enabled != live.Enabled {
+		changes = append(changes, fmt.Sprintf("enabled: %v → %v", live.Enabled, desired.Enabled))
+	}
+	return changes
+}
+
+func riskForSystemChanges(changes []string) string {
+	for _, c := range changes {
+		if strings.Contains(c, "hostname") || strings.Contains(c, "networking") {
+			return "high" // changes that can break connectivity
+		}
+	}
+	return "medium"
+}
+ 
+func diffSystem(desired DesiredSystem, live nixwriter.DPlaneState) []string {
+	var changes []string
+	if desired.Hostname != "" && desired.Hostname != live.Hostname {
+		changes = append(changes, fmt.Sprintf("hostname: %q → %q", live.Hostname, desired.Hostname))
+	}
+	if desired.Timezone != "" && desired.Timezone != live.Timezone {
+		changes = append(changes, fmt.Sprintf("timezone: %q → %q", live.Timezone, desired.Timezone))
+	}
+	// ... add more diffs for DNS, NTP, etc ...
+	// Simple slice comparisons for brevity here
+	if !equalSlices(desired.DNSServers, live.DNSServers) {
+		changes = append(changes, "dns_servers changed")
+	}
+	if !equalSlices(desired.NTPServers, live.NTPServers) {
+		changes = append(changes, "ntp_servers changed")
+	}
+	// Firewall
+	if !equalIntSlices(desired.Firewall.TCP, live.Firewall.TCP) {
+		changes = append(changes, "firewall_tcp changed")
+	}
+	if !equalIntSlices(desired.Firewall.UDP, live.Firewall.UDP) {
+		changes = append(changes, "firewall_udp changed")
+	}
+	
+	// Networking (basic check for changes)
+	if len(desired.Networking.Statics) > 0 {
+		changes = append(changes, "networking_statics synchronized")
+	}
+ 
+	return changes
+}
+ 
+func equalSlices(a, b []string) bool {
+	if len(a) != len(b) { return false }
+	for i := range a {
+		if a[i] != b[i] { return false }
+	}
+	return true
+}
+ 
+func equalIntSlices(a, b []int) bool {
+	if len(a) != len(b) { return false }
+	for i := range a {
+		if a[i] != b[i] { return false }
+	}
+	return true
+}
+
 // ── Utility ───────────────────────────────────────────────────────────────────
 
 // parseQuota converts a quota string to bytes for comparison.
@@ -573,4 +1011,47 @@ func humaniseBytes(b uint64) string {
 		exp++
 	}
 	return fmt.Sprintf("%.1f %ciB", float64(b)/float64(div), "KMGTPE"[exp])
+}
+
+func diffLDAP(desired *DesiredLDAP, live *DesiredLDAP) []DiffItem {
+	if live == nil {
+		return []DiffItem{{
+			Kind: KindLDAP, Name: "LDAP Config", Action: ActionCreate,
+			DesiredLDAP: desired,
+			Changes:     []string{"Enable LDAP configuration"},
+		}}
+	}
+
+	var changes []string
+	if desired.Enabled != live.Enabled {
+		changes = append(changes, fmt.Sprintf("Enabled: %v -> %v", live.Enabled, desired.Enabled))
+	}
+	if desired.Server != live.Server {
+		changes = append(changes, fmt.Sprintf("Server: %s -> %s", live.Server, desired.Server))
+	}
+	if desired.Port != live.Port {
+		changes = append(changes, fmt.Sprintf("Port: %d -> %d", live.Port, desired.Port))
+	}
+	if desired.UseTLS != live.UseTLS {
+		changes = append(changes, fmt.Sprintf("UseTLS: %v -> %v", live.UseTLS, desired.UseTLS))
+	}
+	if desired.BindDN != live.BindDN {
+		changes = append(changes, fmt.Sprintf("BindDN: %s -> %s", live.BindDN, desired.BindDN))
+	}
+	if desired.BindPassword != "" && desired.BindPassword != live.BindPassword {
+		changes = append(changes, "BindPassword: (changed)")
+	}
+	if desired.BaseDN != live.BaseDN {
+		changes = append(changes, fmt.Sprintf("BaseDN: %s -> %s", live.BaseDN, desired.BaseDN))
+	}
+
+	if len(changes) == 0 {
+		return nil
+	}
+
+	return []DiffItem{{
+		Kind: KindLDAP, Name: "LDAP Config", Action: ActionModify,
+		DesiredLDAP: desired,
+		Changes:     changes,
+	}}
 }

@@ -55,7 +55,7 @@ jobs:
       - name: Install build dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y gcc libc6-dev sqlite3
+          sudo apt-get install -y gcc libc6-dev sqlite3 gcc-aarch64-linux-gnu
 
       - name: Vendor dependencies
         working-directory: daemon
@@ -73,15 +73,26 @@ jobs:
       - name: Build daemon (amd64)
         working-directory: daemon
         run: |
-          CGO_ENABLED=1 go build \
+          GOOS=linux GOARCH=amd64 CGO_ENABLED=1 go build \
             -mod=vendor \
             -tags sqlite_fts5 \
             -ldflags="-s -w -X main.Version=${VERSION}" \
             -o ../build/dplaned-linux-amd64 \
             ./cmd/dplaned/
-          echo "Binary size: $(du -h ../build/dplaned-linux-amd64 | cut -f1)"
+          echo "amd64 Binary size: $(du -h ../build/dplaned-linux-amd64 | cut -f1)"
 
-      - name: Smoke test binary
+      - name: Build daemon (arm64)
+        working-directory: daemon
+        run: |
+          GOOS=linux GOARCH=arm64 CGO_ENABLED=1 CC=aarch64-linux-gnu-gcc go build \
+            -mod=vendor \
+            -tags sqlite_fts5 \
+            -ldflags="-s -w -X main.Version=${VERSION}" \
+            -o ../build/dplaned-linux-arm64 \
+            ./cmd/dplaned/
+          echo "arm64 Binary size: $(du -h ../build/dplaned-linux-arm64 | cut -f1)"
+
+      - name: Smoke test binary (amd64 only)
         run: |
           SMOKE_DB=$(mktemp /tmp/smoke-XXXXX.db)
           ./build/dplaned-linux-amd64 -db "$SMOKE_DB" -listen 127.0.0.1:19876 &
@@ -112,34 +123,35 @@ jobs:
 
       - name: Package release tarballs
         run: |
-          TARBALL="dplaneos-v${VERSION}-linux-amd64.tar.gz"
-
-          # Copy binary into build/ for packaging
+          # Package amd64
+          AMD64_TARBALL="dplaneos-v${VERSION}-linux-amd64.tar.gz"
           cp build/dplaned-linux-amd64 build/dplaned
-
-          tar czf "$TARBALL" \
+          tar czf "$AMD64_TARBALL" \
             --transform="s|^|dplaneos-v${VERSION}/|" \
-            --exclude='*.bak' \
-            --exclude='.sync-conflict-*' \
-            --exclude='.git' \
-            --exclude='legacy' \
-            --exclude='app-built' \
+            --exclude='*.bak' --exclude='.sync-conflict-*' --exclude='.git' --exclude='legacy' --exclude='app-built' \
             app/ build/dplaned build/.gitkeep daemon/ install/ nixos/ docs/ \
-            .github/ .gitattributes .gitignore \
-            install.sh get.sh Makefile VERSION LICENSE \
-            README.md CONTRIBUTING.md SECURITY.md CLA-INDIVIDUAL.md CLA-ENTITY.md
+            .github/ .gitattributes .gitignore install.sh get.sh Makefile VERSION LICENSE README.md CONTRIBUTING.md
 
-          echo "TARBALL=$TARBALL" >> $GITHUB_ENV
-          echo "Tarball: $(du -h $TARBALL | cut -f1)"
-          echo "File count: $(tar tzf $TARBALL | wc -l)"
+          # Package arm64
+          ARM64_TARBALL="dplaneos-v${VERSION}-linux-arm64.tar.gz"
+          cp build/dplaned-linux-arm64 build/dplaned
+          tar czf "$ARM64_TARBALL" \
+            --transform="s|^|dplaneos-v${VERSION}/|" \
+            --exclude='*.bak' --exclude='.sync-conflict-*' --exclude='.git' --exclude='legacy' --exclude='app-built' \
+            app/ build/dplaned build/.gitkeep daemon/ install/ nixos/ docs/ \
+            .github/ .gitattributes .gitignore install.sh get.sh Makefile VERSION LICENSE README.md CONTRIBUTING.md
 
-      - name: Generate SHA256 checksum
+          echo "AMD64_TARBALL=$AMD64_TARBALL" >> $GITHUB_ENV
+          echo "ARM64_TARBALL=$ARM64_TARBALL" >> $GITHUB_ENV
+
+      - name: Generate SHA256 checksums
         run: |
-          SHA256FILE="dplaneos-v${VERSION}-linux-amd64.tar.gz.sha256"
-          sha256sum "$TARBALL" > "$SHA256FILE"
-          echo "SHA256FILE=$SHA256FILE" >> $GITHUB_ENV
-          echo "Checksum:"
-          cat "$SHA256FILE"
+          AMD64_SHA="dplaneos-v${VERSION}-linux-amd64.tar.gz.sha256"
+          ARM64_SHA="dplaneos-v${VERSION}-linux-arm64.tar.gz.sha256"
+          sha256sum "$AMD64_TARBALL" > "$AMD64_SHA"
+          sha256sum "$ARM64_TARBALL" > "$ARM64_SHA"
+          echo "AMD64_SHA=$AMD64_SHA" >> $GITHUB_ENV
+          echo "ARM64_SHA=$ARM64_SHA" >> $GITHUB_ENV
 
       - name: Publish GitHub Release (draft — edit notes then publish)
         uses: softprops/action-gh-release@v2
@@ -148,8 +160,10 @@ jobs:
           name: ${{ env.RELEASE_TITLE }}
           body_path: /tmp/release-notes.md
           files: |
-            ${{ env.TARBALL }}
-            ${{ env.SHA256FILE }}
+            ${{ env.AMD64_TARBALL }}
+            ${{ env.AMD64_SHA }}
+            ${{ env.ARM64_TARBALL }}
+            ${{ env.ARM64_SHA }}
           draft: true
           prerelease: false
           make_latest: true

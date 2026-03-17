@@ -24,6 +24,9 @@ import (
 //    POST /api/gitops/apply           — apply the current plan
 //    POST /api/gitops/approve         — mark a BLOCKED item as approved
 //    POST /api/gitops/check           — trigger an immediate drift check
+//    GET  /api/gitops/settings        — return GitOps configuration (enabled, granular flags)
+//    PUT  /api/gitops/settings        — update GitOps configuration
+//    POST /api/gitops/sync            — manual sync fallback (pull -> commitall -> push)
 //    GET  /api/gitops/state           — return current state.yaml content
 //    PUT  /api/gitops/state           — write and validate a new state.yaml
 //
@@ -379,6 +382,110 @@ func (h *GitOpsHandler) PutState(w http.ResponseWriter, r *http.Request) {
 		"path":    h.stateYAMLPath,
 		"bytes":   len(req.Content),
 		"message": "state.yaml saved and validated — drift check triggered",
+	})
+}
+
+}
+
+// ── GET /api/gitops/settings ──────────────────────────────────────────────────
+
+type GitOpsSettings struct {
+	Enabled         bool   `json:"enabled"`
+	RepoID          int64  `json:"repo_id"`
+	StatePath       string `json:"state_path"`
+	SyncStorage     bool   `json:"sync_storage"`
+	SyncAccess      bool   `json:"sync_access"`
+	SyncApp         bool   `json:"sync_app"`
+	SyncIdentity    bool   `json:"sync_identity"`
+	SyncProtection  bool   `json:"sync_protection"`
+	SyncSystem      bool   `json:"sync_system"`
+	UpdatedAt       string `json:"updated_at"`
+}
+
+func (h *GitOpsHandler) GetSettings(w http.ResponseWriter, r *http.Request) {
+	var s GitOpsSettings
+	var enabled, storage, access, app, identity, protection, system int
+	var repoID sql.NullInt64
+
+	err := h.db.QueryRow(`SELECT enabled, repo_id, state_path, sync_storage, sync_access, 
+		sync_app, sync_identity, sync_protection, sync_system, updated_at 
+		FROM gitops_config WHERE id = 1`).Scan(
+		&enabled, &repoID, &s.StatePath, &storage, &access, &app, &identity, &protection, &system, &s.UpdatedAt)
+
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to load gitops settings", err)
+		return
+	}
+
+	s.Enabled = enabled == 1
+	s.RepoID = repoID.Int64
+	s.SyncStorage = storage == 1
+	s.SyncAccess = access == 1
+	s.SyncApp = app == 1
+	s.SyncIdentity = identity == 1
+	s.SyncProtection = protection == 1
+	s.SyncSystem = system == 1
+
+	respondOK(w, map[string]interface{}{"success": true, "settings": s})
+}
+
+// ── PUT /api/gitops/settings ──────────────────────────────────────────────────
+
+func (h *GitOpsHandler) UpdateSettings(w http.ResponseWriter, r *http.Request) {
+	var req GitOpsSettings
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid request body", err)
+		return
+	}
+
+	boolToInt := func(b bool) int {
+		if b { return 1 }
+		return 0
+	}
+
+	_, err := h.db.Exec(`UPDATE gitops_config SET 
+		enabled=?, repo_id=?, state_path=?, sync_storage=?, sync_access=?, 
+		sync_app=?, sync_identity=?, sync_protection=?, sync_system=?, updated_at=datetime('now')
+		WHERE id = 1`,
+		boolToInt(req.Enabled), req.RepoID, req.StatePath, 
+		boolToInt(req.SyncStorage), boolToInt(req.SyncAccess), boolToInt(req.SyncApp), 
+		boolToInt(req.SyncIdentity), boolToInt(req.SyncProtection), boolToInt(req.SyncSystem))
+
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to update gitops settings", err)
+		return
+	}
+
+	log.Printf("GITOPS: Settings updated — enabled=%v repo=%d", req.Enabled, req.RepoID)
+	respondOK(w, map[string]interface{}{"success": true, "message": "Settings updated"})
+}
+
+// ── POST /api/gitops/sync ───────────────────────────────────────────────────
+
+// SyncNow performs a manual pull -> commitall -> push fallback.
+func (h *GitOpsHandler) SyncNow(w http.ResponseWriter, r *http.Request) {
+	// 1. Trigger Drift Check (which pulls)
+	result := h.detector.CheckNow()
+	if result.Error != "" {
+		respondOK(w, map[string]interface{}{
+			"success": false, 
+			"error": "Pull failed: " + result.Error,
+		})
+		return
+	}
+
+	// 2. Commit All current state
+	if err := gitops.CommitAll(h.db); err != nil {
+		respondOK(w, map[string]interface{}{
+			"success": false, 
+			"error": "Commit/Push failed: " + err.Error(),
+		})
+		return
+	}
+
+	respondOK(w, map[string]interface{}{
+		"success": true, 
+		"message": "Manual sync completed successfully",
 	})
 }
 
