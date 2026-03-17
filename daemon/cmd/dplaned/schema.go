@@ -347,6 +347,12 @@ func initSchema(db *sql.DB) error {
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_disk_registry_by_id  ON disk_registry(by_id_path)`,
 		`CREATE INDEX IF NOT EXISTS idx_disk_registry_serial ON disk_registry(serial)`,
+		// ── System-level key-value configuration ──
+		`CREATE TABLE IF NOT EXISTS system_config (
+			key TEXT PRIMARY KEY,
+			value TEXT NOT NULL,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
 	}
 
 	for _, stmt := range tables {
