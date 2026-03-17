@@ -1,4 +1,4 @@
-package handlers
+﻿package handlers
 
 import (
 	"database/sql"
@@ -19,19 +19,19 @@ import (
 )
 
 // ═══════════════════════════════════════════════════════════════
-//  Docker Stack Management — D-PlaneOS YAML → Deploy workflow
+//  Docker Stack Management - D-PlaneOS YAML → Deploy workflow
 // ═══════════════════════════════════════════════════════════════
 //
 //  Default stacks directory: /var/lib/dplaneos/stacks/
 //  Each stack is a subdirectory containing docker-compose.yml.
 //
 //  Endpoints:
-//    POST   /api/docker/stacks/deploy   — write YAML + compose up
-//    GET    /api/docker/stacks          — list all stacks with status
-//    GET    /api/docker/stacks/yaml     — read a stack's YAML
-//    PUT    /api/docker/stacks/yaml     — update YAML + optional redeploy
-//    DELETE /api/docker/stacks          — compose down + remove directory
-//    POST   /api/docker/stacks/action   — start/stop/restart a stack
+//    POST   /api/docker/stacks/deploy   - write YAML + compose up
+//    GET    /api/docker/stacks          - list all stacks with status
+//    GET    /api/docker/stacks/yaml     - read a stack's YAML
+//    PUT    /api/docker/stacks/yaml     - update YAML + optional redeploy
+//    DELETE /api/docker/stacks          - compose down + remove directory
+//    POST   /api/docker/stacks/action   - start/stop/restart a stack
 
 const defaultStacksDir = config.StacksDir
 
@@ -459,12 +459,12 @@ func (h *StackHandler) DeleteStack(w http.ResponseWriter, r *http.Request) {
 	user := getUserFromRequest(r)
 	start := time.Now()
 
-	// Run compose down first (best effort — stack might already be stopped)
+	// Run compose down first (best effort - stack might already be stopped)
 	if _, err := os.Stat(composePath); err == nil {
 		output, downErr := cmdutil.RunMedium("/usr/bin/docker",
 			"compose", "--project-directory", dir, "-f", composePath, "down")
 		if downErr != nil {
-			// Log but don't fail — user may still want the directory removed
+			// Log but don't fail - user may still want the directory removed
 			audit.LogCommand(audit.LevelWarn, user, "stack_down",
 				[]string{name}, false, time.Since(start), downErr)
 			_ = output // consumed
@@ -615,7 +615,7 @@ func computeStackStatus(services []map[string]interface{}) string {
 	}
 }
 
-// getUserFromRequest is defined in auth.go — reused here for cookie-based auth
+// getUserFromRequest is defined in auth.go - reused here for cookie-based auth
 
 // Ensure stacks directory exists and is writable.
 // Called once at daemon startup.
@@ -829,3 +829,4 @@ func shellSplit(s string) []string {
 	}
 	return args
 }
+

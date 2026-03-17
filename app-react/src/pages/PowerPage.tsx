@@ -1,5 +1,5 @@
-/**
- * pages/PowerPage.tsx — Disk Power Management (Phase 6)
+﻿/**
+ * pages/PowerPage.tsx - Disk Power Management (Phase 6)
  *
  * Lists all detected disks with their current power state (active/standby/sleeping).
  * Per-disk spindown timeout (hdparm -S equivalent) plus an immediate spindown button.
@@ -68,7 +68,7 @@ function PowerStateBadge({ state }: { state: string }) {
 }
 
 // ---------------------------------------------------------------------------
-// DiskRow — individual disk with spindown select + spindown-now button
+// DiskRow - individual disk with spindown select + spindown-now button
 // ---------------------------------------------------------------------------
 
 function DiskRow({ disk, savedTimeout, onSpindown, onSpindownNow, pending }: {
@@ -244,3 +244,4 @@ export function PowerPage() {
     </div>
   )
 }
+

@@ -1,5 +1,5 @@
-/**
- * pages/UsersPage.tsx — Users, Groups & Roles (Phase 5)
+﻿/**
+ * pages/UsersPage.tsx - Users, Groups & Roles (Phase 5)
  *
  * Tabs: Users | Groups | Roles
  *
@@ -208,7 +208,7 @@ function UsersTab() {
                       </div>
                     </div>
                   </td>
-                  <td style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>{u.email ?? '—'}</td>
+                  <td style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>{u.email ?? '-'}</td>
                   <td><RoleBadge role={u.role} /></td>
                   <td style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', whiteSpace: 'nowrap' }}>{fmtDate(u.last_login_at)}</td>
                   <td>
@@ -445,3 +445,4 @@ export function UsersPage() {
     </div>
   )
 }
+

@@ -1,10 +1,10 @@
-// Package reconciler implements D-PlaneOS's boot-time state restoration.
+﻿// Package reconciler implements D-PlaneOS's boot-time state restoration.
 //
 // Problem it solves:
 //   - Netlink calls (VLANs, bonds, static IPs) survive until reboot
-//   - After reboot, the kernel starts clean — all imperative network config is gone
+//   - After reboot, the kernel starts clean - all imperative network config is gone
 //   - On NixOS: if nixwriter.Writer was used, NixOS restores state declaratively
-//   - On non-NixOS (Debian/Ubuntu): there is no declarative layer — the daemon
+//   - On non-NixOS (Debian/Ubuntu): there is no declarative layer - the daemon
 //     must restore state imperatively on every startup
 //
 // Approach:
@@ -13,7 +13,7 @@
 //  3. For each desired item missing from kernel: re-apply via netlink
 //  4. Log every restoration action to the audit log
 //
-// Tables are created by this package's EnsureSchema() — safe to call on every startup.
+// Tables are created by this package's EnsureSchema() - safe to call on every startup.
 package reconciler
 
 import (
@@ -52,7 +52,7 @@ type VLANState struct {
 }
 
 // EnsureSchema creates the reconciler's state tables if they don't exist.
-// Safe to call on every startup — all statements use IF NOT EXISTS.
+// Safe to call on every startup - all statements use IF NOT EXISTS.
 func EnsureSchema(db *sql.DB) error {
 	stmts := []string{
 		`CREATE TABLE IF NOT EXISTS network_interfaces (
@@ -92,14 +92,14 @@ func EnsureSchema(db *sql.DB) error {
 // Run performs a full reconciliation pass.
 // It reads desired state from db, reads actual kernel state via netlink,
 // and re-applies anything that's missing.
-// Errors are logged but never fatal — a partial reconciliation is better than none.
+// Errors are logged but never fatal - a partial reconciliation is better than none.
 func Run(db *sql.DB) {
 	log.Printf("[reconciler] starting boot reconciliation")
 
 	// Get current kernel interfaces
 	links, err := netlinkx.LinkList()
 	if err != nil {
-		log.Printf("[reconciler] WARNING: cannot list kernel interfaces: %v — skipping reconciliation", err)
+		log.Printf("[reconciler] WARNING: cannot list kernel interfaces: %v - skipping reconciliation", err)
 		return
 	}
 
@@ -184,7 +184,7 @@ func Run(db *sql.DB) {
 	}
 
 	if restored == 0 {
-		log.Printf("[reconciler] all network state intact — nothing to restore")
+		log.Printf("[reconciler] all network state intact - nothing to restore")
 	} else {
 		log.Printf("[reconciler] boot reconciliation complete: %d item(s) restored", restored)
 	}
@@ -355,3 +355,4 @@ func hasAddress(link netlinkx.LinkInfo, cidr string) bool {
 	}
 	return false
 }
+

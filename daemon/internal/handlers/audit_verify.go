@@ -1,6 +1,6 @@
-package handlers
+﻿package handlers
 
-// audit_verify.go — Audit HMAC chain verification endpoint.
+// audit_verify.go - Audit HMAC chain verification endpoint.
 // Kept in its own file to isolate crypto imports from enterprise_hardening.go.
 
 import (
@@ -34,11 +34,11 @@ func verifyComputeHash(key []byte, prevHash string, ts int64, user, action, reso
 
 // VerifyAuditChain re-computes every row_hash in audit_logs and confirms the chain
 // is intact. Rows with an empty row_hash (written before Phase 1.5 migration)
-// are counted but skipped — verification starts from the first chained row.
+// are counted but skipped - verification starts from the first chained row.
 //
 // GET /api/system/audit/verify-chain
 func (h *AuditRotationHandler) VerifyAuditChain(w http.ResponseWriter, r *http.Request) {
-	// Load the HMAC key — must be the same key the daemon uses for writing
+	// Load the HMAC key - must be the same key the daemon uses for writing
 	keyBytes, err := os.ReadFile(auditKeyPath)
 	if err != nil {
 		respondOK(w, map[string]interface{}{
@@ -131,7 +131,7 @@ func (h *AuditRotationHandler) VerifyAuditChain(w http.ResponseWriter, r *http.R
 				firstBrokenID = id
 			}
 		}
-		// Advance chain regardless — report all broken rows, not just the first
+		// Advance chain regardless - report all broken rows, not just the first
 		prevHashSeen = storedRowHash
 		checked++
 	}
@@ -154,3 +154,4 @@ func (h *AuditRotationHandler) VerifyAuditChain(w http.ResponseWriter, r *http.R
 
 	respondOK(w, result)
 }
+

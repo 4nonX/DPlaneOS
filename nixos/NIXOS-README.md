@@ -1,4 +1,4 @@
-# D-PlaneOS on NixOS — The Immutable NAS
+# D-PlaneOS on NixOS : The Immutable NAS
 
 NixOS is a **first-class platform** for D-PlaneOS. The combination gives you
 a deeply coherent approach to NAS reliability:
@@ -19,7 +19,7 @@ There are two ways to get D-PlaneOS running on NixOS:
 ### Option A: Boot the ISO (recommended for new installs)
 
 Download or build the installer ISO, flash it to a USB stick, and boot it.
-The live environment runs D-PlaneOS immediately — web UI, recovery tools,
+The live environment runs D-PlaneOS immediately: web UI, recovery tools,
 everything. From there, run `dplaneos-install` to install to disk.
 
 ```bash
@@ -35,7 +35,7 @@ sudo dd if=result/iso/dplaneos-3.0.0-x86_64-linux.iso of=/dev/sdX bs=4M status=p
 Boot the USB. The web UI is at `http://dplaneos.local` (or the IP shown
 on screen). To install permanently, run `dplaneos-install` from the terminal.
 
-The ISO also works as a recovery disk — boot it to mount and repair
+The ISO also works as a recovery disk: boot it to mount and repair
 existing ZFS pools.
 
 ### Option B: Install on existing NixOS
@@ -64,7 +64,7 @@ This means:
   modified source available to users of that service
 
 AGPLv3 is an OSI-approved open-source license. **NixOS correctly recognises it
-as free software** — no `allowUnfreePredicate` configuration is needed.
+as free software** - no `allowUnfreePredicate` configuration is needed.
 
 Contributors sign a CLA before their first pull request is merged.
 See `CLA-INDIVIDUAL.md` (individuals) and `CLA-ENTITY.md` (organisations).
@@ -96,18 +96,18 @@ sudo nixos-rebuild switch --generation 42
 
 The NixOS configuration sets up everything the Debian installer does:
 
-- **ZFS** — pools, auto-scrub, auto-snapshots (15min/hourly/daily/weekly/monthly)
-- **Samba** — SMB file sharing with performance tuning
-- **NFS** — Unix/Linux file sharing
-- **Docker** — native ZFS storage driver, weekly auto-prune
-- **Docker-ZFS boot gate** — Docker waits for ZFS pools before starting
-- **SMART monitoring** — disk health with wall notifications
-- **Avahi** — `dplaneos.local` mDNS discovery
-- **Nginx** — reverse proxy with 7-day WebSocket timeout
-- **Firewall** — HTTP, SMB, NFS, SSH ports open
-- **Daily DB backups** — systemd timer with 30-day retention
-- **Recovery CLI** — `sudo dplaneos-recovery`
-- **Removable media** — udev rules for USB device detection
+- **ZFS** - pools, auto-scrub, auto-snapshots (15min/hourly/daily/weekly/monthly)
+- **Samba** - SMB file sharing with performance tuning
+- **NFS** - Unix/Linux file sharing
+- **Docker** - native ZFS storage driver, weekly auto-prune
+- **Docker-ZFS boot gate** - Docker waits for ZFS pools before starting
+- **SMART monitoring** - disk health with wall notifications
+- **Avahi** - `dplaneos.local` mDNS discovery
+- **Nginx** - reverse proxy with 7-day WebSocket timeout
+- **Firewall** - HTTP, SMB, NFS, SSH ports open
+- **Daily DB backups** - systemd timer with 30-day retention
+- **Recovery CLI** - `sudo dplaneos-recovery`
+- **Removable media** - udev rules for USB device detection
 
 ## Vendor Hash (First Build)
 
@@ -125,7 +125,7 @@ Copy that hash into `flake.nix` replacing `vendorHash = null;` and rebuild.
 
 | File | Purpose |
 |------|---------|
-| `flake.nix` | Nix flake — builds dplaned, frontend, recovery CLI |
+| `flake.nix` | Nix flake - builds dplaned, frontend, recovery CLI |
 | `configuration.nix` | Full NixOS system config (flake version) |
 | `configuration-standalone.nix` | Standalone version (no flake) |
 | `setup-nixos.sh` | Interactive setup helper |

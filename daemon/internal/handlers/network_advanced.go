@@ -1,4 +1,4 @@
-package handlers
+﻿package handlers
 
 import (
 	"encoding/json"
@@ -175,7 +175,7 @@ func CreateVLAN(w http.ResponseWriter, r *http.Request) {
 
 	ifName := fmt.Sprintf("%s.%d", req.Parent, req.VlanID)
 
-	// Create VLAN interface via netlink (RTM_NEWLINK — no exec, no injection surface)
+	// Create VLAN interface via netlink (RTM_NEWLINK - no exec, no injection surface)
 	err := netlinkx.LinkAdd(netlinkx.LinkAttrs{
 		Name:       ifName,
 		Type:       netlinkx.LinkTypeVLAN,
@@ -284,7 +284,7 @@ func CreateBond(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Create bond via netlink (RTM_NEWLINK — no exec, no injection surface)
+	// Create bond via netlink (RTM_NEWLINK - no exec, no injection surface)
 	if err := netlinkx.LinkAdd(netlinkx.LinkAttrs{
 		Name:     req.Name,
 		Type:     netlinkx.LinkTypeBond,
@@ -504,3 +504,4 @@ func DeleteBond(w http.ResponseWriter, r *http.Request) {
 		"message": "bond deleted",
 	})
 }
+

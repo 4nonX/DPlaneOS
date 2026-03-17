@@ -1,5 +1,5 @@
-/**
- * stores/storage.ts — D-PlaneOS Storage Store
+﻿/**
+ * stores/storage.ts - D-PlaneOS Storage Store
  *
  * Manages global storage UI state, such as the active pool selection.
  * Persists the selected pool to localStorage so it survives page refreshes.
@@ -25,3 +25,4 @@ export const useStorageStore = create<StorageState>()(
     }
   )
 )
+

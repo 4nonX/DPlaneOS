@@ -1,4 +1,4 @@
-package handlers
+﻿package handlers
 
 import (
 	"context"
@@ -22,10 +22,10 @@ const (
 
 // GenerateReplicationKey generates a new ed25519 key pair at the replication key path.
 // POST /api/replication/ssh-keygen
-// Body: {} (no parameters — path and algorithm are fixed)
+// Body: {} (no parameters - path and algorithm are fixed)
 // Response: { "success": true, "public_key": "ssh-ed25519 ..." }
 //
-// Safe to call repeatedly — regenerates the key each time. If the key is regenerated,
+// Safe to call repeatedly - regenerates the key each time. If the key is regenerated,
 // the old public key is invalidated on the remote and ssh-copy-id must be re-run.
 func GenerateReplicationKey(w http.ResponseWriter, r *http.Request) {
 	if err := os.MkdirAll(replKeyDir, 0700); err != nil {
@@ -33,7 +33,7 @@ func GenerateReplicationKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Remove existing key before generating — ssh-keygen refuses to overwrite
+	// Remove existing key before generating - ssh-keygen refuses to overwrite
 	_ = os.Remove(replKeyPath)
 	_ = os.Remove(replPubPath)
 
@@ -108,7 +108,7 @@ func CopyReplicationKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Validate inputs — same rules as replication_remote.go
+	// Validate inputs - same rules as replication_remote.go
 	if req.RemoteHost == "" || len(req.RemoteHost) > 253 {
 		respondErrorSimple(w, "Invalid remote host", http.StatusBadRequest)
 		return
@@ -138,7 +138,7 @@ func CopyReplicationKey(w http.ResponseWriter, r *http.Request) {
 
 	// Must have a key to copy
 	if _, err := os.Stat(replPubPath); os.IsNotExist(err) {
-		respondErrorSimple(w, "No replication key found — generate one first", http.StatusBadRequest)
+		respondErrorSimple(w, "No replication key found - generate one first", http.StatusBadRequest)
 		return
 	}
 
@@ -169,7 +169,7 @@ func CopyReplicationKey(w http.ResponseWriter, r *http.Request) {
 	})
 	if execErr != nil {
 		respondErrorSimple(w,
-			"Key installation failed — check host, user, port, and password. Details: "+sanitiseSSHOutput(out),
+			"Key installation failed - check host, user, port, and password. Details: "+sanitiseSSHOutput(out),
 			http.StatusBadRequest,
 		)
 		return
@@ -233,3 +233,4 @@ func replHostname() string {
 	}
 	return h
 }
+

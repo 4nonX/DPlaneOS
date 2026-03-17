@@ -1,4 +1,4 @@
-## v3.2.1 — XSS Sanitisation
+## v3.2.1 - XSS Sanitisation
 
 **Release date:** 2026-02-21  
 **Type:** Security patch  
@@ -10,19 +10,19 @@
 
 This is a security patch release. No new features, no breaking changes, no schema migrations.
 
-**Frontend XSS sanitisation** — All server-sourced string values interpolated into `innerHTML` are now passed through an `esc()` / `escapeHtml()` sanitiser before insertion. This closes the T5 (Cross-Site Scripting) gap identified in the threat model audit.
+**Frontend XSS sanitisation** - All server-sourced string values interpolated into `innerHTML` are now passed through an `esc()` / `escapeHtml()` sanitiser before insertion. This closes the T5 (Cross-Site Scripting) gap identified in the threat model audit.
 
 Affected files:
-- `app/assets/js/alert-system.js` — `alert.title`, `alert.message`, `alert.alert_id`
-- `app/pages/audit.html` — log table: username, action, details, IP address
-- `app/pages/docker.html` — sandbox list: container id, name, image, state
-- `app/pages/iscsi.html` — error messages
-- `app/pages/pools.html` — quota display: dataset name, mountpoint
-- `app/pages/ups.html` — UPS hardware fields: model, manufacturer, serial, load, voltage
-- `app/pages/reporting.html` — ZFS event fields: timestamp, class, description, message
-- `app/pages/system-updates.html` — error messages from diff and watchdog endpoints
+- `app/assets/js/alert-system.js` - `alert.title`, `alert.message`, `alert.alert_id`
+- `app/pages/audit.html` - log table: username, action, details, IP address
+- `app/pages/docker.html` - sandbox list: container id, name, image, state
+- `app/pages/iscsi.html` - error messages
+- `app/pages/pools.html` - quota display: dataset name, mountpoint
+- `app/pages/ups.html` - UPS hardware fields: model, manufacturer, serial, load, voltage
+- `app/pages/reporting.html` - ZFS event fields: timestamp, class, description, message
+- `app/pages/system-updates.html` - error messages from diff and watchdog endpoints
 
-The Go daemon binary is functionally identical to v3.2.0 — only the version string and frontend files changed.
+The Go daemon binary is functionally identical to v3.2.0 - only the version string and frontend files changed.
 
 ---
 

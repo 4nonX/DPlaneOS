@@ -1,4 +1,4 @@
-#!/bin/bash
+﻿#!/bin/bash
 #
 # D-PlaneOS - Database Initialization with Lock
 #
@@ -59,13 +59,13 @@ init_database() {
     mkdir -p "$(dirname "$DB_PATH")"
     
     # Create an empty database file so the daemon can open it on first start.
-    # Schema is created by the daemon's initSchema() on startup — do NOT
+    # Schema is created by the daemon's initSchema() on startup - do NOT
     # duplicate it here. Keeping schema in one place (schema.go) prevents drift.
     if [ ! -f "$DB_PATH" ]; then
         sqlite3 "$DB_PATH" "PRAGMA journal_mode=WAL;"
     fi
     
-    # Set permissions — only chown if www-data exists (not present in CI/minimal installs)
+    # Set permissions - only chown if www-data exists (not present in CI/minimal installs)
     chmod 660 "$DB_PATH"
     if id www-data &>/dev/null; then
         chown www-data:www-data "$DB_PATH"
@@ -85,3 +85,4 @@ else
 fi
 
 exit 0
+

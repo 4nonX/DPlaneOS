@@ -1,5 +1,5 @@
 # ═══════════════════════════════════════════════════════════════
-#  D-PlaneOS v5.3.2 — NixOS Configuration
+#  D-PlaneOS v5.3.2 : NixOS Configuration
 # ═══════════════════════════════════════════════════════════════
 #
 #  The Immutable NAS: NixOS (system) + ZFS (data) + GitOps (containers)
@@ -18,21 +18,21 @@
 
 # dplane-generated.nix is the v5.0 JSON-to-Nix bridge.
 # The daemon writes /var/lib/dplaneos/dplane-state.json (pure JSON).
-# That file is read here at eval time — no dynamic Nix syntax, no Surgeon.
+# That file is read here at eval time - no dynamic Nix syntax, no Surgeon.
 # setup-nixos.sh installs the bridge and seeds an empty state file on first boot.
 
 let
 
   # ┌─────────────────────────────────────────────────────────┐
-  # │  YOUR NAS CONFIGURATION — edit these values             │
+  # │  YOUR NAS CONFIGURATION : edit these values             │
   # │  (setup-nixos.sh fills these in automatically)          │
   # └─────────────────────────────────────────────────────────┘
 
-  # ZFS pool names — must exist before first boot
+  # ZFS pool names : must exist before first boot
   # setup-nixos.sh auto-detects your pools
   zpools = [ "tank" ];
 
-  # ZFS pool mountpoints — dplaned needs write access
+  # ZFS pool mountpoints : dplaned needs write access
   # Default: /poolname. Override if your pools mount elsewhere.
   zpoolMountpoints = map (p: "/${p}") zpools;
 
@@ -56,7 +56,7 @@ in {
 
   networking.hostName = "dplaneos";
 
-  # ZFS requires a stable host ID — setup-nixos.sh generates this
+  # ZFS requires a stable host ID : setup-nixos.sh generates this
   networking.hostId = "CHANGE_ME";
 
   # setup-nixos.sh sets your timezone
@@ -68,7 +68,7 @@ in {
   #  BOOTLOADER
   # ═══════════════════════════════════════════════════════════
 
-  # UEFI (default — most hardware since ~2012)
+  # UEFI (default : most hardware since ~2012)
   boot.loader.systemd-boot.enable = true;
   boot.loader.efi.canTouchEfiVariables = true;
 
@@ -77,7 +77,7 @@ in {
   # boot.loader.grub.device = "/dev/sda";
 
   # ═══════════════════════════════════════════════════════════
-  #  ZFS — the foundation
+  #  ZFS : the foundation
   # ═══════════════════════════════════════════════════════════
 
   boot.supportedFilesystems = [ "zfs" ];
@@ -89,7 +89,7 @@ in {
     interval = "monthly";
   };
 
-  # Automatic snapshots — your time machine
+  # Automatic snapshots : your time machine
   services.zfs.autoSnapshot = {
     enable = true;
     frequent = 4;     # every 15 min, keep 4
@@ -99,7 +99,7 @@ in {
     monthly = 12;
   };
 
-  # ZFS ARC (read cache) — auto-sized to 50% of RAM
+  # ZFS ARC (read cache) : auto-sized to 50% of RAM
   # Override: set an explicit value in bytes, e.g. 8589934592 for 8GB
   # Rule of thumb: 1 GB per TB of storage, minimum 1 GB
   boot.kernelParams = let
@@ -173,7 +173,7 @@ in {
       StateDirectory = "dplaneos";
       LogsDirectory = "dplaneos";
 
-      # Security hardening — strict, but with ZFS pool access
+      # Security hardening : strict, but with ZFS pool access
       NoNewPrivileges = true;
       PrivateTmp = true;
       ProtectSystem = "strict";
@@ -257,7 +257,7 @@ in {
           '';
         };
 
-        # WebSocket — 7 day timeout for persistent connections
+        # WebSocket : 7 day timeout for persistent connections
         "/ws/" = {
           proxyPass = "http://127.0.0.1:9000";
           proxyWebsockets = true;
@@ -320,7 +320,7 @@ in {
   virtualisation.docker = {
     enable = true;
 
-    # Native ZFS storage driver — containers as ZFS datasets
+    # Native ZFS storage driver : containers as ZFS datasets
     storageDriver = "zfs";
 
     autoPrune = { enable = true; dates = "weekly"; };
@@ -340,7 +340,7 @@ in {
   };
 
   # ═══════════════════════════════════════════════════════════
-  #  UPS MONITORING (NUT) — uncomment to enable
+  #  UPS MONITORING (NUT) : uncomment to enable
   # ═══════════════════════════════════════════════════════════
 
   # services.nut = {
@@ -394,7 +394,7 @@ in {
     notifications.wall.enable = true;
   };
 
-  # Removable media detection — notify dplaned via API
+  # Removable media detection : notify dplaned via API
   services.udev.extraRules = ''
     ACTION=="add", SUBSYSTEMS=="usb", KERNEL=="sd[a-z][0-9]*", ENV{DEVTYPE}=="partition", RUN+="${pkgs.curl}/bin/curl -sf -X POST http://127.0.0.1:9000/api/system/device-event -d '{\"action\":\"add\",\"device\":\"%E{DEVNAME}\",\"type\":\"usb\"}' -H 'Content-Type: application/json' || true"
     ACTION=="remove", SUBSYSTEMS=="usb", KERNEL=="sd[a-z][0-9]*", ENV{DEVTYPE}=="partition", RUN+="${pkgs.curl}/bin/curl -sf -X POST http://127.0.0.1:9000/api/system/device-event -d '{\"action\":\"remove\",\"device\":\"%E{DEVNAME}\",\"type\":\"usb\"}' -H 'Content-Type: application/json' || true"
@@ -455,7 +455,7 @@ in {
   security.sudo.wheelNeedsPassword = true;
 
   # ═══════════════════════════════════════════════════════════
-  #  SCHEDULED TASKS (the NixOS way — systemd timers)
+  #  SCHEDULED TASKS (the NixOS way : systemd timers)
   # ═══════════════════════════════════════════════════════════
 
   # Daily database backup with 30-day retention

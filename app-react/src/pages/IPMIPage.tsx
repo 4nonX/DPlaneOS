@@ -1,8 +1,8 @@
-/**
- * pages/IPMIPage.tsx — IPMI / Hardware Sensors (Phase 6)
+﻿/**
+ * pages/IPMIPage.tsx - IPMI / Hardware Sensors (Phase 6)
  *
  * Reads IPMI sensors (temperature, fan speed, voltage) from the daemon.
- * Read-only monitoring view — no mutations.
+ * Read-only monitoring view - no mutations.
  *
  * Calls:
  *   GET  /api/system/ipmi   → { success, sensors: { temp:[], fan:[], voltage:[] } }
@@ -63,7 +63,7 @@ function sensorBorder(status: string | undefined): string {
 }
 
 // ---------------------------------------------------------------------------
-// SensorCard — single reading
+// SensorCard - single reading
 // ---------------------------------------------------------------------------
 
 function SensorCard({ sensor }: { sensor: Sensor }) {
@@ -174,7 +174,7 @@ export function IPMIPage() {
       {hasCritical && (
         <div className="alert alert-error" style={{ marginBottom: 24 }}>
           <Icon name="error" size={18} style={{ flexShrink: 0 }} />
-          <span style={{ fontWeight: 700 }}>Critical sensor readings detected — immediate attention required</span>
+          <span style={{ fontWeight: 700 }}>Critical sensor readings detected - immediate attention required</span>
         </div>
       )}
 
@@ -196,3 +196,4 @@ export function IPMIPage() {
     </div>
   )
 }
+

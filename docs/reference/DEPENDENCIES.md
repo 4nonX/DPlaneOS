@@ -6,7 +6,7 @@ All Go and frontend dependencies are bundled in the release tarball. Only system
 
 ## Bundled (no installation required)
 
-### Frontend — `app/`
+### Frontend - `app/`
 
 The React SPA is pre-built. No Node.js or npm is required at runtime.
 
@@ -22,9 +22,9 @@ The React SPA is pre-built. No Node.js or npm is required at runtime.
 | `app/assets/fonts/MaterialSymbolsRounded.woff2` | Icon font (variable) |
 | `app/assets/fonts/fonts.css` | Font-face declarations |
 
-Zero external requests at runtime. All fonts and assets are local — no CDN dependencies.
+Zero external requests at runtime. All fonts and assets are local - no CDN dependencies.
 
-### Go Vendor — `daemon/vendor/`
+### Go Vendor - `daemon/vendor/`
 
 All Go dependencies are vendored. No internet access is needed to build.
 
@@ -52,12 +52,12 @@ Installed automatically by `install.sh` on Debian/Ubuntu.
 | `zfsutils-linux` | ZFS pool and dataset management |
 | `sqlite3` | Database CLI (used by installer for schema init) |
 | `gcc` / `build-essential` | CGO compilation of SQLite driver |
-| `musl-tools` | Optional — enables fully static binary build |
+| `musl-tools` | Optional - enables fully static binary build |
 | `smartmontools` | S.M.A.R.T. disk health monitoring |
 | `udev` | Device event rules (hot-swap, removable media) |
 | `samba` | SMB / CIFS shares and AFP / Time Machine |
 | `nfs-kernel-server` | NFS exports |
-| `avahi-daemon` | mDNS — makes the NAS visible as `hostname.local` |
+| `avahi-daemon` | mDNS - makes the NAS visible as `hostname.local` |
 
 ### Optional (feature-dependent)
 

@@ -1,4 +1,4 @@
-package zfs
+﻿package zfs
 
 import (
 	"bytes"
@@ -38,7 +38,7 @@ type PoolHeartbeat struct {
 
 	// When true: run `systemctl stop docker` if pool goes SUSPENDED/UNAVAIL/read-only.
 	// This prevents containers from writing to the bare mountpoint directory on the
-	// root filesystem while ZFS is offline — the same race that the boot gate prevents.
+	// root filesystem while ZFS is offline - the same race that the boot gate prevents.
 	StopDockerOnFailure bool
 
 	// Track whether we already stopped docker in this failure window (avoid repeating)
@@ -114,7 +114,7 @@ func (ph *PoolHeartbeat) performCheck() {
 	ph.mu.Lock()
 	defer ph.mu.Unlock()
 
-	// ── Step 1: zpool status — catches SUSPENDED / UNAVAIL ──────────────────
+	// ── Step 1: zpool status - catches SUSPENDED / UNAVAIL ──────────────────
 	cmd := exec.Command("zpool", "status", ph.poolName)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -137,7 +137,7 @@ func (ph *PoolHeartbeat) performCheck() {
 			}
 			ph.triggerCriticalAlert(newErr, details)
 			ph.sendAlert("critical", "pool.critical", ph.poolName,
-				fmt.Sprintf("Pool '%s' is SUSPENDED or UNAVAIL — I/O is halted", ph.poolName))
+				fmt.Sprintf("Pool '%s' is SUSPENDED or UNAVAIL - I/O is halted", ph.poolName))
 			ph.maybeStopDocker("SUSPENDED/UNAVAIL")
 			ph.lastAlertedState["CRITICAL"] = "SUSPENDED/UNAVAIL"
 		}
@@ -146,7 +146,7 @@ func (ph *PoolHeartbeat) performCheck() {
 		return
 	}
 
-	// ── Step 2: zpool list — catches DEGRADED (disk failed, pool still running) ──
+	// ── Step 2: zpool list - catches DEGRADED (disk failed, pool still running) ──
 	healthCmd := exec.Command("zpool", "list", "-H", "-o", "name,health")
 	healthOut, healthErr := healthCmd.CombinedOutput()
 	if healthErr == nil {
@@ -165,7 +165,7 @@ func (ph *PoolHeartbeat) performCheck() {
 
 				// De-duplicate: only alert if not already in DEGRADED state
 				if ph.lastAlertedState["DEGRADED"] != "DEGRADED" {
-					log.Printf("WARNING: ZFS pool %s is DEGRADED — a disk has failed", ph.poolName)
+					log.Printf("WARNING: ZFS pool %s is DEGRADED - a disk has failed", ph.poolName)
 					details := map[string]string{
 						"Pool":   ph.poolName,
 						"Status": "DEGRADED",
@@ -173,24 +173,24 @@ func (ph *PoolHeartbeat) performCheck() {
 					}
 					ph.triggerDegradedAlert(degradedErr, details)
 					ph.sendAlert("warning", "pool.degraded", ph.poolName,
-						fmt.Sprintf("Pool '%s' is DEGRADED — a disk has failed. Replace it soon.", ph.poolName))
+						fmt.Sprintf("Pool '%s' is DEGRADED - a disk has failed. Replace it soon.", ph.poolName))
 					ph.lastAlertedState["DEGRADED"] = "DEGRADED"
 				}
 
-				// DEGRADED doesn't prevent writes — don't block I/O test, but do
+				// DEGRADED doesn't prevent writes - don't block I/O test, but do
 				// record it as the last error so IsHealthy() reflects the state.
 				ph.lastError = degradedErr
 				return
 			}
 
-			// Pool is ONLINE — clear DEGRADED de-dup state so next occurrence re-fires
+			// Pool is ONLINE - clear DEGRADED de-dup state so next occurrence re-fires
 			if health == "ONLINE" {
 				ph.lastAlertedState["DEGRADED"] = ""
 			}
 		}
 	}
 
-	// Pool is not SUSPENDED/UNAVAIL/DEGRADED — clear CRITICAL de-dup state
+	// Pool is not SUSPENDED/UNAVAIL/DEGRADED - clear CRITICAL de-dup state
 	ph.lastAlertedState["CRITICAL"] = ""
 
 	// ── Step 3: Active I/O test ──────────────────────────────────────────────
@@ -209,7 +209,7 @@ func (ph *PoolHeartbeat) performCheck() {
 			}
 			ph.triggerCriticalAlert(newErr, details)
 			ph.sendAlert("critical", "pool.critical", ph.poolName,
-				fmt.Sprintf("Pool '%s' cannot write — may be read-only or suspended", ph.poolName))
+				fmt.Sprintf("Pool '%s' cannot write - may be read-only or suspended", ph.poolName))
 			ph.maybeStopDocker("read-only/write-failed")
 		}
 
@@ -232,7 +232,7 @@ func (ph *PoolHeartbeat) performCheck() {
 
 	ph.lastSuccess = time.Now()
 	ph.lastError = nil
-	ph.dockerStopped = false // pool recovered — reset guard
+	ph.dockerStopped = false // pool recovered - reset guard
 }
 
 // sendAlert dispatches an alert through the package-level webhook + SMTP senders.
@@ -305,7 +305,7 @@ func DiscoverPools() ([]PoolInfo, error) {
 			continue
 		}
 
-		// Validate pool name before using in exec.Command — prevents injection
+		// Validate pool name before using in exec.Command - prevents injection
 		if !isValidPoolName(poolName) {
 			log.Printf("ZFS discovery: skipping invalid pool name: %q", poolName)
 			continue
@@ -357,10 +357,10 @@ func (ph *PoolHeartbeat) maybeStopDocker(reason string) {
 		return
 	}
 	ph.dockerStopped = true
-	log.Printf("CRITICAL: ZFS pool %s failure (%s) — stopping Docker to prevent root-FS data loss", ph.poolName, reason)
+	log.Printf("CRITICAL: ZFS pool %s failure (%s) - stopping Docker to prevent root-FS data loss", ph.poolName, reason)
 	cmd := exec.Command("systemctl", "stop", "docker")
 	if out, err := cmd.CombinedOutput(); err != nil {
-		log.Printf("ERROR: Failed to stop Docker after pool failure: %v — %s", err, strings.TrimSpace(string(out)))
+		log.Printf("ERROR: Failed to stop Docker after pool failure: %v - %s", err, strings.TrimSpace(string(out)))
 	} else {
 		log.Printf("WARNING: Docker stopped due to pool failure. Restart when pool is healthy: systemctl start docker")
 	}
@@ -379,3 +379,4 @@ func (ph *PoolHeartbeat) triggerDegradedAlert(err error, details map[string]stri
 		ph.onDegradedWarning(ph.poolName, err, details)
 	}
 }
+

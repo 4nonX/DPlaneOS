@@ -1,4 +1,4 @@
-package handlers
+﻿package handlers
 
 import (
 	"encoding/json"
@@ -86,7 +86,7 @@ func (h *RemovableMediaHandler) MountDevice(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	// Validate inputs before exec.Command — prevents injection
+	// Validate inputs before exec.Command - prevents injection
 	if err := security.ValidateDevicePath(req.Device); err != nil {
 		respondError(w, http.StatusBadRequest, "Invalid request", err)
 		return
@@ -177,3 +177,4 @@ func (h *RemovableMediaHandler) EjectDevice(w http.ResponseWriter, r *http.Reque
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]bool{"success": true})
 }
+

@@ -1,5 +1,5 @@
-#!/bin/bash
-# download-fonts.sh — Safety net only.
+﻿#!/bin/bash
+# download-fonts.sh - Safety net only.
 # Outfit and JetBrains Mono are bundled in app/assets/fonts/ since v4.0.0.
 # Material Symbols Rounded is also bundled. This script is a no-op if all
 # three woff2 files are already present (they will be in any normal install).
@@ -18,7 +18,7 @@ if [ "$all_present" = "true" ]; then
   exit 0
 fi
 
-echo "  ⚠ One or more fonts missing — attempting npm-based recovery..."
+echo "  ⚠ One or more fonts missing - attempting npm-based recovery..."
 
 if ! command -v npm &>/dev/null; then
   echo "  ⚠ npm not available, skipping font recovery (UI will use system fallbacks)"
@@ -42,3 +42,4 @@ npm install --prefer-offline \
      "$FONT_DIR/jetbrains-mono.woff2" && echo "  ✓ JetBrains Mono recovered"
 
 echo "Font recovery complete."
+

@@ -1,10 +1,10 @@
-# D-PlaneOS — disko Partition Layout
+# D-PlaneOS : disko Partition Layout
 # ─────────────────────────────────────────────────────────────────────────────
 # A/B system partition layout with a shared /persist partition.
 #
 # Hardware profile:
 #   Boot disk: Patriot P300 128 GB NVMe  →  /dev/nvme0n1
-#   Data disks: 4× SATA HDDs (WD/Seagate) — NOT touched here; managed by ZFS.
+#   Data disks: 4× SATA HDDs (WD/Seagate) : NOT touched here; managed by ZFS.
 #
 # Partition table (GPT on /dev/nvme0n1):
 #
@@ -23,7 +23,7 @@
 #   - /persist is NEVER wiped. It holds the D-PlaneOS SQLite DB, logs,
 #     SSH host keys, and all daemon state. See impermanence.nix.
 #   - /boot is the EFI System Partition shared between both slots.
-#   - The remaining ~78 GB goes entirely to /persist — on a 128 GB NVMe
+#   - The remaining ~78 GB goes entirely to /persist : on a 128 GB NVMe
 #     that is ample for logs, the daemon DB, and ZFS cache state.
 #   - ZFS data disks (4× SATA HDDs) are separate physical disks.
 #     They are NEVER touched by this file.
@@ -79,7 +79,7 @@
               mountpoint = "/";
               mountOptions = [
                 "defaults"
-                "noatime"          # no access-time writes — reduces NVMe wear
+                "noatime"          # no access-time writes : reduces NVMe wear
                 "errors=remount-ro"
               ];
               extraArgs = [
@@ -115,14 +115,14 @@
           # All writable daemon state lives here.
           #
           # Contents (managed by impermanence.nix + daemon):
-          #   /persist/dplaneos/          — daemon state root
-          #   /persist/dplaneos/dplaneos.db — main SQLite DB
-          #   /persist/dplaneos/audit.db   — audit log DB
-          #   /persist/dplaneos/audit.key  — HMAC key
-          #   /persist/dplaneos/gitops/    — state.yaml repo checkout
-          #   /persist/nixos/              — NixOS machine config overrides
-          #   /persist/log/                — rotated logs
-          #   /persist/ssh/                — host SSH keys (survive OTA)
+          #   /persist/dplaneos/          : daemon state root
+          #   /persist/dplaneos/dplaneos.db : main SQLite DB
+          #   /persist/dplaneos/audit.db   : audit log DB
+          #   /persist/dplaneos/audit.key  : HMAC key
+          #   /persist/dplaneos/gitops/    : state.yaml repo checkout
+          #   /persist/nixos/              : NixOS machine config overrides
+          #   /persist/log/                : rotated logs
+          #   /persist/ssh/                : host SSH keys (survive OTA)
           #
           # Size: 100% = all remaining space (~78 GB on 128 GB NVMe after
           # ESP + two 20 GB slots). More than sufficient for logs and DB.

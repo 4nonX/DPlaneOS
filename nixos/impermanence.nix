@@ -1,12 +1,12 @@
-# D-PlaneOS — Impermanence Layer (Task 4.4)
+# D-PlaneOS - Impermanence Layer (Task 4.4)
 # ─────────────────────────────────────────────────────────────────────────────
-# Makes the system root ephemeral: everything NOT in /persist is wiped on reboot.
+# This module defines the persistent and ephemeral paths for the NAS.
 #
 # Mental model:
-#   /           — ephemeral ext4 (slot A or B). Wiped clean every OTA update.
+#   /           - ephemeral ext4 (slot A or B). Wiped clean every OTA update.
 #                 Contains only the NixOS system closure (immutable store paths).
-#   /persist    — durable ext4. Never wiped. All state lives here.
-#   /nix/store  — populated by NixOS activation. Ephemeral by design.
+#   /persist    - durable ext4. Never wiped. All state lives here.
+#   /nix/store  - populated by NixOS activation. Ephemeral by design.
 #
 # What survives reboots (bound from /persist/* → live path):
 #   - D-PlaneOS databases (main + audit)
@@ -19,7 +19,7 @@
 #   - NetworkManager/networkd lease files (optional, stable IP helps)
 #
 # What does NOT survive (intentionally ephemeral):
-#   - /tmp, /run, /var/run — always tmpfs anyway
+#   - /tmp, /run, /var/run - always tmpfs anyway
 #   - Package caches, build artifacts
 #   - Anything not explicitly listed below
 #
@@ -146,7 +146,7 @@
       # ── D-PlaneOS JSON state (v5.0 JSON-to-Nix bridge) ───────────────────
       # dplane-state.json is written by the daemon on every UI change.
       # It is read by dplane-generated.nix at nixos-rebuild eval time.
-      # Must survive reboots — without this, all UI-configured network/samba
+      # Must survive reboots - without this, all UI-configured network/samba
       # settings revert to NixOS defaults on every reboot.
       "/var/lib/dplaneos/dplane-state.json"
 

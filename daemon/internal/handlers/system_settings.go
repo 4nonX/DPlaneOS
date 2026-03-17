@@ -1,4 +1,4 @@
-package handlers
+﻿package handlers
 
 import (
 	"bufio"
@@ -109,8 +109,8 @@ func applySwappiness(v int) error {
 }
 
 // HandleSystemSettings handles GET/POST for /api/system/tuning.
-// GET  — returns current settings (file or defaults).
-// POST — validates, persists, and applies kernel-level tuning.
+// GET  - returns current settings (file or defaults).
+// POST - validates, persists, and applies kernel-level tuning.
 func HandleSystemSettings(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
@@ -492,4 +492,5 @@ func readKernelVersion() (string, error) {
 	return strings.TrimSpace(out.String()), nil
 }
 
-// readLoadAvg is defined in prometheus.go — returns (load1, load5, load15 float64, err error)
+// readLoadAvg is defined in prometheus.go - returns (load1, load5, load15 float64, err error)
+

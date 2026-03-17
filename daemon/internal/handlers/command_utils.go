@@ -1,4 +1,4 @@
-package handlers
+﻿package handlers
 
 import (
 	"context"
@@ -74,7 +74,7 @@ func getPoolUsagePercent(poolName string) (float64, error) {
 }
 
 // executeBackgroundCommand runs a command at idle I/O priority (ionice -c 3)
-// Used for scrubbing, indexing, thumbnail generation — anything that shouldn't
+// Used for scrubbing, indexing, thumbnail generation - anything that shouldn't
 // starve interactive workloads.
 func executeBackgroundCommand(path string, args []string) (string, error) {
 	// Wrap in ionice -c 3 (idle class: only gets I/O when nothing else needs it)
@@ -89,3 +89,4 @@ func executeBackgroundCommandWithTimeout(timeout time.Duration, path string, arg
 	ioniceArgs = append(ioniceArgs, args...)
 	return executeCommandWithTimeout(timeout, "/usr/bin/ionice", ioniceArgs)
 }
+

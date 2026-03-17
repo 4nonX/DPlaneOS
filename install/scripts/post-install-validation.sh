@@ -1,6 +1,6 @@
-#!/bin/bash
+﻿#!/bin/bash
 #
-# D-PlaneOS — Post-Install Validation (Debian/Ubuntu only)
+# D-PlaneOS - Post-Install Validation (Debian/Ubuntu only)
 # Called automatically at the end of install.sh
 #
 
@@ -14,7 +14,7 @@ WARNINGS=0
 
 VERSION="$(cat "$(dirname "$0")/../VERSION" 2>/dev/null | tr -d '[:space:]' || echo "?")"
 echo ""
-echo -e "${BOLD}${BLUE}D-PlaneOS v${VERSION} — Post-Install Validation${NC}"
+echo -e "${BOLD}${BLUE}D-PlaneOS v${VERSION} - Post-Install Validation${NC}"
 echo "==========================================="
 echo ""
 
@@ -28,11 +28,11 @@ echo "1. Checking services..."
 
 systemctl is-active nginx &>/dev/null \
     && pass "nginx running" \
-    || fail "nginx not running — try: systemctl start nginx"
+    || fail "nginx not running - try: systemctl start nginx"
 
 systemctl is-active dplaned &>/dev/null \
     && pass "dplaned running" \
-    || fail "dplaned not running — check: journalctl -xe -u dplaned"
+    || fail "dplaned not running - check: journalctl -xe -u dplaned"
 
 echo ""
 
@@ -44,7 +44,7 @@ if [ -f "$DB_PATH" ]; then
     pass "Database file exists"
     [ -r "$DB_PATH" ] && [ -w "$DB_PATH" ] \
         && pass "Database readable/writable" \
-        || fail "Database permissions incorrect — try: chmod 600 $DB_PATH"
+        || fail "Database permissions incorrect - try: chmod 600 $DB_PATH"
 
     WAL=$(sqlite3 "$DB_PATH" "PRAGMA journal_mode;" 2>/dev/null || echo "error")
     [ "$WAL" = "wal" ] && pass "WAL mode enabled" || warn "WAL mode not active (got: $WAL)"
@@ -65,7 +65,7 @@ echo "3. Checking web UI..."
 HTTP=$(curl -s -o /dev/null -w "%{http_code}" http://localhost/ 2>/dev/null || echo "000")
 case "$HTTP" in
     200|301|302) pass "Web UI accessible (HTTP $HTTP)" ;;
-    000) fail "Web UI not reachable — nginx may not be running" ;;
+    000) fail "Web UI not reachable - nginx may not be running" ;;
     *)   warn "Web UI returned HTTP $HTTP (expected 200)" ;;
 esac
 echo ""
@@ -77,12 +77,12 @@ HEALTH=$(curl -sf http://127.0.0.1:9000/health 2>/dev/null || echo "fail")
 if echo "$HEALTH" | grep -qi "ok\|healthy\|running\|alive"; then
     pass "Daemon health endpoint OK"
 else
-    # Might just not have /health — try another safe endpoint
+    # Might just not have /health - try another safe endpoint
     INFO=$(curl -sf http://127.0.0.1:9000/api/system/info 2>/dev/null || echo "fail")
     if [ "$INFO" != "fail" ]; then
         pass "Daemon API responding"
     else
-        fail "Daemon not responding on :9000 — check: journalctl -xe -u dplaned"
+        fail "Daemon not responding on :9000 - check: journalctl -xe -u dplaned"
     fi
 fi
 
@@ -115,7 +115,7 @@ if [ -f /etc/sudoers.d/dplaneos ]; then
     [ "$SPERM" = "440" ] && pass "sudoers permissions (440)" || fail "sudoers permissions: $SPERM (should be 440)"
     visudo -c -f /etc/sudoers.d/dplaneos &>/dev/null && pass "sudoers syntax valid" || fail "sudoers syntax invalid"
 else
-    warn "sudoers file not found — daemon still works as root"
+    warn "sudoers file not found - daemon still works as root"
 fi
 echo ""
 
@@ -129,7 +129,7 @@ if command -v zpool &>/dev/null; then
         NPOOLS=$(zpool list -H 2>/dev/null | wc -l)
         [ "$NPOOLS" -gt 0 ] \
             && info "$NPOOLS ZFS pool(s) found" \
-            || info "No ZFS pools yet — create them via the UI after login"
+            || info "No ZFS pools yet - create them via the UI after login"
     else
         warn "zpool command failed (module may not be loaded yet)"
         info "Try: sudo modprobe zfs"
@@ -147,7 +147,7 @@ if command -v smbd &>/dev/null; then
         && pass "Samba running" \
         || info "Samba installed but not running (starts automatically when shares are created)"
 else
-    warn "Samba not installed — SMB shares unavailable"
+    warn "Samba not installed - SMB shares unavailable"
     info "Install: apt install samba"
 fi
 
@@ -156,7 +156,7 @@ if systemctl list-units --type=service 2>/dev/null | grep -q "nfs-server"; then
         && pass "NFS server running" \
         || info "NFS installed but not running (starts on first NFS share)"
 else
-    warn "NFS server not installed — NFS shares unavailable"
+    warn "NFS server not installed - NFS shares unavailable"
     info "Install: apt install nfs-kernel-server"
 fi
 echo ""
@@ -167,7 +167,7 @@ echo "9. Checking kernel tuning..."
 WATCHES=$(sysctl -n fs.inotify.max_user_watches 2>/dev/null || echo "0")
 [ "$WATCHES" -ge 524288 ] \
     && pass "inotify watches: $WATCHES" \
-    || warn "inotify watches: $WATCHES (expected 524288 — will apply on next reboot)"
+    || warn "inotify watches: $WATCHES (expected 524288 - will apply on next reboot)"
 echo ""
 
 # ── 10. Recovery CLI ──────────────────────────────────────────────────────────
@@ -188,11 +188,11 @@ if [ $ERRORS -eq 0 ] && [ $WARNINGS -eq 0 ]; then
     echo -e "${BOLD}${GREEN}✓ ALL CHECKS PASSED${NC}"
     echo ""
     echo "  Access: http://$(hostname -I | awk '{print $1}')"
-    echo "  Login:  admin  (password shown above — change on first login)"
+    echo "  Login:  admin  (password shown above - change on first login)"
     echo ""
     exit 0
 elif [ $ERRORS -eq 0 ]; then
-    echo -e "${BOLD}${YELLOW}⚠ $WARNINGS warning(s) — installation successful${NC}"
+    echo -e "${BOLD}${YELLOW}⚠ $WARNINGS warning(s) - installation successful${NC}"
     echo ""
     echo "  Warnings are non-critical. D-PlaneOS is fully operational."
     echo "  Access: http://$(hostname -I | awk '{print $1}')"
@@ -205,3 +205,4 @@ else
     echo ""
     exit 1
 fi
+

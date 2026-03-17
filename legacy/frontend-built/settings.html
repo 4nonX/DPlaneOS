@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -74,11 +74,11 @@
                 <div class="glass-card" style="margin-bottom:20px;">
                     <h2 style="font-size:16px; font-weight:600; margin-bottom:14px;">ℹ️ System Information</h2>
                     <div class="info-grid">
-                        <div class="info-box"><div class="info-label">Hostname</div><div class="info-value" id="sysHostname">—</div></div>
-                        <div class="info-box"><div class="info-label">OS</div><div class="info-value" id="sysOS" style="font-size:13px;">—</div></div>
-                        <div class="info-box"><div class="info-label">Kernel</div><div class="info-value mono" id="sysKernel">—</div></div>
-                        <div class="info-box"><div class="info-label">Uptime</div><div class="info-value" id="sysUptime">—</div></div>
-                        <div class="info-box"><div class="info-label">Timezone</div><div class="info-value mono" id="sysTZ">—</div></div>
+                        <div class="info-box"><div class="info-label">Hostname</div><div class="info-value" id="sysHostname">-</div></div>
+                        <div class="info-box"><div class="info-label">OS</div><div class="info-value" id="sysOS" style="font-size:13px;">-</div></div>
+                        <div class="info-box"><div class="info-label">Kernel</div><div class="info-value mono" id="sysKernel">-</div></div>
+                        <div class="info-box"><div class="info-label">Uptime</div><div class="info-value" id="sysUptime">-</div></div>
+                        <div class="info-box"><div class="info-label">Timezone</div><div class="info-value mono" id="sysTZ">-</div></div>
                     </div>
 
                     <!-- Timezone change -->
@@ -86,7 +86,7 @@
                         <div style="flex:1; max-width:300px;">
                             <label class="form-label">Change Timezone</label>
                             <select class="form-input" id="tzSelect" onchange="setTimezone()">
-                                <option value="">— select —</option>
+                                <option value="">- select -</option>
                                 <option value="UTC">UTC</option>
                                 <option value="Europe/Berlin">Europe/Berlin</option>
                                 <option value="Europe/London">Europe/London</option>
@@ -139,7 +139,7 @@
                     <h2 style="font-size:16px; font-weight:600; margin-bottom:14px;">📦 System Updates</h2>
                     <div style="display:flex; gap:12px; align-items:center;">
                         <button class="btn-secondary" style="padding:8px 18px;" onclick="checkUpdates()">🔍 Check for Updates</button>
-                        <span id="updateStatus" style="font-size:13px; color:var(--color-text-secondary);">—</span>
+                        <span id="updateStatus" style="font-size:13px; color:var(--color-text-secondary);">-</span>
                     </div>
                     <div id="installUpdateBtn" style="display:none; margin-top:12px;">
                         <button class="btn-primary" style="padding:8px 18px;" onclick="installUpdates()">⬇️ Install Updates</button>
@@ -172,11 +172,11 @@
     async function loadSystemInfo() {
         const res  = await fetch('/api/settings.php?action=info');
         const info = await res.json();
-        document.getElementById('sysHostname').textContent = info.hostname || '—';
-        document.getElementById('sysOS').textContent       = info.os       || '—';
-        document.getElementById('sysKernel').textContent   = info.kernel   || '—';
-        document.getElementById('sysUptime').textContent   = info.uptime   || '—';
-        document.getElementById('sysTZ').textContent       = info.timezone || '—';
+        document.getElementById('sysHostname').textContent = info.hostname || '-';
+        document.getElementById('sysOS').textContent       = info.os       || '-';
+        document.getElementById('sysKernel').textContent   = info.kernel   || '-';
+        document.getElementById('sysUptime').textContent   = info.uptime   || '-';
+        document.getElementById('sysTZ').textContent       = info.timezone || '-';
     }
 
     async function setTimezone() {
@@ -298,3 +298,4 @@
     </script>
 </body>
 </html>
+

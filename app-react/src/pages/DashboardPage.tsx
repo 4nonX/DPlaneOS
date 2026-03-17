@@ -1,5 +1,5 @@
-/**
- * pages/DashboardPage.tsx — D-PlaneOS Dashboard
+﻿/**
+ * pages/DashboardPage.tsx - D-PlaneOS Dashboard
  *
  * APIs:
  *   GET /api/system/metrics      → SystemMetrics
@@ -82,7 +82,7 @@ function pctColor(pct: number) {
 }
 
 // ---------------------------------------------------------------------------
-// MetricCard — glowing accent number with mini progress bar
+// MetricCard - glowing accent number with mini progress bar
 // ---------------------------------------------------------------------------
 
 interface MetricCardProps {
@@ -264,7 +264,7 @@ function ContainerRow({ c, onClick }: { c: DockerContainer; onClick: () => void 
 }
 
 // ---------------------------------------------------------------------------
-// DiskHealthRow — compact warning row inside Disk Health section card
+// DiskHealthRow - compact warning row inside Disk Health section card
 // ---------------------------------------------------------------------------
 
 function DiskHealthRow({ disk, onClick }: { disk: SMARTDisk; onClick: () => void }) {
@@ -323,7 +323,7 @@ export function DashboardPage() {
 
   // Inline disk temperature alert from WS (separate from toast)
   const [diskTempAlert, setDiskTempAlert] = useState<{ device: string; temp: number } | null>(null)
-  // Inline mount error alert — cleared when pool health recovers
+  // Inline mount error alert - cleared when pool health recovers
   const [mountAlert, setMountAlert] = useState<{ pool: string; mountpoint: string; error: string } | null>(null)
 
   useEffect(() => wsOn('stateUpdate', (d) => setLive(d as WsStateUpdate)), [wsOn])
@@ -353,7 +353,7 @@ export function DashboardPage() {
         setMountAlert({ pool: d.pool, mountpoint: d.mountpoint ?? '', error: d.error })
         qc.invalidateQueries({ queryKey: ['zfs', 'pools'] })
       } else {
-        // level=clear from background monitor — pool recovered
+        // level=clear from background monitor - pool recovered
         setMountAlert(prev => prev?.pool === d.pool ? null : prev)
       }
     })
@@ -365,7 +365,7 @@ export function DashboardPage() {
   const containersQ = useQuery({ queryKey: ['docker','containers'],  queryFn: ({ signal }) => api.get<ContainersResponse>('/api/docker/containers', signal), refetchInterval: 30_000 })
   const upsQ        = useQuery({ queryKey: ['system','ups'],         queryFn: ({ signal }) => api.get<UPSResponse>('/api/system/ups', signal),            refetchInterval: 60_000 })
 
-  // SMART summary — 5-minute stale time, not re-fetched too aggressively
+  // SMART summary - 5-minute stale time, not re-fetched too aggressively
   const smartQ = useQuery({
     queryKey: ['zfs','smart'],
     queryFn: ({ signal }) => api.get<SMARTResponse>('/api/zfs/smart', signal),
@@ -404,7 +404,7 @@ export function DashboardPage() {
       {statusQ.data?.ecc_warning && (
         <div className="alert alert-warning">
           <Icon name="warning" size={16} />
-          {statusQ.data.ecc_warning_msg || 'Non-ECC RAM detected — ZFS data integrity risk.'}
+          {statusQ.data.ecc_warning_msg || 'Non-ECC RAM detected - ZFS data integrity risk.'}
         </div>
       )}
 
@@ -416,7 +416,7 @@ export function DashboardPage() {
           style={{ cursor: 'pointer' }}
         >
           <Icon name="battery_alert" size={16} />
-          <span>UPS on battery — {ups.battery_charge}% charge · runtime {ups.battery_runtime}</span>
+          <span>UPS on battery - {ups.battery_charge}% charge · runtime {ups.battery_runtime}</span>
           <span style={{ marginLeft: 'auto', fontSize: 'var(--text-xs)', opacity: 0.7 }}>View UPS →</span>
         </div>
       )}
@@ -442,7 +442,7 @@ export function DashboardPage() {
         <div className="alert alert-error" style={{ cursor: 'pointer' }} onClick={() => navigate({ to: '/pools' })}>
           <Icon name="folder_off" size={16} />
           <span>
-            Pool <strong>{mountAlert.pool}</strong> mountpoint <strong>{mountAlert.mountpoint}</strong> is not writable — filesystem may be full or read-only.
+            Pool <strong>{mountAlert.pool}</strong> mountpoint <strong>{mountAlert.mountpoint}</strong> is not writable - filesystem may be full or read-only.
           </span>
           <button
             onClick={e => { e.stopPropagation(); setMountAlert(null) }}
@@ -637,3 +637,4 @@ export function DashboardPage() {
     </div>
   )
 }
+

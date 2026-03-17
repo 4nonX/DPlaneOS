@@ -1,4 +1,4 @@
-package audit
+﻿package audit
 
 import (
 	"crypto/rand"
@@ -31,7 +31,7 @@ func LoadOrCreateAuditKey(path string) ([]byte, error) {
 		return nil, fmt.Errorf("generating audit key: %w", err)
 	}
 
-	// Write with restrictive permissions — root-only read
+	// Write with restrictive permissions - root-only read
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		return nil, fmt.Errorf("creating audit key dir: %w", err)
 	}
@@ -41,3 +41,4 @@ func LoadOrCreateAuditKey(path string) ([]byte, error) {
 
 	return key, nil
 }
+

@@ -1,4 +1,4 @@
-#!/bin/bash
+﻿#!/bin/bash
 #
 # D-PlaneOS - Pre-Flight Validation
 # 
@@ -74,7 +74,7 @@ if [ ! -f /etc/os-release ]; then
     exit 1
 fi
 
-# Safe extraction — avoids Ubuntu's readonly VERSION variable crash
+# Safe extraction - avoids Ubuntu's readonly VERSION variable crash
 OS_ID=$(grep -E '^ID=' /etc/os-release | cut -d= -f2 | tr -d '"')
 OS_PRETTY=$(grep -E '^PRETTY_NAME=' /etc/os-release | cut -d= -f2 | tr -d '"')
 OS_VERSION_ID=$(grep -E '^VERSION_ID=' /etc/os-release | cut -d= -f2 | tr -d '"')
@@ -360,3 +360,4 @@ else
     echo ""
     exit 1
 fi
+

@@ -1,5 +1,5 @@
-/* ============================================================
-   D-PlaneOS v4 — Global Design Tokens & Base Styles
+﻿/* ============================================================
+   D-PlaneOS v4 - Global Design Tokens & Base Styles
    ============================================================ */
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -427,7 +427,7 @@ textarea.input { resize: vertical; min-height: 80px; line-height: 1.5; }
 .empty-state-title { font-size: var(--text-xl); font-weight: 600; margin-bottom: 8px; color: var(--text); letter-spacing: -0.5px; }
 .empty-state-body  { font-size: var(--text-base); color: var(--text-secondary); max-width: 400px; margin: 0 auto; }
 
-/* File manager row hover actions — shown on tr:hover */
+/* File manager row hover actions - shown on tr:hover */
 tr:hover .row-actions { opacity: 1 !important; }
 
 /* ── Tooltip ───────────────────────────────────────────────── */
@@ -581,3 +581,4 @@ tr:hover .row-actions { opacity: 1 !important; }
 .modal-warning .modal-title {
   color: var(--warning);
 }
+

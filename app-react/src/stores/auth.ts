@@ -1,8 +1,8 @@
-/**
- * stores/auth.ts — D-PlaneOS Auth Store
+﻿/**
+ * stores/auth.ts - D-PlaneOS Auth Store
  *
  * Manages session state. Session is validated against GET /api/auth/check
- * on every app load — never assumed from sessionStorage alone.
+ * on every app load - never assumed from sessionStorage alone.
  *
  * Login response from daemon:
  *   { success, session_id, username, expires_at, must_change_password }
@@ -122,7 +122,7 @@ export const useAuthStore = create<AuthState>((set) => ({
         set({ isLoading: false, isAuthenticated: false, user: null })
       }
     } catch {
-      // Network error or 401 — treat as unauthenticated
+      // Network error or 401 - treat as unauthenticated
       clearSession()
       set({ isLoading: false, isAuthenticated: false, user: null })
     }
@@ -135,7 +135,7 @@ export const useAuthStore = create<AuthState>((set) => ({
       throw new Error(data.error ?? 'Login failed')
     }
 
-    // TOTP required — return pending state to the login page
+    // TOTP required - return pending state to the login page
     if (data.requires_totp && data.pending_token) {
       return { requiresTotp: true as const, pendingToken: data.pending_token }
     }
@@ -159,9 +159,10 @@ export const useAuthStore = create<AuthState>((set) => ({
     try {
       await api.post('/api/auth/logout')
     } catch {
-      // Best-effort — clear local state regardless
+      // Best-effort - clear local state regardless
     }
     clearSession()
     set({ isAuthenticated: false, user: null })
   },
 }))
+

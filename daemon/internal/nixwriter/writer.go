@@ -1,4 +1,4 @@
-// Package nixwriter bridges D-PlaneOS's imperative management layer with
+﻿// Package nixwriter bridges D-PlaneOS's imperative management layer with
 // NixOS's declarative configuration system.
 //
 // # v5.0 Architecture: JSON-to-Nix Bridge
@@ -10,7 +10,7 @@
 //
 // The v5 approach:
 //   - The daemon writes ONE file: /var/lib/dplaneos/dplane-state.json
-//     This is pure JSON produced by encoding/json.Marshal — 100% safe by construction.
+//     This is pure JSON produced by encoding/json.Marshal - 100% safe by construction.
 //   - /etc/nixos/dplane-generated.nix is a STATIC file installed once by
 //     setup-nixos.sh. It never changes. It contains:
 //     let s = builtins.fromJSON (builtins.readFile /var/lib/dplaneos/dplane-state.json);
@@ -18,7 +18,7 @@
 //   - Because the .nix file is static and contains no interpolated values,
 //     there is NO syntax error risk from daemon writes, ever.
 //
-// Caller API is identical to v4 — handlers call Set*() methods and never
+// Caller API is identical to v4 - handlers call Set*() methods and never
 // know or care whether a .nix file or a .json file is being written.
 package nixwriter
 
@@ -99,7 +99,7 @@ type NetworkVLANEntry struct {
 }
 
 // Writer manages the dplane-state.json file.
-// On non-NixOS systems all writes are no-ops — safe to use everywhere.
+// On non-NixOS systems all writes are no-ops - safe to use everywhere.
 type Writer struct {
 	mu    sync.Mutex
 	path  string
@@ -283,7 +283,7 @@ func (w *Writer) SetNTP(servers []string) error {
 }
 
 // SetFirewallPorts records allowed TCP/UDP ports.
-// Pass the complete desired lists — this replaces the previous values entirely.
+// Pass the complete desired lists - this replaces the previous values entirely.
 func (w *Writer) SetFirewallPorts(tcpPorts, udpPorts []int) error {
 	w.mu.Lock()
 	w.state.FirewallTCP = tcpPorts
@@ -347,7 +347,7 @@ func (w *Writer) flush() error {
 		return fmt.Errorf("nixwriter: mkdir: %w", err)
 	}
 
-	// Atomic write via rename — no partial state ever visible on disk
+	// Atomic write via rename - no partial state ever visible on disk
 	tmp, err := os.CreateTemp(dir, ".dplane-state-*.json.tmp")
 	if err != nil {
 		return fmt.Errorf("nixwriter: create tmp: %w", err)
@@ -407,3 +407,4 @@ func validateHostname(s string) bool {
 	}
 	return true
 }
+

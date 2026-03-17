@@ -1,17 +1,17 @@
-package handlers
+﻿package handlers
 
 // ═══════════════════════════════════════════════════════════════════════════
 //  Multi-Stack Templates  (v5.1)
 //
 //  A "template" is a directory containing one or more sub-directories,
 //  each with a docker-compose.yml. Templates may also include:
-//    dplane-requirements.json — ZFS dataset + firewall port requirements
-//    template.json            — metadata (name, description, icon, variables)
+//    dplane-requirements.json - ZFS dataset + firewall port requirements
+//    template.json            - metadata (name, description, icon, variables)
 //
 //  Endpoints:
-//    GET  /api/docker/templates             — list built-in templates
-//    POST /api/docker/templates/deploy      — deploy a template (git URL or built-in)
-//    GET  /api/docker/templates/installed   — list installed template groups
+//    GET  /api/docker/templates             - list built-in templates
+//    POST /api/docker/templates/deploy      - deploy a template (git URL or built-in)
+//    GET  /api/docker/templates/installed   - list installed template groups
 //
 //  After deployment each stack directory contains a .dplane-template file
 //  recording the template ID. ListStacks reads this to return template_id.
@@ -84,7 +84,7 @@ var builtinTemplates = []BuiltinTemplate{
 		TemplateMetadata: TemplateMetadata{
 			ID:          "arr-suite",
 			Name:        "*arr Media Suite",
-			Description: "Radarr, Sonarr, Prowlarr, qBittorrent, and Jellyfin — fully wired together on a shared media network.",
+			Description: "Radarr, Sonarr, Prowlarr, qBittorrent, and Jellyfin - fully wired together on a shared media network.",
 			Icon:        "movie",
 			Tags:        []string{"media", "automation"},
 			Stacks:      []string{"jellyfin", "radarr", "sonarr", "prowlarr", "qbittorrent"},
@@ -103,7 +103,7 @@ var builtinTemplates = []BuiltinTemplate{
 		TemplateMetadata: TemplateMetadata{
 			ID:          "monitoring-suite",
 			Name:        "Monitoring Suite",
-			Description: "Prometheus, Grafana, Loki, and Promtail — full observability stack with D-PlaneOS dashboards pre-configured.",
+			Description: "Prometheus, Grafana, Loki, and Promtail - full observability stack with D-PlaneOS dashboards pre-configured.",
 			Icon:        "monitoring",
 			Tags:        []string{"monitoring", "metrics", "logs"},
 			Stacks:      []string{"prometheus", "grafana", "loki"},
@@ -150,7 +150,7 @@ func (h *TemplateHandler) ListTemplates(w http.ResponseWriter, r *http.Request) 
 }
 
 // POST /api/docker/templates/deploy
-// Deploys a template — either a built-in (by id) or a custom git URL.
+// Deploys a template - either a built-in (by id) or a custom git URL.
 // Returns immediately with a job_id. Poll GET /api/jobs/{id} for progress.
 //
 // Request body:
@@ -194,7 +194,7 @@ func (h *TemplateHandler) DeployTemplate(w http.ResponseWriter, r *http.Request)
 			return
 		}
 	} else {
-		// Custom URL — derive a safe ID from the URL
+		// Custom URL - derive a safe ID from the URL
 		meta.ID = sanitizeServiceName(filepath.Base(strings.TrimSuffix(gitURL, ".git")))
 		meta.Name = meta.ID
 	}
@@ -228,7 +228,7 @@ func (h *TemplateHandler) DeployTemplate(w http.ResponseWriter, r *http.Request)
 		// ── Step 2: Read template.json if present ─────────────────────────
 		metaPath := filepath.Join(cloneDir, "template.json")
 		if data, err := os.ReadFile(metaPath); err == nil {
-			_ = json.Unmarshal(data, &meta) // best effort — override with repo metadata
+			_ = json.Unmarshal(data, &meta) // best effort - override with repo metadata
 		}
 
 		// ── Step 3: Process dplane-requirements.json ─────────────────────
@@ -248,14 +248,14 @@ func (h *TemplateHandler) DeployTemplate(w http.ResponseWriter, r *http.Request)
 					}
 					args = append(args, ds.Path)
 					if dsOut, dsErr := cmdutil.RunMedium("/usr/sbin/zfs", args...); dsErr != nil {
-						// Dataset may already exist — log and continue
+						// Dataset may already exist - log and continue
 						j.Log(fmt.Sprintf("  zfs create: %v %s", dsErr, dsOut))
 					}
 				}
-				// Note: firewall port requirements are logged but not auto-applied —
+				// Note: firewall port requirements are logged but not auto-applied -
 				// user controls firewall changes explicitly via the UI.
 				if len(reqs.FirewallTCP)+len(reqs.FirewallUDP) > 0 {
-					j.Log(fmt.Sprintf("Template requires firewall ports — open manually if needed: TCP%v UDP%v",
+					j.Log(fmt.Sprintf("Template requires firewall ports - open manually if needed: TCP%v UDP%v",
 						reqs.FirewallTCP, reqs.FirewallUDP))
 				}
 			}
@@ -277,7 +277,7 @@ func (h *TemplateHandler) DeployTemplate(w http.ResponseWriter, r *http.Request)
 		// Otherwise walk alphabetically.
 		stackDirs, err := findTemplateSubs(cloneDir, meta.Stacks)
 		if err != nil || len(stackDirs) == 0 {
-			// No sub-stacks found — treat the root as a single stack
+			// No sub-stacks found - treat the root as a single stack
 			rootCompose := filepath.Join(cloneDir, "docker-compose.yml")
 			if _, err := os.Stat(rootCompose); err == nil {
 				stackDirs = []string{cloneDir}
@@ -318,7 +318,7 @@ func (h *TemplateHandler) DeployTemplate(w http.ResponseWriter, r *http.Request)
 			}
 			envDest := filepath.Join(destDir, ".env")
 			if err := substituteVars(envDest, variables); err != nil {
-				// .env may not exist — not an error
+				// .env may not exist - not an error
 				_ = err
 			}
 
@@ -454,7 +454,7 @@ func (h *TemplateHandler) ListInstalledTemplates(w http.ResponseWriter, r *http.
 		groups[tid].Stacks = append(groups[tid].Stacks, si)
 	}
 
-	// Convert map to slice — standalone last
+	// Convert map to slice - standalone last
 	result := []*StackGroup{}
 	standalone := (*StackGroup)(nil)
 	for _, g := range groups {
@@ -509,7 +509,7 @@ func findTemplateSubs(root string, orderedNames []string) ([]string, error) {
 	return result, nil
 }
 
-// copyDir copies all files from src to dst (non-recursive — one level).
+// copyDir copies all files from src to dst (non-recursive - one level).
 // Subdirectories in template stacks are not followed to avoid accidental deep copies.
 func copyDir(src, dst string) error {
 	entries, err := os.ReadDir(src)
@@ -549,3 +549,4 @@ func substituteVars(path string, vars map[string]string) error {
 	}
 	return os.WriteFile(path, []byte(content), 0640)
 }
+

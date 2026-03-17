@@ -1,4 +1,4 @@
-#!/bin/bash
+﻿#!/bin/bash
 #
 # D-PlaneOS Health Check Script
 #
@@ -101,7 +101,7 @@ else
 fi
 
 # Check PHP-FPM
-# (PHP-FPM removed — Go architecture, dplaned checked above)
+# (PHP-FPM removed - Go architecture, dplaned checked above)
 
 # 5. Services
 echo ""
@@ -250,3 +250,4 @@ else
     echo "Please review the failed checks above and fix any issues."
     exit 1
 fi
+

@@ -1,4 +1,4 @@
-package handlers
+﻿package handlers
 
 import (
 	"database/sql"
@@ -14,7 +14,7 @@ import (
 var (
 	// NetWriter writes systemd-networkd unit files.
 	// Works on ALL systemd distros. Changes survive reboot AND nixos-rebuild.
-	// Never nil — falls back gracefully when networkd is not active.
+	// Never nil - falls back gracefully when networkd is not active.
 	NetWriter *networkdwriter.Writer
 
 	// NixWriter writes dplane-generated.nix fragments.
@@ -78,7 +78,7 @@ func persistVLAN(name, parent string, vid int) {
 }
 
 func persistVLANDelete(name string) {
-	// need parent+vid to remove all 3 files — best effort on just the .network
+	// need parent+vid to remove all 3 files - best effort on just the .network
 	if NetWriter != nil {
 		if err := NetWriter.RemoveInterface(name); err != nil {
 			log.Printf("[persist] RemoveInterface(vlan) %s: %v", name, err)
@@ -117,19 +117,19 @@ func persistDNS(servers []string) {
 			log.Printf("[persist] SetGlobalDNS: %v", err)
 		}
 	}
-	// NixWriter.SetDNS removed — networkd handles this now
+	// NixWriter.SetDNS removed - networkd handles this now
 }
 
 // ── System settings ───────────────────────────────────────────────────────────
-// hostname → /etc/hostname via hostnamectl  (already persistent — no extra step)
-// timezone → /etc/localtime via timedatectl (already persistent — no extra step)
-// NTP      → /etc/systemd/timesyncd.conf   (already persistent — no extra step)
+// hostname → /etc/hostname via hostnamectl  (already persistent - no extra step)
+// timezone → /etc/localtime via timedatectl (already persistent - no extra step)
+// NTP      → /etc/systemd/timesyncd.conf   (already persistent - no extra step)
 // These functions exist as stubs so handlers compile cleanly; the persistence
 // is already handled by the OS-level tool calls in the handler code itself.
 
-func persistHostname(_ string) { /* hostnamectl writes /etc/hostname — already persistent */ }
-func persistTimezone(_ string)  { /* timedatectl writes /etc/localtime — already persistent */ }
-func persistNTP(_ []string)     { /* timesyncd.conf write in handler — already persistent */ }
+func persistHostname(_ string) { /* hostnamectl writes /etc/hostname - already persistent */ }
+func persistTimezone(_ string)  { /* timedatectl writes /etc/localtime - already persistent */ }
+func persistNTP(_ []string)     { /* timesyncd.conf write in handler - already persistent */ }
 
 // ── NixOS-only: firewall and samba ───────────────────────────────────────────
 // These have no systemd equivalent and still require nixos-rebuild switch.
@@ -171,5 +171,6 @@ func persistFirewallFromRequest(action, portSpec string) {
 	if NixWriter == nil || !NixWriter.IsNixOS() {
 		return
 	}
-	log.Printf("[nixwriter] firewall change: action=%s port=%s — sync via POST /api/firewall/sync", action, portSpec)
+	log.Printf("[nixwriter] firewall change: action=%s port=%s - sync via POST /api/firewall/sync", action, portSpec)
 }
+

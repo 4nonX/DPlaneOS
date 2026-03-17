@@ -1,6 +1,6 @@
-package handlers
+﻿package handlers
 
-// system_health.go — D-PlaneOS v3.3.2
+// system_health.go - D-PlaneOS v3.3.2
 //
 // Provides /api/system/health which the frontend polls to surface:
 //   - Read-Only filesystem detection (SD card wear / unexpected mount)
@@ -62,7 +62,7 @@ func detectReadOnlyPartitions() []string {
 	}
 	defer f.Close()
 
-	// Filesystems we care about — ignore pseudo-fs
+	// Filesystems we care about - ignore pseudo-fs
 	realFS := map[string]bool{
 		"ext2": true, "ext3": true, "ext4": true,
 		"xfs": true, "btrfs": true, "vfat": true,
@@ -116,7 +116,7 @@ func ntpStatus() (bool, string) {
 // lastServiceError returns the last 5 error/warning lines from journalctl
 // for the given systemd service. Sanitised for XSS safety.
 func lastServiceError(service string) string {
-	// Validate service name — alphanumeric, dash, underscore, dot only
+	// Validate service name - alphanumeric, dash, underscore, dot only
 	for _, c := range service {
 		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
 			(c >= '0' && c <= '9') || c == '-' || c == '_' || c == '.') {
@@ -147,3 +147,4 @@ func lastServiceError(service string) string {
 	}
 	return strings.Join(kept, "\n")
 }
+

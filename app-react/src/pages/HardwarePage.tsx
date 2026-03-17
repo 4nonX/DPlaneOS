@@ -1,5 +1,5 @@
-/**
- * pages/HardwarePage.tsx — Hardware Overview
+﻿/**
+ * pages/HardwarePage.tsx - Hardware Overview
  *
  * APIs:
  *   GET  /api/system/health              → RO filesystem, NTP
@@ -151,7 +151,7 @@ function SmartResultsModal({ device, onClose }: { device: string; onClose: () =>
   })
 
   return (
-    <Modal title={`SMART Test Results — /dev/${device}`} onClose={onClose} size="lg">
+    <Modal title={`SMART Test Results - /dev/${device}`} onClose={onClose} size="lg">
       <div style={{ padding: '0 0 4px' }}>
         {isLoading && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '16px 0', color: 'var(--text-secondary)', fontSize: 'var(--text-sm)' }}>
@@ -300,7 +300,7 @@ function ReplaceDiskModal({
                 >
                   {freeDisk.map(d => (
                     <option key={d.name} value={d.name}>
-                      /dev/{d.name} — {d.model || 'Unknown'} ({d.size})
+                      /dev/{d.name} - {d.model || 'Unknown'} ({d.size})
                       {suggestedNewDev === d.name ? ' ✓ Suggested' : ''}
                     </option>
                   ))}
@@ -594,7 +594,7 @@ function DiskRow({
         >
           <Icon name={testResult.success ? 'check_circle' : 'error'} size={14} />
           {testResult.success
-            ? `${testResult.type === 'long' ? 'Long' : 'Short'} test started — estimated duration: ${testResult.estimate ?? 'unknown'}`
+            ? `${testResult.type === 'long' ? 'Long' : 'Short'} test started - estimated duration: ${testResult.estimate ?? 'unknown'}`
             : testResult.error ?? 'Test failed'}
         </div>
       )}
@@ -657,7 +657,7 @@ export function HardwarePage() {
 
       // Show a toast that also describes the suggestion
       toast.info(
-        `New disk connected — suggested to replace faulted ${fv.path} in pool ${fv.pool}`,
+        `New disk connected - suggested to replace faulted ${fv.path} in pool ${fv.pool}`,
         8000
       )
 
@@ -795,21 +795,21 @@ export function HardwarePage() {
       {!healthQ.data?.ntp_synced && healthQ.data !== undefined && (
         <div className="alert alert-warning">
           <Icon name="schedule" size={18} />
-          NTP clock not synchronised — certificate validation and logging may be affected
+          NTP clock not synchronised - certificate validation and logging may be affected
         </div>
       )}
 
       {anySmartFail && (
         <div className="alert alert-error">
           <Icon name="hard_drive" size={18} />
-          One or more disks are reporting SMART failure — immediate attention required
+          One or more disks are reporting SMART failure - immediate attention required
         </div>
       )}
 
       {anyPoolDegraded && (
         <div className="alert alert-warning">
           <Icon name="warning" size={18} />
-          One or more pools are DEGRADED or have FAULTED vdevs — use the Replace button to begin resilver
+          One or more pools are DEGRADED or have FAULTED vdevs - use the Replace button to begin resilver
         </div>
       )}
 
@@ -936,3 +936,4 @@ export function HardwarePage() {
     </div>
   )
 }
+

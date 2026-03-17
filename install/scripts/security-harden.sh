@@ -1,4 +1,4 @@
-#!/bin/bash
+﻿#!/bin/bash
 #
 # D-PlaneOS - Quick Security Hardening Script
 # 
@@ -113,11 +113,11 @@ fi
 echo -e "${YELLOW}[4/10] Checking session security...${NC}"
 
 # Go daemon handles sessions internally (SQLite + secure cookies)
-# No PHP-FPM to configure — sessions managed by dplaned
+# No PHP-FPM to configure - sessions managed by dplaned
 if systemctl is-active dplaned >/dev/null 2>&1; then
-    echo -e "${GREEN}✓ Go daemon running — sessions secured via dplaned${NC}"
+    echo -e "${GREEN}✓ Go daemon running - sessions secured via dplaned${NC}"
 else
-    echo -e "${YELLOW}⚠ Go daemon not running — start with: systemctl start dplaned${NC}"
+    echo -e "${YELLOW}⚠ Go daemon not running - start with: systemctl start dplaned${NC}"
 fi
 
 # 5. Move uploads outside webroot
@@ -193,9 +193,9 @@ if command -v ufw &> /dev/null; then
     # The DOCKER-USER chain is the ONLY iptables chain that Docker respects.
     # Without this, every container port is exposed to the internet regardless of UFW rules.
     if command -v docker &> /dev/null || systemctl is-active --quiet docker 2>/dev/null; then
-        echo -e "${YELLOW}Docker detected — configuring DOCKER-USER iptables chain...${NC}"
+        echo -e "${YELLOW}Docker detected - configuring DOCKER-USER iptables chain...${NC}"
         
-        # Flush existing DOCKER-USER rules (safe — Docker recreates defaults)
+        # Flush existing DOCKER-USER rules (safe - Docker recreates defaults)
         iptables -F DOCKER-USER 2>/dev/null || true
         
         # Allow established connections (required for container outbound traffic)
@@ -216,7 +216,7 @@ if command -v ufw &> /dev/null; then
             iptables-save > /etc/iptables/rules.v4
         fi
         
-        echo -e "${GREEN}✓ DOCKER-USER chain configured — containers protected${NC}"
+        echo -e "${GREEN}✓ DOCKER-USER chain configured - containers protected${NC}"
     fi
 else
     apt install -y ufw
@@ -353,3 +353,4 @@ echo ""
 echo -e "${RED}WARNING: This system is still NOT recommended for direct internet exposure${NC}"
 echo -e "${RED}without additional hardening (2FA, IP allowlisting, etc.)${NC}"
 echo ""
+

@@ -57,13 +57,13 @@ On deletion: the account, role assignments, and active sessions are all removed.
 
 ### Built-in Roles
 
-**Admin** — All 34 permissions. Can manage users, roles, and system settings. Cannot be deleted (system role).
+**Admin** - All 34 permissions. Can manage users, roles, and system settings. Cannot be deleted (system role).
 
-**Operator** — Storage, Docker, and file management. Cannot create users or assign roles.
+**Operator** - Storage, Docker, and file management. Cannot create users or assign roles.
 
-**Viewer** — Read-only access to all data. Can download files and view logs. Cannot modify anything.
+**Viewer** - Read-only access to all data. Can download files and view logs. Cannot modify anything.
 
-**User** — Upload and download files, view own storage usage, read system status.
+**User** - Upload and download files, view own storage usage, read system status.
 
 ### Creating Custom Roles
 
@@ -176,11 +176,11 @@ Containers → **Deploy Container** → fill in image, name, ports, volumes, and
 Each container displays an icon resolved in this order:
 
 1. **`dplaneos.icon` label** on the container (set in `docker-compose.yaml`):
-   - A Material Symbol name (e.g. `database`) — renders as a vector icon
-   - A filename ending in `.svg`, `.png`, or `.webp` — served from `/var/lib/dplaneos/custom_icons/`
-   - A full URL starting with `http` or `/` — loaded as an image
-2. **Built-in image-name mapping** — covers 80+ well-known images (Jellyfin, Plex, Nextcloud, Grafana, etc.)
-3. **Fallback** — generic `deployed_code` icon
+   - A Material Symbol name (e.g. `database`) - renders as a vector icon
+   - A filename ending in `.svg`, `.png`, or `.webp` - served from `/var/lib/dplaneos/custom_icons/`
+   - A full URL starting with `http` or `/` - loaded as an image
+2. **Built-in image-name mapping** - covers 80+ well-known images (Jellyfin, Plex, Nextcloud, Grafana, etc.)
+3. **Fallback** - generic `deployed_code` icon
 
 **Adding a custom icon:**
 1. Copy your image file to `/var/lib/dplaneos/custom_icons/myapp.svg`
@@ -211,7 +211,7 @@ From this page, you can also quickly access the **Firewall** management UI to co
 
 ### Notifications
 
-Settings → System → Notifications — configure SMTP for email alerts. The ZED hook also supports direct Telegram alerts for critical ZFS events (pool degraded, disk faulted). See `install/zed/dplaneos-notify.sh` for configuration details (reads `telegram_config` from the database).
+Settings → System → Notifications - configure SMTP for email alerts. The ZED hook also supports direct Telegram alerts for critical ZFS events (pool degraded, disk faulted). See `install/zed/dplaneos-notify.sh` for configuration details (reads `telegram_config` from the database).
 
 ---
 
@@ -223,7 +223,7 @@ CPU, RAM, disk I/O, network traffic, pool health, and container status are displ
 
 ### Alert Thresholds
 
-Monitoring → Settings — configure thresholds for CPU, RAM, disk capacity, and I/O wait. Alerts route to email, webhook, Telegram, and the dashboard.
+Monitoring → Settings - configure thresholds for CPU, RAM, disk capacity, and I/O wait. Alerts route to email, webhook, Telegram, and the dashboard.
 
 ### Viewing Logs
 
@@ -330,9 +330,9 @@ To add a mapping: click **Add Mapping**, enter the LDAP group name, select the r
 D-PlaneOS uses **directory-sourced user provisioning with local authentication**. This is intentionally different from live LDAP auth:
 
 - Users are **synced from the directory** into the local database (`POST /api/ldap/sync`), with group-to-role mappings applied at sync time.
-- At login, synced users authenticate via **LDAP bind** — the daemon connects to the directory server and verifies credentials in real time.
+- At login, synced users authenticate via **LDAP bind** - the daemon connects to the directory server and verifies credentials in real time.
 - Local accounts (including the system administrator) always authenticate via bcrypt regardless of LDAP state.
-- If the LDAP server is unreachable, **all local accounts continue to work** — the UI is never fully locked out.
+- If the LDAP server is unreachable, **all local accounts continue to work** - the UI is never fully locked out.
 
 This model gives you directory-controlled access without making the management UI dependent on directory availability.
 
@@ -350,7 +350,7 @@ This model gives you directory-controlled access without making the management U
 
 - The system administrator (user ID 1) always uses local authentication, even when LDAP is enabled, preventing lockout if the directory server goes down.
 - TLS is enforced by default (TLS 1.2+).
-- The bind password is stored in SQLite — use a read-only service account.
+- The bind password is stored in SQLite - use a read-only service account.
 - If the LDAP server is unreachable, local accounts continue to work. Directory-sourced accounts will fail login until the server is reachable again.
 
 ### LDAP API
@@ -376,7 +376,7 @@ GET    /api/ldap/sync-log
 | Bind failed | Verify Bind DN and password; check the service account is not locked |
 | User not found | Check User Filter: AD uses `sAMAccountName`, OpenLDAP uses `uid` |
 | No groups mapped | Verify Group Base DN and Group Filter |
-| Admin locked out | User ID 1 always uses local auth — log in with local credentials |
+| Admin locked out | User ID 1 always uses local auth - log in with local credentials |
 
 ---
 
@@ -387,9 +387,9 @@ The daemon serves custom icons from `/var/lib/dplaneos/custom_icons/`.
 Supported formats: `.svg`, `.png`, `.webp`
 
 **API endpoints:**
-- `GET /api/assets/custom-icons/<filename>` — serve a single icon file
-- `GET /api/assets/custom-icons/list` — JSON list of available filenames
-- `GET /api/docker/icon-map` — built-in image-name to Material Symbol mapping (80+ entries)
+- `GET /api/assets/custom-icons/<filename>` - serve a single icon file
+- `GET /api/assets/custom-icons/list` - JSON list of available filenames
+- `GET /api/docker/icon-map` - built-in image-name to Material Symbol mapping (80+ entries)
 
 **Usage:** Drop an image file into `/var/lib/dplaneos/custom_icons/`, then reference it via the `dplaneos.icon` container label. No daemon restart is required.
 

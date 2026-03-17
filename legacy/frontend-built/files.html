@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -521,7 +521,7 @@ function openViewer(path, name, ext, size, mtime) {
         return; // modal already opened
 
     } else {
-        // unknown — no preview
+        // unknown - no preview
         body.innerHTML = '<div class="preview-empty"><div class="pe-icon">📄</div>No preview for <strong>.' + escHtml(ext||'?') + '</strong> files<br><br><button class="btn-primary" onclick="downloadFile(viewerPath)">⬇️ Download</button></div>';
         foot.style.display = 'none';
     }
@@ -704,3 +704,4 @@ navigate('/mnt');
 </script>
 </body>
 </html>
+

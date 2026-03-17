@@ -1,4 +1,4 @@
-#!/bin/bash
+﻿#!/bin/bash
 #
 # D-PlaneOS - Hot-swap Disk Added Notification
 #
@@ -8,10 +8,10 @@
 # data on fast hot-plug events.
 #
 # Usage: notify-disk-added.sh <device> <type> <serial> <wwn>
-#   device — full device path, e.g. /dev/sda
-#   type   — sata | nvme | sas
-#   serial — udev ID_SERIAL (may be empty string)
-#   wwn    — udev ID_WWN   (may be empty string)
+#   device - full device path, e.g. /dev/sda
+#   type   - sata | nvme | sas
+#   serial - udev ID_SERIAL (may be empty string)
+#   wwn    - udev ID_WWN   (may be empty string)
 #
 
 DEVICE=$1
@@ -27,7 +27,7 @@ if [ -f /etc/dplaneos/daemon.conf ]; then
     [ -n "$_port" ] && DAEMON_PORT="$_port"
 fi
 
-# Wait for device to settle — kernel needs time after a hot-plug event
+# Wait for device to settle - kernel needs time after a hot-plug event
 # before lsblk returns valid MODEL/SIZE data. Without this loop, the
 # first attempt typically returns empty output on fast SATA hot-swap.
 MAX_RETRIES=5
@@ -60,3 +60,4 @@ curl -sf --max-time 5 -X POST "http://127.0.0.1:${DAEMON_PORT}/api/internal/disk
     -d "{\"action\":\"added\",\"device\":\"$DEVICE\",\"device_type\":\"$TYPE\",\"serial\":\"$SERIAL\",\"wwn\":\"$WWN\",\"model\":\"$MODEL\",\"size\":\"$SIZE\"}" || true
 
 exit 0
+

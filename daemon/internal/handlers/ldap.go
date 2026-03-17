@@ -1,4 +1,4 @@
-package handlers
+﻿package handlers
 
 import (
 	"database/sql"
@@ -178,7 +178,7 @@ func (h *LDAPHandler) SaveConfig(w http.ResponseWriter, r *http.Request) {
 	})
 	var warning string
 	if req.UseTLS == 0 {
-		warning = "TLS is disabled — LDAP credentials will be transmitted in plaintext. Enable TLS for production use."
+		warning = "TLS is disabled - LDAP credentials will be transmitted in plaintext. Enable TLS for production use."
 	}
 
 	// Trigger GitOps commit
@@ -292,7 +292,7 @@ func (h *LDAPHandler) TriggerSync(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Upsert each user into the local users table (source='ldap').
-	// LDAP users get an empty password_hash — they authenticate via LDAP bind,
+	// LDAP users get an empty password_hash - they authenticate via LDAP bind,
 	// never via local password. role defaults to 'user' unless a group mapping matches.
 	for _, u := range users {
 		roleIDs := client.MapGroupsToRoles(u.Groups)
@@ -408,7 +408,7 @@ func (h *LDAPHandler) SearchUser(w http.ResponseWriter, r *http.Request) {
 		"username": req.Username,
 		"filter":   filter,
 		"base_dn":  cfg.BaseDN,
-		"message":  "Search executed — check server logs for results",
+		"message":  "Search executed - check server logs for results",
 	}})
 }
 
@@ -602,3 +602,4 @@ func (h *LDAPHandler) logSync(syncType string, success bool, synced, created, up
 func init() {
 	log.Println("LDAP handler module loaded")
 }
+

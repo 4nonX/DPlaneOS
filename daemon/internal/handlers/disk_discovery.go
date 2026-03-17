@@ -1,4 +1,4 @@
-package handlers
+﻿package handlers
 
 import (
 	"context"
@@ -562,7 +562,7 @@ func HandlePoolCreate(w http.ResponseWriter, r *http.Request) {
 
 	switch request.Type {
 	case "", "Single":
-		// stripe/single vdev — no extra keyword
+		// stripe/single vdev - no extra keyword
 	case "Mirror":
 		args = append(args, "mirror")
 	case "RAID-Z1":
@@ -605,13 +605,13 @@ func HandlePoolCreate(w http.ResponseWriter, r *http.Request) {
 func resolveAndValidateDiskPaths(paths []string) ([]string, error) {
 	resolved := make([]string, 0, len(paths))
 	for _, p := range paths {
-		// Already a stable absolute path — accept as-is.
+		// Already a stable absolute path - accept as-is.
 		if strings.HasPrefix(p, "/dev/disk/by-id/") || strings.HasPrefix(p, "/dev/disk/by-path/") {
 			resolved = append(resolved, p)
 			continue
 		}
 
-		// Full /dev/<name> path — strip to bare name and look up.
+		// Full /dev/<name> path - strip to bare name and look up.
 		name := p
 		if strings.HasPrefix(p, "/dev/") {
 			name = strings.TrimPrefix(p, "/dev/")
@@ -638,10 +638,11 @@ func resolveAndValidateDiskPaths(paths []string) ([]string, error) {
 			}
 		}
 
-		// Could not resolve — reject with a clear error.
+		// Could not resolve - reject with a clear error.
 		return nil, fmt.Errorf(
 			"disk paths must use stable /dev/disk/by-id/ identifiers (could not resolve %q to a by-id path)", p,
 		)
 	}
 	return resolved, nil
 }
+

@@ -1,4 +1,4 @@
-package handlers
+﻿package handlers
 
 import (
 	"database/sql"
@@ -358,7 +358,7 @@ func (h *NixOSGuardHandler) ApplyWithWatchdog(w http.ResponseWriter, r *http.Req
 		watchdogMu.Lock()
 		defer watchdogMu.Unlock()
 		if watchdogActive {
-			// Auto-rollback — nobody confirmed
+			// Auto-rollback - nobody confirmed
 			if _, err := cmdutil.RunSlow("/run/current-system/sw/bin/nixos-rebuild", "switch", "--rollback"); err != nil {
 				log.Printf("ERROR: nixos rollback failed: %v", err)
 			}
@@ -701,16 +701,16 @@ func (h *ZombieWatcherHandler) CheckDiskLatency(w http.ResponseWriter, r *http.R
 
 // CommonSMARTWarnings maps well-known attribute IDs to human-readable warnings
 var CommonSMARTWarnings = map[int]string{
-	5:   "Reallocated Sectors — disk is remapping bad sectors (early failure sign)",
-	10:  "Spin Retry Count — disk motor struggling (mechanical wear)",
-	184: "End-to-End Error — data path integrity failure",
-	187: "Reported Uncorrectable Errors — unrecoverable read errors",
-	188: "Command Timeout — disk not responding to commands in time",
-	196: "Reallocation Event Count — how often sectors were remapped",
-	197: "Current Pending Sector — sectors waiting to be remapped (bad sign)",
-	198: "Offline Uncorrectable — sectors that failed offline testing",
-	199: "UDMA CRC Error Count — cable or controller issues",
-	201: "Soft Read Error Rate — read retries needed (pre-failure)",
+	5:   "Reallocated Sectors - disk is remapping bad sectors (early failure sign)",
+	10:  "Spin Retry Count - disk motor struggling (mechanical wear)",
+	184: "End-to-End Error - data path integrity failure",
+	187: "Reported Uncorrectable Errors - unrecoverable read errors",
+	188: "Command Timeout - disk not responding to commands in time",
+	196: "Reallocation Event Count - how often sectors were remapped",
+	197: "Current Pending Sector - sectors waiting to be remapped (bad sign)",
+	198: "Offline Uncorrectable - sectors that failed offline testing",
+	199: "UDMA CRC Error Count - cable or controller issues",
+	201: "Soft Read Error Rate - read retries needed (pre-failure)",
 }
 
 // SMARTAttribute represents a single parsed SMART attribute.
@@ -747,7 +747,7 @@ func PredictDiskFailure(attrs []SMARTAttribute) (risk string, reasons []string) 
 	for _, attr := range attrs {
 		desc, severity := TranslateSMARTAttribute(attr.ID, attr.RawValue)
 		if desc == "" {
-			continue // attribute not in our warning map — ignore
+			continue // attribute not in our warning map - ignore
 		}
 		reason := fmt.Sprintf("Attr %d (%s): %s [raw=%d]", attr.ID, attr.Name, desc, attr.RawValue)
 		switch severity {
@@ -776,7 +776,7 @@ func HandleSMARTPrediction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Whitelist: only accept bare device names (sda, nvme0n1, etc.) — no slashes
+	// Whitelist: only accept bare device names (sda, nvme0n1, etc.) - no slashes
 	if strings.ContainsAny(device, "/\\;|&$`'\"") {
 		respondErrorSimple(w, "invalid device name", http.StatusBadRequest)
 		return
@@ -961,3 +961,4 @@ func FilterDirEntries(entries []os.DirEntry, customIgnore []string) []os.DirEntr
 
 // Ensure filepath is imported
 var _ = filepath.Clean
+

@@ -1,4 +1,4 @@
-# D-PlaneOS — Architecture Diagrams
+﻿# D-PlaneOS - Architecture Diagrams
 
 Visual overview of the codebase. Render in any Mermaid-compatible viewer (GitHub, VS Code with Mermaid extension, or [mermaid.live](https://mermaid.live)).
 
@@ -45,21 +45,21 @@ flowchart LR
 %%{init: {'theme':'base', 'themeVariables': { 'primaryColor':'#b2dfdb', 'primaryTextColor':'#004d40', 'primaryBorderColor':'#00695c', 'lineColor':'#00695c', 'secondaryColor':'#e0f2f1' }}}%%
 flowchart TB
     subgraph cmd["cmd/dplaned"]
-        main["main.go — flags, DB init, router setup"]
-        schema["schema.go — SQLite schema migrations"]
+        main["main.go - flags, DB init, router setup"]
+        schema["schema.go - SQLite schema migrations"]
     end
 
     subgraph internal["internal/"]
-        handlers["handlers/ — ~50 handler files (one per feature)"]
-        middleware["middleware/ — logging, session, rate limit"]
-        audit["audit/ — buffered logger, HMAC chain"]
-        security["security/ — session validation, RBAC, command whitelist"]
-        ha["ha/ — cluster manager (active/standby)"]
-        zfs_pkg["zfs/ — pool heartbeat"]
-        jobs["jobs/ — async job store (in-memory)"]
-        cmdutil["cmdutil/ — safe exec.Command wrappers"]
-        netlinkx["netlinkx/ — netlink syscalls (no CGO)"]
-        database["database/migrations/ — SQL migration files"]
+        handlers["handlers/ - ~50 handler files (one per feature)"]
+        middleware["middleware/ - logging, session, rate limit"]
+        audit["audit/ - buffered logger, HMAC chain"]
+        security["security/ - session validation, RBAC, command whitelist"]
+        ha["ha/ - cluster manager (active/standby)"]
+        zfs_pkg["zfs/ - pool heartbeat"]
+        jobs["jobs/ - async job store (in-memory)"]
+        cmdutil["cmdutil/ - safe exec.Command wrappers"]
+        netlinkx["netlinkx/ - netlink syscalls (no CGO)"]
+        database["database/migrations/ - SQL migration files"]
     end
 
     main --> handlers
@@ -169,3 +169,4 @@ sequenceDiagram
     S->>S: RBAC permission check
     S-->>U: response or 401/403
 ```
+

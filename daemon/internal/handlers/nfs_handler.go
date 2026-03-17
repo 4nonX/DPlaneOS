@@ -1,4 +1,4 @@
-package handlers
+﻿package handlers
 
 import (
 	"database/sql"
@@ -23,7 +23,7 @@ import (
 // ═══════════════════════════════════════════════════════════════
 
 const nfsExportsPath = "/etc/exports"
-const nfsDplaneosMark = "# D-PlaneOS NFS exports — managed automatically, do not edit by hand"
+const nfsDplaneosMark = "# D-PlaneOS NFS exports - managed automatically, do not edit by hand"
 
 // NFSExport represents a single exported path
 type NFSExport struct {
@@ -424,3 +424,4 @@ func (h *NFSHandler) ReloadNFSExportsHandler(w http.ResponseWriter, r *http.Requ
 	}
 	respondOK(w, map[string]interface{}{"success": true, "message": "NFS exports reloaded"})
 }
+

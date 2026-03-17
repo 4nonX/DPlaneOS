@@ -1,6 +1,6 @@
-package handlers
+﻿package handlers
 
-// log_stream.go — D-PlaneOS v3.3.2
+// log_stream.go - D-PlaneOS v3.3.2
 //
 // GET /api/system/logs/stream?unit=<service>
 //
@@ -33,7 +33,7 @@ func LogStreamHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Optional ?unit= filter — validate strictly
+	// Optional ?unit= filter - validate strictly
 	unit := r.URL.Query().Get("unit")
 	if unit != "" {
 		for _, c := range unit {
@@ -58,7 +58,7 @@ func LogStreamHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("X-Accel-Buffering", "no") // disable nginx buffering
 
-	// Build journalctl args — tail last 20 lines then follow
+	// Build journalctl args - tail last 20 lines then follow
 	args := []string{"--no-pager", "--follow", "-n", "20", "--output=short-iso"}
 	if unit != "" {
 		args = append(args, "-u", unit)
@@ -107,3 +107,4 @@ func sendSSEEvent(w http.ResponseWriter, f http.Flusher, eventType, data string)
 	fmt.Fprintf(w, "event: %s\ndata: %s\n\n", eventType, escaped)
 	f.Flush()
 }
+

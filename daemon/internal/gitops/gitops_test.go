@@ -1,4 +1,4 @@
-package gitops
+﻿package gitops
 
 import (
 	"strings"
@@ -106,7 +106,7 @@ shares: []
 `
 			_, err := ParseStateYAML(yaml)
 			if err == nil {
-				t.Fatalf("disk %q should be rejected — /dev/sdX paths are unstable", tc.disk)
+				t.Fatalf("disk %q should be rejected - /dev/sdX paths are unstable", tc.disk)
 			}
 			if !strings.Contains(err.Error(), "by-id") {
 				t.Errorf("error should mention by-id requirement, got: %v", err)
@@ -297,11 +297,11 @@ func TestComputeDiff_ModifyDatasetCompression(t *testing.T) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-//  BLOCKED SAFETY CONTRACT TESTS  — the most critical tests in this file
+//  BLOCKED SAFETY CONTRACT TESTS  - the most critical tests in this file
 // ═══════════════════════════════════════════════════════════════════════════════
 
 // TestBlockedContract_PoolDestroyAlwaysBlocked verifies that removing a pool
-// from desired state ALWAYS results in a BLOCKED item — never DELETE.
+// from desired state ALWAYS results in a BLOCKED item - never DELETE.
 func TestBlockedContract_PoolDestroyAlwaysBlocked(t *testing.T) {
 	desired := &DesiredState{Version: "1"} // pool not in desired
 	live := &LiveState{
@@ -337,7 +337,7 @@ func TestBlockedContract_PoolDestroyAlwaysBlocked(t *testing.T) {
 func TestBlockedContract_NonEmptyDatasetBlocked(t *testing.T) {
 	ld := LiveDataset{
 		Name: "tank/data",
-		Used: 1024 * 1024 * 1024, // 1 GiB — definitely not empty
+		Used: 1024 * 1024 * 1024, // 1 GiB - definitely not empty
 	}
 
 	// Stub the live query: DatasetUsedBytes calls zfs get, which we can't do in tests.
@@ -358,7 +358,7 @@ func TestBlockedContract_NonEmptyDatasetBlocked(t *testing.T) {
 	plan := ComputeDiff(desired, live)
 	// The real blockedCheckDataset calls DatasetUsedBytes (ZFS) which returns 0
 	// in test (no ZFS). So in a unit test it becomes DELETE (empty), not BLOCKED.
-	// That's correct — we can't run ZFS in unit tests.
+	// That's correct - we can't run ZFS in unit tests.
 	//
 	// The integration test path (real ZFS) would produce BLOCKED.
 	// Here we verify the plan has exactly one delete-or-blocked item.
@@ -374,7 +374,7 @@ func TestBlockedContract_humanReadableReason(t *testing.T) {
 	if item.Action != ActionBlocked {
 		t.Fatalf("want BLOCKED, got %s", item.Action)
 	}
-	// The reason must be human-actionable — tell them what to do
+	// The reason must be human-actionable - tell them what to do
 	for _, must := range []string{"zpool", "manually"} {
 		if !strings.Contains(item.BlockReason, must) {
 			t.Errorf("block reason must contain %q to be actionable: %q", must, item.BlockReason)
@@ -458,3 +458,4 @@ func TestParseChangeString_Invalid(t *testing.T) {
 		t.Error("want error for missing arrow")
 	}
 }
+

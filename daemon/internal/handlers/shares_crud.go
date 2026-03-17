@@ -1,4 +1,4 @@
-package handlers
+﻿package handlers
 
 import (
 	"database/sql"
@@ -42,7 +42,7 @@ func (h *ShareCRUDHandler) initTable() {
 	)`)
 }
 
-// HandleShares — GET: list shares, POST: create/update/delete, DELETE: delete by name
+// HandleShares - GET: list shares, POST: create/update/delete, DELETE: delete by name
 func (h *ShareCRUDHandler) HandleShares(w http.ResponseWriter, r *http.Request) {
 	h.initTable()
 
@@ -478,3 +478,4 @@ func (h *ShareCRUDHandler) regenerateSMBConf() {
 
 	log.Printf("SMB config regenerated and reloaded (VFS: tm=%d sc=%d rb=%d)", globalTimeMachine, globalShadowCopy, globalRecycleBin)
 }
+

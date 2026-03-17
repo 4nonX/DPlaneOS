@@ -1,4 +1,4 @@
-package handlers
+﻿package handlers
 
 import (
 	"encoding/json"
@@ -48,7 +48,7 @@ func (h *TerminalHandler) HandleTerminal(w http.ResponseWriter, r *http.Request)
 	}
 	defer conn.Close()
 
-	// Determine shell — prefer bash, fall back to sh
+	// Determine shell - prefer bash, fall back to sh
 	shell := "/bin/bash"
 	if _, err := os.Stat(shell); err != nil {
 		shell = "/bin/sh"
@@ -84,7 +84,7 @@ func (h *TerminalHandler) HandleTerminal(w http.ResponseWriter, r *http.Request)
 				}
 			}
 			if err != nil {
-				// PTY closed — shell exited
+				// PTY closed - shell exited
 				sendTermMsg(conn, "exit", "")
 				return
 			}
@@ -125,3 +125,4 @@ func sendTermMsg(conn *websocket.Conn, msgType, data string) {
 	msg, _ := json.Marshal(termMsg{Type: msgType, Data: data})
 	conn.WriteMessage(websocket.TextMessage, msg) //nolint:errcheck
 }
+

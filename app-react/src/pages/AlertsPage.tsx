@@ -1,5 +1,5 @@
-/**
- * pages/AlertsPage.tsx — Alert Channels (Phase 6)
+﻿/**
+ * pages/AlertsPage.tsx - Alert Channels (Phase 6)
  *
  * Tabs: Telegram | SMTP | Webhooks
  *
@@ -139,7 +139,7 @@ function TelegramTab() {
           <span style={{ fontWeight: 600, fontSize: 'var(--text-sm)' }}>Enable Telegram alerts</span>
         </label>
 
-        <Field label="Bot Token" hint="From @BotFather — starts with numbers:letters">
+        <Field label="Bot Token" hint="From @BotFather - starts with numbers:letters">
           <input value={token} onChange={e => setToken(e.target.value)}
             placeholder="1234567890:ABCdefGHIjklMNOpqrSTUvwxYZ"
             className="input" style={{ fontFamily: 'var(--font-mono)' }} type="password" autoComplete="off" />
@@ -264,7 +264,7 @@ function SMTPTab() {
 }
 
 // ---------------------------------------------------------------------------
-// WebhookModal — create / view
+// WebhookModal - create / view
 // ---------------------------------------------------------------------------
 
 function WebhookModal({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
@@ -473,3 +473,4 @@ export function AlertsPage() {
     </div>
   )
 }
+

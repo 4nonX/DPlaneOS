@@ -1,4 +1,4 @@
-package gitops
+﻿package gitops
 
 import (
 	"database/sql"
@@ -22,7 +22,7 @@ import (
 //  Transactional guarantee:
 //    - Items execute in Plan order (CREATE → MODIFY → DELETE).
 //    - If any step fails, execution halts immediately.
-//    - Already-executed steps are NOT rolled back (they were SAFE changes —
+//    - Already-executed steps are NOT rolled back (they were SAFE changes -
 //      creating a dataset or modifying a quota does not need reversal).
 //    - The caller receives an ApplyResult listing exactly which steps succeeded
 //      and which failed, so the operator can re-run safely (all operations
@@ -73,13 +73,13 @@ func ApplyPlan(ctx ApplyContext, plan *Plan) (*ApplyResult, error) {
 			if !item.Approved {
 				result.Failed = item.Name
 				result.Error = fmt.Errorf(
-					"%w: %s %q — %s",
+					"%w: %s %q - %s",
 					ErrHasBlocked, item.Kind, item.Name, item.BlockReason,
 				)
 				result.Duration = time.Since(start)
 				return result, result.Error
 			}
-			// Operator approved — fall through to execute as DELETE
+			// Operator approved - fall through to execute as DELETE
 			log.Printf("GITOPS APPLY: executing APPROVED-BLOCKED %s %q", item.Kind, item.Name)
 			if err := executeDelete(ctx, item); err != nil {
 				result.Failed = item.Name
@@ -119,7 +119,7 @@ func ApplyPlan(ctx ApplyContext, plan *Plan) (*ApplyResult, error) {
 	}
 
 	result.Duration = time.Since(start)
-	log.Printf("GITOPS APPLY: complete — %d items applied in %s", len(result.Applied), result.Duration)
+	log.Printf("GITOPS APPLY: complete - %d items applied in %s", len(result.Applied), result.Duration)
 	return result, nil
 }
 
@@ -189,7 +189,7 @@ func executeDelete(ctx ApplyContext, item DiffItem) error {
 	case KindShare:
 		return deleteShare(ctx.DB, ctx.SmbConfPath, item.Name)
 	case KindPool:
-		// Pool destroy is always BLOCKED — this path only runs when Approved=true.
+		// Pool destroy is always BLOCKED - this path only runs when Approved=true.
 		return destroyPool(item.Name)
 	case KindStack:
 		return deleteStack(item.Name)
@@ -211,7 +211,7 @@ func createPool(dp DesiredPool) error {
 	// Validate all disks are by-id before touching anything
 	for _, d := range dp.Disks {
 		if !strings.HasPrefix(d, byIDPrefix) {
-			return fmt.Errorf("disk %q is not a /dev/disk/by-id/ path — refusing to create pool", d)
+			return fmt.Errorf("disk %q is not a /dev/disk/by-id/ path - refusing to create pool", d)
 		}
 	}
 
@@ -259,9 +259,9 @@ func modifyPool(name string, changes []string, dp DesiredPool) error {
 		// disk-remove changes are surfaced as changes but NOT executed automatically.
 		// They require BLOCKED classification in the next diff cycle.
 		// If we reach here with a disk-remove, it means an earlier BLOCKED check
-		// was bypassed — log and skip rather than executing a dangerous operation.
+		// was bypassed - log and skip rather than executing a dangerous operation.
 		if strings.Contains(change, "disk-remove") {
-			log.Printf("GITOPS WARNING: skipping disk-remove change for pool %q — requires manual intervention: %s", name, change)
+			log.Printf("GITOPS WARNING: skipping disk-remove change for pool %q - requires manual intervention: %s", name, change)
 		}
 	}
 	return nil
@@ -269,7 +269,7 @@ func modifyPool(name string, changes []string, dp DesiredPool) error {
 
 func destroyPool(name string) error {
 	// Final safety check: refuse to destroy a pool that has datasets with data.
-	// This is belt-and-suspenders — the BLOCKED check should have caught this.
+	// This is belt-and-suspenders - the BLOCKED check should have caught this.
 	out, err := cmdutil.RunZFS("zfs", "list", "-H", "-o", "name,used", "-r", name)
 	if err == nil {
 		for _, line := range strings.Split(string(out), "\n") {
@@ -278,7 +278,7 @@ func destroyPool(name string) error {
 				usedBytes := DatasetUsedBytes(fields[0])
 				if usedBytes > 0 {
 					return fmt.Errorf(
-						"SAFETY ABORT: pool %q contains dataset %q with %s of data — "+
+						"SAFETY ABORT: pool %q contains dataset %q with %s of data - "+
 							"destroy cancelled even though BLOCKED was approved. "+
 							"Manually destroy the dataset first.",
 						name, fields[0], humaniseBytes(usedBytes),
@@ -299,10 +299,10 @@ func destroyPool(name string) error {
 // ── Dataset operations ────────────────────────────────────────────────────────
 
 func createDataset(name string, _ *DesiredDataset) error {
-	// Check existence first — idempotent
+	// Check existence first - idempotent
 	out, err := cmdutil.RunZFS("zfs", "list", "-H", "-o", "name", name)
 	if err == nil && strings.TrimSpace(string(out)) == name {
-		log.Printf("GITOPS: dataset %q already exists — skipping create", name)
+		log.Printf("GITOPS: dataset %q already exists - skipping create", name)
 		return nil
 	}
 
@@ -326,7 +326,7 @@ func modifyDataset(name string, changes []string) error {
 		// Map friendly names to ZFS property names
 		zfsProp := datasetPropName(prop)
 		if zfsProp == "" {
-			log.Printf("GITOPS: unknown property %q for dataset %s — skipping", prop, name)
+			log.Printf("GITOPS: unknown property %q for dataset %s - skipping", prop, name)
 			continue
 		}
 
@@ -344,7 +344,7 @@ func deleteDataset(name string) error {
 	used := DatasetUsedBytes(name)
 	if used > 0 {
 		return fmt.Errorf(
-			"SAFETY ABORT: dataset %q has %s of data — destroy cancelled. "+
+			"SAFETY ABORT: dataset %q has %s of data - destroy cancelled. "+
 				"This should have been BLOCKED. Please report this as a bug.",
 			name, humaniseBytes(used),
 		)
@@ -398,7 +398,7 @@ func deleteShare(db *sql.DB, smbConfPath, name string) error {
 	// Final live-connection check at execute time
 	if HasActiveSMBConnections(name) {
 		return fmt.Errorf(
-			"SAFETY ABORT: share %q has active connections at execute time — "+
+			"SAFETY ABORT: share %q has active connections at execute time - "+
 				"delete cancelled even though plan said safe. Client connected after plan was evaluated.",
 			name,
 		)
@@ -884,3 +884,4 @@ func reconcileLDAP(db *sql.DB, desired *DesiredLDAP) error {
 	log.Printf("GITOPS: reconciled LDAP configuration")
 	return nil
 }
+

@@ -1,5 +1,5 @@
-/**
- * pages/ReplicationPage.tsx — ZFS Replication (Phase 2)
+﻿/**
+ * pages/ReplicationPage.tsx - ZFS Replication (Phase 2)
  *
  * Calls (matching daemon routes exactly):
  *   POST /api/replication/send            → async job { job_id }
@@ -83,7 +83,7 @@ function JobStatusBanner({ jobId, onDone }: { jobId: string | null; onDone?: () 
   if (job.interrupted) return (
     <div className="alert alert-warning" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
       <Icon name="warning" size={16} />
-      Job interrupted — daemon may have restarted
+      Job interrupted - daemon may have restarted
     </div>
   )
 
@@ -267,7 +267,7 @@ function SSHKeyManager() {
     mutationFn: () => api.get<SSHKeyResponse>('/api/replication/ssh-pubkey'),
     onSuccess: data => {
       if (data.public_key) setPubKey(data.public_key)
-      else toast.error('No public key found — generate one first')
+      else toast.error('No public key found - generate one first')
     },
     onError: (e: Error) => toast.error(e.message),
   })
@@ -336,7 +336,7 @@ function SSHKeyManager() {
 // ---------------------------------------------------------------------------
 
 function StatusBadge({ status }: { status?: string }) {
-  if (!status) return <span style={{ color: 'var(--text-tertiary)', fontSize: 'var(--text-xs)' }}>—</span>
+  if (!status) return <span style={{ color: 'var(--text-tertiary)', fontSize: 'var(--text-xs)' }}>-</span>
 
   const colors: Record<string, { bg: string; border: string; text: string }> = {
     running: { bg: 'var(--info-bg,#1a2a3a)', border: 'var(--info-border,#2a4a6a)', text: 'var(--info,#60a5fa)' },
@@ -519,7 +519,7 @@ function SchedulesTab({ datasets, confirm }: { datasets: ZFSDataset[]; confirm: 
   const schedules = schedulesQ.data?.schedules ?? []
 
   function formatLastRun(ts?: string) {
-    if (!ts) return '—'
+    if (!ts) return '-'
     try {
       return new Date(ts).toLocaleString()
     } catch {
@@ -570,7 +570,7 @@ function SchedulesTab({ datasets, confirm }: { datasets: ZFSDataset[]; confirm: 
                   <td style={{ padding: '12px 12px', color: 'var(--text-secondary)' }}>
                     {s.remote_host
                       ? <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)' }}>{s.remote_user}@{s.remote_host}:{s.remote_port || 22}</span>
-                      : <span style={{ color: 'var(--text-tertiary)' }}>—</span>
+                      : <span style={{ color: 'var(--text-tertiary)' }}>-</span>
                     }
                   </td>
                   <td style={{ padding: '12px 12px' }}>
@@ -662,13 +662,13 @@ export function ReplicationPage() {
     <div style={{ maxWidth: 1100 }}>
       <div className="page-header">
         <h1 className="page-title">Replication</h1>
-        <p className="page-subtitle">ZFS send/receive — replicate datasets to remote hosts</p>
+        <p className="page-subtitle">ZFS send/receive - replicate datasets to remote hosts</p>
       </div>
 
       {/* Info banner */}
       <div className="alert alert-info" style={{ marginBottom: 24, display: 'flex', gap: 10 }}>
         <Icon name="info" size={16} style={{ flexShrink: 0, marginTop: 1 }} />
-        Replication jobs run asynchronously. Long transfers may take hours — job status updates every 2s.
+        Replication jobs run asynchronously. Long transfers may take hours - job status updates every 2s.
       </div>
 
       {/* Tabs */}
@@ -704,3 +704,4 @@ export function ReplicationPage() {
      </div>
    );
 }
+

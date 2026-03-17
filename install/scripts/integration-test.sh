@@ -1,4 +1,4 @@
-#!/bin/bash
+﻿#!/bin/bash
 #
 # D-PlaneOS Integration Test Suite
 #
@@ -49,7 +49,7 @@ API="http://127.0.0.1:9000"
 DAEMON_BIN="/opt/dplaneos/daemon/dplaned"
 DB_PATH="/var/lib/dplaneos/dplaneos.db"
 
-# Test credentials — used during the test, cleaned up after
+# Test credentials - used during the test, cleaned up after
 TEST_USER="it-testuser-${TIMESTAMP: -6}"
 TEST_PASS="TestPass1!${TIMESTAMP: -4}"  # meets complexity requirements
 TEST_DATASET_BASE=""       # set after pool detection
@@ -84,7 +84,7 @@ fail() {
 }
 
 skip() {
-    echo -e "  ${YELLOW}—${NC} SKIP: $1"
+    echo -e "  ${YELLOW}-${NC} SKIP: $1"
     SKIP=$((SKIP+1))
 }
 
@@ -207,7 +207,7 @@ if [ -n "$OPT_POOL" ]; then
 else
     TEST_POOL=$(zpool list -H -o name,health 2>/dev/null | awk '$2=="ONLINE"{print $1; exit}')
     if [ -z "$TEST_POOL" ]; then
-        fail "No ONLINE ZFS pool found — create a pool first"
+        fail "No ONLINE ZFS pool found - create a pool first"
         echo "ZFS pools present:"; zpool list 2>/dev/null || echo "  (none)"
         exit 1
     fi
@@ -269,7 +269,7 @@ HEALTH=$(curl -sf --max-time 5 "$API/health" 2>/dev/null || echo "{}")
 assert_json "Daemon health endpoint responds" "$HEALTH" "status" "ok"
 
 # ════════════════════════════════════════════════════════════════
-section "PHASE 3: Onboarding — first login as admin"
+section "PHASE 3: Onboarding - first login as admin"
 # ════════════════════════════════════════════════════════════════
 
 # Extract the generated admin password from the DB
@@ -281,7 +281,7 @@ if [ -f /var/log/dplaneos-install.log ]; then
 fi
 
 if [ -z "$ADMIN_PASS" ]; then
-    skip "Could not extract generated admin password from install log — skipping onboarding tests"
+    skip "Could not extract generated admin password from install log - skipping onboarding tests"
     skip "Subsequent auth-dependent tests"
     # Fall through to tests that don't need auth where possible
     ADMIN_PASS=""
@@ -303,7 +303,7 @@ else
     SESSION=$(echo "$LOGIN_RESP" | python3 -c "import sys,json; print(json.load(sys.stdin).get('session_id',''))" 2>/dev/null || echo "")
 
     if [ -z "$SESSION" ]; then
-        fail "No session_id in login response — cannot continue auth-dependent tests"
+        fail "No session_id in login response - cannot continue auth-dependent tests"
     else
         pass "Session established"
 
@@ -363,7 +363,7 @@ PREFLIGHT_RESP=$(api GET /api/system/preflight)
 assert_json "System preflight responds" "$PREFLIGHT_RESP" "success" "true"
 
 NETWORK_RESP=$(api GET /api/system/network)
-# Network endpoint returns 200 even with partial data — just check it responds
+# Network endpoint returns 200 even with partial data - just check it responds
 if echo "$NETWORK_RESP" | python3 -c "import sys,json; json.load(sys.stdin)" 2>/dev/null; then
     pass "System network: returns valid JSON"
 else
@@ -1034,14 +1034,14 @@ section "PHASE 16: WebSocket"
 # ════════════════════════════════════════════════════════════════
 
 # Test that the WS endpoint at least accepts the TCP connection
-# (full WS handshake requires a WS client — just test it doesn't refuse)
+# (full WS handshake requires a WS client - just test it doesn't refuse)
 WS_TCP=$(curl -sf --max-time 3 -o /dev/null -w "%{http_code}" \
     -H "Connection: Upgrade" -H "Upgrade: websocket" \
     -H "Sec-WebSocket-Version: 13" \
     -H "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==" \
     -H "X-Session-ID: $SESSION" \
     "$API/ws/monitor" 2>/dev/null || echo "000")
-# 101 = upgraded, 400/401 = endpoint exists but handshake issue — both mean it's reachable
+# 101 = upgraded, 400/401 = endpoint exists but handshake issue - both mean it's reachable
 if [ "$WS_TCP" = "101" ] || [ "$WS_TCP" = "400" ] || [ "$WS_TCP" = "401" ]; then
     pass "WebSocket endpoint reachable (HTTP $WS_TCP)"
 else
@@ -1092,7 +1092,7 @@ if [ "$FAIL" -eq 0 ]; then
     echo -e "  ${BOLD}${GREEN}ALL TESTS PASSED${NC}"
     EXIT_CODE=0
 else
-    echo -e "  ${BOLD}${RED}$FAIL TEST(S) FAILED — see failures above${NC}"
+    echo -e "  ${BOLD}${RED}$FAIL TEST(S) FAILED - see failures above${NC}"
     EXIT_CODE=1
 fi
 
@@ -1102,3 +1102,4 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 echo ""
 
 exit $EXIT_CODE
+

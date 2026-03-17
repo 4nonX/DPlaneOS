@@ -1,6 +1,6 @@
-package handlers
+﻿package handlers
 
-// disk_event_handler.go — D-PlaneOS disk lifecycle events
+// disk_event_handler.go - D-PlaneOS disk lifecycle events
 //
 // POST /api/internal/disk-event
 //
@@ -147,7 +147,7 @@ func handleDiskAdded(devName string, req diskEventRequest) {
 	// 4. Check for pools that might be importable now that this disk appeared.
 	// Also check for faulted vdevs that this disk could replace.
 	go func() {
-		// Small delay — give the kernel time to fully register the device.
+		// Small delay - give the kernel time to fully register the device.
 		time.Sleep(2 * time.Second)
 		attemptPoolImport(diskInfo)
 		checkAndSuggestReplacement(diskInfo)
@@ -206,7 +206,7 @@ func attemptPoolImport(disk DiskInfo) {
 		log.Printf("DISK EVENT: attempting import of pool %q (disk /dev/%s added)", poolName, disk.Name)
 		importResult, importErr := runWithTimeout(2*time.Minute, "zpool", "import", "-d", "/dev/disk/by-id", poolName)
 		if importErr != nil {
-			log.Printf("DISK EVENT: pool import %q failed: %v — %s", poolName, importErr, strings.TrimSpace(string(importResult)))
+			log.Printf("DISK EVENT: pool import %q failed: %v - %s", poolName, importErr, strings.TrimSpace(string(importResult)))
 		} else {
 			log.Printf("DISK EVENT: pool %q imported successfully", poolName)
 		}
@@ -280,7 +280,7 @@ func findFaultedVdevs(poolStatus string) []FaultedVdev {
 		state := fields[1]
 
 		if state == "FAULTED" || state == "REMOVED" || state == "UNAVAIL" {
-			// Only report real device paths or short names — skip pool/vdev-group names
+			// Only report real device paths or short names - skip pool/vdev-group names
 			if strings.HasPrefix(vdevName, "/dev/") ||
 				(!strings.HasPrefix(vdevName, "mirror") &&
 					!strings.HasPrefix(vdevName, "raidz") &&
@@ -335,7 +335,7 @@ func checkAndSuggestReplacement(newDisk DiskInfo) {
 		return
 	}
 
-	log.Printf("DISK EVENT: new disk /dev/%s may replace %d faulted vdev(s) — broadcasting suggestion",
+	log.Printf("DISK EVENT: new disk /dev/%s may replace %d faulted vdev(s) - broadcasting suggestion",
 		newDisk.Name, len(candidates))
 
 	diskEventHub.Broadcast("diskReplacementAvailable", map[string]interface{}{
@@ -429,7 +429,7 @@ func parseFaultedPools(statusOutput string) []string {
 			if state == "FAULTED" || state == "UNAVAIL" || state == "DEGRADED" {
 				pools = append(pools, currentPool)
 			}
-			currentPool = "" // reset — one state: line per pool section
+			currentPool = "" // reset - one state: line per pool section
 		}
 	}
 	return pools
@@ -490,3 +490,4 @@ func runWithTimeout(timeout time.Duration, name string, args ...string) ([]byte,
 	cmd := exec.CommandContext(ctx, name, args...)
 	return cmd.CombinedOutput()
 }
+

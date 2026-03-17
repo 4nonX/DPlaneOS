@@ -1,4 +1,4 @@
-package gitops
+﻿package gitops
 
 import (
 	"encoding/json"
@@ -10,7 +10,7 @@ import (
 	"dplaned/internal/config"
 )
 
-// docker_state.go — Desired state types, YAML parser, and validation for the
+// docker_state.go - Desired state types, YAML parser, and validation for the
 // Docker GitOps subsystem.
 
 const defaultStacksDir = config.StacksDir

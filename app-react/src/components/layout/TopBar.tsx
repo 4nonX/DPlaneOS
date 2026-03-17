@@ -1,4 +1,4 @@
-/**
+﻿/**
  * components/layout/TopBar.tsx
  *
  * Fixed top bar with page icon, title, breadcrumb group, and user chip.
@@ -97,7 +97,7 @@ export function TopBar({ sidebarCollapsed }: TopBarProps) {
             boxShadow: '0 4px 12px rgba(255, 75, 43, 0.3)',
             animation: 'pulse 2s infinite'
           }}>
-            Preview Mode — Mock Data
+            Preview Mode - Mock Data
           </div>
         )}
 
@@ -274,3 +274,4 @@ function PoolMonitor() {
     </div>
   )
 }
+

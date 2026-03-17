@@ -1,4 +1,4 @@
-package handlers
+﻿package handlers
 
 import (
 	"bytes"
@@ -34,7 +34,7 @@ import (
 //    EventUpgradeApplied    "upgrade.applied"
 // ═══════════════════════════════════════════════════════════════════════════════
 
-// Webhook event name constants — used by callers of SendWebhookAlert.
+// Webhook event name constants - used by callers of SendWebhookAlert.
 const (
 	EventPoolDegraded      = "pool.degraded"
 	EventPoolCritical      = "pool.critical"
@@ -175,7 +175,7 @@ func (h *WebhookHandler) SaveWebhook(w http.ResponseWriter, r *http.Request) {
 		id, _ := result.LastInsertId()
 		respondOK(w, map[string]interface{}{"success": true, "id": id, "message": "Webhook created"})
 	} else {
-		// Update — only replace secret_value if provided, keep existing otherwise
+		// Update - only replace secret_value if provided, keep existing otherwise
 		var args []interface{}
 		var query string
 		if req.SecretValue != "" {
@@ -255,7 +255,7 @@ func (h *WebhookHandler) TestWebhook(w http.ResponseWriter, r *http.Request) {
 // ── Internal dispatch ──────────────────────────────────────────────────────────
 
 // SendWebhookAlert is called internally by other handlers to emit a system event.
-// Mirrors SendSMTPAlert in alerting_smtp.go — fire and forget, async, with retry.
+// Mirrors SendSMTPAlert in alerting_smtp.go - fire and forget, async, with retry.
 //
 // Example callers:
 //
@@ -298,7 +298,7 @@ func SendWebhookAlert(db *sql.DB, event, severity, message string, data map[stri
 		if !webhookSubscribed(cfg.Events, event) {
 			continue
 		}
-		// Fire async — never block the caller
+		// Fire async - never block the caller
 		go func(c webhookConfig, p webhookPayload) {
 			if err := dispatchWithRetry(c, p); err != nil {
 				log.Printf("webhook alert FAILED name=%s event=%s err=%v", c.Name, p.Event, err)
@@ -333,7 +333,7 @@ func webhookSubscribed(eventsJSON, event string) bool {
 //     simple token substitution and sent verbatim with cfg.ContentType.
 //   - If cfg.BodyTemplate is empty, the default JSON webhookPayload is sent.
 //
-// daemonVersion is set at startup via SetDaemonVersion — populated from main.Version.
+// daemonVersion is set at startup via SetDaemonVersion - populated from main.Version.
 var daemonVersion = "dev"
 
 // SetDaemonVersion allows main to inject the build version into this package.
@@ -436,3 +436,4 @@ func safeHostname() string {
 	}
 	return h
 }
+

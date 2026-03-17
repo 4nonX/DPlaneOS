@@ -1,4 +1,4 @@
-package gitops
+﻿package gitops
 
 import (
 	"fmt"
@@ -16,7 +16,7 @@ import (
 //
 //  THE SAFETY CONTRACT (non-negotiable):
 //
-//  A DiffItem is classified BLOCKED — not SAFE, not MODIFY, not DELETE — when
+//  A DiffItem is classified BLOCKED - not SAFE, not MODIFY, not DELETE - when
 //  the proposed action could cause irreversible data loss with active users.
 //
 //  Specifically:
@@ -41,20 +41,20 @@ import (
 type DiffAction string
 
 const (
-	// ActionNOP — desired matches live. Nothing to do.
+	// ActionNOP - desired matches live. Nothing to do.
 	ActionNOP DiffAction = "NOP"
 
-	// ActionCreate — resource exists in desired but not in live. Safe to create.
+	// ActionCreate - resource exists in desired but not in live. Safe to create.
 	ActionCreate DiffAction = "CREATE"
 
-	// ActionModify — resource exists in both, but properties differ. Safe to update.
+	// ActionModify - resource exists in both, but properties differ. Safe to update.
 	ActionModify DiffAction = "MODIFY"
 
-	// ActionDelete — resource exists in live but not in desired.
+	// ActionDelete - resource exists in live but not in desired.
 	// Requires the BLOCKED check before becoming safe.
 	ActionDelete DiffAction = "DELETE"
 
-	// ActionBlocked — action would cause irreversible data loss or disrupt active
+	// ActionBlocked - action would cause irreversible data loss or disrupt active
 	// users. Requires explicit human approval before it can be applied.
 	// See: BlockReason for the specific reason.
 	ActionBlocked DiffAction = "BLOCKED"
@@ -132,7 +132,7 @@ type Plan struct {
 
 // ComputeDiff compares desired against live and returns the reconciliation Plan.
 //
-// The diff engine makes live ZFS/smbstatus calls for BLOCKED classification —
+// The diff engine makes live ZFS/smbstatus calls for BLOCKED classification -
 // callers must ensure these are acceptable at call time (e.g., not during
 // a ZFS scrub or replication operation).
 func ComputeDiff(desired *DesiredState, live *LiveState) *Plan {
@@ -247,7 +247,7 @@ func ComputeDiff(desired *DesiredState, live *LiveState) *Plan {
 	}
 
 	// ── Phase 1: CREATE items (desired exists, live does not) ─────────────────
-	// These go first in the plan — safe operations with no existing data at risk.
+	// These go first in the plan - safe operations with no existing data at risk.
 
 	for _, dp := range desired.Pools {
 		if _, exists := livePools[dp.Name]; !exists {
@@ -639,7 +639,7 @@ func ComputeDiff(desired *DesiredState, live *LiveState) *Plan {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-//  BLOCKED SAFETY CONTRACT — implementation
+//  BLOCKED SAFETY CONTRACT - implementation
 //
 //  These three functions are the authoritative implementation of the safety
 //  contract described at the top of this file.
@@ -671,10 +671,10 @@ func blockedCheckPool(lp LivePool) DiffItem {
 // blockedCheckDataset evaluates whether destroying a dataset should be BLOCKED.
 //
 // Rule: if the dataset has ANY used space (used > 0 bytes), the action is BLOCKED.
-// We re-query `zfs get used` live at diff time — not the cached LiveState value —
+// We re-query `zfs get used` live at diff time - not the cached LiveState value -
 // because data may have been written between ReadLiveState() and this check.
 func blockedCheckDataset(ld LiveDataset) DiffItem {
-	// Re-query used space live — must not rely on cached value
+	// Re-query used space live - must not rely on cached value
 	usedBytes := DatasetUsedBytes(ld.Name)
 
 	if usedBytes > 0 {
@@ -694,12 +694,12 @@ func blockedCheckDataset(ld LiveDataset) DiffItem {
 		}
 	}
 
-	// Dataset exists but is genuinely empty — safe to delete
+	// Dataset exists but is genuinely empty - safe to delete
 	return DiffItem{
 		Kind:      KindDataset,
 		Name:      ld.Name,
 		Action:    ActionDelete,
-		RiskLevel: "medium", // medium even when empty — irreversible
+		RiskLevel: "medium", // medium even when empty - irreversible
 	}
 }
 
@@ -709,7 +709,7 @@ func blockedCheckDataset(ld LiveDataset) DiffItem {
 // moment the plan is evaluated, the action is BLOCKED.
 //
 // If smbstatus is unavailable (Samba not running, tool not installed), the
-// check returns DELETE (not BLOCKED) — we cannot confirm connections, and
+// check returns DELETE (not BLOCKED) - we cannot confirm connections, and
 // removing a share does not destroy data.
 func blockedCheckShare(ls LiveShare) DiffItem {
 	if HasActiveSMBConnections(ls.Name) {
@@ -743,14 +743,14 @@ func blockedCheckShare(ls LiveShare) DiffItem {
 
 // diffPool returns the list of property changes between desired and live pool.
 // Pool vdev structure changes (adding disks) are reported but are MODIFY, not
-// BLOCKED — adding disks is safe. Removing disks from a live pool is complex
+// BLOCKED - adding disks is safe. Removing disks from a live pool is complex
 // and is always flagged as high-risk in the change description.
 func diffPool(desired DesiredPool, live LivePool) []string {
 	var changes []string
 
 	// Health changes are read-only (we can't set health), so only report.
 	if live.Health != "ONLINE" {
-		changes = append(changes, fmt.Sprintf("health: %s (degraded — check zpool status)", live.Health))
+		changes = append(changes, fmt.Sprintf("health: %s (degraded - check zpool status)", live.Health))
 	}
 
 	// Disk membership changes
@@ -772,7 +772,7 @@ func diffPool(desired DesiredPool, live LivePool) []string {
 		if !desiredDisks[d] {
 			// Disk removal from a pool is complex and potentially dangerous
 			changes = append(changes, fmt.Sprintf(
-				"disk-remove: %s ⚠ disk removal from live pools requires careful planning — manual intervention required", d,
+				"disk-remove: %s ⚠ disk removal from live pools requires careful planning - manual intervention required", d,
 			))
 		}
 	}
@@ -1079,3 +1079,4 @@ func diffLDAP(desired *DesiredLDAP, live *DesiredLDAP) []DiffItem {
 		Changes:     changes,
 	}}
 }
+

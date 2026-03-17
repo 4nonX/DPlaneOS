@@ -1,4 +1,4 @@
-package handlers
+﻿package handlers
 
 import (
 	"encoding/json"
@@ -162,7 +162,7 @@ func (h *ZFSSandboxHandler) ListSandboxes(w http.ResponseWriter, r *http.Request
 }
 
 // DestroySandbox removes a sandbox clone and its base snapshot
-// Cleans up completely — no residue
+// Cleans up completely - no residue
 // DELETE /api/sandbox/destroy
 func (h *ZFSSandboxHandler) DestroySandbox(w http.ResponseWriter, r *http.Request) {
 	var req struct {
@@ -228,3 +228,4 @@ func (h *ZFSSandboxHandler) CleanOrphanVolumes(w http.ResponseWriter, r *http.Re
 		"output":  strings.TrimSpace(output),
 	})
 }
+

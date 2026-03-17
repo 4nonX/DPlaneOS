@@ -1,4 +1,4 @@
-package audit
+﻿package audit
 
 import (
 	"crypto/hmac"
@@ -8,7 +8,7 @@ import (
 )
 
 // computeRowHash computes HMAC-SHA256(key, prevHash|ts|user|action|resource|details|ipAddress|success).
-// Returns "" when key is nil (chain disabled — backwards compatible with pre-Phase-1.5 rows).
+// Returns "" when key is nil (chain disabled - backwards compatible with pre-Phase-1.5 rows).
 //
 // This formula is also replicated in handlers/audit_verify.go (verifyComputeHash).
 // If you change it here, update it there too.
@@ -32,3 +32,4 @@ func computeRowHash(key []byte, prevHash string, e AuditEvent) string {
 	mac.Write([]byte(msg))
 	return hex.EncodeToString(mac.Sum(nil))
 }
+

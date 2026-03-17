@@ -1,4 +1,4 @@
-package handlers
+﻿package handlers
 
 import (
 	"context"
@@ -457,7 +457,7 @@ func isValidContainerName(name string) bool {
 	return len(name) >= 1 && len(name) <= 128 && validContainerNameRe.MatchString(name)
 }
 
-// waitForHealthy is implemented in internal/dockerclient — use dockerClient.WaitForHealthy()
+// waitForHealthy is implemented in internal/dockerclient - use dockerClient.WaitForHealthy()
 
 // validateComposeDirPath validates a directory path for docker compose operations.
 // Rules:
@@ -497,3 +497,4 @@ func validateComposeDirPath(p string) (string, error) {
 	}
 	return "", fmt.Errorf("path must be under /opt, /srv, /home, %s, /mnt, /data, /tank, or /pool", config.DBDir)
 }
+

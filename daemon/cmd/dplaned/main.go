@@ -1,4 +1,4 @@
-package main
+﻿package main
 
 import (
 	"context"
@@ -75,7 +75,7 @@ func main() {
 		log.Printf("Warning: initial WAL checkpoint failed: %v", err)
 	}
 
-	// Initialize database schema (IF NOT EXISTS — safe on every startup)
+	// Initialize database schema (IF NOT EXISTS - safe on every startup)
 	if err := initSchema(db); err != nil {
 		log.Fatalf("Database schema initialization failed: %v", err)
 	}
@@ -90,9 +90,9 @@ func main() {
 	// Works on every systemd distro: NixOS, Debian, Ubuntu, Arch, RHEL.
 	netWriter := networkdwriter.Default()
 	if netWriter.IsNetworkd() {
-		log.Printf("systemd-networkd active — networkd file writer enabled (%s)", networkdwriter.DefaultNetworkDir)
+		log.Printf("systemd-networkd active - networkd file writer enabled (%s)", networkdwriter.DefaultNetworkDir)
 	} else {
-		log.Printf("systemd-networkd not active — networkd files written, reload deferred")
+		log.Printf("systemd-networkd not active - networkd files written, reload deferred")
 	}
 	handlers.SetNetWriter(netWriter)
 
@@ -103,7 +103,7 @@ func main() {
 	nixWriter := nixwriter.DefaultWriter()
 	_ = nixWriter.LoadFromDisk()
 	if nixWriter.IsNixOS() {
-		log.Printf("NixOS detected — JSON state writer active: %s", nixwriter.StateJSONPath)
+		log.Printf("NixOS detected - JSON state writer active: %s", nixwriter.StateJSONPath)
 	}
 	handlers.SetNixWriter(nixWriter)
 	handlers.SetReconcilerDB(db)
@@ -114,7 +114,7 @@ func main() {
 	// On NixOS + networkd: this is a no-op (networkd already read the files at boot).
 	go reconciler.Run(db)
 
-	// Periodic WAL checkpoint every 5 minutes — safety net against WAL bloat
+	// Periodic WAL checkpoint every 5 minutes - safety net against WAL bloat
 	// on systems with high audit logging rates (e.g., runaway container producing errors)
 	go func() {
 		ticker := time.NewTicker(5 * time.Minute)
@@ -126,7 +126,7 @@ func main() {
 		}
 	}()
 
-	// Daily VACUUM INTO — creates a clean backup copy of the database
+	// Daily VACUUM INTO - creates a clean backup copy of the database
 	// Protects metadata against WAL corruption from hard power loss
 	// Use -backup-path for off-pool backup (USB, second disk, NFS mount)
 	go func() {
@@ -156,7 +156,7 @@ func main() {
 	// Load or create the HMAC key for audit chain integrity (Phase 1.5)
 	auditKey, err := audit.LoadOrCreateAuditKey("/var/lib/dplaneos/audit.key")
 	if err != nil {
-		log.Printf("WARNING: audit HMAC key unavailable (%v) — chain disabled", err)
+		log.Printf("WARNING: audit HMAC key unavailable (%v) - chain disabled", err)
 		auditKey = nil
 	}
 
@@ -243,7 +243,7 @@ func main() {
 			heartbeat := zfs.NewPoolHeartbeat(pool.Name, pool.MountPoint, 30*time.Second)
 			// SAFETY: Stop Docker if the pool goes offline during runtime.
 			// This prevents containers from writing to bare mountpoint directories
-			// on the root FS — the same data-loss scenario the boot gate prevents.
+			// on the root FS - the same data-loss scenario the boot gate prevents.
 			heartbeat.StopDockerOnFailure = true
 
 			// CRITICAL callback: Telegram + (webhook/SMTP via sendAlert inside heartbeat)
@@ -355,7 +355,7 @@ func main() {
 
 	r.HandleFunc("/health", healthCheckHandler).Methods("GET")
 
-	// Job status polling — used by async operations (replication, rsync, docker pull, etc.)
+	// Job status polling - used by async operations (replication, rsync, docker pull, etc.)
 	r.HandleFunc("/api/jobs/{id}", handlers.HandleJobStatus).Methods("GET")
 
 	// ZFS handlers
@@ -386,7 +386,7 @@ func main() {
 	dockerHandler := handlers.NewDockerHandler()
 	r.HandleFunc("/api/docker/containers", dockerHandler.ListContainers).Methods("GET")
 	r.HandleFunc("/api/docker/icon-map", handlers.HandleDockerIconMap).Methods("GET")
-	// Custom icon assets — served from /var/lib/dplaneos/custom_icons/
+	// Custom icon assets - served from /var/lib/dplaneos/custom_icons/
 	// ORDER MATTERS: the exact /list route must be registered before the PathPrefix
 	// catch-all, because gorilla/mux matches in registration order and PathPrefix
 	// would otherwise intercept /api/assets/custom-icons/list.
@@ -528,11 +528,11 @@ func main() {
 	r.Handle("/api/alerts/webhooks/{id}", permRoute("system", "write", webhookHandler.DeleteWebhook)).Methods("DELETE")
 	r.HandleFunc("/api/alerts/webhooks/{id}/test", webhookHandler.TestWebhook).Methods("POST")
 
-	// Phase 3: GitOps — declarative state reconciliation
+	// Phase 3: GitOps - declarative state reconciliation
 	gitopsHandler := handlers.NewGitOpsHandler(db, *gitopsStatePath, *smbConfPath, wsHub)
 	defer gitopsHandler.Stop()
 
-	// Start GitOps drift detector — polls every 5 minutes and broadcasts
+	// Start GitOps drift detector - polls every 5 minutes and broadcasts
 	// "gitops.drift" WS events so GitOpsPage reacts in real time.
 	driftDetector := gitops.NewDriftDetector(db, *gitopsStatePath, 5*time.Minute, wsHub)
 	driftDetector.Start()
@@ -564,7 +564,7 @@ func main() {
 	// Pool maintenance operations
 	r.Handle("/api/zfs/pool/operations", permRoute("storage", "write", handlers.PoolOperations)).Methods("POST")
 
-	// Resilver progress (separate from scrub — parses resilver-specific scan lines)
+	// Resilver progress (separate from scrub - parses resilver-specific scan lines)
 	r.HandleFunc("/api/zfs/resilver/status", handlers.HandleResilverStatus).Methods("GET")
 
 	// v3.0.0: VDEV / Pool expansion
@@ -619,7 +619,7 @@ func main() {
 	r.HandleFunc("/api/shares/nfs/reload", handlers.ReloadNFSExports).Methods("POST")
 	r.HandleFunc("/api/shares/nfs/list", handlers.ListNFSExports).Methods("GET")
 
-	// NFS CRUD handler — NFSHandler manages /etc/exports via SQLite
+	// NFS CRUD handler - NFSHandler manages /etc/exports via SQLite
 	nfsHandler := handlers.NewNFSHandler(db)
 	r.HandleFunc("/api/nfs/status", nfsHandler.GetNFSStatus).Methods("GET")
 	r.HandleFunc("/api/nfs/exports", nfsHandler.ListNFSExports).Methods("GET")
@@ -668,7 +668,7 @@ func main() {
 	r.HandleFunc("/api/system/disks", handlers.HandleDiskDiscovery).Methods("GET")
 	r.Handle("/api/system/pool/create", permRoute("storage", "write", handlers.HandlePoolCreate)).Methods("POST")
 
-	// Disk lifecycle event endpoint (localhost only — called by udev/systemd)
+	// Disk lifecycle event endpoint (localhost only - called by udev/systemd)
 	r.HandleFunc("/api/internal/disk-event", handlers.HandleDiskEvent).Methods("POST")
 
 	// Files handlers
@@ -707,7 +707,7 @@ func main() {
 	r.Handle("/api/settings/telegram", permRoute("system", "write", settingsHandler.SaveTelegramConfig)).Methods("POST")
 	r.HandleFunc("/api/settings/telegram/test", settingsHandler.TestTelegramConfig).Methods("POST")
 
-	// /api/alerts/telegram — aliases to settings handler (used by alerts.html)
+	// /api/alerts/telegram - aliases to settings handler (used by alerts.html)
 	r.HandleFunc("/api/alerts/telegram", settingsHandler.GetTelegramConfig).Methods("GET")
 	r.Handle("/api/alerts/telegram", permRoute("system", "write", settingsHandler.SaveTelegramConfig)).Methods("POST")
 	r.HandleFunc("/api/alerts/telegram/test", settingsHandler.TestTelegramConfig).Methods("POST")
@@ -764,7 +764,7 @@ func main() {
 	r.Handle("/api/rbac/users/{id}/roles", permRoute("roles", "write", handlers.HandleAssignRoleToUser)).Methods("POST")
 	r.Handle("/api/rbac/users/{id}/roles/{roleId}", permRoute("roles", "write", handlers.HandleRemoveRoleFromUser)).Methods("DELETE")
 	r.Handle("/api/rbac/users/{id}/permissions", permRoute("roles", "read", handlers.HandleGetUserPermissions)).Methods("GET")
-	// /me/* routes are self-service — authenticated users can always read their own permissions
+	// /me/* routes are self-service - authenticated users can always read their own permissions
 	r.HandleFunc("/api/rbac/me/permissions", handlers.HandleGetMyPermissions).Methods("GET")
 	r.HandleFunc("/api/rbac/me/roles", handlers.HandleGetMyRoles).Methods("GET")
 	r.HandleFunc("/api/rbac/check", handlers.HandleCheckPermission).Methods("GET")
@@ -791,7 +791,7 @@ func main() {
 	r.HandleFunc("/api/metrics/current", metricsHandler.GetCurrentMetrics).Methods("GET")
 	r.HandleFunc("/api/metrics/history", metricsHandler.GetHistory).Methods("GET")
 
-	// Background metrics collection — writes to /var/lib/dplaneos/metrics/*.json
+	// Background metrics collection - writes to /var/lib/dplaneos/metrics/*.json
 	// Powers the history charts in reporting.html
 	go func() {
 		metricsHandler.CollectAndStore() // collect immediately on startup
@@ -878,7 +878,7 @@ func main() {
 	// stream indefinitely: /api/system/logs/stream (SSE), /ws/monitor,
 	// /ws/terminal, /api/files/download (large files). Per-route timeouts
 	// are enforced inside the handlers themselves where needed.
-	// ReadTimeout covers request body reading — 30s is sufficient for all
+	// ReadTimeout covers request body reading - 30s is sufficient for all
 	// non-upload routes; chunked uploads reset the deadline per chunk via
 	// the 32 MB ParseMultipartForm call.
 	srv := &http.Server{
@@ -971,15 +971,15 @@ func realIP(r *http.Request) string {
 	}
 	ip := net.ParseIP(host)
 	if ip != nil && !ip.IsLoopback() {
-		return host // direct connection — trust RemoteAddr
+		return host // direct connection - trust RemoteAddr
 	}
-	// Behind a proxy — trust forwarded headers (proxy is on loopback, so not
+	// Behind a proxy - trust forwarded headers (proxy is on loopback, so not
 	// externally injectable).
 	if v := r.Header.Get("X-Real-IP"); v != "" {
 		return v
 	}
 	if v := r.Header.Get("X-Forwarded-For"); v != "" {
-		// X-Forwarded-For may be "client, proxy1, proxy2" — take the first entry.
+		// X-Forwarded-For may be "client, proxy1, proxy2" - take the first entry.
 		if idx := strings.Index(v, ","); idx != -1 {
 			return strings.TrimSpace(v[:idx])
 		}
@@ -1033,15 +1033,15 @@ func sessionMiddleware(next http.Handler) http.Handler {
 		if p == "/health" ||
 			strings.HasPrefix(p, "/api/auth/") ||
 			p == "/api/csrf" ||
-			// Setup wizard — no session exists yet on fresh installs
+			// Setup wizard - no session exists yet on fresh installs
 			p == "/api/system/setup-admin" ||
 			p == "/api/system/setup-complete" ||
 			p == "/api/system/status" || // dashboard needs status before login to detect setup_complete
-			// HA heartbeat — called by peer daemons that have no user session
+			// HA heartbeat - called by peer daemons that have no user session
 			p == "/api/ha/heartbeat" ||
-			// Internal disk events — called by udev scripts on localhost
+			// Internal disk events - called by udev scripts on localhost
 			p == "/api/internal/disk-event" ||
-			// Prometheus metrics — scraped by external monitoring without session
+			// Prometheus metrics - scraped by external monitoring without session
 			p == "/metrics" {
 			next.ServeHTTP(w, r)
 			return
@@ -1053,7 +1053,7 @@ func sessionMiddleware(next http.Handler) http.Handler {
 			token := strings.TrimPrefix(authHeader, "Bearer ")
 			sessionUser, err := security.ValidateAPITokenAndGetUser(token)
 			if err == nil {
-				// Token valid — set user in context and proceed
+				// Token valid - set user in context and proceed
 				ctx := context.WithValue(r.Context(), middleware.UserContextKey, &middleware.User{
 					ID:       sessionUser.ID,
 					Username: sessionUser.Username,
@@ -1077,7 +1077,7 @@ func sessionMiddleware(next http.Handler) http.Handler {
 		// Validate session and get user details
 		sessionUser, err := security.ValidateSessionAndGetUser(sessionID)
 		if err != nil {
-			// DB error means we cannot verify the session — reject with 401
+			// DB error means we cannot verify the session - reject with 401
 			// (Do NOT fall through without user context: downstream RBAC handlers
 			//  depend on the context value being present and will panic/misbehave.)
 			audit.LogSecurityEvent("Session validation DB error: "+err.Error(), user, realIP(r))
@@ -1147,3 +1147,4 @@ func runRotation(db *sql.DB) {
 		log.Printf("MAINTENANCE: Audit log rotation and VACUUM completed successfully")
 	}
 }
+

@@ -1,4 +1,4 @@
-// Package ha provides cluster node registration and health monitoring for D-PlaneOS.
+﻿// Package ha provides cluster node registration and health monitoring for D-PlaneOS.
 //
 // # Architecture
 //
@@ -6,7 +6,7 @@
 // Standby nodes heartbeat the active node. If heartbeat fails, standby alerts
 // and can be manually promoted via the API.
 //
-// This is NOT Pacemaker/Corosync — it is a lightweight coordination layer
+// This is NOT Pacemaker/Corosync - it is a lightweight coordination layer
 // that prevents accidental pool imports on standby nodes and provides a clean
 // manual failover workflow.
 //
@@ -98,9 +98,9 @@ type Manager struct {
 }
 
 // NewManager creates a cluster manager for this daemon instance.
-//   localID   — unique ID for this node (use hostname or UUID from /etc/machine-id)
-//   localAddr — how peers reach this daemon, e.g. "http://10.0.0.1:5050"
-//   version   — daemon version string
+//   localID   - unique ID for this node (use hostname or UUID from /etc/machine-id)
+//   localAddr - how peers reach this daemon, e.g. "http://10.0.0.1:5050"
+//   version   - daemon version string
 func NewManager(db *sql.DB, localID, localAddr, version string) *Manager {
 	m := &Manager{
 		db:        db,
@@ -344,7 +344,7 @@ func (m *Manager) loadPersistedNodes() {
 		n.LastSeen = time.Unix(lastSeenUnix, 0)
 		n.LastSeenUnix = lastSeenUnix
 		n.RegisteredAt, _ = time.Parse(time.RFC3339, registeredStr)
-		// Mark as unknown on load — we'll re-ping immediately
+		// Mark as unknown on load - we'll re-ping immediately
 		n.State = StateUnknown
 		m.nodes[n.ID] = n
 	}
@@ -409,3 +409,4 @@ func (m *Manager) LocalInfo() map[string]string {
 func MarshalStatus(s *ClusterStatus) ([]byte, error) {
 	return json.Marshal(s)
 }
+

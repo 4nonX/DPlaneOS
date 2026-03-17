@@ -1,4 +1,4 @@
-# D-PlaneOS v3.2.0 — networkd Persistence
+# D-PlaneOS v3.2.0 - networkd Persistence
 
 **Release date:** 2026-02-21  
 **Upgrade from:** v3.1.0 or v3.0.0  
@@ -19,11 +19,11 @@ NixOS activation only manages files it created (prefixes `10-`, `20-`). D-PlaneO
 
 This approach works on every systemd-based distribution: NixOS, Debian, Ubuntu, Arch.
 
-**Scope of nixwriter reduced** — nixwriter is now only called for NixOS-specific settings that have no systemd equivalent:
+**Scope of nixwriter reduced** - nixwriter is now only called for NixOS-specific settings that have no systemd equivalent:
 - Firewall ports (`networking.firewall`)
 - Samba globals (`services.samba`)
 
-hostname, timezone, and NTP were already persistent via OS tools (`hostnamectl`, `timedatectl`, `timesyncd.conf`) — no action needed.
+hostname, timezone, and NTP were already persistent via OS tools (`hostnamectl`, `timedatectl`, `timesyncd.conf`) - no action needed.
 
 ### Completeness fixes
 
@@ -35,7 +35,7 @@ hostname, timezone, and NTP were already persistent via OS tools (`hostnamectl`,
 
 ### Documentation
 
-- Version references corrected throughout all documentation files (CHANGELOG, DEPENDENCIES, INSTALLATION-GUIDE, TROUBLESHOOTING, and others contained stale v4.x/v5.x references — all fixed)
+- Version references corrected throughout all documentation files (CHANGELOG, DEPENDENCIES, INSTALLATION-GUIDE, TROUBLESHOOTING, and others contained stale v4.x/v5.x references - all fixed)
 - `CHANGELOG.md` now covers the full history from v1.2.0 through v3.2.0
 
 ---
@@ -46,7 +46,7 @@ hostname, timezone, and NTP were already persistent via OS tools (`hostnamectl`,
 
 **From v3.0.0:** same as above. The nixwriter intermediary (v3.1.0) is not required.
 
-**NixOS users:** `/etc/systemd/network` must be in `ReadWritePaths` for the daemon service. This is included in `module.nix` — no manual action needed if you use the provided NixOS module.
+**NixOS users:** `/etc/systemd/network` must be in `ReadWritePaths` for the daemon service. This is included in `module.nix` - no manual action needed if you use the provided NixOS module.
 
 ---
 

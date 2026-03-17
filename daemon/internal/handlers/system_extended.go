@@ -1,4 +1,4 @@
-package handlers
+﻿package handlers
 
 import (
 	"encoding/json"
@@ -57,7 +57,7 @@ const scheduleFile_deprecated = "" // replaced by configPath("snapshot-schedules
 func (h *SnapshotScheduleHandler) ListSchedules(w http.ResponseWriter, r *http.Request) {
 	data, err := os.ReadFile(configPath("snapshot-schedules.json"))
 	if err != nil {
-		// No schedules yet — return empty array
+		// No schedules yet - return empty array
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "schedules": []SnapshotSchedule{}})
 		return
@@ -82,7 +82,7 @@ func (h *SnapshotScheduleHandler) SaveSchedules(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	// Validate datasets — allow alphanumeric, underscores, hyphens, slashes, dots, @ (snapshots)
+	// Validate datasets - allow alphanumeric, underscores, hyphens, slashes, dots, @ (snapshots)
 	datasetPattern := regexp.MustCompile(`^[a-zA-Z0-9_\-/.@]+$`)
 	for _, s := range schedules {
 		if !datasetPattern.MatchString(s.Dataset) {
@@ -117,7 +117,7 @@ func (h *SnapshotScheduleHandler) regenerateCron(schedules []SnapshotSchedule) {
 	cronFile := "/etc/cron.d/dplaneos-snapshots"
 	var lines []string
 	lines = append(lines, "# D-PlaneOS Automatic Snapshot Schedules")
-	lines = append(lines, "# Auto-generated — do not edit manually")
+	lines = append(lines, "# Auto-generated - do not edit manually")
 	lines = append(lines, "SHELL=/bin/bash")
 	lines = append(lines, "PATH=/usr/sbin:/usr/bin:/sbin:/bin")
 	lines = append(lines, "")
@@ -618,7 +618,7 @@ func (h *FirewallHandler) GetStatus(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success":   true,
 		"status":    status,
-		"rules":     rules,     // always a []map — never a raw string
+		"rules":     rules,     // always a []map - never a raw string
 		"rules_raw": rawOutput, // raw text for debugging
 	})
 }
@@ -1250,12 +1250,12 @@ func (h *FirewallHandler) SyncFirewallToNix(w http.ResponseWriter, r *http.Reque
 	if NixWriter == nil || !NixWriter.IsNixOS() {
 		respondOK(w, map[string]interface{}{
 			"success": true,
-			"message": "Not on NixOS — sync is a no-op",
+			"message": "Not on NixOS - sync is a no-op",
 		})
 		return
 	}
 
-	// Accept explicit port list from request body (preferred — UI knows the desired state)
+	// Accept explicit port list from request body (preferred - UI knows the desired state)
 	var req struct {
 		TCPPorts []int `json:"tcp_ports"` // complete desired TCP allow list
 		UDPPorts []int `json:"udp_ports"` // complete desired UDP allow list
@@ -1286,6 +1286,7 @@ func (h *FirewallHandler) SyncFirewallToNix(w http.ResponseWriter, r *http.Reque
 		"success":   true,
 		"tcp_ports": req.TCPPorts,
 		"udp_ports": req.UDPPorts,
-		"message":   "Firewall ports written to dplane-generated.nix — run nixos-rebuild switch to apply",
+		"message":   "Firewall ports written to dplane-generated.nix - run nixos-rebuild switch to apply",
 	})
 }
+

@@ -1,5 +1,5 @@
-/**
- * pages/DelegationPage.tsx — ZFS Delegation
+﻿/**
+ * pages/DelegationPage.tsx - ZFS Delegation
  *
  * Grant fine-grained ZFS permissions to non-root users via `zfs allow`.
  *
@@ -155,7 +155,7 @@ function AddDelegationModal({ onClose, datasets, datasetsLoading, onAdded }: Add
               value={dataset}
               onChange={(e) => setDataset(e.target.value)}
             >
-              <option value="">— Select dataset —</option>
+              <option value="">- Select dataset -</option>
               {datasets.map((d) => (
                 <option key={d.name} value={d.name}>{d.name}</option>
               ))}
@@ -388,7 +388,7 @@ export function DelegationPage() {
         <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', lineHeight: 1.6 }}>
           ZFS delegation (<code>zfs allow</code>) lets you grant specific ZFS operations to non-root
           users or groups without giving them full root access. Permissions are enforced by the ZFS kernel
-          module — users can only perform the operations explicitly delegated to them on the specified dataset.
+          module - users can only perform the operations explicitly delegated to them on the specified dataset.
         </div>
       </div>
 
@@ -552,3 +552,4 @@ export function DelegationPage() {
     </div>
   )
 }
+

@@ -1,9 +1,9 @@
-/**
- * pages/SettingsPage.tsx — System Settings (Phase 6)
+﻿/**
+ * pages/SettingsPage.tsx - System Settings (Phase 6)
  *
  * Tabs: General | NixOS
  *
- * General: hostname, timezone, MOTD — backed by /api/system/settings (key-value store)
+ * General: hostname, timezone, MOTD - backed by /api/system/settings (key-value store)
  * NixOS: detect, validate, apply (with 60s confirm), generations list & rollback
  *
  * Calls:
@@ -146,7 +146,7 @@ function GeneralTab() {
 }
 
 // ---------------------------------------------------------------------------
-// NixOSConfirmBanner — 60-second countdown
+// NixOSConfirmBanner - 60-second countdown
 // ---------------------------------------------------------------------------
 
 function NixOSConfirmBanner({ onConfirm, onDismiss }: { onConfirm: () => void; onDismiss: () => void }) {
@@ -168,7 +168,7 @@ function NixOSConfirmBanner({ onConfirm, onDismiss }: { onConfirm: () => void; o
       <Icon name="timer" size={22} style={{ color: 'rgba(251,191,36,0.9)', flexShrink: 0 }} />
       <div style={{ flex: 1 }}>
         <div style={{ fontWeight: 700, color: 'rgba(251,191,36,0.9)' }}>NixOS rebuild applied</div>
-        <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>Auto-rolling back in {secs}s — confirm to keep this generation</div>
+        <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>Auto-rolling back in {secs}s - confirm to keep this generation</div>
       </div>
       <button onClick={onConfirm} className="btn btn-primary" style={{ background: 'rgba(251,191,36,0.9)' }}>
         <Icon name="check" size={15} />Confirm
@@ -207,7 +207,7 @@ function NixOSTab() {
 
   const apply = useMutation({
     mutationFn: () => api.post('/api/nixos/apply', { flake_path: flakePath, timeout_seconds: 120 }),
-    onSuccess: () => { setPendingConfirm(true); toast.success('Rebuild applied — confirm within 60s'); qc.invalidateQueries({ queryKey: ['nixos', 'generations'] }) },
+    onSuccess: () => { setPendingConfirm(true); toast.success('Rebuild applied - confirm within 60s'); qc.invalidateQueries({ queryKey: ['nixos', 'generations'] }) },
     onError: (e: Error) => toast.error(e.message),
   })
 
@@ -303,7 +303,7 @@ function NixOSTab() {
                   {gen.current && <span className="badge badge-primary">CURRENT</span>}
                 </div>
                 <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', marginTop: 2 }}>
-                  {gen.date}{gen.description ? ` — ${gen.description}` : ''}
+                  {gen.date}{gen.description ? ` - ${gen.description}` : ''}
                 </div>
               </div>
               {!gen.current && (
@@ -358,3 +358,4 @@ export function SettingsPage() {
     </div>
   )
 }
+

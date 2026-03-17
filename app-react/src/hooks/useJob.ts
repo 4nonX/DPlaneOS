@@ -1,4 +1,4 @@
-/**
+﻿/**
  * hooks/useJob.ts
  *
  * Polls GET /api/jobs/{id} every 2 seconds while a job is running.
@@ -38,10 +38,10 @@ export interface JobSnapshot {
  * Pass null/undefined to disable polling (before a job has been started).
  *
  * Returns:
- *   data     — JobSnapshot | undefined
- *   isPolling — true while status === "running"
- *   interrupted — true if the daemon returned 404 (restarted mid-job)
- *   error    — ApiError if the poll request itself failed
+ *   data     - JobSnapshot | undefined
+ *   isPolling - true while status === "running"
+ *   interrupted - true if the daemon returned 404 (restarted mid-job)
+ *   error    - ApiError if the poll request itself failed
  */
 export function useJob(jobId: string | null | undefined) {
   const query = useQuery<JobSnapshot, ApiError>({
@@ -55,7 +55,7 @@ export function useJob(jobId: string | null | undefined) {
       return data.status === 'running' ? 2_000 : false
     },
     retry: (failureCount, error) => {
-      // Don't retry 404 — that means the daemon restarted mid-job
+      // Don't retry 404 - that means the daemon restarted mid-job
       if (error instanceof ApiError && error.status === 404) return false
       // Retry other transient errors up to 3 times
       return failureCount < 3
@@ -75,3 +75,4 @@ export function useJob(jobId: string | null | undefined) {
     interrupted,
   }
 }
+

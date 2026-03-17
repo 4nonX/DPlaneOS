@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# D-PlaneOS — Bootstrap Installer
+# D-PlaneOS - Bootstrap Installer
 #
 # This is the ONE-LINER entry point:
 #
@@ -40,7 +40,7 @@ INSTALL_ARGS=("$@")
 banner() {
     echo ""
     echo -e "${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo -e "${BOLD}    D-PlaneOS v${VERSION} — Bootstrap${NC}"
+    echo -e "${BOLD}    D-PlaneOS v${VERSION} - Bootstrap${NC}"
     echo -e "${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     echo ""
 }
@@ -62,7 +62,7 @@ if [ ! -f /etc/os-release ]; then
     die "Cannot detect OS. Supported: Debian 12+, Ubuntu 22.04+, Raspberry Pi OS 64-bit"
 fi
 
-# Safe extraction — avoids Ubuntu's readonly VERSION variable crash
+# Safe extraction - avoids Ubuntu's readonly VERSION variable crash
 OS_ID=$(grep -E '^ID=' /etc/os-release | cut -d= -f2 | tr -d '"')
 OS_PRETTY=$(grep -E '^PRETTY_NAME=' /etc/os-release | cut -d= -f2 | tr -d '"')
 
@@ -131,9 +131,9 @@ if download_file "$CHECKSUM_URL" "$CHECKSUM_FILE" 2>/dev/null; then
     info "Verifying checksum..."
     (cd "$WORK_DIR" && sha256sum -c "$CHECKSUM_FILE" --quiet) \
         && ok "Checksum verified" \
-        || die "Checksum mismatch — download may be corrupted. Try again."
+        || die "Checksum mismatch - download may be corrupted. Try again."
 else
-    warn "No checksum file available — skipping verification"
+    warn "No checksum file available - skipping verification"
 fi
 
 # ── Extract ───────────────────────────────────────────────────────────────────
@@ -142,7 +142,7 @@ tar xzf "${WORK_DIR}/${TARBALL}" -C "$WORK_DIR"
 
 # Find the extracted directory (handles both flat and nested tarballs)
 EXTRACT_DIR=$(find "$WORK_DIR" -maxdepth 2 -name "install.sh" -exec dirname {} \; | head -1)
-[ -n "$EXTRACT_DIR" ] || die "install.sh not found in tarball — release may be corrupt"
+[ -n "$EXTRACT_DIR" ] || die "install.sh not found in tarball - release may be corrupt"
 
 ok "Extracted to $EXTRACT_DIR"
 

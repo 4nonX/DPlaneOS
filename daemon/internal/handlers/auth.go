@@ -1,4 +1,4 @@
-package handlers
+﻿package handlers
 
 import (
 	"crypto/rand"
@@ -18,7 +18,7 @@ import (
 )
 
 // ═══════════════════════════════════════════════════════════════
-//  LOGIN RATE LIMITING — Exponential Backoff per IP
+//  LOGIN RATE LIMITING - Exponential Backoff per IP
 // ═══════════════════════════════════════════════════════════════
 
 type loginAttempt struct {
@@ -227,7 +227,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Verify password — LDAP users bind against the directory; local users use bcrypt
+	// Verify password - LDAP users bind against the directory; local users use bcrypt
 	if source == "ldap" {
 		if authErr := h.ldapAuthenticate(req.Username, req.Password); authErr != nil {
 			recordLoginFailure(clientIP)
@@ -574,7 +574,7 @@ func ldapCBAllow() bool {
 	defer ldapCBMu.Unlock()
 	if ldapCBFailures >= ldapCBThreshold {
 		if time.Now().Before(ldapCBOpenUntil) {
-			return false // breaker open — reject immediately
+			return false // breaker open - reject immediately
 		}
 		// Half-open: allow one attempt through
 		ldapCBFailures = ldapCBThreshold - 1
@@ -593,7 +593,7 @@ func ldapCBFailure() {
 	ldapCBFailures++
 	if ldapCBFailures >= ldapCBThreshold {
 		ldapCBOpenUntil = time.Now().Add(ldapCBResetAfter)
-		log.Printf("AUTH: LDAP circuit breaker opened — server unreachable (%d consecutive failures)", ldapCBFailures)
+		log.Printf("AUTH: LDAP circuit breaker opened - server unreachable (%d consecutive failures)", ldapCBFailures)
 	}
 	ldapCBMu.Unlock()
 }
@@ -603,7 +603,7 @@ func ldapCBFailure() {
 // Uses a circuit breaker to fail fast when the LDAP server is unreachable.
 func (h *AuthHandler) ldapAuthenticate(username, password string) error {
 	if !ldapCBAllow() {
-		return fmt.Errorf("LDAP server unavailable (circuit breaker open) — try again shortly")
+		return fmt.Errorf("LDAP server unavailable (circuit breaker open) - try again shortly")
 	}
 
 	var server, bindDN, bindPassword, baseDN, userFilter, userIDAttr, userNameAttr, userEmailAttr string
@@ -651,7 +651,7 @@ func (h *AuthHandler) ldapAuthenticate(username, password string) error {
 		if isLDAPConnError(err) {
 			ldapCBFailure()
 		} else {
-			ldapCBSuccess() // server responded — reset breaker
+			ldapCBSuccess() // server responded - reset breaker
 		}
 		return err
 	}
@@ -686,3 +686,4 @@ func (h *AuthHandler) CleanExpiredSessions() {
 		log.Printf("Cleaned %d expired sessions", count)
 	}
 }
+

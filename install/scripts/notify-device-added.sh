@@ -1,4 +1,4 @@
-#!/bin/bash
+﻿#!/bin/bash
 #
 # D-PlaneOS - Device Added Notification
 #
@@ -10,7 +10,7 @@
 DEVICE=$1
 TYPE=$2
 
-# Wait for device to settle — kernel needs time to read partition table.
+# Wait for device to settle - kernel needs time to read partition table.
 # Without this, lsblk returns empty MODEL/SIZE/FSTYPE on fast USB hotplug.
 MAX_RETRIES=5
 RETRY_DELAY=1
@@ -24,7 +24,7 @@ for i in $(seq 1 $MAX_RETRIES); do
         break
     fi
 
-    # Not ready yet — wait and retry
+    # Not ready yet - wait and retry
     sleep $RETRY_DELAY
 done
 
@@ -66,3 +66,4 @@ if [ -S /run/dplaneos/dplaneos.sock ]; then
 fi
 
 exit 0
+

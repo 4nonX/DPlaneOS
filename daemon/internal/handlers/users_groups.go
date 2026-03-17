@@ -1,4 +1,4 @@
-package handlers
+﻿package handlers
 
 import (
 	"database/sql"
@@ -23,7 +23,7 @@ func NewUserGroupHandler(db *sql.DB) *UserGroupHandler {
 
 // ─── USERS ─────────────────────────────────────────────────
 
-// HandleUsers — GET: list users, POST: create/update/delete users
+// HandleUsers - GET: list users, POST: create/update/delete users
 func (h *UserGroupHandler) HandleUsers(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
@@ -288,7 +288,7 @@ func (h *UserGroupHandler) deleteUser(w http.ResponseWriter, req userActionReque
 
 // ─── GROUPS ────────────────────────────────────────────────
 
-// HandleGroups — GET: list groups, POST: create/update/delete groups
+// HandleGroups - GET: list groups, POST: create/update/delete groups
 func (h *UserGroupHandler) HandleGroups(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
@@ -501,3 +501,4 @@ func (h *UserGroupHandler) groupAction(w http.ResponseWriter, r *http.Request) {
 		respondErrorSimple(w, "Unknown action", http.StatusBadRequest)
 	}
 }
+

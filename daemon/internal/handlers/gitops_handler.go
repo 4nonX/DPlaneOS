@@ -1,4 +1,4 @@
-package handlers
+﻿package handlers
 
 import (
 	"database/sql"
@@ -19,18 +19,18 @@ import (
 //  GITOPS HTTP HANDLER  (Phase 3)
 //
 //  Routes:
-//    GET  /api/gitops/status          — last drift result + plan summary
-//    GET  /api/gitops/plan            — full diff plan (live computation)
-//    POST /api/gitops/apply           — apply the current plan
-//    POST /api/gitops/approve         — mark a BLOCKED item as approved
-//    POST /api/gitops/check           — trigger an immediate drift check
-//    GET  /api/gitops/settings        — return GitOps configuration (enabled, granular flags)
-//    PUT  /api/gitops/settings        — update GitOps configuration
-//    POST /api/gitops/sync            — manual sync fallback (pull -> commitall -> push)
-//    GET  /api/gitops/state           — return current state.yaml content
-//    PUT  /api/gitops/state           — write and validate a new state.yaml
+//    GET  /api/gitops/status          - last drift result + plan summary
+//    GET  /api/gitops/plan            - full diff plan (live computation)
+//    POST /api/gitops/apply           - apply the current plan
+//    POST /api/gitops/approve         - mark a BLOCKED item as approved
+//    POST /api/gitops/check           - trigger an immediate drift check
+//    GET  /api/gitops/settings        - return GitOps configuration (enabled, granular flags)
+//    PUT  /api/gitops/settings        - update GitOps configuration
+//    POST /api/gitops/sync            - manual sync fallback (pull -> commitall -> push)
+//    GET  /api/gitops/state           - return current state.yaml content
+//    PUT  /api/gitops/state           - write and validate a new state.yaml
 //
-//  The handler holds no plan cache — every GET /plan computes fresh from ZFS.
+//  The handler holds no plan cache - every GET /plan computes fresh from ZFS.
 //  State (approvals) IS held in memory and in the DB between calls.
 // ═══════════════════════════════════════════════════════════════════════════════
 
@@ -48,9 +48,9 @@ type GitOpsHandler struct {
 
 // NewGitOpsHandler constructs the handler and starts the drift detector.
 //
-//   stateYAMLPath  — absolute path to state.yaml in the git repo
-//   smbConfPath    — absolute path to smb.conf for share reloads
-//   hub            — WebSocket hub for drift event broadcasting
+//   stateYAMLPath  - absolute path to state.yaml in the git repo
+//   smbConfPath    - absolute path to smb.conf for share reloads
+//   hub            - WebSocket hub for drift event broadcasting
 func NewGitOpsHandler(
 	db *sql.DB,
 	stateYAMLPath string,
@@ -84,7 +84,7 @@ func (h *GitOpsHandler) Status(w http.ResponseWriter, r *http.Request) {
 		respondOK(w, map[string]interface{}{
 			"success": true,
 			"status":  "pending",
-			"message": "First drift check has not completed yet — try again in a moment",
+			"message": "First drift check has not completed yet - try again in a moment",
 		})
 		return
 	}
@@ -101,7 +101,7 @@ func (h *GitOpsHandler) Status(w http.ResponseWriter, r *http.Request) {
 // ── GET /api/gitops/plan ──────────────────────────────────────────────────────
 
 // Plan computes and returns the full diff plan against live state.
-// This makes live ZFS calls — may take 1-3 seconds on large pools.
+// This makes live ZFS calls - may take 1-3 seconds on large pools.
 func (h *GitOpsHandler) Plan(w http.ResponseWriter, r *http.Request) {
 	desired, err := h.loadDesiredState()
 	if err != nil {
@@ -191,7 +191,7 @@ func (h *GitOpsHandler) Apply(w http.ResponseWriter, r *http.Request) {
 	h.approvals = make(map[string]bool)
 	h.approvalsMu.Unlock()
 
-	log.Printf("GITOPS APPLY: success — %d items in %s", len(result.Applied), result.Duration)
+	log.Printf("GITOPS APPLY: success - %d items in %s", len(result.Applied), result.Duration)
 	respondOK(w, map[string]interface{}{
 		"success":  true,
 		"applied":  result.Applied,
@@ -247,7 +247,7 @@ func (h *GitOpsHandler) Approve(w http.ResponseWriter, r *http.Request) {
 	if !found {
 		respondOK(w, map[string]interface{}{
 			"success": false,
-			"error":   fmt.Sprintf("%s/%s is not currently BLOCKED in the plan — re-evaluate before approving", req.Kind, req.Name),
+			"error":   fmt.Sprintf("%s/%s is not currently BLOCKED in the plan - re-evaluate before approving", req.Kind, req.Name),
 		})
 		return
 	}
@@ -265,7 +265,7 @@ func (h *GitOpsHandler) Approve(w http.ResponseWriter, r *http.Request) {
 		req.Kind, req.Name, req.Reason,
 	)
 
-	log.Printf("GITOPS APPROVE: %s/%s approved — reason: %q", req.Kind, req.Name, req.Reason)
+	log.Printf("GITOPS APPROVE: %s/%s approved - reason: %q", req.Kind, req.Name, req.Reason)
 	respondOK(w, map[string]interface{}{
 		"success":      true,
 		"approved":     key,
@@ -316,7 +316,7 @@ func (h *GitOpsHandler) GetState(w http.ResponseWriter, r *http.Request) {
 // ── PUT /api/gitops/state ─────────────────────────────────────────────────────
 
 // PutState validates and writes a new state.yaml.
-// Validation runs before any write — an invalid YAML is rejected entirely.
+// Validation runs before any write - an invalid YAML is rejected entirely.
 // Body: { "content": "version: \"1\"\npools: ..." }
 func (h *GitOpsHandler) PutState(w http.ResponseWriter, r *http.Request) {
 	var req struct {
@@ -332,13 +332,13 @@ func (h *GitOpsHandler) PutState(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Validate before writing — fail closed
+	// Validate before writing - fail closed
 	if _, err := gitops.ParseStateYAML(req.Content); err != nil {
 		respondOK(w, map[string]interface{}{
 			"success":  false,
 			"valid":    false,
 			"error":    err.Error(),
-			"message":  "state.yaml validation failed — file NOT written",
+			"message":  "state.yaml validation failed - file NOT written",
 		})
 		return
 	}
@@ -348,7 +348,7 @@ func (h *GitOpsHandler) PutState(w http.ResponseWriter, r *http.Request) {
 		respondOK(w, map[string]interface{}{
 			"success": true,
 			"valid":   true,
-			"message": "state.yaml is valid (dry run — not written)",
+			"message": "state.yaml is valid (dry run - not written)",
 		})
 		return
 	}
@@ -381,7 +381,7 @@ func (h *GitOpsHandler) PutState(w http.ResponseWriter, r *http.Request) {
 		"valid":   true,
 		"path":    h.stateYAMLPath,
 		"bytes":   len(req.Content),
-		"message": "state.yaml saved and validated — drift check triggered",
+		"message": "state.yaml saved and validated - drift check triggered",
 	})
 }
 
@@ -454,7 +454,7 @@ func (h *GitOpsHandler) UpdateSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("GITOPS: Settings updated — enabled=%v repo=%d", req.Enabled, req.RepoID)
+	log.Printf("GITOPS: Settings updated - enabled=%v repo=%d", req.Enabled, req.RepoID)
 	respondOK(w, map[string]interface{}{"success": true, "message": "Settings updated"})
 }
 
@@ -494,7 +494,7 @@ func (h *GitOpsHandler) loadDesiredState() (*gitops.DesiredState, error) {
 	content, err := os.ReadFile(h.stateYAMLPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, fmt.Errorf("state.yaml not found at %s — create it via PUT /api/gitops/state", h.stateYAMLPath)
+			return nil, fmt.Errorf("state.yaml not found at %s - create it via PUT /api/gitops/state", h.stateYAMLPath)
 		}
 		return nil, fmt.Errorf("reading state.yaml: %w", err)
 	}
@@ -531,13 +531,13 @@ func planSummary(plan *gitops.Plan) map[string]interface{} {
 
 // defaultStateYAML returns an annotated starter template when no state.yaml exists yet.
 func defaultStateYAML() string {
-	return `# D-PlaneOS state.yaml — declarative NAS configuration
+	return `# D-PlaneOS state.yaml - declarative NAS configuration
 # version must be "1"
 version: "1"
 
 # pools: declare ZFS pools.
 # IMPORTANT: disks MUST use /dev/disk/by-id/ paths.
-# Using /dev/sdX paths is REJECTED — they change across reboots.
+# Using /dev/sdX paths is REJECTED - they change across reboots.
 pools:
   - name: tank
     vdev_type: mirror          # mirror, raidz, raidz2, raidz3, or "" (stripe)
@@ -568,3 +568,4 @@ shares:
     comment: "Main data share"
 `
 }
+

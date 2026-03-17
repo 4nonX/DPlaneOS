@@ -1,4 +1,4 @@
-/**
+﻿/**
  * D-PlaneOS v1.14.0 - Main JavaScript
  * Complete UI Controller and API Integration
  */
@@ -249,7 +249,7 @@ async function refreshContainers() {
 // ==========================================
 
 async function loadAppStore() {
-    // App grid is rendered statically in index.html — nothing to fetch here.
+    // App grid is rendered statically in index.html - nothing to fetch here.
     // SSH key status is loaded when the repo modal opens.
 }
 
@@ -276,7 +276,7 @@ async function checkSSHKeyStatus() {
         if (!statusEl) return;
 
         if (status.exists && status.valid) {
-            statusEl.innerHTML = '<span style="color:#10b981">✓ SSH key valid</span> — permissions: ' + status.permissions;
+            statusEl.innerHTML = '<span style="color:#10b981">✓ SSH key valid</span> - permissions: ' + status.permissions;
             if (textarea)  textarea.style.display  = 'none';
             if (deleteBtn) deleteBtn.style.display = 'inline-block';
         } else if (status.exists && !status.valid) {
@@ -2666,3 +2666,4 @@ async function restartService(service) {
 
 async function refreshBackups() { await loadBackups(); }
 async function refreshServices() { await loadServices(); }
+

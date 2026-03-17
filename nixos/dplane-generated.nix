@@ -1,6 +1,6 @@
 # dplane-generated.nix
 # ──────────────────────────────────────────────────────────────────────────────
-# D-PlaneOS v5.0 — JSON-to-Nix Bridge
+# D-PlaneOS v5.0 - JSON-to-Nix Bridge
 #
 # THIS FILE IS STATIC. The D-PlaneOS daemon never modifies it.
 # Installed once by setup-nixos.sh. Do not edit manually.
@@ -8,7 +8,7 @@
 # Architecture:
 #   The daemon writes /var/lib/dplaneos/dplane-state.json (pure JSON).
 #   This file reads that JSON at nixos-rebuild eval time via builtins.fromJSON.
-#   The .nix file contains ZERO interpolated or generated syntax — no Surgeon,
+#   The .nix file contains ZERO interpolated or generated syntax - no Surgeon,
 #   no string templates, no injection risk of any kind.
 #
 # On nixos-rebuild, NixOS evaluates this file and applies:

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# D-PlaneOS OTA Update Script — A/B Slot Switcher (Task 4.2)
+# D-PlaneOS OTA Update Script - A/B Slot Switcher (Task 4.2)
 # ─────────────────────────────────────────────────────────────────────────────
 # Usage:
 #   dplaneos-ota-update <update-bundle.tar.gz>
@@ -9,13 +9,13 @@
 #
 # Update bundle format:
 #   update.tar.gz
-#   ├── system.tar.gz       — NixOS system closure tarball
-#   ├── system.tar.gz.sig   — Ed25519 signature over system.tar.gz
-#   ├── metadata.json       — { version, slot_target, min_version, sha256 }
-#   └── metadata.json.sig   — Ed25519 signature over metadata.json
+#   ├── system.tar.gz       - NixOS system closure tarball
+#   ├── system.tar.gz.sig   - Ed25519 signature over system.tar.gz
+#   ├── metadata.json       - { version, slot_target, min_version, sha256 }
+#   └── metadata.json.sig   - Ed25519 signature over metadata.json
 #
 # A/B flow:
-#   1. Verify Ed25519 signature on both files (fail closed — no signature, no apply)
+#   1. Verify Ed25519 signature on both files (fail closed: no signature, no apply)
 #   2. Detect active slot (A or B) from /proc/cmdline boot label
 #   3. Mount inactive slot at /mnt/system-b (or /mnt/system-a)
 #   4. Extract new system closure into inactive slot
@@ -78,7 +78,7 @@ verify_signature() {
     log "Verifying signature on $(basename "${file}")..."
 
     if [ ! -f "${sigfile}" ]; then
-        die "Signature file ${sigfile} not found — refusing to apply unsigned update"
+        die "Signature file ${sigfile} not found - refusing to apply unsigned update"
     fi
 
     # Write public key to temp file for openssl
@@ -206,7 +206,7 @@ cmd_apply() {
     [ -f "${system_tar}" ]    || die "Bundle missing system.tar.gz"
     [ -f "${metadata_json}" ] || die "Bundle missing metadata.json"
 
-    # 2. Verify signatures — fail closed
+    # 2. Verify signatures: fail closed
     verify_signature "${metadata_json}"
     verify_signature "${system_tar}"
 
@@ -278,7 +278,7 @@ cmd_health_check() {
     log "=== OTA Health Check ==="
 
     if [ ! -f "${REVERT_MARKER}" ]; then
-        log "No pending revert — system is stable. Nothing to do."
+        log "No pending revert: system is stable. Nothing to do."
         exit 0
     fi
 
@@ -312,7 +312,7 @@ cmd_health_check() {
         log "PASS: /persist is mounted"
         checks_passed=$((checks_passed + 1))
     else
-        log "FAIL: /persist is NOT mounted — state will be lost on next reboot"
+        log "FAIL: /persist is NOT mounted: state will be lost on next reboot"
         checks_failed=$((checks_failed + 1))
     fi
 
@@ -329,17 +329,17 @@ cmd_health_check() {
             checks_failed=$((checks_failed + 1))
         fi
     else
-        log "SKIP: no active shares configured — skipping smbd check"
+        log "SKIP: no active shares configured: skipping smbd check"
     fi
 
     log "Health check result: ${checks_passed} passed, ${checks_failed} failed"
 
     if [ "${checks_failed}" -gt 0 ]; then
-        log "=== HEALTH CHECK FAILED — initiating auto-revert ==="
+        log "=== HEALTH CHECK FAILED: initiating auto-revert ==="
         cmd_revert
     else
-        # All checks passed — commit the update
-        log "=== Health check PASSED — committing update ==="
+        # All checks passed: commit the update
+        log "=== Health check PASSED: committing update ==="
         local revert_to
         revert_to=$(grep revert_to_slot "${REVERT_MARKER}" | cut -d= -f2)
         rm -f "${REVERT_MARKER}"

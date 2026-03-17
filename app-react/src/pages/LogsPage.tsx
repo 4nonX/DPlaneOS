@@ -1,5 +1,5 @@
-/**
- * pages/LogsPage.tsx — System Logs
+﻿/**
+ * pages/LogsPage.tsx - System Logs
  *
  * APIs:
  *   GET /api/system/logs?limit=N  → CommandResponse { data: LogEntry[] }
@@ -10,7 +10,7 @@
  * Session auth is passed as ?session=<id> URL param. The daemon's
  * LogStreamHandler validates the session from the query string.
  * (If the daemon doesn't yet support ?session= param, the stream will
- * return 401 — in that case fall back to polling /api/system/logs.)
+ * return 401 - in that case fall back to polling /api/system/logs.)
  *
  * Log entries from /api/system/logs have shape:
  *   { time: string, message: string, unit: string, level: "info"|"warning"|"error" }
@@ -215,7 +215,7 @@ export function LogsPage() {
     })
 
     es.addEventListener('error', () => {
-      setStreamError('Stream disconnected — daemon may have restarted.')
+      setStreamError('Stream disconnected - daemon may have restarted.')
       setStreaming(false)
       es.close()
     })
@@ -431,7 +431,7 @@ export function LogsPage() {
             {streamCapped && (
               <div style={{ padding: '10px 12px', color: 'var(--text-tertiary)', fontSize: 'var(--text-xs)',
                 fontFamily: 'var(--font-mono)', borderBottom: '1px solid var(--border-subtle)' }}>
-                [Stream capped at 2000 lines by daemon — click Restart to resume]
+                [Stream capped at 2000 lines by daemon - click Restart to resume]
               </div>
             )}
             {filteredLive.map((e, i) => <LiveLogRow key={i} parsed={e} />)}
@@ -460,3 +460,4 @@ export function LogsPage() {
     </div>
   )
 }
+

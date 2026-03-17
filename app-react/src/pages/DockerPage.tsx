@@ -1,5 +1,5 @@
-/**
- * pages/DockerPage.tsx — Docker Containers & Image Pull (Phase 3)
+﻿/**
+ * pages/DockerPage.tsx - Docker Containers & Image Pull (Phase 3)
  *
  * Tabs: Containers | Pull Image | Compose Stacks
  *
@@ -51,7 +51,7 @@ interface Container {
   web_links?:   WebLink[]
   stack?:       string
   resources?:   Resources
-  Labels?:      Record<string, string>  // Docker labels — includes dplaneos.icon
+  Labels?:      Record<string, string>  // Docker labels - includes dplaneos.icon
 }
 
 interface Stack {
@@ -222,7 +222,7 @@ function ContainerRow({ container, onRefresh }: { container: Container; onRefres
               ))}
             </div>
           ) : (
-            <span style={{ color: 'var(--text-tertiary)', fontSize: 'var(--text-xs)' }}>—</span>
+            <span style={{ color: 'var(--text-tertiary)', fontSize: 'var(--text-xs)' }}>-</span>
           )}
         </td>
 
@@ -240,12 +240,12 @@ function ContainerRow({ container, onRefresh }: { container: Container; onRefres
                 </div>
               ))}
             </div>
-          ) : <span style={{ color: 'var(--text-tertiary)', fontSize: 'var(--text-xs)' }}>—</span>}
+          ) : <span style={{ color: 'var(--text-tertiary)', fontSize: 'var(--text-xs)' }}>-</span>}
         </td>
 
         {/* Uptime */}
         <td style={{ padding: '14px 16px', fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', whiteSpace: 'nowrap' }}>
-          {container.uptime || '—'}
+          {container.uptime || '-'}
         </td>
 
         {/* Actions */}
@@ -724,3 +724,4 @@ export function DockerPage() {
     </div>
   )
 }
+

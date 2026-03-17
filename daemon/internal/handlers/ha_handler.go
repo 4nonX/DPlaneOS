@@ -1,4 +1,4 @@
-package handlers
+﻿package handlers
 
 import (
 	"encoding/json"
@@ -49,7 +49,7 @@ func (h *HAHandler) RegisterPeer(w http.ResponseWriter, r *http.Request) {
 	}
 	respondJSON(w, http.StatusCreated, map[string]interface{}{
 		"success": true,
-		"message": "Peer registered — heartbeat will begin within 15 seconds",
+		"message": "Peer registered - heartbeat will begin within 15 seconds",
 		"peer_id": req.ID,
 	})
 }
@@ -120,7 +120,7 @@ func (h *HAHandler) SetPeerRole(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// LocalNodeInfo returns this node's identity (no auth required — used by peers to auto-discover).
+// LocalNodeInfo returns this node's identity (no auth required - used by peers to auto-discover).
 // GET /api/ha/local
 func (h *HAHandler) LocalNodeInfo(w http.ResponseWriter, r *http.Request) {
 	info := h.mgr.LocalInfo()
@@ -142,3 +142,4 @@ func LocalNodeID() string {
 	host, _ := os.Hostname()
 	return host
 }
+

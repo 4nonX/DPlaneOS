@@ -1,4 +1,4 @@
-package handlers
+﻿package handlers
 
 import (
 	"bytes"
@@ -393,7 +393,7 @@ func (h *CloudSyncHandler) createRemote(w http.ResponseWriter, r *http.Request) 
 
 	out, err := runRclone(args...)
 	if err != nil {
-		log.Printf("CLOUD SYNC: config create failed: %v — %s", err, out)
+		log.Printf("CLOUD SYNC: config create failed: %v - %s", err, out)
 		respondErrorSimple(w, "Failed to create remote: "+strings.TrimSpace(string(out)), http.StatusInternalServerError)
 		return
 	}
@@ -571,3 +571,4 @@ func (h *CloudSyncHandler) runSync(w http.ResponseWriter, r *http.Request) {
 		"message":      fmt.Sprintf("Sync started: %s → %s", src, dst),
 	})
 }
+

@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 /**
  * D-PlaneOS v1.14.0 - File Browser API
  * Restricted to /mnt/ subtree (ZFS pool mounts)
@@ -23,7 +23,7 @@ define('BASE', '/mnt');
 function safePath(string $raw): string|false {
     $real = realpath($raw);
     if ($real === false) {
-        // target may not exist yet (mkdir / create / upload dest) — validate via parent
+        // target may not exist yet (mkdir / create / upload dest) - validate via parent
         $parent = realpath(dirname($raw));
         if ($parent === false) return false;
         $candidate = $parent . '/' . basename($raw);
@@ -175,7 +175,7 @@ switch ($action) {
         break;
     }
 
-    // ─── READ (text content for viewer / editor — capped at 10 MB) ───
+    // ─── READ (text content for viewer / editor - capped at 10 MB) ───
     case 'read': {
         $path = safePath($_GET['path'] ?? '');
         if ($path === false || !is_file($path)) {
@@ -190,7 +190,7 @@ switch ($action) {
         if ($content === false) { echo json_encode(['error' => 'Failed to read file']); break; }
         // Null bytes → binary
         if (strpos($content, "\0") !== false) {
-            echo json_encode(['error' => 'Binary file — cannot edit as text. Use download.']); break;
+            echo json_encode(['error' => 'Binary file - cannot edit as text. Use download.']); break;
         }
         echo json_encode(['content' => $content, 'size' => humanSize($size), 'ext' => pathinfo($path, PATHINFO_EXTENSION)]);
         break;
@@ -253,7 +253,7 @@ switch ($action) {
         exit;
     }
 
-    // ─── PREVIEW (serve inline with correct MIME — for images / video / audio) ───
+    // ─── PREVIEW (serve inline with correct MIME - for images / video / audio) ───
     case 'preview': {
         $path = safePath($_GET['path'] ?? '');
         if ($path === false || !is_file($path)) {
@@ -272,3 +272,4 @@ switch ($action) {
     default:
         echo json_encode(['error' => 'Unknown action']);
 }
+

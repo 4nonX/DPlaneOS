@@ -1,5 +1,5 @@
-/**
- * pages/UPSPage.tsx — UPS Management (Phase 6)
+﻿/**
+ * pages/UPSPage.tsx - UPS Management (Phase 6)
  *
  * Displays UPS status (battery charge, runtime, load, voltages) and
  * allows configuring the UPS monitoring daemon connection.
@@ -250,3 +250,4 @@ export function UPSPage() {
     </div>
   )
 }
+

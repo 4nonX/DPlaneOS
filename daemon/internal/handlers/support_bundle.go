@@ -1,4 +1,4 @@
-package handlers
+﻿package handlers
 
 import (
 	"archive/tar"
@@ -19,7 +19,7 @@ import (
 // SupportBundleHandler generates a diagnostic archive for support cases.
 // POST /api/system/support-bundle
 //
-// Streams a .tar.gz directly to the response — no temp files written to disk.
+// Streams a .tar.gz directly to the response - no temp files written to disk.
 // Collection is best-effort: failures in individual sections are logged and
 // included as error notes inside the archive, never cause a 500.
 type SupportBundleHandler struct {
@@ -38,7 +38,7 @@ type bundleSection struct {
 }
 
 // collect runs cmd+args and returns the output as a section.
-// On error the section still exists, containing the error message — so the
+// On error the section still exists, containing the error message - so the
 // bundle is always complete even when some commands aren't available.
 func collectCmd(name string, timeout func(string, ...string) ([]byte, error), cmd string, args ...string) bundleSection {
 	out, err := timeout(cmd, args...)
@@ -190,7 +190,7 @@ func (h *SupportBundleHandler) GenerateBundle(w http.ResponseWriter, r *http.Req
 		collectFile("logs/dplaned.log.tail", "/var/log/dplaneos/dplaned.log", 512*1024),
 	)
 
-	// ── NixOS (best-effort — only on NixOS) ────────────────────────────
+	// ── NixOS (best-effort - only on NixOS) ────────────────────────────
 	if isNixOS() {
 		sections = append(sections,
 			collectCmd("nixos/version.txt", cmdutil.RunFast, "nixos-version"),
@@ -252,3 +252,4 @@ func (h *SupportBundleHandler) GenerateBundle(w http.ResponseWriter, r *http.Req
 		log.Printf("support-bundle: gzip close error: %v", err)
 	}
 }
+

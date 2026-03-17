@@ -1,5 +1,5 @@
-/**
- * pages/QuotasPage.tsx — ZFS Quotas (Phase 7)
+﻿/**
+ * pages/QuotasPage.tsx - ZFS Quotas (Phase 7)
  *
  * GET  /api/zfs/dataset/quota?dataset=   → { quota, refquota }
  * POST /api/zfs/datasets { action:'set_quota', dataset, quota }
@@ -148,3 +148,4 @@ export function QuotasPage() {
     </div>
   )
 }
+

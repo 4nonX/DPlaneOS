@@ -1,4 +1,4 @@
-//go:build linux
+﻿//go:build linux
 
 // Package netlinkx provides a minimal Linux netlink/rtnetlink client.
 //
@@ -478,7 +478,7 @@ func addrDel(ifaceName, cidr string) error {
 }
 
 // AddrList returns the addresses assigned to an interface.
-// Uses stdlib net.InterfaceByName which reads /proc/net — no syscall needed.
+// Uses stdlib net.InterfaceByName which reads /proc/net - no syscall needed.
 func AddrList(ifaceName string) ([]AddrInfo, error) {
 	var ifaces []net.Interface
 	if ifaceName != "" {
@@ -680,3 +680,4 @@ func maskBits(mask net.IPMask) int {
 	ones, _ := mask.Size()
 	return ones
 }
+

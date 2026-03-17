@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -142,7 +142,7 @@
                     <div class="avatar">${u.username.charAt(0).toUpperCase()}</div>
                     <div>
                         <div class="user-name">${u.username} <span style="color:var(--color-text-muted); font-weight:400; font-size:11px;">UID ${u.uid}</span></div>
-                        <div class="user-meta">${u.fullname || '—'} &nbsp;•&nbsp; ${u.home} &nbsp;•&nbsp; ${u.shell}</div>
+                        <div class="user-meta">${u.fullname || '-'} &nbsp;•&nbsp; ${u.home} &nbsp;•&nbsp; ${u.shell}</div>
                     </div>
                 </div>
                 <div class="user-actions">
@@ -273,3 +273,4 @@
     </script>
 </body>
 </html>
+

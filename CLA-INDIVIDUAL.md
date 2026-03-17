@@ -1,6 +1,6 @@
-# D-PlaneOS Individual Contributor License Agreement
+﻿# D-PlaneOS Individual Contributor License Agreement
 
-**Version 1.0 — Effective upon submission of a Contribution**
+**Version 1.0 - Effective upon submission of a Contribution**
 
 Thank you for your interest in contributing to D-PlaneOS ("the Project"),
 maintained by Dan Dressen ("the Maintainer", "We", "Us").
@@ -12,9 +12,9 @@ the protection of the Maintainer and users of the Project; it does not change
 your rights to use your own Contributions for any other purpose.
 
 Please read this Agreement carefully before submitting a Contribution. By
-submitting a Contribution — including but not limited to opening a pull request,
+submitting a Contribution - including but not limited to opening a pull request,
 submitting a patch, or uploading code to any repository maintained under the
-Project — **you accept and agree to the following terms for your present and
+Project - **you accept and agree to the following terms for your present and
 future Contributions**.
 
 If you are employed and your Contribution relates to your employer's business or
@@ -207,4 +207,5 @@ GitHub username (if applicable): [username]
 ---
 
 *D-PlaneOS Individual Contributor License Agreement v1.0*
-*Maintainer: Dan Dressen — https://github.com/4nonX/D-PlaneOS*
+*Maintainer: Dan Dressen - https://github.com/4nonX/D-PlaneOS*
+

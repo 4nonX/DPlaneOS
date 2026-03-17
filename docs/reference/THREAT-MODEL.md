@@ -1,4 +1,4 @@
-# D-PlaneOS — Threat Model
+# D-PlaneOS - Threat Model
 
 ## System Context
 
@@ -55,8 +55,8 @@ D-PlaneOS is a NAS management layer running on top of NixOS or Debian/Ubuntu. It
 **Vector**: Attacker sends `{"pool":"tank; rm -rf /"}` to a ZFS endpoint, or manipulates replication parameters to inject shell commands.
 
 **Mitigation**:
-- All parameters validated by allowlist regex validators (`ValidatePoolName`, `ValidateDevicePath`, `ValidateDatasetName`, etc.) — rejects shell metacharacters with HTTP 400 before any command is executed
-- Go `exec.Command` passes arguments as a string array — no shell expansion, no `/bin/sh -c` for standard operations
+- All parameters validated by allowlist regex validators (`ValidatePoolName`, `ValidateDevicePath`, `ValidateDatasetName`, etc.) - rejects shell metacharacters with HTTP 400 before any command is executed
+- Go `exec.Command` passes arguments as a string array - no shell expansion, no `/bin/sh -c` for standard operations
 - networkdwriter (network persistence) writes files directly, no shell involved; `networkctl reload` is called with fixed args, no user input in the command line
 - **v3.3.2 fix:** The ZFS replication handler (`replication_remote.go`) previously constructed shell commands via `fmt.Sprintf` and executed them with `bash -c`. This has been replaced with `execPipedZFSSend()`, which connects `zfs send`, `pv` (optional), and `ssh recv` as discrete `exec.Command` processes linked via Go `io.Pipe`. No shell is invoked. Resume tokens are now validated with `isValidResumeToken()` before use as arguments.
 
@@ -71,9 +71,9 @@ D-PlaneOS is a NAS management layer running on top of NixOS or Debian/Ubuntu. It
 **Mitigation**:
 - `sessionMiddleware` runs globally on all routes via `r.Use()`
 - Public exceptions are explicitly allowlisted in the middleware: `/health`, `/api/auth/*`, `/api/csrf`
-- All other routes — including all ZFS, Docker, system, and RBAC routes — require a valid `X-Session-ID` header
+- All other routes - including all ZFS, Docker, system, and RBAC routes - require a valid `X-Session-ID` header
 - Session validation: token format check + DB lookup + username-header match; fail-closed (DB error → 401)
-- TOTP: if enabled for a user, login issues a `pending_totp` session that can only call `/api/auth/totp/verify` — all other routes reject it
+- TOTP: if enabled for a user, login issues a `pending_totp` session that can only call `/api/auth/totp/verify` - all other routes reject it
 
 **Residual risk**: LOW.
 
@@ -88,7 +88,7 @@ D-PlaneOS is a NAS management layer running on top of NixOS or Debian/Ubuntu. It
 - System roles (`admin`, `operator`, `user`, `viewer`) are immutable in the DB (`is_system = 1`)
 - Role assignments support expiry dates
 
-**Residual risk**: MEDIUM. Session middleware enforces authentication on all routes, but `permRoute()` is not applied to every operational route — several ZFS, Docker, snapshot, and system routes are session-authenticated only, without a per-route RBAC permission check. Any authenticated user (including `viewer`) can reach them. This is a known gap.
+**Residual risk**: MEDIUM. Session middleware enforces authentication on all routes, but `permRoute()` is not applied to every operational route - several ZFS, Docker, snapshot, and system routes are session-authenticated only, without a per-route RBAC permission check. Any authenticated user (including `viewer`) can reach them. This is a known gap.
 
 ---
 
@@ -97,7 +97,7 @@ D-PlaneOS is a NAS management layer running on top of NixOS or Debian/Ubuntu. It
 **Vector**: Malicious input in API parameters reaches SQL queries.
 
 **Mitigation**:
-- All SQL uses `?` parameterized queries — no string concatenation in query construction
+- All SQL uses `?` parameterized queries - no string concatenation in query construction
 - Allowlist input validation rejects metacharacters before they reach the DB layer
 
 **Residual risk**: NEGLIGIBLE.
@@ -111,7 +111,7 @@ D-PlaneOS is a NAS management layer running on top of NixOS or Debian/Ubuntu. It
 **Mitigation**:
 - CSP header set in `nginx-dplaneos.conf`: `default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ws: wss:; font-src 'self'; frame-ancestors 'self';`
 - API responses are JSON, not rendered HTML
-- All server-sourced values interpolated into `innerHTML` are passed through an `esc()` / `escapeHtml()` sanitiser before insertion — applied consistently across all frontend pages and the alert system (v3.3.0)
+- All server-sourced values interpolated into `innerHTML` are passed through an `esc()` / `escapeHtml()` sanitiser before insertion - applied consistently across all frontend pages and the alert system (v3.3.0)
 
 **Residual risk**: LOW. CSP `'unsafe-inline'` remains present for style/script compatibility; the sanitiser closes the practical injection vector. Residual theoretical risk requires both a server-side data injection and a sanitiser bypass simultaneously.
 
@@ -136,7 +136,7 @@ D-PlaneOS is a NAS management layer running on top of NixOS or Debian/Ubuntu. It
 
 **Mitigation**:
 - In-process rate limiter: 100 requests/minute per source IP; returns HTTP 429 and logs a security event
-- systemd `MemoryMax=512M`, `MemoryHigh=384M` — OOM kill before system is starved
+- systemd `MemoryMax=512M`, `MemoryHigh=384M` - OOM kill before system is starved
 - SQLite `busy_timeout=30000` prevents lock starvation under concurrent load
 - Buffered audit logging prevents I/O stalls on high event volume
 - Graceful shutdown (15 s timeout) drains in-flight requests on SIGTERM
@@ -152,9 +152,9 @@ D-PlaneOS is a NAS management layer running on top of NixOS or Debian/Ubuntu. It
 **Mitigation**:
 - ZFS native encryption (AES-256-GCM or AES-128-CCM) supported per dataset
 - UI exposes lock / unlock / change-key operations (`/api/zfs/encryption/*`)
-- `zfs unload-key` available via UI; not automatically called on daemon SIGTERM — operator must lock datasets before physical removal
+- `zfs unload-key` available via UI; not automatically called on daemon SIGTERM - operator must lock datasets before physical removal
 
-**Residual risk**: LOW if encryption is enabled and keys are locked. HIGH if encryption is not enabled — plaintext data on disks. SQLite DB is also plaintext on disk; ZFS pool-level encryption covers it only if the DB lives on an encrypted dataset.
+**Residual risk**: LOW if encryption is enabled and keys are locked. HIGH if encryption is not enabled - plaintext data on disks. SQLite DB is also plaintext on disk; ZFS pool-level encryption covers it only if the DB lives on an encrypted dataset.
 
 ---
 
@@ -163,7 +163,7 @@ D-PlaneOS is a NAS management layer running on top of NixOS or Debian/Ubuntu. It
 **Vector**: Attacker intercepts traffic between browser and server.
 
 **Mitigation**:
-- `dplaned` defaults to `127.0.0.1:9000` — not reachable from the network without explicit reconfiguration
+- `dplaned` defaults to `127.0.0.1:9000` - not reachable from the network without explicit reconfiguration
 - TLS terminated at reverse proxy (nginx/Caddy/Pangolin)
 - Session tokens transmitted in request headers, not URL parameters
 
@@ -205,18 +205,18 @@ D-PlaneOS is a NAS management layer running on top of NixOS or Debian/Ubuntu. It
 - Chain integrity verifiable via `GET /api/system/audit/verify-chain`
 - `audit.key` is a 32-byte random key stored separately from the DB
 
-**Residual risk**: LOW if `audit.key` is protected. An attacker with both DB write access and the key can forge the chain — but these together represent full root compromise.
+**Residual risk**: LOW if `audit.key` is protected. An attacker with both DB write access and the key can forge the chain - but these together represent full root compromise.
 
 ### T13: HA Split-Brain / Data Corruption on Failover
 
 **Vector**: Network partition isolates the active node from standby. Operator promotes standby. Both nodes now consider themselves active and attempt to import the same ZFS pools.
 
 **Mitigation**:
-- Promotion is manual-only — no automatic failover, so split-brain cannot occur without deliberate operator action
+- Promotion is manual-only - no automatic failover, so split-brain cannot occur without deliberate operator action
 - The HA module's `cluster.go` documents these limitations explicitly
 - Recommended mitigation: implement infrastructure-level fencing (e.g. IPMI power-off of the old active node) *before* promoting standby
 
-**Residual risk**: HIGH if fencing is not in place. An operator who promotes a standby while the active node is partitioned-but-alive can cause pool imports on both nodes simultaneously, leading to ZFS pool corruption. This is an architectural limitation of the current HA implementation — it is not Pacemaker/Corosync. See `cluster.go` package documentation for full details.
+**Residual risk**: HIGH if fencing is not in place. An operator who promotes a standby while the active node is partitioned-but-alive can cause pool imports on both nodes simultaneously, leading to ZFS pool corruption. This is an architectural limitation of the current HA implementation - it is not Pacemaker/Corosync. See `cluster.go` package documentation for full details.
 
 ---
 
@@ -241,8 +241,8 @@ Run behind a VPN or reverse proxy with authentication (e.g. WireGuard, Tailscale
 
 ## Known Gaps (not mitigated in)
 
-- **Partial RBAC coverage** — many operational routes (ZFS, Docker, snapshots, replication, system) are session-authenticated but lack per-route `RequirePermission` checks
-- **ZFS keys not auto-locked on shutdown** — `zfs unload-key` must be called manually before powering down if encryption-at-rest is required
-- **SQLite plaintext** — DB is not encrypted independently; relies on ZFS pool-level encryption if the pool is configured that way
-- **No API request signing** — no HMAC or nonce scheme for critical destructive operations (pool export, dataset destroy, Docker remove)
-- **CSP not set by daemon** — CSP only present in nginx config; direct connections to port 9000 have no CSP
+- **Partial RBAC coverage** - many operational routes (ZFS, Docker, snapshots, replication, system) are session-authenticated but lack per-route `RequirePermission` checks
+- **ZFS keys not auto-locked on shutdown** - `zfs unload-key` must be called manually before powering down if encryption-at-rest is required
+- **SQLite plaintext** - DB is not encrypted independently; relies on ZFS pool-level encryption if the pool is configured that way
+- **No API request signing** - no HMAC or nonce scheme for critical destructive operations (pool export, dataset destroy, Docker remove)
+- **CSP not set by daemon** - CSP only present in nginx config; direct connections to port 9000 have no CSP

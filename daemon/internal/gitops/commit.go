@@ -1,4 +1,4 @@
-package gitops
+﻿package gitops
 
 import (
 	"context"
@@ -272,7 +272,7 @@ func gitCommitAndPush(dir string, env []string, message string) error {
 		cmd.Env = append(os.Environ(), env...)
 		pout, err := cmd.CombinedOutput()
 		if err != nil {
-			log.Printf("GITOPS COMMIT WARNING: authenticated git push failed: %v — %s", err, string(pout))
+			log.Printf("GITOPS COMMIT WARNING: authenticated git push failed: %v - %s", err, string(pout))
 		}
 	} else {
 		if _, err := cmdutil.RunMediumInDir(dir, "git", "push"); err != nil {
@@ -335,3 +335,4 @@ func cleanupAskpass() {
 		}
 	}
 }
+

@@ -69,7 +69,7 @@ in {
       docker-compose
       nginx
       sqlite
-      # samba — now managed by modules/samba.nix (services.samba)
+      # samba - now managed by modules/samba.nix (services.samba)
       nfs-utils
       smartmontools
       ipmitool          # optional: BMC/IPMI sensor readout
@@ -194,7 +194,7 @@ in {
         ProtectSystem         = "strict";
         ProtectHome           = true;
         ReadWritePaths        = [
-          # Daemon state — bind-mounted from /persist/dplaneos by impermanence.nix.
+          # Daemon state - bind-mounted from /persist/dplaneos by impermanence.nix.
           # All writes here physically land on the persist partition.
           "/var/log/dplaneos"
           "/var/lib/dplaneos"   # dplaneos.db, audit.db, audit.key, gitops/
@@ -205,10 +205,10 @@ in {
           "/etc/crontab"
           "/etc/exports"
           # networkdwriter: D-PlaneOS writes 50-dplane-*.{network,netdev} here
-          # These files survive nixos-rebuild — NixOS only manages its own prefixed files
+          # These files survive nixos-rebuild - NixOS only manages its own prefixed files
           "/etc/systemd/network"
           "/etc/systemd/resolved.conf.d"
-          # /etc/samba — removed: NixOS now owns smb.conf via modules/samba.nix
+          # /etc/samba - removed: NixOS now owns smb.conf via modules/samba.nix
           # Daemon writes to /var/lib/dplaneos/smb-shares.conf instead
         ];
         CapabilityBoundingSet = [
@@ -246,13 +246,13 @@ in {
           elapsed=0
           while [ $elapsed -lt $timeout ]; do
             if zpool list -H -o health 2>/dev/null | grep -q ONLINE; then
-              echo "ZFS pools ONLINE — gate open"
+              echo "ZFS pools ONLINE - gate open"
               exit 0
             fi
             sleep 2
             elapsed=$((elapsed + 2))
           done
-          echo "ZFS gate timeout after ${toString 120}s — pools not ONLINE"
+          echo "ZFS gate timeout after ${toString 120}s - pools not ONLINE"
           exit 1
         '';
       };

@@ -1,4 +1,4 @@
-#!/bin/bash
+﻿#!/bin/bash
 #
 # D-PlaneOS System Audit
 #
@@ -106,7 +106,7 @@ else
 fi
 
 if [ "$RAM_PCT" -ge 90 ]; then
-    fail  "RAM usage at ${RAM_PCT}% — system under memory pressure"
+    fail  "RAM usage at ${RAM_PCT}% - system under memory pressure"
 elif [ "$RAM_PCT" -ge 75 ]; then
     warn "RAM usage at ${RAM_PCT}%"
 else
@@ -117,7 +117,7 @@ fi
 if dmidecode -t memory 2>/dev/null | grep -qi "error correction.*ecc\|error correction.*single"; then
     pass "ECC RAM detected"
 elif dmidecode -t memory 2>/dev/null | grep -qi "error correction.*none"; then
-    warn "Non-ECC RAM — ZFS bit-rot detection works but silent corruption is possible on hardware faults"
+    warn "Non-ECC RAM - ZFS bit-rot detection works but silent corruption is possible on hardware faults"
 else
     info "ECC status: could not determine (dmidecode unavailable or no SMBIOS data)"
 fi
@@ -126,9 +126,9 @@ fi
 SWAP_TOTAL=$(free -m | awk '/^Swap:/{print $2}')
 SWAP_USED=$(free -m | awk '/^Swap:/{print $3}')
 if [ "$SWAP_TOTAL" -eq 0 ]; then
-    warn "No swap configured — OOM killer will target processes directly"
+    warn "No swap configured - OOM killer will target processes directly"
 elif [ "$SWAP_USED" -gt 0 ]; then
-    warn "Swap in use: ${SWAP_USED}MB — system is under memory pressure"
+    warn "Swap in use: ${SWAP_USED}MB - system is under memory pressure"
 else
     pass "Swap: ${SWAP_TOTAL}MB configured, not in use"
 fi
@@ -145,7 +145,7 @@ HDD_COUNT=$(lsblk -d -o ROTA --noheadings 2>/dev/null | grep -c "^1" || echo 0)
 SSD_COUNT=$(lsblk -d -o ROTA,TRAN --noheadings 2>/dev/null | grep "^0" | grep -vc "nvme" || echo 0)
 info "NVMe: $NVME_COUNT  SSD: $SSD_COUNT  HDD: $HDD_COUNT"
 
-# S.M.A.R.T. status (skip in quick mode — can be slow)
+# S.M.A.R.T. status (skip in quick mode - can be slow)
 if ! $QUICK && command -v smartctl &>/dev/null; then
     section "1c. S.M.A.R.T. HEALTH"
     SMART_FAIL=0
@@ -154,7 +154,7 @@ if ! $QUICK && command -v smartctl &>/dev/null; then
         if echo "$SMART_OUT" | grep -q "PASSED\|OK"; then
             pass "$(basename $dev): SMART PASSED"
         elif echo "$SMART_OUT" | grep -q "FAILED"; then
-            fail "$(basename $dev): SMART FAILED — drive may be failing"
+            fail "$(basename $dev): SMART FAILED - drive may be failing"
             SMART_FAIL=$((SMART_FAIL+1))
         else
             warn "$(basename $dev): SMART status unknown"
@@ -168,7 +168,7 @@ fi
 section "2. OPERATING SYSTEM"
 # ════════════════════════════════════════════════════════════════
 
-# Safe extraction — avoids Ubuntu's readonly VERSION variable crash
+# Safe extraction - avoids Ubuntu's readonly VERSION variable crash
 [[ -f /etc/os-release ]] && OS_ID=$(grep -E '^ID=' /etc/os-release | cut -d= -f2 | tr -d '"')
 [[ -f /etc/os-release ]] && OS_PRETTY=$(grep -E '^PRETTY_NAME=' /etc/os-release | cut -d= -f2 | tr -d '"')
 [[ -f /etc/os-release ]] && OS_VERSION_ID=$(grep -E '^VERSION_ID=' /etc/os-release | cut -d= -f2 | tr -d '"')
@@ -181,18 +181,18 @@ case "${OS_ID,,}" in
     ubuntu)
         VER_MAJOR="${OS_VERSION_ID%%.*}"
         if [ "$VER_MAJOR" -ge 22 ]; then
-            pass "Ubuntu ${OS_VERSION_ID} — supported"
+            pass "Ubuntu ${OS_VERSION_ID} - supported"
         else
-            warn "Ubuntu ${OS_VERSION_ID} — minimum is 20.04, 22.04+ recommended"
+            warn "Ubuntu ${OS_VERSION_ID} - minimum is 20.04, 22.04+ recommended"
         fi ;;
     debian)
         if [ "${OS_VERSION_ID:-0}" -ge 11 ]; then
-            pass "Debian ${OS_VERSION_ID} — supported"
+            pass "Debian ${OS_VERSION_ID} - supported"
         else
-            warn "Debian ${OS_VERSION_ID} — minimum is 11 (Bullseye)"
+            warn "Debian ${OS_VERSION_ID} - minimum is 11 (Bullseye)"
         fi ;;
     nixos)
-        pass "NixOS — supported" ;;
+        pass "NixOS - supported" ;;
     *)
         warn "OS '${OS_ID}' is not in the supported list (Debian/Ubuntu/NixOS)" ;;
 esac
@@ -204,13 +204,13 @@ if [ "$PENDING" -eq 0 ]; then
 elif [ "$PENDING" -le 10 ]; then
     warn "$PENDING pending updates"
 else
-    warn "$PENDING pending updates — consider running: apt-get upgrade"
+    warn "$PENDING pending updates - consider running: apt-get upgrade"
 fi
 
 # Security updates specifically
 SEC_PENDING=$(apt-get -s upgrade 2>/dev/null | grep -c "^Inst.*security" || echo 0)
 if [ "$SEC_PENDING" -gt 0 ]; then
-    fail "$SEC_PENDING pending SECURITY updates — apply immediately"
+    fail "$SEC_PENDING pending SECURITY updates - apply immediately"
 fi
 
 # Kernel tuning (applied by install.sh)
@@ -293,7 +293,7 @@ if [ -f /etc/sudoers.d/dplaneos ]; then
         && pass "sudoers syntax valid" \
         || fail "sudoers syntax invalid"
 else
-    warn "sudoers file not found — some ZFS operations may require manual sudo"
+    warn "sudoers file not found - some ZFS operations may require manual sudo"
 fi
 
 # ════════════════════════════════════════════════════════════════
@@ -359,7 +359,7 @@ if echo "$HEALTH" | grep -q '"ok"'; then
         warn "Version mismatch: binary reports $DAEMON_VER, VERSION file says $INSTALLED_VER"
     fi
 else
-    fail "Health endpoint not responding — is dplaned running?"
+    fail "Health endpoint not responding - is dplaned running?"
     info "  check: systemctl status dplaned"
     info "  logs:  journalctl -xe -u dplaned"
 fi
@@ -374,7 +374,7 @@ else
     CSRF_TOKEN=""
 fi
 
-# Auth check (unauthenticated — expect 401)
+# Auth check (unauthenticated - expect 401)
 AUTH_CODE=$(curl -sf --max-time 5 -o /dev/null -w "%{http_code}" \
     "$API/api/auth/check" 2>/dev/null || echo "000")
 if [ "$AUTH_CODE" = "401" ]; then
@@ -390,7 +390,7 @@ fi
 
 # Port 9000 NOT exposed externally (should only be localhost)
 if ss -tuln 2>/dev/null | grep ":9000" | grep -q "0\.0\.0\.0\|::"; then
-    fail "Port 9000 is bound to 0.0.0.0 or :: — daemon is directly internet-exposed"
+    fail "Port 9000 is bound to 0.0.0.0 or :: - daemon is directly internet-exposed"
     info "  It should only listen on 127.0.0.1:9000 (nginx proxies it)"
 elif ss -tuln 2>/dev/null | grep -q "127.0.0.1:9000"; then
     pass "Port 9000: bound to 127.0.0.1 only (correct)"
@@ -431,7 +431,7 @@ else
     AUDIT_ROWS=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM audit_logs;" 2>/dev/null || echo "0")
     info "Audit log rows: $AUDIT_ROWS"
 
-    # Sessions table — check for expired sessions piling up
+    # Sessions table - check for expired sessions piling up
     ACTIVE_SESSIONS=$(sqlite3 "$DB_PATH" \
         "SELECT COUNT(*) FROM sessions WHERE expires_at > strftime('%s','now');" 2>/dev/null || echo "0")
     EXPIRED_SESSIONS=$(sqlite3 "$DB_PATH" \
@@ -456,7 +456,7 @@ else
     if [ "$DB_DIR_FREE" -ge 1024 ]; then
         pass "DB filesystem free: ${DB_DIR_FREE}MB"
     else
-        warn "DB filesystem free: ${DB_DIR_FREE}MB — monitor closely"
+        warn "DB filesystem free: ${DB_DIR_FREE}MB - monitor closely"
     fi
 fi
 
@@ -496,7 +496,7 @@ else
             elif [ "$ARC_HIT_PCT" -ge 60 ]; then
                 warn "ARC hit ratio: ${ARC_HIT_PCT}% (consider more RAM)"
             else
-                warn "ARC hit ratio: ${ARC_HIT_PCT}% (low — system may be under-RAM'd for workload)"
+                warn "ARC hit ratio: ${ARC_HIT_PCT}% (low - system may be under-RAM'd for workload)"
             fi
         fi
     fi
@@ -515,7 +515,7 @@ else
             if [ "$health" = "ONLINE" ]; then
                 pass "  Health: $health"
             elif [ "$health" = "DEGRADED" ]; then
-                fail "  Health: DEGRADED — pool has failed/missing vdevs"
+                fail "  Health: DEGRADED - pool has failed/missing vdevs"
                 info "  run: zpool status $name"
             else
                 fail "  Health: $health"
@@ -524,9 +524,9 @@ else
             # Capacity warning
             CAP_NUM=${cap/\%/}
             if [ "${CAP_NUM:-0}" -ge 80 ]; then
-                fail "  Capacity at ${cap} — ZFS performance degrades >80%"
+                fail "  Capacity at ${cap} - ZFS performance degrades >80%"
             elif [ "${CAP_NUM:-0}" -ge 70 ]; then
-                warn "  Capacity at ${cap} — plan expansion"
+                warn "  Capacity at ${cap} - plan expansion"
             fi
 
             # Scrub status (skip in quick mode)
@@ -535,7 +535,7 @@ else
                 if echo "$SCRUB" | grep -q "scrub repaired"; then
                     pass "  Last scrub: completed"
                     if echo "$SCRUB" | grep -qv "with 0 errors"; then
-                        warn "  Scrub found errors — check: zpool status $name"
+                        warn "  Scrub found errors - check: zpool status $name"
                     fi
                 elif echo "$SCRUB" | grep -q "none requested"; then
                     warn "  No scrub has ever been run on this pool"
@@ -585,7 +585,7 @@ if [ -f "$NGINX_CONF" ]; then
 
     # CSP unsafe-inline note
     if grep -q "unsafe-inline" "$NGINX_CONF"; then
-        warn "CSP contains 'unsafe-inline' — required for current frontend but limits XSS protection"
+        warn "CSP contains 'unsafe-inline' - required for current frontend but limits XSS protection"
     fi
 fi
 
@@ -613,7 +613,7 @@ if ss -tuln 2>/dev/null | grep -q ":22 "; then
     if grep -qE "^PasswordAuthentication\s+no" /etc/ssh/sshd_config 2>/dev/null; then
         pass "SSH: PasswordAuthentication disabled (key-only)"
     else
-        warn "SSH: PasswordAuthentication may be enabled — consider key-only auth"
+        warn "SSH: PasswordAuthentication may be enabled - consider key-only auth"
     fi
     if grep -qE "^PermitRootLogin\s+(no|prohibit-password)" /etc/ssh/sshd_config 2>/dev/null; then
         pass "SSH: PermitRootLogin restricted"
@@ -631,14 +631,14 @@ if command -v ufw &>/dev/null; then
         warn "UFW installed but not active"
     fi
 else
-    warn "UFW not installed — no host-level firewall detected"
+    warn "UFW not installed - no host-level firewall detected"
 fi
 
 # fail2ban
 if systemctl is-active fail2ban &>/dev/null; then
     pass "fail2ban: running"
 else
-    warn "fail2ban: not running — no brute-force protection"
+    warn "fail2ban: not running - no brute-force protection"
 fi
 
 # Unattended-upgrades
@@ -647,10 +647,10 @@ if systemctl is-active unattended-upgrades &>/dev/null; then
 elif dpkg -l unattended-upgrades 2>/dev/null | grep -q "^ii"; then
     warn "unattended-upgrades: installed but not active"
 else
-    warn "unattended-upgrades: not installed — security patches not automatic"
+    warn "unattended-upgrades: not installed - security patches not automatic"
 fi
 
-# sudoers dplaneos scope check — ensure it's not overly broad
+# sudoers dplaneos scope check - ensure it's not overly broad
 if [ -f /etc/sudoers.d/dplaneos ]; then
     if grep -q "ALL.*ALL.*NOPASSWD.*ALL$" /etc/sudoers.d/dplaneos 2>/dev/null; then
         fail "sudoers: overly broad NOPASSWD ALL rule detected"
@@ -709,7 +709,7 @@ fi
 if curl -sf --max-time 5 https://github.com &>/dev/null; then
     pass "Internet reachable (HTTPS)"
 else
-    warn "Internet not reachable — OTA updates and Docker pulls will fail"
+    warn "Internet not reachable - OTA updates and Docker pulls will fail"
 fi
 
 # ════════════════════════════════════════════════════════════════
@@ -750,7 +750,7 @@ else
         if [ "$DOCKER_USER_RULES" -gt 1 ]; then
             pass "DOCKER-USER iptables chain: custom rules present"
         else
-            warn "DOCKER-USER iptables chain: default only — Docker may bypass UFW"
+            warn "DOCKER-USER iptables chain: default only - Docker may bypass UFW"
         fi
     fi
 fi
@@ -780,7 +780,7 @@ fi
 if crontab -l 2>/dev/null | grep -q "dplaneos-watchdog"; then
     pass "Watchdog cron: installed"
 else
-    warn "Watchdog cron: not found — daemon won't auto-restart if it dies"
+    warn "Watchdog cron: not found - daemon won't auto-restart if it dies"
 fi
 
 # Log directory disk usage
@@ -803,7 +803,7 @@ fi
 IOWAIT=$(iostat -c 1 2 2>/dev/null | awk 'NR==7{print $4}' || echo "0")
 info "I/O wait: ${IOWAIT}%"
 if (( $(echo "${IOWAIT:-0} > 20" | bc -l 2>/dev/null || echo 0) )); then
-    warn "High I/O wait: ${IOWAIT}% — storage may be a bottleneck"
+    warn "High I/O wait: ${IOWAIT}% - storage may be a bottleneck"
 fi
 
 # Open file handles
@@ -826,7 +826,7 @@ HEALTH_PCT=$(( PASS * 100 / (TOTAL > 0 ? TOTAL : 1) ))
 
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo -e "${BOLD}    Audit Complete — $(date)${NC}"
+echo -e "${BOLD}    Audit Complete - $(date)${NC}"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
 echo -e "  ${GREEN}Passed${NC}  : $PASS"
@@ -836,13 +836,13 @@ echo -e "  Health  : ${HEALTH_PCT}%"
 echo ""
 
 if [ "$FAIL" -eq 0 ] && [ "$WARN" -eq 0 ]; then
-    echo -e "  ${BOLD}${GREEN}ALL CHECKS PASSED — System healthy${NC}"
+    echo -e "  ${BOLD}${GREEN}ALL CHECKS PASSED - System healthy${NC}"
     EXIT_CODE=0
 elif [ "$FAIL" -eq 0 ]; then
-    echo -e "  ${BOLD}${YELLOW}$WARN warning(s) — System functional, review warnings above${NC}"
+    echo -e "  ${BOLD}${YELLOW}$WARN warning(s) - System functional, review warnings above${NC}"
     EXIT_CODE=0
 else
-    echo -e "  ${BOLD}${RED}$FAIL failure(s) — Attention required${NC}"
+    echo -e "  ${BOLD}${RED}$FAIL failure(s) - Attention required${NC}"
     EXIT_CODE=1
 fi
 
@@ -852,3 +852,4 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 echo ""
 
 exit $EXIT_CODE
+

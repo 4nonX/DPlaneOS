@@ -1,5 +1,5 @@
-/**
- * pages/SharesPage.tsx — SMB/NFS Shares (Phase 2)
+﻿/**
+ * pages/SharesPage.tsx - SMB/NFS Shares (Phase 2)
  *
  * Calls (matching daemon routes exactly):
  *   GET    /api/shares/list
@@ -248,3 +248,4 @@ export function SharesPage() {
     </div>
   )
 }
+

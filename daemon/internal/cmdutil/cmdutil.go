@@ -1,4 +1,4 @@
-package cmdutil
+﻿package cmdutil
 
 import (
 	"context"
@@ -46,7 +46,7 @@ func RunMedium(name string, args ...string) ([]byte, error) {
 }
 
 // RunZFS executes a ZFS/zpool command with TimeoutZFS (2min).
-// Use for: zfs list, zpool status, zfs get — commands that may hang on bad disks.
+// Use for: zfs list, zpool status, zfs get - commands that may hang on bad disks.
 // For long-running operations (scrub, send/receive), use RunSlow.
 func RunZFS(name string, args ...string) ([]byte, error) {
 	return Run(TimeoutZFS, name, args...)
@@ -92,7 +92,7 @@ func RunNoTimeout(name string, args ...string) ([]byte, error) {
 }
 
 // RunWithStdin executes a command with timeout and pipes stdinData to its stdin.
-// Use for: zfs load-key, zfs create (encryption), zfs change-key — commands that
+// Use for: zfs load-key, zfs create (encryption), zfs change-key - commands that
 // require passphrase input via stdin.
 func RunWithStdin(timeout time.Duration, stdinData string, name string, args ...string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
@@ -108,4 +108,5 @@ func RunWithStdin(timeout time.Duration, stdinData string, name string, args ...
 
 	return output, err
 }
+
 

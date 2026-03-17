@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 /**
  * D-PlaneOS v1.14.0 - Docker Management API
  * Real docker commands - container, image, network, volume management
@@ -243,7 +243,7 @@ class DockerManager {
         $actualPerms = fileperms($keyFile) & 07777;
         if ($actualPerms !== 0600) {
             unlink($keyFile);
-            return ['success' => false, 'error' => 'chmod 600 failed — filesystem reports ' . decoct($actualPerms) . '. Key removed.'];
+            return ['success' => false, 'error' => 'chmod 600 failed - filesystem reports ' . decoct($actualPerms) . '. Key removed.'];
         }
         
         // 2. Key syntax check via ssh-keygen (extracts public key; fails on corrupt/wrong keys)
@@ -317,7 +317,7 @@ class DockerManager {
             return ['success' => false, 'error' => 'Repository URL required.'];
         }
         
-        // Private repos require a valid SSH key — prevents silent hangs
+        // Private repos require a valid SSH key - prevents silent hangs
         if ($isPrivate) {
             $keyStatus = $this->getSSHKeyStatus();
             if (!$keyStatus['exists']) {
@@ -453,7 +453,7 @@ switch ($action) {
         echo json_encode($docker->deleteRepo($data['url'] ?? ''));
         break;
 
-    // ─── Aliases — main.js uses short names ───
+    // ─── Aliases - main.js uses short names ───
     case 'networks':
         echo json_encode($docker->listNetworks());
         break;
@@ -508,3 +508,4 @@ switch ($action) {
     default:
         echo json_encode(['error' => 'Unknown action']);
 }
+

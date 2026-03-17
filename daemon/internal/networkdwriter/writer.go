@@ -1,4 +1,4 @@
-// Package networkdwriter manages D-PlaneOS network configuration by writing
+﻿// Package networkdwriter manages D-PlaneOS network configuration by writing
 // systemd-networkd unit files directly to /etc/systemd/network/.
 //
 // # Why this is the right approach
@@ -17,8 +17,8 @@
 //   This package:
 //     UI change → write /etc/systemd/network/50-dplane-*.{network,netdev}
 //              → networkctl reload  (< 1 second, zero downtime)
-//     Persistent: YES — survives reboot (networkd reads these files at boot)
-//     Survives nixos-rebuild: YES — NixOS activation only manages files
+//     Persistent: YES - survives reboot (networkd reads these files at boot)
+//     Survives nixos-rebuild: YES - NixOS activation only manages files
 //     it created (prefix 10-, 20-, etc). It never deletes files it doesn't own.
 //     Works on: every systemd distro (NixOS, Debian, Ubuntu, Arch, RHEL)
 //     No rebuild required: EVER.
@@ -122,7 +122,7 @@ func (w *Writer) SetStatic(iface, cidr, gateway string, dns []string) error {
 	}
 
 	var sb strings.Builder
-	sb.WriteString("# Managed by D-PlaneOS — do not edit by hand\n")
+	sb.WriteString("# Managed by D-PlaneOS - do not edit by hand\n")
 	sb.WriteString("# Changes made via web UI. Delete this file to revert to NixOS defaults.\n\n")
 	sb.WriteString("[Match]\n")
 	sb.WriteString(fmt.Sprintf("Name=%s\n\n", iface))
@@ -168,9 +168,9 @@ func (w *Writer) RemoveInterface(iface string) error {
 //
 // Generated files:
 //
-//	50-dplane-{parent}.{vid}.netdev   — creates the vlan device
-//	50-dplane-{parent}.{vid}.network  — attaches vlan to parent
-//	50-dplane-{iface}.network         — network config for the vlan interface
+//	50-dplane-{parent}.{vid}.netdev   - creates the vlan device
+//	50-dplane-{parent}.{vid}.network  - attaches vlan to parent
+//	50-dplane-{iface}.network         - network config for the vlan interface
 func (w *Writer) SetVLAN(iface, parent string, vid int, cidr string, dns []string) error {
 	if err := validateIface(iface); err != nil {
 		return err
@@ -182,7 +182,7 @@ func (w *Writer) SetVLAN(iface, parent string, vid int, cidr string, dns []strin
 		return fmt.Errorf("VLAN ID %d out of range 1-4094", vid)
 	}
 
-	// 1. .netdev file — creates the VLAN device
+	// 1. .netdev file - creates the VLAN device
 	netdev := fmt.Sprintf(
 		"# Managed by D-PlaneOS\n\n[NetDev]\nName=%s\nKind=vlan\n\n[VLAN]\nId=%d\n",
 		iface, vid,
@@ -192,11 +192,11 @@ func (w *Writer) SetVLAN(iface, parent string, vid int, cidr string, dns []strin
 		return fmt.Errorf("write netdev: %w", err)
 	}
 
-	// 2. Parent .network attachment — tells networkd to attach the VLAN to its parent
+	// 2. Parent .network attachment - tells networkd to attach the VLAN to its parent
 	// We use a dropin approach: write a companion .network file that adds the VLAN
 	// without conflicting with the parent's existing .network file.
 	parentAttach := fmt.Sprintf(
-		"# Managed by D-PlaneOS — attaches VLAN %d to %s\n\n[Match]\nName=%s\n\n[Network]\nVLAN=%s\n",
+		"# Managed by D-PlaneOS - attaches VLAN %d to %s\n\n[Match]\nName=%s\n\n[Network]\nVLAN=%s\n",
 		vid, parent, parent, iface,
 	)
 	parentFile := FilePrefix + sanitizeIface(parent) + "-vlan" + fmt.Sprintf("%d", vid) + ".network"
@@ -204,7 +204,7 @@ func (w *Writer) SetVLAN(iface, parent string, vid int, cidr string, dns []strin
 		return fmt.Errorf("write parent attachment: %w", err)
 	}
 
-	// 3. VLAN interface .network — IP config for the VLAN itself
+	// 3. VLAN interface .network - IP config for the VLAN itself
 	var ifNet strings.Builder
 	ifNet.WriteString("# Managed by D-PlaneOS\n\n")
 	ifNet.WriteString("[Match]\n")
@@ -251,9 +251,9 @@ func (w *Writer) RemoveVLAN(iface, parent string, vid int) error {
 //
 // Generated files:
 //
-//	50-dplane-bond-{name}.netdev      — creates the bond device
-//	50-dplane-bond-{name}.network     — network config for the bond
-//	50-dplane-{slave}.network         — binds each slave to the bond
+//	50-dplane-bond-{name}.netdev      - creates the bond device
+//	50-dplane-bond-{name}.network     - network config for the bond
+//	50-dplane-{slave}.network         - binds each slave to the bond
 func (w *Writer) SetBond(name string, slaves []string, mode string, cidr string, dns []string) error {
 	if err := validateIface(name); err != nil {
 		return err
@@ -269,7 +269,7 @@ func (w *Writer) SetBond(name string, slaves []string, mode string, cidr string,
 		return err
 	}
 
-	// 1. Bond .netdev — creates the bond device
+	// 1. Bond .netdev - creates the bond device
 	netdev := fmt.Sprintf(
 		"# Managed by D-PlaneOS\n\n[NetDev]\nName=%s\nKind=bond\n\n[Bond]\nMode=%s\n",
 		name, ndMode,
@@ -278,7 +278,7 @@ func (w *Writer) SetBond(name string, slaves []string, mode string, cidr string,
 		return fmt.Errorf("write bond netdev: %w", err)
 	}
 
-	// 2. Bond .network — IP configuration
+	// 2. Bond .network - IP configuration
 	var bondNet strings.Builder
 	bondNet.WriteString("# Managed by D-PlaneOS\n\n")
 	bondNet.WriteString("[Match]\n")
@@ -299,10 +299,10 @@ func (w *Writer) SetBond(name string, slaves []string, mode string, cidr string,
 		return fmt.Errorf("write bond network: %w", err)
 	}
 
-	// 3. Slave .network files — bind each slave to the bond
+	// 3. Slave .network files - bind each slave to the bond
 	for _, slave := range slaves {
 		slaveNet := fmt.Sprintf(
-			"# Managed by D-PlaneOS — slave of bond %s\n\n[Match]\nName=%s\n\n[Network]\nBond=%s\n",
+			"# Managed by D-PlaneOS - slave of bond %s\n\n[Match]\nName=%s\n\n[Network]\nBond=%s\n",
 			name, slave, name,
 		)
 		slaveFile := FilePrefix + sanitizeIface(slave) + "-slave-" + sanitizeIface(name) + ".network"
@@ -350,7 +350,7 @@ func (w *Writer) SetGlobalDNS(servers []string) error {
 	}
 
 	var sb strings.Builder
-	sb.WriteString("# Managed by D-PlaneOS — do not edit by hand\n\n")
+	sb.WriteString("# Managed by D-PlaneOS - do not edit by hand\n\n")
 	sb.WriteString("[Resolve]\n")
 	sb.WriteString(fmt.Sprintf("DNS=%s\n", strings.Join(servers, " ")))
 	sb.WriteString("FallbackDNS=1.1.1.1 8.8.8.8\n")
@@ -452,13 +452,13 @@ func atomicWrite(path, content string) error {
 // Uses `networkctl reload` which is non-disruptive (does not restart networkd).
 func (w *Writer) reload() error {
 	if !w.networkdUp {
-		log.Printf("[networkdwriter] networkd not active — files written, reload skipped")
+		log.Printf("[networkdwriter] networkd not active - files written, reload skipped")
 		return nil
 	}
 	out, err := exec.Command("networkctl", "reload").CombinedOutput()
 	if err != nil {
 		log.Printf("[networkdwriter] WARN: networkctl reload: %v (%s)", err, strings.TrimSpace(string(out)))
-		// Not fatal — files are written correctly, they'll be read on next boot or manual reload
+		// Not fatal - files are written correctly, they'll be read on next boot or manual reload
 		return nil
 	}
 	log.Printf("[networkdwriter] networkctl reload: OK")
@@ -532,3 +532,4 @@ func isValidIP(s string) bool {
 	}
 	return true
 }
+

@@ -1,4 +1,4 @@
-package handlers
+﻿package handlers
 
 import (
 	"encoding/json"
@@ -16,7 +16,7 @@ import (
 // ZFS pools are typically mounted at /mnt/<pool> or directly at /<pool>.
 // We allow /mnt/, /home/, /tmp/, /var/lib/dplaneos/, and /tank/ as common
 // pool mount points. Users with pools at other paths can navigate to them
-// via the path bar but write operations will be blocked — edit this list
+// via the path bar but write operations will be blocked - edit this list
 // or the daemon flag to extend access.
 var allowedBasePaths = []string{
 	"/mnt/",
@@ -247,3 +247,4 @@ func ChangePermissions(w http.ResponseWriter, r *http.Request) {
 		"success": true,
 	})
 }
+

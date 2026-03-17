@@ -24,4 +24,4 @@ D-PlaneOS v2.0.0 is a complete rewrite in Go. These files are preserved for hist
 
 v2.0.0 is not an in-place upgrade from v1.x. See the main `README.md` for installation instructions.
 
-Your ZFS pools, datasets, shares, and Docker containers remain on disk — only the management layer changes.
+Your ZFS pools, datasets, shares, and Docker containers remain on disk - only the management layer changes.

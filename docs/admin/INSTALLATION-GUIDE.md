@@ -1,4 +1,4 @@
-# D-PlaneOS Installation Guide
+﻿# D-PlaneOS Installation Guide
 
 ---
 
@@ -34,7 +34,7 @@ D-PlaneOS detects ECC presence via `dmidecode` at startup and shows an advisory 
 - Ubuntu 22.04 LTS
 - Debian 12 (Bookworm)
 - Raspberry Pi OS 64-bit (Debian 12 based)
-- NixOS — see [nixos/README.md](../../nixos/README.md)
+- NixOS - see [nixos/README.md](../../nixos/README.md)
 
 > **Note:** Debian 11 and Ubuntu 20.04 are not supported. Both ship glibc 2.31 and the
 > pre-built daemon binary requires glibc 2.34+. The installer will complete but the daemon
@@ -115,7 +115,7 @@ Open `http://<your-server-ip>/` in a browser.
 
 The installer prints the admin password at completion. You are required to change it on first login.
 
-**Default credentials:** `admin` / (printed by installer — not a fixed default)
+**Default credentials:** `admin` / (printed by installer - not a fixed default)
 
 ---
 
@@ -182,7 +182,7 @@ sudo ufw enable
 ## Upgrading
 
 ```bash
-# Always upgrade via the installer — it handles backup and rollback automatically
+# Always upgrade via the installer - it handles backup and rollback automatically
 sudo bash install.sh --upgrade
 
 # To roll back a failed upgrade
@@ -198,7 +198,7 @@ All data is preserved. ZFS pools, Docker containers, and network configuration a
 
 See [nixos/README.md](../../nixos/README.md) for the full NixOS guide.
 
-D-PlaneOS is licensed under AGPLv3. NixOS correctly recognises it as free software — no `allowUnfreePredicate` or `allowUnfree` is needed.
+D-PlaneOS is licensed under AGPLv3. NixOS correctly recognises it as free software - no `allowUnfreePredicate` or `allowUnfree` is needed.
 
 ---
 
@@ -271,3 +271,4 @@ ls -lh /var/lib/dplaneos/dplaneos.db  # should be recreated
 | Systemd unit | `/etc/systemd/system/dplaned.service` |
 | Logs | `/var/log/dplaneos/` |
 | Install log | `/var/log/dplaneos-install.log` |
+

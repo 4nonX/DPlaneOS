@@ -1,4 +1,4 @@
-# Contributing to D-PlaneOS
+﻿# Contributing to D-PlaneOS
 
 Thank you for helping make D-PlaneOS better. This document explains how to contribute code, report bugs, and suggest features.
 
@@ -85,14 +85,14 @@ Open an issue tagged `enhancement`. Describe:
 
 ### Backend (Go)
 
-- **One handler file per feature area** — do not add unrelated code to existing files
-- **Validate before executing** — all user input must pass allowlist validation before any exec or syscall
-- **No `shell=true`, no `fmt.Sprintf` for commands** — use `cmdutil.RunFast()` / `cmdutil.RunSlow()`
-- **New exec commands** require an entry in `internal/security/whitelist.go` — no exceptions
-- **Error handling** — return JSON errors via `respondErrorSimple()`, never `http.Error()` on API routes
-- **Audit logging** — use `audit.LogAction()` for any state-changing operation
-- **Long-running operations** — use `jobs.Start()` and return the job ID immediately; never block the HTTP connection
-- **Tests** — add tests in `_test.go` files; table-driven tests preferred
+- **One handler file per feature area** - do not add unrelated code to existing files
+- **Validate before executing** - all user input must pass allowlist validation before any exec or syscall
+- **No `shell=true`, no `fmt.Sprintf` for commands** - use `cmdutil.RunFast()` / `cmdutil.RunSlow()`
+- **New exec commands** require an entry in `internal/security/whitelist.go` - no exceptions
+- **Error handling** - return JSON errors via `respondErrorSimple()`, never `http.Error()` on API routes
+- **Audit logging** - use `audit.LogAction()` for any state-changing operation
+- **Long-running operations** - use `jobs.Start()` and return the job ID immediately; never block the HTTP connection
+- **Tests** - add tests in `_test.go` files; table-driven tests preferred
 
 ```go
 // Correct: validated, audited, error-handled
@@ -125,13 +125,13 @@ func (h *MyHandler) DoSlowThing(w http.ResponseWriter, r *http.Request) {
 
 ### Frontend (TypeScript / React)
 
-- **TanStack Query for all data fetching** — use `useQuery` / `useMutation`, not raw `fetch`
-- **Always use `api.get/post/put/delete`** from `src/lib/api.ts` — handles CSRF, session headers, and 401 redirect
-- **Long-running mutations** — use the `useJob` hook to poll `GET /api/jobs/{id}` after receiving a `job_id`
-- **Error handling** — every mutation needs an `onError` handler with a `toast.error()` call
-- **User feedback** — use `toast` from `useToast()`; never use `alert()`
-- **Icons** — use `<Icon name="..." />` from `src/components/ui/Icon.tsx` (Material Symbols Rounded)
-- **Styling** — use CSS variables; no hardcoded colours
+- **TanStack Query for all data fetching** - use `useQuery` / `useMutation`, not raw `fetch`
+- **Always use `api.get/post/put/delete`** from `src/lib/api.ts` - handles CSRF, session headers, and 401 redirect
+- **Long-running mutations** - use the `useJob` hook to poll `GET /api/jobs/{id}` after receiving a `job_id`
+- **Error handling** - every mutation needs an `onError` handler with a `toast.error()` call
+- **User feedback** - use `toast` from `useToast()`; never use `alert()`
+- **Icons** - use `<Icon name="..." />` from `src/components/ui/Icon.tsx` (Material Symbols Rounded)
+- **Styling** - use CSS variables; no hardcoded colours
 
 ## Building for Release
 
@@ -162,3 +162,4 @@ PRs that introduce security regressions will be closed without merge.
 ## License
 
 By contributing, you agree your contributions are licensed under the project's [GNU Affero General Public License v3.0 (AGPLv3)](https://www.gnu.org/licenses/agpl-3.0.html). See `CLA-INDIVIDUAL.md` for details.
+

@@ -1,4 +1,4 @@
-package handlers
+﻿package handlers
 
 import (
 	"bytes"
@@ -355,7 +355,7 @@ func parseZpoolList(output string) []map[string]string {
 		if len(fields) > 5 {
 			pool["health"] = fields[5]
 		}
-		// compression and dedup are not in `zpool list` — set empty so frontend
+		// compression and dedup are not in `zpool list` - set empty so frontend
 		// knows they're unavailable (these come from `zfs get` per-dataset, not pool level)
 		pool["compression"] = ""
 		pool["dedup"] = ""
@@ -408,3 +408,4 @@ func parseZfsList(output string) []map[string]string {
 }
 
 // respondJSON and respondError are defined in helpers.go
+

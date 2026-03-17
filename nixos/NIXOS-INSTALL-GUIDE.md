@@ -1,17 +1,17 @@
-# D-PlaneOS on NixOS — Complete Installation Guide
+# D-PlaneOS on NixOS : Complete Installation Guide
 
 > **Audience**: You've never used NixOS before. You want a NAS.
-> This guide takes you from "empty server" to "D-PlaneOS running" — step by step, no prior knowledge required.
+> This guide takes you from "empty server" to "D-PlaneOS running" : step by step, no prior knowledge required.
 
 ---
 
 ## What is NixOS (30-Second Version)
 
-NixOS is a Linux distribution where the **entire system is defined in a single text file**: `configuration.nix`. You describe everything — packages, services, firewall rules. Then you run `sudo nixos-rebuild switch` and NixOS builds the system exactly as described.
+NixOS is a Linux distribution where the **entire system is defined in a single text file**: `configuration.nix`. You describe everything: packages, services, firewall rules. Then you run `sudo nixos-rebuild switch` and NixOS builds the system exactly as described.
 
 **Why is this great for a NAS?**
-- Broken update? → `sudo nixos-rebuild switch --rollback` — one command and everything is restored
-- Server dies? → Install NixOS on new hardware, copy `configuration.nix`, import ZFS pool — done
+- Broken update? → `sudo nixos-rebuild switch --rollback` : one command and everything is restored
+- Server dies? → Install NixOS on new hardware, copy `configuration.nix`, import ZFS pool : done
 - Your entire NAS config is version-controllable (Git)
 
 ---
@@ -20,8 +20,8 @@ NixOS is a Linux distribution where the **entire system is defined in a single t
 
 - A PC/server for the NAS (minimum 4 GB RAM, recommended 8+)
 - A USB stick (minimum 2 GB) for the NixOS installer
-- A **separate boot disk** (SSD/HDD/NVMe) — NixOS goes here
-- Your data disks (used for the ZFS pool — **not** for NixOS)
+- A **separate boot disk** (SSD/HDD/NVMe) : NixOS goes here
+- Your data disks (used for the ZFS pool : **not** for NixOS)
 - A second computer to follow this guide
 - Ethernet cable (WiFi works too but is harder during install)
 
@@ -32,18 +32,18 @@ NixOS is a Linux distribution where the **entire system is defined in a single t
 D-PlaneOS is licensed under the [GNU Affero General Public License v3.0 (AGPLv3)](https://www.gnu.org/licenses/agpl-3.0.html).
 You can use, modify, and distribute it freely. If you run a modified version
 as a network service, you must make your modified source available to users
-of that service. AGPLv3 is OSI-approved — NixOS treats it as free software
+of that service. AGPLv3 is OSI-approved : NixOS treats it as free software
 and no special configuration is required.
 
 ---
 
 ## Part 1: Installing NixOS (~20 minutes)
 
-### Step 1.1 — Download ISO
+### Step 1.1 : Download ISO
 
-Go to **https://nixos.org/download** and download the **Minimal ISO image** (64-bit). Not the Graphical ISO — we don't need a desktop.
+Go to **https://nixos.org/download** and download the **Minimal ISO image** (64-bit). Not the Graphical ISO : we don't need a desktop.
 
-### Step 1.2 — Create USB Stick
+### Step 1.2 : Create USB Stick
 
 **Windows:** Use [Rufus](https://rufus.ie/) or [balenaEtcher](https://etcher.balena.io/)
 **Mac/Linux:**
@@ -55,16 +55,16 @@ lsblk
 sudo dd if=nixos-minimal-*.iso of=/dev/sdX bs=4M status=progress
 ```
 
-### Step 1.3 — Boot from USB
+### Step 1.3 : Boot from USB
 
 1. Plug USB stick into the NAS server
 2. Start the server, enter BIOS (usually F2, F12, or DEL during boot)
 3. Boot order: set USB stick first
 4. Save and reboot
 
-You'll land on a command line: `[nixos@nixos:~]$` — this is the NixOS live installer.
+You'll land on a command line: `[nixos@nixos:~]$` : this is the NixOS live installer.
 
-### Step 1.4 — Check Internet
+### Step 1.4 : Check Internet
 
 ```bash
 ping -c 3 google.com
@@ -83,9 +83,9 @@ wpa_cli
 > quit
 ```
 
-### Step 1.5 — Partition the Boot Disk
+### Step 1.5 : Partition the Boot Disk
 
-**WARNING: This erases EVERYTHING on the selected disk. Make sure you pick the right one — NOT your data disks!**
+**WARNING: This erases EVERYTHING on the selected disk. Make sure you pick the right one : NOT your data disks!**
 
 ```bash
 # Show all disks
@@ -125,17 +125,17 @@ sudo mkfs.ext4 -L nixos /dev/sda1
 sudo mount /dev/disk/by-label/nixos /mnt
 ```
 
-### Step 1.6 — Generate Base Config
+### Step 1.6 : Generate Base Config
 
 ```bash
 sudo nixos-generate-config --root /mnt
 ```
 
 This creates two files:
-- `/mnt/etc/nixos/hardware-configuration.nix` — auto-detected hardware (NEVER edit manually)
-- `/mnt/etc/nixos/configuration.nix` — we'll replace this with D-PlaneOS config
+- `/mnt/etc/nixos/hardware-configuration.nix` : auto-detected hardware (NEVER edit manually)
+- `/mnt/etc/nixos/configuration.nix` : we'll replace this with D-PlaneOS config
 
-### Step 1.7 — Copy D-PlaneOS Config
+### Step 1.7 : Copy D-PlaneOS Config
 
 Replace the generated `configuration.nix` with ours:
 
@@ -155,13 +155,13 @@ sudo cp /media/setup-nixos.sh /mnt/root/setup-nixos.sh
 sudo umount /media
 ```
 
-### Step 1.8 — Install
+### Step 1.8 : Install
 
 ```bash
 sudo nixos-install
 ```
 
-This takes 5-15 minutes (depending on internet speed). At the end you'll be asked for a **root password** — choose a secure one.
+This takes 5-15 minutes (depending on internet speed). At the end you'll be asked for a **root password** : choose a secure one.
 
 ```bash
 # Done! Reboot.
@@ -174,7 +174,7 @@ sudo reboot
 
 ## Part 2: Setting Up D-PlaneOS (~5 minutes)
 
-### Step 2.1 — Log In
+### Step 2.1 : Log In
 
 After reboot you'll see a login prompt:
 
@@ -183,7 +183,7 @@ User: root
 Password: (what you chose during nixos-install)
 ```
 
-### Step 2.2 — Run Setup Script
+### Step 2.2 : Run Setup Script
 
 ```bash
 bash /root/setup-nixos.sh
@@ -195,7 +195,7 @@ The script automatically:
 - Checks the ZFS pool name
 - Detects UEFI/BIOS boot loader
 
-### Step 2.3 — Build the System
+### Step 2.3 : Build the System
 
 ```bash
 sudo nixos-rebuild switch
@@ -211,7 +211,7 @@ sudo nixos-rebuild switch
 
 After max 3 attempts, everything builds.
 
-### Step 2.4 — Find Your IP
+### Step 2.4 : Find Your IP
 
 ```bash
 ip addr show | grep "inet "
@@ -219,7 +219,7 @@ ip addr show | grep "inet "
 # Example: 192.168.1.42
 ```
 
-### Step 2.5 — Import ZFS Pool
+### Step 2.5 : Import ZFS Pool
 
 **If you have an existing ZFS pool** (e.g. from TrueNAS/Debian migration):
 ```bash
@@ -242,7 +242,7 @@ zpool create tank raidz1 /dev/sdb /dev/sdc /dev/sdd
 zfs create tank/docker
 ```
 
-### Step 2.6 — Open Browser
+### Step 2.6 : Open Browser
 
 On your regular PC:
 
@@ -260,7 +260,7 @@ http://dplaneos.local
 
 ---
 
-## Part 3: Daily Operations — The 5 Commands You Need
+## Part 3: Daily Operations : The 5 Commands You Need
 
 ### Change something
 ```bash
@@ -326,7 +326,7 @@ sudo nixos-rebuild switch
 
 ### Installing packages
 
-**Not** `apt install` — that doesn't exist on NixOS. Instead:
+**Not** `apt install` - that doesn't exist on NixOS. Instead:
 
 ```bash
 # Temporary (current session only):

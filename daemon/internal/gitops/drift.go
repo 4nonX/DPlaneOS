@@ -1,4 +1,4 @@
-package gitops
+﻿package gitops
 
 import (
 	"database/sql"
@@ -18,12 +18,12 @@ import (
 //    4. If any non-NOP items are found → broadcasts a "gitops.drift" WS event
 //    5. Records the result in the DB for the UI status endpoint
 //
-//  The detector does NOT apply anything — it only observes and alerts.
+//  The detector does NOT apply anything - it only observes and alerts.
 //  Application is always explicit via POST /api/gitops/apply.
 // ═══════════════════════════════════════════════════════════════════════════════
 
 // DriftBroadcaster is the interface the detector uses to emit WS events.
-// Matches MonitorHub.Broadcast exactly — no import cycle needed.
+// Matches MonitorHub.Broadcast exactly - no import cycle needed.
 type DriftBroadcaster interface {
 	Broadcast(eventType string, data interface{}, level string)
 }
@@ -50,8 +50,8 @@ type DriftResult struct {
 
 // NewDriftDetector creates a detector. Call Start() to begin monitoring.
 //
-//   stateYAMLPath  — full path to state.yaml, e.g. /var/lib/dplaneos/gitops/state.yaml
-//   interval       — how often to check; 5 minutes is a reasonable default
+//   stateYAMLPath  - full path to state.yaml, e.g. /var/lib/dplaneos/gitops/state.yaml
+//   interval       - how often to check; 5 minutes is a reasonable default
 func NewDriftDetector(db *sql.DB, stateYAMLPath string, interval time.Duration, hub DriftBroadcaster) *DriftDetector {
 	return &DriftDetector{
 		db:            db,
@@ -65,7 +65,7 @@ func NewDriftDetector(db *sql.DB, stateYAMLPath string, interval time.Duration, 
 // Start launches the background drift-check loop.
 func (d *DriftDetector) Start() {
 	go d.loop()
-	log.Printf("GITOPS DRIFT: detector started — checking every %s", d.interval)
+	log.Printf("GITOPS DRIFT: detector started - checking every %s", d.interval)
 }
 
 // Stop signals the loop to exit cleanly.
@@ -178,7 +178,7 @@ func (d *DriftDetector) runCheck() *DriftResult {
 
 	// 4. Broadcast if drifted
 	if result.Drifted {
-		log.Printf("GITOPS DRIFT: detected — create=%d modify=%d delete=%d blocked=%d",
+		log.Printf("GITOPS DRIFT: detected - create=%d modify=%d delete=%d blocked=%d",
 			plan.CreateCount, plan.ModifyCount, plan.DeleteCount, plan.BlockedCount)
 		d.broadcast(result)
 	}
@@ -224,3 +224,4 @@ func safeInt(plan *Plan, fn func(*Plan) int) int {
 func readFile(path string) ([]byte, error) {
 	return os.ReadFile(path)
 }
+

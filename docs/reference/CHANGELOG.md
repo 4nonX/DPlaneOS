@@ -1,4 +1,4 @@
-# D-PlaneOS Changelog
+﻿# D-PlaneOS Changelog
 
 All notable changes to this project will be documented in this file.
 
@@ -6,9 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ---
 
-## v6.0.0 (2026-03-17) — "Declarative Freedom"
+## v6.0.0 (2026-03-17) : "Declarative Freedom"
 
-Upgrade from: v5.3.5 — Drop-in. `sudo bash install.sh --upgrade`
+Upgrade from: v5.3.5 - Drop-in. `sudo bash install.sh --upgrade`
 
 ### Added
 - **Optional & Granular GitOps**
@@ -29,9 +29,9 @@ Upgrade from: v5.3.5 — Drop-in. `sudo bash install.sh --upgrade`
 
 ---
 
-## v5.3.5 (2026-03-16) — "API Auth Patch"
+## v5.3.5 (2026-03-16) : "API Auth Patch"
 
-Upgrade from: v5.3.4 — Drop-in. `sudo bash install.sh --upgrade`
+Upgrade from: v5.3.4 - Drop-in. `sudo bash install.sh --upgrade`
 
 ### Security
 
@@ -42,9 +42,9 @@ Upgrade from: v5.3.4 — Drop-in. `sudo bash install.sh --upgrade`
 
 ---
 
-## v5.3.4 (2026-03-16) — "Hardened Enterprise Deployment"
+## v5.3.4 (2026-03-16) : "Hardened Enterprise Deployment"
 
-Upgrade from: v5.3.3 — Drop-in. `sudo bash install.sh --upgrade`
+Upgrade from: v5.3.3 - Drop-in. `sudo bash install.sh --upgrade`
 
 ### Added
 
@@ -55,7 +55,7 @@ Upgrade from: v5.3.3 — Drop-in. `sudo bash install.sh --upgrade`
 
 ---
 
-## v5.3.3 (2026-03-16) — "ZED Integration"
+## v5.3.3 (2026-03-16) - "ZED Integration"
 
 ### Added
 
@@ -67,9 +67,9 @@ Upgrade from: v5.3.3 — Drop-in. `sudo bash install.sh --upgrade`
 
 ---
 
-## v5.3.2 (2026-03-15) — "Build Integrity & Maintenance"
+## v5.3.2 (2026-03-15) - "Build Integrity & Maintenance"
 
-Upgrade from: v5.3.1 — Drop-in. `sudo bash install.sh --upgrade`
+Upgrade from: v5.3.1 - Drop-in. `sudo bash install.sh --upgrade`
 
 ### Added
 
@@ -83,13 +83,13 @@ Upgrade from: v5.3.1 — Drop-in. `sudo bash install.sh --upgrade`
 
 ---
 
-## v5.3.1 (2026-03-15) — "CI & Panic Resilience"
+## v5.3.1 (2026-03-15) - "CI & Panic Resilience"
 
-Upgrade from: v5.3.0 — Drop-in. `sudo bash install.sh --upgrade`
+Upgrade from: v5.3.0 - Drop-in. `sudo bash install.sh --upgrade`
 
 ### Fixed
 
-- **Critical — GetDiskStatus runtime panic**
+- **Critical - GetDiskStatus runtime panic**
   - Resolved `slice bounds out of range` panic in `GetDiskStatus` caused by unsafe parsing of `lsblk` output on loopback devices (commonly seen in CI environments). Implemented field-count safety checks.
 - **ACL Management**
   - **Route Alignment**: Fixed a mismatch where the daemon expected `/api/acl/get` while tests/frontend might use `/api/system/acl`. Both are now supported via aliasing.
@@ -103,9 +103,9 @@ Upgrade from: v5.3.0 — Drop-in. `sudo bash install.sh --upgrade`
 
 ---
 
-## v5.3.0 (2026-03-15) — "Storage & Security Integrity"
+## v5.3.0 (2026-03-15) - "Storage & Security Integrity"
 
-Upgrade from: v5.2.3 — Drop-in. `sudo bash install.sh --upgrade`
+Upgrade from: v5.2.3 - Drop-in. `sudo bash install.sh --upgrade`
 
 ### Added
 
@@ -119,7 +119,7 @@ Upgrade from: v5.2.3 — Drop-in. `sudo bash install.sh --upgrade`
 
 ### Fixed
 
-- **Critical Security — Path Traversal Vulnerabilities**
+- **Critical Security - Path Traversal Vulnerabilities**
   - **IsValidPath**: Fixed a bypass where `./` could be used to traverse directories. Added explicit blocking for dot-slash patterns.
   - **IsSafeFilename**: Corrected a logical error (converted `&&` to `||`) that allowed filenames with path separators if they didn't contain both `/` and `\` simultaneously.
 - **UI/UX Refinement**
@@ -132,7 +132,7 @@ Upgrade from: v5.2.3 — Drop-in. `sudo bash install.sh --upgrade`
 
 ---
 
-## v5.2.3 (2026-03-15) — "More UI Polish"
+## v5.2.3 (2026-03-15) - "More UI Polish"
 
 ### Added
 
@@ -157,148 +157,148 @@ Buttons (.btn): Added inner light-catching borders (box-shadow: inset 0 1px 0 hs
 Inputs & Tabs: Introduced a var(--transition-bounce) for spring-like fluidity when moving between tab states or focusing on input bars.
 - Dashboard Interactive Cards (.card.interactive): Upgraded dashboard metrics and section cards to smoothly translate Y: -2px with a heightened drop-shadow.
 
-## v5.2.2 (2026-03-14) — "UI Polish"
+## v5.2.2 (2026-03-14) - "UI Polish"
 
-Upgrade from: v5.2.1 — Drop-in. `sudo bash install.sh --upgrade`
+Upgrade from: v5.2.1 - Drop-in. `sudo bash install.sh --upgrade`
 
 ### Added
 
-- **Custom Tooltip component** — new styled floating tooltip component. Supports positioning (top/bottom/left/right), delay options, and custom styling.
-- **Popover component** — hover cards for showing contextual info.
-- **Enhanced ConfirmDialog** — supports context info display and typed confirmation for destructive operations. Auto-focuses input, blocks confirm until text matches.
+- **Custom Tooltip component** - new styled floating tooltip component. Supports positioning (top/bottom/left/right), delay options, and custom styling.
+- **Popover component** - hover cards for showing contextual info.
+- **Enhanced ConfirmDialog** - supports context info display and typed confirmation for destructive operations. Auto-focuses input, blocks confirm until text matches.
 
 ### UI Improvements
 
-- Modal entrance/exit animations — smoother transitions using scale and fade effects
+- Modal entrance/exit animations - smoother transitions using scale and fade effects
 - Consistent tooltip/popover styling matching design system
 - All button `title=` attributes replaced with custom Tooltip component
 
 ---
 
-## v5.2.1 (2026-03-13) — "Complete Consistency"
+## v5.2.1 (2026-03-13) - "Complete Consistency"
 
-Upgrade from: v5.1.2 — Drop-in. `sudo bash install.sh --upgrade`
+Upgrade from: v5.1.2 - Drop-in. `sudo bash install.sh --upgrade`
 
 ### Fixed
 
-**Critical — silent database errors on user/group operations**
+**Critical - silent database errors on user/group operations**
 
-- **User update/delete silently failed** — `users_groups.go` was ignoring DB errors on several operations. Fixed: all DB errors are now checked and returned to the UI properly.
+- **User update/delete silently failed** - `users_groups.go` was ignoring DB errors on several operations. Fixed: all DB errors are now checked and returned to the UI properly.
 
-**Reliability — database connection pooling**
+**Reliability - database connection pooling**
 
-- **SMTP alerting opened new DB connection per request** — `alerting_smtp.go` was calling `sql.Open()` on every HTTP request. Fixed: refactored to use a shared pooled `*sql.DB` via `AlertingHandler` struct.
+- **SMTP alerting opened new DB connection per request** - `alerting_smtp.go` was calling `sql.Open()` on every HTTP request. Fixed: refactored to use a shared pooled `*sql.DB` via `AlertingHandler` struct.
 
 ### Refactored
 
-- **HTTP error response consistency** — replaced all ~195 `http.Error` calls with `respondError`/`respondErrorSimple` for consistent JSON error format throughout the API.
-- **Config package** — centralized `/var/lib/dplaneos/*` paths in `internal/config/paths.go`. Migrated enterprise_hardening.go, audit_verify.go, docker_icons.go, docker_stacks.go, system_extended.go.
+- **HTTP error response consistency** - replaced all ~195 `http.Error` calls with `respondError`/`respondErrorSimple` for consistent JSON error format throughout the API.
+- **Config package** - centralized `/var/lib/dplaneos/*` paths in `internal/config/paths.go`. Migrated enterprise_hardening.go, audit_verify.go, docker_icons.go, docker_stacks.go, system_extended.go.
 
 ### Tests Added
 
-- **validateRepoURL** — tests for blocking dangerous URL schemes (ext://, file://, fd://)
-- **Path traversal prevention** — IsValidPath and IsSafeFilename functions with tests
-- **Auth handlers** — respondError JSON format tests
+- **validateRepoURL** - tests for blocking dangerous URL schemes (ext://, file://, fd://)
+- **Path traversal prevention** - IsValidPath and IsSafeFilename functions with tests
+- **Auth handlers** - respondError JSON format tests
 
 ---
 
-## v5.2.0 (2026-03-13) — "Reliability & Consistency"
+## v5.2.0 (2026-03-13) - "Reliability & Consistency"
 
-Upgrade from: v5.1.2 — Drop-in. `sudo bash install.sh --upgrade`
+Upgrade from: v5.1.2 - Drop-in. `sudo bash install.sh --upgrade`
 
 ### Fixed
 
-**Critical — silent database errors on user/group operations**
+**Critical - silent database errors on user/group operations**
 
-- **User update/delete silently failed** — `users_groups.go` was ignoring DB errors on several operations. Fixed: all DB errors are now checked and returned to the UI properly. Previously, operations could fail without the user knowing.
+- **User update/delete silently failed** - `users_groups.go` was ignoring DB errors on several operations. Fixed: all DB errors are now checked and returned to the UI properly. Previously, operations could fail without the user knowing.
 
-**Reliability — database connection pooling**
+**Reliability - database connection pooling**
 
-- **SMTP alerting opened new DB connection per request** — `alerting_smtp.go` was calling `sql.Open()` on every HTTP request, creating connection overhead. Fixed: refactored to use a shared pooled `*sql.DB` via `AlertingHandler` struct, consistent with all other handlers.
+- **SMTP alerting opened new DB connection per request** - `alerting_smtp.go` was calling `sql.Open()` on every HTTP request, creating connection overhead. Fixed: refactored to use a shared pooled `*sql.DB` via `AlertingHandler` struct, consistent with all other handlers.
 
 ### Refactored
 
-- **HTTP error response consistency** — replaced ~160 `http.Error` calls with `respondError`/`respondErrorSimple` for consistent JSON error format throughout the API. Now returns `{"success":false,"error":"message"}` on all error paths instead of plain text.
-- **Config package** — added centralized path constants in `internal/config/paths.go` for `/var/lib/dplaneos/*` paths.
+- **HTTP error response consistency** - replaced ~160 `http.Error` calls with `respondError`/`respondErrorSimple` for consistent JSON error format throughout the API. Now returns `{"success":false,"error":"message"}` on all error paths instead of plain text.
+- **Config package** - added centralized path constants in `internal/config/paths.go` for `/var/lib/dplaneos/*` paths.
 
 ---
 
-## v5.1.3 (2026-03-13) — "Reliability Fixes"
+## v5.1.3 (2026-03-13) - "Reliability Fixes"
 
-Upgrade from: v5.1.2 — Drop-in. `sudo bash install.sh --upgrade`
+Upgrade from: v5.1.2 - Drop-in. `sudo bash install.sh --upgrade`
 
 ### Fixed
 
-**Critical — silent database errors on user/group operations**
+**Critical - silent database errors on user/group operations**
 
-- **User update/delete silently failed** — `users_groups.go` was ignoring DB errors on several operations. Fixed: all DB errors are now checked and returned to the UI properly. Previously, operations could fail without the user knowing.
+- **User update/delete silently failed** - `users_groups.go` was ignoring DB errors on several operations. Fixed: all DB errors are now checked and returned to the UI properly. Previously, operations could fail without the user knowing.
 
-**Reliability — database connection pooling**
+**Reliability - database connection pooling**
 
-- **SMTP alerting opened new DB connection per request** — `alerting_smtp.go` was calling `sql.Open()` on every HTTP request, creating connection overhead. Fixed: refactored to use a shared pooled `*sql.DB` via `AlertingHandler` struct, consistent with all other handlers.
+- **SMTP alerting opened new DB connection per request** - `alerting_smtp.go` was calling `sql.Open()` on every HTTP request, creating connection overhead. Fixed: refactored to use a shared pooled `*sql.DB` via `AlertingHandler` struct, consistent with all other handlers.
 
-## v5.1.2 (2026-03-13) — "Auth Integrity"
+## v5.1.2 (2026-03-13) - "Auth Integrity"
 
-Upgrade from: v5.1.1 — Drop-in. `sudo bash install.sh --upgrade`
+Upgrade from: v5.1.1 - Drop-in. `sudo bash install.sh --upgrade`
 
 ### Added
 
-- **Docker template library** — one-click deployment of pre-configured application stacks (Home Assistant, Plex, Nextcloud, etc.) via `GET /api/docker/templates` and `POST /api/docker/templates/deploy`. Templates can be git repos or built-in. Deployed as independent Compose stacks with atomic rollback on failure.
+- **Docker template library** - one-click deployment of pre-configured application stacks (Home Assistant, Plex, Nextcloud, etc.) via `GET /api/docker/templates` and `POST /api/docker/templates/deploy`. Templates can be git repos or built-in. Deployed as independent Compose stacks with atomic rollback on failure.
 
 ### Fixed
 
-**Critical — LDAP-sourced users could not log in**
+**Critical - LDAP-sourced users could not log in**
 
-- **LDAP users were permanently locked out of the UI** — the login handler only performed bcrypt comparison against `password_hash`. LDAP-synced accounts have an intentionally empty `password_hash` (they authenticate via directory bind). Any login attempt by an LDAP account failed silently with "Invalid credentials". Fixed: `Login()` now reads the `source` column; when `source='ldap'` it calls `ldapAuthenticate()` which loads LDAP config from the database and performs a real-time bind to verify credentials. Local accounts and user ID 1 remain on bcrypt regardless of LDAP state.
-- **LDAP circuit breaker** — when the directory server is unreachable, each login attempt would block for the full TCP timeout. Added circuit breaker: after 3 consecutive connection failures, LDAP authentication fails immediately for 30 seconds rather than waiting for TCP timeouts. Connection-level errors (vs. credential errors) are tracked separately from authentication failures.
+- **LDAP users were permanently locked out of the UI** - the login handler only performed bcrypt comparison against `password_hash`. LDAP-synced accounts have an intentionally empty `password_hash` (they authenticate via directory bind). Any login attempt by an LDAP account failed silently with "Invalid credentials". Fixed: `Login()` now reads the `source` column; when `source='ldap'` it calls `ldapAuthenticate()` which loads LDAP config from the database and performs a real-time bind to verify credentials. Local accounts and user ID 1 remain on bcrypt regardless of LDAP state.
+- **LDAP circuit breaker** - when the directory server is unreachable, each login attempt would block for the full TCP timeout. Added circuit breaker: after 3 consecutive connection failures, LDAP authentication fails immediately for 30 seconds rather than waiting for TCP timeouts. Connection-level errors (vs. credential errors) are tracked separately from authentication failures.
 
-**UI — eliminated all browser-native dialogs**
+**UI - eliminated all browser-native dialogs**
 
-- **`window.confirm()` used in 13 places across 9 pages** — browser-native confirm dialogs are visually inconsistent and cannot be styled. Replaced with `useConfirm()` hook that renders inline modal dialogs using the existing design system. Each dialog has a context-appropriate title, descriptive message, and correct danger/warning variant. Pages updated: AlertsPage, CloudSyncPage, FilesPage, GitSyncPage, HAPage, ISCSIPage, SecurityPage, SettingsPage, UsersPage.
+- **`window.confirm()` used in 13 places across 9 pages** - browser-native confirm dialogs are visually inconsistent and cannot be styled. Replaced with `useConfirm()` hook that renders inline modal dialogs using the existing design system. Each dialog has a context-appropriate title, descriptive message, and correct danger/warning variant. Pages updated: AlertsPage, CloudSyncPage, FilesPage, GitSyncPage, HAPage, ISCSIPage, SecurityPage, SettingsPage, UsersPage.
 
 **Code quality**
 
-- **Syncthing conflict files in vendor** — 1,260 `.sync-conflict-*` files in `daemon/vendor/` caused duplicate symbol build failures locally. Removed.
-- **Duplicate inline style definitions** — `btnPrimary`, `btnGhost`, `btnDanger`, `inputStyle`, `cardStyle` were independently defined across 15–20 page files. Pages now use global CSS classes from `index.css`.
+- **Syncthing conflict files in vendor** - 1,260 `.sync-conflict-*` files in `daemon/vendor/` caused duplicate symbol build failures locally. Removed.
+- **Duplicate inline style definitions** - `btnPrimary`, `btnGhost`, `btnDanger`, `inputStyle`, `cardStyle` were independently defined across 15–20 page files. Pages now use global CSS classes from `index.css`.
 
 ### Documentation
 
-- **ADMIN-GUIDE.md** — replaced incorrect "JIT provisioning on first login" with accurate model: sync populates local DB, login performs real-time LDAP bind for directory accounts, local accounts always use bcrypt. Added note that D-PlaneOS uses LDAP for web UI login (unlike TrueNAS Scale / Unraid which use it for SMB auth only).
-- **README.md** — corrected Identity and Auth architecture descriptions.
+- **ADMIN-GUIDE.md** - replaced incorrect "JIT provisioning on first login" with accurate model: sync populates local DB, login performs real-time LDAP bind for directory accounts, local accounts always use bcrypt. Added note that D-PlaneOS uses LDAP for web UI login (unlike TrueNAS Scale / Unraid which use it for SMB auth only).
+- **README.md** - corrected Identity and Auth architecture descriptions.
 
 ---
 
-## v5.1.1 (2026-03-10) — "System Audit"
+## v5.1.1 (2026-03-10) - "System Audit"
 
-Upgrade from: v5.1.0 — Drop-in. `sudo bash install.sh --upgrade`
+Upgrade from: v5.1.0 - Drop-in. `sudo bash install.sh --upgrade`
 
 ### Fixed
 
-**Critical — broken on first interaction**
+**Critical - broken on first interaction**
 
-- **Docker page: all containers showed blank names, images, and state** — `containerToMap` emitted PascalCase Docker SDK keys (`Id`, `Image`, `State`). Frontend expected lowercase. Fixed: added lowercase aliases. Ports now also include `host_port`/`container_port`/`protocol`.
-- **ZFS pool capacity bars always 0%** — `ListPools` fetched only `name,size,alloc,free,health`, never `cap`. Fixed: added `cap,health` columns. Also removed invalid `type` property (not a `zpool list` column — caused `exit status 2` and `success:false` on every `GET /api/zfs/pools` call, confirmed in CI).
-- **ZFS dataset quota column always empty** — `ListDatasets` fetched `refer` instead of `quota`. Fixed.
-- **Firewall rules page crashed on load** — `GetStatus` returned `rules` as raw `ufw status numbered` text. Frontend called `.map()` on a string — runtime crash. Fixed: new `parseUFWRules()` returns structured `[]map`.
-- **Setup wizard failed on fresh DB** — `HandleStatus` and `HandleSetupAdmin` both `SELECT` from `system_config` before creating the table. Fixed: `CREATE TABLE IF NOT EXISTS` before any query.
-- **`must_change_password` never acted on** — backend sets this flag on the auto-generated admin account; login page never checked it and never redirected. Fixed: redirects to `/security` after login when flag is set.
+- **Docker page: all containers showed blank names, images, and state** - `containerToMap` emitted PascalCase Docker SDK keys (`Id`, `Image`, `State`). Frontend expected lowercase. Fixed: added lowercase aliases. Ports now also include `host_port`/`container_port`/`protocol`.
+- **ZFS pool capacity bars always 0%** - `ListPools` fetched only `name,size,alloc,free,health`, never `cap`. Fixed: added `cap,health` columns. Also removed invalid `type` property (not a `zpool list` column - caused `exit status 2` and `success:false` on every `GET /api/zfs/pools` call, confirmed in CI).
+- **ZFS dataset quota column always empty** - `ListDatasets` fetched `refer` instead of `quota`. Fixed.
+- **Firewall rules page crashed on load** - `GetStatus` returned `rules` as raw `ufw status numbered` text. Frontend called `.map()` on a string - runtime crash. Fixed: new `parseUFWRules()` returns structured `[]map`.
+- **Setup wizard failed on fresh DB** - `HandleStatus` and `HandleSetupAdmin` both `SELECT` from `system_config` before creating the table. Fixed: `CREATE TABLE IF NOT EXISTS` before any query.
+- **`must_change_password` never acted on** - backend sets this flag on the auto-generated admin account; login page never checked it and never redirected. Fixed: redirects to `/security` after login when flag is set.
 
-**High — specific features silently broken**
+**High - specific features silently broken**
 
-- **SMB share create/edit always used defaults** — `Share` interface used `readonly`/`guestok`/`browseable`; backend returns/expects `read_only`/`guest_ok`/`browsable`. Every create ignored the user's checkbox selections. Fixed: aligned field names throughout `SharesPage.tsx`.
-- **File manager writes blocked by systemd `ProtectSystem=strict`** — `ReadWritePaths` didn't include `/mnt`, `/tank`, `/data`, `/media`, `/etc/samba`, `/etc/exports`, `/etc/iscsi`, `/etc/ssh`, `/tmp`, `/home`. Every file write returned permission denied. Fixed in `dplaned.service` and `install.sh` inline unit.
-- **Log streams, WebSocket, and large downloads cut at 30s** — `WriteTimeout: 30s` on the HTTP server. SSE, both WebSocket endpoints, and file downloads were terminated. Fixed: `WriteTimeout: 0`.
-- **`chmod` always 400** — frontend sends `{ mode }`, backend expected `{ permissions }`. Fixed: both accepted.
-- **File rename always 400** — frontend sends `{ new_name }` (filename only), backend expected `{ new_path }` (full path). Fixed.
-- **Chunked upload wrote empty files** — frontend sends field `chunk`, backend read `chunkIndex`. Every chunk 0 truncated with no data. Fixed.
-- **Setup wizard, HA heartbeat, udev disk events, and Prometheus blocked by session middleware** — no exemptions for these legitimately public routes. Fixed: all five paths added to bypass list.
+- **SMB share create/edit always used defaults** - `Share` interface used `readonly`/`guestok`/`browseable`; backend returns/expects `read_only`/`guest_ok`/`browsable`. Every create ignored the user's checkbox selections. Fixed: aligned field names throughout `SharesPage.tsx`.
+- **File manager writes blocked by systemd `ProtectSystem=strict`** - `ReadWritePaths` didn't include `/mnt`, `/tank`, `/data`, `/media`, `/etc/samba`, `/etc/exports`, `/etc/iscsi`, `/etc/ssh`, `/tmp`, `/home`. Every file write returned permission denied. Fixed in `dplaned.service` and `install.sh` inline unit.
+- **Log streams, WebSocket, and large downloads cut at 30s** - `WriteTimeout: 30s` on the HTTP server. SSE, both WebSocket endpoints, and file downloads were terminated. Fixed: `WriteTimeout: 0`.
+- **`chmod` always 400** - frontend sends `{ mode }`, backend expected `{ permissions }`. Fixed: both accepted.
+- **File rename always 400** - frontend sends `{ new_name }` (filename only), backend expected `{ new_path }` (full path). Fixed.
+- **Chunked upload wrote empty files** - frontend sends field `chunk`, backend read `chunkIndex`. Every chunk 0 truncated with no data. Fixed.
+- **Setup wizard, HA heartbeat, udev disk events, and Prometheus blocked by session middleware** - no exemptions for these legitimately public routes. Fixed: all five paths added to bypass list.
 
 **Medium**
 
-- **Install phase numbering collision** — two phases both labelled `8`. Renumbered to clean 0–13 sequence.
-- **`/etc/exports` not in `ReadWritePaths`** — NFS export writes would fail. Added.
-- **File manager: four missing features added** — inline text editor (Ctrl+S, dirty tracking, 2 MB guard), download button per row, drag-and-drop upload with chunked upload, multi-select with checkbox column, quick-access bookmark sidebar.
-- **Login `must_change_password` redirect** — added to `LoginPage.tsx`.
+- **Install phase numbering collision** - two phases both labelled `8`. Renumbered to clean 0–13 sequence.
+- **`/etc/exports` not in `ReadWritePaths`** - NFS export writes would fail. Added.
+- **File manager: four missing features added** - inline text editor (Ctrl+S, dirty tracking, 2 MB guard), download button per row, drag-and-drop upload with chunked upload, multi-select with checkbox column, quick-access bookmark sidebar.
+- **Login `must_change_password` redirect** - added to `LoginPage.tsx`.
 
 ### Stats
 
@@ -313,22 +313,22 @@ Upgrade from: v5.1.0 — Drop-in. `sudo bash install.sh --upgrade`
 
 ---
 
-## v5.1.0 (2026-03-10) — "Template Library"
+## v5.1.0 (2026-03-10) - "Template Library"
 
-Upgrade from: v5.0.0 — Drop-in. `sudo bash install.sh --upgrade`
+Upgrade from: v5.0.0 - Drop-in. `sudo bash install.sh --upgrade`
 
 ### Added
 
 **Multi-Stack Template System**
 
 Templates are Git repositories where each sub-directory containing a `docker-compose.yml` is an independently deployed stack. Templates may also include:
-- `template.json` — name, description, icon, ordered stack list, user-configurable variables
-- `dplane-requirements.json` — ZFS datasets to create and firewall ports to open before deployment
+- `template.json` - name, description, icon, ordered stack list, user-configurable variables
+- `dplane-requirements.json` - ZFS datasets to create and firewall ports to open before deployment
 
 **Backend (`daemon/internal/handlers/docker_templates.go`):**
-- `GET /api/docker/templates` — built-in template catalogue (3 templates shipped: *arr Media Suite, Monitoring Suite, Home Automation)
-- `GET /api/docker/templates/installed` — all deployed stacks grouped by `template_id`; standalone stacks (no template) grouped under `__standalone__`
-- `POST /api/docker/templates/deploy` — clones template Git repo, processes `dplane-requirements.json` (creates ZFS datasets, logs required firewall ports), creates shared Docker network if specified, deploys each sub-stack, substitutes `${VAR}` placeholders in compose/env files, writes `.dplane-template` JSON marker in each stack directory
+- `GET /api/docker/templates` - built-in template catalogue (3 templates shipped: *arr Media Suite, Monitoring Suite, Home Automation)
+- `GET /api/docker/templates/installed` - all deployed stacks grouped by `template_id`; standalone stacks (no template) grouped under `__standalone__`
+- `POST /api/docker/templates/deploy` - clones template Git repo, processes `dplane-requirements.json` (creates ZFS datasets, logs required firewall ports), creates shared Docker network if specified, deploys each sub-stack, substitutes `${VAR}` placeholders in compose/env files, writes `.dplane-template` JSON marker in each stack directory
 - Variable substitution: `${KEY}` placeholders in `docker-compose.yml` and `.env` are replaced with user-supplied values from the deploy request
 - ZFS-aware: `dplane-requirements.json` datasets created with `zfs create -p` before stacks start; quota and mountpoint supported
 
@@ -337,14 +337,14 @@ Templates are Git repositories where each sub-directory containing a `docker-com
 - `ListStacks` reads `.dplane-template` marker from each stack directory
 
 **`daemon/cmd/dplaned/main.go`:**
-- Stack CRUD routes registered (were missing — `DeployStack`, `GetStackYAML`, `UpdateStackYAML`, `DeleteStack`, `StackAction`, `ConvertDockerRun`)
+- Stack CRUD routes registered (were missing - `DeployStack`, `GetStackYAML`, `UpdateStackYAML`, `DeleteStack`, `StackAction`, `ConvertDockerRun`)
 - 3 template routes registered
 
 **`daemon/internal/jobs/jobs.go`:**
 - `Job` and `JobSnapshot` gain `Logs []string` field
 - `Job.Log(line string)` method: appends a progress line under mutex; visible to any caller polling `GET /api/jobs/{id}`. Long-running jobs (template deploy, ZFS send, apt upgrade) now surface step-by-step progress.
 
-**Frontend (`app-react/src/pages/ModulesPage.tsx` — rewrite):**
+**Frontend (`app-react/src/pages/ModulesPage.tsx` - rewrite):**
 - **Installed tab**: template groups shown as collapsible cards with aggregate `N/M running` badge and template icon. Each group expands to compact per-stack cards. Standalone stacks shown as full cards below.
 - **Template Catalogue tab**: grid of available templates with icon, description, stack list, and tags. "Deploy" opens a variable-input modal.
 - **TemplateDeployModal**: renders each `TemplateVariable` as a labelled input (type=password for `secret: true`). Required fields validated before submit.
@@ -364,9 +364,9 @@ Templates are Git repositories where each sub-directory containing a `docker-com
 
 ---
 
-## v5.0.0 (2026-03-10) — "Solid State"
+## v5.0.0 (2026-03-10) - "Solid State"
 
-Upgrade from: v4.3.2 — **Breaking change for NixOS users only** (run `setup-nixos.sh` once after upgrade).
+Upgrade from: v4.3.2 - **Breaking change for NixOS users only** (run `setup-nixos.sh` once after upgrade).
 
 ### Architectural Pivot: JSON-to-Nix Bridge
 
@@ -375,17 +375,17 @@ Previous versions used "The Surgeon": the Go daemon built raw Nix syntax strings
 v5.0 replaces this with the **JSON-to-Nix Bridge**:
 
 - Daemon writes one file: `/var/lib/dplaneos/dplane-state.json` (pure JSON via `encoding/json`).
-- `nixos/dplane-generated.nix` is now **static** — installed once by `setup-nixos.sh`, never modified by the daemon. It reads the JSON at eval time via `builtins.fromJSON` and maps keys to NixOS module options with `s.key or default` guards.
+- `nixos/dplane-generated.nix` is now **static** - installed once by `setup-nixos.sh`, never modified by the daemon. It reads the JSON at eval time via `builtins.fromJSON` and maps keys to NixOS module options with `s.key or default` guards.
 - Zero dynamic Nix syntax generated anywhere. Zero Surgeon. Zero injection risk.
 
 ### Changed
 
-- **`daemon/internal/nixwriter/writer.go`**: Complete rewrite. Removed all string-template stanza builders. New `DPlaneState` struct + atomic JSON write. Same `Set*()` caller API — no handler changes required. `validateIP` now uses `net.ParseIP` (was a lax character-range check).
+- **`daemon/internal/nixwriter/writer.go`**: Complete rewrite. Removed all string-template stanza builders. New `DPlaneState` struct + atomic JSON write. Same `Set*()` caller API - no handler changes required. `validateIP` now uses `net.ParseIP` (was a lax character-range check).
 - **`nixos/dplane-generated.nix`**: New static bridge file. Reads `/var/lib/dplaneos/dplane-state.json` at eval time. `builtins.pathExists` guard for first-boot safety. Nix helper functions map JSON maps to correct `systemd.network` attrset shapes.
 - **`nixos/setup-nixos.sh`**: Installs bridge file, seeds empty `{}` state file, auto-adds import to `configuration.nix`.
 - **`nixos/configuration.nix`**: Added `imports = [ ./dplane-generated.nix ./modules/samba.nix ]`.
 - **`nixos/flake.nix`**: Added bridge and samba module to both x86_64 and aarch64 module lists.
-- **`nixos/impermanence.nix`**: Added `dplane-state.json` to persisted files — without this, all UI settings revert on every reboot on the appliance build.
+- **`nixos/impermanence.nix`**: Added `dplane-state.json` to persisted files - without this, all UI settings revert on every reboot on the appliance build.
 
 ### Migration (NixOS)
 
@@ -395,13 +395,13 @@ sudo bash nixos/setup-nixos.sh   # installs bridge, seeds state file
 sudo nixos-rebuild switch --flake nixos#dplaneos
 ```
 
-Re-apply any network/samba settings via the web UI after upgrading — the daemon writes them to the JSON file and the next rebuild picks them up.
+Re-apply any network/samba settings via the web UI after upgrading - the daemon writes them to the JSON file and the next rebuild picks them up.
 
 ---
 
-## v4.3.2 (2026-03-10) — "WebSocket & API Wiring"
+## v4.3.2 (2026-03-10) - "WebSocket & API Wiring"
 
-Upgrade from: v4.3.1 — Drop-in upgrade via `sudo bash install.sh --upgrade`
+Upgrade from: v4.3.1 - Drop-in upgrade via `sudo bash install.sh --upgrade`
 
 ### Fixed
 
@@ -416,7 +416,7 @@ Upgrade from: v4.3.1 — Drop-in upgrade via `sudo bash install.sh --upgrade`
 - **`diskAdded` / `diskRemoved` events broadcast but never routed in frontend:**
   The daemon correctly broadcasts `"diskAdded"` and `"diskRemoved"` on hot-swap.
   `ws.ts`'s `EventMap` declared `diskAdded` and `diskRemoved` subscribers, but the
-  `onmessage` switch had no `case` for either string — both events were silently
+  `onmessage` switch had no `case` for either string - both events were silently
   dropped. Cases added. Additionally, each event now also emits `hardwareEvent`
   with the action embedded, so `HardwarePage`'s existing `wsOn('hardwareEvent', ...)`
   subscription fires correctly without any page changes.
@@ -424,7 +424,7 @@ Upgrade from: v4.3.1 — Drop-in upgrade via `sudo bash install.sh --upgrade`
 
 - **Scrub and resilver WS events never broadcast by daemon:** `ws.ts` handled
   `scrub_started`, `scrub_completed`, `resilver_started`, `resilver_progress`, and
-  `resilver_completed` — but the daemon never called `Broadcast` for any of these.
+  `resilver_completed` - but the daemon never called `Broadcast` for any of these.
   `StartScrub` now broadcasts `scrub_started`; `StopScrub` broadcasts `scrub_completed`.
   `ReplaceDisk` job broadcasts `resilver_started` at job start and `resilver_completed`
   (with success/failure) at job end. `PoolsPage` live-refresh subscriptions now work.
@@ -441,7 +441,7 @@ Upgrade from: v4.3.1 — Drop-in upgrade via `sudo bash install.sh --upgrade`
   `msg.type.startsWith('mount_health_')` and emits to `mountError` subscribers.
   (`app-react/src/stores/ws.ts`)
 
-- **`DELETE /api/shares` unregistered — share deletion always returned 405:**
+- **`DELETE /api/shares` unregistered - share deletion always returned 405:**
   `SharesPage` calls `DELETE /api/shares` with `{ name }` in the body. The route was
   only registered for `GET` and `POST`. Added `DELETE` registration in `main.go` and a
   new `deleteShareByName` method on `ShareCRUDHandler` that looks up the share by name,
@@ -456,7 +456,7 @@ Upgrade from: v4.3.1 — Drop-in upgrade via `sudo bash install.sh --upgrade`
   `GET /api/system/tuning` and `POST /api/system/tuning`.
   (`daemon/cmd/dplaned/main.go`)
 
-- **Rate limiter used `r.RemoteAddr` — all traffic from a reverse proxy shared one bucket:**
+- **Rate limiter used `r.RemoteAddr` - all traffic from a reverse proxy shared one bucket:**
   When the daemon runs behind nginx (standard production setup), every request arrives
   with `RemoteAddr = 127.0.0.1`. All users shared a single rate-limit bucket, so a
   single active user could exhaust the 100 req/min limit for everyone. The limiter
@@ -481,16 +481,16 @@ Upgrade from: v4.3.1 — Drop-in upgrade via `sudo bash install.sh --upgrade`
 
 ---
 
-## v4.3.1 (2026-03-09) — "Icon System Fixes"
+## v4.3.1 (2026-03-09) - "Icon System Fixes"
 
-Upgrade from: v4.3.0 — Drop-in upgrade via `sudo bash install.sh --upgrade`
+Upgrade from: v4.3.0 - Drop-in upgrade via `sudo bash install.sh --upgrade`
 
 ### Fixed
 
 - **`Stack` interface fields never populated (`running_containers`, `total_containers`, `total_ports` always `undefined`):**
   `groupContainersByStack` in `docker.go` emitted only `name`, `containers`, and `count`. The frontend
   `ContainersTab` reads `stack.running_containers` and `stack.total_containers` to render the "N/M running"
-  badge in every stack header — these were always `undefined`, rendering as `undefined/undefined running`.
+  badge in every stack header - these were always `undefined`, rendering as `undefined/undefined running`.
   `groupContainersByStack` now iterates the original `dockerclient.Container` slice to compute all three
   fields before serialising. (`daemon/internal/handlers/docker.go`)
 
@@ -500,14 +500,14 @@ Upgrade from: v4.3.0 — Drop-in upgrade via `sudo bash install.sh --upgrade`
   label was set. `ComposeStack` type gains an optional `labels` field; `StackCard` now forwards it.
   (`app-react/src/pages/ModulesPage.tsx`)
 
-- **`IconMapEntry` type duplicated in three files — structural divergence risk:**
+- **`IconMapEntry` type duplicated in three files - structural divergence risk:**
   `ContainerIcon.tsx`, `DockerPage.tsx`, and `ModulesPage.tsx` each declared their own `interface IconMapEntry`
   and `interface IconMapResponse`. These are now centralised in `app-react/src/lib/iconTypes.ts` and imported
   everywhere. (`app-react/src/lib/iconTypes.ts`, all three consumers)
 
 - **Dead-code redundancy in `resolveIcon` image matching:**
   `ContainerIcon.tsx` called `nameLower(namePart).includes(entry.match) || nameLower(imageLower).includes(entry.match)`.
-  `namePart` is a substring of `imageLower`, so the first condition is always a strict subset of the second —
+  `namePart` is a substring of `imageLower`, so the first condition is always a strict subset of the second -
   it could never be true when the second was false. The `nameLower()` wrapper was also a no-op (both inputs
   were already lowercased). Both simplified to a single `imageLower.includes(entry.match)` check.
   (`app-react/src/components/ui/ContainerIcon.tsx`)
@@ -515,7 +515,7 @@ Upgrade from: v4.3.0 — Drop-in upgrade via `sudo bash install.sh --upgrade`
 - **`.jpg`, `.jpeg`, `.gif` accepted by frontend but missing from daemon MIME fallback:**
   `ContainerIcon.tsx`'s `IMAGE_EXTS` array includes `.jpg`, `.jpeg`, and `.gif`, so users can set
   `dplaneos.icon: mylogo.jpg`. The daemon's `HandleCustomIconFile` MIME fallback `switch` only covered
-  `.svg`, `.png`, `.webp` — on minimal Linux systems without `/etc/mime.types` the file would be served
+  `.svg`, `.png`, `.webp` - on minimal Linux systems without `/etc/mime.types` the file would be served
   as `application/octet-stream`, preventing browser rendering. Added `case ".jpg", ".jpeg": "image/jpeg"`
   and `case ".gif": "image/gif"` to the fallback switch.
   (`daemon/internal/handlers/docker_icons.go`)
@@ -525,7 +525,7 @@ Upgrade from: v4.3.0 — Drop-in upgrade via `sudo bash install.sh --upgrade`
   would route list requests to the file handler (returning 404). The ordering dependency is now documented
   with an explicit comment. (`daemon/cmd/dplaned/main.go`)
 
-- **`custom_icons/` directory behind `chmod 700` parent — files inaccessible to non-root:**
+- **`custom_icons/` directory behind `chmod 700` parent - files inaccessible to non-root:**
   `install.sh` set `chmod 700 /var/lib/dplaneos` but never set explicit permissions on the
   `custom_icons/` subdirectory. Because the parent had `700`, no non-root process could traverse
   into it even if the subdirectory itself had permissive permissions. `custom_icons/` is now
@@ -555,9 +555,9 @@ Upgrade from: v4.3.0 — Drop-in upgrade via `sudo bash install.sh --upgrade`
 
 ---
 
-## v4.3.0 (2026-03-09) — "Automation"
+## v4.3.0 (2026-03-09) - "Automation"
 
-Upgrade from: v4.2.0 — Drop-in upgrade via `sudo bash install.sh --upgrade`
+Upgrade from: v4.2.0 - Drop-in upgrade via `sudo bash install.sh --upgrade`
 
 ### Fixed
 
@@ -608,7 +608,7 @@ Upgrade from: v4.2.0 — Drop-in upgrade via `sudo bash install.sh --upgrade`
   ReplicationPage gains a Schedules tab.
 
 - **Post-snapshot replication hook** (`POST /api/zfs/snapshots/cron-hook`):
-  Cron jobs call this endpoint enabling Go-side hooks — snapshot, retain, replicate.
+  Cron jobs call this endpoint enabling Go-side hooks - snapshot, retain, replicate.
 
 - **Time-based snapshot retention:** `retention_days` field on schedules.
 
@@ -630,13 +630,13 @@ Upgrade from: v4.2.0 — Drop-in upgrade via `sudo bash install.sh --upgrade`
 
 ---
 
-## v4.2.0 (2026-03-09) — "Disk Lifecycle"
+## v4.2.0 (2026-03-09) - "Disk Lifecycle"
 
-Upgrade from: v4.1.2 — Drop-in upgrade via `sudo bash install.sh --upgrade`
+Upgrade from: v4.1.2 - Drop-in upgrade via `sudo bash install.sh --upgrade`
 
 ### Architecture
 
-This release implements the four pillars of disk lifecycle management —
+This release implements the four pillars of disk lifecycle management -
 the foundation required for serious NAS infrastructure:
 
 **1. Disk Discovery (enriched)**
@@ -647,7 +647,7 @@ Pool membership and per-vdev health resolved from a single `zpool status -P -v`
 pass at discovery time.
 
 **2. Device Renaming / Stable Identifiers (enforced)**
-Pool creation via the UI now enforces `/dev/disk/by-id/` paths — matching
+Pool creation via the UI now enforces `/dev/disk/by-id/` paths - matching
 the GitOps engine which has always enforced this. Short `/dev/sdX` names
 submitted to `POST /api/system/pool/create` are auto-promoted to their by-id
 path via sysfs; if promotion fails the request is rejected with a clear error.
@@ -663,7 +663,7 @@ across reboots and physical replacements.
   events for internal pool disks (USB excluded to avoid double-firing with
   the existing removable media rules).
 - New `scripts/notify-disk-added.sh` / `notify-disk-removed.sh`: send HTTP
-  POST to `http://127.0.0.1:9000/api/internal/disk-event` via curl — replacing
+  POST to `http://127.0.0.1:9000/api/internal/disk-event` via curl - replacing
   the broken `nc -U` Unix socket approach.
 - New `POST /api/internal/disk-event` (localhost-only): updates disk registry,
   broadcasts `diskAdded`/`diskRemoved`/`poolHealthChanged` WebSocket events.
@@ -691,7 +691,7 @@ On a `diskAdded` event the daemon now:
   badge, disk replacement workflow (modal → `POST /api/zfs/pool/replace`).
 - **Dashboard**: "Disk Health" section shows SMART failures and high-temp
   warnings across all disks with link to Hardware page.
-- **Background monitor**: `CheckMountStatus()` implemented — write-tests each
+- **Background monitor**: `CheckMountStatus()` implemented - write-tests each
   pool's mountpoint every 60 seconds, broadcasts `mountError` on failure.
 - **Disk temperature monitoring**: reads `/sys/class/hwmon/` sensors every
   5 minutes, falls back to `smartctl`, broadcasts `diskTempWarning` at 45°C
@@ -700,11 +700,11 @@ On a `diskAdded` event the daemon now:
 ### Fixed
 
 - `diskTempWarning` WebSocket event was subscribed in frontend but never
-  broadcast by daemon — now implemented end-to-end.
-- `CheckMountStatus` was an empty stub — now performs real write-test.
+  broadcast by daemon - now implemented end-to-end.
+- `CheckMountStatus` was an empty stub - now performs real write-test.
 - Pool creation accepted raw `/dev/sdX` paths that become invalid after
-  reboot — now auto-promotes to by-id or rejects with actionable error.
-- Disk type detection did not distinguish SAS from HDD, or USB from SATA —
+  reboot - now auto-promotes to by-id or rejects with actionable error.
+- Disk type detection did not distinguish SAS from HDD, or USB from SATA -
   now uses vendor string and subsystem symlink for accurate classification.
 
 ### Stats
@@ -720,9 +720,9 @@ On a `diskAdded` event the daemon now:
 
 ---
 
-## v4.1.2 (2026-03-09) — "Completeness"
+## v4.1.2 (2026-03-09) - "Completeness"
 
-Upgrade from: v4.1.1 — Drop-in upgrade via `sudo bash install.sh --upgrade`
+Upgrade from: v4.1.1 - Drop-in upgrade via `sudo bash install.sh --upgrade`
 
 ### Fixed
 
@@ -767,12 +767,12 @@ Upgrade from: v4.1.1 — Drop-in upgrade via `sudo bash install.sh --upgrade`
 
 - **OS package updates (Debian/Ubuntu):** New `UpdatesPage` tab "OS Packages"
   surfaces four new endpoints:
-  - `GET /api/system/updates/check` — runs `apt-get update` + `apt list
+  - `GET /api/system/updates/check` - runs `apt-get update` + `apt list
     --upgradable`, returns structured package list with security flag, non-blocking via job queue
-  - `POST /api/system/updates/apply` — runs `apt-get upgrade -y`, non-blocking
-  - `POST /api/system/updates/apply-security` — security-only upgrade via
+  - `POST /api/system/updates/apply` - runs `apt-get upgrade -y`, non-blocking
+  - `POST /api/system/updates/apply-security` - security-only upgrade via
     `unattended-upgrades`, non-blocking
-  - `GET /api/system/updates/daemon-version` — checks GitHub Releases API,
+  - `GET /api/system/updates/daemon-version` - checks GitHub Releases API,
     returns current vs latest version with update-available flag
 
 - **ZFS Sandbox page** (`/sandbox`): UI for the existing sandbox backend
@@ -800,7 +800,7 @@ Upgrade from: v4.1.1 — Drop-in upgrade via `sudo bash install.sh --upgrade`
 
 ---
 
-## v4.1.1 (2026-03-09) — "Design System"
+## v4.1.1 (2026-03-09) - "Design System"
 
 ### Changed
 
@@ -812,7 +812,7 @@ Upgrade from: v4.1.1 — Drop-in upgrade via `sudo bash install.sh --upgrade`
   `.input`, `.data-table`.
 
 - **New `.tabs-line` CSS variant:** The existing `.tabs` is a pill/segment
-  control. Pages use an underline tab pattern — this is now a first-class
+  control. Pages use an underline tab pattern - this is now a first-class
   design system member (`.tabs-line` wrapper + `.tab` / `.tab-active`),
   replacing 13 pages of duplicated inline `borderBottom` logic.
 
@@ -848,18 +848,18 @@ Upgrade from: v4.1.1 — Drop-in upgrade via `sudo bash install.sh --upgrade`
 
 ---
 
-## v4.1.0 (2026-03-08) — "Terminal"
+## v4.1.0 (2026-03-08) - "Terminal"
 
 ### Feature: Embedded PTY Terminal
 
-- **New `/ws/terminal` WebSocket endpoint (daemon):** Spawns a `bash --login` PTY via `creack/pty` and pipes stdin/stdout over WebSocket. Authenticated by the global `sessionMiddleware` — same session validation as all other endpoints. Each connection gets its own isolated PTY; connections are torn down cleanly when the WebSocket closes.
+- **New `/ws/terminal` WebSocket endpoint (daemon):** Spawns a `bash --login` PTY via `creack/pty` and pipes stdin/stdout over WebSocket. Authenticated by the global `sessionMiddleware` - same session validation as all other endpoints. Each connection gets its own isolated PTY; connections are torn down cleanly when the WebSocket closes.
 - **Terminal resize support:** Client sends `{"type":"resize","cols":N,"rows":N}` messages; daemon calls `pty.Setsize()` so shell-aware programs (vim, htop, man) render correctly at any window size.
 - **New `TerminalPage` (frontend):** Full xterm.js terminal (`@xterm/xterm` v5) with `FitAddon` (auto-resize) and `WebLinksAddon` (clickable URLs). Colour scheme matches the D-PlaneOS dark theme. Reconnect and Clear buttons in the title bar. Connection status indicator (green/amber/red dot).
 - **Sidebar:** Terminal added to the System group (`terminal` icon).
-- **Font regression fixed:** `index.html` was loading fonts from `fonts.googleapis.com`. All three fonts (Outfit, JetBrains Mono, Material Symbols Rounded) now load exclusively from `/assets/fonts/` — zero external requests at runtime, fully airgap-safe.
+- **Font regression fixed:** `index.html` was loading fonts from `fonts.googleapis.com`. All three fonts (Outfit, JetBrains Mono, Material Symbols Rounded) now load exclusively from `/assets/fonts/` - zero external requests at runtime, fully airgap-safe.
 
 ### Added
-- `daemon/internal/handlers/terminal_handler.go` — PTY handler
+- `daemon/internal/handlers/terminal_handler.go` - PTY handler
 - `daemon/vendor/github.com/creack/pty` v1.1.24
 - `app-react/src/pages/TerminalPage.tsx`
 - `@xterm/xterm`, `@xterm/addon-fit`, `@xterm/addon-web-links` npm dependencies
@@ -875,17 +875,17 @@ Upgrade from: v4.1.1 — Drop-in upgrade via `sudo bash install.sh --upgrade`
 ---
 
 
-## v4.0.0 (2026-03-08) — **"React SPA"**
+## v4.0.0 (2026-03-08) - **"React SPA"**
 
-Upgrade from: v3.3.3 — Drop-in upgrade via `sudo ./scripts/upgrade-with-rollback.sh`
+Upgrade from: v3.3.3 - Drop-in upgrade via `sudo ./scripts/upgrade-with-rollback.sh`
 
 ### ⚡ Architecture: Full React SPA Migration
 
-The entire frontend has been rewritten from scratch. 41 standalone vanilla HTML/JS pages replaced by a single-page application built on React 19 + TypeScript + Vite + TanStack Query. The daemon is unchanged — this is a pure frontend replacement.
+The entire frontend has been rewritten from scratch. 41 standalone vanilla HTML/JS pages replaced by a single-page application built on React 19 + TypeScript + Vite + TanStack Query. The daemon is unchanged - this is a pure frontend replacement.
 
 **Stack:**
 - React 19 + TypeScript (0 type errors at build)
-- TanStack Router (type-safe navigation — TS error on unregistered routes)
+- TanStack Router (type-safe navigation - TS error on unregistered routes)
 - TanStack Query (data fetching, caching, background refresh)
 - Zustand (auth state, WebSocket hub)
 - Vite build (tree-shaken, code-split by route)
@@ -894,17 +894,17 @@ The entire frontend has been rewritten from scratch. 41 standalone vanilla HTML/
 
 | Phase | Pages |
 |-------|-------|
-| 0 — Scaffold | AppShell, Sidebar, TopBar, auth/session infrastructure |
-| 1 — Core Read-Only | Dashboard, Reporting, Hardware, Logs, Monitoring |
-| 2 — Storage | Pools, Shares, NFS, Snapshot Scheduler, Replication |
-| 3 — Docker | Docker (containers + compose tabs), Modules |
-| 4 — Files | Files, ACL, Removable Media |
-| 5 — Users & Security | Users (users/groups/roles tabs), Security, Directory (LDAP) |
-| 6 — Network & System | Network, Settings, Alerts, Firewall, Certificates, UPS, Power, IPMI, HA |
-| 7 — DevOps | Git Sync, GitOps, Cloud Sync |
-| 8 — Admin | Audit, Support, Updates |
-| 9 — Wizards | Setup Wizard |
-| 10 — WebSocket | Real-time push for Docker state, pool health, disk temps |
+| 0 - Scaffold | AppShell, Sidebar, TopBar, auth/session infrastructure |
+| 1 - Core Read-Only | Dashboard, Reporting, Hardware, Logs, Monitoring |
+| 2 - Storage | Pools, Shares, NFS, Snapshot Scheduler, Replication |
+| 3 - Docker | Docker (containers + compose tabs), Modules |
+| 4 - Files | Files, ACL, Removable Media |
+| 5 - Users & Security | Users (users/groups/roles tabs), Security, Directory (LDAP) |
+| 6 - Network & System | Network, Settings, Alerts, Firewall, Certificates, UPS, Power, IPMI, HA |
+| 7 - DevOps | Git Sync, GitOps, Cloud Sync |
+| 8 - Admin | Audit, Support, Updates |
+| 9 - Wizards | Setup Wizard |
+| 10 - WebSocket | Real-time push for Docker state, pool health, disk temps |
 
 ### 🐛 Bug Fix: NFS Routes Not Registered (Daemon)
 
@@ -912,7 +912,7 @@ The entire frontend has been rewritten from scratch. 41 standalone vanilla HTML/
 
 ### 🏗️ Infrastructure: Fully Offline Fonts
 
-All three fonts are bundled in `app/assets/fonts/` — zero external requests at runtime:
+All three fonts are bundled in `app/assets/fonts/` - zero external requests at runtime:
 
 | Font | Format | Purpose |
 |------|--------|---------|
@@ -926,7 +926,7 @@ NixOS configuration updated to reflect accurate current-state facts:
 - `system.stateVersion` and `nixpkgs.url` corrected to `25.11` (current stable)
 - Default kernel for NixOS 25.11 is `6.12`; our explicit pin to `6.6 LTS` is documented as intentional
 - OpenZFS LTS branch is `2.3.x` (not 2.2); ZFS assertion updated to `>= 2.3`
-- `lib.fakeHash` → `nixpkgs.lib.fakeHash` (was not in scope in `eachSystem` block — would have caused eval error)
+- `lib.fakeHash` → `nixpkgs.lib.fakeHash` (was not in scope in `eachSystem` block - would have caused eval error)
 
 ### ✅ Compatibility
 
@@ -935,21 +935,21 @@ Drop-in replacement for v3.3.2. Daemon is unchanged. No schema changes, no migra
 
 ---
 
-## v3.3.3 (2026-03-07) — **"Async & Governance"**
+## v3.3.3 (2026-03-07) - **"Async & Governance"**
 
-Upgrade from: v3.3.2, v3.3.1, v3.3.0, or any v3.x — Drop-in upgrade via `sudo ./scripts/upgrade-with-rollback.sh`
+Upgrade from: v3.3.2, v3.3.1, v3.3.0, or any v3.x - Drop-in upgrade via `sudo ./scripts/upgrade-with-rollback.sh`
 
 ### ⚖️ Governance: License Changed to AGPLv3
 
 - **License changed from PolyForm Shield 1.0.0 to GNU Affero General Public License v3.0 (AGPLv3):** D-PlaneOS is now licensed under an OSI-approved open-source license. The AGPLv3 permits free use, modification, and distribution. Modified versions run as a network service must make their source available to users of that service. SPDX identifier: `AGPL-3.0-only`.
 
-- **NixOS users — remove `allowUnfreePredicate`:** Under PolyForm Shield the Nix `meta.license` was set to `licenses.unfree`, requiring `allowUnfreePredicate` or `allowUnfree = true`. AGPLv3 is a free software license. Remove any `allowUnfreePredicate` blocks referencing `dplaneos-daemon` — they are now dead code. The flake's `meta.license` is updated to `licenses.agpl3Only`.
+- **NixOS users - remove `allowUnfreePredicate`:** Under PolyForm Shield the Nix `meta.license` was set to `licenses.unfree`, requiring `allowUnfreePredicate` or `allowUnfree = true`. AGPLv3 is a free software license. Remove any `allowUnfreePredicate` blocks referencing `dplaneos-daemon` - they are now dead code. The flake's `meta.license` is updated to `licenses.agpl3Only`.
 
 - **Contributor License Agreement introduced:** `CLA-INDIVIDUAL.md` and `CLA-ENTITY.md` added to the repository root. The CLA grants the maintainer the right to re-license commercially in the future; contributors retain full ownership. Signing is handled via CLA Assistant bot on pull requests.
 
 ### ⚡ Feature: Async Job Store (Daemon)
 
-- **New `daemon/internal/jobs/jobs.go` package:** In-process, in-memory job store for long-running operations. Each job has a UUID, status (`running` → `done` / `failed`), result payload, and error string. Concurrent-safe. State is ephemeral — does not survive daemon restarts, acceptable because all jobs are short-lived.
+- **New `daemon/internal/jobs/jobs.go` package:** In-process, in-memory job store for long-running operations. Each job has a UUID, status (`running` → `done` / `failed`), result payload, and error string. Concurrent-safe. State is ephemeral - does not survive daemon restarts, acceptable because all jobs are short-lived.
 
 - **New `GET /api/jobs/{id}` route (`jobs_handler.go`):** Poll for job status. Returns `{"status":"running"}` while in progress, `{"status":"done","result":{...}}` on success, or `{"status":"failed","error":"..."}` on failure.
 
@@ -968,13 +968,13 @@ Upgrade from: v3.3.2, v3.3.1, v3.3.0, or any v3.x — Drop-in upgrade via `sudo 
 
   **Breaking change:** These endpoints now return `{"job_id":"<uuid>"}` immediately. API consumers that expect a result in the response body must update to the poll pattern.
 
-### ⚡ Feature: Frontend Async Polling — `ui.pollJob()`
+### ⚡ Feature: Frontend Async Polling - `ui.pollJob()`
 
 - **New `DPlaneUI.pollJob()` in `ui-components.js`:** Single consistent polling loop for all async operations. Shows loading overlay immediately, polls `GET /api/jobs/{id}` every 2 seconds, retries on transient network errors, enforces 30-minute hard timeout, hides overlay in all exit paths.
 
-- **`docker.html` — 4 operations updated:** `composeUp`, `composeDown`, `pullImage`, `updateContainer` now dispatch via `ui.pollJob()`.
+- **`docker.html` - 4 operations updated:** `composeUp`, `composeDown`, `pullImage`, `updateContainer` now dispatch via `ui.pollJob()`.
 
-- **`replication.html` — 2 operations updated:** `runTask` and `startReplication` dispatch via `ui.pollJob()`. Replication start button now correctly restores its icon on job completion.
+- **`replication.html` - 2 operations updated:** `runTask` and `startReplication` dispatch via `ui.pollJob()`. Replication start button now correctly restores its icon on job completion.
 
 ### 🐛 Bug: Navigation Stub Redirects and Missing NFS Entry
 
@@ -982,7 +982,7 @@ Upgrade from: v3.3.2, v3.3.1, v3.3.0, or any v3.x — Drop-in upgrade via `sudo 
 
 - **`data-page` mismatch fixed:** File Upload nav entry had `data-page="files-enhanced"`, breaking the active-page highlight on `files.html`. Fixed to `data-page="files"`.
 
-- **NFS Exports added to nav:** `nfs.html` has been a complete, functional NFS management page since v3.x but had no navigation entry — unreachable without a direct URL. Now listed under Storage → NFS Exports (between Shares and Replication).
+- **NFS Exports added to nav:** `nfs.html` has been a complete, functional NFS management page since v3.x but had no navigation entry - unreachable without a direct URL. Now listed under Storage → NFS Exports (between Shares and Replication).
 
 ### 🏗️ NixOS: `ota-module.nix` Options
 
@@ -996,13 +996,13 @@ Drop-in replacement for v3.3.2 with one exception: the 8 async endpoints now ret
 
 ---
 
-## v3.3.2 (2026-03-01) — **"Runtime fixes"**
+## v3.3.2 (2026-03-01) - **"Runtime fixes"**
 
-Upgrade from: v3.3.1, v3.3.0, or any v3.x — Drop-in upgrade via `sudo ./scripts/upgrade-with-rollback.sh`
+Upgrade from: v3.3.1, v3.3.0, or any v3.x - Drop-in upgrade via `sudo ./scripts/upgrade-with-rollback.sh`
 
 ### 🔒 Security: Eliminated `bash -c` Shell Construction in Replication
 
-- **`replication_remote.go` — shell injection vector removed:** Both the normal and resume-token replication paths previously built a complete shell pipeline string via `fmt.Sprintf` and executed it with `executeCommand("/bin/bash", []string{"-c", fullCmd})`. Despite upstream input validation, string-formatted shell commands are an inherently fragile security boundary. The entire replication pipeline (`zfs send` → optional `pv` → `ssh recv`) is now implemented as three discrete `exec.Command` processes connected via Go `io.Pipe` in a new `execPipedZFSSend()` helper. No shell is invoked at any point.
+- **`replication_remote.go` - shell injection vector removed:** Both the normal and resume-token replication paths previously built a complete shell pipeline string via `fmt.Sprintf` and executed it with `executeCommand("/bin/bash", []string{"-c", fullCmd})`. Despite upstream input validation, string-formatted shell commands are an inherently fragile security boundary. The entire replication pipeline (`zfs send` → optional `pv` → `ssh recv`) is now implemented as three discrete `exec.Command` processes connected via Go `io.Pipe` in a new `execPipedZFSSend()` helper. No shell is invoked at any point.
 
 - **Resume token validation added:** ZFS resume tokens are now validated with `isValidResumeToken()` (alphanumeric + base64 characters only, max 4096 bytes) before being used as a command argument. Previously the token was passed directly from the SSH remote into `fmt.Sprintf`.
 
@@ -1010,18 +1010,18 @@ Upgrade from: v3.3.1, v3.3.0, or any v3.x — Drop-in upgrade via `sudo ./script
 
 ### 🔒 Security: iSCSI Authentication Default Made Explicit
 
-- **`iscsi.go` — `authentication=0` is now an explicit opt-out, not a silent default:** Every new iSCSI target previously had CHAP authentication disabled silently. A new `require_chap` boolean field has been added to `ISCSICreateRequest`. When `require_chap: true`, the TPG is created with `authentication=1`. When `require_chap: false` (the current default for backward compatibility), `authentication=0` is still set but a `SECURITY NOTICE` log line is emitted, making the decision auditable. This is a **non-breaking change** — existing API callers that do not include `require_chap` behave identically to before.
+- **`iscsi.go` - `authentication=0` is now an explicit opt-out, not a silent default:** Every new iSCSI target previously had CHAP authentication disabled silently. A new `require_chap` boolean field has been added to `ISCSICreateRequest`. When `require_chap: true`, the TPG is created with `authentication=1`. When `require_chap: false` (the current default for backward compatibility), `authentication=0` is still set but a `SECURITY NOTICE` log line is emitted, making the decision auditable. This is a **non-breaking change** - existing API callers that do not include `require_chap` behave identically to before.
 
 ### 🐛 Bug: LDAP `TriggerSync` - Full Implementation
 
-- **`ldap.go` + `ldap/client.go` — sync now actually syncs:** `POST /api/ldap/sync` previously connected to the LDAP server, bound the service account, and immediately returned `{"success": true}` with 0 users found/created/updated. No directory data was read or written. This has been replaced with a full implementation:
+- **`ldap.go` + `ldap/client.go` - sync now actually syncs:** `POST /api/ldap/sync` previously connected to the LDAP server, bound the service account, and immediately returned `{"success": true}` with 0 users found/created/updated. No directory data was read or written. This has been replaced with a full implementation:
   - New `SyncAll()` method on the LDAP client performs a wildcard search against the configured `BaseDN` using the configured `UserFilter`, fetches all matching entries, and retrieves group memberships for each
   - `TriggerSync` upserts each user into the `users` table (`source='ldap'`, empty `password_hash`) applying group→role mapping via the existing `GroupMappings` config
   - Response now returns real counts: `users_found`, `users_created`, `users_updated`, `users_skipped`, and `errors` per user
 
 ### 🐛 Bug: Version String Never Embedded in Binary
 
-- **`daemon/cmd/dplaned/main.go` — `Version` changed from `const` to `var`:** The `Version` identifier was declared as a `const`, but Go's `-ldflags "-X main.Version=..."` mechanism only works with package-level `var` declarations. As a result, all previous release builds reported `version: "dev"` at `/health` and in startup logs regardless of the version tag. Changed to `var` — version is now correctly embedded at build time and visible in the health endpoint.
+- **`daemon/cmd/dplaned/main.go` - `Version` changed from `const` to `var`:** The `Version` identifier was declared as a `const`, but Go's `-ldflags "-X main.Version=..."` mechanism only works with package-level `var` declarations. As a result, all previous release builds reported `version: "dev"` at `/health` and in startup logs regardless of the version tag. Changed to `var` - version is now correctly embedded at build time and visible in the health endpoint.
 
 - **README:** Removed "No other NAS OS does this" from the container update description (snapshot+rollback is standard practice in the NAS space). Removed unsupported "100× faster" benchmark claim from replication description. Changed "injection-hardened" to "allowlist-based input validation" (more accurate). Added explicit HA limitations section. Fixed LDAP feature list to reflect actual implementation.
 - **INSTALLATION-GUIDE:** Removed "enterprise NAS" language.
@@ -1032,17 +1032,17 @@ Upgrade from: v3.3.1, v3.3.0, or any v3.x — Drop-in upgrade via `sudo ./script
 
 ### ✅ Compatibility
 
-Drop-in replacement for v3.3.1. No schema changes, no migrations, no configuration changes required. The `require_chap` field in iSCSI create requests defaults to `false` — existing API integrations are unaffected.
+Drop-in replacement for v3.3.1. No schema changes, no migrations, no configuration changes required. The `require_chap` field in iSCSI create requests defaults to `false` - existing API integrations are unaffected.
 
 ---
 
-## v3.3.1 (2026-02-25) — **"Universal Compatibility"**
+## v3.3.1 (2026-02-25) - **"Universal Compatibility"**
 
-Upgrade from: v3.3.0, v3.2.1, or any v3.x — Drop-in upgrade via `sudo ./scripts/upgrade-with-rollback.sh`
+Upgrade from: v3.3.0, v3.2.1, or any v3.x - Drop-in upgrade via `sudo ./scripts/upgrade-with-rollback.sh`
 
 ### 🐛 Bug Fixes
 
-- **Ubuntu readonly variable crash (Phase 0):** `install.sh`, `get.sh`, `scripts/pre-flight.sh`, and `scripts/system-audit.sh` previously sourced `/etc/os-release` directly, which caused Ubuntu to abort with `/etc/os-release: line 4: VERSION: readonly variable` and fail at Phase 0 before any installation occurred. All four files now use safe `grep`-based extraction into scoped variables — the OS-managed `VERSION` variable is never touched.
+- **Ubuntu readonly variable crash (Phase 0):** `install.sh`, `get.sh`, `scripts/pre-flight.sh`, and `scripts/system-audit.sh` previously sourced `/etc/os-release` directly, which caused Ubuntu to abort with `/etc/os-release: line 4: VERSION: readonly variable` and fail at Phase 0 before any installation occurred. All four files now use safe `grep`-based extraction into scoped variables - the OS-managed `VERSION` variable is never touched.
 
 - **`TERM environment variable not set` warning:** `install.sh` called `clear` unconditionally at startup and on the completion screen. In non-interactive contexts (serial console, VM without TTY, piped install) this emitted a `TERM` warning that polluted output and confused users expecting a clean install log. Both `clear` calls are now guarded with `[ -n "$TERM" ]`.
 
@@ -1052,7 +1052,7 @@ Upgrade from: v3.3.0, v3.2.1, or any v3.x — Drop-in upgrade via `sudo ./script
 
 ### 🚀 Phase 12: Dynamic IP Notification
 
-- **Access URL displayed at completion:** Phase 12 now calculates the primary IPv4 address via `hostname -I` and displays it in a clearly bordered completion box — `http://<PRIMARY_IP>` — along with a notice that the VM screen may remain black after install. Eliminates the most common post-install support question.
+- **Access URL displayed at completion:** Phase 12 now calculates the primary IPv4 address via `hostname -I` and displays it in a clearly bordered completion box - `http://<PRIMARY_IP>` - along with a notice that the VM screen may remain black after install. Eliminates the most common post-install support question.
 
 ### 📋 CI / Release Pipeline
 
@@ -1076,9 +1076,9 @@ Drop-in replacement for v3.3.0. No schema changes, no migrations, no config chan
 
 ---
 
-## v3.3.0 (2026-02-22) — **"UX / Security Hardening"**
+## v3.3.0 (2026-02-22) - **"UX / Security Hardening"**
 
-Upgrade from: v3.2.1, v3.2.0, or v3.1.x — Drop-in upgrade via `sudo ./scripts/upgrade-with-rollback.sh`
+Upgrade from: v3.2.1, v3.2.0, or v3.1.x - Drop-in upgrade via `sudo ./scripts/upgrade-with-rollback.sh`
 
 ### ⚡ Architecture: Boot-Order Hardening (`dplaneos-init-db`)
 
@@ -1090,7 +1090,7 @@ Upgrade from: v3.2.1, v3.2.0, or v3.1.x — Drop-in upgrade via `sudo ./scripts/
 ### 🔒 Security: HMAC Audit Chain & Zero-Trust API
 
 - **Tamper-proof audit log:** every administrative action hashed and chained with HMAC-SHA256; WebUI flags integrity violations immediately
-- **Strict parameter validation:** all API inputs (ZFS pool names, Docker IDs, filesystem paths) pass through whitelist-only regex engine — prevents shell injection and malformed parameter attacks
+- **Strict parameter validation:** all API inputs (ZFS pool names, Docker IDs, filesystem paths) pass through whitelist-only regex engine - prevents shell injection and malformed parameter attacks
 - **RBAC foundation:** SQLite schema extended with dedicated Role-Based Access Control tables; groundwork for multi-user / enterprise deployments
 
 ### 🔌 Storage: Real-Time udev Reactivity
@@ -1098,13 +1098,13 @@ Upgrade from: v3.2.1, v3.2.0, or v3.1.x — Drop-in upgrade via `sudo ./scripts/
 - New udev rules trigger immediate WebUI updates on hardware state changes
 - Detects insertion/removal of USB storage devices, optical media (CD/DVD/Blu-ray)
 - WebUI can issue physical eject commands to compatible drives
-- Eject synchronized with ZFS unmount workflows — prevents data loss during media removal
+- Eject synchronized with ZFS unmount workflows - prevents data loss during media removal
 
-### 🔐 Password UX — Unified & Predictable
+### 🔐 Password UX - Unified & Predictable
 
 **Backend (Go)**
-- Password validation centralized via `validatePasswordStrength()` — eliminates rule drift between handlers
-- All password inputs normalized with `strings.TrimSpace()` — prevents invisible copy/paste whitespace failures
+- Password validation centralized via `validatePasswordStrength()` - eliminates rule drift between handlers
+- All password inputs normalized with `strings.TrimSpace()` - prevents invisible copy/paste whitespace failures
 
 **Frontend**
 - Real-time strength checklist (mirrors backend rules), show/hide toggle, live confirm-match indicator
@@ -1115,7 +1115,7 @@ Upgrade from: v3.2.1, v3.2.0, or v3.1.x — Drop-in upgrade via `sudo ./scripts/
 
 - All toast notifications now fully dismissible (×), unified top-right positioning, hover pauses auto-dismiss
 - **Unsaved Changes Guard:** Material Design 3 warning banner + browser `beforeunload` safeguard; applied to `network.html`, `settings.html`
-- **Double-submit protection:** apply/save buttons disabled during API calls, safe re-enable via `finally` logic — prevents duplicate operations and race conditions
+- **Double-submit protection:** apply/save buttons disabled during API calls, safe re-enable via `finally` logic - prevents duplicate operations and race conditions
 
 ### 🎨 UI: Material Design 3 Proportions
 
@@ -1135,7 +1135,7 @@ Drop-in replacement for v3.2.1. No schema changes, no migrations required (optio
 
 ---
 
-## v3.2.1 (2026-02-21) — **"XSS Sanitisation"**
+## v3.2.1 (2026-02-21) - **"XSS Sanitisation"**
 
 ### 🔒 Security: Frontend XSS sanitisation (T5 closure)
 - Added `esc()` / `escapeHtml()` sanitiser to all frontend pages and the alert system
@@ -1153,15 +1153,15 @@ Drop-in replacement for v3.2.1. No schema changes, no migrations required (optio
 
 ---
 
-## v3.2.0 (2026-02-21) — **"networkd Persistence"**
+## v3.2.0 (2026-02-21) - **"networkd Persistence"**
 
 ### ⚡ Architecture: systemd-networkd file writer (networkdwriter)
 - New package `internal/networkdwriter`: writes `/etc/systemd/network/50-dplane-*.{network,netdev}`
-- All network changes now survive reboots AND `nixos-rebuild switch` — no extra steps required
+- All network changes now survive reboots AND `nixos-rebuild switch` - no extra steps required
 - `networkctl reload` used for zero-downtime live reload (< 1 second)
 - Works on every systemd distro: NixOS, Debian, Ubuntu, Arch
 - nixwriter scope reduced to NixOS-only settings (firewall ports, Samba globals)
-- hostname/timezone/NTP already persistent via OS-level tool calls — no nixwriter needed
+- hostname/timezone/NTP already persistent via OS-level tool calls - no nixwriter needed
 
 ### ✅ Completeness
 - All 12 nixwriter methods fully wired; all 9 stanzas covered
@@ -1172,7 +1172,7 @@ Drop-in replacement for v3.2.1. No schema changes, no migrations required (optio
 
 ---
 
-## v3.1.0 (2026-02-21) — **"NixOS Architecture Hardening"**
+## v3.1.0 (2026-02-21) - **"NixOS Architecture Hardening"**
 
 ### ⚡ Architecture: Static musl binary + nixwriter + boot reconciler
 - Static musl binary via `pkgsStatic`: glibc-independent, survives NixOS upgrades
@@ -1183,7 +1183,7 @@ Drop-in replacement for v3.2.1. No schema changes, no migrations required (optio
 
 ### 🔒 Security & Stability
 - SSH hardening: `PasswordAuthentication=false`, `PermitRootLogin=no`; new `sshKeys` NixOS module option
-- Support bundle: `POST /api/system/support-bundle` — streams diagnostic `.tar.gz` (ZFS, SMART, journal, audit tail)
+- Support bundle: `POST /api/system/support-bundle` - streams diagnostic `.tar.gz` (ZFS, SMART, journal, audit tail)
 - Pre-upgrade ZFS snapshots: automatic `@pre-upgrade-<timestamp>` on all pools before every `nixos-rebuild switch`; `GET /api/nixos/pre-upgrade-snapshots`
 - Webhook alerting: generic HTTP webhooks for all system events; `GET/POST/DELETE /api/alerts/webhooks`, test endpoint
 - Audit HMAC chain: tamper-evident audit log with HMAC-SHA256; `GET /api/system/audit/verify-chain`; key at `/var/lib/dplaneos/audit.key`
@@ -1239,11 +1239,11 @@ POST   /api/zfs/capacity/release
 
 ---
 
-## v3.0.0 (2026-02-18) — **"Native Docker API"**
+## v3.0.0 (2026-02-18) - **"Native Docker API"**
 
 ### ⚡ Major: Docker exec.Command → stdlib REST client
 
-All container lifecycle operations now use the Docker Engine REST API directly over `/var/run/docker.sock` via a thin stdlib `net/http` client — zero new dependencies, no CGO, no shell involved.
+All container lifecycle operations now use the Docker Engine REST API directly over `/var/run/docker.sock` via a thin stdlib `net/http` client - zero new dependencies, no CGO, no shell involved.
 
 **New package: `internal/dockerclient`** (pure stdlib, no imports outside std library)
 
@@ -1264,33 +1264,33 @@ All container lifecycle operations now use the Docker Engine REST API directly o
 
 ### ⚡ Major: Linux netlink (`ip link/addr/route`) → stdlib syscall client
 
-New package: `internal/netlinkx` — rtnetlink via raw `syscall.Socket(AF_NETLINK, ...)`, no external dependencies, no CGO. Replaces ~15 `ip(8)` exec calls across `system.go` and `network_advanced.go`.
+New package: `internal/netlinkx` - rtnetlink via raw `syscall.Socket(AF_NETLINK, ...)`, no external dependencies, no CGO. Replaces ~15 `ip(8)` exec calls across `system.go` and `network_advanced.go`.
 
 ### 🔒 Security fix: Git repository URL RCE via `ext::` transport
 
-**Severity: Critical** — `ext::` transport executes arbitrary subprocesses as root daemon user. Fix: `validateRepoURL()` enforces allowlist of permitted schemes (`https://`, `http://`, `git://`, `ssh://`, `git@host:path`). Blocks `ext::`, `file://`, `fd::`, and custom transports. Applied at `TestConnectivity` and `SaveRepo`.
+**Severity: Critical** - `ext::` transport executes arbitrary subprocesses as root daemon user. Fix: `validateRepoURL()` enforces allowlist of permitted schemes (`https://`, `http://`, `git://`, `ssh://`, `git@host:path`). Blocks `ext::`, `file://`, `fd::`, and custom transports. Applied at `TestConnectivity` and `SaveRepo`.
 
 ### 🎨 UI Consolidation
-- Shared navigation injected via `nav-shared.js` — eliminates 8KB nav HTML duplicated across 20 pages
+- Shared navigation injected via `nav-shared.js` - eliminates 8KB nav HTML duplicated across 20 pages
 - `dplaneos-ui-complete.css` now includes global reset
 - NixOS configuration files added (`nixos/flake.nix`, `nixos/module.nix`, `nixos/configuration-standalone.nix`, `nixos/setup-nixos.sh`)
 
 ---
 
-## v2.2.1 (2026-02-18) — **"Security & Reliability Audit Fixes"**
+## v2.2.1 (2026-02-18) - **"Security & Reliability Audit Fixes"**
 
 ### 🔴 Critical: Runtime ZFS Pool Loss → Docker Still Running
-- New `pool_heartbeat.go` — `maybeStopDocker()`: calls `systemctl stop docker` on `SUSPENDED/UNAVAIL` or write-probe failure
+- New `pool_heartbeat.go` - `maybeStopDocker()`: calls `systemctl stop docker` on `SUSPENDED/UNAVAIL` or write-probe failure
 - Guard fires only once per failure window, resets on pool recovery
 
 ### 🔴 Critical: Path Traversal in Git Sync compose_path
 - `validateComposePath()`: rejects absolute paths/null bytes, `filepath.Clean()` + prefix check
 - Applied in 4 places: `SaveRepo`, `DeployRepo`, `ExportToRepo`, `PushRepo`
 
-### 🟡 Medium: Audit Buffer — Security Events Lost on SIGKILL
+### 🟡 Medium: Audit Buffer - Security Events Lost on SIGKILL
 - 10 security-critical action types bypass buffer, write directly to SQLite: `login`, `login_failed`, `logout`, `auth_failed`, `permission_denied`, `user_created/deleted`, `password_changed`, `token_created/revoked`
 
-### 🟡 Medium: Health Check — False Positives for Slow Apps
+### 🟡 Medium: Health Check - False Positives for Slow Apps
 - `waitForHealthy()` polls every 2s with Docker `HEALTHCHECK` awareness; default raised from 5s to 30s; `unhealthy` fails immediately
 
 ### 🟢 Low: ECC Detection Unreliable in VMs
@@ -1298,11 +1298,11 @@ New package: `internal/netlinkx` — rtnetlink via raw `syscall.Socket(AF_NETLIN
 
 ---
 
-## v2.2.0 (2026-02-17) — **"Git Sync: Bidirectional Multi-Repo"**
+## v2.2.0 (2026-02-17) - **"Git Sync: Bidirectional Multi-Repo"**
 
 ### ✨ New Feature: Bidirectional Git Sync
 
-Full GitHub/Gitea integration for Docker Compose stacks — no external tool required.
+Full GitHub/Gitea integration for Docker Compose stacks - no external tool required.
 
 | Direction | Trigger | Effect |
 |---|---|---|
@@ -1313,17 +1313,17 @@ Full GitHub/Gitea integration for Docker Compose stacks — no external tool req
 
 - Multi-repo syncs with per-sync credential references, auto-sync intervals, commit author identity
 - Credential store (`git_credentials` table): PAT via `GIT_ASKPASS`, SSH key via `GIT_SSH_COMMAND`
-- New backend: `git_sync_repos.go` — full CRUD + pull/push/deploy/export endpoints
-- New frontend: `git-sync.html` (956 lines) — three-tab layout, per-sync cards, PAT setup wizard
+- New backend: `git_sync_repos.go` - full CRUD + pull/push/deploy/export endpoints
+- New frontend: `git-sync.html` (956 lines) - three-tab layout, per-sync cards, PAT setup wizard
 - Legacy single-repo config fully preserved on "Legacy Config" tab
 
 ---
 
-## v2.1.1 (2026-02-17) — **"Security, Stability & Architecture"**
+## v2.1.1 (2026-02-17) - **"Security, Stability & Architecture"**
 
 ### 🔴 Showstopper Fix: ZFS-Docker Boot Race (Critical)
 - Hard systemd gate (`dplaneos-zfs-mount-wait.service`): polls until every configured pool is `ONLINE`, mounted, and writable
-- `dplaned.service` and `docker.service` both `Require=` this gate — cannot start without it
+- `dplaned.service` and `docker.service` both `Require=` this gate - cannot start without it
 - 5-minute timeout with 30-second progress logging
 
 ### 🟡 Notification Debouncing (Flooding Fix)
@@ -1344,11 +1344,11 @@ Full GitHub/Gitea integration for Docker Compose stacks — no external tool req
 
 ---
 
-## v2.1.0 (2026-02-15) — **"ZFS-Docker Integration"**
+## v2.1.0 (2026-02-15) - **"ZFS-Docker Integration"**
 
 ### ⚡ Safe Container Updates (Killer Feature)
 
-`POST /api/docker/update` — atomic container updates with ZFS data protection:
+`POST /api/docker/update` - atomic container updates with ZFS data protection:
 1. Creates ZFS snapshot of container volume
 2. Pulls new image
 3. Stops and restarts container
@@ -1365,7 +1365,7 @@ Full GitHub/Gitea integration for Docker Compose stacks — no external tool req
 
 ---
 
-## v2.0.0 (2026-02-12) — **"Ground-Up Rewrite"**
+## v2.0.0 (2026-02-12) - **"Ground-Up Rewrite"**
 
 Complete rewrite: PHP/Apache stack replaced by single Go binary (`dplaned`, 8 MB). Not an in-place upgrade from v1.x.
 
@@ -1388,7 +1388,7 @@ Fresh install required. ZFS pools, datasets, shares, and Docker containers prese
 
 ---
 
-## v1.14.0-OMEGA (2026-02-01) — **"OMEGA Edition"**
+## v1.14.0-OMEGA (2026-02-01) - **"OMEGA Edition"**
 
 First fully production-ready PHP release. Fixes 7 critical infrastructure bugs.
 
@@ -1402,19 +1402,19 @@ First fully production-ready PHP release. Fixes 7 critical infrastructure bugs.
 
 ---
 
-## v1.12.0 (2026-01-31) — **"The Big Fix"**
+## v1.12.0 (2026-01-31) - **"The Big Fix"**
 
-45 vulnerabilities from comprehensive penetration test — 10 Critical, 7 High fixed.
-
----
-
-## v1.11.0 (2026-01-31) — **"Vibecoded Security Theater Fix"**
-
-- `execCommand()` checked if string `"escapeshellarg"` appeared in command, not whether arguments were actually escaped — 108 vulnerable call sites. Complete rewrite with strict command whitelisting.
+45 vulnerabilities from comprehensive penetration test - 10 Critical, 7 High fixed.
 
 ---
 
-## v1.10.0 (2026-01-31) — **"Smart State Polling & One-Click Updates"**
+## v1.11.0 (2026-01-31) - **"Vibecoded Security Theater Fix"**
+
+- `execCommand()` checked if string `"escapeshellarg"` appeared in command, not whether arguments were actually escaped - 108 vulnerable call sites. Complete rewrite with strict command whitelisting.
+
+---
+
+## v1.10.0 (2026-01-31) - **"Smart State Polling & One-Click Updates"**
 
 - ETag-based smart polling (95% bandwidth reduction, 88% CPU reduction)
 - ZFS snapshot-based update system with automatic rollback
@@ -1422,32 +1422,32 @@ First fully production-ready PHP release. Fixes 7 critical infrastructure bugs.
 
 ---
 
-## v1.9.0 (2026-01-30) — **"RBAC & Security Fixes"**
+## v1.9.0 (2026-01-30) - **"RBAC & Security Fixes"**
 
 - Role-Based Access Control: Admin, User, Readonly roles
 - 7 critical security fixes including session fixation, wildcard sudoers, Docker Compose YAML injection
 
 ---
 
-## v1.8.0 (2026-01-28) — **"Power User Release"**
+## v1.8.0 (2026-01-28) - **"Power User Release"**
 
-- File browser, ZFS native encryption, system service control, real-time monitoring — all 14 tabs functional
+- File browser, ZFS native encryption, system service control, real-time monitoring - all 14 tabs functional
 
 ---
 
-## v1.7.0 (2026-01-28) — **"The Paranoia Update"**
+## v1.7.0 (2026-01-28) - **"The Paranoia Update"**
 
 - UPS/USV management (NUT), automatic snapshot scheduling, system log viewer
 
 ---
 
-## v1.6.0 (2026-01-28) — **"Disk Health & Notifications"**
+## v1.6.0 (2026-01-28) - **"Disk Health & Notifications"**
 
 - SMART monitoring, disk replacement tracking, notification center
 
 ---
 
-## v1.2.0 — **"Initial Public Release"**
+## v1.2.0 - **"Initial Public Release"**
 
 - ZFS management, Docker integration, system monitoring, session auth, audit logging, CSRF protection
 
@@ -1474,3 +1474,4 @@ cd dplaneos && sudo make install
 **Security issues:** GitHub issues with `security` label. Response: Critical 24h, High 72h, Medium/Low 1 week.
 **Bug reports:** GitHub issue with version, steps to reproduce, and logs.
 **Feature requests:** GitHub issue with `enhancement` label.
+

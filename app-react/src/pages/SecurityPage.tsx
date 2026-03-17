@@ -1,4 +1,4 @@
-/**
+﻿/**
  * pages/SecurityPage.tsx
  *
  * Tabs: Password | 2FA / TOTP | API Tokens | Audit Log
@@ -51,7 +51,7 @@ function fmtDate(s?: string) {
 }
 
 // ---------------------------------------------------------------------------
-// PasswordStrengthBar — mirrors daemon validatePasswordStrength rules exactly
+// PasswordStrengthBar - mirrors daemon validatePasswordStrength rules exactly
 // ---------------------------------------------------------------------------
 
 interface StrengthResult {
@@ -108,7 +108,7 @@ function PasswordStrengthBar({ password }: { password: string }) {
 }
 
 // ---------------------------------------------------------------------------
-// PasswordTab — change own password via POST /api/auth/change-password
+// PasswordTab - change own password via POST /api/auth/change-password
 // ---------------------------------------------------------------------------
 
 function PasswordTab() {
@@ -397,7 +397,7 @@ function TokensTab() {
         <div className="alert alert-success" style={{ marginBottom: 20 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
             <Icon name="check_circle" size={16} style={{ color: 'var(--success)' }} />
-            <span style={{ fontWeight: 700, color: 'var(--success)' }}>Token created — copy it now, it won't be shown again</span>
+            <span style={{ fontWeight: 700, color: 'var(--success)' }}>Token created - copy it now, it won't be shown again</span>
           </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
             <code style={{ flex: 1, fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)', background: 'var(--surface)', padding: '10px 14px', borderRadius: 'var(--radius-sm)', overflow: 'auto', wordBreak: 'break-all', color: 'var(--text)' }}>
@@ -476,7 +476,7 @@ function AuditTab() {
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 24 }}>
         <div className="card" style={{ borderRadius: 'var(--radius-lg)', padding: '18px 22px' }}>
           <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 8 }}>Total Entries</div>
-          <div style={{ fontSize: 28, fontWeight: 700, fontFamily: 'var(--font-mono)', color: 'var(--primary)' }}>{stats?.total_entries ?? '—'}</div>
+          <div style={{ fontSize: 28, fontWeight: 700, fontFamily: 'var(--font-mono)', color: 'var(--primary)' }}>{stats?.total_entries ?? '-'}</div>
         </div>
         <div style={{ background: 'var(--bg-card)', border: `1px solid ${chainOk ? 'var(--success-border)' : 'var(--error-border)'}`, borderRadius: 'var(--radius-lg)', padding: '18px 22px' }}>
           <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 8 }}>Audit Chain</div>
@@ -540,3 +540,4 @@ export function SecurityPage() {
     </div>
   )
 }
+

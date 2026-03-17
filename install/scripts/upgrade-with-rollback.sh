@@ -1,4 +1,4 @@
-#!/bin/bash
+﻿#!/bin/bash
 #
 # D-PlaneOS - Safe Upgrade with Automatic Rollback
 #
@@ -159,7 +159,7 @@ echo "Stopping services..."
 systemctl stop apache2 2>/dev/null || true
 systemctl stop nginx 2>/dev/null || true
 systemctl stop dplaned 2>/dev/null || true
-# (PHP-FPM removed — Go architecture)
+# (PHP-FPM removed - Go architecture)
 systemctl stop dplaned 2>/dev/null || true
 
 # Restore database
@@ -271,3 +271,4 @@ else
     error "install.sh not found in current directory!"
     exit 1
 fi
+

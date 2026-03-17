@@ -1,4 +1,4 @@
-//go:build linux
+﻿//go:build linux
 
 package indexing
 
@@ -237,7 +237,7 @@ func (h *HybridIndexer) GetStatus() IndexingStatus {
 func (h *HybridIndexer) Stop() {
 	h.cancel()
 
-	// Close all inotify file descriptors — causes drainInotify goroutines to exit
+	// Close all inotify file descriptors - causes drainInotify goroutines to exit
 	h.mutex.Lock()
 	for path, f := range h.realtimeWatches {
 		f.Close()
@@ -311,3 +311,4 @@ func (s *PeriodicScanner) scan() {
 func (s *PeriodicScanner) Stop() {
 	s.stopChan <- true
 }
+

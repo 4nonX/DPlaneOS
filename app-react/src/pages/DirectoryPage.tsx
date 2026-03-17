@@ -1,5 +1,5 @@
-/**
- * pages/DirectoryPage.tsx — LDAP / Directory Service (Phase 5)
+﻿/**
+ * pages/DirectoryPage.tsx - LDAP / Directory Service (Phase 5)
  *
  * Calls (matching daemon routes exactly):
  *   GET  /api/ldap/config              → { success, ...LdapConfig }
@@ -370,3 +370,4 @@ export function DirectoryPage() {
     </div>
   )
 }
+

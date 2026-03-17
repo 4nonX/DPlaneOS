@@ -1,4 +1,4 @@
-/**
+﻿/**
  * components/ui/JobProgress.tsx
  *
  * Displays the status of an async daemon job (replication, docker pull, etc.).
@@ -57,7 +57,7 @@ export function JobProgress({
           gap: '8px'}}
       >
         <Icon name="warning" size={16} />
-        Operation interrupted — daemon restarted mid-job. Please retry.
+        Operation interrupted - daemon restarted mid-job. Please retry.
       </div>
     )
   }
@@ -115,3 +115,4 @@ export function JobProgress({
 
   return null
 }
+

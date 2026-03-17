@@ -1,4 +1,4 @@
-package handlers
+﻿package handlers
 
 import (
 	"encoding/json"
@@ -89,7 +89,7 @@ func ReloadNFSExports(w http.ResponseWriter, r *http.Request) {
 func ListNFSExports(w http.ResponseWriter, r *http.Request) {
 	output, err := cmdutil.RunFast("exportfs", "-v")
 	if err != nil {
-		// exportfs not installed or NFS not configured — return empty list, not 500
+		// exportfs not installed or NFS not configured - return empty list, not 500
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": true,
@@ -105,3 +105,4 @@ func ListNFSExports(w http.ResponseWriter, r *http.Request) {
 		"output":  string(output),
 	})
 }
+

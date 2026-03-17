@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 /**
  * D-PlaneOS v1.14.0 - Network Management
  * Real network commands for interface/IP/DNS/firewall management
@@ -216,7 +216,7 @@ class NetworkManager {
         return ['success' => true];
     }
     // ─── Tailscale Management ──────────────────────────────
-    // One-click WireGuard tunnel — makes the NAS reachable from anywhere
+    // One-click WireGuard tunnel - makes the NAS reachable from anywhere
     // without port forwarding.
     
     public function tailscaleStatus() {
@@ -402,3 +402,4 @@ switch ($action) {
     default:
         echo json_encode(['error' => 'Unknown action']);
 }
+

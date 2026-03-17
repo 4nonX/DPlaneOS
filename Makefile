@@ -1,4 +1,4 @@
-.PHONY: all build install test clean deps
+﻿.PHONY: all build install test clean deps
 
 BINARY_NAME=dplaned
 BUILD_DIR=build
@@ -60,7 +60,7 @@ install:
 		sudo install -m 755 install/zed/dplaneos-notify.sh /etc/zfs/zed.d/ && \
 		echo "ZED hook installed"; \
 	else \
-		echo "Warning: /etc/zfs/zed.d not found — ZED hook skipped (install ZFS first)"; \
+		echo "Warning: /etc/zfs/zed.d not found - ZED hook skipped (install ZFS first)"; \
 	fi
 	# udev rules for removable media detection
 	sudo install -m 644 install/udev/99-dplaneos-removable-media.rules /etc/udev/rules.d/ 2>/dev/null && \
@@ -123,3 +123,4 @@ help:
 	@echo "  status       - Check daemon status"
 	@echo "  logs         - Follow daemon logs"
 	@echo "  audit        - Follow audit logs"
+

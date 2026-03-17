@@ -1,5 +1,5 @@
-/**
- * D-PlaneOS API Client — v4.0
+﻿/**
+ * D-PlaneOS API Client - v4.0
  *
  * Single source of truth for all daemon communication.
  *
@@ -57,7 +57,7 @@ export async function initCsrf(): Promise<void> {
 
 export function getCsrfToken(): string {
   if (!csrfToken) {
-    throw new Error('CSRF token not initialised — initCsrf() must complete before any mutation')
+    throw new Error('CSRF token not initialised - initCsrf() must complete before any mutation')
   }
   return csrfToken
 }
@@ -89,7 +89,7 @@ export function clearSession(): void {
 // ---------------------------------------------------------------------------
 
 /**
- * apiFetch — the only way to talk to the daemon.
+ * apiFetch - the only way to talk to the daemon.
  *
  * - Injects X-CSRF-Token on mutations.
  * - Injects X-Session-ID and X-User on every request.
@@ -297,3 +297,4 @@ export const api = {
     return isMockActiveFlag && (sessionId === 'mock_session_id' || !sessionId)
   }
 }
+

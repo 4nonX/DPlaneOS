@@ -1,17 +1,17 @@
 {
-  description = "D-PlaneOS v5.0 — NAS Operating System (Appliance Build)";
+  description = "D-PlaneOS v5.0 : NAS Operating System (Appliance Build)";
 
   # ── Inputs ─────────────────────────────────────────────────────────────────
   #
   # PINNING STRATEGY (Task 4.3):
   #
   # nixpkgs is pinned to nixos-25.11 (the current stable channel).
-  # We do NOT track nixpkgs-unstable — appliance builds must be reproducible.
+  # We do NOT track nixpkgs-unstable : appliance builds must be reproducible.
   #
   # Kernel pin: 6.6 LTS
   #   Linux 6.6 is an LTS kernel supported until December 2026.
   #   nixpkgs 25.11 DEFAULT kernel is 6.12 (changed from 6.6 in 25.05).
-  #   We explicitly pin to 6.6 for proven ZFS compat — still available in
+  #   We explicitly pin to 6.6 for proven ZFS compat : still available in
   #   25.11 as pkgs.linuxPackages_6_6, just no longer the default.
   #   Set via: boot.kernelPackages = pkgs.linuxPackages_6_6
   #
@@ -21,7 +21,7 @@
   #   Pinned via: boot.zfs.package = pkgs.zfs  (NOT pkgs.zfs_unstable)
   #   Verify actual version: nix eval nixpkgs#zfs.version
   #
-  # Both pins are validated by NixOS assertions — if the pinned version is
+  # Both pins are validated by NixOS assertions : if the pinned version is
   # unavailable in the nixpkgs revision, nixos-rebuild fails at eval time.
   #
   inputs = {
@@ -44,7 +44,7 @@
 
   outputs = { self, nixpkgs, flake-utils, disko, impermanence }:
   let
-    # Read version from VERSION file at evaluation time — single source of truth
+    # Read version from VERSION file at evaluation time : single source of truth
     dplaneosVersion = builtins.replaceStrings ["\n"] [""] (builtins.readFile ../VERSION);
   in
     let
@@ -55,7 +55,7 @@
 
         # ── TASK 4.3: Version Pinning ──────────────────────────────────────
 
-        # Kernel: Linux 6.6 LTS (explicit pin — 25.11 default is 6.12)
+        # Kernel: Linux 6.6 LTS (explicit pin : 25.11 default is 6.12)
         # pkgs.linuxPackages_6_6 selects the 6.6.x series from nixpkgs.
         # NixOS will not auto-upgrade across this pin.
         # Upgrade path: linuxPackages_6_6 → linuxPackages_6_12 after ZFS compat check.
@@ -72,7 +72,7 @@
           "zfs.zfs_arc_max=17179869184"
         ];
 
-        # Version assertions — fire at eval time, not runtime.
+        # Version assertions : fire at eval time, not runtime.
         # Prevents silent version drift when nixpkgs is bumped.
         assertions = [
           {
@@ -95,7 +95,7 @@
         # Keep both A and B entries. OTA uses bootctl set-default to switch.
         boot.loader.systemd-boot = {
           enable             = true;
-          configurationLimit = 2;   # A + B only — no old generation clutter
+          configurationLimit = 2;   # A + B only : no old generation clutter
         };
         boot.loader.efi.canTouchEfiVariables = true;
 
@@ -112,7 +112,7 @@
           options   = "--delete-older-than 14d";
         };
 
-        # License: AGPLv3 — OSI-approved, no allowUnfreePredicate needed.
+        # License: AGPLv3 - OSI-approved, no allowUnfreePredicate needed.
       };
 
     in
@@ -134,7 +134,7 @@
         # musl + mattn/go-sqlite3 (amalgamation) = fully self-contained.
         #
         # pkgsStatic = pkgs built for the current system but linked against
-        # musl via the `pkgsCross.musl64` overlay — available in nixpkgs.
+        # musl via the `pkgsCross.musl64` overlay : available in nixpkgs.
         pkgsStatic = pkgs.pkgsStatic;
       in {
         # ── Daemon package (static musl binary) ───────────────────────────
@@ -172,7 +172,7 @@
             fi
           '';
           meta = with nixpkgs.lib; {
-            description = "D-PlaneOS NAS daemon — static musl build";
+            description = "D-PlaneOS NAS daemon : static musl build";
             homepage    = "https://github.com/4nonX/D-PlaneOS";
             license     = licenses.agpl3Only;
             platforms   = supportedSystems;
@@ -192,7 +192,7 @@
           tags    = [ "sqlite_fts5" ];
           ldflags = [ "-s" "-w" "-X" "main.Version=${dplaneosVersion}" ];
           meta = with nixpkgs.lib; {
-            description = "D-PlaneOS NAS daemon — glibc dynamic build (dev only)";
+            description = "D-PlaneOS NAS daemon : glibc dynamic build (dev only)";
             license     = licenses.agpl3Only;
           };
         };
@@ -203,7 +203,7 @@
           buildInputs = with pkgs; [ go gcc musl.dev gopls gotools sqlite git ];
           shellHook = ''
             export CGO_ENABLED=1
-            echo "D-PlaneOS dev shell — use 'go build -tags sqlite_fts5 ./daemon/cmd/dplaned/' to build"
+            echo "D-PlaneOS dev shell : use 'go build -tags sqlite_fts5 ./daemon/cmd/dplaned/' to build"
             echo "For static: CC=musl-gcc go build -tags sqlite_fts5 -ldflags '-linkmode external -extldflags -static' ./daemon/cmd/dplaned/"
           '';
         };

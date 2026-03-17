@@ -1,13 +1,13 @@
-package handlers
+﻿package handlers
 
-// alert_dispatch.go — Central alert dispatch hub
+// alert_dispatch.go - Central alert dispatch hub
 //
 // All subsystems (heartbeat, SMART monitor, capacity guardian, scrub monitor)
 // call DispatchAlert() rather than individual alert functions directly.
 // Wire up from main.go after all alert subsystems are initialized via
 // SetAlertDispatchers().
 
-// Package-level alert function references — set from main.go.
+// Package-level alert function references - set from main.go.
 var (
 	webhookAlertFn  func(event, resource, message string)
 	smtpAlertFn     func(subject, body string)
@@ -51,6 +51,7 @@ func DispatchAlert(level, event, resource, message string) {
 		smtpAlertFn("[D-PlaneOS] "+event+": "+resource, message)
 	}
 	if telegramAlertFn != nil && level == "critical" {
-		telegramAlertFn("🚨 " + event + " — " + resource + "\n" + message)
+		telegramAlertFn("🚨 " + event + " - " + resource + "\n" + message)
 	}
 }
+

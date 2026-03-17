@@ -1,4 +1,4 @@
-package handlers
+﻿package handlers
 
 import (
 	"context"
@@ -32,7 +32,7 @@ func NewGitReposHandler(db *sql.DB) *GitReposHandler {
 //  Credential Management
 // ─────────────────────────────────────────────
 
-// ListCredentials — GET /api/git-sync/credentials
+// ListCredentials - GET /api/git-sync/credentials
 func (h *GitReposHandler) ListCredentials(w http.ResponseWriter, r *http.Request) {
 	rows, err := h.db.Query(`SELECT id, name, host, auth_type, notes, created_at,
 		CASE WHEN length(token) > 0 THEN 1 ELSE 0 END as has_token,
@@ -62,7 +62,7 @@ func (h *GitReposHandler) ListCredentials(w http.ResponseWriter, r *http.Request
 	respondJSON(w, 200, map[string]interface{}{"success": true, "credentials": creds})
 }
 
-// SaveCredential — POST /api/git-sync/credentials
+// SaveCredential - POST /api/git-sync/credentials
 func (h *GitReposHandler) SaveCredential(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		ID       *int   `json:"id"`
@@ -92,7 +92,7 @@ func (h *GitReposHandler) SaveCredential(w http.ResponseWriter, r *http.Request)
 	// SSH key is stored as text in the DB (not written to disk here).
 	// buildCredentialEnv writes it to a temp file only when needed for a git operation.
 	if req.ID != nil {
-		// Update existing — only update token/key if non-empty (empty = keep existing)
+		// Update existing - only update token/key if non-empty (empty = keep existing)
 		if req.Token != "" && req.AuthType == "token" {
 			h.db.Exec(`UPDATE git_credentials SET name=?, host=?, auth_type=?, token=?, ssh_key='', notes=? WHERE id=?`,
 				req.Name, req.Host, req.AuthType, req.Token, req.Notes, *req.ID)
@@ -107,7 +107,7 @@ func (h *GitReposHandler) SaveCredential(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// Insert — store key text directly in DB
+	// Insert - store key text directly in DB
 	tokenStore := req.Token
 	sshKeyStore := req.SSHKey
 	if req.AuthType == "ssh" {
@@ -130,7 +130,7 @@ func (h *GitReposHandler) SaveCredential(w http.ResponseWriter, r *http.Request)
 	respondJSON(w, 200, map[string]interface{}{"success": true, "id": id})
 }
 
-// TestCredential — POST /api/git-sync/credentials/test
+// TestCredential - POST /api/git-sync/credentials/test
 func (h *GitReposHandler) TestCredential(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		CredentialID int    `json:"credential_id"`
@@ -180,7 +180,7 @@ func (h *GitReposHandler) TestCredential(w http.ResponseWriter, r *http.Request)
 	})
 }
 
-// DeleteCredential — DELETE /api/git-sync/credentials/{id}
+// DeleteCredential - DELETE /api/git-sync/credentials/{id}
 func (h *GitReposHandler) DeleteCredential(w http.ResponseWriter, r *http.Request) {
 	idStr := r.URL.Query().Get("id")
 	if idStr == "" {
@@ -191,9 +191,9 @@ func (h *GitReposHandler) DeleteCredential(w http.ResponseWriter, r *http.Reques
 	respondJSON(w, 200, map[string]interface{}{"success": true})
 }
 
-// ListBranches — GET /api/git-sync/credentials/branches?id=N&url=...
+// ListBranches - GET /api/git-sync/credentials/branches?id=N&url=...
 // Lists remote branches for a repo URL using the given credential.
-// Mirrors Arcane's ListBranches — used by the UI to populate branch dropdowns.
+// Mirrors Arcane's ListBranches - used by the UI to populate branch dropdowns.
 func (h *GitReposHandler) ListBranches(w http.ResponseWriter, r *http.Request) {
 	credIDStr := r.URL.Query().Get("id")
 	repoURL := r.URL.Query().Get("url")
@@ -259,9 +259,9 @@ func (h *GitReposHandler) ListBranches(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, 200, map[string]interface{}{"success": true, "branches": branches})
 }
 
-// BrowseFiles — GET /api/git-sync/repos/browse?id=N&path=subdir
+// BrowseFiles - GET /api/git-sync/repos/browse?id=N&path=subdir
 // Clones the repo (or reuses existing clone) and returns the file tree at path.
-// Mirrors Arcane's BrowseFiles — used by the UI to pick the compose file path.
+// Mirrors Arcane's BrowseFiles - used by the UI to pick the compose file path.
 func (h *GitReposHandler) BrowseFiles(w http.ResponseWriter, r *http.Request) {
 	idStr := r.URL.Query().Get("id")
 	browsePath := r.URL.Query().Get("path") // relative path within repo, default ""
@@ -274,7 +274,7 @@ func (h *GitReposHandler) BrowseFiles(w http.ResponseWriter, r *http.Request) {
 	if _, err := os.Stat(filepath.Join(repo.LocalPath, ".git")); err != nil {
 		respondJSON(w, 400, map[string]interface{}{
 			"success": false,
-			"error":   "Repository not cloned yet — pull first to enable file browsing",
+			"error":   "Repository not cloned yet - pull first to enable file browsing",
 		})
 		return
 	}
@@ -370,7 +370,7 @@ type repoSync struct {
 	Enabled      bool   `json:"enabled"`
 }
 
-// ListRepos — GET /api/git-sync/repos
+// ListRepos - GET /api/git-sync/repos
 func (h *GitReposHandler) ListRepos(w http.ResponseWriter, r *http.Request) {
 	rows, err := h.db.Query(`SELECT r.id, r.name, r.repo_url, r.branch, r.local_path,
 		r.compose_path, r.auto_sync, r.sync_interval,
@@ -418,7 +418,7 @@ func (h *GitReposHandler) ListRepos(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, 200, map[string]interface{}{"success": true, "repos": repos})
 }
 
-// SaveRepo — POST /api/git-sync/repos
+// SaveRepo - POST /api/git-sync/repos
 func (h *GitReposHandler) SaveRepo(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		ID           *int   `json:"id"`
@@ -455,7 +455,7 @@ func (h *GitReposHandler) SaveRepo(w http.ResponseWriter, r *http.Request) {
 	if req.ComposePath == "" {
 		req.ComposePath = "docker-compose.yml"
 	}
-	// Validate compose path to prevent path traversal — validate against a placeholder
+	// Validate compose path to prevent path traversal - validate against a placeholder
 	// root since local_path is computed from name (not stored yet)
 	placeholderRoot := config.GitStacksDir + "/" + sanitizeName(req.Name)
 	if _, err := validateComposePath(placeholderRoot, req.ComposePath); err != nil {
@@ -521,7 +521,7 @@ func (h *GitReposHandler) SaveRepo(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, 200, map[string]interface{}{"success": true, "id": id})
 }
 
-// DeleteRepo — DELETE /api/git-sync/repos?id=N
+// DeleteRepo - DELETE /api/git-sync/repos?id=N
 func (h *GitReposHandler) DeleteRepo(w http.ResponseWriter, r *http.Request) {
 	idStr := r.URL.Query().Get("id")
 	if idStr == "" {
@@ -535,7 +535,7 @@ func (h *GitReposHandler) DeleteRepo(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, 200, map[string]interface{}{"success": true, "local_path": localPath})
 }
 
-// PullRepo — POST /api/git-sync/repos/pull?id=N
+// PullRepo - POST /api/git-sync/repos/pull?id=N
 func (h *GitReposHandler) PullRepo(w http.ResponseWriter, r *http.Request) {
 	idStr := r.URL.Query().Get("id")
 	repo, err := h.loadRepo(idStr)
@@ -568,11 +568,11 @@ func (h *GitReposHandler) PullRepo(w http.ResponseWriter, r *http.Request) {
 	commit := getHeadCommit(repo.LocalPath)
 	h.db.Exec(`UPDATE git_sync_repos SET last_sync_at=?, last_commit=?, last_error='' WHERE id=?`,
 		time.Now().Format(time.RFC3339), commit, idStr)
-	log.Printf("GIT-REPOS: Pulled %s — %s", repo.Name, commit)
+	log.Printf("GIT-REPOS: Pulled %s - %s", repo.Name, commit)
 	respondJSON(w, 200, map[string]interface{}{"success": true, "commit": commit, "output": out})
 }
 
-// PushRepo — POST /api/git-sync/repos/push?id=N
+// PushRepo - POST /api/git-sync/repos/push?id=N
 // Commits current state of compose_path and pushes to remote
 func (h *GitReposHandler) PushRepo(w http.ResponseWriter, r *http.Request) {
 	idStr := r.URL.Query().Get("id")
@@ -590,7 +590,7 @@ func (h *GitReposHandler) PushRepo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if _, err := os.Stat(filepath.Join(repo.LocalPath, ".git")); err != nil {
-		respondJSON(w, 400, map[string]interface{}{"success": false, "error": "Repository not cloned yet — pull first"})
+		respondJSON(w, 400, map[string]interface{}{"success": false, "error": "Repository not cloned yet - pull first"})
 		return
 	}
 
@@ -602,7 +602,7 @@ func (h *GitReposHandler) PushRepo(w http.ResponseWriter, r *http.Request) {
 	runGitInDir(repo.LocalPath, nil, "config", "user.name", repo.CommitName)
 	runGitInDir(repo.LocalPath, nil, "config", "user.email", repo.CommitEmail)
 
-	// Stage only the compose file (not entire repo) — validate path first
+	// Stage only the compose file (not entire repo) - validate path first
 	_, pathErr := validateComposePath(repo.LocalPath, repo.ComposePath)
 	if pathErr != nil {
 		respondJSON(w, 400, map[string]interface{}{"success": false, "error": "compose_path: " + pathErr.Error()})
@@ -635,11 +635,11 @@ func (h *GitReposHandler) PushRepo(w http.ResponseWriter, r *http.Request) {
 	commit := getHeadCommit(repo.LocalPath)
 	h.db.Exec(`UPDATE git_sync_repos SET last_commit=?, last_sync_at=? WHERE id=?`,
 		commit, time.Now().Format(time.RFC3339), idStr)
-	log.Printf("GIT-REPOS: Pushed %s — %s", repo.Name, commit)
+	log.Printf("GIT-REPOS: Pushed %s - %s", repo.Name, commit)
 	respondJSON(w, 200, map[string]interface{}{"success": true, "commit": commit})
 }
 
-// DeployRepo — POST /api/git-sync/repos/deploy?id=N
+// DeployRepo - POST /api/git-sync/repos/deploy?id=N
 // Runs docker compose up -d for the repo's compose file
 func (h *GitReposHandler) DeployRepo(w http.ResponseWriter, r *http.Request) {
 	idStr := r.URL.Query().Get("id")
@@ -656,7 +656,7 @@ func (h *GitReposHandler) DeployRepo(w http.ResponseWriter, r *http.Request) {
 	}
 	if _, err := os.Stat(composeFull); err != nil {
 		respondJSON(w, 400, map[string]interface{}{"success": false,
-			"error": fmt.Sprintf("Compose file not found at %s — pull first", composeFull)})
+			"error": fmt.Sprintf("Compose file not found at %s - pull first", composeFull)})
 		return
 	}
 
@@ -668,7 +668,7 @@ func (h *GitReposHandler) DeployRepo(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, 200, map[string]interface{}{"success": true, "output": string(out)})
 }
 
-// ExportToRepo — POST /api/git-sync/repos/export?id=N
+// ExportToRepo - POST /api/git-sync/repos/export?id=N
 // Exports running stack as compose YAML into the repo, ready to commit
 func (h *GitReposHandler) ExportToRepo(w http.ResponseWriter, r *http.Request) {
 	idStr := r.URL.Query().Get("id")
@@ -683,7 +683,7 @@ func (h *GitReposHandler) ExportToRepo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if _, err := os.Stat(filepath.Join(repo.LocalPath, ".git")); err != nil {
-		respondJSON(w, 400, map[string]interface{}{"success": false, "error": "Repository not cloned yet — pull first"})
+		respondJSON(w, 400, map[string]interface{}{"success": false, "error": "Repository not cloned yet - pull first"})
 		return
 	}
 
@@ -853,7 +853,7 @@ func validateRepoURL(rawURL string) error {
 		return fmt.Errorf("repo_url too long (max 512 chars)")
 	}
 
-	// SCP-style git@host:path — validate before trying to parse as URL
+	// SCP-style git@host:path - validate before trying to parse as URL
 	scpRe := regexp.MustCompile(`^[a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+:[a-zA-Z0-9._/~-]`)
 	if scpRe.MatchString(rawURL) {
 		return nil
@@ -955,3 +955,4 @@ func validateComposePath(localPath, composePath string) (string, error) {
 	}
 	return full, nil
 }
+

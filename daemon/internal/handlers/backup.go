@@ -1,4 +1,4 @@
-package handlers
+﻿package handlers
 
 import (
 	"encoding/json"
@@ -74,7 +74,7 @@ func appendTask(t *BackupTask) {
 
 	data, _ := os.ReadFile(backupTasksFile())
 	var tasks []*BackupTask
-	json.Unmarshal(data, &tasks) // ignore error — start fresh if corrupt
+	json.Unmarshal(data, &tasks) // ignore error - start fresh if corrupt
 	tasks = append(tasks, t)
 	saveTasks(tasks) //nolint:errcheck
 }
@@ -229,3 +229,4 @@ func DeleteBackupTask(w http.ResponseWriter, r *http.Request) {
 
 	respondOK(w, map[string]interface{}{"success": true, "deleted": id})
 }
+

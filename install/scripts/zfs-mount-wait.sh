@@ -1,4 +1,4 @@
-#!/bin/bash
+﻿#!/bin/bash
 #
 # D-PlaneOS ZFS Mount Readiness Gate
 #
@@ -35,7 +35,7 @@ rm -f "$READY_MARKER"
 
 # --- Step 1: Check if ZFS is available at all ---
 if ! command -v zpool &>/dev/null; then
-    log "ZFS not available — gate passed (no ZFS to wait for)"
+    log "ZFS not available - gate passed (no ZFS to wait for)"
     touch "$READY_MARKER"
     exit 0
 fi
@@ -53,7 +53,7 @@ if [ -z "$CONFIGURED_POOLS" ]; then
 fi
 
 if [ -z "$CONFIGURED_POOLS" ]; then
-    log "No ZFS pools configured — gate passed (fresh install or no pools)"
+    log "No ZFS pools configured - gate passed (fresh install or no pools)"
     touch "$READY_MARKER"
     exit 0
 fi
@@ -71,7 +71,7 @@ while [ $ELAPSED -lt $TIMEOUT ]; do
         HEALTH=$(zpool list -H -o health "$POOL" 2>/dev/null || echo "UNAVAIL")
         
         if [ "$HEALTH" = "UNAVAIL" ] || [ "$HEALTH" = "FAULTED" ]; then
-            warn "Pool '$POOL' health: $HEALTH — still waiting..."
+            warn "Pool '$POOL' health: $HEALTH - still waiting..."
             ALL_READY=false
             PENDING="$PENDING $POOL"
             continue
@@ -80,7 +80,7 @@ while [ $ELAPSED -lt $TIMEOUT ]; do
         # Check that datasets are actually mounted (not just pool imported)
         MOUNTED=$(zfs list -H -o name,mounted "$POOL" 2>/dev/null | awk '{print $2}' | head -1)
         if [ "$MOUNTED" != "yes" ]; then
-            warn "Pool '$POOL' imported but not yet mounted — still waiting..."
+            warn "Pool '$POOL' imported but not yet mounted - still waiting..."
             ALL_READY=false
             PENDING="$PENDING $POOL"
             continue
@@ -89,12 +89,12 @@ while [ $ELAPSED -lt $TIMEOUT ]; do
         # Check mountpoint is actually writable (the critical test)
         MOUNTPOINT=$(zfs get -H -o value mountpoint "$POOL" 2>/dev/null || echo "")
         if [ -z "$MOUNTPOINT" ] || [ "$MOUNTPOINT" = "none" ] || [ "$MOUNTPOINT" = "legacy" ]; then
-            log "Pool '$POOL' has no standard mountpoint — skipping write check"
+            log "Pool '$POOL' has no standard mountpoint - skipping write check"
             continue
         fi
 
         if ! touch "${MOUNTPOINT}/.dplaneos_mount_probe" 2>/dev/null; then
-            warn "Pool '$POOL' mountpoint '${MOUNTPOINT}' not writable yet — still waiting..."
+            warn "Pool '$POOL' mountpoint '${MOUNTPOINT}' not writable yet - still waiting..."
             ALL_READY=false
             PENDING="$PENDING $POOL"
             continue
@@ -104,7 +104,7 @@ while [ $ELAPSED -lt $TIMEOUT ]; do
     done
 
     if $ALL_READY; then
-        log "All ZFS pools ready — releasing Docker/daemon gate after ${ELAPSED}s"
+        log "All ZFS pools ready - releasing Docker/daemon gate after ${ELAPSED}s"
         touch "$READY_MARKER"
         exit 0
     fi
@@ -125,3 +125,4 @@ fail "Check: journalctl -u zfs-mount.service"
 fail "Check: zpool status"
 fail "To force override (DATA LOSS RISK): touch $READY_MARKER && systemctl start docker dplaned"
 exit 1
+

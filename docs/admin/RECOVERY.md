@@ -1,4 +1,4 @@
-# D-PlaneOS Recovery Guide
+﻿# D-PlaneOS Recovery Guide
 
 ## Quick Reference
 
@@ -71,7 +71,7 @@ sudo systemctl stop dplaned
 # Replace corrupted database with backup
 sudo cp /var/lib/dplaneos/dplaneos.db.backup /var/lib/dplaneos/dplaneos.db
 
-# Remove WAL files — they belong to the old DB
+# Remove WAL files - they belong to the old DB
 sudo rm -f /var/lib/dplaneos/dplaneos.db-wal
 sudo rm -f /var/lib/dplaneos/dplaneos.db-shm
 
@@ -97,7 +97,7 @@ sudo systemctl start dplaned
 # Check logs: should show "Seeded 4 built-in RBAC roles"
 ```
 
-**Note:** This resets all sessions, user accounts, LDAP configuration, and notification settings. ZFS pools, shares, and Docker containers are not affected — they live outside the database.
+**Note:** This resets all sessions, user accounts, LDAP configuration, and notification settings. ZFS pools, shares, and Docker containers are not affected - they live outside the database.
 
 ---
 
@@ -112,7 +112,7 @@ sudo dplaneos-recovery
 # Select option 5: Reset Admin Password
 ```
 
-### Locked Out — Clear All Sessions
+### Locked Out - Clear All Sessions
 
 Sessions are stored in SQLite. If all sessions are expired or the DB is corrupted:
 
@@ -234,7 +234,7 @@ systemctl status dplaned | grep Memory
 # If hitting limits, check for:
 #   - Large audit log table → purge old entries (see below)
 #   - Many open WebSocket connections
-#   - ZFS ARC pressure (kernel, not dplaned — check with arc_summary)
+#   - ZFS ARC pressure (kernel, not dplaned - check with arc_summary)
 ```
 
 ### Database Slow
@@ -291,7 +291,7 @@ sudo bash install.sh
 sudo systemctl start dplaned
 ```
 
-ZFS pools, Docker containers, and network configuration are unaffected — they live in the kernel, not in `dplaned`.
+ZFS pools, Docker containers, and network configuration are unaffected - they live in the kernel, not in `dplaned`.
 
 ### Complete Uninstall
 
@@ -339,3 +339,4 @@ sudo sqlite3 /var/lib/dplaneos/dplaneos.db \
 /opt/dplaneos/daemon/dplaned -version 2>/dev/null || \
   curl -s http://127.0.0.1:9000/health | grep version
 ```
+

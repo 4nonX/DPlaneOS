@@ -1,5 +1,5 @@
-/**
- * pages/NetworkPage.tsx — Network (Phase 6)
+﻿/**
+ * pages/NetworkPage.tsx - Network (Phase 6)
  *
  * Tabs: Interfaces | VLANs | Bonding | DNS & NTP
  *
@@ -86,7 +86,7 @@ function ConfigureIfaceModal({ iface, onClose, onDone }: {
       gateway:   dhcp ? undefined : gateway   || undefined,
       mtu:       Number(mtu) || 1500,
     }),
-    onSuccess: () => { toast.success(`${iface.name} — changes applied`); onDone(); onClose() },
+    onSuccess: () => { toast.success(`${iface.name} - changes applied`); onDone(); onClose() },
     onError: (e: Error) => toast.error(e.message),
   })
 
@@ -154,7 +154,7 @@ function ConfigureIfaceModal({ iface, onClose, onDone }: {
 }
 
 // ---------------------------------------------------------------------------
-// ConfirmBanner — shown after a network/apply, counts down 30 s
+// ConfirmBanner - shown after a network/apply, counts down 30 s
 // ---------------------------------------------------------------------------
 
 function ConfirmBanner({ onConfirm, onDismiss }: { onConfirm: () => void; onDismiss: () => void }) {
@@ -176,7 +176,7 @@ function ConfirmBanner({ onConfirm, onDismiss }: { onConfirm: () => void; onDism
       <Icon name="timer" size={22} style={{ color: 'rgba(251,191,36,0.9)', flexShrink: 0 }} />
       <div style={{ flex: 1 }}>
         <div style={{ fontWeight: 700, color: 'rgba(251,191,36,0.9)' }}>Network changes applied</div>
-        <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>Auto-reverting in {secs}s — confirm to keep the new configuration</div>
+        <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>Auto-reverting in {secs}s - confirm to keep the new configuration</div>
       </div>
       <button onClick={onConfirm} className="btn btn-primary" style={{ background: 'rgba(251,191,36,0.9)' }}>
         <Icon name="check" size={15} />Confirm
@@ -616,3 +616,4 @@ export function NetworkPage() {
     </div>
   )
 }
+

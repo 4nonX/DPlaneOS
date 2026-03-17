@@ -1,4 +1,4 @@
-package handlers
+﻿package handlers
 
 import (
 	"context"
@@ -112,7 +112,7 @@ func (h *GitSyncHandler) SaveConfig(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.RepoURL != "" && !strings.HasPrefix(req.RepoURL, "http") && !strings.HasPrefix(req.RepoURL, "git@") {
-		respondJSON(w, 400, map[string]interface{}{"success": false, "error": "Invalid repo URL — use https:// or git@"})
+		respondJSON(w, 400, map[string]interface{}{"success": false, "error": "Invalid repo URL - use https:// or git@"})
 		return
 	}
 	if req.Branch == "" {
@@ -159,12 +159,12 @@ func (h *GitSyncHandler) SaveConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("GIT-SYNC: Config updated — repo=%s branch=%s auth=%s", req.RepoURL, req.Branch, req.AuthType)
+	log.Printf("GIT-SYNC: Config updated - repo=%s branch=%s auth=%s", req.RepoURL, req.Branch, req.AuthType)
 	respondJSON(w, 200, map[string]interface{}{"success": true, "message": "Configuration saved"})
 }
 
 // ═══════════════════════════════════════════════════════════════
-//  POST /api/git-sync/pull — Clone or pull the repo
+//  POST /api/git-sync/pull - Clone or pull the repo
 // ═══════════════════════════════════════════════════════════════
 
 func (h *GitSyncHandler) Pull(w http.ResponseWriter, r *http.Request) {
@@ -221,7 +221,7 @@ func (h *GitSyncHandler) Pull(w http.ResponseWriter, r *http.Request) {
 			dir := filepath.Dir(stack)
 			out, err := cmdutil.RunSlow("docker", "compose", "--project-directory", dir, "-f", stack, "up", "-d")
 			if err != nil {
-				log.Printf("GIT-SYNC: Deploy failed for %s: %v — %s", stack, err, string(out))
+				log.Printf("GIT-SYNC: Deploy failed for %s: %v - %s", stack, err, string(out))
 			} else {
 				deployed++
 				log.Printf("GIT-SYNC: Deployed %s", dir)
@@ -282,7 +282,7 @@ func (h *GitSyncHandler) Status(w http.ResponseWriter, r *http.Request) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-//  GET /api/git-sync/stacks — List discovered compose files
+//  GET /api/git-sync/stacks - List discovered compose files
 // ═══════════════════════════════════════════════════════════════
 
 func (h *GitSyncHandler) ListStacks(w http.ResponseWriter, r *http.Request) {
@@ -324,7 +324,7 @@ func (h *GitSyncHandler) ListStacks(w http.ResponseWriter, r *http.Request) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-//  POST /api/git-sync/deploy — Deploy specific or all stacks
+//  POST /api/git-sync/deploy - Deploy specific or all stacks
 // ═══════════════════════════════════════════════════════════════
 
 func (h *GitSyncHandler) Deploy(w http.ResponseWriter, r *http.Request) {
@@ -377,7 +377,7 @@ func (h *GitSyncHandler) Deploy(w http.ResponseWriter, r *http.Request) {
 			result["output"] = string(out)
 		}
 		results = append(results, result)
-		log.Printf("GIT-SYNC: %s %s — success=%v", action, f, err == nil)
+		log.Printf("GIT-SYNC: %s %s - success=%v", action, f, err == nil)
 	}
 
 	respondJSON(w, 200, map[string]interface{}{"success": true, "results": results})
@@ -440,7 +440,7 @@ func (h *GitSyncHandler) buildGitEnv(cfg *gitSyncConfig) []string {
 			os.Remove(tokenFile.Name())
 			return env
 		}
-		// Script reads token from file — zero shell escaping needed
+		// Script reads token from file - zero shell escaping needed
 		script := fmt.Sprintf("#!/bin/sh\ncase \"$1\" in\n*Username*) echo 'x-access-token' ;;\n*) cat '%s' ;;\nesac\n",
 			tokenFile.Name())
 		askpassFile.Write([]byte(script))
@@ -508,7 +508,7 @@ func (h *GitSyncHandler) execGitWithEnv(env []string, args ...string) (string, e
 }
 
 // ═══════════════════════════════════════════════════════════════
-//  POST /api/git-sync/export — Export running containers to compose.yml
+//  POST /api/git-sync/export - Export running containers to compose.yml
 // ═══════════════════════════════════════════════════════════════
 
 func (h *GitSyncHandler) ExportContainers(w http.ResponseWriter, r *http.Request) {
@@ -567,7 +567,7 @@ func (h *GitSyncHandler) ExportContainers(w http.ResponseWriter, r *http.Request
 }
 
 // ═══════════════════════════════════════════════════════════════
-//  POST /api/git-sync/push — Commit and push to remote
+//  POST /api/git-sync/push - Commit and push to remote
 // ═══════════════════════════════════════════════════════════════
 
 func (h *GitSyncHandler) Push(w http.ResponseWriter, r *http.Request) {
@@ -588,7 +588,7 @@ func (h *GitSyncHandler) Push(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !dirExists(cfg.LocalPath + "/.git") {
-		respondJSON(w, 400, map[string]interface{}{"success": false, "error": "Repository not cloned yet — pull first"})
+		respondJSON(w, 400, map[string]interface{}{"success": false, "error": "Repository not cloned yet - pull first"})
 		return
 	}
 
@@ -870,14 +870,14 @@ func (h *GitSyncHandler) StartAutoSync() {
 				commit := h.getLastCommit(cfg.LocalPath)
 				h.db.Exec(`UPDATE git_sync_config SET last_sync_at=?, last_commit=?, last_error='' WHERE id=1`,
 					time.Now().Format(time.RFC3339), commit)
-				log.Printf("GIT-SYNC: Auto-sync complete — %s", commit)
+				log.Printf("GIT-SYNC: Auto-sync complete - %s", commit)
 
 				// Auto-deploy if enabled
 				if cfg.AutoDeploy {
 					stacks := h.findComposeFiles(cfg.LocalPath)
 					for _, stack := range stacks {
 						if out, err := cmdutil.RunSlow("docker", "compose", "--project-directory", filepath.Dir(stack), "-f", stack, "up", "-d"); err != nil {
-							log.Printf("GIT-SYNC: Auto-deploy failed for %s: %v — %s", stack, err, string(out))
+							log.Printf("GIT-SYNC: Auto-deploy failed for %s: %v - %s", stack, err, string(out))
 						}
 					}
 				}
@@ -889,3 +889,4 @@ func (h *GitSyncHandler) StartAutoSync() {
 		}
 	}()
 }
+

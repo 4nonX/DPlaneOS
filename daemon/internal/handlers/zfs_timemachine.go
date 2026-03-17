@@ -1,4 +1,4 @@
-package handlers
+﻿package handlers
 
 import (
 	"encoding/json"
@@ -93,7 +93,7 @@ func (h *ZFSTimeMachineHandler) BrowseSnapshot(w http.ResponseWriter, r *http.Re
 	// <mountpoint>/.zfs/snapshot/<snapname>/<browsePath>
 	snapshotDir := filepath.Join(mountpoint, ".zfs", "snapshot", snapName)
 
-	// Sanitize browsePath — prevent path traversal
+	// Sanitize browsePath - prevent path traversal
 	if browsePath == "" {
 		browsePath = "/"
 	}
@@ -251,7 +251,7 @@ func (h *ZFSTimeMachineHandler) RestoreFile(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	if srcInfo.IsDir() {
-		respondErrorSimple(w, "Cannot restore directories — use ZFS rollback for that", http.StatusBadRequest)
+		respondErrorSimple(w, "Cannot restore directories - use ZFS rollback for that", http.StatusBadRequest)
 		return
 	}
 
@@ -325,3 +325,4 @@ func copyFile(src, dst string) error {
 	}
 	return out.Sync()
 }
+

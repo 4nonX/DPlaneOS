@@ -1,4 +1,4 @@
-package handlers
+﻿package handlers
 
 import (
 	"context"
@@ -32,7 +32,7 @@ func (h *SystemStatusHandler) HandleStatus(w http.ResponseWriter, r *http.Reques
 		respondErrorSimple(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	// Ensure table exists — this is the first endpoint hit on fresh installs
+	// Ensure table exists - this is the first endpoint hit on fresh installs
 	h.db.Exec(`CREATE TABLE IF NOT EXISTS system_config (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP)`)
 	var setupDone int
 	h.db.QueryRow(`SELECT COUNT(*) FROM system_config WHERE key = 'setup_complete' AND value = '1'`).Scan(&setupDone)
@@ -51,7 +51,7 @@ func (h *SystemStatusHandler) HandleStatus(w http.ResponseWriter, r *http.Reques
 		}
 	}
 
-	// ECC RAM detection — non-blocking, advisory only
+	// ECC RAM detection - non-blocking, advisory only
 	ecc := detectECCRAM()
 
 	respondJSON(w, http.StatusOK, map[string]interface{}{
@@ -263,7 +263,7 @@ func detectECCRAM() ECCStatus {
 	if err != nil {
 		warning := "ECC status unknown (dmidecode not available)"
 		if virtual {
-			warning = "ECC detection unreliable in virtual machines — check host hardware directly"
+			warning = "ECC detection unreliable in virtual machines - check host hardware directly"
 		}
 		return ECCStatus{HasECC: false, Known: false, IsVirtual: virtual, Warning: warning}
 	}
@@ -449,7 +449,7 @@ func splitValueUnit(raw string) (string, string) {
 	return value, unit
 }
 
-// HandleSetupAdmin — POST /api/system/setup-admin
+// HandleSetupAdmin - POST /api/system/setup-admin
 // Sets the admin password during initial setup. Only works before setup is marked complete.
 // This endpoint is public (no session required) but is gated by setup_complete flag.
 func (h *SystemStatusHandler) HandleSetupAdmin(w http.ResponseWriter, r *http.Request) {
@@ -519,7 +519,7 @@ func (h *SystemStatusHandler) HandleSetupAdmin(w http.ResponseWriter, r *http.Re
 	}
 	rows, _ := result.RowsAffected()
 	if rows == 0 {
-		// Admin user doesn't exist yet — insert fresh
+		// Admin user doesn't exist yet - insert fresh
 		_, err = h.db.Exec(
 			`INSERT INTO users (username, password_hash, email, role, active) VALUES (?, ?, 'admin@localhost', 'admin', 1)`,
 			req.Username, string(hash),
@@ -537,3 +537,4 @@ func (h *SystemStatusHandler) HandleSetupAdmin(w http.ResponseWriter, r *http.Re
 		"success": true, "message": "Admin credentials configured",
 	})
 }
+

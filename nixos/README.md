@@ -3,12 +3,12 @@
 > Your complete NAS defined in a single text file. Reproducible, versioned, rollback-safe.
 
 **License:** D-PlaneOS uses [GNU Affero General Public License v3.0 (AGPLv3)](https://www.gnu.org/licenses/agpl-3.0.html).
-Free to use and modify — see [NIXOS-README.md](NIXOS-README.md#a-note-on-licensing-and-nix-unfree) for
+Free to use and modify - see [NIXOS-README.md](NIXOS-README.md#a-note-on-licensing-and-nix-unfree) for
 how this works with Nix's unfree package handling (short version: it's handled automatically).
 
 ## Three Installation Paths
 
-### Path 1: Boot the ISO (easiest — no NixOS knowledge needed)
+### Path 1: Boot the ISO (easiest: no NixOS knowledge needed)
 
 Flash the ISO to a USB stick, boot it, and you're in a live D-PlaneOS
 environment. The web UI runs immediately. Type `dplaneos-install` to
@@ -63,10 +63,11 @@ sudo nixos-rebuild switch
 
 | File | Description |
 |------|-------------|
-| `flake.nix` | Flake definition — packages, inputs, dev shell |
+| `flake.nix` | Flake definition: packages, inputs, dev shell |
 | `configuration.nix` | NAS config (Flake version, receives packages via `specialArgs`) |
 | `configuration-standalone.nix` | NAS config (standalone, packages defined inline) |
-| `setup-nixos.sh` | Setup helper — generates host ID, detects boot loader |
+| `disko.nix` | Partitioning script: ZFS pools on root |
+| `setup-nixos.sh` | Setup helper: generates host ID, detects boot loader |
 | `NIXOS-INSTALL-GUIDE.md` | Complete step-by-step guide for beginners |
 | `NIXOS-README.md` | Technical reference, rollback, security details |
 

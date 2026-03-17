@@ -1,5 +1,5 @@
-/**
- * pages/CertificatesPage.tsx — TLS Certificates (Phase 6)
+﻿/**
+ * pages/CertificatesPage.tsx - TLS Certificates (Phase 6)
  *
  * Lists installed certs, shows which is active, allows generating self-signed
  * and activating any installed cert (triggers nginx reload in daemon).
@@ -217,7 +217,7 @@ export function CertificatesPage() {
 
   const activate = useMutation({
     mutationFn: (name: string) => api.post('/api/certs/activate', { name }),
-    onSuccess: () => { toast.success('Certificate activated — nginx reloaded'); qc.invalidateQueries({ queryKey: ['certs', 'list'] }) },
+    onSuccess: () => { toast.success('Certificate activated - nginx reloaded'); qc.invalidateQueries({ queryKey: ['certs', 'list'] }) },
     onError: (e: Error) => toast.error(e.message),
   })
 
@@ -228,7 +228,7 @@ export function CertificatesPage() {
     <div style={{ maxWidth: 860 }}>
       <div className="page-header">
         <h1 className="page-title">Certificates</h1>
-        <p className="page-subtitle">TLS certificates for the web interface — self-signed or custom</p>
+        <p className="page-subtitle">TLS certificates for the web interface - self-signed or custom</p>
       </div>
 
       {/* Active cert info */}
@@ -277,3 +277,4 @@ export function CertificatesPage() {
     </div>
   )
 }
+

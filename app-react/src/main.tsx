@@ -1,10 +1,10 @@
-/**
- * main.tsx — D-PlaneOS v4 entry point
+﻿/**
+ * main.tsx - D-PlaneOS v4 entry point
  *
  * Boot sequence:
- *  1. initCsrf()            — fetch CSRF token from /api/csrf, cache it
- *  2. validateSession()     — check session against /api/auth/check + /api/auth/session
- *  3. Render RouterProvider — TanStack Router handles auth redirects via beforeLoad
+ *  1. initCsrf()            - fetch CSRF token from /api/csrf, cache it
+ *  2. validateSession()     - check session against /api/auth/check + /api/auth/session
+ *  3. Render RouterProvider - TanStack Router handles auth redirects via beforeLoad
  *
  * CSRF must complete before any mutation can be made.
  * Session validation must complete before the router renders to avoid flash
@@ -23,15 +23,15 @@ import { useAuthStore } from '@/stores/auth'
 import { router } from '@/routes/index'
 
 async function boot() {
-  // Step 1: CSRF token — required before any POST/PUT/DELETE
+  // Step 1: CSRF token - required before any POST/PUT/DELETE
   try {
     await initCsrf()
   } catch (err) {
-    // Daemon offline on load. Render anyway — pages will show error states.
+    // Daemon offline on load. Render anyway - pages will show error states.
     console.error('[boot] CSRF init failed:', err)
   }
 
-  // Step 2: Session validation — determines isAuthenticated before first render
+  // Step 2: Session validation - determines isAuthenticated before first render
   await useAuthStore.getState().validateSession()
 
   // Step 3: Mount React
@@ -48,3 +48,4 @@ async function boot() {
 }
 
 boot()
+

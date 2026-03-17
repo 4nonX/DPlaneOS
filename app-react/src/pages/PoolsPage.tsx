@@ -1,5 +1,5 @@
-/**
- * pages/PoolsPage.tsx — ZFS Pools (Phase 2)
+﻿/**
+ * pages/PoolsPage.tsx - ZFS Pools (Phase 2)
  *
  * Calls (matching daemon routes exactly):
  *   GET  /api/zfs/pools
@@ -14,7 +14,7 @@
  *   POST /api/zfs/scrub/schedule
  *   GET  /api/zfs/resilver/status?pool=X
  *   POST /api/zfs/datasets           (create dataset)
- *   GET  /api/zfs/datasets/search    (global dataset search — used by search bar)
+ *   GET  /api/zfs/datasets/search    (global dataset search - used by search bar)
  *   // NEW: Pool Lifecycle
  *   GET  /api/zfs/disks              (get list of unassigned physical disks)
  *   POST /api/zfs/pools/create       (create a new pool)
@@ -114,7 +114,7 @@ function formatScrubSchedule(s: ScrubSchedule): string {
 
 /** Helper to parse ZFS human sizes (e.g. 8.2TB, 500GB) into numeric bytes roughly */
 function parseZfsSize(size: string): number {
-  if (!size || size === '0' || size === '—' || size === '-') return 0
+  if (!size || size === '0' || size === '-' || size === '-') return 0
   const match = size.match(/^([\d.]+)([KMGT]B)$/)
   if (!match) return 0
   const val = parseFloat(match[1])
@@ -224,11 +224,11 @@ function DatasetNode({ node, depth, onCreateChild }: {
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexShrink: 0 }}>
           <div style={{ textAlign: 'right' }}>
-            <div style={{ fontSize: 'var(--text-sm)', fontWeight: 600, fontFamily: 'var(--font-mono)' }}>{node.used || '—'}</div>
+            <div style={{ fontSize: 'var(--text-sm)', fontWeight: 600, fontFamily: 'var(--font-mono)' }}>{node.used || '-'}</div>
             <div style={{ fontSize: 'var(--text-2xs)', color: 'var(--text-tertiary)' }}>used</div>
           </div>
           <div style={{ textAlign: 'right' }}>
-            <div style={{ fontSize: 'var(--text-sm)', fontFamily: 'var(--font-mono)' }}>{node.avail || '—'}</div>
+            <div style={{ fontSize: 'var(--text-sm)', fontFamily: 'var(--font-mono)' }}>{node.avail || '-'}</div>
             <div style={{ fontSize: 'var(--text-2xs)', color: 'var(--text-tertiary)' }}>avail</div>
           </div>
           <Tooltip content="New child dataset">
@@ -387,7 +387,7 @@ function ScrubScheduleModal({ pool, current, onClose, onSaved }: {
     <Modal
       title={
         <>
-          Scrub Schedule —{' '}
+          Scrub Schedule -{' '}
           <span style={{ color: 'var(--primary)', fontFamily: 'var(--font-mono)' }}>{pool}</span>
         </>
       }
@@ -1053,7 +1053,7 @@ export function PoolsPage() {
   const poolsQ = useQuery({
     queryKey: ['zfs', 'pools'],
     queryFn: ({ signal }) => api.get<PoolsResponse>('/api/zfs/pools', signal),
-    refetchInterval: 60_000, // fallback poll — WS events trigger immediate refetch
+    refetchInterval: 60_000, // fallback poll - WS events trigger immediate refetch
   })
   const datasetsQ = useQuery({
     queryKey: ['zfs', 'datasets'],
@@ -1157,7 +1157,7 @@ export function PoolsPage() {
 
       <StorageSummary pools={pools} />
 
-      {/* Mount error alert — shown when background monitor detects an unwritable mountpoint */}
+      {/* Mount error alert - shown when background monitor detects an unwritable mountpoint */}
       {mountAlert && (
         <div className="alert alert-error" style={{ marginBottom: 16 }}>
           <Icon name="folder_off" size={16} />
@@ -1394,3 +1394,4 @@ function CacheManageModal({ pool, onClose, onRefresh }: { pool: any; onClose: ()
     </Modal>
   )
 }
+

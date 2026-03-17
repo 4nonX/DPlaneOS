@@ -1,4 +1,4 @@
-package gitops
+﻿package gitops
 
 import (
 	"database/sql"
@@ -29,7 +29,7 @@ type LivePool struct {
 // LiveDataset is the observed state of a ZFS dataset.
 type LiveDataset struct {
 	Name        string
-	Used        uint64 // bytes — 0 means genuinely empty or unknown
+	Used        uint64 // bytes - 0 means genuinely empty or unknown
 	Avail       uint64
 	Compression string
 	Atime       string
@@ -201,7 +201,7 @@ func readLivePools() ([]LivePool, error) {
 }
 
 // parseZpoolStatusPaths extracts per-pool disk paths from `zpool status -P`.
-// Only lines with /dev/disk/by-id/ paths are kept — everything else (mirror,
+// Only lines with /dev/disk/by-id/ paths are kept - everything else (mirror,
 // raidz, spares, cache headers) is ignored.
 func parseZpoolStatusPaths(output string) map[string][]string {
 	result := make(map[string][]string)
@@ -445,7 +445,7 @@ func readLiveSystem() (*nixwriter.DPlaneState, error) {
 }
 
 // HasActiveSMBConnections returns true if smbstatus reports any active connections
-// to the named share. Uses cmdutil.RunFast — if smbstatus is unavailable or
+// to the named share. Uses cmdutil.RunFast - if smbstatus is unavailable or
 // returns no output, conservatively returns false (do not block).
 //
 // This is the live-connection probe used by the BLOCKED safety check.
@@ -454,7 +454,7 @@ func HasActiveSMBConnections(shareName string) bool {
 	// Format: "sharename  pid  machine  connected-at"
 	out, err := cmdutil.RunFast("smbstatus", "-S", "-n")
 	if err != nil {
-		// smbstatus not available or Samba not running — cannot confirm connections.
+		// smbstatus not available or Samba not running - cannot confirm connections.
 		// Conservative: return false (do not incorrectly block).
 		return false
 	}
@@ -499,3 +499,4 @@ func readLDAPConfig(db *sql.DB) (*DesiredLDAP, error) {
 	cfg.JITProvisioning = jit == 1
 	return &cfg, nil
 }
+

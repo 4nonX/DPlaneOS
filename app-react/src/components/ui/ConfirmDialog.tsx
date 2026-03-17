@@ -1,7 +1,7 @@
-/**
+﻿/**
  * components/ui/ConfirmDialog.tsx
  *
- * Modern inline confirmation dialog — replaces window.confirm() entirely.
+ * Modern inline confirmation dialog - replaces window.confirm() entirely.
  *
  * Usage (hook-based):
  *
@@ -209,3 +209,4 @@ export function useConfirm() {
 
   return { confirm, ConfirmDialog }
 }
+

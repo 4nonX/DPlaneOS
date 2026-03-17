@@ -1,4 +1,4 @@
-# D-PlaneOS — Hot-swap detection for pool disks (SATA, SAS, NVMe)
+﻿# D-PlaneOS - Hot-swap detection for pool disks (SATA, SAS, NVMe)
 #
 # Triggers on physical disk add/remove events for ALL block devices,
 # not just USB. This enables automatic pool re-import after disk replacement.
@@ -28,3 +28,4 @@ ACTION=="remove", SUBSYSTEM=="block", KERNEL=="nvme[0-9]*n[0-9]*", ENV{DEVTYPE}=
 ACTION=="add", SUBSYSTEM=="block", KERNEL=="sd[a-z]", ENV{DEVTYPE}=="disk", \
     ENV{ID_BUS}=="scsi", \
     RUN+="/opt/dplaneos/install/scripts/notify-disk-added.sh '%E{DEVNAME}' 'sas' '%E{ID_SERIAL}' '%E{ID_WWN}'"
+

@@ -1,4 +1,4 @@
-package handlers
+﻿package handlers
 
 import (
 	"encoding/json"
@@ -271,7 +271,7 @@ func parseDiskLine(line string) *DiskHealth {
 	} else if state == "DEGRADED" || totalErrors > 100 {
 		risk = "high"
 	} else if totalErrors > 10 || ckErr > 0 {
-		// Any checksum error is concerning — ZFS is detecting silent corruption
+		// Any checksum error is concerning - ZFS is detecting silent corruption
 		risk = "medium"
 	} else if totalErrors > 0 {
 		risk = "low"
@@ -310,7 +310,7 @@ func calculatePoolRisk(pool *PoolHealthDetail) string {
 		}
 	}
 
-	// Check for checksum errors specifically — early warning sign
+	// Check for checksum errors specifically - early warning sign
 	var totalCkErrors int64
 	for _, disk := range pool.Disks {
 		totalCkErrors += disk.ChecksumErrs
@@ -397,3 +397,4 @@ func extractDiskDevices(output string) []string {
 	}
 	return disks
 }
+

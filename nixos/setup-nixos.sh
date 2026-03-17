@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# D-PlaneOS — NixOS First-Boot Setup
+# D-PlaneOS - NixOS First-Boot Setup
 # ─────────────────────────────────────────────────────────────────────────────
 # Run once after initial nixos-install and reboot:
 #   bash /root/setup-nixos.sh
@@ -32,7 +32,7 @@ if [ "$(id -u)" != "0" ]; then
 fi
 
 echo -e "${BOLD}"
-echo "    D-PlaneOS v$(cat "$(dirname "$0")/../VERSION" 2>/dev/null | tr -d "[:space:]" || echo "?") — NixOS Setup"
+echo "    D-PlaneOS v$(cat "$(dirname "$0")/../VERSION" 2>/dev/null | tr -d "[:space:]" || echo "?") - NixOS Setup"
 echo "────────────────────────────────────────"
 echo -e "${NC}"
 
@@ -59,7 +59,7 @@ if grep -q 'networking.hostId' "$CONFIG"; then
   sed -i "s/networking.hostId = \"[^\"]*\"/networking.hostId = \"$HOSTID\"/" "$CONFIG"
   log "Updated hostId in $CONFIG"
 else
-  warn "networking.hostId not found in $CONFIG — add it manually:"
+  warn "networking.hostId not found in $CONFIG - add it manually:"
   echo "  networking.hostId = \"$HOSTID\";"
 fi
 
@@ -78,7 +78,7 @@ TZ="${INPUT_TZ:-$CURRENT_TZ}"
 
 # Validate timezone
 if ! timedatectl list-timezones 2>/dev/null | grep -qx "$TZ"; then
-  warn "Unknown timezone '$TZ' — keeping '$CURRENT_TZ'"
+  warn "Unknown timezone '$TZ' - keeping '$CURRENT_TZ'"
   TZ="$CURRENT_TZ"
 fi
 
@@ -87,7 +87,7 @@ if grep -q 'time.timeZone' "$CONFIG"; then
   sed -i "s|time.timeZone = \"[^\"]*\"|time.timeZone = \"$TZ\"|" "$CONFIG"
   log "Set timezone to: $TZ"
 else
-  warn "time.timeZone not found in $CONFIG — add it manually:"
+  warn "time.timeZone not found in $CONFIG - add it manually:"
   echo "  time.timeZone = \"$TZ\";"
 fi
 
@@ -95,7 +95,7 @@ fi
 step "Step 3/5: Boot Loader Detection"
 
 if [ -d /sys/firmware/efi ]; then
-  log "UEFI boot detected — using systemd-boot (already configured)"
+  log "UEFI boot detected - using systemd-boot (already configured)"
 else
   warn "BIOS/MBR boot detected"
   echo ""
@@ -136,7 +136,7 @@ PRIMARY_IFACE=$(ip route show default 2>/dev/null | awk '/default/ {print $5}' |
 if [ -n "$PRIMARY_IFACE" ] && [ "$PRIMARY_IFACE" != "eth0" ]; then
   warn "Primary interface is '$PRIMARY_IFACE', not 'eth0'"
   echo ""
-  echo "Update $CONFIG — find this line:"
+  echo "Update $CONFIG - find this line:"
   echo "  matchConfig.Name = \"eth0\";"
   echo "Change it to:"
   echo "  matchConfig.Name = \"$PRIMARY_IFACE\";"
@@ -153,7 +153,7 @@ fi
 # ─── Step 5b: Install dplane-generated.nix (static JSON-to-Nix bridge) ────────
 # v5.0 architecture: the daemon writes /var/lib/dplaneos/dplane-state.json
 # (pure JSON via encoding/json). dplane-generated.nix is a STATIC file that
-# reads the JSON at eval time via builtins.fromJSON — zero dynamic Nix syntax,
+# reads the JSON at eval time via builtins.fromJSON - zero dynamic Nix syntax,
 # zero risk of a daemon write breaking nixos-rebuild.
 #
 # This file is installed once here and never modified by the daemon again.
@@ -183,7 +183,7 @@ in {
   systemd.network.enable = true;
 }
 NIXEOF
-  warn "dplane-generated.nix source not found — wrote minimal fallback to $GENERATED"
+  warn "dplane-generated.nix source not found - wrote minimal fallback to $GENERATED"
 fi
 
 # Seed an empty state file so dplane-generated.nix can always resolve on first boot
@@ -201,7 +201,7 @@ if ! grep -q "dplane-generated.nix" "$CONFIG" 2>/dev/null; then
     sed -i 's|imports = \[|imports = [\n    ./dplane-generated.nix  # D-PlaneOS JSON-to-Nix bridge (v5.0)|' "$CONFIG"
     log "Added dplane-generated.nix import to $CONFIG"
   else
-    warn "Could not auto-add import — add this to $CONFIG manually:"
+    warn "Could not auto-add import - add this to $CONFIG manually:"
     echo "  imports = [ ./dplane-generated.nix ];"
   fi
 else
@@ -231,5 +231,5 @@ echo "  3. Build the system:"
 echo "       sudo nixos-rebuild switch --flake .#dplaneos"
 echo ""
 echo "  4. Open http://${PRIMARY_IFACE:-your-nas-ip} or http://\$(hostname).local"
-echo "     Login: admin / (generated on first start — check: journalctl -u dplaned | grep -i password)"
+echo "     Login: admin / (generated on first start - check: journalctl -u dplaned | grep -i password)"
 echo ""

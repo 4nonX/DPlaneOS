@@ -1,7 +1,7 @@
-/**
- * pages/NFSPage.tsx — NFS Export Management (Phase 2)
+﻿/**
+ * pages/NFSPage.tsx - NFS Export Management (Phase 2)
  *
- * Calls (matching nfs_handler.go routes — registered in daemon fix):
+ * Calls (matching nfs_handler.go routes - registered in daemon fix):
  *   GET    /api/nfs/status
  *   GET    /api/nfs/exports
  *   POST   /api/nfs/exports           (create)
@@ -211,7 +211,7 @@ export function NFSPage() {
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 28 }}>
         <div>
           <h1 className="page-title">NFS Exports</h1>
-          <p className="page-subtitle">Manage /etc/exports — changes apply on reload</p>
+          <p className="page-subtitle">Manage /etc/exports - changes apply on reload</p>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
           <button onClick={() => reload.mutate()} disabled={reload.isPending} className="btn btn-ghost">
@@ -271,3 +271,4 @@ export function NFSPage() {
     </div>
   )
 }
+

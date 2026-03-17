@@ -1,6 +1,6 @@
-name: D-PlaneOS Release
+﻿name: D-PlaneOS Release
 
-# Trigger only on version tag push — prevents double-trigger from GitHub
+# Trigger only on version tag push - prevents double-trigger from GitHub
 # auto-creating a release when a tag is pushed.
 on:
   push:
@@ -28,7 +28,7 @@ jobs:
         run: |
           CONFLICTS=$(find . -name '.sync-conflict-*.go' 2>/dev/null | head -20 || true)
           if [ -n "$CONFLICTS" ]; then
-            echo "ERROR: Syncthing conflict files found — would cause duplicate symbol build failures:"
+            echo "ERROR: Syncthing conflict files found - would cause duplicate symbol build failures:"
             echo "$CONFLICTS"
             exit 1
           fi
@@ -110,17 +110,17 @@ jobs:
           echo "$HEALTH" | grep -q "\"$VERSION\"" || (kill $PID; echo "Version mismatch in health endpoint: $HEALTH"; exit 1)
           kill $PID
           rm -f "$SMOKE_DB" "${SMOKE_DB}.backup" "${SMOKE_DB}-wal" "${SMOKE_DB}-shm"
-          echo "Smoke test passed — version $VERSION confirmed"
+          echo "Smoke test passed - version $VERSION confirmed"
 
       - name: Extract release notes and title
         run: |
           python3 install/scripts/extract-release-notes.py "$VERSION" docs/reference/CHANGELOG.md > /tmp/release-notes.md
           echo "Release notes extracted"
           head -3 /tmp/release-notes.md
-          # Extract codename from heading: v4.1.1 (2026-03-09) — "Design System" → Design System
-          CODENAME=$(grep "^## v${VERSION}" docs/reference/CHANGELOG.md | sed 's/.*— "\(.*\)"/\1/' | head -1)
+          # Extract codename from heading: v4.1.1 (2026-03-09) - "Design System" → Design System
+          CODENAME=$(grep "^## v${VERSION}" docs/reference/CHANGELOG.md | sed 's/.*- "\(.*\)"/\1/' | head -1)
           DATE=$(grep "^## v${VERSION}" docs/reference/CHANGELOG.md | grep -oP '\d{4}-\d{2}-\d{2}' | head -1)
-          RELEASE_TITLE="v${VERSION} (${DATE}) — \"${CODENAME}\""
+          RELEASE_TITLE="v${VERSION} (${DATE}) - \"${CODENAME}\""
           echo "RELEASE_TITLE=$RELEASE_TITLE" >> $GITHUB_ENV
           echo "Title: $RELEASE_TITLE"
 
@@ -158,7 +158,7 @@ jobs:
           echo "AMD64_SHA=$AMD64_SHA" >> $GITHUB_ENV
           echo "ARM64_SHA=$ARM64_SHA" >> $GITHUB_ENV
 
-      - name: Publish GitHub Release (draft — edit notes then publish)
+      - name: Publish GitHub Release (draft - edit notes then publish)
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
@@ -174,3 +174,4 @@ jobs:
           make_latest: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+

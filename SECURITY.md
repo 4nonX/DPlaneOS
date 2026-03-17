@@ -4,11 +4,11 @@
 
 | Version | Supported |
 |---------|-----------|
-| 5.x | Active development — all fixes |
-| 4.x | Critical security fixes only |
-| 3.x | End of life — upgrade required |
-| 2.x | End of life — upgrade required |
-| < 2.0 | End of life — upgrade required |
+| 5.x | Active development - all fixes |
+| 4.x | Maintenance/LTS - security fixes only |
+| 3.x | End of life - upgrade required |
+| 2.x | End of life - upgrade required |
+| < 2.0 | End of life - upgrade required |
 
 ## Reporting a Vulnerability
 
@@ -22,7 +22,7 @@ Or email the maintainer directly (see GitHub profile). Include:
 1. Description of the vulnerability
 2. Affected component (daemon, nginx config, frontend, etc.)
 3. Steps to reproduce with a minimal working example
-4. Impact assessment — what an attacker could achieve
+4. Impact assessment: what an attacker could achieve
 5. Suggested fix (optional)
 
 ### Response Timeline
@@ -50,7 +50,7 @@ D-PlaneOS is designed as an internal network appliance. It is not intended to be
 - **2FA:** TOTP (RFC 6238) with ±1 window clock drift tolerance, bcrypt-hashed backup codes
 - **API tokens:** SHA-256 hashed, prefixed `dpl_`, scope-limited (read/write/admin)
 - **RBAC:** 4 roles (viewer, user, operator, admin) enforced at handler level, with 34 discrete permissions
-- **Command execution:** Allowlist-based validation via `internal/security/whitelist.go`; arguments passed as separate slice elements to `exec.Command` — no shell
+- **Command execution:** Allowlist-based validation via `internal/security/whitelist.go`; arguments passed as separate slice elements to `exec.Command` - no shell
 
 For the full threat model, see [docs/reference/THREAT-MODEL.md](docs/reference/THREAT-MODEL.md).
 
@@ -59,6 +59,6 @@ For the full threat model, see [docs/reference/THREAT-MODEL.md](docs/reference/T
 - **HA is node monitoring, not true HA:** The cluster module provides heartbeat detection and manual promotion. There is no STONITH, no automatic failover, and no split-brain protection. See [docs/reference/THREAT-MODEL.md](docs/reference/THREAT-MODEL.md) T13.
 - **Partial RBAC coverage:** Many operational routes are session-authenticated but lack per-route `RequirePermission` checks
 - **ZFS delegation** (`zfs allow`) is complex; review carefully before enabling
-- **rclone credentials** are stored in `/etc/dplaneos/rclone.conf` — restrict file permissions
-- **Docker socket** is accessible to the daemon — containers with host mounts can escalate
-- **LDAP bind password** is stored in SQLite — use a dedicated read-only LDAP account
+- **rclone credentials** are stored in `/etc/dplaneos/rclone.conf` - restrict file permissions
+- **Docker socket** is accessible to the daemon - containers with host mounts can escalate
+- **LDAP bind password** is stored in SQLite - use a dedicated read-only LDAP account

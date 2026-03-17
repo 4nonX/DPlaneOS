@@ -1,4 +1,4 @@
-#!/bin/bash
+﻿#!/bin/bash
 #
 # D-PlaneOS Alert Integration Example
 # 
@@ -126,7 +126,7 @@ simulate_zfs_checksum_flood() {
 }
 
 # PHP Integration Example (for use in other PHP files)
-# PHP example removed — use Go API: curl -X POST http://localhost/api/alerts
+# PHP example removed - use Go API: curl -X POST http://localhost/api/alerts
 
 # Main
 echo "D-PlaneOS Alert Integration Examples"
@@ -141,3 +141,4 @@ echo "  check_temperature"
 echo ""
 echo "Test alert flood prevention:"
 echo "  simulate_zfs_checksum_flood"
+

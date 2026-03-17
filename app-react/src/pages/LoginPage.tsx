@@ -1,7 +1,7 @@
-/**
+﻿/**
  * pages/LoginPage.tsx
  *
- * Login page — handles standard login and TOTP second step.
+ * Login page - handles standard login and TOTP second step.
  * On success, navigates to / (or to /setup if first_run).
  * Matches exact daemon auth flow.
  */
@@ -57,7 +57,7 @@ export function LoginPage() {
   const [error, setError] = useState<string | null>(null)
   const [daemonVersion, setDaemonVersion] = useState<string | null>(null)
 
-  // Already authenticated — redirect out
+  // Already authenticated - redirect out
   useEffect(() => {
     if (isAuthenticated) {
       navigate({ to: '/' })
@@ -98,7 +98,7 @@ export function LoginPage() {
           return
         }
       } catch {
-        // Non-critical — proceed to dashboard
+        // Non-critical - proceed to dashboard
       }
       // Redirect to security page if password change is required
       const user = useAuthStore.getState().user
@@ -387,3 +387,4 @@ export function LoginPage() {
 }
 
 import type React from 'react'
+

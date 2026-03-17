@@ -1,6 +1,6 @@
 # D-PlaneOS
 
-ZFS-first NAS operating system for homelab and small-office deployments. Runs as a single Go daemon behind nginx, backed by SQLite, with a React UI served locally — no cloud dependencies, no mandatory subscriptions.
+ZFS-first NAS operating system for homelab and small-office deployments. Runs as a single Go daemon behind nginx, backed by SQLite, with a React UI served locally: no cloud dependencies, no mandatory subscriptions.
 
 [![Version](https://img.shields.io/github/v/release/4nonX/D-PlaneOS?style=flat-square&label=version)](https://github.com/4nonX/D-PlaneOS/releases/latest)
 [![License](https://img.shields.io/badge/license-AGPLv3-blue?style=flat-square)](https://github.com/4nonX/D-PlaneOS/blob/main/LICENSE)
@@ -9,7 +9,7 @@ ZFS-first NAS operating system for homelab and small-office deployments. Runs as
 [![Ubuntu](https://img.shields.io/badge/platform-Ubuntu-E95420?style=flat-square&logo=ubuntu&logoColor=white)](https://github.com/4nonX/D-PlaneOS/blob/main/docs/admin/INSTALLATION-GUIDE.md)
 [![CI Status](https://github.com/4nonX/D-PlaneOS/actions/workflows/validate.yml/badge.svg)](https://github.com/4nonX/D-PlaneOS/actions)
 
-*Demo recorded in preview mode — mock data, no real hardware required to evaluate.*
+*Demo recorded in preview mode: mock data, no real hardware required to evaluate.*
 
 ![D-PlaneOS Demo](demo.gif)
 
@@ -32,7 +32,7 @@ cd dplaneos
 sudo bash install.sh
 ```
 
-The installer handles everything: ZFS kernel module, nginx, database, systemd units, udev rules. It prints a randomly generated admin password on completion — you must change it on first login.
+The installer handles everything: ZFS kernel module, nginx, database, systemd units, udev rules. It prints a randomly generated admin password on completion: you must change it on first login.
 
 | Option | Effect |
 |--------|--------|
@@ -40,9 +40,9 @@ The installer handles everything: ZFS kernel module, nginx, database, systemd un
 | `--upgrade` | Upgrade in place, preserve all data |
 | `--unattended` | Skip all confirmation prompts (CI/automation) |
 
-**NixOS** — see [nixos/README.md](nixos/README.md) for ISO, Flake, and standalone paths.
+**NixOS** - see [nixos/README.md](nixos/README.md) for ISO, Flake, and standalone paths.
 
-**Air-gapped / offline** — the release tarball ships with a vendored `daemon/vendor/` directory. No internet access needed to build or install.
+**Air-gapped / offline** - the release tarball ships with a vendored `daemon/vendor/` directory. No internet access needed to build or install.
 
 **Rebuilding from source:** requires Go 1.22+ and gcc. Run `make build`.
 
@@ -54,7 +54,7 @@ The installer handles everything: ZFS kernel module, nginx, database, systemd un
 |------|-------------|
 | **Storage** | ZFS pools, datasets, snapshots, replication (`zfs send`), encryption, quotas, S.M.A.R.T., POSIX ACLs, file explorer with chunked uploads |
 | **Hot-swap** | udev rules detect disk add/remove; daemon auto-imports FAULTED/UNAVAIL pools and suggests vdev replacements via the UI |
-| **Sharing** | SMB shares with Time Machine support (Samba vfs_fruit), NFS exports, iSCSI block targets — all configured through the UI |
+| **Sharing** | SMB shares with Time Machine support (Samba vfs_fruit), NFS exports, iSCSI block targets: all configured through the UI |
 | **Containers** | Docker management, Compose stacks, template library (one-click deploy), ephemeral ZFS-clone sandboxes, atomic updates with automatic rollback |
 | **Network** | Interface config, bonding, VLANs, routing, DNS |
 | **Identity** | Local users, LDAP / Active Directory with group-to-role mapping and directory-sourced UI login, TOTP 2FA, API tokens |
@@ -79,7 +79,7 @@ Browser
 
 | Component | Detail |
 |-----------|--------|
-| Frontend | React 19 + TypeScript + Vite, pre-built — no Node.js needed at runtime |
+| Frontend | React 19 + TypeScript + Vite, pre-built: no Node.js needed at runtime |
 | Backend | Go daemon, ~256 API routes, allowlist-validated exec calls, no shell |
 | Database | SQLite WAL + FTS5, daily `VACUUM INTO` backup, HMAC audit chain |
 | Auth | bcrypt passwords (local), LDAP bind (directory accounts), TOTP 2FA, 32-byte session tokens, CSRF double-submit |

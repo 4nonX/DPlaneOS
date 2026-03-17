@@ -1,5 +1,5 @@
-/**
- * pages/GitSyncPage.tsx — Git Repository Sync (Phase 7)
+﻿/**
+ * pages/GitSyncPage.tsx - Git Repository Sync (Phase 7)
  * Tabs: Repos | Credentials
  *
  * GET  /api/git-sync/repos                 → { repos: Repo[] }
@@ -35,7 +35,7 @@ function statusDot(s?: string) {
   return <span style={{ width:8, height:8, borderRadius:'50%', background:c, boxShadow:s==='syncing'?`0 0 6px ${c}`:'none', display:'inline-block', flexShrink:0 }} />
 }
 
-function fmtDate(s?:string){if(!s)return'—';try{return new Date(s).toLocaleString('de-DE',{dateStyle:'short',timeStyle:'short'})}catch{return s}}
+function fmtDate(s?:string){if(!s)return'-';try{return new Date(s).toLocaleString('de-DE',{dateStyle:'short',timeStyle:'short'})}catch{return s}}
 
 // ---- RepoForm ----
 function RepoForm({ onDone, creds }: { onDone: () => void; creds: Cred[] }) {
@@ -229,3 +229,4 @@ export function GitSyncPage() {
     </div>
   )
 }
+

@@ -1,6 +1,6 @@
-package handlers
+﻿package handlers
 
-// docker_icons.go — Custom icon assets + image-name → Material Symbol mapping
+// docker_icons.go - Custom icon assets + image-name → Material Symbol mapping
 //
 // Three responsibilities:
 //   1. Serve /var/lib/dplaneos/custom_icons/ as a static directory via the
@@ -33,7 +33,7 @@ const customIconsDir = config.CustomIconsDir
 // HandleCustomIconFile serves a single icon file from the custom icons directory.
 // GET /api/assets/custom-icons/<filename>
 func HandleCustomIconFile(w http.ResponseWriter, r *http.Request) {
-	// Extract filename from URL — strip the route prefix
+	// Extract filename from URL - strip the route prefix
 	name := strings.TrimPrefix(r.URL.Path, "/api/assets/custom-icons/")
 	name = filepath.Base(name) // prevent path traversal
 
@@ -135,7 +135,7 @@ func HandleDockerIconMap(w http.ResponseWriter, r *http.Request) {
 }
 
 // builtinIconMap maps lowercased image name substrings to Material Symbol names.
-// Checked in order — first match wins. Keep more-specific entries above generic ones.
+// Checked in order - first match wins. Keep more-specific entries above generic ones.
 var builtinIconMap = []IconMapEntry{
 	// Databases
 	{Match: "postgres", Icon: "database"},
@@ -313,3 +313,4 @@ type IconMapEntry struct {
 	Match string `json:"match"` // lowercased substring of image name
 	Icon  string `json:"icon"`  // Material Symbol name
 }
+

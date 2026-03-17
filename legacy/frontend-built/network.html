@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -29,13 +29,13 @@
                         <span id="ts-badge" class="badge badge-info" style="font-size:12px;">Checking...</span>
                     </div>
                     <p style="color:var(--color-text-secondary); font-size:14px; margin-bottom:16px;">
-                        Make this server reachable from anywhere without opening firewall ports — secure WireGuard tunnel, zero config.
+                        Make this server reachable from anywhere without opening firewall ports - secure WireGuard tunnel, zero config.
                     </p>
 
                     <!-- State: not installed -->
                     <div id="ts-not-installed" style="display:none;">
                         <div class="alert alert-info" style="margin-bottom:14px; font-size:13px;">
-                            <strong>ℹ️ Requires internet</strong> — Installation downloads ~5 MB from tailscale.com.
+                            <strong>ℹ️ Requires internet</strong> - Installation downloads ~5 MB from tailscale.com.
                         </div>
                         <button class="btn-primary" id="tsInstallBtn" onclick="installTailscale()">📦 Install Tailscale</button>
                     </div>
@@ -76,7 +76,7 @@
                         <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:16px;">
                             <div style="background:var(--color-surface-light); border-radius:8px; padding:12px;">
                                 <div style="font-size:11px; color:var(--color-text-secondary); text-transform:uppercase; margin-bottom:4px;">Tailscale IP</div>
-                                <div id="ts-ip" style="font-weight:600; font-family:monospace;">—</div>
+                                <div id="ts-ip" style="font-weight:600; font-family:monospace;">-</div>
                             </div>
                             <div style="background:var(--color-surface-light); border-radius:8px; padding:12px;">
                                 <div style="font-size:11px; color:var(--color-text-secondary); text-transform:uppercase; margin-bottom:4px;">Peers</div>
@@ -225,7 +225,7 @@
 
         } else if (data.status === 'connected') {
             document.getElementById('ts-connected').style.display = 'block';
-            document.getElementById('ts-ip').textContent    = data.ip || '—';
+            document.getElementById('ts-ip').textContent    = data.ip || '-';
             document.getElementById('ts-peers').textContent = data.peers || 0;
             badge.textContent = 'Connected';
             badge.className   = 'badge badge-success';
@@ -312,19 +312,19 @@
             } else {
                 list.innerHTML = cachedInterfaces.map(function(iface) {
                     var stateColor = iface.state === 'up' ? 'var(--color-success)' : 'var(--color-text-secondary)';
-                    var addrs      = (iface.addresses || []).join(', ') || '—';
+                    var addrs      = (iface.addresses || []).join(', ') || '-';
                     return (
                         '<div style="display:flex; justify-content:space-between; align-items:center; padding:12px 0; border-bottom:1px solid var(--color-border);">' +
                             '<div style="display:flex; align-items:center; gap:12px;">' +
                                 '<div style="width:10px;height:10px;border-radius:50%;background:' + stateColor + ';"></div>' +
                                 '<div>' +
                                     '<div style="font-weight:600; font-size:15px;">' + iface.name + '</div>' +
-                                    '<div style="font-size:12px; color:var(--color-text-secondary);">' + (iface.mac || '—') + '</div>' +
+                                    '<div style="font-size:12px; color:var(--color-text-secondary);">' + (iface.mac || '-') + '</div>' +
                                 '</div>' +
                             '</div>' +
                             '<div style="text-align:right;">' +
                                 '<div style="font-size:13px; font-family:monospace;">' + addrs + '</div>' +
-                                '<div style="font-size:11px; color:var(--color-text-secondary);">MTU ' + (iface.mtu || '—') + ' • ' + iface.state + '</div>' +
+                                '<div style="font-size:11px; color:var(--color-text-secondary);">MTU ' + (iface.mtu || '-') + ' • ' + iface.state + '</div>' +
                             '</div>' +
                         '</div>'
                     );
@@ -464,8 +464,8 @@
             }
             el.innerHTML = routes.map(function(r) {
                 var dest = r.dst || r.default ? 'default' : r.dst;
-                var gw   = r.gateway || '—';
-                var dev  = r.dev || '—';
+                var gw   = r.gateway || '-';
+                var dev  = r.dev || '-';
                 return '<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--color-border);">' +
                     '<span style="font-family:monospace;font-size:12px;"><strong>' + dest + '</strong> via ' + gw + ' dev ' + dev + '</span>' +
                     (r.dst ? '<button onclick="deleteRoute(\'' + r.dst + '\')" style="background:none;border:none;color:var(--color-error);cursor:pointer;font-size:12px;">🗑️</button>' : '<span style="font-size:10px;color:var(--color-text-muted);">(default)</span>') +
@@ -544,3 +544,4 @@
     </script>
 </body>
 </html>
+

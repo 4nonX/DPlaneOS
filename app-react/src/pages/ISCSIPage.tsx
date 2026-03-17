@@ -1,5 +1,5 @@
-/**
- * pages/ISCSIPage.tsx — iSCSI Targets (Phase 7)
+﻿/**
+ * pages/ISCSIPage.tsx - iSCSI Targets (Phase 7)
  *
  * GET    /api/iscsi/status           → { success, running: bool }
  * GET    /api/iscsi/targets          → { success, targets: Target[] }
@@ -23,7 +23,7 @@ import { useConfirm } from '@/components/ui/ConfirmDialog'
 interface Target { iqn: string; zvol?: string; sessions?: number; size?: number }
 interface ACL    { iqn: string; initiator: string }
 
-function fmtSize(b?: number) { if (!b) return '—'; const u=['B','KB','MB','GB','TB']; const i=Math.min(Math.floor(Math.log(b)/Math.log(1024)),4); return `${(b/1024**i).toFixed(1)} ${u[i]}` }
+function fmtSize(b?: number) { if (!b) return '-'; const u=['B','KB','MB','GB','TB']; const i=Math.min(Math.floor(Math.log(b)/Math.log(1024)),4); return `${(b/1024**i).toFixed(1)} ${u[i]}` }
 
 type ITab = 'targets' | 'acls'
 
@@ -79,7 +79,7 @@ export function ISCSIPage() {
     <div style={{ maxWidth: 960 }}>
       <div className="page-header">
         <h1 className="page-title">iSCSI</h1>
-        <p className="page-subtitle">Block storage over IP — targets and initiator ACLs</p>
+        <p className="page-subtitle">Block storage over IP - targets and initiator ACLs</p>
       </div>
 
       {/* Status */}
@@ -141,7 +141,7 @@ export function ISCSIPage() {
                 {targets.map(t=>(
                   <tr key={t.iqn} onMouseEnter={e=>(e.currentTarget.style.background='rgba(255,255,255,0.02)')} onMouseLeave={e=>(e.currentTarget.style.background='transparent')}>
                     <td style={{ fontFamily:'var(--font-mono)', fontSize:'var(--text-xs)', color:'var(--primary)' }}>{t.iqn}</td>
-                    <td style={{ fontFamily:'var(--font-mono)', fontSize:'var(--text-xs)', color:'var(--text-secondary)' }}>{t.zvol||'—'}</td>
+                    <td style={{ fontFamily:'var(--font-mono)', fontSize:'var(--text-xs)', color:'var(--text-secondary)' }}>{t.zvol||'-'}</td>
                     <td>{t.sessions ?? 0}</td>
                     <td style={{ color:'var(--text-secondary)' }}>{fmtSize(t.size)}</td>
                     <td>
@@ -200,7 +200,7 @@ export function ISCSIPage() {
               </div>
             ))}
             {!aclsQ.isLoading && acls.length===0 && (
-              <div style={{ textAlign:'center', padding:'32px 0', color:'var(--text-tertiary)' }}>No ACL rules — all initiators may connect</div>
+              <div style={{ textAlign:'center', padding:'32px 0', color:'var(--text-tertiary)' }}>No ACL rules - all initiators may connect</div>
             )}
           </div>
         </>
@@ -209,3 +209,4 @@ export function ISCSIPage() {
     </div>
   )
 }
+

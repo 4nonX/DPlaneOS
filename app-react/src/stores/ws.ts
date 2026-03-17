@@ -1,5 +1,5 @@
-/**
- * stores/ws.ts — D-PlaneOS WebSocket Store
+﻿/**
+ * stores/ws.ts - D-PlaneOS WebSocket Store
  *
  * Manages a single connection to /ws/monitor.
  * Authenticates via session_id immediately after open.
@@ -62,7 +62,7 @@ interface WsState {
   on: <E extends EventName>(event: E, cb: EventMap[E]) => () => void
 }
 
-// Subscriber map — lives outside Zustand state to avoid re-render on subscribe
+// Subscriber map - lives outside Zustand state to avoid re-render on subscribe
 const subscribers = new Map<EventName, Set<EventMap[EventName]>>()
 function getSet(event: EventName): Set<EventMap[EventName]> {
   if (!subscribers.has(event)) subscribers.set(event, new Set())
@@ -119,7 +119,7 @@ export const useWsStore = create<WsState>((set) => {
       // Authenticate immediately
       const sessionId = getSessionId()
       if (!sessionId) {
-        // No session — close; auth store will redirect to /login
+        // No session - close; auth store will redirect to /login
         ws?.close()
         return
       }
@@ -193,7 +193,7 @@ export const useWsStore = create<WsState>((set) => {
           if (msg.type.startsWith('mount_health_')) {
             emit('mountError', msg.data ?? msg)
           }
-          // pong and unknown types — no-op
+          // pong and unknown types - no-op
           break
       }
     }
@@ -233,3 +233,4 @@ export const useWsStore = create<WsState>((set) => {
     },
   }
 })
+

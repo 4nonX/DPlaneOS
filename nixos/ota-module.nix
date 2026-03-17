@@ -1,9 +1,9 @@
-# D-PlaneOS — OTA Update NixOS Module
+# D-PlaneOS - OTA Update NixOS Module
 # ─────────────────────────────────────────────────────────────────────────────
 # Installs the OTA update script and two systemd units:
 #
-#   dplaneos-ota-health.service  — runs the health check once after boot
-#   dplaneos-ota-health.timer    — fires the service 90s after boot
+#   dplaneos-ota-health.service  - runs the health check once after boot
+#   dplaneos-ota-health.timer    - fires the service 90s after boot
 #
 # The 90-second delay gives all services time to fully start before the
 # health check evaluates them. If the check fails, the OTA script reverts
@@ -13,7 +13,7 @@
 #   Updates are distributed via GitHub (git pull + nixos-rebuild switch).
 #   Nix's content-addressed store and flake lockfile pins provide integrity
 #   guarantees at the system level. The OTA script handles A/B slot switching
-#   and post-reboot health checks only — it does not verify signatures because
+#   and post-reboot health checks only: it does not verify signatures because
 #   the Nix build chain already does this. If a non-GitHub distribution model
 #   is adopted in the future, add signature verification at that point.
 # ─────────────────────────────────────────────────────────────────────────────
@@ -104,7 +104,7 @@ in {
         "smbd.service"
         "zfs.target"
       ];
-      # NOT in wantedBy — activated exclusively by the timer below.
+      # NOT in wantedBy: activated exclusively by the timer below.
       # This prevents the health check from running on every boot even
       # when no OTA update is pending.
       serviceConfig = {
@@ -118,7 +118,7 @@ in {
     };
 
     # ── Health check timer ───────────────────────────────────────────────────
-    # One-shot timer — fires once per boot, never repeats.
+    # One-shot timer - fires once per boot, never repeats.
     # If no pending-revert marker is present, the service exits in <1s.
     # Configured delay is tunable via services.dplaneos.ota.healthCheckDelay.
     systemd.timers.dplaneos-ota-health = {
@@ -127,7 +127,7 @@ in {
       timerConfig = {
         OnBootSec = cfg.ota.healthCheckDelay;
         Unit      = "dplaneos-ota-health.service";
-        # No OnUnitActiveSec — ensures the timer fires exactly once per boot.
+        # No OnUnitActiveSec - ensures the timer fires exactly once per boot.
       };
     };
 

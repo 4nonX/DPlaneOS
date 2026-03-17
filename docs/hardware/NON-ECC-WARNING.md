@@ -1,11 +1,11 @@
-# D-PlaneOS on Non-ECC Hardware
+﻿# D-PlaneOS on Non-ECC Hardware
 
 ## The Core Issue
 
 ZFS protects your data against corruption *on disk*. It cannot protect data that was already corrupted *in RAM* before being written.
 
 ```
-1. User writes a file — it enters system RAM
+1. User writes a file - it enters system RAM
 2. A bit flips in RAM (cosmic ray, voltage, thermal)
 3. ZFS writes the corrupted data to disk
 4. ZFS calculates a checksum of the corrupted version and stores it
@@ -27,7 +27,7 @@ ECC RAM detects and corrects single-bit errors in hardware before they reach sof
 - ~1 bit flip per 16 GB per month (thermal/voltage)
 - On a 16 GB system: 2–4 statistical bit flips per month
 
-Not all flips hit active data. Most hit unused memory or data that is immediately discarded. But the files that are affected show no symptoms — no error, no alert, no corrupted-file marker.
+Not all flips hit active data. Most hit unused memory or data that is immediately discarded. But the files that are affected show no symptoms - no error, no alert, no corrupted-file marker.
 
 ### By Data Type
 
@@ -59,14 +59,14 @@ Less data held in ARC at any moment means less exposure time per byte. Configure
 
 ### Non-ECC Advisory
 
-The dashboard detects non-ECC RAM via `dmidecode` at startup and displays an informational notice. This is advisory — it never blocks operation or prevents pool creation.
+The dashboard detects non-ECC RAM via `dmidecode` at startup and displays an informational notice. This is advisory - it never blocks operation or prevents pool creation.
 
 ### Other Software Mitigations
 
-- Pool heartbeat with active I/O — detects pool stalls immediately
-- SQLite WAL mode with `FULL` sync — prevents lock corruption
-- Inotify usage monitoring — warns at 90% capacity
-- ZFS mount gate — prevents Docker-before-ZFS data loss race
+- Pool heartbeat with active I/O - detects pool stalls immediately
+- SQLite WAL mode with `FULL` sync - prevents lock corruption
+- Inotify usage monitoring - warns at 90% capacity
+- ZFS mount gate - prevents Docker-before-ZFS data loss race
 
 These mitigations reduce risk at the software layer. They cannot address the fundamental hardware limitation.
 
@@ -107,9 +107,10 @@ Any of the following CPU/motherboard combinations support ECC:
 - AMD Ryzen Pro (any)
 - Any server or workstation board advertising ECC UDIMM or RDIMM support
 
-Consumer platforms (Intel Core, AMD Ryzen standard) do not support ECC regardless of what the RAM modules are rated for — the CPU and chipset must also support it.
+Consumer platforms (Intel Core, AMD Ryzen standard) do not support ECC regardless of what the RAM modules are rated for - the CPU and chipset must also support it.
 
 **Rough cost estimate (2026):**
 - Server motherboard + CPU: $400–1000
 - 32 GB ECC DDR4: $150–300
 - Total for a basic ECC-capable build: $550–1300
+

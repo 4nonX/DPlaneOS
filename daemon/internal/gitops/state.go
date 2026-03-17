@@ -1,4 +1,4 @@
-// Package gitops implements Phase 3: GitOps Differentiator.
+﻿// Package gitops implements Phase 3: GitOps Differentiator.
 //
 // State machine:
 //
@@ -99,7 +99,7 @@ type DesiredState struct {
 }
 
 // DesiredPool describes a ZFS pool.
-// Disks MUST use /dev/disk/by-id/ paths — enforced at parse time.
+// Disks MUST use /dev/disk/by-id/ paths - enforced at parse time.
 type DesiredPool struct {
 	Name     string            `yaml:"name"`
 	VdevType string            `yaml:"vdev_type"` // mirror, raidz, raidz2, raidz3, "" (stripe)
@@ -286,12 +286,12 @@ func ValidState(s *DesiredState) []string {
 		}
 
 		// THE HARD RULE: every disk must be a /dev/disk/by-id/ path.
-		// /dev/sdX paths are rejected unconditionally — they are unstable across
+		// /dev/sdX paths are rejected unconditionally - they are unstable across
 		// reboots and cause catastrophic pool imports on hardware changes.
 		for _, d := range p.Disks {
 			if !strings.HasPrefix(d, byIDPrefix) {
 				errs = append(errs, fmt.Sprintf(
-					"%s: disk %q must use /dev/disk/by-id/ path (got %q) — "+
+					"%s: disk %q must use /dev/disk/by-id/ path (got %q) - "+
 						"/dev/sdX paths are unstable across reboots and are REJECTED",
 					pfx, d, d,
 				))
@@ -329,7 +329,7 @@ func ValidState(s *DesiredState) []string {
 			}
 		}
 		// Allow datasets under pools not declared in this file (pre-existing pools)
-		// — only warn, do not error. The diff engine handles this.
+		// - only warn, do not error. The diff engine handles this.
 		_ = hasPool
 
 		validComp := map[string]bool{"": true, "lz4": true, "zstd": true,
@@ -416,7 +416,7 @@ func ValidState(s *DesiredState) []string {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-//  MINIMAL YAML PARSER  (stdlib only — no external dependency)
+//  MINIMAL YAML PARSER  (stdlib only - no external dependency)
 //
 //  Supports the exact subset required by state.yaml:
 //    - top-level scalar keys
@@ -425,7 +425,7 @@ func ValidState(s *DesiredState) []string {
 //    - inline lists for disk paths
 //
 //  Does NOT support: anchors, tags, multi-document, block scalars, JSON flow style.
-//  Anything outside this subset returns a parse error — fail closed, never silent.
+//  Anything outside this subset returns a parse error - fail closed, never silent.
 // ═══════════════════════════════════════════════════════════════════════════════
 
 // ParseStateYAML parses the contents of state.yaml into a DesiredState.
@@ -472,7 +472,7 @@ func splitLines(s string) []parsedLine {
 	for scanner.Scan() {
 		lineNum++
 		raw := scanner.Text()
-		// Strip comment — but only outside quoted strings (simplified: strip # at word boundary)
+		// Strip comment - but only outside quoted strings (simplified: strip # at word boundary)
 		content := stripComment(raw)
 		if strings.TrimSpace(content) == "" {
 			continue // blank or comment-only lines
@@ -529,7 +529,7 @@ func (p *yamlParser) parseMapping(minIndent int) (map[string]yamlNode, error) {
 	for p.pos < len(p.lines) {
 		line := p.lines[p.pos]
 		if line.indent < minIndent {
-			break // dedented — done with this mapping
+			break // dedented - done with this mapping
 		}
 		if !strings.Contains(line.content, ":") {
 			return nil, fmt.Errorf("line %d: expected key:value, got %q", line.lineNum, line.content)
@@ -546,7 +546,7 @@ func (p *yamlParser) parseMapping(minIndent int) (map[string]yamlNode, error) {
 		var err error
 
 		if rest == "" {
-			// Value is on next lines — could be sequence or mapping
+			// Value is on next lines - could be sequence or mapping
 			if p.pos < len(p.lines) && p.lines[p.pos].indent > line.indent {
 				nextLine := p.lines[p.pos]
 				if strings.HasPrefix(nextLine.content, "- ") || nextLine.content == "-" {
@@ -1064,3 +1064,4 @@ func intField(m map[string]yamlNode, key string) int {
 	fmt.Sscanf(fmt.Sprintf("%v", v), "%d", &n)
 	return n
 }
+

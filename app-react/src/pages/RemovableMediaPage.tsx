@@ -1,5 +1,5 @@
-/**
- * pages/RemovableMediaPage.tsx — Removable Media (Phase 4)
+﻿/**
+ * pages/RemovableMediaPage.tsx - Removable Media (Phase 4)
  *
  * Calls (matching daemon routes exactly):
  *   GET  /api/removable/list
@@ -169,7 +169,7 @@ export function RemovableMediaPage() {
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 32 }}>
         <div>
           <h1 style={{ fontSize: 'var(--text-3xl)', fontWeight: 700, letterSpacing: '-1px', marginBottom: 6 }}>Removable Media</h1>
-          <p style={{ color: 'var(--text-secondary)', fontSize: 'var(--text-md)' }}>USB drives, external disks — mount, unmount, eject</p>
+          <p style={{ color: 'var(--text-secondary)', fontSize: 'var(--text-md)' }}>USB drives, external disks - mount, unmount, eject</p>
         </div>
         <button onClick={refresh} className="btn btn-ghost"><Icon name="refresh" size={15} />Refresh</button>
       </div>
@@ -209,3 +209,4 @@ export function RemovableMediaPage() {
     </div>
   )
 }
+

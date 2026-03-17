@@ -1,5 +1,5 @@
-/**
- * pages/CloudSyncPage.tsx — Cloud Sync (Phase 7)
+﻿/**
+ * pages/CloudSyncPage.tsx - Cloud Sync (Phase 7)
  *
  * GET  /api/cloud-sync?action=status    → { remotes: Remote[] }
  * GET  /api/cloud-sync?action=remotes   → { remotes: Remote[] }
@@ -30,7 +30,7 @@ function statusDot(s?: string) {
   return <span style={{ width:8, height:8, borderRadius:'50%', background:c, display:'inline-block', flexShrink:0 }} />
 }
 
-function fmtDate(s?:string){if(!s)return'—';try{return new Date(s).toLocaleString('de-DE',{dateStyle:'short',timeStyle:'short'})}catch{return s}}
+function fmtDate(s?:string){if(!s)return'-';try{return new Date(s).toLocaleString('de-DE',{dateStyle:'short',timeStyle:'short'})}catch{return s}}
 
 const PROVIDER_ICONS: Record<string,string> = { s3:'cloud', b2:'cloud', gdrive:'folder', dropbox:'cloud_download', sftp:'terminal', rclone:'sync' }
 
@@ -194,3 +194,4 @@ export function CloudSyncPage() {
     </div>
   )
 }
+

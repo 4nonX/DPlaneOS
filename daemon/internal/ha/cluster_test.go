@@ -1,4 +1,4 @@
-package ha
+﻿package ha
 
 import (
 	"database/sql"
@@ -151,7 +151,7 @@ func TestHeartbeat_AutoRegistersUnknownPeer(t *testing.T) {
 	m := NewManager(db, "node1", "http://10.0.0.1:5050", "3.1.0")
 	m.ensureSchema()
 
-	// Heartbeat from unknown peer — should auto-register
+	// Heartbeat from unknown peer - should auto-register
 	m.HandleHeartbeat(HeartbeatPayload{
 		NodeID:  "node3",
 		Address: "http://10.0.0.3:5050",
@@ -194,3 +194,4 @@ func TestSetPeerRole_UnknownPeer(t *testing.T) {
 		t.Fatal("expected error for unknown peer")
 	}
 }
+

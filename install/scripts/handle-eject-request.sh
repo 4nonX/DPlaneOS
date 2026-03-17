@@ -1,4 +1,4 @@
-#!/bin/bash
+﻿#!/bin/bash
 #
 # D-PlaneOS - Eject Button Handler
 #
@@ -14,7 +14,7 @@ MOUNTPOINT=$(findmnt -n -o TARGET "$DEVICE" 2>/dev/null)
 if [ -n "$MOUNTPOINT" ]; then
     logger -t dplaneos "Unmounting $DEVICE from $MOUNTPOINT before eject"
     umount "$DEVICE" 2>/dev/null || {
-        logger -t dplaneos "WARNING: Could not unmount $DEVICE — device busy"
+        logger -t dplaneos "WARNING: Could not unmount $DEVICE - device busy"
         exit 1
     }
 fi
@@ -31,3 +31,4 @@ if [ -S /run/dplaneos/dplaneos.sock ]; then
 fi
 
 exit 0
+

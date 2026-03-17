@@ -4,7 +4,7 @@
 # It contains machine-specific hardware detection (filesystems, kernel modules,
 # CPU type, etc.) that nixos-generate-config discovers automatically.
 #
-# DO NOT use this stub file on a real install — it will be overwritten.
+# DO NOT use this stub file on a real install - it will be overwritten.
 # It is included here only so `nix flake check` and `nixos-rebuild dry-run`
 # work on the source tree without a real machine present.
 #
@@ -25,7 +25,7 @@
   boot.kernelModules                 = [ "kvm-intel" ];
   boot.extraModulePackages           = [];
 
-  # Filesystems — replaced by nixos-generate-config.
+  # Filesystems - replaced by nixos-generate-config.
   # disko.nix manages the actual partition layout; these entries are
   # generated from it automatically during install.
   fileSystems."/" = {

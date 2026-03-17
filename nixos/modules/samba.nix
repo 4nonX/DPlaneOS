@@ -16,15 +16,15 @@
 #
 # TWO-LAYER SPLIT:
 #
-#   NixOS layer (this file) — owns:
+#   NixOS layer (this file) : owns:
 #     • services.samba.enable
 #     • [global] section (workgroup, security, logging, VFS globals)
 #     • include = /var/lib/dplaneos/smb-shares.conf
 #     • Firewall ports (445, 139, 137/udp, 138/udp)
 #     • systemd service ordering (after ZFS, after dplaned)
-#     • passdb backend (tdbsam — persisted via impermanence.nix)
+#     • passdb backend (tdbsam - persisted via impermanence.nix)
 #
-#   D-PlaneOS layer (/var/lib/dplaneos/smb-shares.conf) — owns:
+#   D-PlaneOS layer (/var/lib/dplaneos/smb-shares.conf) : owns:
 #     • Every [share-name] stanza
 #     • Per-share path, permissions, valid users, VFS objects
 #     • Written atomically by daemon on every share create/update/delete
@@ -55,7 +55,7 @@ let
   sharesConfPath = "/var/lib/dplaneos/smb-shares.conf";
 
   # The [global] section is fully owned by NixOS.
-  # It is rendered here from options — never touched by the daemon.
+  # It is rendered here from options - never touched by the daemon.
   globalSection = ''
     [global]
        workgroup = ${cfg.workgroup}
@@ -68,7 +68,7 @@ let
        map to guest = ${if cfg.allowGuest then "Bad User" else "Never"}
        ${lib.optionalString cfg.allowGuest "guest account = nobody"}
 
-       # Protocol — SMB2/3 only (SMB1 disabled, security risk)
+       # Protocol : SMB2/3 only (SMB1 disabled, security risk)
        server min protocol = SMB2
        server max protocol = SMB3
 
@@ -76,7 +76,7 @@ let
        unix charset = UTF-8
        dos charset = CP850
 
-       # Logging (NixOS journal, not a file — use: journalctl -u smbd)
+       # Logging (NixOS journal, not a file : use: journalctl -u smbd)
        logging = systemd
        log level = 1
 
@@ -140,7 +140,7 @@ in {
       default = false;
       description = ''
         Allow guest (unauthenticated) access to shares marked guest ok = yes.
-        Disabled by default — guest access is a security risk on production NAS.
+        Disabled by default - guest access is a security risk on production NAS.
       '';
     };
 
@@ -178,7 +178,7 @@ in {
       description = ''
         Path where the D-PlaneOS daemon writes per-share SMB stanzas.
         This is the file passed to dplaned via --smb-conf.
-        Read-only — changing this would desync the daemon and NixOS.
+        Read-only - changing this would desync the daemon and NixOS.
       '';
     };
 
@@ -257,7 +257,7 @@ in {
           if [ ! -f "$CONF" ]; then
             echo "# D-PlaneOS per-share SMB config"              >  "$CONF"
             echo "# Written by D-PlaneOS daemon on share changes" >> "$CONF"
-            echo "# DO NOT EDIT — changes will be overwritten"    >> "$CONF"
+            echo "# DO NOT EDIT - changes will be overwritten"    >> "$CONF"
             echo ""                                               >> "$CONF"
             echo "# (no shares configured yet)"                  >> "$CONF"
             echo "Created $CONF stub"
@@ -276,7 +276,7 @@ in {
 
     # ── Also make dplaned reload samba when it changes the shares file ────────
     # dplaned calls `smbcontrol all reload-config` after writing the file.
-    # Ensure dplaned can run smbcontrol — add it to the allowed commands.
+    # Ensure dplaned can run smbcontrol - add it to the allowed commands.
     # (The capability CAP_SYS_ADMIN in module.nix's service config covers this.)
 
     # ── Firewall ──────────────────────────────────────────────────────────────
@@ -316,7 +316,7 @@ in {
     # ── Persist Samba state across reboots ────────────────────────────────────
     # passdb.tdb, secrets.tdb, etc. contain Samba user credentials.
     # Without persistence, all Samba passwords are lost on reboot.
-    # Note: impermanence.nix also persists /var/lib/samba — this is a
+    # Note: impermanence.nix also persists /var/lib/samba : this is a
     # belt-and-suspenders assertion using tmpfiles for non-impermanence setups.
     systemd.tmpfiles.rules = [
       "d /var/lib/samba          0755 root root -"

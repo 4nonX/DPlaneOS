@@ -1,10 +1,10 @@
 #!/bin/bash
 #
-# D-PlaneOS — Tailscale Installer Helper
+# D-PlaneOS - Tailscale Installer Helper
 # Version: 1.14.0
 #
 # This is the ONLY script www-data is allowed to run as root for package
-# installation (see sudoers). It does nothing else — narrow privilege scope.
+# installation (see sudoers). It does nothing else - narrow privilege scope.
 #
 # Exit codes: 0 = success, 1 = already installed, 2 = install failed
 

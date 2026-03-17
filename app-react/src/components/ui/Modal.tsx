@@ -1,5 +1,5 @@
-/**
- * components/ui/Modal.tsx — Shared modal dialog component
+﻿/**
+ * components/ui/Modal.tsx - Shared modal dialog component
  *
  * Usage:
  *   <Modal title="Edit User" onClose={handleClose}>
@@ -49,3 +49,4 @@ export function Modal({ title, onClose, children, size = 'md' }: ModalProps) {
     modalRoot
   )
 }
+

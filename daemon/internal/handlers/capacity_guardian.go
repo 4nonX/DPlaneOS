@@ -1,4 +1,4 @@
-package handlers
+﻿package handlers
 
 import (
 	"fmt"
@@ -11,7 +11,7 @@ import (
 
 // CapacityGuardianHandler monitors and protects pool capacity
 type CapacityGuardianHandler struct {
-	// Thresholds are configurable — different setups have different needs
+	// Thresholds are configurable - different setups have different needs
 	// A 1TB home NAS might want warnings at 85%, a 100TB array at 92%
 	WarningPct   float64 // default: 80
 	CriticalPct  float64 // default: 90
@@ -214,7 +214,7 @@ func (h *CapacityGuardianHandler) ReleaseReserve(w http.ResponseWriter, r *http.
 
 	respondOK(w, map[string]interface{}{
 		"success": true,
-		"message": fmt.Sprintf("Emergency reserve released on %s — you now have extra space for cleanup", pool),
+		"message": fmt.Sprintf("Emergency reserve released on %s - you now have extra space for cleanup", pool),
 	})
 }
 
@@ -287,7 +287,7 @@ var (
 )
 
 // StartCapacityMonitor runs a background goroutine that checks capacity every 5 minutes.
-// Uses default thresholds — the handler instance thresholds are for API responses.
+// Uses default thresholds - the handler instance thresholds are for API responses.
 // Fires DispatchAlert on WARNING and EMERGENCY states with de-duplication so the
 // same state doesn't spam on every poll cycle.
 func StartCapacityMonitor() {
@@ -325,7 +325,7 @@ func StartCapacityMonitor() {
 
 					if !alreadyAlerted {
 						msg := fmt.Sprintf(
-							"Pool '%s' is at %.0f%% capacity (EMERGENCY — ≥95%%). Emergency reserve released. Delete data immediately.",
+							"Pool '%s' is at %.0f%% capacity (EMERGENCY - ≥95%%). Emergency reserve released. Delete data immediately.",
 							a.Pool, a.UsedPct,
 						)
 						DispatchAlert("critical", EventCapacityEmergency, a.Pool, msg)
@@ -333,7 +333,7 @@ func StartCapacityMonitor() {
 				} else if a.State == "critical" {
 					if !alreadyAlerted {
 						msg := fmt.Sprintf(
-							"Pool '%s' is at %.0f%% capacity (CRITICAL — ≥90%%). Free up space soon.",
+							"Pool '%s' is at %.0f%% capacity (CRITICAL - ≥90%%). Free up space soon.",
 							a.Pool, a.UsedPct,
 						)
 						DispatchAlert("critical", EventCapacityCritical, a.Pool, msg)
@@ -341,7 +341,7 @@ func StartCapacityMonitor() {
 				} else if a.State == "warning" {
 					if !alreadyAlerted {
 						msg := fmt.Sprintf(
-							"Pool '%s' is at %.0f%% capacity (WARNING — ≥80%%). Consider adding storage or deleting data.",
+							"Pool '%s' is at %.0f%% capacity (WARNING - ≥80%%). Consider adding storage or deleting data.",
 							a.Pool, a.UsedPct,
 						)
 						DispatchAlert("warning", EventCapacityWarning, a.Pool, msg)
@@ -361,3 +361,4 @@ func StartCapacityMonitor() {
 		}
 	}()
 }
+

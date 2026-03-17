@@ -1,5 +1,5 @@
-/**
- * pages/FirewallPage.tsx — Firewall (Phase 6)
+﻿/**
+ * pages/FirewallPage.tsx - Firewall (Phase 6)
  *
  * Shows current nftables/iptables status and allows adding allow/deny rules.
  * The daemon uses a simple rule model: action, port, from (optional).
@@ -53,7 +53,7 @@ function StatusBanner({ active, onToggle, pending }: { active: boolean; onToggle
           Firewall {active ? 'Active' : 'Inactive'}
         </div>
         <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>
-          {active ? 'nftables rules are applied and protecting the system' : 'No firewall rules are active — all traffic is allowed'}
+          {active ? 'nftables rules are applied and protecting the system' : 'No firewall rules are active - all traffic is allowed'}
         </div>
       </div>
       <button onClick={onToggle} disabled={pending} className={active ? 'btn btn-danger' : 'btn btn-primary'}>
@@ -156,7 +156,7 @@ export function FirewallPage() {
     <div style={{ maxWidth: 900 }}>
       <div className="page-header">
         <h1 className="page-title">Firewall</h1>
-        <p className="page-subtitle">nftables rules — allow and deny traffic by port and source</p>
+        <p className="page-subtitle">nftables rules - allow and deny traffic by port and source</p>
       </div>
 
       <StatusBanner
@@ -207,7 +207,7 @@ export function FirewallPage() {
                     {rule.proto ?? 'tcp'}
                   </td>
                   <td style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-sm)', fontWeight: 600 }}>
-                    {rule.port ?? '—'}
+                    {rule.port ?? '-'}
                   </td>
                   <td style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>
                     {rule.from ?? 'any'}
@@ -236,3 +236,4 @@ export function FirewallPage() {
     </div>
   )
 }
+

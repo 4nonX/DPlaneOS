@@ -1,4 +1,4 @@
-package handlers
+﻿package handlers
 
 import (
 	"encoding/json"
@@ -51,7 +51,7 @@ func StartScrub(w http.ResponseWriter, r *http.Request) {
 			time.Sleep(10 * time.Second)
 			out, err := executeCommandWithTimeout(TimeoutFast, "/usr/sbin/zpool", []string{"status", pool})
 			if err != nil {
-				return // pool gone or zpool failed — stop polling
+				return // pool gone or zpool failed - stop polling
 			}
 			if !strings.Contains(out, "scrub in progress") {
 				if diskEventHub != nil {
@@ -261,7 +261,7 @@ func HandleResilverStatus(w http.ResponseWriter, r *http.Request) {
 
 	rawScan := strings.Join(scanLines, " ")
 
-	// Only return resilver data — not scrub
+	// Only return resilver data - not scrub
 	isResilver := strings.Contains(rawScan, "resilver")
 	if !isResilver {
 		respondOK(w, map[string]interface{}{
@@ -445,7 +445,7 @@ func ReplaceDisk(w http.ResponseWriter, r *http.Request) {
 					"error":   err.Error(),
 				}, "warning")
 			}
-			j.Fail(fmt.Sprintf("zpool replace failed: %v — %s", err, strings.TrimSpace(output)))
+			j.Fail(fmt.Sprintf("zpool replace failed: %v - %s", err, strings.TrimSpace(output)))
 			return
 		}
 		if diskEventHub != nil {
@@ -1035,3 +1035,4 @@ func PoolOperations(w http.ResponseWriter, r *http.Request) {
 func runZFSCommand(args []string) ([]byte, error) {
 	return cmdutil.RunFast("/usr/sbin/zfs", args...)
 }
+

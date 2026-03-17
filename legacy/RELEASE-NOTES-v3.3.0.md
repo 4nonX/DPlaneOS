@@ -8,7 +8,7 @@
 ## Overview
 
 v3.3.0 is a focused UX hardening release addressing the "Silent Requirement" pattern
-across the entire WebUI — situations where backend rules were strict but the frontend
+across the entire WebUI - situations where backend rules were strict but the frontend
 gave no guidance until after a failed submission.
 
 All changes are backward-compatible. No database migrations required.
@@ -17,26 +17,26 @@ All changes are backward-compatible. No database migrations required.
 
 ## Fixes & Improvements
 
-### 🔐 Password UX — All Platforms Unified
+### 🔐 Password UX - All Platforms Unified
 
-**Backend (Go — `auth.go`, `users_groups.go`)**
+**Backend (Go - `auth.go`, `users_groups.go`)**
 - `ChangePassword`, `CreateUser`, and admin `UpdateUser` (password reset) now all
-  use the same `validatePasswordStrength()` function — eliminating validation
+  use the same `validatePasswordStrength()` function - eliminating validation
   discrepancies between paths.
 - All password inputs now `strings.TrimSpace()` before validation, catching
   accidental leading/trailing whitespace from copy-paste (invisible characters that
   previously caused silent failures).
 
 **Frontend (all password forms)**
-- **Real-time strength checklist** (`password-strength.js`) — as the user types, a
+- **Real-time strength checklist** (`password-strength.js`) - as the user types, a
   live checklist shows which requirements are met (length, uppercase, lowercase,
   digit, special character), turning green as each rule passes. Rules mirror the
   backend exactly.
-- **Show/hide password toggle** — all password fields now have an eye-icon button
+- **Show/hide password toggle** - all password fields now have an eye-icon button
   to reveal/hide the input. Uses `Material Symbols Rounded` icon for M3 consistency.
-- **Confirm-match indicator** — password confirmation fields show a live
+- **Confirm-match indicator** - password confirmation fields show a live
   "✓ Passwords match / ✗ Passwords do not match" indicator.
-- **Client-side pre-validation** — password forms validate locally before
+- **Client-side pre-validation** - password forms validate locally before
   submitting, providing instant feedback without a round-trip to the server.
 
 **Affected pages:** `login.html`, `users.html` (change own password, create user,
@@ -44,12 +44,12 @@ edit user / admin reset), `setup-wizard.html`.
 
 ---
 
-### 🔔 Notifications — All Dismissible
+### 🔔 Notifications - All Dismissible
 
 - **All toast notifications** (both `DPlaneUI.toast()` and `EnhancedUI.toast()`)
   now include a `×` dismiss button, matching Material Design 3 snackbar guidance.
 - Toasts are positioned in the **top-right** corner (88px from top, 24px from
-  right) consistently across both toast implementations — previously they appeared
+  right) consistently across both toast implementations - previously they appeared
   at the bottom-center and top-right respectively, creating visual inconsistency.
 - Toasts **pause auto-dismiss on hover** and dismiss 2s after mouse-leave.
 - The visual style is now fully unified: glassmorphism background, left accent
@@ -80,7 +80,7 @@ edit user / admin reset), `setup-wizard.html`.
 ### 🎨 Design Consistency
 
 - All new widgets (`password-strength.js`, `unsaved-changes.js`) use CSS custom
-  properties from `m3-tokens.css` and `design-tokens.css` — no hard-coded colors.
+  properties from `m3-tokens.css` and `design-tokens.css` - no hard-coded colors.
 - Material Symbols Rounded icons used throughout (no emoji substitutes).
 - `login.html` error state changed from plain text to a styled error card with
   icon, consistent with other page error presentations.
@@ -90,21 +90,21 @@ edit user / admin reset), `setup-wizard.html`.
 ## Files Changed
 
 ### New Files
-- `app/assets/js/password-strength.js` — Password strength widget module
-- `app/assets/js/unsaved-changes.js` — Unsaved changes guard module
-- `RELEASE-NOTES-v3.3.0.md` — This file
+- `app/assets/js/password-strength.js` - Password strength widget module
+- `app/assets/js/unsaved-changes.js` - Unsaved changes guard module
+- `RELEASE-NOTES-v3.3.0.md` - This file
 
 ### Modified Files
-- `daemon/internal/handlers/auth.go` — TrimSpace + unified validation
-- `daemon/internal/handlers/users_groups.go` — TrimSpace + validatePasswordStrength in all paths
-- `app/assets/js/ui-components.js` — Dismissible toasts, unified positioning
-- `app/assets/js/enhanced-ui.js` — Dismissible toasts, unified positioning
-- `app/pages/login.html` — Show/hide toggle, M3 error card
-- `app/pages/users.html` — Password strength in all modals, client-side validation
-- `app/pages/setup-wizard.html` — PasswordStrength module, client-side pre-validation
-- `app/pages/network.html` — Unsaved-changes guard, double-click protection
-- `app/pages/settings.html` — Unsaved-changes guard, double-click protection
-- `VERSION` — 3.3.0 → 3.3.0
+- `daemon/internal/handlers/auth.go` - TrimSpace + unified validation
+- `daemon/internal/handlers/users_groups.go` - TrimSpace + validatePasswordStrength in all paths
+- `app/assets/js/ui-components.js` - Dismissible toasts, unified positioning
+- `app/assets/js/enhanced-ui.js` - Dismissible toasts, unified positioning
+- `app/pages/login.html` - Show/hide toggle, M3 error card
+- `app/pages/users.html` - Password strength in all modals, client-side validation
+- `app/pages/setup-wizard.html` - PasswordStrength module, client-side pre-validation
+- `app/pages/network.html` - Unsaved-changes guard, double-click protection
+- `app/pages/settings.html` - Unsaved-changes guard, double-click protection
+- `VERSION` - 3.3.0 → 3.3.0
 
 ---
 

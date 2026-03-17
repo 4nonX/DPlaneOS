@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 /**
  * D-PlaneOS v1.14.0 - Complete ZFS Management API
  * REAL ZFS commands - No mockups, no theatre
@@ -550,7 +550,7 @@ try {
             $result = destroySnapshot($_POST['snapshot'] ?? $_GET['snapshot']);
             break;
 
-        // ─── Aliases — storage.html and main.js use short action names ───
+        // ─── Aliases - storage.html and main.js use short action names ───
         case 'list':
             $result = listPools();
             break;
@@ -562,7 +562,7 @@ try {
             $result = scrubPool($_POST['pool'] ?? $_GET['pool']);
             break;
 
-        // ─── pool_status — raw zpool status output ───
+        // ─── pool_status - raw zpool status output ───
         case 'pool_status': {
             $pool = $_GET['pool'] ?? $_POST['pool'] ?? '';
             $output = shell_exec('zpool status ' . escapeshellarg($pool) . ' 2>&1');
@@ -570,7 +570,7 @@ try {
             break;
         }
 
-        // ─── disks — list block devices for pool wizard ───
+        // ─── disks - list block devices for pool wizard ───
         case 'disks': {
             $raw = shell_exec('lsblk -J -o NAME,SIZE,TYPE,MOUNTPOINT,LABEL 2>/dev/null');
             $lsblk = json_decode($raw, true);
@@ -602,3 +602,4 @@ try {
         'error' => $e->getMessage()
     ]);
 }
+

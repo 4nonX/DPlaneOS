@@ -1,4 +1,4 @@
-#!/bin/bash
+﻿#!/bin/bash
 #
 # D-PlaneOS Release Builder
 # Creates production + vendored tarballs with full validation
@@ -50,7 +50,7 @@ GO_VER=$(go version | grep -oP 'go1\.\K[0-9]+')
 command -v gcc >/dev/null 2>&1 || fail "gcc not found. Install: apt install build-essential"
 pass "gcc $(gcc -dumpversion)"
 
-[ -f "$PROJECT_DIR/daemon/go.mod" ] || fail "daemon/go.mod not found — wrong directory?"
+[ -f "$PROJECT_DIR/daemon/go.mod" ] || fail "daemon/go.mod not found - wrong directory?"
 pass "Project structure"
 
 # ── Vendor dependencies ──
@@ -113,7 +113,7 @@ tar czf "$RELEASE_DIR/${TARNAME}.tar.gz" \
 STANDARD_SIZE=$(du -h "$RELEASE_DIR/${TARNAME}.tar.gz" | cut -f1)
 pass "${TARNAME}.tar.gz ($STANDARD_SIZE)"
 
-# Vendored (fully offline — includes binary + source + vendor)
+# Vendored (fully offline - includes binary + source + vendor)
 tar czf "$RELEASE_DIR/${TARNAME}-vendored.tar.gz" \
     --transform="s|^${DIRNAME}|dplaneos|" \
     --exclude="${DIRNAME}/release" \
@@ -134,7 +134,7 @@ BINARY_HASH=$(sha256sum "$PROJECT_DIR/daemon/dplaned" 2>/dev/null | awk '{print 
 BUILD_BINARY_HASH=$(sha256sum "$BUILD_DIR/$BINARY" | awk '{print $1}')
 
 {
-  echo "# D-PlaneOS v${VERSION} — SHA256 Attestation"
+  echo "# D-PlaneOS v${VERSION} - SHA256 Attestation"
   echo "# Generated: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
   echo "# Builder:   $(go version)"
   echo "# Commit:    $(git -C "$PROJECT_DIR" rev-parse HEAD 2>/dev/null || echo 'unknown')"
@@ -172,3 +172,4 @@ echo "  $RELEASE_DIR/${TARNAME}.tar.gz"
 echo "  $RELEASE_DIR/${TARNAME}-vendored.tar.gz"
 echo "  $RELEASE_DIR/${TARNAME}-SHA256SUMS"
 echo "═══════════════════════════════════════════════"
+

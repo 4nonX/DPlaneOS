@@ -1,5 +1,5 @@
-/**
- * pages/HAPage.tsx — High Availability Cluster (Phase 6)
+﻿/**
+ * pages/HAPage.tsx - High Availability Cluster (Phase 6)
  *
  * Shows cluster quorum status, local node info, peer list.
  * Allows registering/removing peers and promoting standby to active.
@@ -115,7 +115,7 @@ function NodeCard({ node, isLocal, canPromote, onPromote, onRemove, pending }: {
         </div>
       </div>
 
-      {/* Actions — only for non-local nodes */}
+      {/* Actions - only for non-local nodes */}
       {!isLocal && (
         <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
           {canPromote && !isActive && (
@@ -213,7 +213,7 @@ export function HAPage() {
     mutationFn: (peer: { id: string; name: string; address: string; role: string }) =>
       api.post('/api/ha/peers', peer),
     onSuccess: () => {
-      toast.success('Peer registered — heartbeat starting')
+      toast.success('Peer registered - heartbeat starting')
       qc.invalidateQueries({ queryKey: ['ha', 'status'] })
     },
     onError: (e: Error) => toast.error(e.message),
@@ -269,7 +269,7 @@ export function HAPage() {
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 28 }}>
         <div>
           <h1 className="page-title">HA Cluster</h1>
-          <p className="page-subtitle">High availability — nodes, quorum and failover</p>
+          <p className="page-subtitle">High availability - nodes, quorum and failover</p>
         </div>
         <button
           onClick={() => {
@@ -316,7 +316,7 @@ export function HAPage() {
           <Icon name="star" size={28} style={{ color: 'rgba(251,191,36,0.9)', flexShrink: 0 }} />
           <div style={{ minWidth: 0 }}>
             <div style={{ fontWeight: 700, fontSize: 'var(--text-md)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {activeNode?.name ?? activeNode?.id ?? '—'}
+              {activeNode?.name ?? activeNode?.id ?? '-'}
             </div>
             <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }}>Active node</div>
           </div>
@@ -367,3 +367,4 @@ export function HAPage() {
     </div>
   )
 }
+

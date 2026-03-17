@@ -1,4 +1,4 @@
-# D-PlaneOS Troubleshooting Guide
+﻿# D-PlaneOS Troubleshooting Guide
 
 ---
 
@@ -76,7 +76,7 @@ sudo systemctl restart zed
 **Symptom:**
 - Installer completes without errors
 - Web interface loads
-- Storage tabs are empty — no pools or datasets visible
+- Storage tabs are empty - no pools or datasets visible
 - Daemon logs: `ZFS is not available on this system`
 
 **Cause:** D-PlaneOS delivers the management layer and daemon, not the ZFS kernel module. On a system where ZFS has never been installed, the storage subsystem cannot function.
@@ -109,7 +109,7 @@ sudo systemctl restart dplaned
 - Daemon logs: `Failed to initialize database tables`
 - Second boot works
 
-**Cause:** Race condition — the daemon starts before the DB file is fully initialized. The `dplaneos-init-db.service` unit normally prevents this; if it is absent the daemon may start too early.
+**Cause:** Race condition - the daemon starts before the DB file is fully initialized. The `dplaneos-init-db.service` unit normally prevents this; if it is absent the daemon may start too early.
 
 **Diagnosis:**
 ```bash
@@ -123,17 +123,17 @@ ls -lh /var/lib/dplaneos/dplaneos.db
 sqlite3 /var/lib/dplaneos/dplaneos.db "SELECT username, role FROM users WHERE username='admin';"
 ```
 
-**Fix — Option 1: Wait for automatic recovery**
+**Fix - Option 1: Wait for automatic recovery**
 
 The daemon restarts via systemd. Wait 30 seconds, then refresh the browser. The admin user should exist on the second start.
 
-**Fix — Option 2: Interactive recovery CLI**
+**Fix - Option 2: Interactive recovery CLI**
 ```bash
 sudo dplaneos-recovery
 # Select option 5: Reset Admin Password
 ```
 
-**Fix — Option 3: Manual admin reset**
+**Fix - Option 3: Manual admin reset**
 ```bash
 sudo systemctl stop dplaned
 
@@ -158,7 +158,7 @@ sudo systemctl start dplaned
 - No error message
 - `journalctl -u docker` shows pull failures or timeouts
 
-**Cause:** Docker cannot reach Docker Hub. The GUI shows job progress via the async job queue — check `GET /api/jobs/<job_id>` for the actual error.
+**Cause:** Docker cannot reach Docker Hub. The GUI shows job progress via the async job queue - check `GET /api/jobs/<job_id>` for the actual error.
 
 **Diagnosis:**
 ```bash
@@ -167,7 +167,7 @@ sudo journalctl -u docker -n 50
 docker info | grep -i proxy
 ```
 
-**Fix — Configure Docker proxy:**
+**Fix - Configure Docker proxy:**
 ```bash
 sudo mkdir -p /etc/systemd/system/docker.service.d
 
@@ -183,12 +183,12 @@ sudo systemctl restart docker
 docker pull hello-world:latest
 ```
 
-**Fix — Firewall rules:**
+**Fix - Firewall rules:**
 ```bash
 sudo ufw allow out 443/tcp comment 'Docker Hub'
 ```
 
-**Workaround — pre-pull the image manually:**
+**Workaround - pre-pull the image manually:**
 ```bash
 docker pull <image-name>
 # Then configure the container via the GUI
@@ -202,7 +202,7 @@ docker pull <image-name>
 - Upgrade from an older version with the browser still open
 - After upgrade: layout breaks, buttons do not work, white screen, or mixed UI elements
 
-**Cause:** The browser has cached old JavaScript/CSS bundles from the previous version. The frontend assets use content-hash filenames (e.g. `index-Cx-Q8_77.js`) — after an upgrade, the old cached bundle references files that no longer exist.
+**Cause:** The browser has cached old JavaScript/CSS bundles from the previous version. The frontend assets use content-hash filenames (e.g. `index-Cx-Q8_77.js`) - after an upgrade, the old cached bundle references files that no longer exist.
 
 **Note:** There is no service worker in D-PlaneOS. This is a plain browser cache issue.
 
@@ -288,16 +288,16 @@ sudo journalctl -u dplaned -n 50 | grep -i "import"
 sqlite3 /var/lib/dplaneos/dplaneos.db "SELECT dev_name, by_id_path, pool_name, health FROM disk_registry;"
 ```
 
-**Fix — Manual import:**
+**Fix - Manual import:**
 ```bash
-# Import using stable by-id paths (required — raw /dev/sdX paths are rejected)
+# Import using stable by-id paths (required - raw /dev/sdX paths are rejected)
 sudo zpool import -d /dev/disk/by-id <pool-name>
 
 # Force import if necessary
 sudo zpool import -f -d /dev/disk/by-id <pool-name>
 ```
 
-**Fix — Rebuild the disk registry entry:**
+**Fix - Rebuild the disk registry entry:**
 ```bash
 # Delete the stale registry entry so the daemon re-learns the disk
 sudo sqlite3 /var/lib/dplaneos/dplaneos.db \
@@ -328,7 +328,7 @@ ls -la /dev/disk/by-id/ | grep sdb
 udevadm trigger --subsystem-match=block
 udevadm settle
 
-# Re-open the Hardware page — disk discovery runs fresh on page load
+# Re-open the Hardware page - disk discovery runs fresh on page load
 # The by-id path should now appear and pool creation will succeed
 ```
 
@@ -341,7 +341,7 @@ udevadm settle
 - `job_id` was returned but job shows no progress
 - `GET /api/zfs/resilver/status?pool=<name>` returns `resilvering: false`
 
-**Cause:** `zpool replace` is asynchronous — the job tracks the command exit code, not the resilver itself. The resilver is a ZFS background operation that continues independently.
+**Cause:** `zpool replace` is asynchronous - the job tracks the command exit code, not the resilver itself. The resilver is a ZFS background operation that continues independently.
 
 **Diagnosis:**
 ```bash
@@ -383,7 +383,7 @@ sudo journalctl -u dplaned -n 50 | grep -iE "alert|dispatch|webhook|smtp|telegra
 |---------|-------|
 | Telegram test works, pool alerts don't | Pool heartbeat interval (30s) has not fired yet |
 | SMTP test works, SMART alerts don't | SMART monitor runs every 6 hours; no alerts until next cycle |
-| Webhooks not firing | Check `events` field — webhook must include the relevant event type |
+| Webhooks not firing | Check `events` field - webhook must include the relevant event type |
 | Capacity alerts missing | Pool must stay above threshold for one full check cycle |
 
 **Note:** All alert channels are de-duplicated per resource per event type. A DEGRADED pool fires once when it transitions to DEGRADED, not on every heartbeat cycle. Alerts clear when the pool recovers to ONLINE.
@@ -441,9 +441,9 @@ sudo journalctl -u dplaned | grep -i "replicate\|replication"
 ```
 
 **Common causes:**
-- Daemon was restarted after the schedule was created — the in-memory monitor reinitializes on start and will pick up the schedule on the next tick (within 5 minutes)
-- SSH key not installed on the remote — test with: `ssh -i /etc/dplaneos/replication-key <user>@<host> zfs list`
-- Remote host is unreachable — the pre-flight test in ReplicationPage verifies connectivity
+- Daemon was restarted after the schedule was created - the in-memory monitor reinitializes on start and will pick up the schedule on the next tick (within 5 minutes)
+- SSH key not installed on the remote - test with: `ssh -i /etc/dplaneos/replication-key <user>@<host> zfs list`
+- Remote host is unreachable - the pre-flight test in ReplicationPage verifies connectivity
 
 ---
 
@@ -455,7 +455,7 @@ sudo journalctl -u dplaned | grep -i "replicate\|replication"
 
 **Cause:** The cron hook endpoint is called by the snapshot cron job. If the cron job was set up before v4.3.0, it may still call `zfs snapshot` directly rather than the hook endpoint.
 
-**Fix — Regenerate the snapshot cron:**
+**Fix - Regenerate the snapshot cron:**
 1. Open Snapshot Scheduler page
 2. Edit the schedule and click Save (even with no changes)
 3. This regenerates the cron entry to use `POST /api/zfs/snapshots/cron-hook`
@@ -747,3 +747,4 @@ sudo journalctl -u dplaned -n 50 > daemon.log
 | Alerts not firing | Medium | Alert not wired or de-duplicated | Test each channel; check event subscription |
 | Custom icon not showing | Low | File missing or label typo | Verify file in `custom_icons/`, check label |
 | Post-snapshot replication not firing | Low | Old cron format (pre-4.3.0) | Resave schedule to regenerate cron hook |
+

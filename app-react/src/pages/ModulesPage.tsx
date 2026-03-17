@@ -1,5 +1,5 @@
-/**
- * pages/ModulesPage.tsx — App Modules / Compose Stacks
+﻿/**
+ * pages/ModulesPage.tsx - App Modules / Compose Stacks
  *
  * Shows compose stacks grouped by template. Standalone stacks shown individually.
  * All existing port links, ContainerIcon, and dplaneos.icon label behaviour preserved.
@@ -100,7 +100,7 @@ function runningCount(stacks: StackInfo[]): number {
 }
 
 // ---------------------------------------------------------------------------
-// TemplateDeployModal — variable input before deploying a template
+// TemplateDeployModal - variable input before deploying a template
 // ---------------------------------------------------------------------------
 
 function TemplateDeployModal({ template, onClose, onDeploy }: {
@@ -173,7 +173,7 @@ function TemplateDeployModal({ template, onClose, onDeploy }: {
 }
 
 // ---------------------------------------------------------------------------
-// StackCard — single stack, used both standalone and inside a template group
+// StackCard - single stack, used both standalone and inside a template group
 // ---------------------------------------------------------------------------
 
 function StackCard({ stack, onRefresh, iconMap, compact = false }: {
@@ -243,7 +243,7 @@ function StackCard({ stack, onRefresh, iconMap, compact = false }: {
         </div>
       )}
 
-      {/* Services list — show when not compact */}
+      {/* Services list - show when not compact */}
       {!compact && serviceCount > 0 && (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 12 }}>
           {stack.services.map((s, i) => (
@@ -283,7 +283,7 @@ function StackCard({ stack, onRefresh, iconMap, compact = false }: {
 }
 
 // ---------------------------------------------------------------------------
-// TemplateGroupCard — collapsible group of stacks sharing a template
+// TemplateGroupCard - collapsible group of stacks sharing a template
 // ---------------------------------------------------------------------------
 
 function TemplateGroupCard({ group, onRefresh, iconMap }: {
@@ -321,7 +321,7 @@ function TemplateGroupCard({ group, onRefresh, iconMap }: {
             </span>
           </div>
           <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', marginTop: 2 }}>
-            {total} stack{total !== 1 ? 's' : ''} — {group.stacks.map(s => s.name).join(', ')}
+            {total} stack{total !== 1 ? 's' : ''} - {group.stacks.map(s => s.name).join(', ')}
           </div>
         </div>
 
@@ -341,7 +341,7 @@ function TemplateGroupCard({ group, onRefresh, iconMap }: {
 }
 
 // ---------------------------------------------------------------------------
-// TemplateCatalogueTab — browse and deploy templates
+// TemplateCatalogueTab - browse and deploy templates
 // ---------------------------------------------------------------------------
 
 function TemplateCatalogueTab({ onDeploy }: { onDeploy: (t: Template) => void }) {
@@ -422,7 +422,7 @@ export function ModulesPage() {
     refetchInterval: 20_000,
   })
 
-  // Icon map — shared, cached 1h
+  // Icon map - shared, cached 1h
   const iconMapQ = useQuery({
     queryKey: ['docker', 'icon-map'],
     queryFn: ({ signal }) => api.get<IconMapResponse>('/api/docker/icon-map', signal),
@@ -469,7 +469,7 @@ export function ModulesPage() {
     <div style={{ maxWidth: 1100 }}>
       <div className="page-header">
         <h1 className="page-title">App Modules</h1>
-        <p className="page-subtitle">Compose stacks — deploy from templates or manage individually</p>
+        <p className="page-subtitle">Compose stacks - deploy from templates or manage individually</p>
       </div>
 
       {/* Global deploy job progress */}
@@ -575,3 +575,4 @@ export function ModulesPage() {
     </div>
   )
 }
+

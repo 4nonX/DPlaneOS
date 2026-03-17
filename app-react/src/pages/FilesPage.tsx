@@ -1,5 +1,5 @@
-/**
- * pages/FilesPage.tsx — File Explorer (Phase 4)
+﻿/**
+ * pages/FilesPage.tsx - File Explorer (Phase 4)
  *
  * Calls (matching daemon routes exactly):
  *   GET  /api/files/list?path=         → { success, path, files: FileEntry[] }
@@ -62,7 +62,7 @@ function fmtSize(bytes: number): string {
 }
 
 function fmtDate(s: string): string {
-  if (!s) return '—'
+  if (!s) return '-'
   try { return new Date(s).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) }
   catch { return s }
 }
@@ -173,7 +173,7 @@ function ChownModal({ entry, onClose, onDone }: { entry: FileEntry; onClose: () 
     onError: (e: Error) => toast.error(e.message),
   })
   return (
-    <Modal title={`Change Owner — ${entry.name}`} onClose={onClose}>
+    <Modal title={`Change Owner - ${entry.name}`} onClose={onClose}>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
         <label className="field">
           <span className="field-label">Owner</span>
@@ -197,7 +197,7 @@ function ChmodModal({ entry, onClose, onDone }: { entry: FileEntry; onClose: () 
     onError: (e: Error) => toast.error(e.message),
   })
   return (
-    <Modal title={`Change Mode — ${entry.name}`} onClose={onClose}>
+    <Modal title={`Change Mode - ${entry.name}`} onClose={onClose}>
       <label className="field">
         <span className="field-label">Octal mode</span>
         <input value={mode} onChange={e => setMode(e.target.value)} placeholder="755" className="input" style={{ fontFamily: 'var(--font-mono)' }} autoFocus
@@ -364,7 +364,7 @@ const BOOKMARKS = [
 ]
 
 // ---------------------------------------------------------------------------
-// TextEditorModal — inline text editor (≤ 2 MB files)
+// TextEditorModal - inline text editor (≤ 2 MB files)
 // ---------------------------------------------------------------------------
 
 interface ReadFileResponse { success: boolean; content?: string; error?: string; too_large?: boolean; size?: number }
@@ -403,7 +403,7 @@ function TextEditorModal({ entry, onClose, onSaved }: { entry: FileEntry; onClos
   })
 
   return (
-    <Modal title={`Edit — ${entry.name}`} onClose={onClose} size="lg">
+    <Modal title={`Edit - ${entry.name}`} onClose={onClose} size="lg">
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12, height: '70vh' }}>
         {loading && <Skeleton height={300} />}
         {!loading && content !== null && (
@@ -687,7 +687,7 @@ function FileBrowser() {
       {!filesQ.isLoading && !filesQ.isError && sorted.length === 0 && (
         <div style={{ textAlign: 'center', padding: '48px 0', color: 'var(--text-tertiary)' }}>
           <Icon name="folder_open" size={40} style={{ opacity: 0.3, display: 'block', margin: '0 auto 12px' }} />
-          Empty directory — drag files here to upload
+          Empty directory - drag files here to upload
         </div>
       )}
 
@@ -734,13 +734,13 @@ function FileBrowser() {
                       </div>
                     </td>
                     <td style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap' }}>
-                      {entry.is_dir ? '—' : fmtSize(entry.size)}
+                      {entry.is_dir ? '-' : fmtSize(entry.size)}
                     </td>
                     <td style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', whiteSpace: 'nowrap' }}>
-                      {entry.owner ?? '—'}{entry.group ? `:${entry.group}` : ''}
+                      {entry.owner ?? '-'}{entry.group ? `:${entry.group}` : ''}
                     </td>
                     <td style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', fontFamily: 'var(--font-mono)' }}>
-                      {entry.permissions ?? entry.mode ?? '—'}
+                      {entry.permissions ?? entry.mode ?? '-'}
                     </td>
                     <td style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', whiteSpace: 'nowrap' }}>
                       {fmtDate(entry.mtime)}
@@ -785,7 +785,7 @@ function FileBrowser() {
       {modal?.type === 'chmod'  && <ChmodModal  entry={modal.entry} onClose={() => setModal(null)} onDone={refresh} />}
       {modal?.type === 'edit'   && <TextEditorModal entry={modal.entry} onClose={() => setModal(null)} onSaved={refresh} />}
       {modal?.type === 'copy'   && (
-        <Modal title={`Copy — ${modal.entry.name}`} onClose={() => setModal(null)}>
+        <Modal title={`Copy - ${modal.entry.name}`} onClose={() => setModal(null)}>
           <CopyForm entry={modal.entry} onClose={() => setModal(null)} onDone={refresh} />
         </Modal>
       )}
@@ -851,3 +851,4 @@ export function FilesPage() {
     </div>
   )
 }
+

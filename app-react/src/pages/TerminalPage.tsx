@@ -1,5 +1,5 @@
-/**
- * TerminalPage.tsx — D-PlaneOS v4.1
+﻿/**
+ * TerminalPage.tsx - D-PlaneOS v4.1
  *
  * Full PTY terminal over WebSocket (/ws/terminal).
  * Uses xterm.js (same library as VS Code, Proxmox, Cockpit).
@@ -62,7 +62,7 @@ export function TerminalPage() {
     const username = getUsername()
     if (!sessionId) {
       setStatus('error')
-      setErrorMsg('No active session — please log in again.')
+      setErrorMsg('No active session - please log in again.')
       return
     }
 
@@ -99,7 +99,7 @@ export function TerminalPage() {
           termRef.current?.write(msg.data ?? '')
           break
         case 'exit':
-          termRef.current?.write('\r\n\x1b[90m[Process exited — press Enter to reconnect]\x1b[0m\r\n')
+          termRef.current?.write('\r\n\x1b[90m[Process exited - press Enter to reconnect]\x1b[0m\r\n')
           setStatus('disconnected')
           break
         case 'error':
@@ -175,7 +175,7 @@ export function TerminalPage() {
     // Initial connection
     connect()
 
-    // Resize observer — refit terminal when container changes size
+    // Resize observer - refit terminal when container changes size
     const ro = new ResizeObserver(() => {
       fit.fit()
       if (termRef.current) {
@@ -281,3 +281,4 @@ function StatusDot({ status }: { status: ConnStatus }) {
     </span>
   )
 }
+

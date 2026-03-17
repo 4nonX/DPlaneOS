@@ -1,4 +1,4 @@
-package main
+﻿package main
 
 import (
 	"database/sql"
@@ -8,7 +8,7 @@ import (
 )
 
 // initSchema creates all required tables if they don't exist.
-// Uses IF NOT EXISTS — safe to call on every startup.
+// Uses IF NOT EXISTS - safe to call on every startup.
 // No data is modified if tables already exist.
 func initSchema(db *sql.DB) error {
 	tables := []string{
@@ -234,7 +234,7 @@ func initSchema(db *sql.DB) error {
 			created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
 		)`,
 
-		// API Tokens — long-lived bearer tokens for automation/CLI
+		// API Tokens - long-lived bearer tokens for automation/CLI
 		`CREATE TABLE IF NOT EXISTS api_tokens (
 			id          INTEGER PRIMARY KEY AUTOINCREMENT,
 			user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -357,7 +357,7 @@ func initSchema(db *sql.DB) error {
 
 	for _, stmt := range tables {
 		if _, err := db.Exec(stmt); err != nil {
-			// ALTER TABLE fails if column already exists — that's OK for migrations
+			// ALTER TABLE fails if column already exists - that's OK for migrations
 			if strings.Contains(stmt, "ALTER TABLE") && strings.Contains(err.Error(), "duplicate column") {
 				continue
 			}
@@ -516,3 +516,4 @@ func seedDefaults(db *sql.DB) error {
 
 	return nil
 }
+

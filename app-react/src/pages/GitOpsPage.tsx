@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+﻿import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { Icon } from '@/components/ui/Icon'
@@ -21,7 +21,7 @@ interface DriftPayload {
   safe_to_apply: boolean
 }
 
-function fmtDate(s?:string){if(!s)return'—';try{return new Date(s).toLocaleString('de-DE',{dateStyle:'short',timeStyle:'short'})}catch{return s}}
+function fmtDate(s?:string){if(!s)return'-';try{return new Date(s).toLocaleString('de-DE',{dateStyle:'short',timeStyle:'short'})}catch{return s}}
 
 function changeColor(a?:string):string {
   if (a === 'create') return 'var(--success)'
@@ -334,7 +334,7 @@ export function GitOpsPage() {
               <span>
                 {driftAlert.error
                   ? `GitOps error: ${driftAlert.error}`
-                  : <>Drift detected at {fmtDate(driftAlert.checked_at)} — <strong>{driftAlert.create_count + driftAlert.modify_count + driftAlert.delete_count}</strong> pending change(s). {driftAlert.safe_to_apply ? 'Safe to apply.' : 'Manual review required.'}</>
+                  : <>Drift detected at {fmtDate(driftAlert.checked_at)} - <strong>{driftAlert.create_count + driftAlert.modify_count + driftAlert.delete_count}</strong> pending change(s). {driftAlert.safe_to_apply ? 'Safe to apply.' : 'Manual review required.'}</>
                 }
               </span>
               <button onClick={() => setDriftAlert(null)} style={{ marginLeft:'auto', background:'none', border:'none', cursor:'pointer', color:'inherit' }}><Icon name="close" size={15} /></button>
@@ -383,3 +383,4 @@ export function GitOpsPage() {
     </div>
   )
 }
+

@@ -23,11 +23,11 @@ No new features are added. All changes are backward-compatible with v3.3.1.
 
 **Affected file:** `daemon/internal/handlers/replication_remote.go`
 
-**The problem:** The ZFS replication handler — for both normal sends and resume-token resumption — built
+**The problem:** The ZFS replication handler - for both normal sends and resume-token resumption - built
 a complete shell pipeline string using `fmt.Sprintf` and executed it via `bash -c`:
 
 ```go
-// Before — vulnerable pattern
+// Before - vulnerable pattern
 fullCmd := fmt.Sprintf(
     "/usr/sbin/zfs send -t %s | /usr/bin/ssh %s %s /usr/sbin/zfs recv -s -F %s",
     token, strings.Join(sshArgs, " "), sshTarget, remoteDataset,
@@ -36,8 +36,8 @@ output, err := executeCommand("/bin/bash", []string{"-c", fullCmd})
 ```
 
 Despite input validation (character blocklists, `isValidSSHUser`, snapshot name regex), constructing
-shell command strings is an inherently brittle security boundary. A single gap in validation —
-an edge case in the regex, an unexpected encoding, a future code path — collapses into
+shell command strings is an inherently brittle security boundary. A single gap in validation -
+an edge case in the regex, an unexpected encoding, a future code path - collapses into
 remote code execution.
 
 Additionally, error responses included a `"command": fullCmd` field that exposed the full
@@ -48,10 +48,10 @@ throttling), and `ssh recv` as three separate `exec.Command` processes linked vi
 Each argument is a discrete element in the process's `argv`. No shell is invoked at any point:
 
 ```go
-// After — shell-free piped execution
+// After - shell-free piped execution
 output, err := execPipedZFSSend(
-    sendArgs,                  // []string — argv for zfs send
-    sshArgs, sshTarget,       // []string, string — argv for ssh
+    sendArgs,                  // []string - argv for zfs send
+    sshArgs, sshTarget,       // []string, string - argv for ssh
     []string{"recv", "-s", "-F", remoteDataset},
     rateLimitBytes,           // optional pv rate
 )
@@ -117,12 +117,12 @@ found/created/updated/skipped. Nothing was synced.
 
 **The fix:** Two components:
 
-**`ldap/client.go` — new `SyncAll()` method:**
+**`ldap/client.go` - new `SyncAll()` method:**
 Performs a wildcard directory search (`{username}` → `*`) using the configured `UserFilter`
 and `BaseDN`. Returns all matching entries with full attribute fetch and group membership
 resolution.
 
-**`ldap.go` — `TriggerSync` now calls `SyncAll()`:**
+**`ldap.go` - `TriggerSync` now calls `SyncAll()`:**
 Iterates the returned users, upserts each into the `users` table (`source='ldap'`,
 `password_hash=''`), applies group→role mapping via `MapGroupsToRoles()`, and returns
 real counts:
@@ -143,11 +143,11 @@ real counts:
 ```
 
 LDAP users authenticate via LDAP bind (not local password). Their `password_hash` in the
-local `users` table is intentionally empty — local password login is disabled for LDAP-sourced
+local `users` table is intentionally empty - local password login is disabled for LDAP-sourced
 accounts.
 
 **Note on JIT provisioning:** The existing JIT path (auto-create on first login) is unchanged
-and continues to work. `TriggerSync` is the background batch sync — it pre-populates all
+and continues to work. `TriggerSync` is the background batch sync - it pre-populates all
 accounts from the directory so users can be referenced in ACLs and shares before their
 first login.
 
@@ -160,8 +160,8 @@ All capability claims in user-facing documentation have been reviewed and correc
 | Document | Change |
 |----------|--------|
 | `README.md` | Removed "No other NAS OS does this" from container update section (snapshot+rollback is standard practice across NAS platforms including TrueNAS, Unraid, and Proxmox). |
-| `README.md` | Removed "100× faster" from replication description — this was an unsupported benchmark claim. The accurate statement is that ZFS send transfers only changed blocks after the initial seed, which is substantially more efficient than rsync for large unchanged datasets. |
-| `README.md` | Changed "injection-hardened" to "allowlist-based input validation" — more accurate description of the actual security model. |
+| `README.md` | Removed "100× faster" from replication description - this was an unsupported benchmark claim. The accurate statement is that ZFS send transfers only changed blocks after the initial seed, which is substantially more efficient than rsync for large unchanged datasets. |
+| `README.md` | Changed "injection-hardened" to "allowlist-based input validation" - more accurate description of the actual security model. |
 | `README.md` | Renamed "HA cluster" to "HA node monitoring" in feature list; added explicit HA limitations section. |
 | `README.md` | Updated LDAP feature list to reflect actual implementation (full directory sync, not framework-only). |
 | `INSTALLATION-GUIDE.md` | Removed "enterprise NAS" from subtitle and completion message. |
@@ -178,7 +178,7 @@ All capability claims in user-facing documentation have been reviewed and correc
 
 **Affected file:** `daemon/cmd/dplaned/main.go`
 
-**The problem:** Every released binary reported `"version":"dev"` in the `/health` endpoint and startup logs. `Version` was declared as a `const`, and Go's `-ldflags "-X main.Version=3.3.2"` linker substitution only works with package-level `var` declarations — `const` values are inlined at compile time, before the linker runs.
+**The problem:** Every released binary reported `"version":"dev"` in the `/health` endpoint and startup logs. `Version` was declared as a `const`, and Go's `-ldflags "-X main.Version=3.3.2"` linker substitution only works with package-level `var` declarations - `const` values are inlined at compile time, before the linker runs.
 
 **The fix:** Changed `const (Version = "dev")` to `var (Version = "dev")`. v3.3.2 is the first release where `/health` correctly returns `{"status":"ok","version":"3.3.2"}`.
 
@@ -190,7 +190,7 @@ The following items from the audit are **acknowledged limitations**, not bugs, a
 rather than changed in this release:
 
 - **HA is not Pacemaker/Corosync:** The HA module provides node monitoring and manual failover
-  coordination. This is intentional scope — full STONITH and automatic failover require
+  coordination. This is intentional scope - full STONITH and automatic failover require
   significantly more infrastructure complexity. The scope is now clearly documented. A future
   release may add optional Pacemaker integration.
 
@@ -222,19 +222,19 @@ Existing API integrations that omit it are unaffected.
 ## Files Changed
 
 ### Modified
-- `daemon/cmd/dplaned/main.go` — `Version` changed from `const` to `var` (enables `-ldflags -X` version embedding)
-- `daemon/internal/handlers/replication_remote.go` — shell pipeline → Go pipes; resume token validation; removed command leak from error response
-- `daemon/internal/handlers/iscsi.go` — explicit `require_chap` field; SECURITY NOTICE log for auth=0
-- `daemon/internal/handlers/ldap.go` — `TriggerSync` now calls `SyncAll()`, upserts users, returns real counts
-- `daemon/internal/ldap/client.go` — new `SyncAll()` method and `SyncResult` type
-- `daemon/internal/ha/cluster.go` — package comment expanded with explicit limitation warnings
-- `VERSION` — `3.3.1` → `3.3.2`
-- `README.md` — conservative, accurate language throughout
-- `INSTALLATION-GUIDE.md` — removed "enterprise" language
-- `SECURITY.md` — updated command execution description; added known limitations
-- `THREAT-MODEL.md` — T1 updated; T13 (HA Split-Brain) added
-- `ADMIN-GUIDE.md` — LDAP sync documentation updated
-- `CHANGELOG.md` — v3.3.2 entry added
+- `daemon/cmd/dplaned/main.go` - `Version` changed from `const` to `var` (enables `-ldflags -X` version embedding)
+- `daemon/internal/handlers/replication_remote.go` - shell pipeline → Go pipes; resume token validation; removed command leak from error response
+- `daemon/internal/handlers/iscsi.go` - explicit `require_chap` field; SECURITY NOTICE log for auth=0
+- `daemon/internal/handlers/ldap.go` - `TriggerSync` now calls `SyncAll()`, upserts users, returns real counts
+- `daemon/internal/ldap/client.go` - new `SyncAll()` method and `SyncResult` type
+- `daemon/internal/ha/cluster.go` - package comment expanded with explicit limitation warnings
+- `VERSION` - `3.3.1` → `3.3.2`
+- `README.md` - conservative, accurate language throughout
+- `INSTALLATION-GUIDE.md` - removed "enterprise" language
+- `SECURITY.md` - updated command execution description; added known limitations
+- `THREAT-MODEL.md` - T1 updated; T13 (HA Split-Brain) added
+- `ADMIN-GUIDE.md` - LDAP sync documentation updated
+- `CHANGELOG.md` - v3.3.2 entry added
 
 ### Added
-- `RELEASE-NOTES-v3.3.2.md` — this file
+- `RELEASE-NOTES-v3.3.2.md` - this file

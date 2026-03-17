@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 """
 Extract release notes for a specific version from CHANGELOG.md.
 
@@ -7,8 +7,8 @@ Usage: python3 extract-release-notes.py <version> <changelog>
   changelog: path to CHANGELOG.md
 
 Supports heading formats:
-  ## v4.1.1 (2026-03-09) — "Design System"
-  ## [4.1.1] — 2026-03-09 — "Design System"   (legacy, still matched)
+  ## v4.1.1 (2026-03-09) - "Design System"
+  ## [4.1.1] - 2026-03-09 - "Design System"   (legacy, still matched)
 
 Exits 0 and prints notes to stdout.
 Exits 1 if version not found.
@@ -38,8 +38,8 @@ def main():
     escaped = re.escape(version)
 
     # Match both formats:
-    #   ## v4.1.1 (2026-03-09) — "Design System"
-    #   ## [4.1.1] — 2026-03-09 — "Design System"
+    #   ## v4.1.1 (2026-03-09) - "Design System"
+    #   ## [4.1.1] - 2026-03-09 - "Design System"
     heading_re = re.compile(
         r'^##\s+(?:v|\[)' + escaped + r'[\] ][^\n]*\n',
         re.MULTILINE
@@ -91,3 +91,4 @@ sudo bash install.sh --upgrade
 
 if __name__ == '__main__':
     main()
+

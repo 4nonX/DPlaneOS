@@ -1,4 +1,4 @@
-package handlers
+﻿package handlers
 
 import (
 	"encoding/json"
@@ -145,7 +145,7 @@ func (h *FilesExtendedHandler) ReadFile(w http.ResponseWriter, r *http.Request) 
 			"success":   false,
 			"too_large": true,
 			"size":      info.Size(),
-			"error":     fmt.Sprintf("File is %s — too large to edit in browser (max 2 MB). Download instead.", fileSizeStr(info.Size())),
+			"error":     fmt.Sprintf("File is %s - too large to edit in browser (max 2 MB). Download instead.", fileSizeStr(info.Size())),
 		})
 		return
 	}
@@ -243,7 +243,7 @@ func (h *FilesExtendedHandler) DownloadFile(w http.ResponseWriter, r *http.Reque
 // ─────────────────────────────────────────────────────────────────────────────
 // POST /api/files/rename
 // Body: { "old_path": "...", "new_name": "newname.txt" }
-// new_name is the filename only — rename stays within the same directory.
+// new_name is the filename only - rename stays within the same directory.
 // ─────────────────────────────────────────────────────────────────────────────
 
 func (h *FilesExtendedHandler) RenameFile(w http.ResponseWriter, r *http.Request) {
@@ -276,7 +276,7 @@ func (h *FilesExtendedHandler) RenameFile(w http.ResponseWriter, r *http.Request
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// POST /api/files/copy  — handles files and directories via cp -a
+// POST /api/files/copy  - handles files and directories via cp -a
 // Body: { "source": "...", "destination": "..." }
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -426,3 +426,4 @@ func fileSizeStr(b int64) string {
 	}
 	return fmt.Sprintf("%.1f %s", v, units[i])
 }
+

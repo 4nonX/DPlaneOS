@@ -1,5 +1,5 @@
-/**
- * pages/SnapshotSchedulerPage.tsx — Snapshot Scheduler (Phase 2)
+﻿/**
+ * pages/SnapshotSchedulerPage.tsx - Snapshot Scheduler (Phase 2)
  *
  * Calls (matching daemon routes exactly):
  *   GET  /api/snapshots/schedules
@@ -160,7 +160,7 @@ function CreateScheduleModal({ datasets, replSchedules, onClose, onSaved }: {
             <div style={{ marginTop: 12 }}>
               {replOptions.length === 0 ? (
                 <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', padding: '8px 12px', background: 'var(--surface)', borderRadius: 'var(--radius-sm)' }}>
-                  No replication schedules found — create one in the Replication page first.
+                  No replication schedules found - create one in the Replication page first.
                 </div>
               ) : (
                 <label className="field">
@@ -254,7 +254,7 @@ function ScheduleRow({ schedule, index: _index, replSchedules, onToggle, onDelet
 }
 
 // ---------------------------------------------------------------------------
-// SnapshotsTab — recent snapshots list
+// SnapshotsTab - recent snapshots list
 // ---------------------------------------------------------------------------
 
 function SnapshotsTab() {
@@ -421,3 +421,4 @@ export function SnapshotSchedulerPage() {
     </div>
   )
 }
+

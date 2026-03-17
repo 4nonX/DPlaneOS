@@ -1,17 +1,17 @@
 #!/bin/bash
 #
-# D-PlaneOS ZED Hook — Real-time ZFS Event Notification
+# D-PlaneOS ZED Hook - Real-time ZFS Event Notification
 #
 # Install to: /etc/zfs/zed.d/dplaneos-notify.sh
 # ZED calls this script on disk failures, scrub results, resilver events, etc.
 # The daemon gets IMMEDIATE notification instead of waiting for polling.
 #
 # ZED provides these environment variables:
-#   ZEVENT_CLASS    — Event type (e.g., "statechange", "scrub_finish")
-#   ZEVENT_SUBCLASS — Sub-event (e.g., "pool_degraded")
-#   ZEVENT_POOL     — Affected pool name
-#   ZEVENT_VDEV_PATH — Failed device path (if applicable)
-#   ZEVENT_VDEV_STATE_STR — New device state
+#   ZEVENT_CLASS    - Event type (e.g., "statechange", "scrub_finish")
+#   ZEVENT_SUBCLASS - Sub-event (e.g., "pool_degraded")
+#   ZEVENT_POOL     - Affected pool name
+#   ZEVENT_VDEV_PATH - Failed device path (if applicable)
+#   ZEVENT_VDEV_STATE_STR - New device state
 
 DAEMON_SOCKET="/run/dplaneos/dplaneos.sock"
 LOG_TAG="dplaneos-zed"

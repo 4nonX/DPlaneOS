@@ -1,4 +1,4 @@
-package handlers
+﻿package handlers
 
 import (
 	"encoding/json"
@@ -53,7 +53,7 @@ type ISCSICreateRequest struct {
 	PortalPort  int    `json:"portal_port"`
 	RequireCHAP bool   `json:"require_chap"` // When true, enables CHAP authentication on the TPG.
 	// When false (default), the TPG uses ACL-only access control.
-	// WARNING: false means unauthenticated access — only set false in
+	// WARNING: false means unauthenticated access - only set false in
 	// isolated networks where initiator IQN spoofing is not a concern.
 }
 
@@ -154,7 +154,7 @@ func CreateISCSITarget(w http.ResponseWriter, r *http.Request) {
 
 	// Configure authentication on the TPG.
 	// authentication=1 requires CHAP credentials before any initiator can log in.
-	// authentication=0 relies solely on ACL (initiator IQN) matching — this is
+	// authentication=0 relies solely on ACL (initiator IQN) matching - this is
 	// weaker because IQNs can be spoofed. Operators must explicitly opt out of CHAP
 	// by setting require_chap=false in their request; they cannot silently get it.
 	if req.RequireCHAP {
@@ -374,4 +374,5 @@ func GetISCSIZvolList(w http.ResponseWriter, r *http.Request) {
 		"zvols":   zvols,
 	})
 }
+
 

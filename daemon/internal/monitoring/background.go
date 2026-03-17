@@ -1,4 +1,4 @@
-package monitoring
+﻿package monitoring
 
 import (
 	"context"
@@ -111,14 +111,14 @@ func (m *BackgroundMonitor) maybeAlert(key string, level string, data interface{
 		m.alertStates[key] = state
 	}
 
-	// "info" level updates are always passed through for UI dashboard refresh —
+	// "info" level updates are always passed through for UI dashboard refresh -
 	// they are not alerting events and don't need debouncing.
 	if level == "info" {
 		m.alertCallback(key, data, level)
 		return
 	}
 
-	// "clear": condition resolved — notify once, then enter clearance cooldown
+	// "clear": condition resolved - notify once, then enter clearance cooldown
 	if level == "clear" {
 		if state.isFiring {
 			state.isFiring = false
@@ -130,10 +130,10 @@ func (m *BackgroundMonitor) maybeAlert(key string, level string, data interface{
 		return
 	}
 
-	// For warning/critical: apply hysteresis — must be in this state for
+	// For warning/critical: apply hysteresis - must be in this state for
 	// hysteresisWindow before we fire, to prevent flapping alerts.
 	if !state.isFiring || state.lastLevel != level {
-		// Condition just entered or level changed — start hysteresis timer
+		// Condition just entered or level changed - start hysteresis timer
 		if !state.isFiring || state.lastLevel != level {
 			state.firingAt = now
 			state.isFiring = true
@@ -142,7 +142,7 @@ func (m *BackgroundMonitor) maybeAlert(key string, level string, data interface{
 	}
 
 	if now.Sub(state.firingAt) < hysteresisWindow {
-		// Still within hysteresis window — don't fire yet
+		// Still within hysteresis window - don't fire yet
 		return
 	}
 
@@ -151,7 +151,7 @@ func (m *BackgroundMonitor) maybeAlert(key string, level string, data interface{
 		return
 	}
 
-	// All checks passed — fire the alert
+	// All checks passed - fire the alert
 	state.lastFired = now
 	m.alertCallback(key, data, level)
 	log.Printf("MONITOR [%s]: alert fired (level=%s)", key, level)
@@ -221,7 +221,7 @@ func (m *BackgroundMonitor) CheckMountStatus() {
 		poolName := fields[0]
 		poolState := fields[1]
 
-		// Only check ONLINE pools — degraded states are handled by pool_heartbeat.
+		// Only check ONLINE pools - degraded states are handled by pool_heartbeat.
 		if poolState != "ONLINE" {
 			continue
 		}
@@ -246,7 +246,7 @@ func (m *BackgroundMonitor) CheckMountStatus() {
 				"error":      "mountpoint not writable",
 			})
 		} else if seen && !prevHealthy && healthy {
-			// Pool recovered — clear the firing alert.
+			// Pool recovered - clear the firing alert.
 			m.maybeAlert(alertKey, "clear", map[string]interface{}{
 				"pool":       poolName,
 				"mountpoint": mountPoint,
@@ -465,3 +465,4 @@ func readSmartTemp(devName string) int {
 	}
 	return 0
 }
+

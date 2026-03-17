@@ -1,4 +1,4 @@
-package handlers
+﻿package handlers
 
 import (
 	"database/sql"
@@ -219,7 +219,7 @@ func (h *AlertingHandler) SaveScrubSchedules(w http.ResponseWriter, r *http.Requ
 		}
 	}
 
-	// Save to DB (prepared statement — safe against SQL injection)
+	// Save to DB (prepared statement - safe against SQL injection)
 	data, err := json.Marshal(schedules)
 	if err != nil {
 		respondErrorSimple(w, "Failed to encode schedules", http.StatusInternalServerError)
@@ -234,7 +234,7 @@ func (h *AlertingHandler) SaveScrubSchedules(w http.ResponseWriter, r *http.Requ
 
 	// Generate crontab entries
 	var crontab strings.Builder
-	crontab.WriteString("# D-PlaneOS ZFS Scrub Schedules (auto-generated — do not edit manually)\n")
+	crontab.WriteString("# D-PlaneOS ZFS Scrub Schedules (auto-generated - do not edit manually)\n")
 	crontab.WriteString("SHELL=/bin/bash\n")
 	crontab.WriteString("PATH=/usr/sbin:/usr/bin:/sbin:/bin\n\n")
 	for _, s := range schedules {
@@ -287,7 +287,7 @@ func StartScrubMonitor() {
 				}
 				status, _ := executeCommandWithTimeout(TimeoutFast, "/usr/sbin/zpool", []string{"status", pool})
 				if strings.Contains(status, "none requested") {
-					// No scrub ever run — alert
+					// No scrub ever run - alert
 					SendSMTPAlert(
 						"ZFS Scrub Warning: "+pool,
 						fmt.Sprintf("Pool '%s' has never been scrubbed. Schedule regular scrubs to protect your data.", pool),
@@ -297,3 +297,4 @@ func StartScrubMonitor() {
 		}
 	}()
 }
+

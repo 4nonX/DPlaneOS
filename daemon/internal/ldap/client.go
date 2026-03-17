@@ -1,4 +1,4 @@
-package ldap
+﻿package ldap
 
 import (
 	"crypto/tls"
@@ -373,7 +373,7 @@ func (c *Client) SyncAll() (*SyncResult, []*User, error) {
 		c.config.BaseDN,
 		ldap.ScopeWholeSubtree,
 		ldap.NeverDerefAliases,
-		0, // size limit — 0 means server decides
+		0, // size limit - 0 means server decides
 		0, // time limit
 		false,
 		filter,
@@ -420,3 +420,4 @@ func (c *Client) SyncAll() (*SyncResult, []*User, error) {
 
 	return res, users, nil
 }
+

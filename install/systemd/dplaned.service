@@ -1,4 +1,4 @@
-[Unit]
+﻿[Unit]
 Description=D-PlaneOS System Daemon
 # Hard gate: dplaned MUST NOT start before ZFS pools are fully mounted.
 # dplaneos-zfs-mount-wait.service polls until all pools are ONLINE + writable,
@@ -17,7 +17,7 @@ WorkingDirectory=/opt/dplaneos
 Restart=always
 RestartSec=5
 
-# Daemon runs as root — required for:
+# Daemon runs as root - required for:
 # - ZFS pool/dataset operations (zpool, zfs commands)
 # - Disk power management (hdparm, smartctl)
 # - Network configuration (ip, iptables)
@@ -27,13 +27,13 @@ User=root
 Group=root
 
 # RuntimeDirectory creates /run/dplaneos with correct ownership on boot
-# and cleans it up on service stop — solves the udev socket permission issue
+# and cleans it up on service stop - solves the udev socket permission issue
 RuntimeDirectory=dplaneos
 RuntimeDirectoryMode=0755
 StateDirectory=dplaneos
 LogsDirectory=dplaneos
 
-# Hardening — restrict despite running as root
+# Hardening - restrict despite running as root
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
@@ -50,7 +50,7 @@ ReadWritePaths=/var/log/dplaneos /var/lib/dplaneos /opt/dplaneos /etc/dplaneos /
                /etc/iscsi \
                /etc/ssh
 # /etc/samba: daemon writes /etc/samba/smb.conf on Debian installs
-# /mnt /tank /data /media: ZFS pool mount points — file manager needs write access
+# /mnt /tank /data /media: ZFS pool mount points - file manager needs write access
 # /tmp /home: file manager and upload targets
 # Remaining paths: installer scripts, nginx reconfig, udev rules, watchdog
 
@@ -62,7 +62,7 @@ CapabilityBoundingSet=CAP_SYS_ADMIN CAP_NET_ADMIN CAP_DAC_READ_SEARCH CAP_CHOWN 
 LimitNOFILE=65536
 TasksMax=4096
 
-# OOM Protection — prevent daemon from killing the NAS
+# OOM Protection - prevent daemon from killing the NAS
 # 512MB should be more than enough for metadata management;
 # if it exceeds this, something is wrong (memory leak, runaway indexing)
 MemoryMax=512M
@@ -76,3 +76,4 @@ SyslogIdentifier=dplaned
 
 [Install]
 WantedBy=multi-user.target
+

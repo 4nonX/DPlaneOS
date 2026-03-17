@@ -1,5 +1,5 @@
-/**
- * ContainerIcon — resolves and renders a container's icon.
+﻿/**
+ * ContainerIcon - resolves and renders a container's icon.
  *
  * Resolution priority:
  *   1. dplaneos.icon label on the container (set in docker-compose.yaml)
@@ -110,3 +110,4 @@ export function ContainerIcon({ image, labels, iconMap, size = 24, className }: 
     />
   )
 }
+

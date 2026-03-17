@@ -1,11 +1,11 @@
-/**
- * routes/index.tsx — D-PlaneOS v4 Router
+﻿/**
+ * routes/index.tsx - D-PlaneOS v4 Router
  *
  * All routes declared inline (no makeRoute helper) so TanStack Router
  * can infer exact path literals and provide type-safe navigation.
  *
  * Protected routes are children of `protectedRoute` which runs an auth
- * guard via beforeLoad — redirects to /login if not authenticated.
+ * guard via beforeLoad - redirects to /login if not authenticated.
  */
 
 import React from 'react'
@@ -168,3 +168,4 @@ export const router = createRouter({ routeTree, defaultPreload: 'intent' })
 declare module '@tanstack/react-router' {
   interface Register { router: typeof router }
 }
+

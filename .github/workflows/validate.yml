@@ -1,4 +1,4 @@
-name: D-PlaneOS CI
+﻿name: D-PlaneOS CI
 
 on:
   push:
@@ -53,7 +53,7 @@ jobs:
         run: |
           CONFLICTS=$(find . -name '.sync-conflict-*.go' 2>/dev/null | head -20 || true)
           if [ -n "$CONFLICTS" ]; then
-            echo "ERROR: Syncthing conflict files found — would cause duplicate symbol build failures:"
+            echo "ERROR: Syncthing conflict files found - would cause duplicate symbol build failures:"
             echo "$CONFLICTS"
             exit 1
           fi
@@ -87,7 +87,7 @@ jobs:
           NEW=$(git ls-files --others --exclude-standard -- app/)
           DELETED=$(git ls-files --deleted -- app/)
           if [ -n "$CHANGED" ] || [ -n "$NEW" ] || [ -n "$DELETED" ]; then
-            echo "ERROR: committed app/ bundle is stale — these files differ after rebuilding:"
+            echo "ERROR: committed app/ bundle is stale - these files differ after rebuilding:"
             [ -n "$CHANGED"  ] && echo "  Modified: $CHANGED"
             [ -n "$NEW"      ] && echo "  Added:    $NEW"
             [ -n "$DELETED"  ] && echo "  Deleted:  $DELETED"
@@ -178,7 +178,7 @@ jobs:
       - name: Verify dplaned.service ReadWritePaths covers required paths
         run: |
           # Catches the class of bug where a new write path is added to a handler
-          # but not added to the systemd unit — daemon runs fine in CI (no systemd)
+          # but not added to the systemd unit - daemon runs fine in CI (no systemd)
           # but fails on real installs with ProtectSystem=strict.
           REQUIRED_PATHS=(
             "/mnt" "/tank" "/data" "/media"
@@ -239,7 +239,7 @@ jobs:
           if not isinstance(arr, list):
             print('$arr_key is not a list, got: ' + type(arr).__name__); sys.exit(1)
           if len(arr) == 0:
-            sys.exit(0)  # empty is ok for shape check — just verify it IS a list
+            sys.exit(0)  # empty is ok for shape check - just verify it IS a list
           first = arr[0]
           missing = [k for k in $(printf "'%s'," "${required_keys[@]}" | sed 's/,$//' | sed "s/'[^']*'/&/g" | python3 -c "import sys; parts=sys.stdin.read().split(','); print('[' + ','.join(repr(p.strip(\\\"'\\\")) for p in parts if p.strip()) + ']'") if k not in first]
           if missing:
@@ -274,19 +274,19 @@ jobs:
 
           CODE=$(curl -s -o /dev/null -w "%{http_code}" "$BASE/api/system/status")
           [ "$CODE" = "200" ] && ok "GET /api/system/status accessible without session" \
-            || fail "GET /api/system/status requires session (want 200, got $CODE) — first-boot broken"
+            || fail "GET /api/system/status requires session (want 200, got $CODE) - first-boot broken"
 
           # Use CI_PASS so that if setup-admin succeeds (200) the password it sets
           # is the same one the login step expects. The DB was pre-seeded by the
           # "Seed CI user" step but setup_complete is NOT yet set, so setup-admin
           # will return 200 and set the password. If setup_complete were already
-          # set it would return 403 — either is correct; 401 is the bug.
+          # set it would return 403 - either is correct; 401 is the bug.
           CODE=$(curl -s -o /dev/null -w "%{http_code}" \
             -X POST "$BASE/api/system/setup-admin" \
             -H "Content-Type: application/json" \
             -d "{\"username\":\"admin\",\"password\":\"$CI_PASS\"}")
           # 200 = password set (setup not yet complete). 403 = already done. Both correct.
-          # 401 = blocked by middleware — that's the bug we're guarding against.
+          # 401 = blocked by middleware - that's the bug we're guarding against.
           [ "$CODE" = "200" ] || [ "$CODE" = "403" ] \
             && ok "POST /api/system/setup-admin accessible without session (HTTP $CODE)" \
             || fail "POST /api/system/setup-admin blocked by session middleware (want 200/403, got $CODE)"
@@ -380,7 +380,7 @@ jobs:
           valid_json "$(api GET /api/system/ups)"             && ok "UPS status"      || fail "UPS status → invalid JSON"
           valid_json "$(api GET /api/monitoring/inotify)"     && ok "Inotify stats"   || fail "Inotify stats → invalid JSON"
 
-          # 4. ZFS — shape assertions + write-path round-trips ──────────────────────────
+          # 4. ZFS - shape assertions + write-path round-trips ──────────────────────────
 
           POOLS=$(api GET /api/zfs/pools)
           assert_json "ZFS pools success"     "$POOLS" "success" "true"
@@ -448,7 +448,7 @@ jobs:
             && fail "Snapshot still exists after destroy" \
             || ok "Snapshot gone from system after destroy"
 
-          # 4.3. ACL — verify ACL readability on mountpoint
+          # 4.3. ACL - verify ACL readability on mountpoint
           ACL_DATA=$(api GET "/api/acl/get?path=/mnt/testpool")
           assert_json "ACL read success" "$ACL_DATA" "success" "true"
           
@@ -468,7 +468,7 @@ jobs:
           valid_json "$(api GET /api/zfs/smart)"           && ok "ZFS SMART"          || fail "ZFS SMART → invalid JSON"
           valid_json "$(api GET /api/snapshots/schedules)" && ok "Snapshot schedules" || fail "Snapshot schedules → invalid JSON"
 
-          # ── 5. USERS — write-path round-trip ─────────────────────────────────────────────
+          # ── 5. USERS - write-path round-trip ─────────────────────────────────────────────
 
           USERS=$(api GET /api/rbac/users)
           assert_json "User list" "$USERS" "success" "true"
@@ -485,7 +485,7 @@ jobs:
             "import sys,json; print('yes' if any(u['username']=='ci-testuser' for u in json.load(sys.stdin).get('users',[])) else 'no')" 2>/dev/null)
           [ "$NEW_IN" = "yes" ] && ok "New user visible in list after create" || fail "New user missing after create"
 
-          # ── 6. SMB SHARES — write-path round-trip (catches field-name mismatches) ────────
+          # ── 6. SMB SHARES - write-path round-trip (catches field-name mismatches) ────────
           # The bugs we found: frontend sent read_only/guest_ok but backend expected readonly/guestok.
           # This test creates a share with known field values then reads them back and asserts match.
 
@@ -505,7 +505,7 @@ jobs:
           if not s:
             print('ci-share not found in list'); sys.exit(1)
           if s.get('read_only') is not True:
-            print('read_only field wrong — expected True, got: '+repr(s.get('read_only'))); sys.exit(1)
+            print('read_only field wrong - expected True, got: '+repr(s.get('read_only'))); sys.exit(1)
           if 'path' not in s:
             print('path field missing from share entry'); sys.exit(1)
           " 2>/dev/null \
@@ -519,9 +519,9 @@ jobs:
             "import sys,json; print('yes' if any(s.get('name')=='ci-share' for s in json.load(sys.stdin).get('shares',[])) else 'no')" 2>/dev/null)
           [ "$GONE" = "no" ] && ok "Share gone after delete" || fail "Share still present after delete"
 
-          # ── 7. NFS EXPORTS — write-path round-trip ───────────────────────────────────────
+          # ── 7. NFS EXPORTS - write-path round-trip ───────────────────────────────────────
           # nfs-kernel-server is installed in CI. If the daemon reports it missing,
-          # that itself is a test failure (we installed it — nfsInstalled() is wrong).
+          # that itself is a test failure (we installed it - nfsInstalled() is wrong).
 
           CREATE_NFS=$(api POST /api/nfs/exports \
             '{"path":"/tmp","clients":"127.0.0.1","options":"ro,sync","enabled":true}')
@@ -569,7 +569,7 @@ jobs:
             fi
           fi
 
-          # ── 8. DOCKER — shape assertion (catches PascalCase vs lowercase field bugs) ─────
+          # ── 8. DOCKER - shape assertion (catches PascalCase vs lowercase field bugs) ─────
           # The bug: backend returned Id/Image/State (PascalCase), frontend read id/image/state.
           # This test asserts the lowercase keys are present in the response.
 
@@ -581,7 +581,7 @@ jobs:
           import sys,json
           d=json.load(sys.stdin)
           ctrs=d.get('containers',[])
-          if not ctrs: sys.exit(0)  # no containers running — shape check n/a
+          if not ctrs: sys.exit(0)  # no containers running - shape check n/a
           c=ctrs[0]
           missing=[k for k in ['id','name','image','state'] if k not in c]
           if missing: print('Container missing lowercase fields: '+str(missing)); sys.exit(1)
@@ -590,7 +590,7 @@ jobs:
             || fail "Docker container entry missing lowercase fields (PascalCase-only response)"
           valid_json "$(api GET /api/docker/preflight)" && ok "Docker preflight" || fail "Docker preflight → invalid JSON"
 
-          # ── 9. FILE MANAGER — full write-path round-trip ─────────────────────────────────
+          # ── 9. FILE MANAGER - full write-path round-trip ─────────────────────────────────
           # Covers: mkdir, list (assert entry present), write, read back (assert content),
           # rename (assert new name, old gone), chmod (assert mode), delete.
           # This catches: wrong field names in requests, wrong HTTP methods,
@@ -657,7 +657,7 @@ jobs:
           MODE=$(sudo stat -c "%a" /tmp/ci-files-test/renamed.txt 2>/dev/null)
           [ "$MODE" = "600" ] \
             && ok "Files: chmod set correct mode 600 on disk" \
-            || fail "Files: chmod mode wrong — expected 600, got $MODE (mode vs permissions field mismatch?)"
+            || fail "Files: chmod mode wrong - expected 600, got $MODE (mode vs permissions field mismatch?)"
 
           assert_json "Files: delete" \
             "$(api POST /api/files/delete '{"path":"/tmp/ci-files-test/renamed.txt"}')" \
@@ -666,15 +666,15 @@ jobs:
             && ok "Files: delete removed file from disk" \
             || fail "Files: delete did not remove file"
 
-          # ── 10. FIREWALL — assert rules is an array not a raw string ─────────────────────
+          # ── 10. FIREWALL - assert rules is an array not a raw string ─────────────────────
           # The bug: GetStatus returned rules as raw ufw text. Frontend called .map() on a
-          # string — runtime crash. This asserts the field is always an array.
+          # string - runtime crash. This asserts the field is always an array.
 
           FW=$(api GET /api/firewall/status)
           assert_json "Firewall status success" "$FW" "success" "true"
           assert_array "Firewall: rules is array (not raw text)" "$FW" "rules"
 
-          # ── 11. REMAINING SUBSYSTEMS — valid JSON + success ───────────────────────────────
+          # ── 11. REMAINING SUBSYSTEMS - valid JSON + success ───────────────────────────────
 
           assert_json "Git sync config"   "$(api GET /api/git-sync/config)"     "success" "true"
           assert_json "Webhooks"          "$(api GET /api/alerts/webhooks)"      "success" "true"
@@ -740,3 +740,4 @@ jobs:
           [ -f /tmp/dplaned.pid ] && sudo kill $(cat /tmp/dplaned.pid) 2>/dev/null || true
           sudo zpool destroy testpool 2>/dev/null || true
           sudo losetup -d "$LOOP0" "$LOOP1" "$LOOP2" 2>/dev/null || true
+

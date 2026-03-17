@@ -1,5 +1,5 @@
-/**
- * pages/UpdatesPage.tsx — System Updates
+﻿/**
+ * pages/UpdatesPage.tsx - System Updates
  *
  * For Debian/Ubuntu: shows available apt packages, apply-all and apply-security buttons.
  * For NixOS: links to the NixOS rebuild workflow in Settings.
@@ -7,9 +7,9 @@
  * Calls:
  *   GET  /api/system/preflight                  → preflight checks
  *   GET  /api/system/updates/daemon-version     → current + latest daemon version
- *   GET  /api/system/updates/check              → { job_id } — run apt-get update + list upgradable
- *   POST /api/system/updates/apply              → { job_id } — apt-get upgrade -y
- *   POST /api/system/updates/apply-security     → { job_id } — security-only upgrade
+ *   GET  /api/system/updates/check              → { job_id } - run apt-get update + list upgradable
+ *   POST /api/system/updates/apply              → { job_id } - apt-get upgrade -y
+ *   POST /api/system/updates/apply-security     → { job_id } - security-only upgrade
  *   GET  /api/jobs/{id}                         → job status polling
  */
 
@@ -72,7 +72,7 @@ export function UpdatesPage() {
   const qc       = useQueryClient()
   const navigate = useNavigate()
 
-  // Job state — used for check, apply-all, and apply-security
+  // Job state - used for check, apply-all, and apply-security
   const [activeJobId,    setActiveJobId]    = useState<string | null>(null)
   const [activeJobLabel, setActiveJobLabel] = useState<string>('')
   const [packages,       setPackages]       = useState<UpgradablePackage[] | null>(null)
@@ -88,7 +88,7 @@ export function UpdatesPage() {
   const nixosQ = useQuery({
     queryKey: ['nixos', 'detect'],
     queryFn:  ({ signal }) => api.get<NixOSDetectResponse>('/api/nixos/detect', signal),
-    staleTime: 60 * 60_000, // OS type doesn't change — cache for 1 hour
+    staleTime: 60 * 60_000, // OS type doesn't change - cache for 1 hour
   })
 
   const versionQ = useQuery({
@@ -357,3 +357,4 @@ export function UpdatesPage() {
     </div>
   )
 }
+

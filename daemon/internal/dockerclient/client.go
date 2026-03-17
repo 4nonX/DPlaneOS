@@ -1,4 +1,4 @@
-// Package dockerclient provides a minimal Docker API client over the Unix socket.
+﻿// Package dockerclient provides a minimal Docker API client over the Unix socket.
 //
 // Why not the official Docker SDK?
 //
@@ -236,7 +236,7 @@ func (c *Client) Start(ctx context.Context, id string) error {
 	if err != nil {
 		return fmt.Errorf("docker start: %w", err)
 	}
-	// 204 = started, 304 = already running — both OK
+	// 204 = started, 304 = already running - both OK
 	if resp.StatusCode == 304 {
 		resp.Body.Close()
 		return nil
@@ -438,7 +438,7 @@ func (c *Client) WaitForHealthy(ctx context.Context, id string, timeout time.Dur
 			continue
 		}
 		if detail.State.Health == nil {
-			return true, nil // no HEALTHCHECK — running is sufficient
+			return true, nil // no HEALTHCHECK - running is sufficient
 		}
 		switch detail.State.Health.Status {
 		case "healthy":
@@ -450,7 +450,7 @@ func (c *Client) WaitForHealthy(ctx context.Context, id string, timeout time.Dur
 			case <-time.After(2 * time.Second):
 			case <-ctx.Done():
 				return false, ctx.Err()
-			} // "starting" — keep polling
+			} // "starting" - keep polling
 		}
 	}
 	return false, fmt.Errorf("timed out after %v", timeout)
@@ -539,3 +539,4 @@ func (c *Client) PruneAll(ctx context.Context) (containers, images, volumes int,
 
 	return containers, images, volumes, spaceBytes, nil
 }
+

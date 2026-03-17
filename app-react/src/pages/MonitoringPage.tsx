@@ -1,5 +1,5 @@
-/**
- * pages/MonitoringPage.tsx — System Monitoring
+﻿/**
+ * pages/MonitoringPage.tsx - System Monitoring
  *
  * APIs:
  *   GET /api/monitoring/inotify  → InotifyStats (poll, initial load)
@@ -210,7 +210,7 @@ export function MonitoringPage() {
       setLastUpdated(new Date())
       // Toast only on level changes that need attention
       if (e.level === 'critical') {
-        toast.error(`inotify at ${e.data.percent.toFixed(1)}% — exhaustion imminent`)
+        toast.error(`inotify at ${e.data.percent.toFixed(1)}% - exhaustion imminent`)
       } else if (e.level === 'warning') {
         toast.warning(`inotify watches at ${e.data.percent.toFixed(1)}%`)
       }
@@ -262,3 +262,4 @@ export function MonitoringPage() {
     </div>
   )
 }
+

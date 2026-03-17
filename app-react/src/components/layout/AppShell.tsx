@@ -1,4 +1,4 @@
-/**
+﻿/**
  * components/layout/AppShell.tsx
  *
  * Main application layout: Sidebar + TopBar + page content area.
@@ -25,7 +25,7 @@ import { api } from '@/lib/api'
 import { Icon } from '@/components/ui/Icon'
 
 // ---------------------------------------------------------------------------
-// StrengthBar — mirrors daemon validatePasswordStrength exactly
+// StrengthBar - mirrors daemon validatePasswordStrength exactly
 // ---------------------------------------------------------------------------
 
 function strengthScore(pw: string): { score: number; color: string; missing: string[] } {
@@ -68,7 +68,7 @@ function StrengthBar({ password }: { password: string }) {
 }
 
 // ---------------------------------------------------------------------------
-// ForcePasswordChange — blocks all navigation until password is set
+// ForcePasswordChange - blocks all navigation until password is set
 // ---------------------------------------------------------------------------
 
 function ForcePasswordChange() {
@@ -93,7 +93,7 @@ function ForcePasswordChange() {
     setLoading(true)
     try {
       await api.post('/api/auth/change-password', { current_password: current, new_password: next })
-      await validateSession()   // reloads user — must_change_password is now 0 in DB
+      await validateSession()   // reloads user - must_change_password is now 0 in DB
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Password change failed')
     } finally {
@@ -235,3 +235,4 @@ export function AppShell() {
     </>
   )
 }
+

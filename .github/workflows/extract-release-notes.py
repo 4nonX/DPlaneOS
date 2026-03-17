@@ -1,4 +1,4 @@
-import re, os
+﻿import re, os
 
 version = os.environ["GITHUB_REF_NAME"]   # e.g. "v3.3.1"
 repo    = os.environ["GITHUB_REPOSITORY"]
@@ -6,7 +6,7 @@ repo    = os.environ["GITHUB_REPOSITORY"]
 with open("CHANGELOG.md") as f:
     changelog = f.read()
 
-# Match "## v3.3.1" or "## 3.3.1" — CHANGELOG may include or omit the v prefix
+# Match "## v3.3.1" or "## 3.3.1" - CHANGELOG may include or omit the v prefix
 bare = version.lstrip("v")
 pattern = r"(## v?" + re.escape(bare) + r"[ \t].*?)(?=\n## |\Z)"
 match = re.search(pattern, changelog, re.DOTALL)
@@ -44,3 +44,4 @@ notes += (
 with open("/tmp/release-notes.md", "w") as f:
     f.write(notes)
 print("Extracted", len(notes), "chars for", version)
+

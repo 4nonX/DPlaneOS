@@ -1,5 +1,5 @@
-/**
- * pages/ReportingPage.tsx — System Reporting & Metrics
+﻿/**
+ * pages/ReportingPage.tsx - System Reporting & Metrics
  *
  * APIs:
  *   GET /api/metrics/history?period=hour|day|week  → history data points
@@ -335,7 +335,7 @@ export function ReportingPage() {
 
   const history = historyQ.data?.history ?? []
 
-  // Current values — prefer live WS
+  // Current values - prefer live WS
   const memPct  = liveMetrics?.memory?.percent ?? currentQ.data?.memory.percent ?? 0
   const arcPct  = liveMetrics?.arc?.percent    ?? currentQ.data?.arc.percent    ?? 0
   const iowait  = liveMetrics?.iowait          ?? currentQ.data?.iowait         ?? 0
@@ -373,7 +373,7 @@ export function ReportingPage() {
 
           <MetricPanel label="Load Average" icon="speed" current={parseFloat(history[history.length-1]?.load1 ?? '0')} unit=""
             color="#06b6d4"
-            sub={`5m: ${history[history.length-1]?.load5 ?? '—'}  15m: ${history[history.length-1]?.load15 ?? '—'}`}
+            sub={`5m: ${history[history.length-1]?.load5 ?? '-'}  15m: ${history[history.length-1]?.load15 ?? '-'}`}
             history={load1History} />
 
           <MetricPanel label="I/O Wait" icon="storage" current={iowait} unit="%" color="#f59e0b"
@@ -427,3 +427,4 @@ export function ReportingPage() {
     </div>
   )
 }
+

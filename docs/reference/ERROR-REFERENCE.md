@@ -28,7 +28,7 @@ Returned when user input fails the security allowlist before reaching any system
 
 | Error | Cause | Valid Format |
 |-------|-------|-------------|
-| `Invalid dataset name: must start with letter` | Dataset starts with number or symbol | `tank/data` — letters, numbers, `/`, `-`, `_`, `.` |
+| `Invalid dataset name: must start with letter` | Dataset starts with number or symbol | `tank/data` - letters, numbers, `/`, `-`, `_`, `.` |
 | `Invalid dataset name: invalid characters` | Shell metacharacters detected (`;`, `$`, `` ` ``, `\|`, `&`) | `^[a-zA-Z][a-zA-Z0-9_\-\.\/]{0,254}$` |
 | `Invalid pool name` | Pool name fails regex | `^[a-zA-Z][a-zA-Z0-9_\-\.]{0,254}$` |
 | `Invalid snapshot name` | Bad `dataset@snapshot` format | `tank/data@backup-2026` |

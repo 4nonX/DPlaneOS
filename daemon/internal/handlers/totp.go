@@ -1,4 +1,4 @@
-package handlers
+﻿package handlers
 
 import (
 	"crypto/hmac"
@@ -114,7 +114,7 @@ func generateBackupCodes() ([]string, string, error) {
 
 // --- HTTP Handlers ---
 
-// HandleTOTPSetup — GET: get setup info (secret + QR URI), POST: verify & enable
+// HandleTOTPSetup - GET: get setup info (secret + QR URI), POST: verify & enable
 func (h *TOTPHandler) HandleTOTPSetup(w http.ResponseWriter, r *http.Request) {
 	user := r.Header.Get("X-User")
 	if user == "" {
@@ -206,7 +206,7 @@ func (h *TOTPHandler) verifyAndEnable(w http.ResponseWriter, r *http.Request, us
 	var enabled int
 	if err := h.db.QueryRow(`SELECT secret, enabled FROM totp_secrets WHERE user_id = ?`, userID).
 		Scan(&secret, &enabled); err != nil {
-		respondErrorSimple(w, "No 2FA setup in progress — request setup first", http.StatusBadRequest)
+		respondErrorSimple(w, "No 2FA setup in progress - request setup first", http.StatusBadRequest)
 		return
 	}
 	if enabled == 1 {
@@ -215,7 +215,7 @@ func (h *TOTPHandler) verifyAndEnable(w http.ResponseWriter, r *http.Request, us
 	}
 
 	if !validateTOTP(secret, req.Code) {
-		respondErrorSimple(w, "Invalid code — check your authenticator app's time sync", http.StatusBadRequest)
+		respondErrorSimple(w, "Invalid code - check your authenticator app's time sync", http.StatusBadRequest)
 		return
 	}
 
@@ -292,7 +292,7 @@ func (h *TOTPHandler) disableTOTP(w http.ResponseWriter, r *http.Request, userID
 	})
 }
 
-// HandleTOTPVerify — called during login step 2
+// HandleTOTPVerify - called during login step 2
 // POST /api/auth/totp-verify
 func (h *TOTPHandler) HandleTOTPVerify(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -352,7 +352,7 @@ func (h *TOTPHandler) HandleTOTPVerify(w http.ResponseWriter, r *http.Request) {
 
 	// Return the new full session
 	h.db.Exec(`UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = ?`, userID)
-	audit.LogAction("auth", username, "2FA verification successful — logged in", true, 0)
+	audit.LogAction("auth", username, "2FA verification successful - logged in", true, 0)
 
 	// Get session expiry
 	var expiresAt int64
@@ -392,3 +392,4 @@ func generateSessionID() (string, error) {
 	_, err := rand.Read(raw)
 	return fmt.Sprintf("%x", raw), err
 }
+

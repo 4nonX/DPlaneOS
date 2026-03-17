@@ -1,5 +1,5 @@
-[Unit]
-Description=D-PlaneOS Real-time Event Daemon (stub — handled by dplaned)
+﻿[Unit]
+Description=D-PlaneOS Real-time Event Daemon (stub - handled by dplaned)
 Documentation=https://github.com/dplaneos/dplaneos
 # Real-time monitoring and WebSocket are built into dplaned itself (/ws/monitor).
 # This unit exists for compatibility; it becomes active immediately and exits cleanly.
@@ -15,3 +15,4 @@ StandardError=journal
 
 [Install]
 WantedBy=multi-user.target
+

@@ -1,4 +1,4 @@
-/* D-PlaneOS — Bundled fonts, zero external requests, works fully offline */
+﻿/* D-PlaneOS - Bundled fonts, zero external requests, works fully offline */
 
 @font-face {
   font-family: 'Outfit Variable';
@@ -29,3 +29,4 @@
   font-display: block;
   src: url('/assets/fonts/MaterialSymbolsRounded.woff2') format('woff2');
 }
+

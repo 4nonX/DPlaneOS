@@ -1,5 +1,5 @@
-/**
- * pages/ACLPage.tsx — POSIX ACL Manager (Phase 4)
+﻿/**
+ * pages/ACLPage.tsx - POSIX ACL Manager (Phase 4)
  *
  * Calls (matching daemon routes exactly):
  *   GET  /api/acl/get?path=   → { success, acl: string (getfacl output), stat: string }
@@ -211,7 +211,7 @@ export function ACLPage() {
     <div style={{ maxWidth: 860 }}>
       <div className="page-header">
         <h1 className="page-title">ACL Manager</h1>
-        <p className="page-subtitle">POSIX Access Control Lists — getfacl / setfacl</p>
+        <p className="page-subtitle">POSIX Access Control Lists - getfacl / setfacl</p>
       </div>
 
       {/* Path input */}
@@ -280,3 +280,4 @@ export function ACLPage() {
     </div>
   )
 }
+

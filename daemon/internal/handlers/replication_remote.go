@@ -1,4 +1,4 @@
-package handlers
+﻿package handlers
 
 import (
 	"bytes"
@@ -98,7 +98,7 @@ func (h *ReplicationHandler) ReplicateToRemote(w http.ResponseWriter, r *http.Re
 		token := getResumeToken(sshArgs, sshTarget, remoteDataset)
 		if token != "" {
 			// Validate the resume token before using it in a command arg.
-			// Tokens are base64url-encoded opaque blobs from ZFS — only
+			// Tokens are base64url-encoded opaque blobs from ZFS - only
 			// alphanumeric + +/= are valid; reject anything else.
 			if !isValidResumeToken(token) {
 				respondErrorSimple(w, "Invalid resume token format", http.StatusBadRequest)
@@ -138,7 +138,7 @@ func (h *ReplicationHandler) ReplicateToRemote(w http.ResponseWriter, r *http.Re
 			})
 			return
 		}
-		// No resume token found — fall through to normal send
+		// No resume token found - fall through to normal send
 	}
 
 	// Build zfs send args
@@ -159,7 +159,7 @@ func (h *ReplicationHandler) ReplicateToRemote(w http.ResponseWriter, r *http.Re
 
 	// Full command with -s on receive side for resume support.
 	// execPipedZFSSend connects zfs-send stdout → (optional pv) → ssh stdin
-	// using Go pipes — no shell, no string interpolation.
+	// using Go pipes - no shell, no string interpolation.
 	var rateLimitBytes []string
 	if req.RateLimit != "" && !strings.ContainsAny(req.RateLimit, ";|&$`\\\"' ") {
 		rateLimitBytes = []string{req.RateLimit}
@@ -280,7 +280,7 @@ func isValidResumeToken(token string) bool {
 
 // execPipedZFSSend performs: zfs send <sendArgs> [| pv -q -L rateLimit] | ssh <sshArgs> sshTarget zfs <recvArgs>
 //
-// All processes are connected with Go pipes — no shell, no string interpolation,
+// All processes are connected with Go pipes - no shell, no string interpolation,
 // no bash -c. Each argument is a discrete element in argv, so shell metacharacter
 // injection is not possible.
 func execPipedZFSSend(
@@ -384,3 +384,4 @@ func getResumeToken(sshArgs []string, sshTarget, remoteDataset string) string {
 	}
 	return token
 }
+

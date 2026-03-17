@@ -1,4 +1,4 @@
-/**
+﻿/**
  * components/layout/Sidebar.tsx
  *
  * Collapsible sidebar with group visual hierarchy,
@@ -223,7 +223,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
             </div>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontSize: 'var(--text-sm)', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {user?.username ?? '—'}
+                {user?.username ?? '-'}
               </div>
               {user?.role && user.role !== 'user' && (
                 <div style={{ fontSize: 'var(--text-2xs)', color: 'var(--primary)', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: 700 }}>
@@ -386,3 +386,4 @@ function ZFSEventsWidget() {
     </div>
   )
 }
+

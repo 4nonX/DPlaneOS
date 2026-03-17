@@ -1,8 +1,8 @@
-/**
- * pages/SandboxPage.tsx — ZFS Sandbox
+﻿/**
+ * pages/SandboxPage.tsx - ZFS Sandbox
  *
  * Ephemeral ZFS clone environments for safe testing.
- * Destroy to revert — zero data risk to production datasets.
+ * Destroy to revert - zero data risk to production datasets.
  *
  * APIs:
  *   GET    /api/sandbox/list              → { success, sandboxes, count }
@@ -131,7 +131,7 @@ function NewSandboxModal({ onClose, datasets, datasetsLoading }: NewSandboxModal
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16, padding: '4px 0' }}>
         {/* Sandbox Name */}
         <div className="form-group">
-          <label className="form-label">Sandbox Name <span style={{ color: 'var(--text-tertiary)', fontWeight: 400 }}>(optional — auto-generated if empty)</span></label>
+          <label className="form-label">Sandbox Name <span style={{ color: 'var(--text-tertiary)', fontWeight: 400 }}>(optional - auto-generated if empty)</span></label>
           <input
             type="text"
             className="form-input"
@@ -155,7 +155,7 @@ function NewSandboxModal({ onClose, datasets, datasetsLoading }: NewSandboxModal
               value={sourceDataset}
               onChange={(e) => setSourceDataset(e.target.value)}
             >
-              <option value="">— Select dataset —</option>
+              <option value="">- Select dataset -</option>
               {datasets.map((d) => (
                 <option key={d.name} value={d.name}>{d.name}</option>
               ))}
@@ -172,7 +172,7 @@ function NewSandboxModal({ onClose, datasets, datasetsLoading }: NewSandboxModal
           <Icon name="info" size={14} style={{ color: 'var(--primary)', flexShrink: 0, marginTop: 1 }} />
           <span>
             A snapshot will be taken of the source dataset, then an instant ZFS clone created from it.
-            The sandbox is writable but isolated — destroy it to revert all changes.
+            The sandbox is writable but isolated - destroy it to revert all changes.
           </span>
         </div>
 
@@ -380,7 +380,7 @@ export function SandboxPage() {
       <div className="page-header">
         <div>
           <h1 className="page-title">Sandbox</h1>
-          <p className="page-subtitle">Ephemeral ZFS clone environments — test changes safely, destroy to revert</p>
+          <p className="page-subtitle">Ephemeral ZFS clone environments - test changes safely, destroy to revert</p>
         </div>
         <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexShrink: 0 }}>
           <Tooltip content="Remove orphaned Docker volumes left by destroyed sandboxes">
@@ -406,7 +406,7 @@ export function SandboxPage() {
       <div className="alert alert-warning" style={{ fontSize: 'var(--text-sm)' }}>
         <Icon name="warning" size={16} />
         <span>
-          <strong>Clean Orphans</strong> runs <code>docker volume prune -f</code> — this removes
+          <strong>Clean Orphans</strong> runs <code>docker volume prune -f</code> - this removes
           all unused Docker volumes on the system, not just sandbox volumes. Use with care.
         </span>
       </div>
@@ -458,7 +458,7 @@ export function SandboxPage() {
             <div style={{ fontWeight: 600, marginTop: 12 }}>No sandboxes yet</div>
             <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-tertiary)', marginTop: 4, maxWidth: 360, textAlign: 'center' }}>
               Create a sandbox to get an instant ZFS clone of any dataset.
-              Test destructive changes safely — destroy the sandbox to revert.
+              Test destructive changes safely - destroy the sandbox to revert.
             </div>
             <button className="btn btn-primary" onClick={() => setShowNewModal(true)} style={{ marginTop: 16 }}>
               <Icon name="add" size={15} /> New Sandbox
@@ -491,3 +491,4 @@ export function SandboxPage() {
     </div>
   )
 }
+

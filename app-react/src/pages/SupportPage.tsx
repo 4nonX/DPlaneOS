@@ -1,5 +1,5 @@
-/**
- * pages/SupportPage.tsx — Support & Diagnostics (Phase 8)
+﻿/**
+ * pages/SupportPage.tsx - Support & Diagnostics (Phase 8)
  *
  * POST /api/system/support-bundle           → binary download (tar.gz)
  * GET  /api/system/metrics                  → { cpu, memory, disk, ... }
@@ -18,8 +18,8 @@ import { toast } from '@/hooks/useToast'
 interface SysMetrics { cpu_model?:string; cpu_percent?:number; memory_total?:number; memory_used?:number; uptime?:string; os?:string; kernel?:string; load_avg?:number[] }
 interface Snapshot   { name?:string; snapshot?:string; created?:string; size?:number }
 
-function fmtSize(b?:number):string { if(!b)return'—'; const u=['B','KB','MB','GB','TB']; const i=Math.min(Math.floor(Math.log(b)/Math.log(1024)),4); return`${(b/1024**i).toFixed(1)} ${u[i]}` }
-function fmtDate(s?:string){if(!s)return'—';try{return new Date(s).toLocaleString('de-DE',{dateStyle:'short',timeStyle:'short'})}catch{return s}}
+function fmtSize(b?:number):string { if(!b)return'-'; const u=['B','KB','MB','GB','TB']; const i=Math.min(Math.floor(Math.log(b)/Math.log(1024)),4); return`${(b/1024**i).toFixed(1)} ${u[i]}` }
+function fmtDate(s?:string){if(!s)return'-';try{return new Date(s).toLocaleString('de-DE',{dateStyle:'short',timeStyle:'short'})}catch{return s}}
 
 export function SupportPage() {
   const [downloading, setDownloading] = useState(false)
@@ -28,7 +28,7 @@ export function SupportPage() {
   const healthQ   = useQuery({ queryKey:['system','health'],   queryFn:({signal})=>api.get<{success:boolean;checks:{name:string;status:string;type:string}[]}>('/api/system/health',signal) })
   const snapshotsQ= useQuery({ queryKey:['nixos','pre-snaps'], queryFn:({signal})=>api.get<{success:boolean;snapshots:Snapshot[]}>('/api/nixos/pre-upgrade-snapshots',signal) })
 
-  // Support bundle: binary download — can't use api.post, need raw fetch
+  // Support bundle: binary download - can't use api.post, need raw fetch
   async function downloadBundle() {
     setDownloading(true)
     try {
@@ -59,13 +59,13 @@ export function SupportPage() {
   const snaps = snapshotsQ.data?.snapshots ?? []
 
   const metricRows = m ? [
-    { label:'CPU Model',    value: m.cpu_model || '—' },
-    { label:'CPU Usage',    value: m.cpu_percent != null ? `${m.cpu_percent.toFixed(1)}%` : '—' },
-    { label:'Memory',       value: (m.memory_total && m.memory_used) ? `${fmtSize(m.memory_used)} / ${fmtSize(m.memory_total)}` : '—' },
-    { label:'Load Average', value: m.load_avg ? m.load_avg.map(l=>l.toFixed(2)).join(', ') : '—' },
-    { label:'Uptime',       value: m.uptime || '—' },
-    { label:'OS',           value: m.os || '—' },
-    { label:'Kernel',       value: m.kernel || '—' },
+    { label:'CPU Model',    value: m.cpu_model || '-' },
+    { label:'CPU Usage',    value: m.cpu_percent != null ? `${m.cpu_percent.toFixed(1)}%` : '-' },
+    { label:'Memory',       value: (m.memory_total && m.memory_used) ? `${fmtSize(m.memory_used)} / ${fmtSize(m.memory_total)}` : '-' },
+    { label:'Load Average', value: m.load_avg ? m.load_avg.map(l=>l.toFixed(2)).join(', ') : '-' },
+    { label:'Uptime',       value: m.uptime || '-' },
+    { label:'OS',           value: m.os || '-' },
+    { label:'Kernel',       value: m.kernel || '-' },
   ] : []
 
   return (
@@ -196,3 +196,4 @@ export function SupportPage() {
     </div>
   )
 }
+

@@ -1,6 +1,6 @@
-#!/bin/bash
+﻿#!/bin/bash
 #
-# D-PlaneOS — Installer
+# D-PlaneOS - Installer
 #
 # ── ONE-LINER INSTALL (nothing to download first) ────────────────────────────
 #
@@ -127,7 +127,7 @@ _do_rollback() {
     systemctl start dplaned 2>/dev/null || true
 }
 
-# ── Trap — rollback on unexpected failure ─────────────────────────────────────
+# ── Trap - rollback on unexpected failure ─────────────────────────────────────
 BACKUP_PATH=""
 INSTALL_PHASE=0
 ROLLBACK_DONE=false
@@ -141,7 +141,7 @@ cleanup() {
         echo "Rolling back to previous installation..."
         _do_rollback "$BACKUP_PATH" \
             && echo -e "${GREEN}✓ Rollback complete${NC}" \
-            || echo -e "${RED}✗ Rollback also failed — run: sudo dplaneos-recovery${NC}"
+            || echo -e "${RED}✗ Rollback also failed - run: sudo dplaneos-recovery${NC}"
     else
         echo "No backup available (fresh install failure)."
         echo "Run: sudo dplaneos-recovery"
@@ -154,7 +154,7 @@ trap cleanup EXIT
 # ── Banner ────────────────────────────────────────────────────────────────────
 [ -n "$TERM" ] && clear || true
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo -e "${BOLD}    D-PlaneOS v${DPLANEOS_VERSION} — Installer${NC}"
+echo -e "${BOLD}    D-PlaneOS v${DPLANEOS_VERSION} - Installer${NC}"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
 echo "  Architecture : $ARCH ($ARCH_TAG)"
@@ -168,7 +168,7 @@ step "Phase 0/13: Pre-flight checks"
 # ────────────────────────────────────────────────────────────────────────────
 
 [ -f /etc/os-release ] || die "Cannot detect OS"
-# Safe extraction — avoids Ubuntu's readonly VERSION variable crash
+# Safe extraction - avoids Ubuntu's readonly VERSION variable crash
 OS_ID=$(grep -E '^ID=' /etc/os-release | cut -d= -f2 | tr -d '"')
 OS_PRETTY=$(grep -E '^PRETTY_NAME=' /etc/os-release | cut -d= -f2 | tr -d '"')
 OS_VERSION_ID=$(grep -E '^VERSION_ID=' /etc/os-release | cut -d= -f2 | tr -d '"')
@@ -176,17 +176,17 @@ case "${OS_ID,,}" in
     debian|ubuntu|raspbian|linuxmint|pop)
         log "OS: ${OS_PRETTY:-$OS_ID}" ;;
     nixos)
-        # NixOS detected — warn but do NOT terminate; NixOS users should use nixos/ directory
+        # NixOS detected - warn but do NOT terminate; NixOS users should use nixos/ directory
         warn "NixOS detected. Native package management is handled via nixos/. Proceeding with best-effort install."
         warn "For a fully declarative NixOS setup, see nixos/NIXOS-INSTALL-GUIDE.md instead." ;;
     *)
         die "Unsupported OS: ${OS_PRETTY:-unknown}
   Supported: Debian 12+, Ubuntu 22.04+, Raspberry Pi OS (64-bit, Debian 12 based)
-  Other distros: install manually — see docs/manual-install.md" ;;
+  Other distros: install manually - see docs/manual-install.md" ;;
 esac
 
 TOTAL_RAM_MB=$(free -m | awk '/^Mem:/{print $2}')
-[ "$TOTAL_RAM_MB" -ge 1024 ] || warn "Low RAM: ${TOTAL_RAM_MB}MB — 2GB+ recommended"
+[ "$TOTAL_RAM_MB" -ge 1024 ] || warn "Low RAM: ${TOTAL_RAM_MB}MB - 2GB+ recommended"
 log "RAM: ${TOTAL_RAM_MB}MB"
 
 ROOT_FREE_GB=$(df -BG / | awk 'NR==2{gsub(/G/,"",$4); print $4}')
@@ -195,7 +195,7 @@ log "Disk free: ${ROOT_FREE_GB}GB"
 
 if ss -tuln 2>/dev/null | grep -q ":${OPT_PORT} "; then
     $OPT_UPGRADE \
-        && warn "Port ${OPT_PORT} in use — will reconfigure (expected on upgrade)" \
+        && warn "Port ${OPT_PORT} in use - will reconfigure (expected on upgrade)" \
         || die "Port ${OPT_PORT} in use. Use --port NNNN or stop the conflicting service."
 else
     log "Port ${OPT_PORT} available"
@@ -241,7 +241,7 @@ if $OPT_UPGRADE; then
     # Write rollback script into backup dir
     cat > "${BACKUP_PATH}/rollback.sh" <<RBSCRIPT
 #!/bin/bash
-# Rollback script — auto-generated $(date)
+# Rollback script - auto-generated $(date)
 # Usage: sudo bash ${BACKUP_PATH}/rollback.sh
 set -euo pipefail
 systemctl stop dplaned nginx 2>/dev/null || true
@@ -250,12 +250,12 @@ systemctl stop dplaned nginx 2>/dev/null || true
 [ -f "${BACKUP_PATH}/dplaned.service" ]     && cp "${BACKUP_PATH}/dplaned.service" /etc/systemd/system/dplaned.service && systemctl daemon-reload && echo "systemd unit restored"
 [ -f "${BACKUP_PATH}/sudoers-dplaneos" ]    && cp "${BACKUP_PATH}/sudoers-dplaneos" /etc/sudoers.d/dplaneos && chmod 440 /etc/sudoers.d/dplaneos && echo "sudoers restored"
 systemctl start nginx dplaned 2>/dev/null || true
-echo "Rollback complete — access: http://\$(hostname -I | awk '{print \$1}')"
+echo "Rollback complete - access: http://\$(hostname -I | awk '{print \$1}')"
 RBSCRIPT
     chmod +x "${BACKUP_PATH}/rollback.sh"
-    log "Backup complete ($(du -sh "$BACKUP_PATH" | cut -f1)) — rollback: ${BACKUP_PATH}/rollback.sh"
+    log "Backup complete ($(du -sh "$BACKUP_PATH" | cut -f1)) - rollback: ${BACKUP_PATH}/rollback.sh"
 else
-    log "Fresh install — no backup needed"
+    log "Fresh install - no backup needed"
 fi
 
 INSTALL_PHASE=2
@@ -294,7 +294,7 @@ PACKAGES=(nginx sqlite3 smartmontools lsof udev
           musl-tools            # enables fully static binary (glibc-independent)
           samba                 # SMB/CIFS file shares
           nfs-kernel-server     # NFS file shares
-          avahi-daemon          # mDNS — makes NAS visible as hostname.local
+          avahi-daemon          # mDNS: makes NAS visible as hostname.local
           )
 
 # ZFS needs both the utils AND matching kernel headers (for DKMS module build)
@@ -306,7 +306,7 @@ for pkg in "${PACKAGES[@]}"; do
     else
         apt-get install -y -qq "$pkg" 2>&1 | tail -1 \
             && log "  $pkg" \
-            || warn "  $pkg failed — may be optional"
+            || warn "  $pkg failed - may be optional"
     fi
 done
 
@@ -319,7 +319,7 @@ step "Phase 3/13: ZFS setup"
 if ! lsmod | grep -q "^zfs "; then
     modprobe zfs 2>/dev/null \
         && log "ZFS module loaded" \
-        || warn "ZFS module failed — try: sudo apt install linux-headers-\$(uname -r) && sudo dpkg-reconfigure zfs-dkms"
+        || warn "ZFS module failed: try: sudo apt install linux-headers-\$(uname -r) && sudo dpkg-reconfigure zfs-dkms"
 else
     log "ZFS module already loaded"
 fi
@@ -397,7 +397,7 @@ try_download_binary() {
     local tmp_tar
     tmp_tar=$(mktemp --suffix=".tar.gz")
 
-    info "No Go toolchain found — attempting binary download for linux-${dl_arch}..."
+    info "No Go toolchain found - attempting binary download for linux-${dl_arch}..."
     info "  URL: ${tarball_url}"
 
     if curl -fsSL --max-time 120 -o "$tmp_tar" "$tarball_url" 2>/dev/null; then
@@ -447,7 +447,7 @@ for candidate in \
             BINARY_SRC="$candidate"
             break
         else
-            warn "Skipping $(basename "$candidate") — arch mismatch ($BIN_ELF vs $EXPECTED_ELF)"
+            warn "Skipping $(basename "$candidate") - arch mismatch ($BIN_ELF vs $EXPECTED_ELF)"
         fi
     fi
 done
@@ -458,9 +458,9 @@ if [ -n "$BINARY_SRC" ]; then
     chmod +x "${INSTALL_DIR}/daemon/dplaned"
     log "Binary: $BINARY_SRC ($ARCH_TAG)"
 elif command -v go &>/dev/null; then
-    info "Building from source (Go detected — ~2 min)..."
+    info "Building from source (Go detected: ~2 min)..."
     cd "${INSTALL_DIR}/daemon"
-    # Use vendor dir if present (airgap/offline install — no network needed)
+    # Use vendor dir if present (airgap/offline install - no network needed)
     if [ -d "vendor" ]; then
         BUILD_MOD="-mod=vendor"
         info "Using vendored dependencies (offline/airgap mode)"
@@ -471,23 +471,23 @@ elif command -v go &>/dev/null; then
 
     # Attempt fully static build via musl (preferred: survives glibc updates)
     if command -v musl-gcc &>/dev/null; then
-        info "musl-gcc found — building fully static binary (glibc-independent)..."
+        info "musl-gcc found - building fully static binary (glibc-independent)..."
         CC=musl-gcc CGO_ENABLED=1 \
             go build $BUILD_MOD \
             -tags "sqlite_fts5" \
             -ldflags="-s -w -X main.Version=${DPLANEOS_VERSION} -linkmode external -extldflags -static" \
             -o "${INSTALL_DIR}/daemon/dplaned" ./cmd/dplaned/ 2>&1 | tail -5
         if ldd "${INSTALL_DIR}/daemon/dplaned" 2>&1 | grep -q "not a dynamic executable"; then
-            log "Static binary built successfully — no glibc dependency"
+            log "Static binary built successfully - no glibc dependency"
         else
-            warn "musl build produced dynamic binary — falling back to glibc build"
+            warn "musl build produced dynamic binary - falling back to glibc build"
             CGO_ENABLED=1 \
                 go build $BUILD_MOD -tags "sqlite_fts5" \
                 -ldflags="-s -w -X main.Version=${DPLANEOS_VERSION}" \
                 -o "${INSTALL_DIR}/daemon/dplaned" ./cmd/dplaned/ 2>&1 | tail -5
         fi
     else
-        # Standard glibc build — requires glibc ≥ 2.34 (Ubuntu 22.04+)
+        # Standard glibc build - requires glibc ≥ 2.34 (Ubuntu 22.04+)
         info "Building with glibc (install musl-tools for a glibc-independent binary)..."
         CGO_ENABLED=1 \
             go build $BUILD_MOD -tags "sqlite_fts5" \
@@ -508,7 +508,7 @@ step "Phase 6/13: sudoers"
 
 SUDOERS_TMP=$(mktemp)
 cat > "$SUDOERS_TMP" <<'SUDOERS'
-# D-PlaneOS daemon permissions — managed by install.sh
+# D-PlaneOS daemon permissions - managed by install.sh
 Defaults:www-data !requiretty
 www-data ALL=(ALL) NOPASSWD: /sbin/zfs, /sbin/zpool
 www-data ALL=(ALL) NOPASSWD: /usr/sbin/zfs, /usr/sbin/zpool
@@ -528,7 +528,7 @@ if visudo -c -f "$SUDOERS_TMP" &>/dev/null; then
     chmod 440 /etc/sudoers.d/dplaneos
     log "sudoers configured and validated"
 else
-    warn "sudoers validation failed — skipping (daemon still works as root)"
+    warn "sudoers validation failed - skipping (daemon still works as root)"
 fi
 rm -f "$SUDOERS_TMP"
 
@@ -546,7 +546,7 @@ if [ ! -f "$DB_PATH" ]; then
     ADMIN_HASH=$(
         python3 -c "import bcrypt; print(bcrypt.hashpw(b'${ADMIN_PASSWORD}', bcrypt.gensalt(12)).decode())" 2>/dev/null \
         || htpasswd -bnBC 12 "" "${ADMIN_PASSWORD}" 2>/dev/null | tr -d ':\n' | sed 's/^://' \
-        || die "Cannot generate bcrypt hash — install python3-bcrypt or apache2-utils"
+        || die "Cannot generate bcrypt hash - install python3-bcrypt or apache2-utils"
     )
 
     sqlite3 "$DB_PATH" <<'SCHEMA'
@@ -625,7 +625,7 @@ SCHEMA
     GENERATED_ADMIN_PASSWORD="$ADMIN_PASSWORD"
     log "Database created (WAL + FTS5)"
 else
-    info "Existing database — running migrations..."
+    info "Existing database - running migrations..."
     sqlite3 "$DB_PATH" "ALTER TABLE users ADD COLUMN must_change_password INTEGER DEFAULT 0;" 2>/dev/null || true
     sqlite3 "$DB_PATH" "CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_logs(timestamp DESC);" 2>/dev/null || true
     sqlite3 "$DB_PATH" <<'FTS5'
@@ -678,12 +678,12 @@ chmod 600 "$DB_PATH"
 
 INSTALL_PHASE=8
 
-# ────────────────────────────────────────────────────────────────────────────
+# ----------------------------------------------------------------------------
 step "Phase 8/13: nginx"
-# ────────────────────────────────────────────────────────────────────────────
+# ----------------------------------------------------------------------------
 
 cat > /etc/nginx/sites-available/dplaneos <<NGINX
-# D-PlaneOS v${DPLANEOS_VERSION} — do not edit manually (regenerated by install.sh)
+# D-PlaneOS v${DPLANEOS_VERSION} - do not edit manually (regenerated by install.sh)
 server {
     listen ${OPT_PORT} default_server;
     listen [::]:${OPT_PORT} default_server;
@@ -722,17 +722,17 @@ NGINX
 rm -f /etc/nginx/sites-enabled/default
 ln -sf /etc/nginx/sites-available/dplaneos /etc/nginx/sites-enabled/
 rm -f /var/www/html/index.html /var/www/html/index.nginx-debian.html 2>/dev/null || true
-nginx -t 2>&1 || die "nginx config invalid — check /etc/nginx/sites-available/dplaneos"
+nginx -t 2>&1 || die "nginx config invalid - check /etc/nginx/sites-available/dplaneos"
 log "nginx configured (port ${OPT_PORT})"
 
 # ── Download web fonts (Outfit, JetBrains Mono, Material Symbols Rounded) ───
 # Fonts are served from /opt/dplaneos/app/assets/fonts/ so the SPA works
 # completely offline after install. If the download fails, UI falls back to
-# system-ui and monospace — fully functional, just different look.
+# system-ui and monospace - fully functional, just different look.
 if bash "${INSTALL_DIR}/install/scripts/download-fonts.sh" "${INSTALL_DIR}/app/assets/fonts" 2>&1; then
     log "Web fonts ready (offline mode)"
 else
-    warn "Font download failed — UI will use system fonts (no functionality impact)"
+    warn "Font download failed - UI will use system fonts (no functionality impact)"
 fi
 
 INSTALL_PHASE=9
@@ -750,7 +750,7 @@ SMB_SYSTEM_CONF="/etc/samba/smb.conf"
 # Seed the daemon config file so it exists before smbd first reads it
 if [ ! -f "$SMB_DAEMON_CONF" ]; then
     cat > "$SMB_DAEMON_CONF" <<'SMBSEED'
-# D-PlaneOS share definitions — managed by the daemon, do not edit manually.
+# D-PlaneOS share definitions - managed by the daemon, do not edit manually.
 # Regenerated on every share create/update/delete via the web UI.
 SMBSEED
     log "Samba daemon config seeded: $SMB_DAEMON_CONF"
@@ -763,7 +763,7 @@ if [ -f "$SMB_SYSTEM_CONF" ] && ! grep -q "dplaneos" "$SMB_SYSTEM_CONF" 2>/dev/n
 fi
 
 cat > "$SMB_SYSTEM_CONF" <<SMBCONF
-# /etc/samba/smb.conf — managed by D-PlaneOS install.sh
+# /etc/samba/smb.conf - managed by D-PlaneOS install.sh
 # Global settings are here; per-share definitions are in the include below.
 [global]
     workgroup = WORKGROUP
@@ -783,7 +783,7 @@ if command -v systemctl &>/dev/null; then
     systemctl enable smbd nmbd 2>/dev/null || true
     systemctl restart smbd nmbd 2>/dev/null \
         && log "Samba services started (smbd + nmbd)" \
-        || warn "Samba services did not start — check: systemctl status smbd"
+        || warn "Samba services did not start: check: systemctl status smbd"
 fi
 
 INSTALL_PHASE=10
@@ -815,13 +815,13 @@ step "Phase 11/13: Docker (optional)"
 if command -v docker &>/dev/null; then
     log "Docker already installed"
 else
-    info "Docker not found — installing via official script..."
+    info "Docker not found - installing via official script..."
     if curl -fsSL https://get.docker.com -o /tmp/install-docker.sh 2>/dev/null; then
         sh /tmp/install-docker.sh --quiet 2>&1 | tail -5 && log "Docker installed" \
-            || warn "Docker install script failed — containers unavailable (install manually later)"
+            || warn "Docker install script failed - containers unavailable (install manually later)"
         rm -f /tmp/install-docker.sh
     else
-        warn "Could not reach get.docker.com — Docker not installed (containers unavailable)"
+        warn "Could not reach get.docker.com - Docker not installed (containers unavailable)"
         warn "Install later: curl -fsSL https://get.docker.com | sh"
     fi
 fi
@@ -863,7 +863,7 @@ if [ -f "${INSTALL_DIR}/install/systemd/dplaneos-zfs-mount-wait.service" ]; then
     systemctl enable dplaneos-zfs-mount-wait.service 2>/dev/null || true
     log "ZFS mount gate installed"
 else
-    warn "ZFS mount gate not found — Docker may race with ZFS on boot"
+    warn "ZFS mount gate not found - Docker may race with ZFS on boot"
 fi
 
 # DB init service (must start before dplaned and dplaneos-realtime)
@@ -872,7 +872,7 @@ if [ -f "${INSTALL_DIR}/install/systemd/dplaneos-init-db.service" ]; then
     systemctl enable dplaneos-init-db.service 2>/dev/null || true
     log "DB init service installed"
 else
-    warn "dplaneos-init-db.service not found — daemon may race with DB init on first boot"
+    warn "dplaneos-init-db.service not found - daemon may race with DB init on first boot"
 fi
 
 # Realtime monitor service
@@ -881,7 +881,7 @@ if [ -f "${INSTALL_DIR}/install/systemd/dplaneos-realtime.service" ]; then
     systemctl enable dplaneos-realtime.service 2>/dev/null || true
     log "Realtime monitor service installed"
 else
-    warn "dplaneos-realtime.service not found — realtime monitoring unavailable"
+    warn "dplaneos-realtime.service not found - realtime monitoring unavailable"
 fi
 
 # Main daemon service
@@ -936,7 +936,7 @@ fi
 systemctl daemon-reload
 systemctl enable dplaned nginx 2>/dev/null
 
-systemctl restart nginx || die "nginx failed — check: journalctl -xe -u nginx"
+systemctl restart nginx || die "nginx failed - check: journalctl -xe -u nginx"
 
 if systemctl restart dplaned 2>/dev/null; then
     for i in $(seq 1 15); do
@@ -947,7 +947,7 @@ if systemctl restart dplaned 2>/dev/null; then
         && log "dplaned running and healthy" \
         || warn "dplaned started but health check timed out (may still be initializing)"
 else
-    warn "dplaned did not start — check: systemctl status dplaned"
+    warn "dplaned did not start - check: systemctl status dplaned"
 fi
 
 # Recovery CLI
@@ -957,18 +957,18 @@ if [ -f "${INSTALL_DIR}/install/scripts/recovery-cli.sh" ]; then
     log "Recovery CLI: /usr/local/bin/dplaneos-recovery"
 fi
 
-# udev rules — removable media + hot-swap pool disks
+# udev rules - removable media + hot-swap pool disks
 if [ -f "${INSTALL_DIR}/install/udev/99-dplaneos-removable-media.rules" ]; then
     cp "${INSTALL_DIR}/install/udev/99-dplaneos-removable-media.rules" /etc/udev/rules.d/
     log "udev: removable media rules installed"
 else
-    warn "install/udev/99-dplaneos-removable-media.rules not found — USB detection unavailable"
+    warn "install/udev/99-dplaneos-removable-media.rules not found - USB detection unavailable"
 fi
 if [ -f "${INSTALL_DIR}/install/udev/99-dplaneos-hotswap.rules" ]; then
     cp "${INSTALL_DIR}/install/udev/99-dplaneos-hotswap.rules" /etc/udev/rules.d/
     log "udev: hot-swap rules installed"
 else
-    warn "install/udev/99-dplaneos-hotswap.rules not found — hot-swap pool disk detection unavailable"
+    warn "install/udev/99-dplaneos-hotswap.rules not found - hot-swap pool disk detection unavailable"
 fi
 udevadm control --reload-rules 2>/dev/null && log "udev rules reloaded" || warn "udevadm reload failed (rules will apply on reboot)"
 
@@ -979,7 +979,7 @@ if [ -f "${INSTALL_DIR}/install/zed/dplaneos-notify.sh" ]; then
     chmod +x /etc/zfs/zed.d/dplaneos-notify.sh
     log "ZED hook installed (/etc/zfs/zed.d/dplaneos-notify.sh)"
 else
-    warn "ZED hook not found — ZFS events will not trigger real-time alerts"
+    warn "ZED hook not found - ZFS events will not trigger real-time alerts"
 fi
 
 # Hot-swap notification scripts
@@ -993,7 +993,7 @@ for script in \
         chmod +x "${INSTALL_DIR}/install/scripts/${script}"
         log "install/scripts/${script} marked executable"
     else
-        warn "install/scripts/${script} not found — some udev notifications may not fire"
+        warn "install/scripts/${script} not found - some udev notifications may not fire"
     fi
 done
 
@@ -1015,7 +1015,7 @@ step "Phase 13/13: Validation"
 if [ -f "${INSTALL_DIR}/install/scripts/post-install-validation.sh" ]; then
     bash "${INSTALL_DIR}/install/scripts/post-install-validation.sh" \
         && log "All checks passed" \
-        || warn "Some checks failed — run: sudo dplaneos-recovery"
+        || warn "Some checks failed - run: sudo dplaneos-recovery"
 fi
 
 # ── Success ───────────────────────────────────────────────────────────────────
@@ -1029,14 +1029,14 @@ PORT_SUFFIX=$( [ "$OPT_PORT" = "80" ] && echo "" || echo ":${OPT_PORT}" )
 [ -n "$TERM" ] && clear || true
 echo -e "${BOLD}${GREEN}"
 echo "╔══════════════════════════════════════════════════════╗"
-echo "║       D-PlaneOS v${DPLANEOS_VERSION} — Installation Complete!        ║"
+echo "║       D-PlaneOS v${DPLANEOS_VERSION} - Installation Complete!        ║"
 echo "╠══════════════════════════════════════════════════════╣"
 echo "║                                                      ║"
 printf "║  🌐  Access your dashboard at:                       ║\n"
 printf "║      %-48s  ║\n" "http://${MY_IP}${PORT_SUFFIX}"
 echo "║                                                      ║"
 echo "║  ⚠️   NOTE: The VM screen may remain BLACK after      ║"
-echo "║       install. This is normal — use the URL above.   ║"
+echo "║       install. This is normal - use the URL above.   ║"
 echo "║                                                      ║"
 echo "╚══════════════════════════════════════════════════════╝"
 echo -e "${NC}"
@@ -1047,10 +1047,10 @@ echo "  Username : admin"
 if [ -n "${GENERATED_ADMIN_PASSWORD}" ]; then
     echo -e "  Password : ${BOLD}${GENERATED_ADMIN_PASSWORD}${NC}"
     echo ""
-    echo -e "  ${YELLOW}⚠  Save this password now — it will not be shown again.${NC}"
+    echo -e "  ${YELLOW}⚠  Save this password now - it will not be shown again.${NC}"
     echo -e "  ${YELLOW}   You will be required to change it on first login.${NC}"
 else
-    echo "  Password : (unchanged — this was an upgrade)"
+    echo "  Password : (unchanged - this was an upgrade)"
 fi
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -1066,3 +1066,4 @@ echo ""
 echo "  Full log: $LOG_FILE"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
+

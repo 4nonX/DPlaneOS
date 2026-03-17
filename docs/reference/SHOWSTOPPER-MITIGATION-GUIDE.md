@@ -1,4 +1,4 @@
-# D-PlaneOS — Showstopper Mitigation Guide
+# D-PlaneOS - Showstopper Mitigation Guide
 
 **Updated:** 2026-03-09
 **Purpose:** Honest assessment of what works, what has documented limits, and what is genuinely out of scope.
@@ -7,17 +7,17 @@
 
 ## Status Key
 
-- **RESOLVED** — was a showstopper in an earlier version, fully addressed
-- **PARTIAL** — real implementation exists with documented limitations
-- **OPEN** — genuine limitation in the current version
+- **RESOLVED** - was a showstopper in an earlier version, fully addressed
+- **PARTIAL** - real implementation exists with documented limitations
+- **OPEN** - genuine limitation in the current version
 
 ---
 
-## RESOLVED — Replication Was Simulated
+## RESOLVED - Replication Was Simulated
 
 ### What the Old Guide Said
 
-> `app/api/replication.php` line 121: `// Send snapshot (simulated)` — the GUI returns "success" but does nothing.
+> `app/api/replication.php` line 121: `// Send snapshot (simulated)` - the GUI returns "success" but does nothing.
 
 ### Current State
 
@@ -48,7 +48,7 @@ Then point the GUI's SSH key path field at `/root/.ssh/replication_key`.
 
 ---
 
-## RESOLVED — PostgreSQL Dependency
+## RESOLVED - PostgreSQL Dependency
 
 ### What the Old Guide Said
 
@@ -66,7 +66,7 @@ Resource profile:
 
 ---
 
-## RESOLVED — No Upgrade Rollback
+## RESOLVED - No Upgrade Rollback
 
 ### What the Old Guide Said
 
@@ -89,7 +89,7 @@ sudo bash /var/lib/dplaneos/backups/pre-upgrade-<timestamp>/rollback.sh
 
 ---
 
-## PARTIAL — High Availability
+## PARTIAL - High Availability
 
 ### What the Old Guide Said
 
@@ -109,7 +109,7 @@ A real active/standby coordination layer exists in `daemon/internal/ha/cluster.g
 
 **What it does not do:**
 
-- **No automatic failover.** If the active node goes unreachable, the standby detects it and reports it — promotion is a deliberate manual step.
+- **No automatic failover.** If the active node goes unreachable, the standby detects it and reports it - promotion is a deliberate manual step.
 - **No shared storage.** Each node manages its own ZFS pools. Cross-node replication is via `zfs send`.
 - **No split-brain fencing.** There is no STONITH. In a network partition, both nodes may believe they are active. Do not automate pool imports on standby without infrastructure-level fencing (e.g. IPMI power-off).
 - **No VIP management.** DNS or load-balancer cutover is outside the system.
@@ -156,7 +156,7 @@ sudo systemctl start dplaned nginx
 
 ---
 
-## OPEN — Binary-Trust Barrier
+## OPEN - Binary-Trust Barrier
 
 ### The Issue
 
@@ -203,7 +203,7 @@ Reproducible build verification (publishing expected hashes in the release along
 | Homelab / learning | Ready | Ideal use case |
 | Small office (< 20 users) | Ready | Single-node; SQLite handles this load |
 | Offsite backup / replication | Ready | GUI works; SSH keys needed upfront |
-| Monitored active/standby | Usable | Manual failover only — plan your RTO |
+| Monitored active/standby | Usable | Manual failover only - plan your RTO |
 | Security audit required | Usable | Build from source |
 | Auto-failover / 99.99% SLA | Not this | Use TrueNAS Scale or Proxmox HA |
 | Active/active shared storage | Not this | Requires Ceph or GlusterFS |
@@ -219,4 +219,4 @@ Reproducible build verification (publishing expected hashes in the release along
 | Upgrade rollback | Done |
 | Active/standby coordination layer | Done (manual failover) |
 | Reproducible build verification | Planned |
-| Automated failover with fencing | Not planned — outside single-node NAS scope |
+| Automated failover with fencing | Not planned - outside single-node NAS scope |

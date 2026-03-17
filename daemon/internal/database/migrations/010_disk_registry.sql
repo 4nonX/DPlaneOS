@@ -1,4 +1,4 @@
--- D-PlaneOS — Disk Registry
+﻿-- D-PlaneOS - Disk Registry
 -- Migration 010: Persistent disk lifecycle tracking
 -- Tracks every disk ever seen, stable identifiers, pool membership, and removal events.
 -- ZERO BREAKING CHANGES: all new tables.
@@ -24,3 +24,4 @@ CREATE TABLE IF NOT EXISTS disk_registry (
 
 CREATE INDEX IF NOT EXISTS idx_disk_registry_by_id  ON disk_registry(by_id_path);
 CREATE INDEX IF NOT EXISTS idx_disk_registry_serial ON disk_registry(serial);
+

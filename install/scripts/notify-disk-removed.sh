@@ -1,15 +1,15 @@
-#!/bin/bash
+﻿#!/bin/bash
 #
 # D-PlaneOS - Hot-swap Disk Removed Notification
 #
 # Called by udev when a pool-eligible disk (SATA/SAS/NVMe) is disconnected.
-# No settle wait is needed — the device is already gone by the time
+# No settle wait is needed - the device is already gone by the time
 # udev fires the remove action.
 #
 # Usage: notify-disk-removed.sh <device> <type> <serial>
-#   device — full device path, e.g. /dev/sda
-#   type   — sata | nvme | sas
-#   serial — udev ID_SERIAL (may be empty string)
+#   device - full device path, e.g. /dev/sda
+#   type   - sata | nvme | sas
+#   serial - udev ID_SERIAL (may be empty string)
 #
 
 DEVICE=$1
@@ -33,3 +33,4 @@ curl -sf --max-time 5 -X POST "http://127.0.0.1:${DAEMON_PORT}/api/internal/disk
     -d "{\"action\":\"removed\",\"device\":\"$DEVICE\",\"device_type\":\"$TYPE\",\"serial\":\"$SERIAL\"}" || true
 
 exit 0
+

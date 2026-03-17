@@ -1,4 +1,4 @@
-package handlers
+﻿package handlers
 
 import (
 	"crypto/rand"
@@ -46,7 +46,7 @@ func generateToken() (string, string, string, error) {
 	prefix := fullHex[:8]           // first 8 chars for display
 	full := "dpl_" + fullHex        // full token shown once at creation
 
-	// Hash for storage (SHA-256 — tokens are long enough to be safe without bcrypt)
+	// Hash for storage (SHA-256 - tokens are long enough to be safe without bcrypt)
 	h := sha256.Sum256([]byte(full))
 	hash := hex.EncodeToString(h[:])
 
@@ -99,7 +99,7 @@ func ValidateAPIToken(db *sql.DB, token string) (int, string, error) {
 	return userID, username, nil
 }
 
-// HandleTokens — GET: list tokens for user, POST: create/revoke
+// HandleTokens - GET: list tokens for user, POST: create/revoke
 func (h *APITokenHandler) HandleTokens(w http.ResponseWriter, r *http.Request) {
 	user := r.Header.Get("X-User")
 	if user == "" {
@@ -237,7 +237,7 @@ func (h *APITokenHandler) createToken(w http.ResponseWriter, userID int, usernam
 		"name":    name,
 		"prefix":  prefix,
 		"scopes":  scopes,
-		"message": "Store this token securely — it will not be shown again.",
+		"message": "Store this token securely - it will not be shown again.",
 	})
 }
 
@@ -275,3 +275,4 @@ func (h *APITokenHandler) revokeTokenByID(w http.ResponseWriter, r *http.Request
 	json.NewDecoder(r.Body).Decode(&req)
 	h.revokeByID(w, req.ID, userID, username)
 }
+

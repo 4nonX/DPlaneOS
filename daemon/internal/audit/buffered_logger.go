@@ -1,4 +1,4 @@
-package audit
+﻿package audit
 
 import (
 	"database/sql"
@@ -122,7 +122,7 @@ func (bl *BufferedLogger) Log(event AuditEvent) error {
 	needFlush := len(bl.buffer) >= bl.maxBuffer
 	bl.bufferMutex.Unlock()
 
-	// Flush outside the lock — Flush() manages its own locking.
+	// Flush outside the lock - Flush() manages its own locking.
 	// No defer here: we always unlock above, cleanly, before any external call.
 	if needFlush {
 		return bl.Flush()
@@ -281,3 +281,4 @@ func (bl *BufferedLogger) GetStats() map[string]interface{} {
 //         Success:   true,
 //     })
 // }
+

@@ -1,4 +1,4 @@
-package handlers
+﻿package handlers
 
 import (
 	"database/sql"
@@ -455,7 +455,7 @@ func runDueReplicationSchedules() {
 // isReplicationDue returns true if the schedule should fire at time t.
 func isReplicationDue(s ReplicationSchedule, t time.Time) bool {
 	if s.LastRun == nil {
-		return true // Never run — fire immediately
+		return true // Never run - fire immediately
 	}
 
 	elapsed := t.Sub(*s.LastRun)
@@ -471,3 +471,4 @@ func isReplicationDue(s ReplicationSchedule, t time.Time) bool {
 		return false
 	}
 }
+

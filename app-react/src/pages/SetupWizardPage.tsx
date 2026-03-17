@@ -1,7 +1,7 @@
-/**
- * pages/SetupWizardPage.tsx — First-run Setup Wizard (Phase 9)
+﻿/**
+ * pages/SetupWizardPage.tsx - First-run Setup Wizard (Phase 9)
  *
- * Shown at /setup — root route, no auth required.
+ * Shown at /setup - root route, no auth required.
  * Guarded by daemon: setup_complete=0 in system_config.
  *
  * Steps:
@@ -109,7 +109,7 @@ function StepBar({ current }: { current: number }) {
 }
 
 // ---------------------------------------------------------------------------
-// Step 0 — Welcome
+// Step 0 - Welcome
 // ---------------------------------------------------------------------------
 
 function StepWelcome({ onNext }: { onNext: () => void }) {
@@ -137,7 +137,7 @@ function StepWelcome({ onNext }: { onNext: () => void }) {
 }
 
 // ---------------------------------------------------------------------------
-// Step 1 — Admin Account
+// Step 1 - Admin Account
 // ---------------------------------------------------------------------------
 
 function StepAdmin({ onNext, onBack }: { onNext: () => void; onBack: () => void }) {
@@ -253,7 +253,7 @@ function StepAdmin({ onNext, onBack }: { onNext: () => void; onBack: () => void 
 }
 
 // ---------------------------------------------------------------------------
-// Step 2 — Disk Selection
+// Step 2 - Disk Selection
 // ---------------------------------------------------------------------------
 
 function StepDisks({
@@ -319,7 +319,7 @@ function StepDisks({
                   display: 'flex', alignItems: 'center', gap: 6}}
               >
                 <Icon name="auto_fix_high" size={13} style={{ color: 'var(--primary)' }} />
-                {s.type} — {s.usable_size} usable
+                {s.type} - {s.usable_size} usable
               </button>
             ))}
           </div>
@@ -407,7 +407,7 @@ function StepDisks({
 }
 
 // ---------------------------------------------------------------------------
-// Step 3 — Pool Configuration
+// Step 3 - Pool Configuration
 // ---------------------------------------------------------------------------
 
 const POOL_TYPES = [
@@ -544,7 +544,7 @@ function StepPool({
 }
 
 // ---------------------------------------------------------------------------
-// Step 4 — Hostname & Timezone
+// Step 4 - Hostname & Timezone
 // ---------------------------------------------------------------------------
 
 const COMMON_TIMEZONES = [
@@ -621,7 +621,7 @@ function StepSystem({
 }
 
 // ---------------------------------------------------------------------------
-// Step 5 — Complete
+// Step 5 - Complete
 // ---------------------------------------------------------------------------
 
 function StepComplete({ hostname, onGoToLogin }: { hostname: string; onGoToLogin: () => void }) {
@@ -654,7 +654,7 @@ function StepComplete({ hostname, onGoToLogin }: { hostname: string; onGoToLogin
 }
 
 // ---------------------------------------------------------------------------
-// SetupWizardPage — orchestrator
+// SetupWizardPage - orchestrator
 // ---------------------------------------------------------------------------
 
 export function SetupWizardPage() {
@@ -670,7 +670,7 @@ export function SetupWizardPage() {
   const next = useCallback(() => setStep(s => s + 1), [])
   const back = useCallback(() => setStep(s => s - 1), [])
 
-  // Called at end of Step 4 — sends setup-complete
+  // Called at end of Step 4 - sends setup-complete
   async function finish() {
     setCompleting(true)
     setCompleteError('')
@@ -779,3 +779,4 @@ export function SetupWizardPage() {
     </div>
   )
 }
+
