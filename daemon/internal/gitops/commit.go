@@ -3,21 +3,19 @@ package gitops
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"fmt"
 	"log"
-	"net/http"
-	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"time"
 
 	"dplaned/internal/cmdutil"
 	"dplaned/internal/config"
 )
+
+const stateFileName = "state.yaml"
 
 // CommitAll reads the current live state and writes it back to the Git repo,
 // then performs a git commit and push.

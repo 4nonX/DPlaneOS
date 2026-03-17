@@ -73,6 +73,7 @@ const (
 	KindUser    ResourceKind = "user"
 	KindGroup   ResourceKind = "group"
 	KindReplication ResourceKind = "replication"
+	KindLDAP        ResourceKind = "ldap"
 )
 
 // DiffItem is one entry in the reconciliation plan.
@@ -108,6 +109,7 @@ type DiffItem struct {
 	DesiredUser    *DesiredUser    `json:"desired_user,omitempty"`
 	DesiredGroup   *DesiredGroup   `json:"desired_group,omitempty"`
 	DesiredReplication *DesiredReplication `json:"desired_replication,omitempty"`
+	DesiredLDAP        *DesiredLDAP        `json:"desired_ldap,omitempty"`
 }
 
 // Plan is the complete reconciliation plan: the ordered list of DiffItems.

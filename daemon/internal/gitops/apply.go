@@ -818,15 +818,15 @@ func reconcileSystem(item DiffItem) error {
 		w.SetTimezone(ds.Timezone)
 	}
 	if len(ds.DNSServers) > 0 {
-		w.SetDNSServers(ds.DNSServers)
+		w.SetDNS(ds.DNSServers)
 	}
 	if len(ds.NTPServers) > 0 {
-		w.SetNTPServers(ds.NTPServers)
+		w.SetNTP(ds.NTPServers)
 	}
  
 	w.SetFirewallPorts(ds.Firewall.TCP, ds.Firewall.UDP)
  
-	smb := nixwriter.SambaGlobals{
+	smb := nixwriter.SambaGlobalOpts{
 		Workgroup:    ds.Samba.Workgroup,
 		ServerString: ds.Samba.ServerString,
 		TimeMachine:  ds.Samba.TimeMachine,

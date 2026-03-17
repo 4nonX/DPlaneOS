@@ -94,10 +94,6 @@ type LiveReplication struct {
 	Enabled           bool
 }
 
-// LiveStack describes a docker-compose stack.
-type LiveStack struct {
-	Name string
-}
 
 // LiveState is the complete observed system state.
 type LiveState struct {
@@ -437,19 +433,8 @@ func readLiveReplication() ([]LiveReplication, error) {
 	return repls, nil
 }
  
-func readLiveStacks() ([]LiveStack, error) {
-	// Simple directory listing of stacks
-	entries, err := cmdutil.RunFast("ls", "/var/lib/dplaneos/stacks")
-	if err != nil {
-		return nil, nil
-	}
-	var stacks []LiveStack
-	for _, name := range strings.Fields(string(entries)) {
-		stacks = append(stacks, LiveStack{Name: name})
-	}
-	return stacks, nil
-}
  
+
 func readLiveSystem() (*nixwriter.DPlaneState, error) {
 	w := nixwriter.DefaultWriter()
 	if err := w.LoadFromDisk(); err != nil {
