@@ -1,4 +1,4 @@
-﻿package main
+package main
 
 import (
 	"database/sql"
@@ -352,6 +352,48 @@ func initSchema(db *sql.DB) error {
 			key TEXT PRIMARY KEY,
 			value TEXT NOT NULL,
 			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
+		// ── SMB Shares ──
+		`CREATE TABLE IF NOT EXISTS smb_shares (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			name TEXT NOT NULL UNIQUE,
+			path TEXT NOT NULL,
+			comment TEXT DEFAULT '',
+			browsable INTEGER DEFAULT 1,
+			read_only INTEGER DEFAULT 0,
+			guest_ok INTEGER DEFAULT 0,
+			valid_users TEXT DEFAULT '',
+			write_list TEXT DEFAULT '',
+			create_mask TEXT DEFAULT '0664',
+			directory_mask TEXT DEFAULT '0775',
+			enabled INTEGER DEFAULT 1,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
+		// ── NFS Exports ──
+		`CREATE TABLE IF NOT EXISTS nfs_exports (
+			id        INTEGER PRIMARY KEY AUTOINCREMENT,
+			path      TEXT NOT NULL,
+			clients   TEXT NOT NULL DEFAULT '*',
+			options   TEXT NOT NULL DEFAULT 'rw,sync,no_subtree_check,no_root_squash',
+			enabled   INTEGER NOT NULL DEFAULT 1,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
+		// ── Groups & Members ──
+		`CREATE TABLE IF NOT EXISTS groups (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			name TEXT NOT NULL UNIQUE,
+			description TEXT DEFAULT '',
+			gid INTEGER,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE TABLE IF NOT EXISTS group_members (
+			group_id INTEGER,
+			user_id INTEGER,
+			PRIMARY KEY (group_id, user_id),
+			FOREIGN KEY (group_id) REFERENCES groups(id),
+			FOREIGN KEY (user_id) REFERENCES users(id)
 		)`,
 	}
 

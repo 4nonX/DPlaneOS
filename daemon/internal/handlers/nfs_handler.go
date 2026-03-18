@@ -1,4 +1,4 @@
-﻿package handlers
+package handlers
 
 import (
 	"database/sql"
@@ -41,22 +41,9 @@ type NFSHandler struct {
 }
 
 func NewNFSHandler(db *sql.DB) *NFSHandler {
-	h := &NFSHandler{db: db}
-	h.initTable()
-	return h
+	return &NFSHandler{db: db}
 }
 
-func (h *NFSHandler) initTable() {
-	h.db.Exec(`CREATE TABLE IF NOT EXISTS nfs_exports (
-		id        INTEGER PRIMARY KEY AUTOINCREMENT,
-		path      TEXT NOT NULL,
-		clients   TEXT NOT NULL DEFAULT '*',
-		options   TEXT NOT NULL DEFAULT 'rw,sync,no_subtree_check,no_root_squash',
-		enabled   INTEGER NOT NULL DEFAULT 1,
-		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-	)`)
-}
 
 // nfsInstalled returns true if exportfs is on PATH
 func nfsInstalled() bool {

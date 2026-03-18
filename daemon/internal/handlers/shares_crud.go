@@ -1,4 +1,4 @@
-﻿package handlers
+package handlers
 
 import (
 	"database/sql"
@@ -23,29 +23,7 @@ func NewShareCRUDHandler(db *sql.DB, smbConfPath string) *ShareCRUDHandler {
 	return &ShareCRUDHandler{db: db, smbConfPath: smbConfPath}
 }
 
-func (h *ShareCRUDHandler) initTable() {
-	h.db.Exec(`CREATE TABLE IF NOT EXISTS smb_shares (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		name TEXT NOT NULL UNIQUE,
-		path TEXT NOT NULL,
-		comment TEXT DEFAULT '',
-		browsable INTEGER DEFAULT 1,
-		read_only INTEGER DEFAULT 0,
-		guest_ok INTEGER DEFAULT 0,
-		valid_users TEXT DEFAULT '',
-		write_list TEXT DEFAULT '',
-		create_mask TEXT DEFAULT '0664',
-		directory_mask TEXT DEFAULT '0775',
-		enabled INTEGER DEFAULT 1,
-		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-	)`)
-}
-
-// HandleShares - GET: list shares, POST: create/update/delete, DELETE: delete by name
 func (h *ShareCRUDHandler) HandleShares(w http.ResponseWriter, r *http.Request) {
-	h.initTable()
-
 	switch r.Method {
 	case http.MethodGet:
 		h.listShares(w, r)

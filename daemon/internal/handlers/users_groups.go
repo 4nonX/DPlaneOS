@@ -1,4 +1,4 @@
-﻿package handlers
+package handlers
 
 import (
 	"database/sql"
@@ -301,28 +301,6 @@ func (h *UserGroupHandler) HandleGroups(w http.ResponseWriter, r *http.Request) 
 }
 
 func (h *UserGroupHandler) listGroups(w http.ResponseWriter, r *http.Request) {
-	// Check if groups table exists, create if not
-	_, err := h.db.Exec(`CREATE TABLE IF NOT EXISTS groups (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		name TEXT NOT NULL UNIQUE,
-		description TEXT DEFAULT '',
-		gid INTEGER,
-		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-	)`)
-	if err != nil {
-		log.Printf("CREATE GROUPS TABLE ERROR: %v", err)
-	}
-	_, err = h.db.Exec(`CREATE TABLE IF NOT EXISTS group_members (
-		group_id INTEGER,
-		user_id INTEGER,
-		PRIMARY KEY (group_id, user_id),
-		FOREIGN KEY (group_id) REFERENCES groups(id),
-		FOREIGN KEY (user_id) REFERENCES users(id)
-	)`)
-	if err != nil {
-		log.Printf("CREATE GROUP_MEMBERS TABLE ERROR: %v", err)
-	}
-
 	// Support ?id= for single-group lookup
 	if idStr := r.URL.Query().Get("id"); idStr != "" {
 		var id, gid int
