@@ -51,6 +51,8 @@ func main() {
 	haLocalAddr := flag.String("ha-local-addr", "", "HTTP address peers use to reach this daemon, e.g. http://10.0.0.1:5050")
 	gitopsStatePath := flag.String("gitops-state", "/var/lib/dplaneos/gitops/state.yaml", "Path to GitOps state.yaml (managed by git repo)")
 	applyOnly := flag.Bool("apply", false, "Apply GitOps state and exit (Phase 3.1)")
+	testSerialization := flag.String("test-serialization", "", "Verify state.yaml round-trip (Phase 4.1)")
+	testIdempotency := flag.String("test-idempotency", "", "Verify Apply(S); Apply(S) results in zero diff (Phase 4.2)")
 	flag.Parse()
 
 	// Phase 3.1: One-off apply if requested
@@ -93,10 +95,6 @@ func main() {
 		log.Printf("GITOPS: Apply complete! Applied: %v", result.Applied)
 		os.Exit(0)
 	}
-
-	testSerialization := flag.String("test-serialization", "", "Verify state.yaml round-trip (Phase 4.1)")
-	testIdempotency := flag.String("test-idempotency", "", "Verify Apply(S); Apply(S) results in zero diff (Phase 4.2)")
-	flag.Parse()
 
 	if *testSerialization != "" {
 		log.Printf("COMPLIANCE: Testing serialization of %s", *testSerialization)
