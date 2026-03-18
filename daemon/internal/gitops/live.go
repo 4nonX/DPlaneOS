@@ -1,4 +1,4 @@
-﻿package gitops
+package gitops
 
 import (
 	"database/sql"
@@ -216,8 +216,8 @@ func parseZpoolStatusPaths(output string) map[string][]string {
 			continue
 		}
 
-		// Device line: contains /dev/disk/by-id/ path
-		if currentPool != "" && strings.Contains(trimmed, "/dev/disk/by-id/") {
+		// Device line: contains any /dev/ path
+		if currentPool != "" && strings.Contains(trimmed, "/dev/") {
 			fields := strings.Fields(trimmed)
 			if len(fields) >= 1 {
 				result[currentPool] = append(result[currentPool], fields[0])
