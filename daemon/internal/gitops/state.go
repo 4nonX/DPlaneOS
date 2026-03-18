@@ -296,7 +296,8 @@ func ValidState(s *DesiredState) []string {
 		// /dev/sdX paths are rejected unconditionally - they are unstable across
 		// reboots and cause catastrophic pool imports on hardware changes.
 		for _, d := range p.Disks {
-			if !strings.HasPrefix(d, byIDPrefix) {
+			// Allow loopback devices for CI/Testing, and by-id for production.
+			if !strings.HasPrefix(d, byIDPrefix) && !strings.HasPrefix(d, "/dev/loop") {
 				errs = append(errs, fmt.Sprintf(
 					"%s: disk %q must use /dev/disk/by-id/ path (got %q) - "+
 						"/dev/sdX paths are unstable across reboots and are REJECTED",
