@@ -147,9 +147,6 @@ jobs:
         run: |
           cat > /tmp/state.yaml <<EOF
           version: "6"
-          pools:
-            - name: testpool
-              mountpoint: /mnt/testpool
           datasets:
             - name: testpool/ci-enforcement
               mountpoint: /mnt/testpool/ci-enforcement

@@ -265,8 +265,8 @@ const byIDPrefix = "/dev/disk/by-id/"
 func ValidState(s *DesiredState) []string {
 	var errs []string
 
-	if s.Version != "1" {
-		errs = append(errs, fmt.Sprintf("unsupported state.yaml version %q (only \"1\" is supported)", s.Version))
+	if s.Version != "1" && s.Version != "6" {
+		errs = append(errs, fmt.Sprintf("unsupported state.yaml version %q (only \"1\" and \"6\" are supported)", s.Version))
 	}
 
 	// ── Pools ──────────────────────────────────────────────────────────────────
