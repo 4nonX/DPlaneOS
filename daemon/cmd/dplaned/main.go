@@ -51,8 +51,8 @@ func main() {
 	haLocalAddr := flag.String("ha-local-addr", "", "HTTP address peers use to reach this daemon, e.g. http://10.0.0.1:5050")
 	gitopsStatePath := flag.String("gitops-state", "/var/lib/dplaneos/gitops/state.yaml", "Path to GitOps state.yaml (managed by git repo)")
 	applyOnly := flag.Bool("apply", false, "Apply GitOps state and exit (Phase 3.1)")
-	testSerialization := flag.String("test-serialization", "", "Verify state.yaml round-trip (Phase 4.1)")
-	testIdempotency := flag.String("test-idempotency", "", "Verify Apply(S); Apply(S) results in zero diff (Phase 4.2)")
+	testSerialization := flag.Bool("test-serialization", false, "Verify state.yaml round-trip (Phase 4.1)")
+	testIdempotency := flag.Bool("test-idempotency", false, "Verify Apply(S); Apply(S) results in zero diff (Phase 4.2)")
 	flag.Parse()
 
 	// Phase 3.1: One-off apply if requested
@@ -96,9 +96,9 @@ func main() {
 		os.Exit(0)
 	}
 
-	if *testSerialization != "" {
-		log.Printf("COMPLIANCE: Testing serialization of %s", *testSerialization)
-		content, err := os.ReadFile(*testSerialization)
+	if *testSerialization {
+		log.Printf("COMPLIANCE: Testing serialization of %s", *gitopsStatePath)
+		content, err := os.ReadFile(*gitopsStatePath)
 		if err != nil {
 			log.Fatalf("Read failed: %v", err)
 		}
@@ -121,13 +121,13 @@ func main() {
 		os.Exit(0)
 	}
 
-	if *testIdempotency != "" {
-		log.Printf("COMPLIANCE: Testing idempotency of %s", *testIdempotency)
+	if *testIdempotency {
+		log.Printf("COMPLIANCE: Testing idempotency of %s", *gitopsStatePath)
 		db, err := sql.Open("sqlite3", *dbPath)
 		if err != nil {
 			log.Fatalf("DB failed: %v", err)
 		}
-		content, err := os.ReadFile(*testIdempotency)
+		content, err := os.ReadFile(*gitopsStatePath)
 		if err != nil {
 			log.Fatalf("Read failed: %v", err)
 		}

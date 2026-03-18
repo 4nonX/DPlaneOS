@@ -175,12 +175,12 @@ jobs:
           # Verify the dataset was actually created by the bootstrap
           sudo zfs list testpool/ci-enforcement > /dev/null
 
-      - name: "v6: Test Deterministic Serialization (-test-serialization)"
+      - name: "v6: Test Serialization Round-trip"
         run: |
           # Verifies Phase 4: Parse(Print(S)) == S
-          sudo ./dplaned-ci -test-serialization /tmp/state.yaml
+          sudo ./dplaned-ci -test-serialization -gitops-state /tmp/state.yaml
 
-      - name: "v6: Test Idempotency (-test-idempotency)"
+      - name: "v6: Test Deterministic Idempotency"
         run: |
           # Verifies Phase 4: Apply(S); Apply(S) has zero changes
           sudo ./dplaned-ci -test-idempotency \
