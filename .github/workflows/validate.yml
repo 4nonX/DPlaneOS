@@ -155,6 +155,8 @@ jobs:
                 - $LOOP1
                 - $LOOP2
           datasets:
+            - name: testpool
+              mountpoint: /mnt/testpool
             - name: testpool/ci-enforcement
               mountpoint: /mnt/testpool/ci-enforcement
               compression: lz4
