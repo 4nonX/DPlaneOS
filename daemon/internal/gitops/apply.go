@@ -251,8 +251,8 @@ func executeDelete(ctx ApplyContext, item DiffItem) error {
 func createPool(dp DesiredPool) error {
 	// Validate all disks are by-id before touching anything
 	for _, d := range dp.Disks {
-		if !strings.HasPrefix(d, byIDPrefix) {
-			return fmt.Errorf("disk %q is not a /dev/disk/by-id/ path - refusing to create pool", d)
+		if !strings.HasPrefix(d, byIDPrefix) && !strings.HasPrefix(d, "/dev/loop") {
+			return fmt.Errorf("disk %q is not a /dev/disk/by-id/ or /dev/loop path - refusing to create pool", d)
 		}
 	}
 
@@ -288,8 +288,8 @@ func modifyPool(name string, changes []string, dp DesiredPool) error {
 				continue
 			}
 			disk := strings.TrimSpace(parts[1])
-			if !strings.HasPrefix(disk, byIDPrefix) {
-				return fmt.Errorf("cannot add disk %q: not a /dev/disk/by-id/ path", disk)
+			if !strings.HasPrefix(disk, byIDPrefix) && !strings.HasPrefix(disk, "/dev/loop") {
+				return fmt.Errorf("cannot add disk %q: not a /dev/disk/by-id/ or /dev/loop path", disk)
 			}
 			out, err := cmdutil.RunMedium("zpool", "add", name, disk)
 			if err != nil {
