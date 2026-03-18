@@ -38,9 +38,19 @@ type Logger struct {
 }
 
 var (
-	defaultLogger *Logger
-	once          sync.Once
+	defaultLogger        *Logger
+	globalBufferedLogger interface {
+		Log(AuditEvent) error
+	}
+	once sync.Once
 )
+
+// SetGlobalBufferedLogger sets the database-backed logger
+func SetGlobalBufferedLogger(bl interface {
+	Log(AuditEvent) error
+}) {
+	globalBufferedLogger = bl
+}
 
 // InitLogger initializes the audit logger
 func InitLogger(logPath string) error {
@@ -93,10 +103,27 @@ func (l *Logger) Close() error {
 
 // Convenience functions using default logger
 func Log(entry AuditLog) error {
-	if defaultLogger == nil {
+	// 1. Log to legacy text file if initialized
+	if defaultLogger != nil {
+		_ = defaultLogger.Log(entry)
+	}
+
+	// 2. Log to database-backed buffered logger if set
+	if globalBufferedLogger != nil {
+		_ = globalBufferedLogger.Log(AuditEvent{
+			Timestamp: time.Now().Unix(),
+			User:      entry.User,
+			Action:    entry.Command,
+			Details:   entry.Error,
+			IPAddress: entry.SourceIP,
+			Success:   entry.Success,
+		})
+	}
+
+	if defaultLogger == nil && globalBufferedLogger == nil {
 		return fmt.Errorf("audit logger not initialized")
 	}
-	return defaultLogger.Log(entry)
+	return nil
 }
 
 func LogCommand(level LogLevel, user, command string, args []string, success bool, duration time.Duration, err error) error {

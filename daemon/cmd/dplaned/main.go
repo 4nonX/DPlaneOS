@@ -279,6 +279,7 @@ func main() {
 	bufferedLogger := audit.NewBufferedLogger(db, 100, 5*time.Second, auditKey)
 	bufferedLogger.Start()
 	defer bufferedLogger.Stop()
+	audit.SetGlobalBufferedLogger(bufferedLogger)
 
 	// Initialize database connection for session validation
 	if err := security.InitDatabase(*dbPath); err != nil {

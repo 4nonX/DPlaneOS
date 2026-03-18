@@ -1,4 +1,4 @@
-﻿package handlers
+package handlers
 
 import (
 	"context"
@@ -186,6 +186,26 @@ func (h *SystemStatusHandler) HandlePreflight(w http.ResponseWriter, r *http.Req
 		}
 	}
 	checks = append(checks, check{"Memory", "pass", memMsg})
+
+	// Data Readiness (v6 compliance)
+	mountCheck := check{"Data Readiness", "pass", "System ready"}
+	if mountOut, err := cmdutil.RunFast("zfs", "get", "-H", "-o", "name,value", "mounted"); err == nil {
+		lines := strings.Split(strings.TrimSpace(string(mountOut)), "\n")
+		for _, line := range lines {
+			parts := strings.Fields(line)
+			if len(parts) == 2 {
+				name := parts[0]
+				value := parts[1]
+				if !strings.Contains(name, "@") && value == "no" {
+					mountCheck.Status = "warn"
+					mountCheck.Message = fmt.Sprintf("Dataset %s is unmounted", name)
+					break
+				}
+			}
+		}
+	}
+	checks = append(checks, mountCheck)
+
 	overall := "pass"
 	for _, c := range checks {
 		if c.Status == "fail" {
