@@ -1,4 +1,4 @@
-﻿package gitops
+package gitops
 
 import (
 	"context"
@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -93,16 +94,22 @@ func CommitAll(db *sql.DB) error {
 }
 
 // GenerateStateYAML converts LiveState into the declarative state.yaml format.
+// This implementation ensures DETERMINISTIC output by sorting all resources.
 func GenerateStateYAML(state *LiveState) string {
 	var sb strings.Builder
 
-	sb.WriteString("version: \"1\"\n\n")
+	sb.WriteString("version: 1\n\n")
 
+	// 1. Pools
 	if len(state.Pools) > 0 {
+		sort.Slice(state.Pools, func(i, j int) bool {
+			return state.Pools[i].Name < state.Pools[j].Name
+		})
 		sb.WriteString("pools:\n")
 		for _, p := range state.Pools {
 			sb.WriteString(fmt.Sprintf("  - name: %q\n", p.Name))
 			if len(p.Disks) > 0 {
+				sort.Strings(p.Disks)
 				sb.WriteString("    disks: [")
 				for i, d := range p.Disks {
 					if i > 0 {
@@ -116,7 +123,11 @@ func GenerateStateYAML(state *LiveState) string {
 		sb.WriteString("\n")
 	}
 
+	// 2. Datasets
 	if len(state.Datasets) > 0 {
+		sort.Slice(state.Datasets, func(i, j int) bool {
+			return state.Datasets[i].Name < state.Datasets[j].Name
+		})
 		sb.WriteString("datasets:\n")
 		for _, d := range state.Datasets {
 			// Skip root datasets (pool names)
@@ -134,7 +145,11 @@ func GenerateStateYAML(state *LiveState) string {
 		sb.WriteString("\n")
 	}
 
+	// 3. Shares
 	if len(state.Shares) > 0 {
+		sort.Slice(state.Shares, func(i, j int) bool {
+			return state.Shares[i].Name < state.Shares[j].Name
+		})
 		sb.WriteString("shares:\n")
 		for _, s := range state.Shares {
 			sb.WriteString(fmt.Sprintf("  - name: %q\n", s.Name))
@@ -152,7 +167,28 @@ func GenerateStateYAML(state *LiveState) string {
 		sb.WriteString("\n")
 	}
 
+	// 4. NFS
+	if len(state.NFS) > 0 {
+		sort.Slice(state.NFS, func(i, j int) bool {
+			return state.NFS[i].Path < state.NFS[j].Path
+		})
+		sb.WriteString("nfs:\n")
+		for _, n := range state.NFS {
+			sb.WriteString(fmt.Sprintf("  - path: %q\n", n.Path))
+			sb.WriteString(fmt.Sprintf("    clients: %q\n", n.Clients))
+			sb.WriteString(fmt.Sprintf("    options: %q\n", n.Options))
+			if !n.Enabled {
+				sb.WriteString("    enabled: false\n")
+			}
+		}
+		sb.WriteString("\n")
+	}
+
+	// 5. Stacks
 	if len(state.Stacks) > 0 {
+		sort.Slice(state.Stacks, func(i, j int) bool {
+			return state.Stacks[i].Name < state.Stacks[j].Name
+		})
 		sb.WriteString("stacks:\n")
 		for _, st := range state.Stacks {
 			sb.WriteString(fmt.Sprintf("  - name: %q\n", st.Name))
@@ -165,7 +201,11 @@ func GenerateStateYAML(state *LiveState) string {
 		sb.WriteString("\n")
 	}
 
+	// 6. Users
 	if len(state.Users) > 0 {
+		sort.Slice(state.Users, func(i, j int) bool {
+			return state.Users[i].Username < state.Users[j].Username
+		})
 		sb.WriteString("users:\n")
 		for _, u := range state.Users {
 			sb.WriteString(fmt.Sprintf("  - username: %q\n", u.Username))
@@ -182,7 +222,11 @@ func GenerateStateYAML(state *LiveState) string {
 		sb.WriteString("\n")
 	}
 
+	// 7. Groups
 	if len(state.Groups) > 0 {
+		sort.Slice(state.Groups, func(i, j int) bool {
+			return state.Groups[i].Name < state.Groups[j].Name
+		})
 		sb.WriteString("groups:\n")
 		for _, g := range state.Groups {
 			sb.WriteString(fmt.Sprintf("  - name: %q\n", g.Name))
@@ -193,9 +237,12 @@ func GenerateStateYAML(state *LiveState) string {
 				sb.WriteString(fmt.Sprintf("    gid: %d\n", g.GID))
 			}
 			if len(g.Members) > 0 {
+				sort.Strings(g.Members)
 				sb.WriteString("    members: [")
 				for i, m := range g.Members {
-					if i > 0 { sb.WriteString(", ") }
+					if i > 0 {
+						sb.WriteString(", ")
+					}
 					sb.WriteString(fmt.Sprintf("%q", m))
 				}
 				sb.WriteString("]\n")
@@ -204,7 +251,11 @@ func GenerateStateYAML(state *LiveState) string {
 		sb.WriteString("\n")
 	}
 
+	// 8. Replication
 	if len(state.Replication) > 0 {
+		sort.Slice(state.Replication, func(i, j int) bool {
+			return state.Replication[i].Name < state.Replication[j].Name
+		})
 		sb.WriteString("replication:\n")
 		for _, r := range state.Replication {
 			sb.WriteString(fmt.Sprintf("  - name: %q\n", r.Name))
@@ -219,6 +270,7 @@ func GenerateStateYAML(state *LiveState) string {
 		sb.WriteString("\n")
 	}
 
+	// 9. LDAP
 	if state.LDAP != nil {
 		sb.WriteString("ldap:\n")
 		sb.WriteString(fmt.Sprintf("  enabled: %v\n", state.LDAP.Enabled))

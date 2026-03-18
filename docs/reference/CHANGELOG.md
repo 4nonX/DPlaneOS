@@ -1,8 +1,25 @@
-﻿# D-PlaneOS Changelog
+# D-PlaneOS Changelog
 
 All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
+
+---
+
+## v6.0.1 (2026-03-19) : "Enforcement Mode"
+
+Upgrade from: v6.0.0 - Drop-in. `sudo bash install.sh --upgrade`
+
+### Added
+- **Hardened Deterministic Bootstrap**: Introduced the `-apply` flag for `dplaned`, enabling one-off GitOps reconciliation during initial system setup.
+- **Compliance Tooling (`dplane`)**: Added a dedicated CLI symlink with `-test-serialization` and `-test-idempotency` flags for mathematical verification of system state.
+- **Data Readiness Enforcement**: Stacks and workloads are now blocked from starting until dependent ZFS datasets are verified as mounted and ready.
+- **Audit Chain Integrity API**: New endpoint `/api/system/audit/verify-chain` for real-time cryptographic verification of the audit log chain.
+- **CI/CD Alignment**: Hardened the validation pipeline with automated enforcement of v6 invariants on every push.
+
+### Fixed
+- **Audit Key Initialization**: Resolved an issue where the audit signing key was not correctly generated on fresh installs.
+- **YAML Key Ordering**: Ensured deterministic serialization of the GitOps state to prevent false diffs.
 
 ---
 

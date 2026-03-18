@@ -1,10 +1,11 @@
-﻿package gitops
+package gitops
 
 import (
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
- 
+
 	"dplaned/internal/nixwriter"
 )
 
@@ -633,8 +634,28 @@ func ComputeDiff(desired *DesiredState, live *LiveState) *Plan {
 			plan.NopCount++
 		}
 	}
-	plan.SafeToApply = !plan.HasBlocked
+	// ── Phase 4: Finalize and Sort ────────────────────────────────────────────
 
+	// RELEVANT for v6: Sort items by Kind to ensure strict execution phases.
+	// Order: System -> Pool -> Dataset -> Share -> NFS -> User -> Group -> Replication -> LDAP -> Stack
+	kindOrder := map[ResourceKind]int{
+		KindSystem:      1,
+		KindPool:        2,
+		KindDataset:     3,
+		KindShare:       4,
+		KindNFS:         5,
+		KindUser:        6,
+		KindGroup:       7,
+		KindReplication: 8,
+		KindLDAP:        9,
+		KindStack:       10,
+	}
+
+	sort.SliceStable(plan.Items, func(i, j int) bool {
+		return kindOrder[plan.Items[i].Kind] < kindOrder[plan.Items[j].Kind]
+	})
+
+	plan.SafeToApply = !plan.HasBlocked
 	return plan
 }
 
@@ -688,7 +709,7 @@ func blockedCheckDataset(ld LiveDataset) DiffItem {
 					"(2) create a snapshot if you want a recovery point, "+
 					"(3) manually run `zfs destroy %s`, "+
 					"(4) then re-apply this plan.",
-				ld.Name, humaniseBytes(usedBytes), ld.Name,
+				ld.Name, HumaniseBytes(usedBytes), ld.Name,
 			),
 			RiskLevel: "critical",
 		}
@@ -941,6 +962,9 @@ func diffStack(desired DesiredStack, live LiveStack) []string {
 	if desired.YAML != live.YAML {
 		changes = append(changes, "yaml: (updated)")
 	}
+	if live.Status != "running" {
+		changes = append(changes, fmt.Sprintf("status: %s → running", live.Status))
+	}
 	return changes
 }
 
@@ -1022,9 +1046,9 @@ func parseQuota(q string) uint64 {
 	return n
 }
 
-// humaniseBytes formats a byte count as a human-readable string.
+// HumaniseBytes formats a byte count as a human-readable string.
 // Mirrors the format used by ZFS output for consistency in error messages.
-func humaniseBytes(b uint64) string {
+func HumaniseBytes(b uint64) string {
 	const unit = 1024
 	if b < unit {
 		return fmt.Sprintf("%d B", b)

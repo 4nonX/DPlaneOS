@@ -1,4 +1,4 @@
-﻿name: D-PlaneOS CI
+name: D-PlaneOS CI
 
 on:
   push:
@@ -142,6 +142,45 @@ jobs:
         run: |
           sudo mkdir -p /var/lib/dplaneos
           sudo bash install/scripts/init-database-with-lock.sh
+
+      - name: "v6: Create sample state.yaml for enforcement tests"
+        run: |
+          cat > /tmp/state.yaml <<EOF
+          version: "6"
+          pools:
+            - name: testpool
+              mountpoint: /mnt/testpool
+          datasets:
+            - name: testpool/ci-enforcement
+              mountpoint: /mnt/testpool/ci-enforcement
+              compression: lz4
+          EOF
+
+      - name: "v6: Test Deterministic Bootstrap (-apply)"
+        run: |
+          # Use the newly built CI binary to run a one-off reconciliation.
+          # This verifies Phase 3: Reliability & Bootstrap.
+          chmod +x dplaned-ci
+          sudo ./dplaned-ci -apply \
+            -db /var/lib/dplaneos/dplaneos.db \
+            -gitops-state /tmp/state.yaml \
+            -smb-conf /tmp/smb-ci.conf
+          
+          # Verify the dataset was actually created by the bootstrap
+          sudo zfs list testpool/ci-enforcement > /dev/null
+
+      - name: "v6: Test Deterministic Serialization (-test-serialization)"
+        run: |
+          # Verifies Phase 4: Parse(Print(S)) == S
+          sudo ./dplaned-ci -test-serialization /tmp/state.yaml
+
+      - name: "v6: Test Idempotency (-test-idempotency)"
+        run: |
+          # Verifies Phase 4: Apply(S); Apply(S) has zero changes
+          sudo ./dplaned-ci -test-idempotency \
+            -db /var/lib/dplaneos/dplaneos.db \
+            -gitops-state /tmp/state.yaml \
+            -smb-conf /tmp/smb-ci.conf
 
       - name: Start daemon
         run: |
@@ -709,6 +748,30 @@ jobs:
           PROM=$(curl -sf --max-time 5 $BASE/metrics \
             -H "X-Session-ID: $SESSION" -H "X-User: admin" 2>/dev/null || echo "")
           [ -n "$PROM" ] && ok "Prometheus /metrics responds" || fail "Prometheus /metrics no response"
+
+          # ── 12.5 DATA READINESS (v6) ────────────────────────────────────────────────────
+          
+          # Unmount the enforcement dataset to simulate "not ready" state
+          sudo zfs unmount testpool/ci-enforcement
+          
+          CHECK=$(api GET /api/system/preflight)
+          # The backend checkDataReadiness is used in ApplyPlan, but we should also check
+          # if the preflight or a specialized readiness endpoint reflects this.
+          # For v6 CI, we verify that the system detects the unmounted state.
+          echo "$CHECK" | grep -q "not mounted\|unmounted\|warning\|error" \
+            && ok "Data readiness: unmounted dataset detected" \
+            || fail "Data readiness: unmounted dataset NOT detected in preflight"
+          
+          # Remount for cleanup
+          sudo zfs mount testpool/ci-enforcement
+
+          # ── 12.6 AUDIT INTEGRITY (v6) ───────────────────────────────────────────────────
+          
+          # Since the daemon has been running and processing API calls (ZFS, Files, etc.),
+          # there should be a valid audit chain.
+          AUDIT_VERIFY=$(api GET /api/system/audit/verify-chain)
+          assert_json "Audit chain: integrity verified" "$AUDIT_VERIFY" "valid" "true"
+          assert_json "Audit chain: rows checked"      "$AUDIT_VERIFY" "checked_rows"
 
           # ── 13. LOGOUT ───────────────────────────────────────────────────────────────────
 

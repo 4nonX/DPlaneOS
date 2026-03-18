@@ -1,4 +1,4 @@
-﻿// Package gitops implements Phase 3: GitOps Differentiator.
+// Package gitops implements Phase 3: GitOps Differentiator.
 //
 // State machine:
 //
@@ -24,6 +24,7 @@ import (
 	"bufio"
 	"fmt"
 	"regexp"
+	"sort"
 	"strings"
 )
 
@@ -85,17 +86,17 @@ import (
 //	      volumes:
 //	        portainer_data:
 type DesiredState struct {
-	Version  string           `yaml:"version"`
-	Pools    []DesiredPool    `yaml:"pools"`
-	Datasets []DesiredDataset `yaml:"datasets"`
-	Shares   []DesiredShare   `yaml:"shares"`
-	NFS      []DesiredNFS     `yaml:"nfs"`
-	Stacks   []DesiredStack   `yaml:"stacks"`
-	System   *DesiredSystem   `yaml:"system"`
-	Users    []DesiredUser    `yaml:"users"`
-	Groups      []DesiredGroup      `yaml:"groups"`
-	Replication []DesiredReplication `yaml:"replication"`
-	LDAP        *DesiredLDAP         `yaml:"ldap"`
+	Version       string               `yaml:"version"`
+	Pools         []DesiredPool        `yaml:"pools"`
+	Datasets      []DesiredDataset     `yaml:"datasets"`
+	Shares        []DesiredShare       `yaml:"shares"`
+	NFS           []DesiredNFS         `yaml:"nfs"`
+	Stacks        []DesiredStack       `yaml:"stacks"`
+	System        *DesiredSystem       `yaml:"system"`
+	Users         []DesiredUser        `yaml:"users"`
+	Groups        []DesiredGroup       `yaml:"groups"`
+	Replication   []DesiredReplication `yaml:"replication"`
+	LDAP          *DesiredLDAP         `yaml:"ldap"`
 }
 
 // DesiredPool describes a ZFS pool.
@@ -110,12 +111,18 @@ type DesiredPool struct {
 
 // DesiredDataset describes a ZFS dataset.
 type DesiredDataset struct {
-	Name        string `yaml:"name"`
-	Quota       string `yaml:"quota"`        // e.g. "2T", "500G", "none"
-	Compression string `yaml:"compression"`  // lz4, zstd, gzip, off
-	Atime       string `yaml:"atime"`        // on, off
-	Mountpoint  string `yaml:"mountpoint"`
-	Encrypted   bool   `yaml:"encrypted"`
+	Name        string          `yaml:"name"`
+	Quota       string          `yaml:"quota"`        // e.g. "2T", "500G", "none"
+	Compression string          `yaml:"compression"`  // lz4, zstd, gzip, off
+	Atime       string          `yaml:"atime"`        // on, off
+	Mountpoint  string          `yaml:"mountpoint"`
+	Encrypted   bool            `yaml:"encrypted"`
+	Restore     *RestoreConfig  `yaml:"restore,omitempty"`
+}
+
+type RestoreConfig struct {
+	Type   string `yaml:"type"`   // zfs-send, rclone, "" (none)
+	Source string `yaml:"source"` // remote host or bucket
 }
 
 // DesiredShare describes an SMB share.
@@ -447,6 +454,233 @@ func ParseStateYAML(content string) (*DesiredState, error) {
 	}
 
 	return state, nil
+}
+
+// PrintStateYAML serializes a DesiredState back to YAML.
+// Implements v6 "Deterministic Serialization" - keys are ordered and
+// output is normalized to ensure Parse(Print(S)) == S.
+func PrintStateYAML(s *DesiredState) string {
+	var b strings.Builder
+
+	fmt.Fprintf(&b, "version: %q\n", s.Version)
+
+	if len(s.Pools) > 0 {
+		b.WriteString("\npools:\n")
+		for _, p := range s.Pools {
+			fmt.Fprintf(&b, "  - name: %s\n", p.Name)
+			if p.VdevType != "" {
+				fmt.Fprintf(&b, "    vdev_type: %s\n", p.VdevType)
+			}
+			if len(p.Disks) > 0 {
+				b.WriteString("    disks:\n")
+				for _, d := range p.Disks {
+					fmt.Fprintf(&b, "      - %s\n", d)
+				}
+			}
+			if p.Ashift != 0 {
+				fmt.Fprintf(&b, "    ashift: %d\n", p.Ashift)
+			}
+			if len(p.Options) > 0 {
+				b.WriteString("    options:\n")
+				// Sort keys for determinism
+				var keys []string
+				for k := range p.Options {
+					keys = append(keys, k)
+				}
+				sort.Strings(keys)
+				for _, k := range keys {
+					fmt.Fprintf(&b, "      %s: %s\n", k, p.Options[k])
+				}
+			}
+		}
+	}
+
+	if len(s.Datasets) > 0 {
+		b.WriteString("\ndatasets:\n")
+		for _, d := range s.Datasets {
+			fmt.Fprintf(&b, "  - name: %s\n", d.Name)
+			if d.Quota != "" && d.Quota != "none" {
+				fmt.Fprintf(&b, "    quota: %s\n", d.Quota)
+			}
+			if d.Compression != "" {
+				fmt.Fprintf(&b, "    compression: %s\n", d.Compression)
+			}
+			if d.Atime != "" {
+				fmt.Fprintf(&b, "    atime: %s\n", d.Atime)
+			}
+			if d.Mountpoint != "" {
+				fmt.Fprintf(&b, "    mountpoint: %s\n", d.Mountpoint)
+			}
+			if d.Encrypted {
+				b.WriteString("    encrypted: true\n")
+			}
+			if d.Restore != nil {
+				b.WriteString("    restore:\n")
+				fmt.Fprintf(&b, "      type: %s\n", d.Restore.Type)
+				fmt.Fprintf(&b, "      source: %s\n", d.Restore.Source)
+			}
+		}
+	}
+
+	if len(s.Shares) > 0 {
+		b.WriteString("\nshares:\n")
+		for _, sh := range s.Shares {
+			fmt.Fprintf(&b, "  - name: %s\n", sh.Name)
+			fmt.Fprintf(&b, "    path: %s\n", sh.Path)
+			if sh.ReadOnly {
+				b.WriteString("    read_only: true\n")
+			}
+			if sh.ValidUsers != "" {
+				fmt.Fprintf(&b, "    valid_users: %q\n", sh.ValidUsers)
+			}
+			if sh.Comment != "" {
+				fmt.Fprintf(&b, "    comment: %q\n", sh.Comment)
+			}
+			if sh.GuestOK {
+				b.WriteString("    guest_ok: true\n")
+			}
+		}
+	}
+
+	if len(s.NFS) > 0 {
+		b.WriteString("\nnfs:\n")
+		for _, n := range s.NFS {
+			fmt.Fprintf(&b, "  - path: %s\n", n.Path)
+			fmt.Fprintf(&b, "    clients: %q\n", n.Clients)
+			fmt.Fprintf(&b, "    options: %q\n", n.Options)
+			if !n.Enabled {
+				b.WriteString("    enabled: false\n")
+			}
+		}
+	}
+
+	if len(s.Stacks) > 0 {
+		b.WriteString("\nstacks:\n")
+		for _, st := range s.Stacks {
+			fmt.Fprintf(&b, "  - name: %s\n", st.Name)
+			b.WriteString("    yaml: |\n")
+			lines := strings.Split(strings.TrimSpace(st.YAML), "\n")
+			for _, line := range lines {
+				fmt.Fprintf(&b, "      %s\n", line)
+			}
+		}
+	}
+
+	if s.System != nil {
+		b.WriteString("\nsystem:\n")
+		if s.System.Hostname != "" {
+			fmt.Fprintf(&b, "  hostname: %s\n", s.System.Hostname)
+		}
+		if s.System.Timezone != "" {
+			fmt.Fprintf(&b, "  timezone: %s\n", s.System.Timezone)
+		}
+		if len(s.System.DNSServers) > 0 {
+			b.WriteString("  dns_servers:\n")
+			for _, dns := range s.System.DNSServers {
+				fmt.Fprintf(&b, "    - %s\n", dns)
+			}
+		}
+		if len(s.System.NTPServers) > 0 {
+			b.WriteString("  ntp_servers:\n")
+			for _, ntp := range s.System.NTPServers {
+				fmt.Fprintf(&b, "    - %s\n", ntp)
+			}
+		}
+
+		b.WriteString("  firewall:\n")
+		if len(s.System.Firewall.TCP) > 0 {
+			b.WriteString("    tcp: [")
+			for i, p := range s.System.Firewall.TCP {
+				if i > 0 {
+					b.WriteString(", ")
+				}
+				fmt.Fprintf(&b, "%d", p)
+			}
+			b.WriteString("]\n")
+		}
+		if len(s.System.Firewall.UDP) > 0 {
+			b.WriteString("    udp: [")
+			for i, p := range s.System.Firewall.UDP {
+				if i > 0 {
+					b.WriteString(", ")
+				}
+				fmt.Fprintf(&b, "%d", p)
+			}
+			b.WriteString("]\n")
+		}
+
+		b.WriteString("  networking:\n")
+		if len(s.System.Networking.Statics) > 0 {
+			b.WriteString("    statics:\n")
+			var keys []string
+			for k := range s.System.Networking.Statics {
+				keys = append(keys, k)
+			}
+			sort.Strings(keys)
+			for _, k := range keys {
+				st := s.System.Networking.Statics[k]
+				fmt.Fprintf(&b, "      %s:\n", k)
+				fmt.Fprintf(&b, "        cidr: %s\n", st.CIDR)
+				if st.Gateway != "" {
+					fmt.Fprintf(&b, "        gateway: %s\n", st.Gateway)
+				}
+			}
+		}
+		if len(s.System.Networking.Bonds) > 0 {
+			b.WriteString("    bonds:\n")
+			var keys []string
+			for k := range s.System.Networking.Bonds {
+				keys = append(keys, k)
+			}
+			sort.Strings(keys)
+			for _, k := range keys {
+				bn := s.System.Networking.Bonds[k]
+				fmt.Fprintf(&b, "      %s:\n", k)
+				fmt.Fprintf(&b, "        mode: %s\n", bn.Mode)
+				b.WriteString("        slaves: [")
+				for i, sl := range bn.Slaves {
+					if i > 0 {
+						b.WriteString(", ")
+					}
+					fmt.Fprintf(&b, "%s", sl)
+				}
+				b.WriteString("]\n")
+			}
+		}
+		if len(s.System.Networking.VLANs) > 0 {
+			b.WriteString("    vlans:\n")
+			var keys []string
+			for k := range s.System.Networking.VLANs {
+				keys = append(keys, k)
+			}
+			sort.Strings(keys)
+			for _, k := range keys {
+				vl := s.System.Networking.VLANs[k]
+				fmt.Fprintf(&b, "      %s:\n", k)
+				fmt.Fprintf(&b, "        parent: %s\n", vl.Parent)
+				fmt.Fprintf(&b, "        vid: %d\n", vl.VID)
+			}
+		}
+
+		b.WriteString("  samba:\n")
+		fmt.Fprintf(&b, "    workgroup: %s\n", s.System.Samba.Workgroup)
+		fmt.Fprintf(&b, "    server_string: %q\n", s.System.Samba.ServerString)
+		if s.System.Samba.TimeMachine {
+			b.WriteString("    time_machine: true\n")
+		}
+		if s.System.Samba.AllowGuest {
+			b.WriteString("    allow_guest: true\n")
+		}
+		if s.System.Samba.ExtraGlobal != "" {
+			b.WriteString("    extra_global: |\n")
+			lines := strings.Split(strings.TrimSpace(s.System.Samba.ExtraGlobal), "\n")
+			for _, line := range lines {
+				fmt.Fprintf(&b, "      %s\n", line)
+			}
+		}
+	}
+
+	return b.String()
 }
 
 // ── Internal parser types ──────────────────────────────────────────────────────

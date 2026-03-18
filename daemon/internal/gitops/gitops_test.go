@@ -1,4 +1,4 @@
-﻿package gitops
+package gitops
 
 import (
 	"strings"
@@ -432,9 +432,9 @@ func TestHumaniseBytes(t *testing.T) {
 		{2 * 1024 * 1024 * 1024, "2.0 GiB"},
 	}
 	for _, tc := range cases {
-		got := humaniseBytes(tc.input)
+		got := HumaniseBytes(tc.input)
 		if got != tc.want {
-			t.Errorf("humaniseBytes(%d) = %q, want %q", tc.input, got, tc.want)
+			t.Errorf("HumaniseBytes(%d) = %q, want %q", tc.input, got, tc.want)
 		}
 	}
 }

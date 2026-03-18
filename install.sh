@@ -1,4 +1,4 @@
-﻿#!/bin/bash
+#!/bin/bash
 #
 # D-PlaneOS - Installer
 #
@@ -950,6 +950,18 @@ else
     warn "dplaned did not start - check: systemctl status dplaned"
 fi
 
+# Phase 12.5: GitOps Auto-Apply
+GITOPS_STATE="/etc/dplaneos/state.yaml"
+if [ -f "$GITOPS_STATE" ]; then
+    info "GitOps: /etc/dplaneos/state.yaml found - triggering initial bootstrap apply..."
+    # Run a one-off apply to ensure deterministic setup
+    if "${INSTALL_DIR}/daemon/dplaned" -apply -db "${DB_PATH}" -gitops-state "$GITOPS_STATE" >> "$LOG_FILE" 2>&1; then
+        log "GitOps: Initial apply successful"
+    else
+        warn "GitOps: Initial apply failed - check $LOG_FILE. You can retry with: sudo dplaned -apply"
+    fi
+fi
+
 # Recovery CLI
 if [ -f "${INSTALL_DIR}/install/scripts/recovery-cli.sh" ]; then
     cp "${INSTALL_DIR}/install/scripts/recovery-cli.sh" /usr/local/bin/dplaneos-recovery
@@ -1005,6 +1017,10 @@ if [ -f "${INSTALL_DIR}/install/scripts/dplaneos-watchdog.sh" ]; then
         || { crontab -l 2>/dev/null; echo "*/5 * * * * /usr/local/bin/dplaneos-watchdog >/dev/null 2>&1"; } | crontab -
     log "Watchdog: every 5 min via cron"
 fi
+
+# v6: dplane CLI symlink for compliance tools
+ln -sf "${INSTALL_DIR}/daemon/dplaned" /usr/local/bin/dplane
+log "v6: dplane CLI symlink created at /usr/local/bin/dplane"
 
 INSTALL_PHASE=13
 

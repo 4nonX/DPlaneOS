@@ -1,4 +1,4 @@
-﻿package handlers
+package handlers
 
 import (
 	"database/sql"
@@ -173,7 +173,7 @@ func (h *GitOpsHandler) Apply(w http.ResponseWriter, r *http.Request) {
 		SmbConfPath: h.smbConfPath,
 	}
 
-	result, applyErr := gitops.ApplyPlan(ctx, plan)
+	result, applyErr := gitops.ApplyPlan(ctx, plan, desired)
 
 	if applyErr != nil {
 		log.Printf("GITOPS APPLY ERROR: %v", applyErr)

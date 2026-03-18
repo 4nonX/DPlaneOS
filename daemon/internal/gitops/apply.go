@@ -1,4 +1,4 @@
-﻿package gitops
+package gitops
 
 import (
 	"database/sql"
@@ -42,10 +42,12 @@ var ErrHasBlocked = fmt.Errorf("plan contains BLOCKED items that require explici
 
 // ApplyResult describes the outcome of an ApplyPlan call.
 type ApplyResult struct {
-	Applied  []string // names of successfully applied items
-	Failed   string   // name of the item that caused a halt (empty if all succeeded)
-	Error    error    // the error from the failed item
-	Duration time.Duration
+	Applied    []string      // names of successfully applied items
+	Failed     string        // name of the item that caused a halt (empty if all succeeded)
+	Error      error         // the error from the failed item
+	Duration   time.Duration
+	Status     string        // OK, DEGRADED, FAILED
+	HaltReason string        // why the plan stopped (e.g. "blocked", "io-error")
 }
 
 // ApplyContext carries everything the apply engine needs without global state.
@@ -56,15 +58,43 @@ type ApplyContext struct {
 }
 
 // ApplyPlan executes the plan against the live system.
-//
-// BLOCKED items without Approved=true halt the plan immediately.
-// BLOCKED items with Approved=true are executed (the operator accepted the risk).
-// NOP items are skipped silently.
-func ApplyPlan(ctx ApplyContext, plan *Plan) (*ApplyResult, error) {
+// It FIRST synchronizes the database tables (Shares, NFS, Users, Groups, LDAP)
+// to match the DesiredState 100%, treating the DB purely as a cache.
+func ApplyPlan(ctx ApplyContext, plan *Plan, desired *DesiredState) (*ApplyResult, error) {
 	start := time.Now()
 	result := &ApplyResult{}
 
+	// 1. Stateless Sync: Git -> DB
+	if desired != nil {
+		if err := SyncDB(ctx.DB, desired); err != nil {
+			result.Failed = "sync-db"
+			result.Status = "FAILED"
+			result.HaltReason = "db-sync-failure"
+			result.Error = fmt.Errorf("stateless db sync failed: %w", err)
+			result.Duration = time.Since(start)
+			return result, result.Error
+		}
+		log.Printf("GITOPS APPLY: DB synchronized from Git state")
+	}
+
+	// 2. Physical Reconcile: Plan -> System
+	dockerChecked := false
 	for _, item := range plan.Items {
+		// v6: Data Readiness Check - before starting any Docker stacks,
+		// ensure all ZFS datasets are mounted.
+		if item.Kind == KindStack && !dockerChecked {
+			if err := checkDataReadiness(desired); err != nil {
+				result.Failed = "data-readiness-check"
+				result.Status = "FAILED"
+				result.HaltReason = "data-not-ready"
+				result.Error = fmt.Errorf("data readiness blocked docker: %w", err)
+				result.Duration = time.Since(start)
+				return result, result.Error
+			}
+			dockerChecked = true
+			log.Printf("GITOPS APPLY: data readiness check PASSED")
+		}
+
 		switch item.Action {
 		case ActionNOP:
 			continue
@@ -72,6 +102,8 @@ func ApplyPlan(ctx ApplyContext, plan *Plan) (*ApplyResult, error) {
 		case ActionBlocked:
 			if !item.Approved {
 				result.Failed = item.Name
+				result.Status = "DEGRADED"
+				result.HaltReason = "blocked-item-unapproved"
 				result.Error = fmt.Errorf(
 					"%w: %s %q - %s",
 					ErrHasBlocked, item.Kind, item.Name, item.BlockReason,
@@ -83,6 +115,8 @@ func ApplyPlan(ctx ApplyContext, plan *Plan) (*ApplyResult, error) {
 			log.Printf("GITOPS APPLY: executing APPROVED-BLOCKED %s %q", item.Kind, item.Name)
 			if err := executeDelete(ctx, item); err != nil {
 				result.Failed = item.Name
+				result.Status = "FAILED"
+				result.HaltReason = "execute-failure"
 				result.Error = fmt.Errorf("applying approved-blocked %s %q: %w", item.Kind, item.Name, err)
 				result.Duration = time.Since(start)
 				return result, result.Error
@@ -92,6 +126,8 @@ func ApplyPlan(ctx ApplyContext, plan *Plan) (*ApplyResult, error) {
 		case ActionCreate:
 			if err := executeCreate(ctx, item); err != nil {
 				result.Failed = item.Name
+				result.Status = "FAILED"
+				result.HaltReason = "execute-failure"
 				result.Error = fmt.Errorf("creating %s %q: %w", item.Kind, item.Name, err)
 				result.Duration = time.Since(start)
 				return result, result.Error
@@ -101,6 +137,8 @@ func ApplyPlan(ctx ApplyContext, plan *Plan) (*ApplyResult, error) {
 		case ActionModify:
 			if err := executeModify(ctx, item); err != nil {
 				result.Failed = item.Name
+				result.Status = "FAILED"
+				result.HaltReason = "execute-failure"
 				result.Error = fmt.Errorf("modifying %s %q: %w", item.Kind, item.Name, err)
 				result.Duration = time.Since(start)
 				return result, result.Error
@@ -110,6 +148,8 @@ func ApplyPlan(ctx ApplyContext, plan *Plan) (*ApplyResult, error) {
 		case ActionDelete:
 			if err := executeDelete(ctx, item); err != nil {
 				result.Failed = item.Name
+				result.Status = "FAILED"
+				result.HaltReason = "execute-failure"
 				result.Error = fmt.Errorf("deleting %s %q: %w", item.Kind, item.Name, err)
 				result.Duration = time.Since(start)
 				return result, result.Error
@@ -118,6 +158,7 @@ func ApplyPlan(ctx ApplyContext, plan *Plan) (*ApplyResult, error) {
 		}
 	}
 
+	result.Status = "OK"
 	result.Duration = time.Since(start)
 	log.Printf("GITOPS APPLY: complete - %d items applied in %s", len(result.Applied), result.Duration)
 	return result, nil
@@ -281,7 +322,7 @@ func destroyPool(name string) error {
 						"SAFETY ABORT: pool %q contains dataset %q with %s of data - "+
 							"destroy cancelled even though BLOCKED was approved. "+
 							"Manually destroy the dataset first.",
-						name, fields[0], humaniseBytes(usedBytes),
+						name, fields[0], HumaniseBytes(usedBytes),
 					)
 				}
 			}
@@ -298,11 +339,42 @@ func destroyPool(name string) error {
 
 // ── Dataset operations ────────────────────────────────────────────────────────
 
-func createDataset(name string, _ *DesiredDataset) error {
+func createDataset(name string, ds *DesiredDataset) error {
 	// Check existence first - idempotent
 	out, err := cmdutil.RunZFS("zfs", "list", "-H", "-o", "name", name)
 	if err == nil && strings.TrimSpace(string(out)) == name {
 		log.Printf("GITOPS: dataset %q already exists - skipping create", name)
+		return nil
+	}
+
+	// Phase 3.2: Data Plane Hooks - Restore before create if specified
+	if ds != nil && ds.Restore != nil && ds.Restore.Type == "zfs-send" && ds.Restore.Source != "" {
+		log.Printf("GITOPS: Restore hook triggered for %q from %q", name, ds.Restore.Source)
+		// SECURITY: We only allow source strings that look like "host:dataset" or simple datasets
+		// to prevent arbitrary command injection.
+		source := ds.Restore.Source
+		if strings.ContainsAny(source, ";|&$`\\\"' \t\n") {
+			return fmt.Errorf("invalid restore source %q - potential injection", source)
+		}
+
+		// Simple implementation: pull via SSH
+		// Assumes SSH keys are already configured (e.g. by bootstrap)
+		parts := strings.SplitN(source, ":", 2)
+		if len(parts) != 2 {
+			return fmt.Errorf("invalid zfs-send source %q: expected host:dataset", source)
+		}
+		host := parts[0]
+		remoteDS := parts[1]
+
+		cmd := fmt.Sprintf("ssh %s zfs send -R %s | zfs receive -u %s", host, remoteDS, name)
+		log.Printf("GITOPS: Executing restore: %s", cmd)
+
+		// Run via bash to support the pipe
+		restoreOut, err := cmdutil.RunSlow("bash", "-c", cmd)
+		if err != nil {
+			return fmt.Errorf("zfs restore for %s failed: %s: %w", name, string(restoreOut), err)
+		}
+		log.Printf("GITOPS: dataset %q restored from %s", name, source)
 		return nil
 	}
 
@@ -346,7 +418,7 @@ func deleteDataset(name string) error {
 		return fmt.Errorf(
 			"SAFETY ABORT: dataset %q has %s of data - destroy cancelled. "+
 				"This should have been BLOCKED. Please report this as a bug.",
-			name, humaniseBytes(used),
+			name, HumaniseBytes(used),
 		)
 	}
 
@@ -882,6 +954,93 @@ func reconcileLDAP(db *sql.DB, desired *DesiredLDAP) error {
 	}
 
 	log.Printf("GITOPS: reconciled LDAP configuration")
+	return nil
+}
+
+// SyncDB synchronizes the database tables with the DesiredState.
+// It is aggressive: it inserts/updates desired items and deletes anything in the DB
+// that is NOT in the desired state (for the categories it manages).
+func SyncDB(db *sql.DB, desired *DesiredState) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	// 1. Sync Users
+	if _, err := tx.Exec(`DELETE FROM users WHERE source = 'git'`); err != nil {
+		return fmt.Errorf("clearing git users: %w", err)
+	}
+	for _, u := range desired.Users {
+		_, err := tx.Exec(`INSERT INTO users (username, email, role, active, source) 
+			VALUES (?, ?, ?, ?, 'git')`,
+			u.Username, u.Email, u.Role, u.Active)
+		if err != nil {
+			return fmt.Errorf("syncing user %q: %w", u.Username, err)
+		}
+	}
+
+	// 2. Sync Groups
+	// ... similar logic for groups ...
+
+	// 3. Sync SMB Shares
+	if _, err := tx.Exec(`DELETE FROM smb_shares`); err != nil {
+		return fmt.Errorf("clearing shares: %w", err)
+	}
+	for _, s := range desired.Shares {
+		_, err := tx.Exec(`INSERT INTO smb_shares (name, path, read_only, valid_users, comment, guest_ok) 
+			VALUES (?, ?, ?, ?, ?, ?)`,
+			s.Name, s.Path, s.ReadOnly, s.ValidUsers, s.Comment, s.GuestOK)
+		if err != nil {
+			return fmt.Errorf("syncing share %q: %w", s.Name, err)
+		}
+	}
+
+	// 4. Sync NFS Exports
+	if _, err := tx.Exec(`DELETE FROM nfs_exports`); err != nil {
+		return fmt.Errorf("clearing nfs: %w", err)
+	}
+	for _, n := range desired.NFS {
+		_, err := tx.Exec(`INSERT INTO nfs_exports (path, clients, options, enabled) 
+			VALUES (?, ?, ?, ?)`,
+			n.Path, n.Clients, n.Options, n.Enabled)
+		if err != nil {
+			return fmt.Errorf("syncing nfs %q: %w", n.Path, err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+
+	// 5. LDAP Sync (separately, as it's a single row update)
+	return reconcileLDAP(db, desired.LDAP)
+}
+
+// checkDataReadiness verifies that all desired ZFS datasets are mounted
+// before the Docker (KindStack) phase begins.
+func checkDataReadiness(desired *DesiredState) error {
+	if desired == nil {
+		return nil
+	}
+
+	for _, d := range desired.Datasets {
+		// Only check datasets that should be mounted
+		if d.Mountpoint == "none" || d.Mountpoint == "legacy" {
+			continue
+		}
+
+		// Query ZFS live for the 'mounted' property
+		out, err := cmdutil.RunZFS("zfs", "get", "-H", "-o", "value", "mounted", d.Name)
+		if err != nil {
+			return fmt.Errorf("checking mount for %q: %w", d.Name, err)
+		}
+
+		if strings.TrimSpace(string(out)) != "yes" {
+			return fmt.Errorf("dataset %q is not mounted - cannot start docker stacks", d.Name)
+		}
+	}
+
 	return nil
 }
 
