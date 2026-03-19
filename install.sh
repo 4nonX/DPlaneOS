@@ -928,27 +928,23 @@ fi
 if command -v zpool &>/dev/null; then
     CURRENT_POOLS=$(zpool list -H -o name 2>/dev/null || true)
     if [ -n "$CURRENT_POOLS" ]; then
-# Mark all scripts executable BEFORE starting any services
-for script in \
-    zfs-mount-wait.sh \
-    init-database-with-lock.sh \
-    validate-db-schema.sh \
-    post-install-validation.sh \
-    dplaneos-watchdog.sh \
-    notify-device-added.sh \
-    notify-device-removed.sh \
-    notify-disk-added.sh \
-    notify-disk-removed.sh; do
-    if [ -f "${INSTALL_DIR}/install/scripts/${script}" ]; then
-        chmod +x "${INSTALL_DIR}/install/scripts/${script}"
-        log "install/scripts/${script} marked executable"
-    fi
-done
+        # Mark all scripts executable BEFORE starting any services
+        for script in \
+            zfs-mount-wait.sh \
+            init-database-with-lock.sh \
+            validate-db-schema.sh \
+            post-install-validation.sh \
+            dplaneos-watchdog.sh \
+            notify-device-added.sh \
+            notify-device-removed.sh \
+            notify-disk-added.sh \
+            notify-disk-removed.sh; do
+            if [ -f "${INSTALL_DIR}/install/scripts/${script}" ]; then
+                chmod +x "${INSTALL_DIR}/install/scripts/${script}"
+                log "install/scripts/${script} marked executable"
+            fi
+        done
 
-# Record ZFS pool list for boot gate
-if command -v zpool &>/dev/null; then
-    CURRENT_POOLS=$(zpool list -H -o name 2>/dev/null || true)
-    if [ -n "$CURRENT_POOLS" ]; then
         { echo "# Auto-generated $(date)"; echo "$CURRENT_POOLS"; } > /etc/dplaneos/expected-pools.conf
         log "ZFS pools recorded: $(echo "$CURRENT_POOLS" | tr '\n' ' ')"
     fi

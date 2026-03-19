@@ -1116,6 +1116,11 @@ func ConvergenceCheck(db *sql.DB, desired *DesiredState) (string, error) {
 
 	if driftCount == 0 {
 		if plan.BlockedCount > 0 {
+			for _, item := range plan.Items {
+				if item.Action == ActionBlocked {
+					log.Printf("GITOPS: %s %q is BLOCKED: %s", item.Kind, item.Name, item.BlockReason)
+				}
+			}
 			// System is consistent with Git state for all safe items,
 			// but some items are BLOCKED and require manual approval.
 			return "DEGRADED", nil
