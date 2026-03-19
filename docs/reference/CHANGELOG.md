@@ -27,8 +27,10 @@ Upgrade from: v6.0.1 - Drop-in. `sudo bash install.sh --upgrade`
 - **Convergence Visibility**: Enriched API responses with structured convergence metadata (`CONVERGED`, `DEGRADED`, etc.).
 - **Plan Summaries**: Included `ambiguous_count` and `has_ambiguous` in the plan summary for enhanced operator visibility.
 - **Schema Correction**: Fixed a mapping bug in pool GUID parsing from `state.yaml`.
-- **Hardened Testing**: Added automated unit tests for GUID parsing and ambiguity detection, and implemented a comprehensive **Fleet & Install CI** pipeline covering fresh installs, idempotency, and multi-node fleet simulations.
+- **Hardened Testing**: Added automated unit tests for GUID parsing and ambiguity detection, and implemented a comprehensive **Fleet & Install CI** pipeline in a single, gated `ci.yml` covering fresh installs, idempotency, and multi-node fleet simulations.
 ### Quality Gaps Addressed (v6.0.2 Polish)
+- [x] **Environment Resiliency**: Added `.gitattributes` and automatic CRLF-to-LF conversion in `install.sh` to ensure script execution stability across all checkout environments.
+- [x] **CI Consolidation**: Successfully merged `validate.yml`, `fleet-install.yml`, and `release.yml` into a single, comprehensive deployment pipeline.
 - [x] **Diff Engine Halt**: Implemented early return in `ComputeDiff` for ambiguous states.
 - [x] **Convergence Correctness**: Updated `ConvergenceCheck` to correctly include `ActionDelete` in drift calculations.
 - [x] **CLI Automation**: Added `-diff` and `-convergence-check` flags to `dplaned` for CI/CD integration.
@@ -152,6 +154,8 @@ Upgrade from: v5.2.3 - Drop-in. `sudo bash install.sh --upgrade`
   - **Data Safety**: Destructive operations (pool destruction) now require explicit "type-to-confirm" validation.
 - **Enhanced Modal UX**
   - **Universal Close Mechanisms**: Added high-visibility "X" buttons to modal headers and standardized "Cancel" buttons in all footers.
+  - **Determinism Hardening**: Aligned the Enterprise sidecar with the new v6.0.2 "Deterministic Integrity" invariants, ensuring all compliance reports reflect accurate convergence state.
+- **CI Gating**: Integrated the consolidated `D-PlaneOS` CI pipeline as a mandatory release gate for all production builds.
   - **Portal-based Rendering**: Migrated the entire modal architecture to React Portals, rendering into `#modal-root` to ensure modals are always top-level and immune to parent stacking context glitches.
 
 ### Fixed
