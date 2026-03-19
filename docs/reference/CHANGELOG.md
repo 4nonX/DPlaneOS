@@ -6,7 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ---
 
-## v6.0.2 (2026-03-19) : "Deterministic Integrity"
+## v6.0.2 (2026-03-19) - "Deterministic Integrity"
 
 Upgrade from: v6.0.1 - Drop-in. `sudo bash install.sh --upgrade`
 
