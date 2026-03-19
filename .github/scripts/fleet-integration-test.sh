@@ -62,7 +62,7 @@ COMP=$(sudo zfs get -H -o value compression gitopspool/data)
 [ "$COMP" = "lz4" ] && ok "Drift corrected (lz4)" || fail "Drift correction failed: $COMP"
 
 # Cleanup Phase 3 pool to avoid interference with declarative Node A/B in Phase 4
-sudo zpool destroy gitopspool
+sudo zpool destroy -f gitopspool
 sudo losetup -d "$LOOP0" "$LOOP1"
 
 echo "--- Phase 4: Fleet Simulation (Multi-Node) ---"
