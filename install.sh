@@ -344,7 +344,7 @@ INSTALL_PHASE=4
 step "Phase 4/13: Installing files"
 # ────────────────────────────────────────────────────────────────────────────
 
-mkdir -p "$INSTALL_DIR" /var/lib/dplaneos/{backups,git-stacks,custom_icons} /var/log/dplaneos /etc/dplaneos
+mkdir -p "$INSTALL_DIR" "${INSTALL_DIR}/daemon" /var/lib/dplaneos/{backups,git-stacks,custom_icons} /var/log/dplaneos /etc/dplaneos
 
 if $OPT_UPGRADE; then
     # rsync: skip DB files, keep user data
@@ -1015,10 +1015,6 @@ else
     warn "ZED hook not found - ZFS events will not trigger real-time alerts"
 fi
 
-# Hot-swap notification scripts
-mkdir -p "${INSTALL_DIR}/install/scripts"
-for script in \
-done
 
 # Watchdog cron
 if [ -f "${INSTALL_DIR}/install/scripts/dplaneos-watchdog.sh" ]; then
