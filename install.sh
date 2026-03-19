@@ -894,10 +894,6 @@ else
 fi
 
 # Main daemon service
-if [ -f "${INSTALL_DIR}/install/systemd/dplaned.service" ]; then
-    cp "${INSTALL_DIR}/install/systemd/dplaned.service" /etc/systemd/system/dplaned.service
-else
-    cat > /etc/systemd/system/dplaned.service <<UNIT
 [Unit]
 Description=D-PlaneOS System Daemon v${DPLANEOS_VERSION}
 After=network.target zfs.target dplaneos-zfs-mount-wait.service dplaneos-init-db.service
@@ -914,9 +910,10 @@ User=root
 Group=root
 NoNewPrivileges=true
 PrivateTmp=true
-ProtectSystem=strict
-ProtectHome=true
-ReadWritePaths=/var/log/dplaneos /var/lib/dplaneos /opt/dplaneos /etc/dplaneos /run/dplaneos /etc/crontab -/etc/exports -/etc/exports.d -/etc/systemd/network -/etc/samba -/mnt -/tank -/data -/media /tmp -/home -/etc/modprobe.d -/etc/sysctl.d -/etc/nginx/sites-available -/etc/nginx/sites-enabled /usr/local/bin -/etc/iscsi -/etc/ssh
+ProtectSystem=full
+ProtectHome=read-only
+ReadWritePaths=/var/lib/dplaneos /var/log/dplaneos /etc/dplaneos /run/dplaneos /tmp /usr/local/bin
+ReadWritePaths=-/mnt -/tank -/data -/media -/etc/samba -/etc/exports -/etc/exports.d -/etc/nginx/sites-available -/etc/nginx/sites-enabled -/etc/ssh -/etc/iscsi -/etc/systemd/network -/etc/modprobe.d -/etc/sysctl.d -/etc/crontab
 AmbientCapabilities=CAP_SYS_ADMIN CAP_NET_ADMIN CAP_DAC_READ_SEARCH CAP_CHOWN CAP_FOWNER
 CapabilityBoundingSet=CAP_SYS_ADMIN CAP_NET_ADMIN CAP_DAC_READ_SEARCH CAP_CHOWN CAP_FOWNER
 StandardOutput=journal
@@ -931,7 +928,6 @@ StartLimitBurst=5
 [Install]
 WantedBy=multi-user.target
 UNIT
-fi
 
 # Record ZFS pool list for boot gate
 if command -v zpool &>/dev/null; then
