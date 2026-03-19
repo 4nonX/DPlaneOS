@@ -126,7 +126,7 @@ assert_shape() {
   local required_keys=("$@")
   export ASSERT_RESP="$resp"
   export ASSERT_ARR_KEY="$arr_key"
-  export ASSERT_KEYS=$(printf "%s," "${required_keys[@]}")
+  export ASSERT_KEYS=$(printf "%s," "${required_keys[@]}" | sed 's/,$//')
   
   if python3 -c "
 import sys, json, os

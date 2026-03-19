@@ -1,10 +1,9 @@
-﻿package handlers
+package handlers
 
 import (
 	"database/sql"
 
 	"dplaned/internal/cmdutil"
-	"dplaned/internal/config"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -505,10 +504,18 @@ func (h *DockerHandler) PreFlightCheck(w http.ResponseWriter, r *http.Request) {
 // ═══════════════════════════════════════════════════════════════
 
 // AuditRotationHandler manages log rotation
-type AuditRotationHandler struct{}
+type AuditRotationHandler struct {
+	db           *sql.DB
+	dbPath       string
+	auditKeyPath string
+}
 
-func NewAuditRotationHandler() *AuditRotationHandler {
-	return &AuditRotationHandler{}
+func NewAuditRotationHandler(db *sql.DB, dbPath string, auditKeyPath string) *AuditRotationHandler {
+	return &AuditRotationHandler{
+		db:           db,
+		dbPath:       dbPath,
+		auditKeyPath: auditKeyPath,
+	}
 }
 
 // RotateAuditLogs rotates the audit log in the database
@@ -532,7 +539,7 @@ func (h *AuditRotationHandler) RotateAuditLogs(w http.ResponseWriter, r *http.Re
 	// Count before
 	countBefore := "unknown"
 	if out, err := executeCommandWithTimeout(TimeoutFast, "/usr/bin/sqlite3", []string{
-		config.DBDatabase,
+		h.dbPath,
 		"SELECT COUNT(*) FROM audit_logs;",
 	}); err == nil {
 		countBefore = strings.TrimSpace(out)
@@ -540,16 +547,24 @@ func (h *AuditRotationHandler) RotateAuditLogs(w http.ResponseWriter, r *http.Re
 
 	// Delete old entries
 	cutoff := time.Now().AddDate(0, 0, -req.KeepDays).Format("2006-01-02 15:04:05")
-	rotDB, dbErr := sql.Open("sqlite3", config.DBDatabase+"?_journal_mode=WAL&_busy_timeout=30000&cache=shared&_synchronous=FULL")
 	var rotErr error
-	if dbErr == nil {
-		defer rotDB.Close()
-		_, rotErr = rotDB.Exec("DELETE FROM audit_logs WHERE timestamp < ?", cutoff)
+	if h.db != nil {
+		_, rotErr = h.db.Exec("DELETE FROM audit_logs WHERE timestamp < ?", cutoff)
 		if rotErr == nil {
-			_, rotErr = rotDB.Exec("VACUUM")
+			_, rotErr = h.db.Exec("VACUUM")
 		}
 	} else {
-		rotErr = dbErr
+		// Fallback for safety
+		rotDB, dbErr := sql.Open("sqlite3", h.dbPath+"?_journal_mode=WAL&_busy_timeout=30000&cache=shared&_synchronous=FULL")
+		if dbErr == nil {
+			defer rotDB.Close()
+			_, rotErr = rotDB.Exec("DELETE FROM audit_logs WHERE timestamp < ?", cutoff)
+			if rotErr == nil {
+				_, rotErr = rotDB.Exec("VACUUM")
+			}
+		} else {
+			rotErr = dbErr
+		}
 	}
 	if rotErr != nil {
 		respondOK(w, map[string]interface{}{
@@ -562,7 +577,7 @@ func (h *AuditRotationHandler) RotateAuditLogs(w http.ResponseWriter, r *http.Re
 	// Count after
 	countAfter := "unknown"
 	if out, err := executeCommandWithTimeout(TimeoutFast, "/usr/bin/sqlite3", []string{
-		config.DBDatabase,
+		h.dbPath,
 		"SELECT COUNT(*) FROM audit_logs;",
 	}); err == nil {
 		countAfter = strings.TrimSpace(out)
@@ -580,7 +595,7 @@ func (h *AuditRotationHandler) RotateAuditLogs(w http.ResponseWriter, r *http.Re
 // GetAuditStats returns audit log statistics
 // GET /api/system/audit/stats
 func (h *AuditRotationHandler) GetAuditStats(w http.ResponseWriter, r *http.Request) {
-	dbPath := config.DBDatabase
+	dbPath := h.dbPath
 
 	count := "0"
 	if out, err := executeCommandWithTimeout(TimeoutFast, "/usr/bin/sqlite3", []string{

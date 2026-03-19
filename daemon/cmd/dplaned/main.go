@@ -683,7 +683,7 @@ func main() {
 	r.Handle("/api/docker/templates/deploy", permRoute("docker", "write", templateHandler.DeployTemplate)).Methods("POST")
 
 	// v3.0.0: Audit log rotation
-	auditRotationHandler := handlers.NewAuditRotationHandler()
+	auditRotationHandler := handlers.NewAuditRotationHandler(db, *dbPath, "/var/lib/dplaneos/audit.key")
 	r.Handle("/api/system/audit/rotate", permRoute("system", "admin", auditRotationHandler.RotateAuditLogs)).Methods("POST")
 	r.Handle("/api/system/audit/stats", permRoute("audit", "read", auditRotationHandler.GetAuditStats)).Methods("GET")
 	r.Handle("/api/system/audit/verify-chain", permRoute("audit", "read", auditRotationHandler.VerifyAuditChain)).Methods("GET")

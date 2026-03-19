@@ -1,4 +1,4 @@
-﻿package handlers
+package handlers
 
 // audit_verify.go - Audit HMAC chain verification endpoint.
 // Kept in its own file to isolate crypto imports from enterprise_hardening.go.
@@ -11,12 +11,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-
-	"dplaned/internal/config"
 )
-
-const auditKeyPath = config.AuditKeyPath
-const auditDBPath = config.DBDatabase
 
 // verifyComputeHash re-implements the HMAC formula from buffered_logger.go.
 // Must stay in sync with computeRowHash() in the audit package.
@@ -39,7 +34,7 @@ func verifyComputeHash(key []byte, prevHash string, ts int64, user, action, reso
 // GET /api/system/audit/verify-chain
 func (h *AuditRotationHandler) VerifyAuditChain(w http.ResponseWriter, r *http.Request) {
 	// Load the HMAC key - must be the same key the daemon uses for writing
-	keyBytes, err := os.ReadFile(auditKeyPath)
+	keyBytes, err := os.ReadFile(h.auditKeyPath)
 	if err != nil {
 		respondOK(w, map[string]interface{}{
 			"success": false,
@@ -57,7 +52,7 @@ func (h *AuditRotationHandler) VerifyAuditChain(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	db, err := sql.Open("sqlite3", auditDBPath+"?_journal_mode=WAL&_busy_timeout=30000&cache=shared&_synchronous=FULL")
+	db, err := sql.Open("sqlite3", h.dbPath+"?_journal_mode=WAL&_busy_timeout=30000&cache=shared&_synchronous=FULL")
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, "Failed to open database", err)
 		return
