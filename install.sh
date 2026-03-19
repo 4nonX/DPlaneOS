@@ -928,6 +928,27 @@ fi
 if command -v zpool &>/dev/null; then
     CURRENT_POOLS=$(zpool list -H -o name 2>/dev/null || true)
     if [ -n "$CURRENT_POOLS" ]; then
+# Mark all scripts executable BEFORE starting any services
+for script in \
+    zfs-mount-wait.sh \
+    init-database-with-lock.sh \
+    validate-db-schema.sh \
+    post-install-validation.sh \
+    dplaneos-watchdog.sh \
+    notify-device-added.sh \
+    notify-device-removed.sh \
+    notify-disk-added.sh \
+    notify-disk-removed.sh; do
+    if [ -f "${INSTALL_DIR}/install/scripts/${script}" ]; then
+        chmod +x "${INSTALL_DIR}/install/scripts/${script}"
+        log "install/scripts/${script} marked executable"
+    fi
+done
+
+# Record ZFS pool list for boot gate
+if command -v zpool &>/dev/null; then
+    CURRENT_POOLS=$(zpool list -H -o name 2>/dev/null || true)
+    if [ -n "$CURRENT_POOLS" ]; then
         { echo "# Auto-generated $(date)"; echo "$CURRENT_POOLS"; } > /etc/dplaneos/expected-pools.conf
         log "ZFS pools recorded: $(echo "$CURRENT_POOLS" | tr '\n' ' ')"
     fi
@@ -938,7 +959,7 @@ systemctl enable dplaned nginx 2>/dev/null
 
 systemctl restart nginx || die "nginx failed - check: journalctl -xe -u nginx"
 
-if systemctl restart dplaned 2>/dev/null; then
+if systemctl restart dplaned; then
     for i in $(seq 1 15); do
         curl -sf http://127.0.0.1:9000/health &>/dev/null && break
         sleep 1
@@ -947,7 +968,7 @@ if systemctl restart dplaned 2>/dev/null; then
         && log "dplaned running and healthy" \
         || warn "dplaned started but health check timed out (may still be initializing)"
 else
-    warn "dplaned did not start - check: systemctl status dplaned"
+    die "dplaned did not start - check: journalctl -xe -u dplaned"
 fi
 
 # Phase 12.5: GitOps Auto-Apply
@@ -997,16 +1018,6 @@ fi
 # Hot-swap notification scripts
 mkdir -p "${INSTALL_DIR}/install/scripts"
 for script in \
-    notify-device-added.sh \
-    notify-device-removed.sh \
-    notify-disk-added.sh \
-    notify-disk-removed.sh; do
-    if [ -f "${INSTALL_DIR}/install/scripts/${script}" ]; then
-        chmod +x "${INSTALL_DIR}/install/scripts/${script}"
-        log "install/scripts/${script} marked executable"
-    else
-        warn "install/scripts/${script} not found - some udev notifications may not fire"
-    fi
 done
 
 # Watchdog cron

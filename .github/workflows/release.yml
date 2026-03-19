@@ -13,10 +13,14 @@ jobs:
     name: CI gate (must pass before release builds)
     uses: ./.github/workflows/validate.yml
 
+  fleet-install-ci:
+    name: Fleet & Install CI Gate
+    uses: ./.github/workflows/fleet-install.yml
+
   release:
     name: Build & Publish Release
     runs-on: ubuntu-22.04
-    needs: ci
+    needs: [ci, fleet-install-ci]
     env:
       GOWORK: off
 
