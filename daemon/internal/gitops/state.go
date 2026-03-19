@@ -934,7 +934,8 @@ func unquote(s string) string {
 
 func mapToState(raw map[string]yamlNode) (*DesiredState, error) {
 	s := &DesiredState{
-		Version: strField(raw, "version"),
+		Version:          strField(raw, "version"),
+		IgnoreExtraneous: strField(raw, "ignore_extraneous") == "true",
 	}
 
 	if poolsRaw, ok := raw["pools"]; ok {
