@@ -10,8 +10,8 @@ def extract_notes(version, changelog_path):
         content = f.read()
 
     # Match ## v6.0.2 (2026-03-09) - "Deterministic Integrity"
-    # or ## 6.0.2
-    pattern = rf'## v?{re.escape(version)}.*?\n(.*?)(?=\n## |$)'
+    # Use re.DOTALL to match across newlines in the capture group
+    pattern = rf'## v?{re.escape(version)}.*?\\n(.*?)(?=\\n## |$)'
     match = re.search(pattern, content, re.DOTALL)
     
     if not match:
@@ -19,12 +19,12 @@ def extract_notes(version, changelog_path):
     
     notes = match.group(1).strip()
     
-    # Append common installation instructions
+    # Corrected installation instructions URL
     notes += "\n\n---\n\n### Installation\n"
     notes += "Upgrade existing install:\n"
     notes += "```bash\nsudo bash install.sh --upgrade\n```\n"
     notes += "Fresh install:\n"
-    notes += "```bash\ncurl -s https://get.dplaneos.com | sudo bash\n```\n"
+    notes += "```bash\ncurl -s https://get.d-net.me | sudo bash\n```\n"
     
     return notes
 
@@ -33,6 +33,7 @@ if __name__ == "__main__":
         print("Usage: python3 extract-release-notes.py <version> <changelog_path>")
         sys.exit(1)
     
+    # Version might come as v6.0.2 or 6.0.2, strip leading v for consistent regex
     ver = sys.argv[1].lstrip('v')
     path = sys.argv[2]
     print(extract_notes(ver, path))

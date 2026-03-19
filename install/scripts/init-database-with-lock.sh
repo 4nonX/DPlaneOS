@@ -1,4 +1,4 @@
-﻿#!/bin/bash
+#!/bin/bash
 #
 # D-PlaneOS - Database Initialization with Lock
 #
@@ -10,8 +10,17 @@
 
 set -e
 
-DB_PATH="/var/lib/dplaneos/dplaneos.db"
+DB_PATH=${DPLANEOS_DB:-"/var/lib/dplaneos/dplaneos.db"}
 LOCK_FILE="/var/run/dplaneos/db.lock"
+
+# Parse arguments
+while [[ "$#" -gt 0 ]]; do
+    case $1 in
+        --db) DB_PATH="$2"; shift ;;
+    esac
+    shift
+done
+
 LOCK_DIR=$(dirname "$LOCK_FILE")
 
 # Ensure lock directory exists

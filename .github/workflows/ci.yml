@@ -110,6 +110,9 @@ jobs:
           sudo apt-get install -y gcc libc6-dev zfsutils-linux sqlite3 python3-bcrypt curl nfs-kernel-server acl ufw ipmitool
           sudo modprobe zfs
       
+      - name: Positioning binary for scripts
+        run: cp build/dplaned-linux-amd64 ./dplaned-ci && chmod +x ./dplaned-ci
+
       - name: Run API Test Suite
         env:
           CI_PASS: "CiAdmin1!Test"
@@ -139,6 +142,9 @@ jobs:
           sudo apt-get install -y zfsutils-linux sqlite3 python3-bcrypt curl nginx nfs-kernel-server samba acl ufw
           sudo modprobe zfs
       
+      - name: Positioning binary for scripts
+        run: cp build/dplaned-linux-amd64 ./dplaned-ci && chmod +x ./dplaned-ci
+
       - name: Run Fleet/Install Suite
         env:
           CI_PASS: "CiAdmin1!Test"
