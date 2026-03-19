@@ -21,13 +21,18 @@ echo "--- Using Database: $DB_PATH ---"
 
 echo "--- v6: Deterministic Bootstrap (-apply) ---"
 # Seed the state file for Phase 1
-echo '
+cat <<EOF > /tmp/state.yaml
+version: "6"
 pools:
   - name: testpool
+    vdev_type: mirror
+    disks:
+      - $LOOP0
+      - $LOOP1
 datasets:
   - name: testpool/ci-enforcement
     mountpoint: /mnt/testpool/ci-enforcement
-' > /tmp/state.yaml
+EOF
 
 # Let the daemon create the DB itself to avoid permission mismatches
 sudo ./dplaned-ci --db "$DB_PATH" --gitops-state /tmp/state.yaml --apply
