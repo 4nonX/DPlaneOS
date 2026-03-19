@@ -1008,7 +1008,7 @@ if [ -f "${INSTALL_DIR}/install/scripts/dplaneos-watchdog.sh" ]; then
     cp "${INSTALL_DIR}/install/scripts/dplaneos-watchdog.sh" /usr/local/bin/dplaneos-watchdog
     chmod +x /usr/local/bin/dplaneos-watchdog
     (crontab -l 2>/dev/null | grep -q dplaneos-watchdog) \
-        || { crontab -l 2>/dev/null; echo "*/5 * * * * /usr/local/bin/dplaneos-watchdog >/dev/null 2>&1"; } | crontab -
+        || { crontab -l 2>/dev/null || true; echo "*/5 * * * * /usr/local/bin/dplaneos-watchdog >/dev/null 2>&1"; } | crontab -
     log "Watchdog: every 5 min via cron"
 fi
 
