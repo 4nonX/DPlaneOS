@@ -61,6 +61,10 @@ sudo ./dplaned-ci -apply -db /var/lib/dplaneos/dplaneos.db -gitops-state /tmp/gi
 COMP=$(sudo zfs get -H -o value compression gitopspool/data)
 [ "$COMP" = "lz4" ] && ok "Drift corrected (lz4)" || fail "Drift correction failed: $COMP"
 
+# Cleanup Phase 3 pool to avoid interference with declarative Node A/B in Phase 4
+sudo zpool destroy gitopspool
+sudo losetup -d "$LOOP0" "$LOOP1"
+
 echo "--- Phase 4: Fleet Simulation (Multi-Node) ---"
 # Node A
 sudo truncate -s 512M /tmp/nodea0.img /tmp/nodea1.img
