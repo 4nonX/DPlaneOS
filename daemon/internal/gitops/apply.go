@@ -1092,7 +1092,7 @@ func ConvergenceCheck(db *sql.DB, desired *DesiredState) (string, error) {
 	// If there are any CREATE/MODIFY actions or non-BLOCKED DELETEs, we haven't converged.
 	driftCount := 0
 	for _, item := range plan.Items {
-		if item.Action == ActionCreate || item.Action == ActionModify || item.Action == ActionAmbiguous {
+		if item.Action == ActionCreate || item.Action == ActionModify || item.Action == ActionDelete || item.Action == ActionAmbiguous {
 			driftCount++
 		}
 	}

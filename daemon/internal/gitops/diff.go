@@ -240,11 +240,13 @@ func ComputeDiff(desired *DesiredState, live *LiveState) *Plan {
 			Action: ActionAmbiguous,
 			BlockReason: fmt.Sprintf(
 				"Multiple pools found with name %q. Automated GitOps cannot safely distinguish "+
-					"between them. Please resolve the name collision manually (e.g. by exporting or renaming one).",
+				"between them. Please resolve the name collision manually (e.g. by exporting or renaming one).",
 				name,
 			),
 			RiskLevel: "critical",
 		})
+		plan.HasAmbiguous = true
+		plan.AmbiguousCount++
 	}
 	for name := range ambiguousDatasets {
 		plan.Items = append(plan.Items, DiffItem{
@@ -257,6 +259,11 @@ func ComputeDiff(desired *DesiredState, live *LiveState) *Plan {
 			),
 			RiskLevel: "critical",
 		})
+		plan.HasAmbiguous = true
+		plan.AmbiguousCount++
+	}
+	if plan.HasAmbiguous {
+		return plan
 	}
  
 	// ── Phase 0: SYSTEM configuration ─────────────────────────────────────────
