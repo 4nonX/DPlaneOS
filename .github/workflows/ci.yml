@@ -68,6 +68,11 @@ jobs:
           go-version-file: daemon/go.mod
           cache-dependency-path: daemon/go.sum
       
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y gcc libc6-dev sqlite3 gcc-aarch64-linux-gnu
+
       - name: Build binaries (amd64 & arm64)
         working-directory: daemon
         run: |
