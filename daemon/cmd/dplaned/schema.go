@@ -86,7 +86,7 @@ func initSchema(db *sql.DB) error {
 		// ── Audit logging ──
 		`CREATE TABLE IF NOT EXISTS audit_logs (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			timestamp TEXT NOT NULL,
+			timestamp INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
 			user TEXT NOT NULL DEFAULT '',
 			action TEXT NOT NULL DEFAULT '',
 			resource TEXT NOT NULL DEFAULT '',
@@ -558,4 +558,3 @@ func seedDefaults(db *sql.DB) error {
 
 	return nil
 }
-
