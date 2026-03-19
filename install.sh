@@ -955,6 +955,8 @@ if systemctl restart dplaned; then
         && log "dplaned running and healthy" \
         || die "dplaned started but health check failed - check: journalctl -xe -u dplaned"
 else
+    warn "dplaned failed to start. Journal logs:"
+    journalctl -n 50 -u dplaned --no-pager || true
     die "dplaned did not start - check: journalctl -xe -u dplaned"
 fi
 
