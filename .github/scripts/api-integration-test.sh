@@ -135,17 +135,24 @@ try:
     arr_key = os.environ['ASSERT_ARR_KEY']
     req_keys = [k.strip() for k in os.environ['ASSERT_KEYS'].split(',') if k.strip()]
     
-    if not d.get('success'): sys.exit(1)
+    if not d.get('success'): 
+        print(f'Error: success is {d.get(\"success\")}'); sys.exit(1)
     arr = d.get(arr_key)
-    if not isinstance(arr, list): sys.exit(1)
-    if len(arr) == 0: sys.exit(0)
+    if not isinstance(arr, list): 
+        print(f'Error: {arr_key} is not a list'); sys.exit(1)
+    if len(arr) == 0: 
+        sys.exit(0)
     
     first = arr[0]
     missing = [k for k in req_keys if k not in first]
-    sys.exit(0 if not missing else 1)
-except:
+    if missing:
+        print(f'Error: Missing keys {missing} in first element keys: {list(first.keys())}')
+        sys.exit(1)
+    sys.exit(0)
+except Exception as e:
+    print(f'Error: Exception {e}')
     sys.exit(1)
-"; then ok "$label"; else fail "$label (shape mismatch)"; fi
+"; then ok "$label"; else fail "$label (shape mismatch - check log)"; fi
 }
 
 assert_array() {
@@ -190,7 +197,9 @@ assert_json "Login succeeds" "$LOGIN_JSON" "success" "true"
 SESSION=$(echo "$LOGIN_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin).get('session_id',''))" 2>/dev/null)
 
 # 3. ZFS
+sleep 2
 POOLS=$(api GET /api/zfs/pools)
+echo "DEBUG POOLS: $POOLS"
 assert_shape "ZFS pool shape" "$POOLS" "data" "name" "health" "capacity"
 
 assert_json "Create dataset" "$(api POST /api/zfs/datasets '{"name":"testpool/ci-test","compression":"lz4"}')" "success" "true"
