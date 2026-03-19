@@ -44,6 +44,8 @@ pools:
     mountpoint: /mnt/gitops
     disks: ["$LOOP0", "$LOOP1"]
 datasets:
+  - name: gitopspool
+    mountpoint: /mnt/gitops
   - name: gitopspool/data
     mountpoint: /mnt/gitops/data
     compression: lz4
@@ -74,6 +76,8 @@ pools:
     mountpoint: /mnt/node-a
     disks: ["$LA0", "$LA1"]
 datasets:
+  - name: nodeapool
+    mountpoint: /mnt/node-a
   - name: nodeapool/data
     mountpoint: /mnt/node-a/data
 EOF
@@ -93,6 +97,8 @@ pools:
     mountpoint: /mnt/node-b
     disks: ["$LB0", "$LB1"]
 datasets:
+  - name: nodebpool
+    mountpoint: /mnt/node-b
   - name: nodebpool/data
     mountpoint: /mnt/node-b/data
 EOF
