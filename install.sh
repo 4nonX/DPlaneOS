@@ -894,6 +894,7 @@ else
 fi
 
 # Main daemon service
+cat > /etc/systemd/system/dplaned.service <<UNIT
 [Unit]
 Description=D-PlaneOS System Daemon v${DPLANEOS_VERSION}
 After=network.target zfs.target dplaneos-zfs-mount-wait.service dplaneos-init-db.service
