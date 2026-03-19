@@ -86,17 +86,18 @@ import (
 //	      volumes:
 //	        portainer_data:
 type DesiredState struct {
-	Version       string               `yaml:"version"`
-	Pools         []DesiredPool        `yaml:"pools"`
-	Datasets      []DesiredDataset     `yaml:"datasets"`
-	Shares        []DesiredShare       `yaml:"shares"`
-	NFS           []DesiredNFS         `yaml:"nfs"`
-	Stacks        []DesiredStack       `yaml:"stacks"`
-	System        *DesiredSystem       `yaml:"system"`
-	Users         []DesiredUser        `yaml:"users"`
-	Groups        []DesiredGroup       `yaml:"groups"`
-	Replication   []DesiredReplication `yaml:"replication"`
-	LDAP          *DesiredLDAP         `yaml:"ldap"`
+	Version          string               `yaml:"version"`
+	IgnoreExtraneous bool                 `yaml:"ignore_extraneous"` // If true, reconciler ignores resources not in desired state
+	Pools            []DesiredPool        `yaml:"pools"`
+	Datasets         []DesiredDataset     `yaml:"datasets"`
+	Shares           []DesiredShare       `yaml:"shares"`
+	NFS              []DesiredNFS         `yaml:"nfs"`
+	Stacks           []DesiredStack       `yaml:"stacks"`
+	System           *DesiredSystem       `yaml:"system"`
+	Users            []DesiredUser        `yaml:"users"`
+	Groups           []DesiredGroup       `yaml:"groups"`
+	Replication      []DesiredReplication `yaml:"replication"`
+	LDAP             *DesiredLDAP         `yaml:"ldap"`
 }
 
 // DesiredPool describes a ZFS pool.

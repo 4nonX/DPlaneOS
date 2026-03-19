@@ -39,6 +39,7 @@ LOOP1=$(sudo losetup --find --show /tmp/gitops1.img)
 
 cat > /tmp/gitops.yaml <<EOF
 version: "6"
+ignore_extraneous: true
 pools:
   - name: gitopspool
     mountpoint: /mnt/gitops
@@ -80,6 +81,7 @@ sudo bash install/scripts/init-database-with-lock.sh --db /var/lib/dplaneos-node
 
 cat > /tmp/state-node-a.yaml <<EOF
 version: "6"
+ignore_extraneous: true
 pools:
   - name: nodeapool
     mountpoint: /mnt/node-a
@@ -101,6 +103,7 @@ sudo bash install/scripts/init-database-with-lock.sh --db /var/lib/dplaneos-node
 
 cat > /tmp/state-node-b.yaml <<EOF
 version: "6"
+ignore_extraneous: true
 pools:
   - name: nodebpool
     mountpoint: /mnt/node-b

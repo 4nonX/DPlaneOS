@@ -647,54 +647,64 @@ func ComputeDiff(desired *DesiredState, live *LiveState) *Plan {
 	// This is where the safety contract is enforced.
 	// Every potential deletion goes through blockedCheck before being classified.
 
-	for _, lp := range live.Pools {
-		if _, wanted := desiredPools[lp.Name]; wanted {
-			continue
+	if !desired.IgnoreExtraneous {
+		for _, lp := range live.Pools {
+			if _, wanted := desiredPools[lp.Name]; wanted {
+				continue
+			}
+			item := blockedCheckPool(lp)
+			plan.Items = append(plan.Items, item)
 		}
-		item := blockedCheckPool(lp)
-		plan.Items = append(plan.Items, item)
 	}
 
-	for _, ld := range live.Datasets {
-		if _, wanted := desiredDatasets[ld.Name]; wanted {
-			continue
+	if !desired.IgnoreExtraneous {
+		for _, ld := range live.Datasets {
+			if _, wanted := desiredDatasets[ld.Name]; wanted {
+				continue
+			}
+			item := blockedCheckDataset(ld)
+			plan.Items = append(plan.Items, item)
 		}
-		item := blockedCheckDataset(ld)
-		plan.Items = append(plan.Items, item)
 	}
 
-	for _, ls := range live.Shares {
-		if _, wanted := desiredShares[ls.Name]; wanted {
-			continue
+	if !desired.IgnoreExtraneous {
+		for _, ls := range live.Shares {
+			if _, wanted := desiredShares[ls.Name]; wanted {
+				continue
+			}
+			item := blockedCheckShare(ls)
+			plan.Items = append(plan.Items, item)
 		}
-		item := blockedCheckShare(ls)
-		plan.Items = append(plan.Items, item)
 	}
  
-	for _, ln := range live.NFS {
-		if _, wanted := desiredNFS[ln.Path]; wanted {
-			continue
+	if !desired.IgnoreExtraneous {
+		for _, ln := range live.NFS {
+			if _, wanted := desiredNFS[ln.Path]; wanted {
+				continue
+			}
+			// NFS deletion is safe (no data loss)
+			plan.Items = append(plan.Items, DiffItem{
+				Kind:      KindNFS,
+				Name:      ln.Path,
+				Action:    ActionDelete,
+				RiskLevel: "low",
+			})
 		}
-		// NFS deletion is safe (no data loss)
-		plan.Items = append(plan.Items, DiffItem{
-			Kind:      KindNFS,
-			Name:      ln.Path,
-			Action:    ActionDelete,
-			RiskLevel: "low",
-		})
 	}
 
-	for _, lst := range live.Stacks {
-		if _, wanted := desiredStacks[lst.Name]; wanted {
-			continue
+	if !desired.IgnoreExtraneous {
+		for _, lst := range live.Stacks {
+			if _, wanted := desiredStacks[lst.Name]; wanted {
+				continue
+			}
+			// Stack deletion is safe (ActionDelete), but we mark it high risk
+			plan.Items = append(plan.Items, DiffItem{
+				Kind:      KindStack,
+				Name:      lst.Name,
+				Action:    ActionDelete,
+				RiskLevel: "high",
+			})
 		}
-		// Stack deletion is safe (ActionDelete), but we mark it high risk
-		plan.Items = append(plan.Items, DiffItem{
-			Kind:      KindStack,
-			Name:      lst.Name,
-			Action:    ActionDelete,
-			RiskLevel: "high",
-		})
 	}
 
 	for _, lu := range live.Users {
