@@ -940,8 +940,10 @@ if command -v zpool &>/dev/null; then
             notify-disk-added.sh \
             notify-disk-removed.sh; do
             if [ -f "${INSTALL_DIR}/install/scripts/${script}" ]; then
+                # Ensure LF line endings (prevents shebang errors on Windows checkouts)
+                sed -i 's/\r$//' "${INSTALL_DIR}/install/scripts/${script}" 2>/dev/null || true
                 chmod +x "${INSTALL_DIR}/install/scripts/${script}"
-                log "install/scripts/${script} marked executable"
+                log "install/scripts/${script} marked executable (LF)"
             fi
         done
 
