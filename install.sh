@@ -966,7 +966,7 @@ if systemctl restart dplaned; then
     done
     curl -sf http://127.0.0.1:9000/health &>/dev/null \
         && log "dplaned running and healthy" \
-        || warn "dplaned started but health check timed out (may still be initializing)"
+        || die "dplaned started but health check failed - check: journalctl -xe -u dplaned"
 else
     die "dplaned did not start - check: journalctl -xe -u dplaned"
 fi

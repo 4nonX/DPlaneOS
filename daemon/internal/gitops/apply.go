@@ -1116,8 +1116,14 @@ func ConvergenceCheck(db *sql.DB, desired *DesiredState) (string, error) {
 
 	if driftCount == 0 {
 		if plan.BlockedCount > 0 {
-			// Safe changes applied, but blocked items remain
+			// System is consistent with Git state for all safe items,
+			// but some items are BLOCKED and require manual approval.
 			return "DEGRADED", nil
+		}
+		if plan.AmbiguousCount > 0 {
+			// This should be caught by driftCount > 0 (ActionAmbiguous is counted),
+			// but for safety we check here too.
+			return "FAILED", nil
 		}
 		return "CONVERGED", nil
 	}
