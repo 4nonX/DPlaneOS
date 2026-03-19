@@ -77,8 +77,8 @@ jobs:
         working-directory: daemon
         run: |
           mkdir -p ../build
-          CGO_ENABLED=1 go build -tags sqlite_fts5 -ldflags="-s -w" -o ../build/dplaned-linux-amd64 ./cmd/dplaned/
-          GOOS=linux GOARCH=arm64 CGO_ENABLED=1 CC=aarch64-linux-gnu-gcc go build -tags sqlite_fts5 -ldflags="-s -w" -o ../build/dplaned-linux-arm64 ./cmd/dplaned/
+          CGO_ENABLED=1 go build -tags sqlite_fts5 -ldflags="-s -w -X main.Version=$(cat ../VERSION)" -o ../build/dplaned-linux-amd64 ./cmd/dplaned/
+          GOOS=linux GOARCH=arm64 CGO_ENABLED=1 CC=aarch64-linux-gnu-gcc go build -tags sqlite_fts5 -ldflags="-s -w -X main.Version=$(cat ../VERSION)" -o ../build/dplaned-linux-arm64 ./cmd/dplaned/
       
       - name: Upload Build Artifacts
         uses: actions/upload-artifact@v4
