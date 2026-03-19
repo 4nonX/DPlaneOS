@@ -10,16 +10,27 @@
 
 set -e
 
-DB_PATH=${DPLANEOS_DB:-"/var/lib/dplaneos/dplaneos.db"}
-LOCK_FILE="/var/run/dplaneos/db.lock"
+# Default path
+DB_PATH="/var/lib/dplaneos/dplaneos.db"
+LOCK_FILE="/run/dplaneos/db.lock"
 
 # Parse arguments
 while [[ "$#" -gt 0 ]]; do
     case "$1" in
-        --db) DB_PATH="$2"; shift ;;
+        --db) 
+            if [ -n "$2" ]; then
+                DB_PATH="$2"
+                shift
+            fi
+            ;;
     esac
     shift
 done
+
+# Environment override (if still set)
+if [ -n "$DPLANEOS_DB" ]; then
+    DB_PATH="$DPLANEOS_DB"
+fi
 
 LOCK_DIR=$(dirname "$LOCK_FILE")
 
@@ -62,7 +73,7 @@ init_database() {
         exit 1
     fi
     
-    echo "Initializing D-PlaneOS database..."
+    echo "Initializing D-PlaneOS database at: $DB_PATH"
     
     # Create database directory
     mkdir -p "$(dirname "$DB_PATH")"

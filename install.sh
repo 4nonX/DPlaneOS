@@ -384,8 +384,11 @@ INSTALL_PHASE=5
 step "Phase 5/13: Daemon binary"
 # ────────────────────────────────────────────────────────────────────────────
 
-# try_download_binary: download a pre-built release tarball from GitHub when
-# no Go toolchain is present and no pre-built binary was found locally.
+if systemctl is-active --quiet dplaned; then
+    info "Stopping running daemon for update..."
+    systemctl stop dplaned || warn "Failed to stop dplaned"
+fi
+
 try_download_binary() {
     local dl_arch
     case "$(uname -m)" in
