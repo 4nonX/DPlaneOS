@@ -399,11 +399,28 @@ func createDataset(name string, ds *DesiredDataset) error {
 		return nil
 	}
 
-	createOut, err := cmdutil.RunMedium("zfs", "create", name)
+	args := []string{"create"}
+	if ds != nil {
+		if ds.Mountpoint != "" {
+			args = append(args, "-o", "mountpoint="+ds.Mountpoint)
+		}
+		if ds.Compression != "" {
+			args = append(args, "-o", "compression="+ds.Compression)
+		}
+		if ds.Quota != "" && ds.Quota != "none" {
+			args = append(args, "-o", "quota="+ds.Quota)
+		}
+		if ds.Atime != "" {
+			args = append(args, "-o", "atime="+ds.Atime)
+		}
+	}
+	args = append(args, name)
+
+	createOut, err := cmdutil.RunMedium("zfs", args...)
 	if err != nil {
 		return fmt.Errorf("zfs create %s: %s: %w", name, string(createOut), err)
 	}
-	log.Printf("GITOPS: created dataset %q", name)
+	log.Printf("GITOPS: created dataset %q with mountpoint %q", name, ds.Mountpoint)
 	return nil
 }
 
