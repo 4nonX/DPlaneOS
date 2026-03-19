@@ -8,9 +8,9 @@ sudo truncate -s 512M /tmp/vdisk1.img
 sudo truncate -s 512M /tmp/vdisk2.img
 LOOP0=$(sudo losetup --find --show /tmp/vdisk0.img)
 LOOP1=$(sudo losetup --find --show /tmp/vdisk1.img)
-LOOP2=$(sudo losetup --find --show /tmp/vdisk2.img)
 
 echo "--- Creating Test ZFS Pool ---"
+# Default mountpoint will be /testpool
 sudo zpool create testpool mirror $LOOP0 $LOOP1
 
 # USE LOCAL DB FOR CI RELIABILITY
@@ -30,9 +30,9 @@ pools:
       - $LOOP1
 datasets:
   - name: testpool
-    mountpoint: /mnt/testpool
+    mountpoint: /testpool
   - name: testpool/ci-enforcement
-    mountpoint: /mnt/testpool/ci-enforcement
+    mountpoint: /testpool/ci-enforcement
 EOF
 
 # Let the daemon create the DB itself to avoid permission mismatches
@@ -61,7 +61,12 @@ curl -s -X POST http://127.0.0.1:9000/api/system/setup-admin \
   -d '{"username":"admin","password":"Tester1!Password"}' > /tmp/setup.log
 
 echo "--- Validating ReadWritePaths ---"
-[ -d "/mnt/testpool/ci-enforcement" ] || (echo "Convergence failure: dataset not mounted"; exit 1)
+# Diagnostics
+zpool status testpool
+zfs list -r testpool
+df -h | grep testpool || true
+
+[ -d "/testpool/ci-enforcement" ] || (echo "Convergence failure: dataset not mounted at /testpool/ci-enforcement"; exit 1)
 
 # --- TEST SUITE ---
 BASE="http://127.0.0.1:9000"
@@ -139,27 +144,27 @@ assert_json "Rollback snapshot" "$(api POST /api/zfs/snapshots/rollback '{"name"
 assert_json "Destroy snapshot" "$(api DELETE /api/zfs/snapshots '{"name":"testpool/app-data@first"}')" "success" "true"
 
 # 4. SHARES/ACL
-assert_json "ACL set success" "$(api POST /api/acl/set '{"path":"/mnt/testpool/app-data","entries":[{"type":"user","name":"root","permissions":"rwx"}]}')" "success" "true"
-GET_ACL=$(api GET /api/acl/get?path=/mnt/testpool/app-data)
+assert_json "ACL set success" "$(api POST /api/acl/set '{"path":"/testpool/app-data","entries":[{"type":"user","name":"root","permissions":"rwx"}]}')" "success" "true"
+GET_ACL=$(api GET /api/acl/get?path=/testpool/app-data)
 echo "$GET_ACL" | grep -q "rwx" && ok "ACL verified" || fail "ACL readback failed"
 
-assert_json "Create SMB share" "$(api POST /api/shares '{"name":"Public","path":"/mnt/testpool/app-data","type":"smb","read_only":true}')" "success" "true"
+assert_json "Create SMB share" "$(api POST /api/shares '{"name":"Public","path":"/testpool/app-data","type":"smb","read_only":true}')" "success" "true"
 api GET /api/shares | grep -q '"read_only":true' && ok "SMB read_only persistence verified" || fail "SMB read_only lost"
 
-assert_json "Create NFS export" "$(api POST /api/shares '{"name":"NFS","path":"/mnt/testpool/app-data","type":"nfs"}')" "success" "true"
+assert_json "Create NFS export" "$(api POST /api/shares '{"name":"NFS","path":"/testpool/app-data","type":"nfs"}')" "success" "true"
 
 # 5. DOCKER
 DOCKER=$(api GET /api/docker/containers)
 assert_array "Docker container shape" "$DOCKER" "containers"
 
 # 6. FILE MANAGER
-assert_json "Files: mkdir" "$(api POST /api/files/mkdir '{"path":"/mnt/testpool/app-data/ci-test"}')" "success" "true"
-assert_json "Files: write" "$(api POST /api/files/write '{"path":"/mnt/testpool/app-data/ci-test/hello.txt","content":"CI_VAL_123"}')" "success" "true"
-cat /mnt/testpool/app-data/ci-test/hello.txt | grep -q "CI_VAL_123" && ok "File content verified" || fail "File write failed"
+assert_json "Files: mkdir" "$(api POST /api/files/mkdir '{"path":"/testpool/app-data/ci-test"}')" "success" "true"
+assert_json "Files: write" "$(api POST /api/files/write '{"path":"/testpool/app-data/ci-test/hello.txt","content":"CI_VAL_123"}')" "success" "true"
+cat /testpool/app-data/ci-test/hello.txt | grep -q "CI_VAL_123" && ok "File content verified" || fail "File write failed"
 
-assert_json "Files: rename" "$(api POST /api/files/rename '{"old_path":"/mnt/testpool/app-data/ci-test/hello.txt","new_path":"/mnt/testpool/app-data/ci-test/world.txt"}')" "success" "true"
-assert_json "Files: chmod" "$(api POST /api/files/chmod '{"path":"/mnt/testpool/app-data/ci-test/world.txt","mode":493}')" "success" "true" # 0755
-[ "$(stat -c %a /mnt/testpool/app-data/ci-test/world.txt)" = "755" ] && ok "Chmod verified" || fail "Chmod failed"
+assert_json "Files: rename" "$(api POST /api/files/rename '{"old_path":"/testpool/app-data/ci-test/hello.txt","new_path":"/testpool/app-data/ci-test/world.txt"}')" "success" "true"
+assert_json "Files: chmod" "$(api POST /api/files/chmod '{"path":"/testpool/app-data/ci-test/world.txt","mode":493}')" "success" "true" # 0755
+[ "$(stat -c %a /testpool/app-data/ci-test/world.txt)" = "755" ] && ok "Chmod verified" || fail "Chmod failed"
 
 # 7. FIREWALL
 FW=$(api GET /api/firewall/status)
@@ -194,10 +199,8 @@ assert_json "Docker stats"    "$(api GET /api/docker/stats)"    "success" "true"
 assert_json "Audit stats"     "$(api GET /api/system/audit/stats)" "success" "true"
 assert_json "System health"   "$(api GET /api/system/health)"   "success" "true"
 assert_json "Stale locks"     "$(api GET /api/system/stale-locks)" "success" "true"
-# Disk latency is skipped as it requires real disks or loopback support for hdparm
-# assert_json "Disk latency"    "$(api GET /api/zfs/disk-latency)" "success" "true"
 
-# 13. REMAINING SUBSYSTEMS - valid JSON + success
+# 13. REMAINING SUBSYSTEMS
 assert_json "Git sync config"   "$(api GET /api/git-sync/config)"     "success" "true"
 assert_json "Webhooks"          "$(api GET /api/alerts/webhooks)"      "success" "true"
 assert_json "SMTP config"       "$(api GET /api/alerts/smtp)"          "success" "true"
