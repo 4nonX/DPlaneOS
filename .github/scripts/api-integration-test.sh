@@ -17,7 +17,8 @@ sudo zfs set acltype=posixacl testpool
 
 echo "--- Initializing Database ---"
 sudo mkdir -p /var/lib/dplaneos
-sudo bash install/scripts/init-database-with-lock.sh
+# Using the fixed script
+sudo bash install/scripts/init-database-with-lock.sh --db /var/lib/dplaneos/dplaneos.db
 
 echo "--- v6: Deterministic Bootstrap (-apply) ---"
 cat > /tmp/state.yaml <<EOF
@@ -37,6 +38,7 @@ datasets:
     compression: lz4
 EOF
 
+# Using ./dplaned-ci as mapped in the yaml
 sudo ./dplaned-ci -apply \
   -db /var/lib/dplaneos/dplaneos.db \
   -gitops-state /tmp/state.yaml \
@@ -62,7 +64,7 @@ sudo ./dplaned-ci \
   -listen 127.0.0.1:9000 \
   -smb-conf /var/lib/dplaneos/smb-shares.conf \
   &>/tmp/dplaned.log &
-DAEMON_PID=$!
+echo $! > /tmp/dplaned.pid
 
 for i in $(seq 1 20); do
   curl -sf http://127.0.0.1:9000/health | grep -q '"ok"' && break
@@ -165,6 +167,12 @@ CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$BASE/api/system/setup-ad
 CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$BASE/api/system/setup-complete" -H "Content-Type: application/json" -d '{}')
 [ "$CODE" = "200" ] || [ "$CODE" = "403" ] && ok "POST /api/system/setup-complete $CODE" || fail "/api/system/setup-complete $CODE"
 
+CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$BASE/api/ha/heartbeat" -H "Content-Type: application/json" -d '{"node_id":"ci-peer","status":"healthy"}')
+[ "$CODE" != "401" ] && ok "POST /api/ha/heartbeat 200/403" || fail "/api/ha/heartbeat 401"
+
+assert_json "/health ok" "$(curl -sf $BASE/health)" "status" "ok"
+assert_json "/api/csrf returns token" "$(curl -sf $BASE/api/csrf)" "csrf_token"
+
 # 2. AUTH
 LOGIN_HTTP=$(curl -s -w "\n%{http_code}" -X POST $BASE/api/auth/login -H "Content-Type: application/json" -d "{\"username\":\"admin\",\"password\":\"$CI_PASS\"}")
 LOGIN=$(echo "$LOGIN_HTTP" | sed '$d')
@@ -179,25 +187,85 @@ api() {
 }
 
 # 3. ZFS
-assert_json "Pool list success" "$(api GET /api/zfs/pools)" "success" "true"
+POOLS=$(api GET /api/zfs/pools)
+assert_array "ZFS pools: data is array" "$POOLS" "data"
 assert_json "Dataset creation" "$(api POST /api/zfs/datasets '{"name":"testpool/ci-test","compression":"lz4"}')" "success" "true"
+sudo zfs list testpool/ci-test > /dev/null && ok "Dataset on disk" || fail "Dataset missing"
+
+assert_json "Create snapshot" "$(api POST /api/zfs/snapshots '{"dataset":"testpool/ci-test","name":"ci-snap-1"}')" "success" "true"
+sudo zfs list -t snapshot testpool/ci-test@ci-snap-1 > /dev/null && ok "Snapshot on disk" || fail "Snapshot missing"
+
+assert_json "Rollback snapshot" "$(api POST /api/zfs/snapshots/rollback '{"snapshot":"testpool/ci-test@ci-snap-1"}')" "success" "true"
+assert_json "Destroy snapshot" "$(api DELETE /api/zfs/snapshots '{"snapshot":"testpool/ci-test@ci-snap-1"}')" "success" "true"
+
+# ACL
+assert_json "ACL set success" "$(api POST /api/acl/set '{"path":"/mnt/testpool","entry":"u:nobody:rwx"}')" "success" "true"
+api GET "/api/acl/get?path=/mnt/testpool" | grep -q "nobody" && ok "ACL verified" || fail "ACL missing nobody"
 
 # 4. SHARES
-assert_json "SMB share create" "$(api POST /api/shares '{"action":"create","name":"ci-share","path":"/tmp","read_only":true}')" "success" "true"
-assert_json "NFS export create" "$(api POST /api/nfs/exports '{"path":"/tmp","clients":"127.0.0.1","options":"ro,sync","enabled":true}')" "success" "true" || ok "NFS skip"
+assert_json "Create SMB share" "$(api POST /api/shares '{"action":"create","name":"ci-share","path":"/tmp","read_only":true}')" "success" "true"
+SHARES=$(api GET /api/shares)
+echo "$SHARES" | python3 -c "import sys,json; d=json.load(sys.stdin); s=next(x for x in d['shares'] if x['name']=='ci-share'); assert s['read_only'] is True" 2>/dev/null && ok "SMB read_only persistence verified" || fail "SMB read_only mismatch"
 
-# 5. FILES
-assert_json "Files: mkdir" "$(api POST /api/files/mkdir '{"path":"/tmp/ci-test"}')" "success" "true"
-assert_json "Files: write" "$(api POST /api/files/write '{"path":"/tmp/ci-test/f.txt","content":"hi"}')" "success" "true"
+# 5. NFS
+CREATE_NFS=$(api POST /api/nfs/exports '{"path":"/tmp","clients":"127.0.0.1","options":"ro,sync","enabled":true}')
+assert_json "Create NFS export" "$CREATE_NFS" "success" "true"
 
-# 6. SECURITY
+# 6. DOCKER
+CTRS=$(api GET /api/docker/containers)
+assert_shape "Docker container shape" "$CTRS" "containers" "id" "name" "image" "state"
+
+# 7. FILE MANAGER
+sudo mkdir -p /tmp/ci-files-test
+assert_json "Files: mkdir" "$(api POST /api/files/mkdir '{"path":"/tmp/ci-files-test/subdir"}')" "success" "true"
+assert_json "Files: write" "$(api POST /api/files/write '{"path":"/tmp/ci-files-test/h.txt","content":"hi"}')" "success" "true"
+READ=$(api GET '/api/files/read?path=/tmp/ci-files-test/h.txt')
+echo "$READ" | grep -q "hi" && ok "File content verified" || fail "File content mismatch"
+assert_json "Files: rename" "$(api POST /api/files/rename '{"old_path":"/tmp/ci-files-test/h.txt","new_name":"r.txt"}')" "success" "true"
+assert_json "Files: chmod" "$(api POST /api/files/chmod '{"path":"/tmp/ci-files-test/r.txt","mode":"0600"}')" "success" "true"
+[ "$(sudo stat -c %a /tmp/ci-files-test/r.txt)" = "600" ] && ok "Chmod verified" || fail "Chmod failed"
+
+# 8. FIREWALL
+FW=$(api GET /api/firewall/status)
+assert_array "Firewall rules is array" "$FW" "rules"
+
+# 9. USERS
+assert_json "Create user" "$(api POST /api/rbac/users '{"username":"ci-tester","role":"user","password":"Tester1!Password"}')" "success" "true"
+api GET /api/rbac/users | grep -q "ci-tester" && ok "User listed" || fail "User missing from list"
+
+# 10. REMAINING SUBSYSTEMS
+assert_json "Git sync config"   "$(api GET /api/git-sync/config)"     "success" "true"
+assert_json "Webhooks"          "$(api GET /api/alerts/webhooks)"      "success" "true"
+assert_json "SMTP config"       "$(api GET /api/alerts/smtp)"          "success" "true"
+assert_json "LDAP config"       "$(api GET /api/ldap/config)"          "success" "true"
+assert_json "HA status"         "$(api GET /api/ha/status)"            "success" "true"
+assert_json "My permissions"    "$(api GET /api/rbac/me/permissions)"  "success" "true"
+assert_json "API tokens"        "$(api GET /api/auth/tokens)"          "success" "true"
+
+valid_json "$(api GET /api/git-sync/repos)"  && ok "Git sync repos"  || fail "Git sync repos invalid JSON"
+valid_json "$(api GET /api/ldap/status)"     && ok "LDAP status"     || fail "LDAP status invalid JSON"
+valid_json "$(api GET /api/iscsi/status)"    && ok "iSCSI status"    || fail "iSCSI status invalid JSON"
+valid_json "$(api GET /api/sandbox/list)"    && ok "Sandbox list"    || fail "Sandbox list invalid JSON"
+valid_json "$(api GET /api/trash/list)"      && ok "Trash list"      || fail "Trash list invalid JSON"
+valid_json "$(api GET /api/removable/list)"  && ok "Removable media" || fail "Removable media invalid JSON"
+valid_json "$(api GET /api/power/disks)"     && ok "Power/spindown"  || fail "Power/spindown invalid JSON"
+valid_json "$(api GET /api/certs/list)"      && ok "Certs"           || fail "Certs invalid JSON"
+
+# 11. SECURITY
 INJECT=$(api POST /api/zfs/command "{\"command\":\"ls\",\"args\":[\"/etc/passwd\"],\"session_id\":\"$SESSION\",\"user\":\"admin\"}")
 echo "$INJECT" | grep -v "root:" >/dev/null && ok "Injection blocked" || fail "Injection success"
 
-# 7. VERSION 6 SPECIFIC
+# 12. DATA READINESS (v6)
+sudo zfs unmount testpool/ci-enforcement
+api GET /api/system/preflight | grep -q "unmounted\|not mounted" && ok "Unmount detected" || fail "Unmount missed"
+sudo zfs mount testpool/ci-enforcement
+
+# 13. AUDIT INTEGRITY (v6)
 assert_json "Audit chain: verified" "$(api GET /api/system/audit/verify-chain)" "valid" "true"
+
+# 14. SYSTEM CONVERGENCE
 CONV=$(sudo ./dplaned-ci -convergence-check -db /var/lib/dplaneos/dplaneos.db -gitops-state /tmp/state.yaml 2>&1)
-echo "$CONV" | grep -q "CONVERGED" && ok "Binary report CONVERGED" || fail "Not converged: $CONV"
+echo "$CONV" | grep -q "CONVERGED" && ok "System reported CONVERGED" || fail "Not converged: $CONV"
 
 # FINAL SUMMARY
 echo ""
@@ -206,10 +274,9 @@ printf "  Results: ✓ %d passed   ✗ %d failed\n" "$PASS" "$FAIL"
 echo "=========================================="
 if [ "$FAIL" -gt 0 ]; then
   printf "Failures:$FAILURES\n"
-  # Clean up daemon
-  sudo kill $DAEMON_PID || true
+  [ -f /tmp/dplaned.pid ] && sudo kill $(cat /tmp/dplaned.pid) || true
   exit 1
 fi
 
-sudo kill $DAEMON_PID || true
+[ -f /tmp/dplaned.pid ] && sudo kill $(cat /tmp/dplaned.pid) || true
 echo "API Validation PASSED"

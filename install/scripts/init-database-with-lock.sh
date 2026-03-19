@@ -15,7 +15,7 @@ LOCK_FILE="/var/run/dplaneos/db.lock"
 
 # Parse arguments
 while [[ "$#" -gt 0 ]]; do
-    case $1 in
+    case "$1" in
         --db) DB_PATH="$2"; shift ;;
     esac
     shift

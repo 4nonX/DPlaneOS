@@ -435,6 +435,8 @@ case "$ARCH_TAG" in
 esac
 
 for candidate in \
+    "${SCRIPT_DIR}/build/${ARCH_TAG}/dplaned" \
+    "${SCRIPT_DIR}/build/dplaned" \
     "${INSTALL_DIR}/build/dplaned-${ARCH_TAG}" \
     "${INSTALL_DIR}/build/dplaned" \
     "${INSTALL_DIR}/release/dplaned-${ARCH_TAG}" \
