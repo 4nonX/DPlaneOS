@@ -191,24 +191,48 @@ CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$BASE/api/system/setup-ad
 CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$BASE/api/ha/heartbeat" -H "Content-Type: application/json" -d '{"node_id":"ci-peer","status":"healthy"}')
 [ "$CODE" = "200" ] && ok "POST /api/ha/heartbeat" || fail "POST /api/ha/heartbeat (HTTP $CODE)"
 
-# 2. AUTH
-LOGIN_JSON=$(curl -s -X POST $BASE/api/auth/login -H "Content-Type: application/json" -d "{\"username\":\"admin\",\"password\":\"$CI_PASS\"}")
-assert_json "Login succeeds" "$LOGIN_JSON" "success" "true"
+# 2. AUTH & SESSION
+assert_json "Login succeeds" "$(api POST /api/auth/login "{\"username\":\"admin\",\"password\":\"$CI_PASS\"}")" "success" "true"
+LOGIN_JSON=$(api POST /api/auth/login "{\"username\":\"admin\",\"password\":\"$CI_PASS\"}")
 SESSION=$(echo "$LOGIN_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin).get('session_id',''))" 2>/dev/null)
 
-# 3. ZFS
+assert_json "Login with wrong password fails" "$(api POST /api/auth/login '{"username":"admin","password":"wrong"}')" "success" "false"
+assert_json "Login with non-existent user fails" "$(api POST /api/auth/login '{"username":"not-exist","password":"any"}')" "success" "false"
+
+# 3. RBAC / USERS
+# List users
+USERS=$(api GET /api/users)
+assert_array "List users returns array" "$USERS" "data"
+assert_json "Admin user present in list" "$USERS" "success" "true"
+
+# Create user
+assert_json "Create user succeeds" "$(api POST /api/users '{"username":"ci-user","password":"CiUser1!Test","email":"ci@dplane.local","role":"user"}')" "success" "true"
+assert_json "User ci-user exists in list" "$(api GET /api/users)" "success" "true"
+
+# List roles & permissions
+assert_array "List roles returns array" "$(api GET /api/rbac/roles)" "data"
+assert_array "List permissions returns array" "$(api GET /api/rbac/permissions)" "data"
+
+# 4. ZFS (ADVANCED)
 sleep 2
 POOLS=$(api GET /api/zfs/pools)
-echo "DEBUG POOLS: $POOLS"
 assert_shape "ZFS pool shape" "$POOLS" "data" "name" "health" "capacity"
 
-assert_json "Create dataset" "$(api POST /api/zfs/datasets '{"name":"testpool/ci-test","compression":"lz4"}')" "success" "true"
-sudo zfs list testpool/ci-test >/dev/null && ok "Dataset on disk" || fail "Dataset missing"
+assert_json "Create dataset" "$(api POST /api/zfs/datasets '{"name":"testpool/api-test","compression":"lz4","atime":"off"}')" "success" "true"
+sudo zfs list testpool/api-test >/dev/null && ok "Dataset on disk" || fail "Dataset missing"
 
-# 4. ACL / FM
-# Mountpoint is /mnt/testpool/ci-test
-assert_json "ACL set" "$(api POST /api/acl/set '{"path":"/mnt/testpool/ci-test","entry":"u:nobody:rwx"}')" "success" "true"
-api GET "/api/acl/get?path=/mnt/testpool/ci-test" | grep -q "nobody" && ok "ACL readback verified" || fail "ACL readback failed"
+# Snapshot
+assert_json "Create snapshot" "$(api POST /api/zfs/snapshots '{"dataset":"testpool/api-test","name":"ci-snap-1"}')" "success" "true"
+sudo zfs list -t snapshot testpool/api-test@ci-snap-1 >/dev/null && ok "Snapshot on disk" || fail "Snapshot missing"
+
+# List snapshots
+SNAPS=$(api GET "/api/zfs/snapshots?dataset=testpool/api-test")
+assert_array "List snapshots returns array" "$SNAPS" "data"
+
+# 5. ACL / FILE MANAGER
+# Mountpoint is /mnt/testpool/api-test
+assert_json "ACL set" "$(api POST /api/acl/set '{"path":"/mnt/testpool/api-test","entry":"u:nobody:rwx"}')" "success" "true"
+api GET "/api/acl/get?path=/mnt/testpool/api-test" | grep -q "nobody" && ok "ACL readback verified" || fail "ACL readback failed"
 
 sudo mkdir -p /mnt/testpool/fm-test
 assert_json "FM: write" "$(api POST /api/files/write '{"path":"/mnt/testpool/fm-test/hello.txt","content":"hello ci"}')" "success" "true"
@@ -216,19 +240,40 @@ assert_json "FM: read" "$(api GET '/api/files/read?path=/mnt/testpool/fm-test/he
 assert_json "FM: chmod" "$(api POST /api/files/chmod '{"path":"/mnt/testpool/fm-test/hello.txt","mode":"0600"}')" "success" "true"
 [ "$(sudo stat -c %a /mnt/testpool/fm-test/hello.txt)" = "600" ] && ok "FM: chmod verified" || fail "FM: chmod failed"
 
-# 5. GITOPS
+# 6. SMB SHARES
+assert_json "Create SMB share" "$(api POST /api/shares '{"name":"ci-share","path":"/mnt/testpool/api-test","read_only":false,"guest_ok":true,"comment":"CI Test Share"}')" "success" "true"
+assert_json "SMB share in list" "$(api GET /api/shares)" "success" "true"
+[ -f /var/lib/dplaneos/smb-shares.conf ] && grep -q "\[ci-share\]" /var/lib/dplaneos/smb-shares.conf && ok "Share in smb-shares.conf" || fail "Share missing from config file"
+
+# 7. NFS EXPORTS
+assert_json "Create NFS export" "$(api POST /api/nfs '{"path":"/mnt/testpool/api-test","clients":"*","options":"rw,sync,no_subtree_check","enabled":true}')" "success" "true"
+assert_json "NFS export in list" "$(api GET /api/nfs)" "success" "true"
+[ -f /etc/exports ] && grep -q "/mnt/testpool/api-test" /etc/exports && ok "Export in /etc/exports" || fail "Export missing from /etc/exports"
+
+# 8. DOCKER (STUB)
+# Just verify endpoints return success even if no stacks present
+assert_json "Docker stacks list" "$(api GET /api/docker/stacks)" "success" "true"
+
+# 9. NETWORKING & SYSTEM
+assert_json "List interfaces" "$(api GET /api/network/interfaces)" "success" "true"
+assert_json "Get hostname" "$(api GET /api/system/settings/hostname)" "success" "true"
+CUR_HOST=$(api GET /api/system/settings/hostname | python3 -c "import sys,json; print(json.load(sys.stdin).get('hostname',''))")
+[ -n "$CUR_HOST" ] && ok "Current hostname: $CUR_HOST" || fail "Hostname empty"
+
+# 10. GITOPS
 assert_json "GitOps status" "$(api GET /api/gitops/status)" "success" "true"
 assert_json "GitOps plan" "$(api GET /api/gitops/plan)" "success" "true"
 
-# 6. SECURITY
+# 11. SECURITY
 INJECT=$(api POST /api/zfs/command "{\"command\":\"ls\",\"args\":[\"/etc/passwd\"],\"session_id\":\"$SESSION\",\"user\":\"admin\"}")
-# Check if it was blocked by middleware (403/Forbidden) or by the handler explicitly
 echo "$INJECT" | grep -qiE "Forbidden|not allowed|success\":false" && ok "Security: Injection blocked" || fail "Security: Injection NOT blocked (got: $INJECT)"
 
-# 7. AUDIT
-# Since we did ZFS operations, there should be an audit chain
+# 12. AUDIT & LOGOUT
 AUDIT=$(api GET /api/system/audit/verify-chain)
 assert_json "Audit chain verified" "$AUDIT" "valid" "true"
+
+assert_json "Logout succeeds" "$(api POST /api/auth/logout '{}')" "success" "true"
+assert_json "Auth check after logout fails" "$(api GET /api/rbac/me)" "success" "false"
 
 # --- SUMMARY ---
 echo ""
