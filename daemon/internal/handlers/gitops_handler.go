@@ -158,14 +158,31 @@ func (h *GitOpsHandler) Apply(w http.ResponseWriter, r *http.Request) {
 		}
 		if !allApproved {
 			respondOK(w, map[string]interface{}{
-				"success":    false,
-				"error":      "plan contains BLOCKED items that require explicit approval",
-				"unapproved": unapproved,
+				"success":       false,
+				"error":         "plan contains BLOCKED items that require explicit approval",
+				"unapproved":    unapproved,
 				"blocked_count": plan.BlockedCount,
-				"hint":       "POST /api/gitops/approve with {kind, name} for each blocked item, then re-apply",
+				"hint":          "POST /api/gitops/approve with {kind, name} for each blocked item, then re-apply",
 			})
 			return
 		}
+	}
+
+	if plan.HasAmbiguous {
+		var ambiguousItems []string
+		for _, item := range plan.Items {
+			if item.Action == gitops.ActionAmbiguous {
+				ambiguousItems = append(ambiguousItems, fmt.Sprintf("%s/%s: %s", item.Kind, item.Name, item.BlockReason))
+			}
+		}
+		respondOK(w, map[string]interface{}{
+			"success":         false,
+			"error":           "plan contains AMBIGUOUS states that require manual resolution",
+			"ambiguous":       ambiguousItems,
+			"ambiguous_count": plan.AmbiguousCount,
+			"hint":            "Manual intervention required on the host (e.g. resolve duplicate pool names)",
+		})
+		return
 	}
 
 	ctx := gitops.ApplyContext{
@@ -193,10 +210,11 @@ func (h *GitOpsHandler) Apply(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("GITOPS APPLY: success - %d items in %s", len(result.Applied), result.Duration)
 	respondOK(w, map[string]interface{}{
-		"success":  true,
-		"applied":  result.Applied,
-		"count":    len(result.Applied),
-		"duration": result.Duration.String(),
+		"success":     true,
+		"applied":     result.Applied,
+		"count":       len(result.Applied),
+		"duration":    result.Duration.String(),
+		"convergence": result.Convergence,
 	})
 }
 
@@ -519,13 +537,15 @@ func planSummary(plan *gitops.Plan) map[string]interface{} {
 		return nil
 	}
 	return map[string]interface{}{
-		"create_count":  plan.CreateCount,
-		"modify_count":  plan.ModifyCount,
-		"delete_count":  plan.DeleteCount,
-		"blocked_count": plan.BlockedCount,
-		"nop_count":     plan.NopCount,
-		"has_blocked":   plan.HasBlocked,
-		"safe_to_apply": plan.SafeToApply,
+		"create_count":    plan.CreateCount,
+		"modify_count":    plan.ModifyCount,
+		"delete_count":    plan.DeleteCount,
+		"blocked_count":   plan.BlockedCount,
+		"ambiguous_count": plan.AmbiguousCount,
+		"nop_count":        plan.NopCount,
+		"has_blocked":     plan.HasBlocked,
+		"has_ambiguous":   plan.HasAmbiguous,
+		"safe_to_apply":   plan.SafeToApply && !plan.HasAmbiguous,
 	}
 }
 

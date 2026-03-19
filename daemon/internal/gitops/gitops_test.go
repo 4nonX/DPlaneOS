@@ -459,3 +459,83 @@ func TestParseChangeString_Invalid(t *testing.T) {
 	}
 }
 
+func TestParseStateYAML_GUID(t *testing.T) {
+	yaml := `
+version: "6"
+pools:
+  - name: tank
+    guid: "1234567890abcdef"
+    disks: ["/dev/disk/by-id/ata-A"]
+`
+	state, err := ParseStateYAML(yaml)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if state.Pools[0].GUID != "1234567890abcdef" {
+		t.Errorf("GUID: want 1234567890abcdef, got %q", state.Pools[0].GUID)
+	}
+}
+
+func TestComputeDiff_Ambiguous(t *testing.T) {
+	desired := &DesiredState{Version: "1"}
+	live := &LiveState{
+		Pools: []LivePool{
+			{Name: "tank", GUID: "abc"},
+			{Name: "tank", GUID: "def"}, // DUPLICATE NAME
+		},
+	}
+
+	plan := ComputeDiff(desired, live)
+	if !plan.HasAmbiguous {
+		t.Fatal("plan should have HasAmbiguous=true")
+	}
+	if plan.AmbiguousCount != 1 {
+		t.Errorf("AmbiguousCount: want 1, got %d", plan.AmbiguousCount)
+	}
+	found := false
+	for _, item := range plan.Items {
+		if item.Action == ActionAmbiguous && item.Name == "tank" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("ActionAmbiguous item for 'tank' not found in plan")
+	}
+}
+
+func TestComputeDiff_SharePathValidation(t *testing.T) {
+	desired := &DesiredState{
+		Version: "1",
+		Datasets: []DesiredDataset{
+			{Name: "tank/data", Mountpoint: "/mnt/data"},
+		},
+		Shares: []DesiredShare{
+			{Name: "valid", Path: "/mnt/data"},
+			{Name: "invalid", Path: "/etc/passwd"}, // NOT A DATASET MOUNTPOINT
+		},
+	}
+	live := &LiveState{}
+
+	plan := ComputeDiff(desired, live)
+	
+	// 'valid' should be CREATE
+	// 'invalid' should be BLOCKED
+	validFound, invalidFound := false, false
+	for _, item := range plan.Items {
+		if item.Kind == KindShare {
+			if item.Name == "valid" && item.Action == ActionCreate {
+				validFound = true
+			}
+			if item.Name == "invalid" && item.Action == ActionBlocked {
+				invalidFound = true
+				if !strings.Contains(item.BlockReason, "correspond to any managed dataset") {
+					t.Errorf("wrong block reason: %q", item.BlockReason)
+				}
+			}
+		}
+	}
+	if !validFound { t.Error("valid share should be CREATE") }
+	if !invalidFound { t.Error("invalid share should be BLOCKED") }
+}
+

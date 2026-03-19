@@ -23,6 +23,11 @@ Upgrade from: v6.0.1 - Drop-in. `sudo bash install.sh --upgrade`
 - **Gap 2: Ambiguous State Detection**: The GitOps engine now detects and blocks reconciliation if multiple pools or datasets with the same name are found, requiring manual intervention for safety.
 - **Gap 3 & 6: Strict Mountpoint Verification**: Enhanced the data-readiness gate to verify not just mount status, but exact mountpath accuracy, preventing accidental data writes to the root partition if ZFS drifts.
 - **Gap 4: Share-Dataset Cross-Validation**: Declarative SMB shares and NFS exports are now cross-referenced against managed ZFS datasets to ensure every share has a valid, managed backing mountpoint.
+- **API Handler Robustness**: Added `HasAmbiguous` guards to the apply handler to prevent degenerate states from causing generic errors.
+- **Convergence Visibility**: Enriched API responses with structured convergence metadata (`CONVERGED`, `DEGRADED`, etc.).
+- **Plan Summaries**: Included `ambiguous_count` and `has_ambiguous` in the plan summary for enhanced operator visibility.
+- **Schema Correction**: Fixed a mapping bug in pool GUID parsing from `state.yaml`.
+- **Hardened Testing**: Added automated verification for all v6 storage management invariants (GUID parsing, path validation, ambiguity detection).
 - **Audit Key Initialization**: Resolved an issue where the audit signing key was not correctly generated on fresh installs.
 - **YAML Key Ordering**: Ensured deterministic serialization of the GitOps state to prevent false diffs.
 

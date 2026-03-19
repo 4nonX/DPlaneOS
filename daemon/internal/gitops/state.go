@@ -1099,6 +1099,7 @@ func mapToPool(m map[string]yamlNode) (DesiredPool, error) {
 	if a := strField(m, "ashift"); a != "" {
 		fmt.Sscanf(a, "%d", &p.Ashift)
 	}
+	p.GUID = strField(m, "guid")
 
 	if disksRaw, ok := m["disks"]; ok {
 		disks, err := toStringSlice(disksRaw, "disks")

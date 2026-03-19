@@ -48,7 +48,8 @@ type ApplyResult struct {
 	Duration   time.Duration
 	Status      string        // OK, DEGRADED, FAILED
 	HaltReason  string        // why the plan stopped (e.g. "blocked", "io-error")
-	Convergence string        // CONVERGED, DEGRADED, NOT_CONVERGED, ERROR
+	// Convergence indicates the post-apply state: CONVERGED, DEGRADED, NOT_CONVERGED, ERROR
+	Convergence string `json:"convergence"`
 }
 
 // ApplyContext carries everything the apply engine needs without global state.
@@ -1098,11 +1099,11 @@ func ConvergenceCheck(db *sql.DB, desired *DesiredState) (string, error) {
 
 	if driftCount == 0 {
 		if plan.BlockedCount > 0 {
-			return "DEGRADED", nil // Safe changes applied, but blocked/ambiguous items remain
+			// Safe changes applied, but blocked items remain
+			return "DEGRADED", nil
 		}
 		return "CONVERGED", nil
 	}
 
 	return "NOT_CONVERGED", nil
 }
-

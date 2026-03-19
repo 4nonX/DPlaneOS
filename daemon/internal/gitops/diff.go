@@ -129,7 +129,9 @@ type Plan struct {
 	ModifyCount  int        `json:"modify_count"`
 	DeleteCount  int        `json:"delete_count"`
 	BlockedCount int        `json:"blocked_count"`
+	AmbiguousCount int     `json:"ambiguous_count"`
 	NopCount     int        `json:"nop_count"`
+	HasAmbiguous bool       `json:"has_ambiguous"`
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -740,8 +742,8 @@ func ComputeDiff(desired *DesiredState, live *LiveState) *Plan {
 			plan.BlockedCount++
 			plan.HasBlocked = true
 		case ActionAmbiguous:
-			plan.BlockedCount++ // Treat ambiguous as a specialized blocked/unfixable state
-			plan.HasBlocked = true
+			plan.AmbiguousCount++
+			plan.HasAmbiguous = true
 		case ActionNOP:
 			plan.NopCount++
 		}
