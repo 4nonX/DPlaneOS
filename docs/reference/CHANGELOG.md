@@ -27,7 +27,11 @@ Upgrade from: v6.0.1 - Drop-in. `sudo bash install.sh --upgrade`
 - **Convergence Visibility**: Enriched API responses with structured convergence metadata (`CONVERGED`, `DEGRADED`, etc.).
 - **Plan Summaries**: Included `ambiguous_count` and `has_ambiguous` in the plan summary for enhanced operator visibility.
 - **Schema Correction**: Fixed a mapping bug in pool GUID parsing from `state.yaml`.
-- **Hardened Testing**: Added automated verification for all v6 storage management invariants (GUID parsing, path validation, ambiguity detection).
+- **Hardened Testing**: Added automated unit tests for GUID parsing and ambiguity detection, and implemented a comprehensive **Fleet & Install CI** pipeline covering fresh installs, idempotency, and multi-node fleet simulations.
+### Quality Gaps Addressed (v6.0.2 Polish)
+- [x] **Diff Engine Halt**: Implemented early return in `ComputeDiff` for ambiguous states.
+- [x] **Convergence Correctness**: Updated `ConvergenceCheck` to correctly include `ActionDelete` in drift calculations.
+- [x] **CLI Automation**: Added `-diff` and `-convergence-check` flags to `dplaned` for CI/CD integration.
 - **Audit Key Initialization**: Resolved an issue where the audit signing key was not correctly generated on fresh installs.
 - **YAML Key Ordering**: Ensured deterministic serialization of the GitOps state to prevent false diffs.
 

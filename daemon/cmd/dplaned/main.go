@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
@@ -51,6 +52,8 @@ func main() {
 	haLocalAddr := flag.String("ha-local-addr", "", "HTTP address peers use to reach this daemon, e.g. http://10.0.0.1:5050")
 	gitopsStatePath := flag.String("gitops-state", "/var/lib/dplaneos/gitops/state.yaml", "Path to GitOps state.yaml (managed by git repo)")
 	applyOnly := flag.Bool("apply", false, "Apply GitOps state and exit (Phase 3.1)")
+	diffOnly := flag.Bool("diff", false, "Output reconciliation plan as JSON and exit")
+	convergenceCheck := flag.Bool("convergence-check", false, "Verify if system has converged and exit (CONVERGED|NOT_CONVERGED)")
 	testSerialization := flag.Bool("test-serialization", false, "Verify state.yaml round-trip (Phase 4.1)")
 	testIdempotency := flag.Bool("test-idempotency", false, "Verify Apply(S); Apply(S) results in zero diff (Phase 4.2)")
 	flag.Parse()
@@ -93,6 +96,56 @@ func main() {
 			log.Fatalf("Apply failed: %v (Status: %s, Reason: %s)", err, result.Status, result.HaltReason)
 		}
 		log.Printf("GITOPS: Apply complete! Applied: %v", result.Applied)
+		os.Exit(0)
+	}
+
+	if *diffOnly {
+		db, err := sql.Open("sqlite3", *dbPath)
+		if err != nil {
+			log.Fatalf("DB failed: %v", err)
+		}
+		// Initialize database schema (safe on every call)
+		if err := initSchema(db); err != nil {
+			log.Fatalf("Database schema initialization failed: %v", err)
+		}
+		content, err := os.ReadFile(*gitopsStatePath)
+		if err != nil {
+			log.Fatalf("Read failed: %v", err)
+		}
+		desired, err := gitops.ParseStateYAML(string(content))
+		if err != nil {
+			log.Fatalf("Parse failed: %v", err)
+		}
+		live, _ := gitops.ReadLiveState(db)
+		plan := gitops.ComputeDiff(desired, live)
+		out, _ := json.MarshalIndent(plan, "", "  ")
+		fmt.Println(string(out))
+		os.Exit(0)
+	}
+
+	if *convergenceCheck {
+		db, err := sql.Open("sqlite3", *dbPath)
+		if err != nil {
+			log.Fatalf("DB failed: %v", err)
+		}
+		// Initialize database schema (safe on every call)
+		if err := initSchema(db); err != nil {
+			log.Fatalf("Database schema initialization failed: %v", err)
+		}
+		content, err := os.ReadFile(*gitopsStatePath)
+		if err != nil {
+			log.Fatalf("Read failed: %v", err)
+		}
+		desired, err := gitops.ParseStateYAML(string(content))
+		if err != nil {
+			log.Fatalf("Parse failed: %v", err)
+		}
+		status, err := gitops.ConvergenceCheck(db, desired)
+		if err != nil {
+			fmt.Printf("ERROR: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Println(status)
 		os.Exit(0)
 	}
 
