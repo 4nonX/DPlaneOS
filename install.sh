@@ -371,6 +371,13 @@ chown root:root /var/lib/dplaneos/custom_icons
 chmod 755 /var/lib/dplaneos/custom_icons
 log "Files installed to $INSTALL_DIR"
 
+# ── Universal Script Sanitization ─────────────────────────────────────────────
+# Fixes CRLF (Windows) and UTF-8 BOMs which cause shebang failures in CI/Linux
+info "Sanitizing install scripts (LF conversion + BOM removal)..."
+find "${INSTALL_DIR}/install" -type f -name "*.sh" -exec sed -i 's/\r$//' {} +
+find "${INSTALL_DIR}/install" -type f -name "*.sh" -exec sed -i '1s/^\xef\xbb\xbf//' {} +
+find "${INSTALL_DIR}/install" -type f -name "*.sh" -exec chmod +x {} +
+
 INSTALL_PHASE=5
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -929,29 +936,9 @@ fi
 # Record ZFS pool list for boot gate
 if command -v zpool &>/dev/null; then
     CURRENT_POOLS=$(zpool list -H -o name 2>/dev/null || true)
-    if [ -n "$CURRENT_POOLS" ]; then
-        # Mark all scripts executable BEFORE starting any services
-        for script in \
-            zfs-mount-wait.sh \
-            init-database-with-lock.sh \
-            validate-db-schema.sh \
-            post-install-validation.sh \
-            dplaneos-watchdog.sh \
-            notify-device-added.sh \
-            notify-device-removed.sh \
-            notify-disk-added.sh \
-            notify-disk-removed.sh; do
-            if [ -f "${INSTALL_DIR}/install/scripts/${script}" ]; then
-                # Ensure LF line endings (prevents shebang errors on Windows checkouts)
-                sed -i 's/\r$//' "${INSTALL_DIR}/install/scripts/${script}" 2>/dev/null || true
-                chmod +x "${INSTALL_DIR}/install/scripts/${script}"
-                log "install/scripts/${script} marked executable (LF)"
-            fi
-        done
-
+        # Record ZFS pool list for boot gate
         { echo "# Auto-generated $(date)"; echo "$CURRENT_POOLS"; } > /etc/dplaneos/expected-pools.conf
         log "ZFS pools recorded: $(echo "$CURRENT_POOLS" | tr '\n' ' ')"
-    fi
 fi
 
 systemctl daemon-reload
