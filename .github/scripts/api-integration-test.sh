@@ -12,7 +12,6 @@ LOOP2=$(sudo losetup --find --show /tmp/vdisk2.img)
 
 echo "--- Creating Test ZFS Pool ---"
 sudo zpool create testpool mirror $LOOP0 $LOOP1
-sudo zpool add testpool spare $LOOP2
 
 # USE LOCAL DB FOR CI RELIABILITY
 DB_PATH="$(pwd)/ci-integration.db"
@@ -30,6 +29,8 @@ pools:
       - $LOOP0
       - $LOOP1
 datasets:
+  - name: testpool
+    mountpoint: /mnt/testpool
   - name: testpool/ci-enforcement
     mountpoint: /mnt/testpool/ci-enforcement
 EOF
@@ -46,7 +47,7 @@ sudo ./dplaned-ci --db "$DB_PATH" --gitops-state /tmp/state.yaml --test-idempote
 echo "--- Starting Daemon ---"
 sudo ./dplaned-ci --listen 127.0.0.1:9000 --db "$DB_PATH" --gitops-state /tmp/state.yaml > /tmp/dplaned-ci.log 2>&1 &
 PID=$!
-trap "sudo kill $PID || true; sudo zpool destroy testpool || true; sudo losetup -d $LOOP0 $LOOP1 $LOOP2 || true" EXIT
+trap "sudo kill $PID || true; sudo zpool destroy testpool || true; sudo losetup -d $LOOP0 $LOOP1 || true" EXIT
 
 # Wait for daemon
 for i in {1..20}; do
