@@ -1,4 +1,4 @@
-name: D-PlaneOS CI/CD
+name: D-PlaneOS Unified CI/CD
 
 on:
   push:
@@ -14,10 +14,10 @@ permissions:
 
 jobs:
   # ════════════════════════════════════════════════════════════════════════════
-  # STAGE 1: PREPARE - Build Frontend & Daemon once
+  # STAGE 1: PREPARE - Build & Verify
   # ════════════════════════════════════════════════════════════════════════════
   prepare:
-    name: Build & Package
+    name: Build & Verify
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout
@@ -30,37 +30,71 @@ jobs:
           cache: 'npm'
           cache-dependency-path: app-react/package-lock.json
       
-      - name: Build frontend
+      - name: Install frontend dependencies
         working-directory: app-react
-        run: |
-          npm ci
-          npm run build
+        run: npm ci
       
+      - name: TypeScript typecheck
+        working-directory: app-react
+        run: npx tsc --noEmit
+      
+      - name: Verify app/ bundle is up to date
+        run: |
+          cd app-react
+          npm run build
+          cd ..
+          CHANGED=$(git diff --name-only -- app/)
+          NEW=$(git ls-files --others --exclude-standard -- app/)
+          DELETED=$(git ls-files --deleted -- app/)
+          if [ -n "$CHANGED" ] || [ -n "$NEW" ] || [ -n "$DELETED" ]; then
+            echo "ERROR: committed app/ bundle is stale - these files differ after rebuilding."
+            echo "Run 'npm run build' in app-react/ and commit the updated app/ directory."
+            exit 1
+          fi
+
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
           go-version-file: daemon/go.mod
           cache-dependency-path: daemon/go.sum
       
-      - name: Build daemon
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y gcc libc6-dev sqlite3 gcc-aarch64-linux-gnu
+
+      - name: Build binaries (amd64 & arm64)
         working-directory: daemon
         run: |
-          CGO_ENABLED=1 go build -tags sqlite_fts5 -ldflags="-s -w" -o ../build/dplaned ./cmd/dplaned/
+          mkdir -p ../build
+          CGO_ENABLED=1 go build -tags sqlite_fts5 -ldflags="-s -w" -o ../build/dplaned-linux-amd64 ./cmd/dplaned/
+          GOOS=linux GOARCH=arm64 CGO_ENABLED=1 CC=aarch64-linux-gnu-gcc go build -tags sqlite_fts5 -ldflags="-s -w" -o ../build/dplaned-linux-arm64 ./cmd/dplaned/
       
       - name: Upload Build Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: dplaneos-build
           path: |
-            build/dplaned
+            build/
             app/
             install/
             install.sh
+            get.sh
+            Makefile
             VERSION
+            LICENSE
+            README.md
+            CONTRIBUTING.md
+            CLA-ENTITY.md
+            CLA-INDIVIDUAL.md
+            SECURITY.md
             CHANGELOG.md
+            docs/
+            nixos/
+            .github/scripts/
 
   # ════════════════════════════════════════════════════════════════════════════
-  # STAGE 2: VALIDATE - API Integration Tests (from validate.yml)
+  # STAGE 2: VALIDATE - Full API Integration Tests
   # ════════════════════════════════════════════════════════════════════════════
   validate:
     name: API Integration Tests
@@ -69,7 +103,7 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        
+      
       - name: Download Build Artifacts
         uses: actions/download-artifact@v4
         with:
@@ -78,54 +112,27 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y gcc libc6-dev zfsutils-linux sqlite3 python3-bcrypt curl nfs-kernel-server acl ufw
+          sudo apt-get install -y gcc libc6-dev zfsutils-linux sqlite3 python3-bcrypt curl nfs-kernel-server acl ufw ipmitool
           sudo modprobe zfs
       
-      - name: Create loopback ZFS pool
+      - name: Run API Test Suite
+        env:
+          CI_PASS: "CiAdmin1!Test"
         run: |
-          sudo truncate -s 512M /tmp/v0.img /tmp/v1.img /tmp/v2.img
-          L0=$(sudo losetup --find --show /tmp/v0.img)
-          L1=$(sudo losetup --find --show /tmp/v1.img)
-          L2=$(sudo losetup --find --show /tmp/v2.img)
-          sudo zpool create -f testpool raidz1 "$L0" "$L1" "$L2"
-          sudo zfs set acltype=posixacl testpool
-      
-      - name: Initialise database
-        run: |
-          sudo mkdir -p /var/lib/dplaneos
-          sudo bash install/scripts/init-database-with-lock.sh
-      
-      - name: Run API Tests
-        run: |
-          chmod +x build/dplaned
-          # [Full API Test logic would normally go here - I'll keep the core structure]
-          # Start daemon
-          sudo mkdir -p /opt/dplaneos /var/log/dplaneos /etc/dplaneos
-          sudo cp build/dplaned /opt/dplaneos/daemon/dplaned
-          sudo cp -r app /opt/dplaneos/app
-          
-          # Seed user
-          CI_PASS="CiAdmin1!Test"
-          CI_HASH=$(python3 -c "import bcrypt; print(bcrypt.hashpw(b'$CI_PASS', bcrypt.gensalt(rounds=10)).decode())")
-          sudo sqlite3 /var/lib/dplaneos/dplaneos.db "UPDATE users SET password_hash='$CI_HASH', active=1, role='admin', must_change_password=0 WHERE username='admin';"
-          
-          # Run daemon for API tests
-          sudo /opt/dplaneos/daemon/dplaned -db /var/lib/dplaneos/dplaneos.db -listen 127.0.0.1:9000 &
-          sleep 5
-          curl -sf http://127.0.0.1:9000/health | grep -q '"ok"'
-          echo "API Validation PASSED"
+          chmod +x .github/scripts/api-integration-test.sh
+          bash .github/scripts/api-integration-test.sh
 
   # ════════════════════════════════════════════════════════════════════════════
-  # STAGE 3: INTEGRATE - install.sh & Fleet (from fleet-install.yml)
+  # STAGE 3: INTEGRATE - Full Fleet & Install Tests
   # ════════════════════════════════════════════════════════════════════════════
   integration:
-    name: Fresh Install & Fleet Test
-    needs: prepare
+    name: Fleet & Install Tests
+    needs: [prepare, validate]
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        
+      
       - name: Download Build Artifacts
         uses: actions/download-artifact@v4
         with:
@@ -137,84 +144,84 @@ jobs:
           sudo apt-get install -y zfsutils-linux sqlite3 python3-bcrypt curl nginx nfs-kernel-server samba acl ufw
           sudo modprobe zfs
       
-      - name: Fresh install test
+      - name: Run Fleet/Install Suite
+        env:
+          CI_PASS: "CiAdmin1!Test"
         run: |
-          sudo truncate -s 512M /tmp/inst0.img /tmp/inst1.img
-          L0=$(sudo losetup --find --show /tmp/inst0.img)
-          L1=$(sudo losetup --find --show /tmp/inst1.img)
-          sudo zpool create -f installpool mirror "$L0" "$L1"
-          # Use our hardened install.sh
-          # Make bin directory so lookups work
-          sudo mkdir -p build/linux-amd64
-          sudo cp build/dplaned build/linux-amd64/dplaned
-          sudo bash install.sh --unattended --port 9300
-          systemctl is-active dplaned || (journalctl -xe -u dplaned --no-pager | tail -50; exit 1)
-          
-      - name: Fleet simulation
-        run: |
-          # Provision Node A and Node B
-          sudo truncate -s 512M /tmp/a0.img /tmp/a1.img
-          LA0=$(sudo losetup --find --show /tmp/a0.img)
-          LA1=$(sudo losetup --find --show /tmp/a1.img)
-          sudo zpool create -f nodeapool mirror "$LA0" "$LA1"
-          GUID_A=$(sudo zpool list -H -o guid nodeapool)
-          
-          # Convergence test Node A
-          cat > /tmp/state-node-a.yaml <<EOF
-          version: "1"
-          pools:
-            - name: nodeapool
-              guid: "$GUID_A"
-              disks: ["$LA0", "$LA1"]
-          datasets:
-            - name: nodeapool/data
-              mountpoint: /mnt/node-a/data
-          shares:
-            - name: node-a-data
-              path: /mnt/node-a/data
-          EOF
-          
-          # Apply
-          sudo mkdir -p /var/lib/node-a
-          sudo DPLANEOS_DB=/var/lib/node-a/dplaneos.db bash install/scripts/init-database-with-lock.sh
-          # Use the dplaned binary from build/ direct for apply
-          chmod +x build/dplaned
-          sudo ./build/dplaned -apply -db /var/lib/node-a/dplaneos.db -gitops-state /tmp/state-node-a.yaml -smb-conf /tmp/smb-node-a.conf
-          
-          # Verify convergence
-          CONV=$(sudo ./build/dplaned -convergence-check -db /var/lib/node-a/dplaneos.db -gitops-state /tmp/state-node-a.yaml 2>&1)
-          echo "Node A Convergence: $CONV"
-          echo "$CONV" | grep -q "CONVERGED" || (echo "FAILED: $CONV"; exit 1)
-          echo "Fleet simulation PASSED"
+          chmod +x .github/scripts/fleet-integration-test.sh
+          bash .github/scripts/fleet-integration-test.sh
 
   # ════════════════════════════════════════════════════════════════════════════
-  # STAGE 4: RELEASE - Automated Build & Publish
+  # STAGE 4: RELEASE - Professional Build & Publish
   # ════════════════════════════════════════════════════════════════════════════
   release:
-    name: GitHub Release
+    name: Build & Publish Release
     needs: [validate, integration]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-22.04
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      
       - name: Download Build Artifacts
         uses: actions/download-artifact@v4
         with:
           name: dplaneos-build
       
-      - name: Create Release Tarball
+      - name: Extract release names and title
         run: |
-          TAG=${GITHUB_REF_NAME}
-          # Normalize build artifact location
-          mkdir -p daemon/build
-          cp build/dplaned daemon/dplaned
-          tar -czf dplaneos-${TAG}.tar.gz install.sh app/ install/ VERSION CHANGELOG.md daemon/dplaned
-      
+          VERSION=$(cat VERSION | tr -d '[:space:]')
+          python3 .github/scripts/extract-release-notes.py "$VERSION" docs/reference/CHANGELOG.md > /tmp/release-notes.md
+          HEADER=$(grep "^## v\?${VERSION}" docs/reference/CHANGELOG.md | head -1)
+          CODENAME=$(echo "$HEADER" | sed 's/.*- "\(.*\)"/\1/' || echo "Release")
+          DATE=$(echo "$HEADER" | grep -oP '\d{4}-\d{2}-\d{2}' | head -1 || date +%Y-%m-%d)
+          RELEASE_TITLE="v${VERSION} (${DATE}) - \"${CODENAME}\""
+          echo "RELEASE_TITLE=$RELEASE_TITLE" >> $GITHUB_ENV
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+
+      - name: Package release tarballs
+        run: |
+          # amd64
+          AMD64_TARBALL="dplaneos-v${VERSION}-linux-amd64.tar.gz"
+          cp build/dplaned-linux-amd64 build/dplaned
+          tar czf "$AMD64_TARBALL" --transform="s|^|dplaneos-v${VERSION}/|" \
+            --exclude='*.bak' --exclude='.git' \
+            app/ build/dplaned daemon/ install/ nixos/ docs/ \
+            .github/ .gitattributes .gitignore install.sh get.sh Makefile VERSION LICENSE README.md CONTRIBUTING.md \
+            CLA-ENTITY.md CLA-INDIVIDUAL.md SECURITY.md
+          
+          # arm64
+          ARM64_TARBALL="dplaneos-v${VERSION}-linux-arm64.tar.gz"
+          cp build/dplaned-linux-arm64 build/dplaned
+          tar czf "$ARM64_TARBALL" --transform="s|^|dplaneos-v${VERSION}/|" \
+            --exclude='*.bak' --exclude='.git' \
+            app/ build/dplaned daemon/ install/ nixos/ docs/ \
+            .github/ .gitattributes .gitignore install.sh get.sh Makefile VERSION LICENSE README.md CONTRIBUTING.md \
+            CLA-ENTITY.md CLA-INDIVIDUAL.md SECURITY.md
+          
+          echo "AMD64_TARBALL=$AMD64_TARBALL" >> $GITHUB_ENV
+          echo "ARM64_TARBALL=$ARM64_TARBALL" >> $GITHUB_ENV
+
+      - name: Generate SHA256 checksums
+        run: |
+          sha256sum "$AMD64_TARBALL" > "$AMD64_TARBALL.sha256"
+          sha256sum "$ARM64_TARBALL" > "$ARM64_TARBALL.sha256"
+          echo "AMD64_SHA=$AMD64_TARBALL.sha256" >> $GITHUB_ENV
+          echo "ARM64_SHA=$ARM64_TARBALL.sha256" >> $GITHUB_ENV
+
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: dplaneos-*.tar.gz
+          tag_name: ${{ github.ref_name }}
+          name: ${{ env.RELEASE_TITLE }}
+          body_path: /tmp/release-notes.md
+          files: |
+            ${{ env.AMD64_TARBALL }}
+            ${{ env.AMD64_SHA }}
+            ${{ env.ARM64_TARBALL }}
+            ${{ env.ARM64_SHA }}
           draft: false
           prerelease: false
-          generate_release_notes: true
+          make_latest: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
