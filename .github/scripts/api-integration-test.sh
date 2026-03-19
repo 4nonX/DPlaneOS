@@ -201,17 +201,17 @@ assert_json "Login with non-existent user fails" "$(api POST /api/auth/login '{"
 
 # 3. RBAC / USERS
 # List users
-USERS=$(api GET /api/users)
-assert_array "List users returns array" "$USERS" "data"
+USERS=$(api GET /api/rbac/users)
+assert_array "List users returns array" "$USERS" "users"
 assert_json "Admin user present in list" "$USERS" "success" "true"
 
 # Create user
-assert_json "Create user succeeds" "$(api POST /api/users '{"username":"ci-user","password":"CiUser1!Test","email":"ci@dplane.local","role":"user"}')" "success" "true"
-assert_json "User ci-user exists in list" "$(api GET /api/users)" "success" "true"
+assert_json "Create user succeeds" "$(api POST /api/rbac/users '{"action":"create","username":"ci-user","password":"CiUser1!Test","email":"ci@dplane.local","role":"user"}')" "success" "true"
+assert_json "User ci-user exists in list" "$(api GET /api/rbac/users)" "success" "true"
 
 # List roles & permissions
-assert_array "List roles returns array" "$(api GET /api/rbac/roles)" "data"
-assert_array "List permissions returns array" "$(api GET /api/rbac/permissions)" "data"
+assert_array "List roles returns array" "$(api GET /api/rbac/roles)" "roles"
+assert_array "List permissions returns array" "$(api GET /api/rbac/permissions)" "permissions"
 
 # 4. ZFS (ADVANCED)
 sleep 2
@@ -227,7 +227,7 @@ sudo zfs list -t snapshot testpool/api-test@ci-snap-1 >/dev/null && ok "Snapshot
 
 # List snapshots
 SNAPS=$(api GET "/api/zfs/snapshots?dataset=testpool/api-test")
-assert_array "List snapshots returns array" "$SNAPS" "data"
+assert_array "List snapshots returns array" "$SNAPS" "snapshots"
 
 # 5. ACL / FILE MANAGER
 # Mountpoint is /mnt/testpool/api-test
@@ -241,23 +241,25 @@ assert_json "FM: chmod" "$(api POST /api/files/chmod '{"path":"/mnt/testpool/fm-
 [ "$(sudo stat -c %a /mnt/testpool/fm-test/hello.txt)" = "600" ] && ok "FM: chmod verified" || fail "FM: chmod failed"
 
 # 6. SMB SHARES
-assert_json "Create SMB share" "$(api POST /api/shares '{"name":"ci-share","path":"/mnt/testpool/api-test","read_only":false,"guest_ok":true,"comment":"CI Test Share"}')" "success" "true"
+assert_json "Create SMB share" "$(api POST /api/shares "{\"action\":\"create\",\"name\":\"ci-share\",\"path\":\"/mnt/testpool/api-test\",\"read_only\":false,\"guest_ok\":true,\"comment\":\"CI Test Share\"}")" "success" "true"
 assert_json "SMB share in list" "$(api GET /api/shares)" "success" "true"
-[ -f /var/lib/dplaneos/smb-shares.conf ] && grep -q "\[ci-share\]" /var/lib/dplaneos/smb-shares.conf && ok "Share in smb-shares.conf" || fail "Share missing from config file"
+[ -f /tmp/smb.conf ] && grep -q "\[ci-share\]" /tmp/smb.conf && ok "Share in smb-shares.conf" || fail "Share missing from config file"
 
 # 7. NFS EXPORTS
-assert_json "Create NFS export" "$(api POST /api/nfs '{"path":"/mnt/testpool/api-test","clients":"*","options":"rw,sync,no_subtree_check","enabled":true}')" "success" "true"
-assert_json "NFS export in list" "$(api GET /api/nfs)" "success" "true"
-[ -f /etc/exports ] && grep -q "/mnt/testpool/api-test" /etc/exports && ok "Export in /etc/exports" || fail "Export missing from /etc/exports"
+assert_json "Create NFS export" "$(api POST /api/nfs/exports '{"path":"/mnt/testpool/api-test","clients":"*","options":"rw,sync,no_subtree_check","enabled":true}')" "success" "true"
+assert_json "NFS export in list" "$(api GET /api/nfs/exports)" "success" "true"
+# /etc/exports check might fail if not root, but daemon runs as sudo and we can check it
+sudo grep -q "/mnt/testpool/api-test" /etc/exports && ok "Export in /etc/exports" || fail "Export missing from /etc/exports"
 
 # 8. DOCKER (STUB)
 # Just verify endpoints return success even if no stacks present
 assert_json "Docker stacks list" "$(api GET /api/docker/stacks)" "success" "true"
 
 # 9. NETWORKING & SYSTEM
-assert_json "List interfaces" "$(api GET /api/network/interfaces)" "success" "true"
-assert_json "Get hostname" "$(api GET /api/system/settings/hostname)" "success" "true"
-CUR_HOST=$(api GET /api/system/settings/hostname | python3 -c "import sys,json; print(json.load(sys.stdin).get('hostname',''))")
+assert_json "List interfaces" "$(api GET /api/system/network)" "success" "true"
+assert_array "Interfaces list returns array" "$(api GET /api/system/network)" "interfaces"
+assert_json "Get status" "$(api GET /api/system/status)" "success" "true"
+CUR_HOST=$(api GET /api/system/status | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('system_info',{}).get('hostname',''))")
 [ -n "$CUR_HOST" ] && ok "Current hostname: $CUR_HOST" || fail "Hostname empty"
 
 # 10. GITOPS
@@ -273,7 +275,7 @@ AUDIT=$(api GET /api/system/audit/verify-chain)
 assert_json "Audit chain verified" "$AUDIT" "valid" "true"
 
 assert_json "Logout succeeds" "$(api POST /api/auth/logout '{}')" "success" "true"
-assert_json "Auth check after logout fails" "$(api GET /api/rbac/me)" "success" "false"
+assert_json "Auth check after logout fails" "$(api GET /api/auth/check)" "success" "false"
 
 # --- SUMMARY ---
 echo ""
