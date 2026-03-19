@@ -916,7 +916,7 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/var/log/dplaneos /var/lib/dplaneos /opt/dplaneos /etc/dplaneos /run/dplaneos /etc/crontab /etc/exports -/etc/exports.d -/etc/systemd/network /etc/samba /mnt -/tank -/data -/media /tmp /home -/etc/modprobe.d -/etc/sysctl.d /etc/nginx/sites-available /etc/nginx/sites-enabled /usr/local/bin -/etc/iscsi /etc/ssh
+ReadWritePaths=/var/log/dplaneos /var/lib/dplaneos /opt/dplaneos /etc/dplaneos /run/dplaneos /etc/crontab -/etc/exports -/etc/exports.d -/etc/systemd/network -/etc/samba -/mnt -/tank -/data -/media /tmp -/home -/etc/modprobe.d -/etc/sysctl.d -/etc/nginx/sites-available -/etc/nginx/sites-enabled /usr/local/bin -/etc/iscsi -/etc/ssh
 AmbientCapabilities=CAP_SYS_ADMIN CAP_NET_ADMIN CAP_DAC_READ_SEARCH CAP_CHOWN CAP_FOWNER
 CapabilityBoundingSet=CAP_SYS_ADMIN CAP_NET_ADMIN CAP_DAC_READ_SEARCH CAP_CHOWN CAP_FOWNER
 StandardOutput=journal
@@ -955,8 +955,6 @@ if systemctl restart dplaned; then
         && log "dplaned running and healthy" \
         || die "dplaned started but health check failed - check: journalctl -xe -u dplaned"
 else
-    warn "dplaned failed to start. Journal logs:"
-    journalctl -n 50 -u dplaned --no-pager || true
     die "dplaned did not start - check: journalctl -xe -u dplaned"
 fi
 
