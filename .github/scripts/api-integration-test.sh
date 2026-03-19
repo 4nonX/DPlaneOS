@@ -16,6 +16,8 @@ sudo zpool add testpool spare $LOOP2
 
 echo "--- Initializing Database ---"
 sudo bash install/scripts/init-database-with-lock.sh --db /tmp/dplaneos.db
+sudo chmod 666 /tmp/dplaneos.db
+ls -l /tmp/dplaneos.db
 
 echo "--- v6: Deterministic Bootstrap (-apply) ---"
 # Seed the state file for Phase 1

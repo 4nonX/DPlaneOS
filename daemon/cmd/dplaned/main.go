@@ -62,7 +62,7 @@ func main() {
 	if *applyOnly {
 		log.Printf("GITOPS: Running one-off apply from %s", *gitopsStatePath)
 		// 1. Open DB
-		db, err := sql.Open("sqlite3", *dbPath)
+		db, err := sql.Open("sqlite3", *dbPath+"?_journal_mode=WAL&_busy_timeout=30000&cache=shared&_cache_size=-65536&_wal_autocheckpoint=1000&_synchronous=FULL")
 		if err != nil {
 			log.Fatalf("Failed to open database: %v", err)
 		}
@@ -100,7 +100,7 @@ func main() {
 	}
 
 	if *diffOnly {
-		db, err := sql.Open("sqlite3", *dbPath)
+		db, err := sql.Open("sqlite3", *dbPath+"?_journal_mode=WAL&_busy_timeout=30000&cache=shared&_cache_size=-65536&_wal_autocheckpoint=1000&_synchronous=FULL")
 		if err != nil {
 			log.Fatalf("DB failed: %v", err)
 		}
@@ -124,7 +124,7 @@ func main() {
 	}
 
 	if *convergenceCheck {
-		db, err := sql.Open("sqlite3", *dbPath)
+		db, err := sql.Open("sqlite3", *dbPath+"?_journal_mode=WAL&_busy_timeout=30000&cache=shared&_cache_size=-65536&_wal_autocheckpoint=1000&_synchronous=FULL")
 		if err != nil {
 			log.Fatalf("DB failed: %v", err)
 		}
@@ -176,7 +176,7 @@ func main() {
 
 	if *testIdempotency {
 		log.Printf("COMPLIANCE: Testing idempotency of %s", *gitopsStatePath)
-		db, err := sql.Open("sqlite3", *dbPath)
+		db, err := sql.Open("sqlite3", *dbPath+"?_journal_mode=WAL&_busy_timeout=30000&cache=shared&_cache_size=-65536&_wal_autocheckpoint=1000&_synchronous=FULL")
 		if err != nil {
 			log.Fatalf("DB failed: %v", err)
 		}
