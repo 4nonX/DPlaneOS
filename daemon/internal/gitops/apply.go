@@ -46,8 +46,9 @@ type ApplyResult struct {
 	Failed     string        // name of the item that caused a halt (empty if all succeeded)
 	Error      error         // the error from the failed item
 	Duration   time.Duration
-	Status     string        // OK, DEGRADED, FAILED
-	HaltReason string        // why the plan stopped (e.g. "blocked", "io-error")
+	Status      string        // OK, DEGRADED, FAILED
+	HaltReason  string        // why the plan stopped (e.g. "blocked", "io-error")
+	Convergence string        // CONVERGED, DEGRADED, NOT_CONVERGED, ERROR
 }
 
 // ApplyContext carries everything the apply engine needs without global state.
@@ -123,6 +124,14 @@ func ApplyPlan(ctx ApplyContext, plan *Plan, desired *DesiredState) (*ApplyResul
 			}
 			result.Applied = append(result.Applied, fmt.Sprintf("[APPROVED] DELETE %s %s", item.Kind, item.Name))
 
+		case ActionAmbiguous:
+			result.Failed = item.Name
+			result.Status = "FAILED"
+			result.HaltReason = "ambiguous-state"
+			result.Error = fmt.Errorf("system state is AMBIGUOUS for %s %q: %s", item.Kind, item.Name, item.BlockReason)
+			result.Duration = time.Since(start)
+			return result, result.Error
+
 		case ActionCreate:
 			if err := executeCreate(ctx, item); err != nil {
 				result.Failed = item.Name
@@ -159,8 +168,19 @@ func ApplyPlan(ctx ApplyContext, plan *Plan, desired *DesiredState) (*ApplyResul
 	}
 
 	result.Status = "OK"
+
+	// Gap 5: Post-apply convergence check
+	conv, err := ConvergenceCheck(ctx.DB, desired)
+	if err != nil {
+		log.Printf("GITOPS APPLY: convergence check failed: %v", err)
+		result.Convergence = "ERROR"
+	} else {
+		result.Convergence = conv
+	}
+
 	result.Duration = time.Since(start)
-	log.Printf("GITOPS APPLY: complete - %d items applied in %s", len(result.Applied), result.Duration)
+	log.Printf("GITOPS APPLY: complete - %d items applied in %s (Convergence: %s)",
+		len(result.Applied), result.Duration, result.Convergence)
 	return result, nil
 }
 
@@ -1039,8 +1059,50 @@ func checkDataReadiness(desired *DesiredState) error {
 		if strings.TrimSpace(string(out)) != "yes" {
 			return fmt.Errorf("dataset %q is not mounted - cannot start docker stacks", d.Name)
 		}
+
+		// v6.0.1: Verify the mountpoint path matches exactly what is expected.
+		// Docker bind-mounts depend on the actual path being correct.
+		if d.Mountpoint != "" {
+			pathOut, err := cmdutil.RunZFS("zfs", "get", "-H", "-o", "value", "mountpoint", d.Name)
+			if err != nil {
+				return fmt.Errorf("verifying mountpoint path for %q: %w", d.Name, err)
+			}
+			actualPath := strings.TrimSpace(string(pathOut))
+			if actualPath != d.Mountpoint {
+				return fmt.Errorf("dataset %q mountpoint drift: expected %q but is actually %q - fix this via gitops apply (MODIFY phase) first",
+					d.Name, d.Mountpoint, actualPath)
+			}
+		}
 	}
 
 	return nil
+}
+
+// ConvergenceCheck re-reads the live state and computes a new plan to see if
+// the system has successfully reached the desired state.
+func ConvergenceCheck(db *sql.DB, desired *DesiredState) (string, error) {
+	live, err := ReadLiveState(db)
+	if err != nil {
+		return "FAILED", fmt.Errorf("live state read failed during convergence check: %w", err)
+	}
+
+	plan := ComputeDiff(desired, live)
+
+	// If there are any CREATE/MODIFY actions or non-BLOCKED DELETEs, we haven't converged.
+	driftCount := 0
+	for _, item := range plan.Items {
+		if item.Action == ActionCreate || item.Action == ActionModify || item.Action == ActionAmbiguous {
+			driftCount++
+		}
+	}
+
+	if driftCount == 0 {
+		if plan.BlockedCount > 0 {
+			return "DEGRADED", nil // Safe changes applied, but blocked/ambiguous items remain
+		}
+		return "CONVERGED", nil
+	}
+
+	return "NOT_CONVERGED", nil
 }
 

@@ -224,7 +224,7 @@ func TestComputeDiff_AllNOP(t *testing.T) {
 	desired := &DesiredState{
 		Version: "1",
 		Datasets: []DesiredDataset{
-			{Name: "tank/data", Compression: "lz4", Atime: "off"},
+			{Name: "tank/data", Compression: "lz4", Atime: "off", Mountpoint: "/mnt/data"},
 		},
 		Shares: []DesiredShare{
 			{Name: "media", Path: "/mnt/data", ReadOnly: false},
@@ -232,7 +232,7 @@ func TestComputeDiff_AllNOP(t *testing.T) {
 	}
 	live := &LiveState{
 		Datasets: []LiveDataset{
-			{Name: "tank/data", Compression: "lz4", Atime: "off"},
+			{Name: "tank/data", Compression: "lz4", Atime: "off", Mountpoint: "/mnt/data"},
 		},
 		Shares: []LiveShare{
 			{Name: "media", Path: "/mnt/data", ReadOnly: false, Enabled: true},

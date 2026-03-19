@@ -59,6 +59,11 @@ const (
 	// users. Requires explicit human approval before it can be applied.
 	// See: BlockReason for the specific reason.
 	ActionBlocked DiffAction = "BLOCKED"
+
+	// ActionAmbiguous - the live system is in an unexpected or degenerate state
+	// (e.g. duplicate pool names) that makes automated action unsafe.
+	// Requires manual resolution on the host.
+	ActionAmbiguous DiffAction = "AMBIGUOUS"
 )
 
 // ResourceKind identifies what type of resource a DiffItem describes.
@@ -141,12 +146,20 @@ func ComputeDiff(desired *DesiredState, live *LiveState) *Plan {
 
 	// Build lookup maps for O(1) access
 	livePools := make(map[string]LivePool)
+	ambiguousPools := make(map[string]bool)
 	for _, p := range live.Pools {
+		if _, exists := livePools[p.Name]; exists {
+			ambiguousPools[p.Name] = true
+		}
 		livePools[p.Name] = p
 	}
 
 	liveDatasets := make(map[string]LiveDataset)
+	ambiguousDatasets := make(map[string]bool)
 	for _, d := range live.Datasets {
+		if _, exists := liveDatasets[d.Name]; exists {
+			ambiguousDatasets[d.Name] = true
+		}
 		liveDatasets[d.Name] = d
 	}
 
@@ -214,6 +227,35 @@ func ComputeDiff(desired *DesiredState, live *LiveState) *Plan {
 	for _, r := range desired.Replication {
 		desiredRepls[r.Name] = r
 	}
+
+	// ── Phase -1: AMBIGUITY Detection ─────────────────────────────────────────
+	// If the live state is ambiguous (e.g. two pools with the same name),
+	// we must halt before doing anything else.
+	for name := range ambiguousPools {
+		plan.Items = append(plan.Items, DiffItem{
+			Kind:   KindPool,
+			Name:   name,
+			Action: ActionAmbiguous,
+			BlockReason: fmt.Sprintf(
+				"Multiple pools found with name %q. Automated GitOps cannot safely distinguish "+
+					"between them. Please resolve the name collision manually (e.g. by exporting or renaming one).",
+				name,
+			),
+			RiskLevel: "critical",
+		})
+	}
+	for name := range ambiguousDatasets {
+		plan.Items = append(plan.Items, DiffItem{
+			Kind:   KindDataset,
+			Name:   name,
+			Action: ActionAmbiguous,
+			BlockReason: fmt.Sprintf(
+				"Multiple datasets found with name %q. This state is degenerate and requires manual investigation.",
+				name,
+			),
+			RiskLevel: "critical",
+		})
+	}
  
 	// ── Phase 0: SYSTEM configuration ─────────────────────────────────────────
 	if desired.System != nil {
@@ -279,6 +321,29 @@ func ComputeDiff(desired *DesiredState, live *LiveState) *Plan {
 	for _, ds := range desired.Shares {
 		if _, exists := liveShares[ds.Name]; !exists {
 			item := ds // copy
+			// Gap 4: Validate that the share path points to a known dataset mountpoint.
+			// This prevents "dangling shares" and ensures proper ordering.
+			datasetFound := false
+			for _, dd := range desired.Datasets {
+				if dd.Mountpoint != "" && ds.Path == dd.Mountpoint {
+					datasetFound = true
+					break
+				}
+			}
+			if !datasetFound {
+				plan.Items = append(plan.Items, DiffItem{
+					Kind:   KindShare,
+					Name:   ds.Name,
+					Action: ActionBlocked,
+					BlockReason: fmt.Sprintf(
+						"Share %q path %q does not correspond to any managed dataset's mountpoint. "+
+							"Every share must have a backing dataset to ensure data persistence and correct boot ordering.",
+						ds.Name, ds.Path,
+					),
+					RiskLevel: "high",
+				})
+				continue
+			}
 			plan.Items = append(plan.Items, DiffItem{
 				Kind:         KindShare,
 				Name:         ds.Name,
@@ -292,6 +357,27 @@ func ComputeDiff(desired *DesiredState, live *LiveState) *Plan {
 	for _, dn := range desired.NFS {
 		if _, exists := liveNFS[dn.Path]; !exists {
 			item := dn // copy
+			// Gap 4: Validation for NFS paths
+			datasetFound := false
+			for _, dd := range desired.Datasets {
+				if dd.Mountpoint != "" && dn.Path == dd.Mountpoint {
+					datasetFound = true
+					break
+				}
+			}
+			if !datasetFound {
+				plan.Items = append(plan.Items, DiffItem{
+					Kind:   KindNFS,
+					Name:   dn.Path,
+					Action: ActionBlocked,
+					BlockReason: fmt.Sprintf(
+						"NFS export path %q does not correspond to any managed dataset's mountpoint.",
+						dn.Path,
+					),
+					RiskLevel: "high",
+				})
+				continue
+			}
 			plan.Items = append(plan.Items, DiffItem{
 				Kind:       KindNFS,
 				Name:       dn.Path,
@@ -410,6 +496,29 @@ func ComputeDiff(desired *DesiredState, live *LiveState) *Plan {
 		if !exists {
 			continue
 		}
+
+		// Gap 4: Validation for modified shares too
+		datasetFound := false
+		for _, dd := range desired.Datasets {
+			if dd.Mountpoint != "" && ds.Path == dd.Mountpoint {
+				datasetFound = true
+				break
+			}
+		}
+		if !datasetFound {
+			plan.Items = append(plan.Items, DiffItem{
+				Kind:   KindShare,
+				Name:   ds.Name,
+				Action: ActionBlocked,
+				BlockReason: fmt.Sprintf(
+					"Share %q path %q does not correspond to any managed dataset's mountpoint.",
+					ds.Name, ds.Path,
+				),
+				RiskLevel: "high",
+			})
+			continue
+		}
+
 		changes := diffShare(ds, ls)
 		if len(changes) == 0 {
 			plan.Items = append(plan.Items, DiffItem{
@@ -629,6 +738,9 @@ func ComputeDiff(desired *DesiredState, live *LiveState) *Plan {
 			plan.DeleteCount++
 		case ActionBlocked:
 			plan.BlockedCount++
+			plan.HasBlocked = true
+		case ActionAmbiguous:
+			plan.BlockedCount++ // Treat ambiguous as a specialized blocked/unfixable state
 			plan.HasBlocked = true
 		case ActionNOP:
 			plan.NopCount++

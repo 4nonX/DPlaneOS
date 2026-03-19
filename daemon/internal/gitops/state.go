@@ -106,6 +106,7 @@ type DesiredPool struct {
 	VdevType string            `yaml:"vdev_type"` // mirror, raidz, raidz2, raidz3, "" (stripe)
 	Disks    []string          `yaml:"disks"`
 	Ashift   int               `yaml:"ashift"`   // 0 = auto
+	GUID     string            `yaml:"guid,omitempty"`
 	Options  map[string]string `yaml:"options"`  // pool-level zpool set properties
 }
 
@@ -480,6 +481,9 @@ func PrintStateYAML(s *DesiredState) string {
 			}
 			if p.Ashift != 0 {
 				fmt.Fprintf(&b, "    ashift: %d\n", p.Ashift)
+			}
+			if p.GUID != "" {
+				fmt.Fprintf(&b, "    guid: %s\n", p.GUID)
 			}
 			if len(p.Options) > 0 {
 				b.WriteString("    options:\n")

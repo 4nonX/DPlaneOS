@@ -6,9 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ---
 
-## v6.0.1 (2026-03-19) : "Enforcement Mode"
+## v6.0.2 (2026-03-19) : "Deterministic Integrity"
 
-Upgrade from: v6.0.0 - Drop-in. `sudo bash install.sh --upgrade`
+Upgrade from: v6.0.1 - Drop-in. `sudo bash install.sh --upgrade`
 
 ### Added
 - **Hardened Deterministic Bootstrap**: Introduced the `-apply` flag for `dplaned`, enabling one-off GitOps reconciliation during initial system setup.
@@ -16,10 +16,21 @@ Upgrade from: v6.0.0 - Drop-in. `sudo bash install.sh --upgrade`
 - **Data Readiness Enforcement**: Stacks and workloads are now blocked from starting until dependent ZFS datasets are verified as mounted and ready.
 - **Audit Chain Integrity API**: New endpoint `/api/system/audit/verify-chain` for real-time cryptographic verification of the audit log chain.
 - **CI/CD Alignment**: Hardened the validation pipeline with automated enforcement of v6 invariants on every push.
+- **Convergence Engine**: Introduced post-apply state verification that re-reads live system status to confirm the desired `state.yaml` configuration was successfully reached.
 
 ### Fixed
+- **Gap 1: Pool Import Safety**: Switched from name-based to GUID-based `zpool import` to prevent accidental mis-imports on systems with overlapping pool names or renamed pools.
+- **Gap 2: Ambiguous State Detection**: The GitOps engine now detects and blocks reconciliation if multiple pools or datasets with the same name are found, requiring manual intervention for safety.
+- **Gap 3 & 6: Strict Mountpoint Verification**: Enhanced the data-readiness gate to verify not just mount status, but exact mountpath accuracy, preventing accidental data writes to the root partition if ZFS drifts.
+- **Gap 4: Share-Dataset Cross-Validation**: Declarative SMB shares and NFS exports are now cross-referenced against managed ZFS datasets to ensure every share has a valid, managed backing mountpoint.
 - **Audit Key Initialization**: Resolved an issue where the audit signing key was not correctly generated on fresh installs.
 - **YAML Key Ordering**: Ensured deterministic serialization of the GitOps state to prevent false diffs.
+
+---
+
+## v6.0.1 (2026-03-19) : "Enforcement Mode"
+
+(Skipped or superseded by v6.0.2)
 
 ---
 

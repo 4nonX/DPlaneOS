@@ -1,4 +1,4 @@
-﻿package handlers
+package handlers
 
 // disk_event_handler.go - D-PlaneOS disk lifecycle events
 //
@@ -173,7 +173,7 @@ func attemptPoolImport(disk DiskInfo) {
 
 	// For each importable pool, check whether we have a registry record tying
 	// this disk's serial/by-id to a known pool.
-	for _, poolName := range importablePools {
+	for poolName, poolGUID := range importablePools {
 		alreadyFaulted := false
 		for _, fp := range faultedPools {
 			if fp == poolName {
@@ -203,8 +203,9 @@ func attemptPoolImport(disk DiskInfo) {
 			continue
 		}
 
-		log.Printf("DISK EVENT: attempting import of pool %q (disk /dev/%s added)", poolName, disk.Name)
-		importResult, importErr := runWithTimeout(2*time.Minute, "zpool", "import", "-d", "/dev/disk/by-id", poolName)
+		log.Printf("DISK EVENT: attempting import of pool %q (GUID %s, disk /dev/%s added)", poolName, poolGUID, disk.Name)
+		// Import by GUID is much safer than name-based import as names can collide or change.
+		importResult, importErr := runWithTimeout(2*time.Minute, "zpool", "import", "-d", "/dev/disk/by-id", "-g", poolGUID)
 		if importErr != nil {
 			log.Printf("DISK EVENT: pool import %q failed: %v - %s", poolName, importErr, strings.TrimSpace(string(importResult)))
 		} else {
@@ -436,19 +437,25 @@ func parseFaultedPools(statusOutput string) []string {
 }
 
 // parseImportablePools parses the output of `zpool import -d /dev/disk/by-id`
-// and returns the pool names that could be imported.
-func parseImportablePools(importOutput string) []string {
-	var pools []string
+// and returns a map of pool name → pool guid for importable pools.
+func parseImportablePools(importOutput string) map[string]string {
+	result := make(map[string]string)
+	currentPool := ""
 	for _, line := range strings.Split(importOutput, "\n") {
 		trimmed := strings.TrimSpace(line)
 		if strings.HasPrefix(trimmed, "pool:") {
-			name := strings.TrimSpace(strings.TrimPrefix(trimmed, "pool:"))
-			if name != "" {
-				pools = append(pools, name)
+			currentPool = strings.TrimSpace(strings.TrimPrefix(trimmed, "pool:"))
+			continue
+		}
+		if currentPool != "" && strings.HasPrefix(trimmed, "id:") {
+			guid := strings.TrimSpace(strings.TrimPrefix(trimmed, "id:"))
+			if guid != "" {
+				result[currentPool] = guid
 			}
+			currentPool = ""
 		}
 	}
-	return pools
+	return result
 }
 
 // parsePoolHealthSummary returns a map of poolName → state string extracted

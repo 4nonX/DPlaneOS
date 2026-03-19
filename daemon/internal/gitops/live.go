@@ -22,7 +22,8 @@ import (
 // LivePool is the observed state of a ZFS pool.
 type LivePool struct {
 	Name   string
-	Health string // ONLINE, DEGRADED, FAULTED, UNAVAIL, REMOVED
+	GUID   string
+	Health string   // ONLINE, DEGRADED, FAULTED, UNAVAIL, REMOVED
 	Disks  []string // /dev/disk/by-id/... paths from `zpool status`
 }
 
@@ -168,8 +169,8 @@ func ReadLiveState(db *sql.DB) (*LiveState, error) {
 // readLivePools reads pool state via `zpool list` and disk membership via
 // `zpool status` to extract /dev/disk/by-id/ paths.
 func readLivePools() ([]LivePool, error) {
-	// Pool list: name and health
-	out, err := cmdutil.RunZFS("zpool", "list", "-H", "-o", "name,health")
+	// Pool list: name, health, and guid
+	out, err := cmdutil.RunZFS("zpool", "list", "-H", "-o", "name,health,guid")
 	if err != nil {
 		return nil, fmt.Errorf("zpool list: %w", err)
 	}
@@ -177,12 +178,13 @@ func readLivePools() ([]LivePool, error) {
 	var pools []LivePool
 	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
 		fields := strings.Fields(line)
-		if len(fields) < 2 {
+		if len(fields) < 3 {
 			continue
 		}
 		pools = append(pools, LivePool{
 			Name:   fields[0],
 			Health: fields[1],
+			GUID:   fields[2],
 		})
 	}
 
