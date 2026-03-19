@@ -955,7 +955,10 @@ if systemctl restart dplaned; then
         && log "dplaned running and healthy" \
         || die "dplaned started but health check failed - check: journalctl -xe -u dplaned"
 else
-    die "dplaned did not start - check: journalctl -xe -u dplaned"
+    warn "dplaned failed to start. Diagnostics:"
+    systemctl status dplaned --no-pager || true
+    journalctl -n 50 -u dplaned --no-pager || true
+    die "dplaned did not start - check above logs"
 fi
 
 # Phase 12.5: GitOps Auto-Apply
