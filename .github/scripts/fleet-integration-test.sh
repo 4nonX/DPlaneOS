@@ -62,8 +62,13 @@ COMP=$(sudo zfs get -H -o value compression gitopspool/data)
 [ "$COMP" = "lz4" ] && ok "Drift corrected (lz4)" || fail "Drift correction failed: $COMP"
 
 # Cleanup Phase 3 pool to avoid interference with declarative Node A/B in Phase 4
-sudo zpool destroy -f gitopspool
-sudo losetup -d "$LOOP0" "$LOOP1"
+# Multi-stage forceful cleanup because of persistent Ubuntu runner unmount failures
+sudo zfs unmount -f gitopspool/data || true
+sudo zfs unmount -f gitopspool || true
+sudo umount -l /mnt/gitops/data || true
+sudo umount -l /mnt/gitops || true
+sudo zpool destroy -f gitopspool || true
+sudo losetup -d "$LOOP0" "$LOOP1" || true
 
 echo "--- Phase 4: Fleet Simulation (Multi-Node) ---"
 # Node A
