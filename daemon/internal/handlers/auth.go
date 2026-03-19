@@ -1,4 +1,4 @@
-﻿package handlers
+package handlers
 
 import (
 	"crypto/rand"
@@ -13,6 +13,7 @@ import (
 	"time"
 	"unicode"
 
+	"dplaned/internal/audit"
 	ldapinternal "dplaned/internal/ldap"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -537,10 +538,7 @@ func (h *AuthHandler) CSRFToken(w http.ResponseWriter, r *http.Request) {
 // --- Helpers ---
 
 func (h *AuthHandler) auditLog(user, action, details, ip string) {
-	h.db.Exec(
-		`INSERT INTO audit_logs (user, action, details, ip_address) VALUES (?, ?, ?, ?)`,
-		user, action, details, ip,
-	)
+	audit.LogAction(action, user, details, true, 0)
 }
 
 func isAlphanumericDash(s string) bool {
@@ -686,4 +684,3 @@ func (h *AuthHandler) CleanExpiredSessions() {
 		log.Printf("Cleaned %d expired sessions", count)
 	}
 }
-
