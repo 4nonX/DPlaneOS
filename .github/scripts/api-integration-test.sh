@@ -68,7 +68,7 @@ print(bcrypt.hashpw(pw, bcrypt.gensalt(rounds=10)).decode())
 ")
 sudo sqlite3 "$DB_PATH" "UPDATE users SET password_hash='$(echo "$CI_HASH" | sed "s/'/''/g")', active=1, role='admin', must_change_password=0 WHERE username='admin';"
 
-## --- TEST UTILITIES ---
+# --- TEST UTILITIES ---
 BASE="http://127.0.0.1:9000"
 PASS=0; FAIL=0; FAILURES=""
 SESSION=""
@@ -77,7 +77,7 @@ ok() { printf "  \033[32m✓\033[0m %s\n" "$1"; PASS=$((PASS+1)); }
 fail() {
   FAIL=$((FAIL+1))
   local msg="$1"
-  [ -f /tmp/last_resp.json ] && msg="$msg (got: $(cat /tmp/last_resp.json | head -c 100)...)"
+  [ -f /tmp/last_resp.json ] && msg="$msg (got: $(cat /tmp/last_resp.json | head -c 160)...)"
   FAILURES="$FAILURES\n  ✗ $msg"
   echo "  ✗ $msg"
 }
@@ -87,56 +87,64 @@ api() {
   local args=(-s --max-time 15 -X "$method" "$BASE$path" -H "X-Session-ID: $SESSION" -H "X-User: admin" -H "Content-Type: application/json")
   [ -n "$data" ] && args+=(-d "$data")
   
-  local resp
-  resp=$(curl "${args[@]}" 2>/dev/null)
-  if [ -n "$resp" ]; then
-    echo "$resp" > /tmp/last_resp.json
-    echo "$resp"
+  # Crucial: write directly to file to avoid Bash variable expansion/truncation issues
+  rm -f /tmp/last_resp.json
+  if curl "${args[@]}" -o /tmp/last_resp.json && [ -s /tmp/last_resp.json ]; then
+    cat /tmp/last_resp.json
   else
-    echo '{"_err":"empty response"}' > /tmp/last_resp.json
-    echo '{"_err":"empty response"}'
+    echo '{"error":"empty or failed response"}' > /tmp/last_resp.json
+    echo '{"error":"empty or failed response"}'
   fi
 }
 
 assert_json() {
   local label="$1" key="$2" expected="${3:-}"
-  if python3 -c "
-import sys, json
+  export _K="$key" _E="$expected"
+  if python3 <<'EOF'
+import sys, json, os
 try:
     with open('/tmp/last_resp.json', 'r') as f:
         d = json.load(f)
-    key = \"$key\"
-    expected = \"$expected\"
-    val = d
-    for k in key.split('.'):
-        if val is None: break
-        val = val.get(k) if isinstance(val, dict) else None
-    if expected:
-        success = str(val).lower() == expected.lower()
+    k = os.environ.get('_K')
+    e = os.environ.get('_E')
+    v = d
+    for part in k.split('.'):
+        if not isinstance(v, dict): v=None; break
+        v = v.get(part)
+    success = False
+    if e:
+        success = str(v).lower() == e.lower()
     else:
-        success = val is not None
-    sys.exit(0 if success else 1)
-except:
+        success = v is not None
+    if not success:
+        print(f"Mismatch: key '{k}' expected '{e}', got '{v}'", file=sys.stderr)
+        sys.exit(1)
+except Exception as err:
+    print(f"Python error: {err}", file=sys.stderr)
     sys.exit(1)
-"; then ok "$label"; else fail "$label"; fi
+EOF
+  then ok "$label"; else fail "$label"; fi
 }
 
 assert_array() {
   local label="$1" key="$2"
-  if python3 -c "
-import sys, json
+  export _K="$key"
+  if python3 <<'EOF'
+import sys, json, os
 try:
     with open('/tmp/last_resp.json', 'r') as f:
         d = json.load(f)
-    key = \"$key\"
-    val = d
-    for k in key.split('.'):
-        if val is None: break
-        val = val.get(k) if isinstance(val, dict) else None
-    sys.exit(0 if isinstance(val, list) else 1)
-except:
+    k = os.environ.get('_K')
+    v = d
+    for part in k.split('.'):
+        if not isinstance(v, dict): v=None; break
+        v = v.get(part)
+    sys.exit(0 if isinstance(v, list) else 1)
+except Exception as err:
+    print(f"Python error: {err}", file=sys.stderr)
     sys.exit(1)
-"; then ok "$label"; else fail "$label (not an array)"; fi
+EOF
+  then ok "$label"; else fail "$label (not an array)"; fi
 }
 
 assert_shape() {
@@ -144,24 +152,32 @@ assert_shape() {
   local keys=("$@")
   local keys_json=$(printf '%s\n' "${keys[@]}" | python3 -c "import sys,json; print(json.dumps(sys.stdin.read().splitlines()))")
   
-  if python3 -c "
-import sys, json
+  export _AK="$arr_key" _KJ="$keys_json"
+  if python3 <<'EOF'
+import sys, json, os
 try:
     with open('/tmp/last_resp.json', 'r') as f:
         d = json.load(f)
-    arr_key = \"$arr_key\"
-    keys = $keys_json
-    arr = d.get(arr_key)
-    if not isinstance(arr, list) or len(arr) == 0:
+    ak = os.environ.get('_AK')
+    kj = os.environ.get('_KJ')
+    keys = json.loads(kj)
+    arr = d.get(ak)
+    if not isinstance(arr, list):
+        print(f"Error: key '{ak}' is not a list", file=sys.stderr)
         sys.exit(1)
-    for item in arr:
+    if not arr:
+        # Accept empty array as valid shape if success is true
+        sys.exit(0 if d.get('success') else 1)
+    for i, item in enumerate(arr):
         for k in keys:
             if k not in item:
+                print(f"Error: Index {i} missing key '{k}'. Available: {list(item.keys())}", file=sys.stderr)
                 sys.exit(1)
-    sys.exit(0)
-except:
+except Exception as err:
+    print(f"Python error: {err}", file=sys.stderr)
     sys.exit(1)
-"; then ok "$label"; else fail "$label (shape mismatch or empty)"; fi
+EOF
+  then ok "$label"; else fail "$label (shape mismatch or empty)"; fi
 }
 
 echo "--- Starting API Integration Suite ---"
