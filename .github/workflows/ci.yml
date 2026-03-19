@@ -23,6 +23,16 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
       
+      - name: Check for Syncthing conflict files
+        run: |
+          CONFLICTS=$(find . -name '.sync-conflict-*.go' 2>/dev/null | head -20 || true)
+          if [ -n "$CONFLICTS" ]; then
+            echo "ERROR: Syncthing conflict files found - would cause duplicate symbol build failures:"
+            echo "$CONFLICTS"
+            exit 1
+          fi
+          echo "No Syncthing conflict files found."
+
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
@@ -58,11 +68,6 @@ jobs:
           go-version-file: daemon/go.mod
           cache-dependency-path: daemon/go.sum
       
-      - name: Install build dependencies
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y gcc libc6-dev sqlite3 gcc-aarch64-linux-gnu
-
       - name: Build binaries (amd64 & arm64)
         working-directory: daemon
         run: |
@@ -77,21 +82,6 @@ jobs:
           path: |
             build/
             app/
-            install/
-            install.sh
-            get.sh
-            Makefile
-            VERSION
-            LICENSE
-            README.md
-            CONTRIBUTING.md
-            CLA-ENTITY.md
-            CLA-INDIVIDUAL.md
-            SECURITY.md
-            CHANGELOG.md
-            docs/
-            nixos/
-            .github/scripts/
 
   # ════════════════════════════════════════════════════════════════════════════
   # STAGE 2: VALIDATE - Full API Integration Tests
@@ -168,16 +158,25 @@ jobs:
         with:
           name: dplaneos-build
       
+      - name: Verify VERSION file matches tag
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          FILE_VERSION="$(cat VERSION | tr -d '[:space:]')"
+          if [ "$FILE_VERSION" != "$VERSION" ]; then
+            echo "ERROR: VERSION file ($FILE_VERSION) does not match tag ($VERSION)"
+            exit 1
+          fi
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          echo "Version match: $VERSION"
+
       - name: Extract release names and title
         run: |
-          VERSION=$(cat VERSION | tr -d '[:space:]')
           python3 .github/scripts/extract-release-notes.py "$VERSION" docs/reference/CHANGELOG.md > /tmp/release-notes.md
           HEADER=$(grep "^## v\?${VERSION}" docs/reference/CHANGELOG.md | head -1)
           CODENAME=$(echo "$HEADER" | sed 's/.*- "\(.*\)"/\1/' || echo "Release")
           DATE=$(echo "$HEADER" | grep -oP '\d{4}-\d{2}-\d{2}' | head -1 || date +%Y-%m-%d)
           RELEASE_TITLE="v${VERSION} (${DATE}) - \"${CODENAME}\""
           echo "RELEASE_TITLE=$RELEASE_TITLE" >> $GITHUB_ENV
-          echo "VERSION=$VERSION" >> $GITHUB_ENV
 
       - name: Package release tarballs
         run: |
@@ -220,7 +219,7 @@ jobs:
             ${{ env.AMD64_SHA }}
             ${{ env.ARM64_TARBALL }}
             ${{ env.ARM64_SHA }}
-          draft: false
+          draft: true
           prerelease: false
           make_latest: true
         env:

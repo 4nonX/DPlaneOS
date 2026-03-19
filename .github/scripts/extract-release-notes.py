@@ -1,47 +1,38 @@
-﻿import re, os
+import sys
+import os
+import re
 
-version = os.environ["GITHUB_REF_NAME"]   # e.g. "v3.3.1"
-repo    = os.environ["GITHUB_REPOSITORY"]
+def extract_notes(version, changelog_path):
+    if not os.path.exists(changelog_path):
+        return f"Changelog not found at {changelog_path}"
+    
+    with open(changelog_path, 'r', encoding='utf-8') as f:
+        content = f.read()
 
-with open("CHANGELOG.md") as f:
-    changelog = f.read()
-
-# Match "## v3.3.1" or "## 3.3.1" - CHANGELOG may include or omit the v prefix
-bare = version.lstrip("v")
-pattern = r"(## v?" + re.escape(bare) + r"[ \t].*?)(?=\n## |\Z)"
-match = re.search(pattern, changelog, re.DOTALL)
-
-if match:
+    # Match ## v6.0.2 (2026-03-09) - "Deterministic Integrity"
+    # or ## 6.0.2
+    pattern = rf'## v?{re.escape(version)}.*?\n(.*?)(?=\n## |$)'
+    match = re.search(pattern, content, re.DOTALL)
+    
+    if not match:
+        return f"Release notes for version {version} not found."
+    
     notes = match.group(1).strip()
-else:
-    notes = (
-        "See [CHANGELOG.md](https://github.com/" + repo + "/blob/main/CHANGELOG.md) "
-        "for release notes."
-    )
+    
+    # Append common installation instructions
+    notes += "\n\n---\n\n### Installation\n"
+    notes += "Upgrade existing install:\n"
+    notes += "```bash\nsudo bash install.sh --upgrade\n```\n"
+    notes += "Fresh install:\n"
+    notes += "```bash\ncurl -s https://get.dplaneos.com | sudo bash\n```\n"
+    
+    return notes
 
-notes += (
-    "\n\n---\n\n"
-    "## Installation\n\n"
-    "### Debian / Ubuntu\n"
-    "```bash\n"
-    "tar xzf dplaneos-" + version + ".tar.gz\n"
-    "cd dplaneos-" + version + "\n"
-    "sudo bash install.sh\n"
-    "```\n\n"
-    "### NixOS\n"
-    "```bash\n"
-    "tar xzf dplaneos-" + version + ".tar.gz\n"
-    "cd dplaneos-" + version + "/nixos\n"
-    "sudo bash setup-nixos.sh\n"
-    "sudo nixos-rebuild switch\n"
-    "```\n\n"
-    "### Verify checksum\n"
-    "```bash\n"
-    "sha256sum -c dplaneos-" + version + ".tar.gz.sha256\n"
-    "```\n"
-)
-
-with open("/tmp/release-notes.md", "w") as f:
-    f.write(notes)
-print("Extracted", len(notes), "chars for", version)
-
+if __name__ == "__main__":
+    if len(sys.argv) < 3:
+        print("Usage: python3 extract-release-notes.py <version> <changelog_path>")
+        sys.exit(1)
+    
+    ver = sys.argv[1].lstrip('v')
+    path = sys.argv[2]
+    print(extract_notes(ver, path))
