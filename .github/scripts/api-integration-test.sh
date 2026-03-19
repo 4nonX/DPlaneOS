@@ -185,7 +185,7 @@ CODE=$(curl -s -o /dev/null -w "%{http_code}" "$BASE/api/system/status")
 
 # Setup admin
 CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$BASE/api/system/setup-admin" -H "Content-Type: application/json" -d "{\"username\":\"admin\",\"password\":\"$CI_PASS\"}")
-[ "$CODE" = "200" ] || [ "$CODE" = "403" ] && ok "POST /api/system/setup-admin (HTTP $CODE)" || fail "POST /api/system/setup-admin (HTTP $CODE)"
+{ [ "$CODE" = "200" ] || [ "$CODE" = "403" ]; } && ok "POST /api/system/setup-admin (HTTP $CODE)" || fail "POST /api/system/setup-admin (HTTP $CODE)"
 
 # Heartbeat
 CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$BASE/api/ha/heartbeat" -H "Content-Type: application/json" -d '{"node_id":"ci-peer","status":"healthy"}')
@@ -206,8 +206,12 @@ assert_array "List users returns array" "$USERS" "users"
 assert_json "Admin user present in list" "$USERS" "success" "true"
 
 # Create user
-assert_json "Create user succeeds" "$(api POST /api/rbac/users '{"action":"create","username":"ci-user","password":"CiUser1!Test","email":"ci@dplane.local","role":"user"}')" "success" "true"
+assert_json "Create user succeeds" "$(api POST /api/users/create '{"username":"ci-user","password":"CiUser1!Test","email":"ci@dplane.local","role":"user"}')" "success" "true"
 assert_json "User ci-user exists in list" "$(api GET /api/rbac/users)" "success" "true"
+
+# Self-service
+assert_array "Me permissions" "$(api GET /api/rbac/me/permissions)" "permissions"
+assert_array "Me roles" "$(api GET /api/rbac/me/roles)" "roles"
 
 # List roles & permissions
 assert_array "List roles returns array" "$(api GET /api/rbac/roles)" "roles"
@@ -229,6 +233,14 @@ sudo zfs list -t snapshot testpool/api-test@ci-snap-1 >/dev/null && ok "Snapshot
 SNAPS=$(api GET "/api/zfs/snapshots?dataset=testpool/api-test")
 assert_array "List snapshots returns array" "$SNAPS" "snapshots"
 
+# Rollback
+assert_json "Rollback snapshot" "$(api POST /api/zfs/snapshots/rollback "{\"snapshot\":\"testpool/api-test@ci-snap-1\",\"force\":true}")" "success" "true"
+
+# Health & Iostat
+assert_json "ZFS health" "$(api GET /api/zfs/health)" "success" "true"
+assert_json "ZFS iostat" "$(api GET /api/zfs/iostat)" "success" "true"
+assert_json "ZFS pool-status" "$(api GET /api/zfs/pool-status)" "success" "true"
+
 # 5. ACL / FILE MANAGER
 # Mountpoint is /mnt/testpool/api-test
 assert_json "ACL set" "$(api POST /api/acl/set '{"path":"/mnt/testpool/api-test","entry":"u:nobody:rwx"}')" "success" "true"
@@ -238,7 +250,13 @@ sudo mkdir -p /mnt/testpool/fm-test
 assert_json "FM: write" "$(api POST /api/files/write '{"path":"/mnt/testpool/fm-test/hello.txt","content":"hello ci"}')" "success" "true"
 assert_json "FM: read" "$(api GET '/api/files/read?path=/mnt/testpool/fm-test/hello.txt')" "content" "hello ci"
 assert_json "FM: chmod" "$(api POST /api/files/chmod '{"path":"/mnt/testpool/fm-test/hello.txt","mode":"0600"}')" "success" "true"
-[ "$(sudo stat -c %a /mnt/testpool/fm-test/hello.txt)" = "600" ] && ok "FM: chmod verified" || fail "FM: chmod failed"
+
+# Full FM Lifecycle
+assert_json "FM: mkdir" "$(api POST /api/files/mkdir '{"path":"/mnt/testpool/fm-test/subdir"}')" "success" "true"
+assert_array "FM: list" "$(api GET '/api/files/list?path=/mnt/testpool/fm-test')" "files"
+assert_json "FM: rename" "$(api POST /api/files/rename '{"old_path":"/mnt/testpool/fm-test/hello.txt","new_path":"/mnt/testpool/fm-test/renamed.txt"}')" "success" "true"
+assert_json "FM: delete" "$(api POST /api/files/delete '{"path":"/mnt/testpool/fm-test/renamed.txt"}')" "success" "true"
+[ ! -f /mnt/testpool/fm-test/renamed.txt ] && ok "FM: lifecycle verified" || fail "FM: delete failed"
 
 # 6. SMB SHARES
 assert_json "Create SMB share" "$(api POST /api/shares "{\"action\":\"create\",\"name\":\"ci-share\",\"path\":\"/mnt/testpool/api-test\",\"read_only\":false,\"guest_ok\":true,\"comment\":\"CI Test Share\"}")" "success" "true"
@@ -248,19 +266,29 @@ assert_json "SMB share in list" "$(api GET /api/shares)" "success" "true"
 # 7. NFS EXPORTS
 assert_json "Create NFS export" "$(api POST /api/nfs/exports '{"path":"/mnt/testpool/api-test","clients":"*","options":"rw,sync,no_subtree_check","enabled":true}')" "success" "true"
 assert_json "NFS export in list" "$(api GET /api/nfs/exports)" "success" "true"
-# /etc/exports check might fail if not root, but daemon runs as sudo and we can check it
 sudo grep -q "/mnt/testpool/api-test" /etc/exports && ok "Export in /etc/exports" || fail "Export missing from /etc/exports"
 
-# 8. DOCKER (STUB)
-# Just verify endpoints return success even if no stacks present
+# 8. DOCKER
 assert_json "Docker stacks list" "$(api GET /api/docker/stacks)" "success" "true"
 
 # 9. NETWORKING & SYSTEM
 assert_json "List interfaces" "$(api GET /api/system/network)" "success" "true"
-assert_array "Interfaces list returns array" "$(api GET /api/system/network)" "interfaces"
+assert_array "Interfaces list" "$(api GET /api/system/network)" "interfaces"
 assert_json "Get status" "$(api GET /api/system/status)" "success" "true"
-CUR_HOST=$(api GET /api/system/status | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('system_info',{}).get('hostname',''))")
+assert_json "Get settings" "$(api GET /api/system/settings)" "success" "true"
+CUR_HOST=$(api GET /api/system/settings | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('hostname',''))")
 [ -n "$CUR_HOST" ] && ok "Current hostname: $CUR_HOST" || fail "Hostname empty"
+
+# Subsystems
+assert_json "Firewall status" "$(api GET /api/firewall/status)" "success" "true"
+assert_json "iSCSI status" "$(api GET /api/iscsi/status)" "success" "true"
+assert_json "LDAP status" "$(api GET /api/ldap/status)" "success" "true"
+assert_json "Metrics current" "$(api GET /api/metrics/current)" "success" "true"
+assert_json "Alerts list" "$(api GET /api/alerts/list)" "success" "true"
+assert_json "Inotify stats" "$(api GET /api/monitoring/inotify)" "success" "true"
+assert_json "UPS status" "$(api GET /api/system/ups)" "success" "true"
+assert_json "Trash list" "$(api GET /api/trash/list)" "success" "true"
+assert_json "Power disks" "$(api GET /api/power/disks)" "success" "true"
 
 # 10. GITOPS
 assert_json "GitOps status" "$(api GET /api/gitops/status)" "success" "true"

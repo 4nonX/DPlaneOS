@@ -14,7 +14,12 @@ set -e
 DB_PATH="/var/lib/dplaneos/dplaneos.db"
 LOCK_FILE="/run/dplaneos/db.lock"
 
-# Parse arguments
+# Environment override (check this FIRST so flags can override it)
+if [ -n "$DPLANEOS_DB" ]; then
+    DB_PATH="$DPLANEOS_DB"
+fi
+
+# Parse arguments (these override everything)
 while [[ "$#" -gt 0 ]]; do
     case "$1" in
         --db) 
@@ -26,11 +31,6 @@ while [[ "$#" -gt 0 ]]; do
     esac
     shift
 done
-
-# Environment override (if still set)
-if [ -n "$DPLANEOS_DB" ]; then
-    DB_PATH="$DPLANEOS_DB"
-fi
 
 LOCK_DIR=$(dirname "$LOCK_FILE")
 
