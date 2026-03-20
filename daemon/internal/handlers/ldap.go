@@ -1,4 +1,4 @@
-﻿package handlers
+package handlers
 
 import (
 	"database/sql"
@@ -182,7 +182,7 @@ func (h *LDAPHandler) SaveConfig(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Trigger GitOps commit
-	go gitops.CommitAll(h.db)
+	gitops.CommitAllAsync(h.db)
 
 	writeJSON(w, 200, ldapResp{Success: true, Warning: warning})
 }

@@ -141,7 +141,7 @@ func (h *ReplicationScheduleHandler) HandleCreateReplicationSchedule(w http.Resp
 	respondOK(w, map[string]interface{}{"success": true, "schedule": s})
 
 	// GITOPS HOOK: write state back to git
-	go gitops.CommitAll(h.db)
+	gitops.CommitAllAsync(h.db)
 }
 
 // HandleUpdateReplicationSchedule serves PUT /api/replication/schedules/{id}
@@ -308,7 +308,7 @@ func (h *ReplicationScheduleHandler) HandleRunReplicationScheduleNow(w http.Resp
 func launchReplicationJob(s ReplicationSchedule) string {
 	return jobs.Start("replication_schedule", func(j *jobs.Job) {
 		// Find the latest snapshot for the source dataset
-		snapOutput, err := executeCommandWithTimeout(TimeoutFast, "/usr/sbin/zfs",
+		snapOutput, err := executeCommandWithTimeout(TimeoutFast, "zfs",
 			[]string{"list", "-t", "snapshot", "-H", "-o", "name", "-s", "creation", "-r", s.SourceDataset})
 		if err != nil {
 			j.Fail(fmt.Sprintf("Failed to list snapshots for %s: %v", s.SourceDataset, err))

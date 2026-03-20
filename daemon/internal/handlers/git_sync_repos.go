@@ -546,14 +546,17 @@ func (h *GitReposHandler) PullRepo(w http.ResponseWriter, r *http.Request) {
 	os.MkdirAll(filepath.Dir(repo.LocalPath), 0755)
 
 	var out string
-	var gitErr error
-	if _, err := os.Stat(filepath.Join(repo.LocalPath, ".git")); err == nil {
-		out, gitErr = runGitInDir(repo.LocalPath, env, "pull", "--rebase", "origin", repo.Branch)
+	err = gitops.EnsureRepoRootDir(repo.LocalPath, repo.RepoURL, repo.Branch, env)
+	if err == nil {
+		// EnsureRepoRootDir only initializes/clones if missing. For an existing repo, we still need to pull.
+		var pout []byte
+		pout, err = cmdutil.RunInDirWithEnv(cmdutil.TimeoutMedium, repo.LocalPath, env, "git", "pull", "--rebase", "origin", repo.Branch)
+		out = string(pout)
 	} else {
-		out, gitErr = runGitGlobal(env, "clone", "--branch", repo.Branch, "--single-branch", repo.RepoURL, repo.LocalPath)
+		out = err.Error()
 	}
 
-	if gitErr != nil {
+	if err != nil {
 		h.db.Exec(`UPDATE git_sync_repos SET last_error=?, last_sync_at=? WHERE id=?`,
 			out, time.Now().Format(time.RFC3339), idStr)
 		respondJSON(w, 500, map[string]interface{}{"success": false, "error": out})
@@ -592,32 +595,11 @@ func (h *GitReposHandler) PushRepo(w http.ResponseWriter, r *http.Request) {
 	env := gitops.BuildPushEnvForRepoID(h.db, int64(repo.ID))
 	defer gitops.CleanupAskpass()
 
-	// Configure git identity
-	runGitInDir(repo.LocalPath, nil, "config", "user.name", repo.CommitName)
-	runGitInDir(repo.LocalPath, nil, "config", "user.email", repo.CommitEmail)
-
-	// Stage only the compose file (not entire repo) - validate path first
-	_, pathErr := validateComposePath(repo.LocalPath, repo.ComposePath)
-	if pathErr != nil {
-		respondJSON(w, 400, map[string]interface{}{"success": false, "error": "compose_path: " + pathErr.Error()})
-		return
-	}
-	runGitInDir(repo.LocalPath, nil, "add", repo.ComposePath)
-
-	commitOut, commitErr := runGitInDir(repo.LocalPath, nil, "commit", "-m", req.Message)
-	if commitErr != nil {
-		if strings.Contains(commitOut, "nothing to commit") {
-			respondJSON(w, 200, map[string]interface{}{"success": true, "message": "No changes to commit"})
-			return
-		}
-		respondJSON(w, 500, map[string]interface{}{"success": false, "error": "Commit failed: " + commitOut})
-		return
-	}
-
-	pushOut, pushErr := runGitInDir(repo.LocalPath, env, "push", "origin", repo.Branch)
+	// Use unified CommitAndPush which handles identity, staging, and pull-rebase
+	pushErr := gitops.CommitAndPush(repo.LocalPath, env, req.Message, repo.CommitName, repo.CommitEmail, repo.Branch)
 	if pushErr != nil {
-		respondJSON(w, 500, map[string]interface{}{"success": false, "error": "Push failed: " + pushOut,
-			"hint": "Check your repository permissions and network connection."})
+		respondJSON(w, 500, map[string]interface{}{"success": false, "error": pushErr.Error(),
+			"hint": "Check your repository permissions, identity settings, and network connection."})
 		return
 	}
 

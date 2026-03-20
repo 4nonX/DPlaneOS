@@ -78,6 +78,7 @@ in {
       ufw               # firewall management
       openssh
       git
+      targetcli-fb
       curl
       bash
       coreutils

@@ -43,7 +43,7 @@ func (h *NixOSGuardHandler) BackupConfig(w http.ResponseWriter, r *http.Request)
 	var repoURL, branch string
 	h.db.QueryRow(`SELECT repo_url, branch FROM git_sync_repos WHERE id=?`, repoID.Int64).Scan(&repoURL, &branch)
 
-	if err := gitops.EnsureRepoRootDir(nixDir, repoURL, branch); err != nil {
+	if err := gitops.EnsureRepoRootDir(nixDir, repoURL, branch, nil); err != nil {
 		respondJSON(w, 500, map[string]interface{}{"success": false, "error": "Failed to initialize Git in /etc/nixos: " + err.Error()})
 		return
 	}
@@ -52,7 +52,11 @@ func (h *NixOSGuardHandler) BackupConfig(w http.ResponseWriter, r *http.Request)
 	env := gitops.BuildPushEnvForRepoID(h.db, repoID.Int64)
 	defer gitops.CleanupAskpass()
 
-	if err := gitops.CommitAndPush(nixDir, env, "feat: NixOS configuration backup via D-PlaneOS"); err != nil {
+	// We use the same identity as the NixOS repo if set, otherwise default
+	var name, email string
+	h.db.QueryRow(`SELECT commit_name, commit_email FROM git_sync_repos WHERE id=?`, repoID.Int64).Scan(&name, &email)
+
+	if err := gitops.CommitAndPush(nixDir, env, "feat: NixOS configuration backup via D-PlaneOS", name, email, branch); err != nil {
 		respondJSON(w, 500, map[string]interface{}{"success": false, "error": err.Error()})
 		return
 	}
@@ -135,12 +139,12 @@ func (h *NixOSGuardHandler) ValidateConfig(w http.ResponseWriter, r *http.Reques
 	flakeNix := flakePath + "/flake.nix"
 	if _, statErr := os.Stat(flakeNix); statErr == nil {
 		// Flake-based system
-		output, err = executeCommand("/run/current-system/sw/bin/nixos-rebuild", []string{
+		output, err = executeCommand("nixos-rebuild", []string{
 			"dry-activate", "--flake", flakePath + "#dplaneos",
 		})
 	} else {
 		// Traditional configuration.nix
-		output, err = executeCommand("/run/current-system/sw/bin/nixos-rebuild", []string{
+		output, err = executeCommand("nixos-rebuild", []string{
 			"dry-activate",
 		})
 	}
@@ -174,7 +178,7 @@ func (h *NixOSGuardHandler) ListGenerations(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	output, err := executeCommand("/run/current-system/sw/bin/nix-env", []string{
+	output, err := executeCommand("nix-env", []string{
 		"--list-generations", "--profile", "/nix/var/nix/profiles/system",
 	})
 	if err != nil {
@@ -239,7 +243,7 @@ func (h *NixOSGuardHandler) RollbackGeneration(w http.ResponseWriter, r *http.Re
 
 	if req.Generation == "" {
 		// Simple rollback to previous
-		output, err = executeCommand("/run/current-system/sw/bin/nixos-rebuild", []string{
+		output, err = executeCommand("nixos-rebuild", []string{
 			"switch", "--rollback",
 		})
 	} else {
@@ -250,7 +254,7 @@ func (h *NixOSGuardHandler) RollbackGeneration(w http.ResponseWriter, r *http.Re
 				return
 			}
 		}
-		output, err = executeCommand("/run/current-system/sw/bin/nix-env", []string{
+		output, err = executeCommand("nix-env", []string{
 			"--switch-generation", req.Generation,
 			"--profile", "/nix/var/nix/profiles/system",
 		})

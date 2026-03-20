@@ -20,40 +20,40 @@ var CommandWhitelist = map[string]Command{
 	// ZFS Operations
 	"zfs_list": {
 		Name:        "zfs_list",
-		Path:        "/usr/sbin/zfs",
+		Path:        "zfs",
 		AllowedArgs: []string{"list", "-H", "-o", "name,used,avail,refer,mountpoint", "-t", "filesystem"},
 		Description: "List ZFS filesystems",
 	},
 	"zfs_get": {
 		Name:        "zfs_get",
-		Path:        "/usr/sbin/zfs",
+		Path:        "zfs",
 		AllowedArgs: []string{"get", "-H", "-o", "value"},
 		ArgPatterns: []*regexp.Regexp{regexp.MustCompile(`^[a-zA-Z0-9_\-\./:]+$`)}, // dataset name
 		Description: "Get ZFS property",
 	},
 	"zpool_list": {
 		Name:        "zpool_list",
-		Path:        "/usr/sbin/zpool",
+		Path:        "zpool",
 		AllowedArgs: []string{"list", "-H", "-o", "name,size,alloc,free,cap,health"},
 		Description: "List ZFS pools with capacity and health",
 	},
 	"zpool_status": {
 		Name:        "zpool_status",
-		Path:        "/usr/sbin/zpool",
+		Path:        "zpool",
 		AllowedArgs: []string{"status", "-P"},
 		ArgPatterns: []*regexp.Regexp{regexp.MustCompile(`^[a-zA-Z0-9_\-]+$`)}, // pool name
 		Description: "Get pool status",
 	},
 	"zpool_clear": {
 		Name:        "zpool_clear",
-		Path:        "/usr/sbin/zpool",
+		Path:        "zpool",
 		AllowedArgs: []string{"clear"},
 		ArgPatterns: []*regexp.Regexp{regexp.MustCompile(`^[a-zA-Z0-9_\-]+$`)}, // pool name
 		Description: "Clear device errors in ZFS pool",
 	},
 	"zpool_online": {
 		Name:        "zpool_online",
-		Path:        "/usr/sbin/zpool",
+		Path:        "zpool",
 		AllowedArgs: []string{"online"},
 		ArgPatterns: []*regexp.Regexp{
 			regexp.MustCompile(`^[a-zA-Z0-9_\-]+$`), // pool name
@@ -63,55 +63,55 @@ var CommandWhitelist = map[string]Command{
 	},
 	"zfs_create": {
 		Name:        "zfs_create",
-		Path:        "/usr/sbin/zfs",
+		Path:        "zfs",
 		AllowedArgs: []string{"create"},
 		ArgPatterns: []*regexp.Regexp{regexp.MustCompile(`^[a-zA-Z0-9_\-]+/[a-zA-Z0-9_\-/]+$`)}, // pool/dataset
 		Description: "Create ZFS dataset",
 	},
 	"zfs_destroy": {
 		Name:        "zfs_destroy",
-		Path:        "/usr/sbin/zfs",
+		Path:        "zfs",
 		AllowedArgs: []string{"destroy", "-r"},
 		ArgPatterns: []*regexp.Regexp{regexp.MustCompile(`^[a-zA-Z0-9_\-]+/[a-zA-Z0-9_\-/]+$`)},
 		Description: "Destroy ZFS dataset",
 	},
 	"zfs_snapshot": {
 		Name:        "zfs_snapshot",
-		Path:        "/usr/sbin/zfs",
+		Path:        "zfs",
 		AllowedArgs: []string{"snapshot"},
 		ArgPatterns: []*regexp.Regexp{regexp.MustCompile(`^[a-zA-Z0-9_\-]+/[a-zA-Z0-9_\-/]+@[a-zA-Z0-9_\-]+$`)},
 		Description: "Create ZFS snapshot",
 	},
 	"zfs_list_snapshots": {
 		Name:        "zfs_list_snapshots",
-		Path:        "/usr/sbin/zfs",
+		Path:        "zfs",
 		AllowedArgs: []string{"list", "-t", "snapshot", "-r"},
 		ArgPatterns: []*regexp.Regexp{regexp.MustCompile(`^[a-zA-Z0-9_\-]+(/[a-zA-Z0-9_\-/]+)?$`)},
 		Description: "List ZFS snapshots",
 	},
 	"zpool_create": {
 		Name:        "zpool_create",
-		Path:        "/usr/sbin/zpool",
+		Path:        "zpool",
 		AllowedArgs: []string{"create"},
 		Description: "Create ZFS pool (requires manual validation of remaining args)",
 	},
 	"zpool_destroy": {
 		Name:        "zpool_destroy",
-		Path:        "/usr/sbin/zpool",
+		Path:        "zpool",
 		AllowedArgs: []string{"destroy"},
 		ArgPatterns: []*regexp.Regexp{regexp.MustCompile(`^[a-zA-Z0-9_\-]+$`)},
 		Description: "Destroy ZFS pool",
 	},
 	"zpool_scrub": {
 		Name:        "zpool_scrub",
-		Path:        "/usr/sbin/zpool",
+		Path:        "zpool",
 		AllowedArgs: []string{"scrub"},
 		ArgPatterns: []*regexp.Regexp{regexp.MustCompile(`^[a-zA-Z0-9_\-]+$`)},
 		Description: "Start ZFS pool scrub",
 	},
 	"zpool_add_cache": {
 		Name:        "zpool_add_cache",
-		Path:        "/usr/sbin/zpool",
+		Path:        "zpool",
 		AllowedArgs: []string{"add"},
 		ArgPatterns: []*regexp.Regexp{
 			regexp.MustCompile(`^[a-zA-Z0-9_\-]+$`),  // pool name
@@ -122,7 +122,7 @@ var CommandWhitelist = map[string]Command{
 	},
 	"zpool_add_log": {
 		Name:        "zpool_add_log",
-		Path:        "/usr/sbin/zpool",
+		Path:        "zpool",
 		AllowedArgs: []string{"add"},
 		ArgPatterns: []*regexp.Regexp{
 			regexp.MustCompile(`^[a-zA-Z0-9_\-]+$`),  // pool name
@@ -133,7 +133,7 @@ var CommandWhitelist = map[string]Command{
 	},
 	"zpool_remove_device": {
 		Name:        "zpool_remove_device",
-		Path:        "/usr/sbin/zpool",
+		Path:        "zpool",
 		AllowedArgs: []string{"remove"},
 		ArgPatterns: []*regexp.Regexp{
 			regexp.MustCompile(`^[a-zA-Z0-9_\-]+$`),  // pool name
@@ -143,20 +143,20 @@ var CommandWhitelist = map[string]Command{
 	},
 	"zpool_import_scan": {
 		Name:        "zpool_import_scan",
-		Path:        "/usr/sbin/zpool",
+		Path:        "zpool",
 		AllowedArgs: []string{"import"},
 		Description: "Scan for importable ZFS pools",
 	},
 	"zpool_import": {
 		Name:        "zpool_import",
-		Path:        "/usr/sbin/zpool",
+		Path:        "zpool",
 		AllowedArgs: []string{"import"},
 		ArgPatterns: []*regexp.Regexp{regexp.MustCompile(`^(-f|[a-zA-Z0-9_\-]+)$`)},
 		Description: "Import existing ZFS pool (with optional -f flag)",
 	},
 	"zfs_set_property": {
 		Name:        "zfs_set_property",
-		Path:        "/usr/sbin/zfs",
+		Path:        "zfs",
 		AllowedArgs: []string{"set"},
 		ArgPatterns: []*regexp.Regexp{
 			regexp.MustCompile(`^[a-zA-Z0-9_\-\./:]+=[a-zA-Z0-9_\-\.:/]+$`), // property=value (/ allowed for mountpoint=/tank/data)
@@ -168,41 +168,41 @@ var CommandWhitelist = map[string]Command{
 	// Network Management
 	"ip_addr_show": {
 		Name:        "ip_addr_show",
-		Path:        "/usr/sbin/ip",
+		Path:        "ip",
 		AllowedArgs: []string{"addr", "show"},
 		ArgPatterns: []*regexp.Regexp{regexp.MustCompile(`^[a-zA-Z0-9]+$`)},
 		Description: "Show network interface addresses",
 	},
 	"ip_link_up": {
 		Name:        "ip_link_up",
-		Path:        "/usr/sbin/ip",
+		Path:        "ip",
 		AllowedArgs: []string{"link", "set", "up"},
 		ArgPatterns: []*regexp.Regexp{regexp.MustCompile(`^(dev|[a-zA-Z0-9]+)$`)},
 		Description: "Bring network interface up",
 	},
 	"ip_link_down": {
 		Name:        "ip_link_down",
-		Path:        "/usr/sbin/ip",
+		Path:        "ip",
 		AllowedArgs: []string{"link", "set", "down"},
 		ArgPatterns: []*regexp.Regexp{regexp.MustCompile(`^(dev|[a-zA-Z0-9]+)$`)},
 		Description: "Bring network interface down",
 	},
 	"ip_route_show": {
 		Name:        "ip_route_show",
-		Path:        "/usr/sbin/ip",
+		Path:        "ip",
 		AllowedArgs: []string{"route", "show"},
 		Description: "Show routing table",
 	},
 	"ip_route_modify": {
 		Name:        "ip_route_modify",
-		Path:        "/usr/sbin/ip",
+		Path:        "ip",
 		AllowedArgs: []string{"route", "add", "del", "via", "dev", "metric"},
 		ArgPatterns: []*regexp.Regexp{regexp.MustCompile(`^([0-9\.\/]+|default|add|del|via|dev|metric|[a-zA-Z0-9]+)$`)},
 		Description: "Add or delete routing table entries",
 	},
 	"network_apply": {
 		Name:        "network_apply",
-		Path:        "/usr/sbin/netplan",
+		Path:        "netplan",
 		AllowedArgs: []string{"apply"},
 		Description: "Apply network configuration (netplan)",
 	},
@@ -210,14 +210,14 @@ var CommandWhitelist = map[string]Command{
 	// ZFS Replication Operations
 	"zfs_send": {
 		Name:        "zfs_send",
-		Path:        "/usr/sbin/zfs",
+		Path:        "zfs",
 		AllowedArgs: []string{"send", "-R"},
 		ArgPatterns: []*regexp.Regexp{regexp.MustCompile(`^[a-zA-Z0-9_\-]+(/[a-zA-Z0-9_\-/]+)?@[a-zA-Z0-9_\-]+$`)}, // pool/dataset@snapshot
 		Description: "ZFS send for replication",
 	},
 	"zfs_send_incremental": {
 		Name:        "zfs_send_incremental",
-		Path:        "/usr/sbin/zfs",
+		Path:        "zfs",
 		AllowedArgs: []string{"send", "-R", "-i"},
 		ArgPatterns: []*regexp.Regexp{
 			regexp.MustCompile(`^[a-zA-Z0-9_\-]+(/[a-zA-Z0-9_\-/]+)?@[a-zA-Z0-9_\-]+$`), // base snapshot
@@ -227,7 +227,7 @@ var CommandWhitelist = map[string]Command{
 	},
 	"zfs_receive": {
 		Name:        "zfs_receive",
-		Path:        "/usr/sbin/zfs",
+		Path:        "zfs",
 		AllowedArgs: []string{"receive", "-F"},
 		ArgPatterns: []*regexp.Regexp{regexp.MustCompile(`^[a-zA-Z0-9_\-]+(/[a-zA-Z0-9_\-/]+)?$`)}, // pool/dataset
 		Description: "ZFS receive for replication",
@@ -236,13 +236,13 @@ var CommandWhitelist = map[string]Command{
 	// SMB/Samba Operations
 	"systemctl_reload_smbd": {
 		Name:        "systemctl_reload_smbd",
-		Path:        "/usr/bin/systemctl",
+		Path:        "systemctl",
 		AllowedArgs: []string{"reload", "smbd"},
 		Description: "Reload Samba daemon",
 	},
 	"testparm": {
 		Name:        "testparm",
-		Path:        "/usr/bin/testparm",
+		Path:        "testparm",
 		AllowedArgs: []string{"-s"},
 		Description: "Test Samba configuration",
 	},
@@ -250,13 +250,13 @@ var CommandWhitelist = map[string]Command{
 	// NFS Operations
 	"exportfs_reload": {
 		Name:        "exportfs_reload",
-		Path:        "/usr/sbin/exportfs",
+		Path:        "exportfs",
 		AllowedArgs: []string{"-ra"},
 		Description: "Reload NFS exports",
 	},
 	"exportfs_list": {
 		Name:        "exportfs_list",
-		Path:        "/usr/sbin/exportfs",
+		Path:        "exportfs",
 		AllowedArgs: []string{"-v"},
 		Description: "List NFS exports",
 	},
@@ -264,14 +264,14 @@ var CommandWhitelist = map[string]Command{
 	// File Operations
 	"mkdir": {
 		Name:        "mkdir",
-		Path:        "/usr/bin/mkdir",
+		Path:        "mkdir",
 		AllowedArgs: []string{"-p"},
 		ArgPatterns: []*regexp.Regexp{regexp.MustCompile(`^/[a-zA-Z0-9/_\-\. ]+$`)},
 		Description: "Create directory",
 	},
 	"rm_recursive": {
 		Name:        "rm_recursive",
-		Path:        "/usr/bin/rm",
+		Path:        "rm",
 		AllowedArgs: []string{"-rf"},
 		ArgPatterns: []*regexp.Regexp{regexp.MustCompile(`^/[a-zA-Z0-9/_\-\. ]+$`)},
 		Description: "Remove directory recursively",
@@ -298,7 +298,7 @@ var CommandWhitelist = map[string]Command{
 	// Backup Operations
 	"rsync": {
 		Name:        "rsync",
-		Path:        "/usr/bin/rsync",
+		Path:        "rsync",
 		AllowedArgs: []string{"-avz", "--progress"},
 		ArgPatterns: []*regexp.Regexp{
 			regexp.MustCompile(`^/[a-zA-Z0-9/_\-\. ]+$`),                                                     // source
@@ -310,20 +310,20 @@ var CommandWhitelist = map[string]Command{
 	// Power Management Operations
 	"lsblk_list": {
 		Name:        "lsblk_list",
-		Path:        "/usr/bin/lsblk",
+		Path:        "lsblk",
 		AllowedArgs: []string{"-d", "-n", "-o", "NAME,TYPE"},
 		Description: "List block devices",
 	},
 	"hdparm_check": {
 		Name:        "hdparm_check",
-		Path:        "/usr/sbin/hdparm",
+		Path:        "hdparm",
 		AllowedArgs: []string{"-C"},
 		ArgPatterns: []*regexp.Regexp{regexp.MustCompile(`^/dev/[a-z0-9]+$`)},
 		Description: "Check disk power state",
 	},
 	"hdparm_spindown": {
 		Name:        "hdparm_spindown",
-		Path:        "/usr/sbin/hdparm",
+		Path:        "hdparm",
 		AllowedArgs: []string{"-y"},
 		ArgPatterns: []*regexp.Regexp{regexp.MustCompile(`^/dev/[a-z0-9]+$`)},
 		Description: "Spin down disk",
@@ -332,27 +332,27 @@ var CommandWhitelist = map[string]Command{
 	// Docker Operations
 	"docker_ps": {
 		Name:        "docker_ps",
-		Path:        "/usr/bin/docker",
+		Path:        "docker",
 		AllowedArgs: []string{"ps", "-a", "--format", "{{json .}}"},
 		Description: "List containers",
 	},
 	"docker_inspect": {
 		Name:        "docker_inspect",
-		Path:        "/usr/bin/docker",
+		Path:        "docker",
 		AllowedArgs: []string{"inspect"},
 		ArgPatterns: []*regexp.Regexp{regexp.MustCompile(`^[a-zA-Z0-9_\-]+$`)}, // container ID/name
 		Description: "Inspect container",
 	},
 	"docker_start": {
 		Name:        "docker_start",
-		Path:        "/usr/bin/docker",
+		Path:        "docker",
 		AllowedArgs: []string{"start"},
 		ArgPatterns: []*regexp.Regexp{regexp.MustCompile(`^[a-zA-Z0-9_\-]+$`)},
 		Description: "Start container",
 	},
 	"docker_stop": {
 		Name:        "docker_stop",
-		Path:        "/usr/bin/docker",
+		Path:        "docker",
 		AllowedArgs: []string{"stop"},
 		ArgPatterns: []*regexp.Regexp{regexp.MustCompile(`^[a-zA-Z0-9_\-]+$`)},
 		Description: "Stop container",
@@ -361,13 +361,13 @@ var CommandWhitelist = map[string]Command{
 	// Network Operations
 	"ip_addr": {
 		Name:        "ip_addr",
-		Path:        "/usr/sbin/ip",
+		Path:        "ip",
 		AllowedArgs: []string{"-j", "addr", "show"},
 		Description: "Show network addresses",
 	},
 	"ip_route": {
 		Name:        "ip_route",
-		Path:        "/usr/sbin/ip",
+		Path:        "ip",
 		AllowedArgs: []string{"-j", "route", "show"},
 		Description: "Show routes",
 	},
@@ -375,26 +375,26 @@ var CommandWhitelist = map[string]Command{
 	// System Operations
 	"upsc_list": {
 		Name:        "upsc_list",
-		Path:        "/usr/bin/upsc",
+		Path:        "upsc",
 		AllowedArgs: []string{"-l"},
 		Description: "List UPS devices",
 	},
 	"upsc_query": {
 		Name:        "upsc_query",
-		Path:        "/usr/bin/upsc",
+		Path:        "upsc",
 		ArgPatterns: []*regexp.Regexp{regexp.MustCompile(`^[a-zA-Z0-9_\-\.]+$`)}, // UPS name
 		Description: "Query UPS data",
 	},
 	"systemctl_status": {
 		Name:        "systemctl_status",
-		Path:        "/usr/bin/systemctl",
+		Path:        "systemctl",
 		AllowedArgs: []string{"status", "--no-pager"},
 		ArgPatterns: []*regexp.Regexp{regexp.MustCompile(`^[a-zA-Z0-9_\-\.]+$`)}, // service name
 		Description: "Get service status",
 	},
 	"journalctl": {
 		Name:        "journalctl",
-		Path:        "/usr/bin/journalctl",
+		Path:        "journalctl",
 		AllowedArgs: []string{"-n", "--no-pager", "-o", "json"},
 		ArgPatterns: []*regexp.Regexp{regexp.MustCompile(`^\d+$`)}, // line count
 		Description: "Get system logs",
@@ -402,21 +402,21 @@ var CommandWhitelist = map[string]Command{
 	// ACL Management (v2.0.0)
 	"getfacl": {
 		Name:        "getfacl",
-		Path:        "/usr/bin/getfacl",
+		Path:        "getfacl",
 		AllowedArgs: []string{"-p"},
 		ArgPatterns: []*regexp.Regexp{regexp.MustCompile(`^/mnt/`)},
 		Description: "Get POSIX ACL entries",
 	},
 	"setfacl": {
 		Name:        "setfacl",
-		Path:        "/usr/bin/setfacl",
+		Path:        "setfacl",
 		AllowedArgs: []string{"-m", "-x", "-R"},
 		ArgPatterns: []*regexp.Regexp{regexp.MustCompile(`^(u|g|o|m)(:[a-zA-Z0-9_.\-]*)?:[rwx\-]{0,3}$`)},
 		Description: "Set POSIX ACL entries",
 	},
 	"getent": {
 		Name:        "getent",
-		Path:        "/usr/bin/getent",
+		Path:        "getent",
 		AllowedArgs: []string{"passwd", "group"},
 		ArgPatterns: []*regexp.Regexp{regexp.MustCompile(`^[a-zA-Z0-9_.\-]+$`)},
 		Description: "Resolve NSS user/group (local + LDAP)",
@@ -424,7 +424,7 @@ var CommandWhitelist = map[string]Command{
 	// Firewall (v2.0.0)
 	"ufw": {
 		Name:        "ufw",
-		Path:        "/usr/sbin/ufw",
+		Path:        "ufw",
 		AllowedArgs: []string{"status", "numbered", "allow", "deny", "delete", "enable", "disable", "--force", "from", "to", "any", "port", "proto"},
 		ArgPatterns: []*regexp.Regexp{regexp.MustCompile(`^[0-9]+(/tcp|/udp)?$`)},
 		Description: "Manage firewall rules",
@@ -432,27 +432,27 @@ var CommandWhitelist = map[string]Command{
 	// SSL/TLS (v2.0.0)
 	"openssl": {
 		Name:        "openssl",
-		Path:        "/usr/bin/openssl",
+		Path:        "openssl",
 		AllowedArgs: []string{"req", "x509", "-x509", "-newkey", "rsa:2048", "-keyout", "-out", "-days", "-nodes", "-subj", "-noout", "-subject", "-enddate", "-issuer", "-in", "-addext"},
 		Description: "SSL certificate operations",
 	},
 	"nginx_test": {
 		Name:        "nginx_test",
-		Path:        "/usr/sbin/nginx",
+		Path:        "nginx",
 		AllowedArgs: []string{"-t", "-s", "reload"},
 		Description: "Test and reload nginx config",
 	},
 	// Power Management (v2.0.0)
 	"hdparm_status": {
 		Name:        "hdparm_status",
-		Path:        "/usr/sbin/hdparm",
+		Path:        "hdparm",
 		AllowedArgs: []string{"-C", "-B", "-S", "-y"},
 		ArgPatterns: []*regexp.Regexp{regexp.MustCompile(`^/dev/sd[a-z]+$`), regexp.MustCompile(`^\d+$`)},
 		Description: "Disk power management",
 	},
 	"lsblk_power": {
 		Name:        "lsblk_power",
-		Path:        "/usr/bin/lsblk",
+		Path:        "lsblk",
 		AllowedArgs: []string{"-dpno", "NAME,SIZE,MODEL,ROTA,TRAN,STATE"},
 		Description: "List block device power info",
 	},

@@ -75,7 +75,7 @@ func validateIQN(iqn string) error {
 }
 
 func runTargetcli(args ...string) (string, error) {
-	return executeCommandWithTimeout(TimeoutSlow, "/usr/bin/targetcli", args)
+	return executeCommandWithTimeout(TimeoutSlow, "targetcli", args)
 }
 
 // ─── Handlers ───────────────────────────────────────────────────
@@ -344,7 +344,7 @@ func DeleteISCSIACL(w http.ResponseWriter, r *http.Request) {
 // GetISCSIStatus returns overall iSCSI service status
 // GET /api/iscsi/status
 func GetISCSIStatus(w http.ResponseWriter, r *http.Request) {
-	out, err := executeCommandWithTimeout(TimeoutFast, "/bin/systemctl", []string{"is-active", "target"})
+	out, err := executeCommandWithTimeout(TimeoutFast, "systemctl", []string{"is-active", "target"})
 	active := err == nil && strings.TrimSpace(out) == "active"
 
 	targetCount := 0
@@ -403,7 +403,7 @@ func sanitizeForTargetcli(iqn string) string {
 // GetISCSIZvolList returns ZFS zvols suitable for iSCSI backing
 // GET /api/iscsi/zvols
 func GetISCSIZvolList(w http.ResponseWriter, r *http.Request) {
-	out, err := executeCommandWithTimeout(TimeoutFast, "/run/current-system/sw/bin/zfs",
+	out, err := executeCommandWithTimeout(TimeoutFast, "zfs",
 		[]string{"list", "-t", "volume", "-H", "-o", "name,volsize"})
 	if err != nil {
 		respondOK(w, map[string]interface{}{"success": true, "zvols": []interface{}{}})

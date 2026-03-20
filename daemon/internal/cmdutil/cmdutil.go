@@ -1,4 +1,4 @@
-﻿package cmdutil
+package cmdutil
 
 import (
 	"context"
@@ -82,6 +82,25 @@ func RunFastInDir(dir, name string, args ...string) ([]byte, error) {
 // RunMediumInDir executes a command with TimeoutMedium (60s) in a specific directory.
 func RunMediumInDir(dir, name string, args ...string) ([]byte, error) {
 	return RunInDir(TimeoutMedium, dir, name, args...)
+}
+
+// RunInDirWithEnv executes a command with the given timeout, directory, and environment variables.
+func RunInDirWithEnv(timeout time.Duration, dir string, env []string, name string, args ...string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.Dir = dir
+	if len(env) > 0 {
+		cmd.Env = env
+	}
+	output, err := cmd.CombinedOutput()
+
+	if ctx.Err() == context.DeadlineExceeded {
+		return output, fmt.Errorf("command timed out after %v in %s: %s %v", timeout, dir, name, args)
+	}
+
+	return output, err
 }
 
 // RunNoTimeout executes a command without a timeout (same as exec.Command).

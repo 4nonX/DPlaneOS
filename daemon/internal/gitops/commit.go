@@ -14,6 +14,16 @@ import (
 
 const stateFileName = "state.yaml"
 
+// CommitAllAsync performs CommitAll in a background goroutine and logs any errors.
+// Use this for UI handlers where we don't want to block the response.
+func CommitAllAsync(db *sql.DB) {
+	go func() {
+		if err := CommitAll(db); err != nil {
+			log.Printf("GITOPS: background commit failed: %v", err)
+		}
+	}()
+}
+
 // CommitAll reads the current live state and writes it back to the Git repo,
 // then performs a git commit and push.
 // This is the post-write hook for all UI-driven infrastructure changes.
@@ -65,27 +75,38 @@ func CommitAll(db *sql.DB) error {
 	// 2. Generate YAML
 	yamlContent := GenerateStateYAML(state)
 
-	// 3. Ensure repo exists and is a git repo
-	if _, err := os.Stat(filepath.Join(repoDir, ".git")); err != nil {
-		log.Printf("GITOPS COMMIT: %s is not a git repository, skipping push", repoDir)
-		return saveStateLocally(repoDir, yamlContent)
+	// 3. Get repository details for authentication and identity
+	var repoURL, branch, commitName, commitEmail sql.NullString
+	if repoID.Valid {
+		db.QueryRow(`SELECT repo_url, branch, commit_name, commit_email FROM git_sync_repos WHERE id = ?`, repoID.Int64).Scan(
+			&repoURL, &branch, &commitName, &commitEmail)
 	}
 
-	// 4. Write state.yaml
-	statePath := filepath.Join(repoDir, stateFileName)
-	if err := os.WriteFile(statePath, []byte(yamlContent), 0644); err != nil {
-		return fmt.Errorf("writing state.yaml: %w", err)
-	}
-
-	// 5. Load Credentials for Push
+	// 4. Ensure repo exists and is initialized
 	var env []string
 	if repoID.Valid {
 		env = BuildPushEnvForRepoID(db, repoID.Int64)
 		defer CleanupAskpass()
+
+		if err := EnsureRepoRootDir(repoDir, repoURL.String, branch.String, env); err != nil {
+			log.Printf("GITOPS COMMIT: failed to ensure repo root %s: %v", repoDir, err)
+			return saveStateLocally(repoDir, yamlContent)
+		}
+	} else {
+		// No repo configured, fallback to local save if .git is missing
+		if _, err := os.Stat(filepath.Join(repoDir, ".git")); err != nil {
+			return saveStateLocally(repoDir, yamlContent)
+		}
+	}
+
+	// 5. Save state.yaml
+	if err := os.WriteFile(filepath.Join(repoDir, stateFileName), []byte(yamlContent), 0644); err != nil {
+		return fmt.Errorf("writing state.yaml: %w", err)
 	}
 
 	// 6. Git Commit & Push
-	return CommitAndPush(repoDir, env, "feat: infrastructure state update via D-PlaneOS")
+	return CommitAndPush(repoDir, env, "feat: infrastructure state update via D-PlaneOS",
+		commitName.String, commitEmail.String, branch.String)
 }
 
 // GenerateStateYAML converts LiveState into the declarative state.yaml format.

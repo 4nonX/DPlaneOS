@@ -152,6 +152,10 @@ func (h *ShareCRUDHandler) shareAction(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *ShareCRUDHandler) createShare(w http.ResponseWriter, req shareActionRequest) {
+	if err := checkBinary("smbcontrol"); err != nil {
+		respondErrorSimple(w, "Samba (smbcontrol) not found", http.StatusServiceUnavailable)
+		return
+	}
 	if req.Name == "" || req.Path == "" {
 		respondErrorSimple(w, "Share name and path are required", http.StatusBadRequest)
 		return
@@ -213,7 +217,7 @@ func (h *ShareCRUDHandler) createShare(w http.ResponseWriter, req shareActionReq
 	})
 
 	// GITOPS HOOK: write state back to git
-	go gitops.CommitAll(h.db)
+	gitops.CommitAllAsync(h.db)
 }
 
 func (h *ShareCRUDHandler) updateShare(w http.ResponseWriter, req shareActionRequest) {
@@ -271,7 +275,7 @@ func (h *ShareCRUDHandler) updateShare(w http.ResponseWriter, req shareActionReq
 	})
 
 	// GITOPS HOOK: write state back to git
-	go gitops.CommitAll(h.db)
+	gitops.CommitAllAsync(h.db)
 }
 
 func (h *ShareCRUDHandler) deleteShare(w http.ResponseWriter, req shareActionRequest) {
@@ -289,7 +293,7 @@ func (h *ShareCRUDHandler) deleteShare(w http.ResponseWriter, req shareActionReq
 	})
 
 	// GITOPS HOOK: write state back to git
-	go gitops.CommitAll(h.db)
+	gitops.CommitAllAsync(h.db)
 }
 
 // deleteShareByName handles DELETE /api/shares with a JSON body { "name": "sharename" }.
@@ -325,7 +329,7 @@ func (h *ShareCRUDHandler) deleteShareByName(w http.ResponseWriter, r *http.Requ
 	})
 
 	// GITOPS HOOK: write state back to git
-	go gitops.CommitAll(h.db)
+	gitops.CommitAllAsync(h.db)
 }
 
 // regenerateSMBConf rebuilds /etc/samba/smb.conf from the database

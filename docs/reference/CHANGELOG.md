@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ---
 
+## v6.0.5 (2026-03-20) - "NixOS & GitOps Hardening"
+
+Upgrade from: v6.0.4 - Drop-in. `sudo bash install.sh --upgrade`
+
+### Added
+- **Hardened GitOps Engine**: Implemented `git pull --rebase` before pushing to prevent sync conflicts and enforced Git identity (`user.name`/`user.email`) for all commits.
+- **NixOS Path Normalization**: Removed all hardcoded absolute paths (`/usr/bin/*`, `/sbin/*`) across the system, enabling full compatibility with NixOS and non-standard distributions.
+- **Resilience Guards**: Added automated existence checks for critical binaries (ZFS, Docker, Samba) with descriptive error reporting.
+- **Audit Log Refactoring**: Migrated audit log rotation to the internal Go SQL driver, removing the external `sqlite3` dependency.
+- **Asynchronous Persistence**: Refactored background commits to be non-blocking, ensuring the UI remains responsive during slow Git operations.
+
+---
+
 ## v6.0.4 (2026-03-20) - "System-Wide CRUD Consistency"
 
 Upgrade from: v6.0.3 - Drop-in. `sudo bash install.sh --upgrade`

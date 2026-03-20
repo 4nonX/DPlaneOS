@@ -32,14 +32,14 @@ func SetOperationLock(dataset, operation string) error {
 	if !isValidDataset(dataset) {
 		return fmt.Errorf("invalid dataset")
 	}
-	_, err := executeCommandWithTimeout(TimeoutMedium, "/usr/sbin/zfs", []string{
+	_, err := executeCommandWithTimeout(TimeoutMedium, "zfs", []string{
 		"set", fmt.Sprintf("dplane:op_in_progress=%s", operation),
 		dataset,
 	})
 	if err != nil {
 		return err
 	}
-	_, err = executeCommandWithTimeout(TimeoutMedium, "/usr/sbin/zfs", []string{
+	_, err = executeCommandWithTimeout(TimeoutMedium, "zfs", []string{
 		"set", fmt.Sprintf("dplane:op_started=%s", time.Now().Format(time.RFC3339)),
 		dataset,
 	})
@@ -51,10 +51,10 @@ func ClearOperationLock(dataset string) error {
 	if !isValidDataset(dataset) {
 		return fmt.Errorf("invalid dataset")
 	}
-	executeCommandWithTimeout(TimeoutMedium, "/usr/sbin/zfs", []string{
+	executeCommandWithTimeout(TimeoutMedium, "zfs", []string{
 		"inherit", "dplane:op_in_progress", dataset,
 	})
-	executeCommandWithTimeout(TimeoutMedium, "/usr/sbin/zfs", []string{
+	executeCommandWithTimeout(TimeoutMedium, "zfs", []string{
 		"inherit", "dplane:op_started", dataset,
 	})
 	return nil
@@ -64,7 +64,7 @@ func ClearOperationLock(dataset string) error {
 // Called at daemon startup
 // GET /api/system/stale-locks
 func (h *StateLockHandler) CheckStaleLocks(w http.ResponseWriter, r *http.Request) {
-	output, err := executeCommandWithTimeout(TimeoutFast, "/usr/sbin/zfs", []string{
+	output, err := executeCommandWithTimeout(TimeoutFast, "zfs", []string{
 		"get", "-H", "-o", "name,value", "-t", "filesystem",
 		"-r", "dplane:op_in_progress",
 	})
@@ -179,13 +179,13 @@ func (h *NixOSGuardHandler) DiffGenerations(w http.ResponseWriter, r *http.Reque
 		toPath = fmt.Sprintf("/nix/var/nix/profiles/system-%s-link", to)
 	}
 
-	output, err := executeCommandWithTimeout(TimeoutMedium, "/run/current-system/sw/bin/nix", []string{
+	output, err := executeCommandWithTimeout(TimeoutMedium, "nix", []string{
 		"store", "diff-closures", fromPath, toPath,
 	})
 	if err != nil {
 		// Fallback: simple package list diff
-		fromPkgs, _ := executeCommandWithTimeout(TimeoutFast, "/bin/ls", []string{fromPath + "/sw/bin/"})
-		toPkgs, _ := executeCommandWithTimeout(TimeoutFast, "/bin/ls", []string{toPath + "/sw/bin/"})
+		fromPkgs, _ := executeCommandWithTimeout(TimeoutFast, "ls", []string{fromPath + "/sw/bin/"})
+		toPkgs, _ := executeCommandWithTimeout(TimeoutFast, "ls", []string{toPath + "/sw/bin/"})
 
 		respondOK(w, map[string]interface{}{
 			"success":       true,
@@ -219,7 +219,7 @@ func (h *NixOSGuardHandler) DiffGenerations(w http.ResponseWriter, r *http.Reque
 func snapshotAllPoolsPreUpgrade(db *sql.DB, applyTarget string) ([]string, []string) {
 	ts := time.Now().UTC().Format("20060102T150405Z")
 
-	poolOut, err := executeCommandWithTimeout(TimeoutFast, "/usr/sbin/zpool", []string{
+	poolOut, err := executeCommandWithTimeout(TimeoutFast, "zpool", []string{
 		"list", "-H", "-o", "name",
 	})
 	if err != nil {
@@ -325,11 +325,11 @@ func (h *NixOSGuardHandler) ApplyWithWatchdog(w http.ResponseWriter, r *http.Req
 
 	flakeNix := flakePath + "/flake.nix"
 	if _, statErr := os.Stat(flakeNix); statErr == nil {
-		output, err = executeCommand("/run/current-system/sw/bin/nixos-rebuild", []string{
+		output, err = executeCommand("nixos-rebuild", []string{
 			"switch", "--flake", flakePath + "#dplaneos",
 		})
 	} else {
-		output, err = executeCommand("/run/current-system/sw/bin/nixos-rebuild", []string{
+		output, err = executeCommand("nixos-rebuild", []string{
 			"switch",
 		})
 	}
@@ -358,7 +358,7 @@ func (h *NixOSGuardHandler) ApplyWithWatchdog(w http.ResponseWriter, r *http.Req
 		defer watchdogMu.Unlock()
 		if watchdogActive {
 			// Auto-rollback - nobody confirmed
-			if _, err := cmdutil.RunSlow("/run/current-system/sw/bin/nixos-rebuild", "switch", "--rollback"); err != nil {
+			if _, err := cmdutil.RunSlow("nixos-rebuild", "switch", "--rollback"); err != nil {
 				log.Printf("ERROR: nixos rollback failed: %v", err)
 			}
 			watchdogActive = false
@@ -436,7 +436,7 @@ func (h *DockerHandler) PreFlightCheck(w http.ResponseWriter, r *http.Request) {
 	checks := []map[string]interface{}{}
 
 	// Check 1: Docker is running
-	_, err := executeCommandWithTimeout(TimeoutFast, "/usr/bin/docker", []string{"info", "--format", "{{.Driver}}"})
+	_, err := executeCommandWithTimeout(TimeoutFast, "docker", []string{"info", "--format", "{{.Driver}}"})
 	if err != nil {
 		checks = append(checks, map[string]interface{}{"check": "docker_running", "pass": false, "error": "Docker daemon not responding"})
 	} else {
@@ -444,7 +444,7 @@ func (h *DockerHandler) PreFlightCheck(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Check 2: Docker storage driver is ZFS
-	driverOut, _ := executeCommandWithTimeout(TimeoutFast, "/usr/bin/docker", []string{"info", "--format", "{{.Driver}}"})
+	driverOut, _ := executeCommandWithTimeout(TimeoutFast, "docker", []string{"info", "--format", "{{.Driver}}"})
 	driver := strings.TrimSpace(driverOut)
 	isZFS := driver == "zfs"
 	checks = append(checks, map[string]interface{}{
@@ -454,7 +454,7 @@ func (h *DockerHandler) PreFlightCheck(w http.ResponseWriter, r *http.Request) {
 	})
 
 	// Check 3: ZFS pools are imported
-	poolOut, err := executeCommandWithTimeout(TimeoutFast, "/usr/sbin/zpool", []string{"list", "-H", "-o", "name,health"})
+	poolOut, err := executeCommandWithTimeout(TimeoutFast, "zpool", []string{"list", "-H", "-o", "name,health"})
 	if err != nil {
 		checks = append(checks, map[string]interface{}{"check": "zfs_pools", "pass": false, "error": "No ZFS pools found"})
 	} else {
@@ -537,35 +537,16 @@ func (h *AuditRotationHandler) RotateAuditLogs(w http.ResponseWriter, r *http.Re
 	}
 
 	// Count before
-	countBefore := "unknown"
-	if out, err := executeCommandWithTimeout(TimeoutFast, "/usr/bin/sqlite3", []string{
-		h.dbPath,
-		"SELECT COUNT(*) FROM audit_logs;",
-	}); err == nil {
-		countBefore = strings.TrimSpace(out)
-	}
+	var countBefore int
+	h.db.QueryRow("SELECT COUNT(*) FROM audit_logs").Scan(&countBefore)
 
 	// Delete old entries
 	cutoff := time.Now().AddDate(0, 0, -req.KeepDays).Format("2006-01-02 15:04:05")
-	var rotErr error
-	if h.db != nil {
-		_, rotErr = h.db.Exec("DELETE FROM audit_logs WHERE timestamp < ?", cutoff)
-		if rotErr == nil {
-			_, rotErr = h.db.Exec("VACUUM")
-		}
-	} else {
-		// Fallback for safety
-		rotDB, dbErr := sql.Open("sqlite3", h.dbPath+"?_journal_mode=WAL&_busy_timeout=30000&cache=shared&_synchronous=FULL")
-		if dbErr == nil {
-			defer rotDB.Close()
-			_, rotErr = rotDB.Exec("DELETE FROM audit_logs WHERE timestamp < ?", cutoff)
-			if rotErr == nil {
-				_, rotErr = rotDB.Exec("VACUUM")
-			}
-		} else {
-			rotErr = dbErr
-		}
+	_, rotErr := h.db.Exec("DELETE FROM audit_logs WHERE timestamp < ?", cutoff)
+	if rotErr == nil {
+		h.db.Exec("VACUUM")
 	}
+
 	if rotErr != nil {
 		respondOK(w, map[string]interface{}{
 			"success": false,
@@ -575,13 +556,16 @@ func (h *AuditRotationHandler) RotateAuditLogs(w http.ResponseWriter, r *http.Re
 	}
 
 	// Count after
-	countAfter := "unknown"
-	if out, err := executeCommandWithTimeout(TimeoutFast, "/usr/bin/sqlite3", []string{
-		h.dbPath,
-		"SELECT COUNT(*) FROM audit_logs;",
-	}); err == nil {
-		countAfter = strings.TrimSpace(out)
-	}
+	var countAfter int
+	h.db.QueryRow("SELECT COUNT(*) FROM audit_logs").Scan(&countAfter)
+
+	respondOK(w, map[string]interface{}{
+		"success":      true,
+		"keep_days":    req.KeepDays,
+		"cutoff":       cutoff,
+		"before_count": countBefore,
+		"after_count":  countAfter,
+	})
 
 	respondOK(w, map[string]interface{}{
 		"success":      true,
@@ -595,39 +579,21 @@ func (h *AuditRotationHandler) RotateAuditLogs(w http.ResponseWriter, r *http.Re
 // GetAuditStats returns audit log statistics
 // GET /api/system/audit/stats
 func (h *AuditRotationHandler) GetAuditStats(w http.ResponseWriter, r *http.Request) {
-	dbPath := h.dbPath
+	var count int
+	var oldest, newest sql.NullString
 
-	count := "0"
-	if out, err := executeCommandWithTimeout(TimeoutFast, "/usr/bin/sqlite3", []string{
-		dbPath, "SELECT COUNT(*) FROM audit_logs;",
-	}); err == nil {
-		count = strings.TrimSpace(out)
-	}
-
-	oldest := "N/A"
-	if out, err := executeCommandWithTimeout(TimeoutFast, "/usr/bin/sqlite3", []string{
-		dbPath, "SELECT MIN(timestamp) FROM audit_logs;",
-	}); err == nil {
-		oldest = strings.TrimSpace(out)
-	}
-
-	newest := "N/A"
-	if out, err := executeCommandWithTimeout(TimeoutFast, "/usr/bin/sqlite3", []string{
-		dbPath, "SELECT MAX(timestamp) FROM audit_logs;",
-	}); err == nil {
-		newest = strings.TrimSpace(out)
-	}
+	h.db.QueryRow("SELECT COUNT(*), MIN(timestamp), MAX(timestamp) FROM audit_logs").Scan(&count, &oldest, &newest)
 
 	dbSize := "unknown"
-	if fi, err := os.Stat(dbPath); err == nil {
+	if fi, err := os.Stat(h.dbPath); err == nil {
 		dbSize = humanizeBytes(fi.Size())
 	}
 
 	respondOK(w, map[string]interface{}{
 		"success":       true,
 		"total_entries": count,
-		"oldest_entry":  oldest,
-		"newest_entry":  newest,
+		"oldest_entry":  oldest.String,
+		"newest_entry":  newest.String,
 		"db_size":       dbSize,
 	})
 }
@@ -648,7 +614,7 @@ func NewZombieWatcherHandler() *ZombieWatcherHandler {
 // GET /api/zfs/disk-latency
 func (h *ZombieWatcherHandler) CheckDiskLatency(w http.ResponseWriter, r *http.Request) {
 	// Get list of pool disks
-	zpoolOutput, _ := executeCommandWithTimeout(TimeoutFast, "/usr/sbin/zpool", []string{"status"})
+	zpoolOutput, _ := executeCommandWithTimeout(TimeoutFast, "zpool", []string{"status"})
 	disks := extractDiskDevices(zpoolOutput)
 
 	type DiskLatency struct {
@@ -662,7 +628,7 @@ func (h *ZombieWatcherHandler) CheckDiskLatency(w http.ResponseWriter, r *http.R
 		devicePath := "/dev/" + disk
 		start := time.Now()
 		// Simple read test: hdparm -t (1 second timed read)
-		_, err := executeCommandWithTimeout(TimeoutMedium, "/usr/sbin/hdparm", []string{
+		_, err := executeCommandWithTimeout(TimeoutMedium, "hdparm", []string{
 			"-t", "--direct", devicePath,
 		})
 		latency := time.Since(start).Milliseconds()

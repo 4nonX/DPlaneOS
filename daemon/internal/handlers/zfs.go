@@ -1,4 +1,4 @@
-﻿package handlers
+package handlers
 
 import (
 	"bytes"
@@ -42,6 +42,10 @@ func NewZFSHandler(db *sql.DB) *ZFSHandler {
 }
 
 func (h *ZFSHandler) HandleCommand(w http.ResponseWriter, r *http.Request) {
+	if err := checkBinary("zfs"); err != nil {
+		respondErrorSimple(w, "ZFS binary not found", http.StatusServiceUnavailable)
+		return
+	}
 	if r.Method != http.MethodPost {
 		respondErrorSimple(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -114,7 +118,7 @@ func (h *ZFSHandler) HandleCommand(w http.ResponseWriter, r *http.Request) {
 		"zpool_create": true, "zpool_destroy": true, "zpool_add": true,
 	}
 	if mutating[req.Command] {
-		go gitops.CommitAll(h.db)
+		gitops.CommitAllAsync(h.db)
 	}
 }
 
@@ -135,7 +139,7 @@ func (h *ZFSHandler) ListPools(w http.ResponseWriter, r *http.Request) {
 
 	start := time.Now()
 	// cap = capacity percentage. 'type' is not a valid zpool list column (it's zfs list only).
-	output, err := executeCommand("/usr/sbin/zpool", []string{"list", "-H", "-o", "name,size,alloc,free,cap,health"})
+	output, err := executeCommand("zpool", []string{"list", "-H", "-o", "name,size,alloc,free,cap,health"})
 	duration := time.Since(start)
 
 	audit.LogCommand(audit.LevelInfo, user, "zpool_list", nil, err == nil, duration, err)
@@ -174,7 +178,7 @@ func (h *ZFSHandler) ListDatasets(w http.ResponseWriter, r *http.Request) {
 	}
 
 	start := time.Now()
-	output, err := executeCommand("/usr/sbin/zfs", []string{"list", "-H", "-o", "name,used,avail,quota,mountpoint", "-t", "filesystem"})
+	output, err := executeCommand("zfs", []string{"list", "-H", "-o", "name,used,avail,quota,mountpoint", "-t", "filesystem"})
 	duration := time.Since(start)
 
 	audit.LogCommand(audit.LevelInfo, user, "zfs_list", nil, err == nil, duration, err)
@@ -239,7 +243,7 @@ func (h *ZFSHandler) CreateDataset(w http.ResponseWriter, r *http.Request) {
 		respondErrorSimple(w, "Dataset name not allowed: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	_, err := executeCommand("/usr/sbin/zfs", []string{"create", req.Name})
+	_, err := executeCommand("zfs", []string{"create", req.Name})
 	duration := time.Since(start)
 	audit.LogCommand(audit.LevelInfo, user, "zfs_create", []string{req.Name}, err == nil, duration, err)
 	if err != nil {
@@ -274,7 +278,7 @@ func (h *ZFSHandler) CreateDataset(w http.ResponseWriter, r *http.Request) {
 		kv := p.key + "=" + p.val
 		if err2 := security.ValidateCommand("zfs_set_property", []string{"set", kv, req.Name}); err2 == nil {
 			setDur := time.Now()
-			_, setErr := executeCommand("/usr/sbin/zfs", []string{"set", kv, req.Name})
+			_, setErr := executeCommand("zfs", []string{"set", kv, req.Name})
 			audit.LogCommand(audit.LevelInfo, user, "zfs_set_property",
 				[]string{kv, req.Name}, setErr == nil, time.Since(setDur), setErr)
 			// Non-fatal: log but continue
@@ -288,7 +292,7 @@ func (h *ZFSHandler) CreateDataset(w http.ResponseWriter, r *http.Request) {
 	})
 
 	// GITOPS HOOK: write state back to git
-	go gitops.CommitAll(h.db)
+	gitops.CommitAllAsync(h.db)
 }
 
 // Stderr is logged separately to prevent warning messages (e.g. "pool is DEGRADED")

@@ -3,6 +3,7 @@ package handlers
 import (
 	"encoding/json"
 	"net/http"
+	"os/exec"
 )
 
 // respondJSON sends a JSON response with the given status code and payload.
@@ -45,4 +46,10 @@ func respondErrorSimple(w http.ResponseWriter, message string, code int) {
 // The frontend sets X-User on every authenticated request.
 func getUserFromRequest(r *http.Request) string {
 	return r.Header.Get("X-User")
+}
+
+// checkBinary checks if a binary exists in the system's PATH.
+func checkBinary(name string) error {
+	_, err := exec.LookPath(name)
+	return err
 }

@@ -178,7 +178,7 @@ func (h *UserGroupHandler) createUser(w http.ResponseWriter, req userActionReque
 	})
 
 	// GITOPS HOOK: write state back to git
-	go gitops.CommitAll(h.db)
+	gitops.CommitAllAsync(h.db)
 }
 
 func (h *UserGroupHandler) updateUser(w http.ResponseWriter, req userActionRequest) {
@@ -241,7 +241,7 @@ func (h *UserGroupHandler) updateUser(w http.ResponseWriter, req userActionReque
 	})
 
 	// GITOPS HOOK: write state back to git
-	go gitops.CommitAll(h.db)
+	gitops.CommitAllAsync(h.db)
 }
 
 func (h *UserGroupHandler) deleteUser(w http.ResponseWriter, req userActionRequest) {
