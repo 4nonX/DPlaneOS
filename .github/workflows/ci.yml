@@ -34,6 +34,7 @@ jobs:
           echo "No Syncthing conflict files found."
 
       - name: Set up Node.js
+        if: hashFiles('app-react/package-lock.json') != ''
         uses: actions/setup-node@v4
         with:
           node-version: '20'
@@ -41,14 +42,17 @@ jobs:
           cache-dependency-path: app-react/package-lock.json
       
       - name: Install frontend dependencies
+        if: hashFiles('app-react/package-lock.json') != ''
         working-directory: app-react
         run: npm ci
       
       - name: TypeScript typecheck
+        if: hashFiles('app-react/package-lock.json') != ''
         working-directory: app-react
         run: npx tsc --noEmit
       
       - name: Verify app/ bundle is up to date
+        if: hashFiles('app-react/package-lock.json') != ''
         run: |
           cd app-react
           npm run build
