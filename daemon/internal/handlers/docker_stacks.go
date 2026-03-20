@@ -436,7 +436,7 @@ func (h *StackHandler) UpdateStackYAML(w http.ResponseWriter, r *http.Request) {
 	respondOK(w, result)
 
 	// GITOPS HOOK: write state back to git
-	go gitops.CommitAll(h.db)
+	gitops.CommitAllAsync(h.db)
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -495,7 +495,7 @@ func (h *StackHandler) DeleteStack(w http.ResponseWriter, r *http.Request) {
 	})
 
 	// GITOPS HOOK: write state back to git
-	go gitops.CommitAll(h.db)
+	gitops.CommitAllAsync(h.db)
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -571,7 +571,7 @@ func (h *StackHandler) StackAction(w http.ResponseWriter, r *http.Request) {
 	})
 
 	// GITOPS HOOK: write state back to git
-	go gitops.CommitAll(h.db)
+	gitops.CommitAllAsync(h.db)
 }
 
 // ─────────────────────────────────────────────────────────────
