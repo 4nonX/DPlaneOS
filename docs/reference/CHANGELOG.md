@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ---
 
+## v6.0.3 (2026-03-20) - "System Sync Core"
+
+Upgrade from: v6.0.2 - Drop-in. `sudo bash install.sh --upgrade`
+
+### Fixed
+- **Gap 7: System Sync Toggle**: Resolved a major GitOps gap where the `sync_system` toggle was being ignored. System settings (Hostname, Timezone, DNS, NTP, Firewall, Networking, and Samba) are now correctly filtered and committed to Git based on the User Interface selection.
+- **State Serialization**: Implemented the missing `system:` block in the live-to-Git state generation engine.
+
+---
+
 ## v6.0.2 (2026-03-20) - "Deterministic Integrity"
 
 Upgrade from: v6.0.1 - Drop-in. `sudo bash install.sh --upgrade`

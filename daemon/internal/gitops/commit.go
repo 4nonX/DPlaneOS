@@ -60,10 +60,9 @@ func CommitAll(db *sql.DB) error {
 		state.Groups = nil
 		state.LDAP = nil
 	}
-	if protection == 0 {
-		state.Replication = nil
+	if system == 0 {
+		state.System = nil
 	}
-	// System config filtering logic would go here if implemented in state.go
 
 	repoDir := config.GitOpsStateDir
 	
@@ -284,6 +283,126 @@ func GenerateStateYAML(state *LiveState) string {
 		sb.WriteString(fmt.Sprintf("  default_role: %q\n", state.LDAP.DefaultRole))
 		sb.WriteString(fmt.Sprintf("  sync_interval: %d\n", state.LDAP.SyncInterval))
 		sb.WriteString(fmt.Sprintf("  timeout: %d\n", state.LDAP.Timeout))
+		sb.WriteString("\n")
+	}
+
+	// 10. System
+	if state.System != nil {
+		sb.WriteString("system:\n")
+		if state.System.Hostname != "" {
+			sb.WriteString(fmt.Sprintf("  hostname: %s\n", state.System.Hostname))
+		}
+		if state.System.Timezone != "" {
+			sb.WriteString(fmt.Sprintf("  timezone: %s\n", state.System.Timezone))
+		}
+		if len(state.System.DNSServers) > 0 {
+			sb.WriteString("  dns_servers: [")
+			for i, dns := range state.System.DNSServers {
+				if i > 0 {
+					sb.WriteString(", ")
+				}
+				sb.WriteString(fmt.Sprintf("%q", dns))
+			}
+			sb.WriteString("]\n")
+		}
+		if len(state.System.NTPServers) > 0 {
+			sb.WriteString("  ntp_servers: [")
+			for i, ntp := range state.System.NTPServers {
+				if i > 0 {
+					sb.WriteString(", ")
+				}
+				sb.WriteString(fmt.Sprintf("%q", ntp))
+			}
+			sb.WriteString("]\n")
+		}
+
+		sb.WriteString("  firewall:\n")
+		sb.WriteString("    tcp: [")
+		for i, p := range state.System.FirewallTCP {
+			if i > 0 {
+				sb.WriteString(", ")
+			}
+			sb.WriteString(fmt.Sprintf("%d", p))
+		}
+		sb.WriteString("]\n")
+		sb.WriteString("    udp: [")
+		for i, p := range state.System.FirewallUDP {
+			if i > 0 {
+				sb.WriteString(", ")
+			}
+			sb.WriteString(fmt.Sprintf("%d", p))
+		}
+		sb.WriteString("]\n")
+
+		sb.WriteString("  networking:\n")
+		if len(state.System.NetworkStatics) > 0 {
+			sb.WriteString("    statics:\n")
+			var keys []string
+			for k := range state.System.NetworkStatics {
+				keys = append(keys, k)
+			}
+			sort.Strings(keys)
+			for _, k := range keys {
+				st := state.System.NetworkStatics[k]
+				sb.WriteString(fmt.Sprintf("      %s:\n", k))
+				sb.WriteString(fmt.Sprintf("        cidr: %q\n", st.CIDR))
+				if st.Gateway != "" {
+					sb.WriteString(fmt.Sprintf("        gateway: %q\n", st.Gateway))
+				}
+			}
+		}
+		if len(state.System.NetworkBonds) > 0 {
+			sb.WriteString("    bonds:\n")
+			var keys []string
+			for k := range state.System.NetworkBonds {
+				keys = append(keys, k)
+			}
+			sort.Strings(keys)
+			for _, k := range keys {
+				bn := state.System.NetworkBonds[k]
+				sb.WriteString(fmt.Sprintf("      %s:\n", k))
+				sb.WriteString(fmt.Sprintf("        mode: %q\n", bn.Mode))
+				sb.WriteString("        slaves: [")
+				for i, sl := range bn.Slaves {
+					if i > 0 {
+						sb.WriteString(", ")
+					}
+					sb.WriteString(fmt.Sprintf("%q", sl))
+				}
+				sb.WriteString("]\n")
+			}
+		}
+		if len(state.System.NetworkVLANs) > 0 {
+			sb.WriteString("    vlans:\n")
+			var keys []string
+			for k := range state.System.NetworkVLANs {
+				keys = append(keys, k)
+			}
+			sort.Strings(keys)
+			for _, k := range keys {
+				vl := state.System.NetworkVLANs[k]
+				sb.WriteString(fmt.Sprintf("      %s:\n", k))
+				sb.WriteString(fmt.Sprintf("        parent: %q\n", vl.Parent))
+				sb.WriteString(fmt.Sprintf("        vid: %d\n", vl.VID))
+			}
+		}
+
+		sb.WriteString("  samba:\n")
+		sb.WriteString(fmt.Sprintf("    workgroup: %q\n", state.System.SambaWorkgroup))
+		sb.WriteString(fmt.Sprintf("    server_string: %q\n", state.System.SambaServerString))
+		if state.System.SambaTimeMachine {
+			sb.WriteString("    time_machine: true\n")
+		}
+		if state.System.SambaAllowGuest {
+			sb.WriteString("    allow_guest: true\n")
+		}
+		if state.System.SambaExtraGlobal != "" {
+			sb.WriteString("    extra_global: |\n")
+			lines := strings.Split(strings.TrimSpace(state.System.SambaExtraGlobal), "\n")
+			for _, line := range lines {
+				sb.WriteString(fmt.Sprintf("      %s\n", line))
+			}
+		}
 		sb.WriteString("\n")
 	}
 
