@@ -153,8 +153,7 @@ func (h *ShareCRUDHandler) shareAction(w http.ResponseWriter, r *http.Request) {
 
 func (h *ShareCRUDHandler) createShare(w http.ResponseWriter, req shareActionRequest) {
 	if err := checkBinary("smbcontrol"); err != nil {
-		respondErrorSimple(w, "Samba (smbcontrol) not found", http.StatusServiceUnavailable)
-		return
+		log.Printf("WARN: Samba (smbcontrol) not found, continuing without reload")
 	}
 	if req.Name == "" || req.Path == "" {
 		respondErrorSimple(w, "Share name and path are required", http.StatusBadRequest)
