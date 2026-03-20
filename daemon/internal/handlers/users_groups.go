@@ -404,7 +404,7 @@ func (h *UserGroupHandler) groupAction(w http.ResponseWriter, r *http.Request) {
 		})
 
 		// GITOPS HOOK: write state back to git
-		go gitops.CommitAll(h.db)
+		gitops.CommitAllAsync(h.db)
 
 	case "update":
 		if req.ID == 0 {
@@ -449,7 +449,7 @@ func (h *UserGroupHandler) groupAction(w http.ResponseWriter, r *http.Request) {
 		})
 
 		// GITOPS HOOK: write state back to git
-		go gitops.CommitAll(h.db)
+		gitops.CommitAllAsync(h.db)
 
 	case "delete":
 		if req.ID == 0 {
@@ -473,7 +473,7 @@ func (h *UserGroupHandler) groupAction(w http.ResponseWriter, r *http.Request) {
 		})
 
 		// GITOPS HOOK: write state back to git
-		go gitops.CommitAll(h.db)
+		gitops.CommitAllAsync(h.db)
 
 	default:
 		respondErrorSimple(w, "Unknown action", http.StatusBadRequest)

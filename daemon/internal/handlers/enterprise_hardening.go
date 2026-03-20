@@ -234,7 +234,7 @@ func snapshotAllPoolsPreUpgrade(db *sql.DB, applyTarget string) ([]string, []str
 		}
 		snapName := fmt.Sprintf("%s@pre-upgrade-%s", pool, ts)
 
-		_, snapErr := executeCommandWithTimeout(TimeoutMedium, "/usr/sbin/zfs", []string{
+		_, snapErr := executeCommandWithTimeout(TimeoutMedium, "zfs", []string{
 			"snapshot", snapName,
 		})
 
@@ -467,7 +467,7 @@ func (h *DockerHandler) PreFlightCheck(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Check 4: No stale operation locks
-	lockOut, _ := executeCommandWithTimeout(TimeoutFast, "/usr/sbin/zfs", []string{
+	lockOut, _ := executeCommandWithTimeout(TimeoutFast, "zfs", []string{
 		"get", "-H", "-o", "name,value", "-r", "dplane:op_in_progress",
 	})
 	hasStale := false
@@ -764,7 +764,7 @@ func HandleSMARTPrediction(w http.ResponseWriter, r *http.Request) {
 	}
 
 	devicePath := "/dev/" + device
-	output, err := executeCommandWithTimeout(TimeoutMedium, "/usr/sbin/smartctl", []string{
+	output, err := executeCommandWithTimeout(TimeoutMedium, "smartctl", []string{
 		"-A", "-j", devicePath,
 	})
 	if err != nil && output == "" {
@@ -858,7 +858,7 @@ func StartSMARTMonitor() {
 
 func runSMARTScan() {
 	// Enumerate all block devices
-	output, err := executeCommandWithTimeout(TimeoutFast, "/bin/lsblk", []string{
+	output, err := executeCommandWithTimeout(TimeoutFast, "lsblk", []string{
 		"-d", "-n", "-o", "NAME",
 	})
 	if err != nil || strings.TrimSpace(output) == "" {
@@ -873,7 +873,7 @@ func runSMARTScan() {
 		}
 
 		devicePath := "/dev/" + device
-		smartOut, smartErr := executeCommandWithTimeout(TimeoutMedium, "/usr/sbin/smartctl", []string{
+		smartOut, smartErr := executeCommandWithTimeout(TimeoutMedium, "smartctl", []string{
 			"-A", "-j", devicePath,
 		})
 		if smartErr != nil && smartOut == "" {
