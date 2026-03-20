@@ -1,4 +1,4 @@
-﻿/**
+/**
  * routes/index.tsx - D-PlaneOS v4 Router
  *
  * All routes declared inline (no makeRoute helper) so TanStack Router
@@ -37,7 +37,6 @@ import { ISCSIPage }         from '@/pages/ISCSIPage'
 import { CloudSyncPage }     from '@/pages/CloudSyncPage'
 import { DockerPage }        from '@/pages/DockerPage'
 import { ModulesPage }       from '@/pages/ModulesPage'
-import { GitSyncPage }       from '@/pages/GitSyncPage'
 import { GitOpsPage }        from '@/pages/GitOpsPage'
 import { NetworkPage }       from '@/pages/NetworkPage'
 import { RemovableMediaPage} from '@/pages/RemovableMediaPage'
@@ -118,7 +117,6 @@ const sandboxRoute    = createRoute({ getParentRoute: () => protectedRoute, path
 const delegationRoute = createRoute({ getParentRoute: () => protectedRoute, path: '/delegation',    component: DelegationPage })
 const dockerRoute     = createRoute({ getParentRoute: () => protectedRoute, path: '/docker',        component: DockerPage })
 const modulesRoute    = createRoute({ getParentRoute: () => protectedRoute, path: '/modules',       component: ModulesPage })
-const gitSyncRoute    = createRoute({ getParentRoute: () => protectedRoute, path: '/git-sync',      component: GitSyncPage })
 const gitOpsRoute     = createRoute({ getParentRoute: () => protectedRoute, path: '/gitops',        component: GitOpsPage })
 const networkRoute    = createRoute({ getParentRoute: () => protectedRoute, path: '/network',       component: NetworkPage })
 const removableRoute  = createRoute({ getParentRoute: () => protectedRoute, path: '/removable',     component: RemovableMediaPage })
@@ -150,7 +148,7 @@ const routeTree = rootRoute.addChildren([
     dashboardRoute, poolsRoute, sharesRoute, nfsRoute, snapshotsRoute, replRoute,
     filesRoute, quotasRoute, aclRoute, iscsiRoute, cloudRoute,
     sandboxRoute, delegationRoute,
-    dockerRoute, modulesRoute, gitSyncRoute, gitOpsRoute,
+    dockerRoute, modulesRoute, gitOpsRoute,
     networkRoute, removableRoute,
     usersRoute, directoryRoute,
     securityRoute, firewallRoute, certsRoute,

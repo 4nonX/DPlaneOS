@@ -1,4 +1,4 @@
-﻿/**
+/**
  * pages/ReplicationPage.tsx - ZFS Replication (Phase 2)
  *
  * Calls (matching daemon routes exactly):
@@ -353,36 +353,39 @@ function StatusBadge({ status }: { status?: string }) {
   )
 }
 
-// ---------------------------------------------------------------------------
-// AddScheduleModal
-// ---------------------------------------------------------------------------
-
 const INTERVAL_LABELS: Record<ReplicationSchedule['interval'], string> = {
   hourly: 'Hourly', daily: 'Daily', weekly: 'Weekly', manual: 'Manual only',
 }
 
-function AddScheduleModal({ datasets, onClose, onCreated }: {
+function ScheduleModal({ datasets, onClose, onSaved, editingSchedule }: {
   datasets: ZFSDataset[]
   onClose: () => void
-  onCreated: () => void
+  onSaved: () => void
+  editingSchedule?: ReplicationSchedule
 }) {
-  const [name,              setName]              = useState('')
-  const [sourceDataset,     setSourceDataset]     = useState(datasets[0]?.name ?? '')
-  const [remoteHost,        setRemoteHost]        = useState('')
-  const [remoteUser,        setRemoteUser]        = useState('root')
-  const [remotePort,        setRemotePort]        = useState('22')
-  const [remotePool,        setRemotePool]        = useState('')
-  const [sshKeyPath,        setSshKeyPath]        = useState('')
-  const [interval,          setInterval]          = useState<ReplicationSchedule['interval']>('daily')
-  const [triggerOnSnapshot, setTriggerOnSnapshot] = useState(false)
-  const [compress,          setCompress]          = useState(true)
-  const [rateLimitMB,       setRateLimitMB]       = useState(0)
-  const [enabled,           setEnabled]           = useState(true)
+  const [name,              setName]              = useState(editingSchedule?.name ?? '')
+  const [sourceDataset,     setSourceDataset]     = useState(editingSchedule?.source_dataset ?? datasets[0]?.name ?? '')
+  const [remoteHost,        setRemoteHost]        = useState(editingSchedule?.remote_host ?? '')
+  const [remoteUser,        setRemoteUser]        = useState(editingSchedule?.remote_user ?? 'root')
+  const [remotePort,        setRemotePort]        = useState(String(editingSchedule?.remote_port ?? '22'))
+  const [remotePool,        setRemotePool]        = useState(editingSchedule?.remote_pool ?? '')
+  const [sshKeyPath,        setSshKeyPath]        = useState(editingSchedule?.ssh_key_path ?? '')
+  const [interval,          setInterval]          = useState<ReplicationSchedule['interval']>(editingSchedule?.interval ?? 'daily')
+  const [triggerOnSnapshot, setTriggerOnSnapshot] = useState(editingSchedule?.trigger_on_snapshot ?? false)
+  const [compress,          setCompress]          = useState(editingSchedule?.compress ?? true)
+  const [rateLimitMB,       setRateLimitMB]       = useState(editingSchedule?.rate_limit_mb ?? 0)
+  const [enabled,           setEnabled]           = useState(editingSchedule?.enabled ?? true)
 
-  const createMutation = useMutation({
+  const saveMutation = useMutation({
     mutationFn: (s: Partial<ReplicationSchedule>) =>
-      api.post<{ success: boolean; schedule: ReplicationSchedule }>('/api/replication/schedules', s),
-    onSuccess: () => { toast.success('Replication schedule created'); onCreated(); onClose() },
+      editingSchedule 
+        ? api.put(`/api/replication/schedules/${editingSchedule.id}`, s)
+        : api.post<{ success: boolean; schedule: ReplicationSchedule }>('/api/replication/schedules', s),
+    onSuccess: () => { 
+      toast.success(editingSchedule ? 'Replication schedule updated' : 'Replication schedule created'); 
+      onSaved(); 
+      onClose() 
+    },
     onError: (e: Error) => toast.error(e.message),
   })
 
@@ -390,7 +393,7 @@ function AddScheduleModal({ datasets, onClose, onCreated }: {
     if (!name.trim()) { toast.error('Name is required'); return }
     if (!sourceDataset) { toast.error('Source dataset is required'); return }
     if (!remoteHost.trim()) { toast.error('Remote host is required'); return }
-    createMutation.mutate({
+    saveMutation.mutate({
       name,
       source_dataset:      sourceDataset,
       remote_host:         remoteHost,
@@ -407,7 +410,7 @@ function AddScheduleModal({ datasets, onClose, onCreated }: {
   }
 
   return (
-    <Modal title="New Replication Schedule" onClose={onClose}>
+    <Modal title={editingSchedule ? "Edit Replication Schedule" : "New Replication Schedule"} onClose={onClose}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         <label className="field">
           <span className="field-label">Name</span>
@@ -474,8 +477,8 @@ function AddScheduleModal({ datasets, onClose, onCreated }: {
 
       <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 24 }}>
         <button onClick={onClose} className="btn btn-ghost">Cancel</button>
-        <button onClick={submit} disabled={createMutation.isPending} className="btn btn-primary">
-          {createMutation.isPending ? 'Creating…' : 'Create Schedule'}
+        <button onClick={submit} disabled={saveMutation.isPending} className="btn btn-primary">
+          {saveMutation.isPending ? 'Saving…' : editingSchedule ? 'Save Changes' : 'Create Schedule'}
         </button>
       </div>
     </Modal>
@@ -489,6 +492,7 @@ function AddScheduleModal({ datasets, onClose, onCreated }: {
 function SchedulesTab({ datasets, confirm }: { datasets: ZFSDataset[]; confirm: (opts: { title: string; message?: string; confirmLabel?: string; cancelLabel?: string; danger?: boolean }) => Promise<boolean> }) {
   const qc = useQueryClient()
   const [showAdd, setShowAdd] = useState(false)
+  const [editingSchedule, setEditingSchedule] = useState<ReplicationSchedule | undefined>(undefined)
   const [runningId, setRunningId] = useState<string | null>(null)
   const [runJobId, setRunJobId] = useState<string | null>(null)
 
@@ -602,6 +606,14 @@ function SchedulesTab({ datasets, confirm }: { datasets: ZFSDataset[]; confirm: 
                           {runNowMutation.isPending && runningId === s.id ? 'Starting…' : 'Run'}
                         </button>
                       </Tooltip>
+                      <Tooltip content="Edit">
+                        <button
+                          onClick={() => setEditingSchedule(s)}
+                          className="btn btn-sm btn-ghost"
+                        >
+                          <Icon name="edit" size={14} />
+                        </button>
+                       </Tooltip>
                        <Tooltip content="Delete">
                          <button
                            onClick={async () => {
@@ -624,10 +636,19 @@ function SchedulesTab({ datasets, confirm }: { datasets: ZFSDataset[]; confirm: 
       )}
 
       {showAdd && (
-        <AddScheduleModal
+        <ScheduleModal
           datasets={datasets}
           onClose={() => setShowAdd(false)}
-          onCreated={() => qc.invalidateQueries({ queryKey: ['replication', 'schedules'] })}
+          onSaved={() => qc.invalidateQueries({ queryKey: ['replication', 'schedules'] })}
+        />
+      )}
+
+      {editingSchedule && (
+        <ScheduleModal
+          datasets={datasets}
+          editingSchedule={editingSchedule}
+          onClose={() => setEditingSchedule(undefined)}
+          onSaved={() => qc.invalidateQueries({ queryKey: ['replication', 'schedules'] })}
         />
       )}
     </div>

@@ -314,9 +314,14 @@ func initSchema(db *sql.DB) error {
 			sync_identity INTEGER NOT NULL DEFAULT 1,
 			sync_protection INTEGER NOT NULL DEFAULT 1,
 			sync_system INTEGER NOT NULL DEFAULT 1,
+			nixos_repo_id INTEGER,
 			updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-			FOREIGN KEY (repo_id) REFERENCES git_sync_repos(id)
+			FOREIGN KEY (repo_id) REFERENCES git_sync_repos(id),
+			FOREIGN KEY (nixos_repo_id) REFERENCES git_sync_repos(id)
 		)`,
+
+		// Migration: add nixos_repo_id to gitops_config
+		`ALTER TABLE gitops_config ADD COLUMN nixos_repo_id INTEGER`,
 
 		`CREATE INDEX IF NOT EXISTS idx_git_repos_name ON git_sync_repos(name)`,
 		`CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_logs(timestamp)`,

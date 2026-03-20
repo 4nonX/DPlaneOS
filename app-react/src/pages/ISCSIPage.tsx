@@ -1,4 +1,4 @@
-﻿/**
+/**
  * pages/ISCSIPage.tsx - iSCSI Targets (Phase 7)
  *
  * GET    /api/iscsi/status           → { success, running: bool }
@@ -42,10 +42,20 @@ export function ISCSIPage() {
 
   const [iqn, setIqn] = useState('iqn.2024-01.me.dplane:')
   const [zvol, setZvol] = useState('')
+  const [editingIqn, setEditingIqn] = useState<string | null>(null)
 
   const createTarget = useMutation({
-    mutationFn: () => api.post('/api/iscsi/targets', { iqn, zvol }),
-    onSuccess: () => { toast.success('Target created'); setIqn('iqn.2024-01.me.dplane:'); setZvol(''); qc.invalidateQueries({ queryKey:['iscsi'] }) },
+    mutationFn: () => {
+      const url = editingIqn ? '/api/iscsi/targets/update' : '/api/iscsi/targets'
+      return api.post(url, { iqn, zvol })
+    },
+    onSuccess: () => { 
+      toast.success(editingIqn ? 'Target updated' : 'Target created'); 
+      setIqn('iqn.2024-01.me.dplane:'); 
+      setZvol(''); 
+      setEditingIqn(null);
+      qc.invalidateQueries({ queryKey:['iscsi'] }) 
+    },
     onError: (e: Error) => toast.error(e.message),
   })
   const deleteTarget = useMutation({
@@ -75,6 +85,19 @@ export function ISCSIPage() {
   const acls    = aclsQ.data?.acls ?? []
   const running = statusQ.data?.running
 
+  const handleEdit = (t: Target) => {
+    setIqn(t.iqn)
+    setZvol(t.zvol || '')
+    setEditingIqn(t.iqn)
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
+  const cancelEdit = () => {
+    setIqn('iqn.2024-01.me.dplane:')
+    setZvol('')
+    setEditingIqn(null)
+  }
+
   return (
     <div style={{ maxWidth: 960 }}>
       <div className="page-header">
@@ -103,12 +126,12 @@ export function ISCSIPage() {
       {tab === 'targets' && (
         <>
           {/* Create form */}
-          <div className="card" style={{ borderRadius:'var(--radius-xl)', padding:22, marginBottom:22 }}>
-            <div style={{ fontWeight:700, marginBottom:14 }}>Create Target</div>
+          <div className="card" style={{ borderRadius:'var(--radius-xl)', padding:22, marginBottom:22, border: editingIqn ? '1px solid var(--primary)' : undefined }}>
+            <div style={{ fontWeight:700, marginBottom:14 }}>{editingIqn ? 'Edit Target' : 'Create Target'}</div>
             <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr auto', gap:10, alignItems:'flex-end' }}>
               <label className="field">
                 <span className="field-label">IQN</span>
-                <input value={iqn} onChange={e=>setIqn(e.target.value)} className="input" style={{ fontFamily:'var(--font-mono)' }}/>
+                <input value={iqn} onChange={e=>setIqn(e.target.value)} className="input" style={{ fontFamily:'var(--font-mono)' }} disabled={!!editingIqn} />
               </label>
               <label className="field">
                 <span className="field-label">ZVol</span>
@@ -121,9 +144,12 @@ export function ISCSIPage() {
                   <input value={zvol} onChange={e=>setZvol(e.target.value)} placeholder="tank/zvols/target0" className="input" style={{ fontFamily:'var(--font-mono)' }}/>
                 )}
               </label>
-              <button onClick={()=>createTarget.mutate()} disabled={!iqn.trim()||!zvol.trim()||createTarget.isPending} className="btn btn-primary">
-                <Icon name="add" size={14}/>{createTarget.isPending?'Creating…':'Create'}
-              </button>
+              <div style={{ display:'flex', gap:8 }}>
+                {editingIqn && <button onClick={cancelEdit} className="btn btn-ghost">Cancel</button>}
+                <button onClick={()=>createTarget.mutate()} disabled={!iqn.trim()||!zvol.trim()||createTarget.isPending} className="btn btn-primary">
+                  <Icon name={editingIqn ? "save" : "add"} size={14}/>{createTarget.isPending?'Saving…':editingIqn?'Update':'Create'}
+                </button>
+              </div>
             </div>
           </div>
 
@@ -145,7 +171,10 @@ export function ISCSIPage() {
                     <td>{t.sessions ?? 0}</td>
                     <td style={{ color:'var(--text-secondary)' }}>{fmtSize(t.size)}</td>
                     <td>
-                      <button onClick={async ()=>{ if(await confirm({ title:`Delete target "${t.iqn}"?`, message:'All ACLs for this target will also be removed.', danger:true, confirmLabel:'Delete' })) deleteTarget.mutate(t.iqn) }} className="btn btn-sm btn-danger"><Icon name="delete" size={13}/>Delete</button>
+                      <div style={{ display:'flex', gap:6 }}>
+                        <button onClick={()=>handleEdit(t)} className="btn btn-sm btn-ghost"><Icon name="edit" size={13}/>Edit</button>
+                        <button onClick={async ()=>{ if(await confirm({ title:`Delete target "${t.iqn}"?`, message:'All ACLs for this target will also be removed.', danger:true, confirmLabel:'Delete' })) deleteTarget.mutate(t.iqn) }} className="btn btn-sm btn-danger"><Icon name="delete" size={13}/>Delete</button>
+                      </div>
                     </td>
                   </tr>
                 ))}

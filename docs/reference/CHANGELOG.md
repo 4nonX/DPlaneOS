@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ---
 
+## v6.0.4 (2026-03-20) - "System-Wide CRUD Consistency"
+
+Upgrade from: v6.0.3 - Drop-in. `sudo bash install.sh --upgrade`
+
+### Added
+- **System-Wide CRUD Enhancement**: Implemented/Hardened Create, Read, Update, and Delete (CRUD) operations across the entire platform.
+  - **Storage**: Added "Edit" and "Delete" (with safety confirmation) for ZFS Datasets and Snapshot Schedules.
+  - **Networking**: Added "Edit" for Firewall Rules and "Remove" for VLANs and Bonds.
+  - **Services**: Implemented "Edit" for iSCSI Targets, Cloud Sync remotes, and Replication Schedules.
+  - **Security**: Added full CRUD for RBAC Roles and confirmed Users/Groups consistency.
+- **Unified GitOps**: Consolidated GitOps and Git Sync into a single hub with full CRUD for Repositories and Credentials.
+
+---
+
 ## v6.0.3 (2026-03-20) - "System Sync Core"
 
 Upgrade from: v6.0.2 - Drop-in. `sudo bash install.sh --upgrade`

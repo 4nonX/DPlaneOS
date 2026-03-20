@@ -406,27 +406,28 @@ func (h *GitOpsHandler) PutState(w http.ResponseWriter, r *http.Request) {
 // ── GET /api/gitops/settings ──────────────────────────────────────────────────
 
 type GitOpsSettings struct {
-	Enabled         bool   `json:"enabled"`
-	RepoID          int64  `json:"repo_id"`
-	StatePath       string `json:"state_path"`
-	SyncStorage     bool   `json:"sync_storage"`
-	SyncAccess      bool   `json:"sync_access"`
-	SyncApp         bool   `json:"sync_app"`
-	SyncIdentity    bool   `json:"sync_identity"`
-	SyncProtection  bool   `json:"sync_protection"`
-	SyncSystem      bool   `json:"sync_system"`
-	UpdatedAt       string `json:"updated_at"`
+	Enabled        bool   `json:"enabled"`
+	RepoID         *int64 `json:"repo_id"`
+	NixOSRepoID    *int64 `json:"nixos_repo_id"`
+	StatePath      string `json:"state_path"`
+	SyncStorage    bool   `json:"sync_storage"`
+	SyncAccess     bool   `json:"sync_access"`
+	SyncApp        bool   `json:"sync_app"`
+	SyncIdentity   bool   `json:"sync_identity"`
+	SyncProtection bool   `json:"sync_protection"`
+	SyncSystem     bool   `json:"sync_system"`
+	UpdatedAt      string `json:"updated_at"`
 }
 
 func (h *GitOpsHandler) GetSettings(w http.ResponseWriter, r *http.Request) {
 	var s GitOpsSettings
 	var enabled, storage, access, app, identity, protection, system int
-	var repoID sql.NullInt64
+	var repoID, nixosRepoID sql.NullInt64
 
-	err := h.db.QueryRow(`SELECT enabled, repo_id, state_path, sync_storage, sync_access, 
+	err := h.db.QueryRow(`SELECT enabled, repo_id, nixos_repo_id, state_path, sync_storage, sync_access, 
 		sync_app, sync_identity, sync_protection, sync_system, updated_at 
 		FROM gitops_config WHERE id = 1`).Scan(
-		&enabled, &repoID, &s.StatePath, &storage, &access, &app, &identity, &protection, &system, &s.UpdatedAt)
+		&enabled, &repoID, &nixosRepoID, &s.StatePath, &storage, &access, &app, &identity, &protection, &system, &s.UpdatedAt)
 
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, "failed to load gitops settings", err)
@@ -434,7 +435,14 @@ func (h *GitOpsHandler) GetSettings(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.Enabled = enabled == 1
-	s.RepoID = repoID.Int64
+	if repoID.Valid {
+		v := repoID.Int64
+		s.RepoID = &v
+	}
+	if nixosRepoID.Valid {
+		v := nixosRepoID.Int64
+		s.NixOSRepoID = &v
+	}
 	s.SyncStorage = storage == 1
 	s.SyncAccess = access == 1
 	s.SyncApp = app == 1
@@ -455,16 +463,36 @@ func (h *GitOpsHandler) UpdateSettings(w http.ResponseWriter, r *http.Request) {
 	}
 
 	boolToInt := func(b bool) int {
-		if b { return 1 }
+		if b {
+			return 1
+		}
 		return 0
 	}
 
+	enabledInt := 0
+	if req.Enabled {
+		enabledInt = 1
+	}
+
+	repoID := sql.NullInt64{}
+	if req.RepoID != nil {
+		repoID.Valid = true
+		repoID.Int64 = *req.RepoID
+	}
+
+	nixosRepoID := sql.NullInt64{}
+	if req.NixOSRepoID != nil {
+		nixosRepoID.Valid = true
+		nixosRepoID.Int64 = *req.NixOSRepoID
+	}
+
 	_, err := h.db.Exec(`UPDATE gitops_config SET 
-		enabled=?, repo_id=?, state_path=?, sync_storage=?, sync_access=?, 
-		sync_app=?, sync_identity=?, sync_protection=?, sync_system=?, updated_at=datetime('now')
-		WHERE id = 1`,
-		boolToInt(req.Enabled), req.RepoID, req.StatePath, 
-		boolToInt(req.SyncStorage), boolToInt(req.SyncAccess), boolToInt(req.SyncApp), 
+		enabled=?, repo_id=?, nixos_repo_id=?, state_path=?,
+		sync_storage=?, sync_access=?, sync_app=?, 
+		sync_identity=?, sync_protection=?, sync_system=?,
+		updated_at=datetime('now') WHERE id=1`,
+		enabledInt, repoID, nixosRepoID, req.StatePath,
+		boolToInt(req.SyncStorage), boolToInt(req.SyncAccess), boolToInt(req.SyncApp),
 		boolToInt(req.SyncIdentity), boolToInt(req.SyncProtection), boolToInt(req.SyncSystem))
 
 	if err != nil {

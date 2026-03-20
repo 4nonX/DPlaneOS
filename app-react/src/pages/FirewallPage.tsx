@@ -1,4 +1,4 @@
-﻿/**
+/**
  * pages/FirewallPage.tsx - Firewall (Phase 6)
  *
  * Shows current nftables/iptables status and allows adding allow/deny rules.
@@ -125,8 +125,72 @@ function AddRuleForm({ onAdd, pending }: { onAdd: (rule: { action: string; port:
 // FirewallPage
 // ---------------------------------------------------------------------------
 
+function EditRuleModal({ rule, onClose, onSave, pending }: { rule: FirewallRule; onClose: () => void; onSave: (r: { action: string; port: string; from: string; proto: string }) => void; pending: boolean }) {
+  const [action, setAction] = useState<'allow' | 'deny'>(rule.action)
+  const [port,   setPort]   = useState(rule.port || '')
+  const [from,   setFrom]   = useState(rule.from || '')
+  const [proto,  setProto]  = useState(rule.proto || 'tcp')
+
+  function submit() {
+    if (!port.trim()) { toast.error('Port is required'); return }
+    onSave({ action, port: port.trim(), from: from.trim(), proto })
+  }
+
+  return (
+    <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100, backdropFilter: 'blur(4px)' }}>
+      <div className="card" style={{ width: 450, padding: 24, borderRadius: 'var(--radius-xl)', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.3)' }}>
+        <div style={{ fontWeight: 700, fontSize: 'var(--text-lg)', marginBottom: 20, display: 'flex', alignItems: 'center', gap: 10 }}>
+          <Icon name="edit" size={20} style={{ color: 'var(--primary)' }} />
+          Edit Firewall Rule
+        </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <label className="field">
+            <span className="field-label">Action</span>
+            <select value={action} onChange={e => setAction(e.target.value as 'allow' | 'deny')} className="input">
+              <option value="allow">Allow</option>
+              <option value="deny">Deny</option>
+            </select>
+          </label>
+
+          <label className="field">
+            <span className="field-label">Protocol</span>
+            <select value={proto} onChange={e => setProto(e.target.value)} className="input">
+              <option value="tcp">tcp</option>
+              <option value="udp">udp</option>
+              <option value="both">tcp+udp</option>
+            </select>
+          </label>
+
+          <label className="field">
+            <span className="field-label">Port / Range</span>
+            <input value={port} onChange={e => setPort(e.target.value)} placeholder="80" className="input" />
+          </label>
+
+          <label className="field">
+            <span className="field-label">Source IP (optional)</span>
+            <input value={from} onChange={e => setFrom(e.target.value)} placeholder="any" className="input" />
+          </label>
+        </div>
+
+        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 24 }}>
+          <button onClick={onClose} className="btn btn-ghost">Cancel</button>
+          <button onClick={submit} disabled={pending} className="btn btn-primary">
+            {pending ? 'Saving...' : 'Save Changes'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// FirewallPage
+// ---------------------------------------------------------------------------
+
 export function FirewallPage() {
   const qc = useQueryClient()
+  const [editingRule, setEditingRule] = useState<FirewallRule | null>(null)
 
   const statusQ = useQuery({
     queryKey: ['firewall', 'status'],
@@ -136,7 +200,11 @@ export function FirewallPage() {
 
   const rulesMut = useMutation({
     mutationFn: (body: Record<string, unknown>) => api.post('/api/firewall/rule', body),
-    onSuccess: () => { toast.success('Rule applied'); qc.invalidateQueries({ queryKey: ['firewall', 'status'] }) },
+    onSuccess: () => {
+      toast.success('Rule applied')
+      qc.invalidateQueries({ queryKey: ['firewall', 'status'] })
+      setEditingRule(null)
+    },
     onError: (e: Error) => toast.error(e.message),
   })
 
@@ -152,8 +220,27 @@ export function FirewallPage() {
   if (statusQ.isLoading) return <Skeleton height={320} />
   if (statusQ.isError)   return <ErrorState error={statusQ.error} onRetry={() => qc.invalidateQueries({ queryKey: ['firewall', 'status'] })} />
 
+  function handleEditSave(updated: { action: string; port: string; from: string; proto: string }) {
+    if (!editingRule) return
+    // To "edit" a ufw rule, we must delete the old one by ID and add the new one
+    // But since the backend SetRule for "delete" takes rule_num (id), we can do it in two steps
+    // or sequential mutations. For simplicity, we sequence them.
+    rulesMut.mutateAsync({ action: 'delete', rule_num: editingRule.id }).then(() => {
+      rulesMut.mutate({ action: updated.action, port: updated.port, from: updated.from || undefined, proto: updated.proto })
+    })
+  }
+
   return (
     <div style={{ maxWidth: 900 }}>
+      {editingRule && (
+        <EditRuleModal
+          rule={editingRule}
+          onClose={() => setEditingRule(null)}
+          onSave={handleEditSave}
+          pending={rulesMut.isPending}
+        />
+      )}
+
       <div className="page-header">
         <h1 className="page-title">Firewall</h1>
         <p className="page-subtitle">nftables rules - allow and deny traffic by port and source</p>
@@ -213,13 +300,22 @@ export function FirewallPage() {
                     {rule.from ?? 'any'}
                   </td>
                   <td style={{ textAlign: 'right' }}>
-                    <button onClick={() => rulesMut.mutate({ action: 'remove', id: rule.id, port: rule.port, from: rule.from })}
-                      disabled={rulesMut.isPending}
-                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-tertiary)', padding: 4, borderRadius: 'var(--radius-xs)', display: 'inline-flex' }}
-                      onMouseEnter={e => (e.currentTarget.style.color = 'var(--error)')}
-                      onMouseLeave={e => (e.currentTarget.style.color = 'var(--text-tertiary)')}>
-                      <Icon name="delete" size={16} />
-                    </button>
+                    <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
+                      <button onClick={() => setEditingRule(rule)}
+                        disabled={rulesMut.isPending}
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-tertiary)', padding: 4, borderRadius: 'var(--radius-xs)', display: 'inline-flex' }}
+                        onMouseEnter={e => (e.currentTarget.style.color = 'var(--primary)')}
+                        onMouseLeave={e => (e.currentTarget.style.color = 'var(--text-tertiary)')}>
+                        <Icon name="edit" size={16} />
+                      </button>
+                      <button onClick={() => rulesMut.mutate({ action: 'delete', rule_num: rule.id })}
+                        disabled={rulesMut.isPending}
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-tertiary)', padding: 4, borderRadius: 'var(--radius-xs)', display: 'inline-flex' }}
+                        onMouseEnter={e => (e.currentTarget.style.color = 'var(--error)')}
+                        onMouseLeave={e => (e.currentTarget.style.color = 'var(--text-tertiary)')}>
+                        <Icon name="delete" size={16} />
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -236,4 +332,5 @@ export function FirewallPage() {
     </div>
   )
 }
+
 

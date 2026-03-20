@@ -1,18 +1,14 @@
 package gitops
 
 import (
-	"context"
 	"database/sql"
 	"fmt"
 	"log"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
-	"time"
 
-	"dplaned/internal/cmdutil"
 	"dplaned/internal/config"
 )
 
@@ -84,12 +80,12 @@ func CommitAll(db *sql.DB) error {
 	// 5. Load Credentials for Push
 	var env []string
 	if repoID.Valid {
-		env = buildPushEnv(db, repoID.Int64)
-		defer cleanupAskpass()
+		env = BuildPushEnvForRepoID(db, repoID.Int64)
+		defer CleanupAskpass()
 	}
 
 	// 6. Git Commit & Push
-	return gitCommitAndPush(repoDir, env, "feat: infrastructure state update via D-PlaneOS")
+	return CommitAndPush(repoDir, env, "feat: infrastructure state update via D-PlaneOS")
 }
 
 // GenerateStateYAML converts LiveState into the declarative state.yaml format.
@@ -416,94 +412,4 @@ func saveStateLocally(dir, content string) error {
 	return os.WriteFile(filepath.Join(dir, stateFileName), []byte(content), 0644)
 }
 
-func gitCommitAndPush(dir string, env []string, message string) error {
-	// Add
-	if _, err := cmdutil.RunFastInDir(dir, "git", "add", stateFileName); err != nil {
-		return fmt.Errorf("git add: %w", err)
-	}
-
-	// Check if there are changes
-	out, _ := cmdutil.RunFastInDir(dir, "git", "status", "--short")
-	if len(strings.TrimSpace(string(out))) == 0 {
-		log.Printf("GITOPS COMMIT: no changes to commit")
-		return nil
-	}
-
-	// Commit
-	if _, err := cmdutil.RunFastInDir(dir, "git", "commit", "-m", message); err != nil {
-		return fmt.Errorf("git commit: %w", err)
-	}
-
-	// Push
-	if len(env) > 0 {
-		log.Printf("GITOPS COMMIT: pushing with authenticated environment")
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-		defer cancel()
-		cmd := exec.CommandContext(ctx, "git", "-C", dir, "push")
-		cmd.Env = append(os.Environ(), env...)
-		pout, err := cmd.CombinedOutput()
-		if err != nil {
-			log.Printf("GITOPS COMMIT WARNING: authenticated git push failed: %v - %s", err, string(pout))
-		}
-	} else {
-		if _, err := cmdutil.RunMediumInDir(dir, "git", "push"); err != nil {
-			log.Printf("GITOPS COMMIT WARNING: git push failed (check upstream connection): %v", err)
-		}
-	}
-
-	return nil
-}
-
-// ── Authenticated Git Helpers (Internal Copy to avoid cycle) ──────────────────
-
-func buildPushEnv(db *sql.DB, repoID int64) []string {
-	var credID int
-	db.QueryRow(`SELECT CAST(auth_token AS INTEGER) FROM git_sync_repos WHERE id=? AND auth_type='cred'`, repoID).Scan(&credID)
-	if credID == 0 {
-		return nil
-	}
-
-	var authType, token, sshKey string
-	err := db.QueryRow(`SELECT auth_type, token, ssh_key FROM git_credentials WHERE id=?`, credID).Scan(&authType, &token, &sshKey)
-	if err != nil {
-		return nil
-	}
-
-	if authType == "token" && token != "" {
-		tokenFile, _ := os.CreateTemp("", ".dplaneos-token-*")
-		tokenFile.Write([]byte(token))
-		tokenFile.Chmod(0600)
-		tokenFile.Close()
-
-		askpassFile, _ := os.CreateTemp("", ".dplaneos-askpass-*")
-		script := fmt.Sprintf("#!/bin/sh\ncase \"$1\" in\n*Username*) echo 'x-access-token' ;;\n*) cat '%s' ;;\nesac\n", tokenFile.Name())
-		askpassFile.Write([]byte(script))
-		askpassFile.Chmod(0700)
-		askpassFile.Close()
-
-		return []string{
-			"GIT_ASKPASS=" + askpassFile.Name(),
-			"GIT_TERMINAL_PROMPT=0",
-		}
-	}
-
-	if authType == "ssh" && sshKey != "" {
-		keyFile, _ := os.CreateTemp("", ".dplaneos-sshkey-*")
-		keyFile.Write([]byte(sshKey))
-		keyFile.Chmod(0600)
-		keyFile.Close()
-		sshCmd := fmt.Sprintf("ssh -i %s -o StrictHostKeyChecking=accept-new", keyFile.Name())
-		return []string{"GIT_SSH_COMMAND=" + sshCmd}
-	}
-	return nil
-}
-
-func cleanupAskpass() {
-	for _, pattern := range []string{"/tmp/.dplaneos-askpass-*", "/tmp/.dplaneos-token-*", "/tmp/.dplaneos-sshkey-*"} {
-		matches, _ := filepath.Glob(pattern)
-		for _, m := range matches {
-			os.Remove(m)
-		}
-	}
-}
-
+// buildPushEnv, cleanupAskpass and gitCommitAndPush have been moved to git_util.go

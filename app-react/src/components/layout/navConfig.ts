@@ -64,8 +64,7 @@ const initialNav: NavItem[] = [
     children: [
       { kind: 'leaf', id: 'docker',    label: 'Docker',       icon: 'developer_board', route: '/docker' },
       { kind: 'leaf', id: 'modules',   label: 'App Modules',  icon: 'extension',       route: '/modules' },
-      { kind: 'leaf', id: 'git-sync',  label: 'Git Sync',     icon: 'merge',           route: '/git-sync' },
-      { kind: 'leaf', id: 'gitops',    label: 'GitOps State', icon: 'account_tree',    route: '/gitops' },
+      { kind: 'leaf', id: 'gitops',    label: 'GitOps Engine', icon: 'account_tree',    route: '/gitops' },
     ],
   },
   {

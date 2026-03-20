@@ -1,4 +1,4 @@
-﻿package handlers
+package handlers
 
 import (
 	"encoding/json"
@@ -173,6 +173,59 @@ func CreateISCSITarget(w http.ResponseWriter, r *http.Request) {
 	respondOK(w, map[string]interface{}{
 		"success": true,
 		"message": "iSCSI target created",
+		"iqn":     req.IQN,
+	})
+}
+
+// UpdateISCSITarget updates an existing iSCSI target (e.g., changes its backing zvol)
+// POST /api/iscsi/targets/update
+func UpdateISCSITarget(w http.ResponseWriter, r *http.Request) {
+	var req ISCSICreateRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondErrorSimple(w, "invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	if err := validateIQN(req.IQN); err != nil {
+		respondError(w, http.StatusBadRequest, "Invalid request", err)
+		return
+	}
+	if req.BackingDev == "" {
+		respondErrorSimple(w, "backing_dev is required", http.StatusBadRequest)
+		return
+	}
+
+	// In LIO (targetcli), the safest way to "update" a target's backing device
+	// without tearing down the entire target is to delete the LUN and re-create it.
+	// This will disconnect active sessions, which is expected for such an operation.
+
+	tpgPath := fmt.Sprintf("/iscsi/%s/tpg1", req.IQN)
+	storageName := sanitizeForTargetcli(req.IQN)
+
+	// 1. Delete existing LUN 0
+	runTargetcli(tpgPath+"/luns", "delete", "0") //nolint
+
+	// 2. Delete existing storage object
+	runTargetcli("/backstores/block", "delete", storageName) //nolint
+
+	// 3. Create new storage object
+	if _, err := runTargetcli("/backstores/block", "create", storageName, req.BackingDev); err != nil {
+		respondErrorSimple(w, "Failed to create new storage object", http.StatusInternalServerError)
+		return
+	}
+
+	// 4. Create new LUN 0
+	if _, err := runTargetcli(tpgPath+"/luns", "create", "/backstores/block/"+storageName); err != nil {
+		respondErrorSimple(w, "Failed to create new LUN", http.StatusInternalServerError)
+		return
+	}
+
+	// Save config
+	runTargetcli("/", "saveconfig") //nolint
+
+	respondOK(w, map[string]interface{}{
+		"success": true,
+		"message": "iSCSI target updated",
 		"iqn":     req.IQN,
 	})
 }

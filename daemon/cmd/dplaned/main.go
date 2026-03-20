@@ -56,6 +56,7 @@ func main() {
 	convergenceCheck := flag.Bool("convergence-check", false, "Verify if system has converged and exit (CONVERGED|NOT_CONVERGED)")
 	testSerialization := flag.Bool("test-serialization", false, "Verify state.yaml round-trip (Phase 4.1)")
 	testIdempotency := flag.Bool("test-idempotency", false, "Verify Apply(S); Apply(S) results in zero diff (Phase 4.2)")
+	ceTokenFile := flag.String("ce-token-file", "", "Path to Compliance Engine API token file (Phase 6.2)")
 	flag.Parse()
 
 	// Phase 3.1: One-off apply if requested
@@ -247,6 +248,9 @@ func main() {
 	if err := initSchema(db); err != nil {
 		log.Fatalf("Database schema initialization failed: %v", err)
 	}
+
+	// Phase 6.2: Bootstrap CE Token if provided
+	bootstrapCEToken(db, *ceTokenFile)
 
 	// Ensure reconciler tables exist (network state persistence for non-NixOS)
 	if err := reconciler.EnsureSchema(db); err != nil {
@@ -634,6 +638,7 @@ func main() {
 	r.HandleFunc("/api/nixos/confirm", nixosGuardHandler.ConfirmApply).Methods("POST")
 	r.HandleFunc("/api/nixos/watchdog", nixosGuardHandler.WatchdogStatus).Methods("GET")
 	r.HandleFunc("/api/nixos/pre-upgrade-snapshots", nixosGuardHandler.ListPreUpgradeSnapshots).Methods("GET")
+	r.Handle("/api/nixos/backup-config", permRoute("system", "admin", nixosGuardHandler.BackupConfig)).Methods("POST")
 
 	// v3.0.0: Docker pre-flight check
 	r.HandleFunc("/api/docker/preflight", dockerHandler.PreFlightCheck).Methods("GET")
@@ -1023,6 +1028,7 @@ func main() {
 	r.HandleFunc("/api/iscsi/status", handlers.GetISCSIStatus).Methods("GET")
 	r.HandleFunc("/api/iscsi/targets", handlers.GetISCSITargets).Methods("GET")
 	r.Handle("/api/iscsi/targets", permRoute("storage", "write", handlers.CreateISCSITarget)).Methods("POST")
+	r.Handle("/api/iscsi/targets/update", permRoute("storage", "write", handlers.UpdateISCSITarget)).Methods("POST")
 	r.Handle("/api/iscsi/targets/{iqn}", permRoute("storage", "write", handlers.DeleteISCSITarget)).Methods("DELETE")
 	r.HandleFunc("/api/iscsi/acls", handlers.GetISCSIACLs).Methods("GET")
 	r.Handle("/api/iscsi/acls", permRoute("storage", "write", handlers.AddISCSIACL)).Methods("POST")
@@ -1039,6 +1045,7 @@ func main() {
 	replicationScheduleHandler := handlers.NewReplicationScheduleHandler(db)
 	r.HandleFunc("/api/replication/schedules", replicationScheduleHandler.HandleListReplicationSchedules).Methods("GET")
 	r.HandleFunc("/api/replication/schedules", replicationScheduleHandler.HandleCreateReplicationSchedule).Methods("POST")
+	r.HandleFunc("/api/replication/schedules/{id}", replicationScheduleHandler.HandleUpdateReplicationSchedule).Methods("PUT")
 	r.HandleFunc("/api/replication/schedules/{id}", replicationScheduleHandler.HandleDeleteReplicationSchedule).Methods("DELETE")
 	r.HandleFunc("/api/replication/schedules/{id}/run", replicationScheduleHandler.HandleRunReplicationScheduleNow).Methods("POST")
 
@@ -1314,6 +1321,55 @@ func runRotation(db *sql.DB) {
 		log.Printf("ERROR: Post-rotation VACUUM failed: %v", err)
 	} else {
 		log.Printf("MAINTENANCE: Audit log rotation and VACUUM completed successfully")
+	}
+}
+
+// bootstrapCEToken reads a token from a file and ensures it exists in api_tokens for the admin user.
+func bootstrapCEToken(db *sql.DB, path string) {
+	if path == "" {
+		return
+	}
+	content, err := os.ReadFile(path)
+	if err != nil {
+		log.Printf("BOOTSTRAP: Failed to read CE token file %s: %v", path, err)
+		return
+	}
+	token := strings.TrimSpace(string(content))
+	if token == "" {
+		return
+	}
+
+	// We assume token is the raw token. D-PlaneOS stores token_hash and token_prefix.
+	// For simplicity in this bootstrap, we store it if no token named 'nixos-gitops' exists.
+	var adminID int
+	err = db.QueryRow("SELECT id FROM users WHERE username='admin'").Scan(&adminID)
+	if err != nil {
+		log.Printf("BOOTSTRAP: Failed to find admin user: %v", err)
+		return
+	}
+
+	// security.GenerateTokenHash is what we would normally use, but we don't want to re-hash on every boot.
+	// Actually, let's just check if a token with this prefix exists.
+	prefix := ""
+	if len(token) > 8 {
+		prefix = token[:8]
+	}
+
+	var exists int
+	db.QueryRow("SELECT COUNT(*) FROM api_tokens WHERE name='compliance-engine-token'").Scan(&exists)
+	if exists > 0 {
+		return // Already bootstrapped
+	}
+
+	// Use security package to hash it correctly
+	hash := security.HashToken(token)
+	_, err = db.Exec(`INSERT INTO api_tokens (user_id, name, token_hash, token_prefix, scopes)
+		VALUES (?, 'compliance-engine-token', ?, ?, 'admin')`,
+		adminID, hash, prefix)
+	if err != nil {
+		log.Printf("BOOTSTRAP: Failed to insert CE token: %v", err)
+	} else {
+		log.Printf("BOOTSTRAP: Compliance Engine API token injected for admin")
 	}
 }
 

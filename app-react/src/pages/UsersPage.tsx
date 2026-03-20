@@ -1,4 +1,4 @@
-﻿/**
+/**
  * pages/UsersPage.tsx - Users, Groups & Roles (Phase 5)
  *
  * Tabs: Users | Groups | Roles
@@ -347,6 +347,59 @@ function GroupsTab() {
 }
 
 // ---------------------------------------------------------------------------
+// RoleModal (create + edit)
+// ---------------------------------------------------------------------------
+
+function RoleModal({ role, onClose, onDone }: { role?: Role; onClose: () => void; onDone: () => void }) {
+  const [name, setName] = useState(role?.name ?? '')
+  const [description, setDescription] = useState(role?.description ?? '')
+  const [perms, setPerms] = useState((role?.permissions ?? []).join(', '))
+  
+  const isEdit = !!role
+
+  const mutation = useMutation({
+    mutationFn: () => {
+      const body = { 
+        name, 
+        description, 
+        permissions: perms.split(',').map(p => p.trim()).filter(Boolean) 
+      }
+      return isEdit 
+        ? api.put(`/api/rbac/roles/${role.id}`, body)
+        : api.post('/api/rbac/roles', body)
+    },
+    onSuccess: () => { toast.success(isEdit ? 'Role updated' : 'Role created'); onDone(); onClose() },
+    onError: (e: Error) => toast.error(e.message),
+  })
+
+  return (
+    <Modal title={isEdit ? `Edit Role: ${role!.name}` : 'Create Role'} onClose={onClose}>
+      <label className="field">
+        <span className="field-label">Role Name</span>
+        <input value={name} onChange={e => setName(e.target.value)} className="input" autoFocus placeholder="e.g. storage-admin" />
+      </label>
+      <label className="field">
+        <span className="field-label">Description</span>
+        <input value={description} onChange={e => setDescription(e.target.value)} className="input" placeholder="Manage storage and datasets" />
+      </label>
+      <label className="field">
+        <span className="field-label">Permissions (comma-separated)</span>
+        <input value={perms} onChange={e => setPerms(e.target.value)} className="input" placeholder="storage:read, storage:write" />
+        <div style={{ fontSize:'var(--text-2xs)', color:'var(--text-tertiary)', marginTop:4 }}>
+          Common: <code>read, write, admin, storage, network, users, logs</code>
+        </div>
+      </label>
+      <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 10 }}>
+        <button onClick={onClose} className="btn btn-ghost">Cancel</button>
+        <button onClick={() => mutation.mutate()} disabled={mutation.isPending} className="btn btn-primary">
+          {mutation.isPending ? 'Saving…' : isEdit ? 'Save' : 'Create'}
+        </button>
+      </div>
+    </Modal>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // RolesTab
 // ---------------------------------------------------------------------------
 
@@ -354,6 +407,8 @@ function RolesTab() {
   const qc = useQueryClient()
   const { confirm, ConfirmDialog: ConfirmRoles } = useConfirm()
   const [expanded, setExpanded] = useState<string | number | null>(null)
+  const [showCreate, setShowCreate] = useState(false)
+  const [editRole, setEditRole] = useState<Role | null>(null)
 
   const rolesQ = useQuery({
     queryKey: ['rbac', 'roles'],
@@ -368,11 +423,17 @@ function RolesTab() {
 
   const roles = rolesQ.data?.roles ?? []
 
+  function refresh() { qc.invalidateQueries({ queryKey: ['rbac', 'roles'] }) }
+
   if (rolesQ.isLoading) return <Skeleton height={200} />
-  if (rolesQ.isError) return <ErrorState error={rolesQ.error} onRetry={() => qc.invalidateQueries({ queryKey: ['rbac', 'roles'] })} />
+  if (rolesQ.isError) return <ErrorState error={rolesQ.error} onRetry={refresh} />
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
+        <button onClick={() => setShowCreate(true)} className="btn btn-primary btn-sm"><Icon name="add" size={14} />New Role</button>
+      </div>
+
       {roles.map(role => (
         <div key={role.id} className="card" style={{ borderRadius: 'var(--radius-md)', overflow: 'hidden' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 18px', cursor: 'pointer' }}
@@ -393,6 +454,9 @@ function RolesTab() {
                 ))}
               </div>
               <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+                <button onClick={() => setEditRole(role)} className="btn btn-ghost">
+                  <Icon name="edit" size={13} />Edit Role
+                </button>
                 <button onClick={async () => { if (await confirm({ title: `Delete role "${role.name}"?`, message: 'Users assigned this role will lose its permissions.', danger: true, confirmLabel: 'Delete' })) deleteRole.mutate(role.id) }} className="btn btn-danger">
                   <Icon name="delete" size={13} />Delete Role
                 </button>
@@ -404,6 +468,9 @@ function RolesTab() {
       {roles.length === 0 && (
         <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text-tertiary)' }}>No custom roles defined</div>
       )}
+
+      {showCreate && <RoleModal onClose={() => setShowCreate(false)} onDone={refresh} />}
+      {editRole && <RoleModal role={editRole} onClose={() => setEditRole(null)} onDone={refresh} />}
       <ConfirmRoles />
     </div>
   )

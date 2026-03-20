@@ -1,4 +1,4 @@
-﻿package handlers
+package handlers
 
 import (
 	"context"
@@ -17,6 +17,7 @@ import (
 
 	"dplaned/internal/cmdutil"
 	"dplaned/internal/config"
+	"dplaned/internal/gitops"
 )
 
 // GitReposHandler manages multiple git-sync repositories (Arcane-style multi-repo)
@@ -156,8 +157,8 @@ func (h *GitReposHandler) TestCredential(w http.ResponseWriter, r *http.Request)
 	}
 
 	// Use git ls-remote to test connectivity without cloning
-	env := buildCredentialEnv(cred)
-	defer cleanupAskpass()
+	env := gitops.BuildPushEnvForCred(h.db, int64(req.CredentialID))
+	defer gitops.CleanupAskpass()
 
 	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
 	defer cancel()
@@ -210,13 +211,8 @@ func (h *GitReposHandler) ListBranches(w http.ResponseWriter, r *http.Request) {
 	if credIDStr != "" && credIDStr != "0" {
 		var credID int
 		fmt.Sscanf(credIDStr, "%d", &credID)
-		cred, err := h.loadCredential(credID)
-		if err != nil {
-			respondJSON(w, 404, map[string]interface{}{"success": false, "error": "Credential not found"})
-			return
-		}
-		env = buildCredentialEnv(cred)
-		defer cleanupAskpass()
+		env = gitops.BuildPushEnvForCred(h.db, int64(credID))
+		defer gitops.CleanupAskpass()
 	}
 
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
@@ -544,9 +540,8 @@ func (h *GitReposHandler) PullRepo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cred, _ := h.credForRepo(repo)
-	env := buildCredentialEnv(cred)
-	defer cleanupAskpass()
+	env := gitops.BuildPushEnvForRepoID(h.db, int64(repo.ID))
+	defer gitops.CleanupAskpass()
 
 	os.MkdirAll(filepath.Dir(repo.LocalPath), 0755)
 
@@ -594,9 +589,8 @@ func (h *GitReposHandler) PushRepo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cred, _ := h.credForRepo(repo)
-	env := buildCredentialEnv(cred)
-	defer cleanupAskpass()
+	env := gitops.BuildPushEnvForRepoID(h.db, int64(repo.ID))
+	defer gitops.CleanupAskpass()
 
 	// Configure git identity
 	runGitInDir(repo.LocalPath, nil, "config", "user.name", repo.CommitName)
@@ -623,12 +617,7 @@ func (h *GitReposHandler) PushRepo(w http.ResponseWriter, r *http.Request) {
 	pushOut, pushErr := runGitInDir(repo.LocalPath, env, "push", "origin", repo.Branch)
 	if pushErr != nil {
 		respondJSON(w, 500, map[string]interface{}{"success": false, "error": "Push failed: " + pushOut,
-			"hint": credentialHint(func() string {
-				if cred != nil {
-					return cred.AuthType
-				}
-				return "none"
-			}())})
+			"hint": "Check your repository permissions and network connection."})
 		return
 	}
 
@@ -780,59 +769,6 @@ func (h *GitReposHandler) loadRepo(idStr string) (*repoSync, error) {
 	repo.AutoSync = autoSync == 1
 	repo.Enabled = enabled == 1
 	return &repo, nil
-}
-
-func (h *GitReposHandler) credForRepo(repo *repoSync) (*gitCredential, error) {
-	var credID int
-	h.db.QueryRow(`SELECT CAST(auth_token AS INTEGER) FROM git_sync_repos WHERE id=? AND auth_type='cred'`, repo.ID).Scan(&credID)
-	if credID == 0 {
-		return nil, nil
-	}
-	return h.loadCredential(credID)
-}
-
-func buildCredentialEnv(cred *gitCredential) []string {
-	if cred == nil {
-		return nil
-	}
-	if cred.AuthType == "token" && cred.Token != "" {
-		tokenFile, err := os.CreateTemp("", ".dplaneos-token-*")
-		if err != nil {
-			return nil
-		}
-		tokenFile.Write([]byte(cred.Token))
-		tokenFile.Chmod(0600)
-		tokenFile.Close()
-
-		askpassFile, err := os.CreateTemp("", ".dplaneos-askpass-*")
-		if err != nil {
-			os.Remove(tokenFile.Name())
-			return nil
-		}
-		script := fmt.Sprintf("#!/bin/sh\ncase \"$1\" in\n*Username*) echo 'x-access-token' ;;\n*) cat '%s' ;;\nesac\n", tokenFile.Name())
-		askpassFile.Write([]byte(script))
-		askpassFile.Chmod(0700)
-		askpassFile.Close()
-
-		return []string{
-			"GIT_ASKPASS=" + askpassFile.Name(),
-			"GIT_TERMINAL_PROMPT=0",
-		}
-	}
-	if cred.AuthType == "ssh" && cred.SSHKey != "" {
-		// Write SSH key text from DB to a temp file for this git operation.
-		// The temp file is cleaned up by the deferred cleanupAskpass() call in the caller.
-		keyFile, err := os.CreateTemp("", ".dplaneos-sshkey-*")
-		if err != nil {
-			return nil
-		}
-		keyFile.Write([]byte(cred.SSHKey))
-		keyFile.Chmod(0600)
-		keyFile.Close()
-		sshCmd := fmt.Sprintf("ssh -i %s -o StrictHostKeyChecking=accept-new", keyFile.Name())
-		return []string{"GIT_SSH_COMMAND=" + sshCmd}
-	}
-	return nil
 }
 
 // validateRepoURL validates a Git repository URL.

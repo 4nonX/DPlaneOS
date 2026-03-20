@@ -1,4 +1,4 @@
-﻿package handlers
+package handlers
 
 import (
 	"database/sql"
@@ -139,6 +139,81 @@ func (h *ReplicationScheduleHandler) HandleCreateReplicationSchedule(w http.Resp
 	}
 
 	respondOK(w, map[string]interface{}{"success": true, "schedule": s})
+
+	// GITOPS HOOK: write state back to git
+	go gitops.CommitAll(h.db)
+}
+
+// HandleUpdateReplicationSchedule serves PUT /api/replication/schedules/{id}
+func (h *ReplicationScheduleHandler) HandleUpdateReplicationSchedule(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	id := vars["id"]
+	if id == "" {
+		respondErrorSimple(w, "id is required", http.StatusBadRequest)
+		return
+	}
+
+	var req ReplicationSchedule
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondErrorSimple(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	schedules, err := loadReplicationSchedules()
+	if err != nil {
+		respondErrorSimple(w, "Failed to load schedules", http.StatusInternalServerError)
+		return
+	}
+
+	found := false
+	for i := range schedules {
+		if schedules[i].ID == id {
+			// Update fields
+			if req.Name != "" {
+				schedules[i].Name = req.Name
+			}
+			if req.SourceDataset != "" {
+				if !isValidDataset(req.SourceDataset) {
+					respondErrorSimple(w, "Invalid source_dataset", http.StatusBadRequest)
+					return
+				}
+				schedules[i].SourceDataset = req.SourceDataset
+			}
+			if req.Interval != "" {
+				validIntervals := map[string]bool{"hourly": true, "daily": true, "weekly": true, "manual": true}
+				if !validIntervals[req.Interval] {
+					respondErrorSimple(w, "interval must be hourly, daily, weekly, or manual", http.StatusBadRequest)
+					return
+				}
+				schedules[i].Interval = req.Interval
+			}
+			schedules[i].RemoteID = req.RemoteID
+			schedules[i].RemoteHost = req.RemoteHost
+			schedules[i].RemoteUser = req.RemoteUser
+			schedules[i].RemotePort = req.RemotePort
+			schedules[i].RemotePool = req.RemotePool
+			schedules[i].SSHKeyPath = req.SSHKeyPath
+			schedules[i].TriggerOnSnapshot = req.TriggerOnSnapshot
+			schedules[i].Compress = req.Compress
+			schedules[i].RateLimitMB = req.RateLimitMB
+			schedules[i].Enabled = req.Enabled
+
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		respondErrorSimple(w, "Schedule not found", http.StatusNotFound)
+		return
+	}
+
+	if err := saveReplicationSchedules(schedules); err != nil {
+		respondErrorSimple(w, "Failed to save schedules", http.StatusInternalServerError)
+		return
+	}
+
+	respondOK(w, map[string]interface{}{"success": true})
 
 	// GITOPS HOOK: write state back to git
 	go gitops.CommitAll(h.db)

@@ -1,4 +1,4 @@
-﻿/**
+/**
  * pages/PoolsPage.tsx - ZFS Pools (Phase 2)
  *
  * Calls (matching daemon routes exactly):
@@ -197,8 +197,8 @@ function DatasetSearchBar({ query, onChange, matchCount, totalCount }: SearchBar
 // DatasetNode (recursive)
 // ---------------------------------------------------------------------------
 
-function DatasetNode({ node, depth, onCreateChild }: {
-  node: TreeNode; depth: number; onCreateChild: (name: string) => void
+function DatasetNode({ node, depth, onCreateChild, onEdit, onDelete }: {
+  node: TreeNode; depth: number; onCreateChild: (name: string) => void; onEdit: (node: TreeNode) => void; onDelete: (name: string) => void
 }) {
   const [open, setOpen] = useState(depth === 0)
   const shortName = node.name.split('/').pop() || node.name
@@ -222,7 +222,7 @@ function DatasetNode({ node, depth, onCreateChild }: {
           <div style={{ fontSize: 'var(--text-sm)', fontWeight: depth === 0 ? 700 : 500 }}>{shortName}</div>
           {isMounted && <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', fontFamily: 'var(--font-mono)' }}>{node.mountpoint}</div>}
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexShrink: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0 }}>
           <div style={{ textAlign: 'right' }}>
             <div style={{ fontSize: 'var(--text-sm)', fontWeight: 600, fontFamily: 'var(--font-mono)' }}>{node.used || '-'}</div>
             <div style={{ fontSize: 'var(--text-2xs)', color: 'var(--text-tertiary)' }}>used</div>
@@ -231,14 +231,28 @@ function DatasetNode({ node, depth, onCreateChild }: {
             <div style={{ fontSize: 'var(--text-sm)', fontFamily: 'var(--font-mono)' }}>{node.avail || '-'}</div>
             <div style={{ fontSize: 'var(--text-2xs)', color: 'var(--text-tertiary)' }}>avail</div>
           </div>
-          <Tooltip content="New child dataset">
-            <button onClick={() => onCreateChild(node.name)} className="btn btn-sm btn-ghost">
-              <Icon name="add" size={13} />
-            </button>
-          </Tooltip>
+          <div style={{ display:'flex', gap:2 }}>
+            <Tooltip content="New child dataset">
+              <button onClick={() => onCreateChild(node.name)} className="btn btn-sm btn-ghost">
+                <Icon name="add" size={13} />
+              </button>
+            </Tooltip>
+            <Tooltip content="Edit properties">
+              <button onClick={() => onEdit(node)} className="btn btn-sm btn-ghost">
+                <Icon name="settings" size={13} />
+              </button>
+            </Tooltip>
+            {depth > 0 && (
+              <Tooltip content="Destroy dataset">
+                <button onClick={() => onDelete(node.name)} className="btn btn-sm btn-ghost btn-danger-hover">
+                  <Icon name="delete" size={13} />
+                </button>
+              </Tooltip>
+            )}
+          </div>
         </div>
       </div>
-      {open && node.children.map(c => <DatasetNode key={c.name} node={c} depth={depth + 1} onCreateChild={onCreateChild} />)}
+      {open && node.children.map(c => <DatasetNode key={c.name} node={c} depth={depth + 1} onCreateChild={onCreateChild} onEdit={onEdit} onDelete={onDelete} />)}
     </div>
   )
 }
@@ -297,6 +311,106 @@ function CreateDatasetModal({ parentName, onClose, onCreated }: {
         <button onClick={onClose} className="btn btn-ghost">Cancel</button>
         <button onClick={submit} disabled={mutation.isPending} className="btn btn-primary">
           {mutation.isPending ? 'Creating…' : 'Create Dataset'}
+        </button>
+      </div>
+    </Modal>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// EditDatasetModal (Set properties)
+// ---------------------------------------------------------------------------
+
+function EditDatasetModal({ node, onClose, onUpdated }: {
+  node: TreeNode; onClose: () => void; onUpdated: () => void
+}) {
+  const [compression, setCompression] = useState('inherit')
+  const [quota, setQuota] = useState(node.quota === 'none' ? '' : node.quota)
+
+  const mutation = useMutation({
+    mutationFn: async () => {
+      // Set compression
+      await api.post('/api/zfs/command', {
+        command: 'zfs_set_property',
+        args: ['set', `compression=${compression}`, node.name],
+        session_id: localStorage.getItem('session_id'),
+        user: localStorage.getItem('username')
+      })
+      // Set quota
+      await api.post('/api/zfs/command', {
+        command: 'zfs_set_property',
+        args: ['set', `quota=${quota || 'none'}`, node.name],
+        session_id: localStorage.getItem('session_id'),
+        user: localStorage.getItem('username')
+      })
+    },
+    onSuccess: () => { toast.success(`Dataset ${node.name} updated`); onUpdated(); onClose() },
+    onError: (e: Error) => toast.error(e.message),
+  })
+
+  return (
+    <Modal title={<>Edit: <span style={{ fontFamily: 'var(--font-mono)' }}>{node.name}</span></>} onClose={onClose}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <label className="field">
+          <span className="field-label">Compression</span>
+          <select value={compression} onChange={e => setCompression(e.target.value)} className="input">
+            <option value="inherit">Inherit</option>
+            <option value="lz4">LZ4 (recommended)</option>
+            <option value="zstd">ZSTD (best ratio)</option>
+            <option value="gzip">GZIP</option>
+            <option value="off">Off</option>
+          </select>
+        </label>
+        <label className="field">
+          <span className="field-label">Quota (e.g. 500G or empty for none)</span>
+          <input value={quota} onChange={e => setQuota(e.target.value)} placeholder="none" className="input" />
+        </label>
+      </div>
+      <div className="modal-footer">
+        <button onClick={onClose} className="btn btn-ghost">Cancel</button>
+        <button onClick={() => mutation.mutate()} disabled={mutation.isPending} className="btn btn-primary">
+          {mutation.isPending ? 'Saving…' : 'Save Changes'}
+        </button>
+      </div>
+    </Modal>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// DestroyDatasetModal
+// ---------------------------------------------------------------------------
+
+function DestroyDatasetModal({ name, onClose, onDestroyed }: {
+  name: string; onClose: () => void; onDestroyed: () => void
+}) {
+  const [confirmName, setConfirmName] = useState('')
+  const mutation = useMutation({
+    mutationFn: () => api.post('/api/zfs/command', {
+      command: 'zfs_destroy',
+      args: ['destroy', '-r', name],
+      session_id: localStorage.getItem('session_id'),
+      user: localStorage.getItem('username')
+    }),
+    onSuccess: () => { toast.success(`Dataset ${name} destroyed`); onDestroyed(); onClose() },
+    onError: (e: Error) => toast.error(e.message)
+  })
+
+  return (
+    <Modal title={<span style={{ color: 'var(--error)' }}>Destroy Dataset</span>} onClose={onClose} size="sm">
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <div className="alert alert-error" style={{ fontSize: 'var(--text-xs)' }}>
+          <Icon name="warning" size={16} />
+          <strong>DANGER:</strong> This will permanently delete <strong>{name}</strong> and all its snapshots/children.
+        </div>
+        <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>
+          Type the dataset name to confirm: <strong>{name}</strong>
+        </p>
+        <input value={confirmName} onChange={e => setConfirmName(e.target.value)} placeholder={name} className="input" autoFocus />
+      </div>
+      <div className="modal-footer">
+        <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
+        <button className="btn btn-danger" disabled={confirmName !== name || mutation.isPending} onClick={() => mutation.mutate()}>
+          {mutation.isPending ? 'Destroying…' : 'Destroy Dataset'}
         </button>
       </div>
     </Modal>
@@ -560,6 +674,8 @@ function PoolCard({ pool, datasets, filter, onRefresh }: { pool: ZFSPool; datase
   const qc = useQueryClient()
   const [treeOpen, setTreeOpen] = useState(true)
   const [createParent, setCreateParent] = useState<string | null>(null)
+  const [editDataset,   setEditDataset]    = useState<TreeNode | null>(null)
+  const [destroyDataset, setDestroyDataset] = useState<string | null>(null)
   const [showScheduleModal, setShowScheduleModal] = useState(false)
   const [showDestroyModal, setShowDestroyModal] = useState(false)
   const [showExpandModal, setShowExpandModal] = useState(false)
@@ -776,7 +892,7 @@ function PoolCard({ pool, datasets, filter, onRefresh }: { pool: ZFSPool; datase
             <Icon name="account_tree" size={14} />
             Datasets ({effectiveFilter ? `${filteredDatasets.length} of ` : ''}{datasets.length})
           </button>
-          {treeOpen && tree.map(n => <DatasetNode key={n.name} node={n} depth={0} onCreateChild={setCreateParent} />)}
+          {treeOpen && tree.map(n => <DatasetNode key={n.name} node={n} depth={0} onCreateChild={setCreateParent} onEdit={setEditDataset} onDelete={setDestroyDataset} />)}
           {treeOpen && effectiveFilter && filteredDatasets.length === 0 && (
             <div style={{ padding: '16px 12px', color: 'var(--text-tertiary)', fontSize: 'var(--text-sm)', textAlign: 'center' }}>
               No datasets match "{filter}"
@@ -799,6 +915,22 @@ function PoolCard({ pool, datasets, filter, onRefresh }: { pool: ZFSPool; datase
           parentName={createParent}
           onClose={() => setCreateParent(null)}
           onCreated={() => { qc.invalidateQueries({ queryKey: ['zfs', 'datasets'] }); onRefresh() }}
+        />
+      )}
+
+      {editDataset && (
+        <EditDatasetModal
+          node={editDataset}
+          onClose={() => setEditDataset(null)}
+          onUpdated={() => { qc.invalidateQueries({ queryKey: ['zfs', 'datasets'] }); onRefresh() }}
+        />
+      )}
+
+      {destroyDataset && (
+        <DestroyDatasetModal
+          name={destroyDataset}
+          onClose={() => setDestroyDataset(null)}
+          onDestroyed={() => { qc.invalidateQueries({ queryKey: ['zfs', 'datasets'] }); onRefresh() }}
         />
       )}
 

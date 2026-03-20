@@ -6,9 +6,11 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"dplaned/internal/cmdutil"
 	"strings"
 	"time"
+
+	"dplaned/internal/cmdutil"
+	"dplaned/internal/gitops"
 )
 
 // NixOSGuardHandler provides NixOS configuration validation and management
@@ -19,6 +21,43 @@ type NixOSGuardHandler struct {
 
 func NewNixOSGuardHandler(db *sql.DB) *NixOSGuardHandler {
 	return &NixOSGuardHandler{db: db}
+}
+
+// BackupConfig handles POST /api/nixos/backup-config
+// It commits all changes in /etc/nixos and pushes to the configured NixOS Git repository.
+func (h *NixOSGuardHandler) BackupConfig(w http.ResponseWriter, r *http.Request) {
+	// 1. Get NixOS Repo ID from GitOps config
+	var repoID sql.NullInt64
+	err := h.db.QueryRow(`SELECT nixos_repo_id FROM gitops_config WHERE id=1`).Scan(&repoID)
+	if err != nil || !repoID.Valid {
+		respondJSON(w, 400, map[string]interface{}{
+			"success": false,
+			"error":   "NixOS backup repository not configured. Set it up in Infrastructure Sync.",
+		})
+		return
+	}
+
+	// 2. Ensure /etc/nixos is a git repo
+	const nixDir = "/etc/nixos"
+	// Get repo details (URL/Branch) to initialize if needed
+	var repoURL, branch string
+	h.db.QueryRow(`SELECT repo_url, branch FROM git_sync_repos WHERE id=?`, repoID.Int64).Scan(&repoURL, &branch)
+
+	if err := gitops.EnsureRepoRootDir(nixDir, repoURL, branch); err != nil {
+		respondJSON(w, 500, map[string]interface{}{"success": false, "error": "Failed to initialize Git in /etc/nixos: " + err.Error()})
+		return
+	}
+
+	// 3. Authenticate and Push
+	env := gitops.BuildPushEnvForRepoID(h.db, repoID.Int64)
+	defer gitops.CleanupAskpass()
+
+	if err := gitops.CommitAndPush(nixDir, env, "feat: NixOS configuration backup via D-PlaneOS"); err != nil {
+		respondJSON(w, 500, map[string]interface{}{"success": false, "error": err.Error()})
+		return
+	}
+
+	respondJSON(w, 200, map[string]interface{}{"success": true, "message": "NixOS configuration successfully backed up"})
 }
 
 // isNixOS checks if we're running on NixOS

@@ -1,4 +1,4 @@
-﻿/**
+/**
  * pages/SharesPage.tsx - SMB/NFS Shares (Phase 2)
  *
  * Calls (matching daemon routes exactly):
@@ -41,17 +41,24 @@ interface SharesListResponse { success: boolean; shares?: Share[]; data?: Share[
 // CreateShareModal
 // ---------------------------------------------------------------------------
 
-function CreateShareModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
-  const [name, setName] = useState('')
-  const [path, setPath] = useState('')
-  const [comment, setComment] = useState('')
-  const [readonly, setReadonly] = useState(false)
-  const [guestok, setGuestok] = useState(false)
-  const [validusers, setValidusers] = useState('')
+function ShareModal({ onClose, onSaved, editingShare }: { onClose: () => void; onSaved: () => void; editingShare?: Share }) {
+  const [name, setName] = useState(editingShare?.name ?? '')
+  const [path, setPath] = useState(editingShare?.path ?? '')
+  const [comment, setComment] = useState(editingShare?.comment ?? '')
+  const [readonly, setReadonly] = useState(editingShare?.read_only ?? false)
+  const [guestok, setGuestok] = useState(editingShare?.guest_ok ?? false)
+  const [validusers, setValidusers] = useState(editingShare?.valid_users ?? '')
 
   const mutation = useMutation({
-    mutationFn: () => api.post('/api/shares', { action: 'create', name, path, comment, read_only: readonly, guest_ok: guestok, browsable: true, valid_users: validusers }),
-    onSuccess: () => { toast.success(`Share "${name}" created`); onCreated(); onClose() },
+    mutationFn: () => api.post('/api/shares', { 
+      action: editingShare ? 'update' : 'create', 
+      name, path, comment, read_only: readonly, guest_ok: guestok, browsable: true, valid_users: validusers 
+    }),
+    onSuccess: () => { 
+      toast.success(editingShare ? `Share "${name}" updated` : `Share "${name}" created`); 
+      onSaved(); 
+      onClose() 
+    },
     onError: (e: Error) => toast.error(e.message),
   })
 
@@ -63,12 +70,14 @@ function CreateShareModal({ onClose, onCreated }: { onClose: () => void; onCreat
   }
 
   return (
-    <Modal title="Create SMB Share" onClose={onClose}>
+    <Modal title={editingShare ? "Edit SMB Share" : "Create SMB Share"} onClose={onClose}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         <label className="field">
           <span className="field-label">Share Name</span>
           <input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. media" className="input" autoFocus
+            disabled={!!editingShare}
             onKeyDown={e => e.key === 'Enter' && submit()} />
+          {editingShare && <span style={{ fontSize:'var(--text-xs)', color:'var(--text-tertiary)' }}>Share name cannot be changed</span>}
         </label>
         <label className="field">
           <span className="field-label">Path</span>
@@ -90,7 +99,7 @@ function CreateShareModal({ onClose, onCreated }: { onClose: () => void; onCreat
       <div className="modal-footer">
         <button onClick={onClose} className="btn btn-ghost">Cancel</button>
         <button onClick={submit} disabled={mutation.isPending} className="btn btn-primary">
-          {mutation.isPending ? 'Creating…' : 'Create Share'}
+          {mutation.isPending ? 'Saving…' : editingShare ? 'Save Changes' : 'Create Share'}
         </button>
       </div>
     </Modal>
@@ -111,7 +120,7 @@ function CheckRow({ label, checked, onChange }: { label: string; checked: boolea
 // ShareCard
 // ---------------------------------------------------------------------------
 
-function ShareCard({ share, onDeleted }: { share: Share; onDeleted: () => void }) {
+function ShareCard({ share, onDeleted, onEdit }: { share: Share; onDeleted: () => void; onEdit: () => void }) {
   const [confirming, setConfirming] = useState(false)
 
   const deleteMutation = useMutation({
@@ -135,7 +144,10 @@ function ShareCard({ share, onDeleted }: { share: Share; onDeleted: () => void }
       </div>
       <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
         {!confirming
-          ? <button className="btn btn-danger" onClick={() => setConfirming(true)}><Icon name="delete" size={14} />Delete</button>
+          ? <>
+              <button className="btn btn-ghost" onClick={onEdit}><Icon name="edit" size={14} />Edit</button>
+              <button className="btn btn-danger" onClick={() => setConfirming(true)}><Icon name="delete" size={14} />Delete</button>
+            </>
           : <>
               <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', alignSelf: 'center' }}>Sure?</span>
               <button className="btn btn-danger" onClick={() => deleteMutation.mutate()} disabled={deleteMutation.isPending}>
@@ -164,6 +176,7 @@ function Badge({ label, color }: { label: string; color: string }) {
 export function SharesPage() {
   const qc = useQueryClient()
   const [showCreate, setShowCreate] = useState(false)
+  const [editingShare, setEditingShare] = useState<Share|null>(null)
 
   const sharesQ = useQuery({
     queryKey: ['shares', 'list'],
@@ -238,12 +251,16 @@ export function SharesPage() {
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
         {shares.map(share => (
-          <ShareCard key={share.name} share={share} onDeleted={refresh} />
+          <ShareCard key={share.name} share={share} onDeleted={refresh} onEdit={() => setEditingShare(share)} />
         ))}
       </div>
 
       {showCreate && (
-        <CreateShareModal onClose={() => setShowCreate(false)} onCreated={refresh} />
+        <ShareModal onClose={() => setShowCreate(false)} onSaved={refresh} />
+      )}
+
+      {editingShare && (
+        <ShareModal editingShare={editingShare} onClose={() => setEditingShare(null)} onSaved={refresh} />
       )}
     </div>
   )

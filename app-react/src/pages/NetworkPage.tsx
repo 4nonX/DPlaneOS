@@ -1,4 +1,4 @@
-﻿/**
+/**
  * pages/NetworkPage.tsx - Network (Phase 6)
  *
  * Tabs: Interfaces | VLANs | Bonding | DNS & NTP
@@ -285,7 +285,6 @@ function InterfacesTab() {
 
 function VLANsTab() {
   const qc = useQueryClient()
-  const [name,   setName]   = useState('')
   const [parent, setParent] = useState('')
   const [vlanId, setVlanId] = useState('')
 
@@ -299,14 +298,25 @@ function VLANsTab() {
     queryFn: ({ signal }) => api.get<{ success: boolean; vlans: string }>('/api/network/vlan', signal),
   })
 
-  const create = useMutation({
+  const createVLAN = useMutation({
     mutationFn: () => {
-      if (!name.trim() || !parent.trim() || !vlanId) throw new Error('Name, parent interface and VLAN ID are required')
-      return api.post('/api/network/vlan', { name: name.trim(), parent: parent.trim(), id: Number(vlanId) })
+      if (!parent.trim() || !vlanId) throw new Error('Parent interface and VLAN ID are required')
+      // Convention: parent.id (e.g. eth0.10)
+      return api.post('/api/network/vlan', { parent: parent.trim(), vlan_id: Number(vlanId) })
     },
     onSuccess: () => {
       toast.success('VLAN created')
-      setName(''); setVlanId('')
+      setVlanId('')
+      qc.invalidateQueries({ queryKey: ['network', 'vlan'] })
+      qc.invalidateQueries({ queryKey: ['network', 'info'] })
+    },
+    onError: (e: Error) => toast.error(e.message),
+  })
+
+  const deleteVLAN = useMutation({
+    mutationFn: (iface: string) => api.delete('/api/network/vlan', { interface: iface }),
+    onSuccess: () => {
+      toast.success('VLAN deleted')
       qc.invalidateQueries({ queryKey: ['network', 'vlan'] })
       qc.invalidateQueries({ queryKey: ['network', 'info'] })
     },
@@ -316,15 +326,13 @@ function VLANsTab() {
   // Physical interfaces only (no existing VLANs as parent)
   const physIfaces = (netQ.data?.interfaces ?? []).filter(i => !i.name.includes('.'))
 
+  const vlans = (vlanQ.data as any)?.vlans ?? []
+
   return (
     <>
       <div className="card" style={{ borderRadius: 'var(--radius-lg)', padding: '20px 24px', marginBottom: 24 }}>
         <div style={{ fontWeight: 700, marginBottom: 16 }}>Create VLAN Interface</div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 100px', gap: 12, marginBottom: 12 }}>
-          <label className="field">
-            <span className="field-label">Interface Name</span>
-            <input value={name} onChange={e => setName(e.target.value)} placeholder="vlan10" className="input" />
-          </label>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 100px auto', gap: 12, alignItems: 'flex-end' }}>
           <label className="field">
             <span className="field-label">Parent Interface</span>
             <select value={parent} onChange={e => setParent(e.target.value)} className="input" style={{ appearance: 'none' }}>
@@ -336,20 +344,45 @@ function VLANsTab() {
             <span className="field-label">VLAN ID</span>
             <input type="number" value={vlanId} onChange={e => setVlanId(e.target.value)} placeholder="10" min={1} max={4094} className="input" />
           </label>
+          <button onClick={() => createVLAN.mutate()} disabled={createVLAN.isPending || !parent || !vlanId} className="btn btn-primary" style={{ marginBottom: 4 }}>
+            <Icon name="add" size={15} />{createVLAN.isPending ? 'Creating…' : 'Create VLAN'}
+          </button>
         </div>
-        <button onClick={() => create.mutate()} disabled={create.isPending || !name || !parent || !vlanId} className="btn btn-primary">
-          <Icon name="add" size={15} />{create.isPending ? 'Creating…' : 'Create VLAN'}
-        </button>
+        <div style={{ fontSize: 'var(--text-2xs)', color: 'var(--text-tertiary)', marginTop: 8 }}>
+          Interface name will follow the format <code>parent.id</code> (e.g. eth0.10)
+        </div>
       </div>
 
       <div style={{ fontWeight: 700, marginBottom: 12 }}>Current VLANs</div>
       {vlanQ.isLoading && <Skeleton height={80} />}
       {vlanQ.isError   && <ErrorState error={vlanQ.error} onRetry={() => qc.invalidateQueries({ queryKey: ['network', 'vlan'] })} />}
-      {vlanQ.data && (
-        <pre className="card" style={{ background: 'var(--surface)', borderRadius: 'var(--radius-lg)', padding: '14px 18px', fontFamily: 'var(--font-mono)', fontSize: 12, lineHeight: 1.8, color: 'rgba(255,255,255,0.65)', whiteSpace: 'pre-wrap', margin: 0, maxHeight: 300, overflow: 'auto' }}>
-          {vlanQ.data.vlans || 'No VLANs configured'}
-        </pre>
-      )}
+      
+      <div className="card" style={{ borderRadius: 'var(--radius-lg)', overflow: 'hidden' }}>
+        <table className="data-table">
+          <thead>
+            <tr>
+              {['Interface', 'Index', 'Flags', 'Actions'].map(h => <th key={h}>{h}</th>)}
+            </tr>
+          </thead>
+          <tbody>
+            {vlans.map((v: any) => (
+              <tr key={v.name}>
+                <td style={{ fontWeight: 600 }}>{v.name}</td>
+                <td>{v.index}</td>
+                <td style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>{v.flags}</td>
+                <td>
+                  <button onClick={() => deleteVLAN.mutate(v.name)} disabled={deleteVLAN.isPending} className="btn btn-xs btn-danger">
+                    <Icon name="delete" size={12} />Remove
+                  </button>
+                </td>
+              </tr>
+            ))}
+            {vlans.length === 0 && !vlanQ.isLoading && (
+              <tr><td colSpan={4} style={{ textAlign: 'center', padding: '32px', color: 'var(--text-tertiary)' }}>No VLANs configured</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
     </>
   )
 }
@@ -370,7 +403,7 @@ function BondingTab() {
     queryFn: ({ signal }) => api.get<NetworkResponse>('/api/system/network', signal),
   })
 
-  const create = useMutation({
+  const createBond = useMutation({
     mutationFn: () => {
       const slaves = slavesStr.split(',').map(s => s.trim()).filter(Boolean)
       if (!bondName.trim()) throw new Error('Bond name is required')
@@ -380,6 +413,15 @@ function BondingTab() {
     onSuccess: () => {
       toast.success('Bond interface created')
       setSlavesStr('')
+      qc.invalidateQueries({ queryKey: ['network', 'info'] })
+    },
+    onError: (e: Error) => toast.error(e.message),
+  })
+
+  const deleteBond = useMutation({
+    mutationFn: (name: string) => api.delete(`/api/network/bond/${name}`),
+    onSuccess: () => {
+      toast.success('Bond deleted')
       qc.invalidateQueries({ queryKey: ['network', 'info'] })
     },
     onError: (e: Error) => toast.error(e.message),
@@ -420,8 +462,8 @@ function BondingTab() {
             <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }}>Comma-separated. Minimum 2 interfaces required.</span>
           </label>
           <div>
-            <button onClick={() => create.mutate()} disabled={create.isPending} className="btn btn-primary">
-              <Icon name="cable" size={15} />{create.isPending ? 'Creating…' : 'Create Bond'}
+            <button onClick={() => createBond.mutate()} disabled={createBond.isPending} className="btn btn-primary">
+              <Icon name="cable" size={15} />{createBond.isPending ? 'Creating…' : 'Create Bond'}
             </button>
           </div>
         </div>
@@ -441,6 +483,9 @@ function BondingTab() {
                     {b.mtu ? ` · MTU ${b.mtu}` : ''}
                   </div>
                 </div>
+                <button onClick={() => deleteBond.mutate(b.name)} disabled={deleteBond.isPending} className="btn btn-sm btn-danger">
+                  <Icon name="delete" size={13} />Delete
+                </button>
               </div>
             ))}
           </div>

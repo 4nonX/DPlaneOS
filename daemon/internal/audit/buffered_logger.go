@@ -1,4 +1,4 @@
-﻿package audit
+package audit
 
 import (
 	"database/sql"
@@ -24,8 +24,9 @@ type BufferedLogger struct {
 	db            *sql.DB
 	buffer        []AuditEvent
 	bufferMutex   sync.Mutex
-	flushTicker   *time.Ticker
+	// flushTicker   *time.Ticker // Removed
 	stopChan      chan struct{}
+	flushDone     sync.WaitGroup // Added
 	maxBuffer     int
 	flushInterval time.Duration
 	hmacKey       []byte // 32-byte key for audit chain integrity; nil = chain disabled
@@ -63,19 +64,21 @@ func NewBufferedLogger(db *sql.DB, maxBuffer int, flushInterval time.Duration, h
 
 // Start begins the background flushing goroutine
 func (bl *BufferedLogger) Start() {
-	bl.flushTicker = time.NewTicker(bl.flushInterval)
+	bl.flushDone.Add(1) // Increment WaitGroup counter
+	ticker := time.NewTicker(bl.flushInterval) // Renamed from bl.flushTicker
 	
 	go func() {
+		defer bl.flushDone.Done() // Decrement WaitGroup counter when goroutine exits
 		for {
 			select {
-			case <-bl.flushTicker.C:
+			case <-ticker.C: // Use local ticker variable
 				// Periodic flush
 				if err := bl.Flush(); err != nil {
 					log.Printf("Error flushing audit logs: %v", err)
 				}
 			case <-bl.stopChan:
 				// Final flush before shutdown
-				bl.flushTicker.Stop()
+				ticker.Stop() // Stop the ticker
 				if err := bl.Flush(); err != nil {
 					log.Printf("Error in final audit flush: %v", err)
 				}
@@ -88,6 +91,7 @@ func (bl *BufferedLogger) Start() {
 // Stop gracefully stops the buffered logger
 func (bl *BufferedLogger) Stop() {
 	close(bl.stopChan)
+	bl.flushDone.Wait() // Wait for the flushing goroutine to finish
 }
 
 // SecurityActions lists action strings that must bypass the buffer and write

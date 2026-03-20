@@ -1,4 +1,4 @@
-﻿package handlers
+package handlers
 
 import (
 	"bytes"
@@ -263,6 +263,8 @@ func (h *CloudSyncHandler) HandleCloudSync(w http.ResponseWriter, r *http.Reques
 			h.createRemote(w, r)
 		case "test":
 			h.testRemote(w, r)
+		case "update":
+			h.updateRemote(w, r)
 		case "delete":
 			h.deleteRemote(w, r)
 		case "sync", "copy":
@@ -402,6 +404,46 @@ func (h *CloudSyncHandler) createRemote(w http.ResponseWriter, r *http.Request) 
 	respondJSON(w, http.StatusOK, map[string]interface{}{
 		"success": true,
 		"message": fmt.Sprintf("Remote '%s' created", req.Name),
+	})
+}
+
+func (h *CloudSyncHandler) updateRemote(w http.ResponseWriter, r *http.Request) {
+	user := r.Header.Get("X-User")
+	var req struct {
+		Name   string            `json:"name"`
+		Config map[string]string `json:"config"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondErrorSimple(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if !validateRemoteName(req.Name) {
+		respondErrorSimple(w, "Invalid remote name", http.StatusBadRequest)
+		return
+	}
+
+	// Build args: rclone config update <name> key=value ...
+	args := []string{"config", "update", req.Name}
+	for k, v := range req.Config {
+		if !validateConfigKey(k) {
+			respondErrorSimple(w, "Invalid config key: "+k, http.StatusBadRequest)
+			return
+		}
+		args = append(args, k+"="+v)
+	}
+
+	out, err := runRclone(args...)
+	if err != nil {
+		log.Printf("CLOUD SYNC: config update failed: %v - %s", err, out)
+		respondErrorSimple(w, "Failed to update remote: "+strings.TrimSpace(string(out)), http.StatusInternalServerError)
+		return
+	}
+
+	audit.LogAction("cloud_sync", user, fmt.Sprintf("Updated remote '%s'", req.Name), true, 0)
+	respondJSON(w, http.StatusOK, map[string]interface{}{
+		"success": true,
+		"message": fmt.Sprintf("Remote '%s' updated", req.Name),
 	})
 }
 
