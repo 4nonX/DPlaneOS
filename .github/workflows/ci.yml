@@ -164,6 +164,16 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
       
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: daemon/go.mod
+          cache-dependency-path: daemon/go.sum
+
+      - name: Populate vendor directory
+        working-directory: daemon
+        run: go mod vendor
+      
       - name: Download Build Artifacts
         uses: actions/download-artifact@v4
         with:

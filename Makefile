@@ -1,4 +1,4 @@
-﻿.PHONY: all build install test clean deps
+.PHONY: all build install test clean deps
 
 BINARY_NAME=dplaned
 BUILD_DIR=build
@@ -9,7 +9,11 @@ all: build
 
 deps:
 	@echo "Resolving Go dependencies..."
-	cd daemon && $(GO) mod tidy
+	@if [ -d daemon/vendor ]; then \
+		echo "Using existing vendor directory (offline mode)"; \
+	else \
+		cd daemon && $(GO) mod tidy; \
+	fi
 	@echo "Dependencies resolved."
 
 VERSION=$(shell cat VERSION 2>/dev/null || echo "unknown")
