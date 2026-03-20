@@ -66,11 +66,24 @@ jobs:
             exit 1
           fi
 
+      - name: Locate Go module
+        id: locate-go
+        run: |
+          if [ -f "daemon/go.mod" ]; then
+            echo "path=daemon/go.mod" >> $GITHUB_OUTPUT
+            echo "sum=daemon/go.sum" >> $GITHUB_OUTPUT
+            echo "dir=daemon" >> $GITHUB_OUTPUT
+          else
+            echo "path=go.mod" >> $GITHUB_OUTPUT
+            echo "sum=go.sum" >> $GITHUB_OUTPUT
+            echo "dir=." >> $GITHUB_OUTPUT
+          fi
+
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version-file: daemon/go.mod
-          cache-dependency-path: daemon/go.sum
+          go-version-file: ${{ steps.locate-go.outputs.path }}
+          cache-dependency-path: ${{ steps.locate-go.outputs.sum }}
       
       - name: Install build dependencies
         run: |
@@ -78,11 +91,15 @@ jobs:
           sudo apt-get install -y gcc libc6-dev sqlite3 gcc-aarch64-linux-gnu
 
       - name: Build binaries (amd64 & arm64)
-        working-directory: daemon
+        working-directory: ${{ steps.locate-go.outputs.dir }}
         run: |
-          mkdir -p ../build
-          CGO_ENABLED=1 go build -tags sqlite_fts5 -ldflags="-s -w -X main.Version=$(cat ../VERSION)" -o ../build/dplaned-linux-amd64 ./cmd/dplaned/
-          GOOS=linux GOARCH=arm64 CGO_ENABLED=1 CC=aarch64-linux-gnu-gcc go build -tags sqlite_fts5 -ldflags="-s -w -X main.Version=$(cat ../VERSION)" -o ../build/dplaned-linux-arm64 ./cmd/dplaned/
+          mkdir -p ../build || mkdir -p ./build
+          if [ -d "cmd/dplaned" ]; then
+            CGO_ENABLED=1 go build -tags sqlite_fts5 -ldflags="-s -w -X main.Version=$(cat ../VERSION || cat VERSION)" -o ../build/dplaned-linux-amd64 ./cmd/dplaned/
+            GOOS=linux GOARCH=arm64 CGO_ENABLED=1 CC=aarch64-linux-gnu-gcc go build -tags sqlite_fts5 -ldflags="-s -w -X main.Version=$(cat ../VERSION || cat VERSION)" -o ../build/dplaned-linux-arm64 ./cmd/dplaned/
+          elif [ -f "go.mod" ]; then
+            go build ./...
+          fi
       
       - name: Upload Build Artifacts
         uses: actions/upload-artifact@v4
