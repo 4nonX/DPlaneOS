@@ -75,7 +75,7 @@ jobs:
       - name: Install build dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y gcc libc6-dev sqlite3 gcc-aarch64-linux-gnu qemu-user-static
+          sudo apt-get install -y gcc libc6-dev sqlite3 gcc-aarch64-linux-gnu qemu-user-static libc6-arm64-cross
 
       - name: Run Go Tests
         working-directory: daemon
@@ -91,7 +91,7 @@ jobs:
       - name: ARM64 Sanity Check (QEMU)
         run: |
           chmod +x build/dplaned-linux-arm64
-          qemu-aarch64-static build/dplaned-linux-arm64 --version
+          qemu-aarch64-static -L /usr/aarch64-linux-gnu build/dplaned-linux-arm64 --version
       
       - name: Upload Build Artifacts
         uses: actions/upload-artifact@v4
