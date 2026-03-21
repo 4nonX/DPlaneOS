@@ -58,7 +58,13 @@ func main() {
 	testIdempotency := flag.Bool("test-idempotency", false, "Verify Apply(S); Apply(S) results in zero diff (Phase 4.2)")
 	ceTokenFile := flag.String("ce-token-file", "", "Path to Compliance Engine API token file (Phase 6.2)")
 	initOnly := flag.Bool("init-only", false, "Initialize database schema and exit")
+	showVersion := flag.Bool("version", false, "Print version and exit")
 	flag.Parse()
+
+	if *showVersion {
+		fmt.Printf("D-PlaneOS v%s\n", Version)
+		os.Exit(0)
+	}
 
 	// Phase 0: Database Initialization
 	if *initOnly {
