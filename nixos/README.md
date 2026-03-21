@@ -83,7 +83,7 @@ sudo nixos-rebuild switch
 | Component | Details |
 |-----------|---------|
 | **ZFS** | Auto-import, monthly scrub, auto-snapshots (15min/hourly/daily/weekly/monthly) |
-| **D-PlaneOS Daemon** | systemd service, OOM-protected (1 GB), hardened (ProtectSystem=strict) |
+| **D-PlaneOS Daemon** | systemd service, OOM-protected (1 GB), **path-agnostic execution**, hardened (ProtectSystem=strict) |
 | **nginx** | Reverse proxy, security headers, PHP blocked |
 | **Docker** | ZFS storage driver, weekly prune |
 | **Samba** | Performance-tuned, dynamic shares via daemon |

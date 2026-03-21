@@ -16,12 +16,12 @@ ZFS-first NAS operating system for homelab and small-office deployments. Runs as
 
 ## High-Performance, Zero-Pollution Architecture
 
-D-PlaneOS is built for modern hardware. It ships as a single, statically-linked Go binary that manages your entire storage stack with zero external dependencies at runtime.
+D-PlaneOS is built for modern hardware. It ships as a single, statically-linked Go binary that manages your entire storage stack with zero external dependencies at runtime. Its path-agnostic architecture ensures seamless portability across Linux distributions.
 
 - **Native Architecture Support:** Full performance on both `x86_64` (amd64) and `aarch64` (arm64/Raspberry Pi 5).
 - **ZFS-First:** Native ZFS integration for data integrity, snapshots, and replication.
 - **GitOps Driven:** Declarative state reconciliation for pools, datasets, and containers.
-- **NixOS Optimized:** Designed to run as a native service on NixOS, but fully supports Debian/Ubuntu.
+- **NixOS & Portable:** A fully path-agnostic binary designed to run natively on NixOS, Debian, and Ubuntu without hardcoded system dependencies.
 
 ## Install
 
@@ -57,7 +57,7 @@ The installer handles everything: ZFS kernel module, nginx, database, systemd un
 | **Containers** | Docker management, Compose stacks, template library (one-click deploy), ephemeral ZFS-clone sandboxes, atomic updates with automatic rollback |
 | **Network** | Interface config, bonding, VLANs, routing, DNS |
 | **Identity** | Local users, LDAP / Active Directory with group-to-role mapping and directory-sourced UI login, TOTP 2FA, API tokens |
-| **Security** | RBAC (4 roles, 34 permissions), HMAC audit chain, CSRF protection, firewall, TLS certificates |
+| **Security** | RBAC (4 roles, 34 permissions), HMAC audit chain, CSRF protection, firewall, TLS certificates, **Hardened Execution Whitelist** |
 | **System** | Dashboard, logs, UPS (NUT), IPMI / sensors, hardware auto-tuning, cloud sync (rclone), HA node monitoring |
 | **GitOps** | Git-sync repositories, state reconciliation |
 
@@ -79,7 +79,7 @@ Browser
 | Component | Detail |
 |-----------|--------|
 | Frontend | React 19 + TypeScript + Vite, pre-built — no Node.js needed at runtime |
-| Backend | Go daemon, ~256 API routes, allowlist-validated exec calls, no shell |
+| Backend | Go daemon, ~256 API routes, **strict allowlist-validated exec calls**, no shell |
 | Database | SQLite WAL + FTS5, daily `VACUUM INTO` backup, HMAC audit chain |
 | Auth | bcrypt passwords (local), LDAP bind (directory accounts), TOTP 2FA, 32-byte session tokens, CSRF double-submit |
 | ZFS events | ZED hook delivers pool fault/scrub/resilver events in real time |

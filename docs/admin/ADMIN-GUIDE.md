@@ -278,6 +278,17 @@ sudo zpool import tank   # import by name
 
 ## Security Best Practices
 
+**Hardened Execution Whitelist (v6.0.6):** The daemon uses a strict, "sentence-based" allowlist for all system commands (`zfs`, `zpool`, `ufw`, etc.). This means only predefined, safe command structures are allowed. Modification of critical ZFS properties (like `mountpoint`, `quota`, `atime`) and firewall rules is restricted to validated patterns to prevent accidental or malicious system disruption.
+
+**Path Normalization:** D-PlaneOS is now fully path-agnostic. It no longer relies on hardcoded absolute paths (`/usr/bin/`, `/bin/`) for key binaries, instead using the system's `PATH` for resolution. This ensures full compatibility with NixOS, Debian, and other specialized Linux distributions.
+
+**Allowed Base Paths:** File operations (create, delete, rename, chown, chmod) are restricted to a defined set of "safe" base paths:
+- `/mnt/*` (Main storage pools)
+- `/home/*` (User directories)
+- `/tank/*`, `/data/*`, `/media/*`, `/opt/*`, `/srv/*` (Common storage mountpoints)
+- `/tmp/*` (Temporary files)
+- `/var/lib/dplaneos/` (Application data)
+
 **Passwords:** Minimum 12 characters, mixed case, numbers, and symbols. The installer generates a random password on first install and requires you to change it on first login.
 
 **HTTPS:** Set up a TLS certificate via certbot or your reverse proxy. The nginx config ships with appropriate security headers.

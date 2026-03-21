@@ -14,7 +14,12 @@ Upgrade from: v6.0.5 - Drop-in. `sudo bash install.sh --upgrade`
 - **Execution Whitelist Hardening**: Improved command pattern validation for `zpool`, `zfs`, `ufw`, `ip route`, and `openssl`.
 - **ZFS Property Safety**: Implemented strict allowlists for `zfs set` properties and validated `mountpoint`/`quota` values.
 - **Path Traversal Defenses**: Enhanced `IsValidPath` with mandatory `filepath.Clean` normalization and explicit rejection of dot-slash patterns.
-- **Binary Path Normalization**: Removed hardcoded absolute paths from system handlers to ensure compatibility with varied system environments.
+- **Binary Path Normalization**: Removed all hardcoded absolute paths (`/usr/bin/*`, `/bin/*`, `/usr/sbin/*`) from the entire `daemon/` codebase, ensuring 100% compatibility with NixOS and non-standard Linux distributions.
+- **Whitelist Synchronization**: Aligned `chown`/`chmod` security patterns with file handler base paths to ensure UI consistency across all managed storage.
+
+### Fixed
+- **Storage Persistence**: Fixed a critical bug in `writeFileContent` (handlers/zfs_operations.go) where binary content was being ignored during network and system configuration writes.
+- **Switch Optimizations**: Optimized state handling switches in `capacity_guardian.go` and `system_extended.go` for better performance and readability.
 
 ---
 

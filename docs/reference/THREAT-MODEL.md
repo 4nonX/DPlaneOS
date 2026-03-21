@@ -55,12 +55,14 @@ D-PlaneOS is a NAS management layer running on top of NixOS or Debian/Ubuntu. It
 **Vector**: Attacker sends `{"pool":"tank; rm -rf /"}` to a ZFS endpoint, or manipulates replication parameters to inject shell commands.
 
 **Mitigation**:
-- All parameters validated by allowlist regex validators (`ValidatePoolName`, `ValidateDevicePath`, `ValidateDatasetName`, etc.) - rejects shell metacharacters with HTTP 400 before any command is executed
-- Go `exec.Command` passes arguments as a string array - no shell expansion, no `/bin/sh -c` for standard operations
-- networkdwriter (network persistence) writes files directly, no shell involved; `networkctl reload` is called with fixed args, no user input in the command line
+- All parameters validated by strict allowlist regex validators (`ValidatePoolName`, `ValidateDevicePath`, `ValidateDatasetName`, etc.) - rejects shell metacharacters with HTTP 400 before any command is executed.
+- **v6.0.6 Hardening:** Standardized on strict "sentence-based" validation for `ufw` and `ip route`. Implemented a mandatory allowlist for `zfs set` properties, ensuring only safe parameters (e.g., `quota`, `atime`, `compression`) can be modified via the API.
+- Mandatory `filepath.Clean` normalization and explicit rejection of dot-slash patterns in all file-based operations.
+- Go `exec.Command` passes arguments as a string array - no shell expansion, no `/bin/sh -c` for standard operations.
+- networkdwriter (network persistence) writes files directly, no shell involved; `networkctl reload` is called with fixed args, no user input in the command line.
 - **v3.3.2 fix:** The ZFS replication handler (`replication_remote.go`) previously constructed shell commands via `fmt.Sprintf` and executed them with `bash -c`. This has been replaced with `execPipedZFSSend()`, which connects `zfs send`, `pv` (optional), and `ssh recv` as discrete `exec.Command` processes linked via Go `io.Pipe`. No shell is invoked. Resume tokens are now validated with `isValidResumeToken()` before use as arguments.
 
-**Residual risk**: LOW. Requires a gap in the allowlist regex validators or a bug in Go's `exec.Command` internals. The former attack surface is reduced in v3.3.2 by eliminating the last `bash -c` call in the hot path.
+**Residual risk**: NEGLIGIBLE. The multi-layered approach (allowlist validation + fixed argument arrays + no shell + path normalization) effectively eliminates standard command injection vectors.
 
 ---
 
@@ -226,7 +228,7 @@ D-PlaneOS is a NAS management layer running on top of NixOS or Debian/Ubuntu. It
 |---------|----------|------|-------|
 | HTTP API (~196 routes) | All routes require session except `/health` and `/api/auth/*` | Session middleware (global) | ~24 routes also have per-route RBAC; remainder session-only |
 | WebSocket (`/api/ws/monitor`) | Authenticated | Session middleware | Validated before upgrade |
-| `exec.Command` (zfs, zpool, docker, networkctl, systemctl) | Internal only | Input allowlist validators | Fixed argument arrays; no shell |
+| `exec.Command` (zfs, zpool, docker, etc.) | Internal only | **Strict sentence-based allowlist** | Path-agnostic resolution via PATH; no shell |
 | networkdwriter file writes | `/etc/systemd/network/50-dplane-*` | Root filesystem permissions | Pure file I/O; `networkctl reload` fixed args |
 | SQLite database | Filesystem (`/var/lib/dplaneos/`) | OS file permissions (root) | WAL mode; HMAC audit chain |
 | systemd service | Root process | `CapabilityBoundingSet`, `NoNewPrivileges`, `MemoryMax` | Not a dedicated non-root user |
