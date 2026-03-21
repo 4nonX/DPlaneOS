@@ -2,6 +2,7 @@ package security
 
 import (
 	"fmt"
+	"path/filepath"
 	"regexp"
 	"strings"
 )
@@ -278,7 +279,7 @@ var CommandWhitelist = map[string]Command{
 	},
 	"chown": {
 		Name: "chown",
-		Path: "/usr/bin/chown",
+		Path: "chown",
 		ArgPatterns: []*regexp.Regexp{
 			regexp.MustCompile(`^[a-z_][a-z0-9_-]*(:?[a-z_]?[a-z0-9_-]*)?$`), // user:group
 			regexp.MustCompile(`^/[a-zA-Z0-9/_\-\. ]+$`),                     // path
@@ -287,7 +288,7 @@ var CommandWhitelist = map[string]Command{
 	},
 	"chmod": {
 		Name: "chmod",
-		Path: "/usr/bin/chmod",
+		Path: "chmod",
 		ArgPatterns: []*regexp.Regexp{
 			regexp.MustCompile(`^[0-7]{3,4}$`),           // octal permissions
 			regexp.MustCompile(`^/[a-zA-Z0-9/_\-\. ]+$`), // path
@@ -302,7 +303,7 @@ var CommandWhitelist = map[string]Command{
 		AllowedArgs: []string{"-avz", "--progress"},
 		ArgPatterns: []*regexp.Regexp{
 			regexp.MustCompile(`^/[a-zA-Z0-9/_\-\. ]+$`),                                                     // source
-			regexp.MustCompile(`^(/[a-zA-Z0-9/_\-\. ]+|[a-z0-9\.\-_]+@[a-z0-9\.\-]+:/[a-zA-Z0-9/_\-\. ]+)$`), // dest (local or remote)
+			regexp.MustCompile(`^(/[a-zA-Z0-9/_\-\. ]+|[a-z0-9\.\-_]+@[a-z0-9\.\-]+:/[a-zA-Z0-9/_\-\.]+?)$`), // dest (local or remote, no spaces on remote)
 		},
 		Description: "File synchronization",
 	},
@@ -433,7 +434,6 @@ var CommandWhitelist = map[string]Command{
 	"openssl": {
 		Name:        "openssl",
 		Path:        "openssl",
-		AllowedArgs: []string{"req", "x509", "-x509", "-newkey", "rsa:2048", "-keyout", "-out", "-days", "-nodes", "-subj", "-noout", "-subject", "-enddate", "-issuer", "-in", "-addext"},
 		Description: "SSL certificate operations",
 	},
 	"nginx_test": {
@@ -469,6 +469,22 @@ func ValidateCommand(cmdName string, args []string) error {
 	switch cmdName {
 	case "zpool_create":
 		return validateZpoolCreate(args)
+	case "zfs_set_property":
+		return validateZfsSetProperty(args)
+	case "ufw":
+		return validateUfw(args)
+	case "ip_route_modify":
+		return validateIpRoute(args)
+	case "openssl":
+		return validateOpenssl(args)
+	case "mkdir", "rm_recursive":
+		if err := validatePathBasedCommand(cmdName, args); err != nil {
+			return err
+		}
+	case "zpool_online", "zpool_add_cache", "zpool_add_log", "zpool_remove_device", "hdparm_check", "hdparm_spindown", "hdparm_status":
+		if err := validateDeviceBasedCommand(cmdName, args); err != nil {
+			return err
+		}
 	}
 
 	// Check if we have exact args or need pattern matching
@@ -541,18 +557,198 @@ func validateZpoolCreate(args []string) error {
 
 	// Validate pool name
 	poolName := args[poolNameIdx]
-	if !regexp.MustCompile(`^[a-zA-Z0-9_\-]+$`).MatchString(poolName) {
-		return fmt.Errorf("invalid pool name: %s", poolName)
+	if err := ValidatePoolName(poolName); err != nil {
+		return err
 	}
 
 	// Validate device paths
-	devicePattern := regexp.MustCompile(`^(/dev/[a-zA-Z0-9/_\-]+|[a-zA-Z0-9_\-]+)$`)
 	for i := poolNameIdx + 1; i < len(args); i++ {
-		if !devicePattern.MatchString(args[i]) {
-			return fmt.Errorf("invalid device path: %s", args[i])
+		if err := ValidateDevicePath(args[i]); err != nil {
+			return err
 		}
 	}
 
+	return nil
+}
+
+// validateZfsSetProperty validates zfs set property=value dataset
+func validateZfsSetProperty(args []string) error {
+	if len(args) != 3 {
+		return fmt.Errorf("zfs set requires 3 arguments: set property=value dataset")
+	}
+	if args[0] != "set" {
+		return fmt.Errorf("first argument must be 'set'")
+	}
+
+	kv := strings.SplitN(args[1], "=", 2)
+	if len(kv) != 2 {
+		return fmt.Errorf("invalid property=value format: %s", args[1])
+	}
+	prop, val := kv[0], kv[1]
+
+	// Strict property allowlist
+	allowedProperties := map[string]bool{
+		"compression": true, "quota": true, "refquota": true, "mountpoint": true,
+		"atime": true, "dedup": true, "recordsize": true, "sync": true,
+		"copies": true, "encryption": true, "keylocation": true, "keyformat": true,
+	}
+
+	if !allowedProperties[prop] {
+		return fmt.Errorf("property not allowed: %s", prop)
+	}
+
+	// Specific value validations
+	switch prop {
+	case "mountpoint":
+		if val != "none" && val != "legacy" {
+			if err := ValidateMountPoint(val); err != nil {
+				return err
+			}
+		}
+	case "quota", "refquota":
+		if val != "none" {
+			if !regexp.MustCompile(`^[0-9]+[KMGTP]?$`).MatchString(val) {
+				return fmt.Errorf("invalid quota value: %s", val)
+			}
+		}
+	default:
+		// General safe pattern for approved properties
+		if !regexp.MustCompile(`^[a-zA-Z0-9_\-\./:]+$`).MatchString(val) {
+			return fmt.Errorf("invalid property value: %s", val)
+		}
+	}
+
+	// Validate dataset name
+	return ValidateDatasetName(args[2])
+}
+
+// validateUfw validates ufw command sentences
+func validateUfw(args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("ufw requires arguments")
+	}
+
+	// Structured validation (command sentences)
+	cmdStr := strings.Join(args, " ")
+	
+	// status
+	if cmdStr == "status" || cmdStr == "status numbered" {
+		return nil
+	}
+	// enable/disable
+	if cmdStr == "enable" || cmdStr == "disable" || cmdStr == "--force enable" || cmdStr == "--force disable" {
+		return nil
+	}
+
+	// allow/deny <port>[/<proto>]
+	if m := regexp.MustCompile(`^(allow|deny)\s+([0-9]+(?:/(?:tcp|udp))?)$`).FindStringSubmatch(cmdStr); len(m) > 0 {
+		return nil
+	}
+
+	// allow/deny from <cidr> to any port <port> proto <proto>
+	// (complex rule used in implementation_plan example)
+	if m := regexp.MustCompile(`^(allow|deny)\s+from\s+[0-9a-fA-F\.\/:]+\s+to\s+any\s+port\s+[0-9]+(?:\s+proto\s+(?:tcp|udp))?$`).FindStringSubmatch(cmdStr); len(m) > 0 {
+		return nil
+	}
+
+	// delete <rule_number>
+	if m := regexp.MustCompile(`^delete\s+[0-9]+$`).FindStringSubmatch(cmdStr); len(m) > 0 {
+		return nil
+	}
+
+	return fmt.Errorf("unauthorized ufw command structure: %s", cmdStr)
+}
+
+// validateIpRoute validates ip route sentences
+func validateIpRoute(args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("ip route requires arguments")
+	}
+
+	cmdStr := strings.Join(args, " ")
+
+	// route add <cidr> via <gateway> dev <iface> [metric <n>]
+	if m := regexp.MustCompile(`^route\s+add\s+[0-9\.\/]+|default\s+via\s+[0-9\.]+\s+dev\s+[a-z0-9\.]+(?:\s+metric\s+[0-9]+)?$`).MatchString(cmdStr); m {
+		return nil
+	}
+
+	// route del <cidr>
+	if m := regexp.MustCompile(`^route\s+del\s+[0-9\.\/]+|default$`).MatchString(cmdStr); m {
+		return nil
+	}
+
+	// route show [-j]
+	if cmdStr == "route show" || cmdStr == "route show -j" || cmdStr == "-j route show" {
+		return nil
+	}
+
+	return fmt.Errorf("unauthorized ip route command structure: %s", cmdStr)
+}
+
+// validateOpenssl validates openssl commands, specifically -subj
+func validateOpenssl(args []string) error {
+	allowedArgs := map[string]bool{
+		"req": true, "x509": true, "-x509": true, "-newkey": true, "rsa:2048": true,
+		"-keyout": true, "-out": true, "-days": true, "-nodes": true, "-subj": true,
+		"-noout": true, "-subject": true, "-enddate": true, "-issuer": true, "-in": true,
+		"-addext": true,
+	}
+
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if arg == "-subj" {
+			if i+1 >= len(args) {
+				return fmt.Errorf("missing value for -subj")
+			}
+			val := args[i+1]
+			if !regexp.MustCompile(`^/CN=[a-zA-Z0-9\.\-]+$`).MatchString(val) {
+				return fmt.Errorf("invalid -subj value: %s", val)
+			}
+			i++ // skip the value
+			continue
+		}
+		if allowedArgs[arg] {
+			continue
+		}
+		// Allow path-like values for -keyout, -out, -in
+		if strings.HasPrefix(arg, "/") || strings.HasPrefix(arg, "./") || !strings.HasPrefix(arg, "-") {
+			if IsValidPath(arg) || regexp.MustCompile(`^[a-zA-Z0-9_\-\.]+$`).MatchString(arg) {
+				continue
+			}
+		}
+		return fmt.Errorf("unauthorized openssl argument: %s", arg)
+	}
+	return nil
+}
+
+func validatePathBasedCommand(cmdName string, args []string) error {
+	// mkdir -p /path or rm -rf /path
+	if len(args) < 1 {
+		return fmt.Errorf("%s requires at least one argument", cmdName)
+	}
+	
+	// Skip flags
+	for _, arg := range args {
+		if strings.HasPrefix(arg, "-") {
+			continue
+		}
+		if !IsValidPath(arg) {
+			return fmt.Errorf("invalid path for %s: %s (traversal or denied base path)", cmdName, arg)
+		}
+	}
+	return nil
+}
+
+func validateDeviceBasedCommand(cmdName string, args []string) error {
+	// Various commands that take a device path as one of their arguments
+	for _, arg := range args {
+		// Only validate arguments that look like device paths
+		if strings.HasPrefix(arg, "/dev/") {
+			if err := ValidateDevicePath(arg); err != nil {
+				return err
+			}
+		}
+	}
 	return nil
 }
 
@@ -628,7 +824,7 @@ func ValidateDatasetName(name string) error {
 
 // ValidateDevicePath ensures device paths are safe for exec.Command.
 // Only allows /dev/sd[a-z][0-9]*, /dev/sr[0-9]*, /dev/nvme[0-9]* patterns.
-var validDevicePath = regexp.MustCompile(`^/dev/(sd[a-z][0-9]*|sr[0-9]+|nvme[0-9]+n[0-9]+p?[0-9]*)$`)
+var validDevicePath = regexp.MustCompile(`^/dev/(sd[a-z][0-9]*|sr[0-9]+|nvme[0-9]+n[0-9]+p?[0-9]*|disk/by-id/[a-zA-Z0-9_\-\.]+?)$`)
 
 func ValidateDevicePath(path string) error {
 	if !validDevicePath.MatchString(path) {
@@ -657,15 +853,30 @@ func IsValidPath(path string) bool {
 		return false
 	}
 
-	// Check for path traversal attempts
-	if strings.Contains(path, "..") || strings.Contains(path, "./") {
+	// Check for null bytes or newlines
+	if strings.ContainsAny(path, "\x00\n\r") {
 		return false
 	}
 
-	// Normalize path and check it starts with an allowed prefix
-	cleanPath := path
+	// Normalize path using filepath.Clean and ToSlash for consistent forward slashes
+	cleanPath := filepath.ToSlash(filepath.Clean(path))
+	
+	// Ensure it starts with / (on Windows, Clean might return \ or C:\ but we want /mnt style)
 	if !strings.HasPrefix(cleanPath, "/") {
-		cleanPath = "/" + cleanPath
+		// If it's a Windows-style absolute path like C:/, ignore it or handle it
+		// But for D-PlaneOS we expect /mnt/...
+		if !regexp.MustCompile(`^[a-zA-Z]:/`).MatchString(cleanPath) {
+			cleanPath = "/" + cleanPath
+		}
+	}
+
+	if strings.HasPrefix(cleanPath, "..") || strings.Contains(cleanPath, "/../") {
+		return false
+	}
+
+	// Check for path traversal attempts in raw string too (extra safety)
+	if strings.Contains(path, "..") || strings.Contains(path, "./") {
+		return false
 	}
 
 	for _, base := range AllowedBasePaths {

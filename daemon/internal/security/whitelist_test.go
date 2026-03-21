@@ -1,6 +1,7 @@
 package security
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -51,6 +52,96 @@ func TestValidateCommand(t *testing.T) {
 			name:    "Invalid UPS name with path traversal",
 			cmdName: "upsc_query",
 			args:    []string{"../../../etc/passwd"},
+			wantErr: true,
+		},
+		{
+			name:    "Valid zpool create with disk by-id",
+			cmdName: "zpool_create",
+			args:    []string{"create", "tank0", "/dev/disk/by-id/ata-ST8000VN004-2M2101_ZA160123"},
+			wantErr: false,
+		},
+		{
+			name:    "Invalid zpool create with bare device name",
+			cmdName: "zpool_create",
+			args:    []string{"create", "tank0", "sda"},
+			wantErr: true,
+		},
+		{
+			name:    "Valid zfs set mountpoint",
+			cmdName: "zfs_set_property",
+			args:    []string{"set", "mountpoint=/mnt/data", "tank0/dataset"},
+			wantErr: false,
+		},
+		{
+			name:    "Invalid zfs set mountpoint (dangerous path)",
+			cmdName: "zfs_set_property",
+			args:    []string{"set", "mountpoint=/root/.ssh", "tank0/dataset"},
+			wantErr: true,
+		},
+		{
+			name:    "Valid zfs set quota",
+			cmdName: "zfs_set_property",
+			args:    []string{"set", "quota=100G", "tank0/dataset"},
+			wantErr: false,
+		},
+		{
+			name:    "Invalid zfs set quota (missing unit)",
+			cmdName: "zfs_set_property",
+			args:    []string{"set", "quota=abc", "tank0/dataset"},
+			wantErr: true,
+		},
+		{
+			name:    "Valid ufw allow mixed order",
+			cmdName: "ufw",
+			args:    []string{"allow", "from", "192.168.1.0/24", "to", "any", "port", "80", "proto", "tcp"},
+			wantErr: false,
+		},
+		{
+			name:    "Invalid ufw (unauthorized keyword)",
+			cmdName: "ufw",
+			args:    []string{"allow", "dangerous_keyword"},
+			wantErr: true,
+		},
+		{
+			name:    "Valid ip route add",
+			cmdName: "ip_route_modify",
+			args:    []string{"route", "add", "10.0.0.0/24", "via", "192.168.1.1", "dev", "eth0"},
+			wantErr: false,
+		},
+		{
+			name:    "Valid openssl with subj",
+			cmdName: "openssl",
+			args:    []string{"req", "-newkey", "rsa:2048", "-nodes", "-keyout", "key.pem", "-x509", "-days", "365", "-out", "cert.pem", "-subj", "/CN=example.com"},
+			wantErr: false,
+		},
+		{
+			name:    "Invalid openssl subj",
+			cmdName: "openssl",
+			args:    []string{"-subj", "/CN=../../etc/passwd"},
+			wantErr: true,
+		},
+		{
+			name:    "Valid mkdir with space",
+			cmdName: "mkdir",
+			args:    []string{"-p", "/mnt/valid path"},
+			wantErr: false,
+		},
+		{
+			name:    "Invalid mkdir with traversal",
+			cmdName: "mkdir",
+			args:    []string{"-p", "/mnt/valid path/../../etc"},
+			wantErr: true,
+		},
+		{
+			name:    "Valid rm_recursive",
+			cmdName: "rm_recursive",
+			args:    []string{"-rf", "/tmp/temp_dir"},
+			wantErr: false,
+		},
+		{
+			name:    "Invalid rm_recursive traversal",
+			cmdName: "rm_recursive",
+			args:    []string{"-rf", "/mnt/data/../home"},
 			wantErr: true,
 		},
 	}
@@ -187,6 +278,68 @@ func TestSanitizeOutput(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := SanitizeOutput(tt.input); got != tt.want {
 				t.Errorf("SanitizeOutput() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestValidationBoundaries(t *testing.T) {
+	longString := ""
+	for i := 0; i < 300; i++ {
+		longString += "a"
+	}
+
+	boundaryInputs := []string{"", "/", "\x00", "\n", longString}
+
+	// Test ValidateCommand with boundary inputs
+	for _, input := range boundaryInputs {
+		t.Run("Boundary_"+input, func(t *testing.T) {
+			// Test as command name
+			if err := ValidateCommand(input, []string{"arg"}); err == nil {
+				t.Errorf("ValidateCommand allowed boundary command name: %q", input)
+			}
+			// Test as argument
+			if err := ValidateCommand("zfs_get", []string{"get", "-H", "-o", "value", input}); err == nil {
+				// Some might be allowed if they match the pattern, but null bytes/newlines should ALWAYS fail
+				if strings.Contains(input, "\x00") || strings.Contains(input, "\n") {
+					t.Errorf("ValidateCommand allowed dangerous boundary argument: %q", input)
+				}
+			}
+		})
+	}
+
+	// Test IsValidPath with boundary inputs
+	for _, input := range boundaryInputs {
+		t.Run("IsValidPath_"+input, func(t *testing.T) {
+			if IsValidPath(input) {
+				// "/" might be allowed depending on base paths, but generally null bytes/newlines should fail
+				if strings.ContainsAny(input, "\x00\n") {
+					t.Errorf("IsValidPath allowed dangerous input: %q", input)
+				}
+			}
+		})
+	}
+}
+
+func TestPathCleaner(t *testing.T) {
+	tests := []struct {
+		name string
+		path string
+		want bool
+	}{
+		{"Normal path", "/mnt/data", true},
+		{"Traversal with dots", "/mnt/data/../../etc/passwd", false},
+		{"Encoded dots (literal)", "/mnt/data/../etc", false},
+		{"Deep traversal", "/mnt/data/././.././../etc/shadow", false},
+		{"Canonical traversal", "/mnt/data/../../etc/passwd", false},
+		{"Null byte in middle", "/mnt/data\x00/evil", false},
+		{"Newline in middle", "/mnt/data\n/evil", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := IsValidPath(tt.path); got != tt.want {
+				t.Errorf("IsValidPath(%q) = %v, want %v", tt.path, got, tt.want)
 			}
 		})
 	}

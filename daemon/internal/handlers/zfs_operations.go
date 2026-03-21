@@ -1,4 +1,4 @@
-﻿package handlers
+package handlers
 
 import (
 	"encoding/json"
@@ -32,7 +32,7 @@ func StartScrub(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Run scrub at idle I/O priority
-	_, err := executeBackgroundCommand("/usr/sbin/zpool", []string{"scrub", req.Pool})
+	_, err := executeBackgroundCommand("zpool", []string{"scrub", req.Pool})
 	if err != nil {
 		respondOK(w, map[string]interface{}{"success": false, "error": err.Error()})
 		return
@@ -49,7 +49,7 @@ func StartScrub(w http.ResponseWriter, r *http.Request) {
 	go func() {
 		for {
 			time.Sleep(10 * time.Second)
-			out, err := executeCommandWithTimeout(TimeoutFast, "/usr/sbin/zpool", []string{"status", pool})
+			out, err := executeCommandWithTimeout(TimeoutFast, "zpool", []string{"status", pool})
 			if err != nil {
 				return // pool gone or zpool failed - stop polling
 			}
@@ -85,7 +85,7 @@ func StopScrub(w http.ResponseWriter, r *http.Request) {
 		respondErrorSimple(w, "Invalid pool name", http.StatusBadRequest)
 		return
 	}
-	_, err := executeCommandWithTimeout(TimeoutMedium, "/usr/sbin/zpool", []string{"scrub", "-s", req.Pool})
+	_, err := executeCommandWithTimeout(TimeoutMedium, "zpool", []string{"scrub", "-s", req.Pool})
 	if err != nil {
 		respondOK(w, map[string]interface{}{"success": false, "error": err.Error()})
 		return
@@ -164,7 +164,7 @@ func GetScrubStatus(w http.ResponseWriter, r *http.Request) {
 		respondErrorSimple(w, "Invalid pool", http.StatusBadRequest)
 		return
 	}
-	output, err := executeCommandWithTimeout(TimeoutFast, "/usr/sbin/zpool", []string{
+	output, err := executeCommandWithTimeout(TimeoutFast, "zpool", []string{
 		"status", pool,
 	})
 	if err != nil {
@@ -228,7 +228,7 @@ func HandleResilverStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	output, err := executeCommandWithTimeout(TimeoutFast, "/usr/sbin/zpool", []string{
+	output, err := executeCommandWithTimeout(TimeoutFast, "zpool", []string{
 		"status", "-P", pool,
 	})
 	if err != nil {
@@ -338,7 +338,7 @@ func AddVdevToPool(w http.ResponseWriter, r *http.Request) {
 	}
 	args = append(args, req.Disks...)
 
-	output, err := executeCommandWithTimeout(TimeoutMedium, "/usr/sbin/zpool", args)
+	output, err := executeCommandWithTimeout(TimeoutMedium, "zpool", args)
 	if err != nil {
 		respondOK(w, map[string]interface{}{
 			"success": false,
@@ -376,7 +376,7 @@ func RemoveCacheOrLog(w http.ResponseWriter, r *http.Request) {
 		respondErrorSimple(w, "Invalid pool or device", http.StatusBadRequest)
 		return
 	}
-	output, err := executeCommandWithTimeout(TimeoutMedium, "/usr/sbin/zpool", []string{
+	output, err := executeCommandWithTimeout(TimeoutMedium, "zpool", []string{
 		"remove", req.Pool, req.Device,
 	})
 	if err != nil {
@@ -436,7 +436,7 @@ func ReplaceDisk(w http.ResponseWriter, r *http.Request) {
 			}, "info")
 		}
 
-		output, err := executeCommandWithTimeout(TimeoutMedium, "/usr/sbin/zpool", argsCopy)
+		output, err := executeCommandWithTimeout(TimeoutMedium, "zpool", argsCopy)
 		if err != nil {
 			if diskEventHub != nil {
 				diskEventHub.Broadcast("resilver_completed", map[string]interface{}{
@@ -497,7 +497,7 @@ func SetDatasetQuota(w http.ResponseWriter, r *http.Request) {
 	results := map[string]interface{}{"success": true, "dataset": req.Dataset}
 
 	if req.RefQuota != "" {
-		_, err := executeCommandWithTimeout(TimeoutMedium, "/usr/sbin/zfs", []string{
+		_, err := executeCommandWithTimeout(TimeoutMedium, "zfs", []string{
 			"set", fmt.Sprintf("refquota=%s", req.RefQuota), req.Dataset,
 		})
 		if err != nil {
@@ -509,7 +509,7 @@ func SetDatasetQuota(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.RefReservation != "" {
-		_, err := executeCommandWithTimeout(TimeoutMedium, "/usr/sbin/zfs", []string{
+		_, err := executeCommandWithTimeout(TimeoutMedium, "zfs", []string{
 			"set", fmt.Sprintf("refreservation=%s", req.RefReservation), req.Dataset,
 		})
 		if err != nil {
@@ -531,7 +531,7 @@ func GetDatasetQuota(w http.ResponseWriter, r *http.Request) {
 		respondErrorSimple(w, "Invalid dataset", http.StatusBadRequest)
 		return
 	}
-	output, err := executeCommandWithTimeout(TimeoutFast, "/usr/sbin/zfs", []string{
+	output, err := executeCommandWithTimeout(TimeoutFast, "zfs", []string{
 		"get", "-Hp", "-o", "property,value",
 		"quota,refquota,reservation,refreservation,used,available",
 		dataset,
@@ -586,7 +586,7 @@ func RunSMARTTest(w http.ResponseWriter, r *http.Request) {
 	}
 
 	devicePath := "/dev/" + req.Device
-	output, err := executeCommandWithTimeout(TimeoutMedium, "/usr/sbin/smartctl", []string{
+	output, err := executeCommandWithTimeout(TimeoutMedium, "smartctl", []string{
 		"-t", req.Type, devicePath,
 	})
 	if err != nil {
@@ -617,7 +617,7 @@ func GetSMARTTestResults(w http.ResponseWriter, r *http.Request) {
 		respondErrorSimple(w, "Invalid device", http.StatusBadRequest)
 		return
 	}
-	output, err := executeCommandWithTimeout(TimeoutFast, "/usr/sbin/smartctl", []string{
+	output, err := executeCommandWithTimeout(TimeoutFast, "smartctl", []string{
 		"-l", "selftest", "/dev/" + device,
 	})
 	if err != nil {
@@ -683,7 +683,7 @@ func GetZFSDelegation(w http.ResponseWriter, r *http.Request) {
 		respondErrorSimple(w, "Invalid dataset", http.StatusBadRequest)
 		return
 	}
-	output, err := executeCommandWithTimeout(TimeoutFast, "/usr/sbin/zfs", []string{
+	output, err := executeCommandWithTimeout(TimeoutFast, "zfs", []string{
 		"allow", dataset,
 	})
 	if err != nil {
@@ -779,7 +779,7 @@ func ApplyNetworkWithRollback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Apply
-	executeCommandWithTimeout(TimeoutMedium, "/usr/sbin/netplan", []string{"apply"})
+	executeCommandWithTimeout(TimeoutMedium, "netplan", []string{"apply"})
 
 	// Start rollback timer
 	netRollbackContent = currentConfig
@@ -1014,7 +1014,7 @@ func PoolOperations(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	output, err := executeCommandWithTimeout(TimeoutMedium, "/usr/sbin/zpool", args)
+	output, err := executeCommandWithTimeout(TimeoutMedium, "zpool", args)
 	if err != nil {
 		respondOK(w, map[string]interface{}{
 			"success": false,

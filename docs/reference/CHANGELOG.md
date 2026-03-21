@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ---
 
+## v6.0.6 (2026-03-21) - "Hardened Core"
+
+Upgrade from: v6.0.5 - Drop-in. `sudo bash install.sh --upgrade`
+
+### Security
+- **Execution Whitelist Hardening**: Improved command pattern validation for `zpool`, `zfs`, `ufw`, `ip route`, and `openssl`.
+- **ZFS Property Safety**: Implemented strict allowlists for `zfs set` properties and validated `mountpoint`/`quota` values.
+- **Path Traversal Defenses**: Enhanced `IsValidPath` with mandatory `filepath.Clean` normalization and explicit rejection of dot-slash patterns.
+- **Binary Path Normalization**: Removed hardcoded absolute paths from system handlers to ensure compatibility with varied system environments.
+
+---
+
 ## v6.0.5 (2026-03-20) - "NixOS & GitOps Hardening"
 
 Upgrade from: v6.0.4 - Drop-in. `sudo bash install.sh --upgrade`

@@ -1,4 +1,4 @@
-﻿package handlers
+package handlers
 
 import (
 	"context"
@@ -61,7 +61,7 @@ func executeCommandAsync(path string, args []string) <-chan AsyncResult {
 
 // getPoolUsagePercent returns the usage percentage of a ZFS pool
 func getPoolUsagePercent(poolName string) (float64, error) {
-	output, err := executeCommandWithTimeout(TimeoutFast, "/usr/sbin/zpool", []string{
+	output, err := executeCommandWithTimeout(TimeoutFast, "zpool", []string{
 		"list", "-Hp", "-o", "capacity", poolName,
 	})
 	if err != nil {
@@ -80,13 +80,13 @@ func executeBackgroundCommand(path string, args []string) (string, error) {
 	// Wrap in ionice -c 3 (idle class: only gets I/O when nothing else needs it)
 	ioniceArgs := []string{"-c", "3", path}
 	ioniceArgs = append(ioniceArgs, args...)
-	return executeCommand("/usr/bin/ionice", ioniceArgs)
+	return executeCommand("ionice", ioniceArgs)
 }
 
 // executeBackgroundCommandWithTimeout combines ionice + timeout
 func executeBackgroundCommandWithTimeout(timeout time.Duration, path string, args []string) (string, error) {
 	ioniceArgs := []string{"-c", "3", path}
 	ioniceArgs = append(ioniceArgs, args...)
-	return executeCommandWithTimeout(timeout, "/usr/bin/ionice", ioniceArgs)
+	return executeCommandWithTimeout(timeout, "ionice", ioniceArgs)
 }
 
