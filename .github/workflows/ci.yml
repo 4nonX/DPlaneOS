@@ -125,11 +125,41 @@ jobs:
           bash .github/scripts/api-integration-test.sh
 
   # ════════════════════════════════════════════════════════════════════════════
-  # STAGE 3: INTEGRATE - Full Fleet & Install Tests
+  # STAGE 3: HARDEN - Convergence & Failure Resilience
+  # ════════════════════════════════════════════════════════════════════════════
+  convergence:
+    name: Convergence & Resilience
+    needs: [prepare, validate]
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      
+      - name: Download Build Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dplaneos-build
+      
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y zfsutils-linux sqlite3 python3-bcrypt
+          sudo modprobe zfs
+      
+      - name: Positioning binary for scripts
+        run: cp build/dplaned-linux-amd64 ./dplaned-ci && chmod +x ./dplaned-ci
+
+      - name: Run Convergence & Resilience Suite
+        run: |
+          chmod +x .github/scripts/convergence-test.sh
+          bash .github/scripts/convergence-test.sh
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # STAGE 4: INTEGRATE - Full Fleet & Install Tests
   # ════════════════════════════════════════════════════════════════════════════
   integration:
     name: Fleet & Install Tests
-    needs: [prepare, validate]
+    needs: [prepare, validate, convergence]
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout
@@ -161,7 +191,7 @@ jobs:
   # ════════════════════════════════════════════════════════════════════════════
   release:
     name: Build & Publish Release
-    needs: [validate, integration]
+    needs: [validate, integration, convergence]
     if: github.ref_type == 'tag'
     runs-on: ubuntu-22.04
     steps:

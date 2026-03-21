@@ -3,7 +3,10 @@ package cmdutil
 import (
 	"context"
 	"fmt"
+	"math/rand"
+	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -20,6 +23,13 @@ const (
 // If the command exceeds the timeout, it is killed and an error is returned.
 // This prevents the Go daemon from hanging when hardware is unresponsive.
 func Run(timeout time.Duration, name string, args ...string) ([]byte, error) {
+	// Fault Injection (CI only)
+	if inject := os.Getenv("DPLANE_FAULT_INJECT"); inject != "" {
+		if err := checkForFault(name, args...); err != nil {
+			return []byte("SIMULATED FAULT: " + err.Error()), err
+		}
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
@@ -31,6 +41,45 @@ func Run(timeout time.Duration, name string, args ...string) ([]byte, error) {
 	}
 
 	return output, err
+}
+
+// checkForFault parses DPLANE_FAULT_INJECT environment variable.
+// Format: cmd:subcmd=prob;cmd=prob
+// Example: zfs:set=1.0;docker=0.5
+func checkForFault(name string, args ...string) error {
+	rules := strings.Split(os.Getenv("DPLANE_FAULT_INJECT"), ";")
+	for _, rule := range rules {
+		parts := strings.SplitN(rule, "=", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		target := parts[0]
+		probStr := parts[1]
+
+		prob, err := strconv.ParseFloat(probStr, 64)
+		if err != nil {
+			continue
+		}
+
+		match := false
+		if strings.Contains(target, ":") {
+			// Cmd + Subcmd (e.g. zfs:set)
+			subparts := strings.SplitN(target, ":", 2)
+			if name == subparts[0] && len(args) > 0 && args[0] == subparts[1] {
+				match = true
+			}
+		} else {
+			// Binary name only (e.g. zfs)
+			if name == target {
+				match = true
+			}
+		}
+
+		if match && rand.Float64() < prob {
+			return fmt.Errorf("fault injected for %s (%s)", name, target)
+		}
+	}
+	return nil
 }
 
 // RunFast executes a command with TimeoutFast (10s).
