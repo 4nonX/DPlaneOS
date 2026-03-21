@@ -374,19 +374,13 @@ func main() {
 	}
 
 	// ── Wire central alert dispatchers ─────────────────────────────────────
-	// Must be called after DB is open (needed by SendWebhookAlert) and after
-	// Telegram is initialized (alerts.SendAlert).
-	// All subsystems (heartbeat, SMART monitor, capacity guardian, scrub monitor)
-	// call handlers.DispatchAlert() which routes to these three functions.
+	// Initializing with nil WebSocket for now; will re-wire after wsHub is ready.
 	handlers.SetAlertDispatchers(
-		// Webhook: send to all enabled, subscribed webhook configs
 		func(event, resource, message string) {
 			handlers.SendWebhookAlert(db, event, "critical", message,
 				map[string]interface{}{"resource": resource})
 		},
-		// SMTP: uses the package-level sender which reads config from DB
 		handlers.SendSMTPAlert,
-		// Telegram: forward to the alerts package
 		func(message string) {
 			_ = alerts.SendAlert(alerts.TelegramAlert{
 				Level:   "CRITICAL",
@@ -395,7 +389,7 @@ func main() {
 				Details: nil,
 			})
 		},
-		nil, // WebSocket not yet initialized
+		nil,
 	)
 
 	// Wire webhook + SMTP senders into the ZFS heartbeat package so that
@@ -485,13 +479,21 @@ func main() {
 	defer bgMonitor.Stop()
 
 	// Wire WebSocket hub into central DispatchAlert for systemic monitoring coverage
+	// This single call now wires all four primary dispatchers correctly.
 	handlers.SetAlertDispatchers(
 		func(event, pool, msg string) {
 			handlers.SendWebhookAlert(db, event, "critical", msg,
 				map[string]interface{}{"pool": pool})
 		},
 		handlers.SendSMTPAlert,
-		nil, // Telegram handled inside heartbeat callbacks above for now
+		func(message string) {
+			_ = alerts.SendAlert(alerts.TelegramAlert{
+				Level:   "CRITICAL",
+				Title:   "D-PlaneOS Alert",
+				Message: message,
+				Details: nil,
+			})
+		},
 		wsHub.Broadcast,
 	)
 
@@ -571,8 +573,8 @@ func main() {
 	r.HandleFunc("/api/system/ups", systemHandler.SaveUPSConfig).Methods("POST")
 	r.HandleFunc("/api/system/network", systemHandler.GetNetworkInfo).Methods("GET", "PUT")
 	r.HandleFunc("/api/system/logs", systemHandler.GetSystemLogs).Methods("GET")
-	r.HandleFunc("/api/system/reboot", systemHandler.Reboot).Methods("POST")
-	r.HandleFunc("/api/system/poweroff", systemHandler.Poweroff).Methods("POST")
+	r.Handle("/api/system/reboot", permRoute("system", "admin", systemHandler.Reboot)).Methods("POST")
+	r.Handle("/api/system/poweroff", permRoute("system", "admin", systemHandler.Poweroff)).Methods("POST")
 
 	// Docker handlers
 	dockerHandler := handlers.NewDockerHandler()

@@ -227,45 +227,57 @@ func (h *ShareCRUDHandler) updateShare(w http.ResponseWriter, req shareActionReq
 		return
 	}
 
+	tx, err := h.db.Begin()
+	if err != nil {
+		respondErrorSimple(w, "Transaction failed: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer tx.Rollback()
+
 	if req.Name != "" {
-		h.db.Exec(`UPDATE smb_shares SET name = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, req.Name, req.ID)
+		tx.Exec(`UPDATE smb_shares SET name = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, req.Name, req.ID)
 	}
 	if req.Path != "" {
-		h.db.Exec(`UPDATE smb_shares SET path = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, req.Path, req.ID)
+		tx.Exec(`UPDATE smb_shares SET path = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, req.Path, req.ID)
 	}
 	if req.Comment != "" {
-		h.db.Exec(`UPDATE smb_shares SET comment = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, req.Comment, req.ID)
+		tx.Exec(`UPDATE smb_shares SET comment = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, req.Comment, req.ID)
 	}
 	if req.Browsable != nil {
 		v := 0
 		if *req.Browsable {
 			v = 1
 		}
-		h.db.Exec(`UPDATE smb_shares SET browsable = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, v, req.ID)
+		tx.Exec(`UPDATE smb_shares SET browsable = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, v, req.ID)
 	}
 	if req.ReadOnly != nil {
 		v := 0
 		if *req.ReadOnly {
 			v = 1
 		}
-		h.db.Exec(`UPDATE smb_shares SET read_only = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, v, req.ID)
+		tx.Exec(`UPDATE smb_shares SET read_only = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, v, req.ID)
 	}
 	if req.GuestOk != nil {
 		v := 0
 		if *req.GuestOk {
 			v = 1
 		}
-		h.db.Exec(`UPDATE smb_shares SET guest_ok = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, v, req.ID)
+		tx.Exec(`UPDATE smb_shares SET guest_ok = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, v, req.ID)
 	}
 	if req.ValidUsers != "" {
-		h.db.Exec(`UPDATE smb_shares SET valid_users = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, req.ValidUsers, req.ID)
+		tx.Exec(`UPDATE smb_shares SET valid_users = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, req.ValidUsers, req.ID)
 	}
 	if req.Enabled != nil {
 		v := 0
 		if *req.Enabled {
 			v = 1
 		}
-		h.db.Exec(`UPDATE smb_shares SET enabled = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, v, req.ID)
+		tx.Exec(`UPDATE smb_shares SET enabled = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, v, req.ID)
+	}
+
+	if err := tx.Commit(); err != nil {
+		respondErrorSimple(w, "Commit failed: "+err.Error(), http.StatusInternalServerError)
+		return
 	}
 
 	h.regenerateSMBConf()
