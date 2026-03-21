@@ -178,7 +178,12 @@ func (h *ZFSHandler) ListDatasets(w http.ResponseWriter, r *http.Request) {
 	}
 
 	start := time.Now()
-	output, err := executeCommand("zfs", []string{"list", "-H", "-o", "name,used,avail,quota,mountpoint", "-t", "filesystem"})
+	args := []string{"list", "-H", "-o", "name,used,avail,quota,mountpoint", "-t", "filesystem"}
+	pool := r.URL.Query().Get("pool")
+	if pool != "" {
+		args = append(args, "-r", pool)
+	}
+	output, err := executeCommand("zfs", args)
 	duration := time.Since(start)
 
 	audit.LogCommand(audit.LevelInfo, user, "zfs_list", nil, err == nil, duration, err)
