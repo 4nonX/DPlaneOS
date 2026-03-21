@@ -102,23 +102,20 @@ sudo zfs get compression convpool/data | grep -q 'lz4' && ok "Race test: Correct
 
 # --- TEST 5: SIMULATED HARDWARE FAILURE (DISK IO) ---
 echo "--- Stage 5: Simulated Hardware Failure ---"
-echo "Forcing disk failure (detaching $LOOP1)..."
-sudo losetup -d "$LOOP1"
+echo "Forcing disk failure (offlining $LOOP1)..."
+sudo zpool offline convpool "$LOOP1"
 
 echo "Attempting ZFS operation on degraded pool..."
-# This should definitely report a failure or degraded state
-APPLY_DISK_FAIL=$(sudo ./dplaned-ci -apply -db "$DB_PATH" -gitops-state "$STATE_YAML" 2>&1 || true)
-echo "$APPLY_DISK_FAIL" | grep -E "I/O error|pool is degraded|failed" && ok "System correctly reported disk failure"
+# On a mirror, this should still succeed but we can check if it stays degraded
+# We'll use apply to ensure the daemon can still talk to a degraded pool.
+sudo ./dplaned-ci -apply -db "$DB_PATH" -gitops-state "$STATE_YAML" > /dev/null
+sudo zpool status convpool | grep -q "DEGRADED" && ok "System correctly handles degraded pool" || warn "Pool status not DEGRADED as expected"
 
 echo "Recovering disk..."
-# Use timeout to prevent hanging the CI
-if ! losetup -a | grep -q "$LOOP1"; then
-  sudo timeout 10s losetup "$LOOP1" /tmp/conv1.img || true
-fi
-# Re-online and clear
-sudo timeout 30s zpool clear convpool || true
-sudo timeout 30s zpool online convpool "$LOOP1" || true
-sudo zpool status convpool | grep -q "ONLINE" && ok "Hardware failure recovery complete" || warn "Pool health: $(sudo zpool status convpool | grep state:)"
+# Bring it back online and clear errors
+sudo timeout 30s zpool online convpool "$LOOP1"
+sudo timeout 30s zpool clear convpool
+sudo zpool status convpool | grep -q "ONLINE" && ok "Hardware failure recovery complete" || fail "Pool failed to return to ONLINE status"
 
 # --- TEST 6: CONVERGENCE CHECK ---
 echo "--- Stage 6: Convergence Status API ---"
