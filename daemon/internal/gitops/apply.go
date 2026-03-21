@@ -538,7 +538,7 @@ func createStack(name string, ds *DesiredStack) error {
 		return fmt.Errorf("write compose file %s: %w", composePath, err)
 	}
 
-	out, err := cmdutil.RunSlow("/usr/bin/docker", "compose", "-f", composePath, "up", "-d", "--remove-orphans")
+	out, err := cmdutil.RunSlow("docker", "compose", "-f", composePath, "up", "-d", "--remove-orphans")
 	if err != nil {
 		return fmt.Errorf("docker compose up %s: %s: %w", name, string(out), err)
 	}
@@ -557,7 +557,7 @@ func deleteStack(name string) error {
 	composePath := filepath.Join(dir, "docker-compose.yml")
 
 	if _, err := os.Stat(composePath); err == nil {
-		out, err := cmdutil.RunSlow("/usr/bin/docker", "compose", "-f", composePath, "down")
+		out, err := cmdutil.RunSlow("docker", "compose", "-f", composePath, "down")
 		if err != nil {
 			log.Printf("GITOPS WARNING: docker compose down %s failed (non-fatal): %s: %v", name, string(out), err)
 		}

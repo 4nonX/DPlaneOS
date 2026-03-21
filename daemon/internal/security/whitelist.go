@@ -287,7 +287,7 @@ var CommandWhitelist = map[string]Command{
 		AllowedArgs: []string{"-R"},
 		ArgPatterns: []*regexp.Regexp{
 			regexp.MustCompile(`^[a-z0-9_-]+(:[a-z0-9_-]+)?$`),
-			regexp.MustCompile(`^/mnt/.*$`),
+			regexp.MustCompile(`^/(mnt|home|tmp|var/lib/dplaneos|tank|data|media|opt|srv)(/.*)?$`),
 		},
 		Description: "Change file ownership",
 	},
@@ -297,7 +297,7 @@ var CommandWhitelist = map[string]Command{
 		AllowedArgs: []string{"-R"},
 		ArgPatterns: []*regexp.Regexp{
 			regexp.MustCompile(`^[0-7]{3,4}$`),
-			regexp.MustCompile(`^/mnt/.*$`),
+			regexp.MustCompile(`^/(mnt|home|tmp|var/lib/dplaneos|tank|data|media|opt|srv)(/.*)?$`),
 		},
 		Description: "Change file permissions",
 	},

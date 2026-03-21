@@ -1,4 +1,4 @@
-﻿package gitops
+package gitops
 
 import (
 	"encoding/json"
@@ -60,7 +60,7 @@ func readLiveStacks() ([]LiveStack, error) {
 		}
 
 		// Get status via docker compose ps
-		output, err := cmdutil.RunFast("/usr/bin/docker",
+		output, err := cmdutil.RunFast("docker",
 			"compose", "--project-directory", dir, "-f", composePath, "ps", "--format", "json")
 		if err == nil {
 			ls.Services, ls.Status = parseStackStatus(output)
