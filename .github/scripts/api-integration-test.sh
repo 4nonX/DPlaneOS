@@ -396,14 +396,27 @@ assert_json "List git credentials" "success" "true"
 echo "--- Testing NixOS & System Modules ---"
 api GET /api/nixos/detect >/dev/null
 assert_json "NixOS detection" "success" "true"
-api GET /api/nixos/generations >/dev/null
-assert_json "NixOS generations" "success" "true"
+GENS=$(api GET /api/nixos/generations 2>/dev/null)
+if echo "$GENS" | grep -q "success\":true"; then
+  ok "NixOS generations"
+elif echo "$GENS" | grep -q "Not a NixOS system"; then
+  ok "NixOS generations (skipped: Not a NixOS system)"
+else
+  fail "NixOS generations failed: $GENS"
+fi
+
 api GET /api/system/audit/stats >/dev/null
 assert_json "Audit stats" "success" "true"
 api GET /api/system/health >/dev/null
 assert_json "Detailed system health" "success" "true"
-api POST /api/system/support-bundle >/dev/null
-assert_json "Generate support bundle" "success" "true"
+
+# Support bundle returns binary gzip
+BUNDLE_RESP=$(curl -s -k -I -X POST -H "Authorization: Bearer $SESSION" -H "X-Session-ID: $SESSION" -H "X-User: admin" http://localhost:9000/api/system/support-bundle)
+if echo "$BUNDLE_RESP" | grep -q "Content-Type: application/gzip"; then
+  ok "Generate support bundle (binary gzip)"
+else
+  fail "Generate support bundle (invalid content type): $BUNDLE_RESP"
+fi
 
 # 14. GITOPS CONTINUED
 api GET /api/gitops/status >/dev/null
@@ -431,7 +444,7 @@ MALFORMED=$(curl -s -k -X POST -H "Content-Type: application/json" -d "{invalid"
 echo "$MALFORMED" | grep -qiE "error|Invalid|Bad Request" && ok "Malformed JSON blocked" || fail "Malformed JSON NOT blocked"
 
 # Invalid resource access
-api GET "/api/zfs/dataset?pool=nonexistent" >/dev/null
+api GET "/api/zfs/datasets?pool=nonexistent" >/dev/null
 assert_json "Non-existent pool error" "success" "false"
 
 # 12. AUDIT & LOGOUT
