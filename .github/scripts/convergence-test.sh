@@ -121,7 +121,11 @@ echo "$APPLY_DISK_FAIL" | grep -E "I/O error|pool is degraded|failed" && ok "Sys
 
 # Re-attach and Recovery
 echo "Recovering disk..."
-sudo losetup "$LOOP1" /tmp/conv1.img
+# Only re-attach if it was actually detached
+if ! losetup -a | grep -q "$LOOP1"; then
+  sudo losetup "$LOOP1" /tmp/conv1.img
+fi
+sudo zpool online convpool "$LOOP1" || true
 sudo zpool clear convpool
 ok "Hardware failure recovery complete"
 
