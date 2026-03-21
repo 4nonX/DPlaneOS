@@ -336,6 +336,29 @@ assert_json "Trash list" "success" "true"
 api GET /api/power/disks >/dev/null
 assert_json "Power disks" "success" "true"
 
+# 9.5 RBAC GROUPS & SYSTEM LOGS
+echo "--- Testing RBAC Groups ---"
+# Group creation
+GRP_RESP=$(api POST /api/rbac/groups '{"action":"create","name":"ci-group","description":"CI Test Group"}')
+GRP_ID=$(echo "$GRP_RESP" | python3 -c "import sys,json; print(json.load(sys.stdin).get('id',0))")
+[ "$GRP_ID" -gt 0 ] && ok "Create group (id: $GRP_ID)" || fail "Create group failed"
+
+api GET /api/rbac/groups >/dev/null
+assert_json "Group present in list" "success" "true"
+
+# Add member to group
+CI_USER_ID=$(api GET /api/rbac/users | python3 -c "import sys,json; d=json.load(sys.stdin); print(next(u['id'] for u in d['users'] if u['username']=='ci-user'))")
+api POST /api/rbac/groups "{\"action\":\"update\",\"id\":$GRP_ID,\"members\":[$CI_USER_ID]}" >/dev/null
+assert_json "Add member to group" "success" "true"
+
+api GET "/api/rbac/groups?id=$GRP_ID" >/dev/null
+assert_json "Verify member count" "group.member_count" "1"
+
+echo "--- Testing System Logs ---"
+api GET /api/system/logs >/dev/null
+assert_json "Get system logs" "success" "true"
+assert_array "Logs array present" "logs"
+
 # 10. GITOPS
 api GET /api/gitops/status >/dev/null
 assert_json "GitOps status" "success" "true"

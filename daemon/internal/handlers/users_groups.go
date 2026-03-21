@@ -343,7 +343,7 @@ func (h *UserGroupHandler) listGroups(w http.ResponseWriter, r *http.Request) {
 
 		// Get member count
 		var memberCount int
-		if err := h.db.QueryRow(`SELECT COUNT(*) FROM group_members WHERE group_id = ?`, id).Scan(&memberCount); err != nil {
+		if err := h.db.QueryRow(`SELECT COUNT(*) FROM group_members WHERE group_name = ?`, name).Scan(&memberCount); err != nil {
 			log.Printf("GROUP MEMBER COUNT ERROR: %v", err)
 			memberCount = 0
 		}
@@ -429,14 +429,29 @@ func (h *UserGroupHandler) groupAction(w http.ResponseWriter, r *http.Request) {
 		}
 		// Update members if provided
 		if req.Members != nil {
-			_, err := h.db.Exec(`DELETE FROM group_members WHERE group_id = ?`, req.ID)
+			// Get current group name (to handle renames or just use current)
+			var currentName string
+			err := h.db.QueryRow(`SELECT name FROM groups WHERE id = ?`, req.ID).Scan(&currentName)
+			if err != nil {
+				respondErrorSimple(w, "Group not found", http.StatusNotFound)
+				return
+			}
+
+			_, err = h.db.Exec(`DELETE FROM group_members WHERE group_name = ?`, currentName)
 			if err != nil {
 				respondErrorSimple(w, "Failed to update group members", http.StatusInternalServerError)
 				log.Printf("GROUP UPDATE MEMBERS DELETE ERROR: %v", err)
 				return
 			}
+
 			for _, uid := range req.Members {
-				_, err := h.db.Exec(`INSERT INTO group_members (group_id, user_id) VALUES (?, ?)`, req.ID, uid)
+				var uname string
+				err := h.db.QueryRow(`SELECT username FROM users WHERE id = ?`, uid).Scan(&uname)
+				if err != nil {
+					log.Printf("GROUP UPDATE MEMBER: user %d not found, skipping", uid)
+					continue
+				}
+				_, err = h.db.Exec(`INSERT INTO group_members (group_name, username) VALUES (?, ?)`, currentName, uname)
 				if err != nil {
 					respondErrorSimple(w, "Failed to add group member", http.StatusInternalServerError)
 					log.Printf("GROUP UPDATE MEMBER INSERT ERROR: %v", err)
@@ -456,7 +471,13 @@ func (h *UserGroupHandler) groupAction(w http.ResponseWriter, r *http.Request) {
 			respondErrorSimple(w, "Group ID required", http.StatusBadRequest)
 			return
 		}
-		_, err := h.db.Exec(`DELETE FROM group_members WHERE group_id = ?`, req.ID)
+		var groupName string
+		if err := h.db.QueryRow(`SELECT name FROM groups WHERE id = ?`, req.ID).Scan(&groupName); err != nil {
+			respondErrorSimple(w, "Group not found", http.StatusNotFound)
+			return
+		}
+
+		_, err := h.db.Exec(`DELETE FROM group_members WHERE group_name = ?`, groupName)
 		if err != nil {
 			respondErrorSimple(w, "Failed to delete group members", http.StatusInternalServerError)
 			log.Printf("GROUP DELETE MEMBERS ERROR: %v", err)
