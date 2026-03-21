@@ -357,7 +357,7 @@ assert_json "Verify member count" "group.member_count" "1"
 echo "--- Testing System Logs ---"
 api GET /api/system/logs >/dev/null
 assert_json "Get system logs" "success" "true"
-assert_array "Logs array present" "logs"
+assert_array "Logs array present" "data"
 
 # 10. GITOPS
 api GET /api/gitops/status >/dev/null

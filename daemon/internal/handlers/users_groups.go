@@ -312,14 +312,22 @@ func (h *UserGroupHandler) listGroups(w http.ResponseWriter, r *http.Request) {
 			respondErrorSimple(w, "Group not found", http.StatusNotFound)
 			return
 		}
+		// Get member count
+		var memberCount int
+		if err := h.db.QueryRow(`SELECT COUNT(*) FROM group_members WHERE group_name = ?`, name).Scan(&memberCount); err != nil {
+			log.Printf("SINGLE GROUP MEMBER COUNT ERROR: %v", err)
+			memberCount = 0
+		}
+
 		respondJSON(w, http.StatusOK, map[string]interface{}{
 			"success": true,
 			"group": map[string]interface{}{
-				"id":          id,
-				"name":        name,
-				"description": desc,
-				"gid":         gid,
-				"created_at":  createdAt,
+				"id":           id,
+				"name":         name,
+				"description":  desc,
+				"gid":          gid,
+				"member_count": memberCount,
+				"created_at":   createdAt,
 			},
 		})
 		return
