@@ -50,7 +50,7 @@ D-PlaneOS is designed as an internal network appliance. It is not intended to be
 - **2FA:** TOTP (RFC 6238) with ±1 window clock drift tolerance, bcrypt-hashed backup codes
 - **API tokens:** SHA-256 hashed, prefixed `dpl_`, scope-limited (read/write/admin)
 - **RBAC:** 4 roles (viewer, user, operator, admin) enforced at handler level, with 34 discrete permissions
-- **Command execution:** Allowlist-based validation via `internal/security/whitelist.go`; arguments passed as separate slice elements to `exec.Command` - no shell. **v6.0.6 Hardening:** Strict "sentence-based" validation for `ufw`/`ip` and mandatory path-agnostic binary resolution ensure seamless portability and anti-exploitation resilience.
+- **Command execution:** Allowlist-based validation via `internal/security/whitelist.go`; arguments passed as separate slice elements to `exec.Command` - no shell. **v6.1.0 Hardening:** Strict `by-id` path enforcement and pool-membership safety checks for disk operations ensure enterprise-grade storage security.
 
 For the full threat model, see [docs/reference/THREAT-MODEL.md](docs/reference/THREAT-MODEL.md).
 

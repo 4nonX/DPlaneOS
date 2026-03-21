@@ -745,6 +745,10 @@ func main() {
 	r.Handle("/api/zfs/pool/add-vdev", permRoute("storage", "write", handlers.AddVdevToPool)).Methods("POST")
 	r.HandleFunc("/api/zfs/pool/remove-device", handlers.RemoveCacheOrLog).Methods("POST")
 	r.Handle("/api/zfs/pool/replace", permRoute("storage", "write", handlers.ReplaceDisk)).Methods("POST")
+	r.Handle("/api/zfs/pool/attach", permRoute("storage", "write", handlers.AttachDisk)).Methods("POST")
+	r.Handle("/api/zfs/pool/detach", permRoute("storage", "write", handlers.DetachDisk)).Methods("POST")
+	r.HandleFunc("/api/zfs/pool/topology", handlers.GetPoolTopology).Methods("GET")
+	r.Handle("/api/zfs/disk/wipe", permRoute("storage", "write", handlers.WipeDisk)).Methods("POST")
 
 	// v3.0.0: Dataset quotas
 	r.HandleFunc("/api/zfs/dataset/quota", handlers.SetDatasetQuota).Methods("POST")

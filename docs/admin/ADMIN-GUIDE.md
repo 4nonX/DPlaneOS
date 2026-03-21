@@ -278,7 +278,7 @@ sudo zpool import tank   # import by name
 
 ## Security Best Practices
 
-**Hardened Execution Whitelist (v6.0.6):** The daemon uses a strict, "sentence-based" allowlist for all system commands (`zfs`, `zpool`, `ufw`, etc.). This means only predefined, safe command structures are allowed. Modification of critical ZFS properties (like `mountpoint`, `quota`, `atime`) and firewall rules is restricted to validated patterns to prevent accidental or malicious system disruption.
+**Hardened Execution Whitelist (v6.1.0):** The daemon uses a strict, "sentence-based" allowlist for all system commands (`zfs`, `zpool`, `ufw`, etc.). This means only predefined, safe command structures are allowed. Modification of critical ZFS properties (like `mountpoint`, `quota`, `atime`) and firewall rules is restricted to validated patterns to prevent accidental or malicious system disruption. In v6.1.0, disk operations like `zpool attach` and `zpool replace` are strictly validated against `by-id` paths and pool membership.
 
 **Path Normalization:** D-PlaneOS is now fully path-agnostic. It no longer relies on hardcoded absolute paths (`/usr/bin/`, `/bin/`) for key binaries, instead using the system's `PATH` for resolution. This ensures full compatibility with NixOS, Debian, and other specialized Linux distributions.
 

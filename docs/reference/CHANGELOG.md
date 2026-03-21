@@ -4,6 +4,22 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## v6.1.0 (2026-03-21) - "VDEV Sentinel"
+
+Upgrade from: v6.0.6 - Drop-in. `sudo bash install.sh --upgrade`
+
+### Added
+- **Extended VDEV Operations**: Full backend and UI support for `zpool attach` (mirroring), `zpool detach`, and `zpool replace`.
+- **Hardware Topology Viewer**: Interactive indented tree view of ZFS pool structure (Mirrors, RAIDZ, Special VDEVs).
+- **VDEV-Aware Pool Repair**: Updated the Pool Fixer Wizard to correctly identify and guide replacement of failed disks within any VDEV sub-group.
+- **NixOS Native Scheduling**: Migrated ZFS scrubbing and snapshotting from legacy cron to native systemd timers for enterprise-grade NixOS compatibility.
+- **Dynamic Timer Management**: Internal generator for transient systemd units that survive reboots and provide granular state tracking.
+
+### Security
+- **Whitelist Hardening**: Expanded execution whitelist to include `wipefs`, `labelclear`, and specific `zpool` subcommand variants.
+- **Path Validation Enforcement**: Replaced all legacy string-based validation with unified `security.ValidateDevicePath` for `by-id` path safety.
+- **Disk Wiping Safety**: Implemented real-time pool membership checks in the `WipeDisk` handler to prevent data loss on active storage members.
+
 ---
 
 ## v6.0.6 (2026-03-21) - "Hardened Core"

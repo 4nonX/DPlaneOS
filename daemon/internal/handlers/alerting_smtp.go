@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"dplaned/internal/systemd"
 	_ "github.com/mattn/go-sqlite3"
 )
 
@@ -232,40 +233,53 @@ func (h *AlertingHandler) SaveScrubSchedules(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// Generate crontab entries
-	var crontab strings.Builder
-	crontab.WriteString("# D-PlaneOS ZFS Scrub Schedules (auto-generated - do not edit manually)\n")
-	crontab.WriteString("SHELL=/bin/bash\n")
-	crontab.WriteString("PATH=/usr/sbin:/usr/bin:/sbin:/bin\n\n")
+	// 1. Clear existing scrub timers to ensure we don't have orphans
+	if err := systemd.UninstallAllWithPrefix("dplaneos-scrub-"); err != nil {
+		log.Printf("ERROR: failed to clear existing scrub timers: %v", err)
+	}
+
+	// 2. Generate and install new systemd timers
 	for _, s := range schedules {
-		var cronExpr string
+		var onCalendar string
 		switch s.Interval {
 		case "daily":
-			cronExpr = fmt.Sprintf("0 %d * * *", s.Hour)
+			onCalendar = fmt.Sprintf("*-*-* %02d:00:00", s.Hour)
 		case "weekly":
-			cronExpr = fmt.Sprintf("0 %d * * %d", s.Hour, s.Day)
+			// Map 0-6 to Mon-Sun (Go's time uses 0=Sun, crontab uses 0=Sun too?)
+			// Systemd: Mon, Tue, Wed, Thu, Fri, Sat, Sun
+			days := []string{"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"}
+			day := s.Day
+			if day < 0 || day > 6 {
+				day = 0
+			}
+			onCalendar = fmt.Sprintf("%s *-*-* %02d:00:00", days[day], s.Hour)
 		case "monthly":
 			day := s.Day
 			if day < 1 {
 				day = 1
 			}
-			cronExpr = fmt.Sprintf("0 %d %d * *", s.Hour, day)
+			onCalendar = fmt.Sprintf("*-*-%02d %02d:00:00", day, s.Hour)
 		}
-		crontab.WriteString(fmt.Sprintf("%s root zpool scrub %s\n", cronExpr, s.Pool))
+
+		err := systemd.InstallTimer(systemd.TimerConfig{
+			Name:        fmt.Sprintf("scrub-%s", s.Pool),
+			Description: fmt.Sprintf("ZFS Scrub for pool %s", s.Pool),
+			Command:     fmt.Sprintf("/usr/bin/zpool scrub %s", s.Pool), // Use absolute path for safety
+			OnCalendar:  onCalendar,
+			Persistent:  true,
+			After:       []string{"zfs.target"},
+		})
+		if err != nil {
+			log.Printf("ERROR: failed to install scrub timer for %s: %v", s.Pool, err)
+		}
 	}
 
-	// Write directly to /etc/cron.d/ (same pattern as scrub cron)
-	cronFile := "/etc/cron.d/dplaneos-scrub"
-	if err := os.WriteFile(cronFile, []byte(crontab.String()), 0644); err != nil {
-		log.Printf("ERROR: failed to write scrub cron file %s: %v", cronFile, err)
-		respondErrorSimple(w, "Failed to write cron file: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
+	// Remove legacy cron file if it exists
+	os.Remove("/etc/cron.d/dplaneos-scrub")
 
 	respondOK(w, map[string]interface{}{
 		"success":   true,
 		"schedules": schedules,
-		"cron_file": cronFile,
 	})
 }
 

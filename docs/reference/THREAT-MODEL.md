@@ -56,7 +56,7 @@ D-PlaneOS is a NAS management layer running on top of NixOS or Debian/Ubuntu. It
 
 **Mitigation**:
 - All parameters validated by strict allowlist regex validators (`ValidatePoolName`, `ValidateDevicePath`, `ValidateDatasetName`, etc.) - rejects shell metacharacters with HTTP 400 before any command is executed.
-- **v6.0.6 Hardening:** Standardized on strict "sentence-based" validation for `ufw` and `ip route`. Implemented a mandatory allowlist for `zfs set` properties, ensuring only safe parameters (e.g., `quota`, `atime`, `compression`) can be modified via the API.
+- **v6.1.0 Hardening:** Standardized on strict `by-id` path enforcement and pool-membership safety checks for disk operations. Implemented a mandatory allowlist for `zfs set` properties, ensuring only safe parameters (e.g., `quota`, `atime`, `compression`) can be modified via the API.
 - Mandatory `filepath.Clean` normalization and explicit rejection of dot-slash patterns in all file-based operations.
 - Go `exec.Command` passes arguments as a string array - no shell expansion, no `/bin/sh -c` for standard operations.
 - networkdwriter (network persistence) writes files directly, no shell involved; `networkctl reload` is called with fixed args, no user input in the command line.

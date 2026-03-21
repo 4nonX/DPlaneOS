@@ -32,6 +32,7 @@ import { Tooltip } from '@/components/ui/Tooltip'
 import { toast } from '@/hooks/useToast'
 import { useWsStore } from '@/stores/ws'
 import { Modal } from '@/components/ui/Modal'
+import { PoolTopologyView, PoolTopology } from '@/components/zfs/PoolTopology'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -41,6 +42,7 @@ interface ZFSPool {
   name: string; size: string; alloc: string; free: string
   used: string; capacity: string; health: string; type: string
   compression: string; dedup: string
+  topology?: PoolTopology
 }
 interface PoolsResponse { success: boolean; pools?: ZFSPool[]; data?: ZFSPool[] }
 
@@ -84,6 +86,8 @@ interface ResilverStatusResponse {
   completed: boolean
   completed_at: string | null
 }
+
+interface Disk { name: string; size: string; model: string; path: string }
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -667,6 +671,181 @@ function ResilverProgressCard({ pool }: { pool: string }) {
 }
 
 // ---------------------------------------------------------------------------
+// WipeDiskModal
+// ---------------------------------------------------------------------------
+
+function WipeDiskModal({ device, onClose, onWiped }: { device: string; onClose: () => void; onWiped: () => void }) {
+  const [confirm, setConfirm] = useState(false)
+  const mutation = useMutation({
+    mutationFn: () => api.post('/api/zfs/disk/wipe', { device }),
+    onSuccess: () => {
+      toast.success(`Disk ${device} wiped successfully`)
+      onWiped()
+      onClose()
+    },
+    onError: (e: Error) => toast.error(`Wipe failed: ${e.message}`)
+  })
+
+  return (
+    <Modal title={<span style={{ color: 'var(--error)' }}>Wipe Disk</span>} onClose={onClose} size="sm">
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <div className="alert alert-error">
+          <Icon name="warning" size={16} />
+          <strong>DANGER:</strong> This will permanently wipe all partition tables and ZFS labels from <strong>{device}</strong>.
+        </div>
+        <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>
+          This operation is irreversible. Ensure the disk is not part of any active ZFS pool.
+        </p>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', userSelect: 'none', padding: '12px', background: 'rgba(255,255,255,0.03)', borderRadius: 'var(--radius-md)' }}>
+          <input type="checkbox" checked={confirm} onChange={e => setConfirm(e.target.checked)} />
+          <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text-primary)' }}>
+            I understand this will destroy all data on the disk
+          </span>
+        </label>
+      </div>
+      <div className="modal-footer">
+        <button onClick={onClose} className="btn btn-ghost">Cancel</button>
+        <button 
+          onClick={() => mutation.mutate()} 
+          disabled={!confirm || mutation.isPending} 
+          className="btn btn-danger"
+        >
+          {mutation.isPending ? <><Spinner size={14} /> Wiping…</> : 'Wipe Disk'}
+        </button>
+      </div>
+    </Modal>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// ReplaceDiskModal
+// ---------------------------------------------------------------------------
+
+function ReplaceDiskModal({ pool, oldDisk, onClose, onStarted }: { pool: string; oldDisk: string; onClose: () => void; onStarted: () => void }) {
+  const [newDisk, setNewDisk] = useState('')
+  const [force, setForce] = useState(false)
+  const [wipeFirst, setWipeFirst] = useState(false)
+  
+  const disksQ = useQuery({ 
+    queryKey: ['zfs', 'disks'], 
+    queryFn: () => api.get<any>('/api/zfs/disks') 
+  })
+  const unassignedDisks = (disksQ.data?.disks ?? []).filter((d: any) => d.status === 'unused')
+
+  const mutation = useMutation({
+    mutationFn: async () => {
+      if (wipeFirst) {
+        await api.post('/api/zfs/disk/wipe', { device: newDisk })
+      }
+      return api.post('/api/zfs/pool/replace', { pool, old_disk: oldDisk, new_disk: newDisk, force })
+    },
+    onSuccess: () => {
+      toast.success(`Disk replacement started for ${oldDisk}`)
+      onStarted()
+      onClose()
+    },
+    onError: (e: Error) => toast.error(`Replacement failed: ${e.message}`)
+  })
+
+  return (
+    <Modal title={`Replace Disk in ${pool}`} onClose={onClose}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <div style={{ padding: '12px 14px', background: 'var(--surface)', borderRadius: 'var(--radius-md)', borderLeft: '4px solid var(--warning)' }}>
+          <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', fontWeight: 600, textTransform: 'uppercase', marginBottom: 4 }}>Replacing Device</div>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-sm)', fontWeight: 700 }}>{oldDisk}</div>
+        </div>
+
+        <label className="field">
+          <span className="field-label">Select Replacement Disk</span>
+          <select value={newDisk} onChange={e => setNewDisk(e.target.value)} className="input">
+            <option value="">-- Choose an unassigned disk --</option>
+            {unassignedDisks.map((d: any) => (
+              <option key={d.name} value={d.path}>{d.path} ({d.size})</option>
+            ))}
+          </select>
+          {unassignedDisks.length === 0 && (
+            <div style={{ fontSize: 'var(--text-xs)', color: 'var(--error)', marginTop: 4 }}>
+              No unassigned disks available.
+            </div>
+          )}
+        </label>
+
+        {newDisk && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
+              <input type="checkbox" checked={wipeFirst} onChange={e => setWipeFirst(e.target.checked)} />
+              <span style={{ fontSize: 'var(--text-sm)' }}>Wipe new disk before replacement (Recommended)</span>
+            </label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
+              <input type="checkbox" checked={force} onChange={e => setForce(e.target.checked)} />
+              <span style={{ fontSize: 'var(--text-sm)' }}>Force replacement (Use if disk sizes differ slightly)</span>
+            </label>
+          </div>
+        )}
+      </div>
+
+      <div className="modal-footer">
+        <button onClick={onClose} className="btn btn-ghost">Cancel</button>
+        <button 
+          onClick={() => mutation.mutate()} 
+          disabled={!newDisk || mutation.isPending} 
+          className="btn btn-primary"
+        >
+          {mutation.isPending ? <><Spinner size={14} /> Starting…</> : 'Start Replacement'}
+        </button>
+      </div>
+    </Modal>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// WipeDiskModalInner (Selection of unassigned disks)
+// ---------------------------------------------------------------------------
+
+function WipeDiskModalInner({ onWiped, onClose }: { onWiped: () => void; onClose: () => void }) {
+  const [selected, setSelected] = useState<string | null>(null)
+  
+  // Need to fetch system disks (not just ZFS disks, since we want any unassigned disk)
+  const disksQ = useQuery({
+    queryKey: ['system', 'disks'],
+    queryFn: () => api.get<{ disks: Disk[] }>('/api/system/disks')
+  })
+  
+  // Use heuristic to find unassigned disks: they aren't in any pool (backend handles safety too)
+  const disks = (disksQ.data as any)?.disks ?? []
+
+  if (selected) {
+    return <WipeDiskModal device={selected} onClose={() => setSelected(null)} onWiped={onWiped} />
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <div className="card" style={{ height: 300, overflowY: 'auto', padding: 8, background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)' }}>
+        {disks.length === 0 && !disksQ.isLoading && (
+          <div style={{ textAlign: 'center', color: 'var(--text-tertiary)', paddingTop: 120 }}>No disks found</div>
+        )}
+        {disks.map((d: Disk) => (
+          <button 
+            key={d.path} 
+            className="btn btn-ghost" 
+            style={{ width: '100%', justifyContent: 'flex-start', textAlign: 'left', marginBottom: 6, display: 'flex', flexDirection: 'column', alignItems: 'flex-start', padding: '12px 14px', borderRadius: 'var(--radius-md)' }}
+            onClick={() => setSelected(d.path)}
+          >
+            <div style={{ fontWeight: 700, fontSize: 'var(--text-sm)', display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Icon name="dns" size={14} /> {d.path} ({d.size})
+            </div>
+            <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', marginTop: 2 }}>{d.model} · {d.name}</div>
+          </button>
+        ))}
+      </div>
+      <div className="modal-footer">
+        <button onClick={onClose} className="btn btn-ghost">Cancel</button>
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // PoolCard
 // ---------------------------------------------------------------------------
 
@@ -681,6 +860,9 @@ function PoolCard({ pool, datasets, filter, onRefresh }: { pool: ZFSPool; datase
   const [showExpandModal, setShowExpandModal] = useState(false)
   const [showFixerModal, setShowFixerModal] = useState(false)
   const [showCacheModal, setShowCacheModal] = useState(false)
+  const [showTopology, setShowTopology] = useState(false)
+  const [replaceDisk, setReplaceDisk] = useState<string | null>(null)
+  const [wipeDisk, setWipeDisk] = useState<string | null>(null)
   const pct = parseCapacityPct(pool.capacity)
 
   // Apply client-side filter
@@ -743,6 +925,15 @@ function PoolCard({ pool, datasets, filter, onRefresh }: { pool: ZFSPool; datase
     },
   })
   const isResilvering = resilverQ.data?.resilvering && !resilverQ.data?.completed
+
+  // ── Topology status ────────────────────────────────────────────────────────
+  const topologyQ = useQuery({
+    queryKey: ['zfs', 'topology', pool.name],
+    queryFn: ({ signal }) =>
+      api.get<PoolTopology>(`/api/zfs/pool/topology?pool=${encodeURIComponent(pool.name)}`, signal),
+    enabled: showTopology,
+    refetchInterval: isResilvering ? 10_000 : false,
+  })
 
   return (
     <div className="card" style={{ borderRadius: 'var(--radius-xl)', padding: 28, borderLeft: `4px solid ${healthColor(pool.health)}` }}>
@@ -864,6 +1055,9 @@ function PoolCard({ pool, datasets, filter, onRefresh }: { pool: ZFSPool; datase
         <div style={{ width: 1, height: 16, background: 'var(--border-subtle)', margin: '0 4px' }} />
 
         <div style={{ display: 'flex', gap: 10, marginTop: 10 }}>
+          <button onClick={() => setShowTopology(!showTopology)} className={`btn btn-sm ${showTopology ? 'btn-primary' : 'btn-ghost'}`}>
+            <Icon name="account_tree" size={14} /> {showTopology ? 'Hide Topology' : 'View Topology'}
+          </button>
           {pool.health !== 'ONLINE' && (
             <button onClick={() => setShowFixerModal(true)} className="btn btn-sm btn-warning">
               <Icon name="build" size={14} /> Fixer Wizard
@@ -880,6 +1074,26 @@ function PoolCard({ pool, datasets, filter, onRefresh }: { pool: ZFSPool; datase
           </button>
         </div>
       </div>
+
+      {/* Topology View */}
+      {showTopology && (
+        <div style={{ marginBottom: 24, padding: '16px 20px', background: 'rgba(0,0,0,0.2)', borderRadius: 'var(--radius-lg)', border: '1px solid var(--border-subtle)' }}>
+           {topologyQ.isLoading && <div style={{ textAlign: 'center', padding: 20 }}><Spinner size={20} /> Loading topology…</div>}
+           {topologyQ.data && (
+             <PoolTopologyView 
+                topology={topologyQ.data} 
+                onAction={(action, vdev) => {
+                   if (action === 'replace') setReplaceDisk(vdev.name)
+                }}
+             />
+           )}
+           <div style={{ marginTop: 16, borderTop: '1px solid var(--border-subtle)', paddingTop: 12, display: 'flex', gap: 12 }}>
+              <button className="btn btn-xs btn-ghost" onClick={() => setWipeDisk('true')}>
+                 <Icon name="cleaning_services" size={12} /> Wipe a disk
+              </button>
+           </div>
+        </div>
+      )}
 
       {/* Resilver progress card */}
       {isResilvering && <ResilverProgressCard pool={pool.name} />}
@@ -972,6 +1186,25 @@ function PoolCard({ pool, datasets, filter, onRefresh }: { pool: ZFSPool; datase
           onClose={() => setShowCacheModal(false)} 
           onRefresh={onRefresh} 
         />
+      )}
+
+      {replaceDisk && (
+        <ReplaceDiskModal 
+          pool={pool.name} 
+          oldDisk={replaceDisk} 
+          onClose={() => setReplaceDisk(null)} 
+          onStarted={() => { onRefresh(); qc.invalidateQueries({ queryKey: ['zfs', 'topology', pool.name] }) }} 
+        />
+      )}
+
+      {wipeDisk && (
+        <Modal title="Wipe Unassigned Disk" onClose={() => setWipeDisk(null)}>
+           <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', marginBottom: 16 }}>
+             Select a disk to permanently erase. Use this for disks you intend to add to a pool.
+           </p>
+            {/* Explicitly using the defined component */}
+            <WipeDiskModalInner onWiped={onRefresh} onClose={() => setWipeDisk(null)} />
+        </Modal>
       )}
     </div>
   )
@@ -1099,7 +1332,7 @@ function DestroyPoolModal({ poolName, onClose, onDestroyed }: { poolName: string
   )
 }
 
-interface Disk { name: string; size: string; model: string; path: string }
+
 
 function CreatePoolModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
   const [name, setName] = useState('')
@@ -1380,8 +1613,23 @@ function PoolFixerWizard({ pool, onClose, onRefresh }: { pool: any; onClose: () 
     onError: (e: Error) => toast.error(e.message)
   })
 
-  // Identify unhealthy disks
-  const unhealthyDisks = (pool.disks || []).filter((d: any) => d.state !== 'ONLINE')
+  // Identify unhealthy disks - prefer topology for complex VDEVs, fallback to pool.disks
+  const unhealthyDisks = useMemo(() => {
+    // If we have topology data, traverse it for leaf disks
+    if (pool.topology) {
+      const disks: any[] = []
+      const traverse = (v: any) => {
+        if (v.type === 'disk' && v.state !== 'ONLINE') {
+          disks.push(v)
+        }
+        if (v.children) v.children.forEach(traverse)
+      }
+      traverse(pool.topology)
+      if (disks.length > 0) return disks
+    }
+    // Fallback to legacy flat disks list
+    return (pool.disks || []).filter((d: any) => d.state !== 'ONLINE')
+  }, [pool.topology, pool.disks])
 
   return (
     <Modal title={`Pool Fixer: ${pool.name}`} onClose={onClose} size="md">

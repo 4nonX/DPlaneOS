@@ -12,6 +12,7 @@ import (
 
 	"dplaned/internal/cmdutil"
 	"dplaned/internal/jobs"
+	"dplaned/internal/security"
 )
 
 // ═══════════════════════════════════════════════════════════════
@@ -319,8 +320,8 @@ func AddVdevToPool(w http.ResponseWriter, r *http.Request) {
 	}
 	// Validate disks
 	for _, d := range req.Disks {
-		if strings.ContainsAny(d, ";|&$`\\\"' /") || len(d) > 64 {
-			respondErrorSimple(w, fmt.Sprintf("Invalid disk name: %s", d), http.StatusBadRequest)
+		if err := security.ValidateDevicePath(d); err != nil {
+			respondErrorSimple(w, fmt.Sprintf("Invalid device path: %s (%v)", d, err), http.StatusBadRequest)
 			return
 		}
 	}
@@ -409,8 +410,8 @@ func ReplaceDisk(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	for _, d := range []string{req.OldDisk, req.NewDisk} {
-		if strings.ContainsAny(d, ";|&$`\\\"' /") || len(d) > 128 {
-			respondErrorSimple(w, "Invalid disk name", http.StatusBadRequest)
+		if err := security.ValidateDevicePath(d); err != nil {
+			respondErrorSimple(w, fmt.Sprintf("Invalid device path: %s (%v)", d, err), http.StatusBadRequest)
 			return
 		}
 	}
@@ -1032,3 +1033,288 @@ func runZFSCommand(args []string) ([]byte, error) {
 	return cmdutil.RunFast("zfs", args...)
 }
 
+// ═══════════════════════════════════════════════════════════════
+//  7. MIRROR ATTACH / DETACH
+// ═══════════════════════════════════════════════════════════════
+
+// AttachDisk attaches a new disk to an existing one to create/extend a mirror
+// POST /api/zfs/pool/attach { "pool": "tank", "old_disk": "sda", "new_disk": "sde" }
+func AttachDisk(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Pool    string `json:"pool"`
+		OldDisk string `json:"old_disk"`
+		NewDisk string `json:"new_disk"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondErrorSimple(w, "Invalid request", http.StatusBadRequest)
+		return
+	}
+	if !isValidDataset(req.Pool) {
+		respondErrorSimple(w, "Invalid pool", http.StatusBadRequest)
+		return
+	}
+	for _, d := range []string{req.OldDisk, req.NewDisk} {
+		if err := security.ValidateDevicePath(d); err != nil {
+			respondErrorSimple(w, fmt.Sprintf("Invalid device path: %s (%v)", d, err), http.StatusBadRequest)
+			return
+		}
+	}
+
+	// Capture for closure
+	pool := req.Pool
+	oldDisk := req.OldDisk
+	newDisk := req.NewDisk
+
+	jobID := jobs.Start("zpool-attach", func(j *jobs.Job) {
+		if diskEventHub != nil {
+			diskEventHub.Broadcast("resilver_started", map[string]interface{}{
+				"pool":     pool,
+				"old_disk": oldDisk,
+				"new_disk": newDisk,
+			}, "info")
+		}
+
+		output, err := executeCommandWithTimeout(TimeoutMedium, "zpool", []string{"attach", pool, oldDisk, newDisk})
+		if err != nil {
+			if diskEventHub != nil {
+				diskEventHub.Broadcast("resilver_completed", map[string]interface{}{
+					"pool":    pool,
+					"success": false,
+					"error":   err.Error(),
+				}, "warning")
+			}
+			j.Fail(fmt.Sprintf("zpool attach failed: %v - %s", err, strings.TrimSpace(output)))
+			return
+		}
+
+		if diskEventHub != nil {
+			diskEventHub.Broadcast("resilver_completed", map[string]interface{}{
+				"pool":    pool,
+				"success": true,
+			}, "success")
+		}
+		j.Done(map[string]interface{}{"message": "Disk attach complete, resilvering started."})
+	})
+
+	respondOK(w, map[string]interface{}{"success": true, "job_id": jobID})
+}
+
+// DetachDisk detaches a device from a mirror
+// POST /api/zfs/pool/detach { "pool": "tank", "disk": "sde" }
+func DetachDisk(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Pool string `json:"pool"`
+		Disk string `json:"disk"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondErrorSimple(w, "Invalid request", http.StatusBadRequest)
+		return
+	}
+	if !isValidDataset(req.Pool) {
+		respondErrorSimple(w, "Invalid pool name", http.StatusBadRequest)
+		return
+	}
+	if err := security.ValidateDevicePath(req.Disk); err != nil {
+		respondErrorSimple(w, fmt.Sprintf("Invalid device path: %s (%v)", req.Disk, err), http.StatusBadRequest)
+		return
+	}
+
+	output, err := executeCommandWithTimeout(TimeoutMedium, "zpool", []string{"detach", req.Pool, req.Disk})
+	if err != nil {
+		respondOK(w, map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+			"output":  strings.TrimSpace(output),
+		})
+		return
+	}
+
+	respondOK(w, map[string]interface{}{"success": true, "pool": req.Pool, "detached": req.Disk})
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  8. POOL TOPOLOGY / STATUS PARSING
+// ═══════════════════════════════════════════════════════════════
+
+type VDev struct {
+	Name     string `json:"name"`
+	Type     string `json:"type"` // mirror, raidz, disk, spare, etc
+	State    string `json:"state"`
+	Read     string `json:"read"`
+	Write    string `json:"write"`
+	Cksum    string `json:"cksum"`
+	Notes    string `json:"notes,omitempty"`
+	Progress string `json:"progress,omitempty"` // for resilver %
+	Children []VDev `json:"children,omitempty"`
+}
+
+type PoolTopology struct {
+	Name   string            `json:"name"`
+	State  string            `json:"state"`
+	Status string            `json:"status"`
+	Scan   string            `json:"scan"`
+	Groups map[string][]VDev `json:"groups"` // data, special, logs, cache, spare
+}
+
+// GetPoolTopology returns structured VDEV hierarchy for a pool
+// GET /api/zfs/pool/topology?pool=tank
+func GetPoolTopology(w http.ResponseWriter, r *http.Request) {
+	pool := r.URL.Query().Get("pool")
+	if pool == "" || !isValidDataset(pool) {
+		respondErrorSimple(w, "Invalid or missing pool name", http.StatusBadRequest)
+		return
+	}
+
+	output, err := executeCommandWithTimeout(TimeoutMedium, "zpool", []string{"status", "-P", pool})
+	if err != nil {
+		respondErrorSimple(w, fmt.Sprintf("Failed to get pool status: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	topology := parseZpoolStatus(output, pool)
+	respondOK(w, map[string]interface{}{"success": true, "topology": topology})
+}
+
+func parseZpoolStatus(output, poolName string) PoolTopology {
+	topo := PoolTopology{
+		Name:   poolName,
+		Groups: make(map[string][]VDev),
+	}
+
+	lines := strings.Split(output, "\n")
+	configStart := -1
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "state:") {
+			topo.State = strings.TrimSpace(strings.TrimPrefix(trimmed, "state:"))
+		} else if strings.HasPrefix(trimmed, "status:") {
+			topo.Status = strings.TrimSpace(strings.TrimPrefix(trimmed, "status:"))
+		} else if strings.HasPrefix(trimmed, "scan:") {
+			topo.Scan = strings.TrimSpace(strings.TrimPrefix(trimmed, "scan:"))
+		} else if strings.HasPrefix(trimmed, "config:") {
+			configStart = i + 1
+		}
+	}
+
+	if configStart == -1 || configStart >= len(lines) {
+		return topo
+	}
+
+	currentGroup := "data"
+	groupData := []VDev{}
+	
+	// parentStack tracks (indentation, pointer to Children slice)
+	type stackItem struct {
+		indent   int
+		children *[]VDev
+	}
+	// Initially, we are at the group level (e.g. "data" or "logs")
+	stack := []stackItem{{indent: -1, children: &groupData}}
+
+	for i := configStart; i < len(lines); i++ {
+		line := lines[i]
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "errors:") || strings.Contains(line, "NAME") {
+			continue
+		}
+
+		// Calculate leading indentation
+		indent := 0
+		for indent < len(line) && (line[indent] == ' ' || line[indent] == '\t') {
+			indent++
+		}
+
+		// Check for top-level group headers
+		if indent == 0 {
+			groupHeader := strings.Fields(trimmed)[0]
+			if groupHeader == "logs" || groupHeader == "cache" || groupHeader == "spares" || groupHeader == "special" {
+				// Commit previous group if it was data (others are already handled)
+				if currentGroup == "data" {
+					topo.Groups["data"] = groupData
+				}
+				currentGroup = groupHeader
+				if currentGroup == "spares" {
+					currentGroup = "spare"
+				}
+				newGroup := []VDev{}
+				topo.Groups[currentGroup] = newGroup
+				// Reset stack for new group
+				groupData = nil // we'll use a fresh slice
+				stack = []stackItem{{indent: -1, children: &newGroup}}
+				// We don't continue because there might be disks on the same line or next line
+				// But ZFS group headers usually are just the label.
+				continue
+			}
+		}
+
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+
+		// Ignore the root pool name line itself (indent is usually small)
+		if fields[0] == poolName && indent < 4 {
+			continue
+		}
+
+		// Pop stack if we are out-dented
+		for len(stack) > 1 && indent <= stack[len(stack)-1].indent {
+			stack = stack[:len(stack)-1]
+		}
+
+		vdev := VDev{
+			Name:  fields[0],
+			State: fields[1],
+		}
+		if len(fields) >= 5 {
+			vdev.Read, vdev.Write, vdev.Cksum = fields[2], fields[3], fields[4]
+		}
+
+		// Extract notes/progress from the rest of the line
+		lineRaw := strings.Join(fields, " ")
+		if m := regexp.MustCompile(`([0-9.]+)% done`).FindStringSubmatch(lineRaw); len(m) > 1 {
+			vdev.Progress = m[1]
+		}
+		if strings.Contains(lineRaw, "replacing") || strings.Contains(lineRaw, "resilvering") {
+			vdev.Notes = "Resilvering"
+		} else if strings.Contains(lineRaw, "was ") {
+			// e.g. "was /dev/sdb1" or similar info
+			vdev.Notes = trimmed[strings.Index(trimmed, "was "):]
+		}
+
+		// Determine Type
+		nameLower := strings.ToLower(vdev.Name)
+		if strings.HasPrefix(nameLower, "mirror") {
+			vdev.Type = "mirror"
+		} else if strings.HasPrefix(nameLower, "raidz") {
+			vdev.Type = "raidz"
+		} else if strings.HasPrefix(nameLower, "replacing") {
+			vdev.Type = "replacing"
+		} else if strings.HasPrefix(nameLower, "spare") {
+			vdev.Type = "spare"
+		} else if strings.HasPrefix(nameLower, "/dev/") {
+			vdev.Type = "disk"
+		} else {
+			vdev.Type = "disk" // Default for things like by-id paths if /dev/ prefix is missing
+		}
+
+		// Add to parent and push to stack if this vdev has children (mirror, raidz, replacing)
+		parentChildren := stack[len(stack)-1].children
+		*parentChildren = append(*parentChildren, vdev)
+		
+		// Map the newly appended vdev so we can reference its Children slice
+		newVdev := &(*parentChildren)[len(*parentChildren)-1]
+		
+		// If it's a structural VDEV, push to stack
+		if vdev.Type != "disk" {
+			stack = append(stack, stackItem{indent: indent, children: &newVdev.Children})
+		}
+	}
+
+	// Final data group assignment to ensure it's captured
+	if _, ok := topo.Groups["data"]; !ok || len(topo.Groups["data"]) == 0 {
+		topo.Groups["data"] = groupData
+	}
+
+	return topo
+}

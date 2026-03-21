@@ -204,7 +204,9 @@ in {
           "/etc/dplaneos"
           "/run/dplaneos"
           "/etc/crontab"
+          "/etc/cron.d"
           "/etc/exports"
+          "/etc/systemd/system"
           # networkdwriter: D-PlaneOS writes 50-dplane-*.{network,netdev} here
           # These files survive nixos-rebuild - NixOS only manages its own prefixed files
           "/etc/systemd/network"

@@ -146,6 +146,30 @@ var CommandWhitelist = map[string]Command{
 		},
 		Description: "Remove cache or log device from pool",
 	},
+	"zpool_replace": {
+		Name:        "zpool_replace",
+		Path:        "zpool",
+		AllowedArgs: []string{"replace"},
+		Description: "Replace a ZFS device in a pool",
+	},
+	"zpool_attach": {
+		Name:        "zpool_attach",
+		Path:        "zpool",
+		AllowedArgs: []string{"attach"},
+		Description: "Attach a new device to an existing ZFS device (to create a mirror)",
+	},
+	"zpool_detach": {
+		Name:        "zpool_detach",
+		Path:        "zpool",
+		AllowedArgs: []string{"detach"},
+		Description: "Detach a device from a ZFS mirror",
+	},
+	"zpool_add_special": {
+		Name:        "zpool_add_special",
+		Path:        "zpool",
+		AllowedArgs: []string{"add"},
+		Description: "Add a special (metadata/small blocks) VDEV to a pool",
+	},
 	"zpool_import_scan": {
 		Name:        "zpool_import_scan",
 		Path:        "zpool",
@@ -409,6 +433,12 @@ var CommandWhitelist = map[string]Command{
 		ArgPatterns: []*regexp.Regexp{regexp.MustCompile(`^\d+$`)}, // line count
 		Description: "Get system logs",
 	},
+	"systemctl_daemon_reload": {
+		Name:        "systemctl_daemon_reload",
+		Path:        "systemctl",
+		AllowedArgs: []string{"daemon-reload"},
+		Description: "Reload systemd manager configuration",
+	},
 	// ACL Management (v2.0.0)
 	"getfacl": {
 		Name:        "getfacl",
@@ -463,6 +493,18 @@ var CommandWhitelist = map[string]Command{
 		AllowedArgs: []string{"-dpno", "NAME,SIZE,MODEL,ROTA,TRAN,STATE"},
 		Description: "List block device power info",
 	},
+	"wipefs": {
+		Name:        "wipefs",
+		Path:        "wipefs",
+		AllowedArgs: []string{"-a"},
+		Description: "Wipe filesystem signatures from a device",
+	},
+	"zpool_labelclear": {
+		Name:        "zpool_labelclear",
+		Path:        "zpool",
+		AllowedArgs: []string{"labelclear", "-f"},
+		Description: "Clear ZFS labels from a device",
+	},
 }
 
 // ValidateCommand checks if a command request is allowed
@@ -476,7 +518,8 @@ func ValidateCommand(cmdName string, args []string) error {
 	hasCustomValidator := false
 	switch cmdName {
 	case "zpool_create", "zfs_set_property", "ufw", "ip_route_modify", "openssl", "mkdir", "rm_recursive",
-		"zpool_online", "zpool_add_cache", "zpool_add_log", "zpool_remove_device", "hdparm_check", "hdparm_spindown", "hdparm_status":
+		"zpool_online", "zpool_add_cache", "zpool_add_log", "zpool_remove_device", "hdparm_check", "hdparm_spindown", "hdparm_status",
+		"zpool_replace", "zpool_attach", "zpool_detach", "zpool_add_special", "wipefs", "zpool_labelclear":
 		hasCustomValidator = true
 	}
 
@@ -498,6 +541,22 @@ func ValidateCommand(cmdName string, args []string) error {
 		if err := validateIpRoute(args); err != nil {
 			return err
 		}
+	case "zpool_replace":
+		if err := validateZpoolReplace(args); err != nil {
+			return err
+		}
+	case "zpool_attach":
+		if err := validateZpoolAttach(args); err != nil {
+			return err
+		}
+	case "zpool_detach":
+		if err := validateZpoolDetach(args); err != nil {
+			return err
+		}
+	case "zpool_add_special":
+		if err := validateZpoolAddSpecial(args); err != nil {
+			return err
+		}
 	case "openssl":
 		if err := validateOpenssl(args); err != nil {
 			return err
@@ -506,7 +565,7 @@ func ValidateCommand(cmdName string, args []string) error {
 		if err := validatePathBasedCommand(cmdName, args); err != nil {
 			return err
 		}
-	case "zpool_online", "zpool_add_cache", "zpool_add_log", "zpool_remove_device", "hdparm_check", "hdparm_spindown", "hdparm_status":
+	case "zpool_online", "zpool_add_cache", "zpool_add_log", "zpool_remove_device", "hdparm_check", "hdparm_spindown", "hdparm_status", "wipefs", "zpool_labelclear":
 		if err := validateDeviceBasedCommand(cmdName, args); err != nil {
 			return err
 		}
@@ -808,6 +867,88 @@ func validateOpenssl(args []string) error {
 	return nil
 }
 
+// validateZpoolReplace validates zpool replace args
+// Format: replace [-f] <pool> <old> <new>
+func validateZpoolReplace(args []string) error {
+	if len(args) < 4 || args[0] != "replace" {
+		return fmt.Errorf("zpool replace requires: replace [-f] pool old new")
+	}
+	i := 1
+	if args[i] == "-f" {
+		i++
+	}
+	if len(args) < i+3 {
+		return fmt.Errorf("zpool replace requires pool, old disk, and new disk")
+	}
+	if err := ValidatePoolName(args[i]); err != nil {
+		return err
+	}
+	if err := ValidateDevicePath(args[i+1]); err != nil {
+		return err
+	}
+	if err := ValidateDevicePath(args[i+2]); err != nil {
+		return err
+	}
+	return nil
+}
+
+// validateZpoolAttach validates zpool attach args
+// Format: attach <pool> <old> <new>
+func validateZpoolAttach(args []string) error {
+	if len(args) != 4 || args[0] != "attach" {
+		return fmt.Errorf("zpool attach requires: attach pool existing_disk new_disk")
+	}
+	if err := ValidatePoolName(args[1]); err != nil {
+		return err
+	}
+	if err := ValidateDevicePath(args[2]); err != nil {
+		return err
+	}
+	if err := ValidateDevicePath(args[3]); err != nil {
+		return err
+	}
+	return nil
+}
+
+// validateZpoolDetach validates zpool detach args
+// Format: detach <pool> <disk>
+func validateZpoolDetach(args []string) error {
+	if len(args) != 3 || args[0] != "detach" {
+		return fmt.Errorf("zpool detach requires: detach pool disk")
+	}
+	if err := ValidatePoolName(args[1]); err != nil {
+		return err
+	}
+	if err := ValidateDevicePath(args[2]); err != nil {
+		return err
+	}
+	return nil
+}
+
+// validateZpoolAddSpecial validates zpool add special args
+// Format: add <pool> special [mirror] <disks...>
+func validateZpoolAddSpecial(args []string) error {
+	if len(args) < 4 || args[0] != "add" || args[2] != "special" {
+		return fmt.Errorf("zpool add special requires: add pool special [mirror] disks...")
+	}
+	if err := ValidatePoolName(args[1]); err != nil {
+		return err
+	}
+	i := 3
+	if args[i] == "mirror" {
+		i++
+	}
+	if i >= len(args) {
+		return fmt.Errorf("missing disks for special vdev")
+	}
+	for ; i < len(args); i++ {
+		if err := ValidateDevicePath(args[i]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func validatePathBasedCommand(cmdName string, args []string) error {
 	// mkdir -p /path or rm -rf /path
 	if len(args) < 1 {
@@ -827,7 +968,7 @@ func validatePathBasedCommand(cmdName string, args []string) error {
 	return nil
 }
 
-func validateDeviceBasedCommand(cmdName string, args []string) error {
+func validateDeviceBasedCommand(_ string, args []string) error {
 	// Various commands that take a device path as one of their arguments
 	for _, arg := range args {
 		// Only validate arguments that look like device paths

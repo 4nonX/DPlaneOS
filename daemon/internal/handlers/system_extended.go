@@ -15,6 +15,7 @@ import (
 	"dplaned/internal/audit"
 	"dplaned/internal/cmdutil"
 	"dplaned/internal/config"
+	"dplaned/internal/systemd"
 )
 
 // ============================================================
@@ -112,15 +113,13 @@ func (h *SnapshotScheduleHandler) SaveSchedules(w http.ResponseWriter, r *http.R
 }
 
 func (h *SnapshotScheduleHandler) regenerateCron(schedules []SnapshotSchedule) {
-	// Write to /etc/cron.d/ so cron picks it up automatically (no crontab install needed).
-	// 644 ownership matches /etc/cron.d/dplaneos-scrub convention.
-	cronFile := "/etc/cron.d/dplaneos-snapshots"
-	var lines []string
-	lines = append(lines, "# D-PlaneOS Automatic Snapshot Schedules")
-	lines = append(lines, "# Auto-generated - do not edit manually")
-	lines = append(lines, "SHELL=/bin/bash")
-	lines = append(lines, "PATH=/usr/sbin:/usr/bin:/sbin:/bin")
-	lines = append(lines, "")
+	// 1. Clear existing snapshot timers
+	if err := systemd.UninstallAllWithPrefix("dplaneos-snap-"); err != nil {
+		log.Printf("ERROR: failed to clear existing snapshot timers: %v", err)
+	}
+
+	// Remove legacy cron file
+	os.Remove("/etc/cron.d/dplaneos-snapshots")
 
 	for _, s := range schedules {
 		if !s.Enabled {
@@ -131,48 +130,48 @@ func (h *SnapshotScheduleHandler) regenerateCron(schedules []SnapshotSchedule) {
 			prefix = "auto-" + s.Frequency
 		}
 
-		var cronExpr string
+		var onCalendar string
 		switch s.Frequency {
 		case "hourly":
-			cronExpr = "0 * * * *"
+			onCalendar = "*-*-* *:00:00"
 		case "daily":
-			cronExpr = "0 2 * * *"
+			onCalendar = "*-*-* 02:00:00"
 		case "weekly":
-			cronExpr = "0 3 * * 0"
+			onCalendar = "Sun *-*-* 03:00:00"
 		case "monthly":
-			cronExpr = "0 4 1 * *"
+			onCalendar = "*-*-01 04:00:00"
 		default:
 			continue
 		}
 
-		// Use the cron-hook endpoint so Go can fire post-snapshot replication.
-		// The hook creates the snapshot, prunes old ones, and triggers replication.
-		// Pass retention_days so the hook can also apply age-based pruning.
+		// Use the cron-hook internal endpoint. 
+		// We wrap it in a shell script that can also do the standalone pruning if needed.
 		payload := fmt.Sprintf(
 			`{"dataset":"%s","prefix":"%s","retention":%d,"retention_days":%d}`,
 			s.Dataset, prefix, s.Retention, s.RetentionDays,
 		)
-		cmd := fmt.Sprintf(
-			`curl -sf -X POST http://127.0.0.1:9000/api/zfs/snapshots/cron-hook -H 'Content-Type: application/json' -d '%s'`,
+		
+		// The hook handles both snapshotting and replication.
+		mainCmd := fmt.Sprintf(
+			`/usr/bin/curl -sf -X POST http://127.0.0.1:9000/api/zfs/snapshots/cron-hook -H 'Content-Type: application/json' -d '%s'`,
 			payload,
 		)
-		lines = append(lines, fmt.Sprintf("%s root %s", cronExpr, cmd))
 
-		// Additionally, if RetentionDays > 0, emit a standalone age-based pruning
-		// entry that runs independently from the cron-hook (belt-and-suspenders).
-		if s.RetentionDays > 0 {
-			pruneCmd := fmt.Sprintf(
-				`zfs list -H -t snapshot -o name,creation -s creation -d 1 %s `+
-					`| awk -v cutoff="$(date -d '-%d days' +%%s)" '$2 < cutoff {print $1}' `+
-					`| xargs -r zfs destroy`,
-				s.Dataset, s.RetentionDays,
-			)
-			lines = append(lines, fmt.Sprintf("%s root %s", cronExpr, pruneCmd))
+		// Sanitize dataset name for unit file (no / allowed)
+		safeDataset := strings.ReplaceAll(s.Dataset, "/", "-")
+		unitName := fmt.Sprintf("snap-%s-%s", safeDataset, s.Frequency)
+
+		err := systemd.InstallTimer(systemd.TimerConfig{
+			Name:        unitName,
+			Description: fmt.Sprintf("ZFS Auto-Snapshot for %s (%s)", s.Dataset, s.Frequency),
+			Command:     fmt.Sprintf("/bin/bash -c \"%s\"", strings.ReplaceAll(mainCmd, "\"", "\\\"")),
+			OnCalendar:  onCalendar,
+			Persistent:  true,
+			After:       []string{"zfs.target"},
+		})
+		if err != nil {
+			log.Printf("ERROR: failed to install snapshot timer for %s: %v", s.Dataset, err)
 		}
-	}
-
-	if err := os.WriteFile(cronFile, []byte(strings.Join(lines, "\n")+"\n"), 0644); err != nil {
-		log.Printf("ERROR: failed to write cron file %s: %v", cronFile, err)
 	}
 }
 
