@@ -211,6 +211,13 @@ assert_json "Admin user present in list" "success" "true"
 # Create user
 api POST /api/users/create '{"action":"create","username":"ci-user","password":"CiUser1!Test","email":"ci@dplane.local","role":"user"}' >/dev/null
 assert_json "Create user succeeds" "success" "true"
+
+# TOTP & Tokens
+api GET /api/auth/totp/setup >/dev/null
+assert_json "TOTP setup check" "success" "true"
+api GET /api/auth/tokens >/dev/null
+assert_json "List API tokens" "success" "true"
+
 api GET /api/rbac/users >/dev/null
 assert_json "User ci-user exists in list" "success" "true"
 
@@ -359,7 +366,46 @@ api GET /api/system/logs >/dev/null
 assert_json "Get system logs" "success" "true"
 assert_array "Logs array present" "data"
 
-# 10. GITOPS
+# 10. DOCKER & CONTAINERS
+echo "--- Testing Docker Subsystem ---"
+api GET /api/docker/images >/dev/null
+assert_json "List images" "success" "true"
+api GET /api/docker/containers >/dev/null
+assert_json "List containers" "success" "true"
+api GET /api/docker/icon-map >/dev/null
+assert_json "Docker icon map" "success" "true"
+api GET /api/docker/stacks >/dev/null
+assert_json "List stacks" "success" "true"
+api GET /api/docker/templates >/dev/null
+assert_json "List templates" "success" "true"
+api GET /api/docker/templates/installed >/dev/null
+assert_json "Installed templates" "success" "true"
+
+# 11. GIT SYNC
+echo "--- Testing Git Sync Subsystem ---"
+api GET /api/git-sync/config >/dev/null
+assert_json "Git-sync config" "success" "true"
+api GET /api/git-sync/status >/dev/null
+assert_json "Git-sync status" "success" "true"
+api GET /api/git-sync/repos >/dev/null
+assert_json "List git repos" "success" "true"
+api GET /api/git-sync/credentials >/dev/null
+assert_json "List git credentials" "success" "true"
+
+# 13. NIXOS & SYSTEM DEPTH
+echo "--- Testing NixOS & System Modules ---"
+api GET /api/nixos/detect >/dev/null
+assert_json "NixOS detection" "success" "true"
+api GET /api/nixos/generations >/dev/null
+assert_json "NixOS generations" "success" "true"
+api GET /api/system/audit/stats >/dev/null
+assert_json "Audit stats" "success" "true"
+api GET /api/system/health >/dev/null
+assert_json "Detailed system health" "success" "true"
+api POST /api/system/support-bundle >/dev/null
+assert_json "Generate support bundle" "success" "true"
+
+# 14. GITOPS CONTINUED
 api GET /api/gitops/status >/dev/null
 assert_json "GitOps status" "success" "true"
 api GET /api/gitops/plan >/dev/null
