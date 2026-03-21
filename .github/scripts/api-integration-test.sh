@@ -369,6 +369,25 @@ assert_json "GitOps plan" "success" "true"
 INJECT=$(api POST /api/zfs/command "{\"command\":\"ls\",\"args\":[\"/etc/passwd\"],\"session_id\":\"$SESSION\",\"user\":\"admin\"}")
 echo "$INJECT" | grep -qiE "Forbidden|not allowed|success\":false" && ok "Security: Injection blocked" || fail "Security: Injection NOT blocked"
 
+# 11.5 NEGATIVE SECURITY TESTS
+echo "--- Testing Path Traversal ---"
+# Test file read traversal
+TRAVERSAL=$(api GET "/api/files/read?path=../../../../etc/passwd" 2>/dev/null)
+echo "$TRAVERSAL" | grep -qiE "Forbidden|Invalid path|error" && ok "Path traversal (read) blocked" || fail "Path traversal (read) NOT blocked"
+
+# Test file write traversal
+TRAVERS_WRITE=$(api POST /api/files/write "?path=../../../../tmp/traversal.txt" "content" 2>/dev/null)
+echo "$TRAVERS_WRITE" | grep -qiE "Forbidden|Invalid path|error" && ok "Path traversal (write) blocked" || fail "Path traversal (write) NOT blocked"
+
+echo "--- Testing Malformed Input ---"
+# Malformed JSON to auth
+MALFORMED=$(curl -s -k -X POST -H "Content-Type: application/json" -d "{invalid" http://localhost:9000/api/auth/login)
+echo "$MALFORMED" | grep -qiE "error|Invalid|Bad Request" && ok "Malformed JSON blocked" || fail "Malformed JSON NOT blocked"
+
+# Invalid resource access
+api GET "/api/zfs/dataset?pool=nonexistent" >/dev/null
+assert_json "Non-existent pool error" "success" "false"
+
 # 12. AUDIT & LOGOUT
 api GET /api/system/audit/verify-chain >/dev/null
 assert_json "Audit chain verified" "valid" "true"
