@@ -16,7 +16,7 @@ cleanup() {
   # Detach loops - use -D to ensure they are gone even if lazy
   [ -n "$LOOP0" ] && sudo losetup -d "$LOOP0" 2>/dev/null || true
   [ -n "$LOOP1" ] && sudo losetup -d "$LOOP1" 2>/dev/null || true
-  rm -f /tmp/conv0.img /tmp/conv1.img /tmp/convergence.db* "$STATE_YAML" /tmp/apply1.log /tmp/race1.log /tmp/race2.log
+  sudo rm -f /tmp/conv0.img /tmp/conv1.img /tmp/convergence.db* "$STATE_YAML" /tmp/apply1.log /tmp/race1.log /tmp/race2.log
 }
 trap cleanup EXIT
 
@@ -35,6 +35,7 @@ cat > "$STATE_YAML" <<EOF
 version: "6"
 pools:
   - name: convpool
+    vdev_type: mirror
     disks: ["$LOOP0", "$LOOP1"]
 datasets:
   - name: convpool/data
