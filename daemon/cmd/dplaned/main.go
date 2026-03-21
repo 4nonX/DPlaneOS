@@ -395,6 +395,7 @@ func main() {
 				Details: nil,
 			})
 		},
+		nil, // WebSocket not yet initialized
 	)
 
 	// Wire webhook + SMTP senders into the ZFS heartbeat package so that
@@ -483,6 +484,20 @@ func main() {
 	bgMonitor.Start()
 	defer bgMonitor.Stop()
 
+	// Wire WebSocket hub into central DispatchAlert for systemic monitoring coverage
+	handlers.SetAlertDispatchers(
+		func(event, pool, msg string) {
+			handlers.SendWebhookAlert(db, event, "critical", msg,
+				map[string]interface{}{"pool": pool})
+		},
+		handlers.SendSMTPAlert,
+		nil, // Telegram handled inside heartbeat callbacks above for now
+		wsHub.Broadcast,
+	)
+
+	// Wire WebSocket hub into jobs system for automatic background task updates
+	jobs.SetBroadcastCallback(wsHub.Broadcast)
+
 	// Start job reaper: remove finished jobs after 1 hour
 	jobs.StartReaper(1 * time.Hour)
 
@@ -537,6 +552,8 @@ func main() {
 	r.HandleFunc("/api/zfs/pools", zfsHandler.ListPools).Methods("GET")
 	r.HandleFunc("/api/zfs/datasets", zfsHandler.ListDatasets).Methods("GET")
 	r.HandleFunc("/api/zfs/datasets", zfsHandler.CreateDataset).Methods("POST")
+	r.HandleFunc("/api/zfs/rename", zfsHandler.RenameDataset).Methods("POST")
+	r.HandleFunc("/api/zfs/promote", zfsHandler.PromoteDataset).Methods("POST")
 
 	// ZFS Encryption handlers
 	zfsEncryptionHandler := handlers.NewZFSEncryptionHandler()
@@ -552,8 +569,10 @@ func main() {
 	r.HandleFunc("/api/system/logs/stream", handlers.LogStreamHandler).Methods("GET")
 	r.HandleFunc("/api/system/ups", systemHandler.GetUPSStatus).Methods("GET")
 	r.HandleFunc("/api/system/ups", systemHandler.SaveUPSConfig).Methods("POST")
-	r.HandleFunc("/api/system/network", systemHandler.GetNetworkInfo).Methods("GET")
+	r.HandleFunc("/api/system/network", systemHandler.GetNetworkInfo).Methods("GET", "PUT")
 	r.HandleFunc("/api/system/logs", systemHandler.GetSystemLogs).Methods("GET")
+	r.HandleFunc("/api/system/reboot", systemHandler.Reboot).Methods("POST")
+	r.HandleFunc("/api/system/poweroff", systemHandler.Poweroff).Methods("POST")
 
 	// Docker handlers
 	dockerHandler := handlers.NewDockerHandler()
@@ -576,6 +595,8 @@ func main() {
 	r.HandleFunc("/api/docker/compose/up", dockerHandler.ComposeUp).Methods("POST")
 	r.HandleFunc("/api/docker/compose/down", dockerHandler.ComposeDown).Methods("POST")
 	r.HandleFunc("/api/docker/compose/status", dockerHandler.ComposeStatus).Methods("GET")
+	r.HandleFunc("/api/docker/images", dockerHandler.ListImages).Methods("GET")
+	r.HandleFunc("/api/docker/images/{id}", dockerHandler.RemoveImage).Methods("DELETE")
 
 	// v3.0.0: ZFS Snapshots CRUD
 	snapshotCRUDHandler := handlers.NewZFSSnapshotHandler()
@@ -798,6 +819,8 @@ func main() {
 	r.HandleFunc("/api/shares/nfs/list", handlers.ListNFSExports).Methods("GET")
 
 	// NFS CRUD handler - NFSHandler manages /etc/exports via SQLite
+	r.Handle("/api/zfs/pool/offline", permRoute("storage", "write", zfsHandler.OfflineDisk)).Methods("POST")
+	r.Handle("/api/zfs/pool/export", permRoute("storage", "write", zfsHandler.ExportPool)).Methods("POST")
 	nfsHandler := handlers.NewNFSHandler(db)
 	r.HandleFunc("/api/nfs/status", nfsHandler.GetNFSStatus).Methods("GET")
 	r.HandleFunc("/api/nfs/exports", nfsHandler.ListNFSExports).Methods("GET")
@@ -810,7 +833,7 @@ func main() {
 	shareCRUDHandler := handlers.NewShareCRUDHandler(db, *smbConfPath)
 	r.HandleFunc("/api/shares/list", shareCRUDHandler.HandleShares).Methods("GET")
 	r.HandleFunc("/api/shares", shareCRUDHandler.HandleShares).Methods("GET")
-	r.Handle("/api/shares", permRoute("shares", "write", shareCRUDHandler.HandleShares)).Methods("POST")
+	r.Handle("/api/shares", permRoute("shares", "write", shareCRUDHandler.HandleShares)).Methods("POST", "PUT")
 	r.Handle("/api/shares", permRoute("shares", "write", shareCRUDHandler.HandleShares)).Methods("DELETE")
 
 	// User & Group CRUD handlers
@@ -992,6 +1015,7 @@ func main() {
 	r.HandleFunc("/api/certs/list", certHandler.ListCerts).Methods("GET")
 	r.Handle("/api/certs/generate", permRoute("certificates", "write", certHandler.GenerateSelfSigned)).Methods("POST")
 	r.Handle("/api/certs/activate", permRoute("certificates", "write", certHandler.ActivateCert)).Methods("POST")
+	r.Handle("/api/certs/{name}", permRoute("certificates", "write", certHandler.DeleteCert)).Methods("DELETE")
 
 	// Trash / Recycle Bin (v2.0.0)
 	trashHandler := handlers.NewTrashHandler()

@@ -29,6 +29,8 @@ func (h *ShareCRUDHandler) HandleShares(w http.ResponseWriter, r *http.Request) 
 		h.listShares(w, r)
 	case http.MethodPost:
 		h.shareAction(w, r)
+	case http.MethodPut:
+		h.handlePutShare(w, r)
 	case http.MethodDelete:
 		h.deleteShareByName(w, r)
 	default:
@@ -275,6 +277,16 @@ func (h *ShareCRUDHandler) updateShare(w http.ResponseWriter, req shareActionReq
 
 	// GITOPS HOOK: write state back to git
 	gitops.CommitAllAsync(h.db)
+}
+
+func (h *ShareCRUDHandler) handlePutShare(w http.ResponseWriter, r *http.Request) {
+	var req shareActionRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondErrorSimple(w, "Invalid request", http.StatusBadRequest)
+		return
+	}
+	// PUT implies update
+	h.updateShare(w, req)
 }
 
 func (h *ShareCRUDHandler) deleteShare(w http.ResponseWriter, req shareActionRequest) {

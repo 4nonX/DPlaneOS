@@ -13,6 +13,7 @@ import (
 	"dplaned/internal/cmdutil"
 	"dplaned/internal/jobs"
 	"dplaned/internal/security"
+	"dplaned/internal/zfs"
 )
 
 // ═══════════════════════════════════════════════════════════════
@@ -99,119 +100,24 @@ func StopScrub(w http.ResponseWriter, r *http.Request) {
 	respondOK(w, map[string]interface{}{"success": true, "message": "Scrub stopped"})
 }
 
-// ScrubScanInfo holds parsed scan-line data common to both scrub and resilver.
-type ScrubScanInfo struct {
-	InProgress  bool    `json:"in_progress"`
-	PercentDone float64 `json:"percent_done"`
-	BytesDone   string  `json:"bytes_done"`
-	ETA         string  `json:"eta"`
-	Errors      int     `json:"errors"`
-	Completed   bool    `json:"completed"`
-	CompletedAt string  `json:"completed_at,omitempty"`
-	RawScanLine string  `json:"raw_scan_line"`
-}
-
-// parseScanLine parses a `zpool status` scan: line.
-// It handles both in-progress and completed resilver/scrub lines.
-//
-// Example in-progress:
-//
-//	scan: resilver in progress since Mon Jan  1 00:00:00 2024
-//	      1.23G done, 42.70% done, ETA 00:14:22
-//
-// Example completed:
-//
-//	scan: resilvered 3.45G in 00:22:10 with 0 errors on Mon Jan  1 00:30:00 2024
-func parseScanLine(rawLine string) ScrubScanInfo {
-	info := ScrubScanInfo{RawScanLine: rawLine}
-
-	// In-progress pattern: "X.XXG done, XX.XX% done, ETA HH:MM:SS"
-	pctRe := regexp.MustCompile(`([\d.]+)%\s+done`)
-	etaRe := regexp.MustCompile(`ETA\s+(\S+)`)
-	bytesRe := regexp.MustCompile(`([\d.]+[KMGT]?)\s+done`)
-
-	if strings.Contains(rawLine, "in progress") {
-		info.InProgress = true
-		if m := pctRe.FindStringSubmatch(rawLine); len(m) > 1 {
-			info.PercentDone, _ = strconv.ParseFloat(m[1], 64)
-		}
-		if m := etaRe.FindStringSubmatch(rawLine); len(m) > 1 {
-			info.ETA = m[1]
-		}
-		if m := bytesRe.FindStringSubmatch(rawLine); len(m) > 1 {
-			info.BytesDone = m[1]
-		}
-		return info
-	}
-
-	// Completed scrub: "scrub repaired X in HH:MM:SS with N errors on ..."
-	// Completed resilver: "resilvered X in HH:MM:SS with N errors on ..."
-	completedRe := regexp.MustCompile(`(?:resilvered|scrub repaired)\s+([\d.]+[KMGT]?)\s+in\s+\S+\s+with\s+(\d+)\s+errors?\s+on\s+(.+)`)
-	if m := completedRe.FindStringSubmatch(rawLine); len(m) > 3 {
-		info.Completed = true
-		info.BytesDone = m[1]
-		info.Errors, _ = strconv.Atoi(m[2])
-		info.CompletedAt = strings.TrimSpace(m[3])
-		return info
-	}
-
-	return info
-}
-
-// GetScrubStatus returns current scrub progress
-// GET /api/zfs/scrub/status?pool=tank
 func GetScrubStatus(w http.ResponseWriter, r *http.Request) {
 	pool := r.URL.Query().Get("pool")
 	if pool == "" || !isValidDataset(pool) {
 		respondErrorSimple(w, "Invalid pool", http.StatusBadRequest)
 		return
 	}
-	output, err := executeCommandWithTimeout(TimeoutFast, "zpool", []string{
-		"status", pool,
-	})
+	
+	rawScan, err := zfs.GetPoolScanLine(pool)
 	if err != nil {
 		respondOK(w, map[string]interface{}{"success": false, "error": err.Error()})
 		return
 	}
 
-	// Collect all scan-related lines (the continuation line follows the scan: line)
-	var scanLines []string
-	lines := strings.Split(output, "\n")
-	inScan := false
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "scan:") {
-			inScan = true
-			scanLines = append(scanLines, trimmed)
-			continue
-		}
-		if inScan {
-			// Continuation lines are indented and don't start a new field
-			if strings.HasPrefix(line, "\t") || (len(line) > 0 && line[0] == ' ') {
-				if !strings.Contains(trimmed, ":") || strings.HasPrefix(trimmed, "scan:") {
-					scanLines = append(scanLines, trimmed)
-					continue
-				}
-			}
-			inScan = false
-		}
-	}
-
-	rawScan := strings.Join(scanLines, " ")
-
-	// Only parse scrub lines (not resilver) for this endpoint
-	scrubInfo := "none"
-	if rawScan != "" {
-		scrubInfo = rawScan
-	}
-
-	parsed := parseScanLine(rawScan)
+	parsed := zfs.ParseScanLine(rawScan)
 
 	respondOK(w, map[string]interface{}{
-		"success":      true,
 		"pool":         pool,
-		"scrub":        scrubInfo,
-		"in_progress":  parsed.InProgress,
+		"scrubbing":    parsed.InProgress && !strings.Contains(rawScan, "resilver"),
 		"percent_done": parsed.PercentDone,
 		"bytes_done":   parsed.BytesDone,
 		"eta":          parsed.ETA,
@@ -230,38 +136,11 @@ func HandleResilverStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	output, err := executeCommandWithTimeout(TimeoutFast, "zpool", []string{
-		"status", "-P", pool,
-	})
+	rawScan, err := zfs.GetPoolScanLine(pool)
 	if err != nil {
 		respondOK(w, map[string]interface{}{"success": false, "error": err.Error()})
 		return
 	}
-
-	// Collect scan: line and its continuations
-	var scanLines []string
-	lines := strings.Split(output, "\n")
-	inScan := false
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "scan:") {
-			inScan = true
-			scanLines = append(scanLines, trimmed)
-			continue
-		}
-		if inScan {
-			if strings.HasPrefix(line, "\t") || (len(line) > 0 && line[0] == ' ') {
-				// Only collect if it doesn't start a new top-level field
-				if !strings.Contains(trimmed, ":") || strings.HasPrefix(trimmed, "scan:") {
-					scanLines = append(scanLines, trimmed)
-					continue
-				}
-			}
-			inScan = false
-		}
-	}
-
-	rawScan := strings.Join(scanLines, " ")
 
 	// Only return resilver data - not scrub
 	isResilver := strings.Contains(rawScan, "resilver")
@@ -279,7 +158,7 @@ func HandleResilverStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	parsed := parseScanLine(rawScan)
+	parsed := zfs.ParseScanLine(rawScan)
 
 	var completedAt interface{} = nil
 	if parsed.CompletedAt != "" {
@@ -1325,4 +1204,231 @@ func parseZpoolStatus(output, poolName string) PoolTopology {
 	}
 
 	return topo
+}
+
+// RenameDataset renames a ZFS dataset
+// POST /api/zfs/rename
+// Body: {"old_name": "tank/data1", "new_name": "tank/data2"}
+func (h *ZFSHandler) RenameDataset(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		respondErrorSimple(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		OldName string `json:"old_name"`
+		NewName string `json:"new_name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondErrorSimple(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// 1. Validate names
+	if !isValidDataset(req.OldName) || !isValidDataset(req.NewName) {
+		respondErrorSimple(w, "Invalid dataset name", http.StatusBadRequest)
+		return
+	}
+
+	// 2. Ensure same pool prefix
+	oldParts := strings.Split(req.OldName, "/")
+	newParts := strings.Split(req.NewName, "/")
+	if oldParts[0] != newParts[0] {
+		respondErrorSimple(w, "Cannot rename across pools", http.StatusBadRequest)
+		return
+	}
+
+	// 3. Block if active schedules or exports exist
+	var blockers []string
+
+	// A. Check snapshot schedules (disk scan)
+	snapData, err := os.ReadFile(configPath("snapshot-schedules.json"))
+	if err == nil {
+		var snapSchedules []SnapshotSchedule
+		if json.Unmarshal(snapData, &snapSchedules) == nil {
+			for _, s := range snapSchedules {
+				if s.Dataset == req.OldName {
+					blockers = append(blockers, "Snapshot schedule exists for this dataset")
+					break
+				}
+			}
+		}
+	}
+
+	// B. Check replication schedules (disk scan)
+	replData, err := os.ReadFile(configPath("replication-schedules.json"))
+	if err == nil {
+		var replSchedules []ReplicationSchedule
+		if json.Unmarshal(replData, &replSchedules) == nil {
+			for _, s := range replSchedules {
+				if s.SourceDataset == req.OldName || strings.HasPrefix(s.SourceDataset, req.OldName+"/") {
+					blockers = append(blockers, "Replication schedule exists for this dataset or its children")
+					break
+				}
+			}
+		}
+	}
+
+	// C. Check NFS exports (SQLite)
+	var nfsCount int
+	err = h.db.QueryRow("SELECT COUNT(*) FROM nfs_exports WHERE path = ?", "/mnt/"+req.OldName).Scan(&nfsCount)
+	if err == nil && nfsCount > 0 {
+		blockers = append(blockers, "NFS export exists for this dataset")
+	}
+
+	// D. Check scrub schedules (SQLite settings table)
+	var scrubValue string
+	err = h.db.QueryRow("SELECT value FROM settings WHERE key = ?", "scrub_schedules").Scan(&scrubValue)
+	if err == nil && scrubValue != "" {
+		var scrubSchedules []ScrubSchedule
+		if json.Unmarshal([]byte(scrubValue), &scrubSchedules) == nil {
+			for _, s := range scrubSchedules {
+				if s.Pool == req.OldName || strings.HasPrefix(req.OldName, s.Pool+"/") {
+					// Scrub is usually pool-level, but check anyway
+					blockers = append(blockers, "Scrub schedule exists for this pool/dataset")
+					break
+				}
+			}
+		}
+	}
+
+	if len(blockers) > 0 {
+		respondError(w, http.StatusConflict, "Rename blocked: "+strings.Join(blockers, "; "), nil)
+		return
+	}
+
+	// 4. Execute
+	if _, err := executeCommandWithTimeout(TimeoutMedium, "zfs", []string{"rename", req.OldName, req.NewName}); err != nil {
+		respondErrorSimple(w, "Rename failed: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	respondOK(w, map[string]interface{}{"success": true})
+}
+
+// PromoteDataset promotes a ZFS clone to a full dataset
+// POST /api/zfs/promote
+// Body: {"dataset": "tank/clone"}
+func (h *ZFSHandler) PromoteDataset(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		respondErrorSimple(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		Dataset string `json:"dataset"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondErrorSimple(w, "Invalid request", http.StatusBadRequest)
+		return
+	}
+
+	if !isValidDataset(req.Dataset) {
+		respondErrorSimple(w, "Invalid dataset name", http.StatusBadRequest)
+		return
+	}
+
+	if _, err := executeCommandWithTimeout(TimeoutMedium, "zfs", []string{"promote", req.Dataset}); err != nil {
+		respondErrorSimple(w, "Promote failed: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	respondOK(w, map[string]interface{}{"success": true})
+}
+
+// OfflineDisk takes a ZFS device offline
+// POST /api/zfs/pool/offline
+// Body: {"pool": "tank", "device": "/dev/sdb", "temporary": true}
+func (h *ZFSHandler) OfflineDisk(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		respondErrorSimple(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		Pool      string `json:"pool"`
+		Device    string `json:"device"`
+		Temporary bool   `json:"temporary"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondErrorSimple(w, "Invalid request", http.StatusBadRequest)
+		return
+	}
+
+	if !isValidDataset(req.Pool) {
+		respondErrorSimple(w, "Invalid pool name", http.StatusBadRequest)
+		return
+	}
+	if err := security.ValidateDevicePath(req.Device); err != nil {
+		respondErrorSimple(w, "Invalid device path: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	args := []string{"offline"}
+	if req.Temporary {
+		args = append(args, "-t")
+	}
+	args = append(args, req.Pool, req.Device)
+
+	if _, err := executeCommandWithTimeout(TimeoutMedium, "zpool", args); err != nil {
+		respondErrorSimple(w, "Offline failed: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	respondOK(w, map[string]interface{}{"success": true})
+}
+
+// ExportPool exports a ZFS pool
+// POST /api/zfs/pool/export
+// Body: {"pool": "tank", "force": false}
+func (h *ZFSHandler) ExportPool(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		respondErrorSimple(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		Pool  string `json:"pool"`
+		Force bool   `json:"force"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondErrorSimple(w, "Invalid request", http.StatusBadRequest)
+		return
+	}
+
+	if !isValidDataset(req.Pool) {
+		respondErrorSimple(w, "Invalid pool name", http.StatusBadRequest)
+		return
+	}
+
+	// 1. Guard: Check if pool contains /var/lib/dplaneos
+	dplanePath := "/var/lib/dplaneos"
+	dfOut, _ := executeCommandWithTimeout(TimeoutFast, "df", []string{"--output=target", dplanePath})
+	lines := strings.Split(strings.TrimSpace(dfOut), "\n")
+	if len(lines) >= 2 {
+		mountpoint := strings.TrimSpace(lines[1])
+		// Check if this mountpoint belongs to the pool
+		// zpool list -H -o name,mountpoint
+		poolOut, err := executeCommandWithTimeout(TimeoutFast, "zpool", []string{"list", "-H", "-o", "name,mountpoint", req.Pool})
+		if err == nil {
+			fields := strings.Fields(string(poolOut))
+			if len(fields) >= 2 {
+				poolMount := fields[1]
+				if poolMount != "-" && (mountpoint == poolMount || strings.HasPrefix(mountpoint, poolMount+"/")) {
+					respondErrorSimple(w, "Cannot export pool containing system data (/var/lib/dplaneos)", http.StatusForbidden)
+					return
+				}
+			}
+		}
+	}
+
+	// 2. Execute
+	args := []string{"export"}
+	if req.Force {
+		args = append(args, "-f")
+	}
+	args = append(args, req.Pool)
+
+	if _, err := executeCommandWithTimeout(TimeoutMedium, "zpool", args); err != nil {
+		respondErrorSimple(w, "Export failed: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	respondOK(w, map[string]interface{}{"success": true})
 }

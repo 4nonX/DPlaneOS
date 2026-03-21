@@ -4,6 +4,27 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## v6.1.1 (2026-03-21) - "Real-time Monitoring Overhaul"
+
+Upgrade from: v6.1.0 - Drop-in. `sudo bash install.sh --upgrade`
+
+### Added
+- **Systemic WebSocket Architecture**
+    - Integrated real-time push notifications into the central `DispatchAlert` hub, enabling immediate UI toasts for Capacity Guardian and S.M.A.R.T. failures.
+    - Added standardized `job.completed` and `job.failed` WebSocket broadcasts to the core `jobs` system, providing rich metadata (`job_id`, `job_type`, `success`, `message`).
+- **ZFS Progress Overhaul**
+    - Refactored ZFS resilver and scrub status parsing into a reusable `zfs` package, ensuring consistent telemetry across all callers.
+    - Eliminated client-side polling for ZFS operations by pushing `zfs.resilver.progress` and `zfs.scrub.progress` events directly from the backend.
+    - Upgraded the `BackgroundMonitor` to periodically scrape and broadcast live ZFS status.
+- **NixOS Management Hardening**
+    - Refactored the NixOS rebuild logic (`ApplyWithWatchdog`) into a non-blocking background job, preventing dashboard timeouts and providing step-by-step progress through the `jobs` API.
+    - Integrated the watchdog lifecycle directly into the background job for reliable auto-rollback.
+- **Monitoring & Replication Gaps**
+    - Added real-time status broadcasts for replication schedule transitions (`replication.schedule_updated`).
+    - Ensured all systemic alerts are non-blocking to prevent system delays during notification bursts.
+
+---
+
 ## v6.1.0 (2026-03-21) - "VDEV Sentinel"
 
 Upgrade from: v6.0.6 - Drop-in. `sudo bash install.sh --upgrade`

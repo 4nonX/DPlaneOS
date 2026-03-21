@@ -194,6 +194,30 @@ var CommandWhitelist = map[string]Command{
 		},
 		Description: "Set ZFS property (mountpoint, quota, compression, etc.)",
 	},
+	"zfs_rename": {
+		Name:        "zfs_rename",
+		Path:        "zfs",
+		AllowedArgs: []string{"rename"},
+		Description: "Rename a ZFS dataset",
+	},
+	"zpool_offline": {
+		Name:        "zpool_offline",
+		Path:        "zpool",
+		AllowedArgs: []string{"offline"},
+		Description: "Take a ZFS device offline (optional -t for temporary)",
+	},
+	"zfs_promote": {
+		Name:        "zfs_promote",
+		Path:        "zfs",
+		AllowedArgs: []string{"promote"},
+		Description: "Promote a ZFS clone to a full dataset",
+	},
+	"zpool_export": {
+		Name:        "zpool_export",
+		Path:        "zpool",
+		AllowedArgs: []string{"export"},
+		Description: "Export a ZFS pool",
+	},
 
 	// Network Management
 	"ip_addr_show": {
@@ -505,6 +529,18 @@ var CommandWhitelist = map[string]Command{
 		AllowedArgs: []string{"labelclear", "-f"},
 		Description: "Clear ZFS labels from a device",
 	},
+	"systemctl_reboot": {
+		Name:        "systemctl_reboot",
+		Path:        "systemctl",
+		AllowedArgs: []string{"reboot"},
+		Description: "Reboot the system",
+	},
+	"systemctl_poweroff": {
+		Name:        "systemctl_poweroff",
+		Path:        "systemctl",
+		AllowedArgs: []string{"poweroff"},
+		Description: "Power off the system",
+	},
 }
 
 // ValidateCommand checks if a command request is allowed
@@ -567,6 +603,22 @@ func ValidateCommand(cmdName string, args []string) error {
 		}
 	case "zpool_online", "zpool_add_cache", "zpool_add_log", "zpool_remove_device", "hdparm_check", "hdparm_spindown", "hdparm_status", "wipefs", "zpool_labelclear":
 		if err := validateDeviceBasedCommand(cmdName, args); err != nil {
+			return err
+		}
+	case "zfs_rename":
+		if err := validateZfsRename(args); err != nil {
+			return err
+		}
+	case "zpool_offline":
+		if err := validateZpoolOffline(args); err != nil {
+			return err
+		}
+	case "zfs_promote":
+		if err := validateZfsPromote(args); err != nil {
+			return err
+		}
+	case "zpool_export":
+		if err := validateZpoolExport(args); err != nil {
 			return err
 		}
 	}
@@ -947,6 +999,73 @@ func validateZpoolAddSpecial(args []string) error {
 		}
 	}
 	return nil
+}
+
+// validateZfsRename ensures both names are valid and share the same pool prefix
+func validateZfsRename(args []string) error {
+	if len(args) != 3 || args[0] != "rename" {
+		return fmt.Errorf("zfs rename requires: rename old new")
+	}
+	oldName := args[1]
+	newName := args[2]
+
+	if err := ValidateDatasetName(oldName); err != nil {
+		return err
+	}
+	if err := ValidateDatasetName(newName); err != nil {
+		return err
+	}
+
+	// Must share same pool prefix
+	oldPool := strings.Split(oldName, "/")[0]
+	newPool := strings.Split(newName, "/")[0]
+	if oldPool != newPool {
+		return fmt.Errorf("cannot rename across pools: %s -> %s", oldPool, newPool)
+	}
+	return nil
+}
+
+// validateZpoolOffline validates [zpool offline [-t] pool device]
+func validateZpoolOffline(args []string) error {
+	if len(args) < 3 || args[0] != "offline" {
+		return fmt.Errorf("zpool offline requires: offline [-t] pool device")
+	}
+	i := 1
+	if args[i] == "-t" {
+		i++
+	}
+	if len(args) < i+2 {
+		return fmt.Errorf("zpool offline requires pool and device")
+	}
+	if err := ValidatePoolName(args[i]); err != nil {
+		return err
+	}
+	if err := ValidateDevicePath(args[i+1]); err != nil {
+		return err
+	}
+	return nil
+}
+
+func validateZfsPromote(args []string) error {
+	if len(args) != 2 || args[0] != "promote" {
+		return fmt.Errorf("zfs promote requires: promote dataset")
+	}
+	return ValidateDatasetName(args[1])
+}
+
+// validateZpoolExport validates [zpool export [-f] pool]
+func validateZpoolExport(args []string) error {
+	if len(args) < 2 || args[0] != "export" {
+		return fmt.Errorf("zpool export requires: export [-f] pool")
+	}
+	i := 1
+	if args[i] == "-f" {
+		i++
+	}
+	if len(args) < i+1 {
+		return fmt.Errorf("zpool export requires pool name")
+	}
+	return ValidatePoolName(args[i])
 }
 
 func validatePathBasedCommand(cmdName string, args []string) error {

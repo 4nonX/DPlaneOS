@@ -13,6 +13,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"dplaned/internal/jobs"
 )
 
 // ═══════════════════════════════════════════════════════════════
@@ -269,10 +271,10 @@ func snapshotAllPoolsPreUpgrade(db *sql.DB, applyTarget string) ([]string, []str
 // ═══════════════════════════════════════════════════════════════
 
 var (
-	watchdogMu       sync.Mutex
-	watchdogTimer    *time.Timer
-	watchdogActive   bool
-	watchdogDeadline time.Time
+	watchdogMu          sync.Mutex
+	watchdogConfirmChan chan bool
+	watchdogActive      bool
+	watchdogDeadline    time.Time
 )
 
 // ApplyWithWatchdog applies a NixOS config with auto-rollback safety
@@ -309,72 +311,83 @@ func (h *NixOSGuardHandler) ApplyWithWatchdog(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	// ── Pre-upgrade ZFS snapshots (best-effort, never blocks apply) ──────
-	applyTarget := flakePath
-	if _, statErr := os.Stat(flakePath + "/flake.nix"); statErr != nil {
-		applyTarget = "traditional"
-	}
-	preSnapshots, preSnapErrs := snapshotAllPoolsPreUpgrade(h.db, applyTarget)
-	if len(preSnapErrs) > 0 {
-		log.Printf("pre-upgrade snapshot warnings (non-fatal): %v", preSnapErrs)
-	}
+	jobID := jobs.Start("nixos-apply", func(j *jobs.Job) {
+		j.Log("Starting NixOS apply process...")
 
-	// Apply the new config
-	var output string
-	var err error
+		// ── Pre-upgrade ZFS snapshots ──────
+		applyTarget := flakePath
+		if _, statErr := os.Stat(flakePath + "/flake.nix"); statErr != nil {
+			applyTarget = "traditional"
+		}
+		j.Log("Creating pre-upgrade snapshots on all pools...")
+		preSnapshots, preSnapErrs := snapshotAllPoolsPreUpgrade(h.db, applyTarget)
+		if len(preSnapErrs) > 0 {
+			j.Log(fmt.Sprintf("Warning: Some pre-upgrade snapshots failed: %v", preSnapErrs))
+		}
 
-	flakeNix := flakePath + "/flake.nix"
-	if _, statErr := os.Stat(flakeNix); statErr == nil {
-		output, err = executeCommand("nixos-rebuild", []string{
-			"switch", "--flake", flakePath + "#dplaneos",
-		})
-	} else {
-		output, err = executeCommand("nixos-rebuild", []string{
-			"switch",
-		})
-	}
+		// ── Apply the new config ──
+		var output string
+		var err error
+		j.Log("Running nixos-rebuild switch...")
 
-	if err != nil {
-		respondOK(w, map[string]interface{}{
-			"success":         false,
-			"error":           fmt.Sprintf("Apply failed: %v", err),
-			"output":          output,
-			"pre_snapshots":   preSnapshots,
-			"snapshot_errors": preSnapErrs,
-		})
-		return
-	}
+		flakeNix := flakePath + "/flake.nix"
+		if _, statErr := os.Stat(flakeNix); statErr == nil {
+			output, err = executeCommand("nixos-rebuild", []string{
+				"switch", "--flake", flakePath + "#dplaneos",
+			})
+		} else {
+			output, err = executeCommand("nixos-rebuild", []string{
+				"switch",
+			})
+		}
 
-	// Start watchdog timer
-	watchdogMu.Lock()
-	if watchdogTimer != nil {
-		watchdogTimer.Stop()
-	}
-	deadline := time.Duration(req.TimeoutSeconds) * time.Second
-	watchdogDeadline = time.Now().Add(deadline)
-	watchdogActive = true
-	watchdogTimer = time.AfterFunc(deadline, func() {
+		if err != nil {
+			j.Log("NixOS rebuild failed!")
+			j.Fail(fmt.Sprintf("Apply failed: %v\nOutput: %s", err, output))
+			return
+		}
+
+		j.Log("NixOS rebuild succeeded. Entering watchdog wait period.")
+
+		// ── Start watchdog wait ──
+		deadline := time.Duration(req.TimeoutSeconds) * time.Second
 		watchdogMu.Lock()
-		defer watchdogMu.Unlock()
-		if watchdogActive {
-			// Auto-rollback - nobody confirmed
-			if _, err := cmdutil.RunSlow("nixos-rebuild", "switch", "--rollback"); err != nil {
-				log.Printf("ERROR: nixos rollback failed: %v", err)
-			}
+		watchdogDeadline = time.Now().Add(deadline)
+		watchdogActive = true
+		watchdogConfirmChan = make(chan bool, 1)
+		watchdogMu.Unlock()
+
+		j.Log(fmt.Sprintf("Waiting %d seconds for manual confirmation...", req.TimeoutSeconds))
+
+		select {
+		case <-watchdogConfirmChan:
+			j.Log("Config change confirmed by user.")
+			j.Done(map[string]interface{}{
+				"status":        "confirmed",
+				"output":        output,
+				"pre_snapshots": preSnapshots,
+			})
+		case <-time.After(deadline):
+			j.Log("Watchdog timeout! Initiating auto-rollback...")
+			watchdogMu.Lock()
 			watchdogActive = false
+			watchdogMu.Unlock()
+
+			rollbackOut, rollbackErr := cmdutil.RunSlow("nixos-rebuild", "switch", "--rollback")
+			if rollbackErr != nil {
+				j.Log(fmt.Sprintf("ERROR: Auto-rollback failed: %v", rollbackErr))
+				j.Fail(fmt.Sprintf("Watchdog timeout & Rollback failed: %v", rollbackErr))
+			} else {
+				j.Log("Auto-rollback successful.")
+				j.Fail(fmt.Sprintf("Watchdog timeout: system rolled back. Rollback output: %s", rollbackOut))
+			}
 		}
 	})
-	watchdogMu.Unlock()
 
 	respondOK(w, map[string]interface{}{
-		"success":         true,
-		"output":          output,
-		"watchdog_active": true,
-		"confirm_before":  watchdogDeadline.Format(time.RFC3339),
-		"timeout_seconds": req.TimeoutSeconds,
-		"pre_snapshots":   preSnapshots,
-		"snapshot_errors": preSnapErrs,
-		"message":         fmt.Sprintf("Config applied. Confirm within %d seconds or auto-rollback.", req.TimeoutSeconds),
+		"success": true,
+		"job_id":  jobID,
+		"message": "NixOS apply started in background",
 	})
 }
 
@@ -392,8 +405,13 @@ func (h *NixOSGuardHandler) ConfirmApply(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	watchdogTimer.Stop()
 	watchdogActive = false
+	if watchdogConfirmChan != nil {
+		select {
+		case watchdogConfirmChan <- true:
+		default:
+		}
+	}
 
 	respondOK(w, map[string]interface{}{
 		"success": true,

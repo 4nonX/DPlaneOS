@@ -429,6 +429,10 @@ func updateScheduleStatus(schedID, status, jobID string) {
 	if err := saveReplicationSchedules(schedules); err != nil {
 		log.Printf("WARN: replication_schedule: failed to save status update: %v", err)
 	}
+
+	// Broadcast schedule update to UI
+	DispatchAlert("info", "replication.schedule_updated", schedID,
+		fmt.Sprintf("Schedule %s status updated to %s", schedID, status))
 }
 
 // TriggerPostSnapshotReplication fires replication for all enabled schedules

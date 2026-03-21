@@ -1,4 +1,4 @@
-﻿// Package dockerclient provides a minimal Docker API client over the Unix socket.
+// Package dockerclient provides a minimal Docker API client over the Unix socket.
 //
 // Why not the official Docker SDK?
 //
@@ -137,6 +137,14 @@ func (c Container) StackName() string {
 		return v
 	}
 	return "ungrouped"
+}
+
+type Image struct {
+	ID          string   `json:"Id"`
+	RepoTags    []string `json:"RepoTags"`
+	Size        int64    `json:"Size"`
+	Created     int64    `json:"Created"`
+	VirtualSize int64    `json:"VirtualSize"`
 }
 
 type ContainerPort struct {
@@ -386,6 +394,47 @@ func (c *Client) PullImage(ctx context.Context, image string) error {
 	}
 	io.Copy(io.Discard, resp.Body) // drain progress stream
 	return nil
+}
+
+// ListImages returns all images on the system.
+func (c *Client) ListImages(ctx context.Context) ([]Image, error) {
+	resp, err := c.get(ctx, "/images/json", nil)
+	if err != nil {
+		return nil, fmt.Errorf("docker images: %w", err)
+	}
+	var images []Image
+	if err := decodeJSON(resp, &images); err != nil {
+		return nil, fmt.Errorf("docker images decode: %w", err)
+	}
+	return images, nil
+}
+
+// RemoveImage removes an image by ID or name.
+func (c *Client) RemoveImage(ctx context.Context, imageID string, force bool) error {
+	if imageID == "" {
+		return fmt.Errorf("image id is required")
+	}
+	q := url.Values{}
+	if force {
+		q.Set("force", "1")
+	}
+	u := "http://docker/" + apiVersion + "/images/" + url.PathEscape(imageID)
+	if len(q) > 0 {
+		u += "?" + q.Encode()
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, u, nil)
+	if err != nil {
+		return fmt.Errorf("docker rmi: %w", err)
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return fmt.Errorf("docker rmi: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == 404 {
+		return nil // already gone
+	}
+	return expectOK(resp)
 }
 
 // ─────────────────────────────────────────────

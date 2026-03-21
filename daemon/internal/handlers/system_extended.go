@@ -782,6 +782,48 @@ func (h *CertHandler) ListCerts(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "certs": certs, "active_cert": nginxCert})
 }
 
+// DeleteCert removes an SSL certificate and its key
+// POST /api/system/certs/delete { "name": "mycert" }
+func (h *CertHandler) DeleteCert(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost && r.Method != http.MethodDelete {
+		respondErrorSimple(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	user := r.Header.Get("X-User")
+	var req struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondErrorSimple(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	namePattern := regexp.MustCompile(`^[a-zA-Z0-9_\-]+$`)
+	if !namePattern.MatchString(req.Name) {
+		respondErrorSimple(w, "Invalid name", http.StatusBadRequest)
+		return
+	}
+
+	// 1. Guard: check if active in nginx
+	if data, err := os.ReadFile("/etc/nginx/sites-enabled/dplaneos"); err == nil {
+		content := string(data)
+		if strings.Contains(content, req.Name+".crt") || strings.Contains(content, req.Name+".key") {
+			respondErrorSimple(w, "Cannot delete certificate currently in use by Nginx", http.StatusForbidden)
+			return
+		}
+	}
+
+	// 2. Delete files
+	certFile := filepath.Join(configPath("ssl"), req.Name+".crt")
+	keyFile := filepath.Join(configPath("ssl"), req.Name+".key")
+	
+	_ = os.Remove(certFile)
+	_ = os.Remove(keyFile)
+
+	audit.LogActivity(user, "cert_delete", map[string]interface{}{"name": req.Name})
+	respondOK(w, map[string]interface{}{"success": true, "message": "Certificate deleted"})
+}
+
 func (h *CertHandler) GenerateSelfSigned(w http.ResponseWriter, r *http.Request) {
 	user := r.Header.Get("X-User")
 
@@ -847,7 +889,13 @@ func (h *CertHandler) GenerateSelfSigned(w http.ResponseWriter, r *http.Request)
 	json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "cert": certFile, "key": keyFile})
 }
 
+// ActivateCert updates Nginx to use the specified certificate
+// POST /api/system/certs/activate { "name": "mycert" }
 func (h *CertHandler) ActivateCert(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		respondErrorSimple(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
 	user := r.Header.Get("X-User")
 
 	var req struct {

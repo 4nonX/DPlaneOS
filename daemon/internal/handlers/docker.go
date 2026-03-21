@@ -16,6 +16,15 @@ type DockerHandler struct {
 	docker *dockerclient.Client
 }
 
+type DockerImage struct {
+	ID          string   `json:"id"`
+	RepoTags    []string `json:"repo_tags"`
+	Size        int64    `json:"size"`
+	Created     int64    `json:"created"`
+	Containers  int      `json:"containers"`
+	VirtualSize int64    `json:"virtual_size"`
+}
+
 func NewDockerHandler() *DockerHandler {
 	return &DockerHandler{
 		docker: dockerclient.New(),
@@ -25,7 +34,10 @@ func NewDockerHandler() *DockerHandler {
 // ListContainers returns all containers grouped by compose stack.
 // GET /api/docker/containers
 func (h *DockerHandler) ListContainers(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
+	switch r.Method {
+	case http.MethodGet:
+		// proceed
+	default:
 		respondErrorSimple(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
@@ -77,7 +89,10 @@ func (h *DockerHandler) ListContainers(w http.ResponseWriter, r *http.Request) {
 // ContainerAction starts, stops, restarts, pauses or unpauses a container.
 // POST /api/docker/action
 func (h *DockerHandler) ContainerAction(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
+	switch r.Method {
+	case http.MethodPost:
+		// proceed
+	default:
 		respondErrorSimple(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
@@ -221,6 +236,10 @@ func groupContainersByStack(containers []dockerclient.Container) []map[string]in
 // PruneDocker handles POST /api/docker/prune
 // Removes stopped containers, dangling images, and unused volumes.
 func (h *DockerHandler) PruneDocker(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		respondErrorSimple(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
 	user := r.Header.Get("X-User")
 	ctx, cancel := context.WithTimeout(r.Context(), 120*time.Second)
 	defer cancel()
@@ -250,5 +269,88 @@ func (h *DockerHandler) PruneDocker(w http.ResponseWriter, r *http.Request) {
 		"images_removed":     images,
 		"volumes_removed":    volumes,
 		"space_reclaimed":    spaceStr,
+	})
+}
+
+// RemoveImage handles DELETE /api/docker/images/{id}
+// and also POST /api/docker/image/remove { "id": "sha256:..." }
+func (h *DockerHandler) RemoveImage(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		ID    string `json:"id"`
+		Force bool   `json:"force"`
+	}
+
+	switch r.Method {
+	case http.MethodPost:
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			respondErrorSimple(w, "Invalid request", http.StatusBadRequest)
+			return
+		}
+	case http.MethodDelete:
+		// Extract from URL if needed, but main.go uses POST for this often
+		req.ID = r.URL.Query().Get("id")
+	}
+
+	if req.ID == "" {
+		respondErrorSimple(w, "Image ID required", http.StatusBadRequest)
+		return
+	}
+
+	user := r.Header.Get("X-User")
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+
+	start := time.Now()
+	err := h.docker.RemoveImage(ctx, req.ID, req.Force)
+	duration := time.Since(start)
+
+	audit.LogCommand(audit.LevelInfo, user, "docker_rmi", []string{req.ID}, err == nil, duration, err)
+
+	if err != nil {
+		respondOK(w, map[string]interface{}{"success": false, "error": err.Error()})
+		return
+	}
+
+	respondOK(w, map[string]interface{}{"success": true, "message": "Image removed"})
+}
+
+// ListImages handles GET /api/docker/images
+func (h *DockerHandler) ListImages(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		respondErrorSimple(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	user := r.Header.Get("X-User")
+	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	defer cancel()
+
+	start := time.Now()
+	images, err := h.docker.ListImages(ctx)
+	duration := time.Since(start)
+
+	audit.LogCommand(audit.LevelInfo, user, "docker_images", nil, err == nil, duration, err)
+
+	if err != nil {
+		respondOK(w, map[string]interface{}{"success": false, "error": err.Error()})
+		return
+	}
+
+	// Transform to frontend format
+	res := make([]DockerImage, 0, len(images))
+	for _, img := range images {
+		res = append(res, DockerImage{
+			ID:          img.ID,
+			RepoTags:    img.RepoTags,
+			Size:        img.Size,
+			Created:     img.Created,
+			VirtualSize: img.VirtualSize,
+		})
+	}
+
+	respondOK(w, map[string]interface{}{
+		"success": true,
+		"images":  res,
+		"total":   len(res),
 	})
 }

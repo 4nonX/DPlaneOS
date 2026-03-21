@@ -1,4 +1,4 @@
-﻿package handlers
+package handlers
 
 // alert_dispatch.go - Central alert dispatch hub
 //
@@ -9,9 +9,10 @@
 
 // Package-level alert function references - set from main.go.
 var (
-	webhookAlertFn  func(event, resource, message string)
-	smtpAlertFn     func(subject, body string)
-	telegramAlertFn func(message string)
+	webhookAlertFn   func(event, resource, message string)
+	smtpAlertFn      func(subject, body string)
+	telegramAlertFn  func(message string)
+	webSocketAlertFn func(event string, data interface{}, level string)
 )
 
 // SetAlertDispatchers wires up the three outbound alert channels.
@@ -26,10 +27,12 @@ func SetAlertDispatchers(
 	webhook func(event, resource, message string),
 	smtp func(subject, body string),
 	telegram func(message string),
+	websocket func(event string, data interface{}, level string),
 ) {
 	webhookAlertFn = webhook
 	smtpAlertFn = smtp
 	telegramAlertFn = telegram
+	webSocketAlertFn = websocket
 }
 
 // DispatchAlert routes an alert to all configured channels based on severity level.
@@ -44,6 +47,13 @@ func SetAlertDispatchers(
 //   - SMTP:    warning + critical
 //   - Telegram: critical only
 func DispatchAlert(level, event, resource, message string) {
+	if webSocketAlertFn != nil {
+		// Additive and non-blocking broadcast to UI
+		go webSocketAlertFn(event, map[string]interface{}{
+			"resource": resource,
+			"message":  message,
+		}, level)
+	}
 	if webhookAlertFn != nil {
 		webhookAlertFn(event, resource, message)
 	}

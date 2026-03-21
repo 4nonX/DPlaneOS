@@ -20,6 +20,13 @@ import (
 	"github.com/google/uuid"
 )
 
+var broadcastCallback func(event string, data interface{}, level string)
+
+// SetBroadcastCallback sets a global repository for job status broadcasts.
+func SetBroadcastCallback(cb func(event string, data interface{}, level string)) {
+	broadcastCallback = cb
+}
+
 // Status values
 const (
 	StatusRunning = "running"
@@ -52,21 +59,40 @@ func (j *Job) Log(line string) {
 // Done marks the job as completed with a result payload.
 func (j *Job) Done(result map[string]interface{}) {
 	j.mu.Lock()
-	defer j.mu.Unlock()
 	j.Status = StatusDone
 	j.Result = result
 	now := time.Now()
 	j.FinishedAt = &now
+	j.mu.Unlock()
+
+	if broadcastCallback != nil {
+		go broadcastCallback("job.completed", map[string]interface{}{
+			"job_id":   j.ID,
+			"job_type": j.Type,
+			"success":  true,
+			"message":  "Job completed successfully",
+			"result":   result,
+		}, "info")
+	}
 }
 
 // Fail marks the job as failed with an error message.
 func (j *Job) Fail(errMsg string) {
 	j.mu.Lock()
-	defer j.mu.Unlock()
 	j.Status = StatusFailed
 	j.Error = errMsg
 	now := time.Now()
 	j.FinishedAt = &now
+	j.mu.Unlock()
+
+	if broadcastCallback != nil {
+		go broadcastCallback("job.failed", map[string]interface{}{
+			"job_id":   j.ID,
+			"job_type": j.Type,
+			"success":  false,
+			"message":  errMsg,
+		}, "error")
+	}
 }
 
 // JobSnapshot is a mutex-free copy of Job fields, safe to marshal directly.

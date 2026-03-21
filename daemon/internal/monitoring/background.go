@@ -1,4 +1,4 @@
-﻿package monitoring
+package monitoring
 
 import (
 	"context"
@@ -11,6 +11,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"dplaned/internal/zfs"
 )
 
 // alertState tracks the last time an alert was fired per event type,
@@ -183,6 +185,9 @@ func (m *BackgroundMonitor) check() {
 	if m.tickCount%10 == 0 {
 		m.checkDiskTemperatures()
 	}
+
+	// ── ZFS Resilver/Scrub Progress (every tick) ─────────────────────────────
+	m.checkZFSProgress()
 }
 
 // ── Mount status ──────────────────────────────────────────────────────────────
@@ -466,3 +471,39 @@ func readSmartTemp(devName string) int {
 	return 0
 }
 
+// checkZFSProgress enumerates all pools and broadcasts incremental progress
+// for active resilvers or scrubs.
+func (m *BackgroundMonitor) checkZFSProgress() {
+	pools, err := zfs.DiscoverPools()
+	if err != nil {
+		return
+	}
+
+	for _, p := range pools {
+		rawScan, err := zfs.GetPoolScanLine(p.Name)
+		if err != nil {
+			continue
+		}
+
+		parsed := zfs.ParseScanLine(rawScan)
+		if !parsed.InProgress {
+			continue
+		}
+
+		// Determine event type: zfs.resilver.progress or zfs.scrub.progress
+		eventType := "zfs.scrub.progress"
+		if strings.Contains(strings.ToLower(rawScan), "resilver") {
+			eventType = "zfs.resilver.progress"
+		}
+
+		// Broadcast incremental progress to all connected UI clients.
+		// Higher-level 'maybeAlert' is not used here because we WANT frequent
+		// updates (every 30s) while the operation is active.
+		m.alertCallback(eventType, map[string]interface{}{
+			"pool":         p.Name,
+			"percent_done": parsed.PercentDone,
+			"eta":          parsed.ETA,
+			"bytes_done":   parsed.BytesDone,
+		}, "info")
+	}
+}

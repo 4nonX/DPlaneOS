@@ -177,7 +177,7 @@ func (h *SystemHandler) GetNetworkInfo(w http.ResponseWriter, r *http.Request) {
 		h.handleNetworkGet(w, r, r.Header.Get("X-User"))
 		return
 	}
-	if r.Method == http.MethodPost {
+	if r.Method == http.MethodPost || r.Method == http.MethodPut {
 		user := r.Header.Get("X-User")
 		sessionID := r.Header.Get("X-Session-ID")
 		if !security.IsValidSessionToken(sessionID) {
@@ -495,6 +495,48 @@ func (h *SystemHandler) GetSystemLogs(w http.ResponseWriter, r *http.Request) {
 		Data:     logs,
 		Duration: duration.Milliseconds(),
 	})
+}
+
+// Reboot triggers a system reboot after a 2-second delay
+// POST /api/system/reboot
+func (h *SystemHandler) Reboot(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		respondErrorSimple(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	user := r.Header.Get("X-User")
+	audit.LogActivity(user, "system_reboot", nil)
+
+	respondOK(w, map[string]interface{}{
+		"success": true,
+		"message": "System rebooting in 2 seconds...",
+	})
+
+	go func() {
+		time.Sleep(2 * time.Second)
+		exec.Command("systemctl", "reboot").Run()
+	}()
+}
+
+// Poweroff triggers a system poweroff after a 2-second delay
+// POST /api/system/poweroff
+func (h *SystemHandler) Poweroff(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		respondErrorSimple(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	user := r.Header.Get("X-User")
+	audit.LogActivity(user, "system_poweroff", nil)
+
+	respondOK(w, map[string]interface{}{
+		"success": true,
+		"message": "System powering off in 2 seconds...",
+	})
+
+	go func() {
+		time.Sleep(2 * time.Second)
+		exec.Command("systemctl", "poweroff").Run()
+	}()
 }
 
 // Helper functions
