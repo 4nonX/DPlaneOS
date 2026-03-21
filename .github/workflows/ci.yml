@@ -75,7 +75,11 @@ jobs:
       - name: Install build dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y gcc libc6-dev sqlite3 gcc-aarch64-linux-gnu
+          sudo apt-get install -y gcc libc6-dev sqlite3 gcc-aarch64-linux-gnu qemu-user-static
+
+      - name: Run Go Tests
+        working-directory: daemon
+        run: go test -v -race ./...
 
       - name: Build binaries (amd64 & arm64)
         working-directory: daemon
@@ -83,6 +87,11 @@ jobs:
           mkdir -p ../build
           CGO_ENABLED=1 go build -tags sqlite_fts5 -ldflags="-s -w -X main.Version=$(cat ../VERSION)" -o ../build/dplaned-linux-amd64 ./cmd/dplaned/
           GOOS=linux GOARCH=arm64 CGO_ENABLED=1 CC=aarch64-linux-gnu-gcc go build -tags sqlite_fts5 -ldflags="-s -w -X main.Version=$(cat ../VERSION)" -o ../build/dplaned-linux-arm64 ./cmd/dplaned/
+      
+      - name: ARM64 Sanity Check (QEMU)
+        run: |
+          chmod +x build/dplaned-linux-arm64
+          qemu-aarch64-static build/dplaned-linux-arm64 --version
       
       - name: Upload Build Artifacts
         uses: actions/upload-artifact@v4
