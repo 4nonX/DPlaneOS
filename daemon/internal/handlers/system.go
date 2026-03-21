@@ -172,7 +172,7 @@ func (h *SystemHandler) SaveUPSConfig(w http.ResponseWriter, r *http.Request) {
 	respondOK(w, CommandResponse{Success: true, Output: "UPS config saved"})
 }
 
-func (h *SystemHandler) GetNetworkInfo(w http.ResponseWriter, r *http.Request) {
+func (h *SystemHandler) HandleNetwork(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodGet {
 		h.handleNetworkGet(w, r, r.Header.Get("X-User"))
 		return
