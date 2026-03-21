@@ -57,7 +57,21 @@ func main() {
 	testSerialization := flag.Bool("test-serialization", false, "Verify state.yaml round-trip (Phase 4.1)")
 	testIdempotency := flag.Bool("test-idempotency", false, "Verify Apply(S); Apply(S) results in zero diff (Phase 4.2)")
 	ceTokenFile := flag.String("ce-token-file", "", "Path to Compliance Engine API token file (Phase 6.2)")
+	initOnly := flag.Bool("init-only", false, "Initialize database schema and exit")
 	flag.Parse()
+
+	// Phase 0: Database Initialization
+	if *initOnly {
+		db, err := sql.Open("sqlite3", *dbPath+"?_journal_mode=WAL&_busy_timeout=30000")
+		if err != nil {
+			log.Fatalf("Failed to open database: %v", err)
+		}
+		if err := initSchema(db); err != nil {
+			log.Fatalf("Schema init failed: %v", err)
+		}
+		log.Printf("Database initialized at %s", *dbPath)
+		os.Exit(0)
+	}
 
 	// Phase 3.1: One-off apply if requested
 	if *applyOnly {
@@ -373,24 +387,8 @@ func main() {
 		}
 	}
 
-	// ── Wire central alert dispatchers ─────────────────────────────────────
-	// Initializing with nil WebSocket for now; will re-wire after wsHub is ready.
-	handlers.SetAlertDispatchers(
-		func(event, resource, message string) {
-			handlers.SendWebhookAlert(db, event, "critical", message,
-				map[string]interface{}{"resource": resource})
-		},
-		handlers.SendSMTPAlert,
-		func(message string) {
-			_ = alerts.SendAlert(alerts.TelegramAlert{
-				Level:   "CRITICAL",
-				Title:   "D-PlaneOS Alert",
-				Message: message,
-				Details: nil,
-			})
-		},
-		nil,
-	)
+	// ── Central Alerting ────────────────────────────────────────────────────────
+	// Dispatchers are wired after wsHub is ready for systemic monitoring coverage.
 
 	// Wire webhook + SMTP senders into the ZFS heartbeat package so that
 	// pool CRITICAL / DEGRADED events also reach webhook and SMTP channels.
@@ -478,12 +476,14 @@ func main() {
 	bgMonitor.Start()
 	defer bgMonitor.Stop()
 
-	// Wire WebSocket hub into central DispatchAlert for systemic monitoring coverage
-	// This single call now wires all four primary dispatchers correctly.
+	// ── Central Alerting ────────────────────────────────────────────────────────
+	// Dispatchers are wired after wsHub is ready for systemic monitoring coverage.
+
+	// Wire the WS hub and all other dispatchers into the central alert system.
 	handlers.SetAlertDispatchers(
-		func(event, pool, msg string) {
+		func(event, source, msg string) {
 			handlers.SendWebhookAlert(db, event, "critical", msg,
-				map[string]interface{}{"pool": pool})
+				map[string]interface{}{"source": source})
 		},
 		handlers.SendSMTPAlert,
 		func(message string) {
@@ -569,10 +569,11 @@ func main() {
 	systemHandler := handlers.NewSystemHandler()
 	r.HandleFunc("/api/system/health", handlers.SystemHealthHandler).Methods("GET")
 	r.HandleFunc("/api/system/logs/stream", handlers.LogStreamHandler).Methods("GET")
-	r.HandleFunc("/api/system/ups", systemHandler.GetUPSStatus).Methods("GET")
-	r.HandleFunc("/api/system/ups", systemHandler.SaveUPSConfig).Methods("POST")
-	r.HandleFunc("/api/system/network", systemHandler.GetNetworkInfo).Methods("GET", "PUT")
-	r.HandleFunc("/api/system/logs", systemHandler.GetSystemLogs).Methods("GET")
+	r.Handle("/api/system/ups", permRoute("system", "read", systemHandler.GetUPSStatus)).Methods("GET")
+	r.Handle("/api/system/ups", permRoute("system", "write", systemHandler.SaveUPSConfig)).Methods("POST")
+	r.Handle("/api/system/network", permRoute("system", "read", systemHandler.GetNetworkInfo)).Methods("GET")
+	r.Handle("/api/system/network", permRoute("system", "write", systemHandler.GetNetworkInfo)).Methods("PUT")
+	r.Handle("/api/system/logs", permRoute("system", "read", systemHandler.GetSystemLogs)).Methods("GET")
 	r.Handle("/api/system/reboot", permRoute("system", "admin", systemHandler.Reboot)).Methods("POST")
 	r.Handle("/api/system/poweroff", permRoute("system", "admin", systemHandler.Poweroff)).Methods("POST")
 

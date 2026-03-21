@@ -321,6 +321,26 @@ func (h *DockerHandler) RemoveImage(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Issue 3: Ancestor container check
+	if !req.Force {
+		containers, err := h.docker.ListAll(ctx)
+		if err == nil {
+			var blockers []string
+			for _, c := range containers {
+				if c.ImageID == req.ID || c.Image == req.ID {
+					blockers = append(blockers, c.ShortName())
+				}
+			}
+			if len(blockers) > 0 {
+				respondOK(w, map[string]interface{}{
+					"success": false,
+					"error":   fmt.Sprintf("Image is in use by containers: %s. Stop and remove them first, or use force.", strings.Join(blockers, ", ")),
+				})
+				return
+			}
+		}
+	}
+
 	start := time.Now()
 	err := h.docker.RemoveImage(ctx, req.ID, req.Force)
 	duration := time.Since(start)
