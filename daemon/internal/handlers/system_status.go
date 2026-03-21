@@ -366,18 +366,14 @@ type IPMISensor struct {
 // GET /api/system/ipmi
 func (h *SystemStatusHandler) HandleIPMISensors(w http.ResponseWriter, r *http.Request) {
 	// Check ipmitool availability
-	ipmitoolPath := "/usr/bin/ipmitool"
-	if _, err := os.Stat(ipmitoolPath); os.IsNotExist(err) {
-		// Try alternate location
-		ipmitoolPath = "/usr/sbin/ipmitool"
-		if _, err2 := os.Stat(ipmitoolPath); os.IsNotExist(err2) {
-			respondJSON(w, http.StatusOK, map[string]interface{}{
-				"available": false,
-				"reason":    "ipmitool not installed",
-				"sensors":   []IPMISensor{},
-			})
-			return
-		}
+	ipmitoolPath, err := exec.LookPath("ipmitool")
+	if err != nil {
+		respondJSON(w, http.StatusOK, map[string]interface{}{
+			"available": false,
+			"reason":    "ipmitool not installed",
+			"sensors":   []IPMISensor{},
+		})
+		return
 	}
 
 	// Run: ipmitool sdr -c (compact/parseable CSV output)

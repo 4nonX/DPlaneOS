@@ -1,4 +1,4 @@
-﻿package handlers
+package handlers
 
 import (
 	"encoding/json"
@@ -295,7 +295,7 @@ func (h *FilesExtendedHandler) CopyFile(w http.ResponseWriter, r *http.Request) 
 		respondJSON(w, http.StatusForbidden, map[string]interface{}{"success": false, "error": "Path not allowed"})
 		return
 	}
-	out, err := cmdutil.RunMedium("/bin/cp", "-a", src, dst)
+	out, err := cmdutil.RunMedium("cp", "-a", src, dst)
 	if err != nil {
 		respondJSON(w, http.StatusOK, map[string]interface{}{"success": false, "error": fmt.Sprintf("%v: %s", err, out)})
 		return
@@ -327,7 +327,7 @@ func (h *FilesExtendedHandler) MoveFile(w http.ResponseWriter, r *http.Request) 
 	}
 	// os.Rename is atomic on same filesystem; falls back to cp+rm across filesystems
 	if err := os.Rename(src, dst); err != nil {
-		out, cpErr := cmdutil.RunMedium("/bin/cp", "-a", src, dst)
+		out, cpErr := cmdutil.RunMedium("cp", "-a", src, dst)
 		if cpErr != nil {
 			respondJSON(w, http.StatusOK, map[string]interface{}{"success": false, "error": fmt.Sprintf("%v: %s", cpErr, out)})
 			return

@@ -1,4 +1,4 @@
-﻿package handlers
+package handlers
 
 import (
 	"encoding/json"
@@ -162,9 +162,9 @@ func (h *SnapshotScheduleHandler) regenerateCron(schedules []SnapshotSchedule) {
 		// entry that runs independently from the cron-hook (belt-and-suspenders).
 		if s.RetentionDays > 0 {
 			pruneCmd := fmt.Sprintf(
-				`/usr/sbin/zfs list -H -t snapshot -o name,creation -s creation -d 1 %s `+
+				`zfs list -H -t snapshot -o name,creation -s creation -d 1 %s `+
 					`| awk -v cutoff="$(date -d '-%d days' +%%s)" '$2 < cutoff {print $1}' `+
-					`| xargs -r /usr/sbin/zfs destroy`,
+					`| xargs -r zfs destroy`,
 				s.Dataset, s.RetentionDays,
 			)
 			lines = append(lines, fmt.Sprintf("%s root %s", cronExpr, pruneCmd))
@@ -196,7 +196,7 @@ func (h *SnapshotScheduleHandler) RunNow(w http.ResponseWriter, r *http.Request)
 
 	snapName := fmt.Sprintf("%s-%s", req.Prefix, time.Now().Format("20060102-1504"))
 	start := time.Now()
-	output, err := cmdutil.RunZFS("/usr/sbin/zfs", "snapshot", req.Dataset+"@"+snapName)
+	output, err := cmdutil.RunZFS("zfs", "snapshot", req.Dataset+"@"+snapName)
 	duration := time.Since(start)
 
 	if err != nil {
@@ -245,7 +245,7 @@ func (h *SnapshotScheduleHandler) RunCronHook(w http.ResponseWriter, r *http.Req
 
 	// Create snapshot
 	start := time.Now()
-	output, err := cmdutil.RunZFS("/usr/sbin/zfs", "snapshot", fullName)
+	output, err := cmdutil.RunZFS("zfs", "snapshot", fullName)
 	duration := time.Since(start)
 	if err != nil {
 		audit.LogAction("snapshot_cron", "cron", fmt.Sprintf("Failed: %s: %s", fullName, string(output)), false, duration)
@@ -266,7 +266,7 @@ func (h *SnapshotScheduleHandler) RunCronHook(w http.ResponseWriter, r *http.Req
 
 // pruneOldSnapshots destroys snapshots beyond the retention count for a dataset+prefix.
 func pruneOldSnapshots(dataset, prefix string, retention int) {
-	output, err := cmdutil.RunZFS("/usr/sbin/zfs",
+	output, err := cmdutil.RunZFS("zfs",
 		"list", "-t", "snapshot", "-o", "name", "-s", "creation", "-H", dataset)
 	if err != nil {
 		return
@@ -292,7 +292,7 @@ func pruneOldSnapshots(dataset, prefix string, retention int) {
 	if len(matching) > retention {
 		toDelete := matching[:len(matching)-retention]
 		for _, snap := range toDelete {
-			if _, err := cmdutil.RunZFS("/usr/sbin/zfs", "destroy", snap); err != nil {
+			if _, err := cmdutil.RunZFS("zfs", "destroy", snap); err != nil {
 				log.Printf("WARN: pruneOldSnapshots: failed to destroy %s: %v", snap, err)
 			}
 		}
@@ -327,7 +327,7 @@ func (h *ACLHandler) GetACL(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get basic stat info
-	statOut, _ := cmdutil.RunFast("/usr/bin/stat", "-c", "%U %G %a %F", path)
+	statOut, _ := cmdutil.RunFast("stat", "-c", "%U %G %a %F", path)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
@@ -400,16 +400,17 @@ func (h *ACLHandler) SetACL(w http.ResponseWriter, r *http.Request) {
 			entryType := entryParts[0]
 			entryName := entryParts[1]
 
-			if entryType == "u" {
+			switch entryType {
+			case "u":
 				// Validate user exists via NSS (covers local + LDAP + SSSD)
-				if out, err := cmdutil.RunFast("/usr/bin/getent", "passwd", entryName); err != nil {
+				if out, err := cmdutil.RunFast("getent", "passwd", entryName); err != nil {
 					audit.LogAction("acl_validate", user, fmt.Sprintf("User '%s' not found in NSS (LDAP down?): %s", entryName, string(out)), false, 0)
 					respondErrorSimple(w, fmt.Sprintf("User '%s' not found. If using LDAP, check directory service connectivity.", entryName), http.StatusBadRequest)
 					return
 				}
-			} else if entryType == "g" {
+			case "g":
 				// Validate group exists via NSS
-				if out, err := cmdutil.RunFast("/usr/bin/getent", "group", entryName); err != nil {
+				if out, err := cmdutil.RunFast("getent", "group", entryName); err != nil {
 					audit.LogAction("acl_validate", user, fmt.Sprintf("Group '%s' not found in NSS (LDAP down?): %s", entryName, string(out)), false, 0)
 					respondErrorSimple(w, fmt.Sprintf("Group '%s' not found. If using LDAP, check directory service connectivity.", entryName), http.StatusBadRequest)
 					return
@@ -502,7 +503,7 @@ func (h *MetricsHandler) GetCurrentMetrics(w http.ResponseWriter, r *http.Reques
 	}
 
 	// Pool usage (zpool list)
-	if cmd, err := cmdutil.RunZFS("/usr/sbin/zpool", "list", "-Hp"); err == nil {
+	if cmd, err := cmdutil.RunZFS("zpool", "list", "-Hp"); err == nil {
 		metrics["zpools"] = string(cmd)
 	}
 
@@ -556,7 +557,7 @@ func (h *MetricsHandler) CollectAndStore() {
 	}
 
 	// Pool usage
-	if out, err := cmdutil.RunZFS("/usr/sbin/zpool", "list", "-Hp", "-o", "name,size,alloc,free,health"); err == nil {
+	if out, err := cmdutil.RunZFS("zpool", "list", "-Hp", "-o", "name,size,alloc,free,health"); err == nil {
 		point["zpools"] = strings.TrimSpace(string(out))
 	}
 
@@ -600,7 +601,7 @@ type FirewallHandler struct{}
 func NewFirewallHandler() *FirewallHandler { return &FirewallHandler{} }
 
 func (h *FirewallHandler) GetStatus(w http.ResponseWriter, r *http.Request) {
-	output, err := cmdutil.RunFast("/usr/sbin/ufw", "status", "numbered")
+	output, err := cmdutil.RunFast("ufw", "status", "numbered")
 	status := "inactive"
 	rawOutput := ""
 	if err == nil {
@@ -710,7 +711,7 @@ func (h *FirewallHandler) SetRule(w http.ResponseWriter, r *http.Request) {
 	}
 
 	start := time.Now()
-	output, err := cmdutil.RunMedium("/usr/sbin/ufw", args...)
+	output, err := cmdutil.RunMedium("ufw", args...)
 	duration := time.Since(start)
 
 	if err != nil {
@@ -757,7 +758,7 @@ func (h *CertHandler) ListCerts(w http.ResponseWriter, r *http.Request) {
 			name := strings.TrimSuffix(e.Name(), ".crt")
 			certFile := filepath.Join(configPath("ssl"), e.Name())
 			// Get cert info
-			out, _ := cmdutil.RunFast("/usr/bin/openssl", "x509", "-in", certFile, "-noout", "-subject", "-enddate", "-issuer")
+			out, _ := cmdutil.RunFast("openssl", "x509", "-in", certFile, "-noout", "-subject", "-enddate", "-issuer")
 			info := map[string]string{"name": name, "file": e.Name(), "details": strings.TrimSpace(string(out))}
 			// Check if key exists
 			keyFile := filepath.Join(configPath("ssl"), name+".key")
@@ -828,7 +829,7 @@ func (h *CertHandler) GenerateSelfSigned(w http.ResponseWriter, r *http.Request)
 	}
 
 	start := time.Now()
-	output, err := cmdutil.RunMedium("/usr/bin/openssl", "req", "-x509", "-newkey", "rsa:2048",
+	output, err := cmdutil.RunMedium("openssl", "req", "-x509", "-newkey", "rsa:2048",
 		"-keyout", keyFile, "-out", certFile,
 		"-days", fmt.Sprintf("%d", req.Days),
 		"-nodes", "-subj", fmt.Sprintf("/CN=%s", req.CN),
@@ -891,7 +892,7 @@ func (h *CertHandler) ActivateCert(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Test nginx config
-	testOut, testErr := cmdutil.RunFast("/usr/sbin/nginx", "-t")
+	testOut, testErr := cmdutil.RunFast("nginx", "-t")
 	if testErr != nil {
 		audit.LogAction("cert_activate", user, fmt.Sprintf("nginx test failed: %s", string(testOut)), false, 0)
 		respondErrorSimple(w, "nginx config test failed", http.StatusInternalServerError)
@@ -899,7 +900,7 @@ func (h *CertHandler) ActivateCert(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Reload nginx
-	cmdutil.RunFast("/usr/sbin/nginx", "-s", "reload")
+	cmdutil.RunFast("nginx", "-s", "reload")
 
 	audit.LogAction("cert_activate", user, fmt.Sprintf("Activated cert: %s", req.Name), true, 0)
 	w.Header().Set("Content-Type", "application/json")
@@ -955,7 +956,7 @@ func (h *TrashHandler) MoveToTrash(w http.ResponseWriter, r *http.Request) {
 
 	if err != nil {
 		// Cross-device? Try mv command
-		if _, mvErr := cmdutil.RunNoTimeout("/bin/mv", req.Path, trashPath); mvErr != nil {
+		if _, mvErr := cmdutil.RunNoTimeout("mv", req.Path, trashPath); mvErr != nil {
 			audit.LogAction("trash", user, fmt.Sprintf("Failed to trash %s: %v", req.Path, mvErr), false, duration)
 			respondErrorSimple(w, "Failed to move to trash", http.StatusInternalServerError)
 			return
@@ -1041,7 +1042,7 @@ func (h *TrashHandler) RestoreFromTrash(w http.ResponseWriter, r *http.Request) 
 
 	err := os.Rename(trashPath, originalPath)
 	if err != nil {
-		if _, mvErr := cmdutil.RunNoTimeout("/bin/mv", trashPath, originalPath); mvErr != nil {
+		if _, mvErr := cmdutil.RunNoTimeout("mv", trashPath, originalPath); mvErr != nil {
 			respondErrorSimple(w, "Failed to restore", http.StatusInternalServerError)
 			return
 		}
@@ -1082,7 +1083,7 @@ func NewPowerMgmtHandler() *PowerMgmtHandler { return &PowerMgmtHandler{} }
 
 func (h *PowerMgmtHandler) GetDiskStatus(w http.ResponseWriter, r *http.Request) {
 	// List all block devices
-	output, err := cmdutil.RunFast("/usr/bin/lsblk", "-dpno", "NAME,SIZE,MODEL,ROTA,TRAN,STATE")
+	output, err := cmdutil.RunFast("lsblk", "-dpno", "NAME,SIZE,MODEL,ROTA,TRAN,STATE")
 	if err != nil {
 		respondErrorSimple(w, "Operation failed", http.StatusInternalServerError)
 		return
@@ -1121,7 +1122,7 @@ func (h *PowerMgmtHandler) GetDiskStatus(w http.ResponseWriter, r *http.Request)
 		}
 
 		// Get hdparm standby status
-		hdOut, hdErr := cmdutil.RunFast("/usr/sbin/hdparm", "-C", fields[0])
+		hdOut, hdErr := cmdutil.RunFast("hdparm", "-C", fields[0])
 		if hdErr == nil {
 			if strings.Contains(string(hdOut), "standby") {
 				disk["power_state"] = "standby"
@@ -1131,7 +1132,7 @@ func (h *PowerMgmtHandler) GetDiskStatus(w http.ResponseWriter, r *http.Request)
 		}
 
 		// Get current spindown setting
-		sdOut, _ := cmdutil.RunFast("/usr/sbin/hdparm", "-B", fields[0])
+		sdOut, _ := cmdutil.RunFast("hdparm", "-B", fields[0])
 		for _, l := range strings.Split(string(sdOut), "\n") {
 			if strings.Contains(l, "APM_level") {
 				parts := strings.Split(l, "=")
@@ -1181,7 +1182,7 @@ func (h *PowerMgmtHandler) SetSpindown(w http.ResponseWriter, r *http.Request) {
 	}
 
 	start := time.Now()
-	output, err := cmdutil.RunFast("/usr/sbin/hdparm", "-S", fmt.Sprintf("%d", req.Timeout), req.Device)
+	output, err := cmdutil.RunFast("hdparm", "-S", fmt.Sprintf("%d", req.Timeout), req.Device)
 	duration := time.Since(start)
 
 	if err != nil {
@@ -1226,7 +1227,7 @@ func (h *PowerMgmtHandler) SpindownNow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	output, err := cmdutil.RunFast("/usr/sbin/hdparm", "-y", req.Device)
+	output, err := cmdutil.RunFast("hdparm", "-y", req.Device)
 	if err != nil {
 		respondErrorSimple(w, "Operation failed", http.StatusInternalServerError)
 		return

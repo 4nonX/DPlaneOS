@@ -1,4 +1,4 @@
-﻿package handlers
+package handlers
 
 // ═══════════════════════════════════════════════════════════════════════════
 //  Multi-Stack Templates  (v5.1)
@@ -219,7 +219,7 @@ func (h *TemplateHandler) DeployTemplate(w http.ResponseWriter, r *http.Request)
 		defer os.RemoveAll(cloneDir) // clean up temp clone regardless
 
 		j.Log(fmt.Sprintf("Cloning %s …", gitURL))
-		out, err := cmdutil.RunSlow("/usr/bin/git", "clone", "--depth=1", gitURL, cloneDir)
+		out, err := cmdutil.RunSlow("git", "clone", "--depth=1", gitURL, cloneDir)
 		if err != nil {
 			j.Fail(fmt.Sprintf("git clone failed: %v\n%s", err, out))
 			return
@@ -247,7 +247,7 @@ func (h *TemplateHandler) DeployTemplate(w http.ResponseWriter, r *http.Request)
 						args = append(args, "-o", fmt.Sprintf("mountpoint=%s", ds.MountPoint))
 					}
 					args = append(args, ds.Path)
-					if dsOut, dsErr := cmdutil.RunMedium("/usr/sbin/zfs", args...); dsErr != nil {
+					if dsOut, dsErr := cmdutil.RunMedium("zfs", args...); dsErr != nil {
 						// Dataset may already exist - log and continue
 						j.Log(fmt.Sprintf("  zfs create: %v %s", dsErr, dsOut))
 					}
@@ -264,7 +264,7 @@ func (h *TemplateHandler) DeployTemplate(w http.ResponseWriter, r *http.Request)
 		// ── Step 4: Create shared Docker network if requested ─────────────
 		if meta.Network != "" {
 			j.Log(fmt.Sprintf("Ensuring Docker network: %s", meta.Network))
-			netOut, netErr := cmdutil.RunFast("/usr/bin/docker",
+			netOut, netErr := cmdutil.RunFast("docker",
 				"network", "create", "--driver", "bridge", meta.Network)
 			if netErr != nil && !strings.Contains(string(netOut), "already exists") {
 				j.Log(fmt.Sprintf("  network create: %v", netErr))
@@ -335,7 +335,7 @@ func (h *TemplateHandler) DeployTemplate(w http.ResponseWriter, r *http.Request)
 
 			// Run compose up
 			composePath := filepath.Join(destDir, "docker-compose.yml")
-			upOut, upErr := cmdutil.RunSlow("/usr/bin/docker",
+			upOut, upErr := cmdutil.RunSlow("docker",
 				"compose", "--project-directory", destDir, "-f", composePath, "up", "-d")
 			if upErr != nil {
 				j.Log(fmt.Sprintf("  compose up %s failed: %v\n%s", subName, upErr, upOut))
@@ -427,7 +427,7 @@ func (h *TemplateHandler) ListInstalledTemplates(w http.ResponseWriter, r *http.
 		}
 
 		// Get status
-		out, err := cmdutil.RunFast("/usr/bin/docker",
+		out, err := cmdutil.RunFast("docker",
 			"compose", "--project-directory", dir, "-f", composePath, "ps", "--format", "json")
 		if err != nil {
 			si.Status = "stopped"

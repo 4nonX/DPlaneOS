@@ -1,4 +1,4 @@
-﻿package handlers
+package handlers
 
 import (
 	"encoding/json"
@@ -76,7 +76,7 @@ func CreateDirectory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	req.Path = safePath
-	output, err := cmdutil.RunFast("/bin/mkdir", "-p", req.Path)
+	output, err := cmdutil.RunFast("mkdir", "-p", req.Path)
 
 	audit.LogActivity(user, "directory_create", map[string]interface{}{
 		"path":    req.Path,
@@ -121,7 +121,7 @@ func DeletePath(w http.ResponseWriter, r *http.Request) {
 	}
 	req.Path = safePath
 
-	output, err := cmdutil.RunFast("/bin/rm", "-rf", req.Path)
+	output, err := cmdutil.RunFast("rm", "-rf", req.Path)
 
 	audit.LogActivity(user, "path_delete", map[string]interface{}{
 		"path":    req.Path,
@@ -173,7 +173,7 @@ func ChangeOwnership(w http.ResponseWriter, r *http.Request) {
 		ownerGroup = req.Owner + ":" + req.Group
 	}
 
-	output, err := cmdutil.RunFast("/bin/chown", ownerGroup, req.Path)
+	output, err := cmdutil.RunFast("chown", ownerGroup, req.Path)
 
 	audit.LogActivity(user, "ownership_change", map[string]interface{}{
 		"path":    req.Path,
@@ -229,7 +229,7 @@ func ChangePermissions(w http.ResponseWriter, r *http.Request) {
 	}
 	req.Path = safePath
 
-	output, err := cmdutil.RunFast("/bin/chmod", req.Mode, req.Path)
+	output, err := cmdutil.RunFast("chmod", req.Mode, req.Path)
 
 	audit.LogActivity(user, "permissions_change", map[string]interface{}{
 		"path":    req.Path,

@@ -1,4 +1,4 @@
-﻿package handlers
+package handlers
 
 import (
 	"context"
@@ -62,7 +62,7 @@ func (h *DockerHandler) SafeUpdate(w http.ResponseWriter, r *http.Request) {
 				req.ContainerName,
 				time.Now().Format("20060102-150405"),
 			)
-			_, err := executeCommand("/usr/sbin/zfs", []string{"snapshot", snapshotName})
+			_, err := executeCommand("zfs", []string{"snapshot", snapshotName})
 			if err != nil {
 				steps = append(steps, UpdateStep{"zfs_snapshot", false, err.Error()})
 				j.Fail(fmt.Sprintf("Failed to create safety snapshot: %v", err))
@@ -297,7 +297,7 @@ func (h *DockerHandler) RemoveContainer(w http.ResponseWriter, r *http.Request) 
 // ContainerStats returns CPU, memory, network stats for all running containers
 // GET /api/docker/stats
 func (h *DockerHandler) ContainerStats(w http.ResponseWriter, r *http.Request) {
-	output, err := cmdutil.RunFast("/usr/bin/docker",
+	output, err := cmdutil.RunFast("docker",
 		"stats", "--no-stream", "--format",
 		`{"name":"{{.Name}}","cpu":"{{.CPUPerc}}","memory":"{{.MemUsage}}","mem_perc":"{{.MemPerc}}","net_io":"{{.NetIO}}","block_io":"{{.BlockIO}}","pids":"{{.PIDs}}"}`)
 	if err != nil {
@@ -357,7 +357,7 @@ func (h *DockerHandler) ComposeUp(w http.ResponseWriter, r *http.Request) {
 
 	id := jobs.Start("compose_up", func(j *jobs.Job) {
 		start := time.Now()
-		output, err := cmdutil.RunSlow("/usr/bin/docker", args...)
+		output, err := cmdutil.RunSlow("docker", args...)
 		duration := time.Since(start)
 		if err != nil {
 			j.Fail(fmt.Sprintf("%v\n%s", err, string(output)))
@@ -396,7 +396,7 @@ func (h *DockerHandler) ComposeDown(w http.ResponseWriter, r *http.Request) {
 	}
 
 	id := jobs.Start("compose_down", func(j *jobs.Job) {
-		output, err := cmdutil.RunMedium("/usr/bin/docker", args...)
+		output, err := cmdutil.RunMedium("docker", args...)
 		if err != nil {
 			j.Fail(fmt.Sprintf("%v\n%s", err, string(output)))
 			return
@@ -417,7 +417,7 @@ func (h *DockerHandler) ComposeStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	output, err := cmdutil.RunFast("/usr/bin/docker",
+	output, err := cmdutil.RunFast("docker",
 		"compose", "-f", path+"/docker-compose.yml", "ps", "--format", "json")
 	if err != nil {
 		respondOK(w, map[string]interface{}{

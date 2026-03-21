@@ -1,4 +1,4 @@
-﻿package handlers
+package handlers
 
 import (
 	"encoding/json"
@@ -43,7 +43,7 @@ func GetSMBVFSConfig(w http.ResponseWriter, r *http.Request) {
 	// "include = /var/lib/dplaneos/smb-shares.conf".
 	combined := ""
 	for _, path := range []string{"/etc/samba/smb.conf", "/var/lib/dplaneos/smb-shares.conf"} {
-		out, err := executeCommandWithTimeout(TimeoutFast, "/bin/cat", []string{path})
+		out, err := executeCommandWithTimeout(TimeoutFast, "cat", []string{path})
 		if err == nil {
 			combined += out + "\n"
 		}
@@ -332,10 +332,10 @@ func CreateBond(w http.ResponseWriter, r *http.Request) {
 // GET /api/system/ntp
 func GetNTPStatus(w http.ResponseWriter, r *http.Request) {
 	// Try timedatectl first (systemd)
-	output, err := executeCommandWithTimeout(TimeoutFast, "/usr/bin/timedatectl", []string{"show"})
+	output, err := executeCommandWithTimeout(TimeoutFast, "timedatectl", []string{"show"})
 	if err != nil {
 		// Fallback: chronyc
-		output, err = executeCommandWithTimeout(TimeoutFast, "/usr/bin/chronyc", []string{"tracking"})
+		output, err = executeCommandWithTimeout(TimeoutFast, "chronyc", []string{"tracking"})
 		if err != nil {
 			respondOK(w, map[string]interface{}{
 				"success": true,
@@ -379,16 +379,16 @@ func SetNTPServers(w http.ResponseWriter, r *http.Request) {
 
 	// Use timedatectl
 	args := append([]string{"set-ntp", "true"}, req.Servers...)
-	executeCommandWithTimeout(TimeoutFast, "/usr/bin/timedatectl", []string{"set-ntp", "true"})
+	executeCommandWithTimeout(TimeoutFast, "timedatectl", []string{"set-ntp", "true"})
 
 	// Set servers via systemd-timesyncd config
 	conf := "[Time]\n"
 	conf += fmt.Sprintf("NTP=%s\n", strings.Join(req.Servers, " "))
 
-	executeCommandWithTimeout(TimeoutFast, "/usr/bin/tee", []string{"/etc/systemd/timesyncd.conf"})
+	executeCommandWithTimeout(TimeoutFast, "tee", []string{"/etc/systemd/timesyncd.conf"})
 
 	// Restart timesyncd
-	executeCommandWithTimeout(TimeoutMedium, "/usr/bin/systemctl", []string{"restart", "systemd-timesyncd"})
+	executeCommandWithTimeout(TimeoutMedium, "systemctl", []string{"restart", "systemd-timesyncd"})
 
 	// Persist to Nix fragment (NixOS: networking.timeServers)
 	persistNTP(req.Servers)
@@ -461,7 +461,7 @@ func ListBonds(w http.ResponseWriter, r *http.Request) {
 // bondMasterOf reads /sys/class/net/<iface>/master symlink to find the bond it belongs to.
 // Returns master interface name or error. Uses exec to avoid importing "os".
 func bondMasterOf(ifaceName string) (string, error) {
-	out, err := executeCommandWithTimeout(TimeoutFast, "/bin/readlink", []string{
+	out, err := executeCommandWithTimeout(TimeoutFast, "readlink", []string{
 		"/sys/class/net/" + ifaceName + "/master",
 	})
 	if err != nil {

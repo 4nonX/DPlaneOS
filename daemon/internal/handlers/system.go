@@ -1,4 +1,4 @@
-﻿package handlers
+package handlers
 
 import (
 	"encoding/json"
@@ -54,7 +54,7 @@ func (h *SystemHandler) GetUPSStatus(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get UPS list
-	output, err := executeCommand("/usr/bin/upsc", []string{"-l"})
+	output, err := executeCommand("upsc", []string{"-l"})
 	if err != nil || strings.TrimSpace(output) == "" {
 		duration := time.Since(start)
 		audit.LogCommand(audit.LevelInfo, user, "upsc_list", nil, false, duration, err)
@@ -67,7 +67,7 @@ func (h *SystemHandler) GetUPSStatus(w http.ResponseWriter, r *http.Request) {
 	}
 
 	upsName := strings.TrimSpace(strings.Split(output, "\n")[0])
-	output, err = executeCommand("/usr/bin/upsc", []string{upsName})
+	output, err = executeCommand("upsc", []string{upsName})
 	duration := time.Since(start)
 
 	audit.LogCommand(audit.LevelInfo, user, "upsc_query", []string{upsName}, err == nil, duration, err)
@@ -142,7 +142,7 @@ func (h *SystemHandler) SaveUPSConfig(w http.ResponseWriter, r *http.Request) {
 		"# D-PlaneOS UPS config - do not edit this block manually\n"+
 			"MINSUPPLIES 1\n"+
 			"SHUTDOWNCMD \"/sbin/%s -h now\"\n"+
-			"NOTIFYCMD /usr/sbin/upssched\n"+
+			"NOTIFYCMD upssched\n"+
 			"POLLFREQ 5\n"+
 			"POLLFREQALERT 5\n"+
 			"HOSTSYNC 15\n"+
@@ -191,7 +191,7 @@ func (h *SystemHandler) GetNetworkInfo(w http.ResponseWriter, r *http.Request) {
 	respondErrorSimple(w, "Method not allowed", http.StatusMethodNotAllowed)
 }
 
-func (h *SystemHandler) handleNetworkGet(w http.ResponseWriter, r *http.Request, user string) {
+func (h *SystemHandler) handleNetworkGet(w http.ResponseWriter, _ *http.Request, user string) {
 	start := time.Now()
 
 	// Get addresses via netlinkx (reads /proc/net - no exec, no injection surface)
@@ -389,7 +389,7 @@ func (h *SystemHandler) handleNetworkPost(w http.ResponseWriter, r *http.Request
 			if gateway != "" {
 				delArgs = append(delArgs, "via", gwStr)
 			}
-			_, routeErr = executeCommand("/usr/sbin/ip", delArgs)
+			_, routeErr = executeCommand("ip", delArgs)
 		}
 		if routeErr != nil {
 			respondOK(w, map[string]interface{}{"success": false, "error": routeErr.Error()})
@@ -475,7 +475,7 @@ func (h *SystemHandler) GetSystemLogs(w http.ResponseWriter, r *http.Request) {
 	}
 
 	start := time.Now()
-	output, err := executeCommand("/usr/bin/journalctl", []string{"-n", limit, "--no-pager", "-o", "json"})
+	output, err := executeCommand("journalctl", []string{"-n", limit, "--no-pager", "-o", "json"})
 	duration := time.Since(start)
 
 	audit.LogCommand(audit.LevelInfo, user, "journalctl", []string{limit}, err == nil, duration, err)

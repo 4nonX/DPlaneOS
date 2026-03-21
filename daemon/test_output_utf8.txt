@@ -1,0 +1,154 @@
+﻿=== RUN   TestIsValidPath
+=== RUN   TestIsValidPath/Valid_simple_path
+=== RUN   TestIsValidPath/Valid_nested_path
+=== RUN   TestIsValidPath/Path_traversal_attempt
+=== RUN   TestIsValidPath/Path_traversal_attempt_2
+=== RUN   TestIsValidPath/Absolute_path_outside_allowed
+=== RUN   TestIsValidPath/Empty_path
+=== RUN   TestIsValidPath/Valid_tank_path
+=== RUN   TestIsValidPath/Path_with_dot
+--- PASS: TestIsValidPath (0.00s)
+    --- PASS: TestIsValidPath/Valid_simple_path (0.00s)
+    --- PASS: TestIsValidPath/Valid_nested_path (0.00s)
+    --- PASS: TestIsValidPath/Path_traversal_attempt (0.00s)
+    --- PASS: TestIsValidPath/Path_traversal_attempt_2 (0.00s)
+    --- PASS: TestIsValidPath/Absolute_path_outside_allowed (0.00s)
+    --- PASS: TestIsValidPath/Empty_path (0.00s)
+    --- PASS: TestIsValidPath/Valid_tank_path (0.00s)
+    --- PASS: TestIsValidPath/Path_with_dot (0.00s)
+=== RUN   TestIsSafeFilename
+=== RUN   TestIsSafeFilename/Valid_filename
+=== RUN   TestIsSafeFilename/Valid_with_path
+=== RUN   TestIsSafeFilename/Path_traversal_in_filename
+=== RUN   TestIsSafeFilename/Hidden_file
+=== RUN   TestIsSafeFilename/Path_separator_in_filename
+=== RUN   TestIsSafeFilename/Null_byte_injection
+--- PASS: TestIsSafeFilename (0.00s)
+    --- PASS: TestIsSafeFilename/Valid_filename (0.00s)
+    --- PASS: TestIsSafeFilename/Valid_with_path (0.00s)
+    --- PASS: TestIsSafeFilename/Path_traversal_in_filename (0.00s)
+    --- PASS: TestIsSafeFilename/Hidden_file (0.00s)
+    --- PASS: TestIsSafeFilename/Path_separator_in_filename (0.00s)
+    --- PASS: TestIsSafeFilename/Null_byte_injection (0.00s)
+=== RUN   TestValidateCommand
+=== RUN   TestValidateCommand/Valid_zpool_list
+=== RUN   TestValidateCommand/Invalid_command
+=== RUN   TestValidateCommand/Valid_dataset_name
+=== RUN   TestValidateCommand/Invalid_dataset_name_with_spaces
+=== RUN   TestValidateCommand/Command_injection_attempt
+=== RUN   TestValidateCommand/Valid_UPS_query
+=== RUN   TestValidateCommand/Invalid_UPS_name_with_path_traversal
+=== RUN   TestValidateCommand/Valid_zpool_create_with_disk_by-id
+=== RUN   TestValidateCommand/Invalid_zpool_create_with_bare_device_name
+=== RUN   TestValidateCommand/Valid_zfs_set_mountpoint
+=== RUN   TestValidateCommand/Invalid_zfs_set_mountpoint_(dangerous_path)
+=== RUN   TestValidateCommand/Valid_zfs_set_quota
+=== RUN   TestValidateCommand/Invalid_zfs_set_quota_(missing_unit)
+=== RUN   TestValidateCommand/Valid_ufw_allow_mixed_order
+=== RUN   TestValidateCommand/Invalid_ufw_(unauthorized_keyword)
+=== RUN   TestValidateCommand/Valid_ip_route_add
+=== RUN   TestValidateCommand/Valid_openssl_with_subj
+=== RUN   TestValidateCommand/Invalid_openssl_subj
+=== RUN   TestValidateCommand/Valid_mkdir_with_space
+=== RUN   TestValidateCommand/Invalid_mkdir_with_traversal
+=== RUN   TestValidateCommand/Valid_rm_recursive
+=== RUN   TestValidateCommand/Invalid_rm_recursive_traversal
+--- PASS: TestValidateCommand (0.00s)
+    --- PASS: TestValidateCommand/Valid_zpool_list (0.00s)
+    --- PASS: TestValidateCommand/Invalid_command (0.00s)
+    --- PASS: TestValidateCommand/Valid_dataset_name (0.00s)
+    --- PASS: TestValidateCommand/Invalid_dataset_name_with_spaces (0.00s)
+    --- PASS: TestValidateCommand/Command_injection_attempt (0.00s)
+    --- PASS: TestValidateCommand/Valid_UPS_query (0.00s)
+    --- PASS: TestValidateCommand/Invalid_UPS_name_with_path_traversal (0.00s)
+    --- PASS: TestValidateCommand/Valid_zpool_create_with_disk_by-id (0.00s)
+    --- PASS: TestValidateCommand/Invalid_zpool_create_with_bare_device_name (0.00s)
+    --- PASS: TestValidateCommand/Valid_zfs_set_mountpoint (0.00s)
+    --- PASS: TestValidateCommand/Invalid_zfs_set_mountpoint_(dangerous_path) (0.00s)
+    --- PASS: TestValidateCommand/Valid_zfs_set_quota (0.00s)
+    --- PASS: TestValidateCommand/Invalid_zfs_set_quota_(missing_unit) (0.00s)
+    --- PASS: TestValidateCommand/Valid_ufw_allow_mixed_order (0.00s)
+    --- PASS: TestValidateCommand/Invalid_ufw_(unauthorized_keyword) (0.00s)
+    --- PASS: TestValidateCommand/Valid_ip_route_add (0.00s)
+    --- PASS: TestValidateCommand/Valid_openssl_with_subj (0.00s)
+    --- PASS: TestValidateCommand/Invalid_openssl_subj (0.00s)
+    --- PASS: TestValidateCommand/Valid_mkdir_with_space (0.00s)
+    --- PASS: TestValidateCommand/Invalid_mkdir_with_traversal (0.00s)
+    --- PASS: TestValidateCommand/Valid_rm_recursive (0.00s)
+    --- PASS: TestValidateCommand/Invalid_rm_recursive_traversal (0.00s)
+=== RUN   TestValidateDatasetName
+=== RUN   TestValidateDatasetName/Valid_simple_dataset
+=== RUN   TestValidateDatasetName/Valid_nested_dataset
+=== RUN   TestValidateDatasetName/Invalid_with_spaces
+=== RUN   TestValidateDatasetName/Invalid_with_special_chars
+=== RUN   TestValidateDatasetName/Empty_name
+=== RUN   TestValidateDatasetName/Too_long_(>255_chars)
+--- PASS: TestValidateDatasetName (0.00s)
+    --- PASS: TestValidateDatasetName/Valid_simple_dataset (0.00s)
+    --- PASS: TestValidateDatasetName/Valid_nested_dataset (0.00s)
+    --- PASS: TestValidateDatasetName/Invalid_with_spaces (0.00s)
+    --- PASS: TestValidateDatasetName/Invalid_with_special_chars (0.00s)
+    --- PASS: TestValidateDatasetName/Empty_name (0.00s)
+    --- PASS: TestValidateDatasetName/Too_long_(>255_chars) (0.00s)
+=== RUN   TestIsValidSessionToken
+=== RUN   TestIsValidSessionToken/Valid_token
+=== RUN   TestIsValidSessionToken/Too_short
+=== RUN   TestIsValidSessionToken/Too_long
+=== RUN   TestIsValidSessionToken/Invalid_characters
+=== RUN   TestIsValidSessionToken/Empty
+--- PASS: TestIsValidSessionToken (0.00s)
+    --- PASS: TestIsValidSessionToken/Valid_token (0.00s)
+    --- PASS: TestIsValidSessionToken/Too_short (0.00s)
+    --- PASS: TestIsValidSessionToken/Too_long (0.00s)
+    --- PASS: TestIsValidSessionToken/Invalid_characters (0.00s)
+    --- PASS: TestIsValidSessionToken/Empty (0.00s)
+=== RUN   TestSanitizeOutput
+=== RUN   TestSanitizeOutput/Password_in_output
+=== RUN   TestSanitizeOutput/Token_in_output
+=== RUN   TestSanitizeOutput/API_key_in_output
+=== RUN   TestSanitizeOutput/No_sensitive_data
+--- PASS: TestSanitizeOutput (0.00s)
+    --- PASS: TestSanitizeOutput/Password_in_output (0.00s)
+    --- PASS: TestSanitizeOutput/Token_in_output (0.00s)
+    --- PASS: TestSanitizeOutput/API_key_in_output (0.00s)
+    --- PASS: TestSanitizeOutput/No_sensitive_data (0.00s)
+=== RUN   TestValidationBoundaries
+=== RUN   TestValidationBoundaries/Boundary_
+=== RUN   TestValidationBoundaries/Boundary_/
+=== RUN   TestValidationBoundaries/Boundary_\x00
+=== RUN   TestValidationBoundaries/Boundary__
+=== RUN   TestValidationBoundaries/Boundary_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+=== RUN   TestValidationBoundaries/IsValidPath_
+=== RUN   TestValidationBoundaries/IsValidPath_/
+=== RUN   TestValidationBoundaries/IsValidPath_\x00
+=== RUN   TestValidationBoundaries/IsValidPath__
+=== RUN   TestValidationBoundaries/IsValidPath_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+--- PASS: TestValidationBoundaries (0.00s)
+    --- PASS: TestValidationBoundaries/Boundary_ (0.00s)
+    --- PASS: TestValidationBoundaries/Boundary_/ (0.00s)
+    --- PASS: TestValidationBoundaries/Boundary_\x00 (0.00s)
+    --- PASS: TestValidationBoundaries/Boundary__ (0.00s)
+    --- PASS: TestValidationBoundaries/Boundary_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa (0.00s)
+    --- PASS: TestValidationBoundaries/IsValidPath_ (0.00s)
+    --- PASS: TestValidationBoundaries/IsValidPath_/ (0.00s)
+    --- PASS: TestValidationBoundaries/IsValidPath_\x00 (0.00s)
+    --- PASS: TestValidationBoundaries/IsValidPath__ (0.00s)
+    --- PASS: TestValidationBoundaries/IsValidPath_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa (0.00s)
+=== RUN   TestPathCleaner
+=== RUN   TestPathCleaner/Normal_path
+=== RUN   TestPathCleaner/Traversal_with_dots
+=== RUN   TestPathCleaner/Encoded_dots_(literal)
+=== RUN   TestPathCleaner/Deep_traversal
+=== RUN   TestPathCleaner/Canonical_traversal
+=== RUN   TestPathCleaner/Null_byte_in_middle
+=== RUN   TestPathCleaner/Newline_in_middle
+--- PASS: TestPathCleaner (0.00s)
+    --- PASS: TestPathCleaner/Normal_path (0.00s)
+    --- PASS: TestPathCleaner/Traversal_with_dots (0.00s)
+    --- PASS: TestPathCleaner/Encoded_dots_(literal) (0.00s)
+    --- PASS: TestPathCleaner/Deep_traversal (0.00s)
+    --- PASS: TestPathCleaner/Canonical_traversal (0.00s)
+    --- PASS: TestPathCleaner/Null_byte_in_middle (0.00s)
+    --- PASS: TestPathCleaner/Newline_in_middle (0.00s)
+PASS
+ok  	dplaned/internal/security	0.670s

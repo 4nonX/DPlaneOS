@@ -1,4 +1,4 @@
-﻿package handlers
+package handlers
 
 import (
 	"encoding/json"
@@ -38,7 +38,7 @@ type PoolHealthDetail struct {
 // GetPoolHealth returns deep health analysis for all pools
 // GET /api/zfs/health
 func (h *ZFSHealthHandler) GetPoolHealth(w http.ResponseWriter, r *http.Request) {
-	output, err := executeCommand("/usr/sbin/zpool", []string{"status", "-p"})
+	output, err := executeCommand("zpool", []string{"status", "-p"})
 	if err != nil {
 		respondOK(w, map[string]interface{}{
 			"success": true,
@@ -61,12 +61,12 @@ func (h *ZFSHealthHandler) GetPoolHealth(w http.ResponseWriter, r *http.Request)
 // GET /api/zfs/iostat
 func (h *ZFSHealthHandler) GetIOStats(w http.ResponseWriter, r *http.Request) {
 	// One-shot iostat with parseable output
-	output, err := executeCommand("/usr/sbin/zpool", []string{
+	output, err := executeCommand("zpool", []string{
 		"iostat", "-p", "-H", "-l",
 	})
 	if err != nil {
 		// Fallback to simpler format
-		output, err = executeCommand("/usr/sbin/zpool", []string{"iostat", "-v"})
+		output, err = executeCommand("zpool", []string{"iostat", "-v"})
 		if err != nil {
 			respondOK(w, map[string]interface{}{
 				"success": true,
@@ -95,7 +95,7 @@ func (h *ZFSHealthHandler) GetPoolEvents(w http.ResponseWriter, r *http.Request)
 		}
 	}
 
-	output, err := executeCommand("/usr/sbin/zpool", []string{
+	output, err := executeCommand("zpool", []string{
 		"events", "-v", "-c",
 	})
 	if err != nil {
@@ -121,7 +121,7 @@ func (h *ZFSHealthHandler) GetPoolEvents(w http.ResponseWriter, r *http.Request)
 // GET /api/zfs/smart
 func (h *ZFSHealthHandler) GetSMARTHealth(w http.ResponseWriter, r *http.Request) {
 	// Get list of disks from zpool
-	zpoolOutput, err := executeCommand("/usr/sbin/zpool", []string{"status"})
+	zpoolOutput, err := executeCommand("zpool", []string{"status"})
 	if err != nil {
 		respondOK(w, map[string]interface{}{
 			"success": true,
@@ -135,7 +135,7 @@ func (h *ZFSHealthHandler) GetSMARTHealth(w http.ResponseWriter, r *http.Request
 
 	for _, disk := range disks {
 		devicePath := "/dev/" + disk
-		output, err := executeCommand("/usr/sbin/smartctl", []string{
+		output, err := executeCommand("smartctl", []string{
 			"-a", "-j", devicePath,
 		})
 		if err != nil {

@@ -1,4 +1,4 @@
-﻿package handlers
+package handlers
 
 import (
 	"encoding/json"
@@ -60,7 +60,7 @@ func (h *ZFSSandboxHandler) CreateSandbox(w http.ResponseWriter, r *http.Request
 
 	// Step 1: Create a snapshot as clone base
 	snapName := fmt.Sprintf("%s@sandbox-base-%s", req.Dataset, sandboxName)
-	_, err := executeCommand("/usr/sbin/zfs", []string{"snapshot", snapName})
+	_, err := executeCommand("zfs", []string{"snapshot", snapName})
 	if err != nil {
 		respondOK(w, map[string]interface{}{
 			"success": false,
@@ -76,15 +76,15 @@ func (h *ZFSSandboxHandler) CreateSandbox(w http.ResponseWriter, r *http.Request
 	cloneDataset := fmt.Sprintf("%s/sandboxes/%s", poolName, sandboxName)
 
 	// Ensure sandboxes parent dataset exists
-	executeCommand("/usr/sbin/zfs", []string{"create", "-p", poolName + "/sandboxes"})
+	executeCommand("zfs", []string{"create", "-p", poolName + "/sandboxes"})
 
 	start := time.Now()
-	_, err = executeCommand("/usr/sbin/zfs", []string{"clone", snapName, cloneDataset})
+	_, err = executeCommand("zfs", []string{"clone", snapName, cloneDataset})
 	duration := time.Since(start)
 
 	if err != nil {
 		// Cleanup the snapshot on failure
-		executeCommand("/usr/sbin/zfs", []string{"destroy", snapName})
+		executeCommand("zfs", []string{"destroy", snapName})
 		respondOK(w, map[string]interface{}{
 			"success": false,
 			"error":   fmt.Sprintf("Failed to create clone: %v", err),
@@ -93,7 +93,7 @@ func (h *ZFSSandboxHandler) CreateSandbox(w http.ResponseWriter, r *http.Request
 	}
 
 	// Get the mountpoint
-	mpOut, _ := executeCommand("/usr/sbin/zfs", []string{
+	mpOut, _ := executeCommand("zfs", []string{
 		"get", "-H", "-o", "value", "mountpoint", cloneDataset,
 	})
 	mountpoint := strings.TrimSpace(mpOut)
@@ -111,7 +111,7 @@ func (h *ZFSSandboxHandler) CreateSandbox(w http.ResponseWriter, r *http.Request
 // ListSandboxes lists all active sandboxes (ZFS clones under pool/sandboxes/)
 // GET /api/sandbox/list
 func (h *ZFSSandboxHandler) ListSandboxes(w http.ResponseWriter, r *http.Request) {
-	output, err := executeCommand("/usr/sbin/zfs", []string{
+	output, err := executeCommand("zfs", []string{
 		"list", "-t", "filesystem", "-H",
 		"-o", "name,origin,used,mountpoint,creation",
 		"-r", "-d", "1",
@@ -183,13 +183,13 @@ func (h *ZFSSandboxHandler) DestroySandbox(w http.ResponseWriter, r *http.Reques
 	}
 
 	// Get the origin snapshot before destroying the clone
-	originOut, _ := executeCommand("/usr/sbin/zfs", []string{
+	originOut, _ := executeCommand("zfs", []string{
 		"get", "-H", "-o", "value", "origin", req.Sandbox,
 	})
 	origin := strings.TrimSpace(originOut)
 
 	// Step 1: Destroy the clone
-	_, err := executeCommand("/usr/sbin/zfs", []string{"destroy", "-r", req.Sandbox})
+	_, err := executeCommand("zfs", []string{"destroy", "-r", req.Sandbox})
 	if err != nil {
 		respondOK(w, map[string]interface{}{
 			"success": false,
@@ -201,7 +201,7 @@ func (h *ZFSSandboxHandler) DestroySandbox(w http.ResponseWriter, r *http.Reques
 	// Step 2: Destroy the origin snapshot (no longer needed)
 	cleanedUp := false
 	if origin != "" && origin != "-" {
-		_, err := executeCommand("/usr/sbin/zfs", []string{"destroy", origin})
+		_, err := executeCommand("zfs", []string{"destroy", origin})
 		cleanedUp = err == nil
 	}
 
@@ -215,7 +215,7 @@ func (h *ZFSSandboxHandler) DestroySandbox(w http.ResponseWriter, r *http.Reques
 // CleanOrphanVolumes removes orphaned Docker volumes left by sandboxes
 // POST /api/sandbox/cleanup
 func (h *ZFSSandboxHandler) CleanOrphanVolumes(w http.ResponseWriter, r *http.Request) {
-	output, err := executeCommand("/usr/bin/docker", []string{"volume", "prune", "-f"})
+	output, err := executeCommand("docker", []string{"volume", "prune", "-f"})
 	if err != nil {
 		respondOK(w, map[string]interface{}{
 			"success": false,

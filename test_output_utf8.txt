@@ -1,0 +1,31 @@
+﻿go : # ./daemon/inter
+nal/security/...
+In Zeile:1 Zeichen:1
++ go test -v ./daemon
+/internal/security/..
+. > test_output.txt 
+2>&1
++ ~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~
+~~~
+    + CategoryInfo   
+           : NotSpe  
+  cified: (# ./dae   
+ mon/internal/sec    
+urity/...:String    
+) [], RemoteExce    
+ption
+    + FullyQualified 
+   ErrorId : Native  
+  CommandError
+ 
+pattern ./daemon/inte
+rnal/security/...: 
+directory prefix daem
+on\internal\security 
+does not contain 
+main module or its 
+selected dependencies
+FAIL	./daemon/internal/security/... [setup failed]
+FAIL

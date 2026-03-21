@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -660,7 +661,7 @@ func SetZFSDelegation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, err := executeCommandWithTimeout(TimeoutMedium, "/usr/sbin/zfs", []string{
+	_, err := executeCommandWithTimeout(TimeoutMedium, "zfs", []string{
 		"allow", req.User, req.Permissions, req.Dataset,
 	})
 	if err != nil {
@@ -713,7 +714,7 @@ func RevokeZFSDelegation(w http.ResponseWriter, r *http.Request) {
 		respondErrorSimple(w, "Invalid input", http.StatusBadRequest)
 		return
 	}
-	_, err := executeCommandWithTimeout(TimeoutMedium, "/usr/sbin/zfs", []string{
+	_, err := executeCommandWithTimeout(TimeoutMedium, "zfs", []string{
 		"unallow", req.User, req.Permissions, req.Dataset,
 	})
 	if err != nil {
@@ -804,17 +805,12 @@ func ConfirmNetwork(w http.ResponseWriter, r *http.Request) {
 }
 
 func readFileContent(path string) ([]byte, error) {
-	return executeCommandBytes("/bin/cat", []string{path})
+	return executeCommandBytes("cat", []string{path})
 }
 
 func writeFileContent(path string, content []byte) error {
-	// Use tee to write as the daemon runs as root
-	_, err := executeCommandWithTimeout(TimeoutFast, "/usr/bin/tee", []string{path})
-	if err != nil {
-		// Fallback
-		return fmt.Errorf("write failed: %v", err)
-	}
-	return nil
+	// Secure root-level write for configuration files
+	return os.WriteFile(path, content, 0644)
 }
 
 func executeCommandBytes(path string, args []string) ([]byte, error) {
@@ -1030,9 +1026,9 @@ func PoolOperations(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// runZFSCommand is a thin wrapper around exec.Command("/usr/sbin/zfs", args...).
+// runZFSCommand is a thin wrapper around exec.Command("zfs", args...).
 // It returns combined stdout/stderr and any error.
 func runZFSCommand(args []string) ([]byte, error) {
-	return cmdutil.RunFast("/usr/sbin/zfs", args...)
+	return cmdutil.RunFast("zfs", args...)
 }
 

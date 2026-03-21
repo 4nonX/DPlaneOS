@@ -537,7 +537,7 @@ func (h *AuthHandler) CSRFToken(w http.ResponseWriter, r *http.Request) {
 
 // --- Helpers ---
 
-func (h *AuthHandler) auditLog(user, action, details, ip string) {
+func (h *AuthHandler) auditLog(user, action, details, _ string) {
 	audit.LogAction(action, user, details, true, 0)
 }
 

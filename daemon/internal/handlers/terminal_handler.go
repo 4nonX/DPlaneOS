@@ -1,4 +1,4 @@
-﻿package handlers
+package handlers
 
 import (
 	"encoding/json"
@@ -49,9 +49,14 @@ func (h *TerminalHandler) HandleTerminal(w http.ResponseWriter, r *http.Request)
 	defer conn.Close()
 
 	// Determine shell - prefer bash, fall back to sh
-	shell := "/bin/bash"
-	if _, err := os.Stat(shell); err != nil {
-		shell = "/bin/sh"
+	shell, err := exec.LookPath("bash")
+	if err != nil {
+		shell, err = exec.LookPath("sh")
+		if err != nil {
+			log.Printf("terminal: no shell found: %v", err)
+			sendTermMsg(conn, "error", "No shell (bash/sh) found on system")
+			return
+		}
 	}
 
 	cmd := exec.Command(shell, "--login")

@@ -1,4 +1,4 @@
-﻿package handlers
+package handlers
 
 import (
 	"encoding/json"
@@ -37,7 +37,7 @@ func (h *ZFSTimeMachineHandler) ListSnapshotVersions(w http.ResponseWriter, r *h
 		return
 	}
 
-	output, err := executeCommand("/usr/sbin/zfs", []string{
+	output, err := executeCommand("zfs", []string{
 		"list", "-t", "snapshot", "-H",
 		"-o", "name,creation,used,refer",
 		"-s", "creation",
@@ -296,7 +296,7 @@ func getDatasetMountpoint(dataset string) (string, error) {
 	if !isValidDataset(dataset) {
 		return "", fmt.Errorf("invalid dataset name")
 	}
-	output, err := executeCommand("/usr/sbin/zfs", []string{
+	output, err := executeCommand("zfs", []string{
 		"get", "-H", "-o", "value", "mountpoint", dataset,
 	})
 	if err != nil {

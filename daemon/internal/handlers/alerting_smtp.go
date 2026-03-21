@@ -1,4 +1,4 @@
-﻿package handlers
+package handlers
 
 import (
 	"database/sql"
@@ -251,7 +251,7 @@ func (h *AlertingHandler) SaveScrubSchedules(w http.ResponseWriter, r *http.Requ
 			}
 			cronExpr = fmt.Sprintf("0 %d %d * *", s.Hour, day)
 		}
-		crontab.WriteString(fmt.Sprintf("%s root /usr/sbin/zpool scrub %s\n", cronExpr, s.Pool))
+		crontab.WriteString(fmt.Sprintf("%s root zpool scrub %s\n", cronExpr, s.Pool))
 	}
 
 	// Write directly to /etc/cron.d/ (same pattern as scrub cron)
@@ -276,7 +276,7 @@ func StartScrubMonitor() {
 		defer ticker.Stop()
 		for range ticker.C {
 			// Check all pools for scrub age
-			output, err := executeCommandWithTimeout(TimeoutMedium, "/usr/sbin/zpool", []string{"list", "-H", "-o", "name"})
+			output, err := executeCommandWithTimeout(TimeoutMedium, "zpool", []string{"list", "-H", "-o", "name"})
 			if err != nil {
 				continue
 			}
@@ -285,7 +285,7 @@ func StartScrubMonitor() {
 				if pool == "" {
 					continue
 				}
-				status, _ := executeCommandWithTimeout(TimeoutFast, "/usr/sbin/zpool", []string{"status", pool})
+				status, _ := executeCommandWithTimeout(TimeoutFast, "zpool", []string{"status", pool})
 				if strings.Contains(status, "none requested") {
 					// No scrub ever run - alert
 					SendSMTPAlert(

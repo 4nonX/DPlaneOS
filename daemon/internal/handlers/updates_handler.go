@@ -24,7 +24,7 @@ func HandleUpdatesCheck(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 
 		// Step 1: refresh package index
-		updateCmd := exec.Command("/usr/bin/apt-get", "update", "-qq")
+		updateCmd := exec.Command("apt-get", "update", "-qq")
 		updateCmd.Env = append(os.Environ(), "DEBIAN_FRONTEND=noninteractive")
 		if out, err := updateCmd.CombinedOutput(); err != nil {
 			log.Printf("[updates] apt-get update failed: %v\n%s", err, out)
@@ -33,7 +33,7 @@ func HandleUpdatesCheck(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Step 2: list upgradable packages
-		listCmd := exec.Command("/usr/bin/apt", "list", "--upgradable")
+		listCmd := exec.Command("apt", "list", "--upgradable")
 		listCmd.Env = append(os.Environ(), "DEBIAN_FRONTEND=noninteractive")
 		listOut, err := listCmd.Output()
 		if err != nil {
@@ -67,7 +67,7 @@ func HandleUpdatesApply(w http.ResponseWriter, r *http.Request) {
 	jobID := jobs.Start("apt_upgrade", func(j *jobs.Job) {
 		start := time.Now()
 
-		cmd := exec.Command("/usr/bin/apt-get", "upgrade", "-y", "-q")
+		cmd := exec.Command("apt-get", "upgrade", "-y", "-q")
 		cmd.Env = append(os.Environ(), "DEBIAN_FRONTEND=noninteractive")
 		out, err := cmd.CombinedOutput()
 		duration := time.Since(start)
@@ -125,7 +125,7 @@ func HandleUpdatesApplySecurity(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Fallback: collect security packages via apt list and upgrade them
-		listCmd := exec.Command("/usr/bin/apt", "list", "--upgradable")
+		listCmd := exec.Command("apt", "list", "--upgradable")
 		listCmd.Env = append(os.Environ(), "DEBIAN_FRONTEND=noninteractive")
 		listOut, listErr := listCmd.Output()
 		if listErr != nil {
@@ -144,7 +144,7 @@ func HandleUpdatesApplySecurity(w http.ResponseWriter, r *http.Request) {
 		}
 
 		args := append([]string{"upgrade", "-y", "-q", "--only-upgrade"}, secPkgs...)
-		cmd := exec.Command("/usr/bin/apt-get", args...)
+		cmd := exec.Command("apt-get", args...)
 		cmd.Env = append(os.Environ(), "DEBIAN_FRONTEND=noninteractive")
 		out, runErr := cmd.CombinedOutput()
 		duration := time.Since(start)

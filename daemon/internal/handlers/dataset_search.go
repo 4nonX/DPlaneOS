@@ -40,7 +40,7 @@ func HandleDatasetSearch(w http.ResponseWriter, r *http.Request) {
 	snapQuery := strings.TrimPrefix(q, "@")
 
 	// Fetch datasets: name,used,avail,refer,mountpoint,type
-	dsOut, err := executeCommandWithTimeout(TimeoutFast, "/usr/sbin/zfs",
+	dsOut, err := executeCommandWithTimeout(TimeoutFast, "zfs",
 		[]string{"list", "-H", "-o", "name,used,avail,refer,mountpoint,type", "-r"})
 	if err != nil {
 		// On an empty system or error, return empty results rather than 500
@@ -75,7 +75,7 @@ func HandleDatasetSearch(w http.ResponseWriter, r *http.Request) {
 
 	// Optionally fetch snapshots too
 	if includeSnapshots {
-		snapOut, snapErr := executeCommandWithTimeout(TimeoutFast, "/usr/sbin/zfs",
+		snapOut, snapErr := executeCommandWithTimeout(TimeoutFast, "zfs",
 			[]string{"list", "-H", "-t", "snapshot", "-o", "name,used,avail,refer,mountpoint,type", "-r"})
 		if snapErr == nil {
 			for _, line := range strings.Split(strings.TrimSpace(snapOut), "\n") {

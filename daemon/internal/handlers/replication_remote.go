@@ -1,4 +1,4 @@
-﻿package handlers
+package handlers
 
 import (
 	"bytes"
@@ -240,7 +240,7 @@ func (h *ReplicationHandler) TestRemoteConnection(w http.ResponseWriter, r *http
 	)
 
 	start := time.Now()
-	output, err := executeCommand("/usr/bin/ssh", sshArgs)
+	output, err := executeCommand("ssh", sshArgs)
 	duration := time.Since(start)
 
 	if err != nil {
@@ -294,10 +294,10 @@ func execPipedZFSSend(
 	defer cancel()
 
 	sshFullArgs := append([]string{}, sshArgs...)
-	sshFullArgs = append(sshFullArgs, sshTarget, "/usr/sbin/zfs")
+	sshFullArgs = append(sshFullArgs, sshTarget, "zfs")
 	sshFullArgs = append(sshFullArgs, recvArgs...)
 
-	sender := exec.CommandContext(ctx, "/usr/sbin/zfs", sendArgs...)
+	sender := exec.CommandContext(ctx, "zfs", sendArgs...)
 	sendOut, err := sender.StdoutPipe()
 	if err != nil {
 		return "", fmt.Errorf("send stdout pipe: %w", err)
@@ -305,13 +305,13 @@ func execPipedZFSSend(
 	var senderStderr bytes.Buffer
 	sender.Stderr = &senderStderr
 
-	receiver := exec.CommandContext(ctx, "/usr/bin/ssh", sshFullArgs...)
+	receiver := exec.CommandContext(ctx, "ssh", sshFullArgs...)
 	var recvStdout, recvStderr bytes.Buffer
 	receiver.Stdout = &recvStdout
 	receiver.Stderr = &recvStderr
 
 	if len(rateLimit) == 1 {
-		throttle := exec.CommandContext(ctx, "/usr/bin/pv", "-q", "-L", rateLimit[0])
+		throttle := exec.CommandContext(ctx, "pv", "-q", "-L", rateLimit[0])
 		throttleOut, err := throttle.StdoutPipe()
 		if err != nil {
 			return "", fmt.Errorf("pv stdout pipe: %w", err)
@@ -370,10 +370,10 @@ func isValidSSHUser(user string) bool {
 func getResumeToken(sshArgs []string, sshTarget, remoteDataset string) string {
 	checkArgs := append([]string{}, sshArgs...)
 	checkArgs = append(checkArgs, sshTarget,
-		fmt.Sprintf("/usr/sbin/zfs get -H -o value receive_resume_token %s 2>/dev/null", remoteDataset),
+		fmt.Sprintf("zfs get -H -o value receive_resume_token %s 2>/dev/null", remoteDataset),
 	)
 
-	output, err := executeCommandWithTimeout(TimeoutFast, "/usr/bin/ssh", checkArgs)
+	output, err := executeCommandWithTimeout(TimeoutFast, "ssh", checkArgs)
 	if err != nil {
 		return ""
 	}

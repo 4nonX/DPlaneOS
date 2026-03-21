@@ -1,4 +1,4 @@
-﻿package handlers
+package handlers
 
 import (
 	"context"
@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"time"
 )
@@ -41,7 +40,7 @@ func GenerateReplicationKey(w http.ResponseWriter, r *http.Request) {
 
 	_, err := executeCommandWithTimeout(
 		10*time.Second,
-		"/usr/bin/ssh-keygen",
+		"ssh-keygen",
 		[]string{"-t", "ed25519", "-f", replKeyPath, "-N", "", "-C", comment},
 	)
 	if err != nil {
@@ -157,7 +156,7 @@ func CopyReplicationKey(w http.ResponseWriter, r *http.Request) {
 	target := fmt.Sprintf("%s@%s", req.RemoteUser, req.RemoteHost)
 	args := []string{
 		"-e", // read password from SSHPASS env var
-		"/usr/bin/ssh-copy-id",
+		"ssh-copy-id",
 		"-i", replPubPath,
 		"-o", "StrictHostKeyChecking=accept-new",
 		"-p", fmt.Sprintf("%d", req.RemotePort),
@@ -184,9 +183,6 @@ func CopyReplicationKey(w http.ResponseWriter, r *http.Request) {
 // replExecWithEnv runs a command inheriting the current environment plus any
 // additional variables. Uses the same exec.CommandContext pattern as git_sync.go.
 func replExecWithEnv(path string, args []string, extra map[string]string) (string, error) {
-	if !filepath.IsAbs(path) {
-		return "", fmt.Errorf("binary path must be absolute")
-	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()

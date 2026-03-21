@@ -52,7 +52,7 @@ func (h *ZFSSnapshotHandler) ListSnapshots(w http.ResponseWriter, r *http.Reques
 		args = append(args, "-r", dataset)
 	}
 
-	output, err := executeCommand("/usr/sbin/zfs", args)
+	output, err := executeCommand("zfs", args)
 	if err != nil {
 		respondOK(w, map[string]interface{}{
 			"success":   true,
@@ -106,7 +106,7 @@ func (h *ZFSSnapshotHandler) CreateSnapshot(w http.ResponseWriter, r *http.Reque
 	}
 
 	start := time.Now()
-	_, err := executeCommand("/usr/sbin/zfs", []string{"snapshot", fullName})
+	_, err := executeCommand("zfs", []string{"snapshot", fullName})
 	duration := time.Since(start)
 
 	if err != nil {
@@ -140,7 +140,7 @@ func (h *ZFSSnapshotHandler) DestroySnapshot(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	_, err := executeCommand("/usr/sbin/zfs", []string{"destroy", req.Snapshot})
+	_, err := executeCommand("zfs", []string{"destroy", req.Snapshot})
 	if err != nil {
 		respondOK(w, map[string]interface{}{
 			"success": false,
@@ -179,7 +179,7 @@ func (h *ZFSSnapshotHandler) RollbackSnapshot(w http.ResponseWriter, r *http.Req
 	args = append(args, req.Snapshot)
 
 	start := time.Now()
-	_, err := executeCommand("/usr/sbin/zfs", args)
+	_, err := executeCommand("zfs", args)
 	duration := time.Since(start)
 
 	if err != nil {
