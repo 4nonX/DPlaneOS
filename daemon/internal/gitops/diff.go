@@ -662,6 +662,10 @@ func ComputeDiff(desired *DesiredState, live *LiveState) *Plan {
 			if _, wanted := desiredDatasets[ld.Name]; wanted {
 				continue
 			}
+			// Skip root datasets of managed pools (they are wanted by definition)
+			if _, isPool := desiredPools[ld.Name]; isPool {
+				continue
+			}
 			item := blockedCheckDataset(ld)
 			plan.Items = append(plan.Items, item)
 		}
