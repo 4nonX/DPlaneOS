@@ -47,9 +47,18 @@ sudo zfs get compression convpool/data | grep -q 'lz4' && ok "Initial state reac
 # Second apply (Idempotent)
 echo "Applying same state again (should be NOP)..."
 START=$(date +%s%3N)
+# Disable set -e for the subshell call so we can capture status
+set +e
 APPLY_OUT=$(sudo ./dplaned-ci -apply -db "$DB_PATH" -gitops-state "$STATE_YAML" 2>&1)
+STATUS=$?
+set -e
 END=$(date +%s%3N)
 DURATION=$((END-START))
+
+if [ $STATUS -ne 0 ]; then
+  echo "$APPLY_OUT"
+  fail "Second apply (idempotency) failed with exit code $STATUS"
+fi
 
 echo "$APPLY_OUT" | grep -q "0 items applied" && ok "Idempotency: 0 items applied on second run" || warn "Idempotency: some items re-applied (check logs)"
 

@@ -1019,7 +1019,26 @@ func SyncDB(db *sql.DB, desired *DesiredState) error {
 	}
 
 	// 2. Sync Groups
-	// ... similar logic for groups ...
+	if _, err := tx.Exec(`DELETE FROM groups`); err != nil {
+		return fmt.Errorf("clearing groups: %w", err)
+	}
+	if _, err := tx.Exec(`DELETE FROM group_members`); err != nil {
+		return fmt.Errorf("clearing group members: %w", err)
+	}
+	for _, g := range desired.Groups {
+		_, err := tx.Exec(`INSERT INTO groups (name, description, gid) 
+			VALUES (?, ?, ?)`,
+			g.Name, g.Description, g.GID)
+		if err != nil {
+			return fmt.Errorf("syncing group %q: %w", g.Name, err)
+		}
+		for _, member := range g.Members {
+			_, err = tx.Exec(`INSERT INTO group_members (group_name, username) VALUES (?, ?)`, g.Name, member)
+			if err != nil {
+				return fmt.Errorf("adding member %q to group %q: %w", member, g.Name, err)
+			}
+		}
+	}
 
 	// 3. Sync SMB Shares
 	if _, err := tx.Exec(`DELETE FROM smb_shares`); err != nil {

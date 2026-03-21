@@ -108,9 +108,9 @@ func main() {
 		}
 		result, err := gitops.ApplyPlan(ctx, plan, desired)
 		if err != nil {
-			log.Fatalf("Apply failed: %v (Status: %s, Reason: %s)", err, result.Status, result.HaltReason)
+			log.Fatalf("GITOPS APPLY FAILED: %v (Status: %s, Reason: %s, Item: %s)", err, result.Status, result.HaltReason, result.Failed)
 		}
-		log.Printf("GITOPS: Apply complete! Applied: %v", result.Applied)
+		log.Printf("GITOPS: Apply complete! (%d items applied, Post-Apply Convergence: %s)", len(result.Applied), result.Convergence)
 		os.Exit(0)
 	}
 

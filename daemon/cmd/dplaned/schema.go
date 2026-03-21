@@ -394,11 +394,11 @@ func initSchema(db *sql.DB) error {
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		)`,
 		`CREATE TABLE IF NOT EXISTS group_members (
-			group_id INTEGER,
-			user_id INTEGER,
-			PRIMARY KEY (group_id, user_id),
-			FOREIGN KEY (group_id) REFERENCES groups(id),
-			FOREIGN KEY (user_id) REFERENCES users(id)
+			group_name TEXT,
+			username TEXT,
+			PRIMARY KEY (group_name, username),
+			FOREIGN KEY (group_name) REFERENCES groups(name) ON DELETE CASCADE,
+			FOREIGN KEY (username) REFERENCES users(username) ON DELETE CASCADE
 		)`,
 	}
 

@@ -377,7 +377,7 @@ func readLiveGroups(db *sql.DB) ([]LiveGroup, error) {
 		}
 
 		// Get members
-		mRows, err := db.Query(`SELECT username FROM users JOIN group_members ON users.id = group_members.user_id WHERE group_members.group_id = ?`, g.ID)
+		mRows, err := db.Query(`SELECT username FROM group_members WHERE group_name = ?`, g.Name)
 		if err == nil {
 			for mRows.Next() {
 				var username string
