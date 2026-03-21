@@ -374,8 +374,12 @@ func RemoveCacheOrLog(w http.ResponseWriter, r *http.Request) {
 		respondErrorSimple(w, "Invalid request", http.StatusBadRequest)
 		return
 	}
-	if !isValidDataset(req.Pool) || strings.ContainsAny(req.Device, ";|&$`\\\"' /") {
-		respondErrorSimple(w, "Invalid pool or device", http.StatusBadRequest)
+	if !isValidDataset(req.Pool) {
+		respondErrorSimple(w, "Invalid pool", http.StatusBadRequest)
+		return
+	}
+	if err := security.ValidateDevicePath(req.Device); err != nil {
+		respondErrorSimple(w, fmt.Sprintf("Invalid device path: %s (%v)", req.Device, err), http.StatusBadRequest)
 		return
 	}
 	output, err := executeCommandWithTimeout(TimeoutMedium, "zpool", []string{
@@ -577,8 +581,8 @@ func RunSMARTTest(w http.ResponseWriter, r *http.Request) {
 		respondErrorSimple(w, "Invalid request", http.StatusBadRequest)
 		return
 	}
-	if strings.ContainsAny(req.Device, ";|&$`\\\"' /") {
-		respondErrorSimple(w, "Invalid device name", http.StatusBadRequest)
+	if err := security.ValidateDevicePath(req.Device); err != nil {
+		respondErrorSimple(w, fmt.Sprintf("Invalid device path: %s (%v)", req.Device, err), http.StatusBadRequest)
 		return
 	}
 	validTypes := map[string]bool{"short": true, "long": true, "conveyance": true}
@@ -615,8 +619,8 @@ func RunSMARTTest(w http.ResponseWriter, r *http.Request) {
 // GET /api/zfs/smart/results?device=sda
 func GetSMARTTestResults(w http.ResponseWriter, r *http.Request) {
 	device := r.URL.Query().Get("device")
-	if strings.ContainsAny(device, ";|&$`\\\"' /") {
-		respondErrorSimple(w, "Invalid device", http.StatusBadRequest)
+	if err := security.ValidateDevicePath(device); err != nil {
+		respondErrorSimple(w, fmt.Sprintf("Invalid device path: %s (%v)", device, err), http.StatusBadRequest)
 		return
 	}
 	output, err := executeCommandWithTimeout(TimeoutFast, "smartctl", []string{
@@ -1001,8 +1005,12 @@ func PoolOperations(w http.ResponseWriter, r *http.Request) {
 	case "clear":
 		args = []string{"clear", req.Pool}
 	case "online":
-		if req.Device == "" || strings.ContainsAny(req.Device, ";|&$`\"' /") {
-			respondErrorSimple(w, "Invalid or missing device for online operation", http.StatusBadRequest)
+		if req.Device == "" {
+			respondErrorSimple(w, "Missing device for online operation", http.StatusBadRequest)
+			return
+		}
+		if err := security.ValidateDevicePath(req.Device); err != nil {
+			respondErrorSimple(w, fmt.Sprintf("Invalid device path: %s (%v)", req.Device, err), http.StatusBadRequest)
 			return
 		}
 		args = []string{"online", req.Pool, req.Device}
