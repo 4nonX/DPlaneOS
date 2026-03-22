@@ -203,6 +203,17 @@ func attemptPoolImport(disk DiskInfo) {
 			continue
 		}
 
+		// HA GUARD: Before importing, ensure we are not a Patroni standby node.
+		// If Patroni is running but we are not primary, importing block devices will corrupt the cluster.
+		client := &http.Client{Timeout: 2 * time.Second}
+		if resp, err := client.Get("http://localhost:8008/primary"); err == nil {
+			defer resp.Body.Close()
+			if resp.StatusCode != http.StatusOK {
+				log.Printf("HA GUARD: Pool %q import BLOCKED. Node is running Patroni but is not primary (status %d).", poolName, resp.StatusCode)
+				continue
+			}
+		}
+
 		log.Printf("DISK EVENT: attempting import of pool %q (GUID %s, disk /dev/%s added)", poolName, poolGUID, disk.Name)
 		// Import by GUID is much safer than name-based import as names can collide or change.
 		importResult, importErr := runWithTimeout(2*time.Minute, "zpool", "import", "-d", "/dev/disk/by-id", "-g", poolGUID)

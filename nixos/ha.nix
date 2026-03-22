@@ -32,6 +32,24 @@ in {
       default = [ "http://127.0.0.1:2379" ];
       description = "List of etcd endpoints for the Patroni DCS.";
     };
+
+    virtualIP = lib.mkOption {
+      type = lib.types.nullOr lib.types.str;
+      default = null;
+      description = "The floating Virtual IP (VIP) managed by Keepalived.";
+    };
+
+    interface = lib.mkOption {
+      type = lib.types.nullOr lib.types.str;
+      default = null;
+      description = "The network interface to bind the Keepalived VIP to.";
+    };
+
+    vrrpPassword = lib.mkOption {
+      type = lib.types.nullOr lib.types.str;
+      default = null;
+      description = "Password for Keepalived VRRP authentication between peers.";
+    };
   };
 
   config = lib.mkIf cfg.enable {
@@ -120,6 +138,33 @@ in {
             server postgresLocal  ${cfg.localAddress}:5432 maxconn 500 check port 8008
             server postgresPeer   ${cfg.peerAddress}:5432  maxconn 500 check port 8008
       '';
+    };
+
+    # ─── Keepalived ───────────────────────────────────────────────────────
+    # VRRP handles floating the VIP to the healthy primary node.
+    # Health checks ping the D-PlaneOS daemon directly.
+    services.keepalived = lib.mkIf (cfg.virtualIP != null && cfg.interface != null) {
+      enable = true;
+      vrrpScripts.check_dplaneos = {
+        script = "${pkgs.curl}/bin/curl -sf http://127.0.0.1:9000/health";
+        interval = 2;
+        fall = 3;
+        rise = 2;
+      };
+      vrrpInstances.dplaneos_vip = {
+        interface = cfg.interface;
+        state = if cfg.role == "primary" then "MASTER" else "BACKUP";
+        priority = if cfg.role == "primary" then 100 else 90;
+        virtualRouterId = 51;
+        virtualIps = [ { addr = cfg.virtualIP; } ];
+        trackScripts = [ "check_dplaneos" ];
+        extraConfig = lib.optionalString (cfg.vrrpPassword != null) ''
+          authentication {
+            auth_type PASS
+            auth_pass ${cfg.vrrpPassword}
+          }
+        '';
+      };
     };
   };
 }

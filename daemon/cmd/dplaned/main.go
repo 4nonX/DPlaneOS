@@ -1025,6 +1025,7 @@ func main() {
 	r.Handle("/api/ha/peers", permRoute("system", "admin", haHandler.RegisterPeer)).Methods("POST")
 	r.Handle("/api/ha/peers/{id}", permRoute("system", "admin", http.HandlerFunc(haHandler.RemovePeer))).Methods("DELETE")
 	r.Handle("/api/ha/peers/{id}/role", permRoute("system", "admin", haHandler.SetPeerRole)).Methods("POST")
+	r.Handle("/api/ha/replication/configure", permRoute("system", "admin", haHandler.ConfigureHAReplication)).Methods("POST")
 	// /api/ha/heartbeat is deliberately PUBLIC (no session) so peer daemons can reach it
 	r.HandleFunc("/api/ha/heartbeat", haHandler.PeerHeartbeat).Methods("POST")
 	r.HandleFunc("/api/ha/local", haHandler.LocalNodeInfo).Methods("GET")

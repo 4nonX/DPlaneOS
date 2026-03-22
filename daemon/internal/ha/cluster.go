@@ -34,6 +34,7 @@
 package ha
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -94,6 +95,9 @@ type Manager struct {
 	mu    sync.RWMutex
 	nodes map[string]*ClusterNode // keyed by node ID
 
+	replConfig *ReplicationConfig
+	replCancel context.CancelFunc
+
 	stopCh chan struct{}
 }
 
@@ -120,12 +124,22 @@ func (m *Manager) Start() {
 		return
 	}
 	m.loadPersistedNodes()
+	m.loadPersistedReplication()
+
 	go m.heartbeatLoop()
 	log.Printf("HA: cluster manager started (local=%s)", m.localID)
 }
 
 // Stop halts background goroutines.
-func (m *Manager) Stop() { close(m.stopCh) }
+func (m *Manager) Stop() { 
+	close(m.stopCh)
+	m.mu.Lock()
+	if m.replCancel != nil {
+		m.replCancel()
+	}
+	m.mu.Unlock()
+}
+
 
 // RegisterPeer adds or updates a peer node in the cluster.
 // Persists to DB so peers survive restarts.
@@ -308,6 +322,18 @@ func (m *Manager) ensureSchema() error {
 			registered_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 		)
 	`)
+	_, err = m.db.Exec(`
+		CREATE TABLE IF NOT EXISTS ha_replication_config (
+			id INTEGER PRIMARY KEY CHECK (id = 1),
+			local_pool TEXT NOT NULL,
+			remote_pool TEXT NOT NULL,
+			remote_host TEXT NOT NULL,
+			remote_user TEXT NOT NULL,
+			remote_port INTEGER NOT NULL DEFAULT 22,
+			ssh_key_path TEXT NOT NULL,
+			interval_secs INTEGER NOT NULL DEFAULT 30
+		)
+	`)
 	return err
 }
 
@@ -405,4 +431,67 @@ func (m *Manager) LocalInfo() map[string]string {
 func MarshalStatus(s *ClusterStatus) ([]byte, error) {
 	return json.Marshal(s)
 }
+
+// SetReplicationConfig stores the new sync rules and restarts the loop.
+func (m *Manager) SetReplicationConfig(cfg *ReplicationConfig) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	_, err := m.db.Exec(`
+		INSERT INTO ha_replication_config (id, local_pool, remote_pool, remote_host, remote_user, remote_port, ssh_key_path, interval_secs)
+		VALUES (1, $1, $2, $3, $4, $5, $6, $7)
+		ON CONFLICT(id) DO UPDATE SET
+			local_pool=excluded.local_pool, remote_pool=excluded.remote_pool,
+			remote_host=excluded.remote_host, remote_user=excluded.remote_user,
+			remote_port=excluded.remote_port, ssh_key_path=excluded.ssh_key_path,
+			interval_secs=excluded.interval_secs
+	`, cfg.LocalPool, cfg.RemotePool, cfg.RemoteHost, cfg.RemoteUser, cfg.RemotePort, cfg.SSHKeyPath, cfg.IntervalSecs)
+	
+	if err != nil {
+		return err
+	}
+
+	m.replConfig = cfg
+	
+	// Restart loop
+	if m.replCancel != nil {
+		m.replCancel()
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	m.replCancel = cancel
+	go m.startReplicationLoop(ctx, cfg)
+
+	return nil
+}
+
+func (m *Manager) loadPersistedReplication() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	var cfg ReplicationConfig
+	err := m.db.QueryRow(`
+		SELECT local_pool, remote_pool, remote_host, remote_user, remote_port, ssh_key_path, interval_secs
+		FROM ha_replication_config WHERE id = 1
+	`).Scan(&cfg.LocalPool, &cfg.RemotePool, &cfg.RemoteHost, &cfg.RemoteUser, &cfg.RemotePort, &cfg.SSHKeyPath, &cfg.IntervalSecs)
+	
+	if err == nil {
+		m.replConfig = &cfg
+		ctx, cancel := context.WithCancel(context.Background())
+		m.replCancel = cancel
+		go m.startReplicationLoop(ctx, &cfg)
+		log.Printf("HA: loaded persisted continuous replication configuration")
+	}
+}
+
+// IsPatroniPrimary queries the local Patroni REST API to definitively determine PostgreSQL lock ownership.
+func (m *Manager) IsPatroniPrimary() bool {
+	client := &http.Client{Timeout: 2 * time.Second}
+	resp, err := client.Get("http://localhost:8008/primary")
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	return resp.StatusCode == http.StatusOK
+}
+
 

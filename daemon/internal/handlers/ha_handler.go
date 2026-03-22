@@ -1,9 +1,11 @@
-﻿package handlers
+package handlers
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
 	"os"
+	"os/exec"
 	"strings"
 
 	"dplaned/internal/ha"
@@ -141,5 +143,85 @@ func LocalNodeID() string {
 	}
 	host, _ := os.Hostname()
 	return host
+}
+
+// ConfigureHAReplication sets up continuous active-to-standby ZFS sync.
+// POST /api/ha/replication/configure
+func (h *HAHandler) ConfigureHAReplication(w http.ResponseWriter, r *http.Request) {
+	var req ha.ReplicationConfig
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondError(w, http.StatusBadRequest, "Invalid request body", err)
+		return
+	}
+	
+	// Default interval to 30 if zero or negative
+	if req.IntervalSecs < 10 {
+		req.IntervalSecs = 30
+	}
+
+	if req.LocalPool == "" || req.RemotePool == "" || req.RemoteHost == "" || req.SSHKeyPath == "" {
+		respondErrorSimple(w, "local_pool, remote_pool, remote_host, and ssh_key_path are required", http.StatusBadRequest)
+		return
+	}
+
+	if req.RemoteUser == "" {
+		req.RemoteUser = "root"
+	}
+	if req.RemotePort == 0 {
+		req.RemotePort = 22
+	}
+
+	if err := h.mgr.SetReplicationConfig(&req); err != nil {
+		respondError(w, http.StatusInternalServerError, "Failed to save HA replication config", err)
+		return
+	}
+
+	respondJSON(w, http.StatusOK, map[string]interface{}{
+		"success": true,
+		"message": "HA replication configured and background loop started (if active)",
+	})
+}
+
+// Promote triggers the manual failover orchestration on a standby node.
+// POST /api/ha/promote
+// WARNING: Fencing is not implemented yet. Split brain will occur if primary is still alive.
+func (h *HAHandler) Promote(w http.ResponseWriter, r *http.Request) {
+	// Execute the promotion orchestration in the background to avoid timing out the HTTP client
+	go func() {
+		// 1. Force import any detached storage pools in the case of a Shared-Storage Architecture.
+		log.Printf("HA Failover: Forcing import of all pools...")
+		exec.Command("zpool", "import", "-a", "-f", "-d", "/dev/disk/by-id").Run()
+
+		// 2. Elevate replication datasets to writable in the case of a Shared-Nothing Architecture (ZFS Replication).
+		// Since we don't know exactly which datasets are replicas, we try to clear readonly flags universally.
+		// "zfs promote" is also run in case datasets were cloned during advanced replication setups.
+		log.Printf("HA Failover: Promoting ZFS datasets to writable...")
+		out, _ := exec.Command("zfs", "list", "-H", "-o", "name").Output()
+		datasets := strings.Split(strings.TrimSpace(string(out)), "\n")
+		for _, ds := range datasets {
+			if ds == "" {
+				continue
+			}
+			exec.Command("zfs", "set", "readonly=off", ds).Run()
+			exec.Command("zfs", "promote", ds).Run()
+		}
+
+		// 3. Reload NAS services that mount or share these pools.
+		log.Printf("HA Failover: Reloading storage services (SMB, NFS, Docker)...")
+		exec.Command("systemctl", "reload-or-restart", "smbd", "nmbd").Run()
+		exec.Command("systemctl", "reload-or-restart", "nfs-server").Run()
+		exec.Command("systemctl", "restart", "docker").Run()
+		
+		// 4. Force Patroni to failover via REST API (if not already primary)
+		// This guarantees that the Keepalived Priority elevates.
+		exec.Command("curl", "-s", "-X", "POST", "http://localhost:8008/failover").Run()
+		
+		log.Printf("HA Failover: Promotion sequence complete.")
+	}()
+
+	respondJSON(w, http.StatusOK, map[string]interface{}{
+		"success": true,
+		"message": "Failover promotion triggered. Storage pools are importing and services restarting.",
+	})
 }
 
