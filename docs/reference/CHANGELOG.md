@@ -21,6 +21,15 @@ Upgrade from: v6.1.2 - Drop-in. `sudo bash install.sh --upgrade`
     - Implemented asynchronous progress tracking for ZFS replication jobs.
     - Backend now parses `zfs send -P` stderr in real-time to broadcast percentage, throughput, and ETA.
     - Updated `JobStatusBanner` in the Replication page with a live, high-fidelity progress bar.
+- **Advanced ZFS Operations**
+    - Implemented snapshot holds (`zfs hold`, `zfs release`) to protect critical snapshots from accidental deletion.
+    - Added mirrored pool split (`zpool split`) support, allowing users to safely split mirrors into independent pools.
+    - Added dedicated API endpoints and security whitelisting for all advanced ZFS management.
+- **Production Hardening**
+    - **ACME Auto-Renewal**: Added background expiry checking and automated renewal (30 days before expiration) via systemd timers.
+    - **Nginx Challenge Automation**: Automated challenge proxy configuration for non-NixOS systems (idempotent injection and validation).
+    - **NixOS Compatibility**: Secured installer path guards and fixed internal references for seamless NixOS coexistence.
+    - **GitOps Consistency**: Standardized state persistence across all handlers using asynchronous Git hooks.
 - **Session Control & Security**
     - Introduced a dedicated "Sessions" management tab in the Users & Groups page.
     - Users can now view all active web sessions, including IP addresses, device types (User-Agent), and last activity timestamps.

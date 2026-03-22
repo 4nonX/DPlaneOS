@@ -1,4 +1,4 @@
-﻿package handlers
+package handlers
 
 import (
 	"archive/tar"
@@ -191,7 +191,7 @@ func (h *SupportBundleHandler) GenerateBundle(w http.ResponseWriter, r *http.Req
 	)
 
 	// ── NixOS (best-effort - only on NixOS) ────────────────────────────
-	if isNixOS() {
+	if IsNixOS() {
 		sections = append(sections,
 			collectCmd("nixos/version.txt", cmdutil.RunFast, "nixos-version"),
 			collectCmd("nixos/generations.txt", cmdutil.RunMedium,

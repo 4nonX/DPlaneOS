@@ -1037,8 +1037,20 @@ func main() {
 	r.Handle("/api/certs/activate", permRoute("certificates", "write", certHandler.ActivateCert)).Methods("POST")
 	r.Handle("/api/certs/import", permRoute("certificates", "write", certHandler.ImportCert)).Methods("POST")
 	r.Handle("/api/certs/acme", permRoute("certificates", "write", certHandler.RequestACME)).Methods("POST")
+	r.Handle("/api/certs/acme/renew-all", permRoute("certificates", "write", certHandler.RenewAllHandler)).Methods("POST")
 	r.HandleFunc("/api/system/certs/acme/check", certHandler.VerifyACMEProxy).Methods("GET")
 	r.Handle("/api/certs/{name}", permRoute("certificates", "write", certHandler.DeleteCert)).Methods("DELETE")
+
+	// ZFS Holds (v6.2.0)
+	// Storage
+	storageHandler := handlers.NewZFSHandler(db)
+	r.Handle("/api/zfs/pools", permRoute("storage", "read", storageHandler.ListPools)).Methods("GET")
+	r.Handle("/api/zfs/hold", permRoute("storage", "write", storageHandler.HoldSnapshot)).Methods("POST")
+	r.Handle("/api/zfs/release", permRoute("storage", "write", storageHandler.ReleaseSnapshot)).Methods("POST")
+	r.Handle("/api/zfs/holds", permRoute("storage", "read", storageHandler.ListHolds)).Methods("GET")
+
+	// ZFS Split (v6.2.0)
+	r.Handle("/api/zfs/pools/split", permRoute("storage", "write", storageHandler.SplitPool)).Methods("POST")
 
 	// Trash / Recycle Bin (v2.0.0)
 	trashHandler := handlers.NewTrashHandler()

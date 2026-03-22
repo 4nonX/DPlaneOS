@@ -218,6 +218,43 @@ var CommandWhitelist = map[string]Command{
 		AllowedArgs: []string{"export"},
 		Description: "Export a ZFS pool",
 	},
+	"zfs_hold": {
+		Name:        "zfs_hold",
+		Path:        "zfs",
+		AllowedArgs: []string{"hold"},
+		ArgPatterns: []*regexp.Regexp{
+			regexp.MustCompile(`^[a-zA-Z0-9_\-\.]+$`), // tag
+			validDatasetRe,                           // snapshot
+		},
+		Description: "Hold a ZFS snapshot",
+	},
+	"zfs_release": {
+		Name:        "zfs_release",
+		Path:        "zfs",
+		AllowedArgs: []string{"release"},
+		ArgPatterns: []*regexp.Regexp{
+			regexp.MustCompile(`^[a-zA-Z0-9_\-\.]+$`), // tag
+			validDatasetRe,                           // snapshot
+		},
+		Description: "Release a ZFS snapshot hold",
+	},
+	"zfs_holds": {
+		Name:        "zfs_holds",
+		Path:        "zfs",
+		AllowedArgs: []string{"holds", "-H"},
+		ArgPatterns: []*regexp.Regexp{validDatasetRe},
+		Description: "List holds on a ZFS snapshot",
+	},
+	"zpool_split": {
+		Name:        "zpool_split",
+		Path:        "zpool",
+		AllowedArgs: []string{"split"},
+		ArgPatterns: []*regexp.Regexp{
+			regexp.MustCompile(`^[a-zA-Z0-9_\-]+$`), // pool
+			regexp.MustCompile(`^[a-zA-Z0-9_\-]+$`), // new pool
+		},
+		Description: "Split a mirrored ZFS pool",
+	},
 
 	// Network Management
 	"ip_addr_show": {
@@ -555,7 +592,8 @@ func ValidateCommand(cmdName string, args []string) error {
 	switch cmdName {
 	case "zpool_create", "zfs_set_property", "ufw", "ip_route_modify", "openssl", "mkdir", "rm_recursive",
 		"zpool_online", "zpool_add_cache", "zpool_add_log", "zpool_remove_device", "hdparm_check", "hdparm_spindown", "hdparm_status",
-		"zpool_replace", "zpool_attach", "zpool_detach", "zpool_add_special", "wipefs", "zpool_labelclear":
+		"zpool_replace", "zpool_attach", "zpool_detach", "zpool_add_special", "wipefs", "zpool_labelclear",
+		"zfs_hold", "zfs_release", "zfs_holds", "zpool_split":
 		hasCustomValidator = true
 	}
 
@@ -620,6 +658,17 @@ func ValidateCommand(cmdName string, args []string) error {
 	case "zpool_export":
 		if err := validateZpoolExport(args); err != nil {
 			return err
+		}
+	case "zfs_hold", "zfs_release":
+		if len(args) != 3 {
+			return fmt.Errorf("%s requires exactly 2 arguments after command", cmdName)
+		}
+	case "zfs_holds", "zpool_split":
+		if len(args) != 2 && cmdName == "zfs_holds" {
+			return fmt.Errorf("zfs_holds requires exactly 1 argument after -H")
+		}
+		if len(args) != 3 && cmdName == "zpool_split" {
+			return fmt.Errorf("zpool_split requires exactly 2 arguments after split")
 		}
 	}
 

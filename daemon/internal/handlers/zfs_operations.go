@@ -793,11 +793,125 @@ func GetUserGroupQuotas(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// HoldSnapshot creates a hold on a snapshot to prevent deletion.
+// POST /api/zfs/hold { "snapshot": "tank/data@foo", "tag": "myhold" }
+func (h *ZFSHandler) HoldSnapshot(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Snapshot string `json:"snapshot"`
+		Tag      string `json:"tag"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondErrorSimple(w, "Invalid request", http.StatusBadRequest)
+		return
+	}
+	if !isValidSnapshotName(req.Snapshot) || !isValidHoldTag(req.Tag) {
+		respondErrorSimple(w, "Invalid snapshot name or hold tag", http.StatusBadRequest)
+		return
+	}
+
+	_, err := executeCommandWithTimeout(TimeoutMedium, "zfs", []string{"hold", req.Tag, req.Snapshot})
+	if err != nil {
+		respondOK(w, map[string]interface{}{"success": false, "error": err.Error()})
+		return
+	}
+	respondOK(w, map[string]interface{}{"success": true, "snapshot": req.Snapshot, "tag": req.Tag})
+}
+
+// ReleaseSnapshot removes a hold on a snapshot.
+// POST /api/zfs/release { "snapshot": "tank/data@foo", "tag": "myhold" }
+func (h *ZFSHandler) ReleaseSnapshot(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Snapshot string `json:"snapshot"`
+		Tag      string `json:"tag"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondErrorSimple(w, "Invalid request", http.StatusBadRequest)
+		return
+	}
+	if !isValidSnapshotName(req.Snapshot) || !isValidHoldTag(req.Tag) {
+		respondErrorSimple(w, "Invalid snapshot name or hold tag", http.StatusBadRequest)
+		return
+	}
+
+	_, err := executeCommandWithTimeout(TimeoutMedium, "zfs", []string{"release", req.Tag, req.Snapshot})
+	if err != nil {
+		respondOK(w, map[string]interface{}{"success": false, "error": err.Error()})
+		return
+	}
+	respondOK(w, map[string]interface{}{"success": true, "snapshot": req.Snapshot, "tag": req.Tag})
+}
+
+// ListHolds lists current holds on a snapshot.
+// GET /api/zfs/holds?snapshot=tank/data@foo
+func (h *ZFSHandler) ListHolds(w http.ResponseWriter, r *http.Request) {
+	snapshot := r.URL.Query().Get("snapshot")
+	if !isValidSnapshotName(snapshot) {
+		respondErrorSimple(w, "Invalid snapshot", http.StatusBadRequest)
+		return
+	}
+
+	output, err := executeCommandWithTimeout(TimeoutFast, "zfs", []string{"holds", "-H", snapshot})
+	if err != nil {
+		respondOK(w, map[string]interface{}{"success": false, "error": err.Error()})
+		return
+	}
+
+	type Hold struct {
+		Tag       string `json:"tag"`
+		Timestamp string `json:"timestamp"`
+	}
+	var holds []Hold
+	for _, line := range strings.Split(strings.TrimSpace(output), "\n") {
+		if line == "" {
+			continue
+		}
+		parts := strings.Split(line, "\t")
+		if len(parts) >= 2 {
+			holds = append(holds, Hold{Tag: parts[1], Timestamp: parts[2]})
+		}
+	}
+
+	respondOK(w, map[string]interface{}{"success": true, "snapshot": snapshot, "holds": holds})
+}
+
+// SplitPool splits a mirrored pool into two pools.
+// POST /api/zfs/pools/split { "pool": "tank", "new_pool": "tank2" }
+func (h *ZFSHandler) SplitPool(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Pool    string `json:"pool"`
+		NewPool string `json:"new_pool"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondErrorSimple(w, "Invalid request", http.StatusBadRequest)
+		return
+	}
+	if !isValidDataset(req.Pool) || !isValidDataset(req.NewPool) {
+		respondErrorSimple(w, "Invalid pool names", http.StatusBadRequest)
+		return
+	}
+
+	// Validate mirror topology
+	status, err := executeCommandWithTimeout(TimeoutFast, "zpool", []string{"status", req.Pool})
+	if err != nil || !strings.Contains(status, "mirror-") {
+		respondErrorSimple(w, "Pool is not a mirror and cannot be split", http.StatusBadRequest)
+		return
+	}
+
+	_, err = executeCommandWithTimeout(TimeoutLong, "zpool", []string{"split", req.Pool, req.NewPool})
+	if err != nil {
+		respondOK(w, map[string]interface{}{"success": false, "error": err.Error()})
+		return
+	}
+	respondOK(w, map[string]interface{}{"success": true, "pool": req.Pool, "new_pool": req.NewPool})
+}
+
+func isValidHoldTag(tag string) bool {
+	return regexp.MustCompile(`^[a-zA-Z0-9_\-\.]+$`).MatchString(tag)
+}
+
 // SetUserGroupQuota sets or clears a per-user or per-group quota on a dataset.
 // POST /api/zfs/quota/usergroup
-// Body: {"dataset":"tank/data","type":"user","name":"alice","quota":"50G"}
-// Set quota to "none" to remove it.
-func SetUserGroupQuota(w http.ResponseWriter, r *http.Request) {
+func (h *ZFSHandler) SetUserGroupQuota(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Dataset string `json:"dataset"`
 		Type    string `json:"type"`  // "user" or "group"
@@ -1333,6 +1447,7 @@ func (h *ZFSHandler) PromoteDataset(w http.ResponseWriter, r *http.Request) {
 
 	respondOK(w, map[string]interface{}{"success": true})
 }
+
 
 // OfflineDisk takes a ZFS device offline
 // POST /api/zfs/pool/offline

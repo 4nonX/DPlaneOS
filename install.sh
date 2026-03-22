@@ -514,12 +514,13 @@ fi
 
 INSTALL_PHASE=6
 
-# ────────────────────────────────────────────────────────────────────────────
-step "Phase 6/13: sudoers"
-# ────────────────────────────────────────────────────────────────────────────
+if [ "${OS_ID,,}" != "nixos" ]; then
+    # ────────────────────────────────────────────────────────────────────────────
+    step "Phase 6/13: sudoers"
+    # ────────────────────────────────────────────────────────────────────────────
 
-SUDOERS_TMP=$(mktemp)
-cat > "$SUDOERS_TMP" <<'SUDOERS'
+    SUDOERS_TMP=$(mktemp)
+    cat > "$SUDOERS_TMP" <<'SUDOERS'
 # D-PlaneOS daemon permissions - managed by install.sh
 Defaults:www-data !requiretty
 www-data ALL=(ALL) NOPASSWD: /sbin/zfs, /sbin/zpool
@@ -535,14 +536,17 @@ www-data ALL=(ALL) NOPASSWD: /usr/bin/lsusb
 www-data ALL=(ALL) NOPASSWD: /usr/bin/lspci
 SUDOERS
 
-if visudo -c -f "$SUDOERS_TMP" &>/dev/null; then
-    cp "$SUDOERS_TMP" /etc/sudoers.d/dplaneos
-    chmod 440 /etc/sudoers.d/dplaneos
-    log "sudoers configured and validated"
+    if visudo -c -f "$SUDOERS_TMP" &>/dev/null; then
+        cp "$SUDOERS_TMP" /etc/sudoers.d/dplaneos
+        chmod 440 /etc/sudoers.d/dplaneos
+        log "sudoers configured and validated"
+    else
+        warn "sudoers validation failed - skipping (daemon still works as root)"
+    fi
+    rm -f "$SUDOERS_TMP"
 else
-    warn "sudoers validation failed - skipping (daemon still works as root)"
+    log "Skipping sudoers configuration for NixOS"
 fi
-rm -f "$SUDOERS_TMP"
 
 INSTALL_PHASE=7
 

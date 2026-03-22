@@ -64,8 +64,8 @@ func (h *NixOSGuardHandler) BackupConfig(w http.ResponseWriter, r *http.Request)
 	respondJSON(w, 200, map[string]interface{}{"success": true, "message": "NixOS configuration successfully backed up"})
 }
 
-// isNixOS checks if we're running on NixOS
-func isNixOS() bool {
+// IsNixOS checks if we're running on NixOS
+func IsNixOS() bool {
 	_, err := os.Stat("/etc/NIXOS")
 	return err == nil
 }
@@ -73,7 +73,7 @@ func isNixOS() bool {
 // DetectNixOS reports whether the system is NixOS
 // GET /api/nixos/detect
 func (h *NixOSGuardHandler) DetectNixOS(w http.ResponseWriter, r *http.Request) {
-	nixos := isNixOS()
+	nixos := IsNixOS()
 
 	result := map[string]interface{}{
 		"success": true,
@@ -106,7 +106,7 @@ func (h *NixOSGuardHandler) DetectNixOS(w http.ResponseWriter, r *http.Request) 
 // ValidateConfig dry-runs a NixOS configuration change
 // POST /api/nixos/validate { "config_snippet": "..." }
 func (h *NixOSGuardHandler) ValidateConfig(w http.ResponseWriter, r *http.Request) {
-	if !isNixOS() {
+	if !IsNixOS() {
 		respondErrorSimple(w, "Not a NixOS system", http.StatusBadRequest)
 		return
 	}
@@ -173,7 +173,7 @@ func (h *NixOSGuardHandler) ValidateConfig(w http.ResponseWriter, r *http.Reques
 // ListGenerations lists NixOS system generations (rollback points)
 // GET /api/nixos/generations
 func (h *NixOSGuardHandler) ListGenerations(w http.ResponseWriter, r *http.Request) {
-	if !isNixOS() {
+	if !IsNixOS() {
 		respondErrorSimple(w, "Not a NixOS system", http.StatusBadRequest)
 		return
 	}
@@ -224,7 +224,7 @@ func (h *NixOSGuardHandler) ListGenerations(w http.ResponseWriter, r *http.Reque
 // RollbackGeneration switches to a previous NixOS generation
 // POST /api/nixos/rollback { "generation": "42" }
 func (h *NixOSGuardHandler) RollbackGeneration(w http.ResponseWriter, r *http.Request) {
-	if !isNixOS() {
+	if !IsNixOS() {
 		respondErrorSimple(w, "Not a NixOS system", http.StatusBadRequest)
 		return
 	}

@@ -152,7 +152,7 @@ func ShouldIgnoreFile(name string, customPatterns []string) bool {
 // DiffGenerations shows what changed between two NixOS generations
 // GET /api/nixos/diff?from=42&to=43
 func (h *NixOSGuardHandler) DiffGenerations(w http.ResponseWriter, r *http.Request) {
-	if !isNixOS() {
+	if !IsNixOS() {
 		respondErrorSimple(w, "Not a NixOS system", http.StatusBadRequest)
 		return
 	}

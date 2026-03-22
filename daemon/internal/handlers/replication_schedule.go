@@ -216,7 +216,7 @@ func (h *ReplicationScheduleHandler) HandleUpdateReplicationSchedule(w http.Resp
 	respondOK(w, map[string]interface{}{"success": true})
 
 	// GITOPS HOOK: write state back to git
-	go gitops.CommitAll(h.db)
+	gitops.CommitAllAsync(h.db)
 }
 
 // HandleDeleteReplicationSchedule serves DELETE /api/replication/schedules/{id}
@@ -256,7 +256,7 @@ func (h *ReplicationScheduleHandler) HandleDeleteReplicationSchedule(w http.Resp
 	respondOK(w, map[string]interface{}{"success": true})
 
 	// GITOPS HOOK: write state back to git
-	go gitops.CommitAll(h.db)
+	gitops.CommitAllAsync(h.db)
 }
 
 // HandleRunReplicationScheduleNow serves POST /api/replication/schedules/{id}/run
