@@ -364,7 +364,7 @@ func ReplaceDisk(w http.ResponseWriter, r *http.Request) {
 
 // SetDatasetQuota sets refquota and refreservation on a dataset
 // POST /api/zfs/dataset/quota
-func SetDatasetQuota(w http.ResponseWriter, r *http.Request) {
+func (h *ZFSHandler) SetDatasetQuota(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Dataset        string `json:"dataset"`
 		RefQuota       string `json:"refquota"`       // e.g. "500G", "1T", "none"
@@ -410,7 +410,7 @@ func SetDatasetQuota(w http.ResponseWriter, r *http.Request) {
 
 // GetDatasetQuota reads quota/reservation settings
 // GET /api/zfs/dataset/quota?dataset=tank/data
-func GetDatasetQuota(w http.ResponseWriter, r *http.Request) {
+func (h *ZFSHandler) GetDatasetQuota(w http.ResponseWriter, r *http.Request) {
 	dataset := r.URL.Query().Get("dataset")
 	if !isValidDataset(dataset) {
 		respondErrorSimple(w, "Invalid dataset", http.StatusBadRequest)
@@ -735,7 +735,7 @@ func isValidSize(s string) bool {
 // GetUserGroupQuotas returns per-user and per-group space usage and quotas
 // for a given dataset.
 // GET /api/zfs/quota/usergroup?dataset=tank/data
-func GetUserGroupQuotas(w http.ResponseWriter, r *http.Request) {
+func (h *ZFSHandler) GetUserGroupQuotas(w http.ResponseWriter, r *http.Request) {
 	dataset := r.URL.Query().Get("dataset")
 	if !isValidDataset(dataset) {
 		respondErrorSimple(w, "Invalid or missing dataset", http.StatusBadRequest)

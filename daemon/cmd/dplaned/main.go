@@ -792,12 +792,12 @@ func main() {
 	r.Handle("/api/zfs/disk/wipe", permRoute("storage", "write", handlers.WipeDisk)).Methods("POST")
 
 	// v3.0.0: Dataset quotas
-	r.HandleFunc("/api/zfs/dataset/quota", handlers.SetDatasetQuota).Methods("POST")
-	r.HandleFunc("/api/zfs/dataset/quota", handlers.GetDatasetQuota).Methods("GET")
+	r.HandleFunc("/api/zfs/dataset/quota", zfsHandler.SetDatasetQuota).Methods("POST")
+	r.HandleFunc("/api/zfs/dataset/quota", zfsHandler.GetDatasetQuota).Methods("GET")
 
 	// v3.0.0: Per-user and per-group quotas (ZFS userquota/groupquota)
-	r.HandleFunc("/api/zfs/quota/usergroup", handlers.GetUserGroupQuotas).Methods("GET")
-	r.HandleFunc("/api/zfs/quota/usergroup", handlers.SetUserGroupQuota).Methods("POST")
+	r.HandleFunc("/api/zfs/quota/usergroup", zfsHandler.GetUserGroupQuotas).Methods("GET")
+	r.HandleFunc("/api/zfs/quota/usergroup", zfsHandler.SetUserGroupQuota).Methods("POST")
 
 	// v3.0.0: S.M.A.R.T. tests
 	r.HandleFunc("/api/zfs/smart/test", handlers.RunSMARTTest).Methods("POST")
@@ -1042,15 +1042,12 @@ func main() {
 	r.Handle("/api/certs/{name}", permRoute("certificates", "write", certHandler.DeleteCert)).Methods("DELETE")
 
 	// ZFS Holds (v6.2.0)
-	// Storage
-	storageHandler := handlers.NewZFSHandler(db)
-	r.Handle("/api/zfs/pools", permRoute("storage", "read", storageHandler.ListPools)).Methods("GET")
-	r.Handle("/api/zfs/hold", permRoute("storage", "write", storageHandler.HoldSnapshot)).Methods("POST")
-	r.Handle("/api/zfs/release", permRoute("storage", "write", storageHandler.ReleaseSnapshot)).Methods("POST")
-	r.Handle("/api/zfs/holds", permRoute("storage", "read", storageHandler.ListHolds)).Methods("GET")
+	r.Handle("/api/zfs/hold", permRoute("storage", "write", zfsHandler.HoldSnapshot)).Methods("POST")
+	r.Handle("/api/zfs/release", permRoute("storage", "write", zfsHandler.ReleaseSnapshot)).Methods("POST")
+	r.Handle("/api/zfs/holds", permRoute("storage", "read", zfsHandler.ListHolds)).Methods("GET")
 
 	// ZFS Split (v6.2.0)
-	r.Handle("/api/zfs/pools/split", permRoute("storage", "write", storageHandler.SplitPool)).Methods("POST")
+	r.Handle("/api/zfs/pools/split", permRoute("storage", "write", zfsHandler.SplitPool)).Methods("POST")
 
 	// Trash / Recycle Bin (v2.0.0)
 	trashHandler := handlers.NewTrashHandler()
