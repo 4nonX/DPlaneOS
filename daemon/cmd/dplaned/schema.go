@@ -81,7 +81,7 @@ func initSchema(db *sql.DB) error {
 			user_id BIGINT NOT NULL,
 			role_id BIGINT NOT NULL,
 			granted_by TEXT NOT NULL DEFAULT 'system',
-			expires_at TEXT,
+			expires_at TIMESTAMPTZ,
 			PRIMARY KEY (user_id, role_id),
 			FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
 			FOREIGN KEY (role_id) REFERENCES roles(id) ON DELETE CASCADE

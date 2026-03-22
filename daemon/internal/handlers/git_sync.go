@@ -392,7 +392,8 @@ func (h *GitSyncHandler) loadConfig() (*gitSyncConfig, error) {
 	var autoDeploy int
 	err := h.db.QueryRow(`SELECT repo_url, branch, local_path, sync_interval, auto_deploy,
 		auth_type, auth_token, ssh_key_path, host_key_mode, commit_name, commit_email,
-		COALESCE(last_sync_at,''), COALESCE(last_commit,''), COALESCE(last_error,'')
+		COALESCE(TO_CHAR(last_sync_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), ''), 
+		COALESCE(last_commit,''), COALESCE(last_error,'')
 		FROM git_sync_config WHERE id = 1`).Scan(
 		&cfg.RepoURL, &cfg.Branch, &cfg.LocalPath, &cfg.SyncInterval, &autoDeploy,
 		&cfg.AuthType, &cfg.AuthToken, &cfg.SSHKeyPath, &cfg.HostKeyMode, &cfg.CommitName, &cfg.CommitEmail,
