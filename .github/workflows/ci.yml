@@ -116,6 +116,7 @@ jobs:
           path: |
             build/
             app/
+            dplaned-ci
 
   # ════════════════════════════════════════════════════════════════════════════
   # STAGE 2: VALIDATE - Full API Integration Tests
