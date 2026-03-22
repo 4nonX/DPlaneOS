@@ -1384,14 +1384,14 @@ func (h *ZFSHandler) RenameDataset(w http.ResponseWriter, r *http.Request) {
 
 	// C. Check NFS exports (SQLite)
 	var nfsCount int
-	err = h.db.QueryRow("SELECT COUNT(*) FROM nfs_exports WHERE path = ?", "/mnt/"+req.OldName).Scan(&nfsCount)
+	err = h.db.QueryRow("SELECT COUNT(*) FROM nfs_exports WHERE path = $1", "/mnt/"+req.OldName).Scan(&nfsCount)
 	if err == nil && nfsCount > 0 {
 		blockers = append(blockers, "NFS export exists for this dataset")
 	}
 
 	// D. Check scrub schedules (SQLite settings table)
 	var scrubValue string
-	err = h.db.QueryRow("SELECT value FROM settings WHERE key = ?", "scrub_schedules").Scan(&scrubValue)
+	err = h.db.QueryRow("SELECT value FROM settings WHERE key = $1", "scrub_schedules").Scan(&scrubValue)
 	if err == nil && scrubValue != "" {
 		var scrubSchedules []ScrubSchedule
 		if json.Unmarshal([]byte(scrubValue), &scrubSchedules) == nil {

@@ -52,7 +52,7 @@ func (h *AuditRotationHandler) VerifyAuditChain(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	db, err := sql.Open("sqlite3", h.dbPath+"?_journal_mode=WAL&_busy_timeout=30000&cache=shared&_synchronous=FULL")
+	db, err := sql.Open("pgx", h.dbDSN)
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, "Failed to open database", err)
 		return
@@ -60,7 +60,7 @@ func (h *AuditRotationHandler) VerifyAuditChain(w http.ResponseWriter, r *http.R
 	defer db.Close()
 
 	rows, err := db.Query(`
-		SELECT id, timestamp, user, action, resource, details, ip_address, success, prev_hash, row_hash
+		SELECT id, timestamp, "user", action, resource, details, ip_address, success, prev_hash, row_hash
 		FROM audit_logs
 		ORDER BY id ASC
 	`)

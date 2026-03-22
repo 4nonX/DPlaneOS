@@ -200,7 +200,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	var storedHash, source string
 	var active, mustChange int
 	err := h.db.QueryRow(
-		`SELECT id, password_hash, active, COALESCE(must_change_password, 0), COALESCE(source,'local') FROM users WHERE username = ? LIMIT 1`,
+		`SELECT id, password_hash, active, COALESCE(must_change_password, 0), COALESCE(source,'local') FROM users WHERE username = $1 LIMIT 1`,
 		req.Username,
 	).Scan(&userID, &storedHash, &active, &mustChange, &source)
 
@@ -264,7 +264,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 
 	// Check if user has TOTP enabled
 	var totpEnabled int
-	h.db.QueryRow(`SELECT COALESCE(totp_enabled, 0) FROM users WHERE id = ?`, userID).Scan(&totpEnabled)
+	h.db.QueryRow(`SELECT COALESCE(totp_enabled, 0) FROM users WHERE id = $1`, userID).Scan(&totpEnabled)
 
 	// Session expires in 24 hours
 	expiresAt := time.Now().Add(24 * time.Hour).Unix()
@@ -274,7 +274,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		pendingExpiry := time.Now().Add(5 * time.Minute).Unix()
 		pendingCreated := time.Now().Unix()
 		_, err = h.db.Exec(
-			`INSERT INTO sessions (session_id, user_id, username, created_at, expires_at, status) VALUES (?, ?, ?, ?, ?, 'pending_totp')`,
+			`INSERT INTO sessions (session_id, user_id, username, created_at, expires_at, status) VALUES ($1, $2, $3, $4, $5, 'pending_totp')`,
 			sessionID, userID, req.Username, pendingCreated, pendingExpiry,
 		)
 		if err != nil {
@@ -298,7 +298,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	userAgent := r.Header.Get("User-Agent")
 	createdAt := time.Now().Unix()
 	_, err = h.db.Exec(
-		`INSERT INTO sessions (session_id, user_id, username, ip_address, user_agent, created_at, expires_at, status) VALUES (?, ?, ?, ?, ?, ?, ?, 'active')`,
+		`INSERT INTO sessions (session_id, user_id, username, ip_address, user_agent, created_at, expires_at, status) VALUES ($1, $2, $3, $4, $5, $6, $7, 'active')`,
 		sessionID, userID, req.Username, ip, userAgent, createdAt, expiresAt,
 	)
 	if err != nil {
@@ -314,6 +314,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	h.auditLog(req.Username, "login", "Session created", clientIP)
 
 	log.Printf("AUTH OK: %q from %s", req.Username, clientIP)
+	h.db.Exec(`UPDATE users SET last_login = NOW() WHERE id = $1`, userID)
 
 	respondJSON(w, http.StatusOK, map[string]interface{}{
 		"success":              true,
@@ -331,7 +332,7 @@ func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
 	username := r.Header.Get("X-User")
 
 	if sessionID != "" {
-		h.db.Exec(`DELETE FROM sessions WHERE session_id = ?`, sessionID)
+		h.db.Exec(`DELETE FROM sessions WHERE session_id = $1`, sessionID)
 		clientIP := r.RemoteAddr
 		if forwarded := r.Header.Get("X-Forwarded-For"); forwarded != "" {
 			clientIP = strings.Split(forwarded, ",")[0]
@@ -361,7 +362,7 @@ func (h *AuthHandler) Check(w http.ResponseWriter, r *http.Request) {
 	var expiresAt int64
 	err := h.db.QueryRow(
 		`SELECT username, COALESCE(expires_at, 0) FROM sessions 
-		 WHERE session_id = ? AND (expires_at IS NULL OR expires_at > ?)`,
+		 WHERE session_id = $1 AND (expires_at IS NULL OR expires_at > $2)`,
 		sessionID, time.Now().Unix(),
 	).Scan(&username, &expiresAt)
 
@@ -398,7 +399,7 @@ func (h *AuthHandler) Session(w http.ResponseWriter, r *http.Request) {
 	err := h.db.QueryRow(
 		`SELECT u.id, u.username, COALESCE(u.email,''), COALESCE(u.role,'user'), COALESCE(u.must_change_password,0)
 		 FROM sessions s JOIN users u ON s.username = u.username
-		 WHERE s.session_id = ? AND (s.expires_at IS NULL OR s.expires_at > ?) AND u.active = 1`,
+		 WHERE s.session_id = $1 AND (s.expires_at IS NULL OR s.expires_at > $2) AND u.active = 1`,
 		sessionID, time.Now().Unix(),
 	).Scan(&userID, &username, &email, &role, &mustChange)
 
@@ -445,7 +446,7 @@ func (h *AuthHandler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 	// Get username from session
 	var username string
 	err := h.db.QueryRow(
-		`SELECT username FROM sessions WHERE session_id = ? AND (expires_at IS NULL OR expires_at > ?)`,
+		`SELECT username FROM sessions WHERE session_id = $1 AND (expires_at IS NULL OR expires_at > $2)`,
 		sessionID, time.Now().Unix(),
 	).Scan(&username)
 	if err != nil {
@@ -477,7 +478,7 @@ func (h *AuthHandler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 
 	// Verify current password
 	var storedHash string
-	err = h.db.QueryRow(`SELECT password_hash FROM users WHERE username = ?`, username).Scan(&storedHash)
+	err = h.db.QueryRow(`SELECT password_hash FROM users WHERE username = $1`, username).Scan(&storedHash)
 	if err != nil {
 		respondJSON(w, http.StatusInternalServerError, map[string]interface{}{
 			"success": false, "error": "Internal error",
@@ -503,7 +504,7 @@ func (h *AuthHandler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 
 	// Update
 	_, err = h.db.Exec(
-		`UPDATE users SET password_hash = ?, must_change_password = 0 WHERE username = ?`,
+		`UPDATE users SET password_hash = $1, must_change_password = 0 WHERE username = $2`,
 		string(newHash), username,
 	)
 	if err != nil {
@@ -679,7 +680,7 @@ func isLDAPConnError(err error) bool {
 
 // CleanExpiredSessions removes expired sessions (call periodically)
 func (h *AuthHandler) CleanExpiredSessions() {
-	result, err := h.db.Exec(`DELETE FROM sessions WHERE expires_at IS NOT NULL AND expires_at < ?`, time.Now().Unix())
+	result, err := h.db.Exec(`DELETE FROM sessions WHERE expires_at IS NOT NULL AND expires_at < $1`, time.Now().Unix())
 	if err != nil {
 		log.Printf("Session cleanup error: %v", err)
 		return
@@ -769,7 +770,7 @@ func (h *AuthHandler) RevokeSession(w http.ResponseWriter, r *http.Request) {
 
 	// Safety: Verify the session belongs to the user
 	var sessionOwner string
-	err := h.db.QueryRow("SELECT username FROM sessions WHERE session_id = ?", req.ID).Scan(&sessionOwner)
+	err := h.db.QueryRow("SELECT username FROM sessions WHERE session_id = $1", req.ID).Scan(&sessionOwner)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			respondErrorSimple(w, "Session not found", http.StatusNotFound)

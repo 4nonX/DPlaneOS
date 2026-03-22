@@ -36,8 +36,8 @@ func NewGitReposHandler(db *sql.DB) *GitReposHandler {
 // ListCredentials - GET /api/git-sync/credentials
 func (h *GitReposHandler) ListCredentials(w http.ResponseWriter, r *http.Request) {
 	rows, err := h.db.Query(`SELECT id, name, host, auth_type, notes, created_at,
-		CASE WHEN length(token) > 0 THEN 1 ELSE 0 END as has_token,
-		CASE WHEN length(ssh_key) > 0 THEN 1 ELSE 0 END as has_ssh
+		CASE WHEN token <> '' THEN 1 ELSE 0 END as has_token,
+		CASE WHEN ssh_key <> '' THEN 1 ELSE 0 END as has_ssh
 		FROM git_credentials ORDER BY name`)
 	if err != nil {
 		respondJSON(w, 500, map[string]interface{}{"success": false, "error": err.Error()})
@@ -95,13 +95,13 @@ func (h *GitReposHandler) SaveCredential(w http.ResponseWriter, r *http.Request)
 	if req.ID != nil {
 		// Update existing - only update token/key if non-empty (empty = keep existing)
 		if req.Token != "" && req.AuthType == "token" {
-			h.db.Exec(`UPDATE git_credentials SET name=?, host=?, auth_type=?, token=?, ssh_key='', notes=? WHERE id=?`,
+			h.db.Exec(`UPDATE git_credentials SET name=$1, host=$2, auth_type=$3, token=$4, ssh_key='', notes=$5 WHERE id=$6`,
 				req.Name, req.Host, req.AuthType, req.Token, req.Notes, *req.ID)
 		} else if req.AuthType == "ssh" && req.SSHKey != "" {
-			h.db.Exec(`UPDATE git_credentials SET name=?, host=?, auth_type=?, token='', ssh_key=?, notes=? WHERE id=?`,
+			h.db.Exec(`UPDATE git_credentials SET name=$1, host=$2, auth_type=$3, token='', ssh_key=$4, notes=$5 WHERE id=$6`,
 				req.Name, req.Host, req.AuthType, req.SSHKey, req.Notes, *req.ID)
 		} else {
-			h.db.Exec(`UPDATE git_credentials SET name=?, host=?, auth_type=?, notes=? WHERE id=?`,
+			h.db.Exec(`UPDATE git_credentials SET name=$1, host=$2, auth_type=$3, notes=$4 WHERE id=$5`,
 				req.Name, req.Host, req.AuthType, req.Notes, *req.ID)
 		}
 		respondJSON(w, 200, map[string]interface{}{"success": true})
@@ -117,17 +117,18 @@ func (h *GitReposHandler) SaveCredential(w http.ResponseWriter, r *http.Request)
 		sshKeyStore = ""
 	}
 
-	result, err := h.db.Exec(`INSERT INTO git_credentials (name, host, auth_type, token, ssh_key, notes) VALUES (?,?,?,?,?,?)`,
-		req.Name, req.Host, req.AuthType, tokenStore, sshKeyStore, req.Notes)
-	if err != nil {
-		if strings.Contains(err.Error(), "UNIQUE") {
+	var id int64
+	var dbErr error
+	dbErr = h.db.QueryRow(`INSERT INTO git_credentials (name, host, auth_type, token, ssh_key, notes) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
+		req.Name, req.Host, req.AuthType, tokenStore, sshKeyStore, req.Notes).Scan(&id)
+	if dbErr != nil {
+		if strings.Contains(dbErr.Error(), "unique constraint") || strings.Contains(dbErr.Error(), "duplicate key") {
 			respondJSON(w, 409, map[string]interface{}{"success": false, "error": "A credential with this name already exists"})
 		} else {
-			respondJSON(w, 500, map[string]interface{}{"success": false, "error": err.Error()})
+			respondJSON(w, 500, map[string]interface{}{"success": false, "error": dbErr.Error()})
 		}
 		return
 	}
-	id, _ := result.LastInsertId()
 	respondJSON(w, 200, map[string]interface{}{"success": true, "id": id})
 }
 
@@ -188,7 +189,7 @@ func (h *GitReposHandler) DeleteCredential(w http.ResponseWriter, r *http.Reques
 		respondJSON(w, 400, map[string]interface{}{"success": false, "error": "id required"})
 		return
 	}
-	h.db.Exec(`DELETE FROM git_credentials WHERE id = ?`, idStr)
+	h.db.Exec(`DELETE FROM git_credentials WHERE id = $1`, idStr)
 	respondJSON(w, 200, map[string]interface{}{"success": true})
 }
 
@@ -371,7 +372,8 @@ func (h *GitReposHandler) ListRepos(w http.ResponseWriter, r *http.Request) {
 	rows, err := h.db.Query(`SELECT r.id, r.name, r.repo_url, r.branch, r.local_path,
 		r.compose_path, r.auto_sync, r.sync_interval,
 		r.commit_name, r.commit_email,
-		COALESCE(r.last_sync_at,''), COALESCE(r.last_commit,''), COALESCE(r.last_error,''),
+		COALESCE(TO_CHAR(r.last_sync_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), ''), 
+		COALESCE(r.last_commit,''), COALESCE(r.last_error,''),
 		r.enabled, COALESCE(c.name,''), COALESCE(c.id, 0)
 		FROM git_sync_repos r
 		LEFT JOIN git_credentials c ON r.auth_type = 'cred' AND r.auth_token = CAST(c.id AS TEXT)
@@ -488,9 +490,9 @@ func (h *GitReposHandler) SaveRepo(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.ID != nil {
-		h.db.Exec(`UPDATE git_sync_repos SET name=?, repo_url=?, branch=?, local_path=?,
-			compose_path=?, auto_sync=?, sync_interval=?, auth_type=?, auth_token=?,
-			commit_name=?, commit_email=?, enabled=? WHERE id=?`,
+		h.db.Exec(`UPDATE git_sync_repos SET name=$1, repo_url=$2, branch=$3, local_path=$4,
+			compose_path=$5, auto_sync=$6, sync_interval=$7, auth_type=$8, auth_token=$9,
+			commit_name=$10, commit_email=$11, enabled=$12 WHERE id=$13`,
 			req.Name, req.RepoURL, req.Branch, localPath,
 			req.ComposePath, autoSyncInt, req.SyncInterval, authType, authToken,
 			req.CommitName, req.CommitEmail, enabledInt, *req.ID)
@@ -498,22 +500,22 @@ func (h *GitReposHandler) SaveRepo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := h.db.Exec(`INSERT INTO git_sync_repos
+	var id int64
+	err := h.db.QueryRow(`INSERT INTO git_sync_repos
 		(name, repo_url, branch, local_path, compose_path, auto_sync, sync_interval,
 		 auth_type, auth_token, commit_name, commit_email, enabled)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id`,
 		req.Name, req.RepoURL, req.Branch, localPath,
 		req.ComposePath, autoSyncInt, req.SyncInterval, authType, authToken,
-		req.CommitName, req.CommitEmail, enabledInt)
+		req.CommitName, req.CommitEmail, enabledInt).Scan(&id)
 	if err != nil {
-		if strings.Contains(err.Error(), "UNIQUE") {
+		if strings.Contains(err.Error(), "unique constraint") || strings.Contains(err.Error(), "duplicate key") {
 			respondJSON(w, 409, map[string]interface{}{"success": false, "error": "A sync with this name already exists"})
 		} else {
 			respondJSON(w, 500, map[string]interface{}{"success": false, "error": err.Error()})
 		}
 		return
 	}
-	id, _ := result.LastInsertId()
 	respondJSON(w, 200, map[string]interface{}{"success": true, "id": id})
 }
 
@@ -526,8 +528,8 @@ func (h *GitReposHandler) DeleteRepo(w http.ResponseWriter, r *http.Request) {
 	}
 	// Optionally delete local clone too
 	var localPath string
-	h.db.QueryRow(`SELECT local_path FROM git_sync_repos WHERE id=?`, idStr).Scan(&localPath)
-	h.db.Exec(`DELETE FROM git_sync_repos WHERE id=?`, idStr)
+	h.db.QueryRow(`SELECT local_path FROM git_sync_repos WHERE id=$1`, idStr).Scan(&localPath)
+	h.db.Exec(`DELETE FROM git_sync_repos WHERE id=$1`, idStr)
 	respondJSON(w, 200, map[string]interface{}{"success": true, "local_path": localPath})
 }
 
@@ -557,15 +559,15 @@ func (h *GitReposHandler) PullRepo(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err != nil {
-		h.db.Exec(`UPDATE git_sync_repos SET last_error=?, last_sync_at=? WHERE id=?`,
-			out, time.Now().Format(time.RFC3339), idStr)
+		h.db.Exec(`UPDATE git_sync_repos SET last_error=$1, last_sync_at=NOW() WHERE id=$2`,
+			out, idStr)
 		respondJSON(w, 500, map[string]interface{}{"success": false, "error": out})
 		return
 	}
 
 	commit := getHeadCommit(repo.LocalPath)
-	h.db.Exec(`UPDATE git_sync_repos SET last_sync_at=?, last_commit=?, last_error='' WHERE id=?`,
-		time.Now().Format(time.RFC3339), commit, idStr)
+	h.db.Exec(`UPDATE git_sync_repos SET last_sync_at=NOW(), last_commit=$1, last_error='' WHERE id=$2`,
+		commit, idStr)
 	log.Printf("GIT-REPOS: Pulled %s - %s", repo.Name, commit)
 	respondJSON(w, 200, map[string]interface{}{"success": true, "commit": commit, "output": out})
 }
@@ -604,8 +606,8 @@ func (h *GitReposHandler) PushRepo(w http.ResponseWriter, r *http.Request) {
 	}
 
 	commit := getHeadCommit(repo.LocalPath)
-	h.db.Exec(`UPDATE git_sync_repos SET last_commit=?, last_sync_at=? WHERE id=?`,
-		commit, time.Now().Format(time.RFC3339), idStr)
+	h.db.Exec(`UPDATE git_sync_repos SET last_commit=$1, last_sync_at=NOW() WHERE id=$2`,
+		commit, idStr)
 	log.Printf("GIT-REPOS: Pushed %s - %s", repo.Name, commit)
 	respondJSON(w, 200, map[string]interface{}{"success": true, "commit": commit})
 }
@@ -727,7 +729,7 @@ type gitCredential struct {
 
 func (h *GitReposHandler) loadCredential(id int) (*gitCredential, error) {
 	var c gitCredential
-	err := h.db.QueryRow(`SELECT id, name, host, auth_type, token, ssh_key FROM git_credentials WHERE id=?`, id).
+	err := h.db.QueryRow(`SELECT id, name, host, auth_type, token, ssh_key FROM git_credentials WHERE id=$1`, id).
 		Scan(&c.ID, &c.Name, &c.Host, &c.AuthType, &c.Token, &c.SSHKey)
 	if err != nil {
 		return nil, err
@@ -740,8 +742,9 @@ func (h *GitReposHandler) loadRepo(idStr string) (*repoSync, error) {
 	var autoSync, enabled int
 	err := h.db.QueryRow(`SELECT id, name, repo_url, branch, local_path, compose_path,
 		auto_sync, sync_interval, commit_name, commit_email,
-		COALESCE(last_sync_at,''), COALESCE(last_commit,''), COALESCE(last_error,''), enabled
-		FROM git_sync_repos WHERE id=?`, idStr).
+		COALESCE(TO_CHAR(last_sync_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), ''), 
+		COALESCE(last_commit,''), COALESCE(last_error,''), enabled
+		FROM git_sync_repos WHERE id=$1`, idStr).
 		Scan(&repo.ID, &repo.Name, &repo.RepoURL, &repo.Branch, &repo.LocalPath, &repo.ComposePath,
 			&autoSync, &repo.SyncInterval, &repo.CommitName, &repo.CommitEmail,
 			&repo.LastSyncAt, &repo.LastCommit, &repo.LastError, &enabled)

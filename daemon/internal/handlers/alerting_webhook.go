@@ -1,4 +1,4 @@
-﻿package handlers
+package handlers
 
 import (
 	"bytes"
@@ -157,22 +157,22 @@ func (h *WebhookHandler) SaveWebhook(w http.ResponseWriter, r *http.Request) {
 
 	if req.ID == 0 {
 		// Create
-		result, err := h.db.Exec(`
+		var id int64
+		err := h.db.QueryRow(`
 			INSERT INTO webhook_configs (name, url, secret_header, secret_value, content_type, body_template, enabled, events)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
 			req.Name, req.URL, req.SecretHeader, req.SecretValue,
 			req.ContentType, req.BodyTemplate,
 			req.Enabled, req.Events,
-		)
+		).Scan(&id)
 		if err != nil {
-			if strings.Contains(err.Error(), "UNIQUE constraint") {
+			if strings.Contains(err.Error(), "unique constraint") || strings.Contains(err.Error(), "duplicate key") {
 				respondErrorSimple(w, "A webhook with that name already exists", http.StatusConflict)
 				return
 			}
 			respondError(w, http.StatusInternalServerError, "Failed to create webhook", err)
 			return
 		}
-		id, _ := result.LastInsertId()
 		respondOK(w, map[string]interface{}{"success": true, "id": id, "message": "Webhook created"})
 	} else {
 		// Update - only replace secret_value if provided, keep existing otherwise
@@ -180,9 +180,9 @@ func (h *WebhookHandler) SaveWebhook(w http.ResponseWriter, r *http.Request) {
 		var query string
 		if req.SecretValue != "" {
 			query = `UPDATE webhook_configs
-				SET name=?, url=?, secret_header=?, secret_value=?, content_type=?, body_template=?,
-				    enabled=?, events=?, updated_at=datetime('now')
-				WHERE id=?`
+				SET name=$1, url=$2, secret_header=$3, secret_value=$4, content_type=$5, body_template=$6,
+				    enabled=$7, events=$8, updated_at=NOW()
+				WHERE id=$9`
 			args = []interface{}{
 				req.Name, req.URL, req.SecretHeader, req.SecretValue,
 				req.ContentType, req.BodyTemplate,
@@ -190,9 +190,9 @@ func (h *WebhookHandler) SaveWebhook(w http.ResponseWriter, r *http.Request) {
 			}
 		} else {
 			query = `UPDATE webhook_configs
-				SET name=?, url=?, secret_header=?, content_type=?, body_template=?,
-				    enabled=?, events=?, updated_at=datetime('now')
-				WHERE id=?`
+				SET name=$1, url=$2, secret_header=$3, content_type=$4, body_template=$5,
+				    enabled=$6, events=$7, updated_at=NOW()
+				WHERE id=$8`
 			args = []interface{}{
 				req.Name, req.URL, req.SecretHeader,
 				req.ContentType, req.BodyTemplate,
@@ -211,7 +211,7 @@ func (h *WebhookHandler) SaveWebhook(w http.ResponseWriter, r *http.Request) {
 // DELETE /api/alerts/webhooks/{id}
 func (h *WebhookHandler) DeleteWebhook(w http.ResponseWriter, r *http.Request) {
 	idStr := mux.Vars(r)["id"]
-	if _, err := h.db.Exec("DELETE FROM webhook_configs WHERE id = ?", idStr); err != nil {
+	if _, err := h.db.Exec("DELETE FROM webhook_configs WHERE id = $1", idStr); err != nil {
 		respondError(w, http.StatusInternalServerError, "Failed to delete webhook", err)
 		return
 	}
@@ -226,7 +226,7 @@ func (h *WebhookHandler) TestWebhook(w http.ResponseWriter, r *http.Request) {
 	var cfg webhookConfig
 	err := h.db.QueryRow(`
 		SELECT id, name, url, secret_header, secret_value, content_type, body_template, enabled, events
-		FROM webhook_configs WHERE id = ?`, idStr,
+		FROM webhook_configs WHERE id = $1`, idStr,
 	).Scan(
 		&cfg.ID, &cfg.Name, &cfg.URL, &cfg.SecretHeader, &cfg.SecretValue,
 		&cfg.ContentType, &cfg.BodyTemplate, &cfg.Enabled, &cfg.Events,

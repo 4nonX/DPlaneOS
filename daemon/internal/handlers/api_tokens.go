@@ -1,4 +1,4 @@
-﻿package handlers
+package handlers
 
 import (
 	"crypto/rand"
@@ -76,7 +76,7 @@ func ValidateAPIToken(db *sql.DB, token string) (int, string, error) {
 		SELECT at.user_id, u.username, at.scopes, at.expires_at
 		FROM api_tokens at
 		JOIN users u ON u.id = at.user_id
-		WHERE at.token_hash = ? AND u.active = 1
+		WHERE at.token_hash = $1 AND u.active = 1
 	`, hash).Scan(&userID, &username, &scopes, &expiresAt)
 	if err == sql.ErrNoRows {
 		return 0, "", fmt.Errorf("invalid token")
@@ -94,7 +94,7 @@ func ValidateAPIToken(db *sql.DB, token string) (int, string, error) {
 	}
 
 	// Update last_used asynchronously
-	go db.Exec(`UPDATE api_tokens SET last_used = CURRENT_TIMESTAMP WHERE token_hash = ?`, hash)
+	go db.Exec(`UPDATE api_tokens SET last_used = NOW() WHERE token_hash = $1`, hash)
 
 	return userID, username, nil
 }
@@ -109,7 +109,7 @@ func (h *APITokenHandler) HandleTokens(w http.ResponseWriter, r *http.Request) {
 
 	// Get user ID
 	var userID int
-	if err := h.db.QueryRow(`SELECT id FROM users WHERE username = ?`, user).Scan(&userID); err != nil {
+	if err := h.db.QueryRow(`SELECT id FROM users WHERE username = $1`, user).Scan(&userID); err != nil {
 		respondErrorSimple(w, "User not found", http.StatusUnauthorized)
 		return
 	}
@@ -129,10 +129,10 @@ func (h *APITokenHandler) HandleTokens(w http.ResponseWriter, r *http.Request) {
 func (h *APITokenHandler) listTokens(w http.ResponseWriter, userID int) {
 	rows, err := h.db.Query(`
 		SELECT id, name, token_prefix, scopes,
-		       strftime('%Y-%m-%dT%H:%M:%SZ', last_used),
-		       strftime('%Y-%m-%dT%H:%M:%SZ', expires_at),
-		       strftime('%Y-%m-%dT%H:%M:%SZ', created_at)
-		FROM api_tokens WHERE user_id = ?
+		       TO_CHAR(last_used, 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
+		       TO_CHAR(expires_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
+		       TO_CHAR(created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"')
+		FROM api_tokens WHERE user_id = $1
 		ORDER BY created_at DESC
 	`, userID)
 	if err != nil {
@@ -213,12 +213,13 @@ func (h *APITokenHandler) createToken(w http.ResponseWriter, userID int, usernam
 		expiresAt = time.Now().AddDate(0, 0, expiresDays).Format("2006-01-02 15:04:05")
 	}
 
-	result, err := h.db.Exec(`
+	var id int64
+	err = h.db.QueryRow(`
 		INSERT INTO api_tokens (user_id, name, token_hash, token_prefix, scopes, expires_at)
-		VALUES (?, ?, ?, ?, ?, ?)
-	`, userID, name, hash, prefix, scopes, expiresAt)
+		VALUES ($1, $2, $3, $4, $5, $6) RETURNING id
+	`, userID, name, hash, prefix, scopes, expiresAt).Scan(&id)
 	if err != nil {
-		if strings.Contains(err.Error(), "UNIQUE") {
+		if strings.Contains(err.Error(), "UNIQUE") || strings.Contains(err.Error(), "unique") {
 			respondErrorSimple(w, "A token named '"+name+"' already exists", http.StatusConflict)
 			return
 		}
@@ -227,7 +228,6 @@ func (h *APITokenHandler) createToken(w http.ResponseWriter, userID int, usernam
 		return
 	}
 
-	id, _ := result.LastInsertId()
 	audit.LogAction("api_token", username, fmt.Sprintf("Created API token '%s' (scopes: %s)", name, scopes), true, 0)
 
 	respondJSON(w, http.StatusOK, map[string]interface{}{
@@ -249,9 +249,9 @@ func (h *APITokenHandler) revokeByID(w http.ResponseWriter, tokenID, userID int,
 
 	// Get token name for audit before deleting
 	var name string
-	h.db.QueryRow(`SELECT name FROM api_tokens WHERE id = ? AND user_id = ?`, tokenID, userID).Scan(&name)
+	h.db.QueryRow(`SELECT name FROM api_tokens WHERE id = $1 AND user_id = $2`, tokenID, userID).Scan(&name)
 
-	result, err := h.db.Exec(`DELETE FROM api_tokens WHERE id = ? AND user_id = ?`, tokenID, userID)
+	result, err := h.db.Exec(`DELETE FROM api_tokens WHERE id = $1 AND user_id = $2`, tokenID, userID)
 	if err != nil {
 		respondErrorSimple(w, "Failed to revoke token", http.StatusInternalServerError)
 		return

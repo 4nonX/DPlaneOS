@@ -90,7 +90,7 @@ func (h *ShareCRUDHandler) getShare(w http.ResponseWriter, id string) {
 	var name, path, comment, validUsers, writeList, createMask, dirMask, createdAt string
 
 	err := h.db.QueryRow(
-		`SELECT id, name, path, comment, browsable, read_only, guest_ok, valid_users, write_list, create_mask, directory_mask, enabled, created_at FROM smb_shares WHERE id = ?`, id,
+		`SELECT id, name, path, comment, browsable, read_only, guest_ok, valid_users, write_list, create_mask, directory_mask, enabled, created_at FROM smb_shares WHERE id = $1`, id,
 	).Scan(&shareID, &name, &path, &comment, &browsable, &readOnly, &guestOk, &validUsers, &writeList, &createMask, &dirMask, &enabled, &createdAt)
 
 	if err != nil {
@@ -196,17 +196,17 @@ func (h *ShareCRUDHandler) createShare(w http.ResponseWriter, req shareActionReq
 		dirMask = req.DirectoryMask
 	}
 
-	result, err := h.db.Exec(
+	var id int64
+	err := h.db.QueryRow(
 		`INSERT INTO smb_shares (name, path, comment, browsable, read_only, guest_ok, valid_users, write_list, create_mask, directory_mask)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id`,
 		req.Name, req.Path, req.Comment, browsable, readOnly, guestOk, req.ValidUsers, req.WriteList, createMask, dirMask,
-	)
+	).Scan(&id)
+
 	if err != nil {
 		respondErrorSimple(w, "Failed to create share (name may already exist)", http.StatusConflict)
 		return
 	}
-
-	id, _ := result.LastInsertId()
 
 	// Regenerate smb.conf
 	h.regenerateSMBConf()
@@ -235,44 +235,44 @@ func (h *ShareCRUDHandler) updateShare(w http.ResponseWriter, req shareActionReq
 	defer tx.Rollback()
 
 	if req.Name != "" {
-		tx.Exec(`UPDATE smb_shares SET name = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, req.Name, req.ID)
+		tx.Exec(`UPDATE smb_shares SET name = $1, updated_at = NOW() WHERE id = $2`, req.Name, req.ID)
 	}
 	if req.Path != "" {
-		tx.Exec(`UPDATE smb_shares SET path = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, req.Path, req.ID)
+		tx.Exec(`UPDATE smb_shares SET path = $1, updated_at = NOW() WHERE id = $2`, req.Path, req.ID)
 	}
 	if req.Comment != "" {
-		tx.Exec(`UPDATE smb_shares SET comment = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, req.Comment, req.ID)
+		tx.Exec(`UPDATE smb_shares SET comment = $1, updated_at = NOW() WHERE id = $2`, req.Comment, req.ID)
 	}
 	if req.Browsable != nil {
 		v := 0
 		if *req.Browsable {
 			v = 1
 		}
-		tx.Exec(`UPDATE smb_shares SET browsable = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, v, req.ID)
+		tx.Exec(`UPDATE smb_shares SET browsable = $1, updated_at = NOW() WHERE id = $2`, v, req.ID)
 	}
 	if req.ReadOnly != nil {
 		v := 0
 		if *req.ReadOnly {
 			v = 1
 		}
-		tx.Exec(`UPDATE smb_shares SET read_only = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, v, req.ID)
+		tx.Exec(`UPDATE smb_shares SET read_only = $1, updated_at = NOW() WHERE id = $2`, v, req.ID)
 	}
 	if req.GuestOk != nil {
 		v := 0
 		if *req.GuestOk {
 			v = 1
 		}
-		tx.Exec(`UPDATE smb_shares SET guest_ok = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, v, req.ID)
+		tx.Exec(`UPDATE smb_shares SET guest_ok = $1, updated_at = NOW() WHERE id = $2`, v, req.ID)
 	}
 	if req.ValidUsers != "" {
-		tx.Exec(`UPDATE smb_shares SET valid_users = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, req.ValidUsers, req.ID)
+		tx.Exec(`UPDATE smb_shares SET valid_users = $1, updated_at = NOW() WHERE id = $2`, req.ValidUsers, req.ID)
 	}
 	if req.Enabled != nil {
 		v := 0
 		if *req.Enabled {
 			v = 1
 		}
-		tx.Exec(`UPDATE smb_shares SET enabled = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, v, req.ID)
+		tx.Exec(`UPDATE smb_shares SET enabled = $1, updated_at = NOW() WHERE id = $2`, v, req.ID)
 	}
 
 	if err := tx.Commit(); err != nil {
@@ -307,7 +307,7 @@ func (h *ShareCRUDHandler) deleteShare(w http.ResponseWriter, req shareActionReq
 		return
 	}
 
-	h.db.Exec(`DELETE FROM smb_shares WHERE id = ?`, req.ID)
+	h.db.Exec(`DELETE FROM smb_shares WHERE id = $1`, req.ID)
 	h.regenerateSMBConf()
 
 	respondJSON(w, http.StatusOK, map[string]interface{}{
@@ -334,7 +334,7 @@ func (h *ShareCRUDHandler) deleteShareByName(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	result, err := h.db.Exec(`DELETE FROM smb_shares WHERE name = ?`, req.Name)
+	result, err := h.db.Exec(`DELETE FROM smb_shares WHERE name = $1`, req.Name)
 	if err != nil {
 		respondErrorSimple(w, "Database error: "+err.Error(), http.StatusInternalServerError)
 		return

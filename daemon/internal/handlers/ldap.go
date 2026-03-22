@@ -157,11 +157,11 @@ func (h *LDAPHandler) SaveConfig(w http.ResponseWriter, r *http.Request) {
 	}
 
 	_, err := h.db.Exec(`UPDATE ldap_config SET
-		enabled=?, server=?, port=?, use_tls=?, bind_dn=?, bind_password=?, base_dn=?,
-		user_filter=?, user_id_attr=?, user_name_attr=?, user_email_attr=?,
-		group_base_dn=?, group_filter=?, group_member_attr=?,
-		jit_provisioning=?, default_role=?, sync_interval=?, timeout=?,
-		updated_at=datetime('now') WHERE id=1`,
+		enabled=$1, server=$2, port=$3, use_tls=$4, bind_dn=$5, bind_password=$6, base_dn=$7,
+		user_filter=$8, user_id_attr=$9, user_name_attr=$10, user_email_attr=$11,
+		group_base_dn=$12, group_filter=$13, group_member_attr=$14,
+		jit_provisioning=$15, default_role=$16, sync_interval=$17, timeout=$18,
+		updated_at=NOW() WHERE id=1`,
 		req.Enabled, req.Server, req.Port, req.UseTLS, req.BindDN, bindPwd, req.BaseDN,
 		req.UserFilter, req.UserIDAttr, req.UserNameAttr, req.UserEmailAttr,
 		req.GroupBaseDN, req.GroupFilter, req.GroupMemberAttr,
@@ -311,7 +311,7 @@ func (h *LDAPHandler) TriggerSync(w http.ResponseWriter, r *http.Request) {
 		}
 
 		var existing int
-		row := h.db.QueryRow(`SELECT COUNT(*) FROM users WHERE username=? AND source='ldap'`, u.Username)
+		row := h.db.QueryRow(`SELECT COUNT(*) FROM users WHERE username=$1 AND source='ldap'`, u.Username)
 		if scanErr := row.Scan(&existing); scanErr != nil {
 			syncRes.Errors = append(syncRes.Errors, "db scan for "+u.Username+": "+scanErr.Error())
 			syncRes.UsersSkipped++
@@ -321,7 +321,7 @@ func (h *LDAPHandler) TriggerSync(w http.ResponseWriter, r *http.Request) {
 		if existing == 0 {
 			_, dbErr := h.db.Exec(
 				`INSERT INTO users (username, email, display_name, role, source, password_hash, updated_at)
-				 VALUES (?, ?, ?, ?, 'ldap', '', datetime('now'))`,
+				 VALUES ($1, $2, $3, $4, 'ldap', '', NOW())`,
 				u.Username, u.Email, u.FullName, role,
 			)
 			if dbErr != nil {
@@ -332,8 +332,8 @@ func (h *LDAPHandler) TriggerSync(w http.ResponseWriter, r *http.Request) {
 			}
 		} else {
 			_, dbErr := h.db.Exec(
-				`UPDATE users SET email=?, display_name=?, role=?, updated_at=datetime('now')
-				 WHERE username=? AND source='ldap'`,
+				`UPDATE users SET email=$1, display_name=$2, role=$3, updated_at=NOW()
+				 WHERE username=$4 AND source='ldap'`,
 				u.Email, u.FullName, role, u.Username,
 			)
 			if dbErr != nil {
@@ -352,7 +352,7 @@ func (h *LDAPHandler) TriggerSync(w http.ResponseWriter, r *http.Request) {
 
 	h.logSync("manual", success, syncRes.UsersFound, syncRes.UsersCreated, syncRes.UsersUpdated, syncRes.UsersSkipped, msg, ms)
 
-	if _, dbErr := h.db.Exec(`UPDATE ldap_config SET last_sync_at=datetime('now'), last_sync_ok=?, last_sync_msg=? WHERE id=1`,
+	if _, dbErr := h.db.Exec(`UPDATE ldap_config SET last_sync_at=NOW(), last_sync_ok=$1, last_sync_msg=$2 WHERE id=1`,
 		success, msg); dbErr != nil {
 		log.Printf("LDAP: failed to update sync status: %v", dbErr)
 	}
@@ -464,7 +464,9 @@ func (h *LDAPHandler) AddMapping(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	res, err := h.db.Exec("INSERT INTO ldap_group_mappings (ldap_group, role_name) VALUES (?, ?)", req.LDAPGroup, req.RoleName)
+	var id int64
+	err := h.db.QueryRow("INSERT INTO ldap_group_mappings (ldap_group, role_name) VALUES ($1, $2) RETURNING id",
+		req.LDAPGroup, req.RoleName).Scan(&id)
 	if err != nil {
 		if strings.Contains(err.Error(), "UNIQUE") {
 			writeJSON(w, 409, ldapResp{Error: "Mapping already exists"})
@@ -473,7 +475,6 @@ func (h *LDAPHandler) AddMapping(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 500, ldapResp{Error: "Insert failed: " + err.Error()})
 		return
 	}
-	id, _ := res.LastInsertId()
 	audit.Log(audit.AuditLog{Level: audit.LevelInfo, Command: "LDAP_MAPPING_ADD", User: r.Header.Get("X-User"), Success: true,
 		Metadata: map[string]interface{}{"ldap_group": req.LDAPGroup, "role": req.RoleName}})
 	writeJSON(w, 201, ldapResp{Success: true, Data: map[string]int64{"id": id}})
@@ -488,7 +489,7 @@ func (h *LDAPHandler) DeleteMapping(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 400, ldapResp{Error: "Valid ID required"})
 		return
 	}
-	res, err := h.db.Exec("DELETE FROM ldap_group_mappings WHERE id=?", id)
+	res, err := h.db.Exec("DELETE FROM ldap_group_mappings WHERE id=$1", id)
 	if err != nil {
 		writeJSON(w, 500, ldapResp{Error: "Delete failed"})
 		return
@@ -509,7 +510,7 @@ func (h *LDAPHandler) GetSyncLog(w http.ResponseWriter, r *http.Request) {
 	limit := 20
 	if l, err := strconv.Atoi(r.URL.Query().Get("limit")); err == nil && l > 0 && l <= 100 { limit = l }
 
-	rows, err := h.db.Query("SELECT id, sync_type, success, users_synced, users_created, users_updated, users_disabled, error_msg, duration_ms, created_at FROM ldap_sync_log ORDER BY id DESC LIMIT ?", limit)
+	rows, err := h.db.Query("SELECT id, sync_type, success, users_synced, users_created, users_updated, users_disabled, error_msg, duration_ms, created_at FROM ldap_sync_log ORDER BY id DESC LIMIT $1", limit)
 	if err != nil {
 		writeJSON(w, 500, ldapResp{Error: "Failed to load sync log"})
 		return
@@ -583,18 +584,18 @@ func (h *LDAPHandler) loadLDAPConfig() (*ldap.Config, error) {
 
 func (h *LDAPHandler) updateTest(ok bool, msg string) {
 	v := 0; if ok { v = 1 }
-	if _, err := h.db.Exec("UPDATE ldap_config SET last_test_at=datetime('now'), last_test_ok=?, last_test_msg=? WHERE id=1", v, msg); err != nil {
+	if _, err := h.db.Exec("UPDATE ldap_config SET last_test_at=NOW(), last_test_ok=$1, last_test_msg=$2 WHERE id=1", v, msg); err != nil {
 		log.Printf("LDAP: failed to update test status: %v", err)
 	}
 }
 
 func (h *LDAPHandler) logSync(syncType string, success bool, synced, created, updated, disabled int, errMsg string, ms int) {
 	s := 0; if success { s = 1 }
-	if _, err := h.db.Exec(`INSERT INTO ldap_sync_log (sync_type, success, users_synced, users_created, users_updated, users_disabled, error_msg, duration_ms) VALUES (?,?,?,?,?,?,?,?)`,
+	if _, err := h.db.Exec(`INSERT INTO ldap_sync_log (sync_type, success, users_synced, users_created, users_updated, users_disabled, error_msg, duration_ms) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
 		syncType, s, synced, created, updated, disabled, errMsg, ms); err != nil {
 		log.Printf("LDAP: failed to insert sync log: %v", err)
 	}
-	if _, err := h.db.Exec(`UPDATE ldap_config SET last_sync_at=datetime('now'), last_sync_ok=?, last_sync_count=?, last_sync_msg=? WHERE id=1`, s, synced, errMsg); err != nil {
+	if _, err := h.db.Exec(`UPDATE ldap_config SET last_sync_at=NOW(), last_sync_ok=$1, last_sync_count=$2, last_sync_msg=$3 WHERE id=1`, s, synced, errMsg); err != nil {
 		log.Printf("LDAP: failed to update sync config: %v", err)
 	}
 }

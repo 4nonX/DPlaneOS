@@ -41,7 +41,7 @@ func (h *UserGroupHandler) listUsers(w http.ResponseWriter, r *http.Request) {
 		var id, active int
 		var username, email, role, createdAt string
 		err := h.db.QueryRow(
-			`SELECT id, username, COALESCE(email,''), COALESCE(role,'user'), active, COALESCE(created_at,'') FROM users WHERE id = ?`, idStr,
+			`SELECT id, username, COALESCE(email,''), COALESCE(role,'user'), active, COALESCE(TO_CHAR(created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), '') FROM users WHERE id = $1`, idStr,
 		).Scan(&id, &username, &email, &role, &active, &createdAt)
 		if err != nil {
 			respondErrorSimple(w, "User not found", http.StatusNotFound)
@@ -61,7 +61,7 @@ func (h *UserGroupHandler) listUsers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rows, err := h.db.Query(`SELECT id, username, COALESCE(email,''), COALESCE(role,'user'), active, COALESCE(created_at,'') FROM users ORDER BY id`)
+	rows, err := h.db.Query(`SELECT id, username, COALESCE(email,''), COALESCE(role,'user'), active, COALESCE(TO_CHAR(created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), '') FROM users ORDER BY id`)
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, "Failed to list users", err)
 		return
@@ -142,7 +142,7 @@ func (h *UserGroupHandler) createUser(w http.ResponseWriter, req userActionReque
 
 	// Check for duplicate
 	var count int
-	h.db.QueryRow(`SELECT COUNT(*) FROM users WHERE username = ?`, req.Username).Scan(&count)
+	h.db.QueryRow(`SELECT COUNT(*) FROM users WHERE username = $1`, req.Username).Scan(&count)
 	if count > 0 {
 		respondErrorSimple(w, "Username already exists", http.StatusConflict)
 		return
@@ -160,17 +160,17 @@ func (h *UserGroupHandler) createUser(w http.ResponseWriter, req userActionReque
 		role = "user"
 	}
 
-	result, err := h.db.Exec(
-		`INSERT INTO users (username, password_hash, email, role, active) VALUES (?, ?, ?, ?, 1)`,
+	var id int64
+	err = h.db.QueryRow(
+		`INSERT INTO users (username, password_hash, email, role, active) VALUES ($1, $2, $3, $4, 1) RETURNING id`,
 		req.Username, string(hash), req.Email, role,
-	)
+	).Scan(&id)
 	if err != nil {
 		respondErrorSimple(w, "Failed to create user", http.StatusInternalServerError)
 		log.Printf("USER CREATE ERROR: %v", err)
 		return
 	}
 
-	id, _ := result.LastInsertId()
 	respondJSON(w, http.StatusOK, map[string]interface{}{
 		"success": true,
 		"id":      id,
@@ -189,7 +189,7 @@ func (h *UserGroupHandler) updateUser(w http.ResponseWriter, req userActionReque
 
 	// Build dynamic update
 	if req.Email != "" {
-		_, err := h.db.Exec(`UPDATE users SET email = ? WHERE id = ?`, req.Email, req.ID)
+		_, err := h.db.Exec(`UPDATE users SET email = $1 WHERE id = $2`, req.Email, req.ID)
 		if err != nil {
 			respondErrorSimple(w, "Failed to update email", http.StatusInternalServerError)
 			log.Printf("USER UPDATE EMAIL ERROR: %v", err)
@@ -197,7 +197,7 @@ func (h *UserGroupHandler) updateUser(w http.ResponseWriter, req userActionReque
 		}
 	}
 	if req.Role != "" {
-		_, err := h.db.Exec(`UPDATE users SET role = ? WHERE id = ?`, req.Role, req.ID)
+		_, err := h.db.Exec(`UPDATE users SET role = $1 WHERE id = $2`, req.Role, req.ID)
 		if err != nil {
 			respondErrorSimple(w, "Failed to update role", http.StatusInternalServerError)
 			log.Printf("USER UPDATE ROLE ERROR: %v", err)
@@ -209,7 +209,7 @@ func (h *UserGroupHandler) updateUser(w http.ResponseWriter, req userActionReque
 		if *req.Active {
 			active = 1
 		}
-		_, err := h.db.Exec(`UPDATE users SET active = ? WHERE id = ?`, active, req.ID)
+		_, err := h.db.Exec(`UPDATE users SET active = $1 WHERE id = $2`, active, req.ID)
 		if err != nil {
 			respondErrorSimple(w, "Failed to update active status", http.StatusInternalServerError)
 			log.Printf("USER UPDATE ACTIVE ERROR: %v", err)
@@ -227,7 +227,7 @@ func (h *UserGroupHandler) updateUser(w http.ResponseWriter, req userActionReque
 			respondErrorSimple(w, "Failed to hash password", http.StatusInternalServerError)
 			return
 		}
-		_, err = h.db.Exec(`UPDATE users SET password_hash = ? WHERE id = ?`, string(hash), req.ID)
+		_, err = h.db.Exec(`UPDATE users SET password_hash = $1 WHERE id = $2`, string(hash), req.ID)
 		if err != nil {
 			respondErrorSimple(w, "Failed to update password", http.StatusInternalServerError)
 			log.Printf("USER UPDATE PASSWORD ERROR: %v", err)
@@ -258,7 +258,7 @@ func (h *UserGroupHandler) deleteUser(w http.ResponseWriter, req userActionReque
 		return
 	}
 	var targetRole string
-	if err := h.db.QueryRow(`SELECT role FROM users WHERE id = ?`, req.ID).Scan(&targetRole); err != nil {
+	if err := h.db.QueryRow(`SELECT role FROM users WHERE id = $1`, req.ID).Scan(&targetRole); err != nil {
 		respondErrorSimple(w, "User not found", http.StatusNotFound)
 		return
 	}
@@ -267,13 +267,13 @@ func (h *UserGroupHandler) deleteUser(w http.ResponseWriter, req userActionReque
 		return
 	}
 
-	_, err := h.db.Exec(`DELETE FROM sessions WHERE user_id = ?`, req.ID)
+	_, err := h.db.Exec(`DELETE FROM sessions WHERE user_id = $1`, req.ID)
 	if err != nil {
 		respondErrorSimple(w, "Failed to delete user sessions", http.StatusInternalServerError)
 		log.Printf("USER DELETE SESSIONS ERROR: %v", err)
 		return
 	}
-	_, err = h.db.Exec(`DELETE FROM users WHERE id = ?`, req.ID)
+	_, err = h.db.Exec(`DELETE FROM users WHERE id = $1`, req.ID)
 	if err != nil {
 		respondErrorSimple(w, "Failed to delete user", http.StatusInternalServerError)
 		log.Printf("USER DELETE ERROR: %v", err)
@@ -306,7 +306,7 @@ func (h *UserGroupHandler) listGroups(w http.ResponseWriter, r *http.Request) {
 		var id, gid int
 		var name, desc, createdAt string
 		err := h.db.QueryRow(
-			`SELECT id, name, COALESCE(description,''), COALESCE(gid,0), COALESCE(created_at,'') FROM groups WHERE id = ?`, idStr,
+			`SELECT id, name, COALESCE(description,''), COALESCE(gid,0), COALESCE(TO_CHAR(created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), '') FROM groups WHERE id = $1`, idStr,
 		).Scan(&id, &name, &desc, &gid, &createdAt)
 		if err != nil {
 			respondErrorSimple(w, "Group not found", http.StatusNotFound)
@@ -314,7 +314,7 @@ func (h *UserGroupHandler) listGroups(w http.ResponseWriter, r *http.Request) {
 		}
 		// Get member count
 		var memberCount int
-		if err := h.db.QueryRow(`SELECT COUNT(*) FROM group_members WHERE group_name = ?`, name).Scan(&memberCount); err != nil {
+		if err := h.db.QueryRow(`SELECT COUNT(*) FROM group_members WHERE group_name = $1`, name).Scan(&memberCount); err != nil {
 			log.Printf("SINGLE GROUP MEMBER COUNT ERROR: %v", err)
 			memberCount = 0
 		}
@@ -333,7 +333,7 @@ func (h *UserGroupHandler) listGroups(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rows, err := h.db.Query(`SELECT id, name, COALESCE(description,''), COALESCE(gid,0), COALESCE(created_at,'') FROM groups ORDER BY name`)
+	rows, err := h.db.Query(`SELECT id, name, COALESCE(description,''), COALESCE(gid,0), COALESCE(TO_CHAR(created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), '') FROM groups ORDER BY name`)
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, "Failed to list groups", err)
 		return
@@ -351,7 +351,7 @@ func (h *UserGroupHandler) listGroups(w http.ResponseWriter, r *http.Request) {
 
 		// Get member count
 		var memberCount int
-		if err := h.db.QueryRow(`SELECT COUNT(*) FROM group_members WHERE group_name = ?`, name).Scan(&memberCount); err != nil {
+		if err := h.db.QueryRow(`SELECT COUNT(*) FROM group_members WHERE group_name = $1`, name).Scan(&memberCount); err != nil {
 			log.Printf("GROUP MEMBER COUNT ERROR: %v", err)
 			memberCount = 0
 		}
@@ -398,15 +398,15 @@ func (h *UserGroupHandler) groupAction(w http.ResponseWriter, r *http.Request) {
 			respondErrorSimple(w, "Group name required", http.StatusBadRequest)
 			return
 		}
-		result, err := h.db.Exec(
-			`INSERT INTO groups (name, description, gid) VALUES (?, ?, ?)`,
+		var id int64
+		err := h.db.QueryRow(
+			`INSERT INTO groups (name, description, gid) VALUES ($1, $2, $3) RETURNING id`,
 			req.Name, req.Description, req.GID,
-		)
+		).Scan(&id)
 		if err != nil {
 			respondErrorSimple(w, "Failed to create group (name may already exist)", http.StatusConflict)
 			return
 		}
-		id, _ := result.LastInsertId()
 		respondJSON(w, http.StatusOK, map[string]interface{}{
 			"success": true, "id": id, "message": "Group created",
 		})
@@ -420,7 +420,7 @@ func (h *UserGroupHandler) groupAction(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if req.Name != "" {
-			_, err := h.db.Exec(`UPDATE groups SET name = ? WHERE id = ?`, req.Name, req.ID)
+			_, err := h.db.Exec(`UPDATE groups SET name = $1 WHERE id = $2`, req.Name, req.ID)
 			if err != nil {
 				respondErrorSimple(w, "Failed to update group name (may already exist)", http.StatusConflict)
 				log.Printf("GROUP UPDATE NAME ERROR: %v", err)
@@ -428,7 +428,7 @@ func (h *UserGroupHandler) groupAction(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if req.Description != "" {
-			_, err := h.db.Exec(`UPDATE groups SET description = ? WHERE id = ?`, req.Description, req.ID)
+			_, err := h.db.Exec(`UPDATE groups SET description = $1 WHERE id = $2`, req.Description, req.ID)
 			if err != nil {
 				respondErrorSimple(w, "Failed to update group description", http.StatusInternalServerError)
 				log.Printf("GROUP UPDATE DESC ERROR: %v", err)
@@ -439,13 +439,13 @@ func (h *UserGroupHandler) groupAction(w http.ResponseWriter, r *http.Request) {
 		if req.Members != nil {
 			// Get current group name (to handle renames or just use current)
 			var currentName string
-			err := h.db.QueryRow(`SELECT name FROM groups WHERE id = ?`, req.ID).Scan(&currentName)
+			err := h.db.QueryRow(`SELECT name FROM groups WHERE id = $1`, req.ID).Scan(&currentName)
 			if err != nil {
 				respondErrorSimple(w, "Group not found", http.StatusNotFound)
 				return
 			}
 
-			_, err = h.db.Exec(`DELETE FROM group_members WHERE group_name = ?`, currentName)
+			_, err = h.db.Exec(`DELETE FROM group_members WHERE group_name = $1`, currentName)
 			if err != nil {
 				respondErrorSimple(w, "Failed to update group members", http.StatusInternalServerError)
 				log.Printf("GROUP UPDATE MEMBERS DELETE ERROR: %v", err)
@@ -454,12 +454,12 @@ func (h *UserGroupHandler) groupAction(w http.ResponseWriter, r *http.Request) {
 
 			for _, uid := range req.Members {
 				var uname string
-				err := h.db.QueryRow(`SELECT username FROM users WHERE id = ?`, uid).Scan(&uname)
+				err := h.db.QueryRow(`SELECT username FROM users WHERE id = $1`, uid).Scan(&uname)
 				if err != nil {
 					log.Printf("GROUP UPDATE MEMBER: user %d not found, skipping", uid)
 					continue
 				}
-				_, err = h.db.Exec(`INSERT INTO group_members (group_name, username) VALUES (?, ?)`, currentName, uname)
+				_, err = h.db.Exec(`INSERT INTO group_members (group_name, username) VALUES ($1, $2)`, currentName, uname)
 				if err != nil {
 					respondErrorSimple(w, "Failed to add group member", http.StatusInternalServerError)
 					log.Printf("GROUP UPDATE MEMBER INSERT ERROR: %v", err)
@@ -480,18 +480,18 @@ func (h *UserGroupHandler) groupAction(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		var groupName string
-		if err := h.db.QueryRow(`SELECT name FROM groups WHERE id = ?`, req.ID).Scan(&groupName); err != nil {
+		if err := h.db.QueryRow(`SELECT name FROM groups WHERE id = $1`, req.ID).Scan(&groupName); err != nil {
 			respondErrorSimple(w, "Group not found", http.StatusNotFound)
 			return
 		}
 
-		_, err := h.db.Exec(`DELETE FROM group_members WHERE group_name = ?`, groupName)
+		_, err := h.db.Exec(`DELETE FROM group_members WHERE group_name = $1`, groupName)
 		if err != nil {
 			respondErrorSimple(w, "Failed to delete group members", http.StatusInternalServerError)
 			log.Printf("GROUP DELETE MEMBERS ERROR: %v", err)
 			return
 		}
-		_, err = h.db.Exec(`DELETE FROM groups WHERE id = ?`, req.ID)
+		_, err = h.db.Exec(`DELETE FROM groups WHERE id = $1`, req.ID)
 		if err != nil {
 			respondErrorSimple(w, "Failed to delete group", http.StatusInternalServerError)
 			log.Printf("GROUP DELETE ERROR: %v", err)

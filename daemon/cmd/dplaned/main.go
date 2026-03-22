@@ -32,7 +32,7 @@ import (
 	"dplaned/internal/websocket"
 	"dplaned/internal/zfs"
 	"github.com/gorilla/mux"
-	_ "github.com/mattn/go-sqlite3"
+	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
 var (
@@ -42,10 +42,9 @@ var (
 func main() {
 	// Parse flags
 	listenAddr := flag.String("listen", "127.0.0.1:9000", "Listen address")
-	dbPath := flag.String("db", "/var/lib/dplaneos/dplaneos.db", "Path to SQLite database")
+	dbDSN := flag.String("db-dsn", "postgres://dplaneos@localhost/dplaneos?sslmode=disable", "PostgreSQL DSN")
 	telegramBot := flag.String("telegram-bot", "", "Telegram bot token (optional, for alerts)")
 	telegramChat := flag.String("telegram-chat", "", "Telegram chat ID (optional, for alerts)")
-	backupPath := flag.String("backup-path", "", "External path for DB backup (e.g., /mnt/usb/dplaneos-backup.db). If empty, backs up next to main DB.")
 	configDir := flag.String("config-dir", "/etc/dplaneos", "Config directory (for NixOS: /var/lib/dplaneos/config)")
 	smbConfPath := flag.String("smb-conf", "/etc/samba/smb.conf", "Path to write SMB config (for NixOS: /var/lib/dplaneos/smb-shares.conf)")
 	haLocalID := flag.String("ha-local-id", "", "Unique ID for this cluster node (default: /etc/machine-id prefix)")
@@ -68,14 +67,14 @@ func main() {
 
 	// Phase 0: Database Initialization
 	if *initOnly {
-		db, err := sql.Open("sqlite3", *dbPath+"?_journal_mode=WAL&_busy_timeout=30000")
+		db, err := sql.Open("pgx", *dbDSN)
 		if err != nil {
 			log.Fatalf("Failed to open database: %v", err)
 		}
 		if err := initSchema(db); err != nil {
 			log.Fatalf("Schema init failed: %v", err)
 		}
-		log.Printf("Database initialized at %s", *dbPath)
+		log.Printf("Database initialized at %s", *dbDSN)
 		os.Exit(0)
 	}
 
@@ -83,7 +82,7 @@ func main() {
 	if *applyOnly {
 		log.Printf("GITOPS: Running one-off apply from %s", *gitopsStatePath)
 		// 1. Open DB
-		db, err := sql.Open("sqlite3", *dbPath+"?_journal_mode=WAL&_busy_timeout=30000&cache=shared&_cache_size=-65536&_wal_autocheckpoint=1000&_synchronous=FULL")
+		db, err := sql.Open("pgx", *dbDSN)
 		if err != nil {
 			log.Fatalf("Failed to open database: %v", err)
 		}
@@ -121,7 +120,7 @@ func main() {
 	}
 
 	if *diffOnly {
-		db, err := sql.Open("sqlite3", *dbPath+"?_journal_mode=WAL&_busy_timeout=30000&cache=shared&_cache_size=-65536&_wal_autocheckpoint=1000&_synchronous=FULL")
+		db, err := sql.Open("pgx", *dbDSN)
 		if err != nil {
 			log.Fatalf("DB failed: %v", err)
 		}
@@ -145,7 +144,7 @@ func main() {
 	}
 
 	if *convergenceCheck {
-		db, err := sql.Open("sqlite3", *dbPath+"?_journal_mode=WAL&_busy_timeout=30000&cache=shared&_cache_size=-65536&_wal_autocheckpoint=1000&_synchronous=FULL")
+		db, err := sql.Open("pgx", *dbDSN)
 		if err != nil {
 			log.Fatalf("DB failed: %v", err)
 		}
@@ -197,7 +196,7 @@ func main() {
 
 	if *testIdempotency {
 		log.Printf("COMPLIANCE: Testing idempotency of %s", *gitopsStatePath)
-		db, err := sql.Open("sqlite3", *dbPath+"?_journal_mode=WAL&_busy_timeout=30000&cache=shared&_cache_size=-65536&_wal_autocheckpoint=1000&_synchronous=FULL")
+		db, err := sql.Open("pgx", *dbDSN)
 		if err != nil {
 			log.Fatalf("DB failed: %v", err)
 		}
@@ -248,21 +247,12 @@ func main() {
 	handlers.DaemonVersion = Version
 
 	// Open database for buffered audit logging
-	// Critical for systems with high I/O:
-	// - WAL mode: concurrent reads during writes
-	// - busy_timeout: wait 30s during WAL checkpoints (prevents "database locked")
-	// - cache_size: 64MB in-memory cache
-	// - wal_autocheckpoint: checkpoint every 1000 pages (~4MB) to prevent WAL bloat
-	db, err := sql.Open("sqlite3", *dbPath+"?_journal_mode=WAL&_busy_timeout=30000&cache=shared&_cache_size=-65536&_wal_autocheckpoint=1000&_synchronous=FULL")
+	db, err := sql.Open("pgx", *dbDSN)
 	if err != nil {
 		log.Fatalf("Failed to open database: %v", err)
 	}
 	defer db.Close()
 
-	// Force WAL checkpoint on startup to clean any leftover WAL from crashes
-	if _, err := db.Exec("PRAGMA wal_checkpoint(TRUNCATE)"); err != nil {
-		log.Printf("Warning: initial WAL checkpoint failed: %v", err)
-	}
 
 	// Initialize database schema (IF NOT EXISTS - safe on every startup)
 	if err := initSchema(db); err != nil {
@@ -307,44 +297,7 @@ func main() {
 	// On NixOS + networkd: this is a no-op (networkd already read the files at boot).
 	go reconciler.Run(db)
 
-	// Periodic WAL checkpoint every 5 minutes - safety net against WAL bloat
-	// on systems with high audit logging rates (e.g., runaway container producing errors)
-	go func() {
-		ticker := time.NewTicker(5 * time.Minute)
-		defer ticker.Stop()
-		for range ticker.C {
-			if _, err := db.Exec("PRAGMA wal_checkpoint(PASSIVE)"); err != nil {
-				log.Printf("Warning: periodic WAL checkpoint failed: %v", err)
-			}
-		}
-	}()
 
-	// Daily VACUUM INTO - creates a clean backup copy of the database
-	// Protects metadata against WAL corruption from hard power loss
-	// Use -backup-path for off-pool backup (USB, second disk, NFS mount)
-	go func() {
-		dbBackupDest := *backupPath
-		if dbBackupDest == "" {
-			dbBackupDest = *dbPath + ".backup"
-		}
-
-		// Backup immediately on startup
-		if _, err := db.Exec("VACUUM INTO ?", dbBackupDest); err != nil {
-			log.Printf("Warning: startup DB backup failed: %v", err)
-		} else {
-			log.Printf("Startup DB backup created: %s", dbBackupDest)
-		}
-
-		ticker := time.NewTicker(24 * time.Hour)
-		defer ticker.Stop()
-		for range ticker.C {
-			if _, err := db.Exec("VACUUM INTO ?", dbBackupDest); err != nil {
-				log.Printf("Warning: daily DB backup failed: %v", err)
-			} else {
-				log.Printf("Daily DB backup created: %s", dbBackupDest)
-			}
-		}
-	}()
 
 	// Load or create the HMAC key for audit chain integrity (Phase 1.5)
 	auditKey, err := audit.LoadOrCreateAuditKey("/var/lib/dplaneos/audit.key")
@@ -360,7 +313,7 @@ func main() {
 	audit.SetGlobalBufferedLogger(bufferedLogger)
 
 	// Initialize database connection for session validation
-	if err := security.InitDatabase(*dbPath); err != nil {
+	if err := security.InitDatabase(*dbDSN); err != nil {
 		log.Fatalf("Failed to initialize database: %v", err)
 	}
 	defer security.CloseDatabase()
@@ -729,7 +682,7 @@ func main() {
 	r.Handle("/api/docker/templates/deploy", permRoute("docker", "write", templateHandler.DeployTemplate)).Methods("POST")
 
 	// v3.0.0: Audit log rotation
-	auditRotationHandler := handlers.NewAuditRotationHandler(db, *dbPath, "/var/lib/dplaneos/audit.key")
+	auditRotationHandler := handlers.NewAuditRotationHandler(db, *dbDSN, "/var/lib/dplaneos/audit.key")
 	r.Handle("/api/system/audit/rotate", permRoute("system", "admin", auditRotationHandler.RotateAuditLogs)).Methods("POST")
 	r.Handle("/api/system/audit/stats", permRoute("audit", "read", auditRotationHandler.GetAuditStats)).Methods("GET")
 	r.Handle("/api/system/audit/verify-chain", permRoute("audit", "read", auditRotationHandler.VerifyAuditChain)).Methods("GET")
@@ -1374,16 +1327,11 @@ func runRotation(db *sql.DB) {
 	cutoff := time.Now().AddDate(0, 0, -retentionDays).Format("2006-01-02 15:04:05")
 	log.Printf("MAINTENANCE: Running audit log rotation (cutoff: %s, retention: %d days)", cutoff, retentionDays)
 
-	if _, err := db.Exec("DELETE FROM audit_logs WHERE timestamp < ?", cutoff); err != nil {
+	if _, err := db.Exec("DELETE FROM audit_logs WHERE timestamp < $1", cutoff); err != nil {
 		log.Printf("ERROR: Automatic audit rotation failed: %v", err)
 		return
 	}
-
-	if _, err := db.Exec("VACUUM"); err != nil {
-		log.Printf("ERROR: Post-rotation VACUUM failed: %v", err)
-	} else {
-		log.Printf("MAINTENANCE: Audit log rotation and VACUUM completed successfully")
-	}
+	log.Printf("MAINTENANCE: Audit log rotation completed successfully")
 }
 
 // bootstrapCEToken reads a token from a file and ensures it exists in api_tokens for the admin user.

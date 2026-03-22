@@ -14,7 +14,7 @@ func initSchema(db *sql.DB) error {
 	tables := []string{
 		// ── Core user management ──
 		`CREATE TABLE IF NOT EXISTS users (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			id BIGSERIAL PRIMARY KEY,
 			username TEXT NOT NULL UNIQUE,
 			password_hash TEXT NOT NULL DEFAULT '',
 			display_name TEXT NOT NULL DEFAULT '',
@@ -23,50 +23,51 @@ func initSchema(db *sql.DB) error {
 			active INTEGER NOT NULL DEFAULT 1,
 			must_change_password INTEGER NOT NULL DEFAULT 0,
 			source TEXT NOT NULL DEFAULT 'local',
-			created_at TEXT NOT NULL DEFAULT (datetime('now')),
-			updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+			last_login TIMESTAMPTZ,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 		)`,
 
 		// ── Session management ──
 		`CREATE TABLE IF NOT EXISTS sessions (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			id BIGSERIAL PRIMARY KEY,
 			session_id TEXT NOT NULL UNIQUE,
 			username TEXT NOT NULL,
 			ip_address TEXT NOT NULL DEFAULT '',
 			user_agent TEXT NOT NULL DEFAULT '',
-			created_at INTEGER NOT NULL DEFAULT (strftime('%s','now')),
-			expires_at INTEGER,
-			last_activity INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+			created_at BIGINT NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW())::BIGINT,
+			expires_at BIGINT,
+			last_activity BIGINT NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW())::BIGINT,
 			FOREIGN KEY (username) REFERENCES users(username)
 		)`,
 
 		// ── RBAC: Roles ──
 		`CREATE TABLE IF NOT EXISTS roles (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			id BIGSERIAL PRIMARY KEY,
 			name TEXT NOT NULL UNIQUE,
 			display_name TEXT NOT NULL DEFAULT '',
 			description TEXT NOT NULL DEFAULT '',
 			is_system INTEGER NOT NULL DEFAULT 0,
-			created_at TEXT NOT NULL DEFAULT (datetime('now')),
-			updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 		)`,
 
 		// ── RBAC: Permissions ──
 		`CREATE TABLE IF NOT EXISTS permissions (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			id BIGSERIAL PRIMARY KEY,
 			resource TEXT NOT NULL,
 			action TEXT NOT NULL,
 			display_name TEXT NOT NULL DEFAULT '',
 			description TEXT NOT NULL DEFAULT '',
 			category TEXT NOT NULL DEFAULT 'general',
-			created_at TEXT NOT NULL DEFAULT (datetime('now')),
+			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 			UNIQUE(resource, action)
 		)`,
 
 		// ── RBAC: Role-Permission mapping ──
 		`CREATE TABLE IF NOT EXISTS role_permissions (
-			role_id INTEGER NOT NULL,
-			permission_id INTEGER NOT NULL,
+			role_id BIGINT NOT NULL,
+			permission_id BIGINT NOT NULL,
 			PRIMARY KEY (role_id, permission_id),
 			FOREIGN KEY (role_id) REFERENCES roles(id) ON DELETE CASCADE,
 			FOREIGN KEY (permission_id) REFERENCES permissions(id) ON DELETE CASCADE
@@ -74,8 +75,8 @@ func initSchema(db *sql.DB) error {
 
 		// ── RBAC: User-Role mapping ──
 		`CREATE TABLE IF NOT EXISTS user_roles (
-			user_id INTEGER NOT NULL,
-			role_id INTEGER NOT NULL,
+			user_id BIGINT NOT NULL,
+			role_id BIGINT NOT NULL,
 			granted_by TEXT NOT NULL DEFAULT 'system',
 			expires_at TEXT,
 			PRIMARY KEY (user_id, role_id),
@@ -85,28 +86,30 @@ func initSchema(db *sql.DB) error {
 
 		// ── Audit logging ──
 		`CREATE TABLE IF NOT EXISTS audit_logs (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			timestamp INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
-			user TEXT NOT NULL DEFAULT '',
+			id BIGSERIAL PRIMARY KEY,
+			timestamp BIGINT NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW())::BIGINT,
+			"user" TEXT NOT NULL DEFAULT '',
 			action TEXT NOT NULL DEFAULT '',
 			resource TEXT NOT NULL DEFAULT '',
 			details TEXT NOT NULL DEFAULT '',
 			ip_address TEXT NOT NULL DEFAULT '',
-			success INTEGER NOT NULL DEFAULT 1
+			success INTEGER NOT NULL DEFAULT 1,
+			prev_hash TEXT NOT NULL DEFAULT '',
+			row_hash TEXT NOT NULL DEFAULT ''
 		)`,
 
 		// ── Telegram notifications ──
 		`CREATE TABLE IF NOT EXISTS telegram_config (
-			id INTEGER PRIMARY KEY,
+			id BIGINT PRIMARY KEY,
 			bot_token TEXT NOT NULL DEFAULT '',
 			chat_id TEXT NOT NULL DEFAULT '',
 			enabled INTEGER NOT NULL DEFAULT 0,
-			updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 		)`,
 
 		// ── LDAP/AD configuration ──
 		`CREATE TABLE IF NOT EXISTS ldap_config (
-			id INTEGER PRIMARY KEY DEFAULT 1,
+			id BIGINT PRIMARY KEY DEFAULT 1,
 			enabled INTEGER NOT NULL DEFAULT 0,
 			server TEXT NOT NULL DEFAULT '',
 			port INTEGER NOT NULL DEFAULT 389,
@@ -125,29 +128,29 @@ func initSchema(db *sql.DB) error {
 			default_role TEXT NOT NULL DEFAULT 'user',
 			sync_interval INTEGER NOT NULL DEFAULT 3600,
 			timeout INTEGER NOT NULL DEFAULT 10,
-			last_test_at TEXT,
+			last_test_at TIMESTAMPTZ,
 			last_test_ok INTEGER NOT NULL DEFAULT 0,
 			last_test_msg TEXT,
-			last_sync_at TEXT,
+			last_sync_at TIMESTAMPTZ,
 			last_sync_ok INTEGER NOT NULL DEFAULT 0,
 			last_sync_count INTEGER NOT NULL DEFAULT 0,
 			last_sync_msg TEXT,
-			updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 		)`,
 
 		// ── LDAP group-to-role mappings ──
 		`CREATE TABLE IF NOT EXISTS ldap_group_mappings (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			id BIGSERIAL PRIMARY KEY,
 			ldap_group TEXT NOT NULL,
 			role_name TEXT NOT NULL DEFAULT '',
-			role_id INTEGER,
-			created_at TEXT NOT NULL DEFAULT (datetime('now')),
+			role_id BIGINT,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 			UNIQUE(ldap_group)
 		)`,
 
 		// ── LDAP sync history ──
 		`CREATE TABLE IF NOT EXISTS ldap_sync_log (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			id BIGSERIAL PRIMARY KEY,
 			sync_type TEXT NOT NULL DEFAULT 'manual',
 			success INTEGER NOT NULL DEFAULT 0,
 			users_synced INTEGER NOT NULL DEFAULT 0,
@@ -155,26 +158,19 @@ func initSchema(db *sql.DB) error {
 			users_updated INTEGER NOT NULL DEFAULT 0,
 			users_disabled INTEGER NOT NULL DEFAULT 0,
 			error_msg TEXT NOT NULL DEFAULT '',
-			duration_ms INTEGER NOT NULL DEFAULT 0,
-			created_at TEXT NOT NULL DEFAULT (datetime('now'))
+			duration_ms BIGINT NOT NULL DEFAULT 0,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 		)`,
 
 		// ── Indexes for performance ──
 		`CREATE INDEX IF NOT EXISTS idx_sessions_session_id ON sessions(session_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at)`,
 
-		// Migration: Add last_activity if missing (idempotent)
-		`ALTER TABLE sessions ADD COLUMN last_activity INTEGER NOT NULL DEFAULT 0`,
-		`ALTER TABLE sessions ADD COLUMN user_id INTEGER NOT NULL DEFAULT 0`,
-		`ALTER TABLE sessions ADD COLUMN status TEXT NOT NULL DEFAULT 'active'`,
-		`ALTER TABLE users ADD COLUMN totp_enabled INTEGER NOT NULL DEFAULT 0`,
-		`ALTER TABLE users ADD COLUMN display_name TEXT NOT NULL DEFAULT ''`,
-		`ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'user'`,
-		`ALTER TABLE users ADD COLUMN must_change_password INTEGER NOT NULL DEFAULT 0`,
+		// Migration: Add columns if missing (handled by initSchema loop)
 
 		// ── Git Sync ──
 		`CREATE TABLE IF NOT EXISTS git_sync_config (
-			id INTEGER PRIMARY KEY CHECK (id = 1),
+			id BIGINT PRIMARY KEY CHECK (id = 1),
 			repo_url TEXT NOT NULL DEFAULT '',
 			branch TEXT NOT NULL DEFAULT 'main',
 			local_path TEXT NOT NULL DEFAULT '/var/lib/dplaneos/git-stacks',
@@ -186,59 +182,54 @@ func initSchema(db *sql.DB) error {
 			host_key_mode TEXT NOT NULL DEFAULT 'accept',
 			commit_name TEXT NOT NULL DEFAULT 'D-PlaneOS',
 			commit_email TEXT NOT NULL DEFAULT 'dplaneos@localhost',
-			last_sync_at TEXT,
+			last_sync_at TIMESTAMPTZ,
 			last_commit TEXT,
 			last_error TEXT
 		)`,
-		`INSERT OR IGNORE INTO git_sync_config (id) VALUES (1)`,
+		`INSERT INTO git_sync_config (id) VALUES (1) ON CONFLICT (id) DO NOTHING`,
 
-		// Migration: add auth columns if missing
-		`ALTER TABLE git_sync_config ADD COLUMN auth_type TEXT NOT NULL DEFAULT 'none'`,
-		`ALTER TABLE git_sync_config ADD COLUMN auth_token TEXT NOT NULL DEFAULT ''`,
-		`ALTER TABLE git_sync_config ADD COLUMN ssh_key_path TEXT NOT NULL DEFAULT ''`,
-		`ALTER TABLE git_sync_config ADD COLUMN host_key_mode TEXT NOT NULL DEFAULT 'accept'`,
-		`ALTER TABLE git_sync_config ADD COLUMN commit_name TEXT NOT NULL DEFAULT 'D-PlaneOS'`,
+		// Migration: add auth columns if missing (handled by initSchema loop)
 
 		// ── ACME configuration ──
 		`CREATE TABLE IF NOT EXISTS acme_config (
-			id INTEGER PRIMARY KEY CHECK (id = 1),
+			id BIGINT PRIMARY KEY CHECK (id = 1),
 			email TEXT NOT NULL DEFAULT '',
 			server TEXT NOT NULL DEFAULT 'https://acme-v02.api.letsencrypt.org/directory',
 			resolver TEXT NOT NULL DEFAULT 'http',
 			dns_config TEXT NOT NULL DEFAULT '{}', -- JSON map of env vars
 			domains TEXT NOT NULL DEFAULT '[]',     -- JSON array
 			enabled INTEGER NOT NULL DEFAULT 0,
-			updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 		)`,
-		`INSERT OR IGNORE INTO acme_config (id) VALUES (1)`,
+		`INSERT INTO acme_config (id) VALUES (1) ON CONFLICT (id) DO NOTHING`,
 
 		// ── Certificate store ──
 		`CREATE TABLE IF NOT EXISTS certificates (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			id BIGSERIAL PRIMARY KEY,
 			name TEXT NOT NULL UNIQUE,
 			cert_pem TEXT NOT NULL,
 			key_pem TEXT NOT NULL,
 			is_managed INTEGER NOT NULL DEFAULT 0, -- 1 if ACME-managed
-			created_at TEXT NOT NULL DEFAULT (datetime('now')),
-			updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 		)`,
 
 		// ── SMART healthy monitoring/scheduling ──
 		`CREATE TABLE IF NOT EXISTS smart_schedules (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			id BIGSERIAL PRIMARY KEY,
 			device TEXT NOT NULL,
 			test_type TEXT NOT NULL, -- short, long, conveyance, offline
 			schedule TEXT NOT NULL,  -- cron expression
 			enabled INTEGER NOT NULL DEFAULT 1,
-			last_run TEXT,
-			next_run TEXT,
-			created_at TEXT NOT NULL DEFAULT (datetime('now')),
+			last_run TIMESTAMPTZ,
+			next_run TIMESTAMPTZ,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 			UNIQUE(device, test_type)
 		)`,
 		`ALTER TABLE git_sync_config ADD COLUMN commit_email TEXT NOT NULL DEFAULT 'dplaneos@localhost'`,
 		// ── Git Sync: Multi-Repo Support (v2.1.1) ──
 		`CREATE TABLE IF NOT EXISTS git_sync_repos (
-			id          INTEGER PRIMARY KEY AUTOINCREMENT,
+			id          BIGSERIAL PRIMARY KEY,
 			name        TEXT NOT NULL UNIQUE,
 			repo_url    TEXT NOT NULL DEFAULT '',
 			branch      TEXT NOT NULL DEFAULT 'main',
@@ -252,55 +243,55 @@ func initSchema(db *sql.DB) error {
 			host_key_mode TEXT NOT NULL DEFAULT 'accept',
 			commit_name TEXT NOT NULL DEFAULT 'D-PlaneOS',
 			commit_email TEXT NOT NULL DEFAULT 'dplaneos@localhost',
-			last_sync_at TEXT,
+			last_sync_at TIMESTAMPTZ,
 			last_commit TEXT,
 			last_error  TEXT,
 			enabled     INTEGER NOT NULL DEFAULT 1,
-			created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+			created_at  TIMESTAMPTZ DEFAULT NOW()
 		)`,
 
 		// ── GitHub PAT Store (shared credentials, referenced by name) ──
 		`CREATE TABLE IF NOT EXISTS git_credentials (
-			id          INTEGER PRIMARY KEY AUTOINCREMENT,
+			id          BIGSERIAL PRIMARY KEY,
 			name        TEXT NOT NULL UNIQUE,
 			host        TEXT NOT NULL DEFAULT 'github.com',
 			auth_type   TEXT NOT NULL DEFAULT 'token',
 			token       TEXT NOT NULL DEFAULT '',
 			ssh_key     TEXT NOT NULL DEFAULT '',
 			notes       TEXT NOT NULL DEFAULT '',
-			created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+			created_at  TIMESTAMPTZ DEFAULT NOW()
 		)`,
 
 		// API Tokens - long-lived bearer tokens for automation/CLI
 		`CREATE TABLE IF NOT EXISTS api_tokens (
-			id          INTEGER PRIMARY KEY AUTOINCREMENT,
-			user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			id          BIGSERIAL PRIMARY KEY,
+			user_id     BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
 			name        TEXT NOT NULL,
 			token_hash  TEXT NOT NULL UNIQUE,
 			token_prefix TEXT NOT NULL,
 			scopes      TEXT NOT NULL DEFAULT 'read',
-			last_used   DATETIME,
-			expires_at  DATETIME,
-			created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
+			last_used   TIMESTAMPTZ,
+			expires_at  TIMESTAMPTZ,
+			created_at  TIMESTAMPTZ DEFAULT NOW(),
 			UNIQUE(user_id, name)
 		)`,
 
 		// TOTP 2FA secrets
 		`CREATE TABLE IF NOT EXISTS totp_secrets (
-			user_id     INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+			user_id     BIGINT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
 			secret      TEXT NOT NULL,
 			enabled     INTEGER NOT NULL DEFAULT 0,
 			backup_codes TEXT NOT NULL DEFAULT '',
-			created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
-			verified_at DATETIME
+			created_at  TIMESTAMPTZ DEFAULT NOW(),
+			verified_at TIMESTAMPTZ
 		)`,
 
 		// ── Phase 1: Pre-upgrade snapshots ──
 		`CREATE TABLE IF NOT EXISTS pre_upgrade_snapshots (
-			id          INTEGER PRIMARY KEY AUTOINCREMENT,
+			id          BIGSERIAL PRIMARY KEY,
 			snapshot    TEXT NOT NULL,
 			pool        TEXT NOT NULL,
-			created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+			created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 			nixos_apply TEXT NOT NULL DEFAULT '',
 			success     INTEGER NOT NULL DEFAULT 1,
 			error       TEXT NOT NULL DEFAULT ''
@@ -308,7 +299,7 @@ func initSchema(db *sql.DB) error {
 
 		// ── Phase 1: Webhook alerting ──
 		`CREATE TABLE IF NOT EXISTS webhook_configs (
-			id            INTEGER PRIMARY KEY AUTOINCREMENT,
+			id            BIGSERIAL PRIMARY KEY,
 			name          TEXT NOT NULL UNIQUE,
 			url           TEXT NOT NULL,
 			secret_header TEXT NOT NULL DEFAULT '',
@@ -317,14 +308,11 @@ func initSchema(db *sql.DB) error {
 			body_template TEXT NOT NULL DEFAULT '',
 			enabled       INTEGER NOT NULL DEFAULT 1,
 			events        TEXT NOT NULL DEFAULT '[]',
-			created_at    TEXT NOT NULL DEFAULT (datetime('now')),
-			updated_at    TEXT NOT NULL DEFAULT (datetime('now'))
+			created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
 		)`,
 
-		// ── Migration: add content_type + body_template to webhook_configs ──
-		// ALTER TABLE is idempotent via the "duplicate column" guard in initSchema.
-		`ALTER TABLE webhook_configs ADD COLUMN content_type  TEXT NOT NULL DEFAULT 'application/json'`,
-		`ALTER TABLE webhook_configs ADD COLUMN body_template TEXT NOT NULL DEFAULT ''`,
+		// Migration: add content_type + body_template to webhook_configs (handled by initSchema loop)
 
 		// ── Phase 1: Audit HMAC chain columns ──
 		`ALTER TABLE audit_logs ADD COLUMN prev_hash TEXT NOT NULL DEFAULT ''`,
@@ -335,15 +323,15 @@ func initSchema(db *sql.DB) error {
 			kind        TEXT NOT NULL,
 			name        TEXT NOT NULL,
 			reason      TEXT NOT NULL DEFAULT '',
-			approved_at TEXT NOT NULL DEFAULT (datetime('now')),
+			approved_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 			PRIMARY KEY (kind, name)
 		)`,
 
 		// ── Phase 6: Optional Granular GitOps ──
 		`CREATE TABLE IF NOT EXISTS gitops_config (
-			id INTEGER PRIMARY KEY CHECK (id = 1),
+			id BIGINT PRIMARY KEY CHECK (id = 1),
 			enabled INTEGER NOT NULL DEFAULT 0,
-			repo_id INTEGER,
+			repo_id BIGINT,
 			state_path TEXT NOT NULL DEFAULT 'state.yaml',
 			sync_storage INTEGER NOT NULL DEFAULT 1,
 			sync_access INTEGER NOT NULL DEFAULT 1,
@@ -351,14 +339,13 @@ func initSchema(db *sql.DB) error {
 			sync_identity INTEGER NOT NULL DEFAULT 1,
 			sync_protection INTEGER NOT NULL DEFAULT 1,
 			sync_system INTEGER NOT NULL DEFAULT 1,
-			nixos_repo_id INTEGER,
-			updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+			nixos_repo_id BIGINT,
+			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 			FOREIGN KEY (repo_id) REFERENCES git_sync_repos(id),
 			FOREIGN KEY (nixos_repo_id) REFERENCES git_sync_repos(id)
 		)`,
 
-		// Migration: add nixos_repo_id to gitops_config
-		`ALTER TABLE gitops_config ADD COLUMN nixos_repo_id INTEGER`,
+		// Migration: add nixos_repo_id to gitops_config (handled by initSchema loop)
 
 		`CREATE INDEX IF NOT EXISTS idx_git_repos_name ON git_sync_repos(name)`,
 		`CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_logs(timestamp)`,
@@ -371,19 +358,19 @@ func initSchema(db *sql.DB) error {
 		// Tracks every disk ever seen: stable identifiers, pool membership,
 		// removal events, and temperature history.
 		`CREATE TABLE IF NOT EXISTS disk_registry (
-			id           INTEGER PRIMARY KEY AUTOINCREMENT,
+			id           BIGSERIAL PRIMARY KEY,
 			dev_name     TEXT NOT NULL,
 			by_id_path   TEXT UNIQUE,
 			serial       TEXT,
 			wwn          TEXT,
 			model        TEXT,
-			size_bytes   INTEGER,
+			size_bytes   BIGINT,
 			disk_type    TEXT,
 			pool_name    TEXT,
 			health       TEXT NOT NULL DEFAULT 'UNKNOWN',
-			last_seen    TEXT NOT NULL,
-			first_seen   TEXT NOT NULL,
-			removed_at   TEXT,
+			last_seen    TIMESTAMPTZ NOT NULL,
+			first_seen   TIMESTAMPTZ NOT NULL,
+			removed_at   TIMESTAMPTZ,
 			temp_c       INTEGER NOT NULL DEFAULT 0,
 			UNIQUE(dev_name, by_id_path)
 		)`,
@@ -393,11 +380,17 @@ func initSchema(db *sql.DB) error {
 		`CREATE TABLE IF NOT EXISTS system_config (
 			key TEXT PRIMARY KEY,
 			value TEXT NOT NULL,
-			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+			updated_at TIMESTAMPTZ DEFAULT NOW()
+		)`,
+		// ── Settings table (alerting_smtp.go writes here) ──
+		`CREATE TABLE IF NOT EXISTS settings (
+			key TEXT PRIMARY KEY,
+			value TEXT NOT NULL,
+			updated_at TIMESTAMPTZ DEFAULT NOW()
 		)`,
 		// ── SMB Shares ──
 		`CREATE TABLE IF NOT EXISTS smb_shares (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			id BIGSERIAL PRIMARY KEY,
 			name TEXT NOT NULL UNIQUE,
 			path TEXT NOT NULL,
 			comment TEXT DEFAULT '',
@@ -409,26 +402,26 @@ func initSchema(db *sql.DB) error {
 			create_mask TEXT DEFAULT '0664',
 			directory_mask TEXT DEFAULT '0775',
 			enabled INTEGER DEFAULT 1,
-			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+			created_at TIMESTAMPTZ DEFAULT NOW(),
+			updated_at TIMESTAMPTZ DEFAULT NOW()
 		)`,
 		// ── NFS Exports ──
 		`CREATE TABLE IF NOT EXISTS nfs_exports (
-			id        INTEGER PRIMARY KEY AUTOINCREMENT,
+			id        BIGSERIAL PRIMARY KEY,
 			path      TEXT NOT NULL,
 			clients   TEXT NOT NULL DEFAULT '*',
 			options   TEXT NOT NULL DEFAULT 'rw,sync,no_subtree_check,no_root_squash',
 			enabled   INTEGER NOT NULL DEFAULT 1,
-			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+			created_at TIMESTAMPTZ DEFAULT NOW(),
+			updated_at TIMESTAMPTZ DEFAULT NOW()
 		)`,
 		// ── Groups & Members ──
 		`CREATE TABLE IF NOT EXISTS groups (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			id BIGSERIAL PRIMARY KEY,
 			name TEXT NOT NULL UNIQUE,
 			description TEXT DEFAULT '',
 			gid INTEGER,
-			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+			created_at TIMESTAMPTZ DEFAULT NOW()
 		)`,
 		`CREATE TABLE IF NOT EXISTS group_members (
 			group_name TEXT,
@@ -440,11 +433,14 @@ func initSchema(db *sql.DB) error {
 	}
 
 	for _, stmt := range tables {
+		if strings.Contains(stmt, "ALTER TABLE") {
+			// Wrap ALTER TABLE in a DO block to make it idempotent
+			// Extract table and column name for better logging if needed, 
+			// but here we just wrap the provided statement.
+			stmt = fmt.Sprintf(`DO $$ BEGIN %s; EXCEPTION WHEN duplicate_column THEN NULL; END $$;`, 
+				strings.TrimSuffix(stmt, ";"))
+		}
 		if _, err := db.Exec(stmt); err != nil {
-			// ALTER TABLE fails if column already exists - that's OK for migrations
-			if strings.Contains(stmt, "ALTER TABLE") && strings.Contains(err.Error(), "duplicate column") {
-				continue
-			}
 			return fmt.Errorf("schema init failed: %w\nStatement: %s", err, stmt[:80])
 		}
 	}
@@ -491,7 +487,7 @@ func seedDefaults(db *sql.DB) error {
 		}
 		for _, r := range roles {
 			if _, err := db.Exec(
-				"INSERT INTO roles (name, display_name, description, is_system) VALUES (?, ?, ?, 1)",
+				"INSERT INTO roles (name, display_name, description, is_system) VALUES ($1, $2, $3, 1) ON CONFLICT (name) DO NOTHING",
 				r.name, r.display, r.desc,
 			); err != nil {
 				return fmt.Errorf("role seed %s: %w", r.name, err)
@@ -542,7 +538,7 @@ func seedDefaults(db *sql.DB) error {
 		}
 		for _, p := range perms {
 			if _, err := db.Exec(
-				"INSERT INTO permissions (resource, action, display_name, description, category) VALUES (?, ?, ?, ?, ?)",
+				"INSERT INTO permissions (resource, action, display_name, description, category) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (resource, action) DO NOTHING",
 				p.resource, p.action, p.display, p.desc, p.category,
 			); err != nil {
 				return fmt.Errorf("perm seed %s:%s: %w", p.resource, p.action, err)
@@ -559,7 +555,7 @@ func seedDefaults(db *sql.DB) error {
 				for rows.Next() {
 					var pid int
 					rows.Scan(&pid)
-					db.Exec("INSERT OR IGNORE INTO role_permissions (role_id, permission_id) VALUES (?, ?)", adminID, pid)
+					db.Exec("INSERT INTO role_permissions (role_id, permission_id) VALUES ($1, $2) ON CONFLICT DO NOTHING", adminID, pid)
 				}
 				log.Printf("Assigned all permissions to admin role")
 			}
@@ -581,7 +577,7 @@ func seedDefaults(db *sql.DB) error {
 		db.QueryRow("SELECT id FROM roles WHERE name = 'admin'").Scan(&adminRoleID)
 		db.QueryRow("SELECT id FROM users WHERE username = 'admin'").Scan(&adminUserID)
 		if adminRoleID > 0 && adminUserID > 0 {
-			db.Exec("INSERT OR IGNORE INTO user_roles (user_id, role_id, granted_by) VALUES (?, ?, 'system')", adminUserID, adminRoleID)
+			db.Exec("INSERT INTO user_roles (user_id, role_id, granted_by) VALUES ($1, $2, 'system') ON CONFLICT DO NOTHING", adminUserID, adminRoleID)
 		}
 		log.Printf("Created default admin user")
 	}
@@ -596,7 +592,7 @@ func seedDefaults(db *sql.DB) error {
 	}
 
 	// ── Ensure default system settings ──
-	db.Exec(`INSERT OR IGNORE INTO system_config (key, value) VALUES ('audit_retention_days', '90')`)
+	db.Exec(`INSERT INTO system_config (key, value) VALUES ('audit_retention_days', '90') ON CONFLICT (key) DO NOTHING`)
 
 	return nil
 }

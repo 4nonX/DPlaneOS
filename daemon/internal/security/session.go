@@ -8,19 +8,15 @@ import (
 	"strings"
 	"time"
 
-	_ "github.com/mattn/go-sqlite3"
+	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
 // db is declared in rbac.go via SetDatabase()
 
-// InitDatabase initializes the SQLite connection
-func InitDatabase(dbPath string) error {
+// InitDatabase initializes the PostgreSQL connection
+func InitDatabase(dbDSN string) error {
 	var err error
-	// Use same high-concurrency settings as main daemon
-	// - WAL mode: concurrent reads during writes
-	// - busy_timeout: wait 30s during WAL checkpoints
-	// - cache_size: 64MB in-memory cache
-	db, err = sql.Open("sqlite3", dbPath+"?_journal_mode=WAL&_busy_timeout=30000&cache=shared&_cache_size=-65536&_synchronous=FULL")
+	db, err = sql.Open("pgx", dbDSN)
 	if err != nil {
 		return fmt.Errorf("failed to open database: %w", err)
 	}
@@ -61,10 +57,10 @@ func ValidateSession(sessionID, username string) (bool, error) {
 	query := `
 		SELECT COUNT(*) 
 		FROM sessions 
-		WHERE session_id = ? 
-		AND username = ?
-		AND (expires_at IS NULL OR expires_at > ?)
-		AND (last_activity = 0 OR (? - last_activity) < ?)
+		WHERE session_id = $1 
+		AND username = $2
+		AND (expires_at IS NULL OR expires_at > $3)
+		AND (last_activity = 0 OR ($4 - last_activity) < $5)
 	`
 
 	err := db.QueryRow(query, sessionID, username, now, now, idleTimeout).Scan(&count)
@@ -75,7 +71,7 @@ func ValidateSession(sessionID, username string) (bool, error) {
 
 	if count > 0 {
 		// Update last_activity timestamp (touch session)
-		db.Exec("UPDATE sessions SET last_activity = ? WHERE session_id = ?", now, sessionID)
+		db.Exec("UPDATE sessions SET last_activity = $1 WHERE session_id = $2", now, sessionID)
 		return true, nil
 	}
 
@@ -92,8 +88,8 @@ func GetUserFromSession(sessionID string) (string, error) {
 	query := `
 		SELECT username 
 		FROM sessions 
-		WHERE session_id = ?
-		AND (expires_at IS NULL OR expires_at > ?)
+		WHERE session_id = $1
+		AND (expires_at IS NULL OR expires_at > $2)
 		LIMIT 1
 	`
 
@@ -118,7 +114,7 @@ func ValidateUser(username string) (bool, error) {
 	query := `
 		SELECT COUNT(*) 
 		FROM users 
-		WHERE username = ?
+		WHERE username = $1
 		AND active = 1
 	`
 
@@ -151,8 +147,8 @@ func ValidateSessionAndGetUser(sessionToken string) (*SessionUser, error) {
 		SELECT u.id, u.username, COALESCE(u.email, '')
 		FROM sessions s
 		JOIN users u ON s.username = u.username
-		WHERE s.session_id = ?
-		AND (s.expires_at IS NULL OR s.expires_at > ?)
+		WHERE s.session_id = $1
+		AND (s.expires_at IS NULL OR s.expires_at > $2)
 		AND u.active = 1
 		AND COALESCE(s.status, 'active') = 'active'
 		LIMIT 1
@@ -196,7 +192,7 @@ func ValidateAPITokenAndGetUser(token string) (*SessionUser, error) {
 		SELECT u.id, u.username, COALESCE(u.email, ''), at.expires_at
 		FROM api_tokens at
 		JOIN users u ON u.id = at.user_id
-		WHERE at.token_hash = ? AND u.active = 1
+		WHERE at.token_hash = $1 AND u.active = 1
 		LIMIT 1
 	`
 
@@ -220,7 +216,7 @@ func ValidateAPITokenAndGetUser(token string) (*SessionUser, error) {
 
 	// Update last_used asynchronously
 	go func() {
-		db.Exec(`UPDATE api_tokens SET last_used = CURRENT_TIMESTAMP WHERE token_hash = ?`, hash)
+		db.Exec(`UPDATE api_tokens SET last_used = NOW() WHERE token_hash = $1`, hash)
 	}()
 
 	return &user, nil
@@ -245,7 +241,7 @@ func GetUserSessions(username string) ([]SessionInfo, error) {
 	rows, err := db.Query(`
 		SELECT session_id, ip_address, user_agent, created_at, last_activity, status
 		FROM sessions
-		WHERE username = ? AND status = 'active' AND (expires_at IS NULL OR expires_at > ?)
+		WHERE username = $1 AND status = 'active' AND (expires_at IS NULL OR expires_at > $2)
 		ORDER BY last_activity DESC`,
 		username, time.Now().Unix())
 	if err != nil {
@@ -269,6 +265,6 @@ func RevokeSession(sessionID string) error {
 		return fmt.Errorf("database not initialized")
 	}
 
-	_, err := db.Exec("UPDATE sessions SET status = 'revoked' WHERE session_id = ?", sessionID)
+	_, err := db.Exec("UPDATE sessions SET status = 'revoked' WHERE session_id = $1", sessionID)
 	return err
 }

@@ -240,11 +240,7 @@ func executeModify(ctx ApplyContext, item DiffItem) error {
 	case KindShare:
 		return modifyShare(ctx.DB, ctx.SmbConfPath, item.Name, item.DesiredShare)
 	case KindPool:
-		dp := DesiredPool{}
-		if item.DesiredPool != nil {
-			dp = *item.DesiredPool
-		}
-		return modifyPool(item.Name, item.Changes, dp)
+		return modifyPool(item.Name, item.Changes)
 	case KindStack:
 		return modifyStack(item.Name, item.DesiredStack)
 	case KindNFS:
@@ -331,7 +327,7 @@ func createPool(dp DesiredPool) error {
 	return nil
 }
 
-func modifyPool(name string, changes []string, dp DesiredPool) error {
+func modifyPool(name string, changes []string) error {
 	for _, change := range changes {
 		if strings.HasPrefix(change, "disk-add:") {
 			// Extract disk path
@@ -515,11 +511,11 @@ func createShare(db *sql.DB, smbConfPath, name string, ds *DesiredShare) error {
 	}
 	_, err := db.Exec(`
 		INSERT INTO smb_shares (name, path, read_only, valid_users, comment, guest_ok, enabled)
-		VALUES (?, ?, ?, ?, ?, ?, 1)
+		VALUES ($1, $2, $3, $4, $5, $6, 1)
 		ON CONFLICT(name) DO UPDATE SET
-			path=excluded.path, read_only=excluded.read_only,
-			valid_users=excluded.valid_users, comment=excluded.comment,
-			guest_ok=excluded.guest_ok, updated_at=CURRENT_TIMESTAMP`,
+			path=EXCLUDED.path, read_only=EXCLUDED.read_only,
+			valid_users=EXCLUDED.valid_users, comment=EXCLUDED.comment,
+			guest_ok=EXCLUDED.guest_ok, updated_at=NOW()`,
 		name, ds.Path, roInt, ds.ValidUsers, ds.Comment, gokInt,
 	)
 	if err != nil {
@@ -544,7 +540,7 @@ func deleteShare(db *sql.DB, smbConfPath, name string) error {
 			name,
 		)
 	}
-	if _, err := db.Exec("DELETE FROM smb_shares WHERE name = ?", name); err != nil {
+	if _, err := db.Exec("DELETE FROM smb_shares WHERE name = $1", name); err != nil {
 		return fmt.Errorf("delete smb_share %q: %w", name, err)
 	}
 	reloadSamba(smbConfPath, db)
@@ -614,10 +610,10 @@ func createNFS(db *sql.DB, exportsPath, path string, dn *DesiredNFS) error {
 	}
 	_, err := db.Exec(`
 		INSERT INTO nfs_exports (path, clients, options, enabled)
-		VALUES (?, ?, ?, ?)
+		VALUES ($1, $2, $3, $4)
 		ON CONFLICT(path) DO UPDATE SET
-			clients=excluded.clients, options=excluded.options,
-			enabled=excluded.enabled, updated_at=CURRENT_TIMESTAMP`,
+			clients=EXCLUDED.clients, options=EXCLUDED.options,
+			enabled=EXCLUDED.enabled, updated_at=NOW()`,
 		path, dn.Clients, dn.Options, enabledInt,
 	)
 	if err != nil {
@@ -633,7 +629,7 @@ func modifyNFS(db *sql.DB, exportsPath, path string, dn *DesiredNFS) error {
 }
  
 func deleteNFS(db *sql.DB, exportsPath, path string) error {
-	if _, err := db.Exec("DELETE FROM nfs_exports WHERE path = ?", path); err != nil {
+	if _, err := db.Exec("DELETE FROM nfs_exports WHERE path = $1", path); err != nil {
 		return fmt.Errorf("delete nfs_export %q: %w", path, err)
 	}
 	reloadNFS(exportsPath, db)
@@ -783,24 +779,24 @@ func reconcileUser(db *sql.DB, username string, du *DesiredUser) error {
 	if du.PasswordHash != "" {
 		_, err = db.Exec(`
 			INSERT INTO users (username, password_hash, email, role, active)
-			VALUES (?, ?, ?, ?, ?)
+			VALUES ($1, $2, $3, $4, $5)
 			ON CONFLICT(username) DO UPDATE SET
-				password_hash=excluded.password_hash,
-				email=excluded.email,
-				role=excluded.role,
-				active=excluded.active,
-				updated_at=CURRENT_TIMESTAMP`,
+				password_hash=EXCLUDED.password_hash,
+				email=EXCLUDED.email,
+				role=EXCLUDED.role,
+				active=EXCLUDED.active,
+				updated_at=NOW()`,
 			username, du.PasswordHash, du.Email, du.Role, activeInt,
 		)
 	} else {
 		_, err = db.Exec(`
 			INSERT INTO users (username, email, role, active)
-			VALUES (?, ?, ?, ?)
+			VALUES ($1, $2, $3, $4)
 			ON CONFLICT(username) DO UPDATE SET
-				email=excluded.email,
-				role=excluded.role,
-				active=excluded.active,
-				updated_at=CURRENT_TIMESTAMP`,
+				email=EXCLUDED.email,
+				role=EXCLUDED.role,
+				active=EXCLUDED.active,
+				updated_at=NOW()`,
 			username, du.Email, du.Role, activeInt,
 		)
 	}
@@ -816,7 +812,7 @@ func deleteUser(db *sql.DB, username string) error {
 	if username == "admin" || username == "root" {
 		return fmt.Errorf("refusing to delete protected user %q", username)
 	}
-	_, err := db.Exec("DELETE FROM users WHERE username = ?", username)
+	_, err := db.Exec("DELETE FROM users WHERE username = $1", username)
 	if err != nil {
 		return fmt.Errorf("delete user %q: %w", username, err)
 	}
@@ -833,11 +829,11 @@ func reconcileGroup(db *sql.DB, name string, dg *DesiredGroup) error {
 	
 	_, err := db.Exec(`
 		INSERT INTO groups (name, description, gid)
-		VALUES (?, ?, ?)
+		VALUES ($1, $2, $3)
 		ON CONFLICT(name) DO UPDATE SET
-			description=excluded.description,
-			gid=excluded.gid,
-			updated_at=CURRENT_TIMESTAMP`,
+			description=EXCLUDED.description,
+			gid=EXCLUDED.gid,
+			updated_at=NOW()`,
 		name, dg.Description, dg.GID,
 	)
 	if err != nil {
@@ -845,13 +841,13 @@ func reconcileGroup(db *sql.DB, name string, dg *DesiredGroup) error {
 	}
 	
 	// Sync members
-	_, err = db.Exec("DELETE FROM group_members WHERE group_name = ?", name)
+	_, err = db.Exec("DELETE FROM group_members WHERE group_name = $1", name)
 	if err != nil {
 		return fmt.Errorf("clear members for group %q: %w", name, err)
 	}
 	
 	for _, member := range dg.Members {
-		_, err = db.Exec("INSERT INTO group_members (group_name, username) VALUES (?, ?)", name, member)
+		_, err = db.Exec("INSERT INTO group_members (group_name, username) VALUES ($1, $2)", name, member)
 		if err != nil {
 			return fmt.Errorf("add member %q to group %q: %w", member, name, err)
 		}
@@ -863,9 +859,9 @@ func reconcileGroup(db *sql.DB, name string, dg *DesiredGroup) error {
 
 func deleteGroup(db *sql.DB, name string) error {
 	// First clear members (foreign key should handle this but let's be explicit)
-	_, _ = db.Exec("DELETE FROM group_members WHERE group_name = ?", name)
+	_, _ = db.Exec("DELETE FROM group_members WHERE group_name = $1", name)
 	
-	_, err := db.Exec("DELETE FROM groups WHERE name = ?", name)
+	_, err := db.Exec("DELETE FROM groups WHERE name = $1", name)
 	if err != nil {
 		return fmt.Errorf("delete group %q: %w", name, err)
 	}
@@ -1008,11 +1004,11 @@ func reconcileLDAP(db *sql.DB, desired *DesiredLDAP) error {
 	}
 
 	_, err := db.Exec(`UPDATE ldap_config SET
-		enabled=?, server=?, port=?, use_tls=?, bind_dn=?, bind_password=?, base_dn=?,
-		user_filter=?, user_id_attr=?, user_name_attr=?, user_email_attr=?,
-		group_base_dn=?, group_filter=?, group_member_attr=?,
-		jit_provisioning=?, default_role=?, sync_interval=?, timeout=?,
-		updated_at=datetime('now') WHERE id=1`,
+		enabled=$1, server=$2, port=$3, use_tls=$4, bind_dn=$5, bind_password=$6, base_dn=$7,
+		user_filter=$8, user_id_attr=$9, user_name_attr=$10, user_email_attr=$11,
+		group_base_dn=$12, group_filter=$13, group_member_attr=$14,
+		jit_provisioning=$15, default_role=$16, sync_interval=$17, timeout=$18,
+		updated_at=NOW() WHERE id=1`,
 		enabled, desired.Server, desired.Port, useTLS, desired.BindDN, desired.BindPassword, desired.BaseDN,
 		desired.UserFilter, desired.UserIDAttr, desired.UserNameAttr, desired.UserEmailAttr,
 		desired.GroupBaseDN, desired.GroupFilter, desired.GroupMemberAttr,
@@ -1042,7 +1038,7 @@ func SyncDB(db *sql.DB, desired *DesiredState) error {
 	}
 	for _, u := range desired.Users {
 		_, err := tx.Exec(`INSERT INTO users (username, email, role, active, source) 
-			VALUES (?, ?, ?, ?, 'git')`,
+			VALUES ($1, $2, $3, $4, 'git')`,
 			u.Username, u.Email, u.Role, u.Active)
 		if err != nil {
 			return fmt.Errorf("syncing user %q: %w", u.Username, err)
@@ -1058,13 +1054,13 @@ func SyncDB(db *sql.DB, desired *DesiredState) error {
 	}
 	for _, g := range desired.Groups {
 		_, err := tx.Exec(`INSERT INTO groups (name, description, gid) 
-			VALUES (?, ?, ?)`,
+			VALUES ($1, $2, $3)`,
 			g.Name, g.Description, g.GID)
 		if err != nil {
 			return fmt.Errorf("syncing group %q: %w", g.Name, err)
 		}
 		for _, member := range g.Members {
-			_, err = tx.Exec(`INSERT INTO group_members (group_name, username) VALUES (?, ?)`, g.Name, member)
+			_, err = tx.Exec(`INSERT INTO group_members (group_name, username) VALUES ($1, $2)`, g.Name, member)
 			if err != nil {
 				return fmt.Errorf("adding member %q to group %q: %w", member, g.Name, err)
 			}
@@ -1077,7 +1073,7 @@ func SyncDB(db *sql.DB, desired *DesiredState) error {
 	}
 	for _, s := range desired.Shares {
 		_, err := tx.Exec(`INSERT INTO smb_shares (name, path, read_only, valid_users, comment, guest_ok) 
-			VALUES (?, ?, ?, ?, ?, ?)`,
+			VALUES ($1, $2, $3, $4, $5, $6)`,
 			s.Name, s.Path, s.ReadOnly, s.ValidUsers, s.Comment, s.GuestOK)
 		if err != nil {
 			return fmt.Errorf("syncing share %q: %w", s.Name, err)
@@ -1090,7 +1086,7 @@ func SyncDB(db *sql.DB, desired *DesiredState) error {
 	}
 	for _, n := range desired.NFS {
 		_, err := tx.Exec(`INSERT INTO nfs_exports (path, clients, options, enabled) 
-			VALUES (?, ?, ?, ?)`,
+			VALUES ($1, $2, $3, $4)`,
 			n.Path, n.Clients, n.Options, n.Enabled)
 		if err != nil {
 			return fmt.Errorf("syncing nfs %q: %w", n.Path, err)
@@ -1197,8 +1193,8 @@ func reconcileACME(db *sql.DB, desired *DesiredACME) error {
 	}
 
 	_, err := db.Exec(`UPDATE acme_config SET 
-		email=?, server=?, resolver=?, dns_config=?, domains=?, enabled=?, 
-		updated_at=datetime('now') WHERE id=1`,
+		email=$1, server=$2, resolver=$3, dns_config=$4, domains=$5, enabled=$6, 
+		updated_at=NOW() WHERE id=1`,
 		desired.Email, desired.Server, desired.Resolver, string(dnsJson), string(domainsJson), enabled)
 	if err != nil {
 		return fmt.Errorf("update acme_config: %w", err)
@@ -1208,7 +1204,7 @@ func reconcileACME(db *sql.DB, desired *DesiredACME) error {
 }
 
 func disableACME(db *sql.DB) error {
-	_, err := db.Exec(`UPDATE acme_config SET enabled=0, updated_at=datetime('now') WHERE id=1`)
+	_, err := db.Exec(`UPDATE acme_config SET enabled=0, updated_at=NOW() WHERE id=1`)
 	return err
 }
 
@@ -1217,10 +1213,10 @@ func reconcileCertificate(db *sql.DB, desired *DesiredCertificate) error {
 		return nil
 	}
 	_, err := db.Exec(`INSERT INTO certificates (name, cert_pem, key_pem, updated_at) 
-		VALUES (?, ?, ?, datetime('now')) 
+		VALUES ($1, $2, $3, NOW()) 
 		ON CONFLICT(name) DO UPDATE SET 
-			cert_pem=excluded.cert_pem, key_pem=excluded.key_pem, 
-			updated_at=excluded.updated_at`,
+			cert_pem=EXCLUDED.cert_pem, key_pem=EXCLUDED.key_pem, 
+			updated_at=NOW()`,
 		desired.Name, desired.Cert, desired.Key)
 	if err != nil {
 		return fmt.Errorf("reconcile certificate %q: %w", desired.Name, err)
@@ -1230,7 +1226,7 @@ func reconcileCertificate(db *sql.DB, desired *DesiredCertificate) error {
 }
 
 func deleteCertificate(db *sql.DB, name string) error {
-	_, err := db.Exec(`DELETE FROM certificates WHERE name=?`, name)
+	_, err := db.Exec(`DELETE FROM certificates WHERE name=$1`, name)
 	if err != nil {
 		return fmt.Errorf("delete certificate %q: %w", name, err)
 	}
@@ -1247,9 +1243,9 @@ func reconcileSMART(db *sql.DB, desired *DesiredSMARTTask) error {
 		enabled = 1
 	}
 	_, err := db.Exec(`INSERT INTO smart_schedules (device, test_type, schedule, enabled) 
-		VALUES (?, ?, ?, ?) 
+		VALUES ($1, $2, $3, $4) 
 		ON CONFLICT(device, test_type) DO UPDATE SET 
-			schedule=excluded.schedule, enabled=excluded.enabled`,
+			schedule=EXCLUDED.schedule, enabled=EXCLUDED.enabled`,
 		desired.Device, desired.Type, desired.Schedule, enabled)
 	if err != nil {
 		return fmt.Errorf("reconcile SMART task %s-%s: %w", desired.Device, desired.Type, err)
@@ -1264,7 +1260,7 @@ func deleteSMART(db *sql.DB, name string) error {
 	if len(parts) != 2 {
 		return fmt.Errorf("invalid SMART task name format: %q", name)
 	}
-	_, err := db.Exec(`DELETE FROM smart_schedules WHERE device=? AND test_type=?`, parts[0], parts[1])
+	_, err := db.Exec(`DELETE FROM smart_schedules WHERE device=$1 AND test_type=$2`, parts[0], parts[1])
 	if err != nil {
 		return fmt.Errorf("delete SMART task %q: %w", name, err)
 	}

@@ -278,8 +278,8 @@ func (h *GitOpsHandler) Approve(w http.ResponseWriter, r *http.Request) {
 	// Persist approval to DB so it survives a daemon restart
 	h.db.Exec(`
 		INSERT INTO gitops_approvals (kind, name, reason, approved_at)
-		VALUES (?, ?, ?, datetime('now'))
-		ON CONFLICT(kind, name) DO UPDATE SET reason=excluded.reason, approved_at=excluded.approved_at`,
+		VALUES ($1, $2, $3, NOW())
+		ON CONFLICT(kind, name) DO UPDATE SET reason=EXCLUDED.reason, approved_at=NOW()`,
 		req.Kind, req.Name, req.Reason,
 	)
 
@@ -487,10 +487,10 @@ func (h *GitOpsHandler) UpdateSettings(w http.ResponseWriter, r *http.Request) {
 	}
 
 	_, err := h.db.Exec(`UPDATE gitops_config SET 
-		enabled=?, repo_id=?, nixos_repo_id=?, state_path=?,
-		sync_storage=?, sync_access=?, sync_app=?, 
-		sync_identity=?, sync_protection=?, sync_system=?,
-		updated_at=datetime('now') WHERE id=1`,
+		enabled=$1, repo_id=$2, nixos_repo_id=$3, state_path=$4,
+		sync_storage=$5, sync_access=$6, sync_app=$7, 
+		sync_identity=$8, sync_protection=$9, sync_system=$10,
+		updated_at=NOW() WHERE id=1`,
 		enabledInt, repoID, nixosRepoID, req.StatePath,
 		boolToInt(req.SyncStorage), boolToInt(req.SyncAccess), boolToInt(req.SyncApp),
 		boolToInt(req.SyncIdentity), boolToInt(req.SyncProtection), boolToInt(req.SyncSystem))

@@ -4,9 +4,6 @@ const (
 	// DBDir is the base directory for D-PlaneOS data
 	DBDir = "/var/lib/dplaneos"
 
-	// DBDatabase is the path to the main SQLite database
-	DBDatabase = DBDir + "/dplaneos.db"
-
 	// SMbSharesConf is the path to SMB shares configuration
 	SMBSharesConf = DBDir + "/smb-shares.conf"
 

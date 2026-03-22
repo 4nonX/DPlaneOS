@@ -57,13 +57,13 @@ func (h *SettingsHandler) SaveTelegramConfig(w http.ResponseWriter, r *http.Requ
 	// Insert or update
 	_, err := h.db.Exec(`
 		INSERT INTO telegram_config (id, bot_token, chat_id, enabled, updated_at)
-		VALUES (1, ?, ?, ?, ?)
+		VALUES (1, $1, $2, $3, NOW())
 		ON CONFLICT(id) DO UPDATE SET
 			bot_token = excluded.bot_token,
 			chat_id = excluded.chat_id,
 			enabled = excluded.enabled,
-			updated_at = excluded.updated_at
-	`, config.BotToken, config.ChatID, boolToInt(config.Enabled), time.Now().Unix())
+			updated_at = NOW()
+	`, config.BotToken, config.ChatID, boolToInt(config.Enabled))
 	
 	if err != nil {
 		respondErrorSimple(w, "Failed to save config", http.StatusInternalServerError)

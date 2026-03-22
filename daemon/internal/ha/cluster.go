@@ -1,4 +1,4 @@
-﻿// Package ha provides cluster node registration and health monitoring for D-PlaneOS.
+// Package ha provides cluster node registration and health monitoring for D-PlaneOS.
 //
 // # Architecture
 //
@@ -151,7 +151,7 @@ func (m *Manager) RemovePeer(id string) error {
 	m.mu.Lock()
 	delete(m.nodes, id)
 	m.mu.Unlock()
-	_, err := m.db.Exec("DELETE FROM ha_nodes WHERE node_id = ?", id)
+	_, err := m.db.Exec("DELETE FROM ha_nodes WHERE node_id = $1", id)
 	return err
 }
 
@@ -303,9 +303,9 @@ func (m *Manager) ensureSchema() error {
 			role          TEXT NOT NULL DEFAULT 'standby',
 			state         TEXT NOT NULL DEFAULT 'unknown',
 			version       TEXT NOT NULL DEFAULT '',
-			last_seen     INTEGER NOT NULL DEFAULT 0,
+			last_seen     BIGINT NOT NULL DEFAULT 0,
 			missed_beats  INTEGER NOT NULL DEFAULT 0,
-			registered_at TEXT NOT NULL DEFAULT (datetime('now'))
+			registered_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 		)
 	`)
 	return err
@@ -314,13 +314,13 @@ func (m *Manager) ensureSchema() error {
 func (m *Manager) persistNode(n *ClusterNode) error {
 	_, err := m.db.Exec(`
 		INSERT INTO ha_nodes (node_id, name, address, role, state, version, last_seen, missed_beats, registered_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		ON CONFLICT(node_id) DO UPDATE SET
 			name=excluded.name, address=excluded.address, role=excluded.role,
 			state=excluded.state, version=excluded.version,
 			last_seen=excluded.last_seen, missed_beats=excluded.missed_beats
 	`, n.ID, n.Name, n.Address, string(n.Role), string(n.State),
-		n.Version, n.LastSeen.Unix(), n.MissedBeats, n.RegisteredAt.Format(time.RFC3339))
+		n.Version, n.LastSeen.Unix(), n.MissedBeats, n.RegisteredAt)
 	return err
 }
 
@@ -338,12 +338,8 @@ func (m *Manager) loadPersistedNodes() {
 	for rows.Next() {
 		n := &ClusterNode{}
 		var lastSeenUnix int64
-		var registeredStr string
 		rows.Scan(&n.ID, &n.Name, &n.Address, (*string)(&n.Role), (*string)(&n.State),
-			&n.Version, &lastSeenUnix, &n.MissedBeats, &registeredStr)
-		n.LastSeen = time.Unix(lastSeenUnix, 0)
-		n.LastSeenUnix = lastSeenUnix
-		n.RegisteredAt, _ = time.Parse(time.RFC3339, registeredStr)
+			&n.Version, &lastSeenUnix, &n.MissedBeats, &n.RegisteredAt)
 		// Mark as unknown on load - we'll re-ping immediately
 		n.State = StateUnknown
 		m.nodes[n.ID] = n

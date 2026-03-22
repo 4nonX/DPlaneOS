@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"dplaned/internal/systemd"
-	_ "github.com/mattn/go-sqlite3"
 )
 
 // AlertingHandler handles SMTP alerting and scrub scheduling
@@ -43,7 +42,7 @@ type SMTPConfig struct {
 // GET /api/alerts/smtp
 func (h *AlertingHandler) GetSMTPConfig(w http.ResponseWriter, r *http.Request) {
 	var value string
-	err := h.db.QueryRow("SELECT value FROM settings WHERE key = ?", "smtp_config").Scan(&value)
+	err := h.db.QueryRow("SELECT value FROM settings WHERE key = $1", "smtp_config").Scan(&value)
 	if err != nil || value == "" {
 		respondOK(w, map[string]interface{}{"success": true, "configured": false})
 		return
@@ -75,7 +74,7 @@ func (h *AlertingHandler) SaveSMTPConfig(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	_, err = h.db.Exec("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", "smtp_config", string(data))
+	_, err = h.db.Exec("INSERT INTO settings (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()", "smtp_config", string(data))
 	if err != nil {
 		respondErrorSimple(w, "Failed to save", http.StatusInternalServerError)
 		log.Printf("SMTP CONFIG SAVE ERROR: %v", err)
@@ -128,7 +127,7 @@ func SendSMTPAlert(subject, body string) {
 
 func (h *AlertingHandler) sendSMTPAlert(subject, body string) {
 	var value string
-	err := h.db.QueryRow("SELECT value FROM settings WHERE key = ?", "smtp_config").Scan(&value)
+	err := h.db.QueryRow("SELECT value FROM settings WHERE key = $1", "smtp_config").Scan(&value)
 	if err != nil || value == "" {
 		return // SMTP not configured
 	}
@@ -168,7 +167,7 @@ func (h *AlertingHandler) GetScrubSchedules(w http.ResponseWriter, r *http.Reque
 	pool := r.URL.Query().Get("pool")
 
 	var value string
-	err := h.db.QueryRow("SELECT value FROM settings WHERE key = ?", "scrub_schedules").Scan(&value)
+	err := h.db.QueryRow("SELECT value FROM settings WHERE key = $1", "scrub_schedules").Scan(&value)
 	if err != nil || value == "" {
 		respondOK(w, map[string]interface{}{"success": true, "schedules": []ScrubSchedule{}})
 		return
@@ -226,7 +225,7 @@ func (h *AlertingHandler) SaveScrubSchedules(w http.ResponseWriter, r *http.Requ
 		respondErrorSimple(w, "Failed to encode schedules", http.StatusInternalServerError)
 		return
 	}
-	_, err = h.db.Exec("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", "scrub_schedules", string(data))
+	_, err = h.db.Exec("INSERT INTO settings (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()", "scrub_schedules", string(data))
 	if err != nil {
 		respondErrorSimple(w, "Failed to save schedules", http.StatusInternalServerError)
 		log.Printf("SCRUB SCHEDULES SAVE ERROR: %v", err)

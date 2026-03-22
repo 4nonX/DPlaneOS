@@ -15,7 +15,7 @@ import (
 func BuildPushEnvForRepoID(db *sql.DB, repoID int64) []string {
 	var credID int
 	// Find the credential ID used by this repo.
-	db.QueryRow(`SELECT CAST(auth_token AS INTEGER) FROM git_sync_repos WHERE id=? AND auth_type='cred'`, repoID).Scan(&credID)
+	db.QueryRow(`SELECT CAST(auth_token AS INTEGER) FROM git_sync_repos WHERE id=$1 AND auth_type='cred'`, repoID).Scan(&credID)
 	if credID == 0 {
 		return nil
 	}
@@ -25,7 +25,7 @@ func BuildPushEnvForRepoID(db *sql.DB, repoID int64) []string {
 // BuildPushEnvForCred prepares environment variables for authenticated Git operations using a Credential ID.
 func BuildPushEnvForCred(db *sql.DB, credID int64) []string {
 	var authType, token, sshKey string
-	err := db.QueryRow(`SELECT auth_type, token, ssh_key FROM git_credentials WHERE id=?`, credID).Scan(&authType, &token, &sshKey)
+	err := db.QueryRow(`SELECT auth_type, token, ssh_key FROM git_credentials WHERE id=$1`, credID).Scan(&authType, &token, &sshKey)
 	if err != nil {
 		return nil
 	}

@@ -144,8 +144,8 @@ func loadUserPermissions(userID int) ([]Permission, error) {
 		FROM permissions p
 		JOIN role_permissions rp ON p.id = rp.permission_id
 		JOIN user_roles ur ON rp.role_id = ur.role_id
-		WHERE ur.user_id = ?
-		AND (ur.expires_at IS NULL OR ur.expires_at > datetime('now'))
+		WHERE ur.user_id = $1
+		AND (ur.expires_at IS NULL OR ur.expires_at > NOW())
 		ORDER BY p.category, p.resource, p.action
 	`
 
@@ -186,8 +186,8 @@ func UserHasRole(userID int, roleName string) (bool, error) {
 		SELECT 1
 		FROM user_roles ur
 		JOIN roles r ON ur.role_id = r.id
-		WHERE ur.user_id = ? AND r.name = ?
-		AND (ur.expires_at IS NULL OR ur.expires_at > datetime('now'))
+		WHERE ur.user_id = $1 AND r.name = $2
+		AND (ur.expires_at IS NULL OR ur.expires_at > NOW())
 		LIMIT 1
 	`
 
@@ -215,8 +215,8 @@ func GetUserRoles(userID int) ([]Role, error) {
 		SELECT r.id, r.name, r.display_name, r.description, r.is_system, r.created_at, r.updated_at
 		FROM roles r
 		JOIN user_roles ur ON r.id = ur.role_id
-		WHERE ur.user_id = ?
-		AND (ur.expires_at IS NULL OR ur.expires_at > datetime('now'))
+		WHERE ur.user_id = $1
+		AND (ur.expires_at IS NULL OR ur.expires_at > NOW())
 		ORDER BY r.name
 	`
 
@@ -256,15 +256,12 @@ func GetUserRoles(userID int) ([]Role, error) {
 func CreateRole(name, displayName, description string) (*Role, error) {
 	query := `
 		INSERT INTO roles (name, display_name, description, is_system)
-		VALUES (?, ?, ?, 0)
+		VALUES ($1, $2, $3, 0)
+		RETURNING id
 	`
 
-	result, err := db.Exec(query, name, displayName, description)
-	if err != nil {
-		return nil, err
-	}
-
-	id, err := result.LastInsertId()
+	var id int64
+	err := db.QueryRow(query, name, displayName, description).Scan(&id)
 	if err != nil {
 		return nil, err
 	}
@@ -277,7 +274,7 @@ func GetRoleByID(roleID int) (*Role, error) {
 	query := `
 		SELECT id, name, display_name, description, is_system, created_at, updated_at
 		FROM roles
-		WHERE id = ?
+		WHERE id = $1
 	`
 
 	var role Role
@@ -342,7 +339,7 @@ func GetAllRoles() ([]Role, error) {
 func UpdateRole(roleID int, displayName, description string) error {
 	// Prevent updating system roles
 	var isSystem bool
-	err := db.QueryRow("SELECT is_system FROM roles WHERE id = ?", roleID).Scan(&isSystem)
+	err := db.QueryRow("SELECT is_system FROM roles WHERE id = $1", roleID).Scan(&isSystem)
 	if err != nil {
 		return err
 	}
@@ -352,8 +349,8 @@ func UpdateRole(roleID int, displayName, description string) error {
 
 	query := `
 		UPDATE roles
-		SET display_name = ?, description = ?, updated_at = datetime('now')
-		WHERE id = ? AND is_system = 0
+		SET display_name = $1, description = $2, updated_at = NOW()
+		WHERE id = $3 AND is_system = 0
 	`
 
 	_, err = db.Exec(query, displayName, description, roleID)
@@ -364,7 +361,7 @@ func UpdateRole(roleID int, displayName, description string) error {
 func DeleteRole(roleID int) error {
 	// Prevent deleting system roles
 	var isSystem bool
-	err := db.QueryRow("SELECT is_system FROM roles WHERE id = ?", roleID).Scan(&isSystem)
+	err := db.QueryRow("SELECT is_system FROM roles WHERE id = $1", roleID).Scan(&isSystem)
 	if err != nil {
 		return err
 	}
@@ -372,7 +369,7 @@ func DeleteRole(roleID int) error {
 		return fmt.Errorf("cannot delete system role")
 	}
 
-	query := "DELETE FROM roles WHERE id = ? AND is_system = 0"
+	query := "DELETE FROM roles WHERE id = $1 AND is_system = 0"
 	_, err = db.Exec(query, roleID)
 	return err
 }
@@ -387,7 +384,7 @@ func GetRolePermissions(roleID int) ([]Permission, error) {
 		SELECT p.id, p.resource, p.action, p.display_name, p.description, p.category, p.created_at
 		FROM permissions p
 		JOIN role_permissions rp ON p.id = rp.permission_id
-		WHERE rp.role_id = ?
+		WHERE rp.role_id = $1
 		ORDER BY p.category, p.resource, p.action
 	`
 
@@ -456,8 +453,9 @@ func GetAllPermissions() ([]Permission, error) {
 // AssignPermissionToRole assigns a permission to a role
 func AssignPermissionToRole(roleID, permissionID int) error {
 	query := `
-		INSERT OR IGNORE INTO role_permissions (role_id, permission_id)
-		VALUES (?, ?)
+		INSERT INTO role_permissions (role_id, permission_id)
+		VALUES ($1, $2)
+		ON CONFLICT DO NOTHING
 	`
 	_, err := db.Exec(query, roleID, permissionID)
 	return err
@@ -467,7 +465,7 @@ func AssignPermissionToRole(roleID, permissionID int) error {
 func RemovePermissionFromRole(roleID, permissionID int) error {
 	// Prevent modifying system roles
 	var isSystem bool
-	err := db.QueryRow("SELECT is_system FROM roles WHERE id = ?", roleID).Scan(&isSystem)
+	err := db.QueryRow("SELECT is_system FROM roles WHERE id = $1", roleID).Scan(&isSystem)
 	if err != nil {
 		return err
 	}
@@ -475,7 +473,7 @@ func RemovePermissionFromRole(roleID, permissionID int) error {
 		return fmt.Errorf("cannot modify system role permissions")
 	}
 
-	query := "DELETE FROM role_permissions WHERE role_id = ? AND permission_id = ?"
+	query := "DELETE FROM role_permissions WHERE role_id = $1 AND permission_id = $2"
 	_, err = db.Exec(query, roleID, permissionID)
 	return err
 }
@@ -487,8 +485,11 @@ func RemovePermissionFromRole(roleID, permissionID int) error {
 // AssignRoleToUser assigns a role to a user
 func AssignRoleToUser(userID, roleID int, grantedBy *int, expiresAt *string) error {
 	query := `
-		INSERT OR REPLACE INTO user_roles (user_id, role_id, granted_by, expires_at)
-		VALUES (?, ?, ?, ?)
+		INSERT INTO user_roles (user_id, role_id, granted_by, expires_at)
+		VALUES ($1, $2, $3, $4)
+		ON CONFLICT (user_id, role_id) DO UPDATE SET
+			granted_by = EXCLUDED.granted_by,
+			expires_at = EXCLUDED.expires_at
 	`
 
 	_, err := db.Exec(query, userID, roleID, grantedBy, expiresAt)
@@ -503,7 +504,7 @@ func AssignRoleToUser(userID, roleID int, grantedBy *int, expiresAt *string) err
 
 // RemoveRoleFromUser removes a role from a user
 func RemoveRoleFromUser(userID, roleID int) error {
-	query := "DELETE FROM user_roles WHERE user_id = ? AND role_id = ?"
+	query := "DELETE FROM user_roles WHERE user_id = $1 AND role_id = $2"
 	_, err := db.Exec(query, userID, roleID)
 	if err != nil {
 		return err

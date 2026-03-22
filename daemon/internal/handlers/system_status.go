@@ -33,7 +33,7 @@ func (h *SystemStatusHandler) HandleStatus(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	// Ensure table exists - this is the first endpoint hit on fresh installs
-	h.db.Exec(`CREATE TABLE IF NOT EXISTS system_config (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP)`)
+	h.db.Exec(`CREATE TABLE IF NOT EXISTS system_config (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TIMESTAMPTZ DEFAULT NOW())`)
 	var setupDone int
 	h.db.QueryRow(`SELECT COUNT(*) FROM system_config WHERE key = 'setup_complete' AND value = '1'`).Scan(&setupDone)
 	var userCount int
@@ -72,15 +72,15 @@ func (h *SystemStatusHandler) HandleSetupComplete(w http.ResponseWriter, r *http
 		respondErrorSimple(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	h.db.Exec(`CREATE TABLE IF NOT EXISTS system_config (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP)`)
+	h.db.Exec(`CREATE TABLE IF NOT EXISTS system_config (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TIMESTAMPTZ DEFAULT NOW())`)
 	var body struct {
 		Hostname string `json:"hostname"`
 		Timezone string `json:"timezone"`
 	}
 	json.NewDecoder(r.Body).Decode(&body)
-	h.db.Exec(`INSERT OR REPLACE INTO system_config (key, value) VALUES ('setup_complete', '1')`)
+	h.db.Exec(`INSERT INTO system_config (key, value) VALUES ('setup_complete', '1') ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`)
 	if body.Hostname != "" {
-		h.db.Exec(`INSERT OR REPLACE INTO system_config (key, value) VALUES ('hostname', ?)`, body.Hostname)
+		h.db.Exec(`INSERT INTO system_config (key, value) VALUES ('hostname', $1) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`, body.Hostname)
 		if _, err := cmdutil.RunFast("hostnamectl", "set-hostname", body.Hostname); err != nil {
 			log.Printf("WARN: hostnamectl: %v", err)
 		}
@@ -88,7 +88,7 @@ func (h *SystemStatusHandler) HandleSetupComplete(w http.ResponseWriter, r *http
 		persistHostname(body.Hostname)
 	}
 	if body.Timezone != "" {
-		h.db.Exec(`INSERT OR REPLACE INTO system_config (key, value) VALUES ('timezone', ?)`, body.Timezone)
+		h.db.Exec(`INSERT INTO system_config (key, value) VALUES ('timezone', $1) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`, body.Timezone)
 		if _, err := cmdutil.RunFast("timedatectl", "set-timezone", body.Timezone); err != nil {
 			log.Printf("WARN: timedatectl: %v", err)
 		}
@@ -220,7 +220,7 @@ func (h *SystemStatusHandler) HandlePreflight(w http.ResponseWriter, r *http.Req
 }
 
 func (h *SystemStatusHandler) HandleSettings(w http.ResponseWriter, r *http.Request) {
-	h.db.Exec(`CREATE TABLE IF NOT EXISTS system_config (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP)`)
+	h.db.Exec(`CREATE TABLE IF NOT EXISTS system_config (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TIMESTAMPTZ DEFAULT NOW())`)
 	switch r.Method {
 	case http.MethodGet:
 		rows, err := h.db.Query(`SELECT key, value FROM system_config ORDER BY key`)
@@ -243,7 +243,7 @@ func (h *SystemStatusHandler) HandleSettings(w http.ResponseWriter, r *http.Requ
 			return
 		}
 		for k, v := range body {
-			h.db.Exec(`INSERT OR REPLACE INTO system_config (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)`, k, v)
+			h.db.Exec(`INSERT INTO system_config (key, value, updated_at) VALUES ($1, $2, NOW()) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`, k, v)
 		}
 		// Persist system-level changes to Nix fragment so they survive nixos-rebuild
 		if hn, ok := body["hostname"]; ok && hn != "" {
@@ -476,7 +476,7 @@ func (h *SystemStatusHandler) HandleSetupAdmin(w http.ResponseWriter, r *http.Re
 
 	// Ensure system_config table exists (may not on a completely fresh DB
 	// if HandleSetupAdmin is called before HandleSetupComplete or HandleStatus)
-	h.db.Exec(`CREATE TABLE IF NOT EXISTS system_config (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP)`)
+	h.db.Exec(`CREATE TABLE IF NOT EXISTS system_config (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TIMESTAMPTZ DEFAULT NOW())`)
 
 	// Gate: only allow if setup is NOT yet complete
 	var setupDone int
@@ -524,7 +524,7 @@ func (h *SystemStatusHandler) HandleSetupAdmin(w http.ResponseWriter, r *http.Re
 	// Update the seeded admin user's password (created with empty hash at startup)
 	// If username differs from "admin", rename too
 	result, err := h.db.Exec(
-		`UPDATE users SET password_hash = ?, username = ?, must_change_password = 0 WHERE username = 'admin'`,
+		`UPDATE users SET password_hash = $1, username = $2, must_change_password = 0 WHERE username = 'admin'`,
 		string(hash), req.Username,
 	)
 	if err != nil {
@@ -537,7 +537,7 @@ func (h *SystemStatusHandler) HandleSetupAdmin(w http.ResponseWriter, r *http.Re
 	if rows == 0 {
 		// Admin user doesn't exist yet - insert fresh
 		_, err = h.db.Exec(
-			`INSERT INTO users (username, password_hash, email, role, active) VALUES (?, ?, 'admin@localhost', 'admin', 1)`,
+			`INSERT INTO users (username, password_hash, email, role, active) VALUES ($1, $2, 'admin@localhost', 'admin', 1)`,
 			req.Username, string(hash),
 		)
 		if err != nil {

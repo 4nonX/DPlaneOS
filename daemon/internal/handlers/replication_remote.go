@@ -280,13 +280,14 @@ func execPipedZFSSend(
 				continue
 			}
 
-			if fields[0] == "size" {
+			switch fields[0] {
+			case "size":
 				totalSize, _ = strconv.ParseInt(fields[1], 10, 64)
-			} else if fields[0] == "sent" {
+			case "sent":
 				sent, _ := strconv.ParseInt(fields[1], 10, 64)
 				now := time.Now()
 				elapsed := now.Sub(lastTime).Seconds()
-				
+
 				if elapsed >= 0.5 { // Update every 500ms
 					rate := float64(sent-lastSent) / elapsed // bytes/sec
 					var percent float64
@@ -300,12 +301,12 @@ func execPipedZFSSend(
 					}
 
 					j.Progress(map[string]interface{}{
-						"percent":      percent,
-						"bytes_sent":   sent,
-						"total_bytes":  totalSize,
-						"rate_bps":     rate, // bits per second? no, bytes per second
-						"rate_mbs":     rate / (1024 * 1024),
-						"eta_seconds":  eta,
+						"percent":     percent,
+						"bytes_sent":  sent,
+						"total_bytes": totalSize,
+						"rate_bps":    rate,
+						"rate_mbs":    rate / (1024 * 1024),
+						"eta_seconds": eta,
 					})
 
 					lastSent = sent

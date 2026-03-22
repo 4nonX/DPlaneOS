@@ -239,15 +239,15 @@ func (h *NFSHandler) CreateNFSExport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	res, err := h.db.Exec(
-		`INSERT INTO nfs_exports (path, clients, options) VALUES (?, ?, ?)`,
+	var id int64
+	err := h.db.QueryRow(
+		`INSERT INTO nfs_exports (path, clients, options) VALUES ($1, $2, $3) RETURNING id`,
 		req.Path, req.Clients, req.Options,
-	)
+	).Scan(&id)
 	if err != nil {
 		respondErrorSimple(w, "database error: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-	id, _ := res.LastInsertId()
 
 	if err := h.writeExportsFile(); err != nil {
 		log.Printf("writeExportsFile: %v", err)
@@ -318,18 +318,18 @@ func (h *NFSHandler) UpdateNFSExport(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Build update dynamically
-	sets := []string{"updated_at = CURRENT_TIMESTAMP"}
+	sets := []string{"updated_at = NOW()"}
 	args := []interface{}{}
 	if req.Path != "" {
-		sets = append(sets, "path = ?")
+		sets = append(sets, fmt.Sprintf("path = $%d", len(args)+1))
 		args = append(args, req.Path)
 	}
 	if req.Clients != "" {
-		sets = append(sets, "clients = ?")
+		sets = append(sets, fmt.Sprintf("clients = $%d", len(args)+1))
 		args = append(args, req.Clients)
 	}
 	if req.Options != "" {
-		sets = append(sets, "options = ?")
+		sets = append(sets, fmt.Sprintf("options = $%d", len(args)+1))
 		args = append(args, req.Options)
 	}
 	if req.Enabled != nil {
@@ -337,12 +337,12 @@ func (h *NFSHandler) UpdateNFSExport(w http.ResponseWriter, r *http.Request) {
 		if *req.Enabled {
 			v = 1
 		}
-		sets = append(sets, "enabled = ?")
+		sets = append(sets, fmt.Sprintf("enabled = $%d", len(args)+1))
 		args = append(args, v)
 	}
 	args = append(args, id)
 
-	query := "UPDATE nfs_exports SET " + strings.Join(sets, ", ") + " WHERE id = ?"
+	query := "UPDATE nfs_exports SET " + strings.Join(sets, ", ") + fmt.Sprintf(" WHERE id = $%d", len(args))
 	if _, err := h.db.Exec(query, args...); err != nil {
 		respondErrorSimple(w, "database error: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -376,9 +376,9 @@ func (h *NFSHandler) DeleteNFSExport(w http.ResponseWriter, r *http.Request) {
 
 	// Fetch path for audit before deleting
 	var path string
-	h.db.QueryRow(`SELECT path FROM nfs_exports WHERE id = ?`, id).Scan(&path)
+	h.db.QueryRow(`SELECT path FROM nfs_exports WHERE id = $1`, id).Scan(&path)
 
-	if _, err := h.db.Exec(`DELETE FROM nfs_exports WHERE id = ?`, id); err != nil {
+	if _, err := h.db.Exec(`DELETE FROM nfs_exports WHERE id = $1`, id); err != nil {
 		respondErrorSimple(w, "database error: "+err.Error(), http.StatusInternalServerError)
 		return
 	}

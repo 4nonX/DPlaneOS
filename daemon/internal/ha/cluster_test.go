@@ -1,15 +1,15 @@
-﻿package ha
+package ha
 
 import (
 	"database/sql"
 	"testing"
 	"time"
 
-	_ "github.com/mattn/go-sqlite3"
+	_ "github.com/jackc/pgx/v5/stdlib"
 )
-
-func newTestDB(t *testing.T) *sql.DB {
-	db, err := sql.Open("sqlite3", ":memory:?_journal_mode=WAL")
+ 
+ func newTestDB(t *testing.T) *sql.DB {
+ 	db, err := sql.Open("pgx", "postgres://dplaneos@localhost/dplaneos_test?sslmode=disable")
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}

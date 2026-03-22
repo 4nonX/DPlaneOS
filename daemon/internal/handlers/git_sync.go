@@ -1,4 +1,4 @@
-﻿package handlers
+package handlers
 
 import (
 	"context"
@@ -142,16 +142,16 @@ func (h *GitSyncHandler) SaveConfig(w http.ResponseWriter, r *http.Request) {
 	// Empty string = user didn't touch the field → don't overwrite
 	// Contains "****" = masked value echoed back → don't overwrite
 	if req.AuthToken != "" && !strings.Contains(req.AuthToken, "****") {
-		h.db.Exec(`UPDATE git_sync_config SET auth_token=? WHERE id=1`, req.AuthToken)
+		h.db.Exec(`UPDATE git_sync_config SET auth_token=$1 WHERE id=1`, req.AuthToken)
 	}
 	// Clear token if switching away from token auth
 	if req.AuthType != "token" {
 		h.db.Exec(`UPDATE git_sync_config SET auth_token='' WHERE id=1`)
 	}
 
-	_, err := h.db.Exec(`UPDATE git_sync_config SET repo_url=?, branch=?,
-		sync_interval=?, auto_deploy=?, auth_type=?, ssh_key_path=?,
-		host_key_mode=?, commit_name=?, commit_email=? WHERE id=1`,
+	_, err := h.db.Exec(`UPDATE git_sync_config SET repo_url=$1, branch=$2,
+		sync_interval=$3, auto_deploy=$4, auth_type=$5, ssh_key_path=$6,
+		host_key_mode=$7, commit_name=$8, commit_email=$9 WHERE id=1`,
 		req.RepoURL, req.Branch, req.SyncInterval, autoDeploy,
 		req.AuthType, req.SSHKeyPath, req.HostKeyMode, req.CommitName, req.CommitEmail)
 	if err != nil {
@@ -192,7 +192,7 @@ func (h *GitSyncHandler) Pull(w http.ResponseWriter, r *http.Request) {
 	result, syncErr := h.doSync(cfg)
 
 	if syncErr != nil {
-		h.db.Exec(`UPDATE git_sync_config SET last_error=?, last_sync_at=? WHERE id=1`,
+		h.db.Exec(`UPDATE git_sync_config SET last_error=$1, last_sync_at=$2 WHERE id=1`,
 			syncErr.Error(), time.Now().Format(time.RFC3339))
 		respondJSON(w, 200, map[string]interface{}{
 			"success": false,
@@ -204,7 +204,7 @@ func (h *GitSyncHandler) Pull(w http.ResponseWriter, r *http.Request) {
 
 	// Get latest commit hash
 	commit := h.getLastCommit(cfg.LocalPath)
-	h.db.Exec(`UPDATE git_sync_config SET last_sync_at=?, last_commit=?, last_error='' WHERE id=1`,
+	h.db.Exec(`UPDATE git_sync_config SET last_sync_at=$1, last_commit=$2, last_error='' WHERE id=1`,
 		time.Now().Format(time.RFC3339), commit)
 
 	resp := map[string]interface{}{
@@ -642,7 +642,7 @@ func (h *GitSyncHandler) Push(w http.ResponseWriter, r *http.Request) {
 	}
 
 	commit := h.getLastCommit(cfg.LocalPath)
-	h.db.Exec(`UPDATE git_sync_config SET last_commit=?, last_sync_at=? WHERE id=1`,
+	h.db.Exec(`UPDATE git_sync_config SET last_commit=$1, last_sync_at=$2 WHERE id=1`,
 		commit, time.Now().Format(time.RFC3339))
 
 	log.Printf("GIT-SYNC: Pushed stack '%s' to %s/%s", req.StackName, cfg.RepoURL, cfg.Branch)
@@ -863,12 +863,12 @@ func (h *GitSyncHandler) StartAutoSync() {
 			_, syncErr := h.doSync(cfg)
 
 			if syncErr != nil {
-				h.db.Exec(`UPDATE git_sync_config SET last_error=?, last_sync_at=? WHERE id=1`,
+				h.db.Exec(`UPDATE git_sync_config SET last_error=$1, last_sync_at=$2 WHERE id=1`,
 					syncErr.Error(), time.Now().Format(time.RFC3339))
 				log.Printf("GIT-SYNC: Auto-sync failed: %v", syncErr)
 			} else {
 				commit := h.getLastCommit(cfg.LocalPath)
-				h.db.Exec(`UPDATE git_sync_config SET last_sync_at=?, last_commit=?, last_error='' WHERE id=1`,
+				h.db.Exec(`UPDATE git_sync_config SET last_sync_at=$1, last_commit=$2, last_error='' WHERE id=1`,
 					time.Now().Format(time.RFC3339), commit)
 				log.Printf("GIT-SYNC: Auto-sync complete - %s", commit)
 

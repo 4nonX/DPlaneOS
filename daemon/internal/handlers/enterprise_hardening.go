@@ -254,7 +254,7 @@ func snapshotAllPoolsPreUpgrade(db *sql.DB, applyTarget string) ([]string, []str
 
 		if db != nil {
 			if _, dbErr := db.Exec(
-				`INSERT INTO pre_upgrade_snapshots (snapshot, pool, nixos_apply, success, error) VALUES (?, ?, ?, ?, ?)`,
+				`INSERT INTO pre_upgrade_snapshots (snapshot, pool, nixos_apply, success, error) VALUES ($1, $2, $3, $4, $5)`,
 				snapName, pool, applyTarget, success, errMsg,
 			); dbErr != nil {
 				log.Printf("pre-upgrade snapshot DB insert error: %v", dbErr)
@@ -524,14 +524,14 @@ func (h *DockerHandler) PreFlightCheck(w http.ResponseWriter, r *http.Request) {
 // AuditRotationHandler manages log rotation
 type AuditRotationHandler struct {
 	db           *sql.DB
-	dbPath       string
+	dbDSN        string
 	auditKeyPath string
 }
 
-func NewAuditRotationHandler(db *sql.DB, dbPath string, auditKeyPath string) *AuditRotationHandler {
+func NewAuditRotationHandler(db *sql.DB, dbDSN string, auditKeyPath string) *AuditRotationHandler {
 	return &AuditRotationHandler{
 		db:           db,
-		dbPath:       dbPath,
+		dbDSN:        dbDSN,
 		auditKeyPath: auditKeyPath,
 	}
 }
@@ -560,10 +560,7 @@ func (h *AuditRotationHandler) RotateAuditLogs(w http.ResponseWriter, r *http.Re
 
 	// Delete old entries
 	cutoff := time.Now().AddDate(0, 0, -req.KeepDays).Format("2006-01-02 15:04:05")
-	_, rotErr := h.db.Exec("DELETE FROM audit_logs WHERE timestamp < ?", cutoff)
-	if rotErr == nil {
-		h.db.Exec("VACUUM")
-	}
+	_, rotErr := h.db.Exec("DELETE FROM audit_logs WHERE timestamp < $1", cutoff)
 
 	if rotErr != nil {
 		respondOK(w, map[string]interface{}{
@@ -602,10 +599,7 @@ func (h *AuditRotationHandler) GetAuditStats(w http.ResponseWriter, r *http.Requ
 
 	h.db.QueryRow("SELECT COUNT(*), MIN(timestamp), MAX(timestamp) FROM audit_logs").Scan(&count, &oldest, &newest)
 
-	dbSize := "unknown"
-	if fi, err := os.Stat(h.dbPath); err == nil {
-		dbSize = humanizeBytes(fi.Size())
-	}
+	dbSize := "N/A (PostgreSQL)"
 
 	respondOK(w, map[string]interface{}{
 		"success":       true,

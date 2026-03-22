@@ -1,4 +1,4 @@
-﻿// Package reconciler implements D-PlaneOS's boot-time state restoration.
+// Package reconciler implements D-PlaneOS's boot-time state restoration.
 //
 // Problem it solves:
 //   - Netlink calls (VLANs, bonds, static IPs) survive until reboot
@@ -56,29 +56,29 @@ type VLANState struct {
 func EnsureSchema(db *sql.DB) error {
 	stmts := []string{
 		`CREATE TABLE IF NOT EXISTS network_interfaces (
-			id        INTEGER PRIMARY KEY AUTOINCREMENT,
+			id        BIGSERIAL PRIMARY KEY,
 			interface TEXT    NOT NULL UNIQUE,
 			type      TEXT    NOT NULL DEFAULT 'dhcp', -- 'dhcp' or 'static'
 			cidr      TEXT    NOT NULL DEFAULT '',
 			gateway   TEXT    NOT NULL DEFAULT '',
-			created_at TEXT   NOT NULL DEFAULT (datetime('now')),
-			updated_at TEXT   NOT NULL DEFAULT (datetime('now'))
+			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 		)`,
 		`CREATE TABLE IF NOT EXISTS network_bonds (
-			id        INTEGER PRIMARY KEY AUTOINCREMENT,
+			id        BIGSERIAL PRIMARY KEY,
 			name      TEXT    NOT NULL UNIQUE,
 			slaves    TEXT    NOT NULL DEFAULT '', -- comma-separated
 			mode      TEXT    NOT NULL DEFAULT '802.3ad',
-			created_at TEXT   NOT NULL DEFAULT (datetime('now')),
-			updated_at TEXT   NOT NULL DEFAULT (datetime('now'))
+			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 		)`,
 		`CREATE TABLE IF NOT EXISTS network_vlans (
-			id        INTEGER PRIMARY KEY AUTOINCREMENT,
+			id        BIGSERIAL PRIMARY KEY,
 			name      TEXT    NOT NULL UNIQUE,
 			parent    TEXT    NOT NULL,
 			vid       INTEGER NOT NULL,
-			created_at TEXT   NOT NULL DEFAULT (datetime('now')),
-			updated_at TEXT   NOT NULL DEFAULT (datetime('now'))
+			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 		)`,
 	}
 	for _, stmt := range stmts {
@@ -196,9 +196,9 @@ func Run(db *sql.DB) {
 func SaveBond(db *sql.DB, name string, slaves []string, mode string) error {
 	_, err := db.Exec(`
 		INSERT INTO network_bonds (name, slaves, mode, updated_at)
-		VALUES (?, ?, ?, datetime('now'))
+		VALUES ($1, $2, $3, NOW())
 		ON CONFLICT(name) DO UPDATE SET
-			slaves=excluded.slaves, mode=excluded.mode, updated_at=excluded.updated_at`,
+			slaves=EXCLUDED.slaves, mode=EXCLUDED.mode, updated_at=NOW()`,
 		name, strings.Join(slaves, ","), mode,
 	)
 	return err
@@ -206,7 +206,7 @@ func SaveBond(db *sql.DB, name string, slaves []string, mode string) error {
 
 // DeleteBond removes a bond from the DB.
 func DeleteBond(db *sql.DB, name string) error {
-	_, err := db.Exec(`DELETE FROM network_bonds WHERE name = ?`, name)
+	_, err := db.Exec(`DELETE FROM network_bonds WHERE name = $1`, name)
 	return err
 }
 
@@ -214,9 +214,9 @@ func DeleteBond(db *sql.DB, name string) error {
 func SaveVLAN(db *sql.DB, name, parent string, vid int) error {
 	_, err := db.Exec(`
 		INSERT INTO network_vlans (name, parent, vid, updated_at)
-		VALUES (?, ?, ?, datetime('now'))
+		VALUES ($1, $2, $3, NOW())
 		ON CONFLICT(name) DO UPDATE SET
-			parent=excluded.parent, vid=excluded.vid, updated_at=excluded.updated_at`,
+			parent=EXCLUDED.parent, vid=EXCLUDED.vid, updated_at=NOW()`,
 		name, parent, vid,
 	)
 	return err
@@ -224,7 +224,7 @@ func SaveVLAN(db *sql.DB, name, parent string, vid int) error {
 
 // DeleteVLAN removes a VLAN from the DB.
 func DeleteVLAN(db *sql.DB, name string) error {
-	_, err := db.Exec(`DELETE FROM network_vlans WHERE name = ?`, name)
+	_, err := db.Exec(`DELETE FROM network_vlans WHERE name = $1`, name)
 	return err
 }
 
@@ -232,9 +232,9 @@ func DeleteVLAN(db *sql.DB, name string) error {
 func SaveStaticIP(db *sql.DB, iface, cidr, gateway string) error {
 	_, err := db.Exec(`
 		INSERT INTO network_interfaces (interface, type, cidr, gateway, updated_at)
-		VALUES (?, 'static', ?, ?, datetime('now'))
+		VALUES ($1, 'static', $2, $3, NOW())
 		ON CONFLICT(interface) DO UPDATE SET
-			type='static', cidr=excluded.cidr, gateway=excluded.gateway, updated_at=excluded.updated_at`,
+			type='static', cidr=EXCLUDED.cidr, gateway=EXCLUDED.gateway, updated_at=NOW()`,
 		iface, cidr, gateway,
 	)
 	return err
@@ -244,9 +244,9 @@ func SaveStaticIP(db *sql.DB, iface, cidr, gateway string) error {
 func SaveDHCP(db *sql.DB, iface string) error {
 	_, err := db.Exec(`
 		INSERT INTO network_interfaces (interface, type, cidr, gateway, updated_at)
-		VALUES (?, 'dhcp', '', '', datetime('now'))
+		VALUES ($1, 'dhcp', '', '', NOW())
 		ON CONFLICT(interface) DO UPDATE SET
-			type='dhcp', cidr='', gateway='', updated_at=excluded.updated_at`,
+			type='dhcp', cidr='', gateway='', updated_at=NOW()`,
 		iface,
 	)
 	return err

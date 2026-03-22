@@ -153,7 +153,7 @@ func (bl *BufferedLogger) writeDirect(events []AuditEvent) error {
 
 	stmt, err := tx.Prepare(`INSERT INTO audit_logs
 		(timestamp, user, action, resource, details, ip_address, success, prev_hash, row_hash)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`)
 	if err != nil {
 		return fmt.Errorf("audit direct write: prepare: %w", err)
 	}
@@ -212,7 +212,7 @@ func (bl *BufferedLogger) Flush() error {
 		INSERT INTO audit_logs (
 			timestamp, user, action, resource, details, ip_address, success,
 			prev_hash, row_hash
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 	`)
 	if err != nil {
 		return fmt.Errorf("failed to prepare statement: %w", err)
@@ -268,7 +268,7 @@ func (bl *BufferedLogger) GetStats() map[string]interface{} {
 // var auditLogger *audit.BufferedLogger
 //
 // func main() {
-//     db, _ := sql.Open("sqlite3", "/var/lib/dplaneos/dplaneos.db")
+//     db, _ := sql.Open("pgx", "postgres://...")
 //     
 //     // Create buffered logger
 //     // Buffer up to 100 events, flush every 5 seconds

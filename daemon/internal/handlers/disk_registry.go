@@ -1,4 +1,4 @@
-﻿package handlers
+package handlers
 
 // disk_registry.go - D-PlaneOS disk lifecycle registry
 //
@@ -51,7 +51,6 @@ func SetRegistryDB(db *sql.DB) {
 // On conflict the existing row is updated with the latest observations while
 // preserving first_seen and removed_at = NULL (marks the disk as present).
 func UpsertDisk(db *sql.DB, disk DiskInfo) error {
-	now := time.Now().UTC().Format(time.RFC3339)
 
 	// Coerce NULL-unfriendly empty strings to empty (SQLite stores them as '').
 	byID := disk.ByIDPath
@@ -68,7 +67,7 @@ func UpsertDisk(db *sql.DB, disk DiskInfo) error {
 		INSERT INTO disk_registry
 			(dev_name, by_id_path, serial, wwn, model, size_bytes, disk_type, pool_name, health,
 			 last_seen, first_seen, removed_at, temp_c)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW(), NULL, $10)
 		ON CONFLICT(dev_name, by_id_path) DO UPDATE SET
 			serial     = excluded.serial,
 			wwn        = excluded.wwn,
@@ -77,13 +76,13 @@ func UpsertDisk(db *sql.DB, disk DiskInfo) error {
 			disk_type  = excluded.disk_type,
 			pool_name  = excluded.pool_name,
 			health     = excluded.health,
-			last_seen  = excluded.last_seen,
+			last_seen  = NOW(),
 			removed_at = NULL,
 			temp_c     = excluded.temp_c
 	`,
 		disk.Name, byID, serial, wwn, model,
 		int64(disk.SizeBytes), disk.Type, poolName, health,
-		now, now, disk.Temp,
+		disk.Temp,
 	)
 	return err
 }
@@ -98,7 +97,7 @@ func GetDiskBySerial(db *sql.DB, serial string) (*DiskRecord, error) {
 		SELECT id, dev_name, by_id_path, serial, wwn, model, size_bytes, disk_type,
 		       pool_name, health, last_seen, first_seen, removed_at, temp_c
 		FROM disk_registry
-		WHERE serial = ?
+		WHERE serial = $1
 		ORDER BY last_seen DESC
 		LIMIT 1
 	`, serial)
@@ -114,7 +113,7 @@ func GetDiskByByID(db *sql.DB, byID string) (*DiskRecord, error) {
 		SELECT id, dev_name, by_id_path, serial, wwn, model, size_bytes, disk_type,
 		       pool_name, health, last_seen, first_seen, removed_at, temp_c
 		FROM disk_registry
-		WHERE by_id_path = ?
+		WHERE by_id_path = $1
 		LIMIT 1
 	`, byID)
 	return scanDiskRecord(row)
@@ -130,7 +129,7 @@ func GetDiskByDevName(db *sql.DB, devName string) (*DiskRecord, error) {
 		SELECT id, dev_name, by_id_path, serial, wwn, model, size_bytes, disk_type,
 		       pool_name, health, last_seen, first_seen, removed_at, temp_c
 		FROM disk_registry
-		WHERE dev_name = ? AND removed_at IS NULL
+		WHERE dev_name = $1 AND removed_at IS NULL
 		ORDER BY last_seen DESC
 		LIMIT 1
 	`, devName)
@@ -144,10 +143,9 @@ func MarkDiskRemoved(db *sql.DB, byID string) error {
 	if byID == "" {
 		return nil
 	}
-	now := time.Now().UTC().Format(time.RFC3339)
 	_, err := db.Exec(
-		`UPDATE disk_registry SET removed_at = ?, health = 'REMOVED' WHERE by_id_path = ?`,
-		now, byID,
+		`UPDATE disk_registry SET removed_at = NOW(), health = 'REMOVED' WHERE by_id_path = $1`,
+		byID,
 	)
 	return err
 }
@@ -178,17 +176,13 @@ func GetAllDisks(db *sql.DB) ([]DiskRecord, error) {
 	return records, rows.Err()
 }
 
-// ── Internal scan helpers ──────────────────────────────────────────────────────
-
 func scanDiskRecord(row *sql.Row) (*DiskRecord, error) {
 	var rec DiskRecord
-	var lastSeen, firstSeen string
-	var removedAt sql.NullString
-
+	var removedAt sql.NullTime
 	err := row.Scan(
 		&rec.ID, &rec.DevName, &rec.ByIDPath, &rec.Serial, &rec.WWN, &rec.Model,
 		&rec.SizeBytes, &rec.DiskType, &rec.PoolName, &rec.Health,
-		&lastSeen, &firstSeen, &removedAt, &rec.TempC,
+		&rec.LastSeen, &rec.FirstSeen, &removedAt, &rec.TempC,
 	)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -196,33 +190,25 @@ func scanDiskRecord(row *sql.Row) (*DiskRecord, error) {
 	if err != nil {
 		return nil, err
 	}
-	rec.LastSeen, _ = time.Parse(time.RFC3339, lastSeen)
-	rec.FirstSeen, _ = time.Parse(time.RFC3339, firstSeen)
-	if removedAt.Valid && removedAt.String != "" {
-		t, _ := time.Parse(time.RFC3339, removedAt.String)
-		rec.RemovedAt = &t
+	if removedAt.Valid {
+		rec.RemovedAt = &removedAt.Time
 	}
 	return &rec, nil
 }
 
 func scanDiskRecordFromRows(rows *sql.Rows) (*DiskRecord, error) {
 	var rec DiskRecord
-	var lastSeen, firstSeen string
-	var removedAt sql.NullString
-
+	var removedAt sql.NullTime
 	err := rows.Scan(
 		&rec.ID, &rec.DevName, &rec.ByIDPath, &rec.Serial, &rec.WWN, &rec.Model,
 		&rec.SizeBytes, &rec.DiskType, &rec.PoolName, &rec.Health,
-		&lastSeen, &firstSeen, &removedAt, &rec.TempC,
+		&rec.LastSeen, &rec.FirstSeen, &removedAt, &rec.TempC,
 	)
 	if err != nil {
 		return nil, err
 	}
-	rec.LastSeen, _ = time.Parse(time.RFC3339, lastSeen)
-	rec.FirstSeen, _ = time.Parse(time.RFC3339, firstSeen)
-	if removedAt.Valid && removedAt.String != "" {
-		t, _ := time.Parse(time.RFC3339, removedAt.String)
-		rec.RemovedAt = &t
+	if removedAt.Valid {
+		rec.RemovedAt = &removedAt.Time
 	}
 	return &rec, nil
 }
