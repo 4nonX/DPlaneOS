@@ -957,7 +957,7 @@ step "Phase 13/13: Validation"
 # ────────────────────────────────────────────────────────────────────────────
 
 if [ -f "${INSTALL_DIR}/install/scripts/post-install-validation.sh" ]; then
-    bash "${INSTALL_DIR}/install/scripts/post-install-validation.sh" \
+    PORT="$OPT_PORT" DATABASE_DSN="$OPT_DB_DSN" bash "${INSTALL_DIR}/install/scripts/post-install-validation.sh" \
         && log "All checks passed" \
         || warn "Some checks failed - run: sudo dplaneos-recovery"
 fi

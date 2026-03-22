@@ -40,29 +40,39 @@ echo ""
 echo "2. Checking database..."
 
 DB_PATH="/var/lib/dplaneos/dplaneos.db"
-if [ -f "$DB_PATH" ]; then
-    pass "Database file exists"
-    [ -r "$DB_PATH" ] && [ -w "$DB_PATH" ] \
-        && pass "Database readable/writable" \
-        || fail "Database permissions incorrect - try: chmod 600 $DB_PATH"
-
-    WAL=$(sqlite3 "$DB_PATH" "PRAGMA journal_mode;" 2>/dev/null || echo "error")
-    [ "$WAL" = "wal" ] && pass "WAL mode enabled" || warn "WAL mode not active (got: $WAL)"
-
-    FTS=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='files_fts';" 2>/dev/null || echo "0")
-    [ "$FTS" -eq 1 ] && pass "FTS5 search table present" || warn "FTS5 table not found"
-
-    USERS=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM users;" 2>/dev/null || echo "0")
-    [ "$USERS" -ge 1 ] && pass "Admin user exists" || fail "No users in database"
+if [ -n "${DATABASE_DSN:-}" ]; then
+    pass "PostgreSQL DSN configured"
+    if command -v psql &>/dev/null; then
+        USERS=$(psql "$DATABASE_DSN" -c "SELECT COUNT(*) FROM users;" -t 2>/dev/null | tr -d '[:space:]' || echo "0")
+        [ "$USERS" -ge 1 ] && pass "Admin user exists" || warn "No active users found in PostgreSQL"
+    else
+        warn "psql not installed - skipping PostgreSQL user check"
+    fi
 else
-    fail "Database file not found at $DB_PATH"
+    if [ -f "$DB_PATH" ]; then
+        pass "Database file exists"
+        [ -r "$DB_PATH" ] && [ -w "$DB_PATH" ] \
+            && pass "Database readable/writable" \
+            || fail "Database permissions incorrect - try: chmod 600 $DB_PATH"
+
+        WAL=$(sqlite3 "$DB_PATH" "PRAGMA journal_mode;" 2>/dev/null || echo "error")
+        [ "$WAL" = "wal" ] && pass "WAL mode enabled" || warn "WAL mode not active (got: $WAL)"
+
+        FTS=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='files_fts';" 2>/dev/null || echo "0")
+        [ "$FTS" -eq 1 ] && pass "FTS5 search table present" || warn "FTS5 table not found"
+
+        USERS=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM users;" 2>/dev/null || echo "0")
+        [ "$USERS" -ge 1 ] && pass "Admin user exists" || fail "No users in database"
+    else
+        fail "Database file not found at $DB_PATH"
+    fi
 fi
 echo ""
 
 # -- 3. Web UI -----------------------------------------------------------------
 echo "3. Checking web UI..."
 
-HTTP=$(curl -s -o /dev/null -w "%{http_code}" http://localhost/ 2>/dev/null || echo "000")
+HTTP=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:${PORT:-80}/" 2>/dev/null || echo "000")
 case "$HTTP" in
     200|301|302) pass "Web UI accessible (HTTP $HTTP)" ;;
     000) fail "Web UI not reachable - nginx may not be running" ;;
@@ -86,8 +96,17 @@ else
     fi
 fi
 
-DB_TEST=$(sqlite3 "$DB_PATH" "SELECT 1;" 2>/dev/null || echo "fail")
-[ "$DB_TEST" = "1" ] && pass "SQLite accessible" || fail "SQLite not accessible"
+if [ -n "${DATABASE_DSN:-}" ]; then
+    if command -v psql &>/dev/null; then
+        DB_TEST=$(psql "$DATABASE_DSN" -c "SELECT 1;" -t 2>/dev/null | tr -d '[:space:]' || echo "fail")
+        [ "$DB_TEST" = "1" ] && pass "PostgreSQL accessible" || fail "PostgreSQL not reachable"
+    else
+        warn "PostgreSQL connectivity not tested (psql missing)"
+    fi
+else
+    DB_TEST=$(sqlite3 "$DB_PATH" "SELECT 1;" 2>/dev/null || echo "fail")
+    [ "$DB_TEST" = "1" ] && pass "SQLite accessible" || fail "SQLite not accessible"
+fi
 echo ""
 
 # -- 5. File permissions -------------------------------------------------------
