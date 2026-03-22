@@ -1070,11 +1070,8 @@ func (h *CertHandler) RequestACME(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Use HTTP-01 challenge. 
-	// IMPORTANT: This requires port 80 to be open and pointing here.
-	// Since we are likely behind Nginx, we might need a webroot resolver or 
-	// a temporary standalone server if we can stop Nginx.
-	// For production readiness, we'll try to use the provided HTTP-01 server
-	// and assume the user has configured port forwarding.
+	// IMPORTANT: This binds to port 8080. If running behind Nginx on port 80,
+	// you MUST proxy /.well-known/acme-challenge/ to http://127.0.0.1:8080/
 	err = client.Challenge.SetHTTP01Provider(http01.NewProviderServer("", "8080"))
 	if err != nil {
 		respondErrorSimple(w, "Failed to set challenge provider", http.StatusInternalServerError)
