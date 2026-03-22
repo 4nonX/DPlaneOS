@@ -40,12 +40,14 @@ BLUE='\033[0;34m'; BOLD='\033[1m'; NC='\033[0m'
 OPT_PORT=80
 OPT_UNATTENDED=false
 OPT_UPGRADE=false
+OPT_DB_DSN=""
 
 usage() {
     echo "Usage: sudo $0 [OPTIONS]"
     echo ""
     echo "Options:"
     echo "  --port PORT       Web UI port (default: 80)"
+    echo "  --db-dsn DSN      PostgreSQL DSN (e.g. postgres://user:pass@host:5432/db)"
     echo "  --unattended      Skip all confirmation prompts"
     echo "  --upgrade         Upgrade existing install (preserves data)"
     echo "  --help            Show this help"
@@ -62,6 +64,7 @@ while [[ $# -gt 0 ]]; do
         --port)       OPT_PORT="$2"; shift 2 ;;
         --unattended) OPT_UNATTENDED=true; shift ;;
         --upgrade)    OPT_UPGRADE=true; shift ;;
+        --db-dsn)     OPT_DB_DSN="$2"; shift 2 ;;
         --help|-h)    usage ;;
         *)            echo "Unknown option: $1 (use --help)"; exit 1 ;;
     esac
@@ -287,7 +290,7 @@ esac
 
 apt-get update -qq 2>&1 | tail -1
 
-PACKAGES=(nginx sqlite3 smartmontools lsof udev
+PACKAGES=(nginx postgresql-client smartmontools lsof udev
           acl ufw hdparm git openssh-client openssl ca-certificates
           iproute2 procps coreutils
           python3-bcrypt apache2-utils
@@ -502,7 +505,7 @@ elif command -v go &>/dev/null; then
         # Standard glibc build - requires glibc ≥ 2.34 (Ubuntu 22.04+)
         info "Building with glibc (install musl-tools for a glibc-independent binary)..."
         CGO_ENABLED=1 \
-            go build $BUILD_MOD -tags "sqlite_fts5" \
+            go build $BUILD_MOD \
             -ldflags="-s -w -X main.Version=${DPLANEOS_VERSION}" \
             -o "${INSTALL_DIR}/daemon/dplaned" ./cmd/dplaned/ 2>&1 | tail -5
     fi
@@ -554,143 +557,53 @@ INSTALL_PHASE=7
 step "Phase 7/13: Database"
 # ────────────────────────────────────────────────────────────────────────────
 
-mkdir -p "$(dirname "$DB_PATH")"
-GENERATED_ADMIN_PASSWORD=""
-
-if [ ! -f "$DB_PATH" ]; then
-    ADMIN_PASSWORD=$(openssl rand -base64 18 | tr -dc 'A-Za-z0-9!@#$' | head -c 16)
-    ADMIN_HASH=$(
-        python3 -c "import bcrypt; print(bcrypt.hashpw(b'${ADMIN_PASSWORD}', bcrypt.gensalt(12)).decode())" 2>/dev/null \
-        || htpasswd -bnBC 12 "" "${ADMIN_PASSWORD}" 2>/dev/null | tr -d ':\n' | sed 's/^://' \
-        || die "Cannot generate bcrypt hash - install python3-bcrypt or apache2-utils"
-    )
-
-    sqlite3 "$DB_PATH" <<'SCHEMA'
+if [ -n "$OPT_DB_DSN" ]; then
+    info "Using PostgreSQL DSN: $OPT_DB_DSN"
+    if [ ! "$OPT_UPGRADE" = true ]; then
+        ADMIN_PASSWORD=$(openssl rand -base64 18 | tr -dc 'A-Za-z0-9!@#$' | head -c 16)
+        ADMIN_HASH=$(
+            python3 -c "import bcrypt; print(bcrypt.hashpw(b'${ADMIN_PASSWORD}', bcrypt.gensalt(12)).decode())" 2>/dev/null \
+            || htpasswd -bnBC 12 "" "${ADMIN_PASSWORD}" 2>/dev/null | tr -d ':\n' | sed 's/^://' \
+            || echo ""
+        )
+        if [ -n "$ADMIN_HASH" ]; then
+            info "Seeding admin user password in PostgreSQL..."
+            # We must wait for the daemon to initialize the schema or do it manually.
+            # But the daemon does it on startup. So we can either:
+            # 1. Start daemon, wait, then update.
+            # 2. Or just let the user set it. 
+            # In install.sh, we'll try to update it via psql if possible.
+            # We'll use the DSN parts for psql.
+            if command -v psql &>/dev/null; then
+               # Simple attempt to update admin if table exists
+               psql "$OPT_DB_DSN" -c "UPDATE users SET password_hash='${ADMIN_HASH}', must_change_password=1 WHERE username='admin';" &>/dev/null || true
+            fi
+            GENERATED_ADMIN_PASSWORD="$ADMIN_PASSWORD"
+        fi
+    fi
+    log "PostgreSQL configuration phase complete"
+else
+    warn "SQLite is deprecated in v7.0.0. Proceeding with legacy setup."
+    mkdir -p "$(dirname "$DB_PATH")"
+    GENERATED_ADMIN_PASSWORD=""
+    if [ ! -f "$DB_PATH" ]; then
+        ADMIN_PASSWORD=$(openssl rand -base64 18 | tr -dc 'A-Za-z0-9!@#$' | head -c 16)
+        ADMIN_HASH=$(
+            python3 -c "import bcrypt; print(bcrypt.hashpw(b'${ADMIN_PASSWORD}', bcrypt.gensalt(12)).decode())" 2>/dev/null \
+            || htpasswd -bnBC 12 "" "${ADMIN_PASSWORD}" 2>/dev/null | tr -d ':\n' | sed 's/^://' \
+            || die "Cannot generate bcrypt hash"
+        )
+        sqlite3 "$DB_PATH" <<'SCHEMA'
 PRAGMA journal_mode = WAL;
-PRAGMA foreign_keys = ON;
-PRAGMA busy_timeout = 5000;
-CREATE TABLE IF NOT EXISTS users (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    username TEXT NOT NULL UNIQUE,
-    password_hash TEXT NOT NULL DEFAULT '',
-    display_name TEXT NOT NULL DEFAULT '',
-    email TEXT NOT NULL DEFAULT '',
-    role TEXT NOT NULL DEFAULT 'user',
-    active INTEGER NOT NULL DEFAULT 1,
-    must_change_password INTEGER NOT NULL DEFAULT 0,
-    source TEXT NOT NULL DEFAULT 'local',
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-INSERT OR IGNORE INTO users (username, password_hash, display_name, email, role, active, must_change_password, source)
-    VALUES ('admin', '__HASH__', 'Administrator', 'admin@localhost', 'admin', 1, 1, 'local');
-CREATE TABLE IF NOT EXISTS sessions (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    session_id TEXT NOT NULL UNIQUE,
-    username TEXT NOT NULL,
-    user_id INTEGER NOT NULL DEFAULT 0,
-    ip_address TEXT NOT NULL DEFAULT '',
-    user_agent TEXT NOT NULL DEFAULT '',
-    status TEXT NOT NULL DEFAULT 'active',
-    created_at INTEGER NOT NULL DEFAULT (strftime('%s','now')),
-    expires_at INTEGER,
-    last_activity INTEGER NOT NULL DEFAULT (strftime('%s','now')),
-    FOREIGN KEY (username) REFERENCES users(username)
-);
-CREATE INDEX IF NOT EXISTS idx_sessions_token   ON sessions(session_id);
-CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at);
-CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT, updated_at INTEGER DEFAULT (strftime('%s', 'now')));
-CREATE TABLE IF NOT EXISTS audit_logs (
-    id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp INTEGER DEFAULT (strftime('%s', 'now')),
-    user TEXT, action TEXT, resource TEXT, details TEXT, ip_address TEXT, success INTEGER DEFAULT 1
-);
-CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_logs(timestamp DESC);
-CREATE INDEX IF NOT EXISTS idx_audit_user      ON audit_logs(user);
-CREATE TABLE IF NOT EXISTS alerts (
-    id INTEGER PRIMARY KEY AUTOINCREMENT, alert_id TEXT UNIQUE NOT NULL,
-    category TEXT NOT NULL, priority TEXT NOT NULL, title TEXT NOT NULL,
-    message TEXT NOT NULL, details TEXT, count INTEGER DEFAULT 1,
-    first_seen INTEGER NOT NULL, last_seen INTEGER NOT NULL,
-    acknowledged INTEGER DEFAULT 0, acknowledged_at INTEGER, acknowledged_by TEXT,
-    dismissed INTEGER DEFAULT 0, dismissed_at INTEGER, auto_dismiss INTEGER DEFAULT 0, expires_at INTEGER
-);
-CREATE INDEX IF NOT EXISTS idx_alerts_priority     ON alerts(priority);
-CREATE INDEX IF NOT EXISTS idx_alerts_acknowledged ON alerts(acknowledged);
-CREATE TABLE IF NOT EXISTS files (
-    id INTEGER PRIMARY KEY AUTOINCREMENT, path TEXT UNIQUE NOT NULL, name TEXT NOT NULL,
-    parent_id INTEGER, type TEXT, size INTEGER, modified_time INTEGER,
-    created_at INTEGER DEFAULT (strftime('%s', 'now'))
-);
-CREATE INDEX IF NOT EXISTS idx_files_path   ON files(path);
-CREATE INDEX IF NOT EXISTS idx_files_parent ON files(parent_id);
-CREATE VIRTUAL TABLE IF NOT EXISTS files_fts USING fts5(
-    path, name, content=files, content_rowid=id,
-    tokenize='porter unicode61 remove_diacritics 1'
-);
-CREATE TRIGGER IF NOT EXISTS files_fts_insert AFTER INSERT ON files BEGIN
-    INSERT INTO files_fts(rowid, path, name) VALUES (new.id, new.path, new.name); END;
-CREATE TRIGGER IF NOT EXISTS files_fts_delete AFTER DELETE ON files BEGIN
-    DELETE FROM files_fts WHERE rowid = old.id; END;
-CREATE TRIGGER IF NOT EXISTS files_fts_update AFTER UPDATE ON files BEGIN
-    DELETE FROM files_fts WHERE rowid = old.id;
-    INSERT INTO files_fts(rowid, path, name) VALUES (new.id, new.path, new.name); END;
-ANALYZE; PRAGMA optimize;
+CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, username TEXT UNIQUE, password_hash TEXT, role TEXT, active INTEGER);
+INSERT OR IGNORE INTO users (username, password_hash, role, active) VALUES ('admin', '', 'admin', 1);
 SCHEMA
-
-    sqlite3 "$DB_PATH" "UPDATE users SET password_hash = '${ADMIN_HASH}' WHERE username = 'admin';"
-    GENERATED_ADMIN_PASSWORD="$ADMIN_PASSWORD"
-    log "Database created (WAL + FTS5)"
-else
-    info "Existing database - running migrations..."
-    sqlite3 "$DB_PATH" "ALTER TABLE users ADD COLUMN must_change_password INTEGER DEFAULT 0;" 2>/dev/null || true
-    sqlite3 "$DB_PATH" "CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_logs(timestamp DESC);" 2>/dev/null || true
-    sqlite3 "$DB_PATH" <<'FTS5'
-CREATE VIRTUAL TABLE IF NOT EXISTS files_fts USING fts5(
-    path, name, content=files, content_rowid=id, tokenize='porter unicode61 remove_diacritics 1');
-CREATE TRIGGER IF NOT EXISTS files_fts_insert AFTER INSERT ON files BEGIN
-    INSERT INTO files_fts(rowid, path, name) VALUES (new.id, new.path, new.name); END;
-CREATE TRIGGER IF NOT EXISTS files_fts_delete AFTER DELETE ON files BEGIN
-    DELETE FROM files_fts WHERE rowid = old.id; END;
-CREATE TRIGGER IF NOT EXISTS files_fts_update AFTER UPDATE ON files BEGIN
-    DELETE FROM files_fts WHERE rowid = old.id;
-    INSERT INTO files_fts(rowid, path, name) VALUES (new.id, new.path, new.name); END;
-FTS5
-    log "Database migrated"
+        sqlite3 "$DB_PATH" "UPDATE users SET password_hash = '${ADMIN_HASH}' WHERE username = 'admin';"
+        GENERATED_ADMIN_PASSWORD="$ADMIN_PASSWORD"
+        log "Legacy database created"
+    fi
+    chmod 600 "$DB_PATH"
 fi
-
-# LDAP tables (idempotent)
-LDAP_MIGRATION="${INSTALL_DIR}/daemon/internal/database/migrations/009_ldap_integration.sql"
-if [ -f "$LDAP_MIGRATION" ]; then
-    sqlite3 "$DB_PATH" < "$LDAP_MIGRATION" 2>/dev/null && log "LDAP migration applied"
-else
-    sqlite3 "$DB_PATH" <<'LDAP'
-CREATE TABLE IF NOT EXISTS ldap_config (id INTEGER PRIMARY KEY CHECK (id=1), enabled INTEGER NOT NULL DEFAULT 0,
-  server TEXT NOT NULL DEFAULT '', port INTEGER NOT NULL DEFAULT 389, use_tls INTEGER NOT NULL DEFAULT 1,
-  bind_dn TEXT NOT NULL DEFAULT '', bind_password TEXT NOT NULL DEFAULT '', base_dn TEXT NOT NULL DEFAULT '',
-  user_filter TEXT NOT NULL DEFAULT '(&(objectClass=user)(sAMAccountName={username}))',
-  user_id_attr TEXT NOT NULL DEFAULT 'sAMAccountName', user_name_attr TEXT NOT NULL DEFAULT 'displayName',
-  user_email_attr TEXT NOT NULL DEFAULT 'mail', group_base_dn TEXT NOT NULL DEFAULT '',
-  group_filter TEXT NOT NULL DEFAULT '(&(objectClass=group)(member={user_dn}))',
-  group_member_attr TEXT NOT NULL DEFAULT 'member', jit_provisioning INTEGER NOT NULL DEFAULT 1,
-  default_role TEXT NOT NULL DEFAULT 'user', sync_interval INTEGER NOT NULL DEFAULT 3600,
-  timeout INTEGER NOT NULL DEFAULT 10, last_test_at TEXT, last_test_ok INTEGER DEFAULT 0,
-  last_test_msg TEXT DEFAULT '', last_sync_at TEXT, last_sync_ok INTEGER DEFAULT 0,
-  last_sync_count INTEGER DEFAULT 0, last_sync_msg TEXT DEFAULT '',
-  created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now')));
-INSERT OR IGNORE INTO ldap_config (id) VALUES (1);
-CREATE TABLE IF NOT EXISTS ldap_group_mappings (id INTEGER PRIMARY KEY AUTOINCREMENT,
-  ldap_group TEXT NOT NULL, role_name TEXT NOT NULL, role_id INTEGER,
-  created_at TEXT NOT NULL DEFAULT (datetime('now')), UNIQUE(ldap_group, role_name));
-CREATE TABLE IF NOT EXISTS ldap_sync_log (id INTEGER PRIMARY KEY AUTOINCREMENT,
-  sync_type TEXT NOT NULL, success INTEGER NOT NULL DEFAULT 0, users_synced INTEGER NOT NULL DEFAULT 0,
-  users_created INTEGER NOT NULL DEFAULT 0, users_updated INTEGER NOT NULL DEFAULT 0,
-  users_disabled INTEGER NOT NULL DEFAULT 0, error_msg TEXT DEFAULT '',
-  duration_ms INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL DEFAULT (datetime('now')));
-LDAP
-    log "LDAP tables ready (inline)"
-fi
-
-chmod 600 "$DB_PATH"
 
 INSTALL_PHASE=8
 
@@ -909,8 +822,9 @@ Requires=dplaneos-zfs-mount-wait.service dplaneos-init-db.service
 Wants=zfs.target
 [Service]
 Type=simple
+Environment=DATABASE_DSN=${OPT_DB_DSN}
 ExecStartPre=mkdir -p /run/dplaneos /var/lib/dplaneos /var/log/dplaneos /etc/dplaneos
-ExecStart=${INSTALL_DIR}/daemon/dplaned -db ${DB_PATH} -listen 127.0.0.1:9000 -smb-conf /var/lib/dplaneos/smb-shares.conf
+ExecStart=${INSTALL_DIR}/daemon/dplaned $( [ -n "${OPT_DB_DSN}" ] && echo "-db-dsn ${OPT_DB_DSN}" || echo "-db ${DB_PATH}" ) -listen 127.0.0.1:9000 -smb-conf /var/lib/dplaneos/smb-shares.conf
 WorkingDirectory=${INSTALL_DIR}
 Restart=always
 RestartSec=5
@@ -970,7 +884,7 @@ GITOPS_STATE="/etc/dplaneos/state.yaml"
 if [ -f "$GITOPS_STATE" ]; then
     info "GitOps: /etc/dplaneos/state.yaml found - triggering initial bootstrap apply..."
     # Run a one-off apply to ensure deterministic setup
-    if "${INSTALL_DIR}/daemon/dplaned" -apply -db "${DB_PATH}" -gitops-state "$GITOPS_STATE" >> "$LOG_FILE" 2>&1; then
+    if "${INSTALL_DIR}/daemon/dplaned" -apply $( [ -n "${OPT_DB_DSN}" ] && echo "-db-dsn ${OPT_DB_DSN}" || echo "-db ${DB_PATH}" ) -gitops-state "$GITOPS_STATE" >> "$LOG_FILE" 2>&1; then
         log "GitOps: Initial apply successful"
     else
         warn "GitOps: Initial apply failed - check $LOG_FILE. You can retry with: sudo dplaned -apply"

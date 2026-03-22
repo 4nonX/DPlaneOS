@@ -19,10 +19,12 @@ sudo zfs set acltype=posixacl testpool
 # daemon expects this for audit key
 sudo mkdir -p /var/lib/dplaneos
 
-# USE LOCAL DB FOR CI RELIABILITY
-DB_PATH="$(pwd)/ci-integration.db"
-rm -f "$DB_PATH"*
-echo "--- Using Database: $DB_PATH ---"
+# USE POSTGRES DSN FOR CI
+if [ -z "$DATABASE_DSN" ]; then
+  echo "ERROR: DATABASE_DSN not set"
+  exit 1
+fi
+echo "--- Using Database DSN: $DATABASE_DSN ---"
 
 echo "--- v6: Deterministic Bootstrap (-apply) ---"
 cat <<EOF > /tmp/state.yaml
@@ -40,16 +42,16 @@ datasets:
     mountpoint: /mnt/testpool/ci-enforcement
 EOF
 
-sudo ./dplaned-ci --db "$DB_PATH" --gitops-state /tmp/state.yaml --smb-conf /tmp/smb.conf --apply
+sudo ./dplaned-ci --db-dsn "$DATABASE_DSN" --gitops-state /tmp/state.yaml --smb-conf /tmp/smb.conf --apply
 
 echo "--- v6: Serialization Round-trip ---"
-sudo ./dplaned-ci --db "$DB_PATH" --gitops-state /tmp/state.yaml --test-serialization
+sudo ./dplaned-ci --db-dsn "$DATABASE_DSN" --gitops-state /tmp/state.yaml --test-serialization
 
 echo "--- v6: Deterministic Idempotency ---"
-sudo ./dplaned-ci --db "$DB_PATH" --gitops-state /tmp/state.yaml --smb-conf /tmp/smb.conf --test-idempotency
+sudo ./dplaned-ci --db-dsn "$DATABASE_DSN" --gitops-state /tmp/state.yaml --smb-conf /tmp/smb.conf --test-idempotency
 
 echo "--- Starting Daemon ---"
-sudo ./dplaned-ci --listen 127.0.0.1:9000 --db "$DB_PATH" --gitops-state /tmp/state.yaml --smb-conf /tmp/smb.conf > /tmp/dplaned.log 2>&1 &
+sudo ./dplaned-ci --listen 127.0.0.1:9000 --db-dsn "$DATABASE_DSN" --gitops-state /tmp/state.yaml --smb-conf /tmp/smb.conf > /tmp/dplaned.log 2>&1 &
 PID=$!
 trap "sudo kill $PID || true; sudo zpool destroy testpool || true; sudo losetup -d $LOOP0 $LOOP1 $LOOP2 || true" EXIT
 
@@ -66,7 +68,8 @@ import bcrypt, os
 pw = b'$CI_PASS'
 print(bcrypt.hashpw(pw, bcrypt.gensalt(rounds=10)).decode())
 ")
-sudo sqlite3 "$DB_PATH" "UPDATE users SET password_hash='$(echo "$CI_HASH" | sed "s/'/''/g")', active=1, role='admin', must_change_password=0 WHERE username='admin';"
+export PGPASSWORD=dplaneos
+psql -h localhost -U dplaneos -d dplaneos -c "UPDATE users SET password_hash='$(echo "$CI_HASH" | sed "s/'/''/g")', active=1, role='admin', must_change_password=0 WHERE username='admin';"
 
 # --- TEST UTILITIES ---
 BASE="http://127.0.0.1:9000"

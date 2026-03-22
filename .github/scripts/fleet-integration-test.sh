@@ -7,13 +7,14 @@ fail() { echo -e "  \033[0;31m✗\033[0m $1"; exit 1; }
 
 echo "--- Phase 1: Installation Simulation ---"
 sudo truncate -s 512M /tmp/inst0.img /tmp/inst1.img
-# Use the fixed installer (which now finds the binary in build/)
-sudo bash install.sh --unattended --port 9100
+# Use the fixed installer with PostgreSQL DSN
+sudo bash install.sh --unattended --port 9100 --db-dsn "$DATABASE_DSN"
 
 # Verify installation artifacts
 [ -f /opt/dplaneos/daemon/dplaned ] && ok "Daemon binary installed" || fail "Binary missing"
 [ -f /etc/nginx/sites-enabled/dplaneos ] && ok "Nginx config enabled" || fail "Nginx config missing"
-[ -f /var/lib/dplaneos/dplaneos.db ] && ok "Database initialized" || fail "DB missing"
+export PGPASSWORD=dplaneos
+psql -h localhost -U dplaneos -d dplaneos -c "SELECT 1" >/dev/null && ok "Database initialized" || fail "DB missing or unreachable"
 
 # Health check
 for i in $(seq 1 10); do
@@ -53,7 +54,7 @@ datasets:
 EOF
 
 # Apply GitOps
-sudo ./dplaned-ci -apply -db /var/lib/dplaneos/dplaneos.db -gitops-state /tmp/gitops.yaml
+sudo ./dplaned-ci -apply -db-dsn "$DATABASE_DSN" -gitops-state /tmp/gitops.yaml
 sudo zfs list gitopspool/data > /dev/null && ok "GitOps dataset created" || fail "GitOps dataset missing"
 
 # Drift correction
@@ -77,7 +78,10 @@ sudo truncate -s 512M /tmp/nodea0.img /tmp/nodea1.img
 LA0=$(sudo losetup --find --show /tmp/nodea0.img)
 LA1=$(sudo losetup --find --show /tmp/nodea1.img)
 sudo mkdir -p /var/lib/dplaneos-node-a
-sudo bash install/scripts/init-database-with-lock.sh --db /var/lib/dplaneos-node-a/dplaneos.db
+export PGPASSWORD=dplaneos
+psql -h localhost -U dplaneos -d postgres -c "DROP DATABASE IF EXISTS dplaneos_node_a;"
+psql -h localhost -U dplaneos -d postgres -c "CREATE DATABASE dplaneos_node_a;"
+export DATABASE_DSN_A="postgres://dplaneos:dplaneos@localhost:5432/dplaneos_node_a?sslmode=disable"
 
 cat > /tmp/state-node-a.yaml <<EOF
 version: "6"
@@ -92,14 +96,17 @@ datasets:
   - name: nodeapool/data
     mountpoint: /mnt/node-a/data
 EOF
-sudo ./dplaned-ci -apply -db /var/lib/dplaneos-node-a/dplaneos.db -gitops-state /tmp/state-node-a.yaml
+sudo ./dplaned-ci -apply -db-dsn "$DATABASE_DSN_A" -gitops-state /tmp/state-node-a.yaml
 
 # Node B
 sudo truncate -s 512M /tmp/nodeb0.img /tmp/nodeb1.img
 LB0=$(sudo losetup --find --show /tmp/nodeb0.img)
 LB1=$(sudo losetup --find --show /tmp/nodeb1.img)
 sudo mkdir -p /var/lib/dplaneos-node-b
-sudo bash install/scripts/init-database-with-lock.sh --db /var/lib/dplaneos-node-b/dplaneos.db
+export PGPASSWORD=dplaneos
+psql -h localhost -U dplaneos -d postgres -c "DROP DATABASE IF EXISTS dplaneos_node_b;"
+psql -h localhost -U dplaneos -d postgres -c "CREATE DATABASE dplaneos_node_b;"
+export DATABASE_DSN_B="postgres://dplaneos:dplaneos@localhost:5432/dplaneos_node_b?sslmode=disable"
 
 cat > /tmp/state-node-b.yaml <<EOF
 version: "6"
@@ -114,17 +121,17 @@ datasets:
   - name: nodebpool/data
     mountpoint: /mnt/node-b/data
 EOF
-sudo ./dplaned-ci -apply -db /var/lib/dplaneos-node-b/dplaneos.db -gitops-state /tmp/state-node-b.yaml
+sudo ./dplaned-ci -apply -db-dsn "$DATABASE_DSN_B" -gitops-state /tmp/state-node-b.yaml
 
 # Verify isolation
 sudo zfs list nodeapool/data >/dev/null && ok "Node A pool exists" || fail "Node A pool missing"
 sudo zfs list nodebpool/data >/dev/null && ok "Node B pool exists" || fail "Node B pool missing"
 
 # Convergence check
-CONV_A=$(sudo ./dplaned-ci -convergence-check -db /var/lib/dplaneos-node-a/dplaneos.db -gitops-state /tmp/state-node-a.yaml 2>&1)
+CONV_A=$(sudo ./dplaned-ci -convergence-check -db-dsn "$DATABASE_DSN_A" -gitops-state /tmp/state-node-a.yaml 2>&1)
 echo "$CONV_A" | grep -q "CONVERGED" && ok "Node A converged" || fail "Node A convergence failed"
 
-CONV_B=$(sudo ./dplaned-ci -convergence-check -db /var/lib/dplaneos-node-b/dplaneos.db -gitops-state /tmp/state-node-b.yaml 2>&1)
+CONV_B=$(sudo ./dplaned-ci -convergence-check -db-dsn "$DATABASE_DSN_B" -gitops-state /tmp/state-node-b.yaml 2>&1)
 echo "$CONV_B" | grep -q "CONVERGED" && ok "Node B converged" || fail "Node B convergence failed"
 
 echo "--- Fleet Simulation PASSED ---"
