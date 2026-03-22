@@ -1,4 +1,4 @@
-﻿/**
+/**
  * pages/SecurityPage.tsx
  *
  * Tabs: Password | 2FA / TOTP | API Tokens | Audit Log
@@ -39,6 +39,8 @@ interface TotpSetupResponse { success: boolean; secret?: string; otpauth_uri?: s
 interface ApiToken          { id: number | string; name: string; created_at: string; last_used?: string; prefix?: string }
 interface TokensResponse    { success: boolean; tokens: ApiToken[] }
 interface AuditStats        { success: boolean; total_entries?: number; last_entry?: string; chain_valid?: boolean }
+interface SessionEntry     { id: string; ip_address: string; user_agent: string; created_at: number; last_activity: number; is_current: boolean }
+interface SessionsResponse { success: boolean; sessions: SessionEntry[] }
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -501,10 +503,107 @@ function AuditTab() {
 }
 
 // ---------------------------------------------------------------------------
+// SessionsTab
+// ---------------------------------------------------------------------------
+
+function SessionsTab() {
+  const qc = useQueryClient()
+  const { confirm, ConfirmDialog } = useConfirm()
+
+  const sessionsQ = useQuery({
+    queryKey: ['auth', 'sessions'],
+    queryFn: ({ signal }) => api.get<SessionsResponse>('/api/auth/sessions', signal),
+  })
+
+  const revoke = useMutation({
+    mutationFn: (id: string) => api.delete('/api/auth/sessions', { id }),
+    onSuccess: () => { toast.success('Session revoked'); qc.invalidateQueries({ queryKey: ['auth', 'sessions'] }) },
+    onError: (e: Error) => toast.error(e.message),
+  })
+
+  const sessions = sessionsQ.data?.sessions ?? []
+
+  // Simple UA parser for display
+  function parseUA(ua: string) {
+    if (!ua) return 'Unknown Browser'
+    if (ua.includes('Firefox/')) return 'Firefox'
+    if (ua.includes('Edg/')) return 'Microsoft Edge'
+    if (ua.includes('Chrome/')) return 'Chrome / Chromium'
+    if (ua.includes('Safari/')) return 'Safari'
+    return ua.split(' ')[0] || 'Unknown'
+  }
+
+  function parseOS(ua: string) {
+    if (!ua) return 'Unknown OS'
+    if (ua.includes('Windows')) return 'Windows'
+    if (ua.includes('Macintosh') || ua.includes('Mac OS')) return 'macOS'
+    if (ua.includes('Linux')) return 'Linux'
+    if (ua.includes('Android')) return 'Android'
+    if (ua.includes('iPhone') || ua.includes('iPad')) return 'iOS'
+    return 'Other'
+  }
+
+  return (
+    <div style={{ maxWidth: 700 }}>
+      <div style={{ marginBottom: 20, padding: '12px 16px', background: 'var(--primary-bg)', border: '1px solid rgba(138,156,255,0.2)', borderRadius: 'var(--radius-md)', display: 'flex', gap: 10, alignItems: 'center' }}>
+        <Icon name="security" size={18} style={{ color: 'var(--primary)' }} />
+        <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>
+          Manage your active sessions and logout from other devices. <strong>Admin</strong> users can revoke any session.
+        </div>
+      </div>
+
+      {sessionsQ.isLoading && <Skeleton height={140} />}
+      {sessionsQ.isError && <ErrorState error={sessionsQ.error} />}
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {sessions.map(s => (
+          <div key={s.id} className="card" style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '16px 20px', borderRadius: 'var(--radius-lg)', border: s.is_current ? '1px solid var(--primary-border)' : '1px solid var(--border)' }}>
+            <div style={{ width: 44, height: 44, borderRadius: 'var(--radius-md)', background: s.is_current ? 'var(--primary-bg)' : 'var(--surface)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+              <Icon name={parseOS(s.user_agent) === 'Windows' || parseOS(s.user_agent) === 'macOS' || parseOS(s.user_agent) === 'Linux' ? 'desktop_windows' : 'smartphone'} size={24} style={{ color: s.is_current ? 'var(--primary)' : 'var(--text-tertiary)' }} />
+            </div>
+
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 2 }}>
+                <span style={{ fontWeight: 700, fontSize: 'var(--text-md)' }}>{parseUA(s.user_agent)} on {parseOS(s.user_agent)}</span>
+                {s.is_current && (
+                  <span style={{ padding: '1px 6px', borderRadius: 'var(--radius-xs)', background: 'var(--success-bg)', color: 'var(--success)', fontSize: 10, fontWeight: 700 }}>THIS DEVICE</span>
+                )}
+              </div>
+              <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                <span style={{ fontFamily: 'var(--font-mono)' }}>{s.ip_address}</span>
+                <span>Created: {new Date(s.created_at * 1000).toLocaleString('de-DE')}</span>
+                <span>Active: {new Date(s.last_activity * 1000).toLocaleString('de-DE')}</span>
+              </div>
+            </div>
+
+            {!s.is_current && (
+              <button disabled={revoke.isPending} onClick={async () => {
+                if (await confirm({
+                  title: 'Revoke Session?',
+                  message: `This will immediately logout the device at ${s.ip_address}.`,
+                  danger: true,
+                  confirmLabel: 'Revoke'
+                })) revoke.mutate(s.id)
+              }} className="btn btn-ghost" style={{ color: 'var(--error)' }}>
+                <Icon name="logout" size={14} />Revoke
+              </button>
+            )}
+          </div>
+        ))}
+        {!sessionsQ.isLoading && sessions.length === 0 && (
+          <div style={{ textAlign: 'center', padding: '32px 0', color: 'var(--text-tertiary)' }}>No active sessions found</div>
+        )}
+      </div>
+      <ConfirmDialog />
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // SecurityPage
 // ---------------------------------------------------------------------------
 
-type Tab = 'password' | 'totp' | 'tokens' | 'audit'
+type Tab = 'password' | 'totp' | 'tokens' | 'sessions' | 'audit'
 
 export function SecurityPage() {
   const [tab, setTab] = useState<Tab>('password')
@@ -513,6 +612,7 @@ export function SecurityPage() {
     { id: 'password', label: 'Password',    icon: 'lock' },
     { id: 'totp',     label: '2FA / TOTP',  icon: 'phonelink_lock' },
     { id: 'tokens',   label: 'API Tokens',  icon: 'key' },
+    { id: 'sessions', label: 'Sessions',    icon: 'devices' },
     { id: 'audit',    label: 'Audit Log',   icon: 'policy' },
   ]
 
@@ -536,6 +636,7 @@ export function SecurityPage() {
       {tab === 'password' && <PasswordTab />}
       {tab === 'totp'     && <TOTPTab />}
       {tab === 'tokens'   && <TokensTab />}
+      {tab === 'sessions' && <SessionsTab />}
       {tab === 'audit'    && <AuditTab />}
     </div>
   )

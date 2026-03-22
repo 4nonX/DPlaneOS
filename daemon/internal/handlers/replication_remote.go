@@ -1,14 +1,18 @@
 package handlers
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
+
+	"dplaned/internal/jobs"
 )
 
 // ReplicationHandler handles ZFS replication to remote targets
@@ -60,7 +64,6 @@ func (h *ReplicationHandler) ReplicateToRemote(w http.ResponseWriter, r *http.Re
 	if req.RemoteUser == "" {
 		req.RemoteUser = "root"
 	}
-	// Validate RemoteUser: only alphanumeric, dots, dashes, underscores (no shell chars)
 	if !isValidSSHUser(req.RemoteUser) {
 		respondErrorSimple(w, "Invalid characters in remote user", http.StatusBadRequest)
 		return
@@ -73,7 +76,7 @@ func (h *ReplicationHandler) ReplicateToRemote(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	// Build SSH args (shared between send and resume paths)
+	// Build SSH args
 	sshArgs := []string{
 		"-o", "StrictHostKeyChecking=accept-new",
 		"-o", "ConnectTimeout=10",
@@ -84,115 +87,60 @@ func (h *ReplicationHandler) ReplicateToRemote(w http.ResponseWriter, r *http.Re
 	if req.SSHKey != "" && !strings.ContainsAny(req.SSHKey, ";|&$`\\\"'") {
 		sshArgs = append(sshArgs, "-i", req.SSHKey)
 	}
-
 	sshTarget := fmt.Sprintf("%s@%s", req.RemoteUser, req.RemoteHost)
 
-	// Extract dataset name from snapshot for remote path
+	// Extract remote dataset path
 	snapParts := strings.SplitN(req.Snapshot, "@", 2)
 	datasetName := snapParts[0]
 	parts := strings.Split(datasetName, "/")
 	remoteDataset := req.RemotePool + "/" + parts[len(parts)-1]
 
-	// Check for resume token on remote side first
-	if req.Resume {
-		token := getResumeToken(sshArgs, sshTarget, remoteDataset)
-		if token != "" {
-			// Validate the resume token before using it in a command arg.
-			// Tokens are base64url-encoded opaque blobs from ZFS - only
-			// alphanumeric + +/= are valid; reject anything else.
-			if !isValidResumeToken(token) {
-				respondErrorSimple(w, "Invalid resume token format", http.StatusBadRequest)
+	// Start ASYNC JOB
+	jobID := jobs.Start("replication_remote", func(j *jobs.Job) {
+		j.Log(fmt.Sprintf("Starting replication: %s -> %s:%s", req.Snapshot, sshTarget, remoteDataset))
+
+		// Check for resume token
+		if req.Resume {
+			token := getResumeToken(sshArgs, sshTarget, remoteDataset)
+			if token != "" && isValidResumeToken(token) {
+				j.Log("Found resume token, attempting to resume...")
+				output, err := execPipedZFSSend(j, []string{"send", "-V", "-t", token}, sshArgs, sshTarget, []string{"recv", "-s", "-F", remoteDataset}, nil)
+				if err != nil {
+					j.Fail(fmt.Sprintf("Resume failed: %v\nOutput: %s", err, output))
+					return
+				}
+				j.Done(map[string]interface{}{"resumed": true, "output": output})
 				return
 			}
+		}
 
-			// Resume interrupted transfer.
-			// Use two separate exec.Command calls connected via a pipe,
-			// not bash -c with string interpolation (prevents shell injection).
-			start := time.Now()
-			output, err := execPipedZFSSend(
-				[]string{"send", "-t", token},
-				sshArgs, sshTarget,
-				[]string{"recv", "-s", "-F", remoteDataset},
-				nil, // no rate limit for resume
-			)
-			duration := time.Since(start)
+		// Normal send
+		sendArgs := []string{"send", "-P"} // -P for progress parsing
+		if req.Compressed {
+			sendArgs = append(sendArgs, "-c")
+		}
+		sendArgs = append(sendArgs, "-R")
+		if req.Incremental && req.BaseSnap != "" {
+			sendArgs = append(sendArgs, "-i", req.BaseSnap)
+		}
+		sendArgs = append(sendArgs, req.Snapshot)
 
-			if err != nil {
-				respondOK(w, map[string]interface{}{
-					"success":     false,
-					"resumed":     true,
-					"error":       fmt.Sprintf("Resume failed: %v", err),
-					"output":      output,
-					"duration_ms": duration.Milliseconds(),
-					"hint":        "Transfer may be partially complete. Try resume again.",
-				})
-				return
-			}
+		var rateLimitBytes []string
+		if req.RateLimit != "" && !strings.ContainsAny(req.RateLimit, ";|&$`\\\"' ") {
+			rateLimitBytes = []string{req.RateLimit}
+		}
 
-			respondOK(w, map[string]interface{}{
-				"success":     true,
-				"resumed":     true,
-				"snapshot":    req.Snapshot,
-				"remote":      fmt.Sprintf("%s:%s", sshTarget, remoteDataset),
-				"duration_ms": duration.Milliseconds(),
-			})
+		output, err := execPipedZFSSend(j, sendArgs, sshArgs, sshTarget, []string{"recv", "-s", "-F", remoteDataset}, rateLimitBytes)
+		if err != nil {
+			j.Log("ERROR: " + err.Error())
+			j.Fail(fmt.Sprintf("Replication failed: %v\nOutput: %s", err, output))
 			return
 		}
-		// No resume token found - fall through to normal send
-	}
 
-	// Build zfs send args
-	sendArgs := []string{"send"}
-	if req.Compressed {
-		sendArgs = append(sendArgs, "-c")
-	}
-	sendArgs = append(sendArgs, "-R") // replicate (include properties)
-
-	if req.Incremental && req.BaseSnap != "" {
-		if !isValidSnapshotName(req.BaseSnap) {
-			respondErrorSimple(w, "Invalid base snapshot name", http.StatusBadRequest)
-			return
-		}
-		sendArgs = append(sendArgs, "-i", req.BaseSnap)
-	}
-	sendArgs = append(sendArgs, req.Snapshot)
-
-	// Full command with -s on receive side for resume support.
-	// execPipedZFSSend connects zfs-send stdout → (optional pv) → ssh stdin
-	// using Go pipes - no shell, no string interpolation.
-	var rateLimitBytes []string
-	if req.RateLimit != "" && !strings.ContainsAny(req.RateLimit, ";|&$`\\\"' ") {
-		rateLimitBytes = []string{req.RateLimit}
-	}
-
-	start := time.Now()
-	output, err := execPipedZFSSend(
-		sendArgs,
-		sshArgs, sshTarget,
-		[]string{"recv", "-s", "-F", remoteDataset},
-		rateLimitBytes,
-	)
-	duration := time.Since(start)
-
-	if err != nil {
-		respondOK(w, map[string]interface{}{
-			"success":     false,
-			"error":       fmt.Sprintf("Replication failed: %v", err),
-			"output":      output,
-			"duration_ms": duration.Milliseconds(),
-			"hint":        "If transfer was interrupted, retry with resume=true to continue from where it stopped.",
-		})
-		return
-	}
-
-	respondOK(w, map[string]interface{}{
-		"success":        true,
-		"snapshot":       req.Snapshot,
-		"remote":         fmt.Sprintf("%s:%s", sshTarget, remoteDataset),
-		"incremental":    req.Incremental,
-		"compressed":     req.Compressed,
-		"duration_ms":    duration.Milliseconds(),
+		j.Done(map[string]interface{}{"snapshot": req.Snapshot, "remote": remoteDataset, "output": output})
 	})
+
+	respondOK(w, map[string]interface{}{"success": true, "job_id": jobID})
 }
 
 // TestRemoteConnection tests SSH connectivity to a replication target
@@ -284,11 +232,12 @@ func isValidResumeToken(token string) bool {
 // no bash -c. Each argument is a discrete element in argv, so shell metacharacter
 // injection is not possible.
 func execPipedZFSSend(
+	j *jobs.Job,
 	sendArgs []string,
 	sshArgs []string,
 	sshTarget string,
 	recvArgs []string,
-	rateLimit []string, // nil = no rate limit; []string{"50M"} = pv -q -L 50M
+	rateLimit []string,
 ) (string, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -302,25 +251,79 @@ func execPipedZFSSend(
 	if err != nil {
 		return "", fmt.Errorf("send stdout pipe: %w", err)
 	}
-	var senderStderr bytes.Buffer
-	sender.Stderr = &senderStderr
+	sendErr, err := sender.StderrPipe()
+	if err != nil {
+		return "", fmt.Errorf("send stderr pipe: %w", err)
+	}
 
 	receiver := exec.CommandContext(ctx, "ssh", sshFullArgs...)
 	var recvStdout, recvStderr bytes.Buffer
 	receiver.Stdout = &recvStdout
 	receiver.Stderr = &recvStderr
 
+	// Start sender and capture progress from stderr
+	if err := sender.Start(); err != nil {
+		return "", fmt.Errorf("start zfs send: %w", err)
+	}
+
+	// Progress parsing goroutine
+	go func() {
+		scanner := bufio.NewScanner(sendErr)
+		var totalSize int64
+		var lastSent int64
+		var lastTime = time.Now()
+
+		for scanner.Scan() {
+			line := scanner.Text()
+			fields := strings.Fields(line)
+			if len(fields) < 2 {
+				continue
+			}
+
+			if fields[0] == "size" {
+				totalSize, _ = strconv.ParseInt(fields[1], 10, 64)
+			} else if fields[0] == "sent" {
+				sent, _ := strconv.ParseInt(fields[1], 10, 64)
+				now := time.Now()
+				elapsed := now.Sub(lastTime).Seconds()
+				
+				if elapsed >= 0.5 { // Update every 500ms
+					rate := float64(sent-lastSent) / elapsed // bytes/sec
+					var percent float64
+					if totalSize > 0 {
+						percent = float64(sent) / float64(totalSize) * 100
+					}
+
+					var eta int64 = -1
+					if rate > 0 && totalSize > 0 {
+						eta = int64(float64(totalSize-sent) / rate)
+					}
+
+					j.Progress(map[string]interface{}{
+						"percent":      percent,
+						"bytes_sent":   sent,
+						"total_bytes":  totalSize,
+						"rate_bps":     rate, // bits per second? no, bytes per second
+						"rate_mbs":     rate / (1024 * 1024),
+						"eta_seconds":  eta,
+					})
+
+					lastSent = sent
+					lastTime = now
+				}
+			}
+		}
+	}()
+
 	if len(rateLimit) == 1 {
 		throttle := exec.CommandContext(ctx, "pv", "-q", "-L", rateLimit[0])
 		throttleOut, err := throttle.StdoutPipe()
 		if err != nil {
+			sender.Wait() //nolint
 			return "", fmt.Errorf("pv stdout pipe: %w", err)
 		}
 		throttle.Stdin = sendOut
 		receiver.Stdin = throttleOut
-		if err := sender.Start(); err != nil {
-			return "", fmt.Errorf("start zfs send: %w", err)
-		}
 		if err := throttle.Start(); err != nil {
 			sender.Wait() //nolint
 			return "", fmt.Errorf("start pv: %w", err)
@@ -330,23 +333,18 @@ func execPipedZFSSend(
 			throttle.Wait() //nolint
 			return "", fmt.Errorf("start ssh recv: %w", err)
 		}
-		sender.Wait()   //nolint
 		throttle.Wait() //nolint
 	} else {
 		receiver.Stdin = sendOut
-		if err := sender.Start(); err != nil {
-			return "", fmt.Errorf("start zfs send: %w", err)
-		}
 		if err := receiver.Start(); err != nil {
 			sender.Wait() //nolint
 			return "", fmt.Errorf("start ssh recv: %w", err)
 		}
-		sender.Wait() //nolint
 	}
 
+	sender.Wait() //nolint
 	if err := receiver.Wait(); err != nil {
-		combined := strings.TrimSpace(recvStderr.String() + " " + senderStderr.String())
-		return combined, fmt.Errorf("replication failed: %w", err)
+		return recvStderr.String(), fmt.Errorf("replication failed: %w", err)
 	}
 	return recvStdout.String(), nil
 }

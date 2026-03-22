@@ -300,6 +300,7 @@ func main() {
 	handlers.SetNixWriter(nixWriter)
 	handlers.SetReconcilerDB(db)
 	handlers.SetRegistryDB(db)
+	handlers.SetGitOpsStatePath(*gitopsStatePath)
 
 	// Boot reconciler: fallback for systems where networkd was not active when
 	// files were written, or for Debian/Ubuntu with NetworkManager instead of networkd.
@@ -529,6 +530,8 @@ func main() {
 	r.HandleFunc("/api/auth/check", authHandler.Check).Methods("GET")
 	r.HandleFunc("/api/auth/session", authHandler.Session).Methods("GET")
 	r.HandleFunc("/api/auth/change-password", authHandler.ChangePassword).Methods("POST")
+	r.HandleFunc("/api/auth/sessions", authHandler.ListSessions).Methods("GET", "OPTIONS")
+	r.HandleFunc("/api/auth/sessions", authHandler.RevokeSession).Methods("DELETE", "OPTIONS")
 	r.HandleFunc("/api/csrf", authHandler.CSRFToken).Methods("GET")
 
 	// TOTP 2FA
@@ -582,6 +585,14 @@ func main() {
 	r.Handle("/api/system/logs", permRoute("system", "read", systemHandler.GetSystemLogs)).Methods("GET")
 	r.Handle("/api/system/reboot", permRoute("system", "admin", systemHandler.Reboot)).Methods("POST")
 	r.Handle("/api/system/poweroff", permRoute("system", "admin", systemHandler.Poweroff)).Methods("POST")
+	r.Handle("/api/system/diagnostics", permRoute("system", "read", systemHandler.RunDiagnostics)).Methods("POST", "OPTIONS")
+
+	// SMART handlers
+	r.HandleFunc("/api/hardware/smart/cron-hook", handlers.RunSMARTCronHook).Methods("POST")
+	r.HandleFunc("/api/hardware/smart/run-now", handlers.RunSMARTNow).Methods("POST")
+	r.HandleFunc("/api/hardware/smart/schedules", handlers.ListSMARTSchedules).Methods("GET")
+	r.HandleFunc("/api/hardware/smart/schedules", handlers.AddSMARTSchedule).Methods("POST")
+	r.HandleFunc("/api/hardware/smart/schedules", handlers.DeleteSMARTSchedule).Methods("DELETE")
 
 	// Docker handlers
 	dockerHandler := handlers.NewDockerHandler()
@@ -1024,6 +1035,8 @@ func main() {
 	r.HandleFunc("/api/certs/list", certHandler.ListCerts).Methods("GET")
 	r.Handle("/api/certs/generate", permRoute("certificates", "write", certHandler.GenerateSelfSigned)).Methods("POST")
 	r.Handle("/api/certs/activate", permRoute("certificates", "write", certHandler.ActivateCert)).Methods("POST")
+	r.Handle("/api/certs/import", permRoute("certificates", "write", certHandler.ImportCert)).Methods("POST")
+	r.Handle("/api/certs/acme", permRoute("certificates", "write", certHandler.RequestACME)).Methods("POST")
 	r.Handle("/api/certs/{name}", permRoute("certificates", "write", certHandler.DeleteCert)).Methods("DELETE")
 
 	// Trash / Recycle Bin (v2.0.0)
@@ -1244,7 +1257,9 @@ func sessionMiddleware(next http.Handler) http.Handler {
 		// Skip validation for public endpoints
 		p := r.URL.Path
 		if p == "/health" ||
-			strings.HasPrefix(p, "/api/auth/") ||
+			p == "/api/auth/login" ||
+			p == "/api/auth/logout" ||
+			p == "/api/auth/check" ||
 			p == "/api/csrf" ||
 			// Setup wizard - no session exists yet on fresh installs
 			p == "/api/system/setup-admin" ||

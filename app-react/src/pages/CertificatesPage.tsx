@@ -1,4 +1,4 @@
-﻿/**
+/**
  * pages/CertificatesPage.tsx - TLS Certificates (Phase 6)
  *
  * Lists installed certs, shows which is active, allows generating self-signed
@@ -93,12 +93,11 @@ function GenerateModal({ onClose, onDone }: { onClose: () => void; onDone: () =>
   const generate = useMutation({
     mutationFn: () => {
       if (!name.trim() || !cn.trim()) throw new Error('Name and Common Name are required')
-      const sanList = sans.split(',').map(s => s.trim()).filter(Boolean)
       return api.post('/api/certs/generate', {
         name: name.trim(),
         cn:   cn.trim(),
         days: Number(days) || 365,
-        sans: sanList,
+        sans: sans.trim(), // Backend expects string (as seen in system_extended.go)
       })
     },
     onSuccess: () => { toast.success('Certificate generated'); onDone(); onClose() },
@@ -130,6 +129,130 @@ function GenerateModal({ onClose, onDone }: { onClose: () => void; onDone: () =>
           <button onClick={onClose} className="btn btn-ghost">Cancel</button>
           <button onClick={() => generate.mutate()} disabled={generate.isPending} className="btn btn-primary">
             <Icon name="verified_user" size={15} />{generate.isPending ? 'Generating…' : 'Generate'}
+          </button>
+        </div>
+      </div>
+    </Modal>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// ImportModal
+// ---------------------------------------------------------------------------
+
+function ImportModal({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
+  const [name, setName] = useState('')
+  const [cert, setCert] = useState('')
+  const [key, setKey]   = useState('')
+
+  const importCert = useMutation({
+    mutationFn: () => {
+      if (!name.trim() || !cert.trim() || !key.trim()) throw new Error('All fields are required')
+      return api.post('/api/certs/import', {
+        name: name.trim(),
+        cert: cert.trim(),
+        key:  key.trim(),
+      })
+    },
+    onSuccess: () => { toast.success('Certificate imported'); onDone(); onClose() },
+    onError: (e: Error) => toast.error(e.message),
+  })
+
+  return (
+    <Modal title="Import Certificate" onClose={onClose}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+        <Field label="Certificate Name" hint="Friendly name for this certificate">
+          <input value={name} onChange={e => setName(e.target.value)} placeholder="my-custom-cert" className="input" autoFocus />
+        </Field>
+
+        <Field label="Certificate (PEM)" hint="Paste the .crt or .pem file content">
+          <textarea 
+            value={cert} 
+            onChange={e => setCert(e.target.value)} 
+            placeholder="-----BEGIN CERTIFICATE-----"
+            className="input" 
+            style={{ fontFamily: 'var(--font-mono)', minHeight: 120, fontSize: 'var(--text-2xs)' }} 
+          />
+        </Field>
+
+        <Field label="Private Key" hint="Paste the .key file content">
+          <textarea 
+            value={key} 
+            onChange={e => setKey(e.target.value)} 
+            placeholder="-----BEGIN PRIVATE KEY-----"
+            className="input" 
+            style={{ fontFamily: 'var(--font-mono)', minHeight: 100, fontSize: 'var(--text-2xs)' }} 
+          />
+        </Field>
+
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+          <button onClick={onClose} className="btn btn-ghost">Cancel</button>
+          <button onClick={() => importCert.mutate()} disabled={importCert.isPending} className="btn btn-primary">
+            <Icon name="upload" size={15} />{importCert.isPending ? 'Importing…' : 'Import'}
+          </button>
+        </div>
+      </div>
+    </Modal>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// ACMEWizard
+// ---------------------------------------------------------------------------
+
+function ACMEWizard({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
+  const [name, setName]     = useState('le-cert')
+  const [domain, setDomain] = useState('')
+  const [email, setEmail]   = useState('')
+  const [staging, setStaging] = useState(true)
+
+  const request = useMutation({
+    mutationFn: () => {
+      if (!name.trim() || !domain.trim() || !email.trim()) throw new Error('Name, Domain, and Email are required')
+      return api.post('/api/certs/acme', {
+        name: name.trim(),
+        domain: domain.trim(),
+        email: email.trim(),
+        staging,
+      })
+    },
+    onSuccess: () => { toast.success('ACME certificate obtained successfully'); onDone(); onClose() },
+    onError: (e: Error) => toast.error(e.message),
+  })
+
+  return (
+    <Modal title="Let's Encrypt / ACME Wizard" onClose={onClose}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+        <div className="alert alert-info" style={{ fontSize: 'var(--text-xs)', lineHeight: 1.5 }}>
+          <Icon name="info" size={14} />
+          <span>
+            This wizard uses <strong>HTTP-01</strong> challenge. Port 80 must be open and pointing to this D-PlaneOS instance. 
+            The daemon will temporarily start a challenge server on port 8080.
+          </span>
+        </div>
+
+        <Field label="Certificate Name">
+          <input value={name} onChange={e => setName(e.target.value)} placeholder="le-cert" className="input" autoFocus />
+        </Field>
+
+        <Field label="Domain Name" hint="e.g. nas.example.com">
+          <input value={domain} onChange={e => setDomain(e.target.value)} placeholder="nas.yourdomain.com"
+            className="input" style={{ fontFamily: 'var(--font-mono)' }} />
+        </Field>
+
+        <Field label="Email Address" hint="For Let's Encrypt expiration notices">
+          <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="admin@example.com" className="input" />
+        </Field>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <input type="checkbox" id="acme-staging" checked={staging} onChange={e => setStaging(e.target.checked)} />
+          <label htmlFor="acme-staging" style={{ fontSize: 'var(--text-sm)', cursor: 'pointer' }}>Use Staging Environment (Recommended for first run)</label>
+        </div>
+
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+          <button onClick={onClose} className="btn btn-ghost">Cancel</button>
+          <button onClick={() => request.mutate()} disabled={request.isPending} className="btn btn-primary">
+            <Icon name="encrypted" size={15} />{request.isPending ? 'Requesting…' : 'Obtain Certificate'}
           </button>
         </div>
       </div>
@@ -209,6 +332,8 @@ function CertCard({ cert, isActive, onActivate, activating }: {
 export function CertificatesPage() {
   const qc = useQueryClient()
   const [showGenerate, setShowGenerate] = useState(false)
+  const [showImport, setShowImport] = useState(false)
+  const [showACME, setShowACME] = useState(false)
 
   const certsQ = useQuery({
     queryKey: ['certs', 'list'],
@@ -240,7 +365,13 @@ export function CertificatesPage() {
         </div>
       )}
 
-      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 16 }}>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginBottom: 16 }}>
+        <button onClick={() => setShowImport(true)} className="btn btn-ghost">
+          <Icon name="upload" size={15} />Import
+        </button>
+        <button onClick={() => setShowACME(true)} className="btn btn-ghost">
+          <Icon name="encrypted" size={15} />Let's Encrypt
+        </button>
         <button onClick={() => setShowGenerate(true)} className="btn btn-primary">
           <Icon name="add" size={15} />Generate Self-Signed
         </button>
@@ -271,6 +402,20 @@ export function CertificatesPage() {
       {showGenerate && (
         <GenerateModal
           onClose={() => setShowGenerate(false)}
+          onDone={() => qc.invalidateQueries({ queryKey: ['certs', 'list'] })}
+        />
+      )}
+
+      {showImport && (
+        <ImportModal
+          onClose={() => setShowImport(false)}
+          onDone={() => qc.invalidateQueries({ queryKey: ['certs', 'list'] })}
+        />
+      )}
+
+      {showACME && (
+        <ACMEWizard
+          onClose={() => setShowACME(false)}
           onDone={() => qc.invalidateQueries({ queryKey: ['certs', 'list'] })}
         />
       )}

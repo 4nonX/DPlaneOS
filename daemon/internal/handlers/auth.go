@@ -15,6 +15,8 @@ import (
 
 	"dplaned/internal/audit"
 	ldapinternal "dplaned/internal/ldap"
+	"dplaned/internal/middleware"
+	"dplaned/internal/security"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -291,11 +293,13 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Insert full active session (created_at has DEFAULT in schema; set explicitly for compatibility with existing DBs)
+	// Insert full active session with metadata
+	ip := clientIP
+	userAgent := r.Header.Get("User-Agent")
 	createdAt := time.Now().Unix()
 	_, err = h.db.Exec(
-		`INSERT INTO sessions (session_id, user_id, username, created_at, expires_at, status) VALUES (?, ?, ?, ?, ?, 'active')`,
-		sessionID, userID, req.Username, createdAt, expiresAt,
+		`INSERT INTO sessions (session_id, user_id, username, ip_address, user_agent, created_at, expires_at, status) VALUES (?, ?, ?, ?, ?, ?, ?, 'active')`,
+		sessionID, userID, req.Username, ip, userAgent, createdAt, expiresAt,
 	)
 	if err != nil {
 		log.Printf("AUTH ERROR: failed to create session: %v", err)
@@ -683,4 +687,109 @@ func (h *AuthHandler) CleanExpiredSessions() {
 	if count, _ := result.RowsAffected(); count > 0 {
 		log.Printf("Cleaned %d expired sessions", count)
 	}
+}
+func (h *AuthHandler) ListSessions(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		respondErrorSimple(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// sessionUser is injected by middleware
+	user, ok := r.Context().Value(middleware.UserContextKey).(*middleware.User)
+	if !ok || user == nil {
+		respondErrorSimple(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	sessions, err := security.GetUserSessions(user.Username)
+	if err != nil {
+		log.Printf("AUTH ERROR: failed to list sessions: %v", err)
+		respondErrorSimple(w, "Internal error", http.StatusInternalServerError)
+		return
+	}
+
+	currentSession := ""
+	authHeader := r.Header.Get("Authorization")
+	if strings.HasPrefix(authHeader, "Bearer ") {
+		currentSession = strings.TrimPrefix(authHeader, "Bearer ")
+	} else {
+		cookie, err := r.Cookie("session_id")
+		if err == nil {
+			currentSession = cookie.Value
+		}
+	}
+
+	// Mask session IDs except for the current one (security best practice)
+	type SessionEntry struct {
+		ID           string `json:"id"`
+		IPAddress    string `json:"ip_address"`
+		UserAgent    string `json:"user_agent"`
+		CreatedAt    int64  `json:"created_at"`
+		LastActivity int64  `json:"last_activity"`
+		IsCurrent    bool   `json:"is_current"`
+	}
+	var entries []SessionEntry
+	for _, s := range sessions {
+		isCurrent := s.SessionID == currentSession
+		entries = append(entries, SessionEntry{
+			ID:           s.SessionID, 
+			IPAddress:    s.IPAddress,
+			UserAgent:    s.UserAgent,
+			CreatedAt:    s.CreatedAt,
+			LastActivity: s.LastActivity,
+			IsCurrent:    isCurrent,
+		})
+	}
+
+	respondJSON(w, http.StatusOK, map[string]interface{}{
+		"success":  true,
+		"sessions": entries,
+	})
+}
+
+func (h *AuthHandler) RevokeSession(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodDelete {
+		respondErrorSimple(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	user, ok := r.Context().Value(middleware.UserContextKey).(*middleware.User)
+	if !ok || user == nil {
+		respondErrorSimple(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	var req struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondErrorSimple(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// Safety: Verify the session belongs to the user
+	var sessionOwner string
+	err := h.db.QueryRow("SELECT username FROM sessions WHERE session_id = ?", req.ID).Scan(&sessionOwner)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			respondErrorSimple(w, "Session not found", http.StatusNotFound)
+		} else {
+			respondErrorSimple(w, "Internal error", http.StatusInternalServerError)
+		}
+		return
+	}
+
+	if sessionOwner != user.Username && user.Username != "admin" {
+		respondErrorSimple(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+
+	if err := security.RevokeSession(req.ID); err != nil {
+		log.Printf("AUTH ERROR: failed to revoke session: %v", err)
+		respondErrorSimple(w, "Internal error", http.StatusInternalServerError)
+		return
+	}
+
+	h.auditLog(user.Username, "session_revoked", fmt.Sprintf("Revoked session %s", req.ID[:8]), r.RemoteAddr)
+	respondJSON(w, http.StatusOK, map[string]interface{}{"success": true})
 }

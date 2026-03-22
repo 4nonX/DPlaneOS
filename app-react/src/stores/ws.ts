@@ -1,4 +1,4 @@
-﻿/**
+/**
  * stores/ws.ts - D-PlaneOS WebSocket Store
  *
  * Manages a single connection to /ws/monitor.
@@ -47,6 +47,7 @@ type EventMap = {
   inotifyStats: (data: unknown) => void
   mountError: (data: unknown) => void
   gitopsDrift: (data: unknown) => void
+  jobProgress: (data: { job_id: string; data: any }) => void
 }
 
 type EventName = keyof EventMap
@@ -187,6 +188,9 @@ export const useWsStore = create<WsState>((set) => {
           break
         case 'gitops.drift':
           emit('gitopsDrift', msg.data ?? msg)
+          break
+        case 'job.progress':
+          emit('jobProgress', (msg.data ?? msg) as { job_id: string; data: any })
           break
         default:
           // mount_health_<poolname> events from the background monitor

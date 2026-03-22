@@ -80,6 +80,9 @@ const (
 	KindGroup   ResourceKind = "group"
 	KindReplication ResourceKind = "replication"
 	KindLDAP        ResourceKind = "ldap"
+	KindACME        ResourceKind = "acme"
+	KindCertificate ResourceKind = "certificate"
+	KindSMART       ResourceKind = "smart_task"
 )
 
 // DiffItem is one entry in the reconciliation plan.
@@ -116,6 +119,9 @@ type DiffItem struct {
 	DesiredGroup   *DesiredGroup   `json:"desired_group,omitempty"`
 	DesiredReplication *DesiredReplication `json:"desired_replication,omitempty"`
 	DesiredLDAP        *DesiredLDAP        `json:"desired_ldap,omitempty"`
+	DesiredACME        *DesiredACME        `json:"desired_acme,omitempty"`
+	DesiredCertificate *DesiredCertificate `json:"desired_certificate,omitempty"`
+	DesiredSMART       *DesiredSMARTTask   `json:"desired_smart_task,omitempty"`
 }
 
 // Plan is the complete reconciliation plan: the ordered list of DiffItems.
@@ -643,6 +649,98 @@ func ComputeDiff(desired *DesiredState, live *LiveState) *Plan {
 		}
 	}
 
+	if desired.ACME != nil {
+		if live.ACME == nil || !live.ACME.Enabled {
+			if desired.ACME.Enabled {
+				item := *desired.ACME
+				plan.Items = append(plan.Items, DiffItem{
+					Kind:        KindACME,
+					Name:        "acme",
+					Action:      ActionCreate,
+					RiskLevel:   "medium",
+					DesiredACME: &item,
+				})
+			}
+		} else {
+			changes := diffACME(*desired.ACME, *live.ACME)
+			if len(changes) > 0 {
+				item := *desired.ACME
+				plan.Items = append(plan.Items, DiffItem{
+					Kind:        KindACME,
+					Name:        "acme",
+					Action:      ActionModify,
+					Changes:     changes,
+					RiskLevel:   "medium",
+					DesiredACME: &item,
+				})
+			}
+		}
+	}
+
+	for _, dc := range desired.Certificates {
+		found := false
+		for _, lc := range live.Certificates {
+			if lc.Name == dc.Name {
+				found = true
+				changes := diffCertificate(dc, lc)
+				if len(changes) > 0 {
+					item := dc
+					plan.Items = append(plan.Items, DiffItem{
+						Kind:               KindCertificate,
+						Name:               dc.Name,
+						Action:             ActionModify,
+						Changes:            changes,
+						RiskLevel:          "medium",
+						DesiredCertificate: &item,
+					})
+				}
+				break
+			}
+		}
+		if !found {
+			item := dc
+			plan.Items = append(plan.Items, DiffItem{
+				Kind:               KindCertificate,
+				Name:               dc.Name,
+				Action:             ActionCreate,
+				RiskLevel:          "medium",
+				DesiredCertificate: &item,
+			})
+		}
+	}
+
+	for _, dt := range desired.SMART {
+		found := false
+		for _, lt := range live.SMART {
+			if lt.Device == dt.Device && lt.Type == dt.Type {
+				found = true
+				changes := diffSMART(dt, lt)
+				if len(changes) > 0 {
+					item := dt
+					plan.Items = append(plan.Items, DiffItem{
+						Kind:         KindSMART,
+						Name:         fmt.Sprintf("%s-%s", dt.Device, dt.Type),
+						Action:       ActionModify,
+						Changes:      changes,
+						RiskLevel:    "low",
+						DesiredSMART: &item,
+					})
+				}
+				break
+			}
+		}
+		if !found {
+			item := dt
+			plan.Items = append(plan.Items, DiffItem{
+				Kind:         KindSMART,
+				Name:         fmt.Sprintf("%s-%s", dt.Device, dt.Type),
+				Action:       ActionCreate,
+				RiskLevel:    "low",
+				DesiredSMART: &item,
+			})
+		}
+	}
+
 	// ── Phase 3: DELETE / BLOCKED (live exists, not in desired) ───────────────
 	// This is where the safety contract is enforced.
 	// Every potential deletion goes through blockedCheck before being classified.
@@ -750,6 +848,47 @@ func ComputeDiff(desired *DesiredState, live *LiveState) *Plan {
 		})
 	}
 
+	if !desired.IgnoreExtraneous {
+		if desired.ACME == nil && live.ACME != nil && live.ACME.Enabled {
+			plan.Items = append(plan.Items, DiffItem{
+				Kind:      KindACME,
+				Name:      "acme",
+				Action:    ActionDelete, // Disabling ACME
+				RiskLevel: "medium",
+			})
+		}
+
+		for _, lc := range live.Certificates {
+			wanted := false
+			for _, dc := range desired.Certificates {
+				if dc.Name == lc.Name { wanted = true; break }
+			}
+			if !wanted {
+				plan.Items = append(plan.Items, DiffItem{
+					Kind:      KindCertificate,
+					Name:      lc.Name,
+					Action:    ActionDelete,
+					RiskLevel: "medium",
+				})
+			}
+		}
+
+		for _, lt := range live.SMART {
+			wanted := false
+			for _, dt := range desired.SMART {
+				if dt.Device == lt.Device && dt.Type == lt.Type { wanted = true; break }
+			}
+			if !wanted {
+				plan.Items = append(plan.Items, DiffItem{
+					Kind:      KindSMART,
+					Name:      fmt.Sprintf("%s-%s", lt.Device, lt.Type),
+					Action:    ActionDelete,
+					RiskLevel: "low",
+				})
+			}
+		}
+	}
+
 	// ── Tally ─────────────────────────────────────────────────────────────────
 	for _, item := range plan.Items {
 		switch item.Action {
@@ -783,7 +922,10 @@ func ComputeDiff(desired *DesiredState, live *LiveState) *Plan {
 		KindGroup:       7,
 		KindReplication: 8,
 		KindLDAP:        9,
-		KindStack:       10,
+		KindACME:        10,
+		KindCertificate: 11,
+		KindSMART:       12,
+		KindStack:       13,
 	}
 
 	sort.SliceStable(plan.Items, func(i, j int) bool {
@@ -1239,3 +1381,41 @@ func diffLDAP(desired *DesiredLDAP, live *DesiredLDAP) []DiffItem {
 	}}
 }
 
+func diffACME(d, l DesiredACME) []string {
+	var changes []string
+	if d.Email != l.Email {
+		changes = append(changes, fmt.Sprintf("email: %s → %s", l.Email, d.Email))
+	}
+	if d.Server != l.Server {
+		changes = append(changes, fmt.Sprintf("server: %s → %s", l.Server, d.Server))
+	}
+	if d.Resolver != l.Resolver {
+		changes = append(changes, fmt.Sprintf("resolver: %s → %s", l.Resolver, d.Resolver))
+	}
+	if d.Enabled != l.Enabled {
+		changes = append(changes, fmt.Sprintf("enabled: %v → %v", l.Enabled, d.Enabled))
+	}
+	return changes
+}
+
+func diffCertificate(d, l DesiredCertificate) []string {
+	var changes []string
+	if strings.TrimSpace(d.Cert) != strings.TrimSpace(l.Cert) {
+		changes = append(changes, "certificate: (pem content changed)")
+	}
+	if strings.TrimSpace(d.Key) != strings.TrimSpace(l.Key) {
+		changes = append(changes, "private_key: (pem content changed)")
+	}
+	return changes
+}
+
+func diffSMART(d, l DesiredSMARTTask) []string {
+	var changes []string
+	if d.Schedule != l.Schedule {
+		changes = append(changes, fmt.Sprintf("schedule: %s → %s", l.Schedule, d.Schedule))
+	}
+	if d.Enabled != l.Enabled {
+		changes = append(changes, fmt.Sprintf("enabled: %v → %v", l.Enabled, d.Enabled))
+	}
+	return changes
+}

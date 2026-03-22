@@ -618,10 +618,123 @@ function DnsNtpTab() {
 }
 
 // ---------------------------------------------------------------------------
+// DiagnosticsTab
+// ---------------------------------------------------------------------------
+
+function DiagnosticsTab() {
+  const [type, setType] = useState<'ping' | 'dns' | 'traceroute'>('ping')
+  const [target, setTarget] = useState('')
+  const [output, setOutput] = useState<string[]>([])
+  const [isRunning, setIsRunning] = useState(false)
+  const [count, setCount] = useState(4)
+  const scrollRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight
+    }
+  }, [output])
+
+  async function run() {
+    if (!target.trim() || isRunning) return
+    setIsRunning(true)
+    setOutput([])
+
+    try {
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        'X-Session-ID': sessionStorage.getItem('session_id') || '',
+        'X-User': sessionStorage.getItem('username') || '',
+      }
+
+      const resCsrf = await fetch('/api/csrf')
+      const csrfData = await resCsrf.json()
+      if (csrfData.success) headers['X-CSRF-Token'] = csrfData.csrf_token
+
+      const response = await fetch('/api/system/diagnostics', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ type, target: target.trim(), count }),
+      })
+
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}))
+        throw new Error(errData.error || `Error ${response.status}`)
+      }
+
+      const reader = response.body?.getReader()
+      if (!reader) throw new Error('Streaming not supported')
+
+      const decoder = new TextDecoder()
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        const chunk = decoder.decode(value, { stream: true })
+        setOutput(prev => [...prev, ...chunk.split('\n').filter(l => l.length > 0)])
+      }
+    } catch (e: any) {
+      setOutput(prev => [...prev, `[ERROR] ${e.message}`])
+    } finally {
+      setIsRunning(false)
+    }
+  }
+
+  return (
+    <>
+      <div className="card" style={{ borderRadius: 'var(--radius-lg)', padding: '20px 24px', marginBottom: 20 }}>
+        <div style={{ fontWeight: 700, marginBottom: 16 }}>Network Troubleshooting</div>
+        <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr 80px auto', gap: 12, alignItems: 'flex-end' }}>
+          <label className="field">
+            <span className="field-label">Tool</span>
+            <select value={type} onChange={e => setType(e.target.value as any)} className="input" style={{ appearance: 'none', background: 'var(--surface)' }}>
+              <option value="ping">Ping</option>
+              <option value="dns">DNS Lookup</option>
+              <option value="traceroute">Traceroute</option>
+            </select>
+          </label>
+          <label className="field">
+            <span className="field-label">Target (Hostname or IP)</span>
+            <input value={target} onChange={e => setTarget(e.target.value)} placeholder="google.com" className="input" onKeyDown={e => e.key === 'Enter' && run()} />
+          </label>
+          {type === 'ping' && (
+            <label className="field">
+              <span className="field-label">Count</span>
+              <input type="number" value={count} onChange={e => setCount(Number(e.target.value))} min={1} max={10} className="input" />
+            </label>
+          )}
+          <button onClick={run} disabled={isRunning || !target.trim()} className="btn btn-primary" style={{ marginBottom: 4 }}>
+            <Icon name={isRunning ? 'sync' : 'play_arrow'} size={15} style={{ animation: isRunning ? 'spin 2s linear infinite' : 'none' }} />
+            {isRunning ? 'Running…' : 'Run'}
+          </button>
+        </div>
+      </div>
+
+      <div ref={scrollRef} style={{ background: '#0a0a0b', border: '1px solid #222', borderRadius: 'var(--radius-md)', padding: '16px 20px', minHeight: '300px', maxHeight: '500px', overflowY: 'auto', fontFamily: 'var(--font-mono)', fontSize: '13px', lineHeight: '1.6', color: '#e4e4e7', position: 'relative' }}>
+        {output.length === 0 && !isRunning && (
+          <div style={{ color: '#52525b', textAlign: 'center', marginTop: 120 }}>
+            <Icon name="terminal" size={32} style={{ opacity: 0.1, marginBottom: 12 }} />
+            <div>Diagnostics output will appear here</div>
+          </div>
+        )}
+        {output.map((line, i) => (
+          <div key={i} style={{ borderBottom: '1px solid rgba(255,255,255,0.03)', paddingBottom: 2 }}>{line}</div>
+        ))}
+        {isRunning && (
+          <div style={{ opacity: 0.5, marginTop: 4 }}>
+            <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: 'var(--primary)', animation: 'pulse 1.5s infinite', marginRight: 8 }} />
+            Tracing in progress...
+          </div>
+        )}
+      </div>
+    </>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // NetworkPage
 // ---------------------------------------------------------------------------
 
-type Tab = 'interfaces' | 'vlans' | 'bonding' | 'dns'
+type Tab = 'interfaces' | 'vlans' | 'bonding' | 'dns' | 'diagnostics'
 
 export function NetworkPage() {
   const router = useRouter()
@@ -632,6 +745,7 @@ export function NetworkPage() {
     { id: 'vlans',      label: 'VLANs',      icon: 'account_tree' },
     { id: 'bonding',    label: 'Bonding',     icon: 'device_hub' },
     { id: 'dns',        label: 'DNS & NTP',   icon: 'dns' },
+    { id: 'diagnostics', label: 'Diagnostics', icon: 'troubleshoot' },
   ]
 
   return (
@@ -658,6 +772,7 @@ export function NetworkPage() {
       {tab === 'vlans'      && <VLANsTab />}
       {tab === 'bonding'    && <BondingTab />}
       {tab === 'dns'        && <DnsNtpTab />}
+      {tab === 'diagnostics' && <DiagnosticsTab />}
     </div>
   )
 }

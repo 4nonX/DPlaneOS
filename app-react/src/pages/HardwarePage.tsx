@@ -1,4 +1,4 @@
-﻿/**
+/**
  * pages/HardwarePage.tsx - Hardware Overview
  *
  * APIs:
@@ -373,6 +373,7 @@ interface DiskRowProps {
   smart?:        SMARTDisk
   onShortTest:   () => void
   onLongTest:    () => void
+  onSchedule:    () => void
   onViewResults: () => void
   onReplace?:    () => void
   isTestRunning: boolean
@@ -381,7 +382,7 @@ interface DiskRowProps {
 
 function DiskRow({
   disk, smart,
-  onShortTest, onLongTest, onViewResults, onReplace,
+  onShortTest, onLongTest, onSchedule, onViewResults, onReplace,
   isTestRunning, testResult,
 }: DiskRowProps) {
   const passed     = smart?.smart_status?.passed
@@ -571,6 +572,16 @@ function DiskRow({
                 Long Test
               </button>
             </Tooltip>
+            <Tooltip content="Schedule periodic SMART tests for this disk">
+              <button
+                className="btn btn-ghost"
+                onClick={onSchedule}
+                style={{ fontSize: 'var(--text-xs)', padding: '4px 10px', color: 'var(--primary)' }}
+              >
+                <Icon name="schedule" size={14} style={{ marginRight: 4 }} />
+                Schedule
+              </button>
+            </Tooltip>
             <Tooltip content="View last SMART test results">
               <button
                 className="btn btn-ghost"
@@ -599,6 +610,267 @@ function DiskRow({
         </div>
       )}
     </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// SmartSchedulesSection
+// ---------------------------------------------------------------------------
+
+interface SMARTSchedule {
+  id:       number
+  device:   string
+  type:     string
+  schedule: string
+  enabled:  boolean
+}
+
+interface SMARTSchedulesResponse {
+  success:   boolean
+  schedules: SMARTSchedule[]
+}
+
+function SmartSchedulesSection() {
+  const qc = useQueryClient()
+  const { data, isLoading } = useQuery({
+    queryKey: ['hardware', 'smart', 'schedules'],
+    queryFn: ({ signal }) => api.get<SMARTSchedulesResponse>('/api/hardware/smart/schedules', signal),
+    refetchInterval: 30_000,
+  })
+
+  const deleteMutation = useMutation({
+    mutationFn: (vars: { device: string; type: string }) =>
+      api.delete(`/api/hardware/smart/schedules?device=${vars.device}&type=${vars.type}`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['hardware', 'smart', 'schedules'] })
+      toast.success('Schedule removed from GitOps state.')
+    },
+    onError: (err: Error) => toast.error(`Failed to remove schedule: ${err.message}`),
+  })
+
+  const schedules = data?.schedules ?? []
+
+  if (isLoading && !data) return <Skeleton height={120} />
+
+  return (
+    <div className="card" style={{ borderRadius: 'var(--radius-xl)', padding: 24 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 20 }}>
+        <Icon name="schedule" size={18} style={{ color: 'var(--primary)' }} />
+        <span style={{ fontWeight: 700, fontSize: 'var(--text-md)' }}>Automated SMART Health Checks</span>
+        <Tooltip content="These schedules are maintained in the GitOps state.yaml and applied as systemd timers.">
+          <Icon name="help" size={14} style={{ color: 'var(--text-tertiary)', cursor: 'help' }} />
+        </Tooltip>
+      </div>
+
+      {schedules.length === 0 ? (
+        <div style={{ padding: '24px 0', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 'var(--text-sm)' }}>
+          No automated SMART tests scheduled. Use the "Schedule" button on any disk to add one.
+        </div>
+      ) : (
+        <div style={{ overflowX: 'auto' }}>
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Device</th>
+                <th>Test Type</th>
+                <th>Schedule (Systemd)</th>
+                <th>Status</th>
+                <th style={{ textAlign: 'right' }}>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {schedules.map(s => (
+                <tr key={`${s.device}-${s.type}`}>
+                  <td style={{ fontFamily: 'var(--font-mono)', fontWeight: 600 }}>/dev/{s.device}</td>
+                  <td>
+                    <span style={{ textTransform: 'capitalize', padding: '2px 6px', borderRadius: 4, background: 'var(--surface)', fontSize: 'var(--text-xs)' }}>
+                      {s.type}
+                    </span>
+                  </td>
+                  <td style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>
+                    {s.schedule}
+                  </td>
+                  <td>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 5, color: s.enabled ? 'var(--success)' : 'var(--text-tertiary)' }}>
+                      <div style={{ width: 6, height: 6, borderRadius: '50%', background: s.enabled ? 'var(--success)' : 'var(--text-tertiary)' }} />
+                      {s.enabled ? 'Active' : 'Disabled'}
+                    </span>
+                  </td>
+                  <td style={{ textAlign: 'right' }}>
+                    <button
+                      className="btn-icon btn-ghost-danger"
+                      onClick={() => {
+                        if (confirm(`Remove ${s.type} SMART schedule for /dev/${s.device}?`)) {
+                          deleteMutation.mutate({ device: s.device, type: s.type })
+                        }
+                      }}
+                      disabled={deleteMutation.isPending}
+                    >
+                      <Icon name="delete" size={16} />
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// ScheduleSMARTModal
+// ---------------------------------------------------------------------------
+
+interface ScheduleSMARTModalProps {
+  device:    string
+  onClose:   () => void
+  onSuccess: () => void
+}
+
+function ScheduleSMARTModal({ device, onClose, onSuccess }: ScheduleSMARTModalProps) {
+  const qc = useQueryClient()
+  const [testType, setTestType] = useState<'short' | 'long'>('short')
+  const [scheduleType, setScheduleType] = useState<'daily' | 'weekly' | 'monthly' | 'custom'>('daily')
+  const [customSchedule, setCustomSchedule] = useState<string>('')
+
+  const scheduleMutation = useMutation({
+    mutationFn: (vars: { device: string; type: 'short' | 'long'; schedule: string }) =>
+      api.post(`/api/hardware/smart/schedules?schedule=${encodeURIComponent(vars.schedule)}`, { device: vars.device, type: vars.type }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['hardware', 'smart', 'schedules'] })
+      toast.success(`SMART ${testType} test scheduled for /dev/${device}`)
+      onSuccess()
+    },
+    onError: (err: Error) => toast.error(`Failed to schedule SMART test: ${err.message}`),
+  })
+
+  const getCronSchedule = () => {
+    switch (scheduleType) {
+      case 'daily': return '0 0 * * *' // Every day at midnight
+      case 'weekly': return '0 0 * * 0' // Every Sunday at midnight
+      case 'monthly': return '0 0 1 * *' // First day of every month at midnight
+      case 'custom': return customSchedule
+      default: return ''
+    }
+  }
+
+  const handleSubmit = () => {
+    const schedule = getCronSchedule()
+    if (!schedule) {
+      toast.error('Please select or enter a schedule.')
+      return
+    }
+    scheduleMutation.mutate({ device, type: testType, schedule })
+  }
+
+  return (
+    <Modal
+      title={
+        <>
+          Schedule SMART Test for{' '}
+          <span style={{ color: 'var(--primary)', fontFamily: 'var(--font-mono)' }}>/dev/{device}</span>
+        </>
+      }
+      onClose={onClose}
+    >
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <label className="field">
+          <span className="field-label">Test Type</span>
+          <select
+            value={testType}
+            onChange={e => setTestType(e.target.value as 'short' | 'long')}
+            className="input"
+          >
+            <option value="short">Short Test (~2 min)</option>
+            <option value="long">Long Test (hours)</option>
+          </select>
+        </label>
+
+        <label className="field">
+          <span className="field-label">Schedule Frequency</span>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <label className="radio-label">
+              <input
+                type="radio"
+                name="scheduleType"
+                value="daily"
+                checked={scheduleType === 'daily'}
+                onChange={() => setScheduleType('daily')}
+              />
+              Daily (every day at midnight)
+            </label>
+            <label className="radio-label">
+              <input
+                type="radio"
+                name="scheduleType"
+                value="weekly"
+                checked={scheduleType === 'weekly'}
+                onChange={() => setScheduleType('weekly')}
+              />
+              Weekly (every Sunday at midnight)
+            </label>
+            <label className="radio-label">
+              <input
+                type="radio"
+                name="scheduleType"
+                value="monthly"
+                checked={scheduleType === 'monthly'}
+                onChange={() => setScheduleType('monthly')}
+              />
+              Monthly (first day of every month at midnight)
+            </label>
+            <label className="radio-label">
+              <input
+                type="radio"
+                name="scheduleType"
+                value="custom"
+                checked={scheduleType === 'custom'}
+                onChange={() => setScheduleType('custom')}
+              />
+              Custom Cron Schedule
+            </label>
+          </div>
+        </label>
+
+        {scheduleType === 'custom' && (
+          <label className="field">
+            <span className="field-label">Cron String</span>
+            <input
+              type="text"
+              value={customSchedule}
+              onChange={e => setCustomSchedule(e.target.value)}
+              className="input"
+              placeholder="e.g., 0 0 * * *"
+            />
+            <p style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', marginTop: 4 }}>
+              Enter a valid 5-part cron string (minute hour day_of_month month day_of_week).
+            </p>
+          </label>
+        )}
+      </div>
+
+      <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 20 }}>
+        <button className="btn btn-ghost" onClick={onClose} disabled={scheduleMutation.isPending}>
+          Cancel
+        </button>
+        <button
+          className="btn btn-primary"
+          onClick={handleSubmit}
+          disabled={scheduleMutation.isPending || (scheduleType === 'custom' && !customSchedule)}
+        >
+          {scheduleMutation.isPending ? (
+            <><Spinner size={14} /> Scheduling…</>
+          ) : (
+            <>
+              <Icon name="add_task" size={15} />
+              Schedule Test
+            </>
+          )}
+        </button>
+      </div>
+    </Modal>
   )
 }
 
@@ -672,8 +944,9 @@ export function HardwarePage() {
   const [resultsModalDevice, setResultsModalDevice] = useState<string | null>(null)
 
   // Replace modal state
-  const [replaceTarget, setReplaceTarget]           = useState<DiskInfo | null>(null)
-  const [suggestedNewDev, setSuggestedNewDev]       = useState<string | null>(null)
+  const [replaceTarget, setReplaceTarget] = useState<DiskInfo | null>(null)
+  const [suggestedNewDev, setSuggestedNewDev] = useState<string | null>(null)
+  const [scheduleModalDevice, setScheduleModalDevice] = useState<string | null>(null)
 
   // Pending replacement suggestion from WS (resolved after disk list refreshes)
   const [replacementSuggestion, setReplacementSuggestion] = useState<ReplacementSuggestion | null>(null)
@@ -846,12 +1119,15 @@ export function HardwarePage() {
               testResult={testResults[d.name] ?? null}
               onShortTest={() => smartTestMutation.mutate({ device: d.name, type: 'short' })}
               onLongTest={() => smartTestMutation.mutate({ device: d.name, type: 'long' })}
+              onSchedule={() => setScheduleModalDevice(d.name)}
               onViewResults={() => setResultsModalDevice(d.name)}
               onReplace={d.pool_name ? () => { setReplaceTarget(d); setSuggestedNewDev(null) } : undefined}
             />
           ))}
         </div>
       </div>
+
+      <SmartSchedulesSection />
 
       {/* SMART detail table for disks with ATA attributes */}
       {smartQ.data && smartQ.data.disks.some(d => d.ata_smart_attributes?.table.length) && (
@@ -931,6 +1207,15 @@ export function HardwarePage() {
             setReplaceTarget(null)
             setSuggestedNewDev(null)
           }}
+        />
+      )}
+
+      {/* Schedule SMART Modal */}
+      {scheduleModalDevice && (
+        <ScheduleSMARTModal
+          device={scheduleModalDevice}
+          onClose={() => setScheduleModalDevice(null)}
+          onSuccess={() => qc.invalidateQueries({ queryKey: ['hardware', 'smart', 'schedules'] })}
         />
       )}
     </div>

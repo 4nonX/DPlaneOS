@@ -1,6 +1,11 @@
 package handlers
 
 import (
+	"crypto"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/x509"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -16,6 +21,11 @@ import (
 	"dplaned/internal/cmdutil"
 	"dplaned/internal/config"
 	"dplaned/internal/systemd"
+
+	"github.com/go-acme/lego/v4/certificate"
+	"github.com/go-acme/lego/v4/challenge/http01"
+	"github.com/go-acme/lego/v4/lego"
+	"github.com/go-acme/lego/v4/registration"
 )
 
 // ============================================================
@@ -950,6 +960,161 @@ func (h *CertHandler) ActivateCert(w http.ResponseWriter, r *http.Request) {
 	cmdutil.RunFast("nginx", "-s", "reload")
 
 	audit.LogAction("cert_activate", user, fmt.Sprintf("Activated cert: %s", req.Name), true, 0)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
+}
+
+// ImportCert allows uploading an existing certificate and private key.
+// POST /api/system/certs/import
+func (h *CertHandler) ImportCert(w http.ResponseWriter, r *http.Request) {
+	user := r.Header.Get("X-User")
+	var req struct {
+		Name string `json:"name"`
+		Cert string `json:"cert"` // PEM format
+		Key  string `json:"key"`  // PEM format
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondErrorSimple(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	namePattern := regexp.MustCompile(`^[a-zA-Z0-9_\-]+$`)
+	if !namePattern.MatchString(req.Name) {
+		respondErrorSimple(w, "Invalid name", http.StatusBadRequest)
+		return
+	}
+
+	// Basic validation: ensure they look like PEM
+	if !strings.Contains(req.Cert, "BEGIN CERTIFICATE") || !strings.Contains(req.Key, "BEGIN") {
+		respondErrorSimple(w, "Invalid certificate or key format (PEM expected)", http.StatusBadRequest)
+		return
+	}
+
+	os.MkdirAll(configPath("ssl"), 0700)
+	certFile := filepath.Join(configPath("ssl"), req.Name+".crt")
+	keyFile := filepath.Join(configPath("ssl"), req.Name+".key")
+
+	if err := os.WriteFile(certFile, []byte(req.Cert), 0644); err != nil {
+		respondErrorSimple(w, "Failed to save certificate", http.StatusInternalServerError)
+		return
+	}
+	if err := os.WriteFile(keyFile, []byte(req.Key), 0600); err != nil {
+		respondErrorSimple(w, "Failed to save key", http.StatusInternalServerError)
+		return
+	}
+
+	audit.LogAction("cert_import", user, "Imported certificate: "+req.Name, true, 0)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
+}
+
+// LegoUser satisfies the lego.User interface
+type LegoUser struct {
+	Email        string
+	Registration *registration.Resource
+	key          crypto.PrivateKey
+}
+
+func (u *LegoUser) GetEmail() string                        { return u.Email }
+func (u *LegoUser) GetRegistration() *registration.Resource { return u.Registration }
+func (u *LegoUser) GetPrivateKey() crypto.PrivateKey         { return u.key }
+
+// RequestACME requests a certificate from Let's Encrypt using HTTP-01.
+// POST /api/system/certs/acme
+func (h *CertHandler) RequestACME(w http.ResponseWriter, r *http.Request) {
+	user := r.Header.Get("X-User")
+	var req struct {
+		Name    string `json:"name"`
+		Domain  string `json:"domain"`
+		Email   string `json:"email"`
+		Staging bool   `json:"staging"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondErrorSimple(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	// Validate inputs
+	if req.Domain == "" || req.Email == "" || req.Name == "" {
+		respondErrorSimple(w, "Name, Domain, and Email are required", http.StatusBadRequest)
+		return
+	}
+
+	// Generate a private key for the user (account)
+	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		respondErrorSimple(w, "Failed to generate account key", http.StatusInternalServerError)
+		return
+	}
+
+	myUser := LegoUser{
+		Email: req.Email,
+		key:   privateKey,
+	}
+
+	config := lego.NewConfig(&myUser)
+
+	// URL for Let's Encrypt
+	if req.Staging {
+		config.CADirURL = "https://acme-staging-v02.api.letsencrypt.org/directory"
+	} else {
+		config.CADirURL = lego.LEDirectoryProduction
+	}
+	config.Certificate.KeyType = certificate.RSA2048
+
+	// Create a client instance
+	client, err := lego.NewClient(config)
+	if err != nil {
+		respondErrorSimple(w, "Failed to create ACME client", http.StatusInternalServerError)
+		return
+	}
+
+	// Use HTTP-01 challenge. 
+	// IMPORTANT: This requires port 80 to be open and pointing here.
+	// Since we are likely behind Nginx, we might need a webroot resolver or 
+	// a temporary standalone server if we can stop Nginx.
+	// For production readiness, we'll try to use the provided HTTP-01 server
+	// and assume the user has configured port forwarding.
+	err = client.Challenge.SetHTTP01Provider(http01.NewProviderServer("", "8080"))
+	if err != nil {
+		respondErrorSimple(w, "Failed to set challenge provider", http.StatusInternalServerError)
+		return
+	}
+
+	// Register
+	reg, err := client.Registration.Register(registration.RegisterOptions{TermsOfServiceAgreed: true})
+	if err != nil {
+		respondErrorSimple(w, "ACME registration failed: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	myUser.Registration = reg
+
+	// Request certificate
+	request := certificate.ObtainRequest{
+		Domains: []string{req.Domain},
+		Bundle:  true,
+	}
+	certificates, err := client.Certificate.Obtain(request)
+	if err != nil {
+		respondErrorSimple(w, "Failed to obtain certificate: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Save to disk
+	os.MkdirAll(configPath("ssl"), 0700)
+	certFile := filepath.Join(configPath("ssl"), req.Name+".crt")
+	keyFile := filepath.Join(configPath("ssl"), req.Name+".key")
+
+	if err := os.WriteFile(certFile, certificates.Certificate, 0644); err != nil {
+		respondErrorSimple(w, "Failed to save ACME cert", http.StatusInternalServerError)
+		return
+	}
+	if err := os.WriteFile(keyFile, certificates.PrivateKey, 0600); err != nil {
+		respondErrorSimple(w, "Failed to save ACME key", http.StatusInternalServerError)
+		return
+	}
+
+	audit.LogAction("cert_acme", user, fmt.Sprintf("Obtained ACME cert for %s (name: %s)", req.Domain, req.Name), true, 0)
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
 }

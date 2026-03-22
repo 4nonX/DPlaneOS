@@ -198,6 +198,43 @@ func initSchema(db *sql.DB) error {
 		`ALTER TABLE git_sync_config ADD COLUMN ssh_key_path TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE git_sync_config ADD COLUMN host_key_mode TEXT NOT NULL DEFAULT 'accept'`,
 		`ALTER TABLE git_sync_config ADD COLUMN commit_name TEXT NOT NULL DEFAULT 'D-PlaneOS'`,
+
+		// ── ACME configuration ──
+		`CREATE TABLE IF NOT EXISTS acme_config (
+			id INTEGER PRIMARY KEY CHECK (id = 1),
+			email TEXT NOT NULL DEFAULT '',
+			server TEXT NOT NULL DEFAULT 'https://acme-v02.api.letsencrypt.org/directory',
+			resolver TEXT NOT NULL DEFAULT 'http',
+			dns_config TEXT NOT NULL DEFAULT '{}', -- JSON map of env vars
+			domains TEXT NOT NULL DEFAULT '[]',     -- JSON array
+			enabled INTEGER NOT NULL DEFAULT 0,
+			updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+		)`,
+		`INSERT OR IGNORE INTO acme_config (id) VALUES (1)`,
+
+		// ── Certificate store ──
+		`CREATE TABLE IF NOT EXISTS certificates (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			name TEXT NOT NULL UNIQUE,
+			cert_pem TEXT NOT NULL,
+			key_pem TEXT NOT NULL,
+			is_managed INTEGER NOT NULL DEFAULT 0, -- 1 if ACME-managed
+			created_at TEXT NOT NULL DEFAULT (datetime('now')),
+			updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+		)`,
+
+		// ── SMART healthy monitoring/scheduling ──
+		`CREATE TABLE IF NOT EXISTS smart_schedules (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			device TEXT NOT NULL,
+			test_type TEXT NOT NULL, -- short, long, conveyance, offline
+			schedule TEXT NOT NULL,  -- cron expression
+			enabled INTEGER NOT NULL DEFAULT 1,
+			last_run TEXT,
+			next_run TEXT,
+			created_at TEXT NOT NULL DEFAULT (datetime('now')),
+			UNIQUE(device, test_type)
+		)`,
 		`ALTER TABLE git_sync_config ADD COLUMN commit_email TEXT NOT NULL DEFAULT 'dplaneos@localhost'`,
 		// ── Git Sync: Multi-Repo Support (v2.1.1) ──
 		`CREATE TABLE IF NOT EXISTS git_sync_repos (

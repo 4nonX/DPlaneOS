@@ -163,10 +163,10 @@ func RequireRole(roleName string) func(http.Handler) http.Handler {
 func RequireAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Get session token from header
-		sessionToken := r.Header.Get("X-Session-Token")
+		sessionToken := r.Header.Get("X-Session-ID")
 		if sessionToken == "" {
 			// Try cookie fallback
-			cookie, err := r.Cookie("session_token")
+			cookie, err := r.Cookie("session_id")
 			if err == nil {
 				sessionToken = cookie.Value
 			}

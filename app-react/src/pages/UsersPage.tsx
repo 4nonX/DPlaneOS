@@ -477,18 +477,99 @@ function RolesTab() {
 }
 
 // ---------------------------------------------------------------------------
+// SessionsTab
+// ---------------------------------------------------------------------------
+
+interface Session {
+  id:            string
+  ip_address:    string
+  user_agent:    string
+  created_at:    number
+  last_activity: number
+  is_current:    boolean
+}
+
+interface SessionsResponse {
+  success:  boolean
+  sessions: Session[]
+}
+
+function SessionsTab() {
+  const qc = useQueryClient()
+  const { confirm, ConfirmDialog: ConfirmSessions } = useConfirm()
+
+  const sessionsQ = useQuery({
+    queryKey: ['auth', 'sessions'],
+    queryFn: ({ signal }) => api.get<SessionsResponse>('/api/auth/sessions', signal),
+  })
+
+  const revoke = useMutation({
+    mutationFn: (id: string) => api.delete('/api/auth/sessions', { id }),
+    onSuccess: () => { toast.success('Session revoked'); qc.invalidateQueries({ queryKey: ['auth', 'sessions'] }) },
+    onError: (e: Error) => toast.error(e.message),
+  })
+
+  function refresh() { qc.invalidateQueries({ queryKey: ['auth', 'sessions'] }) }
+
+  const sessions = sessionsQ.data?.sessions ?? []
+
+  return (
+    <>
+      {sessionsQ.isLoading && <Skeleton height={200} />}
+      {sessionsQ.isError && <ErrorState error={sessionsQ.error} onRetry={refresh} />}
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {sessions.map(s => (
+          <div key={s.id} className="card" style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 18px', borderRadius: 'var(--radius-md)', border: s.is_current ? '1px solid var(--primary-border)' : '1px solid var(--border)' }}>
+            <div style={{ width: 36, height: 36, borderRadius: 'var(--radius-sm)', background: s.is_current ? 'var(--primary-bg)' : 'var(--surface)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+              <Icon name={s.user_agent.toLowerCase().includes('mobile') ? 'smartphone' : 'desktop_windows'} 
+                    size={20} style={{ color: s.is_current ? 'var(--primary)' : 'var(--text-tertiary)' }} />
+            </div>
+            
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontWeight: 700, fontSize: 'var(--text-md)' }}>{s.ip_address}</span>
+                {s.is_current && <span className="badge badge-primary">THIS SESSION</span>}
+              </div>
+              <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                {s.user_agent}
+              </div>
+              <div style={{ fontSize: 'var(--text-2xs)', color: 'var(--text-tertiary)', marginTop: 2 }}>
+                Last activity: {new Date(s.last_activity * 1000).toLocaleString()}
+              </div>
+            </div>
+
+            {!s.is_current && (
+              <button onClick={async () => { if (await confirm({ title: 'Logout this session?', message: 'The device will be forced to log in again.', danger: true, confirmLabel: 'Revoke' })) revoke.mutate(s.id) }} 
+                      className="btn btn-danger btn-sm" disabled={revoke.isPending}>
+                <Icon name="logout" size={14} />Revoke
+              </button>
+            )}
+          </div>
+        ))}
+        {!sessionsQ.isLoading && sessions.length === 0 && (
+          <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text-tertiary)' }}>No active sessions found</div>
+        )}
+      </div>
+      <ConfirmSessions />
+    </>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // UsersPage
 // ---------------------------------------------------------------------------
 
-type Tab = 'users' | 'groups' | 'roles'
+type Tab = 'users' | 'groups' | 'roles' | 'sessions'
 
 export function UsersPage() {
   const [tab, setTab] = useState<Tab>('users')
 
   const TABS: { id: Tab; label: string; icon: string }[] = [
-    { id: 'users',  label: 'Users',  icon: 'person' },
-    { id: 'groups', label: 'Groups', icon: 'group' },
-    { id: 'roles',  label: 'Roles',  icon: 'shield' },
+    { id: 'users',    label: 'Users',    icon: 'person' },
+    { id: 'groups',   label: 'Groups',   icon: 'group' },
+    { id: 'roles',    label: 'Roles',    icon: 'shield' },
+    { id: 'sessions', label: 'Sessions', icon: 'devices' },
   ]
 
   return (
@@ -506,9 +587,10 @@ export function UsersPage() {
         ))}
       </div>
 
-      {tab === 'users'  && <UsersTab />}
-      {tab === 'groups' && <GroupsTab />}
-      {tab === 'roles'  && <RolesTab />}
+      {tab === 'users'    && <UsersTab />}
+      {tab === 'groups'   && <GroupsTab />}
+      {tab === 'roles'    && <RolesTab />}
+      {tab === 'sessions' && <SessionsTab />}
     </div>
   )
 }

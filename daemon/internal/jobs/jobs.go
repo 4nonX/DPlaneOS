@@ -56,6 +56,16 @@ func (j *Job) Log(line string) {
 	j.Logs = append(j.Logs, line)
 }
 
+// Progress broadcasts a structured progress update via WebSocket.
+func (j *Job) Progress(data interface{}) {
+	if broadcastCallback != nil {
+		go broadcastCallback("job.progress", map[string]interface{}{
+			"job_id": j.ID,
+			"data":   data,
+		}, "info")
+	}
+}
+
 // Done marks the job as completed with a result payload.
 func (j *Job) Done(result map[string]interface{}) {
 	j.mu.Lock()

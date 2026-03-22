@@ -1,8 +1,10 @@
 package handlers
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -537,6 +539,94 @@ func (h *SystemHandler) Poweroff(w http.ResponseWriter, r *http.Request) {
 		time.Sleep(2 * time.Second)
 		exec.Command("systemctl", "poweroff").Run()
 	}()
+}
+
+func (h *SystemHandler) RunDiagnostics(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		respondErrorSimple(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		Type   string `json:"type"`   // "ping", "dns", "traceroute"
+		Target string `json:"target"` // hostname or IP
+		Count  int    `json:"count"`  // for ping
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondErrorSimple(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// === STRICT VALIDATION ===
+	// Only allow alphanumeric, dots, and dashes for target to prevent injection.
+	targetRe := regexp.MustCompile(`^[a-zA-Z0-9.-]+$`)
+	if !targetRe.MatchString(req.Target) || len(req.Target) > 255 {
+		respondErrorSimple(w, "Invalid target format", http.StatusBadRequest)
+		return
+	}
+
+	if req.Count <= 0 || req.Count > 10 {
+		req.Count = 4
+	}
+
+	var cmd *exec.Cmd
+	switch req.Type {
+	case "ping":
+		cmd = exec.Command("ping", "-c", strconv.Itoa(req.Count), req.Target)
+	case "dns":
+		cmd = exec.Command("dig", "+short", req.Target)
+		if strings.Contains(req.Target, ":") { // naive IPv6 check
+			cmd = exec.Command("dig", "-x", req.Target)
+		}
+	case "traceroute":
+		cmd = exec.Command("traceroute", "-m", "20", "-w", "2", req.Target)
+	default:
+		respondErrorSimple(w, "Unsupported diagnostic type", http.StatusBadRequest)
+		return
+	}
+
+	start := time.Now()
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		respondErrorSimple(w, "Failed to create stdout pipe", http.StatusInternalServerError)
+		return
+	}
+	cmd.Stderr = cmd.Stdout // merge stderr into stdout
+
+	if err := cmd.Start(); err != nil {
+		respondErrorSimple(w, "Failed to start command: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Set headers for streaming
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		// Fallback to non-streaming if flusher not supported (unlikely in this environment)
+		out, _ := io.ReadAll(stdout)
+		_ = cmd.Wait()
+		w.Write(out)
+		return
+	}
+
+	// Use a scanner to read line by line
+	scanner := bufio.NewScanner(stdout)
+	for scanner.Scan() {
+		fmt.Fprintf(w, "%s\n", scanner.Text())
+		flusher.Flush()
+	}
+
+	if err := cmd.Wait(); err != nil {
+		fmt.Fprintf(w, "\n--- Command failed: %v ---\n", err)
+	}
+
+	duration := time.Since(start)
+	user := r.Header.Get("X-User")
+	audit.LogCommand(audit.LevelInfo, user, "network_diagnostic_stream", []string{req.Type, req.Target}, err == nil, duration, err)
 }
 
 // Helper functions

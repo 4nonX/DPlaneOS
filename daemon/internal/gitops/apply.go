@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"dplaned/internal/cmdutil"
+	"dplaned/internal/hardware"
 	"dplaned/internal/nixwriter"
 )
 
@@ -81,6 +82,7 @@ func ApplyPlan(ctx ApplyContext, plan *Plan, desired *DesiredState) (*ApplyResul
 
 	// 2. Physical Reconcile: Plan -> System
 	dockerChecked := false
+	smartChanged := false
 	for _, item := range plan.Items {
 		// v6: Data Readiness Check - before starting any Docker stacks,
 		// ensure all ZFS datasets are mounted.
@@ -95,6 +97,10 @@ func ApplyPlan(ctx ApplyContext, plan *Plan, desired *DesiredState) (*ApplyResul
 			}
 			dockerChecked = true
 			log.Printf("GITOPS APPLY: data readiness check PASSED")
+		}
+
+		if item.Kind == KindSMART && item.Action != ActionNOP {
+			smartChanged = true
 		}
 
 		switch item.Action {
@@ -168,6 +174,13 @@ func ApplyPlan(ctx ApplyContext, plan *Plan, desired *DesiredState) (*ApplyResul
 		}
 	}
 
+	if smartChanged {
+		log.Printf("GITOPS APPLY: SMART tasks changed - regenerating timers")
+		if err := hardware.RegenerateSMARTTimers(ctx.DB); err != nil {
+			log.Printf("ERROR: GITOPS APPLY: failed to regenerate SMART timers: %v", err)
+		}
+	}
+
 	result.Status = "OK"
 
 	// Gap 5: Post-apply convergence check
@@ -210,6 +223,12 @@ func executeCreate(ctx ApplyContext, item DiffItem) error {
 		return reconcileReplication(item.Name, item.DesiredReplication)
 	case KindLDAP:
 		return reconcileLDAP(ctx.DB, item.DesiredLDAP)
+	case KindACME:
+		return reconcileACME(ctx.DB, item.DesiredACME)
+	case KindCertificate:
+		return reconcileCertificate(ctx.DB, item.DesiredCertificate)
+	case KindSMART:
+		return reconcileSMART(ctx.DB, item.DesiredSMART)
 	}
 	return fmt.Errorf("unknown kind %q", item.Kind)
 }
@@ -240,6 +259,12 @@ func executeModify(ctx ApplyContext, item DiffItem) error {
 		return reconcileReplication(item.Name, item.DesiredReplication)
 	case KindLDAP:
 		return reconcileLDAP(ctx.DB, item.DesiredLDAP)
+	case KindACME:
+		return reconcileACME(ctx.DB, item.DesiredACME)
+	case KindCertificate:
+		return reconcileCertificate(ctx.DB, item.DesiredCertificate)
+	case KindSMART:
+		return reconcileSMART(ctx.DB, item.DesiredSMART)
 	}
 	return fmt.Errorf("unknown kind %q", item.Kind)
 }
@@ -263,6 +288,12 @@ func executeDelete(ctx ApplyContext, item DiffItem) error {
 		return deleteGroup(ctx.DB, item.Name)
 	case KindReplication:
 		return deleteReplication(item.Name)
+	case KindACME:
+		return disableACME(ctx.DB)
+	case KindCertificate:
+		return deleteCertificate(ctx.DB, item.Name)
+	case KindSMART:
+		return deleteSMART(ctx.DB, item.Name)
 	}
 	return fmt.Errorf("unknown kind %q", item.Kind)
 }
@@ -1153,4 +1184,90 @@ func ConvergenceCheck(db *sql.DB, desired *DesiredState) (string, error) {
 	}
 
 	return "NOT_CONVERGED", nil
+}
+func reconcileACME(db *sql.DB, desired *DesiredACME) error {
+	if desired == nil {
+		return nil
+	}
+	dnsJson, _ := json.Marshal(desired.DNSConfig)
+	domainsJson, _ := json.Marshal(desired.Domains)
+	enabled := 0
+	if desired.Enabled {
+		enabled = 1
+	}
+
+	_, err := db.Exec(`UPDATE acme_config SET 
+		email=?, server=?, resolver=?, dns_config=?, domains=?, enabled=?, 
+		updated_at=datetime('now') WHERE id=1`,
+		desired.Email, desired.Server, desired.Resolver, string(dnsJson), string(domainsJson), enabled)
+	if err != nil {
+		return fmt.Errorf("update acme_config: %w", err)
+	}
+	log.Printf("GITOPS: reconciled ACME configuration")
+	return nil
+}
+
+func disableACME(db *sql.DB) error {
+	_, err := db.Exec(`UPDATE acme_config SET enabled=0, updated_at=datetime('now') WHERE id=1`)
+	return err
+}
+
+func reconcileCertificate(db *sql.DB, desired *DesiredCertificate) error {
+	if desired == nil {
+		return nil
+	}
+	_, err := db.Exec(`INSERT INTO certificates (name, cert_pem, key_pem, updated_at) 
+		VALUES (?, ?, ?, datetime('now')) 
+		ON CONFLICT(name) DO UPDATE SET 
+			cert_pem=excluded.cert_pem, key_pem=excluded.key_pem, 
+			updated_at=excluded.updated_at`,
+		desired.Name, desired.Cert, desired.Key)
+	if err != nil {
+		return fmt.Errorf("reconcile certificate %q: %w", desired.Name, err)
+	}
+	log.Printf("GITOPS: reconciled certificate %q", desired.Name)
+	return nil
+}
+
+func deleteCertificate(db *sql.DB, name string) error {
+	_, err := db.Exec(`DELETE FROM certificates WHERE name=?`, name)
+	if err != nil {
+		return fmt.Errorf("delete certificate %q: %w", name, err)
+	}
+	log.Printf("GITOPS: deleted certificate %q", name)
+	return nil
+}
+
+func reconcileSMART(db *sql.DB, desired *DesiredSMARTTask) error {
+	if desired == nil {
+		return nil
+	}
+	enabled := 0
+	if desired.Enabled {
+		enabled = 1
+	}
+	_, err := db.Exec(`INSERT INTO smart_schedules (device, test_type, schedule, enabled) 
+		VALUES (?, ?, ?, ?) 
+		ON CONFLICT(device, test_type) DO UPDATE SET 
+			schedule=excluded.schedule, enabled=excluded.enabled`,
+		desired.Device, desired.Type, desired.Schedule, enabled)
+	if err != nil {
+		return fmt.Errorf("reconcile SMART task %s-%s: %w", desired.Device, desired.Type, err)
+	}
+	log.Printf("GITOPS: reconciled SMART task %s-%s", desired.Device, desired.Type)
+	return nil
+}
+
+func deleteSMART(db *sql.DB, name string) error {
+	// name is "device-type"
+	parts := strings.SplitN(name, "-", 2)
+	if len(parts) != 2 {
+		return fmt.Errorf("invalid SMART task name format: %q", name)
+	}
+	_, err := db.Exec(`DELETE FROM smart_schedules WHERE device=? AND test_type=?`, parts[0], parts[1])
+	if err != nil {
+		return fmt.Errorf("delete SMART task %q: %w", name, err)
+	}
+	log.Printf("GITOPS: deleted SMART task %q", name)
+	return nil
 }

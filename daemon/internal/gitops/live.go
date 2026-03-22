@@ -108,6 +108,9 @@ type LiveState struct {
 	Groups      []LiveGroup
 	Replication []LiveReplication
 	LDAP        *DesiredLDAP
+	ACME        *DesiredACME
+	Certificates []DesiredCertificate
+	SMART        []DesiredSMARTTask
 }
 
 // ReadLiveState collects all live state from ZFS and the DB.
@@ -162,6 +165,9 @@ func ReadLiveState(db *sql.DB) (*LiveState, error) {
 	}
 
 	state.LDAP, _ = readLDAPConfig(db)
+	state.ACME, _ = readLiveACME(db)
+	state.Certificates, _ = readLiveCertificates(db)
+	state.SMART, _ = readLiveSMART(db)
 
 	return state, nil
 }
@@ -502,3 +508,54 @@ func readLDAPConfig(db *sql.DB) (*DesiredLDAP, error) {
 	return &cfg, nil
 }
 
+func readLiveACME(db *sql.DB) (*DesiredACME, error) {
+	row := db.QueryRow(`SELECT email, server, resolver, dns_config, domains, enabled FROM acme_config WHERE id=1`)
+	var email, server, resolver, dnsJson, domainsJson string
+	var enabled int
+	if err := row.Scan(&email, &server, &resolver, &dnsJson, &domainsJson, &enabled); err != nil {
+		return nil, nil
+	}
+	cfg := &DesiredACME{
+		Email:    email,
+		Server:   server,
+		Resolver: resolver,
+		Enabled:  enabled == 1,
+	}
+	json.Unmarshal([]byte(dnsJson), &cfg.DNSConfig)
+	json.Unmarshal([]byte(domainsJson), &cfg.Domains)
+	return cfg, nil
+}
+
+func readLiveCertificates(db *sql.DB) ([]DesiredCertificate, error) {
+	rows, err := db.Query(`SELECT name, cert_pem, key_pem FROM certificates ORDER BY name`)
+	if err != nil {
+		return nil, nil
+	}
+	defer rows.Close()
+	var certs []DesiredCertificate
+	for rows.Next() {
+		var c DesiredCertificate
+		if err := rows.Scan(&c.Name, &c.Cert, &c.Key); err == nil {
+			certs = append(certs, c)
+		}
+	}
+	return certs, nil
+}
+
+func readLiveSMART(db *sql.DB) ([]DesiredSMARTTask, error) {
+	rows, err := db.Query(`SELECT device, test_type, schedule, enabled FROM smart_schedules ORDER BY device`)
+	if err != nil {
+		return nil, nil
+	}
+	defer rows.Close()
+	var tasks []DesiredSMARTTask
+	for rows.Next() {
+		var t DesiredSMARTTask
+		var enabled int
+		if err := rows.Scan(&t.Device, &t.Type, &t.Schedule, &enabled); err == nil {
+			t.Enabled = enabled == 1
+			tasks = append(tasks, t)
+		}
+	}
+	return tasks, nil
+}

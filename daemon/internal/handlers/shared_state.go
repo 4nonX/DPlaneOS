@@ -1,4 +1,4 @@
-﻿package handlers
+package handlers
 
 import (
 	"database/sql"
@@ -26,11 +26,15 @@ var (
 
 	// ReconcilerDB for non-systemd-networkd fallback (legacy netlink restore).
 	ReconcilerDB *sql.DB
+
+	// GitOpsStatePath is the absolute path to state.yaml.
+	GitOpsStatePath string
 )
 
 func SetNetWriter(w *networkdwriter.Writer)  { NetWriter = w }
 func SetNixWriter(w *nixwriter.Writer)       { NixWriter = w }
 func SetReconcilerDB(db *sql.DB)             { ReconcilerDB = db }
+func SetGitOpsStatePath(p string)           { GitOpsStatePath = p }
 
 // ── Network persistence ───────────────────────────────────────────────────────
 // These functions are the single call-site for every network change.

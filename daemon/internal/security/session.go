@@ -225,3 +225,50 @@ func ValidateAPITokenAndGetUser(token string) (*SessionUser, error) {
 
 	return &user, nil
 }
+
+// SessionInfo represents a session with metadata
+type SessionInfo struct {
+	SessionID    string `json:"session_id"`
+	IPAddress    string `json:"ip_address"`
+	UserAgent    string `json:"user_agent"`
+	CreatedAt    int64  `json:"created_at"`
+	LastActivity int64  `json:"last_activity"`
+	Status       string `json:"status"`
+}
+
+// GetUserSessions retrieves all active sessions for a user
+func GetUserSessions(username string) ([]SessionInfo, error) {
+	if db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	rows, err := db.Query(`
+		SELECT session_id, ip_address, user_agent, created_at, last_activity, status
+		FROM sessions
+		WHERE username = ? AND status = 'active' AND (expires_at IS NULL OR expires_at > ?)
+		ORDER BY last_activity DESC`,
+		username, time.Now().Unix())
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var sessions []SessionInfo
+	for rows.Next() {
+		var s SessionInfo
+		if err := rows.Scan(&s.SessionID, &s.IPAddress, &s.UserAgent, &s.CreatedAt, &s.LastActivity, &s.Status); err == nil {
+			sessions = append(sessions, s)
+		}
+	}
+	return sessions, nil
+}
+
+// RevokeSession marks a session as revoked
+func RevokeSession(sessionID string) error {
+	if db == nil {
+		return fmt.Errorf("database not initialized")
+	}
+
+	_, err := db.Exec("UPDATE sessions SET status = 'revoked' WHERE session_id = ?", sessionID)
+	return err
+}

@@ -98,6 +98,9 @@ type DesiredState struct {
 	Groups           []DesiredGroup       `yaml:"groups"`
 	Replication      []DesiredReplication `yaml:"replication"`
 	LDAP             *DesiredLDAP         `yaml:"ldap"`
+	ACME             *DesiredACME         `yaml:"acme"`
+	Certificates     []DesiredCertificate `yaml:"certificates"`
+	SMART            []DesiredSMARTTask   `yaml:"smart_tasks"`
 }
 
 // DesiredPool describes a ZFS pool.
@@ -245,6 +248,28 @@ type DesiredLDAP struct {
 	DefaultRole     string `yaml:"default_role"`
 	SyncInterval    int    `yaml:"sync_interval"`
 	Timeout         int    `yaml:"timeout"`
+}
+
+type DesiredACME struct {
+	Email      string   `yaml:"email"`
+	Server     string   `yaml:"server"` // e.g. https://acme-v02.api.letsencrypt.org/directory
+	Domains    []string `yaml:"domains"`
+	Resolver   string   `yaml:"resolver"` // http, tls, or dns provider name
+	DNSConfig  map[string]string `yaml:"dns_config"` // ENV vars for DNS providers
+	Enabled    bool     `yaml:"enabled"`
+}
+
+type DesiredCertificate struct {
+	Name string `yaml:"name"`
+	Cert string `yaml:"cert"` // PEM
+	Key  string `yaml:"key"`  // PEM
+}
+
+type DesiredSMARTTask struct {
+	Device   string `yaml:"device"`
+	Type     string `yaml:"type"`     // short, long, offline
+	Schedule string `yaml:"schedule"` // cron expression
+	Enabled  bool   `yaml:"enabled"`
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -686,6 +711,64 @@ func PrintStateYAML(s *DesiredState) string {
 		}
 	}
 
+	if s.ACME != nil && s.ACME.Enabled {
+		b.WriteString("\nacme:\n")
+		fmt.Fprintf(&b, "  email: %s\n", s.ACME.Email)
+		fmt.Fprintf(&b, "  server: %s\n", s.ACME.Server)
+		fmt.Fprintf(&b, "  resolver: %s\n", s.ACME.Resolver)
+		if len(s.ACME.Domains) > 0 {
+			b.WriteString("  domains:\n")
+			for _, d := range s.ACME.Domains {
+				fmt.Fprintf(&b, "    - %s\n", d)
+			}
+		}
+		if len(s.ACME.DNSConfig) > 0 {
+			b.WriteString("  dns_config:\n")
+			var keys []string
+			for k := range s.ACME.DNSConfig {
+				keys = append(keys, k)
+			}
+			sort.Strings(keys)
+			for _, k := range keys {
+				fmt.Fprintf(&b, "    %s: %s\n", k, s.ACME.DNSConfig[k])
+			}
+		}
+		b.WriteString("  enabled: true\n")
+	}
+
+	if len(s.Certificates) > 0 {
+		b.WriteString("\ncertificates:\n")
+		for _, c := range s.Certificates {
+			fmt.Fprintf(&b, "  - name: %s\n", c.Name)
+			if c.Cert != "" {
+				b.WriteString("    cert: |\n")
+				lines := strings.Split(strings.TrimSpace(c.Cert), "\n")
+				for _, line := range lines {
+					fmt.Fprintf(&b, "      %s\n", line)
+				}
+			}
+			if c.Key != "" {
+				b.WriteString("    key: |\n")
+				lines := strings.Split(strings.TrimSpace(c.Key), "\n")
+				for _, line := range lines {
+					fmt.Fprintf(&b, "      %s\n", line)
+				}
+			}
+		}
+	}
+
+	if len(s.SMART) > 0 {
+		b.WriteString("\nsmart_tasks:\n")
+		for _, t := range s.SMART {
+			fmt.Fprintf(&b, "  - device: %s\n", t.Device)
+			fmt.Fprintf(&b, "    type: %s\n", t.Type)
+			fmt.Fprintf(&b, "    schedule: %s\n", t.Schedule)
+			if !t.Enabled {
+				b.WriteString("    enabled: false\n")
+			}
+		}
+	}
+
 	return b.String()
 }
 
@@ -1087,6 +1170,51 @@ func mapToState(raw map[string]yamlNode) (*DesiredState, error) {
 				SyncInterval:    intField(lm, "sync_interval"),
 				Timeout:         intField(lm, "timeout"),
 			}
+		}
+	}
+
+	if acmeRaw, ok := raw["acme"]; ok {
+		if am, ok := acmeRaw.(map[string]yamlNode); ok {
+			s.ACME = &DesiredACME{
+				Email:    strField(am, "email"),
+				Server:   strField(am, "server"),
+				Resolver: strField(am, "resolver"),
+				Enabled:  strField(am, "enabled") == "true",
+			}
+			if dm, ok := am["domains"]; ok {
+				s.ACME.Domains, _ = toStringSlice(dm, "domains")
+			}
+			if cfg, ok := am["dns_config"]; ok {
+				if cfgMap, ok := cfg.(map[string]yamlNode); ok {
+					s.ACME.DNSConfig = make(map[string]string)
+					for k, v := range cfgMap {
+						s.ACME.DNSConfig[k] = fmt.Sprintf("%v", v)
+					}
+				}
+			}
+		}
+	}
+
+	if certsRaw, ok := raw["certificates"]; ok {
+		certs, _ := toSliceOfMaps(certsRaw, "certificates")
+		for _, cm := range certs {
+			s.Certificates = append(s.Certificates, DesiredCertificate{
+				Name: strField(cm, "name"),
+				Cert: strField(cm, "cert"),
+				Key:  strField(cm, "key"),
+			})
+		}
+	}
+
+	if smartRaw, ok := raw["smart_tasks"]; ok {
+		tasks, _ := toSliceOfMaps(smartRaw, "smart_tasks")
+		for _, tm := range tasks {
+			s.SMART = append(s.SMART, DesiredSMARTTask{
+				Device:   strField(tm, "device"),
+				Type:     strField(tm, "type"),
+				Schedule: strField(tm, "schedule"),
+				Enabled:  strField(tm, "enabled") != "false",
+			})
 		}
 	}
 

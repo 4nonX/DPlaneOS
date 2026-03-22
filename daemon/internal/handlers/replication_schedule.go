@@ -391,6 +391,7 @@ func launchReplicationJob(s ReplicationSchedule) string {
 		}
 
 		_, execErr := execPipedZFSSend(
+			j,
 			sendArgs,
 			sshArgs, sshTarget,
 			[]string{"recv", "-s", "-F", remoteDataset},

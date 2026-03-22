@@ -4,6 +4,30 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## v6.2.0 (2026-03-22) - "Cryptographic Sovereignty"
+
+Upgrade from: v6.1.2 - Drop-in. `sudo bash install.sh --upgrade`
+
+### Added
+- **Automated Certificate Management (ACME)**
+    - Integrated `go-acme/lego` for automated Let's Encrypt certificate issuance via HTTP-01 challenges.
+    - New `ACMEWizard` in the Certificates page for seamless domain validation and SSL deployment.
+    - Added support for manual certificate and private key imports via the new `ImportModal`.
+    - Restored and hardened the self-signed certificate generation with SAN (Subject Alternative Name) support.
+- **Real-time Replication Telemetry**
+    - Implemented asynchronous progress tracking for ZFS replication jobs.
+    - Backend now parses `zfs send -P` stderr in real-time to broadcast percentage, throughput, and ETA.
+    - Updated `JobStatusBanner` in the Replication page with a live, high-fidelity progress bar.
+- **Session Control & Security**
+    - Introduced a dedicated "Sessions" management tab in the Users & Groups page.
+    - Users can now view all active web sessions, including IP addresses, device types (User-Agent), and last activity timestamps.
+    - Added granular session revocation, allowing users to forcefully log out other devices.
+    - Hardened the `sessionMiddleware` to support immediate invalidation of revoked sessions across all API endpoints.
+
+### Fixed
+- **NixOS Path Resilience**: Fixed a hardcoded `/usr/bin/curl` path in the system handlers, ensuring binary resolution follows the system `PATH` for NixOS compatibility.
+- **API Route Registration**: Properly registered all new certificate and session management endpoints in the main daemon router.
+
 ## v6.1.2 (2026-03-22) - "NixOS Path Convergence"
 
 Upgrade from: v6.1.1 - Drop-in. `sudo bash install.sh --upgrade`

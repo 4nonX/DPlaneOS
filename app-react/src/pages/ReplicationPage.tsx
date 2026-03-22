@@ -79,6 +79,7 @@ function JobStatusBanner({ jobId, onDone }: { jobId: string | null; onDone?: () 
   )
 
   const status = job.data?.status
+  const progress = job.data?.progress
 
   if (job.interrupted) return (
     <div className="alert alert-warning" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -87,12 +88,46 @@ function JobStatusBanner({ jobId, onDone }: { jobId: string | null; onDone?: () 
     </div>
   )
 
-  if (status === 'running') return (
-    <div className="alert alert-info" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-      <Icon name="sync" size={16} />
-      <span style={{ flex: 1 }}>Replication running… <span style={{ color: 'var(--text-tertiary)', fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)' }}>job:{jobId.slice(0, 8)}</span></span>
-    </div>
-  )
+  if (status === 'running') {
+    const hasProgress = progress && progress.bytes_sent != null
+    return (
+      <div className="alert alert-info" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <Icon name="sync" size={16} style={{ animation: 'spin 2s linear infinite' }} />
+          <span style={{ flex: 1 }}>
+            Replication running… 
+            <span style={{ color: 'var(--text-tertiary)', fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)', marginLeft: 8 }}>
+              job:{jobId.slice(0, 8)}
+            </span>
+          </span>
+          {hasProgress && progress.rate_mbs != null && (
+            <span style={{ fontWeight: 600, fontSize: 'var(--text-sm)' }}>
+              {progress.rate_mbs.toFixed(1)} MB/s
+            </span>
+          )}
+        </div>
+        
+        {hasProgress && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'var(--text-2xs)', color: 'var(--text-secondary)' }}>
+              <span>{formatBytes(progress.bytes_sent ?? 0)} {progress.total_bytes ? `of ${formatBytes(progress.total_bytes)}` : ''}</span>
+              {progress.eta_seconds != null && progress.eta_seconds > 0 && (
+                <span>ETA: {formatDuration(progress.eta_seconds)}</span>
+              )}
+            </div>
+            <div style={{ width: '100%', height: 6, background: 'rgba(255,255,255,0.1)', borderRadius: 3, overflow: 'hidden' }}>
+              <div style={{ 
+                width: `${progress.percent ?? 0}%`, 
+                height: '100%', 
+                background: 'var(--primary)', 
+                transition: 'width 0.5s ease-out' 
+              }} />
+            </div>
+          </div>
+        )}
+      </div>
+    )
+  }
 
   if (status === 'done') {
     onDone?.()
@@ -112,6 +147,24 @@ function JobStatusBanner({ jobId, onDone }: { jobId: string | null; onDone?: () 
   )
 
   return null
+}
+
+function formatBytes(bytes: number) {
+  if (bytes === 0) return '0 B'
+  const k = 1024
+  const sizes = ['B', 'KB', 'MB', 'GB', 'TB']
+  const i = Math.floor(Math.log(bytes) / Math.log(k))
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
+}
+
+function formatDuration(seconds: number) {
+  if (seconds < 60) return `${Math.round(seconds)}s`
+  const mins = Math.floor(seconds / 60)
+  const secs = Math.round(seconds % 60)
+  if (mins < 60) return `${mins}m ${secs}s`
+  const hrs = Math.floor(mins / 60)
+  const remainingMins = mins % 60
+  return `${hrs}h ${remainingMins}m`
 }
 
 // ---------------------------------------------------------------------------
