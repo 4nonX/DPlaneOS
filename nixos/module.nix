@@ -10,6 +10,8 @@
 let
   cfg = config.services.dplaneos;
 in {
+  imports = [ ./ha.nix ];
+
   options.services.dplaneos = {
     enable = lib.mkEnableOption "D-PlaneOS NAS daemon";
 
@@ -37,10 +39,12 @@ in {
       description = "Port the daemon listens on.";
     };
 
-    dbPath = lib.mkOption {
-      type    = lib.types.path;
-      default = "/var/lib/dplaneos/dplaneos.db";
-      description = "Path to the SQLite database file.";
+    dbDSN = lib.mkOption {
+      type    = lib.types.str;
+      default = if cfg.ha.enable 
+                then "postgres://dplaneos@localhost:5000/dplaneos?sslmode=disable"
+                else "postgres://dplaneos@localhost/dplaneos?sslmode=disable";
+      description = "PostgreSQL Data Source Name.";
     };
 
     openFirewall = lib.mkOption {
@@ -177,17 +181,18 @@ in {
     # ─── D-PlaneOS daemon systemd service ────────────────────────────────
     systemd.services.dplaned = {
       description = "D-PlaneOS NAS Daemon";
-      after       = [ "network.target" "zfs.target" "dplaneos-zfs-gate.service" ];
-      requires    = [ "dplaneos-zfs-gate.service" ];
+      after       = [ "network.target" "zfs.target" "dplaneos-zfs-gate.service" ] ++ lib.optionals cfg.ha.enable [ "haproxy.service" "patroni.service" ];
+      requires    = [ "dplaneos-zfs-gate.service" ] ++ lib.optionals cfg.ha.enable [ "patroni.service" ];
       wantedBy    = [ "multi-user.target" ];
 
       serviceConfig = {
         Type            = "simple";
+        Environment     = lib.optionals cfg.ha.enable [ "PGPASSFILE=/etc/dplaneos/pg-password" ];
         ExecStartPre    = [
           "${pkgs.coreutils}/bin/mkdir -p /var/lib/dplaneos /var/log/dplaneos /run/dplaneos /etc/dplaneos"
           "${pkgs.coreutils}/bin/chmod 755 /run/dplaneos"
         ];
-        ExecStart       = "${cfg.daemonPackage}/bin/dplaned -db ${cfg.dbPath} -listen ${cfg.listenAddress}:${toString cfg.listenPort}";
+        ExecStart       = "${cfg.daemonPackage}/bin/dplaned -db-dsn \"${cfg.dbDSN}\" -listen ${cfg.listenAddress}:${toString cfg.listenPort}";
         WorkingDirectory = "/var/lib/dplaneos";
         Restart         = "on-failure";
         RestartSec      = "5s";
