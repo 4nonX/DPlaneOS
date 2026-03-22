@@ -97,6 +97,7 @@ sudo nixos-rebuild switch --generation 42
 The NixOS configuration sets up everything the Debian installer does:
 
 - **ZFS** - pools, auto-scrub, auto-snapshots (15min/hourly/daily/weekly/monthly)
+- **High Availability (HA)** - Patroni, etcd, and HAProxy integration for seamless PostgreSQL failover (`ha.nix`)
 - **Samba** - SMB file sharing with performance tuning
 - **NFS** - Unix/Linux file sharing
 - **Docker** - native ZFS storage driver, weekly auto-prune

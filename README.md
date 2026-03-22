@@ -58,7 +58,7 @@ The installer handles everything: ZFS kernel module, nginx, database, systemd un
 | **Network** | Interface config, bonding, VLANs, routing, DNS |
 | **Identity** | Local users, LDAP / Active Directory with group-to-role mapping and directory-sourced UI login, TOTP 2FA, API tokens |
 | **Security** | RBAC (4 roles, 34 permissions), HMAC audit chain, CSRF protection, firewall, TLS certificates, **Hardened Execution Whitelist** |
-| **System** | Dashboard, logs, UPS (NUT), IPMI / sensors, hardware auto-tuning, cloud sync (rclone), HA node monitoring |
+| **System** | Dashboard, logs, UPS (NUT), IPMI / sensors, hardware auto-tuning, cloud sync (rclone), HA node monitoring, **PostgreSQL HA (Patroni/etcd)** |
 | **GitOps** | Git-sync repositories, state reconciliation |
 
 ---
