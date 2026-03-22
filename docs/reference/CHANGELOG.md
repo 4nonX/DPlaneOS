@@ -4,6 +4,33 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## v7.0.0 (2026-03-22) - "PostgreSQL Ascension"
+
+Upgrade from: v6.2.0 - **BREAKING CHANGE**. This release replaces SQLite with PostgreSQL. 
+Manual database migration is required or start with a fresh install.
+
+### Added
+- **Architectural Shift: PostgreSQL Core**
+    - Completely replaced SQLite with PostgreSQL 15+ as the primary metadata engine.
+    - Improved concurrency and scalability for large-scale storage environments.
+    - Standardized on `pgx` for high-performance PostgreSQL driver support with robust connection pooling.
+- **CI/CD Pipeline v2**
+    - Integrated PostgreSQL service containers into all automated test stages (`prepare`, `validate`, `convergence`, `integration`).
+    - Implemented **Multi-Database Isolation** for fleet integration tests, enabling clean parallel node simulations on a single PG instance.
+    - Unified release process with automated checksum generation and multi-architecture packaging.
+    - Refined GHA metadata handling to use explicit outputs, resolving previous context access lint warnings.
+- **Installer Enhancement**
+    - Added `--db-dsn` support to `install.sh` for external PostgreSQL connectivity.
+    - Automated systemd environment injection for secure database credential management.
+    - Transitioned to native `postgresql-client` for database bootstrapping and maintenance.
+
+### Changed
+- **Database Layer**: Migrated all 40+ handlers to PostgreSQL-compatible SQL syntax ($1 placeholders, RETURNING clauses, etc.).
+- **Global Search**: Ported SQLite FTS5 file search to a more robust PostgreSQL implementation.
+- **Audit Logging**: Hardened audit trail persistence with PostgreSQL's strong consistency guarantees.
+
+---
+
 ## v6.2.0 (2026-03-22) - "Cryptographic Sovereignty"
 
 Upgrade from: v6.1.2 - Drop-in. `sudo bash install.sh --upgrade`
