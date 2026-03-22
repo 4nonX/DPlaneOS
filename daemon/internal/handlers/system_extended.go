@@ -5,7 +5,6 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
-	"crypto/x509"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -22,6 +21,7 @@ import (
 	"dplaned/internal/config"
 	"dplaned/internal/systemd"
 
+	"github.com/go-acme/lego/v4/certcrypto"
 	"github.com/go-acme/lego/v4/certificate"
 	"github.com/go-acme/lego/v4/challenge/http01"
 	"github.com/go-acme/lego/v4/lego"
@@ -1060,7 +1060,7 @@ func (h *CertHandler) RequestACME(w http.ResponseWriter, r *http.Request) {
 	} else {
 		config.CADirURL = lego.LEDirectoryProduction
 	}
-	config.Certificate.KeyType = certificate.RSA2048
+	config.Certificate.KeyType = certcrypto.RSA2048
 
 	// Create a client instance
 	client, err := lego.NewClient(config)
