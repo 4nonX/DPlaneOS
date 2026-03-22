@@ -11,7 +11,10 @@ Upgrade from: v6.1.2 - Drop-in. `sudo bash install.sh --upgrade`
 ### Added
 - **Automated Certificate Management (ACME)**
     - Integrated `go-acme/lego` for automated Let's Encrypt certificate issuance via HTTP-01 challenges.
-    - New `ACMEWizard` in the Certificates page for seamless domain validation and SSL deployment.
+    - **Hardened Background Job**: Moved ACME acquisition to a non-blocking background job with real-time progress tracking (Registering, Validating, Obtaining).
+    - **Account Key Persistence**: ACME keys are now persisted to `/etc/dplaneos/acme_account.key`, ensuring identity reuse and avoiding Let's Encrypt rate limits.
+    - **Pre-flight Proxy Verification**: Added a "Verify Proxy" diagnostic tool to ensure port 80/8080 proxying is correctly configured before starting the challenge.
+    - **Automated NixOS Proxy**: The NixOS module now automatically configures Nginx to proxy `/.well-known/acme-challenge/` to the daemon.
     - Added support for manual certificate and private key imports via the new `ImportModal`.
     - Restored and hardened the self-signed certificate generation with SAN (Subject Alternative Name) support.
 - **Real-time Replication Telemetry**

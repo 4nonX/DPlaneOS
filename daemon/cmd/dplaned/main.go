@@ -1037,6 +1037,7 @@ func main() {
 	r.Handle("/api/certs/activate", permRoute("certificates", "write", certHandler.ActivateCert)).Methods("POST")
 	r.Handle("/api/certs/import", permRoute("certificates", "write", certHandler.ImportCert)).Methods("POST")
 	r.Handle("/api/certs/acme", permRoute("certificates", "write", certHandler.RequestACME)).Methods("POST")
+	r.HandleFunc("/api/system/certs/acme/check", certHandler.VerifyACMEProxy).Methods("GET")
 	r.Handle("/api/certs/{name}", permRoute("certificates", "write", certHandler.DeleteCert)).Methods("DELETE")
 
 	// Trash / Recycle Bin (v2.0.0)

@@ -13,6 +13,7 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
+import { useJob } from '@/hooks/useJob'
 import { Icon } from '@/components/ui/Icon'
 import { ErrorState } from '@/components/ui/ErrorState'
 import { Skeleton } from '@/components/ui/LoadingSpinner'
@@ -205,20 +206,62 @@ function ACMEWizard({ onClose, onDone }: { onClose: () => void; onDone: () => vo
   const [domain, setDomain] = useState('')
   const [email, setEmail]   = useState('')
   const [staging, setStaging] = useState(true)
+  const [jobId, setJobId]   = useState<string | null>(null)
+  const [verifying, setVerifying] = useState(false)
+  const [verified, setVerified]   = useState(false)
+
+  const { data: job, error: apiError } = useJob(jobId)
+  const isDone   = job?.status === 'done'
+  const isFailed = job?.status === 'failed'
+  const error    = job?.error || apiError?.message
+
+  const verifyProxy = async () => {
+    if (!domain.trim()) {
+      toast.error('Domain name is required to verify proxy')
+      return
+    }
+    setVerifying(true)
+    try {
+      const resp = await api.get<{ success: boolean; message: string }>(`/api/system/certs/acme/check?domain=${domain.trim()}`)
+      if (resp.success) {
+        setVerified(true)
+        toast.success(resp.message)
+      }
+    } catch (e: any) {
+      toast.error(e.message || 'Proxy verification failed')
+    } finally {
+      setVerifying(false)
+    }
+  }
 
   const request = useMutation({
-    mutationFn: () => {
+    mutationFn: async () => {
       if (!name.trim() || !domain.trim() || !email.trim()) throw new Error('Name, Domain, and Email are required')
-      return api.post('/api/certs/acme', {
+      if (!verified && !staging) {
+        if (!confirm('Proxy verification has not been completed. The ACME request might fail if port 80 is not correctly proxied to 8080. Proceed anyway?')) {
+          throw new Error('Verification cancelled')
+        }
+      }
+      const resp = await api.post<{ success: boolean; jobId: string }>('/api/certs/acme', {
         name: name.trim(),
         domain: domain.trim(),
         email: email.trim(),
         staging,
       })
+      setJobId(resp.jobId)
+      return resp
     },
-    onSuccess: () => { toast.success('ACME certificate obtained successfully'); onDone(); onClose() },
     onError: (e: Error) => toast.error(e.message),
   })
+
+  // Handle job completion
+  if (isDone) {
+    onDone()
+    onClose()
+    toast.success('ACME certificate obtained successfully')
+  }
+
+  const progressData = job?.progress as { status: string; message: string } | undefined
 
   return (
     <Modal title="Let's Encrypt / ACME Wizard" onClose={onClose}>
@@ -227,34 +270,79 @@ function ACMEWizard({ onClose, onDone }: { onClose: () => void; onDone: () => vo
           <Icon name="info" size={14} />
           <span>
             This wizard uses <strong>HTTP-01</strong> challenge. Port 80 must be open and pointing to this D-PlaneOS instance. 
-            The daemon will temporarily start a challenge server on port 8080.
+            The daemon will start a challenge server on port 8080. 
+            <strong> Ensure Nginx proxies /.well-known/acme-challenge/ to 8080.</strong>
           </span>
         </div>
 
-        <Field label="Certificate Name">
-          <input value={name} onChange={e => setName(e.target.value)} placeholder="le-cert" className="input" autoFocus />
-        </Field>
+        {jobId ? (
+          <div style={{ padding: '20px 0', textAlign: 'center' }}>
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ fontWeight: 600, marginBottom: 4 }}>{progressData?.message || 'Processing...'}</div>
+              <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }}>Job ID: {jobId}</div>
+            </div>
+            
+            <div style={{ height: 4, background: 'var(--surface)', borderRadius: 2, overflow: 'hidden', marginBottom: 12 }}>
+              <div style={{ 
+                height: '100%', 
+                width: isFailed ? '100%' : '100%', 
+                background: isFailed ? 'var(--error)' : 'var(--primary)',
+                transition: 'width 0.3s ease',
+                animation: !isDone && !isFailed ? 'shimmer 2s infinite linear' : 'none'
+              }} />
+            </div>
 
-        <Field label="Domain Name" hint="e.g. nas.example.com">
-          <input value={domain} onChange={e => setDomain(e.target.value)} placeholder="nas.yourdomain.com"
-            className="input" style={{ fontFamily: 'var(--font-mono)' }} />
-        </Field>
+            {isFailed && (
+              <div style={{ color: 'var(--error)', fontSize: 'var(--text-sm)', background: 'var(--error-bg)', padding: 12, borderRadius: 'var(--radius-md)', border: '1px solid var(--error-border)' }}>
+                <strong>Error:</strong> {error || 'ACME request failed'}
+              </div>
+            )}
 
-        <Field label="Email Address" hint="For Let's Encrypt expiration notices">
-          <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="admin@example.com" className="input" />
-        </Field>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'center', marginTop: 24 }}>
+               <button onClick={onClose} className="btn btn-ghost">Close</button>
+            </div>
+          </div>
+        ) : (
+          <>
+            <Field label="Certificate Name">
+              <input value={name} onChange={e => setName(e.target.value)} placeholder="le-cert" className="input" autoFocus />
+            </Field>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <input type="checkbox" id="acme-staging" checked={staging} onChange={e => setStaging(e.target.checked)} />
-          <label htmlFor="acme-staging" style={{ fontSize: 'var(--text-sm)', cursor: 'pointer' }}>Use Staging Environment (Recommended for first run)</label>
-        </div>
+            <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end' }}>
+              <div style={{ flex: 1 }}>
+                <Field label="Domain Name" hint="e.g. nas.example.com">
+                  <input value={domain} onChange={e => { setDomain(e.target.value); setVerified(false); }} placeholder="nas.yourdomain.com"
+                    className="input" style={{ fontFamily: 'var(--font-mono)' }} />
+                </Field>
+              </div>
+              <button 
+                onClick={verifyProxy} 
+                disabled={verifying || !domain.trim()} 
+                className={`btn ${verified ? 'btn-success' : 'btn-ghost'}`}
+                style={{ height: 42, marginBottom: 20 }}
+              >
+                <Icon name={verified ? 'check_circle' : 'router'} size={15} />
+                {verifying ? 'Verifying...' : verified ? 'Verified' : 'Verify Proxy'}
+              </button>
+            </div>
 
-        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-          <button onClick={onClose} className="btn btn-ghost">Cancel</button>
-          <button onClick={() => request.mutate()} disabled={request.isPending} className="btn btn-primary">
-            <Icon name="encrypted" size={15} />{request.isPending ? 'Requesting…' : 'Obtain Certificate'}
-          </button>
-        </div>
+            <Field label="Email Address" hint="For Let's Encrypt expiration notices">
+              <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="admin@example.com" className="input" />
+            </Field>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <input type="checkbox" id="acme-staging" checked={staging} onChange={e => setStaging(e.target.checked)} />
+              <label htmlFor="acme-staging" style={{ fontSize: 'var(--text-sm)', cursor: 'pointer' }}>Use Staging Environment (Recommended)</label>
+            </div>
+
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button onClick={onClose} className="btn btn-ghost">Cancel</button>
+              <button onClick={() => request.mutate()} disabled={request.isPending} className="btn btn-primary">
+                <Icon name="encrypted" size={15} />{request.isPending ? 'Requesting…' : 'Obtain Certificate'}
+              </button>
+            </div>
+          </>
+        )}
       </div>
     </Modal>
   )

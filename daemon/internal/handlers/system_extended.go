@@ -16,16 +16,23 @@ import (
 	"strings"
 	"time"
 
+	"context"
 	"dplaned/internal/audit"
 	"dplaned/internal/cmdutil"
 	"dplaned/internal/config"
 	"dplaned/internal/systemd"
 
+	"dplaned/internal/jobs"
+	"io"
+	"net"
+	"github.com/google/uuid"
 	"github.com/go-acme/lego/v4/certcrypto"
 	"github.com/go-acme/lego/v4/certificate"
 	"github.com/go-acme/lego/v4/challenge/http01"
 	"github.com/go-acme/lego/v4/lego"
 	"github.com/go-acme/lego/v4/registration"
+	"crypto/x509"
+	"encoding/pem"
 )
 
 // ============================================================
@@ -1019,6 +1026,33 @@ func (u *LegoUser) GetEmail() string                        { return u.Email }
 func (u *LegoUser) GetRegistration() *registration.Resource { return u.Registration }
 func (u *LegoUser) GetPrivateKey() crypto.PrivateKey         { return u.key }
 
+// getACMEAccountKey loads the account key from disk or generates a new one.
+func getACMEAccountKey() (crypto.PrivateKey, error) {
+	keyPath := ConfigDir + "/acme_account.key"
+	if data, err := os.ReadFile(keyPath); err == nil {
+		block, _ := pem.Decode(data)
+		if block == nil {
+			return nil, fmt.Errorf("failed to decode PEM block in acme_account.key")
+		}
+		return x509.ParseECPrivateKey(block.Bytes)
+	}
+
+	// Generate new key
+	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		return nil, err
+	}
+	keyBytes, err := x509.MarshalECPrivateKey(privateKey)
+	if err != nil {
+		return nil, err
+	}
+	pemData := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyBytes})
+	if err := os.WriteFile(keyPath, pemData, 0600); err != nil {
+		return nil, err
+	}
+	return privateKey, nil
+}
+
 // RequestACME requests a certificate from Let's Encrypt using HTTP-01.
 // POST /api/system/certs/acme
 func (h *CertHandler) RequestACME(w http.ResponseWriter, r *http.Request) {
@@ -1040,80 +1074,142 @@ func (h *CertHandler) RequestACME(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Generate a private key for the user (account)
-	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	if err != nil {
-		respondErrorSimple(w, "Failed to generate account key", http.StatusInternalServerError)
-		return
-	}
+	jobId := jobs.Start("acme_request", func(j *jobs.Job) {
+		j.Log("Starting ACME request for " + req.Domain)
+		
+		j.Progress(map[string]string{"status": "loading_account", "message": "Loading ACME account key..."})
+		privateKey, err := getACMEAccountKey()
+		if err != nil {
+			j.Fail("Failed to load/generate ACME account key: " + err.Error())
+			return
+		}
 
-	myUser := LegoUser{
-		Email: req.Email,
-		key:   privateKey,
-	}
+		myUser := LegoUser{
+			Email: req.Email,
+			key:   privateKey,
+		}
 
-	config := lego.NewConfig(&myUser)
+		config := lego.NewConfig(&myUser)
+		if req.Staging {
+			config.CADirURL = "https://acme-staging-v02.api.letsencrypt.org/directory"
+		} else {
+			config.CADirURL = lego.LEDirectoryProduction
+		}
+		config.Certificate.KeyType = certcrypto.RSA2048
 
-	// URL for Let's Encrypt
-	if req.Staging {
-		config.CADirURL = "https://acme-staging-v02.api.letsencrypt.org/directory"
-	} else {
-		config.CADirURL = lego.LEDirectoryProduction
-	}
-	config.Certificate.KeyType = certcrypto.RSA2048
+		client, err := lego.NewClient(config)
+		if err != nil {
+			j.Fail("Failed to create ACME client: " + err.Error())
+			return
+		}
 
-	// Create a client instance
-	client, err := lego.NewClient(config)
-	if err != nil {
-		respondErrorSimple(w, "Failed to create ACME client", http.StatusInternalServerError)
-		return
-	}
+		j.Progress(map[string]string{"status": "setting_provider", "message": "Setting up HTTP-01 challenge server on port 8080..."})
+		err = client.Challenge.SetHTTP01Provider(http01.NewProviderServer("", "8080"))
+		if err != nil {
+			j.Fail("Failed to set challenge provider: " + err.Error())
+			return
+		}
 
-	// Use HTTP-01 challenge. 
-	// IMPORTANT: This binds to port 8080. If running behind Nginx on port 80,
-	// you MUST proxy /.well-known/acme-challenge/ to http://127.0.0.1:8080/
-	err = client.Challenge.SetHTTP01Provider(http01.NewProviderServer("", "8080"))
-	if err != nil {
-		respondErrorSimple(w, "Failed to set challenge provider", http.StatusInternalServerError)
-		return
-	}
+		j.Progress(map[string]string{"status": "registering", "message": "Registering account with Let's Encrypt..."})
+		reg, err := client.Registration.Register(registration.RegisterOptions{TermsOfServiceAgreed: true})
+		if err != nil {
+			// If already registered, it might fail or we might need to handle it. 
+			// Lego usually handles re-registration or we can just try to login.
+			j.Log("Note: Registration might already exist: " + err.Error())
+		}
+		myUser.Registration = reg
 
-	// Register
-	reg, err := client.Registration.Register(registration.RegisterOptions{TermsOfServiceAgreed: true})
-	if err != nil {
-		respondErrorSimple(w, "ACME registration failed: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-	myUser.Registration = reg
+		j.Progress(map[string]string{"status": "obtaining", "message": "Obtaining certificate (this may take up to 30s)..."})
+		request := certificate.ObtainRequest{
+			Domains: []string{req.Domain},
+			Bundle:  true,
+		}
+		certificates, err := client.Certificate.Obtain(request)
+		if err != nil {
+			j.Fail("Failed to obtain certificate: " + err.Error())
+			return
+		}
 
-	// Request certificate
-	request := certificate.ObtainRequest{
-		Domains: []string{req.Domain},
-		Bundle:  true,
-	}
-	certificates, err := client.Certificate.Obtain(request)
-	if err != nil {
-		respondErrorSimple(w, "Failed to obtain certificate: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
+		j.Progress(map[string]string{"status": "saving", "message": "Saving certificates to /etc/dplaneos/ssl..."})
+		os.MkdirAll(configPath("ssl"), 0700)
+		certFile := ConfigDir + "/ssl/" + req.Name + ".pem"
+		keyFile := ConfigDir + "/ssl/" + req.Name + ".key"
 
-	// Save to disk
-	os.MkdirAll(configPath("ssl"), 0700)
-	certFile := filepath.Join(configPath("ssl"), req.Name+".crt")
-	keyFile := filepath.Join(configPath("ssl"), req.Name+".key")
+		if err := os.WriteFile(certFile, certificates.Certificate, 0644); err != nil {
+			j.Fail("Failed to save certificate: " + err.Error())
+			return
+		}
+		if err := os.WriteFile(keyFile, certificates.PrivateKey, 0600); err != nil {
+			j.Fail("Failed to save key: " + err.Error())
+			return
+		}
 
-	if err := os.WriteFile(certFile, certificates.Certificate, 0644); err != nil {
-		respondErrorSimple(w, "Failed to save ACME cert", http.StatusInternalServerError)
-		return
-	}
-	if err := os.WriteFile(keyFile, certificates.PrivateKey, 0600); err != nil {
-		respondErrorSimple(w, "Failed to save ACME key", http.StatusInternalServerError)
-		return
-	}
+		audit.LogAction("cert_acme", user, fmt.Sprintf("Obtained ACME cert for %s (name: %s)", req.Domain, req.Name), true, 0)
+		j.Done(map[string]interface{}{"name": req.Name, "domain": req.Domain})
+	})
 
-	audit.LogAction("cert_acme", user, fmt.Sprintf("Obtained ACME cert for %s (name: %s)", req.Domain, req.Name), true, 0)
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "jobId": jobId})
+}
+
+// VerifyACMEProxy checks if /.well-known/acme-challenge/ is correctly proxied to port 8080.
+// GET /api/system/certs/acme/check?domain=...
+func (h *CertHandler) VerifyACMEProxy(w http.ResponseWriter, r *http.Request) {
+	domain := r.URL.Query().Get("domain")
+	if domain == "" {
+		respondErrorSimple(w, "Domain is required", http.StatusBadRequest)
+		return
+	}
+
+	// Start a temporary listener on 8080 just for this check
+	ln, err := net.Listen("tcp", ":8080")
+	if err != nil {
+		respondErrorSimple(w, "Port 8080 is already in use", http.StatusConflict)
+		return
+	}
+	
+	magicToken := uuid.New().String()
+	checkDone := make(chan bool, 1)
+
+	srv := &http.Server{
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if strings.HasSuffix(r.URL.Path, "/dplaneos-check") {
+				fmt.Fprint(w, magicToken)
+				checkDone <- true
+			}
+		}),
+	}
+	go srv.Serve(ln)
+	defer func() {
+		ctx, _ := context.WithTimeout(context.Background(), 1*time.Second)
+		srv.Shutdown(ctx)
+		ln.Close()
+	}()
+
+	// Try to reach it via public DNS/HTTP
+	checkURL := fmt.Sprintf("http://%s/.well-known/acme-challenge/dplaneos-check", domain)
+	client := &http.Client{Timeout: 5 * time.Second}
+	
+	resp, err := client.Get(checkURL)
+	if err != nil {
+		respondErrorSimple(w, "Proxy check failed: "+err.Error(), http.StatusFailedDependency)
+		return
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		respondErrorSimple(w, "Failed to read response body", http.StatusInternalServerError)
+		return
+	}
+
+	if string(bodyBytes) != magicToken {
+		respondErrorSimple(w, "Proxy verification failed: magic token mismatch. Ensure Nginx proxies /.well-known/acme-challenge/ to http://127.0.0.1:8080/", http.StatusFailedDependency)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "message": "Proxy verified successfully"})
 }
 
 // ============================================================
