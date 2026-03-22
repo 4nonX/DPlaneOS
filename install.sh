@@ -838,7 +838,7 @@ StartLimitBurst=5
 Type=simple
 Environment=DATABASE_DSN=${OPT_DB_DSN}
 ExecStartPre=mkdir -p /run/dplaneos /var/lib/dplaneos /var/log/dplaneos /etc/dplaneos
-ExecStart=${INSTALL_DIR}/daemon/dplaned \$( [ -n "${OPT_DB_DSN}" ] && echo "-db-dsn ${OPT_DB_DSN}" || echo "-db ${DB_PATH}" ) -listen 127.0.0.1:9000 -smb-conf /var/lib/dplaneos/smb-shares.conf
+ExecStart=${INSTALL_DIR}/daemon/dplaned $( [ -n "${OPT_DB_DSN}" ] && echo "-db-dsn ${OPT_DB_DSN}" || echo "-db ${DB_PATH}" ) -listen 127.0.0.1:9000 -smb-conf /var/lib/dplaneos/smb-shares.conf
 WorkingDirectory=${INSTALL_DIR}
 Restart=always
 RestartSec=5
