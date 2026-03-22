@@ -280,7 +280,7 @@ var (
 // ApplyWithWatchdog applies a NixOS config with auto-rollback safety
 // POST /api/nixos/apply { "flake_path": "/etc/nixos", "timeout_seconds": 120 }
 func (h *NixOSGuardHandler) ApplyWithWatchdog(w http.ResponseWriter, r *http.Request) {
-	if !isNixOS() {
+	if !IsNixOS() {
 		respondErrorSimple(w, "Not a NixOS system", http.StatusBadRequest)
 		return
 	}
