@@ -559,6 +559,7 @@ step "Phase 7/13: Database"
 
 if [ -n "$OPT_DB_DSN" ]; then
     info "Using PostgreSQL DSN: $OPT_DB_DSN"
+    GENERATED_ADMIN_PASSWORD=""
     if [ ! "$OPT_UPGRADE" = true ]; then
         ADMIN_PASSWORD=$(openssl rand -base64 18 | tr -dc 'A-Za-z0-9!@#$' | head -c 16)
         ADMIN_HASH=$(
