@@ -93,6 +93,8 @@ jobs:
 
       - name: Run Go Tests
         working-directory: daemon
+        env:
+          DATABASE_DSN: postgres://dplaneos:dplaneos@localhost:5432/dplaneos?sslmode=disable
         run: go test -v -race ./...
 
       - name: Build binaries (amd64 & arm64)

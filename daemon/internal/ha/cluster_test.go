@@ -2,14 +2,19 @@ package ha
 
 import (
 	"database/sql"
+	"os"
 	"testing"
 	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
  
- func newTestDB(t *testing.T) *sql.DB {
- 	db, err := sql.Open("pgx", "postgres://dplaneos@localhost/dplaneos_test?sslmode=disable")
+  func newTestDB(t *testing.T) *sql.DB {
+ 	dsn := os.Getenv("DATABASE_DSN")
+	if dsn == "" {
+		dsn = "postgres://dplaneos:dplaneos@localhost/dplaneos?sslmode=disable"
+	}
+ 	db, err := sql.Open("pgx", dsn)
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
