@@ -29,7 +29,7 @@ EXPECT_VER=$(cat VERSION | tr -d '[:space:]')
 [ "$INST_VER" = "$EXPECT_VER" ] && ok "Version match: $INST_VER" || fail "Version mismatch: $INST_VER vs $EXPECT_VER"
 
 echo "--- Phase 2: Idempotency & Upgrade Simulation ---"
-sudo bash install.sh --unattended --upgrade --port 9101
+sudo bash install.sh --unattended --upgrade --port 9101 --db-dsn "$DATABASE_DSN"
 grep -q "listen 9101" /etc/nginx/sites-available/dplaneos && ok "Upgrade port updated" || fail "Upgrade port mismatch"
 curl -sf http://127.0.0.1:9101/health | grep -q '"ok"' && ok "Health check after upgrade passed"
 
@@ -59,7 +59,7 @@ sudo zfs list gitopspool/data > /dev/null && ok "GitOps dataset created" || fail
 
 # Drift correction
 sudo zfs set compression=off gitopspool/data
-sudo ./dplaned-ci -apply -db /var/lib/dplaneos/dplaneos.db -gitops-state /tmp/gitops.yaml
+sudo ./dplaned-ci -apply -db-dsn "$DATABASE_DSN" -gitops-state /tmp/gitops.yaml
 COMP=$(sudo zfs get -H -o value compression gitopspool/data)
 [ "$COMP" = "lz4" ] && ok "Drift corrected (lz4)" || fail "Drift correction failed: $COMP"
 
