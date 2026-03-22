@@ -1,4 +1,4 @@
-﻿#!/bin/bash
+#!/usr/bin/env bash
 #
 # D-PlaneOS - Hot-swap Disk Removed Notification
 #

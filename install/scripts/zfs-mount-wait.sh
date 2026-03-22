@@ -1,4 +1,4 @@
-﻿#!/bin/bash
+#!/usr/bin/env bash
 #
 # D-PlaneOS ZFS Mount Readiness Gate
 #
@@ -100,7 +100,7 @@ while [ $ELAPSED -lt $TIMEOUT ]; do
             continue
         fi
         rm -f "${MOUNTPOINT}/.dplaneos_mount_probe"
-        log "Pool '$POOL' is ONLINE, mounted, and writable at '${MOUNTPOINT}' ✓"
+        log "Pool '$POOL' is ONLINE, mounted, and writable at '${MOUNTPOINT}' ?"
     done
 
     if $ALL_READY; then

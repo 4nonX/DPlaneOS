@@ -1,4 +1,4 @@
-﻿#!/bin/bash
+#!/usr/bin/env bash
 #
 # D-PlaneOS Integration Test Suite
 #
@@ -19,7 +19,7 @@
 
 set -euo pipefail
 
-# ── Args ──────────────────────────────────────────────────────────────────────
+# -- Args ----------------------------------------------------------------------
 OPT_POOL=""
 OPT_PORT=80
 OPT_SKIP_INSTALL=false
@@ -38,7 +38,7 @@ done
 
 [ "$EUID" -eq 0 ] || { echo "Must run as root: sudo $0"; exit 1; }
 
-# ── Setup ─────────────────────────────────────────────────────────────────────
+# -- Setup ---------------------------------------------------------------------
 TIMESTAMP=$(date +%Y%m%d-%H%M%S)
 REPORT_DIR="/var/log/dplaneos"
 mkdir -p "$REPORT_DIR"
@@ -60,27 +60,27 @@ SESSION=""                 # populated after login
 PASS=0; FAIL=0; SKIP=0
 FAILURES=""
 
-# ── Colours ───────────────────────────────────────────────────────────────────
+# -- Colours -------------------------------------------------------------------
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
 BLUE='\033[0;34m'; BOLD='\033[1m'; CYAN='\033[0;36m'; NC='\033[0m'
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
+# -- Helpers -------------------------------------------------------------------
 section() {
     echo ""
-    echo -e "${BOLD}${CYAN}══════════════════════════════════════════════════${NC}"
+    echo -e "${BOLD}${CYAN}--------------------------------------------------${NC}"
     echo -e "${BOLD}${CYAN}  $1${NC}"
-    echo -e "${BOLD}${CYAN}══════════════════════════════════════════════════${NC}"
+    echo -e "${BOLD}${CYAN}--------------------------------------------------${NC}"
 }
 
 pass() {
-    echo -e "  ${GREEN}✓${NC} $1"
+    echo -e "  ${GREEN}?${NC} $1"
     PASS=$((PASS+1))
 }
 
 fail() {
-    echo -e "  ${RED}✗${NC} $1"
+    echo -e "  ${RED}?${NC} $1"
     FAIL=$((FAIL+1))
-    FAILURES="${FAILURES}\n  ✗ $1"
+    FAILURES="${FAILURES}\n  ? $1"
 }
 
 skip() {
@@ -88,7 +88,7 @@ skip() {
     SKIP=$((SKIP+1))
 }
 
-info() { echo -e "  ${BLUE}ℹ${NC} $1"; }
+info() { echo -e "  ${BLUE}?${NC} $1"; }
 
 # Make an authenticated API call and return the body
 # Usage: api GET /api/zfs/pools
@@ -161,7 +161,7 @@ assert_status() {
     fi
 }
 
-# ── Cleanup trap ──────────────────────────────────────────────────────────────
+# -- Cleanup trap --------------------------------------------------------------
 cleanup() {
     echo ""
     info "Cleaning up test artifacts..."
@@ -180,20 +180,20 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# ── Header ────────────────────────────────────────────────────────────────────
+# -- Header --------------------------------------------------------------------
 clear
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "??????????????????????????????????????????????????????????"
 echo -e "${BOLD}    D-PlaneOS Integration Test Suite${NC}"
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "??????????????????????????????????????????????????????????"
 echo "  Host      : $(hostname)"
 echo "  Date      : $(date)"
 echo "  Report    : $REPORT"
 echo "  Skip inst : $OPT_SKIP_INSTALL"
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "??????????????????????????????????????????????????????????"
 
-# ════════════════════════════════════════════════════════════════
+# ----------------------------------------------------------------
 section "PHASE 1: ZFS pool detection"
-# ════════════════════════════════════════════════════════════════
+# ----------------------------------------------------------------
 
 if [ -n "$OPT_POOL" ]; then
     if zpool list -H "$OPT_POOL" &>/dev/null; then
@@ -217,9 +217,9 @@ fi
 TEST_DATASET_BASE="${TEST_POOL}/dplaneos-integration-test"
 info "Test dataset base: $TEST_DATASET_BASE"
 
-# ════════════════════════════════════════════════════════════════
+# ----------------------------------------------------------------
 section "PHASE 2: Installation"
-# ════════════════════════════════════════════════════════════════
+# ----------------------------------------------------------------
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INSTALL_SH="$(dirname "$SCRIPT_DIR")/install.sh"
@@ -268,9 +268,9 @@ done
 HEALTH=$(curl -sf --max-time 5 "$API/health" 2>/dev/null || echo "{}")
 assert_json "Daemon health endpoint responds" "$HEALTH" "status" "ok"
 
-# ════════════════════════════════════════════════════════════════
+# ----------------------------------------------------------------
 section "PHASE 3: Onboarding - first login as admin"
-# ════════════════════════════════════════════════════════════════
+# ----------------------------------------------------------------
 
 # Extract the generated admin password from the DB
 # install.sh sets must_change_password=1 and stores the hash; we need the plaintext
@@ -349,9 +349,9 @@ else
     fi
 fi
 
-# ════════════════════════════════════════════════════════════════
+# ----------------------------------------------------------------
 section "PHASE 4: System status endpoints"
-# ════════════════════════════════════════════════════════════════
+# ----------------------------------------------------------------
 
 STATUS_RESP=$(api GET /api/system/status)
 assert_json "System status: success" "$STATUS_RESP" "success" "true"
@@ -418,9 +418,9 @@ fi
 SETTINGS_RESP=$(api GET /api/system/settings)
 assert_json "System settings GET: success" "$SETTINGS_RESP" "success" "true"
 
-# ════════════════════════════════════════════════════════════════
+# ----------------------------------------------------------------
 section "PHASE 5: ZFS pool and dataset operations"
-# ════════════════════════════════════════════════════════════════
+# ----------------------------------------------------------------
 
 # --- List pools ---
 POOLS_RESP=$(api GET /api/zfs/pools)
@@ -482,7 +482,7 @@ assert_json "ZFS list snapshots: success" "$LIST_SNAP_RESP" "success" "true"
 SNAP_COUNT=$(echo "$LIST_SNAP_RESP" | python3 -c \
     "import sys,json; d=json.load(sys.stdin); print(d.get('count',0))" 2>/dev/null || echo "0")
 [ "$SNAP_COUNT" -ge 1 ] && pass "ZFS list snapshots: $SNAP_COUNT snapshot(s) returned" \
-    || fail "ZFS list snapshots: expected ≥1, got $SNAP_COUNT"
+    || fail "ZFS list snapshots: expected =1, got $SNAP_COUNT"
 
 # --- Snapshot schedule ---
 SCHED_RESP=$(api GET /api/snapshots/schedules)
@@ -591,9 +591,9 @@ else
     fail "Time machine versions: invalid JSON"
 fi
 
-# ════════════════════════════════════════════════════════════════
+# ----------------------------------------------------------------
 section "PHASE 6: File manager"
-# ════════════════════════════════════════════════════════════════
+# ----------------------------------------------------------------
 
 # Mount point of test dataset
 MP=$(zfs get -H -o value mountpoint "${TEST_DATASET_BASE}" 2>/dev/null || echo "none")
@@ -662,9 +662,9 @@ else
     skip "File manager tests (test dataset mountpoint unavailable: $MP)"
 fi
 
-# ════════════════════════════════════════════════════════════════
+# ----------------------------------------------------------------
 section "PHASE 7: User and group management"
-# ════════════════════════════════════════════════════════════════
+# ----------------------------------------------------------------
 
 LIST_USERS=$(api GET /api/rbac/users)
 assert_json "List users: success" "$LIST_USERS" "success" "true"
@@ -716,9 +716,9 @@ else
     fail "API tokens list: invalid JSON"
 fi
 
-# ════════════════════════════════════════════════════════════════
+# ----------------------------------------------------------------
 section "PHASE 8: Docker"
-# ════════════════════════════════════════════════════════════════
+# ----------------------------------------------------------------
 
 if ! command -v docker &>/dev/null || ! systemctl is-active docker &>/dev/null; then
     skip "Docker tests (Docker not installed or not running)"
@@ -745,9 +745,9 @@ else
     fi
 fi
 
-# ════════════════════════════════════════════════════════════════
+# ----------------------------------------------------------------
 section "PHASE 9: Shares"
-# ════════════════════════════════════════════════════════════════
+# ----------------------------------------------------------------
 
 SHARES_RESP=$(api GET /api/shares)
 if echo "$SHARES_RESP" | python3 -c "import sys,json; json.load(sys.stdin)" 2>/dev/null; then
@@ -763,9 +763,9 @@ else
     fail "NFS exports list: invalid JSON"
 fi
 
-# ════════════════════════════════════════════════════════════════
+# ----------------------------------------------------------------
 section "PHASE 10: Git sync"
-# ════════════════════════════════════════════════════════════════
+# ----------------------------------------------------------------
 
 GIT_CONFIG=$(api GET /api/git-sync/config)
 if echo "$GIT_CONFIG" | python3 -c "import sys,json; json.load(sys.stdin)" 2>/dev/null; then
@@ -802,9 +802,9 @@ else
     fail "Git sync credentials: invalid JSON"
 fi
 
-# ════════════════════════════════════════════════════════════════
+# ----------------------------------------------------------------
 section "PHASE 11: Alerts and notifications"
-# ════════════════════════════════════════════════════════════════
+# ----------------------------------------------------------------
 
 WEBHOOKS=$(api GET /api/alerts/webhooks)
 if echo "$WEBHOOKS" | python3 -c "import sys,json; json.load(sys.stdin)" 2>/dev/null; then
@@ -827,9 +827,9 @@ else
     fail "Telegram config GET: invalid JSON"
 fi
 
-# ════════════════════════════════════════════════════════════════
+# ----------------------------------------------------------------
 section "PHASE 12: LDAP"
-# ════════════════════════════════════════════════════════════════
+# ----------------------------------------------------------------
 
 LDAP_CONF=$(api GET /api/ldap/config)
 if echo "$LDAP_CONF" | python3 -c "import sys,json; json.load(sys.stdin)" 2>/dev/null; then
@@ -859,9 +859,9 @@ else
     fail "LDAP circuit breaker status: invalid JSON"
 fi
 
-# ════════════════════════════════════════════════════════════════
+# ----------------------------------------------------------------
 section "PHASE 13: Network"
-# ════════════════════════════════════════════════════════════════
+# ----------------------------------------------------------------
 
 VLAN_LIST=$(api GET /api/network/vlan)
 if echo "$VLAN_LIST" | python3 -c "import sys,json; json.load(sys.stdin)" 2>/dev/null; then
@@ -877,9 +877,9 @@ else
     fail "Bond list: invalid JSON"
 fi
 
-# ════════════════════════════════════════════════════════════════
+# ----------------------------------------------------------------
 section "PHASE 14: Misc subsystems"
-# ════════════════════════════════════════════════════════════════
+# ----------------------------------------------------------------
 
 # Removable media
 REMOVABLE=$(api GET /api/removable/list)
@@ -992,9 +992,9 @@ else
     fail "Prometheus metrics endpoint: no response"
 fi
 
-# ════════════════════════════════════════════════════════════════
+# ----------------------------------------------------------------
 section "PHASE 15: Security boundary checks"
-# ════════════════════════════════════════════════════════════════
+# ----------------------------------------------------------------
 
 # Unauthenticated request to protected endpoint must be rejected
 UNAUTH=$(curl -sf --max-time 5 -o /dev/null -w "%{http_code}" \
@@ -1029,9 +1029,9 @@ else
     pass "Port 9000 bound to localhost only"
 fi
 
-# ════════════════════════════════════════════════════════════════
+# ----------------------------------------------------------------
 section "PHASE 16: WebSocket"
-# ════════════════════════════════════════════════════════════════
+# ----------------------------------------------------------------
 
 # Test that the WS endpoint at least accepts the TCP connection
 # (full WS handshake requires a WS client - just test it doesn't refuse)
@@ -1048,9 +1048,9 @@ else
     fail "WebSocket endpoint not reachable (HTTP $WS_TCP)"
 fi
 
-# ════════════════════════════════════════════════════════════════
+# ----------------------------------------------------------------
 section "PHASE 17: Logout"
-# ════════════════════════════════════════════════════════════════
+# ----------------------------------------------------------------
 
 LOGOUT_RESP=$(curl -sf --max-time 5 -X POST "$API/api/auth/logout" \
     -H "X-Session-ID: $SESSION" -H "X-User: admin" 2>/dev/null || echo "{}")
@@ -1066,15 +1066,15 @@ AUTHED=$(curl -sf --max-time 5 "$API/api/auth/check" \
     && pass "Session invalidated after logout" \
     || fail "Session still valid after logout (authenticated=$AUTHED)"
 
-# ════════════════════════════════════════════════════════════════
+# ----------------------------------------------------------------
 # SUMMARY
-# ════════════════════════════════════════════════════════════════
+# ----------------------------------------------------------------
 
 TOTAL=$((PASS + FAIL + SKIP))
 echo ""
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "??????????????????????????????????????????????????????????"
 echo -e "${BOLD}    Integration Test Results${NC}"
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "??????????????????????????????????????????????????????????"
 echo ""
 echo -e "  ${GREEN}Passed${NC} : $PASS"
 echo -e "  ${RED}Failed${NC} : $FAIL"
@@ -1098,7 +1098,7 @@ fi
 
 echo ""
 echo "  Full report: $REPORT"
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "??????????????????????????????????????????????????????????"
 echo ""
 
 exit $EXIT_CODE

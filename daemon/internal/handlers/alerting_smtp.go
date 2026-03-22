@@ -264,7 +264,7 @@ func (h *AlertingHandler) SaveScrubSchedules(w http.ResponseWriter, r *http.Requ
 		err := systemd.InstallTimer(systemd.TimerConfig{
 			Name:        fmt.Sprintf("scrub-%s", s.Pool),
 			Description: fmt.Sprintf("ZFS Scrub for pool %s", s.Pool),
-			Command:     fmt.Sprintf("/usr/bin/zpool scrub %s", s.Pool), // Use absolute path for safety
+			Command:     fmt.Sprintf("zpool scrub %s", s.Pool), // Let PATH resolve zpool (NixOS support)
 			OnCalendar:  onCalendar,
 			Persistent:  true,
 			After:       []string{"zfs.target"},

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #
 # D-PlaneOS Systemd Fallback Checker
 #
@@ -94,7 +94,7 @@ create_init_script() {
     log "Creating init.d script..."
     
     cat > /etc/init.d/dplaneos << 'EOF'
-#!/bin/bash
+#!/usr/bin/env bash
 ### BEGIN INIT INFO
 # Provides:          dplaneos
 # Required-Start:    $network $remote_fs

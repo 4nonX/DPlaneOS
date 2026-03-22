@@ -1,4 +1,4 @@
-﻿[Unit]
+[Unit]
 Description=D-PlaneOS Database Initialization
 Documentation=https://github.com/4nonX/D-PlaneOS
 # Must run after local filesystems are mounted (DB lives on /var/lib)
@@ -13,8 +13,8 @@ User=root
 Group=root
 
 # Ensure required directories exist with correct permissions
-ExecStartPre=/bin/mkdir -p /var/lib/dplaneos /var/log/dplaneos /run/dplaneos
-ExecStartPre=/bin/chmod 755 /var/lib/dplaneos /var/log/dplaneos /run/dplaneos
+ExecStartPre=mkdir -p /var/lib/dplaneos /var/log/dplaneos /run/dplaneos
+ExecStartPre=chmod 755 /var/lib/dplaneos /var/log/dplaneos /run/dplaneos
 
 # Create DB file + enable WAL mode if not already present.
 # Schema creation is handled by dplaned's initSchema() on first start -

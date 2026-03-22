@@ -97,7 +97,7 @@ in {
 
     environment.etc."zfs/zed.d/dplaneos-notify.sh" = {
       source = pkgs.writeShellScript "dplaneos-notify" ''
-        #!/bin/bash
+        #!/usr/bin/env bash
         DAEMON_SOCKET="/run/dplaneos/dplaneos.sock"
         LOG_TAG="dplaneos-zed"
 
@@ -243,7 +243,7 @@ in {
         Type            = "oneshot";
         RemainAfterExit = true;
         ExecStart       = pkgs.writeShellScript "zfs-gate" ''
-          #!/bin/sh
+          #!/usr/bin/env sh
           set -e
           timeout=120
           elapsed=0

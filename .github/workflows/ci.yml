@@ -283,7 +283,7 @@ jobs:
             ${{ env.AMD64_SHA }}
             ${{ env.ARM64_TARBALL }}
             ${{ env.ARM64_SHA }}
-          draft: true
+          draft: false
           prerelease: false
           make_latest: true
         env:

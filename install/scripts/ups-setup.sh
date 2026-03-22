@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #
 # D-PlaneOS UPS Management Setup
 # 
@@ -144,7 +144,7 @@ cat > /etc/nut/upsmon.conf <<EOUPSMON
 MONITOR dplaneos-ups@localhost 1 dplaneos $MONITOR_PASSWORD master
 
 # Action on power failure
-SHUTDOWNCMD "/sbin/shutdown -h +0"
+SHUTDOWNCMD "shutdown -h +0"
 
 # Notify command
 NOTIFYCMD /opt/dplaneos/install/scripts/ups-notify.sh
@@ -190,7 +190,7 @@ info "Creating notification script..."
 mkdir -p /opt/dplaneos/install/scripts
 
 cat > /opt/dplaneos/install/scripts/ups-notify.sh <<'EONOTIFY'
-#!/bin/bash
+#!/usr/bin/env bash
 #
 # UPS Event Notification Script
 #

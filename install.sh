@@ -905,7 +905,7 @@ Requires=dplaneos-zfs-mount-wait.service dplaneos-init-db.service
 Wants=zfs.target
 [Service]
 Type=simple
-ExecStartPre=/bin/mkdir -p /run/dplaneos /var/lib/dplaneos /var/log/dplaneos /etc/dplaneos
+ExecStartPre=mkdir -p /run/dplaneos /var/lib/dplaneos /var/log/dplaneos /etc/dplaneos
 ExecStart=${INSTALL_DIR}/daemon/dplaned -db ${DB_PATH} -listen 127.0.0.1:9000 -smb-conf /var/lib/dplaneos/smb-shares.conf
 WorkingDirectory=${INSTALL_DIR}
 Restart=always

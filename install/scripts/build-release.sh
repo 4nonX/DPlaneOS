@@ -1,4 +1,4 @@
-﻿#!/bin/bash
+#!/usr/bin/env bash
 #
 # D-PlaneOS Release Builder
 # Creates production + vendored tarballs with full validation
@@ -31,16 +31,16 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
 
-pass() { echo -e "  ${GREEN}✓${NC} $1"; }
-fail() { echo -e "  ${RED}✗${NC} $1"; exit 1; }
-warn() { echo -e "  ${YELLOW}⚠${NC} $1"; }
+pass() { echo -e "  ${GREEN}?${NC} $1"; }
+fail() { echo -e "  ${RED}?${NC} $1"; exit 1; }
+warn() { echo -e "  ${YELLOW}?${NC} $1"; }
 
-echo "═══════════════════════════════════════════════"
+echo "-----------------------------------------------"
 echo "  D-PlaneOS v${VERSION} Release Builder"
-echo "═══════════════════════════════════════════════"
+echo "-----------------------------------------------"
 echo ""
 
-# ── Pre-flight checks ──
+# -- Pre-flight checks --
 echo "Pre-flight checks..."
 
 command -v go >/dev/null 2>&1 || fail "Go not found. Install: apt install golang-go"
@@ -53,7 +53,7 @@ pass "gcc $(gcc -dumpversion)"
 [ -f "$PROJECT_DIR/daemon/go.mod" ] || fail "daemon/go.mod not found - wrong directory?"
 pass "Project structure"
 
-# ── Vendor dependencies ──
+# -- Vendor dependencies --
 echo ""
 echo "Vendoring dependencies..."
 cd "$PROJECT_DIR/daemon"
@@ -67,12 +67,12 @@ fi
 
 go mod verify 2>&1 && pass "Module checksums verified" || warn "Module verify skipped (offline mode)"
 
-# ── Static analysis ──
+# -- Static analysis --
 echo ""
 echo "Static analysis..."
 go vet -mod=vendor ./... 2>&1 && pass "go vet clean" || fail "go vet found issues"
 
-# ── Build ──
+# -- Build --
 echo ""
 echo "Building binary..."
 mkdir -p "$BUILD_DIR"
@@ -80,7 +80,7 @@ CGO_ENABLED=1 go build -mod=vendor -ldflags="-s -w" -o "$BUILD_DIR/$BINARY" ./cm
 BINARY_SIZE=$(du -h "$BUILD_DIR/$BINARY" | cut -f1)
 pass "Binary: $BUILD_DIR/$BINARY ($BINARY_SIZE)"
 
-# ── Smoke test ──
+# -- Smoke test --
 echo ""
 echo "Smoke test..."
 SMOKE_DB=$(mktemp /tmp/dplaneos-smoke-XXXXX.db)
@@ -94,7 +94,7 @@ rm -f "$SMOKE_DB" "${SMOKE_DB}.backup" "${SMOKE_DB}-wal" "${SMOKE_DB}-shm"
 
 [ "$HEALTH" = "200" ] && pass "Health endpoint: $HEALTH" || fail "Health check failed: $HEALTH"
 
-# ── Package ──
+# -- Package --
 echo ""
 echo "Packaging..."
 mkdir -p "$RELEASE_DIR"
@@ -122,7 +122,7 @@ tar czf "$RELEASE_DIR/${TARNAME}-vendored.tar.gz" \
 VENDORED_SIZE=$(du -h "$RELEASE_DIR/${TARNAME}-vendored.tar.gz" | cut -f1)
 pass "${TARNAME}-vendored.tar.gz ($VENDORED_SIZE)"
 
-# ── Hash attestation ──
+# -- Hash attestation --
 echo ""
 echo "Generating SHA256 attestation..."
 cd "$RELEASE_DIR"
@@ -154,15 +154,15 @@ BUILD_BINARY_HASH=$(sha256sum "$BUILD_DIR/$BINARY" | awk '{print $1}')
 
 pass "SHA256SUMS: $ATTEST_FILE"
 
-# ── Summary ──
+# -- Summary --
 ROUTE_COUNT=$(grep -c 'HandleFunc' "$PROJECT_DIR/daemon/cmd/dplaned/main.go" || echo "?")
 GO_FILES=$(find "$PROJECT_DIR/daemon" -name '*.go' ! -path '*/vendor/*' | wc -l)
 HTML_FILES=$(find "$PROJECT_DIR/app" -name '*.html' 2>/dev/null | wc -l)
 
 echo ""
-echo "═══════════════════════════════════════════════"
+echo "-----------------------------------------------"
 echo "  Release v${VERSION} READY"
-echo "═══════════════════════════════════════════════"
+echo "-----------------------------------------------"
 echo "  Binary:     $BINARY_SIZE (stripped)"
 echo "  Go files:   $GO_FILES"
 echo "  HTML pages: $HTML_FILES"
@@ -171,5 +171,5 @@ echo ""
 echo "  $RELEASE_DIR/${TARNAME}.tar.gz"
 echo "  $RELEASE_DIR/${TARNAME}-vendored.tar.gz"
 echo "  $RELEASE_DIR/${TARNAME}-SHA256SUMS"
-echo "═══════════════════════════════════════════════"
+echo "-----------------------------------------------"
 

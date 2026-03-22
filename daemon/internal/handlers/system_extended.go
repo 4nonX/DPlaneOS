@@ -153,7 +153,7 @@ func (h *SnapshotScheduleHandler) regenerateCron(schedules []SnapshotSchedule) {
 		
 		// The hook handles both snapshotting and replication.
 		mainCmd := fmt.Sprintf(
-			`/usr/bin/curl -sf -X POST http://127.0.0.1:9000/api/zfs/snapshots/cron-hook -H 'Content-Type: application/json' -d '%s'`,
+			`curl -sf -X POST http://127.0.0.1:9000/api/zfs/snapshots/cron-hook -H 'Content-Type: application/json' -d '%s'`,
 			payload,
 		)
 
@@ -164,7 +164,7 @@ func (h *SnapshotScheduleHandler) regenerateCron(schedules []SnapshotSchedule) {
 		err := systemd.InstallTimer(systemd.TimerConfig{
 			Name:        unitName,
 			Description: fmt.Sprintf("ZFS Auto-Snapshot for %s (%s)", s.Dataset, s.Frequency),
-			Command:     fmt.Sprintf("/bin/bash -c \"%s\"", strings.ReplaceAll(mainCmd, "\"", "\\\"")),
+			Command:     fmt.Sprintf("bash -c \"%s\"", strings.ReplaceAll(mainCmd, "\"", "\\\"")),
 			OnCalendar:  onCalendar,
 			Persistent:  true,
 			After:       []string{"zfs.target"},

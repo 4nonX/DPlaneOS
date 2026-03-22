@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # D-PlaneOS Pre-Flight System Check
 # Verifies system is ready for daemon startup
 

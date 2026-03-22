@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## v6.1.2 (2026-03-22) - "NixOS Path Convergence"
+
+Upgrade from: v6.1.1 - Drop-in. `sudo bash install.sh --upgrade`
+
+### Added
+- **Exhaustive NixOS Compatibility**
+    - Completed the project-wide removal of hardcoded absolute paths (`/usr/bin/*`, `/bin/*`, `/sbin/*`) across all shell scripts, systemd unit templates, and internal handlers.
+    - All system commands now rely on the system `PATH` for resolution, ensuring 100% compatibility with NixOS store paths while maintaining standard Linux support.
+- **CI/CD Build Integrity**
+    - Fixed the release pipeline trigger to ensure automated publishing of release tarballs on version tags.
+    - Ensured consistent versioning across all build artifacts.
+
+---
+
 ## v6.1.1 (2026-03-21) - "Real-time Monitoring Overhaul"
 
 Upgrade from: v6.1.0 - Drop-in. `sudo bash install.sh --upgrade`

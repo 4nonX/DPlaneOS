@@ -1,4 +1,4 @@
-﻿#!/bin/bash
+#!/usr/bin/env bash
 #
 # D-PlaneOS - Pre-Flight Validation
 # 
@@ -31,21 +31,21 @@ echo "=========================================="
 echo ""
 
 log_pass() {
-    echo -e "${GREEN}✓${NC} $1"
+    echo -e "${GREEN}?${NC} $1"
 }
 
 log_fail() {
-    echo -e "${RED}✗${NC} $1"
+    echo -e "${RED}?${NC} $1"
     ERRORS=$((ERRORS + 1))
 }
 
 log_warn() {
-    echo -e "${YELLOW}⚠${NC} $1"
+    echo -e "${YELLOW}?${NC} $1"
     WARNINGS=$((WARNINGS + 1))
 }
 
 log_info() {
-    echo -e "${BLUE}ℹ${NC} $1"
+    echo -e "${BLUE}?${NC} $1"
 }
 
 # ============================================================
@@ -333,13 +333,13 @@ echo "=========================================="
 echo ""
 
 if [ $ERRORS -eq 0 ] && [ $WARNINGS -eq 0 ]; then
-    echo -e "${BOLD}${GREEN}✓ ALL CHECKS PASSED!${NC}"
+    echo -e "${BOLD}${GREEN}? ALL CHECKS PASSED!${NC}"
     echo ""
     echo "System is ready for D-PlaneOS installation."
     echo ""
     exit 0
 elif [ $ERRORS -eq 0 ]; then
-    echo -e "${BOLD}${YELLOW}⚠ $WARNINGS WARNING(S)${NC}"
+    echo -e "${BOLD}${YELLOW}? $WARNINGS WARNING(S)${NC}"
     echo ""
     echo "System is compatible but has some warnings."
     echo "Installation can proceed but may require manual intervention."
@@ -353,7 +353,7 @@ elif [ $ERRORS -eq 0 ]; then
         exit 1
     fi
 else
-    echo -e "${BOLD}${RED}✗ $ERRORS ERROR(S), $WARNINGS WARNING(S)${NC}"
+    echo -e "${BOLD}${RED}? $ERRORS ERROR(S), $WARNINGS WARNING(S)${NC}"
     echo ""
     echo "System does NOT meet requirements for D-PlaneOS."
     echo "Please fix the errors above before installing."

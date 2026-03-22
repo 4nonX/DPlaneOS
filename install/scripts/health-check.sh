@@ -1,4 +1,4 @@
-﻿#!/bin/bash
+#!/usr/bin/env bash
 #
 # D-PlaneOS Health Check Script
 #
@@ -16,18 +16,18 @@ FAILED_CHECKS=0
 TOTAL_CHECKS=0
 
 check_pass() {
-    echo -e "${GREEN}✓${NC} $1"
+    echo -e "${GREEN}?${NC} $1"
     TOTAL_CHECKS=$((TOTAL_CHECKS + 1))
 }
 
 check_fail() {
-    echo -e "${RED}✗${NC} $1"
+    echo -e "${RED}?${NC} $1"
     FAILED_CHECKS=$((FAILED_CHECKS + 1))
     TOTAL_CHECKS=$((TOTAL_CHECKS + 1))
 }
 
 check_warn() {
-    echo -e "${YELLOW}⚠${NC} $1"
+    echo -e "${YELLOW}?${NC} $1"
     TOTAL_CHECKS=$((TOTAL_CHECKS + 1))
 }
 
@@ -37,7 +37,7 @@ echo "=========================================="
 echo ""
 
 # 1. File System
-echo "📁 File System:"
+echo "?? File System:"
 if [ -d "/opt/dplaneos" ]; then
     check_pass "Installation directory exists"
 else
@@ -52,7 +52,7 @@ fi
 
 # 2. Permissions
 echo ""
-echo "🔒 Permissions:"
+echo "?? Permissions:"
 if [ -w "/opt/dplaneos/app/uploads" ]; then
     check_pass "Upload directory is writable"
 else
@@ -67,7 +67,7 @@ fi
 
 # 3. Webserver
 echo ""
-echo "🌐 Webserver:"
+echo "?? Webserver:"
 if systemctl is-active --quiet nginx 2>/dev/null; then
     check_pass "Nginx is running"
 elif systemctl is-active --quiet apache2 2>/dev/null; then
@@ -91,12 +91,12 @@ fi
 
 # 4. PHP
 echo ""
-echo "🐘 PHP:"
+echo "?? PHP:"
 # Go daemon health check
 if systemctl is-active dplaned >/dev/null 2>&1; then
-    echo -e "${GREEN}✓ Go daemon (dplaned): running${NC}"
+    echo -e "${GREEN}? Go daemon (dplaned): running${NC}"
 else
-    echo -e "${RED}✗ Go daemon (dplaned): not running${NC}"
+    echo -e "${RED}? Go daemon (dplaned): not running${NC}"
     WARNINGS=$((WARNINGS + 1))
 fi
 
@@ -105,7 +105,7 @@ fi
 
 # 5. Services
 echo ""
-echo "⚙️  D-PlaneOS Services:"
+echo "??  D-PlaneOS Services:"
 
 # Main daemon
 if systemctl is-active --quiet dplaneos-daemon 2>/dev/null; then
@@ -127,7 +127,7 @@ fi
 
 # 6. Ports
 echo ""
-echo "🔌 Ports:"
+echo "?? Ports:"
 
 # Main daemon (8080)
 if curl -s --max-time 2 http://localhost:8080/api/health &>/dev/null; then
@@ -159,7 +159,7 @@ fi
 
 # 7. Assets
 echo ""
-echo "📦 Assets:"
+echo "?? Assets:"
 
 if [ -f "/opt/dplaneos/app/assets/css/material-symbols-local.css" ]; then
     check_pass "Local icon CSS present"
@@ -175,7 +175,7 @@ fi
 
 # 8. Configuration
 echo ""
-echo "⚙️  Configuration:"
+echo "??  Configuration:"
 
 if [ -f "/etc/dplaneos-status" ]; then
     check_pass "Installation status file exists"
@@ -191,7 +191,7 @@ fi
 
 # 9. ZFS (if available)
 echo ""
-echo "💾 Storage:"
+echo "?? Storage:"
 
 if command -v zfs &> /dev/null; then
     check_pass "ZFS available"
@@ -209,7 +209,7 @@ fi
 
 # 10. Docker (if available)
 echo ""
-echo "🐳 Docker:"
+echo "?? Docker:"
 
 if command -v docker &> /dev/null; then
     check_pass "Docker available"
@@ -240,12 +240,12 @@ echo "  Success rate: $(( (TOTAL_CHECKS - FAILED_CHECKS) * 100 / TOTAL_CHECKS ))
 echo "=========================================="
 
 if [ $FAILED_CHECKS -eq 0 ]; then
-    echo -e "${GREEN}All checks passed!${NC} ✅"
+    echo -e "${GREEN}All checks passed!${NC} ?"
     echo ""
     echo "Access D-PlaneOS at: http://$(hostname -I | awk '{print $1}')"
     exit 0
 else
-    echo -e "${YELLOW}Some checks failed${NC} ⚠️"
+    echo -e "${YELLOW}Some checks failed${NC} ??"
     echo ""
     echo "Please review the failed checks above and fix any issues."
     exit 1

@@ -1,4 +1,4 @@
-﻿[Unit]
+[Unit]
 Description=D-PlaneOS System Daemon
 # Hard gate: dplaned MUST NOT start before ZFS pools are fully mounted.
 # dplaneos-zfs-mount-wait.service polls until all pools are ONLINE + writable,
@@ -10,8 +10,8 @@ Documentation=https://github.com/4nonX/homelab
 
 [Service]
 Type=simple
-ExecStartPre=/bin/mkdir -p /var/run/dplaneos /var/lib/dplaneos /var/log/dplaneos /etc/dplaneos
-ExecStartPre=/bin/chmod 755 /var/run/dplaneos
+ExecStartPre=mkdir -p /var/run/dplaneos /var/lib/dplaneos /var/log/dplaneos /etc/dplaneos
+ExecStartPre=chmod 755 /var/run/dplaneos
 ExecStart=/opt/dplaneos/daemon/dplaned -db /var/lib/dplaneos/dplaneos.db -listen 127.0.0.1:9000 -smb-conf /var/lib/dplaneos/smb-shares.conf
 WorkingDirectory=/opt/dplaneos
 Restart=always

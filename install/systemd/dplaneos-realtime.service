@@ -1,4 +1,4 @@
-﻿[Unit]
+[Unit]
 Description=D-PlaneOS Real-time Event Daemon (stub - handled by dplaned)
 Documentation=https://github.com/dplaneos/dplaneos
 # Real-time monitoring and WebSocket are built into dplaned itself (/ws/monitor).
@@ -9,7 +9,7 @@ Wants=dplaned.service
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-ExecStart=/bin/true
+ExecStart=true
 StandardOutput=journal
 StandardError=journal
 

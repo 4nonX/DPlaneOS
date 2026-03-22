@@ -1,4 +1,4 @@
-ï»¿#!/bin/bash
+#!/usr/bin/env bash
 #
 # D-PlaneOS Alert Integration Example
 # 
@@ -59,7 +59,7 @@ check_disk_smart() {
 
 # Example: Temperature Monitoring
 check_temperature() {
-    local temp=$(sensors | grep "CPU Temperature" | awk '{print $3}' | sed 's/+//;s/Â°C//')
+    local temp=$(sensors | grep "CPU Temperature" | awk '{print $3}' | sed 's/+//;s/°C//')
     
     if (( $(echo "$temp > 80" | bc -l) )); then
         # Warning alert
@@ -70,11 +70,11 @@ check_temperature() {
                 \"category\": \"hardware\",
                 \"priority\": \"warning\",
                 \"title\": \"High CPU Temperature\",
-                \"message\": \"CPU temperature is ${temp}Â°C (threshold: 80Â°C)\",
+                \"message\": \"CPU temperature is ${temp}°C (threshold: 80°C)\",
                 \"group_key\": \"cpu_temp_high\",
                 \"details\": {
-                    \"temperature\": \"${temp}Â°C\",
-                    \"threshold\": \"80Â°C\"
+                    \"temperature\": \"${temp}°C\",
+                    \"threshold\": \"80°C\"
                 }
             }"
     fi

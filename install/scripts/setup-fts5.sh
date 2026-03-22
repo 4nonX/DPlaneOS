@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #
 # D-PlaneOS FTS5 File Search Setup
 # 

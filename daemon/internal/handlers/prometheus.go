@@ -245,7 +245,7 @@ type zpoolStat struct {
 // readZpoolList runs zpool list and parses the output
 func readZpoolList() []zpoolStat {
 	out, err := executeCommandWithTimeout(TimeoutFast,
-		"/run/current-system/sw/bin/zpool",
+		"zpool",
 		[]string{"list", "-Hp", "-o", "name,size,alloc,free,health"})
 	if err != nil {
 		return nil

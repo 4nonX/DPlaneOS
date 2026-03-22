@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Hardware Detection Script for D-PlaneOS
 # Detects system capabilities and recommends optimal settings
 

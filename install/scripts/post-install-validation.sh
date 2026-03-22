@@ -1,4 +1,4 @@
-﻿#!/bin/bash
+#!/usr/bin/env bash
 #
 # D-PlaneOS - Post-Install Validation (Debian/Ubuntu only)
 # Called automatically at the end of install.sh
@@ -18,12 +18,12 @@ echo -e "${BOLD}${BLUE}D-PlaneOS v${VERSION} - Post-Install Validation${NC}"
 echo "==========================================="
 echo ""
 
-pass() { echo -e "${GREEN}✓${NC} $1"; }
-fail() { echo -e "${RED}✗${NC} $1"; ERRORS=$((ERRORS+1)); }
-warn() { echo -e "${YELLOW}⚠${NC} $1"; WARNINGS=$((WARNINGS+1)); }
-info() { echo -e "${BLUE}ℹ${NC} $1"; }
+pass() { echo -e "${GREEN}?${NC} $1"; }
+fail() { echo -e "${RED}?${NC} $1"; ERRORS=$((ERRORS+1)); }
+warn() { echo -e "${YELLOW}?${NC} $1"; WARNINGS=$((WARNINGS+1)); }
+info() { echo -e "${BLUE}?${NC} $1"; }
 
-# ── 1. Services ───────────────────────────────────────────────────────────────
+# -- 1. Services ---------------------------------------------------------------
 echo "1. Checking services..."
 
 systemctl is-active nginx &>/dev/null \
@@ -36,7 +36,7 @@ systemctl is-active dplaned &>/dev/null \
 
 echo ""
 
-# ── 2. Database ───────────────────────────────────────────────────────────────
+# -- 2. Database ---------------------------------------------------------------
 echo "2. Checking database..."
 
 DB_PATH="/var/lib/dplaneos/dplaneos.db"
@@ -59,7 +59,7 @@ else
 fi
 echo ""
 
-# ── 3. Web UI ─────────────────────────────────────────────────────────────────
+# -- 3. Web UI -----------------------------------------------------------------
 echo "3. Checking web UI..."
 
 HTTP=$(curl -s -o /dev/null -w "%{http_code}" http://localhost/ 2>/dev/null || echo "000")
@@ -70,7 +70,7 @@ case "$HTTP" in
 esac
 echo ""
 
-# ── 4. Daemon API ─────────────────────────────────────────────────────────────
+# -- 4. Daemon API -------------------------------------------------------------
 echo "4. Checking daemon API..."
 
 HEALTH=$(curl -sf http://127.0.0.1:9000/health 2>/dev/null || echo "fail")
@@ -90,7 +90,7 @@ DB_TEST=$(sqlite3 "$DB_PATH" "SELECT 1;" 2>/dev/null || echo "fail")
 [ "$DB_TEST" = "1" ] && pass "SQLite accessible" || fail "SQLite not accessible"
 echo ""
 
-# ── 5. File permissions ───────────────────────────────────────────────────────
+# -- 5. File permissions -------------------------------------------------------
 echo "5. Checking permissions..."
 
 [ -d "/opt/dplaneos" ] && pass "Install dir exists" || fail "Install dir /opt/dplaneos missing"
@@ -106,7 +106,7 @@ DB_DIR_PERM=$(stat -c '%a' /var/lib/dplaneos 2>/dev/null || echo "000")
     || warn "DB directory permissions unexpected: $DB_DIR_PERM"
 echo ""
 
-# ── 6. sudoers ────────────────────────────────────────────────────────────────
+# -- 6. sudoers ----------------------------------------------------------------
 echo "6. Checking sudoers..."
 
 if [ -f /etc/sudoers.d/dplaneos ]; then
@@ -119,7 +119,7 @@ else
 fi
 echo ""
 
-# ── 7. ZFS ────────────────────────────────────────────────────────────────────
+# -- 7. ZFS --------------------------------------------------------------------
 echo "7. Checking ZFS..."
 
 if command -v zpool &>/dev/null; then
@@ -139,7 +139,7 @@ else
 fi
 echo ""
 
-# ── 8. SMB / NFS (optional services) ─────────────────────────────────────────
+# -- 8. SMB / NFS (optional services) -----------------------------------------
 echo "8. Checking file sharing services..."
 
 if command -v smbd &>/dev/null; then
@@ -161,7 +161,7 @@ else
 fi
 echo ""
 
-# ── 9. Kernel tuning ─────────────────────────────────────────────────────────
+# -- 9. Kernel tuning ---------------------------------------------------------
 echo "9. Checking kernel tuning..."
 
 WATCHES=$(sysctl -n fs.inotify.max_user_watches 2>/dev/null || echo "0")
@@ -170,7 +170,7 @@ WATCHES=$(sysctl -n fs.inotify.max_user_watches 2>/dev/null || echo "0")
     || warn "inotify watches: $WATCHES (expected 524288 - will apply on next reboot)"
 echo ""
 
-# ── 10. Recovery CLI ──────────────────────────────────────────────────────────
+# -- 10. Recovery CLI ----------------------------------------------------------
 echo "10. Checking recovery tools..."
 
 [ -x /usr/local/bin/dplaneos-recovery ] \
@@ -178,28 +178,28 @@ echo "10. Checking recovery tools..."
     || warn "Recovery CLI not found at /usr/local/bin/dplaneos-recovery"
 echo ""
 
-# ── Summary ───────────────────────────────────────────────────────────────────
+# -- Summary -------------------------------------------------------------------
 echo "==========================================="
 echo "Summary"
 echo "==========================================="
 echo ""
 
 if [ $ERRORS -eq 0 ] && [ $WARNINGS -eq 0 ]; then
-    echo -e "${BOLD}${GREEN}✓ ALL CHECKS PASSED${NC}"
+    echo -e "${BOLD}${GREEN}? ALL CHECKS PASSED${NC}"
     echo ""
     echo "  Access: http://$(hostname -I | awk '{print $1}')"
     echo "  Login:  admin  (password shown above - change on first login)"
     echo ""
     exit 0
 elif [ $ERRORS -eq 0 ]; then
-    echo -e "${BOLD}${YELLOW}⚠ $WARNINGS warning(s) - installation successful${NC}"
+    echo -e "${BOLD}${YELLOW}? $WARNINGS warning(s) - installation successful${NC}"
     echo ""
     echo "  Warnings are non-critical. D-PlaneOS is fully operational."
     echo "  Access: http://$(hostname -I | awk '{print $1}')"
     echo ""
     exit 0
 else
-    echo -e "${BOLD}${RED}✗ $ERRORS error(s), $WARNINGS warning(s)${NC}"
+    echo -e "${BOLD}${RED}? $ERRORS error(s), $WARNINGS warning(s)${NC}"
     echo ""
     echo "  Installation has problems. Run: sudo dplaneos-recovery"
     echo ""
