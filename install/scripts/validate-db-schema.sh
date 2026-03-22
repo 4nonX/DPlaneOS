@@ -31,6 +31,11 @@ echo "====================================="
 echo ""
 
 # Check if DB exists
+if [ -n "$DATABASE_DSN" ]; then
+    echo -e "${GREEN}✓ PostgreSQL in use (validation handled by daemon initSchema)${NC}"
+    exit 0
+fi
+
 if [ ! -f "$DB_PATH" ]; then
     echo -e "${RED}✗ Database not found at $DB_PATH${NC}"
     exit 1
@@ -38,7 +43,6 @@ fi
 
 echo -e "${GREEN}✓ Database found${NC}"
 echo ""
-
 # Function to check if index exists
 check_index() {
     local index_name=$1
