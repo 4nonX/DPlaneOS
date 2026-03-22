@@ -88,7 +88,7 @@ func initSchema(db *sql.DB) error {
 		`CREATE TABLE IF NOT EXISTS audit_logs (
 			id BIGSERIAL PRIMARY KEY,
 			timestamp BIGINT NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW())::BIGINT,
-			"user" TEXT NOT NULL DEFAULT '',
+			actor TEXT NOT NULL DEFAULT '',
 			action TEXT NOT NULL DEFAULT '',
 			resource TEXT NOT NULL DEFAULT '',
 			details TEXT NOT NULL DEFAULT '',
@@ -349,7 +349,7 @@ func initSchema(db *sql.DB) error {
 
 		`CREATE INDEX IF NOT EXISTS idx_git_repos_name ON git_sync_repos(name)`,
 		`CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_logs(timestamp)`,
-		`CREATE INDEX IF NOT EXISTS idx_audit_user ON audit_logs(user)`,
+		`CREATE INDEX IF NOT EXISTS idx_audit_user ON audit_logs(actor)`,
 		`CREATE INDEX IF NOT EXISTS idx_user_roles_user ON user_roles(user_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_user_roles_role ON user_roles(role_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_role_permissions_role ON role_permissions(role_id)`,

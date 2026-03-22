@@ -1,4 +1,4 @@
-﻿package audit
+package audit
 
 import (
 	"crypto/hmac"
@@ -21,7 +21,7 @@ func computeRowHash(key []byte, prevHash string, e AuditEvent) string {
 	msg := fmt.Sprintf("%s|%d|%s|%s|%s|%s|%s|%v",
 		prevHash,
 		e.Timestamp,
-		e.User,
+		e.Actor,
 		e.Action,
 		e.Resource,
 		e.Details,

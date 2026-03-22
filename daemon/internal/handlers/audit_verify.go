@@ -18,9 +18,9 @@ import (
 // Formula: HMAC-SHA256(key, prevHash|ts|user|action|resource|details|ipAddress|success)
 // verifyComputeHash replicates the formula in audit/chain.go computeRowHash.
 // MUST stay in sync: if chain.go changes, update here too.
-func verifyComputeHash(key []byte, prevHash string, ts int64, user, action, resource, details, ipAddress string, success bool) string {
+func verifyComputeHash(key []byte, prevHash string, ts int64, actor, action, resource, details, ipAddress string, success bool) string {
 	msg := fmt.Sprintf("%s|%d|%s|%s|%s|%s|%s|%v",
-		prevHash, ts, user, action, resource, details, ipAddress, success,
+		prevHash, ts, actor, action, resource, details, ipAddress, success,
 	)
 	mac := hmac.New(sha256.New, key)
 	mac.Write([]byte(msg))
@@ -60,7 +60,7 @@ func (h *AuditRotationHandler) VerifyAuditChain(w http.ResponseWriter, r *http.R
 	defer db.Close()
 
 	rows, err := db.Query(`
-		SELECT id, timestamp, "user", action, resource, details, ip_address, success, prev_hash, row_hash
+		SELECT id, timestamp, actor, action, resource, details, ip_address, success, prev_hash, row_hash
 		FROM audit_logs
 		ORDER BY id ASC
 	`)
@@ -87,7 +87,7 @@ func (h *AuditRotationHandler) VerifyAuditChain(w http.ResponseWriter, r *http.R
 		var (
 			id             int64
 			ts             int64 // stored as Unix epoch integer
-			user           string
+			actor          string
 			action         string
 			resource       string
 			details        string
@@ -96,7 +96,7 @@ func (h *AuditRotationHandler) VerifyAuditChain(w http.ResponseWriter, r *http.R
 			storedPrevHash string
 			storedRowHash  string
 		)
-		if err := rows.Scan(&id, &ts, &user, &action, &resource, &details,
+		if err := rows.Scan(&id, &ts, &actor, &action, &resource, &details,
 			&ipAddress, &successInt, &storedPrevHash, &storedRowHash); err != nil {
 			continue
 		}
@@ -118,7 +118,7 @@ func (h *AuditRotationHandler) VerifyAuditChain(w http.ResponseWriter, r *http.R
 
 		// Re-compute the hash
 		successBool := successInt != 0
-		computed := verifyComputeHash(keyBytes, prevHashSeen, ts, user, action, resource, details, ipAddress, successBool)
+		computed := verifyComputeHash(keyBytes, prevHashSeen, ts, actor, action, resource, details, ipAddress, successBool)
 
 		if computed != storedRowHash {
 			valid = false

@@ -112,7 +112,7 @@ func Log(entry AuditLog) error {
 	if globalBufferedLogger != nil {
 		_ = globalBufferedLogger.Log(AuditEvent{
 			Timestamp: time.Now().Unix(),
-			User:      entry.User,
+			Actor:     entry.User,
 			Action:    entry.Command,
 			Details:   entry.Error,
 			IPAddress: entry.SourceIP,

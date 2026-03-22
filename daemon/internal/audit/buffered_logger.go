@@ -11,7 +11,7 @@ import (
 // AuditEvent represents a single audit log entry
 type AuditEvent struct {
 	Timestamp int64
-	User      string
+	Actor     string
 	Action    string
 	Resource  string
 	Details   string
@@ -152,7 +152,7 @@ func (bl *BufferedLogger) writeDirect(events []AuditEvent) error {
 	}
 
 	stmt, err := tx.Prepare(`INSERT INTO audit_logs
-		(timestamp, user, action, resource, details, ip_address, success, prev_hash, row_hash)
+		(timestamp, actor, action, resource, details, ip_address, success, prev_hash, row_hash)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`)
 	if err != nil {
 		return fmt.Errorf("audit direct write: prepare: %w", err)
@@ -161,7 +161,7 @@ func (bl *BufferedLogger) writeDirect(events []AuditEvent) error {
 
 	for _, e := range events {
 		rowHash := computeRowHash(bl.hmacKey, prevHash, e)
-		_, err := stmt.Exec(e.Timestamp, e.User, e.Action, e.Resource, e.Details, e.IPAddress, e.Success, prevHash, rowHash)
+		_, err := stmt.Exec(e.Timestamp, e.Actor, e.Action, e.Resource, e.Details, e.IPAddress, e.Success, prevHash, rowHash)
 		if err != nil {
 			log.Printf("audit direct write: exec: %v", err)
 			continue
@@ -210,7 +210,7 @@ func (bl *BufferedLogger) Flush() error {
 	// Prepare statement (reused for all inserts)
 	stmt, err := tx.Prepare(`
 		INSERT INTO audit_logs (
-			timestamp, user, action, resource, details, ip_address, success,
+			timestamp, actor, action, resource, details, ip_address, success,
 			prev_hash, row_hash
 		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 	`)
@@ -224,7 +224,7 @@ func (bl *BufferedLogger) Flush() error {
 		rowHash := computeRowHash(bl.hmacKey, prevHash, event)
 		_, err := stmt.Exec(
 			event.Timestamp,
-			event.User,
+			event.Actor,
 			event.Action,
 			event.Resource,
 			event.Details,
