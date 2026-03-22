@@ -441,7 +441,11 @@ func initSchema(db *sql.DB) error {
 				strings.TrimSuffix(stmt, ";"))
 		}
 		if _, err := db.Exec(stmt); err != nil {
-			return fmt.Errorf("schema init failed: %w\nStatement: %s", err, stmt[:80])
+			displayStmt := stmt
+			if len(stmt) > 80 {
+				displayStmt = stmt[:80] + "..."
+			}
+			return fmt.Errorf("schema init failed: %w\nStatement: %s", err, displayStmt)
 		}
 	}
 
