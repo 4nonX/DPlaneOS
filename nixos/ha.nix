@@ -22,6 +22,25 @@ in {
       description = "IP address of the peer (the other database node).";
     };
 
+    fencing = {
+      enable = lib.mkEnableOption "IPMI/Redfish STONITH fencing for automatic failover";
+      bmcIP = lib.mkOption {
+        type = lib.types.nullOr lib.types.str;
+        default = null;
+        description = "IP address of the peer node's BMC.";
+      };
+      bmcUser = lib.mkOption {
+        type = lib.types.nullOr lib.types.str;
+        default = null;
+        description = "Username for the peer node's BMC.";
+      };
+      bmcPasswordFile = lib.mkOption {
+        type = lib.types.nullOr lib.types.str;
+        default = null;
+        description = "Path to a file containing the peer node's BMC password.";
+      };
+    };
+
     witnessAddress = lib.mkOption {
       type = lib.types.str;
       description = "IP address of the etcd witness node.";
@@ -164,7 +183,48 @@ in {
             auth_pass ${cfg.vrrpPassword}
           }
         '';
-      };
+    };
+
+    # ─── Systemd Overrides for Patroni HA Split-Brain Protection ─────────
+    # We must restrict the native NixOS ZFS import units to only execute if
+    # this node is actually the Patroni Primary. If the node boots into Standby,
+    # the datasets remain physically unmounted to avert split-brain data corruption.
+    systemd.services.zfs-import-cache = lib.mkIf cfg.fencing.enable {
+      after = [ "patroni.service" ];
+      requires = [ "patroni.service" ];
+      preStart = ''
+        echo "HA GUARD: Waiting for Patroni leadership determination..."
+        while true; do
+          status=$(${pkgs.curl}/bin/curl -s -o /dev/null -w "%{http_code}" http://localhost:8008/primary || echo "000")
+          if [ "$status" = "200" ]; then
+            echo "HA GUARD: Node is Primary. Proceeding to mount ZFS volumes over Native Cache."
+            exit 0
+          elif [ "$status" = "503" ]; then
+            echo "HA GUARD: Node is Standby. Aborting native ZFS mounts."
+            exit 1
+          fi
+          sleep 2
+        done
+      '';
+    };
+
+    systemd.services.zfs-import-scan = lib.mkIf cfg.fencing.enable {
+      after = [ "patroni.service" ];
+      requires = [ "patroni.service" ];
+      preStart = ''
+        echo "HA GUARD: Waiting for Patroni leadership determination..."
+        while true; do
+          status=$(${pkgs.curl}/bin/curl -s -o /dev/null -w "%{http_code}" http://localhost:8008/primary || echo "000")
+          if [ "$status" = "200" ]; then
+            echo "HA GUARD: Node is Primary. Proceeding to mount ZFS volumes over Native Scan."
+            exit 0
+          elif [ "$status" = "503" ]; then
+            echo "HA GUARD: Node is Standby. Aborting native ZFS mounts."
+            exit 1
+          fi
+          sleep 2
+        done
+      '';
     };
   };
 }

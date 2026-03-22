@@ -1,4 +1,4 @@
-﻿// Package nixwriter bridges D-PlaneOS's imperative management layer with
+// Package nixwriter bridges D-PlaneOS's imperative management layer with
 // NixOS's declarative configuration system.
 //
 // # v5.0 Architecture: JSON-to-Nix Bridge
@@ -78,6 +78,9 @@ type DPlaneState struct {
 	SambaTimeMachine  bool   `json:"samba_time_machine,omitempty"`
 	SambaAllowGuest   bool   `json:"samba_allow_guest,omitempty"`
 	SambaExtraGlobal  string `json:"samba_extra_global,omitempty"`
+
+	// ── High Availability ──────────────────────────────────────────────────────
+	HAEnable bool `json:"ha_enable,omitempty"`
 }
 
 // NetworkStaticEntry describes one statically-configured interface.
@@ -322,6 +325,16 @@ func (w *Writer) SetSambaGlobals(opts SambaGlobalOpts) error {
 	w.state.SambaTimeMachine = opts.TimeMachine
 	w.state.SambaAllowGuest = opts.AllowGuest
 	w.state.SambaExtraGlobal = opts.ExtraGlobal
+	w.mu.Unlock()
+	return w.flush()
+}
+
+// ── HA setter ────────────────────────────────────────────────────────────────
+
+// SetHA enables or disables the Patroni/HAProxy High Availability stack.
+func (w *Writer) SetHA(enable bool) error {
+	w.mu.Lock()
+	w.state.HAEnable = enable
 	w.mu.Unlock()
 	return w.flush()
 }

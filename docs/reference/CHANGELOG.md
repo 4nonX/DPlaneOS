@@ -4,6 +4,33 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## v7.1.0 (2026-03-22) - "High Availability Nexus"
+
+Upgrade from: v7.0.0 - Drop-in. `sudo bash install.sh --upgrade`
+
+### Added
+- **Enterprise High Availability (HA) Core**
+    - **Patroni & etcd Orchestration**: Native NixOS module for automated PostgreSQL consensus and failover.
+    - **HAProxy Service Mesh**: Transparent traffic routing to the active cluster leader.
+    - **Keepalived Virtual IP**: Automated floating IP migration for zero-downtime client access.
+- **Guided HA Setup Wizard**
+    - Interactive 5-step UI process for safe cluster arming and configuration.
+    - Automated background NixOS reconfiguration during setup.
+    - Pre-flight prerequisite verification for networking and quorum.
+- **Intelligent Fencing (STONITH)**
+    - Secure out-of-band power management via IPMI Redfish/IPMIspec.
+    - Hardened execution whitelist with regex-based argument validation.
+    - Zero-leak password handling via environment variable injection.
+- **Continuous Storage Replication**
+    - High-performance ZFS snapshot shipping for asynchronous Active-to-Standby data sync.
+    - Real-time replication telemetry and bottleneck detection.
+
+### Changed
+- **NixOS Bridge**: Integrated HA enablement status into the declarative `dplane-state.json` fragment.
+- **Cluster Monitoring**: Real-time visual topology tracking for quorum, node health, and Patroni roles.
+
+---
+
 ## v7.0.0 (2026-03-22) - "PostgreSQL Ascension"
 
 Upgrade from: v6.2.0 - **BREAKING CHANGE**. This release replaces SQLite with PostgreSQL. 

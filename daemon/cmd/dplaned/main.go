@@ -1026,9 +1026,15 @@ func main() {
 	r.Handle("/api/ha/peers/{id}", permRoute("system", "admin", http.HandlerFunc(haHandler.RemovePeer))).Methods("DELETE")
 	r.Handle("/api/ha/peers/{id}/role", permRoute("system", "admin", haHandler.SetPeerRole)).Methods("POST")
 	r.Handle("/api/ha/replication/configure", permRoute("system", "admin", haHandler.ConfigureHAReplication)).Methods("POST")
+	r.Handle("/api/ha/replication/configure", permRoute("system", "admin", haHandler.GetReplicationConfig)).Methods("GET")
+	r.Handle("/api/ha/fencing/configure", permRoute("system", "admin", haHandler.ConfigureFencing)).Methods("POST")
+	r.Handle("/api/ha/fencing/configure", permRoute("system", "admin", haHandler.GetFencingConfig)).Methods("GET")
+	r.Handle("/api/ha/promote", permRoute("system", "admin", haHandler.Promote)).Methods("POST")
+	r.Handle("/api/ha/fence", permRoute("system", "admin", haHandler.TriggerFence)).Methods("POST")
 	// /api/ha/heartbeat is deliberately PUBLIC (no session) so peer daemons can reach it
 	r.HandleFunc("/api/ha/heartbeat", haHandler.PeerHeartbeat).Methods("POST")
 	r.HandleFunc("/api/ha/local", haHandler.LocalNodeInfo).Methods("GET")
+	r.Handle("/api/ha/toggle", permRoute("system", "admin", haHandler.ToggleHA)).Methods("POST")
 
 	// WebSocket for real-time monitoring
 	wsHandler := handlers.NewWebSocketHandler(wsHub)

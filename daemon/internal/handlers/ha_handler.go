@@ -2,12 +2,13 @@ package handlers
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
-	"os/exec"
 	"strings"
 
+	"dplaned/internal/cmdutil"
 	"dplaned/internal/ha"
 	"github.com/gorilla/mux"
 )
@@ -26,6 +27,9 @@ func NewHAHandler(mgr *ha.Manager) *HAHandler {
 // GET /api/ha/status
 func (h *HAHandler) GetStatus(w http.ResponseWriter, r *http.Request) {
 	status := h.mgr.Status()
+	if NixWriter != nil {
+		status.HAEnabled = NixWriter.State().HAEnable
+	}
 	respondJSON(w, http.StatusOK, map[string]interface{}{
 		"success": true,
 		"cluster": status,
@@ -145,6 +149,48 @@ func LocalNodeID() string {
 	return host
 }
 
+// GetFencingConfig fetches STONITH parameters.
+// GET /api/ha/fencing/configure
+func (h *HAHandler) GetFencingConfig(w http.ResponseWriter, r *http.Request) {
+	cfg, err := h.mgr.GetFencingConfig()
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "Failed to read fencing config", err)
+		return
+	}
+	respondJSON(w, http.StatusOK, map[string]interface{}{
+		"success": true,
+		"config":  cfg,
+	})
+}
+
+// ConfigureFencing configures STONITH parameters.
+// POST /api/ha/fencing/configure
+func (h *HAHandler) ConfigureFencing(w http.ResponseWriter, r *http.Request) {
+	var req ha.FencingConfig
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondError(w, http.StatusBadRequest, "Invalid request body", err)
+		return
+	}
+	if err := h.mgr.SaveFencingConfig(req); err != nil {
+		respondError(w, http.StatusInternalServerError, "Failed to save fencing config", err)
+		return
+	}
+	respondJSON(w, http.StatusOK, map[string]interface{}{
+		"success": true,
+		"message": "Fencing configuration updated successfully",
+	})
+}
+
+// GetReplicationConfig fetches continuous active-to-standby ZFS sync parameters.
+// GET /api/ha/replication/configure
+func (h *HAHandler) GetReplicationConfig(w http.ResponseWriter, r *http.Request) {
+	cfg := h.mgr.GetReplicationConfig()
+	respondJSON(w, http.StatusOK, map[string]interface{}{
+		"success": true,
+		"config":  cfg,
+	})
+}
+
 // ConfigureHAReplication sets up continuous active-to-standby ZFS sync.
 // POST /api/ha/replication/configure
 func (h *HAHandler) ConfigureHAReplication(w http.ResponseWriter, r *http.Request) {
@@ -186,42 +232,87 @@ func (h *HAHandler) ConfigureHAReplication(w http.ResponseWriter, r *http.Reques
 // POST /api/ha/promote
 // WARNING: Fencing is not implemented yet. Split brain will occur if primary is still alive.
 func (h *HAHandler) Promote(w http.ResponseWriter, r *http.Request) {
-	// Execute the promotion orchestration in the background to avoid timing out the HTTP client
-	go func() {
-		// 1. Force import any detached storage pools in the case of a Shared-Storage Architecture.
-		log.Printf("HA Failover: Forcing import of all pools...")
-		exec.Command("zpool", "import", "-a", "-f", "-d", "/dev/disk/by-id").Run()
-
-		// 2. Elevate replication datasets to writable in the case of a Shared-Nothing Architecture (ZFS Replication).
-		// Since we don't know exactly which datasets are replicas, we try to clear readonly flags universally.
-		// "zfs promote" is also run in case datasets were cloned during advanced replication setups.
-		log.Printf("HA Failover: Promoting ZFS datasets to writable...")
-		out, _ := exec.Command("zfs", "list", "-H", "-o", "name").Output()
-		datasets := strings.Split(strings.TrimSpace(string(out)), "\n")
-		for _, ds := range datasets {
-			if ds == "" {
-				continue
-			}
-			exec.Command("zfs", "set", "readonly=off", ds).Run()
-			exec.Command("zfs", "promote", ds).Run()
-		}
-
-		// 3. Reload NAS services that mount or share these pools.
-		log.Printf("HA Failover: Reloading storage services (SMB, NFS, Docker)...")
-		exec.Command("systemctl", "reload-or-restart", "smbd", "nmbd").Run()
-		exec.Command("systemctl", "reload-or-restart", "nfs-server").Run()
-		exec.Command("systemctl", "restart", "docker").Run()
-		
-		// 4. Force Patroni to failover via REST API (if not already primary)
-		// This guarantees that the Keepalived Priority elevates.
-		exec.Command("curl", "-s", "-X", "POST", "http://localhost:8008/failover").Run()
-		
-		log.Printf("HA Failover: Promotion sequence complete.")
-	}()
+	// Execute the promotion orchestration in the background to avoid timing out the HTTP client.
+	go ha.ExecutePromotion()
 
 	respondJSON(w, http.StatusOK, map[string]interface{}{
 		"success": true,
 		"message": "Failover promotion triggered. Storage pools are importing and services restarting.",
+	})
+}
+
+// TriggerFence fires a manual STONITH request against a given peer.
+// POST /api/ha/fence
+func (h *HAHandler) TriggerFence(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		NodeID string `json:"node_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondError(w, http.StatusBadRequest, "Invalid request body", err)
+		return
+	}
+
+	cfg, err := h.mgr.GetFencingConfig()
+	if err != nil || !cfg.Enable {
+		respondError(w, http.StatusBadRequest, "Fencing is not enabled or properly configured", err)
+		return
+	}
+
+	// Trigger fencing asynchronously since it could take up to 60s
+	go func() {
+		if err := ha.ExecuteFencing(req.NodeID, cfg); err != nil {
+			// Already logged to audit in ExecuteFencing
+		}
+	}()
+
+	respondJSON(w, http.StatusAccepted, map[string]interface{}{
+		"success": true,
+		"message": "Fencing sequence initiated asynchronously for Node " + req.NodeID,
+	})
+}
+
+// ToggleHA arms or disarms the NixOS HA cluster modules.
+// POST /api/ha/toggle {"enable": true/false}
+func (h *HAHandler) ToggleHA(w http.ResponseWriter, r *http.Request) {
+	if NixWriter == nil {
+		respondJSON(w, http.StatusOK, map[string]interface{}{
+			"success": false,
+			"error":   "High Availability requires NixOS",
+		})
+		return
+	}
+	var req struct {
+		Enable bool `json:"enable"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondErrorSimple(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if err := NixWriter.SetHA(req.Enable); err != nil {
+		respondError(w, http.StatusInternalServerError, "Failed to update NixOS state", err)
+		return
+	}
+
+	// Trigger nixos-rebuild switch asynchronously
+	go func() {
+		action := "disabling"
+		if req.Enable {
+			action = "enabling"
+		}
+		log.Printf("HA: User is %s HA - triggering nixos-rebuild switch", action)
+		// Run rebuild
+		if out, err := cmdutil.RunSlow("nixos-rebuild", "switch"); err != nil {
+			log.Printf("HA: NixOS rebuild failed: %v\nOutput: %s", err, string(out))
+			DispatchAlert("critical", "HA_REBUILD_FAILED", "system", fmt.Sprintf("NixOS reconfig failed: %v", err))
+		} else {
+			log.Printf("HA: NixOS rebuild success. HA is now %v", req.Enable)
+		}
+	}()
+
+	respondJSON(w, http.StatusOK, map[string]interface{}{
+		"success": true,
+		"message": "HA state updated in NixOS fragment. System reconfiguration is running in the background.",
 	})
 }
 

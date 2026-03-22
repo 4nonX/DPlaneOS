@@ -82,6 +82,7 @@ type ClusterStatus struct {
 	Peers       []*ClusterNode `json:"peers"`
 	Quorum      bool           `json:"quorum"`       // true if majority of nodes are reachable
 	ActiveNode  *ClusterNode   `json:"active_node"`  // which node currently holds the active role
+	HAEnabled   bool           `json:"ha_enabled"`   // true if Patroni/HAProxy is configured in NixOS
 	LastUpdated time.Time      `json:"last_updated"`
 }
 
@@ -233,6 +234,9 @@ func (m *Manager) GetPeer(id string) (*ClusterNode, bool) {
 	return &cp, true
 }
 
+// FailoverAfter defines the threshold over which a missed heartbeat triggers STONITH/Promotion.
+const FailoverAfter = 45 * time.Second
+
 // heartbeatLoop pings all peers every 15 seconds.
 func (m *Manager) heartbeatLoop() {
 	ticker := time.NewTicker(15 * time.Second)
@@ -243,8 +247,63 @@ func (m *Manager) heartbeatLoop() {
 			return
 		case <-ticker.C:
 			m.pingAllPeers()
+			m.checkFailover()
 		}
 	}
+}
+
+// checkFailover assesses peer health and triggers fencing/promotion if STONITH is enabled.
+func (m *Manager) checkFailover() {
+	// 1. Explicitly guard: automate failover ONLY if we are currently the Standby node.
+	if m.Status().LocalNode.Role != RoleStandby {
+		return
+	}
+
+	m.mu.RLock()
+	var deadPeer *ClusterNode
+	for _, n := range m.nodes {
+		if n.State == StateUnreachable && time.Since(n.LastSeen) > FailoverAfter {
+			// Found a dead peer that has breached the 45s margin.
+			// Clone node pointer to avoid locking issues down the line.
+			cp := *n
+			deadPeer = &cp
+			break
+		}
+	}
+	m.mu.RUnlock()
+
+	if deadPeer == nil {
+		return
+	}
+
+	// 2. Fetch fencing configuration from the database.
+	fencingCfg, err := GetFencingConfig(m.db)
+	if err != nil || !fencingCfg.Enable {
+		// Just log on the transition edge, but avoid log spam every 15s.
+		// MissedBeats grows reliably, we can use it to rate limit the logs.
+		if deadPeer.MissedBeats == 3 {
+			log.Printf("HA STONITH: Peer %s breached FailoverThreshold (45s), but Fencing is DISABLED. Automatic promotion aborted.", deadPeer.ID)
+		}
+		return
+	}
+
+	// Rate limit the trigger: Only fire the Fencing Executor exactly once when breached
+	if deadPeer.MissedBeats != 3 {
+		return
+	}
+
+	// 3. Initiate Fencing & Promotion asynchronously.
+	go func() {
+		log.Printf("HA STONITH: Triggering automated fencing against dead peer %s", deadPeer.ID)
+		if err := ExecuteFencing(deadPeer.ID, fencingCfg); err != nil {
+			log.Printf("HA STONITH: Fencing failed, aborting failover: %v", err)
+			return
+		}
+
+		// 4. Fencing was successful! Promote this node.
+		log.Printf("HA STONITH: Fencing successful. Promoting local node to active role.")
+		ExecutePromotion()
+	}()
 }
 
 // pingAllPeers checks health of every registered peer concurrently.
@@ -332,6 +391,18 @@ func (m *Manager) ensureSchema() error {
 			remote_port INTEGER NOT NULL DEFAULT 22,
 			ssh_key_path TEXT NOT NULL,
 			interval_secs INTEGER NOT NULL DEFAULT 30
+		)
+	`)
+	if err != nil {
+		return err
+	}
+	_, err = m.db.Exec(`
+		CREATE TABLE IF NOT EXISTS ha_fencing_config (
+			id INTEGER PRIMARY KEY CHECK (id = 1),
+			enable BOOLEAN NOT NULL DEFAULT 0,
+			bmc_ip TEXT NOT NULL DEFAULT '',
+			bmc_user TEXT NOT NULL DEFAULT '',
+			bmc_password_file TEXT NOT NULL DEFAULT ''
 		)
 	`)
 	return err
@@ -432,6 +503,13 @@ func MarshalStatus(s *ClusterStatus) ([]byte, error) {
 	return json.Marshal(s)
 }
 
+// GetReplicationConfig returns the active replication configuration.
+func (m *Manager) GetReplicationConfig() *ReplicationConfig {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.replConfig
+}
+
 // SetReplicationConfig stores the new sync rules and restarts the loop.
 func (m *Manager) SetReplicationConfig(cfg *ReplicationConfig) error {
 	m.mu.Lock()
@@ -492,6 +570,16 @@ func (m *Manager) IsPatroniPrimary() bool {
 	}
 	defer resp.Body.Close()
 	return resp.StatusCode == http.StatusOK
+}
+
+// GetFencingConfig exposes STONITH read access on the Manager.
+func (m *Manager) GetFencingConfig() (FencingConfig, error) {
+	return GetFencingConfig(m.db)
+}
+
+// SaveFencingConfig exposes STONITH write access on the Manager.
+func (m *Manager) SaveFencingConfig(cfg FencingConfig) error {
+	return SaveFencingConfig(m.db, cfg)
 }
 
 

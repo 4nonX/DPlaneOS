@@ -122,4 +122,7 @@ in
     allowGuest        = s.samba_allow_guest    or false;
     extraGlobalConfig = s.samba_extra_global   or "";
   };
+
+  # ── High Availability ────────────────────────────────────────────────────────
+  services.dplaneos.ha.enable = s.ha_enable or false;
 }
