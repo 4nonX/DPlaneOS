@@ -23,6 +23,7 @@ func initSchema(db *sql.DB) error {
 			active INTEGER NOT NULL DEFAULT 1,
 			must_change_password INTEGER NOT NULL DEFAULT 0,
 			source TEXT NOT NULL DEFAULT 'local',
+			totp_enabled INTEGER NOT NULL DEFAULT 0,
 			last_login TIMESTAMPTZ,
 			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -32,12 +33,14 @@ func initSchema(db *sql.DB) error {
 		`CREATE TABLE IF NOT EXISTS sessions (
 			id BIGSERIAL PRIMARY KEY,
 			session_id TEXT NOT NULL UNIQUE,
+			user_id BIGINT,
 			username TEXT NOT NULL,
 			ip_address TEXT NOT NULL DEFAULT '',
 			user_agent TEXT NOT NULL DEFAULT '',
 			created_at BIGINT NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW())::BIGINT,
 			expires_at BIGINT,
 			last_activity BIGINT NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW())::BIGINT,
+			status TEXT NOT NULL DEFAULT 'active',
 			FOREIGN KEY (username) REFERENCES users(username)
 		)`,
 
