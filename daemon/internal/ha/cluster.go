@@ -399,7 +399,7 @@ func (m *Manager) ensureSchema() error {
 	_, err = m.db.Exec(`
 		CREATE TABLE IF NOT EXISTS ha_fencing_config (
 			id INTEGER PRIMARY KEY CHECK (id = 1),
-			enable BOOLEAN NOT NULL DEFAULT 0,
+			enable BOOLEAN NOT NULL DEFAULT FALSE,
 			bmc_ip TEXT NOT NULL DEFAULT '',
 			bmc_user TEXT NOT NULL DEFAULT '',
 			bmc_password_file TEXT NOT NULL DEFAULT ''
