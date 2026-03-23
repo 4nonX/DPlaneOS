@@ -247,19 +247,18 @@ sudo apt install zfs-auto-snapshot
 
 ### Database Backup
 
-The daemon takes an automatic `VACUUM INTO` backup on startup and every 24 hours:
+The daemon management of PostgreSQL includes automated schema maintenance. For backups, use standard PostgreSQL tools:
 
 ```bash
-# Default backup location
-/var/lib/dplaneos/dplaneos.db.backup
+# Default state location
+/var/lib/dplaneos/pgsql/
 
-# Manual backup
-sudo sqlite3 /var/lib/dplaneos/dplaneos.db \
-  ".backup /backup/dplaneos-$(date +%Y%m%d).db"
+# Manual backup (via pg_dump)
+sudo -u postgres pg_dump dplaneos > /backup/dplaneos-$(date +%Y%m%d).sql
 
 # Restore
 sudo systemctl stop dplaned
-sudo cp /backup/dplaneos-20260309.db /var/lib/dplaneos/dplaneos.db
+sudo -u postgres psql dplaneos < /backup/dplaneos-20260309.sql
 sudo systemctl start dplaned
 ```
 
@@ -307,9 +306,9 @@ sudo ufw enable
 
 **Least privilege:** Use Operator or Viewer roles for daily-use accounts; reserve Admin for administrative tasks only. Review role assignments quarterly.
 
-**Database path for direct queries:**
+**Database access for direct queries:**
 ```bash
-sudo sqlite3 /var/lib/dplaneos/dplaneos.db "SELECT r.name FROM roles r \
+sudo -u postgres psql dplaneos -c "SELECT r.name FROM roles r \
   JOIN user_roles ur ON r.id = ur.role_id WHERE ur.user_id = X;"
 ```
 
@@ -361,7 +360,7 @@ This model gives you directory-controlled access without making the management U
 
 - The system administrator (user ID 1) always uses local authentication, even when LDAP is enabled, preventing lockout if the directory server goes down.
 - TLS is enforced by default (TLS 1.2+).
-- The bind password is stored in SQLite - use a read-only service account.
+- The bind password is stored in PostgreSQL - use a read-only service account.
 - If the LDAP server is unreachable, local accounts continue to work. Directory-sourced accounts will fail login until the server is reachable again.
 
 ### LDAP API
@@ -415,7 +414,7 @@ See [TROUBLESHOOTING.md](TROUBLESHOOTING.md) for comprehensive troubleshooting s
 **Permission Denied (403):**
 ```bash
 # Check user's roles
-sqlite3 /var/lib/dplaneos/dplaneos.db \
+sudo -u postgres psql dplaneos -c \
   "SELECT r.name FROM roles r JOIN user_roles ur ON r.id = ur.role_id WHERE ur.user_id = X;"
 sudo systemctl restart dplaned  # clears permission cache
 ```

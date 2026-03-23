@@ -1,4 +1,4 @@
-﻿# D-PlaneOS - Architecture Diagrams
+# D-PlaneOS - Architecture Diagrams
 
 Visual overview of the codebase. Render in any Mermaid-compatible viewer (GitHub, VS Code with Mermaid extension, or [mermaid.live](https://mermaid.live)).
 
@@ -22,7 +22,7 @@ flowchart LR
     end
 
     subgraph Data["Data and Runtime"]
-        SQLite["SQLite WAL\n/var/lib/dplaneos/"]
+        PostgreSQL["PostgreSQL / Patroni\n/var/lib/dplaneos/pgsql/"]
         ZFS["ZFS (kernel)"]
         Docker["Docker (socket)"]
         LDAP["LDAP / AD"]
@@ -31,7 +31,7 @@ flowchart LR
     Browser -->|"static + /api/*"| nginx
     nginx -->|"proxy /api/, /ws/"| dplaned
     nginx -->|"serve /opt/dplaneos/app"| Browser
-    dplaned --> SQLite
+    dplaned --> PostgreSQL
     dplaned --> ZFS
     dplaned --> Docker
     dplaned --> LDAP
@@ -46,7 +46,7 @@ flowchart LR
 flowchart TB
     subgraph cmd["cmd/dplaned"]
         main["main.go - flags, DB init, router setup"]
-        schema["schema.go - SQLite schema migrations"]
+        schema["schema.go - PostgreSQL schema migrations"]
     end
 
     subgraph internal["internal/"]
@@ -85,7 +85,7 @@ sequenceDiagram
     participant N as nginx
     participant M as Middleware
     participant H as Handler
-    participant C as exec.Command / SQLite / ZFS
+    participant C as exec.Command / PostgreSQL / ZFS
 
     B->>N: HTTP request
     N->>M: proxy_pass :9000
@@ -95,7 +95,7 @@ sequenceDiagram
     M->>M: RBAC permission check
     M->>H: dispatch to handler
     H->>H: input allowlist validation
-    H->>C: SQLite query or exec.Command
+    H->>C: PostgreSQL query or exec.Command
     C-->>H: result
     H->>H: audit.LogAction()
     H-->>B: JSON response
@@ -112,7 +112,7 @@ flowchart TD
     B --> C["install/scripts/notify-disk-added.sh"]
     C --> D["POST /api/internal/disk-event\n(localhost only)"]
     D --> E["Enrich device\n(by-id, WWN, size, type, temp)"]
-    E --> F["Upsert disk registry (SQLite)"]
+    E --> F["Upsert disk registry (PostgreSQL)"]
     F --> G["Broadcast diskAdded WS event"]
     G --> H["2 s settle delay"]
     H --> I{"Pool importable?"}
@@ -138,7 +138,7 @@ flowchart TD
     B --> E{"Daemon socket\n/run/dplaneos/dplaneos.sock"}
     E -->|Connected| F["Send zfs_event message\n(non-blocking, 2 s timeout)"]
     B --> G{"Severity = critical?"}
-    G -->|Yes| H["Read telegram_config from SQLite"]
+    G -->|Yes| H["Read telegram_config from PostgreSQL"]
     H --> I["POST to Telegram Bot API"]
 ```
 

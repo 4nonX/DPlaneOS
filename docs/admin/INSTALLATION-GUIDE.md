@@ -1,4 +1,4 @@
-﻿# D-PlaneOS Installation Guide
+# D-PlaneOS Installation Guide
 
 ---
 
@@ -84,12 +84,12 @@ The installer runs in 12 phases:
 
 1. Pre-flight checks (OS, RAM, disk space, port availability)
 2. Backup of existing installation (on upgrade)
-3. System dependencies (nginx, zfsutils-linux, sqlite3, smartmontools, samba, nfs-kernel-server, etc.)
+3. System dependencies (nginx, zfsutils-linux, postgresql-15, smartmontools, samba, nfs-kernel-server, etc.)
 4. ZFS setup (loads kernel module, configures ARC based on available RAM)
 5. File installation to `/opt/dplaneos/`
 6. Daemon binary (builds from source with Go if present; downloads pre-built binary otherwise)
 7. sudoers configuration
-8. SQLite database initialization at `/var/lib/dplaneos/dplaneos.db`
+8. PostgreSQL database initialization via Patroni at `/var/lib/dplaneos/pgsql/`
 9. nginx configuration
 10. Kernel tuning (inotify, TCP buffers, swappiness)
 11. Docker installation (optional, skipped if already present)
@@ -156,7 +156,7 @@ sudo systemctl status nginx
 systemctl list-units 'dplaneos-*' 'dplaned*'
 
 # Database
-sudo sqlite3 /var/lib/dplaneos/dplaneos.db "SELECT COUNT(*) FROM roles;"
+sudo -u postgres psql dplaneos -c "SELECT count(*) FROM roles;"
 # Expected: 4 (admin, operator, viewer, user)
 ```
 
@@ -216,6 +216,8 @@ sudo systemctl daemon-reload
 
 # Remove data (irreversible)
 sudo rm -rf /var/lib/dplaneos
+sudo systemctl stop postgresql patroni etcd
+sudo apt purge postgresql-* patroni etcd
 sudo rm -rf /var/log/dplaneos
 ```
 
@@ -250,9 +252,9 @@ curl http://127.0.0.1:9000/health  # test daemon directly
 ### Database initialization failed
 
 ```bash
-sudo rm /var/lib/dplaneos/dplaneos.db
+sudo -u postgres psql -c "DROP DATABASE dplaneos;"
 sudo systemctl restart dplaned
-ls -lh /var/lib/dplaneos/dplaneos.db  # should be recreated
+# The daemon will re-create the schema on startup if it can connect to local PG
 ```
 
 ---
@@ -262,8 +264,8 @@ ls -lh /var/lib/dplaneos/dplaneos.db  # should be recreated
 | Item | Path |
 |------|------|
 | Install directory | `/opt/dplaneos/` |
-| Database | `/var/lib/dplaneos/dplaneos.db` |
-| DB backups | `/var/lib/dplaneos/backups/` |
+| Database state | `/var/lib/dplaneos/pgsql/` |
+| HA Config | `/etc/dplaneos/patroni.yaml` |
 | Web UI files | `/opt/dplaneos/app/` |
 | Daemon binary | `/opt/dplaneos/daemon/dplaned` |
 | Version | `/opt/dplaneos/VERSION` |

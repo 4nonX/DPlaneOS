@@ -32,7 +32,7 @@ All Go dependencies are vendored. No internet access is needed to build.
 |---------|---------|
 | `github.com/gorilla/mux` | HTTP router |
 | `github.com/gorilla/websocket` | WebSocket (real-time monitor) |
-| `github.com/mattn/go-sqlite3` | SQLite driver (CGO) |
+| `github.com/jackc/pgx/v5` | PostgreSQL driver (pure Go) |
 | `github.com/google/uuid` | Job store UUIDs |
 | `github.com/go-ldap/ldap/v3` | LDAP / Active Directory integration |
 | `github.com/Azure/go-ntlmssp` | NTLM authentication (LDAP) |
@@ -50,8 +50,9 @@ Installed automatically by `install.sh` on Debian/Ubuntu.
 |------------|---------|
 | `nginx` | Reverse proxy and static file server |
 | `zfsutils-linux` | ZFS pool and dataset management |
-| `sqlite3` | Database CLI (used by installer for schema init) |
-| `gcc` / `build-essential` | CGO compilation of SQLite driver |
+| `postgresql-client` | Database CLI (`psql`) |
+| `patroni`, `etcd` | HA cluster management (installed via NixOS or apt) |
+| `gcc` / `build-essential` | CGO compilation for ZFS interop |
 | `musl-tools` | Optional - enables fully static binary build |
 | `smartmontools` | S.M.A.R.T. disk health monitoring |
 | `udev` | Device event rules (hot-swap, removable media) |
@@ -75,7 +76,7 @@ Installed automatically by `install.sh` on Debian/Ubuntu.
 |------------|---------|
 | Go 1.22+ | Rebuild the daemon from source |
 | Node.js 20+ | Rebuild the frontend from source |
-| gcc / CGO | Required when building `go-sqlite3` |
+| gcc / CGO | Required for ZFS interop |
 
 Pre-built binaries are included in the release tarball. Go and Node.js are not needed to install or run D-PlaneOS.
 
@@ -99,7 +100,7 @@ check_service() {
 
 check "nginx"        nginx
 check "zpool (ZFS)"  zpool
-check "sqlite3"      sqlite3
+check "psql (Postgres)" psql
 check "docker"       docker
 check "smartctl"     smartctl
 check "ipmitool"     ipmitool
@@ -122,7 +123,7 @@ Only needed if you want to modify the daemon or frontend.
 ```bash
 # Daemon (requires Go 1.22+ and gcc)
 cd daemon
-go build -mod=vendor -tags "sqlite_fts5" \
+go build -mod=vendor \
   -ldflags "-s -w -X main.Version=$(cat ../VERSION)" \
   -o ../build/dplaned ./cmd/dplaned/
 

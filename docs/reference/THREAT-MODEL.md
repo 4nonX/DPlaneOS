@@ -4,7 +4,7 @@
 
 D-PlaneOS is a NAS management layer running on top of NixOS or Debian/Ubuntu. It manages storage (ZFS), containers (Docker), network (systemd-networkd), and identity on a single server. It runs as one Go binary (`dplaned`) listening on `127.0.0.1:9000` by default. External access is via reverse proxy (nginx/Caddy/Pangolin).
 
-**Trust boundary**: the reverse proxy. Everything behind it (dplaned, SQLite, ZFS/Docker/systemd commands) is trusted. Everything in front (browser, network) is untrusted.
+**Trust boundary**: the reverse proxy. Everything behind it (dplaned, PostgreSQL, ZFS/Docker/systemd commands) is trusted. Everything in front (browser, network) is untrusted.
 
 ```
 ┌──────────────────────────────────────────────────────────┐
@@ -12,9 +12,9 @@ D-PlaneOS is a NAS management layer running on top of NixOS or Debian/Ubuntu. It
 │  Browser ──── Internet ──── Reverse Proxy (TLS)          │
 └──────────────────────────┬───────────────────────────────┘
                            │ TLS terminated, localhost only
-┌──────────────────────────┴───────────────────────────────┐
+┌──────────────────────────────────────────────────────────┐
 │                        TRUSTED                           │
-│  dplaned (Go) ─┬─ SQLite (dplaneos.db)                  │
+│  dplaned (Go) ─┬─ PostgreSQL / Patroni                   │
 │                ├─ exec.Command → zfs / zpool / docker    │
 │                ├─ networkdwriter → /etc/systemd/network/ │
 │                └─ /dev/sd* │ /mnt/* │ /var/lib/dplaneos/ │
@@ -28,13 +28,13 @@ D-PlaneOS is a NAS management layer running on top of NixOS or Debian/Ubuntu. It
 | User data (files, datasets) | CRITICAL | ZFS pools on `/mnt/*` |
 | ZFS pool metadata | CRITICAL | Pool vdevs |
 | ZFS encryption keys (loaded) | CRITICAL | Kernel memory |
-| SQLite database | HIGH | `/var/lib/dplaneos/dplaneos.db` |
-| Session tokens | HIGH | SQLite `sessions` table |
-| LDAP bind password | HIGH | SQLite `ldap_config` table (redacted in API responses) |
-| Telegram bot token | MEDIUM | SQLite `telegram_config` table |
-| TOTP secrets | HIGH | SQLite `totp_secrets` table |
-| Audit log + HMAC key | MEDIUM | SQLite `audit_logs` + `/var/lib/dplaneos/audit.key` |
-| Configuration | LOW | SQLite tables + CLI flags |
+| PostgreSQL database | HIGH | `/var/lib/dplaneos/pgsql/` |
+| Session tokens | HIGH | DB `sessions` table |
+| LDAP bind password | HIGH | DB `ldap_config` table (redacted in API responses) |
+| Telegram bot token | MEDIUM | DB `telegram_config` table |
+| TOTP secrets | HIGH | DB `totp_secrets` table |
+| Audit log + HMAC key | MEDIUM | DB `audit_logs` + `/var/lib/dplaneos/audit.key` |
+| Configuration | LOW | DB tables + CLI flags |
 
 ## Threat Actors
 
@@ -45,6 +45,18 @@ D-PlaneOS is a NAS management layer running on top of NixOS or Debian/Ubuntu. It
 | Local network attacker | Direct access to port 9000 if misconfigured | Full API access without TLS |
 | Physical attacker | Access to hardware | Disk theft, boot manipulation |
 | Malicious container | Docker container with host mounts | Escape to host filesystem |
+
+---
+
+## Security Features
+
+- **Sessions:** 32-byte random session tokens, stored hashed in PostgreSQL
+- **CSRF:** HMAC-SHA256 double-submit tokens on all mutating requests
+- **2FA:** TOTP (RFC 6238) with ±1 window clock drift tolerance, bcrypt-hashed backup codes
+- **API tokens:** SHA-256 hashed, prefixed `dpl_`, scope-limited (read/write/admin)
+- **RBAC:** 4 roles (viewer, user, operator, admin) enforced at handler level, with 34 discrete permissions
+- **Command execution:** Allowlist-based validation via `internal/security/whitelist.go`; arguments passed as separate slice elements to `exec.Command` - no shell. **v6.1.0 Hardening:** Strict `by-id` path enforcement and pool-membership safety checks for disk operations ensure enterprise-grade storage security.
+- **Database:** PostgreSQL with Patroni for HA; connections managed via `pgx/v5` pool.
 
 ---
 
@@ -138,8 +150,7 @@ D-PlaneOS is a NAS management layer running on top of NixOS or Debian/Ubuntu. It
 
 **Mitigation**:
 - In-process rate limiter: 100 requests/minute per source IP; returns HTTP 429 and logs a security event
-- systemd `MemoryMax=512M`, `MemoryHigh=384M` - OOM kill before system is starved
-- SQLite `busy_timeout=30000` prevents lock starvation under concurrent load
+- PostgreSQL persistent connections with pool management via `pgx/v5`
 - Buffered audit logging prevents I/O stalls on high event volume
 - Graceful shutdown (15 s timeout) drains in-flight requests on SIGTERM
 
@@ -156,7 +167,7 @@ D-PlaneOS is a NAS management layer running on top of NixOS or Debian/Ubuntu. It
 - UI exposes lock / unlock / change-key operations (`/api/zfs/encryption/*`)
 - `zfs unload-key` available via UI; not automatically called on daemon SIGTERM - operator must lock datasets before physical removal
 
-**Residual risk**: LOW if encryption is enabled and keys are locked. HIGH if encryption is not enabled - plaintext data on disks. SQLite DB is also plaintext on disk; ZFS pool-level encryption covers it only if the DB lives on an encrypted dataset.
+**Residual risk**: LOW if encryption is enabled and keys are locked. HIGH if encryption is not enabled - plaintext data on disks. PostgreSQL state is also plaintext on disk; ZFS pool-level encryption covers it only if the DB lives on an encrypted dataset.
 
 ---
 
@@ -178,7 +189,7 @@ D-PlaneOS is a NAS management layer running on top of NixOS or Debian/Ubuntu. It
 **Vector**: LDAP bind password compromised via DB access or API.
 
 **Mitigation**:
-- Bind password stored in SQLite (not in a plaintext config file)
+- Bind password stored in PostgreSQL (not in a plaintext config file)
 - GET `/api/ldap/config` redacts the password field
 - Only accessible via authenticated + RBAC-checked API endpoint
 
@@ -214,11 +225,12 @@ D-PlaneOS is a NAS management layer running on top of NixOS or Debian/Ubuntu. It
 **Vector**: Network partition isolates the active node from standby. Operator promotes standby. Both nodes now consider themselves active and attempt to import the same ZFS pools.
 
 **Mitigation**:
-- Promotion is manual-only - no automatic failover, so split-brain cannot occur without deliberate operator action
-- The HA module's `cluster.go` documents these limitations explicitly
-- Recommended mitigation: implement infrastructure-level fencing (e.g. IPMI power-off of the old active node) *before* promoting standby
+- **Automated DB Failover:** Patroni/etcd handle PostgreSQL consensus, preventing DB split-brain.
+- **Orchestrated NixOS State:** HA Manager ensures state consistency between nodes.
+- **Job-based Fencing:** Active fencing suppresses destructive operations during maintenance or failover windows.
+- The HA module's `cluster.go` documents these safety properties.
 
-**Residual risk**: HIGH if fencing is not in place. An operator who promotes a standby while the active node is partitioned-but-alive can cause pool imports on both nodes simultaneously, leading to ZFS pool corruption. This is an architectural limitation of the current HA implementation - it is not Pacemaker/Corosync. See `cluster.go` package documentation for full details.
+**Residual risk**: LOW-MEDIUM. While DB failover is automated, ZFS pool import still requires coordination. The HA maintenance route allows safe suppression of fencing for planned work. Skip-failover logic in Patroni provides additional safety.
 
 ---
 
@@ -230,7 +242,7 @@ D-PlaneOS is a NAS management layer running on top of NixOS or Debian/Ubuntu. It
 | WebSocket (`/api/ws/monitor`) | Authenticated | Session middleware | Validated before upgrade |
 | `exec.Command` (zfs, zpool, docker, etc.) | Internal only | **Strict sentence-based allowlist** | Path-agnostic resolution via PATH; no shell |
 | networkdwriter file writes | `/etc/systemd/network/50-dplane-*` | Root filesystem permissions | Pure file I/O; `networkctl reload` fixed args |
-| SQLite database | Filesystem (`/var/lib/dplaneos/`) | OS file permissions (root) | WAL mode; HMAC audit chain |
+| PostgreSQL database | Filesystem (`/var/lib/dplaneos/pgsql/`) | OS file permissions (root/postgres) | Managed by Patroni/etcd |
 | systemd service | Root process | `CapabilityBoundingSet`, `NoNewPrivileges`, `MemoryMax` | Not a dedicated non-root user |
 
 ---
@@ -245,6 +257,6 @@ Run behind a VPN or reverse proxy with authentication (e.g. WireGuard, Tailscale
 
 - **Partial RBAC coverage** - many operational routes (ZFS, Docker, snapshots, replication, system) are session-authenticated but lack per-route `RequirePermission` checks
 - **ZFS keys not auto-locked on shutdown** - `zfs unload-key` must be called manually before powering down if encryption-at-rest is required
-- **SQLite plaintext** - DB is not encrypted independently; relies on ZFS pool-level encryption if the pool is configured that way
+- **PostgreSQL plaintext** - DB is not encrypted independently; relies on ZFS pool-level encryption if the pool is configured that way
 - **No API request signing** - no HMAC or nonce scheme for critical destructive operations (pool export, dataset destroy, Docker remove)
 - **CSP not set by daemon** - CSP only present in nginx config; direct connections to port 9000 have no CSP

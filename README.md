@@ -1,6 +1,6 @@
 # D-PlaneOS
 
-ZFS-first NAS operating system for homelab and small-office deployments. Runs as a single Go daemon behind nginx, backed by SQLite, with a React UI served locally no cloud dependencies, no mandatory subscriptions.
+ZFS-first NAS operating system for homelab and small-office deployments. Runs as a single Go daemon behind nginx, backed by PostgreSQL, with a React UI served locally no cloud dependencies, no mandatory subscriptions.
 
 [![Version](https://img.shields.io/github/v/release/4nonX/D-PlaneOS?style=flat-square&label=version)](https://github.com/4nonX/D-PlaneOS/releases/latest)
 [![License](https://img.shields.io/badge/license-AGPLv3-blue?style=flat-square)](https://github.com/4nonX/D-PlaneOS/blob/main/LICENSE)
@@ -70,7 +70,7 @@ Browser
   └── nginx :80/:443          static files from /opt/dplaneos/app/
         └── proxy /api/ /ws/
               └── dplaned :9000 (Go, ~8 MB)
-                    ├── SQLite  /var/lib/dplaneos/dplaneos.db
+                    ├── PostgreSQL /var/lib/dplaneos/pgsql/ (embedded/Patroni)
                     ├── ZFS     kernel module via exec.Command
                     ├── Docker  socket
                     └── LDAP/AD optional
@@ -80,7 +80,7 @@ Browser
 |-----------|--------|
 | Frontend | React 19 + TypeScript + Vite, pre-built — no Node.js needed at runtime |
 | Backend | Go daemon, ~256 API routes, **strict allowlist-validated exec calls**, no shell |
-| Database | SQLite WAL + FTS5, daily `VACUUM INTO` backup, HMAC audit chain |
+| Database | PostgreSQL 15+ (Patroni-managed High Availability) |
 | Auth | bcrypt passwords (local), LDAP bind (directory accounts), TOTP 2FA, 32-byte session tokens, CSRF double-submit |
 | ZFS events | ZED hook delivers pool fault/scrub/resilver events in real time |
 
@@ -107,8 +107,8 @@ sudo apt install nut              # UPS monitoring
 | Daemon binary | `/opt/dplaneos/daemon/dplaned` |
 | Web UI (static) | `/opt/dplaneos/app/` |
 | Version file | `/opt/dplaneos/VERSION` |
-| Database | `/var/lib/dplaneos/dplaneos.db` |
-| DB backup | `/var/lib/dplaneos/dplaneos.db.backup` |
+| Database state | `/var/lib/dplaneos/pgsql/` |
+| DB configuration | `/etc/dplaneos/patroni.yaml` |
 | Custom container icons | `/var/lib/dplaneos/custom_icons/` |
 | Logs | `/var/log/dplaneos/` |
 | nginx config | `/etc/nginx/sites-available/dplaneos` |
@@ -186,9 +186,9 @@ curl http://127.0.0.1:9000/health
 # Interactive recovery (locked out, DB issues, ZFS problems)
 sudo dplaneos-recovery
 
-# Database
-sqlite3 /var/lib/dplaneos/dplaneos.db "SELECT COUNT(*) FROM users;"
-sqlite3 /var/lib/dplaneos/dplaneos.db "PRAGMA integrity_check;"
+# Database access (via psql)
+sudo -u postgres psql dplaneos -c "\dt"
+sudo -u postgres psql dplaneos -c "SELECT count(*) FROM users;"
 
 # ZFS
 zpool status

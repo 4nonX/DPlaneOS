@@ -28,7 +28,7 @@ readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly DPLANEOS_VERSION="$(cat "$SCRIPT_DIR/VERSION" 2>/dev/null | tr -d '[:space:]')"
 [ -z "$DPLANEOS_VERSION" ] && { echo "ERROR: Could not read VERSION file" >&2; exit 1; }
 readonly INSTALL_DIR="/opt/dplaneos"
-readonly DB_PATH="/var/lib/dplaneos/dplaneos.db"
+readonly DB_PATH="/var/lib/dplaneos/pgsql"
 readonly LOG_FILE="/var/log/dplaneos-install.log"
 readonly BACKUP_BASE="/var/lib/dplaneos/backups"
 
@@ -115,9 +115,8 @@ esac
 _do_rollback() {
     local bp="$1"
     systemctl stop dplaned nginx 2>/dev/null || true
-    [ -f "${bp}/dplaneos.db" ]         && cp "${bp}/dplaneos.db" "$DB_PATH" \
-                                       && chmod 600 "$DB_PATH" \
-                                       && echo "  DB restored"
+    [ -d "${bp}/pgsql" ]               && cp -r "${bp}/pgsql" "/var/lib/dplaneos/" \
+                                       && echo "  PostgreSQL state restored"
     [ -f "${bp}/nginx-dplaneos.conf" ] && cp "${bp}/nginx-dplaneos.conf" /etc/nginx/sites-available/dplaneos \
                                        && echo "  nginx config restored"
     [ -f "${bp}/dplaned.service" ]     && cp "${bp}/dplaned.service" /etc/systemd/system/dplaned.service \
@@ -226,10 +225,9 @@ if $OPT_UPGRADE; then
     BACKUP_PATH="${BACKUP_BASE}/pre-upgrade-$(date +%Y%m%d-%H%M%S)"
     mkdir -p "$BACKUP_PATH"
 
-    if [ -f "$DB_PATH" ]; then
-        sqlite3 "$DB_PATH" ".backup '${BACKUP_PATH}/dplaneos.db'" 2>/dev/null \
-            || cp "$DB_PATH" "${BACKUP_PATH}/dplaneos.db"
-        log "DB backed up"
+    if [ -d "$DB_PATH" ]; then
+        cp -r "$DB_PATH" "${BACKUP_PATH}/pgsql"
+        log "PostgreSQL state backed up"
     fi
     [ -f /etc/nginx/sites-available/dplaneos ] \
         && cp /etc/nginx/sites-available/dplaneos "${BACKUP_PATH}/nginx-dplaneos.conf" \
@@ -248,7 +246,7 @@ if $OPT_UPGRADE; then
 # Usage: sudo bash ${BACKUP_PATH}/rollback.sh
 set -euo pipefail
 systemctl stop dplaned nginx 2>/dev/null || true
-[ -f "${BACKUP_PATH}/dplaneos.db" ]         && cp "${BACKUP_PATH}/dplaneos.db" "${DB_PATH}" && chmod 600 "${DB_PATH}" && echo "DB restored"
+[ -d "${BACKUP_PATH}/pgsql" ]               && cp -r "${BACKUP_PATH}/pgsql" /var/lib/dplaneos/ && echo "PostgreSQL state restored"
 [ -f "${BACKUP_PATH}/nginx-dplaneos.conf" ] && cp "${BACKUP_PATH}/nginx-dplaneos.conf" /etc/nginx/sites-available/dplaneos && echo "nginx config restored"
 [ -f "${BACKUP_PATH}/dplaned.service" ]     && cp "${BACKUP_PATH}/dplaned.service" /etc/systemd/system/dplaned.service && systemctl daemon-reload && echo "systemd unit restored"
 [ -f "${BACKUP_PATH}/sudoers-dplaneos" ]    && cp "${BACKUP_PATH}/sudoers-dplaneos" /etc/sudoers.d/dplaneos && chmod 440 /etc/sudoers.d/dplaneos && echo "sudoers restored"
@@ -489,7 +487,6 @@ elif command -v go &>/dev/null; then
         info "musl-gcc found - building fully static binary (glibc-independent)..."
         CC=musl-gcc CGO_ENABLED=1 \
             go build $BUILD_MOD \
-            -tags "sqlite_fts5" \
             -ldflags="-s -w -X main.Version=${DPLANEOS_VERSION} -linkmode external -extldflags -static" \
             -o "${INSTALL_DIR}/daemon/dplaned" ./cmd/dplaned/ 2>&1 | tail -5
         if ldd "${INSTALL_DIR}/daemon/dplaned" 2>&1 | grep -q "not a dynamic executable"; then
@@ -497,7 +494,7 @@ elif command -v go &>/dev/null; then
         else
             warn "musl build produced dynamic binary - falling back to glibc build"
             CGO_ENABLED=1 \
-                go build $BUILD_MOD -tags "sqlite_fts5" \
+                go build $BUILD_MOD \
                 -ldflags="-s -w -X main.Version=${DPLANEOS_VERSION}" \
                 -o "${INSTALL_DIR}/daemon/dplaned" ./cmd/dplaned/ 2>&1 | tail -5
         fi
@@ -554,56 +551,12 @@ fi
 INSTALL_PHASE=7
 
 # ────────────────────────────────────────────────────────────────────────────
-step "Phase 7/13: Database"
-# ────────────────────────────────────────────────────────────────────────────
-
-if [ -n "$OPT_DB_DSN" ]; then
-    info "Using PostgreSQL DSN: $OPT_DB_DSN"
-    GENERATED_ADMIN_PASSWORD=""
-    if [ ! "$OPT_UPGRADE" = true ]; then
-        ADMIN_PASSWORD=$(openssl rand -base64 18 | tr -dc 'A-Za-z0-9!@#$' | head -c 16)
-        ADMIN_HASH=$(
-            python3 -c "import bcrypt; print(bcrypt.hashpw(b'${ADMIN_PASSWORD}', bcrypt.gensalt(12)).decode())" 2>/dev/null \
-            || htpasswd -bnBC 12 "" "${ADMIN_PASSWORD}" 2>/dev/null | tr -d ':\n' | sed 's/^://' \
-            || echo ""
-        )
-        if [ -n "$ADMIN_HASH" ]; then
-            info "Seeding admin user password in PostgreSQL..."
-            # We must wait for the daemon to initialize the schema or do it manually.
-            # But the daemon does it on startup. So we can either:
-            # 1. Start daemon, wait, then update.
-            # 2. Or just let the user set it. 
-            # In install.sh, we'll try to update it via psql if possible.
-            # We'll use the DSN parts for psql.
-            if command -v psql &>/dev/null; then
-               # Simple attempt to update admin if table exists
-               psql "$OPT_DB_DSN" -c "UPDATE users SET password_hash='${ADMIN_HASH}', must_change_password=1 WHERE username='admin';" &>/dev/null || true
-            fi
-            GENERATED_ADMIN_PASSWORD="$ADMIN_PASSWORD"
-        fi
-    fi
     log "PostgreSQL configuration phase complete"
 else
-    warn "SQLite is deprecated in v7.0.0. Proceeding with legacy setup."
-    mkdir -p "$(dirname "$DB_PATH")"
-    GENERATED_ADMIN_PASSWORD=""
-    if [ ! -f "$DB_PATH" ]; then
-        ADMIN_PASSWORD=$(openssl rand -base64 18 | tr -dc 'A-Za-z0-9!@#$' | head -c 16)
-        ADMIN_HASH=$(
-            python3 -c "import bcrypt; print(bcrypt.hashpw(b'${ADMIN_PASSWORD}', bcrypt.gensalt(12)).decode())" 2>/dev/null \
-            || htpasswd -bnBC 12 "" "${ADMIN_PASSWORD}" 2>/dev/null | tr -d ':\n' | sed 's/^://' \
-            || die "Cannot generate bcrypt hash"
-        )
-        sqlite3 "$DB_PATH" <<'SCHEMA'
-PRAGMA journal_mode = WAL;
-CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, username TEXT UNIQUE, password_hash TEXT, role TEXT, active INTEGER);
-INSERT OR IGNORE INTO users (username, password_hash, role, active) VALUES ('admin', '', 'admin', 1);
-SCHEMA
-        sqlite3 "$DB_PATH" "UPDATE users SET password_hash = '${ADMIN_HASH}' WHERE username = 'admin';"
-        GENERATED_ADMIN_PASSWORD="$ADMIN_PASSWORD"
-        log "Legacy database created"
-    fi
-    chmod 600 "$DB_PATH"
+    die "PostgreSQL DSN is mandatory in v7.1.0. Use --db-dsn to specify the database connection."
+fi
+else
+# Phase 7 removal - SQLite no longer supported
 fi
 
 INSTALL_PHASE=8
@@ -839,7 +792,7 @@ StartLimitBurst=5
 Type=simple
 Environment=DATABASE_DSN=${OPT_DB_DSN}
 ExecStartPre=mkdir -p /run/dplaneos /var/lib/dplaneos /var/log/dplaneos /etc/dplaneos
-ExecStart=${INSTALL_DIR}/daemon/dplaned $( [ -n "${OPT_DB_DSN}" ] && echo "-db-dsn ${OPT_DB_DSN}" || echo "-db ${DB_PATH}" ) -listen 127.0.0.1:9000 -smb-conf /var/lib/dplaneos/smb-shares.conf
+ExecStart=${INSTALL_DIR}/daemon/dplaned -db-dsn ${OPT_DB_DSN} -listen 127.0.0.1:9000 -smb-conf /var/lib/dplaneos/smb-shares.conf
 WorkingDirectory=${INSTALL_DIR}
 Restart=always
 RestartSec=5

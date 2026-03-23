@@ -167,7 +167,7 @@
   # ─── NVMe longevity : protect the Patriot P300 ──────────────────────────
   # The P300 is DRAM-less (SLC write cache : raw NAND). Minimising
   # unnecessary write amplification significantly extends drive life.
-  # The NVMe carries only the OS, daemon binary, and SQLite DB : all
+  # The NVMe carries only the OS, daemon binary, and PostgreSQL DB : all
   # bulk data lives on the ZFS HDD pool.
 
   # Weekly TRIM : informs the NVMe FTL which blocks are free,

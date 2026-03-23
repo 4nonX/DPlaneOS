@@ -174,7 +174,7 @@ journalctl -u dplaned -f
 curl http://localhost:9000/health
 
 # DB integrity
-sqlite3 /var/lib/dplaneos/dplaneos.db "PRAGMA integrity_check"
+sudo -u postgres psql dplaneos -c "\dt"
 
 # ZFS pool health
 zpool status

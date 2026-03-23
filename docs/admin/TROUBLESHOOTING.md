@@ -1,4 +1,4 @@
-﻿# D-PlaneOS Troubleshooting Guide
+# D-PlaneOS Troubleshooting Guide
 
 ---
 
@@ -8,7 +8,7 @@
 
 **Symptom:** `make build` fails with `cgo: C compiler "gcc" not found`
 
-**Cause:** CGO is required for SQLite (`mattn/go-sqlite3` compiles C code).
+**Cause:** CGO is required for ZFS and system-level interop (though the main database is now PostgreSQL).
 
 **Fix:**
 ```bash
@@ -34,7 +34,7 @@ sudo apt install golang-go         # Debian/Ubuntu (Go 1.22+)
 
 ```bash
 cd daemon
-CGO_ENABLED=1 go build -mod=vendor -tags "sqlite_fts5" \
+CGO_ENABLED=1 go build -mod=vendor \
   -ldflags="-s -w -X main.Version=$(cat ../VERSION)" \
   -o ../build/dplaned ./cmd/dplaned/
 ```
@@ -42,19 +42,7 @@ CGO_ENABLED=1 go build -mod=vendor -tags "sqlite_fts5" \
 The release tarball for the current version is at:
 `https://github.com/4nonX/D-PlaneOS/releases/latest`
 
-### Off-Pool Database Backup
-
-**Symptom:** You want the configuration database on a separate drive (not the boot disk).
-
-**Fix:** Edit `/etc/systemd/system/dplaned.service` and add `-backup-path`:
-
-```
-ExecStart=/opt/dplaneos/daemon/dplaned \
-  -db /var/lib/dplaneos/dplaneos.db \
-  -backup-path /mnt/usb-backup/dplaneos.db.backup
-```
-
-The daemon creates a `VACUUM INTO` backup on startup and every 24 hours.
+**Fix:** D-PlaneOS uses PostgreSQL. To move the data directory, follow standard PostgreSQL/Patroni procedures or update the mountpoint for `/var/lib/dplaneos/pgsql`.
 
 ### ZED Hook Not Installed
 
@@ -116,11 +104,8 @@ sudo systemctl restart dplaned
 sudo systemctl status dplaned
 sudo journalctl -u dplaned -n 50
 
-# Check whether the database file was created
-ls -lh /var/lib/dplaneos/dplaneos.db
-
 # Check whether admin user exists
-sqlite3 /var/lib/dplaneos/dplaneos.db "SELECT username, role FROM users WHERE username='admin';"
+sudo -u postgres psql dplaneos -c "SELECT username FROM users WHERE username='admin';"
 ```
 
 **Fix - Option 1: Wait for automatic recovery**
@@ -137,12 +122,13 @@ sudo dplaneos-recovery
 ```bash
 sudo systemctl stop dplaned
 
-# Generate a bcrypt hash for your chosen password
+# Generate a bcrypt hash (example using python)
 NEW_HASH=$(python3 -c "import bcrypt; print(bcrypt.hashpw(b'your-new-password', bcrypt.gensalt(12)).decode())")
 
-sudo sqlite3 /var/lib/dplaneos/dplaneos.db "
-  INSERT OR REPLACE INTO users (id, username, password_hash, display_name, email, role, active, source)
-  VALUES (1, 'admin', '${NEW_HASH}', 'Administrator', 'admin@localhost', 'admin', 1, 'local');
+sudo -u postgres psql dplaneos -c "
+  INSERT INTO users (id, username, password_hash, display_name, email, active, source)
+  VALUES (1, 'admin', '${NEW_HASH}', 'Administrator', 'admin@localhost', 1, 'local')
+  ON CONFLICT (id) DO UPDATE SET password_hash = EXCLUDED.password_hash;
 "
 
 sudo systemctl start dplaned
@@ -285,7 +271,7 @@ zpool import -d /dev/disk/by-id
 sudo journalctl -u dplaned -n 50 | grep -i "import"
 
 # Check disk registry
-sqlite3 /var/lib/dplaneos/dplaneos.db "SELECT dev_name, by_id_path, pool_name, health FROM disk_registry;"
+sudo -u postgres psql dplaneos -c "SELECT dev_name, by_id_path, pool_name, health FROM disk_registry;"
 ```
 
 **Fix - Manual import:**
@@ -300,7 +286,7 @@ sudo zpool import -f -d /dev/disk/by-id <pool-name>
 **Fix - Rebuild the disk registry entry:**
 ```bash
 # Delete the stale registry entry so the daemon re-learns the disk
-sudo sqlite3 /var/lib/dplaneos/dplaneos.db \
+sudo -u postgres psql dplaneos -c \
   "DELETE FROM disk_registry WHERE dev_name = 'sdb';"
 
 # Then trigger re-detection
@@ -582,14 +568,8 @@ The installer places files in these locations:
 |------|------|
 | Application binary | `/opt/dplaneos/daemon/dplaned` |
 | Web UI (static files) | `/opt/dplaneos/app/` |
-| Configuration database | `/var/lib/dplaneos/dplaneos.db` |
-| Automatic DB backup | `/var/lib/dplaneos/dplaneos.db.backup` |
-| Custom container icons | `/var/lib/dplaneos/custom_icons/` |
-| Replication schedules | `/etc/dplaneos/replication-schedules.json` |
-| Snapshot schedules | `/etc/dplaneos/snapshot-schedules.json` |
-| Scrub schedules | `/etc/dplaneos/scrub-schedules.json` |
-| System tuning settings | `/etc/dplaneos/system-settings.json` |
-| Disk registry | Stored in the main SQLite database (`disk_registry` table) |
+| Configuration database | `/var/lib/dplaneos/pgsql/` |
+| Disk registry | Stored in the main PostgreSQL database (`disk_registry` table) |
 | Application logs | `/var/log/dplaneos/` |
 | Install log | `/var/log/dplaneos-install.log` |
 | Version file | `/opt/dplaneos/VERSION` |
@@ -608,8 +588,8 @@ ls -la /opt/dplaneos/
 ls -la /var/lib/dplaneos/
 ls -la /var/log/dplaneos/
 
-# DB must be readable by root (daemon runs as root)
-stat /var/lib/dplaneos/dplaneos.db
+# DB state must be readable by postgres/dplaned
+stat /var/lib/dplaneos/pgsql/
 
 # Web UI files should be readable by www-data
 ls -la /opt/dplaneos/app/
@@ -642,23 +622,17 @@ zpool list
 zfs list
 
 # Disk registry
-sqlite3 /var/lib/dplaneos/dplaneos.db \
+sudo -u postgres psql dplaneos -c \
   "SELECT dev_name, by_id_path, pool_name, health, last_seen FROM disk_registry;"
 
 # Service status
-systemctl status dplaned --no-pager
-systemctl status nginx --no-pager
-
-# Docker status
-docker ps
-docker info | grep -i proxy
+systemctl status dplaned postgresql patroni etcd --no-pager
 
 # Database
-ls -lh /var/lib/dplaneos/dplaneos.db
-sqlite3 /var/lib/dplaneos/dplaneos.db "SELECT COUNT(*) FROM users;"
+sudo -u postgres psql dplaneos -c "SELECT COUNT(*) FROM users;"
 
 # Alert config sanity check
-sqlite3 /var/lib/dplaneos/dplaneos.db \
+sudo -u postgres psql dplaneos -c \
   "SELECT name, events FROM webhook_configs;"
 
 # Last 20 daemon log lines

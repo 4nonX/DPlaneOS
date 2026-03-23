@@ -1,19 +1,19 @@
-﻿# Contributing to D-PlaneOS
+# Contributing to D-PlaneOS
 
 Thank you for helping make D-PlaneOS better. This document explains how to contribute code, report bugs, and suggest features.
 
 ## Quick Start
 
 ```bash
-# Prerequisites: Go 1.22+, gcc (for SQLite CGO), Node.js 20+, make
+# Prerequisites: Go 1.25+, gcc (for ZFS interop), Node.js 20+, make, PostgreSQL
 git clone https://github.com/4nonX/D-PlaneOS
 cd D-PlaneOS
 
 # Build the daemon
 cd daemon && go build -o dplaned ./cmd/dplaned && cd ..
 
-# Run locally (uses /tmp/dplaneos-dev.db)
-sudo ./daemon/dplaned -db /tmp/dplaneos-dev.db -backup-path ""
+# Run locally (uses local PostgreSQL)
+sudo ./daemon/dplaned -backup-path ""
 
 # Frontend dev server (hot reload, proxies API to daemon)
 cd app-react
@@ -141,7 +141,7 @@ cd app-react && npm run build && cd ..
 
 # Build daemon binary
 cd daemon
-go build -mod=vendor -tags "sqlite_fts5" \
+go build -mod=vendor \
   -ldflags "-s -w -X main.Version=$(cat ../VERSION)" \
   -o ../build/dplaned ./cmd/dplaned/
 ```

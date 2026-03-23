@@ -92,4 +92,4 @@ sudo nixos-rebuild switch
 | **Firewall** | Only ports 80, 443, 445, 2049 open |
 | **mDNS** | NAS discoverable as `dplaneos.local` |
 | **SSH** | Password login for initial setup, SSH keys recommended after |
-| **Backups** | Daily SQLite backup at 3 AM (`.backup`, WAL-safe) |
+| **Database** | Automated PostgreSQL HA management via Patroni/etcd |

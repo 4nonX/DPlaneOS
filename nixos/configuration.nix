@@ -156,7 +156,6 @@ in {
       Type = "simple";
       ExecStart = lib.concatStringsSep " " [
         "${dplaned}/bin/dplaned"
-        "-db /var/lib/dplaneos/dplaneos.db"
         "-listen 127.0.0.1:9000"
         "-config-dir /var/lib/dplaneos/config"
         "-smb-conf /var/lib/dplaneos/smb-shares.conf"
@@ -428,7 +427,8 @@ in {
     git openssh
 
     # Shell
-    htop tmux nano curl wget sqlite
+    htop tmux nano curl wget
+    postgresql
   ];
 
   # ═══════════════════════════════════════════════════════════
@@ -458,7 +458,7 @@ in {
   #  SCHEDULED TASKS (the NixOS way : systemd timers)
   # ═══════════════════════════════════════════════════════════
 
-  # Daily database backup with 30-day retention
+  # Daily database backup (logical dump) with 30-day retention
   systemd.timers.dplaneos-db-backup = {
     wantedBy = [ "timers.target" ];
     timerConfig = {
@@ -472,9 +472,8 @@ in {
     serviceConfig = {
       Type = "oneshot";
       ExecStart = pkgs.writeShellScript "dplaneos-db-backup" ''
-        ${pkgs.sqlite}/bin/sqlite3 /var/lib/dplaneos/dplaneos.db \
-          ".backup /var/lib/dplaneos/backups/dplaneos-$(date +%Y%m%d-%H%M%S).db"
-        ${pkgs.findutils}/bin/find /var/lib/dplaneos/backups -name "dplaneos-*.db" -mtime +30 -delete
+        ${pkgs.postgresql}/bin/pg_dump -U postgres dplaneos > /var/lib/dplaneos/backups/dplaneos-$(date +%Y%m%d-%H%M%S).sql
+        ${pkgs.findutils}/bin/find /var/lib/dplaneos/backups -name "dplaneos-*.sql" -mtime +30 -delete
       '';
     };
   };

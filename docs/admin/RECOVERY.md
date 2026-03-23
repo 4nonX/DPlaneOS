@@ -1,4 +1,4 @@
-﻿# D-PlaneOS Recovery Guide
+# D-PlaneOS Recovery Guide
 
 ## Quick Reference
 
@@ -54,50 +54,47 @@ curl http://127.0.0.1:9000/health
 
 ## 2. Database Recovery
 
-The SQLite database lives at `/var/lib/dplaneos/dplaneos.db`.
+The PostgreSQL database state is managed by Patroni and stored at `/var/lib/dplaneos/pgsql/`.
 
-### Automatic Backups
+### Automatic Snapshots
 
-`dplaned` creates a backup on every startup and once daily via `VACUUM INTO`:
-
-- Default path: `/var/lib/dplaneos/dplaneos.db.backup`
-- Custom path: set via `-backup-path /path/to/backup.db` in the systemd unit
-
-### Restore from Backup
+We recommend using ZFS snapshots for database recovery. The installer configures a separate dataset for the PostgreSQL state if a pool exists.
 
 ```bash
-sudo systemctl stop dplaned
+# View available snapshots
+zfs list -t snapshot -r tank/dplaneos/pgsql
 
-# Replace corrupted database with backup
-sudo cp /var/lib/dplaneos/dplaneos.db.backup /var/lib/dplaneos/dplaneos.db
-
-# Remove WAL files - they belong to the old DB
-sudo rm -f /var/lib/dplaneos/dplaneos.db-wal
-sudo rm -f /var/lib/dplaneos/dplaneos.db-shm
-
-# Start service (schema auto-init fills any missing tables)
-sudo systemctl start dplaned
+# Restore a snapshot (rollback)
+sudo systemctl stop dplaned patroni postgresql
+sudo zfs rollback tank/dplaneos/pgsql@backup-20260323
+sudo systemctl start postgresql patroni dplaned
 ```
 
-### Database Integrity Check
+### Manual Backup (Logical)
 
 ```bash
-sudo sqlite3 /var/lib/dplaneos/dplaneos.db "PRAGMA integrity_check;"
-# Expected output: ok
+# Backup the entire dplaneos database
+sudo -u postgres pg_dump dplaneos > /backup/dplaneos-$(date +%Y%m%d).sql
+
+# Restore from SQL dump
+sudo systemctl stop dplaned
+sudo -u postgres psql dplaneos < /backup/dplaneos-20260323.sql
+sudo systemctl start dplaned
 ```
 
 ### Complete Database Reset
 
-If both primary and backup are corrupted, delete and let the daemon recreate from scratch. All tables and default data (roles, permissions, admin user) are seeded automatically on startup:
+If the database is unrecoverable, you can drop and let the daemon recreate the schema from scratch (roles, permissions, and the default admin user will be seeded automatically):
 
 ```bash
 sudo systemctl stop dplaned
-sudo rm -f /var/lib/dplaneos/dplaneos.db*
+sudo -u postgres psql -c "DROP DATABASE dplaneos;"
+sudo -u postgres psql -c "CREATE DATABASE dplaneos;"
 sudo systemctl start dplaned
 # Check logs: should show "Seeded 4 built-in RBAC roles"
 ```
 
-**Note:** This resets all sessions, user accounts, LDAP configuration, and notification settings. ZFS pools, shares, and Docker containers are not affected - they live outside the database.
+**Note:** This resets all sessions, user accounts, roles, and settings. ZFS pools, shares, and Docker containers are preserved as they live outside the database.
 
 ---
 
@@ -114,24 +111,23 @@ sudo dplaneos-recovery
 
 ### Locked Out - Clear All Sessions
 
-Sessions are stored in SQLite. If all sessions are expired or the DB is corrupted:
+Sessions are stored in the `sessions` table. To force-logout all users:
 
 ```bash
-sudo systemctl stop dplaned
-sudo sqlite3 /var/lib/dplaneos/dplaneos.db "DELETE FROM sessions;"
-sudo systemctl start dplaned
+sudo -u postgres psql dplaneos -c "DELETE FROM sessions;"
 # All users must log in again
 ```
 
 ### Reset Admin User Directly
 
 ```bash
-# Generate a bcrypt hash
+# Generate a bcrypt hash (example using python)
 NEW_HASH=$(python3 -c "import bcrypt; print(bcrypt.hashpw(b'your-password', bcrypt.gensalt(12)).decode())")
 
-sudo sqlite3 /var/lib/dplaneos/dplaneos.db "
-  INSERT OR REPLACE INTO users (id, username, password_hash, display_name, email, role, active, source)
-  VALUES (1, 'admin', '${NEW_HASH}', 'Administrator', 'admin@localhost', 'admin', 1, 'local');
+sudo -u postgres psql dplaneos -c "
+  INSERT INTO users (id, username, password_hash, display_name, email, active, source)
+  VALUES (1, 'admin', '${NEW_HASH}', 'Administrator', 'admin@localhost', 1, 'local')
+  ON CONFLICT (id) DO UPDATE SET password_hash = EXCLUDED.password_hash;
 "
 ```
 
@@ -237,30 +233,25 @@ systemctl status dplaned | grep Memory
 #   - ZFS ARC pressure (kernel, not dplaned - check with arc_summary)
 ```
 
-### Database Slow
+### Database Maintenance (PostgreSQL)
 
 ```bash
-# Force WAL checkpoint (reduces WAL file size)
-sudo sqlite3 /var/lib/dplaneos/dplaneos.db "PRAGMA wal_checkpoint(TRUNCATE);"
+# Reclaim storage and update statistics
+sudo -u postgres vacuumdb --all --analyze --verbose
 
-# Check database and WAL sizes
-ls -lh /var/lib/dplaneos/dplaneos.db*
-
-# Manual VACUUM (rewrites and compacts the entire DB)
-sudo systemctl stop dplaned
-sudo sqlite3 /var/lib/dplaneos/dplaneos.db "VACUUM;"
-sudo systemctl start dplaned
+# Check connection status
+sudo -u postgres psql -c "\conninfo"
 ```
 
 ### Audit Log Growth
 
 ```bash
 # Count audit entries
-sudo sqlite3 /var/lib/dplaneos/dplaneos.db "SELECT COUNT(*) FROM audit_logs;"
+sudo -u postgres psql dplaneos -c "SELECT COUNT(*) FROM audit_logs;"
 
 # Purge entries older than 90 days
-sudo sqlite3 /var/lib/dplaneos/dplaneos.db "
-  DELETE FROM audit_logs WHERE timestamp < strftime('%s', 'now', '-90 days');
+sudo -u postgres psql dplaneos -c "
+  DELETE FROM audit_logs WHERE timestamp < (EXTRACT(EPOCH FROM NOW()) - (90 * 86400));
 "
 ```
 
@@ -315,28 +306,27 @@ sudo systemctl daemon-reload
 
 ```bash
 # Service status
-systemctl status dplaned
+systemctl status dplaned postgresql patroni etcd
 
 # Health check
 curl -s http://127.0.0.1:9000/health | python3 -m json.tool
 
 # Database tables
-sudo sqlite3 /var/lib/dplaneos/dplaneos.db ".tables"
+sudo -u postgres psql dplaneos -c "\dt"
 
 # Active sessions
-sudo sqlite3 /var/lib/dplaneos/dplaneos.db \
-  "SELECT username, datetime(created_at, 'unixepoch') FROM sessions WHERE status='active';"
+sudo -u postgres psql dplaneos -c \
+  "SELECT username, to_timestamp(created_at) FROM sessions WHERE status='active';"
 
 # RBAC roles
-sudo sqlite3 /var/lib/dplaneos/dplaneos.db \
+sudo -u postgres psql dplaneos -c \
   "SELECT name, display_name, is_system FROM roles;"
 
 # Recent audit entries
-sudo sqlite3 /var/lib/dplaneos/dplaneos.db \
-  "SELECT datetime(timestamp,'unixepoch'), user, action, resource FROM audit_logs ORDER BY id DESC LIMIT 20;"
+sudo -u postgres psql dplaneos -c \
+  "SELECT to_timestamp(timestamp), \"user\", action, resource FROM audit_logs ORDER BY id DESC LIMIT 20;"
 
 # Daemon version
 /opt/dplaneos/daemon/dplaned -version 2>/dev/null || \
   curl -s http://127.0.0.1:9000/health | grep version
 ```
-

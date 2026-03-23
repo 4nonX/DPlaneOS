@@ -101,8 +101,8 @@
 
         # ── Persist DB path ────────────────────────────────────────────────
         # /var/lib/dplaneos is bind-mounted from /persist/dplaneos by
-        # impermanence.nix, so the DB physically lives on the persist partition.
-        services.dplaneos.dbPath = "/var/lib/dplaneos/dplaneos.db";
+        # impermanence.nix. PostgreSQL state lives in /var/lib/dplaneos/pgsql.
+        services.dplaneos.dbPath = "/var/lib/dplaneos/pgsql";
 
         # ── Nix GC (appliance: keep store lean) ───────────────────────────
         nix.settings.auto-optimise-store = true;
@@ -142,8 +142,7 @@
           pname        = "dplaneos-daemon";
           version      = dplaneosVersion;
           src          = ../.;
-          # CGO_ENABLED=1 required for mattn/go-sqlite3 (C amalgamation)
-          # musl-gcc provides the static C runtime; no glibc dependency.
+          # CGO_ENABLED=1 required for ZFS interop
           CGO_ENABLED  = "1";
           # vendorHash: run `nix build .#dplaneos-daemon 2>&1 | grep "got:"` to
           # find the correct hash after any go.sum change, then update this value.
@@ -151,11 +150,8 @@
           vendorHash   = nixpkgs.lib.fakeHash;
           subPackages  = [ "daemon/cmd/dplaned" ];
           nativeBuildInputs = with pkgsStatic; [ musl.dev gcc ];
-          # -tags sqlite_fts5   : enables FTS5 full-text search in the
-          #                       mattn amalgamation (no external libsqlite3)
           # -linkmode external  : hand final link to musl-gcc
           # -extldflags -static : produce a fully static ELF, no .so deps
-          tags    = [ "sqlite_fts5" ];
           ldflags = [
             "-s" "-w"
             "-X" "main.Version=${dplaneosVersion}"
@@ -189,7 +185,6 @@
           vendorHash   = nixpkgs.lib.fakeHash;  # update after go.sum changes
           subPackages  = [ "daemon/cmd/dplaned" ];
           nativeBuildInputs = with pkgs; [ gcc ];
-          tags    = [ "sqlite_fts5" ];
           ldflags = [ "-s" "-w" "-X" "main.Version=${dplaneosVersion}" ];
           meta = with nixpkgs.lib; {
             description = "D-PlaneOS NAS daemon : glibc dynamic build (dev only)";
@@ -200,11 +195,12 @@
         packages.default = self.packages.${system}.dplaneos-daemon;
 
         devShells.default = pkgs.mkShell {
-          buildInputs = with pkgs; [ go gcc musl.dev gopls gotools sqlite git ];
+          buildInputs = with pkgs; [ go 1.25 gcc musl.dev gopls gotools postgresql git ];
           shellHook = ''
             export CGO_ENABLED=1
-            echo "D-PlaneOS dev shell : use 'go build -tags sqlite_fts5 ./daemon/cmd/dplaned/' to build"
-            echo "For static: CC=musl-gcc go build -tags sqlite_fts5 -ldflags '-linkmode external -extldflags -static' ./daemon/cmd/dplaned/"
+            echo "D-PlaneOS dev shell (Go 1.25, PostgreSQL)"
+            echo "Build command: go build ./daemon/cmd/dplaned/"
+            echo "Static build: CC=musl-gcc go build -ldflags '-linkmode external -extldflags -static' ./daemon/cmd/dplaned/"
           '';
         };
       }

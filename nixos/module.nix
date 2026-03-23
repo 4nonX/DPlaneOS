@@ -205,7 +205,7 @@ in {
           # Daemon state - bind-mounted from /persist/dplaneos by impermanence.nix.
           # All writes here physically land on the persist partition.
           "/var/log/dplaneos"
-          "/var/lib/dplaneos"   # dplaneos.db, audit.db, audit.key, gitops/
+          "/var/lib/dplaneos"   # PostgreSQL state, Patroni config, gitops/
           # OS config files the daemon manages (NixOS owns /etc; daemon owns subtrees)
           "/opt/dplaneos"
           "/etc/dplaneos"

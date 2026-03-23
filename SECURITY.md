@@ -45,7 +45,7 @@ We will not pursue legal action against researchers who:
 D-PlaneOS is designed as an internal network appliance. It is not intended to be exposed directly to the public internet. Key properties:
 
 - **Authentication:** bcrypt-hashed passwords, rate-limited login with exponential backoff
-- **Sessions:** 32-byte random session tokens, stored hashed in SQLite
+- **Sessions:** 32-byte random session tokens, stored hashed in PostgreSQL
 - **CSRF:** HMAC-SHA256 double-submit tokens on all mutating requests
 - **2FA:** TOTP (RFC 6238) with ±1 window clock drift tolerance, bcrypt-hashed backup codes
 - **API tokens:** SHA-256 hashed, prefixed `dpl_`, scope-limited (read/write/admin)
@@ -56,10 +56,10 @@ For the full threat model, see [docs/reference/THREAT-MODEL.md](docs/reference/T
 
 ## Known Limitations
 
-- **HA is node monitoring, not true HA:** The cluster module provides heartbeat detection and manual promotion. There is no STONITH, no automatic failover, and no split-brain protection. See [docs/reference/THREAT-MODEL.md](docs/reference/THREAT-MODEL.md) T13.
+- **HA is job-based and Patroni-managed:** The system uses Patroni/etcd for automated PostgreSQL failover. The HA Manager handles NixOS state reconciliation and node promotion. Fencing is implemented via job-based progress tracking. See [docs/reference/THREAT-MODEL.md](docs/reference/THREAT-MODEL.md) for current limits.
 - **Partial RBAC coverage:** Many operational routes are session-authenticated but lack per-route `RequirePermission` checks
 - **ZFS delegation** (`zfs allow`) is complex; review carefully before enabling
 - **rclone credentials** are stored in `/etc/dplaneos/rclone.conf` - restrict file permissions
 - **Docker socket** is accessible to the daemon - containers with host mounts can escalate
-- **LDAP bind password** is stored in SQLite - use a dedicated read-only LDAP account
+- **LDAP bind password** is stored in PostgreSQL - use a dedicated read-only LDAP account
 

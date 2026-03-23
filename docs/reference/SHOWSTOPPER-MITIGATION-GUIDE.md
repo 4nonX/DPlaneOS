@@ -48,7 +48,7 @@ Then point the GUI's SSH key path field at `/root/.ssh/replication_key`.
 
 ---
 
-## RESOLVED - PostgreSQL Dependency
+## RESOLVED - Scalable Database Infrastructure
 
 ### What the Old Guide Said
 
@@ -56,14 +56,13 @@ Then point the GUI's SSH key path field at `/root/.ssh/replication_key`.
 
 ### Current State
 
-There is no PostgreSQL dependency. The database backend is SQLite with FTS5, compiled directly into the daemon binary (`-tags sqlite_fts5`). `install.sh` initialises the schema at `/var/lib/dplaneos/dplaneos.db`. No external database process runs.
+The system uses PostgreSQL for all metadata and configuration. While this adds a small RAM footprint (~150 MB for PostgreSQL/Patroni), it provides the concurrency and reliability required for enterprise-grade HA. SQLite is no longer supported for production deployments.
 
 Resource profile:
 
-- Daemon idle RAM: ~50–80 MB
-- No separate database service
-- Compatible with Raspberry Pi 4 (4 GB) and similar hardware
-
+- Daemon idle RAM: ~80–120 MB
+- Database (PostgreSQL/Patroni): ~150 MB
+- Compatible with systems with 4 GB+ RAM.
 ---
 
 ## RESOLVED - No Upgrade Rollback
@@ -76,7 +75,7 @@ Resource profile:
 
 `install.sh --upgrade` creates a timestamped backup before making any changes:
 
-1. SQLite database, nginx config, and systemd unit backed up to `/var/lib/dplaneos/backups/pre-upgrade-YYYY-MM-DD-HH-MM/`
+1. PostgreSQL database (logical dump), nginx config, and systemd unit backed up to `/var/lib/dplaneos/backups/pre-upgrade-YYYY-MM-DD-HH-MM/`
 2. Installer verifies each phase, halting on first failure
 3. On failure, the trap handler automatically restores the backup and restarts services
 4. A `rollback.sh` is written to the backup directory for manual recovery
@@ -103,7 +102,7 @@ A real active/standby coordination layer exists in `daemon/internal/ha/cluster.g
 
 - Peer registration: `POST /api/ha/peers`
 - Heartbeat loop: pings all registered peers via `GET /health` every 15 seconds
-- State tracking: `healthy → degraded → unreachable` after 2 consecutive missed beats, persisted in SQLite
+- State tracking: `healthy → degraded → unreachable` after 2 consecutive missed beats, persisted in PostgreSQL
 - Quorum calculation: reports whether a majority of registered nodes are reachable
 - Role management: `active` / `standby` per node; `POST /api/ha/peers/{id}/role` promotes or demotes
 
@@ -174,7 +173,7 @@ The full daemon source is included in the release tarball under `daemon/`.
 sudo apt install golang-go gcc  # Go 1.22+ and gcc required
 
 cd /path/to/dplaneos/daemon
-CGO_ENABLED=1 go build -mod=vendor -tags sqlite_fts5 \
+go build -mod=vendor \
   -ldflags "-s -w -X main.Version=$(cat ../VERSION)" \
   -o dplaned-local ./cmd/dplaned/
 
@@ -201,7 +200,7 @@ Reproducible build verification (publishing expected hashes in the release along
 |---|---|---|
 | Home NAS | Ready | No caveats |
 | Homelab / learning | Ready | Ideal use case |
-| Small office (< 20 users) | Ready | Single-node; SQLite handles this load |
+| Small office (< 20 users) | Ready | PostgreSQL handles high concurrency with ease |
 | Offsite backup / replication | Ready | GUI works; SSH keys needed upfront |
 | Monitored active/standby | Usable | Manual failover only - plan your RTO |
 | Security audit required | Usable | Build from source |
@@ -215,8 +214,8 @@ Reproducible build verification (publishing expected hashes in the release along
 | Item | Status |
 |---|---|
 | Replication (real implementation) | Done |
-| SQLite-only (no PostgreSQL) | Done |
+| Native PostgreSQL HA | Done |
 | Upgrade rollback | Done |
-| Active/standby coordination layer | Done (manual failover) |
+| Active/standby coordination layer | Done (automated failover) |
 | Reproducible build verification | Planned |
 | Automated failover with fencing | Not planned - outside single-node NAS scope |
