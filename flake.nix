@@ -143,7 +143,7 @@
           version      = dplaneosVersion;
           src          = ./.;
           # CGO_ENABLED=1 required for ZFS interop
-          CGO_ENABLED  = "1";
+          env.CGO_ENABLED = "1";
           # vendorHash: run `nix build .#dplaneos-daemon 2>&1 | grep "got:"` to
           # find the correct hash after any go.sum change, then update this value.
           # Use nixpkgs.lib.fakeHash during initial setup to trigger the hash error.
@@ -181,7 +181,7 @@
           pname        = "dplaneos-daemon-dynamic";
           version      = dplaneosVersion;
           src          = ./.;
-          CGO_ENABLED  = "1";
+          env.CGO_ENABLED = "1";
           vendorHash   = nixpkgs.lib.fakeHash;  # update after go.sum changes
           subPackages  = [ "daemon/cmd/dplaned" ];
           nativeBuildInputs = with pkgs; [ gcc ];
