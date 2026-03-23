@@ -63,6 +63,12 @@ in {
         Example: [ "ssh-ed25519 AAAA... user@host" ]
       '';
     };
+
+    dbPath = lib.mkOption {
+      type        = lib.types.str;
+      default     = "/var/lib/dplaneos/pgsql";
+      description = "Path where the PostgreSQL data directory is located.";
+    };
   };
 
   config = lib.mkIf cfg.enable {
@@ -85,6 +91,7 @@ in {
       curl
       bash
       coreutils
+      postgresql
     ];
 
     # ─── ZFS ─────────────────────────────────────────────────────────────
