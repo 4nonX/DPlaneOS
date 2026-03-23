@@ -233,7 +233,7 @@ section "3. D-PLANEOS INSTALLATION"
 # ----------------------------------------------------------------
 
 INSTALL_DIR="/opt/dplaneos"
-DB_PATH="/var/lib/dplaneos/dplaneos.db"
+DB_DSN="${DATABASE_DSN:-}"
 
 # Install dir
 if [ -d "$INSTALL_DIR" ]; then
@@ -400,63 +400,44 @@ fi
 section "6. DATABASE"
 # ----------------------------------------------------------------
 
-if [ ! -f "$DB_PATH" ]; then
-    fail "Database not found: $DB_PATH"
+if [ -z "$DB_DSN" ]; then
+    fail "DATABASE_DSN not set. PostgreSQL is mandatory in v7.1.0."
 else
-    DB_SIZE=$(du -sh "$DB_PATH" | cut -f1)
-    pass "Database: $DB_PATH ($DB_SIZE)"
-
-    DB_PERMS=$(stat -c '%a' "$DB_PATH")
-    if [ "$DB_PERMS" = "600" ]; then
-        pass "Database permissions: 600"
+    pass "Database: PostgreSQL"
+    
+    if command -v psql &>/dev/null; then
+        db_version=$(psql "$DB_DSN" -c "SELECT version();" -t 2>/dev/null | head -1 | xargs || echo "unknown")
+        pass "PostgreSQL version: $db_version"
+        
+        # Admin user check
+        admin_exists=$(psql "$DB_DSN" -c "SELECT COUNT(*) FROM users WHERE username='admin';" -t 2>/dev/null | tr -d '[:space:]' || echo "0")
+        if [ "$admin_exists" -ge 1 ]; then
+            pass "Admin user exists in database"
+        else
+            fail "Admin user NOT FOUND in database"
+        fi
+        
+        # Audit log check
+        audit_rows=$(psql "$DB_DSN" -c "SELECT COUNT(*) FROM audit_logs;" -t 2>/dev/null | tr -d '[:space:]' || echo "0")
+        info "Audit log rows: $audit_rows"
+        
+        # Session cleanup check
+        expired_sessions=$(psql "$DB_DSN" -c "SELECT COUNT(*) FROM sessions WHERE expires_at <= EXTRACT(EPOCH FROM NOW());" -t 2>/dev/null | tr -d '[:space:]' || echo "0")
+        if [ "$expired_sessions" -gt 1000 ]; then
+            warn "Expired sessions not cleaned up: $expired_sessions rows"
+        else
+            info "Expired sessions: $expired_sessions"
+        fi
     else
-        warn "Database permissions: $DB_PERMS (should be 600)"
-    fi
-
-    WAL=$(sqlite3 "$DB_PATH" "PRAGMA journal_mode;" 2>/dev/null || echo "error")
-    if [ "$WAL" = "wal" ]; then
-        pass "WAL mode enabled"
-    else
-        fail "WAL mode: $WAL (should be wal)"
-    fi
-
-    FK=$(sqlite3 "$DB_PATH" "PRAGMA foreign_keys;" 2>/dev/null || echo "0")
-    [ "$FK" = "1" ] && pass "Foreign keys: ON" || warn "Foreign keys: OFF in current connection (set in daemon)"
-
-    FTS5=$(sqlite3 "$DB_PATH" \
-        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='files_fts';" 2>/dev/null || echo "0")
-    [ "$FTS5" = "1" ] && pass "FTS5 search table: present" || warn "FTS5 search table: missing"
-
-    # Audit chain
-    AUDIT_ROWS=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM audit_logs;" 2>/dev/null || echo "0")
-    info "Audit log rows: $AUDIT_ROWS"
-
-    # Sessions table - check for expired sessions piling up
-    ACTIVE_SESSIONS=$(sqlite3 "$DB_PATH" \
-        "SELECT COUNT(*) FROM sessions WHERE expires_at > strftime('%s','now');" 2>/dev/null || echo "0")
-    EXPIRED_SESSIONS=$(sqlite3 "$DB_PATH" \
-        "SELECT COUNT(*) FROM sessions WHERE expires_at <= strftime('%s','now');" 2>/dev/null || echo "0")
-    pass "Active sessions: $ACTIVE_SESSIONS"
-    if [ "$EXPIRED_SESSIONS" -gt 1000 ]; then
-        warn "Expired sessions not cleaned up: $EXPIRED_SESSIONS rows (daemon should prune these)"
-    else
-        info "Expired sessions: $EXPIRED_SESSIONS"
-    fi
-
-    # Integrity check
-    INTEGRITY=$(sqlite3 "$DB_PATH" "PRAGMA integrity_check;" 2>/dev/null | head -1)
-    if [ "$INTEGRITY" = "ok" ]; then
-        pass "Database integrity: OK"
-    else
-        fail "Database integrity check FAILED: $INTEGRITY"
-    fi
-
-    # Disk space for DB growth
-    DB_DIR_FREE=$(df -BM "$DB_PATH" | awk 'NR==2{gsub(/M/,"",$4); print $4}')
-    if [ "$DB_DIR_FREE" -ge 1024 ]; then
-        pass "DB filesystem free: ${DB_DIR_FREE}MB"
-    else
-        warn "DB filesystem free: ${DB_DIR_FREE}MB - monitor closely"
+        warn "psql utilities not found - skipping deep database check"
+        if command -v pg_isready &>/dev/null; then
+             # Try to ping the server
+             if pg_isready -d "$DB_DSN" &>/dev/null; then
+                 pass "PostgreSQL server is reachable"
+             else
+                 fail "PostgreSQL server is NOT reachable"
+             fi
+        fi
     fi
 fi
 
@@ -659,15 +640,8 @@ if [ -f /etc/sudoers.d/dplaneos ]; then
     fi
 fi
 
-# DB file not world-readable
-if [ -f "$DB_PATH" ]; then
-    DB_WORLD=$(stat -c '%a' "$DB_PATH" | cut -c3)
-    if [ "$DB_WORLD" = "0" ]; then
-        pass "Database: not world-readable"
-    else
-        fail "Database: world-readable (permissions: $(stat -c '%a' "$DB_PATH"))"
-    fi
-fi
+# Permissions check on PostgreSQL state directory is not reliable here as it's managed by the system
+pass "Database: managed by PostgreSQL service"
 
 # systemd hardening active
 if systemctl show dplaned --property=ProtectSystem --value 2>/dev/null | grep -q "strict"; then

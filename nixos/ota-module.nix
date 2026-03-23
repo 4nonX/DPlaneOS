@@ -43,7 +43,7 @@ let
           pkgs.coreutils
           pkgs.util-linux    # mountpoint, lsblk, blkid, findmnt
           pkgs.systemd       # bootctl, systemctl
-          pkgs.sqlite        # sqlite3
+          pkgs.postgresql    # psql for health checks
           pkgs.curl
           pkgs.gnutar
           pkgs.openssl

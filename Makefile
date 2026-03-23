@@ -23,7 +23,7 @@ build: build-amd64
 build-amd64: deps
 	@echo "Building D-PlaneOS Daemon (amd64)..."
 	@mkdir -p $(BUILD_DIR)
-	cd daemon && GOOS=linux GOARCH=amd64 CGO_ENABLED=1 $(GO) build \
+	cd daemon && GOOS=linux GOARCH=amd64 CGO_ENABLED=0 $(GO) build \
 		-ldflags="-s -w -X main.Version=$(VERSION)" \
 		-o ../$(BUILD_DIR)/$(BINARY_NAME)-linux-amd64 ./cmd/dplaned
 	@cp $(BUILD_DIR)/$(BINARY_NAME)-linux-amd64 $(BUILD_DIR)/$(BINARY_NAME)
@@ -84,7 +84,7 @@ install:
 	@echo "  Status:   sudo systemctl status dplaned"
 	@echo ""
 	@echo "  Optional: Set -backup-path for off-pool DB backup"
-	@echo "  Example:  ExecStart=... -backup-path /mnt/usb/dplaneos.db.backup"
+	@echo "  Example:  ExecStart=... -backup-path /mnt/usb/backups"
 	@echo "═══════════════════════════════════════"
 
 test:
@@ -117,7 +117,7 @@ help:
 	@echo ""
 	@echo "Targets:"
 	@echo "  deps         - Resolve Go dependencies (needs internet)"
-	@echo "  build        - Build the daemon binary (CGO_ENABLED=1 for SQLite)"
+	@echo "  build        - Build the daemon binary (PostgreSQL-only)"
 	@echo "  install      - Build and install daemon + systemd service"
 	@echo "  test         - Run tests"
 	@echo "  clean        - Remove build artifacts"

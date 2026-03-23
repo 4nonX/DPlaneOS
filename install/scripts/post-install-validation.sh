@@ -39,33 +39,23 @@ echo ""
 # -- 2. Database ---------------------------------------------------------------
 echo "2. Checking database..."
 
-DB_PATH="/var/lib/dplaneos/dplaneos.db"
 if [ -n "${DATABASE_DSN:-}" ]; then
     pass "PostgreSQL DSN configured"
     if command -v psql &>/dev/null; then
-        USERS=$(psql "$DATABASE_DSN" -c "SELECT COUNT(*) FROM users;" -t 2>/dev/null | tr -d '[:space:]' || echo "0")
-        [ "$USERS" -ge 1 ] && pass "Admin user exists" || warn "No active users found in PostgreSQL"
+        # Test connection and check for admin user
+        USERS=$(psql "$DATABASE_DSN" -c "SELECT COUNT(*) FROM users;" -t 2>/dev/null | tr -d '[:space:]' || echo "fail")
+        if [ "$USERS" = "fail" ]; then
+            fail "PostgreSQL connection failed - check DSN and service status"
+        elif [ "$USERS" -ge 1 ]; then
+            pass "Admin user exists"
+        else
+            warn "No active users found in PostgreSQL"
+        fi
     else
-        warn "psql not installed - skipping PostgreSQL user check"
+        warn "psql utilities not found - skipping deep database check"
     fi
 else
-    if [ -f "$DB_PATH" ]; then
-        pass "Database file exists"
-        [ -r "$DB_PATH" ] && [ -w "$DB_PATH" ] \
-            && pass "Database readable/writable" \
-            || fail "Database permissions incorrect - try: chmod 600 $DB_PATH"
-
-        WAL=$(sqlite3 "$DB_PATH" "PRAGMA journal_mode;" 2>/dev/null || echo "error")
-        [ "$WAL" = "wal" ] && pass "WAL mode enabled" || warn "WAL mode not active (got: $WAL)"
-
-        FTS=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='files_fts';" 2>/dev/null || echo "0")
-        [ "$FTS" -eq 1 ] && pass "FTS5 search table present" || warn "FTS5 table not found"
-
-        USERS=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM users;" 2>/dev/null || echo "0")
-        [ "$USERS" -ge 1 ] && pass "Admin user exists" || fail "No users in database"
-    else
-        fail "Database file not found at $DB_PATH"
-    fi
+    fail "DATABASE_DSN not set. PostgreSQL is mandatory in v7.1.0."
 fi
 echo ""
 
@@ -99,13 +89,12 @@ fi
 if [ -n "${DATABASE_DSN:-}" ]; then
     if command -v psql &>/dev/null; then
         DB_TEST=$(psql "$DATABASE_DSN" -c "SELECT 1;" -t 2>/dev/null | tr -d '[:space:]' || echo "fail")
-        [ "$DB_TEST" = "1" ] && pass "PostgreSQL accessible" || fail "PostgreSQL not reachable"
+        [ "$DB_TEST" = "1" ] && pass "PostgreSQL accessible via client" || fail "PostgreSQL not reachable via client"
     else
-        warn "PostgreSQL connectivity not tested (psql missing)"
+        warn "PostgreSQL client connectivity not tested (psql missing)"
     fi
 else
-    DB_TEST=$(sqlite3 "$DB_PATH" "SELECT 1;" 2>/dev/null || echo "fail")
-    [ "$DB_TEST" = "1" ] && pass "SQLite accessible" || fail "SQLite not accessible"
+    fail "DATABASE_DSN not set."
 fi
 echo ""
 

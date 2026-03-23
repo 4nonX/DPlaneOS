@@ -819,7 +819,7 @@ func main() {
 	r.HandleFunc("/api/shares/nfs/reload", handlers.ReloadNFSExports).Methods("POST")
 	r.HandleFunc("/api/shares/nfs/list", handlers.ListNFSExports).Methods("GET")
 
-	// NFS CRUD handler - NFSHandler manages /etc/exports via SQLite
+	// NFS CRUD handler - NFSHandler manages /etc/exports via PostgreSQL
 	r.Handle("/api/zfs/pool/offline", permRoute("storage", "write", zfsHandler.OfflineDisk)).Methods("POST")
 	r.Handle("/api/zfs/pool/export", permRoute("storage", "write", zfsHandler.ExportPool)).Methods("POST")
 	nfsHandler := handlers.NewNFSHandler(db)
@@ -1410,7 +1410,7 @@ func bootstrapCEToken(db *sql.DB, path string) {
 	// Use security package to hash it correctly
 	hash := security.HashToken(token)
 	_, err = db.Exec(`INSERT INTO api_tokens (user_id, name, token_hash, token_prefix, scopes)
-		VALUES (?, 'compliance-engine-token', ?, ?, 'admin')`,
+		VALUES ($1, 'compliance-engine-token', $2, $3, 'admin')`,
 		adminID, hash, prefix)
 	if err != nil {
 		log.Printf("BOOTSTRAP: Failed to insert CE token: %v", err)

@@ -172,9 +172,9 @@ cleanup() {
         done
     fi
     # Remove test user from DB
-    if [ -f "$DB_PATH" ] && [ -n "$TEST_USER" ]; then
-        sqlite3 "$DB_PATH" "DELETE FROM users WHERE username = '$TEST_USER';" 2>/dev/null || true
-        sqlite3 "$DB_PATH" "DELETE FROM sessions WHERE username = '$TEST_USER';" 2>/dev/null || true
+    if [ -n "${DATABASE_DSN:-}" ] && [ -n "$TEST_USER" ]; then
+        psql "$DATABASE_DSN" -c "DELETE FROM users WHERE username = '$TEST_USER';" &>/dev/null || true
+        psql "$DATABASE_DSN" -c "DELETE FROM sessions WHERE username = '$TEST_USER';" &>/dev/null || true
         info "Removed test user: $TEST_USER"
     fi
 }

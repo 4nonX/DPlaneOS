@@ -130,8 +130,8 @@
         # kernel ≥ 4.9 regardless of what the host has in its Nix store.
         # Upgrade NixOS 23.11 → 25.05 → 26.x: daemon keeps running.
         #
-        # The only trade-off: CGO (sqlite) must be compiled against musl.
-        # musl + mattn/go-sqlite3 (amalgamation) = fully self-contained.
+        # The only trade-off: CGO (libzfs) must be compiled against musl.
+        # musl + static libzfs = fully self-contained.
         #
         # pkgsStatic = pkgs built for the current system but linked against
         # musl via the `pkgsCross.musl64` overlay : available in nixpkgs.

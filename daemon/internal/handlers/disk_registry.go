@@ -2,7 +2,7 @@ package handlers
 
 // disk_registry.go - D-PlaneOS disk lifecycle registry
 //
-// Provides a persistent SQLite-backed store for every disk the system has ever
+// Provides a persistent PostgreSQL-backed store for every disk the system has ever
 // seen.  Records survive across reboots, pool imports, and disk replacements,
 // giving operators a full audit trail of disk history.
 //
@@ -52,7 +52,7 @@ func SetRegistryDB(db *sql.DB) {
 // preserving first_seen and removed_at = NULL (marks the disk as present).
 func UpsertDisk(db *sql.DB, disk DiskInfo) error {
 
-	// Coerce NULL-unfriendly empty strings to empty (SQLite stores them as '').
+	// Coerce NULL-unfriendly empty strings to empty (PostgreSQL stores them as '').
 	byID := disk.ByIDPath
 	serial := disk.Serial
 	wwn := disk.WWN

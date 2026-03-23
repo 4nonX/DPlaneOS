@@ -8,7 +8,7 @@
 //     must restore state imperatively on every startup
 //
 // Approach:
-//  1. Read desired network state from SQLite (tables: network_interfaces, network_bonds, network_vlans)
+//  1. Read desired network state from PostgreSQL (tables: network_interfaces, network_bonds, network_vlans)
 //  2. Read actual kernel state via netlinkx.LinkList()
 //  3. For each desired item missing from kernel: re-apply via netlink
 //  4. Log every restoration action to the audit log

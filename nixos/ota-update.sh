@@ -318,9 +318,10 @@ cmd_health_check() {
 
     # Check 4: Samba is running (if smb_shares exist in DB)
     local share_count
-    share_count=$(sqlite3 /var/lib/dplaneos/dplaneos.db \
-        "SELECT COUNT(*) FROM smb_shares WHERE enabled=1" 2>/dev/null || echo "0")
-    if [ "${share_count}" -gt 0 ]; then
+    # Default DSN for NixOS standalone
+    local dsn="postgres://dplaneos@localhost/dplaneos?sslmode=disable"
+    share_count=$(psql "$dsn" -t -c "SELECT COUNT(*) FROM smb_shares WHERE enabled=1" 2>/dev/null | tr -d '[:space:]' || echo "0")
+    if [ "${share_count:-0}" -gt 0 ]; then
         if systemctl is-active --quiet smbd; then
             log "PASS: smbd running (${share_count} active shares)"
             checks_passed=$((checks_passed + 1))

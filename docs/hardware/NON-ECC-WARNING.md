@@ -1,4 +1,4 @@
-﻿# D-PlaneOS on Non-ECC Hardware
+# D-PlaneOS on Non-ECC Hardware
 
 ## The Core Issue
 
@@ -64,7 +64,7 @@ The dashboard detects non-ECC RAM via `dmidecode` at startup and displays an inf
 ### Other Software Mitigations
 
 - Pool heartbeat with active I/O - detects pool stalls immediately
-- SQLite WAL mode with `FULL` sync - prevents lock corruption
+- PostgreSQL with `FULL` sync - ensures database consistency
 - Inotify usage monitoring - warns at 90% capacity
 - ZFS mount gate - prevents Docker-before-ZFS data loss race
 

@@ -19,7 +19,7 @@ type AuditEvent struct {
 	Success   bool
 }
 
-// BufferedLogger implements batched audit logging for high-performance SQLite
+// BufferedLogger implements batched audit logging for high-performance PostgreSQL
 type BufferedLogger struct {
 	db            *sql.DB
 	buffer        []AuditEvent
@@ -35,12 +35,12 @@ type BufferedLogger struct {
 // NewBufferedLogger creates a new buffered audit logger
 //
 // CRITICAL for large storage systems:
-// - Batches audit logs to reduce SQLite I/O
+// - Batches audit logs to reduce database I/O
 // - Flushes every 5 seconds OR when buffer reaches maxBuffer
 // - Prevents I/O stalls during mass file operations
 //
 // Example: Moving 10,000 files generates 10,000 audit events
-// Without buffering: 10,000 individual SQLite INSERTs → slow!
+// Without buffering: 10,000 individual PostgreSQL INSERTs → slow!
 // With buffering: 1-2 batch INSERTs → fast!
 func NewBufferedLogger(db *sql.DB, maxBuffer int, flushInterval time.Duration, hmacKey []byte) *BufferedLogger {
 	if maxBuffer <= 0 {
@@ -95,7 +95,7 @@ func (bl *BufferedLogger) Stop() {
 }
 
 // SecurityActions lists action strings that must bypass the buffer and write
-// directly to SQLite. These events must never be lost on crash or SIGKILL.
+// directly to PostgreSQL. These events must never be lost on crash or SIGKILL.
 // Callers can also set event.Critical = true to force direct write.
 var SecurityActions = map[string]bool{
 	"login":           true,
@@ -112,7 +112,7 @@ var SecurityActions = map[string]bool{
 
 // Log adds an event to the buffer.
 // Security events (auth, permission) bypass the buffer and are written directly
-// to SQLite to guarantee they survive a hard crash or SIGKILL.
+// to PostgreSQL to guarantee they survive a hard crash or SIGKILL.
 //
 // Thread-safe: Can be called from multiple goroutines
 func (bl *BufferedLogger) Log(event AuditEvent) error {
@@ -134,7 +134,7 @@ func (bl *BufferedLogger) Log(event AuditEvent) error {
 	return nil
 }
 
-// writeDirect writes events synchronously to SQLite, bypassing the buffer.
+// writeDirect writes events synchronously to PostgreSQL, bypassing the buffer.
 // Used for security events that must not be lost on crash.
 func (bl *BufferedLogger) writeDirect(events []AuditEvent) error {
 	tx, err := bl.db.Begin()
@@ -171,7 +171,7 @@ func (bl *BufferedLogger) writeDirect(events []AuditEvent) error {
 	return tx.Commit()
 }
 
-// Flush writes all buffered events to SQLite in a single transaction
+// Flush writes all buffered events to PostgreSQL in a single transaction
 //
 // CRITICAL: Uses BEGIN TRANSACTION for batch insert
 // This is 100x faster than individual INSERTs

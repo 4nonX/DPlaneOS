@@ -238,9 +238,9 @@ if [ -d "/opt/dplaneos" ]; then
     log_info "Backup will be created automatically"
 fi
 
-if [ -f "/var/lib/dplaneos/dplaneos.db" ]; then
-    log_warn "Existing database found"
-    log_info "Database will be preserved during upgrade"
+if [ -d "/var/lib/dplaneos/pgsql" ]; then
+    log_warn "Existing PostgreSQL data found"
+    log_info "Data will be preserved during upgrade"
 fi
 
 if systemctl list-units --full -all | grep -q "nginx.service"; then

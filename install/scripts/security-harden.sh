@@ -112,7 +112,7 @@ fi
 # 4. Verify Go daemon session security
 echo -e "${YELLOW}[4/10] Checking session security...${NC}"
 
-# Go daemon handles sessions internally (SQLite + secure cookies)
+# Go daemon handles sessions internally (PostgreSQL + secure cookies)
 # No PHP-FPM to configure - sessions managed by dplaned
 if systemctl is-active dplaned >/dev/null 2>&1; then
     echo -e "${GREEN}? Go daemon running - sessions secured via dplaned${NC}"

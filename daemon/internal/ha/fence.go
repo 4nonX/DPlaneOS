@@ -20,7 +20,7 @@ type FencingConfig struct {
 	BMCPasswordFile string `json:"bmc_password_file"`
 }
 
-// GetFencingConfig reads the Fencing HA config from the SQLite database.
+// GetFencingConfig reads the Fencing HA config from the PostgreSQL database.
 func GetFencingConfig(db *sql.DB) (FencingConfig, error) {
 	var cfg FencingConfig
 	var bmcIP, bmcUser, bmcPassFile sql.NullString
@@ -49,7 +49,7 @@ func GetFencingConfig(db *sql.DB) (FencingConfig, error) {
 func SaveFencingConfig(db *sql.DB, cfg FencingConfig) error {
 	_, err := db.Exec(`
 		INSERT INTO ha_fencing_config (id, enable, bmc_ip, bmc_user, bmc_password_file)
-		VALUES (1, ?, ?, ?, ?)
+		VALUES (1, $1, $2, $3, $4)
 		ON CONFLICT(id) DO UPDATE SET
 			enable = excluded.enable,
 			bmc_ip = excluded.bmc_ip,

@@ -12,7 +12,7 @@ Documentation=https://github.com/4nonX/homelab
 Type=simple
 ExecStartPre=mkdir -p /var/run/dplaneos /var/lib/dplaneos /var/log/dplaneos /etc/dplaneos
 ExecStartPre=chmod 755 /var/run/dplaneos
-ExecStart=/opt/dplaneos/daemon/dplaned -db /var/lib/dplaneos/dplaneos.db -listen 127.0.0.1:9000 -smb-conf /var/lib/dplaneos/smb-shares.conf
+ExecStart=/opt/dplaneos/daemon/dplaned -db-dsn "postgres://dplaneos@localhost/dplaneos?sslmode=disable" -listen 127.0.0.1:9000 -smb-conf /var/lib/dplaneos/smb-shares.conf
 WorkingDirectory=/opt/dplaneos
 Restart=always
 RestartSec=5

@@ -56,20 +56,11 @@ init_database() {
     if [ -n "$DB_DSN" ]; then
         echo "Verifying PostgreSQL connectivity: $DB_DSN"
         if command -v pg_isready &>/dev/null; then
-            # Extract host/port from DSN if possible, or just try to connect
-            # For simplicity in CI, we just assume it's valid if reached this far
-            # but we can try a simple psql check if available.
             echo "PostgreSQL check enabled"
         fi
     else
-        echo "WARNING: SQLite is deprecated in D-PlaneOS v7.0.0."
-        echo "Initializing legacy SQLite database at: $DB_PATH"
-        mkdir -p "$(dirname "$DB_PATH")"
-        if [ ! -f "$DB_PATH" ]; then
-            sqlite3 "$DB_PATH" "PRAGMA journal_mode=WAL;"
-        fi
-        chmod 660 "$DB_PATH"
-        id www-data &>/dev/null && chown www-data:www-data "$DB_PATH"
+        echo "ERROR: DATABASE_DSN is mandatory in v7.1.0." >&2
+        exit 1
     fi
     
     echo "Database initialization phase complete"

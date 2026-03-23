@@ -20,7 +20,6 @@
 # Key properties:
 #   - system-a and system-b are identical in size. OTA writes to the
 #     inactive slot, then flips the bootloader to boot from it next time.
-#   - /persist is NEVER wiped. It holds the D-PlaneOS SQLite DB, logs,
 #     SSH host keys, and all daemon state. See impermanence.nix.
 #   - /boot is the EFI System Partition shared between both slots.
 #   - The remaining ~78 GB goes entirely to /persist : on a 128 GB NVMe
@@ -116,8 +115,7 @@
           #
           # Contents (managed by impermanence.nix + daemon):
           #   /persist/dplaneos/          : daemon state root
-          #   /persist/dplaneos/dplaneos.db : main SQLite DB
-          #   /persist/dplaneos/audit.db   : audit log DB
+          #   /persist/postgresql/         : PostgreSQL data
           #   /persist/dplaneos/audit.key  : HMAC key
           #   /persist/dplaneos/gitops/    : state.yaml repo checkout
           #   /persist/nixos/              : NixOS machine config overrides
