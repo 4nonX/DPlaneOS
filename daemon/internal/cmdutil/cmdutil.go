@@ -3,12 +3,15 @@ package cmdutil
 import (
 	"context"
 	"fmt"
+	"log"
 	"math/rand"
 	"os"
 	"os/exec"
 	"strconv"
 	"strings"
 	"time"
+
+	"dplaned/internal/security"
 )
 
 // Default timeouts for different operation classes
@@ -23,7 +26,25 @@ const (
 // If the command exceeds the timeout, it is killed and an error is returned.
 // This prevents the Go daemon from hanging when hardware is unresponsive.
 func Run(timeout time.Duration, name string, args ...string) ([]byte, error) {
-	// Fault Injection (CI only)
+	// 1. Mandatory Security Whitelist Routing
+	// If the name is a key in the whitelist, we validate the args and execute the whitelisted Path.
+	if cmd, exists := security.CommandWhitelist[name]; exists {
+		if err := security.ValidateCommand(name, args); err != nil {
+			return nil, fmt.Errorf("security refusal: %w", err)
+		}
+		// Rewrite the name to the absolute binary path from the whitelist
+		name = cmd.Path
+	} else {
+		// 2. Safety Check for governed binaries
+		// If someone tries to run zfs/zpool/systemctl via direct binary name, 
+		// we warn that they SHOULD be using the whitelisted key.
+		governed := map[string]bool{"zfs": true, "zpool": true, "systemctl": true, "ipmitool": true}
+		if governed[name] {
+			log.Printf("SECURITY WARNING: Binary '%s' invoked directly via cmdutil without a whitelist KEY. This bypasses structural validation.", name)
+		}
+	}
+
+	// 3. Fault Injection (CI only)
 	if inject := os.Getenv("DPLANE_FAULT_INJECT"); inject != "" {
 		if err := checkForFault(name, args...); err != nil {
 			return []byte("SIMULATED FAULT: " + err.Error()), err

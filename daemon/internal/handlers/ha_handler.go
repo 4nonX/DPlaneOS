@@ -10,6 +10,7 @@ import (
 
 	"dplaned/internal/cmdutil"
 	"dplaned/internal/ha"
+	"dplaned/internal/jobs"
 	"github.com/gorilla/mux"
 )
 
@@ -294,25 +295,32 @@ func (h *HAHandler) ToggleHA(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Trigger nixos-rebuild switch asynchronously
-	go func() {
+	// Trigger nixos-rebuild switch via the jobs system for frontend visibility
+	jobID := jobs.Start("nixos_rebuild", func(j *jobs.Job) {
 		action := "disabling"
 		if req.Enable {
 			action = "enabling"
 		}
-		log.Printf("HA: User is %s HA - triggering nixos-rebuild switch", action)
-		// Run rebuild
-		if out, err := cmdutil.RunSlow("nixos-rebuild", "switch"); err != nil {
+		j.Log(fmt.Sprintf("HA: User is %s HA - triggering nixos-rebuild switch", action))
+		
+		// Run rebuild using the whitelisted key
+		out, err := cmdutil.RunSlow("nixos_rebuild", "switch")
+		if err != nil {
 			log.Printf("HA: NixOS rebuild failed: %v\nOutput: %s", err, string(out))
+			j.Log(fmt.Sprintf("ERROR: NixOS reconfiguration failed: %v", err))
+			j.Fail(err.Error())
 			DispatchAlert("critical", "HA_REBUILD_FAILED", "system", fmt.Sprintf("NixOS reconfig failed: %v", err))
 		} else {
 			log.Printf("HA: NixOS rebuild success. HA is now %v", req.Enable)
+			j.Log("NixOS reconfiguration completed successfully.")
+			j.Done(map[string]interface{}{"output": string(out)})
 		}
-	}()
+	})
 
 	respondJSON(w, http.StatusOK, map[string]interface{}{
 		"success": true,
-		"message": "HA state updated in NixOS fragment. System reconfiguration is running in the background.",
+		"message": "HA state updated. System reconfiguration started.",
+		"job_id":  jobID,
 	})
 }
 

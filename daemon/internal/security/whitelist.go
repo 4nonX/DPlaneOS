@@ -29,6 +29,12 @@ var CommandWhitelist = map[string]Command{
 		AllowedArgs: []string{"list", "-H", "-o", "name,used,avail,refer,mountpoint", "-t", "filesystem"},
 		Description: "List ZFS filesystems",
 	},
+	"zfs_list_names": {
+		Name:        "zfs_list_names",
+		Path:        "zfs",
+		AllowedArgs: []string{"list", "-H", "-o", "name"},
+		Description: "List ZFS dataset names only",
+	},
 	"zfs_get": {
 		Name:        "zfs_get",
 		Path:        "zfs",
@@ -183,6 +189,12 @@ var CommandWhitelist = map[string]Command{
 		ArgPatterns: []*regexp.Regexp{regexp.MustCompile(`^(-f|[a-zA-Z0-9_\-]+)$`)},
 		Description: "Import existing ZFS pool (with optional -f flag)",
 	},
+	"zpool_import_all": {
+		Name:        "zpool_import_all",
+		Path:        "zpool",
+		AllowedArgs: []string{"import", "-a", "-f", "-d", "/dev/disk/by-id"},
+		Description: "Import all available ZFS pools forcefully using by-id paths",
+	},
 	// zfs_set_property: [zfs set property=value dataset]
 	"zfs_set_property": {
 		Name:        "zfs_set_property",
@@ -328,6 +340,30 @@ var CommandWhitelist = map[string]Command{
 		Path:        "systemctl",
 		AllowedArgs: []string{"reload", "smbd"},
 		Description: "Reload Samba daemon",
+	},
+	"systemctl_ha_smbd": {
+		Name:        "systemctl_ha_smbd",
+		Path:        "systemctl",
+		AllowedArgs: []string{"reload-or-restart", "smbd"},
+		Description: "Reload or restart Samba smbd for HA failover",
+	},
+	"systemctl_ha_nmbd": {
+		Name:        "systemctl_ha_nmbd",
+		Path:        "systemctl",
+		AllowedArgs: []string{"reload-or-restart", "nmbd"},
+		Description: "Reload or restart Samba nmbd for HA failover",
+	},
+	"systemctl_ha_nfs": {
+		Name:        "systemctl_ha_nfs",
+		Path:        "systemctl",
+		AllowedArgs: []string{"reload-or-restart", "nfs-server"},
+		Description: "Reload or restart NFS server for HA failover",
+	},
+	"systemctl_restart_docker": {
+		Name:        "systemctl_restart_docker",
+		Path:        "systemctl",
+		AllowedArgs: []string{"restart", "docker"},
+		Description: "Restart Docker daemon for HA failover",
 	},
 	"testparm": {
 		Name:        "testparm",
@@ -590,6 +626,12 @@ var CommandWhitelist = map[string]Command{
 		Path:        "ipmitool",
 		Description: "Fencing: Check BMC power status",
 	},
+	"nixos_rebuild": {
+		Name:        "nixos_rebuild",
+		Path:        "nixos-rebuild",
+		AllowedArgs: []string{"switch"},
+		Description: "Apply NixOS configuration",
+	},
 }
 
 // ValidateCommand checks if a command request is allowed
@@ -818,6 +860,7 @@ func validateZfsSetProperty(args []string) error {
 		"compression": true, "quota": true, "refquota": true, "mountpoint": true,
 		"atime": true, "dedup": true, "recordsize": true, "sync": true,
 		"copies": true, "encryption": true, "keylocation": true, "keyformat": true,
+		"readonly": true,
 	}
 	if !allowedProps[prop] {
 		return fmt.Errorf("property not allowed: %s", prop)

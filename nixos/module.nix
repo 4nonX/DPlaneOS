@@ -72,7 +72,6 @@ in {
       docker
       docker-compose
       nginx
-      sqlite
       # samba - now managed by modules/samba.nix (services.samba)
       nfs-utils
       smartmontools

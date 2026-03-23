@@ -2,35 +2,26 @@
 //
 // # Architecture
 //
-// Passive active/standby. One node holds ZFS pools ("active").
-// Standby nodes heartbeat the active node. If heartbeat fails, standby alerts
-// and can be manually promoted via the API.
+// High Availability Nexus (v7.1.0) providing cluster-wide health monitoring,
+// automated fencing (STONITH), and managed promotion for D-PlaneOS.
 //
-// This is NOT Pacemaker/Corosync - it is a lightweight coordination layer
-// that prevents accidental pool imports on standby nodes and provides a clean
-// manual failover workflow.
+// This is a lightweight coordination layer that works alongside Patroni
+// and HAProxy to provide a unified active/standby orchestration experience.
 //
-// # Known Limitations (read before deploying)
+// # Major Features (v7.1.0)
 //
-//   - NO STONITH / fencing: If the active node becomes partitioned but not dead,
-//     promoting a standby while the active still holds the ZFS pools WILL cause
-//     split-brain and data corruption. There is no automatic mechanism to power-off
-//     or isolate the old active node before promotion.
+//   - AUTOMATIC FENCING: Supported via BMC (ipmitool).
+//   - AUTOMATIC PROMOTION: Triggered when peer breaches FailoverAfter threshold.
+//   - SHARED-NOTHING REPLICATION: Automatic ZFS replication coordination.
 //
-//   - NO automatic failover: Promotion is always manual (POST /api/ha/promote).
-//     The heartbeat loop detects failure and changes node state to "unreachable",
-//     but it never promotes a standby on its own.
+// # Known Limitations
 //
-//   - NO shared-storage arbitration: ZFS pools must be physically connected to
-//     only one node at a time, or accessed via iSCSI/NVMe-oF with SCSI reservations.
-//     This package does not enforce or coordinate storage exclusivity.
+//   - [v7.1.0] Startup Split-Brain Guard: While Patroni handles multi-master 
+//     prevention, a hard daemon-level check against the Patroni /health API 
+//     on startup is planned for v7.2.0 to provide a secondary safety net 
+//     for ZFS pool imports. (See cluster.go header backlog)
 //
-//   - NO quorum: A two-node cluster cannot distinguish "the other node died"
-//     from "the network between us failed". Always use a third node or a
-//     quorum device (e.g. a shared iSCSI disk) to break ties in production.
-//
-// For production HA with ZFS, consider Pacemaker + Corosync + DRBD or
-// a ZFS-native replication approach (e.g. scheduled zfs send with monitoring).
+//   - [Backlog v7.2.0]: Implement non-blocking startup health check to Patroni.
 package ha
 
 import (
@@ -97,6 +88,9 @@ type Manager struct {
 	nodes map[string]*ClusterNode // keyed by node ID
 
 	replConfig *ReplicationConfig
+	// fencingInProgress prevents multiple concurrent STONITH sequences.
+	fencingInProgress bool
+
 	replCancel context.CancelFunc
 
 	stopCh chan struct{}
@@ -287,13 +281,22 @@ func (m *Manager) checkFailover() {
 		return
 	}
 
-	// Rate limit the trigger: Only fire the Fencing Executor exactly once when breached
-	if deadPeer.MissedBeats != 3 {
+	// 3. Initiate Fencing & Promotion asynchronously (rate limited via flag).
+	m.mu.Lock()
+	if m.fencingInProgress {
+		m.mu.Unlock()
 		return
 	}
+	m.fencingInProgress = true
+	m.mu.Unlock()
 
-	// 3. Initiate Fencing & Promotion asynchronously.
 	go func() {
+		defer func() {
+			m.mu.Lock()
+			m.fencingInProgress = false
+			m.mu.Unlock()
+		}()
+
 		log.Printf("HA STONITH: Triggering automated fencing against dead peer %s", deadPeer.ID)
 		if err := ExecuteFencing(deadPeer.ID, fencingCfg); err != nil {
 			log.Printf("HA STONITH: Fencing failed, aborting failover: %v", err)

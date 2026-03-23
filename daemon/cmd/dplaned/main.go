@@ -360,46 +360,74 @@ func main() {
 		handlers.SendSMTPAlert,
 	)
 
-	// Initialize ZFS pool heartbeat monitoring
-	poolList, err := zfs.DiscoverPools()
-	if err != nil {
-		log.Printf("Warning: Failed to discover ZFS pools: %v", err)
-	} else if len(poolList) > 0 {
-		for _, pool := range poolList {
-			heartbeat := zfs.NewPoolHeartbeat(pool.Name, pool.MountPoint, 30*time.Second)
-			// SAFETY: Stop Docker if the pool goes offline during runtime.
-			// This prevents containers from writing to bare mountpoint directories
-			// on the root FS - the same data-loss scenario the boot gate prevents.
-			heartbeat.StopDockerOnFailure = true
+	// Phase 7: ZFS Initialization & Safety Checks
+	
+	// ── Patroni Startup Split-Brain Guard (v7.1.0) ──
+	// If HA is enabled, we check the local Patroni instance role BEFORE 
+	// discovering or importing ZFS pools.
+	skipZFS := false
+	if nixWriter.State().HAEnable {
+		log.Printf("HA: Checking local Patroni role before initiating ZFS operations...")
+		client := &http.Client{Timeout: 3 * time.Second}
+		resp, err := client.Get("http://localhost:8008/health")
+		if err == nil {
+			defer resp.Body.Close()
+			if resp.StatusCode != http.StatusOK {
+				// Patroni /health returns 200 for Leader, 503 for Replica (by default).
+				log.Printf("HA SAFETY: Patroni /health returned %d (Replica/Follower). Blocking automatic ZFS pool discovery to prevent split-brain.", resp.StatusCode)
+				skipZFS = true
+			} else {
+				log.Printf("HA SAFETY: Patroni /health returned 200 (Leader). Proceeding with ZFS operations.")
+			}
+		} else {
+			// No error path: If Patroni isn't running or reachable, we assume 
+			// it's not a HA secondary situation we should be worried about yet.
+			log.Printf("HA: Patroni unreachable (%v) - assuming single-node or bootstrap mode. Proceeding.", err)
+		}
+	}
 
-			// CRITICAL callback: Telegram + (webhook/SMTP via sendAlert inside heartbeat)
-			heartbeat.SetErrorCallback(func(poolName string, err error, details map[string]string) {
-				alertErr := alerts.SendAlert(alerts.TelegramAlert{
-					Level:   "CRITICAL",
-					Title:   fmt.Sprintf("ZFS Pool Failure: %s", poolName),
-					Message: err.Error(),
-					Details: details,
+	if !skipZFS {
+		// Initialize ZFS pool heartbeat monitoring
+		poolList, err := zfs.DiscoverPools()
+		if err != nil {
+			log.Printf("Warning: Failed to discover ZFS pools: %v", err)
+		} else if len(poolList) > 0 {
+			for _, pool := range poolList {
+				heartbeat := zfs.NewPoolHeartbeat(pool.Name, pool.MountPoint, 30*time.Second)
+				// SAFETY: Stop Docker if the pool goes offline during runtime.
+				// This prevents containers from writing to bare mountpoint directories
+				// on the root FS - the same data-loss scenario the boot gate prevents.
+				heartbeat.StopDockerOnFailure = true
+
+				// CRITICAL callback: Telegram + (webhook/SMTP via sendAlert inside heartbeat)
+				heartbeat.SetErrorCallback(func(poolName string, err error, details map[string]string) {
+					alertErr := alerts.SendAlert(alerts.TelegramAlert{
+						Level:   "CRITICAL",
+						Title:   fmt.Sprintf("ZFS Pool Failure: %s", poolName),
+						Message: err.Error(),
+						Details: details,
+					})
+					if alertErr != nil {
+						log.Printf("Failed to send Telegram alert: %v", alertErr)
+					}
 				})
-				if alertErr != nil {
-					log.Printf("Failed to send Telegram alert: %v", alertErr)
-				}
-			})
 
-			// DEGRADED callback: Telegram warning
-			heartbeat.SetDegradedCallback(func(poolName string, err error, details map[string]string) {
-				alertErr := alerts.SendAlert(alerts.TelegramAlert{
-					Level:   "WARNING",
-					Title:   fmt.Sprintf("ZFS Pool Degraded: %s", poolName),
-					Message: err.Error(),
-					Details: details,
+				// DEGRADED callback: Telegram warning
+				heartbeat.SetDegradedCallback(func(poolName string, err error, details map[string]string) {
+					alertErr := alerts.SendAlert(alerts.TelegramAlert{
+						Level:   "WARNING",
+						Title:   fmt.Sprintf("ZFS Pool Degraded: %s", poolName),
+						Message: err.Error(),
+						Details: details,
+					})
+					if alertErr != nil {
+						log.Printf("Failed to send Telegram degraded alert: %v", alertErr)
+					}
 				})
-				if alertErr != nil {
-					log.Printf("Failed to send Telegram degraded alert: %v", alertErr)
-				}
-			})
 
-			heartbeat.Start()
-			defer heartbeat.Stop()
+				heartbeat.Start()
+				defer heartbeat.Stop()
+			}
 		}
 	}
 

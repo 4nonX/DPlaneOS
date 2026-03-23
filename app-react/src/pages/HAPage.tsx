@@ -20,6 +20,7 @@ import { ErrorState } from '@/components/ui/ErrorState'
 import { Skeleton } from '@/components/ui/LoadingSpinner'
 import { toast } from '@/hooks/useToast'
 import { useConfirm } from '@/components/ui/ConfirmDialog'
+import { JobProgress } from '@/components/ui/JobProgress'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -436,11 +437,17 @@ export function HAPage() {
     onError: (e: Error) => toast.error(`Promotion failed: ${e.message}`)
   })
 
+  const [jobId, setJobId] = useState<string | null>(null)
+
   const toggleHA = useMutation({
-    mutationFn: (enable: boolean) => api.post('/api/ha/toggle', { enable }),
-    onSuccess: () => {
-      toast.success('HA configuration updated. NixOS is rebuilding in the background.')
-      qc.invalidateQueries({ queryKey: ['ha', 'status'] })
+    mutationFn: (enable: boolean) => api.post<{success: boolean, job_id?: string}>('/api/ha/toggle', { enable }),
+    onSuccess: (data) => {
+      if (data.job_id) {
+        setJobId(data.job_id)
+      } else {
+        toast.success('HA configuration updated.')
+        qc.invalidateQueries({ queryKey: ['ha', 'status'] })
+      }
     },
     onError: (e: Error) => toast.error(`HA Toggle failed: ${e.message}`)
   })
@@ -531,7 +538,7 @@ export function HAPage() {
                 </div>
                 <button 
                   onClick={() => toggleHA.mutate(!haEnabled)} 
-                  disabled={toggleHA.isPending}
+                  disabled={toggleHA.isPending || !!jobId}
                   className={`btn ${haEnabled ? 'btn-danger' : 'btn-success'}`}
                 >
                   {haEnabled ? 'Disable HA' : 'Enable HA'}
@@ -539,9 +546,24 @@ export function HAPage() {
               </div>
             </div>
 
+            {jobId && (
+              <div style={{ marginBottom: 24 }}>
+                <JobProgress 
+                  jobId={jobId} 
+                  runningLabel="Rebuilding NixOS with HA modules..." 
+                  doneLabel="NixOS Rebuild Complete"
+                  onDone={() => {
+                    setJobId(null)
+                    qc.invalidateQueries({ queryKey: ['ha', 'status'] })
+                  }}
+                  onFailed={() => setJobId(null)}
+                />
+              </div>
+            )}
+
             <div style={{ display: 'flex', gap: 12 }}>
-              <button onClick={() => setWizardStep(1)} className="btn btn-ghost">Previous</button>
-              <button onClick={() => setWizardStep(3)} disabled={!haEnabled} className="btn btn-primary" style={{ flex: 1, justifyContent: 'center' }}>
+              <button onClick={() => setWizardStep(1)} className="btn btn-ghost" disabled={!!jobId}>Previous</button>
+              <button onClick={() => setWizardStep(3)} disabled={!haEnabled || !!jobId} className="btn btn-primary" style={{ flex: 1, justifyContent: 'center' }}>
                 Next: Peer Registration
               </button>
             </div>
