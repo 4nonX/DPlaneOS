@@ -94,8 +94,8 @@ let
 in
 {
   # ── System ──────────────────────────────────────────────────────────────────
-  networking.hostName    = s.hostname or config.networking.hostName;
-  time.timeZone          = s.timezone or config.time.timeZone;
+  networking.hostName    = lib.mkIf (s ? hostname) s.hostname;
+  time.timeZone          = lib.mkIf (s ? timezone) s.timezone;
 
   # ── DNS / NTP ───────────────────────────────────────────────────────────────
   networking.nameservers        = s.dns_servers or [];

@@ -369,6 +369,7 @@ jobs:
       - name: Install Nix
         uses: DeterminateSystems/nix-installer-action@v16
         with:
+          determinate: false
           extra-conf: |
             experimental-features = nix-command flakes
             accept-flake-config = true
@@ -377,8 +378,10 @@ jobs:
 
       - name: Enable Nix build cache
         uses: DeterminateSystems/magic-nix-cache-action@v8
+        continue-on-error: true
         with:
           use-flakehub: false
+          flakehub-token: ""
 
       - name: Verify VERSION matches tag (Tags only)
         run: |
