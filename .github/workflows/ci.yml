@@ -2,10 +2,10 @@ name: D-PlaneOS Unified CI/CD
 
 on:
   push:
-    branches: ["main", "master", "v*"]
+    branches: ["main", "master", "v*", "ha-patroni"]
     tags: ["v*"]
   pull_request:
-    branches: ["main", "master"]
+    branches: ["main", "master", "ha-patroni"]
   workflow_call:
   workflow_dispatch:
 
