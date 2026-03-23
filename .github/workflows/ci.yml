@@ -343,3 +343,64 @@ jobs:
           make_latest: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  iso:
+    name: Build Installer ISO
+    needs: [validate, integration]
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Reclaim disk space for Nix store
+        uses: wimpysworld/nothing-but-nix@main
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@main
+        with:
+          extra-conf: |
+            experimental-features = nix-command flakes
+            accept-flake-config = true
+            extra-substituters = https://cache.nixos.org
+            trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY=
+
+      - name: Enable Nix build cache
+        uses: DeterminateSystems/magic-nix-cache-action@main
+
+      - name: Verify VERSION matches tag
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          FILE_VERSION="$(cat VERSION | tr -d '[:space:]')"
+          if [ "$FILE_VERSION" != "$VERSION" ]; then
+            echo "ERROR: VERSION file ($FILE_VERSION) does not match tag ($VERSION)"
+            exit 1
+          fi
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+
+      - name: Build installer ISO
+        run: |
+          nix build .#iso --print-build-logs
+          ls -lh result/iso/
+
+      - name: Package ISO
+        run: |
+          VERSION="${{ env.VERSION }}"
+          ISO_NAME="dplaneos-v${VERSION}-installer-amd64.iso"
+          cp result/iso/*.iso "$ISO_NAME"
+          sha256sum "$ISO_NAME" > "${ISO_NAME}.sha256"
+          echo "ISO_NAME=${ISO_NAME}" >> $GITHUB_ENV
+          echo "ISO_SHA=${ISO_NAME}.sha256" >> $GITHUB_ENV
+
+      - name: Attach ISO to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          files: |
+            ${{ env.ISO_NAME }}
+            ${{ env.ISO_SHA }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

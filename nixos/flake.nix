@@ -250,5 +250,19 @@
               self.packages.aarch64-linux.dplaneos-daemon; }
         ];
       };
+
+      nixosConfigurations.iso = nixpkgs.lib.nixosSystem {
+        system      = "x86_64-linux";
+        specialArgs = { inherit self; inputs = { disko = disko; }; };
+        modules     = [
+          ./nixos/installer.nix
+          {
+            environment.etc."dplaneos-install/VERSION".text = dplaneosVersion;
+          }
+        ];
+      };
+
+      packages.x86_64-linux.iso =
+        self.nixosConfigurations.iso.config.system.build.isoImage;
     };
 }
