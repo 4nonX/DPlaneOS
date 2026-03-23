@@ -287,9 +287,14 @@ jobs:
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           FILE_VERSION="$(cat VERSION | tr -d '[:space:]')"
-          if [ "$FILE_VERSION" != "$VERSION" ]; then
-            echo "ERROR: VERSION file ($FILE_VERSION) does not match tag ($VERSION)"
-            exit 1
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            if [ "$FILE_VERSION" != "$VERSION" ]; then
+              echo "ERROR: VERSION file ($FILE_VERSION) does not match tag ($VERSION)"
+              exit 1
+            fi
+          else
+            echo "Non-tag trigger: using version from file ($FILE_VERSION)"
+            VERSION="$FILE_VERSION"
           fi
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
           

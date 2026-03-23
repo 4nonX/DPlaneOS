@@ -28,24 +28,24 @@
   # Filesystems - replaced by nixos-generate-config.
   # disko.nix manages the actual partition layout; these entries are
   # generated from it automatically during install.
-  fileSystems."/" = {
-    device = "/dev/disk/by-label/system-a";
-    fsType = "ext4";
-    options = [ "noatime" "errors=remount-ro" ];
-  };
-
-  fileSystems."/boot" = {
-    device = "/dev/disk/by-label/ESP";
-    fsType = "vfat";
-    options = [ "umask=0077" ];
-  };
-
-  fileSystems."/persist" = {
-    device = "/dev/disk/by-label/persist";
-    fsType = "ext4";
-    options = [ "noatime" "errors=remount-ro" ];
-    neededForBoot = true;
-  };
+  # fileSystems."/" = {
+  #   device = "/dev/disk/by-label/system-a";
+  #   fsType = "ext4";
+  #   options = [ "noatime" "errors=remount-ro" ];
+  # };
+  #
+  # fileSystems."/boot" = {
+  #   device = "/dev/disk/by-label/ESP";
+  #   fsType = "vfat";
+  #   options = [ "umask=0077" ];
+  # };
+  #
+  # fileSystems."/persist" = {
+  #   device = "/dev/disk/by-label/persist";
+  #   fsType = "ext4";
+  #   options = [ "noatime" "errors=remount-ro" ];
+  #   neededForBoot = true;
+  # };
 
   swapDevices = [];
 
