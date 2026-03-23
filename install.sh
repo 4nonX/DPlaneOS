@@ -41,6 +41,7 @@ OPT_PORT=80
 OPT_UNATTENDED=false
 OPT_UPGRADE=false
 OPT_DB_DSN=""
+GENERATED_ADMIN_PASSWORD=""
 
 usage() {
     echo "Usage: sudo $0 [OPTIONS]"
@@ -553,6 +554,12 @@ step "Phase 7/13: Database"
 
 if [ -n "$OPT_DB_DSN" ]; then
     log "PostgreSQL configuration phase complete"
+    # Seed default admin password if not upgrading
+    if ! $OPT_UPGRADE; then
+        GENERATED_ADMIN_PASSWORD=$(openssl rand -base64 12 | tr -dc 'A-Za-z0-9' | head -c 12)
+        ADMIN_HASH=$(python3 -c "import bcrypt; print(bcrypt.hashpw(b'${GENERATED_ADMIN_PASSWORD}', bcrypt.gensalt(12)).decode())" 2>/dev/null || echo "")
+        # Note: Actual insertion/update happens in the daemon's bootstrap or via manual psql later
+    fi
 else
     die "PostgreSQL DSN is mandatory in v7.1.0. Use --db-dsn to specify the database connection."
 fi
