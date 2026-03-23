@@ -293,7 +293,9 @@ in {
         enable      = true;
         addresses   = true;
         workstation = true;
-        extraServices = lib.optionalString cfg.timeMachine ''
+      };
+      extraServiceFiles = lib.optionalAttrs cfg.timeMachine {
+        smb = ''
           <?xml version="1.0" standalone='no'?>
           <!DOCTYPE service-group SYSTEM "avahi-service.dtd">
           <service-group>
