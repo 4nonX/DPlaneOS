@@ -70,7 +70,7 @@ in {
     "dplaneos-install/disko.nix".source      = ./disko.nix;
     "dplaneos-install/disko.nix".mode       = "0644";
     # Tell install.sh where the pre-built closure lives in the nix store
-    "dplaneos-install/system-path".text      = "${dplaneosSystem}";
+    "dplaneos-install/system-path".text      = "${dplaneosSystem.outPath or dplaneosSystem}";
     "dplaneos-install/system-path".mode      = "0644";
   };
 
