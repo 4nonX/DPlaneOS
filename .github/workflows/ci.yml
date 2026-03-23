@@ -2,6 +2,7 @@ name: D-PlaneOS Unified CI/CD
 
 on:
   push:
+    branches: ["main", "feature/iso-installer"]
     tags: ["v*"]
   workflow_dispatch:
 
@@ -347,7 +348,7 @@ jobs:
   iso:
     name: Build Installer ISO
     needs: [validate, integration]
-    if: github.ref_type == 'tag'
+    if: github.ref_type == 'tag' || github.ref == 'refs/heads/feature/iso-installer'
     runs-on: ubuntu-22.04
     permissions:
       contents: write
@@ -371,15 +372,19 @@ jobs:
       - name: Enable Nix build cache
         uses: DeterminateSystems/magic-nix-cache-action@main
 
-      - name: Verify VERSION matches tag
+      - name: Verify VERSION matches tag (Tags only)
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          FILE_VERSION="$(cat VERSION | tr -d '[:space:]')"
-          if [ "$FILE_VERSION" != "$VERSION" ]; then
-            echo "ERROR: VERSION file ($FILE_VERSION) does not match tag ($VERSION)"
-            exit 1
+          if [[ "${{ github.ref_type }}" == "tag" ]]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+            FILE_VERSION="$(cat VERSION | tr -d '[:space:]')"
+            if [ "$FILE_VERSION" != "$VERSION" ]; then
+              echo "ERROR: VERSION file ($FILE_VERSION) does not match tag ($VERSION)"
+              exit 1
+            fi
+            echo "VERSION=$VERSION" >> $GITHUB_ENV
+          else
+            echo "VERSION=$(cat VERSION | tr -d '[:space:]')" >> $GITHUB_ENV
           fi
-          echo "VERSION=$VERSION" >> $GITHUB_ENV
 
       - name: Build installer ISO
         run: |
@@ -396,6 +401,7 @@ jobs:
           echo "ISO_SHA=${ISO_NAME}.sha256" >> $GITHUB_ENV
 
       - name: Attach ISO to GitHub Release
+        if: github.ref_type == 'tag'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
