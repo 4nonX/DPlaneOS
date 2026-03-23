@@ -79,6 +79,10 @@ func RunSMARTCronHook(w http.ResponseWriter, r *http.Request) {
 		testType = req.Type
 	}
 
+	if err := security.ValidateDevicePath(req.Device); err != nil {
+		respondErrorSimple(w, fmt.Sprintf("Invalid device path: %v", err), http.StatusBadRequest)
+		return
+	}
 	log.Printf("SMART CRON: Starting %s test on %s", testType, req.Device)
 	cmd := exec.Command("smartctl", "-t", testType, req.Device)
 	output, err := cmd.CombinedOutput()
@@ -143,6 +147,10 @@ func AddSMARTSchedule(w http.ResponseWriter, r *http.Request) {
 		respondErrorSimple(w, "Invalid request", http.StatusBadRequest)
 		return
 	}
+	if err := security.ValidateDevicePath(req.Device); err != nil {
+		respondErrorSimple(w, fmt.Sprintf("Invalid device path: %v", err), http.StatusBadRequest)
+		return
+	}
 	cron := r.URL.Query().Get("schedule")
 	if cron == "" {
 		respondErrorSimple(w, "Missing schedule parameter", http.StatusBadRequest)
@@ -198,6 +206,10 @@ func DeleteSMARTSchedule(w http.ResponseWriter, r *http.Request) {
 	testType := r.URL.Query().Get("type")
 	if device == "" || testType == "" {
 		respondErrorSimple(w, "device and type parameters required", http.StatusBadRequest)
+		return
+	}
+	if err := security.ValidateDevicePath(device); err != nil {
+		respondErrorSimple(w, fmt.Sprintf("Invalid device path: %v", err), http.StatusBadRequest)
 		return
 	}
 
