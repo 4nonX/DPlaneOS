@@ -90,6 +90,7 @@ in {
     settings.PasswordAuthentication = true;
   };
   users.users.root.password = lib.mkForce "dplaneos";
+  users.users.root.initialHashedPassword = lib.mkForce null;
 
   # ── Nix — disable all substituters for true offline operation ─────────────
   nix.settings = {

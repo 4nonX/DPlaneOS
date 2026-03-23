@@ -85,7 +85,7 @@
         pname        = "dplaneos-daemon-dynamic";
         version      = dplaneosVersion;
         src          = ./.;
-        env.CGO_ENABLED = nixpkgs.lib.mkForce "1";
+        env.CGO_ENABLED = "1";
         vendorHash   = nixpkgs.lib.fakeHash;
         subPackages  = [ "daemon/cmd/dplaned" ];
         nativeBuildInputs = with pkgs; [ gcc ];
