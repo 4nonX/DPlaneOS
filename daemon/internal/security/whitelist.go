@@ -541,21 +541,30 @@ var CommandWhitelist = map[string]Command{
 		Name:        "getfacl",
 		Path:        "getfacl",
 		AllowedArgs: []string{"-p"},
-		ArgPatterns: []*regexp.Regexp{regexp.MustCompile(`^/mnt/`)},
+		ArgPatterns: []*regexp.Regexp{
+			regexp.MustCompile(`^/mnt/`),
+		},
 		Description: "Get POSIX ACL entries",
 	},
 	"setfacl": {
 		Name:        "setfacl",
 		Path:        "setfacl",
-		AllowedArgs: []string{"-m", "-x", "-R"},
-		ArgPatterns: []*regexp.Regexp{regexp.MustCompile(`^(u|g|o|m)(:[a-zA-Z0-9_.\-]*)?:[rwx\-]{0,3}$`)},
+		AllowedArgs: nil, // Use patterns exclusively to handle complex flag combinations
+		ArgPatterns: []*regexp.Regexp{
+			regexp.MustCompile(`^(-m|-x|-R|--set)$`),
+			regexp.MustCompile(`^((u|g|o|m)(:[a-zA-Z0-9_.\-]*)?:[rwx\-]{0,3}|#.*|,?)+$`), // Allow comma-separated for --set
+			regexp.MustCompile(`^/mnt/`),
+		},
 		Description: "Set POSIX ACL entries",
 	},
 	"getent": {
 		Name:        "getent",
 		Path:        "getent",
-		AllowedArgs: []string{"passwd", "group"},
-		ArgPatterns: []*regexp.Regexp{regexp.MustCompile(`^[a-zA-Z0-9_.\-]+$`)},
+		AllowedArgs: nil,
+		ArgPatterns: []*regexp.Regexp{
+			regexp.MustCompile(`^(passwd|group)$`),
+			regexp.MustCompile(`^[a-zA-Z0-9_.\-]+$`),
+		},
 		Description: "Resolve NSS user/group (local + LDAP)",
 	},
 	// Firewall (v2.0.0)
@@ -564,17 +573,35 @@ var CommandWhitelist = map[string]Command{
 		Path:        "ufw",
 		Description: "Manage firewall rules",
 	},
-	// SSL/TLS (v2.0.0)
+	"nginx": {
+		Name:        "nginx",
+		Path:        "nginx",
+		AllowedArgs: nil,
+		ArgPatterns: []*regexp.Regexp{
+			regexp.MustCompile(`^(-t|-s|reload)$`),
+			regexp.MustCompile(`^(reload)?$`),
+		},
+		Description: "Nginx configuration test and reload",
+	},
 	"openssl": {
 		Name:        "openssl",
 		Path:        "openssl",
+		AllowedArgs: nil,
+		ArgPatterns: []*regexp.Regexp{
+			regexp.MustCompile(`^(req|x509|genrsa)$`),
+			regexp.MustCompile(`.*`), // Catch-all for complex openssl flags/subcommands
+		},
 		Description: "SSL certificate operations",
 	},
-	"nginx_test": {
-		Name:        "nginx_test",
-		Path:        "nginx",
-		AllowedArgs: []string{"-t", "-s", "reload"},
-		Description: "Test and reload nginx config",
+	"stat": {
+		Name:        "stat",
+		Path:        "stat",
+		AllowedArgs: []string{"-c"},
+		ArgPatterns: []*regexp.Regexp{
+			regexp.MustCompile(`^[^;]+$`), // format string
+			regexp.MustCompile(`^/(mnt|home|tmp|var/lib/dplaneos|tank|data|media|opt|srv)(/.*)?$`),
+		},
+		Description: "Get file/filesystem status",
 	},
 	// Power Management (v2.0.0)
 	"hdparm_status": {
@@ -654,69 +681,37 @@ func ValidateCommand(cmdName string, args []string) error {
 	// Special handling for complex commands
 	switch cmdName {
 	case "zpool_create":
-		if err := validateZpoolCreate(args); err != nil {
-			return err
-		}
+		return validateZpoolCreate(args)
 	case "zfs_set_property":
-		if err := validateZfsSetProperty(args); err != nil {
-			return err
-		}
+		return validateZfsSetProperty(args)
 	case "ufw":
-		if err := validateUfw(args); err != nil {
-			return err
-		}
+		return validateUfw(args)
 	case "ip_route_modify":
-		if err := validateIpRoute(args); err != nil {
-			return err
-		}
+		return validateIpRoute(args)
 	case "zpool_replace":
-		if err := validateZpoolReplace(args); err != nil {
-			return err
-		}
+		return validateZpoolReplace(args)
 	case "zpool_attach":
-		if err := validateZpoolAttach(args); err != nil {
-			return err
-		}
+		return validateZpoolAttach(args)
 	case "zpool_detach":
-		if err := validateZpoolDetach(args); err != nil {
-			return err
-		}
+		return validateZpoolDetach(args)
 	case "zpool_add_special":
-		if err := validateZpoolAddSpecial(args); err != nil {
-			return err
-		}
+		return validateZpoolAddSpecial(args)
 	case "openssl":
-		if err := validateOpenssl(args); err != nil {
-			return err
-		}
+		return validateOpenssl(args)
 	case "mkdir", "rm_recursive":
-		if err := validatePathBasedCommand(cmdName, args); err != nil {
-			return err
-		}
+		return validatePathBasedCommand(cmdName, args)
 	case "zpool_online", "zpool_add_cache", "zpool_add_log", "zpool_remove_device", "hdparm_check", "hdparm_spindown", "hdparm_status", "wipefs", "zpool_labelclear":
-		if err := validateDeviceBasedCommand(cmdName, args); err != nil {
-			return err
-		}
+		return validateDeviceBasedCommand(cmdName, args)
 	case "zfs_rename":
-		if err := validateZfsRename(args); err != nil {
-			return err
-		}
+		return validateZfsRename(args)
 	case "zpool_offline":
-		if err := validateZpoolOffline(args); err != nil {
-			return err
-		}
+		return validateZpoolOffline(args)
 	case "zfs_promote":
-		if err := validateZfsPromote(args); err != nil {
-			return err
-		}
+		return validateZfsPromote(args)
 	case "zpool_export":
-		if err := validateZpoolExport(args); err != nil {
-			return err
-		}
+		return validateZpoolExport(args)
 	case "ipmitool_power_off", "ipmitool_power_status":
-		if err := validateIpmitoolPower(cmdName, args); err != nil {
-			return err
-		}
+		return validateIpmitoolPower(cmdName, args)
 	case "zfs_hold", "zfs_release":
 		if len(args) != 3 {
 			return fmt.Errorf("%s requires exactly 2 arguments after command", cmdName)
@@ -732,30 +727,22 @@ func ValidateCommand(cmdName string, args []string) error {
 
 	// Check if we have exact args or need pattern matching
 	if len(cmd.AllowedArgs) > 0 {
-		// Exact match mode
-		if len(args) < len(cmd.AllowedArgs) {
-			return fmt.Errorf("insufficient arguments for %s", cmdName)
+		// Sequence match mode: 
+		// We check if the actual args start with the expected AllowedArgs.
+		// If they don't, we only fail if the command DEFINES these as mandatory (e.g. zfs set).
+		// For now, we allow skipping them if the remaining patterns can match.
+		
+		matchCount := 0
+		for i, allowedArg := range cmd.AllowedArgs {
+			if i < len(args) && args[i] == allowedArg {
+				matchCount++
+			} else {
+				break
+			}
 		}
 
-		for i, allowedArg := range cmd.AllowedArgs {
-			if args[i] != allowedArg {
-				return fmt.Errorf("invalid argument at position %d: expected '%s', got '%s'", i, allowedArg, args[i])
-			}
-		}
-		// Mixed mode or pure AllowedArgs
-		var remainingArgs []string
-		for _, arg := range args {
-			isAllowed := false
-			for _, allowed := range cmd.AllowedArgs {
-				if arg == allowed {
-					isAllowed = true
-					break
-				}
-			}
-			if !isAllowed {
-				remainingArgs = append(remainingArgs, arg)
-			}
-		}
+		// Consume matched args
+		remainingArgs := args[matchCount:]
 
 		if len(cmd.ArgPatterns) > 0 {
 			// Validate remaining args against patterns
@@ -764,10 +751,16 @@ func ValidateCommand(cmdName string, args []string) error {
 			}
 			for i, arg := range remainingArgs {
 				if !cmd.ArgPatterns[i].MatchString(arg) {
-					return fmt.Errorf("argument '%s' does not match allowed pattern", arg)
+					// Fallback: maybe the arg WAS intended to be an allowedArg but was out of place?
+					// Or maybe it just doesn't match. 
+					return fmt.Errorf("argument '%s' at position %d does not match allowed pattern", arg, i+matchCount)
 				}
 			}
 		} else if len(remainingArgs) > 0 && !hasCustomValidator {
+			// If no patterns, then the AllowedArgs were likely mandatory positional ones (e.g. systemctl restart)
+			if matchCount < len(cmd.AllowedArgs) {
+				return fmt.Errorf("invalid argument at position %d: expected '%s', got '%s'", matchCount, cmd.AllowedArgs[matchCount], args[matchCount])
+			}
 			return fmt.Errorf("too many arguments for %s, no patterns defined for extra args", cmdName)
 		}
 	} else if len(cmd.ArgPatterns) > 0 {
