@@ -367,7 +367,7 @@ jobs:
         uses: wimpysworld/nothing-but-nix@main
 
       - name: Install Nix
-        uses: nix-community/install-nix-action@v30
+        uses: cachix/install-nix-action@v30
         with:
           extra_nix_config: |
             experimental-features = nix-command flakes
