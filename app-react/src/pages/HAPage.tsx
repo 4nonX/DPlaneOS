@@ -41,6 +41,8 @@ interface Cluster {
   local_node?:  HANode
   peers?:       HANode[]
   ha_enabled?:  boolean
+  maintenance_active?: boolean
+  maintenance_until?:  number
 }
 
 interface HAStatusResponse { success: boolean; cluster?: Cluster }
@@ -374,6 +376,88 @@ function ReplicationConfigForm() {
 }
 
 // ---------------------------------------------------------------------------
+// MaintenanceModeCard
+// ---------------------------------------------------------------------------
+
+function MaintenanceModeCard({ active, until, onToggle }: {
+  active:   boolean
+  until:    number
+  onToggle: (seconds: number) => void
+}) {
+  const [duration, setDuration] = useState(300)
+  const [rem, setRem] = useState(0)
+
+  useEffect(() => {
+    if (!active || !until) {
+      setRem(0)
+      return
+    }
+    const timer = setInterval(() => {
+      const seconds = Math.max(0, until - Math.floor(Date.now() / 1000))
+      setRem(seconds)
+      if (seconds <= 0) clearInterval(timer)
+    }, 1000)
+    return () => clearInterval(timer)
+  }, [active, until])
+
+  const fmtRem = (s: number) => {
+    const m = Math.floor(s / 60)
+    const rs = s % 60
+    return `${m}:${rs < 10 ? '0' : ''}${rs}`
+  }
+
+  return (
+    <div className="card" style={{
+      borderRadius: 'var(--radius-lg)', padding: '20px 24px', marginTop: 24,
+      borderLeft: active ? '4px solid var(--warning)' : '4px solid var(--border)',
+      background: active ? 'rgba(245,158,11,0.03)' : 'var(--bg-card)'
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <Icon name="build_circle" size={24} style={{ color: active ? 'var(--warning)' : 'var(--text-tertiary)' }} />
+          <div>
+            <div style={{ fontWeight: 700 }}>Maintenance Mode</div>
+            <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>
+              {active 
+                ? `Fencing suspended. Automatically re-enables in ${fmtRem(rem)}` 
+                : 'Automated fencing is active. Enable maintenance mode before planned work.'}
+            </div>
+          </div>
+        </div>
+        <button 
+          onClick={() => onToggle(active ? 0 : duration)} 
+          className={`btn ${active ? 'btn-warning' : 'btn-ghost'}`}
+          style={{ border: active ? 'none' : '1px solid var(--border)' }}
+        >
+          {active ? 'Exit Maintenance' : 'Enter Maintenance'}
+        </button>
+      </div>
+
+      {!active && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>Duration:</span>
+          <select 
+            value={duration} 
+            onChange={e => setDuration(parseInt(e.target.value))} 
+            className="input" 
+            style={{ width: 140, height: 32, padding: '0 8px', fontSize: 'var(--text-xs)' }}
+          >
+            <option value={300}>5 Minutes</option>
+            <option value={900}>15 Minutes</option>
+            <option value={1800}>30 Minutes</option>
+            <option value={3600}>1 Hour</option>
+            <option value={14400}>4 Hours</option>
+          </select>
+          <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', fontStyle: 'italic' }}>
+            Fencing will automatically resume after timeout.
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // HAPage
 // ---------------------------------------------------------------------------
 
@@ -450,6 +534,15 @@ export function HAPage() {
       }
     },
     onError: (e: Error) => toast.error(`HA Toggle failed: ${e.message}`)
+  })
+
+  const toggleMaintenance = useMutation({
+    mutationFn: (seconds: number) => api.post('/api/ha/maintenance', { seconds }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['ha', 'status'] })
+      toast.success('Maintenance mode updated')
+    },
+    onError: (e: Error) => toast.error(`Maintenance Toggle failed: ${e.message}`)
   })
 
   const [wizardStep, setWizardStep] = useState<number | null>(null)
@@ -771,6 +864,11 @@ export function HAPage() {
       <AddPeerForm
         onAdd={peer => addPeer.mutate(peer)}
         pending={pending}
+      />
+      <MaintenanceModeCard 
+        active={cluster.maintenance_active || false} 
+        until={cluster.maintenance_until || 0}
+        onToggle={(secs) => toggleMaintenance.mutate(secs)} 
       />
       <ReplicationConfigForm />
       <FencingConfigForm />

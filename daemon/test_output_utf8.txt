@@ -48,12 +48,13 @@
 === RUN   TestValidateCommand/Invalid_ufw_(unauthorized_keyword)
 === RUN   TestValidateCommand/Valid_ip_route_add
 === RUN   TestValidateCommand/Valid_openssl_with_subj
+    whitelist_test.go:153: ValidateCommand() error = too many arguments for openssl, wantErr false
 === RUN   TestValidateCommand/Invalid_openssl_subj
 === RUN   TestValidateCommand/Valid_mkdir_with_space
 === RUN   TestValidateCommand/Invalid_mkdir_with_traversal
 === RUN   TestValidateCommand/Valid_rm_recursive
 === RUN   TestValidateCommand/Invalid_rm_recursive_traversal
---- PASS: TestValidateCommand (0.00s)
+--- FAIL: TestValidateCommand (0.00s)
     --- PASS: TestValidateCommand/Valid_zpool_list (0.00s)
     --- PASS: TestValidateCommand/Invalid_command (0.00s)
     --- PASS: TestValidateCommand/Valid_dataset_name (0.00s)
@@ -70,7 +71,7 @@
     --- PASS: TestValidateCommand/Valid_ufw_allow_mixed_order (0.00s)
     --- PASS: TestValidateCommand/Invalid_ufw_(unauthorized_keyword) (0.00s)
     --- PASS: TestValidateCommand/Valid_ip_route_add (0.00s)
-    --- PASS: TestValidateCommand/Valid_openssl_with_subj (0.00s)
+    --- FAIL: TestValidateCommand/Valid_openssl_with_subj (0.00s)
     --- PASS: TestValidateCommand/Invalid_openssl_subj (0.00s)
     --- PASS: TestValidateCommand/Valid_mkdir_with_space (0.00s)
     --- PASS: TestValidateCommand/Invalid_mkdir_with_traversal (0.00s)
@@ -150,5 +151,6 @@
     --- PASS: TestPathCleaner/Canonical_traversal (0.00s)
     --- PASS: TestPathCleaner/Null_byte_in_middle (0.00s)
     --- PASS: TestPathCleaner/Newline_in_middle (0.00s)
-PASS
-ok  	dplaned/internal/security	0.670s
+FAIL
+FAIL	dplaned/internal/security	0.920s
+FAIL

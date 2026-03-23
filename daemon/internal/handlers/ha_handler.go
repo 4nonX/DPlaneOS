@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"dplaned/internal/cmdutil"
 	"dplaned/internal/ha"
@@ -321,6 +322,32 @@ func (h *HAHandler) ToggleHA(w http.ResponseWriter, r *http.Request) {
 		"success": true,
 		"message": "HA state updated. System reconfiguration started.",
 		"job_id":  jobID,
+	})
+}
+
+// RegisterMaintenance sets the cluster into maintenance mode for a given duration.
+// POST /api/ha/maintenance {"seconds": 300}
+func (h *HAHandler) RegisterMaintenance(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Seconds int `json:"seconds"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		req.Seconds = 300 // default
+	}
+	if req.Seconds < 0 {
+		req.Seconds = 0
+	}
+
+	h.mgr.SetMaintenanceMode(time.Duration(req.Seconds) * time.Second)
+
+	status := "enabled"
+	if req.Seconds == 0 {
+		status = "disabled"
+	}
+
+	respondJSON(w, http.StatusOK, map[string]interface{}{
+		"success": true,
+		"message": fmt.Sprintf("Maintenance mode %s. Fencing suspended for %d seconds.", status, req.Seconds),
 	})
 }
 

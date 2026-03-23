@@ -549,11 +549,10 @@ var CommandWhitelist = map[string]Command{
 	"setfacl": {
 		Name:        "setfacl",
 		Path:        "setfacl",
-		AllowedArgs: nil, // Use patterns exclusively to handle complex flag combinations
+		AllowedArgs: []string{"-m", "-x", "-R", "--set"},
 		ArgPatterns: []*regexp.Regexp{
-			regexp.MustCompile(`^(-m|-x|-R|--set)$`),
-			regexp.MustCompile(`^((u|g|o|m)(:[a-zA-Z0-9_.\-]*)?:[rwx\-]{0,3}|#.*|,?)+$`), // Allow comma-separated for --set
-			regexp.MustCompile(`^/mnt/`),
+			regexp.MustCompile(`^((u|g|o|m)(:[a-zA-Z0-9_.\-]*)?:[rwx\-]{0,3}|#.*|,?)+$`), // ACL entry
+			regexp.MustCompile(`^/mnt/`),                                                 // path
 		},
 		Description: "Set POSIX ACL entries",
 	},
@@ -662,6 +661,7 @@ var CommandWhitelist = map[string]Command{
 }
 
 // ValidateCommand checks if a command request is allowed
+// ValidateCommand checks if a command request is allowed
 func ValidateCommand(cmdName string, args []string) error {
 	cmd, exists := CommandWhitelist[cmdName]
 	if !exists {
@@ -669,16 +669,6 @@ func ValidateCommand(cmdName string, args []string) error {
 	}
 
 	// Use custom validation if available
-	hasCustomValidator := false
-	switch cmdName {
-	case "zpool_create", "zfs_set_property", "ufw", "ip_route_modify", "openssl", "mkdir", "rm_recursive",
-		"zpool_online", "zpool_add_cache", "zpool_add_log", "zpool_remove_device", "hdparm_check", "hdparm_spindown", "hdparm_status",
-		"zpool_replace", "zpool_attach", "zpool_detach", "zpool_add_special", "wipefs", "zpool_labelclear",
-		"zfs_hold", "zfs_release", "zfs_holds", "zpool_split", "ipmitool_power_off", "ipmitool_power_status":
-		hasCustomValidator = true
-	}
-
-	// Special handling for complex commands
 	switch cmdName {
 	case "zpool_create":
 		return validateZpoolCreate(args)
@@ -725,60 +715,55 @@ func ValidateCommand(cmdName string, args []string) error {
 		}
 	}
 
-	// Check if we have exact args or need pattern matching
-	if len(cmd.AllowedArgs) > 0 {
-		// Sequence match mode: 
-		// We check if the actual args start with the expected AllowedArgs.
-		// If they don't, we only fail if the command DEFINES these as mandatory (e.g. zfs set).
-		// For now, we allow skipping them if the remaining patterns can match.
-		
-		matchCount := 0
-		for i, allowedArg := range cmd.AllowedArgs {
-			if i < len(args) && args[i] == allowedArg {
-				matchCount++
-			} else {
-				break
-			}
+	// Default validation logic:
+	// 1. Match AllowedArgs as a prefix if present.
+	// 2. Any leftover args must match ArgPatterns.
+	// 3. Flags (starting with -) that are in AllowedArgs can appear anywhere.
+
+	matchCount := 0
+	for i := 0; i < len(args) && i < len(cmd.AllowedArgs); i++ {
+		if args[i] == cmd.AllowedArgs[i] {
+			matchCount++
+		} else {
+			break
 		}
+	}
 
-		// Consume matched args
-		remainingArgs := args[matchCount:]
+	remainingArgs := args[matchCount:]
+	patternIdx := 0
 
-		if len(cmd.ArgPatterns) > 0 {
-			// Validate remaining args against patterns
-			if len(remainingArgs) > len(cmd.ArgPatterns) {
-				return fmt.Errorf("too many arguments for %s", cmdName)
-			}
-			for i, arg := range remainingArgs {
-				if !cmd.ArgPatterns[i].MatchString(arg) {
-					// Fallback: maybe the arg WAS intended to be an allowedArg but was out of place?
-					// Or maybe it just doesn't match. 
-					return fmt.Errorf("argument '%s' at position %d does not match allowed pattern", arg, i+matchCount)
+	for _, arg := range remainingArgs {
+		// Is this an allowed flag appearing out of order?
+		isAllowedFlag := false
+		if strings.HasPrefix(arg, "-") {
+			for _, allowed := range cmd.AllowedArgs {
+				if arg == allowed {
+					isAllowedFlag = true
+					break
 				}
 			}
-		} else if len(remainingArgs) > 0 && !hasCustomValidator {
-			// If no patterns, then the AllowedArgs were likely mandatory positional ones (e.g. systemctl restart)
-			if matchCount < len(cmd.AllowedArgs) {
-				return fmt.Errorf("invalid argument at position %d: expected '%s', got '%s'", matchCount, cmd.AllowedArgs[matchCount], args[matchCount])
-			}
-			return fmt.Errorf("too many arguments for %s, no patterns defined for extra args", cmdName)
 		}
-	} else if len(cmd.ArgPatterns) > 0 {
-		// Pattern-only mode
-		if len(args) > len(cmd.ArgPatterns) {
+
+		if isAllowedFlag {
+			continue
+		}
+
+		// Not an allowed flag, must match the next pattern
+		if patternIdx >= len(cmd.ArgPatterns) {
 			return fmt.Errorf("too many arguments for %s", cmdName)
 		}
-		for i, pat := range cmd.ArgPatterns {
-			if i >= len(args) {
-				break
-			}
-			if !pat.MatchString(args[i]) {
-				return fmt.Errorf("argument '%s' does not match allowed pattern", args[i])
-			}
+		if !cmd.ArgPatterns[patternIdx].MatchString(arg) {
+			return fmt.Errorf("invalid argument for %s at position %d: %s", cmdName, matchCount+patternIdx, arg)
 		}
-	} else if len(args) > 0 && !hasCustomValidator {
-		// No AllowedArgs or ArgPatterns, but args were provided. This is usually an error.
-		return fmt.Errorf("command %s does not accept arguments", cmdName)
+		patternIdx++
+	}
+
+	// Final check: did we meet the minimum arguments if AllowedArgs was meant to be a fixed prefix?
+	// If the command has only AllowedArgs and no patterns, it must match them exactly.
+	if len(cmd.ArgPatterns) == 0 && len(cmd.AllowedArgs) > 0 {
+		if len(args) < len(cmd.AllowedArgs) {
+			return fmt.Errorf("missing mandatory arguments for %s", cmdName)
+		}
 	}
 
 	return nil

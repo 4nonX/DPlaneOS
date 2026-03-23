@@ -72,9 +72,11 @@ type ClusterStatus struct {
 	LocalNode   *ClusterNode   `json:"local_node"`
 	Peers       []*ClusterNode `json:"peers"`
 	Quorum      bool           `json:"quorum"`       // true if majority of nodes are reachable
-	ActiveNode  *ClusterNode   `json:"active_node"`  // which node currently holds the active role
-	HAEnabled   bool           `json:"ha_enabled"`   // true if Patroni/HAProxy is configured in NixOS
-	LastUpdated time.Time      `json:"last_updated"`
+	ActiveNode         *ClusterNode   `json:"active_node"`  // which node currently holds the active role
+	HAEnabled          bool           `json:"ha_enabled"`   // true if Patroni/HAProxy is configured in NixOS
+	MaintenanceActive  bool           `json:"maintenance_active"`
+	MaintenanceUntil   int64          `json:"maintenance_until"` // unix timestamp
+	LastUpdated        time.Time      `json:"last_updated"`
 }
 
 // Manager owns the cluster state for this node.
@@ -92,6 +94,8 @@ type Manager struct {
 	fencingInProgress bool
 
 	replCancel context.CancelFunc
+
+	maintenanceUntil time.Time
 
 	stopCh chan struct{}
 }
@@ -207,13 +211,38 @@ func (m *Manager) Status() *ClusterStatus {
 	}
 	quorum := reachable > total/2
 
+	maintenanceActive := time.Now().Before(m.maintenanceUntil)
+
 	return &ClusterStatus{
-		LocalNode:   local,
-		Peers:       peers,
-		Quorum:      quorum,
-		ActiveNode:  activeNode,
-		LastUpdated: time.Now(),
+		LocalNode:         local,
+		Peers:             peers,
+		Quorum:            quorum,
+		ActiveNode:        activeNode,
+		HAEnabled:         m.replConfig != nil, // Approximation if NixWriter not available
+		MaintenanceActive: maintenanceActive,
+		MaintenanceUntil:  m.maintenanceUntil.Unix(),
+		LastUpdated:       time.Now(),
 	}
+}
+
+// SetMaintenanceMode suspends automated fencing for the given duration.
+func (m *Manager) SetMaintenanceMode(duration time.Duration) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if duration <= 0 {
+		m.maintenanceUntil = time.Time{}
+		log.Printf("HA: Maintenance mode DISABLED.")
+	} else {
+		m.maintenanceUntil = time.Now().Add(duration)
+		log.Printf("HA: Maintenance mode ENABLED for %v (until %v). Fencing is SUSPENDED.", duration, m.maintenanceUntil.Format("15:04:05"))
+	}
+}
+
+// IsMaintenanceActive returns true if fencing should be suppressed.
+func (m *Manager) IsMaintenanceActive() bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return time.Now().Before(m.maintenanceUntil)
 }
 
 // GetPeer returns a specific peer by ID.
@@ -274,14 +303,21 @@ func (m *Manager) checkFailover() {
 	fencingCfg, err := GetFencingConfig(m.db)
 	if err != nil || !fencingCfg.Enable {
 		// Just log on the transition edge, but avoid log spam every 15s.
-		// MissedBeats grows reliably, we can use it to rate limit the logs.
 		if deadPeer.MissedBeats == 3 {
 			log.Printf("HA STONITH: Peer %s breached FailoverThreshold (45s), but Fencing is DISABLED. Automatic promotion aborted.", deadPeer.ID)
 		}
 		return
 	}
 
-	// 3. Initiate Fencing & Promotion asynchronously (rate limited via flag).
+	// 3. Check Maintenance Mode
+	if m.IsMaintenanceActive() {
+		if deadPeer.MissedBeats == 3 {
+			log.Printf("HA STONITH: Peer %s breached FailoverThreshold (45s), but fencing is SUSPENDED due to ACTIVE MAINTENANCE MODE.", deadPeer.ID)
+		}
+		return
+	}
+
+	// 4. Initiate Fencing & Promotion asynchronously (rate limited via flag).
 	m.mu.Lock()
 	if m.fencingInProgress {
 		m.mu.Unlock()
