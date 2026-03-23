@@ -548,15 +548,13 @@ else
     log "Skipping sudoers configuration for NixOS"
 fi
 
-INSTALL_PHASE=7
-
+step "Phase 7/13: Database"
 # ────────────────────────────────────────────────────────────────────────────
+
+if [ -n "$OPT_DB_DSN" ]; then
     log "PostgreSQL configuration phase complete"
 else
     die "PostgreSQL DSN is mandatory in v7.1.0. Use --db-dsn to specify the database connection."
-fi
-else
-# Phase 7 removal - SQLite no longer supported
 fi
 
 INSTALL_PHASE=8
