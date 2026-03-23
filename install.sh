@@ -761,7 +761,6 @@ if [ -f "${INSTALL_DIR}/install/systemd/dplaneos-init-db.service" ]; then
     # Inject DATABASE_DSN into the service if using Postgres
     if [ -n "$OPT_DB_DSN" ]; then
         sed -i "/\[Service\]/a Environment=\"DATABASE_DSN=${OPT_DB_DSN}\"" /etc/systemd/system/dplaneos-init-db.service
-        sed -i "/\[Service\]/a Environment=\"DATABASE_DSN=${OPT_DB_DSN}\"" /etc/systemd/system/dplaneos-realtime.service
     fi
 
     systemctl enable dplaneos-init-db.service 2>/dev/null || true
