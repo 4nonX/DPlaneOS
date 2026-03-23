@@ -183,6 +183,7 @@ in {
             auth_pass ${cfg.vrrpPassword}
           }
         '';
+      };
     };
 
     # ─── Systemd Overrides for Patroni HA Split-Brain Protection ─────────
