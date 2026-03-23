@@ -336,6 +336,8 @@ func (h *HAHandler) RegisterMaintenance(w http.ResponseWriter, r *http.Request) 
 	}
 	if req.Seconds < 0 {
 		req.Seconds = 0
+	} else if req.Seconds > 3600 {
+		req.Seconds = 3600 // Cap at 1 hour for safety
 	}
 
 	h.mgr.SetMaintenanceMode(time.Duration(req.Seconds) * time.Second)

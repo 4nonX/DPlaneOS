@@ -1059,6 +1059,7 @@ func main() {
 	r.Handle("/api/ha/fencing/configure", permRoute("system", "admin", haHandler.GetFencingConfig)).Methods("GET")
 	r.Handle("/api/ha/promote", permRoute("system", "admin", haHandler.Promote)).Methods("POST")
 	r.Handle("/api/ha/fence", permRoute("system", "admin", haHandler.TriggerFence)).Methods("POST")
+	r.Handle("/api/ha/maintenance", permRoute("system", "admin", haHandler.RegisterMaintenance)).Methods("POST")
 	// /api/ha/heartbeat is deliberately PUBLIC (no session) so peer daemons can reach it
 	r.HandleFunc("/api/ha/heartbeat", haHandler.PeerHeartbeat).Methods("POST")
 	r.HandleFunc("/api/ha/local", haHandler.LocalNodeInfo).Methods("GET")
