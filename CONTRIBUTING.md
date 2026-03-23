@@ -161,5 +161,5 @@ PRs that introduce security regressions will be closed without merge.
 
 ## License
 
-By contributing, you agree your contributions are licensed under the project's [GNU Affero General Public License v3.0 (AGPLv3)](https://www.gnu.org/licenses/agpl-3.0.html). See `CLA-INDIVIDUAL.md` for details.
+By contributing, you agree your contributions are licensed under the project's [GNU Affero General Public License v3.0 (AGPLv3)](https://www.gnu.org/licenses/agpl-3.0.html). See `docs/legal/CLA-INDIVIDUAL.md` for details.
 

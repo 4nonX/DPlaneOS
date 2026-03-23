@@ -11,7 +11,7 @@ ZFS-first NAS operating system for homelab and small-office deployments. Runs as
 
 *Clicking the Demo-Image leads to a demo-page, take a tour of the interface.*
 
-[![D-PlaneOS Demo](demo.png)](https://dplaneos.d-net.me/demo.html)
+[![D-PlaneOS Demo](docs/assets/demo.png)](https://dplaneos.d-net.me/demo.html)
 ---
 
 ## High-Performance, Zero-Pollution Architecture
