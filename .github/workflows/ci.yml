@@ -2,11 +2,7 @@ name: D-PlaneOS Unified CI/CD
 
 on:
   push:
-    branches: ["main", "master", "v*", "ha-patroni"]
     tags: ["v*"]
-  pull_request:
-    branches: ["main", "master", "ha-patroni"]
-  workflow_call:
   workflow_dispatch:
 
 permissions:
@@ -309,8 +305,8 @@ jobs:
           tar czf "$AMD64_TARBALL" --transform="s|^|dplaneos-v${VERSION}/|" \
             --exclude='*.bak' --exclude='.git' \
             app/ build/dplaned daemon/ install/ nixos/ docs/ \
-            .github/ .gitattributes .gitignore install.sh get.sh Makefile VERSION LICENSE README.md CONTRIBUTING.md \
-            CLA-ENTITY.md CLA-INDIVIDUAL.md SECURITY.md
+            .github/ .gitattributes .gitignore install.sh scripts/ .gitmodules Makefile VERSION LICENSE README.md CONTRIBUTING.md \
+            docs/legal/ docs/assets/ SECURITY.md
           
           # arm64
           ARM64_TARBALL="dplaneos-v${VERSION}-linux-arm64.tar.gz"
@@ -318,8 +314,8 @@ jobs:
           tar czf "$ARM64_TARBALL" --transform="s|^|dplaneos-v${VERSION}/|" \
             --exclude='*.bak' --exclude='.git' \
             app/ build/dplaned daemon/ install/ nixos/ docs/ \
-            .github/ .gitattributes .gitignore install.sh get.sh Makefile VERSION LICENSE README.md CONTRIBUTING.md \
-            CLA-ENTITY.md CLA-INDIVIDUAL.md SECURITY.md
+            .github/ .gitattributes .gitignore install.sh scripts/ .gitmodules Makefile VERSION LICENSE README.md CONTRIBUTING.md \
+            docs/legal/ docs/assets/ SECURITY.md
           
           # Checksums
           echo "amd64_tarball=${AMD64_TARBALL}" >> $GITHUB_OUTPUT
