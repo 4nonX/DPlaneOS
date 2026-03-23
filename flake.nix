@@ -192,6 +192,10 @@
           };
         };
 
+        packages.iso = if system == "x86_64-linux" 
+                       then self.nixosConfigurations.iso.config.system.build.isoImage
+                       else null;
+
         packages.default = self.packages.${system}.dplaneos-daemon;
 
         devShells.default = pkgs.mkShell {
@@ -262,7 +266,5 @@
         ];
       };
 
-      packages.x86_64-linux.iso =
-        self.nixosConfigurations.iso.config.system.build.isoImage;
     };
 }
