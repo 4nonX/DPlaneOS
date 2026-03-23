@@ -45,7 +45,7 @@
   outputs = { self, nixpkgs, flake-utils, disko, impermanence }:
   let
     # Read version from VERSION file at evaluation time : single source of truth
-    dplaneosVersion = builtins.replaceStrings ["\n"] [""] (builtins.readFile ../VERSION);
+    dplaneosVersion = builtins.replaceStrings ["\n"] [""] (builtins.readFile ./VERSION);
   in
     let
       supportedSystems = [ "x86_64-linux" "aarch64-linux" ];
@@ -141,7 +141,7 @@
         packages.dplaneos-daemon = pkgsStatic.buildGoModule {
           pname        = "dplaneos-daemon";
           version      = dplaneosVersion;
-          src          = ../.;
+          src          = ./.;
           # CGO_ENABLED=1 required for ZFS interop
           CGO_ENABLED  = "1";
           # vendorHash: run `nix build .#dplaneos-daemon 2>&1 | grep "got:"` to
@@ -180,7 +180,7 @@
         packages.dplaneos-daemon-dynamic = pkgs.buildGoModule {
           pname        = "dplaneos-daemon-dynamic";
           version      = dplaneosVersion;
-          src          = ../.;
+          src          = ./.;
           CGO_ENABLED  = "1";
           vendorHash   = nixpkgs.lib.fakeHash;  # update after go.sum changes
           subPackages  = [ "daemon/cmd/dplaned" ];
@@ -207,7 +207,7 @@
     ) //
     {
       # ── NixOS module (system-agnostic) ───────────────────────────────────
-      nixosModules.dplaneos = import ./module.nix;
+      nixosModules.dplaneos = import ./nixos/module.nix;
 
       # ── x86_64 appliance build ────────────────────────────────────────────
       # nixos-rebuild switch --flake /etc/nixos#dplaneos
@@ -215,15 +215,15 @@
         system      = "x86_64-linux";
         specialArgs = { inherit self; };
         modules     = [
-          ./configuration-standalone.nix
+          ./nixos/configuration-standalone.nix
           self.nixosModules.dplaneos
           disko.nixosModules.disko
-          ./disko.nix
+          ./nixos/disko.nix
           impermanence.nixosModules.impermanence
-          ./impermanence.nix
-          ./ota-module.nix
-          ./modules/samba.nix
-          ./dplane-generated.nix   # v5.0: static JSON-to-Nix bridge
+          ./nixos/impermanence.nix
+          ./nixos/ota-module.nix
+          ./nixos/modules/samba.nix
+          ./nixos/dplane-generated.nix   # v5.0: static JSON-to-Nix bridge
           applianceConfig
           # Wire the daemon package into the module option
           { services.dplaneos.daemonPackage =
@@ -236,15 +236,15 @@
         system      = "aarch64-linux";
         specialArgs = { inherit self; };
         modules     = [
-          ./configuration-standalone.nix
+          ./nixos/configuration-standalone.nix
           self.nixosModules.dplaneos
           disko.nixosModules.disko
-          ./disko.nix
+          ./nixos/disko.nix
           impermanence.nixosModules.impermanence
-          ./impermanence.nix
-          ./ota-module.nix
-          ./modules/samba.nix
-          ./dplane-generated.nix   # v5.0: static JSON-to-Nix bridge
+          ./nixos/impermanence.nix
+          ./nixos/ota-module.nix
+          ./nixos/modules/samba.nix
+          ./nixos/dplane-generated.nix   # v5.0: static JSON-to-Nix bridge
           applianceConfig
           { services.dplaneos.daemonPackage =
               self.packages.aarch64-linux.dplaneos-daemon; }
