@@ -21,10 +21,6 @@ ExecStartPre=chmod 755 /var/lib/dplaneos /var/log/dplaneos /run/dplaneos
 # keeping schema in one place (schema.go) prevents drift.
 ExecStart=/opt/dplaneos/install/scripts/init-database-with-lock.sh
 
-# Validate indexes, WAL mode, and ANALYZE after init.
-# Exits 0 even when warnings are found - non-fatal for first-run (tables created by daemon).
-ExecStartPost=/opt/dplaneos/install/scripts/validate-db-schema.sh
-
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=dplaneos-init-db
