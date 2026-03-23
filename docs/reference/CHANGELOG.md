@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## v7.1.0 (2026-03-22) - "High Availability Nexus"
+## v7.1.0 (2026-03-23) - "High Availability Nexus"
 
 Upgrade from: v7.0.0 - Drop-in. `sudo bash install.sh --upgrade`
 
@@ -24,6 +24,11 @@ Upgrade from: v7.0.0 - Drop-in. `sudo bash install.sh --upgrade`
 - **Continuous Storage Replication**
     - High-performance ZFS snapshot shipping for asynchronous Active-to-Standby data sync.
     - Real-time replication telemetry and bottleneck detection.
+- **Security & Robustness Hardening**
+    - **Mandatory Command Whitelisting**: Integrated structural security validation into the `cmdutil` execution layer.
+    - **Failover State Protection**: Added a `fencingInProgress` flag to ensure atomic STONITH/Promotion sequences.
+    - **Startup Split-Brain Guard**: Implemented Patroni health checks to block automatic ZFS imports on replica nodes.
+    - **Job-Based Setup Wizard**: Updated the toggle HA process to leverage the jobs system for real-time progress feedback.
 
 ### Changed
 - **NixOS Bridge**: Integrated HA enablement status into the declarative `dplane-state.json` fragment.
