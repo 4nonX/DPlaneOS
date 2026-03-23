@@ -138,6 +138,16 @@
         mode      = "0755";
       }
 
+      # ── System identity (UIDs/GIDs) ───────────────────────────────────
+      # Fixes: environment.persistence: Neither /var/lib/nixos nor any of its
+      # parents are persisted.
+      {
+        directory = "/var/lib/nixos";
+        user      = "root";
+        group     = "root";
+        mode      = "0755";
+      }
+
     ]; # directories
 
     # ── Individual files to bind from /persist ────────────────────────────

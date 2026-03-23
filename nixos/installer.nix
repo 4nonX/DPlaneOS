@@ -102,10 +102,10 @@ in {
   networking.useDHCP = lib.mkForce true;
 
   # ── ISO metadata ──────────────────────────────────────────────────────────
-  isoImage.isoName              = lib.mkForce "dplaneos-installer-amd64.iso";
+  image.fileName               = lib.mkForce "dplaneos-installer-amd64.iso";
   isoImage.volumeID             = lib.mkForce "DPLANEOS_INSTALL";
   isoImage.makeEfiBootable      = true;
   isoImage.makeUsbBootable      = true;
   isoImage.squashfsCompression  = "zstd -Xcompression-level 9";
-
+  system.stateVersion = "25.11";
 }
