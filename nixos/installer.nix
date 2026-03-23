@@ -108,8 +108,4 @@ in {
   isoImage.makeUsbBootable      = true;
   isoImage.squashfsCompression  = "zstd -Xcompression-level 9";
 
-  # Disable desktop/audio
-  services.xserver.enable    = lib.mkForce false;
-  sound.enable               = lib.mkForce false;
-  hardware.pulseaudio.enable = lib.mkForce false;
 }
