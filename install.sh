@@ -761,6 +761,7 @@ if [ -f "${INSTALL_DIR}/install/systemd/dplaneos-init-db.service" ]; then
     # Inject DATABASE_DSN into the service if using Postgres
     if [ -n "$OPT_DB_DSN" ]; then
         sed -i "/\[Service\]/a Environment=\"DATABASE_DSN=${OPT_DB_DSN}\"" /etc/systemd/system/dplaneos-init-db.service
+        sed -i "/\[Service\]/a Environment=\"DATABASE_DSN=${OPT_DB_DSN}\"" /etc/systemd/system/dplaneos-realtime.service
     fi
 
     systemctl enable dplaneos-init-db.service 2>/dev/null || true
@@ -795,9 +796,9 @@ StartLimitIntervalSec=60
 StartLimitBurst=5
 [Service]
 Type=simple
-Environment=DATABASE_DSN=${OPT_DB_DSN}
+Environment="DATABASE_DSN=${OPT_DB_DSN}"
 ExecStartPre=mkdir -p /run/dplaneos /var/lib/dplaneos /var/log/dplaneos /etc/dplaneos
-ExecStart=${INSTALL_DIR}/daemon/dplaned -db-dsn ${OPT_DB_DSN} -listen 127.0.0.1:9000 -smb-conf /var/lib/dplaneos/smb-shares.conf
+ExecStart=${INSTALL_DIR}/daemon/dplaned -db-dsn "${OPT_DB_DSN}" -listen 127.0.0.1:9000 -smb-conf /var/lib/dplaneos/smb-shares.conf
 WorkingDirectory=${INSTALL_DIR}
 Restart=always
 RestartSec=5
