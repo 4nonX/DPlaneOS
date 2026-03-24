@@ -70,7 +70,7 @@ in {
     "dplaneos-install/disko.nix".source      = ./disko.nix;
     "dplaneos-install/disko.nix".mode       = "0644";
     # Tell install.sh where the pre-built closure lives in the nix store
-    "dplaneos-install/system-path".text      = lib.mkForce (toString dplaneosSystem);
+    "dplaneos-install/system-path".text      = toString dplaneosSystem;
     "dplaneos-install/system-path".mode      = "0644";
   };
 
@@ -103,8 +103,7 @@ in {
   networking.useDHCP = lib.mkForce true;
 
   # ── ISO metadata ──────────────────────────────────────────────────────────
-  isoImage.isoName              = lib.mkForce "dplaneos-installer-amd64.iso";
-  isoImage.appendix             = lib.mkForce "";
+  isoImage.isoName              = "dplaneos-installer-amd64.iso";
   isoImage.volumeID             = lib.mkForce "DPLANEOS_INSTALL";
   isoImage.makeEfiBootable      = true;
   isoImage.makeUsbBootable      = true;
