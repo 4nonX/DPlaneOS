@@ -73,25 +73,24 @@ in {
 
   config = lib.mkIf cfg.enable {
     # ─── Required system packages ────────────────────────────────────────
-    environment.systemPackages = with pkgs; [
-      zfs
-      docker
-      docker-compose
-      nginx
-      # samba - now managed by modules/samba.nix (services.samba)
-      nfs-utils
-      smartmontools
-      ipmitool          # optional: BMC/IPMI sensor readout
-      pv                # used for replication bandwidth throttling
-      rclone            # cloud sync
-      ufw               # firewall management
-      openssh
-      git
-      targetcli-fb
-      curl
-      bash
-      coreutils
-      postgresql
+    environment.systemPackages = [
+      pkgs.zfs
+      pkgs.docker
+      pkgs.docker-compose
+      pkgs.nginx
+      pkgs.nfs-utils
+      pkgs.smartmontools
+      pkgs.ipmitool
+      pkgs.pv
+      pkgs.rclone
+      pkgs.ufw
+      pkgs.openssh
+      pkgs.git
+      pkgs.targetcli-fb
+      pkgs.curl
+      pkgs.bash
+      pkgs.coreutils
+      pkgs.postgresql
     ];
 
     # ─── ZFS ─────────────────────────────────────────────────────────────
