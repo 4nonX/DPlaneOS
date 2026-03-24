@@ -29,6 +29,9 @@
     # Pin to 25.11. Update policy: bump only after 3-month soak period.
     # To update: nix flake update nixpkgs
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.11";
+    
+    # Secondary input to provide packages removed/missing in 25.11 (like ufw)
+    nixpkgs-stable.url = "github:NixOS/nixpkgs/nixos-24.11";
 
     flake-utils.url = "github:numtide/flake-utils";
 
@@ -42,7 +45,7 @@
     impermanence.url = "github:nix-community/impermanence";
   };
 
-  outputs = { self, nixpkgs, flake-utils, disko, impermanence }:
+  outputs = { self, nixpkgs, nixpkgs-stable, flake-utils, disko, impermanence }:
   let
     # Read version from VERSION file at evaluation time : single source of truth
     dplaneosVersion = builtins.replaceStrings ["\n"] [""] (builtins.readFile ./VERSION);
@@ -155,9 +158,13 @@
       nixosModules.dplaneos = import ./nixos/module.nix;
 
       nixosConfigurations.dplaneos = let system = "x86_64-linux"; pkgs = nixpkgs.legacyPackages.${system}; in nixpkgs.lib.nixosSystem {
-        inherit system;
+        inherit system pkgs;
         specialArgs = { inherit self; };
         modules     = [
+          # Inject missing ufw from stable channel
+          ({ ... }: {
+            nixpkgs.overlays = [ (final: prev: { ufw = nixpkgs-stable.legacyPackages.${system}.ufw; }) ];
+          })
           ./nixos/configuration-standalone.nix
           self.nixosModules.dplaneos
           disko.nixosModules.disko
@@ -173,9 +180,13 @@
       };
 
       nixosConfigurations.dplaneos-arm = let system = "aarch64-linux"; pkgs = nixpkgs.legacyPackages.${system}; in nixpkgs.lib.nixosSystem {
-        inherit system;
+        inherit system pkgs;
         specialArgs = { inherit self; };
         modules     = [
+          # Inject missing ufw from stable channel
+          ({ ... }: {
+            nixpkgs.overlays = [ (final: prev: { ufw = nixpkgs-stable.legacyPackages.${system}.ufw; }) ];
+          })
           ./nixos/configuration-standalone.nix
           self.nixosModules.dplaneos
           disko.nixosModules.disko
