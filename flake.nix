@@ -54,7 +54,12 @@
       mkDaemon = { system, pkgs, pkgsStatic, dplaneosVersion, nixpkgs }: pkgsStatic.buildGoModule {
         pname        = "dplaneos-daemon";
         version      = dplaneosVersion;
-        src          = nixpkgs.lib.cleanSource ./.;
+        src          = nixpkgs.lib.cleanSourceWith {
+          src = ./.;
+          filter = name: type: let base = baseNameOf (toString name); in
+            (type == "directory" && (base == "daemon")) ||
+            (base == "go.mod" || base == "go.sum" || base == "VERSION");
+        };
         env.CGO_ENABLED = "1";
         vendorHash   = nixpkgs.lib.fakeHash;
         subPackages  = [ "daemon/cmd/dplaned" ];
@@ -84,7 +89,12 @@
       mkDaemonDynamic = { system, pkgs, dplaneosVersion, nixpkgs }: pkgs.buildGoModule {
         pname        = "dplaneos-daemon-dynamic";
         version      = dplaneosVersion;
-        src          = nixpkgs.lib.cleanSource ./.;
+        src          = nixpkgs.lib.cleanSourceWith {
+          src = ./.;
+          filter = name: type: let base = baseNameOf (toString name); in
+            (type == "directory" && (base == "daemon")) ||
+            (base == "go.mod" || base == "go.sum" || base == "VERSION");
+        };
         env.CGO_ENABLED = "1";
         vendorHash   = nixpkgs.lib.fakeHash;
         subPackages  = [ "daemon/cmd/dplaned" ];
