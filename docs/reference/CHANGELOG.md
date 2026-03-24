@@ -25,6 +25,10 @@ Upgrade from: v7.1.0 - Drop-in. `sudo bash install.sh --upgrade`
 ### Fixed
 - **NixOS 25.11 Compatibility**: General cleanup and removal of deprecated package references to ensure full compatibility with the latest Nixpkgs channel.
 - **Evaluation Resilience**: Fixed a critical redundancy issue in `flake.nix` where system configurations were being evaluated multiple times during the ISO build.
+- **Build Infrastructure Resilience**:
+    - **Go Build Stabilization**: Resolved `runtime/cgo` and `go.mod` pathing errors by disabling CGO and correctly scoping the daemon build to the `daemon/` directory.
+    - **Self-Contained Vendoring**: Transitioned to a fully-committed `vendor/` directory to eliminate CI dependencies on external Go proxies and avoid ephemeral `vendorHash` mismatches.
+    - **Metadata Restoration**: Recovered the `VERSION` file and ensured consistent version injection across all build artifacts.
 
 ---
 
