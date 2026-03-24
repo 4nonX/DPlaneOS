@@ -46,7 +46,8 @@ in {
   environment.systemPackages = with pkgs; [
     gum                                          # TUI wizard
     disko                                        # declarative partitioning
-    (python3.withPackages (ps: [ ps.bcrypt ]))   # password hashing
+    python311                                     # system tools
+    (python311.withPackages (ps: [ ps.bcrypt ]))   # password hashing
     parted gptfdisk util-linux e2fsprogs         # disk tools
     iproute2 inetutils                           # network / IP detection
     pciutils lshw                                # hardware enumeration

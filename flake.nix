@@ -190,8 +190,11 @@
         ];
       };
 
-      nixosConfigurations.iso = nixpkgs.lib.nixosSystem {
-        system      = "x86_64-linux";
+      # ── ISO Installer Configuration ──────────────────────────────────────
+      # Note: We build this using a separate call to nixosSystem to avoid
+      # any potential recursion from self.nixosConfigurations references.
+      nixosConfigurations.iso = let system = "x86_64-linux"; in nixpkgs.lib.nixosSystem {
+        inherit system;
         specialArgs = { inherit self; inputs = { disko = disko; }; };
         modules     = [
           ./nixos/installer.nix
@@ -202,6 +205,5 @@
       };
 
       packages.x86_64-linux.iso = self.nixosConfigurations.iso.config.system.build.isoImage;
-
     };
 }

@@ -14,10 +14,7 @@
 # ─────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
-DPLANEOS_VERSION=$(cat /etc/dplaneos-install/system-path 2>/dev/null \
-    | grep -oP 'dplaneos-\K[0-9]+\.[0-9]+\.[0-9]+' | head -1 \
-    || cat /etc/os-release 2>/dev/null | grep VERSION_ID | cut -d= -f2 | tr -d '"' \
-    || echo "7.1.0")
+DPLANEOS_VERSION=$(cat /etc/dplaneos-install/VERSION 2>/dev/null || echo "7.1.0")
 INSTALL_DIR="/etc/dplaneos-install"
 LOG_FILE="/tmp/dplaneos-install.log"
 
@@ -270,15 +267,11 @@ run_install() {
 
     progress_step \
         "Partitioning $INSTALL_DISK (ESP + A/B slots + persist)..." \
-        "nix run github:nix-community/disko -- --mode disko $patched_disko \
-            --option substitute false \
-            --option binary-caches ''"
+        "disko --mode disko $patched_disko"
 
     progress_step \
         "Mounting filesystems..." \
-        "nix run github:nix-community/disko -- --mode mount $patched_disko \
-            --option substitute false \
-            --option binary-caches ''"
+        "disko --mode mount $patched_disko"
 
     progress_step \
         "Preparing system configuration..." \
