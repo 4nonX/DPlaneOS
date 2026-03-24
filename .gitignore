@@ -7,7 +7,6 @@ daemon/dplaned-*
 *.out
 
 # ── Go build artifacts ────────────────────────────────────────────────────────
-daemon/vendor/
 # Note: go.sum IS committed (reproducible builds)
 
 # ── Database files ────────────────────────────────────────────────────────────
