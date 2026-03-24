@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"os"
 	"strings"
 )
 
@@ -573,8 +574,19 @@ func seedDefaults(db *sql.DB) error {
 	var userCount int
 	db.QueryRow("SELECT COUNT(*) FROM users").Scan(&userCount)
 	if userCount == 0 {
+		// Check for first-boot password hash from installer
+		passwordHash := ""
+		const firstBootPassPath = "/var/lib/dplaneos/.first-boot-password"
+		if data, err := os.ReadFile(firstBootPassPath); err == nil {
+			passwordHash = strings.TrimSpace(string(data))
+			log.Printf("BOOTSTRAP: Found first-boot password hash, seeding admin user")
+			// Security: remove it immediately after reading
+			_ = os.Remove(firstBootPassPath)
+		}
+
 		if _, err := db.Exec(
-			"INSERT INTO users (username, display_name, email, active) VALUES ('admin', 'Administrator', 'admin@localhost', 1)",
+			"INSERT INTO users (username, display_name, email, password_hash, active) VALUES ('admin', 'Administrator', 'admin@localhost', $1, 1)",
+			passwordHash,
 		); err != nil {
 			return fmt.Errorf("admin user seed: %w", err)
 		}
