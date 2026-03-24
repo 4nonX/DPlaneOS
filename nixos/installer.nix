@@ -17,12 +17,12 @@
 # Write:   dd if=result/iso/*.iso of=/dev/sdX bs=4M status=progress conv=fsync
 # ─────────────────────────────────────────────────────────────────────────────
 
-{ modulesPath, pkgs, lib, config, self, ... }:
+{ modulesPath, pkgs, lib, config, self, targetSystem, ... }:
 
 let
   # The D-PlaneOS target system closure — baked into the ISO's nix store.
   # This is the exact system that gets installed onto the target disk.
-  dplaneosSystem = self.nixosConfigurations.dplaneos.config.system.build.toplevel;
+  dplaneosSystem = targetSystem;
 
 in {
   imports = [

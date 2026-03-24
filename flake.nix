@@ -191,12 +191,18 @@
       };
 
       # ── ISO Installer Configuration ──────────────────────────────────────
-      # Note: We build this using a separate call to nixosSystem to avoid
-      # any potential recursion from self.nixosConfigurations references.
-      nixosConfigurations.iso = let system = "x86_64-linux"; in nixpkgs.lib.nixosSystem {
+      # Note: We build this using a separate call to nixosSystem and pass
+      # the target system toplevel directly via specialArgs to avoid
+      # any potential recursion from self.nixosConfigurations referenced.
+      nixosConfigurations.iso = let 
+        system = "x86_64-linux"; 
+      in nixpkgs.lib.nixosSystem {
         inherit system;
-        specialArgs = { inherit self; inputs = { disko = disko; }; };
-        modules     = [
+        specialArgs = { 
+          inherit self; 
+          targetSystem = self.nixosConfigurations.dplaneos.config.system.build.toplevel;
+        };
+        modules = [
           ./nixos/installer.nix
           {
             environment.etc."dplaneos-install/VERSION".text = dplaneosVersion;
