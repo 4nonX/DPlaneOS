@@ -60,15 +60,13 @@
             (type == "directory" && (base == "daemon")) ||
             (base == "go.mod" || base == "go.sum" || base == "VERSION");
         };
-        env.CGO_ENABLED = "1";
+        env.CGO_ENABLED = "0";
         vendorHash   = nixpkgs.lib.fakeHash;
         subPackages  = [ "daemon/cmd/dplaned" ];
-        nativeBuildInputs = with pkgsStatic; [ musl.dev gcc ];
+        nativeBuildInputs = [];
         ldflags = [
           "-s" "-w"
           "-X" "main.Version=${dplaneosVersion}"
-          "-linkmode" "external"
-          "-extldflags" "-static"
         ];
         postInstall = ''
           if ldd $out/bin/dplaned 2>&1 | grep -q "not a dynamic executable"; then
@@ -95,10 +93,10 @@
             (type == "directory" && (base == "daemon")) ||
             (base == "go.mod" || base == "go.sum" || base == "VERSION");
         };
-        env.CGO_ENABLED = "1";
+        env.CGO_ENABLED = "0";
         vendorHash   = nixpkgs.lib.fakeHash;
         subPackages  = [ "daemon/cmd/dplaned" ];
-        nativeBuildInputs = with pkgs; [ gcc ];
+        nativeBuildInputs = [];
         ldflags = [ "-s" "-w" "-X" "main.Version=${dplaneosVersion}" ];
         meta = with nixpkgs.lib; {
           description = "D-PlaneOS NAS daemon : glibc dynamic build (dev only)";
