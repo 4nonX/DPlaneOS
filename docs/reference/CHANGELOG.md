@@ -13,7 +13,7 @@ Upgrade from: v7.1.0 - Drop-in. `sudo bash install.sh --upgrade`
 ### Added
 - **Nix-Native Firewall Infrastructure**
     - Engineered a native NixOS firewall bridge using `NixWriter` to bypass the removal of `ufw` in NixOS 25.11/24.11.
-    - **Firewall UI Parity**: Implemented a mock `ufw status` reporter for NixOS to maintain a consistent user experience across all supported distributions.
+    - **Firewall UI Parity**: Implemented a `ufw status` reporter for NixOS to maintain a consistent user experience across all supported distributions.
     - **Declarative Persistence**: Firewall rules are now updated in `dplane-state.json` and applied automatically via the NixOS module.
 - **Hardened ISO Build Architecture**
     - **De-recursive Flake**: Resolved infinite evaluation loops in `flake.nix` by decoupling the ISO build from system configurations.
