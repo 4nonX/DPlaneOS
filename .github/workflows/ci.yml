@@ -334,10 +334,10 @@ jobs:
           echo "arm64_sha=${ARM64_TARBALL}.sha256" >> $GITHUB_OUTPUT
 
       - name: Publish GitHub Release
-        if: github.ref_type == 'tag'
+        if: github.ref == 'refs/heads/main' || github.ref_type == 'tag'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.ref_name }}
+          tag_name: v${{ env.VERSION }}
           name: ${{ steps.meta.outputs.title }}
           body_path: /tmp/release-notes.md
           files: |
@@ -410,10 +410,10 @@ jobs:
           echo "ISO_SHA=${ISO_NAME}.sha256" >> $GITHUB_ENV
 
       - name: Attach ISO to GitHub Release
-        if: github.ref_type == 'tag'
+        if: github.ref == 'refs/heads/main' || github.ref_type == 'tag'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.ref_name }}
+          tag_name: v${{ env.VERSION }}
           files: |
             ${{ env.ISO_NAME }}
             ${{ env.ISO_SHA }}
