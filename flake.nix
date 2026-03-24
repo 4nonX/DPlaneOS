@@ -30,9 +30,6 @@
     # To update: nix flake update nixpkgs
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.11";
     
-    # Secondary input to provide packages removed/missing in 25.11 (like ufw)
-    nixpkgs-stable.url = "github:NixOS/nixpkgs/nixos-24.11";
-
     flake-utils.url = "github:numtide/flake-utils";
 
     # ── disko: declarative disk partitioning (Task 4.1) ──────────────────
@@ -45,7 +42,7 @@
     impermanence.url = "github:nix-community/impermanence";
   };
 
-  outputs = { self, nixpkgs, nixpkgs-stable, flake-utils, disko, impermanence }:
+  outputs = { self, nixpkgs, flake-utils, disko, impermanence }:
   let
     # Read version from VERSION file at evaluation time : single source of truth
     dplaneosVersion = builtins.replaceStrings ["\n"] [""] (builtins.readFile ./VERSION);
@@ -139,10 +136,25 @@
         pkgsStatic = pkgs.pkgsStatic;
         daemon     = mkDaemon { inherit system pkgs pkgsStatic dplaneosVersion nixpkgs; };
         daemonDyn  = mkDaemonDynamic { inherit system pkgs dplaneosVersion nixpkgs; };
+        
+        iso = (nixpkgs.lib.nixosSystem {
+          inherit system;
+          specialArgs = { 
+            inherit self; 
+            targetSystem = self.nixosConfigurations.dplaneos.config.system.build.toplevel;
+          };
+          modules = [
+            ./nixos/installer.nix
+            disko.nixosModules.disko
+            impermanence.nixosModules.impermanence
+            applianceConfig
+            { services.dplaneos.daemonPackage = daemon; }
+          ];
+        }).config.system.build.isoImage;
       in {
         packages.dplaneos-daemon         = daemon;
         packages.dplaneos-daemon-dynamic = daemonDyn;
-        packages.iso = null;
+        packages.iso = iso;
         packages.default = daemon;
 
         devShells.default = pkgs.mkShell {
@@ -161,10 +173,6 @@
         inherit system pkgs;
         specialArgs = { inherit self; };
         modules     = [
-          # Inject missing ufw from stable channel
-          ({ ... }: {
-            nixpkgs.overlays = [ (final: prev: { ufw = nixpkgs-stable.legacyPackages.${system}.ufw; }) ];
-          })
           ./nixos/configuration-standalone.nix
           self.nixosModules.dplaneos
           disko.nixosModules.disko
@@ -183,10 +191,6 @@
         inherit system pkgs;
         specialArgs = { inherit self; };
         modules     = [
-          # Inject missing ufw from stable channel
-          ({ ... }: {
-            nixpkgs.overlays = [ (final: prev: { ufw = nixpkgs-stable.legacyPackages.${system}.ufw; }) ];
-          })
           ./nixos/configuration-standalone.nix
           self.nixosModules.dplaneos
           disko.nixosModules.disko

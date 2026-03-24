@@ -7,6 +7,8 @@ import (
 	"dplaned/internal/networkdwriter"
 	"dplaned/internal/nixwriter"
 	"dplaned/internal/reconciler"
+	"strconv"
+	"strings"
 )
 
 // Package-level singletons injected by main.go at startup.
@@ -170,11 +172,77 @@ func persistSambaGlobals(db *sql.DB) {
 }
 
 // persistFirewallFromRequest is called on every ufw rule change.
-// On NixOS it logs that a sync via /api/firewall/sync is needed.
+// On NixOS it updates the NixWriter state with the new port lists.
 func persistFirewallFromRequest(action, portSpec string) {
 	if NixWriter == nil || !NixWriter.IsNixOS() {
 		return
 	}
-	log.Printf("[nixwriter] firewall change: action=%s port=%s - sync via POST /api/firewall/sync", action, portSpec)
+
+	// Parse port and protocol (e.g. "80", "80/tcp", "53/udp")
+	portStr := portSpec
+	proto := "tcp"
+	if strings.Contains(portSpec, "/") {
+		parts := strings.SplitN(portSpec, "/", 2)
+		portStr = parts[0]
+		proto = parts[1]
+	}
+	port, err := strconv.Atoi(portStr)
+	if err != nil {
+		log.Printf("[persist] invalid port spec: %s", portSpec)
+		return
+	}
+
+	state := NixWriter.State()
+	tcpPorts := state.FirewallTCP
+	udpPorts := state.FirewallUDP
+
+	modified := false
+	if action == "allow" {
+		if proto == "tcp" {
+			if !containsPort(tcpPorts, port) {
+				tcpPorts = append(tcpPorts, port)
+				modified = true
+			}
+		} else {
+			if !containsPort(udpPorts, port) {
+				udpPorts = append(udpPorts, port)
+				modified = true
+			}
+		}
+	} else if action == "deny" || action == "delete" {
+		if proto == "tcp" {
+			tcpPorts, modified = removePort(tcpPorts, port)
+		} else {
+			udpPorts, modified = removePort(udpPorts, port)
+		}
+	}
+
+	if modified {
+		if err := NixWriter.SetFirewallPorts(tcpPorts, udpPorts); err != nil {
+			log.Printf("[persist] SetFirewallPorts failed: %v", err)
+		}
+	}
+}
+
+func containsPort(ports []int, port int) bool {
+	for _, p := range ports {
+		if p == port {
+			return true
+		}
+	}
+	return false
+}
+
+func removePort(ports []int, port int) ([]int, bool) {
+	newPorts := []int{}
+	found := false
+	for _, p := range ports {
+		if p == port {
+			found = true
+			continue
+		}
+		newPorts = append(newPorts, p)
+	}
+	return newPorts, found
 }
 

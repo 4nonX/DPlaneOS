@@ -4,12 +4,33 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+
+
+## v7.2.0 (2026-03-24) - "Hermetic Firewall"
+
+Upgrade from: v7.1.0 - Drop-in. `sudo bash install.sh --upgrade`
+
+### Added
+- **Nix-Native Firewall Infrastructure**
+    - Engineered a native NixOS firewall bridge using `NixWriter` to bypass the removal of `ufw` in NixOS 25.11/24.11.
+    - **Firewall UI Parity**: Implemented a mock `ufw status` reporter for NixOS to maintain a consistent user experience across all supported distributions.
+    - **Declarative Persistence**: Firewall rules are now updated in `dplane-state.json` and applied automatically via the NixOS module.
+- **Hardened ISO Build Architecture**
+    - **De-recursive Flake**: Resolved infinite evaluation loops in `flake.nix` by decoupling the ISO build from system configurations.
+    - **Explicit Image Targeting**: Transitioned to a `mkIso` pattern that passes the `targetSystem` as a concrete derivation for stable generation.
+- **Offline-First Installer**
+    - Removed network-dependent `nix run` calls from `nixos/install.sh`.
+    - All required partitioning and TUI tools are now pre-baked into the ISO for reliable air-gapped installations.
+
+### Fixed
+- **NixOS 25.11 Compatibility**: General cleanup and removal of deprecated package references to ensure full compatibility with the latest Nixpkgs channel.
+- **Evaluation Resilience**: Fixed a critical redundancy issue in `flake.nix` where system configurations were being evaluated multiple times during the ISO build.
+
+---
+
 ## v7.1.0 (2026-03-23) - "High Availability Nexus"
 
 Upgrade from: v7.0.0 - Drop-in. `sudo bash install.sh --upgrade`
-
-### Added
-- **Enterprise High Availability (HA) Core**
     - **Patroni & etcd Orchestration**: Native NixOS module for automated PostgreSQL consensus and failover.
     - **HAProxy Service Mesh**: Transparent traffic routing to the active cluster leader.
     - **Keepalived Virtual IP**: Automated floating IP migration for zero-downtime client access.

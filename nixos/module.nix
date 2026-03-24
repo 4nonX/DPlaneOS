@@ -83,7 +83,6 @@ in {
       pkgs.ipmitool
       pkgs.pv
       pkgs.rclone
-      pkgs.ufw
       pkgs.openssh
       pkgs.git
       pkgs.targetcli-fb

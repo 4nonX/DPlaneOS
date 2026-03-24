@@ -617,6 +617,10 @@ type FirewallHandler struct{}
 func NewFirewallHandler() *FirewallHandler { return &FirewallHandler{} }
 
 func (h *FirewallHandler) GetStatus(w http.ResponseWriter, r *http.Request) {
+	if NixWriter != nil && NixWriter.IsNixOS() {
+		h.GetStatusNixOS(w, r)
+		return
+	}
 	output, err := cmdutil.RunFast("ufw", "status", "numbered")
 	status := "inactive"
 	rawOutput := ""
@@ -637,6 +641,43 @@ func (h *FirewallHandler) GetStatus(w http.ResponseWriter, r *http.Request) {
 		"status":    status,
 		"rules":     rules,     // always a []map - never a raw string
 		"rules_raw": rawOutput, // raw text for debugging
+	})
+}
+
+// GetStatusNixOS provides a ufw-compatible status response from NixWriter state.
+func (h *FirewallHandler) GetStatusNixOS(w http.ResponseWriter, r *http.Request) {
+	state := NixWriter.State()
+	tcp := state.FirewallTCP
+	udp := state.FirewallUDP
+
+	var raw strings.Builder
+	raw.WriteString("Status: active\n\n     To                         Action      From\n     --                         ------      ----\n")
+
+	rules := []map[string]interface{}{}
+	id := 1
+	for _, p := range tcp {
+		portStr := fmt.Sprintf("%d/tcp", p)
+		raw.WriteString(fmt.Sprintf("[%2d] %-25s ALLOW IN    Anywhere\n", id, portStr))
+		rules = append(rules, map[string]interface{}{
+			"id": id, "action": "allow", "port": fmt.Sprintf("%d", p), "proto": "tcp", "from": "Anywhere",
+		})
+		id++
+	}
+	for _, p := range udp {
+		portStr := fmt.Sprintf("%d/udp", p)
+		raw.WriteString(fmt.Sprintf("[%2d] %-25s ALLOW IN    Anywhere\n", id, portStr))
+		rules = append(rules, map[string]interface{}{
+			"id": id, "action": "allow", "port": fmt.Sprintf("%d", p), "proto": "udp", "from": "Anywhere",
+		})
+		id++
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":   true,
+		"status":    "active",
+		"rules":     rules,
+		"rules_raw": raw.String(),
 	})
 }
 
@@ -727,7 +768,18 @@ func (h *FirewallHandler) SetRule(w http.ResponseWriter, r *http.Request) {
 	}
 
 	start := time.Now()
-	output, err := cmdutil.RunMedium("ufw", args...)
+	var (
+		output []byte
+		err    error
+	)
+	if NixWriter != nil && NixWriter.IsNixOS() {
+		// On NixOS we skip the real ufw command; persistFirewallFromRequest below
+		// will handle the state update.
+		output = []byte("Rule updated (NixOS native)")
+		err = nil
+	} else {
+		output, err = cmdutil.RunMedium("ufw", args...)
+	}
 	duration := time.Since(start)
 
 	if err != nil {
