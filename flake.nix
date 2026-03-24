@@ -56,7 +56,8 @@
         version      = dplaneosVersion;
         src          = nixpkgs.lib.cleanSource ./daemon;
         env.CGO_ENABLED = "0";
-        vendorHash   = null;
+        deleteVendor = true;
+        vendorHash   = nixpkgs.lib.fakeHash;
         subPackages  = [ "cmd/dplaned" ];
         nativeBuildInputs = [];
         ldflags = [
@@ -84,7 +85,8 @@
         version      = dplaneosVersion;
         src          = nixpkgs.lib.cleanSource ./daemon;
         env.CGO_ENABLED = "0";
-        vendorHash   = null;
+        deleteVendor = true;
+        vendorHash   = nixpkgs.lib.fakeHash;
         subPackages  = [ "cmd/dplaned" ];
         nativeBuildInputs = [];
         ldflags = [ "-s" "-w" "-X" "main.Version=${dplaneosVersion}" ];
