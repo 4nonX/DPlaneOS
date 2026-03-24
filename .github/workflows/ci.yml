@@ -337,7 +337,7 @@ jobs:
         if: github.ref == 'refs/heads/main' || github.ref_type == 'tag'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ env.VERSION }}
+          tag_name: v${{ steps.meta.outputs.version }}
           name: ${{ steps.meta.outputs.title }}
           body_path: /tmp/release-notes.md
           files: |
