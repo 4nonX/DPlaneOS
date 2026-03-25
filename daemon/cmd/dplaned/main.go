@@ -713,7 +713,10 @@ func main() {
 	auditRotationHandler := handlers.NewAuditRotationHandler(db, *dbDSN, "/var/lib/dplaneos/audit.key")
 	r.Handle("/api/system/audit/rotate", permRoute("system", "admin", auditRotationHandler.RotateAuditLogs)).Methods("POST")
 	r.Handle("/api/system/audit/stats", permRoute("audit", "read", auditRotationHandler.GetAuditStats)).Methods("GET")
+	r.Handle("/api/system/audit/logs", permRoute("audit", "read", auditRotationHandler.GetAuditLogs)).Methods("GET")
 	r.Handle("/api/system/audit/verify-chain", permRoute("audit", "read", auditRotationHandler.VerifyAuditChain)).Methods("GET")
+	r.HandleFunc("/api/system/ce-status", auditRotationHandler.GetCEStatus).Methods("GET")
+
 
 	supportBundleHandler := handlers.NewSupportBundleHandler(db, Version)
 	r.Handle("/api/system/support-bundle", permRoute("system", "admin", supportBundleHandler.GenerateBundle)).Methods("POST")
@@ -834,8 +837,10 @@ func main() {
 	shareCRUDHandler := handlers.NewShareCRUDHandler(db, *smbConfPath)
 	r.HandleFunc("/api/shares/list", shareCRUDHandler.HandleShares).Methods("GET")
 	r.HandleFunc("/api/shares", shareCRUDHandler.HandleShares).Methods("GET")
+	r.HandleFunc("/api/shares/by-path", shareCRUDHandler.GetSharesByPath).Methods("GET")
 	r.Handle("/api/shares", permRoute("shares", "write", shareCRUDHandler.HandleShares)).Methods("POST", "PUT")
 	r.Handle("/api/shares", permRoute("shares", "write", shareCRUDHandler.HandleShares)).Methods("DELETE")
+
 
 	// User & Group CRUD handlers
 	userGroupHandler := handlers.NewUserGroupHandler(db)
@@ -950,6 +955,9 @@ func main() {
 	r.HandleFunc("/api/ldap/mappings", ldapHandler.AddMapping).Methods("POST")
 	r.HandleFunc("/api/ldap/mappings", ldapHandler.DeleteMapping).Methods("DELETE")
 	r.HandleFunc("/api/ldap/sync-log", ldapHandler.GetSyncLog).Methods("GET")
+	// Active Directory Domain Join (v7.3.0)
+	r.Handle("/api/directory/join", permRoute("system", "admin", ldapHandler.JoinADDomain)).Methods("POST")
+	r.HandleFunc("/api/directory/status", ldapHandler.GetDirectoryStatus).Methods("GET")
 
 	// RBAC routes
 	// Read routes require "roles:read" permission (except /me/* which is self-service)

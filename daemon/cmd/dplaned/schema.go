@@ -434,6 +434,11 @@ func initSchema(db *sql.DB) error {
 			FOREIGN KEY (group_name) REFERENCES groups(name) ON DELETE CASCADE,
 			FOREIGN KEY (username) REFERENCES users(username) ON DELETE CASCADE
 		)`,
+		// ── Enterprise Directory Extensions (v7.3.0) ──
+		`ALTER TABLE ldap_config ADD COLUMN IF NOT EXISTS provider_type TEXT NOT NULL DEFAULT 'openldap'`,
+		`ALTER TABLE ldap_config ADD COLUMN IF NOT EXISTS realm TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE ldap_config ADD COLUMN IF NOT EXISTS domain_joined BOOLEAN NOT NULL DEFAULT false`,
+		`ALTER TABLE ldap_config ADD COLUMN IF NOT EXISTS domain_joined_at TIMESTAMPTZ`,
 	}
 
 	for _, stmt := range tables {

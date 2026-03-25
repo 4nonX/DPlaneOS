@@ -610,6 +610,109 @@ func (h *AuditRotationHandler) GetAuditStats(w http.ResponseWriter, r *http.Requ
 	})
 }
 
+// GetAuditLogs returns paginated and filtered audit logs
+// GET /api/system/audit/logs?limit=50&offset=0&search=...&level=error
+func (h *AuditRotationHandler) GetAuditLogs(w http.ResponseWriter, r *http.Request) {
+	limitStr := r.URL.Query().Get("limit")
+	offsetStr := r.URL.Query().Get("offset")
+	search := r.URL.Query().Get("search")
+	level := r.URL.Query().Get("level")
+
+	limit := 50
+	if limitStr != "" {
+		fmt.Sscanf(limitStr, "%d", &limit)
+	}
+	if limit > 500 {
+		limit = 500
+	}
+	if limit <= 0 {
+		limit = 50
+	}
+
+	offset := 0
+	if offsetStr != "" {
+		fmt.Sscanf(offsetStr, "%d", &offset)
+	}
+
+	query := `SELECT id, timestamp, actor, action, resource, details, ip_address, success 
+	          FROM audit_logs WHERE 1=1`
+	var args []interface{}
+	argCount := 1
+
+	if search != "" {
+		query += fmt.Sprintf(" AND (actor ILIKE $%d OR action ILIKE $%d OR resource ILIKE $%d OR details ILIKE $%d)", 
+			argCount, argCount, argCount, argCount)
+		args = append(args, "%"+search+"%")
+		argCount++
+	}
+
+	if level == "error" {
+		query += " AND success = 0"
+	}
+
+	query += fmt.Sprintf(" ORDER BY timestamp DESC, id DESC LIMIT $%d OFFSET $%d", argCount, argCount+1)
+	args = append(args, limit, offset)
+
+	rows, err := h.db.Query(query, args...)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "Failed to query audit logs", err)
+		return
+	}
+	defer rows.Close()
+
+	var logs []map[string]interface{}
+	for rows.Next() {
+		var id int64
+		var ts int64
+		var actor, action, resource, details, ipAddress string
+		var success int
+		if err := rows.Scan(&id, &ts, &actor, &action, &resource, &details, &ipAddress, &success); err != nil {
+			continue
+		}
+		logs = append(logs, map[string]interface{}{
+			"id":         id,
+			"timestamp":  time.Unix(ts, 0).Format(time.RFC3339),
+			"actor":      actor,
+			"action":     action,
+			"resource":   resource,
+			"details":    details,
+			"ip_address": ipAddress,
+			"success":    success != 0,
+		})
+	}
+
+	if logs == nil {
+		logs = []map[string]interface{}{}
+	}
+
+	respondOK(w, map[string]interface{}{
+		"success": true,
+		"logs":    logs,
+		"limit":   limit,
+		"offset":  offset,
+	})
+}
+
+// GetCEStatus checks if the Compliance Engine token exists
+// GET /api/system/ce-status
+func (h *AuditRotationHandler) GetCEStatus(w http.ResponseWriter, r *http.Request) {
+	var count int
+	err := h.db.QueryRow("SELECT COUNT(*) FROM api_tokens WHERE name='compliance-engine-token'").Scan(&count)
+	if err != nil {
+		// Table might not exist in early v7.x or dev envs
+		respondOK(w, map[string]interface{}{
+			"success": true,
+			"has_compliance_engine": false,
+		})
+		return
+	}
+
+	respondOK(w, map[string]interface{}{
+		"success": true,
+		"has_compliance_engine": count > 0,
+	})
+}
+
 // ═══════════════════════════════════════════════════════════════
 //  ZOMBIE DISK WATCHER
 //  Monitors ZFS command latency, flags slow-dying disks

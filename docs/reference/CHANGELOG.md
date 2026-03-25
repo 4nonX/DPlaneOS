@@ -6,6 +6,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 
 
+## v7.3.0 (2026-03-25) - "Enterprise Directory Services"
+
+Upgrade from: v7.2.0 - Drop-in. `sudo bash install.sh --upgrade`
+
+### Added
+- **Multi-Provider Directory Engine**
+    - **Active Directory (Windows)**: Full domain member support with `security = ads`, `winbind`, and Kerberos SSO.
+    - **OpenLDAP (Linux)**: Advanced LDAP integration with standard schema support.
+    - **Open Directory (MacOS)**: Specialized support for Apple's directory service, including Mac-specific attribute mapping.
+- **Enterprise-Grade Identity Mapping**
+    - Deterministic `IDMAP` configuration for consistent UID/GID mapping across SMB, NFS, and local shell sessions.
+    - Support for both `rid` and `ad` backends.
+- **Seamless UI Integration**
+    - Redesigned "Directory Service" page with Provider Presets and guided AD Join workflow.
+    - Real-time "Join Status" tracking and NTP synchronization verification.
+- **Transparent SMB Authentication**
+    - Bridged Samba into the Active Directory domain for transparent Kerberos-based file share access on Windows clients.
+- **Native Audit Transparency (Enterprise Polish)**
+    - Restored local audit log visibility with paginated table and filtering, protected by RBAC and stealth licensing logic.
+- **Unified Sharing & ZFS Explorer**
+    - Integrated SMB and NFS share management directly into the ZFS dataset tree.
+    - Added native UI support for ZFS snapshots, rollbacks, and recursive child creation.
+- **CI/CD & ISO Release**
+    - Unified the build cycle to produce a v7.3.0 "Golden Image" ISO featuring all new features out-of-the-box.
+
+---
+
 ## v7.2.0 (2026-03-24) - "Hermetic Firewall"
 
 Upgrade from: v7.1.0 - Drop-in. `sudo bash install.sh --upgrade`

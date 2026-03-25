@@ -22,7 +22,7 @@
  *   POST /api/zfs/pools/destroy      (destroy a pool)
  */
 
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { Icon } from '@/components/ui/Icon'
@@ -201,8 +201,8 @@ function DatasetSearchBar({ query, onChange, matchCount, totalCount }: SearchBar
 // DatasetNode (recursive)
 // ---------------------------------------------------------------------------
 
-function DatasetNode({ node, depth, onCreateChild, onEdit, onDelete }: {
-  node: TreeNode; depth: number; onCreateChild: (name: string) => void; onEdit: (node: TreeNode) => void; onDelete: (name: string) => void
+function DatasetNode({ node, depth, onCreateChild, onEdit, onDelete, onAction }: {
+  node: TreeNode; depth: number; onCreateChild: (name: string) => void; onEdit: (node: TreeNode) => void; onDelete: (name: string) => void; onAction: (action: string, node: TreeNode) => void
 }) {
   const [open, setOpen] = useState(depth === 0)
   const shortName = node.name.split('/').pop() || node.name
@@ -236,27 +236,11 @@ function DatasetNode({ node, depth, onCreateChild, onEdit, onDelete }: {
             <div style={{ fontSize: 'var(--text-2xs)', color: 'var(--text-tertiary)' }}>avail</div>
           </div>
           <div style={{ display:'flex', gap:2 }}>
-            <Tooltip content="New child dataset">
-              <button onClick={() => onCreateChild(node.name)} className="btn btn-sm btn-ghost">
-                <Icon name="add" size={13} />
-              </button>
-            </Tooltip>
-            <Tooltip content="Edit properties">
-              <button onClick={() => onEdit(node)} className="btn btn-sm btn-ghost">
-                <Icon name="settings" size={13} />
-              </button>
-            </Tooltip>
-            {depth > 0 && (
-              <Tooltip content="Destroy dataset">
-                <button onClick={() => onDelete(node.name)} className="btn btn-sm btn-ghost btn-danger-hover">
-                  <Icon name="delete" size={13} />
-                </button>
-              </Tooltip>
-            )}
+            <DatasetActionMenu node={node} onAction={onAction} />
           </div>
         </div>
       </div>
-      {open && node.children.map(c => <DatasetNode key={c.name} node={c} depth={depth + 1} onCreateChild={onCreateChild} onEdit={onEdit} onDelete={onDelete} />)}
+      {open && node.children.map(c => <DatasetNode key={c.name} node={c} depth={depth + 1} onCreateChild={onCreateChild} onEdit={onEdit} onDelete={onDelete} onAction={onAction} />)}
     </div>
   )
 }
@@ -862,7 +846,10 @@ function PoolCard({ pool, datasets, filter, onRefresh }: { pool: ZFSPool; datase
   const [showCacheModal, setShowCacheModal] = useState(false)
   const [showTopology, setShowTopology] = useState(false)
   const [replaceDisk, setReplaceDisk] = useState<string | null>(null)
-  const [wipeDisk, setWipeDisk] = useState<string | null>(null)
+  const [wipeDisk,    setWipeDisk]    = useState<string | null>(null)
+  const [sharingDataset,  setSharingDataset]  = useState<TreeNode | null>(null)
+  const [snapshotDataset, setSnapshotDataset] = useState<TreeNode | null>(null)
+  const [rollbackDataset, setRollbackDataset] = useState<TreeNode | null>(null)
   const pct = parseCapacityPct(pool.capacity)
 
   // Apply client-side filter
@@ -1106,7 +1093,24 @@ function PoolCard({ pool, datasets, filter, onRefresh }: { pool: ZFSPool; datase
             <Icon name="account_tree" size={14} />
             Datasets ({effectiveFilter ? `${filteredDatasets.length} of ` : ''}{datasets.length})
           </button>
-          {treeOpen && tree.map(n => <DatasetNode key={n.name} node={n} depth={0} onCreateChild={setCreateParent} onEdit={setEditDataset} onDelete={setDestroyDataset} />)}
+          {treeOpen && tree.map(n => (
+            <DatasetNode 
+              key={n.name} 
+              node={n} 
+              depth={0} 
+              onCreateChild={setCreateParent} 
+              onEdit={setEditDataset} 
+              onDelete={setDestroyDataset}
+              onAction={(action, node) => {
+                if (action === 'manage_shares') setSharingDataset(node)
+                if (action === 'snapshot') setSnapshotDataset(node)
+                if (action === 'rollback') setRollbackDataset(node)
+                if (action === 'create_child') setCreateParent(node.name)
+                if (action === 'edit') setEditDataset(node)
+                if (action === 'delete') setDestroyDataset(node.name)
+              }}
+            />
+          ))}
           {treeOpen && effectiveFilter && filteredDatasets.length === 0 && (
             <div style={{ padding: '16px 12px', color: 'var(--text-tertiary)', fontSize: 'var(--text-sm)', textAlign: 'center' }}>
               No datasets match "{filter}"
@@ -1197,14 +1201,27 @@ function PoolCard({ pool, datasets, filter, onRefresh }: { pool: ZFSPool; datase
         />
       )}
 
-      {wipeDisk && (
-        <Modal title="Wipe Unassigned Disk" onClose={() => setWipeDisk(null)}>
-           <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', marginBottom: 16 }}>
-             Select a disk to permanently erase. Use this for disks you intend to add to a pool.
-           </p>
-            {/* Explicitly using the defined component */}
-            <WipeDiskModalInner onWiped={onRefresh} onClose={() => setWipeDisk(null)} />
-        </Modal>
+      {sharingDataset && (
+        <DatasetSharingModal
+          node={sharingDataset}
+          onClose={() => setSharingDataset(null)}
+        />
+      )}
+
+      {snapshotDataset && (
+        <SnapshotModal
+          node={snapshotDataset}
+          onClose={() => setSnapshotDataset(null)}
+          onCreated={() => { qc.invalidateQueries({ queryKey: ['zfs', 'datasets'] }); onRefresh() }}
+        />
+      )}
+
+      {rollbackDataset && (
+        <RollbackModal
+          node={rollbackDataset}
+          onClose={() => setRollbackDataset(null)}
+          onRollback={() => { qc.invalidateQueries({ queryKey: ['zfs', 'datasets'] }); onRefresh() }}
+        />
       )}
     </div>
   )
@@ -1771,7 +1788,231 @@ function CacheManageModal({ pool, onClose, onRefresh }: { pool: any; onClose: ()
           Add {type}
         </button>
       </div>
-    </Modal>
-  )
+	</Modal>
+	)
 }
 
+// ---------------------------------------------------------------------------
+// DatasetActionMenu (v7.3.0)
+// ---------------------------------------------------------------------------
+
+function DatasetActionMenu({ node, onAction }: {
+	node: TreeNode
+	onAction: (action: string, node: TreeNode) => void
+}) {
+	const [open, setOpen] = useState(false)
+	const menuRef = useRef<HTMLDivElement>(null)
+
+	useEffect(() => {
+		if (!open) return
+		const handleClick = (e: MouseEvent) => {
+			if (menuRef.current && !menuRef.current.contains(e.target as Node)) setOpen(false)
+		}
+		document.addEventListener('mousedown', handleClick)
+		return () => document.removeEventListener('mousedown', handleClick)
+	}, [open])
+
+	return (
+		<div style={{ position: 'relative' }} ref={menuRef}>
+			<button 
+				onClick={(e) => { e.stopPropagation(); setOpen(!open) }}
+				className={`btn btn-xs ${open ? 'btn-primary' : 'btn-ghost'}`}
+				style={{ width: 28, height: 28, padding: 0 }}
+			>
+				<Icon name="more_vert" size={16} />
+			</button>
+			
+			{open && (
+				<div style={{
+					position: 'absolute', right: 0, top: '100%', marginTop: 4,
+					zIndex: 100, width: 180, background: 'var(--bg-elevated)',
+					backdropFilter: 'var(--blur-glass)', border: '1px solid var(--border-highlight)',
+					borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-lg)',
+					overflow: 'hidden', animation: 'fadeIn 0.15s ease'
+				}}>
+					<MenuBtn icon="add" label="Create Child" onClick={() => { setOpen(false); onAction('create_child', node) }} />
+					<MenuBtn icon="camera" label="Snapshot" onClick={() => { setOpen(false); onAction('snapshot', node) }} />
+					<MenuBtn icon="history" label="Rollback" onClick={() => { setOpen(false); onAction('rollback', node) }} />
+					<div style={{ height: 1, background: 'var(--border-subtle)', margin: '4px 0' }} />
+					<MenuBtn icon="folder_shared" label="Manage Shares" onClick={() => { setOpen(false); onAction('manage_shares', node) }} />
+					<div style={{ height: 1, background: 'var(--border-subtle)', margin: '4px 0' }} />
+					<MenuBtn icon="settings" label="Properties" onClick={() => { setOpen(false); onAction('edit', node) }} />
+					<MenuBtn icon="delete" label="Destroy" danger onClick={() => { setOpen(false); onAction('delete', node) }} />
+				</div>
+			)}
+		</div>
+	)
+}
+
+function MenuBtn({ icon, label, onClick, danger }: { icon: string; label: string; onClick: () => void; danger?: boolean }) {
+	return (
+		<button
+			onClick={(e) => { e.stopPropagation(); onClick() }}
+			style={{
+				width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px',
+				background: 'none', border: 'none', cursor: 'pointer', color: danger ? 'var(--error)' : 'var(--text)',
+				fontSize: 'var(--text-xs)', fontWeight: 500, transition: 'background 0.1s'
+			}}
+			onMouseEnter={e => (e.currentTarget.style.background = 'hsla(0,0%,100%,0.05)')}
+			onMouseLeave={e => (e.currentTarget.style.background = 'none')}
+		>
+			<Icon name={icon} size={14} style={{ opacity: 0.7 }} />
+			{label}
+		</button>
+	)
+}
+
+// ---------------------------------------------------------------------------
+// DatasetSharingModal (v7.3.0)
+// ---------------------------------------------------------------------------
+
+function DatasetSharingModal({ node, onClose }: { node: TreeNode; onClose: () => void }) {
+	const { data, isLoading } = useQuery({
+		queryKey: ['shares', 'by-path', node.name],
+		queryFn: () => api.get<any>(`/api/shares/by-path?path=/${node.name}`)
+	})
+
+	return (
+		<Modal title={<>Sharing: <span style={{ color: 'var(--primary)', fontFamily: 'var(--font-mono)' }}>/{node.name}</span></>} onClose={onClose} size="lg">
+			<div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+				
+				{/* SMB Section */}
+				<section>
+					<div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+						<Icon name="folder_shared" style={{ color: 'var(--primary)' }} />
+						<h3 style={{ fontSize: 'var(--text-md)', fontWeight: 700 }}>SMB (Windows Shares)</h3>
+					</div>
+					<div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+						{isLoading ? <div style={{ padding: 20 }}><Skeleton /></div> : (
+							<table className="data-table">
+								<thead>
+									<tr><th>Share Name</th><th>Status</th><th>Comment</th></tr>
+								</thead>
+								<tbody>
+									{data?.smb?.map((s: any) => (
+										<tr key={s.name}>
+											<td style={{ fontWeight: 600 }}>{s.name}</td>
+											<td>{s.enabled ? <span className="badge badge-success">Enabled</span> : <span className="badge badge-neutral">Disabled</span>}</td>
+											<td style={{ color: 'var(--text-tertiary)', fontSize: '13px' }}>{s.comment || '-'}</td>
+										</tr>
+									))}
+									{(!data?.smb || data.smb.length === 0) && (
+										<tr><td colSpan={3} style={{ textAlign: 'center', padding: '24px', color: 'var(--text-tertiary)' }}>No SMB shares for this path.</td></tr>
+									)}
+								</tbody>
+							</table>
+						)}
+					</div>
+				</section>
+
+				{/* NFS Section */}
+				<section>
+					<div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+						<Icon name="cloud" style={{ color: 'var(--info)' }} />
+						<h3 style={{ fontSize: 'var(--text-md)', fontWeight: 700 }}>NFS (UNIX Exports)</h3>
+					</div>
+					<div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+						{isLoading ? <div style={{ padding: 20 }}><Skeleton /></div> : (
+							<table className="data-table">
+								<thead>
+									<tr><th>Clients</th><th>Status</th><th>Options</th></tr>
+								</thead>
+								<tbody>
+									{data?.nfs?.map((n: any) => (
+										<tr key={n.id}>
+											<td style={{ fontWeight: 600 }}>{n.clients}</td>
+											<td>{n.enabled ? <span className="badge badge-success">Enabled</span> : <span className="badge badge-neutral">Disabled</span>}</td>
+											<td style={{ color: 'var(--text-tertiary)', fontSize: '13px' }}>{n.options}</td>
+										</tr>
+									))}
+									{(!data?.nfs || data.nfs.length === 0) && (
+										<tr><td colSpan={3} style={{ textAlign: 'center', padding: '24px', color: 'var(--text-tertiary)' }}>No NFS exports for this path.</td></tr>
+									)}
+								</tbody>
+							</table>
+						)}
+					</div>
+				</section>
+			</div>
+			<div className="modal-footer">
+				<button onClick={onClose} className="btn btn-ghost">Close</button>
+				<button className="btn btn-primary" onClick={() => window.location.hash = '#/shares'}>Go to Sharing Page</button>
+			</div>
+		</Modal>
+	)
+}
+
+// ---------------------------------------------------------------------------
+// SnapshotModal (v7.3.0)
+// ---------------------------------------------------------------------------
+
+function SnapshotModal({ node, onClose, onCreated }: { node: TreeNode; onClose: () => void; onCreated: () => void }) {
+	const [name, setName] = useState('')
+	const mutation = useMutation({
+		mutationFn: () => api.post('/api/zfs/snapshots', { dataset: node.name, name: name.trim() || undefined }),
+		onSuccess: () => { toast.success(`Snapshot created for ${node.name}`); onCreated(); onClose() },
+		onError: (e: Error) => toast.error(e.message)
+	})
+
+	return (
+		<Modal title={`Create Snapshot: ${node.name}`} onClose={onClose} size="sm">
+			<div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+				<label className="field">
+					<span className="field-label">Snapshot Name (suffix)</span>
+					<input 
+						value={name} 
+						onChange={e => setName(e.target.value)} 
+						placeholder="Optional (e.g. 'manual-1')" 
+						className="input" 
+						autoFocus 
+						onKeyDown={e => e.key === 'Enter' && mutation.mutate()}
+					/>
+					<div style={{ fontSize: 'var(--text-3xs)', color: 'var(--text-tertiary)', marginTop: 4 }}>
+						Format: {node.name}@SNAPSHOT_NAME. If omitted, a timestamp will be used.
+					</div>
+				</label>
+			</div>
+			<div className="modal-footer">
+				<button onClick={onClose} className="btn btn-ghost">Cancel</button>
+				<button onClick={() => mutation.mutate()} disabled={mutation.isPending} className="btn btn-primary">
+					{mutation.isPending ? 'Creating…' : 'Create Snapshot'}
+				</button>
+			</div>
+		</Modal>
+	)
+}
+
+// ---------------------------------------------------------------------------
+// RollbackModal (v7.3.0)
+// ---------------------------------------------------------------------------
+
+function RollbackModal({ node, onClose, onRollback }: { node: TreeNode; onClose: () => void; onRollback: () => void }) {
+	const [confirm, setConfirm] = useState(false)
+	const mutation = useMutation({
+		mutationFn: () => api.post('/api/zfs/snapshots/rollback', { dataset: node.name }),
+		onSuccess: () => { toast.success(`Rollback of ${node.name} initiated`); onRollback(); onClose() },
+		onError: (e: Error) => toast.error(e.message)
+	})
+
+	return (
+		<Modal title={<span style={{ color: 'var(--warning)' }}>Rollback Dataset</span>} onClose={onClose} size="sm">
+			<div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+				<div className="alert alert-warning">
+					<Icon name="history" size={16} />
+					<strong>Warning:</strong> This will roll {node.name} back to its most recent snapshot. 
+					<strong> All data changes made since that snapshot will be lost.</strong>
+				</div>
+				<label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', padding: 12, background: 'rgba(255,255,255,0.03)', borderRadius: 'var(--radius-md)' }}>
+					<input type="checkbox" checked={confirm} onChange={e => setConfirm(e.target.checked)} />
+					<span style={{ fontSize: 'var(--text-sm)' }}>I confirm I want to rollback and lose recent changes</span>
+				</label>
+			</div>
+			<div className="modal-footer">
+				<button onClick={onClose} className="btn btn-ghost">Cancel</button>
+				<button onClick={() => mutation.mutate()} disabled={!confirm || mutation.isPending} className="btn btn-warning">
+					{mutation.isPending ? 'Rolling back…' : 'Rollback'}
+				</button>
+			</div>
+		</Modal>
+	)
+}

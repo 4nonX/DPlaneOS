@@ -371,6 +371,38 @@ var CommandWhitelist = map[string]Command{
 		AllowedArgs: []string{"-s"},
 		Description: "Test Samba configuration",
 	},
+	"net_ads_join": {
+		Name:        "net_ads_join",
+		Path:        "net",
+		AllowedArgs: []string{"ads", "join"},
+		ArgPatterns: []*regexp.Regexp{
+			regexp.MustCompile(`^-U$`),                          // -U flag
+			regexp.MustCompile(`^[a-zA-Z0-9_\-\.\\]+$`),         // username
+			regexp.MustCompile(`^-W$`),                          // -W flag
+			regexp.MustCompile(`^[a-zA-Z0-9_\-\.]+$`),          // workgroup/domain
+			regexp.MustCompile(`^-S$`),                          // -S flag
+			regexp.MustCompile(`^[a-zA-Z0-9_\-\.]+$`),          // domain controller
+		},
+		Description: "Join Active Directory domain (password via PASSWD env)",
+	},
+	"net_ads_info": {
+		Name:        "net_ads_info",
+		Path:        "net",
+		AllowedArgs: []string{"ads", "info"},
+		Description: "Check Active Directory domain join status",
+	},
+	"wbinfo_test": {
+		Name:        "wbinfo_test",
+		Path:        "wbinfo",
+		AllowedArgs: []string{"-t"},
+		Description: "Test machine account trust",
+	},
+	"timedatectl_show": {
+		Name:        "timedatectl_show",
+		Path:        "timedatectl",
+		AllowedArgs: []string{"show", "--property=NTPSynchronized"},
+		Description: "Check if system clock is NTP synchronized",
+	},
 
 	// NFS Operations
 	"exportfs_reload": {

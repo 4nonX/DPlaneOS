@@ -13,6 +13,7 @@ import (
 	"dplaned/internal/audit"
 	"dplaned/internal/gitops"
 	"dplaned/internal/ldap"
+	"dplaned/internal/nixwriter"
 )
 
 // LDAPHandler handles all LDAP/Active Directory API requests
@@ -46,7 +47,7 @@ func (h *LDAPHandler) GetConfig(w http.ResponseWriter, r *http.Request) {
 		user_filter, user_id_attr, user_name_attr, user_email_attr,
 		group_base_dn, group_filter, group_member_attr,
 		jit_provisioning, default_role, sync_interval, timeout,
-		COALESCE(bind_password,'') FROM ldap_config WHERE id=1`)
+		COALESCE(bind_password,''), provider_type, realm, domain_joined FROM ldap_config WHERE id=1`)
 
 	var cfg struct {
 		Enabled         int    `json:"enabled"`
@@ -67,13 +68,17 @@ func (h *LDAPHandler) GetConfig(w http.ResponseWriter, r *http.Request) {
 		SyncInterval    int    `json:"sync_interval"`
 		Timeout         int    `json:"timeout"`
 		HasPassword     bool   `json:"has_password"`
+		ProviderType    string `json:"provider_type"`
+		Realm           string `json:"realm"`
+		DomainJoined    bool   `json:"domain_joined"`
 	}
 
 	var bindPwd string
 	err := row.Scan(&cfg.Enabled, &cfg.Server, &cfg.Port, &cfg.UseTLS, &cfg.BindDN, &cfg.BaseDN,
 		&cfg.UserFilter, &cfg.UserIDAttr, &cfg.UserNameAttr, &cfg.UserEmailAttr,
 		&cfg.GroupBaseDN, &cfg.GroupFilter, &cfg.GroupMemberAttr,
-		&cfg.JIT, &cfg.DefaultRole, &cfg.SyncInterval, &cfg.Timeout, &bindPwd)
+		&cfg.JIT, &cfg.DefaultRole, &cfg.SyncInterval, &cfg.Timeout, &bindPwd,
+		&cfg.ProviderType, &cfg.Realm, &cfg.DomainJoined)
 	if err != nil {
 		writeJSON(w, 500, ldapResp{Error: "Failed to load config: " + err.Error()})
 		return
@@ -105,6 +110,8 @@ func (h *LDAPHandler) SaveConfig(w http.ResponseWriter, r *http.Request) {
 		DefaultRole     string `json:"default_role"`
 		SyncInterval    int    `json:"sync_interval"`
 		Timeout         int    `json:"timeout"`
+		ProviderType    string `json:"provider_type"` // "openldap", "ad", "active-directory", "apple-od"
+		Realm           string `json:"realm"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, 400, ldapResp{Error: "Invalid request body"})
@@ -161,11 +168,13 @@ func (h *LDAPHandler) SaveConfig(w http.ResponseWriter, r *http.Request) {
 		user_filter=$8, user_id_attr=$9, user_name_attr=$10, user_email_attr=$11,
 		group_base_dn=$12, group_filter=$13, group_member_attr=$14,
 		jit_provisioning=$15, default_role=$16, sync_interval=$17, timeout=$18,
+		provider_type=$19, realm=$20,
 		updated_at=NOW() WHERE id=1`,
 		req.Enabled, req.Server, req.Port, req.UseTLS, req.BindDN, bindPwd, req.BaseDN,
 		req.UserFilter, req.UserIDAttr, req.UserNameAttr, req.UserEmailAttr,
 		req.GroupBaseDN, req.GroupFilter, req.GroupMemberAttr,
-		req.JIT, req.DefaultRole, req.SyncInterval, req.Timeout)
+		req.JIT, req.DefaultRole, req.SyncInterval, req.Timeout,
+		req.ProviderType, req.Realm)
 	if err != nil {
 		writeJSON(w, 500, ldapResp{Error: "Failed to save: " + err.Error()})
 		return
@@ -183,6 +192,31 @@ func (h *LDAPHandler) SaveConfig(w http.ResponseWriter, r *http.Request) {
 
 	// Trigger GitOps commit
 	gitops.CommitAllAsync(h.db)
+
+	// v7.3.0: If AD is selected, update nixwriter state for Samba AD membership
+	if req.ProviderType == "ad" || req.ProviderType == "active-directory" {
+		securityMode := "ads"
+		if req.Enabled == 0 {
+			securityMode = "user"
+		}
+
+		writer := nixwriter.DefaultWriter()
+		state := writer.State()
+
+		err = writer.SetSambaGlobals(nixwriter.SambaGlobalOpts{
+			Workgroup:        state.SambaWorkgroup,
+			ServerString:     state.SambaServerString,
+			TimeMachine:      state.SambaTimeMachine,
+			AllowGuest:       state.SambaAllowGuest,
+			ExtraGlobal:      state.SambaExtraGlobal,
+			SecurityMode:     securityMode,
+			Realm:            req.Realm,
+			DomainController: req.Server,
+		})
+		if err != nil {
+			log.Printf("ERROR: Failed to update nixwriter Samba state: %v", err)
+		}
+	}
 
 	writeJSON(w, 200, ldapResp{Success: true, Warning: warning})
 }

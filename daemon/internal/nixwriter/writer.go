@@ -73,11 +73,14 @@ type DPlaneState struct {
 	NetworkVLANs map[string]NetworkVLANEntry `json:"network_vlans,omitempty"`
 
 	// ── Samba ────────────────────────────────────────────────────────────────
-	SambaWorkgroup    string `json:"samba_workgroup,omitempty"`
-	SambaServerString string `json:"samba_server_string,omitempty"`
-	SambaTimeMachine  bool   `json:"samba_time_machine,omitempty"`
-	SambaAllowGuest   bool   `json:"samba_allow_guest,omitempty"`
-	SambaExtraGlobal  string `json:"samba_extra_global,omitempty"`
+	SambaWorkgroup        string `json:"samba_workgroup,omitempty"`
+	SambaServerString     string `json:"samba_server_string,omitempty"`
+	SambaTimeMachine      bool   `json:"samba_time_machine,omitempty"`
+	SambaAllowGuest       bool   `json:"samba_allow_guest,omitempty"`
+	SambaExtraGlobal      string `json:"samba_extra_global,omitempty"`
+	SambaSecurityMode     string `json:"samba_security_mode,omitempty"`
+	SambaRealm            string `json:"samba_realm,omitempty"`
+	SambaDomainController string `json:"samba_domain_controller,omitempty"`
 
 	// ── High Availability ──────────────────────────────────────────────────────
 	HAEnable bool `json:"ha_enable,omitempty"`
@@ -308,13 +311,16 @@ func (w *Writer) SetTimezone(tz string) error {
 
 // ── Samba setter ─────────────────────────────────────────────────────────────
 
-// SambaGlobalOpts holds global Samba settings. Identical to v4 struct.
+// SambaGlobalOpts holds global Samba settings.
 type SambaGlobalOpts struct {
-	Workgroup    string
-	ServerString string
-	TimeMachine  bool
-	AllowGuest   bool
-	ExtraGlobal  string
+	Workgroup        string
+	ServerString     string
+	TimeMachine      bool
+	AllowGuest       bool
+	ExtraGlobal      string
+	SecurityMode     string // "user" or "ads"
+	Realm            string
+	DomainController string
 }
 
 // SetSambaGlobals records global Samba settings.
@@ -325,6 +331,9 @@ func (w *Writer) SetSambaGlobals(opts SambaGlobalOpts) error {
 	w.state.SambaTimeMachine = opts.TimeMachine
 	w.state.SambaAllowGuest = opts.AllowGuest
 	w.state.SambaExtraGlobal = opts.ExtraGlobal
+	w.state.SambaSecurityMode = opts.SecurityMode
+	w.state.SambaRealm = opts.Realm
+	w.state.SambaDomainController = opts.DomainController
 	w.mu.Unlock()
 	return w.flush()
 }

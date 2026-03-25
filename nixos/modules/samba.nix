@@ -171,6 +171,21 @@ in {
       '';
     };
 
+    securityMode = lib.mkOption {
+      type = lib.types.enum [ "user" "ads" ];
+      default = "user";
+      description = "Samba security mode (security = ...)";
+    };
+    realm = lib.mkOption {
+      type = lib.types.nullOr lib.types.str;
+      default = null;
+      description = "Active Directory Realm (AD only)";
+    };
+    domainController = lib.mkOption {
+      type = lib.types.nullOr lib.types.str;
+      default = null;
+      description = "Active Directory Domain Controller (AD only)";
+    };
     sharesConfPath = lib.mkOption {
       type    = lib.types.path;
       default = sharesConfPath;
@@ -195,6 +210,7 @@ in {
     services.samba = {
       enable = true;
       package = pkgs.samba;
+      winbindd.enable = cfg.securityMode == "ads";
 
       # Use our rendered config. services.samba writes this to
       # /etc/samba/smb.conf at activation time.
@@ -204,8 +220,9 @@ in {
           "workgroup"           = cfg.workgroup;
           "server string"       = cfg.serverString;
           "netbios name"        = cfg.netbiosName;
-          "security"            = "user";
-          "passdb backend"      = "tdbsam";
+          "security"            = cfg.securityMode;
+          "realm"               = lib.mkIf (cfg.securityMode == "ads") (lib.toUpper cfg.realm);
+          "passdb backend"      = if cfg.securityMode == "ads" then "secrets" else "tdbsam";
           "map to guest"        = if cfg.allowGuest then "Bad User" else "Never";
           "server min protocol" = "SMB2";
           "server max protocol" = "SMB3";
@@ -217,6 +234,18 @@ in {
           "read raw"            = "yes";
           "write raw"           = "yes";
           "use sendfile"        = "yes";
+
+          # ── Identity Mapping ──────────────────────────────────────────────
+          "idmap config * : backend" = "tdb";
+          "idmap config * : range"   = "3000-7999";
+          "idmap config ${cfg.workgroup} : backend" = "rid";
+          "idmap config ${cfg.workgroup} : range"   = "10000-999999";
+
+          # ── AD Specifics ──────────────────────────────────────────────────
+          "kerberos method"          = lib.mkIf (cfg.securityMode == "ads") "secrets and keytab";
+          "winbind use default domain" = lib.mkIf (cfg.securityMode == "ads") "yes";
+          "winbind offline logon"    = lib.mkIf (cfg.securityMode == "ads") "yes";
+
           # ── THE BRIDGE LINE ───────────────────────────────────────────────
           # NixOS writes the [global] section; D-PlaneOS writes the shares.
           # This include makes NixOS aware of D-PlaneOS's share stanzas
@@ -234,8 +263,20 @@ in {
         };
       };
 
-      # openFirewall handled below so we can also open UDP ports
-      openFirewall = false;
+      # ── Kerberos ──────────────────────────────────────────────────────────────
+    security.krb5 = lib.mkIf (cfg.securityMode == "ads" && cfg.realm != null) {
+      enable = true;
+      settings = {
+        libdefaults.default_realm = lib.toUpper cfg.realm;
+        realms.${lib.toUpper cfg.realm} = {
+          kdc = cfg.domainController;
+          admin_server = cfg.domainController;
+        };
+      };
+    };
+
+    # openFirewall handled below so we can also open UDP ports
+    openFirewall = false;
     };
 
     # ── Ensure the shares config file exists before smbd starts ──────────────

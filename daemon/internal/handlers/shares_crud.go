@@ -355,6 +355,72 @@ func (h *ShareCRUDHandler) deleteShareByName(w http.ResponseWriter, r *http.Requ
 	gitops.CommitAllAsync(h.db)
 }
 
+// GetSharesByPath aggregates SMB and NFS shares for a specific filesystem path
+// GET /api/shares/by-path?path=/tank/data
+func (h *ShareCRUDHandler) GetSharesByPath(w http.ResponseWriter, r *http.Request) {
+	path := r.URL.Query().Get("path")
+	if path == "" {
+		respondErrorSimple(w, "path is required", http.StatusBadRequest)
+		return
+	}
+
+	// 1. Get SMB shares
+	smbRows, err := h.db.Query(`SELECT name, comment, enabled FROM smb_shares WHERE path = $1`, path)
+	if err != nil {
+		respondErrorSimple(w, "SMB query failed: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer smbRows.Close()
+	var smbShares []map[string]interface{}
+	for smbRows.Next() {
+		var name, comment string
+		var enabled int
+		smbRows.Scan(&name, &comment, &enabled)
+		smbShares = append(smbShares, map[string]interface{}{
+			"name":    name,
+			"comment": comment,
+			"enabled": enabled == 1,
+		})
+	}
+	if smbShares == nil {
+		smbShares = []map[string]interface{}{}
+	}
+
+	// 2. Get NFS exports
+	nfsRows, err := h.db.Query(`SELECT id, clients, options, enabled FROM nfs_exports WHERE path = $1`, path)
+	if err != nil {
+		log.Printf("NFS query failed (table might be missing): %v", err)
+		nfsRows = nil
+	}
+	
+	var nfsExports []map[string]interface{}
+	if nfsRows != nil {
+		defer nfsRows.Close()
+		for nfsRows.Next() {
+			var id, enabled int
+			var clients, options string
+			nfsRows.Scan(&id, &clients, &options, &enabled)
+			nfsExports = append(nfsExports, map[string]interface{}{
+				"id":      id,
+				"clients": clients,
+				"options": options,
+				"enabled": enabled == 1,
+			})
+		}
+	}
+	if nfsExports == nil {
+		nfsExports = []map[string]interface{}{}
+	}
+
+	respondOK(w, map[string]interface{}{
+		"success": true,
+		"path":    path,
+		"smb":     smbShares,
+		"nfs":     nfsExports,
+	})
+}
+
+
 // regenerateSMBConf rebuilds /etc/samba/smb.conf from the database
 func (h *ShareCRUDHandler) regenerateSMBConf() {
 	rows, err := h.db.Query(`SELECT name, path, comment, browsable, read_only, guest_ok, valid_users, write_list, create_mask, directory_mask FROM smb_shares WHERE enabled = 1`)

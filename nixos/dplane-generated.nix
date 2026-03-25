@@ -121,6 +121,9 @@ in
     timeMachine       = s.samba_time_machine   or false;
     allowGuest        = s.samba_allow_guest    or false;
     extraGlobalConfig = s.samba_extra_global   or "";
+    securityMode      = s.samba_security_mode  or "user";
+    realm             = s.samba_realm          or null;
+    domainController  = s.samba_domain_controller or null;
   };
 
   # ── High Availability ────────────────────────────────────────────────────────
