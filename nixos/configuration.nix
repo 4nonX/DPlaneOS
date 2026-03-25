@@ -286,19 +286,19 @@ in {
     openFirewall = true;
 
     settings.global = {
-      workgroup = sambaWorkgroup;
+      "workgroup"     = sambaWorkgroup;
       "server string" = "D-PlaneOS NAS";
-      security = "user";
-      "map to guest" = "Bad User";
-      "log file" = "/var/log/samba/log.%m";
-      "max log size" = "1000";
+      "security"      = "user";
+      "map to guest"  = "Bad User";
+      "log file"      = "/var/log/samba/log.%m";
+      "max log size"  = "1000";
 
       # Performance tuning
       "socket options" = "TCP_NODELAY IPTOS_LOWDELAY SO_RCVBUF=131072 SO_SNDBUF=131072";
-      "read raw" = "yes";
-      "write raw" = "yes";
-      "use sendfile" = "yes";
-      "aio read size" = "16384";
+      "read raw"       = "yes";
+      "write raw"      = "yes";
+      "use sendfile"   = "yes";
+      "aio read size"  = "16384";
       "aio write size" = "16384";
     };
 

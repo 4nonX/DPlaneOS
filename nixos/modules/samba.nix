@@ -221,7 +221,7 @@ in {
           "server string"       = cfg.serverString;
           "netbios name"        = cfg.netbiosName;
           "security"            = cfg.securityMode;
-          "realm"               = lib.mkIf (cfg.securityMode == "ads") (lib.toUpper cfg.realm);
+          "realm"               = if (cfg.securityMode == "ads" && cfg.realm != null) then lib.toUpper cfg.realm else null;
           "passdb backend"      = if cfg.securityMode == "ads" then "secrets" else "tdbsam";
           "map to guest"        = if cfg.allowGuest then "Bad User" else "Never";
           "server min protocol" = "SMB2";
@@ -268,10 +268,12 @@ in {
       enable = true;
       settings = {
         libdefaults.default_realm = lib.toUpper cfg.realm;
-        realms.${lib.toUpper cfg.realm} = {
-          kdc = cfg.domainController;
-          admin_server = cfg.domainController;
-        };
+        realms = if (cfg.realm != null) then {
+          "${lib.toUpper cfg.realm}" = {
+            kdc = cfg.domainController;
+            admin_server = cfg.domainController;
+          };
+        } else {};
       };
     };
 

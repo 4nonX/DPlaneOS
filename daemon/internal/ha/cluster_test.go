@@ -21,10 +21,19 @@ import (
 	return db
 }
 
+func cleanupDB(t *testing.T, db *sql.DB) {
+	_, err := db.Exec("TRUNCATE ha_nodes, ha_replication_config, ha_fencing_config CASCADE")
+	if err != nil {
+		t.Logf("cleanup warning: %v", err)
+	}
+}
+
 func TestNewManager_LocalID(t *testing.T) {
 	db := newTestDB(t)
 	defer db.Close()
 	m := NewManager(db, "node1", "http://10.0.0.1:5050", "3.1.0")
+	m.ensureSchema()
+	cleanupDB(t, db)
 	info := m.LocalInfo()
 	if info["id"] != "node1" {
 		t.Errorf("expected id=node1, got %q", info["id"])
@@ -38,6 +47,7 @@ func TestRegisterPeer_Basic(t *testing.T) {
 	if err := m.ensureSchema(); err != nil {
 		t.Fatalf("schema: %v", err)
 	}
+	cleanupDB(t, db)
 
 	peer := &ClusterNode{
 		ID:      "node2",
@@ -63,6 +73,7 @@ func TestRegisterPeer_RejectsSelf(t *testing.T) {
 	defer db.Close()
 	m := NewManager(db, "node1", "http://10.0.0.1:5050", "3.1.0")
 	m.ensureSchema()
+	cleanupDB(t, db)
 
 	err := m.RegisterPeer(&ClusterNode{ID: "node1", Address: "http://10.0.0.1:5050"})
 	if err == nil {
@@ -75,6 +86,7 @@ func TestRegisterPeer_RequiresAddress(t *testing.T) {
 	defer db.Close()
 	m := NewManager(db, "node1", "http://10.0.0.1:5050", "3.1.0")
 	m.ensureSchema()
+	cleanupDB(t, db)
 
 	err := m.RegisterPeer(&ClusterNode{ID: "node2"}) // no address
 	if err == nil {
@@ -87,6 +99,7 @@ func TestRemovePeer(t *testing.T) {
 	defer db.Close()
 	m := NewManager(db, "node1", "http://10.0.0.1:5050", "3.1.0")
 	m.ensureSchema()
+	cleanupDB(t, db)
 	m.RegisterPeer(&ClusterNode{ID: "node2", Address: "http://10.0.0.2:5050"})
 
 	if err := m.RemovePeer("node2"); err != nil {
@@ -102,6 +115,7 @@ func TestStatus_NoPeers_LocalIsActive(t *testing.T) {
 	defer db.Close()
 	m := NewManager(db, "node1", "http://10.0.0.1:5050", "3.1.0")
 	m.ensureSchema()
+	cleanupDB(t, db)
 
 	s := m.Status()
 	if s.LocalNode.Role != RoleActive {
@@ -123,6 +137,7 @@ func TestHeartbeatReceived_UpdatesState(t *testing.T) {
 	defer db.Close()
 	m := NewManager(db, "node1", "http://10.0.0.1:5050", "3.1.0")
 	m.ensureSchema()
+	cleanupDB(t, db)
 
 	// Register peer first
 	m.RegisterPeer(&ClusterNode{ID: "node2", Address: "http://10.0.0.2:5050", Role: RoleStandby})
@@ -155,6 +170,7 @@ func TestHeartbeat_AutoRegistersUnknownPeer(t *testing.T) {
 	defer db.Close()
 	m := NewManager(db, "node1", "http://10.0.0.1:5050", "3.1.0")
 	m.ensureSchema()
+	cleanupDB(t, db)
 
 	// Heartbeat from unknown peer - should auto-register
 	m.HandleHeartbeat(HeartbeatPayload{
@@ -177,6 +193,7 @@ func TestSetPeerRole(t *testing.T) {
 	defer db.Close()
 	m := NewManager(db, "node1", "http://10.0.0.1:5050", "3.1.0")
 	m.ensureSchema()
+	cleanupDB(t, db)
 	m.RegisterPeer(&ClusterNode{ID: "node2", Address: "http://10.0.0.2:5050", Role: RoleStandby})
 
 	if err := m.SetPeerRole("node2", RoleActive); err != nil {
@@ -193,6 +210,7 @@ func TestSetPeerRole_UnknownPeer(t *testing.T) {
 	defer db.Close()
 	m := NewManager(db, "node1", "http://10.0.0.1:5050", "3.1.0")
 	m.ensureSchema()
+	cleanupDB(t, db)
 
 	err := m.SetPeerRole("nonexistent", RoleActive)
 	if err == nil {
