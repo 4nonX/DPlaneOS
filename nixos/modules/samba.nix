@@ -221,7 +221,7 @@ in {
           "server string"       = cfg.serverString;
           "netbios name"        = cfg.netbiosName;
           "security"            = cfg.securityMode;
-          "realm"               = if (cfg.securityMode == "ads" && cfg.realm != null) then lib.toUpper cfg.realm else null;
+          "realm"               = lib.mkIf (cfg.securityMode == "ads" && cfg.realm != null) (lib.toUpper cfg.realm);
           "passdb backend"      = if cfg.securityMode == "ads" then "secrets" else "tdbsam";
           "map to guest"        = if cfg.allowGuest then "Bad User" else "Never";
           "server min protocol" = "SMB2";
