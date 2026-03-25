@@ -221,7 +221,7 @@ in {
           "server string"       = cfg.serverString;
           "netbios name"        = cfg.netbiosName;
           "security"            = cfg.securityMode;
-          "realm"               = lib.mkIf (cfg.securityMode == "ads" && cfg.realm != null) (lib.toUpper cfg.realm);
+          "realm"               = lib.mkIf (cfg.securityMode == "ads" && cfg.realm != null) (lib.toUpper (toString cfg.realm));
           "passdb backend"      = if cfg.securityMode == "ads" then "secrets" else "tdbsam";
           "map to guest"        = if cfg.allowGuest then "Bad User" else "Never";
           "server min protocol" = "SMB2";
@@ -263,11 +263,15 @@ in {
         };
       };
 
-      # ── Kerberos ──────────────────────────────────────────────────────────────
+      # openFirewall handled below so we can also open UDP ports
+      openFirewall = false;
+    };
+
+    # ── Kerberos ──────────────────────────────────────────────────────────────
     security.krb5 = lib.mkIf (cfg.securityMode == "ads" && cfg.realm != null) {
       enable = true;
       settings = {
-        libdefaults.default_realm = lib.toUpper cfg.realm;
+        libdefaults.default_realm = if cfg.realm != null then lib.toUpper cfg.realm else "";
         realms = if (cfg.realm != null) then {
           "${lib.toUpper cfg.realm}" = {
             kdc = cfg.domainController;
@@ -275,10 +279,6 @@ in {
           };
         } else {};
       };
-    };
-
-    # openFirewall handled below so we can also open UDP ports
-    openFirewall = false;
     };
 
     # ── Ensure the shares config file exists before smbd starts ──────────────
