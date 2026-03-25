@@ -1223,6 +1223,12 @@ function PoolCard({ pool, datasets, filter, onRefresh }: { pool: ZFSPool; datase
           onRollback={() => { qc.invalidateQueries({ queryKey: ['zfs', 'datasets'] }); onRefresh() }}
         />
       )}
+
+      {wipeDisk && (
+        <Modal title="Wipe System Disk" onClose={() => setWipeDisk(null)} size="sm">
+          <WipeDiskModalInner onWiped={onRefresh} onClose={() => setWipeDisk(null)} />
+        </Modal>
+      )}
     </div>
   )
 }
