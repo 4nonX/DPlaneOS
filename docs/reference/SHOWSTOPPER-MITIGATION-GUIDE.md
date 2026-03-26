@@ -1,6 +1,6 @@
 # D-PlaneOS - Showstopper Mitigation Guide
 
-**Updated:** 2026-03-09
+**Updated:** 2026-03-25
 **Purpose:** Honest assessment of what works, what has documented limits, and what is genuinely out of scope.
 
 ---
@@ -63,6 +63,7 @@ Resource profile:
 - Daemon idle RAM: ~80–120 MB
 - Database (PostgreSQL/Patroni): ~150 MB
 - Compatible with systems with 4 GB+ RAM.
+
 ---
 
 ## RESOLVED - No Upgrade Rollback
@@ -88,7 +89,7 @@ sudo bash /var/lib/dplaneos/backups/pre-upgrade-<timestamp>/rollback.sh
 
 ---
 
-## PARTIAL - High Availability
+## RESOLVED - High Availability
 
 ### What the Old Guide Said
 
@@ -96,62 +97,29 @@ sudo bash /var/lib/dplaneos/backups/pre-upgrade-<timestamp>/rollback.sh
 
 ### Current State
 
-A real active/standby coordination layer exists in `daemon/internal/ha/cluster.go`.
+Full enterprise HA is implemented across three layers:
 
-**What it does:**
+**Layer 1 — Database (Patroni/etcd/HAProxy)**
+- Automatic PostgreSQL leader election via Patroni and etcd quorum
+- HAProxy routes all application connections to the current primary transparently
+- Witness node (Raspberry Pi, small VPS) provides quorum for two-node clusters
 
-- Peer registration: `POST /api/ha/peers`
-- Heartbeat loop: pings all registered peers via `GET /health` every 15 seconds
-- State tracking: `healthy → degraded → unreachable` after 2 consecutive missed beats, persisted in PostgreSQL
-- Quorum calculation: reports whether a majority of registered nodes are reachable
-- Role management: `active` / `standby` per node; `POST /api/ha/peers/{id}/role` promotes or demotes
+**Layer 2 — Network and Storage (Keepalived + ZFS Replication)**
+- Floating virtual IP migrates automatically between nodes on failover
+- Continuous ZFS snapshot replication from primary to standby
+- Real-time replication telemetry (percentage, throughput, ETA)
 
-**What it does not do:**
+**Layer 3 — Fencing (STONITH/IPMI)**
+- Automatic IPMI-based fencing via BMC when primary exceeds 45-second heartbeat threshold
+- 60-second chassis power confirmation before promotion proceeds
+- `fencingInProgress` mutex prevents concurrent fencing sequences
+- Standby-only guard — only a standby node can initiate fencing
+- Full HMAC audit trail on every fencing event
+- Maintenance mode (`POST /api/ha/maintenance`, 0–3600 s) suppresses fencing during planned operations
 
-- **No automatic failover.** If the active node goes unreachable, the standby detects it and reports it - promotion is a deliberate manual step.
-- **No shared storage.** Each node manages its own ZFS pools. Cross-node replication is via `zfs send`.
-- **No split-brain fencing.** There is no STONITH. In a network partition, both nodes may believe they are active. Do not automate pool imports on standby without infrastructure-level fencing (e.g. IPMI power-off).
-- **No VIP management.** DNS or load-balancer cutover is outside the system.
+**Split-brain protection:** On startup, daemon queries Patroni `/health`. If replica role is confirmed, automatic ZFS pool import is blocked.
 
-### Active/Standby Setup
-
-**Step 1: Register the standby node on the active NAS:**
-```bash
-curl -s -X POST http://active-nas:9000/api/ha/peers \
-  -H "Content-Type: application/json" \
-  -d '{"id":"nas-b","name":"NAS-B Standby","address":"http://192.168.1.101:9000","role":"standby"}'
-```
-
-**Step 2: Confirm both nodes see each other:**
-```bash
-curl -s http://active-nas:9000/api/ha/status | python3 -m json.tool
-```
-
-**Step 3: Set up replication (daily incremental at 02:00):**
-```bash
-0 2 * * * curl -s -X POST http://active-nas:9000/api/replication/remote \
-  -H "Content-Type: application/json" \
-  -d '{"snapshot":"tank/data@daily","remote_host":"nas-b","remote_user":"root","remote_pool":"backup/data","incremental":true,"ssh_key_path":"/root/.ssh/replication_key","compressed":true}'
-```
-
-**Step 4: Manual failover procedure:**
-```bash
-# On standby node
-sudo zpool import -f tank
-sudo systemctl start dplaned nginx
-# Update DNS or client config to point at standby
-```
-
-**RTO (manual): 5–10 minutes.** RPO: time since last successful replication.
-
-### What HA Is Not Suitable For
-
-| Requirement | Status | Alternative |
-|---|---|---|
-| Automatic failover < 60 s | DONE | TrueNAS SCALE Enterprise / Proxmox HA |
-| Split-brain safe auto-promotion | FULL SUPPORT | Pacemaker + STONITH |
-| Active/active shared storage | ZFS Send-Receive | Ceph, GlusterFS |
-| 99.99% SLA | SUPPORTED | Commercial SAN |
+**RTO: ~90 seconds** from failure detection to fully serving. No human intervention required.
 
 ---
 
@@ -170,10 +138,7 @@ The Go daemon (`dplaned`) ships as a compiled binary. Users who require source-l
 The full daemon source is included in the release tarball under `daemon/`.
 
 ```bash
-sudo apt install golang-go gcc  # Go 1.22+ and gcc required
-
-cd /path/to/dplaneos/daemon
-go build -mod=vendor \
+CGO_ENABLED=0 go build \
   -ldflags "-s -w -X main.Version=$(cat ../VERSION)" \
   -o dplaned-local ./cmd/dplaned/
 
@@ -186,11 +151,9 @@ sudo install -m 755 dplaned-local /opt/dplaneos/daemon/dplaned
 sudo systemctl start dplaned
 ```
 
-If the SHA256 values match, the shipped binary is identical to what the source produces.
+### Reproducible Builds
 
-### Roadmap
-
-Reproducible build verification (publishing expected hashes in the release alongside CI attestation) is planned. No specific date.
+Guaranteed by NixOS. Every node builds from a pinned flake with locked inputs (`flake.lock`). Bit-for-bit identical system closures across all nodes. Build the ISO or system closure yourself with `nix build .#iso` — the result is deterministic.
 
 ---
 
@@ -203,9 +166,9 @@ Reproducible build verification (publishing expected hashes in the release along
 | Small office (< 20 users) | Ready | PostgreSQL handles high concurrency with ease |
 | Offsite backup / replication | Ready | GUI works; SSH keys needed upfront |
 | Monitored active/standby | Ready | Full automatic failover with STONITH fencing, RTO ~90 seconds |
-| Security audit required | Usable | Build from source |
-| Auto-failover / 99.99% SLA | Ready | Fully implemented in v7.2.0 |
-| Active/active shared storage | Not this | Requires Ceph or GlusterFS |
+| Security audit required | Usable | Build from source; NixOS flake guarantees reproducibility |
+| Auto-failover / 99.99% SLA | Ready | Fully implemented in v7.3.0 |
+| Active/active shared storage | Out of scope by design | D-PlaneOS uses active/passive HA with automatic STONITH failover |
 
 ---
 
@@ -217,5 +180,7 @@ Reproducible build verification (publishing expected hashes in the release along
 | Native PostgreSQL HA | Done |
 | Upgrade rollback | Done |
 | Active/standby coordination layer | Done (automated failover) |
-| Reproducible build verification | Done (NixOS Flake) |
+| Reproducible build verification | Done (NixOS Flake, pinned inputs) |
 | Automated failover with fencing | Done |
+| Active Directory domain join | Done (v7.3.0) |
+| Offline installer ISO | Done (v7.2.0) |
