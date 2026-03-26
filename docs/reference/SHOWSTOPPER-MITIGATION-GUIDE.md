@@ -217,5 +217,5 @@ Reproducible build verification (publishing expected hashes in the release along
 | Native PostgreSQL HA | Done |
 | Upgrade rollback | Done |
 | Active/standby coordination layer | Done (automated failover) |
-| Reproducible build verification | Planned |
+| Reproducible build verification | Done (NixOS Flake) |
 | Automated failover with fencing | Done |
