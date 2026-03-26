@@ -202,7 +202,7 @@ Reproducible build verification (publishing expected hashes in the release along
 | Homelab / learning | Ready | Ideal use case |
 | Small office (< 20 users) | Ready | PostgreSQL handles high concurrency with ease |
 | Offsite backup / replication | Ready | GUI works; SSH keys needed upfront |
-| Monitored active/standby | Usable | Manual failover only - plan your RTO |
+| Monitored active/standby | Ready | Full automatic failover with STONITH fencing, RTO ~90 seconds |
 | Security audit required | Usable | Build from source |
 | Auto-failover / 99.99% SLA | Ready | Fully implemented in v7.2.0 |
 | Active/active shared storage | Not this | Requires Ceph or GlusterFS |
