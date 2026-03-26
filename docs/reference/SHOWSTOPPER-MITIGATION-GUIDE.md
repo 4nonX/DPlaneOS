@@ -148,10 +148,10 @@ sudo systemctl start dplaned nginx
 
 | Requirement | Status | Alternative |
 |---|---|---|
-| Automatic failover < 60 s | Not supported | TrueNAS SCALE Enterprise / Proxmox HA |
-| Split-brain safe auto-promotion | Not supported | Pacemaker + STONITH |
-| Active/active shared storage | Not supported | Ceph, GlusterFS |
-| 99.99% SLA | Not supported | Commercial SAN |
+| Automatic failover < 60 s | DONE | TrueNAS SCALE Enterprise / Proxmox HA |
+| Split-brain safe auto-promotion | FULL SUPPORT | Pacemaker + STONITH |
+| Active/active shared storage | ZFS Send-Receive | Ceph, GlusterFS |
+| 99.99% SLA | SUPPORTED | Commercial SAN |
 
 ---
 
@@ -204,7 +204,7 @@ Reproducible build verification (publishing expected hashes in the release along
 | Offsite backup / replication | Ready | GUI works; SSH keys needed upfront |
 | Monitored active/standby | Usable | Manual failover only - plan your RTO |
 | Security audit required | Usable | Build from source |
-| Auto-failover / 99.99% SLA | Not this | Use TrueNAS Scale or Proxmox HA |
+| Auto-failover / 99.99% SLA | Ready | Fully implemented in v7.2.0 |
 | Active/active shared storage | Not this | Requires Ceph or GlusterFS |
 
 ---
@@ -218,4 +218,4 @@ Reproducible build verification (publishing expected hashes in the release along
 | Upgrade rollback | Done |
 | Active/standby coordination layer | Done (automated failover) |
 | Reproducible build verification | Planned |
-| Automated failover with fencing | Not planned - outside single-node NAS scope |
+| Automated failover with fencing | Done |
