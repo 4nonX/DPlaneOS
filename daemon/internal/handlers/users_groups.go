@@ -30,7 +30,8 @@ func (h *UserGroupHandler) HandleUsers(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet:
 		h.listUsers(w, r)
 	case http.MethodPost:
-		h.userAction(w, r)
+		// Use middleware manually for POST mutations (#17)
+		middleware.RequirePermission("users", "write")(http.HandlerFunc(h.userAction)).ServeHTTP(w, r)
 	default:
 		respondErrorSimple(w, "Method not allowed", http.StatusMethodNotAllowed)
 	}
@@ -370,7 +371,8 @@ func (h *UserGroupHandler) HandleGroups(w http.ResponseWriter, r *http.Request) 
 	case http.MethodGet:
 		h.listGroups(w, r)
 	case http.MethodPost:
-		h.groupAction(w, r)
+		// Use middleware manually for POST mutations (#17)
+		middleware.RequirePermission("users", "write")(http.HandlerFunc(h.groupAction)).ServeHTTP(w, r)
 	default:
 		respondErrorSimple(w, "Method not allowed", http.StatusMethodNotAllowed)
 	}

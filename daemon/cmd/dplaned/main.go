@@ -845,8 +845,7 @@ func main() {
 
 	// User & Group CRUD handlers
 	userGroupHandler := handlers.NewUserGroupHandler(db)
-	r.HandleFunc("/api/rbac/users", userGroupHandler.HandleUsers).Methods("GET")
-	r.Handle("/api/rbac/users", permRoute("users", "write", userGroupHandler.HandleUsers)).Methods("POST")
+	r.HandleFunc("/api/rbac/users", userGroupHandler.HandleUsers).Methods("GET", "POST")
 	r.HandleFunc("/api/rbac/groups", userGroupHandler.HandleGroups).Methods("GET", "POST")
 
 	// System status, profile, preflight, setup handlers
