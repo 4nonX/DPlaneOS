@@ -1,4 +1,4 @@
-﻿/**
+/**
  * components/layout/AppShell.tsx
  *
  * Main application layout: Sidebar + TopBar + page content area.
@@ -23,6 +23,8 @@ import { useWsStore } from '@/stores/ws'
 import { useAuthStore } from '@/stores/auth'
 import { api } from '@/lib/api'
 import { Icon } from '@/components/ui/Icon'
+import { initNotificationSubscribers } from '@/stores/notifications'
+import { PendingChangesSidebar } from './PendingChangesSidebar'
 
 // ---------------------------------------------------------------------------
 // StrengthBar - mirrors daemon validatePasswordStrength exactly
@@ -200,6 +202,7 @@ export function AppShell() {
 
   useEffect(() => {
     connect()
+    initNotificationSubscribers() // Start WebSocket-to-Notification listeners
     return () => disconnect()
   }, [connect, disconnect])
 
@@ -231,6 +234,7 @@ export function AppShell() {
           <Outlet />
         </div>
       </main>
+      <PendingChangesSidebar />
       <ToastContainer />
     </>
   )

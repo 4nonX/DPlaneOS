@@ -1,4 +1,4 @@
-﻿/**
+/**
  * pages/SettingsPage.tsx - System Settings (Phase 6)
  *
  * Tabs: General | NixOS
@@ -67,6 +67,16 @@ function GeneralTab() {
   const [motd,           setMotd]           = useState('')
   const [licenseKey,     setLicenseKey]     = useState('')
   const [seeded,         setSeeded]         = useState(false)
+  const [autoReconcile,   setAutoReconcile]   = useState(false)
+
+  const diffQ = useQuery({
+    queryKey: ['nixos', 'diff-intent'],
+    queryFn: () => api.get<{ changes: any[] }>('/api/nixos/diff-intent'),
+  })
+
+  const reconcileM = useMutation({
+    mutationFn: () => api.post('/api/nixos/reconcile', {}),
+  })
 
   useEffect(() => {
     if (settingsQ.data?.settings && !seeded) {
@@ -88,7 +98,22 @@ function GeneralTab() {
       body['license_key'] = licenseKey
       return api.post('/api/system/settings', body)
     },
-    onSuccess: () => { toast.success('Settings saved'); qc.invalidateQueries({ queryKey: ['system', 'settings'] }) },
+    onSuccess: async () => { 
+      qc.invalidateQueries({ queryKey: ['system', 'settings'] })
+      qc.invalidateQueries({ queryKey: ['nixos', 'diff-intent'] })
+      
+      if (autoReconcile) {
+        toast.info('Settings stored. Reconciling system...')
+        try {
+          await reconcileM.mutateAsync()
+          toast.success('System settings applied to Nix generation')
+        } catch (err: any) {
+          toast.error(`Reconciliation failed: ${err.message}`)
+        }
+      } else {
+        toast.success('Settings staged. Remember to Reconcile to apply changes.')
+      }
+    },
     onError: (e: Error) => toast.error(e.message),
   })
 
@@ -104,15 +129,25 @@ function GeneralTab() {
 
   return (
     <div style={{ maxWidth: 560, display: 'flex', flexDirection: 'column', gap: 20 }}>
-      <Field label="Hostname" hint="Applied immediately via hostnamectl">
-        <input value={hostname} onChange={e => setHostname(e.target.value)}
-          placeholder="dplaneos" className="input" style={{ fontFamily: 'var(--font-mono)' }} />
+      <Field label="Hostname" hint="Staged in dplane-state.json - reconciles etc/hostname">
+        <div style={{ position: 'relative' }}>
+          <input value={hostname} onChange={e => setHostname(e.target.value)}
+            placeholder="dplaneos" className="input" style={{ width: '100%', fontFamily: 'var(--font-mono)' }} />
+          {diffQ.data?.changes.find(c => c.path === 'hostname') && (
+            <span className="badge badge-warning" style={{ position: 'absolute', right: -70, top: 10, fontSize: 8 }}>STAGED</span>
+          )}
+        </div>
       </Field>
 
-      <Field label="Timezone" hint="Applied immediately via timedatectl">
+      <Field label="Timezone" hint="Staged in dplane-state.json - reconciles NixOS time.timeZone">
         {/* Combo: free-text with datalist for common zones */}
-        <input value={timezone} onChange={e => setTimezone(e.target.value)}
-          list="tz-list" placeholder="Europe/Berlin" className="input" />
+        <div style={{ position: 'relative' }}>
+          <input value={timezone} onChange={e => setTimezone(e.target.value)}
+            list="tz-list" placeholder="Europe/Berlin" className="input" style={{ width: '100%' }} />
+          {diffQ.data?.changes.find(c => c.path === 'timezone') && (
+            <span className="badge badge-warning" style={{ position: 'absolute', right: -70, top: 10, fontSize: 8 }}>STAGED</span>
+          )}
+        </div>
         <datalist id="tz-list">
           {TIMEZONES.map(tz => <option key={tz} value={tz} />)}
         </datalist>
@@ -137,6 +172,10 @@ function GeneralTab() {
       }) || null}
 
       <div>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', marginBottom: 16 }}>
+          <input type="checkbox" checked={autoReconcile} onChange={e => setAutoReconcile(e.target.checked)} />
+          Apply & Reconcile immediately (triggers Nix rebuild)
+        </label>
         <button onClick={() => save.mutate()} disabled={save.isPending} className="btn btn-primary">
           <Icon name="save" size={15} />{save.isPending ? 'Saving…' : 'Save Settings'}
         </button>

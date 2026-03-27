@@ -31,10 +31,10 @@ func RegenerateSMARTTimers(db *sql.DB) error {
 
 		// Use the cron-hook internal endpoint. 
 		// Note: The curl command calls back into dplaned, ensuring consistency.
+		// We use a fixed internal token whitelisted in main.go sessionMiddleware.
 		payload := fmt.Sprintf(`{"device":"%s","type":"%s"}`, device, testType)
-		// We use 127.0.0.1:9000 as the default, similar to snapshot schedules.
 		mainCmd := fmt.Sprintf(
-			`curl -sf -X POST http://127.0.0.1:9000/api/hardware/smart/cron-hook -H 'Content-Type: application/json' -d '%s'`,
+			`curl -sf -X POST http://127.0.0.1:9000/api/hardware/smart/cron-hook -H 'Content-Type: application/json' -H 'X-Internal-Token: dplaneos-internal-reconciliation-secret-v1' -d '%s'`,
 			payload,
 		)
 

@@ -31,6 +31,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"crypto/sha256"
 )
  
 const (
@@ -41,6 +42,13 @@ const (
 	// GeneratedNixPath is where setup-nixos.sh installs the static bridge file.
 	// The daemon does NOT write to this path in v5.
 	GeneratedNixPath = "/etc/nixos/dplane-generated.nix"
+
+	// AppliedChecksumPath stores the SHA256 of the dplane-state.json that
+	// was last successfully applied via nixos-rebuild.
+	AppliedChecksumPath = "/var/lib/dplaneos/applied-checksum"
+
+	// AppliedStatePath stores a copy of the dplane-state.json that was last applied.
+	AppliedStatePath = "/var/lib/dplaneos/dplane-state.applied.json"
 )
  
 // DPlaneState is the complete set of system settings that D-PlaneOS can manage
@@ -140,6 +148,124 @@ func isNixOS() bool {
  
 // IsNixOS reports whether this system is NixOS.
 func (w *Writer) IsNixOS() bool { return w.nixOS }
+
+// IsDirty checks if the intent (json on disk) is ahead of the applied state.
+func (w *Writer) IsDirty() (bool, error) {
+	if !w.nixOS {
+		return false, nil
+	}
+
+	// 1. Get checksum of current state file
+	currentJSON, err := os.ReadFile(w.path)
+	if os.IsNotExist(err) {
+		return false, nil // no state = not dirty
+	}
+	if err != nil {
+		return false, fmt.Errorf("read state: %w", err)
+	}
+	currentCS := fmt.Sprintf("%x", sha256.Sum256(currentJSON))
+
+	// 2. Get checksum of last applied state
+	appliedCS, err := os.ReadFile(AppliedChecksumPath)
+	if os.IsNotExist(err) {
+		return true, nil // has state but no applied record = dirty
+	}
+	if err != nil {
+		return false, fmt.Errorf("read applied-checksum: %w", err)
+	}
+
+	return currentCS != strings.TrimSpace(string(appliedCS)), nil
+}
+
+// MarkApplied records that the current state on disk has been successfully
+// activated by nixos-rebuild.
+func (w *Writer) MarkApplied() error {
+	if !w.nixOS {
+		return nil
+	}
+
+	currentJSON, err := os.ReadFile(w.path)
+	if err != nil {
+		return fmt.Errorf("read state for marking: %w", err)
+	}
+	currentCS := fmt.Sprintf("%x", sha256.Sum256(currentJSON))
+
+	if err := os.WriteFile(AppliedChecksumPath, []byte(currentCS), 0644); err != nil {
+		return err
+	}
+
+	// Also save a copy of the state itself for diff purposes
+	return os.WriteFile(AppliedStatePath, currentJSON, 0644)
+}
+
+// Change represents a single property change in the declarative state.
+type Change struct {
+	Path string      `json:"path"`
+	From interface{} `json:"from"`
+	To   interface{} `json:"to"`
+	Op   string      `json:"op"` // "add", "remove", "modify"
+}
+
+// DiffIntent calculates the differences between the current in-memory state
+// and the last applied state on disk.
+func (w *Writer) DiffIntent() ([]Change, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	var appliedState DPlaneState
+	data, err := os.ReadFile(AppliedStatePath)
+	if err == nil {
+		if err := json.Unmarshal(data, &appliedState); err != nil {
+			return nil, fmt.Errorf("diff: unmarshal applied state: %v", err)
+		}
+	} else if !os.IsNotExist(err) {
+		return nil, fmt.Errorf("diff: read applied state: %v", err)
+	}
+	// if file doesn't exist, appliedState is empty - we'll show everything as added
+
+	var changes []Change
+
+	// Helper to compare integer slices (Firewall)
+	compareInts := func(path string, from, to []int) {
+		fMap := make(map[int]bool)
+		for _, x := range from { fMap[x] = true }
+		tMap := make(map[int]bool)
+		for _, x := range to { tMap[x] = true }
+
+		for x := range tMap {
+			if !fMap[x] {
+				changes = append(changes, Change{Path: path, To: x, Op: "add"})
+			}
+		}
+		for x := range fMap {
+			if !tMap[x] {
+				changes = append(changes, Change{Path: path, From: x, Op: "remove"})
+			}
+		}
+	}
+
+	// System
+	if w.state.Hostname != appliedState.Hostname {
+		changes = append(changes, Change{Path: "system.hostname", From: appliedState.Hostname, To: w.state.Hostname, Op: "modify"})
+	}
+	if w.state.Timezone != appliedState.Timezone {
+		changes = append(changes, Change{Path: "system.timezone", From: appliedState.Timezone, To: w.state.Timezone, Op: "modify"})
+	}
+
+	// Firewall
+	compareInts("firewall.tcp", appliedState.FirewallTCP, w.state.FirewallTCP)
+	compareInts("firewall.udp", appliedState.FirewallUDP, w.state.FirewallUDP)
+
+	// High Availability
+	if w.state.HAEnable != appliedState.HAEnable {
+		changes = append(changes, Change{Path: "system.ha_enable", From: appliedState.HAEnable, To: w.state.HAEnable, Op: "modify"})
+	}
+
+	// This list is not exhaustive but covers the primary enterprise hardening vectors.
+	// For a production system, use reflection or a generic JSON diff library.
+
+	return changes, nil
+}
  
 // State returns a copy of the current in-memory state.
 func (w *Writer) State() DPlaneState {

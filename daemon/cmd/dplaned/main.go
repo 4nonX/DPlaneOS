@@ -630,6 +630,9 @@ func main() {
 	// v3.0.0: NixOS Config Guard (only active on NixOS systems)
 	nixosGuardHandler := handlers.NewNixOSGuardHandler(db)
 	r.Handle("/api/nixos/detect", permRoute("system", "read", nixosGuardHandler.DetectNixOS)).Methods("GET")
+	r.Handle("/api/nixos/status", permRoute("system", "read", nixosGuardHandler.GetStatus)).Methods("GET")
+	r.Handle("/api/nixos/diff-intent", permRoute("system", "read", nixosGuardHandler.DiffIntent)).Methods("GET")
+	r.Handle("/api/nixos/reconcile", permRoute("system", "admin", nixosGuardHandler.Reconcile)).Methods("POST")
 	r.Handle("/api/nixos/validate", permRoute("system", "admin", nixosGuardHandler.ValidateConfig)).Methods("POST")
 	r.Handle("/api/nixos/generations", permRoute("system", "read", nixosGuardHandler.ListGenerations)).Methods("GET")
 	r.Handle("/api/nixos/rollback", permRoute("system", "admin", nixosGuardHandler.RollbackGeneration)).Methods("POST")
@@ -1255,8 +1258,11 @@ func sessionMiddleware(db *sql.DB) mux.MiddlewareFunc {
 				p == "/api/system/status" || // dashboard needs status before login to detect setup_complete
 				// HA heartbeat - called by peer daemons that have no user session
 				p == "/api/ha/heartbeat" ||
-				// Internal hooks - called by systemd timers on localhost
-				((p == "/api/zfs/snapshots/cron-hook" || p == "/api/hardware/smart/cron-hook") && (strings.HasPrefix(r.RemoteAddr, "127.0.0.1") || strings.HasPrefix(r.RemoteAddr, "[::1]"))) ||
+				// Internal hooks - called by systemd timers on localhost.
+				// Mandatory check: Must be localhost AND provide the internal-only secret token.
+				((p == "/api/zfs/snapshots/cron-hook" || p == "/api/hardware/smart/cron-hook") &&
+					(strings.HasPrefix(r.RemoteAddr, "127.0.0.1") || strings.HasPrefix(r.RemoteAddr, "[::1]")) &&
+					r.Header.Get("X-Internal-Token") == "dplaneos-internal-reconciliation-secret-v1") ||
 				// Internal disk events - called by udev scripts on localhost
 				p == "/api/internal/disk-event" ||
 				// Prometheus metrics - scraped by external monitoring without session

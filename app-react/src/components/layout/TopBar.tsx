@@ -1,4 +1,4 @@
-﻿/**
+/**
  * components/layout/TopBar.tsx
  *
  * Fixed top bar with page icon, title, breadcrumb group, and user chip.
@@ -13,6 +13,7 @@ import { useAuthStore } from '@/stores/auth'
 import { useStorageStore } from '@/stores/storage'
 import { findNavEntry } from './navConfig'
 import { api } from '@/lib/api'
+import { useNotificationsStore } from '@/stores/notifications'
 
 interface ZFSPool {
   name: string
@@ -36,6 +37,8 @@ export function TopBar({ sidebarCollapsed }: TopBarProps) {
   const pageTitle = entry?.leaf.label ?? (pathname === '/' ? 'Dashboard' : pathname.slice(1))
   const pageIcon  = entry?.leaf.icon  ?? 'home'
   const groupLabel = entry?.groupLabel
+
+
 
   return (
     <header
@@ -137,8 +140,149 @@ export function TopBar({ sidebarCollapsed }: TopBarProps) {
             )}
           </div>
         )}
+
+        <NotificationsBell />
       </div>
     </header>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// NotificationsBell
+// ---------------------------------------------------------------------------
+
+function NotificationsBell() {
+  const [showFlyout, setShowFlyout] = useState(false)
+  const { setSidebarOpen } = useNotificationsStore()
+  
+  const statusQ = useQuery({
+    queryKey: ['nixos', 'status'],
+    queryFn: () => api.get<{ is_dirty: boolean }>('/api/nixos/status'),
+    refetchInterval: 60_000,
+  })
+
+  const isDirty = statusQ.data?.is_dirty ?? false
+  const notifications = useNotificationsStore(s => s.notifications) // Use the new notification history
+
+  return (
+    <div style={{ position: 'relative' }}>
+      <button 
+        onClick={() => setShowFlyout(!showFlyout)}
+        style={{
+          background: 'none',
+          border: 'none',
+          cursor: 'pointer',
+          color: isDirty ? 'var(--warning)' : 'var(--text-tertiary)',
+          display: 'flex',
+          alignItems: 'center',
+          padding: 8,
+          borderRadius: 8,
+          transition: 'all 0.2s',
+          position: 'relative'
+        }}
+        onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; e.currentTarget.style.color = 'var(--text)' }}
+        onMouseLeave={e => { e.currentTarget.style.background = 'none'; e.currentTarget.style.color = isDirty ? 'var(--warning)' : 'var(--text-tertiary)' }}
+      >
+        <Icon name={isDirty ? 'notifications_active' : 'notifications'} size={20} />
+        {(isDirty || notifications.some(n => !n.read)) && (
+          <span style={{
+            position: 'absolute',
+            top: 6,
+            right: 6,
+            width: 8,
+            height: 8,
+            borderRadius: '50%',
+            background: isDirty ? 'var(--warning)' : 'var(--primary)',
+            border: '2px solid var(--surface)',
+            boxShadow: `0 0 8px ${isDirty ? 'var(--warning)' : 'var(--primary-glow)'}`
+          }} />
+        )}
+      </button>
+
+      {showFlyout && (
+        <>
+          <div style={{
+            position: 'absolute',
+            top: 'calc(100% + 12px)',
+            right: 0,
+            width: 320,
+            background: 'var(--surface)',
+            border: '1px solid var(--border)',
+            borderRadius: 'var(--radius-lg)',
+            boxShadow: 'var(--shadow-xl)',
+            zIndex: 1000,
+            overflow: 'hidden',
+            backdropFilter: 'var(--blur-glass)'
+          }}>
+            <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border-subtle)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontWeight: 700, fontSize: 'var(--text-sm)' }}>Notifications</span>
+              {isDirty && <span className="badge badge-warning">System Dirty</span>}
+            </div>
+
+            <div style={{ maxHeight: 400, overflowY: 'auto' }}>
+              {isDirty && (
+                <div style={{ padding: 16, background: 'rgba(255, 174, 0, 0.05)', borderBottom: '1px solid var(--border-subtle)' }}>
+                  <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+                    <Icon name="potted_plant" size={20} style={{ color: 'var(--warning)', marginTop: 2 }} />
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontWeight: 600, fontSize: 'var(--text-sm)', marginBottom: 4 }}>Reconciliation Required</div>
+                      <p style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', margin: 0, lineHeight: 1.4 }}>
+                        System configuration has changed. Apply changes to ensure persistence after reboot.
+                      </p>
+                      <div style={{ display: 'flex', gap: 12, marginTop: 12 }}>
+                        <button 
+                          onClick={() => { setSidebarOpen(true); setShowFlyout(false) }}
+                          style={{
+                            padding: '6px 12px',
+                            background: 'rgba(255,255,255,0.05)',
+                            border: '1px solid var(--border-subtle)',
+                            borderRadius: 'var(--radius-sm)',
+                            fontSize: 'var(--text-xs)',
+                            fontWeight: 600,
+                            color: 'var(--primary)',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          View Details
+                        </button>
+                        <button 
+                          className="btn btn-primary btn-xs"
+                          style={{ padding: '6px 12px', fontSize: 'var(--text-xs)', height: 'auto' }}
+                        >
+                          Reconcile Now
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {notifications.map((n) => (
+                <div key={n.id} style={{ padding: 16, borderBottom: '1px solid var(--border-subtle)', opacity: n.read ? 0.6 : 1 }}>
+                  <div style={{ display: 'flex', gap: 12 }}>
+                    <Icon name={n.type === 'error' ? 'error' : n.type === 'warning' ? 'warning' : 'info'} size={18} style={{ color: `var(--${n.type})` }} />
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontWeight: 600, fontSize: 'var(--text-sm)', marginBottom: 2 }}>{n.title}</div>
+                      <p style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', margin: 0 }}>{n.message}</p>
+                    </div>
+                  </div>
+                </div>
+              ))}
+
+              {notifications.length === 0 && !isDirty && (
+                <div style={{ padding: '40px 20px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 'var(--text-sm)' }}>
+                  No notifications
+                </div>
+              )}
+            </div>
+          </div>
+          <div 
+            onClick={() => setShowFlyout(false)}
+            style={{ position: 'fixed', inset: 0, zIndex: 999 }} 
+          />
+        </>
+      )}
+    </div>
   )
 }
 

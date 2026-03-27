@@ -11,6 +11,8 @@ import (
 
 	"dplaned/internal/cmdutil"
 	"dplaned/internal/gitops"
+	"dplaned/internal/jobs"
+	"log"
 )
 
 // NixOSGuardHandler provides NixOS configuration validation and management
@@ -101,6 +103,97 @@ func (h *NixOSGuardHandler) DetectNixOS(w http.ResponseWriter, r *http.Request) 
 	}
 
 	respondOK(w, result)
+}
+
+// Status reports whether there are pending changes that need reconciliation.
+// GET /api/nixos/status
+func (h *NixOSGuardHandler) GetStatus(w http.ResponseWriter, r *http.Request) {
+	if !IsNixOS() {
+		respondOK(w, map[string]interface{}{"success": true, "is_nixos": false})
+		return
+	}
+
+	dirty, err := NixWriter.IsDirty()
+	if err != nil {
+		log.Printf("NixOS Status: IsDirty failed: %v", err)
+	}
+
+	respondOK(w, map[string]interface{}{
+		"success":  true,
+		"is_nixos": true,
+		"is_dirty": dirty,
+	})
+}
+
+// DiffIntent reports the detailed changes between current intent and applied state.
+// GET /api/nixos/diff-intent
+func (h *NixOSGuardHandler) DiffIntent(w http.ResponseWriter, r *http.Request) {
+	if !IsNixOS() {
+		respondOK(w, map[string]interface{}{"success": true, "changes": []interface{}{}})
+		return
+	}
+
+	changes, err := NixWriter.DiffIntent()
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "Failed to calculate diff", err)
+		return
+	}
+
+	respondOK(w, map[string]interface{}{
+		"success": true,
+		"changes": changes,
+		"count":   len(changes),
+	})
+}
+
+// Reconcile triggers a nixos-rebuild switch to apply pending changes.
+// POST /api/nixos/reconcile
+func (h *NixOSGuardHandler) Reconcile(w http.ResponseWriter, r *http.Request) {
+	if !IsNixOS() {
+		respondErrorSimple(w, "Not a NixOS system", http.StatusBadRequest)
+		return
+	}
+
+	jobID := jobs.Start("nixos-reconcile", func(j *jobs.Job) {
+		j.Log("Starting NixOS system reconciliation...")
+
+		// 1. Double check if dirty
+		dirty, err := NixWriter.IsDirty()
+		if err != nil {
+			j.Log(fmt.Sprintf("Warning: Checksum verification error: %v", err))
+		}
+		if !dirty {
+			j.Log("System is already in sync. NixWriter report: NOT_DIRTY.")
+			// We still run the rebuild to be safe, or should we stop?
+			// User might have manually edited files. Let's proceed.
+		}
+
+		// 2. Run rebuild switch
+		j.Log("Executing nixos-rebuild switch...")
+		output, err := cmdutil.RunSlow("nixos-rebuild", "switch")
+		if err != nil {
+			j.Log("NixOS reconciliation failed!")
+			j.Fail(fmt.Sprintf("Rebuild failed: %v\nOutput: %s", err, output))
+			return
+		}
+
+		// 3. Mark as applied on success
+		j.Log("Rebuild successful. Committing checksum to applied-state registry...")
+		if err := NixWriter.MarkApplied(); err != nil {
+			j.Log(fmt.Sprintf("Warning: Failed to mark state as applied: %v", err))
+		}
+
+		j.Log("System successfully reconciled with declarative intent.")
+		j.Done(map[string]interface{}{
+			"output": string(output),
+		})
+	})
+
+	respondOK(w, map[string]interface{}{
+		"success": true,
+		"job_id":  jobID,
+		"message": "Reconciliation started in background",
+	})
 }
 
 // ValidateConfig dry-runs a NixOS configuration change

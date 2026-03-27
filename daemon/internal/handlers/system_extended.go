@@ -184,7 +184,7 @@ func (h *SnapshotScheduleHandler) regenerateCron(schedules []SnapshotSchedule) {
 		// we escape any single quotes in the json payload (though there shouldn't be any now).
 		safePayload := strings.ReplaceAll(payload, "'", "'\\''")
 		mainCmd := fmt.Sprintf(
-			`curl -sf -X POST http://127.0.0.1:9000/api/zfs/snapshots/cron-hook -H 'Content-Type: application/json' -d '%s'`,
+			`curl -sf -X POST http://127.0.0.1:9000/api/zfs/snapshots/cron-hook -H 'Content-Type: application/json' -H 'X-Internal-Token: dplaneos-internal-reconciliation-secret-v1' -d '%s'`,
 			safePayload,
 		)
 

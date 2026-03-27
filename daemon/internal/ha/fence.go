@@ -1,6 +1,7 @@
 package ha
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"log"
@@ -79,16 +80,23 @@ func ExecuteFencing(nodeID string, cfg FencingConfig) error {
 	password := strings.TrimSpace(string(passBytes))
 
 	// 1. Issue the Power Off Command
+	// A 30-second hard deadline guards against a hung or extremely slow BMC.
+	// Without this, the goroutine blocks indefinitely with fencingInProgress=true,
+	// permanently preventing any future automated failover on this node.
+	const powerOffTimeout = 30 * time.Second
+	powerOffCtx, powerOffCancel := context.WithTimeout(context.Background(), powerOffTimeout)
+	defer powerOffCancel()
+
 	args := []string{"-I", "lanplus", "-H", cfg.BMCIP, "-U", cfg.BMCUser, "-E", "chassis", "power", "off"}
 	if err := security.ValidateCommand("ipmitool_power_off", args); err != nil {
 		errStr := fmt.Sprintf("Security validation rejected fencing command: %v", err)
 		audit.LogAction("ha_fence", "system", errStr, false, 0)
 		return fmt.Errorf("%s", errStr)
 	}
-	
-	cmd := exec.Command("ipmitool", args...)
+
+	cmd := exec.CommandContext(powerOffCtx, "ipmitool", args...)
 	cmd.Env = append(os.Environ(), "IPMI_PASSWORD="+password)
-	
+
 	if out, err := cmd.CombinedOutput(); err != nil {
 		errStr := fmt.Sprintf("Fencing power off failed for %s: %v - %s", cfg.BMCIP, err, strings.TrimSpace(string(out)))
 		audit.LogAction("ha_fence", "system", errStr, false, time.Since(start))
@@ -113,10 +121,14 @@ statusLoop:
 			if err := security.ValidateCommand("ipmitool_power_status", statusArgs); err != nil {
 				return fmt.Errorf("Security validation rejected status command: %v", err)
 			}
-			
-			statusCmd := exec.Command("ipmitool", statusArgs...)
+
+			// Per-poll 10s timeout: a single slow BMC response must not consume
+			// the remaining budget of the outer 60-second status window.
+			pollCtx, pollCancel := context.WithTimeout(context.Background(), 10*time.Second)
+			statusCmd := exec.CommandContext(pollCtx, "ipmitool", statusArgs...)
 			statusCmd.Env = append(os.Environ(), "IPMI_PASSWORD="+password)
 			out, err := statusCmd.CombinedOutput()
+			pollCancel()
 			if err == nil {
 				outputStr := strings.ToLower(strings.TrimSpace(string(out)))
 				if strings.Contains(outputStr, "is off") {
