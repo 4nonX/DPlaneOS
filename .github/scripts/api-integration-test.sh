@@ -195,7 +195,7 @@ api GET /api/system/status >/dev/null
 assert_json "GET /api/system/status" "success" "true"
 
 # Setup admin
-api POST /api/system/setup-admin '{"username":"admin","password":"StrongPassword123!"}' >/dev/null
+api POST /api/system/setup-admin "{\"username\":\"admin\",\"password\":\"$CI_PASS\"}" >/dev/null
 ok "POST /api/system/setup-admin"
 
 # HA Check
@@ -203,7 +203,7 @@ api POST /api/ha/heartbeat '{"node_id":"ci-node-1","status":"online"}' >/dev/nul
 assert_json "POST /api/ha/heartbeat" "success" "true"
 
 # 2. LOGIN
-LOGIN_JSON=$(api POST /api/auth/login '{"username":"admin","password":"StrongPassword123!"}')
+LOGIN_JSON=$(api POST /api/auth/login "{\"username\":\"admin\",\"password\":\"$CI_PASS\"}")
 SESSION=$(echo "$LOGIN_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin).get('session_id',''))" 2>/dev/null)
 
 # Fetch CSRF Token (Finding 22/32)
