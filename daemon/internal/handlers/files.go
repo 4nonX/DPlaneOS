@@ -9,6 +9,7 @@ import (
 	"dplaned/internal/audit"
 	"dplaned/internal/cmdutil"
 	"dplaned/internal/config"
+	"dplaned/internal/middleware"
 	"dplaned/internal/security"
 )
 
@@ -53,13 +54,13 @@ func validateFilePath(path string) (string, bool) {
 
 // CreateDirectory creates a directory
 func CreateDirectory(w http.ResponseWriter, r *http.Request) {
-	user := r.Header.Get("X-User")
-	sessionID := r.Header.Get("X-Session-ID")
-
-	if valid, _ := security.ValidateSession(sessionID, user); !valid {
+	// Use middleware context (Finding 32)
+	u := r.Context().Value(middleware.UserContextKey)
+	if u == nil {
 		respondErrorSimple(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
+	user := u.(*middleware.User).Username
 
 	var req struct {
 		Path string `json:"path"`
@@ -97,13 +98,13 @@ func CreateDirectory(w http.ResponseWriter, r *http.Request) {
 
 // DeletePath deletes a file or directory
 func DeletePath(w http.ResponseWriter, r *http.Request) {
-	user := r.Header.Get("X-User")
-	sessionID := r.Header.Get("X-Session-ID")
-
-	if valid, _ := security.ValidateSession(sessionID, user); !valid {
+	// Use middleware context (Finding 32)
+	u := r.Context().Value(middleware.UserContextKey)
+	if u == nil {
 		respondErrorSimple(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
+	user := u.(*middleware.User).Username
 
 	var req struct {
 		Path string `json:"path"`
@@ -120,6 +121,12 @@ func DeletePath(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	req.Path = safePath
+
+	// GUARD: Prevent recursive deletion of pool roots or critical base paths (Finding 33)
+	if isPoolRoot(req.Path) {
+		respondJSON(w, http.StatusForbidden, map[string]interface{}{"success": false, "error": "Cannot delete a ZFS pool root or system base path via the file browser. Use the Storage tab to destroy pools."})
+		return
+	}
 
 	output, err := cmdutil.RunFast("rm", "-rf", req.Path)
 
@@ -142,13 +149,13 @@ func DeletePath(w http.ResponseWriter, r *http.Request) {
 
 // ChangeOwnership changes file/directory ownership
 func ChangeOwnership(w http.ResponseWriter, r *http.Request) {
-	user := r.Header.Get("X-User")
-	sessionID := r.Header.Get("X-Session-ID")
-
-	if valid, _ := security.ValidateSession(sessionID, user); !valid {
+	// Use middleware context (Finding 32)
+	u := r.Context().Value(middleware.UserContextKey)
+	if u == nil {
 		respondErrorSimple(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
+	user := u.(*middleware.User).Username
 
 	var req struct {
 		Path  string `json:"path"`
@@ -246,5 +253,28 @@ func ChangePermissions(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success": true,
 	})
+}
+
+// isPoolRoot checks if a path is a ZFS pool root or system base path
+func isPoolRoot(path string) bool {
+	cleaned := filepath.Clean(path)
+	// 1. Check against base paths
+	for _, base := range allowedBasePaths {
+		if cleaned == filepath.Clean(base) {
+			return true
+		}
+	}
+	// 2. Check for top-level directories in /mnt/ or /tank/ etc.
+	// Only block if depth is exactly 1 under /mnt/, /tank/, /data/ (e.g., /mnt/pool)
+	parts := strings.Split(strings.Trim(cleaned, "/"), "/")
+	if len(parts) == 2 {
+		parent := "/" + parts[0] + "/"
+		for _, base := range []string{"/mnt/", "/tank/", "/data/", "/media/"} {
+			if parent == base {
+				return true
+			}
+		}
+	}
+	return false
 }
 

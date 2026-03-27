@@ -42,6 +42,7 @@ func initSchema(db *sql.DB) error {
 			expires_at BIGINT,
 			last_activity BIGINT NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW())::BIGINT,
 			status TEXT NOT NULL DEFAULT 'active',
+			csrf_token TEXT NOT NULL DEFAULT '',
 			FOREIGN KEY (username) REFERENCES users(username)
 		)`,
 
@@ -169,6 +170,8 @@ func initSchema(db *sql.DB) error {
 		// ── Indexes for performance ──
 		`CREATE INDEX IF NOT EXISTS idx_sessions_session_id ON sessions(session_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at)`,
+		`ALTER TABLE sessions ADD COLUMN IF NOT EXISTS csrf_token TEXT NOT NULL DEFAULT ''`,
+		`CREATE INDEX IF NOT EXISTS idx_sessions_csrf ON sessions(csrf_token)`,
 
 		// Migration: Add columns if missing (handled by initSchema loop)
 

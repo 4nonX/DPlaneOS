@@ -1,11 +1,11 @@
 package handlers
 
 import (
-	"context"
 	"fmt"
-	"os/exec"
 	"strings"
 	"time"
+ 
+	"dplaned/internal/cmdutil"
 )
 
 // Default timeouts for different command categories
@@ -16,27 +16,17 @@ const (
 	TimeoutLong   = 0                 // zfs send (no timeout, runs async)
 )
 
+// executeCommand runs a command with TimeoutMedium (30s).
+func executeCommand(name string, args []string) (string, error) {
+	out, err := cmdutil.Run(TimeoutMedium, name, args...)
+	return string(out), err
+}
+
 // executeCommandWithTimeout runs a command with a deadline.
 // If the command exceeds the timeout, it's killed and an error is returned.
 // A timeout of 0 means no timeout (for long-running operations like zfs send).
-func executeCommandWithTimeout(timeout time.Duration, path string, args []string) (string, error) {
-	var ctx context.Context
-	var cancel context.CancelFunc
-
-	if timeout > 0 {
-		ctx, cancel = context.WithTimeout(context.Background(), timeout)
-	} else {
-		ctx, cancel = context.WithCancel(context.Background())
-	}
-	defer cancel()
-
-	cmd := exec.CommandContext(ctx, path, args...)
-	out, err := cmd.CombinedOutput()
-
-	if ctx.Err() == context.DeadlineExceeded {
-		return string(out), fmt.Errorf("command timed out after %s: %s %s", timeout, path, strings.Join(args, " "))
-	}
-
+func executeCommandWithTimeout(timeout time.Duration, name string, args []string) (string, error) {
+	out, err := cmdutil.Run(timeout, name, args...)
 	return string(out), err
 }
 

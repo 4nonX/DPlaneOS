@@ -61,6 +61,7 @@ func ValidateSession(sessionID, username string) (bool, error) {
 		AND username = $2
 		AND (expires_at IS NULL OR expires_at > $3)
 		AND (last_activity = 0 OR ($4 - last_activity) < $5)
+		AND COALESCE(status, 'active') = 'active'
 	`
 
 	err := db.QueryRow(query, sessionID, username, now, now, idleTimeout).Scan(&count)

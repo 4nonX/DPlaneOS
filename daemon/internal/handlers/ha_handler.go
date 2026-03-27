@@ -235,7 +235,17 @@ func (h *HAHandler) ConfigureHAReplication(w http.ResponseWriter, r *http.Reques
 // WARNING: Fencing is not implemented yet. Split brain will occur if primary is still alive.
 func (h *HAHandler) Promote(w http.ResponseWriter, r *http.Request) {
 	// Execute the promotion orchestration in the background to avoid timing out the HTTP client.
-	go ha.ExecutePromotion()
+	var req struct {
+		Candidate string `json:"candidate"`
+		Leader    string `json:"leader"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&req)
+ 
+	if req.Candidate == "" {
+		req.Candidate = LocalNodeID()
+	}
+ 
+	go ha.ExecutePromotion(req.Candidate, req.Leader)
 
 	respondJSON(w, http.StatusOK, map[string]interface{}{
 		"success": true,

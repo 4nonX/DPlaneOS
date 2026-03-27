@@ -465,6 +465,11 @@ func (h *ShareCRUDHandler) regenerateSMBConf() {
 		for _, line := range strings.Split(globalExtra, "\n") {
 			trimmed := strings.TrimSpace(line)
 			if trimmed != "" {
+				// Block dangerous directives like 'include' or section headers '[...]'
+				if strings.Contains(strings.ToLower(trimmed), "include") || strings.Contains(trimmed, "[") {
+					log.Printf("SMB REGEN: blocked dangerous global parameter: %s", trimmed)
+					continue
+				}
 				conf.WriteString("   " + trimmed + "\n")
 			}
 		}
@@ -475,6 +480,13 @@ func (h *ShareCRUDHandler) regenerateSMBConf() {
 		var name, path, comment, validUsers, writeList, createMask, dirMask string
 		var browsable, readOnly, guestOk int
 		rows.Scan(&name, &path, &comment, &browsable, &readOnly, &guestOk, &validUsers, &writeList, &createMask, &dirMask)
+
+		// Sanitize values to prevent injection
+		name = sanitizeSMBConfValue(name)
+		path = sanitizeSMBConfValue(path)
+		comment = sanitizeSMBConfValue(comment)
+		validUsers = sanitizeSMBConfValue(validUsers)
+		writeList = sanitizeSMBConfValue(writeList)
 
 		conf.WriteString(fmt.Sprintf("[%s]\n", name))
 		conf.WriteString(fmt.Sprintf("   path = %s\n", path))
@@ -548,5 +560,17 @@ func (h *ShareCRUDHandler) regenerateSMBConf() {
 	persistSambaGlobals(h.db)
 
 	log.Printf("SMB config regenerated and reloaded (VFS: tm=%d sc=%d rb=%d)", globalTimeMachine, globalShadowCopy, globalRecycleBin)
+}
+
+// sanitizeSMBConfValue removes newlines and other characters that could break smb.conf formatting
+func sanitizeSMBConfValue(val string) string {
+	// Remove carriage returns and newlines
+	val = strings.ReplaceAll(val, "\n", " ")
+	val = strings.ReplaceAll(val, "\r", " ")
+	// Strip characters that could break section headers or start new directives
+	val = strings.ReplaceAll(val, "[", "(")
+	val = strings.ReplaceAll(val, "]", ")")
+	val = strings.ReplaceAll(val, "=", ":")
+	return strings.TrimSpace(val)
 }
 

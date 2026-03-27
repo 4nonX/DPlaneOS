@@ -4,8 +4,10 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -414,13 +416,38 @@ func createDataset(name string, ds *DesiredDataset) error {
 		host := parts[0]
 		remoteDS := parts[1]
 
-		cmd := fmt.Sprintf("ssh %s zfs send -R %s | zfs receive -u %s", host, remoteDS, name)
-		log.Printf("GITOPS: Executing restore: %s", cmd)
+		// cmd := fmt.Sprintf("ssh %s zfs send -R %s | zfs receive -u %s", host, remoteDS, name)
+		log.Printf("GITOPS: Executing safe restore: ssh %s zfs send -R %s | zfs receive -u %s", host, remoteDS, name)
 
-		// Run via bash to support the pipe
-		restoreOut, err := cmdutil.RunSlow("bash", "-c", cmd)
-		if err != nil {
-			return fmt.Errorf("zfs restore for %s failed: %s: %w", name, string(restoreOut), err)
+		sendCmd := exec.Command("ssh", host, "zfs", "send", "-R", remoteDS)
+		recvCmd := exec.Command("zfs", "receive", "-u", name)
+ 
+		pr, pw := io.Pipe()
+		sendCmd.Stdout = pw
+		recvCmd.Stdin = pr
+ 
+		// Capture errors from both
+		var errOut strings.Builder
+		sendCmd.Stderr = &errOut
+		recvCmd.Stderr = &errOut
+ 
+		if err := sendCmd.Start(); err != nil {
+			pw.Close()
+			return fmt.Errorf("failed to start ssh send: %w", err)
+		}
+		if err := recvCmd.Start(); err != nil {
+			pw.Close()
+			return fmt.Errorf("failed to start zfs receive: %w", err)
+		}
+ 
+		// Wait for sender in background to close pipe
+		go func() {
+			_ = sendCmd.Wait()
+			pw.Close()
+		}()
+ 
+		if err := recvCmd.Wait(); err != nil {
+			return fmt.Errorf("zfs restore for %s failed: %s: %w", name, errOut.String(), err)
 		}
 		log.Printf("GITOPS: dataset %q restored from %s", name, source)
 		return nil

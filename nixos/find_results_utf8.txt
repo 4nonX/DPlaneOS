@@ -1,0 +1,25 @@
+﻿configuration-standalone.nix:  # Covers Raptor Lake errata and security mitigations.
+configuration.nix:      # Security hardening : strict, but with ZFS pool access
+configuration.nix:      security = "user";
+configuration.nix:  security.sudo.wheelNeedsPassword = true;
+dplane-generated.nix:    securityMode      = s.samba_security_mode  or "user";
+dplane-generated.nix:    realm             = s.samba_realm          or null;
+module.nix:        # Security hardening (matches systemd/dplaned.service)
+modules\samba.nix:#     ÔÇó [global] section (workgroup, security, logging, VFS globals)
+modules\samba.nix:       security = user
+modules\samba.nix:       # Protocol : SMB2/3 only (SMB1 disabled, security risk)
+modules\samba.nix:        Disabled by default - guest access is a security risk on production NAS.
+modules\samba.nix:    securityMode = lib.mkOption {
+modules\samba.nix:      description = "Samba security mode (security = ...)";
+modules\samba.nix:    realm = lib.mkOption {
+modules\samba.nix:      description = "Active Directory Realm (AD only)";
+modules\samba.nix:      winbindd.enable = cfg.securityMode == "ads";
+modules\samba.nix:          "security"            = cfg.securityMode;
+modules\samba.nix:          "realm"               = lib.mkIf (cfg.securityMode == "ads") (lib.toUpper cfg.realm);
+modules\samba.nix:          "passdb backend"      = if cfg.securityMode == "ads" then "secrets" else "tdbsam";
+modules\samba.nix:          "kerberos method"          = lib.mkIf (cfg.securityMode == "ads") "secrets and keytab";
+modules\samba.nix:          "winbind use default domain" = lib.mkIf (cfg.securityMode == "ads") "yes";
+modules\samba.nix:          "winbind offline logon"    = lib.mkIf (cfg.securityMode == "ads") "yes";
+modules\samba.nix:    security.krb5 = lib.mkIf (cfg.securityMode == "ads" && cfg.realm != null) {
+modules\samba.nix:        libdefaults.default_realm = lib.toUpper cfg.realm;
+modules\samba.nix:        realms.${lib.toUpper cfg.realm} = {

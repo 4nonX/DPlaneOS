@@ -103,9 +103,11 @@ func (m *Manager) syncZFS(ctx context.Context, cfg *ReplicationConfig) error {
 		}
 	}
 
-	// We only sync if there is a newer local snapshot than what is on the remote
-	// We check if the latest remote snap exists locally
-	localSnapName := cfg.LocalPool + "@" + latestRemoteSnap
+	// 3. We only sync if there is a newer local snapshot than what is on the remote.
+	// We translate the remote snapshot name to our local pool context to check for existence.
+	// Example: remote `tank/data@snap` -> local `pool/data@snap`
+	localSnapName := strings.Replace(latestRemoteSnapLine, cfg.RemotePool, cfg.LocalPool, 1)
+	
 	if latestRemoteSnap == "" {
 		// Full send
 		return m.executeSendRecv(ctx, cfg, "", latestLocalSnap)
@@ -158,9 +160,14 @@ func (m *Manager) executeSendRecv(ctx context.Context, cfg *ReplicationConfig, b
 		return fmt.Errorf("start receiver: %w", err)
 	}
 
-	sender.Wait() //nolint
-	if err := receiver.Wait(); err != nil {
-		return fmt.Errorf("receive failed: %w", err)
+	senderErr := sender.Wait()
+	receiverErr := receiver.Wait()
+	
+	if senderErr != nil {
+		return fmt.Errorf("send failed: %w", senderErr)
+	}
+	if receiverErr != nil {
+		return fmt.Errorf("receive failed: %w", receiverErr)
 	}
 
 	return nil

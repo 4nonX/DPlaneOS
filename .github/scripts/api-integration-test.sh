@@ -75,6 +75,7 @@ psql -h localhost -U dplaneos -d dplaneos -c "UPDATE users SET password_hash='$(
 BASE="http://127.0.0.1:9000"
 PASS=0; FAIL=0; FAILURES=""
 SESSION=""
+CSRF_TOKEN=""
 
 ok() { printf "  \033[32m✓\033[0m %s\n" "$1"; PASS=$((PASS+1)); }
 fail() {
@@ -88,15 +89,19 @@ fail() {
 api() {
   local method="$1" path="$2" data="$3"
   local args=(-s --max-time 15 -X "$method" "$BASE$path" -H "X-Session-ID: $SESSION" -H "X-User: admin" -H "Content-Type: application/json")
+  [ -n "$CSRF_TOKEN" ] && args+=(-H "X-CSRF-Token: $CSRF_TOKEN")
   [ -n "$data" ] && args+=(-d "$data")
   
   # Crucial: write directly to file to avoid Bash variable expansion/truncation issues
   rm -f /tmp/last_resp.json
-  if curl "${args[@]}" -o /tmp/last_resp.json && [ -s /tmp/last_resp.json ]; then
-    cat /tmp/last_resp.json
+  LAST_RESP=$(curl "${args[@]}")
+  echo "$LAST_RESP" > /tmp/last_resp.json
+  if [ -s /tmp/last_resp.json ]; then
+    echo "$LAST_RESP"
   else
     echo '{"error":"empty or failed response"}' > /tmp/last_resp.json
     echo '{"error":"empty or failed response"}'
+    LAST_RESP='{"error":"empty or failed response"}'
   fi
 }
 
@@ -201,6 +206,11 @@ assert_json "POST /api/ha/heartbeat" "success" "true"
 LOGIN_JSON=$(api POST /api/auth/login '{"username":"admin","password":"StrongPassword123!"}')
 SESSION=$(echo "$LOGIN_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin).get('session_id',''))" 2>/dev/null)
 
+# Fetch CSRF Token (Finding 22/32)
+CSRF_JSON=$(api GET /api/csrf)
+CSRF_TOKEN=$(echo "$CSRF_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin).get('csrf_token',''))" 2>/dev/null)
+[ -n "$CSRF_TOKEN" ] && ok "Fetched CSRF Token" || fail "Failed to fetch CSRF Token"
+
 api POST /api/auth/login '{"username":"admin","password":"wrong"}' >/dev/null
 assert_json "Login with wrong password fails" "success" "false"
 api POST /api/auth/login '{"username":"not-exist","password":"any"}' >/dev/null
@@ -278,6 +288,10 @@ assert_json "FM: read" "content" "hello ci"
 api POST /api/files/chmod '{"path":"/mnt/testpool/fm-test/hello.txt","mode":"0600"}' >/dev/null
 assert_json "FM: chmod" "success" "true"
 
+# Testing Pool Root Protection (#33)
+api POST /api/files/delete '{"path":"/mnt/testpool"}' >/dev/null
+echo "$LAST_RESP" | grep -qiE "Forbidden|pool root|cannot delete" && ok "FM: Pool root protection verified" || fail "FM: Pool root protection FAILED"
+
 # Full FM Lifecycle
 api POST /api/files/mkdir '{"path":"/mnt/testpool/fm-test/subdir"}' >/dev/null
 assert_json "FM: mkdir" "success" "true"
@@ -296,6 +310,11 @@ assert_json "Create SMB share" "success" "true"
 api GET /api/shares >/dev/null
 assert_json "SMB share in list" "success" "true"
 [ -f /tmp/smb.conf ] && grep -q "\[ci-share\]" /tmp/smb.conf && ok "Share in smb-shares.conf" || fail "Share missing from config file"
+
+# Testing SMB Sanitization (#30)
+api POST /api/shares "{\"action\":\"create\",\"name\":\"sanitized-share\",\"path\":\"/mnt/testpool/api-test\",\"comment\":\"Injected\npath=/etc\"}" >/dev/null
+assert_json "Create malicious SMB share" "success" "true"
+grep -q "comment = Injected path:/etc" /tmp/smb.conf && ok "SMB: Comment sanitization verified" || fail "SMB: Comment sanitization FAILED"
 
 # 7. NFS EXPORTS
 api POST /api/nfs/exports '{"path":"/mnt/testpool/api-test","clients":"*","options":"rw,sync,no_subtree_check","enabled":true}' >/dev/null
@@ -413,13 +432,12 @@ assert_json "Audit stats" "success" "true"
 api GET /api/system/health >/dev/null
 assert_json "Detailed system health" "success" "true"
 
-# Support bundle returns binary gzip
-BUNDLE_RESP=$(curl -s -k -I -X POST -H "Authorization: Bearer $SESSION" -H "X-Session-ID: $SESSION" -H "X-User: admin" http://localhost:9000/api/system/support-bundle)
-if echo "$BUNDLE_RESP" | grep -q "Content-Type: application/gzip"; then
-  ok "Generate support bundle (binary gzip)"
-else
-  fail "Generate support bundle (invalid content type): $BUNDLE_RESP"
-fi
+# 10.5 GITOPS & SYSTEM CONFIG
+echo "--- Testing NixOS & System Modules ---"
+
+# Generate support bundle - requires CSRF (Finding 22)
+BUNDLE_RESP=$(curl -s -k -I -X POST -H "Authorization: Bearer $SESSION" -H "X-Session-ID: $SESSION" -H "X-User: admin" -H "X-CSRF-Token: $CSRF_TOKEN" http://localhost:9000/api/system/support-bundle)
+echo "$BUNDLE_RESP" | grep -q "Content-Type: application/gzip" && ok "Generate support bundle" || fail "Generate support bundle (invalid content type): $BUNDLE_RESP"
 
 # 14. GITOPS CONTINUED
 api GET /api/gitops/status >/dev/null
@@ -427,7 +445,12 @@ assert_json "GitOps status" "success" "true"
 api GET /api/gitops/plan >/dev/null
 assert_json "GitOps plan" "success" "true"
 
-# 11. SECURITY
+# 11. SECURITY & WHITELISTING
+echo "--- Testing Security & Whitelisting ---"
+# Test cron-hook bypass for localhost (#29)
+CRON_RESP=$(curl -s -X POST http://127.0.0.1:9000/api/zfs/snapshots/cron-hook -H 'Content-Type: application/json' -d "{\"dataset\":\"testpool\",\"prefix\":\"ci-test\",\"retention\":1}")
+echo "$CRON_RESP" | grep -q "success\":true" && ok "Security: Cron hook localhost bypass verified" || fail "Security: Cron hook localhost bypass FAILED"
+
 INJECT=$(api POST /api/zfs/command "{\"command\":\"ls\",\"args\":[\"/etc/passwd\"],\"session_id\":\"$SESSION\",\"user\":\"admin\"}")
 echo "$INJECT" | grep -qiE "Forbidden|not allowed|success\":false" && ok "Security: Injection blocked" || fail "Security: Injection NOT blocked"
 

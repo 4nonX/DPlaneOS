@@ -426,7 +426,6 @@ func ComputeDiff(desired *DesiredState, live *LiveState) *Plan {
 				RiskLevel:   "medium",
 				DesiredUser: &item,
 			})
-			plan.CreateCount++
 		}
 	}
 
@@ -440,7 +439,6 @@ func ComputeDiff(desired *DesiredState, live *LiveState) *Plan {
 				RiskLevel:    "low",
 				DesiredGroup: &item,
 			})
-			plan.CreateCount++
 		}
 	}
 
@@ -454,7 +452,6 @@ func ComputeDiff(desired *DesiredState, live *LiveState) *Plan {
 				RiskLevel:          "low",
 				DesiredReplication: &item,
 			})
-			plan.CreateCount++
 		}
 	}
 
@@ -814,7 +811,8 @@ func ComputeDiff(desired *DesiredState, live *LiveState) *Plan {
 		for _, du := range desired.Users {
 			if du.Username == lu.Username { found = true; break }
 		}
-		if !found && lu.Username != "admin" && lu.Username != "root" {
+		// Protect system users (UID < 1000) and specific accounts
+		if !found && lu.Username != "admin" && lu.Username != "root" && lu.ID >= 1000 {
 			plan.Items = append(plan.Items, DiffItem{
 				Kind:      KindUser,
 				Name:      lu.Username,
@@ -1253,28 +1251,68 @@ func diffSystem(desired DesiredSystem, live nixwriter.DPlaneState) []string {
 	if desired.Timezone != "" && desired.Timezone != live.Timezone {
 		changes = append(changes, fmt.Sprintf("timezone: %q → %q", live.Timezone, desired.Timezone))
 	}
-	// ... add more diffs for DNS, NTP, etc ...
-	// Simple slice comparisons for brevity here
-	if !equalSlices(desired.DNSServers, live.DNSServers) {
+ 
+	// Order-insensitive comparisons for DNS and NTP
+	if !equalSlicesSorted(desired.DNSServers, live.DNSServers) {
 		changes = append(changes, "dns_servers changed")
 	}
-	if !equalSlices(desired.NTPServers, live.NTPServers) {
+	if !equalSlicesSorted(desired.NTPServers, live.NTPServers) {
 		changes = append(changes, "ntp_servers changed")
 	}
 	// Firewall
-	if !equalIntSlices(desired.Firewall.TCP, live.FirewallTCP) {
+	if !equalIntSlicesSorted(desired.Firewall.TCP, live.FirewallTCP) {
 		changes = append(changes, "firewall_tcp changed")
 	}
-	if !equalIntSlices(desired.Firewall.UDP, live.FirewallUDP) {
+	if !equalIntSlicesSorted(desired.Firewall.UDP, live.FirewallUDP) {
 		changes = append(changes, "firewall_udp changed")
 	}
 	
-	// Networking (basic check for changes)
-	if len(desired.Networking.Statics) > 0 {
-		changes = append(changes, "networking_statics synchronized")
+	// Networking: Actual detailed comparison
+	for iface, ds := range desired.Networking.Statics {
+		ls, ok := live.NetworkStatics[iface]
+		if !ok {
+			changes = append(changes, fmt.Sprintf("network-add: %s (%s)", iface, ds.CIDR))
+			continue
+		}
+		if ds.CIDR != ls.CIDR {
+			changes = append(changes, fmt.Sprintf("network-cidr: %s: %s → %s", iface, ls.CIDR, ds.CIDR))
+		}
+		if ds.Gateway != ls.Gateway {
+			changes = append(changes, fmt.Sprintf("network-gateway: %s: %s → %s", iface, ls.Gateway, ds.Gateway))
+		}
+	}
+	// Check for removals in statics
+	for iface := range live.NetworkStatics {
+		if _, ok := desired.Networking.Statics[iface]; !ok {
+			changes = append(changes, fmt.Sprintf("network-remove: %s", iface))
+		}
 	}
  
 	return changes
+}
+ 
+func equalSlicesSorted(a, b []string) bool {
+	if len(a) != len(b) { return false }
+	ac := append([]string{}, a...)
+	bc := append([]string{}, b...)
+	sort.Strings(ac)
+	sort.Strings(bc)
+	for i := range ac {
+		if ac[i] != bc[i] { return false }
+	}
+	return true
+}
+ 
+func equalIntSlicesSorted(a, b []int) bool {
+	if len(a) != len(b) { return false }
+	ac := append([]int{}, a...)
+	bc := append([]int{}, b...)
+	sort.Ints(ac)
+	sort.Ints(bc)
+	for i := range ac {
+		if ac[i] != bc[i] { return false }
+	}
+	return true
 }
  
 func equalSlices(a, b []string) bool {

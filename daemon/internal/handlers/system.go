@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"dplaned/internal/audit"
+	"dplaned/internal/cmdutil"
 	"dplaned/internal/netlinkx"
 	"dplaned/internal/security"
 )
@@ -516,7 +517,7 @@ func (h *SystemHandler) Reboot(w http.ResponseWriter, r *http.Request) {
 
 	go func() {
 		time.Sleep(2 * time.Second)
-		exec.Command("systemctl", "reboot").Run()
+		_, _ = cmdutil.Run(cmdutil.TimeoutFast, "systemctl_reboot", "reboot")
 	}()
 }
 
@@ -537,7 +538,7 @@ func (h *SystemHandler) Poweroff(w http.ResponseWriter, r *http.Request) {
 
 	go func() {
 		time.Sleep(2 * time.Second)
-		exec.Command("systemctl", "poweroff").Run()
+		_, _ = cmdutil.Run(cmdutil.TimeoutFast, "systemctl_poweroff", "poweroff")
 	}()
 }
 
@@ -569,21 +570,34 @@ func (h *SystemHandler) RunDiagnostics(w http.ResponseWriter, r *http.Request) {
 		req.Count = 4
 	}
 
-	var cmd *exec.Cmd
+	var name string
+	var args []string
 	switch req.Type {
 	case "ping":
-		cmd = exec.Command("ping", "-c", strconv.Itoa(req.Count), req.Target)
+		name = "ping"
+		args = []string{"-c", strconv.Itoa(req.Count), req.Target}
 	case "dns":
-		cmd = exec.Command("dig", "+short", req.Target)
-		if strings.Contains(req.Target, ":") { // naive IPv6 check
-			cmd = exec.Command("dig", "-x", req.Target)
+		name = "dig"
+		args = []string{"+short", req.Target}
+		if strings.Contains(req.Target, ":") {
+			args = []string{"-x", req.Target}
 		}
 	case "traceroute":
-		cmd = exec.Command("traceroute", "-m", "20", "-w", "2", req.Target)
+		name = "traceroute"
+		args = []string{"-m", "20", "-w", "2", req.Target}
 	default:
 		respondErrorSimple(w, "Unsupported diagnostic type", http.StatusBadRequest)
 		return
 	}
+
+	// Finding 23: Force validation against secure whitelist
+	if err := security.ValidateCommand(name, args); err != nil {
+		respondErrorSimple(w, "Prohibited diagnostic: "+err.Error(), http.StatusForbidden)
+		return
+	}
+
+	cmdEntry, _ := security.CommandWhitelist[name]
+	cmd := exec.Command(cmdEntry.Path, args...)
 
 	start := time.Now()
 	stdout, err := cmd.StdoutPipe()

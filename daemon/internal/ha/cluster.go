@@ -277,25 +277,23 @@ func (m *Manager) heartbeatLoop() {
 
 // checkFailover assesses peer health and triggers fencing/promotion if STONITH is enabled.
 func (m *Manager) checkFailover() {
-	// 1. Explicitly guard: automate failover ONLY if we are currently the Standby node.
-	if m.Status().LocalNode.Role != RoleStandby {
-		return
-	}
-
 	m.mu.RLock()
+	isStandby := false
 	var deadPeer *ClusterNode
+
 	for _, n := range m.nodes {
+		if n.Role == RoleActive && n.State != StateUnreachable {
+			isStandby = true
+		}
 		if n.State == StateUnreachable && time.Since(n.LastSeen) > FailoverAfter {
 			// Found a dead peer that has breached the 45s margin.
-			// Clone node pointer to avoid locking issues down the line.
 			cp := *n
 			deadPeer = &cp
-			break
 		}
 	}
 	m.mu.RUnlock()
 
-	if deadPeer == nil {
+	if !isStandby || deadPeer == nil {
 		return
 	}
 
@@ -341,7 +339,7 @@ func (m *Manager) checkFailover() {
 
 		// 4. Fencing was successful! Promote this node.
 		log.Printf("HA STONITH: Fencing successful. Promoting local node to active role.")
-		ExecutePromotion()
+		ExecutePromotion(m.localID, deadPeer.ID)
 	}()
 }
 
@@ -407,7 +405,7 @@ func (m *Manager) pingPeer(id string) {
 // ── Database ────────────────────────────────────────────────────────────────
 
 func (m *Manager) ensureSchema() error {
-	_, err := m.db.Exec(`
+	if _, err := m.db.Exec(`
 		CREATE TABLE IF NOT EXISTS ha_nodes (
 			node_id       TEXT PRIMARY KEY,
 			name          TEXT NOT NULL DEFAULT '',
@@ -419,8 +417,10 @@ func (m *Manager) ensureSchema() error {
 			missed_beats  INTEGER NOT NULL DEFAULT 0,
 			registered_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 		)
-	`)
-	_, err = m.db.Exec(`
+	`); err != nil {
+		return err
+	}
+	if _, err := m.db.Exec(`
 		CREATE TABLE IF NOT EXISTS ha_replication_config (
 			id INTEGER PRIMARY KEY CHECK (id = 1),
 			local_pool TEXT NOT NULL,
@@ -431,11 +431,10 @@ func (m *Manager) ensureSchema() error {
 			ssh_key_path TEXT NOT NULL,
 			interval_secs INTEGER NOT NULL DEFAULT 30
 		)
-	`)
-	if err != nil {
+	`); err != nil {
 		return err
 	}
-	_, err = m.db.Exec(`
+	if _, err := m.db.Exec(`
 		CREATE TABLE IF NOT EXISTS ha_fencing_config (
 			id INTEGER PRIMARY KEY CHECK (id = 1),
 			enable BOOLEAN NOT NULL DEFAULT FALSE,
@@ -443,8 +442,10 @@ func (m *Manager) ensureSchema() error {
 			bmc_user TEXT NOT NULL DEFAULT '',
 			bmc_password_file TEXT NOT NULL DEFAULT ''
 		)
-	`)
-	return err
+	`); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (m *Manager) persistNode(n *ClusterNode) error {

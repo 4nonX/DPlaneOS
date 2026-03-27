@@ -3,6 +3,7 @@ package handlers
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"regexp"
@@ -50,7 +51,11 @@ func StartScrub(w http.ResponseWriter, r *http.Request) {
 	// The goroutine exits as soon as the scrub is no longer in progress.
 	pool := req.Pool
 	go func() {
-		for {
+		// Safety: stop polling after 24 hours to prevent permanent leak
+		// if the pool state becomes degenerate or the "scrub in progress"
+		// string never clears.
+		maxPolls := 8640 // 24 hours * 360 episodes of 10s
+		for i := 0; i < maxPolls; i++ {
 			time.Sleep(10 * time.Second)
 			out, err := executeCommandWithTimeout(TimeoutFast, "zpool", []string{"status", pool})
 			if err != nil {
@@ -66,6 +71,7 @@ func StartScrub(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
+		log.Printf("[zfs] WARNING: scrub polling for pool %s timed out after 24h", pool)
 	}()
 
 	respondOK(w, map[string]interface{}{
@@ -334,10 +340,44 @@ func ReplaceDisk(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if diskEventHub != nil {
-			diskEventHub.Broadcast("resilver_completed", map[string]interface{}{
-				"pool":    pool,
-				"success": true,
-			}, "info")
+			// Poll for completion instead of broadcasting immediately.
+			// zpool replace starts a resilver in the background.
+			go func() {
+				ticker := time.NewTicker(15 * time.Second)
+				defer ticker.Stop()
+				
+				// Safety timeout: 48 hours for large multi-TB resilvers
+				timeout := time.After(48 * time.Hour)
+				
+				for {
+					select {
+					case <-ticker.C:
+						rawScan, err := zfs.GetPoolScanLine(pool)
+						if err != nil {
+							return
+						}
+						// If "resilver" is no longer present, it means it finished
+						if !strings.Contains(rawScan, "resilver") {
+							diskEventHub.Broadcast("resilver_completed", map[string]interface{}{
+								"pool":    pool,
+								"success": true,
+							}, "info")
+							return
+						}
+						// Broadcast progress
+						parsed := zfs.ParseScanLine(rawScan)
+						diskEventHub.Broadcast("resilver_progress", map[string]interface{}{
+							"pool":         pool,
+							"percent_done": parsed.PercentDone,
+							"eta":          parsed.ETA,
+							"bytes_done":   parsed.BytesDone,
+						}, "info")
+					case <-timeout:
+						log.Printf("[zfs] WARNING: resilver polling for pool %s timed out after 48h", pool)
+						return
+					}
+				}
+			}()
 		}
 		j.Done(map[string]interface{}{
 			"success":  true,
@@ -616,15 +656,10 @@ func RevokeZFSDelegation(w http.ResponseWriter, r *http.Request) {
 var (
 	netRollbackContent []byte
 	netRollbackPath    string
-	netRollbackTimer   *countdownTimer
+	netRollbackTimer   *time.Timer
 )
 
-type countdownTimer struct {
-	timer  *safeTimer
-	active bool
-}
-
-type safeTimer struct{ t interface{ Stop() bool } }
+// No hollow structs needed
 
 // ApplyNetworkWithRollback applies network config with auto-revert
 // POST /api/network/apply { "timeout_seconds": 60 }
@@ -667,8 +702,25 @@ func ApplyNetworkWithRollback(w http.ResponseWriter, r *http.Request) {
 	executeCommandWithTimeout(TimeoutMedium, "netplan", []string{"apply"})
 
 	// Start rollback timer
+	if netRollbackTimer != nil {
+		netRollbackTimer.Stop()
+	}
 	netRollbackContent = currentConfig
 	netRollbackPath = req.ConfigPath
+	netRollbackTimer = time.AfterFunc(time.Duration(req.TimeoutSeconds)*time.Second, func() {
+		log.Printf("NETWORK ROLLBACK: Timer expired, reverting %s", netRollbackPath)
+		if err := os.WriteFile(netRollbackPath, netRollbackContent, 0600); err != nil {
+			log.Printf("NETWORK ROLLBACK ERROR: Failed to write rollback config: %v", err)
+			return
+		}
+		// Apply the rolled back config
+		if _, err := cmdutil.Run(cmdutil.TimeoutMedium, "network_apply", "apply"); err != nil {
+			log.Printf("NETWORK ROLLBACK ERROR: Failed to apply rollback config: %v", err)
+		}
+		netRollbackTimer = nil
+		netRollbackPath = ""
+		netRollbackContent = nil
+	})
 
 	respondOK(w, map[string]interface{}{
 		"success":         true,
@@ -680,6 +732,10 @@ func ApplyNetworkWithRollback(w http.ResponseWriter, r *http.Request) {
 // ConfirmNetwork cancels the rollback timer
 // POST /api/network/confirm
 func ConfirmNetwork(w http.ResponseWriter, r *http.Request) {
+	if netRollbackTimer != nil {
+		netRollbackTimer.Stop()
+		netRollbackTimer = nil
+	}
 	netRollbackContent = nil
 	netRollbackPath = ""
 	respondOK(w, map[string]interface{}{
@@ -694,7 +750,7 @@ func readFileContent(path string) ([]byte, error) {
 
 func writeFileContent(path string, content []byte) error {
 	// Secure root-level write for configuration files
-	return os.WriteFile(path, content, 0644)
+	return os.WriteFile(path, content, 0600)
 }
 
 func executeCommandBytes(path string, args []string) ([]byte, error) {
@@ -866,7 +922,7 @@ func (h *ZFSHandler) ListHolds(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		parts := strings.Split(line, "\t")
-		if len(parts) >= 2 {
+		if len(parts) >= 3 {
 			holds = append(holds, Hold{Tag: parts[1], Timestamp: parts[2]})
 		}
 	}
@@ -1228,7 +1284,7 @@ func parseZpoolStatus(output, poolName string) PoolTopology {
 		// Check for top-level group headers
 		if indent == 0 {
 			groupHeader := strings.Fields(trimmed)[0]
-			if groupHeader == "logs" || groupHeader == "cache" || groupHeader == "spares" || groupHeader == "special" {
+			if groupHeader == "logs" || groupHeader == "cache" || groupHeader == "spares" || groupHeader == "special" || groupHeader == "dedup" || groupHeader == "replacing" {
 				// Commit previous group if it was data (others are already handled)
 				if currentGroup == "data" {
 					topo.Groups["data"] = groupData

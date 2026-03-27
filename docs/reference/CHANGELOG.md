@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 
 
+## v7.4.0 (2026-03-27) - "Security Hardening Patch"
+
+Upgrade from: v7.3.0 - Drop-in. `sudo bash install.sh --upgrade`
+
+### Added
+- **Automated CSRF Protection**: Implemented session-linked CSRF token validation for all mutating API requests.
+- **Unified Command Execution**: Hardened the `cmdutil` layer with a zero-bypass, whitelist-by-default architecture for all privileged operations.
+- **File System Safeguards**: Added recursive deletion guards for ZFS pool roots and hardened file operations with middleware-backed user context.
+- Stabilized CI/CD pipeline and command whitelist validation.
+- **Local Hook Authentication**: Bypassed session middleware for local loopback requests to enable scheduled snapshots and SMART monitoring without external auth headers.
+
+### Fixed
+- **Input Sanitization**: Resolved potential injection vulnerabilities in SMB share configurations and snapshot prefixes.
+- **Metrics Response Injection**: Hardened the metrics history endpoint against JSON response injection.
+- **Setup Race Condition**: Eliminated concurrent administrative initialization risks via database advisory locks.
+
+---
+
 ## v7.3.0 (2026-03-25) - "Enterprise Directory Services"
 
 Upgrade from: v7.2.0 - Drop-in. `sudo bash install.sh --upgrade`

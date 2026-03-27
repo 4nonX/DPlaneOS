@@ -598,6 +598,81 @@ var CommandWhitelist = map[string]Command{
 		},
 		Description: "Resolve NSS user/group (local + LDAP)",
 	},
+	"ping": {
+		Name:        "ping",
+		Path:        "ping",
+		AllowedArgs: []string{"-c"},
+		ArgPatterns: []*regexp.Regexp{
+			regexp.MustCompile(`^\d+$`),             // count
+			regexp.MustCompile(`^[a-zA-Z0-9\.\-]+$`), // target
+		},
+		Description: "Network ping diagnostic",
+	},
+	"dig": {
+		Name:        "dig",
+		Path:        "dig",
+		AllowedArgs: []string{"+short", "-x"},
+		ArgPatterns: []*regexp.Regexp{
+			regexp.MustCompile(`^[a-zA-Z0-9\.\-\:]+$`), // target
+		},
+		Description: "DNS lookup diagnostic",
+	},
+	"traceroute": {
+		Name:        "traceroute",
+		Path:        "traceroute",
+		AllowedArgs: []string{"-m", "20", "-w", "2"},
+		ArgPatterns: []*regexp.Regexp{
+			regexp.MustCompile(`^[a-zA-Z0-9\.\-]+$`), // target
+		},
+		Description: "Network traceroute diagnostic",
+	},
+	"chronyc_tracking": {
+		Name:        "chronyc_tracking",
+		Path:        "chronyc",
+		AllowedArgs: []string{"tracking"},
+		Description: "Check NTP sync status via chronyc",
+	},
+	"smartctl_test": {
+		Name:        "smartctl_test",
+		Path:        "smartctl",
+		AllowedArgs: []string{"-t"},
+		ArgPatterns: []*regexp.Regexp{
+			regexp.MustCompile(`^(short|long|conveyance|offline)$`),
+			regexp.MustCompile(`^/dev/[a-z0-9]+$`),
+		},
+		Description: "Start S.M.A.R.T. self-test on disk",
+	},
+	"apt_update": {
+		Name:        "apt_update",
+		Path:        "apt-get",
+		AllowedArgs: []string{"update", "-qq"},
+		Description: "Refresh package index",
+	},
+	"apt_list": {
+		Name:        "apt_list",
+		Path:        "apt",
+		AllowedArgs: []string{"list", "--upgradable"},
+		Description: "List upgradable packages",
+	},
+	"apt_upgrade": {
+		Name:        "apt_upgrade",
+		Path:        "apt-get",
+		AllowedArgs: []string{"upgrade", "-y", "-q"},
+		Description: "Apply package upgrades",
+	},
+	"unattended_upgrades": {
+		Name:        "unattended_upgrades",
+		Path:        "unattended-upgrades",
+		AllowedArgs: []string{"--minimal-upgrade-steps", "-v"},
+		Description: "Apply security updates via unattended-upgrades",
+	},
+	"apt_security_upgrade": {
+		Name:        "apt_security_upgrade",
+		Path:        "apt-get",
+		AllowedArgs: []string{"upgrade", "-y", "-q", "--only-upgrade"},
+		ArgPatterns: []*regexp.Regexp{regexp.MustCompile(`^[a-zA-Z0-9_\-\.\+]+$`)}, // package names
+		Description: "Apply security-only updates (filtered)",
+	},
 	// Firewall (v2.0.0)
 	"ufw": {
 		Name:        "ufw",
@@ -765,18 +840,16 @@ func ValidateCommand(cmdName string, args []string) error {
 	patternIdx := 0
 
 	for _, arg := range remainingArgs {
-		// Is this an allowed flag appearing out of order?
-		isAllowedFlag := false
-		if strings.HasPrefix(arg, "-") {
-			for _, allowed := range cmd.AllowedArgs {
-				if arg == allowed {
-					isAllowedFlag = true
-					break
-				}
+		// Is this an allowed argument appearing out of order?
+		isAllowedArg := false
+		for _, allowed := range cmd.AllowedArgs {
+			if arg == allowed {
+				isAllowedArg = true
+				break
 			}
 		}
 
-		if isAllowedFlag {
+		if isAllowedArg {
 			continue
 		}
 

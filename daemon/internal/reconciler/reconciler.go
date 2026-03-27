@@ -265,6 +265,7 @@ func loadBonds(db *sql.DB) ([]BondState, error) {
 		var b BondState
 		var slaves string
 		if err := rows.Scan(&b.ID, &b.Name, &slaves, &b.Mode); err != nil {
+			log.Printf("[reconciler] ERROR scanning bond: %v", err)
 			continue
 		}
 		if slaves != "" {
@@ -285,6 +286,7 @@ func loadVLANs(db *sql.DB) ([]VLANState, error) {
 	for rows.Next() {
 		var v VLANState
 		if err := rows.Scan(&v.ID, &v.Name, &v.Parent, &v.VID); err != nil {
+			log.Printf("[reconciler] ERROR scanning VLAN: %v", err)
 			continue
 		}
 		out = append(out, v)
@@ -302,6 +304,7 @@ func loadInterfaces(db *sql.DB) ([]NetworkState, error) {
 	for rows.Next() {
 		var n NetworkState
 		if err := rows.Scan(&n.ID, &n.Interface, &n.Type, &n.CIDR, &n.Gateway); err != nil {
+			log.Printf("[reconciler] ERROR scanning interface: %v", err)
 			continue
 		}
 		out = append(out, n)

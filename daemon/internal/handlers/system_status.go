@@ -478,9 +478,20 @@ func (h *SystemStatusHandler) HandleSetupAdmin(w http.ResponseWriter, r *http.Re
 	// if HandleSetupAdmin is called before HandleSetupComplete or HandleStatus)
 	h.db.Exec(`CREATE TABLE IF NOT EXISTS system_config (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TIMESTAMPTZ DEFAULT NOW())`)
 
-	// Gate: only allow if setup is NOT yet complete
+	// Gate: only allow if setup is NOT yet complete (Pre-check, Finding 26)
+	tx, err := h.db.Begin()
+	if err != nil {
+		respondJSON(w, http.StatusInternalServerError, map[string]interface{}{"success": false, "error": "Internal error"})
+		return
+	}
+	defer tx.Rollback()
+
+	// Use a session-level advisory lock to serialize setup attempts on fresh installs (Finding 26)
+	// 1337 is an arbitrary key for the "setup lock"
+	tx.Exec(`SELECT pg_advisory_xact_lock(1337)`)
+
 	var setupDone int
-	h.db.QueryRow(`SELECT COUNT(*) FROM system_config WHERE key = 'setup_complete' AND value = '1'`).Scan(&setupDone)
+	tx.QueryRow(`SELECT COUNT(*) FROM system_config WHERE key = 'setup_complete' AND value = '1'`).Scan(&setupDone)
 	if setupDone > 0 {
 		respondJSON(w, http.StatusForbidden, map[string]interface{}{
 			"success": false, "error": "Setup already completed",
@@ -521,31 +532,40 @@ func (h *SystemStatusHandler) HandleSetupAdmin(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	// Update the seeded admin user's password (created with empty hash at startup)
-	// If username differs from "admin", rename too
-	result, err := h.db.Exec(
-		`UPDATE users SET password_hash = $1, username = $2, must_change_password = 0 WHERE username = 'admin'`,
-		string(hash), req.Username,
-	)
-	if err != nil {
-		respondJSON(w, http.StatusInternalServerError, map[string]interface{}{
-			"success": false, "error": "Failed to set admin credentials",
-		})
-		return
-	}
-	rows, _ := result.RowsAffected()
-	if rows == 0 {
-		// Admin user doesn't exist yet - insert fresh
-		_, err = h.db.Exec(
+	// First, check if there's any user with an admin role (Finding 26)
+	var adminCount int
+	tx.QueryRow(`SELECT COUNT(*) FROM users WHERE role = 'admin'`).Scan(&adminCount)
+
+	if adminCount > 0 {
+		// Admin already exists, update the specific seeded 'admin' account or return error
+		result, err := tx.Exec(
+			`UPDATE users SET password_hash = $1, username = $2, must_change_password = 0 WHERE username = 'admin'`,
+			string(hash), req.Username,
+		)
+		if err != nil {
+			respondJSON(w, http.StatusInternalServerError, map[string]interface{}{"success": false, "error": "Update failed"})
+			return
+		}
+		if rows, _ := result.RowsAffected(); rows == 0 {
+			// If we arrived here, an admin exists but it's not named 'admin' (already renamed)
+			respondJSON(w, http.StatusForbidden, map[string]interface{}{"success": false, "error": "Admin credentials already configured"})
+			return
+		}
+	} else {
+		// No admin exists at all - insert fresh
+		_, err = tx.Exec(
 			`INSERT INTO users (username, password_hash, email, role, active) VALUES ($1, $2, 'admin@localhost', 'admin', 1)`,
 			req.Username, string(hash),
 		)
 		if err != nil {
-			respondJSON(w, http.StatusInternalServerError, map[string]interface{}{
-				"success": false, "error": "Failed to create admin user",
-			})
+			respondJSON(w, http.StatusInternalServerError, map[string]interface{}{"success": false, "error": "Creation failed"})
 			return
 		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		respondJSON(w, http.StatusInternalServerError, map[string]interface{}{"success": false, "error": "Failed to commit setup"})
+		return
 	}
 
 	log.Printf("SETUP: admin credentials configured for user '%s'", req.Username)

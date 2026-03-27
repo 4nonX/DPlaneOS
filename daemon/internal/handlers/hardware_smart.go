@@ -6,10 +6,10 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"os/exec"
 	"time"
 
 	"dplaned/internal/audit"
+	"dplaned/internal/cmdutil"
 	"dplaned/internal/gitops"
 	"dplaned/internal/security"
 )
@@ -42,10 +42,9 @@ func RunSMARTNow(w http.ResponseWriter, r *http.Request) {
 
 	start := time.Now()
 	// smartctl -t <type> <device>
-	cmd := exec.Command("smartctl", "-t", testType, req.Device)
-	output, err := cmd.CombinedOutput()
+	output, err := cmdutil.RunFast("smartctl_test", "-t", testType, req.Device)
 	duration := time.Since(start)
-
+	
 	if err != nil {
 		audit.LogAction("smart_test_manual", user, fmt.Sprintf("Failed: %s %s: %s", testType, req.Device, string(output)), false, duration)
 		respondOK(w, map[string]interface{}{
@@ -84,8 +83,7 @@ func RunSMARTCronHook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	log.Printf("SMART CRON: Starting %s test on %s", testType, req.Device)
-	cmd := exec.Command("smartctl", "-t", testType, req.Device)
-	output, err := cmd.CombinedOutput()
+	output, err := cmdutil.RunFast("smartctl_test", "-t", testType, req.Device)
 
 	if err != nil {
 		audit.LogAction("smart_test_cron", "system", fmt.Sprintf("CRON Failed: %s %s: %s", testType, req.Device, string(output)), false, 0)

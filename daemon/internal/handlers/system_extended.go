@@ -100,11 +100,16 @@ func (h *SnapshotScheduleHandler) SaveSchedules(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	// Validate datasets - allow alphanumeric, underscores, hyphens, slashes, dots, @ (snapshots)
+	// Validate datasets and prefixes - alphanumeric, underscores, hyphens, slashes, dots, @ (snapshots)
 	datasetPattern := regexp.MustCompile(`^[a-zA-Z0-9_\-/.@]+$`)
+	prefixPattern := regexp.MustCompile(`^[a-zA-Z0-9_\-]+$`)
 	for _, s := range schedules {
 		if !datasetPattern.MatchString(s.Dataset) {
 			respondErrorSimple(w, "Invalid dataset name: "+s.Dataset, http.StatusBadRequest)
+			return
+		}
+		if s.Prefix != "" && !prefixPattern.MatchString(s.Prefix) {
+			respondErrorSimple(w, "Invalid prefix: "+s.Prefix, http.StatusBadRequest)
 			return
 		}
 		if s.Retention < 1 || s.Retention > 1000 {
@@ -163,15 +168,24 @@ func (h *SnapshotScheduleHandler) regenerateCron(schedules []SnapshotSchedule) {
 
 		// Use the cron-hook internal endpoint. 
 		// We wrap it in a shell script that can also do the standalone pruning if needed.
-		payload := fmt.Sprintf(
-			`{"dataset":"%s","prefix":"%s","retention":%d,"retention_days":%d}`,
-			s.Dataset, prefix, s.Retention, s.RetentionDays,
-		)
+		// Use json.Marshal to ensure the payload is safe for insertion into a shell string
+		payloadObj := map[string]interface{}{
+			"dataset":        s.Dataset,
+			"prefix":         prefix,
+			"retention":      s.Retention,
+			"retention_days": s.RetentionDays,
+		}
+		payloadBytes, _ := json.Marshal(payloadObj)
+		payload := string(payloadBytes)
 		
 		// The hook handles both snapshotting and replication.
+		// Note: Finding 34: mainCmd uses single quotes around the payload. 
+		// We already validated prefix and dataset, but for extra safety, 
+		// we escape any single quotes in the json payload (though there shouldn't be any now).
+		safePayload := strings.ReplaceAll(payload, "'", "'\\''")
 		mainCmd := fmt.Sprintf(
 			`curl -sf -X POST http://127.0.0.1:9000/api/zfs/snapshots/cron-hook -H 'Content-Type: application/json' -d '%s'`,
-			payload,
+			safePayload,
 		)
 
 		// Sanitize dataset name for unit file (no / allowed)
@@ -542,7 +556,13 @@ func (h *MetricsHandler) GetHistory(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	w.Write([]byte(`{"success":true,"period":"` + period + `","history":` + string(data) + `}`))
+	var history []interface{}
+	json.Unmarshal(data, &history)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"period":  period,
+		"history": history,
+	})
 }
 
 // CollectMetrics is called by the background monitor every 60 seconds

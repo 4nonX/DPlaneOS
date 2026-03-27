@@ -24,10 +24,14 @@ const (
 
 // Run executes a command with the given timeout, returns (output, error).
 // If the command exceeds the timeout, it is killed and an error is returned.
-// This prevents the Go daemon from hanging when hardware is unresponsive.
+// A timeout of 0 means no timeout (use with caution).
 func Run(timeout time.Duration, name string, args ...string) ([]byte, error) {
-	// 1. Mandatory Security Whitelist Routing
-	// If the name is a key in the whitelist, we validate the args and execute the whitelisted Path.
+	return runInternal(context.Background(), timeout, name, args...)
+}
+
+// runInternal handles the core command execution with security validation.
+func runInternal(ctx context.Context, timeout time.Duration, name string, args ...string) ([]byte, error) {
+	// 1. Mandatory Security Whitelist Routing (Finding 23)
 	if cmd, exists := security.CommandWhitelist[name]; exists {
 		if err := security.ValidateCommand(name, args); err != nil {
 			return nil, fmt.Errorf("security refusal: %w", err)
@@ -35,24 +39,25 @@ func Run(timeout time.Duration, name string, args ...string) ([]byte, error) {
 		// Rewrite the name to the absolute binary path from the whitelist
 		name = cmd.Path
 	} else {
-		// 2. Safety Check for governed binaries
-		// If someone tries to run zfs/zpool/systemctl via direct binary name, 
-		// we warn that they SHOULD be using the whitelisted key.
-		governed := map[string]bool{"zfs": true, "zpool": true, "systemctl": true, "ipmitool": true}
+		// Safety check for governed binaries
+		governed := map[string]bool{"zfs": true, "zpool": true, "systemctl": true, "ipmitool": true, "docker": true}
 		if governed[name] {
 			log.Printf("SECURITY WARNING: Binary '%s' invoked directly via cmdutil without a whitelist KEY. This bypasses structural validation.", name)
 		}
 	}
 
-	// 3. Fault Injection (CI only)
+	// 2. Fault Injection (CI only)
 	if inject := os.Getenv("DPLANE_FAULT_INJECT"); inject != "" {
 		if err := checkForFault(name, args...); err != nil {
 			return []byte("SIMULATED FAULT: " + err.Error()), err
 		}
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
+	var cancel context.CancelFunc
+	if timeout > 0 {
+		ctx, cancel = context.WithTimeout(ctx, timeout)
+		defer cancel()
+	}
 
 	cmd := exec.CommandContext(ctx, name, args...)
 	output, err := cmd.CombinedOutput()
@@ -176,8 +181,7 @@ func RunInDirWithEnv(timeout time.Duration, dir string, env []string, name strin
 // RunNoTimeout executes a command without a timeout (same as exec.Command).
 // Use ONLY for commands that must complete regardless of time (e.g., mv for trash).
 func RunNoTimeout(name string, args ...string) ([]byte, error) {
-	cmd := exec.Command(name, args...)
-	return cmd.CombinedOutput()
+	return Run(0, name, args...)
 }
 
 // RunWithStdin executes a command with timeout and pipes stdinData to its stdin.

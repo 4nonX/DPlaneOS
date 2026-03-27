@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"dplaned/internal/audit"
+	"dplaned/internal/cmdutil"
 	"dplaned/internal/security"
 )
 
@@ -58,7 +59,8 @@ func (h *LDAPHandler) JoinADDomain(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cmd := exec.CommandContext(r.Context(), "net", args...)
+	cmdEntry, _ := security.CommandWhitelist["net_ads_join"]
+	cmd := exec.CommandContext(r.Context(), cmdEntry.Path, args...)
 	cmd.Env = append(os.Environ(), "PASSWD="+string(req.Password))
 	
 	if out, err := cmd.CombinedOutput(); err != nil {
@@ -67,17 +69,15 @@ func (h *LDAPHandler) JoinADDomain(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 3. Verify Join via 'wbinfo -t' (Machine account trust)
-	// Wrap with 30s timeout as requested
-	verifyCtx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
-	defer cancel()
 
 	if err := security.ValidateCommand("wbinfo_test", []string{"-t"}); err != nil {
 		writeJSON(w, 403, ldapResp{Error: "Security validation failed: " + err.Error()})
 		return
 	}
-	verifyCmd := exec.CommandContext(verifyCtx, "wbinfo", "-t")
-	if out, err := verifyCmd.CombinedOutput(); err != nil {
-		if verifyCtx.Err() == context.DeadlineExceeded {
+	out, err := cmdutil.Run(30*time.Second, "wbinfo_test", "-t")
+	if err != nil {
+		// handle timeout/error
+		if strings.Contains(err.Error(), "deadline exceeded") {
 			writeJSON(w, 202, ldapResp{
 				Success: true,
 				Warning: "Domain joined but winbind verification timed out — check winbind service status.",
@@ -145,8 +145,7 @@ func (h *LDAPHandler) checkNTP(ctx context.Context) error {
 	if err := security.ValidateCommand("timedatectl_show", args); err != nil {
 		return fmt.Errorf("security validation failed: %v", err)
 	}
-	cmd := exec.CommandContext(ctx, "timedatectl", args...)
-	out, err := cmd.Output()
+	out, err := cmdutil.Run(cmdutil.TimeoutFast, "timedatectl_show", "show", "--property=NTPSynchronized")
 	if err != nil {
 		return fmt.Errorf("failed to check NTP status: %v", err)
 	}

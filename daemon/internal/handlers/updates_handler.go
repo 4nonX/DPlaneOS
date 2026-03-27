@@ -5,12 +5,12 @@ import (
 	"io"
 	"log"
 	"net/http"
-	"os"
 	"os/exec"
 	"strings"
 	"time"
 
 	"dplaned/internal/audit"
+	"dplaned/internal/cmdutil"
 	"dplaned/internal/jobs"
 )
 
@@ -24,18 +24,16 @@ func HandleUpdatesCheck(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 
 		// Step 1: refresh package index
-		updateCmd := exec.Command("apt-get", "update", "-qq")
-		updateCmd.Env = append(os.Environ(), "DEBIAN_FRONTEND=noninteractive")
-		if out, err := updateCmd.CombinedOutput(); err != nil {
+		// Step 1: refresh package index (DEBIAN_FRONTEND handles via cmdutil if whitelisted with env, but here we use it raw with the key)
+		out, err := cmdutil.Run(cmdutil.TimeoutMedium, "apt_update", "update", "-qq")
+		if err != nil {
 			log.Printf("[updates] apt-get update failed: %v\n%s", err, out)
 			j.Fail("apt-get update failed: " + err.Error())
 			return
 		}
 
 		// Step 2: list upgradable packages
-		listCmd := exec.Command("apt", "list", "--upgradable")
-		listCmd.Env = append(os.Environ(), "DEBIAN_FRONTEND=noninteractive")
-		listOut, err := listCmd.Output()
+		listOut, err := cmdutil.Run(cmdutil.TimeoutFast, "apt_list", "list", "--upgradable")
 		if err != nil {
 			log.Printf("[updates] apt list --upgradable failed: %v", err)
 			j.Fail("apt list --upgradable failed: " + err.Error())
@@ -67,9 +65,7 @@ func HandleUpdatesApply(w http.ResponseWriter, r *http.Request) {
 	jobID := jobs.Start("apt_upgrade", func(j *jobs.Job) {
 		start := time.Now()
 
-		cmd := exec.Command("apt-get", "upgrade", "-y", "-q")
-		cmd.Env = append(os.Environ(), "DEBIAN_FRONTEND=noninteractive")
-		out, err := cmd.CombinedOutput()
+		out, err := cmdutil.Run(cmdutil.TimeoutSlow, "apt_upgrade", "upgrade", "-y", "-q")
 		duration := time.Since(start)
 
 		audit.LogCommand(audit.LevelInfo, user, "apt_upgrade", nil, err == nil, duration, err)
@@ -102,11 +98,9 @@ func HandleUpdatesApplySecurity(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 
 		// Prefer unattended-upgrades when available
-		uuPath, err := exec.LookPath("unattended-upgrades")
-		if err == nil {
-			cmd := exec.Command(uuPath, "--minimal-upgrade-steps", "-v")
-			cmd.Env = append(os.Environ(), "DEBIAN_FRONTEND=noninteractive")
-			out, runErr := cmd.CombinedOutput()
+		_, errPath := exec.LookPath("unattended-upgrades")
+		if errPath == nil {
+			out, runErr := cmdutil.Run(cmdutil.TimeoutSlow, "unattended_upgrades", "--minimal-upgrade-steps", "-v")
 			duration := time.Since(start)
 
 			audit.LogCommand(audit.LevelInfo, user, "unattended_upgrades", nil, runErr == nil, duration, runErr)
@@ -125,9 +119,7 @@ func HandleUpdatesApplySecurity(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Fallback: collect security packages via apt list and upgrade them
-		listCmd := exec.Command("apt", "list", "--upgradable")
-		listCmd.Env = append(os.Environ(), "DEBIAN_FRONTEND=noninteractive")
-		listOut, listErr := listCmd.Output()
+		listOut, listErr := cmdutil.Run(cmdutil.TimeoutFast, "apt_list", "list", "--upgradable")
 		if listErr != nil {
 			j.Fail("apt list --upgradable failed: " + listErr.Error())
 			return
@@ -143,10 +135,8 @@ func HandleUpdatesApplySecurity(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		args := append([]string{"upgrade", "-y", "-q", "--only-upgrade"}, secPkgs...)
-		cmd := exec.Command("apt-get", args...)
-		cmd.Env = append(os.Environ(), "DEBIAN_FRONTEND=noninteractive")
-		out, runErr := cmd.CombinedOutput()
+		fullArgs := append([]string{"upgrade", "-y", "-q", "--only-upgrade"}, secPkgs...)
+		out, runErr := cmdutil.Run(cmdutil.TimeoutSlow, "apt_security_upgrade", fullArgs...)
 		duration := time.Since(start)
 
 		audit.LogCommand(audit.LevelInfo, user, "apt_security_upgrade", secPkgs, runErr == nil, duration, runErr)

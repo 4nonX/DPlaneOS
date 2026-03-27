@@ -1,4 +1,4 @@
-﻿package handlers
+package handlers
 
 // system_health.go - D-PlaneOS v3.3.2
 //
@@ -9,9 +9,9 @@
 
 import (
 	"bufio"
+	"dplaned/internal/cmdutil"
 	"net/http"
 	"os"
-	"os/exec"
 	"strings"
 	"time"
 )
@@ -99,10 +99,10 @@ func detectReadOnlyPartitions() []string {
 // ntpStatus checks if time is synced via timedatectl.
 // Returns (synced bool, offset string).
 func ntpStatus() (bool, string) {
-	out, err := exec.Command("timedatectl", "show", "--property=NTPSynchronized,TimeUSec").Output()
+	out, err := cmdutil.Run(cmdutil.TimeoutFast, "timedatectl_show", "show", "--property=NTPSynchronized,TimeUSec")
 	if err != nil {
 		// Fall back to checking chronyc
-		out2, err2 := exec.Command("chronyc", "tracking").Output()
+		out2, err2 := cmdutil.Run(cmdutil.TimeoutFast, "chronyc_tracking", "tracking")
 		if err2 != nil {
 			return true, "" // assume OK if tools unavailable
 		}
@@ -124,14 +124,15 @@ func lastServiceError(service string) string {
 		}
 	}
 
-	out, err := exec.Command(
+	out, err := cmdutil.Run(
+		cmdutil.TimeoutFast,
 		"journalctl",
 		"-u", service,
 		"--no-pager",
 		"-n", "10",
 		"-p", "warning",
 		"--output=short-iso",
-	).Output()
+	)
 	if err != nil {
 		return ""
 	}

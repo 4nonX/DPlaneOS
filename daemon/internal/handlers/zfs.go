@@ -1,13 +1,10 @@
 package handlers
 
 import (
-	"bytes"
-	"context"
 	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
-	"os/exec"
 	"regexp"
 	"strings"
 	"time"
@@ -302,23 +299,6 @@ func (h *ZFSHandler) CreateDataset(w http.ResponseWriter, r *http.Request) {
 
 // Stderr is logged separately to prevent warning messages (e.g. "pool is DEGRADED")
 // from being misinterpreted as data by the ZFS parsers.
-func executeCommand(path string, args []string) (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, path, args...)
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	err := cmd.Run()
-	if ctx.Err() == context.DeadlineExceeded {
-		log.Printf("ZFS TIMEOUT [%s %v] after 30s", path, args)
-		return stdout.String(), fmt.Errorf("command timed out after 30s: %s %v", path, args)
-	}
-	if stderrStr := strings.TrimSpace(stderr.String()); stderrStr != "" {
-		log.Printf("ZFS stderr [%s %v]: %s", path, args, stderrStr)
-	}
-	return stdout.String(), err
-}
 
 // parseZpoolList parses `zpool list -H -o name,size,alloc,free,cap,health` output.
 // Note: 'type' is not a valid zpool list property (it is a zfs list property).

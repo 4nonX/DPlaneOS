@@ -35,6 +35,25 @@ var (
 	loginAttempts   = make(map[string]*loginAttempt)
 )
 
+// InitAuth initializes background maintenance tasks for the auth system.
+func InitAuth() {
+	// Periodic cleanup of the loginAttempts map to prevent memory leaks (Finding 24)
+	go func() {
+		ticker := time.NewTicker(15 * time.Minute)
+		defer ticker.Stop()
+		for range ticker.C {
+			loginAttemptsMu.Lock()
+			now := time.Now()
+			for ip, attempt := range loginAttempts {
+				if now.Sub(attempt.lastAttempt) > 15*time.Minute {
+					delete(loginAttempts, ip)
+				}
+			}
+			loginAttemptsMu.Unlock()
+		}
+	}()
+}
+
 // getLoginDelay returns the lockout duration based on failure count:
 // 1 fail = 0s, 2 = 2s, 3 = 4s, 4 = 8s, 5 = 16s, 6+ = 30s (cap)
 func getLoginDelay(failures int) time.Duration {
@@ -164,11 +183,8 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// === LOGIN RATE LIMITING ===
-	clientIP := r.RemoteAddr
-	if forwarded := r.Header.Get("X-Forwarded-For"); forwarded != "" {
-		clientIP = strings.Split(forwarded, ",")[0]
-	}
+	// === LOGIN RATE LIMITING === (Finding 27)
+	clientIP := security.RealIP(r)
 	if throttled, remaining := checkLoginThrottle(clientIP); throttled {
 		h.auditLog("", "login_throttled", fmt.Sprintf("IP %s throttled for %.0fs", clientIP, remaining.Seconds()), clientIP)
 		w.Header().Set("Retry-After", fmt.Sprintf("%d", int(remaining.Seconds())+1))
@@ -333,10 +349,7 @@ func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
 
 	if sessionID != "" {
 		h.db.Exec(`DELETE FROM sessions WHERE session_id = $1`, sessionID)
-		clientIP := r.RemoteAddr
-		if forwarded := r.Header.Get("X-Forwarded-For"); forwarded != "" {
-			clientIP = strings.Split(forwarded, ",")[0]
-		}
+		clientIP := security.RealIP(r)
 		h.auditLog(username, "logout", "Session destroyed", clientIP)
 		log.Printf("LOGOUT: %q from %s", username, clientIP)
 	}
@@ -514,10 +527,7 @@ func (h *AuthHandler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	clientIP := r.RemoteAddr
-	if forwarded := r.Header.Get("X-Forwarded-For"); forwarded != "" {
-		clientIP = strings.Split(forwarded, ",")[0]
-	}
+	clientIP := security.RealIP(r)
 	h.auditLog(username, "password_changed", "Password changed", clientIP)
 	log.Printf("PASSWORD CHANGED: %q from %s", username, clientIP)
 
@@ -529,10 +539,36 @@ func (h *AuthHandler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 
 // --- GET /api/csrf ---
 
+// --- GET /api/csrf --- (Finding 22)
 func (h *AuthHandler) CSRFToken(w http.ResponseWriter, r *http.Request) {
+	sessionID := r.Header.Get("X-Session-ID")
+	if sessionID == "" {
+		// Fallback to cookie
+		if cookie, err := r.Cookie("session_id"); err == nil {
+			sessionID = cookie.Value
+		}
+	}
+
+	if sessionID == "" {
+		respondJSON(w, http.StatusUnauthorized, map[string]interface{}{
+			"success": false, "error": "No session",
+		})
+		return
+	}
+
 	tokenBytes := make([]byte, 32)
 	rand.Read(tokenBytes)
 	token := hex.EncodeToString(tokenBytes)
+
+	// Persist to session in DB
+	_, err := h.db.Exec(`UPDATE sessions SET csrf_token = $1 WHERE session_id = $2`, token, sessionID)
+	if err != nil {
+		log.Printf("AUTH ERROR: failed to save CSRF token: %v", err)
+		respondJSON(w, http.StatusInternalServerError, map[string]interface{}{
+			"success": false, "error": "Internal error",
+		})
+		return
+	}
 
 	respondJSON(w, http.StatusOK, map[string]interface{}{
 		"success":    true,
@@ -720,7 +756,7 @@ func (h *AuthHandler) ListSessions(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Mask session IDs except for the current one (security best practice)
+	// Mask session IDs except for the current one (security best practice - Finding 25)
 	type SessionEntry struct {
 		ID           string `json:"id"`
 		IPAddress    string `json:"ip_address"`
@@ -732,8 +768,15 @@ func (h *AuthHandler) ListSessions(w http.ResponseWriter, r *http.Request) {
 	var entries []SessionEntry
 	for _, s := range sessions {
 		isCurrent := s.SessionID == currentSession
+		displayID := "REDACTED"
+		if isCurrent {
+			displayID = s.SessionID
+		} else if len(s.SessionID) > 8 {
+			displayID = s.SessionID[:8] + "..."
+		}
+
 		entries = append(entries, SessionEntry{
-			ID:           s.SessionID, 
+			ID:           displayID,
 			IPAddress:    s.IPAddress,
 			UserAgent:    s.UserAgent,
 			CreatedAt:    s.CreatedAt,

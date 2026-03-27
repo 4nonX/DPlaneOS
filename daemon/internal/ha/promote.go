@@ -1,6 +1,7 @@
 package ha
 
 import (
+	"encoding/json"
 	"log"
 	"net/http"
 	"strings"
@@ -11,7 +12,7 @@ import (
 
 // ExecutePromotion formally transitions the storage and application states 
 // on a standby node to primary, forcing pool imports and reloading services.
-func ExecutePromotion() {
+func ExecutePromotion(candidate, leader string) {
 	// 1. Force import any detached storage pools in the case of a Shared-Storage Architecture.
 	log.Printf("HA Failover: Forcing import of all pools...")
 	_, err := cmdutil.RunSlow("zpool_import_all", "import", "-a", "-f", "-d", "/dev/disk/by-id")
@@ -31,10 +32,20 @@ func ExecutePromotion() {
 		if ds == "" {
 			continue
 		}
-		// Uses zfs_set_property: [zfs set property=value dataset]
-		cmdutil.RunMedium("zfs_set_property", "set", "readonly=off", ds)
-		// Uses zfs_promote: [zfs promote dataset]
-		cmdutil.RunMedium("zfs_promote", "promote", ds)
+		
+		// 2a. Check if already writable
+		ro, _ := cmdutil.RunFast("zfs_get_property", "get", "-H", "-o", "value", "readonly", ds)
+		if strings.TrimSpace(string(ro)) == "on" {
+			log.Printf("HA Failover: Setting %s to readonly=off", ds)
+			cmdutil.RunMedium("zfs_set_property", "set", "readonly=off", ds)
+		}
+
+		// 2b. Check if it's a clone (needs promotion)
+		origin, _ := cmdutil.RunFast("zfs_get_property", "get", "-H", "-o", "value", "origin", ds)
+		if strings.TrimSpace(string(origin)) != "-" {
+			log.Printf("HA Failover: Promoting clone %s", ds)
+			cmdutil.RunMedium("zfs_promote", "promote", ds)
+		}
 	}
 
 	// 3. Reload NAS services that mount or share these pools.
@@ -46,9 +57,17 @@ func ExecutePromotion() {
 	
 	// 4. Force Patroni to failover via REST API (if not already primary)
 	// This guarantees that the Keepalived Priority elevates.
-	log.Printf("HA Failover: Triggering Patroni failover via REST API...")
+	log.Printf("HA Failover: Triggering Patroni failover via REST API (candidate=%s, leader=%s)...", candidate, leader)
 	client := &http.Client{Timeout: 3 * time.Second}
-	_, err = client.Post("http://localhost:8008/failover", "application/json", nil)
+	
+	// Patroni failover body requires candidate and leader
+	payload := map[string]string{
+		"candidate": candidate,
+		"leader":    leader,
+	}
+	body, _ := json.Marshal(payload)
+	
+	_, err = client.Post("http://localhost:8008/failover", "application/json", strings.NewReader(string(body)))
 	if err != nil {
 		log.Printf("HA Failover Error: Patroni failover request failed: %v", err)
 	}
