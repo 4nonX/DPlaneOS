@@ -1,4 +1,11 @@
 * text=auto eol=lf
+# Explicitly force LF for built assets to match CI (Ubuntu) expectations
+/app/assets/** text eol=lf
+/app/assets/fonts/** binary
+/app/modules/** text eol=lf
+/app/index.html text eol=lf
+/app/manifest.json text eol=lf
+
 *.sh text eol=lf
 *.go text
 *.md text
