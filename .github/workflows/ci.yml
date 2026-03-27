@@ -382,6 +382,7 @@ jobs:
           use-flakehub: false
 
       - name: Verify VERSION matches tag (Tags only)
+        id: version
         run: |
           if [[ "${{ github.ref_type }}" == "tag" ]]; then
             VERSION="${GITHUB_REF_NAME#v}"
@@ -390,10 +391,10 @@ jobs:
               echo "ERROR: VERSION file ($FILE_VERSION) does not match tag ($VERSION)"
               exit 1
             fi
-            echo "VERSION=$VERSION" >> $GITHUB_ENV
           else
-            echo "VERSION=$(cat VERSION | tr -d '[:space:]')" >> $GITHUB_ENV
+            VERSION="$(cat VERSION | tr -d '[:space:]')"
           fi
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
 
       - name: Build installer ISO
         run: |
@@ -401,24 +402,22 @@ jobs:
           ls -lh result/iso/
 
       - name: Package ISO
+        id: package
         run: |
-          VERSION="${{ env.VERSION }}"
+          VERSION="${{ steps.version.outputs.version }}"
           ISO_NAME="dplaneos-v${VERSION}-installer-amd64.iso"
           cp result/iso/*.iso "$ISO_NAME"
           sha256sum "$ISO_NAME" > "${ISO_NAME}.sha256"
-          echo "ISO_NAME=${ISO_NAME}" >> $GITHUB_ENV
-          echo "ISO_SHA=${ISO_NAME}.sha256" >> $GITHUB_ENV
+          echo "iso_name=${ISO_NAME}" >> $GITHUB_OUTPUT
+          echo "iso_sha=${ISO_NAME}.sha256" >> $GITHUB_OUTPUT
 
       - name: Attach ISO to GitHub Release
         if: github.ref == 'refs/heads/main' || github.ref_type == 'tag'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ env.VERSION }}
+          tag_name: v${{ steps.version.outputs.version }}
           files: |
-            ${{ env.ISO_NAME }}
-            ${{ env.ISO_SHA }}
+            ${{ steps.package.outputs.iso_name }}
+            ${{ steps.package.outputs.iso_sha }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          VERSION: ${{ env.VERSION }}
-          ISO_NAME: ${{ env.ISO_NAME }}
-          ISO_SHA: ${{ env.ISO_SHA }}
