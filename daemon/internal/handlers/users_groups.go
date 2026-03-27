@@ -265,11 +265,20 @@ func (h *UserGroupHandler) updateUser(w http.ResponseWriter, req userActionReque
 		}
 	}
 	if req.Active != nil {
-		active := 0
-		if *req.Active {
-			active = 1
+		if !*req.Active {
+			// Ensure we don't deactivate the last admin
+			var currentRole string
+			var adminCount int
+			h.db.QueryRow(`SELECT role FROM users WHERE id = $1`, req.ID).Scan(&currentRole)
+			h.db.QueryRow(`SELECT COUNT(*) FROM users WHERE role = 'admin' AND active = 1`).Scan(&adminCount)
+			if currentRole == "admin" && adminCount <= 1 {
+				respondErrorSimple(w, "Cannot deactivate the last remaining active admin account", http.StatusForbidden)
+				return
+			}
 		}
-		_, err := h.db.Exec(`UPDATE users SET active = $1 WHERE id = $2`, active, req.ID)
+		activeVal := 0
+		if *req.Active { activeVal = 1 }
+		_, err := h.db.Exec(`UPDATE users SET active = $1 WHERE id = $2`, activeVal, req.ID)
 		if err != nil {
 			respondErrorSimple(w, "Failed to update active status", http.StatusInternalServerError)
 			log.Printf("USER UPDATE ACTIVE ERROR: %v", err)
@@ -444,18 +453,49 @@ func (h *UserGroupHandler) listGroups(w http.ResponseWriter, r *http.Request) {
 }
 
 type groupActionRequest struct {
-	Action      string `json:"action"` // create, update, delete
-	ID          int    `json:"id"`
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	GID         int    `json:"gid"`
-	Members     []int  `json:"members"`
+	Action          string `json:"action"` // create, update, delete
+	ID              int    `json:"id"`
+	Name            string `json:"name"`
+	Description     string `json:"description"`
+	GID             int    `json:"gid"`
+	Members         []int  `json:"members"`
+	ConfirmPassword string `json:"confirm_password"` // Required for all mutations (#17)
 }
 
 func (h *UserGroupHandler) groupAction(w http.ResponseWriter, r *http.Request) {
 	var req groupActionRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		respondErrorSimple(w, "Invalid request", http.StatusBadRequest)
+		return
+	}
+
+	// ─── SECURITY & HIERRARCHY CHECKS (#17) ───────────────────────────
+
+	// 1. Get Requester Info
+	u := r.Context().Value(middleware.UserContextKey)
+	if u == nil {
+		respondErrorSimple(w, "Unauthorized (No user context)", http.StatusUnauthorized)
+		return
+	}
+	requester := u.(*middleware.User)
+
+	// Fetch requester's password hash and role
+	var reqRole, reqPassHash string
+	err := h.db.QueryRow(`SELECT role, password_hash FROM users WHERE username = $1`, requester.Username).Scan(&reqRole, &reqPassHash)
+	if err != nil {
+		respondErrorSimple(w, "Error verifying requester", http.StatusInternalServerError)
+		return
+	}
+
+	// 2. Authorization
+	// Only admins or users with sufficient privs (already checked by permRoute) 
+	// but we MANDATE confirm_password for any mutation.
+	if req.ConfirmPassword == "" {
+		respondErrorSimple(w, "Current password required to authorize group management", http.StatusBadRequest)
+		return
+	}
+	if err := bcrypt.CompareHashAndPassword([]byte(reqPassHash), []byte(req.ConfirmPassword)); err != nil {
+		respondErrorSimple(w, "Invalid current password", http.StatusForbidden)
 		return
 	}
 

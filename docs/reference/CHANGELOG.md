@@ -13,7 +13,11 @@ Upgrade from: v7.4.0 - Drop-in. `sudo bash install.sh --upgrade`
 ### Added
 - **Detailed Firewall Diffs**: GitOps now provides granular "add/remove" descriptions for firewall port changes.
 - **Config Determinism**: Automated sorting of DNS, NTP, and firewall port lists to ensure consistent state and minimize unnecessary system changes.
-- **System User Protection**: Implemented a hard block on deleting critical system accounts (`admin`, `root`, `dplaneos`) while maintaining full support for administrative handoffs and password management.
+- **System User Protection & Hierarchy**: 
+    - Implemented a hierarchical RBAC model for user management.
+    - Mandatory "Current Password" verification for all sensitive user and group mutations.
+    - Lockout prevention: Added a guard against deactivating or deleting the last remaining active admin.
+    - Protected system service accounts (`root`, `dplaneos`) from deletion.
 
 ### Fixed
 - **SMART Cron-hook Conflict**: Resolved a race/auth conflict between session bypass and RBAC middleware for internal systemd timers.
