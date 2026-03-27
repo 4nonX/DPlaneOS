@@ -448,7 +448,9 @@ assert_json "GitOps plan" "success" "true"
 # 11. SECURITY & WHITELISTING
 echo "--- Testing Security & Whitelisting ---"
 # Test cron-hook bypass for localhost (#29)
-CRON_RESP=$(curl -s -X POST http://127.0.0.1:9000/api/zfs/snapshots/cron-hook -H 'Content-Type: application/json' -d "{\"dataset\":\"testpool\",\"prefix\":\"ci-test\",\"retention\":1}")
+CRON_RESP=$(curl -s -X POST http://127.0.0.1:9000/api/zfs/snapshots/cron-hook -H 'Content-Type: application/json' -H 'X-Internal-Token: dplaneos-internal-reconciliation-secret-v1' -d "{\"dataset\":\"testpool\",\"prefix\":\"ci-test\",\"retention\":1}")
+# Ensure /tmp/last_resp.json is updated so fail() doesn't report STALE output from previous tests
+echo "$CRON_RESP" > /tmp/last_resp.json
 echo "$CRON_RESP" | grep -q "success\":true" && ok "Security: Cron hook localhost bypass verified" || fail "Security: Cron hook localhost bypass FAILED"
 
 INJECT=$(api POST /api/zfs/command "{\"command\":\"ls\",\"args\":[\"/etc/passwd\"],\"session_id\":\"$SESSION\",\"user\":\"admin\"}")
