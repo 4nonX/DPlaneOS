@@ -477,14 +477,14 @@ func HasActiveSMBConnections(shareName string) bool {
 }
 
 // DatasetUsedBytes returns the `used` property of a dataset in bytes.
-// Returns 0 if the dataset does not exist or the property cannot be read.
-func DatasetUsedBytes(name string) uint64 {
+// Returns an error if the property cannot be read safely.
+func DatasetUsedBytes(name string) (uint64, error) {
 	out, err := cmdutil.RunZFS("zfs", "get", "-H", "-p", "-o", "value", "used", name)
 	if err != nil {
-		return 0
+		return 0, err
 	}
-	n, _ := strconv.ParseUint(strings.TrimSpace(string(out)), 10, 64)
-	return n
+	n, err := strconv.ParseUint(strings.TrimSpace(string(out)), 10, 64)
+	return n, err
 }
 
 func readLDAPConfig(db *sql.DB) (*DesiredLDAP, error) {

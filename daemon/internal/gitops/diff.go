@@ -971,22 +971,27 @@ func blockedCheckPool(lp LivePool) DiffItem {
 // because data may have been written between ReadLiveState() and this check.
 func blockedCheckDataset(ld LiveDataset) DiffItem {
 	// Re-query used space live - must not rely on cached value
-	usedBytes := DatasetUsedBytes(ld.Name)
+	usedBytes, err := DatasetUsedBytes(ld.Name)
 
-	if usedBytes > 0 {
+	if err != nil || usedBytes > 0 {
+		reason := fmt.Sprintf(
+			"Dataset %q has %s of used data and cannot be destroyed automatically. "+
+				"To resolve: (1) verify the data is no longer needed, "+
+				"(2) create a snapshot if you want a recovery point, "+
+				"(3) manually run `zfs destroy %s`, "+
+				"(4) then re-apply this plan.",
+			ld.Name, HumaniseBytes(usedBytes), ld.Name,
+		)
+		if err != nil {
+			reason = fmt.Sprintf("Dataset %q usage could not be verified safely due to an error: %v. Deletion is BLOCKED.", ld.Name, err)
+		}
+
 		return DiffItem{
-			Kind:   KindDataset,
-			Name:   ld.Name,
-			Action: ActionBlocked,
-			BlockReason: fmt.Sprintf(
-				"Dataset %q has %s of used data and cannot be destroyed automatically. "+
-					"To resolve: (1) verify the data is no longer needed, "+
-					"(2) create a snapshot if you want a recovery point, "+
-					"(3) manually run `zfs destroy %s`, "+
-					"(4) then re-apply this plan.",
-				ld.Name, HumaniseBytes(usedBytes), ld.Name,
-			),
-			RiskLevel: "critical",
+			Kind:        KindDataset,
+			Name:        ld.Name,
+			Action:      ActionBlocked,
+			BlockReason: reason,
+			RiskLevel:   "critical",
 		}
 	}
 

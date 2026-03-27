@@ -557,7 +557,7 @@ func main() {
 	// System handlers
 	systemHandler := handlers.NewSystemHandler()
 	r.HandleFunc("/api/system/health", handlers.SystemHealthHandler).Methods("GET")
-	r.HandleFunc("/api/system/logs/stream", handlers.LogStreamHandler).Methods("GET")
+	r.Handle("/api/system/logs/stream", permRoute("system", "read", handlers.LogStreamHandler)).Methods("GET")
 	r.Handle("/api/system/ups", permRoute("system", "read", systemHandler.GetUPSStatus)).Methods("GET")
 	r.Handle("/api/system/ups", permRoute("system", "write", systemHandler.SaveUPSConfig)).Methods("POST")
 	r.Handle("/api/system/network", permRoute("system", "read", systemHandler.HandleNetwork)).Methods("GET")
@@ -1075,11 +1075,11 @@ func main() {
 
 	// WebSocket for real-time monitoring
 	wsHandler := handlers.NewWebSocketHandler(wsHub)
-	r.HandleFunc("/ws/monitor", wsHandler.HandleMonitor)
+	r.Handle("/ws/monitor", permRoute("system", "read", wsHandler.HandleMonitor))
 
 	// v4.1.0: PTY terminal over WebSocket (authenticated via sessionMiddleware)
 	termHandler := handlers.NewTerminalHandler()
-	r.HandleFunc("/ws/terminal", termHandler.HandleTerminal)
+	r.Handle("/ws/terminal", permRoute("system", "admin", termHandler.HandleTerminal))
 
 	// v3.2.0: iSCSI target management (Phase 2)
 	r.HandleFunc("/api/iscsi/status", handlers.GetISCSIStatus).Methods("GET")

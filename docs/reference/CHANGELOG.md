@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 
 
+## v7.4.2 (2026-03-27) - "Core Structural Integrity"
+
+Upgrade from: v7.4.1 - Drop-in. `sudo bash install.sh --upgrade`
+
+### Security
+- **Strict Role-Based Access Control Boundaries**: Applied proper `permRoute` RBAC wrappers to critical HTTP streaming endpoints (`/ws/terminal`, `/ws/monitor`, `/api/system/logs/stream`), closing permission escalation loopholes that allowed users without administrative privileges to access sensitive system data or shells.
+- **Fail-Closed Dataset Management**: Hardened the ZFS GitOps continuous reconciler. A failure to read dataset usage stats no longer returns 0 bytes; it correctly propagates the system fault to abort any scheduled deletion actions, eliminating a potential zero-byte data loss vector.
+- **Resilient ZFS Heartbeats**: Fixed a defect in the storage heartbeat loop where catastrophic ZFS pool loss (un-importable/destroyed pools returning non-zero exit codes) failed to trigger `CRITICAL` system alerts and automatic Docker service suspension.
+
+---
+
 ## v7.4.1 (2026-03-27) - "Security Polish & Determinism"
 
 Upgrade from: v7.4.0 - Drop-in. `sudo bash install.sh --upgrade`

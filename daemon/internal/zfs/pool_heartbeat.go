@@ -1,4 +1,4 @@
-﻿package zfs
+package zfs
 
 import (
 	"bytes"
@@ -117,19 +117,24 @@ func (ph *PoolHeartbeat) performCheck() {
 	// ── Step 1: zpool status - catches SUSPENDED / UNAVAIL ──────────────────
 	cmd := exec.Command("zpool", "status", ph.poolName)
 	output, err := cmd.CombinedOutput()
+	status := string(output)
+
+	isCritical := false
 	if err != nil {
-		ph.lastError = fmt.Errorf("pool status failed: %w", err)
-		log.Printf("ERROR: ZFS pool %s status check failed", ph.poolName)
-		return
+		isCritical = true
+	} else if strings.Contains(status, "SUSPENDED") || strings.Contains(status, "UNAVAIL") {
+		isCritical = true
 	}
 
-	status := string(output)
-	if strings.Contains(status, "SUSPENDED") || strings.Contains(status, "UNAVAIL") {
-		newErr := fmt.Errorf("pool is SUSPENDED or UNAVAIL")
+	if isCritical {
+		newErr := fmt.Errorf("pool is SUSPENDED, UNAVAIL, or completely offline: %v", err)
+		if err == nil {
+			newErr = fmt.Errorf("pool is SUSPENDED or UNAVAIL")
+		}
 
 		// Only alert if this is a NEW error (state change / de-duplication)
 		if ph.lastAlertedState["CRITICAL"] != "SUSPENDED/UNAVAIL" {
-			log.Printf("CRITICAL: ZFS pool %s is SUSPENDED/UNAVAIL!", ph.poolName)
+			log.Printf("CRITICAL: ZFS pool %s is SUSPENDED/UNAVAIL/OFFLINE!", ph.poolName)
 			details := map[string]string{
 				"Pool":   ph.poolName,
 				"Status": "SUSPENDED/UNAVAIL",

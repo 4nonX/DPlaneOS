@@ -366,13 +366,13 @@ func destroyPool(name string) error {
 		for _, line := range strings.Split(string(out), "\n") {
 			fields := strings.Fields(line)
 			if len(fields) >= 2 && fields[0] != name {
-				usedBytes := DatasetUsedBytes(fields[0])
-				if usedBytes > 0 {
+				usedBytes, err := DatasetUsedBytes(fields[0])
+				if err != nil || usedBytes > 0 {
 					return fmt.Errorf(
-						"SAFETY ABORT: pool %q contains dataset %q with %s of data - "+
+						"SAFETY ABORT: pool %q contains dataset %q with %s of data (err: %v) - "+
 							"destroy cancelled even though BLOCKED was approved. "+
 							"Manually destroy the dataset first.",
-						name, fields[0], HumaniseBytes(usedBytes),
+						name, fields[0], HumaniseBytes(usedBytes), err,
 					)
 				}
 			}
@@ -505,12 +505,12 @@ func modifyDataset(name string, changes []string) error {
 
 func deleteDataset(name string) error {
 	// Belt-and-suspenders: re-check used bytes even at execute time
-	used := DatasetUsedBytes(name)
-	if used > 0 {
+	used, err := DatasetUsedBytes(name)
+	if err != nil || used > 0 {
 		return fmt.Errorf(
-			"SAFETY ABORT: dataset %q has %s of data - destroy cancelled. "+
+			"SAFETY ABORT: dataset %q has %s of data (err: %v) - destroy cancelled. "+
 				"This should have been BLOCKED. Please report this as a bug.",
-			name, HumaniseBytes(used),
+			name, HumaniseBytes(used), err,
 		)
 	}
 

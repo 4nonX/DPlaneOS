@@ -90,7 +90,13 @@ func (m *Manager) syncZFS(ctx context.Context, cfg *ReplicationConfig) error {
 	remoteCmd := exec.CommandContext(ctx, "ssh", sshArgs...)
 	remoteOut, err := remoteCmd.Output()
 	if err != nil {
-		return fmt.Errorf("failed to get remote snapshot state: %w", err)
+		// If `zfs list` finds no datasets (empty pool), it exits 1.
+		// We should treat this as "no remote snapshots" and proceed with a full send.
+		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
+			remoteOut = []byte("") // Clear to ensure string is empty
+		} else {
+			return fmt.Errorf("failed to get remote snapshot state: %w", err)
+		}
 	}
 
 	latestRemoteSnapLine := strings.TrimSpace(string(remoteOut))
