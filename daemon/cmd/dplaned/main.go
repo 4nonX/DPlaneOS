@@ -568,7 +568,7 @@ func main() {
 	r.Handle("/api/system/diagnostics", permRoute("system", "read", systemHandler.RunDiagnostics)).Methods("POST", "OPTIONS")
 
 	// SMART handlers
-	r.Handle("/api/hardware/smart/cron-hook", permRoute("system", "admin", handlers.RunSMARTCronHook)).Methods("POST")
+	r.HandleFunc("/api/hardware/smart/cron-hook", handlers.RunSMARTCronHook).Methods("POST")
 	r.Handle("/api/hardware/smart/run-now", permRoute("system", "write", handlers.RunSMARTNow)).Methods("POST")
 	r.Handle("/api/hardware/smart/schedules", permRoute("system", "read", handlers.ListSMARTSchedules)).Methods("GET")
 	r.Handle("/api/hardware/smart/schedules", permRoute("system", "write", handlers.AddSMARTSchedule)).Methods("POST")
@@ -600,10 +600,12 @@ func main() {
 
 	// v3.0.0: ZFS Snapshots CRUD
 	snapshotCRUDHandler := handlers.NewZFSSnapshotHandler()
+	snapshotScheduleHandler := handlers.NewSnapshotScheduleHandler()
 	r.Handle("/api/zfs/snapshots", permRoute("storage", "read", snapshotCRUDHandler.ListSnapshots)).Methods("GET")
 	r.Handle("/api/zfs/snapshots", permRoute("storage", "write", snapshotCRUDHandler.CreateSnapshot)).Methods("POST")
 	r.Handle("/api/zfs/snapshots", permRoute("storage", "write", snapshotCRUDHandler.DestroySnapshot)).Methods("DELETE")
 	r.Handle("/api/zfs/snapshots/rollback", permRoute("storage", "write", snapshotCRUDHandler.RollbackSnapshot)).Methods("POST")
+	r.HandleFunc("/api/zfs/snapshots/cron-hook", snapshotScheduleHandler.RunCronHook).Methods("POST")
 
 	// v3.0.0: ZFS Replication (remote send/recv)
 	replicationRemoteHandler := handlers.NewReplicationHandler()
@@ -846,7 +848,6 @@ func main() {
 	r.HandleFunc("/api/rbac/users", userGroupHandler.HandleUsers).Methods("GET")
 	r.Handle("/api/rbac/users", permRoute("users", "write", userGroupHandler.HandleUsers)).Methods("POST")
 	r.HandleFunc("/api/rbac/groups", userGroupHandler.HandleGroups).Methods("GET", "POST")
-	r.HandleFunc("/api/users/create", userGroupHandler.HandleUsers).Methods("POST")
 
 	// System status, profile, preflight, setup handlers
 	systemStatusHandler := handlers.NewSystemStatusHandler(db, Version)

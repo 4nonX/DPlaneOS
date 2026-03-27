@@ -28,6 +28,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 )
@@ -265,6 +266,7 @@ func (w *Writer) SetDNS(servers []string) error {
 	}
 	w.mu.Lock()
 	defer w.mu.Unlock()
+	sort.Strings(servers)
 	w.state.DNSServers = servers
 	return w.flushLocked()
 }
@@ -284,6 +286,7 @@ func (w *Writer) SetHostname(name string) error {
 func (w *Writer) SetNTP(servers []string) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
+	sort.Strings(servers)
 	w.state.NTPServers = servers
 	return w.flushLocked()
 }
@@ -293,6 +296,8 @@ func (w *Writer) SetNTP(servers []string) error {
 func (w *Writer) SetFirewallPorts(tcpPorts, udpPorts []int) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
+	sort.Ints(tcpPorts)
+	sort.Ints(udpPorts)
 	w.state.FirewallTCP = tcpPorts
 	w.state.FirewallUDP = udpPorts
 	return w.flushLocked()

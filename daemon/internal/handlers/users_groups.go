@@ -3,6 +3,7 @@ package handlers
 import (
 	"database/sql"
 	"dplaned/internal/gitops"
+	"dplaned/internal/middleware"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -94,13 +95,14 @@ func (h *UserGroupHandler) listUsers(w http.ResponseWriter, r *http.Request) {
 }
 
 type userActionRequest struct {
-	Action   string `json:"action"` // create, update, delete
-	ID       int    `json:"id"`
-	Username string `json:"username"`
-	Email    string `json:"email"`
-	Password string `json:"password"`
-	Role     string `json:"role"`
-	Active   *bool  `json:"active"`
+	Action          string `json:"action"` // create, update, delete
+	ID              int    `json:"id"`
+	Username        string `json:"username"`
+	Email           string `json:"email"`
+	Password        string `json:"password"`
+	Role            string `json:"role"`
+	Active          *bool  `json:"active"`
+	ConfirmPassword string `json:"confirm_password"` // Required for sensitive ops (#17)
 }
 
 func (h *UserGroupHandler) userAction(w http.ResponseWriter, r *http.Request) {
@@ -108,6 +110,64 @@ func (h *UserGroupHandler) userAction(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		respondErrorSimple(w, "Invalid request", http.StatusBadRequest)
 		return
+	}
+
+	// ─── SECURITY & HIERRARCHY CHECKS (#17) ───────────────────────────
+	
+	// 1. Get Requester Info from middleware context
+	u := r.Context().Value(middleware.UserContextKey)
+	if u == nil {
+		respondErrorSimple(w, "Unauthorized (No user context)", http.StatusUnauthorized)
+		return
+	}
+	requester := u.(*middleware.User)
+
+	// Fetch requester's full details (role and password hash)
+	var reqRole, reqPassHash string
+	err := h.db.QueryRow(`SELECT role, password_hash FROM users WHERE username = $1`, requester.Username).Scan(&reqRole, &reqPassHash)
+	if err != nil {
+		respondErrorSimple(w, "Error verifying requester", http.StatusInternalServerError)
+		return
+	}
+
+	// 2. Role Hierarchy Table
+	roleRank := map[string]int{"admin": 100, "user": 10, "": 0}
+	
+	// 3. Sensitive Action Authorization
+	// Sensitive if updating role, password, active status, OR deleting
+	isSensitive := req.Action == "delete" || req.Role != "" || req.Password != "" || req.Active != nil
+
+	if isSensitive {
+		// A. Validate Current Password (ConfirmPassword)
+		if req.ConfirmPassword == "" {
+			respondErrorSimple(w, "Current password required to authorize this change", http.StatusBadRequest)
+			return
+		}
+		if err := bcrypt.CompareHashAndPassword([]byte(reqPassHash), []byte(req.ConfirmPassword)); err != nil {
+			respondErrorSimple(w, "Invalid current password", http.StatusForbidden)
+			return
+		}
+
+		// B. Hierarchy Enforcement
+		if req.Action != "create" {
+			var targetRole string
+			var targetID int
+			h.db.QueryRow(`SELECT id, role FROM users WHERE id = $1`, req.ID).Scan(&targetID, &targetRole)
+			
+			// Editing someone else?
+			if targetID != int(requester.ID) {
+				// 1. HARD RULE: Only admins can manage other admin accounts
+				if targetRole == "admin" && reqRole != "admin" {
+					respondErrorSimple(w, "Only admins can manage other admin accounts", http.StatusForbidden)
+					return
+				}
+				// 2. HIERARCHY: Non-admins cannot manage accounts of equal or higher rank
+				if reqRole != "admin" && roleRank[reqRole] <= roleRank[targetRole] {
+					respondErrorSimple(w, fmt.Sprintf("Higher privileges required to manage %s accounts", targetRole), http.StatusForbidden)
+					return
+				}
+			}
+		}
 	}
 
 	switch req.Action {
@@ -250,20 +310,27 @@ func (h *UserGroupHandler) deleteUser(w http.ResponseWriter, req userActionReque
 		return
 	}
 
-	// Don't allow deleting the last admin
+	var targetUsername, targetRole string
+	if err := h.db.QueryRow(`SELECT username, role FROM users WHERE id = $1`, req.ID).Scan(&targetUsername, &targetRole); err != nil {
+		respondErrorSimple(w, "User not found", http.StatusNotFound)
+		return
+	}
+
+	// 1. HARD BLOCK for critical low-level system accounts (#17)
+	if targetUsername == "root" || targetUsername == "dplaneos" {
+		respondErrorSimple(w, "Cannot delete protected system service account: "+targetUsername, http.StatusForbidden)
+		return
+	}
+
+	// 2. CHECK for last admin (ensure at least one admin remains)
 	var adminCount int
 	if err := h.db.QueryRow(`SELECT COUNT(*) FROM users WHERE role = 'admin' AND active = 1`).Scan(&adminCount); err != nil {
 		respondErrorSimple(w, "Failed to check admin count", http.StatusInternalServerError)
 		log.Printf("USER DELETE ADMIN COUNT ERROR: %v", err)
 		return
 	}
-	var targetRole string
-	if err := h.db.QueryRow(`SELECT role FROM users WHERE id = $1`, req.ID).Scan(&targetRole); err != nil {
-		respondErrorSimple(w, "User not found", http.StatusNotFound)
-		return
-	}
 	if targetRole == "admin" && adminCount <= 1 {
-		respondErrorSimple(w, "Cannot delete the last admin user", http.StatusForbidden)
+		respondErrorSimple(w, "Cannot delete the last remaining active admin account", http.StatusForbidden)
 		return
 	}
 

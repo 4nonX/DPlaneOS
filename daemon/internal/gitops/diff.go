@@ -1259,12 +1259,22 @@ func diffSystem(desired DesiredSystem, live nixwriter.DPlaneState) []string {
 	if !equalSlicesSorted(desired.NTPServers, live.NTPServers) {
 		changes = append(changes, "ntp_servers changed")
 	}
-	// Firewall
-	if !equalIntSlicesSorted(desired.Firewall.TCP, live.FirewallTCP) {
-		changes = append(changes, "firewall_tcp changed")
+	// Firewall TCP
+	tcpAdded, tcpRemoved := diffIntSlices(live.FirewallTCP, desired.Firewall.TCP)
+	for _, p := range tcpAdded {
+		changes = append(changes, fmt.Sprintf("firewall-tcp-add: %d", p))
 	}
-	if !equalIntSlicesSorted(desired.Firewall.UDP, live.FirewallUDP) {
-		changes = append(changes, "firewall_udp changed")
+	for _, p := range tcpRemoved {
+		changes = append(changes, fmt.Sprintf("firewall-tcp-remove: %d", p))
+	}
+
+	// Firewall UDP
+	udpAdded, udpRemoved := diffIntSlices(live.FirewallUDP, desired.Firewall.UDP)
+	for _, p := range udpAdded {
+		changes = append(changes, fmt.Sprintf("firewall-udp-add: %d", p))
+	}
+	for _, p := range udpRemoved {
+		changes = append(changes, fmt.Sprintf("firewall-udp-remove: %d", p))
 	}
 	
 	// Networking: Actual detailed comparison
@@ -1329,6 +1339,31 @@ func equalIntSlices(a, b []int) bool {
 		if a[i] != b[i] { return false }
 	}
 	return true
+}
+
+func diffIntSlices(live, desired []int) (added, removed []int) {
+	liveMap := make(map[int]bool)
+	for _, v := range live {
+		liveMap[v] = true
+	}
+	desiredMap := make(map[int]bool)
+	for _, v := range desired {
+		desiredMap[v] = true
+	}
+
+	for _, v := range desired {
+		if !liveMap[v] {
+			added = append(added, v)
+		}
+	}
+	for _, v := range live {
+		if !desiredMap[v] {
+			removed = append(removed, v)
+		}
+	}
+	sort.Ints(added)
+	sort.Ints(removed)
+	return
 }
 
 // ── Utility ───────────────────────────────────────────────────────────────────

@@ -11,6 +11,7 @@ import (
 	"dplaned/internal/config"
 	"dplaned/internal/middleware"
 	"dplaned/internal/security"
+	"dplaned/internal/zfs"
 )
 
 // allowedBasePaths defines the directories file operations are restricted to.
@@ -264,7 +265,18 @@ func isPoolRoot(path string) bool {
 			return true
 		}
 	}
-	// 2. Check for top-level directories in /mnt/ or /tank/ etc.
+
+	// 2. Dynamic check against all mounted ZFS pools (#33)
+	pools, err := zfs.DiscoverPools()
+	if err == nil {
+		for _, p := range pools {
+			if cleaned == filepath.Clean(p.MountPoint) {
+				return true
+			}
+		}
+	}
+
+	// 3. Check for top-level directories in /mnt/ or /tank/ etc. (Legacy/Fallback)
 	// Only block if depth is exactly 1 under /mnt/, /tank/, /data/ (e.g., /mnt/pool)
 	parts := strings.Split(strings.Trim(cleaned, "/"), "/")
 	if len(parts) == 2 {
