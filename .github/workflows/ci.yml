@@ -419,3 +419,6 @@ jobs:
             ${{ env.ISO_SHA }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ env.VERSION }}
+          ISO_NAME: ${{ env.ISO_NAME }}
+          ISO_SHA: ${{ env.ISO_SHA }}

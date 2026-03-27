@@ -197,7 +197,8 @@ func persistFirewallFromRequest(action, portSpec string) {
 	udpPorts := state.FirewallUDP
 
 	modified := false
-	if action == "allow" {
+	switch action {
+	case "allow":
 		if proto == "tcp" {
 			if !containsPort(tcpPorts, port) {
 				tcpPorts = append(tcpPorts, port)
@@ -209,7 +210,7 @@ func persistFirewallFromRequest(action, portSpec string) {
 				modified = true
 			}
 		}
-	} else if action == "deny" || action == "delete" {
+	case "deny", "delete":
 		if proto == "tcp" {
 			tcpPorts, modified = removePort(tcpPorts, port)
 		} else {

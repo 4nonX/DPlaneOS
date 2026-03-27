@@ -139,7 +139,7 @@ func (h *LDAPHandler) GetDirectoryStatus(w http.ResponseWriter, r *http.Request)
 	writeJSON(w, 200, ldapResp{Success: true, Data: resp})
 }
 
-func (h *LDAPHandler) checkNTP(ctx context.Context) error {
+func (h *LDAPHandler) checkNTP(_ context.Context) error {
 	// timedatectl show --property=NTPSynchronized
 	args := []string{"show", "--property=NTPSynchronized"}
 	if err := security.ValidateCommand("timedatectl_show", args); err != nil {
