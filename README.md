@@ -1,4 +1,4 @@
-# D-PlaneOS
+# DPlaneOS
 
 ZFS-first NAS operating system for homelab and small-office deployments. Runs as a single Go daemon behind nginx, backed by PostgreSQL, with a React UI served locally no cloud dependencies, no mandatory subscriptions.
 
