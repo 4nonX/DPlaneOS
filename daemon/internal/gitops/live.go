@@ -476,9 +476,13 @@ func HasActiveSMBConnections(shareName string) bool {
 	return false
 }
 
-// DatasetUsedBytes returns the `used` property of a dataset in bytes.
+// GetDatasetUsedBytes is a mockable function variable for retrieving dataset usage.
+// In production, it points to the real DatasetUsedBytes implementation.
+var GetDatasetUsedBytes = datasetUsedBytesImpl
+
+// datasetUsedBytesImpl returns the `used` property of a dataset in bytes.
 // Returns an error if the property cannot be read safely.
-func DatasetUsedBytes(name string) (uint64, error) {
+func datasetUsedBytesImpl(name string) (uint64, error) {
 	out, err := cmdutil.RunZFS("zfs", "get", "-H", "-p", "-o", "value", "used", name)
 	if err != nil {
 		return 0, err

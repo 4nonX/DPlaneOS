@@ -978,21 +978,10 @@ func blockedCheckPool(lp LivePool) DiffItem {
 // already failed hard if zfs were absent in a real production environment.
 func blockedCheckDataset(ld LiveDataset) DiffItem {
 	// Re-query used space live - must not rely on cached value
-	usedBytes, err := DatasetUsedBytes(ld.Name)
+	usedBytes, err := GetDatasetUsedBytes(ld.Name)
 
 	if err != nil {
-		// zfs binary absent (CI / unit tests) → fall back to cached Used value.
-		// A genuine ZFS I/O error on a live system would also surface here, but
-		// in that case the cached value was read moments earlier from the same
-		// binary, so it is a reasonable conservative fallback.
-		if isToolNotFound(err) {
-			usedBytes = ld.Used
-			err = nil
-		}
-	}
-
-	if err != nil {
-		// Real error (not a missing binary) - block to be safe.
+		// Real error - block to be safe.
 		reason := fmt.Sprintf("Dataset %q usage could not be verified safely due to an error: %v. Deletion is BLOCKED.", ld.Name, err)
 		return DiffItem{
 			Kind:        KindDataset,

@@ -366,7 +366,7 @@ func destroyPool(name string) error {
 		for _, line := range strings.Split(string(out), "\n") {
 			fields := strings.Fields(line)
 			if len(fields) >= 2 && fields[0] != name {
-				usedBytes, err := DatasetUsedBytes(fields[0])
+				usedBytes, err := GetDatasetUsedBytes(fields[0])
 				if err != nil || usedBytes > 0 {
 					return fmt.Errorf(
 						"SAFETY ABORT: pool %q contains dataset %q with %s of data (err: %v) - "+
@@ -505,7 +505,7 @@ func modifyDataset(name string, changes []string) error {
 
 func deleteDataset(name string) error {
 	// Belt-and-suspenders: re-check used bytes even at execute time
-	used, err := DatasetUsedBytes(name)
+	used, err := GetDatasetUsedBytes(name)
 	if err != nil || used > 0 {
 		return fmt.Errorf(
 			"SAFETY ABORT: dataset %q has %s of data (err: %v) - destroy cancelled. "+

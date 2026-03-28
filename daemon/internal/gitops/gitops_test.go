@@ -385,9 +385,16 @@ func TestBlockedContract_humanReadableReason(t *testing.T) {
 // TestBlockedContract_EmptyDatasetIsSafeDelete verifies that a genuinely empty
 // dataset (Used=0) is classified as DELETE, not BLOCKED.
 func TestBlockedContract_EmptyDatasetIsSafeDelete(t *testing.T) {
+	// Mock DatasetUsedBytes to return 0, simulating an empty dataset
+	// without needing a live ZFS binary.
+	old := GetDatasetUsedBytes
+	defer func() { GetDatasetUsedBytes = old }()
+	GetDatasetUsedBytes = func(name string) (uint64, error) {
+		return 0, nil
+	}
+
 	ld := LiveDataset{Name: "tank/empty", Used: 0}
 	item := blockedCheckDataset(ld)
-	// DatasetUsedBytes will return 0 in test env (no ZFS) → should be DELETE
 	if item.Action != ActionDelete {
 		t.Errorf("empty dataset (Used=0) should be DELETE, got %s (reason: %s)",
 			item.Action, item.BlockReason)
