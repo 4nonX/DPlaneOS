@@ -4,7 +4,18 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+---
 
+
+## v7.4.4 (2026-03-28) - "Authorization Coverage"
+
+Upgrade from: v7.4.3 - Drop-in. `sudo bash install.sh --upgrade`
+
+### Security
+- **RBAC Coverage for Storage Operations**: Applied proper role/action permission checks to previously session-only endpoints: trash management (list/move/restore/empty), power management (disk status/spindown), ACL get/set, snapshot schedules, and replication schedule management. Any authenticated user could previously invoke these operations regardless of their assigned role.
+- **Duplicate Route Removed**: Eliminated a duplicate registration of `/api/zfs/snapshots/cron-hook` that created an ambiguous handler binding. The canonical registration in the snapshot scheduler block now correctly handles this route.
+
+---
 
 ## v7.4.3 (2026-03-28) - "Physical Truth"
 
@@ -17,17 +28,6 @@ Upgrade from: v7.4.2 - Drop-in. `sudo bash install.sh --upgrade`
     - **Integrity Monitor (Pro/Compliance)**: A real-time audit dashboard in the Compliance Engine that warns administrators of physical state drift before generating official SOC2 reports.
     - **Certified Evidence**: Forensic probe results are now embedded directly into the "Persistence Proof" section of PDF compliance reports.
 - **Security Whitelisting**: Safely integrated the forensic probe into the `cmdutil` whitelist, ensuring zero-bypass security for high-privilege kernel operations.
-
----
-
-
-## v7.4.4 (2026-03-28) - "Authorization Coverage"
-
-Upgrade from: v7.4.3 - Drop-in. `sudo bash install.sh --upgrade`
-
-### Security
-- **RBAC Coverage for Storage Operations**: Applied proper role/action permission checks to previously session-only endpoints: trash management (list/move/restore/empty), power management (disk status/spindown), ACL get/set, snapshot schedules, and replication schedule management. Any authenticated user could previously invoke these operations regardless of their assigned role.
-- **Duplicate Route Removed**: Eliminated a duplicate registration of `/api/zfs/snapshots/cron-hook` that created an ambiguous handler binding. The canonical registration in the snapshot scheduler block now correctly handles this route.
 
 ---
 
