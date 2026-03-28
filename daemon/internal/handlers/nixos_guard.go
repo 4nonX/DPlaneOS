@@ -10,8 +10,10 @@ import (
 	"time"
 
 	"dplaned/internal/cmdutil"
+	"dplaned/internal/forensics"
 	"dplaned/internal/gitops"
 	"dplaned/internal/jobs"
+	"dplaned/internal/nixwriter"
 	"log"
 )
 
@@ -118,11 +120,65 @@ func (h *NixOSGuardHandler) GetStatus(w http.ResponseWriter, r *http.Request) {
 		log.Printf("NixOS Status: IsDirty failed: %v", err)
 	}
 
+	// ── Phase 2: Physical Truth (Forensics) ──
+	physicalTCP, physicalUDP, forensicErr := forensics.GetPhysicalFirewallPorts()
+	if forensicErr != nil {
+		log.Printf("NixOS Status: Forensics failure: %v", forensicErr)
+	}
+
+	diverged := false
+	shadowTCP := []int{}
+	shadowUDP := []int{}
+
+	// We compare physical kernel state against the LAST APPLIED intent.
+	// This ensures we only flag manual CLI edits, not pending UI changes.
+	appliedData, _ := os.ReadFile(nixwriter.AppliedStatePath)
+	if appliedData != nil {
+		var applied nixwriter.DPlaneState
+		if err := json.Unmarshal(appliedData, &applied); err == nil {
+			if checkDivergence(physicalTCP, applied.FirewallTCP, &shadowTCP) {
+				diverged = true
+			}
+			if checkDivergence(physicalUDP, applied.FirewallUDP, &shadowUDP) {
+				diverged = true
+			}
+		}
+	}
+
 	respondOK(w, map[string]interface{}{
-		"success":  true,
-		"is_nixos": true,
-		"is_dirty": dirty,
+		"success":     true,
+		"is_nixos":    true,
+		"is_dirty":    dirty,
+		"is_diverged": diverged,
+		"shadow_ports": map[string][]int{
+			"tcp": shadowTCP,
+			"udp": shadowUDP,
+		},
 	})
+}
+
+// checkDivergence finds ports in the physical list that are NOT in the intent list.
+func checkDivergence(physical, intent []int, shadow *[]int) bool {
+	intentMap := make(map[int]bool)
+	for _, p := range intent {
+		intentMap[p] = true
+	}
+
+	found := false
+	for _, p := range physical {
+		// D-PlaneOS ignores internal ports (e.g. 22 for SSH, 9000 for daemon)
+		// and ports that the user intentionally opened via declarative NixOS config
+		// that the daemon doesn't manage. We only flag if it's NOT in our intent.
+		if !intentMap[p] {
+			// Check if it's one of the "Immune" system ports (SSH, API)
+			if p == 22 || p == 80 || p == 443 || p == 9000 {
+				continue
+			}
+			*shadow = append(*shadow, p)
+			found = true
+		}
+	}
+	return found
 }
 
 // DiffIntent reports the detailed changes between current intent and applied state.

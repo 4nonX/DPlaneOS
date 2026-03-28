@@ -765,6 +765,12 @@ var CommandWhitelist = map[string]Command{
 		AllowedArgs: []string{"switch"},
 		Description: "Apply NixOS configuration",
 	},
+	"nft_list_json": {
+		Name:        "nft_list_json",
+		Path:        "nft",
+		AllowedArgs: []string{"-j", "list", "ruleset"},
+		Description: "Forensic Probe: List all firewall rules in JSON format",
+	},
 }
 
 // ValidateCommand checks if a command request is allowed

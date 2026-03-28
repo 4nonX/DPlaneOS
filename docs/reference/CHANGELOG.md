@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 
 
+## v7.4.3 (2026-03-28) - "Physical Truth"
+
+Upgrade from: v7.4.2 - Drop-in. `sudo bash install.sh --upgrade`
+
+### Added
+- **Forensic Compliance Engine (Physical Truth)**: 
+    - Introduced a kernel-level forensic probe that uses `nft -j` to extract the live firewall state directly from the Linux kernel.
+    - **Divergence Detection**: The system now automatically detects and flags "Shadow Ports" (manually opened via CLI/SSH) that deviate from the declarative D-PlaneOS intent.
+    - **Integrity Monitor (Pro/Compliance)**: A real-time audit dashboard in the Compliance Engine that warns administrators of physical state drift before generating official SOC2 reports.
+    - **Certified Evidence**: Forensic probe results are now embedded directly into the "Persistence Proof" section of PDF compliance reports.
+- **Security Whitelisting**: Safely integrated the forensic probe into the `cmdutil` whitelist, ensuring zero-bypass security for high-privilege kernel operations.
+
+---
+
 ## v7.4.2 (2026-03-27) - "Core Structural Integrity"
 
 Upgrade from: v7.4.1 - Drop-in. `sudo bash install.sh --upgrade`

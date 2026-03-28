@@ -1,0 +1,11 @@
+=== RUN   TestParseNftJSON
+    firewall_test.go:36: Parsed TCP: []
+    firewall_test.go:37: Parsed UDP: []
+    firewall_test.go:43: TCP ports mismatch: expected [22 80 443], got []
+    firewall_test.go:46: UDP ports mismatch: expected [53], got []
+--- FAIL: TestParseNftJSON (0.00s)
+=== RUN   TestParseNftJSON_Empty
+--- PASS: TestParseNftJSON_Empty (0.00s)
+FAIL
+FAIL	dplaned/internal/forensics	0.836s
+FAIL
