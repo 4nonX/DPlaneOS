@@ -600,12 +600,11 @@ func main() {
 
 	// v3.0.0: ZFS Snapshots CRUD
 	snapshotCRUDHandler := handlers.NewZFSSnapshotHandler()
-	snapshotScheduleHandler := handlers.NewSnapshotScheduleHandler()
 	r.Handle("/api/zfs/snapshots", permRoute("storage", "read", snapshotCRUDHandler.ListSnapshots)).Methods("GET")
 	r.Handle("/api/zfs/snapshots", permRoute("storage", "write", snapshotCRUDHandler.CreateSnapshot)).Methods("POST")
 	r.Handle("/api/zfs/snapshots", permRoute("storage", "write", snapshotCRUDHandler.DestroySnapshot)).Methods("DELETE")
 	r.Handle("/api/zfs/snapshots/rollback", permRoute("storage", "write", snapshotCRUDHandler.RollbackSnapshot)).Methods("POST")
-	r.HandleFunc("/api/zfs/snapshots/cron-hook", snapshotScheduleHandler.RunCronHook).Methods("POST")
+	// NOTE: cron-hook is registered below alongside the rest of the snapshot schedule handlers (v2.0.0 block)
 
 	// v3.0.0: ZFS Replication (remote send/recv)
 	replicationRemoteHandler := handlers.NewReplicationHandler()
@@ -984,20 +983,19 @@ func main() {
 
 	// Snapshot Scheduler (v2.0.0)
 	snapScheduleHandler := handlers.NewSnapshotScheduleHandler()
-	r.HandleFunc("/api/snapshots/schedules", snapScheduleHandler.ListSchedules).Methods("GET")
-	r.HandleFunc("/api/snapshots/schedules", snapScheduleHandler.SaveSchedules).Methods("POST")
-	r.HandleFunc("/api/snapshots/run-now", snapScheduleHandler.RunNow).Methods("POST")
-	// Cron hook: called by generated crontab instead of raw zfs snapshot
-	// Handles snapshot creation, retention pruning, and post-snapshot replication trigger
+	r.Handle("/api/snapshots/schedules", permRoute("storage", "read", snapScheduleHandler.ListSchedules)).Methods("GET")
+	r.Handle("/api/snapshots/schedules", permRoute("storage", "write", snapScheduleHandler.SaveSchedules)).Methods("POST")
+	r.Handle("/api/snapshots/run-now", permRoute("storage", "write", snapScheduleHandler.RunNow)).Methods("POST")
+	// Cron hook: called by generated systemd timer on localhost (no user session, bypassed by sessionMiddleware IP+token check)
 	r.HandleFunc("/api/zfs/snapshots/cron-hook", snapScheduleHandler.RunCronHook).Methods("POST")
 
 	// ACL Management (v2.0.0)
 	aclHandler := handlers.NewACLHandler()
-	r.HandleFunc("/api/acl/get", aclHandler.GetACL).Methods("GET")
-	r.HandleFunc("/api/acl/set", aclHandler.SetACL).Methods("POST")
+	r.Handle("/api/acl/get", permRoute("storage", "read", aclHandler.GetACL)).Methods("GET")
+	r.Handle("/api/acl/set", permRoute("storage", "write", aclHandler.SetACL)).Methods("POST")
 	// Alias for consistency with other system APIs
-	r.HandleFunc("/api/system/acl", aclHandler.GetACL).Methods("GET")
-	r.HandleFunc("/api/system/acl", aclHandler.SetACL).Methods("POST")
+	r.Handle("/api/system/acl", permRoute("storage", "read", aclHandler.GetACL)).Methods("GET")
+	r.Handle("/api/system/acl", permRoute("storage", "write", aclHandler.SetACL)).Methods("POST")
 
 	// Metrics / Reporting (v2.0.0)
 	metricsHandler := handlers.NewMetricsHandler()
@@ -1043,16 +1041,16 @@ func main() {
 
 	// Trash / Recycle Bin (v2.0.0)
 	trashHandler := handlers.NewTrashHandler()
-	r.HandleFunc("/api/trash/list", trashHandler.ListTrash).Methods("GET")
-	r.HandleFunc("/api/trash/move", trashHandler.MoveToTrash).Methods("POST")
-	r.HandleFunc("/api/trash/restore", trashHandler.RestoreFromTrash).Methods("POST")
-	r.HandleFunc("/api/trash/empty", trashHandler.EmptyTrash).Methods("POST")
+	r.Handle("/api/trash/list", permRoute("storage", "read", trashHandler.ListTrash)).Methods("GET")
+	r.Handle("/api/trash/move", permRoute("storage", "write", trashHandler.MoveToTrash)).Methods("POST")
+	r.Handle("/api/trash/restore", permRoute("storage", "write", trashHandler.RestoreFromTrash)).Methods("POST")
+	r.Handle("/api/trash/empty", permRoute("storage", "admin", trashHandler.EmptyTrash)).Methods("POST")
 
 	// Power Management (v2.0.0)
 	powerHandler := handlers.NewPowerMgmtHandler()
-	r.HandleFunc("/api/power/disks", powerHandler.GetDiskStatus).Methods("GET")
-	r.HandleFunc("/api/power/spindown", powerHandler.SetSpindown).Methods("POST")
-	r.HandleFunc("/api/power/spindown-now", powerHandler.SpindownNow).Methods("POST")
+	r.Handle("/api/power/disks", permRoute("system", "read", powerHandler.GetDiskStatus)).Methods("GET")
+	r.Handle("/api/power/spindown", permRoute("system", "write", powerHandler.SetSpindown)).Methods("POST")
+	r.Handle("/api/power/spindown-now", permRoute("system", "write", powerHandler.SpindownNow)).Methods("POST")
 
 	// Start background monitors
 	handlers.StartReplicationMonitor()
@@ -1103,11 +1101,11 @@ func main() {
 
 	// Replication schedules
 	replicationScheduleHandler := handlers.NewReplicationScheduleHandler(db)
-	r.HandleFunc("/api/replication/schedules", replicationScheduleHandler.HandleListReplicationSchedules).Methods("GET")
-	r.HandleFunc("/api/replication/schedules", replicationScheduleHandler.HandleCreateReplicationSchedule).Methods("POST")
-	r.HandleFunc("/api/replication/schedules/{id}", replicationScheduleHandler.HandleUpdateReplicationSchedule).Methods("PUT")
-	r.HandleFunc("/api/replication/schedules/{id}", replicationScheduleHandler.HandleDeleteReplicationSchedule).Methods("DELETE")
-	r.HandleFunc("/api/replication/schedules/{id}/run", replicationScheduleHandler.HandleRunReplicationScheduleNow).Methods("POST")
+	r.Handle("/api/replication/schedules", permRoute("storage", "read", replicationScheduleHandler.HandleListReplicationSchedules)).Methods("GET")
+	r.Handle("/api/replication/schedules", permRoute("storage", "write", replicationScheduleHandler.HandleCreateReplicationSchedule)).Methods("POST")
+	r.Handle("/api/replication/schedules/{id}", permRoute("storage", "write", replicationScheduleHandler.HandleUpdateReplicationSchedule)).Methods("PUT")
+	r.Handle("/api/replication/schedules/{id}", permRoute("storage", "admin", replicationScheduleHandler.HandleDeleteReplicationSchedule)).Methods("DELETE")
+	r.Handle("/api/replication/schedules/{id}/run", permRoute("storage", "write", replicationScheduleHandler.HandleRunReplicationScheduleNow)).Methods("POST")
 
 	// Create server.
 	// WriteTimeout is set to 0 (no timeout) because several routes need to

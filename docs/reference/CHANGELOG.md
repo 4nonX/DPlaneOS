@@ -20,6 +20,17 @@ Upgrade from: v7.4.2 - Drop-in. `sudo bash install.sh --upgrade`
 
 ---
 
+
+## v7.4.3 (2026-03-28) - "Authorization Coverage"
+
+Upgrade from: v7.4.2 - Drop-in. `sudo bash install.sh --upgrade`
+
+### Security
+- **RBAC Coverage for Storage Operations**: Applied proper role/action permission checks to previously session-only endpoints: trash management (list/move/restore/empty), power management (disk status/spindown), ACL get/set, snapshot schedules, and replication schedule management. Any authenticated user could previously invoke these operations regardless of their assigned role.
+- **Duplicate Route Removed**: Eliminated a duplicate registration of `/api/zfs/snapshots/cron-hook` that created an ambiguous handler binding. The canonical registration in the snapshot scheduler block now correctly handles this route.
+
+---
+
 ## v7.4.2 (2026-03-27) - "Core Structural Integrity"
 
 Upgrade from: v7.4.1 - Drop-in. `sudo bash install.sh --upgrade`
