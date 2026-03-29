@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"dplaned/internal/jobs"
+	"dplaned/internal/gitops"
 )
 
 // ═══════════════════════════════════════════════════════════════
@@ -285,6 +286,15 @@ func (h *NixOSGuardHandler) ApplyWithWatchdog(w http.ResponseWriter, r *http.Req
 		return
 	}
 
+	// Enforce global reconciliation lock (Safety Phase 12.1)
+	if !gitops.TryLock() {
+		respondJSON(w, 423, map[string]interface{}{
+			"success": false,
+			"error":   "A reconciliation is already in progress. Please wait for the current operation to finish.",
+		})
+		return
+	}
+
 	var req struct {
 		FlakePath      string `json:"flake_path"`
 		TimeoutSeconds int    `json:"timeout_seconds"` // default 120
@@ -312,6 +322,7 @@ func (h *NixOSGuardHandler) ApplyWithWatchdog(w http.ResponseWriter, r *http.Req
 	}
 
 	jobID := jobs.Start("nixos-apply", func(j *jobs.Job) {
+		defer gitops.Unlock()
 		j.Log("Starting NixOS apply process...")
 
 		// ── Pre-upgrade ZFS snapshots ──────
@@ -331,15 +342,13 @@ func (h *NixOSGuardHandler) ApplyWithWatchdog(w http.ResponseWriter, r *http.Req
 		j.Log("Running nixos-rebuild switch...")
 
 		flakeNix := flakePath + "/flake.nix"
+		var outBytes []byte
 		if _, statErr := os.Stat(flakeNix); statErr == nil {
-			output, err = executeCommand("nixos-rebuild", []string{
-				"switch", "--flake", flakePath + "#dplaneos",
-			})
+			outBytes, err = cmdutil.RunExtreme("nixos-rebuild", "switch", "--flake", flakePath+"#dplaneos")
 		} else {
-			output, err = executeCommand("nixos-rebuild", []string{
-				"switch",
-			})
+			outBytes, err = cmdutil.RunExtreme("nixos-rebuild", "switch")
 		}
+		output = string(outBytes)
 
 		if err != nil {
 			j.Log("NixOS rebuild failed!")
@@ -373,7 +382,7 @@ func (h *NixOSGuardHandler) ApplyWithWatchdog(w http.ResponseWriter, r *http.Req
 			watchdogActive = false
 			watchdogMu.Unlock()
 
-			rollbackOut, rollbackErr := cmdutil.RunSlow("nixos-rebuild", "switch", "--rollback")
+			rollbackOut, rollbackErr := cmdutil.RunExtreme("nixos-rebuild", "switch", "--rollback")
 			if rollbackErr != nil {
 				j.Log(fmt.Sprintf("ERROR: Auto-rollback failed: %v", rollbackErr))
 				j.Fail(fmt.Sprintf("Watchdog timeout & Rollback failed: %v", rollbackErr))

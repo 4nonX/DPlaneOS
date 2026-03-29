@@ -6,6 +6,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 
 
+## v7.4.5 (2026-03-29) - "Reconciliation Hardening"
+
+Upgrade from: v7.4.4 - Drop-in. `sudo bash install.sh --upgrade`
+
+### Added
+- **WebSocket Streaming Console (Industrial Polish)**: 
+    - Introduced a real-time, high-performance terminal console using `xterm.js` for all reconciliation and system update tasks.
+    - **History Replay**: Implemented a 1,000-line log ring buffer in the daemon, allowing the UI to instantly "replay" console history upon connection or refresh mid-job.
+    - **Global Job Indicator**: Added a persistent status indicator in the `TopBar` that monitors active background tasks system-wide, allowing users to minimize the console and multi-task without losing observability.
+- **Zombie Lock Protection**: Implemented a 10-minute hard-stop timeout (`TimeoutExtreme`) for all critical system reconfiguration paths (`nixos-rebuild switch`), ensuring the global `ReconcileLock` is always released even in the event of hung external processes.
+- **Regression-Aware Service Probing**: Expanded the post-apply verification engine to perform exhaustive TCP liveness checks against all configured services (SMB, NFS, API) plus mandatory management ports (SSH/22, API/9000), acting as a digital nervous system to detect functional regressions immediately.
+
+---
+
+## v7.4.4 (2026-03-28) - "Authorization Coverage"
+
+Upgrade from: v7.4.3 - Drop-in. `sudo bash install.sh --upgrade`
+
+### Security
+- **RBAC Coverage for Storage Operations**: Applied proper role/action permission checks to previously session-only endpoints: trash management (list/move/restore/empty), power management (disk status/spindown), ACL get/set, snapshot schedules, and replication schedule management. Any authenticated user could previously invoke these operations regardless of their assigned role.
+- **Duplicate Route Removed**: Eliminated a duplicate registration of `/api/zfs/snapshots/cron-hook` that created an ambiguous handler binding. The canonical registration in the snapshot scheduler block now correctly handles this route.
+
+---
+
 ## v7.4.3 (2026-03-28) - "Physical Truth"
 
 Upgrade from: v7.4.2 - Drop-in. `sudo bash install.sh --upgrade`
@@ -17,17 +41,6 @@ Upgrade from: v7.4.2 - Drop-in. `sudo bash install.sh --upgrade`
     - **Integrity Monitor (Pro/Compliance)**: A real-time audit dashboard in the Compliance Engine that warns administrators of physical state drift before generating official SOC2 reports.
     - **Certified Evidence**: Forensic probe results are now embedded directly into the "Persistence Proof" section of PDF compliance reports.
 - **Security Whitelisting**: Safely integrated the forensic probe into the `cmdutil` whitelist, ensuring zero-bypass security for high-privilege kernel operations.
-
----
-
-
-## v7.4.4 (2026-03-28) - "Authorization Coverage"
-
-Upgrade from: v7.4.3 - Drop-in. `sudo bash install.sh --upgrade`
-
-### Security
-- **RBAC Coverage for Storage Operations**: Applied proper role/action permission checks to previously session-only endpoints: trash management (list/move/restore/empty), power management (disk status/spindown), ACL get/set, snapshot schedules, and replication schedule management. Any authenticated user could previously invoke these operations regardless of their assigned role.
-- **Duplicate Route Removed**: Eliminated a duplicate registration of `/api/zfs/snapshots/cron-hook` that created an ambiguous handler binding. The canonical registration in the snapshot scheduler block now correctly handles this route.
 
 ---
 

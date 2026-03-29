@@ -131,6 +131,16 @@ func (h *GitOpsHandler) Plan(w http.ResponseWriter, r *http.Request) {
 // Apply computes the current plan and applies it.
 // BLOCKED items that have not been approved via /api/gitops/approve halt the apply.
 func (h *GitOpsHandler) Apply(w http.ResponseWriter, r *http.Request) {
+	// Enforce global reconciliation lock (Safety Phase 12.1)
+	if !gitops.TryLock() {
+		respondJSON(w, 423, map[string]interface{}{
+			"success": false,
+			"error":   "A reconciliation is already in progress. Please wait for the current operation to finish.",
+		})
+		return
+	}
+	defer gitops.Unlock()
+
 	desired, err := h.loadDesiredState()
 	if err != nil {
 		respondError(w, http.StatusUnprocessableEntity, "state.yaml error", err)

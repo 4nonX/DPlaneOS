@@ -6,6 +6,7 @@ import { Skeleton } from '@/components/ui/LoadingSpinner'
 import { toast } from '@/hooks/useToast'
 import { useConfirm } from '@/components/ui/ConfirmDialog'
 import { useWsStore } from '@/stores/ws'
+import { useJobStore } from '@/stores/jobs'
 
 interface GitopsStatus { success: boolean; state?: string; pending_changes?: number; last_applied?: string; drift?: boolean }
 interface Change       { resource?: string; action?: 'create'|'update'|'delete'|string; description?: string }
@@ -535,7 +536,18 @@ export function GitOpsPage() {
   })
 
   const check   = useMutation({ mutationFn: () => api.post('/api/gitops/check',{}), onSuccess: () => toast.success('Config valid'), onError: (e:Error)=>toast.error(e.message) })
-  const apply   = useMutation({ mutationFn: () => api.post('/api/gitops/apply',{}), onSuccess: () => { toast.success('Applied'); setDriftAlert(null); qc.invalidateQueries({queryKey:['gitops']}) }, onError: (e:Error)=>toast.error(e.message) })
+  const setJob = useJobStore((s) => s.setActiveJob)
+
+  const apply   = useMutation({ 
+    mutationFn: () => api.post<{ success: boolean; job_id: string }>('/api/gitops/apply',{}), 
+    onSuccess: (data) => { 
+      toast.success('Reconciliation Started'); 
+      setDriftAlert(null); 
+      setJob(data.job_id, 'System Reconciliation');
+      qc.invalidateQueries({queryKey:['gitops']}) 
+    }, 
+    onError: (e:Error)=>toast.error(e.message) 
+  })
 
   if (settingsQ.data?.settings && !settingsQ.data.settings.enabled && tab !== 'settings') {
     return (

@@ -21,6 +21,8 @@ import { Skeleton } from '@/components/ui/LoadingSpinner'
 import { toast } from '@/hooks/useToast'
 import { useConfirm } from '@/components/ui/ConfirmDialog'
 import { JobProgress } from '@/components/ui/JobProgress'
+import { useJobStore } from '@/stores/jobs'
+import { JobConsole } from '@/components/ui/JobConsole'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -522,12 +524,15 @@ export function HAPage() {
   })
 
   const [jobId, setJobId] = useState<string | null>(null)
+  const [showHAConsole, setShowHAConsole] = useState(false)
+  const setJob = useJobStore((s) => s.setActiveJob)
 
   const toggleHA = useMutation({
     mutationFn: (enable: boolean) => api.post<{success: boolean, job_id?: string}>('/api/ha/toggle', { enable }),
     onSuccess: (data) => {
       if (data.job_id) {
         setJobId(data.job_id)
+        setJob(data.job_id, 'HA Stack Rebuild')
       } else {
         toast.success('HA configuration updated.')
         qc.invalidateQueries({ queryKey: ['ha', 'status'] })
@@ -651,6 +656,21 @@ export function HAPage() {
                   }}
                   onFailed={() => setJobId(null)}
                 />
+                <button 
+                  onClick={() => setShowHAConsole(true)} 
+                  className="btn btn-ghost btn-sm"
+                  style={{ marginTop: 8 }}
+                >
+                  <Icon name="terminal" size={13} />View Rebuild Logs
+                </button>
+
+                {showHAConsole && (
+                  <JobConsole 
+                    jobId={jobId} 
+                    title="HA Rebuild Console"
+                    onClose={() => setShowHAConsole(false)} 
+                  />
+                )}
               </div>
             )}
 

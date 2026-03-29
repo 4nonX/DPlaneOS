@@ -1,4 +1,4 @@
-﻿/**
+/**
  * pages/UpdatesPage.tsx - System Updates
  *
  * For Debian/Ubuntu: shows available apt packages, apply-all and apply-security buttons.
@@ -22,6 +22,8 @@ import { ErrorState } from '@/components/ui/ErrorState'
 import { Skeleton } from '@/components/ui/LoadingSpinner'
 import { Tooltip } from '@/components/ui/Tooltip'
 import { toast } from '@/hooks/useToast'
+import { useJobStore } from '@/stores/jobs'
+import { JobConsole } from '@/components/ui/JobConsole'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -129,6 +131,8 @@ export function UpdatesPage() {
 
   // ── Mutations ─────────────────────────────────────────────────────────────
 
+  const setJob = useJobStore((s) => s.setActiveJob)
+
   const checkM = useMutation({
     mutationFn: () => api.get<JobCheckResponse>('/api/system/updates/check'),
     onSuccess: (data) => {
@@ -136,6 +140,7 @@ export function UpdatesPage() {
       setApplyOutput(null)
       setActiveJobLabel('check')
       setActiveJobId(data.job_id)
+      setJob(data.job_id, 'Checking for updates')
     },
     onError: (e: Error) => toast.error(e.message),
   })
@@ -146,6 +151,7 @@ export function UpdatesPage() {
       setApplyOutput(null)
       setActiveJobLabel('Full upgrade')
       setActiveJobId(data.job_id)
+      setJob(data.job_id, 'System Upgrade')
     },
     onError: (e: Error) => toast.error(e.message),
   })
@@ -156,6 +162,7 @@ export function UpdatesPage() {
       setApplyOutput(null)
       setActiveJobLabel('Security upgrade')
       setActiveJobId(data.job_id)
+      setJob(data.job_id, 'Security Patching')
     },
     onError: (e: Error) => toast.error(e.message),
   })
@@ -262,8 +269,16 @@ export function UpdatesPage() {
             </div>
           )}
 
-          {/* Apply output */}
-          {applyOutput && (
+          {/* Apply output (Legacy Pre-tag fallback or Live Console) */}
+          {activeJobId && activeJobLabel !== 'check' && (
+            <JobConsole 
+              jobId={activeJobId} 
+              title={activeJobLabel} 
+              onClose={() => setActiveJobId(null)} 
+            />
+          )}
+
+          {applyOutput && !activeJobId && (
             <div style={{ marginBottom: 20 }}>
               <div style={{ fontWeight: 700, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
                 <Icon name={jobFailed ? 'error' : 'check_circle'} size={16}

@@ -52,8 +52,21 @@ type Job struct {
 // Safe to call from the job goroutine at any time.
 func (j *Job) Log(line string) {
 	j.mu.Lock()
-	defer j.mu.Unlock()
 	j.Logs = append(j.Logs, line)
+
+	// Cap at 1000 lines for WebSocket replay memory (Industrial Polish)
+	if len(j.Logs) > 1000 {
+		j.Logs = j.Logs[1:]
+	}
+	j.mu.Unlock()
+
+	// Broadcast line to WebSocket listeners (Real-time Observable)
+	if broadcastCallback != nil {
+		go broadcastCallback("job.log", map[string]interface{}{
+			"job_id": j.ID,
+			"line":   line,
+		}, "info")
+	}
 }
 
 // Progress broadcasts a structured progress update via WebSocket.

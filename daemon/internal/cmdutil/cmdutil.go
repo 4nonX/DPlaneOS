@@ -18,8 +18,9 @@ import (
 const (
 	TimeoutFast   = 10 * time.Second  // ls, stat, status checks
 	TimeoutMedium = 60 * time.Second  // snapshot, mount, config reload
-	TimeoutSlow   = 5 * time.Minute   // scrub, resilver, large recursive ops
-	TimeoutZFS    = 2 * time.Minute   // zpool/zfs commands (can hang on bad disks)
+	TimeoutSlow    = 5 * time.Minute   // scrub, resilver, large recursive ops
+	TimeoutZFS     = 2 * time.Minute   // zpool/zfs commands (can hang on bad disks)
+	TimeoutExtreme = 10 * time.Minute  // nixos-rebuild switch, large applies
 )
 
 // Run executes a command with the given timeout, returns (output, error).
@@ -131,6 +132,12 @@ func RunZFS(name string, args ...string) ([]byte, error) {
 // Use for: recursive chown/chmod/setfacl, zfs send, rsync, large operations
 func RunSlow(name string, args ...string) ([]byte, error) {
 	return Run(TimeoutSlow, name, args...)
+}
+
+// RunExtreme executes a command with TimeoutExtreme (10min).
+// Use for: nixos-rebuild switch, large applies, database rebuilds
+func RunExtreme(name string, args ...string) ([]byte, error) {
+	return Run(TimeoutExtreme, name, args...)
 }
 
 // RunInDir executes a command with the given timeout in a specific working directory.

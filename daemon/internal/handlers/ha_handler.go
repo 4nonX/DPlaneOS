@@ -12,6 +12,7 @@ import (
 	"dplaned/internal/cmdutil"
 	"dplaned/internal/ha"
 	"dplaned/internal/jobs"
+	"dplaned/internal/gitops"
 	"github.com/gorilla/mux"
 )
 
@@ -301,13 +302,23 @@ func (h *HAHandler) ToggleHA(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if !gitops.TryLock() {
+		respondJSON(w, 423, map[string]interface{}{
+			"success": false,
+			"error":   "A reconciliation is already in progress. Please wait for the current operation to finish.",
+		})
+		return
+	}
+
 	if err := NixWriter.SetHA(req.Enable); err != nil {
+		gitops.Unlock()
 		respondError(w, http.StatusInternalServerError, "Failed to update NixOS state", err)
 		return
 	}
 
 	// Trigger nixos-rebuild switch via the jobs system for frontend visibility
 	jobID := jobs.Start("nixos_rebuild", func(j *jobs.Job) {
+		defer gitops.Unlock()
 		action := "disabling"
 		if req.Enable {
 			action = "enabling"
@@ -315,7 +326,7 @@ func (h *HAHandler) ToggleHA(w http.ResponseWriter, r *http.Request) {
 		j.Log(fmt.Sprintf("HA: User is %s HA - triggering nixos-rebuild switch", action))
 		
 		// Run rebuild using the whitelisted key
-		out, err := cmdutil.RunSlow("nixos_rebuild", "switch")
+		out, err := cmdutil.RunExtreme("nixos-rebuild", "switch")
 		if err != nil {
 			log.Printf("HA: NixOS rebuild failed: %v\nOutput: %s", err, string(out))
 			j.Log(fmt.Sprintf("ERROR: NixOS reconfiguration failed: %v", err))

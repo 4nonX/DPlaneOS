@@ -14,6 +14,7 @@ import { useStorageStore } from '@/stores/storage'
 import { findNavEntry } from './navConfig'
 import { api } from '@/lib/api'
 import { useNotificationsStore } from '@/stores/notifications'
+import { JobIndicator } from '@/components/ui/JobIndicator'
 
 interface ZFSPool {
   name: string
@@ -141,6 +142,7 @@ export function TopBar({ sidebarCollapsed }: TopBarProps) {
           </div>
         )}
 
+        <JobIndicator />
         <NotificationsBell />
       </div>
     </header>

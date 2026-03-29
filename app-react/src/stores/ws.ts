@@ -48,6 +48,7 @@ type EventMap = {
   mountError: (data: unknown) => void
   gitopsDrift: (data: unknown) => void
   jobProgress: (data: { job_id: string; data: any }) => void
+  jobLog:      (data: { job_id: string; line: string }) => void
 }
 
 type EventName = keyof EventMap
@@ -191,6 +192,9 @@ export const useWsStore = create<WsState>((set) => {
           break
         case 'job.progress':
           emit('jobProgress', (msg.data ?? msg) as { job_id: string; data: any })
+          break
+        case 'job.log':
+          emit('jobLog', (msg.data ?? msg) as { job_id: string; line: string })
           break
         default:
           // mount_health_<poolname> events from the background monitor

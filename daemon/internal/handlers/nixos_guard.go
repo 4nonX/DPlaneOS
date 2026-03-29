@@ -210,7 +210,17 @@ func (h *NixOSGuardHandler) Reconcile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Enforce global reconciliation lock (Safety Phase 12.1)
+	if !gitops.TryLock() {
+		respondJSON(w, 423, map[string]interface{}{
+			"success": false,
+			"error":   "A reconciliation is already in progress. Please wait for the current operation to finish.",
+		})
+		return
+	}
+
 	jobID := jobs.Start("nixos-reconcile", func(j *jobs.Job) {
+		defer gitops.Unlock()
 		j.Log("Starting NixOS system reconciliation...")
 
 		// 1. Double check if dirty
@@ -226,7 +236,7 @@ func (h *NixOSGuardHandler) Reconcile(w http.ResponseWriter, r *http.Request) {
 
 		// 2. Run rebuild switch
 		j.Log("Executing nixos-rebuild switch...")
-		output, err := cmdutil.RunSlow("nixos-rebuild", "switch")
+		output, err := cmdutil.RunExtreme("nixos-rebuild", "switch")
 		if err != nil {
 			j.Log("NixOS reconciliation failed!")
 			j.Fail(fmt.Sprintf("Rebuild failed: %v\nOutput: %s", err, output))

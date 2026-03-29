@@ -53,6 +53,8 @@ type ApplyResult struct {
 	HaltReason  string        // why the plan stopped (e.g. "blocked", "io-error")
 	// Convergence indicates the post-apply state: CONVERGED, DEGRADED, NOT_CONVERGED, ERROR
 	Convergence string `json:"convergence"`
+	// Verification contains the results of post-apply synthetic liveness probes (Phase 12.6)
+	Verification *VerificationReport `json:"verification,omitempty"`
 }
 
 // ApplyContext carries everything the apply engine needs without global state.
@@ -184,6 +186,19 @@ func ApplyPlan(ctx ApplyContext, plan *Plan, desired *DesiredState) (*ApplyResul
 	}
 
 	result.Status = "OK"
+
+	// Phase 12.6: Post-Apply Functional Verification (Industrial Polish)
+	if desired != nil {
+		log.Printf("GITOPS APPLY: starting functional verification (probes)...")
+		report := VerifyAppliedServices(desired)
+		result.Verification = report
+		if !report.AllFunctional {
+			result.Status = "DEGRADED"
+			log.Printf("GITOPS APPLY: functional verification finished with WARNINGS (AllFunctional=false)")
+		} else {
+			log.Printf("GITOPS APPLY: functional verification PASSED")
+		}
+	}
 
 	// Gap 5: Post-apply convergence check
 	conv, err := ConvergenceCheck(ctx.DB, desired)
