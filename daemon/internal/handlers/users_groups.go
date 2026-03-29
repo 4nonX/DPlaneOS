@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os/user"
+	"strconv"
 	"strings"
 
 	"golang.org/x/crypto/bcrypt"
@@ -327,8 +329,32 @@ func (h *UserGroupHandler) deleteUser(w http.ResponseWriter, req userActionReque
 	}
 
 	// 1. HARD BLOCK for critical low-level system accounts (#17)
-	if targetUsername == "root" || targetUsername == "dplaneos" {
+	if targetUsername == "root" || targetUsername == "admin" || targetUsername == "dplaneos" {
 		respondErrorSimple(w, "Cannot delete protected system service account: "+targetUsername, http.StatusForbidden)
+		return
+	}
+
+	// 2. UID-based block (UID < 1000) - NixOS/Debian system users
+	u, err := user.Lookup(targetUsername)
+	if err == nil {
+		uid, _ := strconv.Atoi(u.Uid)
+		if uid < 1000 {
+			respondErrorSimple(w, fmt.Sprintf("Cannot delete system user: %s (UID %d)", targetUsername, uid), http.StatusForbidden)
+			return
+		}
+	}
+
+	// 3. Fallback static list for common system users (Finding #17)
+	protectedStatic := map[string]bool{
+		"bin": true, "daemon": true, "sys": true, "sync": true, "games": true,
+		"man": true, "lp": true, "mail": true, "news": true, "uucp": true,
+		"proxy": true, "www-data": true, "backup": true, "list": true, "irc": true,
+		"gnats": true, "nobody": true, "_apt": true, "systemd-timesync": true,
+		"systemd-network": true, "systemd-resolve": true, "messagebus": true, "sshd": true,
+		"syslog": true, "uuidd": true, "tcpdump": true, "pollinate": true, "landscape": true,
+	}
+	if protectedStatic[targetUsername] {
+		respondErrorSimple(w, "Cannot delete protected system user: "+targetUsername, http.StatusForbidden)
 		return
 	}
 
@@ -344,7 +370,7 @@ func (h *UserGroupHandler) deleteUser(w http.ResponseWriter, req userActionReque
 		return
 	}
 
-	_, err := h.db.Exec(`DELETE FROM sessions WHERE user_id = $1`, req.ID)
+	_, err = h.db.Exec(`DELETE FROM sessions WHERE user_id = $1`, req.ID)
 	if err != nil {
 		respondErrorSimple(w, "Failed to delete user sessions", http.StatusInternalServerError)
 		log.Printf("USER DELETE SESSIONS ERROR: %v", err)

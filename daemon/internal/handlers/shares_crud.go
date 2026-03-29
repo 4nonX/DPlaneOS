@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"database/sql"
+	"path/filepath"
 
 	"dplaned/internal/cmdutil"
 	"dplaned/internal/gitops"
@@ -174,6 +175,13 @@ func (h *ShareCRUDHandler) createShare(w http.ResponseWriter, req shareActionReq
 		return
 	}
 
+	// Sanitize inputs before DB insertion (Finding #30)
+	req.Name = sanitizeSMBConfValue(req.Name)
+	req.Path = filepath.Clean(req.Path)
+	req.Comment = sanitizeSMBConfValue(req.Comment)
+	req.ValidUsers = sanitizeSMBConfValue(req.ValidUsers)
+	req.WriteList = sanitizeSMBConfValue(req.WriteList)
+
 	browsable := 1
 	if req.Browsable != nil && !*req.Browsable {
 		browsable = 0
@@ -265,7 +273,12 @@ func (h *ShareCRUDHandler) updateShare(w http.ResponseWriter, req shareActionReq
 		tx.Exec(`UPDATE smb_shares SET guest_ok = $1, updated_at = NOW() WHERE id = $2`, v, req.ID)
 	}
 	if req.ValidUsers != "" {
-		tx.Exec(`UPDATE smb_shares SET valid_users = $1, updated_at = NOW() WHERE id = $2`, req.ValidUsers, req.ID)
+		sanitized := sanitizeSMBConfValue(req.ValidUsers)
+		tx.Exec(`UPDATE smb_shares SET valid_users = $1, updated_at = NOW() WHERE id = $2`, sanitized, req.ID)
+	}
+	if req.WriteList != "" {
+		sanitized := sanitizeSMBConfValue(req.WriteList)
+		tx.Exec(`UPDATE smb_shares SET write_list = $1, updated_at = NOW() WHERE id = $2`, sanitized, req.ID)
 	}
 	if req.Enabled != nil {
 		v := 0

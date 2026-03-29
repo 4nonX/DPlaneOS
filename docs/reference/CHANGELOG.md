@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 
 
+## v7.4.6 (2026-03-29) - "Security Guard Hardening"
+
+Upgrade from: v7.4.5 - Drop-in. `sudo bash install.sh --upgrade`
+
+### Security
+- **Hybrid System User Protection (#17)**: Implemented multi-tier protection in `deleteUser` handler using UID < 1000 check (POSIX), explicit hardcoded blocks for `root/admin/dplaneos`, and static fallback list for common services.
+- **RBAC Migration Phase 2 (#38)**: Expanded mission-critical route coverage with `permRoute` wrappers for 40+ endpoints, including ZFS replication streams (elevated to `storage:admin`) and network confirmation.
+- **User/Group Management Regression (#39)**: Restored explicit RBAC protection by splitting user and group creation endpoints into dedicated POST registrations.
+- **SMB Write-Time Sanitization (#30)**: Hardened share creation/update logic with mandatory input sanitization before database persistence, eliminating the PostgreSQL state as a potential injection vector.
+
+---
+
 ## v7.4.5 (2026-03-29) - "Reconciliation Hardening"
 
 Upgrade from: v7.4.4 - Drop-in. `sudo bash install.sh --upgrade`
