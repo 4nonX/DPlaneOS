@@ -78,8 +78,10 @@ func CommitAll(db *sql.DB) error {
 	// 3. Get repository details for authentication and identity
 	var repoURL, branch, commitName, commitEmail sql.NullString
 	if repoID.Valid {
-		db.QueryRow(`SELECT repo_url, branch, commit_name, commit_email FROM git_sync_repos WHERE id = $1`, repoID.Int64).Scan(
-			&repoURL, &branch, &commitName, &commitEmail)
+		if err := db.QueryRow(`SELECT repo_url, branch, commit_name, commit_email FROM git_sync_repos WHERE id = $1`, repoID.Int64).Scan(
+			&repoURL, &branch, &commitName, &commitEmail); err != nil {
+			return fmt.Errorf("loading git repo config for id %d: %w", repoID.Int64, err)
+		}
 	}
 
 	// 4. Ensure repo exists and is initialized

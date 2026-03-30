@@ -440,8 +440,13 @@ func main() {
 	// diskAdded / diskRemoved / poolHealthChanged events.
 	handlers.SetDiskEventHub(wsHub)
 
+	// daemonCtx is cancelled on graceful shutdown to stop all background goroutines
+	// that support context-based termination (e.g. ZED listener).
+	daemonCtx, daemonCancel := context.WithCancel(context.Background())
+	defer daemonCancel()
+
 	// Initialize ZED Event Listener (Unix Socket)
-	go zfs.StartZEDListener("/run/dplaneos/dplaneos.sock",
+	go zfs.StartZEDListener(daemonCtx, "/run/dplaneos/dplaneos.sock",
 		func(eventType string, data interface{}, level string) {
 			wsHub.Broadcast(eventType, data, level)
 		},
@@ -1159,6 +1164,7 @@ func main() {
 	<-stop
 
 	log.Println("Shutting down gracefully...")
+	daemonCancel() // signal all daemonCtx-aware goroutines to exit
 
 	// Audit shutdown
 	audit.Log(audit.AuditLog{

@@ -1388,13 +1388,11 @@ func (h *CertHandler) VerifyACMEProxy(w http.ResponseWriter, r *http.Request) {
 	}
 	
 	magicToken := uuid.New().String()
-	checkDone := make(chan bool, 1)
 
 	srv := &http.Server{
 		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if strings.HasSuffix(r.URL.Path, "/dplaneos-check") {
 				fmt.Fprint(w, magicToken)
-				checkDone <- true
 			}
 		}),
 	}

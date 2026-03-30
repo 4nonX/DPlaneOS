@@ -98,6 +98,7 @@ type Manager struct {
 	maintenanceUntil time.Time
 
 	stopCh chan struct{}
+	wg     sync.WaitGroup
 }
 
 // NewManager creates a cluster manager for this daemon instance.
@@ -125,18 +126,20 @@ func (m *Manager) Start() {
 	m.loadPersistedNodes()
 	m.loadPersistedReplication()
 
+	m.wg.Add(1)
 	go m.heartbeatLoop()
 	log.Printf("HA: cluster manager started (local=%s)", m.localID)
 }
 
-// Stop halts background goroutines.
-func (m *Manager) Stop() { 
+// Stop halts background goroutines and waits for them to exit.
+func (m *Manager) Stop() {
 	close(m.stopCh)
 	m.mu.Lock()
 	if m.replCancel != nil {
 		m.replCancel()
 	}
 	m.mu.Unlock()
+	m.wg.Wait()
 }
 
 
@@ -262,6 +265,7 @@ const FailoverAfter = 45 * time.Second
 
 // heartbeatLoop pings all peers every 15 seconds.
 func (m *Manager) heartbeatLoop() {
+	defer m.wg.Done()
 	ticker := time.NewTicker(15 * time.Second)
 	defer ticker.Stop()
 	for {
@@ -384,19 +388,27 @@ func (m *Manager) pingPeer(id string) {
 		return
 	}
 
-	if err != nil || resp.StatusCode != http.StatusOK {
+	if err != nil {
 		node.MissedBeats++
 		if node.MissedBeats >= 2 {
 			node.State = StateUnreachable
 			log.Printf("HA: peer %s is UNREACHABLE (missed %d beats)", id, node.MissedBeats)
 		}
 	} else {
-		resp.Body.Close()
-		// Try to parse version from health response
-		node.State = StateHealthy
-		node.LastSeen = time.Now()
-		node.LastSeenUnix = time.Now().Unix()
-		node.MissedBeats = 0
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			node.MissedBeats++
+			if node.MissedBeats >= 2 {
+				node.State = StateUnreachable
+				log.Printf("HA: peer %s is UNREACHABLE (missed %d beats)", id, node.MissedBeats)
+			}
+		} else {
+			// Try to parse version from health response
+			node.State = StateHealthy
+			node.LastSeen = time.Now()
+			node.LastSeenUnix = time.Now().Unix()
+			node.MissedBeats = 0
+		}
 	}
 	// Persist updated state
 	go m.persistNode(node)

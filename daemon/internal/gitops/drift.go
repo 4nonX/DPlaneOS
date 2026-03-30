@@ -1,6 +1,7 @@
 ﻿package gitops
 
 import (
+	"context"
 	"database/sql"
 	"log"
 	"os"
@@ -35,6 +36,7 @@ type DriftDetector struct {
 	interval     time.Duration
 	hub          DriftBroadcaster
 	stopCh       chan struct{}
+	wg           sync.WaitGroup
 	mu           sync.Mutex
 	lastResult   *DriftResult
 }
@@ -64,13 +66,15 @@ func NewDriftDetector(db *sql.DB, stateYAMLPath string, interval time.Duration, 
 
 // Start launches the background drift-check loop.
 func (d *DriftDetector) Start() {
+	d.wg.Add(1)
 	go d.loop()
 	log.Printf("GITOPS DRIFT: detector started - checking every %s", d.interval)
 }
 
-// Stop signals the loop to exit cleanly.
+// Stop signals the loop to exit and waits for it to return.
 func (d *DriftDetector) Stop() {
 	close(d.stopCh)
+	d.wg.Wait()
 }
 
 // LastResult returns the most recent drift check result (nil if none yet).
@@ -92,6 +96,7 @@ func (d *DriftDetector) CheckNow() *DriftResult {
 
 // loop is the background goroutine.
 func (d *DriftDetector) loop() {
+	defer d.wg.Done()
 	// Run an immediate check on startup so the UI has data fast
 	d.CheckNow()
 
@@ -106,7 +111,13 @@ func (d *DriftDetector) loop() {
 		case <-ticker.C:
 			// Only run if enabled
 			var enabled int
-			d.db.QueryRow("SELECT enabled FROM gitops_config WHERE id = 1").Scan(&enabled)
+			qctx, qcancel := context.WithTimeout(context.Background(), 5*time.Second)
+			err := d.db.QueryRowContext(qctx, "SELECT enabled FROM gitops_config WHERE id = 1").Scan(&enabled)
+			qcancel()
+			if err != nil {
+				log.Printf("GITOPS DRIFT: failed to read config: %v", err)
+				continue
+			}
 			if enabled == 1 {
 				result := d.runCheck()
 				d.mu.Lock()
@@ -127,7 +138,13 @@ func (d *DriftDetector) runCheck() *DriftResult {
 	// 0. Check enabled and pull if repo is configured
 	var enabled int
 	var repoID sql.NullInt64
-	d.db.QueryRow("SELECT enabled, repo_id FROM gitops_config WHERE id = 1").Scan(&enabled, &repoID)
+	rctx, rcancel := context.WithTimeout(context.Background(), 5*time.Second)
+	err := d.db.QueryRowContext(rctx, "SELECT enabled, repo_id FROM gitops_config WHERE id = 1").Scan(&enabled, &repoID)
+	rcancel()
+	if err != nil {
+		result.Error = "failed to read gitops config: " + err.Error()
+		return result
+	}
 
 	if enabled == 0 {
 		result.Error = "GitOps is disabled"

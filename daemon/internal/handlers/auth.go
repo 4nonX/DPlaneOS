@@ -330,7 +330,9 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	h.auditLog(req.Username, "login", "Session created", clientIP)
 
 	log.Printf("AUTH OK: %q from %s", req.Username, clientIP)
-	h.db.Exec(`UPDATE users SET last_login = NOW() WHERE id = $1`, userID)
+	if _, err := h.db.Exec(`UPDATE users SET last_login = NOW() WHERE id = $1`, userID); err != nil {
+		log.Printf("AUTH: failed to update last_login for user %d: %v", userID, err)
+	}
 
 	respondJSON(w, http.StatusOK, map[string]interface{}{
 		"success":              true,
@@ -348,7 +350,9 @@ func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
 	username := r.Header.Get("X-User")
 
 	if sessionID != "" {
-		h.db.Exec(`DELETE FROM sessions WHERE session_id = $1`, sessionID)
+		if _, err := h.db.Exec(`DELETE FROM sessions WHERE session_id = $1`, sessionID); err != nil {
+			log.Printf("AUTH: failed to delete session: %v", err)
+		}
 		clientIP := security.RealIP(r)
 		h.auditLog(username, "logout", "Session destroyed", clientIP)
 		log.Printf("LOGOUT: %q from %s", username, clientIP)

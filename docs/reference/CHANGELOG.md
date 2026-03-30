@@ -6,6 +6,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 
 
+## v7.5.0 (2026-03-31) - "Runtime Integrity"
+
+Upgrade from: v7.4.6 - Drop-in. `sudo bash install.sh --upgrade`
+
+### Fixed
+- **HA Peer Health Check Panic**: `pingPeer()` dereferenced `resp` before checking the HTTP error, causing a nil-pointer panic when a peer was unreachable. The condition is now split so `resp.StatusCode` is only accessed after confirming `err == nil`. Response body is now closed in all non-error branches, including non-200 responses.
+- **Silent GitOps Credential Failure**: Three `QueryRow.Scan()` calls in `gitops/commit.go`, `git_util.go`, and `drift.go` dropped their errors, causing git operations to proceed with zero-value repo URLs or credential IDs. Errors are now propagated and logged, aborting the affected operation cleanly.
+- **ZFS Restore Double-Close**: The `io.Pipe` write-end in the dataset restore path was closed both on the early-return error branch and by the background goroutine that waits for `sendCmd`. On the `recvCmd.Start()` failure path, `sendCmd` was left running as an orphaned process. The goroutine now uses `sync.Once` to guarantee a single close, `sync.WaitGroup` to ensure it exits before the caller returns, and `sendCmd.Process.Kill()` + `Wait()` to reap the orphan.
+- **Group Member Cleanup Error Discarded**: `deleteGroup` used `_, _ = db.Exec(...)` to clear members, explicitly swallowing the error. Failures are now logged before the group delete continues.
+
+### Security
+- **Trusted Proxy Enforcement**: `RealIP()` previously trusted `X-Forwarded-For` and `X-Real-IP` headers from any non-loopback address, enabling IP spoofing on multi-NIC or VLAN-segmented deployments. A CIDR-based allow-list (RFC 1918 + loopback + IPv6 ULA) is now enforced — headers are only honoured when the direct connection originates from a trusted proxy range.
+
+### Reliability
+- **Clean Goroutine Shutdown**: `ha.Manager`, `gitops.DriftDetector`, and `monitoring.BackgroundMonitor` now track their background goroutines with `sync.WaitGroup`. `Stop()` on each component blocks until the goroutine has fully exited, eliminating use-after-free and map-write-after-close races during daemon teardown.
+- **Background Monitor Deadlock Prevention**: `BackgroundMonitor.stopChan` was unbuffered; if the `run()` goroutine was between ticks when `Stop()` was called, the send blocked indefinitely. The channel is now buffered (`make(chan bool, 1)`).
+- **ZED Listener Context Support**: The ZFS Event Daemon Unix-socket Accept loop ran forever with no cancellation mechanism. It now accepts a `context.Context` and polls with a 1-second deadline, exiting cleanly when the daemon context is cancelled at shutdown. `daemonCtx` is created in `main.go` and cancelled as the first action in the shutdown sequence.
+- **DB Query Timeouts in Drift Detector**: Both `QueryRow` calls in `DriftDetector.loop()` and `runCheck()` are replaced with `QueryRowContext` using a 5-second deadline, preventing a hung database connection from blocking the drift-check goroutine indefinitely.
+- **Async DB Write Observability**: The fire-and-forget `go db.Exec()` for `last_used` token updates now logs errors. Silent `db.Exec()` calls in `Logout()` for session deletion and in `Login()` for `last_login` updates also now log on failure.
+
+### Changed
+- **HA Manual Promote — Split-Brain Prevention**: `POST /api/ha/promote` previously called `ExecutePromotion` directly with a documented warning that split-brain would occur if the primary was still alive. The handler now sequences STONITH fencing before promotion when fencing is configured: the leader node's BMC receives a chassis power-off command and the chassis state is polled until confirmed dark before promotion begins. If fencing is not configured, a warning is logged to the job stream and promotion continues, leaving split-brain avoidance to the operator. The operation is wrapped in the jobs system for real-time progress streaming.
+- **VPN Network Action Response**: The generic `501 Not Implemented` for `add_*`/`remove_*` network actions is replaced with a targeted check for `vpn`, `add_vpn`, and `remove_vpn` that returns a descriptive message directing operators to deploy containerised VPN solutions (wg-easy, Tailscale, OpenVPN) via the Docker interface. Unrecognised actions now fall through to the existing `400 Bad Request` path.
+- **Dead Code Removed**: The `checkDone` channel in the ACME proxy-verification handler was allocated and written to but never received from. Removed.
+
+---
+
 ## v7.4.6 (2026-03-29) - "Security Guard Hardening"
 
 Upgrade from: v7.4.5 - Drop-in. `sudo bash install.sh --upgrade`

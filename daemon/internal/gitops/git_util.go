@@ -15,7 +15,10 @@ import (
 func BuildPushEnvForRepoID(db *sql.DB, repoID int64) []string {
 	var credID int
 	// Find the credential ID used by this repo.
-	db.QueryRow(`SELECT CAST(auth_token AS INTEGER) FROM git_sync_repos WHERE id=$1 AND auth_type='cred'`, repoID).Scan(&credID)
+	if err := db.QueryRow(`SELECT CAST(auth_token AS INTEGER) FROM git_sync_repos WHERE id=$1 AND auth_type='cred'`, repoID).Scan(&credID); err != nil {
+		log.Printf("GITOPS: failed to load cred ID for repo %d: %v", repoID, err)
+		return nil
+	}
 	if credID == 0 {
 		return nil
 	}

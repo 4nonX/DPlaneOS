@@ -93,8 +93,12 @@ func ValidateAPIToken(db *sql.DB, token string) (int, string, error) {
 		}
 	}
 
-	// Update last_used asynchronously
-	go db.Exec(`UPDATE api_tokens SET last_used = NOW() WHERE token_hash = $1`, hash)
+	// Update last_used asynchronously - errors are non-fatal but should be visible.
+	go func() {
+		if _, err := db.Exec(`UPDATE api_tokens SET last_used = NOW() WHERE token_hash = $1`, hash); err != nil {
+			log.Printf("API TOKEN: failed to update last_used: %v", err)
+		}
+	}()
 
 	return userID, username, nil
 }

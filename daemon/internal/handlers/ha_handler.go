@@ -232,25 +232,54 @@ func (h *HAHandler) ConfigureHAReplication(w http.ResponseWriter, r *http.Reques
 }
 
 // Promote triggers the manual failover orchestration on a standby node.
+// If STONITH fencing is configured and a leader is provided, the leader is
+// fenced (BMC chassis power off, polled to confirmed dark) before promotion
+// begins, preventing split-brain. Without fencing the operator must ensure
+// the primary is offline before calling this endpoint.
 // POST /api/ha/promote
-// WARNING: Fencing is not implemented yet. Split brain will occur if primary is still alive.
 func (h *HAHandler) Promote(w http.ResponseWriter, r *http.Request) {
-	// Execute the promotion orchestration in the background to avoid timing out the HTTP client.
 	var req struct {
 		Candidate string `json:"candidate"`
 		Leader    string `json:"leader"`
 	}
 	_ = json.NewDecoder(r.Body).Decode(&req)
- 
+
 	if req.Candidate == "" {
 		req.Candidate = LocalNodeID()
 	}
- 
-	go ha.ExecutePromotion(req.Candidate, req.Leader)
+
+	// Read fencing config synchronously so the job can act on it without
+	// a DB call inside the goroutine.
+	fencingCfg, _ := h.mgr.GetFencingConfig()
+
+	jobID := jobs.Start("ha_promote", func(j *jobs.Job) {
+		// ── Step 1: STONITH fencing ──────────────────────────────────────────
+		if fencingCfg.Enable && req.Leader != "" {
+			j.Log(fmt.Sprintf("HA Promote: Fencing leader %q at BMC %s before promotion...", req.Leader, fencingCfg.BMCIP))
+			if err := ha.ExecuteFencing(req.Leader, fencingCfg); err != nil {
+				j.Log(fmt.Sprintf("HA Promote: STONITH fencing failed — aborting to prevent split-brain: %v", err))
+				j.Fail("Fencing failed: " + err.Error())
+				return
+			}
+			j.Log("HA Promote: Leader node confirmed fenced (chassis dark). Proceeding with promotion.")
+		} else if req.Leader != "" {
+			j.Log("HA Promote: WARNING — fencing is not configured. Ensure the leader node is fully offline to avoid split-brain before continuing.")
+		}
+
+		// ── Step 2: Promotion orchestration ─────────────────────────────────
+		j.Log(fmt.Sprintf("HA Promote: Promoting candidate %q (leader %q)...", req.Candidate, req.Leader))
+		ha.ExecutePromotion(req.Candidate, req.Leader)
+		j.Log("HA Promote: Promotion sequence complete.")
+		j.Done(map[string]interface{}{
+			"candidate": req.Candidate,
+			"leader":    req.Leader,
+		})
+	})
 
 	respondJSON(w, http.StatusOK, map[string]interface{}{
 		"success": true,
-		"message": "Failover promotion triggered. Storage pools are importing and services restarting.",
+		"message": "Failover promotion initiated. Monitor progress via job " + jobID + ".",
+		"job_id":  jobID,
 	})
 }
 

@@ -30,6 +30,7 @@ type BackgroundMonitor struct {
 	interval      time.Duration
 	alertCallback func(eventType string, data interface{}, level string)
 	stopChan      chan bool
+	wg            sync.WaitGroup
 
 	// Debounce state: one entry per (eventType+level) key
 	mu          sync.Mutex
@@ -65,7 +66,7 @@ func NewBackgroundMonitor(interval time.Duration, alertCallback func(string, int
 	return &BackgroundMonitor{
 		interval:      interval,
 		alertCallback: alertCallback,
-		stopChan:      make(chan bool),
+		stopChan:      make(chan bool, 1),
 		alertStates:   make(map[string]*alertState),
 		mountHealth:   make(map[string]bool),
 		TempWarnC:     45,
@@ -75,15 +76,18 @@ func NewBackgroundMonitor(interval time.Duration, alertCallback func(string, int
 
 // Start begins the monitoring loop
 func (m *BackgroundMonitor) Start() {
+	m.wg.Add(1)
 	go m.run()
 }
 
-// Stop halts the monitoring loop
+// Stop halts the monitoring loop and waits for it to exit.
 func (m *BackgroundMonitor) Stop() {
 	m.stopChan <- true
+	m.wg.Wait()
 }
 
 func (m *BackgroundMonitor) run() {
+	defer m.wg.Done()
 	ticker := time.NewTicker(m.interval)
 	defer ticker.Stop()
 

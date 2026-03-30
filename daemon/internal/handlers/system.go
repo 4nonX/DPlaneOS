@@ -444,13 +444,15 @@ func (h *SystemHandler) handleNetworkPost(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// DNS and VPN actions: return explicit not-implemented so frontends don't show false success
-	if strings.HasPrefix(action, "add_") || strings.HasPrefix(action, "remove_") {
-		respondErrorSimple(w, fmt.Sprintf("network action not implemented: %s", action), http.StatusNotImplemented)
-		return
-	}
-	if action == "vpn" {
-		respondErrorSimple(w, "network action not implemented: vpn", http.StatusNotImplemented)
+	// VPN is not managed as a kernel module by D-PlaneOS. Use the Docker
+	// interface to deploy a containerised VPN solution (e.g. wg-easy,
+	// Tailscale, OpenVPN). These actions intentionally return 501 so the
+	// frontend never silently ignores an unhandled request.
+	if action == "vpn" || action == "add_vpn" || action == "remove_vpn" {
+		respondErrorSimple(w,
+			"VPN configuration is not available as a native network action. "+
+				"Deploy a containerised VPN (e.g. wg-easy, Tailscale) via the Docker interface.",
+			http.StatusNotImplemented)
 		return
 	}
 

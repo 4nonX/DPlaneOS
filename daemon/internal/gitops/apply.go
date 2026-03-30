@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"dplaned/internal/cmdutil"
@@ -452,17 +453,28 @@ func createDataset(name string, ds *DesiredDataset) error {
 		}
 		if err := recvCmd.Start(); err != nil {
 			pw.Close()
+			// sendCmd is already running; kill and reap it to avoid an orphaned process.
+			_ = sendCmd.Process.Kill()
+			_ = sendCmd.Wait()
 			return fmt.Errorf("failed to start zfs receive: %w", err)
 		}
- 
-		// Wait for sender in background to close pipe
+
+		// Use sync.Once so pw is closed exactly once regardless of which
+		// goroutine reaches it first, and a WaitGroup so the caller never
+		// returns while the sender goroutine is still live.
+		var closeOnce sync.Once
+		var wg sync.WaitGroup
+		wg.Add(1)
 		go func() {
+			defer wg.Done()
 			_ = sendCmd.Wait()
-			pw.Close()
+			closeOnce.Do(func() { pw.Close() })
 		}()
- 
-		if err := recvCmd.Wait(); err != nil {
-			return fmt.Errorf("zfs restore for %s failed: %s: %w", name, errOut.String(), err)
+
+		recvErr := recvCmd.Wait()
+		wg.Wait() // ensure sender goroutine has exited before returning
+		if recvErr != nil {
+			return fmt.Errorf("zfs restore for %s failed: %s: %w", name, errOut.String(), recvErr)
 		}
 		log.Printf("GITOPS: dataset %q restored from %s", name, source)
 		return nil
@@ -901,7 +913,9 @@ func reconcileGroup(db *sql.DB, name string, dg *DesiredGroup) error {
 
 func deleteGroup(db *sql.DB, name string) error {
 	// First clear members (foreign key should handle this but let's be explicit)
-	_, _ = db.Exec("DELETE FROM group_members WHERE group_name = $1", name)
+	if _, err := db.Exec("DELETE FROM group_members WHERE group_name = $1", name); err != nil {
+		log.Printf("GITOPS: failed to clear members for group %q (proceeding with group delete): %v", name, err)
+	}
 	
 	_, err := db.Exec("DELETE FROM groups WHERE name = $1", name)
 	if err != nil {

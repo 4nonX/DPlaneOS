@@ -2,17 +2,20 @@ package zfs
 
 import (
 	"bufio"
+	"context"
 	"log"
 	"net"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // StartZEDListener creates a Unix socket to listen for events from the ZED hook script.
 // If the socket directory does not exist, it logs a warning and returns (safe fallback).
 // On receiving an event, it calls the provided callbacks.
-func StartZEDListener(socketPath string, broadcast func(eventType string, data interface{}, level string), dispatchAlert func(event, pool, msg string)) {
+// The function returns when ctx is cancelled, allowing clean daemon shutdown.
+func StartZEDListener(ctx context.Context, socketPath string, broadcast func(eventType string, data interface{}, level string), dispatchAlert func(event, pool, msg string)) {
 	dir := filepath.Dir(socketPath)
 
 	if _, err := os.Stat(dir); os.IsNotExist(err) {
@@ -34,9 +37,24 @@ func StartZEDListener(socketPath string, broadcast func(eventType string, data i
 		log.Printf("Warning: Failed to chmod ZED socket: %v", err)
 	}
 
+	ul := l.(*net.UnixListener)
 	for {
-		conn, err := l.Accept()
+		// Poll the context by applying a short Accept deadline.
+		// This lets the loop exit cleanly when the daemon shuts down.
+		ul.SetDeadline(time.Now().Add(1 * time.Second))
+		conn, err := ul.Accept()
 		if err != nil {
+			// Context cancelled → clean exit.
+			select {
+			case <-ctx.Done():
+				log.Printf("ZED listener: context cancelled, shutting down")
+				return
+			default:
+			}
+			// Deadline exceeded → loop and check ctx again.
+			if ne, ok := err.(net.Error); ok && ne.Timeout() {
+				continue
+			}
 			log.Printf("ZED socket accept error: %v", err)
 			continue
 		}
