@@ -197,6 +197,47 @@ func (h *ZFSSnapshotHandler) RollbackSnapshot(w http.ResponseWriter, r *http.Req
 	})
 }
 
+// CloneSnapshot clones a ZFS snapshot into a new dataset.
+// POST /api/zfs/snapshots/clone { "snapshot": "tank/data@snap", "clone": "tank/data-clone" }
+func (h *ZFSSnapshotHandler) CloneSnapshot(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Snapshot string `json:"snapshot"` // source: dataset@snapname
+		Clone    string `json:"clone"`    // target dataset path
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondErrorSimple(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if !isValidSnapshotName(req.Snapshot) {
+		respondErrorSimple(w, "Invalid snapshot name", http.StatusBadRequest)
+		return
+	}
+	if !isValidDataset(req.Clone) {
+		respondErrorSimple(w, "Invalid clone dataset name", http.StatusBadRequest)
+		return
+	}
+
+	start := time.Now()
+	_, err := executeCommand("zfs", []string{"clone", req.Snapshot, req.Clone})
+	duration := time.Since(start)
+
+	if err != nil {
+		respondOK(w, map[string]interface{}{
+			"success": false,
+			"error":   fmt.Sprintf("Failed to clone snapshot: %v", err),
+		})
+		return
+	}
+
+	respondOK(w, map[string]interface{}{
+		"success":  true,
+		"clone":    req.Clone,
+		"origin":   req.Snapshot,
+		"duration": duration.Milliseconds(),
+	})
+}
+
 // parseSnapshotList parses `zfs list -t snapshot -H -o name,used,refer,creation` output
 func parseSnapshotList(output string) []Snapshot {
 	var snapshots []Snapshot

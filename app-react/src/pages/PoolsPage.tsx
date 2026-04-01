@@ -88,6 +88,7 @@ interface ResilverStatusResponse {
 }
 
 interface Disk { name: string; size: string; model: string; path: string }
+interface Snapshot { name: string; dataset: string; snap_name: string; used: string; refer: string; creation: string }
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -850,6 +851,7 @@ function PoolCard({ pool, datasets, filter, onRefresh }: { pool: ZFSPool; datase
   const [sharingDataset,  setSharingDataset]  = useState<TreeNode | null>(null)
   const [snapshotDataset, setSnapshotDataset] = useState<TreeNode | null>(null)
   const [rollbackDataset, setRollbackDataset] = useState<TreeNode | null>(null)
+  const [cloneDataset,   setCloneDataset]   = useState<TreeNode | null>(null)
   const pct = parseCapacityPct(pool.capacity)
 
   // Apply client-side filter
@@ -1105,6 +1107,7 @@ function PoolCard({ pool, datasets, filter, onRefresh }: { pool: ZFSPool; datase
                 if (action === 'manage_shares') setSharingDataset(node)
                 if (action === 'snapshot') setSnapshotDataset(node)
                 if (action === 'rollback') setRollbackDataset(node)
+                if (action === 'clone') setCloneDataset(node)
                 if (action === 'create_child') setCreateParent(node.name)
                 if (action === 'edit') setEditDataset(node)
                 if (action === 'delete') setDestroyDataset(node.name)
@@ -1221,6 +1224,14 @@ function PoolCard({ pool, datasets, filter, onRefresh }: { pool: ZFSPool; datase
           node={rollbackDataset}
           onClose={() => setRollbackDataset(null)}
           onRollback={() => { qc.invalidateQueries({ queryKey: ['zfs', 'datasets'] }); onRefresh() }}
+        />
+      )}
+
+      {cloneDataset && (
+        <CloneSnapshotModal
+          node={cloneDataset}
+          onClose={() => setCloneDataset(null)}
+          onCloned={() => { qc.invalidateQueries({ queryKey: ['zfs', 'datasets'] }); onRefresh() }}
         />
       )}
 
@@ -1839,6 +1850,7 @@ function DatasetActionMenu({ node, onAction }: {
 					<MenuBtn icon="add" label="Create Child" onClick={() => { setOpen(false); onAction('create_child', node) }} />
 					<MenuBtn icon="camera" label="Snapshot" onClick={() => { setOpen(false); onAction('snapshot', node) }} />
 					<MenuBtn icon="history" label="Rollback" onClick={() => { setOpen(false); onAction('rollback', node) }} />
+					<MenuBtn icon="fork_right" label="Clone Snapshot" onClick={() => { setOpen(false); onAction('clone', node) }} />
 					<div style={{ height: 1, background: 'var(--border-subtle)', margin: '4px 0' }} />
 					<MenuBtn icon="folder_shared" label="Manage Shares" onClick={() => { setOpen(false); onAction('manage_shares', node) }} />
 					<div style={{ height: 1, background: 'var(--border-subtle)', margin: '4px 0' }} />
@@ -1982,6 +1994,88 @@ function SnapshotModal({ node, onClose, onCreated }: { node: TreeNode; onClose: 
 				<button onClick={onClose} className="btn btn-ghost">Cancel</button>
 				<button onClick={() => mutation.mutate()} disabled={mutation.isPending} className="btn btn-primary">
 					{mutation.isPending ? 'Creating…' : 'Create Snapshot'}
+				</button>
+			</div>
+		</Modal>
+	)
+}
+
+// ---------------------------------------------------------------------------
+// CloneSnapshotModal (v7.5.1)
+// ---------------------------------------------------------------------------
+
+function CloneSnapshotModal({ node, onClose, onCloned }: { node: TreeNode; onClose: () => void; onCloned: () => void }) {
+	const [selectedSnap, setSelectedSnap] = useState('')
+	const [cloneName, setCloneName] = useState('')
+
+	const snapsQ = useQuery({
+		queryKey: ['zfs', 'snapshots', node.name],
+		queryFn: ({ signal }) => api.get<{ snapshots: Snapshot[] }>(`/api/zfs/snapshots?dataset=${encodeURIComponent(node.name)}`, signal),
+	})
+
+	const snapshots = snapsQ.data?.snapshots ?? []
+
+	// Default clone name derived from selected snapshot
+	const derivedName = selectedSnap
+		? node.name + '-clone-' + selectedSnap.split('@')[1]
+		: ''
+
+	const targetName = cloneName.trim() || derivedName
+
+	const mutation = useMutation({
+		mutationFn: () => api.post('/api/zfs/snapshots/clone', { snapshot: selectedSnap, clone: targetName }),
+		onSuccess: () => { toast.success(`Cloned ${selectedSnap} to ${targetName}`); onCloned(); onClose() },
+		onError: (e: Error) => toast.error(e.message),
+	})
+
+	return (
+		<Modal title={<>Clone Snapshot: <span style={{ color: 'var(--primary)', fontFamily: 'var(--font-mono)' }}>{node.name}</span></>} onClose={onClose} size="sm">
+			<div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+				<label className="field">
+					<span className="field-label">Source Snapshot</span>
+					{snapsQ.isLoading ? (
+						<Skeleton />
+					) : snapshots.length === 0 ? (
+						<div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-tertiary)', padding: '8px 0' }}>
+							No snapshots exist for this dataset. Create one first.
+						</div>
+					) : (
+						<select
+							className="input"
+							value={selectedSnap}
+							onChange={e => { setSelectedSnap(e.target.value); setCloneName('') }}
+						>
+							<option value="">Select a snapshot...</option>
+							{snapshots.map(s => (
+								<option key={s.name} value={s.name}>{s.snap_name} ({s.refer})</option>
+							))}
+						</select>
+					)}
+				</label>
+
+				{selectedSnap && (
+					<label className="field">
+						<span className="field-label">Clone Dataset Name</span>
+						<input
+							className="input"
+							value={cloneName}
+							onChange={e => setCloneName(e.target.value)}
+							placeholder={derivedName}
+						/>
+						<div style={{ fontSize: 'var(--text-3xs)', color: 'var(--text-tertiary)', marginTop: 4 }}>
+							Will be created as: {targetName}
+						</div>
+					</label>
+				)}
+			</div>
+			<div className="modal-footer">
+				<button onClick={onClose} className="btn btn-ghost">Cancel</button>
+				<button
+					onClick={() => mutation.mutate()}
+					disabled={!selectedSnap || !targetName || mutation.isPending}
+					className="btn btn-primary"
+				>
+					{mutation.isPending ? 'Cloning…' : 'Clone'}
 				</button>
 			</div>
 		</Modal>

@@ -609,6 +609,7 @@ func main() {
 	r.Handle("/api/zfs/snapshots", permRoute("storage", "write", snapshotCRUDHandler.CreateSnapshot)).Methods("POST")
 	r.Handle("/api/zfs/snapshots", permRoute("storage", "write", snapshotCRUDHandler.DestroySnapshot)).Methods("DELETE")
 	r.Handle("/api/zfs/snapshots/rollback", permRoute("storage", "write", snapshotCRUDHandler.RollbackSnapshot)).Methods("POST")
+	r.Handle("/api/zfs/snapshots/clone", permRoute("storage", "write", snapshotCRUDHandler.CloneSnapshot)).Methods("POST")
 	// NOTE: cron-hook is registered below alongside the rest of the snapshot schedule handlers (v2.0.0 block)
 
 	// v3.0.0: ZFS Replication (remote send/recv)
