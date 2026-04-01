@@ -11,12 +11,12 @@ ZFS-first NAS operating system for homelab and small-office deployments. Runs as
 
 *Clicking the Demo-Image leads to a demo-page, take a tour of the interface.*
 
-[![D-PlaneOS Demo](docs/assets/demo.png)](https://dplaneos.d-net.me/demo.html)
+[![DPlaneOS Demo](docs/assets/demo.png)](https://dplaneos.d-net.me/demo.html)
 ---
 
 ## High-Performance, Zero-Pollution Architecture
 
-D-PlaneOS is built for modern hardware. It ships as a single, statically-linked Go binary that manages your entire storage stack with zero external dependencies at runtime. Its path-agnostic architecture ensures seamless portability across Linux distributions.
+DPlaneOS is built for modern hardware. It ships as a single, statically-linked Go binary that manages your entire storage stack with zero external dependencies at runtime. Its path-agnostic architecture ensures seamless portability across Linux distributions.
 
 - **Native Architecture Support:** Full performance on both `x86_64` (amd64) and `aarch64` (arm64/Raspberry Pi 5).
 - **ZFS-First:** Native ZFS integration for data integrity, snapshots, and replication.
