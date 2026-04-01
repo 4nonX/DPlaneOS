@@ -6,6 +6,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 
 
+## v7.5.1 (2026-03-30) - "Zero-Touch HA"
+
+Upgrade from: v7.5.0 - Drop-in. `sudo bash install.sh --upgrade`
+
+### Added
+- **Quorum Witness for Zero-Touch HA**: Automated failover now requires a reachable quorum witness before executing STONITH and promotion. When a peer exceeds the 45-second FailoverAfter threshold and fencing is enabled, the daemon probes a configurable HTTP witness endpoint. If the witness is unreachable the failover is suspended — protecting against false-positive promotion during network partitions where this node cannot distinguish "peer is dead" from "I am isolated". Any HTTP response (any status code) from the witness counts as reachable; a connection error or timeout counts as isolated.
+- **Witness API**: Three new endpoints under admin RBAC:
+  - `GET /api/ha/witness/configure` — read current witness configuration
+  - `POST /api/ha/witness/configure` — save witness `{ "enable": true, "url": "http://...", "timeout_secs": 5 }`
+  - `POST /api/ha/witness/test` — probe the configured URL (or an ad-hoc URL in the request body) and return `{ "reachable": true/false }`
+- **Witness status in HA status**: `GET /api/ha/status` now includes a `witness` key with the current witness configuration alongside the cluster status.
+- **`ha_witness_config` schema**: New single-row DB table storing witness parameters, created automatically on daemon start.
+
+### Behavior
+- If witness is **disabled** (default): `checkFailover()` behavior is identical to v7.5.0 — fencing + promotion fires when fencing is enabled and peer breaches FailoverAfter. No change.
+- If witness is **enabled**: The witness gate is evaluated between the fencing-enabled check and the maintenance-mode check. An unreachable witness suspends auto-failover; a reachable witness allows it to proceed.
+- Witness probe logs at the 3rd missed beat to avoid log spam on subsequent 15s ticks.
+
+
 ## v7.5.0 (2026-03-31) - "Runtime Integrity"
 
 Upgrade from: v7.4.6 - Drop-in. `sudo bash install.sh --upgrade`

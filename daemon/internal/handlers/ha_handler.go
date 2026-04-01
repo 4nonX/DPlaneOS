@@ -33,9 +33,11 @@ func (h *HAHandler) GetStatus(w http.ResponseWriter, r *http.Request) {
 	if NixWriter != nil {
 		status.HAEnabled = NixWriter.State().HAEnable
 	}
+	witnessCfg, _ := h.mgr.GetWitnessConfig()
 	respondJSON(w, http.StatusOK, map[string]interface{}{
 		"success": true,
 		"cluster": status,
+		"witness": witnessCfg,
 	})
 }
 
@@ -372,6 +374,91 @@ func (h *HAHandler) ToggleHA(w http.ResponseWriter, r *http.Request) {
 		"success": true,
 		"message": "HA state updated. System reconfiguration started.",
 		"job_id":  jobID,
+	})
+}
+
+// GetWitnessConfig returns the current quorum witness configuration.
+// GET /api/ha/witness/configure
+func (h *HAHandler) GetWitnessConfig(w http.ResponseWriter, r *http.Request) {
+	cfg, err := h.mgr.GetWitnessConfig()
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "Failed to read witness config", err)
+		return
+	}
+	respondJSON(w, http.StatusOK, map[string]interface{}{
+		"success": true,
+		"config":  cfg,
+	})
+}
+
+// ConfigureWitness saves a new quorum witness configuration.
+// POST /api/ha/witness/configure
+func (h *HAHandler) ConfigureWitness(w http.ResponseWriter, r *http.Request) {
+	var req ha.WitnessConfig
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondError(w, http.StatusBadRequest, "Invalid request body", err)
+		return
+	}
+	if req.Enable && req.URL == "" {
+		respondErrorSimple(w, "url is required when witness is enabled", http.StatusBadRequest)
+		return
+	}
+	if err := h.mgr.SaveWitnessConfig(req); err != nil {
+		respondError(w, http.StatusInternalServerError, "Failed to save witness config", err)
+		return
+	}
+	respondJSON(w, http.StatusOK, map[string]interface{}{
+		"success": true,
+		"message": "Quorum witness configuration saved",
+	})
+}
+
+// TestWitness probes the configured witness URL and returns whether it is reachable.
+// POST /api/ha/witness/test
+func (h *HAHandler) TestWitness(w http.ResponseWriter, r *http.Request) {
+	cfg, err := h.mgr.GetWitnessConfig()
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "Failed to read witness config", err)
+		return
+	}
+	if cfg.URL == "" {
+		respondErrorSimple(w, "No witness URL configured", http.StatusBadRequest)
+		return
+	}
+
+	// Allow caller to override URL/timeout for an ad-hoc probe without saving
+	var req ha.WitnessConfig
+	if err := json.NewDecoder(r.Body).Decode(&req); err == nil {
+		if req.URL != "" {
+			cfg.URL = req.URL
+		}
+		if req.TimeoutSecs > 0 {
+			cfg.TimeoutSecs = req.TimeoutSecs
+		}
+	}
+
+	timeout := cfg.TimeoutSecs
+	if timeout <= 0 {
+		timeout = 5
+	}
+
+	client := &http.Client{Timeout: time.Duration(timeout) * time.Second}
+	resp, err := client.Get(cfg.URL)
+	if err != nil {
+		respondJSON(w, http.StatusOK, map[string]interface{}{
+			"success":   true,
+			"reachable": false,
+			"url":       cfg.URL,
+			"error":     err.Error(),
+		})
+		return
+	}
+	resp.Body.Close()
+	respondJSON(w, http.StatusOK, map[string]interface{}{
+		"success":     true,
+		"reachable":   true,
+		"url":         cfg.URL,
+		"status_code": resp.StatusCode,
 	})
 }
 

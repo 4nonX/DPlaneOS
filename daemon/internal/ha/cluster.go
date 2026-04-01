@@ -311,6 +311,19 @@ func (m *Manager) checkFailover() {
 		return
 	}
 
+	// 2.5 Quorum Witness: only proceed with auto-failover if we can reach the
+	// witness endpoint, proving this node is NOT isolated in a network partition.
+	witnessCfg, witnessErr := GetWitnessConfig(m.db)
+	if witnessErr == nil && witnessCfg.Enable {
+		if !canReachWitness(witnessCfg) {
+			if deadPeer.MissedBeats == 3 {
+				log.Printf("HA WITNESS: Peer %s unreachable but witness %s also unreachable — node may be isolated. Automatic failover SUSPENDED.", deadPeer.ID, witnessCfg.URL)
+			}
+			return
+		}
+		log.Printf("HA WITNESS: Peer %s unreachable, witness %s reachable — proceeding with automated failover.", deadPeer.ID, witnessCfg.URL)
+	}
+
 	// 3. Check Maintenance Mode
 	if m.IsMaintenanceActive() {
 		if deadPeer.MissedBeats == 3 {
@@ -453,6 +466,16 @@ func (m *Manager) ensureSchema() error {
 			bmc_ip TEXT NOT NULL DEFAULT '',
 			bmc_user TEXT NOT NULL DEFAULT '',
 			bmc_password_file TEXT NOT NULL DEFAULT ''
+		)
+	`); err != nil {
+		return err
+	}
+	if _, err := m.db.Exec(`
+		CREATE TABLE IF NOT EXISTS ha_witness_config (
+			id INTEGER PRIMARY KEY CHECK (id = 1),
+			enable BOOLEAN NOT NULL DEFAULT FALSE,
+			url TEXT NOT NULL DEFAULT '',
+			timeout_secs INTEGER NOT NULL DEFAULT 5
 		)
 	`); err != nil {
 		return err
@@ -632,6 +655,16 @@ func (m *Manager) GetFencingConfig() (FencingConfig, error) {
 // SaveFencingConfig exposes STONITH write access on the Manager.
 func (m *Manager) SaveFencingConfig(cfg FencingConfig) error {
 	return SaveFencingConfig(m.db, cfg)
+}
+
+// GetWitnessConfig exposes quorum witness read access on the Manager.
+func (m *Manager) GetWitnessConfig() (WitnessConfig, error) {
+	return GetWitnessConfig(m.db)
+}
+
+// SaveWitnessConfig exposes quorum witness write access on the Manager.
+func (m *Manager) SaveWitnessConfig(cfg WitnessConfig) error {
+	return SaveWitnessConfig(m.db, cfg)
 }
 
 
