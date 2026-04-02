@@ -18,7 +18,7 @@ type ReplicationConfig struct {
 	RemoteUser   string `json:"remote_user"`
 	RemotePort   int    `json:"remote_port"`
 	SSHKeyPath   string `json:"ssh_key_path"`
-	IntervalSecs int    `json:"interval_seconds"`
+	IntervalSecs int    `json:"interval_secs"`
 }
 
 // startReplicationLoop begins continuous ZFS sync to the standby peer

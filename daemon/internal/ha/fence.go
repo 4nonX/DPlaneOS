@@ -2,9 +2,11 @@ package ha
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
 	"fmt"
 	"log"
+	"math/big"
 	"os"
 	"os/exec"
 	"strings"
@@ -19,6 +21,7 @@ type FencingConfig struct {
 	BMCIP           string `json:"bmc_ip"`
 	BMCUser         string `json:"bmc_user"`
 	BMCPasswordFile string `json:"bmc_password_file"`
+	JitterMaxMs     int    `json:"jitter_max_ms"` // max random pre-fire delay in ms; default 3000
 }
 
 // GetFencingConfig reads the Fencing HA config from the PostgreSQL database.
@@ -27,11 +30,12 @@ func GetFencingConfig(db *sql.DB) (FencingConfig, error) {
 	var bmcIP, bmcUser, bmcPassFile sql.NullString
 	var enable sql.NullBool
 
+	var jitterMaxMs sql.NullInt64
 	err := db.QueryRow(`
-		SELECT enable, bmc_ip, bmc_user, bmc_password_file
+		SELECT enable, bmc_ip, bmc_user, bmc_password_file, jitter_max_ms
 		FROM ha_fencing_config
 		LIMIT 1
-	`).Scan(&enable, &bmcIP, &bmcUser, &bmcPassFile)
+	`).Scan(&enable, &bmcIP, &bmcUser, &bmcPassFile, &jitterMaxMs)
 
 	if err == sql.ErrNoRows {
 		return cfg, nil
@@ -43,21 +47,43 @@ func GetFencingConfig(db *sql.DB) (FencingConfig, error) {
 	cfg.BMCIP = bmcIP.String
 	cfg.BMCUser = bmcUser.String
 	cfg.BMCPasswordFile = bmcPassFile.String
+	cfg.JitterMaxMs = int(jitterMaxMs.Int64)
 	return cfg, nil
 }
 
 // SaveFencingConfig upserts the Fencing HA config.
 func SaveFencingConfig(db *sql.DB, cfg FencingConfig) error {
+	if cfg.JitterMaxMs < 0 {
+		cfg.JitterMaxMs = 0
+	}
+	if cfg.JitterMaxMs > 30000 {
+		cfg.JitterMaxMs = 30000 // cap at 30s — beyond this the fencing window is unreasonably large
+	}
 	_, err := db.Exec(`
-		INSERT INTO ha_fencing_config (id, enable, bmc_ip, bmc_user, bmc_password_file)
-		VALUES (1, $1, $2, $3, $4)
+		INSERT INTO ha_fencing_config (id, enable, bmc_ip, bmc_user, bmc_password_file, jitter_max_ms)
+		VALUES (1, $1, $2, $3, $4, $5)
 		ON CONFLICT(id) DO UPDATE SET
-			enable = excluded.enable,
-			bmc_ip = excluded.bmc_ip,
-			bmc_user = excluded.bmc_user,
-			bmc_password_file = excluded.bmc_password_file
-	`, cfg.Enable, cfg.BMCIP, cfg.BMCUser, cfg.BMCPasswordFile)
+			enable            = excluded.enable,
+			bmc_ip            = excluded.bmc_ip,
+			bmc_user          = excluded.bmc_user,
+			bmc_password_file = excluded.bmc_password_file,
+			jitter_max_ms     = excluded.jitter_max_ms
+	`, cfg.Enable, cfg.BMCIP, cfg.BMCUser, cfg.BMCPasswordFile, cfg.JitterMaxMs)
 	return err
+}
+
+// stonithJitter returns a cryptographically random delay in [0, maxMs) milliseconds.
+// Using crypto/rand prevents both nodes from rolling identical delays.
+func stonithJitter(maxMs int) time.Duration {
+	if maxMs <= 0 {
+		return 0
+	}
+	n, err := rand.Int(rand.Reader, big.NewInt(int64(maxMs)))
+	if err != nil {
+		// On the rare failure, use maxMs as a conservative safe default.
+		return time.Duration(maxMs) * time.Millisecond
+	}
+	return time.Duration(n.Int64()) * time.Millisecond
 }
 
 // ExecuteFencing safely connects to the BMC and forces a chassis power off.
@@ -69,6 +95,17 @@ func ExecuteFencing(nodeID string, cfg FencingConfig) error {
 	if !cfg.Enable {
 		return fmt.Errorf("fencing is disabled but ExecuteFencing was invoked")
 	}
+
+	// STONITH Jitter: random pre-fire delay prevents both nodes from shooting
+	// simultaneously when they hit the FailoverAfter threshold at the same moment.
+	// Node A rolls 400ms, Node B rolls 2100ms — A fires first, B dies before waking.
+	maxMs := cfg.JitterMaxMs
+	if maxMs == 0 {
+		maxMs = 3000 // default 3s window
+	}
+	delay := stonithJitter(maxMs)
+	log.Printf("STONITH: Jitter delay %v before fencing node %s (mutual-destruction prevention)", delay, nodeID)
+	time.Sleep(delay)
 
 	// Read the raw password securely from the 0600 file.
 	passBytes, err := os.ReadFile(cfg.BMCPasswordFile)

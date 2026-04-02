@@ -6,6 +6,34 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 
 
+## v7.5.2 (2026-04-02) - "Ironclad HA"
+
+Upgrade from: v7.5.1 - Drop-in. `sudo bash install.sh --upgrade`
+
+### Added
+- **STONITH Jitter (Mutual-Destruction Prevention)**: Both nodes in an HA pair previously had no coordination mechanism to prevent simultaneous STONITH — each could fence the other at exactly the same moment, killing both. A cryptographically random pre-fire delay (`crypto/rand`, 0–3000 ms by default, configurable up to 30 s) is now applied before the BMC power-off command is issued. When both nodes hit the `FailoverAfter` threshold simultaneously, they each draw independent random delays; the node with the shorter delay fires first, and the fenced node dies before its own delay elapses. The jitter window is configurable via `jitter_max_ms` on the fencing config.
+- **Witness Array with N-of-M Quorum**: The single witness URL is replaced by a configurable array of `WitnessEntry` objects. Each entry supports optional strict TLS enforcement, expected HTTP status code matching, and body regex validation. The `required_healthy` field sets the quorum threshold — e.g. `required_healthy: 2` with three witnesses requires at least two to pass before auto-failover proceeds. All witnesses are probed concurrently. The configuration is validated at save time: invalid regexes are rejected with a descriptive error before they can silently disable failover at probe time.
+- **Assertive Probing**: Witness probes now go beyond basic TCP reachability. Per-entry options: `strict_tls: true` enforces certificate verification; `expected_status` validates the HTTP response code; `expected_body_regex` reads the first 1 KB of the response body and matches against a compiled regex. A probe only passes when all configured checks succeed.
+- **PDU Out-of-Band STONITH**: A networked PDU (Digital Loggers, iBoot, Raritan, etc.) can now be registered as a secondary fencing method. When IPMI fencing is enabled but fails, the daemon automatically falls back to an HTTP GET or POST to the configured PDU outlet-off URL, with optional HTTP Basic Auth via a password file and an exact-status-code response check. Neither promotion nor split-brain exposure occurs unless at least one fencing method confirms the peer is dark.
+- **Zombie Reconciliation (TXG Boot Check)**: On daemon start, before the heartbeat loop is initialised, the local ZFS pool TXG (Transaction Group ID) is compared against the active peer's TXG via the peer's `/api/ha/sync/status` endpoint. If the local pool is stale (lower TXG), the node enters `SubordinateMode`: the local pool is set `readonly=on` and a full ZFS catch-up is initiated over SSH from the active peer. Once the catch-up completes, `readonly` is lifted and normal HA operation resumes. This prevents a rebooted node with stale data from winning a promotion race.
+- **Flapping Defense (Hysteresis)**: A 60-minute suppression window is enforced after any automated failover. During the hysteresis window, `checkFailover()` will not trigger another promotion, preventing ping-pong flapping caused by an unstable peer that repeatedly crosses and recovers from the `FailoverAfter` threshold. The window start time is persisted to `ha_cluster_state` so it survives daemon restarts. Operators can clear the window early via `POST /api/ha/clear_fault`.
+- **New API Endpoints**:
+  - `GET /api/ha/pdu/configure` — read PDU fencing configuration
+  - `POST /api/ha/pdu/configure` — save PDU fencing configuration
+  - `GET /api/ha/sync/status` — return local ZFS pool TXG values (public endpoint, used by peer reconciliation)
+  - `POST /api/ha/clear_fault` — clear hysteresis window and/or subordinate mode to re-enable automated failover
+- **Full UI Exposure**: All new HA features are accessible through the web interface. The HA page adds a Subordinate Mode operational banner (amber, with confirm-gated "Clear Fault" button), a Hysteresis Active banner, a "Last Failover" stat card, a Witness Array configuration form with per-entry TLS/status/regex controls and live quorum-test output, a PDU fencing configuration form, and a `jitter_max_ms` slider on the fencing card. The setup wizard is extended with a dedicated Quorum Witness step.
+
+### Fixed
+- **`loadPersistedNodes` zero-time LastSeen**: `lastSeenUnix` was scanned from the DB but never assigned to `n.LastSeen`. `time.Since(time.Time{})` ≈ 56 years, which instantly exceeds `FailoverAfter = 45 s`, causing STONITH against all persisted peers every time the daemon restarted. Fixed by assigning `n.LastSeen = time.Unix(lastSeenUnix, 0)` after the scan.
+- **`ReplicationConfig` JSON tag mismatch**: The `IntervalSecs` field was tagged `json:"interval_seconds"` while the database column and all API payloads used `interval_secs`. Silent decode failures caused `IntervalSecs` to always deserialise as 0, defaulting the replication loop to 30 s regardless of the configured value. Fixed by aligning the tag to `json:"interval_secs"`.
+- **Missing scan error check in `loadPersistedNodes`**: `rows.Scan` errors were not checked, silently storing zero-valued peer entries. Also added `rows.Err()` check after the iteration loop.
+
+### Changed
+- **Fencing config `jitter_max_ms`**: New field on `FencingConfig`. Default 3000 ms (3 s window). Clamped to [0, 30000] at save time.
+- **Witness config schema**: `ha_witness_config.witnesses_json` replaces the former single `url TEXT` column, storing a JSON array of `WitnessEntry` objects.
+
+
 ## v7.5.1 (2026-03-30) - "Zero-Touch HA"
 
 Upgrade from: v7.5.0 - Drop-in. `sudo bash install.sh --upgrade`

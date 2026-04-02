@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"dplaned/internal/cmdutil"
@@ -399,8 +400,8 @@ func (h *HAHandler) ConfigureWitness(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusBadRequest, "Invalid request body", err)
 		return
 	}
-	if req.Enable && req.URL == "" {
-		respondErrorSimple(w, "url is required when witness is enabled", http.StatusBadRequest)
+	if req.Enable && len(req.Witnesses) == 0 {
+		respondErrorSimple(w, "at least one witness entry is required when witness is enabled", http.StatusBadRequest)
 		return
 	}
 	if err := h.mgr.SaveWitnessConfig(req); err != nil {
@@ -413,7 +414,8 @@ func (h *HAHandler) ConfigureWitness(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// TestWitness probes the configured witness URL and returns whether it is reachable.
+// TestWitness probes all configured witnesses and returns per-entry results.
+// An optional JSON body of type WitnessConfig may override the stored config for ad-hoc testing.
 // POST /api/ha/witness/test
 func (h *HAHandler) TestWitness(w http.ResponseWriter, r *http.Request) {
 	cfg, err := h.mgr.GetWitnessConfig()
@@ -421,44 +423,123 @@ func (h *HAHandler) TestWitness(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusInternalServerError, "Failed to read witness config", err)
 		return
 	}
-	if cfg.URL == "" {
-		respondErrorSimple(w, "No witness URL configured", http.StatusBadRequest)
-		return
-	}
 
-	// Allow caller to override URL/timeout for an ad-hoc probe without saving
+	// Allow caller to supply an ad-hoc config (e.g. for testing before saving).
 	var req ha.WitnessConfig
-	if err := json.NewDecoder(r.Body).Decode(&req); err == nil {
-		if req.URL != "" {
-			cfg.URL = req.URL
+	if decodeErr := json.NewDecoder(r.Body).Decode(&req); decodeErr == nil {
+		if len(req.Witnesses) > 0 {
+			cfg.Witnesses = req.Witnesses
 		}
 		if req.TimeoutSecs > 0 {
 			cfg.TimeoutSecs = req.TimeoutSecs
 		}
+		if req.RequiredHealthy > 0 {
+			cfg.RequiredHealthy = req.RequiredHealthy
+		}
+	}
+
+	if len(cfg.Witnesses) == 0 {
+		respondErrorSimple(w, "No witness entries configured", http.StatusBadRequest)
+		return
 	}
 
 	timeout := cfg.TimeoutSecs
 	if timeout <= 0 {
 		timeout = 5
 	}
+	timeoutDur := time.Duration(timeout) * time.Second
 
-	client := &http.Client{Timeout: time.Duration(timeout) * time.Second}
-	resp, err := client.Get(cfg.URL)
+	type probeResult struct {
+		URL       string `json:"url"`
+		Reachable bool   `json:"reachable"`
+	}
+	results := make([]probeResult, len(cfg.Witnesses))
+	var wg sync.WaitGroup
+	for i, entry := range cfg.Witnesses {
+		wg.Add(1)
+		go func(idx int, e ha.WitnessEntry) {
+			defer wg.Done()
+			results[idx] = probeResult{
+				URL:       e.URL,
+				Reachable: ha.ProbeWitnessEntry(e, timeoutDur),
+			}
+		}(i, entry)
+	}
+	wg.Wait()
+
+	healthy := 0
+	for _, r := range results {
+		if r.Reachable {
+			healthy++
+		}
+	}
+	required := cfg.RequiredHealthy
+	if required <= 0 {
+		required = 1
+	}
+
+	respondJSON(w, http.StatusOK, map[string]interface{}{
+		"success":          true,
+		"quorum_satisfied": healthy >= required,
+		"healthy":          healthy,
+		"required":         required,
+		"results":          results,
+	})
+}
+
+// GetPDUConfig fetches the PDU outlet-fencing configuration.
+// GET /api/ha/pdu/configure
+func (h *HAHandler) GetPDUConfig(w http.ResponseWriter, r *http.Request) {
+	cfg, err := h.mgr.GetPDUConfig()
 	if err != nil {
-		respondJSON(w, http.StatusOK, map[string]interface{}{
-			"success":   true,
-			"reachable": false,
-			"url":       cfg.URL,
-			"error":     err.Error(),
-		})
+		respondError(w, http.StatusInternalServerError, "Failed to read PDU config", err)
 		return
 	}
-	resp.Body.Close()
 	respondJSON(w, http.StatusOK, map[string]interface{}{
-		"success":     true,
-		"reachable":   true,
-		"url":         cfg.URL,
-		"status_code": resp.StatusCode,
+		"success": true,
+		"config":  cfg,
+	})
+}
+
+// ConfigurePDU saves the PDU outlet-fencing configuration.
+// POST /api/ha/pdu/configure
+func (h *HAHandler) ConfigurePDU(w http.ResponseWriter, r *http.Request) {
+	var req ha.PDUConfig
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondError(w, http.StatusBadRequest, "Invalid request body", err)
+		return
+	}
+	if req.Enable && req.OutletOffURL == "" {
+		respondErrorSimple(w, "outlet_off_url is required when PDU fencing is enabled", http.StatusBadRequest)
+		return
+	}
+	if err := h.mgr.SavePDUConfig(req); err != nil {
+		respondError(w, http.StatusInternalServerError, "Failed to save PDU config", err)
+		return
+	}
+	respondJSON(w, http.StatusOK, map[string]interface{}{
+		"success": true,
+		"message": "PDU fencing configuration saved",
+	})
+}
+
+// GetSyncStatus returns this node's ZFS pool TXG state for peer startup reconciliation.
+// This endpoint is deliberately public — peer daemons call it at boot time before
+// they have authenticated sessions.
+// GET /api/ha/sync/status
+func (h *HAHandler) GetSyncStatus(w http.ResponseWriter, r *http.Request) {
+	status := h.mgr.GetSyncStatus()
+	respondJSON(w, http.StatusOK, status)
+}
+
+// ClearFault resets the hysteresis timer and subordinate mode, re-enabling auto-failover.
+// Call this after investigating and resolving the root cause of a failover or zombie boot.
+// POST /api/ha/clear_fault
+func (h *HAHandler) ClearFault(w http.ResponseWriter, r *http.Request) {
+	h.mgr.ClearFault()
+	respondJSON(w, http.StatusOK, map[string]interface{}{
+		"success": true,
+		"message": "Fault cleared. Hysteresis and Subordinate Mode reset. Auto-failover re-enabled.",
 	})
 }
 

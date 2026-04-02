@@ -1084,8 +1084,12 @@ func main() {
 	r.Handle("/api/ha/promote", permRoute("system", "admin", haHandler.Promote)).Methods("POST")
 	r.Handle("/api/ha/fence", permRoute("system", "admin", haHandler.TriggerFence)).Methods("POST")
 	r.Handle("/api/ha/maintenance", permRoute("system", "admin", haHandler.RegisterMaintenance)).Methods("POST")
-	// /api/ha/heartbeat is deliberately PUBLIC (no session) so peer daemons can reach it
+	r.Handle("/api/ha/pdu/configure", permRoute("system", "admin", haHandler.ConfigurePDU)).Methods("POST")
+	r.Handle("/api/ha/pdu/configure", permRoute("system", "admin", haHandler.GetPDUConfig)).Methods("GET")
+	r.Handle("/api/ha/clear_fault", permRoute("system", "admin", haHandler.ClearFault)).Methods("POST")
+	// /api/ha/heartbeat and /api/ha/sync/status are deliberately PUBLIC — peer daemons call them without a session
 	r.HandleFunc("/api/ha/heartbeat", haHandler.PeerHeartbeat).Methods("POST")
+	r.HandleFunc("/api/ha/sync/status", haHandler.GetSyncStatus).Methods("GET")
 	r.HandleFunc("/api/ha/local", haHandler.LocalNodeInfo).Methods("GET")
 	r.Handle("/api/ha/toggle", permRoute("system", "admin", haHandler.ToggleHA)).Methods("POST")
 
@@ -1270,8 +1274,9 @@ func sessionMiddleware(db *sql.DB) mux.MiddlewareFunc {
 				p == "/api/system/setup-admin" ||
 				p == "/api/system/setup-complete" ||
 				p == "/api/system/status" || // dashboard needs status before login to detect setup_complete
-				// HA heartbeat - called by peer daemons that have no user session
+				// HA peer endpoints - called by peer daemons that have no user session
 				p == "/api/ha/heartbeat" ||
+				p == "/api/ha/sync/status" ||
 				// Internal hooks - called by systemd timers on localhost.
 				// Mandatory check: Must be localhost AND provide the internal-only secret token.
 				((p == "/api/zfs/snapshots/cron-hook" || p == "/api/hardware/smart/cron-hook") &&

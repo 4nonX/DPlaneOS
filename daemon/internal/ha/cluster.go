@@ -69,13 +69,16 @@ type ClusterNode struct {
 
 // ClusterStatus summarises the full cluster view.
 type ClusterStatus struct {
-	LocalNode   *ClusterNode   `json:"local_node"`
-	Peers       []*ClusterNode `json:"peers"`
-	Quorum      bool           `json:"quorum"`       // true if majority of nodes are reachable
-	ActiveNode         *ClusterNode   `json:"active_node"`  // which node currently holds the active role
-	HAEnabled          bool           `json:"ha_enabled"`   // true if Patroni/HAProxy is configured in NixOS
+	LocalNode          *ClusterNode   `json:"local_node"`
+	Peers              []*ClusterNode `json:"peers"`
+	Quorum             bool           `json:"quorum"`              // true if majority of nodes are reachable
+	ActiveNode         *ClusterNode   `json:"active_node"`         // which node currently holds the active role
+	HAEnabled          bool           `json:"ha_enabled"`          // true if Patroni/HAProxy is configured in NixOS
 	MaintenanceActive  bool           `json:"maintenance_active"`
-	MaintenanceUntil   int64          `json:"maintenance_until"` // unix timestamp
+	MaintenanceUntil   int64          `json:"maintenance_until"`   // unix timestamp
+	SubordinateMode    bool           `json:"subordinate_mode"`    // true if catching up stale data post-zombie boot
+	HysteresisActive   bool           `json:"hysteresis_active"`   // true if flap-guard is suppressing auto-failover
+	LastFailoverAt     int64          `json:"last_failover_at"`    // unix timestamp of last automated failover; 0 = never
 	LastUpdated        time.Time      `json:"last_updated"`
 }
 
@@ -96,6 +99,14 @@ type Manager struct {
 	replCancel context.CancelFunc
 
 	maintenanceUntil time.Time
+
+	// Hysteresis: time of the last automated failover. Auto-failover is suppressed
+	// for HysteresisWindow after a failover to prevent flapping on unstable networks.
+	lastFailoverAt time.Time
+
+	// subordinateMode is set at boot when this node detects it has stale ZFS data
+	// vs an already-active peer. Auto-failover is disabled until catch-up completes.
+	subordinateMode bool
 
 	stopCh chan struct{}
 	wg     sync.WaitGroup
@@ -125,6 +136,8 @@ func (m *Manager) Start() {
 	}
 	m.loadPersistedNodes()
 	m.loadPersistedReplication()
+	m.loadClusterState()
+	m.StartupReconciliation()
 
 	m.wg.Add(1)
 	go m.heartbeatLoop()
@@ -216,14 +229,24 @@ func (m *Manager) Status() *ClusterStatus {
 
 	maintenanceActive := time.Now().Before(m.maintenanceUntil)
 
+	var lastFailoverUnix int64
+	hysteresisActive := false
+	if !m.lastFailoverAt.IsZero() {
+		lastFailoverUnix = m.lastFailoverAt.Unix()
+		hysteresisActive = time.Since(m.lastFailoverAt) < HysteresisWindow
+	}
+
 	return &ClusterStatus{
 		LocalNode:         local,
 		Peers:             peers,
 		Quorum:            quorum,
 		ActiveNode:        activeNode,
-		HAEnabled:         m.replConfig != nil, // Approximation if NixWriter not available
+		HAEnabled:         m.replConfig != nil,
 		MaintenanceActive: maintenanceActive,
 		MaintenanceUntil:  m.maintenanceUntil.Unix(),
+		SubordinateMode:   m.subordinateMode,
+		HysteresisActive:  hysteresisActive,
+		LastFailoverAt:    lastFailoverUnix,
 		LastUpdated:       time.Now(),
 	}
 }
@@ -263,6 +286,12 @@ func (m *Manager) GetPeer(id string) (*ClusterNode, bool) {
 // FailoverAfter defines the threshold over which a missed heartbeat triggers STONITH/Promotion.
 const FailoverAfter = 45 * time.Second
 
+// HysteresisWindow is the minimum time that must pass after a failover before another
+// automated failover is permitted. Prevents the "ping-pong" flapping scenario where
+// a dying switch causes repeated failovers and data stream interruptions.
+// Operators can reset this early via POST /api/ha/clear_fault.
+const HysteresisWindow = 60 * time.Minute
+
 // heartbeatLoop pings all peers every 15 seconds.
 func (m *Manager) heartbeatLoop() {
 	defer m.wg.Done()
@@ -284,55 +313,76 @@ func (m *Manager) checkFailover() {
 	m.mu.RLock()
 	isStandby := false
 	var deadPeer *ClusterNode
-
 	for _, n := range m.nodes {
 		if n.Role == RoleActive && n.State != StateUnreachable {
 			isStandby = true
 		}
 		if n.State == StateUnreachable && time.Since(n.LastSeen) > FailoverAfter {
-			// Found a dead peer that has breached the 45s margin.
 			cp := *n
 			deadPeer = &cp
 		}
 	}
+	lastFailoverAt := m.lastFailoverAt
+	subordinateMode := m.subordinateMode
 	m.mu.RUnlock()
 
 	if !isStandby || deadPeer == nil {
 		return
 	}
 
-	// 2. Fetch fencing configuration from the database.
-	fencingCfg, err := GetFencingConfig(m.db)
-	if err != nil || !fencingCfg.Enable {
-		// Just log on the transition edge, but avoid log spam every 15s.
+	// Guard 1: Subordinate Mode — this node is still catching up stale data from
+	// a zombie boot. Promoting while behind would serve outdated files.
+	if subordinateMode {
 		if deadPeer.MissedBeats == 3 {
-			log.Printf("HA STONITH: Peer %s breached FailoverThreshold (45s), but Fencing is DISABLED. Automatic promotion aborted.", deadPeer.ID)
+			log.Printf("HA SUBORDINATE: Failover suppressed — node is in Subordinate (catch-up) Mode. Data sync must complete before auto-failover is safe.")
 		}
 		return
 	}
 
-	// 2.5 Quorum Witness: only proceed with auto-failover if we can reach the
-	// witness endpoint, proving this node is NOT isolated in a network partition.
+	// Guard 2: Hysteresis — suppress auto-failover for HysteresisWindow after the last
+	// failover to prevent flapping on an unstable network (e.g. dying core switch).
+	if !lastFailoverAt.IsZero() && time.Since(lastFailoverAt) < HysteresisWindow {
+		if deadPeer.MissedBeats == 3 {
+			log.Printf("HA HYSTERESIS: Failover suppressed — last failover was %v ago (window: %v). Use POST /api/ha/clear_fault to override.",
+				time.Since(lastFailoverAt).Truncate(time.Second), HysteresisWindow)
+		}
+		return
+	}
+
+	// Guard 3: Require at least one fencing method enabled.
+	// IPMI and PDU are fetched now and captured for the goroutine.
+	fencingCfg, _ := GetFencingConfig(m.db)
+	pduCfg, _ := GetPDUConfig(m.db)
+	if !fencingCfg.Enable && !pduCfg.Enable {
+		if deadPeer.MissedBeats == 3 {
+			log.Printf("HA STONITH: Peer %s breached FailoverThreshold but no fencing method (IPMI or PDU) is enabled. Automatic promotion aborted.", deadPeer.ID)
+		}
+		return
+	}
+
+	// Guard 4: Quorum Witness — prove this node is not isolated.
 	witnessCfg, witnessErr := GetWitnessConfig(m.db)
 	if witnessErr == nil && witnessCfg.Enable {
 		if !canReachWitness(witnessCfg) {
 			if deadPeer.MissedBeats == 3 {
-				log.Printf("HA WITNESS: Peer %s unreachable but witness %s also unreachable — node may be isolated. Automatic failover SUSPENDED.", deadPeer.ID, witnessCfg.URL)
+				log.Printf("HA WITNESS: Peer %s unreachable but %d/%d witnesses also unreachable — node may be isolated. Automatic failover SUSPENDED.",
+					deadPeer.ID, witnessCfg.RequiredHealthy, len(witnessCfg.Witnesses))
 			}
 			return
 		}
-		log.Printf("HA WITNESS: Peer %s unreachable, witness %s reachable — proceeding with automated failover.", deadPeer.ID, witnessCfg.URL)
+		log.Printf("HA WITNESS: Peer %s unreachable, quorum witness confirmed reachable (%d/%d) — proceeding with automated failover.",
+			deadPeer.ID, witnessCfg.RequiredHealthy, len(witnessCfg.Witnesses))
 	}
 
-	// 3. Check Maintenance Mode
+	// Guard 5: Maintenance Mode.
 	if m.IsMaintenanceActive() {
 		if deadPeer.MissedBeats == 3 {
-			log.Printf("HA STONITH: Peer %s breached FailoverThreshold (45s), but fencing is SUSPENDED due to ACTIVE MAINTENANCE MODE.", deadPeer.ID)
+			log.Printf("HA STONITH: Peer %s breached FailoverThreshold but fencing SUSPENDED — active maintenance mode.", deadPeer.ID)
 		}
 		return
 	}
 
-	// 4. Initiate Fencing & Promotion asynchronously (rate limited via flag).
+	// Rate-limit: only one fencing sequence at a time.
 	m.mu.Lock()
 	if m.fencingInProgress {
 		m.mu.Unlock()
@@ -348,14 +398,36 @@ func (m *Manager) checkFailover() {
 			m.mu.Unlock()
 		}()
 
-		log.Printf("HA STONITH: Triggering automated fencing against dead peer %s", deadPeer.ID)
-		if err := ExecuteFencing(deadPeer.ID, fencingCfg); err != nil {
-			log.Printf("HA STONITH: Fencing failed, aborting failover: %v", err)
+		// Try IPMI BMC first; fall back to PDU if configured.
+		fenced := false
+		if fencingCfg.Enable {
+			log.Printf("HA STONITH: Attempting IPMI fencing against dead peer %s", deadPeer.ID)
+			if err := ExecuteFencing(deadPeer.ID, fencingCfg); err != nil {
+				log.Printf("HA STONITH: IPMI fencing failed: %v. Trying PDU fallback.", err)
+			} else {
+				fenced = true
+			}
+		}
+		if !fenced && pduCfg.Enable {
+			log.Printf("HA STONITH: Attempting PDU outlet fencing against dead peer %s", deadPeer.ID)
+			if err := ExecutePDUFencing(deadPeer.ID, pduCfg); err != nil {
+				log.Printf("HA STONITH: PDU fencing also failed: %v. Aborting failover — refusing to promote without confirmed fence.", err)
+				return
+			}
+			fenced = true
+		}
+		if !fenced {
+			log.Printf("HA STONITH: No fencing method succeeded for peer %s. Aborting failover.", deadPeer.ID)
 			return
 		}
 
-		// 4. Fencing was successful! Promote this node.
-		log.Printf("HA STONITH: Fencing successful. Promoting local node to active role.")
+		// Record the failover timestamp for hysteresis tracking.
+		m.mu.Lock()
+		m.lastFailoverAt = time.Now()
+		m.mu.Unlock()
+		go m.persistClusterState()
+
+		log.Printf("HA STONITH: Peer %s confirmed fenced. Promoting local node to active role.", deadPeer.ID)
 		ExecutePromotion(m.localID, deadPeer.ID)
 	}()
 }
@@ -472,14 +544,45 @@ func (m *Manager) ensureSchema() error {
 	}
 	if _, err := m.db.Exec(`
 		CREATE TABLE IF NOT EXISTS ha_witness_config (
-			id INTEGER PRIMARY KEY CHECK (id = 1),
-			enable BOOLEAN NOT NULL DEFAULT FALSE,
-			url TEXT NOT NULL DEFAULT '',
-			timeout_secs INTEGER NOT NULL DEFAULT 5
+			id               INTEGER PRIMARY KEY CHECK (id = 1),
+			enable           BOOLEAN NOT NULL DEFAULT FALSE,
+			witnesses_json   TEXT    NOT NULL DEFAULT '[]',
+			required_healthy INTEGER NOT NULL DEFAULT 1,
+			timeout_secs     INTEGER NOT NULL DEFAULT 5
 		)
 	`); err != nil {
 		return err
 	}
+
+	if _, err := m.db.Exec(`
+		CREATE TABLE IF NOT EXISTS ha_pdu_config (
+			id              INTEGER PRIMARY KEY CHECK (id = 1),
+			enable          BOOLEAN NOT NULL DEFAULT FALSE,
+			outlet_off_url  TEXT    NOT NULL DEFAULT '',
+			method          TEXT    NOT NULL DEFAULT 'GET',
+			username        TEXT    NOT NULL DEFAULT '',
+			password_file   TEXT    NOT NULL DEFAULT '',
+			timeout_secs    INTEGER NOT NULL DEFAULT 10,
+			expected_status INTEGER NOT NULL DEFAULT 0
+		)
+	`); err != nil {
+		return err
+	}
+	if _, err := m.db.Exec(`
+		CREATE TABLE IF NOT EXISTS ha_cluster_state (
+			id               INTEGER PRIMARY KEY CHECK (id = 1),
+			last_failover_at TIMESTAMPTZ,
+			subordinate_mode BOOLEAN NOT NULL DEFAULT FALSE
+		)
+	`); err != nil {
+		return err
+	}
+
+	// Schema migrations: safe no-ops if columns already exist.
+	m.db.Exec(`ALTER TABLE ha_fencing_config ADD COLUMN IF NOT EXISTS jitter_max_ms INTEGER NOT NULL DEFAULT 3000`)
+	m.db.Exec(`ALTER TABLE ha_witness_config ADD COLUMN IF NOT EXISTS witnesses_json TEXT NOT NULL DEFAULT '[]'`)
+	m.db.Exec(`ALTER TABLE ha_witness_config ADD COLUMN IF NOT EXISTS required_healthy INTEGER NOT NULL DEFAULT 1`)
+
 	return nil
 }
 
@@ -510,11 +613,20 @@ func (m *Manager) loadPersistedNodes() {
 	for rows.Next() {
 		n := &ClusterNode{}
 		var lastSeenUnix int64
-		rows.Scan(&n.ID, &n.Name, &n.Address, (*string)(&n.Role), (*string)(&n.State),
-			&n.Version, &lastSeenUnix, &n.MissedBeats, &n.RegisteredAt)
-		// Mark as unknown on load - we'll re-ping immediately
+		if err := rows.Scan(&n.ID, &n.Name, &n.Address, (*string)(&n.Role), (*string)(&n.State),
+			&n.Version, &lastSeenUnix, &n.MissedBeats, &n.RegisteredAt); err != nil {
+			log.Printf("HA: skipping malformed peer row: %v", err)
+			continue
+		}
+		n.LastSeen = time.Unix(lastSeenUnix, 0)
+		n.LastSeenUnix = lastSeenUnix
+		// Re-ping will update State immediately; start as Unknown so we don't
+		// inherit a stale StateUnreachable from a previous crash.
 		n.State = StateUnknown
 		m.nodes[n.ID] = n
+	}
+	if err := rows.Err(); err != nil {
+		log.Printf("HA: error iterating persisted peers: %v", err)
 	}
 	log.Printf("HA: loaded %d persisted peers", len(m.nodes))
 }
@@ -665,6 +777,103 @@ func (m *Manager) GetWitnessConfig() (WitnessConfig, error) {
 // SaveWitnessConfig exposes quorum witness write access on the Manager.
 func (m *Manager) SaveWitnessConfig(cfg WitnessConfig) error {
 	return SaveWitnessConfig(m.db, cfg)
+}
+
+// GetPDUConfig exposes PDU fencing read access on the Manager.
+func (m *Manager) GetPDUConfig() (PDUConfig, error) {
+	return GetPDUConfig(m.db)
+}
+
+// SavePDUConfig exposes PDU fencing write access on the Manager.
+func (m *Manager) SavePDUConfig(cfg PDUConfig) error {
+	return SavePDUConfig(m.db, cfg)
+}
+
+// GetSyncStatus returns the TXG state of all local ZFS pools for startup reconciliation.
+func (m *Manager) GetSyncStatus() SyncStatus {
+	m.mu.RLock()
+	isActive := true
+	for _, n := range m.nodes {
+		if n.Role == RoleActive && n.State != StateUnreachable {
+			isActive = false // we are standby if a healthy active peer exists
+			break
+		}
+	}
+	m.mu.RUnlock()
+	return GetLocalSyncStatus(isActive)
+}
+
+// ClearFault resets the hysteresis timer and subordinate mode, re-enabling auto-failover.
+// Called by the operator after investigating and resolving the root cause of a failover.
+func (m *Manager) ClearFault() {
+	m.mu.Lock()
+	m.lastFailoverAt = time.Time{}
+	m.subordinateMode = false
+	m.mu.Unlock()
+	m.persistClusterState()
+	log.Printf("HA: Fault cleared by operator. Hysteresis and Subordinate Mode reset. Auto-failover re-enabled.")
+}
+
+// IsHysteresisActive reports whether the flap-guard is currently suppressing failovers.
+func (m *Manager) IsHysteresisActive() bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return !m.lastFailoverAt.IsZero() && time.Since(m.lastFailoverAt) < HysteresisWindow
+}
+
+// IsSubordinateMode reports whether this node is in zombie catch-up mode.
+func (m *Manager) IsSubordinateMode() bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.subordinateMode
+}
+
+// loadClusterState restores hysteresis and subordinate mode state from the database.
+func (m *Manager) loadClusterState() {
+	var lastFailoverAt sql.NullTime
+	var subordinateMode bool
+	err := m.db.QueryRow(`
+		SELECT last_failover_at, subordinate_mode
+		FROM ha_cluster_state WHERE id = 1
+	`).Scan(&lastFailoverAt, &subordinateMode)
+	if err != nil {
+		return
+	}
+	m.mu.Lock()
+	if lastFailoverAt.Valid {
+		m.lastFailoverAt = lastFailoverAt.Time
+	}
+	m.subordinateMode = subordinateMode
+	m.mu.Unlock()
+	if subordinateMode {
+		log.Printf("HA: Loaded persisted Subordinate Mode — node was in catch-up state when last shut down.")
+	}
+	if !m.lastFailoverAt.IsZero() && time.Since(m.lastFailoverAt) < HysteresisWindow {
+		log.Printf("HA: Hysteresis active — last failover was %v ago, auto-failover suppressed for %v more.",
+			time.Since(m.lastFailoverAt).Truncate(time.Second),
+			(HysteresisWindow - time.Since(m.lastFailoverAt)).Truncate(time.Second))
+	}
+}
+
+// persistClusterState saves hysteresis and subordinate mode to the database.
+func (m *Manager) persistClusterState() {
+	m.mu.RLock()
+	lastFailoverAt := m.lastFailoverAt
+	subordinateMode := m.subordinateMode
+	m.mu.RUnlock()
+
+	var lastFailoverParam interface{}
+	if !lastFailoverAt.IsZero() {
+		lastFailoverParam = lastFailoverAt
+	}
+
+	m.db.Exec(`
+		INSERT INTO ha_cluster_state (id, last_failover_at, subordinate_mode)
+		VALUES (1, $1, $2)
+		ON CONFLICT (id) DO UPDATE SET
+			last_failover_at = EXCLUDED.last_failover_at,
+			subordinate_mode = EXCLUDED.subordinate_mode
+	`, lastFailoverParam, subordinateMode)
 }
 
 
