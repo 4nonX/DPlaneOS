@@ -853,7 +853,7 @@ export function HAPage() {
 
   const ws = useWsStore()
   const [haReplProgress, setHaReplProgress] = useState<Record<string, unknown> | null>(null)
-  const haReplClearRef = useRef<number>()
+  const haReplClearRef = useRef<number | undefined>(undefined)
 
   useEffect(() => {
     const off = ws.on('haReplicationProgress', (d) => {
