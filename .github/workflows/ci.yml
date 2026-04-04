@@ -375,11 +375,8 @@ jobs:
             extra-substituters = https://cache.nixos.org
             trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY=
 
-      - name: Enable Nix build cache
-        uses: DeterminateSystems/magic-nix-cache-action@v8
-        continue-on-error: true
-        with:
-          use-flakehub: false
+      # ISO pulls ~1k store paths; Magic Nix Cache proxies via GitHub API and can hit
+      # rate limits (HTTP 418 / ResourceExhausted), breaking substituters mid-build.
 
       - name: Verify VERSION matches tag (Tags only)
         id: version

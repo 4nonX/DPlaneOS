@@ -16,7 +16,17 @@ let
       fi
       gum style --bold --foreground 212 "D-PlaneOS — emergency IPv4 (console)"
       gum style --width 72 "Use this if DHCP failed and you cannot open the web UI. Applies now with ip(8); persist the same values in Settings → Network after login."
-      IFACE=$(gum choose --header "Network interface" $(ls /sys/class/net | grep -v '^lo$' || true))
+      shopt -s nullglob
+      ifaces=()
+      for f in /sys/class/net/*; do
+        n="''${f##*/}"
+        [ "$n" = "lo" ] && continue
+        ifaces+=("$n")
+      done
+      IFACE=""
+      if [ "''${#ifaces[@]}" -gt 0 ]; then
+        IFACE=$(gum choose --header "Network interface" "''${ifaces[@]}")
+      fi
       [ -n "$IFACE" ] || exit 1
       CIDR=$(gum input --placeholder "IPv4 address in CIDR notation (required)")
       [ -n "$CIDR" ] || exit 1
