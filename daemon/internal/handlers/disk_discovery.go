@@ -12,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"dplaned/internal/gitops"
 )
 
 // DiskInfo is the enriched representation of a single block device.
@@ -70,6 +72,35 @@ func HandleDiskDiscovery(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"disks":       disks,
 		"suggestions": generatePoolSuggestions(disks),
+	})
+}
+
+// HandleReplacementDiskCandidates serves GET /api/zfs/pool/replacement-disks.
+// Returns disks that are not in use and have a /dev/disk/by-id path (required for replace).
+func HandleReplacementDiskCandidates(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		respondErrorSimple(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	disks, err := discoverDisks()
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "Operation failed", err)
+		return
+	}
+	out := make([]DiskInfo, 0, len(disks))
+	for _, d := range disks {
+		if d.InUse {
+			continue
+		}
+		if d.ByIDPath == "" {
+			continue
+		}
+		out = append(out, d)
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"disks":   out,
 	})
 }
 
@@ -523,17 +554,35 @@ func generatePoolSuggestions(disks []DiskInfo) []PoolSuggestion {
 
 // ── Pool create handler ────────────────────────────────────────────────────────
 
+type poolCreateVdev struct {
+	Type      string   `json:"type"`
+	Disks     []string `json:"disks"`
+	DraidSpec string   `json:"draid_spec"`
+}
+
+// poolCreateHTTPBody is the JSON body for POST /api/system/pool/create.
+type poolCreateHTTPBody struct {
+	Name     string            `json:"name"`
+	Type     string            `json:"type"`   // wizard: Single, Mirror, RAID-Z1, …
+	Layout   string            `json:"layout"` // pools UI: stripe, mirror, raidz1, …
+	Disks    []string          `json:"disks"`
+	Ashift   int               `json:"ashift"`
+	Options  map[string]string `json:"options"`
+	Topology *poolCreateTopology `json:"topology"`
+}
+
+type poolCreateTopology struct {
+	Data    []poolCreateVdev `json:"data"`
+	Special []poolCreateVdev `json:"special"`
+	Log     []poolCreateVdev `json:"log"`
+	Cache   []poolCreateVdev `json:"cache"`
+	Spare   []poolCreateVdev `json:"spare"`
+}
+
 // HandlePoolCreate serves POST /api/system/pool/create.
-// It validates that all submitted disk paths are stable by-id or by-path
-// references (or short names that can be resolved to a by-id path via the
-// disk registry).  Short names without a registry entry are rejected with a
-// descriptive error.
+// Accepts either a full topology object or a simple { name, layout|type, disks } payload.
 func HandlePoolCreate(w http.ResponseWriter, r *http.Request) {
-	var request struct {
-		Name  string   `json:"name"`
-		Type  string   `json:"type"`
-		Disks []string `json:"disks"`
-	}
+	var request poolCreateHTTPBody
 
 	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
 		respondError(w, http.StatusBadRequest, "Invalid request", err)
@@ -544,13 +593,8 @@ func HandlePoolCreate(w http.ResponseWriter, r *http.Request) {
 		respondErrorSimple(w, "pool name is required", http.StatusBadRequest)
 		return
 	}
-	if len(request.Disks) == 0 {
-		respondErrorSimple(w, "at least one disk is required", http.StatusBadRequest)
-		return
-	}
 
-	// Validate and resolve disk paths.
-	resolvedDisks, err := resolveAndValidateDiskPaths(request.Disks)
+	dp, err := buildDesiredPoolFromCreateRequest(request)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
@@ -558,25 +602,13 @@ func HandlePoolCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	args := []string{"create", "-f", request.Name}
-
-	switch request.Type {
-	case "", "Single":
-		// stripe/single vdev - no extra keyword
-	case "Mirror":
-		args = append(args, "mirror")
-	case "RAID-Z1":
-		args = append(args, "raidz")
-	case "RAID-Z2":
-		args = append(args, "raidz2")
-	case "RAID-Z3":
-		args = append(args, "raidz3")
-	default:
-		respondErrorSimple(w, "invalid pool type", http.StatusBadRequest)
+	args, err := gitops.ZpoolCreateFullArgs(dp, true)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 		return
 	}
-
-	args = append(args, resolvedDisks...)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
@@ -597,6 +629,149 @@ func HandlePoolCreate(w http.ResponseWriter, r *http.Request) {
 		"status": "created",
 		"name":   request.Name,
 	})
+}
+
+func buildDesiredPoolFromCreateRequest(request poolCreateHTTPBody) (gitops.DesiredPool, error) {
+	var dp gitops.DesiredPool
+	dp.Name = request.Name
+	dp.Ashift = request.Ashift
+	dp.Options = request.Options
+
+	if request.Topology != nil && len(request.Topology.Data) > 0 {
+		top, err := convertPoolTopologyRequest(request.Topology)
+		if err != nil {
+			return dp, err
+		}
+		dp.Topology = top
+	} else {
+		if len(request.Disks) == 0 {
+			return dp, fmt.Errorf("at least one disk is required")
+		}
+		resolved, err := resolveAndValidateDiskPaths(request.Disks)
+		if err != nil {
+			return dp, err
+		}
+		vtype := inferVdevTypeFromLayout(request.Layout, request.Type)
+		dp.Topology = gitops.PoolTopology{
+			Data: []gitops.VdevGroup{{Type: vtype, Disks: resolved}},
+		}
+	}
+
+	// Resolve disks inside topology groups
+	var err error
+	dp.Topology, err = resolveTopologyDisks(dp.Topology)
+	if err != nil {
+		return dp, err
+	}
+
+	if err := gitops.ValidatePoolTopology(&dp.Topology); err != nil {
+		return dp, err
+	}
+	return dp, nil
+}
+
+func convertPoolTopologyRequest(t *poolCreateTopology) (gitops.PoolTopology, error) {
+	var top gitops.PoolTopology
+	var err error
+	top.Data, err = convertVdevSlice(t.Data)
+	if err != nil {
+		return top, err
+	}
+	top.Special, err = convertVdevSlice(t.Special)
+	if err != nil {
+		return top, err
+	}
+	top.Log, err = convertVdevSlice(t.Log)
+	if err != nil {
+		return top, err
+	}
+	top.Cache, err = convertVdevSlice(t.Cache)
+	if err != nil {
+		return top, err
+	}
+	top.Spare, err = convertVdevSlice(t.Spare)
+	return top, err
+}
+
+func convertVdevSlice(in []poolCreateVdev) ([]gitops.VdevGroup, error) {
+	if len(in) == 0 {
+		return nil, nil
+	}
+	out := make([]gitops.VdevGroup, 0, len(in))
+	for _, v := range in {
+		out = append(out, gitops.VdevGroup{
+			Type:      v.Type,
+			Disks:     append([]string(nil), v.Disks...),
+			DraidSpec: v.DraidSpec,
+		})
+	}
+	return out, nil
+}
+
+func resolveTopologyDisks(top gitops.PoolTopology) (gitops.PoolTopology, error) {
+	resolveGroups := func(groups []gitops.VdevGroup) ([]gitops.VdevGroup, error) {
+		out := make([]gitops.VdevGroup, len(groups))
+		for i, g := range groups {
+			r, err := resolveAndValidateDiskPaths(g.Disks)
+			if err != nil {
+				return nil, err
+			}
+			out[i] = g
+			out[i].Disks = r
+		}
+		return out, nil
+	}
+	var err error
+	top.Data, err = resolveGroups(top.Data)
+	if err != nil {
+		return top, err
+	}
+	top.Special, err = resolveGroups(top.Special)
+	if err != nil {
+		return top, err
+	}
+	top.Log, err = resolveGroups(top.Log)
+	if err != nil {
+		return top, err
+	}
+	top.Cache, err = resolveGroups(top.Cache)
+	if err != nil {
+		return top, err
+	}
+	top.Spare, err = resolveGroups(top.Spare)
+	return top, err
+}
+
+func inferVdevTypeFromLayout(layout, typ string) string {
+	l := strings.ToLower(strings.TrimSpace(layout))
+	if l != "" {
+		switch l {
+		case "stripe", "single":
+			return "stripe"
+		case "mirror":
+			return "mirror"
+		case "raidz", "raidz1":
+			return "raidz"
+		case "raidz2":
+			return "raidz2"
+		case "raidz3":
+			return "raidz3"
+		}
+	}
+	switch typ {
+	case "", "Single":
+		return "stripe"
+	case "Mirror":
+		return "mirror"
+	case "RAID-Z1":
+		return "raidz"
+	case "RAID-Z2":
+		return "raidz2"
+	case "RAID-Z3":
+		return "raidz3"
+	default:
+		return "stripe"
+	}
 }
 
 // resolveAndValidateDiskPaths converts each submitted disk path to a stable

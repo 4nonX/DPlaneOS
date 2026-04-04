@@ -1,13 +1,17 @@
 package ha
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"log"
-	"os"
 	"os/exec"
 	"strings"
 	"time"
+
+	"dplaned/internal/zfs"
 )
 
 // ReplicationConfig holds the active-to-standby ZFS sync parameters.
@@ -132,9 +136,9 @@ func (m *Manager) syncZFS(ctx context.Context, cfg *ReplicationConfig) error {
 func (m *Manager) executeSendRecv(ctx context.Context, cfg *ReplicationConfig, baseSnap, targetSnap string) error {
 	var sendArgs []string
 	if baseSnap != "" {
-		sendArgs = []string{"send", "-R", "-i", baseSnap, targetSnap}
+		sendArgs = []string{"send", "-P", "-R", "-i", baseSnap, targetSnap}
 	} else {
-		sendArgs = []string{"send", "-R", targetSnap}
+		sendArgs = []string{"send", "-P", "-R", targetSnap}
 	}
 
 	sshArgs := []string{
@@ -151,16 +155,36 @@ func (m *Manager) executeSendRecv(ctx context.Context, cfg *ReplicationConfig, b
 	if err != nil {
 		return fmt.Errorf("sender stdout pipe: %w", err)
 	}
-	sender.Stderr = os.Stderr
+	sendErrPipe, err := sender.StderrPipe()
+	if err != nil {
+		return fmt.Errorf("sender stderr pipe: %w", err)
+	}
 
 	receiver := exec.CommandContext(ctx, "ssh", sshArgs...)
 	receiver.Stdin = senderOut
-	receiver.Stdout = os.Stdout
-	receiver.Stderr = os.Stderr
+	var recvStderr bytes.Buffer
+	receiver.Stdout = io.Discard
+	receiver.Stderr = &recvStderr
 
 	if err := sender.Start(); err != nil {
 		return fmt.Errorf("start sender: %w", err)
 	}
+
+	var st zfs.SendProgressState
+	go func() {
+		sc := bufio.NewScanner(sendErrPipe)
+		for sc.Scan() {
+			line := sc.Text()
+			if up, ok := zfs.FeedSendProgressLine(line, &st, 500*time.Millisecond); ok {
+				up["source"] = "ha_zfs_sync"
+				up["local_pool"] = cfg.LocalPool
+				up["remote_pool"] = cfg.RemotePool
+				up["remote_host"] = cfg.RemoteHost
+				m.reportReplicationProgress(up)
+			}
+		}
+	}()
+
 	if err := receiver.Start(); err != nil {
 		sender.Wait() //nolint
 		return fmt.Errorf("start receiver: %w", err)
@@ -168,13 +192,16 @@ func (m *Manager) executeSendRecv(ctx context.Context, cfg *ReplicationConfig, b
 
 	senderErr := sender.Wait()
 	receiverErr := receiver.Wait()
-	
+
 	if senderErr != nil {
 		return fmt.Errorf("send failed: %w", senderErr)
 	}
 	if receiverErr != nil {
+		errOut := strings.TrimSpace(recvStderr.String())
+		if errOut != "" {
+			return fmt.Errorf("receive failed: %w (ssh stderr: %s)", receiverErr, errOut)
+		}
 		return fmt.Errorf("receive failed: %w", receiverErr)
 	}
-
 	return nil
 }

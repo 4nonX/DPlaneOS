@@ -21,6 +21,7 @@
  *   inotify_status                       → inotifyStats subscribers
  *   mount_health_<poolname>              → mountError subscribers
  *   gitops.drift                         → gitopsDrift subscribers
+ *   ha.replication_progress              → haReplicationProgress subscribers
  */
 
 import { create } from 'zustand'
@@ -49,6 +50,7 @@ type EventMap = {
   gitopsDrift: (data: unknown) => void
   jobProgress: (data: { job_id: string; data: any }) => void
   jobLog:      (data: { job_id: string; line: string }) => void
+  haReplicationProgress: (data: Record<string, unknown>) => void
 }
 
 type EventName = keyof EventMap
@@ -195,6 +197,9 @@ export const useWsStore = create<WsState>((set) => {
           break
         case 'job.log':
           emit('jobLog', (msg.data ?? msg) as { job_id: string; line: string })
+          break
+        case 'ha.replication_progress':
+          emit('haReplicationProgress', (msg.data ?? msg) as Record<string, unknown>)
           break
         default:
           // mount_health_<poolname> events from the background monitor

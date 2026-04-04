@@ -14,10 +14,12 @@ func TestParseStateYAML_Valid(t *testing.T) {
 version: "1"
 pools:
   - name: tank
-    vdev_type: mirror
-    disks:
-      - /dev/disk/by-id/ata-DISK_A
-      - /dev/disk/by-id/ata-DISK_B
+    topology:
+      data:
+        - type: mirror
+          disks:
+            - /dev/disk/by-id/ata-DISK_A
+            - /dev/disk/by-id/ata-DISK_B
     ashift: 12
 datasets:
   - name: tank/data
@@ -41,11 +43,11 @@ shares:
 	if state.Pools[0].Name != "tank" {
 		t.Errorf("pool name: want tank, got %q", state.Pools[0].Name)
 	}
-	if state.Pools[0].VdevType != "mirror" {
-		t.Errorf("vdev_type: want mirror, got %q", state.Pools[0].VdevType)
+	if len(state.Pools[0].Topology.Data) != 1 || state.Pools[0].Topology.Data[0].Type != "mirror" {
+		t.Errorf("topology.data[0]: want mirror vdev, got %+v", state.Pools[0].Topology.Data)
 	}
-	if len(state.Pools[0].Disks) != 2 {
-		t.Errorf("want 2 disks, got %d", len(state.Pools[0].Disks))
+	if len(state.Pools[0].Topology.Data[0].Disks) != 2 {
+		t.Errorf("want 2 disks, got %d", len(state.Pools[0].Topology.Data[0].Disks))
 	}
 	if len(state.Datasets) != 1 {
 		t.Fatalf("want 1 dataset, got %d", len(state.Datasets))
@@ -76,6 +78,31 @@ shares: []
 	}
 }
 
+// Empty starter template (comments + only version and empty lists) must parse so first-run GitOps works.
+func TestParseStateYAML_EmptyStarter(t *testing.T) {
+	yaml := `# D-PlaneOS state.yaml — declarative NAS configuration
+# Use version "1". Every disk path must be a real symlink under /dev/disk/by-id/ from this system
+# (see Storage → disks in the UI, or GET /api/system/disks). /dev/sdX paths are rejected.
+#
+# Add pools, datasets, and shares after you have imported or created storage; start from [] below.
+version: "1"
+pools: []
+datasets: []
+shares: []
+`
+	state, err := ParseStateYAML(yaml)
+	if err != nil {
+		t.Fatalf("empty starter should parse: %v", err)
+	}
+	if state.Version != "1" {
+		t.Errorf("version: want 1, got %q", state.Version)
+	}
+	if len(state.Pools) != 0 || len(state.Datasets) != 0 || len(state.Shares) != 0 {
+		t.Errorf("want empty pools/datasets/shares, got pools=%d datasets=%d shares=%d",
+			len(state.Pools), len(state.Datasets), len(state.Shares))
+	}
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 //  BY-ID ENFORCEMENT TESTS  (the most critical rule)
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -97,10 +124,12 @@ func TestByIDRule_RejectsDevSdX(t *testing.T) {
 			yaml := `version: "1"
 pools:
   - name: tank
-    vdev_type: mirror
-    disks:
-      - ` + tc.disk + `
-      - /dev/disk/by-id/ata-DISK_B
+    topology:
+      data:
+        - type: mirror
+          disks:
+            - ` + tc.disk + `
+            - /dev/disk/by-id/ata-DISK_B
 datasets: []
 shares: []
 `
@@ -127,10 +156,12 @@ func TestByIDRule_AcceptsByIDPaths(t *testing.T) {
 			yaml := `version: "1"
 pools:
   - name: tank
-    vdev_type: mirror
-    disks:
-      - ` + disk + `
-      - /dev/disk/by-id/ata-DISK_B_BACKUP
+    topology:
+      data:
+        - type: mirror
+          disks:
+            - ` + disk + `
+            - /dev/disk/by-id/ata-DISK_B_BACKUP
 datasets: []
 shares: []
 `
@@ -150,12 +181,8 @@ func TestValidState_DuplicatePool(t *testing.T) {
 	state := &DesiredState{
 		Version: "1",
 		Pools: []DesiredPool{
-			{Name: "tank", VdevType: "mirror", Disks: []string{
-				"/dev/disk/by-id/a", "/dev/disk/by-id/b",
-			}},
-			{Name: "tank", VdevType: "mirror", Disks: []string{
-				"/dev/disk/by-id/c", "/dev/disk/by-id/d",
-			}},
+			{Name: "tank", Topology: SimpleMirrorTopology("/dev/disk/by-id/a", "/dev/disk/by-id/b")},
+			{Name: "tank", Topology: SimpleMirrorTopology("/dev/disk/by-id/c", "/dev/disk/by-id/d")},
 		},
 	}
 	errs := ValidState(state)
@@ -191,8 +218,8 @@ func TestValidState_BadAshift(t *testing.T) {
 		Version: "1",
 		Pools: []DesiredPool{
 			{
-				Name: "tank", VdevType: "mirror",
-				Disks:  []string{"/dev/disk/by-id/a", "/dev/disk/by-id/b"},
+				Name:   "tank",
+				Topology: SimpleMirrorTopology("/dev/disk/by-id/a", "/dev/disk/by-id/b"),
 				Ashift: 17, // out of range [9,16]
 			},
 		},
@@ -472,7 +499,11 @@ version: "6"
 pools:
   - name: tank
     guid: "1234567890abcdef"
-    disks: ["/dev/disk/by-id/ata-A"]
+    topology:
+      data:
+        - type: stripe
+          disks:
+            - /dev/disk/by-id/ata-A
 `
 	state, err := ParseStateYAML(yaml)
 	if err != nil {
@@ -480,6 +511,27 @@ pools:
 	}
 	if state.Pools[0].GUID != "1234567890abcdef" {
 		t.Errorf("GUID: want 1234567890abcdef, got %q", state.Pools[0].GUID)
+	}
+}
+
+func TestZpoolCreateFullArgs_Mirror(t *testing.T) {
+	dp := DesiredPool{
+		Name: "tank",
+		Topology: PoolTopology{
+			Data: []VdevGroup{
+				{Type: "mirror", Disks: []string{"/dev/disk/by-id/a", "/dev/disk/by-id/b"}},
+			},
+		},
+		Ashift: 12,
+		Options: map[string]string{"compression": "lz4"},
+	}
+	args, err := ZpoolCreateFullArgs(dp, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := strings.Join(args, " ")
+	if !strings.HasPrefix(got, "create -f -o ashift=12 -O compression=lz4 tank mirror ") {
+		t.Errorf("unexpected argv prefix: %s", got)
 	}
 }
 

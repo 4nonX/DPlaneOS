@@ -8,11 +8,11 @@ import (
 	"fmt"
 	"net/http"
 	"os/exec"
-	"strconv"
 	"strings"
 	"time"
 
 	"dplaned/internal/jobs"
+	"dplaned/internal/zfs"
 )
 
 // ReplicationHandler handles ZFS replication to remote targets
@@ -266,52 +266,12 @@ func execPipedZFSSend(
 		return "", fmt.Errorf("start zfs send: %w", err)
 	}
 
-	// Progress parsing goroutine
 	go func() {
 		scanner := bufio.NewScanner(sendErr)
-		var totalSize int64
-		var lastSent int64
-		var lastTime = time.Now()
-
+		var st zfs.SendProgressState
 		for scanner.Scan() {
-			line := scanner.Text()
-			fields := strings.Fields(line)
-			if len(fields) < 2 {
-				continue
-			}
-
-			switch fields[0] {
-			case "size":
-				totalSize, _ = strconv.ParseInt(fields[1], 10, 64)
-			case "sent":
-				sent, _ := strconv.ParseInt(fields[1], 10, 64)
-				now := time.Now()
-				elapsed := now.Sub(lastTime).Seconds()
-
-				if elapsed >= 0.5 { // Update every 500ms
-					rate := float64(sent-lastSent) / elapsed // bytes/sec
-					var percent float64
-					if totalSize > 0 {
-						percent = float64(sent) / float64(totalSize) * 100
-					}
-
-					var eta int64 = -1
-					if rate > 0 && totalSize > 0 {
-						eta = int64(float64(totalSize-sent) / rate)
-					}
-
-					j.Progress(map[string]interface{}{
-						"percent":     percent,
-						"bytes_sent":  sent,
-						"total_bytes": totalSize,
-						"rate_bps":    rate,
-						"rate_mbs":    rate / (1024 * 1024),
-						"eta_seconds": eta,
-					})
-
-					lastSent = sent
-					lastTime = now
-				}
+			if up, ok := zfs.FeedSendProgressLine(scanner.Text(), &st, 500*time.Millisecond); ok {
+				j.Progress(up)
 			}
 		}
 	}()

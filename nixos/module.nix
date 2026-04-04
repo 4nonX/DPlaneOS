@@ -10,7 +10,7 @@
 let
   cfg = config.services.dplaneos;
 in {
-  imports = [ ./ha.nix ];
+  imports = [ ./ha.nix ./console-network-wizard.nix ];
 
   options.services.dplaneos = {
     enable = lib.mkEnableOption "D-PlaneOS NAS daemon";

@@ -1079,36 +1079,47 @@ func blockedCheckShare(ls LiveShare) DiffItem {
 func diffPool(desired DesiredPool, live LivePool) []string {
 	var changes []string
 
-	// Health changes are read-only (we can't set health), so only report.
 	if live.Health != "ONLINE" {
 		changes = append(changes, fmt.Sprintf("health: %s (degraded - check zpool status)", live.Health))
 	}
 
-	// Disk membership changes
-	desiredDisks := make(map[string]bool)
-	for _, d := range desired.Disks {
-		desiredDisks[d] = true
-	}
-	liveDisks := make(map[string]bool)
-	for _, d := range live.Disks {
-		liveDisks[d] = true
+	want := TopologyDiskFingerprint(desired.Topology)
+	got := append([]string(nil), live.Disks...)
+	sort.Strings(got)
+	if len(want) != len(got) || !stringSliceEqual(want, got) {
+		changes = append(changes,
+			"topology-drift: declared topology disk set does not match live pool — automatic reshape disabled; align state.yaml or use zpool add/remove manually",
+		)
 	}
 
-	for d := range desiredDisks {
-		if !liveDisks[d] {
-			changes = append(changes, fmt.Sprintf("disk-add: %s (will run zpool add)", d))
-		}
+	if desired.GUID != "" && live.GUID != "" && desired.GUID != live.GUID {
+		changes = append(changes, fmt.Sprintf("guid-mismatch: live=%s declared=%s (verify correct pool)", live.GUID, desired.GUID))
 	}
-	for d := range liveDisks {
-		if !desiredDisks[d] {
-			// Disk removal from a pool is complex and potentially dangerous
-			changes = append(changes, fmt.Sprintf(
-				"disk-remove: %s ⚠ disk removal from live pools requires careful planning - manual intervention required", d,
-			))
+
+	for k, v := range desired.Options {
+		k = strings.TrimSpace(k)
+		v = strings.TrimSpace(v)
+		if k == "" {
+			continue
+		}
+		if live.Options == nil || live.Options[k] != v {
+			changes = append(changes, fmt.Sprintf("zpool-set: %s=%s", k, v))
 		}
 	}
 
 	return changes
+}
+
+func stringSliceEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // diffDataset returns property changes between desired and live dataset.
@@ -1130,6 +1141,19 @@ func diffDataset(desired DesiredDataset, live LiveDataset) []string {
 	liveQuotaBytes := parseQuota(live.Quota)
 	if desired.Quota != "" && desiredQuotaBytes != liveQuotaBytes {
 		changes = append(changes, fmt.Sprintf("quota: %s → %s", live.Quota, desired.Quota))
+	}
+
+	if desired.Sync != "" && strings.ToLower(desired.Sync) != strings.ToLower(live.Sync) {
+		changes = append(changes, fmt.Sprintf("sync: %s → %s", live.Sync, desired.Sync))
+	}
+	if desired.Recordsize != "" && strings.ToLower(desired.Recordsize) != strings.ToLower(live.Recordsize) {
+		changes = append(changes, fmt.Sprintf("recordsize: %s → %s", live.Recordsize, desired.Recordsize))
+	}
+	if desired.Xattr != "" && strings.ToLower(desired.Xattr) != strings.ToLower(live.Xattr) {
+		changes = append(changes, fmt.Sprintf("xattr: %s → %s", live.Xattr, desired.Xattr))
+	}
+	if desired.Secondarycache != "" && strings.ToLower(desired.Secondarycache) != strings.ToLower(live.Secondarycache) {
+		changes = append(changes, fmt.Sprintf("secondarycache: %s → %s", live.Secondarycache, desired.Secondarycache))
 	}
 
 	return changes
@@ -1162,10 +1186,10 @@ func diffShare(desired DesiredShare, live LiveShare) []string {
 
 func riskForPoolChanges(changes []string) string {
 	for _, c := range changes {
-		if strings.Contains(c, "disk-remove") || strings.Contains(c, "degraded") {
+		if strings.Contains(c, "disk-remove") || strings.Contains(c, "degraded") || strings.Contains(c, "topology-drift") || strings.Contains(c, "guid-mismatch") {
 			return "critical"
 		}
-		if strings.Contains(c, "disk-add") {
+		if strings.Contains(c, "zpool-set:") {
 			return "medium"
 		}
 	}

@@ -587,43 +587,18 @@ func planSummary(plan *gitops.Plan) map[string]interface{} {
 	}
 }
 
-// defaultStateYAML returns an annotated starter template when no state.yaml exists yet.
+// defaultStateYAML returns a valid empty starter when no state.yaml exists yet.
+// Operators add pools using real /dev/disk/by-id/ paths from this machine (e.g. GET /api/system/disks).
 func defaultStateYAML() string {
-	return `# D-PlaneOS state.yaml - declarative NAS configuration
-# version must be "1"
+	return `# D-PlaneOS state.yaml — declarative NAS configuration
+# Use version "1". Every disk path must be a real symlink under /dev/disk/by-id/ from this system
+# (see Storage → disks in the UI, or GET /api/system/disks). /dev/sdX paths are rejected.
+#
+# Add pools, datasets, and shares after you have imported or created storage; start from [] below.
 version: "1"
-
-# pools: declare ZFS pools.
-# IMPORTANT: disks MUST use /dev/disk/by-id/ paths.
-# Using /dev/sdX paths is REJECTED - they change across reboots.
-pools:
-  - name: tank
-    vdev_type: mirror          # mirror, raidz, raidz2, raidz3, or "" (stripe)
-    disks:
-      - /dev/disk/by-id/ata-WDC_WD140EDFZ_REPLACE_WITH_REAL_ID
-      - /dev/disk/by-id/ata-WDC_WD140EDFZ_REPLACE_WITH_REAL_ID
-    ashift: 12                 # 12 = 4096-byte sectors (recommended for modern drives)
-    options:
-      compression: lz4
-      atime: "off"
-
-# datasets: declare ZFS datasets.
-# Destroying a non-empty dataset is always BLOCKED until manually approved.
-datasets:
-  - name: tank/data
-    quota: 2T
-    compression: lz4
-    atime: "off"
-    mountpoint: /mnt/data
-
-# shares: declare SMB shares.
-# Removing a share with active connections is BLOCKED.
-shares:
-  - name: data
-    path: /mnt/data
-    read_only: false
-    valid_users: "@users"
-    comment: "Main data share"
+pools: []
+datasets: []
+shares: []
 `
 }
 

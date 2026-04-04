@@ -14,14 +14,11 @@
 //   - AUTOMATIC PROMOTION: Triggered when peer breaches FailoverAfter threshold.
 //   - SHARED-NOTHING REPLICATION: Automatic ZFS replication coordination.
 //
-// # Known Limitations
+// # Startup split-brain guard
 //
-//   - [v7.1.0] Startup Split-Brain Guard: While Patroni handles multi-master 
-//     prevention, a hard daemon-level check against the Patroni /health API 
-//     on startup is planned for v7.2.0 to provide a secondary safety net 
-//     for ZFS pool imports. (See cluster.go header backlog)
-//
-//   - [Backlog v7.2.0]: Implement non-blocking startup health check to Patroni.
+// When HA is enabled, the daemon queries Patroni before automatic ZFS pool discovery: a non-200
+// response from the local /health endpoint suppresses that discovery path so a replica does not
+// import pools. Hot-plug import attempts also consult Patroni before importing.
 package ha
 
 import (
@@ -110,6 +107,9 @@ type Manager struct {
 
 	stopCh chan struct{}
 	wg     sync.WaitGroup
+
+	replProgressMu     sync.Mutex
+	replProgressReport func(map[string]interface{})
 }
 
 // NewManager creates a cluster manager for this daemon instance.
@@ -695,6 +695,27 @@ func (m *Manager) GetReplicationConfig() *ReplicationConfig {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.replConfig
+}
+
+// SetReplicationProgressReporter wires HA ZFS send/recv progress to the WebSocket hub (optional).
+func (m *Manager) SetReplicationProgressReporter(f func(map[string]interface{})) {
+	m.replProgressMu.Lock()
+	m.replProgressReport = f
+	m.replProgressMu.Unlock()
+}
+
+func (m *Manager) reportReplicationProgress(payload map[string]interface{}) {
+	m.replProgressMu.Lock()
+	f := m.replProgressReport
+	m.replProgressMu.Unlock()
+	if f == nil {
+		return
+	}
+	cp := make(map[string]interface{}, len(payload))
+	for k, v := range payload {
+		cp[k] = v
+	}
+	go f(cp)
 }
 
 // SetReplicationConfig stores the new sync rules and restarts the loop.

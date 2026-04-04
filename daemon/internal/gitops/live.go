@@ -21,22 +21,27 @@ import (
 
 // LivePool is the observed state of a ZFS pool.
 type LivePool struct {
-	Name   string
-	GUID   string
-	Health string   // ONLINE, DEGRADED, FAULTED, UNAVAIL, REMOVED
-	Disks  []string // /dev/disk/by-id/... paths from `zpool status`
+	Name    string
+	GUID    string
+	Health  string            // ONLINE, DEGRADED, FAULTED, UNAVAIL, REMOVED
+	Disks   []string          // /dev/disk/by-id/... paths from `zpool status`
+	Options map[string]string // subset of zpool properties for reconcile
 }
 
 // LiveDataset is the observed state of a ZFS dataset.
 type LiveDataset struct {
-	Name        string
-	Used        uint64 // bytes - 0 means genuinely empty or unknown
-	Avail       uint64
-	Compression string
-	Atime       string
-	Mountpoint  string
-	Quota       string // raw string from zfs get, e.g. "2000000000" or "none"
-	Encrypted   bool
+	Name           string
+	Used           uint64 // bytes - 0 means genuinely empty or unknown
+	Avail          uint64
+	Compression    string
+	Atime          string
+	Sync           string
+	Recordsize     string
+	Xattr          string
+	Secondarycache string
+	Mountpoint     string
+	Quota          string // raw string from zfs get, e.g. "2000000000" or "none"
+	Encrypted      bool
 }
 
 // LiveShare is an SMB share as stored in the daemon DB.
@@ -205,7 +210,34 @@ func readLivePools() ([]LivePool, error) {
 		}
 	}
 
+	poolProps := []string{"autoexpand", "autoreplace", "comment", "failmode", "listsnapshots"}
+	for i, p := range pools {
+		opts, err := readZpoolProperties(p.Name, poolProps)
+		if err != nil {
+			continue
+		}
+		pools[i].Options = opts
+	}
+
 	return pools, nil
+}
+
+func readZpoolProperties(pool string, props []string) (map[string]string, error) {
+	args := []string{"get", "-H", "-o", "property,value"}
+	args = append(args, props...)
+	args = append(args, pool)
+	out, err := cmdutil.RunZFS("zpool", args...)
+	if err != nil {
+		return nil, err
+	}
+	m := make(map[string]string)
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) >= 2 {
+			m[fields[0]] = fields[1]
+		}
+	}
+	return m, nil
 }
 
 // parseZpoolStatusPaths extracts per-pool disk paths from `zpool status -P`.
@@ -256,7 +288,7 @@ func readLiveDatasets() ([]LiveDataset, error) {
 
 	// Fetch all properties in one `zfs get -H -p` call
 	// -p = machine-parseable (exact bytes for sizes)
-	props := "used,avail,compression,atime,mountpoint,quota,encryption"
+	props := "used,avail,compression,atime,sync,recordsize,xattr,secondarycache,mountpoint,quota,encryption"
 	args := append([]string{"get", "-H", "-p", "-o", "name,property,value", props}, names...)
 	getOut, err := cmdutil.RunZFS("zfs", args...)
 	if err != nil {
@@ -285,12 +317,16 @@ func readLiveDatasets() ([]LiveDataset, error) {
 			pm = make(propsMap)
 		}
 		ds := LiveDataset{
-			Name:        name,
-			Compression: pm["compression"],
-			Atime:       pm["atime"],
-			Mountpoint:  pm["mountpoint"],
-			Quota:       pm["quota"],
-			Encrypted:   pm["encryption"] != "" && pm["encryption"] != "off",
+			Name:           name,
+			Compression:    pm["compression"],
+			Atime:          pm["atime"],
+			Sync:           pm["sync"],
+			Recordsize:     pm["recordsize"],
+			Xattr:          pm["xattr"],
+			Secondarycache: pm["secondarycache"],
+			Mountpoint:     pm["mountpoint"],
+			Quota:          pm["quota"],
+			Encrypted:      pm["encryption"] != "" && pm["encryption"] != "off",
 		}
 		ds.Used, _ = strconv.ParseUint(pm["used"], 10, 64)
 		ds.Avail, _ = strconv.ParseUint(pm["avail"], 10, 64)

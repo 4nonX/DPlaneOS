@@ -230,7 +230,7 @@ D-PlaneOS is a NAS management layer running on top of NixOS or Debian/Ubuntu. It
 - **Job-based Fencing:** Active fencing suppresses destructive operations during maintenance or failover windows.
 - The HA module's `cluster.go` documents these safety properties.
 
-**Residual risk**: LOW-MEDIUM. While DB failover is automated, ZFS pool import still requires coordination. The HA maintenance route allows safe suppression of fencing for planned work. Skip-failover logic in Patroni provides additional safety.
+**Residual risk**: LOW-MEDIUM. While DB failover is automated, ZFS pool import still requires coordination. The HA maintenance route allows safe suppression of fencing during scheduled maintenance. Skip-failover logic in Patroni provides additional safety.
 
 ---
 

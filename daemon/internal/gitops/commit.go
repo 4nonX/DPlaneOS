@@ -125,17 +125,17 @@ func GenerateStateYAML(state *LiveState) string {
 		})
 		sb.WriteString("pools:\n")
 		for _, p := range state.Pools {
+			if len(p.Disks) == 0 {
+				continue
+			}
 			sb.WriteString(fmt.Sprintf("  - name: %q\n", p.Name))
-			if len(p.Disks) > 0 {
-				sort.Strings(p.Disks)
-				sb.WriteString("    disks: [")
-				for i, d := range p.Disks {
-					if i > 0 {
-						sb.WriteString(", ")
-					}
-					sb.WriteString(fmt.Sprintf("%q", d))
-				}
-				sb.WriteString("]\n")
+			sort.Strings(p.Disks)
+			sb.WriteString("    topology:\n")
+			sb.WriteString("      data:\n")
+			sb.WriteString("        - type: stripe\n")
+			sb.WriteString("          disks:\n")
+			for _, d := range p.Disks {
+				sb.WriteString(fmt.Sprintf("            - %q\n", d))
 			}
 		}
 		sb.WriteString("\n")

@@ -25,6 +25,7 @@ import (
 	"dplaned/internal/middleware"
 	"dplaned/internal/monitoring"
 	"dplaned/internal/networkdwriter"
+	"dplaned/internal/persistguard"
 	"dplaned/internal/nixwriter"
 	"dplaned/internal/reconciler"
 	"dplaned/internal/security"
@@ -185,9 +186,9 @@ func main() {
 		if err != nil {
 			log.Fatalf("Round-trip re-parse failed: %v\n---\n%s\n---", err, s2raw)
 		}
-		// Deep compare (placeholder for now, or just check specific counts)
-		if len(s1.Pools) != len(s2.Pools) || len(s1.Datasets) != len(s2.Datasets) {
-			log.Fatalf("Round-trip mismatch in counts!")
+		s3raw := gitops.PrintStateYAML(s2)
+		if s3raw != s2raw {
+			log.Fatalf("Round-trip canonical YAML mismatch: second print differs from first (parse→print→parse lost canonical form)\n--- first ---\n%s\n--- second ---\n%s\n", s2raw, s3raw)
 		}
 		log.Printf("COMPLIANCE: Serialization test PASSED")
 		os.Exit(0)
@@ -492,8 +493,14 @@ func main() {
 	// Wire WebSocket hub into jobs system for automatic background task updates
 	jobs.SetBroadcastCallback(wsHub.Broadcast)
 
+	clusterMgr.SetReplicationProgressReporter(func(p map[string]interface{}) {
+		wsHub.Broadcast("ha.replication_progress", p, "info")
+	})
+
 	// Start job reaper: remove finished jobs after 1 hour
 	jobs.StartReaper(1 * time.Hour)
+
+	persistguard.Start()
 
 	// Start background audit log rotation
 	StartAuditRotation(db)
@@ -884,6 +891,7 @@ func main() {
 
 	// Disk discovery (setup wizard)
 	r.Handle("/api/system/disks", permRoute("storage", "read", handlers.HandleDiskDiscovery)).Methods("GET")
+	r.Handle("/api/zfs/pool/replacement-disks", permRoute("storage", "read", handlers.HandleReplacementDiskCandidates)).Methods("GET")
 	r.Handle("/api/system/pool/create", permRoute("storage", "write", handlers.HandlePoolCreate)).Methods("POST")
 
 	// Disk lifecycle event endpoint (localhost only - called by udev/systemd)

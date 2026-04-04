@@ -23,7 +23,7 @@
  *   POST /api/ha/replication/configure
  */
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { Icon } from '@/components/ui/Icon'
@@ -34,6 +34,7 @@ import { useConfirm } from '@/components/ui/ConfirmDialog'
 import { JobProgress } from '@/components/ui/JobProgress'
 import { useJobStore } from '@/stores/jobs'
 import { JobConsole } from '@/components/ui/JobConsole'
+import { useWsStore } from '@/stores/ws'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -743,7 +744,7 @@ function MaintenanceModeCard({ active, until, onToggle }: {
             <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>
               {active
                 ? `All fencing suspended. Auto-resumes in ${fmtRem(rem)}`
-                : 'Enable before planned work to suspend automated fencing.'}
+                : 'Enable during scheduled maintenance to suspend automated fencing.'}
             </div>
           </div>
         </div>
@@ -849,6 +850,22 @@ export function HAPage() {
   })
 
   const [wizardStep, setWizardStep] = useState<number | null>(null)
+
+  const ws = useWsStore()
+  const [haReplProgress, setHaReplProgress] = useState<Record<string, unknown> | null>(null)
+  const haReplClearRef = useRef<number>()
+
+  useEffect(() => {
+    const off = ws.on('haReplicationProgress', (d) => {
+      setHaReplProgress(d)
+      if (haReplClearRef.current) window.clearTimeout(haReplClearRef.current)
+      haReplClearRef.current = window.setTimeout(() => setHaReplProgress(null), 25_000)
+    })
+    return () => {
+      off()
+      if (haReplClearRef.current) window.clearTimeout(haReplClearRef.current)
+    }
+  }, [ws])
 
   const pending = addPeer.isPending || removePeer.isPending || promotePeer.isPending || fencePeer.isPending || localPromote.isPending
 
@@ -1117,6 +1134,31 @@ export function HAPage() {
       </div>
 
       {/* ── Operational Banners ──────────────────────────────────────────────── */}
+
+      {haReplProgress && (haReplProgress.bytes_sent != null || haReplProgress.percent != null) && (
+        <div className="alert alert-info" style={{ marginBottom: 16, borderRadius: 'var(--radius-lg)' }}>
+          <Icon name="sync" size={18} style={{ animation: 'spin 2s linear infinite' }} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontWeight: 700 }}>Continuous ZFS replication (active → standby)</div>
+            <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)', marginTop: 4 }}>
+              {String(haReplProgress.local_pool ?? '')} → {String(haReplProgress.remote_host ?? '')}
+              {typeof haReplProgress.rate_mbs === 'number' && ` · ${haReplProgress.rate_mbs.toFixed(1)} MB/s`}
+              {typeof haReplProgress.percent === 'number' && ` · ${haReplProgress.percent.toFixed(1)}%`}
+            </div>
+            <div className="progress" style={{ height: 6, marginTop: 8, background: 'rgba(255,255,255,0.08)', borderRadius: 4, overflow: 'hidden' }}>
+              <div
+                className="progress-fill"
+                style={{
+                  height: '100%',
+                  width: `${Math.min(100, Math.max(0, Number(haReplProgress.percent) || 0))}%`,
+                  background: 'var(--primary)',
+                  transition: 'width 0.4s ease-out',
+                }}
+              />
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Subordinate Mode — highest priority */}
       {subordinate && (

@@ -175,7 +175,7 @@ func (h *ZFSHandler) ListDatasets(w http.ResponseWriter, r *http.Request) {
 	}
 
 	start := time.Now()
-	args := []string{"list", "-H", "-o", "name,used,avail,quota,mountpoint", "-t", "filesystem"}
+	args := []string{"list", "-H", "-o", "name,used,avail,quota,mountpoint,compression,compressratio,refcompressratio", "-t", "filesystem"}
 	pool := r.URL.Query().Get("pool")
 	if pool != "" {
 		args = append(args, "-r", pool)
@@ -221,10 +221,15 @@ func (h *ZFSHandler) CreateDataset(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		Name        string `json:"name"`        // full ZFS path: pool/child or pool/parent/child
-		Mountpoint  string `json:"mountpoint"`  // optional: /tank/photos
-		Quota       string `json:"quota"`       // optional: 100G, 1T
-		Compression string `json:"compression"` // optional: lz4, zstd, gzip, off
+		Name            string `json:"name"`
+		Mountpoint      string `json:"mountpoint"`
+		Quota           string `json:"quota"`
+		Compression     string `json:"compression"`
+		Atime           string `json:"atime"`
+		Sync            string `json:"sync"`
+		Recordsize      string `json:"recordsize"`
+		Xattr           string `json:"xattr"`
+		Secondarycache  string `json:"secondarycache"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		respondErrorSimple(w, "Invalid request body", http.StatusBadRequest)
@@ -258,8 +263,8 @@ func (h *ZFSHandler) CreateDataset(w http.ResponseWriter, r *http.Request) {
 	var props []prop
 
 	if req.Compression != "" && req.Compression != "inherit" {
-		allowed := map[string]bool{"lz4": true, "zstd": true, "gzip": true, "off": true}
-		if allowed[req.Compression] {
+		kv := "compression=" + req.Compression
+		if security.ValidateCommand("zfs_set_property", []string{"set", kv, req.Name}) == nil {
 			props = append(props, prop{"compression", req.Compression})
 		}
 	}
@@ -275,6 +280,20 @@ func (h *ZFSHandler) CreateDataset(w http.ResponseWriter, r *http.Request) {
 			props = append(props, prop{"mountpoint", req.Mountpoint})
 		}
 	}
+	addProp := func(key, val string) {
+		if val == "" {
+			return
+		}
+		kv := key + "=" + val
+		if err2 := security.ValidateCommand("zfs_set_property", []string{"set", kv, req.Name}); err2 == nil {
+			props = append(props, prop{key, val})
+		}
+	}
+	addProp("atime", req.Atime)
+	addProp("sync", req.Sync)
+	addProp("recordsize", req.Recordsize)
+	addProp("xattr", req.Xattr)
+	addProp("secondarycache", req.Secondarycache)
 
 	for _, p := range props {
 		kv := p.key + "=" + p.val
@@ -359,8 +378,9 @@ func isPoolNameChar(b byte) bool {
 	return (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') || (b >= '0' && b <= '9')
 }
 
-// parseZfsList parses `zfs list -H -o name,used,avail,refer,mountpoint` output.
+// parseZfsList parses `zfs list -H -o name,used,avail,quota,mountpoint,compression,compressratio,refcompressratio` output.
 // Same resilience as parseZpoolList: tab-split, field validation, malformed line skip.
+// Extra ratio columns require OpenZFS (refcompressratio); if zfs rejects -o, ListDatasets fails visibly.
 func parseZfsList(output string) []map[string]string {
 	var datasets []map[string]string
 	lines := strings.Split(strings.TrimSpace(output), "\n")
@@ -384,13 +404,23 @@ func parseZfsList(output string) []map[string]string {
 			continue
 		}
 
-		datasets = append(datasets, map[string]string{
+		row := map[string]string{
 			"name":       fields[0],
 			"used":       fields[1],
 			"avail":      fields[2],
 			"quota":      fields[3],
 			"mountpoint": fields[4],
-		})
+		}
+		if len(fields) > 5 {
+			row["compression"] = fields[5]
+		}
+		if len(fields) > 6 {
+			row["compressratio"] = fields[6]
+		}
+		if len(fields) > 7 {
+			row["refcompressratio"] = fields[7]
+		}
+		datasets = append(datasets, row)
 	}
 
 	return datasets

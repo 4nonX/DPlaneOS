@@ -212,7 +212,7 @@ func AddVdevToPool(w http.ResponseWriter, r *http.Request) {
 	}
 	validTypes := map[string]bool{
 		"": true, "mirror": true, "raidz": true, "raidz1": true,
-		"raidz2": true, "raidz3": true, "cache": true, "log": true, "special": true,
+		"raidz2": true, "raidz3": true, "cache": true, "log": true, "special": true, "spare": true,
 	}
 	if !validTypes[req.VdevType] {
 		respondErrorSimple(w, "Invalid vdev type", http.StatusBadRequest)

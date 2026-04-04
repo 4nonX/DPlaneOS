@@ -115,7 +115,7 @@ Full enterprise HA is implemented across three layers:
 - `fencingInProgress` mutex prevents concurrent fencing sequences
 - Standby-only guard — only a standby node can initiate fencing
 - Full HMAC audit trail on every fencing event
-- Maintenance mode (`POST /api/ha/maintenance`, 0–3600 s) suppresses fencing during planned operations
+- Maintenance mode (`POST /api/ha/maintenance`, 0–3600 s) suppresses fencing during scheduled maintenance
 
 **Split-brain protection:** On startup, daemon queries Patroni `/health`. If replica role is confirmed, automatic ZFS pool import is blocked.
 
@@ -172,7 +172,9 @@ Guaranteed by NixOS. Every node builds from a pinned flake with locked inputs (`
 
 ---
 
-## Roadmap
+## Capability status
+
+Shipped items verified in product and docs:
 
 | Item | Status |
 |---|---|

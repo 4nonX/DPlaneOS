@@ -5,7 +5,7 @@
  * Stops polling when the job reaches "done" or "failed".
  *
  * Daemon job response shapes:
- *   Running:  { id, type, status: "running", started_at }
+ *   Running:  { id, type, status: "running", started_at, progress? }  // progress from poll or WS
  *   Done:     { id, type, status: "done", result: {...}, started_at, finished_at }
  *   Failed:   { id, type, status: "failed", error: "...", started_at, finished_at }
  *   404:      job not found (daemon restarted mid-job)
@@ -60,17 +60,27 @@ export function useJob(jobId: string | null | undefined) {
     },
   })
 
-  // Listen for real-time progress updates via WebSocket
+  // WebSocket progress: active while this job may still be running (including before first poll returns).
   useEffect(() => {
-    if (!jobId || query.data?.status !== 'running') return
+    if (!jobId) return
+    const st = query.data?.status
+    if (st === 'done' || st === 'failed') return
 
     return ws.on('jobProgress', (msg) => {
-      if (msg.job_id === jobId) {
-        queryClient.setQueryData(['job', jobId], (old: JobSnapshot | undefined) => {
-          if (!old) return old
-          return { ...old, progress: msg.data }
-        })
-      }
+      if (msg.job_id !== jobId) return
+      queryClient.setQueryData(['job', jobId], (old: JobSnapshot | undefined) => {
+        if (!old) {
+          return {
+            id: jobId,
+            type: '',
+            status: 'running',
+            started_at: new Date().toISOString(),
+            progress: msg.data,
+          }
+        }
+        if (old.status !== 'running') return old
+        return { ...old, progress: msg.data }
+      })
     })
   }, [jobId, query.data?.status, ws, queryClient])
 

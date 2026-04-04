@@ -949,7 +949,7 @@ func validateZfsSetProperty(args []string) error {
 		"compression": true, "quota": true, "refquota": true, "mountpoint": true,
 		"atime": true, "dedup": true, "recordsize": true, "sync": true,
 		"copies": true, "encryption": true, "keylocation": true, "keyformat": true,
-		"readonly": true,
+		"readonly": true, "xattr": true, "secondarycache": true,
 	}
 	if !allowedProps[prop] {
 		return fmt.Errorf("property not allowed: %s", prop)

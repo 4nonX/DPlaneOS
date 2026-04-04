@@ -1,13 +1,20 @@
 package handlers
 
 import (
+	"bufio"
+	"context"
 	"encoding/json"
+	"io"
 	"net/http"
+	"os/exec"
 
 	"dplaned/internal/audit"
 	"dplaned/internal/cmdutil"
 	"dplaned/internal/jobs"
 	"dplaned/internal/security"
+	"dplaned/internal/zfs"
+
+	"time"
 )
 
 // ZFSSend enqueues a ZFS send operation and returns a job ID immediately.
@@ -35,7 +42,7 @@ func ZFSSend(w http.ResponseWriter, r *http.Request) {
 
 	snapshot := req.Snapshot
 	id := jobs.Start("zfs_send", func(j *jobs.Job) {
-		output, err := cmdutil.RunSlow("zfs", "send", "-R", snapshot)
+		err := runZFSSendWithProgress(j, []string{"send", "-P", "-R", snapshot})
 		audit.LogActivity(user, "zfs_send", map[string]interface{}{
 			"snapshot": snapshot,
 			"success":  err == nil,
@@ -44,7 +51,9 @@ func ZFSSend(w http.ResponseWriter, r *http.Request) {
 			j.Fail(err.Error())
 			return
 		}
-		j.Done(map[string]interface{}{"output": string(output)})
+		j.Done(map[string]interface{}{
+			"note": "Stream completed (stdout discarded). Use replication/remote to send to a peer with recv.",
+		})
 	})
 
 	respondOK(w, map[string]interface{}{"job_id": id})
@@ -79,7 +88,7 @@ func ZFSSendIncremental(w http.ResponseWriter, r *http.Request) {
 
 	base, newsnap := req.BaseSnapshot, req.NewSnapshot
 	id := jobs.Start("zfs_send_incremental", func(j *jobs.Job) {
-		output, err := cmdutil.RunSlow("zfs", "send", "-R", "-i", base, newsnap)
+		err := runZFSSendWithProgress(j, []string{"send", "-P", "-R", "-i", base, newsnap})
 		audit.LogActivity(user, "zfs_send_incremental", map[string]interface{}{
 			"base_snapshot": base,
 			"new_snapshot":  newsnap,
@@ -89,7 +98,9 @@ func ZFSSendIncremental(w http.ResponseWriter, r *http.Request) {
 			j.Fail(err.Error())
 			return
 		}
-		j.Done(map[string]interface{}{"output": string(output)})
+		j.Done(map[string]interface{}{
+			"note": "Stream completed (stdout discarded). Use replication/remote for remote recv.",
+		})
 	})
 
 	respondOK(w, map[string]interface{}{"job_id": id})
@@ -132,4 +143,28 @@ func ZFSReceive(w http.ResponseWriter, r *http.Request) {
 	})
 
 	respondOK(w, map[string]interface{}{"job_id": id})
+}
+
+// runZFSSendWithProgress runs zfs with sendArgs (must include -P). Stdout is discarded
+// so large sends do not buffer in memory; stderr feeds job progress for UI/poll.
+func runZFSSendWithProgress(j *jobs.Job, sendArgs []string) error {
+	ctx := context.Background()
+	cmd := exec.CommandContext(ctx, "zfs", sendArgs...)
+	cmd.Stdout = io.Discard
+	rpipe, err := cmd.StderrPipe()
+	if err != nil {
+		return err
+	}
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	sc := bufio.NewScanner(rpipe)
+	var st zfs.SendProgressState
+	for sc.Scan() {
+		if up, ok := zfs.FeedSendProgressLine(sc.Text(), &st, 500*time.Millisecond); ok {
+			j.Progress(up)
+		}
+	}
+	_ = rpipe.Close()
+	return cmd.Wait()
 }

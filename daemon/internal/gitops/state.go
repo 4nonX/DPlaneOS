@@ -34,57 +34,27 @@ import (
 
 // DesiredState is the top-level structure of /etc/dplaneos/state.yaml.
 //
-// Example state.yaml:
+// Every disk entry must be a full path under /dev/disk/by-id/ as reported for this host (disk discovery or the system disks API). Do not invent identifiers.
 //
 //	version: "1"
 //	pools:
-//	  - name: tank
-//	    vdev_type: mirror
-//	    disks:
-//	      - /dev/disk/by-id/ata-WDC_WD140EDFZ-11A0VA0_1234567890
-//	      - /dev/disk/by-id/ata-WDC_WD140EDFZ-11A0VA0_0987654321
+//	  - name: poolname
+//	    topology:
+//	      data:
+//	        - type: mirror | stripe | raidz | raidz2 | raidz3 | draid
+//	          disks: []  # non-empty in real configs: YAML list of strings, each a host by-id path
 //	    ashift: 12
 //	    options:
 //	      compression: lz4
 //	      atime: "off"
 //	datasets:
-//	  - name: tank/media
+//	  - name: poolname/datasetname
 //	    quota: 8T
 //	    compression: lz4
 //	    atime: "off"
-//	    mountpoint: /mnt/media
-//	  - name: tank/backups
-//	    quota: 4T
-//	    compression: zstd
-//	    mountpoint: /mnt/backups
-//	    encrypted: true
-//	shares:
-//	  - name: media
-//	    path: /mnt/media
-//	    read_only: false
-//	    valid_users: "@media_users"
-//	    comment: "Media library"
-//	  - name: backups
-//	    path: /mnt/backups
-//	    read_only: true
-//	nfs:
-//	  - path: /mnt/media
-//	    clients: "192.168.1.0/24"
-//	    options: "rw,sync,no_subtree_check"
-//	stacks:
-//	  - name: portainer
-//	    yaml: |
-//	      services:
-//	        portainer:
-//	          image: portainer/portainer-ce:latest
-//	          ports:
-//	            - "9443:9443"
-//	          volumes:
-//	            - /var/run/docker.sock:/var/run/docker.sock
-//	            - portainer_data:/data
-//	          restart: always
-//	      volumes:
-//	        portainer_data:
+//
+// Shares, NFS exports, stacks (compose), system, users, groups, replication, LDAP, ACME, certificates,
+// and SMART tasks use the struct tags on this package’s types as YAML keys; validation enforces required fields.
 type DesiredState struct {
 	Version          string               `yaml:"version"`
 	IgnoreExtraneous bool                 `yaml:"ignore_extraneous"` // If true, reconciler ignores resources not in desired state
@@ -103,26 +73,52 @@ type DesiredState struct {
 	SMART            []DesiredSMARTTask   `yaml:"smart_tasks"`
 }
 
+// PoolTopology is the declarative vdev layout for a pool (data + optional special tiers).
+type PoolTopology struct {
+	Data    []VdevGroup `yaml:"data"`
+	Special []VdevGroup `yaml:"special,omitempty"`
+	Log     []VdevGroup `yaml:"log,omitempty"`
+	Cache   []VdevGroup `yaml:"cache,omitempty"`
+	Spare   []VdevGroup `yaml:"spare,omitempty"`
+}
+
+// VdevGroup is one vdev subtree: mirror, raidz*, stripe, or draid (with DraidSpec).
+type VdevGroup struct {
+	Type      string   `yaml:"type"`                 // mirror | stripe | raidz | raidz1 | raidz2 | raidz3 | draid
+	Disks     []string `yaml:"disks"`
+	DraidSpec string   `yaml:"draid_spec,omitempty"` // e.g. draid2:8d:1s (OpenZFS)
+}
+
 // DesiredPool describes a ZFS pool.
 // Disks MUST use /dev/disk/by-id/ paths - enforced at parse time.
 type DesiredPool struct {
 	Name     string            `yaml:"name"`
-	VdevType string            `yaml:"vdev_type"` // mirror, raidz, raidz2, raidz3, "" (stripe)
-	Disks    []string          `yaml:"disks"`
-	Ashift   int               `yaml:"ashift"`   // 0 = auto
+	Topology PoolTopology      `yaml:"topology"`
+	Ashift   int               `yaml:"ashift"` // 0 = omit ashift flag on create
 	GUID     string            `yaml:"guid,omitempty"`
-	Options  map[string]string `yaml:"options"`  // pool-level zpool set properties
+	Options  map[string]string `yaml:"options"` // pool properties (-O on create; also reconciled via zpool set)
+}
+
+// SimpleMirrorTopology builds a minimal topology for tests and simple callers.
+func SimpleMirrorTopology(disks ...string) PoolTopology {
+	return PoolTopology{
+		Data: []VdevGroup{{Type: "mirror", Disks: disks}},
+	}
 }
 
 // DesiredDataset describes a ZFS dataset.
 type DesiredDataset struct {
-	Name        string          `yaml:"name"`
-	Quota       string          `yaml:"quota"`        // e.g. "2T", "500G", "none"
-	Compression string          `yaml:"compression"`  // lz4, zstd, gzip, off
-	Atime       string          `yaml:"atime"`        // on, off
-	Mountpoint  string          `yaml:"mountpoint"`
-	Encrypted   bool            `yaml:"encrypted"`
-	Restore     *RestoreConfig  `yaml:"restore,omitempty"`
+	Name            string         `yaml:"name"`
+	Quota           string         `yaml:"quota"` // e.g. "2T", "500G", "none"
+	Compression     string         `yaml:"compression"`
+	Atime           string         `yaml:"atime"` // on, off
+	Sync            string         `yaml:"sync,omitempty"`
+	Recordsize      string         `yaml:"recordsize,omitempty"`
+	Xattr           string         `yaml:"xattr,omitempty"`
+	Secondarycache  string         `yaml:"secondarycache,omitempty"`
+	Mountpoint      string         `yaml:"mountpoint"`
+	Encrypted       bool           `yaml:"encrypted"`
+	Restore         *RestoreConfig `yaml:"restore,omitempty"`
 }
 
 type RestoreConfig struct {
@@ -287,6 +283,46 @@ var (
 // byIDPrefix is the only disk path prefix accepted by the parser.
 const byIDPrefix = "/dev/disk/by-id/"
 
+func topologyAllDisks(top PoolTopology) []string {
+	var out []string
+	add := func(groups []VdevGroup) {
+		for _, g := range groups {
+			for _, d := range g.Disks {
+				d = strings.TrimSpace(d)
+				if d != "" {
+					out = append(out, d)
+				}
+			}
+		}
+	}
+	add(top.Data)
+	add(top.Special)
+	add(top.Log)
+	add(top.Cache)
+	add(top.Spare)
+	return out
+}
+
+var zstdLevelRe = regexp.MustCompile(`(?i)^zstd-(1[0-9]?|[2-9])$`) // zstd-1 .. zstd-19
+
+func validDatasetCompression(s string) bool {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return true
+	}
+	switch strings.ToLower(s) {
+	case "lz4", "zstd", "gzip", "off", "on", "zle", "lzjb":
+		return true
+	}
+	return zstdLevelRe.MatchString(s)
+}
+
+var recordsizeRe = regexp.MustCompile(`(?i)^(512|1k|2k|4k|8k|16k|32k|64k|128k|256k|512k|1m)$`)
+
+func validRecordsize(s string) bool {
+	return recordsizeRe.MatchString(strings.TrimSpace(s))
+}
+
 // ValidState validates a parsed DesiredState and returns a list of human-readable
 // errors. An empty slice means the state is valid and safe to diff against live.
 func ValidState(s *DesiredState) []string {
@@ -309,21 +345,12 @@ func ValidState(s *DesiredState) []string {
 		}
 		poolNames[p.Name] = true
 
-		validVdev := map[string]bool{"": true, "mirror": true, "raidz": true,
-			"raidz1": true, "raidz2": true, "raidz3": true}
-		if !validVdev[p.VdevType] {
-			errs = append(errs, pfx+": unknown vdev_type "+p.VdevType)
-		}
-
-		if len(p.Disks) == 0 {
-			errs = append(errs, pfx+": disks list is empty")
+		if err := ValidatePoolTopology(&p.Topology); err != nil {
+			errs = append(errs, pfx+": "+err.Error())
 		}
 
 		// THE HARD RULE: every disk must be a /dev/disk/by-id/ path.
-		// /dev/sdX paths are rejected unconditionally - they are unstable across
-		// reboots and cause catastrophic pool imports on hardware changes.
-		for _, d := range p.Disks {
-			// Allow loopback devices for CI/Testing, and by-id for production.
+		for _, d := range topologyAllDisks(p.Topology) {
 			if !strings.HasPrefix(d, byIDPrefix) && !strings.HasPrefix(d, "/dev/loop") {
 				errs = append(errs, fmt.Sprintf(
 					"%s: disk %q must use /dev/disk/by-id/ path (got %q) - "+
@@ -331,7 +358,6 @@ func ValidState(s *DesiredState) []string {
 					pfx, d, d,
 				))
 			}
-			// Prevent shell injection through disk paths
 			if strings.ContainsAny(d, ";|&$`\\\"' \t\n") {
 				errs = append(errs, fmt.Sprintf("%s: disk %q contains illegal characters", pfx, d))
 			}
@@ -367,15 +393,32 @@ func ValidState(s *DesiredState) []string {
 		// - only warn, do not error. The diff engine handles this.
 		_ = hasPool
 
-		validComp := map[string]bool{"": true, "lz4": true, "zstd": true,
-			"gzip": true, "off": true, "on": true}
-		if !validComp[d.Compression] {
-			errs = append(errs, pfx+": unknown compression "+d.Compression)
+		if d.Compression != "" && !validDatasetCompression(d.Compression) {
+			errs = append(errs, pfx+": invalid compression "+d.Compression)
 		}
 
 		validAtime := map[string]bool{"": true, "on": true, "off": true}
 		if !validAtime[d.Atime] {
 			errs = append(errs, pfx+": atime must be \"on\" or \"off\"")
+		}
+
+		validSync := map[string]bool{"standard": true, "always": true, "disabled": true}
+		if d.Sync != "" && !validSync[strings.ToLower(strings.TrimSpace(d.Sync))] {
+			errs = append(errs, pfx+": sync must be standard, always, or disabled")
+		}
+
+		if d.Recordsize != "" && !validRecordsize(d.Recordsize) {
+			errs = append(errs, pfx+": invalid recordsize "+d.Recordsize)
+		}
+
+		validXattr := map[string]bool{"": true, "on": true, "off": true, "dir": true, "sa": true}
+		if !validXattr[strings.ToLower(d.Xattr)] {
+			errs = append(errs, pfx+": invalid xattr (use on, off, sa, dir)")
+		}
+
+		validSec := map[string]bool{"": true, "all": true, "metadata": true, "none": true}
+		if !validSec[strings.ToLower(d.Secondarycache)] {
+			errs = append(errs, pfx+": invalid secondarycache")
 		}
 
 		if d.Mountpoint != "" && !strings.HasPrefix(d.Mountpoint, "/") {
@@ -484,6 +527,36 @@ func ParseStateYAML(content string) (*DesiredState, error) {
 	return state, nil
 }
 
+func printTopologyYAML(b *strings.Builder, indent string, top PoolTopology) {
+	writeTier := func(key string, groups []VdevGroup) {
+		if len(groups) == 0 {
+			return
+		}
+		fmt.Fprintf(b, "%s%s:\n", indent, key)
+		for _, g := range groups {
+			t := g.Type
+			if t == "" {
+				t = "stripe"
+			}
+			fmt.Fprintf(b, "%s  - type: %s\n", indent, t)
+			if g.DraidSpec != "" {
+				fmt.Fprintf(b, "%s    draid_spec: %s\n", indent, g.DraidSpec)
+			}
+			if len(g.Disks) > 0 {
+				b.WriteString(indent + "    disks:\n")
+				for _, d := range g.Disks {
+					fmt.Fprintf(b, "%s      - %s\n", indent, d)
+				}
+			}
+		}
+	}
+	writeTier("data", top.Data)
+	writeTier("special", top.Special)
+	writeTier("log", top.Log)
+	writeTier("cache", top.Cache)
+	writeTier("spare", top.Spare)
+}
+
 // PrintStateYAML serializes a DesiredState back to YAML.
 // Implements v6 "Deterministic Serialization" - keys are ordered and
 // output is normalized to ensure Parse(Print(S)) == S.
@@ -496,15 +569,8 @@ func PrintStateYAML(s *DesiredState) string {
 		b.WriteString("\npools:\n")
 		for _, p := range s.Pools {
 			fmt.Fprintf(&b, "  - name: %s\n", p.Name)
-			if p.VdevType != "" {
-				fmt.Fprintf(&b, "    vdev_type: %s\n", p.VdevType)
-			}
-			if len(p.Disks) > 0 {
-				b.WriteString("    disks:\n")
-				for _, d := range p.Disks {
-					fmt.Fprintf(&b, "      - %s\n", d)
-				}
-			}
+			b.WriteString("    topology:\n")
+			printTopologyYAML(&b, "      ", p.Topology)
 			if p.Ashift != 0 {
 				fmt.Fprintf(&b, "    ashift: %d\n", p.Ashift)
 			}
@@ -513,7 +579,6 @@ func PrintStateYAML(s *DesiredState) string {
 			}
 			if len(p.Options) > 0 {
 				b.WriteString("    options:\n")
-				// Sort keys for determinism
 				var keys []string
 				for k := range p.Options {
 					keys = append(keys, k)
@@ -538,6 +603,18 @@ func PrintStateYAML(s *DesiredState) string {
 			}
 			if d.Atime != "" {
 				fmt.Fprintf(&b, "    atime: %s\n", d.Atime)
+			}
+			if d.Sync != "" {
+				fmt.Fprintf(&b, "    sync: %s\n", d.Sync)
+			}
+			if d.Recordsize != "" {
+				fmt.Fprintf(&b, "    recordsize: %s\n", d.Recordsize)
+			}
+			if d.Xattr != "" {
+				fmt.Fprintf(&b, "    xattr: %s\n", d.Xattr)
+			}
+			if d.Secondarycache != "" {
+				fmt.Fprintf(&b, "    secondarycache: %s\n", d.Secondarycache)
 			}
 			if d.Mountpoint != "" {
 				fmt.Fprintf(&b, "    mountpoint: %s\n", d.Mountpoint)
@@ -1222,21 +1299,24 @@ func mapToState(raw map[string]yamlNode) (*DesiredState, error) {
 }
 
 func mapToPool(m map[string]yamlNode) (DesiredPool, error) {
-	p := DesiredPool{
-		Name:     strField(m, "name"),
-		VdevType: strField(m, "vdev_type"),
-	}
+	p := DesiredPool{Name: strField(m, "name")}
 	if a := strField(m, "ashift"); a != "" {
 		fmt.Sscanf(a, "%d", &p.Ashift)
 	}
 	p.GUID = strField(m, "guid")
 
-	if disksRaw, ok := m["disks"]; ok {
-		disks, err := toStringSlice(disksRaw, "disks")
-		if err != nil {
-			return p, err
-		}
-		p.Disks = disks
+	topRaw, ok := m["topology"]
+	if !ok {
+		return p, fmt.Errorf("pool %q: topology is required (vdev_type/disks are no longer supported)", p.Name)
+	}
+	topMap, ok := topRaw.(map[string]yamlNode)
+	if !ok {
+		return p, fmt.Errorf("pool %q: topology must be a mapping", p.Name)
+	}
+	var err error
+	p.Topology, err = parsePoolTopologyMap(topMap, p.Name)
+	if err != nil {
+		return p, err
 	}
 
 	if optsRaw, ok := m["options"]; ok {
@@ -1253,13 +1333,73 @@ func mapToPool(m map[string]yamlNode) (DesiredPool, error) {
 	return p, nil
 }
 
+func parsePoolTopologyMap(topMap map[string]yamlNode, poolName string) (PoolTopology, error) {
+	var top PoolTopology
+	var err error
+	top.Data, err = parseVdevGroupSlice(topMap["data"], poolName, "data")
+	if err != nil {
+		return top, err
+	}
+	top.Special, err = parseVdevGroupSlice(topMap["special"], poolName, "special")
+	if err != nil {
+		return top, err
+	}
+	top.Log, err = parseVdevGroupSlice(topMap["log"], poolName, "log")
+	if err != nil {
+		return top, err
+	}
+	top.Cache, err = parseVdevGroupSlice(topMap["cache"], poolName, "cache")
+	if err != nil {
+		return top, err
+	}
+	top.Spare, err = parseVdevGroupSlice(topMap["spare"], poolName, "spare")
+	if err != nil {
+		return top, err
+	}
+	return top, nil
+}
+
+func parseVdevGroupSlice(raw yamlNode, pool, tier string) ([]VdevGroup, error) {
+	if raw == nil {
+		return nil, nil
+	}
+	seq, ok := raw.([]yamlNode)
+	if !ok {
+		return nil, fmt.Errorf("pool %q topology.%s must be a list", pool, tier)
+	}
+	var out []VdevGroup
+	for i, item := range seq {
+		gm, ok := item.(map[string]yamlNode)
+		if !ok {
+			return nil, fmt.Errorf("pool %q topology.%s[%d]: expected mapping", pool, tier, i)
+		}
+		g := VdevGroup{
+			Type:      strField(gm, "type"),
+			DraidSpec: strField(gm, "draid_spec"),
+		}
+		if dr, ok := gm["disks"]; ok {
+			disks, err := toStringSlice(dr, "disks")
+			if err != nil {
+				return nil, fmt.Errorf("pool %q topology.%s[%d]: %w", pool, tier, i, err)
+			}
+			g.Disks = disks
+		}
+		out = append(out, g)
+	}
+	return out, nil
+}
+
 func mapToDataset(m map[string]yamlNode) (DesiredDataset, error) {
 	d := DesiredDataset{
-		Name:        strField(m, "name"),
-		Quota:       strField(m, "quota"),
-		Compression: strField(m, "compression"),
-		Atime:       strField(m, "atime"),
-		Mountpoint:  strField(m, "mountpoint"),
+		Name:           strField(m, "name"),
+		Quota:          strField(m, "quota"),
+		Compression:    strField(m, "compression"),
+		Atime:          strField(m, "atime"),
+		Sync:           strField(m, "sync"),
+		Recordsize:     strField(m, "recordsize"),
+		Xattr:          strField(m, "xattr"),
+		Secondarycache: strField(m, "secondarycache"),
+		Mountpoint:     strField(m, "mountpoint"),
 	}
 	if enc := strField(m, "encrypted"); enc == "true" {
 		d.Encrypted = true

@@ -6,6 +6,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 
 
+## v7.5.3 (2026-04-04) - "Operational Depth"
+
+Upgrade from: v7.5.2 - Drop-in. `sudo bash install.sh --upgrade`
+
+### Added
+- **GET /api/system/disks**: Disk discovery for the UI and operators—stable `/dev/disk/by-id/` paths and metadata for replacement workflows and GitOps authoring.
+- **Persist guard (Linux)**: Background monitor for `/persist` usage; at high utilization runs `journalctl` vacuum and rotates largest log files under D-PlaneOS and Samba log dirs to reduce risk of etcd/journal/DB filling the partition.
+- **`zfs send -P` progress**: Parser and wiring for replication and HA send paths so job progress and WebSocket clients receive percent, throughput, and ETA from `zfs send -P` stderr.
+- **GitOps `zpool create` argument builder**: Shared topology-to-argv helper for consistent, validated `zpool create` construction.
+- **NixOS console network wizard**: Optional `dplaneos-console-net` (gum TUI) for emergency static IPv4 when DHCP fails; module wiring and boot hint option.
+- **Regression test**: `TestParseStateYAML_EmptyStarter` ensures the empty first-run GitOps `state.yaml` template (with comments) still parses.
+
+### Changed
+- **GitOps desired state**: Safer default `state.yaml` template and schema documentation—no invented disk paths; operators use real by-id values from this system.
+- **HA package documentation**: Package comment describes the implemented Patroni startup and import guards (no backlog wording).
+- **Pools UI**: Disk replacement flow improvements; “Wipe disk” modal uses correct title and boolean state (no string sentinel).
+- **ZFS property allowlist**: `zfs set` validation allows `xattr` and `secondarycache` where appropriate.
+
+### Fixed
+- **Job progress persistence**: `LatestProgress` is stored on the job, included in snapshots for `GET /api/jobs/{id}`, and cleared on completion or failure so stale progress does not leak across jobs.
+
+### Docs
+- Threat model and showstopper guide: maintenance wording and capability section title aligned with shipped behavior.
+
+
 ## v7.5.2 (2026-04-02) - "Ironclad HA"
 
 Upgrade from: v7.5.1 - Drop-in. `sudo bash install.sh --upgrade`

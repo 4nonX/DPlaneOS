@@ -42,8 +42,11 @@ type Job struct {
 	Result     map[string]interface{} `json:"result,omitempty"`
 	Error      string                 `json:"error,omitempty"`
 	Logs       []string               `json:"logs,omitempty"` // streaming progress lines
-	StartedAt  time.Time              `json:"started_at"`
-	FinishedAt *time.Time             `json:"finished_at,omitempty"`
+	// LatestProgress is the most recent structured progress (e.g. zfs send -P).
+	// Copied into JobSnapshot.Progress for GET /api/jobs/{id} (poll without WebSocket).
+	LatestProgress map[string]interface{}
+	StartedAt      time.Time `json:"started_at"`
+	FinishedAt     *time.Time             `json:"finished_at,omitempty"`
 
 	mu sync.Mutex
 }
@@ -69,12 +72,37 @@ func (j *Job) Log(line string) {
 	}
 }
 
-// Progress broadcasts a structured progress update via WebSocket.
+// Progress stores the latest structured progress and broadcasts via WebSocket.
 func (j *Job) Progress(data interface{}) {
+	var copyMap map[string]interface{}
+	switch m := data.(type) {
+	case map[string]interface{}:
+		if len(m) == 0 {
+			return
+		}
+		copyMap = make(map[string]interface{}, len(m))
+		for k, v := range m {
+			copyMap[k] = v
+		}
+	case map[string]string:
+		if len(m) == 0 {
+			return
+		}
+		copyMap = make(map[string]interface{}, len(m))
+		for k, v := range m {
+			copyMap[k] = v
+		}
+	default:
+		return
+	}
+	j.mu.Lock()
+	j.LatestProgress = copyMap
+	j.mu.Unlock()
+
 	if broadcastCallback != nil {
 		go broadcastCallback("job.progress", map[string]interface{}{
 			"job_id": j.ID,
-			"data":   data,
+			"data":   copyMap,
 		}, "info")
 	}
 }
@@ -84,6 +112,7 @@ func (j *Job) Done(result map[string]interface{}) {
 	j.mu.Lock()
 	j.Status = StatusDone
 	j.Result = result
+	j.LatestProgress = nil
 	now := time.Now()
 	j.FinishedAt = &now
 	j.mu.Unlock()
@@ -104,6 +133,7 @@ func (j *Job) Fail(errMsg string) {
 	j.mu.Lock()
 	j.Status = StatusFailed
 	j.Error = errMsg
+	j.LatestProgress = nil
 	now := time.Now()
 	j.FinishedAt = &now
 	j.mu.Unlock()
@@ -126,6 +156,7 @@ type JobSnapshot struct {
 	Result     map[string]interface{} `json:"result,omitempty"`
 	Error      string                 `json:"error,omitempty"`
 	Logs       []string               `json:"logs,omitempty"`
+	Progress   map[string]interface{} `json:"progress,omitempty"`
 	StartedAt  time.Time              `json:"started_at"`
 	FinishedAt *time.Time             `json:"finished_at,omitempty"`
 }
@@ -136,6 +167,13 @@ func (j *Job) Snapshot() JobSnapshot {
 	defer j.mu.Unlock()
 	logsCopy := make([]string, len(j.Logs))
 	copy(logsCopy, j.Logs)
+	var progCopy map[string]interface{}
+	if len(j.LatestProgress) > 0 {
+		progCopy = make(map[string]interface{}, len(j.LatestProgress))
+		for k, v := range j.LatestProgress {
+			progCopy[k] = v
+		}
+	}
 	return JobSnapshot{
 		ID:         j.ID,
 		Type:       j.Type,
@@ -143,6 +181,7 @@ func (j *Job) Snapshot() JobSnapshot {
 		Result:     j.Result,
 		Error:      j.Error,
 		Logs:       logsCopy,
+		Progress:   progCopy,
 		StartedAt:  j.StartedAt,
 		FinishedAt: j.FinishedAt,
 	}

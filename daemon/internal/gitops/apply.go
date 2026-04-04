@@ -315,28 +315,10 @@ func executeDelete(ctx ApplyContext, item DiffItem) error {
 // ── Pool operations ───────────────────────────────────────────────────────────
 
 func createPool(dp DesiredPool) error {
-	// Validate all disks are by-id before touching anything
-	for _, d := range dp.Disks {
-		if !strings.HasPrefix(d, byIDPrefix) && !strings.HasPrefix(d, "/dev/loop") {
-			return fmt.Errorf("disk %q is not a /dev/disk/by-id/ or /dev/loop path - refusing to create pool", d)
-		}
+	args, err := ZpoolCreateFullArgs(dp, true)
+	if err != nil {
+		return err
 	}
-
-	args := []string{"create"}
-	if dp.Ashift > 0 {
-		args = append(args, "-o", fmt.Sprintf("ashift=%d", dp.Ashift))
-	}
-	// Pool-level options
-	for k, v := range dp.Options {
-		args = append(args, "-O", fmt.Sprintf("%s=%s", k, v))
-	}
-
-	args = append(args, dp.Name)
-	if dp.VdevType != "" {
-		args = append(args, dp.VdevType)
-	}
-	args = append(args, dp.Disks...)
-
 	out, err := cmdutil.RunSlow("zpool", args...)
 	if err != nil {
 		return fmt.Errorf("zpool create: %s: %w", string(out), err)
@@ -347,28 +329,34 @@ func createPool(dp DesiredPool) error {
 
 func modifyPool(name string, changes []string) error {
 	for _, change := range changes {
-		if strings.HasPrefix(change, "disk-add:") {
-			// Extract disk path
-			parts := strings.SplitN(change, " ", 3)
-			if len(parts) < 2 {
+		if strings.HasPrefix(change, "zpool-set:") {
+			rest := strings.TrimSpace(strings.TrimPrefix(change, "zpool-set:"))
+			eq := strings.Index(rest, "=")
+			if eq <= 0 || eq >= len(rest)-1 {
+				log.Printf("GITOPS: skip malformed zpool-set change %q", change)
 				continue
 			}
-			disk := strings.TrimSpace(parts[1])
-			if !strings.HasPrefix(disk, byIDPrefix) && !strings.HasPrefix(disk, "/dev/loop") {
-				return fmt.Errorf("cannot add disk %q: not a /dev/disk/by-id/ or /dev/loop path", disk)
+			k, v := strings.TrimSpace(rest[:eq]), strings.TrimSpace(rest[eq+1:])
+			if k == "" {
+				continue
 			}
-			out, err := cmdutil.RunMedium("zpool", "add", name, disk)
+			out, err := cmdutil.RunMedium("zpool", "set", fmt.Sprintf("%s=%s", k, v), name)
 			if err != nil {
-				return fmt.Errorf("zpool add %s %s: %s: %w", name, disk, string(out), err)
+				return fmt.Errorf("zpool set %s=%s on %s: %s: %w", k, v, name, string(out), err)
 			}
-			log.Printf("GITOPS: added disk %q to pool %q", disk, name)
+			log.Printf("GITOPS: zpool set %s=%s on pool %q", k, v, name)
+			continue
 		}
-		// disk-remove changes are surfaced as changes but NOT executed automatically.
-		// They require BLOCKED classification in the next diff cycle.
-		// If we reach here with a disk-remove, it means an earlier BLOCKED check
-		// was bypassed - log and skip rather than executing a dangerous operation.
+		if strings.Contains(change, "topology-drift") || strings.Contains(change, "guid-mismatch") || strings.HasPrefix(change, "health:") {
+			log.Printf("GITOPS: pool %q informational reconcile skip: %s", name, change)
+			continue
+		}
+		if strings.HasPrefix(change, "disk-add:") {
+			log.Printf("GITOPS: ignoring automatic disk-add for pool %q — use explicit zpool add or update declared topology: %s", name, change)
+			continue
+		}
 		if strings.Contains(change, "disk-remove") {
-			log.Printf("GITOPS WARNING: skipping disk-remove change for pool %q - requires manual intervention: %s", name, change)
+			log.Printf("GITOPS WARNING: skipping disk-remove for pool %q — manual intervention required: %s", name, change)
 		}
 	}
 	return nil
@@ -493,6 +481,18 @@ func createDataset(name string, ds *DesiredDataset) error {
 		}
 		if ds.Atime != "" {
 			args = append(args, "-o", "atime="+ds.Atime)
+		}
+		if ds.Sync != "" {
+			args = append(args, "-o", "sync="+ds.Sync)
+		}
+		if ds.Recordsize != "" {
+			args = append(args, "-o", "recordsize="+ds.Recordsize)
+		}
+		if ds.Xattr != "" {
+			args = append(args, "-o", "xattr="+ds.Xattr)
+		}
+		if ds.Secondarycache != "" {
+			args = append(args, "-o", "secondarycache="+ds.Secondarycache)
 		}
 	}
 	args = append(args, name)
@@ -796,10 +796,14 @@ func parseChangeString(s string) (prop, newVal string, err error) {
 // datasetPropName maps friendly diff names to ZFS property names.
 func datasetPropName(friendlyName string) string {
 	m := map[string]string{
-		"compression": "compression",
-		"atime":       "atime",
-		"mountpoint":  "mountpoint",
-		"quota":       "quota",
+		"compression":    "compression",
+		"atime":          "atime",
+		"mountpoint":     "mountpoint",
+		"quota":          "quota",
+		"sync":           "sync",
+		"recordsize":     "recordsize",
+		"xattr":          "xattr",
+		"secondarycache": "secondarycache",
 	}
 	return m[friendlyName]
 }

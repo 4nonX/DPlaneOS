@@ -13,7 +13,7 @@ import (
 //
 // Response while running:
 //
-//	{"id":"...","type":"zfs_send","status":"running","started_at":"..."}
+//	{"id":"...","type":"zfs_send","status":"running","started_at":"...","progress":{...}}
 //
 // Response on success:
 //
