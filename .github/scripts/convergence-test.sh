@@ -37,8 +37,12 @@ cat > "$STATE_YAML" <<EOF
 version: "6"
 pools:
   - name: convpool
-    vdev_type: mirror
-    disks: ["$LOOP0", "$LOOP1"]
+    topology:
+      data:
+        - type: mirror
+          disks:
+            - $LOOP0
+            - $LOOP1
 datasets:
   - name: convpool/data
     compression: lz4

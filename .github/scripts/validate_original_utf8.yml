@@ -149,11 +149,13 @@ jobs:
           version: "6"
           pools:
             - name: testpool
-              mountpoint: /mnt/testpool
-              disks:
-                - $LOOP0
-                - $LOOP1
-                - $LOOP2
+              topology:
+                data:
+                  - type: raidz1
+                    disks:
+                      - $LOOP0
+                      - $LOOP1
+                      - $LOOP2
           datasets:
             - name: testpool
               mountpoint: /mnt/testpool

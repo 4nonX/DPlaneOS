@@ -31,10 +31,12 @@ cat <<EOF > /tmp/state.yaml
 version: "6"
 pools:
   - name: testpool
-    vdev_type: mirror
-    disks:
-      - $LOOP0
-      - $LOOP1
+    topology:
+      data:
+        - type: mirror
+          disks:
+            - $LOOP0
+            - $LOOP1
 datasets:
   - name: testpool
     mountpoint: /mnt/testpool

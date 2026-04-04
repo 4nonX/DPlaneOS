@@ -43,8 +43,12 @@ version: "6"
 ignore_extraneous: true
 pools:
   - name: gitopspool
-    mountpoint: /mnt/gitops
-    disks: ["$LOOP0", "$LOOP1"]
+    topology:
+      data:
+        - type: mirror
+          disks:
+            - $LOOP0
+            - $LOOP1
 datasets:
   - name: gitopspool
     mountpoint: /mnt/gitops
@@ -88,8 +92,12 @@ version: "6"
 ignore_extraneous: true
 pools:
   - name: nodeapool
-    mountpoint: /mnt/node-a
-    disks: ["$LA0", "$LA1"]
+    topology:
+      data:
+        - type: mirror
+          disks:
+            - $LA0
+            - $LA1
 datasets:
   - name: nodeapool
     mountpoint: /mnt/node-a
@@ -113,8 +121,12 @@ version: "6"
 ignore_extraneous: true
 pools:
   - name: nodebpool
-    mountpoint: /mnt/node-b
-    disks: ["$LB0", "$LB1"]
+    topology:
+      data:
+        - type: mirror
+          disks:
+            - $LB0
+            - $LB1
 datasets:
   - name: nodebpool
     mountpoint: /mnt/node-b
