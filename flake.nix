@@ -146,7 +146,7 @@
         packages.default = daemon;
 
         devShells.default = pkgs.mkShell {
-          buildInputs = with pkgs; [ go 1.25 gcc musl.dev gopls gotools postgresql git ];
+          buildInputs = with pkgs; [ go gcc musl.dev gopls gotools postgresql git ];
           shellHook = ''
             export CGO_ENABLED=1
             echo "D-PlaneOS dev shell"

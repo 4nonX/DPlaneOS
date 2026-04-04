@@ -67,18 +67,18 @@ in {
       serviceConfig = {
         Type = "oneshot";
         RemainAfterExit = true;
+        # Use ExecStart (not deprecated script=) for nixpkgs 25.05+ systemd module.
+        ExecStart = "${pkgs.writeShellScript "dplaneos-console-net-hint" ''
+          set -eu
+          echo "dplaneos-console-net-hint: waiting ${toString cfg.bootHintDelaySec}s then probing connectivity..."
+          sleep ${toString cfg.bootHintDelaySec}
+          if ${pkgs.iputils}/bin/ping -c1 -W4 1.1.1.1 >/dev/null 2>&1; then
+            exit 0
+          fi
+          msg="D-PlaneOS: no outbound IPv4 detected. At the physical console run: sudo dplaneos-console-net"
+          echo "$msg" | ${pkgs.util-linux}/bin/wall || true
+        ''}";
       };
-      script = ''
-        set -eu
-        delay=${toString cfg.bootHintDelaySec}
-        echo "dplaneos-console-net-hint: waiting ''${delay}s then probing connectivity..."
-        sleep "$delay"
-        if ${lib.getBin pkgs.iputils}/bin/ping -c1 -W4 1.1.1.1 >/dev/null 2>&1; then
-          exit 0
-        fi
-        msg="D-PlaneOS: no outbound IPv4 detected. At the physical console run: sudo dplaneos-console-net"
-        echo "$msg" | ${lib.getBin pkgs.util-linux}/bin/wall || true
-      '';
     };
   };
 }
