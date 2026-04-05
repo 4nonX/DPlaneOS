@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 
 
+## v8.0.1 (2026-04-06)
+
+Upgrade from: v8.0.0 - Drop-in.
+
+### Fixed
+- **Audit chain verification**: Added `DEFAULT (strftime('%s', 'now'))` to audit_logs table timestamp column, fixing CI verification failures.
+- **TOTP handler error handling**: Fixed 11 locations in `daemon/internal/handlers/totp.go` where database operations were silently ignoring errors.
+
+
 ## v8.0.0 (2026-04-04) - "GPU Passthrough"
 
 Upgrade from: v7.5.3 — Drop-in for the daemon and UI; enable NVIDIA Container Toolkit in NixOS only if you deploy NVIDIA compose stacks.

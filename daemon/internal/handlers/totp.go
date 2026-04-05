@@ -30,9 +30,9 @@ func NewTOTPHandler(db *sql.DB) *TOTPHandler {
 }
 
 const (
-	totpIssuer   = "D-PlaneOS"
-	totpDigits   = 6
-	totpPeriod   = 30  // seconds
+	totpIssuer     = "D-PlaneOS"
+	totpDigits     = 6
+	totpPeriod     = 30 // seconds
 	numBackupCodes = 8
 )
 
@@ -155,17 +155,21 @@ func (h *TOTPHandler) getTOTPSetup(w http.ResponseWriter, userID int, username s
 				respondErrorSimple(w, "Failed to generate secret", http.StatusInternalServerError)
 				return
 			}
-			h.db.Exec(`INSERT INTO totp_secrets (user_id, secret, enabled) VALUES ($1, $2, 0)
+			if _, err := h.db.Exec(`INSERT INTO totp_secrets (user_id, secret, enabled) VALUES ($1, $2, 0)
 				ON CONFLICT(user_id) DO UPDATE SET secret=EXCLUDED.secret, enabled=EXCLUDED.enabled`,
-				userID, secret)
+				userID, secret); err != nil {
+				log.Printf("TOTP SECRET INSERT ERROR: %v", err)
+				respondErrorSimple(w, "Failed to store TOTP secret", http.StatusInternalServerError)
+				return
+			}
 		}
 		// Build otpauth:// URI for QR code
 		otpauthURI := buildOTPAuthURI(username, secret)
 		respondJSON(w, http.StatusOK, map[string]interface{}{
-			"success":       true,
-			"enabled":       false,
-			"secret":        secret,
-			"otpauth_uri":   otpauthURI,
+			"success":     true,
+			"enabled":     false,
+			"secret":      secret,
+			"otpauth_uri": otpauthURI,
 		})
 		return
 	}
@@ -238,7 +242,9 @@ func (h *TOTPHandler) verifyAndEnable(w http.ResponseWriter, r *http.Request, us
 	}
 
 	// Also mark user as having 2FA
-	h.db.Exec(`UPDATE users SET totp_enabled = 1 WHERE id = $1`, userID)
+	if _, err := h.db.Exec(`UPDATE users SET totp_enabled = 1 WHERE id = $1`, userID); err != nil {
+		log.Printf("TOTP USER UPDATE ERROR: %v", err)
+	}
 
 	audit.LogAction("2fa", username, "Two-factor authentication enabled", true, 0)
 	respondJSON(w, http.StatusOK, map[string]interface{}{
@@ -261,7 +267,11 @@ func (h *TOTPHandler) disableTOTP(w http.ResponseWriter, r *http.Request, userID
 
 	// Require current password for extra security
 	var hash string
-	h.db.QueryRow(`SELECT password_hash FROM users WHERE id = $1`, userID).Scan(&hash)
+	if err := h.db.QueryRow(`SELECT password_hash FROM users WHERE id = $1`, userID).Scan(&hash); err != nil {
+		log.Printf("TOTP PASSWORD LOOKUP ERROR: %v", err)
+		respondErrorSimple(w, "Internal error", http.StatusInternalServerError)
+		return
+	}
 	if err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(req.Password)); err != nil {
 		respondErrorSimple(w, "Incorrect password", http.StatusUnauthorized)
 		return
@@ -270,8 +280,12 @@ func (h *TOTPHandler) disableTOTP(w http.ResponseWriter, r *http.Request, userID
 	// Validate TOTP or backup code
 	var secret, backupCodes string
 	var enabled int
-	h.db.QueryRow(`SELECT secret, enabled, backup_codes FROM totp_secrets WHERE user_id = $1`, userID).
-		Scan(&secret, &enabled, &backupCodes)
+	if err := h.db.QueryRow(`SELECT secret, enabled, backup_codes FROM totp_secrets WHERE user_id = $1`, userID).
+		Scan(&secret, &enabled, &backupCodes); err != nil {
+		log.Printf("TOTP SECRET LOOKUP ERROR: %v", err)
+		respondErrorSimple(w, "Internal error", http.StatusInternalServerError)
+		return
+	}
 
 	if enabled == 0 {
 		respondErrorSimple(w, "2FA is not enabled", http.StatusBadRequest)
@@ -283,8 +297,12 @@ func (h *TOTPHandler) disableTOTP(w http.ResponseWriter, r *http.Request, userID
 		return
 	}
 
-	h.db.Exec(`DELETE FROM totp_secrets WHERE user_id = $1`, userID)
-	h.db.Exec(`UPDATE users SET totp_enabled = 0 WHERE id = $1`, userID)
+	if _, err := h.db.Exec(`DELETE FROM totp_secrets WHERE user_id = $1`, userID); err != nil {
+		log.Printf("TOTP DELETE ERROR: %v", err)
+	}
+	if _, err := h.db.Exec(`UPDATE users SET totp_enabled = 0 WHERE id = $1`, userID); err != nil {
+		log.Printf("TOTP DISABLE USER ERROR: %v", err)
+	}
 
 	audit.LogAction("2fa", username, "Two-factor authentication disabled", true, 0)
 	respondJSON(w, http.StatusOK, map[string]interface{}{
@@ -331,8 +349,12 @@ func (h *TOTPHandler) HandleTOTPVerify(w http.ResponseWriter, r *http.Request) {
 
 	// Get TOTP secret
 	var secret, backupCodes string
-	h.db.QueryRow(`SELECT secret, backup_codes FROM totp_secrets WHERE user_id = $1 AND enabled = 1`, userID).
-		Scan(&secret, &backupCodes)
+	if err := h.db.QueryRow(`SELECT secret, backup_codes FROM totp_secrets WHERE user_id = $1 AND enabled = 1`, userID).
+		Scan(&secret, &backupCodes); err != nil {
+		log.Printf("TOTP VERIFY LOOKUP ERROR: %v", err)
+		respondErrorSimple(w, "Internal error", http.StatusInternalServerError)
+		return
+	}
 
 	valid := validateTOTP(secret, req.Code)
 
@@ -348,16 +370,22 @@ func (h *TOTPHandler) HandleTOTPVerify(w http.ResponseWriter, r *http.Request) {
 
 	// Upgrade pending session to full session
 	sessionID, _ := generateSessionID()
-	h.db.Exec(`UPDATE sessions SET session_id = $1, status = 'active' WHERE session_id = $2`,
-		sessionID, req.PendingToken)
+	if _, err := h.db.Exec(`UPDATE sessions SET session_id = $1, status = 'active' WHERE session_id = $2`,
+		sessionID, req.PendingToken); err != nil {
+		log.Printf("TOTP SESSION UPGRADE ERROR: %v", err)
+	}
 
 	// Return the new full session
-	h.db.Exec(`UPDATE users SET last_login = NOW() WHERE id = $1`, userID)
+	if _, err := h.db.Exec(`UPDATE users SET last_login = NOW() WHERE id = $1`, userID); err != nil {
+		log.Printf("TOTP LAST LOGIN UPDATE ERROR: %v", err)
+	}
 	audit.LogAction("auth", username, "2FA verification successful - logged in", true, 0)
 
 	// Get session expiry
 	var expiresAt int64
-	h.db.QueryRow(`SELECT COALESCE(expires_at, 0) FROM sessions WHERE session_id = $1`, sessionID).Scan(&expiresAt)
+	if err := h.db.QueryRow(`SELECT COALESCE(expires_at, 0) FROM sessions WHERE session_id = $1`, sessionID).Scan(&expiresAt); err != nil {
+		log.Printf("TOTP SESSION EXPIRY ERROR: %v", err)
+	}
 
 	respondJSON(w, http.StatusOK, map[string]interface{}{
 		"success":    true,
@@ -379,8 +407,10 @@ func (h *TOTPHandler) validateAndConsumeBackupCode(userID int, code, storedHashe
 		if err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(code)); err == nil {
 			// Consume: replace this hash with empty string
 			hashes[i] = ""
-			h.db.Exec(`UPDATE totp_secrets SET backup_codes = $1 WHERE user_id = $2`,
-				strings.Join(hashes, ","), userID)
+			if _, err := h.db.Exec(`UPDATE totp_secrets SET backup_codes = $1 WHERE user_id = $2`,
+				strings.Join(hashes, ","), userID); err != nil {
+				log.Printf("TOTP BACKUP CONSUME ERROR: %v", err)
+			}
 			return true
 		}
 	}
@@ -393,4 +423,3 @@ func generateSessionID() (string, error) {
 	_, err := rand.Read(raw)
 	return fmt.Sprintf("%x", raw), err
 }
-
