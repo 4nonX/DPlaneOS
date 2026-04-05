@@ -84,6 +84,9 @@ in {
   boot.zfs.forceImportRoot = false;
   boot.zfs.extraPools = zpools;
 
+  # NVMe-oF target (nvmet) — used when exporting zvols over NVMe/TCP
+  boot.kernelModules = [ "nvmet" "nvmet-tcp" ];
+
   services.zfs.autoScrub = {
     enable = true;
     interval = "monthly";
@@ -144,7 +147,7 @@ in {
     # PATH for subprocess commands (zfs, docker, smbcontrol, etc.)
     path = with pkgs; [
       zfs smartmontools hdparm dmidecode
-      acl ethtool ipmitool util-linux
+      acl ethtool ipmitool util-linux pciutils
       coreutils gnugrep gnused gawk
       docker docker-compose
       samba nfs-utils
@@ -186,6 +189,7 @@ in {
         "/run/dplaneos"
         "/var/run/docker.sock"
         "/etc/exports"
+        "/sys/kernel/config"
       ] ++ zpoolMountpoints;
 
       AmbientCapabilities = [

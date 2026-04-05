@@ -28,6 +28,7 @@ import (
 
 	"dplaned/internal/audit"
 	"dplaned/internal/cmdutil"
+	"dplaned/internal/composegpu"
 	"dplaned/internal/jobs"
 )
 
@@ -335,6 +336,15 @@ func (h *TemplateHandler) DeployTemplate(w http.ResponseWriter, r *http.Request)
 
 			// Run compose up
 			composePath := filepath.Join(destDir, "docker-compose.yml")
+			composeBody, readErr := os.ReadFile(composePath)
+			if readErr != nil {
+				j.Fail(fmt.Sprintf("read compose for %q: %v", subName, readErr))
+				return
+			}
+			if err := composegpu.ValidateForDeploy(string(composeBody)); err != nil {
+				j.Fail(fmt.Sprintf("GPU compose preflight failed for stack %q: %v", subName, err))
+				return
+			}
 			upOut, upErr := cmdutil.RunSlow("docker",
 				"compose", "--project-directory", destDir, "-f", composePath, "up", "-d")
 			if upErr != nil {

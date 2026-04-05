@@ -51,6 +51,7 @@ const initialNav: NavItem[] = [
       { kind: 'leaf', id: 'quotas',       label: 'Quotas',            icon: 'pie_chart',          route: '/quotas' },
       { kind: 'leaf', id: 'acl',          label: 'ACL Manager',       icon: 'admin_panel_settings',route: '/acl' },
       { kind: 'leaf', id: 'iscsi',        label: 'iSCSI Targets',     icon: 'storage',            route: '/iscsi' },
+      { kind: 'leaf', id: 'nvme-of',      label: 'NVMe-oF',           icon: 'flash_on',           route: '/nvme-of' },
       { kind: 'leaf', id: 'cloud-sync',   label: 'Cloud Sync',        icon: 'cloud_sync',         route: '/cloud-sync' },
       { kind: 'leaf', id: 'sandbox',      label: 'Sandbox',           icon: 'science',            route: '/sandbox' },
       { kind: 'leaf', id: 'delegation',   label: 'ZFS Delegation',    icon: 'lock_open',          route: '/delegation' },

@@ -69,6 +69,14 @@ in {
       default     = "/var/lib/dplaneos/pgsql";
       description = "Path where the PostgreSQL data directory is located.";
     };
+
+    docker = {
+      enableNvidia = lib.mkEnableOption ''
+        NVIDIA Container Toolkit for Docker (sets virtualisation.docker.enableNvidia).
+        Enable when compose stacks use NVIDIA GPU reservations or the nvidia runtime.
+        Proprietary NVIDIA drivers on the host are still configured by the operator.
+      '';
+    };
   };
 
   config = lib.mkIf cfg.enable {
@@ -133,12 +141,18 @@ in {
       mode = "0755";
     };
 
+    # NVMe-oF target (kernel nvmet) — modules load at boot; dplaned writes configfs at runtime.
+    boot.kernelModules = [ "nvmet" "nvmet-tcp" ];
+
     # ─── Docker ──────────────────────────────────────────────────────────
-    virtualisation.docker = {
-      enable         = true;
-      storageDriver  = "overlay2";
-      autoPrune.enable = true;
-    };
+    virtualisation.docker = lib.mkMerge [
+      {
+        enable           = true;
+        storageDriver    = "overlay2";
+        autoPrune.enable = true;
+      }
+      (lib.mkIf cfg.docker.enableNvidia { enableNvidia = true; })
+    ];
 
     # ─── SSH ─────────────────────────────────────────────────────────────
     services.openssh = {
@@ -188,6 +202,7 @@ in {
       after       = [ "network.target" "zfs.target" "dplaneos-zfs-gate.service" ] ++ lib.optionals cfg.ha.enable [ "haproxy.service" "patroni.service" ];
       requires    = [ "dplaneos-zfs-gate.service" ] ++ lib.optionals cfg.ha.enable [ "patroni.service" ];
       wantedBy    = [ "multi-user.target" ];
+      path        = with pkgs; [ coreutils pciutils docker docker-compose ];
 
       serviceConfig = {
         Type            = "simple";
@@ -223,6 +238,7 @@ in {
           # These files survive nixos-rebuild - NixOS only manages its own prefixed files
           "/etc/systemd/network"
           "/etc/systemd/resolved.conf.d"
+          "/sys/kernel/config"
           # /etc/samba - removed: NixOS now owns smb.conf via modules/samba.nix
           # Daemon writes to /var/lib/dplaneos/smb-shares.conf instead
         ];

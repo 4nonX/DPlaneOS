@@ -14,8 +14,10 @@ import (
 	"time"
 
 	"dplaned/internal/cmdutil"
+	"dplaned/internal/composegpu"
 	"dplaned/internal/hardware"
 	"dplaned/internal/nixwriter"
+	"dplaned/internal/nvmet"
 )
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -179,6 +181,23 @@ func ApplyPlan(ctx ApplyContext, plan *Plan, desired *DesiredState) (*ApplyResul
 		}
 	}
 
+	if desired != nil && fabricNVMeNeedsApply(plan) {
+		if err := reconcileNVMeFabrics(desired.Fabrics); err != nil {
+			result.Failed = "nvme-fabric"
+			result.Status = "FAILED"
+			result.HaltReason = "nvme-fabric"
+			result.Error = fmt.Errorf("nvme-oF reconcile: %w", err)
+			result.Duration = time.Since(start)
+			return result, result.Error
+		}
+		n := 0
+		if desired.Fabrics != nil {
+			n = len(desired.Fabrics.NVMe)
+		}
+		log.Printf("GITOPS APPLY: NVMe-oF fabrics reconciled (%d exports)", n)
+		result.Applied = append(result.Applied, "SYNC nvme_fabric")
+	}
+
 	if smartChanged {
 		log.Printf("GITOPS APPLY: SMART tasks changed - regenerating timers")
 		if err := hardware.RegenerateSMARTTimers(ctx.DB); err != nil {
@@ -216,6 +235,41 @@ func ApplyPlan(ctx ApplyContext, plan *Plan, desired *DesiredState) (*ApplyResul
 	return result, nil
 }
 
+func fabricNVMeNeedsApply(plan *Plan) bool {
+	for _, item := range plan.Items {
+		if item.Kind != KindNVMeFabric {
+			continue
+		}
+		switch item.Action {
+		case ActionCreate, ActionModify, ActionDelete:
+			return true
+		}
+	}
+	return false
+}
+
+func reconcileNVMeFabrics(f *DesiredFabrics) error {
+	var list []nvmet.Export
+	if f != nil {
+		for _, e := range f.NVMe {
+			list = append(list, nvmet.Export{
+				SubsystemNQN: e.SubsystemNQN,
+				Zvol:         e.Zvol,
+				Transport:    e.Transport,
+				ListenAddr:   e.ListenAddr,
+				ListenPort:   e.ListenPort,
+				NamespaceID:  e.NamespaceID,
+				AllowAnyHost: e.AllowAnyHost,
+				HostNQNs:     append([]string(nil), e.HostNQNs...),
+			})
+		}
+	}
+	if err := nvmet.SaveExports(nvmet.TargetsFile, list); err != nil {
+		return err
+	}
+	return nvmet.Apply(list)
+}
+
 // ── Per-action executors ──────────────────────────────────────────────────────
 
 func executeCreate(ctx ApplyContext, item DiffItem) error {
@@ -247,6 +301,8 @@ func executeCreate(ctx ApplyContext, item DiffItem) error {
 		return reconcileCertificate(ctx.DB, item.DesiredCertificate)
 	case KindSMART:
 		return reconcileSMART(ctx.DB, item.DesiredSMART)
+	case KindNVMeFabric:
+		return nil
 	}
 	return fmt.Errorf("unknown kind %q", item.Kind)
 }
@@ -279,6 +335,8 @@ func executeModify(ctx ApplyContext, item DiffItem) error {
 		return reconcileCertificate(ctx.DB, item.DesiredCertificate)
 	case KindSMART:
 		return reconcileSMART(ctx.DB, item.DesiredSMART)
+	case KindNVMeFabric:
+		return nil
 	}
 	return fmt.Errorf("unknown kind %q", item.Kind)
 }
@@ -308,6 +366,8 @@ func executeDelete(ctx ApplyContext, item DiffItem) error {
 		return deleteCertificate(ctx.DB, item.Name)
 	case KindSMART:
 		return deleteSMART(ctx.DB, item.Name)
+	case KindNVMeFabric:
+		return nil
 	}
 	return fmt.Errorf("unknown kind %q", item.Kind)
 }
@@ -609,6 +669,10 @@ func createStack(name string, ds *DesiredStack) error {
 		return fmt.Errorf("no desired stack spec for %q", name)
 	}
 
+	if err := composegpu.ValidateForDeploy(ds.YAML); err != nil {
+		return fmt.Errorf("stack %q: %w", name, err)
+	}
+
 	dir := filepath.Join(defaultStacksDir, name)
 	if err := os.MkdirAll(dir, 0750); err != nil {
 		return fmt.Errorf("create stack dir %s: %w", dir, err)
@@ -619,7 +683,7 @@ func createStack(name string, ds *DesiredStack) error {
 		return fmt.Errorf("write compose file %s: %w", composePath, err)
 	}
 
-	out, err := cmdutil.RunSlow("docker", "compose", "-f", composePath, "up", "-d", "--remove-orphans")
+	out, err := cmdutil.RunSlow("docker", "compose", "--project-directory", dir, "-f", composePath, "up", "-d", "--remove-orphans")
 	if err != nil {
 		return fmt.Errorf("docker compose up %s: %s: %w", name, string(out), err)
 	}
@@ -638,7 +702,7 @@ func deleteStack(name string) error {
 	composePath := filepath.Join(dir, "docker-compose.yml")
 
 	if _, err := os.Stat(composePath); err == nil {
-		out, err := cmdutil.RunSlow("docker", "compose", "-f", composePath, "down")
+		out, err := cmdutil.RunSlow("docker", "compose", "--project-directory", dir, "-f", composePath, "down")
 		if err != nil {
 			log.Printf("GITOPS WARNING: docker compose down %s failed (non-fatal): %s: %v", name, string(out), err)
 		}

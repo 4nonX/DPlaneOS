@@ -740,9 +740,13 @@ export function ReplicationPage() {
       </div>
 
       {/* Info banner */}
-      <div className="alert alert-info" style={{ marginBottom: 24, display: 'flex', gap: 10 }}>
+      <div className="alert alert-info" style={{ marginBottom: 24, display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-start' }}>
         <Icon name="info" size={16} style={{ flexShrink: 0, marginTop: 1 }} />
-        Replication jobs run asynchronously. Long transfers may take hours - job status updates every 2s.
+        <span>
+          Replication jobs run asynchronously. Long transfers may take hours - job status updates every 2s.
+          {' '}For exporting a zvol as a network NVMe disk (alternative to send/receive), use{' '}
+          <a href="/nvme-of" style={{ color: 'var(--primary)', fontWeight: 600 }}>NVMe-oF</a>.
+        </span>
       </div>
 
       {/* Tabs */}

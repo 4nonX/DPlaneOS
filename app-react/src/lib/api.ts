@@ -183,6 +183,27 @@ export async function apiFetch<T>(
           ],
           total_containers: 3
         },
+        '/api/nvmet/status': { success: true, ready: false, nvmet_root: '/sys/kernel/config/nvmet' },
+        '/api/nvmet/targets': { success: true, targets: [], count: 0 },
+        '/api/nvmet/zvols': { success: true, zvols: [] },
+        '/api/docker/gpu': {
+          success: true,
+          report: {
+            pci_devices: [],
+            dri_nodes: [],
+            nvidia_gpus: [],
+            docker_runtimes: ['runc'],
+            nvidia_runtime_available: false,
+            nvidia_driver_ok: false,
+            compose_hints: { can_use_nvidia_device_reservation: false, can_pass_dri_devices: false },
+            nixos_docker_nvidia_option: 'services.dplaneos.docker.enableNvidia',
+            compose_examples: {
+              nvidia_device_reservation: 'services:\n  app:\n    image: demo\n',
+              nvidia_deploy_snippet: '',
+              dri_render_group: 'services:\n  app:\n    devices:\n      - /dev/dri:/dev/dri\n'
+            }
+          }
+        },
         '/api/zfs/smart': {
           success: true,
           disks: [

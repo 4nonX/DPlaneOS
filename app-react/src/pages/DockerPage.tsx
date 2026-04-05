@@ -1,12 +1,14 @@
 ﻿/**
  * pages/DockerPage.tsx - Docker Containers & Image Pull (Phase 3)
  *
- * Tabs: Containers | Pull Image | Compose Stacks
+ * Tabs: Containers | Pull Image | Compose Stacks | GPU / hardware
  *
  * Calls (matching daemon routes exactly):
  *   GET  /api/docker/containers          → stacks[] grouped view
  *   POST /api/docker/action              → start/stop/restart/remove (body: { action, container_id })
  *   POST /api/docker/pull                → async job { job_id }
+ *   POST /api/docker/stacks/deploy       → synchronous stack deploy { success, error?, output?, ... }
+ *   GET  /api/docker/gpu                 → GPU passthrough / host report
  *   POST /api/docker/remove              → remove container
  *   POST /api/docker/prune               → system prune
  *   GET  /api/docker/logs?container=     → container logs
@@ -79,6 +81,41 @@ interface ComposeStack {
 }
 interface ComposeStatusResponse { success: boolean; stacks: ComposeStack[] }
 interface JobStartResponse { job_id: string }
+
+interface StackDeployResponse {
+  success: boolean
+  message?: string
+  error?: string
+  stack?: string
+  path?: string
+  output?: string
+  duration_ms?: number
+}
+
+interface GPUPassthroughReport {
+  pci_devices: Array<{
+    bus_id: string
+    class: string
+    class_code: string
+    vendor_name: string
+    vendor_id: string
+    device_id: string
+    raw_line: string
+  }>
+  dri_nodes: Array<{ name: string; path: string; mode: string; is_render: boolean }>
+  nvidia_gpus?: Array<{ name: string; uuid: string; driver_version: string }>
+  docker_runtimes?: string[]
+  nvidia_runtime_available: boolean
+  nvidia_driver_ok: boolean
+  compose_hints: { can_use_nvidia_device_reservation: boolean; can_pass_dri_devices: boolean }
+  nixos_docker_nvidia_option: string
+  compose_examples: {
+    nvidia_device_reservation: string
+    nvidia_deploy_snippet: string
+    dri_render_group: string
+  }
+}
+interface GPUReportResponse { success: boolean; report: GPUPassthroughReport }
 interface LogsResponse { success: boolean; logs: string }
 
 // ---------------------------------------------------------------------------
@@ -453,24 +490,152 @@ function ContainerTable({ containers, onRefresh, topBorder = true }: { container
 }
 
 // ---------------------------------------------------------------------------
+// GPUTab — host report + compose hints (GET /api/docker/gpu)
+// ---------------------------------------------------------------------------
+
+function GPUTab() {
+  const q = useQuery({
+    queryKey: ['docker', 'gpu'],
+    queryFn: ({ signal }) => api.get<GPUReportResponse>('/api/docker/gpu', signal),
+    refetchInterval: 60_000,
+  })
+
+  if (q.isLoading) {
+    return <div className="card" style={{ padding: 28 }}><Skeleton /></div>
+  }
+  if (q.isError || !q.data?.success || !q.data.report) {
+    return (
+      <ErrorState
+        title="Could not load GPU report"
+        error={q.error ?? new Error('Invalid response')}
+        onRetry={() => q.refetch()}
+      />
+    )
+  }
+
+  const rep = q.data.report
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+      <div className="card" style={{ borderRadius: 'var(--radius-xl)', padding: 24 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+          <Icon name="memory" size={28} style={{ color: 'var(--primary)' }} />
+          <div>
+            <div style={{ fontWeight: 700, fontSize: 'var(--text-lg)' }}>GPU passthrough readiness</div>
+            <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>
+              Host facts from lspci, /dev/dri, nvidia-smi, and Docker. Compose is validated against this before deploy.
+            </div>
+          </div>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 12 }}>
+          <div style={{ padding: 12, borderRadius: 'var(--radius-md)', background: 'var(--surface-2)' }}>
+            <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', marginBottom: 4 }}>NVIDIA driver (nvidia-smi)</div>
+            <div style={{ fontWeight: 600 }}>{rep.nvidia_driver_ok ? 'OK' : 'Not detected'}</div>
+          </div>
+          <div style={{ padding: 12, borderRadius: 'var(--radius-md)', background: 'var(--surface-2)' }}>
+            <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', marginBottom: 4 }}>Docker nvidia runtime</div>
+            <div style={{ fontWeight: 600 }}>{rep.nvidia_runtime_available ? 'Available' : 'Missing'}</div>
+          </div>
+          <div style={{ padding: 12, borderRadius: 'var(--radius-md)', background: 'var(--surface-2)' }}>
+            <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', marginBottom: 4 }}>DRI devices</div>
+            <div style={{ fontWeight: 600 }}>{rep.dri_nodes?.length ?? 0} node(s)</div>
+          </div>
+          <div style={{ padding: 12, borderRadius: 'var(--radius-md)', background: 'var(--surface-2)' }}>
+            <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', marginBottom: 4 }}>NixOS option (toolkit)</div>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}>{rep.nixos_docker_nvidia_option}</div>
+          </div>
+        </div>
+      </div>
+
+      <div className="card" style={{ borderRadius: 'var(--radius-lg)', padding: 20 }}>
+        <div style={{ fontWeight: 600, marginBottom: 10 }}>PCI display-class GPUs</div>
+        {(!rep.pci_devices || rep.pci_devices.length === 0) ? (
+          <div style={{ color: 'var(--text-tertiary)', fontSize: 'var(--text-sm)' }}>None reported by lspci (or lspci unavailable).</div>
+        ) : (
+          <ul style={{ margin: 0, paddingLeft: 18, fontSize: 'var(--text-sm)' }}>
+            {rep.pci_devices.map((p, i) => (
+              <li key={i} style={{ marginBottom: 6 }}>
+                <span style={{ fontFamily: 'var(--font-mono)' }}>{p.bus_id}</span>
+                {' '}{p.vendor_name || p.raw_line}
+                {p.vendor_id && p.device_id ? ` [${p.vendor_id}:${p.device_id}]` : ''}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      <div className="card" style={{ borderRadius: 'var(--radius-lg)', padding: 20 }}>
+        <div style={{ fontWeight: 600, marginBottom: 10 }}>/dev/dri</div>
+        {(!rep.dri_nodes || rep.dri_nodes.length === 0) ? (
+          <div style={{ color: 'var(--text-tertiary)', fontSize: 'var(--text-sm)' }}>No character devices found.</div>
+        ) : (
+          <ul style={{ margin: 0, paddingLeft: 18, fontSize: 'var(--text-sm)', fontFamily: 'var(--font-mono)' }}>
+            {rep.dri_nodes.map(n => (
+              <li key={n.path}>{n.path}{n.is_render ? ' (render)' : ''}</li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      <div className="card" style={{ borderRadius: 'var(--radius-lg)', padding: 20 }}>
+        <div style={{ fontWeight: 600, marginBottom: 10 }}>NVIDIA GPUs</div>
+        {(!rep.nvidia_gpus || rep.nvidia_gpus.length === 0) ? (
+          <div style={{ color: 'var(--text-tertiary)', fontSize: 'var(--text-sm)' }}>nvidia-smi did not list any GPU.</div>
+        ) : (
+          <ul style={{ margin: 0, paddingLeft: 18, fontSize: 'var(--text-sm)' }}>
+            {rep.nvidia_gpus.map((g, i) => (
+              <li key={i}>{g.name} — driver {g.driver_version} — {g.uuid}</li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      <div className="card" style={{ borderRadius: 'var(--radius-lg)', padding: 20 }}>
+        <div style={{ fontWeight: 600, marginBottom: 10 }}>Docker runtimes</div>
+        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 13 }}>{(rep.docker_runtimes || []).join(', ') || '—'}</div>
+      </div>
+
+      <div className="card" style={{ borderRadius: 'var(--radius-lg)', padding: 20 }}>
+        <div style={{ fontWeight: 600, marginBottom: 10 }}>Compose reference (copy into your YAML)</div>
+        <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', marginTop: 0 }}>NVIDIA device reservation</p>
+        <pre style={{ margin: '0 0 16px', padding: 12, borderRadius: 8, background: 'var(--surface-2)', overflow: 'auto', fontSize: 12 }}>{rep.compose_examples.nvidia_device_reservation}</pre>
+        <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>DRI pass-through (adjust group_add GIDs)</p>
+        <pre style={{ margin: 0, padding: 12, borderRadius: 8, background: 'var(--surface-2)', overflow: 'auto', fontSize: 12 }}>{rep.compose_examples.dri_render_group}</pre>
+      </div>
+
+      <button type="button" className="btn btn-ghost" onClick={() => q.refetch()}><Icon name="refresh" size={16} />Refresh</button>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // PullTab
 // ---------------------------------------------------------------------------
 
 function DeployComposeSection({ onDone }: { onDone: () => void }) {
+  const defaultYaml = 'services:\n  nginx:\n    image: nginx:latest\n    ports:\n      - "80:80"'
   const [name, setName] = useState('')
-  const [yaml, setYaml] = useState('services:\n  nginx:\n    image: nginx:latest\n    ports:\n      - "80:80"')
-  const [deployJobId, setDeployJobId] = useState<string | null>(null)
-  
+  const [yaml, setYaml] = useState(defaultYaml)
+
   const deploy = useMutation({
-    mutationFn: (data: { name: string; yaml: string }) => api.post<{ job_id: string }>('/api/docker/compose/deploy', data),
-    onSuccess: (data) => setDeployJobId(data.job_id),
+    mutationFn: async (data: { name: string; yaml: string }) => {
+      const res = await api.post<StackDeployResponse>('/api/docker/stacks/deploy', data)
+      if (!res.success) {
+        throw new Error(res.error || res.message || 'Stack deploy failed')
+      }
+      return res
+    },
+    onSuccess: () => {
+      toast.success('Stack deployed successfully')
+      onDone()
+      setName('')
+      setYaml(defaultYaml)
+    },
     onError: (e: Error) => toast.error(e.message),
   })
 
   function start() {
     if (!name.trim()) { toast.error('Stack name required'); return }
     if (!yaml.trim() || yaml.length < 20) { toast.error('Valid Compose YAML required'); return }
-    setDeployJobId(null)
     deploy.mutate({ name, yaml })
   }
 
@@ -478,7 +643,7 @@ function DeployComposeSection({ onDone }: { onDone: () => void }) {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <label className="field">
         <span className="field-label">Stack Name</span>
-        <input value={name} onChange={e => setName(e.target.value.toLowerCase().replace(/[^a-z0-h0-9_-]/g, ''))} 
+        <input value={name} onChange={e => setName(e.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, ''))}
           placeholder="my-cool-app" className="input" style={{ maxWidth: 300 }} />
       </label>
 
@@ -493,21 +658,11 @@ function DeployComposeSection({ onDone }: { onDone: () => void }) {
         />
       </label>
 
-      {deployJobId && (
-        <JobProgress
-          jobId={deployJobId}
-          runningLabel={`Deploying ${name} stack…`}
-          doneLabel="Stack deployed successfully"
-          onDone={() => { onDone(); setDeployJobId(null); setName(''); setYaml('services:\n  ') }}
-          onFailed={() => setDeployJobId(null)}
-        />
-      )}
-
       <div style={{ display: 'flex', gap: 10 }}>
         <button onClick={start} disabled={deploy.isPending} className="btn btn-primary">
           <Icon name="rocket_launch" size={16} />{deploy.isPending ? 'Deploying…' : 'Deploy Stack'}
         </button>
-        <button onClick={() => { setName(''); setYaml('services:\n  ') }} className="btn btn-ghost">Clear</button>
+        <button type="button" onClick={() => { setName(''); setYaml(defaultYaml) }} className="btn btn-ghost">Clear</button>
       </div>
     </div>
   )
@@ -691,7 +846,7 @@ function ComposeTab() {
 // DockerPage
 // ---------------------------------------------------------------------------
 
-type Tab = 'containers' | 'pull' | 'compose'
+type Tab = 'containers' | 'pull' | 'compose' | 'gpu'
 
 export function DockerPage() {
   const [tab, setTab] = useState<Tab>('containers')
@@ -700,13 +855,14 @@ export function DockerPage() {
     { id: 'containers', label: 'Containers', icon: 'deployed_code' },
     { id: 'pull', label: 'Pull Image', icon: 'download' },
     { id: 'compose', label: 'Compose Stacks', icon: 'folder' },
+    { id: 'gpu', label: 'GPU / hardware', icon: 'memory' },
   ]
 
   return (
     <div style={{ maxWidth: 1200 }}>
       <div className="page-header">
         <h1 className="page-title">Docker</h1>
-        <p className="page-subtitle">Containers · Images · Compose Stacks</p>
+        <p className="page-subtitle">Containers · Images · Compose Stacks · GPU</p>
       </div>
 
       {/* Tabs */}
@@ -721,6 +877,7 @@ export function DockerPage() {
       {tab === 'containers' && <ContainersTab />}
       {tab === 'pull'       && <PullTab />}
       {tab === 'compose'    && <ComposeTab />}
+      {tab === 'gpu'        && <GPUTab />}
     </div>
   )
 }

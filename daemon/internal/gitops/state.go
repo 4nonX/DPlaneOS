@@ -26,6 +26,8 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+
+	"dplaned/internal/nvmet"
 )
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -71,6 +73,25 @@ type DesiredState struct {
 	ACME             *DesiredACME         `yaml:"acme"`
 	Certificates     []DesiredCertificate `yaml:"certificates"`
 	SMART            []DesiredSMARTTask   `yaml:"smart_tasks"`
+	// Fabrics is optional. When nil, GitOps does not manage NVMe-oF exports (UI/API-only).
+	Fabrics *DesiredFabrics `yaml:"fabrics,omitempty"`
+}
+
+// DesiredFabrics declares block fabrics (NVMe-oF target). Alternative data plane to ZFS send/recv.
+type DesiredFabrics struct {
+	NVMe []DesiredNVMeExport `yaml:"nvme,omitempty"`
+}
+
+// DesiredNVMeExport maps a ZFS zvol to an NVMe subsystem served over NVMe/TCP (kernel nvmet).
+type DesiredNVMeExport struct {
+	SubsystemNQN string   `yaml:"subsystem_nqn"`
+	Zvol         string   `yaml:"zvol"`
+	Transport    string   `yaml:"transport,omitempty"`     // tcp (default)
+	ListenAddr   string   `yaml:"listen_addr,omitempty"`   // default 0.0.0.0
+	ListenPort   int      `yaml:"listen_port,omitempty"`   // default 4420
+	NamespaceID  int      `yaml:"namespace_id,omitempty"`  // default 1
+	AllowAnyHost bool     `yaml:"allow_any_host,omitempty"`
+	HostNQNs     []string `yaml:"host_nqns,omitempty"`
 }
 
 // PoolTopology is the declarative vdev layout for a pool (data + optional special tiers).
@@ -475,7 +496,36 @@ func ValidState(s *DesiredState) []string {
 			errs = append(errs, pfx+": invalid compose YAML: must contain 'services:' section")
 		}
 	}
- 
+
+	// ── Fabrics (NVMe-oF) ───────────────────────────────────────────────────────
+	if s.Fabrics != nil {
+		seenNQN := map[string]bool{}
+		for i, ex := range s.Fabrics.NVMe {
+			pfx := fmt.Sprintf("fabrics.nvme[%d]", i)
+			if ex.SubsystemNQN == "" {
+				errs = append(errs, pfx+": subsystem_nqn is required")
+				continue
+			}
+			if seenNQN[ex.SubsystemNQN] {
+				errs = append(errs, pfx+": duplicate subsystem_nqn")
+			}
+			seenNQN[ex.SubsystemNQN] = true
+			exp := nvmet.Export{
+				SubsystemNQN: ex.SubsystemNQN,
+				Zvol:         ex.Zvol,
+				Transport:    ex.Transport,
+				ListenAddr:   ex.ListenAddr,
+				ListenPort:   ex.ListenPort,
+				NamespaceID:  ex.NamespaceID,
+				AllowAnyHost: ex.AllowAnyHost,
+				HostNQNs:     append([]string(nil), ex.HostNQNs...),
+			}
+			if err := nvmet.ValidateSpec(&exp); err != nil {
+				errs = append(errs, pfx+": "+err.Error())
+			}
+		}
+	}
+
 	// ── System ─────────────────────────────────────────────────────────────────
 	if s.System != nil {
 		if s.System.Hostname != "" && !validPoolRe.MatchString(s.System.Hostname) {
@@ -842,6 +892,36 @@ func PrintStateYAML(s *DesiredState) string {
 			fmt.Fprintf(&b, "    schedule: %s\n", t.Schedule)
 			if !t.Enabled {
 				b.WriteString("    enabled: false\n")
+			}
+		}
+	}
+
+	if s.Fabrics != nil && len(s.Fabrics.NVMe) > 0 {
+		b.WriteString("\nfabrics:\n  nvme:\n")
+		for _, ex := range s.Fabrics.NVMe {
+			b.WriteString("    - subsystem_nqn: ")
+			fmt.Fprintf(&b, "%s\n", ex.SubsystemNQN)
+			fmt.Fprintf(&b, "      zvol: %s\n", ex.Zvol)
+			if ex.Transport != "" && ex.Transport != "tcp" {
+				fmt.Fprintf(&b, "      transport: %s\n", ex.Transport)
+			}
+			if ex.ListenAddr != "" && ex.ListenAddr != "0.0.0.0" {
+				fmt.Fprintf(&b, "      listen_addr: %s\n", ex.ListenAddr)
+			}
+			if ex.ListenPort != 0 && ex.ListenPort != 4420 {
+				fmt.Fprintf(&b, "      listen_port: %d\n", ex.ListenPort)
+			}
+			if ex.NamespaceID != 0 && ex.NamespaceID != 1 {
+				fmt.Fprintf(&b, "      namespace_id: %d\n", ex.NamespaceID)
+			}
+			if ex.AllowAnyHost {
+				b.WriteString("      allow_any_host: true\n")
+			}
+			if len(ex.HostNQNs) > 0 {
+				b.WriteString("      host_nqns:\n")
+				for _, h := range ex.HostNQNs {
+					fmt.Fprintf(&b, "        - %s\n", h)
+				}
 			}
 		}
 	}
@@ -1292,6 +1372,35 @@ func mapToState(raw map[string]yamlNode) (*DesiredState, error) {
 				Schedule: strField(tm, "schedule"),
 				Enabled:  strField(tm, "enabled") != "false",
 			})
+		}
+	}
+
+	if fabRaw, ok := raw["fabrics"]; ok && fabRaw != nil {
+		fabMap, ok := fabRaw.(map[string]yamlNode)
+		if !ok {
+			return nil, fmt.Errorf("fabrics must be a mapping")
+		}
+		s.Fabrics = &DesiredFabrics{}
+		if nvRaw, ok := fabMap["nvme"]; ok {
+			nvmeList, err := toSliceOfMaps(nvRaw, "fabrics.nvme")
+			if err != nil {
+				return nil, err
+			}
+			for _, nm := range nvmeList {
+				ex := DesiredNVMeExport{
+					SubsystemNQN: strField(nm, "subsystem_nqn"),
+					Zvol:         strField(nm, "zvol"),
+					Transport:    strField(nm, "transport"),
+					ListenAddr:   strField(nm, "listen_addr"),
+					ListenPort:   intField(nm, "listen_port"),
+					NamespaceID:  intField(nm, "namespace_id"),
+					AllowAnyHost: strField(nm, "allow_any_host") == "true",
+				}
+				if hq, ok := nm["host_nqns"]; ok {
+					ex.HostNQNs, _ = toStringSlice(hq, "host_nqns")
+				}
+				s.Fabrics.NVMe = append(s.Fabrics.NVMe, ex)
+			}
 		}
 	}
 

@@ -6,6 +6,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 
 
+## v8.0.0 (2026-04-04) - "GPU Passthrough"
+
+Upgrade from: v7.5.3 — Drop-in for the daemon and UI; enable NVIDIA Container Toolkit in NixOS only if you deploy NVIDIA compose stacks.
+
+### Added
+- **NVMe-oF target (nvmet)**: Export ZFS zvols over **NVMe/TCP** via kernel configfs — alternative block data plane to ZFS send/recv. Persisted at `/var/lib/dplaneos/nvmet-targets.json`, applied atomically to nvmet. **API**: `GET/POST/PUT/DELETE /api/nvmet/targets`, `GET /api/nvmet/status`, `GET /api/nvmet/zvols`. **GitOps**: optional `fabrics.nvme` in `state.yaml` (omit `fabrics:` if you only use the UI). Host NQN allow-list or `allow_any_host`. **UI**: Storage → **NVMe-oF**, plus cross-link from Replication.
+- **NixOS**: `nvmet` / `nvmet-tcp` kernel modules; `dplaned` may write `/sys/kernel/config` (module + standalone `configuration.nix`).
+- **GET /api/docker/gpu**: Host GPU passthrough report — PCI display-class devices (`lspci -nn`), `/dev/dri` nodes, `nvidia-smi` when available, Docker `Runtimes` (including `nvidia`), compose hints, NixOS module option name, and copy-paste compose YAML examples for NVIDIA reservations and DRI bind-mounts.
+- **Compose GPU preflight**: Before stack deploy, YAML update, GitOps stack create, and template-driven `compose up`, the daemon validates NVIDIA and DRI requirements from the compose text against the live host (Linux only). Failures return explicit errors; compose files are not silently rewritten.
+- **NixOS `services.dplaneos.docker.enableNvidia`**: When true, sets `virtualisation.docker.enableNvidia` for the NVIDIA Container Toolkit. Host driver installation remains operator-owned.
+- **Docker UI**: **GPU / hardware** tab showing the passthrough report; **Deploy Compose Stack** now calls `POST /api/docker/stacks/deploy` and handles the synchronous response (fixes the broken `/api/docker/compose/deploy` + job flow).
+
+### Changed
+- **GitOps `docker compose`**: Stack up/down uses `--project-directory` for consistent context with the stacks API.
+
+### Notes
+- **`pciutils`** is added to the daemon systemd `path` in `module.nix` and to the template `configuration.nix` so `lspci` is available for discovery.
+
+
 ## v7.5.3 (2026-04-04) - "Operational Depth"
 
 Upgrade from: v7.5.2 - Drop-in. `sudo bash install.sh --upgrade`

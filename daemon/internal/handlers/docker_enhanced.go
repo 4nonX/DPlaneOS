@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -12,6 +13,7 @@ import (
 
 	"dplaned/internal/audit"
 	"dplaned/internal/cmdutil"
+	"dplaned/internal/composegpu"
 	"dplaned/internal/config"
 	"dplaned/internal/dockerclient"
 	"dplaned/internal/jobs"
@@ -350,7 +352,15 @@ func (h *DockerHandler) ComposeUp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	args := []string{"compose", "-f", cleanPath + "/docker-compose.yml", "up"}
+	composeFile := filepath.Join(cleanPath, "docker-compose.yml")
+	if raw, rerr := os.ReadFile(composeFile); rerr == nil {
+		if err := composegpu.ValidateForDeploy(string(raw)); err != nil {
+			respondErrorSimple(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+	}
+
+	args := []string{"compose", "--project-directory", cleanPath, "-f", composeFile, "up"}
 	if req.Detach {
 		args = append(args, "-d")
 	}
@@ -390,7 +400,8 @@ func (h *DockerHandler) ComposeDown(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	args := []string{"compose", "-f", cleanPath + "/docker-compose.yml", "down"}
+	composeFile := filepath.Join(cleanPath, "docker-compose.yml")
+	args := []string{"compose", "--project-directory", cleanPath, "-f", composeFile, "down"}
 	if req.RemoveVolumes {
 		args = append(args, "-v")
 	}

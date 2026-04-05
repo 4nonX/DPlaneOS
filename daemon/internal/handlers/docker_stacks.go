@@ -14,6 +14,7 @@ import (
 
 	"dplaned/internal/audit"
 	"dplaned/internal/cmdutil"
+	"dplaned/internal/composegpu"
 	"dplaned/internal/config"
 	"dplaned/internal/gitops"
 )
@@ -103,6 +104,11 @@ func (h *StackHandler) DeployStack(w http.ResponseWriter, r *http.Request) {
 	}
 	if !strings.Contains(yaml, "services:") && !strings.Contains(yaml, "services :") {
 		respondErrorSimple(w, "Invalid compose YAML: must contain 'services:' section", http.StatusBadRequest)
+		return
+	}
+
+	if err := composegpu.ValidateForDeploy(yaml); err != nil {
+		respondErrorSimple(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -377,6 +383,11 @@ func (h *StackHandler) UpdateStackYAML(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if err := composegpu.ValidateForDeploy(yaml); err != nil {
+		respondErrorSimple(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
 	composePath := filepath.Join(dir, "docker-compose.yml")
 
 	// Verify stack exists
@@ -530,6 +541,15 @@ func (h *StackHandler) StackAction(w http.ResponseWriter, r *http.Request) {
 	if _, err := os.Stat(composePath); os.IsNotExist(err) {
 		respondErrorSimple(w, fmt.Sprintf("Stack '%s' not found", req.Name), http.StatusNotFound)
 		return
+	}
+
+	if req.Action == "start" || req.Action == "restart" {
+		if raw, rerr := os.ReadFile(composePath); rerr == nil {
+			if err := composegpu.ValidateForDeploy(string(raw)); err != nil {
+				respondErrorSimple(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+		}
 	}
 
 	user := getUserFromRequest(r)

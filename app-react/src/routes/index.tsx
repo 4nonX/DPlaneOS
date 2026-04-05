@@ -34,6 +34,7 @@ import { FilesPage }         from '@/pages/FilesPage'
 import { QuotasPage }        from '@/pages/QuotasPage'
 import { ACLPage }           from '@/pages/ACLPage'
 import { ISCSIPage }         from '@/pages/ISCSIPage'
+import { NVMeOFPage }       from '@/pages/NVMeOFPage'
 import { CloudSyncPage }     from '@/pages/CloudSyncPage'
 import { DockerPage }        from '@/pages/DockerPage'
 import { ModulesPage }       from '@/pages/ModulesPage'
@@ -112,6 +113,7 @@ const aclRoute        = createRoute({
   component: ACLPage,
 })
 const iscsiRoute      = createRoute({ getParentRoute: () => protectedRoute, path: '/iscsi',         component: ISCSIPage })
+const nvmeRoute       = createRoute({ getParentRoute: () => protectedRoute, path: '/nvme-of',       component: NVMeOFPage })
 const cloudRoute      = createRoute({ getParentRoute: () => protectedRoute, path: '/cloud-sync',    component: CloudSyncPage })
 const sandboxRoute    = createRoute({ getParentRoute: () => protectedRoute, path: '/sandbox',       component: SandboxPage })
 const delegationRoute = createRoute({ getParentRoute: () => protectedRoute, path: '/delegation',    component: DelegationPage })
@@ -146,7 +148,7 @@ const routeTree = rootRoute.addChildren([
   setupRoute,
   protectedRoute.addChildren([
     dashboardRoute, poolsRoute, sharesRoute, nfsRoute, snapshotsRoute, replRoute,
-    filesRoute, quotasRoute, aclRoute, iscsiRoute, cloudRoute,
+    filesRoute, quotasRoute, aclRoute, iscsiRoute, nvmeRoute, cloudRoute,
     sandboxRoute, delegationRoute,
     dockerRoute, modulesRoute, gitOpsRoute,
     networkRoute, removableRoute,

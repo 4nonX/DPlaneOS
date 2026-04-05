@@ -680,6 +680,7 @@ func main() {
 
 	// v3.0.0: Docker pre-flight check
 	r.Handle("/api/docker/preflight", permRoute("docker", "read", dockerHandler.PreFlightCheck)).Methods("GET")
+	r.Handle("/api/docker/gpu", permRoute("docker", "read", handlers.HandleDockerGPUPassthroughReport)).Methods("GET")
 
 	// ── Git Sync ──
 	gitSyncHandler := handlers.NewGitSyncHandler(db)
@@ -1119,6 +1120,14 @@ func main() {
 	r.Handle("/api/iscsi/acls", permRoute("storage", "write", handlers.AddISCSIACL)).Methods("POST")
 	r.Handle("/api/iscsi/acls", permRoute("storage", "write", handlers.DeleteISCSIACL)).Methods("DELETE")
 	r.HandleFunc("/api/iscsi/zvols", handlers.GetISCSIZvolList).Methods("GET")
+
+	// v8.0.0: NVMe-oF target (nvmet + ZFS zvol)
+	r.HandleFunc("/api/nvmet/status", handlers.GetNVMeTargetStatus).Methods("GET")
+	r.HandleFunc("/api/nvmet/targets", handlers.ListNVMeTargets).Methods("GET")
+	r.HandleFunc("/api/nvmet/zvols", handlers.ListNVMeZvols).Methods("GET")
+	r.Handle("/api/nvmet/targets", permRoute("storage", "write", handlers.CreateNVMeTarget)).Methods("POST")
+	r.Handle("/api/nvmet/targets", permRoute("storage", "write", handlers.UpdateNVMeTarget)).Methods("PUT")
+	r.Handle("/api/nvmet/targets", permRoute("storage", "write", handlers.DeleteNVMeTarget)).Methods("DELETE")
 
 	// v3.2.0: Prometheus metrics exporter (Phase 2)
 	r.HandleFunc("/metrics", handlers.HandlePrometheusMetrics).Methods("GET")

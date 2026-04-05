@@ -10,6 +10,7 @@ import (
 
 	"dplaned/internal/cmdutil"
 	"dplaned/internal/nixwriter"
+	"dplaned/internal/nvmet"
 )
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -116,6 +117,8 @@ type LiveState struct {
 	ACME        *DesiredACME
 	Certificates []DesiredCertificate
 	SMART        []DesiredSMARTTask
+	// NVMeFabric is the persisted NVMe-oF target list (when fabrics are managed).
+	NVMeFabric []DesiredNVMeExport
 }
 
 // ReadLiveState collects all live state from ZFS and the DB.
@@ -174,7 +177,30 @@ func ReadLiveState(db *sql.DB) (*LiveState, error) {
 	state.Certificates, _ = readLiveCertificates(db)
 	state.SMART, _ = readLiveSMART(db)
 
+	state.NVMeFabric, _ = readLiveNVMeFabric()
+
 	return state, nil
+}
+
+func readLiveNVMeFabric() ([]DesiredNVMeExport, error) {
+	list, err := nvmet.LoadExports(nvmet.TargetsFile)
+	if err != nil || len(list) == 0 {
+		return nil, err
+	}
+	out := make([]DesiredNVMeExport, len(list))
+	for i, e := range list {
+		out[i] = DesiredNVMeExport{
+			SubsystemNQN: e.SubsystemNQN,
+			Zvol:         e.Zvol,
+			Transport:    e.Transport,
+			ListenAddr:   e.ListenAddr,
+			ListenPort:   e.ListenPort,
+			NamespaceID:  e.NamespaceID,
+			AllowAnyHost: e.AllowAnyHost,
+			HostNQNs:     append([]string(nil), e.HostNQNs...),
+		}
+	}
+	return out, nil
 }
 
 // readLivePools reads pool state via `zpool list` and disk membership via

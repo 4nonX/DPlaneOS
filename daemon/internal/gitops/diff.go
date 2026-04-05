@@ -85,6 +85,7 @@ const (
 	KindACME        ResourceKind = "acme"
 	KindCertificate ResourceKind = "certificate"
 	KindSMART       ResourceKind = "smart_task"
+	KindNVMeFabric  ResourceKind = "nvme_fabric"
 )
 
 // DiffItem is one entry in the reconciliation plan.
@@ -124,6 +125,7 @@ type DiffItem struct {
 	DesiredACME        *DesiredACME        `json:"desired_acme,omitempty"`
 	DesiredCertificate *DesiredCertificate `json:"desired_certificate,omitempty"`
 	DesiredSMART       *DesiredSMARTTask   `json:"desired_smart_task,omitempty"`
+	DesiredNVMeExport  *DesiredNVMeExport  `json:"desired_nvme_export,omitempty"`
 }
 
 // Plan is the complete reconciliation plan: the ordered list of DiffItems.
@@ -236,6 +238,17 @@ func ComputeDiff(desired *DesiredState, live *LiveState) *Plan {
 	desiredRepls := make(map[string]DesiredReplication)
 	for _, r := range desired.Replication {
 		desiredRepls[r.Name] = r
+	}
+
+	liveNVMe := make(map[string]DesiredNVMeExport)
+	for _, x := range live.NVMeFabric {
+		liveNVMe[x.SubsystemNQN] = x
+	}
+	desiredNVMe := make(map[string]DesiredNVMeExport)
+	if desired.Fabrics != nil {
+		for _, x := range desired.Fabrics.NVMe {
+			desiredNVMe[x.SubsystemNQN] = x
+		}
 	}
 
 	// ── Phase -1: AMBIGUITY Detection ─────────────────────────────────────────
@@ -418,6 +431,21 @@ func ComputeDiff(desired *DesiredState, live *LiveState) *Plan {
 		}
 	}
 
+	if desired.Fabrics != nil {
+		for _, ex := range desired.Fabrics.NVMe {
+			if _, exists := liveNVMe[ex.SubsystemNQN]; !exists {
+				item := ex
+				plan.Items = append(plan.Items, DiffItem{
+					Kind:              KindNVMeFabric,
+					Name:              ex.SubsystemNQN,
+					Action:            ActionCreate,
+					RiskLevel:         "medium",
+					DesiredNVMeExport: &item,
+				})
+			}
+		}
+	}
+
 	for _, du := range desired.Users {
 		if _, exists := liveUsers[du.Username]; !exists {
 			item := du
@@ -595,6 +623,30 @@ func ComputeDiff(desired *DesiredState, live *LiveState) *Plan {
 			RiskLevel:    riskForStackChanges(changes),
 			DesiredStack: &dstCopy,
 		})
+	}
+
+	if desired.Fabrics != nil {
+		for _, ex := range desired.Fabrics.NVMe {
+			lv, ok := liveNVMe[ex.SubsystemNQN]
+			if !ok {
+				continue
+			}
+			if nvmeExportEqual(ex, lv) {
+				plan.Items = append(plan.Items, DiffItem{
+					Kind: KindNVMeFabric, Name: ex.SubsystemNQN, Action: ActionNOP, RiskLevel: "low",
+				})
+				continue
+			}
+			exCopy := ex
+			plan.Items = append(plan.Items, DiffItem{
+				Kind:              KindNVMeFabric,
+				Name:              ex.SubsystemNQN,
+				Action:            ActionModify,
+				Changes:           diffNVMeExport(ex, lv),
+				RiskLevel:         "medium",
+				DesiredNVMeExport: &exCopy,
+			})
+		}
 	}
 
 	for _, du := range desired.Users {
@@ -808,6 +860,20 @@ func ComputeDiff(desired *DesiredState, live *LiveState) *Plan {
 		}
 	}
 
+	if !desired.IgnoreExtraneous && desired.Fabrics != nil {
+		for _, lv := range live.NVMeFabric {
+			if _, wanted := desiredNVMe[lv.SubsystemNQN]; wanted {
+				continue
+			}
+			plan.Items = append(plan.Items, DiffItem{
+				Kind:      KindNVMeFabric,
+				Name:      lv.SubsystemNQN,
+				Action:    ActionDelete,
+				RiskLevel: "high",
+			})
+		}
+	}
+
 	for _, lu := range live.Users {
 		found := false
 		for _, du := range desired.Users {
@@ -924,8 +990,9 @@ func ComputeDiff(desired *DesiredState, live *LiveState) *Plan {
 		KindLDAP:        9,
 		KindACME:        10,
 		KindCertificate: 11,
-		KindSMART:       12,
-		KindStack:       13,
+		KindSMART:      12,
+		KindNVMeFabric: 13,
+		KindStack:      14,
 	}
 
 	sort.SliceStable(plan.Items, func(i, j int) bool {
