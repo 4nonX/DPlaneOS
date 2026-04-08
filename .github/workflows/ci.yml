@@ -33,7 +33,7 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      
+
       - name: Check for Syncthing conflict files
         run: |
           CONFLICTS=$(find . -name '.sync-conflict-*.go' 2>/dev/null | head -20 || true)
@@ -51,17 +51,17 @@ jobs:
           node-version: '20'
           cache: 'npm'
           cache-dependency-path: app-react/package-lock.json
-      
+
       - name: Install frontend dependencies
         if: hashFiles('app-react/package-lock.json') != ''
         working-directory: app-react
         run: npm ci
-      
+
       - name: TypeScript typecheck
         if: hashFiles('app-react/package-lock.json') != ''
         working-directory: app-react
         run: npx tsc --noEmit
-      
+
       - name: Verify app/ bundle is up to date
         if: hashFiles('app-react/package-lock.json') != ''
         run: |
@@ -82,7 +82,7 @@ jobs:
         with:
           go-version-file: daemon/go.mod
           cache-dependency-path: daemon/go.sum
-      
+
       - name: Install build dependencies
         run: |
           sudo apt-get update -qq
@@ -100,12 +100,12 @@ jobs:
           mkdir -p ../build
           CGO_ENABLED=0 go build -ldflags="-s -w -X main.Version=$(cat ../VERSION)" -o ../build/dplaned-linux-amd64 ./cmd/dplaned/
           GOARCH=arm64 CGO_ENABLED=0 go build -ldflags="-s -w -X main.Version=$(cat ../VERSION)" -o ../build/dplaned-linux-arm64 ./cmd/dplaned/
-      
+
       - name: ARM64 Sanity Check (QEMU)
         run: |
           chmod +x build/dplaned-linux-arm64
           qemu-aarch64-static -L /usr/aarch64-linux-gnu build/dplaned-linux-arm64 --version
-      
+
       - name: Upload Build Artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -139,18 +139,18 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      
+
       - name: Download Build Artifacts
         uses: actions/download-artifact@v4
         with:
           name: dplaneos-build
-      
+
       - name: Install dependencies
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y gcc libc6-dev zfsutils-linux postgresql-client python3-bcrypt curl nfs-kernel-server samba targetcli-fb acl ufw ipmitool
           sudo modprobe zfs
-      
+
       - name: Positioning binary for scripts
         run: cp build/dplaned-linux-amd64 ./dplaned-ci && chmod +x ./dplaned-ci
 
@@ -163,7 +163,7 @@ jobs:
           bash .github/scripts/api-integration-test.sh
 
   # ════════════════════════════════════════════════════════════════════════════
-  # STAGE 3: HARDEN - Convergence & Failure Resilience
+  # STAGE 3A: HARDEN - Convergence & Failure Resilience
   # ════════════════════════════════════════════════════════════════════════════
   convergence:
     name: Convergence & Resilience
@@ -186,18 +186,18 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      
+
       - name: Download Build Artifacts
         uses: actions/download-artifact@v4
         with:
           name: dplaneos-build
-      
+
       - name: Install dependencies
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y zfsutils-linux postgresql-client python3-bcrypt
           sudo modprobe zfs
-      
+
       - name: Positioning binary for scripts
         run: cp build/dplaned-linux-amd64 ./dplaned-ci && chmod +x ./dplaned-ci
 
@@ -209,11 +209,12 @@ jobs:
           bash .github/scripts/convergence-test.sh
 
   # ════════════════════════════════════════════════════════════════════════════
-  # STAGE 4: INTEGRATE - Full Fleet & Install Tests
+  # STAGE 3B: STORAGE FAILURE - Real-World Fault Scenarios
+  # Runs in parallel with convergence (both need only validate)
   # ════════════════════════════════════════════════════════════════════════════
-  integration:
-    name: Fleet & Install Tests
-    needs: [prepare, validate, convergence]
+  storage-failure:
+    name: Storage Failure Scenarios
+    needs: [prepare, validate]
     runs-on: ubuntu-22.04
     services:
       postgres:
@@ -232,18 +233,66 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      
+
       - name: Download Build Artifacts
         uses: actions/download-artifact@v4
         with:
           name: dplaneos-build
-      
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y zfsutils-linux postgresql-client python3-bcrypt curl python3-bcrypt
+          sudo modprobe zfs
+
+      - name: Positioning binary for scripts
+        run: cp build/dplaned-linux-amd64 ./dplaned-ci && chmod +x ./dplaned-ci
+
+      - name: Run Storage Failure Suite
+        env:
+          CI_PASS: "CiAdmin1!Test"
+          DATABASE_DSN: "postgres://dplaneos:dplaneos@localhost:5432/dplaneos?sslmode=disable"
+        run: |
+          chmod +x .github/scripts/storage-failure-test.sh
+          bash .github/scripts/storage-failure-test.sh
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # STAGE 4: INTEGRATE - Full Fleet & Install Tests
+  # Requires both Stage 3 jobs to pass
+  # ════════════════════════════════════════════════════════════════════════════
+  integration:
+    name: Fleet & Install Tests
+    needs: [prepare, validate, convergence, storage-failure]
+    runs-on: ubuntu-22.04
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_DB: dplaneos
+          POSTGRES_USER: dplaneos
+          POSTGRES_PASSWORD: dplaneos
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download Build Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dplaneos-build
+
       - name: Install dependencies
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y zfsutils-linux postgresql-client python3-bcrypt curl nginx nfs-kernel-server samba acl ufw
           sudo modprobe zfs
-      
+
       - name: Positioning binary for scripts
         run: cp build/dplaned-linux-amd64 ./dplaned-ci && chmod +x ./dplaned-ci
 
@@ -256,17 +305,17 @@ jobs:
           bash .github/scripts/fleet-integration-test.sh
 
   # ════════════════════════════════════════════════════════════════════════════
-  # STAGE 4: RELEASE - Professional Build & Publish
+  # STAGE 5: RELEASE - Professional Build & Publish
   # ════════════════════════════════════════════════════════════════════════════
   release:
     name: Build & Publish Release
-    needs: [validate, integration, convergence]
+    needs: [validate, integration, convergence, storage-failure]
     if: github.ref_type == 'tag' || github.ref == 'refs/heads/main'
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      
+
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
@@ -276,12 +325,12 @@ jobs:
       - name: Populate vendor directory
         working-directory: daemon
         run: go mod vendor
-      
+
       - name: Download Build Artifacts
         uses: actions/download-artifact@v4
         with:
           name: dplaneos-build
-      
+
       - name: Prepare Release Metadata
         id: meta
         run: |
@@ -297,14 +346,14 @@ jobs:
             VERSION="$FILE_VERSION"
           fi
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
-          
+
           python3 .github/scripts/extract-release-notes.py "$VERSION" docs/reference/CHANGELOG.md > /tmp/release-notes.md
           HEADER=$(grep "^## v\?${VERSION}" docs/reference/CHANGELOG.md | head -1)
           CODENAME=$(echo "$HEADER" | sed 's/.*- "\(.*\)"/\1/' || echo "Release")
           DATE=$(echo "$HEADER" | grep -oP '\d{4}-\d{2}-\d{2}' | head -1 || date +%Y-%m-%d)
           RELEASE_TITLE="v${VERSION} (${DATE}) - \"${CODENAME}\""
           echo "title=${RELEASE_TITLE}" >> $GITHUB_OUTPUT
-          
+
           # amd64
           AMD64_TARBALL="dplaneos-v${VERSION}-linux-amd64.tar.gz"
           cp build/dplaned-linux-amd64 build/dplaned
@@ -313,7 +362,7 @@ jobs:
             app/ build/dplaned daemon/ install/ nixos/ docs/ \
             .github/ .gitattributes .gitignore install.sh scripts/ .gitmodules Makefile VERSION LICENSE README.md CONTRIBUTING.md \
             docs/legal/ docs/assets/ SECURITY.md
-          
+
           # arm64
           ARM64_TARBALL="dplaneos-v${VERSION}-linux-arm64.tar.gz"
           cp build/dplaned-linux-arm64 build/dplaned
@@ -322,14 +371,13 @@ jobs:
             app/ build/dplaned daemon/ install/ nixos/ docs/ \
             .github/ .gitattributes .gitignore install.sh scripts/ .gitmodules Makefile VERSION LICENSE README.md CONTRIBUTING.md \
             docs/legal/ docs/assets/ SECURITY.md
-          
-          # Checksums
+
           echo "amd64_tarball=${AMD64_TARBALL}" >> $GITHUB_OUTPUT
           echo "arm64_tarball=${ARM64_TARBALL}" >> $GITHUB_OUTPUT
-          
+
           sha256sum "$AMD64_TARBALL" > "$AMD64_TARBALL.sha256"
           sha256sum "$ARM64_TARBALL" > "$ARM64_TARBALL.sha256"
-          
+
           echo "amd64_sha=${AMD64_TARBALL}.sha256" >> $GITHUB_OUTPUT
           echo "arm64_sha=${ARM64_TARBALL}.sha256" >> $GITHUB_OUTPUT
 
@@ -374,9 +422,6 @@ jobs:
             accept-flake-config = true
             extra-substituters = https://cache.nixos.org
             trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY=
-
-      # ISO pulls ~1k store paths; Magic Nix Cache proxies via GitHub API and can hit
-      # rate limits (HTTP 418 / ResourceExhausted), breaking substituters mid-build.
 
       - name: Verify VERSION matches tag (Tags only)
         id: version
