@@ -1,0 +1,31 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(go build:*)",
+      "Bash(go test:*)",
+      "Bash(find /c/Users/dandr/Documents/GitHub/D-PlaneOS/daemon/internal -maxdepth 1 -type d -exec basename {})",
+      "Bash(ls /c/Users/dandr/Documents/GitHub/D-PlaneOS/daemon/internal/handlers/*.go)",
+      "Bash(grep -r \"return.*nil.*Not yet implemented\\\\|return.*errors.New.*not implemented\\\\|stub\\\\|placeholder\" /c/Users/dandr/Documents/GitHub/D-PlaneOS/daemon/internal/handlers/*.go)",
+      "Bash(wc -l /c/Users/dandr/Documents/GitHub/D-PlaneOS/daemon/internal/handlers/*.go)",
+      "Bash(find /c/Users/dandr/Documents/GitHub/D-PlaneOS -name *module* -o -name *reporting*)",
+      "Bash(grep -n \"\\\\.go:\" /c/Users/dandr/Documents/GitHub/D-PlaneOS/daemon/internal/handlers/*.go)",
+      "Bash(__NEW_LINE_74e13d29bded4a39__ echo:*)",
+      "Bash(__NEW_LINE_1c46abb29c9287f1__ echo:*)",
+      "Bash(head -3 __NEW_LINE_1c46abb29c9287f1__ echo \"\" echo \"3. ZFS Replication Send/Recv\" grep -rn \"replicate\\\\|send\\\\|recv\" /c/Users/dandr/Documents/GitHub/D-PlaneOS/daemon/cmd/dplaned/main.go)",
+      "Bash(head -5 __NEW_LINE_1c46abb29c9287f1__ echo \"\" echo \"4. File upload endpoints\" grep -rn \"upload\\\\|files\" /c/Users/dandr/Documents/GitHub/D-PlaneOS/daemon/cmd/dplaned/main.go)",
+      "Bash(head -5 __NEW_LINE_1c46abb29c9287f1__ echo \"\" echo \"5. DNS Configuration\" grep -rn \"dns\\\\|DNS\" /c/Users/dandr/Documents/GitHub/D-PlaneOS/daemon/cmd/dplaned/main.go)",
+      "Bash(head -5 __NEW_LINE_1c46abb29c9287f1__ echo \"\" echo \"6. VLANs and Bonding\" grep -rn \"vlan\\\\|bond\" /c/Users/dandr/Documents/GitHub/D-PlaneOS/daemon/cmd/dplaned/main.go)",
+      "Bash(__NEW_LINE_7327781626852dc7__ echo:*)",
+      "Bash(__NEW_LINE_5311506f54730e19__ echo:*)",
+      "Bash(__NEW_LINE_68ab03a73bf62f42__ MAIN_GO=\"/c/Users/dandr/Documents/GitHub/D-PlaneOS/daemon/cmd/dplaned/main.go\" __NEW_LINE_68ab03a73bf62f42__ echo \"=== CHECKING KEY PATTERNS ===\" echo \"\" echo \"ZFS pools:\" grep \"/api/zfs\" \"$MAIN_GO\")",
+      "Bash(grep -v \"^//\")",
+      "Bash(find /c/Users/dandr/Documents/GitHub/D-PlaneOS/UI/frontend -type f -iname *snapshot*)",
+      "Bash(find /c/Users/dandr/Documents/GitHub/D-PlaneOS/UI/frontend -type f -iname *dataset*)",
+      "Bash(find /c/Users/dandr/Documents/GitHub/D-PlaneOS/app-react/src -type f \\\\\\(-name *snapshot* -o -name *Snapshot* \\\\\\))",
+      "Bash(find /c/Users/dandr/Documents/GitHub/D-PlaneOS/app-react/src/pages -type f -name *.tsx)",
+      "Bash(xargs grep:*)",
+      "Bash(npx tsc:*)",
+      "Bash(npm run:*)"
+    ]
+  }
+}
