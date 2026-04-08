@@ -221,15 +221,19 @@ set -e
   || warn "Scenario 2: Write beyond quota succeeded unexpectedly (pool may have had slack)"
 
 # Daemon should still respond (use /api/system/health - /api/zfs/health doesn't exist)
-HEALTH2=$(curl -s http://127.0.0.1:9200/api/system/health \
-  -H "X-Session-ID: $SESSION" 2>/dev/null || echo '{}')
-# Accept: valid JSON with success key, or Unauthorized (session expired but daemon alive)
-echo "$HEALTH2" | python3 -c "
+HEALTH2=$(curl -s -w "\n%{http_code}" http://127.0.0.1:9200/api/system/health \
+  -H "X-Session-ID: $SESSION" 2>/dev/null)
+HTTP_CODE=$(echo "$HEALTH2" | tail -1)
+BODY=$(echo "$HEALTH2" | head -n -1)
+[ -z "$BODY" ] && BODY='{}'
+# Accept: valid JSON with success key, or 401 Unauthorized (session expired but daemon alive)
+echo "$BODY" | python3 -c "
 import sys,json
 try: d=json.load(sys.stdin)
 except: sys.exit(1)
 if 'success' in d: sys.exit(0)
-if 'unauthorized' in str(d).lower() or d.get('error') == 'Unauthorized': sys.exit(0)
+if d.get('success') == False: sys.exit(0)
+if 'unauthorized' in str(d).lower(): sys.exit(0)
 sys.exit(1)
 " 2>/dev/null \
   && ok "Scenario 2: Daemon still responsive after quota exhaustion" \
@@ -281,15 +285,18 @@ dd if=/dev/urandom bs=1M count=40 2>/dev/null \
   | sudo tee /mnt/sfpool/repl-src/fill2.bin > /dev/null 2>&1 || true
 
 # Attempt snapshot via API
-SNAP_RESP=$(curl -s -X POST http://127.0.0.1:9200/api/zfs/snapshots \
+SNAP_RESP=$(curl -s -w "\n%{http_code}" -X POST http://127.0.0.1:9200/api/zfs/snapshots \
   -H "X-Session-ID: $SESSION" \
   -H "X-CSRF-Token: $CSRF" \
   -H "Content-Type: application/json" \
-  -d '{"dataset":"sfpool/repl-src","name":"near-full-snap"}' 2>/dev/null || echo '{}')
+  -d '{"dataset":"sfpool/repl-src","name":"near-full-snap"}' 2>/dev/null)
+HTTP_CODE=$(echo "$SNAP_RESP" | tail -1)
+BODY=$(echo "$SNAP_RESP" | head -n -1)
+[ -z "$BODY" ] && BODY='{}'
 
 # Snapshots themselves don't require free space - should succeed
-# Accept: valid JSON with success or error key, even if Unauthorized
-echo "$SNAP_RESP" | python3 -c "
+# Accept: valid JSON, or 401 Unauthorized (session expired but daemon alive)
+echo "$BODY" | python3 -c "
 import sys,json
 try: d=json.load(sys.stdin)
 except: sys.exit(1)
@@ -298,7 +305,7 @@ if d.get('success') in [True, False] or 'error' in d or 'unauthorized' in str(d)
     sys.exit(0)
 sys.exit(1)
 " 2>/dev/null && ok "Scenario 4: Snapshot API returned clean response on near-full pool" \
-  || fail "Scenario 4: Snapshot API returned unexpected response: $SNAP_RESP"
+  || fail "Scenario 4: Snapshot API returned unexpected response: $BODY"
 
 sudo zfs set quota=none sfpool/repl-src
 sudo rm -f /mnt/sfpool/repl-src/fill2.bin 2>/dev/null || true
@@ -322,15 +329,19 @@ sleep 3
 sudo zpool scrub -s sfpool 2>/dev/null || true
 
 # System health API must not crash regardless of error count
-HEALTH5=$(curl -s http://127.0.0.1:9200/api/system/health \
-  -H "X-Session-ID: $SESSION" 2>/dev/null || echo '{}')
-# Accept: valid JSON with success key, or Unauthorized (session expired but daemon alive)
-echo "$HEALTH5" | python3 -c "
+HEALTH5=$(curl -s -w "\n%{http_code}" http://127.0.0.1:9200/api/system/health \
+  -H "X-Session-ID: $SESSION" 2>/dev/null)
+HTTP_CODE=$(echo "$HEALTH5" | tail -1)
+BODY=$(echo "$HEALTH5" | head -n -1)
+[ -z "$BODY" ] && BODY='{}'
+# Accept: valid JSON with success key, or 401 Unauthorized (session expired but daemon alive)
+echo "$BODY" | python3 -c "
 import sys,json
 try: d=json.load(sys.stdin)
 except: sys.exit(1)
 if 'success' in d: sys.exit(0)
-if 'unauthorized' in str(d).lower() or d.get('error') == 'Unauthorized': sys.exit(0)
+if d.get('success') == False: sys.exit(0)
+if 'unauthorized' in str(d).lower(): sys.exit(0)
 sys.exit(1)
 " 2>/dev/null \
   && ok "Scenario 5: Health API stable with checksum errors present" \
@@ -368,15 +379,19 @@ sudo zfs destroy -f sfpool/share-victim 2>/dev/null || true
 ok "Scenario 6: Backing dataset destroyed while share exists"
 
 # Share list must not panic
-SHARES_RESP=$(curl -s http://127.0.0.1:9200/api/shares \
-  -H "X-Session-ID: $SESSION" 2>/dev/null || echo '{"success":false}')
-# Accept: valid JSON with success key, or Unauthorized (session expired but daemon alive)
-echo "$SHARES_RESP" | python3 -c "
+SHARES_RESP=$(curl -s -w "\n%{http_code}" http://127.0.0.1:9200/api/shares \
+  -H "X-Session-ID: $SESSION" 2>/dev/null)
+HTTP_CODE=$(echo "$SHARES_RESP" | tail -1)
+BODY=$(echo "$SHARES_RESP" | head -n -1)
+[ -z "$BODY" ] && BODY='{}'
+# Accept: valid JSON with success key, or 401 Unauthorized (session expired but daemon alive)
+echo "$BODY" | python3 -c "
 import sys,json
 try: d=json.load(sys.stdin)
 except: sys.exit(1)
 if 'success' in d: sys.exit(0)
-if 'unauthorized' in str(d).lower() or d.get('error') == 'Unauthorized': sys.exit(0)
+if d.get('success') == False: sys.exit(0)
+if 'unauthorized' in str(d).lower(): sys.exit(0)
 sys.exit(1)
 " 2>/dev/null \
   && ok "Scenario 6: Share list API stable after backing dataset destroyed" \
@@ -390,33 +405,39 @@ sys.exit(1)
 section "Scenario 7: TOTP DB error handling (v8.0.1 regression guard)"
 
 # TOTP setup endpoint should return a structured response
-TOTP_SETUP=$(curl -s http://127.0.0.1:9200/api/auth/totp/setup \
-  -H "X-Session-ID: $SESSION" 2>/dev/null || echo '{}')
-# Accept: valid JSON with success key, or Unauthorized (session expired but daemon alive)
-echo "$TOTP_SETUP" | python3 -c "
+TOTP_SETUP=$(curl -s -w "\n%{http_code}" http://127.0.0.1:9200/api/auth/totp/setup \
+  -H "X-Session-ID: $SESSION" 2>/dev/null)
+HTTP_CODE=$(echo "$TOTP_SETUP" | tail -1)
+BODY=$(echo "$TOTP_SETUP" | head -n -1)
+[ -z "$BODY" ] && BODY='{}'
+# Accept: valid JSON with success key, or 401 Unauthorized (session expired but daemon alive)
+echo "$BODY" | python3 -c "
 import sys,json
 try: d=json.load(sys.stdin)
 except: sys.exit(1)
 if 'success' in d: sys.exit(0)
-if 'unauthorized' in str(d).lower() or d.get('error') == 'Unauthorized': sys.exit(0)
+if d.get('success') == False: sys.exit(0)
+if 'unauthorized' in str(d).lower(): sys.exit(0)
 sys.exit(1)
 " 2>/dev/null && ok "Scenario 7: TOTP setup returns structured response (not silent)" \
   || fail "Scenario 7: TOTP setup returned empty/unstructured response (regression)"
 
 # TOTP verify with invalid token - must return explicit error, not 200 OK
-TOTP_VERIFY=$(curl -s -X POST http://127.0.0.1:9200/api/auth/totp/verify \
+TOTP_VERIFY=$(curl -s -w "\n%{http_code}" -X POST http://127.0.0.1:9200/api/auth/totp/verify \
   -H "X-Session-ID: $SESSION" \
   -H "X-CSRF-Token: $CSRF" \
   -H "Content-Type: application/json" \
-  -d '{"token":"000000","pending_token":"invalid"}' \
-  2>/dev/null || echo '{}')
-# Accept: valid JSON with success=false or error key, or Unauthorized
-echo "$TOTP_VERIFY" | python3 -c "
+  -d '{"token":"000000","pending_token":"invalid"}' 2>/dev/null)
+HTTP_CODE=$(echo "$TOTP_VERIFY" | tail -1)
+BODY=$(echo "$TOTP_VERIFY" | head -n -1)
+[ -z "$BODY" ] && BODY='{}'
+# Accept: valid JSON with success=false or error key, or 401 Unauthorized
+echo "$BODY" | python3 -c "
 import sys,json
 try: d=json.load(sys.stdin)
 except: sys.exit(1)
 if d.get('success') == False or 'error' in d: sys.exit(0)
-if 'unauthorized' in str(d).lower() or d.get('error') == 'Unauthorized': sys.exit(0)
+if 'unauthorized' in str(d).lower(): sys.exit(0)
 sys.exit(1)
 " 2>/dev/null && ok "Scenario 7: TOTP verify with invalid token returns explicit error" \
   || fail "Scenario 7: TOTP verify with invalid token silently succeeded (regression)"
@@ -450,9 +471,12 @@ psql -h localhost -U dplaneos -d dplaneos -c \
   2>/dev/null || true
 
 # Verify-chain should now detect tampering
-AUDIT_TAMPER=$(curl -s http://127.0.0.1:9200/api/system/audit/verify-chain \
-  -H "X-Session-ID: $SESSION" 2>/dev/null || echo '{}')
-CHAIN_AFTER=$(echo "$AUDIT_TAMPER" | python3 -c "
+AUDIT_TAMPER=$(curl -s -w "\n%{http_code}" http://127.0.0.1:9200/api/system/audit/verify-chain \
+  -H "X-Session-ID: $SESSION" 2>/dev/null)
+HTTP_CODE=$(echo "$AUDIT_TAMPER" | tail -1)
+BODY=$(echo "$AUDIT_TAMPER" | head -n -1)
+[ -z "$BODY" ] && BODY='{}'
+CHAIN_AFTER=$(echo "$BODY" | python3 -c "
 import sys,json
 try: d=json.load(sys.stdin)
 except: print(''); sys.exit(0)
@@ -461,13 +485,13 @@ print(str(d.get('valid','')).lower())
 
 # Either detects tampering (valid=false) or the chain is too short to detect it
 # (valid=true with 0-1 entries). Both are acceptable; a crash is not.
-# Accept: valid JSON with valid key, or Unauthorized (session expired but daemon alive)
-echo "$AUDIT_TAMPER" | python3 -c "
+# Accept: valid JSON with valid key, or 401 Unauthorized (session expired but daemon alive)
+echo "$BODY" | python3 -c "
 import sys,json
 try: d=json.load(sys.stdin)
 except: sys.exit(1)
 if 'valid' in d: sys.exit(0)
-if 'unauthorized' in str(d).lower() or d.get('error') == 'Unauthorized': sys.exit(0)
+if 'unauthorized' in str(d).lower(): sys.exit(0)
 sys.exit(1)
 " 2>/dev/null \
   && ok "Scenario 8: Audit chain endpoint stable after DB tampering (valid=$CHAIN_AFTER)" \
