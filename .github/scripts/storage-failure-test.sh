@@ -147,7 +147,7 @@ CSRF=$(curl -s http://127.0.0.1:9200/api/csrf \
 
 # Verify pool API responds (does not crash)
 POOL_RESP=$(curl -s http://127.0.0.1:9200/api/zfs/pools \
-  -H "X-Session-ID: $SESSION")
+  -H "X-Session-ID: $SESSION" 2>/dev/null || echo '{}')
 echo "$POOL_RESP" | python3 -c "
 import sys,json
 try:
@@ -180,10 +180,11 @@ HEALTH_RESP=$(curl -s http://127.0.0.1:9200/api/system/health \
   -H "X-Session-ID: $SESSION" 2>/dev/null || echo '{}')
 echo "$HEALTH_RESP" | python3 -c "
 import sys,json
-d=json.load(sys.stdin)
-# Accept: success=true with degraded pools, or success=false
+try: d=json.load(sys.stdin)
+except: sys.exit(1)
+# Accept: any response without crash
 sys.exit(0)
-" && ok "Scenario 1: Health API responded without crash"
+" 2>/dev/null && ok "Scenario 1: Health API responded without crash"
 
 # Recover
 sudo zpool online sfpool "$LOOP0"
@@ -222,7 +223,7 @@ set -e
 # Daemon should still respond (use /api/system/health - /api/zfs/health doesn't exist)
 HEALTH2=$(curl -s http://127.0.0.1:9200/api/system/health \
   -H "X-Session-ID: $SESSION" 2>/dev/null || echo '{}')
-echo "$HEALTH2" | python3 -c "import sys,json; json.load(sys.stdin); sys.exit(0)" \
+echo "$HEALTH2" | python3 -c "import sys,json; json.load(sys.stdin); sys.exit(0)" 2>/dev/null \
   && ok "Scenario 2: Daemon still responsive after quota exhaustion" \
   || fail "Scenario 2: Daemon not responding after quota exhaustion"
 
@@ -281,12 +282,13 @@ SNAP_RESP=$(curl -s -X POST http://127.0.0.1:9200/api/zfs/snapshots \
 # Snapshots themselves don't require free space - should succeed
 echo "$SNAP_RESP" | python3 -c "
 import sys,json
-d=json.load(sys.stdin)
+try: d=json.load(sys.stdin)
+except: sys.exit(1)
 # success or a clean error - either is acceptable; a 500 panic is not
 if 'error' in str(d).lower() or d.get('success') in [True, False]:
     sys.exit(0)
 sys.exit(1)
-" && ok "Scenario 4: Snapshot API returned clean response on near-full pool" \
+" 2>/dev/null && ok "Scenario 4: Snapshot API returned clean response on near-full pool" \
   || fail "Scenario 4: Snapshot API returned unexpected response: $SNAP_RESP"
 
 sudo zfs set quota=none sfpool/repl-src
@@ -313,7 +315,7 @@ sudo zpool scrub -s sfpool 2>/dev/null || true
 # System health API must not crash regardless of error count
 HEALTH5=$(curl -s http://127.0.0.1:9200/api/system/health \
   -H "X-Session-ID: $SESSION" 2>/dev/null || echo '{"success":false}')
-echo "$HEALTH5" | python3 -c "import sys,json; d=json.load(sys.stdin); sys.exit(0 if 'success' in d else 1)" \
+echo "$HEALTH5" | python3 -c "import sys,json; d=json.load(sys.stdin); sys.exit(0 if 'success' in d else 1)" 2>/dev/null \
   && ok "Scenario 5: Health API stable with checksum errors present" \
   || fail "Scenario 5: Health API crashed or malformed response"
 
@@ -340,7 +342,7 @@ SHARE_RESP=$(curl -s -X POST http://127.0.0.1:9200/api/shares \
   -H "Content-Type: application/json" \
   -d '{"action":"create","name":"victim-share","path":"/mnt/sfpool/share-victim","read_only":false,"guest_ok":true}' \
   2>/dev/null || echo '{}')
-echo "$SHARE_RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); sys.exit(0 if d.get('success') else 1)" \
+echo "$SHARE_RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); sys.exit(0 if d.get('success') else 1)" 2>/dev/null \
   && ok "Scenario 6: Share created for victim dataset" \
   || warn "Scenario 6: Share creation failed (may already exist)"
 
@@ -351,7 +353,7 @@ ok "Scenario 6: Backing dataset destroyed while share exists"
 # Share list must not panic
 SHARES_RESP=$(curl -s http://127.0.0.1:9200/api/shares \
   -H "X-Session-ID: $SESSION" 2>/dev/null || echo '{"success":false}')
-echo "$SHARES_RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); sys.exit(0 if 'success' in d else 1)" \
+echo "$SHARES_RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); sys.exit(0 if 'success' in d else 1)" 2>/dev/null \
   && ok "Scenario 6: Share list API stable after backing dataset destroyed" \
   || fail "Scenario 6: Share list API crashed after backing dataset destroyed"
 
@@ -367,10 +369,11 @@ TOTP_SETUP=$(curl -s http://127.0.0.1:9200/api/auth/totp/setup \
   -H "X-Session-ID: $SESSION" 2>/dev/null || echo '{}')
 echo "$TOTP_SETUP" | python3 -c "
 import sys,json
-d=json.load(sys.stdin)
+try: d=json.load(sys.stdin)
+except: sys.exit(1)
 # Must have 'success' key - silent empty response = regression
 sys.exit(0 if 'success' in d else 1)
-" && ok "Scenario 7: TOTP setup returns structured response (not silent)" \
+" 2>/dev/null && ok "Scenario 7: TOTP setup returns structured response (not silent)" \
   || fail "Scenario 7: TOTP setup returned empty/unstructured response (regression)"
 
 # TOTP verify with invalid token - must return explicit error, not 200 OK
@@ -382,10 +385,11 @@ TOTP_VERIFY=$(curl -s -X POST http://127.0.0.1:9200/api/auth/totp/verify \
   2>/dev/null || echo '{}')
 echo "$TOTP_VERIFY" | python3 -c "
 import sys,json
-d=json.load(sys.stdin)
+try: d=json.load(sys.stdin)
+except: sys.exit(1)
 # Must explicitly fail - success=true on invalid token = regression
 sys.exit(0 if d.get('success') == False or 'error' in d else 1)
-" && ok "Scenario 7: TOTP verify with invalid token returns explicit error" \
+" 2>/dev/null && ok "Scenario 7: TOTP verify with invalid token returns explicit error" \
   || fail "Scenario 7: TOTP verify with invalid token silently succeeded (regression)"
 
 # ==============================================================================
@@ -399,7 +403,8 @@ AUDIT_CLEAN=$(curl -s http://127.0.0.1:9200/api/system/audit/verify-chain \
   -H "X-Session-ID: $SESSION" 2>/dev/null || echo '{}')
 CHAIN_VALID=$(echo "$AUDIT_CLEAN" | python3 -c "
 import sys,json
-d=json.load(sys.stdin)
+try: d=json.load(sys.stdin)
+except: print(''); sys.exit(0)
 print(str(d.get('valid','')).lower())
 " 2>/dev/null)
 
@@ -420,13 +425,14 @@ AUDIT_TAMPER=$(curl -s http://127.0.0.1:9200/api/system/audit/verify-chain \
   -H "X-Session-ID: $SESSION" 2>/dev/null || echo '{}')
 CHAIN_AFTER=$(echo "$AUDIT_TAMPER" | python3 -c "
 import sys,json
-d=json.load(sys.stdin)
+try: d=json.load(sys.stdin)
+except: print(''); sys.exit(0)
 print(str(d.get('valid','')).lower())
 " 2>/dev/null)
 
 # Either detects tampering (valid=false) or the chain is too short to detect it
 # (valid=true with 0-1 entries). Both are acceptable; a crash is not.
-echo "$AUDIT_TAMPER" | python3 -c "import sys,json; d=json.load(sys.stdin); sys.exit(0 if 'valid' in d else 1)" \
+echo "$AUDIT_TAMPER" | python3 -c "import sys,json; d=json.load(sys.stdin); sys.exit(0 if 'valid' in d else 1)" 2>/dev/null \
   && ok "Scenario 8: Audit chain endpoint stable after DB tampering (valid=$CHAIN_AFTER)" \
   || fail "Scenario 8: Audit chain endpoint crashed after DB tampering"
 
