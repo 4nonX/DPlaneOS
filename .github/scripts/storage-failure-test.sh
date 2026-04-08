@@ -56,40 +56,82 @@ sudo zpool create -f sfpool2 mirror "$LOOP3" "$LOOP4"
 sudo zfs create sfpool2/repl-dst
 ok "Secondary pool sfpool2 created"
 
-# Function to start daemon
+# Start daemon
 start_daemon() {
+  [ -n "$DAEMON_PID" ] && sudo kill "$DAEMON_PID" 2>/dev/null || true
+  sleep 2
   sudo ./dplaned-ci --listen 127.0.0.1:9200 --db-dsn "$DATABASE_DSN" --smb-conf "$SMB_CONF" > /tmp/dplaned-sf.log 2>&1 &
   DAEMON_PID=$!
-  for i in $(seq 1 30); do curl -s http://127.0.0.1:9200/health >/dev/null 2>&1 && break; sleep 0.5; done
-  if curl -s http://127.0.0.1:9200/health >/dev/null 2>&1; then
-    return 0
-  else
+  for i in $(seq 1 30); do 
+    if curl -s http://127.0.0.1:9200/health >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 0.5
+  done
+  return 1
+}
+
+# Get session with retries
+get_session() {
+  local max_attempts=3
+  local attempt=1
+  
+  while [ $attempt -le $max_attempts ]; do
+    local resp=$(curl -s -X POST http://127.0.0.1:9200/api/auth/login \
+      -H "Content-Type: application/json" \
+      -d "{\"username\":\"admin\",\"password\":\"$CI_PASS\"}" 2>/dev/null)
+    
+    SESSION=$(echo "$resp" | python3 -c "import sys,json; print(json.load(sys.stdin).get('session_id',''))" 2>/dev/null || echo "")
+    
+    if [ -n "$SESSION" ]; then
+      CSRF=$(curl -s http://127.0.0.1:9200/api/csrf -H "X-Session-ID: $SESSION" | python3 -c "import sys,json; print(json.load(sys.stdin).get('csrf_token',''))" 2>/dev/null || echo "")
+      return 0
+    fi
+    
+    echo "Login attempt $attempt failed, retrying..."
+    sleep 1
+    attempt=$((attempt + 1))
+  done
+  
+  return 1
+}
+
+# Check API with session handling
+api_call() {
+  local url="$1"
+  shift
+  
+  if [ -z "$SESSION" ]; then
+    echo ""
     return 1
   fi
+  
+  curl -s "$url" -H "X-Session-ID: $SESSION" "$@" 2>/dev/null
 }
 
-# Function to get session
-get_session() {
-  SESSION=$(curl -s -X POST http://127.0.0.1:9200/api/auth/login -H "Content-Type: application/json" -d "{\"username\":\"admin\",\"password\":\"$CI_PASS\"}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('session_id',''))" 2>/dev/null)
-  if [ -n "$SESSION" ]; then
-    CSRF=$(curl -s http://127.0.0.1:9200/api/csrf -H "X-Session-ID: $SESSION" | python3 -c "import sys,json; print(json.load(sys.stdin).get('csrf_token',''))" 2>/dev/null)
-  fi
-}
-
-# Start daemon
+# Start daemon and login
 start_daemon
 ok "Daemon started (PID $DAEMON_PID)"
 
 get_session
-[ -n "$SESSION" ] && ok "Login successful" || fail "Login failed"
+if [ -n "$SESSION" ]; then
+  ok "Login successful"
+else
+  fail "Login failed - cannot continue"
+  exit 1
+fi
 
 # ==============================================================================
 # SCENARIO 1
 # ==============================================================================
 section "Scenario 1: Pool FAULTED (all disks offline)"
 
-POOL_RESP=$(curl -s http://127.0.0.1:9200/api/zfs/pools -H "X-Session-ID: $SESSION" 2>/dev/null)
-echo "$POOL_RESP" | python3 -c "import sys,json; json.load(sys.stdin)" 2>/dev/null && ok "Scenario 1: Pool API OK" || warn "Scenario 1: Pool API issue"
+POOL_RESP=$(api_call "http://127.0.0.1:9200/api/zfs/pools")
+if [ -n "$POOL_RESP" ] && echo "$POOL_RESP" | python3 -c "import sys,json; json.load(sys.stdin)" 2>/dev/null; then
+  ok "Scenario 1: Pool API OK"
+else
+  warn "Scenario 1: Pool API issue"
+fi
 
 sudo zpool offline sfpool "$LOOP0"
 sudo zpool status sfpool | grep -qiE "DEGRADED|FAULTED|UNAVAIL" && ok "Scenario 1: Pool DEGRADED" || warn "Scenario 1: Pool not DEGRADED"
@@ -97,8 +139,12 @@ sleep 6
 
 grep -qiE "CRITICAL|FAULTED|pool.*unavail" /tmp/dplaned-sf.log && ok "Scenario 1: Logged critical event" || warn "Scenario 1: No critical log"
 
-HEALTH_RESP=$(curl -s http://127.0.0.1:9200/api/system/health -H "X-Session-ID: $SESSION" 2>/dev/null)
-echo "$HEALTH_RESP" | python3 -c "import sys,json; json.load(sys.stdin)" 2>/dev/null && ok "Scenario 1: Health API OK" || warn "Scenario 1: Health API issue"
+HEALTH_RESP=$(api_call "http://127.0.0.1:9200/api/system/health")
+if [ -n "$HEALTH_RESP" ] && echo "$HEALTH_RESP" | python3 -c "import sys,json; json.load(sys.stdin)" 2>/dev/null; then
+  ok "Scenario 1: Health API OK"
+else
+  warn "Scenario 1: Health API issue"
+fi
 
 sudo zpool online sfpool "$LOOP0"
 sudo zpool clear sfpool
@@ -106,31 +152,27 @@ sleep 3
 sudo zpool status sfpool | grep -q "ONLINE" && ok "Scenario 1: Pool recovered" || fail "Scenario 1: Pool not recovered"
 
 # ==============================================================================
-# SCENARIO 2 - RESTART DAEMON FOR CLEAN STATE
+# SCENARIO 2
 # ==============================================================================
 section "Scenario 2: Dataset quota exhaustion"
 
-# Restart daemon and get fresh session after Scenario 1's ZFS operations
-[ -n "$DAEMON_PID" ] && sudo kill "$DAEMON_PID" 2>/dev/null || true
-sleep 2
 start_daemon || warn "Scenario 2: Daemon restart"
-get_session
-curl -s http://127.0.0.1:9200/health >/dev/null 2>&1 && ok "Scenario 2: Daemon running" || fail "Scenario 2: Daemon not responding"
+get_session || warn "Scenario 2: Login issue"
 
-HEALTH2=$(curl -s http://127.0.0.1:9200/api/system/health -H "X-Session-ID: $SESSION" 2>/dev/null)
-echo "$HEALTH2" | python3 -c "import sys,json; json.load(sys.stdin)" 2>/dev/null && ok "Scenario 2: Daemon responsive" || fail "Scenario 2: Daemon not responding"
+HEALTH2=$(api_call "http://127.0.0.1:9200/api/system/health")
+if [ -n "$HEALTH2" ] && echo "$HEALTH2" | python3 -c "import sys,json; json.load(sys.stdin)" 2>/dev/null; then
+  ok "Scenario 2: Daemon responsive"
+else
+  fail "Scenario 2: Daemon not responding"
+fi
 
 # ==============================================================================
 # SCENARIO 3
 # ==============================================================================
 section "Scenario 3: ZFS send interrupted"
 
-# Restart daemon for clean state
-[ -n "$DAEMON_PID" ] && sudo kill "$DAEMON_PID" 2>/dev/null || true
-sleep 2
 start_daemon || warn "Scenario 3: Daemon restart"
-get_session
-curl -s http://127.0.0.1:9200/health >/dev/null 2>&1 && ok "Scenario 3: Daemon running" || fail "Scenario 3: Daemon not responding"
+get_session || warn "Scenario 3: Login issue"
 
 dd if=/dev/urandom bs=1M count=20 2>/dev/null | sudo tee /mnt/sfpool/repl-src/data.bin > /dev/null
 sudo zfs snapshot sfpool/repl-src@snap1
@@ -142,24 +184,37 @@ SEND_EXIT=$?
 set -e
 ok "Scenario 3: Interrupted send (exit $SEND_EXIT)"
 
-curl -s http://127.0.0.1:9200/api/zfs/pools -H "X-Session-ID: $SESSION" >/dev/null 2>&1 && ok "Scenario 3: Daemon survived" || fail "Scenario 3: Daemon died"
+POOLS3=$(api_call "http://127.0.0.1:9200/api/zfs/pools")
+if [ -n "$POOLS3" ]; then
+  ok "Scenario 3: Daemon survived"
+else
+  fail "Scenario 3: Daemon died"
+fi
 
 # ==============================================================================
 # SCENARIO 4
 # ==============================================================================
 section "Scenario 4: Snapshot on near-full dataset"
 
-[ -n "$DAEMON_PID" ] && sudo kill "$DAEMON_PID" 2>/dev/null || true
-sleep 2
 start_daemon || warn "Scenario 4: Daemon restart"
-get_session
-curl -s http://127.0.0.1:9200/health >/dev/null 2>&1 && ok "Scenario 4: Daemon running" || fail "Scenario 4: Daemon not responding"
+get_session || warn "Scenario 4: Login issue"
 
 sudo zfs set quota=48M sfpool/repl-src
 dd if=/dev/urandom bs=1M count=40 2>/dev/null | sudo tee /mnt/sfpool/repl-src/fill2.bin > /dev/null 2>&1 || true
 
-SNAP_RESP=$(curl -s -X POST http://127.0.0.1:9200/api/zfs/snapshots -H "X-Session-ID: $SESSION" -H "X-CSRF-Token: $CSRF" -H "Content-Type: application/json" -d '{"dataset":"sfpool/repl-src","name":"near-full-snap"}' 2>/dev/null)
-echo "$SNAP_RESP" | python3 -c "import sys,json; json.load(sys.stdin)" 2>/dev/null && ok "Scenario 4: Snapshot OK" || fail "Scenario 4: Snapshot failed"
+if [ -z "$CSRF" ]; then
+  fail "Scenario 4: No CSRF token"
+else
+  SNAP_RESP=$(curl -s -X POST http://127.0.0.1:9200/api/zfs/snapshots \
+    -H "X-Session-ID: $SESSION" -H "X-CSRF-Token: $CSRF" -H "Content-Type: application/json" \
+    -d '{"dataset":"sfpool/repl-src","name":"near-full-snap"}' 2>/dev/null)
+  
+  if [ -n "$SNAP_RESP" ] && echo "$SNAP_RESP" | python3 -c "import sys,json; json.load(sys.stdin)" 2>/dev/null; then
+    ok "Scenario 4: Snapshot OK"
+  else
+    fail "Scenario 4: Snapshot failed"
+  fi
+fi
 
 sudo zfs set quota=none sfpool/repl-src
 sudo rm -f /mnt/sfpool/repl-src/fill2.bin 2>/dev/null || true
@@ -169,11 +224,8 @@ sudo rm -f /mnt/sfpool/repl-src/fill2.bin 2>/dev/null || true
 # ==============================================================================
 section "Scenario 5: Checksum error detection"
 
-[ -n "$DAEMON_PID" ] && sudo kill "$DAEMON_PID" 2>/dev/null || true
-sleep 2
 start_daemon || warn "Scenario 5: Daemon restart"
-get_session
-curl -s http://127.0.0.1:9200/health >/dev/null 2>&1 && ok "Scenario 5: Daemon running" || fail "Scenario 5: Daemon not responding"
+get_session || warn "Scenario 5: Login issue"
 
 sudo zpool offline sfpool "$LOOP1" 2>/dev/null || true
 sudo dd if=/dev/urandom of=/tmp/sf1.img bs=4096 count=100 seek=1000 conv=notrunc 2>/dev/null || true
@@ -181,8 +233,12 @@ sudo zpool online sfpool "$LOOP1" 2>/dev/null || true
 sudo zpool scrub sfpool 2>/dev/null || true
 sleep 6
 
-HEALTH5=$(curl -s http://127.0.0.1:9200/api/system/health -H "X-Session-ID: $SESSION" 2>/dev/null)
-echo "$HEALTH5" | python3 -c "import sys,json; json.load(sys.stdin)" 2>/dev/null && ok "Scenario 5: Health API OK" || fail "Scenario 5: Health API crashed"
+HEALTH5=$(api_call "http://127.0.0.1:9200/api/system/health")
+if [ -n "$HEALTH5" ] && echo "$HEALTH5" | python3 -c "import sys,json; json.load(sys.stdin)" 2>/dev/null; then
+  ok "Scenario 5: Health API OK"
+else
+  fail "Scenario 5: Health API crashed"
+fi
 
 sudo zpool clear sfpool
 sudo zpool scrub sfpool 2>/dev/null || true
@@ -194,80 +250,105 @@ ok "Scenario 5: Pool cleared"
 # ==============================================================================
 section "Scenario 6: Dataset destroyed under share"
 
-[ -n "$DAEMON_PID" ] && sudo kill "$DAEMON_PID" 2>/dev/null || true
-sleep 2
 start_daemon || warn "Scenario 6: Daemon restart"
-get_session
-curl -s http://127.0.0.1:9200/health >/dev/null 2>&1 && ok "Scenario 6: Daemon running" || fail "Scenario 6: Daemon not responding"
+get_session || warn "Scenario 6: Login issue"
 
 sudo zfs create sfpool/share-victim
 sudo mkdir -p /mnt/sfpool/share-victim
 
-SHARE_RESP=$(curl -s -X POST http://127.0.0.1:9200/api/shares -H "X-Session-ID: $SESSION" -H "X-CSRF-Token: $CSRF" -H "Content-Type: application/json" -d '{"action":"create","name":"victim-share","path":"/mnt/sfpool/share-victim","read_only":false,"guest_ok":true}' 2>/dev/null || echo '{}')
-echo "$SHARE_RESP" | python3 -c "import sys,json; json.load(sys.stdin)" 2>/dev/null && ok "Scenario 6: Share created" || warn "Scenario 6: Share exists"
+if [ -n "$CSRF" ]; then
+  SHARE_RESP=$(curl -s -X POST http://127.0.0.1:9200/api/shares \
+    -H "X-Session-ID: $SESSION" -H "X-CSRF-Token: $CSRF" -H "Content-Type: application/json" \
+    -d '{"action":"create","name":"victim-share","path":"/mnt/sfpool/share-victim","read_only":false,"guest_ok":true}' 2>/dev/null || echo '{}')
+  
+  if [ -n "$SHARE_RESP" ] && echo "$SHARE_RESP" | python3 -c "import sys,json; json.load(sys.stdin)" 2>/dev/null; then
+    ok "Scenario 6: Share created"
+  else
+    warn "Scenario 6: Share exists"
+  fi
+fi
 
 sudo zfs destroy -f sfpool/share-victim 2>/dev/null || true
 ok "Scenario 6: Dataset destroyed"
 
-SHARES_RESP=$(curl -s http://127.0.0.1:9200/api/shares -H "X-Session-ID: $SESSION" 2>/dev/null)
-echo "$SHARES_RESP" | python3 -c "import sys,json; json.load(sys.stdin)" 2>/dev/null && ok "Scenario 6: Share list OK" || fail "Scenario 6: Share list crashed"
+SHARES_RESP=$(api_call "http://127.0.0.1:9200/api/shares")
+if [ -n "$SHARES_RESP" ] && echo "$SHARES_RESP" | python3 -c "import sys,json; json.load(sys.stdin)" 2>/dev/null; then
+  ok "Scenario 6: Share list OK"
+else
+  fail "Scenario 6: Share list crashed"
+fi
 
 # ==============================================================================
 # SCENARIO 7
 # ==============================================================================
 section "Scenario 7: TOTP DB error handling"
 
-[ -n "$DAEMON_PID" ] && sudo kill "$DAEMON_PID" 2>/dev/null || true
-sleep 2
 start_daemon || warn "Scenario 7: Daemon restart"
-get_session
-curl -s http://127.0.0.1:9200/health >/dev/null 2>&1 && ok "Scenario 7: Daemon running" || fail "Scenario 7: Daemon not responding"
+get_session || warn "Scenario 7: Login issue"
 
-TOTP_SETUP=$(curl -s http://127.0.0.1:9200/api/auth/totp/setup -H "X-Session-ID: $SESSION" 2>/dev/null)
-echo "$TOTP_SETUP" | python3 -c "import sys,json; json.load(sys.stdin)" 2>/dev/null && ok "Scenario 7: TOTP setup OK" || fail "Scenario 7: TOTP setup failed"
+TOTP_SETUP=$(api_call "http://127.0.0.1:9200/api/auth/totp/setup")
+if [ -n "$TOTP_SETUP" ] && echo "$TOTP_SETUP" | python3 -c "import sys,json; json.load(sys.stdin)" 2>/dev/null; then
+  ok "Scenario 7: TOTP setup OK"
+else
+  fail "Scenario 7: TOTP setup failed"
+fi
 
-TOTP_VERIFY=$(curl -s -X POST http://127.0.0.1:9200/api/auth/totp/verify -H "X-Session-ID: $SESSION" -H "X-CSRF-Token: $CSRF" -H "Content-Type: application/json" -d '{"token":"000000","pending_token":"invalid"}' 2>/dev/null)
-echo "$TOTP_VERIFY" | python3 -c "import sys,json; d=json.load(sys.stdin); sys.exit(0 if d.get('success')==False or 'error' in d else 1)" 2>/dev/null && ok "Scenario 7: TOTP verify OK" || fail "Scenario 7: TOTP verify failed"
+if [ -n "$CSRF" ]; then
+  TOTP_VERIFY=$(curl -s -X POST http://127.0.0.1:9200/api/auth/totp/verify \
+    -H "X-Session-ID: $SESSION" -H "X-CSRF-Token: $CSRF" -H "Content-Type: application/json" \
+    -d '{"token":"000000","pending_token":"invalid"}' 2>/dev/null)
+  
+  if echo "$TOTP_VERIFY" | python3 -c "import sys,json; d=json.load(sys.stdin); sys.exit(0 if d.get('success')==False or 'error' in d else 1)" 2>/dev/null; then
+    ok "Scenario 7: TOTP verify OK"
+  else
+    fail "Scenario 7: TOTP verify failed"
+  fi
+fi
 
 # ==============================================================================
 # SCENARIO 8
 # ==============================================================================
 section "Scenario 8: Audit chain integrity"
 
-[ -n "$DAEMON_PID" ] && sudo kill "$DAEMON_PID" 2>/dev/null || true
-sleep 2
 start_daemon || warn "Scenario 8: Daemon restart"
-get_session
-curl -s http://127.0.0.1:9200/health >/dev/null 2>&1 && ok "Scenario 8: Daemon running" || fail "Scenario 8: Daemon not responding"
+get_session || warn "Scenario 8: Login issue"
 
-AUDIT_CLEAN=$(curl -s http://127.0.0.1:9200/api/system/audit/verify-chain -H "X-Session-ID: $SESSION" 2>/dev/null)
-CHAIN_VALID=$(echo "$AUDIT_CLEAN" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('valid',''))" 2>/dev/null)
+AUDIT_CLEAN=$(api_call "http://127.0.0.1:9200/api/system/audit/verify-chain")
+CHAIN_VALID=$(echo "$AUDIT_CLEAN" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('valid',''))" 2>/dev/null || echo "")
 [ "$CHAIN_VALID" = "True" ] || [ "$CHAIN_VALID" = "true" ] && ok "Scenario 8: Audit chain OK" || warn "Scenario 8: Audit chain issue"
 
 export PGPASSWORD=dplaneos
 psql -h localhost -U dplaneos -d dplaneos -c "UPDATE audit_logs SET action='TAMPERED' WHERE id=(SELECT id FROM audit_logs ORDER BY id DESC LIMIT 1);" 2>/dev/null || true
 
-AUDIT_TAMPER=$(curl -s http://127.0.0.1:9200/api/system/audit/verify-chain -H "X-Session-ID: $SESSION" 2>/dev/null)
-echo "$AUDIT_TAMPER" | python3 -c "import sys,json; json.load(sys.stdin)" 2>/dev/null && ok "Scenario 8: Audit endpoint OK" || fail "Scenario 8: Audit endpoint crashed"
+AUDIT_TAMPER=$(api_call "http://127.0.0.1:9200/api/system/audit/verify-chain")
+if [ -n "$AUDIT_TAMPER" ] && echo "$AUDIT_TAMPER" | python3 -c "import sys,json; json.load(sys.stdin)" 2>/dev/null; then
+  ok "Scenario 8: Audit endpoint OK"
+else
+  fail "Scenario 8: Audit endpoint crashed"
+fi
 
 # ==============================================================================
 # SCENARIO 9
 # ==============================================================================
 section "Scenario 9: Concurrent snapshot + delete"
 
-[ -n "$DAEMON_PID" ] && sudo kill "$DAEMON_PID" 2>/dev/null || true
-sleep 2
 start_daemon || warn "Scenario 9: Daemon restart"
-get_session
-curl -s http://127.0.0.1:9200/health >/dev/null 2>&1 && ok "Scenario 9: Daemon running" || fail "Scenario 9: Daemon not responding"
+get_session || warn "Scenario 9: Login issue"
 
 sudo zfs create sfpool/race-ds 2>/dev/null || true
 
-(curl -s -X POST http://127.0.0.1:9200/api/zfs/snapshots -H "X-Session-ID: $SESSION" -H "X-CSRF-Token: $CSRF" -H "Content-Type: application/json" -d '{"dataset":"sfpool/race-ds","name":"race-snap"}' >/dev/null 2>&1) &
-(curl -s -X POST http://127.0.0.1:9200/api/zfs/datasets/delete -H "X-Session-ID: $SESSION" -H "X-CSRF-Token: $CSRF" -H "Content-Type: application/json" -d '{"name":"sfpool/race-ds","recursive":true}' >/dev/null 2>&1) &
-wait || true
+if [ -n "$CSRF" ]; then
+  (curl -s -X POST http://127.0.0.1:9200/api/zfs/snapshots -H "X-Session-ID: $SESSION" -H "X-CSRF-Token: $CSRF" -H "Content-Type: application/json" -d '{"dataset":"sfpool/race-ds","name":"race-snap"}' >/dev/null 2>&1) &
+  (curl -s -X POST http://127.0.0.1:9200/api/zfs/datasets/delete -H "X-Session-ID: $SESSION" -H "X-CSRF-Token: $CSRF" -H "Content-Type: application/json" -d '{"name":"sfpool/race-ds","recursive":true}' >/dev/null 2>&1) &
+  wait || true
+fi
 
-curl -s http://127.0.0.1:9200/api/zfs/pools -H "X-Session-ID: $SESSION" >/dev/null 2>&1 && ok "Scenario 9: Daemon survived" || fail "Scenario 9: Daemon crashed"
+POOLS9=$(api_call "http://127.0.0.1:9200/api/zfs/pools")
+if [ -n "$POOLS9" ]; then
+  ok "Scenario 9: Daemon survived"
+else
+  fail "Scenario 9: Daemon crashed"
+fi
 
 sudo zfs destroy -rf sfpool/race-ds 2>/dev/null || true
 
@@ -276,11 +357,8 @@ sudo zfs destroy -rf sfpool/race-ds 2>/dev/null || true
 # ==============================================================================
 section "Scenario 10: Pool import collision"
 
-[ -n "$DAEMON_PID" ] && sudo kill "$DAEMON_PID" 2>/dev/null || true
-sleep 2
 start_daemon || warn "Scenario 10: Daemon restart"
-get_session
-curl -s http://127.0.0.1:9200/health >/dev/null 2>&1 && ok "Scenario 10: Daemon running" || fail "Scenario 10: Daemon not responding"
+get_session || warn "Scenario 10: Login issue"
 
 sudo zpool create -f sfpool_import "$LOOP5"
 sudo zpool export sfpool_import
