@@ -13,6 +13,7 @@ Upgrade from: v8.0.0 - Drop-in.
 ### Fixed
 - **Audit chain verification**: Added `DEFAULT (strftime('%s', 'now'))` to audit_logs table timestamp column, fixing CI verification failures.
 - **TOTP handler error handling**: Fixed 11 locations in `daemon/internal/handlers/totp.go` where database operations were silently ignoring errors.
+- **Storage failure test script**: Fixed incorrect API endpoint references (`/api/zfs/health` → `/api/system/health`), added missing directory creation, and simplified pool validation to prevent false failures.
 
 
 ## v8.0.0 (2026-04-04) - "GPU Passthrough"
