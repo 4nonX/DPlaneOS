@@ -11,7 +11,7 @@ section() { echo ""; echo "--- $1 ---"; }
 
 PASS=0; FAIL=0; FAILURES=""
 
-# Timeout for API calls (in seconds)
+# Timeout for API calls
 API_TIMEOUT=10
 
 cleanup() {
@@ -59,24 +59,30 @@ sudo zpool create -f sfpool2 mirror "$LOOP3" "$LOOP4"
 sudo zfs create sfpool2/repl-dst
 ok "Secondary pool sfpool2 created"
 
-# Start daemon with timeout
+# Start daemon and wait for it to be FULLY ready
 start_daemon() {
   [ -n "$DAEMON_PID" ] && sudo kill "$DAEMON_PID" 2>/dev/null || true
   sleep 2
   sudo ./dplaned-ci --listen 127.0.0.1:9200 --db-dsn "$DATABASE_DSN" --smb-conf "$SMB_CONF" > /tmp/dplaned-sf.log 2>&1 &
   DAEMON_PID=$!
+  
+  # Wait for health endpoint first
   for i in $(seq 1 30); do 
     if curl -s --max-time $API_TIMEOUT http://127.0.0.1:9200/health >/dev/null 2>&1; then
-      return 0
+      break
     fi
     sleep 0.5
   done
-  return 1
+  
+  # Additional wait - give daemon time to fully initialize all handlers
+  sleep 5
+  
+  return 0
 }
 
 # Get session with retries
 get_session() {
-  local max_attempts=3
+  local max_attempts=5
   local attempt=1
   
   while [ $attempt -le $max_attempts ]; do
@@ -87,12 +93,18 @@ get_session() {
     SESSION=$(echo "$resp" | python3 -c "import sys,json; print(json.load(sys.stdin).get('session_id',''))" 2>/dev/null || echo "")
     
     if [ -n "$SESSION" ]; then
-      CSRF=$(curl -s --max-time $API_TIMEOUT http://127.0.0.1:9200/api/csrf -H "X-Session-ID: $SESSION" | python3 -c "import sys,json; print(json.load(sys.stdin).get('csrf_token',''))" 2>/dev/null || echo "")
-      return 0
+      # Get CSRF token
+      for i in $(seq 1 5); do
+        CSRF=$(curl -s --max-time $API_TIMEOUT http://127.0.0.1:9200/api/csrf -H "X-Session-ID: $SESSION" | python3 -c "import sys,json; print(json.load(sys.stdin).get('csrf_token',''))" 2>/dev/null || echo "")
+        if [ -n "$CSRF" ]; then
+          return 0
+        fi
+        sleep 1
+      done
     fi
     
     echo "Login attempt $attempt failed, retrying..."
-    sleep 1
+    sleep 2
     attempt=$((attempt + 1))
   done
   
@@ -160,7 +172,7 @@ sudo zpool status sfpool | grep -q "ONLINE" && ok "Scenario 1: Pool recovered" |
 section "Scenario 2: Dataset quota exhaustion"
 
 start_daemon || warn "Scenario 2: Daemon restart"
-get_session || warn "Scenario 2: Login issue"
+get_session || { fail "Scenario 2: Login failed"; }
 
 HEALTH2=$(api_call "http://127.0.0.1:9200/api/system/health")
 if [ -n "$HEALTH2" ] && echo "$HEALTH2" | python3 -c "import sys,json; json.load(sys.stdin)" 2>/dev/null; then
@@ -175,7 +187,7 @@ fi
 section "Scenario 3: ZFS send interrupted"
 
 start_daemon || warn "Scenario 3: Daemon restart"
-get_session || warn "Scenario 3: Login issue"
+get_session || { fail "Scenario 3: Login failed"; }
 
 dd if=/dev/urandom bs=1M count=20 2>/dev/null | sudo tee /mnt/sfpool/repl-src/data.bin > /dev/null
 sudo zfs snapshot sfpool/repl-src@snap1
@@ -200,7 +212,7 @@ fi
 section "Scenario 4: Snapshot on near-full dataset"
 
 start_daemon || warn "Scenario 4: Daemon restart"
-get_session || warn "Scenario 4: Login issue"
+get_session || { fail "Scenario 4: Login failed"; }
 
 sudo zfs set quota=48M sfpool/repl-src
 dd if=/dev/urandom bs=1M count=40 2>/dev/null | sudo tee /mnt/sfpool/repl-src/fill2.bin > /dev/null 2>&1 || true
@@ -228,7 +240,7 @@ sudo rm -f /mnt/sfpool/repl-src/fill2.bin 2>/dev/null || true
 section "Scenario 5: Checksum error detection"
 
 start_daemon || warn "Scenario 5: Daemon restart"
-get_session || warn "Scenario 5: Login issue"
+get_session || { fail "Scenario 5: Login failed"; }
 
 sudo zpool offline sfpool "$LOOP1" 2>/dev/null || true
 sudo dd if=/dev/urandom of=/tmp/sf1.img bs=4096 count=100 seek=1000 conv=notrunc 2>/dev/null || true
@@ -254,7 +266,7 @@ ok "Scenario 5: Pool cleared"
 section "Scenario 6: Dataset destroyed under share"
 
 start_daemon || warn "Scenario 6: Daemon restart"
-get_session || warn "Scenario 6: Login issue"
+get_session || { fail "Scenario 6: Login failed"; }
 
 sudo zfs create sfpool/share-victim
 sudo mkdir -p /mnt/sfpool/share-victim
@@ -287,7 +299,7 @@ fi
 section "Scenario 7: TOTP DB error handling"
 
 start_daemon || warn "Scenario 7: Daemon restart"
-get_session || warn "Scenario 7: Login issue"
+get_session || { fail "Scenario 7: Login failed"; }
 
 TOTP_SETUP=$(api_call "http://127.0.0.1:9200/api/auth/totp/setup")
 if [ -n "$TOTP_SETUP" ] && echo "$TOTP_SETUP" | python3 -c "import sys,json; json.load(sys.stdin)" 2>/dev/null; then
@@ -314,7 +326,7 @@ fi
 section "Scenario 8: Audit chain integrity"
 
 start_daemon || warn "Scenario 8: Daemon restart"
-get_session || warn "Scenario 8: Login issue"
+get_session || { fail "Scenario 8: Login failed"; }
 
 AUDIT_CLEAN=$(api_call "http://127.0.0.1:9200/api/system/audit/verify-chain")
 CHAIN_VALID=$(echo "$AUDIT_CLEAN" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('valid',''))" 2>/dev/null || echo "")
@@ -331,12 +343,12 @@ else
 fi
 
 # ==============================================================================
-# SCENARIO 9 - SKIP CONCURRENT TEST TO AVOID HANGS
+# SCENARIO 9 - SKIP
 # ==============================================================================
 section "Scenario 9: Concurrent snapshot + delete"
 
 start_daemon || warn "Scenario 9: Daemon restart"
-get_session || warn "Scenario 9: Login issue"
+get_session || { fail "Scenario 9: Login failed"; }
 
 ok "Scenario 9: Skipped (concurrent test can cause hangs)"
 
@@ -346,7 +358,7 @@ ok "Scenario 9: Skipped (concurrent test can cause hangs)"
 section "Scenario 10: Pool import collision"
 
 start_daemon || warn "Scenario 10: Daemon restart"
-get_session || warn "Scenario 10: Login issue"
+get_session || { fail "Scenario 10: Login failed"; }
 
 sudo zpool create -f sfpool_import "$LOOP5"
 sudo zpool export sfpool_import
