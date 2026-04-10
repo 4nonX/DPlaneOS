@@ -39,15 +39,19 @@ func (h *SystemStatusHandler) HandleStatus(w http.ResponseWriter, r *http.Reques
 	var userCount int
 	h.db.QueryRow(`SELECT COUNT(*) FROM users`).Scan(&userCount)
 
+	// Try RunFast first, but don't fail if it times out - pool state can be transitional
+	// after offline/online operations
 	poolOutput, err := cmdutil.RunFast("zpool", "list", "-H", "-o", "name")
-	if err != nil {
-		log.Printf("WARN: zpool list: %v", err)
-	}
-	pools := strings.Split(strings.TrimSpace(string(poolOutput)), "\n")
 	poolCount := 0
-	for _, p := range pools {
-		if p != "" {
-			poolCount++
+	if err != nil {
+		// Don't fail the entire health check for pool list timeout
+		log.Printf("WARN: zpool list: %v", err)
+	} else {
+		pools := strings.Split(strings.TrimSpace(string(poolOutput)), "\n")
+		for _, p := range pools {
+			if p != "" {
+				poolCount++
+			}
 		}
 	}
 
@@ -573,4 +577,3 @@ func (h *SystemStatusHandler) HandleSetupAdmin(w http.ResponseWriter, r *http.Re
 		"success": true, "message": "Admin credentials configured",
 	})
 }
-
