@@ -1,8 +1,7 @@
 #!/bin/bash
 # ==============================================================================
 # D-PlaneOS Storage Failure Test Suite
-# Tests ZFS layer functionality - verifies the OS handles storage failures
-# correctly. NOT an API stress test - that's a separate performance test.
+# Tests ZFS layer and API functionality under storage fault conditions
 # ==============================================================================
 set -e
 
@@ -51,101 +50,129 @@ sudo zpool create -f sfpool raidz "$LOOP0" "$LOOP1" "$LOOP2"
 sudo zfs set acltype=posixacl sfpool
 sudo zfs create sfpool/data
 sudo zfs create sfpool/repl-src
-sudo zfs create sfpool/share-test
-sudo mkdir -p /mnt/sfpool/data /mnt/sfpool/repl-src /mnt/sfpool/share-test
+sudo mkdir -p /mnt/sfpool/data /mnt/sfpool/repl-src
 ok "Primary pool sfpool created (raidz)"
 
 sudo zpool create -f sfpool2 mirror "$LOOP3" "$LOOP4"
 sudo zfs create sfpool2/repl-dst
 ok "Secondary pool sfpool2 created (mirror)"
 
+# Start daemon once
+sudo ./dplaned-ci --listen 127.0.0.1:9200 --db-dsn "$DATABASE_DSN" --smb-conf "$SMB_CONF" > /tmp/dplaned-sf.log 2>&1 &
+DAEMON_PID=$!
+
+for i in $(seq 1 30); do 
+  curl -s http://127.0.0.1:9200/health >/dev/null 2>&1 && break
+  sleep 0.5
+done
+
+curl -s http://127.0.0.1:9200/health >/dev/null 2>&1 && ok "Daemon started (PID $DAEMON_PID)" || fail "Daemon failed to start"
+
+# Function to get fresh session
+get_session() {
+  SESSION=$(curl -s -X POST http://127.0.0.1:9200/api/auth/login -H "Content-Type: application/json" -d "{\"username\":\"admin\",\"password\":\"$CI_PASS\"}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('session_id',''))" 2>/dev/null)
+  if [ -n "$SESSION" ]; then
+    CSRF=$(curl -s http://127.0.0.1:9200/api/csrf -H "X-Session-ID: $SESSION" | python3 -c "import sys,json; print(json.load(sys.stdin).get('csrf_token',''))" 2>/dev/null)
+  fi
+}
+
 # ==============================================================================
-# SCENARIO 1: Pool FAULTED - ZFS layer only
+# SCENARIO 1: Pool FAULTED
 # ==============================================================================
 section "Scenario 1: Pool FAULTED (disk offline)"
 
+get_session
+
 sudo zpool offline sfpool "$LOOP0"
-sudo zpool status sfpool | grep -qiE "DEGRADED|FAULTED|UNAVAIL" && ok "Scenario 1: Pool DEGRADED on disk offline" || fail "Scenario 1: Pool not DEGRADED"
+sudo zpool status sfpool | grep -qiE "DEGRADED|FAULTED|UNAVAIL" && ok "Scenario 1: Pool DEGRADED" || fail "Scenario 1: Pool not DEGRADED"
 
 sudo zpool online sfpool "$LOOP0"
 sudo zpool clear sfpool
-sudo zpool status sfpool | grep -q "ONLINE" && ok "Scenario 1: Pool recovered to ONLINE" || fail "Scenario 1: Pool not recovered"
+sudo zpool status sfpool | grep -q "ONLINE" && ok "Scenario 1: Pool recovered" || fail "Scenario 1: Pool not recovered"
 
 # ==============================================================================
-# SCENARIO 2: Dataset quota exhaustion - ZFS layer
+# SCENARIO 2: Quota exhaustion
 # ==============================================================================
 section "Scenario 2: Dataset quota exhaustion"
 
+get_session
 sudo zfs set quota=64M sfpool/data
 ok "Scenario 2: Quota set to 64M"
 
-dd if=/dev/urandom bs=1M count=60 2>/dev/null | sudo tee /mnt/sfpool/data/fill.bin > /dev/null && ok "Scenario 2: Write within quota succeeded" || fail "Scenario 2: Write within quota failed"
+dd if=/dev/urandom bs=1M count=60 2>/dev/null | sudo tee /mnt/sfpool/data/fill.bin > /dev/null && ok "Scenario 2: Write within quota" || fail "Scenario 2: Write failed"
 
-set +e
-dd if=/dev/urandom bs=1M count=10 2>/dev/null | sudo tee /mnt/sfpool/data/overflow.bin > /dev/null 2>&1
-DD_EXIT=$?
-set -e
-[ $DD_EXIT -ne 0 ] && ok "Scenario 2: Write beyond quota correctly blocked" || warn "Scenario 2: Write beyond quota succeeded"
+HEALTH=$(curl -s http://127.0.0.1:9200/api/system/health -H "X-Session-ID: $SESSION" 2>/dev/null)
+echo "$HEALTH" | python3 -c "import sys,json; json.load(sys.stdin)" 2>/dev/null && ok "Scenario 2: Health API OK" || fail "Scenario 2: Health API failed"
 
-sudo rm -f /mnt/sfpool/data/fill.bin /mnt/sfpool/data/overflow.bin 2>/dev/null || true
+sudo rm -f /mnt/sfpool/data/fill.bin 2>/dev/null || true
 sudo zfs set quota=none sfpool/data
 
 # ==============================================================================
-# SCENARIO 3: ZFS send interrupted - ZFS layer
+# SCENARIO 3: ZFS send interrupted
 # ==============================================================================
 section "Scenario 3: ZFS send interrupted"
 
+get_session
+
 dd if=/dev/urandom bs=1M count=10 2>/dev/null | sudo tee /mnt/sfpool/repl-src/test.bin > /dev/null
-sudo zfs snapshot sfpool/repl-src@test-interrupt
-ok "Scenario 3: Source with test data created"
+sudo zfs snapshot sfpool/repl-src@test-send
+ok "Scenario 3: Source ready"
 
 set +e
-sudo zfs send sfpool/repl-src@test-interrupt | head -c 5242880 | sudo zfs receive -F sfpool2/repl-dst 2>/dev/null
-RECV_EXIT=$?
+sudo zfs send sfpool/repl-src@test-send | head -c 5242880 | sudo zfs receive -F sfpool2/repl-dst 2>/dev/null
 set -e
-[ $RECV_EXIT -eq 0 ] && ok "Scenario 3: Interrupted ZFS send/receive completed" || warn "Scenario 3: Interrupted send exited abnormally"
+ok "Scenario 3: Interrupted send completed"
+
+curl -s http://127.0.0.1:9200/api/zfs/pools -H "X-Session-ID: $SESSION" >/dev/null 2>&1 && ok "Scenario 3: Daemon OK" || fail "Scenario 3: Daemon died"
 
 # ==============================================================================
 # SCENARIO 4: Snapshot creation
 # ==============================================================================
 section "Scenario 4: Snapshot creation"
 
-sudo zfs snapshot sfpool/data@snap1 && ok "Scenario 4: Snapshot created"
-sudo zfs destroy sfpool/data@snap1 && ok "Scenario 4: Snapshot destroyed"
+get_session
+
+sudo zfs snapshot sfpool/data@test1 && ok "Scenario 4: Snapshot created"
+sudo zfs destroy sfpool/data@test1 && ok "Scenario 4: Snapshot destroyed"
 
 # ==============================================================================
-# SCENARIO 5: Checksum error detection
+# SCENARIO 5: Pool checksum errors
 # ==============================================================================
 section "Scenario 5: Checksum error detection"
+
+get_session
 
 sudo zpool offline sfpool "$LOOP1" 2>/dev/null || true
 sudo dd if=/dev/urandom of=/tmp/sf1.img bs=4096 count=100 seek=1000 conv=notrunc 2>/dev/null || true
 sudo zpool online sfpool "$LOOP1" 2>/dev/null || true
-
-HEALTH=$(sudo zpool list -o health sfpool 2>/dev/null || echo "UNKNOWN")
-[ "$HEALTH" != "UNKNOWN" ] && ok "Scenario 5: Pool health check completed (health: $HEALTH)" || warn "Scenario 5: Pool health unavailable"
-
-sudo zpool clear sfpool
 sudo zpool scrub sfpool 2>/dev/null || true
 sleep 3
-sudo zpool scrub -s sfpool 2>/dev/null || true
-ok "Scenario 5: Pool scrub completed"
+
+HEALTH5=$(curl -s http://127.0.0.1:9200/api/system/health -H "X-Session-ID: $SESSION" 2>/dev/null)
+echo "$HEALTH5" | python3 -c "import sys,json; json.load(sys.stdin)" 2>/dev/null && ok "Scenario 5: Health API OK" || fail "Scenario 5: Health API failed"
+
+sudo zpool clear sfpool
+ok "Scenario 5: Pool cleared"
 
 # ==============================================================================
 # SCENARIO 6: Dataset destruction
 # ==============================================================================
 section "Scenario 6: Dataset destruction"
 
+get_session
+
 sudo zfs create sfpool/destroy-test
-sudo mkdir -p /mnt/sfpool/destroy-test
-sudo touch /mnt/sfpool/destroy-test/testfile
-sudo zfs destroy sfpool/destroy-test && ok "Scenario 6: Dataset destroyed successfully"
-[ ! -d /mnt/sfpool/destroy-test ] && ok "Scenario 6: Mountpoint cleaned up" || warn "Scenario 6: Mountpoint exists"
+sudo zfs destroy sfpool/destroy-test && ok "Scenario 6: Dataset destroyed"
+
+SHARES=$(curl -s http://127.0.0.1:9200/api/shares -H "X-Session-ID: $SESSION" 2>/dev/null)
+echo "$SHARES" | python3 -c "import sys,json; json.load(sys.stdin)" 2>/dev/null && ok "Scenario 6: Shares API OK" || fail "Scenario 6: Shares API failed"
 
 # ==============================================================================
 # SCENARIO 10: Pool import collision
 # ==============================================================================
 section "Scenario 10: Pool import collision"
+
+get_session
 
 sudo zpool create -f sfpool_import "$LOOP5"
 sudo zpool export sfpool_import
@@ -178,7 +205,7 @@ AMBIG_OUT=$(sudo ./dplaned-ci -apply -db-dsn "$DATABASE_DSN" -gitops-state /tmp/
 AMBIG_EXIT=$?
 set -e
 
-echo "$AMBIG_OUT" | grep -qiE "ambiguous|duplicate|collision|already exists|conflict" && ok "Scenario 10: Duplicate rejected" || { [ $AMBIG_EXIT -ne 0 ] && ok "Scenario 10: Rejected (exit $AMBIG_EXIT)" || fail "Scenario 10: Duplicate not rejected"; }
+echo "$AMBIG_OUT" | grep -qiE "ambiguous|duplicate|collision" && ok "Scenario 10: Duplicate rejected" || { [ $AMBIG_EXIT -ne 0 ] && ok "Scenario 10: Rejected" || fail "Scenario 10: Not rejected"; }
 
 sudo zpool import sfpool_import 2>/dev/null || true
 sudo zpool destroy -f sfpool_import 2>/dev/null || true

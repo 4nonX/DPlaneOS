@@ -1,6 +1,7 @@
 package security
 
 import (
+	"context"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
@@ -11,6 +12,8 @@ import (
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
+
+const dbTimeout = 5 * time.Second
 
 // db is declared in rbac.go via SetDatabase()
 
@@ -49,17 +52,17 @@ func ValidateSession(sessionID, username string) (bool, error) {
 		return false, fmt.Errorf("database not initialized")
 	}
 
-	// Defensive: ping the database first to check if connection is alive
-	if err := db.Ping(); err != nil {
+	ctx, cancel := context.WithTimeout(context.Background(), dbTimeout)
+	defer cancel()
+
+	if err := db.PingContext(ctx); err != nil {
 		log.Printf("WARN: database ping failed in ValidateSession: %v", err)
-		return false, fmt.Errorf("database unavailable")
+		return false, nil
 	}
 
-	// Session idle timeout: 30 minutes of inactivity = expired
-	idleTimeout := int64(30 * 60) // 30 minutes in seconds
+	idleTimeout := int64(30 * 60)
 	now := time.Now().Unix()
 
-	// Check if session exists, not expired, and not idle
 	var count int
 	query := `
 		SELECT COUNT(*) 
@@ -71,9 +74,8 @@ func ValidateSession(sessionID, username string) (bool, error) {
 		AND COALESCE(status, 'active') = 'active'
 	`
 
-	err := db.QueryRow(query, sessionID, username, now, now, idleTimeout).Scan(&count)
+	err := db.QueryRowContext(ctx, query, sessionID, username, now, now, idleTimeout).Scan(&count)
 	if err != nil {
-		// Don't expose database errors - treat as invalid session
 		log.Printf("WARN: ValidateSession error: %v", err)
 		return false, nil
 	}
@@ -151,10 +153,12 @@ func ValidateSessionAndGetUser(sessionToken string) (*SessionUser, error) {
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	// Defensive: ping the database first to check if connection is alive
-	if err := db.Ping(); err != nil {
+	ctx, cancel := context.WithTimeout(context.Background(), dbTimeout)
+	defer cancel()
+
+	if err := db.PingContext(ctx); err != nil {
 		log.Printf("WARN: database ping failed in ValidateSessionAndGetUser: %v", err)
-		return nil, fmt.Errorf("database unavailable")
+		return nil, fmt.Errorf("invalid session")
 	}
 
 	var user SessionUser
@@ -169,14 +173,13 @@ func ValidateSessionAndGetUser(sessionToken string) (*SessionUser, error) {
 		LIMIT 1
 	`
 
-	err := db.QueryRow(query, sessionToken, time.Now().Unix()).Scan(
+	err := db.QueryRowContext(ctx, query, sessionToken, time.Now().Unix()).Scan(
 		&user.ID, &user.Username, &user.Email,
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, fmt.Errorf("invalid or expired session")
 		}
-		// Don't expose database errors to clients - just treat as invalid session
 		log.Printf("WARN: session validation error: %v", err)
 		return nil, fmt.Errorf("invalid session")
 	}
