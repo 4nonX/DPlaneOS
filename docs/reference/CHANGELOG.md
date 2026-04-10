@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 
 
+## v8.0.3 (2026-04-10)
+
+Upgrade from: v8.0.2 - Drop-in.
+
+### Fixed
+- **Session validation deadlock**: Database operations in session validation had no timeout - when ZFS pool state changed, the database could hang indefinitely causing API calls to fail. Added 5-second context timeout to all session validation queries.
+- **Shares CRUD timeout**: Added 5-second timeout to shares_crud database queries to prevent hangs during storage issues.
+- **Degraded mode**: When database is unavailable during storage failures, system now enters degraded mode - allowing READ operations but blocking mutations. This keeps the system operational instead of failing completely.
+
+### Changed
+- **Health endpoint public**: `/api/system/health` is now a public endpoint that doesn't require session validation. This ensures monitoring works even when authentication is degraded.
+- **RBAC degraded handling**: When user.ID=0 (degraded mode), READ/list operations are allowed, mutations are blocked with clear error message.
+
+### Security
+- During degraded mode (database unavailable), only read operations are permitted. Write operations require confirmed session. This is acceptable for a NAS behind a firewall where availability trumps strict authentication during transient storage faults.
+
+
+
 ## v8.0.2 (2026-04-10)
 
 Upgrade from: v8.0.1 - Drop-in.
