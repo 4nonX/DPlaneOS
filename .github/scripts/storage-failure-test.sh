@@ -123,7 +123,7 @@ sudo zfs send sfpool/repl-src@test-send | head -c 5242880 | sudo zfs receive -F 
 set -e
 ok "Scenario 3: Interrupted send completed"
 
-curl -s http://127.0.0.1:9200/api/zfs/pools -H "X-Session-ID: $SESSION" >/dev/null 2>&1 && ok "Scenario 3: Daemon OK" || fail "Scenario 3: Daemon died"
+curl -s http://127.0.0.1:9200/api/zfs/pools -H "X-Session-ID: $SESSION" -H "X-User: admin" >/dev/null 2>&1 && ok "Scenario 3: Daemon OK" || fail "Scenario 3: Daemon died"
 
 # ==============================================================================
 # SCENARIO 4: Snapshot creation
@@ -164,7 +164,7 @@ get_session
 sudo zfs create sfpool/destroy-test
 sudo zfs destroy sfpool/destroy-test && ok "Scenario 6: Dataset destroyed"
 
-SHARES=$(curl -s http://127.0.0.1:9200/api/shares -H "X-Session-ID: $SESSION" 2>/dev/null)
+SHARES=$(curl -s http://127.0.0.1:9200/api/shares -H "X-Session-ID: $SESSION" -H "X-User: admin" 2>/dev/null)
 echo "$SHARES" | python3 -c "import sys,json; json.load(sys.stdin)" 2>/dev/null && ok "Scenario 6: Shares API OK" || fail "Scenario 6: Shares API failed"
 
 # ==============================================================================
