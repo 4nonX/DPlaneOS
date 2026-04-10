@@ -1287,7 +1287,6 @@ func sessionMiddleware(db *sql.DB) mux.MiddlewareFunc {
 				p == "/api/system/setup-complete" ||
 				p == "/api/system/status" || // dashboard needs status before login to detect setup_complete
 				p == "/api/system/health" || // health endpoint must be public for monitoring
-				p == "/api/shares" || // shares list is read-only, make public for monitoring
 				// HA peer endpoints - called by peer daemons that have no user session
 				p == "/api/ha/heartbeat" ||
 				p == "/api/ha/sync/status" ||

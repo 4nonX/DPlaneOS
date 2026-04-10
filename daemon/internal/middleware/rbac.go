@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	
+
 	"dplaned/internal/security"
 )
 
@@ -28,9 +28,21 @@ func RequirePermission(resource, action string) func(http.Handler) http.Handler 
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// Get user from context (set by auth middleware)
 			user, ok := r.Context().Value(UserContextKey).(*User)
-			if !ok {
+			if !ok || user == nil {
 				respondJSON(w, http.StatusUnauthorized, map[string]string{
 					"error": "Unauthorized - no valid session",
+				})
+				return
+			}
+			// Best-effort mode (ID=0): allow READ operations, block mutations
+			if user.ID == 0 {
+				if action == "read" || action == "list" {
+					next.ServeHTTP(w, r)
+					return
+				}
+				respondJSON(w, http.StatusForbidden, map[string]string{
+					"error":   "Forbidden - best-effort mode blocks mutations",
+					"message": "System in degraded mode - read operations only",
 				})
 				return
 			}
@@ -46,9 +58,9 @@ func RequirePermission(resource, action string) func(http.Handler) http.Handler 
 
 			if !hasPermission {
 				respondJSON(w, http.StatusForbidden, map[string]string{
-					"error":      "Forbidden - insufficient permissions",
-					"required":   resource + ":" + action,
-					"message":    "You do not have permission to perform this action",
+					"error":    "Forbidden - insufficient permissions",
+					"required": resource + ":" + action,
+					"message":  "You do not have permission to perform this action",
 				})
 				return
 			}
