@@ -1333,11 +1333,10 @@ func sessionMiddleware(db *sql.DB) mux.MiddlewareFunc {
 			// Validate session and get user details
 			sessionUser, err := security.ValidateSessionAndGetUser(sessionID)
 			if err != nil {
-				// DB timeout/unavailable - allow request to proceed (best effort operational mode)
-				// The client already has a session, so we trust they are legitimate
-				// Log but don't block - system stays operational during DB issues
-				log.Printf("WARN: Session validation deferred due to DB issue (%v) - allowing request for user %s", err, user)
-				// Allow request to proceed with header user - use best-effort mode
+				// DB timeout/unavailable - allow request to proceed
+				// System degraded: only has header auth, no DB session proof
+				log.Printf("WARN: Session DB unavailable (%v) - allowing read-only for %s", err, user)
+				// Allow request with degraded flag
 				ctx := context.WithValue(r.Context(), middleware.UserContextKey, &middleware.User{
 					ID:       0,
 					Username: user,
@@ -1370,7 +1369,7 @@ func sessionMiddleware(db *sql.DB) mux.MiddlewareFunc {
 				err := db.QueryRowContext(ctx, "SELECT csrf_token FROM sessions WHERE session_id = $1", sessionID).Scan(&storedCSRF)
 				if err != nil {
 					// DB timeout - skip CSRF check, allow request (best effort operational mode)
-					log.Printf("WARN: CSRF validation deferred due to DB issue - allowing mutation for user %s", user)
+					log.Printf("WARN: CSRF DB unavailable - skipping for %s", user)
 				} else if storedCSRF == "" || storedCSRF != csrfHeader {
 					audit.LogSecurityEvent("CSRF validation failed", user, realIP(r))
 					http.Error(w, "Forbidden (Invalid CSRF token)", http.StatusForbidden)

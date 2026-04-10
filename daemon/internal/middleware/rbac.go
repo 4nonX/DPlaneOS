@@ -34,15 +34,15 @@ func RequirePermission(resource, action string) func(http.Handler) http.Handler 
 				})
 				return
 			}
-			// Best-effort mode (ID=0): allow READ operations, block mutations
+			// Degraded mode (ID=0): DB unavailable, allow READ, block mutations
 			if user.ID == 0 {
 				if action == "read" || action == "list" {
 					next.ServeHTTP(w, r)
 					return
 				}
 				respondJSON(w, http.StatusForbidden, map[string]string{
-					"error":   "Forbidden - best-effort mode blocks mutations",
-					"message": "System in degraded mode - read operations only",
+					"error":   "Forbidden - database unavailable",
+					"message": "Cannot mutate during degraded state",
 				})
 				return
 			}
