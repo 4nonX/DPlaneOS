@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -48,6 +49,12 @@ func ValidateSession(sessionID, username string) (bool, error) {
 		return false, fmt.Errorf("database not initialized")
 	}
 
+	// Defensive: ping the database first to check if connection is alive
+	if err := db.Ping(); err != nil {
+		log.Printf("WARN: database ping failed in ValidateSession: %v", err)
+		return false, fmt.Errorf("database unavailable")
+	}
+
 	// Session idle timeout: 30 minutes of inactivity = expired
 	idleTimeout := int64(30 * 60) // 30 minutes in seconds
 	now := time.Now().Unix()
@@ -66,8 +73,9 @@ func ValidateSession(sessionID, username string) (bool, error) {
 
 	err := db.QueryRow(query, sessionID, username, now, now, idleTimeout).Scan(&count)
 	if err != nil {
-		// FAIL-CLOSED: Reject on ANY error (no fallback!)
-		return false, fmt.Errorf("session validation failed: %w", err)
+		// Don't expose database errors - treat as invalid session
+		log.Printf("WARN: ValidateSession error: %v", err)
+		return false, nil
 	}
 
 	if count > 0 {
@@ -143,6 +151,12 @@ func ValidateSessionAndGetUser(sessionToken string) (*SessionUser, error) {
 		return nil, fmt.Errorf("database not initialized")
 	}
 
+	// Defensive: ping the database first to check if connection is alive
+	if err := db.Ping(); err != nil {
+		log.Printf("WARN: database ping failed in ValidateSessionAndGetUser: %v", err)
+		return nil, fmt.Errorf("database unavailable")
+	}
+
 	var user SessionUser
 	query := `
 		SELECT u.id, u.username, COALESCE(u.email, '')
@@ -162,7 +176,9 @@ func ValidateSessionAndGetUser(sessionToken string) (*SessionUser, error) {
 		if err == sql.ErrNoRows {
 			return nil, fmt.Errorf("invalid or expired session")
 		}
-		return nil, fmt.Errorf("session validation failed: %w", err)
+		// Don't expose database errors to clients - just treat as invalid session
+		log.Printf("WARN: session validation error: %v", err)
+		return nil, fmt.Errorf("invalid session")
 	}
 
 	return &user, nil
