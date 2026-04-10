@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 
 
+## v8.0.2 (2026-04-10)
+
+Upgrade from: v8.0.1 - Drop-in.
+
+### Fixed
+- **Health endpoint timeout handling**: After pool offline/online operations, `zpool list` can hang because the pool is in a transitional state. The health endpoint now gracefully handles this timeout instead of failing the entire health check.
+- **Session validation defensive**: Added database ping before session queries to detect connection issues. Session validation now returns "unauthorized" instead of failing hard when the database becomes temporarily unavailable during ZFS operations.
+
+### Changed
+- **Storage failure test**: Expanded test coverage to include more real-world scenarios that were previously causing false failures.
+
+
+
 ## v8.0.1 (2026-04-06)
 
 Upgrade from: v8.0.0 - Drop-in.
