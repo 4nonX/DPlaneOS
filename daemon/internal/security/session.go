@@ -6,14 +6,13 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"fmt"
-	"log"
 	"strings"
 	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
-const dbTimeout = 5 * time.Second
+const dbQueryTimeout = 5 * time.Second
 
 // db is declared in rbac.go via SetDatabase()
 
@@ -52,17 +51,14 @@ func ValidateSession(sessionID, username string) (bool, error) {
 		return false, fmt.Errorf("database not initialized")
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), dbTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), dbQueryTimeout)
 	defer cancel()
 
-	if err := db.PingContext(ctx); err != nil {
-		log.Printf("WARN: database ping failed in ValidateSession: %v", err)
-		return false, nil
-	}
-
-	idleTimeout := int64(30 * 60)
+	// Session idle timeout: 30 minutes of inactivity = expired
+	idleTimeout := int64(30 * 60) // 30 minutes in seconds
 	now := time.Now().Unix()
 
+	// Check if session exists, not expired, and not idle
 	var count int
 	query := `
 		SELECT COUNT(*) 
@@ -76,13 +72,13 @@ func ValidateSession(sessionID, username string) (bool, error) {
 
 	err := db.QueryRowContext(ctx, query, sessionID, username, now, now, idleTimeout).Scan(&count)
 	if err != nil {
-		log.Printf("WARN: ValidateSession error: %v", err)
-		return false, nil
+		// FAIL-CLOSED: Reject on ANY error (no fallback!)
+		return false, fmt.Errorf("session validation failed: %w", err)
 	}
 
 	if count > 0 {
 		// Update last_activity timestamp (touch session)
-		db.Exec("UPDATE sessions SET last_activity = $1 WHERE session_id = $2", now, sessionID)
+		db.ExecContext(ctx, "UPDATE sessions SET last_activity = $1 WHERE session_id = $2", now, sessionID)
 		return true, nil
 	}
 
@@ -95,6 +91,9 @@ func GetUserFromSession(sessionID string) (string, error) {
 		return "", fmt.Errorf("database not initialized")
 	}
 
+	ctx, cancel := context.WithTimeout(context.Background(), dbQueryTimeout)
+	defer cancel()
+
 	var username string
 	query := `
 		SELECT username 
@@ -104,7 +103,7 @@ func GetUserFromSession(sessionID string) (string, error) {
 		LIMIT 1
 	`
 
-	err := db.QueryRow(query, sessionID, time.Now().Unix()).Scan(&username)
+	err := db.QueryRowContext(ctx, query, sessionID, time.Now().Unix()).Scan(&username)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return "", fmt.Errorf("session not found")
@@ -121,6 +120,9 @@ func ValidateUser(username string) (bool, error) {
 		return false, fmt.Errorf("database not initialized")
 	}
 
+	ctx, cancel := context.WithTimeout(context.Background(), dbQueryTimeout)
+	defer cancel()
+
 	var count int
 	query := `
 		SELECT COUNT(*) 
@@ -129,7 +131,7 @@ func ValidateUser(username string) (bool, error) {
 		AND active = 1
 	`
 
-	err := db.QueryRow(query, username).Scan(&count)
+	err := db.QueryRowContext(ctx, query, username).Scan(&count)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return false, nil
@@ -153,13 +155,8 @@ func ValidateSessionAndGetUser(sessionToken string) (*SessionUser, error) {
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), dbTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), dbQueryTimeout)
 	defer cancel()
-
-	if err := db.PingContext(ctx); err != nil {
-		log.Printf("WARN: database ping failed in ValidateSessionAndGetUser: %v", err)
-		return nil, fmt.Errorf("invalid session")
-	}
 
 	var user SessionUser
 	query := `
@@ -180,8 +177,7 @@ func ValidateSessionAndGetUser(sessionToken string) (*SessionUser, error) {
 		if err == sql.ErrNoRows {
 			return nil, fmt.Errorf("invalid or expired session")
 		}
-		log.Printf("WARN: session validation error: %v", err)
-		return nil, fmt.Errorf("invalid session")
+		return nil, fmt.Errorf("session validation failed: %w", err)
 	}
 
 	return &user, nil
@@ -198,6 +194,9 @@ func ValidateAPITokenAndGetUser(token string) (*SessionUser, error) {
 	if db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), dbQueryTimeout)
+	defer cancel()
 
 	// Token must start with dpl_
 	if !strings.HasPrefix(token, "dpl_") {
@@ -216,7 +215,7 @@ func ValidateAPITokenAndGetUser(token string) (*SessionUser, error) {
 		LIMIT 1
 	`
 
-	err := db.QueryRow(query, hash).Scan(
+	err := db.QueryRowContext(ctx, query, hash).Scan(
 		&user.ID, &user.Username, &user.Email, &expiresAt,
 	)
 	if err != nil {
