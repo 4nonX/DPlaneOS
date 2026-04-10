@@ -1,8 +1,10 @@
 package handlers
 
 import (
+	"context"
 	"database/sql"
 	"path/filepath"
+	"time"
 
 	"dplaned/internal/cmdutil"
 	"dplaned/internal/gitops"
@@ -40,6 +42,9 @@ func (h *ShareCRUDHandler) HandleShares(w http.ResponseWriter, r *http.Request) 
 }
 
 func (h *ShareCRUDHandler) listShares(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
 	// Check for ?id= query param
 	idParam := r.URL.Query().Get("id")
 	if idParam != "" {
@@ -47,7 +52,7 @@ func (h *ShareCRUDHandler) listShares(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rows, err := h.db.Query(`SELECT id, name, path, comment, browsable, read_only, guest_ok, valid_users, write_list, create_mask, directory_mask, enabled, created_at FROM smb_shares ORDER BY name`)
+	rows, err := h.db.QueryContext(ctx, `SELECT id, name, path, comment, browsable, read_only, guest_ok, valid_users, write_list, create_mask, directory_mask, enabled, created_at FROM smb_shares ORDER BY name`)
 	if err != nil {
 		respondErrorSimple(w, "Failed to list shares", http.StatusInternalServerError)
 		return
@@ -87,10 +92,13 @@ func (h *ShareCRUDHandler) listShares(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *ShareCRUDHandler) getShare(w http.ResponseWriter, id string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
 	var shareID, browsable, readOnly, guestOk, enabled int
 	var name, path, comment, validUsers, writeList, createMask, dirMask, createdAt string
 
-	err := h.db.QueryRow(
+	err := h.db.QueryRowContext(ctx,
 		`SELECT id, name, path, comment, browsable, read_only, guest_ok, valid_users, write_list, create_mask, directory_mask, enabled, created_at FROM smb_shares WHERE id = $1`, id,
 	).Scan(&shareID, &name, &path, &comment, &browsable, &readOnly, &guestOk, &validUsers, &writeList, &createMask, &dirMask, &enabled, &createdAt)
 
@@ -405,7 +413,7 @@ func (h *ShareCRUDHandler) GetSharesByPath(w http.ResponseWriter, r *http.Reques
 		log.Printf("NFS query failed (table might be missing): %v", err)
 		nfsRows = nil
 	}
-	
+
 	var nfsExports []map[string]interface{}
 	if nfsRows != nil {
 		defer nfsRows.Close()
@@ -432,7 +440,6 @@ func (h *ShareCRUDHandler) GetSharesByPath(w http.ResponseWriter, r *http.Reques
 		"nfs":     nfsExports,
 	})
 }
-
 
 // regenerateSMBConf rebuilds /etc/samba/smb.conf from the database
 func (h *ShareCRUDHandler) regenerateSMBConf() {
@@ -586,4 +593,3 @@ func sanitizeSMBConfValue(val string) string {
 	val = strings.ReplaceAll(val, "=", ":")
 	return strings.TrimSpace(val)
 }
-
