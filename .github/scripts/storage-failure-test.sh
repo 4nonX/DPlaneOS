@@ -57,47 +57,101 @@ sudo zfs create sfpool2/repl-dst
 ok "Secondary pool sfpool2 created"
 
 # ==============================================================================
-# SCENARIO 1: Pool FAULTED - ZFS operations only, no API
+# SCENARIO 1: Pool FAULTED - daemon running, ZFS pool offline
 # ==============================================================================
 section "Scenario 1: Pool FAULTED (all disks offline)"
 
+sudo ./dplaned-ci --listen 127.0.0.1:9200 --db-dsn "$DATABASE_DSN" --smb-conf "$SMB_CONF" > /tmp/dplaned-sf.log 2>&1 &
+DAEMON_PID=$!
+
+# Wait for daemon to be ready
+for i in $(seq 1 30); do 
+  if curl -s http://127.0.0.1:9200/health >/dev/null 2>&1; then
+    break
+  fi
+  sleep 0.5
+done
+
+if curl -s http://127.0.0.1:9200/health >/dev/null 2>&1; then
+  ok "Daemon started (PID $DAEMON_PID)"
+else
+  fail "Daemon failed to start"
+  cat /tmp/dplaned-sf.log | tail -20
+  exit 1
+fi
+
+# Login
+SESSION=$(curl -s -X POST http://127.0.0.1:9200/api/auth/login -H "Content-Type: application/json" -d "{\"username\":\"admin\",\"password\":\"$CI_PASS\"}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('session_id',''))" 2>/dev/null)
+[ -n "$SESSION" ] && ok "Login successful" || fail "Login failed"
+
+# Verify pool API responds
+POOL_RESP=$(curl -s http://127.0.0.1:9200/api/zfs/pools -H "X-Session-ID: $SESSION" 2>/dev/null || echo '{}')
+echo "$POOL_RESP" | python3 -c "import sys,json; json.load(sys.stdin)" 2>/dev/null && ok "Scenario 1: Pool API OK" || warn "Scenario 1: Pool API issue"
+
+# NOW offline the disk
 sudo zpool offline sfpool "$LOOP0"
 sudo zpool status sfpool | grep -qiE "DEGRADED|FAULTED|UNAVAIL" && ok "Scenario 1: Pool DEGRADED" || warn "Scenario 1: Pool not DEGRADED"
 sleep 3
 
+# Recover
 sudo zpool online sfpool "$LOOP0"
 sudo zpool clear sfpool
 sleep 2
 sudo zpool status sfpool | grep -q "ONLINE" && ok "Scenario 1: Pool recovered" || fail "Scenario 1: Pool not recovered"
 
-# ==============================================================================
-# SCENARIO 2: Dataset quota - ZFS only
-# ==============================================================================
-section "Scenario 2: Dataset quota exhaustion"
-
-sudo zfs set quota=64M sfpool/data
-ok "Scenario 2: Quota set to 64M"
-
-dd if=/dev/urandom bs=1M count=60 2>/dev/null | sudo tee /mnt/sfpool/data/fill.bin > /dev/null && ok "Scenario 2: 60 MB write OK" || fail "Scenario 2: 60 MB write failed"
-
-sudo rm -f /mnt/sfpool/data/fill.bin 2>/dev/null || true
-sudo zfs set quota=none sfpool/data
-ok "Scenario 2: Quota test complete"
+# Verify health API still works after pool recovery
+HEALTH_RESP=$(curl -s http://127.0.0.1:9200/api/system/health -H "X-Session-ID: $SESSION" 2>/dev/null || echo '{}')
+echo "$HEALTH_RESP" | python3 -c "import sys,json; json.load(sys.stdin)" 2>/dev/null && ok "Scenario 1: Health API OK" || warn "Scenario 1: Health API issue"
 
 # ==============================================================================
-# SCENARIO 3: ZFS send interrupted - ZFS only
+# SCENARIO 2: Test API after pool operations WITHOUT daemon restart
 # ==============================================================================
-section "Scenario 3: ZFS send interrupted"
+section "Scenario 2: API after pool operations (no restart)"
 
-dd if=/dev/urandom bs=1M count=20 2>/dev/null | sudo tee /mnt/sfpool/repl-src/data.bin > /dev/null
-sudo zfs snapshot sfpool/repl-src@snap1
-ok "Scenario 3: Source ready"
+# If previous session is invalid, login again
+HEALTH2=$(curl -s http://127.0.0.1:9200/api/system/health -H "X-Session-ID: $SESSION" 2>/dev/null || echo '{}')
+if echo "$HEALTH2" | python3 -c "import sys,json; d=json.load(sys.stdin); sys.exit(0 if 'success' in d or 'error' not in d else 1)" 2>/dev/null; then
+  ok "Scenario 2: Health API works after pool offline/online"
+else
+  # Try with fresh session
+  SESSION2=$(curl -s -X POST http://127.0.0.1:9200/api/auth/login -H "Content-Type: application/json" -d "{\"username\":\"admin\",\"password\":\"$CI_PASS\"}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('session_id',''))" 2>/dev/null)
+  if [ -n "$SESSION2" ]; then
+    HEALTH2=$(curl -s http://127.0.0.1:9200/api/system/health -H "X-Session-ID: $SESSION2" 2>/dev/null || echo '{}')
+    echo "$HEALTH2" | python3 -c "import sys,json; json.load(sys.stdin)" 2>/dev/null && ok "Scenario 2: Health works with fresh session" || fail "Scenario 2: Health API failed"
+  else
+    fail "Scenario 2: Cannot get new session"
+  fi
+fi
 
-set +e
-sudo zfs send sfpool/repl-src@snap1 | head -c 1048576 | sudo zfs receive -F sfpool2/repl-dst 2>/dev/null
-SEND_EXIT=$?
-set -e
-ok "Scenario 3: Interrupted send (exit $SEND_EXIT)"
+# ==============================================================================
+# SCENARIO 3: Daemon restart test
+# ==============================================================================
+section "Scenario 3: Daemon restart"
+
+# Kill daemon
+[ -n "$DAEMON_PID" ] && sudo kill "$DAEMON_PID" 2>/dev/null || true
+sleep 2
+
+# Restart daemon
+sudo ./dplaned-ci --listen 127.0.0.1:9200 --db-dsn "$DATABASE_DSN" --smb-conf "$SMB_CONF" > /tmp/dplaned-sf.log 2>&1 &
+DAEMON_PID=$!
+
+for i in $(seq 1 30); do 
+  if curl -s http://127.0.0.1:9200/health >/dev/null 2>&1; then
+    break
+  fi
+  sleep 0.5
+done
+
+curl -s http://127.0.0.1:9200/health >/dev/null 2>&1 && ok "Scenario 3: Daemon restarted" || fail "Scenario 3: Daemon restart failed"
+
+# Login after restart
+SESSION3=$(curl -s -X POST http://127.0.0.1:9200/api/auth/login -H "Content-Type: application/json" -d "{\"username\":\"admin\",\"password\":\"$CI_PASS\"}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('session_id',''))" 2>/dev/null)
+[ -n "$SESSION3" ] && ok "Scenario 3: Login after restart successful" || fail "Scenario 3: Login after restart failed"
+
+# Test API with fresh session after restart
+HEALTH3=$(curl -s http://127.0.0.1:9200/api/system/health -H "X-Session-ID: $SESSION3" 2>/dev/null || echo '{}')
+echo "$HEALTH3" | python3 -c "import sys,json; json.load(sys.stdin)" 2>/dev/null && ok "Scenario 3: Health API after restart OK" || fail "Scenario 3: Health API after restart failed"
 
 # ==============================================================================
 # SCENARIO 10: Pool import collision - GitOps test
