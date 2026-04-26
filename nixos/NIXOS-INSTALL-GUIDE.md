@@ -295,6 +295,18 @@ docker ps                    # Docker containers
 
 ## Troubleshooting
 
+### "error: flake does not provide attribute 'nixosConfigurations.nixos'"
+
+You ran `sudo nixos-rebuild switch --flake .` without the `#dplaneos` suffix.
+NixOS defaults to matching the flake attribute name to your hostname (which is
+`nixos` on a fresh VM), but the flake defines the configuration as `dplaneos`.
+
+Always include the attribute name explicitly:
+
+```bash
+sudo nixos-rebuild switch --flake .#dplaneos
+```
+
 ### "hash mismatch" during nixos-rebuild
 
 The sha256 hashes in the config need to be filled in. See Step 2.3.

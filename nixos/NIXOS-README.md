@@ -49,6 +49,10 @@ sudo bash setup-nixos.sh
 sudo nixos-rebuild switch --flake .#dplaneos
 ```
 
+> **Note:** The `#dplaneos` suffix is required. Without it, `nixos-rebuild` tries
+> to find a configuration named after your hostname (e.g. `nixos` on a fresh VM),
+> which does not exist in this flake.
+
 `setup-nixos.sh` auto-detects your ZFS pools, timezone, and boot loader.
 
 ## License
