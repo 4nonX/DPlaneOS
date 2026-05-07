@@ -85,12 +85,14 @@ info() { echo -e "${BLUE}ℹ${NC} $1"; }
 step() { echo ""; echo -e "${BOLD}${BLUE}━━━ $1${NC}"; }
 
 die() {
-    echo ""
-    echo -e "${RED}✗ FATAL: $1${NC}"
-    echo ""
-    echo "  Log:      $LOG_FILE"
-    echo "  Recovery: sudo dplaneos-recovery"
-    echo ""
+    local msg="$1"
+    printf '\n\033[0;31m✗ FATAL: %s\033[0m\n\n' "$msg"
+    printf '  Log:      %s\n' "$LOG_FILE"
+    printf '  Recovery: sudo dplaneos-recovery\n\n'
+    # Write directly to the terminal as well - tee may not flush before exit
+    { printf '\n\033[0;31m✗ FATAL: %s\033[0m\n\n' "$msg"
+      printf '  Recovery: sudo dplaneos-recovery\n\n'
+    } > /dev/tty 2>/dev/null || true
     exit 1
 }
 
@@ -138,18 +140,26 @@ ROLLBACK_DONE=false
 cleanup() {
     local ec=$?
     [ $ec -eq 0 ] || $ROLLBACK_DONE && return
-    echo ""
-    echo -e "${RED}━━━ Installation failed at phase $INSTALL_PHASE ━━━${NC}"
+    local msg
     if [ -n "$BACKUP_PATH" ] && [ -d "$BACKUP_PATH" ]; then
+        echo ""
+        echo -e "${RED}━━━ Installation failed at phase $INSTALL_PHASE ━━━${NC}"
         echo "Rolling back to previous installation..."
         _do_rollback "$BACKUP_PATH" \
             && echo -e "${GREEN}✓ Rollback complete${NC}" \
             || echo -e "${RED}✗ Rollback also failed - run: sudo dplaneos-recovery${NC}"
+        msg="Rollback attempted. Log: $LOG_FILE"
     else
+        echo ""
+        echo -e "${RED}━━━ Installation failed at phase $INSTALL_PHASE ━━━${NC}"
         echo "No backup available (fresh install failure)."
+        echo "Check the log for the error: $LOG_FILE"
         echo "Run: sudo dplaneos-recovery"
+        msg="Fresh install failed at phase $INSTALL_PHASE. Check: $LOG_FILE"
     fi
-    echo "Log: $LOG_FILE"
+    # Write to tty directly - stdout may not flush through tee before exit
+    printf '\n\033[0;31m✗ Install failed at phase %s\033[0m  Log: %s\n\n' \
+        "$INSTALL_PHASE" "$LOG_FILE" > /dev/tty 2>/dev/null || true
     ROLLBACK_DONE=true
 }
 trap cleanup EXIT
@@ -197,9 +207,19 @@ ROOT_FREE_GB=$(df -BG / | awk 'NR==2{gsub(/G/,"",$4); print $4}')
 log "Disk free: ${ROOT_FREE_GB}GB"
 
 if ss -tuln 2>/dev/null | grep -q ":${OPT_PORT} "; then
-    $OPT_UPGRADE \
-        && warn "Port ${OPT_PORT} in use - will reconfigure (expected on upgrade)" \
-        || die "Port ${OPT_PORT} in use. Use --port NNNN or stop the conflicting service."
+    if $OPT_UPGRADE; then
+        warn "Port ${OPT_PORT} in use - will reconfigure (expected on upgrade)"
+    elif systemctl is-active --quiet nginx 2>/dev/null \
+         && [ -f /etc/nginx/sites-available/dplaneos ]; then
+        # nginx on this port is from a previous (possibly partial) D-PlaneOS install
+        warn "Port ${OPT_PORT} in use by a previous D-PlaneOS install - switching to upgrade mode"
+        OPT_UPGRADE=true
+    else
+        die "Port ${OPT_PORT} already in use by another service.
+  Options:
+    sudo ./install.sh --port 8080          # use a different port
+    sudo systemctl stop <service>          # stop the conflicting service first"
+    fi
 else
     log "Port ${OPT_PORT} available"
 fi
@@ -380,6 +400,13 @@ find "${INSTALL_DIR}/install" -type f -name "*.sh" -exec sed -i 's/\r$//' {} +
 find "${INSTALL_DIR}/install" -type f -name "*.sh" -exec sed -i '1s/^\xef\xbb\xbf//' {} +
 find "${INSTALL_DIR}/install" -type f -name "*.sh" -exec chmod +x {} +
 
+# Install recovery CLI now so it is available if any later phase fails
+if [ -f "${INSTALL_DIR}/install/scripts/recovery-cli.sh" ]; then
+    cp "${INSTALL_DIR}/install/scripts/recovery-cli.sh" /usr/local/bin/dplaneos-recovery
+    chmod +x /usr/local/bin/dplaneos-recovery
+    log "Recovery CLI pre-installed: sudo dplaneos-recovery"
+fi
+
 INSTALL_PHASE=5
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -549,19 +576,35 @@ else
     log "Skipping sudoers configuration for NixOS"
 fi
 
+INSTALL_PHASE=7
+
+# ────────────────────────────────────────────────────────────────────────────
 step "Phase 7/13: Database"
 # ────────────────────────────────────────────────────────────────────────────
 
 if [ -n "$OPT_DB_DSN" ]; then
-    log "PostgreSQL configuration phase complete"
-    # Seed default admin password if not upgrading
+    log "PostgreSQL DSN provided"
+    # Seed default admin password if not upgrading.
+    # Avoid piping into 'head' here: with set -o pipefail the SIGPIPE that
+    # head sends to tr when it exits early causes the whole script to die silently.
     if ! $OPT_UPGRADE; then
-        GENERATED_ADMIN_PASSWORD=$(openssl rand -base64 12 | tr -dc 'A-Za-z0-9' | head -c 12)
+        _pw=$(openssl rand -base64 18 | tr -dc 'A-Za-z0-9')
+        GENERATED_ADMIN_PASSWORD="${_pw:0:12}"
+        unset _pw
         ADMIN_HASH=$(python3 -c "import bcrypt; print(bcrypt.hashpw(b'${GENERATED_ADMIN_PASSWORD}', bcrypt.gensalt(12)).decode())" 2>/dev/null || echo "")
-        # Note: Actual insertion/update happens in the daemon's bootstrap or via manual psql later
     fi
 else
-    die "PostgreSQL DSN is mandatory in v7.1.0. Use --db-dsn to specify the database connection."
+    die "No --db-dsn provided. D-PlaneOS v7.1.0+ requires a PostgreSQL database.
+
+To set up a local PostgreSQL database on this machine:
+  sudo apt install -y postgresql
+  sudo -u postgres psql -c \"CREATE USER dplaneos WITH PASSWORD 'changeme';\"
+  sudo -u postgres psql -c \"CREATE DATABASE dplaneos OWNER dplaneos;\"
+
+Then re-run the installer:
+  sudo ./install.sh --db-dsn 'postgres://dplaneos:changeme@localhost:5432/dplaneos'
+
+Or supply the DSN for any existing PostgreSQL instance."
 fi
 
 INSTALL_PHASE=8
@@ -862,11 +905,11 @@ if [ -f "$GITOPS_STATE" ]; then
     fi
 fi
 
-# Recovery CLI
+# Recovery CLI - already installed at Phase 4; refresh from final install dir
 if [ -f "${INSTALL_DIR}/install/scripts/recovery-cli.sh" ]; then
     cp "${INSTALL_DIR}/install/scripts/recovery-cli.sh" /usr/local/bin/dplaneos-recovery
     chmod +x /usr/local/bin/dplaneos-recovery
-    log "Recovery CLI: /usr/local/bin/dplaneos-recovery"
+    log "Recovery CLI updated: /usr/local/bin/dplaneos-recovery"
 fi
 
 # udev rules - removable media + hot-swap pool disks
