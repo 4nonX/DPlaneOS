@@ -57,12 +57,47 @@ export function LoginPage() {
   const [error, setError] = useState<string | null>(null)
   const [daemonVersion, setDaemonVersion] = useState<string | null>(null)
 
+  type BootState = 'checking' | 'ready' | 'unreachable'
+  const [bootState, setBootState] = useState<BootState>('checking')
+  const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
   // Already authenticated - redirect out
   useEffect(() => {
     if (isAuthenticated) {
       navigate({ to: '/' })
     }
   }, [isAuthenticated, navigate])
+
+  // Check daemon readiness and first-run state before showing the form.
+  // Retries automatically every 3 s if the daemon is not yet reachable
+  // (common on first boot while systemd services are still starting).
+  useEffect(() => {
+    let cancelled = false
+
+    const check = () => {
+      api.get<SystemStatus>('/api/system/status')
+        .then((s) => {
+          if (cancelled) return
+          if (s.first_run) {
+            navigate({ to: '/setup' })
+          } else {
+            setBootState('ready')
+          }
+        })
+        .catch(() => {
+          if (cancelled) return
+          setBootState('unreachable')
+          retryTimer.current = setTimeout(check, 3000)
+        })
+    }
+
+    check()
+
+    return () => {
+      cancelled = true
+      if (retryTimer.current) clearTimeout(retryTimer.current)
+    }
+  }, [navigate])
 
   // Fetch daemon version for display
   useEffect(() => {
@@ -148,6 +183,33 @@ export function LoginPage() {
     } finally {
       setLoading(false)
     }
+  }
+
+  const centeredPage = (children: React.ReactNode) => (
+    <div style={{ minHeight: '100vh', background: 'var(--bg)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+      {children}
+    </div>
+  )
+
+  if (bootState === 'checking') {
+    return centeredPage(
+      <div style={{ textAlign: 'center', color: 'var(--text-secondary)' }}>
+        <Spinner />
+        <div style={{ marginTop: 12, fontSize: 'var(--text-sm)' }}>Connecting…</div>
+      </div>
+    )
+  }
+
+  if (bootState === 'unreachable') {
+    return centeredPage(
+      <div style={{ textAlign: 'center', maxWidth: 340 }}>
+        <Spinner />
+        <div style={{ marginTop: 16, fontWeight: 700, fontSize: 'var(--text-lg)' }}>System is starting</div>
+        <div style={{ marginTop: 8, fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+          D-PlaneOS is starting up. This page will connect automatically when ready.
+        </div>
+      </div>
+    )
   }
 
   return (

@@ -66,6 +66,12 @@ const (
 	// (e.g. duplicate pool names) that makes automated action unsafe.
 	// Requires manual resolution on the host.
 	ActionAmbiguous DiffAction = "AMBIGUOUS"
+
+	// ActionManual - drift was detected that cannot be applied automatically
+	// (e.g. pool topology changes, which are irreversible ZFS operations).
+	// The plan surfaces it to the operator with the required manual commands.
+	// Unlike ActionBlocked, this does NOT halt the plan.
+	ActionManual DiffAction = "MANUAL"
 )
 
 // ResourceKind identifies what type of resource a DiffItem describes.
@@ -140,6 +146,7 @@ type Plan struct {
 	DeleteCount  int        `json:"delete_count"`
 	BlockedCount int        `json:"blocked_count"`
 	AmbiguousCount int     `json:"ambiguous_count"`
+	ManualCount    int     `json:"manual_count"`
 	NopCount     int        `json:"nop_count"`
 	HasAmbiguous bool       `json:"has_ambiguous"`
 }
@@ -500,14 +507,44 @@ func ComputeDiff(desired *DesiredState, live *LiveState) *Plan {
 			continue
 		}
 		dpCopy := dp
-		plan.Items = append(plan.Items, DiffItem{
-			Kind:        KindPool,
-			Name:        dp.Name,
-			Action:      ActionModify,
-			Changes:     changes,
-			RiskLevel:   riskForPoolChanges(changes),
-			DesiredPool: &dpCopy,
-		})
+
+		// Split automatable property changes (zpool-set) from topology/health
+		// changes that require manual operator action.
+		var autoChanges, manualChanges []string
+		for _, c := range changes {
+			if strings.HasPrefix(c, "zpool-set:") {
+				autoChanges = append(autoChanges, c)
+			} else {
+				manualChanges = append(manualChanges, c)
+			}
+		}
+
+		if len(autoChanges) > 0 {
+			plan.Items = append(plan.Items, DiffItem{
+				Kind:        KindPool,
+				Name:        dp.Name,
+				Action:      ActionModify,
+				Changes:     autoChanges,
+				RiskLevel:   riskForPoolChanges(autoChanges),
+				DesiredPool: &dpCopy,
+			})
+		} else {
+			plan.Items = append(plan.Items, DiffItem{
+				Kind: KindPool, Name: dp.Name, Action: ActionNOP, RiskLevel: "low",
+			})
+		}
+
+		if len(manualChanges) > 0 {
+			plan.Items = append(plan.Items, DiffItem{
+				Kind:        KindPool,
+				Name:        dp.Name,
+				Action:      ActionManual,
+				Changes:     manualChanges,
+				BlockReason: fmt.Sprintf("Pool %q has changes that require manual zpool commands: %s", dp.Name, strings.Join(manualChanges, "; ")),
+				RiskLevel:   "medium",
+				DesiredPool: &dpCopy,
+			})
+		}
 	}
 
 	for _, dd := range desired.Datasets {
@@ -970,6 +1007,8 @@ func ComputeDiff(desired *DesiredState, live *LiveState) *Plan {
 		case ActionAmbiguous:
 			plan.AmbiguousCount++
 			plan.HasAmbiguous = true
+		case ActionManual:
+			plan.ManualCount++
 		case ActionNOP:
 			plan.NopCount++
 		}

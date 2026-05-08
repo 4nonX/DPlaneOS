@@ -20,15 +20,19 @@ interface DriftPayload {
   modify_count:  number
   delete_count:  number
   blocked_count: number
+  manual_count:  number
   safe_to_apply: boolean
 }
 
 function fmtDate(s?:string){if(!s)return'-';try{return new Date(s).toLocaleString('de-DE',{dateStyle:'short',timeStyle:'short'})}catch{return s}}
 
 function changeColor(a?:string):string {
-  if (a === 'create') return 'var(--success)'
-  if (a === 'delete') return 'var(--error)'
-  return 'var(--warning)'
+  if (a === 'CREATE') return 'var(--success)'
+  if (a === 'DELETE') return 'var(--error)'
+  if (a === 'BLOCKED') return 'var(--error)'
+  if (a === 'MANUAL') return 'var(--warning)'
+  if (a === 'MODIFY') return 'var(--primary)'
+  return 'var(--text-tertiary)'
 }
 
 interface GitOpsSettings {

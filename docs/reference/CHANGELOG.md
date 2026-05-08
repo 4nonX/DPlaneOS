@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 
 
+## v8.0.4 (2026-05-09)
+
+Upgrade from: v8.0.3 - Drop-in.
+
+### Added
+- **GitOps MANUAL action type**: New `MANUAL` action in the reconciliation diff engine for pool changes that require manual `zpool` commands (topology modifications, health-flagged changes, GUID mismatches). These changes are surfaced in the plan result with the exact commands needed, without halting reconciliation of automatable changes. The GitOps page renders MANUAL items in warning color.
+
+### Fixed
+- **Pool topology drift silently dropped**: Pools with topology drift, health issues, or GUID mismatches were previously recorded as no-ops after applying automatable property changes. The reconciler now emits a MANUAL action so operators see exactly what requires intervention instead of the system appearing to be in sync.
+- **Install script dead password generation**: Removed admin password generation code that was computed and printed during install but never written to the database. First-time setup now correctly directs users to the browser setup wizard.
+- **Login page startup race**: On first boot while systemd services are still starting, the login page would render immediately against an unreachable daemon. The page now polls the daemon status every 3 seconds and shows "System is starting" during startup instead of exposing a broken form.
+- **Setup wizard re-entry guard**: The setup wizard now checks at mount time whether setup has already been completed and redirects to login immediately, preventing accidental re-entry on already-configured systems.
+
+
+
 ## v8.0.3 (2026-04-10)
 
 Upgrade from: v8.0.2 - Drop-in.

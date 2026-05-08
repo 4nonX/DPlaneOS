@@ -146,6 +146,10 @@ func ApplyPlan(ctx ApplyContext, plan *Plan, desired *DesiredState) (*ApplyResul
 			result.Duration = time.Since(start)
 			return result, result.Error
 
+		case ActionManual:
+			log.Printf("GITOPS APPLY: manual action required for %s %q: %s", item.Kind, item.Name, item.BlockReason)
+			result.Applied = append(result.Applied, fmt.Sprintf("[MANUAL REQUIRED] %s %s: %s", item.Kind, item.Name, item.BlockReason))
+
 		case ActionCreate:
 			if err := executeCreate(ctx, item); err != nil {
 				result.Failed = item.Name

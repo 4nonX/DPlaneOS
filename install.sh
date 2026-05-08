@@ -584,15 +584,7 @@ step "Phase 7/13: Database"
 
 if [ -n "$OPT_DB_DSN" ]; then
     log "PostgreSQL DSN provided"
-    # Seed default admin password if not upgrading.
-    # Avoid piping into 'head' here: with set -o pipefail the SIGPIPE that
-    # head sends to tr when it exits early causes the whole script to die silently.
-    if ! $OPT_UPGRADE; then
-        _pw=$(openssl rand -base64 18 | tr -dc 'A-Za-z0-9')
-        GENERATED_ADMIN_PASSWORD="${_pw:0:12}"
-        unset _pw
-        ADMIN_HASH=$(python3 -c "import bcrypt; print(bcrypt.hashpw(b'${GENERATED_ADMIN_PASSWORD}', bcrypt.gensalt(12)).decode())" 2>/dev/null || echo "")
-    fi
+    log "PostgreSQL DSN accepted"
 else
     die "No --db-dsn provided. D-PlaneOS v7.1.0+ requires a PostgreSQL database.
 
@@ -988,14 +980,11 @@ echo -e "${NC}"
 echo ""
 echo -e "  🌐  Open ${BOLD}http://${MY_IP}${PORT_SUFFIX}${NC} in your browser"
 echo ""
-echo "  Username : admin"
-if [ -n "${GENERATED_ADMIN_PASSWORD}" ]; then
-    echo -e "  Password : ${BOLD}${GENERATED_ADMIN_PASSWORD}${NC}"
-    echo ""
-    echo -e "  ${YELLOW}⚠  Save this password now - it will not be shown again.${NC}"
-    echo -e "  ${YELLOW}   You will be required to change it on first login.${NC}"
+if $OPT_UPGRADE; then
+    echo "  Upgrade complete - log in with your existing credentials."
 else
-    echo "  Password : (unchanged - this was an upgrade)"
+    echo -e "  ${YELLOW}First-time setup: the browser will guide you through creating"
+    echo -e "  your admin account and configuring storage.${NC}"
 fi
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"

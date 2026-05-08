@@ -14,13 +14,13 @@
  *                       → redirect to /login
  */
 
-import { useState, useCallback } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useQuery, useMutation } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
 import { api } from '@/lib/api'
 import { useAuthStore } from '@/stores/auth'
 import { Icon } from '@/components/ui/Icon'
-import { Skeleton } from '@/components/ui/LoadingSpinner'
+import { Skeleton, Spinner } from '@/components/ui/LoadingSpinner'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -660,6 +660,7 @@ function StepComplete({ hostname, onGoToLogin }: { hostname: string; onGoToLogin
 export function SetupWizardPage() {
   const navigate = useNavigate()
 
+  const [guardState,    setGuardState]    = useState<'checking' | 'ok'>('checking')
   const [step,          setStep]          = useState(0)
   const [selectedDisks, setSelectedDisks] = useState<Set<string>>(new Set())
   const [hostname,      setHostname]      = useState('dplaneos')
@@ -669,6 +670,23 @@ export function SetupWizardPage() {
 
   const next = useCallback(() => setStep(s => s + 1), [])
   const back = useCallback(() => setStep(s => s - 1), [])
+
+  // Guard: if setup is already complete redirect away rather than showing
+  // a wizard that will reject every action with 403.
+  useEffect(() => {
+    api.get<{ setup_complete?: boolean }>('/api/system/status')
+      .then((s) => {
+        if (s.setup_complete) {
+          navigate({ to: '/login' })
+        } else {
+          setGuardState('ok')
+        }
+      })
+      .catch(() => {
+        // Daemon unreachable - show wizard, errors will surface when proceeding
+        setGuardState('ok')
+      })
+  }, [navigate])
 
   // Called at end of Step 4 - sends setup-complete
   async function finish() {
@@ -685,6 +703,14 @@ export function SetupWizardPage() {
     } finally {
       setCompleting(false)
     }
+  }
+
+  if (guardState === 'checking') {
+    return (
+      <div style={{ minHeight: '100vh', background: 'var(--bg)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <Spinner />
+      </div>
+    )
   }
 
   return (
