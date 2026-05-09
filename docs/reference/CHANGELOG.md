@@ -19,7 +19,7 @@ Upgrade from: v8.1.0 - Drop-in.
 ### Changed
 - ZFS Storage page gains a third tab (Scrub Schedules) alongside Pools and Encryption.
 - Shares page gains a Protocol Options card above the share list.
-- Shadow copies format updated to match D-PlaneOS snapshot scheduler naming convention.
+- Shadow copy Samba config uses `shadow:snapprefix` to strip the frequency component (`auto-daily-`, `auto-weekly-`, etc.) so Previous Versions works correctly with the default Snapshot Scheduler naming.
 
 
 
