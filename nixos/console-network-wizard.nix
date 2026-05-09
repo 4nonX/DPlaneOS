@@ -14,7 +14,7 @@ let
         echo "Run as root: sudo dplaneos-console-net"
         exit 1
       fi
-      gum style --bold --foreground 212 "D-PlaneOS — emergency IPv4 (console)"
+      gum style --bold --foreground 212 "D-PlaneOS - emergency IPv4 (console)"
       gum style --width 72 "Use this if DHCP failed and you cannot open the web UI. Applies now with ip(8); persist the same values in Settings → Network after login."
       shopt -s nullglob
       ifaces=()

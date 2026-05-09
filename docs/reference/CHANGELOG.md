@@ -99,12 +99,12 @@ Upgrade from: v8.0.0 - Drop-in.
 
 ## v8.0.0 (2026-04-04) - "GPU Passthrough"
 
-Upgrade from: v7.5.3 — Drop-in for the daemon and UI; enable NVIDIA Container Toolkit in NixOS only if you deploy NVIDIA compose stacks.
+Upgrade from: v7.5.3 - Drop-in for the daemon and UI; enable NVIDIA Container Toolkit in NixOS only if you deploy NVIDIA compose stacks.
 
 ### Added
-- **NVMe-oF target (nvmet)**: Export ZFS zvols over **NVMe/TCP** via kernel configfs — alternative block data plane to ZFS send/recv. Persisted at `/var/lib/dplaneos/nvmet-targets.json`, applied atomically to nvmet. **API**: `GET/POST/PUT/DELETE /api/nvmet/targets`, `GET /api/nvmet/status`, `GET /api/nvmet/zvols`. **GitOps**: optional `fabrics.nvme` in `state.yaml` (omit `fabrics:` if you only use the UI). Host NQN allow-list or `allow_any_host`. **UI**: Storage → **NVMe-oF**, plus cross-link from Replication.
+- **NVMe-oF target (nvmet)**: Export ZFS zvols over **NVMe/TCP** via kernel configfs - alternative block data plane to ZFS send/recv. Persisted at `/var/lib/dplaneos/nvmet-targets.json`, applied atomically to nvmet. **API**: `GET/POST/PUT/DELETE /api/nvmet/targets`, `GET /api/nvmet/status`, `GET /api/nvmet/zvols`. **GitOps**: optional `fabrics.nvme` in `state.yaml` (omit `fabrics:` if you only use the UI). Host NQN allow-list or `allow_any_host`. **UI**: Storage → **NVMe-oF**, plus cross-link from Replication.
 - **NixOS**: `nvmet` / `nvmet-tcp` kernel modules; `dplaned` may write `/sys/kernel/config` (module + standalone `configuration.nix`).
-- **GET /api/docker/gpu**: Host GPU passthrough report — PCI display-class devices (`lspci -nn`), `/dev/dri` nodes, `nvidia-smi` when available, Docker `Runtimes` (including `nvidia`), compose hints, NixOS module option name, and copy-paste compose YAML examples for NVIDIA reservations and DRI bind-mounts.
+- **GET /api/docker/gpu**: Host GPU passthrough report - PCI display-class devices (`lspci -nn`), `/dev/dri` nodes, `nvidia-smi` when available, Docker `Runtimes` (including `nvidia`), compose hints, NixOS module option name, and copy-paste compose YAML examples for NVIDIA reservations and DRI bind-mounts.
 - **Compose GPU preflight**: Before stack deploy, YAML update, GitOps stack create, and template-driven `compose up`, the daemon validates NVIDIA and DRI requirements from the compose text against the live host (Linux only). Failures return explicit errors; compose files are not silently rewritten.
 - **NixOS `services.dplaneos.docker.enableNvidia`**: When true, sets `virtualisation.docker.enableNvidia` for the NVIDIA Container Toolkit. Host driver installation remains operator-owned.
 - **Docker UI**: **GPU / hardware** tab showing the passthrough report; **Deploy Compose Stack** now calls `POST /api/docker/stacks/deploy` and handles the synchronous response (fixes the broken `/api/docker/compose/deploy` + job flow).
@@ -146,17 +146,17 @@ Upgrade from: v7.5.2 - Drop-in. `sudo bash install.sh --upgrade`
 Upgrade from: v7.5.1 - Drop-in. `sudo bash install.sh --upgrade`
 
 ### Added
-- **STONITH Jitter (Mutual-Destruction Prevention)**: Both nodes in an HA pair previously had no coordination mechanism to prevent simultaneous STONITH — each could fence the other at exactly the same moment, killing both. A cryptographically random pre-fire delay (`crypto/rand`, 0–3000 ms by default, configurable up to 30 s) is now applied before the BMC power-off command is issued. When both nodes hit the `FailoverAfter` threshold simultaneously, they each draw independent random delays; the node with the shorter delay fires first, and the fenced node dies before its own delay elapses. The jitter window is configurable via `jitter_max_ms` on the fencing config.
-- **Witness Array with N-of-M Quorum**: The single witness URL is replaced by a configurable array of `WitnessEntry` objects. Each entry supports optional strict TLS enforcement, expected HTTP status code matching, and body regex validation. The `required_healthy` field sets the quorum threshold — e.g. `required_healthy: 2` with three witnesses requires at least two to pass before auto-failover proceeds. All witnesses are probed concurrently. The configuration is validated at save time: invalid regexes are rejected with a descriptive error before they can silently disable failover at probe time.
+- **STONITH Jitter (Mutual-Destruction Prevention)**: Both nodes in an HA pair previously had no coordination mechanism to prevent simultaneous STONITH - each could fence the other at exactly the same moment, killing both. A cryptographically random pre-fire delay (`crypto/rand`, 0–3000 ms by default, configurable up to 30 s) is now applied before the BMC power-off command is issued. When both nodes hit the `FailoverAfter` threshold simultaneously, they each draw independent random delays; the node with the shorter delay fires first, and the fenced node dies before its own delay elapses. The jitter window is configurable via `jitter_max_ms` on the fencing config.
+- **Witness Array with N-of-M Quorum**: The single witness URL is replaced by a configurable array of `WitnessEntry` objects. Each entry supports optional strict TLS enforcement, expected HTTP status code matching, and body regex validation. The `required_healthy` field sets the quorum threshold - e.g. `required_healthy: 2` with three witnesses requires at least two to pass before auto-failover proceeds. All witnesses are probed concurrently. The configuration is validated at save time: invalid regexes are rejected with a descriptive error before they can silently disable failover at probe time.
 - **Assertive Probing**: Witness probes now go beyond basic TCP reachability. Per-entry options: `strict_tls: true` enforces certificate verification; `expected_status` validates the HTTP response code; `expected_body_regex` reads the first 1 KB of the response body and matches against a compiled regex. A probe only passes when all configured checks succeed.
 - **PDU Out-of-Band STONITH**: A networked PDU (Digital Loggers, iBoot, Raritan, etc.) can now be registered as a secondary fencing method. When IPMI fencing is enabled but fails, the daemon automatically falls back to an HTTP GET or POST to the configured PDU outlet-off URL, with optional HTTP Basic Auth via a password file and an exact-status-code response check. Neither promotion nor split-brain exposure occurs unless at least one fencing method confirms the peer is dark.
 - **Zombie Reconciliation (TXG Boot Check)**: On daemon start, before the heartbeat loop is initialised, the local ZFS pool TXG (Transaction Group ID) is compared against the active peer's TXG via the peer's `/api/ha/sync/status` endpoint. If the local pool is stale (lower TXG), the node enters `SubordinateMode`: the local pool is set `readonly=on` and a full ZFS catch-up is initiated over SSH from the active peer. Once the catch-up completes, `readonly` is lifted and normal HA operation resumes. This prevents a rebooted node with stale data from winning a promotion race.
 - **Flapping Defense (Hysteresis)**: A 60-minute suppression window is enforced after any automated failover. During the hysteresis window, `checkFailover()` will not trigger another promotion, preventing ping-pong flapping caused by an unstable peer that repeatedly crosses and recovers from the `FailoverAfter` threshold. The window start time is persisted to `ha_cluster_state` so it survives daemon restarts. Operators can clear the window early via `POST /api/ha/clear_fault`.
 - **New API Endpoints**:
-  - `GET /api/ha/pdu/configure` — read PDU fencing configuration
-  - `POST /api/ha/pdu/configure` — save PDU fencing configuration
-  - `GET /api/ha/sync/status` — return local ZFS pool TXG values (public endpoint, used by peer reconciliation)
-  - `POST /api/ha/clear_fault` — clear hysteresis window and/or subordinate mode to re-enable automated failover
+  - `GET /api/ha/pdu/configure` - read PDU fencing configuration
+  - `POST /api/ha/pdu/configure` - save PDU fencing configuration
+  - `GET /api/ha/sync/status` - return local ZFS pool TXG values (public endpoint, used by peer reconciliation)
+  - `POST /api/ha/clear_fault` - clear hysteresis window and/or subordinate mode to re-enable automated failover
 - **Full UI Exposure**: All new HA features are accessible through the web interface. The HA page adds a Subordinate Mode operational banner (amber, with confirm-gated "Clear Fault" button), a Hysteresis Active banner, a "Last Failover" stat card, a Witness Array configuration form with per-entry TLS/status/regex controls and live quorum-test output, a PDU fencing configuration form, and a `jitter_max_ms` slider on the fencing card. The setup wizard is extended with a dedicated Quorum Witness step.
 
 ### Fixed
@@ -174,16 +174,16 @@ Upgrade from: v7.5.1 - Drop-in. `sudo bash install.sh --upgrade`
 Upgrade from: v7.5.0 - Drop-in. `sudo bash install.sh --upgrade`
 
 ### Added
-- **Quorum Witness for Zero-Touch HA**: Automated failover now requires a reachable quorum witness before executing STONITH and promotion. When a peer exceeds the 45-second FailoverAfter threshold and fencing is enabled, the daemon probes a configurable HTTP witness endpoint. If the witness is unreachable the failover is suspended — protecting against false-positive promotion during network partitions where this node cannot distinguish "peer is dead" from "I am isolated". Any HTTP response (any status code) from the witness counts as reachable; a connection error or timeout counts as isolated.
+- **Quorum Witness for Zero-Touch HA**: Automated failover now requires a reachable quorum witness before executing STONITH and promotion. When a peer exceeds the 45-second FailoverAfter threshold and fencing is enabled, the daemon probes a configurable HTTP witness endpoint. If the witness is unreachable the failover is suspended - protecting against false-positive promotion during network partitions where this node cannot distinguish "peer is dead" from "I am isolated". Any HTTP response (any status code) from the witness counts as reachable; a connection error or timeout counts as isolated.
 - **Witness API**: Three new endpoints under admin RBAC:
-  - `GET /api/ha/witness/configure` — read current witness configuration
-  - `POST /api/ha/witness/configure` — save witness `{ "enable": true, "url": "http://...", "timeout_secs": 5 }`
-  - `POST /api/ha/witness/test` — probe the configured URL (or an ad-hoc URL in the request body) and return `{ "reachable": true/false }`
+  - `GET /api/ha/witness/configure` - read current witness configuration
+  - `POST /api/ha/witness/configure` - save witness `{ "enable": true, "url": "http://...", "timeout_secs": 5 }`
+  - `POST /api/ha/witness/test` - probe the configured URL (or an ad-hoc URL in the request body) and return `{ "reachable": true/false }`
 - **Witness status in HA status**: `GET /api/ha/status` now includes a `witness` key with the current witness configuration alongside the cluster status.
 - **`ha_witness_config` schema**: New single-row DB table storing witness parameters, created automatically on daemon start.
 
 ### Behavior
-- If witness is **disabled** (default): `checkFailover()` behavior is identical to v7.5.0 — fencing + promotion fires when fencing is enabled and peer breaches FailoverAfter. No change.
+- If witness is **disabled** (default): `checkFailover()` behavior is identical to v7.5.0 - fencing + promotion fires when fencing is enabled and peer breaches FailoverAfter. No change.
 - If witness is **enabled**: The witness gate is evaluated between the fencing-enabled check and the maintenance-mode check. An unreachable witness suspends auto-failover; a reachable witness allows it to proceed.
 - Witness probe logs at the 3rd missed beat to avoid log spam on subsequent 15s ticks.
 
@@ -199,7 +199,7 @@ Upgrade from: v7.4.6 - Drop-in. `sudo bash install.sh --upgrade`
 - **Group Member Cleanup Error Discarded**: `deleteGroup` used `_, _ = db.Exec(...)` to clear members, explicitly swallowing the error. Failures are now logged before the group delete continues.
 
 ### Security
-- **Trusted Proxy Enforcement**: `RealIP()` previously trusted `X-Forwarded-For` and `X-Real-IP` headers from any non-loopback address, enabling IP spoofing on multi-NIC or VLAN-segmented deployments. A CIDR-based allow-list (RFC 1918 + loopback + IPv6 ULA) is now enforced — headers are only honoured when the direct connection originates from a trusted proxy range.
+- **Trusted Proxy Enforcement**: `RealIP()` previously trusted `X-Forwarded-For` and `X-Real-IP` headers from any non-loopback address, enabling IP spoofing on multi-NIC or VLAN-segmented deployments. A CIDR-based allow-list (RFC 1918 + loopback + IPv6 ULA) is now enforced - headers are only honoured when the direct connection originates from a trusted proxy range.
 
 ### Reliability
 - **Clean Goroutine Shutdown**: `ha.Manager`, `gitops.DriftDetector`, and `monitoring.BackgroundMonitor` now track their background goroutines with `sync.WaitGroup`. `Stop()` on each component blocks until the goroutine has fully exited, eliminating use-after-free and map-write-after-close races during daemon teardown.
@@ -209,7 +209,7 @@ Upgrade from: v7.4.6 - Drop-in. `sudo bash install.sh --upgrade`
 - **Async DB Write Observability**: The fire-and-forget `go db.Exec()` for `last_used` token updates now logs errors. Silent `db.Exec()` calls in `Logout()` for session deletion and in `Login()` for `last_login` updates also now log on failure.
 
 ### Changed
-- **HA Manual Promote — Split-Brain Prevention**: `POST /api/ha/promote` previously called `ExecutePromotion` directly with a documented warning that split-brain would occur if the primary was still alive. The handler now sequences STONITH fencing before promotion when fencing is configured: the leader node's BMC receives a chassis power-off command and the chassis state is polled until confirmed dark before promotion begins. If fencing is not configured, a warning is logged to the job stream and promotion continues, leaving split-brain avoidance to the operator. The operation is wrapped in the jobs system for real-time progress streaming.
+- **HA Manual Promote - Split-Brain Prevention**: `POST /api/ha/promote` previously called `ExecutePromotion` directly with a documented warning that split-brain would occur if the primary was still alive. The handler now sequences STONITH fencing before promotion when fencing is configured: the leader node's BMC receives a chassis power-off command and the chassis state is polled until confirmed dark before promotion begins. If fencing is not configured, a warning is logged to the job stream and promotion continues, leaving split-brain avoidance to the operator. The operation is wrapped in the jobs system for real-time progress streaming.
 - **VPN Network Action Response**: The generic `501 Not Implemented` for `add_*`/`remove_*` network actions is replaced with a targeted check for `vpn`, `add_vpn`, and `remove_vpn` that returns a descriptive message directing operators to deploy containerised VPN solutions (wg-easy, Tailscale, OpenVPN) via the Docker interface. Unrecognised actions now fall through to the existing `400 Bad Request` path.
 - **Dead Code Removed**: The `checkDone` channel in the ACME proxy-verification handler was allocated and written to but never received from. Removed.
 

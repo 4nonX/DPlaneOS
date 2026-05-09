@@ -1,5 +1,5 @@
 /**
- * pages/HAPage.tsx — High Availability Cluster
+ * pages/HAPage.tsx - High Availability Cluster
  *
  * API surface:
  *   GET  /api/ha/status                     → { success, cluster: Cluster, witness: WitnessConfig }
@@ -336,7 +336,7 @@ function WitnessConfigForm() {
         <div style={{ flex: 1 }}>
           <div style={{ fontWeight: 700 }}>Quorum Witness Array</div>
           <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>
-            Proves this node has network access before firing failover — prevents split-brain in a partition
+            Proves this node has network access before firing failover - prevents split-brain in a partition
           </div>
         </div>
       </div>
@@ -422,7 +422,7 @@ function WitnessConfigForm() {
             <Icon name={testOut.quorum_satisfied ? 'check_circle' : 'cancel'} size={16}
               style={{ color: testOut.quorum_satisfied ? 'var(--success)' : 'var(--error)' }} />
             <span style={{ fontWeight: 700, fontSize: 'var(--text-sm)', color: testOut.quorum_satisfied ? 'var(--success)' : 'var(--error)' }}>
-              {testOut.quorum_satisfied ? 'Quorum satisfied' : 'Quorum NOT satisfied'} — {testOut.healthy}/{testOut.required} required healthy
+              {testOut.quorum_satisfied ? 'Quorum satisfied' : 'Quorum NOT satisfied'} - {testOut.healthy}/{testOut.required} required healthy
             </span>
           </div>
           {testOut.results.map((r, i) => (
@@ -482,7 +482,7 @@ function FencingConfigForm() {
         <div>
           <div style={{ fontWeight: 700 }}>IPMI / BMC Fencing (STONITH)</div>
           <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>
-            Chassis power-off via out-of-band IPMI LAN+ — requires Baseboard Management Controller
+            Chassis power-off via out-of-band IPMI LAN+ - requires Baseboard Management Controller
           </div>
         </div>
       </div>
@@ -579,7 +579,7 @@ function PDUConfigForm() {
         <div>
           <div style={{ fontWeight: 700 }}>PDU Out-of-Band Fencing</div>
           <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>
-            Physically cuts outlet power via HTTP — works even when the data network is fully partitioned (Digital Loggers, iBoot, Raritan, etc.)
+            Physically cuts outlet power via HTTP - works even when the data network is fully partitioned (Digital Loggers, iBoot, Raritan, etc.)
           </div>
         </div>
       </div>
@@ -795,7 +795,7 @@ export function HAPage() {
   const addPeer = useMutation({
     mutationFn: (peer: { id: string; name: string; address: string; role: string }) =>
       api.post('/api/ha/peers', peer),
-    onSuccess: () => { toast.success('Peer registered — heartbeat starting'); qc.invalidateQueries({ queryKey: ['ha', 'status'] }) },
+    onSuccess: () => { toast.success('Peer registered - heartbeat starting'); qc.invalidateQueries({ queryKey: ['ha', 'status'] }) },
     onError: (e: Error) => toast.error(e.message),
   })
 
@@ -911,7 +911,7 @@ export function HAPage() {
           <div style={{ marginTop: 8, fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }}>Step {wizardStep} of {TOTAL_STEPS}</div>
         </div>
 
-        {/* Step 1 — Introduction */}
+        {/* Step 1 - Introduction */}
         {wizardStep === 1 && (
           <div className="card fade-in" style={{ padding: 32 }}>
             <Icon name="topology" size={48} style={{ color: 'var(--primary)', marginBottom: 20 }} />
@@ -931,7 +931,7 @@ export function HAPage() {
           </div>
         )}
 
-        {/* Step 2 — Enable HA */}
+        {/* Step 2 - Enable HA */}
         {wizardStep === 2 && (
           <div className="card fade-in" style={{ padding: 32 }}>
             <h2 style={{ marginBottom: 8 }}>Step 2: Enable HA Service Mesh</h2>
@@ -968,7 +968,7 @@ export function HAPage() {
           </div>
         )}
 
-        {/* Step 3 — Peer Registration */}
+        {/* Step 3 - Peer Registration */}
         {wizardStep === 3 && (
           <div className="fade-in">
             <h2 style={{ marginBottom: 8 }}>Step 3: Register Peer Nodes</h2>
@@ -987,7 +987,7 @@ export function HAPage() {
           </div>
         )}
 
-        {/* Step 4 — Replication */}
+        {/* Step 4 - Replication */}
         {wizardStep === 4 && (
           <div className="fade-in">
             <h2 style={{ marginBottom: 8 }}>Step 4: Storage Replication</h2>
@@ -1002,12 +1002,12 @@ export function HAPage() {
           </div>
         )}
 
-        {/* Step 5 — Witness */}
+        {/* Step 5 - Witness */}
         {wizardStep === 5 && (
           <div className="fade-in">
             <h2 style={{ marginBottom: 8 }}>Step 5: Quorum Witness</h2>
             <p style={{ color: 'var(--text-secondary)', marginBottom: 16 }}>
-              A witness proves this node has network access before firing STONITH — preventing split-brain when the peer is unreachable due to a network partition rather than a real failure.
+              A witness proves this node has network access before firing STONITH - preventing split-brain when the peer is unreachable due to a network partition rather than a real failure.
             </p>
             <div className="alert alert-info" style={{ marginBottom: 24 }}>
               <Icon name="info" size={18} />
@@ -1023,12 +1023,12 @@ export function HAPage() {
           </div>
         )}
 
-        {/* Step 6 — Fencing */}
+        {/* Step 6 - Fencing */}
         {wizardStep === 6 && (
           <div className="fade-in">
             <h2 style={{ marginBottom: 8 }}>Step 6: Automated Fencing (STONITH)</h2>
             <p style={{ color: 'var(--text-secondary)', marginBottom: 16 }}>
-              Configure at least one out-of-band power control method. IPMI uses the BMC over the management network; PDU cuts the physical outlet — both bypass the peer OS entirely.
+              Configure at least one out-of-band power control method. IPMI uses the BMC over the management network; PDU cuts the physical outlet - both bypass the peer OS entirely.
             </p>
             <FencingConfigForm />
             <PDUConfigForm />
@@ -1073,7 +1073,7 @@ export function HAPage() {
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 28 }}>
         <div>
           <h1 className="page-title">HA Cluster</h1>
-          <p className="page-subtitle">High availability — nodes, quorum and failover</p>
+          <p className="page-subtitle">High availability - nodes, quorum and failover</p>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
           <button onClick={() => setWizardStep(1)} className="btn btn-ghost">
@@ -1113,7 +1113,7 @@ export function HAPage() {
           <Icon name="star" size={28} style={{ color: 'rgba(251,191,36,0.9)', flexShrink: 0 }} />
           <div style={{ minWidth: 0 }}>
             <div style={{ fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {activeNode?.name ?? activeNode?.id ?? '—'}
+              {activeNode?.name ?? activeNode?.id ?? '-'}
             </div>
             <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }}>Active node</div>
           </div>
@@ -1160,12 +1160,12 @@ export function HAPage() {
         </div>
       )}
 
-      {/* Subordinate Mode — highest priority */}
+      {/* Subordinate Mode - highest priority */}
       {subordinate && (
         <div className="alert alert-warning" style={{ marginBottom: 16, borderRadius: 'var(--radius-lg)' }}>
           <Icon name="sync" size={20} />
           <div style={{ flex: 1 }}>
-            <div style={{ fontWeight: 700, marginBottom: 4 }}>Catch-Up Sync in Progress — Subordinate Mode Active</div>
+            <div style={{ fontWeight: 700, marginBottom: 4 }}>Catch-Up Sync in Progress - Subordinate Mode Active</div>
             <div style={{ fontSize: 'var(--text-xs)', opacity: 0.85 }}>
               This node booted with stale ZFS data and is receiving a full catch-up sync from the active peer. Auto-failover is disabled until the sync completes to prevent serving outdated files.
               If the sync is stuck or you have resolved it manually, use Clear Fault below.
@@ -1181,12 +1181,12 @@ export function HAPage() {
         </div>
       )}
 
-      {/* Hysteresis — flap guard */}
+      {/* Hysteresis - flap guard */}
       {hysteresis && !subordinate && (
         <div className="alert alert-warning" style={{ marginBottom: 16, borderRadius: 'var(--radius-lg)' }}>
           <Icon name="schedule" size={20} />
           <div style={{ flex: 1 }}>
-            <div style={{ fontWeight: 700, marginBottom: 4 }}>Flap Guard Active — Auto-Failover Suppressed</div>
+            <div style={{ fontWeight: 700, marginBottom: 4 }}>Flap Guard Active - Auto-Failover Suppressed</div>
             <div style={{ fontSize: 'var(--text-xs)', opacity: 0.85 }}>
               A failover occurred {fmtAgo(lastFailover)}. Auto-failover is suppressed for 60 minutes after a failover to prevent ping-pong flapping on an unstable network. Use "Clear Fault" once the root cause has been resolved.
             </div>

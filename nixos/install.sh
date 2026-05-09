@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # D-PlaneOS Installer
 # ─────────────────────────────────────────────────────────────────────────────
-# TUI installer — mirrors the TrueNAS SCALE installation flow.
+# TUI installer - mirrors the TrueNAS SCALE installation flow.
 # Works fully offline: the ISO contains the complete D-PlaneOS closure.
 #
 # Flow:
@@ -10,7 +10,7 @@
 #   3. Set admin password
 #   4. Select boot mode (UEFI / Legacy BIOS)
 #   5. Confirm and install
-#   6. Complete — show IP and access URL
+#   6. Complete - show IP and access URL
 # ─────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
@@ -89,10 +89,10 @@ show_welcome() {
 select_disk() {
     clear
     gum style --foreground "$TITLE_COLOR" --bold --margin "1 0 0 1" \
-        "Step 1 of 4 — Select boot disk"
+        "Step 1 of 4 - Select boot disk"
     gum style --foreground "$DIM_COLOR" --margin "0 0 1 1" \
         "This disk will hold the D-PlaneOS operating system (A/B slots + persistent state)." \
-        "Your data disks are NOT touched here — ZFS pools are created after install."
+        "Your data disks are NOT touched here - ZFS pools are created after install."
 
     local disk_list=()
     while IFS= read -r line; do
@@ -118,7 +118,7 @@ select_disk() {
 
     local selected
     selected=$(gum choose \
-        --header "Available disks — select the OS boot disk:" \
+        --header "Available disks - select the OS boot disk:" \
         --header.foreground "$TITLE_COLOR" \
         --cursor.foreground "$BORDER_COLOR" \
         "${disk_list[@]}")
@@ -147,7 +147,7 @@ select_disk() {
 set_admin_password() {
     clear
     gum style --foreground "$TITLE_COLOR" --bold --margin "1 0 0 1" \
-        "Step 2 of 4 — Administrator password"
+        "Step 2 of 4 - Administrator password"
     gum style --foreground "$DIM_COLOR" --margin "0 0 1 1" \
         "This password is used to log into the D-PlaneOS web interface." \
         "Minimum 8 characters. Must contain upper, lower, digit, and symbol."
@@ -198,7 +198,7 @@ set_admin_password() {
 select_boot_mode() {
     clear
     gum style --foreground "$TITLE_COLOR" --bold --margin "1 0 0 1" \
-        "Step 3 of 4 — Boot mode"
+        "Step 3 of 4 - Boot mode"
 
     if [ -d /sys/firmware/efi ]; then
         gum style --foreground "$SUCCESS_COLOR" --margin "0 0 1 1" \
@@ -286,7 +286,7 @@ run_install() {
 
     if [ -n "$SYSTEM_PATH" ] && [ -d "$SYSTEM_PATH" ]; then
         progress_step \
-            "Installing system (offline — reading from ISO nix store)..." \
+            "Installing system (offline - reading from ISO nix store)..." \
             "nixos-install \
                 --root /mnt \
                 --system '$SYSTEM_PATH' \
@@ -297,7 +297,7 @@ run_install() {
     else
         log "WARNING: pre-built closure not found, falling back to online install"
         progress_step \
-            "Installing system (online — fetching from binary cache)..." \
+            "Installing system (online - fetching from binary cache)..." \
             "nixos-install \
                 --root /mnt \
                 --flake 'github:4nonX/D-PlaneOS#dplaneos' \

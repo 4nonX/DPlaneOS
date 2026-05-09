@@ -490,7 +490,7 @@ function ContainerTable({ containers, onRefresh, topBorder = true }: { container
 }
 
 // ---------------------------------------------------------------------------
-// GPUTab — host report + compose hints (GET /api/docker/gpu)
+// GPUTab - host report + compose hints (GET /api/docker/gpu)
 // ---------------------------------------------------------------------------
 
 function GPUTab() {
@@ -583,7 +583,7 @@ function GPUTab() {
         ) : (
           <ul style={{ margin: 0, paddingLeft: 18, fontSize: 'var(--text-sm)' }}>
             {rep.nvidia_gpus.map((g, i) => (
-              <li key={i}>{g.name} — driver {g.driver_version} — {g.uuid}</li>
+              <li key={i}>{g.name} - driver {g.driver_version} - {g.uuid}</li>
             ))}
           </ul>
         )}
@@ -591,7 +591,7 @@ function GPUTab() {
 
       <div className="card" style={{ borderRadius: 'var(--radius-lg)', padding: 20 }}>
         <div style={{ fontWeight: 600, marginBottom: 10 }}>Docker runtimes</div>
-        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 13 }}>{(rep.docker_runtimes || []).join(', ') || '—'}</div>
+        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 13 }}>{(rep.docker_runtimes || []).join(', ') || '-'}</div>
       </div>
 
       <div className="card" style={{ borderRadius: 'var(--radius-lg)', padding: 20 }}>

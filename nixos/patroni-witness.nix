@@ -5,7 +5,7 @@
 # maintain etcd quorum in the event of a network partition between the
 # two primary D-PlaneOS nodes.
 #
-# It runs absolutely nothing else—no ZFS, no daemon, no Docker.
+# It runs absolutely nothing else - no ZFS, no daemon, no Docker.
 
 { config, lib, pkgs, ... }:
 

@@ -260,13 +260,13 @@ func (h *HAHandler) Promote(w http.ResponseWriter, r *http.Request) {
 		if fencingCfg.Enable && req.Leader != "" {
 			j.Log(fmt.Sprintf("HA Promote: Fencing leader %q at BMC %s before promotion...", req.Leader, fencingCfg.BMCIP))
 			if err := ha.ExecuteFencing(req.Leader, fencingCfg); err != nil {
-				j.Log(fmt.Sprintf("HA Promote: STONITH fencing failed — aborting to prevent split-brain: %v", err))
+				j.Log(fmt.Sprintf("HA Promote: STONITH fencing failed - aborting to prevent split-brain: %v", err))
 				j.Fail("Fencing failed: " + err.Error())
 				return
 			}
 			j.Log("HA Promote: Leader node confirmed fenced (chassis dark). Proceeding with promotion.")
 		} else if req.Leader != "" {
-			j.Log("HA Promote: WARNING — fencing is not configured. Ensure the leader node is fully offline to avoid split-brain before continuing.")
+			j.Log("HA Promote: WARNING - fencing is not configured. Ensure the leader node is fully offline to avoid split-brain before continuing.")
 		}
 
 		// ── Step 2: Promotion orchestration ─────────────────────────────────
@@ -524,7 +524,7 @@ func (h *HAHandler) ConfigurePDU(w http.ResponseWriter, r *http.Request) {
 }
 
 // GetSyncStatus returns this node's ZFS pool TXG state for peer startup reconciliation.
-// This endpoint is deliberately public — peer daemons call it at boot time before
+// This endpoint is deliberately public - peer daemons call it at boot time before
 // they have authenticated sessions.
 // GET /api/ha/sync/status
 func (h *HAHandler) GetSyncStatus(w http.ResponseWriter, r *http.Request) {

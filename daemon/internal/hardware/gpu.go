@@ -99,8 +99,8 @@ func DefaultComposeExamples() ComposeExamples {
     devices:
       - /dev/dri:/dev/dri
     group_add:
-      - "993"   # render — replace with: getent group render | cut -d: -f3
-      - "992"   # video  — replace with: getent group video | cut -d: -f3
+      - "993"   # render - replace with: getent group render | cut -d: -f3
+      - "992"   # video  - replace with: getent group video | cut -d: -f3
 `,
 	}
 }

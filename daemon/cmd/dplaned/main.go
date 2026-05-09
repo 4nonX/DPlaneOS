@@ -1131,7 +1131,7 @@ func main() {
 	r.Handle("/api/ha/pdu/configure", permRoute("system", "admin", haHandler.ConfigurePDU)).Methods("POST")
 	r.Handle("/api/ha/pdu/configure", permRoute("system", "admin", haHandler.GetPDUConfig)).Methods("GET")
 	r.Handle("/api/ha/clear_fault", permRoute("system", "admin", haHandler.ClearFault)).Methods("POST")
-	// /api/ha/heartbeat and /api/ha/sync/status are deliberately PUBLIC — peer daemons call them without a session
+	// /api/ha/heartbeat and /api/ha/sync/status are deliberately PUBLIC - peer daemons call them without a session
 	r.HandleFunc("/api/ha/heartbeat", haHandler.PeerHeartbeat).Methods("POST")
 	r.HandleFunc("/api/ha/sync/status", haHandler.GetSyncStatus).Methods("GET")
 	r.HandleFunc("/api/ha/local", haHandler.LocalNodeInfo).Methods("GET")

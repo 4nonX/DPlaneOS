@@ -141,7 +141,7 @@ in {
       mode = "0755";
     };
 
-    # NVMe-oF target (kernel nvmet) — modules load at boot; dplaned writes configfs at runtime.
+    # NVMe-oF target (kernel nvmet) - modules load at boot; dplaned writes configfs at runtime.
     boot.kernelModules = [ "nvmet" "nvmet-tcp" ];
 
     # ─── Docker ──────────────────────────────────────────────────────────

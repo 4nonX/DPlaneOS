@@ -17,7 +17,7 @@
  *   GET  /api/zfs/datasets/search    (global dataset search - used by search bar)
  *   // NEW: Pool Lifecycle
  *   GET  /api/zfs/pool/replacement-disks  (eligible replacement disks, by-id)
- *   POST /api/system/pool/create     (create a new pool — simple or advanced topology)
+ *   POST /api/system/pool/create     (create a new pool - simple or advanced topology)
  *   POST /api/zfs/pools/expand       (add VDEV to existing pool)
  *   POST /api/zfs/pools/destroy      (destroy a pool)
  */
@@ -154,7 +154,7 @@ function formatDatasetCompressRatio(d: Pick<ZFSDataset, 'compressratio' | 'refco
   const total = (d.compressratio ?? '').trim()
   if (ref && ref !== '-') return ref
   if (total && total !== '-') return total
-  return '—'
+  return '-'
 }
 
 function datasetRatioTooltip(d: ZFSDataset): string {
@@ -268,7 +268,7 @@ function DatasetNode({ node, depth, onCreateChild, onEdit, onDelete, onAction }:
               style={{ fontSize: 'var(--text-xs)', fontFamily: 'var(--font-mono)', color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
               title={node.compression || undefined}
             >
-              {node.compression && node.compression !== '-' ? node.compression : '—'}
+              {node.compression && node.compression !== '-' ? node.compression : '-'}
             </div>
             <div style={{ fontSize: 'var(--text-2xs)', color: 'var(--text-tertiary)' }}>compress</div>
           </div>
@@ -421,7 +421,7 @@ function EditDatasetModal({ node, onClose, onUpdated }: {
             <label className="field">
               <span className="field-label">Atime</span>
               <select value={atime} onChange={e => setAtime(e.target.value)} className="input">
-                <option value="">— no change —</option>
+                <option value="">- no change -</option>
                 <option value="on">on</option>
                 <option value="off">off</option>
               </select>
@@ -429,7 +429,7 @@ function EditDatasetModal({ node, onClose, onUpdated }: {
             <label className="field">
               <span className="field-label">Sync</span>
               <select value={sync} onChange={e => setSync(e.target.value)} className="input">
-                <option value="">— no change —</option>
+                <option value="">- no change -</option>
                 <option value="standard">standard</option>
                 <option value="always">always</option>
                 <option value="disabled">disabled</option>
@@ -438,7 +438,7 @@ function EditDatasetModal({ node, onClose, onUpdated }: {
             <label className="field">
               <span className="field-label">Recordsize</span>
               <select value={recordsize} onChange={e => setRecordsize(e.target.value)} className="input">
-                <option value="">— no change —</option>
+                <option value="">- no change -</option>
                 {['512', '1K', '2K', '4K', '8K', '16K', '32K', '64K', '128K', '256K', '512K', '1M'].map(rs => (
                   <option key={rs} value={rs}>{rs}</option>
                 ))}
@@ -447,7 +447,7 @@ function EditDatasetModal({ node, onClose, onUpdated }: {
             <label className="field">
               <span className="field-label">Xattr (Linux: sa recommended)</span>
               <select value={xattr} onChange={e => setXattr(e.target.value)} className="input">
-                <option value="">— no change —</option>
+                <option value="">- no change -</option>
                 <option value="sa">sa (system attributes)</option>
                 <option value="on">on</option>
                 <option value="off">off</option>
@@ -457,7 +457,7 @@ function EditDatasetModal({ node, onClose, onUpdated }: {
             <label className="field">
               <span className="field-label">Secondary cache (L2ARC)</span>
               <select value={secondarycache} onChange={e => setSecondarycache(e.target.value)} className="input">
-                <option value="">— no change —</option>
+                <option value="">- no change -</option>
                 <option value="all">all</option>
                 <option value="metadata">metadata</option>
                 <option value="none">none</option>

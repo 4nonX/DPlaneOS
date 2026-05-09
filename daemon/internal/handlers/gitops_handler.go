@@ -590,7 +590,7 @@ func planSummary(plan *gitops.Plan) map[string]interface{} {
 // defaultStateYAML returns a valid empty starter when no state.yaml exists yet.
 // Operators add pools using real /dev/disk/by-id/ paths from this machine (e.g. GET /api/system/disks).
 func defaultStateYAML() string {
-	return `# D-PlaneOS state.yaml — declarative NAS configuration
+	return `# D-PlaneOS state.yaml - declarative NAS configuration
 # Use version "1". Every disk path must be a real symlink under /dev/disk/by-id/ from this system
 # (see Storage → disks in the UI, or GET /api/system/disks). /dev/sdX paths are rejected.
 #

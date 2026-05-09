@@ -31,7 +31,7 @@ cd dplaneos
 sudo bash install.sh
 ```
 
-The installer handles everything: ZFS kernel module, nginx, database, systemd units, udev rules. It prints a randomly generated admin password on completion — you must change it on first login.
+The installer handles everything: ZFS kernel module, nginx, database, systemd units, udev rules. It prints a randomly generated admin password on completion; you must change it on first login.
 
 | Option | Effect |
 |--------|--------|
@@ -53,7 +53,7 @@ The installer handles everything: ZFS kernel module, nginx, database, systemd un
 |------|-------------|
 | **Storage** | ZFS pools, datasets, snapshots, replication (`zfs send`), encryption, quotas, S.M.A.R.T., POSIX ACLs, file explorer with chunked uploads |
 | **Hot-swap** | udev rules detect disk add/remove; daemon auto-imports FAULTED/UNAVAIL pools and suggests vdev replacements via the UI |
-| **Sharing** | SMB shares with Time Machine support (Samba vfs_fruit), NFS exports, iSCSI block targets — all configured through the UI |
+| **Sharing** | SMB shares with Time Machine support (Samba vfs_fruit), NFS exports, iSCSI block targets - all configured through the UI |
 | **Containers** | Docker management, Compose stacks, template library (one-click deploy), ephemeral ZFS-clone sandboxes, atomic updates with automatic rollback |
 | **Network** | Interface config, bonding, VLANs, routing, DNS |
 | **Identity** | Local users, LDAP / Active Directory with group-to-role mapping and directory-sourced UI login, TOTP 2FA, API tokens |
@@ -78,7 +78,7 @@ Browser
 
 | Component | Detail |
 |-----------|--------|
-| Frontend | React 19 + TypeScript + Vite, pre-built — no Node.js needed at runtime |
+| Frontend | React 19 + TypeScript + Vite, pre-built - no Node.js needed at runtime |
 | Backend | Go daemon, ~256 API routes, **strict allowlist-validated exec calls**, no shell |
 | Database | PostgreSQL 15+ (Patroni-managed High Availability) |
 | Auth | bcrypt passwords (local), LDAP bind (directory accounts), TOTP 2FA, 32-byte session tokens, CSRF double-submit |

@@ -77,7 +77,7 @@ func queryPeerSyncStatus(peerAddr string) (SyncStatus, error) {
 func (m *Manager) StartupReconciliation() {
 	replCfg := m.GetReplicationConfig()
 	if replCfg == nil {
-		return // No replication configured — nothing to reconcile.
+		return // No replication configured - nothing to reconcile.
 	}
 
 	localTXG := localPoolTXG(replCfg.LocalPool)
@@ -104,11 +104,11 @@ func (m *Manager) StartupReconciliation() {
 			peerTXG = status.Pools[replCfg.LocalPool]
 		}
 		if peerTXG <= localTXG {
-			continue // We are current — normal standby boot.
+			continue // We are current - normal standby boot.
 		}
 
 		delta := peerTXG - localTXG
-		log.Printf("HA RECONCILE: Zombie boot detected — peer at %s is active (TXG %d vs local %d, Δ%d). Entering Subordinate Mode to prevent stale data serving.",
+		log.Printf("HA RECONCILE: Zombie boot detected - peer at %s is active (TXG %d vs local %d, Δ%d). Entering Subordinate Mode to prevent stale data serving.",
 			addr, peerTXG, localTXG, delta)
 
 		m.mu.Lock()
@@ -125,7 +125,7 @@ func (m *Manager) StartupReconciliation() {
 			defer cancel()
 
 			if err := m.catchUpFromPeer(ctx, cfg); err != nil {
-				log.Printf("HA RECONCILE: Catch-up sync failed: %v. Node remains in Subordinate Mode — manual intervention required (zfs recv or /api/ha/clear_fault).", err)
+				log.Printf("HA RECONCILE: Catch-up sync failed: %v. Node remains in Subordinate Mode - manual intervention required (zfs recv or /api/ha/clear_fault).", err)
 				return
 			}
 
@@ -143,7 +143,7 @@ func (m *Manager) StartupReconciliation() {
 
 // catchUpFromPeer performs a reverse-direction ZFS receive: SSH to the active peer,
 // stream its latest snapshot, and receive it into the local pool. This is the mirror
-// of syncZFS — the peer sends, we receive.
+// of syncZFS - the peer sends, we receive.
 func (m *Manager) catchUpFromPeer(ctx context.Context, cfg *ReplicationConfig) error {
 	log.Printf("HA RECONCILE: Receiving catch-up stream from %s@%s (%s → %s)",
 		cfg.RemoteUser, cfg.RemoteHost, cfg.RemotePool, cfg.LocalPool)
@@ -165,7 +165,7 @@ func (m *Manager) catchUpFromPeer(ctx context.Context, cfg *ReplicationConfig) e
 	}
 	latestRemoteSnap := strings.TrimSpace(string(remoteOut))
 	if latestRemoteSnap == "" {
-		return fmt.Errorf("no snapshots on remote pool %s — cannot catch up", cfg.RemotePool)
+		return fmt.Errorf("no snapshots on remote pool %s - cannot catch up", cfg.RemotePool)
 	}
 
 	// 2. Find our latest local snapshot to use as incremental base (avoids full resend).

@@ -416,11 +416,11 @@ func modifyPool(name string, changes []string) error {
 			continue
 		}
 		if strings.HasPrefix(change, "disk-add:") {
-			log.Printf("GITOPS: ignoring automatic disk-add for pool %q — use explicit zpool add or update declared topology: %s", name, change)
+			log.Printf("GITOPS: ignoring automatic disk-add for pool %q - use explicit zpool add or update declared topology: %s", name, change)
 			continue
 		}
 		if strings.Contains(change, "disk-remove") {
-			log.Printf("GITOPS WARNING: skipping disk-remove for pool %q — manual intervention required: %s", name, change)
+			log.Printf("GITOPS WARNING: skipping disk-remove for pool %q - manual intervention required: %s", name, change)
 		}
 	}
 	return nil

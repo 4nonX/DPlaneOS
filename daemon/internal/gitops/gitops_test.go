@@ -80,7 +80,7 @@ shares: []
 
 // Empty starter template (comments + only version and empty lists) must parse so first-run GitOps works.
 func TestParseStateYAML_EmptyStarter(t *testing.T) {
-	yaml := `# D-PlaneOS state.yaml — declarative NAS configuration
+	yaml := `# D-PlaneOS state.yaml - declarative NAS configuration
 # Use version "1". Every disk path must be a real symlink under /dev/disk/by-id/ from this system
 # (see Storage → disks in the UI, or GET /api/system/disks). /dev/sdX paths are rejected.
 #

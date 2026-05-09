@@ -1,5 +1,5 @@
 /**
- * NVMe-oF targets — kernel nvmet over NVMe/TCP, backed by ZFS zvols.
+ * NVMe-oF targets - kernel nvmet over NVMe/TCP, backed by ZFS zvols.
  *
  * Complements ZFS send/recv (dataset replication): this path exports a zvol as a network block device.
  *
@@ -128,7 +128,7 @@ export function NVMeOFPage() {
     <div style={{ maxWidth: 960 }}>
       <div className="page-header">
         <h1 className="page-title">NVMe-oF</h1>
-        <p className="page-subtitle">Export ZFS zvols over NVMe/TCP — optional block fabric alongside ZFS replication</p>
+        <p className="page-subtitle">Export ZFS zvols over NVMe/TCP - optional block fabric alongside ZFS replication</p>
       </div>
 
       {statusQ.data && (
@@ -297,7 +297,7 @@ export function NVMeOFPage() {
             {!targetsQ.isLoading && targets.length === 0 && (
               <tr>
                 <td colSpan={5} style={{ padding: '36px 16px', textAlign: 'center', color: 'var(--text-tertiary)' }}>
-                  No NVMe-oF targets — create one above or define <code>fabrics.nvme</code> in GitOps.
+                  No NVMe-oF targets - create one above or define <code>fabrics.nvme</code> in GitOps.
                 </td>
               </tr>
             )}

@@ -80,7 +80,7 @@ func (h *LDAPHandler) JoinADDomain(w http.ResponseWriter, r *http.Request) {
 		if strings.Contains(err.Error(), "deadline exceeded") {
 			writeJSON(w, 202, ldapResp{
 				Success: true,
-				Warning: "Domain joined but winbind verification timed out — check winbind service status.",
+				Warning: "Domain joined but winbind verification timed out - check winbind service status.",
 			})
 		} else {
 			writeJSON(w, 500, ldapResp{Error: "Domain joined but trust verification (wbinfo -t) failed: " + string(out)})

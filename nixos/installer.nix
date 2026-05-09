@@ -1,4 +1,4 @@
-# D-PlaneOS Installer ISO — Offline Capable
+# D-PlaneOS Installer ISO - Offline Capable
 # ─────────────────────────────────────────────────────────────────────────────
 # Builds a bootable installer ISO that works with NO internet connection.
 #
@@ -20,19 +20,19 @@
 { modulesPath, pkgs, lib, config, self, targetSystem, ... }:
 
 let
-  # The D-PlaneOS target system closure — baked into the ISO's nix store.
+  # The D-PlaneOS target system closure - baked into the ISO's nix store.
   # This is the exact system that gets installed onto the target disk.
   dplaneosSystem = targetSystem;
 
 in {
   imports = [
-    # Minimal bootable ISO — console only, no desktop, no Calamares.
+    # Minimal bootable ISO - console only, no desktop, no Calamares.
     # Server-appropriate: works over serial, IPMI SOL, KVM-over-IP.
     "${modulesPath}/installer/cd-dvd/installation-cd-minimal.nix"
   ];
 
   # ── Pre-bake the D-PlaneOS target closure into the ISO's nix store ────────
-  # Core of offline installation — nixos-install reads from here,
+  # Core of offline installation - nixos-install reads from here,
   # never contacts cache.nixos.org or any external binary cache.
   isoImage.storeContents = [
     dplaneosSystem
@@ -54,7 +54,7 @@ in {
     jq bc git
   ];
 
-  # ── Kernel — match appliance pin exactly ──────────────────────────────────
+  # ── Kernel - match appliance pin exactly ──────────────────────────────────
   boot.kernelPackages          = pkgs.linuxPackages_6_6;
   boot.supportedFilesystems    = [ "zfs" "vfat" "ext4" ];
   boot.zfs.package             = pkgs.zfs;
@@ -83,7 +83,7 @@ in {
   '';
 
   # ── SSH for remote/headless installs ──────────────────────────────────────
-  # Temporary installer password — this system has no sensitive data.
+  # Temporary installer password - this system has no sensitive data.
   # Users can SSH to the installer as root with password "dplaneos".
   services.openssh = {
     enable                          = true;
@@ -93,7 +93,7 @@ in {
   users.users.root.password = lib.mkForce "dplaneos";
   users.users.root.initialHashedPassword = lib.mkForce null;
 
-  # ── Nix — disable all substituters for true offline operation ─────────────
+  # ── Nix - disable all substituters for true offline operation ─────────────
   nix.settings = {
     experimental-features = [ "nix-command" "flakes" ];
     substituters          = lib.mkForce [];

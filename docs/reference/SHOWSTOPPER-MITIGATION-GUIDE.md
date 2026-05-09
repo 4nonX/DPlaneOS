@@ -99,21 +99,21 @@ sudo bash /var/lib/dplaneos/backups/pre-upgrade-<timestamp>/rollback.sh
 
 Full enterprise HA is implemented across three layers:
 
-**Layer 1 — Database (Patroni/etcd/HAProxy)**
+**Layer 1 - Database (Patroni/etcd/HAProxy)**
 - Automatic PostgreSQL leader election via Patroni and etcd quorum
 - HAProxy routes all application connections to the current primary transparently
 - Witness node (Raspberry Pi, small VPS) provides quorum for two-node clusters
 
-**Layer 2 — Network and Storage (Keepalived + ZFS Replication)**
+**Layer 2 - Network and Storage (Keepalived + ZFS Replication)**
 - Floating virtual IP migrates automatically between nodes on failover
 - Continuous ZFS snapshot replication from primary to standby
 - Real-time replication telemetry (percentage, throughput, ETA)
 
-**Layer 3 — Fencing (STONITH/IPMI)**
+**Layer 3 - Fencing (STONITH/IPMI)**
 - Automatic IPMI-based fencing via BMC when primary exceeds 45-second heartbeat threshold
 - 60-second chassis power confirmation before promotion proceeds
 - `fencingInProgress` mutex prevents concurrent fencing sequences
-- Standby-only guard — only a standby node can initiate fencing
+- Standby-only guard - only a standby node can initiate fencing
 - Full HMAC audit trail on every fencing event
 - Maintenance mode (`POST /api/ha/maintenance`, 0–3600 s) suppresses fencing during scheduled maintenance
 
@@ -153,7 +153,7 @@ sudo systemctl start dplaned
 
 ### Reproducible Builds
 
-Guaranteed by NixOS. Every node builds from a pinned flake with locked inputs (`flake.lock`). Bit-for-bit identical system closures across all nodes. Build the ISO or system closure yourself with `nix build .#iso` — the result is deterministic.
+Guaranteed by NixOS. Every node builds from a pinned flake with locked inputs (`flake.lock`). Bit-for-bit identical system closures across all nodes. Build the ISO or system closure yourself with `nix build .#iso` - the result is deterministic.
 
 ---
 

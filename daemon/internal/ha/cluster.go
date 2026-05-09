@@ -330,20 +330,20 @@ func (m *Manager) checkFailover() {
 		return
 	}
 
-	// Guard 1: Subordinate Mode — this node is still catching up stale data from
+	// Guard 1: Subordinate Mode - this node is still catching up stale data from
 	// a zombie boot. Promoting while behind would serve outdated files.
 	if subordinateMode {
 		if deadPeer.MissedBeats == 3 {
-			log.Printf("HA SUBORDINATE: Failover suppressed — node is in Subordinate (catch-up) Mode. Data sync must complete before auto-failover is safe.")
+			log.Printf("HA SUBORDINATE: Failover suppressed - node is in Subordinate (catch-up) Mode. Data sync must complete before auto-failover is safe.")
 		}
 		return
 	}
 
-	// Guard 2: Hysteresis — suppress auto-failover for HysteresisWindow after the last
+	// Guard 2: Hysteresis - suppress auto-failover for HysteresisWindow after the last
 	// failover to prevent flapping on an unstable network (e.g. dying core switch).
 	if !lastFailoverAt.IsZero() && time.Since(lastFailoverAt) < HysteresisWindow {
 		if deadPeer.MissedBeats == 3 {
-			log.Printf("HA HYSTERESIS: Failover suppressed — last failover was %v ago (window: %v). Use POST /api/ha/clear_fault to override.",
+			log.Printf("HA HYSTERESIS: Failover suppressed - last failover was %v ago (window: %v). Use POST /api/ha/clear_fault to override.",
 				time.Since(lastFailoverAt).Truncate(time.Second), HysteresisWindow)
 		}
 		return
@@ -360,24 +360,24 @@ func (m *Manager) checkFailover() {
 		return
 	}
 
-	// Guard 4: Quorum Witness — prove this node is not isolated.
+	// Guard 4: Quorum Witness - prove this node is not isolated.
 	witnessCfg, witnessErr := GetWitnessConfig(m.db)
 	if witnessErr == nil && witnessCfg.Enable {
 		if !canReachWitness(witnessCfg) {
 			if deadPeer.MissedBeats == 3 {
-				log.Printf("HA WITNESS: Peer %s unreachable but %d/%d witnesses also unreachable — node may be isolated. Automatic failover SUSPENDED.",
+				log.Printf("HA WITNESS: Peer %s unreachable but %d/%d witnesses also unreachable - node may be isolated. Automatic failover SUSPENDED.",
 					deadPeer.ID, witnessCfg.RequiredHealthy, len(witnessCfg.Witnesses))
 			}
 			return
 		}
-		log.Printf("HA WITNESS: Peer %s unreachable, quorum witness confirmed reachable (%d/%d) — proceeding with automated failover.",
+		log.Printf("HA WITNESS: Peer %s unreachable, quorum witness confirmed reachable (%d/%d) - proceeding with automated failover.",
 			deadPeer.ID, witnessCfg.RequiredHealthy, len(witnessCfg.Witnesses))
 	}
 
 	// Guard 5: Maintenance Mode.
 	if m.IsMaintenanceActive() {
 		if deadPeer.MissedBeats == 3 {
-			log.Printf("HA STONITH: Peer %s breached FailoverThreshold but fencing SUSPENDED — active maintenance mode.", deadPeer.ID)
+			log.Printf("HA STONITH: Peer %s breached FailoverThreshold but fencing SUSPENDED - active maintenance mode.", deadPeer.ID)
 		}
 		return
 	}
@@ -411,7 +411,7 @@ func (m *Manager) checkFailover() {
 		if !fenced && pduCfg.Enable {
 			log.Printf("HA STONITH: Attempting PDU outlet fencing against dead peer %s", deadPeer.ID)
 			if err := ExecutePDUFencing(deadPeer.ID, pduCfg); err != nil {
-				log.Printf("HA STONITH: PDU fencing also failed: %v. Aborting failover — refusing to promote without confirmed fence.", err)
+				log.Printf("HA STONITH: PDU fencing also failed: %v. Aborting failover - refusing to promote without confirmed fence.", err)
 				return
 			}
 			fenced = true
@@ -867,10 +867,10 @@ func (m *Manager) loadClusterState() {
 	m.subordinateMode = subordinateMode
 	m.mu.Unlock()
 	if subordinateMode {
-		log.Printf("HA: Loaded persisted Subordinate Mode — node was in catch-up state when last shut down.")
+		log.Printf("HA: Loaded persisted Subordinate Mode - node was in catch-up state when last shut down.")
 	}
 	if !m.lastFailoverAt.IsZero() && time.Since(m.lastFailoverAt) < HysteresisWindow {
-		log.Printf("HA: Hysteresis active — last failover was %v ago, auto-failover suppressed for %v more.",
+		log.Printf("HA: Hysteresis active - last failover was %v ago, auto-failover suppressed for %v more.",
 			time.Since(m.lastFailoverAt).Truncate(time.Second),
 			(HysteresisWindow - time.Since(m.lastFailoverAt)).Truncate(time.Second))
 	}

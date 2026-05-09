@@ -23,7 +23,7 @@ type WitnessEntry struct {
 
 // WitnessConfig holds parameters for the quorum witness array.
 // When enabled, the auto-failover gate in checkFailover() will only proceed
-// if RequiredHealthy or more witnesses pass — proving this node is not network-isolated.
+// if RequiredHealthy or more witnesses pass - proving this node is not network-isolated.
 type WitnessConfig struct {
 	Enable          bool           `json:"enable"`
 	Witnesses       []WitnessEntry `json:"witnesses"`

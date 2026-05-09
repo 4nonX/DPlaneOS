@@ -1194,7 +1194,7 @@ func diffPool(desired DesiredPool, live LivePool) []string {
 	sort.Strings(got)
 	if len(want) != len(got) || !stringSliceEqual(want, got) {
 		changes = append(changes,
-			"topology-drift: declared topology disk set does not match live pool — automatic reshape disabled; align state.yaml or use zpool add/remove manually",
+			"topology-drift: declared topology disk set does not match live pool - automatic reshape disabled; align state.yaml or use zpool add/remove manually",
 		)
 	}
 

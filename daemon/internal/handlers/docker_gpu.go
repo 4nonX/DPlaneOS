@@ -8,7 +8,7 @@ import (
 )
 
 // HandleDockerGPUPassthroughReport exposes host GPU / Docker runtime facts and compose hints.
-// GET /api/docker/gpu — requires docker:read.
+// GET /api/docker/gpu - requires docker:read.
 func HandleDockerGPUPassthroughReport(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)

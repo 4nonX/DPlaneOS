@@ -50,7 +50,7 @@ func runOnce() {
 		return
 	}
 
-	log.Printf("persistguard: /persist %.1f%% full — running log hygiene", usedPct)
+	log.Printf("persistguard: /persist %.1f%% full - running log hygiene", usedPct)
 
 	if usedPct >= criticalPct {
 		vacuumJournal()

@@ -14,7 +14,7 @@ import (
 )
 
 // PDUConfig holds parameters for HTTP-based PDU (Power Distribution Unit) outlet fencing.
-// This provides out-of-band STONITH that bypasses the operating system entirely —
+// This provides out-of-band STONITH that bypasses the operating system entirely -
 // the rack physically cuts power to a misbehaving node via its PDU HTTP API.
 // Compatible with Digital Loggers, iBoot, Raritan, and any PDU with a simple HTTP API.
 type PDUConfig struct {
@@ -66,7 +66,7 @@ func SavePDUConfig(db *sql.DB, cfg PDUConfig) error {
 }
 
 // ExecutePDUFencing sends an HTTP command to the PDU to physically cut power to the peer's outlet.
-// This is the "Silver Bullet" — it bypasses the peer OS entirely, firing even when the data
+// This is the "Silver Bullet" - it bypasses the peer OS entirely, firing even when the data
 // network is fully partitioned (the PDU has its own management network path).
 func ExecutePDUFencing(nodeID string, cfg PDUConfig) error {
 	log.Printf("STONITH PDU: Initiating outlet power cut against node %s via %s", nodeID, cfg.OutletOffURL)
@@ -127,7 +127,7 @@ func ExecutePDUFencing(nodeID string, cfg PDUConfig) error {
 
 	log.Printf("STONITH PDU: Outlet power cut confirmed for node %s (PDU returned %d). Node is physically dead.", nodeID, resp.StatusCode)
 	audit.LogAction("ha_pdu_fence", "system",
-		fmt.Sprintf("PDU fenced node %s via %s — outlet power cut confirmed", nodeID, cfg.OutletOffURL),
+		fmt.Sprintf("PDU fenced node %s via %s - outlet power cut confirmed", nodeID, cfg.OutletOffURL),
 		true, time.Since(start))
 	return nil
 }

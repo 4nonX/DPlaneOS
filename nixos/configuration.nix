@@ -84,7 +84,7 @@ in {
   boot.zfs.forceImportRoot = false;
   boot.zfs.extraPools = zpools;
 
-  # NVMe-oF target (nvmet) — used when exporting zvols over NVMe/TCP
+  # NVMe-oF target (nvmet) - used when exporting zvols over NVMe/TCP
   boot.kernelModules = [ "nvmet" "nvmet-tcp" ];
 
   services.zfs.autoScrub = {

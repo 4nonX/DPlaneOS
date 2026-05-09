@@ -57,7 +57,7 @@ func SaveFencingConfig(db *sql.DB, cfg FencingConfig) error {
 		cfg.JitterMaxMs = 0
 	}
 	if cfg.JitterMaxMs > 30000 {
-		cfg.JitterMaxMs = 30000 // cap at 30s — beyond this the fencing window is unreasonably large
+		cfg.JitterMaxMs = 30000 // cap at 30s - beyond this the fencing window is unreasonably large
 	}
 	_, err := db.Exec(`
 		INSERT INTO ha_fencing_config (id, enable, bmc_ip, bmc_user, bmc_password_file, jitter_max_ms)
@@ -98,7 +98,7 @@ func ExecuteFencing(nodeID string, cfg FencingConfig) error {
 
 	// STONITH Jitter: random pre-fire delay prevents both nodes from shooting
 	// simultaneously when they hit the FailoverAfter threshold at the same moment.
-	// Node A rolls 400ms, Node B rolls 2100ms — A fires first, B dies before waking.
+	// Node A rolls 400ms, Node B rolls 2100ms - A fires first, B dies before waking.
 	maxMs := cfg.JitterMaxMs
 	if maxMs == 0 {
 		maxMs = 3000 // default 3s window
@@ -176,6 +176,6 @@ statusLoop:
 		}
 	}
 
-	audit.LogAction("ha_fence", "system", fmt.Sprintf("Fenced node %s at BMC %s — chassis confirmed dark", nodeID, cfg.BMCIP), true, time.Since(start))
+	audit.LogAction("ha_fence", "system", fmt.Sprintf("Fenced node %s at BMC %s - chassis confirmed dark", nodeID, cfg.BMCIP), true, time.Since(start))
 	return nil
 }
