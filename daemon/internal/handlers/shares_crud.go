@@ -582,6 +582,92 @@ func (h *ShareCRUDHandler) regenerateSMBConf() {
 	log.Printf("SMB config regenerated and reloaded (VFS: tm=%d sc=%d rb=%d)", globalTimeMachine, globalShadowCopy, globalRecycleBin)
 }
 
+// GetSMBSettings returns current global SMB protocol settings
+// GET /api/smb/settings
+func (h *ShareCRUDHandler) GetSMBSettings(w http.ResponseWriter, r *http.Request) {
+	var timeMachine, shadowCopy, recycleBin int
+	h.db.QueryRow(`SELECT COALESCE(value,'0') FROM settings WHERE key='smb_time_machine'`).Scan(&timeMachine)
+	h.db.QueryRow(`SELECT COALESCE(value,'0') FROM settings WHERE key='smb_shadow_copy'`).Scan(&shadowCopy)
+	h.db.QueryRow(`SELECT COALESCE(value,'0') FROM settings WHERE key='smb_recycle_bin'`).Scan(&recycleBin)
+	_, avahiErr := os.Stat(avahiTimeMachinePath)
+	respondOK(w, map[string]interface{}{
+		"success":        true,
+		"time_machine":   timeMachine == 1,
+		"shadow_copy":    shadowCopy == 1,
+		"recycle_bin":    recycleBin == 1,
+		"avahi_file_ok":  avahiErr == nil,
+	})
+}
+
+// UpdateSMBSettings updates global SMB protocol settings and regenerates smb.conf
+// POST /api/smb/settings
+func (h *ShareCRUDHandler) UpdateSMBSettings(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		TimeMachine *bool `json:"time_machine"`
+		ShadowCopy  *bool `json:"shadow_copy"`
+		RecycleBin  *bool `json:"recycle_bin"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondErrorSimple(w, "Invalid request", http.StatusBadRequest)
+		return
+	}
+
+	setSetting := func(key string, val *bool) {
+		if val == nil {
+			return
+		}
+		v := "0"
+		if *val {
+			v = "1"
+		}
+		h.db.Exec(`INSERT INTO settings (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`, key, v)
+	}
+
+	setSetting("smb_time_machine", req.TimeMachine)
+	setSetting("smb_shadow_copy", req.ShadowCopy)
+	setSetting("smb_recycle_bin", req.RecycleBin)
+
+	if req.TimeMachine != nil {
+		if *req.TimeMachine {
+			writeAvahiTimeMachineService()
+		} else {
+			os.Remove(avahiTimeMachinePath)
+		}
+	}
+
+	h.regenerateSMBConf()
+	respondOK(w, map[string]interface{}{"success": true})
+}
+
+const avahiTimeMachinePath = "/etc/avahi/services/dplaneos-timemachine.service"
+const avahiTimeMachineXML = `<?xml version="1.0" standalone='no'?>
+<!DOCTYPE service-group SYSTEM "avahi-service.dtd">
+<service-group>
+  <name replace-wildcards="yes">%h</name>
+  <service>
+    <type>_adisk._tcp</type>
+    <port>9</port>
+    <txt-record>sys=waMa=0,adVF=0x100</txt-record>
+    <txt-record>dk0=adVN=D-PlaneOS,adVF=0x82</txt-record>
+  </service>
+  <service>
+    <type>_device-info._tcp</type>
+    <port>0</port>
+    <txt-record>model=MacSamba</txt-record>
+  </service>
+</service-group>
+`
+
+func writeAvahiTimeMachineService() {
+	if err := os.MkdirAll("/etc/avahi/services", 0755); err != nil {
+		log.Printf("WARN: avahi services dir: %v", err)
+		return
+	}
+	if err := os.WriteFile(avahiTimeMachinePath, []byte(avahiTimeMachineXML), 0644); err != nil {
+		log.Printf("WARN: avahi service write: %v", err)
+	}
+}
+
 // sanitizeSMBConfValue removes newlines and other characters that could break smb.conf formatting
 func sanitizeSMBConfValue(val string) string {
 	// Remove carriage returns and newlines

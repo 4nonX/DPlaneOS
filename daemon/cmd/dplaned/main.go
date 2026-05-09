@@ -861,6 +861,8 @@ func main() {
 	r.Handle("/api/shares/by-path", permRoute("shares", "read", shareCRUDHandler.GetSharesByPath)).Methods("GET")
 	r.Handle("/api/shares", permRoute("shares", "write", shareCRUDHandler.HandleShares)).Methods("POST", "PUT")
 	r.Handle("/api/shares", permRoute("shares", "write", shareCRUDHandler.HandleShares)).Methods("DELETE")
+	r.Handle("/api/smb/settings", permRoute("shares", "read", shareCRUDHandler.GetSMBSettings)).Methods("GET")
+	r.Handle("/api/smb/settings", permRoute("shares", "admin", shareCRUDHandler.UpdateSMBSettings)).Methods("POST")
 
 	// User & Group CRUD handlers
 	userGroupHandler := handlers.NewUserGroupHandler(db)

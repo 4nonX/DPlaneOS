@@ -9,8 +9,11 @@
  *   POST   /api/shares/smb/reload
  *   POST   /api/shares/smb/test
  *   POST   /api/shares/nfs/reload
+ *   GET    /api/smb/settings
+ *   POST   /api/smb/settings
  */
 
+import type React from 'react'
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
@@ -36,6 +39,113 @@ interface Share {
 }
 
 interface SharesListResponse { success: boolean; shares?: Share[]; data?: Share[] }
+
+interface SMBSettings {
+  success: boolean
+  time_machine: boolean
+  shadow_copy: boolean
+  recycle_bin: boolean
+  avahi_file_ok: boolean
+}
+
+// ---------------------------------------------------------------------------
+// Protocol Options card
+// ---------------------------------------------------------------------------
+
+function ProtocolOptions() {
+  const qc = useQueryClient()
+
+  const settingsQ = useQuery<SMBSettings>({
+    queryKey: ['smb', 'settings'],
+    queryFn: () => api.get<SMBSettings>('/api/smb/settings'),
+    refetchInterval: 60_000,
+  })
+
+  const updateMut = useMutation({
+    mutationFn: (patch: { time_machine?: boolean; shadow_copy?: boolean; recycle_bin?: boolean }) =>
+      api.post('/api/smb/settings', patch),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['smb', 'settings'] })
+      toast.success('SMB settings updated')
+    },
+    onError: (e: Error) => toast.error(e.message),
+  })
+
+  const s = settingsQ.data
+
+  function toggle(field: 'time_machine' | 'shadow_copy' | 'recycle_bin', value: boolean) {
+    updateMut.mutate({ [field]: value })
+  }
+
+  if (settingsQ.isLoading) {
+    return <div className="card" style={{ padding: 20, marginBottom: 24 }}><Skeleton style={{ height: 60 }} /></div>
+  }
+
+  return (
+    <div className="card" style={{ padding: 20, marginBottom: 24 }}>
+      <div style={{ fontWeight: 700, fontSize: 'var(--text-sm)', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 8 }}>
+        <Icon name="tune" size={16} style={{ color: 'var(--text-tertiary)' }} />
+        Protocol Options
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <ToggleRow
+          icon="computer"
+          label="Time Machine (macOS)"
+          description="Enables Samba fruit VFS and Avahi mDNS advertisement for macOS Time Machine backups"
+          checked={s?.time_machine ?? false}
+          onChange={v => toggle('time_machine', v)}
+          disabled={updateMut.isPending}
+          extra={s?.time_machine && s.avahi_file_ok ? (
+            <span style={{ fontSize: 'var(--text-2xs)', color: 'var(--success)', fontWeight: 600 }}>Avahi advertised</span>
+          ) : s?.time_machine && !s.avahi_file_ok ? (
+            <span style={{ fontSize: 'var(--text-2xs)', color: 'var(--warning)', fontWeight: 600 }}>avahi-daemon not running</span>
+          ) : null}
+        />
+        <ToggleRow
+          icon="history"
+          label="Shadow Copies (Previous Versions)"
+          description="Exposes ZFS snapshots as Windows Previous Versions via shadow_copy2 VFS module"
+          checked={s?.shadow_copy ?? false}
+          onChange={v => toggle('shadow_copy', v)}
+          disabled={updateMut.isPending}
+        />
+        <ToggleRow
+          icon="delete"
+          label="Recycle Bin"
+          description="Moves deleted files to a per-user .recycle folder instead of immediate deletion"
+          checked={s?.recycle_bin ?? false}
+          onChange={v => toggle('recycle_bin', v)}
+          disabled={updateMut.isPending}
+        />
+      </div>
+    </div>
+  )
+}
+
+function ToggleRow({ icon, label, description, checked, onChange, disabled, extra }: {
+  icon: string
+  label: string
+  description: string
+  checked: boolean
+  onChange: (v: boolean) => void
+  disabled: boolean
+  extra?: React.ReactNode
+}) {
+  return (
+    <label style={{ display: 'flex', alignItems: 'flex-start', gap: 12, cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.7 : 1 }}>
+      <input type="checkbox" checked={checked} onChange={e => onChange(e.target.checked)} disabled={disabled}
+        style={{ accentColor: 'var(--primary)', width: 16, height: 16, marginTop: 2, flexShrink: 0 }} />
+      <Icon name={icon} size={16} style={{ color: 'var(--text-tertiary)', marginTop: 2, flexShrink: 0 }} />
+      <div style={{ flex: 1 }}>
+        <div style={{ fontSize: 'var(--text-sm)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
+          {label}
+          {extra}
+        </div>
+        <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', marginTop: 2 }}>{description}</div>
+      </div>
+    </label>
+  )
+}
 
 // ---------------------------------------------------------------------------
 // CreateShareModal
@@ -234,6 +344,8 @@ export function SharesPage() {
           </button>
         </div>
       </div>
+
+      <ProtocolOptions />
 
       {sharesQ.isLoading && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
