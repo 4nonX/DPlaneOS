@@ -22,6 +22,7 @@
  *   POST /api/zfs/pools/destroy      (destroy a pool)
  */
 
+import type React from 'react'
 import { useState, useEffect, useMemo, useRef, type Dispatch, type SetStateAction } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
@@ -30,6 +31,7 @@ import { ErrorState } from '@/components/ui/ErrorState'
 import { Skeleton, Spinner } from '@/components/ui/LoadingSpinner'
 import { Tooltip } from '@/components/ui/Tooltip'
 import { toast } from '@/hooks/useToast'
+import { useConfirm } from '@/components/ui/ConfirmDialog'
 import { useWsStore } from '@/stores/ws'
 import { Modal } from '@/components/ui/Modal'
 import { PoolTopologyView, PoolTopology } from '@/components/zfs/PoolTopology'
@@ -1700,10 +1702,213 @@ function CreatePoolModal({ onClose, onCreated }: { onClose: () => void; onCreate
 }
 
 // ---------------------------------------------------------------------------
+// Scrub Scheduler Tab
+// ---------------------------------------------------------------------------
+
+interface ScrubTabModalProps {
+  pools: string[]
+  existing?: ScrubSchedule
+  usedPools: string[]
+  onSave: (s: ScrubSchedule) => void
+  onClose: () => void
+  isPending: boolean
+}
+
+function ScrubTabModal({ pools, existing, usedPools, onSave, onClose, isPending }: ScrubTabModalProps) {
+  const availablePools = pools.filter(p => p === existing?.pool || !usedPools.includes(p))
+  const [pool, setPool]         = useState(existing?.pool ?? availablePools[0] ?? '')
+  const [interval, setInterval] = useState<string>(existing?.interval ?? 'weekly')
+  const [hour, setHour]         = useState(existing?.hour ?? 2)
+  const [day, setDay]           = useState(existing?.day ?? 0)
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    if (!pool) { toast.error('Select a pool'); return }
+    onSave({ pool, interval, hour, day })
+  }
+
+  return (
+    <Modal title={existing ? 'Edit Scrub Schedule' : 'Add Scrub Schedule'} onClose={onClose}>
+      <form onSubmit={handleSubmit}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <div>
+            <label style={{ display: 'block', fontSize: 'var(--text-sm)', fontWeight: 500, marginBottom: 6 }}>Pool</label>
+            <select className="input" value={pool} onChange={e => setPool(e.target.value)} disabled={isPending || !!existing}>
+              {availablePools.map(p => <option key={p} value={p}>{p}</option>)}
+            </select>
+          </div>
+          <div>
+            <label style={{ display: 'block', fontSize: 'var(--text-sm)', fontWeight: 500, marginBottom: 6 }}>Interval</label>
+            <select className="input" value={interval} onChange={e => setInterval(e.target.value as 'daily' | 'weekly' | 'monthly')} disabled={isPending}>
+              <option value="daily">Daily</option>
+              <option value="weekly">Weekly</option>
+              <option value="monthly">Monthly</option>
+            </select>
+          </div>
+          {interval === 'weekly' && (
+            <div>
+              <label style={{ display: 'block', fontSize: 'var(--text-sm)', fontWeight: 500, marginBottom: 6 }}>Day of week</label>
+              <select className="input" value={day} onChange={e => setDay(Number(e.target.value))} disabled={isPending}>
+                {DAY_NAMES.map((n, i) => <option key={i} value={i}>{n}</option>)}
+              </select>
+            </div>
+          )}
+          {interval === 'monthly' && (
+            <div>
+              <label style={{ display: 'block', fontSize: 'var(--text-sm)', fontWeight: 500, marginBottom: 6 }}>Day of month</label>
+              <select className="input" value={day} onChange={e => setDay(Number(e.target.value))} disabled={isPending}>
+                {Array.from({ length: 28 }, (_, i) => i + 1).map(dom => {
+                  const ord = dom === 1 ? '1st' : dom === 2 ? '2nd' : dom === 3 ? '3rd' : `${dom}th`
+                  return <option key={dom} value={dom}>{ord}</option>
+                })}
+              </select>
+            </div>
+          )}
+          <div>
+            <label style={{ display: 'block', fontSize: 'var(--text-sm)', fontWeight: 500, marginBottom: 6 }}>Hour (server local time)</label>
+            <select className="input" value={hour} onChange={e => setHour(Number(e.target.value))} disabled={isPending}>
+              {Array.from({ length: 24 }, (_, i) => i).map(hh => (
+                <option key={hh} value={hh}>{hh.toString().padStart(2, '0')}:00</option>
+              ))}
+            </select>
+          </div>
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 20 }}>
+          <button type="button" className="btn btn-ghost" onClick={onClose} disabled={isPending}>Cancel</button>
+          <button type="submit" className="btn btn-primary" disabled={isPending}>
+            {isPending
+              ? <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Spinner size={14} color="rgba(0,0,0,0.7)" /> Saving…</span>
+              : existing ? 'Save Changes' : 'Add Schedule'
+            }
+          </button>
+        </div>
+      </form>
+    </Modal>
+  )
+}
+
+function ScrubTab({ pools }: { pools: string[] }) {
+  const qc = useQueryClient()
+  const { confirm, ConfirmDialog } = useConfirm()
+  const [modalPool, setModalPool] = useState<string | null>(null)
+
+  const schedulesQ = useQuery({
+    queryKey: ['zfs', 'scrub', 'schedule'],
+    queryFn: () => api.get<{ success: boolean; schedules: ScrubSchedule[] }>('/api/zfs/scrub/schedule'),
+  })
+
+  const saveMut = useMutation({
+    mutationFn: (schedules: ScrubSchedule[]) => api.post('/api/zfs/scrub/schedule', schedules),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['zfs', 'scrub', 'schedule'] })
+      toast.success('Scrub schedule saved')
+      setModalPool(null)
+    },
+    onError: (e: Error) => toast.error(e.message),
+  })
+
+  const schedules   = schedulesQ.data?.schedules ?? []
+  const usedPools   = schedules.map(s => s.pool)
+  const editingSched = modalPool ? schedules.find(s => s.pool === modalPool) : undefined
+  const allScheduled = pools.length > 0 && pools.every(p => usedPools.includes(p))
+
+  function handleSave(s: ScrubSchedule) {
+    const updated = editingSched
+      ? schedules.map(x => x.pool === s.pool ? s : x)
+      : [...schedules, s]
+    saveMut.mutate(updated)
+  }
+
+  async function handleDelete(s: ScrubSchedule) {
+    const ok = await confirm({
+      title: 'Remove scrub schedule?',
+      message: `The scheduled scrub for pool "${s.pool}" will be removed. You can re-add it at any time.`,
+      danger: true,
+      confirmLabel: 'Remove',
+    })
+    if (!ok) return
+    saveMut.mutate(schedules.filter(x => x.pool !== s.pool))
+  }
+
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 20, gap: 16 }}>
+        <p style={{ color: 'var(--text-secondary)', fontSize: 'var(--text-sm)', maxWidth: 560 }}>
+          Automated scrubs detect and correct silent data corruption. Schedule a recurring scrub for each pool.
+        </p>
+        <button className="btn btn-primary" onClick={() => setModalPool('')}
+          disabled={allScheduled || pools.length === 0} style={{ flexShrink: 0 }}>
+          <Icon name="add" size={16} /> Add Schedule
+        </button>
+      </div>
+
+      {schedulesQ.isLoading ? (
+        <div className="card" style={{ padding: 24 }}>
+          {[0, 1].map(i => <Skeleton key={i} style={{ height: 48, marginBottom: 10 }} />)}
+        </div>
+      ) : schedules.length === 0 ? (
+        <div className="empty-state">
+          <Icon name="cleaning_services" size={48} className="empty-state-icon" />
+          <h3 className="empty-state-title">No scrub schedules</h3>
+          <p className="empty-state-body">
+            Add a schedule to automatically scrub each pool on a recurring basis. Weekly scrubs are recommended.
+          </p>
+        </div>
+      ) : (
+        <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Pool</th>
+                <th>Schedule</th>
+                <th style={{ textAlign: 'right' }}></th>
+              </tr>
+            </thead>
+            <tbody>
+              {schedules.map(s => (
+                <tr key={s.pool}>
+                  <td><span style={{ fontFamily: 'var(--font-mono)', fontWeight: 600 }}>{s.pool}</span></td>
+                  <td style={{ color: 'var(--text-secondary)', fontSize: 'var(--text-sm)' }}>{formatScrubSchedule(s)}</td>
+                  <td style={{ textAlign: 'right' }}>
+                    <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
+                      <button className="btn btn-ghost btn-xs" style={{ padding: '4px 8px' }}
+                        onClick={() => setModalPool(s.pool)} title="Edit">
+                        <Icon name="edit" size={13} />
+                      </button>
+                      <button className="btn btn-ghost btn-xs" style={{ padding: '4px 8px', color: 'var(--error)' }}
+                        onClick={() => handleDelete(s)} disabled={saveMut.isPending} title="Remove">
+                        <Icon name="delete" size={13} />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {modalPool !== null && (
+        <ScrubTabModal
+          pools={pools}
+          existing={editingSched}
+          usedPools={usedPools}
+          onSave={handleSave}
+          onClose={() => setModalPool(null)}
+          isPending={saveMut.isPending}
+        />
+      )}
+
+      <ConfirmDialog />
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // PoolsPage
 // ---------------------------------------------------------------------------
 
-type Tab = 'pools' | 'encryption'
+type Tab = 'pools' | 'encryption' | 'scrub'
 
 export function PoolsPage() {
   const [tab, setTab] = useState<Tab>('pools')
@@ -1797,6 +2002,7 @@ export function PoolsPage() {
   const TABS: { id: Tab; label: string; icon: string }[] = [
     { id: 'pools', label: 'Pools & Datasets', icon: 'storage' },
     { id: 'encryption', label: 'Encryption', icon: 'lock' },
+    { id: 'scrub', label: 'Scrub Schedules', icon: 'cleaning_services' },
   ]
 
   return (
@@ -1883,6 +2089,11 @@ export function PoolsPage() {
           </div>
           <EncryptionTab />
         </>
+      )}
+
+      {/* Scrub Schedules content */}
+      {tab === 'scrub' && (
+        <ScrubTab pools={pools.map((p: any) => p.name).filter(Boolean)} />
       )}
 
       {createPoolOpen && (
