@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 
 
+## v8.2.0 (2026-05-09) - "Storage Depth"
+
+Upgrade from: v8.1.0 - Drop-in.
+
+### Added
+- **ZFS Scrub Schedules**: A dedicated Scrub Schedules tab in the ZFS Storage page surfaces the existing scrub scheduler backend. Per-pool daily, weekly, and monthly scrub scheduling with time-of-day selection. Backed by systemd timers installed by the daemon.
+- **SMB Protocol Options**: The Shares page now has a Protocol Options card with live toggles for three global SMB features: Time Machine (macOS), Shadow Copies (Windows Previous Versions), and Recycle Bin. Enabling Time Machine also writes an Avahi mDNS service advertisement file so macOS discovers the server automatically via Bonjour.
+- **Shadow Copies (Previous Versions)**: ZFS snapshots are now surfaced as Windows Previous Versions via the Samba shadow_copy2 VFS module when the Shadow Copies toggle is enabled. The shadow format is tuned to match D-PlaneOS snapshot naming (auto-YYYYMMDD-HHMM).
+- **MinIO S3 Object Storage**: Managed MinIO service providing local S3-compatible object storage. The new S3 Object Storage page supports configuration (root user, secret key, data volume path, API port, console port), service start/stop/restart, and writes the MinIO environment file and systemd unit. Listed under Storage in the nav.
+
+### Changed
+- ZFS Storage page gains a third tab (Scrub Schedules) alongside Pools and Encryption.
+- Shares page gains a Protocol Options card above the share list.
+- Shadow copies format updated to match D-PlaneOS snapshot scheduler naming convention.
+
+
+
 ## v8.1.0 (2026-05-09) - "Protocol Suite"
 
 Upgrade from: v8.0.4 - Drop-in.
