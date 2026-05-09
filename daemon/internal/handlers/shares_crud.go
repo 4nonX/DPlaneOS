@@ -544,8 +544,9 @@ func (h *ShareCRUDHandler) regenerateSMBConf() {
 			vfsObjects = append(vfsObjects, "shadow_copy2")
 			conf.WriteString("   shadow:snapdir = .zfs/snapshot\n")
 			conf.WriteString("   shadow:sort = desc\n")
-			// Match D-PlaneOS snapshot naming: auto-20060102-1504 (Go time format)
-			conf.WriteString("   shadow:format = auto-%Y%m%d-%H%M\n")
+			// Strip frequency prefix (e.g. "auto-daily-", "auto-weekly-") then parse date
+			conf.WriteString("   shadow:snapprefix = ^auto-[a-z]+-\n")
+			conf.WriteString("   shadow:format = %Y%m%d-%H%M\n")
 		}
 		if globalRecycleBin == 1 {
 			vfsObjects = append(vfsObjects, "recycle")
