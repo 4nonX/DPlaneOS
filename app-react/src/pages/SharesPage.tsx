@@ -104,7 +104,7 @@ function ProtocolOptions() {
         <ToggleRow
           icon="history"
           label="Shadow Copies (Previous Versions)"
-          description="Exposes ZFS snapshots as Windows Previous Versions via shadow_copy2 VFS module"
+          description="Exposes ZFS snapshots as Windows Previous Versions. Snapshots must use the default auto- prefix created by the Snapshot Scheduler."
           checked={s?.shadow_copy ?? false}
           onChange={v => toggle('shadow_copy', v)}
           disabled={updateMut.isPending}
