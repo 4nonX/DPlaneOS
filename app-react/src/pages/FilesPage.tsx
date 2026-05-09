@@ -22,7 +22,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api, getSessionId, getUsername, getCsrfToken } from '@/lib/api'
 import { Icon } from '@/components/ui/Icon'
 import { ErrorState } from '@/components/ui/ErrorState'
-import { Skeleton } from '@/components/ui/LoadingSpinner'
+import { Skeleton, Spinner } from '@/components/ui/LoadingSpinner'
 import { toast } from '@/hooks/useToast'
 import { Modal } from '@/components/ui/Modal'
 import { Tooltip } from '@/components/ui/Tooltip'
@@ -93,6 +93,7 @@ function ContextMenu({ state, onClose, onAction }: {
   const items = [
     ...(state.entry.is_dir ? [] : [{ label: 'Edit', icon: 'edit_note', action: 'edit' }]),
     ...(state.entry.is_dir ? [] : [{ label: 'Download', icon: 'download', action: 'download' }]),
+    ...(state.entry.is_dir ? [] : [{ label: 'Share Link', icon: 'add_link', action: 'share' }]),
     { label: 'Rename', icon: 'edit', action: 'rename' },
     { label: 'Copy', icon: 'content_copy', action: 'copy' },
     { label: 'Change Owner', icon: 'manage_accounts', action: 'chown' },
@@ -207,6 +208,98 @@ function ChmodModal({ entry, onClose, onDone }: { entry: FileEntry; onClose: () 
         Common: 755 (dir), 644 (file), 600 (private), 777 (world-writable)
       </div>
       <ModalFooter onClose={onClose} onConfirm={() => mutation.mutate()} loading={mutation.isPending} label="Apply" />
+    </Modal>
+  )
+}
+
+function ShareLinkModal({ entry, onClose }: { entry: FileEntry; onClose: () => void }) {
+  const [expiresHours, setExpires] = useState<number>(72)
+  const [neverExpires, setNever]   = useState(false)
+  const [password, setPassword]    = useState('')
+  const [maxDownloads, setMaxDl]   = useState<number>(0)
+  const [showPw, setShowPw]        = useState(false)
+  const [createdUrl, setCreatedUrl] = useState<string | null>(null)
+
+  const mut = useMutation({
+    mutationFn: () => api.post<{ success: boolean; share: { token: string } }>('/api/file-shares', {
+      path: entry.path,
+      expires_in_hours: neverExpires ? 0 : expiresHours,
+      password,
+      max_downloads: maxDownloads,
+    }),
+    onSuccess: (res) => {
+      const url = `${window.location.origin}/api/s/${res.share.token}/download`
+      setCreatedUrl(url)
+      toast.success('Share link created')
+    },
+    onError: (e: Error) => toast.error(e.message),
+  })
+
+  if (createdUrl) {
+    return (
+      <Modal title="Share Link Created" onClose={onClose}>
+        <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', marginBottom: 12 }}>
+          Anyone with this link can download <strong>{entry.name}</strong>.
+        </p>
+        <div style={{ background: 'var(--surface)', borderRadius: 'var(--radius-md)', padding: '10px 14px', fontFamily: 'var(--font-mono)', fontSize: 13, wordBreak: 'break-all', border: '1px solid var(--border)', marginBottom: 16 }}>
+          {createdUrl}
+        </div>
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+          <button className="btn btn-ghost" onClick={onClose}>Close</button>
+          <button className="btn btn-primary" onClick={() => { navigator.clipboard.writeText(createdUrl); toast.success('Copied to clipboard') }}>
+            <Icon name="content_copy" size={14} /> Copy Link
+          </button>
+        </div>
+      </Modal>
+    )
+  }
+
+  return (
+    <Modal title={`Share: ${entry.name}`} onClose={onClose}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', userSelect: 'none' }}>
+          <input type="checkbox" checked={neverExpires} onChange={e => setNever(e.target.checked)} disabled={mut.isPending} />
+          <span style={{ fontSize: 'var(--text-sm)', fontWeight: 500 }}>Never expires</span>
+        </label>
+        {!neverExpires && (
+          <div>
+            <label style={{ display: 'block', fontSize: 'var(--text-sm)', fontWeight: 500, marginBottom: 6 }}>Expires after (hours)</label>
+            <input className="input" type="number" min={1} max={87600}
+              value={expiresHours} onChange={e => setExpires(Number(e.target.value))} disabled={mut.isPending} />
+            <p style={{ marginTop: 4, fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }}>24h = 1 day, 168h = 1 week, 720h = 30 days</p>
+          </div>
+        )}
+        <div>
+          <label style={{ display: 'block', fontSize: 'var(--text-sm)', fontWeight: 500, marginBottom: 6 }}>
+            Download limit <span style={{ color: 'var(--text-tertiary)', fontWeight: 400 }}>(0 = unlimited)</span>
+          </label>
+          <input className="input" type="number" min={0}
+            value={maxDownloads} onChange={e => setMaxDl(Number(e.target.value))} disabled={mut.isPending} />
+        </div>
+        <div>
+          <label style={{ display: 'block', fontSize: 'var(--text-sm)', fontWeight: 500, marginBottom: 6 }}>
+            Password <span style={{ color: 'var(--text-tertiary)', fontWeight: 400 }}>(optional)</span>
+          </label>
+          <div style={{ position: 'relative' }}>
+            <input className="input" type={showPw ? 'text' : 'password'} placeholder="Leave blank for no password"
+              value={password} onChange={e => setPassword(e.target.value)} disabled={mut.isPending}
+              style={{ paddingRight: 40 }} />
+            <button type="button" onClick={() => setShowPw(p => !p)}
+              style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-tertiary)', padding: 0 }}>
+              <Icon name={showPw ? 'visibility_off' : 'visibility'} size={16} />
+            </button>
+          </div>
+        </div>
+      </div>
+      <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 20 }}>
+        <button className="btn btn-ghost" onClick={onClose} disabled={mut.isPending}>Cancel</button>
+        <button className="btn btn-primary" onClick={() => mut.mutate()} disabled={mut.isPending}>
+          {mut.isPending
+            ? <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Spinner size={14} color="rgba(0,0,0,0.7)" /> Creating…</span>
+            : <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Icon name="add_link" size={15} /> Create Link</span>
+          }
+        </button>
+      </div>
     </Modal>
   )
 }
@@ -784,6 +877,7 @@ function FileBrowser() {
       {modal?.type === 'chown'  && <ChownModal  entry={modal.entry} onClose={() => setModal(null)} onDone={refresh} />}
       {modal?.type === 'chmod'  && <ChmodModal  entry={modal.entry} onClose={() => setModal(null)} onDone={refresh} />}
       {modal?.type === 'edit'   && <TextEditorModal entry={modal.entry} onClose={() => setModal(null)} onSaved={refresh} />}
+      {modal?.type === 'share'  && <ShareLinkModal entry={modal.entry} onClose={() => setModal(null)} />}
       {modal?.type === 'copy'   && (
         <Modal title={`Copy - ${modal.entry.name}`} onClose={() => setModal(null)}>
           <CopyForm entry={modal.entry} onClose={() => setModal(null)} onDone={refresh} />

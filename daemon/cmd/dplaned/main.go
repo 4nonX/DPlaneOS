@@ -846,6 +846,14 @@ func main() {
 	r.Handle("/api/nfs/exports/{id}", permRoute("shares", "write", nfsHandler.DeleteNFSExport)).Methods("DELETE")
 	r.Handle("/api/nfs/reload", permRoute("shares", "admin", nfsHandler.ReloadNFSExportsHandler)).Methods("POST")
 
+	// FTP/FTPS handlers
+	r.Handle("/api/ftp/status", permRoute("shares", "read", http.HandlerFunc(handlers.GetFTPStatus))).Methods("GET")
+	r.Handle("/api/ftp/config", permRoute("shares", "read", http.HandlerFunc(handlers.GetFTPConfig))).Methods("GET")
+	r.Handle("/api/ftp/config", permRoute("shares", "admin", http.HandlerFunc(handlers.UpdateFTPConfig))).Methods("PUT")
+	r.Handle("/api/ftp/start", permRoute("shares", "admin", http.HandlerFunc(handlers.StartFTP))).Methods("POST")
+	r.Handle("/api/ftp/stop", permRoute("shares", "admin", http.HandlerFunc(handlers.StopFTP))).Methods("POST")
+	r.Handle("/api/ftp/restart", permRoute("shares", "admin", http.HandlerFunc(handlers.RestartFTP))).Methods("POST")
+
 	// Shares CRUD handlers
 	shareCRUDHandler := handlers.NewShareCRUDHandler(db, *smbConfPath)
 	r.Handle("/api/shares/list", permRoute("shares", "read", shareCRUDHandler.HandleShares)).Methods("GET")
@@ -860,6 +868,12 @@ func main() {
 	r.Handle("/api/rbac/users", permRoute("users", "write", userGroupHandler.HandleUsers)).Methods("POST")
 	r.Handle("/api/rbac/groups", permRoute("users", "read", userGroupHandler.HandleGroups)).Methods("GET")
 	r.Handle("/api/rbac/groups", permRoute("users", "write", userGroupHandler.HandleGroups)).Methods("POST")
+
+	// SSH key management
+	r.Handle("/api/ssh/status", permRoute("users", "read", http.HandlerFunc(handlers.GetSSHStatus))).Methods("GET")
+	r.Handle("/api/ssh/keys", permRoute("users", "read", http.HandlerFunc(handlers.ListSSHKeys))).Methods("GET")
+	r.Handle("/api/ssh/keys", permRoute("users", "admin", http.HandlerFunc(handlers.AddSSHKey))).Methods("POST")
+	r.Handle("/api/ssh/keys/{id}", permRoute("users", "admin", http.HandlerFunc(handlers.DeleteSSHKey))).Methods("DELETE")
 
 	// System status, profile, preflight, setup handlers
 	systemStatusHandler := handlers.NewSystemStatusHandler(db, Version)
@@ -909,10 +923,26 @@ func main() {
 	r.Handle("/api/files/chown", permRoute("storage", "write", handlers.ChangeOwnership)).Methods("POST")
 	r.Handle("/api/files/chmod", permRoute("storage", "write", handlers.ChangePermissions)).Methods("POST")
 
+	// File share links (authenticated CRUD)
+	r.Handle("/api/file-shares", permRoute("storage", "read", http.HandlerFunc(handlers.ListFileShares))).Methods("GET")
+	r.Handle("/api/file-shares", permRoute("storage", "write", http.HandlerFunc(handlers.CreateFileShare))).Methods("POST")
+	r.Handle("/api/file-shares/{id}", permRoute("storage", "write", http.HandlerFunc(handlers.DeleteFileShare))).Methods("DELETE")
+	// Public download endpoints - no session required (whitelisted in sessionMiddleware)
+	r.Handle("/api/s/{token}", http.HandlerFunc(handlers.GetFileShareInfo)).Methods("GET")
+	r.Handle("/api/s/{token}/download", http.HandlerFunc(handlers.DownloadFileShare)).Methods("GET")
+
 	// Backup handlers
 	r.Handle("/api/backup/rsync", permRoute("storage", "read", handlers.ExecuteRsync)).Methods("GET")
 	r.Handle("/api/backup/rsync", permRoute("storage", "write", handlers.ExecuteRsync)).Methods("POST")
 	r.Handle("/api/backup/rsync/{id}", permRoute("storage", "write", http.HandlerFunc(handlers.DeleteBackupTask))).Methods("DELETE")
+
+	// Rsync schedule handlers
+	r.Handle("/api/backup/rsync/schedules", permRoute("storage", "read", http.HandlerFunc(handlers.ListRsyncSchedules))).Methods("GET")
+	r.Handle("/api/backup/rsync/schedules", permRoute("storage", "write", http.HandlerFunc(handlers.CreateRsyncSchedule))).Methods("POST")
+	r.Handle("/api/backup/rsync/schedules/{id}", permRoute("storage", "write", http.HandlerFunc(handlers.UpdateRsyncSchedule))).Methods("PUT")
+	r.Handle("/api/backup/rsync/schedules/{id}", permRoute("storage", "write", http.HandlerFunc(handlers.DeleteRsyncSchedule))).Methods("DELETE")
+	r.Handle("/api/backup/rsync/schedules/{id}/run", permRoute("storage", "write", http.HandlerFunc(handlers.RunRsyncScheduleNow))).Methods("POST")
+	r.Handle("/api/backup/rsync/cron-hook", http.HandlerFunc(handlers.RsyncCronHook)).Methods("POST")
 
 	// Cloud Sync (rclone-based)
 	cloudSyncHandler := handlers.NewCloudSyncHandler()
@@ -1287,12 +1317,14 @@ func sessionMiddleware(db *sql.DB) mux.MiddlewareFunc {
 				p == "/api/system/setup-complete" ||
 				p == "/api/system/status" || // dashboard needs status before login to detect setup_complete
 				p == "/api/system/health" || // health endpoint must be public for monitoring
+				// File share download links - no session required, token is the auth
+				strings.HasPrefix(p, "/api/s/") ||
 				// HA peer endpoints - called by peer daemons that have no user session
 				p == "/api/ha/heartbeat" ||
 				p == "/api/ha/sync/status" ||
 				// Internal hooks - called by systemd timers on localhost.
 				// Mandatory check: Must be localhost AND provide the internal-only secret token.
-				((p == "/api/zfs/snapshots/cron-hook" || p == "/api/hardware/smart/cron-hook") &&
+				((p == "/api/zfs/snapshots/cron-hook" || p == "/api/hardware/smart/cron-hook" || p == "/api/backup/rsync/cron-hook") &&
 					(strings.HasPrefix(r.RemoteAddr, "127.0.0.1") || strings.HasPrefix(r.RemoteAddr, "[::1]")) &&
 					r.Header.Get("X-Internal-Token") == "dplaneos-internal-reconciliation-secret-v1") ||
 				// Internal disk events - called by udev scripts on localhost

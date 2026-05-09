@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 
 
+## v8.1.0 (2026-05-09) - "Protocol Suite"
+
+Upgrade from: v8.0.4 - Drop-in.
+
+### Added
+- **Scheduled rsync backups**: Recurring rsync jobs with hourly, daily, weekly, and monthly scheduling. Each schedule installs a systemd timer that calls back into the daemon via a localhost-only cron hook. Per-schedule run history tracks last execution time, status, and job ID. Full CRUD from the Backup page (new Schedules tab alongside Run Now).
+- **FTP/FTPS server**: Full management of vsftpd including enable/disable, FTP vs. explicit TLS (FTPS) mode, port, passive port range, max clients, anonymous access, chroot, and TLS certificate paths. Allowed-user selection from the system user list controls who may connect. Service start/stop/restart with live status from systemd.
+- **Shareable file download links**: Authenticated users create time-limited, optionally password-protected, optionally download-count-capped download tokens for individual files. Public download endpoint (`/api/s/{token}/download`) requires no session - the token is the credential. Links can be created via right-click in the File Explorer or from the dedicated File Share Links management page, which shows active and expired links with copy-to-clipboard and revoke actions.
+- **SSH authorized key management**: Per-user SSH public key management writing directly to `~/.ssh/authorized_keys`. Supports all current key types (ed25519, RSA, ECDSA, sk-* hardware-backed variants). On first mutation for a user, any pre-existing keys in their authorized_keys file are auto-imported so no manually-added keys are lost. SSH daemon settings remain under NixOS configuration management; the page shows live daemon status and port as read-only.
+- **Audit Log page routing**: The Audit Log page was implemented but not reachable via navigation. Now correctly routed at `/audit` with a nav entry under Security.
+- **Backup page frontend**: The ad-hoc rsync backend existed but had no dedicated UI. BackupPage now provides source, destination, and options inputs, live job progress tracking, and a deletable task history table.
+
+### Changed
+- Backup page reorganised into Run Now and Schedules tabs to accommodate the new scheduling feature.
+- Storage nav group expanded with FTP/FTPS and File Share Links entries. Identity nav group expanded with SSH Keys.
+
+
+
 ## v8.0.4 (2026-05-09)
 
 Upgrade from: v8.0.3 - Drop-in.

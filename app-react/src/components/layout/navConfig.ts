@@ -45,6 +45,8 @@ const initialNav: NavItem[] = [
       { kind: 'leaf', id: 'pools',        label: 'ZFS Pools',         icon: 'water',              route: '/pools' },
       { kind: 'leaf', id: 'shares',       label: 'Shares',            icon: 'folder_shared',      route: '/shares' },
       { kind: 'leaf', id: 'nfs',          label: 'NFS Exports',       icon: 'lan',                route: '/nfs' },
+      { kind: 'leaf', id: 'ftp',          label: 'FTP / FTPS',        icon: 'folder_copy',        route: '/ftp' },
+      { kind: 'leaf', id: 'file-shares', label: 'File Share Links',  icon: 'link',               route: '/file-shares' },
       { kind: 'leaf', id: 'snapshots',    label: 'Snapshot Scheduler',icon: 'schedule',           route: '/snapshots' },
       { kind: 'leaf', id: 'replication',  label: 'Replication',       icon: 'sync',               route: '/replication' },
       { kind: 'leaf', id: 'files',        label: 'File Explorer',     icon: 'folder_open',        route: '/files' },
@@ -53,6 +55,7 @@ const initialNav: NavItem[] = [
       { kind: 'leaf', id: 'iscsi',        label: 'iSCSI Targets',     icon: 'storage',            route: '/iscsi' },
       { kind: 'leaf', id: 'nvme-of',      label: 'NVMe-oF',           icon: 'flash_on',           route: '/nvme-of' },
       { kind: 'leaf', id: 'cloud-sync',   label: 'Cloud Sync',        icon: 'cloud_sync',         route: '/cloud-sync' },
+      { kind: 'leaf', id: 'backup',       label: 'Backup',            icon: 'backup',             route: '/backup' },
       { kind: 'leaf', id: 'sandbox',      label: 'Sandbox',           icon: 'science',            route: '/sandbox' },
       { kind: 'leaf', id: 'delegation',   label: 'ZFS Delegation',    icon: 'lock_open',          route: '/delegation' },
     ],
@@ -86,6 +89,7 @@ const initialNav: NavItem[] = [
     children: [
       { kind: 'leaf', id: 'users',     label: 'Users & Groups',    icon: 'group',  route: '/users' },
       { kind: 'leaf', id: 'directory', label: 'Directory Service', icon: 'domain', route: '/directory' },
+      { kind: 'leaf', id: 'ssh-keys',  label: 'SSH Keys',          icon: 'key',    route: '/ssh-keys' },
     ],
   },
   {
@@ -97,6 +101,7 @@ const initialNav: NavItem[] = [
       { kind: 'leaf', id: 'security',     label: 'Security Settings', icon: 'shield',             route: '/security' },
       { kind: 'leaf', id: 'firewall',     label: 'Firewall',          icon: 'local_fire_department', route: '/firewall' },
       { kind: 'leaf', id: 'certificates', label: 'Certificates',      icon: 'verified_user',      route: '/certificates' },
+      { kind: 'leaf', id: 'audit',        label: 'Audit Log',         icon: 'policy',             route: '/audit' },
     ],
   },
   {

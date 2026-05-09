@@ -57,6 +57,11 @@ import { SupportPage }       from '@/pages/SupportPage'
 import { TerminalPage }      from '@/pages/TerminalPage'
 import { SandboxPage }       from '@/pages/SandboxPage'
 import { DelegationPage }    from '@/pages/DelegationPage'
+import { BackupPage }        from '@/pages/BackupPage'
+import { FTPPage }           from '@/pages/FTPPage'
+import { FileSharesPage }    from '@/pages/FileSharesPage'
+import { SSHKeysPage }       from '@/pages/SSHKeysPage'
+import { AuditPage }         from '@/pages/AuditPage'
 import { getPluginRoutes }   from '@/plugins'
 
 // Silence unused React import warning (needed for JSX in some tsx files)
@@ -116,6 +121,11 @@ const iscsiRoute      = createRoute({ getParentRoute: () => protectedRoute, path
 const nvmeRoute       = createRoute({ getParentRoute: () => protectedRoute, path: '/nvme-of',       component: NVMeOFPage })
 const cloudRoute      = createRoute({ getParentRoute: () => protectedRoute, path: '/cloud-sync',    component: CloudSyncPage })
 const sandboxRoute    = createRoute({ getParentRoute: () => protectedRoute, path: '/sandbox',       component: SandboxPage })
+const backupRoute     = createRoute({ getParentRoute: () => protectedRoute, path: '/backup',        component: BackupPage })
+const ftpRoute        = createRoute({ getParentRoute: () => protectedRoute, path: '/ftp',           component: FTPPage })
+const fileSharesRoute = createRoute({ getParentRoute: () => protectedRoute, path: '/file-shares',   component: FileSharesPage })
+const sshKeysRoute    = createRoute({ getParentRoute: () => protectedRoute, path: '/ssh-keys',      component: SSHKeysPage })
+const auditRoute      = createRoute({ getParentRoute: () => protectedRoute, path: '/audit',         component: AuditPage })
 const delegationRoute = createRoute({ getParentRoute: () => protectedRoute, path: '/delegation',    component: DelegationPage })
 const dockerRoute     = createRoute({ getParentRoute: () => protectedRoute, path: '/docker',        component: DockerPage })
 const modulesRoute    = createRoute({ getParentRoute: () => protectedRoute, path: '/modules',       component: ModulesPage })
@@ -149,7 +159,7 @@ const routeTree = rootRoute.addChildren([
   protectedRoute.addChildren([
     dashboardRoute, poolsRoute, sharesRoute, nfsRoute, snapshotsRoute, replRoute,
     filesRoute, quotasRoute, aclRoute, iscsiRoute, nvmeRoute, cloudRoute,
-    sandboxRoute, delegationRoute,
+    sandboxRoute, delegationRoute, backupRoute, auditRoute, ftpRoute, fileSharesRoute, sshKeysRoute,
     dockerRoute, modulesRoute, gitOpsRoute,
     networkRoute, removableRoute,
     usersRoute, directoryRoute,
