@@ -61,6 +61,7 @@ import { BackupPage }        from '@/pages/BackupPage'
 import { FTPPage }           from '@/pages/FTPPage'
 import { FileSharesPage }    from '@/pages/FileSharesPage'
 import { SSHKeysPage }       from '@/pages/SSHKeysPage'
+import { S3Page }            from '@/pages/S3Page'
 import { AuditPage }         from '@/pages/AuditPage'
 import { getPluginRoutes }   from '@/plugins'
 
@@ -125,6 +126,7 @@ const backupRoute     = createRoute({ getParentRoute: () => protectedRoute, path
 const ftpRoute        = createRoute({ getParentRoute: () => protectedRoute, path: '/ftp',           component: FTPPage })
 const fileSharesRoute = createRoute({ getParentRoute: () => protectedRoute, path: '/file-shares',   component: FileSharesPage })
 const sshKeysRoute    = createRoute({ getParentRoute: () => protectedRoute, path: '/ssh-keys',      component: SSHKeysPage })
+const s3Route         = createRoute({ getParentRoute: () => protectedRoute, path: '/s3',            component: S3Page })
 const auditRoute      = createRoute({ getParentRoute: () => protectedRoute, path: '/audit',         component: AuditPage })
 const delegationRoute = createRoute({ getParentRoute: () => protectedRoute, path: '/delegation',    component: DelegationPage })
 const dockerRoute     = createRoute({ getParentRoute: () => protectedRoute, path: '/docker',        component: DockerPage })
@@ -159,7 +161,7 @@ const routeTree = rootRoute.addChildren([
   protectedRoute.addChildren([
     dashboardRoute, poolsRoute, sharesRoute, nfsRoute, snapshotsRoute, replRoute,
     filesRoute, quotasRoute, aclRoute, iscsiRoute, nvmeRoute, cloudRoute,
-    sandboxRoute, delegationRoute, backupRoute, auditRoute, ftpRoute, fileSharesRoute, sshKeysRoute,
+    sandboxRoute, delegationRoute, backupRoute, auditRoute, ftpRoute, fileSharesRoute, sshKeysRoute, s3Route,
     dockerRoute, modulesRoute, gitOpsRoute,
     networkRoute, removableRoute,
     usersRoute, directoryRoute,

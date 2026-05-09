@@ -54,6 +54,7 @@ const initialNav: NavItem[] = [
       { kind: 'leaf', id: 'acl',          label: 'ACL Manager',       icon: 'admin_panel_settings',route: '/acl' },
       { kind: 'leaf', id: 'iscsi',        label: 'iSCSI Targets',     icon: 'storage',            route: '/iscsi' },
       { kind: 'leaf', id: 'nvme-of',      label: 'NVMe-oF',           icon: 'flash_on',           route: '/nvme-of' },
+      { kind: 'leaf', id: 's3',            label: 'S3 Object Storage', icon: 'inventory_2',        route: '/s3' },
       { kind: 'leaf', id: 'cloud-sync',   label: 'Cloud Sync',        icon: 'cloud_sync',         route: '/cloud-sync' },
       { kind: 'leaf', id: 'backup',       label: 'Backup',            icon: 'backup',             route: '/backup' },
       { kind: 'leaf', id: 'sandbox',      label: 'Sandbox',           icon: 'science',            route: '/sandbox' },

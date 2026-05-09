@@ -854,6 +854,14 @@ func main() {
 	r.Handle("/api/ftp/stop", permRoute("shares", "admin", http.HandlerFunc(handlers.StopFTP))).Methods("POST")
 	r.Handle("/api/ftp/restart", permRoute("shares", "admin", http.HandlerFunc(handlers.RestartFTP))).Methods("POST")
 
+	// MinIO S3 object storage handlers
+	r.Handle("/api/s3/status", permRoute("storage", "read", http.HandlerFunc(handlers.GetMinioStatus))).Methods("GET")
+	r.Handle("/api/s3/config", permRoute("storage", "read", http.HandlerFunc(handlers.GetMinioConfig))).Methods("GET")
+	r.Handle("/api/s3/config", permRoute("storage", "admin", http.HandlerFunc(handlers.UpdateMinioConfig))).Methods("PUT")
+	r.Handle("/api/s3/start", permRoute("storage", "admin", http.HandlerFunc(handlers.StartMinio))).Methods("POST")
+	r.Handle("/api/s3/stop", permRoute("storage", "admin", http.HandlerFunc(handlers.StopMinio))).Methods("POST")
+	r.Handle("/api/s3/restart", permRoute("storage", "admin", http.HandlerFunc(handlers.RestartMinio))).Methods("POST")
+
 	// Shares CRUD handlers
 	shareCRUDHandler := handlers.NewShareCRUDHandler(db, *smbConfPath)
 	r.Handle("/api/shares/list", permRoute("shares", "read", shareCRUDHandler.HandleShares)).Methods("GET")
