@@ -75,9 +75,10 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
         borderBottom: '1px solid var(--border)',
         flexShrink: 0}}>
         {!collapsed && (
-          <div
+          <button
             onClick={() => navigate('/')}
-            style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8 }}
+            aria-label="Go to Dashboard"
+            style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8 }}
           >
             <div style={{
               width: 24, height: 24, borderRadius: 6,
@@ -93,7 +94,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
               letterSpacing: '-0.3px', whiteSpace: 'nowrap'}}>
               D-PlaneOS
             </span>
-          </div>
+          </button>
         )}
         <button
           onClick={onToggle}
@@ -133,6 +134,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
                 <button
                   onClick={() => toggleGroup(group.id)}
                   aria-expanded={isOpen}
+                  aria-controls={`nav-group-${group.id}`}
                   style={{
                     width: '100%', display: 'flex', alignItems: 'center', gap: 9,
                     padding: '8px 16px 8px 18px',
@@ -165,6 +167,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
                 <Tooltip content={group.label} position="right">
                   <button
                     onClick={() => navigate(group.children[0]?.route ?? '/')}
+                    aria-label={group.label}
                     style={{
                       width: '100%', display: 'flex', justifyContent: 'center',
                       padding: '10px 0', background: hasActive ? 'var(--primary-bg)' : 'none',
@@ -181,7 +184,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
 
               {/* Children */}
               {!collapsed && isOpen && (
-                <div>
+                <div id={`nav-group-${group.id}`}>
                   {group.children.map((child) => (
                     <LeafItem key={child.id} leaf={child}
                       isActive={pathname === child.route}
@@ -205,10 +208,13 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
         display: 'flex', flexDirection: 'column', gap: 8, flexShrink: 0}}>
         {/* WS dot */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: collapsed ? 'center' : 'flex-start', gap: 8 }}>
-          <span className={`status-dot ${wsClass}`} />
-          {!collapsed && (
-            <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }}>{wsLabel}</span>
-          )}
+          <span className={`status-dot ${wsClass}`} aria-hidden="true" />
+          <span style={collapsed ? {
+            position: 'absolute', width: 1, height: 1, padding: 0, margin: -1,
+            overflow: 'hidden', clip: 'rect(0,0,0,0)', whiteSpace: 'nowrap', border: 0
+          } : { fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }}>
+            {wsLabel}
+          </span>
         </div>
 
         {/* User + logout */}
@@ -286,6 +292,7 @@ function LeafItem({ leaf, isActive, collapsed, indent = false, onClick }: LeafIt
     <button
       onClick={onClick}
       aria-current={isActive ? 'page' : undefined}
+      aria-label={collapsed ? leaf.label : undefined}
       style={{
         width: '100%', display: 'flex', alignItems: 'center', gap: collapsed ? 0 : 10,
         padding: collapsed ? 0 : indent ? '7px 16px 7px 36px' : '8px 16px 8px 18px',

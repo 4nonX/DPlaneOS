@@ -17,20 +17,22 @@ export function Popover({ children, title, content, position = 'top', delay = 20
   const [visible, setVisible] = useState(false)
   const timeoutRef = useRef<number | undefined>(undefined)
 
-  const handleMouseEnter = () => {
+  const show = () => {
     timeoutRef.current = window.setTimeout(() => setVisible(true), delay)
   }
 
-  const handleMouseLeave = () => {
+  const hide = () => {
     if (timeoutRef.current) clearTimeout(timeoutRef.current)
     timeoutRef.current = window.setTimeout(() => setVisible(false), 150)
   }
 
   return (
-    <span 
+    <span
       className="popover-wrapper"
-      onMouseEnter={handleMouseEnter}
-      onMouseLeave={handleMouseLeave}
+      onMouseEnter={show}
+      onMouseLeave={hide}
+      onFocus={show}
+      onBlur={hide}
     >
       {children}
       {visible && (

@@ -1,6 +1,6 @@
 {
   "name": "dplaneos-ui",
-  "version": "7.4.6",
+  "version": "8.3.0",
   "private": true,
   "type": "module",
   "scripts": {

@@ -436,8 +436,13 @@ function RolesTab() {
 
       {roles.map(role => (
         <div key={role.id} className="card" style={{ borderRadius: 'var(--radius-md)', overflow: 'hidden' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 18px', cursor: 'pointer' }}
-            onClick={() => setExpanded(expanded === role.id ? null : role.id)}>
+          <button
+            type="button"
+            style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 18px', cursor: 'pointer', background: 'none', border: 'none', width: '100%', textAlign: 'left', fontFamily: 'inherit', color: 'inherit' }}
+            aria-expanded={expanded === role.id}
+            aria-controls={`role-panel-${String(role.id)}`}
+            onClick={() => setExpanded(expanded === role.id ? null : role.id)}
+          >
             <Icon name="shield" size={18} style={{ color: 'var(--primary)', flexShrink: 0 }} />
             <div style={{ flex: 1 }}>
               <div style={{ fontWeight: 700 }}>{role.name}</div>
@@ -445,9 +450,9 @@ function RolesTab() {
             </div>
             {role.permissions && <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }}>{role.permissions.length} permission{role.permissions.length !== 1 ? 's' : ''}</span>}
             <Icon name={expanded === role.id ? 'expand_less' : 'expand_more'} size={16} style={{ color: 'var(--text-tertiary)' }} />
-          </div>
+          </button>
           {expanded === role.id && role.permissions && (
-            <div style={{ padding: '0 18px 14px', borderTop: '1px solid var(--border)' }}>
+            <div id={`role-panel-${String(role.id)}`} style={{ padding: '0 18px 14px', borderTop: '1px solid var(--border)' }}>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, paddingTop: 12 }}>
                 {role.permissions.map(perm => (
                   <span key={perm} style={{ padding: '3px 8px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', fontSize: 'var(--text-xs)', fontFamily: 'var(--font-mono)', color: 'var(--text-secondary)' }}>{perm}</span>
@@ -579,18 +584,67 @@ export function UsersPage() {
         <p className="page-subtitle">Local user accounts, groups and RBAC roles</p>
       </div>
 
-      <div className="tabs-underline">
+      <div
+        className="tabs-underline"
+        role="tablist"
+        aria-label="User management sections"
+        onKeyDown={(e) => {
+          // Manual Activation: arrows move focus only — each panel makes a
+          // live API call on mount, so activating on every arrow keypress
+          // would fire unnecessary daemon requests. Enter/Space activates.
+          const activeIdx = TABS.findIndex(t => t.id === tab)
+          const focusedEl = document.activeElement
+          const focusedIdx = TABS.findIndex(t => focusedEl?.id === `users-tab-${t.id}`)
+          const fromIdx = focusedIdx >= 0 ? focusedIdx : activeIdx
+
+          if (e.key === 'ArrowRight') {
+            e.preventDefault()
+            document.getElementById(`users-tab-${TABS[(fromIdx + 1) % TABS.length].id}`)?.focus()
+          } else if (e.key === 'ArrowLeft') {
+            e.preventDefault()
+            document.getElementById(`users-tab-${TABS[(fromIdx - 1 + TABS.length) % TABS.length].id}`)?.focus()
+          } else if ((e.key === 'Enter' || e.key === ' ') && focusedIdx >= 0) {
+            e.preventDefault()
+            setTab(TABS[focusedIdx].id)
+          }
+        }}
+      >
         {TABS.map(t => (
-          <button key={t.id} onClick={() => setTab(t.id)} className={`tab-underline${tab === t.id ? ' active' : ''}`}>
+          <button
+            key={t.id}
+            role="tab"
+            aria-selected={tab === t.id}
+            aria-controls={`users-panel-${t.id}`}
+            id={`users-tab-${t.id}`}
+            tabIndex={tab === t.id ? 0 : -1}
+            onClick={() => setTab(t.id)}
+            className={`tab-underline${tab === t.id ? ' active' : ''}`}
+          >
             <Icon name={t.icon} size={16} />{t.label}
           </button>
         ))}
       </div>
 
-      {tab === 'users'    && <UsersTab />}
-      {tab === 'groups'   && <GroupsTab />}
-      {tab === 'roles'    && <RolesTab />}
-      {tab === 'sessions' && <SessionsTab />}
+      {tab === 'users' && (
+        <div role="tabpanel" id="users-panel-users" aria-labelledby="users-tab-users">
+          <UsersTab />
+        </div>
+      )}
+      {tab === 'groups' && (
+        <div role="tabpanel" id="users-panel-groups" aria-labelledby="users-tab-groups">
+          <GroupsTab />
+        </div>
+      )}
+      {tab === 'roles' && (
+        <div role="tabpanel" id="users-panel-roles" aria-labelledby="users-tab-roles">
+          <RolesTab />
+        </div>
+      )}
+      {tab === 'sessions' && (
+        <div role="tabpanel" id="users-panel-sessions" aria-labelledby="users-tab-sessions">
+          <SessionsTab />
+        </div>
+      )}
     </div>
   )
 }

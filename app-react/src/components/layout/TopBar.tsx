@@ -168,8 +168,10 @@ function NotificationsBell() {
 
   return (
     <div style={{ position: 'relative' }}>
-      <button 
+      <button
         onClick={() => setShowFlyout(!showFlyout)}
+        aria-label={isDirty ? 'Notifications, action required' : 'Notifications'}
+        aria-expanded={showFlyout}
         style={{
           background: 'none',
           border: 'none',
@@ -326,25 +328,33 @@ function PoolMonitor() {
       position: 'relative'
     }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <div 
+        <button
+          type="button"
           onClick={() => setShowDropdown(!showDropdown)}
-          style={{ 
-            display: 'flex', 
-            alignItems: 'center', 
-            gap: 4, 
+          aria-expanded={showDropdown}
+          aria-haspopup="listbox"
+          aria-label={`Storage pool: ${selected.name}`}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 4,
             cursor: 'pointer',
             fontSize: 'var(--text-2xs)',
             fontWeight: 700,
             color: 'var(--text-secondary)',
             textTransform: 'uppercase',
             whiteSpace: 'nowrap',
-            flexShrink: 0
+            flexShrink: 0,
+            background: 'none',
+            border: 'none',
+            padding: 0,
+            fontFamily: 'inherit'
           }}
         >
           <Icon name="storage" size={12} style={{ color }} />
           {selected.name}
           <Icon name="arrow_drop_down" size={14} />
-        </div>
+        </button>
         
         <Tooltip content={`${selected.alloc} used / ${selected.size}`}>
           <div style={{ fontSize: 'var(--text-2xs)', color: 'var(--text-tertiary)', fontWeight: 600 }}>
@@ -386,8 +396,9 @@ function PoolMonitor() {
           backdropFilter: 'var(--blur-glass)'
         }}>
           {pools.map(p => (
-            <div 
+            <button
               key={p.name}
+              type="button"
               onClick={() => { setActivePool(p.name); setShowDropdown(false) }}
               style={{
                 padding: '10px 14px',
@@ -399,14 +410,18 @@ function PoolMonitor() {
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'space-between',
-                transition: 'all 0.15s'
+                transition: 'all 0.15s',
+                width: '100%',
+                border: 'none',
+                textAlign: 'left',
+                fontFamily: 'inherit'
               }}
               onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.05)' }}
               onMouseLeave={e => { if (activePool !== p.name) e.currentTarget.style.background = 'transparent' }}
             >
               {p.name}
               {activePool === p.name && <Icon name="check" size={14} />}
-            </div>
+            </button>
           ))}
         </div>
       )}

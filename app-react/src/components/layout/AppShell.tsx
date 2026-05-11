@@ -49,23 +49,48 @@ function strengthScore(pw: string): { score: number; color: string; missing: str
   return { score, color: colors[score] ?? 'var(--border)', missing }
 }
 
+const STRENGTH_LABELS = ['Very weak', 'Weak', 'Fair', 'Good', 'Strong'] as const
+const SR_ONLY: React.CSSProperties = {
+  position: 'absolute', width: 1, height: 1, padding: 0, margin: '-1px',
+  overflow: 'hidden', clip: 'rect(0,0,0,0)', whiteSpace: 'nowrap', border: 0,
+}
+
 function StrengthBar({ password }: { password: string }) {
-  if (!password) return null
-  const { score, color, missing } = strengthScore(password)
+  // The aria-live region must always be in the DOM so screen readers hook it
+  // before the first announcement fires. Visual content is conditional.
+  const hasPassword = Boolean(password)
+  const { score, color, missing } = hasPassword
+    ? strengthScore(password)
+    : { score: 0, color: 'var(--border)', missing: [] as string[] }
+  const strengthLabel = STRENGTH_LABELS[score] ?? 'Very weak'
+  const announcement = hasPassword
+    ? missing.length > 0
+      ? `Password strength: ${strengthLabel}. Needs: ${missing.join(', ')}`
+      : `Password strength: ${strengthLabel}`
+    : ''
+
   return (
-    <div style={{ marginTop: 6 }}>
-      <div style={{ display: 'flex', gap: 3, marginBottom: 3 }}>
-        {[1,2,3,4].map(i => (
-          <div key={i} style={{ flex: 1, height: 3, borderRadius: 2,
-            background: i <= score ? color : 'var(--border)', transition: 'background 0.2s' }} />
-        ))}
-      </div>
-      {missing.length > 0 && (
-        <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }}>
-          Needs: {missing.join(', ')}
+    <>
+      {hasPassword && (
+        <div style={{ marginTop: 6 }}>
+          {/* Visual bars — decorative, hidden from AT */}
+          <div aria-hidden="true" style={{ display: 'flex', gap: 3, marginBottom: 3 }}>
+            {[1,2,3,4].map(i => (
+              <div key={i} style={{ flex: 1, height: 3, borderRadius: 2,
+                background: i <= score ? color : 'var(--border)', transition: 'background 0.2s' }} />
+            ))}
+          </div>
+          {/* Visual hint — screen readers get the richer message via the live region */}
+          {missing.length > 0 && (
+            <div aria-hidden="true" style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }}>
+              Needs: {missing.join(', ')}
+            </div>
+          )}
         </div>
       )}
-    </div>
+      {/* Always in DOM — hooks the live region before the first keystroke */}
+      <div aria-live="polite" style={SR_ONLY}>{announcement}</div>
+    </>
   )
 }
 
@@ -120,7 +145,7 @@ function ForcePasswordChange() {
         </p>
 
         {error && (
-          <div className="alert alert-error" style={{ marginBottom: 16 }}>
+          <div role="alert" className="alert alert-error" style={{ marginBottom: 16 }}>
             <Icon name="error" size={14} /> {error}
           </div>
         )}
@@ -136,6 +161,7 @@ function ForcePasswordChange() {
                 onChange={e => setCurrent(e.target.value)} autoComplete="current-password" required
                 style={{ width: '100%', boxSizing: 'border-box', paddingRight: 40 }} />
               <button type="button" onClick={() => setShowCurrent(v => !v)}
+                aria-label={showCurrent ? 'Hide current password' : 'Show current password'}
                 style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)',
                   background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-tertiary)',
                   display: 'flex', alignItems: 'center', padding: 4 }}>
@@ -154,6 +180,7 @@ function ForcePasswordChange() {
                 onChange={e => setNext(e.target.value)} autoComplete="new-password" required
                 style={{ width: '100%', boxSizing: 'border-box', paddingRight: 40 }} />
               <button type="button" onClick={() => setShowNext(v => !v)}
+                aria-label={showNext ? 'Hide new password' : 'Show new password'}
                 style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)',
                   background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-tertiary)',
                   display: 'flex', alignItems: 'center', padding: 4 }}>
