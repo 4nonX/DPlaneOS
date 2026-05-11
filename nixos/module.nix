@@ -77,9 +77,35 @@ in {
         Proprietary NVIDIA drivers on the host are still configured by the operator.
       '';
     };
+
+    coldTier = {
+      rootPath = lib.mkOption {
+        type    = lib.types.str;
+        default = "/mnt/cold";
+        description = ''
+          Base directory under which rclone FUSE mounts are created by the daemon.
+          The daemon creates per-remote subdirectories here (e.g. /mnt/cold/s3-backup).
+          This path is created at boot and added to dplaned ReadWritePaths so FUSE
+          mounts survive under ProtectSystem=strict.
+        '';
+      };
+    };
+
   };
 
   config = lib.mkIf cfg.enable {
+    # ─── OpenZFS version assertion ────────────────────────────────────────
+    # RAID-Z parity expansion (v9.1+) requires OpenZFS 2.2.0 or later.
+    # zpool attach on a RAID-Z vdev silently creates a mirror instead of
+    # expanding on older versions, which is a silent data-layout mismatch.
+    assertions = [{
+      assertion = lib.versionAtLeast config.boot.zfs.package.version "2.2.0";
+      message =
+        "D-PlaneOS v9.1+ requires OpenZFS 2.2.0 or later for RAID-Z parity " +
+        "expansion (zpool attach on raidz silently creates a mirror on older versions). " +
+        "Set boot.zfs.package = pkgs.zfs_2_2 or use NixOS 23.11+.";
+    }];
+
     # ─── Required system packages ────────────────────────────────────────
     environment.systemPackages = [
       pkgs.zfs
@@ -91,6 +117,7 @@ in {
       pkgs.ipmitool
       pkgs.pv
       pkgs.rclone
+      pkgs.fuse3        # fusermount3 for rclone cold tier FUSE mounts
       pkgs.openssh
       pkgs.git
       pkgs.targetcli-fb
@@ -142,7 +169,8 @@ in {
     };
 
     # NVMe-oF target (kernel nvmet) - modules load at boot; dplaned writes configfs at runtime.
-    boot.kernelModules = [ "nvmet" "nvmet-tcp" ];
+    # fuse is included here for rclone cold tier FUSE mounts (managed by dplaned at runtime).
+    boot.kernelModules = [ "nvmet" "nvmet-tcp" "fuse" ];
 
     # ─── Docker ──────────────────────────────────────────────────────────
     virtualisation.docker = lib.mkMerge [
@@ -241,6 +269,8 @@ in {
           "/sys/kernel/config"
           # /etc/samba - removed: NixOS now owns smb.conf via modules/samba.nix
           # Daemon writes to /var/lib/dplaneos/smb-shares.conf instead
+          # Cold Tier: rclone FUSE mount root (per-remote subdirs created at runtime)
+          cfg.coldTier.rootPath
         ];
         CapabilityBoundingSet = [
           "CAP_SYS_ADMIN"
@@ -291,11 +321,14 @@ in {
 
     # ─── Persistent state directories ─────────────────────────────────────
     systemd.tmpfiles.rules = [
-      "d /var/lib/dplaneos 0775 root root -"
-      "d /var/log/dplaneos 0755 root root -"
-      "d /etc/dplaneos     0755 root root -"
-      "d /opt/dplaneos/app 0755 root root -"
-      "d /run/dplaneos     0700 root root -"
+      "d /var/lib/dplaneos        0775 root root -"
+      "d /var/log/dplaneos        0755 root root -"
+      "d /etc/dplaneos            0755 root root -"
+      "d /opt/dplaneos/app        0755 root root -"
+      "d /run/dplaneos            0700 root root -"
+      # Cold Tier root: rclone FUSE mounts land under this directory.
+      # The daemon creates per-remote subdirectories at mount time.
+      "d ${cfg.coldTier.rootPath} 0755 root root -"
     ];
   };
 }

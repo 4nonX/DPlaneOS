@@ -69,6 +69,24 @@ in {
       default = null;
       description = "Password for Keepalived VRRP authentication between peers.";
     };
+
+    sbd = {
+      pool = lib.mkOption {
+        type    = lib.types.str;
+        default = "";
+        description = ''
+          ZFS pool holding the SBD lease dataset. Leave empty to disable
+          ZFS-property SBD fencing (single-node safe; zero overhead).
+          When non-empty, a one-shot service dplaneos-sbd-init creates
+          pool/dataset at first boot if it does not already exist.
+        '';
+      };
+      dataset = lib.mkOption {
+        type    = lib.types.str;
+        default = "sbd-lease";
+        description = "Dataset name within ha.sbd.pool used for lease fencing (e.g. sbd-lease).";
+      };
+    };
   };
 
   config = lib.mkIf cfg.enable {
@@ -226,6 +244,30 @@ in {
           sleep 2
         done
       '';
+    };
+
+    # ─── SBD lease dataset init ──────────────────────────────────────────
+    # Creates the ZFS dataset used for ZFS-property SBD fencing if it does
+    # not already exist. Only runs when ha.sbd.pool is non-empty.
+    # The daemon manages the actual lease property writes at runtime.
+    systemd.services.dplaneos-sbd-init = lib.mkIf (cfg.sbd.pool != "") {
+      description = "D-PlaneOS SBD Lease Dataset Init";
+      after       = [ "zfs.target" "dplaneos-zfs-gate.service" ];
+      before      = [ "dplaned.service" ];
+      wantedBy    = [ "multi-user.target" ];
+      serviceConfig = {
+        Type            = "oneshot";
+        RemainAfterExit = true;
+        ExecStart       = pkgs.writeShellScript "dplaneos-sbd-init" ''
+          DATASET="${cfg.sbd.pool}/${cfg.sbd.dataset}"
+          if zfs list -H "$DATASET" > /dev/null 2>&1; then
+            echo "dplaneos-sbd-init: dataset $DATASET already exists"
+          else
+            echo "dplaneos-sbd-init: creating $DATASET"
+            zfs create -o mountpoint=none "$DATASET"
+          fi
+        '';
+      };
     };
   };
 }

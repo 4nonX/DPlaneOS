@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 
 
+## v9.1.1 (2026-05-11)
+
+Upgrade from: v9.1.0 - Drop-in. No breaking changes.
+
+### Added
+- **NixOS: Cold Tier FUSE support** (`module.nix`, `configuration.nix`): `pkgs.fuse3` added to `environment.systemPackages` (provides `fusermount3` required by rclone); `fuse` kernel module added to `boot.kernelModules`; new `services.dplaneos.coldTier.rootPath` option (default `/mnt/cold`) in the module path declares the FUSE mount root, adds it to dplaned `ReadWritePaths` (required under `ProtectSystem=strict`), and creates it via `systemd.tmpfiles` at boot. The standalone `configuration.nix` template receives the same three additions directly.
+- **NixOS: OpenZFS 2.2+ build-time assertion** (`module.nix`): `nixos-rebuild` fails at evaluation time with a clear message if the configured ZFS package is older than 2.2.0, preventing silent RAID-Z expansion misfire where `zpool attach` on raidz would create a mirror instead.
+- **NixOS: SBD lease dataset init** (`ha.nix`): New `services.dplaneos.ha.sbd.{pool,dataset}` options. When `pool` is non-empty, a one-shot systemd service `dplaneos-sbd-init` creates the ZFS dataset at first boot before dplaned starts. Fully opt-in: empty `pool` (the default) skips the service entirely with zero overhead.
+
+
+
 ## v9.1.0 (2026-05-11) - "Elastic VDEV"
 
 Upgrade from: v9.0.0 - Drop-in. No breaking changes.

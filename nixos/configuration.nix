@@ -84,8 +84,9 @@ in {
   boot.zfs.forceImportRoot = false;
   boot.zfs.extraPools = zpools;
 
-  # NVMe-oF target (nvmet) - used when exporting zvols over NVMe/TCP
-  boot.kernelModules = [ "nvmet" "nvmet-tcp" ];
+  # NVMe-oF target (nvmet) - used when exporting zvols over NVMe/TCP.
+  # fuse: required for rclone Cold Tier FUSE mounts managed by dplaned at runtime.
+  boot.kernelModules = [ "nvmet" "nvmet-tcp" "fuse" ];
 
   services.zfs.autoScrub = {
     enable = true;
@@ -181,8 +182,8 @@ in {
       ProtectSystem = "strict";
       ProtectHome = true;
 
-      # CRITICAL: ZFS pool mountpoints must be listed here
-      # ProtectSystem=strict blocks ALL writes except these paths
+      # CRITICAL: ZFS pool mountpoints must be listed here.
+      # ProtectSystem=strict blocks ALL writes except these paths.
       ReadWritePaths = [
         "/var/log/dplaneos"
         "/var/lib/dplaneos"
@@ -190,6 +191,7 @@ in {
         "/var/run/docker.sock"
         "/etc/exports"
         "/sys/kernel/config"
+        "/mnt/cold"   # Cold Tier: rclone FUSE mount root (per-remote subdirs created at runtime)
       ] ++ zpoolMountpoints;
 
       AmbientCapabilities = [
@@ -216,6 +218,7 @@ in {
     "d /var/lib/dplaneos/stacks 0750 root root -"
     "d /var/lib/dplaneos/git-repos 0750 root root -"
     "f /var/lib/dplaneos/smb-shares.conf 0644 root root -"
+    "d /mnt/cold 0755 root root -"   # Cold Tier FUSE mount root
   ];
 
   # ═══════════════════════════════════════════════════════════
@@ -426,6 +429,7 @@ in {
 
     # Backup & sync
     rclone rsync
+    fuse3       # fusermount3: required for rclone Cold Tier FUSE mounts
 
     # Git-sync
     git openssh
