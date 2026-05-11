@@ -98,6 +98,7 @@ handlers_*.txt
 zfs_*.txt
 whitelist_*.go
 zfs_*.go
+!daemon/internal/handlers/zfs_*.go
 *.bak
 
 # ── NixOS build outputs ───────────────────────────────────────────────────────

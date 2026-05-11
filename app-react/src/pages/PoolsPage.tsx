@@ -34,7 +34,7 @@ import { toast } from '@/hooks/useToast'
 import { useConfirm } from '@/components/ui/ConfirmDialog'
 import { useWsStore } from '@/stores/ws'
 import { Modal } from '@/components/ui/Modal'
-import { PoolTopologyView, PoolTopology } from '@/components/zfs/PoolTopology'
+import { PoolTopologyView, PoolTopology, VDev } from '@/components/zfs/PoolTopology'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -93,6 +93,14 @@ interface ResilverStatusResponse {
   errors: number
   completed: boolean
   completed_at: string | null
+}
+
+interface RAIDZExpandStatusResponse {
+  success: boolean
+  pool: string
+  expanding: boolean
+  percent: number
+  eta: string
 }
 
 interface Disk { name: string; size: string; model: string; path: string }
@@ -767,6 +775,228 @@ function ResilverProgressCard({ pool }: { pool: string }) {
 }
 
 // ---------------------------------------------------------------------------
+// RAIDZExpandProgressCard
+// ---------------------------------------------------------------------------
+
+function RAIDZExpandProgressCard({ pool }: { pool: string }) {
+  const ws = useWsStore((s) => s.on)
+  const [progress, setProgress] = useState<{ percent: number; eta: string } | null>(null)
+  const [done, setDone] = useState(false)
+
+  const expandQ = useQuery({
+    queryKey: ['zfs', 'raidz-expand', 'status', pool],
+    queryFn: ({ signal }) =>
+      api.get<RAIDZExpandStatusResponse>(`/api/zfs/pool/raidz-expand/status?pool=${encodeURIComponent(pool)}`, signal),
+    refetchInterval: (query) => {
+      const d = query.state.data
+      if (d?.expanding) return 30_000
+      return false
+    },
+  })
+
+  useEffect(() => {
+    const unsubs = [
+      ws('raidzExpandProgress', (d: any) => {
+        if (d?.pool === pool) setProgress({ percent: d.percent ?? 0, eta: d.eta ?? '' })
+      }),
+      ws('raidzExpandCompleted', (d: any) => {
+        if (d?.pool === pool) { setDone(true); setProgress(null) }
+      }),
+    ]
+    return () => unsubs.forEach(u => u())
+  }, [ws, pool])
+
+  const expanding = expandQ.data?.expanding || progress !== null
+  const pct = progress?.percent ?? expandQ.data?.percent ?? 0
+  const eta = progress?.eta ?? expandQ.data?.eta ?? ''
+
+  if (!expanding && !done) return null
+
+  return (
+    <div style={{
+      background: 'var(--bg-card)',
+      border: `1px solid ${done ? 'var(--success-border)' : 'var(--primary-border, var(--border))'}`,
+      borderLeft: `4px solid ${done ? 'var(--success)' : 'var(--primary)'}`,
+      borderRadius: 'var(--radius-xl)',
+      padding: '18px 22px',
+      display: 'flex',
+      flexDirection: 'column',
+      gap: 12}}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <Icon
+          name={done ? 'check_circle' : 'expand_circle_down'}
+          size={20}
+          style={{ color: done ? 'var(--success)' : 'var(--primary)', flexShrink: 0 }}
+        />
+        <div style={{ flex: 1 }}>
+          <div style={{ fontWeight: 700, fontSize: 'var(--text-md)' }}>
+            {done ? 'RAID-Z Expansion Complete' : 'RAID-Z Expansion In Progress'}
+          </div>
+          <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>
+            Pool: {pool}
+          </div>
+        </div>
+        {!done && (
+          <div style={{ fontSize: 'var(--text-sm)', fontWeight: 700, color: 'var(--primary)', flexShrink: 0 }}>
+            {pct.toFixed(1)}%
+          </div>
+        )}
+      </div>
+
+      {!done && (
+        <div>
+          <div style={{ height: 8, background: 'rgba(255,255,255,0.07)', borderRadius: 999, overflow: 'hidden' }}>
+            <div style={{
+              height: '100%',
+              width: `${Math.min(100, pct)}%`,
+              background: 'var(--primary)',
+              borderRadius: 999,
+              transition: 'width 1s'}} />
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6, fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }}>
+            <span>Redistributing data across expanded parity</span>
+            <span>{eta ? `ETA ${eta}` : ''}</span>
+          </div>
+        </div>
+      )}
+
+      {done && (
+        <div style={{ fontSize: 'var(--text-sm)', color: 'var(--success)' }}>
+          All data has been redistributed. The pool is now using the expanded RAID-Z geometry.
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// RAIDZExpandModal
+// ---------------------------------------------------------------------------
+
+function RAIDZExpandModal({ pool, vdev, onClose, onStarted }: {
+  pool: string
+  vdev: VDev
+  onClose: () => void
+  onStarted: () => void
+}) {
+  const qc = useQueryClient()
+  const [newDisk, setNewDisk] = useState('')
+
+  const disksQ = useQuery({
+    queryKey: ['system', 'disks'],
+    queryFn: () => api.get<{ disks: Disk[] }>('/api/system/disks'),
+  })
+  const disks: Disk[] = (disksQ.data as any)?.disks ?? []
+
+  // Auto-select the first child of the raidz vdev as the anchor
+  const anchorDisk = vdev.children?.[0]?.name ?? ''
+
+  const mutation = useMutation({
+    mutationFn: () => api.post('/api/zfs/pool/raidz-expand', {
+      pool,
+      anchor_disk: anchorDisk,
+      new_disk: newDisk,
+    }),
+    onSuccess: () => {
+      toast.success('RAID-Z expansion initiated')
+      qc.invalidateQueries({ queryKey: ['zfs', 'raidz-expand', 'status', pool] })
+      onStarted()
+      onClose()
+    },
+    onError: (e: Error) => toast.error(e.message),
+  })
+
+  return (
+    <Modal title="Expand RAID-Z VDEV" onClose={onClose} size="md">
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16, padding: '4px 0' }}>
+        <div style={{
+          padding: '12px 14px',
+          background: 'var(--warning-bg)',
+          border: '1px solid var(--warning-border)',
+          borderRadius: 'var(--radius-md)',
+          fontSize: 'var(--text-sm)',
+          color: 'var(--text-secondary)',
+          lineHeight: 1.5
+        }}>
+          <strong style={{ color: 'var(--warning)' }}>OpenZFS 2022+ required.</strong> This adds a disk to the{' '}
+          <code style={{ fontFamily: 'var(--font-mono)' }}>{vdev.name}</code> vdev and triggers an online data
+          redistribution. The pool remains fully accessible during expansion. This may take hours to days
+          depending on pool size.
+        </div>
+
+        <div>
+          <div style={{ fontSize: 'var(--text-xs)', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 4 }}>
+            Anchor disk (existing RAID-Z member)
+          </div>
+          <div style={{
+            padding: '8px 12px',
+            background: 'var(--surface)',
+            borderRadius: 'var(--radius-sm)',
+            fontFamily: 'var(--font-mono)',
+            fontSize: 'var(--text-sm)',
+            color: 'var(--text-tertiary)'
+          }}>
+            {anchorDisk || 'No children found'}
+          </div>
+        </div>
+
+        <div>
+          <div style={{ fontSize: 'var(--text-xs)', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 6 }}>
+            New disk to add
+          </div>
+          {disksQ.isLoading ? (
+            <Spinner size={16} />
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 220, overflowY: 'auto' }}>
+              {disks.length === 0 && (
+                <div style={{ color: 'var(--text-tertiary)', fontSize: 'var(--text-sm)', padding: 8 }}>
+                  No available disks found
+                </div>
+              )}
+              {disks.map((d: Disk) => (
+                <button
+                  key={d.path}
+                  className={`btn btn-ghost ${newDisk === d.path ? 'btn-primary' : ''}`}
+                  style={{
+                    justifyContent: 'flex-start',
+                    textAlign: 'left',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'flex-start',
+                    padding: '10px 12px',
+                    borderRadius: 'var(--radius-md)',
+                    border: newDisk === d.path ? '1px solid var(--primary)' : '1px solid var(--border-subtle)',
+                  }}
+                  onClick={() => setNewDisk(d.path)}
+                >
+                  <div style={{ fontWeight: 600, fontSize: 'var(--text-sm)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <Icon name="storage" size={14} /> {d.path} ({d.size})
+                  </div>
+                  <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', marginTop: 2 }}>
+                    {d.model} - {d.name}
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="modal-footer">
+        <button className="btn btn-ghost btn-sm" onClick={onClose}>Cancel</button>
+        <button
+          className="btn btn-primary btn-sm"
+          disabled={!newDisk || !anchorDisk || mutation.isPending}
+          onClick={() => mutation.mutate()}
+        >
+          {mutation.isPending ? <><Spinner size={14} /> Starting…</> : <><Icon name="add_circle" size={14} /> Start Expansion</>}
+        </button>
+      </div>
+    </Modal>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // WipeDiskModal
 // ---------------------------------------------------------------------------
 
@@ -973,6 +1203,7 @@ function PoolCard({ pool, datasets, filter, onRefresh }: { pool: ZFSPool; datase
   const [showCacheModal, setShowCacheModal] = useState(false)
   const [showTopology, setShowTopology] = useState(false)
   const [replaceDisk, setReplaceDisk] = useState<string | null>(null)
+  const [expandVdev, setExpandVdev] = useState<VDev | null>(null)
   const [wipeDiskOpen, setWipeDiskOpen] = useState(false)
   const [sharingDataset,  setSharingDataset]  = useState<TreeNode | null>(null)
   const [snapshotDataset, setSnapshotDataset] = useState<TreeNode | null>(null)
@@ -1195,10 +1426,11 @@ function PoolCard({ pool, datasets, filter, onRefresh }: { pool: ZFSPool; datase
         <div style={{ marginBottom: 24, padding: '16px 20px', background: 'rgba(0,0,0,0.2)', borderRadius: 'var(--radius-lg)', border: '1px solid var(--border-subtle)' }}>
            {topologyQ.isLoading && <div style={{ textAlign: 'center', padding: 20 }}><Spinner size={20} /> Loading topology…</div>}
            {topologyQ.data && (
-             <PoolTopologyView 
-                topology={topologyQ.data} 
+             <PoolTopologyView
+                topology={topologyQ.data}
                 onAction={(action, vdev) => {
                    if (action === 'replace') setReplaceDisk(vdev.name)
+                   if (action === 'raidz-expand') setExpandVdev(vdev)
                 }}
              />
            )}
@@ -1212,6 +1444,9 @@ function PoolCard({ pool, datasets, filter, onRefresh }: { pool: ZFSPool; datase
 
       {/* Resilver progress card */}
       {isResilvering && <ResilverProgressCard pool={pool.name} />}
+
+      {/* RAID-Z expansion progress card */}
+      <RAIDZExpandProgressCard pool={pool.name} />
 
       {/* Dataset tree */}
       {tree.length > 0 && (
@@ -1322,11 +1557,23 @@ function PoolCard({ pool, datasets, filter, onRefresh }: { pool: ZFSPool; datase
       )}
 
       {replaceDisk && (
-        <ReplaceDiskModal 
-          pool={pool.name} 
-          oldDisk={replaceDisk} 
-          onClose={() => setReplaceDisk(null)} 
-          onStarted={() => { onRefresh(); qc.invalidateQueries({ queryKey: ['zfs', 'topology', pool.name] }) }} 
+        <ReplaceDiskModal
+          pool={pool.name}
+          oldDisk={replaceDisk}
+          onClose={() => setReplaceDisk(null)}
+          onStarted={() => { onRefresh(); qc.invalidateQueries({ queryKey: ['zfs', 'topology', pool.name] }) }}
+        />
+      )}
+
+      {expandVdev && (
+        <RAIDZExpandModal
+          pool={pool.name}
+          vdev={expandVdev}
+          onClose={() => setExpandVdev(null)}
+          onStarted={() => {
+            qc.invalidateQueries({ queryKey: ['zfs', 'raidz-expand', 'status', pool.name] })
+            qc.invalidateQueries({ queryKey: ['zfs', 'topology', pool.name] })
+          }}
         />
       )}
 
@@ -1974,6 +2221,24 @@ export function PoolsPage() {
       toast.success('Resilver completed')
     })
     return () => { unsub1(); unsub2(); unsub3() }
+  }, [wsOn, qc])
+
+  // WS: RAID-Z expansion events → toast notifications
+  useEffect(() => {
+    const unsub1 = wsOn('raidzExpandStarted', (d: any) => {
+      toast.info(`RAID-Z expansion started on pool ${d?.pool ?? ''}`)
+      qc.invalidateQueries({ queryKey: ['zfs', 'raidz-expand', 'status'] })
+    })
+    const unsub2 = wsOn('raidzExpandCompleted', (d: any) => {
+      if (d?.success === false) {
+        toast.error(`RAID-Z expansion failed on pool ${d?.pool ?? ''}: ${d?.error ?? 'unknown error'}`)
+      } else {
+        toast.success(`RAID-Z expansion complete on pool ${d?.pool ?? ''}`)
+      }
+      qc.invalidateQueries({ queryKey: ['zfs', 'pools'] })
+      qc.invalidateQueries({ queryKey: ['zfs', 'raidz-expand', 'status'] })
+    })
+    return () => { unsub1(); unsub2() }
   }, [wsOn, qc])
 
   const pools    = poolsQ.data?.pools ?? poolsQ.data?.data ?? []

@@ -22,6 +22,9 @@
  *   mount_health_<poolname>              → mountError subscribers
  *   gitops.drift                         → gitopsDrift subscribers
  *   ha.replication_progress              → haReplicationProgress subscribers
+ *   raidz_expand_started                 → raidzExpandStarted subscribers
+ *   raidz_expand_progress                → raidzExpandProgress subscribers
+ *   raidz_expand_completed               → raidzExpandCompleted subscribers
  */
 
 import { create } from 'zustand'
@@ -51,6 +54,9 @@ type EventMap = {
   jobProgress: (data: { job_id: string; data: any }) => void
   jobLog:      (data: { job_id: string; line: string }) => void
   haReplicationProgress: (data: Record<string, unknown>) => void
+  raidzExpandStarted: (data: unknown) => void
+  raidzExpandProgress: (data: unknown) => void
+  raidzExpandCompleted: (data: unknown) => void
 }
 
 type EventName = keyof EventMap
@@ -200,6 +206,15 @@ export const useWsStore = create<WsState>((set) => {
           break
         case 'ha.replication_progress':
           emit('haReplicationProgress', (msg.data ?? msg) as Record<string, unknown>)
+          break
+        case 'raidz_expand_started':
+          emit('raidzExpandStarted', msg.data ?? msg)
+          break
+        case 'raidz_expand_progress':
+          emit('raidzExpandProgress', msg.data ?? msg)
+          break
+        case 'raidz_expand_completed':
+          emit('raidzExpandCompleted', msg.data ?? msg)
           break
         default:
           // mount_health_<poolname> events from the background monitor

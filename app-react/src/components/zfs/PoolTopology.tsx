@@ -104,7 +104,11 @@ const VDevItem = ({ vdev, level, onAction }: VDevItemProps) => {
                     <Icon name="swap_horiz" size={14} />
                   </button>
                 )}
-                {/* Mirroring logic, detaching logic etc can be added here */}
+                {vdev.type === 'raidz' && (
+                  <button className="btn btn-xs btn-ghost" title="Expand VDEV (add disk)" onClick={() => onAction('raidz-expand', vdev)}>
+                    <Icon name="add_circle" size={14} />
+                  </button>
+                )}
              </div>
           )}
         </div>

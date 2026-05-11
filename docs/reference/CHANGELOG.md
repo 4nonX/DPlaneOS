@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 
 
+## v9.1.0 (2026-05-11) - "Elastic VDEV"
+
+Upgrade from: v9.0.0 - Drop-in. No breaking changes.
+
+### Added
+- **RAID-Z Parity Expansion**: Pools with RAID-Z vdevs now support online disk addition via `zpool attach` (OpenZFS 2022+ expansion semantics). A new "Expand VDEV" button appears on raidz-type vdevs in the topology view. Selecting a new disk triggers `POST /api/zfs/pool/raidz-expand`, which validates the anchor disk is in a RAID-Z vdev (preventing accidental mirror creation), starts the attach, then polls progress every 30 seconds broadcasting `raidz_expand_started`, `raidz_expand_progress`, and `raidz_expand_completed` WebSocket events. The UI renders a live progress card (matching the resilver card pattern) with percent-done, ETA, and completion state. The pool remains fully accessible during the multi-hour redistribution process.
+
+### Changed
+- Pool topology view now shows an "add disk" icon button on raidz vdevs in addition to the existing replace button on degraded disk vdevs.
+
+
+
 ## v9.0.0 (2026-05-11) - "Zero-Touch Integrity"
 
 Upgrade from: v8.3.0 - Drop-in. No breaking changes. All HA features are opt-in.

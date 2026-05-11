@@ -792,6 +792,8 @@ func main() {
 	r.Handle("/api/zfs/pool/replace", permRoute("storage", "write", handlers.ReplaceDisk)).Methods("POST")
 	r.Handle("/api/zfs/pool/attach", permRoute("storage", "write", handlers.AttachDisk)).Methods("POST")
 	r.Handle("/api/zfs/pool/detach", permRoute("storage", "write", handlers.DetachDisk)).Methods("POST")
+	r.Handle("/api/zfs/pool/raidz-expand", permRoute("storage", "write", handlers.ExpandRAIDZ)).Methods("POST")
+	r.Handle("/api/zfs/pool/raidz-expand/status", permRoute("storage", "read", handlers.GetRAIDZExpandStatus)).Methods("GET")
 	r.Handle("/api/zfs/pool/topology", permRoute("storage", "read", handlers.GetPoolTopology)).Methods("GET")
 	r.Handle("/api/zfs/disk/wipe", permRoute("storage", "write", handlers.WipeDisk)).Methods("POST")
 
