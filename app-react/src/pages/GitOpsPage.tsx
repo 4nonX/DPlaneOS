@@ -9,7 +9,7 @@ import { useWsStore } from '@/stores/ws'
 import { useJobStore } from '@/stores/jobs'
 
 interface GitopsStatus { success: boolean; state?: string; pending_changes?: number; last_applied?: string; drift?: boolean }
-interface Change       { resource?: string; action?: 'create'|'update'|'delete'|string; description?: string }
+interface Change       { resource?: string; action?: string; description?: string; changes?: string[]; risk_level?: string }
 
 // Payload from daemon gitops.drift WS event
 interface DriftPayload {
@@ -32,6 +32,7 @@ function changeColor(a?:string):string {
   if (a === 'BLOCKED') return 'var(--error)'
   if (a === 'MANUAL') return 'var(--warning)'
   if (a === 'MODIFY') return 'var(--primary)'
+  if (a === 'RESHAPE') return '#f59e0b' // amber - additive ZFS topology change
   return 'var(--text-tertiary)'
 }
 
@@ -651,7 +652,18 @@ export function GitOpsPage() {
                 {(planQ.data?.changes ?? []).map((c, i) => (
                   <div key={i} style={{ display:'flex', alignItems:'flex-start', gap:10, padding:'10px 14px', background:'var(--bg-card)', border:`1px solid ${changeColor(c.action)}20`, borderRadius:'var(--radius-md)' }}>
                     <span style={{ padding:'2px 6px', borderRadius:'var(--radius-sm)', background:`${changeColor(c.action)}18`, color:changeColor(c.action), fontSize:'var(--text-2xs)', fontWeight:700, textTransform:'uppercase', flexShrink:0, marginTop:1 }}>{c.action}</span>
-                    <div style={{ fontWeight:600, fontSize:'var(--text-sm)' }}>{c.resource}</div>
+                    <div style={{ minWidth:0 }}>
+                      <div style={{ fontWeight:600, fontSize:'var(--text-sm)' }}>{c.resource}</div>
+                      {c.action === 'RESHAPE' && c.changes && c.changes.length > 0 && (
+                        <div style={{ marginTop:4, display:'flex', flexDirection:'column', gap:2 }}>
+                          {c.changes.map((ch, ci) => (
+                            <code key={ci} style={{ fontFamily:'var(--font-mono)', fontSize:11, color:'#f59e0b', background:'#f59e0b12', padding:'1px 6px', borderRadius:'var(--radius-xs)', display:'block' }}>
+                              zpool add {c.resource} {ch.replace(/^add-\w+: /, '')}
+                            </code>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 ))}
                 {(planQ.data?.changes ?? []).length === 0 && <div className="card" style={{ textAlign:'center', padding:'40px 0', opacity:0.5 }}>Zero drift between Git and Live state</div>}

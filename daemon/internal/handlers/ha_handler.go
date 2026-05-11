@@ -543,6 +543,51 @@ func (h *HAHandler) ClearFault(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// GetSBDConfig returns the SBD ZFS lease fencing configuration.
+// GET /api/ha/sbd/configure
+func (h *HAHandler) GetSBDConfig(w http.ResponseWriter, r *http.Request) {
+	cfg, err := h.mgr.GetSBDConfig()
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "Failed to read SBD config", err)
+		return
+	}
+	var lastRenewalUnix int64
+	lastOK := ha.GlobalSBD.LastOK()
+	if !lastOK.IsZero() {
+		lastRenewalUnix = lastOK.Unix()
+	}
+	respondJSON(w, http.StatusOK, map[string]interface{}{
+		"success":           true,
+		"config":            cfg,
+		"lease_active":      ha.GlobalSBD.IsLive(),
+		"last_renewal_unix": lastRenewalUnix,
+	})
+}
+
+// ConfigureSBD saves the SBD ZFS lease fencing configuration and restarts the lease manager.
+// POST /api/ha/sbd/configure
+func (h *HAHandler) ConfigureSBD(w http.ResponseWriter, r *http.Request) {
+	var req ha.SBDConfig
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondError(w, http.StatusBadRequest, "Invalid request body", err)
+		return
+	}
+	if req.Pool != "" && req.Dataset == "" {
+		respondErrorSimple(w, "dataset is required when pool is set", http.StatusBadRequest)
+		return
+	}
+	if err := h.mgr.SaveSBDConfig(req); err != nil {
+		respondError(w, http.StatusInternalServerError, "Failed to save SBD config", err)
+		return
+	}
+	// Restart lease manager with the new config (no-op if pool is now empty).
+	ha.GlobalSBD.Restart(req)
+	respondJSON(w, http.StatusOK, map[string]interface{}{
+		"success": true,
+		"message": "SBD fencing configuration saved",
+	})
+}
+
 // RegisterMaintenance sets the cluster into maintenance mode for a given duration.
 // POST /api/ha/maintenance {"seconds": 300}
 func (h *HAHandler) RegisterMaintenance(w http.ResponseWriter, r *http.Request) {

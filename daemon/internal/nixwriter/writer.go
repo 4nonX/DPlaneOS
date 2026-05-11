@@ -91,6 +91,15 @@ type DPlaneState struct {
 	SambaRealm            string `json:"samba_realm,omitempty"`
 	SambaDomainController string `json:"samba_domain_controller,omitempty"`
  
+	// ── SSH Daemon ────────────────────────────────────────────────────────────
+	// SSHPort overrides the sshd listen port. 0 = unset (NixOS default: 22).
+	SSHPort int `json:"ssh_port,omitempty"`
+	// SSHPasswordAuth controls PasswordAuthentication. nil = unset (NixOS default).
+	SSHPasswordAuth *bool `json:"ssh_password_auth,omitempty"`
+	// SSHPermitRootLogin maps to PermitRootLogin. "" = unset (NixOS default).
+	// Valid values: "yes", "no", "prohibit-password", "forced-commands-only".
+	SSHPermitRootLogin string `json:"ssh_permit_root_login,omitempty"`
+
 	// ── High Availability ──────────────────────────────────────────────────────
 	HAEnable bool `json:"ha_enable,omitempty"`
 }
@@ -255,6 +264,17 @@ func (w *Writer) DiffIntent() ([]Change, error) {
 	// Firewall
 	compareInts("firewall.tcp", appliedState.FirewallTCP, w.state.FirewallTCP)
 	compareInts("firewall.udp", appliedState.FirewallUDP, w.state.FirewallUDP)
+
+	// SSH Daemon
+	if w.state.SSHPort != appliedState.SSHPort {
+		changes = append(changes, Change{Path: "ssh.port", From: appliedState.SSHPort, To: w.state.SSHPort, Op: "modify"})
+	}
+	if !boolPtrEqual(w.state.SSHPasswordAuth, appliedState.SSHPasswordAuth) {
+		changes = append(changes, Change{Path: "ssh.password_auth", From: appliedState.SSHPasswordAuth, To: w.state.SSHPasswordAuth, Op: "modify"})
+	}
+	if w.state.SSHPermitRootLogin != appliedState.SSHPermitRootLogin {
+		changes = append(changes, Change{Path: "ssh.permit_root_login", From: appliedState.SSHPermitRootLogin, To: w.state.SSHPermitRootLogin, Op: "modify"})
+	}
 
 	// High Availability
 	if w.state.HAEnable != appliedState.HAEnable {
@@ -478,6 +498,43 @@ func (w *Writer) SetHA(enable bool) error {
 	w.state.HAEnable = enable
 	return w.flushLocked()
 }
+
+// ── SSH Daemon setter ─────────────────────────────────────────────────────────
+
+// SSHDaemonOpts holds SSH daemon NixOS settings.
+type SSHDaemonOpts struct {
+	// Port: 0 means "leave at NixOS default" (removes the field from JSON).
+	Port int
+	// PasswordAuth: nil means "leave at NixOS default".
+	PasswordAuth *bool
+	// PermitRootLogin: "" means "leave at NixOS default".
+	// Valid: "yes", "no", "prohibit-password", "forced-commands-only".
+	PermitRootLogin string
+}
+
+var validPermitRootLogin = map[string]bool{
+	"":                    true,
+	"yes":                 true,
+	"no":                  true,
+	"prohibit-password":   true,
+	"forced-commands-only": true,
+}
+
+// SetSSHDaemon records SSH daemon settings. Invalid values are rejected.
+func (w *Writer) SetSSHDaemon(opts SSHDaemonOpts) error {
+	if opts.Port != 0 && (opts.Port < 1 || opts.Port > 65535) {
+		return fmt.Errorf("ssh port %d out of range 1-65535", opts.Port)
+	}
+	if !validPermitRootLogin[opts.PermitRootLogin] {
+		return fmt.Errorf("invalid PermitRootLogin value %q", opts.PermitRootLogin)
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.state.SSHPort = opts.Port
+	w.state.SSHPasswordAuth = opts.PasswordAuth
+	w.state.SSHPermitRootLogin = opts.PermitRootLogin
+	return w.flushLocked()
+}
  
 // ── Core write mechanics ─────────────────────────────────────────────────────
  
@@ -571,4 +628,14 @@ func validateHostname(s string) bool {
 		}
 	}
 	return true
+}
+
+func boolPtrEqual(a, b *bool) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return *a == *b
 }

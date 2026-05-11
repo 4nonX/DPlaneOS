@@ -126,6 +126,13 @@ in
     domainController  = s.samba_domain_controller or null;
   };
 
+  # ── SSH Daemon ───────────────────────────────────────────────────────────────
+  services.openssh.ports           = lib.mkIf (s ? ssh_port) [ s.ssh_port ];
+  services.openssh.settings.PasswordAuthentication =
+    lib.mkIf (s ? ssh_password_auth) s.ssh_password_auth;
+  services.openssh.settings.PermitRootLogin =
+    lib.mkIf (s ? ssh_permit_root_login) s.ssh_permit_root_login;
+
   # ── High Availability ────────────────────────────────────────────────────────
   services.dplaneos.ha.enable = s.ha_enable or false;
 }

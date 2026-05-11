@@ -578,6 +578,17 @@ func (m *Manager) ensureSchema() error {
 		return err
 	}
 
+	if _, err := m.db.Exec(`
+		CREATE TABLE IF NOT EXISTS ha_sbd_config (
+			id             INTEGER PRIMARY KEY CHECK (id = 1),
+			pool           TEXT    NOT NULL DEFAULT '',
+			dataset        TEXT    NOT NULL DEFAULT 'sbd-lease',
+			lease_ttl_secs INTEGER NOT NULL DEFAULT 30
+		)
+	`); err != nil {
+		return err
+	}
+
 	// Schema migrations: safe no-ops if columns already exist.
 	m.db.Exec(`ALTER TABLE ha_fencing_config ADD COLUMN IF NOT EXISTS jitter_max_ms INTEGER NOT NULL DEFAULT 3000`)
 	m.db.Exec(`ALTER TABLE ha_witness_config ADD COLUMN IF NOT EXISTS witnesses_json TEXT NOT NULL DEFAULT '[]'`)
@@ -788,6 +799,16 @@ func (m *Manager) GetFencingConfig() (FencingConfig, error) {
 // SaveFencingConfig exposes STONITH write access on the Manager.
 func (m *Manager) SaveFencingConfig(cfg FencingConfig) error {
 	return SaveFencingConfig(m.db, cfg)
+}
+
+// GetSBDConfig exposes SBD lease fencing read access on the Manager.
+func (m *Manager) GetSBDConfig() (SBDConfig, error) {
+	return GetSBDConfig(m.db)
+}
+
+// SaveSBDConfig exposes SBD lease fencing write access on the Manager.
+func (m *Manager) SaveSBDConfig(cfg SBDConfig) error {
+	return SaveSBDConfig(m.db, cfg)
 }
 
 // GetWitnessConfig exposes quorum witness read access on the Manager.

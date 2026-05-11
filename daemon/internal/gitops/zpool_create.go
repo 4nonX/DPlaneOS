@@ -103,6 +103,12 @@ const (
 	tierSpare
 )
 
+// VdevGroupToArgs builds the zpool vdev argument tokens for one VdevGroup.
+// Exported for use by the reshape planner in diff.go.
+func VdevGroupToArgs(g VdevGroup, tier vdevTier) ([]string, error) {
+	return vdevGroupToArgs(g, tier)
+}
+
 func vdevGroupToArgs(g VdevGroup, tier vdevTier) ([]string, error) {
 	t := strings.ToLower(strings.TrimSpace(g.Type))
 	if t == "" && tier == tierSpare {

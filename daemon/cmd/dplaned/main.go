@@ -327,6 +327,13 @@ func main() {
 	clusterMgr := ha.NewManager(db, haID, haAddr, Version)
 	clusterMgr.Start()
 	defer clusterMgr.Stop()
+
+	// Start SBD lease manager if configured (no-op on unconfigured / single-node).
+	if sbdCfg, err := ha.GetSBDConfig(db); err == nil {
+		ha.GlobalSBD.Start(sbdCfg)
+	}
+	defer ha.GlobalSBD.Stop()
+
 	haHandler := handlers.NewHAHandler(clusterMgr)
 
 	// Initialize Telegram alerts (from flags OR database)
@@ -885,6 +892,10 @@ func main() {
 	r.Handle("/api/ssh/keys", permRoute("users", "admin", http.HandlerFunc(handlers.AddSSHKey))).Methods("POST")
 	r.Handle("/api/ssh/keys/{id}", permRoute("users", "admin", http.HandlerFunc(handlers.DeleteSSHKey))).Methods("DELETE")
 
+	// SSH daemon settings (NixOS managed)
+	r.Handle("/api/system/ssh-daemon", permRoute("system", "read", http.HandlerFunc(handlers.GetSSHDaemon))).Methods("GET")
+	r.Handle("/api/system/ssh-daemon", permRoute("system", "admin", http.HandlerFunc(handlers.PostSSHDaemon))).Methods("POST")
+
 	// System status, profile, preflight, setup handlers
 	systemStatusHandler := handlers.NewSystemStatusHandler(db, Version)
 	r.HandleFunc("/api/system/setup-admin", systemStatusHandler.HandleSetupAdmin).Methods("POST")
@@ -959,6 +970,16 @@ func main() {
 	r.Handle("/api/cloud-sync", permRoute("storage", "read", cloudSyncHandler.HandleCloudSync)).Methods("GET")
 	r.Handle("/api/cloud-sync", permRoute("storage", "write", cloudSyncHandler.HandleCloudSync)).Methods("POST")
 	r.Handle("/api/cloud-sync/jobs", permRoute("storage", "read", handlers.HandleCloudSyncJobs)).Methods("GET")
+
+	// Cold Tier (rclone FUSE mounts)
+	coldTierHandler := handlers.NewColdTierHandler(db)
+	coldTierHandler.ReMountAll()
+	r.Handle("/api/storage/cold-tier", permRoute("storage", "read", coldTierHandler.HandleList)).Methods("GET")
+	r.Handle("/api/storage/cold-tier", permRoute("storage", "write", coldTierHandler.HandleCreate)).Methods("POST")
+	r.Handle("/api/storage/cold-tier/{id}", permRoute("storage", "admin", coldTierHandler.HandleDelete)).Methods("DELETE")
+	r.Handle("/api/storage/cold-tier/{id}/mount", permRoute("storage", "write", coldTierHandler.HandleMount)).Methods("POST")
+	r.Handle("/api/storage/cold-tier/{id}/unmount", permRoute("storage", "write", coldTierHandler.HandleUnmount)).Methods("POST")
+	r.Handle("/api/storage/cold-tier/{id}/usage", permRoute("storage", "read", coldTierHandler.HandleUsage)).Methods("POST")
 
 	// Replication handlers
 	r.Handle("/api/replication/send", permRoute("storage", "admin", handlers.ZFSSend)).Methods("POST")
@@ -1130,6 +1151,8 @@ func main() {
 	r.Handle("/api/ha/maintenance", permRoute("system", "admin", haHandler.RegisterMaintenance)).Methods("POST")
 	r.Handle("/api/ha/pdu/configure", permRoute("system", "admin", haHandler.ConfigurePDU)).Methods("POST")
 	r.Handle("/api/ha/pdu/configure", permRoute("system", "admin", haHandler.GetPDUConfig)).Methods("GET")
+	r.Handle("/api/ha/sbd/configure", permRoute("system", "admin", haHandler.ConfigureSBD)).Methods("POST")
+	r.Handle("/api/ha/sbd/configure", permRoute("system", "admin", haHandler.GetSBDConfig)).Methods("GET")
 	r.Handle("/api/ha/clear_fault", permRoute("system", "admin", haHandler.ClearFault)).Methods("POST")
 	// /api/ha/heartbeat and /api/ha/sync/status are deliberately PUBLIC - peer daemons call them without a session
 	r.HandleFunc("/api/ha/heartbeat", haHandler.PeerHeartbeat).Methods("POST")

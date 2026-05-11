@@ -118,9 +118,40 @@ func (h *GitOpsHandler) Plan(w http.ResponseWriter, r *http.Request) {
 	plan := gitops.ComputeDiff(desired, live)
 	h.stampApprovals(plan)
 
+	// Build the flat `changes` list consumed by the UI plan view.
+	// Exclude NOP items - only show actionable/informational drift.
+	type planChange struct {
+		Resource    string   `json:"resource"`
+		Action      string   `json:"action"`
+		Description string   `json:"description"`
+		Changes     []string `json:"changes,omitempty"`
+		RiskLevel   string   `json:"risk_level,omitempty"`
+	}
+	var uiChanges []planChange
+	for _, item := range plan.Items {
+		if item.Action == gitops.ActionNOP {
+			continue
+		}
+		desc := item.BlockReason
+		if desc == "" && len(item.Changes) > 0 {
+			desc = strings.Join(item.Changes, "; ")
+		}
+		uiChanges = append(uiChanges, planChange{
+			Resource:    fmt.Sprintf("%s/%s", item.Kind, item.Name),
+			Action:      string(item.Action),
+			Description: desc,
+			Changes:     item.Changes,
+			RiskLevel:   item.RiskLevel,
+		})
+	}
+	if uiChanges == nil {
+		uiChanges = []planChange{}
+	}
+
 	respondOK(w, map[string]interface{}{
 		"success":       true,
 		"plan":          plan,
+		"changes":       uiChanges,
 		"plan_summary":  planSummary(plan),
 		"computed_at":   time.Now().Format(time.RFC3339),
 	})

@@ -15,22 +15,23 @@ import (
 
 	"dplaned/internal/audit"
 	"dplaned/internal/cmdutil"
+	"dplaned/internal/nixwriter"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 )
 
 // ═══════════════════════════════════════════════════════════════
-//  SSH authorized_keys management
+//  SSH authorized_keys management + SSH daemon settings
 //
 //  Manages SSH public keys in each system user's ~/.ssh/authorized_keys.
 //  On the first mutation for a given user, any pre-existing keys in
 //  their authorized_keys file are imported into our store automatically
 //  so no manually-added keys are lost.
 //
-//  SSH daemon settings (port, password auth) are intentionally NOT
-//  managed here - they are NixOS-module configuration and must stay
-//  under NixOS/GitOps control.
+//  SSH daemon settings (port, password auth, permit root login) are
+//  managed via GET/POST /api/system/ssh-daemon, which writes to the
+//  nixwriter state. Settings take effect on the next nixos-rebuild.
 // ═══════════════════════════════════════════════════════════════
 
 const sshKeysFile = "ssh-keys.json"
@@ -413,4 +414,93 @@ func DeleteSSHKey(w http.ResponseWriter, r *http.Request) {
 
 	audit.LogActivity(r.Header.Get("X-User"), "ssh_key_delete", map[string]interface{}{"id": id, "username": username})
 	respondOK(w, map[string]interface{}{"success": true})
+}
+
+// ─── SSH Daemon Settings ────────────────────────────────────────
+
+var validPermitRootLoginValues = map[string]bool{
+	"yes":                  true,
+	"no":                   true,
+	"prohibit-password":    true,
+	"forced-commands-only": true,
+}
+
+// GetSSHDaemon GET /api/system/ssh-daemon
+// Returns current SSH daemon settings from the nixwriter state.
+func GetSSHDaemon(w http.ResponseWriter, r *http.Request) {
+	nw := nixwriter.Default()
+	if err := nw.LoadFromDisk(); err != nil {
+		log.Printf("ssh_daemon: load nixwriter state: %v", err)
+	}
+	state := nw.State()
+
+	var passwordAuth *bool
+	if state.SSHPasswordAuth != nil {
+		v := *state.SSHPasswordAuth
+		passwordAuth = &v
+	}
+
+	respondOK(w, map[string]interface{}{
+		"success":           true,
+		"port":              state.SSHPort,
+		"password_auth":     passwordAuth,
+		"permit_root_login": state.SSHPermitRootLogin,
+	})
+}
+
+// PostSSHDaemon POST /api/system/ssh-daemon
+// Body: { port?: int, password_auth?: bool|null, permit_root_login?: string }
+// Writes settings to nixwriter state. Changes take effect on next nixos-rebuild.
+func PostSSHDaemon(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Port            *int    `json:"port"`
+		PasswordAuth    *bool   `json:"password_auth"`
+		PermitRootLogin *string `json:"permit_root_login"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondErrorSimple(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	port := 0
+	if req.Port != nil {
+		port = *req.Port
+		if port < 1 || port > 65535 {
+			respondErrorSimple(w, fmt.Sprintf("Port %d out of range 1-65535", port), http.StatusBadRequest)
+			return
+		}
+	}
+
+	permitRootLogin := ""
+	if req.PermitRootLogin != nil {
+		permitRootLogin = *req.PermitRootLogin
+		if permitRootLogin != "" && !validPermitRootLoginValues[permitRootLogin] {
+			respondErrorSimple(w, fmt.Sprintf("Invalid permit_root_login %q; valid: yes, no, prohibit-password, forced-commands-only", permitRootLogin), http.StatusBadRequest)
+			return
+		}
+	}
+
+	nw := nixwriter.Default()
+	if err := nw.LoadFromDisk(); err != nil {
+		log.Printf("ssh_daemon: load nixwriter state: %v", err)
+	}
+
+	if err := nw.SetSSHDaemon(nixwriter.SSHDaemonOpts{
+		Port:            port,
+		PasswordAuth:    req.PasswordAuth,
+		PermitRootLogin: permitRootLogin,
+	}); err != nil {
+		respondErrorSimple(w, "Failed to save SSH daemon settings: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	audit.LogActivity(r.Header.Get("X-User"), "ssh_daemon_update", map[string]interface{}{
+		"port":              port,
+		"password_auth":     req.PasswordAuth,
+		"permit_root_login": permitRootLogin,
+	})
+	respondOK(w, map[string]interface{}{
+		"success": true,
+		"message": "SSH daemon settings saved. Apply NixOS configuration to activate.",
+	})
 }

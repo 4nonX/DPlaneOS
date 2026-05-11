@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 
 
+## v9.0.0 (2026-05-11) - "Zero-Touch Integrity"
+
+Upgrade from: v8.3.0 - Drop-in. No breaking changes. All HA features are opt-in.
+
+### Added
+- **NixOS SSH Daemon Settings** (Pillar 1): Authorized-key management page gains a second tab "Daemon Settings" allowing port, password authentication, and PermitRootLogin to be configured and applied via nixos-rebuild. Settings are stored in the nixwriter JSON bridge and rendered into NixOS configuration at build time with `lib.mkIf` guards so unset fields have no effect. GitOps engine picks up SSH fields in state.yaml and emits `ssh-set:*` change items.
+- **Cold Tier (rclone FUSE mounts)** (Pillar 2): Cloud Sync page gains a "Cold Tier" tab for mounting rclone remotes as FUSE filesystems under `/mnt/cold/`. Supports VFS cache modes (off/minimal/writes/full), per-mount live status indicator, usage reporting, mount/unmount/delete actions. Mounts are persisted in the database and re-established at daemon startup via `ReMountAll()`. Remote names are validated against the local rclone config before creation.
+- **Declarative ZFS Topology Reshape** (Pillar 3): state.yaml pool entries support `force_reshape: true` which converts purely additive topology changes (new vdev groups) into `RESHAPE` plan actions that execute `zpool add` automatically. Partial vdev group changes and destructive operations remain `MANUAL` with an explanatory hint. GitOps plan view shows RESHAPE items with amber color and an inline `zpool add` command preview. Pre-existing bug fixed: plan view no longer always shows "Zero drift" after GitOps handler was updated to emit a flat `changes` array alongside the nested plan.
+- **SBD Lease Fencing** (Pillar 4): New opt-in ZFS-property-based self-fencing mechanism. When configured, the daemon writes a unix timestamp property (`dplaneos:sbd_lease`) to a designated dataset every `LeaseTTLSecs/3` seconds. If the node loses ZFS access it cannot renew, and `ExecuteSBDFence` triggers `reboot -f` as a last-resort self-termination. Exposed as `GET/POST /api/ha/sbd/configure`. HA page gains an SBD card with pool/dataset/TTL inputs and a live lease-health badge. Completely opt-in: leaving Pool empty is a no-op with zero runtime overhead on single-node deployments.
+- **TryFence** (Pillar 4): New `ha.TryFence(nodeID, bmcCfg, sbdCfg)` function provides a priority-ordered fencing chain: BMC/IPMI if armed, then SBD if configured, then a warning log that returns nil without error so single-node systems are never blocked.
+
+### Changed
+- GitOps `diffPool` rewrites fine-grained per-group topology analysis replacing the previous single "topology-drift" fallback.
+- HA setup wizard step 6 label updated to include SBD in the fencing overview.
+
 ## v8.3.0 (2026-05-11) - "Barrier-Free"
 
 Upgrade from: v8.2.0 - Drop-in.

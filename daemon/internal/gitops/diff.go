@@ -72,6 +72,12 @@ const (
 	// The plan surfaces it to the operator with the required manual commands.
 	// Unlike ActionBlocked, this does NOT halt the plan.
 	ActionManual DiffAction = "MANUAL"
+
+	// ActionReshape - purely additive pool topology change (zpool add) that the
+	// reconciler can execute when DesiredPool.ForceReshape is true. Only emitted
+	// for changes classified as additive by classifyTopologyChange(). Removals
+	// always remain ActionManual regardless of ForceReshape.
+	ActionReshape DiffAction = "RESHAPE"
 )
 
 // ResourceKind identifies what type of resource a DiffItem describes.
@@ -508,12 +514,16 @@ func ComputeDiff(desired *DesiredState, live *LiveState) *Plan {
 		}
 		dpCopy := dp
 
-		// Split automatable property changes (zpool-set) from topology/health
-		// changes that require manual operator action.
-		var autoChanges, manualChanges []string
+		// Partition changes into three buckets:
+		//  autoChanges    - zpool-set property changes; always auto-applied
+		//  reshapeChanges - purely additive topology (add-vdev/cache/log/spare)
+		//  manualChanges  - disk removals, health, guid-mismatch, partial drift
+		var autoChanges, reshapeChanges, manualChanges []string
 		for _, c := range changes {
 			if strings.HasPrefix(c, "zpool-set:") {
 				autoChanges = append(autoChanges, c)
+			} else if classifyTopologyChange(c) {
+				reshapeChanges = append(reshapeChanges, c)
 			} else {
 				manualChanges = append(manualChanges, c)
 			}
@@ -528,10 +538,36 @@ func ComputeDiff(desired *DesiredState, live *LiveState) *Plan {
 				RiskLevel:   riskForPoolChanges(autoChanges),
 				DesiredPool: &dpCopy,
 			})
-		} else {
+		} else if len(reshapeChanges) == 0 && len(manualChanges) == 0 {
 			plan.Items = append(plan.Items, DiffItem{
 				Kind: KindPool, Name: dp.Name, Action: ActionNOP, RiskLevel: "low",
 			})
+		}
+
+		if len(reshapeChanges) > 0 {
+			if dp.ForceReshape {
+				plan.Items = append(plan.Items, DiffItem{
+					Kind:        KindPool,
+					Name:        dp.Name,
+					Action:      ActionReshape,
+					Changes:     reshapeChanges,
+					RiskLevel:   "medium",
+					DesiredPool: &dpCopy,
+				})
+			} else {
+				// ForceReshape not set - surface as MANUAL with a hint
+				hint := fmt.Sprintf("Pool %q has additive topology changes. Set force_reshape: true to apply automatically. Changes: %s",
+					dp.Name, strings.Join(reshapeChanges, "; "))
+				plan.Items = append(plan.Items, DiffItem{
+					Kind:        KindPool,
+					Name:        dp.Name,
+					Action:      ActionManual,
+					Changes:     reshapeChanges,
+					BlockReason: hint,
+					RiskLevel:   "medium",
+					DesiredPool: &dpCopy,
+				})
+			}
 		}
 
 		if len(manualChanges) > 0 {
@@ -1178,10 +1214,31 @@ func blockedCheckShare(ls LiveShare) DiffItem {
 //  PROPERTY DIFF HELPERS
 // ═══════════════════════════════════════════════════════════════════════════════
 
+// classifyTopologyChange reports whether a diffPool change string represents a
+// purely additive operation that can be executed via `zpool add`. Removals,
+// health warnings, guid mismatches, and ambiguous drift are always false.
+func classifyTopologyChange(change string) bool {
+	for _, prefix := range []string{"add-vdev:", "add-cache:", "add-log:", "add-spare:", "add-special:"} {
+		if strings.HasPrefix(change, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
 // diffPool returns the list of property changes between desired and live pool.
-// Pool vdev structure changes (adding disks) are reported but are MODIFY, not
-// BLOCKED - adding disks is safe. Removing disks from a live pool is complex
-// and is always flagged as high-risk in the change description.
+//
+// Topology delta is expressed as structured change strings:
+//   - add-vdev: <vdev-spec>       newly declared data vdev group (additive)
+//   - add-log: <vdev-spec>        newly declared log device (additive)
+//   - add-cache: <vdev-spec>      newly declared cache device (additive)
+//   - add-spare: <vdev-spec>      newly declared spare device (additive)
+//   - add-special: <vdev-spec>    newly declared special vdev (additive)
+//   - disk-remove: <path>         disk in live pool but absent from desired (manual)
+//   - topology-drift: <detail>    partial/ambiguous group change (manual)
+//   - health: <status>            pool not ONLINE (informational)
+//   - guid-mismatch: <detail>     GUID disagreement (informational)
+//   - zpool-set: <k=v>            pool property to update (auto)
 func diffPool(desired DesiredPool, live LivePool) []string {
 	var changes []string
 
@@ -1189,19 +1246,89 @@ func diffPool(desired DesiredPool, live LivePool) []string {
 		changes = append(changes, fmt.Sprintf("health: %s (degraded - check zpool status)", live.Health))
 	}
 
-	want := TopologyDiskFingerprint(desired.Topology)
-	got := append([]string(nil), live.Disks...)
-	sort.Strings(got)
-	if len(want) != len(got) || !stringSliceEqual(want, got) {
-		changes = append(changes,
-			"topology-drift: declared topology disk set does not match live pool - automatic reshape disabled; align state.yaml or use zpool add/remove manually",
-		)
-	}
-
 	if desired.GUID != "" && live.GUID != "" && desired.GUID != live.GUID {
 		changes = append(changes, fmt.Sprintf("guid-mismatch: live=%s declared=%s (verify correct pool)", live.GUID, desired.GUID))
 	}
 
+	// ── Topology delta ──────────────────────────────────────────────────────────
+	liveSet := make(map[string]bool, len(live.Disks))
+	for _, d := range live.Disks {
+		liveSet[d] = true
+	}
+
+	desiredFlat := TopologyDiskFingerprint(desired.Topology)
+	desiredSet := make(map[string]bool, len(desiredFlat))
+	for _, d := range desiredFlat {
+		desiredSet[d] = true
+	}
+
+	addedSet := make(map[string]bool)
+	for d := range desiredSet {
+		if !liveSet[d] {
+			addedSet[d] = true
+		}
+	}
+	var removedDisks []string
+	for d := range liveSet {
+		if !desiredSet[d] {
+			removedDisks = append(removedDisks, d)
+		}
+	}
+	sort.Strings(removedDisks)
+
+	if len(addedSet) > 0 || len(removedDisks) > 0 {
+		type tierGroup struct {
+			name    string
+			keyword string
+			tier    vdevTier
+			groups  []VdevGroup
+		}
+		tiers := []tierGroup{
+			{"vdev", "", tierData, desired.Topology.Data},
+			{"log", "log", tierLog, desired.Topology.Log},
+			{"cache", "cache", tierCache, desired.Topology.Cache},
+			{"spare", "spare", tierSpare, desired.Topology.Spare},
+			{"special", "special", tierSpecial, desired.Topology.Special},
+		}
+		for _, tg := range tiers {
+			for _, g := range tg.groups {
+				allNew := true
+				allOld := true
+				for _, d := range g.Disks {
+					if addedSet[d] {
+						allOld = false
+					} else {
+						allNew = false
+					}
+				}
+				if len(g.Disks) == 0 {
+					continue
+				}
+				if allNew {
+					args, err := VdevGroupToArgs(g, tg.tier)
+					if err != nil {
+						changes = append(changes, fmt.Sprintf("topology-drift: could not build vdev args for %s group: %v", tg.name, err))
+						continue
+					}
+					spec := strings.Join(args, " ")
+					if tg.keyword != "" {
+						spec = tg.keyword + " " + spec
+					}
+					changes = append(changes, fmt.Sprintf("add-%s: %s", tg.name, spec))
+				} else if !allOld {
+					changes = append(changes, fmt.Sprintf(
+						"topology-drift: %s group has mixed new/existing disks - align state.yaml with live pool before reshaping",
+						tg.name,
+					))
+				}
+			}
+		}
+		for _, d := range removedDisks {
+			changes = append(changes, fmt.Sprintf("disk-remove: %s", d))
+		}
+	}
+
+	// ── Pool properties ─────────────────────────────────────────────────────────
 	for k, v := range desired.Options {
 		k = strings.TrimSpace(k)
 		v = strings.TrimSpace(v)
@@ -1294,6 +1421,9 @@ func riskForPoolChanges(changes []string) string {
 	for _, c := range changes {
 		if strings.Contains(c, "disk-remove") || strings.Contains(c, "degraded") || strings.Contains(c, "topology-drift") || strings.Contains(c, "guid-mismatch") {
 			return "critical"
+		}
+		if classifyTopologyChange(c) {
+			return "medium"
 		}
 		if strings.Contains(c, "zpool-set:") {
 			return "medium"
@@ -1462,7 +1592,21 @@ func diffSystem(desired DesiredSystem, live nixwriter.DPlaneState) []string {
 			changes = append(changes, fmt.Sprintf("network-remove: %s", iface))
 		}
 	}
- 
+
+	// SSH daemon settings
+	if desired.SSH.Port != 0 && desired.SSH.Port != live.SSHPort {
+		changes = append(changes, fmt.Sprintf("ssh-set:port: %d → %d", live.SSHPort, desired.SSH.Port))
+	}
+	if desired.SSH.PasswordAuth != nil {
+		livePA := live.SSHPasswordAuth
+		if livePA == nil || *livePA != *desired.SSH.PasswordAuth {
+			changes = append(changes, fmt.Sprintf("ssh-set:password_auth: %v → %v", livePA, *desired.SSH.PasswordAuth))
+		}
+	}
+	if desired.SSH.PermitRootLogin != "" && desired.SSH.PermitRootLogin != live.SSHPermitRootLogin {
+		changes = append(changes, fmt.Sprintf("ssh-set:permit_root_login: %q → %q", live.SSHPermitRootLogin, desired.SSH.PermitRootLogin))
+	}
+
 	return changes
 }
  

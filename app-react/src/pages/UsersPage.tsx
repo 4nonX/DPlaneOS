@@ -589,7 +589,7 @@ export function UsersPage() {
         role="tablist"
         aria-label="User management sections"
         onKeyDown={(e) => {
-          // Manual Activation: arrows move focus only — each panel makes a
+          // Manual Activation: arrows move focus only; each panel makes a
           // live API call on mount, so activating on every arrow keypress
           // would fire unnecessary daemon requests. Enter/Space activates.
           const activeIdx = TABS.findIndex(t => t.id === tab)

@@ -242,7 +242,6 @@ var builtinIconMap = []IconMapEntry{
 	{Match: "wireguard", Icon: "vpn_key"},
 	{Match: "wg-easy", Icon: "vpn_key"},
 	{Match: "openvpn", Icon: "vpn_key"},
-	{Match: "tailscale", Icon: "vpn_key"},
 	{Match: "headscale", Icon: "vpn_key"},
 	{Match: "pihole", Icon: "dns"},
 	{Match: "adguard", Icon: "dns"},

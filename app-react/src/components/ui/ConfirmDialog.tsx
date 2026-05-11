@@ -96,7 +96,7 @@ export function useConfirm() {
     resolveRef.current(false)
   }, [])
 
-  // Window-level Escape listener — catches Escape even when focus has escaped
+  // Window-level Escape listener: catches Escape even when focus has escaped
   // the modal panel (e.g. focus in an iframe or browser chrome).
   useEffect(() => {
     if (!state.open) return

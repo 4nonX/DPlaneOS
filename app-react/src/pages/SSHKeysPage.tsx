@@ -1,17 +1,18 @@
 /**
- * pages/SSHKeysPage.tsx - SSH Authorized Key Management
+ * pages/SSHKeysPage.tsx - SSH Authorized Key Management + Daemon Settings
  *
- * Manages SSH public keys in each system user's ~/.ssh/authorized_keys.
- * SSH daemon settings (port, password auth) are NixOS-managed and shown
- * here as read-only status only.
+ * Tab 1 (Keys): Manages SSH public keys in each system user's authorized_keys.
+ * Tab 2 (Daemon): NixOS SSH daemon settings (port, password auth, permit root login).
  *
  * API:
- *   GET  /api/ssh/status           → { active, port }
- *   GET  /api/ssh/keys             → { keys: SSHManagedKey[] }
- *   GET  /api/ssh/keys?username=X  → filtered list
- *   POST /api/ssh/keys             → add key { username, label, public_key }
- *   DELETE /api/ssh/keys/{id}      → remove key
- *   GET  /api/rbac/users           → system user list
+ *   GET  /api/ssh/status             → { active, port }
+ *   GET  /api/ssh/keys               → { keys: SSHManagedKey[] }
+ *   GET  /api/ssh/keys?username=X    → filtered list
+ *   POST /api/ssh/keys               → add key { username, label, public_key }
+ *   DELETE /api/ssh/keys/{id}        → remove key
+ *   GET  /api/system/ssh-daemon      → { port, password_auth, permit_root_login }
+ *   POST /api/system/ssh-daemon      → update daemon settings
+ *   GET  /api/rbac/users             → system user list
  */
 
 import { useState } from 'react'
@@ -46,6 +47,13 @@ interface StatusResponse { success: boolean; active: boolean; port: string }
 
 interface SystemUser { id: number; username: string; active: boolean }
 interface UsersResponse { users: SystemUser[] }
+
+interface SSHDaemonResponse {
+  success: boolean
+  port: number
+  password_auth: boolean | null
+  permit_root_login: string
+}
 
 // ---------------------------------------------------------------------------
 // Key type badge
@@ -155,11 +163,152 @@ function AddKeyModal({ users, defaultUsername, onClose }: AddKeyModalProps) {
 }
 
 // ---------------------------------------------------------------------------
+// Daemon settings tab
+// ---------------------------------------------------------------------------
+
+const PERMIT_ROOT_OPTIONS = [
+  { value: '', label: 'NixOS default' },
+  { value: 'no', label: 'No' },
+  { value: 'prohibit-password', label: 'Prohibit password (key-only)' },
+  { value: 'forced-commands-only', label: 'Forced commands only' },
+  { value: 'yes', label: 'Yes (not recommended)' },
+]
+
+function DaemonSettingsTab() {
+  const qc = useQueryClient()
+
+  const { data, isLoading, error } = useQuery<SSHDaemonResponse>({
+    queryKey: ['ssh', 'daemon'],
+    queryFn: () => api.get<SSHDaemonResponse>('/api/system/ssh-daemon'),
+  })
+
+  const [port, setPort]                   = useState<string>('')
+  const [passwordAuth, setPasswordAuth]   = useState<string>('unset')
+  const [permitRoot, setPermitRoot]       = useState<string>('')
+  const [initialised, setInitialised]     = useState(false)
+
+  if (data && !initialised) {
+    setPort(data.port > 0 ? String(data.port) : '')
+    setPasswordAuth(data.password_auth === null ? 'unset' : data.password_auth ? 'true' : 'false')
+    setPermitRoot(data.permit_root_login ?? '')
+    setInitialised(true)
+  }
+
+  const mut = useMutation({
+    mutationFn: () => {
+      const body: Record<string, unknown> = {}
+      const p = parseInt(port, 10)
+      if (port !== '' && !isNaN(p)) body.port = p
+      if (passwordAuth === 'true')  body.password_auth = true
+      if (passwordAuth === 'false') body.password_auth = false
+      body.permit_root_login = permitRoot
+      return api.post('/api/system/ssh-daemon', body)
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['ssh', 'daemon'] })
+      toast.success('SSH daemon settings saved - apply NixOS config to activate')
+    },
+    onError: (e: Error) => toast.error(e.message),
+  })
+
+  if (isLoading) return (
+    <div className="card" style={{ padding: 24 }}>
+      <Skeleton style={{ height: 120 }} />
+    </div>
+  )
+  if (error) return <ErrorState error={error} title="Failed to load SSH daemon settings" />
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+      <div className="card" style={{ padding: 24 }}>
+        <h3 style={{ margin: '0 0 4px', fontSize: 'var(--text-base)', fontWeight: 600 }}>SSH Daemon Settings</h3>
+        <p style={{ margin: '0 0 20px', fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>
+          Settings are written to the NixOS state file. Use Apply NixOS Configuration to activate changes.
+        </p>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 20 }}>
+          <div>
+            <label style={{ display: 'block', fontSize: 'var(--text-sm)', fontWeight: 500, marginBottom: 6 }}>
+              Listen port
+            </label>
+            <input
+              className="input"
+              type="number"
+              min={1}
+              max={65535}
+              placeholder="22 (NixOS default)"
+              value={port}
+              onChange={e => setPort(e.target.value)}
+              disabled={mut.isPending}
+            />
+            <p style={{ marginTop: 4, fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }}>
+              Leave blank to use the NixOS default (22).
+            </p>
+          </div>
+
+          <div>
+            <label style={{ display: 'block', fontSize: 'var(--text-sm)', fontWeight: 500, marginBottom: 6 }}>
+              Password authentication
+            </label>
+            <select
+              className="input"
+              value={passwordAuth}
+              onChange={e => setPasswordAuth(e.target.value)}
+              disabled={mut.isPending}
+            >
+              <option value="unset">NixOS default</option>
+              <option value="false">Disabled (keys only)</option>
+              <option value="true">Enabled</option>
+            </select>
+          </div>
+
+          <div>
+            <label style={{ display: 'block', fontSize: 'var(--text-sm)', fontWeight: 500, marginBottom: 6 }}>
+              Permit root login
+            </label>
+            <select
+              className="input"
+              value={permitRoot}
+              onChange={e => setPermitRoot(e.target.value)}
+              disabled={mut.isPending}
+            >
+              {PERMIT_ROOT_OPTIONS.map(o => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        <div style={{ marginTop: 24, display: 'flex', justifyContent: 'flex-end' }}>
+          <button className="btn btn-primary" onClick={() => mut.mutate()} disabled={mut.isPending}>
+            {mut.isPending
+              ? <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Spinner size={14} color="rgba(0,0,0,0.7)" /> Saving…</span>
+              : <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Icon name="save" size={15} /> Save Settings</span>
+            }
+          </button>
+        </div>
+      </div>
+
+      <div className="card" style={{ padding: 16, background: 'var(--bg-secondary)' }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+          <Icon name="info" size={16} style={{ color: 'var(--text-tertiary)', marginTop: 1, flexShrink: 0 }} />
+          <p style={{ margin: 0, fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+            These settings map to <code>services.openssh</code> in NixOS. Changing the port will also require updating your firewall rules.
+            Disabling password authentication without at least one authorized key in your account will lock you out.
+          </p>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Page
 // ---------------------------------------------------------------------------
 
 export function SSHKeysPage() {
   const qc = useQueryClient()
+  const [tab, setTab]                 = useState<'keys' | 'daemon'>('keys')
   const [showAdd, setShowAdd]         = useState(false)
   const [filterUser, setFilterUser]   = useState<string>('all')
   const { confirm, ConfirmDialog }    = useConfirm()
@@ -220,85 +369,98 @@ export function SSHKeysPage() {
     <div className="page-container">
       <header className="page-header">
         <div>
-          <h1 className="page-title">SSH Keys</h1>
-          <p className="page-subtitle">Manage SSH public keys for system user accounts.</p>
+          <h1 className="page-title">SSH</h1>
+          <p className="page-subtitle">Manage authorized keys and SSH daemon settings.</p>
         </div>
-        <button className="btn btn-primary" onClick={() => setShowAdd(true)} disabled={activeUsers.length === 0}>
-          <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Icon name="add" size={16} /> Add Key</span>
-        </button>
+        {tab === 'keys' && (
+          <button className="btn btn-primary" onClick={() => setShowAdd(true)} disabled={activeUsers.length === 0}>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Icon name="add" size={16} /> Add Key</span>
+          </button>
+        )}
       </header>
 
-      {/* ── SSH daemon status ── */}
-      <div className="card" style={{ padding: 20, marginBottom: 24 }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span className={`status-dot ${status?.active ? 'online' : 'offline'}`} />
-              <span style={{ fontWeight: 600, fontSize: 'var(--text-sm)', color: status?.active ? 'var(--success)' : 'var(--text-tertiary)' }}>
-                SSH daemon {status?.active ? 'running' : 'stopped'}
-              </span>
-            </div>
-            {status?.active && status.port && (
-              <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>
-                Port <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 600 }}>{status.port}</span>
-              </span>
-            )}
+      {/* ── SSH daemon status banner ── */}
+      <div className="card" style={{ padding: '12px 20px', marginBottom: 20 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span className={`status-dot ${status?.active ? 'online' : 'offline'}`} />
+            <span style={{ fontWeight: 600, fontSize: 'var(--text-sm)', color: status?.active ? 'var(--success)' : 'var(--text-tertiary)' }}>
+              SSH daemon {status?.active ? 'running' : 'stopped'}
+            </span>
           </div>
-          <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }}>
-            SSH daemon settings (port, password auth) are managed via NixOS configuration.
-          </span>
+          {status?.active && status.port && (
+            <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>
+              Port <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 600 }}>{status.port}</span>
+            </span>
+          )}
         </div>
       </div>
 
-      {/* ── Filter bar ── */}
-      {usersWithKeys.length > 1 && (
-        <div className="tabs" style={{ marginBottom: 20 }}>
-          <button className={`tab ${filterUser === 'all' ? 'tab-active' : ''}`} onClick={() => setFilterUser('all')}>
-            All users
-          </button>
-          {usersWithKeys.map(u => (
-            <button key={u} className={`tab ${filterUser === u ? 'tab-active' : ''}`} onClick={() => setFilterUser(u)}>
-              {u}
-            </button>
-          ))}
-        </div>
-      )}
+      {/* ── Tab bar ── */}
+      <div className="tabs" style={{ marginBottom: 20 }}>
+        <button className={`tab ${tab === 'keys' ? 'tab-active' : ''}`} onClick={() => setTab('keys')}>
+          Authorized Keys
+        </button>
+        <button className={`tab ${tab === 'daemon' ? 'tab-active' : ''}`} onClick={() => setTab('daemon')}>
+          Daemon Settings
+        </button>
+      </div>
 
-      {/* ── Key table ── */}
-      {keysLoading ? (
-        <div className="card" style={{ padding: 24 }}>
-          {[0, 1, 2].map(i => <Skeleton key={i} style={{ height: 48, marginBottom: 10 }} />)}
-        </div>
-      ) : keysError ? (
-        <ErrorState error={keysError} title="Failed to load SSH keys" onRetry={() => refetch()} />
-      ) : allKeys.length === 0 ? (
-        <div className="empty-state">
-          <Icon name="key" size={48} className="empty-state-icon" />
-          <h3 className="empty-state-title">No SSH keys yet</h3>
-          <p className="empty-state-body">
-            Add a public key to allow passwordless SSH login for a system user.
-            Existing authorized_keys entries are automatically imported on first use.
-          </p>
-        </div>
-      ) : filterUser !== 'all' ? (
-        <SingleUserTable
-          keys={displayed}
-          username={filterUser}
-          onDelete={handleDelete}
-          pending={deleteMut.isPending}
-        />
+      {tab === 'daemon' ? (
+        <DaemonSettingsTab />
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-          {usersWithKeys.filter(u => (grouped[u]?.length ?? 0) > 0).map(u => (
+        <>
+          {/* ── Filter bar ── */}
+          {usersWithKeys.length > 1 && (
+            <div className="tabs" style={{ marginBottom: 20 }}>
+              <button className={`tab ${filterUser === 'all' ? 'tab-active' : ''}`} onClick={() => setFilterUser('all')}>
+                All users
+              </button>
+              {usersWithKeys.map(u => (
+                <button key={u} className={`tab ${filterUser === u ? 'tab-active' : ''}`} onClick={() => setFilterUser(u)}>
+                  {u}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* ── Key table ── */}
+          {keysLoading ? (
+            <div className="card" style={{ padding: 24 }}>
+              {[0, 1, 2].map(i => <Skeleton key={i} style={{ height: 48, marginBottom: 10 }} />)}
+            </div>
+          ) : keysError ? (
+            <ErrorState error={keysError} title="Failed to load SSH keys" onRetry={() => refetch()} />
+          ) : allKeys.length === 0 ? (
+            <div className="empty-state">
+              <Icon name="key" size={48} className="empty-state-icon" />
+              <h3 className="empty-state-title">No SSH keys yet</h3>
+              <p className="empty-state-body">
+                Add a public key to allow passwordless SSH login for a system user.
+                Existing authorized_keys entries are automatically imported on first use.
+              </p>
+            </div>
+          ) : filterUser !== 'all' ? (
             <SingleUserTable
-              key={u}
-              keys={grouped[u] ?? []}
-              username={u}
+              keys={displayed}
+              username={filterUser}
               onDelete={handleDelete}
               pending={deleteMut.isPending}
             />
-          ))}
-        </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+              {usersWithKeys.filter(u => (grouped[u]?.length ?? 0) > 0).map(u => (
+                <SingleUserTable
+                  key={u}
+                  keys={grouped[u] ?? []}
+                  username={u}
+                  onDelete={handleDelete}
+                  pending={deleteMut.isPending}
+                />
+              ))}
+            </div>
+          )}
+        </>
       )}
 
       {showAdd && (

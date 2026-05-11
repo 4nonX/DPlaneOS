@@ -179,3 +179,20 @@ statusLoop:
 	audit.LogAction("ha_fence", "system", fmt.Sprintf("Fenced node %s at BMC %s - chassis confirmed dark", nodeID, cfg.BMCIP), true, time.Since(start))
 	return nil
 }
+
+// TryFence attempts to fence nodeID using whatever mechanism is configured.
+// Priority: BMC/IPMI if enabled -> SBD self-termination if configured -> warn and proceed.
+// The final fallback (warn and proceed) ensures single-node deployments with no fencing
+// configured are fully unaffected. TryFence never returns an error for the unconfigured case.
+func TryFence(nodeID string, bmcCfg FencingConfig, sbdCfg SBDConfig) error {
+	if bmcCfg.Enable && bmcCfg.BMCIP != "" {
+		log.Printf("TryFence: Using IPMI/BMC fencing for node %s", nodeID)
+		return ExecuteFencing(nodeID, bmcCfg)
+	}
+	if sbdCfg.Pool != "" {
+		log.Printf("TryFence: BMC not configured; using SBD self-fence for node %s", nodeID)
+		return ExecuteSBDFence(fmt.Sprintf("peer-requested fence of %s", nodeID))
+	}
+	log.Printf("TryFence: WARNING - no fencing mechanism configured. Node %s will NOT be fenced. Ensure this node is offline to prevent split-brain.", nodeID)
+	return nil
+}

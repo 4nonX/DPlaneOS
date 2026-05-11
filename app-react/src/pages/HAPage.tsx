@@ -19,6 +19,8 @@
  *   POST /api/ha/fencing/configure
  *   GET  /api/ha/pdu/configure
  *   POST /api/ha/pdu/configure
+ *   GET  /api/ha/sbd/configure
+ *   POST /api/ha/sbd/configure
  *   GET  /api/ha/replication/configure
  *   POST /api/ha/replication/configure
  */
@@ -117,6 +119,19 @@ interface PDUConfig {
   password_file:   string
   timeout_secs:    number
   expected_status: number   // 0 = any 2xx
+}
+
+interface SBDConfig {
+  pool:           string   // ZFS pool name; '' = SBD disabled
+  dataset:        string   // dataset under pool for the lease token
+  lease_ttl_secs: number   // seconds before a stale lease is considered dead
+}
+
+interface SBDResponse {
+  success:           boolean
+  config:            SBDConfig
+  lease_active:      boolean
+  last_renewal_unix: number
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -632,6 +647,105 @@ function PDUConfigForm() {
       <button onClick={submit} disabled={save.isPending || q.isLoading} className="btn btn-primary"
         style={{ background: enable ? 'var(--error)' : 'var(--primary)', color: '#fff', border: 'none' }}>
         <Icon name="save" size={15} />{save.isPending ? 'Saving…' : 'Save PDU Config'}
+      </button>
+    </div>
+  )
+}
+
+// ─── SBDConfigForm ───────────────────────────────────────────────────────────
+
+function SBDConfigForm() {
+  const qc = useQueryClient()
+  const q  = useQuery({
+    queryKey: ['ha', 'sbd'],
+    queryFn:  ({ signal }) => api.get<SBDResponse>('/api/ha/sbd/configure', signal),
+  })
+
+  const [pool,    setPool]    = useState('')
+  const [dataset, setDataset] = useState('sbd-lease')
+  const [ttl,     setTtl]     = useState(30)
+
+  useEffect(() => {
+    if (q.data?.config) {
+      const c = q.data.config
+      setPool(c.pool ?? '')
+      setDataset(c.dataset || 'sbd-lease')
+      setTtl(c.lease_ttl_secs || 30)
+    }
+  }, [q.data])
+
+  const save = useMutation({
+    mutationFn: (cfg: SBDConfig) => api.post('/api/ha/sbd/configure', cfg),
+    onSuccess: () => { toast.success('SBD fencing configuration saved'); qc.invalidateQueries({ queryKey: ['ha', 'sbd'] }) },
+    onError: (e: Error) => toast.error(e.message),
+  })
+
+  function submit() {
+    if (pool.trim() && !dataset.trim()) { toast.error('Dataset name is required when pool is set'); return }
+    save.mutate({ pool: pool.trim(), dataset: dataset.trim() || 'sbd-lease', lease_ttl_secs: ttl })
+  }
+
+  const configured   = (q.data?.config?.pool ?? '') !== ''
+  const leaseActive  = q.data?.lease_active === true
+  const lastRenewal  = q.data?.last_renewal_unix ?? 0
+
+  return (
+    <div className="card" style={{ borderRadius: 'var(--radius-lg)', padding: '20px 24px', marginTop: 24, borderLeft: configured ? '4px solid var(--warning)' : '4px solid var(--border)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <Icon name="dataset" size={24} style={{ color: configured ? 'var(--warning)' : 'var(--text-tertiary)' }} />
+          <div>
+            <div style={{ fontWeight: 700 }}>SBD Lease Fencing (ZFS token)</div>
+            <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>
+              Self-fence via ZFS property lease - fences this node if it loses storage access (no BMC required)
+            </div>
+          </div>
+        </div>
+        {configured && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 10px', borderRadius: 'var(--radius-md)', background: leaseActive ? 'rgba(16,185,129,0.12)' : 'rgba(239,68,68,0.12)', border: `1px solid ${leaseActive ? 'rgba(16,185,129,0.3)' : 'rgba(239,68,68,0.3)'}` }}>
+            <div style={{ width: 7, height: 7, borderRadius: '50%', background: leaseActive ? 'var(--success)' : 'var(--error)', flexShrink: 0 }} />
+            <span style={{ fontSize: 'var(--text-xs)', fontWeight: 600, color: leaseActive ? 'var(--success)' : 'var(--error)' }}>
+              {leaseActive ? `Lease active${lastRenewal > 0 ? ' · ' + fmtAgo(lastRenewal) : ''}` : 'Lease manager not running'}
+            </span>
+          </div>
+        )}
+      </div>
+
+      {!configured && (
+        <div className="alert alert-info" style={{ marginBottom: 16, padding: '10px 14px' }}>
+          <Icon name="info" size={16} />
+          <div style={{ fontSize: 'var(--text-xs)' }}>
+            SBD is opt-in. Leave Pool empty to keep this node in single-node mode with no lease overhead.
+          </div>
+        </div>
+      )}
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 120px', gap: 12, marginBottom: 16 }}>
+        <label className="field">
+          <span className="field-label">ZFS Pool</span>
+          <input value={pool} onChange={e => setPool(e.target.value)} placeholder="tank (leave empty to disable)"
+            className="input" style={{ fontFamily: 'var(--font-mono)' }} disabled={q.isLoading} />
+        </label>
+        <label className="field">
+          <span className="field-label">Dataset Name</span>
+          <input value={dataset} onChange={e => setDataset(e.target.value)} placeholder="sbd-lease"
+            className="input" style={{ fontFamily: 'var(--font-mono)' }} disabled={q.isLoading} />
+        </label>
+        <label className="field">
+          <span className="field-label">Lease TTL (s)</span>
+          <input type="number" min={5} max={300} step={5} value={ttl}
+            onChange={e => setTtl(Math.min(300, Math.max(5, parseInt(e.target.value) || 30)))}
+            className="input" disabled={q.isLoading} />
+        </label>
+      </div>
+
+      <p style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', margin: '0 0 16px' }}>
+        Lease renews every {Math.floor(ttl / 3)}s. If renewal stops for {ttl}s the node self-reboots via <code>reboot -f</code>. Requires the dataset <code>{pool || 'pool'}/{dataset || 'sbd-lease'}</code> to exist and be writable by root.
+      </p>
+
+      <button onClick={submit} disabled={save.isPending || q.isLoading} className="btn btn-primary"
+        style={{ background: configured ? 'var(--warning)' : 'var(--primary)', color: '#fff', border: 'none' }}>
+        <Icon name="save" size={15} />{save.isPending ? 'Saving…' : 'Save SBD Config'}
       </button>
     </div>
   )
@@ -1259,6 +1373,7 @@ export function HAPage() {
       <WitnessConfigForm />
       <FencingConfigForm />
       <PDUConfigForm />
+      <SBDConfigForm />
       <ReplicationConfigForm />
 
       <ConfirmDialog />

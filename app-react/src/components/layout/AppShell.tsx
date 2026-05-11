@@ -73,14 +73,14 @@ function StrengthBar({ password }: { password: string }) {
     <>
       {hasPassword && (
         <div style={{ marginTop: 6 }}>
-          {/* Visual bars — decorative, hidden from AT */}
+          {/* Visual bars: decorative, hidden from AT */}
           <div aria-hidden="true" style={{ display: 'flex', gap: 3, marginBottom: 3 }}>
             {[1,2,3,4].map(i => (
               <div key={i} style={{ flex: 1, height: 3, borderRadius: 2,
                 background: i <= score ? color : 'var(--border)', transition: 'background 0.2s' }} />
             ))}
           </div>
-          {/* Visual hint — screen readers get the richer message via the live region */}
+          {/* Visual hint: screen readers get the richer message via the live region */}
           {missing.length > 0 && (
             <div aria-hidden="true" style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }}>
               Needs: {missing.join(', ')}
@@ -88,7 +88,7 @@ function StrengthBar({ password }: { password: string }) {
           )}
         </div>
       )}
-      {/* Always in DOM — hooks the live region before the first keystroke */}
+      {/* Always in DOM: hooks the live region before the first keystroke */}
       <div aria-live="polite" style={SR_ONLY}>{announcement}</div>
     </>
   )

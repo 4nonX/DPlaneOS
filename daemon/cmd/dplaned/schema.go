@@ -442,6 +442,19 @@ func initSchema(db *sql.DB) error {
 		`ALTER TABLE ldap_config ADD COLUMN IF NOT EXISTS realm TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE ldap_config ADD COLUMN IF NOT EXISTS domain_joined BOOLEAN NOT NULL DEFAULT false`,
 		`ALTER TABLE ldap_config ADD COLUMN IF NOT EXISTS domain_joined_at TIMESTAMPTZ`,
+
+		// ── v9.0: Cold Tier (rclone FUSE mounts) ──
+		`CREATE TABLE IF NOT EXISTS cold_tier_mounts (
+			id             BIGSERIAL PRIMARY KEY,
+			name           TEXT NOT NULL UNIQUE,
+			remote         TEXT NOT NULL,
+			remote_path    TEXT NOT NULL DEFAULT '',
+			mount_point    TEXT NOT NULL UNIQUE,
+			vfs_cache_mode TEXT NOT NULL DEFAULT 'writes',
+			mounted        INTEGER NOT NULL DEFAULT 0,
+			created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			last_mount_at  TIMESTAMPTZ
+		)`,
 	}
 
 	for _, stmt := range tables {

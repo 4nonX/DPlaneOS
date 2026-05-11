@@ -113,11 +113,15 @@ type VdevGroup struct {
 // DesiredPool describes a ZFS pool.
 // Disks MUST use /dev/disk/by-id/ paths - enforced at parse time.
 type DesiredPool struct {
-	Name     string            `yaml:"name"`
-	Topology PoolTopology      `yaml:"topology"`
-	Ashift   int               `yaml:"ashift"` // 0 = omit ashift flag on create
-	GUID     string            `yaml:"guid,omitempty"`
-	Options  map[string]string `yaml:"options"` // pool properties (-O on create; also reconciled via zpool set)
+	Name         string            `yaml:"name"`
+	Topology     PoolTopology      `yaml:"topology"`
+	Ashift       int               `yaml:"ashift"` // 0 = omit ashift flag on create
+	GUID         string            `yaml:"guid,omitempty"`
+	Options      map[string]string `yaml:"options"` // pool properties (-O on create; also reconciled via zpool set)
+	// ForceReshape enables declarative `zpool add` for purely additive topology
+	// changes (new vdev groups, cache, log, spare). When false, additive drift
+	// is surfaced as MANUAL. Removals are always MANUAL regardless of this flag.
+	ForceReshape bool             `yaml:"force_reshape,omitempty"`
 }
 
 // SimpleMirrorTopology builds a minimal topology for tests and simple callers.
@@ -180,6 +184,17 @@ type DesiredSystem struct {
 	Firewall   DesiredFirewall    `yaml:"firewall"`
 	Networking DesiredNetworking  `yaml:"networking"`
 	Samba      DesiredSambaGlobal `yaml:"samba"`
+	SSH        DesiredSSH         `yaml:"ssh"`
+}
+
+// DesiredSSH describes SSH daemon NixOS settings.
+type DesiredSSH struct {
+	// Port: 0 means unset (NixOS default 22).
+	Port int `yaml:"port"`
+	// PasswordAuth: nil means unset (use NixOS default).
+	PasswordAuth *bool `yaml:"password_auth"`
+	// PermitRootLogin: "" means unset. Valid: "yes", "no", "prohibit-password", "forced-commands-only".
+	PermitRootLogin string `yaml:"permit_root_login"`
 }
  
 type DesiredFirewall struct {
@@ -1439,6 +1454,10 @@ func mapToPool(m map[string]yamlNode) (DesiredPool, error) {
 		}
 	}
 
+	if v := strField(m, "force_reshape"); v == "true" {
+		p.ForceReshape = true
+	}
+
 	return p, nil
 }
 
@@ -1638,7 +1657,24 @@ func mapToSystem(m map[string]yamlNode) *DesiredSystem {
 			sys.Samba.ExtraGlobal = strField(smbMap, "extra_global")
 		}
 	}
- 
+
+	if sshRaw, ok := m["ssh"]; ok {
+		if sshMap, ok := sshRaw.(map[string]yamlNode); ok {
+			sys.SSH.Port = intField(sshMap, "port")
+			sys.SSH.PermitRootLogin = strField(sshMap, "permit_root_login")
+			if paRaw, ok := sshMap["password_auth"]; ok {
+				s := fmt.Sprintf("%v", paRaw)
+				if s == "true" {
+					t := true
+					sys.SSH.PasswordAuth = &t
+				} else if s == "false" {
+					f := false
+					sys.SSH.PasswordAuth = &f
+				}
+			}
+		}
+	}
+
 	return sys
 }
  

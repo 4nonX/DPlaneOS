@@ -62,7 +62,7 @@ export function Modal({ title, onClose, children, size = 'md' }: ModalProps) {
       window.removeEventListener('keydown', handleEscape)
       ;(prevFocusRef.current as HTMLElement | null)?.focus()
     }
-  }, []) // intentionally empty — stable via onCloseRef
+  }, []) // intentionally empty: stable via onCloseRef
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
     // Escape is handled by the window listener above.

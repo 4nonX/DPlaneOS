@@ -150,6 +150,17 @@ func ApplyPlan(ctx ApplyContext, plan *Plan, desired *DesiredState) (*ApplyResul
 			log.Printf("GITOPS APPLY: manual action required for %s %q: %s", item.Kind, item.Name, item.BlockReason)
 			result.Applied = append(result.Applied, fmt.Sprintf("[MANUAL REQUIRED] %s %s: %s", item.Kind, item.Name, item.BlockReason))
 
+		case ActionReshape:
+			if err := executeReshape(item); err != nil {
+				result.Failed = item.Name
+				result.Status = "FAILED"
+				result.HaltReason = "execute-failure"
+				result.Error = fmt.Errorf("reshaping pool %q: %w", item.Name, err)
+				result.Duration = time.Since(start)
+				return result, result.Error
+			}
+			result.Applied = append(result.Applied, fmt.Sprintf("RESHAPE pool %s: %s", item.Name, strings.Join(item.Changes, "; ")))
+
 		case ActionCreate:
 			if err := executeCreate(ctx, item); err != nil {
 				result.Failed = item.Name
@@ -422,6 +433,43 @@ func modifyPool(name string, changes []string) error {
 		if strings.Contains(change, "disk-remove") {
 			log.Printf("GITOPS WARNING: skipping disk-remove for pool %q - manual intervention required: %s", name, change)
 		}
+	}
+	return nil
+}
+
+// executeReshape runs `zpool add` for each additive topology change in the plan
+// item. Changes must have been classified as additive by classifyTopologyChange
+// in diff.go - this function hard-validates that before executing.
+func executeReshape(item DiffItem) error {
+	pool := item.Name
+	for _, change := range item.Changes {
+		if !classifyTopologyChange(change) {
+			// Safety: skip any change that is not additive - should never happen
+			// since the planner only puts additive changes in ActionReshape items,
+			// but we guard here to prevent destructive operations.
+			log.Printf("GITOPS RESHAPE SAFETY SKIP: non-additive change in RESHAPE item for pool %q: %s", pool, change)
+			continue
+		}
+
+		// Parse "add-<tier>: <vdev-spec-args>"
+		colonIdx := strings.Index(change, ": ")
+		if colonIdx <= 0 {
+			return fmt.Errorf("malformed reshape change %q", change)
+		}
+		spec := strings.TrimSpace(change[colonIdx+2:])
+		if spec == "" {
+			return fmt.Errorf("empty vdev spec in reshape change %q", change)
+		}
+
+		// Build: zpool add <pool> <spec-tokens...>
+		args := append([]string{"add", pool}, strings.Fields(spec)...)
+		log.Printf("GITOPS RESHAPE: zpool %s", strings.Join(args, " "))
+
+		out, err := cmdutil.RunSlow("zpool", args...)
+		if err != nil {
+			return fmt.Errorf("zpool add for pool %q (%s): %s: %w", pool, change, string(out), err)
+		}
+		log.Printf("GITOPS RESHAPE: zpool add succeeded for pool %q: %s", pool, change)
 	}
 	return nil
 }
@@ -1109,7 +1157,15 @@ func reconcileSystem(item DiffItem) error {
 	for name, v := range ds.Networking.VLANs {
 		w.SetVLAN(name, v.Parent, v.VID)
 	}
- 
+
+	if ds.SSH.Port != 0 || ds.SSH.PasswordAuth != nil || ds.SSH.PermitRootLogin != "" {
+		w.SetSSHDaemon(nixwriter.SSHDaemonOpts{
+			Port:            ds.SSH.Port,
+			PasswordAuth:    ds.SSH.PasswordAuth,
+			PermitRootLogin: ds.SSH.PermitRootLogin,
+		})
+	}
+
 	return nil // nixwriter flushes on every setter currently
 }
 
