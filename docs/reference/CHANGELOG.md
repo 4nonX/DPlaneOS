@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 
 
+## v8.3.0 (2026-05-11) - "Barrier-Free"
+
+Upgrade from: v8.2.0 - Drop-in.
+
+### Changed
+- **WCAG 2.2 accessibility pass**: All interactive elements across the UI now meet WCAG 2.2 AA. Clickable divs replaced with semantic buttons, modal dialogs use `role="dialog"` with `aria-modal` and a keyboard focus trap (Tab/Shift+Tab wrap, Escape closes), tooltips use `role="tooltip"` with `aria-describedby` injection that merges with existing descriptions, sidebar navigation buttons carry `aria-expanded`/`aria-controls` for group toggles, the Users page tab strip follows the WAI-ARIA Manual Activation tab pattern (arrow keys move focus, Enter/Space activates), role cards use `aria-expanded`/`aria-controls`, and the password change strength indicator uses an always-mounted `aria-live="polite"` region so screen readers receive strength announcements before the first keystroke.
+
+
+
 ## v8.2.0 (2026-05-09) - "Storage Depth"
 
 Upgrade from: v8.1.0 - Drop-in.
