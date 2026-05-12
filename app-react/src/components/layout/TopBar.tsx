@@ -4,7 +4,8 @@
  * Fixed top bar with page icon, title, breadcrumb group, and user chip.
  */
 
-import { useRouterState } from '@tanstack/react-router'
+import { useRouterState, useNavigate } from '@tanstack/react-router'
+import { toggleTheme, getTheme } from '@/lib/theme'
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Icon } from '@/components/ui/Icon'
@@ -28,9 +29,11 @@ interface PoolsResponse { success: boolean; pools?: ZFSPool[]; data?: ZFSPool[] 
 
 interface TopBarProps {
   sidebarCollapsed: boolean
+  onSearchOpen: () => void
+  onHelpOpen?: () => void
 }
 
-export function TopBar({ sidebarCollapsed }: TopBarProps) {
+export function TopBar({ sidebarCollapsed, onSearchOpen, onHelpOpen }: TopBarProps) {
   const pathname = useRouterState({ select: (s) => s.location.pathname })
   const user     = useAuthStore((s) => s.user)
 
@@ -61,7 +64,7 @@ export function TopBar({ sidebarCollapsed }: TopBarProps) {
         <div style={{
           width: 30, height: 30, borderRadius: 8,
           background: 'var(--primary-bg)',
-          border: '1px solid rgba(138,156,255,0.2)',
+          border: '1px solid hsla(var(--hue-primary),100%,72%,.2)',
           display: 'flex', alignItems: 'center', justifyContent: 'center'}}>
           <Icon name={pageIcon} size={16} style={{ color: 'var(--primary)' }} />
         </div>
@@ -86,8 +89,54 @@ export function TopBar({ sidebarCollapsed }: TopBarProps) {
       {/* ── Center: Pool Capacity Bar ── */}
       <PoolMonitor />
 
-      {/* ── Right: user chip ── */}
+      {/* ── Right: search + user chip ── */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+        {/* Search trigger */}
+        <button
+          onClick={onSearchOpen}
+          aria-label="Open global search (Ctrl+K)"
+          aria-keyshortcuts="Control+k Meta+k"
+          style={{
+            display: 'flex', alignItems: 'center', gap: 8,
+            padding: '5px 10px 5px 8px',
+            background: 'hsla(0,0%,100%,0.04)',
+            border: '1px solid var(--border-subtle)',
+            borderRadius: 'var(--radius-md)',
+            cursor: 'pointer', color: 'var(--text-tertiary)',
+            fontSize: 'var(--text-xs)', fontFamily: 'inherit',
+            transition: 'all var(--transition-fast)',
+          }}
+          onMouseEnter={e => { e.currentTarget.style.background = 'hsla(0,0%,100%,0.08)'; e.currentTarget.style.color = 'var(--text-secondary)' }}
+          onMouseLeave={e => { e.currentTarget.style.background = 'hsla(0,0%,100%,0.04)'; e.currentTarget.style.color = 'var(--text-tertiary)' }}
+        >
+          <Icon name="search" size={14} aria-hidden="true" />
+          <span>Search</span>
+          <kbd style={{ padding: '1px 5px', borderRadius: 3, fontSize: 10, background: 'var(--bg-card)', border: '1px solid var(--border)', fontFamily: 'var(--font-mono)' }} aria-hidden="true">
+            {navigator.platform.startsWith('Mac') ? '⌘K' : 'Ctrl+K'}
+          </kbd>
+        </button>
+
+        {onHelpOpen && (
+          <Tooltip content="Keyboard shortcuts (?)">
+            <button
+              onClick={onHelpOpen}
+              aria-label="Show keyboard shortcuts"
+              aria-keyshortcuts="?"
+              style={{
+                width: 30, height: 30, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                background: 'none', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)',
+                cursor: 'pointer', color: 'var(--text-tertiary)',
+                fontSize: 'var(--text-xs)', fontWeight: 700, fontFamily: 'inherit',
+                transition: 'all var(--transition-fast)',
+              }}
+              onMouseEnter={e => { e.currentTarget.style.background = 'hsla(0,0%,100%,0.08)'; e.currentTarget.style.color = 'var(--text-secondary)' }}
+              onMouseLeave={e => { e.currentTarget.style.background = 'none'; e.currentTarget.style.color = 'var(--text-tertiary)' }}
+            >
+              ?
+            </button>
+          </Tooltip>
+        )}
+
         {api.isMockActive() && (
           <div style={{
             background: 'linear-gradient(90deg, #ff4b2b, #ff416c)',
@@ -142,6 +191,7 @@ export function TopBar({ sidebarCollapsed }: TopBarProps) {
           </div>
         )}
 
+        <ThemeToggle />
         <JobIndicator />
         <NotificationsBell />
       </div>
@@ -156,6 +206,7 @@ export function TopBar({ sidebarCollapsed }: TopBarProps) {
 function NotificationsBell() {
   const [showFlyout, setShowFlyout] = useState(false)
   const { setSidebarOpen } = useNotificationsStore()
+  const navigate = useNavigate()
   
   const statusQ = useQuery({
     queryKey: ['nixos', 'status'],
@@ -225,7 +276,7 @@ function NotificationsBell() {
 
             <div style={{ maxHeight: 400, overflowY: 'auto' }}>
               {isDirty && (
-                <div style={{ padding: 16, background: 'rgba(255, 174, 0, 0.05)', borderBottom: '1px solid var(--border-subtle)' }}>
+                <div style={{ padding: 16, background: 'var(--warning-bg)', borderBottom: '1px solid var(--border-subtle)' }}>
                   <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
                     <Icon name="potted_plant" size={20} style={{ color: 'var(--warning)', marginTop: 2 }} />
                     <div style={{ flex: 1 }}>
@@ -249,9 +300,10 @@ function NotificationsBell() {
                         >
                           View Details
                         </button>
-                        <button 
+                        <button
                           className="btn btn-primary btn-xs"
                           style={{ padding: '6px 12px', fontSize: 'var(--text-xs)', height: 'auto' }}
+                          onClick={() => { navigate({ to: '/settings' }); setShowFlyout(false) }}
                         >
                           Reconcile Now
                         </button>
@@ -287,6 +339,36 @@ function NotificationsBell() {
         </>
       )}
     </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// ThemeToggle
+// ---------------------------------------------------------------------------
+
+function ThemeToggle() {
+  const [isDark, setIsDark] = useState(() => getTheme() === 'dark')
+
+  function handleToggle() {
+    toggleTheme()
+    setIsDark(getTheme() === 'dark')
+  }
+
+  return (
+    <button
+      onClick={handleToggle}
+      aria-label={isDark ? 'Switch to light theme' : 'Switch to dark theme'}
+      aria-pressed={!isDark}
+      style={{
+        background: 'none', border: 'none', cursor: 'pointer',
+        color: 'var(--text-tertiary)', display: 'flex', alignItems: 'center',
+        padding: 8, borderRadius: 8, transition: 'all 0.2s',
+      }}
+      onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; e.currentTarget.style.color = 'var(--text)' }}
+      onMouseLeave={e => { e.currentTarget.style.background = 'none'; e.currentTarget.style.color = 'var(--text-tertiary)' }}
+    >
+      <Icon name={isDark ? 'light_mode' : 'dark_mode'} size={20} />
+    </button>
   )
 }
 

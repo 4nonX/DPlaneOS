@@ -26,6 +26,7 @@ import { HardwarePage }      from '@/pages/HardwarePage'
 import { LogsPage }          from '@/pages/LogsPage'
 import { MonitoringPage }    from '@/pages/MonitoringPage'
 import { PoolsPage }         from '@/pages/PoolsPage'
+import { DatasetsPage }      from '@/pages/DatasetsPage'
 import { SharesPage }        from '@/pages/SharesPage'
 import { NFSPage }           from '@/pages/NFSPage'
 import { SnapshotSchedulerPage } from '@/pages/SnapshotSchedulerPage'
@@ -63,6 +64,7 @@ import { FileSharesPage }    from '@/pages/FileSharesPage'
 import { SSHKeysPage }       from '@/pages/SSHKeysPage'
 import { S3Page }            from '@/pages/S3Page'
 import { AuditPage }         from '@/pages/AuditPage'
+import { ApiExplorerPage }   from '@/pages/ApiExplorerPage'
 import { getPluginRoutes }   from '@/plugins'
 
 // Silence unused React import warning (needed for JSX in some tsx files)
@@ -104,6 +106,7 @@ const protectedRoute = createRoute({
 
 const dashboardRoute  = createRoute({ getParentRoute: () => protectedRoute, path: '/',              component: DashboardPage })
 const poolsRoute      = createRoute({ getParentRoute: () => protectedRoute, path: '/pools',         component: PoolsPage })
+const datasetsRoute   = createRoute({ getParentRoute: () => protectedRoute, path: '/datasets',      component: DatasetsPage })
 const sharesRoute     = createRoute({ getParentRoute: () => protectedRoute, path: '/shares',        component: SharesPage })
 const nfsRoute        = createRoute({ getParentRoute: () => protectedRoute, path: '/nfs',           component: NFSPage })
 const snapshotsRoute  = createRoute({ getParentRoute: () => protectedRoute, path: '/snapshots',     component: SnapshotSchedulerPage })
@@ -148,6 +151,7 @@ const hardwareRoute   = createRoute({ getParentRoute: () => protectedRoute, path
 const ipmiRoute       = createRoute({ getParentRoute: () => protectedRoute, path: '/ipmi',          component: IPMIPage })
 const haRoute         = createRoute({ getParentRoute: () => protectedRoute, path: '/ha',            component: HAPage })
 const monitoringRoute = createRoute({ getParentRoute: () => protectedRoute, path: '/monitoring',    component: MonitoringPage })
+const apiExplRoute    = createRoute({ getParentRoute: () => protectedRoute, path: '/api-explorer',  component: ApiExplorerPage })
 const logsRoute       = createRoute({ getParentRoute: () => protectedRoute, path: '/logs',          component: LogsPage })
 const reportingRoute  = createRoute({ getParentRoute: () => protectedRoute, path: '/reporting',     component: ReportingPage })
 const supportRoute    = createRoute({ getParentRoute: () => protectedRoute, path: '/support',       component: SupportPage })
@@ -159,7 +163,7 @@ const routeTree = rootRoute.addChildren([
   loginRoute,
   setupRoute,
   protectedRoute.addChildren([
-    dashboardRoute, poolsRoute, sharesRoute, nfsRoute, snapshotsRoute, replRoute,
+    dashboardRoute, poolsRoute, datasetsRoute, sharesRoute, nfsRoute, snapshotsRoute, replRoute,
     filesRoute, quotasRoute, aclRoute, iscsiRoute, nvmeRoute, cloudRoute,
     sandboxRoute, delegationRoute, backupRoute, auditRoute, ftpRoute, fileSharesRoute, sshKeysRoute, s3Route,
     dockerRoute, modulesRoute, gitOpsRoute,
@@ -167,7 +171,7 @@ const routeTree = rootRoute.addChildren([
     usersRoute, directoryRoute,
     securityRoute, firewallRoute, certsRoute,
     settingsRoute, updatesRoute, alertsRoute, upsRoute, powerRoute,
-    hardwareRoute, ipmiRoute, haRoute, monitoringRoute, logsRoute,
+    hardwareRoute, ipmiRoute, haRoute, monitoringRoute, apiExplRoute, logsRoute,
     reportingRoute, supportRoute, terminalRoute,
     ...getPluginRoutes(protectedRoute),
   ]),

@@ -203,13 +203,13 @@ function NixOSConfirmBanner({ onConfirm, onDismiss }: { onConfirm: () => void; o
   }, [onDismiss])
 
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 20px', background: 'rgba(251,191,36,0.1)', border: '1px solid rgba(251,191,36,0.35)', borderRadius: 'var(--radius-lg)', marginBottom: 20 }}>
-      <Icon name="timer" size={22} style={{ color: 'rgba(251,191,36,0.9)', flexShrink: 0 }} />
+    <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 20px', background: 'var(--warning-bg)', border: '1px solid var(--warning-border)', borderRadius: 'var(--radius-lg)', marginBottom: 20 }}>
+      <Icon name="timer" size={22} style={{ color: 'var(--warning)', flexShrink: 0 }} />
       <div style={{ flex: 1 }}>
-        <div style={{ fontWeight: 700, color: 'rgba(251,191,36,0.9)' }}>NixOS rebuild applied</div>
+        <div style={{ fontWeight: 700, color: 'var(--warning)' }}>NixOS rebuild applied</div>
         <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>Auto-rolling back in {secs}s - confirm to keep this generation</div>
       </div>
-      <button onClick={onConfirm} className="btn btn-primary" style={{ background: 'rgba(251,191,36,0.9)' }}>
+      <button onClick={onConfirm} className="btn btn-primary" style={{ background: 'var(--warning)' }}>
         <Icon name="check" size={15} />Confirm
       </button>
       <button onClick={onDismiss} className="btn btn-ghost">Rollback</button>

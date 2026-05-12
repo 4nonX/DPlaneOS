@@ -41,7 +41,7 @@ interface IPMIResponse {
 function sensorColor(status: string | undefined): string {
   const s = (status ?? 'ok').toLowerCase()
   if (s === 'critical') return 'var(--error)'
-  if (s === 'warning')  return 'rgba(251,191,36,0.9)'
+  if (s === 'warning')  return 'var(--warning)'
   if (s === 'na')       return 'var(--text-tertiary)'
   return 'var(--success)'
 }
@@ -49,7 +49,7 @@ function sensorColor(status: string | undefined): string {
 function sensorBg(status: string | undefined): string {
   const s = (status ?? 'ok').toLowerCase()
   if (s === 'critical') return 'var(--error-bg)'
-  if (s === 'warning')  return 'rgba(251,191,36,0.08)'
+  if (s === 'warning')  return 'var(--warning-bg)'
   if (s === 'na')       return 'var(--surface)'
   return 'var(--success-bg)'
 }
@@ -57,7 +57,7 @@ function sensorBg(status: string | undefined): string {
 function sensorBorder(status: string | undefined): string {
   const s = (status ?? 'ok').toLowerCase()
   if (s === 'critical') return 'var(--error-border)'
-  if (s === 'warning')  return 'rgba(251,191,36,0.3)'
+  if (s === 'warning')  return 'var(--warning-border)'
   if (s === 'na')       return 'var(--border)'
   return 'var(--success-border)'
 }
@@ -161,10 +161,10 @@ export function IPMIPage() {
 
   return (
     <div style={{ maxWidth: 1000 }}>
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 28 }}>
+      <div className="page-header">
         <div>
-          <h1 style={{ fontSize: 'var(--text-3xl)', fontWeight: 700, letterSpacing: '-1px', marginBottom: 6 }}>IPMI Sensors</h1>
-          <p style={{ color: 'var(--text-secondary)', fontSize: 'var(--text-md)' }}>Temperature, fan speed and voltage readings from BMC</p>
+          <h1 className="page-title">IPMI Sensors</h1>
+          <p className="page-subtitle">Temperature, fan speed and voltage readings from BMC</p>
         </div>
         <button onClick={() => qc.invalidateQueries({ queryKey: ['system', 'ipmi'] })} className="btn btn-ghost">
           <Icon name="refresh" size={14} />Refresh

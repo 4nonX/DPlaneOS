@@ -368,9 +368,9 @@ function CertCard({ cert, isActive, onActivate, activating }: {
   const expiring = !expired && isExpiringSoon(expiry)
 
   return (
-    <div style={{ background: 'var(--bg-card)', border: `1px solid ${isActive ? 'rgba(138,156,255,0.3)' : expired ? 'var(--error-border)' : expiring ? 'rgba(251,191,36,0.3)' : 'var(--border)'}`, borderRadius: 'var(--radius-lg)', overflow: 'hidden' }}>
+    <div style={{ background: 'var(--bg-card)', border: `1px solid ${isActive ? 'hsla(var(--hue-primary),100%,72%,.3)' : expired ? 'var(--error-border)' : expiring ? 'var(--warning-border)' : 'var(--border)'}`, borderRadius: 'var(--radius-lg)', overflow: 'hidden' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '16px 20px' }}>
-        <div style={{ width: 42, height: 42, borderRadius: 'var(--radius-md)', background: isActive ? 'var(--primary-bg)' : expired ? 'var(--error-bg)' : 'var(--surface)', border: `1px solid ${isActive ? 'rgba(138,156,255,0.25)' : expired ? 'var(--error-border)' : 'var(--border)'}`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+        <div style={{ width: 42, height: 42, borderRadius: 'var(--radius-md)', background: isActive ? 'var(--primary-bg)' : expired ? 'var(--error-bg)' : 'var(--surface)', border: `1px solid ${isActive ? 'hsla(var(--hue-primary),100%,72%,.25)' : expired ? 'var(--error-border)' : 'var(--border)'}`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
           <Icon name="verified_user" size={22} style={{ color: isActive ? 'var(--primary)' : expired ? 'var(--error)' : 'var(--text-tertiary)' }} />
         </div>
 
@@ -384,7 +384,7 @@ function CertCard({ cert, isActive, onActivate, activating }: {
           <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', display: 'flex', gap: 12, flexWrap: 'wrap' }}>
             {cn     && <span>CN: {cn}</span>}
             {issuer && <span>Issuer: {issuer}</span>}
-            {expiry && <span style={{ color: expired ? 'var(--error)' : expiring ? 'rgba(251,191,36,0.9)' : 'var(--text-tertiary)' }}>Expires: {expiry}</span>}
+            {expiry && <span style={{ color: expired ? 'var(--error)' : expiring ? 'var(--warning)' : 'var(--text-tertiary)' }}>Expires: {expiry}</span>}
           </div>
         </div>
 
@@ -446,7 +446,7 @@ export function CertificatesPage() {
 
       {/* Active cert info */}
       {activeCert && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 18px', background: 'var(--primary-bg)', border: '1px solid rgba(138,156,255,0.2)', borderRadius: 'var(--radius-lg)', marginBottom: 24, fontSize: 'var(--text-sm)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 18px', background: 'var(--primary-bg)', border: '1px solid hsla(var(--hue-primary),100%,72%,.2)', borderRadius: 'var(--radius-lg)', marginBottom: 24, fontSize: 'var(--text-sm)' }}>
           <Icon name="https" size={16} style={{ color: 'var(--primary)', flexShrink: 0 }} />
           <span style={{ color: 'var(--text-secondary)' }}>Active certificate:</span>
           <span style={{ fontWeight: 700, fontFamily: 'var(--font-mono)', color: 'var(--primary)' }}>{activeCert}</span>

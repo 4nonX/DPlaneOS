@@ -79,7 +79,7 @@ function SectionCard({ icon, title, children }: { icon: string; title: string; c
   return (
     <div className="card" style={{ borderRadius: 'var(--radius-xl)', padding: '24px 28px' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
-        <div style={{ width: 42, height: 42, background: 'var(--primary-bg)', border: '1px solid rgba(138,156,255,0.2)', borderRadius: 'var(--radius-md)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div style={{ width: 42, height: 42, background: 'var(--primary-bg)', border: '1px solid hsla(var(--hue-primary),100%,72%,.2)', borderRadius: 'var(--radius-md)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <Icon name={icon} size={22} style={{ color: 'var(--primary)' }} />
         </div>
         <div style={{ fontWeight: 700, fontSize: 'var(--text-lg)' }}>{title}</div>

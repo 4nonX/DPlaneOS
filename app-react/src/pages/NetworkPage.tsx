@@ -138,7 +138,7 @@ function ConfigureIfaceModal({ iface, onClose, onDone }: {
         </label>
       )}
 
-      <div style={{ padding: '10px 14px', background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.2)', borderRadius: 'var(--radius-sm)', fontSize: 'var(--text-xs)', color: 'rgba(251,191,36,0.85)', display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+      <div style={{ padding: '10px 14px', background: 'var(--warning-bg)', border: '1px solid var(--warning-border)', borderRadius: 'var(--radius-sm)', fontSize: 'var(--text-xs)', color: 'var(--warning)', display: 'flex', gap: 8, alignItems: 'flex-start' }}>
         <Icon name="warning" size={14} style={{ flexShrink: 0, marginTop: 1 }} />
         Applying new network settings may briefly disconnect you. You will have 30 seconds to confirm the change before it reverts.
       </div>
@@ -172,13 +172,13 @@ function ConfirmBanner({ onConfirm, onDismiss }: { onConfirm: () => void; onDism
   }, [onDismiss])
 
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 20px', background: 'rgba(251,191,36,0.1)', border: '1px solid rgba(251,191,36,0.35)', borderRadius: 'var(--radius-lg)', marginBottom: 20 }}>
-      <Icon name="timer" size={22} style={{ color: 'rgba(251,191,36,0.9)', flexShrink: 0 }} />
+    <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 20px', background: 'var(--warning-bg)', border: '1px solid var(--warning-border)', borderRadius: 'var(--radius-lg)', marginBottom: 20 }}>
+      <Icon name="timer" size={22} style={{ color: 'var(--warning)', flexShrink: 0 }} />
       <div style={{ flex: 1 }}>
-        <div style={{ fontWeight: 700, color: 'rgba(251,191,36,0.9)' }}>Network changes applied</div>
+        <div style={{ fontWeight: 700, color: 'var(--warning)' }}>Network changes applied</div>
         <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>Auto-reverting in {secs}s - confirm to keep the new configuration</div>
       </div>
-      <button onClick={onConfirm} className="btn btn-primary" style={{ background: 'rgba(251,191,36,0.9)' }}>
+      <button onClick={onConfirm} className="btn btn-primary" style={{ background: 'var(--warning)' }}>
         <Icon name="check" size={15} />Confirm
       </button>
       <button onClick={onDismiss} className="btn btn-ghost">Discard</button>

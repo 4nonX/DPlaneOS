@@ -48,6 +48,15 @@ interface SMBSettings {
   avahi_file_ok: boolean
 }
 
+interface SMBSession {
+  id:           string
+  user:         string
+  ip:           string
+  shares?:      string[]
+  open_files?:  number
+  connected_at?: string
+}
+
 // ---------------------------------------------------------------------------
 // Protocol Options card
 // ---------------------------------------------------------------------------
@@ -283,8 +292,91 @@ function Badge({ label, color }: { label: string; color: string }) {
 // SharesPage
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// ActiveSessions
+// ---------------------------------------------------------------------------
+
+function ActiveSessions() {
+  const sessionsQ = useQuery({
+    queryKey: ['smb', 'sessions'],
+    queryFn: ({ signal }) => api.get<{ success: boolean; sessions: SMBSession[] }>('/api/shares/smb/sessions', signal),
+    refetchInterval: 15_000,
+  })
+
+  const disconnectMut = useMutation({
+    mutationFn: (id: string) => api.post('/api/shares/smb/sessions/disconnect', { id }),
+    onSuccess: () => { toast.success('Session disconnected'); sessionsQ.refetch() },
+    onError: (e: Error) => toast.error(e.message),
+  })
+
+  const sessions = sessionsQ.data?.sessions ?? []
+
+  if (sessionsQ.isLoading) return <Skeleton height={120} style={{ borderRadius: 'var(--radius-xl)' }} />
+  if (sessionsQ.isError)   return <ErrorState error={sessionsQ.error} onRetry={sessionsQ.refetch} />
+
+  if (sessions.length === 0) {
+    return (
+      <div className="empty-state">
+        <Icon name="person_off" className="ms" style={{ fontSize: 48, opacity: 0.3, display: 'block', margin: '0 auto 16px' }} />
+        <div className="empty-state-title">No active SMB sessions</div>
+        <div style={{ fontSize: 'var(--text-sm)', marginTop: 4 }}>Connected Windows and macOS clients will appear here</div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="card" style={{ borderRadius: 'var(--radius-xl)', padding: 0, overflow: 'hidden' }}>
+      <table className="data-table" aria-label="Active SMB sessions">
+        <thead>
+          <tr>
+            <th scope="col">User</th>
+            <th scope="col">IP Address</th>
+            <th scope="col">Shares</th>
+            <th scope="col">Open Files</th>
+            <th scope="col">Connected</th>
+            <th scope="col"><span className="sr-only">Actions</span></th>
+          </tr>
+        </thead>
+        <tbody>
+          {sessions.map(s => (
+            <tr key={s.id}>
+              <td style={{ fontWeight: 600 }}>{s.user || 'guest'}</td>
+              <td style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)' }}>{s.ip}</td>
+              <td style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>
+                {s.shares?.join(', ') || '-'}
+              </td>
+              <td style={{ fontFamily: 'var(--font-mono)', textAlign: 'right' }}>
+                {s.open_files ?? '-'}
+              </td>
+              <td style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>
+                {s.connected_at ? new Date(s.connected_at).toLocaleTimeString() : '-'}
+              </td>
+              <td>
+                <button
+                  onClick={() => disconnectMut.mutate(s.id)}
+                  disabled={disconnectMut.isPending}
+                  className="btn btn-ghost"
+                  style={{ fontSize: 'var(--text-xs)', padding: '4px 10px' }}
+                  aria-label={`Disconnect session for ${s.user || 'guest'} from ${s.ip}`}
+                >
+                  <Icon name="logout" size={13} />Disconnect
+                </button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// SharesPage
+// ---------------------------------------------------------------------------
+
 export function SharesPage() {
   const qc = useQueryClient()
+  const [tab, setTab] = useState<'shares' | 'sessions'>('shares')
   const [showCreate, setShowCreate] = useState(false)
   const [editingShare, setEditingShare] = useState<Share|null>(null)
 
@@ -318,59 +410,89 @@ export function SharesPage() {
 
   return (
     <div style={{ maxWidth: 1000 }}>
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 32 }}>
+      <div className="page-header">
         <div>
-          <h1 style={{ fontSize: 'var(--text-3xl)', fontWeight: 700, letterSpacing: '-1px', marginBottom: 6 }}>Shares</h1>
-          <p style={{ color: 'var(--text-secondary)', fontSize: 'var(--text-md)' }}>SMB network shares</p>
+          <h1 className="page-title">Shares</h1>
+          <p className="page-subtitle">SMB/NFS network shares and active connections</p>
         </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <Tooltip content="Test SMB config">
-            <button onClick={() => smbTest.mutate()} disabled={smbTest.isPending} className="btn btn-ghost">
-              <Icon name="bug_report" size={16} />{smbTest.isPending ? 'Testing…' : 'Test Config'}
+        {tab === 'shares' && (
+          <div style={{ display: 'flex', gap: 8 }}>
+            <Tooltip content="Test SMB config">
+              <button onClick={() => smbTest.mutate()} disabled={smbTest.isPending} className="btn btn-ghost">
+                <Icon name="bug_report" size={16} />{smbTest.isPending ? 'Testing…' : 'Test Config'}
+              </button>
+            </Tooltip>
+            <Tooltip content="Reload SMB">
+              <button onClick={() => smbReload.mutate()} disabled={smbReload.isPending} className="btn btn-ghost">
+                <Icon name="restart_alt" size={16} />{smbReload.isPending ? 'Reloading…' : 'Reload SMB'}
+              </button>
+            </Tooltip>
+            <Tooltip content="Reload NFS exports">
+              <button onClick={() => nfsReload.mutate()} disabled={nfsReload.isPending} className="btn btn-ghost">
+                <Icon name="sync" size={16} />{nfsReload.isPending ? 'Reloading…' : 'Reload NFS'}
+              </button>
+            </Tooltip>
+            <button onClick={() => setShowCreate(true)} className="btn btn-primary">
+              <Icon name="add" size={16} /> Add Share
             </button>
-          </Tooltip>
-          <Tooltip content="Reload SMB">
-            <button onClick={() => smbReload.mutate()} disabled={smbReload.isPending} className="btn btn-ghost">
-              <Icon name="restart_alt" size={16} />{smbReload.isPending ? 'Reloading…' : 'Reload SMB'}
-            </button>
-          </Tooltip>
-          <Tooltip content="Reload NFS exports">
-            <button onClick={() => nfsReload.mutate()} disabled={nfsReload.isPending} className="btn btn-ghost">
-              <Icon name="sync" size={16} />{nfsReload.isPending ? 'Reloading…' : 'Reload NFS'}
-            </button>
-          </Tooltip>
-          <button onClick={() => setShowCreate(true)} className="btn btn-primary">
-            <Icon name="add" size={16} /> Add Share
-          </button>
-        </div>
+          </div>
+        )}
       </div>
 
-      <ProtocolOptions />
-
-      {sharesQ.isLoading && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          {[0, 1, 2].map(i => <Skeleton key={i} height={100} style={{ borderRadius: 'var(--radius-lg)' }} />)}
-        </div>
-      )}
-      {sharesQ.isError && <ErrorState error={sharesQ.error} onRetry={refresh} />}
-      {!sharesQ.isLoading && !sharesQ.isError && shares.length === 0 && (
-        <div style={{ textAlign: 'center', padding: '64px 24px', border: '1px dashed var(--border)', borderRadius: 'var(--radius-xl)', color: 'var(--text-tertiary)' }}>
-          <Icon name="folder_shared" size={48} style={{ opacity: 0.3, display: 'block', margin: '0 auto 12px' }} />
-          <div style={{ fontSize: 'var(--text-lg)', fontWeight: 600 }}>No shares configured</div>
-          <div style={{ fontSize: 'var(--text-sm)', marginTop: 6 }}>Create a share to access data over the network</div>
-        </div>
-      )}
-
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-        {shares.map(share => (
-          <ShareCard key={share.name} share={share} onDeleted={refresh} onEdit={() => setEditingShare(share)} />
+      {/* Tab bar */}
+      <div role="tablist" aria-label="Shares sections" style={{ display: 'flex', gap: 4, marginBottom: 24, borderBottom: '1px solid var(--border)' }}>
+        {(['shares', 'sessions'] as const).map(t => (
+          <button
+            key={t}
+            role="tab"
+            aria-selected={tab === t}
+            aria-controls={`shares-panel-${t}`}
+            id={`shares-tab-${t}`}
+            onClick={() => setTab(t)}
+            style={{
+              padding: '8px 16px', background: 'none', border: 'none', cursor: 'pointer',
+              fontSize: 'var(--text-sm)', fontWeight: 600, fontFamily: 'inherit',
+              color: tab === t ? 'var(--primary)' : 'var(--text-tertiary)',
+              borderBottom: `2px solid ${tab === t ? 'var(--primary)' : 'transparent'}`,
+              marginBottom: -1, transition: 'all 0.15s',
+            }}
+          >
+            {t === 'shares' ? 'Shares' : 'Active Sessions'}
+          </button>
         ))}
+      </div>
+
+      <div role="tabpanel" id={`shares-panel-${tab}`} aria-labelledby={`shares-tab-${tab}`}>
+        {tab === 'shares' ? (
+          <>
+            <ProtocolOptions />
+            {sharesQ.isLoading && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                {[0, 1, 2].map(i => <Skeleton key={i} height={100} style={{ borderRadius: 'var(--radius-lg)' }} />)}
+              </div>
+            )}
+            {sharesQ.isError && <ErrorState error={sharesQ.error} onRetry={refresh} />}
+            {!sharesQ.isLoading && !sharesQ.isError && shares.length === 0 && (
+              <div className="empty-state">
+                <Icon name="folder_shared" className="ms" style={{ fontSize: 48, opacity: 0.3, display: 'block', margin: '0 auto 16px' }} />
+                <div className="empty-state-title">No shares configured</div>
+                <div style={{ fontSize: 'var(--text-sm)', marginTop: 4 }}>Create a share to access data over the network</div>
+              </div>
+            )}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {shares.map(share => (
+                <ShareCard key={share.name} share={share} onDeleted={refresh} onEdit={() => setEditingShare(share)} />
+              ))}
+            </div>
+          </>
+        ) : (
+          <ActiveSessions />
+        )}
       </div>
 
       {showCreate && (
         <ShareModal onClose={() => setShowCreate(false)} onSaved={refresh} />
       )}
-
       {editingShare && (
         <ShareModal editingShare={editingShare} onClose={() => setEditingShare(null)} onSaved={refresh} />
       )}

@@ -12,7 +12,7 @@
  */
 
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { api } from '@/lib/api'
 import { useWsStore } from '@/stores/ws'
@@ -310,6 +310,38 @@ function DiskHealthRow({ disk, onClick }: { disk: SMARTDisk; onClick: () => void
 }
 
 // ---------------------------------------------------------------------------
+// Widget pinning
+// ---------------------------------------------------------------------------
+
+const WIDGET_DEFS = [
+  { id: 'metric_memory',      label: 'Memory',           desc: 'RAM usage percentage' },
+  { id: 'metric_arc',         label: 'ZFS ARC',          desc: 'ARC cache usage' },
+  { id: 'metric_iowait',      label: 'I/O Wait',         desc: 'Disk I/O wait percentage' },
+  { id: 'metric_pools',       label: 'Pool Count',       desc: 'Number of ZFS pools' },
+  { id: 'metric_containers',  label: 'Container Count',  desc: 'Running Docker containers' },
+  { id: 'metric_uptime',      label: 'Uptime',           desc: 'System uptime and version' },
+  { id: 'metric_ups',         label: 'UPS Status',       desc: 'UPS battery and status' },
+  { id: 'section_pools',      label: 'Storage Pools',    desc: 'Pool health and capacity list' },
+  { id: 'section_containers', label: 'Containers',       desc: 'Running containers list' },
+  { id: 'section_disks',      label: 'Disk Health',      desc: 'SMART status and temperatures' },
+]
+
+const WIDGETS_KEY = 'dplaneos-dashboard-widgets'
+const DEFAULT_PINNED = WIDGET_DEFS.map(w => w.id)
+
+function loadPinned(): string[] {
+  try {
+    const s = localStorage.getItem(WIDGETS_KEY)
+    if (s) return JSON.parse(s) as string[]
+  } catch { /* ignore */ }
+  return DEFAULT_PINNED
+}
+
+function savePinned(ids: string[]) {
+  localStorage.setItem(WIDGETS_KEY, JSON.stringify(ids))
+}
+
+// ---------------------------------------------------------------------------
 // Dashboard
 // ---------------------------------------------------------------------------
 
@@ -320,6 +352,27 @@ export function DashboardPage() {
   const qc        = useQueryClient()
   const wsOn      = useWsStore((s) => s.on)
   const [live, setLive] = useState<WsStateUpdate | null>(null)
+
+  const [pinned, setPinned] = useState<string[]>(loadPinned)
+  const [customizing, setCustomizing] = useState(false)
+  const customizeRef = useRef<HTMLDivElement>(null)
+
+  function toggleWidget(id: string) {
+    setPinned(prev => {
+      const next = prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+      savePinned(next); return next
+    })
+  }
+  const has = (id: string) => pinned.includes(id)
+
+  useEffect(() => {
+    if (!customizing) return
+    function handler(e: MouseEvent) {
+      if (customizeRef.current && !customizeRef.current.contains(e.target as Node)) setCustomizing(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [customizing])
 
   // Inline disk temperature alert from WS (separate from toast)
   const [diskTempAlert, setDiskTempAlert] = useState<{ device: string; temp: number } | null>(null)
@@ -453,55 +506,116 @@ export function DashboardPage() {
         </div>
       )}
 
+      {/* Customize button */}
+      <div style={{ display: 'flex', justifyContent: 'flex-end', position: 'relative' }}>
+        <button
+          onClick={() => setCustomizing(o => !o)}
+          className={`btn btn-ghost btn-sm ${customizing ? 'btn-primary' : ''}`}
+          aria-expanded={customizing}
+          aria-haspopup="dialog"
+        >
+          <Icon name="dashboard_customize" size={15} /> Customize
+        </button>
+        {customizing && (
+          <div
+            ref={customizeRef}
+            role="dialog"
+            aria-label="Customize dashboard widgets"
+            style={{
+              position: 'absolute', top: 'calc(100% + 8px)', right: 0,
+              width: 288, background: 'var(--bg-elevated)',
+              backdropFilter: 'var(--blur-glass)',
+              border: '1px solid var(--border-highlight)',
+              borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-xl)',
+              zIndex: 200, padding: 16, animation: 'fadeIn 0.15s ease',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+              <span style={{ fontWeight: 700, fontSize: 'var(--text-sm)' }}>Widgets</span>
+              <button onClick={() => setCustomizing(false)} className="btn btn-ghost btn-xs" aria-label="Close">
+                <Icon name="close" size={14} />
+              </button>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+              {WIDGET_DEFS.map(w => (
+                <label key={w.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '7px 4px', cursor: 'pointer', borderRadius: 'var(--radius-sm)' }}
+                  onMouseEnter={e => (e.currentTarget.style.background = 'var(--surface-hover)')}
+                  onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+                >
+                  <input
+                    type="checkbox"
+                    checked={has(w.id)}
+                    onChange={() => toggleWidget(w.id)}
+                    aria-label={`Show ${w.label} widget`}
+                    style={{ marginTop: 2, flexShrink: 0 }}
+                  />
+                  <div>
+                    <div style={{ fontSize: 'var(--text-sm)', fontWeight: 500 }}>{w.label}</div>
+                    <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }}>{w.desc}</div>
+                  </div>
+                </label>
+              ))}
+            </div>
+            <button
+              onClick={() => { setPinned(DEFAULT_PINNED); savePinned(DEFAULT_PINNED) }}
+              className="btn btn-ghost btn-sm"
+              style={{ width: '100%', marginTop: 10 }}
+            >
+              Reset to defaults
+            </button>
+          </div>
+        )}
+      </div>
+
       {/* Metric cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 14 }}>
-        <MetricCard
+        {has('metric_memory') && <MetricCard
           icon="memory" label="Memory"
           value={metricsQ.isLoading ? '…' : `${Math.round(memPct)}%`}
           sub={!metricsQ.isLoading ? `${fmtBytes(memUsed)} / ${fmtBytes(memTotal)}` : undefined}
           percent={memPct} loading={metricsQ.isLoading}
-          onClick={() => navigate({ to: '/reporting' })} />
+          onClick={() => navigate({ to: '/reporting' })} />}
 
-        <MetricCard
+        {has('metric_arc') && <MetricCard
           icon="dns" label="ZFS ARC"
           value={metricsQ.isLoading ? '…' : `${Math.round(metricsQ.data?.arc.percent ?? 0)}%`}
           sub={!metricsQ.isLoading ? `${fmtBytes(metricsQ.data?.arc.used ?? 0)} / ${fmtBytes(metricsQ.data?.arc.limit ?? 0)}` : undefined}
           percent={metricsQ.data?.arc.percent} loading={metricsQ.isLoading}
           accent="var(--info)"
-          onClick={() => navigate({ to: '/reporting' })} />
+          onClick={() => navigate({ to: '/reporting' })} />}
 
-        <MetricCard
+        {has('metric_iowait') && <MetricCard
           icon="speed" label="I/O Wait"
           value={metricsQ.isLoading ? '…' : `${iowait}%`}
           percent={iowait} loading={metricsQ.isLoading}
           accent={iowait > 20 ? 'var(--warning)' : 'var(--success)'}
-          onClick={() => navigate({ to: '/reporting' })} />
+          onClick={() => navigate({ to: '/reporting' })} />}
 
-        <MetricCard
+        {has('metric_pools') && <MetricCard
           icon="storage" label="Pools"
           value={poolsQ.isLoading ? '…' : String(pools.length)}
           sub={!poolsQ.isLoading ? `${pools.filter(p => p.health === 'ONLINE').length} online` : undefined}
           loading={poolsQ.isLoading}
           accent={pools.some(p => p.health !== 'ONLINE') ? 'var(--warning)' : 'var(--success)'}
-          onClick={() => navigate({ to: '/pools' })} />
+          onClick={() => navigate({ to: '/pools' })} />}
 
-        <MetricCard
+        {has('metric_containers') && <MetricCard
           icon="deployed_code" label="Containers"
           value={containersQ.isLoading ? '…' : String(running.length)}
           sub={!containersQ.isLoading ? `${containers.length} total` : undefined}
           loading={containersQ.isLoading}
-          onClick={() => navigate({ to: '/docker' })} />
+          onClick={() => navigate({ to: '/docker' })} />}
 
-        {statusQ.isLoading
+        {has('metric_uptime') && (statusQ.isLoading
           ? <MetricCard icon="timer" label="Uptime" value="…" loading />
           : statusQ.data
             ? <MetricCard icon="timer" label="Uptime"
                 value={fmtUptime(statusQ.data.uptime_seconds)}
                 sub={`v${statusQ.data.version}`}
                 accent="var(--text-secondary)" />
-            : null}
+            : null)}
 
-        {ups && (
+        {has('metric_ups') && ups && (
           <MetricCard
             icon="battery_charging_full" label="UPS Status"
             value={ups.status}
@@ -519,41 +633,47 @@ export function DashboardPage() {
       )}
 
       {/* Pools + Containers */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: 16 }}>
-        <SectionCard title="Storage Pools" icon="database" onAction={() => navigate({ to: '/pools' })}>
-          {poolsQ.isLoading && [1,2].map(k => <Skeleton key={k} height={56} borderRadius="var(--radius-md)" />)}
-          {poolsQ.isError && <ErrorState error={poolsQ.error} onRetry={() => poolsQ.refetch()} />}
-          {!poolsQ.isLoading && !poolsQ.isError && pools.length === 0 && (
-            <div style={{ padding: '24px 0', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 'var(--text-sm)' }}>
-              No ZFS pools configured
-            </div>
+      {(has('section_pools') || has('section_containers')) && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: 16 }}>
+          {has('section_pools') && (
+            <SectionCard title="Storage Pools" icon="database" onAction={() => navigate({ to: '/pools' })}>
+              {poolsQ.isLoading && [1,2].map(k => <Skeleton key={k} height={56} borderRadius="var(--radius-md)" />)}
+              {poolsQ.isError && <ErrorState error={poolsQ.error} onRetry={() => poolsQ.refetch()} />}
+              {!poolsQ.isLoading && !poolsQ.isError && pools.length === 0 && (
+                <div style={{ padding: '24px 0', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 'var(--text-sm)' }}>
+                  No ZFS pools configured
+                </div>
+              )}
+              {pools.map(p => <PoolRow key={p.name} pool={p} onClick={() => navigate({ to: '/pools' })} />)}
+            </SectionCard>
           )}
-          {pools.map(p => <PoolRow key={p.name} pool={p} onClick={() => navigate({ to: '/pools' })} />)}
-        </SectionCard>
 
-        <SectionCard title="Running Containers" icon="deployed_code" onAction={() => navigate({ to: '/docker' })}>
-          {containersQ.isLoading && [1,2,3].map(k => <Skeleton key={k} height={44} borderRadius="var(--radius-sm)" />)}
-          {containersQ.isError && <ErrorState error={containersQ.error} onRetry={() => containersQ.refetch()} />}
-          {!containersQ.isLoading && !containersQ.isError && running.length === 0 && (
-            <div style={{ padding: '24px 0', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 'var(--text-sm)' }}>
-              No running containers
-            </div>
+          {has('section_containers') && (
+            <SectionCard title="Running Containers" icon="deployed_code" onAction={() => navigate({ to: '/docker' })}>
+              {containersQ.isLoading && [1,2,3].map(k => <Skeleton key={k} height={44} borderRadius="var(--radius-sm)" />)}
+              {containersQ.isError && <ErrorState error={containersQ.error} onRetry={() => containersQ.refetch()} />}
+              {!containersQ.isLoading && !containersQ.isError && running.length === 0 && (
+                <div style={{ padding: '24px 0', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 'var(--text-sm)' }}>
+                  No running containers
+                </div>
+              )}
+              {running.slice(0, 8).map(c => <ContainerRow key={c.Id} c={c} onClick={() => navigate({ to: '/docker' })} />)}
+              {running.length > 8 && (
+                <div
+                  onClick={() => navigate({ to: '/docker' })}
+                  style={{ fontSize: 'var(--text-xs)', color: 'var(--primary)', textAlign: 'center',
+                    cursor: 'pointer', paddingTop: 6, paddingBottom: 4 }}
+                >
+                  +{running.length - 8} more →
+                </div>
+              )}
+            </SectionCard>
           )}
-          {running.slice(0, 8).map(c => <ContainerRow key={c.Id} c={c} onClick={() => navigate({ to: '/docker' })} />)}
-          {running.length > 8 && (
-            <div
-              onClick={() => navigate({ to: '/docker' })}
-              style={{ fontSize: 'var(--text-xs)', color: 'var(--primary)', textAlign: 'center',
-                cursor: 'pointer', paddingTop: 6, paddingBottom: 4 }}
-            >
-              +{running.length - 8} more →
-            </div>
-          )}
-        </SectionCard>
-      </div>
+        </div>
+      )}
 
       {/* Disk Health summary */}
-      <SectionCard
+      {has('section_disks') && <SectionCard
         title="Disk Health"
         icon="hard_drive"
         onAction={() => navigate({ to: '/hardware' })}
@@ -619,7 +739,7 @@ export function DashboardPage() {
             No disk data available
           </div>
         )}
-      </SectionCard>
+      </SectionCard>}
 
       {/* inotify warning */}
       {metricsQ.data?.inotify && metricsQ.data.inotify.percent > 70 && (

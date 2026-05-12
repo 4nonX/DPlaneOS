@@ -117,15 +117,15 @@ interface ReplacementSuggestion {
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Derive a human-readable type label and badge color from DiskInfo.type */
-function diskTypeMeta(type: string): { label: string; color: string } {
+/** Derive a human-readable type label and badge colors from DiskInfo.type */
+function diskTypeMeta(type: string): { label: string; color: string; bg: string; border: string } {
   const t = (type ?? '').toUpperCase()
-  if (t === 'NVME')  return { label: 'NVMe', color: 'var(--info)' }
-  if (t === 'SSD')   return { label: 'SSD',  color: 'var(--primary)' }
-  if (t === 'SAS')   return { label: 'SAS',  color: '#a78bfa' }
-  if (t === 'USB')   return { label: 'USB',  color: 'var(--text-secondary)' }
-  if (t === 'HDD')   return { label: 'HDD',  color: 'var(--text-secondary)' }
-  return { label: type || 'Disk', color: 'var(--text-tertiary)' }
+  if (t === 'NVME') return { label: 'NVMe', color: 'var(--info)',           bg: 'var(--info-bg)',                              border: 'var(--info-border)' }
+  if (t === 'SSD')  return { label: 'SSD',  color: 'var(--primary)',        bg: 'var(--primary-bg)',                           border: 'hsla(var(--hue-primary),100%,72%,.25)' }
+  if (t === 'SAS')  return { label: 'SAS',  color: '#a78bfa',               bg: 'rgba(167,139,250,0.1)',                       border: 'rgba(167,139,250,0.25)' }
+  if (t === 'USB')  return { label: 'USB',  color: 'var(--text-secondary)', bg: 'var(--surface)',                              border: 'var(--border)' }
+  if (t === 'HDD')  return { label: 'HDD',  color: 'var(--text-secondary)', bg: 'var(--surface)',                              border: 'var(--border)' }
+  return             { label: type || 'Disk', color: 'var(--text-tertiary)', bg: 'var(--surface)',                              border: 'var(--border)' }
 }
 
 /** Extract the last path segment of a /dev/disk/by-id/... path */
@@ -462,9 +462,9 @@ function DiskRow({
         <span style={{
           padding: '3px 8px', borderRadius: 'var(--radius-xs)',
           fontSize: 'var(--text-xs)', fontWeight: 600, flexShrink: 0,
-          background: `${typeMeta.color}18`,
+          background: typeMeta.bg,
           color: typeMeta.color,
-          border: `1px solid ${typeMeta.color}40`}}>
+          border: `1px solid ${typeMeta.border}`}}>
           {typeMeta.label}
         </span>
 
@@ -493,7 +493,7 @@ function DiskRow({
                 fontSize: 'var(--text-xs)', fontWeight: 600, flexShrink: 0,
                 background: poolDeg ? 'var(--warning-bg)' : 'var(--primary-bg)',
                 color: poolDeg ? 'var(--warning)' : 'var(--primary)',
-                border: `1px solid ${poolDeg ? 'var(--warning-border)' : 'rgba(138,156,255,0.25)'}`,
+                border: `1px solid ${poolDeg ? 'var(--warning-border)' : 'hsla(var(--hue-primary),100%,72%,.25)'}`,
                 textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 4}}
             >
               <Icon name="storage" size={12} />

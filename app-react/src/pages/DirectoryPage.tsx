@@ -437,7 +437,7 @@ function SyncLogTab() {
           <span style={{ fontSize: 'var(--text-xs)', fontWeight: 600, color: 'var(--text-secondary)' }}>LAST SYNC LOGS</span>
           <button onClick={() => qc.invalidateQueries({ queryKey: ['ldap', 'sync-log'] })} className="btn btn-icon-ghost"><Icon name="refresh" size={14} /></button>
         </div>
-        <pre style={{ margin: 0, padding: 20, fontFamily: 'var(--font-mono)', fontSize: 13, lineHeight: 1.6, overflow: 'auto', maxHeight: 500, color: '#aab2c0', whiteSpace: 'pre-wrap' }}>
+        <pre style={{ margin: 0, padding: 20, fontFamily: 'var(--font-mono)', fontSize: 13, lineHeight: 1.6, overflow: 'auto', maxHeight: 500, color: 'var(--text-secondary)', whiteSpace: 'pre-wrap' }}>
           {logQ.isLoading ? 'Loading logs...' : (logQ.data?.entries?.join('\n') || '(no sync log entries found)')}
         </pre>
       </div>

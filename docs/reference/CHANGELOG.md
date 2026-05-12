@@ -6,6 +6,35 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 
 
+## v10.0.0 (2026-05-12) - "Polaris"
+
+Upgrade from: v9.1.1 - Drop-in. No breaking changes.
+
+### Added
+- **Global search palette** (Ctrl/Cmd+K): ARIA combobox command palette searches nav items instantly and queries live API sources (pools, datasets, containers, shares) at 2+ characters. Full keyboard navigation with ArrowUp/Down, Enter, Escape.
+- **Reporting chart hover tooltips**: Interactive SVG crosshair on all history charts with timestamp+value callout tooltip. Accessible via `aria-live` region and an expandable table fallback (`View as table`).
+- **ZFS dataset encryption management**: Encrypt, lock, and unlock actions on the Datasets page action menu. Contextual menu items based on current `encryption` and `keystatus` properties. Lock icon badge in the tree row. Uses `/api/zfs/encryption/create|lock|unlock`.
+- **Light/dark theme toggle**: Full `[data-theme="light"]` CSS token block with WCAG AA contrast ratios. ThemeToggle button in TopBar persists to `localStorage`. Flash-free via `initTheme()` called before first React paint.
+- **SMB active sessions viewer**: Tabbed layout on the Shares page (Shares / Active Sessions). Live poll every 15 seconds with per-session disconnect action. Full ARIA data table.
+- **Storage treemap on Datasets page**: Pure-SVG squarified treemap above the dataset tree, color-coded by pool. Click any cell to filter the tree to that dataset. ResizeObserver-responsive width, accessible table fallback.
+- **API Explorer page** (`/api-explorer`): Browse and test all daemon endpoints grouped by resource. Live request/response with status badge and timing. Added to System nav group.
+- **Dashboard widget pinning**: "Customize" popover on the dashboard lets users toggle any of 10 widgets on/off. State persisted in `localStorage`, reset-to-defaults button included.
+- **Global keyboard shortcuts**: `?` opens a keyboard shortcuts help modal. `g` + letter navigation shortcuts jump to key pages (g+h=Dashboard, g+p=Pools, g+d=Datasets, g+s=Settings, g+n=Network, g+l=Logs, g+c=Docker, g+f=Files, g+r=Reporting, g+u=Updates). `?` button added to TopBar for discoverability.
+- **Docker: in-browser container terminal**: xterm.js terminal panel on container rows. Opens a WebSocket-backed shell session directly in the UI without needing SSH. Includes FitAddon for responsive sizing.
+- **Docker: container card grid view**: ZimaOS-style card layout alternative to the default table. Each card shows container icon, name, status dot, primary port, and quick start/stop/restart actions.
+- **Docker: container edit modal**: Tabbed inspect panel (General / Ports / Volumes / Env) backed by `/api/docker/containers/{name}/inspect`. Allows reconfiguring the container via `/api/docker/containers/{name}/reconfigure`.
+- **Docker: enhanced Compose Stacks**: `StackInfo` type extended with `services`, `file_size`, `created_at`, `updated_at`, `labels`. Stack status now shows `running/partial/stopped` with distinct colors.
+- **GitOps: category capture**: "Capture" action per sync category lets users snapshot live state (SMB/NFS shares, Docker stacks, users/groups, replication, system config) into `state.yaml`. Storage category intentionally excluded (disk paths are machine-specific). Capture keys and descriptive hints added to `CATEGORY_META`.
+
+### Changed
+- **MonitoringPage** nav label renamed from "Monitoring" to "Inotify Watches" with `notifications` icon; page title updated to match. The page covers inotify watch limit monitoring only, not broad system monitoring.
+- **GitOpsPage**: RESHAPE change color switched from hardcoded `#f59e0b` to `var(--warning)` for theme consistency.
+- **RemovableMediaPage**: Page header and empty state migrated to standard `page-header`/`page-title`/`page-subtitle`/`empty-state` CSS classes.
+- **DirectoryPage**: Sync log `pre` element color changed from hardcoded `#aab2c0` to `var(--text-secondary)` for light-mode correctness.
+- All inline `rgba()` color values across 15+ page files replaced with CSS design tokens (`var(--warning-bg)`, `var(--success-border)`, `var(--warning)`, `hsla(var(--hue-primary),...)`) for correct light-mode rendering. Covers AlertsPage, CertificatesPage, DelegationPage, FilesPage, FirewallPage, HardwarePage, HAPage, IPMIPage, NetworkPage, PowerPage, SettingsPage, TopBar, UpdatesPage.
+
+
+
 ## v9.1.1 (2026-05-11)
 
 Upgrade from: v9.1.0 - Drop-in. No breaking changes.

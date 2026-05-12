@@ -178,12 +178,12 @@ function NodeCard({ node, isLocal, canPromote, onPromote, onRemove, onFence, pen
     <div style={{
       display: 'flex', alignItems: 'center', gap: 16, padding: '16px 20px',
       background: 'var(--bg-card)',
-      border: `1px solid ${isActive ? 'rgba(16,185,129,0.25)' : isLocal ? 'rgba(138,156,255,0.2)' : 'var(--border)'}`,
+      border: `1px solid ${isActive ? 'var(--success-border)' : isLocal ? 'hsla(var(--hue-primary),100%,72%,.2)' : 'var(--border)'}`,
       borderRadius: 'var(--radius-lg)' }}>
       <div style={{
         width: 42, height: 42, borderRadius: 'var(--radius-md)', flexShrink: 0,
-        background: isActive ? 'rgba(16,185,129,0.1)' : isLocal ? 'var(--primary-bg)' : 'var(--surface)',
-        border: `1px solid ${isActive ? 'rgba(16,185,129,0.25)' : isLocal ? 'rgba(138,156,255,0.2)' : 'var(--border)'}`,
+        background: isActive ? 'var(--success-bg)' : isLocal ? 'var(--primary-bg)' : 'var(--surface)',
+        border: `1px solid ${isActive ? 'var(--success-border)' : isLocal ? 'hsla(var(--hue-primary),100%,72%,.2)' : 'var(--border)'}`,
         display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         <Icon name="computer" size={22} style={{ color: isActive ? 'var(--success)' : isLocal ? 'var(--primary)' : 'var(--text-tertiary)' }} />
       </div>
@@ -218,7 +218,7 @@ function NodeCard({ node, isLocal, canPromote, onPromote, onRemove, onFence, pen
           </button>
         )}
         {!isLocal && onFence && !isActive && (
-          <button onClick={onFence} disabled={pending} className="btn" style={{ color: 'var(--error)', borderColor: 'rgba(239,68,68,0.3)' }}>
+          <button onClick={onFence} disabled={pending} className="btn" style={{ color: 'var(--error)', borderColor: 'var(--error-border)' }}>
             <Icon name="power_settings_new" size={14} />Fence Node
           </button>
         )}
@@ -432,7 +432,7 @@ function WitnessConfigForm() {
 
       {/* Test results */}
       {testOut && (
-        <div style={{ marginTop: 16, background: 'var(--surface)', borderRadius: 'var(--radius-md)', padding: '12px 16px', border: `1px solid ${testOut.quorum_satisfied ? 'rgba(16,185,129,0.3)' : 'rgba(239,68,68,0.3)'}` }}>
+        <div style={{ marginTop: 16, background: 'var(--surface)', borderRadius: 'var(--radius-md)', padding: '12px 16px', border: `1px solid ${testOut.quorum_satisfied ? 'var(--success-border)' : 'var(--error-border)'}` }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
             <Icon name={testOut.quorum_satisfied ? 'check_circle' : 'cancel'} size={16}
               style={{ color: testOut.quorum_satisfied ? 'var(--success)' : 'var(--error)' }} />
@@ -539,7 +539,7 @@ function FencingConfigForm() {
       </div>
 
       <button onClick={submit} disabled={save.isPending || q.isLoading} className="btn btn-primary"
-        style={{ background: enable ? 'var(--error)' : 'var(--primary)', color: '#fff', border: 'none' }}>
+        style={{ background: enable ? 'var(--error)' : 'var(--primary)', color: 'var(--text-on-primary)', border: 'none' }}>
         <Icon name="save" size={15} />{save.isPending ? 'Saving…' : 'Save IPMI Config'}
       </button>
     </div>
@@ -645,7 +645,7 @@ function PDUConfigForm() {
       </div>
 
       <button onClick={submit} disabled={save.isPending || q.isLoading} className="btn btn-primary"
-        style={{ background: enable ? 'var(--error)' : 'var(--primary)', color: '#fff', border: 'none' }}>
+        style={{ background: enable ? 'var(--error)' : 'var(--primary)', color: 'var(--text-on-primary)', border: 'none' }}>
         <Icon name="save" size={15} />{save.isPending ? 'Saving…' : 'Save PDU Config'}
       </button>
     </div>
@@ -702,7 +702,7 @@ function SBDConfigForm() {
           </div>
         </div>
         {configured && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 10px', borderRadius: 'var(--radius-md)', background: leaseActive ? 'rgba(16,185,129,0.12)' : 'rgba(239,68,68,0.12)', border: `1px solid ${leaseActive ? 'rgba(16,185,129,0.3)' : 'rgba(239,68,68,0.3)'}` }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 10px', borderRadius: 'var(--radius-md)', background: leaseActive ? 'var(--success-bg)' : 'var(--error-bg)', border: `1px solid ${leaseActive ? 'var(--success-border)' : 'var(--error-border)'}` }}>
             <div style={{ width: 7, height: 7, borderRadius: '50%', background: leaseActive ? 'var(--success)' : 'var(--error)', flexShrink: 0 }} />
             <span style={{ fontSize: 'var(--text-xs)', fontWeight: 600, color: leaseActive ? 'var(--success)' : 'var(--error)' }}>
               {leaseActive ? `Lease active${lastRenewal > 0 ? ' · ' + fmtAgo(lastRenewal) : ''}` : 'Lease manager not running'}
@@ -744,7 +744,7 @@ function SBDConfigForm() {
       </p>
 
       <button onClick={submit} disabled={save.isPending || q.isLoading} className="btn btn-primary"
-        style={{ background: configured ? 'var(--warning)' : 'var(--primary)', color: '#fff', border: 'none' }}>
+        style={{ background: configured ? 'var(--warning)' : 'var(--primary)', color: 'var(--text-on-primary)', border: 'none' }}>
         <Icon name="save" size={15} />{save.isPending ? 'Saving…' : 'Save SBD Config'}
       </button>
     </div>
@@ -848,7 +848,7 @@ function MaintenanceModeCard({ active, until, onToggle }: {
     <div className="card" style={{
       borderRadius: 'var(--radius-lg)', padding: '20px 24px', marginTop: 24,
       borderLeft: active ? '4px solid var(--warning)' : '4px solid var(--border)',
-      background: active ? 'rgba(245,158,11,0.03)' : 'var(--bg-card)'
+      background: active ? 'var(--warning-bg)' : 'var(--bg-card)'
     }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: active ? 0 : 16 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -1205,7 +1205,7 @@ export function HAPage() {
       {/* ── Stat Cards ──────────────────────────────────────────────────────── */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 20 }}>
         {/* Quorum */}
-        <div style={{ background: 'var(--bg-card)', borderRadius: 'var(--radius-lg)', padding: '18px 20px', display: 'flex', alignItems: 'center', gap: 14, border: `1px solid ${hasQuorum ? 'rgba(16,185,129,0.25)' : 'rgba(239,68,68,0.25)'}` }}>
+        <div style={{ background: 'var(--bg-card)', borderRadius: 'var(--radius-lg)', padding: '18px 20px', display: 'flex', alignItems: 'center', gap: 14, border: `1px solid ${hasQuorum ? 'var(--success-border)' : 'var(--error-border)'}` }}>
           <Icon name={hasQuorum ? 'verified' : 'dangerous'} size={28} style={{ color: hasQuorum ? 'var(--success)' : 'var(--error)', flexShrink: 0 }} />
           <div>
             <div style={{ fontWeight: 700, color: hasQuorum ? 'var(--success)' : 'var(--error)' }}>{hasQuorum ? 'Quorum' : 'No Quorum'}</div>
@@ -1224,7 +1224,7 @@ export function HAPage() {
 
         {/* Active node */}
         <div className="card" style={{ borderRadius: 'var(--radius-lg)', padding: '18px 20px', display: 'flex', alignItems: 'center', gap: 14 }}>
-          <Icon name="star" size={28} style={{ color: 'rgba(251,191,36,0.9)', flexShrink: 0 }} />
+          <Icon name="star" size={28} style={{ color: 'var(--warning)', flexShrink: 0 }} />
           <div style={{ minWidth: 0 }}>
             <div style={{ fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {activeNode?.name ?? activeNode?.id ?? '-'}
@@ -1234,7 +1234,7 @@ export function HAPage() {
         </div>
 
         {/* Last failover */}
-        <div className="card" style={{ borderRadius: 'var(--radius-lg)', padding: '18px 20px', display: 'flex', alignItems: 'center', gap: 14, border: hysteresis ? '1px solid rgba(245,158,11,0.35)' : undefined }}>
+        <div className="card" style={{ borderRadius: 'var(--radius-lg)', padding: '18px 20px', display: 'flex', alignItems: 'center', gap: 14, border: hysteresis ? '1px solid var(--warning-border)' : undefined }}>
           <Icon name="history" size={28} style={{ color: hysteresis ? 'var(--warning)' : 'var(--text-tertiary)', flexShrink: 0 }} />
           <div style={{ minWidth: 0 }}>
             <div style={{ fontWeight: 700, fontSize: lastFailover > 0 ? 'var(--text-sm)' : undefined, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: hysteresis ? 'var(--warning)' : undefined }}>

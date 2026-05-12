@@ -188,15 +188,15 @@ export function UpdatesPage() {
       {versionQ.data?.success && (
         <div style={{
           display: 'flex', alignItems: 'center', gap: 14, padding: '14px 20px',
-          background: versionQ.data.update_available ? 'rgba(251,191,36,0.08)' : 'var(--bg-card)',
-          border: `1px solid ${versionQ.data.update_available ? 'rgba(251,191,36,0.3)' : 'var(--border)'}`,
+          background: versionQ.data.update_available ? 'var(--warning-bg)' : 'var(--bg-card)',
+          border: `1px solid ${versionQ.data.update_available ? 'var(--warning-border)' : 'var(--border)'}`,
           borderRadius: 'var(--radius-lg)', marginBottom: 20}}>
           <Icon name={versionQ.data.update_available ? 'new_releases' : 'verified'} size={20}
-            style={{ color: versionQ.data.update_available ? 'rgba(251,191,36,0.9)' : 'var(--success)', flexShrink: 0 }} />
+            style={{ color: versionQ.data.update_available ? 'var(--warning)' : 'var(--success)', flexShrink: 0 }} />
           <div style={{ flex: 1 }}>
             <span style={{ fontWeight: 700 }}>D-PlaneOS {versionQ.data.current_version}</span>
             {versionQ.data.update_available
-              ? <span style={{ marginLeft: 10, color: 'rgba(251,191,36,0.9)', fontSize: 'var(--text-sm)' }}>
+              ? <span style={{ marginLeft: 10, color: 'var(--warning)', fontSize: 'var(--text-sm)' }}>
                   → {versionQ.data.latest_version} available
                 </span>
               : <span style={{ marginLeft: 10, color: 'var(--text-tertiary)', fontSize: 'var(--text-sm)' }}>up to date</span>

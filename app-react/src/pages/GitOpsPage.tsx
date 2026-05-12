@@ -32,7 +32,7 @@ function changeColor(a?:string):string {
   if (a === 'BLOCKED') return 'var(--error)'
   if (a === 'MANUAL') return 'var(--warning)'
   if (a === 'MODIFY') return 'var(--primary)'
-  if (a === 'RESHAPE') return '#f59e0b' // amber - additive ZFS topology change
+  if (a === 'RESHAPE') return 'var(--warning)'
   return 'var(--text-tertiary)'
 }
 
@@ -50,6 +50,9 @@ interface GitOpsSettings {
   updated_at: string;
 }
 
+interface CategoryCount { in_git: number; live: number }
+interface ManagedSummary { [cat: string]: CategoryCount }
+
 interface Repo { id: string|number; url: string; branch?: string; path?: string; name?: string; status?: string; last_sync?: string; credential_id?: string|number }
 interface Cred { id: string|number; name: string; type?: 'ssh'|'token'|'password'; username?: string }
 
@@ -58,30 +61,59 @@ function statusDot(s?: string) {
   return <span style={{ width:8, height:8, borderRadius:'50%', background:c, boxShadow:s==='syncing'?`0 0 6px ${c}`:'none', display:'inline-block', flexShrink:0 }} />
 }
 
-function SettingsTab({ s, updateSettings, repos, setShowWizard, onSyncNow }: { 
-  s: GitOpsSettings; 
-  updateSettings: any; 
-  repos: Repo[]; 
+// CategoryCard maps sync_* settings keys to their capturable category names.
+// Storage (pools/datasets) has no capture button - ZFS topology is machine-specific
+// and should never be snapshotted from live into state.yaml automatically.
+const CATEGORY_META = [
+  { settingsKey: 'sync_storage',    captureKey: null,           label: 'Storage',      desc: 'ZFS Pools & Datasets',   icon: 'storage',           hint: 'Declare pools and datasets manually - disk paths are machine-specific.' },
+  { settingsKey: 'sync_access',     captureKey: 'nfs,smb',      label: 'Data Access',  desc: 'SMB & NFS Shares',       icon: 'folder_shared',     hint: null },
+  { settingsKey: 'sync_app',        captureKey: 'stacks',       label: 'Applications', desc: 'Docker Stacks',          icon: 'apps',              hint: null },
+  { settingsKey: 'sync_identity',   captureKey: 'users,groups', label: 'Identity',     desc: 'Users & Groups',         icon: 'person',            hint: null },
+  { settingsKey: 'sync_protection', captureKey: 'replication',  label: 'Protection',   desc: 'Replication Schedules',  icon: 'shield',            hint: null },
+  { settingsKey: 'sync_system',     captureKey: 'system',       label: 'System',       desc: 'Hostname & Network',     icon: 'settings_ethernet', hint: null },
+]
+
+function SettingsTab({ s, updateSettings, repos, setShowWizard, onSyncNow, summary }: {
+  s: GitOpsSettings;
+  updateSettings: any;
+  repos: Repo[];
   setShowWizard: (t: 'state'|'nixos') => void;
   onSyncNow: () => void;
+  summary: ManagedSummary | null;
 }) {
-  const categories = [
-    { key: 'sync_storage',    label: 'Storage',      desc: 'ZFS Pools & Datasets', icon: 'storage' },
-    { key: 'sync_access',     label: 'Data Access',  desc: 'SMB & NFS Shares',     icon: 'folder_shared' },
-    { key: 'sync_app',        label: 'Applications', desc: 'Docker Stacks',        icon: 'apps' },
-    { key: 'sync_identity',   label: 'Identity',     desc: 'Users, Groups & LDAP', icon: 'person' },
-    { key: 'sync_protection', label: 'Protection',   desc: 'Replication Schedules',icon: 'shield' },
-    { key: 'sync_system',     label: 'System',       desc: 'Hostname & Network',   icon: 'settings_ethernet' },
-  ]
+  const qc = useQueryClient()
   const syncNow = useMutation({
     mutationFn: () => api.post('/api/gitops/sync', {}),
     onSuccess: () => { toast.success('Sync completed'); onSyncNow() },
     onError: (e: Error) => toast.error(e.message)
   })
 
+  const capture = useMutation({
+    mutationFn: (categories: string[]) => api.post<{success:boolean;error?:string;message?:string}>('/api/gitops/capture', { categories }),
+    onSuccess: (res, categories) => {
+      if (res.success) {
+        toast.success(`Captured ${categories.join(', ')} into state.yaml`)
+        qc.invalidateQueries({ queryKey: ['gitops'] })
+      } else {
+        toast.error(res.error || 'Capture failed')
+      }
+    },
+    onError: (e: Error) => toast.error(e.message),
+  })
+
+  // Counts for a capture key (may be composite like "nfs,smb")
+  const countFor = (captureKey: string | null): { inGit: number; live: number } | null => {
+    if (!captureKey || !summary) return null
+    const cats = captureKey.split(',')
+    return cats.reduce((acc, cat) => {
+      const c = summary[cat]
+      if (!c) return acc
+      return { inGit: acc.inGit + c.in_git, live: acc.live + c.live }
+    }, { inGit: 0, live: 0 })
+  }
+
   return (
     <div style={{ display:'flex', flexDirection:'column', gap:24 }}>
-      {/* Manual Sync & Repo Setup */}
 
       {/* Global Toggle */}
       <div className="card-xl" style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'20px 24px', borderLeft:`4px solid ${s.enabled?'var(--primary)':'var(--border)'}` }}>
@@ -95,7 +127,7 @@ function SettingsTab({ s, updateSettings, repos, setShowWizard, onSyncNow }: {
         </button>
       </div>
 
-      {/* Manual Sync & Repo Setup */}
+      {/* Repo Bindings */}
       <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:20 }}>
         <div className="card-xl">
           <div style={{ fontWeight:700, marginBottom:16 }}>Fallback Operations</div>
@@ -115,17 +147,15 @@ function SettingsTab({ s, updateSettings, repos, setShowWizard, onSyncNow }: {
               <Icon name="auto_fix_high" size={13} /> Wizard
             </button>
           </div>
-          <div style={{ display:'grid', gap:10 }}>
-            <label className="field">
-              <span className="field-label">Repository</span>
-              <select value={s.repo_id || ''} onChange={e=>updateSettings.mutate({ repo_id: e.target.value ? Number(e.target.value) : null })} className="input">
-                <option value="">(None)</option>
-                {repos.map(r => <option key={r.id} value={r.id}>{r.name || r.url}</option>)}
-              </select>
-            </label>
-            <div style={{ fontSize:'var(--text-xs)', color:'var(--text-tertiary)' }}>
-              Contains <code>state.yaml</code> with storage, apps, and users config.
-            </div>
+          <label className="field">
+            <span className="field-label">Repository</span>
+            <select value={s.repo_id || ''} onChange={e=>updateSettings.mutate({ repo_id: e.target.value ? Number(e.target.value) : null })} className="input">
+              <option value="">(None)</option>
+              {repos.map(r => <option key={r.id} value={r.id}>{r.name || r.url}</option>)}
+            </select>
+          </label>
+          <div style={{ marginTop:8, fontSize:'var(--text-xs)', color:'var(--text-tertiary)' }}>
+            Contains <code>state.yaml</code> - pulled automatically on schedule.
           </div>
         </div>
 
@@ -136,40 +166,105 @@ function SettingsTab({ s, updateSettings, repos, setShowWizard, onSyncNow }: {
               <Icon name="auto_fix_high" size={13} /> Wizard
             </button>
           </div>
-          <div style={{ display:'grid', gap:10 }}>
-            <label className="field">
-              <span className="field-label">Repository</span>
-              <select value={s.nixos_repo_id || ''} onChange={e=>updateSettings.mutate({ nixos_repo_id: e.target.value ? Number(e.target.value) : null })} className="input">
-                <option value="">(None)</option>
-                {repos.map(r => <option key={r.id} value={r.id}>{r.name || r.url}</option>)}
-              </select>
-            </label>
-            <div style={{ fontSize:'var(--text-xs)', color:'var(--text-tertiary)' }}>
-              Backs up <code>/etc/nixos</code> (configuration.nix and flake).
-            </div>
+          <label className="field">
+            <span className="field-label">Repository</span>
+            <select value={s.nixos_repo_id || ''} onChange={e=>updateSettings.mutate({ nixos_repo_id: e.target.value ? Number(e.target.value) : null })} className="input">
+              <option value="">(None)</option>
+              {repos.map(r => <option key={r.id} value={r.id}>{r.name || r.url}</option>)}
+            </select>
+          </label>
+          <div style={{ marginTop:8, fontSize:'var(--text-xs)', color:'var(--text-tertiary)' }}>
+            Backs up <code>/etc/nixos</code> (configuration.nix and flake).
           </div>
         </div>
       </div>
 
-      {/* Granular Matrix */}
+      {/* Granular Resource Management */}
       <div className="card-xl">
-        <div style={{ fontWeight:700, marginBottom:16 }}>Granular Resource Sync</div>
-        <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(280px, 1fr))', gap:12 }}>
-          {categories.map(c => (
-            <div key={c.key} style={{ padding:'12px 16px', background:'var(--bg)', borderRadius:'var(--radius-md)', border:'1px solid var(--border)', display:'flex', alignItems:'center', gap:14 }}>
-              <Icon name={c.icon} size={20} style={{ color:'var(--text-tertiary)' }} />
-              <div style={{ flex:1 }}>
-                <div style={{ fontWeight:600, fontSize:'var(--text-sm)' }}>{c.label}</div>
-                <div style={{ fontSize:'var(--text-2xs)', color:'var(--text-tertiary)' }}>{c.desc}</div>
+        <div style={{ marginBottom:20 }}>
+          <div style={{ fontWeight:700, fontSize:'var(--text-base)' }}>Managed Resources</div>
+          <div style={{ fontSize:'var(--text-xs)', color:'var(--text-tertiary)', marginTop:4 }}>
+            Enable a category to include it in drift detection and reconciliation.
+            Use <strong>Capture</strong> to snapshot your current running config into state.yaml as a starting point.
+          </div>
+        </div>
+
+        <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+          {CATEGORY_META.map(cat => {
+            const enabled = !!s[cat.settingsKey as keyof GitOpsSettings]
+            const counts = countFor(cat.captureKey)
+            const notCaptured = enabled && cat.captureKey && counts && counts.inGit === 0 && counts.live > 0
+            const cats = cat.captureKey ? cat.captureKey.split(',') : []
+            const isCaptureLoading = capture.isPending && cats.length > 0
+
+            return (
+              <div key={cat.settingsKey} style={{
+                display:'flex', alignItems:'center', gap:16, padding:'14px 18px',
+                background:'var(--bg)', borderRadius:'var(--radius-md)',
+                border:`1px solid ${notCaptured ? 'var(--warning-border)' : 'var(--border)'}`,
+                transition:'border-color 0.2s',
+              }}>
+                <Icon name={cat.icon} size={20} style={{ color: enabled ? 'var(--primary)' : 'var(--text-tertiary)', flexShrink:0 }} />
+
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ fontWeight:600, fontSize:'var(--text-sm)', display:'flex', alignItems:'center', gap:8 }}>
+                    {cat.label}
+                    {enabled && counts && counts.inGit > 0 && (
+                      <span style={{ fontSize:'var(--text-2xs)', fontWeight:500, color:'var(--success)', background:'var(--success-bg)', padding:'1px 7px', borderRadius:99 }}>
+                        {counts.inGit} in git
+                      </span>
+                    )}
+                    {notCaptured && (
+                      <span style={{ fontSize:'var(--text-2xs)', fontWeight:600, color:'var(--warning)', background:'var(--warning-bg)', padding:'1px 7px', borderRadius:99 }}>
+                        {counts!.live} live, not captured
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ fontSize:'var(--text-2xs)', color:'var(--text-tertiary)', marginTop:2 }}>
+                    {cat.hint || cat.desc}
+                    {enabled && counts && counts.live > 0 && counts.inGit > 0 && (
+                      <span style={{ marginLeft:6, color:'var(--text-tertiary)' }}>
+                        ({counts.inGit}/{counts.live} resources tracked)
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                <div style={{ display:'flex', alignItems:'center', gap:10, flexShrink:0 }}>
+                  {/* Capture button - only for capturable categories */}
+                  {cat.captureKey && enabled && (
+                    <button
+                      onClick={() => capture.mutate(cats)}
+                      disabled={isCaptureLoading}
+                      className="btn btn-ghost btn-xs"
+                      title={counts && counts.inGit > 0 ? 'Re-capture current live state' : 'Snapshot current live state into state.yaml'}
+                      style={{ color: notCaptured ? 'var(--warning)' : 'var(--text-secondary)' }}
+                    >
+                      <Icon name="download_for_offline" size={13} />
+                      {isCaptureLoading ? 'Capturing...' : counts && counts.inGit > 0 ? 'Re-capture' : 'Capture'}
+                    </button>
+                  )}
+
+                  {/* Enable/disable toggle */}
+                  <input
+                    type="checkbox"
+                    checked={enabled}
+                    onChange={() => updateSettings.mutate({ [cat.settingsKey]: !enabled })}
+                    style={{ width:18, height:18, cursor:'pointer', flexShrink:0 }}
+                    title={`${enabled ? 'Disable' : 'Enable'} ${cat.label} sync`}
+                  />
+                </div>
               </div>
-              <input 
-                type="checkbox" 
-                checked={!!s[c.key as keyof GitOpsSettings]} 
-                onChange={() => updateSettings.mutate({ [c.key]: !s[c.key as keyof GitOpsSettings] })}
-                style={{ width:18, height:18, cursor:'pointer' }}
-              />
-            </div>
-          ))}
+            )
+          })}
+        </div>
+
+        <div style={{ marginTop:16, padding:'12px 14px', background:'var(--surface)', borderRadius:'var(--radius-md)', fontSize:'var(--text-2xs)', color:'var(--text-tertiary)', lineHeight:1.6 }}>
+          <strong style={{ color:'var(--text-secondary)' }}>How capture works:</strong>{' '}
+          Capture reads the live system state and writes it into state.yaml, replacing that section.
+          Existing sections you did not capture are left intact.
+          After capturing, the diff engine will show NOP (no change) for those resources - they are now tracked.
+          Future changes you make via the UI will appear as drift and can be applied back from state.yaml.
         </div>
       </div>
     </div>
@@ -515,11 +610,12 @@ export function GitOpsPage() {
   const [driftAlert, setDriftAlert] = useState<DriftPayload | null>(null)
   const [editingRepo, setEditingRepo] = useState<Repo | null>(null)
 
-  const statusQ = useQuery({ queryKey:['gitops','status'], queryFn:({signal})=>api.get<GitopsStatus>('/api/gitops/status',signal), refetchInterval:15_000 })
-  const planQ   = useQuery({ queryKey:['gitops','plan'],   queryFn:({signal})=>api.get<{success:boolean;changes:Change[]}>('/api/gitops/plan',signal) })
-  const stateQ  = useQuery({ queryKey:['gitops','state'],  queryFn:({signal})=>api.get<{success:boolean;state:string}>('/api/gitops/state',signal) })
+  const statusQ   = useQuery({ queryKey:['gitops','status'],   queryFn:({signal})=>api.get<GitopsStatus>('/api/gitops/status',signal), refetchInterval:15_000 })
+  const planQ     = useQuery({ queryKey:['gitops','plan'],     queryFn:({signal})=>api.get<{success:boolean;changes:Change[]}>('/api/gitops/plan',signal) })
+  const stateQ    = useQuery({ queryKey:['gitops','state'],    queryFn:({signal})=>api.get<{success:boolean;state:string}>('/api/gitops/state',signal) })
   const settingsQ = useQuery({ queryKey:['gitops','settings'], queryFn:()=>api.get<{success:boolean;settings:GitOpsSettings}>('/api/gitops/settings') })
-  const reposQ    = useQuery({ queryKey:['git-sync','repos'], queryFn:({signal})=>api.get<{success:boolean;repos:Repo[]}>('/api/git-sync/repos',signal) })
+  const reposQ    = useQuery({ queryKey:['git-sync','repos'],  queryFn:({signal})=>api.get<{success:boolean;repos:Repo[]}>('/api/git-sync/repos',signal) })
+  const summaryQ  = useQuery({ queryKey:['gitops','summary'],  queryFn:({signal})=>api.get<{success:boolean;summary:ManagedSummary}>('/api/gitops/managed-summary',signal), refetchInterval:30_000 })
 
   useEffect(() => {
     return wsOn('gitopsDrift', (data) => {
@@ -645,6 +741,31 @@ export function GitOpsPage() {
             </div>
           )}
 
+          {/* Managed resources summary strip */}
+          {summaryQ.data?.summary && (
+            <div style={{ display:'flex', gap:8, flexWrap:'wrap', marginBottom:20 }}>
+              {CATEGORY_META.map(cat => {
+                if (!cat.captureKey) return null
+                const cats = cat.captureKey.split(',')
+                const counts = cats.reduce((acc, c) => {
+                  const v = summaryQ.data!.summary[c]
+                  return v ? { inGit: acc.inGit + v.in_git, live: acc.live + v.live } : acc
+                }, { inGit: 0, live: 0 })
+                const color = counts.inGit > 0 ? 'var(--success)' : 'var(--text-tertiary)'
+                return (
+                  <div key={cat.settingsKey} style={{ display:'flex', alignItems:'center', gap:6, padding:'5px 12px', background:'var(--bg-card)', border:'1px solid var(--border)', borderRadius:99, fontSize:'var(--text-2xs)' }}>
+                    <Icon name={cat.icon} size={13} style={{ color }} />
+                    <span style={{ color:'var(--text-secondary)', fontWeight:500 }}>{cat.label}</span>
+                    <span style={{ color }}>{counts.inGit}/{counts.live}</span>
+                  </div>
+                )
+              })}
+              <button onClick={() => setTab('settings')} className="btn btn-ghost btn-xs" style={{ borderRadius:99, fontSize:'var(--text-2xs)' }}>
+                <Icon name="tune" size={13} />Manage
+              </button>
+            </div>
+          )}
+
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:20 }}>
             <div>
               <div style={{ fontWeight:700, marginBottom:12, display:'flex', alignItems:'center', gap:8 }}><Icon name="list_alt" size={18} style={{ color:'var(--primary)' }}/>Pending Plan</div>
@@ -657,7 +778,7 @@ export function GitOpsPage() {
                       {c.action === 'RESHAPE' && c.changes && c.changes.length > 0 && (
                         <div style={{ marginTop:4, display:'flex', flexDirection:'column', gap:2 }}>
                           {c.changes.map((ch, ci) => (
-                            <code key={ci} style={{ fontFamily:'var(--font-mono)', fontSize:11, color:'#f59e0b', background:'#f59e0b12', padding:'1px 6px', borderRadius:'var(--radius-xs)', display:'block' }}>
+                            <code key={ci} style={{ fontFamily:'var(--font-mono)', fontSize:11, color:'var(--warning)', background:'var(--warning-bg)', padding:'1px 6px', borderRadius:'var(--radius-xs)', display:'block' }}>
                               zpool add {c.resource} {ch.replace(/^add-\w+: /, '')}
                             </code>
                           ))}
@@ -690,12 +811,13 @@ export function GitOpsPage() {
       )}
       {tab === 'credentials' && <CredentialsTab />}
       {tab === 'settings'    && settingsQ.data && (
-        <SettingsTab 
-          s={settingsQ.data.settings} 
+        <SettingsTab
+          s={settingsQ.data.settings}
           updateSettings={updateSettings}
           repos={reposQ.data?.repos ?? []}
           setShowWizard={setShowWizard}
-          onSyncNow={() => qc.invalidateQueries({queryKey:['gitops']})} 
+          onSyncNow={() => qc.invalidateQueries({queryKey:['gitops']})}
+          summary={summaryQ.data?.summary ?? null}
         />
       )}
 

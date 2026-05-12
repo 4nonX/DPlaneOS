@@ -166,10 +166,10 @@ export function RemovableMediaPage() {
 
   return (
     <div style={{ maxWidth: 900 }}>
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 32 }}>
+      <div className="page-header">
         <div>
-          <h1 style={{ fontSize: 'var(--text-3xl)', fontWeight: 700, letterSpacing: '-1px', marginBottom: 6 }}>Removable Media</h1>
-          <p style={{ color: 'var(--text-secondary)', fontSize: 'var(--text-md)' }}>USB drives, external disks - mount, unmount, eject</p>
+          <h1 className="page-title">Removable Media</h1>
+          <p className="page-subtitle">USB drives, external disks - mount, unmount, eject</p>
         </div>
         <button onClick={refresh} className="btn btn-ghost"><Icon name="refresh" size={15} />Refresh</button>
       </div>
@@ -182,10 +182,10 @@ export function RemovableMediaPage() {
       {devicesQ.isError && <ErrorState error={devicesQ.error} onRetry={refresh} />}
 
       {!devicesQ.isLoading && !devicesQ.isError && devices.length === 0 && (
-        <div style={{ textAlign: 'center', padding: '80px 24px', border: '1px dashed var(--border)', borderRadius: 'var(--radius-xl)', color: 'var(--text-tertiary)' }}>
-          <Icon name="usb_off" size={56} style={{ opacity: 0.3, display: 'block', margin: '0 auto 16px' }} />
-          <div style={{ fontSize: 'var(--text-xl)', fontWeight: 600, marginBottom: 8 }}>No removable devices detected</div>
-          <div style={{ fontSize: 'var(--text-sm)' }}>Plug in a USB drive or external disk, then refresh</div>
+        <div className="empty-state">
+          <Icon name="usb_off" className="ms" style={{ fontSize: 48, opacity: 0.3, display: 'block', margin: '0 auto 16px' }} />
+          <div className="empty-state-title">No removable devices detected</div>
+          <div style={{ fontSize: 'var(--text-sm)', marginTop: 4 }}>Plug in a USB drive or external disk, then refresh</div>
         </div>
       )}
 

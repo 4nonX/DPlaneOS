@@ -9,7 +9,7 @@
  */
 
 import { useQuery } from '@tanstack/react-query'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, useId } from 'react'
 import { api } from '@/lib/api'
 import { useWsStore } from '@/stores/ws'
 import { ErrorState } from '@/components/ui/ErrorState'
@@ -192,13 +192,17 @@ function PeriodTab({ period, current, onChange }: { period: Period; current: Per
 }
 
 // ---------------------------------------------------------------------------
-// History chart row
+// History chart row - with hover crosshair + tooltip + accessible table
 // ---------------------------------------------------------------------------
 
 function HistoryChart({ label, color, dataPoints, period, extractFn }: {
   label: string; color: string; dataPoints: HistoryPoint[]
   period: Period; extractFn: (p: HistoryPoint) => number
 }) {
+  const [hoverIdx, setHoverIdx] = useState<number | null>(null)
+  const svgRef    = useRef<SVGSVGElement>(null)
+  const tableId   = useId()
+
   if (dataPoints.length === 0) {
     return (
       <div style={{ padding: '12px 0', color: 'var(--text-tertiary)', fontSize: 'var(--text-sm)' }}>
@@ -220,35 +224,125 @@ function HistoryChart({ label, color, dataPoints, period, extractFn }: {
 
   const linePath = pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ')
   const fillPath = `${linePath} L${chartW},${chartH} L0,${chartH} Z`
+  const gradId   = `grad-${label.replace(/\W/g,'')}`
 
-  // Sample labels: show 6 evenly spaced
-  const labelCount = 6
-  const labelIdxs = Array.from({ length: labelCount }, (_, i) =>
-    Math.round((i / (labelCount - 1)) * (dataPoints.length - 1))
+  // Axis labels: 6 evenly spaced
+  const labelIdxs = Array.from({ length: 6 }, (_, i) =>
+    Math.round((i / 5) * (dataPoints.length - 1))
   )
+
+  function handleMouseMove(e: React.MouseEvent<SVGSVGElement>) {
+    const rect = svgRef.current?.getBoundingClientRect()
+    if (!rect || !pts.length) return
+    const relX = Math.max(0, e.clientX - rect.left)
+    const idx  = Math.round((relX / rect.width) * (pts.length - 1))
+    setHoverIdx(Math.max(0, Math.min(idx, pts.length - 1)))
+  }
+
+  const hp = hoverIdx !== null ? pts[hoverIdx] : null
+
+  // Tooltip positioning: flip to left side if in right 30% of chart
+  const tipOnLeft = hp !== null && hp.x > chartW * 0.7
+
+  // Sample rows for accessible table (max 20 evenly spaced)
+  const tableStep = Math.max(1, Math.floor(dataPoints.length / 20))
+  const tableRows = dataPoints.filter((_, i) => i % tableStep === 0)
 
   return (
     <div>
-      <div style={{ fontSize: 'var(--text-sm)', fontWeight: 600, marginBottom: 8, color }}>{label}</div>
-      <div style={{ overflowX: 'auto' }}>
-        <svg width={chartW} height={chartH + 20} style={{ display: 'block', minWidth: 300 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+        <div style={{ fontSize: 'var(--text-sm)', fontWeight: 600, color }}>{label}</div>
+        {hp !== null && (
+          <div aria-live="polite" style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>
+            {fmtTs(dataPoints[hoverIdx!].ts, period)} — {hp.v.toFixed(1)}
+          </div>
+        )}
+      </div>
+
+      <div style={{ overflowX: 'auto', position: 'relative' }}>
+        <svg
+          ref={svgRef}
+          width={chartW}
+          height={chartH + 20}
+          style={{ display: 'block', minWidth: 300, cursor: 'crosshair' }}
+          role="img"
+          aria-label={`${label} chart. Use the data table below for accessible values.`}
+          onMouseMove={handleMouseMove}
+          onMouseLeave={() => setHoverIdx(null)}
+          onFocus={() => {}}
+        >
           <defs>
-            <linearGradient id={`grad-${label.replace(/\s/g,'')}`} x1="0" y1="0" x2="0" y2="1">
+            <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
               <stop offset="0%" stopColor={color} stopOpacity="0.3" />
               <stop offset="100%" stopColor={color} stopOpacity="0" />
             </linearGradient>
           </defs>
-          <path d={fillPath} fill={`url(#grad-${label.replace(/\s/g,'')})`} />
+
+          {/* Chart area */}
+          <path d={fillPath} fill={`url(#${gradId})`} />
           <path d={linePath} stroke={color} strokeWidth={1.5} fill="none" strokeLinejoin="round" />
+
           {/* Axis labels */}
-          {labelIdxs.map((idx) => (
+          {labelIdxs.map(idx => (
             <text key={idx} x={pts[idx]?.x ?? 0} y={chartH + 14}
-              textAnchor="middle" fontSize={10} fill="rgba(255,255,255,0.35)">
+              textAnchor="middle" fontSize={10} fill="rgba(255,255,255,0.35)" aria-hidden="true">
               {fmtTs(dataPoints[idx]?.ts ?? 0, period)}
             </text>
           ))}
+
+          {/* Hover crosshair + dot + tooltip */}
+          {hp !== null && (
+            <g aria-hidden="true">
+              {/* Vertical crosshair */}
+              <line x1={hp.x} y1={0} x2={hp.x} y2={chartH}
+                stroke="rgba(255,255,255,0.2)" strokeWidth={1} strokeDasharray="3 3" />
+
+              {/* Data point dot */}
+              <circle cx={hp.x} cy={hp.y} r={4} fill={color} stroke="var(--surface)" strokeWidth={2} />
+
+              {/* Tooltip box */}
+              <g transform={`translate(${tipOnLeft ? hp.x - 108 : hp.x + 8}, ${Math.max(0, hp.y - 14)})`}>
+                <rect x={0} y={0} width={100} height={32} rx={4}
+                  fill="var(--surface)" stroke="var(--border)" strokeWidth={1} />
+                <text x={8} y={12} fontSize={9} fill="rgba(255,255,255,0.45)">
+                  {fmtTs(dataPoints[hoverIdx!].ts, period)}
+                </text>
+                <text x={8} y={25} fontSize={11} fontWeight="bold" fill={color} fontFamily="var(--font-mono)">
+                  {hp.v.toFixed(2)}
+                </text>
+              </g>
+            </g>
+          )}
         </svg>
       </div>
+
+      {/* Accessible data table (visually hidden behind details, always present for AT) */}
+      <details style={{ marginTop: 6 }}>
+        <summary style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', cursor: 'pointer', userSelect: 'none' }}>
+          View as table
+        </summary>
+        <div style={{ overflowX: 'auto', marginTop: 8 }}>
+          <table id={tableId} style={{ width: '100%', borderCollapse: 'collapse', fontSize: 'var(--text-xs)' }}>
+            <caption style={{ position: 'absolute', width: 1, height: 1, overflow: 'hidden', clip: 'rect(0,0,0,0)' }}>
+              {label} historical data
+            </caption>
+            <thead>
+              <tr>
+                <th scope="col" style={{ padding: '4px 8px', textAlign: 'left', color: 'var(--text-tertiary)', fontWeight: 600, borderBottom: '1px solid var(--border)' }}>Time</th>
+                <th scope="col" style={{ padding: '4px 8px', textAlign: 'right', color: 'var(--text-tertiary)', fontWeight: 600, borderBottom: '1px solid var(--border)' }}>Value</th>
+              </tr>
+            </thead>
+            <tbody>
+              {tableRows.map((row, i) => (
+                <tr key={i}>
+                  <td style={{ padding: '3px 8px', color: 'var(--text-secondary)' }}>{fmtTs(row.ts, period)}</td>
+                  <td style={{ padding: '3px 8px', textAlign: 'right', fontFamily: 'var(--font-mono)', color: 'var(--text)' }}>{extractFn(row).toFixed(2)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </details>
     </div>
   )
 }

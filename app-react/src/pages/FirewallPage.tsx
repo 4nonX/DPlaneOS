@@ -44,8 +44,8 @@ interface FirewallStatus {
 
 function StatusBanner({ active, onToggle, pending }: { active: boolean; onToggle: () => void; pending: boolean }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '16px 22px', background: 'var(--bg-card)', border: `1px solid ${active ? 'rgba(16,185,129,0.25)' : 'rgba(239,68,68,0.25)'}`, borderRadius: 'var(--radius-xl)', marginBottom: 24 }}>
-      <div style={{ width: 48, height: 48, borderRadius: 'var(--radius-md)', background: active ? 'rgba(16,185,129,0.1)' : 'var(--error-bg)', border: `1px solid ${active ? 'rgba(16,185,129,0.25)' : 'var(--error-border)'}`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '16px 22px', background: 'var(--bg-card)', border: `1px solid ${active ? 'var(--success-border)' : 'var(--error-border)'}`, borderRadius: 'var(--radius-xl)', marginBottom: 24 }}>
+      <div style={{ width: 48, height: 48, borderRadius: 'var(--radius-md)', background: active ? 'var(--success-bg)' : 'var(--error-bg)', border: `1px solid ${active ? 'var(--success-border)' : 'var(--error-border)'}`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
         <Icon name={active ? 'shield' : 'shield_with_heart'} size={24} style={{ color: active ? 'var(--success)' : 'var(--error)' }} />
       </div>
       <div style={{ flex: 1 }}>

@@ -13,9 +13,9 @@
  *   min 8 chars, uppercase, lowercase, digit, special character.
  */
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import type React from 'react'
-import { Outlet } from '@tanstack/react-router'
+import { Outlet, useNavigate } from '@tanstack/react-router'
 import { Sidebar } from './Sidebar'
 import { TopBar } from './TopBar'
 import { ToastContainer } from '@/components/ui/Toast'
@@ -25,6 +25,8 @@ import { api } from '@/lib/api'
 import { Icon } from '@/components/ui/Icon'
 import { initNotificationSubscribers } from '@/stores/notifications'
 import { PendingChangesSidebar } from './PendingChangesSidebar'
+import { GlobalSearch } from '@/components/ui/GlobalSearch'
+import { KeyboardHelpModal } from '@/components/ui/KeyboardHelpModal'
 
 // ---------------------------------------------------------------------------
 // StrengthBar - mirrors daemon validatePasswordStrength exactly
@@ -221,17 +223,65 @@ function ForcePasswordChange() {
 // AppShell
 // ---------------------------------------------------------------------------
 
+// Maps second key in 'g + key' navigation to route paths
+const GO_ROUTES: Record<string, string> = {
+  h: '/', p: '/pools', d: '/datasets', s: '/settings',
+  n: '/network', l: '/logs', c: '/docker', f: '/files',
+  r: '/reporting', u: '/updates',
+}
+
 export function AppShell() {
+  const navigate   = useNavigate()
   const [collapsed, setCollapsed] = useState(false)
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [helpOpen, setHelpOpen]     = useState(false)
   const connect    = useWsStore((s) => s.connect)
   const disconnect = useWsStore((s) => s.disconnect)
   const user       = useAuthStore((s) => s.user)
+  const gPressedRef = useRef(false)
+  const gTimerRef   = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
     connect()
-    initNotificationSubscribers() // Start WebSocket-to-Notification listeners
+    initNotificationSubscribers()
     return () => disconnect()
   }, [connect, disconnect])
+
+  useEffect(() => {
+    function handler(e: KeyboardEvent) {
+      // Never fire inside text inputs / textareas
+      const tag = (e.target as HTMLElement)?.tagName
+      const editable = tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement)?.isContentEditable
+      if (editable) return
+
+      // Ctrl/Cmd+K: search
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault(); setSearchOpen(o => !o); return
+      }
+
+      // ?: keyboard help
+      if (e.key === '?') {
+        e.preventDefault(); setHelpOpen(o => !o); return
+      }
+
+      // 'g' prefix for navigation
+      if (e.key === 'g' && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        gPressedRef.current = true
+        if (gTimerRef.current) clearTimeout(gTimerRef.current)
+        gTimerRef.current = setTimeout(() => { gPressedRef.current = false }, 2000)
+        return
+      }
+
+      if (gPressedRef.current) {
+        gPressedRef.current = false
+        if (gTimerRef.current) clearTimeout(gTimerRef.current)
+        const route = GO_ROUTES[e.key]
+        if (route) { e.preventDefault(); navigate({ to: route as any }) }
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [navigate])
 
   if (user?.must_change_password) {
     return <ForcePasswordChange />
@@ -242,7 +292,9 @@ export function AppShell() {
   return (
     <>
       <Sidebar collapsed={collapsed} onToggle={() => setCollapsed((c) => !c)} />
-      <TopBar sidebarCollapsed={collapsed} />
+      <TopBar sidebarCollapsed={collapsed} onSearchOpen={() => setSearchOpen(true)} onHelpOpen={() => setHelpOpen(true)} />
+      {searchOpen && <GlobalSearch onClose={() => setSearchOpen(false)} />}
+      {helpOpen && <KeyboardHelpModal onClose={() => setHelpOpen(false)} />}
       <main style={{
         marginLeft: sidebarWidth,
         marginTop: 'var(--topbar-height)',

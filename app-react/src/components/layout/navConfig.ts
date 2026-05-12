@@ -43,6 +43,7 @@ const initialNav: NavItem[] = [
     icon: 'database',
     children: [
       { kind: 'leaf', id: 'pools',        label: 'ZFS Pools',         icon: 'water',              route: '/pools' },
+      { kind: 'leaf', id: 'datasets',     label: 'Datasets',          icon: 'dataset',            route: '/datasets' },
       { kind: 'leaf', id: 'shares',       label: 'Shares',            icon: 'folder_shared',      route: '/shares' },
       { kind: 'leaf', id: 'nfs',          label: 'NFS Exports',       icon: 'lan',                route: '/nfs' },
       { kind: 'leaf', id: 'ftp',          label: 'FTP / FTPS',        icon: 'folder_copy',        route: '/ftp' },
@@ -121,9 +122,10 @@ const initialNav: NavItem[] = [
       { kind: 'leaf', id: 'hardware',   label: 'Hardware',         icon: 'memory',                route: '/hardware' },
       { kind: 'leaf', id: 'ipmi',       label: 'IPMI',             icon: 'devices_other',         route: '/ipmi' },
       { kind: 'leaf', id: 'ha',         label: 'HA Cluster',       icon: 'device_hub',            route: '/ha' },
-      { kind: 'leaf', id: 'monitoring', label: 'Monitoring',       icon: 'monitor_heart',         route: '/monitoring' },
+      { kind: 'leaf', id: 'monitoring', label: 'Inotify Watches',  icon: 'notifications',         route: '/monitoring' },
       { kind: 'leaf', id: 'support',    label: 'Support',          icon: 'support_agent',         route: '/support' },
       { kind: 'leaf', id: 'terminal',   label: 'Terminal',         icon: 'terminal',               route: '/terminal' },
+      { kind: 'leaf', id: 'api-explorer', label: 'API Explorer',  icon: 'api',                    route: '/api-explorer' },
     ],
   },
 ]

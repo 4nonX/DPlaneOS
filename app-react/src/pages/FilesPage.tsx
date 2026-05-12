@@ -766,7 +766,7 @@ function FileBrowser() {
         style={{ position: 'relative', borderRadius: 'var(--radius-lg)', transition: 'box-shadow 0.15s', boxShadow: dragOver ? '0 0 0 2px var(--primary)' : 'none' }}
       >
         {dragOver && (
-          <div style={{ position: 'absolute', inset: 0, zIndex: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(138,156,255,0.07)', borderRadius: 'var(--radius-lg)', border: '2px dashed var(--primary)', pointerEvents: 'none' }}>
+          <div style={{ position: 'absolute', inset: 0, zIndex: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--primary-bg)', borderRadius: 'var(--radius-lg)', border: '2px dashed var(--primary)', pointerEvents: 'none' }}>
             <div style={{ textAlign: 'center', color: 'var(--primary)' }}>
               <Icon name="upload" size={36} style={{ display: 'block', margin: '0 auto 8px' }} />
               <div style={{ fontWeight: 700 }}>Drop files to upload</div>
@@ -809,7 +809,7 @@ function FileBrowser() {
                     onDoubleClick={() => entry.is_dir ? navigate(entry.path) : setModal({ type: 'edit', entry })}
                     onContextMenu={e => handleCtx(e, entry)}
                     onClick={e => toggleSelect(entry.path, e)}
-                    style={{ cursor: 'default', background: isSelected ? 'rgba(138,156,255,0.07)' : 'transparent' }}
+                    style={{ cursor: 'default', background: isSelected ? 'var(--primary-bg)' : 'transparent' }}
                     onMouseEnter={e => { if (!isSelected) e.currentTarget.style.background = 'var(--bg-card-hover)' }}
                     onMouseLeave={e => { if (!isSelected) e.currentTarget.style.background = 'transparent' }}
                   >

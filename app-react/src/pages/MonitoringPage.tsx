@@ -223,8 +223,8 @@ export function MonitoringPage() {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24, maxWidth: 900 }}>
 
       <div className="page-header">
-        <h1 className="page-title">Monitoring</h1>
-        <p className="page-subtitle">Kernel resource limits and real-time watchdog status</p>
+        <h1 className="page-title">Inotify Watches</h1>
+        <p className="page-subtitle">Kernel inotify watch limit usage and live watchdog status</p>
       </div>
 
       {/* Explanatory header */}

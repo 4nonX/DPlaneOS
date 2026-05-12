@@ -57,7 +57,7 @@ function PowerStateBadge({ state }: { state: string }) {
   let bg    = 'var(--surface)'
   let border= 'var(--border)'
   if (s === 'active') { color = 'var(--success)'; bg = 'var(--success-bg)'; border = 'var(--success-border)' }
-  else if (s === 'standby') { color = 'rgba(251,191,36,0.9)'; bg = 'rgba(251,191,36,0.08)'; border = 'rgba(251,191,36,0.3)' }
+  else if (s === 'standby') { color = 'var(--warning)'; bg = 'var(--warning-bg)'; border = 'var(--warning-border)' }
   else if (s === 'sleeping') { color = 'var(--text-secondary)'; bg = 'rgba(99,102,241,0.1)'; border = 'rgba(99,102,241,0.3)' }
 
   return (

@@ -235,8 +235,8 @@ function AddDelegationModal({ onClose, datasets, datasetsLoading, onAdded }: Add
           <div style={{
             fontSize: 'var(--text-xs)', color: 'var(--text-secondary)',
             fontFamily: 'var(--font-mono)', padding: '8px 12px',
-            background: 'rgba(138,156,255,0.06)', borderRadius: 'var(--radius-xs)',
-            border: '1px solid rgba(138,156,255,0.15)'}}>
+            background: 'var(--primary-bg)', borderRadius: 'var(--radius-xs)',
+            border: '1px solid hsla(var(--hue-primary),100%,72%,.15)'}}>
             {[...selected].join(', ')}
           </div>
         )}
@@ -382,7 +382,7 @@ export function DelegationPage() {
       {/* Info card */}
       <div style={{
         display: 'flex', gap: 12, padding: '14px 16px',
-        background: 'rgba(138,156,255,0.06)', border: '1px solid rgba(138,156,255,0.18)',
+        background: 'var(--primary-bg)', border: '1px solid hsla(var(--hue-primary),100%,72%,.18)',
         borderRadius: 'var(--radius-md)'}}>
         <Icon name="info" size={18} style={{ color: 'var(--primary)', flexShrink: 0, marginTop: 1 }} />
         <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', lineHeight: 1.6 }}>
@@ -455,7 +455,7 @@ export function DelegationPage() {
                               padding: '2px 7px', borderRadius: 'var(--radius-xs)',
                               fontSize: 'var(--text-2xs)', fontWeight: 600,
                               background: 'var(--primary-bg)', color: 'var(--primary)',
-                              border: '1px solid rgba(138,156,255,0.2)',
+                              border: '1px solid hsla(var(--hue-primary),100%,72%,.2)',
                               fontFamily: 'var(--font-mono)'}}
                           >
                             {p.trim()}
