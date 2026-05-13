@@ -76,13 +76,15 @@ show_welcome() {
         --selected.foreground "$TITLE_COLOR" \
         --cursor.foreground "$BORDER_COLOR" \
         "Install DPlaneOS" \
+        "Install Witness Node" \
         "Shell" \
         "Reboot")
 
     case "$ACTION" in
-        "Install DPlaneOS") do_install ;;
-        "Shell")             exec bash ;;
-        "Reboot")            reboot ;;
+        "Install DPlaneOS")    do_install ;;
+        "Install Witness Node") bash /etc/dplaneos-witness/witness-setup.sh; show_welcome ;;
+        "Shell")                exec bash ;;
+        "Reboot")               reboot ;;
     esac
 }
 

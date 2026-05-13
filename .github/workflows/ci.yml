@@ -471,3 +471,73 @@ jobs:
             ${{ steps.package.outputs.iso_sha }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # STAGE 5B: WITNESS ISO - Standalone witness node installer
+  # Runs parallel to iso (both need only validate + integration).
+  # Much smaller than the main ISO (~400 MB) so builds quickly.
+  # ════════════════════════════════════════════════════════════════════════════
+  witness-iso:
+    name: Build Witness ISO
+    needs: [validate, integration]
+    if: github.ref_type == 'tag' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/iso-installer'
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Reclaim disk space for Nix store
+        uses: wimpysworld/nothing-but-nix@main
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v30
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+            accept-flake-config = true
+            extra-substituters = https://cache.nixos.org
+            trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY=
+
+      - name: Verify VERSION matches tag (Tags only)
+        id: version
+        run: |
+          if [[ "${{ github.ref_type }}" == "tag" ]]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+            FILE_VERSION="$(cat VERSION | tr -d '[:space:]')"
+            if [ "$FILE_VERSION" != "$VERSION" ]; then
+              echo "ERROR: VERSION file ($FILE_VERSION) does not match tag ($VERSION)"
+              exit 1
+            fi
+          else
+            VERSION="$(cat VERSION | tr -d '[:space:]')"
+          fi
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+
+      - name: Build witness ISO
+        run: |
+          nix build .#iso-witness --print-build-logs
+          ls -lh result/iso/
+
+      - name: Package witness ISO
+        id: package
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          ISO_NAME="dplaneos-witness-v${VERSION}-installer-amd64.iso"
+          cp result/iso/*.iso "$ISO_NAME"
+          sha256sum "$ISO_NAME" > "${ISO_NAME}.sha256"
+          echo "iso_name=${ISO_NAME}" >> $GITHUB_OUTPUT
+          echo "iso_sha=${ISO_NAME}.sha256" >> $GITHUB_OUTPUT
+
+      - name: Attach witness ISO to GitHub Release
+        if: github.ref == 'refs/heads/main' || github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.version.outputs.version }}
+          files: |
+            ${{ steps.package.outputs.iso_name }}
+            ${{ steps.package.outputs.iso_sha }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -79,6 +79,8 @@ sudo nixos-rebuild switch
 | `modules/samba.nix` | Samba integration NixOS module: dynamic share management via daemon |
 | `setup-nixos.sh` | Setup helper: generates host ID, detects boot loader, patches flake.nix |
 | `install.sh` | First-boot installer script: partitions, formats, and installs DPlaneOS to disk |
+| `witness-installer.nix` | Standalone witness-only ISO NixOS config (advanced; built with `nix build .#iso-witness`) |
+| `witness-setup.sh` | Witness node setup wizard: collects IPs, partitions disk, installs NixOS with etcd |
 | `ota-update.sh` | OTA update shell script: A/B slot swap, health check, and auto-revert logic |
 | `NIXOS-INSTALL-GUIDE.md` | Complete step-by-step guide for beginners |
 | `NIXOS-README.md` | Technical reference: rollback, licensing, impermanence, advanced options |

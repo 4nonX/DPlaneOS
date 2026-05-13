@@ -59,33 +59,59 @@ Install DPlaneOS normally from the ISO on each node. Complete first-boot setup a
 
 Do not configure any pools or data on the standby yet - it will be brought in via replication.
 
-### Step 2: Install etcd on the Witness Node
+### Step 2: Install the Witness Node
 
-The witness node runs only etcd. Use NixOS minimal:
+The witness node runs only etcd. Any machine with 512 MB RAM, 4 GB disk, and network access to both nodes qualifies (Raspberry Pi 4, spare VM, or x86 mini PC).
+
+**Option A: Installer ISO (recommended)**
+
+Download `dplaneos-witness-vX.Y.Z-installer-amd64.iso` from the [releases page](https://github.com/4nonX/DPlaneOS/releases/latest) and flash it to a USB drive. Alternatively, boot the combined `dplaneos-vX.Y.Z-installer-amd64.iso` and select "Install Witness Node" from the menu.
+
+```bash
+dd if=dplaneos-witness-vX.Y.Z-installer-amd64.iso of=/dev/sdX bs=4M status=progress conv=fsync
+```
+
+Boot the machine. The setup wizard launches automatically and asks for the three node IPs, an SSH key, and the target disk. Installation takes 5-15 minutes and requires internet access to fetch packages.
+
+**Option B: Flake (for existing NixOS users)**
+
+Clone the DPlaneOS repo onto the witness machine and write a `configuration.nix` that imports the witness module:
+
+```bash
+git clone https://github.com/4nonX/DPlaneOS
+```
 
 ```nix
-# /etc/nixos/configuration.nix on witness
-{ config, pkgs, ... }:
+# /etc/nixos/configuration.nix on the witness machine
+{ ... }:
 {
-  services.etcd = {
-    enable = true;
-    name = "witness";
-    listenClientUrls = [ "http://0.0.0.0:2379" ];
-    listenPeerUrls   = [ "http://0.0.0.0:2380" ];
-    advertiseClientUrls = [ "http://WITNESS_IP:2379" ];
-    initialAdvertisePeerUrls = [ "http://WITNESS_IP:2380" ];
-    initialCluster = [
-      "node-a=http://NODE_A_IP:2380"
-      "node-b=http://NODE_B_IP:2380"
-      "witness=http://WITNESS_IP:2380"
-    ];
-    initialClusterState = "new";
-    dataDir = "/var/lib/etcd";
+  imports = [ /path/to/DPlaneOS/nixos/patroni-witness.nix ];
+
+  services.dplaneos.ha.witness = {
+    enable       = true;
+    localAddress = "WITNESS_IP";
+    nodeAAddress = "NODE_A_IP";
+    nodeBAddress = "NODE_B_IP";
   };
+
+  networking.hostName = "dplaneos-witness";
+  time.timeZone       = "UTC";
+
+  boot.loader.systemd-boot.enable      = true;
+  boot.loader.efi.canTouchEfiVariables = true;
+
+  users.users.root.openssh.authorizedKeys.keys = [ "ssh-ed25519 AAAA..." ];
+
+  system.stateVersion = "25.11";
 }
 ```
 
-Replace `WITNESS_IP`, `NODE_A_IP`, `NODE_B_IP` with the actual addresses.
+Apply:
+```bash
+sudo nixos-rebuild switch
+```
+
+Replace `WITNESS_IP`, `NODE_A_IP`, and `NODE_B_IP` with the actual static IP addresses. The witness module configures etcd with the naming scheme (`etcd-witness`, `etcd-<IP>`) that matches the main node HA module automatically.
 
 ### Step 3: Enable HA in the DPlaneOS NixOS Module
 

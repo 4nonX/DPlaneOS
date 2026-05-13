@@ -51,6 +51,7 @@ in {
     parted gptfdisk util-linux e2fsprogs         # disk tools
     iproute2 inetutils                           # network / IP detection
     pciutils lshw                                # hardware enumeration
+    etcd                                         # witness: verify etcd available
     jq bc git
   ];
 
@@ -73,6 +74,11 @@ in {
     # Tell install.sh where the pre-built closure lives in the nix store
     "dplaneos-install/system-path".text      = dplaneosSystem.outPath;
     "dplaneos-install/system-path".mode      = "0644";
+    # Witness node setup files - used by "Install Witness Node" menu option
+    "dplaneos-witness/witness-setup.sh".source    = ./witness-setup.sh;
+    "dplaneos-witness/witness-setup.sh".mode      = "0755";
+    "dplaneos-witness/patroni-witness.nix".source = ./patroni-witness.nix;
+    "dplaneos-witness/patroni-witness.nix".mode   = "0644";
   };
 
   programs.bash.loginShellInit = ''

@@ -155,7 +155,8 @@
       }
     ) //
     {
-      nixosModules.dplaneos = import ./nixos/module.nix;
+      nixosModules.dplaneos         = import ./nixos/module.nix;
+      nixosModules.dplaneos-witness = import ./nixos/patroni-witness.nix;
 
       nixosConfigurations.dplaneos = let system = "x86_64-linux"; pkgs = nixpkgs.legacyPackages.${system}; in nixpkgs.lib.nixosSystem {
         inherit system pkgs;
@@ -214,5 +215,22 @@
       };
 
       packages.x86_64-linux.iso = self.nixosConfigurations.iso.config.system.build.isoImage;
+
+      # ── Standalone Witness ISO ──────────────────────────────────────────────
+      # Minimal ISO for the etcd quorum witness node only.
+      # Built by CI and attached to releases alongside the main installer ISO.
+      # Advanced users can also build manually: nix build .#iso-witness
+      # For git-pull installs, use nixosModules.dplaneos-witness directly.
+      nixosConfigurations.dplaneos-witness-iso = let
+        system = "x86_64-linux";
+      in nixpkgs.lib.nixosSystem {
+        inherit system;
+        modules = [
+          ./nixos/witness-installer.nix
+        ];
+      };
+
+      packages.x86_64-linux.iso-witness =
+        self.nixosConfigurations.dplaneos-witness-iso.config.system.build.isoImage;
     };
 }
