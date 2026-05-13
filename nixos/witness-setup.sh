@@ -234,12 +234,17 @@ if [ -n "$SSH_KEY" ]; then
     SSH_KEYS_LINE="  users.users.root.openssh.authorizedKeys.keys = [ \"$SSH_KEY\" ];"
 fi
 
-cat > /mnt/etc/nixos/flake.nix << 'FLAKEEOF'
+case "$(uname -m)" in
+  aarch64) NIX_SYSTEM="aarch64-linux" ;;
+  *)       NIX_SYSTEM="x86_64-linux"  ;;
+esac
+
+cat > /mnt/etc/nixos/flake.nix << FLAKEEOF
 {
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.11";
   outputs = { nixpkgs, ... }: {
     nixosConfigurations.witness = nixpkgs.lib.nixosSystem {
-      system = "x86_64-linux";
+      system = "$NIX_SYSTEM";
       modules = [ ./configuration.nix ];
     };
   };

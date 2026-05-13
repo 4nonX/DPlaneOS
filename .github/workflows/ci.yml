@@ -541,3 +541,141 @@ jobs:
             ${{ steps.package.outputs.iso_sha }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # STAGE 5C: ISO ARM64 - Combined installer for aarch64 clusters
+  # Native arm64 runner ensures the DPlaneOS closure is built for the right
+  # architecture and baked into the ISO correctly.
+  # ════════════════════════════════════════════════════════════════════════════
+  iso-arm:
+    name: Build Installer ISO (arm64)
+    needs: [validate, integration]
+    if: github.ref_type == 'tag' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/iso-installer'
+    runs-on: ubuntu-22.04-arm
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Reclaim disk space for Nix store
+        uses: wimpysworld/nothing-but-nix@main
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v30
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+            accept-flake-config = true
+            extra-substituters = https://cache.nixos.org
+            trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY=
+
+      - name: Verify VERSION matches tag (Tags only)
+        id: version
+        run: |
+          if [[ "${{ github.ref_type }}" == "tag" ]]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+            FILE_VERSION="$(cat VERSION | tr -d '[:space:]')"
+            if [ "$FILE_VERSION" != "$VERSION" ]; then
+              echo "ERROR: VERSION file ($FILE_VERSION) does not match tag ($VERSION)"
+              exit 1
+            fi
+          else
+            VERSION="$(cat VERSION | tr -d '[:space:]')"
+          fi
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+
+      - name: Build arm64 installer ISO
+        run: |
+          nix build .#iso --print-build-logs
+          ls -lh result/iso/
+
+      - name: Package arm64 ISO
+        id: package
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          ISO_NAME="dplaneos-v${VERSION}-installer-arm64.iso"
+          cp result/iso/*.iso "$ISO_NAME"
+          sha256sum "$ISO_NAME" > "${ISO_NAME}.sha256"
+          echo "iso_name=${ISO_NAME}" >> $GITHUB_OUTPUT
+          echo "iso_sha=${ISO_NAME}.sha256" >> $GITHUB_OUTPUT
+
+      - name: Attach arm64 ISO to GitHub Release
+        if: github.ref == 'refs/heads/main' || github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.version.outputs.version }}
+          files: |
+            ${{ steps.package.outputs.iso_name }}
+            ${{ steps.package.outputs.iso_sha }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # STAGE 5D: WITNESS ISO ARM64 - Standalone witness ISO for aarch64
+  # ════════════════════════════════════════════════════════════════════════════
+  witness-iso-arm:
+    name: Build Witness ISO (arm64)
+    needs: [validate, integration]
+    if: github.ref_type == 'tag' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/iso-installer'
+    runs-on: ubuntu-22.04-arm
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Reclaim disk space for Nix store
+        uses: wimpysworld/nothing-but-nix@main
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v30
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+            accept-flake-config = true
+            extra-substituters = https://cache.nixos.org
+            trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY=
+
+      - name: Verify VERSION matches tag (Tags only)
+        id: version
+        run: |
+          if [[ "${{ github.ref_type }}" == "tag" ]]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+            FILE_VERSION="$(cat VERSION | tr -d '[:space:]')"
+            if [ "$FILE_VERSION" != "$VERSION" ]; then
+              echo "ERROR: VERSION file ($FILE_VERSION) does not match tag ($VERSION)"
+              exit 1
+            fi
+          else
+            VERSION="$(cat VERSION | tr -d '[:space:]')"
+          fi
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+
+      - name: Build arm64 witness ISO
+        run: |
+          nix build .#iso-witness --print-build-logs
+          ls -lh result/iso/
+
+      - name: Package arm64 witness ISO
+        id: package
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          ISO_NAME="dplaneos-witness-v${VERSION}-installer-arm64.iso"
+          cp result/iso/*.iso "$ISO_NAME"
+          sha256sum "$ISO_NAME" > "${ISO_NAME}.sha256"
+          echo "iso_name=${ISO_NAME}" >> $GITHUB_OUTPUT
+          echo "iso_sha=${ISO_NAME}.sha256" >> $GITHUB_OUTPUT
+
+      - name: Attach arm64 witness ISO to GitHub Release
+        if: github.ref == 'refs/heads/main' || github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.version.outputs.version }}
+          files: |
+            ${{ steps.package.outputs.iso_name }}
+            ${{ steps.package.outputs.iso_sha }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -125,11 +125,17 @@
         daemon     = mkDaemon { inherit system pkgs pkgsStatic dplaneosVersion nixpkgs; };
         daemonDyn  = mkDaemonDynamic { inherit system pkgs dplaneosVersion nixpkgs; };
         
+        # Pick the correct NAS closure per architecture so the baked-in
+        # offline system matches the ISO's own CPU target.
+        nasConf = if system == "aarch64-linux"
+          then self.nixosConfigurations.dplaneos-arm
+          else self.nixosConfigurations.dplaneos;
+
         iso = (nixpkgs.lib.nixosSystem {
           inherit system;
-          specialArgs = { 
-            inherit self; 
-            targetSystem = self.nixosConfigurations.dplaneos.config.system.build.toplevel;
+          specialArgs = {
+            inherit self;
+            targetSystem = nasConf.config.system.build.toplevel;
           };
           modules = [
             ./nixos/installer.nix
@@ -194,43 +200,65 @@
         ];
       };
 
-      # ── ISO Installer Configuration ──────────────────────────────────────
-      # Note: We build this using a separate call to nixosSystem and pass
-      # the target system toplevel directly via specialArgs to avoid
-      # any potential recursion from self.nixosConfigurations referenced.
-      nixosConfigurations.iso = let 
-        system = "x86_64-linux"; 
+      # ── ISO Installer Configurations ─────────────────────────────────────
+      # Built as separate calls to nixosSystem so the target system toplevel
+      # can be passed via specialArgs without triggering evaluation loops.
+      # Each arch bakes its own NAS closure into the ISO for offline install.
+
+      nixosConfigurations.iso = let
+        system = "x86_64-linux";
       in nixpkgs.lib.nixosSystem {
         inherit system;
-        specialArgs = { 
-          inherit self; 
+        specialArgs = {
+          inherit self;
           targetSystem = self.nixosConfigurations.dplaneos.config.system.build.toplevel;
         };
         modules = [
           ./nixos/installer.nix
-          {
-            environment.etc."dplaneos-install/VERSION".text = dplaneosVersion;
-          }
+          { environment.etc."dplaneos-install/VERSION".text = dplaneosVersion; }
         ];
       };
 
-      packages.x86_64-linux.iso = self.nixosConfigurations.iso.config.system.build.isoImage;
+      nixosConfigurations.iso-arm = let
+        system = "aarch64-linux";
+      in nixpkgs.lib.nixosSystem {
+        inherit system;
+        specialArgs = {
+          inherit self;
+          targetSystem = self.nixosConfigurations.dplaneos-arm.config.system.build.toplevel;
+        };
+        modules = [
+          ./nixos/installer.nix
+          { environment.etc."dplaneos-install/VERSION".text = dplaneosVersion; }
+        ];
+      };
 
-      # ── Standalone Witness ISO ──────────────────────────────────────────────
-      # Minimal ISO for the etcd quorum witness node only.
-      # Built by CI and attached to releases alongside the main installer ISO.
-      # Advanced users can also build manually: nix build .#iso-witness
+      packages.x86_64-linux.iso  = self.nixosConfigurations.iso.config.system.build.isoImage;
+      packages.aarch64-linux.iso  = self.nixosConfigurations.iso-arm.config.system.build.isoImage;
+
+      # ── Standalone Witness ISOs ───────────────────────────────────────────
+      # Minimal ISOs for the etcd quorum witness node only.
+      # Built by CI and attached to releases alongside the main installer ISOs.
+      # Advanced users can build manually: nix build .#iso-witness
       # For git-pull installs, use nixosModules.dplaneos-witness directly.
+
       nixosConfigurations.dplaneos-witness-iso = let
         system = "x86_64-linux";
       in nixpkgs.lib.nixosSystem {
         inherit system;
-        modules = [
-          ./nixos/witness-installer.nix
-        ];
+        modules = [ ./nixos/witness-installer.nix ];
       };
 
-      packages.x86_64-linux.iso-witness =
+      nixosConfigurations.dplaneos-witness-iso-arm = let
+        system = "aarch64-linux";
+      in nixpkgs.lib.nixosSystem {
+        inherit system;
+        modules = [ ./nixos/witness-installer.nix ];
+      };
+
+      packages.x86_64-linux.iso-witness  =
         self.nixosConfigurations.dplaneos-witness-iso.config.system.build.isoImage;
+      packages.aarch64-linux.iso-witness =
+        self.nixosConfigurations.dplaneos-witness-iso-arm.config.system.build.isoImage;
     };
 }

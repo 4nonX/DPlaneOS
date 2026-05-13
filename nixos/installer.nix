@@ -110,7 +110,8 @@ in {
   networking.useDHCP = lib.mkForce true;
 
   # ── ISO metadata ──────────────────────────────────────────────────────────
-  image.fileName                = "dplaneos-installer-amd64.iso";
+  image.fileName                = let arch = if pkgs.stdenv.hostPlatform.isAarch64 then "arm64" else "amd64";
+                                  in "dplaneos-installer-${arch}.iso";
   isoImage.volumeID             = lib.mkForce "DPLANEOS_INSTALL";
   isoImage.makeEfiBootable      = true;
   isoImage.makeUsbBootable      = true;

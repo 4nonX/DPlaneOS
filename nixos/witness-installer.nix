@@ -79,7 +79,8 @@
     ];
   };
 
-  image.fileName               = "dplaneos-witness-installer-amd64.iso";
+  image.fileName               = let arch = if pkgs.stdenv.hostPlatform.isAarch64 then "arm64" else "amd64";
+                                 in "dplaneos-witness-installer-${arch}.iso";
   isoImage.volumeID            = lib.mkForce "DPLANEOS_WITNESS";
   isoImage.makeEfiBootable     = true;
   isoImage.makeUsbBootable     = true;
