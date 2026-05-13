@@ -48,6 +48,20 @@ When something breaks, you know exactly what changed, on which node, and when. W
 
 ---
 
+## Everything Is in Git
+
+This is not a partial claim. Every layer of the stack has a native, integrated mechanism for declaring its state in Git. Not bolted on. Not optional. Not "most things."
+
+**The OS layer** - NixOS. The kernel version, kernel modules, system services, firewall rules, users, network configuration: all declared in the flake. Checked in. In Git. Changing the kernel is a one-line commit. Rolling it back is a revert.
+
+**The state layer** - DPlaneOS configuration. Storage pools, datasets, shares, container definitions, network topology: reconciled from Git. The daemon reads the repo and makes the system match it. Always.
+
+**The app layer** - Docker Compose. Every container your fleet runs, its configuration, its dependencies, its version: in Git. Not in a proprietary catalog. In a plain text file in your repository, the same as every other piece of your infrastructure.
+
+From kernel to container, the entire system has one source of truth. A single Git repository that a new engineer can clone, read, and understand completely. A repository that, on its own, is sufficient to reproduce the entire fleet from scratch.
+
+---
+
 ## The Full Stack
 
 Every layer is declarative, version-controlled, and rollback-safe:
