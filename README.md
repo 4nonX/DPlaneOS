@@ -157,8 +157,9 @@ Browser
 |----------|---------------|
 | [License](LICENSE) | GNU Affero General Public License v3.0 |
 | [Security Policy](SECURITY.md) | Vulnerability reporting, safe harbour, supported versions |
-| [Individual CLA](CLA-INDIVIDUAL.md) | Contributor license agreement for individuals |
-| [Entity CLA](CLA-ENTITY.md) | Contributor license agreement for organisations |
+| [Individual CLA](docs/legal/CLA-INDIVIDUAL.md) | Contributor license agreement for individuals |
+| [Entity CLA](docs/legal/CLA-ENTITY.md) | Contributor license agreement for organisations |
+| [PostgreSQL Migration Guide](MIGRATION.md) | Upgrading from SQLite to PostgreSQL (v7.0.0) |
 
 ---
 

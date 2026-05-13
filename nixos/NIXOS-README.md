@@ -98,7 +98,7 @@ sudo nixos-rebuild switch --generation 42
 
 ## What's Included
 
-The NixOS configuration sets up everything the Debian installer does:
+The NixOS configuration provides:
 
 - **ZFS** - pools, auto-scrub, auto-snapshots (15min/hourly/daily/weekly/monthly)
 - **High Availability (HA)** - Patroni, etcd, and HAProxy integration for seamless PostgreSQL failover (`ha.nix`)
@@ -147,13 +147,39 @@ For the full explanation of how DPlaneOS leverages each NixOS primitive (imperma
 
 ## Documentation
 
+### Installation and operation
+
+| Document | What it covers |
+|----------|---------------|
+| [Installation Guide](../docs/admin/INSTALLATION-GUIDE.md) | System requirements, ISO install flow, post-install checklist |
+| [NixOS Install Guide](NIXOS-INSTALL-GUIDE.md) | Step-by-step for NixOS beginners: from empty hardware to running NAS |
+| [Administrator Guide](../docs/admin/ADMIN-GUIDE.md) | Users, roles, storage management, containers, LDAP/AD, security practices |
+| [Backup and Replication](../docs/admin/BACKUP-REPLICATION.md) | ZFS snapshots, ZFS Send/Receive, Cloud Sync, Cold Tier, rsync, database backup |
+| [High Availability](../docs/admin/HIGH-AVAILABILITY.md) | HA cluster setup (Patroni, etcd, Keepalived, STONITH), failover, rolling upgrades |
+| [OTA Updates](../docs/admin/OTA-UPDATES.md) | A/B slot system, health check, auto-revert, manual rollback, HA rolling upgrades |
+| [Optional Protocols](../docs/admin/OPTIONAL-PROTOCOLS.md) | iSCSI, NVMe-oF, FTP/FTPS, MinIO S3-compatible object store |
+| [Alerts and Authentication](../docs/admin/ALERTS.md) | SMTP, webhook, Telegram alerting; TOTP 2FA setup and backup codes |
+| [Troubleshooting](../docs/admin/TROUBLESHOOTING.md) | Build failures, ZFS issues, DB init race, ZED setup |
+| [Recovery Guide](../docs/admin/RECOVERY.md) | Database restore, admin lockout, ZFS recovery, rollback procedure |
+
+### Reference
+
 | Document | What it covers |
 |----------|---------------|
 | [Design Philosophy](../docs/reference/PHILOSOPHY.md) | Why DPlaneOS works the way it does: four core principles, design decisions |
-| [Architecture](../docs/reference/ARCHITECTURE.md) | Three-layer model, persistence, single-node and HA architecture |
-| [NixOS Rationale](../docs/reference/NIXOS-RATIONALE.md) | Specific NixOS primitives DPlaneOS relies on and why |
-| [GitOps Reference](../docs/reference/GITOPS-REFERENCE.md) | state.yaml format, reconciliation, drift detection, Capture |
-| [Porting Guide](../docs/reference/PORTING-GUIDE.md) | Forking DPlaneOS for other Linux distributions |
-| [OTA Updates](../docs/admin/OTA-UPDATES.md) | A/B slot updates, health check, auto-revert, HA rolling upgrades |
-| [High Availability](../docs/admin/HIGH-AVAILABILITY.md) | Patroni, etcd, Keepalived, STONITH fencing, day-2 operations |
-| [Alerts and Authentication](../docs/admin/ALERTS.md) | SMTP, webhook, Telegram, TOTP 2FA |
+| [Architecture](../docs/reference/ARCHITECTURE.md) | Three-layer model, persistence, single-node and HA architecture, data flow |
+| [GitOps Reference](../docs/reference/GITOPS-REFERENCE.md) | state.yaml format, reconciliation engine, drift detection, Capture workflow |
+| [NixOS Rationale](../docs/reference/NIXOS-RATIONALE.md) | NixOS primitives DPlaneOS relies on: impermanence, disko, A/B OTA, Patroni |
+| [Porting Guide](../docs/reference/PORTING-GUIDE.md) | Forking DPlaneOS for other Linux distributions - what it takes, what you lose |
+| [Changelog](../docs/reference/CHANGELOG.md) | Full version history |
+| [Error Reference](../docs/reference/ERROR-REFERENCE.md) | Every HTTP error code the API returns, with cause and fix |
+| [Showstopper Mitigation Guide](../docs/reference/SHOWSTOPPER-MITIGATION-GUIDE.md) | Honest assessment of HA limits, binary-trust, resolved vs open issues |
+| [Threat Model](../docs/reference/THREAT-MODEL.md) | Security architecture, threat scenarios, mitigations, residual risks |
+| [Dependencies](../docs/reference/DEPENDENCIES.md) | All bundled Go and frontend deps, system requirements, build instructions |
+
+### Hardware
+
+| Document | What it covers |
+|----------|---------------|
+| [Hardware Compatibility](../docs/hardware/HARDWARE-COMPATIBILITY.md) | Supported CPUs, RAM, disk types, network, RAID controllers |
+| [Non-ECC RAM Warning](../docs/hardware/NON-ECC-WARNING.md) | Why ZFS + non-ECC is risky, probability analysis, mitigations |
