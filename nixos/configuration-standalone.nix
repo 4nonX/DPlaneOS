@@ -72,26 +72,28 @@
     "usbhid"   # USB HID (keyboard at install time)
     "sd_mod"   # SCSI disk layer (required by ahci)
   ];
-  boot.kernelModules = [
-    "kvm-intel" # Intel VT-x virtualisation support
+  boot.kernelModules = lib.optionals pkgs.stdenv.hostPlatform.isx86_64 [
+    "kvm-intel" # Intel VT-x virtualisation support (x86_64 only)
   ];
 
   # Intel CPU microcode updates : applied at early boot from initrd.
   # Covers Raptor Lake errata and security mitigations.
-  hardware.cpu.intel.updateMicrocode = true;
+  # intel-microcode is x86_64-only; no-op on aarch64.
+  hardware.cpu.intel.updateMicrocode = pkgs.stdenv.hostPlatform.isx86_64;
 
   # ─── Intel UHD Graphics 730 (i3-13100 integrated) ───────────────────────
   # Enables VA-API hardware video acceleration for media transcoding
   # in Docker containers (Jellyfin, Plex, Handbrake, etc.).
-  # intel-media-driver (iHD) is correct for Gen 9–12 (Raptor Lake = Gen 12).
+  # intel-media-driver (iHD) is correct for Gen 9-12 (Raptor Lake = Gen 12).
   # Do NOT add vaapiIntel - it is the legacy driver for pre-Gen9 hardware
   # and causes conflicts on Raptor Lake.
+  # intel-media-driver and intel-compute-runtime are x86_64-only packages.
   hardware.graphics = {
     enable        = true;
-    extraPackages = lib.optionals pkgs.stdenv.hostPlatform.isx86_64 (with pkgs; [
-      intel-media-driver    # VA-API backend for UHD 730 (iHD driver, Gen 9-12)
-      intel-compute-runtime # OpenCL support for compute workloads (optional)
-    ]);
+    extraPackages = if pkgs.stdenv.hostPlatform.isx86_64 then
+      [ pkgs.intel-media-driver pkgs.intel-compute-runtime ]
+    else
+      [];
   };
 
   # ─── ZFS ────────────────────────────────────────────────────────────────

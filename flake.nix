@@ -197,6 +197,13 @@
           ./nixos/dplane-generated.nix
           applianceConfig
           { services.dplaneos.daemonPackage = mkDaemon { inherit system pkgs dplaneosVersion nixpkgs; pkgsStatic = pkgs.pkgsStatic; }; }
+          # Hard override: ensure no x86_64-only Intel packages are evaluated for aarch64.
+          # intel-media-driver, intel-compute-runtime, and intel-microcode all declare
+          # meta.platforms = ["x86_64-linux"] and fail at eval time on aarch64.
+          ({ lib, ... }: {
+            hardware.graphics.extraPackages       = nixpkgs.lib.mkForce [];
+            hardware.cpu.intel.updateMicrocode    = nixpkgs.lib.mkForce false;
+          })
         ];
       };
 
