@@ -2,7 +2,7 @@
 
 ## System Context
 
-DPlaneOS is a NAS management layer running on top of NixOS or Debian/Ubuntu. It manages storage (ZFS), containers (Docker), network (systemd-networkd), and identity on a single server. It runs as one Go binary (`dplaned`) listening on `127.0.0.1:9000` by default. External access is via reverse proxy (nginx/Caddy/Pangolin).
+DPlaneOS is a NAS management layer running on NixOS. It manages storage (ZFS), containers (Docker), network (systemd-networkd), and identity on a single server. It runs as one Go binary (`dplaned`) listening on `127.0.0.1:9000` by default. External access is via reverse proxy (nginx/Caddy/Pangolin).
 
 **Trust boundary**: the reverse proxy. Everything behind it (dplaned, PostgreSQL, ZFS/Docker/systemd commands) is trusted. Everything in front (browser, network) is untrusted.
 

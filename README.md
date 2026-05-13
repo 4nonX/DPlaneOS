@@ -106,6 +106,11 @@ Browser
 | [Installation Guide](docs/admin/INSTALLATION-GUIDE.md) | System requirements, ISO install flow, post-install checklist, OTA upgrades |
 | [NixOS Install Guide](nixos/NIXOS-INSTALL-GUIDE.md) | Step-by-step for NixOS beginners: from empty hardware to running NAS |
 | [Administrator Guide](docs/admin/ADMIN-GUIDE.md) | Users, roles, permissions, storage management, containers, LDAP/AD, custom icons, security practices |
+| [Backup and Replication](docs/admin/BACKUP-REPLICATION.md) | ZFS snapshots, ZFS Send/Receive, Cloud Sync, Cold Tier, rsync, database backup, recovery |
+| [High Availability](docs/admin/HIGH-AVAILABILITY.md) | HA cluster setup (Patroni, etcd, Keepalived, STONITH), failover, rolling upgrades |
+| [OTA Updates](docs/admin/OTA-UPDATES.md) | A/B slot system, health check, auto-revert, manual rollback, HA rolling upgrades |
+| [Optional Protocols](docs/admin/OPTIONAL-PROTOCOLS.md) | iSCSI, NVMe-oF, FTP/FTPS, MinIO S3-compatible object store |
+| [Alerts and Authentication](docs/admin/ALERTS.md) | SMTP, webhook, Telegram alerting; alert taxonomy; TOTP 2FA setup and backup codes |
 | [Troubleshooting](docs/admin/TROUBLESHOOTING.md) | Build failures, ZFS issues, DB init race, Docker behind proxy, browser cache, ZED setup |
 | [Recovery Guide](docs/admin/RECOVERY.md) | Service management, database restore, admin lockout, ZFS recovery, hot-swap auto-import, rollback procedure |
 
@@ -113,6 +118,8 @@ Browser
 
 | Document | What it covers |
 |----------|---------------|
+| [Architecture](docs/reference/ARCHITECTURE.md) | Three-layer model, persistence, single-node and HA architecture, data flow |
+| [GitOps Reference](docs/reference/GITOPS-REFERENCE.md) | state.yaml format, reconciliation engine, drift detection, Capture workflow |
 | [Changelog](docs/reference/CHANGELOG.md) | Full version history |
 | [Error Reference](docs/reference/ERROR-REFERENCE.md) | Every HTTP error code the API returns, with cause and fix |
 | [NixOS Rationale](docs/reference/NIXOS-RATIONALE.md) | Why DPlaneOS is NixOS-exclusive and how it leverages NixOS primitives |
