@@ -65,13 +65,13 @@ The witness node runs only etcd. Any machine with 512 MB RAM, 4 GB disk, and net
 
 **Option A: Installer ISO (recommended)**
 
-Download `dplaneos-witness-vX.Y.Z-installer-amd64.iso` from the [releases page](https://github.com/4nonX/DPlaneOS/releases/latest) and flash it to a USB drive. Alternatively, boot the combined `dplaneos-vX.Y.Z-installer-amd64.iso` and select "Install Witness Node" from the menu.
+Download `dplaneos-vX.Y.Z-installer-amd64.iso` (or `...-arm64.iso`) from the [releases page](https://github.com/4nonX/DPlaneOS/releases/latest) and flash it to a USB drive.
 
 ```bash
-dd if=dplaneos-witness-vX.Y.Z-installer-amd64.iso of=/dev/sdX bs=4M status=progress conv=fsync
+dd if=dplaneos-vX.Y.Z-installer-amd64.iso of=/dev/sdX bs=4M status=progress conv=fsync
 ```
 
-Boot the machine. The setup wizard launches automatically and asks for the three node IPs, an SSH key, and the target disk. Installation takes 5-15 minutes and requires internet access to fetch packages.
+Boot the machine and select "Install Witness Node" from the menu. The setup wizard asks for the three node IPs, an SSH key, and the target disk. Installation takes 5-15 minutes and requires internet access to fetch packages.
 
 **Option B: Flake (for existing NixOS users)**
 

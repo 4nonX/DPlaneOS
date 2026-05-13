@@ -17,9 +17,8 @@ Follow these steps for EVERY release to ensure CI/CD consistency and prevent sta
 10. Push main: `git push -f origin main`.
 11. Push tag: `git push origin vX.Y.Z`.
 
-CI attaches six artifacts to each release:
+CI attaches four artifacts to each release:
 - `dplaneos-vX.Y.Z-linux-amd64.tar.gz` and `...-arm64.tar.gz` (source + binaries)
-- `dplaneos-vX.Y.Z-installer-amd64.iso` and `...-arm64.iso` (combined NAS + witness installer)
-- `dplaneos-witness-vX.Y.Z-installer-amd64.iso` and `...-arm64.iso` (standalone witness-only ISO)
+- `dplaneos-vX.Y.Z-installer-amd64.iso` and `...-arm64.iso` (combined installer with NAS + witness menu)
 
 Each ISO has a corresponding `.sha256` checksum file.

@@ -66,7 +66,7 @@ Each ISO also has a `.sha256` checksum file. Verify before writing:
 sha256sum -c dplaneos-v*-installer-amd64.iso.sha256
 ```
 
-> The combined installer ISO handles both NAS and witness node installation. If you are setting up a witness node for an HA cluster, you can either use this ISO (select "Install Witness Node" from the menu) or download the dedicated `dplaneos-witness-v<version>-installer-*.iso`.
+> The combined installer ISO handles both NAS and witness node installation. To set up a witness node for an HA cluster, boot this ISO and select "Install Witness Node" from the menu.
 
 ### 2. Write to USB
 

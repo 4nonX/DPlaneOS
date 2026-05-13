@@ -146,7 +146,7 @@ Copy that hash into `flake.nix` replacing `vendorHash = null;` and rebuild.
 | `modules/samba.nix` | Samba integration NixOS module: dynamic share management via daemon |
 | `setup-nixos.sh` | Interactive setup helper: generates host ID, detects boot loader, patches flake.nix |
 | `install.sh` | First-boot installer script: partitions, formats, and installs DPlaneOS to disk |
-| `witness-installer.nix` | Standalone witness-only ISO NixOS config (advanced; built with `nix build .#iso-witness`) |
+| `witness-installer.nix` | Standalone witness-only ISO NixOS config (local builds only: `nix build .#iso-witness`) |
 | `witness-setup.sh` | Witness node setup wizard: collects IPs, partitions disk, installs NixOS with etcd |
 | `ota-update.sh` | OTA update shell script: A/B slot swap, health check, and auto-revert logic |
 | `README.md` | NixOS installation paths overview: ISO, Flake, and standalone |
