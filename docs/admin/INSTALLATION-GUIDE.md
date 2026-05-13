@@ -1,5 +1,9 @@
 # D-PlaneOS Installation Guide
 
+D-PlaneOS is a NixOS appliance. Installation means booting the ISO and answering a handful of prompts - the system builds itself from a pre-baked closure with no internet required.
+
+For a full walkthrough aimed at users who have never touched NixOS, see [NixOS Install Guide](../../nixos/NIXOS-INSTALL-GUIDE.md).
+
 ---
 
 ## System Requirements
@@ -9,8 +13,8 @@
 | Component | Minimum |
 |-----------|---------|
 | CPU | Dual-core x86_64 or ARM64 |
-| RAM | 2 GB (4 GB recommended) |
-| OS disk | 8 GB free |
+| RAM | 4 GB |
+| Boot disk | 20 GB SSD (separate from data disks) |
 | Network | 100 Mbps Ethernet |
 
 ### Recommended
@@ -19,125 +23,82 @@
 |-----------|-------------|
 | CPU | Quad-core Intel/AMD or better |
 | RAM | 16 GB+ |
-| OS disk | 20 GB+ SSD |
+| Boot disk | 60 GB+ NVMe |
 | Network | 1 Gbps+ Ethernet |
 
 ### ECC RAM
 
-ECC RAM is strongly recommended for ZFS at any scale. ZFS protects data against on-disk corruption, but it cannot detect corruption that originates in RAM before a write. ECC hardware closes this gap entirely.
+ECC RAM is strongly recommended for ZFS at any scale. ZFS protects data against on-disk corruption but cannot detect corruption that originates in RAM before a write. ECC hardware closes this gap entirely.
 
-D-PlaneOS detects ECC presence via `dmidecode` at startup and shows an advisory notice on the dashboard if non-ECC RAM is found. It never blocks installation. See [NON-ECC-WARNING.md](../hardware/NON-ECC-WARNING.md) for a detailed risk assessment.
+D-PlaneOS detects ECC presence via `dmidecode` at startup and shows an advisory notice on the dashboard if non-ECC RAM is found. See [NON-ECC-WARNING.md](../hardware/NON-ECC-WARNING.md) for a detailed risk assessment.
 
-### Supported Platforms
+### Supported Platform
 
-- Ubuntu 24.04 LTS (recommended)
-- Ubuntu 22.04 LTS
-- Debian 12 (Bookworm)
-- Raspberry Pi OS 64-bit (Debian 12 based)
-- NixOS - see [nixos/README.md](../../nixos/README.md)
+- **NixOS** (NixOS 25.11, Linux 6.6 LTS, OpenZFS 2.3 LTS) - the only supported platform
 
-> **Note:** Debian 11 and Ubuntu 20.04 are not supported. Both ship glibc 2.31 and the
-> pre-built daemon binary requires glibc 2.34+. The installer will complete but the daemon
-> will fail to start with `GLIBC_2.34 not found`. Use Debian 12 or Ubuntu 22.04+.
+D-PlaneOS is a NixOS appliance. For context on why this is intentional, see [NixOS Rationale](../reference/NIXOS-RATIONALE.md). For information on running D-PlaneOS on other Linux distributions, see [Porting Guide](../reference/PORTING-GUIDE.md).
 
 ---
 
 ## Pre-Installation Checklist
 
-- Fresh OS install with root/sudo access
-- Internet connection (or use the offline/vendored build path)
-- At least 2 drives: 1 for the OS, 1 or more for storage
-- Static IP configured (recommended)
-- Hostname set: `hostnamectl set-hostname nas`
+- At least two physical drives: one for the OS (boot disk), one or more for data (ZFS pool)
+- A USB stick (2 GB minimum) to write the installer ISO
+- Static IP configured on the network switch/router (recommended)
+- SSH public key ready (password login is disabled post-install)
 
 ---
 
 ## Installation
 
-### Standard Install
+### 1. Download the ISO
 
-```bash
-# Download the latest release
-wget https://github.com/4nonX/D-PlaneOS/releases/latest/download/dplaneos.tar.gz
+From the [latest release](https://github.com/4nonX/D-PlaneOS/releases/latest), download:
 
-# Verify SHA256 (published alongside each release on GitHub)
-sha256sum dplaneos.tar.gz
-
-# Extract and install
-tar -xzf dplaneos.tar.gz
-cd dplaneos
-sudo bash install.sh
+```
+dplaneos-v<version>-installer-amd64.iso
+dplaneos-v<version>-installer-amd64.iso.sha256
 ```
 
-### Install with Options
+Verify the checksum before writing:
 
 ```bash
-sudo bash install.sh --port 8080           # custom web UI port (default 80)
-sudo bash install.sh --unattended          # no prompts (CI/automation)
-sudo bash install.sh --upgrade             # upgrade existing install, preserve data
-sudo bash install.sh --upgrade --unattended
+sha256sum -c dplaneos-v*-installer-amd64.iso.sha256
 ```
 
-### What the Installer Does
-
-The installer runs in 12 phases:
-
-1. Pre-flight checks (OS, RAM, disk space, port availability)
-2. Backup of existing installation (on upgrade)
-3. System dependencies (nginx, zfsutils-linux, postgresql-15, smartmontools, samba, nfs-kernel-server, etc.)
-4. ZFS setup (loads kernel module, configures ARC based on available RAM)
-5. File installation to `/opt/dplaneos/`
-6. Daemon binary (builds from source with Go if present; downloads pre-built binary otherwise)
-7. sudoers configuration
-8. PostgreSQL database initialization via Patroni at `/var/lib/dplaneos/pgsql/`
-9. nginx configuration
-10. Kernel tuning (inotify, TCP buffers, swappiness)
-11. Docker installation (optional, skipped if already present)
-12. Service enablement and validation
-
-**Installation time:** 5–10 minutes on a typical internet connection. Offline installs with the vendored tarball take 2–3 minutes.
-
-### One-Liner Install
+### 2. Write to USB
 
 ```bash
-curl -fsSL https://get.dplaneos.io | sudo bash
+# Linux / macOS
+sudo dd if=dplaneos-v*-installer-amd64.iso of=/dev/sdX bs=4M status=progress conv=fsync
+
+# Windows - use Rufus (https://rufus.ie) in DD image mode
 ```
 
----
+Replace `/dev/sdX` with your USB device. Double-check with `lsblk` first.
 
-## First Access
+### 3. Boot and Install
+
+1. Boot the target machine from the USB stick
+2. The installer launches automatically on `tty1`
+3. You will be prompted for: target disk, hostname, timezone, SSH public key
+4. The installer partitions the disk (via disko), installs the NixOS closure from the ISO, and reboots
+5. Remove the USB stick when prompted
+
+**Headless / remote install:** SSH to the installer as `root` with password `dplaneos` (installer environment only - this password does not persist to the installed system).
+
+**Installation time:** 5-10 minutes from boot to running system.
+
+### 4. First Access
 
 ```bash
-ip addr show  # find your server IP
+# Find the server IP (if unknown)
+ip addr show
+
+# Or check your router's DHCP leases
 ```
 
-Open `http://<your-server-ip>/` in a browser.
-
-The installer prints the admin password at completion. You are required to change it on first login.
-
-**Default credentials:** `admin` / (printed by installer - not a fixed default)
-
----
-
-## Optional Protocols
-
-These packages are auto-detected and fully managed once installed. Install any that you need after the initial setup:
-
-```bash
-# NFS exports
-sudo apt install nfs-kernel-server
-
-# iSCSI block targets
-sudo apt install targetcli-fb
-
-# SMB / Windows shares and AFP / Time Machine
-sudo apt install samba
-
-# UPS monitoring
-sudo apt install nut
-```
-
-The UI shows a clear install prompt for any protocol package that is not present.
+Open `http://<server-ip>/` in a browser. The installer printed the initial admin password on the console. You are required to change it on first login.
 
 ---
 
@@ -152,7 +113,7 @@ sudo systemctl status dplaned
 # nginx
 sudo systemctl status nginx
 
-# Check all D-PlaneOS units
+# All D-PlaneOS units
 systemctl list-units 'dplaneos-*' 'dplaned*'
 
 # Database
@@ -160,101 +121,44 @@ sudo -u postgres psql dplaneos -c "SELECT count(*) FROM roles;"
 # Expected: 4 (admin, operator, viewer, user)
 ```
 
-### Enable HTTPS (Recommended)
+### HTTPS (Recommended)
+
+HTTPS is configured via the D-PlaneOS web UI under Settings - TLS. The daemon provisions certificates via the ACME protocol (Let's Encrypt by default).
+
+For internal-only deployments, a self-signed certificate can be generated from the same settings page.
+
+### Firewall
+
+The NixOS module opens TCP 80 and 443 by default (`services.dplaneos.openFirewall = true`). To restrict further, set `openFirewall = false` and declare your own `networking.firewall` rules in `configuration.nix`.
+
+---
+
+## OTA Upgrades
+
+D-PlaneOS uses an A/B slot upgrade system. The installed system receives updates via the OTA mechanism:
 
 ```bash
-sudo apt install certbot python3-certbot-nginx
-sudo certbot --nginx -d nas.yourdomain.com
-sudo systemctl enable certbot.timer
+sudo dplaneos-ota-update
 ```
 
-### Configure Firewall
+The upgrade fetches the new system closure, writes it to the inactive boot slot, and reboots. If the post-boot health check fails, the system automatically reverts to the previous slot.
+
+**Manual NixOS rebuild** (advanced):
 
 ```bash
-sudo ufw allow 80/tcp
-sudo ufw allow 443/tcp
-sudo ufw allow 22/tcp
-sudo ufw enable
+sudo nixos-rebuild switch --flake github:4nonX/D-PlaneOS#dplaneos
 ```
 
 ---
 
-## Upgrading
+## Uninstall / Reinstall
+
+There is no partial uninstall path. D-PlaneOS is the OS. To remove it, reinstall a different operating system on the boot disk.
+
+ZFS data pools on separate disks are not affected by reinstalling the boot disk. Import them after reinstalling:
 
 ```bash
-# Always upgrade via the installer - it handles backup and rollback automatically
-sudo bash install.sh --upgrade
-
-# To roll back a failed upgrade
-ls /var/lib/dplaneos/backups/
-sudo bash /var/lib/dplaneos/backups/pre-upgrade-<timestamp>/rollback.sh
-```
-
-All data is preserved. ZFS pools, Docker containers, and network configuration are not affected.
-
----
-
-## NixOS Installation
-
-See [nixos/README.md](../../nixos/README.md) for the full NixOS guide.
-
-D-PlaneOS is licensed under AGPLv3. NixOS correctly recognises it as free software - no `allowUnfreePredicate` or `allowUnfree` is needed.
-
----
-
-## Uninstall
-
-```bash
-sudo systemctl stop dplaned nginx
-sudo systemctl disable dplaned nginx
-sudo rm -f /etc/systemd/system/dplaned.service
-sudo rm -f /etc/systemd/system/dplaneos-*.service
-sudo rm -rf /opt/dplaneos
-sudo rm -rf /etc/dplaneos
-sudo rm -f /etc/nginx/sites-{available,enabled}/dplaneos
-sudo systemctl daemon-reload
-
-# Remove data (irreversible)
-sudo rm -rf /var/lib/dplaneos
-sudo systemctl stop postgresql patroni etcd
-sudo apt purge postgresql-* patroni etcd
-sudo rm -rf /var/log/dplaneos
-```
-
----
-
-## Troubleshooting Installation
-
-### ZFS not found
-
-```bash
-sudo apt update
-sudo apt install zfsutils-linux
-sudo modprobe zfs
-```
-
-### Daemon will not start
-
-```bash
-sudo journalctl -u dplaned -n 50
-# Common cause: port conflict
-sudo lsof -i :9000
-```
-
-### Cannot access web interface
-
-```bash
-sudo systemctl status nginx
-sudo ufw status
-curl http://127.0.0.1:9000/health  # test daemon directly
-```
-
-### Database initialization failed
-
-```bash
-sudo -u postgres psql -c "DROP DATABASE dplaneos;"
-sudo systemctl restart dplaned
-# The daemon will re-create the schema on startup if it can connect to local PG
+zpool import -a
 ```
 
 ---
@@ -263,14 +167,48 @@ sudo systemctl restart dplaned
 
 | Item | Path |
 |------|------|
-| Install directory | `/opt/dplaneos/` |
-| Database state | `/var/lib/dplaneos/pgsql/` |
-| HA Config | `/etc/dplaneos/patroni.yaml` |
-| Web UI files | `/opt/dplaneos/app/` |
 | Daemon binary | `/opt/dplaneos/daemon/dplaned` |
+| Web UI files | `/opt/dplaneos/app/` |
 | Version | `/opt/dplaneos/VERSION` |
-| nginx config | `/etc/nginx/sites-available/dplaneos` |
-| Systemd unit | `/etc/systemd/system/dplaned.service` |
+| Database state | `/var/lib/dplaneos/pgsql/` |
+| HA config | `/etc/dplaneos/patroni.yaml` |
 | Logs | `/var/log/dplaneos/` |
-| Install log | `/var/log/dplaneos-install.log` |
+| Persistent state root | `/persist/` |
 
+---
+
+## Troubleshooting Installation
+
+### Installer does not launch automatically
+
+Connect via SSH (`root` / `dplaneos`) and run:
+
+```bash
+bash /etc/dplaneos-install/install.sh
+```
+
+### Daemon will not start after install
+
+```bash
+sudo journalctl -u dplaned -n 50
+# Common causes: ZFS gate timeout, PostgreSQL not ready
+sudo systemctl status dplaneos-zfs-gate
+sudo systemctl status postgresql
+```
+
+### Cannot reach the web interface
+
+```bash
+sudo systemctl status nginx
+curl http://127.0.0.1:9000/health   # test daemon directly
+```
+
+### ZFS pools not visible
+
+```bash
+zpool list          # check pool status
+zpool import -a     # import any un-imported pools
+sudo systemctl restart dplaned
+```
+
+See [Troubleshooting Guide](TROUBLESHOOTING.md) for a full reference.

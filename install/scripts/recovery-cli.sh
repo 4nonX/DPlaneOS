@@ -26,8 +26,7 @@ fi
 
 # Check if dialog is available
 if ! command -v dialog &>/dev/null; then
-    echo "Installing dialog for better UI..."
-    apt-get update -qq && apt-get install -y dialog -qq
+    echo "dialog is not available - install it via: nix-env -iA nixpkgs.dialog"
 fi
 
 DIALOG_OK=0

@@ -241,8 +241,8 @@ Monitoring → Settings - configure thresholds for CPU, RAM, disk capacity, and 
 # Manual snapshot
 zfs snapshot tank/data@backup-$(date +%Y%m%d)
 
-# Automatic snapshots (via zfs-auto-snapshot)
-sudo apt install zfs-auto-snapshot
+# Automatic snapshots - configure via services.zfs.autoSnapshot in configuration.nix
+# services.zfs.autoSnapshot.enable = true;
 ```
 
 ### Database Backup

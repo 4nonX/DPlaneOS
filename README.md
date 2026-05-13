@@ -1,12 +1,10 @@
 # DPlaneOS
 
-ZFS-first NAS operating system for homelab and small-office deployments. Runs as a single Go daemon behind nginx, backed by PostgreSQL, with a React UI served locally no cloud dependencies, no mandatory subscriptions.
+ZFS-first NAS operating system for homelab and small-office deployments. Runs as a single Go daemon behind nginx, backed by PostgreSQL, with a React UI served locally - no cloud dependencies, no mandatory subscriptions.
 
 [![Version](https://img.shields.io/github/v/release/4nonX/D-PlaneOS?style=flat-square&label=version)](https://github.com/4nonX/D-PlaneOS/releases/latest)
 [![License](https://img.shields.io/badge/license-AGPLv3-blue?style=flat-square)](https://github.com/4nonX/D-PlaneOS/blob/main/LICENSE)
 [![NixOS](https://img.shields.io/badge/platform-NixOS-5277C3?style=flat-square&logo=nixos&logoColor=white)](https://github.com/4nonX/D-PlaneOS/blob/main/nixos/README.md)
-[![Debian](https://img.shields.io/badge/platform-Debian-A81D33?style=flat-square&logo=debian&logoColor=white)](https://github.com/4nonX/D-PlaneOS/blob/main/docs/admin/INSTALLATION-GUIDE.md)
-[![Ubuntu](https://img.shields.io/badge/platform-Ubuntu-E95420?style=flat-square&logo=ubuntu&logoColor=white)](https://github.com/4nonX/D-PlaneOS/blob/main/docs/admin/INSTALLATION-GUIDE.md)
 [![CI Status](https://github.com/4nonX/D-PlaneOS/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/4nonX/D-PlaneOS/actions)
 
 *Clicking the Demo-Image leads to a demo-page, take a tour of the interface.*
@@ -14,36 +12,34 @@ ZFS-first NAS operating system for homelab and small-office deployments. Runs as
 [![DPlaneOS Demo](docs/assets/demo.png)](https://dplane.d-net.me/demo.html)
 ---
 
-## High-Performance, Zero-Pollution Architecture
+## Architecture
 
-DPlaneOS is built for modern hardware. It ships as a single, statically-linked Go binary that manages your entire storage stack with zero external dependencies at runtime. Its path-agnostic architecture ensures seamless portability across Linux distributions.
+DPlaneOS is built for modern hardware. It ships as a single, statically-linked Go binary that manages your entire storage stack with zero external dependencies at runtime. The entire system - OS, services, firewall, ZFS configuration - is declared in code and reproduced exactly on every build.
 
 - **Native Architecture Support:** Full performance on both `x86_64` (amd64) and `aarch64` (arm64/Raspberry Pi 5).
 - **ZFS-First:** Native ZFS integration for data integrity, snapshots, and replication.
 - **GitOps Driven:** Declarative state reconciliation for pools, datasets, and containers.
-- **NixOS & Portable:** A fully path-agnostic binary designed to run natively on NixOS, Debian, and Ubuntu without hardcoded system dependencies.
+- **NixOS Appliance:** Ships as a bootable ISO. The entire OS is declared, reproducible, and rollback-safe.
 
 ## Install
 
+Boot the installer ISO. It handles everything.
+
 ```bash
-tar xzf dplaneos-*.tar.gz
-cd dplaneos
-sudo bash install.sh
+# Write the ISO to USB (Linux/macOS)
+dd if=dplaneos-v*.iso of=/dev/sdX bs=4M status=progress conv=fsync
 ```
 
-The installer handles everything: ZFS kernel module, nginx, database, systemd units, udev rules. It prints a randomly generated admin password on completion; you must change it on first login.
+1. Boot the target machine from USB
+2. The installer launches automatically - enter disk, hostname, SSH key
+3. D-PlaneOS is installed and running within minutes
+4. Open `http://<your-server-ip>/` - change the admin password on first login
 
-| Option | Effect |
-|--------|--------|
-| `--port 8080` | Serve on a non-standard port (default: 80) |
-| `--upgrade` | Upgrade in place, preserve all data |
-| `--unattended` | Skip all confirmation prompts (CI/automation) |
+**Download:** [Latest release](https://github.com/4nonX/D-PlaneOS/releases/latest) - grab `dplaneos-v*-installer-amd64.iso`
 
-**NixOS** - see [nixos/README.md](nixos/README.md) for ISO, Flake, and standalone paths.
+**Offline / air-gapped:** the ISO contains the complete NixOS closure. No internet access needed during installation.
 
-**Air-gapped / offline** - the release tarball ships with a vendored `daemon/vendor/` directory. No internet access needed to build or install.
-
-**Rebuilding from source:** requires Go 1.22+ and gcc. Run `make build`.
+**Rebuilding from source:** `nix build .#iso` - see [nixos/README.md](nixos/README.md).
 
 ---
 
@@ -63,7 +59,7 @@ The installer handles everything: ZFS kernel module, nginx, database, systemd un
 
 ---
 
-## Architecture
+## System Layout
 
 ```
 Browser
@@ -86,24 +82,10 @@ Browser
 
 ---
 
-## Optional Protocols
-
-Auto-detected and fully managed once installed. The UI shows an install prompt for anything not yet present.
-
-```bash
-sudo apt install samba            # SMB shares + Time Machine (vfs_fruit)
-sudo apt install nfs-kernel-server   # NFS exports
-sudo apt install targetcli-fb     # iSCSI block targets
-sudo apt install nut              # UPS monitoring
-```
-
----
-
 ## Key Paths
 
 | Item | Path |
 |------|------|
-| Install directory | `/opt/dplaneos/` |
 | Daemon binary | `/opt/dplaneos/daemon/dplaned` |
 | Web UI (static) | `/opt/dplaneos/app/` |
 | Version file | `/opt/dplaneos/VERSION` |
@@ -111,10 +93,7 @@ sudo apt install nut              # UPS monitoring
 | DB configuration | `/etc/dplaneos/patroni.yaml` |
 | Custom container icons | `/var/lib/dplaneos/custom_icons/` |
 | Logs | `/var/log/dplaneos/` |
-| nginx config | `/etc/nginx/sites-available/dplaneos` |
-| Systemd unit | `/etc/systemd/system/dplaned.service` |
 | ZED hook | `/etc/zfs/zed.d/dplaneos-notify.sh` |
-| udev hot-swap rules | `/etc/udev/rules.d/99-dplaneos-hotswap.rules` |
 
 ---
 
@@ -124,9 +103,10 @@ sudo apt install nut              # UPS monitoring
 
 | Document | What it covers |
 |----------|---------------|
-| [Installation Guide](docs/admin/INSTALLATION-GUIDE.md) | System requirements, step-by-step install, post-install checklist, upgrade, uninstall, NixOS path |
+| [Installation Guide](docs/admin/INSTALLATION-GUIDE.md) | System requirements, ISO install flow, post-install checklist, OTA upgrades |
+| [NixOS Install Guide](nixos/NIXOS-INSTALL-GUIDE.md) | Step-by-step for NixOS beginners: from empty hardware to running NAS |
 | [Administrator Guide](docs/admin/ADMIN-GUIDE.md) | Users, roles, permissions, storage management, containers, LDAP/AD, custom icons, security practices |
-| [Troubleshooting](docs/admin/TROUBLESHOOTING.md) | Build failures, ZFS module missing, DB init race, Docker behind proxy, browser cache, ZED setup, all correct paths |
+| [Troubleshooting](docs/admin/TROUBLESHOOTING.md) | Build failures, ZFS issues, DB init race, Docker behind proxy, browser cache, ZED setup |
 | [Recovery Guide](docs/admin/RECOVERY.md) | Service management, database restore, admin lockout, ZFS recovery, hot-swap auto-import, rollback procedure |
 
 ### Reference
@@ -135,6 +115,8 @@ sudo apt install nut              # UPS monitoring
 |----------|---------------|
 | [Changelog](docs/reference/CHANGELOG.md) | Full version history |
 | [Error Reference](docs/reference/ERROR-REFERENCE.md) | Every HTTP error code the API returns, with cause and fix |
+| [NixOS Rationale](docs/reference/NIXOS-RATIONALE.md) | Why D-PlaneOS is NixOS-exclusive and how it leverages NixOS primitives |
+| [Porting Guide](docs/reference/PORTING-GUIDE.md) | Forking D-PlaneOS for other Linux distributions - what it takes, what you lose |
 | [Showstopper Mitigation Guide](docs/reference/SHOWSTOPPER-MITIGATION-GUIDE.md) | Honest assessment of HA limits, binary-trust, resolved vs open issues |
 | [Threat Model](docs/reference/THREAT-MODEL.md) | Security architecture, all 13 threat scenarios, mitigations, residual risks, known gaps |
 | [Dependencies](docs/reference/DEPENDENCIES.md) | All bundled Go and frontend deps, system requirements, build instructions |
@@ -186,7 +168,7 @@ curl http://127.0.0.1:9000/health
 # Interactive recovery (locked out, DB issues, ZFS problems)
 sudo dplaneos-recovery
 
-# Database access (via psql)
+# Database access
 sudo -u postgres psql dplaneos -c "\dt"
 sudo -u postgres psql dplaneos -c "SELECT count(*) FROM users;"
 
@@ -194,8 +176,8 @@ sudo -u postgres psql dplaneos -c "SELECT count(*) FROM users;"
 zpool status
 zpool import
 
-# Upgrade
-sudo bash install.sh --upgrade
+# OTA upgrade
+sudo dplaneos-ota-update
 ```
 
 ---

@@ -42,33 +42,28 @@ All Go dependencies are vendored. No internet access is needed to build.
 
 ## System Dependencies
 
-### Required
+All system-level dependencies are declared in the NixOS module (`nixos/module.nix`) and provisioned automatically at build time. No manual package installation is required or supported.
 
-Installed automatically by `install.sh` on Debian/Ubuntu.
+### Provided by the NixOS module
 
 | Dependency | Purpose |
 |------------|---------|
 | `nginx` | Reverse proxy and static file server |
-| `zfsutils-linux` | ZFS pool and dataset management |
-| `postgresql-client` | Database CLI (`psql`) |
-| `patroni`, `etcd` | HA cluster management (installed via NixOS or apt) |
-| `gcc` / `build-essential` | CGO compilation for ZFS interop |
-| `musl-tools` | Optional - enables fully static binary build |
+| `zfs` | ZFS pool and dataset management |
+| `postgresql` | Database and CLI (`psql`) |
+| `patroni`, `etcd` | HA cluster management |
 | `smartmontools` | S.M.A.R.T. disk health monitoring |
-| `udev` | Device event rules (hot-swap, removable media) |
+| `udev` (systemd) | Device event rules (hot-swap, removable media) |
 | `samba` | SMB / CIFS shares and AFP / Time Machine |
-| `nfs-kernel-server` | NFS exports |
-| `avahi-daemon` | mDNS - makes the NAS visible as `hostname.local` |
+| `nfs-utils` | NFS exports |
+| `docker` + `docker-compose` | Container management |
+| `ipmitool` | IPMI / BMC monitoring |
+| `rclone` + `fuse3` | Cloud sync and Cold Tier FUSE mounts |
+| `targetcli-fb` | iSCSI block targets |
+| `openssh` | Remote access |
+| `git` | GitOps repository sync |
 
-### Optional (feature-dependent)
-
-| Dependency | Feature | Install |
-|------------|---------|---------|
-| `docker` + `docker compose` | Container management | `curl -fsSL https://get.docker.com \| sh` |
-| `ipmitool` | IPMI / BMC monitoring | `apt install ipmitool` |
-| `rclone` | Cloud sync | `curl https://rclone.org/install.sh \| bash` |
-| `targetcli-fb` | iSCSI block targets | `apt install targetcli-fb` |
-| `nut` | UPS monitoring | `apt install nut` |
+All packages are pinned via the flake lockfile. Versions are reproducible across every build.
 
 ### Build-time Only (not needed on the NAS)
 

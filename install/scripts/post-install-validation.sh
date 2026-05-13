@@ -155,8 +155,7 @@ if command -v smbd &>/dev/null; then
         && pass "Samba running" \
         || info "Samba installed but not running (starts automatically when shares are created)"
 else
-    warn "Samba not installed - SMB shares unavailable"
-    info "Install: apt install samba"
+    warn "Samba not installed - SMB shares unavailable (declared in nixos/modules/samba.nix)"
 fi
 
 if systemctl list-units --type=service 2>/dev/null | grep -q "nfs-server"; then
@@ -164,8 +163,7 @@ if systemctl list-units --type=service 2>/dev/null | grep -q "nfs-server"; then
         && pass "NFS server running" \
         || info "NFS installed but not running (starts on first NFS share)"
 else
-    warn "NFS server not installed - NFS shares unavailable"
-    info "Install: apt install nfs-kernel-server"
+    warn "NFS server not installed - NFS shares unavailable (declared in nixos/module.nix)"
 fi
 echo ""
 

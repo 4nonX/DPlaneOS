@@ -10,20 +10,22 @@
 
 **Cause:** CGO is required for ZFS and system-level interop (though the main database is now PostgreSQL).
 
-**Fix:**
+**Fix:** Use the Nix dev shell, which provides `gcc` and all build tools:
+
 ```bash
-sudo apt install build-essential   # Debian/Ubuntu
-sudo dnf install gcc               # Fedora/RHEL
+nix develop
 ```
+
+Alternatively, enter the flake dev shell explicitly: `nix develop github:4nonX/D-PlaneOS`.
 
 ### Go Not Found
 
 **Symptom:** `make build` fails with `go: command not found`
 
-**Fix:**
+**Fix:** Use the Nix dev shell - Go is pinned and provided automatically:
+
 ```bash
-sudo apt install golang-go         # Debian/Ubuntu (Go 1.22+)
-# Or download directly from https://go.dev/dl/
+nix develop
 ```
 
 ### Offline / Air-Gapped Build
@@ -67,25 +69,23 @@ sudo systemctl restart zed
 - Storage tabs are empty - no pools or datasets visible
 - Daemon logs: `ZFS is not available on this system`
 
-**Cause:** D-PlaneOS delivers the management layer and daemon, not the ZFS kernel module. On a system where ZFS has never been installed, the storage subsystem cannot function.
+**Cause:** ZFS is declared in the NixOS configuration and loaded at boot. If the module is not loaded, the configuration has diverged from the running system.
 
 **Diagnosis:**
 ```bash
 lsmod | grep zfs
-modprobe -n zfs
 zpool list
+sudo systemctl status dplaneos-zfs-gate
 ```
 
-**Fix:**
+**Fix:** The ZFS gate service waits up to 120 seconds for pools to come online. If it timed out:
+
 ```bash
-sudo apt install zfsutils-linux
-sudo modprobe zfs
-lsmod | grep zfs
-zpool list
+sudo systemctl restart dplaneos-zfs-gate
 sudo systemctl restart dplaned
 ```
 
-**Note:** `install.sh` stops hard if the ZFS kernel module cannot be loaded after installation. If you encounter this on an existing install, the module must be loaded before the daemon will serve storage data.
+If the module itself is not present, run `sudo nixos-rebuild switch` to restore the declared system state.
 
 ---
 
@@ -397,8 +397,8 @@ sudo journalctl -u dplaned | grep -i "smart"
 
 **Fix:**
 ```bash
-# Install smartmontools if missing
-sudo apt install smartmontools
+# smartmontools is declared in the NixOS module - if missing, rebuild:
+sudo nixos-rebuild switch
 
 # Restart daemon to reload the background SMART monitor
 sudo systemctl restart dplaned
