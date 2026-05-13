@@ -67,6 +67,68 @@ The daemon executes changes by calling system tools through a strict allowlist (
 
 ---
 
+## Security Architecture
+
+Security in DPlaneOS is layered. Each layer independently limits what a compromised request or compromised component can do.
+
+### Trust Boundary
+
+The daemon listens on `127.0.0.1:9000` only. It is not reachable from the network without a reverse proxy (nginx, Caddy, or Pangolin). Everything behind the proxy is trusted; everything in front is not.
+
+```
+UNTRUSTED
+  Browser ──── Network ──── Reverse Proxy (TLS terminated)
+                                     │ localhost only
+TRUSTED
+  dplaned (Go, 127.0.0.1:9000)
+    ├── PostgreSQL / Patroni
+    ├── exec allowlist → zfs / zpool / docker / exportfs / smbcontrol
+    ├── networkdwriter → /etc/systemd/network/
+    └── /dev/disk/by-id/* │ /mnt/* │ /var/lib/dplaneos/
+```
+
+### The Exec Allowlist
+
+The exec allowlist is the primary defense against command injection. Every system tool call goes through `internal/security/whitelist.go`, which validates:
+
+1. The binary name (only known tools are permitted)
+2. The subcommand (e.g., `zfs create` is permitted; `zfs destroy` requires a prior BLOCKED approval)
+3. Each argument individually against predefined regex patterns
+
+Arguments are passed to `exec.Command` as a string slice, never as a shell string. There is no `bash -c`, no shell expansion. A request that passes all API-level validation but asks for a command not in the allowlist is rejected before any process is spawned.
+
+Input is validated before it reaches the allowlist. Pool names, dataset names, device paths, and share names each pass through dedicated validators that reject shell metacharacters with HTTP 400 before any command is constructed. Device paths must be stable `/dev/disk/by-id/` paths; short `/dev/sdX` paths are rejected at `state.yaml` parse time, long before execution.
+
+This design means the worst-case outcome of a fully compromised API endpoint is triggering a predefined, validated, audited operation. Arbitrary command execution on the host is structurally unavailable.
+
+### Daemon Hardening
+
+The daemon runs as root but constrains itself at the systemd unit level:
+
+- `ProtectSystem=strict`: the NixOS system closure is read-only from the daemon's perspective
+- `NoNewPrivileges=true`: the daemon cannot escalate beyond its initial capabilities
+- `MemoryMax=1G`: bounded memory prevents OOM-triggered system instability
+
+### Authentication and Session Model
+
+Session tokens are 32-byte random values stored hashed in PostgreSQL. They travel in the `X-Session-ID` request header, not a cookie. Browsers cannot auto-submit arbitrary headers cross-origin, which makes the session design inherently CSRF-resistant. HMAC-SHA256 double-submit CSRF tokens are layered on top for defence in depth.
+
+TOTP two-factor authentication is available per user. When enabled, login issues a `pending_totp` session that can only call `/api/auth/totp/verify`; all other routes reject it until the second factor is verified.
+
+### RBAC
+
+Four roles (viewer, user, operator, admin) with 34 discrete permissions enforced at the handler level via `permRoute()` middleware. System roles are immutable in the database (`is_system = 1`). Role assignments support expiry dates.
+
+### Audit Chain
+
+Every state-changing operation appends to an audit log stored in PostgreSQL. Each row includes an HMAC-SHA256 hash computed over its content plus the previous row's hash, keyed by a 32-byte key at `/var/lib/dplaneos/audit.key`. The key is stored separately from the database. An attacker with database write access alone cannot forge the chain without also possessing the key. Chain integrity is verifiable at any time via `GET /api/system/audit/verify-chain`.
+
+### Rate Limiting
+
+100 requests per minute per source IP, enforced in-process before any handler runs. Returns HTTP 429 and logs a security event.
+
+---
+
 ## The Persistence Model
 
 DPlaneOS uses NixOS impermanence: the root filesystem (`/`) is ephemeral and is replaced on every OTA update. All state that must survive reboots lives on a dedicated `/persist` partition.
@@ -250,6 +312,7 @@ This illustrates the reconciliatory loop: the daemon can make immediate changes,
 | Backup: ZFS replication, Rsync, Cloud Sync, Cold Tier | [Backup and Replication](../admin/BACKUP-REPLICATION.md) |
 | High Availability setup and day-2 operations | [High Availability Guide](../admin/HIGH-AVAILABILITY.md) |
 | OTA update procedure and rollback | [OTA Updates](../admin/OTA-UPDATES.md) |
+| Security threats, mitigations, and residual risks | [Threat Model](THREAT-MODEL.md) |
 | iSCSI, FTP, NVMe-oF, MinIO | [Optional Protocols](../admin/OPTIONAL-PROTOCOLS.md) |
 | SMTP, webhook, and Telegram alerts; TOTP/2FA | [Alerts and Authentication](../admin/ALERTS.md) |
 | Why NixOS exclusively | [NixOS Rationale](NIXOS-RATIONALE.md) |
