@@ -2,7 +2,7 @@
 
 This document describes how DPlaneOS is structured at a system level: how state flows from declaration to reality, how the layers interact, and how the architecture changes between a single-node appliance and a multi-node HA cluster.
 
-Reading this first makes every other feature document easier to understand.
+If you want to understand the design reasoning before the mechanics, read [PHILOSOPHY.md](PHILOSOPHY.md) first. This document covers the structure; PHILOSOPHY.md covers the why.
 
 ---
 

@@ -2,7 +2,12 @@
 
 Complete reference for system administration, storage management, sharing protocols, and identity management.
 
-For deeper dives into specific areas, see the dedicated guides:
+For the system architecture and design philosophy, see the reference section:
+- [Design Philosophy](../reference/PHILOSOPHY.md) - why DPlaneOS works the way it does
+- [Architecture](../reference/ARCHITECTURE.md) - three-layer model, single-node and HA
+- [GitOps Reference](../reference/GITOPS-REFERENCE.md) - state.yaml format and reconciliation
+
+For deeper dives into operational areas, see the dedicated guides:
 - [Backup and Replication](BACKUP-REPLICATION.md) - ZFS snapshots, replication, Cloud Sync, rsync, database backup
 - [High Availability](HIGH-AVAILABILITY.md) - HA cluster setup, failover, rolling upgrades
 - [OTA Updates](OTA-UPDATES.md) - A/B slot updates, health check, auto-revert, rollback

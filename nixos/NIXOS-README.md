@@ -142,3 +142,18 @@ Copy that hash into `flake.nix` replacing `vendorHash = null;` and rebuild.
 - **Reproducible**: Same flake.nix = same system, anywhere, anytime.
 - **Git-native**: Your entire NAS config is a Git repo. `git log` is your changelog.
 - **No drift**: The system *is* the config file. Nothing else.
+
+For the full explanation of how DPlaneOS leverages each NixOS primitive (impermanence, disko, A/B OTA, Patroni HA, NixOS module system), see [NIXOS-RATIONALE.md](../docs/reference/NIXOS-RATIONALE.md).
+
+## Documentation
+
+| Document | What it covers |
+|----------|---------------|
+| [Design Philosophy](../docs/reference/PHILOSOPHY.md) | Why DPlaneOS works the way it does: four core principles, design decisions |
+| [Architecture](../docs/reference/ARCHITECTURE.md) | Three-layer model, persistence, single-node and HA architecture |
+| [NixOS Rationale](../docs/reference/NIXOS-RATIONALE.md) | Specific NixOS primitives DPlaneOS relies on and why |
+| [GitOps Reference](../docs/reference/GITOPS-REFERENCE.md) | state.yaml format, reconciliation, drift detection, Capture |
+| [Porting Guide](../docs/reference/PORTING-GUIDE.md) | Forking DPlaneOS for other Linux distributions |
+| [OTA Updates](../docs/admin/OTA-UPDATES.md) | A/B slot updates, health check, auto-revert, HA rolling upgrades |
+| [High Availability](../docs/admin/HIGH-AVAILABILITY.md) | Patroni, etcd, Keepalived, STONITH fencing, day-2 operations |
+| [Alerts and Authentication](../docs/admin/ALERTS.md) | SMTP, webhook, Telegram, TOTP 2FA |

@@ -118,6 +118,7 @@ Browser
 
 | Document | What it covers |
 |----------|---------------|
+| [Design Philosophy](docs/reference/PHILOSOPHY.md) | Why DPlaneOS works the way it does: four core principles, design decisions, trade-offs |
 | [Architecture](docs/reference/ARCHITECTURE.md) | Three-layer model, persistence, single-node and HA architecture, data flow |
 | [GitOps Reference](docs/reference/GITOPS-REFERENCE.md) | state.yaml format, reconciliation engine, drift detection, Capture workflow |
 | [Changelog](docs/reference/CHANGELOG.md) | Full version history |

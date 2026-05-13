@@ -71,6 +71,19 @@ sudo nixos-rebuild switch
 | `NIXOS-INSTALL-GUIDE.md` | Complete step-by-step guide for beginners |
 | `NIXOS-README.md` | Technical reference, rollback, security details |
 
+## Documentation
+
+| Document | What it covers |
+|----------|---------------|
+| [Design Philosophy](../docs/reference/PHILOSOPHY.md) | Why DPlaneOS works the way it does: four core principles, design decisions |
+| [Architecture](../docs/reference/ARCHITECTURE.md) | Three-layer model, persistence, single-node and HA architecture |
+| [NixOS Rationale](../docs/reference/NIXOS-RATIONALE.md) | Specific NixOS primitives DPlaneOS relies on and why |
+| [GitOps Reference](../docs/reference/GITOPS-REFERENCE.md) | state.yaml format and reconciliation engine |
+| [High Availability](../docs/admin/HIGH-AVAILABILITY.md) | HA cluster setup, Patroni, etcd, Keepalived, STONITH |
+| [OTA Updates](../docs/admin/OTA-UPDATES.md) | A/B slot updates, health check, auto-revert |
+| [Backup and Replication](../docs/admin/BACKUP-REPLICATION.md) | ZFS snapshots, replication, cloud sync |
+| [Installation Guide](../docs/admin/INSTALLATION-GUIDE.md) | Full install flow, hardware requirements, post-install |
+
 ## System Requirements
 
 - NixOS 25.11 (stable)
