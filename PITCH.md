@@ -28,11 +28,13 @@ There is no separate control plane. Git is the control plane.
 
 ## The Loop Is Closed in Both Directions
 
-DPlaneOS is not a one-directional deploy system. When you make a change through the web UI on a node, the Capture workflow generates the corresponding `state.yaml` update for you to review and commit. The operator reviews the output, adjusts if needed, and commits it to Git. Nothing is committed without review.
+DPlaneOS is not a one-directional deploy system. When you are ready to commit the current state of a node to Git, the Capture workflow reads the complete live system state at that moment, across every category at once, and generates the full `state.yaml` for you. It does not matter how many changes were made, by how many people, or in what order. One Capture call gets all of it.
 
-This means the Git repository can always reflect actual system state, not just intended state. The discipline is deliberate: Git is the record, and every change to that record is an explicit human decision.
+The operator reviews the output, adjusts if needed, and commits it to Git. Nothing is committed without review. The discipline is deliberate: Git is the record, and every change to that record is an explicit human decision.
 
-Drift between what is in Git and what is running on the node is detected automatically, every five minutes, and surfaced immediately in the UI. Drift cannot hide.
+During initial setup, this means you can make every change freely through the UI, as fast as you like, with as many people working concurrently as needed. When the system looks right, capture once, review once, commit once as the baseline.
+
+Drift between what is in Git and what is running on the node is detected automatically every five minutes and surfaced immediately in the UI. Drift cannot hide.
 
 ---
 
