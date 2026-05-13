@@ -30,6 +30,36 @@ For a NAS operator this means: if you can restore your `configuration.nix` and i
 
 DPlaneOS persists exactly what it needs: daemon database and keys, PostgreSQL data, Docker container/image/volume state, Samba and NFS state, network leases, gitops state, logs, and system identity files (machine-id, SSH host keys, ZFS hostid). Everything else is ephemeral.
 
+**What survives every reboot** (`/persist` bind-mounts, declared in `nixos/impermanence.nix`):
+
+| Path | Contents | Why persisted |
+|------|----------|---------------|
+| `/var/lib/dplaneos` | PostgreSQL data, daemon DB, audit HMAC key, gitops repo | Core application state - losing this means losing all users, pools config, history |
+| `/var/lib/docker` | Container state, images, overlay2 volumes | Containers and their data must survive reboots; without this every image re-pulls on boot |
+| `/var/lib/samba` | passdb.tdb, secrets.tdb, Samba user accounts | Samba passwords are stored in tdb files separate from the system user database; losing them breaks all SMB share access |
+| `/var/lib/nfs` | NFS export state, client lease tracking | NFS clients hold stateful leases; losing state causes stale mounts on the client side |
+| `/var/lib/NetworkManager` | DHCP lease files | Helps maintain stable DHCP addresses on networks that honour client-id across reboots |
+| `/var/lib/systemd/network` | systemd-networkd lease files | Same reason as above for networkd-managed interfaces |
+| `/var/lib/avahi-daemon` | mDNS host database | Avahi caches discovered hostnames; losing it causes a re-discovery flood on boot |
+| `/var/lib/nixos` | UID/GID allocation map | NixOS allocates UIDs/GIDs dynamically; persisting the map ensures file ownership is stable across rebuilds |
+| `/etc/dplaneos` | smb-shares.conf, rclone config, daemon config fragments | The daemon writes share and protocol config here at runtime; losing it reverts all share definitions |
+| `/var/log/dplaneos` | Daemon operational and audit logs | Audit log continuity is a compliance requirement; HMAC chain must be preserved |
+| `/var/log/samba` | Samba access logs | Operational visibility and audit continuity |
+| `/etc/machine-id` | Stable system identity | journald uses this as a cursor anchor; without it log forwarding and rotation break across reboots |
+| `/etc/ssh/ssh_host_*` | SSH host keys (RSA + Ed25519) | Without stable host keys, every OTA update to a new slot triggers "host key changed" warnings on every SSH client |
+| `/etc/hostid` | ZFS host identifier | ZFS uses this to detect pool ownership; a mismatch causes "pool was last used by another system" errors after an A/B slot swap |
+
+**What does not survive reboots** (intentionally ephemeral):
+
+| Path | Why ephemeral |
+|------|---------------|
+| `/tmp`, `/run`, `/var/run` | Standard POSIX contract - these are always tmpfs; no service should persist state here |
+| `/var/cache` | Package caches and build artefacts - fully reproducible from the Nix store, so caching across reboots provides no correctness benefit |
+| Package manager state | DPlaneOS uses Nix: packages are content-addressed store paths installed at activation time, not imperatively tracked state |
+| Unmanaged `/etc` fragments | Any config file not explicitly listed is ephemeral - this is intentional. It enforces that all configuration goes through either NixOS declarations or the daemon's own persisted paths, with no hidden hand-edited files accumulating over time |
+| `/var/lib/*` for services not listed above | Services not listed have no runtime state worth preserving, or their state is regenerated correctly at startup (e.g. nginx pid files, systemd transient units) |
+| Core system binaries and libraries | These live in `/nix/store` and are always reinstated from the closure at activation - they cannot drift between rebuilds |
+
 ### Flakes and Reproducible Builds
 
 The flake lockfile (`flake.lock`) pins every input: nixpkgs revision, disko, impermanence. Two builds from the same lockfile are byte-for-byte identical (modulo timestamps). This means:
