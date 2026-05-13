@@ -88,10 +88,10 @@
   # and causes conflicts on Raptor Lake.
   hardware.graphics = {
     enable        = true;
-    extraPackages = with pkgs; [
+    extraPackages = lib.optionals pkgs.stdenv.hostPlatform.isx86_64 (with pkgs; [
       intel-media-driver    # VA-API backend for UHD 730 (iHD driver, Gen 9-12)
       intel-compute-runtime # OpenCL support for compute workloads (optional)
-    ];
+    ]);
   };
 
   # ─── ZFS ────────────────────────────────────────────────────────────────
