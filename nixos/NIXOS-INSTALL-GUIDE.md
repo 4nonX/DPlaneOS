@@ -2,6 +2,10 @@
 
 > **Audience**: You've never used NixOS before. You want a NAS.
 > This guide takes you from "empty server" to "DPlaneOS running" : step by step, no prior knowledge required.
+>
+> **Simpler alternative**: If you just want to boot and install without any NixOS knowledge, use the [DPlaneOS installer ISO](https://github.com/4nonX/DPlaneOS/releases/latest) instead. Flash it, boot it, and follow the on-screen prompts. The ISO also handles witness node installation for HA clusters.
+>
+> **ARM64 / Raspberry Pi users**: Download the `...-arm64.iso` from the releases page. This guide applies to both architectures.
 
 ---
 

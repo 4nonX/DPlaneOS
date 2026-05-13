@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 
 
+## v10.1.0 (2026-05-13) - "Sentinel"
+
+Upgrade from: v10.0.0 - Drop-in. No breaking changes.
+
+### Added
+- **Witness node installer ISO**: The combined installer ISO now presents a role-selection menu on boot: "Install DPlaneOS" (existing NAS path) or "Install Witness Node" (new). Selecting witness launches a `gum`-based TUI wizard that collects the three cluster IP addresses, an SSH public key, and the target disk, then installs a minimal NixOS system running only etcd for Patroni quorum. No ZFS, no DPlaneOS daemon.
+- **Standalone witness ISO**: `nix build .#iso-witness` produces a dedicated witness-only ISO (`dplaneos-witness-vX.Y.Z-installer-amd64.iso` / `...-arm64.iso`), built by CI and attached to every release. Useful for environments where downloading the full 3-5 GB combined ISO is impractical.
+- **arm64 installer ISOs**: All four ISO variants (combined NAS+witness and standalone witness) are now built for both `x86_64` (amd64) and `aarch64` (arm64) on native GitHub ARM64 runners. arm64 ISOs bake the `dplaneos-arm` NixOS closure for fully offline installation on ARM hardware.
+- **`nixosModules.dplaneos-witness`**: Flake export of `nixos/patroni-witness.nix` for users deploying via `git clone` + `nixos-rebuild switch`. Declare the module in any NixOS configuration and set `services.dplaneos.ha.witness.{enable, localAddress, nodeAAddress, nodeBAddress}`.
+- **Comprehensive documentation suite**: Architecture (three-layer model, HA data flow), GitOps Reference (state.yaml format, reconciliation engine), Design Philosophy, High Availability, Backup and Replication, OTA Updates, Optional Protocols, Alerts, Troubleshooting, Recovery, Hardware Compatibility, Non-ECC Warning, Showstopper Mitigation Guide, Threat Model, NixOS Rationale, Porting Guide, Error Reference, Dependencies, and Codebase Diagram.
+
+### Fixed
+- **HA guide witness setup (Step 2)**: The previous inline NixOS snippet used etcd node names (`"witness"`, `"node-a"`, `"node-b"`) incompatible with the `ha.nix` module (which uses `"etcd-witness"` and `"etcd-<IP>"`). Following the old guide would cause etcd cluster formation to fail. Step 2 now documents the correct ISO and Flake paths using `patroni-witness.nix`.
+- **arm64 ISO closure mismatch**: The `eachSystem` flake block always embedded the `dplaneos` (x86_64) closure as the install target regardless of the build system. arm64 ISO builds now correctly embed `dplaneos-arm`.
+
+
+
 ## v10.0.0 (2026-05-12) - "Polaris"
 
 Upgrade from: v9.1.1 - Drop-in. No breaking changes.

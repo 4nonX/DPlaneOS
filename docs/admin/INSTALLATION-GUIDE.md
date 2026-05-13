@@ -53,18 +53,20 @@ DPlaneOS is a NixOS appliance. For context on why this is intentional, see [NixO
 
 ### 1. Download the ISO
 
-From the [latest release](https://github.com/4nonX/DPlaneOS/releases/latest), download:
+From the [latest release](https://github.com/4nonX/DPlaneOS/releases/latest), download the ISO for your hardware architecture:
 
-```
-dplaneos-v<version>-installer-amd64.iso
-dplaneos-v<version>-installer-amd64.iso.sha256
-```
+| Hardware | ISO filename |
+|----------|-------------|
+| x86_64 (Intel/AMD) | `dplaneos-v<version>-installer-amd64.iso` |
+| aarch64 (Raspberry Pi 5, ARM servers) | `dplaneos-v<version>-installer-arm64.iso` |
 
-Verify the checksum before writing:
+Each ISO also has a `.sha256` checksum file. Verify before writing:
 
 ```bash
 sha256sum -c dplaneos-v*-installer-amd64.iso.sha256
 ```
+
+> The combined installer ISO handles both NAS and witness node installation. If you are setting up a witness node for an HA cluster, you can either use this ISO (select "Install Witness Node" from the menu) or download the dedicated `dplaneos-witness-v<version>-installer-*.iso`.
 
 ### 2. Write to USB
 
@@ -80,9 +82,12 @@ Replace `/dev/sdX` with your USB device. Double-check with `lsblk` first.
 ### 3. Boot and Install
 
 1. Boot the target machine from the USB stick
-2. The installer launches automatically on `tty1`
-3. You will be prompted for: target disk, hostname, timezone, SSH public key
-4. The installer partitions the disk (via disko), installs the NixOS closure from the ISO, and reboots
+2. A menu appears on `tty1` with three options:
+   - **Install DPlaneOS** - installs the full NAS system (offline, no internet required)
+   - **Install Witness Node** - installs a minimal etcd-only system for HA quorum (requires internet)
+   - **Shell** / **Reboot** - diagnostic access
+3. Select "Install DPlaneOS" and follow the prompts: target disk, admin password, boot mode
+4. The installer partitions the disk, installs the NixOS closure from the ISO, and reboots
 5. Remove the USB stick when prompted
 
 **Headless / remote install:** SSH to the installer as `root` with password `dplaneos` (installer environment only - this password does not persist to the installed system).

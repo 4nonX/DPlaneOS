@@ -35,7 +35,7 @@ dd if=dplaneos-v*.iso of=/dev/sdX bs=4M status=progress conv=fsync
 3. DPlaneOS is installed and running within minutes
 4. Open `http://<your-server-ip>/` - change the admin password on first login
 
-**Download:** [Latest release](https://github.com/4nonX/DPlaneOS/releases/latest) - grab `dplaneos-v*-installer-amd64.iso`
+**Download:** [Latest release](https://github.com/4nonX/DPlaneOS/releases/latest) - grab `dplaneos-v*-installer-amd64.iso` (x86_64) or `...-arm64.iso` (aarch64/Raspberry Pi 5). The combined installer handles both NAS and HA witness node installation via a boot menu.
 
 **Offline / air-gapped:** the ISO contains the complete NixOS closure. No internet access needed during installation.
 
