@@ -10,6 +10,9 @@ ZFS-first NAS operating system for homelab and small-office deployments. Runs as
 *Clicking the Demo-Image leads to a demo-page, take a tour of the interface.*
 
 [![DPlaneOS Demo](docs/assets/demo.png)](https://dplane.d-net.me/demo.html)
+
+> **Fleet and enterprise deployments:** [read the pitch](PITCH.md) - Git as control plane, bi-directional reconciliation, zero separate fleet management infrastructure.
+
 ---
 
 ## Architecture
@@ -118,6 +121,7 @@ Browser
 
 | Document | What it covers |
 |----------|---------------|
+| [Pitch](PITCH.md) | Git as control plane: the enterprise and fleet case for DPlaneOS |
 | [Design Philosophy](docs/reference/PHILOSOPHY.md) | Why DPlaneOS works the way it does: four core principles, design decisions, trade-offs |
 | [Architecture](docs/reference/ARCHITECTURE.md) | Three-layer model, persistence, single-node and HA architecture, data flow |
 | [GitOps Reference](docs/reference/GITOPS-REFERENCE.md) | state.yaml format, reconciliation engine, drift detection, Capture workflow |
