@@ -28,7 +28,7 @@ For a NAS operator this means: if you can restore your `configuration.nix` and i
 - Every boot starts from a known-good declared state
 - The difference between "what was declared" and "what is running" is always zero after a reboot
 
-DPlaneOS persists exactly what it needs - database state, ZFS daemon config, gitops state, logs - and nothing else.
+DPlaneOS persists exactly what it needs: daemon database and keys, PostgreSQL data, Docker container/image/volume state, Samba and NFS state, network leases, gitops state, logs, and system identity files (machine-id, SSH host keys, ZFS hostid). Everything else is ephemeral.
 
 ### Flakes and Reproducible Builds
 
