@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# D-PlaneOS Alert Integration Example
+# DPlaneOS Alert Integration Example
 # 
 # Shows how to create alerts from system monitoring scripts
 # This would run periodically via cron/systemd timer
@@ -129,7 +129,7 @@ simulate_zfs_checksum_flood() {
 # PHP example removed - use Go API: curl -X POST http://localhost/api/alerts
 
 # Main
-echo "D-PlaneOS Alert Integration Examples"
+echo "DPlaneOS Alert Integration Examples"
 echo "======================================"
 echo ""
 echo "These examples show how to integrate alerts into your monitoring scripts."

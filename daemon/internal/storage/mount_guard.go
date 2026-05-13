@@ -33,7 +33,7 @@ func (g *MountGuard) RegisterPath(path string) error {
 	
 	guardPath := filepath.Join(absPath, guardFileName)
 	
-	content := fmt.Sprintf("D-PlaneOS Mount Guard\nCreated: %s\nPath: %s\n", 
+	content := fmt.Sprintf("DPlaneOS Mount Guard\nCreated: %s\nPath: %s\n", 
 		time.Now().Format(time.RFC3339), absPath)
 	
 	if err := os.WriteFile(guardPath, []byte(content), 0644); err != nil {

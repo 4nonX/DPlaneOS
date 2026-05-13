@@ -14,7 +14,7 @@ let
         echo "Run as root: sudo dplaneos-console-net"
         exit 1
       fi
-      gum style --bold --foreground 212 "D-PlaneOS - emergency IPv4 (console)"
+      gum style --bold --foreground 212 "DPlaneOS - emergency IPv4 (console)"
       gum style --width 72 "Use this if DHCP failed and you cannot open the web UI. Applies now with ip(8); persist the same values in Settings → Network after login."
       shopt -s nullglob
       ifaces=()
@@ -71,7 +71,7 @@ in {
     environment.systemPackages = [ dplaneosConsoleNet ];
 
     systemd.services.dplaneos-console-net-hint = lib.mkIf cfg.enableBootHint {
-      description = "D-PlaneOS: hint for console static IP if no default IPv4";
+      description = "DPlaneOS: hint for console static IP if no default IPv4";
       wantedBy = [ "multi-user.target" ];
       after = [ "network.target" ];
       serviceConfig = {
@@ -85,7 +85,7 @@ in {
           if ${pkgs.iputils}/bin/ping -c1 -W4 1.1.1.1 >/dev/null 2>&1; then
             exit 0
           fi
-          msg="D-PlaneOS: no outbound IPv4 detected. At the physical console run: sudo dplaneos-console-net"
+          msg="DPlaneOS: no outbound IPv4 detected. At the physical console run: sudo dplaneos-console-net"
           echo "$msg" | ${pkgs.util-linux}/bin/wall || true
         ''}";
       };

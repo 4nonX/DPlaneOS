@@ -855,7 +855,7 @@ func reloadSamba(smbConfPath string, db *sql.DB) {
 	defer rows.Close()
 
 	var sb strings.Builder
-	sb.WriteString("[global]\n   workgroup = WORKGROUP\n   server string = D-PlaneOS NAS\n\n")
+	sb.WriteString("[global]\n   workgroup = WORKGROUP\n   server string = DPlaneOS NAS\n\n")
 	for rows.Next() {
 		var name, path, validUsers, comment string
 		var roInt, gokInt int

@@ -1,4 +1,4 @@
-# D-PlaneOS - Impermanence Layer (Task 4.4)
+# DPlaneOS - Impermanence Layer (Task 4.4)
 # ─────────────────────────────────────────────────────────────────────────────
 # This module defines the persistent and ephemeral paths for the NAS.
 #
@@ -9,7 +9,7 @@
 #   /nix/store  - populated by NixOS activation. Ephemeral by design.
 #
 # What survives reboots (bound from /persist/* → live path):
-#   - D-PlaneOS databases (main + audit)
+#   - DPlaneOS databases (main + audit)
 #   - Audit HMAC key
 #   - GitOps state.yaml and repo checkout
 #   - Machine SSH host keys (so clients don't see key-changed warnings)
@@ -25,7 +25,7 @@
 #
 # Boundary rule:
 #   NixOS owns /persist/nixos/ and /persist/ssh/
-#   D-PlaneOS daemon owns /persist/dplaneos/
+#   DPlaneOS daemon owns /persist/dplaneos/
 #   No other service writes to /persist without an entry here.
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -49,7 +49,7 @@
     # ── Top-level directories to bind from /persist ──────────────────────
     directories = [
 
-      # ── D-PlaneOS daemon state (the boundary: daemon owns this subtree) ─
+      # ── DPlaneOS daemon state (the boundary: daemon owns this subtree) ─
       # All DB files, keys, gitops repo live under /persist/dplaneos/
       # The daemon's -db flag is set to /var/lib/dplaneos/dplaneos.db
       # which is bind-mounted from /persist/dplaneos/
@@ -153,7 +153,7 @@
     # ── Individual files to bind from /persist ────────────────────────────
     files = [
 
-      # ── D-PlaneOS JSON state (v5.0 JSON-to-Nix bridge) ───────────────────
+      # ── DPlaneOS JSON state (v5.0 JSON-to-Nix bridge) ───────────────────
       # dplane-state.json is written by the daemon on every UI change.
       # It is read by dplane-generated.nix at nixos-rebuild eval time.
       # Must survive reboots - without this, all UI-configured network/samba
@@ -196,7 +196,7 @@
   # This catches a misconfigured or unmounted persist partition before
   # the daemon starts writing to the ephemeral root.
   systemd.services.persist-health-check = {
-    description = "D-PlaneOS: verify /persist is mounted";
+    description = "DPlaneOS: verify /persist is mounted";
     wantedBy    = [ "local-fs.target" ];
     after       = [ "local-fs.target" ];
     before      = [ "dplaned.service" ];
@@ -208,7 +208,7 @@
         set -e
         if ! mountpoint -q /persist; then
           echo "CRITICAL: /persist is NOT mounted. Daemon state will be lost on reboot."
-          echo "Check disko.nix and fstab. Halting D-PlaneOS startup."
+          echo "Check disko.nix and fstab. Halting DPlaneOS startup."
           exit 1
         fi
         # Verify key directories exist on the persist partition

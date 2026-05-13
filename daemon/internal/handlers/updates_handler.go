@@ -168,7 +168,7 @@ func HandleDaemonVersion(w http.ResponseWriter, r *http.Request) {
 	current := DaemonVersion
 
 	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Get("https://api.github.com/repos/4nonX/D-PlaneOS/releases/latest")
+	resp, err := client.Get("https://api.github.com/repos/4nonX/DPlaneOS/releases/latest")
 	if err != nil {
 		log.Printf("[updates] GitHub version check failed: %v", err)
 		respondOK(w, map[string]interface{}{

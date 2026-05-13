@@ -240,7 +240,7 @@ func (h *WebhookHandler) TestWebhook(w http.ResponseWriter, r *http.Request) {
 		Event:     "webhook.test",
 		Hostname:  safeHostname(),
 		Severity:  "info",
-		Message:   fmt.Sprintf("Test alert from D-PlaneOS webhook '%s'", cfg.Name),
+		Message:   fmt.Sprintf("Test alert from DPlaneOS webhook '%s'", cfg.Name),
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
 		Data:      map[string]interface{}{"webhook_id": cfg.ID, "webhook_name": cfg.Name},
 	}
@@ -390,7 +390,7 @@ func dispatchWebhook(cfg webhookConfig, payload webhookPayload) error {
 		return fmt.Errorf("create request: %w", err)
 	}
 	req.Header.Set("Content-Type", contentType)
-	req.Header.Set("User-Agent", "D-PlaneOS/"+daemonVersion)
+	req.Header.Set("User-Agent", "DPlaneOS/"+daemonVersion)
 	if cfg.SecretHeader != "" && cfg.SecretValue != "" {
 		req.Header.Set(cfg.SecretHeader, cfg.SecretValue)
 	}

@@ -110,7 +110,7 @@ func sendTelegramTest(botToken, chatID string) error {
 	url := "https://api.telegram.org/bot" + botToken + "/sendMessage"
 	payload := map[string]interface{}{
 		"chat_id":    chatID,
-		"text":       "✅ *D-PlaneOS Telegram Test*\n\nYour alert configuration is working correctly.",
+		"text":       "✅ *DPlaneOS Telegram Test*\n\nYour alert configuration is working correctly.",
 		"parse_mode": "Markdown",
 	}
 	body, _ := json.Marshal(payload)

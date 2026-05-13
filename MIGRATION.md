@@ -1,6 +1,6 @@
-# PostgreSQL Migration Guide - D-PlaneOS v7.0.0
+# PostgreSQL Migration Guide - DPlaneOS v7.0.0
 
-D-PlaneOS has migrated from SQLite to PostgreSQL for enhanced performance, reliability, and enterprise-grade concurrency.
+DPlaneOS has migrated from SQLite to PostgreSQL for enhanced performance, reliability, and enterprise-grade concurrency.
 
 ## Prerequisites
 

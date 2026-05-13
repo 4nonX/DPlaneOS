@@ -16,7 +16,7 @@
 nix develop
 ```
 
-Alternatively, enter the flake dev shell explicitly: `nix develop github:4nonX/D-PlaneOS`.
+Alternatively, enter the flake dev shell explicitly: `nix develop github:4nonX/DPlaneOS`.
 
 ### Go Not Found
 
@@ -42,7 +42,7 @@ CGO_ENABLED=1 go build -mod=vendor \
 ```
 
 The release tarball for the current version is at:
-`https://github.com/4nonX/D-PlaneOS/releases/latest`
+`https://github.com/4nonX/DPlaneOS/releases/latest`
 
 **Fix:** DPlaneOS uses PostgreSQL. To move the data directory, follow standard PostgreSQL/Patroni procedures or update the mountpoint for `/var/lib/dplaneos/pgsql`.
 
@@ -695,7 +695,7 @@ sudo bash /var/lib/dplaneos/backups/pre-upgrade-<timestamp>/rollback.sh
 3. Note the exact error message
 4. Include browser console errors (F12)
 
-Report bugs at: https://github.com/4nonX/D-PlaneOS/issues
+Report bugs at: https://github.com/4nonX/DPlaneOS/issues
 
 Include:
 ```bash

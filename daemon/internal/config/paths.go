@@ -1,7 +1,7 @@
 package config
 
 const (
-	// DBDir is the base directory for D-PlaneOS data
+	// DBDir is the base directory for DPlaneOS data
 	DBDir = "/var/lib/dplaneos"
 
 	// SMbSharesConf is the path to SMB shares configuration

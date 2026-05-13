@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# D-PlaneOS Systemd Fallback Checker
+# DPlaneOS Systemd Fallback Checker
 #
 # SOLVES: "Ohne systemd bleibt Dashboard schwarz"
 #
@@ -42,7 +42,7 @@ check_systemd() {
 
 # Start daemon with systemd
 start_with_systemd() {
-    log "Starting D-PlaneOS with systemd..."
+    log "Starting DPlaneOS with systemd..."
     
     # Enable and start main daemon
     systemctl enable dplaneos-daemon.service
@@ -66,7 +66,7 @@ start_without_systemd() {
     
     # Start main daemon
     if [ -f "$DPLANEOS_DIR/daemon/dplaneos-daemon" ]; then
-        log "Starting D-PlaneOS daemon..."
+        log "Starting DPlaneOS daemon..."
         nohup "$DPLANEOS_DIR/daemon/dplaneos-daemon" \
             >> /var/log/dplaneos/daemon.log 2>&1 &
         echo $! > /var/run/dplaneos/daemon.pid
@@ -101,7 +101,7 @@ create_init_script() {
 # Required-Stop:     $network $remote_fs
 # Default-Start:     2 3 4 5
 # Default-Stop:      0 1 6
-# Short-Description: D-PlaneOS NAS Services
+# Short-Description: DPlaneOS NAS Services
 ### END INIT INFO
 
 DAEMON_PATH="/opt/dplaneos/daemon/dplaneos-daemon"
@@ -111,7 +111,7 @@ DAEMON_PID="$PID_DIR/daemon.pid"
 REALTIME_PID="$PID_DIR/realtime.pid"
 
 start() {
-    echo "Starting D-PlaneOS services..."
+    echo "Starting DPlaneOS services..."
     mkdir -p "$PID_DIR"
     
     # Start daemon
@@ -130,7 +130,7 @@ start() {
 }
 
 stop() {
-    echo "Stopping D-PlaneOS services..."
+    echo "Stopping DPlaneOS services..."
     
     # Stop daemon
     if [ -f "$DAEMON_PID" ]; then
@@ -148,7 +148,7 @@ stop() {
 }
 
 status() {
-    echo "D-PlaneOS Service Status:"
+    echo "DPlaneOS Service Status:"
     
     if [ -f "$DAEMON_PID" ] && kill -0 $(cat "$DAEMON_PID") 2>/dev/null; then
         echo "  Daemon: Running (PID $(cat $DAEMON_PID))"
@@ -206,7 +206,7 @@ check_ports() {
     # Main daemon port (default 8080)
     if netstat -tuln 2>/dev/null | grep -q ":8080 "; then
         warn "Port 8080 is already in use"
-        warn "D-PlaneOS daemon may fail to start"
+        warn "DPlaneOS daemon may fail to start"
         return 1
     fi
     
@@ -250,7 +250,7 @@ verify_services() {
 
 # Main execution
 main() {
-    log "D-PlaneOS Startup - Checking environment..."
+    log "DPlaneOS Startup - Checking environment..."
     
     # Check ports first
     if ! check_ports; then
@@ -271,7 +271,7 @@ main() {
     # Verify
     if verify_services; then
         log "All services started successfully"
-        log "Access D-PlaneOS at: http://$(hostname -I | awk '{print $1}'):8080"
+        log "Access DPlaneOS at: http://$(hostname -I | awk '{print $1}'):8080"
     else
         error "Service verification failed"
         exit 1

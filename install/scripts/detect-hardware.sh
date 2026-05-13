@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Hardware Detection Script for D-PlaneOS
+# Hardware Detection Script for DPlaneOS
 # Detects system capabilities and recommends optimal settings
 
 echo "╔════════════════════════════════════════════════════════════╗"
-echo "║         D-PlaneOS Hardware Detection & Tuning             ║"
+echo "║         DPlaneOS Hardware Detection & Tuning             ║"
 echo "╚════════════════════════════════════════════════════════════╝"
 echo ""
 
@@ -163,7 +163,7 @@ display_results() {
     # Check if system meets minimum requirements
     if [ $TOTAL_RAM_GB -lt 4 ]; then
         echo "⚠️  WARNING: Less than 4GB RAM detected"
-        echo "   D-PlaneOS will run but may be slow with ZFS"
+        echo "   DPlaneOS will run but may be slow with ZFS"
         echo "   Consider ext4 or Btrfs for low-memory systems"
         echo ""
     fi
@@ -185,7 +185,7 @@ display_results() {
 # Export settings for installer
 export_settings() {
     cat > /tmp/dplaneos-hardware-profile.env <<EOF
-# D-PlaneOS Hardware Profile
+# DPlaneOS Hardware Profile
 # Generated: $(date)
 
 # CPU

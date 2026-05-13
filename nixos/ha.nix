@@ -4,7 +4,7 @@ let
   cfg = config.services.dplaneos.ha;
 in {
   options.services.dplaneos.ha = {
-    enable = lib.mkEnableOption "D-PlaneOS High Availability (Patroni + HAProxy)";
+    enable = lib.mkEnableOption "DPlaneOS High Availability (Patroni + HAProxy)";
 
     role = lib.mkOption {
       type = lib.types.enum [ "primary" "secondary" ];
@@ -179,7 +179,7 @@ in {
 
     # ─── Keepalived ───────────────────────────────────────────────────────
     # VRRP handles floating the VIP to the healthy primary node.
-    # Health checks ping the D-PlaneOS daemon directly.
+    # Health checks ping the DPlaneOS daemon directly.
     services.keepalived = lib.mkIf (cfg.virtualIP != null && cfg.interface != null) {
       enable = true;
       vrrpScripts.check_dplaneos = {
@@ -251,7 +251,7 @@ in {
     # not already exist. Only runs when ha.sbd.pool is non-empty.
     # The daemon manages the actual lease property writes at runtime.
     systemd.services.dplaneos-sbd-init = lib.mkIf (cfg.sbd.pool != "") {
-      description = "D-PlaneOS SBD Lease Dataset Init";
+      description = "DPlaneOS SBD Lease Dataset Init";
       after       = [ "zfs.target" "dplaneos-zfs-gate.service" ];
       before      = [ "dplaned.service" ];
       wantedBy    = [ "multi-user.target" ];

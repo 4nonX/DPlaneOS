@@ -1,8 +1,8 @@
 # dplane-generated.nix
 # ──────────────────────────────────────────────────────────────────────────────
-# D-PlaneOS v5.0 - JSON-to-Nix Bridge
+# DPlaneOS v5.0 - JSON-to-Nix Bridge
 #
-# THIS FILE IS STATIC. The D-PlaneOS daemon never modifies it.
+# THIS FILE IS STATIC. The DPlaneOS daemon never modifies it.
 # Installed once by setup-nixos.sh. Do not edit manually.
 #
 # Architecture:
@@ -117,7 +117,7 @@ in
   # Only applied when samba is enabled (samba.nix config = lib.mkIf cfg.enable {...})
   services.dplaneos.samba = lib.mkIf (s ? samba_workgroup) {
     workgroup         = s.samba_workgroup      or "WORKGROUP";
-    serverString      = s.samba_server_string  or "D-PlaneOS NAS";
+    serverString      = s.samba_server_string  or "DPlaneOS NAS";
     timeMachine       = s.samba_time_machine   or false;
     allowGuest        = s.samba_allow_guest    or false;
     extraGlobalConfig = s.samba_extra_global   or "";

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# D-PlaneOS ZED Hook - Real-time ZFS Event Notification
+# DPlaneOS ZED Hook - Real-time ZFS Event Notification
 #
 # Install to: /etc/zfs/zed.d/dplaneos-notify.sh
 # ZED calls this script on disk failures, scrub results, resilver events, etc.

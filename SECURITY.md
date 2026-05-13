@@ -15,7 +15,7 @@
 **Do not report security vulnerabilities via GitHub Issues.**
 
 Report privately via GitHub Security Advisories:
-`https://github.com/4nonX/D-PlaneOS/security/advisories/new`
+`https://github.com/4nonX/DPlaneOS/security/advisories/new`
 
 Or email the maintainer directly (see GitHub profile). Include:
 
@@ -42,7 +42,7 @@ We will not pursue legal action against researchers who:
 
 ## Security Architecture
 
-D-PlaneOS is designed as an internal network appliance. It is not intended to be exposed directly to the public internet. Key properties:
+DPlaneOS is designed as an internal network appliance. It is not intended to be exposed directly to the public internet. Key properties:
 
 - **Authentication:** bcrypt-hashed passwords, rate-limited login with exponential backoff
 - **Sessions:** 32-byte random session tokens, stored hashed in PostgreSQL

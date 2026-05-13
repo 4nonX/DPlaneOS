@@ -114,7 +114,7 @@ func writeAuthorizedKeys(username string, keys []SSHManagedKey) error {
 	}
 
 	var sb strings.Builder
-	sb.WriteString("# D-PlaneOS managed authorized_keys - changes will be overwritten\n")
+	sb.WriteString("# DPlaneOS managed authorized_keys - changes will be overwritten\n")
 	for _, k := range keys {
 		if k.Username != username {
 			continue

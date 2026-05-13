@@ -1,10 +1,10 @@
-﻿# D-PlaneOS Entity Contributor License Agreement
+﻿# DPlaneOS Entity Contributor License Agreement
 
 **Version 1.0 - Effective upon submission of a Contribution**
 
 This Entity Contributor License Agreement ("Agreement") is submitted by the
 entity identified below ("You", "the Entity") to Dan Dressen ("the Maintainer")
-with respect to contributions made to the D-PlaneOS project ("the Project").
+with respect to contributions made to the DPlaneOS project ("the Project").
 
 This Agreement is for the protection of both the Maintainer and the Entity, and
 does not change the Entity's rights to use its own Contributions for any other
@@ -225,12 +225,12 @@ time of your first Contribution.
 
 Return the completed Agreement by one of the following methods:
 
-- Email to the Maintainer with subject line: `D-PlaneOS Entity CLA - [Entity Name]`
+- Email to the Maintainer with subject line: `DPlaneOS Entity CLA - [Entity Name]`
 - Open a pull request adding a signed copy to the `cla/entities/` directory of
   the repository
 
 ---
 
-*D-PlaneOS Entity Contributor License Agreement v1.0*
-*Maintainer: Dan Dressen - https://github.com/4nonX/D-PlaneOS*
+*DPlaneOS Entity Contributor License Agreement v1.0*
+*Maintainer: Dan Dressen - https://github.com/4nonX/DPlaneOS*
 

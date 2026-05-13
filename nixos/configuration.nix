@@ -1,11 +1,11 @@
 # ═══════════════════════════════════════════════════════════════
-#  D-PlaneOS v5.3.2 : NixOS Configuration
+#  DPlaneOS v5.3.2 : NixOS Configuration
 # ═══════════════════════════════════════════════════════════════
 #
 #  The Immutable NAS: NixOS (system) + ZFS (data) + GitOps (containers)
 #
 #  Install:
-#    1. git clone https://github.com/4nonX/D-PlaneOS && cd D-PlaneOS/nixos
+#    1. git clone https://github.com/4nonX/DPlaneOS && cd DPlaneOS/nixos
 #    2. sudo bash setup-nixos.sh          # auto-configures everything
 #    3. sudo nixos-rebuild switch --flake .#dplaneos
 #
@@ -47,7 +47,7 @@ in {
 
   imports = [
     ./dplane-generated.nix   # v5.0 JSON-to-Nix bridge (written by daemon, read by Nix)
-    ./modules/samba.nix      # D-PlaneOS Samba integration module
+    ./modules/samba.nix      # DPlaneOS Samba integration module
   ];
 
   system.stateVersion = "25.11";
@@ -132,7 +132,7 @@ in {
   # ═══════════════════════════════════════════════════════════
 
   systemd.services.dplaned = {
-    description = "D-PlaneOS System Daemon";
+    description = "DPlaneOS System Daemon";
 
     # Boot gate: wait for ZFS + Docker before starting
     after = [
@@ -294,7 +294,7 @@ in {
 
     settings.global = {
       "workgroup"     = sambaWorkgroup;
-      "server string" = "D-PlaneOS NAS";
+      "server string" = "DPlaneOS NAS";
       "security"      = "user";
       "map to guest"  = "Bad User";
       "log file"      = "/var/log/samba/log.%m";
@@ -411,7 +411,7 @@ in {
   # ═══════════════════════════════════════════════════════════
 
   environment.systemPackages = with pkgs; [
-    # D-PlaneOS
+    # DPlaneOS
     dplaned
     dplaneos-recovery
 
@@ -476,7 +476,7 @@ in {
   };
 
   systemd.services.dplaneos-db-backup = {
-    description = "D-PlaneOS database backup";
+    description = "DPlaneOS database backup";
     serviceConfig = {
       Type = "oneshot";
       ExecStart = pkgs.writeShellScript "dplaneos-db-backup" ''

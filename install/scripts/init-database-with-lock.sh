@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# D-PlaneOS - Database Initialization with Lock
+# DPlaneOS - Database Initialization with Lock
 #
 # FIX: Prevents race condition between installer and daemon startup
 # - Creates lock file during initialization

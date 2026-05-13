@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 #
-# D-PlaneOS System Audit
+# DPlaneOS System Audit
 #
-# Full system audit and report for installed D-PlaneOS instances.
+# Full system audit and report for installed DPlaneOS instances.
 # Audits hardware, OS, services, daemon, ZFS, Docker, security,
 # database, network, and performance. Produces a timestamped report.
 #
@@ -59,7 +59,7 @@ section() {
 # -- Header --------------------------------------------------------------------
 [ -n "$TERM" ] && clear || true
 echo "??????????????????????????????????????????????????????????"
-echo -e "${BOLD}    D-PlaneOS System Audit${NC}"
+echo -e "${BOLD}    DPlaneOS System Audit${NC}"
 echo "??????????????????????????????????????????????????????????"
 echo "    Host     : $(hostname -f 2>/dev/null || hostname)"
 echo "    Date     : $(date)"
@@ -540,17 +540,17 @@ else
     fail "nginx config syntax error"
 fi
 
-# Check D-PlaneOS site config exists and is enabled
+# Check DPlaneOS site config exists and is enabled
 if [ -f /etc/nginx/sites-available/dplaneos ]; then
-    pass "D-PlaneOS nginx site config: present"
+    pass "DPlaneOS nginx site config: present"
 else
-    fail "D-PlaneOS nginx site config: missing"
+    fail "DPlaneOS nginx site config: missing"
 fi
 
 if [ -L /etc/nginx/sites-enabled/dplaneos ] || [ -f /etc/nginx/sites-enabled/dplaneos ]; then
-    pass "D-PlaneOS nginx site: enabled"
+    pass "DPlaneOS nginx site: enabled"
 else
-    fail "D-PlaneOS nginx site: not enabled in sites-enabled/"
+    fail "DPlaneOS nginx site: not enabled in sites-enabled/"
 fi
 
 # Check required security headers present
@@ -674,7 +674,7 @@ if systemctl is-active systemd-networkd &>/dev/null; then
     pass "systemd-networkd: running"
     # Check for dplaneos-managed configs
     DPLANE_NETS=$(find /etc/systemd/network -name "50-dplane-*" 2>/dev/null | wc -l)
-    info "D-PlaneOS network configs: $DPLANE_NETS file(s) in /etc/systemd/network/"
+    info "DPlaneOS network configs: $DPLANE_NETS file(s) in /etc/systemd/network/"
 else
     info "systemd-networkd: not active (using NetworkManager or other)"
 fi

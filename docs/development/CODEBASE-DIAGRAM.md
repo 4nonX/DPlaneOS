@@ -1,4 +1,4 @@
-# D-PlaneOS - Architecture Diagrams
+# DPlaneOS - Architecture Diagrams
 
 Visual overview of the codebase. Render in any Mermaid-compatible viewer (GitHub, VS Code with Mermaid extension, or [mermaid.live](https://mermaid.live)).
 
@@ -17,7 +17,7 @@ flowchart LR
         nginx["nginx :80 / :443"]
     end
 
-    subgraph Backend["D-PlaneOS Daemon"]
+    subgraph Backend["DPlaneOS Daemon"]
         dplaned["dplaned (Go) :9000"]
     end
 

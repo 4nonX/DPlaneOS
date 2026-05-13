@@ -1,4 +1,4 @@
-name: D-PlaneOS Unified CI/CD
+name: DPlaneOS Unified CI/CD
 
 on:
   push:

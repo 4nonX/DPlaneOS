@@ -1,4 +1,4 @@
-# D-PlaneOS : disko Partition Layout
+# DPlaneOS : disko Partition Layout
 # ─────────────────────────────────────────────────────────────────────────────
 # A/B system partition layout with a shared /persist partition.
 #

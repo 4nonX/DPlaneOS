@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# D-PlaneOS - Eject Button Handler
+# DPlaneOS - Eject Button Handler
 #
 # Called by udev when the eject button is pressed on an optical drive
 #

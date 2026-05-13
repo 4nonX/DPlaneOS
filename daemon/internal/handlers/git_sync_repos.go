@@ -472,7 +472,7 @@ func (h *GitReposHandler) SaveRepo(w http.ResponseWriter, r *http.Request) {
 		req.SyncInterval = 5
 	}
 	if req.CommitName == "" {
-		req.CommitName = "D-PlaneOS"
+		req.CommitName = "DPlaneOS"
 	}
 	if req.CommitEmail == "" {
 		req.CommitEmail = "dplaneos@localhost"
@@ -589,7 +589,7 @@ func (h *GitReposHandler) PushRepo(w http.ResponseWriter, r *http.Request) {
 	}
 	json.NewDecoder(r.Body).Decode(&req)
 	if req.Message == "" {
-		req.Message = fmt.Sprintf("D-PlaneOS: stack update %s", time.Now().Format("2006-01-02 15:04"))
+		req.Message = fmt.Sprintf("DPlaneOS: stack update %s", time.Now().Format("2006-01-02 15:04"))
 	}
 
 	repo, err := h.loadRepo(idStr)

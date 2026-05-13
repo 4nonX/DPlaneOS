@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# D-PlaneOS - Device Event Notification Scripts
+# DPlaneOS - Device Event Notification Scripts
 #
 # Multiple scripts in one file for easier management
 #

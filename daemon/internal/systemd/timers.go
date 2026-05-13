@@ -123,7 +123,7 @@ func UninstallAllWithPrefix(match string) error {
 func DaemonReload() error {
 	// Use the whitelisted command name for validation if needed, 
 	// but here we are in internal code, we can call exec.Command directly if we are root.
-	// D-PlaneOS daemon runs as root usually.
+	// DPlaneOS daemon runs as root usually.
 	cmd := exec.Command("systemctl", "daemon-reload")
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("systemctl daemon-reload failed: %v - %s", err, string(out))

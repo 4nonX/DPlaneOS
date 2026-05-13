@@ -1,9 +1,9 @@
-# D-PlaneOS Patroni/etcd Witness Node
+# DPlaneOS Patroni/etcd Witness Node
 #
 # This is a minimal NixOS configuration intended for a 3rd "witness" node
 # (e.g., a Raspberry Pi or small MicroVM) which is required purely to
 # maintain etcd quorum in the event of a network partition between the
-# two primary D-PlaneOS nodes.
+# two primary DPlaneOS nodes.
 #
 # It runs absolutely nothing else - no ZFS, no daemon, no Docker.
 
@@ -11,7 +11,7 @@
 
 {
   options.services.dplaneos.ha.witness = {
-    enable = lib.mkEnableOption "D-PlaneOS Patroni Witness Node";
+    enable = lib.mkEnableOption "DPlaneOS Patroni Witness Node";
 
     localAddress = lib.mkOption {
       type = lib.types.str;
@@ -20,12 +20,12 @@
 
     nodeAAddress = lib.mkOption {
       type = lib.types.str;
-      description = "IP address of D-PlaneOS Node A.";
+      description = "IP address of DPlaneOS Node A.";
     };
 
     nodeBAddress = lib.mkOption {
       type = lib.types.str;
-      description = "IP address of D-PlaneOS Node B.";
+      description = "IP address of DPlaneOS Node B.";
     };
   };
 

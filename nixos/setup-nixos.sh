@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# D-PlaneOS - NixOS First-Boot Setup
+# DPlaneOS - NixOS First-Boot Setup
 # ─────────────────────────────────────────────────────────────────────────────
 # Run once after initial nixos-install and reboot:
 #   bash /root/setup-nixos.sh
@@ -32,7 +32,7 @@ if [ "$(id -u)" != "0" ]; then
 fi
 
 echo -e "${BOLD}"
-echo "    D-PlaneOS v$(cat "$(dirname "$0")/../VERSION" 2>/dev/null | tr -d "[:space:]" || echo "?") - NixOS Setup"
+echo "    DPlaneOS v$(cat "$(dirname "$0")/../VERSION" 2>/dev/null | tr -d "[:space:]" || echo "?") - NixOS Setup"
 echo "────────────────────────────────────────"
 echo -e "${NC}"
 
@@ -198,7 +198,7 @@ fi
 if ! grep -q "dplane-generated.nix" "$CONFIG" 2>/dev/null; then
   # Insert the import after the first 'imports = [' line
   if grep -q 'imports = \[' "$CONFIG"; then
-    sed -i 's|imports = \[|imports = [\n    ./dplane-generated.nix  # D-PlaneOS JSON-to-Nix bridge (v5.0)|' "$CONFIG"
+    sed -i 's|imports = \[|imports = [\n    ./dplane-generated.nix  # DPlaneOS JSON-to-Nix bridge (v5.0)|' "$CONFIG"
     log "Added dplane-generated.nix import to $CONFIG"
   else
     warn "Could not auto-add import - add this to $CONFIG manually:"

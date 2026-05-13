@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# D-PlaneOS - Device Added Notification
+# DPlaneOS - Device Added Notification
 #
 # Called by udev when a removable device is connected.
 # Uses retry loop to handle kernel partition table race condition:

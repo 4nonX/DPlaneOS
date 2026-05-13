@@ -1,13 +1,13 @@
-# Contributing to D-PlaneOS
+# Contributing to DPlaneOS
 
-Thank you for helping make D-PlaneOS better. This document explains how to contribute code, report bugs, and suggest features.
+Thank you for helping make DPlaneOS better. This document explains how to contribute code, report bugs, and suggest features.
 
 ## Quick Start
 
 ```bash
 # Prerequisites: Go 1.25+, gcc (for ZFS interop), Node.js 20+, make, PostgreSQL
-git clone https://github.com/4nonX/D-PlaneOS
-cd D-PlaneOS
+git clone https://github.com/4nonX/DPlaneOS
+cd DPlaneOS
 
 # Build the daemon
 cd daemon && go build -o dplaned ./cmd/dplaned && cd ..
@@ -24,7 +24,7 @@ npm run dev
 ## Project Structure
 
 ```
-D-PlaneOS/
+DPlaneOS/
 ├── daemon/                     # Go backend
 │   ├── cmd/dplaned/            # Entry point (main.go, schema.go, routes)
 │   └── internal/
@@ -61,7 +61,7 @@ D-PlaneOS/
 
 1. Search [existing issues](../../issues) first
 2. Open a new issue with:
-   - D-PlaneOS version (`/api/system/status` → `version`)
+   - DPlaneOS version (`/api/system/status` → `version`)
    - OS and ZFS version
    - Steps to reproduce
    - What you expected vs what happened
@@ -71,7 +71,7 @@ D-PlaneOS/
 
 Open an issue tagged `enhancement`. Describe:
 - The use case, not just the feature
-- How it fits with D-PlaneOS's focus (NAS appliance, not general-purpose Linux)
+- How it fits with DPlaneOS's focus (NAS appliance, not general-purpose Linux)
 - API or UI mockups if applicable
 
 ### Submitting Code

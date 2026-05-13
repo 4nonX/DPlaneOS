@@ -1,6 +1,6 @@
-# D-PlaneOS on NixOS : The Immutable NAS
+# DPlaneOS on NixOS : The Immutable NAS
 
-NixOS is a **first-class platform** for D-PlaneOS. The combination gives you
+NixOS is a **first-class platform** for DPlaneOS. The combination gives you
 a deeply coherent approach to NAS reliability:
 
 | Layer | Technology | What it means |
@@ -14,18 +14,18 @@ or **version-controlled** (Git). Recovering from a bad change is a one-command o
 
 ## Quick Start
 
-There are two ways to get D-PlaneOS running on NixOS:
+There are two ways to get DPlaneOS running on NixOS:
 
 ### Option A: Boot the ISO (recommended for new installs)
 
 Download or build the installer ISO, flash it to a USB stick, and boot it.
-The live environment runs D-PlaneOS immediately: web UI, recovery tools,
+The live environment runs DPlaneOS immediately: web UI, recovery tools,
 everything. From there, run `dplaneos-install` to install to disk.
 
 ```bash
 # Build the ISO yourself (requires Nix with flakes enabled)
-git clone https://github.com/4nonX/D-PlaneOS
-cd D-PlaneOS/nixos
+git clone https://github.com/4nonX/DPlaneOS
+cd DPlaneOS/nixos
 nix build .#nixosConfigurations.dplaneos-iso.config.system.build.isoImage
 
 # Flash to USB
@@ -43,8 +43,8 @@ existing ZFS pools.
 If you already have NixOS running:
 
 ```bash
-git clone https://github.com/4nonX/D-PlaneOS
-cd D-PlaneOS/nixos
+git clone https://github.com/4nonX/DPlaneOS
+cd DPlaneOS/nixos
 sudo bash setup-nixos.sh
 sudo nixos-rebuild switch --flake .#dplaneos
 ```
@@ -57,7 +57,7 @@ sudo nixos-rebuild switch --flake .#dplaneos
 
 ## License
 
-D-PlaneOS is licensed under the **GNU Affero General Public License v3.0 (AGPLv3)**.
+DPlaneOS is licensed under the **GNU Affero General Public License v3.0 (AGPLv3)**.
 
 This means:
 
@@ -76,7 +76,7 @@ See `CLA-INDIVIDUAL.md` (individuals) and `CLA-ENTITY.md` (organisations).
 ## Update
 
 ```bash
-cd D-PlaneOS/nixos
+cd DPlaneOS/nixos
 git pull
 sudo nixos-rebuild switch --flake .#dplaneos
 ```

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# D-PlaneOS OTA Update Script - A/B Slot Switcher (Task 4.2)
+# DPlaneOS OTA Update Script - A/B Slot Switcher (Task 4.2)
 # ─────────────────────────────────────────────────────────────────────────────
 # Usage:
 #   dplaneos-ota-update <update-bundle.tar.gz>
@@ -39,7 +39,7 @@ UPDATE_LOG="${PERSIST_OTA}/ota.log"
 
 # Public key for update signature verification (Ed25519, base64-encoded).
 # This key is baked in at build time. The corresponding private key is held
-# exclusively by the D-PlaneOS release signing infrastructure.
+# exclusively by the DPlaneOS release signing infrastructure.
 #
 # REPLACE THIS WITH YOUR ACTUAL PUBLIC KEY before shipping.
 # Generate with: openssl genpkey -algorithm ed25519 | tee private.pem | \
@@ -47,8 +47,8 @@ UPDATE_LOG="${PERSIST_OTA}/ota.log"
 OTA_PUBLIC_KEY="${OTA_PUBLIC_KEY:-REPLACE_WITH_BASE64_ED25519_PUBLIC_KEY}"
 
 # Boot label used in systemd-boot entries for each slot
-LABEL_A="D-PlaneOS (Slot A)"
-LABEL_B="D-PlaneOS (Slot B)"
+LABEL_A="DPlaneOS (Slot A)"
+LABEL_B="DPlaneOS (Slot B)"
 
 # Partition labels (must match disko.nix)
 PART_LABEL_A="system-a"
@@ -188,7 +188,7 @@ cmd_apply() {
 
     [ -f "${bundle}" ] || die "Bundle not found: ${bundle}"
 
-    log "=== D-PlaneOS OTA Update Starting ==="
+    log "=== DPlaneOS OTA Update Starting ==="
     log "Bundle: ${bundle}"
 
     # 1. Extract bundle to temp dir

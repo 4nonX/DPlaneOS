@@ -1,6 +1,6 @@
 #!/bin/bash
 # ==============================================================================
-# D-PlaneOS Convergence & Resilience Test Suite (Hardened v2)
+# DPlaneOS Convergence & Resilience Test Suite (Hardened v2)
 # ==============================================================================
 set -e
 

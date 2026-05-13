@@ -5,7 +5,7 @@
 // Why not vishvananda/netlink?
 //   vishvananda/netlink requires golang.org/x/sys, which in turn adds CGO
 //   build constraints and a large external dependency. For the ~15 ip(8)
-//   calls D-PlaneOS makes (link add/del/set, addr add/replace, route replace),
+//   calls DPlaneOS makes (link add/del/set, addr add/replace, route replace),
 //   raw rtnetlink via the stdlib syscall package is sufficient and keeps the
 //   daemon dependency-free.
 //

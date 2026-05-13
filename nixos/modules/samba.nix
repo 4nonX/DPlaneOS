@@ -1,18 +1,18 @@
 # nixos/modules/samba.nix
 # ─────────────────────────────────────────────────────────────────────────────
-# D-PlaneOS Samba Integration Module
+# DPlaneOS Samba Integration Module
 #
 # ARCHITECTURE PROBLEM THIS SOLVES:
 #
-#   Before: D-PlaneOS wrote directly to /etc/samba/smb.conf (imperative).
+#   Before: DPlaneOS wrote directly to /etc/samba/smb.conf (imperative).
 #           NixOS doesn't know about this file, so every nixos-rebuild
 #           regenerates smb.conf from scratch, wiping all UI-configured shares.
 #
 #   After:  NixOS OWNS Samba via services.samba. It writes the [global]
 #           section and then appends:
 #               include = /var/lib/dplaneos/smb-shares.conf
-#           D-PlaneOS writes ONLY the per-share stanzas into that file.
-#           On rebuild: NixOS regenerates [global], D-PlaneOS's shares survive.
+#           DPlaneOS writes ONLY the per-share stanzas into that file.
+#           On rebuild: NixOS regenerates [global], DPlaneOS's shares survive.
 #
 # TWO-LAYER SPLIT:
 #
@@ -24,7 +24,7 @@
 #     • systemd service ordering (after ZFS, after dplaned)
 #     • passdb backend (tdbsam - persisted via impermanence.nix)
 #
-#   D-PlaneOS layer (/var/lib/dplaneos/smb-shares.conf) : owns:
+#   DPlaneOS layer (/var/lib/dplaneos/smb-shares.conf) : owns:
 #     • Every [share-name] stanza
 #     • Per-share path, permissions, valid users, VFS objects
 #     • Written atomically by daemon on every share create/update/delete
@@ -50,7 +50,7 @@
 let
   cfg = config.services.dplaneos.samba;
 
-  # Path the D-PlaneOS daemon writes per-share stanzas to.
+  # Path the DPlaneOS daemon writes per-share stanzas to.
   # Passed to dplaned via: --smb-conf /var/lib/dplaneos/smb-shares.conf
   sharesConfPath = "/var/lib/dplaneos/smb-shares.conf";
 
@@ -99,11 +99,11 @@ let
        ''}
 
        ${lib.optionalString (cfg.extraGlobalConfig != "") ''
-       # Extra global config (from D-PlaneOS settings UI)
+       # Extra global config (from DPlaneOS settings UI)
        ${cfg.extraGlobalConfig}
        ''}
 
-       # Include D-PlaneOS share definitions (written by web UI)
+       # Include DPlaneOS share definitions (written by web UI)
        # This line is the bridge: NixOS owns [global], daemon owns share stanzas.
        include = ${sharesConfPath}
   '';
@@ -114,7 +114,7 @@ in {
 
   options.services.dplaneos.samba = {
 
-    enable = lib.mkEnableOption "D-PlaneOS Samba integration";
+    enable = lib.mkEnableOption "DPlaneOS Samba integration";
 
     workgroup = lib.mkOption {
       type    = lib.types.str;
@@ -125,7 +125,7 @@ in {
 
     serverString = lib.mkOption {
       type    = lib.types.str;
-      default = "D-PlaneOS NAS";
+      default = "DPlaneOS NAS";
       description = "Samba server description shown in network browsers.";
     };
 
@@ -150,7 +150,7 @@ in {
       description = ''
         Enable macOS Time Machine support (Bonjour advertisement + fruit VFS).
         Set to true if any Macs will back up to this NAS.
-        Corresponds to the "Time Machine" toggle in the D-PlaneOS Shares UI.
+        Corresponds to the "Time Machine" toggle in the DPlaneOS Shares UI.
       '';
     };
 
@@ -166,7 +166,7 @@ in {
       description = ''
         Extra lines appended verbatim to the [global] section.
         Corresponds to the "Extra Global Parameters" field in the Shares UI.
-        This value should be set programmatically by the D-PlaneOS settings
+        This value should be set programmatically by the DPlaneOS settings
         handler, not edited by hand.
       '';
     };
@@ -191,7 +191,7 @@ in {
       default = sharesConfPath;
       readOnly = true;
       description = ''
-        Path where the D-PlaneOS daemon writes per-share SMB stanzas.
+        Path where the DPlaneOS daemon writes per-share SMB stanzas.
         This is the file passed to dplaned via --smb-conf.
         Read-only - changing this would desync the daemon and NixOS.
       '';
@@ -247,8 +247,8 @@ in {
           "winbind offline logon"    = lib.mkIf (cfg.securityMode == "ads") "yes";
 
           # ── THE BRIDGE LINE ───────────────────────────────────────────────
-          # NixOS writes the [global] section; D-PlaneOS writes the shares.
-          # This include makes NixOS aware of D-PlaneOS's share stanzas
+          # NixOS writes the [global] section; DPlaneOS writes the shares.
+          # This include makes NixOS aware of DPlaneOS's share stanzas
           # without giving the daemon ownership of the whole smb.conf.
           "include"             = sharesConfPath;
         } // lib.optionalAttrs cfg.timeMachine {
@@ -285,7 +285,7 @@ in {
     # smbd will refuse to start if the include target is missing.
     # We create an empty-but-valid stub; the daemon will populate it.
     systemd.services.dplaneos-smb-shares-stub = {
-      description = "D-PlaneOS Samba shares config stub";
+      description = "DPlaneOS Samba shares config stub";
       # Must run before smbd starts, after the persist directory is mounted
       before  = [ "smbd.service" ];
       wantedBy = [ "smbd.service" ];
@@ -298,8 +298,8 @@ in {
           DIR="$(dirname "$CONF")"
           mkdir -p "$DIR"
           if [ ! -f "$CONF" ]; then
-            echo "# D-PlaneOS per-share SMB config"              >  "$CONF"
-            echo "# Written by D-PlaneOS daemon on share changes" >> "$CONF"
+            echo "# DPlaneOS per-share SMB config"              >  "$CONF"
+            echo "# Written by DPlaneOS daemon on share changes" >> "$CONF"
             echo "# DO NOT EDIT - changes will be overwritten"    >> "$CONF"
             echo ""                                               >> "$CONF"
             echo "# (no shares configured yet)"                  >> "$CONF"
@@ -309,7 +309,7 @@ in {
       };
     };
 
-    # ── smbd ordering: after D-PlaneOS daemon has written the shares file ─────
+    # ── smbd ordering: after DPlaneOS daemon has written the shares file ─────
     # dplaned writes smb-shares.conf at startup (it reads the DB and rewrites
     # the file to match). We want smbd to start AFTER that write.
     systemd.services.smbd = {

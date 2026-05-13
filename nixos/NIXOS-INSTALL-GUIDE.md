@@ -1,7 +1,7 @@
-# D-PlaneOS on NixOS : Complete Installation Guide
+# DPlaneOS on NixOS : Complete Installation Guide
 
 > **Audience**: You've never used NixOS before. You want a NAS.
-> This guide takes you from "empty server" to "D-PlaneOS running" : step by step, no prior knowledge required.
+> This guide takes you from "empty server" to "DPlaneOS running" : step by step, no prior knowledge required.
 
 ---
 
@@ -29,7 +29,7 @@ NixOS is a Linux distribution where the **entire system is defined in a single t
 
 ## License
 
-D-PlaneOS is licensed under the [GNU Affero General Public License v3.0 (AGPLv3)](https://www.gnu.org/licenses/agpl-3.0.html).
+DPlaneOS is licensed under the [GNU Affero General Public License v3.0 (AGPLv3)](https://www.gnu.org/licenses/agpl-3.0.html).
 You can use, modify, and distribute it freely. If you run a modified version
 as a network service, you must make your modified source available to users
 of that service. AGPLv3 is OSI-approved : NixOS treats it as free software
@@ -133,15 +133,15 @@ sudo nixos-generate-config --root /mnt
 
 This creates two files:
 - `/mnt/etc/nixos/hardware-configuration.nix` : auto-detected hardware (NEVER edit manually)
-- `/mnt/etc/nixos/configuration.nix` : we'll replace this with D-PlaneOS config
+- `/mnt/etc/nixos/configuration.nix` : we'll replace this with DPlaneOS config
 
-### Step 1.7 : Copy D-PlaneOS Config
+### Step 1.7 : Copy DPlaneOS Config
 
 Replace the generated `configuration.nix` with ours:
 
 **Option A: Clone the repo:**
 ```bash
-nix-shell -p git --run "git clone https://github.com/4nonX/D-PlaneOS /tmp/dplaneos"
+nix-shell -p git --run "git clone https://github.com/4nonX/DPlaneOS /tmp/dplaneos"
 sudo cp /tmp/dplaneos/nixos/configuration-standalone.nix /mnt/etc/nixos/configuration.nix
 sudo cp /tmp/dplaneos/nixos/setup-nixos.sh /mnt/root/setup-nixos.sh
 ```
@@ -172,7 +172,7 @@ sudo reboot
 
 ---
 
-## Part 2: Setting Up D-PlaneOS (~5 minutes)
+## Part 2: Setting Up DPlaneOS (~5 minutes)
 
 ### Step 2.1 : Log In
 
@@ -256,7 +256,7 @@ Or try:
 http://dplaneos.local
 ```
 
-**You should see the D-PlaneOS Setup Wizard!**
+**You should see the DPlaneOS Setup Wizard!**
 
 ---
 
@@ -286,7 +286,7 @@ sudo reboot
 
 ### Check status
 ```bash
-systemctl status dplaned    # D-PlaneOS daemon
+systemctl status dplaned    # DPlaneOS daemon
 zpool status                 # ZFS pools
 docker ps                    # Docker containers
 ```
@@ -318,7 +318,7 @@ sudo zpool import -f tank
 # Check that hostId in configuration.nix matches your machine
 ```
 
-### D-PlaneOS shows blank page
+### DPlaneOS shows blank page
 
 ```bash
 journalctl -u dplaned -f    # Daemon logs

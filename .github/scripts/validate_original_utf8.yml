@@ -1,4 +1,4 @@
-﻿name: D-PlaneOS CI
+﻿name: DPlaneOS CI
 
 on:
   push:

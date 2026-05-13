@@ -157,10 +157,10 @@ func persistSambaGlobals(db *sql.DB) {
 	var serverString, workgroup, extraGlobal string
 	db.QueryRow(`SELECT COALESCE(value,'0') FROM settings WHERE key='smb_time_machine'`).Scan(&timeMachine)
 	db.QueryRow(`SELECT COALESCE(value,'0') FROM settings WHERE key='smb_allow_guest'`).Scan(&allowGuest)
-	db.QueryRow(`SELECT COALESCE(value,'D-PlaneOS NAS') FROM settings WHERE key='smb_server_string'`).Scan(&serverString)
+	db.QueryRow(`SELECT COALESCE(value,'DPlaneOS NAS') FROM settings WHERE key='smb_server_string'`).Scan(&serverString)
 	db.QueryRow(`SELECT COALESCE(value,'WORKGROUP') FROM settings WHERE key='smb_workgroup'`).Scan(&workgroup)
 	db.QueryRow(`SELECT COALESCE(value,'') FROM settings WHERE key='smb_extra_global'`).Scan(&extraGlobal)
-	if serverString == "" { serverString = "D-PlaneOS NAS" }
+	if serverString == "" { serverString = "DPlaneOS NAS" }
 	if workgroup == "" { workgroup = "WORKGROUP" }
 	_ = NixWriter.SetSambaGlobals(nixwriter.SambaGlobalOpts{
 		Workgroup:    workgroup,

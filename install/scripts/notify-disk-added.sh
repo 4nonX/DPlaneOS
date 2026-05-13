@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# D-PlaneOS - Hot-swap Disk Added Notification
+# DPlaneOS - Hot-swap Disk Added Notification
 #
 # Called by udev when a pool-eligible disk (SATA/SAS/NVMe) is connected.
 # Uses a retry loop identical to notify-device-added.sh to handle the

@@ -74,7 +74,7 @@ func ValidateAgainstReport(composeYAML string, rep *hardware.GPUPassthroughRepor
 			if opt == "" {
 				opt = "services.dplaneos.docker.enableNvidia"
 			}
-			msgs = append(msgs, fmt.Sprintf("Compose references NVIDIA GPUs but Docker does not expose the nvidia runtime. On D-PlaneOS NixOS set %s = true and run nixos-rebuild switch (NVIDIA Container Toolkit). You must still configure host drivers separately.", opt))
+			msgs = append(msgs, fmt.Sprintf("Compose references NVIDIA GPUs but Docker does not expose the nvidia runtime. On DPlaneOS NixOS set %s = true and run nixos-rebuild switch (NVIDIA Container Toolkit). You must still configure host drivers separately.", opt))
 		}
 	}
 	if req.WantsDRI {

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# D-PlaneOS Release Builder
+# DPlaneOS Release Builder
 # Creates production + vendored tarballs with full validation
 #
 # Usage: ./scripts/build-release.sh [version]
@@ -36,7 +36,7 @@ fail() { echo -e "  ${RED}?${NC} $1"; exit 1; }
 warn() { echo -e "  ${YELLOW}?${NC} $1"; }
 
 echo "-----------------------------------------------"
-echo "  D-PlaneOS v${VERSION} Release Builder"
+echo "  DPlaneOS v${VERSION} Release Builder"
 echo "-----------------------------------------------"
 echo ""
 
@@ -134,7 +134,7 @@ BINARY_HASH=$(sha256sum "$PROJECT_DIR/daemon/dplaned" 2>/dev/null | awk '{print 
 BUILD_BINARY_HASH=$(sha256sum "$BUILD_DIR/$BINARY" | awk '{print $1}')
 
 {
-  echo "# D-PlaneOS v${VERSION} - SHA256 Attestation"
+  echo "# DPlaneOS v${VERSION} - SHA256 Attestation"
   echo "# Generated: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
   echo "# Builder:   $(go version)"
   echo "# Commit:    $(git -C "$PROJECT_DIR" rev-parse HEAD 2>/dev/null || echo 'unknown')"

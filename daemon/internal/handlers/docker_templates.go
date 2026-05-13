@@ -72,7 +72,7 @@ type ZFSDatasetReq struct {
 	MountPoint string `json:"mountpoint,omitempty"`
 }
 
-// BuiltinTemplate is a template that ships with D-PlaneOS.
+// BuiltinTemplate is a template that ships with DPlaneOS.
 type BuiltinTemplate struct {
 	TemplateMetadata
 	GitURL string `json:"git_url,omitempty"` // if empty, bundled in binary
@@ -104,7 +104,7 @@ var builtinTemplates = []BuiltinTemplate{
 		TemplateMetadata: TemplateMetadata{
 			ID:          "monitoring-suite",
 			Name:        "Monitoring Suite",
-			Description: "Prometheus, Grafana, Loki, and Promtail - full observability stack with D-PlaneOS dashboards pre-configured.",
+			Description: "Prometheus, Grafana, Loki, and Promtail - full observability stack with DPlaneOS dashboards pre-configured.",
 			Icon:        "monitoring",
 			Tags:        []string{"monitoring", "metrics", "logs"},
 			Stacks:      []string{"prometheus", "grafana", "loki"},

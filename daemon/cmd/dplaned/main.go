@@ -61,7 +61,7 @@ func main() {
 	flag.Parse()
 
 	if *showVersion {
-		fmt.Printf("D-PlaneOS v%s\n", Version)
+		fmt.Printf("DPlaneOS v%s\n", Version)
 		os.Exit(0)
 	}
 
@@ -435,7 +435,7 @@ func main() {
 		}
 	}
 
-	log.Printf("D-PlaneOS Daemon v%s starting...", Version)
+	log.Printf("DPlaneOS Daemon v%s starting...", Version)
 
 	// Initialize WebSocket Hub for real-time monitoring
 	wsHub := websocket.NewMonitorHub()
@@ -486,7 +486,7 @@ func main() {
 		func(message string) {
 			_ = alerts.SendAlert(alerts.TelegramAlert{
 				Level:   "CRITICAL",
-				Title:   "D-PlaneOS Alert",
+				Title:   "DPlaneOS Alert",
 				Message: message,
 				Details: nil,
 			})
@@ -1518,7 +1518,7 @@ func bootstrapCEToken(db *sql.DB, path string) {
 		return
 	}
 
-	// We assume token is the raw token. D-PlaneOS stores token_hash and token_prefix.
+	// We assume token is the raw token. DPlaneOS stores token_hash and token_prefix.
 	// For simplicity in this bootstrap, we store it if no token named 'nixos-gitops' exists.
 	var adminID int
 	err = db.QueryRow("SELECT id FROM users WHERE username='admin'").Scan(&adminID)

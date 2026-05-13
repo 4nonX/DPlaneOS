@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# D-PlaneOS Health Check Script
+# DPlaneOS Health Check Script
 #
 # Verifies all components are running correctly
 # Can be run at any time to check system status
@@ -32,7 +32,7 @@ check_warn() {
 }
 
 echo "=========================================="
-echo "    D-PlaneOS Health Check"
+echo "    DPlaneOS Health Check"
 echo "=========================================="
 echo ""
 
@@ -105,7 +105,7 @@ fi
 
 # 5. Services
 echo ""
-echo "??  D-PlaneOS Services:"
+echo "??  DPlaneOS Services:"
 
 # Main daemon
 if systemctl is-active --quiet dplaneos-daemon 2>/dev/null; then
@@ -242,7 +242,7 @@ echo "=========================================="
 if [ $FAILED_CHECKS -eq 0 ]; then
     echo -e "${GREEN}All checks passed!${NC} ?"
     echo ""
-    echo "Access D-PlaneOS at: http://$(hostname -I | awk '{print $1}')"
+    echo "Access DPlaneOS at: http://$(hostname -I | awk '{print $1}')"
     exit 0
 else
     echo -e "${YELLOW}Some checks failed${NC} ??"

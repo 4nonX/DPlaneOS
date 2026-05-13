@@ -91,7 +91,7 @@ func TestSMTP(w http.ResponseWriter, r *http.Request) {
 		respondErrorSimple(w, "Invalid request", http.StatusBadRequest)
 		return
 	}
-	msg := fmt.Sprintf("From: %s\r\nTo: %s\r\nSubject: D-PlaneOS Test Alert\r\n\r\nThis is a test email from D-PlaneOS at %s.\r\nIf you received this, SMTP alerting is working correctly.\r\n",
+	msg := fmt.Sprintf("From: %s\r\nTo: %s\r\nSubject: DPlaneOS Test Alert\r\n\r\nThis is a test email from DPlaneOS at %s.\r\nIf you received this, SMTP alerting is working correctly.\r\n",
 		cfg.From, cfg.To, time.Now().Format(time.RFC3339))
 
 	addr := fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)
@@ -135,7 +135,7 @@ func (h *AlertingHandler) sendSMTPAlert(subject, body string) {
 	if json.Unmarshal([]byte(value), &cfg) != nil {
 		return
 	}
-	msg := fmt.Sprintf("From: %s\r\nTo: %s\r\nSubject: [D-PlaneOS] %s\r\n\r\n%s\r\n",
+	msg := fmt.Sprintf("From: %s\r\nTo: %s\r\nSubject: [DPlaneOS] %s\r\n\r\n%s\r\n",
 		cfg.From, cfg.To, subject, body)
 	addr := fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)
 	var auth smtp.Auth

@@ -1,8 +1,8 @@
-# D-PlaneOS on NixOS
+# DPlaneOS on NixOS
 
 > Your complete NAS defined in a single text file. Reproducible, versioned, rollback-safe.
 
-**License:** D-PlaneOS uses [GNU Affero General Public License v3.0 (AGPLv3)](https://www.gnu.org/licenses/agpl-3.0.html).
+**License:** DPlaneOS uses [GNU Affero General Public License v3.0 (AGPLv3)](https://www.gnu.org/licenses/agpl-3.0.html).
 Free to use and modify - see [NIXOS-README.md](NIXOS-README.md#a-note-on-licensing-and-nix-unfree) for
 how this works with Nix's unfree package handling (short version: it's handled automatically).
 
@@ -10,7 +10,7 @@ how this works with Nix's unfree package handling (short version: it's handled a
 
 ### Path 1: Boot the ISO (easiest: no NixOS knowledge needed)
 
-Flash the ISO to a USB stick, boot it, and you're in a live D-PlaneOS
+Flash the ISO to a USB stick, boot it, and you're in a live DPlaneOS
 environment. The web UI runs immediately. Type `dplaneos-install` to
 install permanently.
 
@@ -26,8 +26,8 @@ Reproducible, pinned versions, one command to update.
 
 ```bash
 # On a running NixOS:
-git clone https://github.com/4nonX/D-PlaneOS
-cd D-PlaneOS/nixos
+git clone https://github.com/4nonX/DPlaneOS
+cd DPlaneOS/nixos
 
 # Run setup helper (fills in host ID, timezone, etc.)
 sudo bash setup-nixos.sh
@@ -40,7 +40,7 @@ sudo nixos-rebuild switch --flake .#dplaneos
 
 **Update:**
 ```bash
-cd D-PlaneOS/nixos && git pull
+cd DPlaneOS/nixos && git pull
 sudo nixos-rebuild switch --flake .#dplaneos
 ```
 
@@ -83,7 +83,7 @@ sudo nixos-rebuild switch
 | Component | Details |
 |-----------|---------|
 | **ZFS** | Auto-import, monthly scrub, auto-snapshots (15min/hourly/daily/weekly/monthly) |
-| **D-PlaneOS Daemon** | systemd service, OOM-protected (1 GB), **path-agnostic execution**, hardened (ProtectSystem=strict) |
+| **DPlaneOS Daemon** | systemd service, OOM-protected (1 GB), **path-agnostic execution**, hardened (ProtectSystem=strict) |
 | **nginx** | Reverse proxy, security headers, PHP blocked |
 | **Docker** | ZFS storage driver, weekly prune |
 | **Samba** | Performance-tuned, dynamic shares via daemon |

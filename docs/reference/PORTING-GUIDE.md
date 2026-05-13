@@ -114,4 +114,4 @@ Forks must:
 
 The closest starting point for a non-NixOS port is the existing `install/scripts/` directory, which contains scripts from an earlier pre-NixOS installation path. These scripts are not maintained or tested and may have significant gaps relative to the current daemon feature set, but they reflect the general shape of what a manual install requires.
 
-For any questions about porting, open a discussion on the [GitHub repository](https://github.com/4nonX/D-PlaneOS). Note that porting assistance is best-effort and not part of the project's core support scope.
+For any questions about porting, open a discussion on the [GitHub repository](https://github.com/4nonX/DPlaneOS). Note that porting assistance is best-effort and not part of the project's core support scope.

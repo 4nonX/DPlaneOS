@@ -1,4 +1,4 @@
-// Package nixwriter bridges D-PlaneOS's imperative management layer with
+// Package nixwriter bridges DPlaneOS's imperative management layer with
 // NixOS's declarative configuration system.
 //
 // # v5.0 Architecture: JSON-to-Nix Bridge
@@ -51,7 +51,7 @@ const (
 	AppliedStatePath = "/var/lib/dplaneos/dplane-state.applied.json"
 )
  
-// DPlaneState is the complete set of system settings that D-PlaneOS can manage
+// DPlaneState is the complete set of system settings that DPlaneOS can manage
 // on a NixOS host. It is serialised to JSON and read by dplane-generated.nix.
 //
 // All fields use `omitempty` so unset values are absent from JSON, and the Nix

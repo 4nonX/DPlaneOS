@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# D-PlaneOS - Daemon Watchdog & Health Monitor
+# DPlaneOS - Daemon Watchdog & Health Monitor
 # 
 # Purpose: Monitor Go daemon, auto-restart on failure, alert on issues
 # Install: /usr/local/bin/dplaneos-watchdog.sh
@@ -49,7 +49,7 @@ alert() {
     
     # Email alert
     if [ -n "$ALERT_EMAIL" ]; then
-        echo "$message" | mail -s "[D-PlaneOS] $severity: Daemon Issue" "$ALERT_EMAIL" 2>/dev/null || true
+        echo "$message" | mail -s "[DPlaneOS] $severity: Daemon Issue" "$ALERT_EMAIL" 2>/dev/null || true
     fi
     
     # Webhook alert (Slack/Discord/etc)

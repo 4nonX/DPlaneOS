@@ -107,7 +107,7 @@ func CommitAll(db *sql.DB) error {
 	}
 
 	// 6. Git Commit & Push
-	return CommitAndPush(repoDir, env, "feat: infrastructure state update via D-PlaneOS",
+	return CommitAndPush(repoDir, env, "feat: infrastructure state update via DPlaneOS",
 		commitName.String, commitEmail.String, branch.String)
 }
 

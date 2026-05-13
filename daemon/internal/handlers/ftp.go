@@ -59,7 +59,7 @@ func defaultFTPConfig() FTPConfig {
 		ChrootLocalUser: true,
 		MaxClients:      10,
 		MaxPerIP:        3,
-		Banner:          "D-PlaneOS FTP",
+		Banner:          "DPlaneOS FTP",
 		TLSCertPath:     "/etc/ssl/certs/ssl-cert-snakeoil.pem",
 		TLSKeyPath:      "/etc/ssl/private/ssl-cert-snakeoil.key",
 		AllowedUsers:    []string{},
@@ -159,7 +159,7 @@ func boolVal(b bool) string {
 // generateVsftpdConf builds the vsftpd.conf content from FTPConfig.
 func generateVsftpdConf(cfg FTPConfig) string {
 	var sb strings.Builder
-	sb.WriteString("# D-PlaneOS FTP - managed automatically, do not edit by hand\n\n")
+	sb.WriteString("# DPlaneOS FTP - managed automatically, do not edit by hand\n\n")
 
 	sb.WriteString("listen=YES\n")
 	sb.WriteString("listen_ipv6=NO\n")
@@ -195,7 +195,7 @@ func generateVsftpdConf(cfg FTPConfig) string {
 
 	banner := cfg.Banner
 	if banner == "" {
-		banner = "D-PlaneOS FTP"
+		banner = "DPlaneOS FTP"
 	}
 	sb.WriteString(fmt.Sprintf("ftpd_banner=%s\n", banner))
 	sb.WriteString("\n")

@@ -20,7 +20,7 @@ import (
 )
 
 // ═══════════════════════════════════════════════════════════════
-//  Docker Stack Management - D-PlaneOS YAML → Deploy workflow
+//  Docker Stack Management - DPlaneOS YAML → Deploy workflow
 // ═══════════════════════════════════════════════════════════════
 //
 //  Default stacks directory: /var/lib/dplaneos/stacks/

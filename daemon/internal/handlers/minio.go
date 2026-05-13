@@ -116,7 +116,7 @@ func validateMinioConfig(cfg MinioConfig) error {
 
 func generateMinioEnv(cfg MinioConfig) string {
 	var sb strings.Builder
-	sb.WriteString("# D-PlaneOS MinIO - managed automatically, do not edit by hand\n")
+	sb.WriteString("# DPlaneOS MinIO - managed automatically, do not edit by hand\n")
 	sb.WriteString(fmt.Sprintf("MINIO_ROOT_USER=%s\n", cfg.RootUser))
 	sb.WriteString(fmt.Sprintf("MINIO_ROOT_PASSWORD=%s\n", cfg.RootPassword))
 	sb.WriteString(fmt.Sprintf("MINIO_VOLUMES=%s\n", cfg.VolumePath))

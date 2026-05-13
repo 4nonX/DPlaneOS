@@ -1,11 +1,11 @@
-# D-PlaneOS Installer ISO - Offline Capable
+# DPlaneOS Installer ISO - Offline Capable
 # ─────────────────────────────────────────────────────────────────────────────
 # Builds a bootable installer ISO that works with NO internet connection.
 #
 # How offline install works:
 #   The ISO contains two NixOS closures in its squashfs nix store:
 #     1. The live installer environment (the ISO itself)
-#     2. The D-PlaneOS target system closure (dplaneos nixosConfiguration)
+#     2. The DPlaneOS target system closure (dplaneos nixosConfiguration)
 #   nixos-install copies paths from the local /nix/store on the booted ISO
 #   rather than fetching from cache.nixos.org. Zero network required.
 #
@@ -20,7 +20,7 @@
 { modulesPath, pkgs, lib, config, self, targetSystem, ... }:
 
 let
-  # The D-PlaneOS target system closure - baked into the ISO's nix store.
+  # The DPlaneOS target system closure - baked into the ISO's nix store.
   # This is the exact system that gets installed onto the target disk.
   dplaneosSystem = targetSystem;
 
@@ -31,7 +31,7 @@ in {
     "${modulesPath}/installer/cd-dvd/installation-cd-minimal.nix"
   ];
 
-  # ── Pre-bake the D-PlaneOS target closure into the ISO's nix store ────────
+  # ── Pre-bake the DPlaneOS target closure into the ISO's nix store ────────
   # Core of offline installation - nixos-install reads from here,
   # never contacts cache.nixos.org or any external binary cache.
   isoImage.storeContents = [

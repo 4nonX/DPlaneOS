@@ -1,6 +1,6 @@
-# D-PlaneOS Hardware Compatibility
+# DPlaneOS Hardware Compatibility
 
-D-PlaneOS runs on any reasonable Linux-capable hardware, from Raspberry Pi to enterprise servers. The installer automatically detects hardware capabilities and tunes the system accordingly.
+DPlaneOS runs on any reasonable Linux-capable hardware, from Raspberry Pi to enterprise servers. The installer automatically detects hardware capabilities and tunes the system accordingly.
 
 ---
 

@@ -1,4 +1,4 @@
-# D-PlaneOS - Showstopper Mitigation Guide
+# DPlaneOS - Showstopper Mitigation Guide
 
 **Updated:** 2026-03-25
 **Purpose:** Honest assessment of what works, what has documented limits, and what is genuinely out of scope.
@@ -168,7 +168,7 @@ Guaranteed by NixOS. Every node builds from a pinned flake with locked inputs (`
 | Monitored active/standby | Ready | Full automatic failover with STONITH fencing, RTO ~90 seconds |
 | Security audit required | Usable | Build from source; NixOS flake guarantees reproducibility |
 | Auto-failover / 99.99% SLA | Ready | Fully implemented in v7.3.0 |
-| Active/active shared storage | Out of scope by design | D-PlaneOS uses active/passive HA with automatic STONITH failover |
+| Active/active shared storage | Out of scope by design | DPlaneOS uses active/passive HA with automatic STONITH failover |
 
 ---
 

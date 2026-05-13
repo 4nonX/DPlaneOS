@@ -55,7 +55,7 @@ type SnapshotSchedule struct {
 	LastRun       string `json:"last_run,omitempty"`
 }
 
-// ConfigDir is the base directory for D-PlaneOS config files.
+// ConfigDir is the base directory for DPlaneOS config files.
 // Default: /etc/dplaneos (Debian), override with: /var/lib/dplaneos/config (NixOS)
 var ConfigDir = "/etc/dplaneos"
 

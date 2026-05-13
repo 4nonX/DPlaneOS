@@ -1,4 +1,4 @@
-# D-PlaneOS NixOS Module
+# DPlaneOS NixOS Module
 # Declares all system-level requirements: packages, services, users, firewall.
 # Imported by flake.nix and usable standalone via imports = [ ./module.nix ];
 
@@ -13,7 +13,7 @@ in {
   imports = [ ./ha.nix ./console-network-wizard.nix ];
 
   options.services.dplaneos = {
-    enable = lib.mkEnableOption "D-PlaneOS NAS daemon";
+    enable = lib.mkEnableOption "DPlaneOS NAS daemon";
 
     daemonPackage = lib.mkOption {
       type        = lib.types.package;
@@ -101,7 +101,7 @@ in {
     assertions = [{
       assertion = lib.versionAtLeast config.boot.zfs.package.version "2.2.0";
       message =
-        "D-PlaneOS v9.1+ requires OpenZFS 2.2.0 or later for RAID-Z parity " +
+        "DPlaneOS v9.1+ requires OpenZFS 2.2.0 or later for RAID-Z parity " +
         "expansion (zpool attach on raidz silently creates a mirror on older versions). " +
         "Set boot.zfs.package = pkgs.zfs_2_2 or use NixOS 23.11+.";
     }];
@@ -224,9 +224,9 @@ in {
       };
     };
 
-    # ─── D-PlaneOS daemon systemd service ────────────────────────────────
+    # ─── DPlaneOS daemon systemd service ────────────────────────────────
     systemd.services.dplaned = {
-      description = "D-PlaneOS NAS Daemon";
+      description = "DPlaneOS NAS Daemon";
       after       = [ "network.target" "zfs.target" "dplaneos-zfs-gate.service" ] ++ lib.optionals cfg.ha.enable [ "haproxy.service" "patroni.service" ];
       requires    = [ "dplaneos-zfs-gate.service" ] ++ lib.optionals cfg.ha.enable [ "patroni.service" ];
       wantedBy    = [ "multi-user.target" ];
@@ -262,7 +262,7 @@ in {
           "/etc/cron.d"
           "/etc/exports"
           "/etc/systemd/system"
-          # networkdwriter: D-PlaneOS writes 50-dplane-*.{network,netdev} here
+          # networkdwriter: DPlaneOS writes 50-dplane-*.{network,netdev} here
           # These files survive nixos-rebuild - NixOS only manages its own prefixed files
           "/etc/systemd/network"
           "/etc/systemd/resolved.conf.d"
@@ -293,7 +293,7 @@ in {
     # Blocks dplaned until ZFS pools are ONLINE and writable.
     # Mirrors the logic in systemd/dplaneos-zfs-mount-wait.service.
     systemd.services.dplaneos-zfs-gate = {
-      description = "D-PlaneOS ZFS Mount Gate";
+      description = "DPlaneOS ZFS Mount Gate";
       after       = [ "zfs.target" ];
       before      = [ "dplaned.service" ];
       wantedBy    = [ "multi-user.target" ];

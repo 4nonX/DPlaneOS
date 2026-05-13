@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# D-PlaneOS - Hot-swap Disk Removed Notification
+# DPlaneOS - Hot-swap Disk Removed Notification
 #
 # Called by udev when a pool-eligible disk (SATA/SAS/NVMe) is disconnected.
 # No settle wait is needed - the device is already gone by the time

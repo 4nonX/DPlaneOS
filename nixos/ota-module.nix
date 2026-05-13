@@ -1,4 +1,4 @@
-# D-PlaneOS - OTA Update NixOS Module
+# DPlaneOS - OTA Update NixOS Module
 # ─────────────────────────────────────────────────────────────────────────────
 # Installs the OTA update script and two systemd units:
 #
@@ -66,7 +66,7 @@ in {
         Enable the OTA update health-check timer.
         When true, a one-shot systemd timer fires 90 seconds after boot and
         runs the post-update health check if a pending-revert marker exists.
-        Disable only if you are managing updates entirely outside of D-PlaneOS.
+        Disable only if you are managing updates entirely outside of DPlaneOS.
       '';
     };
 
@@ -97,7 +97,7 @@ in {
     # any check fails, initiates an automatic slot revert and reboots.
     # If no marker exists, exits immediately (no-op on normal boots).
     systemd.services.dplaneos-ota-health = {
-      description = "D-PlaneOS OTA Update Health Check";
+      description = "DPlaneOS OTA Update Health Check";
       after       = [
         "network.target"
         "dplaned.service"
@@ -122,7 +122,7 @@ in {
     # If no pending-revert marker is present, the service exits in <1s.
     # Configured delay is tunable via services.dplaneos.ota.healthCheckDelay.
     systemd.timers.dplaneos-ota-health = {
-      description = "D-PlaneOS OTA Health Check (post-boot, one-shot)";
+      description = "DPlaneOS OTA Health Check (post-boot, one-shot)";
       wantedBy    = [ "timers.target" ];
       timerConfig = {
         OnBootSec = cfg.ota.healthCheckDelay;

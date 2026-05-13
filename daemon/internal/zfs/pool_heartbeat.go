@@ -253,7 +253,7 @@ func (ph *PoolHeartbeat) sendAlert(level, event, pool, message string) {
 		wh(event, pool, message)
 	}
 	if sm != nil && (level == "critical" || level == "warning") {
-		subject := fmt.Sprintf("[D-PlaneOS] %s: %s", event, pool)
+		subject := fmt.Sprintf("[DPlaneOS] %s: %s", event, pool)
 		sm(subject, message)
 	}
 }

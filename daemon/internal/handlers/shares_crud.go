@@ -461,7 +461,7 @@ func (h *ShareCRUDHandler) regenerateSMBConf() {
 	var conf strings.Builder
 	conf.WriteString("[global]\n")
 	conf.WriteString("   workgroup = WORKGROUP\n")
-	conf.WriteString("   server string = D-PlaneOS NAS\n")
+	conf.WriteString("   server string = DPlaneOS NAS\n")
 	conf.WriteString("   security = user\n")
 	conf.WriteString("   map to guest = Bad User\n")
 	conf.WriteString("   log file = /var/log/samba/log.%m\n")
@@ -650,7 +650,7 @@ const avahiTimeMachineXML = `<?xml version="1.0" standalone='no'?>
     <type>_adisk._tcp</type>
     <port>9</port>
     <txt-record>sys=waMa=0,adVF=0x100</txt-record>
-    <txt-record>dk0=adVN=D-PlaneOS,adVF=0x82</txt-record>
+    <txt-record>dk0=adVN=DPlaneOS,adVF=0x82</txt-record>
   </service>
   <service>
     <type>_device-info._tcp</type>

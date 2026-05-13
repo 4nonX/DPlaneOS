@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# D-PlaneOS - Optical Media Change Notification
+# DPlaneOS - Optical Media Change Notification
 #
 # Called by udev when optical media is inserted or removed (disc change event)
 #

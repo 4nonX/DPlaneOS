@@ -60,7 +60,7 @@ func (h *NixOSGuardHandler) BackupConfig(w http.ResponseWriter, r *http.Request)
 	var name, email string
 	h.db.QueryRow(`SELECT commit_name, commit_email FROM git_sync_repos WHERE id=$1`, repoID.Int64).Scan(&name, &email)
 
-	if err := gitops.CommitAndPush(nixDir, env, "feat: NixOS configuration backup via D-PlaneOS", name, email, branch); err != nil {
+	if err := gitops.CommitAndPush(nixDir, env, "feat: NixOS configuration backup via DPlaneOS", name, email, branch); err != nil {
 		respondJSON(w, 500, map[string]interface{}{"success": false, "error": err.Error()})
 		return
 	}
@@ -166,7 +166,7 @@ func checkDivergence(physical, intent []int, shadow *[]int) bool {
 
 	found := false
 	for _, p := range physical {
-		// D-PlaneOS ignores internal ports (e.g. 22 for SSH, 9000 for daemon)
+		// DPlaneOS ignores internal ports (e.g. 22 for SSH, 9000 for daemon)
 		// and ports that the user intentionally opened via declarative NixOS config
 		// that the daemon doesn't manage. We only flag if it's NOT in our intent.
 		if !intentMap[p] {

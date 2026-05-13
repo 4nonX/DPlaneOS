@@ -58,7 +58,7 @@ func DispatchAlert(level, event, resource, message string) {
 		webhookAlertFn(event, resource, message)
 	}
 	if smtpAlertFn != nil && (level == "critical" || level == "warning") {
-		smtpAlertFn("[D-PlaneOS] "+event+": "+resource, message)
+		smtpAlertFn("[DPlaneOS] "+event+": "+resource, message)
 	}
 	if telegramAlertFn != nil && level == "critical" {
 		telegramAlertFn("🚨 " + event + " - " + resource + "\n" + message)

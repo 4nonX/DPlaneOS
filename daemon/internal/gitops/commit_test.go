@@ -20,7 +20,7 @@ func TestGenerateStateYAML_System(t *testing.T) {
 				"eth0": {CIDR: "192.168.1.10/24", Gateway: "192.168.1.1"},
 			},
 			SambaWorkgroup:    "WORKGROUP",
-			SambaServerString: "D-PlaneOS Test",
+			SambaServerString: "DPlaneOS Test",
 			SambaTimeMachine:  true,
 		},
 	}

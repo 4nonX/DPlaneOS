@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# D-PlaneOS ZFS Mount Readiness Gate
+# DPlaneOS ZFS Mount Readiness Gate
 #
 # This script is the hard gate between ZFS pool import and Docker startup.
 # It BLOCKS until ALL configured ZFS pools are fully mounted and writable.

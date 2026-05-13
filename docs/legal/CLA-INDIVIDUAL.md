@@ -1,8 +1,8 @@
-﻿# D-PlaneOS Individual Contributor License Agreement
+﻿# DPlaneOS Individual Contributor License Agreement
 
 **Version 1.0 - Effective upon submission of a Contribution**
 
-Thank you for your interest in contributing to D-PlaneOS ("the Project"),
+Thank you for your interest in contributing to DPlaneOS ("the Project"),
 maintained by Dan Dressen ("the Maintainer", "We", "Us").
 
 This Contributor License Agreement ("CLA") clarifies the intellectual property
@@ -199,13 +199,13 @@ Alternatively, for out-of-band contributions (patches submitted by email or
 other means), you may sign by sending an email to the Maintainer containing:
 
 ```
-I, [Full Legal Name], agree to the D-PlaneOS Individual CLA v1.0
+I, [Full Legal Name], agree to the DPlaneOS Individual CLA v1.0
 dated [date], for the Contribution described as: [brief description].
 GitHub username (if applicable): [username]
 ```
 
 ---
 
-*D-PlaneOS Individual Contributor License Agreement v1.0*
-*Maintainer: Dan Dressen - https://github.com/4nonX/D-PlaneOS*
+*DPlaneOS Individual Contributor License Agreement v1.0*
+*Maintainer: Dan Dressen - https://github.com/4nonX/DPlaneOS*
 

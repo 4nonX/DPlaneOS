@@ -1,4 +1,4 @@
-# D-PlaneOS API Error Reference
+# DPlaneOS API Error Reference
 
 Quick reference for all HTTP error codes returned by the daemon.
 

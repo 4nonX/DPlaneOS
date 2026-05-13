@@ -1,4 +1,4 @@
-// Package reconciler implements D-PlaneOS's boot-time state restoration.
+// Package reconciler implements DPlaneOS's boot-time state restoration.
 //
 // Problem it solves:
 //   - Netlink calls (VLANs, bonds, static IPs) survive until reboot

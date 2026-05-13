@@ -53,7 +53,7 @@ DPlaneOS is a NixOS appliance. For context on why this is intentional, see [NixO
 
 ### 1. Download the ISO
 
-From the [latest release](https://github.com/4nonX/D-PlaneOS/releases/latest), download:
+From the [latest release](https://github.com/4nonX/DPlaneOS/releases/latest), download:
 
 ```
 dplaneos-v<version>-installer-amd64.iso
@@ -146,7 +146,7 @@ The upgrade fetches the new system closure, writes it to the inactive boot slot,
 **Manual NixOS rebuild** (advanced):
 
 ```bash
-sudo nixos-rebuild switch --flake github:4nonX/D-PlaneOS#dplaneos
+sudo nixos-rebuild switch --flake github:4nonX/DPlaneOS#dplaneos
 ```
 
 ---

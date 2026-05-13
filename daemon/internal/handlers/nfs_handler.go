@@ -23,7 +23,7 @@ import (
 // ═══════════════════════════════════════════════════════════════
 
 const nfsExportsPath = "/etc/exports"
-const nfsDplaneosMark = "# D-PlaneOS NFS exports - managed automatically, do not edit by hand"
+const nfsDplaneosMark = "# DPlaneOS NFS exports - managed automatically, do not edit by hand"
 
 // NFSExport represents a single exported path
 type NFSExport struct {
@@ -106,7 +106,7 @@ func (h *NFSHandler) writeExportsFile() error {
 
 	var sb strings.Builder
 	sb.WriteString(nfsDplaneosMark + "\n")
-	sb.WriteString("# Changes made here will be overwritten. Use the D-PlaneOS web UI.\n\n")
+	sb.WriteString("# Changes made here will be overwritten. Use the DPlaneOS web UI.\n\n")
 
 	for rows.Next() {
 		var path, clients, options string

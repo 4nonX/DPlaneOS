@@ -1,5 +1,5 @@
 ---
-description: D-PlaneOS Standard Release Procedure
+description: DPlaneOS Standard Release Procedure
 ---
 
 Follow these steps for EVERY release to ensure CI/CD consistency and prevent stale bundle errors.

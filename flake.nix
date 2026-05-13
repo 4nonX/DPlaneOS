@@ -1,5 +1,5 @@
 {
-  description = "D-PlaneOS v10.0 : NAS Operating System (Appliance Build)";
+  description = "DPlaneOS v10.0 : NAS Operating System (Appliance Build)";
 
   # ── Inputs ─────────────────────────────────────────────────────────────────
   #
@@ -72,8 +72,8 @@
           fi
         '';
         meta = with nixpkgs.lib; {
-          description = "D-PlaneOS NAS daemon : static musl build";
-          homepage    = "https://github.com/4nonX/D-PlaneOS";
+          description = "DPlaneOS NAS daemon : static musl build";
+          homepage    = "https://github.com/4nonX/DPlaneOS";
           license     = licenses.agpl3Only;
           platforms   = supportedSystems;
         };
@@ -89,7 +89,7 @@
         nativeBuildInputs = [];
         ldflags = [ "-s" "-w" "-X" "main.Version=${dplaneosVersion}" ];
         meta = with nixpkgs.lib; {
-          description = "D-PlaneOS NAS daemon : glibc dynamic build (dev only)";
+          description = "DPlaneOS NAS daemon : glibc dynamic build (dev only)";
           license     = licenses.agpl3Only;
         };
       };
@@ -103,11 +103,11 @@
         assertions = [
           {
             assertion = lib.versionAtLeast config.boot.kernelPackages.kernel.version "6.6";
-            message = "D-PlaneOS requires Linux kernel >= 6.6 LTS.";
+            message = "DPlaneOS requires Linux kernel >= 6.6 LTS.";
           }
           {
             assertion = lib.versionAtLeast config.boot.zfs.package.version "2.3";
-            message = "D-PlaneOS requires OpenZFS >= 2.3 (LTS branch).";
+            message = "DPlaneOS requires OpenZFS >= 2.3 (LTS branch).";
           }
         ];
         boot.loader.systemd-boot = { enable = true; configurationLimit = 2; };
@@ -149,7 +149,7 @@
           buildInputs = with pkgs; [ go gcc musl.dev gopls gotools postgresql git ];
           shellHook = ''
             export CGO_ENABLED=1
-            echo "D-PlaneOS dev shell"
+            echo "DPlaneOS dev shell"
           '';
         };
       }

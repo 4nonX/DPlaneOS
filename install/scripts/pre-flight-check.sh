@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# D-PlaneOS Pre-Flight System Check
+# DPlaneOS Pre-Flight System Check
 # Verifies system is ready for daemon startup
 
 set -e
@@ -13,7 +13,7 @@ ERRORS=0
 WARNINGS=0
 
 echo "╔════════════════════════════════════════════════════════════╗"
-echo "║         D-PlaneOS v$(cat "$(dirname "$0")/../VERSION" 2>/dev/null | tr -d "[:space:]" || echo "?") Pre-Flight Check                 ║"
+echo "║         DPlaneOS v$(cat "$(dirname "$0")/../VERSION" 2>/dev/null | tr -d "[:space:]" || echo "?") Pre-Flight Check                 ║"
 echo "╚════════════════════════════════════════════════════════════╝"
 echo ""
 
@@ -34,7 +34,7 @@ echo "Available: $(numfmt --to=iec-i $INOTIFY_AVAILABLE) watches"
 if [ $INOTIFY_PERCENT -gt 80 ]; then
     echo -e "${RED}✗ CRITICAL: Inotify usage >80%${NC}"
     echo "  Other processes (Docker, Plex, etc.) are consuming watches"
-    echo "  D-PlaneOS may not get enough watches for 52TB indexing"
+    echo "  DPlaneOS may not get enough watches for 52TB indexing"
     ERRORS=$((ERRORS + 1))
     
     echo ""
@@ -204,7 +204,7 @@ elif [ $WARNINGS -gt 0 ]; then
 else
     echo -e "║  ${GREEN}✓ ALL CHECKS PASSED${NC}                                       ║"
     echo "║                                                            ║"
-    echo "║  System is ready for D-PlaneOS daemon                      ║"
+    echo "║  System is ready for DPlaneOS daemon                      ║"
     echo "╚════════════════════════════════════════════════════════════╝"
     exit 0
 fi

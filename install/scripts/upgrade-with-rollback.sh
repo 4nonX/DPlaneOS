@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# D-PlaneOS - Safe Upgrade with Automatic Rollback
+# DPlaneOS - Safe Upgrade with Automatic Rollback
 #
 # Purpose: Upgrade from to with automatic backup and rollback
 # Usage: sudo ./upgrade-with-rollback.sh
@@ -56,7 +56,7 @@ error() {
 # Header
 clear
 echo "+--------------------------------------------------------------+"
-echo "¦       D-PlaneOS v$(cat "$(dirname "$0")/../VERSION" 2>/dev/null | tr -d "[:space:]" || echo "?") - Safe Upgrade with Rollback         ¦"
+echo "¦       DPlaneOS v$(cat "$(dirname "$0")/../VERSION" 2>/dev/null | tr -d "[:space:]" || echo "?") - Safe Upgrade with Rollback         ¦"
 echo "+--------------------------------------------------------------+"
 echo ""
 
@@ -138,7 +138,7 @@ cat > "$BACKUP_PATH/rollback.sh" <<'ROLLBACK_SCRIPT'
 set -euo pipefail
 
 echo "+--------------------------------------------------------------+"
-echo "¦              D-PlaneOS v$(cat "$(dirname "$0")/../VERSION" 2>/dev/null | tr -d "[:space:]" || echo "?") - Rollback                     ¦"
+echo "¦              DPlaneOS v$(cat "$(dirname "$0")/../VERSION" 2>/dev/null | tr -d "[:space:]" || echo "?") - Rollback                     ¦"
 echo "+--------------------------------------------------------------+"
 echo ""
 

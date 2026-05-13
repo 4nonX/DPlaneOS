@@ -1,9 +1,9 @@
-// Package ha provides cluster node registration and health monitoring for D-PlaneOS.
+// Package ha provides cluster node registration and health monitoring for DPlaneOS.
 //
 // # Architecture
 //
 // High Availability Nexus (v7.1.0) providing cluster-wide health monitoring,
-// automated fencing (STONITH), and managed promotion for D-PlaneOS.
+// automated fencing (STONITH), and managed promotion for DPlaneOS.
 //
 // This is a lightweight coordination layer that works alongside Patroni
 // and HAProxy to provide a unified active/standby orchestration experience.

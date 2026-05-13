@@ -1408,7 +1408,7 @@ func IsValidPath(path string) bool {
 	// Ensure it starts with / (on Windows, Clean might return \ or C:\ but we want /mnt style)
 	if !strings.HasPrefix(cleanPath, "/") {
 		// If it's a Windows-style absolute path like C:/, ignore it or handle it
-		// But for D-PlaneOS we expect /mnt/...
+		// But for DPlaneOS we expect /mnt/...
 		if !regexp.MustCompile(`^[a-zA-Z]:/`).MatchString(cleanPath) {
 			cleanPath = "/" + cleanPath
 		}

@@ -1,8 +1,8 @@
-# D-PlaneOS - Threat Model
+# DPlaneOS - Threat Model
 
 ## System Context
 
-D-PlaneOS is a NAS management layer running on top of NixOS or Debian/Ubuntu. It manages storage (ZFS), containers (Docker), network (systemd-networkd), and identity on a single server. It runs as one Go binary (`dplaned`) listening on `127.0.0.1:9000` by default. External access is via reverse proxy (nginx/Caddy/Pangolin).
+DPlaneOS is a NAS management layer running on top of NixOS or Debian/Ubuntu. It manages storage (ZFS), containers (Docker), network (systemd-networkd), and identity on a single server. It runs as one Go binary (`dplaned`) listening on `127.0.0.1:9000` by default. External access is via reverse proxy (nginx/Caddy/Pangolin).
 
 **Trust boundary**: the reverse proxy. Everything behind it (dplaned, PostgreSQL, ZFS/Docker/systemd commands) is trusted. Everything in front (browser, network) is untrusted.
 
@@ -202,10 +202,10 @@ D-PlaneOS is a NAS management layer running on top of NixOS or Debian/Ubuntu. It
 **Vector**: Malicious Docker container with host filesystem bind mount.
 
 **Mitigation**:
-- D-PlaneOS manages container lifecycle but does not enforce container security policies
+- DPlaneOS manages container lifecycle but does not enforce container security policies
 - Users are responsible for configuring bind mounts and network policies
 
-**Residual risk**: HIGH. Docker-level concern outside D-PlaneOS's control.
+**Residual risk**: HIGH. Docker-level concern outside DPlaneOS's control.
 
 ---
 

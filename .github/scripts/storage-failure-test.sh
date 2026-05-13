@@ -1,6 +1,6 @@
 #!/bin/bash
 # ==============================================================================
-# D-PlaneOS Storage Failure Test Suite
+# DPlaneOS Storage Failure Test Suite
 # Tests ZFS layer and API functionality under storage fault conditions
 # ==============================================================================
 set -e

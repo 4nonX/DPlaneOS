@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# D-PlaneOS - Device Removed Notification
+# DPlaneOS - Device Removed Notification
 #
 # Called by udev when a removable device is disconnected
 #

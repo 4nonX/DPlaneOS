@@ -2,10 +2,10 @@
 
 ZFS-first NAS operating system for homelab and small-office deployments. Runs as a single Go daemon behind nginx, backed by PostgreSQL, with a React UI served locally - no cloud dependencies, no mandatory subscriptions.
 
-[![Version](https://img.shields.io/github/v/release/4nonX/D-PlaneOS?style=flat-square&label=version)](https://github.com/4nonX/D-PlaneOS/releases/latest)
-[![License](https://img.shields.io/badge/license-AGPLv3-blue?style=flat-square)](https://github.com/4nonX/D-PlaneOS/blob/main/LICENSE)
-[![NixOS](https://img.shields.io/badge/platform-NixOS-5277C3?style=flat-square&logo=nixos&logoColor=white)](https://github.com/4nonX/D-PlaneOS/blob/main/nixos/README.md)
-[![CI Status](https://github.com/4nonX/D-PlaneOS/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/4nonX/D-PlaneOS/actions)
+[![Version](https://img.shields.io/github/v/release/4nonX/DPlaneOS?style=flat-square&label=version)](https://github.com/4nonX/DPlaneOS/releases/latest)
+[![License](https://img.shields.io/badge/license-AGPLv3-blue?style=flat-square)](https://github.com/4nonX/DPlaneOS/blob/main/LICENSE)
+[![NixOS](https://img.shields.io/badge/platform-NixOS-5277C3?style=flat-square&logo=nixos&logoColor=white)](https://github.com/4nonX/DPlaneOS/blob/main/nixos/README.md)
+[![CI Status](https://github.com/4nonX/DPlaneOS/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/4nonX/DPlaneOS/actions)
 
 *Clicking the Demo-Image leads to a demo-page, take a tour of the interface.*
 
@@ -35,7 +35,7 @@ dd if=dplaneos-v*.iso of=/dev/sdX bs=4M status=progress conv=fsync
 3. DPlaneOS is installed and running within minutes
 4. Open `http://<your-server-ip>/` - change the admin password on first login
 
-**Download:** [Latest release](https://github.com/4nonX/D-PlaneOS/releases/latest) - grab `dplaneos-v*-installer-amd64.iso`
+**Download:** [Latest release](https://github.com/4nonX/DPlaneOS/releases/latest) - grab `dplaneos-v*-installer-amd64.iso`
 
 **Offline / air-gapped:** the ISO contains the complete NixOS closure. No internet access needed during installation.
 

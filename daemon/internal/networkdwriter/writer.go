@@ -1,4 +1,4 @@
-﻿// Package networkdwriter manages D-PlaneOS network configuration by writing
+﻿// Package networkdwriter manages DPlaneOS network configuration by writing
 // systemd-networkd unit files directly to /etc/systemd/network/.
 //
 // # Why this is the right approach
@@ -27,16 +27,16 @@
 //
 // systemd-networkd processes .network and .netdev files in lexicographic order.
 // NixOS generates files with low numeric prefixes (10-, 20-).
-// D-PlaneOS uses prefix 50- to ensure our config loads AFTER NixOS defaults
+// DPlaneOS uses prefix 50- to ensure our config loads AFTER NixOS defaults
 // but can still be overridden by manual 90- files if needed.
 //
 //   /etc/systemd/network/
 //     10-eth0.network          ← NixOS managed (DHCP default)
-//     50-dplane-eth0.network   ← D-PlaneOS managed (static IP override)
-//     50-dplane-bond0.netdev   ← D-PlaneOS managed (bond device)
-//     50-dplane-bond0.network  ← D-PlaneOS managed (bond network config)
-//     50-dplane-eth0.100.netdev ← D-PlaneOS managed (VLAN device)
-//     50-dplane-eth0.100.network ← D-PlaneOS managed (VLAN network config)
+//     50-dplane-eth0.network   ← DPlaneOS managed (static IP override)
+//     50-dplane-bond0.netdev   ← DPlaneOS managed (bond device)
+//     50-dplane-bond0.network  ← DPlaneOS managed (bond network config)
+//     50-dplane-eth0.100.netdev ← DPlaneOS managed (VLAN device)
+//     50-dplane-eth0.100.network ← DPlaneOS managed (VLAN network config)
 //
 // # Reload mechanism
 //
@@ -71,13 +71,13 @@ const (
 	// On NixOS and most systemd distros this is the standard path.
 	DefaultNetworkDir = "/etc/systemd/network"
 
-	// FilePrefix is prepended to all D-PlaneOS-managed files.
+	// FilePrefix is prepended to all DPlaneOS-managed files.
 	// Chosen to sort after NixOS-generated files (10-, 20-) but before
 	// any manual overrides (90-).
 	FilePrefix = "50-dplane-"
 )
 
-// Writer manages D-PlaneOS network configuration files in the networkd directory.
+// Writer manages DPlaneOS network configuration files in the networkd directory.
 type Writer struct {
 	mu         sync.Mutex
 	dir        string // /etc/systemd/network
@@ -122,7 +122,7 @@ func (w *Writer) SetStatic(iface, cidr, gateway string, dns []string) error {
 	}
 
 	var sb strings.Builder
-	sb.WriteString("# Managed by D-PlaneOS - do not edit by hand\n")
+	sb.WriteString("# Managed by DPlaneOS - do not edit by hand\n")
 	sb.WriteString("# Changes made via web UI. Delete this file to revert to NixOS defaults.\n\n")
 	sb.WriteString("[Match]\n")
 	sb.WriteString(fmt.Sprintf("Name=%s\n\n", iface))
@@ -152,7 +152,7 @@ func (w *Writer) SetDHCP(iface string, dns []string) error {
 	return w.SetStatic(iface, "", "", dns)
 }
 
-// RemoveInterface deletes the D-PlaneOS network config for an interface.
+// RemoveInterface deletes the DPlaneOS network config for an interface.
 // After removal, NixOS's own config (or networkd defaults) take over.
 func (w *Writer) RemoveInterface(iface string) error {
 	if err := validateIface(iface); err != nil {
@@ -184,7 +184,7 @@ func (w *Writer) SetVLAN(iface, parent string, vid int, cidr string, dns []strin
 
 	// 1. .netdev file - creates the VLAN device
 	netdev := fmt.Sprintf(
-		"# Managed by D-PlaneOS\n\n[NetDev]\nName=%s\nKind=vlan\n\n[VLAN]\nId=%d\n",
+		"# Managed by DPlaneOS\n\n[NetDev]\nName=%s\nKind=vlan\n\n[VLAN]\nId=%d\n",
 		iface, vid,
 	)
 	netdevFile := FilePrefix + sanitizeIface(parent) + "." + fmt.Sprintf("%d", vid) + ".netdev"
@@ -196,7 +196,7 @@ func (w *Writer) SetVLAN(iface, parent string, vid int, cidr string, dns []strin
 	// We use a dropin approach: write a companion .network file that adds the VLAN
 	// without conflicting with the parent's existing .network file.
 	parentAttach := fmt.Sprintf(
-		"# Managed by D-PlaneOS - attaches VLAN %d to %s\n\n[Match]\nName=%s\n\n[Network]\nVLAN=%s\n",
+		"# Managed by DPlaneOS - attaches VLAN %d to %s\n\n[Match]\nName=%s\n\n[Network]\nVLAN=%s\n",
 		vid, parent, parent, iface,
 	)
 	parentFile := FilePrefix + sanitizeIface(parent) + "-vlan" + fmt.Sprintf("%d", vid) + ".network"
@@ -206,7 +206,7 @@ func (w *Writer) SetVLAN(iface, parent string, vid int, cidr string, dns []strin
 
 	// 3. VLAN interface .network - IP config for the VLAN itself
 	var ifNet strings.Builder
-	ifNet.WriteString("# Managed by D-PlaneOS\n\n")
+	ifNet.WriteString("# Managed by DPlaneOS\n\n")
 	ifNet.WriteString("[Match]\n")
 	ifNet.WriteString(fmt.Sprintf("Name=%s\n\n", iface))
 	ifNet.WriteString("[Network]\n")
@@ -229,7 +229,7 @@ func (w *Writer) SetVLAN(iface, parent string, vid int, cidr string, dns []strin
 	return w.reload()
 }
 
-// RemoveVLAN deletes all D-PlaneOS files for a VLAN.
+// RemoveVLAN deletes all DPlaneOS files for a VLAN.
 func (w *Writer) RemoveVLAN(iface, parent string, vid int) error {
 	files := []string{
 		FilePrefix + sanitizeIface(parent) + "." + fmt.Sprintf("%d", vid) + ".netdev",
@@ -271,7 +271,7 @@ func (w *Writer) SetBond(name string, slaves []string, mode string, cidr string,
 
 	// 1. Bond .netdev - creates the bond device
 	netdev := fmt.Sprintf(
-		"# Managed by D-PlaneOS\n\n[NetDev]\nName=%s\nKind=bond\n\n[Bond]\nMode=%s\n",
+		"# Managed by DPlaneOS\n\n[NetDev]\nName=%s\nKind=bond\n\n[Bond]\nMode=%s\n",
 		name, ndMode,
 	)
 	if err := w.writeFile(FilePrefix+"bond-"+sanitizeIface(name)+".netdev", netdev); err != nil {
@@ -280,7 +280,7 @@ func (w *Writer) SetBond(name string, slaves []string, mode string, cidr string,
 
 	// 2. Bond .network - IP configuration
 	var bondNet strings.Builder
-	bondNet.WriteString("# Managed by D-PlaneOS\n\n")
+	bondNet.WriteString("# Managed by DPlaneOS\n\n")
 	bondNet.WriteString("[Match]\n")
 	bondNet.WriteString(fmt.Sprintf("Name=%s\n\n", name))
 	bondNet.WriteString("[Network]\n")
@@ -302,7 +302,7 @@ func (w *Writer) SetBond(name string, slaves []string, mode string, cidr string,
 	// 3. Slave .network files - bind each slave to the bond
 	for _, slave := range slaves {
 		slaveNet := fmt.Sprintf(
-			"# Managed by D-PlaneOS - slave of bond %s\n\n[Match]\nName=%s\n\n[Network]\nBond=%s\n",
+			"# Managed by DPlaneOS - slave of bond %s\n\n[Match]\nName=%s\n\n[Network]\nBond=%s\n",
 			name, slave, name,
 		)
 		slaveFile := FilePrefix + sanitizeIface(slave) + "-slave-" + sanitizeIface(name) + ".network"
@@ -314,7 +314,7 @@ func (w *Writer) SetBond(name string, slaves []string, mode string, cidr string,
 	return w.reload()
 }
 
-// RemoveBond deletes all D-PlaneOS files for a bond and its slaves.
+// RemoveBond deletes all DPlaneOS files for a bond and its slaves.
 func (w *Writer) RemoveBond(name string, slaves []string) error {
 	files := []string{
 		FilePrefix + "bond-" + sanitizeIface(name) + ".netdev",
@@ -350,7 +350,7 @@ func (w *Writer) SetGlobalDNS(servers []string) error {
 	}
 
 	var sb strings.Builder
-	sb.WriteString("# Managed by D-PlaneOS - do not edit by hand\n\n")
+	sb.WriteString("# Managed by DPlaneOS - do not edit by hand\n\n")
 	sb.WriteString("[Resolve]\n")
 	sb.WriteString(fmt.Sprintf("DNS=%s\n", strings.Join(servers, " ")))
 	sb.WriteString("FallbackDNS=1.1.1.1 8.8.8.8\n")
@@ -374,7 +374,7 @@ func (w *Writer) SetGlobalDNS(servers []string) error {
 // ── List managed files ────────────────────────────────────────────────────────
 
 // ListManagedFiles returns all files in the networkd directory that were
-// written by D-PlaneOS (those with the FilePrefix prefix).
+// written by DPlaneOS (those with the FilePrefix prefix).
 func (w *Writer) ListManagedFiles() ([]string, error) {
 	entries, err := os.ReadDir(w.dir)
 	if err != nil {

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# D-PlaneOS Installer
+# DPlaneOS Installer
 # ─────────────────────────────────────────────────────────────────────────────
 # TUI installer - mirrors the TrueNAS SCALE installation flow.
-# Works fully offline: the ISO contains the complete D-PlaneOS closure.
+# Works fully offline: the ISO contains the complete DPlaneOS closure.
 #
 # Flow:
 #   1. Welcome screen
@@ -67,7 +67,7 @@ show_welcome() {
         "$(gum style --foreground "$DIM_COLOR" \
             "Infrastructure Control Plane  •  v${DPLANEOS_VERSION}")" \
         "$(gum style --foreground "$DIM_COLOR" \
-            "AGPLv3  •  github.com/4nonX/D-PlaneOS")"
+            "AGPLv3  •  github.com/4nonX/DPlaneOS")"
 
     echo ""
     ACTION=$(gum choose \
@@ -75,12 +75,12 @@ show_welcome() {
         --header.foreground "$TITLE_COLOR" \
         --selected.foreground "$TITLE_COLOR" \
         --cursor.foreground "$BORDER_COLOR" \
-        "Install D-PlaneOS" \
+        "Install DPlaneOS" \
         "Shell" \
         "Reboot")
 
     case "$ACTION" in
-        "Install D-PlaneOS") do_install ;;
+        "Install DPlaneOS") do_install ;;
         "Shell")             exec bash ;;
         "Reboot")            reboot ;;
     esac
@@ -91,7 +91,7 @@ select_disk() {
     gum style --foreground "$TITLE_COLOR" --bold --margin "1 0 0 1" \
         "Step 1 of 4 - Select boot disk"
     gum style --foreground "$DIM_COLOR" --margin "0 0 1 1" \
-        "This disk will hold the D-PlaneOS operating system (A/B slots + persistent state)." \
+        "This disk will hold the DPlaneOS operating system (A/B slots + persistent state)." \
         "Your data disks are NOT touched here - ZFS pools are created after install."
 
     local disk_list=()
@@ -149,7 +149,7 @@ set_admin_password() {
     gum style --foreground "$TITLE_COLOR" --bold --margin "1 0 0 1" \
         "Step 2 of 4 - Administrator password"
     gum style --foreground "$DIM_COLOR" --margin "0 0 1 1" \
-        "This password is used to log into the D-PlaneOS web interface." \
+        "This password is used to log into the DPlaneOS web interface." \
         "Minimum 8 characters. Must contain upper, lower, digit, and symbol."
 
     while true; do
@@ -259,7 +259,7 @@ progress_step() {
 run_install() {
     clear
     gum style --foreground "$TITLE_COLOR" --bold --margin "1 0 1 1" \
-        "Installing D-PlaneOS v${DPLANEOS_VERSION}..."
+        "Installing DPlaneOS v${DPLANEOS_VERSION}..."
 
     local patched_disko="/tmp/disko-install.nix"
     sed "s|device = \"/dev/nvme0n1\"|device = \"${INSTALL_DISK}\"|g" \
@@ -300,7 +300,7 @@ run_install() {
             "Installing system (online - fetching from binary cache)..." \
             "nixos-install \
                 --root /mnt \
-                --flake 'github:4nonX/D-PlaneOS#dplaneos' \
+                --flake 'github:4nonX/DPlaneOS#dplaneos' \
                 --no-root-passwd \
                 --no-channel-copy"
     fi
@@ -335,7 +335,7 @@ show_complete() {
         --margin "1" \
         --align center \
         "$(gum style --foreground "$SUCCESS_COLOR" --bold \
-            "✓  D-PlaneOS Installed Successfully")" \
+            "✓  DPlaneOS Installed Successfully")" \
         "" \
         "Open a browser on any device in your network and go to:" \
         "" \

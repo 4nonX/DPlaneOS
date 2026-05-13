@@ -1,4 +1,4 @@
-# D-PlaneOS Recovery Guide
+# DPlaneOS Recovery Guide
 
 ## Quick Reference
 

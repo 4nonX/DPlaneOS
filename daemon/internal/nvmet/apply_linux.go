@@ -10,7 +10,7 @@ import (
 	"strings"
 )
 
-// Apply wipes D-PlaneOS-managed nvmet objects and applies exports (empty slice clears target config).
+// Apply wipes DPlaneOS-managed nvmet objects and applies exports (empty slice clears target config).
 func Apply(exports []Export) error {
 	if err := modprobe(); err != nil {
 		return err

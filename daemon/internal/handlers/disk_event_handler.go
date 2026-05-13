@@ -1,6 +1,6 @@
 package handlers
 
-// disk_event_handler.go - D-PlaneOS disk lifecycle events
+// disk_event_handler.go - DPlaneOS disk lifecycle events
 //
 // POST /api/internal/disk-event
 //

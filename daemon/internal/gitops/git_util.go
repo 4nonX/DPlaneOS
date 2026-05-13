@@ -83,7 +83,7 @@ func CommitAndPush(dir string, env []string, commitMessage string, name, email, 
 		branch = "main"
 	}
 	if name == "" {
-		name = "D-PlaneOS"
+		name = "DPlaneOS"
 	}
 	if email == "" {
 		email = "dplaneos@localhost"
@@ -162,11 +162,11 @@ func EnsureRepoRootDir(dir string, remoteURL string, branch string, env []string
 	}
 
 	// Configure local identity for future commits
-	cmdutil.RunFastInDir(dir, "git", "config", "user.name", "D-PlaneOS")
+	cmdutil.RunFastInDir(dir, "git", "config", "user.name", "DPlaneOS")
 	cmdutil.RunFastInDir(dir, "git", "config", "user.email", "dplaneos@localhost")
 
 	// Initial empty commit to create the branch
-	if _, err := cmdutil.RunFastInDir(dir, "git", "commit", "--allow-empty", "-m", "init: repository initialized via D-PlaneOS"); err != nil {
+	if _, err := cmdutil.RunFastInDir(dir, "git", "commit", "--allow-empty", "-m", "init: repository initialized via DPlaneOS"); err != nil {
 		log.Printf("GIT-UTIL: initial commit failed (might already have content): %v", err)
 	}
 	if _, err := cmdutil.RunFastInDir(dir, "git", "branch", "-M", branch); err != nil {

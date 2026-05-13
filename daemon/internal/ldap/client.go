@@ -31,7 +31,7 @@ type Config struct {
 	Timeout            int      `json:"timeout"` // seconds
 }
 
-// GroupMapping maps LDAP groups to D-PlaneOS roles
+// GroupMapping maps LDAP groups to DPlaneOS roles
 type GroupMapping struct {
 	LDAPGroup string `json:"ldap_group"`
 	RoleID    int    `json:"role_id"`
@@ -260,7 +260,7 @@ func (c *Client) TestConnection() error {
 	return nil
 }
 
-// MapGroupsToRoles maps LDAP groups to D-PlaneOS roles
+// MapGroupsToRoles maps LDAP groups to DPlaneOS roles
 func (c *Client) MapGroupsToRoles(groups []string) []int {
 	var roleIDs []int
 	roleMap := make(map[int]bool) // Deduplicate

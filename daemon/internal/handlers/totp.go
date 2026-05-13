@@ -30,7 +30,7 @@ func NewTOTPHandler(db *sql.DB) *TOTPHandler {
 }
 
 const (
-	totpIssuer     = "D-PlaneOS"
+	totpIssuer     = "DPlaneOS"
 	totpDigits     = 6
 	totpPeriod     = 30 // seconds
 	numBackupCodes = 8

@@ -1,6 +1,6 @@
 package handlers
 
-// disk_registry.go - D-PlaneOS disk lifecycle registry
+// disk_registry.go - DPlaneOS disk lifecycle registry
 //
 // Provides a persistent PostgreSQL-backed store for every disk the system has ever
 // seen.  Records survive across reboots, pool imports, and disk replacements,

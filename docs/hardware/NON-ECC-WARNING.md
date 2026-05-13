@@ -1,4 +1,4 @@
-# D-PlaneOS on Non-ECC Hardware
+# DPlaneOS on Non-ECC Hardware
 
 ## The Core Issue
 
@@ -41,7 +41,7 @@ Not all flips hit active data. Most hit unused memory or data that is immediatel
 
 ---
 
-## What D-PlaneOS Does to Reduce Exposure
+## What DPlaneOS Does to Reduce Exposure
 
 ### ZFS ARC Limit
 
