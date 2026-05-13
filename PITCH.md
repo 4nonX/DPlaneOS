@@ -60,6 +60,8 @@ This is not a partial claim. Every layer of the stack has a native, integrated m
 
 From kernel to container, the entire system has one source of truth. A single Git repository that a new engineer can clone, read, and understand completely. A repository that, on its own, is sufficient to reproduce the entire fleet from scratch.
 
+The one layer Git does not touch is the data layer - and that is intentional. Raw data does not belong in Git. It belongs in ZFS, which provides the equivalent guarantee at the data level: checksums on every block, point-in-time snapshots, encrypted replication, and a full suite of built-in backup options including ZFS Send/Receive, cloud sync, cold-tier offload, and rsync. Git versions your infrastructure. ZFS versions your data. Each tool doing exactly what it was built for.
+
 ---
 
 ## The Full Stack
