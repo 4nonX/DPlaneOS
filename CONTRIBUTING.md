@@ -146,6 +146,8 @@ go build -mod=vendor \
   -o ../build/dplaned ./cmd/dplaned/
 ```
 
+The full release procedure (version bump, tag, push sequence) is documented in [.agents/workflows/release.md](.agents/workflows/release.md).
+
 ## Security Requirements for PRs
 
 All PRs touching the backend must:

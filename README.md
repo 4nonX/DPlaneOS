@@ -150,6 +150,7 @@ Browser
 |----------|---------------|
 | [Contributing](CONTRIBUTING.md) | Dev setup, project structure, coding conventions, security requirements for PRs |
 | [Codebase Diagram](docs/development/CODEBASE-DIAGRAM.md) | Mermaid diagrams: system overview, daemon internals, request lifecycle, disk event flow, auth flow |
+| [Release Workflow](.agents/workflows/release.md) | Step-by-step release procedure: version bump, build, tag, and push sequence |
 
 ### Legal
 

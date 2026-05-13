@@ -133,7 +133,22 @@ Copy that hash into `flake.nix` replacing `vendorHash = null;` and rebuild.
 | `flake.nix` | Nix flake - builds dplaned, frontend, recovery CLI |
 | `configuration.nix` | Full NixOS system config (flake version) |
 | `configuration-standalone.nix` | Standalone version (no flake) |
-| `setup-nixos.sh` | Interactive setup helper |
+| `disko.nix` | Declarative disk partitioning: ZFS pools and datasets on root |
+| `module.nix` | Core NixOS module: all packages, services, users, and firewall rules |
+| `installer.nix` | Offline-capable bootable installer ISO NixOS configuration |
+| `ha.nix` | High Availability module: Patroni, etcd, and HAProxy for PostgreSQL failover |
+| `ota-module.nix` | OTA update module: installs the update script and health-check systemd units |
+| `impermanence.nix` | Impermanence layer: declares which paths persist across reboots (ZFS-backed) |
+| `console-network-wizard.nix` | Interactive static-IP console TUI for when DHCP is not available at install time |
+| `dplane-generated.nix` | JSON-to-Nix bridge: static file written once by the installer, never modified by the daemon |
+| `hardware-configuration.nix` | Auto-generated hardware config; overridden by the installer for target hardware |
+| `patroni-witness.nix` | Minimal config for a third-node Patroni/etcd quorum witness (e.g. Raspberry Pi) |
+| `modules/samba.nix` | Samba integration NixOS module: dynamic share management via daemon |
+| `setup-nixos.sh` | Interactive setup helper: generates host ID, detects boot loader, patches flake.nix |
+| `install.sh` | First-boot installer script: partitions, formats, and installs DPlaneOS to disk |
+| `ota-update.sh` | OTA update shell script: A/B slot swap, health check, and auto-revert logic |
+| `README.md` | NixOS installation paths overview: ISO, Flake, and standalone |
+| `NIXOS-INSTALL-GUIDE.md` | Complete step-by-step install guide for NixOS beginners |
 
 ## Why NixOS for a NAS?
 

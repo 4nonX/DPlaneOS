@@ -66,10 +66,22 @@ sudo nixos-rebuild switch
 | `flake.nix` | Flake definition: packages, inputs, dev shell |
 | `configuration.nix` | NAS config (Flake version, receives packages via `specialArgs`) |
 | `configuration-standalone.nix` | NAS config (standalone, packages defined inline) |
-| `disko.nix` | Partitioning script: ZFS pools on root |
-| `setup-nixos.sh` | Setup helper: generates host ID, detects boot loader |
+| `disko.nix` | Declarative disk partitioning: ZFS pools and datasets on root |
+| `module.nix` | Core NixOS module: all packages, services, users, and firewall rules |
+| `installer.nix` | Offline-capable bootable installer ISO NixOS configuration |
+| `ha.nix` | High Availability module: Patroni, etcd, and HAProxy for PostgreSQL failover |
+| `ota-module.nix` | OTA update module: installs the update script and health-check systemd units |
+| `impermanence.nix` | Impermanence layer: declares which paths persist across reboots (ZFS-backed) |
+| `console-network-wizard.nix` | Interactive static-IP console TUI for when DHCP is not available at install time |
+| `dplane-generated.nix` | JSON-to-Nix bridge: static file written once by the installer, never modified by the daemon |
+| `hardware-configuration.nix` | Auto-generated hardware config; overridden by the installer for target hardware |
+| `patroni-witness.nix` | Minimal config for a third-node Patroni/etcd quorum witness (e.g. Raspberry Pi) |
+| `modules/samba.nix` | Samba integration NixOS module: dynamic share management via daemon |
+| `setup-nixos.sh` | Setup helper: generates host ID, detects boot loader, patches flake.nix |
+| `install.sh` | First-boot installer script: partitions, formats, and installs DPlaneOS to disk |
+| `ota-update.sh` | OTA update shell script: A/B slot swap, health check, and auto-revert logic |
 | `NIXOS-INSTALL-GUIDE.md` | Complete step-by-step guide for beginners |
-| `NIXOS-README.md` | Technical reference, rollback, security details |
+| `NIXOS-README.md` | Technical reference: rollback, licensing, impermanence, advanced options |
 
 ## Documentation
 

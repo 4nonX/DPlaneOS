@@ -8,3 +8,6 @@ result-*
 *~
 .vscode/
 .idea/
+
+# Temp files
+find_results*.txt
