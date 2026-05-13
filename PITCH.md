@@ -52,15 +52,23 @@ When something breaks, you know exactly what changed, on which node, and when. W
 
 This is not a partial claim. Every layer of the stack has a native, integrated mechanism for declaring its state in Git. Not bolted on. Not optional. Not "most things."
 
-**The OS layer** - NixOS. The kernel version, kernel modules, system services, firewall rules, users, network configuration: all declared in the flake. Checked in. In Git. Changing the kernel is a one-line commit. Rolling it back is a revert.
+**The OS layer:** NixOS. The kernel version, kernel modules, system services, firewall rules, users, network configuration: all declared in the flake. Checked in. In Git. Changing the kernel is a one-line commit. Rolling it back is a revert.
 
-**The state layer** - DPlaneOS configuration. Storage pools, datasets, shares, container definitions, network topology: reconciled from Git. The daemon reads the repo and makes the system match it. Always.
+**The state layer:** DPlaneOS configuration. Storage pools, datasets, shares, container definitions, network topology: reconciled from Git. The daemon reads the repo and makes the system match it. Always.
 
-**The app layer** - Docker Compose. Every container your fleet runs, its configuration, its dependencies, its version: in Git. Not in a proprietary catalog. In a plain text file in your repository, the same as every other piece of your infrastructure.
+**The app layer:** Docker Compose. Every container your fleet runs, its configuration, its dependencies, its version: in Git. Not in a proprietary catalog. In a plain text file in your repository, the same as every other piece of your infrastructure.
 
 From kernel to container, the entire system has one source of truth. A single Git repository that a new engineer can clone, read, and understand completely. A repository that, on its own, is sufficient to reproduce the entire fleet from scratch.
 
-The one layer Git does not touch is the data layer - and that is intentional. Raw data does not belong in Git. It belongs in ZFS, which provides the equivalent guarantee at the data level: checksums on every block, point-in-time snapshots, encrypted replication, and a full suite of built-in backup options including ZFS Send/Receive, cloud sync, cold-tier offload, and rsync. Git versions your infrastructure. ZFS versions your data. Each tool doing exactly what it was built for.
+**The one layer Git does not touch is the data layer, and that is intentional.** Raw data does not belong in Git. It belongs in ZFS, which provides the equivalent guarantee at the data level: checksums on every block, point-in-time snapshots, and native encryption at rest. For backup and replication, DPlaneOS ships every option built in:
+
+- **ZFS snapshots:** automatic, tiered schedules (every 15 minutes, hourly, daily, weekly, monthly), retained and expired without manual intervention
+- **ZFS Send/Receive:** efficient incremental replication to any other ZFS system, local or remote, over SSH
+- **Cloud sync:** rclone-backed sync to any S3-compatible store, Backblaze B2, Google Drive, or any of the 40+ providers rclone supports
+- **Cold-tier offload:** move aged data to lower-cost storage automatically, keeping hot data local
+- **rsync:** for replication to non-ZFS targets when needed
+
+Git versions your infrastructure. ZFS versions your data. Each tool doing exactly what it was built for.
 
 ---
 
@@ -72,7 +80,7 @@ Every layer is declarative, version-controlled, and rollback-safe:
 |-------|------------|---------------|
 | **OS** | NixOS | Every node is cryptographically identical to every other node in its class. Not "we tried to keep them consistent." Byte-identical. Guaranteed. The system boots from the same derivation every time, on every node. |
 | **Apps** | Docker Compose | Any `docker-compose.yml`, from any source. Not an approved catalog. Not a Helm chart waiting on a vendor's update cycle. The entire Docker ecosystem, deployed through the same Git workflow as everything else, immediately, without gatekeeping. |
-| **Data** | ZFS | Checksums on every block. Snapshots at every layer. Compression and encryption by default. Data integrity is not a configuration option. |
+| **Data** | ZFS + built-in backup | Checksums on every block. Snapshots, replication, cloud sync, and cold-tier offload built in. Data integrity and recovery are not configuration options. |
 | **Database** | Patroni + etcd | Enterprise-grade PostgreSQL HA, automatic failover, built in. |
 | **Architecture** | x86_64 + ARM64 | Graviton and Ampere fleets supported from day one. |
 
@@ -99,4 +107,4 @@ Your storage fleet, managed with the same tools and discipline as your applicati
 
 **Open source. AGPLv3. Production today.**
 
-[Get started](docs/admin/INSTALLATION-GUIDE.md) - [Architecture](docs/reference/ARCHITECTURE.md) - [GitOps Reference](docs/reference/GITOPS-REFERENCE.md) - [Design Philosophy](docs/reference/PHILOSOPHY.md)
+[Get started](docs/admin/INSTALLATION-GUIDE.md) | [Architecture](docs/reference/ARCHITECTURE.md) | [GitOps Reference](docs/reference/GITOPS-REFERENCE.md) | [Design Philosophy](docs/reference/PHILOSOPHY.md)
