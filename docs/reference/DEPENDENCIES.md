@@ -1,4 +1,4 @@
-# D-PlaneOS Dependencies
+# DPlaneOS Dependencies
 
 All Go and frontend dependencies are bundled in the release tarball. Only system-level tools need to be installed separately.
 
@@ -73,7 +73,7 @@ All packages are pinned via the flake lockfile. Versions are reproducible across
 | Node.js 20+ | Rebuild the frontend from source |
 | gcc / CGO | Required for ZFS interop |
 
-Pre-built binaries are included in the release tarball. Go and Node.js are not needed to install or run D-PlaneOS.
+Pre-built binaries are included in the release tarball. Go and Node.js are not needed to install or run DPlaneOS.
 
 ---
 
@@ -81,7 +81,7 @@ Pre-built binaries are included in the release tarball. Go and Node.js are not n
 
 ```bash
 #!/bin/bash
-echo "=== D-PlaneOS Dependency Check ==="
+echo "=== DPlaneOS Dependency Check ==="
 
 check() {
     printf "%-20s" "$1:"

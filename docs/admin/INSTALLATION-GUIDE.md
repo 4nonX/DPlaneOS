@@ -1,6 +1,6 @@
-# D-PlaneOS Installation Guide
+# DPlaneOS Installation Guide
 
-D-PlaneOS is a NixOS appliance. Installation means booting the ISO and answering a handful of prompts - the system builds itself from a pre-baked closure with no internet required.
+DPlaneOS is a NixOS appliance. Installation means booting the ISO and answering a handful of prompts - the system builds itself from a pre-baked closure with no internet required.
 
 For a full walkthrough aimed at users who have never touched NixOS, see [NixOS Install Guide](../../nixos/NIXOS-INSTALL-GUIDE.md).
 
@@ -30,13 +30,13 @@ For a full walkthrough aimed at users who have never touched NixOS, see [NixOS I
 
 ECC RAM is strongly recommended for ZFS at any scale. ZFS protects data against on-disk corruption but cannot detect corruption that originates in RAM before a write. ECC hardware closes this gap entirely.
 
-D-PlaneOS detects ECC presence via `dmidecode` at startup and shows an advisory notice on the dashboard if non-ECC RAM is found. See [NON-ECC-WARNING.md](../hardware/NON-ECC-WARNING.md) for a detailed risk assessment.
+DPlaneOS detects ECC presence via `dmidecode` at startup and shows an advisory notice on the dashboard if non-ECC RAM is found. See [NON-ECC-WARNING.md](../hardware/NON-ECC-WARNING.md) for a detailed risk assessment.
 
 ### Supported Platform
 
 - **NixOS** (NixOS 25.11, Linux 6.6 LTS, OpenZFS 2.3 LTS) - the only supported platform
 
-D-PlaneOS is a NixOS appliance. For context on why this is intentional, see [NixOS Rationale](../reference/NIXOS-RATIONALE.md). For information on running D-PlaneOS on other Linux distributions, see [Porting Guide](../reference/PORTING-GUIDE.md).
+DPlaneOS is a NixOS appliance. For context on why this is intentional, see [NixOS Rationale](../reference/NIXOS-RATIONALE.md). For information on running DPlaneOS on other Linux distributions, see [Porting Guide](../reference/PORTING-GUIDE.md).
 
 ---
 
@@ -113,7 +113,7 @@ sudo systemctl status dplaned
 # nginx
 sudo systemctl status nginx
 
-# All D-PlaneOS units
+# All DPlaneOS units
 systemctl list-units 'dplaneos-*' 'dplaned*'
 
 # Database
@@ -123,7 +123,7 @@ sudo -u postgres psql dplaneos -c "SELECT count(*) FROM roles;"
 
 ### HTTPS (Recommended)
 
-HTTPS is configured via the D-PlaneOS web UI under Settings - TLS. The daemon provisions certificates via the ACME protocol (Let's Encrypt by default).
+HTTPS is configured via the DPlaneOS web UI under Settings - TLS. The daemon provisions certificates via the ACME protocol (Let's Encrypt by default).
 
 For internal-only deployments, a self-signed certificate can be generated from the same settings page.
 
@@ -135,7 +135,7 @@ The NixOS module opens TCP 80 and 443 by default (`services.dplaneos.openFirewal
 
 ## OTA Upgrades
 
-D-PlaneOS uses an A/B slot upgrade system. The installed system receives updates via the OTA mechanism:
+DPlaneOS uses an A/B slot upgrade system. The installed system receives updates via the OTA mechanism:
 
 ```bash
 sudo dplaneos-ota-update
@@ -153,7 +153,7 @@ sudo nixos-rebuild switch --flake github:4nonX/D-PlaneOS#dplaneos
 
 ## Uninstall / Reinstall
 
-There is no partial uninstall path. D-PlaneOS is the OS. To remove it, reinstall a different operating system on the boot disk.
+There is no partial uninstall path. DPlaneOS is the OS. To remove it, reinstall a different operating system on the boot disk.
 
 ZFS data pools on separate disks are not affected by reinstalling the boot disk. Import them after reinstalling:
 

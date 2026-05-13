@@ -1,6 +1,6 @@
-# Porting D-PlaneOS to Other Linux Distributions
+# Porting DPlaneOS to Other Linux Distributions
 
-D-PlaneOS is a NixOS appliance. This document is for contributors or organisations that want to fork the project and run the D-PlaneOS daemon on a different Linux distribution. It describes what is portable, what requires rebuilding from scratch, and what you will lose compared to the NixOS appliance.
+DPlaneOS is a NixOS appliance. This document is for contributors or organisations that want to fork the project and run the DPlaneOS daemon on a different Linux distribution. It describes what is portable, what requires rebuilding from scratch, and what you will lose compared to the NixOS appliance.
 
 This is not a supported path. No official packages, installer scripts, or support exist for non-NixOS platforms. This document exists to give forks a realistic starting point.
 
@@ -36,7 +36,7 @@ The daemon initialises its own schema on first connect. Any PostgreSQL 15+ insta
 
 ## What You Must Build
 
-If you want D-PlaneOS on Debian, Ubuntu, RHEL, or any other distribution, you are responsible for everything the NixOS appliance provides declaratively. That is roughly the following.
+If you want DPlaneOS on Debian, Ubuntu, RHEL, or any other distribution, you are responsible for everything the NixOS appliance provides declaratively. That is roughly the following.
 
 ### 1. System Package Installation
 
@@ -100,7 +100,7 @@ The NixOS appliance mounts `/` as tmpfs and persists only declared paths. On a t
 
 ## Licensing
 
-D-PlaneOS is licensed under the [GNU Affero General Public License v3.0](../../LICENSE) (AGPLv3). Any fork that operates the modified software as a network service - even internally - must make the modified source available to users of that service. This applies to the daemon, the frontend, and any NixOS modules.
+DPlaneOS is licensed under the [GNU Affero General Public License v3.0](../../LICENSE) (AGPLv3). Any fork that operates the modified software as a network service - even internally - must make the modified source available to users of that service. This applies to the daemon, the frontend, and any NixOS modules.
 
 Forks must:
 

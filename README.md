@@ -32,7 +32,7 @@ dd if=dplaneos-v*.iso of=/dev/sdX bs=4M status=progress conv=fsync
 
 1. Boot the target machine from USB
 2. The installer launches automatically - enter disk, hostname, SSH key
-3. D-PlaneOS is installed and running within minutes
+3. DPlaneOS is installed and running within minutes
 4. Open `http://<your-server-ip>/` - change the admin password on first login
 
 **Download:** [Latest release](https://github.com/4nonX/D-PlaneOS/releases/latest) - grab `dplaneos-v*-installer-amd64.iso`
@@ -115,8 +115,8 @@ Browser
 |----------|---------------|
 | [Changelog](docs/reference/CHANGELOG.md) | Full version history |
 | [Error Reference](docs/reference/ERROR-REFERENCE.md) | Every HTTP error code the API returns, with cause and fix |
-| [NixOS Rationale](docs/reference/NIXOS-RATIONALE.md) | Why D-PlaneOS is NixOS-exclusive and how it leverages NixOS primitives |
-| [Porting Guide](docs/reference/PORTING-GUIDE.md) | Forking D-PlaneOS for other Linux distributions - what it takes, what you lose |
+| [NixOS Rationale](docs/reference/NIXOS-RATIONALE.md) | Why DPlaneOS is NixOS-exclusive and how it leverages NixOS primitives |
+| [Porting Guide](docs/reference/PORTING-GUIDE.md) | Forking DPlaneOS for other Linux distributions - what it takes, what you lose |
 | [Showstopper Mitigation Guide](docs/reference/SHOWSTOPPER-MITIGATION-GUIDE.md) | Honest assessment of HA limits, binary-trust, resolved vs open issues |
 | [Threat Model](docs/reference/THREAT-MODEL.md) | Security architecture, all 13 threat scenarios, mitigations, residual risks, known gaps |
 | [Dependencies](docs/reference/DEPENDENCIES.md) | All bundled Go and frontend deps, system requirements, build instructions |

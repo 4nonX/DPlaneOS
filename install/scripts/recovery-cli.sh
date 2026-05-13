@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# D-PlaneOS Recovery CLI
+# DPlaneOS Recovery CLI
 # 
 # Emergency system recovery tool for when web UI is unavailable.
 # Can be run from SSH or console (TTY).
@@ -35,7 +35,7 @@ DIALOG_ESC=255
 
 show_main_menu() {
     while true; do
-        choice=$(dialog --clear --title "D-PlaneOS Recovery CLI" \
+        choice=$(dialog --clear --title "DPlaneOS Recovery CLI" \
             --menu "Select an option:" 22 60 15 \
             1 "System Status" \
             2 "Check Services" \
@@ -95,7 +95,7 @@ RAM Total: $(free -h | awk '/^Mem:/{print $2}')
 RAM Used: $(free -h | awk '/^Mem:/{print $3}')
 Disk Used: $(df -h / | awk 'NR==2{print $5}')
 
-D-PlaneOS:
+DPlaneOS:
 ----------
 Installation: $([ -d /opt/dplaneos ] && echo "Found" || echo "Not found")
 Database: $([ -f /var/lib/dplaneos/dplaneos.db ] && echo "Found" || echo "Not found")

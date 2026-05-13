@@ -1,6 +1,6 @@
-# Why D-PlaneOS is NixOS-Exclusive
+# Why DPlaneOS is NixOS-Exclusive
 
-D-PlaneOS is not a daemon that happens to run on NixOS. It is a NixOS appliance - the operating system itself is part of the product. This document explains which NixOS primitives D-PlaneOS relies on and why they make storage operating systems categorically more reliable.
+DPlaneOS is not a daemon that happens to run on NixOS. It is a NixOS appliance - the operating system itself is part of the product. This document explains which NixOS primitives DPlaneOS relies on and why they make storage operating systems categorically more reliable.
 
 ---
 
@@ -8,11 +8,11 @@ D-PlaneOS is not a daemon that happens to run on NixOS. It is a NixOS appliance 
 
 A NAS is only as trustworthy as the system underneath it. Traditional Linux distributions leave most of that system undefined: packages are installed imperatively, configuration files accumulate over time, and the exact system state that was running six months ago is unrecoverable. NixOS eliminates this class of problem by making the entire system declarative.
 
-Every component D-PlaneOS builds on - ZFS, PostgreSQL, Samba, Docker, the firewall, systemd units, kernel modules, kernel parameters - is declared in the flake and reproduced exactly on every build. The same `git clone` on different hardware produces the same running system.
+Every component DPlaneOS builds on - ZFS, PostgreSQL, Samba, Docker, the firewall, systemd units, kernel modules, kernel parameters - is declared in the flake and reproduced exactly on every build. The same `git clone` on different hardware produces the same running system.
 
 ---
 
-## NixOS Primitives D-PlaneOS Uses
+## NixOS Primitives DPlaneOS Uses
 
 ### Declarative System State
 
@@ -28,7 +28,7 @@ For a NAS operator this means: if you can restore your `configuration.nix` and i
 - Every boot starts from a known-good declared state
 - The difference between "what was declared" and "what is running" is always zero after a reboot
 
-D-PlaneOS persists exactly what it needs - database state, ZFS daemon config, gitops state, logs - and nothing else.
+DPlaneOS persists exactly what it needs - database state, ZFS daemon config, gitops state, logs - and nothing else.
 
 ### Flakes and Reproducible Builds
 
@@ -58,7 +58,7 @@ This is only possible because NixOS generations are immutable store paths. There
 
 ### NixOS Module System
 
-`nixos/module.nix` declares `services.dplaneos` as a proper NixOS option namespace. Operators configure D-PlaneOS the same way they configure any other NixOS service - in `configuration.nix`, with type-checked options, assertions, and `nixos-rebuild` applying the result atomically. There are no config files to hand-edit, no service restart scripts to run.
+`nixos/module.nix` declares `services.dplaneos` as a proper NixOS option namespace. Operators configure DPlaneOS the same way they configure any other NixOS service - in `configuration.nix`, with type-checked options, assertions, and `nixos-rebuild` applying the result atomically. There are no config files to hand-edit, no service restart scripts to run.
 
 Options include: listen address/port, database DSN, SSH authorized keys, NVIDIA GPU support, Cold Tier mount path, HA clustering, and OTA health-check timing.
 
@@ -68,7 +68,7 @@ All installed software lives in `/nix/store/<hash>-<name>`. Two versions of the 
 
 ### ZFS Integration
 
-NixOS has first-class ZFS support: `boot.supportedFilesystems`, `boot.zfs.package`, `services.zfs.autoScrub`, `services.zfs.trim`, ZED (ZFS Event Daemon) configuration - all declared. D-PlaneOS pins the kernel to Linux 6.6 LTS and ZFS to the 2.3 LTS branch, with NixOS assertions that fail the build if either pin drifts:
+NixOS has first-class ZFS support: `boot.supportedFilesystems`, `boot.zfs.package`, `services.zfs.autoScrub`, `services.zfs.trim`, ZED (ZFS Event Daemon) configuration - all declared. DPlaneOS pins the kernel to Linux 6.6 LTS and ZFS to the 2.3 LTS branch, with NixOS assertions that fail the build if either pin drifts:
 
 ```nix
 assertions = [
@@ -97,4 +97,4 @@ A misconfigured ZFS/kernel combination is a build error, not a runtime surprise.
 
 ## The Feedback Loop
 
-Building D-PlaneOS as a NixOS appliance imposes a discipline that benefits users directly: every feature must work within the NixOS module system, every system dependency must be declared, and every upgrade path must go through the OTA mechanism. Features that require manual system intervention cannot exist. This forces the right design choices rather than leaving them as optional best practices.
+Building DPlaneOS as a NixOS appliance imposes a discipline that benefits users directly: every feature must work within the NixOS module system, every system dependency must be declared, and every upgrade path must go through the OTA mechanism. Features that require manual system intervention cannot exist. This forces the right design choices rather than leaving them as optional best practices.

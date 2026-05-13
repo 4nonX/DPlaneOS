@@ -1,4 +1,4 @@
-# D-PlaneOS Administrator Guide
+# DPlaneOS Administrator Guide
 
 Complete reference for system administration, storage management, sharing protocols, and identity management.
 
@@ -137,7 +137,7 @@ sudo crontab -e
 
 ### File Explorer
 
-D-PlaneOS includes a web-based file explorer accessible via the **Files** navigation item.
+DPlaneOS includes a web-based file explorer accessible via the **Files** navigation item.
 
 - **Navigation**: Browse datasets and directories in real-time.
 - **Uploads**: Supports large, chunked multi-gigabyte uploads directly to the server.
@@ -279,7 +279,7 @@ sudo zpool import tank   # import by name
 
 **Hardened Execution Whitelist (v6.1.0):** The daemon uses a strict, "sentence-based" allowlist for all system commands (`zfs`, `zpool`, `ufw`, etc.). This means only predefined, safe command structures are allowed. Modification of critical ZFS properties (like `mountpoint`, `quota`, `atime`) and firewall rules is restricted to validated patterns to prevent accidental or malicious system disruption. In v6.1.0, disk operations like `zpool attach` and `zpool replace` are strictly validated against `by-id` paths and pool membership.
 
-**Path Normalization:** D-PlaneOS is now fully path-agnostic. It no longer relies on hardcoded absolute paths (`/usr/bin/`, `/bin/`) for key binaries, instead using the system's `PATH` for resolution. This ensures full compatibility with NixOS, Debian, and other specialized Linux distributions.
+**Path Normalization:** DPlaneOS is fully path-agnostic. It does not rely on hardcoded absolute paths (`/usr/bin/`, `/bin/`) for key binaries, instead using the system's `PATH` for resolution. On NixOS this is essential as binaries live under `/nix/store`.
 
 **Allowed Base Paths:** File operations (create, delete, rename, chown, chmod) are restricted to a defined set of "safe" base paths:
 - `/mnt/*` (Main storage pools)
@@ -326,7 +326,7 @@ sudo -u postgres psql dplaneos -c "SELECT r.name FROM roles r \
 
 ### Group to Role Mapping
 
-| AD Group | D-PlaneOS Role | Access Level |
+| AD Group | DPlaneOS Role | Access Level |
 |----------|----------------|--------------|
 | `IT_Admins` | Administrator | Full system access |
 | `Storage_Team` | Operator | Storage, Docker, Shares |
@@ -337,7 +337,7 @@ To add a mapping: click **Add Mapping**, enter the LDAP group name, select the r
 
 ### Authentication Model
 
-D-PlaneOS uses **directory-sourced user provisioning with local authentication**. This is intentionally different from live LDAP auth:
+DPlaneOS uses **directory-sourced user provisioning with local authentication**. This is intentionally different from live LDAP auth:
 
 - Users are **synced from the directory** into the local database (`POST /api/ldap/sync`), with group-to-role mappings applied at sync time.
 - At login, synced users authenticate via **LDAP bind** - the daemon connects to the directory server and verifies credentials in real time.
@@ -346,7 +346,7 @@ D-PlaneOS uses **directory-sourced user provisioning with local authentication**
 
 This model gives you directory-controlled access without making the management UI dependent on directory availability.
 
-> **Note:** Unlike TrueNAS Scale and Unraid, which only use LDAP/AD for SMB share authentication, D-PlaneOS uses LDAP credentials to authenticate web UI logins for directory-sourced accounts.
+> **Note:** Unlike TrueNAS Scale and Unraid, which only use LDAP/AD for SMB share authentication, DPlaneOS uses LDAP credentials to authenticate web UI logins for directory-sourced accounts.
 
 ### Sync vs Live Auth
 

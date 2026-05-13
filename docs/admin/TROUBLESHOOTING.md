@@ -1,4 +1,4 @@
-# D-PlaneOS Troubleshooting Guide
+# DPlaneOS Troubleshooting Guide
 
 ---
 
@@ -44,7 +44,7 @@ CGO_ENABLED=1 go build -mod=vendor \
 The release tarball for the current version is at:
 `https://github.com/4nonX/D-PlaneOS/releases/latest`
 
-**Fix:** D-PlaneOS uses PostgreSQL. To move the data directory, follow standard PostgreSQL/Patroni procedures or update the mountpoint for `/var/lib/dplaneos/pgsql`.
+**Fix:** DPlaneOS uses PostgreSQL. To move the data directory, follow standard PostgreSQL/Patroni procedures or update the mountpoint for `/var/lib/dplaneos/pgsql`.
 
 ### ZED Hook Not Installed
 
@@ -190,7 +190,7 @@ docker pull <image-name>
 
 **Cause:** The browser has cached old JavaScript/CSS bundles from the previous version. The frontend assets use content-hash filenames (e.g. `index-Cx-Q8_77.js`) - after an upgrade, the old cached bundle references files that no longer exist.
 
-**Note:** There is no service worker in D-PlaneOS. This is a plain browser cache issue.
+**Note:** There is no service worker in DPlaneOS. This is a plain browser cache issue.
 
 **Fix:**
 
@@ -556,7 +556,7 @@ sudo journalctl -u dplaned -f
 sudo journalctl -u nginx -f
 sudo tail -f /var/log/nginx/error.log
 
-# D-PlaneOS application log
+# DPlaneOS application log
 sudo tail -f /var/log/dplaneos/error.log
 ```
 

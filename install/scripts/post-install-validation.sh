@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# D-PlaneOS - Post-Install Validation (Debian/Ubuntu only)
+# DPlaneOS - Post-Install Validation (Debian/Ubuntu only)
 # Called automatically at the end of install.sh
 #
 
@@ -14,7 +14,7 @@ WARNINGS=0
 
 VERSION="$(cat "$(dirname "$0")/../VERSION" 2>/dev/null | tr -d '[:space:]' || echo "?")"
 echo ""
-echo -e "${BOLD}${BLUE}D-PlaneOS v${VERSION} - Post-Install Validation${NC}"
+echo -e "${BOLD}${BLUE}DPlaneOS v${VERSION} - Post-Install Validation${NC}"
 echo "==========================================="
 echo ""
 
@@ -200,7 +200,7 @@ if [ $ERRORS -eq 0 ] && [ $WARNINGS -eq 0 ]; then
 elif [ $ERRORS -eq 0 ]; then
     echo -e "${BOLD}${YELLOW}? $WARNINGS warning(s) - installation successful${NC}"
     echo ""
-    echo "  Warnings are non-critical. D-PlaneOS is fully operational."
+    echo "  Warnings are non-critical. DPlaneOS is fully operational."
     echo "  Access: http://$(hostname -I | awk '{print $1}')"
     echo ""
     exit 0
