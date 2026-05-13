@@ -15,6 +15,10 @@ import (
 	"dplaned/internal/gitops"
 )
 
+// Routes added in this file (declarative capture - v10.0):
+//   POST /api/gitops/capture          - snapshot live state into state.yaml
+//   GET  /api/gitops/managed-summary  - per-category resource counts (git vs live)
+
 // ═══════════════════════════════════════════════════════════════════════════════
 //  GITOPS HTTP HANDLER  (Phase 3)
 //
@@ -617,6 +621,144 @@ func planSummary(plan *gitops.Plan) map[string]interface{} {
 		"safe_to_apply":   plan.SafeToApply && !plan.HasAmbiguous,
 	}
 }
+
+// ── POST /api/gitops/capture ──────────────────────────────────────────────────
+
+// Capture reads current live state for the requested categories and merges it into
+// state.yaml, replacing only those sections. Categories not listed are left intact.
+//
+// Body: { "categories": ["nfs", "smb", "users", "groups", "stacks", "replication", "system"] }
+func (h *GitOpsHandler) Capture(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		respondErrorSimple(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		Categories []string `json:"categories"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid request body", err)
+		return
+	}
+	if len(req.Categories) == 0 {
+		respondErrorSimple(w, "categories is required", http.StatusBadRequest)
+		return
+	}
+	for _, c := range req.Categories {
+		if !gitops.ValidCategories[c] {
+			respondErrorSimple(w, fmt.Sprintf("unknown category %q - valid: nfs, smb, users, groups, stacks, replication, system", c), http.StatusBadRequest)
+			return
+		}
+	}
+
+	// Read live system state (the same source used by the diff engine)
+	live, err := gitops.ReadLiveState(h.db)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "cannot read live state", err)
+		return
+	}
+
+	// Load existing state.yaml so we preserve sections not being captured
+	existing := &gitops.DesiredState{Version: "1"}
+	if content, readErr := os.ReadFile(h.stateYAMLPath); readErr == nil {
+		if parsed, parseErr := gitops.ParseStateYAML(string(content)); parseErr == nil {
+			existing = parsed
+		}
+	}
+
+	// Convert live → desired for requested categories, then overlay onto existing
+	captured := gitops.CaptureCategories(live, req.Categories)
+	merged := gitops.MergeCapture(existing, captured, req.Categories)
+
+	// Ensure version is set
+	if merged.Version == "" {
+		merged.Version = "1"
+	}
+
+	newYAML := gitops.PrintStateYAML(merged)
+
+	// Validate before writing - fail closed
+	if _, err := gitops.ParseStateYAML(newYAML); err != nil {
+		respondError(w, http.StatusInternalServerError, "generated YAML failed validation", err)
+		return
+	}
+
+	// Write atomically
+	if err := os.MkdirAll(filepath.Dir(h.stateYAMLPath), 0755); err != nil {
+		respondError(w, http.StatusInternalServerError, "cannot create state directory", err)
+		return
+	}
+	tmp := h.stateYAMLPath + ".tmp"
+	if err := os.WriteFile(tmp, []byte(newYAML), 0644); err != nil {
+		respondError(w, http.StatusInternalServerError, "write failed", err)
+		return
+	}
+	if err := os.Rename(tmp, h.stateYAMLPath); err != nil {
+		os.Remove(tmp)
+		respondError(w, http.StatusInternalServerError, "rename failed", err)
+		return
+	}
+
+	log.Printf("GITOPS CAPTURE: categories=%v bytes=%d", req.Categories, len(newYAML))
+	go h.detector.CheckNow()
+
+	summary := gitops.SummarizeManagedResources(merged, live)
+	respondOK(w, map[string]interface{}{
+		"success":    true,
+		"captured":   req.Categories,
+		"summary":    summary,
+		"bytes":      len(newYAML),
+		"message":    fmt.Sprintf("Captured %d category(s) into state.yaml - drift check triggered", len(req.Categories)),
+	})
+}
+
+// ── GET /api/gitops/managed-summary ──────────────────────────────────────────
+
+// ManagedSummary returns per-category resource counts: how many are tracked in
+// state.yaml (in_git) versus how many exist on the live system (live).
+// Used by the UI to show capture status per category.
+func (h *GitOpsHandler) ManagedSummary(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		respondErrorSimple(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var desired *gitops.DesiredState
+	if content, err := os.ReadFile(h.stateYAMLPath); err == nil {
+		desired, _ = gitops.ParseStateYAML(string(content))
+	}
+
+	live, err := gitops.ReadLiveState(h.db)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "cannot read live state", err)
+		return
+	}
+
+	respondOK(w, map[string]interface{}{
+		"success": true,
+		"summary": gitops.SummarizeManagedResources(desired, live),
+	})
+}
+
+// ── OnRepoSynced (called by git-sync auto-worker) ────────────────────────────
+
+// OnRepoSynced is invoked by the git-sync auto-sync worker after a successful pull.
+// If the synced repo is the configured state.yaml repo, an immediate drift check
+// is triggered so the UI reflects the new desired state without waiting for the
+// 5-minute DriftDetector tick.
+func (h *GitOpsHandler) OnRepoSynced(repoID int64) {
+	var configuredRepoID sql.NullInt64
+	if err := h.db.QueryRow(`SELECT repo_id FROM gitops_config WHERE id = 1`).Scan(&configuredRepoID); err != nil {
+		return
+	}
+	if configuredRepoID.Valid && configuredRepoID.Int64 == repoID {
+		log.Printf("GITOPS: state.yaml repo synced (repo_id=%d) - triggering drift check", repoID)
+		go h.detector.CheckNow()
+	}
+}
+
+// ── defaultStateYAML ─────────────────────────────────────────────────────────
 
 // defaultStateYAML returns a valid empty starter when no state.yaml exists yet.
 // Operators add pools using real /dev/disk/by-id/ paths from this machine (e.g. GET /api/system/disks).

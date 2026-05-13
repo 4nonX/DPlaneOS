@@ -613,6 +613,8 @@ func main() {
 	r.Handle("/api/docker/compose/status", permRoute("docker", "read", dockerHandler.ComposeStatus)).Methods("GET")
 	r.Handle("/api/docker/images", permRoute("docker", "read", dockerHandler.ListImages)).Methods("GET")
 	r.Handle("/api/docker/images/{id}", permRoute("docker", "write", dockerHandler.RemoveImage)).Methods("DELETE")
+	r.Handle("/api/docker/containers/{id}/inspect", permRoute("docker", "read", dockerHandler.InspectContainer)).Methods("GET")
+	r.Handle("/api/docker/containers/{id}/reconfigure", permRoute("docker", "write", dockerHandler.ReconfigureContainer)).Methods("POST")
 
 	// v3.0.0: ZFS Snapshots CRUD
 	snapshotCRUDHandler := handlers.NewZFSSnapshotHandler()
@@ -712,7 +714,9 @@ func main() {
 	r.Handle("/api/git-sync/repos/browse", permRoute("system", "read", gitReposHandler.BrowseFiles)).Methods("GET")
 	r.Handle("/api/git-sync/credentials/branches", permRoute("system", "read", gitReposHandler.ListBranches)).Methods("GET")
 	r.Handle("/api/git-sync/repos/export", permRoute("system", "admin", gitReposHandler.ExportToRepo)).Methods("POST")
+	r.Handle("/api/git-sync/repos/status", permRoute("system", "read", gitReposHandler.StatusRepo)).Methods("GET")
 	gitSyncHandler.StartAutoSync()
+	gitReposHandler.StartAutoSync()
 
 	// v5.1: Compose stack management
 	stackHandler := handlers.NewStackHandler(db)
@@ -722,6 +726,10 @@ func main() {
 	r.Handle("/api/docker/stacks/yaml", permRoute("docker", "write", stackHandler.UpdateStackYAML)).Methods("PUT")
 	r.Handle("/api/docker/stacks", permRoute("docker", "write", stackHandler.DeleteStack)).Methods("DELETE")
 	r.Handle("/api/docker/stacks/action", permRoute("docker", "write", stackHandler.StackAction)).Methods("POST")
+	r.Handle("/api/docker/stacks/stream", permRoute("docker", "write", stackHandler.StreamStackAction)).Methods("GET")
+	r.Handle("/api/docker/stacks/logs/stream", permRoute("docker", "read", stackHandler.StreamStackLogs)).Methods("GET")
+	r.Handle("/api/docker/stacks/services/action", permRoute("docker", "write", stackHandler.ServiceAction)).Methods("POST")
+	r.HandleFunc("/ws/docker/exec", handlers.ExecContainer)
 	r.Handle("/api/docker/convert-run", permRoute("docker", "write", stackHandler.ConvertDockerRun)).Methods("POST")
 
 	// v5.1: Multi-stack templates
@@ -766,6 +774,11 @@ func main() {
 	r.Handle("/api/gitops/settings", permRoute("system", "read", gitopsHandler.GetSettings)).Methods("GET")
 	r.Handle("/api/gitops/settings", permRoute("system", "admin", gitopsHandler.UpdateSettings)).Methods("PUT")
 	r.Handle("/api/gitops/sync", permRoute("system", "admin", gitopsHandler.SyncNow)).Methods("POST")
+	r.Handle("/api/gitops/capture", permRoute("system", "admin", gitopsHandler.Capture)).Methods("POST")
+	r.Handle("/api/gitops/managed-summary", permRoute("system", "read", gitopsHandler.ManagedSummary)).Methods("GET")
+
+	// Wire git-sync auto-sync callback so a state.yaml pull triggers an immediate drift check
+	gitReposHandler.SetRepoSyncedCallback(gitopsHandler.OnRepoSynced)
 
 	// v3.0.0: Zombie disk watcher
 	zombieHandler := handlers.NewZombieWatcherHandler()

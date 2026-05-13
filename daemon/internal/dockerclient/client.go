@@ -12,6 +12,7 @@ package dockerclient
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -61,6 +62,23 @@ func (c *Client) get(ctx context.Context, path string, query url.Values) (*http.
 	if err != nil {
 		return nil, err
 	}
+	return c.http.Do(req)
+}
+
+func (c *Client) postJSON(ctx context.Context, path string, query url.Values, body interface{}) (*http.Response, error) {
+	u := "http://docker/" + apiVersion + path
+	if len(query) > 0 {
+		u += "?" + query.Encode()
+	}
+	b, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u, bytes.NewReader(b))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
 	return c.http.Do(req)
 }
 
@@ -534,6 +552,59 @@ func (c *Client) Remove(ctx context.Context, id string, force bool, removeVolume
 		return nil // already gone
 	}
 	return expectOK(resp)
+}
+
+// ─────────────────────────────────────────────
+//  Container Create
+// ─────────────────────────────────────────────
+
+// PortBinding is a single host-port binding inside CreateHostConfig.PortBindings.
+type PortBinding struct {
+	HostIP   string `json:"HostIp,omitempty"`
+	HostPort string `json:"HostPort"`
+}
+
+// RestartPolicySpec is the restart policy inside CreateHostConfig.
+type RestartPolicySpec struct {
+	Name              string `json:"Name"`
+	MaximumRetryCount int    `json:"MaximumRetryCount,omitempty"`
+}
+
+// CreateHostConfig is the HostConfig body for POST /containers/create.
+type CreateHostConfig struct {
+	Binds         []string                   `json:"Binds,omitempty"`
+	PortBindings  map[string][]PortBinding   `json:"PortBindings,omitempty"`
+	RestartPolicy RestartPolicySpec          `json:"RestartPolicy"`
+	NanoCpus      int64                      `json:"NanoCpus,omitempty"`
+	Memory        int64                      `json:"Memory,omitempty"`
+}
+
+// CreateConfig is the full body for POST /containers/create.
+type CreateConfig struct {
+	Image      string            `json:"Image"`
+	Env        []string          `json:"Env,omitempty"`
+	Labels     map[string]string `json:"Labels,omitempty"`
+	HostConfig CreateHostConfig  `json:"HostConfig"`
+}
+
+// Create creates a container and returns its ID.
+func (c *Client) Create(ctx context.Context, name string, cfg CreateConfig) (string, error) {
+	q := url.Values{}
+	if name != "" {
+		q.Set("name", name)
+	}
+	resp, err := c.postJSON(ctx, "/containers/create", q, cfg)
+	if err != nil {
+		return "", fmt.Errorf("docker create: %w", err)
+	}
+	var result struct {
+		ID       string   `json:"Id"`
+		Warnings []string `json:"Warnings"`
+	}
+	if err := decodeJSON(resp, &result); err != nil {
+		return "", fmt.Errorf("docker create decode: %w", err)
+	}
+	return result.ID, nil
 }
 
 // PruneResult holds space reclaimed by a prune operation.

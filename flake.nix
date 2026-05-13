@@ -1,5 +1,5 @@
 {
-  description = "D-PlaneOS v5.0 : NAS Operating System (Appliance Build)";
+  description = "D-PlaneOS v10.0 : NAS Operating System (Appliance Build)";
 
   # ── Inputs ─────────────────────────────────────────────────────────────────
   #

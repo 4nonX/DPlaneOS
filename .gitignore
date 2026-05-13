@@ -79,6 +79,13 @@ $RECYCLE.BIN/
 *.swo
 *~
 
+# ── Claude Code local config ──────────────────────────────────────────────────
+.claude/
+
+# ── Graphify knowledge-graph output ──────────────────────────────────────────
+graphify-out/
+.graphify_python
+
 # ── Logs ─────────────────────────────────────────────────────────────────────
 *.log
 logs/

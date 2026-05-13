@@ -22,11 +22,19 @@ import (
 
 // GitReposHandler manages multiple git-sync repositories (Arcane-style multi-repo)
 type GitReposHandler struct {
-	db *sql.DB
+	db            *sql.DB
+	onRepoSynced  func(repoID int64) // called after each successful auto-sync pull
 }
 
 func NewGitReposHandler(db *sql.DB) *GitReposHandler {
 	return &GitReposHandler{db: db}
+}
+
+// SetRepoSyncedCallback registers a function to be called after each successful
+// auto-sync pull. The GitOps handler uses this to trigger an immediate drift check
+// when the state.yaml repo is updated.
+func (h *GitReposHandler) SetRepoSyncedCallback(fn func(repoID int64)) {
+	h.onRepoSynced = fn
 }
 
 // ─────────────────────────────────────────────
@@ -875,5 +883,173 @@ func validateComposePath(localPath, composePath string) (string, error) {
 		return "", fmt.Errorf("compose_path escapes repository directory (path traversal attempt)")
 	}
 	return full, nil
+}
+
+// ─────────────────────────────────────────────
+//  StatusRepo - GET /api/git-sync/repos/status?id=N
+//  Fetches the remote and returns how many commits HEAD is behind, plus
+//  recent local commits and a short branch status line.
+// ─────────────────────────────────────────────
+
+func (h *GitReposHandler) StatusRepo(w http.ResponseWriter, r *http.Request) {
+	idStr := r.URL.Query().Get("id")
+	repo, err := h.loadRepo(idStr)
+	if err != nil {
+		respondJSON(w, 404, map[string]interface{}{"success": false, "error": "Repo not found"})
+		return
+	}
+
+	if _, err := os.Stat(filepath.Join(repo.LocalPath, ".git")); err != nil {
+		respondJSON(w, 200, map[string]interface{}{
+			"success": true,
+			"cloned":  false,
+			"message": "Repository not cloned yet - pull first",
+		})
+		return
+	}
+
+	env := gitops.BuildPushEnvForRepoID(h.db, int64(repo.ID))
+	defer gitops.CleanupAskpass()
+
+	// Fetch remote to update tracking refs (needed for accurate behind count)
+	runGitInDir(repo.LocalPath, env, "fetch", "origin", repo.Branch)
+
+	behindOut, _ := runGitInDir(repo.LocalPath, nil,
+		"rev-list", fmt.Sprintf("HEAD..origin/%s", repo.Branch), "--count")
+	behindCount := strings.TrimSpace(behindOut)
+
+	logOut, _ := runGitInDir(repo.LocalPath, nil, "log", "--oneline", "-5")
+	var recentCommits []string
+	for _, line := range strings.Split(strings.TrimSpace(logOut), "\n") {
+		if line != "" {
+			recentCommits = append(recentCommits, line)
+		}
+	}
+	if recentCommits == nil {
+		recentCommits = []string{}
+	}
+
+	statusOut, _ := runGitInDir(repo.LocalPath, nil, "status", "-sb")
+	branchStatus := ""
+	if parts := strings.SplitN(statusOut, "\n", 2); len(parts) > 0 {
+		branchStatus = strings.TrimSpace(parts[0])
+	}
+
+	respondJSON(w, 200, map[string]interface{}{
+		"success":        true,
+		"cloned":         true,
+		"behind_count":   behindCount,
+		"behind":         behindCount != "0" && behindCount != "",
+		"recent_commits": recentCommits,
+		"branch_status":  branchStatus,
+	})
+}
+
+// ─────────────────────────────────────────────
+//  Auto-sync background worker for multi-repo
+// ─────────────────────────────────────────────
+
+type repoAutoSync struct {
+	id           int
+	name         string
+	repoURL      string
+	branch       string
+	localPath    string
+	composePath  string
+	syncInterval int
+	lastSyncAt   string
+}
+
+// StartAutoSync starts the background polling loop for all repos that have
+// auto_sync enabled. It fires every minute and syncs any repo whose
+// sync_interval has elapsed since its last successful sync.
+func (h *GitReposHandler) StartAutoSync() {
+	go func() {
+		ticker := time.NewTicker(1 * time.Minute)
+		defer ticker.Stop()
+		for range ticker.C {
+			h.runAutoSyncCycle()
+		}
+	}()
+}
+
+func (h *GitReposHandler) runAutoSyncCycle() {
+	rows, err := h.db.Query(`SELECT id, name, repo_url, branch, local_path, compose_path,
+		sync_interval,
+		COALESCE(TO_CHAR(last_sync_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), '')
+		FROM git_sync_repos
+		WHERE enabled=1 AND auto_sync=1`)
+	if err != nil {
+		log.Printf("GIT-REPOS: Auto-sync query failed: %v", err)
+		return
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var repo repoAutoSync
+		if err := rows.Scan(&repo.id, &repo.name, &repo.repoURL, &repo.branch,
+			&repo.localPath, &repo.composePath, &repo.syncInterval, &repo.lastSyncAt); err != nil {
+			continue
+		}
+		if repo.lastSyncAt != "" {
+			lastSync, parseErr := time.Parse(time.RFC3339, repo.lastSyncAt)
+			if parseErr == nil && time.Since(lastSync) < time.Duration(repo.syncInterval)*time.Minute {
+				continue
+			}
+		}
+		h.autoSyncOne(repo)
+	}
+}
+
+func (h *GitReposHandler) autoSyncOne(repo repoAutoSync) {
+	log.Printf("GIT-REPOS: Auto-sync starting for %s", repo.name)
+
+	env := gitops.BuildPushEnvForRepoID(h.db, int64(repo.id))
+	defer gitops.CleanupAskpass()
+
+	os.MkdirAll(filepath.Dir(repo.localPath), 0755)
+
+	var syncErr error
+	if err := gitops.EnsureRepoRootDir(repo.localPath, repo.repoURL, repo.branch, env); err != nil {
+		syncErr = err
+	} else {
+		out, err := cmdutil.RunInDirWithEnv(cmdutil.TimeoutMedium, repo.localPath, env,
+			"git", "pull", "--rebase", "origin", repo.branch)
+		if err != nil {
+			syncErr = fmt.Errorf("%s", strings.TrimSpace(string(out)))
+		}
+	}
+
+	if syncErr != nil {
+		h.db.Exec(`UPDATE git_sync_repos SET last_error=$1, last_sync_at=NOW() WHERE id=$2`,
+			syncErr.Error(), repo.id)
+		log.Printf("GIT-REPOS: Auto-sync failed for %s: %v", repo.name, syncErr)
+		return
+	}
+
+	commit := getHeadCommit(repo.localPath)
+	h.db.Exec(`UPDATE git_sync_repos SET last_sync_at=NOW(), last_commit=$1, last_error='' WHERE id=$2`,
+		commit, repo.id)
+	log.Printf("GIT-REPOS: Auto-sync complete for %s - %s", repo.name, commit)
+
+	// Notify GitOps handler so it can trigger a drift check if this is the state.yaml repo
+	if h.onRepoSynced != nil {
+		go h.onRepoSynced(int64(repo.id))
+	}
+
+	// Run compose up if the file exists
+	composeFull, pathErr := validateComposePath(repo.localPath, repo.composePath)
+	if pathErr != nil {
+		return
+	}
+	if _, err := os.Stat(composeFull); err != nil {
+		return
+	}
+	if out, err := cmdutil.RunSlow("docker", "compose", "-f", composeFull,
+		"up", "-d", "--remove-orphans"); err != nil {
+		log.Printf("GIT-REPOS: Auto-deploy failed for %s: %v - %s", repo.name, err, string(out))
+	} else {
+		log.Printf("GIT-REPOS: Auto-deployed %s", repo.name)
+	}
 }
 
