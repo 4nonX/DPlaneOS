@@ -1,6 +1,6 @@
 # DPlaneOS
 
-ZFS-first NAS operating system for homelab and small-office deployments. Runs as a single Go daemon behind nginx, backed by PostgreSQL, with a React UI served locally - no cloud dependencies, no mandatory subscriptions.
+ZFS-first NAS operating system for homelab and small-office deployments. Runs as a single Go daemon behind nginx, backed by PostgreSQL, with a React UI served locally, no cloud dependencies, no mandatory subscriptions.
 
 [![Version](https://img.shields.io/github/v/release/4nonX/DPlaneOS?style=flat-square&label=version)](https://github.com/4nonX/DPlaneOS/releases/latest)
 [![License](https://img.shields.io/badge/license-AGPLv3-blue?style=flat-square)](https://github.com/4nonX/DPlaneOS/blob/main/LICENSE)
