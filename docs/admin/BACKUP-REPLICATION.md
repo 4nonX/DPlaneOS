@@ -103,41 +103,47 @@ zfs send -i tank/data@backup-20260501 tank/data@backup-20260509 | \
 
 ### Scheduled Remote Replication via UI
 
-Settings: Replication: Add Replication Task.
+Replication is configured through two screens under **Replication** in the nav:
 
-Required fields:
-- Source dataset
-- Remote host and port
-- Remote user (needs `zfs allow` on the remote pool - see below)
-- Remote pool path
-- SSH key path (generate with `ssh-keygen -t ed25519 -f /var/lib/dplaneos/keys/replication_ed25519`)
-- Schedule (cron expression)
-- Rate limit (MB/s, 0 for unlimited)
+**Step 1 - Add a Peer** (Replication: Peers: Add Peer)
 
-On the remote host, grant the replication user ZFS permissions without full root access:
-```bash
-# On the remote server
-sudo zfs allow replication-user compression,create,destroy,hold,mount,receive,rollback,send,snapshot backup
-```
+Enter a name, host, SSH user (default: root), and port. Then click **Authorize** and enter the host's SSH password once. The daemon installs its ed25519 replication key via the Go SSH client. The password exists only in the request buffer and is never stored. After authorization, click **Test** to confirm key-based access and ZFS readiness.
+
+For air-gapped or high-security hosts where password auth is disabled: copy the **Sovereign Target Key** shown in the Peers panel to the target's `authorized_keys` manually, then click **Test** to verify and pin the fingerprint. No password is required.
+
+**Step 2 - Create a Schedule** (Replication: Schedules: Add Schedule)
+
+| Field | Notes |
+|---|---|
+| Source dataset | The local ZFS dataset to replicate |
+| Peer | Select from authorized peers |
+| Remote pool | Destination pool/dataset on the remote (default: mirrors source name) |
+| Interval | Hourly, Daily, Weekly, or Manual only |
+| Trigger after snapshot | Run immediately after each automatic snapshot in addition to the interval |
+| Incremental | Send only changes since the last replicated snapshot (tracked automatically) |
+| Resume | Check for an interrupted transfer token before sending |
+| Compress | Enable lz4 stream compression |
+| Rate limit MB/s | Bandwidth cap via `pv` (0 = unlimited; requires `pv` installed on the source) |
+
+The background monitor fires due schedules every 5 minutes. Click **Run Now** on any schedule to trigger an immediate run regardless of interval.
 
 This is also declarable in `state.yaml` under `replication:`:
 ```yaml
 replication:
   - name: offsite
     source_dataset: tank/data
-    remote_host: backup.example.com
-    remote_user: replication
-    remote_port: 22
+    remote_id: <peer-id-from-ui>
     remote_pool: backup
-    ssh_key_path: /var/lib/dplaneos/keys/replication_ed25519
-    interval: "0 2 * * *"
+    interval: daily
     trigger_on_snapshot: true
+    incremental: true
+    resume: true
     compress: true
     rate_limit_mb: 100
     enabled: true
 ```
 
-`trigger_on_snapshot: true` means replication runs immediately after each automatic snapshot, rather than only on the cron interval.
+`trigger_on_snapshot: true` means replication runs immediately after each automatic snapshot, rather than only on the configured interval.
 
 ---
 

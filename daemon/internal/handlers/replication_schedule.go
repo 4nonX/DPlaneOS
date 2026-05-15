@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"strings"
@@ -29,24 +30,24 @@ func NewReplicationScheduleHandler(db *sql.DB) *ReplicationScheduleHandler {
 // ============================================================
 
 // ReplicationSchedule defines when and how to trigger replication.
+// Connection details are resolved at runtime via RemoteID - see Remote struct.
 type ReplicationSchedule struct {
-	ID                string     `json:"id"`
-	Name              string     `json:"name"`
-	SourceDataset     string     `json:"source_dataset"`
-	RemoteID          string     `json:"remote_id"`           // references replication remote config
-	RemoteHost        string     `json:"remote_host"`         // direct host (when not using RemoteID)
-	RemoteUser        string     `json:"remote_user"`         // SSH user, default "root"
-	RemotePort        int        `json:"remote_port"`         // SSH port, default 22
-	RemotePool        string     `json:"remote_pool"`         // destination pool on remote
-	SSHKeyPath        string     `json:"ssh_key_path"`        // path to SSH private key
-	Interval          string     `json:"interval"`            // "hourly","daily","weekly","manual"
-	TriggerOnSnapshot bool       `json:"trigger_on_snapshot"` // replicate after each auto-snapshot
-	Compress          bool       `json:"compress"`
-	RateLimitMB       int        `json:"rate_limit_mb"`
-	Enabled           bool       `json:"enabled"`
-	LastRun           *time.Time `json:"last_run,omitempty"`
-	LastStatus        string     `json:"last_status,omitempty"`
-	LastJobID         string     `json:"last_job_id,omitempty"`
+	ID                     string     `json:"id"`
+	Name                   string     `json:"name"`
+	SourceDataset          string     `json:"source_dataset"`
+	RemoteID               string     `json:"remote_id"`            // references a Remote peer
+	RemotePool             string     `json:"remote_pool"`          // destination pool/dataset on the remote
+	Interval               string     `json:"interval"`             // "hourly","daily","weekly","manual"
+	TriggerOnSnapshot      bool       `json:"trigger_on_snapshot"`  // replicate after each auto-snapshot
+	Incremental            bool       `json:"incremental"`          // use -i with last replicated snapshot as base
+	Resume                 bool       `json:"resume"`               // check for resume token before sending
+	Compress               bool       `json:"compress"`
+	RateLimitMB            int        `json:"rate_limit_mb"`
+	Enabled                bool       `json:"enabled"`
+	LastRun                *time.Time `json:"last_run,omitempty"`
+	LastStatus             string     `json:"last_status,omitempty"`
+	LastJobID              string     `json:"last_job_id,omitempty"`
+	LastReplicatedSnapshot string     `json:"last_replicated_snapshot,omitempty"` // set on success, used as incremental base
 }
 
 // replSchedMu guards in-memory schedule list and the on-disk JSON file.
@@ -103,12 +104,12 @@ func (h *ReplicationScheduleHandler) HandleCreateReplicationSchedule(w http.Resp
 	}
 
 	// Validate
-	if !isValidDataset(s.SourceDataset) {
-		respondErrorSimple(w, "Invalid source_dataset", http.StatusBadRequest)
-		return
-	}
 	if s.Name == "" {
 		respondErrorSimple(w, "name is required", http.StatusBadRequest)
+		return
+	}
+	if !isValidDataset(s.SourceDataset) {
+		respondErrorSimple(w, "Invalid source_dataset", http.StatusBadRequest)
 		return
 	}
 	validIntervals := map[string]bool{"hourly": true, "daily": true, "weekly": true, "manual": true}
@@ -116,11 +117,13 @@ func (h *ReplicationScheduleHandler) HandleCreateReplicationSchedule(w http.Resp
 		respondErrorSimple(w, "interval must be hourly, daily, weekly, or manual", http.StatusBadRequest)
 		return
 	}
-	if s.RemoteUser == "" {
-		s.RemoteUser = "root"
+	if s.RemoteID == "" {
+		respondErrorSimple(w, "remote_id is required - create a peer first", http.StatusBadRequest)
+		return
 	}
-	if s.RemotePort == 0 {
-		s.RemotePort = 22
+	if _, err := ResolveRemoteByID(s.RemoteID); err != nil {
+		respondErrorSimple(w, "Peer not found: "+err.Error(), http.StatusBadRequest)
+		return
 	}
 
 	// Generate unique ID
@@ -187,13 +190,17 @@ func (h *ReplicationScheduleHandler) HandleUpdateReplicationSchedule(w http.Resp
 				}
 				schedules[i].Interval = req.Interval
 			}
-			schedules[i].RemoteID = req.RemoteID
-			schedules[i].RemoteHost = req.RemoteHost
-			schedules[i].RemoteUser = req.RemoteUser
-			schedules[i].RemotePort = req.RemotePort
+			if req.RemoteID != "" {
+				if _, err := ResolveRemoteByID(req.RemoteID); err != nil {
+					respondErrorSimple(w, "Peer not found: "+err.Error(), http.StatusBadRequest)
+					return
+				}
+				schedules[i].RemoteID = req.RemoteID
+			}
 			schedules[i].RemotePool = req.RemotePool
-			schedules[i].SSHKeyPath = req.SSHKeyPath
 			schedules[i].TriggerOnSnapshot = req.TriggerOnSnapshot
+			schedules[i].Incremental = req.Incremental
+			schedules[i].Resume = req.Resume
 			schedules[i].Compress = req.Compress
 			schedules[i].RateLimitMB = req.RateLimitMB
 			schedules[i].Enabled = req.Enabled
@@ -305,83 +312,128 @@ func (h *ReplicationScheduleHandler) HandleRunReplicationScheduleNow(w http.Resp
 }
 
 // launchReplicationJob starts an async replication job and returns the job ID.
+// It resolves the peer at runtime, verifies authorization and TCP reachability,
+// then executes the ZFS send pipeline.
 func launchReplicationJob(s ReplicationSchedule) string {
 	return jobs.Start("replication_schedule", func(j *jobs.Job) {
-		// Find the latest snapshot for the source dataset
-		snapOutput, err := executeCommandWithTimeout(TimeoutFast, "zfs",
-			[]string{"list", "-t", "snapshot", "-H", "-o", "name", "-s", "creation", "-r", s.SourceDataset})
+		// Step 1: Resolve peer
+		if s.RemoteID == "" {
+			j.Fail("No peer configured for this schedule - edit the schedule and select a peer")
+			updateScheduleStatus(s.ID, "failed", j.ID, "")
+			return
+		}
+		remote, err := ResolveRemoteByID(s.RemoteID)
 		if err != nil {
-			j.Fail(fmt.Sprintf("Failed to list snapshots for %s: %v", s.SourceDataset, err))
-			updateScheduleStatus(s.ID, "failed", j.ID)
+			j.Fail(fmt.Sprintf("Peer not found (%s): %v", s.RemoteID, err))
+			updateScheduleStatus(s.ID, "failed", j.ID, "")
+			return
+		}
+
+		// Step 2: Verify the replication key has been installed on this peer
+		if !remote.KeyInstalled {
+			j.Fail(fmt.Sprintf("Peer %q is not authorized - open the Peers tab and click Authorize", remote.Name))
+			updateScheduleStatus(s.ID, "failed", j.ID, "")
+			return
+		}
+
+		// Step 3: Quick TCP reachability check before the expensive ZFS send
+		dialAddr := net.JoinHostPort(remote.Host, fmt.Sprintf("%d", remote.Port))
+		conn, dialErr := net.DialTimeout("tcp", dialAddr, 5*time.Second)
+		if dialErr != nil {
+			j.Fail(fmt.Sprintf("Peer %q unreachable at %s: %v", remote.Name, dialAddr, dialErr))
+			updateScheduleStatus(s.ID, "failed", j.ID, "")
+			return
+		}
+		conn.Close()
+
+		// Step 4: Find the newest snapshot for the source dataset
+		snapOutput, snapErr := executeCommandWithTimeout(TimeoutFast, "zfs",
+			[]string{"list", "-t", "snapshot", "-H", "-o", "name", "-s", "creation", "-r", s.SourceDataset})
+		if snapErr != nil {
+			j.Fail(fmt.Sprintf("Failed to list snapshots for %s: %v", s.SourceDataset, snapErr))
+			updateScheduleStatus(s.ID, "failed", j.ID, "")
 			return
 		}
 
 		lines := strings.Split(strings.TrimSpace(snapOutput), "\n")
 		if len(lines) == 0 || lines[0] == "" {
-			j.Fail(fmt.Sprintf("No snapshots found for dataset %s", s.SourceDataset))
-			updateScheduleStatus(s.ID, "failed", j.ID)
+			j.Fail(fmt.Sprintf("No snapshots found for dataset %s - create a snapshot first", s.SourceDataset))
+			updateScheduleStatus(s.ID, "failed", j.ID, "")
 			return
 		}
-		// Use the last (newest) snapshot
 		snapshot := strings.TrimSpace(lines[len(lines)-1])
 
-		host := s.RemoteHost
-		user := s.RemoteUser
-		if user == "" {
-			user = "root"
-		}
-		port := s.RemotePort
-		if port == 0 {
-			port = 22
-		}
 		remotePool := s.RemotePool
 		if remotePool == "" {
 			remotePool = s.SourceDataset
 		}
 
-		// Validate before using in exec args
 		if !isValidSnapshotName(snapshot) {
 			j.Fail("Invalid snapshot name: " + snapshot)
-			updateScheduleStatus(s.ID, "failed", j.ID)
+			updateScheduleStatus(s.ID, "failed", j.ID, "")
 			return
 		}
 		if !isValidDataset(remotePool) {
 			j.Fail("Invalid remote pool: " + remotePool)
-			updateScheduleStatus(s.ID, "failed", j.ID)
-			return
-		}
-		if strings.ContainsAny(host, ";|&$`\\\"'") || host == "" {
-			j.Fail("Invalid remote host")
-			updateScheduleStatus(s.ID, "failed", j.ID)
-			return
-		}
-		if !isValidSSHUser(user) {
-			j.Fail("Invalid remote user")
-			updateScheduleStatus(s.ID, "failed", j.ID)
+			updateScheduleStatus(s.ID, "failed", j.ID, "")
 			return
 		}
 
-		sshArgs := []string{
-			"-o", "StrictHostKeyChecking=accept-new",
+		// Step 5: Build SSH args using the fixed replication key path and pinned host key
+		knownHostsArgs, cleanupKH := buildKnownHostsArgs(remote)
+		defer cleanupKH()
+
+		sshArgs := append([]string{"-i", replKeyPath}, knownHostsArgs...)
+		sshArgs = append(sshArgs,
 			"-o", "ConnectTimeout=10",
 			"-o", "ServerAliveInterval=30",
 			"-o", "ServerAliveCountMax=3",
-			"-p", fmt.Sprintf("%d", port),
-		}
-		if s.SSHKeyPath != "" && !strings.ContainsAny(s.SSHKeyPath, ";|&$`\\\"'") {
-			sshArgs = append(sshArgs, "-i", s.SSHKeyPath)
-		}
-		sshTarget := fmt.Sprintf("%s@%s", user, host)
+			"-p", fmt.Sprintf("%d", remote.Port),
+		)
+		sshTarget := fmt.Sprintf("%s@%s", remote.User, remote.Host)
 
-		// Build remote dataset path
 		snapParts := strings.SplitN(snapshot, "@", 2)
 		datasetName := snapParts[0]
 		parts := strings.Split(datasetName, "/")
 		remoteDataset := remotePool + "/" + parts[len(parts)-1]
 
-		sendArgs := []string{"send", "-R"}
+		// Step 6: Check for a resume token from an interrupted prior transfer
+		if s.Resume {
+			token := getResumeToken(sshArgs, sshTarget, remoteDataset)
+			if token != "" && isValidResumeToken(token) {
+				j.Log("Found resume token - resuming interrupted transfer...")
+				_, resumeErr := execPipedZFSSend(
+					j,
+					[]string{"send", "-V", "-t", token},
+					sshArgs, sshTarget,
+					[]string{"recv", "-s", "-F", remoteDataset},
+					nil,
+				)
+				if resumeErr != nil {
+					j.Log(fmt.Sprintf("Resume failed (%v) - falling through to full send", resumeErr))
+				} else {
+					j.Done(map[string]interface{}{
+						"snapshot": snapshot,
+						"remote":   fmt.Sprintf("%s:%s", sshTarget, remoteDataset),
+						"peer":     remote.Name,
+						"resumed":  true,
+					})
+					updateScheduleStatus(s.ID, "done", j.ID, snapshot)
+					return
+				}
+			}
+		}
+
+		// Step 7: Build send args - incremental if a prior snapshot is recorded, otherwise full
+		sendArgs := []string{"send", "-P", "-R"}
 		if s.Compress {
 			sendArgs = append(sendArgs, "-c")
+		}
+		if s.Incremental && s.LastReplicatedSnapshot != "" && isValidSnapshotName(s.LastReplicatedSnapshot) {
+			sendArgs = append(sendArgs, "-i", s.LastReplicatedSnapshot)
+			j.Log(fmt.Sprintf("Incremental send: base=%s -> %s", s.LastReplicatedSnapshot, snapshot))
+		} else if s.Incremental {
+			j.Log("Incremental requested but no prior snapshot recorded - sending full stream")
 		}
 		sendArgs = append(sendArgs, snapshot)
 
@@ -389,6 +441,8 @@ func launchReplicationJob(s ReplicationSchedule) string {
 		if s.RateLimitMB > 0 {
 			rateLimit = []string{fmt.Sprintf("%dM", s.RateLimitMB)}
 		}
+
+		j.Log(fmt.Sprintf("Replicating %s -> %s:%s", snapshot, sshTarget, remoteDataset))
 
 		_, execErr := execPipedZFSSend(
 			j,
@@ -399,20 +453,21 @@ func launchReplicationJob(s ReplicationSchedule) string {
 		)
 		if execErr != nil {
 			j.Fail(fmt.Sprintf("Replication failed: %v", execErr))
-			updateScheduleStatus(s.ID, "failed", j.ID)
+			updateScheduleStatus(s.ID, "failed", j.ID, "")
 			return
 		}
 
 		j.Done(map[string]interface{}{
 			"snapshot": snapshot,
 			"remote":   fmt.Sprintf("%s:%s", sshTarget, remoteDataset),
+			"peer":     remote.Name,
 		})
-		updateScheduleStatus(s.ID, "done", j.ID)
+		updateScheduleStatus(s.ID, "done", j.ID, snapshot)
 	})
 }
 
-// updateScheduleStatus persists last status and job ID for a schedule.
-func updateScheduleStatus(schedID, status, jobID string) {
+// updateScheduleStatus persists last status, job ID, and (on success) the replicated snapshot name.
+func updateScheduleStatus(schedID, status, jobID, lastSnapshot string) {
 	schedules, err := loadReplicationSchedules()
 	if err != nil {
 		log.Printf("WARN: replication_schedule: failed to load schedules for status update: %v", err)
@@ -424,6 +479,9 @@ func updateScheduleStatus(schedID, status, jobID string) {
 			schedules[i].LastRun = &now
 			schedules[i].LastStatus = status
 			schedules[i].LastJobID = jobID
+			if lastSnapshot != "" {
+				schedules[i].LastReplicatedSnapshot = lastSnapshot
+			}
 			break
 		}
 	}

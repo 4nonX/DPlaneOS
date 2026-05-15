@@ -628,10 +628,17 @@ func main() {
 	// v3.0.0: ZFS Replication (remote send/recv)
 	replicationRemoteHandler := handlers.NewReplicationHandler()
 	r.Handle("/api/replication/remote", permRoute("storage", "write", replicationRemoteHandler.ReplicateToRemote)).Methods("POST")
-	r.Handle("/api/replication/test", permRoute("storage", "read", replicationRemoteHandler.TestRemoteConnection)).Methods("POST")
 	r.Handle("/api/replication/ssh-keygen", permRoute("storage", "admin", handlers.GenerateReplicationKey)).Methods("POST")
 	r.Handle("/api/replication/ssh-pubkey", permRoute("storage", "read", handlers.GetReplicationPubKey)).Methods("GET")
-	r.Handle("/api/replication/ssh-copy-id", permRoute("storage", "admin", handlers.CopyReplicationKey)).Methods("POST")
+
+	// v3.4.0: Replication Peers (zero-touch key distribution, ID-linked schedules)
+	remotesHandler := handlers.NewRemotesHandler(db)
+	r.Handle("/api/replication/remotes", permRoute("storage", "read", remotesHandler.HandleListRemotes)).Methods("GET")
+	r.Handle("/api/replication/remotes", permRoute("storage", "write", remotesHandler.HandleCreateRemote)).Methods("POST")
+	r.Handle("/api/replication/remotes/{id}", permRoute("storage", "write", remotesHandler.HandleUpdateRemote)).Methods("PUT")
+	r.Handle("/api/replication/remotes/{id}", permRoute("storage", "admin", remotesHandler.HandleDeleteRemote)).Methods("DELETE")
+	r.Handle("/api/replication/remotes/{id}/authorize", permRoute("storage", "admin", remotesHandler.HandleAuthorizeRemote)).Methods("POST")
+	r.Handle("/api/replication/remotes/{id}/test", permRoute("storage", "read", remotesHandler.HandleTestRemote)).Methods("POST")
 
 	// v3.0.0: ZFS Time Machine (browse snapshots, restore single files)
 	timeMachineHandler := handlers.NewZFSTimeMachineHandler()
@@ -995,11 +1002,6 @@ func main() {
 	r.Handle("/api/storage/cold-tier/{id}/mount", permRoute("storage", "write", coldTierHandler.HandleMount)).Methods("POST")
 	r.Handle("/api/storage/cold-tier/{id}/unmount", permRoute("storage", "write", coldTierHandler.HandleUnmount)).Methods("POST")
 	r.Handle("/api/storage/cold-tier/{id}/usage", permRoute("storage", "read", coldTierHandler.HandleUsage)).Methods("POST")
-
-	// Replication handlers
-	r.Handle("/api/replication/send", permRoute("storage", "admin", handlers.ZFSSend)).Methods("POST")
-	r.Handle("/api/replication/send-incremental", permRoute("storage", "admin", handlers.ZFSSendIncremental)).Methods("POST")
-	r.Handle("/api/replication/receive", permRoute("storage", "admin", handlers.ZFSReceive)).Methods("POST")
 
 	// Settings handlers
 	settingsHandler := handlers.NewSettingsHandler(db)

@@ -1,6 +1,6 @@
 # DPlaneOS - Showstopper Mitigation Guide
 
-**Updated:** 2026-03-25
+**Updated:** 2026-05-15
 **Purpose:** Honest assessment of what works, what has documented limits, and what is genuinely out of scope.
 
 ---
@@ -23,28 +23,28 @@
 
 `app/api/replication.php` does not exist. The PHP layer was replaced by the Go daemon.
 
-The implementation lives in `daemon/internal/handlers/replication_remote.go` and performs:
+The implementation lives in `daemon/internal/handlers/` and performs:
 
-- Full `zfs send | ssh zfs recv` pipe
-- Incremental sends (`-i base_snapshot`)
+- Full `zfs send | ssh zfs recv` pipe - no shell, no string interpolation, discrete argv
+- Incremental sends (`-i base_snapshot`) with last-replicated-snapshot tracking across runs
 - Compressed streams (`-c` flag)
-- Resume tokens for interrupted transfers
-- Rate limiting via `pv` (e.g. `rate_limit: "50M"` caps at 50 MB/s)
-- Input validation on all shell-bound fields (snapshot name, remote host, user, port, SSH key path)
+- Resume tokens for interrupted transfers (checked before every send when enabled)
+- Rate limiting via `pv` with graceful degraded-mode fallback when `pv` is not installed
+- Input validation on all shell-bound fields (snapshot name, dataset, host, user, port, resume token)
+- SSH host key pinning: TOFU fingerprint captured on first authorize/test, written to a per-transfer temp known_hosts file so the `ssh` binary enforces it on every ZFS send
 
-SSH connectivity can be verified before a transfer via `POST /api/replication/test`.
+SSH connectivity and ZFS readiness can be verified at any time via the Test button in the Peers tab.
 
-### What Still Requires Manual Setup
+### Setup - Fully Automated via Peers Tab
 
-SSH key distribution is not handled by the GUI. Set up key-based authentication before using GUI replication:
+SSH key distribution, host key pinning, and all connection management are handled by the GUI as of the current version. No manual shell steps are required for normal targets:
 
-```bash
-# On the source NAS
-sudo ssh-keygen -t ed25519 -f /root/.ssh/replication_key -N ""
-sudo ssh-copy-id -i /root/.ssh/replication_key.pub root@target-nas
-```
+1. **Replication > Peers > Add Peer** - name, host, SSH user, port.
+2. **Authorize** - enter the root password once. The daemon installs the replication key via the Go SSH client (no `sshpass`, no shell). The password exists only in the request buffer and is discarded immediately; it never touches disk, database, or logs.
+3. The host's SSH fingerprint is pinned (TOFU) and enforced on all future connections including the ZFS send pipeline.
+4. Click **Test** to verify key-based access and ZFS readiness. Replication runs unattended from this point.
 
-Then point the GUI's SSH key path field at `/root/.ssh/replication_key`.
+For air-gapped or high-security hosts where password authentication is disabled, copy the **Sovereign Target Key** from the Peers tab to the target's `authorized_keys` manually, then use Test to verify and pin the fingerprint. No password prompt is shown for already-authorized peers; click **Re-auth** only to rotate the key after a `ssh-keygen` regeneration.
 
 ---
 
@@ -164,7 +164,7 @@ Guaranteed by NixOS. Every node builds from a pinned flake with locked inputs (`
 | Home NAS | Ready | No caveats |
 | Homelab / learning | Ready | Ideal use case |
 | Small office (< 20 users) | Ready | PostgreSQL handles high concurrency with ease |
-| Offsite backup / replication | Ready | GUI works; SSH keys needed upfront |
+| Offsite backup / replication | Ready | Zero-touch via Peers tab; one-time password authorization, unattended thereafter |
 | Monitored active/standby | Ready | Full automatic failover with STONITH fencing, RTO ~90 seconds |
 | Security audit required | Usable | Build from source; NixOS flake guarantees reproducibility |
 | Auto-failover / 99.99% SLA | Ready | Fully implemented in v7.3.0 |
@@ -179,6 +179,12 @@ Shipped items verified in product and docs:
 | Item | Status |
 |---|---|
 | Replication (real implementation) | Done |
+| Zero-touch SSH key distribution (Peers model) | Done |
+| SSH host key pinning - TOFU, enforced in send pipeline | Done |
+| Incremental replication with tracked base snapshot | Done |
+| Resume tokens for interrupted transfers | Done |
+| Bandwidth throttling via pv (graceful degraded-mode fallback) | Done |
+| Full CRUD for Peers and Schedules | Done |
 | Native PostgreSQL HA | Done |
 | Upgrade rollback | Done |
 | Active/standby coordination layer | Done (automated failover) |

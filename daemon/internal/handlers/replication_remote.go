@@ -27,21 +27,58 @@ func NewReplicationHandler() *ReplicationHandler {
 // POST /api/replication/remote
 func (h *ReplicationHandler) ReplicateToRemote(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Snapshot    string `json:"snapshot"`     // tank/data@daily-2025-02-15
-		RemoteHost  string `json:"remote_host"`  // backup-server.local
-		RemotePort  int    `json:"remote_port"`  // 22 (default)
-		RemoteUser  string `json:"remote_user"`  // root
-		RemotePool  string `json:"remote_pool"`  // backup/nas
-		Incremental bool   `json:"incremental"`  // use -i flag
-		BaseSnap    string `json:"base_snapshot"` // for incremental: previous snapshot
-		Compressed  bool   `json:"compressed"`   // use -c flag (compressed stream)
-		SSHKey      string `json:"ssh_key_path"` // /root/.ssh/id_ed25519
-		Resume      bool   `json:"resume"`       // attempt to resume interrupted transfer
-		RateLimit   string `json:"rate_limit"`   // bandwidth limit, e.g. "50M" (50 MB/s), "1G", empty=unlimited
+		Snapshot      string `json:"snapshot"`       // tank/data@daily-2025-02-15; empty = auto-select latest
+		SourceDataset string `json:"source_dataset"` // required when snapshot is empty
+		RemoteID      string `json:"remote_id"`      // if set, peer lookup overrides host/user/port/key
+		RemoteHost    string `json:"remote_host"`
+		RemotePort    int    `json:"remote_port"`
+		RemoteUser    string `json:"remote_user"`
+		RemotePool    string `json:"remote_pool"`
+		Incremental   bool   `json:"incremental"`
+		BaseSnap      string `json:"base_snapshot"`
+		Compressed    bool   `json:"compressed"`
+		SSHKey        string `json:"ssh_key_path"`
+		Resume        bool   `json:"resume"`
+		RateLimit     string `json:"rate_limit"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		respondErrorSimple(w, "Invalid request body", http.StatusBadRequest)
 		return
+	}
+
+	// If a peer ID is provided, resolve it and populate connection fields.
+	var resolvedRemote *Remote
+	if req.RemoteID != "" {
+		r, rerr := ResolveRemoteByID(req.RemoteID)
+		if rerr != nil {
+			respondErrorSimple(w, "Peer not found: "+rerr.Error(), http.StatusBadRequest)
+			return
+		}
+		if !r.KeyInstalled {
+			respondErrorSimple(w, fmt.Sprintf("Peer %q is not authorized - open the Peers tab and click Authorize", r.Name), http.StatusBadRequest)
+			return
+		}
+		resolvedRemote = r
+		req.RemoteHost = r.Host
+		req.RemoteUser = r.User
+		req.RemotePort = r.Port
+		req.SSHKey = replKeyPath
+	}
+
+	// Auto-select the latest snapshot when the caller omits one.
+	if req.Snapshot == "" {
+		if req.SourceDataset == "" || !isValidDataset(req.SourceDataset) {
+			respondErrorSimple(w, "source_dataset is required when snapshot is not specified", http.StatusBadRequest)
+			return
+		}
+		snapOut, snapErr := executeCommandWithTimeout(TimeoutFast, "zfs",
+			[]string{"list", "-t", "snapshot", "-H", "-o", "name", "-s", "creation", "-r", req.SourceDataset})
+		if snapErr != nil || strings.TrimSpace(snapOut) == "" {
+			respondErrorSimple(w, "No snapshots found for dataset "+req.SourceDataset+" - create a snapshot first", http.StatusBadRequest)
+			return
+		}
+		lines := strings.Split(strings.TrimSpace(snapOut), "\n")
+		req.Snapshot = strings.TrimSpace(lines[len(lines)-1])
 	}
 
 	// Validate inputs
@@ -76,17 +113,6 @@ func (h *ReplicationHandler) ReplicateToRemote(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	// Build SSH args
-	sshArgs := []string{
-		"-o", "StrictHostKeyChecking=accept-new",
-		"-o", "ConnectTimeout=10",
-		"-o", "ServerAliveInterval=30",
-		"-o", "ServerAliveCountMax=3",
-		"-p", fmt.Sprintf("%d", req.RemotePort),
-	}
-	if req.SSHKey != "" && !strings.ContainsAny(req.SSHKey, ";|&$`\\\"'") {
-		sshArgs = append(sshArgs, "-i", req.SSHKey)
-	}
 	sshTarget := fmt.Sprintf("%s@%s", req.RemoteUser, req.RemoteHost)
 
 	// Extract remote dataset path
@@ -97,6 +123,25 @@ func (h *ReplicationHandler) ReplicateToRemote(w http.ResponseWriter, r *http.Re
 
 	// Start ASYNC JOB
 	jobID := jobs.Start("replication_remote", func(j *jobs.Job) {
+		// Build SSH args inside the job so the known_hosts temp file survives until ZFS send completes.
+		var sshArgs []string
+		if resolvedRemote != nil {
+			khArgs, cleanupKH := buildKnownHostsArgs(resolvedRemote)
+			defer cleanupKH()
+			sshArgs = append([]string{"-i", replKeyPath}, khArgs...)
+		} else {
+			sshArgs = []string{"-o", "StrictHostKeyChecking=accept-new"}
+			if req.SSHKey != "" && !strings.ContainsAny(req.SSHKey, ";|&$`\\\"'") {
+				sshArgs = append(sshArgs, "-i", req.SSHKey)
+			}
+		}
+		sshArgs = append(sshArgs,
+			"-o", "ConnectTimeout=10",
+			"-o", "ServerAliveInterval=30",
+			"-o", "ServerAliveCountMax=3",
+			"-p", fmt.Sprintf("%d", req.RemotePort),
+		)
+
 		j.Log(fmt.Sprintf("Starting replication: %s -> %s:%s", req.Snapshot, sshTarget, remoteDataset))
 
 		// Check for resume token
@@ -142,74 +187,6 @@ func (h *ReplicationHandler) ReplicateToRemote(w http.ResponseWriter, r *http.Re
 
 	respondOK(w, map[string]interface{}{"success": true, "job_id": jobID})
 }
-
-// TestRemoteConnection tests SSH connectivity to a replication target
-// POST /api/replication/test
-func (h *ReplicationHandler) TestRemoteConnection(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		RemoteHost string `json:"remote_host"`
-		RemotePort int    `json:"remote_port"`
-		RemoteUser string `json:"remote_user"`
-		SSHKey     string `json:"ssh_key_path"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		respondErrorSimple(w, "Invalid request", http.StatusBadRequest)
-		return
-	}
-
-	if req.RemoteHost == "" || strings.ContainsAny(req.RemoteHost, ";|&$`\\\"'") {
-		respondErrorSimple(w, "Invalid remote host", http.StatusBadRequest)
-		return
-	}
-	if req.RemoteUser == "" {
-		req.RemoteUser = "root"
-	}
-	// Validate RemoteUser: only alphanumeric, dots, dashes, underscores (no shell chars)
-	if !isValidSSHUser(req.RemoteUser) {
-		respondErrorSimple(w, "Invalid characters in remote user", http.StatusBadRequest)
-		return
-	}
-	if req.RemotePort == 0 {
-		req.RemotePort = 22
-	}
-
-	sshArgs := []string{
-		"-o", "StrictHostKeyChecking=accept-new",
-		"-o", "ConnectTimeout=5",
-		"-o", "BatchMode=yes",
-		"-p", fmt.Sprintf("%d", req.RemotePort),
-	}
-	if req.SSHKey != "" && !strings.ContainsAny(req.SSHKey, ";|&$`\\\"'") {
-		sshArgs = append(sshArgs, "-i", req.SSHKey)
-	}
-	sshArgs = append(sshArgs,
-		fmt.Sprintf("%s@%s", req.RemoteUser, req.RemoteHost),
-		"echo ok && zfs version 2>/dev/null || zpool version 2>/dev/null || echo no-zfs",
-	)
-
-	start := time.Now()
-	output, err := executeCommand("ssh", sshArgs)
-	duration := time.Since(start)
-
-	if err != nil {
-		respondOK(w, map[string]interface{}{
-			"success":     false,
-			"error":       fmt.Sprintf("Connection failed: %v", err),
-			"duration_ms": duration.Milliseconds(),
-		})
-		return
-	}
-
-	hasZFS := strings.Contains(output, "zfs") || !strings.Contains(output, "no-zfs")
-
-	respondOK(w, map[string]interface{}{
-		"success":     true,
-		"remote_zfs":  hasZFS,
-		"output":      strings.TrimSpace(output),
-		"duration_ms": duration.Milliseconds(),
-	})
-}
-
 
 // isValidResumeToken checks that a ZFS resume token contains only safe characters.
 // ZFS tokens are base64url-encoded opaque blobs. Reject anything with shell metacharacters.
@@ -277,32 +254,40 @@ func execPipedZFSSend(
 	}()
 
 	if len(rateLimit) == 1 {
-		throttle := exec.CommandContext(ctx, "pv", "-q", "-L", rateLimit[0])
-		throttleOut, err := throttle.StdoutPipe()
-		if err != nil {
-			sender.Wait() //nolint
-			return "", fmt.Errorf("pv stdout pipe: %w", err)
-		}
-		throttle.Stdin = sendOut
-		receiver.Stdin = throttleOut
-		if err := throttle.Start(); err != nil {
-			sender.Wait() //nolint
-			return "", fmt.Errorf("start pv: %w", err)
-		}
-		if err := receiver.Start(); err != nil {
-			sender.Wait()   //nolint
+		if _, lookErr := exec.LookPath("pv"); lookErr != nil {
+			j.Log("WARN: pv not installed - rate limit ignored. Install pv to enable bandwidth throttling.")
+		} else {
+			throttle := exec.CommandContext(ctx, "pv", "-q", "-L", rateLimit[0])
+			throttleOut, err := throttle.StdoutPipe()
+			if err != nil {
+				sender.Wait() //nolint
+				return "", fmt.Errorf("pv stdout pipe: %w", err)
+			}
+			throttle.Stdin = sendOut
+			receiver.Stdin = throttleOut
+			if err := throttle.Start(); err != nil {
+				sender.Wait() //nolint
+				return "", fmt.Errorf("start pv: %w", err)
+			}
+			if err := receiver.Start(); err != nil {
+				sender.Wait()   //nolint
+				throttle.Wait() //nolint
+				return "", fmt.Errorf("start ssh recv: %w", err)
+			}
 			throttle.Wait() //nolint
-			return "", fmt.Errorf("start ssh recv: %w", err)
-		}
-		throttle.Wait() //nolint
-	} else {
-		receiver.Stdin = sendOut
-		if err := receiver.Start(); err != nil {
-			sender.Wait() //nolint
-			return "", fmt.Errorf("start ssh recv: %w", err)
+			sender.Wait()   //nolint
+			if err := receiver.Wait(); err != nil {
+				return recvStderr.String(), fmt.Errorf("replication failed: %w", err)
+			}
+			return recvStdout.String(), nil
 		}
 	}
-
+	// Direct pipe: no rate limit or pv not available
+	receiver.Stdin = sendOut
+	if err := receiver.Start(); err != nil {
+		sender.Wait() //nolint
+		return "", fmt.Errorf("start ssh recv: %w", err)
+	}
 	sender.Wait() //nolint
 	if err := receiver.Wait(); err != nil {
 		return recvStderr.String(), fmt.Errorf("replication failed: %w", err)
@@ -310,7 +295,6 @@ func execPipedZFSSend(
 	return recvStdout.String(), nil
 }
 
-// getResumeToken checks if the remote side has a resume token for an interrupted transfer
 // isValidSSHUser validates SSH usernames: alphanumeric, dot, dash, underscore only.
 // Applied before RemoteUser is passed as an exec.Command argument.
 func isValidSSHUser(user string) bool {
@@ -326,6 +310,8 @@ func isValidSSHUser(user string) bool {
 	return true
 }
 
+// getResumeToken checks if the remote side has a resume token for an interrupted transfer.
+// The command is passed as a single string arg, executed by the remote shell.
 func getResumeToken(sshArgs []string, sshTarget, remoteDataset string) string {
 	checkArgs := append([]string{}, sshArgs...)
 	checkArgs = append(checkArgs, sshTarget,

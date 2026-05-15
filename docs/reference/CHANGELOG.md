@@ -6,6 +6,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 
 
+## v10.2.0 (2026-05-15) - "Keyring"
+
+Upgrade from: v10.1.0 - Drop-in. No breaking changes.
+
+### Added
+- **Zero-touch ZFS replication via Peers model**: SSH key distribution, host key pinning, and all connection management are now handled by the GUI. Add a peer (name, host, user, port), click Authorize, enter the SSH password once - the daemon installs the replication ed25519 key via the Go SSH client. The password exists only in the request buffer and is never written to disk, database, or logs. Subsequent replication runs use key-based auth only; no passwords, no shell helpers, no `sshpass`.
+- **TOFU host key pinning enforced in ZFS send pipeline**: The SSH host fingerprint captured during Authorize/Test is written to a per-transfer temp known_hosts file. The `ssh` binary is invoked with `StrictHostKeyChecking=yes` against that file, preventing MITM attacks during long-running ZFS send streams. For air-gapped hosts where password auth is disabled, the Sovereign Target Key panel provides the daemon's public key for manual `authorized_keys` installation.
+- **Peers tab - full CRUD**: Add, edit, delete peers. Authorize (one-time password), Re-auth (after keypair rotation), Test (verifies SSH key-based access and ZFS readiness on the remote). All peer connection details (name, host, user, port, fingerprint, host key, authorization state) are persisted in `replication-remotes.json` and committed to GitOps state.
+- **Schedules tab - full CRUD with incremental and resume**: Replication schedules support incremental sends (tracks `last_replicated_snapshot` across runs as the `-i` base), resume tokens (checks remote for an interrupted transfer token before sending), bandwidth throttling via `pv` (graceful degraded-mode fallback if `pv` is not installed), and post-snapshot triggers. The background monitor fires due schedules every 5 minutes.
+- **Replicate tab - one-shot send**: Dataset picker, peer picker (authorized peers only), snapshot picker for incremental base (loaded from `/api/zfs/snapshots`), rate limit, resume, and compress options. Job progress streamed in real time with bytes sent, rate, and ETA.
+
+### Fixed
+- **IPv6 host:port formatting**: Five instances of `fmt.Sprintf("%s:%d", host, port)` passed to `net.Dial`-family calls replaced with `net.JoinHostPort`. Affected `alerting_smtp.go` (SMTP delivery) and three replication files (TCP reachability check, SSH dial). IPv6 peer addresses now work correctly.
+- **pv missing caused hard replication failure**: The rate-limit path called `pv` unconditionally. Added `exec.LookPath("pv")` check; if absent, logs a warning and falls through to direct pipe. Replication proceeds at unlimited bandwidth; throttling is degraded-mode only.
+- **Incremental replication was broken end-to-end**: The schedule runner never used `LastReplicatedSnapshot` as the `-i` base and the success path did not persist the snapshot name. The frontend `ReplicateForm` sent `incremental: true` but no `base_snapshot`. Both are now fixed.
+- **Resume token not checked in schedule path**: The resume token check existed in the one-shot handler but was never wired into the schedule runner. `launchReplicationJob` now checks for a remote resume token before sending when `Resume` is enabled.
+
+### Removed
+- Legacy replication handlers (`ZFSSend`, `ZFSSendIncremental`, `ZFSReceive`, `TestRemoteConnection`, `CopyReplicationKey`) and their routes removed. These were dead code replaced by the Peers model.
+
+
+
 ## v10.1.0 (2026-05-13) - "Sentinel"
 
 Upgrade from: v10.0.0 - Drop-in. No breaking changes.
