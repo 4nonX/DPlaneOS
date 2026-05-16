@@ -4,6 +4,9 @@ on:
   push:
     branches: ["main", "feature/iso-installer"]
     tags: ["v*"]
+    paths-ignore:
+      - 'docs/**'
+      - '*.md'
   workflow_dispatch:
 
 permissions:
