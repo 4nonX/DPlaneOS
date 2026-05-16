@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"strings"
 	"sync"
 	"time"
@@ -42,6 +43,7 @@ type ReplicationSchedule struct {
 	Incremental            bool       `json:"incremental"`          // use -i with last replicated snapshot as base
 	Resume                 bool       `json:"resume"`               // check for resume token before sending
 	Compress               bool       `json:"compress"`
+	NonRecursive           bool       `json:"non_recursive,omitempty"` // when true, omit -R from zfs send
 	RateLimitMB            int        `json:"rate_limit_mb"`
 	Enabled                bool       `json:"enabled"`
 	LastRun                *time.Time `json:"last_run,omitempty"`
@@ -204,6 +206,7 @@ func (h *ReplicationScheduleHandler) HandleUpdateReplicationSchedule(w http.Resp
 			schedules[i].Compress = req.Compress
 			schedules[i].RateLimitMB = req.RateLimitMB
 			schedules[i].Enabled = req.Enabled
+			schedules[i].NonRecursive = req.NonRecursive
 
 			found = true
 			break
@@ -336,6 +339,13 @@ func launchReplicationJob(s ReplicationSchedule) string {
 			return
 		}
 
+		// Warn early if rate limiting is requested but pv is not installed
+		if s.RateLimitMB > 0 {
+			if _, pvErr := exec.LookPath("pv"); pvErr != nil {
+				j.Log("WARN: pv is not installed - rate_limit_mb will be ignored. Install pv to enable bandwidth throttling.")
+			}
+		}
+
 		// Step 3: Quick TCP reachability check before the expensive ZFS send
 		dialAddr := net.JoinHostPort(remote.Host, fmt.Sprintf("%d", remote.Port))
 		conn, dialErr := net.DialTimeout("tcp", dialAddr, 5*time.Second)
@@ -380,8 +390,13 @@ func launchReplicationJob(s ReplicationSchedule) string {
 		}
 
 		// Step 5: Build SSH args using the fixed replication key path and pinned host key
-		knownHostsArgs, cleanupKH := buildKnownHostsArgs(remote)
+		knownHostsArgs, cleanupKH, khErr := buildKnownHostsArgs(remote)
 		defer cleanupKH()
+		if khErr != nil {
+			j.Fail(fmt.Sprintf("Failed to prepare known_hosts for peer %q: %v", remote.Name, khErr))
+			updateScheduleStatus(s.ID, "failed", j.ID, "")
+			return
+		}
 
 		sshArgs := append([]string{"-i", replKeyPath}, knownHostsArgs...)
 		sshArgs = append(sshArgs,
@@ -425,13 +440,23 @@ func launchReplicationJob(s ReplicationSchedule) string {
 		}
 
 		// Step 7: Build send args - incremental if a prior snapshot is recorded, otherwise full
-		sendArgs := []string{"send", "-P", "-R"}
+		sendArgs := []string{"send", "-P"}
+		if !s.NonRecursive {
+			sendArgs = append(sendArgs, "-R")
+		}
 		if s.Compress {
 			sendArgs = append(sendArgs, "-c")
 		}
 		if s.Incremental && s.LastReplicatedSnapshot != "" && isValidSnapshotName(s.LastReplicatedSnapshot) {
-			sendArgs = append(sendArgs, "-i", s.LastReplicatedSnapshot)
-			j.Log(fmt.Sprintf("Incremental send: base=%s -> %s", s.LastReplicatedSnapshot, snapshot))
+			// Verify the base snapshot still exists - it may have been pruned since last replication
+			_, snapCheckErr := executeCommandWithTimeout(TimeoutFast, "zfs",
+				[]string{"list", "-t", "snapshot", "-H", "-o", "name", s.LastReplicatedSnapshot})
+			if snapCheckErr != nil {
+				j.Log(fmt.Sprintf("WARN: incremental base %q no longer exists - falling back to full send", s.LastReplicatedSnapshot))
+			} else {
+				sendArgs = append(sendArgs, "-i", s.LastReplicatedSnapshot)
+				j.Log(fmt.Sprintf("Incremental send: base=%s -> %s", s.LastReplicatedSnapshot, snapshot))
+			}
 		} else if s.Incremental {
 			j.Log("Incremental requested but no prior snapshot recorded - sending full stream")
 		}
@@ -510,6 +535,11 @@ func TriggerPostSnapshotReplication(dataset string) {
 		}
 		// Match exact dataset or a child dataset
 		if s.SourceDataset != dataset && !strings.HasPrefix(dataset, s.SourceDataset+"/") {
+			continue
+		}
+		// Skip if a job for this schedule is already running - don't pile up concurrent sends
+		if s.LastStatus == "running" {
+			log.Printf("INFO: TriggerPostSnapshotReplication: skipping schedule %s (already running job %s)", s.ID, s.LastJobID)
 			continue
 		}
 

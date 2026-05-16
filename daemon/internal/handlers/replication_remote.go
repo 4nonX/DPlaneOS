@@ -40,6 +40,7 @@ func (h *ReplicationHandler) ReplicateToRemote(w http.ResponseWriter, r *http.Re
 		SSHKey        string `json:"ssh_key_path"`
 		Resume        bool   `json:"resume"`
 		RateLimit     string `json:"rate_limit"`
+		NonRecursive  bool   `json:"non_recursive"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		respondErrorSimple(w, "Invalid request body", http.StatusBadRequest)
@@ -123,11 +124,21 @@ func (h *ReplicationHandler) ReplicateToRemote(w http.ResponseWriter, r *http.Re
 
 	// Start ASYNC JOB
 	jobID := jobs.Start("replication_remote", func(j *jobs.Job) {
+		if req.RateLimit != "" {
+			if _, pvErr := exec.LookPath("pv"); pvErr != nil {
+				j.Log("WARN: pv is not installed - rate limit will be ignored. Install pv to enable bandwidth throttling.")
+			}
+		}
+
 		// Build SSH args inside the job so the known_hosts temp file survives until ZFS send completes.
 		var sshArgs []string
 		if resolvedRemote != nil {
-			khArgs, cleanupKH := buildKnownHostsArgs(resolvedRemote)
+			khArgs, cleanupKH, khErr := buildKnownHostsArgs(resolvedRemote)
 			defer cleanupKH()
+			if khErr != nil {
+				j.Fail("Failed to prepare known_hosts for peer: " + khErr.Error())
+				return
+			}
 			sshArgs = append([]string{"-i", replKeyPath}, khArgs...)
 		} else {
 			sshArgs = []string{"-o", "StrictHostKeyChecking=accept-new"}
@@ -164,7 +175,9 @@ func (h *ReplicationHandler) ReplicateToRemote(w http.ResponseWriter, r *http.Re
 		if req.Compressed {
 			sendArgs = append(sendArgs, "-c")
 		}
-		sendArgs = append(sendArgs, "-R")
+		if !req.NonRecursive {
+			sendArgs = append(sendArgs, "-R")
+		}
 		if req.Incremental && req.BaseSnap != "" {
 			sendArgs = append(sendArgs, "-i", req.BaseSnap)
 		}
@@ -311,11 +324,10 @@ func isValidSSHUser(user string) bool {
 }
 
 // getResumeToken checks if the remote side has a resume token for an interrupted transfer.
-// The command is passed as a single string arg, executed by the remote shell.
 func getResumeToken(sshArgs []string, sshTarget, remoteDataset string) string {
 	checkArgs := append([]string{}, sshArgs...)
 	checkArgs = append(checkArgs, sshTarget,
-		fmt.Sprintf("zfs get -H -o value receive_resume_token %s 2>/dev/null", remoteDataset),
+		"zfs", "get", "-H", "-o", "value", "receive_resume_token", remoteDataset,
 	)
 
 	output, err := executeCommandWithTimeout(TimeoutFast, "ssh", checkArgs)

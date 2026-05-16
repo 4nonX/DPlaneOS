@@ -122,6 +122,7 @@ For air-gapped or high-security hosts where password auth is disabled: copy the 
 | Trigger after snapshot | Run immediately after each automatic snapshot in addition to the interval |
 | Incremental | Send only changes since the last replicated snapshot (tracked automatically) |
 | Resume | Check for an interrupted transfer token before sending |
+| Recursive | Include child datasets in the send stream (`-R`). Checked by default. Uncheck to send only the exact dataset. |
 | Compress | Enable lz4 stream compression |
 | Rate limit MB/s | Bandwidth cap via `pv` (0 = unlimited; requires `pv` installed on the source) |
 
@@ -139,6 +140,7 @@ replication:
     incremental: true
     resume: true
     compress: true
+    non_recursive: false   # true = send this dataset only, false (default) = include child datasets (-R)
     rate_limit_mb: 100
     enabled: true
 ```

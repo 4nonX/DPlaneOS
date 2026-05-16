@@ -639,6 +639,7 @@ func main() {
 	r.Handle("/api/replication/remotes/{id}", permRoute("storage", "admin", remotesHandler.HandleDeleteRemote)).Methods("DELETE")
 	r.Handle("/api/replication/remotes/{id}/authorize", permRoute("storage", "admin", remotesHandler.HandleAuthorizeRemote)).Methods("POST")
 	r.Handle("/api/replication/remotes/{id}/test", permRoute("storage", "read", remotesHandler.HandleTestRemote)).Methods("POST")
+	r.Handle("/api/replication/remotes/{id}/reset-fingerprint", permRoute("storage", "admin", remotesHandler.HandleResetFingerprint)).Methods("POST")
 
 	// v3.0.0: ZFS Time Machine (browse snapshots, restore single files)
 	timeMachineHandler := handlers.NewZFSTimeMachineHandler()

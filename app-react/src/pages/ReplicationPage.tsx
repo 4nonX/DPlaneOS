@@ -6,8 +6,9 @@
  *   POST   /api/replication/remotes               create peer
  *   PUT    /api/replication/remotes/{id}          update peer
  *   DELETE /api/replication/remotes/{id}          delete peer
- *   POST   /api/replication/remotes/{id}/authorize push replication key (one-time password)
- *   POST   /api/replication/remotes/{id}/test      verify key-based SSH + ZFS readiness
+ *   POST   /api/replication/remotes/{id}/authorize        push replication key (one-time password)
+ *   POST   /api/replication/remotes/{id}/test             verify key-based SSH + ZFS readiness
+ *   POST   /api/replication/remotes/{id}/reset-fingerprint clear pinned TOFU host key
  *   GET    /api/replication/ssh-pubkey             daemon public key (sovereign targets)
  *   POST   /api/replication/ssh-keygen             regenerate keypair
  *   GET    /api/zfs/datasets                       dataset picker
@@ -70,6 +71,7 @@ interface ReplicationSchedule {
   incremental:              boolean
   resume:                   boolean
   compress:                 boolean
+  non_recursive?:           boolean
   rate_limit_mb:            number
   enabled:                  boolean
   last_run?:                string
@@ -455,12 +457,32 @@ function PeersTab({ confirm }: { confirm: ConfirmFn }) {
     onError: (e: Error) => toast.error(e.message),
   })
 
+  const resetFingerprintMutation = useMutation({
+    mutationFn: (id: string) => api.post<{ success: boolean }>(`/api/replication/remotes/${id}/reset-fingerprint`, {}),
+    onSuccess: () => {
+      toast.success('Host trust cleared. The fingerprint will be re-pinned on next connection.')
+      qc.invalidateQueries({ queryKey: ['replication', 'remotes'] })
+    },
+    onError: (e: Error) => toast.error(e.message),
+  })
+
   const remotes = remotesQ.data?.remotes ?? []
   const pubKey = pubKeyQ.data?.public_key
 
   async function handleDelete(peer: Remote) {
     if (await confirm({ title: `Delete peer "${peer.name}"?`, message: 'This cannot be undone. Any schedules that reference this peer must be updated first.', danger: true, confirmLabel: 'Delete' })) {
       deleteMutation.mutate(peer.id)
+    }
+  }
+
+  async function handleResetTrust(peer: Remote) {
+    if (await confirm({
+      title: `Reset trust for "${peer.name}"?`,
+      message: 'The pinned host fingerprint will be cleared. The daemon will re-pin the fingerprint on the next connection. Only do this if the remote host key changed intentionally.',
+      confirmLabel: 'Reset Trust',
+      danger: true,
+    })) {
+      resetFingerprintMutation.mutate(peer.id)
     }
   }
 
@@ -538,6 +560,13 @@ function PeersTab({ confirm }: { confirm: ConfirmFn }) {
                             <button onClick={() => testMutation.mutate(peer.id)} disabled={testMutation.isPending && testingId === peer.id} className="btn btn-sm btn-ghost">
                               <Icon name="wifi" size={13} />
                               {testMutation.isPending && testingId === peer.id ? 'Testing...' : 'Test'}
+                            </button>
+                          </Tooltip>
+                        )}
+                        {peer.fingerprint && (
+                          <Tooltip content="Clear the pinned host fingerprint. Use this if the remote host key changed intentionally.">
+                            <button onClick={() => handleResetTrust(peer)} disabled={resetFingerprintMutation.isPending} className="btn btn-sm btn-ghost" style={{ color: 'var(--warning,#f59e0b)' }}>
+                              <Icon name="lock_reset" size={13} /> Reset Trust
                             </button>
                           </Tooltip>
                         )}
@@ -626,6 +655,7 @@ function ReplicateForm({ datasets, remotes }: { datasets: ZFSDataset[]; remotes:
   const [resume, setResume]           = useState(false)
   const [rateLimitMb, setRateLimitMb] = useState(0)
   const [compress, setCompress]       = useState(true)
+  const [nonRecursive, setNonRecursive] = useState(false)
   const [jobId, setJobId]             = useState<string | null>(null)
 
   // Fetch snapshots for the selected dataset when incremental is on
@@ -652,6 +682,7 @@ function ReplicateForm({ datasets, remotes }: { datasets: ZFSDataset[]; remotes:
         resume,
         rate_limit:     rateLimitMb > 0 ? `${rateLimitMb}M` : undefined,
         compressed:     compress,
+        non_recursive:  nonRecursive,
       })
     },
     onSuccess: data => setJobId(data.job_id),
@@ -712,6 +743,7 @@ function ReplicateForm({ datasets, remotes }: { datasets: ZFSDataset[]; remotes:
           </div>
 
           <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap', marginTop: 14 }}>
+            <CheckRow label="Recursive (include child datasets)" checked={!nonRecursive} onChange={v => setNonRecursive(!v)} />
             <CheckRow label="Incremental (send only changes)" checked={incremental} onChange={v => { setIncremental(v); if (!v) setBaseSnapshot('') }} />
             <CheckRow label="Resume interrupted transfer" checked={resume} onChange={setResume} />
             <CheckRow label="Compress stream (lz4)" checked={compress} onChange={setCompress} />
@@ -758,7 +790,7 @@ function ReplicateForm({ datasets, remotes }: { datasets: ZFSDataset[]; remotes:
 // ---------------------------------------------------------------------------
 
 const INTERVAL_LABELS: Record<ReplicationSchedule['interval'], string> = {
-  hourly: 'Hourly', daily: 'Daily', weekly: 'Weekly', manual: 'Manual only',
+  hourly: 'Hourly', daily: 'Daily', weekly: 'Weekly', manual: 'Manual',
 }
 
 function ScheduleModal({ datasets, remotes, onClose, onSaved, editingSchedule }: {
@@ -777,6 +809,7 @@ function ScheduleModal({ datasets, remotes, onClose, onSaved, editingSchedule }:
   const [incremental,       setIncremental]       = useState(editingSchedule?.incremental ?? false)
   const [resume,            setResume]            = useState(editingSchedule?.resume ?? false)
   const [compress,          setCompress]          = useState(editingSchedule?.compress ?? true)
+  const [nonRecursive,      setNonRecursive]      = useState(editingSchedule?.non_recursive ?? false)
   const [rateLimitMB,       setRateLimitMB]       = useState(editingSchedule?.rate_limit_mb ?? 0)
   const [enabled,           setEnabled]           = useState(editingSchedule?.enabled ?? true)
 
@@ -810,6 +843,7 @@ function ScheduleModal({ datasets, remotes, onClose, onSaved, editingSchedule }:
       incremental,
       resume,
       compress,
+      non_recursive:       nonRecursive,
       rate_limit_mb:       rateLimitMB,
       enabled,
     })
@@ -875,12 +909,22 @@ function ScheduleModal({ datasets, remotes, onClose, onSaved, editingSchedule }:
         </div>
 
         <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap' }}>
+          <CheckRow label="Recursive (include child datasets)" checked={!nonRecursive} onChange={v => setNonRecursive(!v)} />
           <CheckRow label="Compress stream" checked={compress} onChange={setCompress} />
           <CheckRow label="Incremental (use last snapshot as base)" checked={incremental} onChange={setIncremental} />
           <CheckRow label="Resume interrupted transfer" checked={resume} onChange={setResume} />
           <CheckRow label="Trigger after each snapshot" checked={triggerOnSnapshot} onChange={setTriggerOnSnapshot} />
           <CheckRow label="Enabled" checked={enabled} onChange={setEnabled} />
         </div>
+
+        {interval === 'manual' && triggerOnSnapshot && (
+          <div className="alert alert-info" style={{ fontSize: 'var(--text-sm)', display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+            <Icon name="info" size={14} style={{ flexShrink: 0, marginTop: 1 }} />
+            <span>
+              With interval set to Manual and "Trigger after each snapshot" enabled, replication runs automatically after each auto-snapshot but never on a fixed schedule. Use this to replicate immediately after every snapshot without an independent timer.
+            </span>
+          </div>
+        )}
       </div>
 
       <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 24 }}>

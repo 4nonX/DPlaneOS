@@ -639,27 +639,73 @@ func makeKnownHostsEntry(host string, port int, hostKey string) string {
 // temporary known_hosts file. The caller MUST invoke cleanup() after the ssh
 // process exits to delete the temp file (call it inside a job goroutine so the
 // file outlives the HTTP handler).
-// If the peer has no stored HostKey yet, returns accept-new as a safe fallback.
-func buildKnownHostsArgs(remote *Remote) (args []string, cleanup func()) {
+// If the peer has no stored HostKey yet, returns accept-new so the first
+// connection can capture the fingerprint. Returns an error if the temp file
+// cannot be written - callers must fail the job rather than silently degrading.
+func buildKnownHostsArgs(remote *Remote) (args []string, cleanup func(), err error) {
 	if remote.HostKey == "" {
-		return []string{"-o", "StrictHostKeyChecking=accept-new"}, func() {}
+		return []string{"-o", "StrictHostKeyChecking=accept-new"}, func() {}, nil
 	}
 	entry := makeKnownHostsEntry(remote.Host, remote.Port, remote.HostKey)
-	f, err := os.CreateTemp("", "dplaneos-known-hosts-*")
-	if err != nil {
-		return []string{"-o", "StrictHostKeyChecking=accept-new"}, func() {}
+	f, ferr := os.CreateTemp("", "dplaneos-known-hosts-*")
+	if ferr != nil {
+		return nil, func() {}, fmt.Errorf("failed to create temp known_hosts file: %w", ferr)
 	}
 	if _, werr := fmt.Fprintln(f, entry); werr != nil {
 		f.Close()
 		os.Remove(f.Name())
-		return []string{"-o", "StrictHostKeyChecking=accept-new"}, func() {}
+		return nil, func() {}, fmt.Errorf("failed to write temp known_hosts file: %w", werr)
 	}
 	f.Close()
 	path := f.Name()
 	return []string{
 		"-o", "StrictHostKeyChecking=yes",
 		"-o", "UserKnownHostsFile=" + path,
-	}, func() { os.Remove(path) }
+	}, func() { os.Remove(path) }, nil
+}
+
+// HandleResetFingerprint clears the stored host key and fingerprint for a peer,
+// allowing it to be re-trusted on the next Authorize or Test. Use when the remote
+// server has been reinstalled and its SSH host key has changed.
+// POST /api/replication/remotes/{id}/reset-fingerprint
+func (h *RemotesHandler) HandleResetFingerprint(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	id := vars["id"]
+	if id == "" {
+		respondErrorSimple(w, "id is required", http.StatusBadRequest)
+		return
+	}
+
+	remotes, err := loadRemotes()
+	if err != nil {
+		respondErrorSimple(w, "Failed to load peers", http.StatusInternalServerError)
+		return
+	}
+
+	found := false
+	for i := range remotes {
+		if remotes[i].ID == id {
+			remotes[i].Fingerprint = ""
+			remotes[i].HostKey = ""
+			remotes[i].KeyInstalled = false
+			remotes[i].TestOK = false
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		respondErrorSimple(w, "Peer not found", http.StatusNotFound)
+		return
+	}
+
+	if err := saveRemotes(remotes); err != nil {
+		respondErrorSimple(w, "Failed to save: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	respondOK(w, map[string]interface{}{"success": true})
+	gitops.CommitAllAsync(h.db)
 }
 
 // sanitiseSSHConnError strips credential material from SSH dial errors before

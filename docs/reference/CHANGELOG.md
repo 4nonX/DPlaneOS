@@ -6,6 +6,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 
 
+## v10.3.0 (2026-05-16) - "Harness"
+
+Upgrade from: v10.2.0 - Drop-in. No breaking changes.
+
+### Added
+- **Recursive flag for replication**: Both one-shot Replicate and Schedules now expose a "Recursive (include child datasets)" checkbox. When unchecked, `-R` is omitted from `zfs send` so only the exact dataset is sent, not its children. Default is recursive (previous behavior preserved).
+- **Reset Trust button on Peers**: Each peer with a pinned host fingerprint now shows a "Reset Trust" action. Clicking it clears the stored TOFU fingerprint so the next connection re-pins the host key. Useful when a peer's SSH host key changes intentionally (hardware replacement, reinstall).
+- **POST /api/replication/remotes/{id}/reset-fingerprint**: Backend route backing the Reset Trust action. Clears `Fingerprint`, `HostKey`, `KeyInstalled`, and `TestOK` for the peer and commits state to GitOps.
+- **Manual+TriggerOnSnapshot helper note**: The schedule modal now shows an explanatory note when interval is "Manual" and "Trigger after each snapshot" is enabled, clarifying that replication fires after every auto-snapshot but never on a fixed timer.
+
+### Fixed
+- **`buildKnownHostsArgs` silently fell back to `accept-new` on temp file failure**: If the OS failed to create the temp known_hosts file (e.g. disk full), the function returned `StrictHostKeyChecking=accept-new` without logging or failing. Any host would be accepted silently. Fixed to return an error; the replication job now fails explicitly rather than running with weakened host verification.
+- **`getResumeToken` used shell string interpolation**: The resume token check passed a single interpolated string to SSH (`"zfs get ... dataset"`), meaning the remote shell parsed it. Replaced with discrete argv matching the rest of the pipeline.
+- **Incremental base snapshot deleted causes hard failure**: If a snapshot recorded in `last_replicated_snapshot` was pruned before the next replication run, `zfs send -i` would fail with an obscure error. The schedule runner now pre-checks that the base snapshot exists before building the send args. If it has been pruned, it logs a warning and falls back to a full send automatically.
+- **`TriggerPostSnapshotReplication` stacked concurrent jobs**: If a replication job for a schedule was already running when a new snapshot fired the trigger, a second job was launched unconditionally. Schedules with `last_status == "running"` are now skipped in the trigger path to prevent concurrent overlapping sends to the same remote.
+- **Rate limit silently ignored with no warning at job start**: When `rate_limit_mb` was set but `pv` was not installed, the warning appeared only after the send pipeline started. Both the schedule and one-shot paths now check for `pv` at job start and log a visible warning before any ZFS data flows.
+
+### Removed
+- `"Manual only"` label in the interval selector replaced with `"Manual"`.
+
+
+
 ## v10.2.0 (2026-05-15) - "Keyring"
 
 Upgrade from: v10.1.0 - Drop-in. No breaking changes.
