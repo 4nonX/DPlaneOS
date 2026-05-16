@@ -3,6 +3,7 @@ package handlers
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -224,6 +225,39 @@ func saveSSHKeys(keys []SSHManagedKey) error {
 	return os.WriteFile(configPath(sshKeysFile), data, 0600)
 }
 
+var (
+	errSSHKeyNotFound  = errors.New("ssh key not found")
+	errSSHKeyDuplicate = errors.New("ssh key duplicate")
+)
+
+// atomicModifySSHKeys holds the write lock across the full load-modify-save cycle.
+func atomicModifySSHKeys(fn func([]SSHManagedKey) ([]SSHManagedKey, error)) error {
+	sshKeysMu.Lock()
+	defer sshKeysMu.Unlock()
+
+	data, err := os.ReadFile(configPath(sshKeysFile))
+	var keys []SSHManagedKey
+	if err != nil {
+		if !os.IsNotExist(err) {
+			return err
+		}
+	} else {
+		if err := json.Unmarshal(data, &keys); err != nil {
+			return err
+		}
+	}
+	modified, err := fn(keys)
+	if err != nil {
+		return err
+	}
+	os.MkdirAll(ConfigDir, 0755)
+	out, err := json.MarshalIndent(modified, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(configPath(sshKeysFile), out, 0600)
+}
+
 // ─── HTTP Handlers ─────────────────────────────────────────────
 
 // GetSSHStatus GET /api/ssh/status
@@ -314,35 +348,6 @@ func AddSSHKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	keys, err := loadSSHKeys()
-	if err != nil {
-		respondErrorSimple(w, "Failed to load SSH keys", http.StatusInternalServerError)
-		return
-	}
-
-	// Import pre-existing authorized_keys on first touch for this user
-	touched := false
-	for _, k := range keys {
-		if k.Username == req.Username {
-			touched = true
-			break
-		}
-	}
-	if !touched {
-		keys = importExistingKeys(req.Username, keys)
-	}
-
-	// Reject duplicate key for this user
-	for _, k := range keys {
-		if k.Username == req.Username {
-			parts := strings.Fields(k.PublicKey)
-			if len(parts) >= 2 && parts[1] == blob {
-				respondErrorSimple(w, "This public key is already authorized for "+req.Username, http.StatusConflict)
-				return
-			}
-		}
-	}
-
 	label := req.Label
 	if label == "" {
 		label = comment
@@ -358,13 +363,42 @@ func AddSSHKey(w http.ResponseWriter, r *http.Request) {
 		AddedBy:   r.Header.Get("X-User"),
 		AddedAt:   time.Now(),
 	}
-	keys = append(keys, key)
 
-	if err := saveSSHKeys(keys); err != nil {
-		respondErrorSimple(w, "Failed to save SSH keys", http.StatusInternalServerError)
+	var finalKeys []SSHManagedKey
+	if err := atomicModifySSHKeys(func(all []SSHManagedKey) ([]SSHManagedKey, error) {
+		// Import pre-existing authorized_keys on first touch for this user.
+		touched := false
+		for _, k := range all {
+			if k.Username == req.Username {
+				touched = true
+				break
+			}
+		}
+		if !touched {
+			all = importExistingKeys(req.Username, all)
+		}
+		// Reject duplicate key for this user.
+		for _, k := range all {
+			if k.Username == req.Username {
+				parts := strings.Fields(k.PublicKey)
+				if len(parts) >= 2 && parts[1] == blob {
+					return nil, errSSHKeyDuplicate
+				}
+			}
+		}
+		all = append(all, key)
+		finalKeys = all
+		return all, nil
+	}); err != nil {
+		if errors.Is(err, errSSHKeyDuplicate) {
+			respondErrorSimple(w, "This public key is already authorized for "+req.Username, http.StatusConflict)
+		} else {
+			respondErrorSimple(w, "Failed to save SSH keys", http.StatusInternalServerError)
+		}
 		return
 	}
-	if err := writeAuthorizedKeys(req.Username, keys); err != nil {
+
+	if err := writeAuthorizedKeys(req.Username, finalKeys); err != nil {
 		log.Printf("ssh_keys: writeAuthorizedKeys for %s: %v", req.Username, err)
 		respondOK(w, map[string]interface{}{
 			"success": true,
@@ -384,31 +418,32 @@ func AddSSHKey(w http.ResponseWriter, r *http.Request) {
 func DeleteSSHKey(w http.ResponseWriter, r *http.Request) {
 	id := mux.Vars(r)["id"]
 
-	keys, err := loadSSHKeys()
-	if err != nil {
-		respondErrorSimple(w, "Failed to load SSH keys", http.StatusInternalServerError)
-		return
-	}
-
 	username := ""
-	filtered := keys[:0]
-	for _, k := range keys {
-		if k.ID == id {
-			username = k.Username
-			continue
+	if err := atomicModifySSHKeys(func(all []SSHManagedKey) ([]SSHManagedKey, error) {
+		out := all[:0]
+		for _, k := range all {
+			if k.ID == id {
+				username = k.Username
+				continue
+			}
+			out = append(out, k)
 		}
-		filtered = append(filtered, k)
-	}
-	if username == "" {
-		respondErrorSimple(w, "Key not found", http.StatusNotFound)
+		if username == "" {
+			return nil, errSSHKeyNotFound
+		}
+		return out, nil
+	}); err != nil {
+		if errors.Is(err, errSSHKeyNotFound) {
+			respondErrorSimple(w, "Key not found", http.StatusNotFound)
+		} else {
+			respondErrorSimple(w, "Failed to save SSH keys", http.StatusInternalServerError)
+		}
 		return
 	}
 
-	if err := saveSSHKeys(filtered); err != nil {
-		respondErrorSimple(w, "Failed to save SSH keys", http.StatusInternalServerError)
-		return
-	}
-	if err := writeAuthorizedKeys(username, filtered); err != nil {
+	// Re-read the saved state to pass consistent key list to writeAuthorizedKeys.
+	finalKeys, _ := loadSSHKeys()
+	if err := writeAuthorizedKeys(username, finalKeys); err != nil {
 		log.Printf("ssh_keys: writeAuthorizedKeys for %s after delete: %v", username, err)
 	}
 

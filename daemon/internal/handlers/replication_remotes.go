@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -67,6 +68,36 @@ func saveRemotes(remotes []Remote) error {
 		return err
 	}
 	return os.WriteFile(configPath(replRemotesFile), data, 0644)
+}
+
+var errRemoteNotFound = errors.New("remote not found")
+
+// atomicModifyRemotes holds the write lock across the full load-modify-save cycle.
+func atomicModifyRemotes(fn func([]Remote) ([]Remote, error)) error {
+	replRemotesMu.Lock()
+	defer replRemotesMu.Unlock()
+
+	data, err := os.ReadFile(configPath(replRemotesFile))
+	var remotes []Remote
+	if err != nil {
+		if !os.IsNotExist(err) {
+			return err
+		}
+	} else {
+		if err := json.Unmarshal(data, &remotes); err != nil {
+			return err
+		}
+	}
+	modified, err := fn(remotes)
+	if err != nil {
+		return err
+	}
+	os.MkdirAll(ConfigDir, 0755)
+	out, err := json.MarshalIndent(modified, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(configPath(replRemotesFile), out, 0644)
 }
 
 // ResolveRemoteByID looks up a remote by ID and returns a copy.
@@ -149,13 +180,9 @@ func (h *RemotesHandler) HandleCreateRemote(w http.ResponseWriter, r *http.Reque
 		CreatedAt: time.Now(),
 	}
 
-	remotes, err := loadRemotes()
-	if err != nil {
-		respondErrorSimple(w, "Failed to load remotes", http.StatusInternalServerError)
-		return
-	}
-	remotes = append(remotes, remote)
-	if err := saveRemotes(remotes); err != nil {
+	if err := atomicModifyRemotes(func(all []Remote) ([]Remote, error) {
+		return append(all, remote), nil
+	}); err != nil {
 		respondErrorSimple(w, "Failed to save remotes", http.StatusInternalServerError)
 		return
 	}
@@ -179,68 +206,63 @@ func (h *RemotesHandler) HandleUpdateRemote(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	remotes, err := loadRemotes()
-	if err != nil {
-		respondErrorSimple(w, "Failed to load remotes", http.StatusInternalServerError)
+	// Validate fields before acquiring the lock.
+	if req.Host != "" && (len(req.Host) > 253 || strings.ContainsAny(req.Host, ";|&$`\\\"'")) {
+		respondErrorSimple(w, "Invalid host", http.StatusBadRequest)
+		return
+	}
+	if req.User != "" && !isValidSSHUser(req.User) {
+		respondErrorSimple(w, "Invalid user", http.StatusBadRequest)
+		return
+	}
+	if req.Port != 0 && (req.Port < 1 || req.Port > 65535) {
+		respondErrorSimple(w, "Invalid port", http.StatusBadRequest)
 		return
 	}
 
-	found := false
-	for i := range remotes {
-		if remotes[i].ID != id {
-			continue
+	err := atomicModifyRemotes(func(all []Remote) ([]Remote, error) {
+		for i := range all {
+			if all[i].ID != id {
+				continue
+			}
+			connectionChanged := false
+			if req.Name != "" {
+				all[i].Name = req.Name
+			}
+			if req.Host != "" {
+				if req.Host != all[i].Host {
+					connectionChanged = true
+				}
+				all[i].Host = req.Host
+			}
+			if req.User != "" {
+				if req.User != all[i].User {
+					connectionChanged = true
+				}
+				all[i].User = req.User
+			}
+			if req.Port != 0 {
+				if req.Port != all[i].Port {
+					connectionChanged = true
+				}
+				all[i].Port = req.Port
+			}
+			if connectionChanged {
+				all[i].KeyInstalled = false
+				all[i].Fingerprint = ""
+				all[i].HostKey = ""
+				all[i].TestOK = false
+			}
+			return all, nil
 		}
-		connectionChanged := false
+		return nil, errRemoteNotFound
+	})
 
-		if req.Name != "" {
-			remotes[i].Name = req.Name
-		}
-		if req.Host != "" {
-			if len(req.Host) > 253 || strings.ContainsAny(req.Host, ";|&$`\\\"'") {
-				respondErrorSimple(w, "Invalid host", http.StatusBadRequest)
-				return
-			}
-			if req.Host != remotes[i].Host {
-				connectionChanged = true
-			}
-			remotes[i].Host = req.Host
-		}
-		if req.User != "" {
-			if !isValidSSHUser(req.User) {
-				respondErrorSimple(w, "Invalid user", http.StatusBadRequest)
-				return
-			}
-			if req.User != remotes[i].User {
-				connectionChanged = true
-			}
-			remotes[i].User = req.User
-		}
-		if req.Port != 0 {
-			if req.Port < 1 || req.Port > 65535 {
-				respondErrorSimple(w, "Invalid port", http.StatusBadRequest)
-				return
-			}
-			if req.Port != remotes[i].Port {
-				connectionChanged = true
-			}
-			remotes[i].Port = req.Port
-		}
-		if connectionChanged {
-			// The stored key is no longer valid for the new target - require re-authorization.
-			remotes[i].KeyInstalled = false
-			remotes[i].Fingerprint = ""
-			remotes[i].HostKey = ""
-			remotes[i].TestOK = false
-		}
-		found = true
-		break
-	}
-
-	if !found {
+	if errors.Is(err, errRemoteNotFound) {
 		respondErrorSimple(w, "Remote not found", http.StatusNotFound)
 		return
 	}
-	if err := saveRemotes(remotes); err != nil {
+	if err != nil {
 		respondErrorSimple(w, "Failed to save remotes", http.StatusInternalServerError)
 		return
 	}
@@ -264,26 +286,27 @@ func (h *RemotesHandler) HandleDeleteRemote(w http.ResponseWriter, r *http.Reque
 		}
 	}
 
-	remotes, err := loadRemotes()
-	if err != nil {
-		respondErrorSimple(w, "Failed to load remotes", http.StatusInternalServerError)
-		return
-	}
-
-	newRemotes := make([]Remote, 0, len(remotes))
-	found := false
-	for _, rem := range remotes {
-		if rem.ID == id {
-			found = true
-			continue
+	err := atomicModifyRemotes(func(all []Remote) ([]Remote, error) {
+		out := make([]Remote, 0, len(all))
+		found := false
+		for _, rem := range all {
+			if rem.ID == id {
+				found = true
+				continue
+			}
+			out = append(out, rem)
 		}
-		newRemotes = append(newRemotes, rem)
-	}
-	if !found {
+		if !found {
+			return nil, errRemoteNotFound
+		}
+		return out, nil
+	})
+
+	if errors.Is(err, errRemoteNotFound) {
 		respondErrorSimple(w, "Remote not found", http.StatusNotFound)
 		return
 	}
-	if err := saveRemotes(newRemotes); err != nil {
+	if err != nil {
 		respondErrorSimple(w, "Failed to save remotes", http.StatusInternalServerError)
 		return
 	}
@@ -384,14 +407,24 @@ func (h *RemotesHandler) HandleAuthorizeRemote(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	remotes[idx].KeyInstalled = true
-	if captured.Fingerprint != "" {
-		remotes[idx].Fingerprint = captured.Fingerprint
-	}
-	if captured.HostKey != "" {
-		remotes[idx].HostKey = captured.HostKey
-	}
-	if err := saveRemotes(remotes); err != nil {
+	var savedFingerprint string
+	if err := atomicModifyRemotes(func(all []Remote) ([]Remote, error) {
+		for i := range all {
+			if all[i].ID != id {
+				continue
+			}
+			all[i].KeyInstalled = true
+			if captured.Fingerprint != "" {
+				all[i].Fingerprint = captured.Fingerprint
+			}
+			if captured.HostKey != "" {
+				all[i].HostKey = captured.HostKey
+			}
+			savedFingerprint = all[i].Fingerprint
+			break
+		}
+		return all, nil
+	}); err != nil {
 		respondErrorSimple(w, "Key installed but failed to persist state: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -399,7 +432,7 @@ func (h *RemotesHandler) HandleAuthorizeRemote(w http.ResponseWriter, r *http.Re
 	respondOK(w, map[string]interface{}{
 		"success":     true,
 		"message":     fmt.Sprintf("Replication key installed on %s@%s. Password authentication is no longer required for replication to this peer.", remote.User, remote.Host),
-		"fingerprint": remotes[idx].Fingerprint,
+		"fingerprint": savedFingerprint,
 	})
 	gitops.CommitAllAsync(h.db)
 }
@@ -523,23 +556,16 @@ func makeFingerprint(key ssh.PublicKey) string {
 // remote. Called after the replication keypair is regenerated so that the daemon
 // state accurately reflects that the old key is no longer installed on any peer.
 func resetAllRemotesKeyState() {
-	remotes, err := loadRemotes()
-	if err != nil {
-		log.Printf("WARN: resetAllRemotesKeyState: failed to load remotes: %v", err)
-		return
-	}
-	changed := false
-	for i := range remotes {
-		if remotes[i].KeyInstalled || remotes[i].TestOK {
-			remotes[i].KeyInstalled = false
-			remotes[i].TestOK = false
-			changed = true
+	if err := atomicModifyRemotes(func(all []Remote) ([]Remote, error) {
+		for i := range all {
+			if all[i].KeyInstalled || all[i].TestOK {
+				all[i].KeyInstalled = false
+				all[i].TestOK = false
+			}
 		}
-	}
-	if changed {
-		if err := saveRemotes(remotes); err != nil {
-			log.Printf("WARN: resetAllRemotesKeyState: failed to persist reset: %v", err)
-		}
+		return all, nil
+	}); err != nil {
+		log.Printf("WARN: resetAllRemotesKeyState: failed to persist reset: %v", err)
 	}
 }
 
@@ -563,18 +589,19 @@ func generateReplKeyInternal() error {
 
 // updateRemoteTestStatus persists a failed test result.
 func updateRemoteTestStatus(id string, ok bool) {
-	remotes, err := loadRemotes()
-	if err != nil {
-		return
-	}
-	for i := range remotes {
-		if remotes[i].ID == id {
-			remotes[i].LastTested = time.Now()
-			remotes[i].TestOK = ok
-			break
+	now := time.Now()
+	if err := atomicModifyRemotes(func(all []Remote) ([]Remote, error) {
+		for i := range all {
+			if all[i].ID == id {
+				all[i].LastTested = now
+				all[i].TestOK = ok
+				break
+			}
 		}
+		return all, nil
+	}); err != nil {
+		log.Printf("WARN: updateRemoteTestStatus: %v", err)
 	}
-	_ = saveRemotes(remotes)
 }
 
 // persistTestSuccess marks the peer as tested OK and, critically, sets key_installed=true
@@ -582,28 +609,29 @@ func updateRemoteTestStatus(id string, ok bool) {
 // password auth is disabled and the key was copied manually to authorized_keys.
 // Fingerprint is pinned on first successful test if not already stored.
 func persistTestSuccess(id, fingerprint, hostKey string) {
-	remotes, err := loadRemotes()
-	if err != nil {
-		return
+	now := time.Now()
+	if err := atomicModifyRemotes(func(all []Remote) ([]Remote, error) {
+		for i := range all {
+			if all[i].ID != id {
+				continue
+			}
+			all[i].LastTested = now
+			all[i].TestOK = true
+			if !all[i].KeyInstalled {
+				all[i].KeyInstalled = true
+			}
+			if fingerprint != "" && all[i].Fingerprint == "" {
+				all[i].Fingerprint = fingerprint
+			}
+			if hostKey != "" && all[i].HostKey == "" {
+				all[i].HostKey = hostKey
+			}
+			break
+		}
+		return all, nil
+	}); err != nil {
+		log.Printf("WARN: persistTestSuccess: %v", err)
 	}
-	for i := range remotes {
-		if remotes[i].ID != id {
-			continue
-		}
-		remotes[i].LastTested = time.Now()
-		remotes[i].TestOK = true
-		if !remotes[i].KeyInstalled {
-			remotes[i].KeyInstalled = true
-		}
-		if fingerprint != "" && remotes[i].Fingerprint == "" {
-			remotes[i].Fingerprint = fingerprint
-		}
-		if hostKey != "" && remotes[i].HostKey == "" {
-			remotes[i].HostKey = hostKey
-		}
-		break
-	}
-	_ = saveRemotes(remotes)
 }
 
 // parseRemoteTestOutput extracts hostname and zfs_version from key=value lines.
@@ -676,32 +704,26 @@ func (h *RemotesHandler) HandleResetFingerprint(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	remotes, err := loadRemotes()
-	if err != nil {
-		respondErrorSimple(w, "Failed to load peers", http.StatusInternalServerError)
-		return
-	}
-
-	found := false
-	for i := range remotes {
-		if remotes[i].ID == id {
-			remotes[i].Fingerprint = ""
-			remotes[i].HostKey = ""
-			remotes[i].TestOK = false
-			// KeyInstalled is intentionally preserved: our client key is still in the
-			// remote's authorized_keys. Only the server's host key changed.
-			// Replication will run in TOFU mode until the operator runs Test to re-pin.
-			found = true
-			break
+	err := atomicModifyRemotes(func(all []Remote) ([]Remote, error) {
+		for i := range all {
+			if all[i].ID == id {
+				all[i].Fingerprint = ""
+				all[i].HostKey = ""
+				all[i].TestOK = false
+				// KeyInstalled is intentionally preserved: our client key is still in the
+				// remote's authorized_keys. Only the server's host key changed.
+				// Replication will run in TOFU mode until the operator runs Test to re-pin.
+				return all, nil
+			}
 		}
-	}
+		return nil, errRemoteNotFound
+	})
 
-	if !found {
+	if errors.Is(err, errRemoteNotFound) {
 		respondErrorSimple(w, "Peer not found", http.StatusNotFound)
 		return
 	}
-
-	if err := saveRemotes(remotes); err != nil {
+	if err != nil {
 		respondErrorSimple(w, "Failed to save: "+err.Error(), http.StatusInternalServerError)
 		return
 	}

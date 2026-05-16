@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"mime"
@@ -101,6 +102,36 @@ func saveFileShares(shares []FileShare) error {
 		return err
 	}
 	return os.WriteFile(configPath(fileSharesFile), data, 0600)
+}
+
+var errFileShareNotFound = errors.New("file share not found")
+
+// atomicModifyFileShares holds the write lock across the full load-modify-save cycle.
+func atomicModifyFileShares(fn func([]FileShare) ([]FileShare, error)) error {
+	fileSharesMu.Lock()
+	defer fileSharesMu.Unlock()
+
+	data, err := os.ReadFile(configPath(fileSharesFile))
+	var shares []FileShare
+	if err != nil {
+		if !os.IsNotExist(err) {
+			return err
+		}
+	} else {
+		if err := json.Unmarshal(data, &shares); err != nil {
+			return err
+		}
+	}
+	modified, err := fn(shares)
+	if err != nil {
+		return err
+	}
+	os.MkdirAll(ConfigDir, 0755)
+	out, err := json.MarshalIndent(modified, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(configPath(fileSharesFile), out, 0600)
 }
 
 // findShare looks up a share by token without holding any lock
@@ -204,13 +235,9 @@ func CreateFileShare(w http.ResponseWriter, r *http.Request) {
 		share.HasPassword = true
 	}
 
-	shares, err := loadFileShares()
-	if err != nil {
-		respondErrorSimple(w, "Failed to load shares", http.StatusInternalServerError)
-		return
-	}
-	shares = append(shares, share)
-	if err := saveFileShares(shares); err != nil {
+	if err := atomicModifyFileShares(func(all []FileShare) ([]FileShare, error) {
+		return append(all, share), nil
+	}); err != nil {
 		respondErrorSimple(w, "Failed to save share", http.StatusInternalServerError)
 		return
 	}
@@ -225,25 +252,20 @@ func CreateFileShare(w http.ResponseWriter, r *http.Request) {
 func DeleteFileShare(w http.ResponseWriter, r *http.Request) {
 	id := mux.Vars(r)["id"]
 
-	shares, err := loadFileShares()
-	if err != nil {
-		respondErrorSimple(w, "Failed to load shares", http.StatusInternalServerError)
-		return
-	}
-
-	found := false
-	for i := range shares {
-		if shares[i].ID == id {
-			shares[i].Revoked = true
-			found = true
-			break
+	err := atomicModifyFileShares(func(all []FileShare) ([]FileShare, error) {
+		for i := range all {
+			if all[i].ID == id {
+				all[i].Revoked = true
+				return all, nil
+			}
 		}
-	}
-	if !found {
+		return nil, errFileShareNotFound
+	})
+	if errors.Is(err, errFileShareNotFound) {
 		respondErrorSimple(w, "Share not found", http.StatusNotFound)
 		return
 	}
-	if err := saveFileShares(shares); err != nil {
+	if err != nil {
 		respondErrorSimple(w, "Failed to save shares", http.StatusInternalServerError)
 		return
 	}
@@ -350,9 +372,16 @@ func DownloadFileShare(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Increment download counter
-	shares[idx].DownloadCount++
-	if err := saveFileShares(shares); err != nil {
+	// Increment download counter atomically - the read phase above used a snapshot.
+	if err := atomicModifyFileShares(func(all []FileShare) ([]FileShare, error) {
+		for i := range all {
+			if all[i].Token == token {
+				all[i].DownloadCount++
+				break
+			}
+		}
+		return all, nil
+	}); err != nil {
 		log.Printf("file_share: failed to increment download count: %v", err)
 	}
 

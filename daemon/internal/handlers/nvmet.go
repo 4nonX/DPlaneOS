@@ -2,11 +2,40 @@ package handlers
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
+	"sync"
 
 	"dplaned/internal/nvmet"
 )
+
+var nvmeMu sync.Mutex
+
+var (
+	errNVMeConflict   = errors.New("nvme subsystem_nqn already exists")
+	errNVMeNotFound   = errors.New("nvme subsystem not found")
+)
+
+// atomicModifyNVMeTargets holds nvmeMu across the full load-modify-save cycle.
+// nvmet.Apply (configfs) must be called by the caller after the lock is released.
+func atomicModifyNVMeTargets(fn func([]nvmet.Export) ([]nvmet.Export, error)) ([]nvmet.Export, error) {
+	nvmeMu.Lock()
+	defer nvmeMu.Unlock()
+
+	list, err := nvmet.LoadExports(nvmet.TargetsFile)
+	if err != nil {
+		return nil, err
+	}
+	modified, err := fn(list)
+	if err != nil {
+		return nil, err
+	}
+	if err := nvmet.SaveExports(nvmet.TargetsFile, modified); err != nil {
+		return nil, err
+	}
+	return modified, nil
+}
 
 // GetNVMeTargetStatus reports whether configfs nvmet is available (loads modules best-effort).
 // GET /api/nvmet/status
@@ -46,13 +75,6 @@ func ListNVMeZvols(w http.ResponseWriter, r *http.Request) {
 	GetISCSIZvolList(w, r)
 }
 
-func saveAndApplyNVMe(list []nvmet.Export) error {
-	if err := nvmet.SaveExports(nvmet.TargetsFile, list); err != nil {
-		return err
-	}
-	return nvmet.Apply(list)
-}
-
 // CreateNVMeTarget appends one export and applies nvmet.
 // POST /api/nvmet/targets
 func CreateNVMeTarget(w http.ResponseWriter, r *http.Request) {
@@ -65,19 +87,23 @@ func CreateNVMeTarget(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusBadRequest, "Validation failed", err)
 		return
 	}
-	list, err := nvmet.LoadExports(nvmet.TargetsFile)
+	list, err := atomicModifyNVMeTargets(func(all []nvmet.Export) ([]nvmet.Export, error) {
+		for _, e := range all {
+			if e.SubsystemNQN == req.SubsystemNQN {
+				return nil, errNVMeConflict
+			}
+		}
+		return append(all, req), nil
+	})
+	if errors.Is(err, errNVMeConflict) {
+		respondErrorSimple(w, "subsystem_nqn already exists", http.StatusConflict)
+		return
+	}
 	if err != nil {
 		respondErrorSimple(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	for _, e := range list {
-		if e.SubsystemNQN == req.SubsystemNQN {
-			respondErrorSimple(w, "subsystem_nqn already exists", http.StatusConflict)
-			return
-		}
-	}
-	list = append(list, req)
-	if err := saveAndApplyNVMe(list); err != nil {
+	if err := nvmet.Apply(list); err != nil {
 		respondErrorSimple(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -100,24 +126,24 @@ func UpdateNVMeTarget(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusBadRequest, "Validation failed", err)
 		return
 	}
-	list, err := nvmet.LoadExports(nvmet.TargetsFile)
+	list, err := atomicModifyNVMeTargets(func(all []nvmet.Export) ([]nvmet.Export, error) {
+		for i := range all {
+			if all[i].SubsystemNQN == req.SubsystemNQN {
+				all[i] = req
+				return all, nil
+			}
+		}
+		return nil, errNVMeNotFound
+	})
+	if errors.Is(err, errNVMeNotFound) {
+		respondErrorSimple(w, "subsystem not found", http.StatusNotFound)
+		return
+	}
 	if err != nil {
 		respondErrorSimple(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	found := false
-	for i := range list {
-		if list[i].SubsystemNQN == req.SubsystemNQN {
-			list[i] = req
-			found = true
-			break
-		}
-	}
-	if !found {
-		respondErrorSimple(w, "subsystem not found", http.StatusNotFound)
-		return
-	}
-	if err := saveAndApplyNVMe(list); err != nil {
+	if err := nvmet.Apply(list); err != nil {
 		respondErrorSimple(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -135,22 +161,27 @@ func DeleteNVMeTarget(w http.ResponseWriter, r *http.Request) {
 		respondErrorSimple(w, "subsystem_nqn query parameter required", http.StatusBadRequest)
 		return
 	}
-	list, err := nvmet.LoadExports(nvmet.TargetsFile)
+	list, err := atomicModifyNVMeTargets(func(all []nvmet.Export) ([]nvmet.Export, error) {
+		out := make([]nvmet.Export, 0, len(all))
+		for _, e := range all {
+			if e.SubsystemNQN != nqn {
+				out = append(out, e)
+			}
+		}
+		if len(out) == len(all) {
+			return nil, errNVMeNotFound
+		}
+		return out, nil
+	})
+	if errors.Is(err, errNVMeNotFound) {
+		respondErrorSimple(w, "subsystem not found", http.StatusNotFound)
+		return
+	}
 	if err != nil {
 		respondErrorSimple(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	var out []nvmet.Export
-	for _, e := range list {
-		if e.SubsystemNQN != nqn {
-			out = append(out, e)
-		}
-	}
-	if len(out) == len(list) {
-		respondErrorSimple(w, "subsystem not found", http.StatusNotFound)
-		return
-	}
-	if err := saveAndApplyNVMe(out); err != nil {
+	if err := nvmet.Apply(list); err != nil {
 		respondErrorSimple(w, err.Error(), http.StatusInternalServerError)
 		return
 	}

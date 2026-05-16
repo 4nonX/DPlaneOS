@@ -337,16 +337,18 @@ func RunRsyncScheduleNow(w http.ResponseWriter, r *http.Request) {
 		rsyncSchedMu.Unlock()
 	})
 
-	// Record job ID immediately. Do not hold rsyncSchedMu here - saveRsyncSchedules
-	// acquires it internally, and holding it here while calling save would deadlock.
-	for i := range schedules {
-		if schedules[i].ID == id {
-			schedules[i].LastJobID = jobID
-			schedules[i].LastStatus = "running"
-			break
+	if err := atomicModifyRsyncSchedules(func(all []RsyncSchedule) ([]RsyncSchedule, error) {
+		for i := range all {
+			if all[i].ID == id {
+				all[i].LastJobID = jobID
+				all[i].LastStatus = "running"
+				break
+			}
 		}
+		return all, nil
+	}); err != nil {
+		log.Printf("WARN: RunRsyncScheduleNow: failed to persist running status for %s: %v", id, err)
 	}
-	_ = saveRsyncSchedules(schedules)
 
 	audit.LogActivity(r.Header.Get("X-User"), "rsync_schedule_run_now", map[string]interface{}{"id": id})
 	respondOK(w, map[string]interface{}{"success": true, "job_id": jobID})

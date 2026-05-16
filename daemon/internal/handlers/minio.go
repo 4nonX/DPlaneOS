@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -74,6 +75,38 @@ func saveMinioConfig(cfg MinioConfig) error {
 		return err
 	}
 	return os.WriteFile(configPath(minioConfigFile), data, 0600)
+}
+
+var errMinioValidation = errors.New("minio config validation failed")
+
+// atomicModifyMinioConfig holds the write lock across the full load-modify-save cycle.
+// Callbacks must return errMinioValidation for user-input errors (mapped to 400).
+func atomicModifyMinioConfig(fn func(MinioConfig) (MinioConfig, error)) error {
+	minioMu.Lock()
+	defer minioMu.Unlock()
+
+	data, err := os.ReadFile(configPath(minioConfigFile))
+	var cfg MinioConfig
+	if err != nil {
+		if !os.IsNotExist(err) {
+			return err
+		}
+		cfg = defaultMinioConfig()
+	} else {
+		if err := json.Unmarshal(data, &cfg); err != nil {
+			return err
+		}
+	}
+	modified, err := fn(cfg)
+	if err != nil {
+		return err
+	}
+	os.MkdirAll(ConfigDir, 0755)
+	out, err := json.MarshalIndent(modified, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(configPath(minioConfigFile), out, 0600)
 }
 
 func minioInstalled() bool {
@@ -232,36 +265,40 @@ func UpdateMinioConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	current, _ := loadMinioConfig()
-
-	// Apply only non-empty fields; keep existing password if placeholder sent
-	if req.RootUser != "" {
-		current.RootUser = req.RootUser
-	}
-	if req.RootPassword != "" && req.RootPassword != "••••••••" {
-		current.RootPassword = req.RootPassword
-	}
-	if req.VolumePath != "" {
-		current.VolumePath = req.VolumePath
-	}
-	if req.APIPort != 0 {
-		current.APIPort = req.APIPort
-	}
-	if req.ConsolePort != 0 {
-		current.ConsolePort = req.ConsolePort
-	}
-
-	if err := validateMinioConfig(current); err != nil {
-		respondErrorSimple(w, err.Error(), http.StatusBadRequest)
+	var validationErr error
+	var merged MinioConfig
+	if err := atomicModifyMinioConfig(func(current MinioConfig) (MinioConfig, error) {
+		// Apply only non-empty fields; keep existing password if placeholder sent.
+		if req.RootUser != "" {
+			current.RootUser = req.RootUser
+		}
+		if req.RootPassword != "" && req.RootPassword != "••••••••" {
+			current.RootPassword = req.RootPassword
+		}
+		if req.VolumePath != "" {
+			current.VolumePath = req.VolumePath
+		}
+		if req.APIPort != 0 {
+			current.APIPort = req.APIPort
+		}
+		if req.ConsolePort != 0 {
+			current.ConsolePort = req.ConsolePort
+		}
+		if validationErr = validateMinioConfig(current); validationErr != nil {
+			return MinioConfig{}, errMinioValidation
+		}
+		merged = current
+		return current, nil
+	}); err != nil {
+		if errors.Is(err, errMinioValidation) {
+			respondErrorSimple(w, validationErr.Error(), http.StatusBadRequest)
+		} else {
+			respondErrorSimple(w, "Failed to save config", http.StatusInternalServerError)
+		}
 		return
 	}
 
-	if err := saveMinioConfig(current); err != nil {
-		respondErrorSimple(w, "Failed to save config", http.StatusInternalServerError)
-		return
-	}
-
-	if err := applyMinioConfig(current); err != nil {
+	if err := applyMinioConfig(merged); err != nil {
 		respondErrorSimple(w, err.Error(), http.StatusInternalServerError)
 		return
 	}

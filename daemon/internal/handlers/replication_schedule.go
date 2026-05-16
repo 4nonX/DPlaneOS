@@ -317,17 +317,21 @@ func (h *ReplicationScheduleHandler) HandleRunReplicationScheduleNow(w http.Resp
 	sched := *target // copy for goroutine
 	jobID := launchReplicationJob(sched)
 
-	// Update last run + job ID in persisted schedules
-	for i := range schedules {
-		if schedules[i].ID == id {
-			now := time.Now()
-			schedules[i].LastRun = &now
-			schedules[i].LastStatus = "running"
-			schedules[i].LastJobID = jobID
-			break
+	// Atomically update only the status fields - does not overwrite concurrent CRUD changes.
+	now := time.Now()
+	if err := atomicModifySchedules(func(all []ReplicationSchedule) ([]ReplicationSchedule, error) {
+		for i := range all {
+			if all[i].ID == id {
+				all[i].LastRun = &now
+				all[i].LastStatus = "running"
+				all[i].LastJobID = jobID
+				break
+			}
 		}
+		return all, nil
+	}); err != nil {
+		log.Printf("WARN: HandleRunReplicationScheduleNow: failed to persist running status for %s: %v", id, err)
 	}
-	_ = saveReplicationSchedules(schedules)
 
 	respondOK(w, map[string]interface{}{"success": true, "job_id": jobID})
 }
@@ -547,6 +551,13 @@ func TriggerPostSnapshotReplication(dataset string) {
 		return
 	}
 
+	type firedJob struct {
+		id    string
+		jobID string
+	}
+	var fired []firedJob
+	now := time.Now()
+
 	for _, s := range schedules {
 		if !s.Enabled || !s.TriggerOnSnapshot {
 			continue
@@ -564,22 +575,28 @@ func TriggerPostSnapshotReplication(dataset string) {
 		sched := s // copy
 		jobID := launchReplicationJob(sched)
 		log.Printf("INFO: post-snapshot replication triggered for dataset=%s schedule=%s job=%s", dataset, sched.ID, jobID)
-
-		// Update schedule status
-		for i := range schedules {
-			if schedules[i].ID == sched.ID {
-				now := time.Now()
-				schedules[i].LastRun = &now
-				schedules[i].LastStatus = "running"
-				schedules[i].LastJobID = jobID
-				break
-			}
-		}
+		fired = append(fired, firedJob{id: sched.ID, jobID: jobID})
 	}
 
-	// Persist the updated statuses (best-effort)
-	if saveErr := saveReplicationSchedules(schedules); saveErr != nil {
-		log.Printf("WARN: TriggerPostSnapshotReplication: failed to persist status: %v", saveErr)
+	if len(fired) == 0 {
+		return
+	}
+
+	// Atomically update statuses for all fired schedules - does not overwrite concurrent CRUD changes.
+	if err := atomicModifySchedules(func(all []ReplicationSchedule) ([]ReplicationSchedule, error) {
+		for _, f := range fired {
+			for i := range all {
+				if all[i].ID == f.id {
+					all[i].LastRun = &now
+					all[i].LastStatus = "running"
+					all[i].LastJobID = f.jobID
+					break
+				}
+			}
+		}
+		return all, nil
+	}); err != nil {
+		log.Printf("WARN: TriggerPostSnapshotReplication: failed to persist status: %v", err)
 	}
 }
 
@@ -609,9 +626,14 @@ func runDueReplicationSchedules() {
 	}
 
 	now := time.Now()
-	updated := false
 
-	for i, s := range schedules {
+	type firedJob struct {
+		id    string
+		jobID string
+	}
+	var fired []firedJob
+
+	for _, s := range schedules {
 		if !s.Enabled || s.Interval == "manual" {
 			continue
 		}
@@ -619,7 +641,6 @@ func runDueReplicationSchedules() {
 			log.Printf("INFO: replication monitor: skipping schedule %s (job %s still running)", s.ID, s.LastJobID)
 			continue
 		}
-
 		if !isReplicationDue(s, now) {
 			continue
 		}
@@ -628,17 +649,28 @@ func runDueReplicationSchedules() {
 		jobID := launchReplicationJob(sched)
 		log.Printf("INFO: replication monitor: firing schedule id=%s dataset=%s interval=%s job=%s",
 			sched.ID, sched.SourceDataset, sched.Interval, jobID)
-
-		schedules[i].LastRun = &now
-		schedules[i].LastStatus = "running"
-		schedules[i].LastJobID = jobID
-		updated = true
+		fired = append(fired, firedJob{id: sched.ID, jobID: jobID})
 	}
 
-	if updated {
-		if err := saveReplicationSchedules(schedules); err != nil {
-			log.Printf("WARN: replication monitor: failed to save after firing schedules: %v", err)
+	if len(fired) == 0 {
+		return
+	}
+
+	// Atomically update statuses for all fired schedules - does not overwrite concurrent CRUD changes.
+	if err := atomicModifySchedules(func(all []ReplicationSchedule) ([]ReplicationSchedule, error) {
+		for _, f := range fired {
+			for i := range all {
+				if all[i].ID == f.id {
+					all[i].LastRun = &now
+					all[i].LastStatus = "running"
+					all[i].LastJobID = f.jobID
+					break
+				}
+			}
 		}
+		return all, nil
+	}); err != nil {
+		log.Printf("WARN: replication monitor: failed to save after firing schedules: %v", err)
 	}
 }
 

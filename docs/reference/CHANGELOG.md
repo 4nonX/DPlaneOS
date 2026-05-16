@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 
 
+## v10.5.0 (2026-05-16) - "Ironclad"
+
+Upgrade from: v10.4.0 - Drop-in. No breaking changes.
+
+### Fixed
+- **TOCTOU races in replication peer handlers**: `HandleCreateRemote`, `HandleUpdateRemote`, `HandleDeleteRemote`, `HandleResetFingerprint`, `updateRemoteTestStatus`, `persistTestSuccess`, and `resetAllRemotesKeyState` all used the classic load-then-save pattern with a gap between lock acquisitions. Added `atomicModifyRemotes` helper that holds the write lock across the full load-modify-save cycle. `HandleAuthorizeRemote` was split into a two-step pattern: `loadRemotes` for the SSH connection read phase, then `atomicModifyRemotes` targeting only the specific peer's fields after the SSH session completes.
+- **TOCTOU race in rsync "Run Now" status write**: `RunRsyncScheduleNow` recorded the job ID and "running" status by mutating the snapshot loaded before job start, then calling `saveRsyncSchedules` with that stale slice. Any concurrent CRUD request could interleave and be silently overwritten. Replaced with `atomicModifyRsyncSchedules` targeting only the specific schedule's status fields.
+- **TOCTOU races in file share handlers**: `CreateFileShare`, `DeleteFileShare`, and `DownloadFileShare` all read the shares list, modified it in memory, then saved back - racing with any concurrent operation. Added `atomicModifyFileShares` helper. The download counter increment now uses a separate atomic update after the file is opened, so the stale snapshot from the validation phase is never written back.
+- **TOCTOU races in SSH key handlers**: `AddSSHKey` and `DeleteSSHKey` loaded the key store, mutated it, and saved it in separate lock acquisitions. Added `atomicModifySSHKeys` helper. The `importExistingKeys` scan and duplicate check now happen inside the callback so they see the definitive on-disk state. `writeAuthorizedKeys` is called after the lock releases, as required.
+- **TOCTOU race in MinIO config update**: `UpdateMinioConfig` loaded the current config, merged non-empty request fields in memory, validated, then saved - leaving a window where two concurrent updates would each read the same base config and one would win. Added `atomicModifyMinioConfig` that holds the write lock across load-merge-validate-save. Validation errors are signaled via a sentinel and mapped to HTTP 400; I/O errors map to HTTP 500.
+- **TOCTOU races in NVMe-oF target handlers**: `CreateNVMeTarget`, `UpdateNVMeTarget`, and `DeleteNVMeTarget` called `nvmet.LoadExports` and `nvmet.SaveExports` without any serialization - the `nvmet` package has no internal mutex. Added `nvmeMu sync.Mutex` and `atomicModifyNVMeTargets` that covers the load-modify-save, with `nvmet.Apply` called after the lock releases so the kernel configfs write does not block concurrent reads.
+
+
+
 ## v10.4.0 (2026-05-16) - "Bulwark"
 
 Upgrade from: v10.3.0 - Drop-in. No breaking changes.
