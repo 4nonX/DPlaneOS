@@ -75,6 +75,12 @@ Returned when user input fails the security allowlist before reaching any system
 | `Certificate not found` | Referenced certificate does not exist |
 | `Key file not found` | Private key missing for certificate |
 
+### ZFS Quotas
+
+| Error | Cause | Valid Format |
+|-------|-------|-------------|
+| `Invalid user/group name` | Quota target name starts with a digit, dot, or dash, or contains unsafe characters | Must start with a letter or `_`; remaining chars: `[a-zA-Z0-9_\-.]`; max 256 chars |
+
 ### Snapshots
 
 | Error | Cause |

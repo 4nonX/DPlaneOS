@@ -30,7 +30,7 @@ Upgrade from: v10.2.0 - Drop-in. No breaking changes.
 ### Added
 - **Recursive flag for replication**: Both one-shot Replicate and Schedules now expose a "Recursive (include child datasets)" checkbox. When unchecked, `-R` is omitted from `zfs send` so only the exact dataset is sent, not its children. Default is recursive (previous behavior preserved).
 - **Reset Trust button on Peers**: Each peer with a pinned host fingerprint now shows a "Reset Trust" action. Clicking it clears the stored TOFU fingerprint so the next connection re-pins the host key. Useful when a peer's SSH host key changes intentionally (hardware replacement, reinstall).
-- **POST /api/replication/remotes/{id}/reset-fingerprint**: Backend route backing the Reset Trust action. Clears `Fingerprint`, `HostKey`, `KeyInstalled`, and `TestOK` for the peer and commits state to GitOps.
+- **POST /api/replication/remotes/{id}/reset-fingerprint**: Backend route backing the Reset Trust action. Clears `Fingerprint`, `HostKey`, and `TestOK` for the peer; `KeyInstalled` is preserved because the replication key remains in the remote's `authorized_keys`. Commits state to GitOps.
 - **Manual+TriggerOnSnapshot helper note**: The schedule modal now shows an explanatory note when interval is "Manual" and "Trigger after each snapshot" is enabled, clarifying that replication fires after every auto-snapshot but never on a fixed timer.
 
 ### Fixed
