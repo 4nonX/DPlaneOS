@@ -3,7 +3,9 @@ package handlers
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
+	"os"
 	"strings"
 
 	"dplaned/internal/netlinkx"
@@ -377,15 +379,13 @@ func SetNTPServers(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Use timedatectl
-	args := append([]string{"set-ntp", "true"}, req.Servers...)
 	executeCommandWithTimeout(TimeoutFast, "timedatectl", []string{"set-ntp", "true"})
 
-	// Set servers via systemd-timesyncd config
-	conf := "[Time]\n"
-	conf += fmt.Sprintf("NTP=%s\n", strings.Join(req.Servers, " "))
-
-	executeCommandWithTimeout(TimeoutFast, "tee", []string{"/etc/systemd/timesyncd.conf"})
+	// Write the NTP server list to systemd-timesyncd.conf
+	conf := "[Time]\nNTP=" + strings.Join(req.Servers, " ") + "\n"
+	if err := os.WriteFile("/etc/systemd/timesyncd.conf", []byte(conf), 0644); err != nil {
+		log.Printf("WARN: SetNTPServers: failed to write timesyncd.conf: %v", err)
+	}
 
 	// Restart timesyncd
 	executeCommandWithTimeout(TimeoutMedium, "systemctl", []string{"restart", "systemd-timesyncd"})
@@ -397,8 +397,6 @@ func SetNTPServers(w http.ResponseWriter, r *http.Request) {
 		"success": true,
 		"servers": req.Servers,
 	})
-
-	_ = args // suppress unused
 }
 
 // ListBonds lists all bonded interfaces currently present on the system.

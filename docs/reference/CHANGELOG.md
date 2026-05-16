@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 
 
+## v10.4.0 (2026-05-16) - "Bulwark"
+
+Upgrade from: v10.3.0 - Drop-in. No breaking changes.
+
+### Fixed
+- **TOCTOU races in all CRUD handlers eliminated**: Replication schedule Create/Update/Delete and Rsync backup schedule Create/Update/Delete all used a separate load-then-save pattern, leaving a race window where concurrent HTTP requests could overwrite each other's writes. All six handlers now use a new `atomicModifySchedules` / `atomicModifyRsyncSchedules` helper that holds the write lock across the entire load-modify-save cycle.
+- **`updateScheduleStatus` raced with CRUD handlers**: The function called `loadReplicationSchedules` (read lock) then `saveReplicationSchedules` (write lock) in two separate acquisitions, allowing a concurrent PUT/DELETE to interleave and overwrite the status write. Converted to use `atomicModifySchedules` so status updates are fully serialized with CRUD writes.
+- **`HandleResetFingerprint` erroneously cleared `KeyInstalled`**: After clicking Reset Trust, the peer appeared as "Needs authorization" in the UI, the replication key was considered absent, and all replication jobs for that peer failed immediately at the authorization check. The route now only clears `Fingerprint`, `HostKey`, and `TestOK`; `KeyInstalled` is preserved because the client key remains in the remote's `authorized_keys`.
+- **Deadlock on "Run Now" for rsync schedules**: `RunRsyncScheduleNow` held `rsyncSchedMu` then called `saveRsyncSchedules`, which also acquires the same lock. Go mutexes are not reentrant; every "Run Now" click deadlocked the handler goroutine. Outer lock removed; `saveRsyncSchedules` handles its own locking.
+- **Network rollback timer called non-existent binary**: `ApplyNetworkWithRollback` scheduled `cmdutil.Run(..., "network_apply", "apply")` as the rollback command. The binary `network_apply` does not exist; the rollback would silently fail. Changed to `executeCommandWithTimeout(TimeoutMedium, "netplan", []string{"apply"})`.
+- **Network rollback globals unprotected against data races**: The rollback path and content vars were read by the timer goroutine and written by HTTP handlers without synchronization. Added `netRollbackMu sync.Mutex`; all accesses in timer setup, rollback callback, and `ConfirmNetwork` are now protected.
+- **`SetNTPServers` wrote nothing to `timesyncd.conf`**: Code called `executeCommandWithTimeout(..., "tee", ...)` without piping the NTP config string to stdin. `tee` received EOF and wrote an empty file. Replaced with `os.WriteFile` writing the config directly.
+- **`GetZFSDelegation` masked errors with success response**: On a `zfs allow` execution failure the handler returned `{"success": true}` with HTTP 200. Fixed to return `respondErrorSimple` with HTTP 500.
+- **POSIX name validation allowed names starting with a digit**: `isValidPosixName` checked only that chars were `[a-zA-Z0-9_]` but did not enforce the POSIX rule that the first character must be a letter or underscore. Numeric-prefixed names such as `1bad` were accepted. First-character check added.
+
+
+
 ## v10.3.0 (2026-05-16) - "Harness"
 
 Upgrade from: v10.2.0 - Drop-in. No breaking changes.

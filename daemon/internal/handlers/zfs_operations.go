@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"dplaned/internal/cmdutil"
@@ -612,7 +613,7 @@ func GetZFSDelegation(w http.ResponseWriter, r *http.Request) {
 		"allow", dataset,
 	})
 	if err != nil {
-		respondOK(w, map[string]interface{}{"success": true, "delegations": ""})
+		respondErrorSimple(w, "Failed to query delegations: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 	respondOK(w, map[string]interface{}{
@@ -652,8 +653,8 @@ func RevokeZFSDelegation(w http.ResponseWriter, r *http.Request) {
 //  9. NETWORK ROLLBACK TIMER
 // ═══════════════════════════════════════════════════════════════
 
-// Variable types needed
 var (
+	netRollbackMu      sync.Mutex // guards all netRollback* globals
 	netRollbackContent []byte
 	netRollbackPath    string
 	netRollbackTimer   *time.Timer
@@ -701,26 +702,33 @@ func ApplyNetworkWithRollback(w http.ResponseWriter, r *http.Request) {
 	// Apply
 	executeCommandWithTimeout(TimeoutMedium, "netplan", []string{"apply"})
 
-	// Start rollback timer
+	// Capture path and content into closure-local vars so the timer callback has
+	// an immutable copy that won't race with a concurrent ApplyNetworkWithRollback.
+	rollbackPath := req.ConfigPath
+	rollbackContent := currentConfig
+
+	netRollbackMu.Lock()
 	if netRollbackTimer != nil {
 		netRollbackTimer.Stop()
 	}
 	netRollbackContent = currentConfig
 	netRollbackPath = req.ConfigPath
 	netRollbackTimer = time.AfterFunc(time.Duration(req.TimeoutSeconds)*time.Second, func() {
-		log.Printf("NETWORK ROLLBACK: Timer expired, reverting %s", netRollbackPath)
-		if err := os.WriteFile(netRollbackPath, netRollbackContent, 0600); err != nil {
+		netRollbackMu.Lock()
+		defer netRollbackMu.Unlock()
+		log.Printf("NETWORK ROLLBACK: Timer expired, reverting %s", rollbackPath)
+		if err := os.WriteFile(rollbackPath, rollbackContent, 0600); err != nil {
 			log.Printf("NETWORK ROLLBACK ERROR: Failed to write rollback config: %v", err)
 			return
 		}
-		// Apply the rolled back config
-		if _, err := cmdutil.Run(cmdutil.TimeoutMedium, "network_apply", "apply"); err != nil {
+		if _, err := executeCommandWithTimeout(TimeoutMedium, "netplan", []string{"apply"}); err != nil {
 			log.Printf("NETWORK ROLLBACK ERROR: Failed to apply rollback config: %v", err)
 		}
 		netRollbackTimer = nil
 		netRollbackPath = ""
 		netRollbackContent = nil
 	})
+	netRollbackMu.Unlock()
 
 	respondOK(w, map[string]interface{}{
 		"success":         true,
@@ -732,12 +740,14 @@ func ApplyNetworkWithRollback(w http.ResponseWriter, r *http.Request) {
 // ConfirmNetwork cancels the rollback timer
 // POST /api/network/confirm
 func ConfirmNetwork(w http.ResponseWriter, r *http.Request) {
+	netRollbackMu.Lock()
 	if netRollbackTimer != nil {
 		netRollbackTimer.Stop()
 		netRollbackTimer = nil
 	}
 	netRollbackContent = nil
 	netRollbackPath = ""
+	netRollbackMu.Unlock()
 	respondOK(w, map[string]interface{}{
 		"success": true,
 		"message": "Network change confirmed. Rollback cancelled.",
@@ -1018,7 +1028,12 @@ func isValidPosixName(name string) bool {
 	if len(name) == 0 || len(name) > 256 {
 		return false
 	}
-	for _, c := range name {
+	// First character must be a letter or underscore - never a digit, dot, or dash.
+	first := rune(name[0])
+	if !((first >= 'a' && first <= 'z') || (first >= 'A' && first <= 'Z') || first == '_') {
+		return false
+	}
+	for _, c := range name[1:] {
 		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
 			(c >= '0' && c <= '9') || c == '-' || c == '_' || c == '.') {
 			return false

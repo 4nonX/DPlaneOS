@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"dplaned/internal/gitops"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -17,6 +18,8 @@ import (
 	"dplaned/internal/jobs"
 	"github.com/gorilla/mux"
 )
+
+var errScheduleNotFound = errors.New("schedule not found")
 
 type ReplicationScheduleHandler struct {
 	db *sql.DB
@@ -87,6 +90,34 @@ func saveReplicationSchedules(schedules []ReplicationSchedule) error {
 	return os.WriteFile(configPath(replScheduleFile), data, 0644)
 }
 
+// atomicModifySchedules holds the write lock across the entire load-modify-save
+// cycle, eliminating TOCTOU races between concurrent CRUD requests.
+func atomicModifySchedules(fn func([]ReplicationSchedule) ([]ReplicationSchedule, error)) error {
+	replSchedMu.Lock()
+	defer replSchedMu.Unlock()
+
+	data, err := os.ReadFile(configPath(replScheduleFile))
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	var schedules []ReplicationSchedule
+	if len(data) > 0 {
+		if err := json.Unmarshal(data, &schedules); err != nil {
+			return err
+		}
+	}
+	modified, err := fn(schedules)
+	if err != nil {
+		return err
+	}
+	os.MkdirAll(ConfigDir, 0755)
+	out, err := json.MarshalIndent(modified, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(configPath(replScheduleFile), out, 0644)
+}
+
 // HandleListReplicationSchedules serves GET /api/replication/schedules
 func (h *ReplicationScheduleHandler) HandleListReplicationSchedules(w http.ResponseWriter, r *http.Request) {
 	schedules, err := loadReplicationSchedules()
@@ -105,7 +136,7 @@ func (h *ReplicationScheduleHandler) HandleCreateReplicationSchedule(w http.Resp
 		return
 	}
 
-	// Validate
+	// Validate before acquiring the lock
 	if s.Name == "" {
 		respondErrorSimple(w, "name is required", http.StatusBadRequest)
 		return
@@ -128,24 +159,16 @@ func (h *ReplicationScheduleHandler) HandleCreateReplicationSchedule(w http.Resp
 		return
 	}
 
-	// Generate unique ID
 	s.ID = fmt.Sprintf("rs-%d", time.Now().UnixNano())
 
-	schedules, err := loadReplicationSchedules()
-	if err != nil {
-		respondErrorSimple(w, "Failed to load schedules", http.StatusInternalServerError)
-		return
-	}
-
-	schedules = append(schedules, s)
-	if err := saveReplicationSchedules(schedules); err != nil {
+	if err := atomicModifySchedules(func(schedules []ReplicationSchedule) ([]ReplicationSchedule, error) {
+		return append(schedules, s), nil
+	}); err != nil {
 		respondErrorSimple(w, "Failed to save schedules", http.StatusInternalServerError)
 		return
 	}
 
 	respondOK(w, map[string]interface{}{"success": true, "schedule": s})
-
-	// GITOPS HOOK: write state back to git
 	gitops.CommitAllAsync(h.db)
 }
 
@@ -164,39 +187,40 @@ func (h *ReplicationScheduleHandler) HandleUpdateReplicationSchedule(w http.Resp
 		return
 	}
 
-	schedules, err := loadReplicationSchedules()
-	if err != nil {
-		respondErrorSimple(w, "Failed to load schedules", http.StatusInternalServerError)
+	// Validate updateable fields before acquiring the lock
+	if req.SourceDataset != "" && !isValidDataset(req.SourceDataset) {
+		respondErrorSimple(w, "Invalid source_dataset", http.StatusBadRequest)
 		return
 	}
+	if req.Interval != "" {
+		validIntervals := map[string]bool{"hourly": true, "daily": true, "weekly": true, "manual": true}
+		if !validIntervals[req.Interval] {
+			respondErrorSimple(w, "interval must be hourly, daily, weekly, or manual", http.StatusBadRequest)
+			return
+		}
+	}
+	if req.RemoteID != "" {
+		if _, err := ResolveRemoteByID(req.RemoteID); err != nil {
+			respondErrorSimple(w, "Peer not found: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+	}
 
-	found := false
-	for i := range schedules {
-		if schedules[i].ID == id {
-			// Update fields
+	err := atomicModifySchedules(func(schedules []ReplicationSchedule) ([]ReplicationSchedule, error) {
+		for i := range schedules {
+			if schedules[i].ID != id {
+				continue
+			}
 			if req.Name != "" {
 				schedules[i].Name = req.Name
 			}
 			if req.SourceDataset != "" {
-				if !isValidDataset(req.SourceDataset) {
-					respondErrorSimple(w, "Invalid source_dataset", http.StatusBadRequest)
-					return
-				}
 				schedules[i].SourceDataset = req.SourceDataset
 			}
 			if req.Interval != "" {
-				validIntervals := map[string]bool{"hourly": true, "daily": true, "weekly": true, "manual": true}
-				if !validIntervals[req.Interval] {
-					respondErrorSimple(w, "interval must be hourly, daily, weekly, or manual", http.StatusBadRequest)
-					return
-				}
 				schedules[i].Interval = req.Interval
 			}
 			if req.RemoteID != "" {
-				if _, err := ResolveRemoteByID(req.RemoteID); err != nil {
-					respondErrorSimple(w, "Peer not found: "+err.Error(), http.StatusBadRequest)
-					return
-				}
 				schedules[i].RemoteID = req.RemoteID
 			}
 			schedules[i].RemotePool = req.RemotePool
@@ -207,25 +231,21 @@ func (h *ReplicationScheduleHandler) HandleUpdateReplicationSchedule(w http.Resp
 			schedules[i].RateLimitMB = req.RateLimitMB
 			schedules[i].Enabled = req.Enabled
 			schedules[i].NonRecursive = req.NonRecursive
-
-			found = true
-			break
+			return schedules, nil
 		}
-	}
+		return nil, errScheduleNotFound
+	})
 
-	if !found {
+	if errors.Is(err, errScheduleNotFound) {
 		respondErrorSimple(w, "Schedule not found", http.StatusNotFound)
 		return
 	}
-
-	if err := saveReplicationSchedules(schedules); err != nil {
+	if err != nil {
 		respondErrorSimple(w, "Failed to save schedules", http.StatusInternalServerError)
 		return
 	}
 
 	respondOK(w, map[string]interface{}{"success": true})
-
-	// GITOPS HOOK: write state back to git
 	gitops.CommitAllAsync(h.db)
 }
 
@@ -238,34 +258,32 @@ func (h *ReplicationScheduleHandler) HandleDeleteReplicationSchedule(w http.Resp
 		return
 	}
 
-	schedules, err := loadReplicationSchedules()
-	if err != nil {
-		respondErrorSimple(w, "Failed to load schedules", http.StatusInternalServerError)
-		return
-	}
-
-	var newSchedules []ReplicationSchedule
-	found := false
-	for _, s := range schedules {
-		if s.ID == id {
-			found = true
-			continue
+	err := atomicModifySchedules(func(schedules []ReplicationSchedule) ([]ReplicationSchedule, error) {
+		out := schedules[:0]
+		found := false
+		for _, s := range schedules {
+			if s.ID == id {
+				found = true
+				continue
+			}
+			out = append(out, s)
 		}
-		newSchedules = append(newSchedules, s)
-	}
-	if !found {
+		if !found {
+			return nil, errScheduleNotFound
+		}
+		return out, nil
+	})
+
+	if errors.Is(err, errScheduleNotFound) {
 		respondErrorSimple(w, "Schedule not found", http.StatusNotFound)
 		return
 	}
-
-	if err := saveReplicationSchedules(newSchedules); err != nil {
+	if err != nil {
 		respondErrorSimple(w, "Failed to save schedules", http.StatusInternalServerError)
 		return
 	}
 
 	respondOK(w, map[string]interface{}{"success": true})
-
-	// GITOPS HOOK: write state back to git
 	gitops.CommitAllAsync(h.db)
 }
 
@@ -397,6 +415,9 @@ func launchReplicationJob(s ReplicationSchedule) string {
 			updateScheduleStatus(s.ID, "failed", j.ID, "")
 			return
 		}
+		if remote.HostKey == "" {
+			j.Log("WARN: peer has no pinned host key - running in TOFU mode (accept-new). Use the Peers tab to Test this peer and pin the fingerprint.")
+		}
 
 		sshArgs := append([]string{"-i", replKeyPath}, knownHostsArgs...)
 		sshArgs = append(sshArgs,
@@ -493,28 +514,25 @@ func launchReplicationJob(s ReplicationSchedule) string {
 
 // updateScheduleStatus persists last status, job ID, and (on success) the replicated snapshot name.
 func updateScheduleStatus(schedID, status, jobID, lastSnapshot string) {
-	schedules, err := loadReplicationSchedules()
-	if err != nil {
-		log.Printf("WARN: replication_schedule: failed to load schedules for status update: %v", err)
+	now := time.Now()
+	if err := atomicModifySchedules(func(schedules []ReplicationSchedule) ([]ReplicationSchedule, error) {
+		for i := range schedules {
+			if schedules[i].ID == schedID {
+				schedules[i].LastRun = &now
+				schedules[i].LastStatus = status
+				schedules[i].LastJobID = jobID
+				if lastSnapshot != "" {
+					schedules[i].LastReplicatedSnapshot = lastSnapshot
+				}
+				break
+			}
+		}
+		return schedules, nil
+	}); err != nil {
+		log.Printf("WARN: replication_schedule: failed to save status update: %v", err)
 		return
 	}
-	now := time.Now()
-	for i := range schedules {
-		if schedules[i].ID == schedID {
-			schedules[i].LastRun = &now
-			schedules[i].LastStatus = status
-			schedules[i].LastJobID = jobID
-			if lastSnapshot != "" {
-				schedules[i].LastReplicatedSnapshot = lastSnapshot
-			}
-			break
-		}
-	}
-	if err := saveReplicationSchedules(schedules); err != nil {
-		log.Printf("WARN: replication_schedule: failed to save status update: %v", err)
-	}
 
-	// Broadcast schedule update to UI
 	DispatchAlert("info", "replication.schedule_updated", schedID,
 		fmt.Sprintf("Schedule %s status updated to %s", schedID, status))
 }
@@ -595,6 +613,10 @@ func runDueReplicationSchedules() {
 
 	for i, s := range schedules {
 		if !s.Enabled || s.Interval == "manual" {
+			continue
+		}
+		if s.LastStatus == "running" {
+			log.Printf("INFO: replication monitor: skipping schedule %s (job %s still running)", s.ID, s.LastJobID)
 			continue
 		}
 

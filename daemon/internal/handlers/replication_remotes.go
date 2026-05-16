@@ -687,8 +687,10 @@ func (h *RemotesHandler) HandleResetFingerprint(w http.ResponseWriter, r *http.R
 		if remotes[i].ID == id {
 			remotes[i].Fingerprint = ""
 			remotes[i].HostKey = ""
-			remotes[i].KeyInstalled = false
 			remotes[i].TestOK = false
+			// KeyInstalled is intentionally preserved: our client key is still in the
+			// remote's authorized_keys. Only the server's host key changed.
+			// Replication will run in TOFU mode until the operator runs Test to re-pin.
 			found = true
 			break
 		}

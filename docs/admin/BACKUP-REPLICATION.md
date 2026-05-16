@@ -111,6 +111,8 @@ Enter a name, host, SSH user (default: root), and port. Then click **Authorize**
 
 For air-gapped or high-security hosts where password auth is disabled: copy the **Sovereign Target Key** shown in the Peers panel to the target's `authorized_keys` manually, then click **Test** to verify and pin the fingerprint. No password is required.
 
+**If the remote host's SSH host key changes** (hardware replacement, OS reinstall, or deliberate key rotation): click **Reset Trust** on the peer row. This clears the stored fingerprint without removing authorization - the replication key stays installed. Replication jobs will continue in TOFU mode (accepting any host key) until you run **Test** again to pin the new fingerprint. Run Test immediately after Reset Trust to close the TOFU window.
+
 **Step 2 - Create a Schedule** (Replication: Schedules: Add Schedule)
 
 | Field | Notes |

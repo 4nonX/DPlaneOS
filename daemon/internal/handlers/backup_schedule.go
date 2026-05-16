@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -38,6 +39,8 @@ type RsyncSchedule struct {
 
 var rsyncSchedMu sync.RWMutex
 
+var errRsyncScheduleNotFound = errors.New("rsync schedule not found")
+
 const rsyncScheduleFile = "backup-schedules.json"
 
 func loadRsyncSchedules() ([]RsyncSchedule, error) {
@@ -68,6 +71,34 @@ func saveRsyncSchedules(schedules []RsyncSchedule) error {
 		return err
 	}
 	return os.WriteFile(configPath(rsyncScheduleFile), data, 0600)
+}
+
+// atomicModifyRsyncSchedules holds the write lock across the full load-modify-save
+// cycle, eliminating TOCTOU races between concurrent CRUD requests.
+func atomicModifyRsyncSchedules(fn func([]RsyncSchedule) ([]RsyncSchedule, error)) error {
+	rsyncSchedMu.Lock()
+	defer rsyncSchedMu.Unlock()
+
+	data, err := os.ReadFile(configPath(rsyncScheduleFile))
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	var schedules []RsyncSchedule
+	if len(data) > 0 {
+		if err := json.Unmarshal(data, &schedules); err != nil {
+			return err
+		}
+	}
+	modified, err := fn(schedules)
+	if err != nil {
+		return err
+	}
+	os.MkdirAll(ConfigDir, 0755)
+	out, err := json.MarshalIndent(modified, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(configPath(rsyncScheduleFile), out, 0600)
 }
 
 func onCalendarForRsync(s RsyncSchedule) string {
@@ -163,17 +194,16 @@ func CreateRsyncSchedule(w http.ResponseWriter, r *http.Request) {
 	}
 	s.ID = uuid.New().String()
 
-	schedules, err := loadRsyncSchedules()
-	if err != nil {
-		respondErrorSimple(w, "Failed to load schedules", http.StatusInternalServerError)
-		return
-	}
-	schedules = append(schedules, s)
-	if err := saveRsyncSchedules(schedules); err != nil {
+	var final []RsyncSchedule
+	if err := atomicModifyRsyncSchedules(func(schedules []RsyncSchedule) ([]RsyncSchedule, error) {
+		result := append(schedules, s)
+		final = result
+		return result, nil
+	}); err != nil {
 		respondErrorSimple(w, "Failed to save schedules", http.StatusInternalServerError)
 		return
 	}
-	installRsyncTimers(schedules)
+	installRsyncTimers(final)
 
 	audit.LogActivity(r.Header.Get("X-User"), "rsync_schedule_create", map[string]interface{}{"id": s.ID, "name": s.Name})
 	respondOK(w, map[string]interface{}{"success": true, "schedule": s})
@@ -182,71 +212,74 @@ func CreateRsyncSchedule(w http.ResponseWriter, r *http.Request) {
 // PUT /api/backup/rsync/schedules/{id}
 func UpdateRsyncSchedule(w http.ResponseWriter, r *http.Request) {
 	id := mux.Vars(r)["id"]
-	var updated RsyncSchedule
-	if err := json.NewDecoder(r.Body).Decode(&updated); err != nil {
+	var req RsyncSchedule
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		respondErrorSimple(w, "Invalid JSON", http.StatusBadRequest)
 		return
 	}
-	updated.ID = id
+	req.ID = id
 
-	schedules, err := loadRsyncSchedules()
-	if err != nil {
-		respondErrorSimple(w, "Failed to load schedules", http.StatusInternalServerError)
-		return
-	}
-	found := false
-	for i, s := range schedules {
-		if s.ID == id {
-			// Preserve run history
-			updated.LastRun = s.LastRun
-			updated.LastStatus = s.LastStatus
-			updated.LastJobID = s.LastJobID
-			schedules[i] = updated
-			found = true
-			break
+	var final []RsyncSchedule
+	err := atomicModifyRsyncSchedules(func(schedules []RsyncSchedule) ([]RsyncSchedule, error) {
+		for i, s := range schedules {
+			if s.ID != id {
+				continue
+			}
+			req.LastRun = s.LastRun
+			req.LastStatus = s.LastStatus
+			req.LastJobID = s.LastJobID
+			schedules[i] = req
+			final = schedules
+			return schedules, nil
 		}
-	}
-	if !found {
+		return nil, errRsyncScheduleNotFound
+	})
+
+	if errors.Is(err, errRsyncScheduleNotFound) {
 		respondErrorSimple(w, "Schedule not found", http.StatusNotFound)
 		return
 	}
-	if err := saveRsyncSchedules(schedules); err != nil {
+	if err != nil {
 		respondErrorSimple(w, "Failed to save schedules", http.StatusInternalServerError)
 		return
 	}
-	installRsyncTimers(schedules)
+	installRsyncTimers(final)
 
 	audit.LogActivity(r.Header.Get("X-User"), "rsync_schedule_update", map[string]interface{}{"id": id})
-	respondOK(w, map[string]interface{}{"success": true, "schedule": updated})
+	respondOK(w, map[string]interface{}{"success": true, "schedule": req})
 }
 
 // DELETE /api/backup/rsync/schedules/{id}
 func DeleteRsyncSchedule(w http.ResponseWriter, r *http.Request) {
 	id := mux.Vars(r)["id"]
 
-	schedules, err := loadRsyncSchedules()
-	if err != nil {
-		respondErrorSimple(w, "Failed to load schedules", http.StatusInternalServerError)
-		return
-	}
-	filtered := schedules[:0]
-	found := false
-	for _, s := range schedules {
-		if s.ID == id {
-			found = true
-			continue
+	var final []RsyncSchedule
+	err := atomicModifyRsyncSchedules(func(schedules []RsyncSchedule) ([]RsyncSchedule, error) {
+		out := schedules[:0]
+		found := false
+		for _, s := range schedules {
+			if s.ID == id {
+				found = true
+				continue
+			}
+			out = append(out, s)
 		}
-		filtered = append(filtered, s)
-	}
-	if !found {
+		if !found {
+			return nil, errRsyncScheduleNotFound
+		}
+		final = out
+		return out, nil
+	})
+
+	if errors.Is(err, errRsyncScheduleNotFound) {
 		respondErrorSimple(w, "Schedule not found", http.StatusNotFound)
 		return
 	}
-	if err := saveRsyncSchedules(filtered); err != nil {
+	if err != nil {
 		respondErrorSimple(w, "Failed to save schedules", http.StatusInternalServerError)
 		return
 	}
-	installRsyncTimers(filtered)
+	installRsyncTimers(final)
 
 	audit.LogActivity(r.Header.Get("X-User"), "rsync_schedule_delete", map[string]interface{}{"id": id})
 	respondOK(w, map[string]interface{}{"success": true})
@@ -304,8 +337,8 @@ func RunRsyncScheduleNow(w http.ResponseWriter, r *http.Request) {
 		rsyncSchedMu.Unlock()
 	})
 
-	// Record job ID immediately
-	rsyncSchedMu.Lock()
+	// Record job ID immediately. Do not hold rsyncSchedMu here - saveRsyncSchedules
+	// acquires it internally, and holding it here while calling save would deadlock.
 	for i := range schedules {
 		if schedules[i].ID == id {
 			schedules[i].LastJobID = jobID
@@ -313,8 +346,7 @@ func RunRsyncScheduleNow(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 	}
-	saveRsyncSchedules(schedules)
-	rsyncSchedMu.Unlock()
+	_ = saveRsyncSchedules(schedules)
 
 	audit.LogActivity(r.Header.Get("X-User"), "rsync_schedule_run_now", map[string]interface{}{"id": id})
 	respondOK(w, map[string]interface{}{"success": true, "job_id": jobID})

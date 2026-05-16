@@ -139,6 +139,9 @@ func (h *ReplicationHandler) ReplicateToRemote(w http.ResponseWriter, r *http.Re
 				j.Fail("Failed to prepare known_hosts for peer: " + khErr.Error())
 				return
 			}
+			if resolvedRemote.HostKey == "" {
+				j.Log("WARN: peer has no pinned host key - running in TOFU mode (accept-new). Use the Peers tab to Test this peer and pin the fingerprint.")
+			}
 			sshArgs = append([]string{"-i", replKeyPath}, khArgs...)
 		} else {
 			sshArgs = []string{"-o", "StrictHostKeyChecking=accept-new"}
