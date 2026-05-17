@@ -402,9 +402,10 @@ func broadcastDiskEvent(eventType string, data interface{}, level string) {
 	diskEventHub.Broadcast(eventType, data, level)
 }
 
-// broadcastPoolHealthChanged reads the current pool status and broadcasts a
-// poolHealthChanged event to all WS clients.
-func broadcastPoolHealthChanged() {
+// BroadcastPoolHealthChanged reads the current pool status and broadcasts a
+// pool_health_change event to all WS clients.
+// Called by disk event handlers and by the ZED listener callback in main.go.
+func BroadcastPoolHealthChanged() {
 	if diskEventHub == nil {
 		return
 	}
@@ -419,6 +420,9 @@ func broadcastPoolHealthChanged() {
 	// Event name matches ws.ts switch case 'pool_health_change'
 	diskEventHub.Broadcast("pool_health_change", poolHealthMap, "info")
 }
+
+// broadcastPoolHealthChanged is the package-internal alias kept for existing callers.
+func broadcastPoolHealthChanged() { BroadcastPoolHealthChanged() }
 
 // ── zpool output parsers ──────────────────────────────────────────────────────
 

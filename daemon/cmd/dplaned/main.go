@@ -477,6 +477,9 @@ func main() {
 			}
 			handlers.DispatchAlert(level, event, pool, msg)
 		},
+		func() {
+			handlers.BroadcastPoolHealthChanged()
+		},
 	)
 
 	// Initialize Background Monitor (30s interval)

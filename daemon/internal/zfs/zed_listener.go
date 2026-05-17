@@ -13,9 +13,20 @@ import (
 
 // StartZEDListener creates a Unix socket to listen for events from the ZED hook script.
 // If the socket directory does not exist, it logs a warning and returns (safe fallback).
-// On receiving an event, it calls the provided callbacks.
+// On receiving an event, it calls the provided callbacks:
+//   - broadcast: forwards events to the WebSocket hub
+//   - dispatchAlert: routes warning/critical events to the alert subsystem
+//   - refreshPoolHealth: called when a ZED event indicates pool state may have changed;
+//     the caller should run zpool status and broadcast pool_health_change
+//
 // The function returns when ctx is cancelled, allowing clean daemon shutdown.
-func StartZEDListener(ctx context.Context, socketPath string, broadcast func(eventType string, data interface{}, level string), dispatchAlert func(event, pool, msg string)) {
+func StartZEDListener(
+	ctx context.Context,
+	socketPath string,
+	broadcast func(eventType string, data interface{}, level string),
+	dispatchAlert func(event, pool, msg string),
+	refreshPoolHealth func(),
+) {
 	dir := filepath.Dir(socketPath)
 
 	if _, err := os.Stat(dir); os.IsNotExist(err) {
@@ -44,14 +55,14 @@ func StartZEDListener(ctx context.Context, socketPath string, broadcast func(eve
 		ul.SetDeadline(time.Now().Add(1 * time.Second))
 		conn, err := ul.Accept()
 		if err != nil {
-			// Context cancelled → clean exit.
+			// Context cancelled - clean exit.
 			select {
 			case <-ctx.Done():
 				log.Printf("ZED listener: context cancelled, shutting down")
 				return
 			default:
 			}
-			// Deadline exceeded → loop and check ctx again.
+			// Deadline exceeded - loop and check ctx again.
 			if ne, ok := err.(net.Error); ok && ne.Timeout() {
 				continue
 			}
@@ -59,11 +70,16 @@ func StartZEDListener(ctx context.Context, socketPath string, broadcast func(eve
 			continue
 		}
 
-		go handleZEDConnection(conn, broadcast, dispatchAlert)
+		go handleZEDConnection(conn, broadcast, dispatchAlert, refreshPoolHealth)
 	}
 }
 
-func handleZEDConnection(conn net.Conn, broadcast func(eventType string, data interface{}, level string), dispatchAlert func(event, pool, msg string)) {
+func handleZEDConnection(
+	conn net.Conn,
+	broadcast func(eventType string, data interface{}, level string),
+	dispatchAlert func(event, pool, msg string),
+	refreshPoolHealth func(),
+) {
 	defer conn.Close()
 
 	scanner := bufio.NewScanner(conn)
@@ -83,7 +99,7 @@ func handleZEDConnection(conn net.Conn, broadcast func(eventType string, data in
 
 		log.Printf("ZED Event received: Pool=%s Subclass=%s State=%s Severity=%s", pool, subclass, state, severity)
 
-		// Broadcast to UI via WebSocket
+		// Generic broadcast - the frontend can subscribe to zfs.event.* for raw events.
 		eventData := map[string]string{
 			"pool":     pool,
 			"subclass": subclass,
@@ -106,9 +122,112 @@ func handleZEDConnection(conn net.Conn, broadcast func(eventType string, data in
 
 		broadcast("zfs.event."+subclass, eventData, wsLevel)
 
-		// Dispatch alert for warning and critical events
+		// Alert dispatch for warning and critical events.
 		if severity == "critical" || severity == "warning" {
 			dispatchAlert("zfs."+severity+"."+subclass, pool, alertMsg)
 		}
+
+		// Typed dispatch: translate ZED subclasses into the named WS events that
+		// the frontend already handles (matching zfs_operations.go + disk_event_handler.go).
+		zedTypedDispatch(pool, subclass, state, wsLevel, broadcast, refreshPoolHealth)
 	}
+}
+
+// zedTypedDispatch emits named WebSocket events for specific ZED subclasses,
+// supplementing the generic zfs.event.{subclass} broadcast above.
+// Pool-health events call refreshPoolHealth (wired to BroadcastPoolHealthChanged
+// in main.go) rather than running zpool status inline, keeping this package
+// free of direct I/O side-effects beyond GetPoolScanLine.
+func zedTypedDispatch(
+	pool, subclass, state, level string,
+	broadcast func(string, interface{}, string),
+	refreshPoolHealth func(),
+) {
+	switch subclass {
+
+	// ── Scrub ────────────────────────────────────────────────────────────────
+
+	case "scrub_start":
+		broadcast("scrub_started", map[string]interface{}{"pool": pool}, "info")
+		go zedFastProgressPoll(pool, "zfs.scrub.progress", broadcast)
+
+	case "scrub_finish":
+		broadcast("scrub_completed", map[string]interface{}{"pool": pool}, "info")
+		refreshPoolHealth()
+
+	// ── Resilver ─────────────────────────────────────────────────────────────
+
+	case "resilver_start":
+		broadcast("resilver_started", map[string]interface{}{"pool": pool}, "info")
+		go zedFastProgressPoll(pool, "zfs.resilver.progress", broadcast)
+
+	case "resilver_finish":
+		broadcast("resilver_completed", map[string]interface{}{"pool": pool}, "info")
+		refreshPoolHealth()
+
+	// ── State changes and device events ──────────────────────────────────────
+
+	case "statechange":
+		// Refresh pool health for any degradation; ONLINE recoveries are handled
+		// by the monitoring background ticker and don't need immediate refresh.
+		switch state {
+		case "FAULTED", "UNAVAIL", "REMOVED", "DEGRADED":
+			refreshPoolHealth()
+		}
+
+	case "pool_destroy", "vdev_remove", "device_removal":
+		refreshPoolHealth()
+
+	// ── I/O and checksum errors ───────────────────────────────────────────────
+	// Already dispatched as alert above; also emit a structured WS event so the
+	// frontend can show a non-modal notification without polling the audit log.
+
+	case "io_failure":
+		broadcast("zfs.io_error", map[string]interface{}{
+			"pool":  pool,
+			"state": state,
+			"kind":  "io",
+		}, level)
+
+	case "checksum_failure":
+		broadcast("zfs.io_error", map[string]interface{}{
+			"pool":  pool,
+			"state": state,
+			"kind":  "checksum",
+		}, level)
+	}
+}
+
+// zedFastProgressPoll runs a goroutine that polls zpool status every 2 seconds
+// and broadcasts scan progress events while the operation is in flight.
+// It exits silently when the operation finishes; the ZED finish event provides
+// the completion broadcast, so this function does not emit one itself.
+func zedFastProgressPoll(pool, eventType string, broadcast func(string, interface{}, string)) {
+	const pollInterval = 2 * time.Second
+	const maxRuntime = 48 * time.Hour
+
+	deadline := time.Now().Add(maxRuntime)
+	for time.Now().Before(deadline) {
+		time.Sleep(pollInterval)
+
+		rawScan, err := GetPoolScanLine(pool)
+		if err != nil || rawScan == "" {
+			continue
+		}
+
+		parsed := ParseScanLine(rawScan)
+		if !parsed.InProgress {
+			// Operation finished; ZED resilver_finish / scrub_finish will broadcast completion.
+			return
+		}
+
+		broadcast(eventType, map[string]interface{}{
+			"pool":         pool,
+			"percent_done": parsed.PercentDone,
+			"eta":          parsed.ETA,
+			"bytes_done":   parsed.BytesDone,
+		}, "info")
+	}
+
+	log.Printf("ZED fast progress poll for pool %s timed out after 48h", pool)
 }
