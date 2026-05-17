@@ -1,15 +1,10 @@
 package handlers
 
 import (
-	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
-	"os/exec"
 	"regexp"
 	"strconv"
-	"strings"
-	"time"
 
 	"dplaned/internal/hardware"
 	"github.com/gorilla/mux"
@@ -63,7 +58,7 @@ func SetEnclosureLocate(w http.ResponseWriter, r *http.Request) {
 }
 
 // GetEnclosureSESStatus serves GET /api/enclosure/{id}/ses-status.
-// Runs sg_ses --page=es against the enclosure's sg device and returns parsed element status.
+// Queries the enclosure's sg device via direct SG_IO ioctls (RECEIVE DIAGNOSTIC RESULTS).
 // Returns 404 when no sg device can be resolved (virtual/no-hardware systems).
 func GetEnclosureSESStatus(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
@@ -79,17 +74,15 @@ func GetEnclosureSESStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
-	defer cancel()
-
-	out, err := exec.CommandContext(ctx, "sg_ses", "--page=es", sgDev).CombinedOutput()
+	elements, err := hardware.GetSESElements(sgDev)
 	if err != nil {
-		respondError(w, http.StatusInternalServerError,
-			fmt.Sprintf("sg_ses failed: %s", strings.TrimSpace(string(out))), err)
+		respondError(w, http.StatusInternalServerError, "SES query failed", err)
 		return
 	}
+	if elements == nil {
+		elements = []hardware.SESElement{}
+	}
 
-	elements := hardware.ParseSGSesOutput(string(out))
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"enclosure_id": encID,
