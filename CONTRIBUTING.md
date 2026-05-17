@@ -26,12 +26,14 @@ npm run dev
 ```
 DPlaneOS/
 ├── daemon/                     # Go backend
-│   ├── cmd/dplaned/            # Entry point (main.go, schema.go, routes)
+│   ├── cmd/dplaned/            # Entry point (main.go, schema.go seed data, routes)
 │   └── internal/
 │       ├── handlers/           # HTTP handlers (one file per feature area)
 │       ├── jobs/               # Async job store (in-memory, ephemeral)
 │       ├── audit/              # Audit logging (buffered, HMAC chain)
 │       ├── cmdutil/            # Safe exec.Command wrappers (timeout-aware)
+│       ├── database/           # Schema migrations (goose) + SQL helpers
+│       │   └── migrations/     # Versioned .sql migration files (goose format)
 │       ├── netlinkx/           # Netlink syscalls (no CGO, no ip(8))
 │       └── security/           # CSRF, session validation, command whitelist
 ├── app/                        # Built frontend (output of `npm run build`)

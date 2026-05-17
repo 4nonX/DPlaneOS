@@ -18,6 +18,7 @@ import (
 
 	"dplaned/internal/alerts"
 	"dplaned/internal/audit"
+	"dplaned/internal/database"
 	"dplaned/internal/gitops"
 	"dplaned/internal/ha"
 	"dplaned/internal/handlers"
@@ -71,8 +72,11 @@ func main() {
 		if err != nil {
 			log.Fatalf("Failed to open database: %v", err)
 		}
-		if err := initSchema(db); err != nil {
-			log.Fatalf("Schema init failed: %v", err)
+		if err := database.RunMigrations(db); err != nil {
+			log.Fatalf("Schema migration failed: %v", err)
+		}
+		if err := seedDefaults(db); err != nil {
+			log.Fatalf("Seed defaults failed: %v", err)
 		}
 		log.Printf("Database initialized at %s", *dbDSN)
 		os.Exit(0)
@@ -87,8 +91,11 @@ func main() {
 			log.Fatalf("Failed to open database: %v", err)
 		}
 		// 2. Init Schema
-		if err := initSchema(db); err != nil {
-			log.Fatalf("Schema init failed: %v", err)
+		if err := database.RunMigrations(db); err != nil {
+			log.Fatalf("Schema migration failed: %v", err)
+		}
+		if err := seedDefaults(db); err != nil {
+			log.Fatalf("Seed defaults failed: %v", err)
 		}
 		// 3. Load State
 		content, err := os.ReadFile(*gitopsStatePath)
@@ -124,9 +131,11 @@ func main() {
 		if err != nil {
 			log.Fatalf("DB failed: %v", err)
 		}
-		// Initialize database schema (safe on every call)
-		if err := initSchema(db); err != nil {
-			log.Fatalf("Database schema initialization failed: %v", err)
+		if err := database.RunMigrations(db); err != nil {
+			log.Fatalf("Schema migration failed: %v", err)
+		}
+		if err := seedDefaults(db); err != nil {
+			log.Fatalf("Seed defaults failed: %v", err)
 		}
 		content, err := os.ReadFile(*gitopsStatePath)
 		if err != nil {
@@ -148,9 +157,11 @@ func main() {
 		if err != nil {
 			log.Fatalf("DB failed: %v", err)
 		}
-		// Initialize database schema (safe on every call)
-		if err := initSchema(db); err != nil {
-			log.Fatalf("Database schema initialization failed: %v", err)
+		if err := database.RunMigrations(db); err != nil {
+			log.Fatalf("Schema migration failed: %v", err)
+		}
+		if err := seedDefaults(db); err != nil {
+			log.Fatalf("Seed defaults failed: %v", err)
 		}
 		content, err := os.ReadFile(*gitopsStatePath)
 		if err != nil {
@@ -253,9 +264,12 @@ func main() {
 	}
 	defer db.Close()
 
-	// Initialize database schema (IF NOT EXISTS - safe on every startup)
-	if err := initSchema(db); err != nil {
-		log.Fatalf("Database schema initialization failed: %v", err)
+	// Apply any pending schema migrations, then seed default data.
+	if err := database.RunMigrations(db); err != nil {
+		log.Fatalf("Schema migration failed: %v", err)
+	}
+	if err := seedDefaults(db); err != nil {
+		log.Fatalf("Seed defaults failed: %v", err)
 	}
 
 	// Phase 6.2: Bootstrap CE Token if provided
