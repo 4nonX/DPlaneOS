@@ -28,6 +28,9 @@ func CommitAllAsync(db *sql.DB) {
 // then performs a git commit and push.
 // This is the post-write hook for all UI-driven infrastructure changes.
 func CommitAll(db *sql.DB) error {
+	stateMu.Lock()
+	defer stateMu.Unlock()
+
 	// 0. Check if GitOps is enabled and configured
 	var enabled int
 	var repoID sql.NullInt64

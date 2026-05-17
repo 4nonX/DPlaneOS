@@ -71,6 +71,9 @@ type ApplyContext struct {
 // It FIRST synchronizes the database tables (Shares, NFS, Users, Groups, LDAP)
 // to match the DesiredState 100%, treating the DB purely as a cache.
 func ApplyPlan(ctx ApplyContext, plan *Plan, desired *DesiredState) (*ApplyResult, error) {
+	stateMu.Lock()
+	defer stateMu.Unlock()
+
 	start := time.Now()
 	result := &ApplyResult{}
 
