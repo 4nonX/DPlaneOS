@@ -186,6 +186,26 @@ in {
       default = null;
       description = "Active Directory Domain Controller (AD only)";
     };
+
+    idmapDomains = lib.mkOption {
+      type = lib.types.listOf (lib.types.submodule {
+        options = {
+          name    = lib.mkOption { type = lib.types.str; description = "Domain short name or \"*\" for catch-all"; };
+          backend = lib.mkOption { type = lib.types.enum [ "rid" "ad" "tdb" "autorid" ]; default = "rid"; };
+          low     = lib.mkOption { type = lib.types.int; default = 10000; };
+          high    = lib.mkOption { type = lib.types.int; default = 999999; };
+        };
+      });
+      default = [];
+      description = ''
+        Per-forest UID/GID range mappings. Each entry generates:
+          idmap config <name> : backend = <backend>
+          idmap config <name> : range   = <low>-<high>
+        A "*" entry for the catch-all backend is added automatically when
+        this list is empty; override it by including a "*" entry here.
+      '';
+    };
+
     sharesConfPath = lib.mkOption {
       type    = lib.types.path;
       default = sharesConfPath;
@@ -215,7 +235,22 @@ in {
       # Use our rendered config. services.samba writes this to
       # /etc/samba/smb.conf at activation time.
       # The "include = ..." line at the bottom pulls in daemon-managed shares.
-      settings = {
+      settings = let
+        # Build "idmap config <name> : backend/range" attrs from cfg.idmapDomains.
+        # When idmapDomains is empty, keep legacy hardcoded defaults so existing
+        # installs that have not configured multi-forest IDMAP are unaffected.
+        defaultIdmap = {
+          "idmap config * : backend" = "tdb";
+          "idmap config * : range"   = "3000-7999";
+          "idmap config ${cfg.workgroup} : backend" = "rid";
+          "idmap config ${cfg.workgroup} : range"   = "10000-999999";
+        };
+        domainIdmap = lib.foldl' (acc: d: acc // {
+          "idmap config ${d.name} : backend" = d.backend;
+          "idmap config ${d.name} : range"   = "${toString d.low}-${toString d.high}";
+        }) {} cfg.idmapDomains;
+        idmapAttrs = if cfg.idmapDomains == [] then defaultIdmap else domainIdmap;
+      in {
         global = {
           "workgroup"           = cfg.workgroup;
           "server string"       = cfg.serverString;
@@ -235,12 +270,8 @@ in {
           "write raw"           = "yes";
           "use sendfile"        = "yes";
 
-          # ── Identity Mapping ──────────────────────────────────────────────
-          "idmap config * : backend" = "tdb";
-          "idmap config * : range"   = "3000-7999";
-          "idmap config ${cfg.workgroup} : backend" = "rid";
-          "idmap config ${cfg.workgroup} : range"   = "10000-999999";
-
+          # ── Identity Mapping (dynamic, driven by idmapDomains option) ────
+        } // idmapAttrs // {
           # ── AD Specifics ──────────────────────────────────────────────────
           "kerberos method"          = lib.mkIf (cfg.securityMode == "ads") "secrets and keytab";
           "winbind use default domain" = lib.mkIf (cfg.securityMode == "ads") "yes";

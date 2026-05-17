@@ -482,6 +482,10 @@ func main() {
 		},
 	)
 
+	// Kerberos ticket renewal loop: wakes every 15 minutes and renews machine
+	// account TGTs for any joined AD domain. No-op when AD is not configured.
+	handlers.StartKerberosRenewer(daemonCtx, db)
+
 	// Initialize Background Monitor (30s interval)
 	// Broadcasts inotify stats to WebSocket clients
 	bgMonitor := monitoring.NewBackgroundMonitor(30*time.Second, func(eventType string, data interface{}, level string) {
@@ -1072,6 +1076,13 @@ func main() {
 	// Active Directory Domain Join (v7.3.0)
 	r.Handle("/api/directory/join", permRoute("system", "admin", ldapHandler.JoinADDomain)).Methods("POST")
 	r.Handle("/api/directory/status", permRoute("system", "read", ldapHandler.GetDirectoryStatus)).Methods("GET")
+
+	// Multi-forest AD domain CRUD + join/leave (v8.0.0)
+	r.Handle("/api/ldap/domains", permRoute("system", "read", ldapHandler.ListDomains)).Methods("GET")
+	r.Handle("/api/ldap/domains", permRoute("system", "admin", ldapHandler.CreateDomain)).Methods("POST")
+	r.Handle("/api/ldap/domains/{name}", permRoute("system", "admin", ldapHandler.DeleteDomain)).Methods("DELETE")
+	r.Handle("/api/ldap/domains/{name}/join", permRoute("system", "admin", ldapHandler.JoinDomain)).Methods("POST")
+	r.Handle("/api/ldap/domains/{name}/leave", permRoute("system", "admin", ldapHandler.LeaveDomain)).Methods("POST")
 
 	// RBAC routes
 	// Read routes require "roles:read" permission (except /me/* which is self-service)

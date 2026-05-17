@@ -6,12 +6,17 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os/exec"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/gorilla/mux"
+
 	"dplaned/internal/audit"
 	"dplaned/internal/gitops"
+	"dplaned/internal/jobs"
 	"dplaned/internal/ldap"
 	"dplaned/internal/nixwriter"
 )
@@ -636,5 +641,373 @@ func (h *LDAPHandler) logSync(syncType string, success bool, synced, created, up
 
 func init() {
 	log.Println("LDAP handler module loaded")
+}
+
+// ── AD domain CRUD ────────────────────────────────────────────────────────────
+
+// domainNameRe allows uppercase alphanumeric with dots/hyphens (short AD names).
+var domainNameRe = regexp.MustCompile(`^[A-Z0-9][A-Z0-9\.\-]{0,62}$`)
+
+// realmRe allows a Kerberos realm: uppercase FQDN.
+var realmRe = regexp.MustCompile(`^[A-Z0-9][A-Z0-9\.\-]{1,253}\.[A-Z]{2,}$`)
+
+// idmapBackendSet is the set of accepted IDMAP backends.
+var idmapBackendSet = map[string]bool{
+	"rid": true, "ad": true, "tdb": true, "autorid": true,
+}
+
+// ============================================================
+// GET /api/ldap/domains
+// ============================================================
+// ListDomains returns all configured AD forests with their IDMAP and join status.
+func (h *LDAPHandler) ListDomains(w http.ResponseWriter, r *http.Request) {
+	rows, err := h.db.Query(`SELECT id, name, realm, server, idmap_backend, idmap_low, idmap_high,
+		domain_joined, domain_joined_at, kinit_principal, last_kinit_at, kinit_ok, enabled
+		FROM ad_domains ORDER BY name`)
+	if err != nil {
+		writeJSON(w, 500, ldapResp{Error: "DB error: " + err.Error()})
+		return
+	}
+	defer rows.Close()
+
+	type domainRow struct {
+		ID             int64  `json:"id"`
+		Name           string `json:"name"`
+		Realm          string `json:"realm"`
+		Server         string `json:"server"`
+		IDMAPBackend   string `json:"idmap_backend"`
+		IDMAPLow       int64  `json:"idmap_low"`
+		IDMAPHigh      int64  `json:"idmap_high"`
+		DomainJoined   bool   `json:"domain_joined"`
+		DomainJoinedAt string `json:"domain_joined_at,omitempty"`
+		KinitPrincipal string `json:"kinit_principal"`
+		LastKinitAt    string `json:"last_kinit_at,omitempty"`
+		KinitOK        bool   `json:"kinit_ok"`
+		Enabled        bool   `json:"enabled"`
+	}
+	var out []domainRow
+	for rows.Next() {
+		var d domainRow
+		var joinedAt, kinitAt sql.NullString
+		if err := rows.Scan(&d.ID, &d.Name, &d.Realm, &d.Server, &d.IDMAPBackend,
+			&d.IDMAPLow, &d.IDMAPHigh, &d.DomainJoined, &joinedAt,
+			&d.KinitPrincipal, &kinitAt, &d.KinitOK, &d.Enabled); err != nil {
+			writeJSON(w, 500, ldapResp{Error: "row scan: " + err.Error()})
+			return
+		}
+		if joinedAt.Valid {
+			d.DomainJoinedAt = joinedAt.String
+		}
+		if kinitAt.Valid {
+			d.LastKinitAt = kinitAt.String
+		}
+		out = append(out, d)
+	}
+	writeJSON(w, 200, ldapResp{Success: true, Data: out})
+}
+
+// ============================================================
+// POST /api/ldap/domains
+// ============================================================
+// CreateDomain registers a new AD forest / IDMAP range configuration.
+// Joining the domain is a separate POST /api/ldap/domains/:id/join operation.
+func (h *LDAPHandler) CreateDomain(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Name         string `json:"name"`
+		Realm        string `json:"realm"`
+		Server       string `json:"server"`
+		BindDN       string `json:"bind_dn"`
+		BindPassword string `json:"bind_password"`
+		IDMAPBackend string `json:"idmap_backend"`
+		IDMAPLow     int64  `json:"idmap_low"`
+		IDMAPHigh    int64  `json:"idmap_high"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, 400, ldapResp{Error: "Invalid request body"})
+		return
+	}
+
+	req.Name = strings.ToUpper(strings.TrimSpace(req.Name))
+	req.Realm = strings.ToUpper(strings.TrimSpace(req.Realm))
+
+	if !domainNameRe.MatchString(req.Name) {
+		writeJSON(w, 400, ldapResp{Error: "Invalid domain name (use uppercase alphanumeric, dots, hyphens)"})
+		return
+	}
+	if !realmRe.MatchString(req.Realm) {
+		writeJSON(w, 400, ldapResp{Error: "Invalid Kerberos realm (must be uppercase FQDN)"})
+		return
+	}
+	if req.IDMAPBackend == "" {
+		req.IDMAPBackend = "rid"
+	}
+	if !idmapBackendSet[req.IDMAPBackend] {
+		writeJSON(w, 400, ldapResp{Error: "idmap_backend must be one of: rid, ad, tdb, autorid"})
+		return
+	}
+	if req.IDMAPLow <= 0 {
+		req.IDMAPLow = 10000
+	}
+	if req.IDMAPHigh <= req.IDMAPLow {
+		writeJSON(w, 400, ldapResp{Error: "idmap_high must be greater than idmap_low"})
+		return
+	}
+
+	_, err := h.db.Exec(`INSERT INTO ad_domains
+		(name, realm, server, bind_dn, bind_password, idmap_backend, idmap_low, idmap_high)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+		req.Name, req.Realm, req.Server, req.BindDN, req.BindPassword,
+		req.IDMAPBackend, req.IDMAPLow, req.IDMAPHigh)
+	if err != nil {
+		writeJSON(w, 500, ldapResp{Error: "Failed to create domain: " + err.Error()})
+		return
+	}
+
+	audit.Log(audit.AuditLog{
+		Level: audit.LevelInfo, Command: "AD_DOMAIN_CREATE",
+		User: r.Header.Get("X-User"), Success: true,
+		Metadata: map[string]interface{}{"name": req.Name, "realm": req.Realm},
+	})
+	syncIDMAPToNixwriter(h.db)
+	writeJSON(w, 200, ldapResp{Success: true})
+}
+
+// ============================================================
+// DELETE /api/ldap/domains/:name
+// ============================================================
+// DeleteDomain removes an AD domain registration. The domain must not be joined.
+func (h *LDAPHandler) DeleteDomain(w http.ResponseWriter, r *http.Request) {
+	name := strings.ToUpper(strings.TrimSpace(mux.Vars(r)["name"]))
+	if !domainNameRe.MatchString(name) {
+		writeJSON(w, 400, ldapResp{Error: "Invalid domain name"})
+		return
+	}
+
+	var joined bool
+	if err := h.db.QueryRow(`SELECT domain_joined FROM ad_domains WHERE name=$1`, name).Scan(&joined); err != nil {
+		writeJSON(w, 404, ldapResp{Error: "Domain not found"})
+		return
+	}
+	if joined {
+		writeJSON(w, 409, ldapResp{Error: "Domain is joined - leave the domain before deleting"})
+		return
+	}
+
+	if _, err := h.db.Exec(`DELETE FROM ad_domains WHERE name=$1`, name); err != nil {
+		writeJSON(w, 500, ldapResp{Error: "Delete failed: " + err.Error()})
+		return
+	}
+
+	audit.Log(audit.AuditLog{
+		Level: audit.LevelInfo, Command: "AD_DOMAIN_DELETE",
+		User: r.Header.Get("X-User"), Success: true,
+		Metadata: map[string]interface{}{"name": name},
+	})
+	syncIDMAPToNixwriter(h.db)
+	writeJSON(w, 200, ldapResp{Success: true})
+}
+
+// ============================================================
+// POST /api/ldap/domains/:name/join
+// ============================================================
+// JoinDomain joins an Active Directory domain using the supplied AD admin credentials.
+// The join sequence:
+//  1. Obtain a Kerberos TGT for the admin user (kinit, password piped via stdin).
+//  2. Run `net ads join -k` to join using the TGT.
+//  3. Update ad_domains.domain_joined and kinit_principal.
+//  4. Sync IDMAP config to nixwriter so the next nixos-rebuild activates winbind.
+//
+// Returns a job_id; poll GET /api/jobs/:id for result.
+func (h *LDAPHandler) JoinDomain(w http.ResponseWriter, r *http.Request) {
+	name := strings.ToUpper(strings.TrimSpace(mux.Vars(r)["name"]))
+	if !domainNameRe.MatchString(name) {
+		respondErrorSimple(w, "Invalid domain name", http.StatusBadRequest)
+		return
+	}
+
+	var req struct {
+		Username string `json:"username"` // AD admin, no domain prefix
+		Password string `json:"password"`
+		OU       string `json:"ou"` // optional: target OU for computer account
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Username == "" || req.Password == "" {
+		respondErrorSimple(w, "username and password required", http.StatusBadRequest)
+		return
+	}
+
+	var realm, server string
+	if err := h.db.QueryRow(`SELECT realm, server FROM ad_domains WHERE name=$1`, name).Scan(&realm, &server); err != nil {
+		respondErrorSimple(w, "Domain not found", http.StatusNotFound)
+		return
+	}
+
+	user := r.Header.Get("X-User")
+	password := req.Password
+	username := req.Username
+	ou := req.OU
+	db := h.db
+
+	jobID := jobs.Start("ad_join", func(j *jobs.Job) {
+		j.Log("Starting AD join for domain " + name + " (" + realm + ")")
+
+		principal := username + "@" + realm
+
+		// Step 1: kinit to get a TGT for the join operation.
+		// Password is piped via stdin, never in command args.
+		kinitCmd := exec.Command("kinit", principal)
+		kinitCmd.Stdin = strings.NewReader(password + "\n")
+		if out, err := kinitCmd.CombinedOutput(); err != nil {
+			j.Fail("kinit failed: " + err.Error() + ": " + strings.TrimSpace(string(out)))
+			return
+		}
+		j.Log("Kerberos TGT obtained for " + principal)
+
+		// Step 2: net ads join -k (Kerberos auth, no password in args).
+		joinArgs := []string{"ads", "join", "-k"}
+		if ou != "" {
+			joinArgs = append(joinArgs, "createcomputer="+ou)
+		}
+		netCmd := exec.Command("net", joinArgs...)
+		if out, err := netCmd.CombinedOutput(); err != nil {
+			j.Fail("net ads join failed: " + err.Error() + ": " + strings.TrimSpace(string(out)))
+			return
+		}
+		j.Log("Domain join successful")
+
+		// Step 3: update DB.
+		_, dbErr := db.Exec(`UPDATE ad_domains SET
+			domain_joined=true, domain_joined_at=NOW(),
+			kinit_principal=$1, updated_at=NOW()
+			WHERE name=$2`, principal, name)
+		if dbErr != nil {
+			log.Printf("AD JOIN: failed to update DB: %v", dbErr)
+		}
+
+		// Step 4: sync IDMAP to nixwriter so next rebuild activates winbind.
+		syncIDMAPToNixwriter(db)
+
+		audit.Log(audit.AuditLog{
+			Level: audit.LevelInfo, Command: "AD_DOMAIN_JOIN",
+			User: user, Success: true,
+			Metadata: map[string]interface{}{"domain": name, "realm": realm},
+		})
+
+		j.Done(map[string]interface{}{
+			"domain": name, "realm": realm, "joined": true,
+		})
+	})
+
+	respondJSON(w, http.StatusAccepted, map[string]interface{}{"job_id": jobID})
+}
+
+// ============================================================
+// POST /api/ldap/domains/:name/leave
+// ============================================================
+// LeaveDomain removes the machine account from Active Directory.
+func (h *LDAPHandler) LeaveDomain(w http.ResponseWriter, r *http.Request) {
+	name := strings.ToUpper(strings.TrimSpace(mux.Vars(r)["name"]))
+	if !domainNameRe.MatchString(name) {
+		respondErrorSimple(w, "Invalid domain name", http.StatusBadRequest)
+		return
+	}
+
+	var req struct {
+		Username string `json:"username"`
+		Password string `json:"password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Username == "" || req.Password == "" {
+		respondErrorSimple(w, "username and password required", http.StatusBadRequest)
+		return
+	}
+
+	var realm string
+	if err := h.db.QueryRow(`SELECT realm FROM ad_domains WHERE name=$1`, name).Scan(&realm); err != nil {
+		respondErrorSimple(w, "Domain not found", http.StatusNotFound)
+		return
+	}
+
+	user := r.Header.Get("X-User")
+	password := req.Password
+	username := req.Username
+	db := h.db
+
+	jobID := jobs.Start("ad_leave", func(j *jobs.Job) {
+		j.Log("Leaving domain " + name + " (" + realm + ")")
+
+		principal := username + "@" + realm
+
+		// Obtain a fresh TGT for the leave operation.
+		kinitCmd := exec.Command("kinit", principal)
+		kinitCmd.Stdin = strings.NewReader(password + "\n")
+		if out, err := kinitCmd.CombinedOutput(); err != nil {
+			j.Fail("kinit failed: " + err.Error() + ": " + strings.TrimSpace(string(out)))
+			return
+		}
+
+		leaveCmd := exec.Command("net", "ads", "leave", "-k")
+		if out, err := leaveCmd.CombinedOutput(); err != nil {
+			j.Fail("net ads leave failed: " + err.Error() + ": " + strings.TrimSpace(string(out)))
+			return
+		}
+		j.Log("Domain leave successful")
+
+		db.Exec(`UPDATE ad_domains SET domain_joined=false, domain_joined_at=NULL, updated_at=NOW() WHERE name=$1`, name)
+		syncIDMAPToNixwriter(db)
+
+		audit.Log(audit.AuditLog{
+			Level: audit.LevelInfo, Command: "AD_DOMAIN_LEAVE",
+			User: user, Success: true,
+			Metadata: map[string]interface{}{"domain": name},
+		})
+
+		j.Done(map[string]interface{}{"domain": name, "left": true})
+	})
+
+	respondJSON(w, http.StatusAccepted, map[string]interface{}{"job_id": jobID})
+}
+
+// syncIDMAPToNixwriter reads all enabled ad_domains and updates the nixwriter
+// IDMAP state. Called after any domain create/delete/join/leave operation.
+func syncIDMAPToNixwriter(db *sql.DB) {
+	rows, err := db.Query(`SELECT name, idmap_backend, idmap_low, idmap_high, domain_joined
+		FROM ad_domains WHERE enabled=true ORDER BY name`)
+	if err != nil {
+		log.Printf("AD: syncIDMAP: query failed: %v", err)
+		return
+	}
+	defer rows.Close()
+
+	var domains []nixwriter.IDMAPDomain
+	anyJoined := false
+	for rows.Next() {
+		var d nixwriter.IDMAPDomain
+		var joined bool
+		if err := rows.Scan(&d.Name, &d.Backend, &d.Low, &d.High, &joined); err != nil {
+			continue
+		}
+		if joined {
+			anyJoined = true
+		}
+		domains = append(domains, d)
+	}
+
+	// Always include a catch-all "*" entry with tdb if not already present.
+	hasStar := false
+	for _, d := range domains {
+		if d.Name == "*" {
+			hasStar = true
+			break
+		}
+	}
+	if !hasStar && len(domains) > 0 {
+		domains = append([]nixwriter.IDMAPDomain{{
+			Name: "*", Backend: "tdb", Low: 3000, High: 9999,
+		}}, domains...)
+	}
+
+	w := nixwriter.DefaultWriter()
+	if err := w.SetIDMAP(anyJoined, domains); err != nil {
+		log.Printf("AD: syncIDMAP: nixwriter update failed: %v", err)
+	}
 }
 

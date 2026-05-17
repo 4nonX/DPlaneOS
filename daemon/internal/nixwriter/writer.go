@@ -102,6 +102,25 @@ type DPlaneState struct {
 
 	// ── High Availability ──────────────────────────────────────────────────────
 	HAEnable bool `json:"ha_enable,omitempty"`
+
+	// ── Active Directory / IDMAP ───────────────────────────────────────────────
+	// WinbindEnable activates the winbindd service and configures Samba for
+	// ADS security mode. Set automatically when an AD domain is joined.
+	WinbindEnable bool `json:"winbind_enable,omitempty"`
+	// IDMAPDomains lists per-forest UID/GID range mappings. Each entry maps a
+	// domain short name (or "*" for catch-all) to an idmap backend and range.
+	// Drives "idmap config <name> : backend/range" lines in smb.conf.
+	IDMAPDomains []IDMAPDomain `json:"idmap_domains,omitempty"`
+}
+
+// IDMAPDomain describes one Active Directory forest's UID/GID mapping.
+// Name is the domain short name (e.g. "CORP") or "*" for the catch-all backend.
+// Backend must be one of: "rid", "ad", "tdb", "autorid".
+type IDMAPDomain struct {
+	Name    string `json:"name"`    // domain short name or "*"
+	Backend string `json:"backend"` // rid, ad, tdb, autorid
+	Low     int    `json:"low"`     // lowest UID/GID
+	High    int    `json:"high"`    // highest UID/GID
 }
  
 // NetworkStaticEntry describes one statically-configured interface.
@@ -496,6 +515,40 @@ func (w *Writer) SetHA(enable bool) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	w.state.HAEnable = enable
+	return w.flushLocked()
+}
+
+// ── IDMAP / AD setter ─────────────────────────────────────────────────────────
+
+var validIDMAPBackends = map[string]bool{
+	"rid": true, "ad": true, "tdb": true, "autorid": true,
+}
+
+// SetIDMAP records winbind/IDMAP state for multi-forest Active Directory.
+// enable should be true whenever any AD domain is joined.
+// domains must contain at least one entry (typically a "*" catch-all plus one
+// per joined forest). Duplicate Names are rejected.
+func (w *Writer) SetIDMAP(enable bool, domains []IDMAPDomain) error {
+	seen := make(map[string]bool, len(domains))
+	for _, d := range domains {
+		if d.Name == "" {
+			return fmt.Errorf("IDMAP domain name cannot be empty")
+		}
+		if !validIDMAPBackends[d.Backend] {
+			return fmt.Errorf("invalid IDMAP backend %q for domain %q", d.Backend, d.Name)
+		}
+		if d.Low < 0 || d.High <= d.Low {
+			return fmt.Errorf("invalid IDMAP range [%d-%d] for domain %q", d.Low, d.High, d.Name)
+		}
+		if seen[d.Name] {
+			return fmt.Errorf("duplicate IDMAP domain %q", d.Name)
+		}
+		seen[d.Name] = true
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.state.WinbindEnable = enable
+	w.state.IDMAPDomains = domains
 	return w.flushLocked()
 }
 

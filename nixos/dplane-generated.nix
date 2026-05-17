@@ -124,6 +124,9 @@ in
     securityMode      = s.samba_security_mode  or "user";
     realm             = s.samba_realm          or null;
     domainController  = s.samba_domain_controller or null;
+    # Multi-forest IDMAP: list of { name, backend, low, high } attrsets.
+    # samba.nix translates each entry into "idmap config <name> : ..." lines.
+    idmapDomains      = s.idmap_domains        or [];
   };
 
   # ── SSH Daemon ───────────────────────────────────────────────────────────────

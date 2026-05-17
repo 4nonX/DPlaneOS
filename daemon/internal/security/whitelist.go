@@ -771,6 +771,46 @@ var CommandWhitelist = map[string]Command{
 		AllowedArgs: []string{"-j", "list", "ruleset"},
 		Description: "Forensic Probe: List all firewall rules in JSON format",
 	},
+
+	// Active Directory / Kerberos Operations
+	"net_ads_leave": {
+		Name:        "net_ads_leave",
+		Path:        "net",
+		AllowedArgs: []string{"ads", "leave"},
+		ArgPatterns: []*regexp.Regexp{
+			regexp.MustCompile(`^-U$`),                   // -U flag
+			regexp.MustCompile(`^[a-zA-Z0-9_\-\.\\]+$`), // username
+		},
+		Description: "Leave Active Directory domain (password via PASSWD env)",
+	},
+	"net_ads_testjoin": {
+		Name:        "net_ads_testjoin",
+		Path:        "net",
+		AllowedArgs: []string{"ads", "testjoin"},
+		Description: "Verify machine account trust with Active Directory",
+	},
+	"kinit_keytab": {
+		Name:        "kinit_keytab",
+		Path:        "kinit",
+		AllowedArgs: []string{"-k", "-t"},
+		ArgPatterns: []*regexp.Regexp{
+			regexp.MustCompile(`^/etc/krb5\.keytab$`),           // keytab path (exact)
+			regexp.MustCompile(`^[a-zA-Z0-9._/-]+@[A-Z0-9._-]+$`), // principal
+		},
+		Description: "Renew Kerberos ticket using machine keytab",
+	},
+	"kinit_renew": {
+		Name:        "kinit_renew",
+		Path:        "kinit",
+		AllowedArgs: []string{"-R"},
+		Description: "Renew existing Kerberos TGT without re-authenticating",
+	},
+	"klist_check": {
+		Name:        "klist_check",
+		Path:        "klist",
+		AllowedArgs: []string{"-s"},
+		Description: "Check whether a valid Kerberos TGT exists (exit 0 = valid)",
+	},
 }
 
 // ValidateCommand checks if a command request is allowed
