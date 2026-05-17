@@ -48,6 +48,7 @@ in {
   imports = [
     ./dplane-generated.nix   # v5.0 JSON-to-Nix bridge (written by daemon, read by Nix)
     ./modules/samba.nix      # DPlaneOS Samba integration module
+    ./modules/nfs.nix        # DPlaneOS NFS integration module (NFSv4.2 + idmapping + ACL tools)
   ];
 
   system.stateVersion = "25.11";
@@ -314,10 +315,14 @@ in {
   };
 
   # ═══════════════════════════════════════════════════════════
-  #  NFS
+  #  NFS (NFSv4.2 + idmapping + ACL tools via modules/nfs.nix)
   # ═══════════════════════════════════════════════════════════
 
-  services.nfs.server.enable = true;
+  services.dplaneos.nfs = {
+    enable     = true;
+    nfs4Domain = "localdomain";  # override to your DNS domain for multi-host setups
+    minVersion = "4.2";
+  };
 
   # ═══════════════════════════════════════════════════════════
   #  DOCKER (containers on ZFS)
@@ -375,7 +380,7 @@ in {
     allowedTCPPorts = [
       80 443        # HTTP/HTTPS (web UI)
       445           # SMB
-      2049          # NFS
+      # 2049 and 111 (NFS) are opened by modules/nfs.nix when services.dplaneos.nfs.openFirewall = true
       22            # SSH
     ];
     allowedUDPPorts = [

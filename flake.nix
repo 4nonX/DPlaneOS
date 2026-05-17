@@ -57,7 +57,7 @@
         src          = nixpkgs.lib.cleanSource ./daemon;
         env.CGO_ENABLED = "0";
         vendorHash   = null;
-        subPackages  = [ "cmd/dplaned" ];
+        subPackages  = [ "cmd/dplaned" "cmd/dplane-fenced" ];
         nativeBuildInputs = [];
         ldflags = [
           "-s" "-w"
@@ -85,12 +85,44 @@
         src          = nixpkgs.lib.cleanSource ./daemon;
         env.CGO_ENABLED = "0";
         vendorHash   = null;
-        subPackages  = [ "cmd/dplaned" ];
+        subPackages  = [ "cmd/dplaned" "cmd/dplane-fenced" ];
         nativeBuildInputs = [];
         ldflags = [ "-s" "-w" "-X" "main.Version=${dplaneosVersion}" ];
         meta = with nixpkgs.lib; {
           description = "DPlaneOS NAS daemon : glibc dynamic build (dev only)";
           license     = licenses.agpl3Only;
+        };
+      };
+
+      # mkDaemonCGO: glibc build with CGO_ENABLED=1 and libzfs headers.
+      #
+      # This variant activates the daemon/internal/libzfs/zfs_cgo.go code path,
+      # which calls libzfs directly via cgo instead of spawning ZFS subprocesses.
+      # It produces a dynamically-linked ELF that requires libzfs.so at runtime.
+      # NixOS wraps the binary in a derivation that sets LD_LIBRARY_PATH so
+      # the runtime dependency is satisfied without /etc/ld.so.conf changes.
+      #
+      # Build inputs:
+      #   pkgs.zfs           - provides libzfs.so, libzfs_core.so, and libzfs.h
+      #   pkgs.libnvpair     - provides libnvpair.so and sys/nvpair.h
+      #                        (usually provided by zfs, included explicitly for headers)
+      #   pkgs.gcc           - C compiler for cgo
+      #
+      # To build manually: nix build .#dplaneos-daemon-cgo
+      mkDaemonCGO = { system, pkgs, dplaneosVersion, nixpkgs }: pkgs.buildGoModule {
+        pname        = "dplaneos-daemon-cgo";
+        version      = dplaneosVersion;
+        src          = nixpkgs.lib.cleanSource ./daemon;
+        env.CGO_ENABLED = "1";
+        vendorHash   = null;
+        subPackages  = [ "cmd/dplaned" "cmd/dplane-fenced" ];
+        nativeBuildInputs = with pkgs; [ gcc pkg-config ];
+        buildInputs  = with pkgs; [ zfs ];
+        ldflags = [ "-s" "-w" "-X" "main.Version=${dplaneosVersion}" ];
+        meta = with nixpkgs.lib; {
+          description = "DPlaneOS NAS daemon : glibc + libzfs cgo build";
+          license     = licenses.agpl3Only;
+          platforms   = [ "x86_64-linux" "aarch64-linux" ];
         };
       };
 
@@ -142,12 +174,14 @@
             disko.nixosModules.disko
             impermanence.nixosModules.impermanence
             applianceConfig
-            { services.dplaneos.daemonPackage = daemon; }
+            { services.dplaneos.daemonPackage  = daemon;
+              services.dplaneos.fenced.package  = daemon; }
           ];
         }).config.system.build.isoImage;
       in {
         packages.dplaneos-daemon         = daemon;
         packages.dplaneos-daemon-dynamic = daemonDyn;
+        packages.dplaneos-daemon-cgo     = mkDaemonCGO { inherit system pkgs dplaneosVersion nixpkgs; };
         packages.iso = iso;
         packages.default = daemon;
 
@@ -178,7 +212,10 @@
           ./nixos/modules/samba.nix
           ./nixos/dplane-generated.nix
           applianceConfig
-          { services.dplaneos.daemonPackage = mkDaemon { inherit system pkgs dplaneosVersion nixpkgs; pkgsStatic = pkgs.pkgsStatic; }; }
+          (let d = mkDaemon { inherit system pkgs dplaneosVersion nixpkgs; pkgsStatic = pkgs.pkgsStatic; }; in {
+            services.dplaneos.daemonPackage    = d;
+            services.dplaneos.fenced.package   = d;
+          })
         ];
       };
 
@@ -196,7 +233,10 @@
           ./nixos/modules/samba.nix
           ./nixos/dplane-generated.nix
           applianceConfig
-          { services.dplaneos.daemonPackage = mkDaemon { inherit system pkgs dplaneosVersion nixpkgs; pkgsStatic = pkgs.pkgsStatic; }; }
+          (let d = mkDaemon { inherit system pkgs dplaneosVersion nixpkgs; pkgsStatic = pkgs.pkgsStatic; }; in {
+            services.dplaneos.daemonPackage    = d;
+            services.dplaneos.fenced.package   = d;
+          })
           # Hard override: ensure no x86_64-only Intel packages are evaluated for aarch64.
           # intel-media-driver, intel-compute-runtime, and intel-microcode all declare
           # meta.platforms = ["x86_64-linux"] and fail at eval time on aarch64.

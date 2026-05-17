@@ -49,6 +49,13 @@
     # DPlaneOS Samba integration : declarative NixOS ownership of Samba,
     # with per-share config written by the web UI daemon.
     ./modules/samba.nix
+
+    # NFSv4.2 server with idmapd and nfs4-acl-tools (Priority 7).
+    ./modules/nfs.nix
+
+    # SCSI-3 persistent reservation fencing (Priority 9).
+    # Only active when services.dplaneos.fenced.enable = true.
+    ./modules/fenced.nix
   ];
 
   # ─── License: AGPLv3 ────────────────────────────────────────────────────

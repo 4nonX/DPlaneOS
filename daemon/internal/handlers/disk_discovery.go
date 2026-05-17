@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"dplaned/internal/gitops"
+	"dplaned/internal/storageops"
 )
 
 // DiskInfo is the enriched representation of a single block device.
@@ -610,12 +611,21 @@ func HandlePoolCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	opID, err := storageops.Begin(registryDB, storageops.OpPoolCreate, request.Name)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusConflict)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "zpool", args...)
 	output, err := cmd.CombinedOutput()
 
 	if err != nil {
+		storageops.Fail(registryDB, opID, string(output))
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(map[string]string{
@@ -624,6 +634,7 @@ func HandlePoolCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	storageops.Commit(registryDB, opID)
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{
 		"status": "created",

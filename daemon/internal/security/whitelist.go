@@ -772,6 +772,37 @@ var CommandWhitelist = map[string]Command{
 		Description: "Forensic Probe: List all firewall rules in JSON format",
 	},
 
+	// NFSv4 ACL Operations (v9.0.0)
+	"nfs4_getfacl": {
+		Name:        "nfs4_getfacl",
+		Path:        "nfs4_getfacl",
+		AllowedArgs: nil,
+		ArgPatterns: []*regexp.Regexp{
+			regexp.MustCompile(`^/(mnt|tank|data|home|srv|opt)(/[a-zA-Z0-9_\-\.]+)+$`),
+		},
+		Description: "Get NFSv4 ACL for a file or directory",
+	},
+	"nfs4_setfacl": {
+		Name:        "nfs4_setfacl",
+		Path:        "nfs4_setfacl",
+		AllowedArgs: []string{"-s"},
+		ArgPatterns: []*regexp.Regexp{
+			// comma-separated ACE specs: type:flags:principal:perms,...
+			regexp.MustCompile(`^([ADUL]:[gdfpniGSF]*:[^:,]{1,64}:[rwaxdDtTnNcCoy]*,?)+$`),
+			regexp.MustCompile(`^/(mnt|tank|data|home|srv|opt)(/[a-zA-Z0-9_\-\.]+)+$`),
+		},
+		Description: "Set NFSv4 ACL for a file or directory (full replace via -s)",
+	},
+
+	// SES / Enclosure Operations
+	"sg_ses_status": {
+		Name:        "sg_ses_status",
+		Path:        "sg_ses",
+		AllowedArgs: []string{"--page=es"},
+		ArgPatterns: []*regexp.Regexp{regexp.MustCompile(`^/dev/sg[0-9]+$`)},
+		Description: "Query SES enclosure element status page",
+	},
+
 	// Active Directory / Kerberos Operations
 	"net_ads_leave": {
 		Name:        "net_ads_leave",

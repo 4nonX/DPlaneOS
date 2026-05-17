@@ -14,7 +14,9 @@ import (
 
 	"dplaned/internal/cmdutil"
 	"dplaned/internal/jobs"
+	"dplaned/internal/libzfs"
 	"dplaned/internal/security"
+	"dplaned/internal/storageops"
 	"dplaned/internal/zfs"
 )
 
@@ -220,6 +222,12 @@ func AddVdevToPool(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	opID, err := storageops.Begin(registryDB, storageops.OpVdevAdd, req.Pool)
+	if err != nil {
+		respondError(w, http.StatusConflict, err.Error(), nil)
+		return
+	}
+
 	args := []string{"add", req.Pool}
 	if req.VdevType != "" {
 		args = append(args, req.VdevType)
@@ -228,6 +236,7 @@ func AddVdevToPool(w http.ResponseWriter, r *http.Request) {
 
 	output, err := executeCommandWithTimeout(TimeoutMedium, "zpool", args)
 	if err != nil {
+		storageops.Fail(registryDB, opID, fmt.Sprintf("zpool add: %v: %s", err, strings.TrimSpace(output)))
 		respondOK(w, map[string]interface{}{
 			"success": false,
 			"error":   fmt.Sprintf("Failed to add vdev: %v", err),
@@ -235,6 +244,7 @@ func AddVdevToPool(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+	storageops.Commit(registryDB, opID)
 	respondOK(w, map[string]interface{}{
 		"success":   true,
 		"pool":      req.Pool,
@@ -318,6 +328,12 @@ func ReplaceDisk(w http.ResponseWriter, r *http.Request) {
 	newDisk := req.NewDisk
 	argsCopy := append([]string(nil), args...)
 
+	opID, err := storageops.Begin(registryDB, storageops.OpReplace, pool+":"+oldDisk)
+	if err != nil {
+		respondError(w, http.StatusConflict, err.Error(), nil)
+		return
+	}
+
 	jobID := jobs.Start("zpool-replace", func(j *jobs.Job) {
 		// Broadcast resilver_started immediately so PoolsPage shows live state.
 		if diskEventHub != nil {
@@ -330,6 +346,7 @@ func ReplaceDisk(w http.ResponseWriter, r *http.Request) {
 
 		output, err := executeCommandWithTimeout(TimeoutMedium, "zpool", argsCopy)
 		if err != nil {
+			storageops.Fail(registryDB, opID, fmt.Sprintf("zpool replace: %v: %s", err, strings.TrimSpace(output)))
 			if diskEventHub != nil {
 				diskEventHub.Broadcast("resilver_completed", map[string]interface{}{
 					"pool":    pool,
@@ -340,6 +357,7 @@ func ReplaceDisk(w http.ResponseWriter, r *http.Request) {
 			j.Fail(fmt.Sprintf("zpool replace failed: %v - %s", err, strings.TrimSpace(output)))
 			return
 		}
+		storageops.Commit(registryDB, opID)
 		if diskEventHub != nil {
 			// Poll for completion instead of broadcasting immediately.
 			// zpool replace starts a resilver in the background.
@@ -1137,6 +1155,12 @@ func AttachDisk(w http.ResponseWriter, r *http.Request) {
 	oldDisk := req.OldDisk
 	newDisk := req.NewDisk
 
+	opID, err := storageops.Begin(registryDB, storageops.OpAttach, pool+":"+oldDisk)
+	if err != nil {
+		respondError(w, http.StatusConflict, err.Error(), nil)
+		return
+	}
+
 	jobID := jobs.Start("zpool-attach", func(j *jobs.Job) {
 		if diskEventHub != nil {
 			diskEventHub.Broadcast("resilver_started", map[string]interface{}{
@@ -1148,6 +1172,7 @@ func AttachDisk(w http.ResponseWriter, r *http.Request) {
 
 		output, err := executeCommandWithTimeout(TimeoutMedium, "zpool", []string{"attach", pool, oldDisk, newDisk})
 		if err != nil {
+			storageops.Fail(registryDB, opID, fmt.Sprintf("zpool attach: %v: %s", err, strings.TrimSpace(output)))
 			if diskEventHub != nil {
 				diskEventHub.Broadcast("resilver_completed", map[string]interface{}{
 					"pool":    pool,
@@ -1158,7 +1183,7 @@ func AttachDisk(w http.ResponseWriter, r *http.Request) {
 			j.Fail(fmt.Sprintf("zpool attach failed: %v - %s", err, strings.TrimSpace(output)))
 			return
 		}
-
+		storageops.Commit(registryDB, opID)
 		if diskEventHub != nil {
 			diskEventHub.Broadcast("resilver_completed", map[string]interface{}{
 				"pool":    pool,
@@ -1191,12 +1216,10 @@ func DetachDisk(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	output, err := executeCommandWithTimeout(TimeoutMedium, "zpool", []string{"detach", req.Pool, req.Disk})
-	if err != nil {
+	if err := libzfs.VdevDetach(req.Pool, req.Disk); err != nil {
 		respondOK(w, map[string]interface{}{
 			"success": false,
 			"error":   err.Error(),
-			"output":  strings.TrimSpace(output),
 		})
 		return
 	}

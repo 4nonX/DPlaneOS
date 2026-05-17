@@ -1084,6 +1084,17 @@ func main() {
 	r.Handle("/api/ldap/domains/{name}/join", permRoute("system", "admin", ldapHandler.JoinDomain)).Methods("POST")
 	r.Handle("/api/ldap/domains/{name}/leave", permRoute("system", "admin", ldapHandler.LeaveDomain)).Methods("POST")
 
+	// Transactional storage operation audit log (v8.2.0)
+	r.Handle("/api/storage/operations", permRoute("storage", "read", http.HandlerFunc(handlers.ListStorageOperations))).Methods("GET")
+	r.Handle("/api/storage/operations/{id}", permRoute("storage", "admin", http.HandlerFunc(handlers.ClearStorageOperation))).Methods("DELETE")
+
+	// SES / Enclosure hardware (v8.1.0)
+	// 5a: sysfs LED locate - enumerate enclosures and toggle slot locate LEDs
+	// 5b: sg_ses status reads - element status via SCSI enclosure services
+	r.Handle("/api/enclosure", permRoute("system", "read", http.HandlerFunc(handlers.ListEnclosures))).Methods("GET")
+	r.Handle("/api/enclosure/{id}/slot/{index}/locate", permRoute("system", "admin", http.HandlerFunc(handlers.SetEnclosureLocate))).Methods("PUT")
+	r.Handle("/api/enclosure/{id}/ses-status", permRoute("system", "read", http.HandlerFunc(handlers.GetEnclosureSESStatus))).Methods("GET")
+
 	// RBAC routes
 	// Read routes require "roles:read" permission (except /me/* which is self-service)
 	r.Handle("/api/rbac/roles", permRoute("roles", "read", handlers.HandleListRoles)).Methods("GET")
@@ -1112,13 +1123,17 @@ func main() {
 	// Cron hook: called by generated systemd timer on localhost (no user session, bypassed by sessionMiddleware IP+token check)
 	r.HandleFunc("/api/zfs/snapshots/cron-hook", snapScheduleHandler.RunCronHook).Methods("POST")
 
-	// ACL Management (v2.0.0)
+	// ACL Management (v2.0.0) - POSIX ACL (getfacl/setfacl)
 	aclHandler := handlers.NewACLHandler()
 	r.Handle("/api/acl/get", permRoute("storage", "read", aclHandler.GetACL)).Methods("GET")
 	r.Handle("/api/acl/set", permRoute("storage", "write", aclHandler.SetACL)).Methods("POST")
 	// Alias for consistency with other system APIs
 	r.Handle("/api/system/acl", permRoute("storage", "read", aclHandler.GetACL)).Methods("GET")
 	r.Handle("/api/system/acl", permRoute("storage", "write", aclHandler.SetACL)).Methods("POST")
+
+	// NFSv4 ACL Management (v9.0.0) - nfs4_getfacl / nfs4_setfacl
+	r.Handle("/api/nfs4acl", permRoute("storage", "read", http.HandlerFunc(handlers.GetNFS4ACL))).Methods("GET")
+	r.Handle("/api/nfs4acl", permRoute("storage", "write", http.HandlerFunc(handlers.SetNFS4ACL))).Methods("PUT")
 
 	// Metrics / Reporting (v2.0.0)
 	metricsHandler := handlers.NewMetricsHandler()

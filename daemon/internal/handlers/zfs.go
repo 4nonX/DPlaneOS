@@ -12,7 +12,9 @@ import (
 
 	"dplaned/internal/audit"
 	"dplaned/internal/gitops"
+	"dplaned/internal/libzfs"
 	"dplaned/internal/security"
+	"dplaned/internal/storageops"
 )
 
 type ZFSHandler struct {
@@ -250,13 +252,22 @@ func (h *ZFSHandler) CreateDataset(w http.ResponseWriter, r *http.Request) {
 		respondErrorSimple(w, "Dataset name not allowed: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	_, err := executeCommand("zfs", []string{"create", req.Name})
+
+	opID, opErr := storageops.Begin(h.db, storageops.OpDatasetCreate, req.Name)
+	if opErr != nil {
+		respondError(w, http.StatusConflict, opErr.Error(), nil)
+		return
+	}
+
+	err := libzfs.DatasetCreate(req.Name)
 	duration := time.Since(start)
 	audit.LogCommand(audit.LevelInfo, user, "zfs_create", []string{req.Name}, err == nil, duration, err)
 	if err != nil {
+		storageops.Fail(h.db, opID, err.Error())
 		respondOK(w, CommandResponse{Success: false, Error: err.Error(), Duration: duration.Milliseconds()})
 		return
 	}
+	storageops.Commit(h.db, opID)
 
 	// Step 2: set optional properties
 	type prop struct{ key, val string }
