@@ -119,6 +119,7 @@
         nativeBuildInputs = with pkgs; [ gcc pkg-config ];
         buildInputs  = with pkgs; [ zfs ];
         ldflags = [ "-s" "-w" "-X" "main.Version=${dplaneosVersion}" ];
+        tags = [ "libzfs" ];
         meta = with nixpkgs.lib; {
           description = "DPlaneOS NAS daemon : glibc + libzfs cgo build";
           license     = licenses.agpl3Only;
