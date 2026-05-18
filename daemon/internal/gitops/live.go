@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"strconv"
 	"strings"
@@ -172,12 +173,31 @@ func ReadLiveState(db *sql.DB) (*LiveState, error) {
 		return nil, fmt.Errorf("reading live system: %w", err)
 	}
 
-	state.LDAP, _ = readLDAPConfig(db)
-	state.ACME, _ = readLiveACME(db)
-	state.Certificates, _ = readLiveCertificates(db)
-	state.SMART, _ = readLiveSMART(db)
-
-	state.NVMeFabric, _ = readLiveNVMeFabric()
+	if ldap, err := readLDAPConfig(db); err == nil {
+		state.LDAP = ldap
+	} else if err != sql.ErrNoRows {
+		log.Printf("gitops: live state: LDAP config: %v", err)
+	}
+	if acme, err := readLiveACME(db); err == nil {
+		state.ACME = acme
+	} else {
+		log.Printf("gitops: live state: ACME config: %v", err)
+	}
+	if certs, err := readLiveCertificates(db); err == nil {
+		state.Certificates = certs
+	} else {
+		log.Printf("gitops: live state: certificates: %v", err)
+	}
+	if smart, err := readLiveSMART(db); err == nil {
+		state.SMART = smart
+	} else {
+		log.Printf("gitops: live state: SMART tasks: %v", err)
+	}
+	if fabric, err := readLiveNVMeFabric(); err == nil {
+		state.NVMeFabric = fabric
+	} else {
+		log.Printf("gitops: live state: NVMe fabric: %v", err)
+	}
 
 	return state, nil
 }

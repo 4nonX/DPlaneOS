@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"os/exec"
@@ -89,12 +90,14 @@ func (h *LDAPHandler) JoinADDomain(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 4. Update Database
-	_, _ = h.db.Exec(`UPDATE ldap_config SET 
-		domain_joined = true, 
+	if _, err := h.db.Exec(`UPDATE ldap_config SET
+		domain_joined = true,
 		domain_joined_at = NOW(),
 		provider_type = 'ad',
-		realm = $1 
-		WHERE id = 1`, strings.ToUpper(req.Domain))
+		realm = $1
+		WHERE id = 1`, strings.ToUpper(req.Domain)); err != nil {
+		log.Printf("ad_join: persist domain join state for %s: %v", req.Domain, err)
+	}
 
 	audit.LogAction("directory.join", r.Header.Get("X-User"), "Domain joined successfully: "+req.Domain, true, 0)
 	writeJSON(w, 200, ldapResp{Success: true, Data: "Successfully joined domain " + req.Domain})

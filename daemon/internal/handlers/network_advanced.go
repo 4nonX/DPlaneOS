@@ -190,11 +190,15 @@ func CreateVLAN(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Bring up
-	_ = netlinkx.LinkSetUp(ifName)
+	if err := netlinkx.LinkSetUp(ifName); err != nil {
+		log.Printf("network: bring up VLAN %s: %v", ifName, err)
+	}
 
 	// Set IP if provided
 	if req.IP != "" && !strings.ContainsAny(req.IP, ";|&$`\\\"'") {
-		_ = netlinkx.AddrAdd(ifName, req.IP)
+		if err := netlinkx.AddrAdd(ifName, req.IP); err != nil {
+			log.Printf("network: assign IP %s to VLAN %s: %v", req.IP, ifName, err)
+		}
 	}
 
 	// Persist to DB and Nix fragment
@@ -301,15 +305,23 @@ func CreateBond(w http.ResponseWriter, r *http.Request) {
 		if strings.ContainsAny(slave, ";|&$`\\\"' /") {
 			continue
 		}
-		_ = netlinkx.LinkSetDown(slave)
-		_ = netlinkx.LinkSetMaster(slave, req.Name)
+		if err := netlinkx.LinkSetDown(slave); err != nil {
+			log.Printf("network: bring down slave %s for bond %s: %v", slave, req.Name, err)
+		}
+		if err := netlinkx.LinkSetMaster(slave, req.Name); err != nil {
+			log.Printf("network: set master for slave %s on bond %s: %v", slave, req.Name, err)
+		}
 	}
 
 	// Bring up
-	_ = netlinkx.LinkSetUp(req.Name)
+	if err := netlinkx.LinkSetUp(req.Name); err != nil {
+		log.Printf("network: bring up bond %s: %v", req.Name, err)
+	}
 
 	if req.IP != "" && !strings.ContainsAny(req.IP, ";|&$`\\\"'") {
-		_ = netlinkx.AddrAdd(req.Name, req.IP)
+		if err := netlinkx.AddrAdd(req.Name, req.IP); err != nil {
+			log.Printf("network: assign IP %s to bond %s: %v", req.IP, req.Name, err)
+		}
 	}
 
 	// Persist to DB (boot reconciliation) and Nix fragment (NixOS declarative)

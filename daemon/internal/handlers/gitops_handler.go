@@ -726,7 +726,11 @@ func (h *GitOpsHandler) ManagedSummary(w http.ResponseWriter, r *http.Request) {
 
 	var desired *gitops.DesiredState
 	if content, err := os.ReadFile(h.stateYAMLPath); err == nil {
-		desired, _ = gitops.ParseStateYAML(string(content))
+		if ds, parseErr := gitops.ParseStateYAML(string(content)); parseErr != nil {
+			log.Printf("gitops: ManagedSummary: state.yaml parse error: %v", parseErr)
+		} else {
+			desired = ds
+		}
 	}
 
 	live, err := gitops.ReadLiveState(h.db)

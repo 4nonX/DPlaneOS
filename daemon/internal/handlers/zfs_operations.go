@@ -54,27 +54,31 @@ func StartScrub(w http.ResponseWriter, r *http.Request) {
 	// The goroutine exits as soon as the scrub is no longer in progress.
 	pool := req.Pool
 	go func() {
-		// Safety: stop polling after 24 hours to prevent permanent leak
-		// if the pool state becomes degenerate or the "scrub in progress"
-		// string never clears.
-		maxPolls := 8640 // 24 hours * 360 episodes of 10s
-		for i := 0; i < maxPolls; i++ {
-			time.Sleep(10 * time.Second)
-			out, err := executeCommandWithTimeout(TimeoutFast, "zpool", []string{"status", pool})
-			if err != nil {
-				return // pool gone or zpool failed - stop polling
-			}
-			if !strings.Contains(out, "scrub in progress") {
-				if diskEventHub != nil {
-					diskEventHub.Broadcast("scrub_completed", map[string]interface{}{
-						"pool":      pool,
-						"cancelled": false,
-					}, "info")
-				}
+		ticker := time.NewTicker(10 * time.Second)
+		defer ticker.Stop()
+		deadline := time.NewTimer(24 * time.Hour)
+		defer deadline.Stop()
+		for {
+			select {
+			case <-deadline.C:
+				log.Printf("[zfs] WARNING: scrub polling for pool %s timed out after 24h", pool)
 				return
+			case <-ticker.C:
+				out, err := executeCommandWithTimeout(TimeoutFast, "zpool", []string{"status", pool})
+				if err != nil {
+					return // pool gone or zpool failed - stop polling
+				}
+				if !strings.Contains(out, "scrub in progress") {
+					if diskEventHub != nil {
+						diskEventHub.Broadcast("scrub_completed", map[string]interface{}{
+							"pool":      pool,
+							"cancelled": false,
+						}, "info")
+					}
+					return
+				}
 			}
 		}
-		log.Printf("[zfs] WARNING: scrub polling for pool %s timed out after 24h", pool)
 	}()
 
 	respondOK(w, map[string]interface{}{

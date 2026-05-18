@@ -9,7 +9,6 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -1064,6 +1063,4 @@ func FilterDirEntries(entries []os.DirEntry, customIgnore []string) []os.DirEntr
 	return filtered
 }
 
-// Ensure filepath is imported
-var _ = filepath.Clean
 

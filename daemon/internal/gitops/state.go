@@ -417,18 +417,6 @@ func ValidState(s *DesiredState) []string {
 		}
 		datasetNames[d.Name] = true
 
-		// Dataset must be under a declared pool
-		hasPool := false
-		for _, p := range s.Pools {
-			if strings.HasPrefix(d.Name, p.Name+"/") || d.Name == p.Name {
-				hasPool = true
-				break
-			}
-		}
-		// Allow datasets under pools not declared in this file (pre-existing pools)
-		// - only warn, do not error. The diff engine handles this.
-		_ = hasPool
-
 		if d.Compression != "" && !validDatasetCompression(d.Compression) {
 			errs = append(errs, pfx+": invalid compression "+d.Compression)
 		}
@@ -545,13 +533,6 @@ func ValidState(s *DesiredState) []string {
 	if s.System != nil {
 		if s.System.Hostname != "" && !validPoolRe.MatchString(s.System.Hostname) {
 			errs = append(errs, "system: invalid hostname")
-		}
-		for i, dns := range s.System.DNSServers {
-			if !validNFSPathRe.MatchString("/" + dns) { // rough check for IP/host
-				// errs = append(errs, fmt.Sprintf("system.dns_servers[%d]: invalid format", i))
-			}
-			_ = i
-			_ = dns
 		}
 	}
 

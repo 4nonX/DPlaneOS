@@ -90,8 +90,10 @@ func (h *ColdTierHandler) listColdTierMounts() ([]ColdTierMount, error) {
 		m.Mounted = isMounted(m.MountPoint)
 		if m.Mounted != (dbMounted == 1) {
 			// Sync DB to reality
-			_, _ = h.db.Exec("UPDATE cold_tier_mounts SET mounted=$1 WHERE id=$2",
-				boolToInt(m.Mounted), m.ID)
+			if _, err := h.db.Exec("UPDATE cold_tier_mounts SET mounted=$1 WHERE id=$2",
+				boolToInt(m.Mounted), m.ID); err != nil {
+				log.Printf("cold_tier: sync mounted state for %s: %v", m.Name, err)
+			}
 		}
 		mounts = append(mounts, m)
 	}
@@ -326,7 +328,9 @@ func (h *ColdTierHandler) HandleMount(w http.ResponseWriter, r *http.Request) {
 			j.Fail(fmt.Sprintf("Mount failed: %v", err))
 			return
 		}
-		_, _ = h.db.Exec("UPDATE cold_tier_mounts SET mounted=1, last_mount_at=NOW() WHERE id=$1", m.ID)
+		if _, err := h.db.Exec("UPDATE cold_tier_mounts SET mounted=1, last_mount_at=NOW() WHERE id=$1", m.ID); err != nil {
+			j.Log(fmt.Sprintf("Warning: failed to update mount state in DB: %v", err))
+		}
 		j.Done(map[string]interface{}{"mounted": true})
 	})
 
@@ -351,7 +355,9 @@ func (h *ColdTierHandler) HandleUnmount(w http.ResponseWriter, r *http.Request) 
 	}
 
 	if !isMounted(m.MountPoint) {
-		_, _ = h.db.Exec("UPDATE cold_tier_mounts SET mounted=0 WHERE id=$1", m.ID)
+		if _, err := h.db.Exec("UPDATE cold_tier_mounts SET mounted=0 WHERE id=$1", m.ID); err != nil {
+			log.Printf("cold_tier: clear stale mounted flag for %s: %v", m.Name, err)
+		}
 		respondOK(w, map[string]interface{}{"success": true, "message": "Not currently mounted"})
 		return
 	}
@@ -361,7 +367,9 @@ func (h *ColdTierHandler) HandleUnmount(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	_, _ = h.db.Exec("UPDATE cold_tier_mounts SET mounted=0 WHERE id=$1", m.ID)
+	if _, err := h.db.Exec("UPDATE cold_tier_mounts SET mounted=0 WHERE id=$1", m.ID); err != nil {
+		log.Printf("cold_tier: clear mounted flag for %s: %v", m.Name, err)
+	}
 	audit.LogActivity(r.Header.Get("X-User"), "cold_tier_unmount", map[string]interface{}{
 		"name": m.Name,
 	})
@@ -442,7 +450,9 @@ func (h *ColdTierHandler) ReMountAll() {
 			log.Printf("cold_tier: re-mounting %s at %s", mount.Name, mount.MountPoint)
 			if err := mountRclone(mount); err != nil {
 				log.Printf("cold_tier: re-mount %s failed: %v", mount.Name, err)
-				_, _ = h.db.Exec("UPDATE cold_tier_mounts SET mounted=0 WHERE id=$1", mount.ID)
+				if _, dbErr := h.db.Exec("UPDATE cold_tier_mounts SET mounted=0 WHERE id=$1", mount.ID); dbErr != nil {
+					log.Printf("cold_tier: clear mounted flag for %s: %v", mount.Name, dbErr)
+				}
 			}
 		}(m)
 	}

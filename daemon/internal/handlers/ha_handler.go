@@ -245,7 +245,10 @@ func (h *HAHandler) Promote(w http.ResponseWriter, r *http.Request) {
 		Candidate string `json:"candidate"`
 		Leader    string `json:"leader"`
 	}
-	_ = json.NewDecoder(r.Body).Decode(&req)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondErrorSimple(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
 
 	if req.Candidate == "" {
 		req.Candidate = LocalNodeID()
