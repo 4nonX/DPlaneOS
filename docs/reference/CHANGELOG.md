@@ -6,6 +6,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 
 
+## v11.1.0 (2026-05-18) - "Groundwork"
+
+Upgrade from: v11.0.0 - Drop-in. No schema changes. No configuration changes.
+
+### Added
+- **Complete ZED typed event dispatch (`internal/zfs/zed_listener.go`)**: Nine previously unhandled ZED subclasses now emit structured WebSocket events and trigger pool health refresh. `scrub_abort` emits `scrub_aborted` (warning). TRIM lifecycle: `trim_start` emits `trim_started` and spawns a progress poll goroutine; `trim_finish` emits `trim_completed`; `trim_abort` emits `trim_aborted`. `vdev_clear` emits `vdev_errors_cleared`. `vdev_online` emits `vdev_recovered`. `pool_import` emits `pool_imported`. `data_loss` emits `zfs.data_loss` with pool and state fields (error severity). `deadman` emits `zfs.deadman` with pool and state fields (error severity).
+- **TRIM progress poll goroutine (`zedTrimProgressPoll`)**: Polls `zpool status` every 2 seconds while a TRIM is in flight, broadcasting `zfs.trim.progress` events with `percent_done`, `eta`, and `bytes_done` fields. Exits when TRIM finishes (the `trim_finish` event broadcasts completion). Maximum runtime 12 hours as a safety bound.
+- **`TrimInfo` struct and TRIM status helpers (`internal/zfs/status.go`)**: `GetPoolTrimLine` scans `zpool status` output for the TRIM section. `ParseTrimLine` parses "trim in progress" and "trim completed" lines into a `TrimInfo` struct with `InProgress`, `PercentDone`, `ETA`, `BytesDone`, and `RawTrimLine` fields.
+- **Shared libzfs subprocess functions (`internal/libzfs/zfs.go`)**: Functions that require complex nvlist construction and are not simpler through the native C API are implemented once as subprocess calls and used by both cgo and fallback build paths: `VdevAdd`, `VdevAttach`, `VdevReplace`, `VdevRemove`, `PoolSplit`, `PoolCreate`, `PoolDestroy`, `DatasetRename`, `SnapshotListHolds` (parses tab-delimited hold output into `[]HoldEntry`), and `DatasetCreateWithProps` (creates dataset then sets each property).
+- **Native cgo libzfs implementations (`internal/libzfs/zfs_cgo.go`)**: `PoolClear` calls `zpool_clear(zhp, NULL)`. `PoolSetProperty` calls `zpool_set_prop`. `DatasetDestroy` calls `zfs_destroy` for non-recursive; falls back to subprocess for recursive. `SnapshotHold` calls `zfs_hold`. `SnapshotRelease` calls `zfs_release`.
+- **Security whitelist additions (`internal/security/whitelist.go`)**: `zpool_add` entry with `validateZpoolAdd` (validates pool name, optional vdev-type keyword, and device paths). `zpool_set_property` entry with `validateZpoolSetProperty` (validates `set key=value pool` against an allowedKeys map). `validateZpoolCreate` rewritten to handle the full `-f`/`-o`/`-O` flag grammar used by `ZpoolCreateFullArgs`. `validateZfsSetProperty` extended with `refreservation`, `reservation`, and user/group quota properties (`userquota@name=size` format).
+
+### Changed
+- **`handlers/zfs_operations.go` - complete libzfs migration**: All remaining subprocess calls replaced. `AddVdevToPool` uses `libzfs.VdevAdd`. `RemoveCacheOrLog` uses `libzfs.VdevRemove`. `ReplaceDisk` and `AttachDisk` job closures use `libzfs.VdevReplace` and `libzfs.VdevAttach`. `SetDatasetQuota` (refquota and refreservation) uses `libzfs.DatasetSet`. `HoldSnapshot` and `ReleaseSnapshot` use `libzfs.SnapshotHold` and `libzfs.SnapshotRelease`. `ListHolds` uses `libzfs.SnapshotListHolds`. `SplitPool` uses `libzfs.PoolSplit`. `PoolOperations` (clear and online subcommands) uses `libzfs.PoolClear` and `libzfs.VdevOnline`. `RenameDataset` uses `libzfs.DatasetRename`. `PromoteDataset` uses `libzfs.DatasetPromote`. `OfflineDisk` uses `libzfs.VdevOffline`. `ExportPool` uses `libzfs.PoolExport`.
+- **`gitops/apply.go` - complete libzfs migration**: `destroyPool` uses `libzfs.PoolDestroy`. `createDataset` uses `libzfs.DatasetCreateWithProps` with a property map built from `DesiredDataset` fields. `modifyDataset` uses `libzfs.DatasetSet`. `deleteDataset` uses `libzfs.DatasetDestroy`. Nil-dataset guard added to the create log line.
+- **`zfs_fallback.go` whitelist key fix**: `PoolIsMember` corrected to use `zpool_status` whitelist key (was incorrectly using the raw binary name `zpool`).
+
+---
+
 ## v11.0.0 (2026-05-17) - "Bedrock"
 
 Upgrade from: v10.5.0 - Drop-in. One schema migration runs automatically on first start (`storage_operations` table). New modules are opt-in via NixOS options.
