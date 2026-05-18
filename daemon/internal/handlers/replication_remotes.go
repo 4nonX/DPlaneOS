@@ -38,13 +38,18 @@ type Remote struct {
 	CreatedAt    time.Time `json:"created_at"`
 }
 
-var replRemotesMu sync.RWMutex
+// replStateMu guards both the remotes file and the schedules file as a single
+// unit. Using one mutex for both stores eliminates lock-ordering deadlocks that
+// would arise from holding one lock while reading the other (e.g. the cross-file
+// check in HandleDeleteRemote), and makes cross-store invariants easy to enforce
+// inside a single atomicModify callback.
+var replStateMu sync.RWMutex
 
 const replRemotesFile = "replication-remotes.json"
 
 func loadRemotes() ([]Remote, error) {
-	replRemotesMu.RLock()
-	defer replRemotesMu.RUnlock()
+	replStateMu.RLock()
+	defer replStateMu.RUnlock()
 	data, err := os.ReadFile(configPath(replRemotesFile))
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -60,8 +65,8 @@ func loadRemotes() ([]Remote, error) {
 }
 
 func saveRemotes(remotes []Remote) error {
-	replRemotesMu.Lock()
-	defer replRemotesMu.Unlock()
+	replStateMu.Lock()
+	defer replStateMu.Unlock()
 	os.MkdirAll(ConfigDir, 0755)
 	data, err := json.MarshalIndent(remotes, "", "  ")
 	if err != nil {
@@ -71,11 +76,15 @@ func saveRemotes(remotes []Remote) error {
 }
 
 var errRemoteNotFound = errors.New("remote not found")
+var errRemoteInUse    = errors.New("peer is referenced by a schedule")
 
-// atomicModifyRemotes holds the write lock across the full load-modify-save cycle.
+// atomicModifyRemotes holds replStateMu exclusively across the full
+// load-modify-save cycle. Because replStateMu also guards the schedules file,
+// callbacks may safely read the schedules file directly (without going through
+// loadReplicationSchedules) to enforce cross-store invariants.
 func atomicModifyRemotes(fn func([]Remote) ([]Remote, error)) error {
-	replRemotesMu.Lock()
-	defer replRemotesMu.Unlock()
+	replStateMu.Lock()
+	defer replStateMu.Unlock()
 
 	data, err := os.ReadFile(configPath(replRemotesFile))
 	var remotes []Remote
@@ -272,21 +281,25 @@ func (h *RemotesHandler) HandleUpdateRemote(w http.ResponseWriter, r *http.Reque
 
 // HandleDeleteRemote serves DELETE /api/replication/remotes/{id}
 // Blocked if any replication schedule still references this peer.
+// The referencing-schedule check and the delete happen inside a single
+// replStateMu-exclusive callback, eliminating the TOCTOU window where a
+// concurrent schedule create could slip a new reference in between.
 func (h *RemotesHandler) HandleDeleteRemote(w http.ResponseWriter, r *http.Request) {
 	id := mux.Vars(r)["id"]
 
-	schedules, _ := loadReplicationSchedules()
-	for _, s := range schedules {
-		if s.RemoteID == id {
-			respondErrorSimple(w,
-				fmt.Sprintf("Cannot delete: schedule %q references this peer. Remove or reassign the schedule first.", s.Name),
-				http.StatusConflict,
-			)
-			return
-		}
-	}
-
 	err := atomicModifyRemotes(func(all []Remote) ([]Remote, error) {
+		// Cross-file check: read schedules directly while holding replStateMu.Lock().
+		// loadReplicationSchedules cannot be called here (it also acquires replStateMu),
+		// so we read the file raw. The lock guarantees no concurrent schedule write.
+		schedData, _ := os.ReadFile(configPath(replScheduleFile))
+		var schedules []ReplicationSchedule
+		json.Unmarshal(schedData, &schedules) //nolint:errcheck - empty/missing file is fine
+		for _, s := range schedules {
+			if s.RemoteID == id {
+				return nil, fmt.Errorf("schedule %q references this peer - remove or reassign it first: %w", s.Name, errRemoteInUse)
+			}
+		}
+
 		out := make([]Remote, 0, len(all))
 		found := false
 		for _, rem := range all {
@@ -304,6 +317,10 @@ func (h *RemotesHandler) HandleDeleteRemote(w http.ResponseWriter, r *http.Reque
 
 	if errors.Is(err, errRemoteNotFound) {
 		respondErrorSimple(w, "Remote not found", http.StatusNotFound)
+		return
+	}
+	if errors.Is(err, errRemoteInUse) {
+		respondErrorSimple(w, err.Error(), http.StatusConflict)
 		return
 	}
 	if err != nil {

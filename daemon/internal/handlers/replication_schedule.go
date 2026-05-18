@@ -12,7 +12,6 @@ import (
 	"os"
 	"os/exec"
 	"strings"
-	"sync"
 	"time"
 
 	"dplaned/internal/jobs"
@@ -55,14 +54,15 @@ type ReplicationSchedule struct {
 	LastReplicatedSnapshot string     `json:"last_replicated_snapshot,omitempty"` // set on success, used as incremental base
 }
 
-// replSchedMu guards in-memory schedule list and the on-disk JSON file.
-var replSchedMu sync.RWMutex
-
+// replScheduleFile is the on-disk backing store for replication schedules.
+// Access is serialized by replStateMu (defined in replication_remotes.go),
+// which also guards the remotes file so that cross-store operations (e.g.
+// HandleDeleteRemote checking for schedule references) are race-free.
 const replScheduleFile = "replication-schedules.json"
 
 func loadReplicationSchedules() ([]ReplicationSchedule, error) {
-	replSchedMu.RLock()
-	defer replSchedMu.RUnlock()
+	replStateMu.RLock()
+	defer replStateMu.RUnlock()
 
 	data, err := os.ReadFile(configPath(replScheduleFile))
 	if err != nil {
@@ -79,8 +79,8 @@ func loadReplicationSchedules() ([]ReplicationSchedule, error) {
 }
 
 func saveReplicationSchedules(schedules []ReplicationSchedule) error {
-	replSchedMu.Lock()
-	defer replSchedMu.Unlock()
+	replStateMu.Lock()
+	defer replStateMu.Unlock()
 
 	os.MkdirAll(ConfigDir, 0755)
 	data, err := json.MarshalIndent(schedules, "", "  ")
@@ -90,11 +90,11 @@ func saveReplicationSchedules(schedules []ReplicationSchedule) error {
 	return os.WriteFile(configPath(replScheduleFile), data, 0644)
 }
 
-// atomicModifySchedules holds the write lock across the entire load-modify-save
-// cycle, eliminating TOCTOU races between concurrent CRUD requests.
+// atomicModifySchedules holds replStateMu exclusively across the full
+// load-modify-save cycle, eliminating TOCTOU races between concurrent requests.
 func atomicModifySchedules(fn func([]ReplicationSchedule) ([]ReplicationSchedule, error)) error {
-	replSchedMu.Lock()
-	defer replSchedMu.Unlock()
+	replStateMu.Lock()
+	defer replStateMu.Unlock()
 
 	data, err := os.ReadFile(configPath(replScheduleFile))
 	if err != nil && !os.IsNotExist(err) {
@@ -544,59 +544,53 @@ func updateScheduleStatus(schedID, status, jobID, lastSnapshot string) {
 // TriggerPostSnapshotReplication fires replication for all enabled schedules
 // that have TriggerOnSnapshot=true and match the given dataset.
 // Called after a snapshot is successfully created.
+//
+// The "already running" guard and the status update to "running" happen inside
+// a single atomicModifySchedules call so that two concurrent callers (e.g. a
+// cron tick and a manual trigger) cannot both see "not running" and both launch
+// duplicate jobs for the same schedule.
 func TriggerPostSnapshotReplication(dataset string) {
-	schedules, err := loadReplicationSchedules()
-	if err != nil {
-		log.Printf("WARN: TriggerPostSnapshotReplication: failed to load schedules: %v", err)
-		return
-	}
-
-	type firedJob struct {
-		id    string
-		jobID string
-	}
-	var fired []firedJob
 	now := time.Now()
+	var toFire []ReplicationSchedule
 
-	for _, s := range schedules {
-		if !s.Enabled || !s.TriggerOnSnapshot {
-			continue
-		}
-		// Match exact dataset or a child dataset
-		if s.SourceDataset != dataset && !strings.HasPrefix(dataset, s.SourceDataset+"/") {
-			continue
-		}
-		// Skip if a job for this schedule is already running - don't pile up concurrent sends
-		if s.LastStatus == "running" {
-			log.Printf("INFO: TriggerPostSnapshotReplication: skipping schedule %s (already running job %s)", s.ID, s.LastJobID)
-			continue
-		}
-
-		sched := s // copy
-		jobID := launchReplicationJob(sched)
-		log.Printf("INFO: post-snapshot replication triggered for dataset=%s schedule=%s job=%s", dataset, sched.ID, jobID)
-		fired = append(fired, firedJob{id: sched.ID, jobID: jobID})
-	}
-
-	if len(fired) == 0 {
-		return
-	}
-
-	// Atomically update statuses for all fired schedules - does not overwrite concurrent CRUD changes.
 	if err := atomicModifySchedules(func(all []ReplicationSchedule) ([]ReplicationSchedule, error) {
-		for _, f := range fired {
-			for i := range all {
-				if all[i].ID == f.id {
-					all[i].LastRun = &now
-					all[i].LastStatus = "running"
-					all[i].LastJobID = f.jobID
-					break
-				}
+		for i := range all {
+			s := &all[i]
+			if !s.Enabled || !s.TriggerOnSnapshot {
+				continue
 			}
+			if s.SourceDataset != dataset && !strings.HasPrefix(dataset, s.SourceDataset+"/") {
+				continue
+			}
+			if s.LastStatus == "running" {
+				log.Printf("INFO: TriggerPostSnapshotReplication: skipping schedule %s (already running job %s)", s.ID, s.LastJobID)
+				continue
+			}
+			toFire = append(toFire, *s)
+			s.LastRun = &now
+			s.LastStatus = "running"
+			s.LastJobID = ""
 		}
 		return all, nil
 	}); err != nil {
-		log.Printf("WARN: TriggerPostSnapshotReplication: failed to persist status: %v", err)
+		log.Printf("WARN: TriggerPostSnapshotReplication: failed to mark schedules running: %v", err)
+		return
+	}
+
+	for _, sched := range toFire {
+		jobID := launchReplicationJob(sched)
+		log.Printf("INFO: post-snapshot replication triggered for dataset=%s schedule=%s job=%s", dataset, sched.ID, jobID)
+		if err := atomicModifySchedules(func(all []ReplicationSchedule) ([]ReplicationSchedule, error) {
+			for i := range all {
+				if all[i].ID == sched.ID {
+					all[i].LastJobID = jobID
+					break
+				}
+			}
+			return all, nil
+		}); err != nil {
+			log.Printf("WARN: TriggerPostSnapshotReplication: failed to persist job ID for %s: %v", sched.ID, err)
+		}
 	}
 }
 
@@ -618,59 +612,54 @@ func StartReplicationMonitor() {
 	log.Println("Replication schedule monitor started (checks every 5 min)")
 }
 
+// runDueReplicationSchedules checks all enabled schedules and fires any that are
+// due. The "already running" guard and the "mark running" write happen inside a
+// single atomicModifySchedules call so that two concurrent ticker ticks (or a
+// tick racing a manual trigger) cannot both observe "not running" and both
+// launch duplicate jobs for the same schedule.
 func runDueReplicationSchedules() {
-	schedules, err := loadReplicationSchedules()
-	if err != nil {
-		log.Printf("WARN: replication monitor: failed to load schedules: %v", err)
-		return
-	}
-
 	now := time.Now()
+	var toFire []ReplicationSchedule
 
-	type firedJob struct {
-		id    string
-		jobID string
-	}
-	var fired []firedJob
-
-	for _, s := range schedules {
-		if !s.Enabled || s.Interval == "manual" {
-			continue
-		}
-		if s.LastStatus == "running" {
-			log.Printf("INFO: replication monitor: skipping schedule %s (job %s still running)", s.ID, s.LastJobID)
-			continue
-		}
-		if !isReplicationDue(s, now) {
-			continue
-		}
-
-		sched := s // copy
-		jobID := launchReplicationJob(sched)
-		log.Printf("INFO: replication monitor: firing schedule id=%s dataset=%s interval=%s job=%s",
-			sched.ID, sched.SourceDataset, sched.Interval, jobID)
-		fired = append(fired, firedJob{id: sched.ID, jobID: jobID})
-	}
-
-	if len(fired) == 0 {
-		return
-	}
-
-	// Atomically update statuses for all fired schedules - does not overwrite concurrent CRUD changes.
 	if err := atomicModifySchedules(func(all []ReplicationSchedule) ([]ReplicationSchedule, error) {
-		for _, f := range fired {
-			for i := range all {
-				if all[i].ID == f.id {
-					all[i].LastRun = &now
-					all[i].LastStatus = "running"
-					all[i].LastJobID = f.jobID
-					break
-				}
+		for i := range all {
+			s := &all[i]
+			if !s.Enabled || s.Interval == "manual" {
+				continue
 			}
+			if s.LastStatus == "running" {
+				log.Printf("INFO: replication monitor: skipping schedule %s (job %s still running)", s.ID, s.LastJobID)
+				continue
+			}
+			if !isReplicationDue(*s, now) {
+				continue
+			}
+			toFire = append(toFire, *s)
+			s.LastRun = &now
+			s.LastStatus = "running"
+			s.LastJobID = ""
 		}
 		return all, nil
 	}); err != nil {
-		log.Printf("WARN: replication monitor: failed to save after firing schedules: %v", err)
+		log.Printf("WARN: replication monitor: failed to mark schedules running: %v", err)
+		return
+	}
+
+	for _, sched := range toFire {
+		jobID := launchReplicationJob(sched)
+		log.Printf("INFO: replication monitor: firing schedule id=%s dataset=%s interval=%s job=%s",
+			sched.ID, sched.SourceDataset, sched.Interval, jobID)
+		if err := atomicModifySchedules(func(all []ReplicationSchedule) ([]ReplicationSchedule, error) {
+			for i := range all {
+				if all[i].ID == sched.ID {
+					all[i].LastJobID = jobID
+					break
+				}
+			}
+			return all, nil
+		}); err != nil {
+			log.Printf("WARN: replication monitor: failed to persist job ID for schedule %s: %v", sched.ID, err)
+		}
 	}
 }
 
