@@ -18,7 +18,7 @@ import (
 // Uses `zpool status -P` and scans the output for the device path.
 // The cgo variant does this via a direct vdev-tree nvlist walk.
 func PoolIsMember(device string) (PoolMembership, error) {
-	out, err := cmdutil.RunFast("zpool", "status", "-P")
+	out, err := cmdutil.RunFast("zpool_status", "status", "-P")
 	if err != nil {
 		return PoolMembership{}, libzfsErr("PoolIsMember", string(out))
 	}
@@ -175,6 +175,72 @@ func VdevOffline(pool, device string, temporary bool) error {
 	out, err := cmdutil.RunMedium("zpool_offline", args...)
 	if err != nil {
 		return libzfsErr("VdevOffline", string(out))
+	}
+	return nil
+}
+
+// PoolClear clears error counters on a pool device.
+func PoolClear(pool string) error {
+	if err := security.ValidatePoolName(pool); err != nil {
+		return libzfsErr("PoolClear", err.Error())
+	}
+	out, err := cmdutil.RunMedium("zpool_clear", "clear", pool)
+	if err != nil {
+		return libzfsErr("PoolClear", string(out))
+	}
+	return nil
+}
+
+// PoolSetProperty sets a pool-level property.
+func PoolSetProperty(pool, key, value string) error {
+	if err := security.ValidatePoolName(pool); err != nil {
+		return libzfsErr("PoolSetProperty", err.Error())
+	}
+	out, err := cmdutil.RunMedium("zpool_set_property", "set", key+"="+value, pool)
+	if err != nil {
+		return libzfsErr("PoolSetProperty", string(out))
+	}
+	return nil
+}
+
+// DatasetDestroy destroys a ZFS dataset. Pass recursive=true to destroy all
+// child datasets and snapshots (use with extreme caution).
+func DatasetDestroy(name string, recursive bool) error {
+	if err := security.ValidateDatasetName(name); err != nil {
+		return libzfsErr("DatasetDestroy", err.Error())
+	}
+	args := []string{"destroy"}
+	if recursive {
+		args = append(args, "-r")
+	}
+	args = append(args, name)
+	out, err := cmdutil.RunMedium("zfs_destroy", args...)
+	if err != nil {
+		return libzfsErr("DatasetDestroy", string(out))
+	}
+	return nil
+}
+
+// SnapshotHold adds a user hold on a snapshot to prevent it from being deleted.
+func SnapshotHold(tag, snapshot string) error {
+	if err := security.ValidateSnapshotName(snapshot); err != nil {
+		return libzfsErr("SnapshotHold", err.Error())
+	}
+	out, err := cmdutil.RunMedium("zfs_hold", "hold", tag, snapshot)
+	if err != nil {
+		return libzfsErr("SnapshotHold", string(out))
+	}
+	return nil
+}
+
+// SnapshotRelease removes a user hold from a snapshot.
+func SnapshotRelease(tag, snapshot string) error {
+	if err := security.ValidateSnapshotName(snapshot); err != nil {
+		return libzfsErr("SnapshotRelease", err.Error())
+	}
+	out, err := cmdutil.RunMedium("zfs_release", "release", tag, snapshot)
+	if err != nil {
+		return libzfsErr("SnapshotRelease", string(out))
 	}
 	return nil
 }

@@ -226,6 +226,61 @@ static int dplane_vdev_offline(libzfs_handle_t *hdl,
     return rc;
 }
 
+// dplane_pool_clear clears error counters on a pool (mirrors `zpool clear`).
+static int dplane_pool_clear(libzfs_handle_t *hdl, const char *pool) {
+    zpool_handle_t *zhp = zpool_open(hdl, pool);
+    if (zhp == NULL) return -1;
+    int rc = zpool_clear(zhp, NULL);
+    zpool_close(zhp);
+    return rc;
+}
+
+// dplane_pool_set_property sets a pool-level property.
+static int dplane_pool_set_property(libzfs_handle_t *hdl,
+                                     const char *pool,
+                                     const char *key,
+                                     const char *value) {
+    zpool_handle_t *zhp = zpool_open(hdl, pool);
+    if (zhp == NULL) return -1;
+    int rc = zpool_set_prop(zhp, key, value);
+    zpool_close(zhp);
+    return rc;
+}
+
+// dplane_dataset_destroy destroys a ZFS dataset.
+// Pass defer_flag=1 to defer destruction (mirrors `zfs destroy -d`).
+static int dplane_dataset_destroy(libzfs_handle_t *hdl,
+                                   const char *name,
+                                   int defer_flag) {
+    zfs_handle_t *zhp = zfs_open(hdl, name, ZFS_TYPE_DATASET);
+    if (zhp == NULL) return -1;
+    int rc = zfs_destroy(zhp, defer_flag ? B_TRUE : B_FALSE);
+    zfs_close(zhp);
+    return rc;
+}
+
+// dplane_snapshot_hold adds a user hold on a snapshot.
+static int dplane_snapshot_hold(libzfs_handle_t *hdl,
+                                  const char *snapshot,
+                                  const char *tag) {
+    zfs_handle_t *zhp = zfs_open(hdl, snapshot, ZFS_TYPE_SNAPSHOT);
+    if (zhp == NULL) return -1;
+    int rc = zfs_hold(zhp, tag, B_FALSE, -1);
+    zfs_close(zhp);
+    return rc;
+}
+
+// dplane_snapshot_release removes a user hold from a snapshot.
+static int dplane_snapshot_release(libzfs_handle_t *hdl,
+                                     const char *snapshot,
+                                     const char *tag) {
+    zfs_handle_t *zhp = zfs_open(hdl, snapshot, ZFS_TYPE_SNAPSHOT);
+    if (zhp == NULL) return -1;
+    int rc = zfs_release(zhp, tag, B_FALSE);
+    zfs_close(zhp);
+    return rc;
+}
+
 // dplane_last_error returns the current libzfs error description.
 static const char *dplane_last_error(libzfs_handle_t *hdl) {
     return libzfs_error_description(hdl);
@@ -236,6 +291,9 @@ import "C"
 import (
 	"runtime"
 	"unsafe"
+
+	"dplaned/internal/cmdutil"
+	"dplaned/internal/security"
 )
 
 // withHandle initializes a libzfs handle for the duration of fn, ensuring
@@ -419,6 +477,93 @@ func VdevOffline(pool, device string, temporary bool) error {
 	return withHandle(func(hdl *C.libzfs_handle_t) error {
 		if rc := C.dplane_vdev_offline(hdl, cPool, cDevice, cTmp); rc != 0 {
 			return errFromHandle(hdl, "VdevOffline")
+		}
+		return nil
+	})
+}
+
+// PoolClear clears error counters on a pool device.
+func PoolClear(pool string) error {
+	cPool := C.CString(pool)
+	defer C.free(unsafe.Pointer(cPool))
+	return withHandle(func(hdl *C.libzfs_handle_t) error {
+		if rc := C.dplane_pool_clear(hdl, cPool); rc != 0 {
+			return errFromHandle(hdl, "PoolClear")
+		}
+		return nil
+	})
+}
+
+// PoolSetProperty sets a pool-level property.
+func PoolSetProperty(pool, key, value string) error {
+	cPool := C.CString(pool)
+	defer C.free(unsafe.Pointer(cPool))
+	cKey := C.CString(key)
+	defer C.free(unsafe.Pointer(cKey))
+	cVal := C.CString(value)
+	defer C.free(unsafe.Pointer(cVal))
+	return withHandle(func(hdl *C.libzfs_handle_t) error {
+		if rc := C.dplane_pool_set_property(hdl, cPool, cKey, cVal); rc != 0 {
+			return errFromHandle(hdl, "PoolSetProperty")
+		}
+		return nil
+	})
+}
+
+// DatasetDestroy destroys a ZFS dataset. Pass recursive=true to recursively
+// destroy all child datasets and snapshots first (use with caution).
+func DatasetDestroy(name string, recursive bool) error {
+	if err := security.ValidateDatasetName(name); err != nil {
+		return libzfsErr("DatasetDestroy", err.Error())
+	}
+	if recursive {
+		// Recursive destroy: fall back to subprocess which handles child iteration.
+		args := []string{"destroy", "-r", name}
+		out, err := cmdutil.RunMedium("zfs_destroy", args...)
+		if err != nil {
+			return libzfsErr("DatasetDestroy", string(out))
+		}
+		return nil
+	}
+	cName := C.CString(name)
+	defer C.free(unsafe.Pointer(cName))
+	return withHandle(func(hdl *C.libzfs_handle_t) error {
+		if rc := C.dplane_dataset_destroy(hdl, cName, 0); rc != 0 {
+			return errFromHandle(hdl, "DatasetDestroy")
+		}
+		return nil
+	})
+}
+
+// SnapshotHold adds a user hold on a snapshot to prevent it from being deleted.
+func SnapshotHold(tag, snapshot string) error {
+	if err := security.ValidateSnapshotName(snapshot); err != nil {
+		return libzfsErr("SnapshotHold", err.Error())
+	}
+	cSnap := C.CString(snapshot)
+	defer C.free(unsafe.Pointer(cSnap))
+	cTag := C.CString(tag)
+	defer C.free(unsafe.Pointer(cTag))
+	return withHandle(func(hdl *C.libzfs_handle_t) error {
+		if rc := C.dplane_snapshot_hold(hdl, cSnap, cTag); rc != 0 {
+			return errFromHandle(hdl, "SnapshotHold")
+		}
+		return nil
+	})
+}
+
+// SnapshotRelease removes a user hold from a snapshot.
+func SnapshotRelease(tag, snapshot string) error {
+	if err := security.ValidateSnapshotName(snapshot); err != nil {
+		return libzfsErr("SnapshotRelease", err.Error())
+	}
+	cSnap := C.CString(snapshot)
+	defer C.free(unsafe.Pointer(cSnap))
+	cTag := C.CString(tag)
+	defer C.free(unsafe.Pointer(cTag))
+	return withHandle(func(hdl *C.libzfs_handle_t) error {
+		if rc := C.dplane_snapshot_release(hdl, cSnap, cTag); rc != 0 {
+			return errFromHandle(hdl, "SnapshotRelease")
 		}
 		return nil
 	})

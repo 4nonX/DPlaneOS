@@ -228,19 +228,11 @@ func AddVdevToPool(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	args := []string{"add", req.Pool}
-	if req.VdevType != "" {
-		args = append(args, req.VdevType)
-	}
-	args = append(args, req.Disks...)
-
-	output, err := executeCommandWithTimeout(TimeoutMedium, "zpool", args)
-	if err != nil {
-		storageops.Fail(registryDB, opID, fmt.Sprintf("zpool add: %v: %s", err, strings.TrimSpace(output)))
+	if err := libzfs.VdevAdd(req.Pool, req.VdevType, req.Disks); err != nil {
+		storageops.Fail(registryDB, opID, fmt.Sprintf("zpool add: %v", err))
 		respondOK(w, map[string]interface{}{
 			"success": false,
 			"error":   fmt.Sprintf("Failed to add vdev: %v", err),
-			"output":  output,
 		})
 		return
 	}
@@ -278,11 +270,8 @@ func RemoveCacheOrLog(w http.ResponseWriter, r *http.Request) {
 		respondErrorSimple(w, fmt.Sprintf("Invalid device path: %s (%v)", req.Device, err), http.StatusBadRequest)
 		return
 	}
-	output, err := executeCommandWithTimeout(TimeoutMedium, "zpool", []string{
-		"remove", req.Pool, req.Device,
-	})
-	if err != nil {
-		respondOK(w, map[string]interface{}{"success": false, "error": err.Error(), "output": output})
+	if err := libzfs.VdevRemove(req.Pool, req.Device); err != nil {
+		respondOK(w, map[string]interface{}{"success": false, "error": err.Error()})
 		return
 	}
 	respondOK(w, map[string]interface{}{"success": true, "pool": req.Pool, "removed": req.Device})
@@ -316,17 +305,11 @@ func ReplaceDisk(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	args := []string{"replace"}
-	if req.Force {
-		args = append(args, "-f")
-	}
-	args = append(args, req.Pool, req.OldDisk, req.NewDisk)
-
 	// Snapshot local copies for the closure
 	pool := req.Pool
 	oldDisk := req.OldDisk
 	newDisk := req.NewDisk
-	argsCopy := append([]string(nil), args...)
+	force := req.Force
 
 	opID, err := storageops.Begin(registryDB, storageops.OpReplace, pool+":"+oldDisk)
 	if err != nil {
@@ -344,9 +327,8 @@ func ReplaceDisk(w http.ResponseWriter, r *http.Request) {
 			}, "info")
 		}
 
-		output, err := executeCommandWithTimeout(TimeoutMedium, "zpool", argsCopy)
-		if err != nil {
-			storageops.Fail(registryDB, opID, fmt.Sprintf("zpool replace: %v: %s", err, strings.TrimSpace(output)))
+		if err := libzfs.VdevReplace(pool, oldDisk, newDisk, force); err != nil {
+			storageops.Fail(registryDB, opID, fmt.Sprintf("zpool replace: %v", err))
 			if diskEventHub != nil {
 				diskEventHub.Broadcast("resilver_completed", map[string]interface{}{
 					"pool":    pool,
@@ -354,7 +336,7 @@ func ReplaceDisk(w http.ResponseWriter, r *http.Request) {
 					"error":   err.Error(),
 				}, "warning")
 			}
-			j.Fail(fmt.Sprintf("zpool replace failed: %v - %s", err, strings.TrimSpace(output)))
+			j.Fail(fmt.Sprintf("zpool replace failed: %v", err))
 			return
 		}
 		storageops.Commit(registryDB, opID)
@@ -403,7 +385,6 @@ func ReplaceDisk(w http.ResponseWriter, r *http.Request) {
 			"pool":     pool,
 			"old_disk": oldDisk,
 			"new_disk": newDisk,
-			"output":   strings.TrimSpace(output),
 		})
 	})
 
@@ -441,10 +422,7 @@ func (h *ZFSHandler) SetDatasetQuota(w http.ResponseWriter, r *http.Request) {
 	results := map[string]interface{}{"success": true, "dataset": req.Dataset}
 
 	if req.RefQuota != "" {
-		_, err := executeCommandWithTimeout(TimeoutMedium, "zfs", []string{
-			"set", fmt.Sprintf("refquota=%s", req.RefQuota), req.Dataset,
-		})
-		if err != nil {
+		if err := libzfs.DatasetSet(req.Dataset, "refquota", req.RefQuota); err != nil {
 			results["refquota_error"] = err.Error()
 			results["success"] = false
 		} else {
@@ -453,10 +431,7 @@ func (h *ZFSHandler) SetDatasetQuota(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.RefReservation != "" {
-		_, err := executeCommandWithTimeout(TimeoutMedium, "zfs", []string{
-			"set", fmt.Sprintf("refreservation=%s", req.RefReservation), req.Dataset,
-		})
-		if err != nil {
+		if err := libzfs.DatasetSet(req.Dataset, "refreservation", req.RefReservation); err != nil {
 			results["refreservation_error"] = err.Error()
 			results["success"] = false
 		} else {
@@ -893,8 +868,7 @@ func (h *ZFSHandler) HoldSnapshot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, err := executeCommandWithTimeout(TimeoutMedium, "zfs", []string{"hold", req.Tag, req.Snapshot})
-	if err != nil {
+	if err := libzfs.SnapshotHold(req.Tag, req.Snapshot); err != nil {
 		respondOK(w, map[string]interface{}{"success": false, "error": err.Error()})
 		return
 	}
@@ -917,8 +891,7 @@ func (h *ZFSHandler) ReleaseSnapshot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, err := executeCommandWithTimeout(TimeoutMedium, "zfs", []string{"release", req.Tag, req.Snapshot})
-	if err != nil {
+	if err := libzfs.SnapshotRelease(req.Tag, req.Snapshot); err != nil {
 		respondOK(w, map[string]interface{}{"success": false, "error": err.Error()})
 		return
 	}
@@ -934,25 +907,13 @@ func (h *ZFSHandler) ListHolds(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	output, err := executeCommandWithTimeout(TimeoutFast, "zfs", []string{"holds", "-H", snapshot})
+	holds, err := libzfs.SnapshotListHolds(snapshot)
 	if err != nil {
 		respondOK(w, map[string]interface{}{"success": false, "error": err.Error()})
 		return
 	}
-
-	type Hold struct {
-		Tag       string `json:"tag"`
-		Timestamp string `json:"timestamp"`
-	}
-	var holds []Hold
-	for _, line := range strings.Split(strings.TrimSpace(output), "\n") {
-		if line == "" {
-			continue
-		}
-		parts := strings.Split(line, "\t")
-		if len(parts) >= 3 {
-			holds = append(holds, Hold{Tag: parts[1], Timestamp: parts[2]})
-		}
+	if holds == nil {
+		holds = []libzfs.HoldEntry{}
 	}
 
 	respondOK(w, map[string]interface{}{"success": true, "snapshot": snapshot, "holds": holds})
@@ -981,8 +942,7 @@ func (h *ZFSHandler) SplitPool(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, err = executeCommandWithTimeout(TimeoutLong, "zpool", []string{"split", req.Pool, req.NewPool})
-	if err != nil {
+	if err := libzfs.PoolSplit(req.Pool, req.NewPool); err != nil {
 		respondOK(w, map[string]interface{}{"success": false, "error": err.Error()})
 		return
 	}
@@ -1082,10 +1042,10 @@ func PoolOperations(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var args []string
+	var opErr error
 	switch req.Op {
 	case "clear":
-		args = []string{"clear", req.Pool}
+		opErr = libzfs.PoolClear(req.Pool)
 	case "online":
 		if req.Device == "" {
 			respondErrorSimple(w, "Missing device for online operation", http.StatusBadRequest)
@@ -1095,18 +1055,16 @@ func PoolOperations(w http.ResponseWriter, r *http.Request) {
 			respondErrorSimple(w, fmt.Sprintf("Invalid device path: %s (%v)", req.Device, err), http.StatusBadRequest)
 			return
 		}
-		args = []string{"online", req.Pool, req.Device}
+		opErr = libzfs.VdevOnline(req.Pool, req.Device)
 	default:
 		respondErrorSimple(w, "Invalid operation (must be 'clear' or 'online')", http.StatusBadRequest)
 		return
 	}
 
-	output, err := executeCommandWithTimeout(TimeoutMedium, "zpool", args)
-	if err != nil {
+	if opErr != nil {
 		respondOK(w, map[string]interface{}{
 			"success": false,
-			"error":   err.Error(),
-			"output":  strings.TrimSpace(output),
+			"error":   opErr.Error(),
 		})
 		return
 	}
@@ -1117,10 +1075,10 @@ func PoolOperations(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// runZFSCommand is a thin wrapper around exec.Command("zfs", args...).
-// It returns combined stdout/stderr and any error.
+// runZFSCommand executes a zfs subcommand validated against the zfs_set_property
+// whitelist. Used for user/group quota properties which don't map to DatasetSet.
 func runZFSCommand(args []string) ([]byte, error) {
-	return cmdutil.RunFast("zfs", args...)
+	return cmdutil.RunMedium("zfs_set_property", args...)
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -1170,9 +1128,8 @@ func AttachDisk(w http.ResponseWriter, r *http.Request) {
 			}, "info")
 		}
 
-		output, err := executeCommandWithTimeout(TimeoutMedium, "zpool", []string{"attach", pool, oldDisk, newDisk})
-		if err != nil {
-			storageops.Fail(registryDB, opID, fmt.Sprintf("zpool attach: %v: %s", err, strings.TrimSpace(output)))
+		if err := libzfs.VdevAttach(pool, oldDisk, newDisk); err != nil {
+			storageops.Fail(registryDB, opID, fmt.Sprintf("zpool attach: %v", err))
 			if diskEventHub != nil {
 				diskEventHub.Broadcast("resilver_completed", map[string]interface{}{
 					"pool":    pool,
@@ -1180,7 +1137,7 @@ func AttachDisk(w http.ResponseWriter, r *http.Request) {
 					"error":   err.Error(),
 				}, "warning")
 			}
-			j.Fail(fmt.Sprintf("zpool attach failed: %v - %s", err, strings.TrimSpace(output)))
+			j.Fail(fmt.Sprintf("zpool attach failed: %v", err))
 			return
 		}
 		storageops.Commit(registryDB, opID)
@@ -1505,7 +1462,7 @@ func (h *ZFSHandler) RenameDataset(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 4. Execute
-	if _, err := executeCommandWithTimeout(TimeoutMedium, "zfs", []string{"rename", req.OldName, req.NewName}); err != nil {
+	if err := libzfs.DatasetRename(req.OldName, req.NewName); err != nil {
 		respondErrorSimple(w, "Rename failed: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -1534,7 +1491,7 @@ func (h *ZFSHandler) PromoteDataset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, err := executeCommandWithTimeout(TimeoutMedium, "zfs", []string{"promote", req.Dataset}); err != nil {
+	if err := libzfs.DatasetPromote(req.Dataset); err != nil {
 		respondErrorSimple(w, "Promote failed: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -1570,13 +1527,7 @@ func (h *ZFSHandler) OfflineDisk(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	args := []string{"offline"}
-	if req.Temporary {
-		args = append(args, "-t")
-	}
-	args = append(args, req.Pool, req.Device)
-
-	if _, err := executeCommandWithTimeout(TimeoutMedium, "zpool", args); err != nil {
+	if err := libzfs.VdevOffline(req.Pool, req.Device, req.Temporary); err != nil {
 		respondErrorSimple(w, "Offline failed: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -1628,13 +1579,7 @@ func (h *ZFSHandler) ExportPool(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 2. Execute
-	args := []string{"export"}
-	if req.Force {
-		args = append(args, "-f")
-	}
-	args = append(args, req.Pool)
-
-	if _, err := executeCommandWithTimeout(TimeoutMedium, "zpool", args); err != nil {
+	if err := libzfs.PoolExport(req.Pool, req.Force); err != nil {
 		respondErrorSimple(w, "Export failed: "+err.Error(), http.StatusInternalServerError)
 		return
 	}

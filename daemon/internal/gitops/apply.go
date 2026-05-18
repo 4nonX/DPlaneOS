@@ -16,6 +16,7 @@ import (
 	"dplaned/internal/cmdutil"
 	"dplaned/internal/composegpu"
 	"dplaned/internal/hardware"
+	"dplaned/internal/libzfs"
 	"dplaned/internal/nixwriter"
 	"dplaned/internal/nvmet"
 )
@@ -397,9 +398,8 @@ func createPool(dp DesiredPool) error {
 	if err != nil {
 		return err
 	}
-	out, err := cmdutil.RunSlow("zpool", args...)
-	if err != nil {
-		return fmt.Errorf("zpool create: %s: %w", string(out), err)
+	if err := libzfs.PoolCreate(args); err != nil {
+		return fmt.Errorf("zpool create: %w", err)
 	}
 	log.Printf("GITOPS: created pool %q", dp.Name)
 	return nil
@@ -418,9 +418,8 @@ func modifyPool(name string, changes []string) error {
 			if k == "" {
 				continue
 			}
-			out, err := cmdutil.RunMedium("zpool", "set", fmt.Sprintf("%s=%s", k, v), name)
-			if err != nil {
-				return fmt.Errorf("zpool set %s=%s on %s: %s: %w", k, v, name, string(out), err)
+			if err := libzfs.PoolSetProperty(name, k, v); err != nil {
+				return fmt.Errorf("zpool set %s=%s on %s: %w", k, v, name, err)
 			}
 			log.Printf("GITOPS: zpool set %s=%s on pool %q", k, v, name)
 			continue
@@ -464,13 +463,29 @@ func executeReshape(item DiffItem) error {
 			return fmt.Errorf("empty vdev spec in reshape change %q", change)
 		}
 
-		// Build: zpool add <pool> <spec-tokens...>
-		args := append([]string{"add", pool}, strings.Fields(spec)...)
-		log.Printf("GITOPS RESHAPE: zpool %s", strings.Join(args, " "))
+		// Parse spec into vdev type + devices.
+		// spec is something like "mirror /dev/disk/by-id/sda /dev/disk/by-id/sdb"
+		// or "/dev/disk/by-id/sda" for a single-device stripe.
+		tokens := strings.Fields(spec)
+		vdevKeywords := map[string]bool{
+			"mirror": true, "raidz": true, "raidz1": true, "raidz2": true, "raidz3": true,
+			"cache": true, "log": true, "special": true, "spare": true, "dedup": true,
+		}
+		var vdevType string
+		var devices []string
+		if len(tokens) > 1 && vdevKeywords[tokens[0]] {
+			vdevType = tokens[0]
+			devices = tokens[1:]
+		} else if strings.HasPrefix(tokens[0], "draid") {
+			vdevType = tokens[0]
+			devices = tokens[1:]
+		} else {
+			devices = tokens
+		}
+		log.Printf("GITOPS RESHAPE: zpool add %s vdevType=%q devices=%v", pool, vdevType, devices)
 
-		out, err := cmdutil.RunSlow("zpool", args...)
-		if err != nil {
-			return fmt.Errorf("zpool add for pool %q (%s): %s: %w", pool, change, string(out), err)
+		if err := libzfs.VdevAdd(pool, vdevType, devices); err != nil {
+			return fmt.Errorf("zpool add for pool %q (%s): %w", pool, change, err)
 		}
 		log.Printf("GITOPS RESHAPE: zpool add succeeded for pool %q: %s", pool, change)
 	}
@@ -498,9 +513,8 @@ func destroyPool(name string) error {
 		}
 	}
 
-	destroyOut, err := cmdutil.RunSlow("zpool", "destroy", name)
-	if err != nil {
-		return fmt.Errorf("zpool destroy %s: %s: %w", name, string(destroyOut), err)
+	if err := libzfs.PoolDestroy(name); err != nil {
+		return fmt.Errorf("zpool destroy %s: %w", name, err)
 	}
 	log.Printf("GITOPS: destroyed pool %q (approved)", name)
 	return nil
@@ -583,40 +597,41 @@ func createDataset(name string, ds *DesiredDataset) error {
 		return nil
 	}
 
-	args := []string{"create"}
+	props := map[string]string{}
 	if ds != nil {
 		if ds.Mountpoint != "" {
-			args = append(args, "-o", "mountpoint="+ds.Mountpoint)
+			props["mountpoint"] = ds.Mountpoint
 		}
 		if ds.Compression != "" {
-			args = append(args, "-o", "compression="+ds.Compression)
+			props["compression"] = ds.Compression
 		}
 		if ds.Quota != "" && ds.Quota != "none" {
-			args = append(args, "-o", "quota="+ds.Quota)
+			props["quota"] = ds.Quota
 		}
 		if ds.Atime != "" {
-			args = append(args, "-o", "atime="+ds.Atime)
+			props["atime"] = ds.Atime
 		}
 		if ds.Sync != "" {
-			args = append(args, "-o", "sync="+ds.Sync)
+			props["sync"] = ds.Sync
 		}
 		if ds.Recordsize != "" {
-			args = append(args, "-o", "recordsize="+ds.Recordsize)
+			props["recordsize"] = ds.Recordsize
 		}
 		if ds.Xattr != "" {
-			args = append(args, "-o", "xattr="+ds.Xattr)
+			props["xattr"] = ds.Xattr
 		}
 		if ds.Secondarycache != "" {
-			args = append(args, "-o", "secondarycache="+ds.Secondarycache)
+			props["secondarycache"] = ds.Secondarycache
 		}
 	}
-	args = append(args, name)
-
-	createOut, err := cmdutil.RunMedium("zfs", args...)
-	if err != nil {
-		return fmt.Errorf("zfs create %s: %s: %w", name, string(createOut), err)
+	if err := libzfs.DatasetCreateWithProps(name, props); err != nil {
+		return fmt.Errorf("zfs create %s: %w", name, err)
 	}
-	log.Printf("GITOPS: created dataset %q with mountpoint %q", name, ds.Mountpoint)
+	var mountpoint string
+	if ds != nil {
+		mountpoint = ds.Mountpoint
+	}
+	log.Printf("GITOPS: created dataset %q with mountpoint %q", name, mountpoint)
 	return nil
 }
 
@@ -636,9 +651,8 @@ func modifyDataset(name string, changes []string) error {
 			continue
 		}
 
-		out, err := cmdutil.RunMedium("zfs", "set", fmt.Sprintf("%s=%s", zfsProp, desiredVal), name)
-		if err != nil {
-			return fmt.Errorf("zfs set %s=%s on %s: %s: %w", zfsProp, desiredVal, name, string(out), err)
+		if err := libzfs.DatasetSet(name, zfsProp, desiredVal); err != nil {
+			return fmt.Errorf("zfs set %s=%s on %s: %w", zfsProp, desiredVal, name, err)
 		}
 		log.Printf("GITOPS: set %s=%s on dataset %q", zfsProp, desiredVal, name)
 	}
@@ -656,9 +670,8 @@ func deleteDataset(name string) error {
 		)
 	}
 
-	out, err := cmdutil.RunMedium("zfs", "destroy", name)
-	if err != nil {
-		return fmt.Errorf("zfs destroy %s: %s: %w", name, string(out), err)
+	if err := libzfs.DatasetDestroy(name, false); err != nil {
+		return fmt.Errorf("zfs destroy %s: %w", name, err)
 	}
 	log.Printf("GITOPS: destroyed empty dataset %q", name)
 	return nil

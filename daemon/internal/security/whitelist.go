@@ -267,6 +267,18 @@ var CommandWhitelist = map[string]Command{
 		},
 		Description: "Split a mirrored ZFS pool",
 	},
+	"zpool_add": {
+		Name:        "zpool_add",
+		Path:        "zpool",
+		AllowedArgs: []string{"add"},
+		Description: "Add a vdev (data, cache, log, special, spare) to an existing pool",
+	},
+	"zpool_set_property": {
+		Name:        "zpool_set_property",
+		Path:        "zpool",
+		AllowedArgs: []string{"set"},
+		Description: "Set a pool-level property (e.g. autoreplace=on)",
+	},
 
 	// Network Management
 	"ip_addr_show": {
@@ -897,6 +909,10 @@ func ValidateCommand(cmdName string, args []string) error {
 		if len(args) != 3 && cmdName == "zpool_split" {
 			return fmt.Errorf("zpool_split requires exactly 2 arguments after split")
 		}
+	case "zpool_add":
+		return validateZpoolAdd(args)
+	case "zpool_set_property":
+		return validateZpoolSetProperty(args)
 	}
 
 	// Default validation logic:
@@ -951,47 +967,155 @@ func ValidateCommand(cmdName string, args []string) error {
 	return nil
 }
 
-// validateZpoolCreate validates zpool create command arguments
-// Format: zpool create [type] poolname device1 [device2 ...]
+// validateZpoolCreate validates zpool create command arguments.
+// Accepts the full arg list including optional flags (-f, -o, -O).
+// Format: create [-f] [-o k=v]... [-O k=v]... poolname vdev-spec...
 func validateZpoolCreate(args []string) error {
 	if len(args) < 3 {
 		return fmt.Errorf("zpool create requires at least: create poolname device")
 	}
-
 	if args[0] != "create" {
 		return fmt.Errorf("first argument must be 'create'")
 	}
 
-	// Valid pool types
-	validTypes := map[string]bool{
-		"mirror": true, "raidz": true, "raidz1": true,
-		"raidz2": true, "raidz3": true,
+	validPoolOpts := map[string]bool{
+		"ashift": true, "autoreplace": true, "autoexpand": true, "autotrim": true,
+		"failmode": true, "listsnapshots": true, "readonly": true,
+		"comment": true, "dedupditto": true,
+	}
+	validDSOpts := map[string]bool{
+		"compression": true, "quota": true, "refquota": true, "mountpoint": true,
+		"atime": true, "dedup": true, "recordsize": true, "sync": true,
+		"copies": true, "encryption": true, "keylocation": true, "keyformat": true,
+		"readonly": true, "xattr": true, "secondarycache": true,
+	}
+	validVdevTypes := map[string]bool{
+		"mirror": true, "raidz": true, "raidz1": true, "raidz2": true, "raidz3": true,
+		"draid": true, "cache": true, "log": true, "special": true, "spare": true, "dedup": true,
+	}
+	valRe := regexp.MustCompile(`^[a-zA-Z0-9_\-\.:/=]+$`)
+
+	i := 1
+	// Consume flags
+	for i < len(args) {
+		switch args[i] {
+		case "-f":
+			i++
+			continue
+		case "-o":
+			i++
+			if i >= len(args) {
+				return fmt.Errorf("missing value for -o flag")
+			}
+			parts := strings.SplitN(args[i], "=", 2)
+			if len(parts) != 2 || !validPoolOpts[parts[0]] {
+				return fmt.Errorf("invalid pool property: %s", args[i])
+			}
+			if !valRe.MatchString(parts[1]) {
+				return fmt.Errorf("invalid pool property value: %s", parts[1])
+			}
+			i++
+			continue
+		case "-O":
+			i++
+			if i >= len(args) {
+				return fmt.Errorf("missing value for -O flag")
+			}
+			parts := strings.SplitN(args[i], "=", 2)
+			if len(parts) != 2 || !validDSOpts[parts[0]] {
+				return fmt.Errorf("invalid dataset property: %s", args[i])
+			}
+			if !valRe.MatchString(parts[1]) {
+				return fmt.Errorf("invalid dataset property value: %s", parts[1])
+			}
+			i++
+			continue
+		}
+		break
 	}
 
-	// Check if second arg is a type or pool name
-	poolNameIdx := 1
-	if validTypes[args[1]] {
-		poolNameIdx = 2
-	}
-
-	if poolNameIdx >= len(args) {
+	if i >= len(args) {
 		return fmt.Errorf("missing pool name")
 	}
-
-	// Validate pool name
-	poolName := args[poolNameIdx]
-	if err := ValidatePoolName(poolName); err != nil {
+	if err := ValidatePoolName(args[i]); err != nil {
 		return err
 	}
+	i++
 
-	// Validate device paths
-	for i := poolNameIdx + 1; i < len(args); i++ {
+	// Remaining args are vdev spec tokens (types + device paths)
+	for ; i < len(args); i++ {
+		if validVdevTypes[args[i]] {
+			continue
+		}
+		// draid specs (draid2:8d:1s)
+		if strings.HasPrefix(args[i], "draid") {
+			continue
+		}
 		if err := ValidateDevicePath(args[i]); err != nil {
-			return err
+			// Also allow /dev/loop* for test environments
+			if !strings.HasPrefix(args[i], "/dev/loop") && !strings.HasPrefix(args[i], "/dev/disk/by-id/") {
+				return fmt.Errorf("invalid device path in create: %s", args[i])
+			}
 		}
 	}
 
 	return nil
+}
+
+// validateZpoolAdd validates zpool add command arguments.
+// Format: add <pool> [mirror|raidz|...] <devices...>
+func validateZpoolAdd(args []string) error {
+	if len(args) < 3 || args[0] != "add" {
+		return fmt.Errorf("zpool add requires: add pool [type] device...")
+	}
+	if err := ValidatePoolName(args[1]); err != nil {
+		return err
+	}
+	validTypes := map[string]bool{
+		"mirror": true, "raidz": true, "raidz1": true, "raidz2": true, "raidz3": true,
+		"cache": true, "log": true, "special": true, "spare": true, "dedup": true,
+	}
+	devStart := 2
+	if validTypes[args[2]] {
+		devStart = 3
+	}
+	if devStart >= len(args) {
+		return fmt.Errorf("no devices specified for zpool add")
+	}
+	for i := devStart; i < len(args); i++ {
+		if err := ValidateDevicePath(args[i]); err != nil {
+			if !strings.HasPrefix(args[i], "/dev/loop") && !strings.HasPrefix(args[i], "/dev/disk/by-id/") {
+				return fmt.Errorf("invalid device path: %s", args[i])
+			}
+		}
+	}
+	return nil
+}
+
+// validateZpoolSetProperty validates zpool set command arguments.
+// Format: set <key=value> <pool>
+func validateZpoolSetProperty(args []string) error {
+	if len(args) != 3 || args[0] != "set" {
+		return fmt.Errorf("zpool set requires: set key=value pool")
+	}
+	kv := args[1]
+	parts := strings.SplitN(kv, "=", 2)
+	if len(parts) != 2 {
+		return fmt.Errorf("invalid key=value format: %s", kv)
+	}
+	allowedKeys := map[string]bool{
+		"ashift": true, "autoreplace": true, "autoexpand": true, "autotrim": true,
+		"failmode": true, "listsnapshots": true, "comment": true,
+		"dedupditto": true, "version": true,
+	}
+	if !allowedKeys[parts[0]] {
+		return fmt.Errorf("pool property not allowed: %s", parts[0])
+	}
+	valRe := regexp.MustCompile(`^[a-zA-Z0-9_\-\.]+$`)
+	if !valRe.MatchString(parts[1]) {
+		return fmt.Errorf("invalid property value: %s", parts[1])
+	}
+	return ValidatePoolName(args[2])
 }
 
 // validateZfsSetProperty enforces strict property allowlist and values
@@ -1015,9 +1139,24 @@ func validateZfsSetProperty(args []string) error {
 	prop := parts[0]
 	val := parts[1]
 
+	// Allow user/group quota properties (format: userquota@name or groupquota@name)
+	if strings.HasPrefix(prop, "userquota@") || strings.HasPrefix(prop, "groupquota@") {
+		suffix := strings.SplitN(prop, "@", 2)[1]
+		if !regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9._\-]*$`).MatchString(suffix) {
+			return fmt.Errorf("invalid user/group name in quota property: %q", suffix)
+		}
+		if val != "none" {
+			if !regexp.MustCompile(`^[0-9]+[KMGTP]?$`).MatchString(val) {
+				return fmt.Errorf("invalid quota value: %s", val)
+			}
+		}
+		return ValidateDatasetName(dataset)
+	}
+
 	// Strict property allowlist
 	allowedProps := map[string]bool{
-		"compression": true, "quota": true, "refquota": true, "mountpoint": true,
+		"compression": true, "quota": true, "refquota": true, "refreservation": true,
+		"reservation": true, "mountpoint": true,
 		"atime": true, "dedup": true, "recordsize": true, "sync": true,
 		"copies": true, "encryption": true, "keylocation": true, "keyformat": true,
 		"readonly": true, "xattr": true, "secondarycache": true,
