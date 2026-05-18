@@ -81,7 +81,10 @@ func (h *SystemStatusHandler) HandleSetupComplete(w http.ResponseWriter, r *http
 		Hostname string `json:"hostname"`
 		Timezone string `json:"timezone"`
 	}
-	json.NewDecoder(r.Body).Decode(&body)
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		respondErrorSimple(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
 	h.db.Exec(`INSERT INTO system_config (key, value) VALUES ('setup_complete', '1') ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`)
 	if body.Hostname != "" {
 		h.db.Exec(`INSERT INTO system_config (key, value) VALUES ('hostname', $1) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`, body.Hostname)

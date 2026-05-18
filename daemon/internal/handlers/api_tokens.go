@@ -276,7 +276,10 @@ func (h *APITokenHandler) revokeByID(w http.ResponseWriter, tokenID, userID int,
 
 func (h *APITokenHandler) revokeTokenByID(w http.ResponseWriter, r *http.Request, userID int, username string) {
 	var req struct{ ID int `json:"id"` }
-	json.NewDecoder(r.Body).Decode(&req)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondErrorSimple(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
 	h.revokeByID(w, req.ID, userID, username)
 }
 

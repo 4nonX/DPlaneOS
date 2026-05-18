@@ -118,6 +118,9 @@ func (h *NFSHandler) writeExportsFile() error {
 			sb.WriteString(fmt.Sprintf("%s\t%s(%s)\n", path, client, options))
 		}
 	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("nfs_exports scan: %w", err)
+	}
 
 	if err := os.WriteFile(nfsExportsPath, []byte(sb.String()), 0644); err != nil {
 		return fmt.Errorf("write %s: %w", nfsExportsPath, err)
@@ -186,7 +189,10 @@ func (h *NFSHandler) ListNFSExports(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var e NFSExport
 		var enabled int
-		rows.Scan(&e.ID, &e.Path, &e.Clients, &e.Options, &enabled, &e.CreatedAt)
+		if err := rows.Scan(&e.ID, &e.Path, &e.Clients, &e.Options, &enabled, &e.CreatedAt); err != nil {
+			log.Printf("WARN: nfs_exports list scan: %v", err)
+			continue
+		}
 		e.Enabled = enabled == 1
 		exports = append(exports, e)
 	}

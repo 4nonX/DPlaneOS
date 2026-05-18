@@ -63,7 +63,10 @@ func (h *ShareCRUDHandler) listShares(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var id, browsable, readOnly, guestOk, enabled int
 		var name, path, comment, validUsers, writeList, createMask, dirMask, createdAt string
-		rows.Scan(&id, &name, &path, &comment, &browsable, &readOnly, &guestOk, &validUsers, &writeList, &createMask, &dirMask, &enabled, &createdAt)
+		if err := rows.Scan(&id, &name, &path, &comment, &browsable, &readOnly, &guestOk, &validUsers, &writeList, &createMask, &dirMask, &enabled, &createdAt); err != nil {
+			log.Printf("WARN: smb_shares list scan: %v", err)
+			continue
+		}
 		shares = append(shares, map[string]interface{}{
 			"id":             id,
 			"name":           name,
@@ -251,49 +254,76 @@ func (h *ShareCRUDHandler) updateShare(w http.ResponseWriter, req shareActionReq
 	defer tx.Rollback()
 
 	if req.Name != "" {
-		tx.Exec(`UPDATE smb_shares SET name = $1, updated_at = NOW() WHERE id = $2`, req.Name, req.ID)
+		if _, err := tx.Exec(`UPDATE smb_shares SET name = $1, updated_at = NOW() WHERE id = $2`, req.Name, req.ID); err != nil {
+			respondErrorSimple(w, "Failed to update name: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
 	}
 	if req.Path != "" {
-		tx.Exec(`UPDATE smb_shares SET path = $1, updated_at = NOW() WHERE id = $2`, req.Path, req.ID)
+		if _, err := tx.Exec(`UPDATE smb_shares SET path = $1, updated_at = NOW() WHERE id = $2`, req.Path, req.ID); err != nil {
+			respondErrorSimple(w, "Failed to update path: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
 	}
 	if req.Comment != "" {
-		tx.Exec(`UPDATE smb_shares SET comment = $1, updated_at = NOW() WHERE id = $2`, req.Comment, req.ID)
+		if _, err := tx.Exec(`UPDATE smb_shares SET comment = $1, updated_at = NOW() WHERE id = $2`, req.Comment, req.ID); err != nil {
+			respondErrorSimple(w, "Failed to update comment: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
 	}
 	if req.Browsable != nil {
 		v := 0
 		if *req.Browsable {
 			v = 1
 		}
-		tx.Exec(`UPDATE smb_shares SET browsable = $1, updated_at = NOW() WHERE id = $2`, v, req.ID)
+		if _, err := tx.Exec(`UPDATE smb_shares SET browsable = $1, updated_at = NOW() WHERE id = $2`, v, req.ID); err != nil {
+			respondErrorSimple(w, "Failed to update browsable: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
 	}
 	if req.ReadOnly != nil {
 		v := 0
 		if *req.ReadOnly {
 			v = 1
 		}
-		tx.Exec(`UPDATE smb_shares SET read_only = $1, updated_at = NOW() WHERE id = $2`, v, req.ID)
+		if _, err := tx.Exec(`UPDATE smb_shares SET read_only = $1, updated_at = NOW() WHERE id = $2`, v, req.ID); err != nil {
+			respondErrorSimple(w, "Failed to update read_only: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
 	}
 	if req.GuestOk != nil {
 		v := 0
 		if *req.GuestOk {
 			v = 1
 		}
-		tx.Exec(`UPDATE smb_shares SET guest_ok = $1, updated_at = NOW() WHERE id = $2`, v, req.ID)
+		if _, err := tx.Exec(`UPDATE smb_shares SET guest_ok = $1, updated_at = NOW() WHERE id = $2`, v, req.ID); err != nil {
+			respondErrorSimple(w, "Failed to update guest_ok: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
 	}
 	if req.ValidUsers != "" {
 		sanitized := sanitizeSMBConfValue(req.ValidUsers)
-		tx.Exec(`UPDATE smb_shares SET valid_users = $1, updated_at = NOW() WHERE id = $2`, sanitized, req.ID)
+		if _, err := tx.Exec(`UPDATE smb_shares SET valid_users = $1, updated_at = NOW() WHERE id = $2`, sanitized, req.ID); err != nil {
+			respondErrorSimple(w, "Failed to update valid_users: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
 	}
 	if req.WriteList != "" {
 		sanitized := sanitizeSMBConfValue(req.WriteList)
-		tx.Exec(`UPDATE smb_shares SET write_list = $1, updated_at = NOW() WHERE id = $2`, sanitized, req.ID)
+		if _, err := tx.Exec(`UPDATE smb_shares SET write_list = $1, updated_at = NOW() WHERE id = $2`, sanitized, req.ID); err != nil {
+			respondErrorSimple(w, "Failed to update write_list: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
 	}
 	if req.Enabled != nil {
 		v := 0
 		if *req.Enabled {
 			v = 1
 		}
-		tx.Exec(`UPDATE smb_shares SET enabled = $1, updated_at = NOW() WHERE id = $2`, v, req.ID)
+		if _, err := tx.Exec(`UPDATE smb_shares SET enabled = $1, updated_at = NOW() WHERE id = $2`, v, req.ID); err != nil {
+			respondErrorSimple(w, "Failed to update enabled: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
 	}
 
 	if err := tx.Commit(); err != nil {
@@ -328,7 +358,10 @@ func (h *ShareCRUDHandler) deleteShare(w http.ResponseWriter, req shareActionReq
 		return
 	}
 
-	h.db.Exec(`DELETE FROM smb_shares WHERE id = $1`, req.ID)
+	if _, err := h.db.Exec(`DELETE FROM smb_shares WHERE id = $1`, req.ID); err != nil {
+		respondErrorSimple(w, "Failed to delete share: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
 	h.regenerateSMBConf()
 
 	respondJSON(w, http.StatusOK, map[string]interface{}{
@@ -396,7 +429,10 @@ func (h *ShareCRUDHandler) GetSharesByPath(w http.ResponseWriter, r *http.Reques
 	for smbRows.Next() {
 		var name, comment string
 		var enabled int
-		smbRows.Scan(&name, &comment, &enabled)
+		if err := smbRows.Scan(&name, &comment, &enabled); err != nil {
+			log.Printf("WARN: smb_shares by-path scan: %v", err)
+			continue
+		}
 		smbShares = append(smbShares, map[string]interface{}{
 			"name":    name,
 			"comment": comment,
@@ -420,7 +456,10 @@ func (h *ShareCRUDHandler) GetSharesByPath(w http.ResponseWriter, r *http.Reques
 		for nfsRows.Next() {
 			var id, enabled int
 			var clients, options string
-			nfsRows.Scan(&id, &clients, &options, &enabled)
+			if err := nfsRows.Scan(&id, &clients, &options, &enabled); err != nil {
+				log.Printf("WARN: nfs_exports by-path scan: %v", err)
+				continue
+			}
 			nfsExports = append(nfsExports, map[string]interface{}{
 				"id":      id,
 				"clients": clients,
