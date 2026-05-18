@@ -49,19 +49,21 @@ All system-level dependencies are declared in the NixOS module (`nixos/module.ni
 | Dependency | Purpose |
 |------------|---------|
 | `nginx` | Reverse proxy and static file server |
-| `zfs` | ZFS pool and dataset management |
+| `zfs` | ZFS pool and dataset management (kernel module + CLI) |
 | `postgresql` | Database and CLI (`psql`) |
 | `patroni`, `etcd` | HA cluster management |
 | `smartmontools` | S.M.A.R.T. disk health monitoring |
 | `udev` (systemd) | Device event rules (hot-swap, removable media) |
 | `samba` | SMB / CIFS shares and AFP / Time Machine |
-| `nfs-utils` | NFS exports |
+| `nfs-utils` | NFS exports (`exportfs`) |
+| `nfs4-acl-tools` | NFSv4 ACL management (`nfs4_getfacl`, `nfs4_setfacl`) |
 | `docker` + `docker-compose` | Container management |
 | `ipmitool` | IPMI / BMC monitoring |
 | `rclone` + `fuse3` | Cloud sync and Cold Tier FUSE mounts |
 | `targetcli-fb` | iSCSI block targets |
 | `openssh` | Remote access |
 | `git` | GitOps repository sync |
+| `sg3_utils` | SCSI-3 diagnostic tools (optional; `sg_persist` for reservation verification) |
 
 All packages are pinned via the flake lockfile. Versions are reproducible across every build.
 
@@ -71,9 +73,30 @@ All packages are pinned via the flake lockfile. Versions are reproducible across
 |------------|---------|
 | Go 1.22+ | Rebuild the daemon from source |
 | Node.js 20+ | Rebuild the frontend from source |
-| gcc / CGO | Required for ZFS interop |
+| gcc / CGO | Required for the cgo (`libzfs`) build path |
+| `libzfs.h` + `pkg-config` + `pkgs.zfs` | Required for `dplaneos-daemon-cgo` build target only |
 
 Pre-built binaries are included in the release tarball. Go and Node.js are not needed to install or run DPlaneOS.
+
+### Two build variants
+
+The standard production build (`dplaneos-daemon`) uses a static musl binary with CGO disabled. ZFS operations use subprocess calls through the exec allowlist. This binary has no runtime dependency on `libzfs.so`.
+
+The cgo build (`dplaneos-daemon-cgo`) links against `libzfs.so` at runtime and calls ZFS operations natively via `libzfs.h`. It requires `gcc`, `pkg-config`, and `pkgs.zfs` at build time and produces a glibc-linked binary. Enable with:
+
+```bash
+nix build .#dplaneos-daemon-cgo
+```
+
+Both variants expose identical APIs. The build tag `libzfs` controls which path is compiled:
+
+```bash
+# Explicit cgo build
+go build -tags "linux cgo libzfs" -mod=vendor ./cmd/dplaned/
+
+# Standard static build (default)
+CGO_ENABLED=0 go build -mod=vendor ./cmd/dplaned/
+```
 
 ---
 

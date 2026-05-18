@@ -44,34 +44,54 @@ flowchart LR
 ```mermaid
 %%{init: {'theme':'base', 'themeVariables': { 'primaryColor':'#b2dfdb', 'primaryTextColor':'#004d40', 'primaryBorderColor':'#00695c', 'lineColor':'#00695c', 'secondaryColor':'#e0f2f1' }}}%%
 flowchart TB
-    subgraph cmd["cmd/dplaned"]
-        main["main.go - flags, DB init, router setup"]
-        schema["schema.go - PostgreSQL schema migrations"]
+    subgraph cmd["cmd/"]
+        main["dplaned/main.go - flags, DB init, router setup"]
+        fenced["dplane-fenced/main.go - SCSI-3 PR reservation manager"]
     end
 
     subgraph internal["internal/"]
-        handlers["handlers/ - ~50 handler files (one per feature)"]
+        handlers["handlers/ - ~55 handler files (one per feature)"]
         middleware["middleware/ - logging, session, rate limit"]
         audit["audit/ - buffered logger, HMAC chain"]
         security["security/ - session validation, RBAC, command whitelist"]
-        ha["ha/ - cluster manager (active/standby)"]
-        zfs_pkg["zfs/ - pool heartbeat"]
+        ha["ha/ - cluster manager, fenced client, promote/demote"]
+        zfs_pkg["zfs/ - pool heartbeat, ZED listener, status parsing"]
+        libzfs["libzfs/ - cgo libzfs bindings (+ subprocess fallback)"]
+        storageops["storageops/ - transactional storage op guard"]
         jobs["jobs/ - async job store (in-memory)"]
         cmdutil["cmdutil/ - safe exec.Command wrappers"]
         netlinkx["netlinkx/ - netlink syscalls (no CGO)"]
         database["database/migrations/ - SQL migration files"]
+        gitops["gitops/ - state.yaml parser, diff engine, apply engine"]
+        hardware["hardware/ - SES enclosure, SMART timer management"]
+        acl["acl/ - NFSv4 ACL parsing and validation"]
+        scsipr["scsipr/ - SCSI-3 persistent reservation primitives"]
+        nvmet["nvmet/ - NVMe-oF target configuration"]
+        nixwriter["nixwriter/ - NixOS config file writer"]
+        composegpu["composegpu/ - Docker Compose + GPU validation"]
     end
 
     main --> handlers
     main --> middleware
+    main --> gitops
     handlers --> audit
     handlers --> security
     handlers --> cmdutil
+    handlers --> libzfs
+    handlers --> storageops
     handlers --> jobs
     handlers --> netlinkx
     handlers --> database
     handlers --> ha
     handlers --> zfs_pkg
+    handlers --> hardware
+    handlers --> acl
+    handlers --> nvmet
+    handlers --> composegpu
+    gitops --> libzfs
+    gitops --> nixwriter
+    ha --> scsipr
+    fenced --> scsipr
 ```
 
 ---
@@ -85,7 +105,7 @@ sequenceDiagram
     participant N as nginx
     participant M as Middleware
     participant H as Handler
-    participant C as exec.Command / PostgreSQL / ZFS
+    participant C as libzfs / exec.Command / PostgreSQL
 
     B->>N: HTTP request
     N->>M: proxy_pass :9000
@@ -95,7 +115,7 @@ sequenceDiagram
     M->>M: RBAC permission check
     M->>H: dispatch to handler
     H->>H: input allowlist validation
-    H->>C: PostgreSQL query or exec.Command
+    H->>C: PostgreSQL query, libzfs call, or exec.Command
     C-->>H: result
     H->>H: audit.LogAction()
     H-->>B: JSON response
@@ -116,7 +136,7 @@ flowchart TD
     F --> G["Broadcast diskAdded WS event"]
     G --> H["2 s settle delay"]
     H --> I{"Pool importable?"}
-    I -->|Yes| J["zpool import -d /dev/disk/by-id <pool>"]
+    I -->|Yes| J["libzfs.PoolImportAll(/dev/disk/by-id)"]
     J --> K["Broadcast poolHealthChanged WS event"]
     I -->|No| K
     K --> L{"Faulted vdevs exist?"}
@@ -132,14 +152,22 @@ flowchart TD
 ```mermaid
 %%{init: {'theme':'base'}}%%
 flowchart TD
-    A["ZFS kernel event\n(disk fault, scrub, resilver, etc.)"] --> B["ZED: zed.d/dplaneos-notify.sh"]
-    B --> C["Write JSON event file\n/var/lib/dplaneos/notifications/"]
-    B --> D["Log to syslog"]
-    B --> E{"Daemon socket\n/run/dplaneos/dplaneos.sock"}
-    E -->|Connected| F["Send zfs_event message\n(non-blocking, 2 s timeout)"]
-    B --> G{"Severity = critical?"}
-    G -->|Yes| H["Read telegram_config from PostgreSQL"]
-    H --> I["POST to Telegram Bot API"]
+    A["ZFS kernel event\n(disk fault, scrub, resilver, TRIM, etc.)"] --> B["ZED: zed.d/dplaneos-notify.sh"]
+    B --> C["Log to syslog"]
+    B --> D{"Daemon socket\n/run/dplaneos/dplaneos.sock"}
+    D -->|Connected| E["zed_listener.go goroutine\nparses zfs_event line"]
+    E --> F["zedTypedDispatch\n(20+ specific subclasses)"]
+    F --> G["WebSocket hub broadcast\n(structured JSON event)"]
+    F --> H{"Long-running operation?"}
+    H -->|scrub / resilver| I["zedFastProgressPoll\n(2s poll, zpool status)"]
+    H -->|trim| J["zedTrimProgressPoll\n(2s poll, trim % / ETA)"]
+    I --> G
+    J --> G
+    F --> K{"Severity >= warning?"}
+    K -->|Yes| L["Alert dispatcher\n(SMTP / Webhook / Telegram)"]
+    B --> M{"Severity = critical\nand daemon down?"}
+    M -->|Yes| N["Read telegram_config\nfrom PostgreSQL directly"]
+    N --> O["POST to Telegram Bot API\n(bypass daemon)"]
 ```
 
 ---

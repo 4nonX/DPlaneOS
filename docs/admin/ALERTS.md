@@ -159,7 +159,7 @@ services.dplaneos.zed.telegramAlerts = true;
 # in configuration.nix, then nixos-rebuild switch.
 ```
 
-The ZED hook fires on: `checksum`, `data`, `io`, `pool_export_events`, `resilver_finish`, `scrub_finish`, `vdev_clear`, `vdev_online`.
+The ZED hook delivers events to the daemon via Unix socket. `zed_listener.go` dispatches them to typed WebSocket events and forwards warning/error severity events to all configured alert channels. Handled subclasses: `scrub_start`, `scrub_finish`, `scrub_abort`, `resilver_start`, `resilver_finish`, `trim_start`, `trim_finish`, `trim_abort`, `vdev_clear`, `vdev_online`, `pool_import`, `data_loss`, `deadman`, `statechange`, `checksum`, `io`, `pool_destroy`, `vdev_remove`, `device_removal`. All other subclasses emit a generic `zfs.event.<subclass>` WebSocket event.
 
 ### Via API
 
@@ -184,8 +184,20 @@ DPlaneOS generates alerts for the following event categories:
 | `zfs.pool.faulted` | Critical | A pool has entered FAULTED state (offline) |
 | `zfs.pool.scrub_error` | Warning | Scrub completed with errors (data integrity issues) |
 | `zfs.pool.scrub_complete` | Info | Scrub finished successfully |
+| `scrub_aborted` | Warning | In-progress scrub was aborted |
 | `zfs.pool.resilver_start` | Info | Resilver (rebuild) started after disk replacement |
 | `zfs.pool.resilver_complete` | Info | Resilver completed |
+| `trim_started` | Info | TRIM operation started on a pool |
+| `zfs.trim.progress` | Info | TRIM in-progress update (percent done, ETA, bytes trimmed) |
+| `trim_completed` | Info | TRIM finished successfully |
+| `trim_aborted` | Warning | In-progress TRIM was aborted |
+| `vdev_errors_cleared` | Info | Error counters on a vdev were cleared (`zpool clear`) |
+| `vdev_recovered` | Info | A vdev that was offline or faulted has come back online |
+| `pool_imported` | Info | A pool was imported (e.g., after hot-plug or system startup) |
+| `zfs.data_loss` | Error | ZFS kernel reported a data loss event on the pool |
+| `zfs.deadman` | Error | ZFS I/O deadman timeout fired (pool I/O hung) |
+| `zfs.checksum_errors` | Warning | Checksum errors detected on a vdev |
+| `zfs.io_errors` | Error | I/O errors detected on a vdev |
 | `zfs.dataset.quota_warn` | Warning | Dataset usage above 80% of quota |
 | `zfs.dataset.quota_critical` | Critical | Dataset usage above 95% of quota |
 | `storage.disk.faulted` | Critical | A disk has been removed or reported errors above threshold |

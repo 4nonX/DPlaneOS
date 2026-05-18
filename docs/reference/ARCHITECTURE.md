@@ -32,8 +32,9 @@ DPlaneOS is built around a strict separation between declaration, reconciliation
 │  Makes changes happen                                           │
 │                                                                 │
 │  dplaned daemon           NixOS activation scripts             │
-│  zfs/zpool, docker,       systemd, kernel modules,             │
-│  samba, nfs, nvmet         Nix store population                 │
+│  libzfs (cgo) / exec      systemd, kernel modules,             │
+│  allowlist, docker,       Nix store population                  │
+│  samba, nfs, nvmet                                              │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -63,7 +64,11 @@ A background detector runs every five minutes and broadcasts drift events to con
 
 ### Execution Layer
 
-The daemon executes changes by calling system tools through a strict allowlist (`internal/security/whitelist.go`). Only predefined, validated command structures are permitted. There is no shell; every `exec.Command` call is a named binary with validated arguments. This means a compromised API request cannot execute arbitrary commands.
+The daemon executes changes through two paths, depending on the operation:
+
+**`internal/libzfs` (cgo or subprocess fallback)**: All destructive ZFS operations (dataset create/modify/destroy, pool create/destroy, vdev add/attach/replace/remove/detach/online/offline, snapshot hold/release, pool property set, pool clear) go through the `libzfs` package. When built with `//go:build linux && cgo && libzfs`, calls invoke the native `libzfs.h` C API directly - no subprocess, no argument marshalling. When built without CGO (static musl build, CI), the same package interfaces fall back to validated subprocess calls. This means most ZFS operations do not spawn external processes at all in the production binary.
+
+**Exec allowlist (`internal/security/whitelist.go`)**: Operations that have no clean native libzfs equivalent (Docker Compose, Samba reload, NFS exportfs, SSH, network tools, the small set of complex zpool operations) still call external binaries through the allowlist. Only predefined, validated command structures are permitted. There is no shell; every `exec.Command` call is a named binary with a validated argument slice - no shell expansion. A compromised API request cannot execute arbitrary commands.
 
 ---
 
@@ -89,17 +94,27 @@ TRUSTED
 
 ### The Exec Allowlist
 
-The exec allowlist is the primary defense against command injection. Every system tool call goes through `internal/security/whitelist.go`, which validates:
+For operations that still use subprocess calls (Docker, Samba, NFS, networking tools, and complex ZFS topology operations), every call goes through `internal/security/whitelist.go`, which validates:
 
 1. The binary name (only known tools are permitted)
-2. The subcommand (e.g., `zfs create` is permitted; `zfs destroy` requires a prior BLOCKED approval)
+2. The subcommand (e.g., `zpool add` is validated with a dedicated argument grammar)
 3. Each argument individually against predefined regex patterns
 
 Arguments are passed to `exec.Command` as a string slice, never as a shell string. There is no `bash -c`, no shell expansion. A request that passes all API-level validation but asks for a command not in the allowlist is rejected before any process is spawned.
 
-Input is validated before it reaches the allowlist. Pool names, dataset names, device paths, and share names each pass through dedicated validators that reject shell metacharacters with HTTP 400 before any command is constructed. Device paths must be stable `/dev/disk/by-id/` paths; short `/dev/sdX` paths are rejected at `state.yaml` parse time, long before execution.
+Input is validated before it reaches the allowlist. Pool names, dataset names, device paths, and share names each pass through dedicated validators (`ValidatePoolName`, `ValidateDatasetName`, `ValidateDevicePath`) that reject shell metacharacters with HTTP 400 before any command is constructed. Device paths must be stable `/dev/disk/by-id/` paths; short `/dev/sdX` paths are rejected at `state.yaml` parse time, long before execution.
 
-This design means the worst-case outcome of a fully compromised API endpoint is triggering a predefined, validated, audited operation. Arbitrary command execution on the host is structurally unavailable.
+For ZFS operations that go through the libzfs package, the same input validators run before the cgo call - so validated strings are passed as C arguments, not shell-expanded. The combination of libzfs + allowlist means arbitrary command execution is structurally unavailable from any code path.
+
+### The libzfs Package
+
+`internal/libzfs` provides two compile paths behind Go build tags:
+
+- **`zfs_cgo.go`** (`//go:build linux && cgo && libzfs`): calls `libzfs.h` directly via cgo. Uses `runtime.LockOSThread` and a per-call `libzfs_init/libzfs_fini` handle. No subprocess is spawned for pool/dataset operations.
+- **`zfs_fallback.go`** (`//go:build !linux || !cgo || !libzfs`): provides identical function signatures via `cmdutil` subprocess calls routed through the exec allowlist. Active for the static musl production build and CI.
+- **`zfs.go`** (no build tag): shared functions that use subprocess in all variants - complex topology operations (VdevAdd, VdevAttach, VdevReplace, PoolCreate, PoolSplit) where native libzfs would require C nvlist construction but the subprocess call is already safe and validated.
+
+The calling code never knows which path is active. From `handlers/` and `gitops/`, a call to `libzfs.DatasetCreate("tank/media")` either calls `zfs_create()` directly in C or spawns `zfs create tank/media` through the allowlist, depending on build tags.
 
 ### Daemon Hardening
 
@@ -176,7 +191,8 @@ Internet / LAN
   [dplaned :9000]    ←── WebSocket hub (real-time UI updates)
       │
       ├── PostgreSQL (local socket, /var/lib/dplaneos/pgsql/)
-      ├── ZFS (kernel module, exec.Command via allowlist)
+      ├── ZFS via libzfs (cgo) or exec allowlist fallback
+      ├── ZED listener (/run/dplaneos/dplaneos.sock, typed dispatch)
       ├── Docker (unix socket)
       ├── Samba (smbd, controlled via systemctl + smbcontrol)
       ├── NFS (kernel nfsd, controlled via exportfs)
@@ -205,10 +221,12 @@ High Availability adds a second DPlaneOS node and a witness node. The witness is
          ▼                 ▼
    [Node A - PRIMARY]   [Node B - STANDBY]
    nginx, dplaned        nginx, dplaned
+   dplane-fenced         dplane-fenced
    Patroni (primary)     Patroni (replica)
    etcd member           etcd member
    Keepalived MASTER     Keepalived BACKUP
    ZFS pools mounted     ZFS datasets held
+   SCSI-3 PR owner       SCSI-3 PR standby
          │                     │
          └──────────┬──────────┘
                     │ etcd quorum
@@ -232,20 +250,23 @@ HAProxy runs on each node and listens on `127.0.0.1:5000`. It health-checks Patr
 
 ### ZFS Split-Brain Protection
 
-ZFS pools are on shared or replicated storage. Only one node may write to a pool at a time. DPlaneOS enforces this by gating ZFS pool import on Patroni role:
+ZFS pools are on shared or replicated storage. Only one node may write to a pool at a time. DPlaneOS enforces this through two complementary mechanisms:
 
-- Primary node: pools are imported and mounted normally
-- Standby node: ZFS import units are disabled; datasets remain unmounted until promotion
+**Patroni-gated pool import**: Pool import is gated on Patroni role. The primary node imports and mounts pools normally; the standby keeps pools unexported until promotion. Pool import during failover uses `libzfs.PoolImportAll` (native cgo call, no subprocess) for reliability.
 
-This prevents the standby from serving stale or conflicting data while the primary is still alive.
+**SCSI-3 Persistent Reservations (`dplane-fenced`)**: A dedicated `dplane-fenced` binary registers SCSI-3 Write Exclusive Registrants Only (WERO) persistent reservations on all ZFS pool member disks at startup. Reservations survive system reboots (APTPL=1 stores them in disk controller NVRAM). On graceful failover, `dplaned` calls `FencedRelease()` via `/run/dplaneos/fenced.sock` before exporting pools; on unclean failover, the surviving node preempts the dead node's reservation via `FencedPreempt(device)`. This means a split-brain node literally cannot write to the disks - the SAS/SCSI layer rejects I/O from the non-reservation-holder.
+
+`dplane-fenced` runs in its own systemd slice (`dplaneos-fenced.slice`) isolated from `dplaneos.slice`, so it survives `dplaned` restarts and slice resets.
 
 ### STONITH Fencing
 
-Split-brain scenarios (both nodes believe they are primary) are the most dangerous failure mode. DPlaneOS supports two fencing mechanisms:
+Split-brain scenarios (both nodes believe they are primary) are the most dangerous failure mode. DPlaneOS supports three fencing mechanisms:
+
+**SCSI-3 Persistent Reservations (recommended for shared SAS)**: Managed by `dplane-fenced`. Each node registers an 8-byte key derived from `/etc/machine-id` at boot. The primary holds a WERO reservation. On failover, the surviving node preempts the faulted node's registration, making its I/O requests fail at the disk controller. No BMC or shared block device required - the disks themselves enforce exclusion.
 
 **IPMI/Redfish fencing**: On detecting a split, the surviving node powers off the other node via its BMC. Requires IPMI credentials for the peer node.
 
-**SBD (STONITH Block Device) fencing**: A ZFS dataset property is used as a lease. Each node periodically renews its lease. If a node's lease expires, the surviving node treats it as fenced. No BMC required, but requires a ZFS dataset accessible to both nodes.
+**SBD (STONITH Block Device) fencing**: A shared block device is used as a "poison pill." Each node periodically renews a lease timestamp. If a node's lease expires, the surviving node treats it as fenced. No BMC required, but requires a ZFS dataset or block device accessible to both nodes.
 
 ### Virtual IP (Keepalived)
 
@@ -271,6 +292,53 @@ The witness runs no NAS workloads and requires minimal resources (512 MB RAM, an
 | Witness | Not applicable | Required for safe quorum |
 | OTA updates | One node, one reboot | Rolling: update standby, failover, update old primary |
 | dplaned DB | `postgres://localhost/dplaneos` | `postgres://localhost:5000/dplaneos` (via HAProxy) |
+
+---
+
+## ZED Event System
+
+The ZFS Event Daemon (ZED) feeds real-time pool and device events into the daemon through a Unix socket at `/run/dplaneos/dplaneos.sock`. The daemon's `zed_listener.go` goroutine reads these events and routes them through `zedTypedDispatch`.
+
+### Event ingestion
+
+ZED executes `/etc/zfs/zed.d/dplaneos-notify.sh` on each kernel event. The hook formats the event as `zfs_event:<severity>:<pool>:<subclass>:<state>` and writes it to the daemon socket with a 2-second non-blocking timeout.
+
+### Typed dispatch
+
+`zedTypedDispatch` handles over 20 specific subclasses with structured responses:
+
+| Subclass | WebSocket event | Severity | Side effects |
+|----------|----------------|----------|--------------|
+| `scrub_start` | `scrub_started` | info | spawns `zedFastProgressPoll` (2s) |
+| `scrub_finish` | `scrub_completed` | info | pool health refresh |
+| `scrub_abort` | `scrub_aborted` | warning | |
+| `resilver_start` | `resilver_started` | info | spawns `zedFastProgressPoll` (2s) |
+| `resilver_finish` | `resilver_completed` | info | pool health refresh |
+| `trim_start` | `trim_started` | info | spawns `zedTrimProgressPoll` (2s) |
+| `trim_finish` | `trim_completed` | info | pool health refresh |
+| `trim_abort` | `trim_aborted` | warning | |
+| `vdev_clear` | `vdev_errors_cleared` | info | pool health refresh |
+| `vdev_online` | `vdev_recovered` | info | pool health refresh |
+| `pool_import` | `pool_imported` | info | pool health refresh |
+| `data_loss` | `zfs.data_loss` | error | pool health refresh |
+| `deadman` | `zfs.deadman` | error | |
+| `statechange` | `zfs.event.statechange` | info | pool health refresh |
+| `checksum` | `zfs.checksum_errors` | warning | alert issued |
+| `io` | `zfs.io_errors` | error | alert issued |
+| `pool_destroy`, `vdev_remove`, `device_removal` | (none) | - | pool health refresh |
+
+Unrecognized subclasses fall through to a generic `zfs.event.<subclass>` broadcast.
+
+### Progress polling
+
+Two goroutines provide ongoing progress during long ZFS operations:
+
+- **`zedFastProgressPoll`**: runs during scrub and resilver. Polls `zpool status` every 2 seconds, broadcasts `zfs.scrub.progress` or `zfs.resilver.progress` with scan percentage, ETA, and error counts. Exits when the finish event arrives.
+- **`zedTrimProgressPoll`**: runs during TRIM operations. Parses the TRIM status line from `zpool status`, broadcasts `zfs.trim.progress` with percent done, ETA, and bytes trimmed. Exits when TRIM completes (max runtime 12 hours).
+
+### Alert routing
+
+Severity-mapped events with severity `warning` or higher are also forwarded to the alert subsystem, which routes them to all configured delivery channels (SMTP, webhook, Telegram). See [ALERTS.md](../admin/ALERTS.md) for the full event taxonomy.
 
 ---
 

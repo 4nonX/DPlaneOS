@@ -15,7 +15,8 @@ DPlaneOS is a NAS management layer running on NixOS. It manages storage (ZFS), c
 ┌──────────────────────────────────────────────────────────┐
 │                        TRUSTED                           │
 │  dplaned (Go) ─┬─ PostgreSQL / Patroni                   │
-│                ├─ exec.Command → zfs / zpool / docker    │
+│                ├─ libzfs (cgo) → ZFS kernel              │
+│                ├─ exec.Command → docker / samba / nfs    │
 │                ├─ networkdwriter → /etc/systemd/network/ │
 │                └─ /dev/sd* │ /mnt/* │ /var/lib/dplaneos/ │
 └──────────────────────────────────────────────────────────┘
@@ -55,7 +56,8 @@ DPlaneOS is a NAS management layer running on NixOS. It manages storage (ZFS), c
 - **2FA:** TOTP (RFC 6238) with ±1 window clock drift tolerance, bcrypt-hashed backup codes
 - **API tokens:** SHA-256 hashed, prefixed `dpl_`, scope-limited (read/write/admin)
 - **RBAC:** 4 roles (viewer, user, operator, admin) enforced at handler level, with 34 discrete permissions
-- **Command execution:** Allowlist-based validation via `internal/security/whitelist.go`; arguments passed as separate slice elements to `exec.Command` - no shell. **v6.1.0 Hardening:** Strict `by-id` path enforcement and pool-membership safety checks for disk operations ensure enterprise-grade storage security.
+- **Command execution (ZFS):** Most ZFS operations now go through `internal/libzfs` (cgo direct C API call or subprocess fallback). Both paths pre-validate all arguments with the same allowlist validators before any system call or subprocess is created. No shell expansion occurs in either path.
+- **Command execution (other):** Docker, Samba, NFS, and network tools use allowlist-based validation via `internal/security/whitelist.go`; arguments passed as separate slice elements to `exec.Command` - no shell. **v6.1.0 Hardening:** Strict `by-id` path enforcement and pool-membership safety checks for disk operations ensure enterprise-grade storage security.
 - **Database:** PostgreSQL with Patroni for HA; connections managed via `pgx/v5` pool.
 
 ---

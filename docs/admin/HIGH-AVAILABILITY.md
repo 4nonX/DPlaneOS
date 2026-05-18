@@ -21,7 +21,8 @@ The cluster uses:
 - **etcd** for distributed lock and quorum (one member on each of the 3 nodes)
 - **HAProxy** on each main node to route PostgreSQL connections to the current primary
 - **Keepalived** for the floating VIP that clients connect to
-- **STONITH fencing** (IPMI/Redfish or SBD) to prevent split-brain writes
+- **`dplane-fenced`** for SCSI-3 persistent reservation fencing on shared SAS disks (recommended)
+- **STONITH fencing** (IPMI/Redfish or SBD) as alternatives to SCSI-3 fencing
 
 ---
 
@@ -32,6 +33,7 @@ Before starting:
 - Two physical or virtual machines meeting the hardware requirements, with identical NIC and disk configurations
 - One witness node: any machine with 512 MB RAM and reliable network access to both main nodes (a Raspberry Pi 4 works)
 - Shared or replicated ZFS storage accessible by both main nodes (direct-attached with replicated topology, or shared SAS JBOD)
+- For SCSI-3 fencing (recommended for shared SAS): disks must support SCSI-3 Persistent Reservations; verify with `sg_persist --in -k /dev/sdX`
 - For IPMI fencing: BMC/IPMI interfaces with network access between nodes
 - For SBD fencing: a ZFS zvol or block device accessible by both nodes (small, ~1 GB)
 - Static IP addresses for all three nodes and one VIP address
@@ -43,7 +45,7 @@ Before starting:
 
 Before configuring, decide:
 
-**Fencing mechanism:** IPMI fencing requires BMC credentials and network access from each node to the other's BMC. SBD fencing requires a shared block device. If neither is available, HA can run without fencing but split-brain protection is weakened - not recommended for production.
+**Fencing mechanism:** Three options are available. SCSI-3 persistent reservations (via `dplane-fenced`) are recommended for shared SAS - they enforce exclusion at the disk controller level with no BMC or shared block device required. IPMI fencing requires BMC credentials and network access from each node to the other's BMC. SBD fencing requires a shared block device. If none is configured, HA can run without fencing but split-brain protection is weakened - not recommended for production.
 
 **VIP address:** Choose an IP address on the same subnet as the main nodes that is not assigned to any host. Clients will connect to this address permanently.
 
@@ -166,16 +168,20 @@ services.dplaneos = {
     };
     
     fence = {
-      mechanism = "ipmi";          # "ipmi" or "sbd"
+      mechanism = "scsi3";         # "scsi3" (recommended), "ipmi", or "sbd"
+      
+      # SCSI-3 persistent reservation fencing (recommended for shared SAS):
+      # dplane-fenced handles this automatically via its own NixOS module.
+      # No additional options needed here when using scsi3 fencing.
       
       # IPMI fencing (requires BMC access):
-      ipmi = {
-        peerBmcAddress = "PEER_BMC_IP";
-        username = "admin";
-        passwordFile = "/etc/dplaneos/ipmi-fence.pw";
-      };
+      # ipmi = {
+      #   peerBmcAddress = "PEER_BMC_IP";
+      #   username = "admin";
+      #   passwordFile = "/etc/dplaneos/ipmi-fence.pw";
+      # };
       
-      # SBD fencing (alternative to IPMI):
+      # SBD fencing (alternative when SCSI-3 and IPMI are unavailable):
       # sbd = {
       #   device = "/dev/disk/by-id/...";
       #   watchdogTimeout = 30;
@@ -361,10 +367,13 @@ If node A fails:
 
 1. Patroni detects the failure (via etcd membership, not just ping)
 2. etcd requires quorum - with node A down, node B and the witness form quorum (2-of-3)
-3. If STONITH fencing is configured, node B fences node A (IPMI power-off or SBD lease expiry)
+3. Fencing executes to guarantee node A cannot write to shared disks:
+   - SCSI-3: node B's `dplane-fenced` calls `FencedPreempt` to take the persistent reservation on all shared SAS disks; node A's I/O is rejected at the disk controller
+   - IPMI: node B powers off node A via its BMC
+   - SBD: node A's lease expires and it is treated as fenced
 4. Patroni promotes node B
 5. HAProxy and Keepalived detect the new primary; VIP moves to node B
-6. Node B's ZFS gate imports the pools
+6. Node B's ZFS gate imports the pools via `libzfs.PoolImportAll`; dataset `readonly` property and clone origins are read with `libzfs.DatasetGet`
 7. The daemon reconnects to PostgreSQL (now local) and resumes operations
 
 Total RTO: approximately 10-30 seconds.
@@ -383,6 +392,37 @@ patronictl -c /etc/patroni.yml switchover dplaneos --master node-b --candidate n
 ---
 
 ## Fencing Reference
+
+### SCSI-3 Persistent Reservations (dplane-fenced)
+
+SCSI-3 Persistent Reservations (SCSI-3 PR) enforce disk exclusion at the hardware level. Each node registers an 8-byte key derived from `/etc/machine-id` at startup. The primary node holds a Write Exclusive Registrants Only (WERO) reservation on every ZFS pool member disk. This reservation persists through power cycles (APTPL=1).
+
+**On graceful failover:** `dplaned` calls `FencedRelease()` via the fenced socket (`/run/dplaneos/fenced.sock`) before exporting pools. This releases the WERO reservation cleanly and allows the new primary to acquire it.
+
+**On unclean failover (node failure):** The surviving node's `dplane-fenced` calls `FencedPreempt(device)` for each shared disk, issuing a PROUT PREEMPT command. The faulted node's registration is evicted; its subsequent I/O will be rejected by the disk controller with a RESERVATION CONFLICT sense key.
+
+Requirements:
+- Disks must support SCSI-3 Persistent Reservations. Verify:
+  ```bash
+  sg_persist --in -k /dev/sdX
+  # Should return a list of registered keys, not an error
+  ```
+- Disks must be accessible to both nodes (shared SAS JBOD or SAS switch)
+- The `dplane-fenced.service` unit must be running on both nodes (managed by `dplaneos-fenced.slice`)
+
+`dplane-fenced` queries node B status via:
+```bash
+# Check fenced status
+dplane-fenced-ctl status
+
+# View active reservations
+dplane-fenced-ctl keys
+```
+
+Or via the daemon API:
+```
+GET /api/ha/fenced/status
+```
 
 ### IPMI/Redfish
 
@@ -422,6 +462,9 @@ SBD does not require BMC hardware, making it useful for software-only environmen
 | VIP not moving after failover | `journalctl -u keepalived` | Verify Keepalived is running; check daemon API is responding on the new primary |
 | PostgreSQL lag increasing | `patronictl list` | Check network between nodes; check disk I/O on standby |
 | ZFS pools not importing after promotion | `systemctl status dplaneos-zfs-gate` | Confirm Patroni shows node as Leader; restart zfs-gate service |
+| SCSI-3 reservation not acquired | `dplane-fenced-ctl status` | Check `dplane-fenced.service` is running; verify disks support SCSI-3 PR via `sg_persist --in -k /dev/sdX` |
+| Old primary still writing after failover | `sg_persist --in -k /dev/sdX` on old primary | RESERVATION CONFLICT errors confirm fencing is working; if I/O is still succeeding, SCSI-3 PR may not be supported by the disk/HBA |
+| `dplane-fenced` not preempting after failure | `journalctl -u dplane-fenced` | Check machine-id key derivation; verify network access to shared disks |
 | etcd quorum lost | `etcdctl endpoint health` | Ensure at least 2 of 3 nodes (including witness) are reachable |
 | Witness not reachable | `etcdctl endpoint health http://WITNESS_IP:2379` | Check firewall; restart etcd on witness |
 | Patroni not finding etcd | `journalctl -u patroni` | Verify etcd endpoints in patroni.yml; check TLS if configured |
