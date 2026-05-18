@@ -58,6 +58,74 @@ func GetPoolScanLine(pool string) (string, error) {
 	return strings.Join(scanLines, " "), nil
 }
 
+// TrimInfo represents parsed ZFS TRIM progress information.
+type TrimInfo struct {
+	InProgress  bool    `json:"in_progress"`
+	PercentDone float64 `json:"percent_done"`
+	ETA         string  `json:"eta"`
+	BytesDone   string  `json:"bytes_done"`
+	RawTrimLine string  `json:"raw_trim_line"`
+}
+
+// GetPoolTrimLine runs `zpool status` and extracts the trim: section.
+func GetPoolTrimLine(pool string) (string, error) {
+	cmd := exec.Command("zpool", "status", "-P", pool)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return "", fmt.Errorf("failed to get pool status: %w (%s)", err, strings.TrimSpace(stderr.String()))
+	}
+
+	var trimLines []string
+	inTrim := false
+	for _, line := range strings.Split(stdout.String(), "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "trim:") {
+			inTrim = true
+			trimLines = append(trimLines, trimmed)
+			continue
+		}
+		if inTrim {
+			if strings.HasPrefix(line, "\t") || (len(line) > 0 && line[0] == ' ') {
+				if !strings.Contains(trimmed, ":") || strings.HasPrefix(trimmed, "trim:") {
+					trimLines = append(trimLines, trimmed)
+					continue
+				}
+			}
+			inTrim = false
+		}
+	}
+	return strings.Join(trimLines, " "), nil
+}
+
+// ParseTrimLine parses a `zpool status` trim: line.
+// Handles both in-progress and completed trim output.
+func ParseTrimLine(rawLine string) TrimInfo {
+	info := TrimInfo{RawTrimLine: rawLine}
+	pctRe := regexp.MustCompile(`([\d.]+)%\s+done`)
+	etaRe := regexp.MustCompile(`(\d+\s+days?\s+\d+:\d+:\d+)\s+to\s+go`)
+	bytesRe := regexp.MustCompile(`([\d.]+[KMGT]?)\s+trimmed`)
+	if strings.Contains(rawLine, "in progress") {
+		info.InProgress = true
+		if m := pctRe.FindStringSubmatch(rawLine); len(m) > 1 {
+			info.PercentDone, _ = strconv.ParseFloat(m[1], 64)
+		}
+		if m := etaRe.FindStringSubmatch(rawLine); len(m) > 1 {
+			info.ETA = m[1]
+		}
+		if m := bytesRe.FindStringSubmatch(rawLine); len(m) > 1 {
+			info.BytesDone = m[1]
+		}
+	} else if strings.Contains(rawLine, "complete") {
+		info.PercentDone = 100
+		if m := bytesRe.FindStringSubmatch(rawLine); len(m) > 1 {
+			info.BytesDone = m[1]
+		}
+	}
+	return info
+}
+
 // ParseScanLine parses a `zpool status` scan: line.
 // It handles both in-progress and completed resilver/scrub lines.
 func ParseScanLine(rawLine string) ScrubScanInfo {

@@ -155,6 +155,9 @@ func zedTypedDispatch(
 		broadcast("scrub_completed", map[string]interface{}{"pool": pool}, "info")
 		refreshPoolHealth()
 
+	case "scrub_abort":
+		broadcast("scrub_aborted", map[string]interface{}{"pool": pool}, "warning")
+
 	// ── Resilver ─────────────────────────────────────────────────────────────
 
 	case "resilver_start":
@@ -164,6 +167,19 @@ func zedTypedDispatch(
 	case "resilver_finish":
 		broadcast("resilver_completed", map[string]interface{}{"pool": pool}, "info")
 		refreshPoolHealth()
+
+	// ── TRIM ─────────────────────────────────────────────────────────────────
+
+	case "trim_start":
+		broadcast("trim_started", map[string]interface{}{"pool": pool}, "info")
+		go zedTrimProgressPoll(pool, broadcast)
+
+	case "trim_finish":
+		broadcast("trim_completed", map[string]interface{}{"pool": pool}, "info")
+		refreshPoolHealth()
+
+	case "trim_abort":
+		broadcast("trim_aborted", map[string]interface{}{"pool": pool}, "warning")
 
 	// ── State changes and device events ──────────────────────────────────────
 
@@ -177,6 +193,33 @@ func zedTypedDispatch(
 
 	case "pool_destroy", "vdev_remove", "device_removal":
 		refreshPoolHealth()
+
+	case "vdev_clear":
+		broadcast("vdev_errors_cleared", map[string]interface{}{"pool": pool}, "info")
+		refreshPoolHealth()
+
+	case "vdev_online":
+		broadcast("vdev_recovered", map[string]interface{}{"pool": pool}, "info")
+		refreshPoolHealth()
+
+	case "pool_import":
+		broadcast("pool_imported", map[string]interface{}{"pool": pool}, "info")
+		refreshPoolHealth()
+
+	// ── Data loss and system errors ───────────────────────────────────────────
+
+	case "data_loss":
+		broadcast("zfs.data_loss", map[string]interface{}{
+			"pool":  pool,
+			"state": state,
+		}, "error")
+		refreshPoolHealth()
+
+	case "deadman":
+		broadcast("zfs.deadman", map[string]interface{}{
+			"pool":  pool,
+			"state": state,
+		}, "error")
 
 	// ── I/O and checksum errors ───────────────────────────────────────────────
 	// Already dispatched as alert above; also emit a structured WS event so the
@@ -196,6 +239,38 @@ func zedTypedDispatch(
 			"kind":  "checksum",
 		}, level)
 	}
+}
+
+// zedTrimProgressPoll polls zpool status every 2 seconds while a TRIM is in
+// flight, broadcasting progress events. It exits when the operation finishes
+// or times out; the ZED trim_finish event provides the completion broadcast.
+func zedTrimProgressPoll(pool string, broadcast func(string, interface{}, string)) {
+	const pollInterval = 2 * time.Second
+	const maxRuntime = 12 * time.Hour
+
+	deadline := time.Now().Add(maxRuntime)
+	for time.Now().Before(deadline) {
+		time.Sleep(pollInterval)
+
+		rawTrim, err := GetPoolTrimLine(pool)
+		if err != nil || rawTrim == "" {
+			continue
+		}
+
+		parsed := ParseTrimLine(rawTrim)
+		if !parsed.InProgress {
+			return
+		}
+
+		broadcast("zfs.trim.progress", map[string]interface{}{
+			"pool":         pool,
+			"percent_done": parsed.PercentDone,
+			"eta":          parsed.ETA,
+			"bytes_done":   parsed.BytesDone,
+		}, "info")
+	}
+
+	log.Printf("ZED trim progress poll for pool %s timed out after 12h", pool)
 }
 
 // zedFastProgressPoll runs a goroutine that polls zpool status every 2 seconds
