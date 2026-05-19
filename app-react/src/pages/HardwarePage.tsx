@@ -6,8 +6,9 @@
  *   GET  /api/system/disks               → disk list (lsblk) with pool usage
  *   GET  /api/zfs/smart                  → SMART health per disk
  *   POST /api/zfs/smart/test             → { device, type } → { success, output, estimate }
- *   GET  /api/zfs/smart/results?device=X → { success, device, results }
- *   POST /api/zfs/pool/replace           → { pool, old_disk, new_disk } → { success, job_id }
+ *   GET  /api/zfs/smart/results?device=X  → { success, device, results }
+ *   GET  /api/zfs/smart/predict?device=X → { success, device, risk, reasons, recommendation, attrs_checked }
+ *   POST /api/zfs/pool/replace            → { pool, old_disk, new_disk } → { success, job_id }
  *
  * WS events handled:
  *   hardwareEvent / diskAdded / diskRemoved → refresh disk list
@@ -16,8 +17,8 @@
  *   diskReplacementAvailable → pre-populate replace modal with faulted vdev suggestion
  */
 
-import { useState, useEffect } from 'react'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useState, useEffect, useRef } from 'react'
+import { useQuery, useQueries, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { ErrorState } from '@/components/ui/ErrorState'
 import { LoadingState, Skeleton, Spinner } from '@/components/ui/LoadingSpinner'
@@ -95,6 +96,15 @@ interface ReplaceResponse {
   success: boolean
   job_id?: string
   error?:  string
+}
+
+interface SMARTPrediction {
+  success:       boolean
+  device:        string
+  risk:          'ok' | 'warning' | 'critical'
+  reasons:       string[]
+  recommendation: string
+  attrs_checked: number
 }
 
 // diskReplacementAvailable WS payload
@@ -378,12 +388,15 @@ interface DiskRowProps {
   onReplace?:    () => void
   isTestRunning: boolean
   testResult:    SMARTTestResponse | null
+  prediction?:   SMARTPrediction
+  predLoading?:  boolean
 }
 
 function DiskRow({
   disk, smart,
   onShortTest, onLongTest, onSchedule, onViewResults, onReplace,
   isTestRunning, testResult,
+  prediction, predLoading,
 }: DiskRowProps) {
   const passed     = smart?.smart_status?.passed
   const temp       = smart?.temperature?.current
@@ -396,6 +409,8 @@ function DiskRow({
   const isFaulted  = disk.vdev_state === 'FAULTED' || (!smart?.error && smart && passed === false)
   const poolDeg    = disk.pool_health === 'DEGRADED' || disk.pool_health === 'FAULTED'
   const showReplace = (isFaulted || poolDeg) && !!onReplace
+
+  const [showPredDetails, setShowPredDetails] = useState(false)
 
   return (
     <div style={{
@@ -531,6 +546,46 @@ function DiskRow({
           </div>
         ) : null}
 
+        {/* Predictive failure risk badge - always visible, click to expand details */}
+        {predLoading ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0, color: 'var(--text-tertiary)', fontSize: 'var(--text-xs)' }}>
+            <Spinner size={12} />
+            <span>Analyzing…</span>
+          </div>
+        ) : prediction ? (
+          <Tooltip content={
+            prediction.risk === 'critical' ? 'Critical failure risk - click for details' :
+            prediction.risk === 'warning'  ? 'Elevated failure risk - click for details' :
+            `No failure risk detected (${prediction.attrs_checked} attributes checked)`
+          }>
+            <button
+              onClick={() => prediction.risk !== 'ok' && setShowPredDetails(p => !p)}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0,
+                padding: '3px 8px', borderRadius: 'var(--radius-xs)',
+                fontSize: 'var(--text-xs)', fontWeight: 600,
+                cursor: prediction.risk !== 'ok' ? 'pointer' : 'default',
+                border: '1px solid',
+                background: prediction.risk === 'critical' ? 'var(--error-bg)'   :
+                            prediction.risk === 'warning'  ? 'var(--warning-bg)' : 'var(--success-bg)',
+                color:      prediction.risk === 'critical' ? 'var(--error)'      :
+                            prediction.risk === 'warning'  ? 'var(--warning)'    : 'var(--success)',
+                borderColor: prediction.risk === 'critical' ? 'var(--error-border)'   :
+                             prediction.risk === 'warning'  ? 'var(--warning-border)' : 'var(--success-border)',
+              }}
+            >
+              <Icon
+                name={prediction.risk === 'critical' ? 'crisis_alert' : prediction.risk === 'warning' ? 'warning' : 'check_circle'}
+                size={13}
+              />
+              {prediction.risk === 'critical' ? 'Critical Risk' : prediction.risk === 'warning' ? 'Elevated Risk' : 'No Risk'}
+              {prediction.risk !== 'ok' && (
+                <Icon name={showPredDetails ? 'expand_less' : 'expand_more'} size={13} />
+              )}
+            </button>
+          </Tooltip>
+        ) : null}
+
         {/* Replace button */}
         {showReplace && (
           <Tooltip content={`Replace this faulted disk in pool ${disk.pool_name}`}>
@@ -607,6 +662,28 @@ function DiskRow({
           {testResult.success
             ? `${testResult.type === 'long' ? 'Long' : 'Short'} test started - estimated duration: ${testResult.estimate ?? 'unknown'}`
             : testResult.error ?? 'Test failed'}
+        </div>
+      )}
+
+      {/* Prediction detail panel - shown when badge clicked for warning/critical disks */}
+      {showPredDetails && prediction && prediction.risk !== 'ok' && (
+        <div
+          className={prediction.risk === 'critical' ? 'alert alert-error' : 'alert alert-warning'}
+          style={{ marginTop: 10, flexDirection: 'column', alignItems: 'flex-start', gap: 6, fontSize: 'var(--text-xs)' }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 600 }}>
+            <Icon name={prediction.risk === 'critical' ? 'crisis_alert' : 'warning'} size={14} />
+            {prediction.risk === 'critical' ? 'Critical failure risk detected' : 'Elevated failure risk detected'}
+            <span style={{ fontWeight: 400, color: 'var(--text-tertiary)', marginLeft: 4 }}>
+              ({prediction.attrs_checked} attributes checked)
+            </span>
+          </div>
+          {prediction.reasons.length > 0 && (
+            <ul style={{ margin: '2px 0 0 18px', padding: 0, listStyle: 'disc' }}>
+              {prediction.reasons.map((r, i) => <li key={i}>{r}</li>)}
+            </ul>
+          )}
+          <div style={{ color: 'var(--text-secondary)' }}>{prediction.recommendation}</div>
         </div>
       )}
     </div>
@@ -998,6 +1075,53 @@ export function HardwarePage() {
   const disks = disksQ.data?.disks ?? []
   const freeDisk = disks.filter(d => !d.in_use)
 
+  // Bulk-fetch SMART predictions for all disks in parallel - proactive monitoring
+  const predictionQueries = useQueries({
+    queries: disks.map(d => ({
+      queryKey: ['smart-predict', d.name],
+      queryFn: () => api.get<SMARTPrediction>(`/api/zfs/smart/predict?device=${encodeURIComponent(d.name)}`),
+      staleTime: 300_000,
+      enabled: disks.length > 0,
+    })),
+  })
+
+  const predByDevice: Record<string, SMARTPrediction> = {}
+  for (let i = 0; i < disks.length; i++) {
+    const r = predictionQueries[i]
+    if (r.data?.success) predByDevice[disks[i].name] = r.data
+  }
+  const predsLoading = predictionQueries.some(q => q.isPending)
+
+  // Sort disks: critical risk first, then warning, then faulted/degraded, then healthy
+  const riskOrder = (d: DiskInfo) => {
+    const p = predByDevice[d.name]
+    if (p?.risk === 'critical') return 0
+    if (p?.risk === 'warning')  return 1
+    if (d.vdev_state === 'FAULTED' || d.pool_health === 'DEGRADED' || d.pool_health === 'FAULTED') return 2
+    return 3
+  }
+  const sortedDisks = [...disks].sort((a, b) => riskOrder(a) - riskOrder(b))
+
+  const criticalDisks = disks.filter(d => predByDevice[d.name]?.risk === 'critical')
+  const warningDisks  = disks.filter(d => predByDevice[d.name]?.risk === 'warning')
+
+  // Toast once when predictions settle and any disk is critical
+  const toastFiredRef = useRef(false)
+  useEffect(() => {
+    if (predsLoading || toastFiredRef.current || disks.length === 0) return
+    toastFiredRef.current = true
+    const critNames = disks
+      .filter(d => predByDevice[d.name]?.risk === 'critical')
+      .map(d => '/dev/' + d.name)
+    if (critNames.length > 0) {
+      toast.error(
+        `${critNames.length} disk${critNames.length > 1 ? 's' : ''} at critical failure risk: ${critNames.join(', ')}`,
+        8000
+      )
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [predsLoading])
+
   // When disk list refreshes, try to resolve any pending replacement suggestion
   useEffect(() => {
     if (!replacementSuggestion || disks.length === 0) return
@@ -1109,14 +1233,38 @@ export function HardwarePage() {
           </div>
         )}
 
+        {/* Predictive failure summary banner */}
+        {!predsLoading && (criticalDisks.length > 0 || warningDisks.length > 0) && (
+          <div
+            className={criticalDisks.length > 0 ? 'alert alert-error' : 'alert alert-warning'}
+            style={{ marginBottom: 4 }}
+          >
+            <Icon name={criticalDisks.length > 0 ? 'crisis_alert' : 'warning'} size={18} />
+            <span>
+              Predictive failure analysis:{' '}
+              <strong>
+                {[
+                  criticalDisks.length > 0 && `${criticalDisks.length} disk${criticalDisks.length > 1 ? 's' : ''} at critical risk`,
+                  warningDisks.length > 0  && `${warningDisks.length} at elevated risk`,
+                ].filter(Boolean).join(', ')}
+              </strong>
+              {criticalDisks.length > 0
+                ? '. Back up data and schedule replacement immediately.'
+                : '. Monitor closely and plan replacement.'}
+            </span>
+          </div>
+        )}
+
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          {disks.map(d => (
+          {sortedDisks.map(d => (
             <DiskRow
               key={d.name}
               disk={d}
               smart={smartByDevice[d.name]}
               isTestRunning={runningDevice === d.name}
               testResult={testResults[d.name] ?? null}
+              prediction={predByDevice[d.name]}
+              predLoading={predsLoading && !predByDevice[d.name]}
               onShortTest={() => smartTestMutation.mutate({ device: d.name, type: 'short' })}
               onLongTest={() => smartTestMutation.mutate({ device: d.name, type: 'long' })}
               onSchedule={() => setScheduleModalDevice(d.name)}

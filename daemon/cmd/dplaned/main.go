@@ -1177,6 +1177,35 @@ func main() {
 	// ZFS Split (v6.2.0)
 	r.Handle("/api/zfs/pools/split", permRoute("storage", "write", zfsHandler.SplitPool)).Methods("POST")
 
+	// ZFS Block Volumes (zvols)
+	r.Handle("/api/zfs/volumes", permRoute("storage", "read", http.HandlerFunc(handlers.ListZvols))).Methods("GET")
+	r.Handle("/api/zfs/volumes", permRoute("storage", "write", http.HandlerFunc(handlers.CreateZvol))).Methods("POST")
+	r.Handle("/api/zfs/volumes", permRoute("storage", "write", http.HandlerFunc(handlers.DestroyZvol))).Methods("DELETE")
+	r.Handle("/api/zfs/volumes/resize", permRoute("storage", "write", http.HandlerFunc(handlers.ResizeZvol))).Methods("POST")
+
+	// ZFS TRIM
+	r.Handle("/api/zfs/trim/start", permRoute("storage", "write", http.HandlerFunc(handlers.StartTrim))).Methods("POST")
+	r.Handle("/api/zfs/trim/stop", permRoute("storage", "write", http.HandlerFunc(handlers.StopTrim))).Methods("POST")
+	r.Handle("/api/zfs/trim/status", permRoute("storage", "read", http.HandlerFunc(handlers.GetTrimStatus))).Methods("GET")
+
+	// ZFS Pool Maintenance (checkpoint, upgrade, feature flags, multihost, DDT)
+	r.Handle("/api/zfs/checkpoint", permRoute("storage", "read", http.HandlerFunc(handlers.GetCheckpointStatus))).Methods("GET")
+	r.Handle("/api/zfs/checkpoint", permRoute("storage", "write", http.HandlerFunc(handlers.CreateCheckpoint))).Methods("POST")
+	r.Handle("/api/zfs/checkpoint/discard", permRoute("storage", "admin", http.HandlerFunc(handlers.DiscardCheckpoint))).Methods("POST")
+	r.Handle("/api/zfs/pool/upgrade", permRoute("storage", "admin", http.HandlerFunc(handlers.UpgradePool))).Methods("POST")
+	r.Handle("/api/zfs/pool/features", permRoute("storage", "read", http.HandlerFunc(handlers.GetPoolFeatures))).Methods("GET")
+	r.Handle("/api/zfs/pool/multihost", permRoute("storage", "admin", http.HandlerFunc(handlers.SetMultihost))).Methods("POST")
+	r.Handle("/api/zfs/ddt/stats", permRoute("storage", "read", http.HandlerFunc(handlers.GetDDTStats))).Methods("GET")
+
+	// ZFS Project Quotas
+	r.Handle("/api/zfs/quota/project", permRoute("storage", "read", http.HandlerFunc(handlers.GetProjectQuotas))).Methods("GET")
+	r.Handle("/api/zfs/quota/project", permRoute("storage", "write", http.HandlerFunc(handlers.SetProjectQuota))).Methods("POST")
+	r.Handle("/api/zfs/quota/project", permRoute("storage", "write", http.HandlerFunc(handlers.RemoveProjectQuota))).Methods("DELETE")
+
+	// Pools lifecycle endpoints (used by PoolsPage wizard)
+	r.Handle("/api/zfs/pools/create", permRoute("storage", "write", http.HandlerFunc(handlers.HandlePoolCreate))).Methods("POST")
+	r.Handle("/api/zfs/pools/destroy", permRoute("storage", "admin", http.HandlerFunc(handlers.HandlePoolDestroy))).Methods("POST")
+
 	// Trash / Recycle Bin (v2.0.0)
 	trashHandler := handlers.NewTrashHandler()
 	r.Handle("/api/trash/list", permRoute("storage", "read", trashHandler.ListTrash)).Methods("GET")

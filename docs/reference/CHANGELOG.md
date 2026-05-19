@@ -6,6 +6,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 
 
+## v11.2.0 (2026-05-20) - "Toolkit"
+
+Upgrade from: v11.1.0 - Drop-in. No schema changes. No configuration changes.
+
+### Added
+- **ZFS block volume (zvol) management**: New `zfs_volumes.go` handler with `ListZvols`, `CreateZvol`, `ResizeZvol`, and `DestroyZvol`. Supports blocksize, sparse provisioning, compression, and volmode (dev/geom/none/default). Routes: `GET/POST/DELETE /api/zfs/volumes`, `POST /api/zfs/volumes/resize`. New `VolumesPage.tsx` provides a full management UI with create, resize, and delete modals. Block Volumes added to sidebar navigation under Storage.
+- **Pool TRIM management**: New `zfs_trim.go` handler with `StartTrim` (optional rate limit), `StopTrim`, and `GetTrimStatus` (parses `zpool status -t` per-pool). Routes: `POST /api/zfs/trim/start`, `POST /api/zfs/trim/stop`, `GET /api/zfs/trim/status`. PoolsPage gains a dedicated TRIM tab with pool selector, status display, rate limit input, and start/stop controls.
+- **Pool maintenance suite**: New `zfs_pool_maintenance.go` handler with `GetCheckpointStatus`, `CreateCheckpoint`, `DiscardCheckpoint`, `UpgradePool`, `GetPoolFeatures`, `SetMultihost`, and `GetDDTStats`. Routes under `/api/zfs/checkpoint`, `/api/zfs/pool/upgrade`, `/api/zfs/pool/features`, `/api/zfs/pool/multihost`, `/api/zfs/ddt/stats`. PoolsPage gains a Maintenance tab with five sections: checkpoint management (create/discard with confirmation), pool upgrade (all or targeted, with on-version warning), ZFS feature flag inspection (active/enabled/disabled badges), multihost toggle (fencing advisory), and DDT statistics.
+- **Project quota management**: New `zfs_project_quotas.go` handler with `GetProjectQuotas` (single-pass `zfs get -H all` parsing both `projectquota@` and `projectused@` prefixes), `SetProjectQuota`, and `RemoveProjectQuota`. Routes: `GET/POST/DELETE /api/zfs/quota/project`. QuotasPage gains a Project tab alongside the existing dataset and user/group tabs.
+- **Dedup property for dataset creation**: `CreateDataset` handler extended with `dedup` field support. `DatasetsPage.tsx` create modal gains a deduplication selector (off/on/verify/sha512).
+- **Pool capacity tracking on dashboard**: `PoolRow` in `DashboardPage.tsx` now renders a color-coded capacity progress bar (primary under 70%, warning under 85%, error at 85%+) with percentage inline.
+- **SMART pre-failure attribute detection on dashboard**: `DiskHealthRow` checks `ata_smart_attributes.table` against a set of pre-failure attribute IDs (5, 10, 184, 187, 188, 196, 197, 198, 199, 201) and shows a "Pre-failure" warning label when any attribute value breaches its threshold.
+- **Proactive SMART predictive failure analysis on HardwarePage**: All disk predictions fetched in parallel on page load via `useQueries`. Risk badge always visible inline per disk (critical/warning/ok) with no interaction required. Disks sorted by risk severity (critical first, then warning, then degraded, then healthy). Summary banner above the disk list when any disk is at elevated or critical risk. Toast notification on page load naming all critical-risk disks. Detail panel expands on badge click for warning and critical disks.
+
+### Changed
+- **`daemon/cmd/dplaned/main.go`**: Registered all new routes for zvols, TRIM, pool maintenance, and project quotas with appropriate RBAC permission levels (read/write/admin).
+- **`app-react/src/routes/index.tsx`**: Added `/volumes` route bound to `VolumesPage`.
+- **`app-react/src/components/layout/navConfig.ts`**: Added Block Volumes leaf in the Storage navigation group.
+
+---
+
 ## v11.1.0 (2026-05-18) - "Groundwork"
 
 Upgrade from: v11.0.0 - Drop-in. No schema changes. No configuration changes.

@@ -100,7 +100,7 @@ func TestAtomicModifySchedules_ConcurrentClaim(t *testing.T) {
 	wg.Wait()
 
 	if claimCount != 1 {
-		t.Errorf("expected exactly 1 goroutine to claim the schedule, got %d — double-launch race not prevented", claimCount)
+		t.Errorf("expected exactly 1 goroutine to claim the schedule, got %d (double-launch race not prevented)", claimCount)
 	}
 
 	raw, err := os.ReadFile(configPath(replScheduleFile))

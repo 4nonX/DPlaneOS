@@ -53,6 +53,7 @@ const initialNav: NavItem[] = [
       { kind: 'leaf', id: 'files',        label: 'File Explorer',     icon: 'folder_open',        route: '/files' },
       { kind: 'leaf', id: 'quotas',       label: 'Quotas',            icon: 'pie_chart',          route: '/quotas' },
       { kind: 'leaf', id: 'acl',          label: 'ACL Manager',       icon: 'admin_panel_settings',route: '/acl' },
+      { kind: 'leaf', id: 'volumes',      label: 'Block Volumes',     icon: 'developer_board',    route: '/volumes' },
       { kind: 'leaf', id: 'iscsi',        label: 'iSCSI Targets',     icon: 'storage',            route: '/iscsi' },
       { kind: 'leaf', id: 'nvme-of',      label: 'NVMe-oF',           icon: 'flash_on',           route: '/nvme-of' },
       { kind: 'leaf', id: 's3',            label: 'S3 Object Storage', icon: 'inventory_2',        route: '/s3' },

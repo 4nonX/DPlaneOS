@@ -36,6 +36,7 @@ import { QuotasPage }        from '@/pages/QuotasPage'
 import { ACLPage }           from '@/pages/ACLPage'
 import { ISCSIPage }         from '@/pages/ISCSIPage'
 import { NVMeOFPage }       from '@/pages/NVMeOFPage'
+import { VolumesPage }      from '@/pages/VolumesPage'
 import { CloudSyncPage }     from '@/pages/CloudSyncPage'
 import { DockerPage }        from '@/pages/DockerPage'
 import { ModulesPage }       from '@/pages/ModulesPage'
@@ -121,6 +122,7 @@ const aclRoute        = createRoute({
   }),
   component: ACLPage,
 })
+const volumesRoute    = createRoute({ getParentRoute: () => protectedRoute, path: '/volumes',       component: VolumesPage })
 const iscsiRoute      = createRoute({ getParentRoute: () => protectedRoute, path: '/iscsi',         component: ISCSIPage })
 const nvmeRoute       = createRoute({ getParentRoute: () => protectedRoute, path: '/nvme-of',       component: NVMeOFPage })
 const cloudRoute      = createRoute({ getParentRoute: () => protectedRoute, path: '/cloud-sync',    component: CloudSyncPage })
@@ -164,7 +166,7 @@ const routeTree = rootRoute.addChildren([
   setupRoute,
   protectedRoute.addChildren([
     dashboardRoute, poolsRoute, datasetsRoute, sharesRoute, nfsRoute, snapshotsRoute, replRoute,
-    filesRoute, quotasRoute, aclRoute, iscsiRoute, nvmeRoute, cloudRoute,
+    filesRoute, quotasRoute, aclRoute, volumesRoute, iscsiRoute, nvmeRoute, cloudRoute,
     sandboxRoute, delegationRoute, backupRoute, auditRoute, ftpRoute, fileSharesRoute, sshKeysRoute, s3Route,
     dockerRoute, modulesRoute, gitOpsRoute,
     networkRoute, removableRoute,

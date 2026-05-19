@@ -344,6 +344,7 @@ function CreateDatasetModal({ parentName, onClose, onCreated }: {
 }) {
   const [childName, setChildName] = useState('')
   const [compression, setCompression] = useState('lz4')
+  const [dedup, setDedup] = useState('off')
   const [quota, setQuota] = useState('')
 
   const mutation = useMutation({
@@ -352,6 +353,7 @@ function CreateDatasetModal({ parentName, onClose, onCreated }: {
       mountpoint: `/${parentName}/${childName}`,
       quota,
       compression,
+      dedup,
     }),
     onSuccess: () => { toast.success(`Dataset ${parentName}/${childName} created`); onCreated(); onClose() },
     onError: (e: Error) => toast.error(e.message),
@@ -379,6 +381,15 @@ function CreateDatasetModal({ parentName, onClose, onCreated }: {
             {ZSTD_LEVELS.map(z => <option key={z} value={z}>{z}</option>)}
             <option value="gzip">GZIP</option>
             <option value="off">Off</option>
+          </select>
+        </label>
+        <label className="field">
+          <span className="field-label">Deduplication</span>
+          <select value={dedup} onChange={e => setDedup(e.target.value)} className="input">
+            <option value="off">Off (recommended)</option>
+            <option value="on">On (SHA-256)</option>
+            <option value="verify">Verify (byte-for-byte)</option>
+            <option value="sha512">SHA-512</option>
           </select>
         </label>
         <label className="field">

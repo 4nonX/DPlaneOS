@@ -1,10 +1,13 @@
 ﻿/**
  * pages/QuotasPage.tsx - ZFS Quotas (Phase 7)
  *
- * GET  /api/zfs/dataset/quota?dataset=   → { quota, refquota }
+ * GET  /api/zfs/dataset/quota?dataset=   -> { quota, refquota }
  * POST /api/zfs/datasets { action:'set_quota', dataset, quota }
- * GET  /api/zfs/quota/usergroup          → { quotas: UGQuota[] }
- * POST /api/zfs/quota/usergroup          → { dataset, type, id, quota }
+ * GET  /api/zfs/quota/usergroup          -> { quotas: UGQuota[] }
+ * POST /api/zfs/quota/usergroup          -> { dataset, type, id, quota }
+ * GET  /api/zfs/quota/project?dataset=   -> { quotas: ProjectQuota[] }
+ * POST /api/zfs/quota/project            -> { dataset, id, quota }
+ * DELETE /api/zfs/quota/project          -> { dataset, id }
  */
 
 import { useState } from 'react'
@@ -136,15 +139,175 @@ function UserGroupQuotas() {
   )
 }
 
-export function QuotasPage() {
+interface ProjectQuota { dataset: string; id: string; quota: string; used: string }
+
+function ProjectQuotas() {
+  const qc = useQueryClient()
+  const [dataset, setDataset] = useState('')
+  const [queried, setQueried] = useState<string | null>(null)
+  const [projectId, setProjectId] = useState('')
+  const [quota, setQuota] = useState('')
+
+  const pqQ = useQuery({
+    queryKey: ['quota', 'project', queried],
+    queryFn: ({ signal }) => api.get<{ success: boolean; quotas: ProjectQuota[] }>(
+      `/api/zfs/quota/project?dataset=${encodeURIComponent(queried!)}`,
+      signal
+    ),
+    enabled: !!queried,
+  })
+
+  const setQ = useMutation({
+    mutationFn: () => api.post('/api/zfs/quota/project', { dataset: queried, id: projectId, quota }),
+    onSuccess: () => {
+      toast.success('Project quota set')
+      setProjectId('')
+      setQuota('')
+      qc.invalidateQueries({ queryKey: ['quota', 'project', queried] })
+    },
+    onError: (e: Error) => toast.error(e.message),
+  })
+
+  const removeQ = useMutation({
+    mutationFn: (id: string) => api.delete('/api/zfs/quota/project', { dataset: queried, id }),
+    onSuccess: () => {
+      toast.success('Project quota removed')
+      qc.invalidateQueries({ queryKey: ['quota', 'project', queried] })
+    },
+    onError: (e: Error) => toast.error(e.message),
+  })
+
+  const quotas = pqQ.data?.quotas ?? []
+
   return (
-    <div style={{ maxWidth:900 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+      <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', maxWidth: 620 }}>
+        Project quotas use the ZFS <code style={{ fontFamily: 'var(--font-mono)' }}>projectquota@id</code> property to enforce per-project storage limits. Requires project IDs to be set on files via <code style={{ fontFamily: 'var(--font-mono)' }}>chattr +P -p &lt;id&gt;</code>.
+      </p>
+
+      <div className="card" style={{ borderRadius: 'var(--radius-xl)', padding: 22 }}>
+        <div style={{ fontWeight: 700, marginBottom: 14 }}>Look Up Dataset</div>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+          <input
+            value={dataset}
+            onChange={e => setDataset(e.target.value)}
+            placeholder="tank/projects"
+            className="input"
+            style={{ flex: 1, fontFamily: 'var(--font-mono)' }}
+            onKeyDown={e => e.key === 'Enter' && setQueried(dataset)}
+          />
+          <button onClick={() => setQueried(dataset)} disabled={!dataset.trim()} className="btn btn-primary">
+            <Icon name="search" size={14} /> Load
+          </button>
+        </div>
+
+        {pqQ.isLoading && <Skeleton height={60} />}
+        {pqQ.isError && <ErrorState error={pqQ.error} onRetry={() => qc.invalidateQueries({ queryKey: ['quota', 'project', queried] })} />}
+
+        {queried && !pqQ.isLoading && (
+          <>
+            <div style={{ fontWeight: 600, fontSize: 'var(--text-sm)', marginBottom: 10, color: 'var(--text-secondary)' }}>
+              Project quotas on <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--text)' }}>{queried}</span>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 16 }}>
+              {quotas.length === 0 && (
+                <div style={{ padding: '16px 0', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 'var(--text-sm)' }}>
+                  No project quotas set on this dataset.
+                </div>
+              )}
+              {quotas.map(q => (
+                <div key={q.id} style={{
+                  display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px',
+                  background: 'var(--surface)', borderRadius: 'var(--radius-sm)',
+                }}>
+                  <Icon name="folder_special" size={16} style={{ color: 'var(--primary)', flexShrink: 0 }} />
+                  <div style={{ flex: 1 }}>
+                    <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 600 }}>Project {q.id}</span>
+                  </div>
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-sm)', color: 'var(--primary)' }}>{q.quota}</span>
+                  {q.used && q.used !== '-' && (
+                    <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }}>used {q.used}</span>
+                  )}
+                  <button
+                    onClick={() => removeQ.mutate(q.id)}
+                    disabled={removeQ.isPending}
+                    className="btn btn-ghost btn-sm"
+                    style={{ color: 'var(--error)', padding: '4px 6px' }}
+                    title="Remove quota"
+                  >
+                    <Icon name="delete" size={14} />
+                  </button>
+                </div>
+              ))}
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 8, alignItems: 'flex-end' }}>
+              <label className="field">
+                <span className="field-label">Project ID</span>
+                <input
+                  value={projectId}
+                  onChange={e => setProjectId(e.target.value)}
+                  placeholder="1001"
+                  className="input"
+                  style={{ fontFamily: 'var(--font-mono)' }}
+                />
+              </label>
+              <label className="field">
+                <span className="field-label">Quota (e.g. 50G)</span>
+                <input
+                  value={quota}
+                  onChange={e => setQuota(e.target.value)}
+                  placeholder="50G"
+                  className="input"
+                  style={{ fontFamily: 'var(--font-mono)' }}
+                />
+              </label>
+              <button
+                onClick={() => setQ.mutate()}
+                disabled={!projectId.trim() || !quota.trim() || setQ.isPending}
+                className="btn btn-primary"
+                style={{ alignSelf: 'flex-end' }}
+              >
+                <Icon name="add" size={14} /> {setQ.isPending ? 'Setting...' : 'Set'}
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
+type QTab = 'dataset' | 'usergroup' | 'project'
+
+export function QuotasPage() {
+  const [tab, setTab] = useState<QTab>('dataset')
+
+  const TABS: { id: QTab; label: string; icon: string }[] = [
+    { id: 'dataset', label: 'Dataset Quotas', icon: 'dataset' },
+    { id: 'usergroup', label: 'User / Group', icon: 'group' },
+    { id: 'project', label: 'Project Quotas', icon: 'folder_special' },
+  ]
+
+  return (
+    <div style={{ maxWidth: 900 }}>
       <div className="page-header">
         <h1 className="page-title">Quotas</h1>
-        <p className="page-subtitle">ZFS dataset, user and group space limits</p>
+        <p className="page-subtitle">ZFS dataset, user, group, and project space limits</p>
       </div>
-      <DatasetQuotaLookup/>
-      <UserGroupQuotas/>
+
+      <div className="tabs-underline" style={{ marginBottom: 28 }}>
+        {TABS.map(t => (
+          <button key={t.id} onClick={() => setTab(t.id)} className={`tab-underline${tab === t.id ? ' active' : ''}`}>
+            <Icon name={t.icon} size={16} />{t.label}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'dataset' && <DatasetQuotaLookup />}
+      {tab === 'usergroup' && <UserGroupQuotas />}
+      {tab === 'project' && <ProjectQuotas />}
     </div>
   )
 }

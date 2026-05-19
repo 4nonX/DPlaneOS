@@ -2155,7 +2155,7 @@ function ScrubTab({ pools }: { pools: string[] }) {
 // PoolsPage
 // ---------------------------------------------------------------------------
 
-type Tab = 'pools' | 'encryption' | 'scrub'
+type Tab = 'pools' | 'encryption' | 'scrub' | 'trim' | 'maintenance'
 
 export function PoolsPage() {
   const [tab, setTab] = useState<Tab>('pools')
@@ -2268,6 +2268,8 @@ export function PoolsPage() {
     { id: 'pools', label: 'Pools & Datasets', icon: 'storage' },
     { id: 'encryption', label: 'Encryption', icon: 'lock' },
     { id: 'scrub', label: 'Scrub Schedules', icon: 'cleaning_services' },
+    { id: 'trim', label: 'TRIM', icon: 'auto_fix_high' },
+    { id: 'maintenance', label: 'Maintenance', icon: 'build' },
   ]
 
   return (
@@ -2361,10 +2363,458 @@ export function PoolsPage() {
         <ScrubTab pools={pools.map((p: any) => p.name).filter(Boolean)} />
       )}
 
+      {/* TRIM content */}
+      {tab === 'trim' && (
+        <TrimTab pools={pools.map((p: any) => p.name).filter(Boolean)} />
+      )}
+
+      {/* Maintenance content */}
+      {tab === 'maintenance' && (
+        <MaintenanceTab pools={pools.map((p: any) => p.name).filter(Boolean)} />
+      )}
+
       {createPoolOpen && (
         <CreatePoolModal onClose={() => setCreatePoolOpen(false)} onCreated={refresh} />
       )}
     </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// TrimTab
+// ---------------------------------------------------------------------------
+
+interface PoolTrimStatus { pool: string; running: boolean; status: string }
+
+function TrimTab({ pools }: { pools: string[] }) {
+  const qc = useQueryClient()
+  const [selectedPool, setSelectedPool] = useState(pools[0] ?? '')
+  const [trimRate, setTrimRate] = useState('')
+
+  const statusQ = useQuery({
+    queryKey: ['zfs', 'trim', 'status', selectedPool],
+    queryFn: ({ signal }) => api.get<{ success: boolean; pools: PoolTrimStatus[] }>(
+      `/api/zfs/trim/status${selectedPool ? `?pool=${encodeURIComponent(selectedPool)}` : ''}`,
+      signal
+    ),
+    refetchInterval: 10_000,
+    enabled: pools.length > 0,
+  })
+
+  const startTrim = useMutation({
+    mutationFn: () => api.post('/api/zfs/trim/start', { pool: selectedPool, rate: trimRate || undefined }),
+    onSuccess: () => { toast.success(`TRIM started on ${selectedPool}`); qc.invalidateQueries({ queryKey: ['zfs', 'trim'] }) },
+    onError: (e: Error) => toast.error(e.message),
+  })
+
+  const stopTrim = useMutation({
+    mutationFn: () => api.post('/api/zfs/trim/stop', { pool: selectedPool }),
+    onSuccess: () => { toast.success(`TRIM stopped on ${selectedPool}`); qc.invalidateQueries({ queryKey: ['zfs', 'trim'] }) },
+    onError: (e: Error) => toast.error(e.message),
+  })
+
+  const trimStatuses = statusQ.data?.pools ?? []
+  const selectedStatus = trimStatuses.find(s => s.pool === selectedPool)
+
+  if (pools.length === 0) {
+    return <div style={{ textAlign: 'center', padding: '48px 24px', color: 'var(--text-tertiary)' }}>No pools available.</div>
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+      <p style={{ color: 'var(--text-secondary)', fontSize: 'var(--text-sm)', maxWidth: 620 }}>
+        TRIM discards unused blocks on SSDs, helping maintain performance over time. Only effective on pools backed by SSDs or NVMe devices that support TRIM/UNMAP.
+      </p>
+
+      <div className="card" style={{ borderRadius: 'var(--radius-xl)', padding: 20 }}>
+        <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end', flexWrap: 'wrap', marginBottom: 20 }}>
+          <label className="field" style={{ minWidth: 200 }}>
+            <span className="field-label">Pool</span>
+            <select value={selectedPool} onChange={e => setSelectedPool(e.target.value)} className="input">
+              {pools.map(p => <option key={p} value={p}>{p}</option>)}
+            </select>
+          </label>
+          <label className="field" style={{ minWidth: 160 }}>
+            <span className="field-label">Rate limit (optional, e.g. 100M)</span>
+            <input value={trimRate} onChange={e => setTrimRate(e.target.value)} placeholder="unlimited" className="input" style={{ fontFamily: 'var(--font-mono)' }} />
+          </label>
+          <button
+            onClick={() => startTrim.mutate()}
+            disabled={!selectedPool || startTrim.isPending || selectedStatus?.running}
+            className="btn btn-primary"
+            style={{ alignSelf: 'flex-end' }}
+          >
+            <Icon name="auto_fix_high" size={15} />
+            {startTrim.isPending ? 'Starting...' : 'Start TRIM'}
+          </button>
+          {selectedStatus?.running && (
+            <button
+              onClick={() => stopTrim.mutate()}
+              disabled={stopTrim.isPending}
+              className="btn btn-ghost"
+              style={{ alignSelf: 'flex-end', color: 'var(--warning)' }}
+            >
+              <Icon name="stop_circle" size={15} />
+              {stopTrim.isPending ? 'Stopping...' : 'Stop TRIM'}
+            </button>
+          )}
+        </div>
+
+        {statusQ.isLoading && <Skeleton height={120} />}
+        {statusQ.isError && <ErrorState error={statusQ.error} onRetry={() => qc.invalidateQueries({ queryKey: ['zfs', 'trim'] })} />}
+
+        {!statusQ.isLoading && trimStatuses.length > 0 && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {trimStatuses.map(s => (
+              <div key={s.pool} style={{
+                display: 'flex', alignItems: 'center', gap: 14, padding: '12px 16px',
+                background: 'var(--surface)', borderRadius: 'var(--radius-sm)',
+                border: s.pool === selectedPool ? '1px solid var(--primary)' : '1px solid transparent',
+              }}>
+                <div style={{
+                  width: 8, height: 8, borderRadius: '50%', flexShrink: 0,
+                  background: s.running ? 'var(--success)' : 'var(--text-tertiary)',
+                }} />
+                <div style={{ fontFamily: 'var(--font-mono)', fontWeight: 600, minWidth: 120 }}>{s.pool}</div>
+                <div style={{ fontSize: 'var(--text-sm)', color: s.running ? 'var(--success)' : 'var(--text-secondary)' }}>
+                  {s.running ? 'Running' : 'Idle'}
+                </div>
+                {s.status && s.status !== '-' && (
+                  <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', fontFamily: 'var(--font-mono)' }}>{s.status}</div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {!statusQ.isLoading && trimStatuses.length === 0 && !statusQ.isError && (
+          <div style={{ textAlign: 'center', padding: '24px 0', color: 'var(--text-tertiary)', fontSize: 'var(--text-sm)' }}>
+            No TRIM status available. Select a pool and start TRIM.
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// MaintenanceTab
+// ---------------------------------------------------------------------------
+
+interface PoolFeature { name: string; state: string; description?: string }
+interface PoolCheckpointStatus { pool: string; has_checkpoint: boolean; size?: string }
+interface DDTPoolStats { pool: string; stats: Record<string, string>; raw_lines: string[] }
+
+type MaintSection = 'checkpoint' | 'upgrade' | 'features' | 'multihost' | 'ddt'
+
+function MaintenanceTab({ pools }: { pools: string[] }) {
+  const qc = useQueryClient()
+  const { confirm, ConfirmDialog } = useConfirm()
+  const [section, setSection] = useState<MaintSection>('checkpoint')
+  const [selectedPool, setSelectedPool] = useState(pools[0] ?? '')
+
+  // --- Checkpoint ---
+  const checkpointQ = useQuery({
+    queryKey: ['zfs', 'checkpoint', selectedPool],
+    queryFn: ({ signal }) => api.get<{ success: boolean; checkpoints: PoolCheckpointStatus[] }>(
+      `/api/zfs/checkpoint${selectedPool ? `?pool=${encodeURIComponent(selectedPool)}` : ''}`,
+      signal
+    ),
+    enabled: section === 'checkpoint' && pools.length > 0,
+  })
+
+  const createCheckpoint = useMutation({
+    mutationFn: () => api.post('/api/zfs/checkpoint', { pool: selectedPool }),
+    onSuccess: () => { toast.success(`Checkpoint created on ${selectedPool}`); qc.invalidateQueries({ queryKey: ['zfs', 'checkpoint'] }) },
+    onError: (e: Error) => toast.error(e.message),
+  })
+  const discardCheckpoint = useMutation({
+    mutationFn: () => api.post('/api/zfs/checkpoint/discard', { pool: selectedPool }),
+    onSuccess: () => { toast.success(`Checkpoint discarded on ${selectedPool}`); qc.invalidateQueries({ queryKey: ['zfs', 'checkpoint'] }) },
+    onError: (e: Error) => toast.error(e.message),
+  })
+
+  // --- Upgrade ---
+  const upgradePool = useMutation({
+    mutationFn: (all: boolean) => api.post('/api/zfs/pool/upgrade', { pool: selectedPool, all }),
+    onSuccess: (data: any) => toast.success(data?.output || 'Pool upgraded'),
+    onError: (e: Error) => toast.error(e.message),
+  })
+
+  // --- Features ---
+  const featuresQ = useQuery({
+    queryKey: ['zfs', 'features', selectedPool],
+    queryFn: ({ signal }) => api.get<{ success: boolean; pool: string; features: PoolFeature[] }>(
+      `/api/zfs/pool/features?pool=${encodeURIComponent(selectedPool)}`,
+      signal
+    ),
+    enabled: section === 'features' && !!selectedPool,
+  })
+
+  // --- Multihost ---
+  const setMultihost = useMutation({
+    mutationFn: (enabled: boolean) => api.post('/api/zfs/pool/multihost', { pool: selectedPool, enabled }),
+    onSuccess: (_: any, enabled: boolean) => toast.success(`multihost ${enabled ? 'enabled' : 'disabled'} on ${selectedPool}`),
+    onError: (e: Error) => toast.error(e.message),
+  })
+
+  // --- DDT ---
+  const ddtQ = useQuery({
+    queryKey: ['zfs', 'ddt', selectedPool],
+    queryFn: ({ signal }) => api.get<{ success: boolean; pools: DDTPoolStats[] }>(
+      `/api/zfs/ddt/stats${selectedPool ? `?pool=${encodeURIComponent(selectedPool)}` : ''}`,
+      signal
+    ),
+    enabled: section === 'ddt' && pools.length > 0,
+  })
+
+  const SECTIONS: { id: MaintSection; label: string; icon: string }[] = [
+    { id: 'checkpoint', label: 'Checkpoint', icon: 'flag' },
+    { id: 'upgrade', label: 'Upgrade', icon: 'upgrade' },
+    { id: 'features', label: 'Feature Flags', icon: 'toggle_on' },
+    { id: 'multihost', label: 'Multihost', icon: 'device_hub' },
+    { id: 'ddt', label: 'Dedup Table', icon: 'content_copy' },
+  ]
+
+  if (pools.length === 0) {
+    return <div style={{ textAlign: 'center', padding: '48px 24px', color: 'var(--text-tertiary)' }}>No pools available.</div>
+  }
+
+  const checkpoints = checkpointQ.data?.checkpoints ?? []
+  const poolCheckpoint = checkpoints.find(c => c.pool === selectedPool)
+  const features = featuresQ.data?.features ?? []
+  const ddtPools = ddtQ.data?.pools ?? []
+
+  return (
+    <>
+    <div style={{ display: 'flex', gap: 24 }}>
+      {/* Left sidebar */}
+      <div style={{ width: 200, flexShrink: 0 }}>
+        <div style={{ marginBottom: 16 }}>
+          <label className="field">
+            <span className="field-label">Pool</span>
+            <select value={selectedPool} onChange={e => setSelectedPool(e.target.value)} className="input">
+              {pools.map(p => <option key={p} value={p}>{p}</option>)}
+            </select>
+          </label>
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+          {SECTIONS.map(s => (
+            <button
+              key={s.id}
+              onClick={() => setSection(s.id)}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px',
+                borderRadius: 'var(--radius-sm)', border: 'none', cursor: 'pointer', textAlign: 'left', fontSize: 'var(--text-sm)',
+                background: section === s.id ? 'var(--primary-bg)' : 'transparent',
+                color: section === s.id ? 'var(--primary)' : 'var(--text-secondary)',
+                fontWeight: section === s.id ? 600 : 400,
+              }}
+            >
+              <Icon name={s.icon} size={15} />
+              {s.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Content */}
+      <div style={{ flex: 1, minWidth: 0 }}>
+
+        {/* Checkpoint */}
+        {section === 'checkpoint' && (
+          <div className="card" style={{ borderRadius: 'var(--radius-xl)', padding: 20 }}>
+            <h3 style={{ fontSize: 'var(--text-md)', fontWeight: 700, marginBottom: 8 }}>Pool Checkpoint</h3>
+            <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', marginBottom: 20 }}>
+              A checkpoint saves the entire pool state so you can roll back all changes (including dataset creation/deletion) if an upgrade or migration goes wrong.
+            </p>
+            {checkpointQ.isLoading && <Skeleton height={80} />}
+            {!checkpointQ.isLoading && poolCheckpoint && (
+              <div style={{ padding: '12px 16px', background: 'var(--surface)', borderRadius: 'var(--radius-sm)', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 12 }}>
+                <Icon name="flag" size={18} style={{ color: poolCheckpoint.has_checkpoint ? 'var(--success)' : 'var(--text-tertiary)' }} />
+                <div>
+                  <div style={{ fontWeight: 600, fontSize: 'var(--text-sm)' }}>
+                    {poolCheckpoint.has_checkpoint ? 'Checkpoint active' : 'No checkpoint'}
+                  </div>
+                  {poolCheckpoint.has_checkpoint && poolCheckpoint.size && (
+                    <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }}>Size: {poolCheckpoint.size}</div>
+                  )}
+                </div>
+              </div>
+            )}
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+              <button
+                onClick={() => createCheckpoint.mutate()}
+                disabled={createCheckpoint.isPending || poolCheckpoint?.has_checkpoint}
+                className="btn btn-primary"
+              >
+                <Icon name="add_circle" size={15} />
+                {createCheckpoint.isPending ? 'Creating...' : 'Create Checkpoint'}
+              </button>
+              {poolCheckpoint?.has_checkpoint && (
+                <button
+                  onClick={async () => {
+                    const ok = await confirm({
+                      title: 'Discard checkpoint?',
+                      message: `The checkpoint on pool "${selectedPool}" will be permanently removed. All changes made since the checkpoint was created cannot be rolled back.`,
+                      danger: true,
+                      confirmLabel: 'Discard',
+                    })
+                    if (ok) discardCheckpoint.mutate()
+                  }}
+                  disabled={discardCheckpoint.isPending}
+                  className="btn btn-ghost"
+                  style={{ color: 'var(--error)', borderColor: 'var(--error-border)' }}
+                >
+                  <Icon name="delete" size={15} />
+                  {discardCheckpoint.isPending ? 'Discarding...' : 'Discard Checkpoint'}
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Upgrade */}
+        {section === 'upgrade' && (
+          <div className="card" style={{ borderRadius: 'var(--radius-xl)', padding: 20 }}>
+            <h3 style={{ fontSize: 'var(--text-md)', fontWeight: 700, marginBottom: 8 }}>Pool Version Upgrade</h3>
+            <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', marginBottom: 12 }}>
+              Upgrade the pool to the latest ZFS on-disk version to enable new feature flags. This is a one-way operation and the pool will no longer be importable on older ZFS versions.
+            </p>
+            <div className="alert alert-warning" style={{ marginBottom: 20 }}>
+              <Icon name="warning" size={16} style={{ flexShrink: 0 }} />
+              Upgrading a pool cannot be undone without a checkpoint. Create a checkpoint first if you need a rollback option.
+            </div>
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+              <button
+                onClick={() => upgradePool.mutate(false)}
+                disabled={upgradePool.isPending || !selectedPool}
+                className="btn btn-primary"
+              >
+                <Icon name="upgrade" size={15} />
+                {upgradePool.isPending ? 'Upgrading...' : `Upgrade ${selectedPool}`}
+              </button>
+              <button
+                onClick={() => upgradePool.mutate(true)}
+                disabled={upgradePool.isPending}
+                className="btn btn-ghost"
+              >
+                <Icon name="upgrade" size={15} />
+                Upgrade All Pools
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Feature Flags */}
+        {section === 'features' && (
+          <div className="card" style={{ borderRadius: 'var(--radius-xl)', padding: 20 }}>
+            <h3 style={{ fontSize: 'var(--text-md)', fontWeight: 700, marginBottom: 16 }}>ZFS Feature Flags</h3>
+            {featuresQ.isLoading && <Skeleton height={200} />}
+            {featuresQ.isError && <ErrorState error={featuresQ.error} onRetry={() => qc.invalidateQueries({ queryKey: ['zfs', 'features'] })} />}
+            {!featuresQ.isLoading && features.length === 0 && !featuresQ.isError && (
+              <div style={{ color: 'var(--text-tertiary)', fontSize: 'var(--text-sm)' }}>No feature flags found for this pool.</div>
+            )}
+            {!featuresQ.isLoading && features.length > 0 && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {features.map(f => (
+                  <div key={f.name} style={{
+                    display: 'flex', alignItems: 'center', gap: 12, padding: '8px 14px',
+                    background: 'var(--surface)', borderRadius: 'var(--radius-sm)', fontSize: 'var(--text-sm)',
+                  }}>
+                    <div style={{
+                      width: 8, height: 8, borderRadius: '50%', flexShrink: 0,
+                      background: f.state === 'active' ? 'var(--success)' : f.state === 'enabled' ? 'var(--primary)' : 'var(--text-tertiary)',
+                    }} />
+                    <div style={{ fontFamily: 'var(--font-mono)', fontWeight: 600, flex: 1 }}>{f.name}</div>
+                    <span style={{
+                      fontSize: 'var(--text-xs)', padding: '2px 8px', borderRadius: 'var(--radius-sm)',
+                      fontFamily: 'var(--font-mono)',
+                      background: f.state === 'active' ? 'var(--success-bg)' : f.state === 'enabled' ? 'var(--primary-bg)' : 'var(--surface)',
+                      color: f.state === 'active' ? 'var(--success)' : f.state === 'enabled' ? 'var(--primary)' : 'var(--text-tertiary)',
+                    }}>
+                      {f.state}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Multihost */}
+        {section === 'multihost' && (
+          <div className="card" style={{ borderRadius: 'var(--radius-xl)', padding: 20 }}>
+            <h3 style={{ fontSize: 'var(--text-md)', fontWeight: 700, marginBottom: 8 }}>Multihost (multihost)</h3>
+            <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', marginBottom: 12 }}>
+              The <code style={{ fontFamily: 'var(--font-mono)' }}>multihost</code> property prevents a pool from being imported on a second host while it is already imported. Requires a host-id file for proper fencing.
+            </p>
+            <div className="alert alert-warning" style={{ marginBottom: 20 }}>
+              <Icon name="warning" size={16} style={{ flexShrink: 0 }} />
+              Only enable multihost if you have a proper SCSI-3 fencing setup. Incorrect configuration can result in split-brain data corruption.
+            </div>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button
+                onClick={() => setMultihost.mutate(true)}
+                disabled={setMultihost.isPending}
+                className="btn btn-primary"
+              >
+                <Icon name="lock" size={15} />
+                {setMultihost.isPending ? 'Setting...' : 'Enable Multihost'}
+              </button>
+              <button
+                onClick={() => setMultihost.mutate(false)}
+                disabled={setMultihost.isPending}
+                className="btn btn-ghost"
+              >
+                <Icon name="lock_open" size={15} />
+                Disable Multihost
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* DDT Stats */}
+        {section === 'ddt' && (
+          <div className="card" style={{ borderRadius: 'var(--radius-xl)', padding: 20 }}>
+            <h3 style={{ fontSize: 'var(--text-md)', fontWeight: 700, marginBottom: 8 }}>Deduplication Table (DDT)</h3>
+            <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', marginBottom: 16 }}>
+              The DDT stores checksums of all deduplicated blocks. It must fit in ARC (RAM) for best performance.
+            </p>
+            <button onClick={() => qc.invalidateQueries({ queryKey: ['zfs', 'ddt'] })} className="btn btn-ghost btn-sm" style={{ marginBottom: 16 }}>
+              <Icon name="refresh" size={14} /> Refresh
+            </button>
+            {ddtQ.isLoading && <Skeleton height={160} />}
+            {ddtQ.isError && <ErrorState error={ddtQ.error} onRetry={() => qc.invalidateQueries({ queryKey: ['zfs', 'ddt'] })} />}
+            {!ddtQ.isLoading && ddtPools.length === 0 && !ddtQ.isError && (
+              <div style={{ color: 'var(--text-tertiary)', fontSize: 'var(--text-sm)' }}>
+                No deduplication data found. Deduplication may not be enabled on any dataset in this pool.
+              </div>
+            )}
+            {ddtPools.map(p => (
+              <div key={p.pool} style={{ marginBottom: 16 }}>
+                <div style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, marginBottom: 8 }}>{p.pool}</div>
+                {p.raw_lines.length > 0 ? (
+                  <pre style={{
+                    fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)',
+                    background: 'var(--surface)', padding: '12px 16px', borderRadius: 'var(--radius-sm)',
+                    overflowX: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+                    color: 'var(--text-secondary)',
+                  }}>
+                    {p.raw_lines.join('\n')}
+                  </pre>
+                ) : (
+                  <div style={{ color: 'var(--text-tertiary)', fontSize: 'var(--text-sm)' }}>No DDT entries.</div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+
+      </div>
+    </div>
+    <ConfirmDialog />
+    </>
   )
 }
 

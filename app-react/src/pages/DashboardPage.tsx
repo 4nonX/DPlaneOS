@@ -35,7 +35,7 @@ interface SystemStatus {
   ecc_warning: boolean; ecc_warning_msg: string
 }
 interface ZFSPool {
-  name: string; size: string; alloc: string; free: string; health: string
+  name: string; size: string; alloc: string; free: string; health: string; capacity?: string
 }
 interface PoolsResponse { success: boolean; data: ZFSPool[] }
 interface DockerContainer { Id: string; Names: string[]; Image: string; State: string; Status: string }
@@ -49,6 +49,7 @@ interface SMARTDisk {
   smart_status?: { passed: boolean }
   temperature?:  { current: number }
   temp_warning?: string
+  ata_smart_attributes?: { table: Array<{ id: number; value: number; thresh: number }> }
 }
 interface SMARTResponse { success: boolean; disks: SMARTDisk[] }
 
@@ -194,6 +195,8 @@ function PoolRow({ pool, onClick }: { pool: ZFSPool; onClick: () => void }) {
   const isOnline = pool.health === 'ONLINE'
   const isDeg    = pool.health === 'DEGRADED'
   const badgeCls = isOnline ? 'badge-success' : isDeg ? 'badge-warning' : 'badge-error'
+  const capPct   = pool.capacity ? parseInt(pool.capacity, 10) : NaN
+  const capColor = !isNaN(capPct) ? pctColor(capPct) : 'var(--primary)'
 
   return (
     <div
@@ -201,29 +204,37 @@ function PoolRow({ pool, onClick }: { pool: ZFSPool; onClick: () => void }) {
       onMouseEnter={() => setHov(true)}
       onMouseLeave={() => setHov(false)}
       style={{
-        display: 'flex', alignItems: 'center', gap: 12,
         padding: '10px 12px', borderRadius: 'var(--radius-md)',
         background: hov ? 'var(--surface)' : 'transparent',
         cursor: 'pointer', transition: 'background var(--transition-fast)'}}
     >
-      <div style={{
-        width: 36, height: 36, borderRadius: 10,
-        background: isOnline ? 'var(--success-bg)' : isDeg ? 'var(--warning-bg)' : 'var(--error-bg)',
-        border: `1px solid ${isOnline ? 'var(--success-border)' : isDeg ? 'var(--warning-border)' : 'var(--error-border)'}`,
-        display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0}}>
-        <Icon name="storage" size={18}
-          style={{ color: isOnline ? 'var(--success)' : isDeg ? 'var(--warning)' : 'var(--error)' }} />
-      </div>
-
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontWeight: 600, fontSize: 'var(--text-sm)', marginBottom: 2 }}>{pool.name}</div>
-        <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)',
-          fontFamily: 'var(--font-mono)' }}>
-          {pool.alloc} used / {pool.size}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: !isNaN(capPct) ? 8 : 0 }}>
+        <div style={{
+          width: 36, height: 36, borderRadius: 10, flexShrink: 0,
+          background: isOnline ? 'var(--success-bg)' : isDeg ? 'var(--warning-bg)' : 'var(--error-bg)',
+          border: `1px solid ${isOnline ? 'var(--success-border)' : isDeg ? 'var(--warning-border)' : 'var(--error-border)'}`,
+          display: 'flex', alignItems: 'center', justifyContent: 'center'}}>
+          <Icon name="storage" size={18}
+            style={{ color: isOnline ? 'var(--success)' : isDeg ? 'var(--warning)' : 'var(--error)' }} />
         </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontWeight: 600, fontSize: 'var(--text-sm)', marginBottom: 2 }}>{pool.name}</div>
+          <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', fontFamily: 'var(--font-mono)' }}>
+            {pool.alloc} / {pool.size}
+            {!isNaN(capPct) && <span style={{ marginLeft: 6, color: capColor, fontWeight: 600 }}>{capPct}%</span>}
+          </div>
+        </div>
+        <span className={`badge ${badgeCls}`}>{pool.health}</span>
       </div>
-
-      <span className={`badge ${badgeCls}`}>{pool.health}</span>
+      {!isNaN(capPct) && (
+        <div style={{ height: 3, background: 'rgba(255,255,255,0.07)', borderRadius: 999, overflow: 'hidden', marginLeft: 48 }}>
+          <div style={{
+            height: '100%', width: `${Math.min(capPct, 100)}%`, borderRadius: 999,
+            background: capColor, transition: 'width 0.6s ease',
+            boxShadow: capPct > 70 ? `0 0 6px ${capColor}` : 'none',
+          }} />
+        </div>
+      )}
     </div>
   )
 }
@@ -267,11 +278,22 @@ function ContainerRow({ c, onClick }: { c: DockerContainer; onClick: () => void 
 // DiskHealthRow - compact warning row inside Disk Health section card
 // ---------------------------------------------------------------------------
 
+const PRE_FAILURE_IDS = new Set([5, 10, 196, 197, 198, 184, 187, 188, 199, 201])
+
 function DiskHealthRow({ disk, onClick }: { disk: SMARTDisk; onClick: () => void }) {
   const [hov, setHov] = useState(false)
   const passed  = disk.smart_status?.passed
   const temp    = disk.temperature?.current
   const tempBad = disk.temp_warning === 'critical' || disk.temp_warning === 'warning' || (temp !== undefined && temp > 50)
+  const tempCrit = disk.temp_warning === 'critical' || (temp !== undefined && temp >= 70)
+
+  // Pre-failure: any critical SMART attribute at or below its threshold
+  const preFailAttrs = (disk.ata_smart_attributes?.table ?? [])
+    .filter(a => PRE_FAILURE_IDS.has(a.id) && a.value <= a.thresh && a.thresh > 0)
+  const isPreFail = preFailAttrs.length > 0
+
+  const iconName  = passed === false ? 'error' : isPreFail ? 'warning' : 'device_thermostat'
+  const iconColor = passed === false ? 'var(--error)' : isPreFail ? 'var(--warning)' : tempCrit ? 'var(--error)' : 'var(--warning)'
 
   return (
     <div
@@ -284,21 +306,16 @@ function DiskHealthRow({ disk, onClick }: { disk: SMARTDisk; onClick: () => void
         background: hov ? 'var(--surface)' : 'transparent',
         cursor: 'pointer', transition: 'background var(--transition-fast)'}}
     >
-      <Icon
-        name={passed === false ? 'error' : 'device_thermostat'}
-        size={16}
-        style={{ color: passed === false ? 'var(--error)' : 'var(--warning)', flexShrink: 0 }}
-      />
+      <Icon name={iconName} size={16} style={{ color: iconColor, flexShrink: 0 }} />
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontWeight: 600, fontSize: 'var(--text-sm)', fontFamily: 'var(--font-mono)' }}>
           /dev/{disk.device}
         </div>
-        <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', display: 'flex', gap: 10, marginTop: 1 }}>
-          {passed === false && (
-            <span style={{ color: 'var(--error)', fontWeight: 600 }}>SMART FAIL</span>
-          )}
+        <div style={{ fontSize: 'var(--text-xs)', display: 'flex', gap: 10, marginTop: 1 }}>
+          {passed === false && <span style={{ color: 'var(--error)', fontWeight: 600 }}>SMART FAIL</span>}
+          {isPreFail && passed !== false && <span style={{ color: 'var(--warning)', fontWeight: 600 }}>Pre-failure</span>}
           {temp !== undefined && (
-            <span style={{ color: tempBad ? 'var(--warning)' : 'var(--text-tertiary)' }}>
+            <span style={{ color: tempCrit ? 'var(--error)' : tempBad ? 'var(--warning)' : 'var(--text-tertiary)' }}>
               {temp}°C
             </span>
           )}

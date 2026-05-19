@@ -223,15 +223,16 @@ func (h *ZFSHandler) CreateDataset(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		Name            string `json:"name"`
-		Mountpoint      string `json:"mountpoint"`
-		Quota           string `json:"quota"`
-		Compression     string `json:"compression"`
-		Atime           string `json:"atime"`
-		Sync            string `json:"sync"`
-		Recordsize      string `json:"recordsize"`
-		Xattr           string `json:"xattr"`
-		Secondarycache  string `json:"secondarycache"`
+		Name           string `json:"name"`
+		Mountpoint     string `json:"mountpoint"`
+		Quota          string `json:"quota"`
+		Compression    string `json:"compression"`
+		Dedup          string `json:"dedup"`
+		Atime          string `json:"atime"`
+		Sync           string `json:"sync"`
+		Recordsize     string `json:"recordsize"`
+		Xattr          string `json:"xattr"`
+		Secondarycache string `json:"secondarycache"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		respondErrorSimple(w, "Invalid request body", http.StatusBadRequest)
@@ -305,6 +306,9 @@ func (h *ZFSHandler) CreateDataset(w http.ResponseWriter, r *http.Request) {
 	addProp("recordsize", req.Recordsize)
 	addProp("xattr", req.Xattr)
 	addProp("secondarycache", req.Secondarycache)
+	if req.Dedup != "" && req.Dedup != "off" {
+		addProp("dedup", req.Dedup)
+	}
 
 	for _, p := range props {
 		kv := p.key + "=" + p.val
