@@ -90,6 +90,20 @@ install:
 test:
 	cd daemon && $(GO) test -v ./...
 
+ha-test:
+	@command -v gh >/dev/null 2>&1 || { echo "ERROR: GitHub CLI (gh) not installed. See https://cli.github.com"; exit 1; }
+	@echo "Triggering HA failover test suite..."
+	gh workflow run ha-cluster.yml --ref main
+	@echo ""
+	@echo "Monitor: https://github.com/4nonX/DPlaneOS/actions/workflows/ha-cluster.yml"
+
+ha-test-watch:
+	@command -v gh >/dev/null 2>&1 || { echo "ERROR: GitHub CLI (gh) not installed. See https://cli.github.com"; exit 1; }
+	@echo "Triggering HA failover test suite and watching..."
+	gh workflow run ha-cluster.yml --ref main
+	@sleep 5
+	gh run watch $$(gh run list --workflow=ha-cluster.yml --limit=1 --json databaseId --jq '.[0].databaseId')
+
 clean:
 	rm -rf $(BUILD_DIR)
 	cd daemon && $(GO) clean
@@ -119,7 +133,9 @@ help:
 	@echo "  deps         - Resolve Go dependencies (needs internet)"
 	@echo "  build        - Build the daemon binary (PostgreSQL-only)"
 	@echo "  install      - Build and install daemon + systemd service"
-	@echo "  test         - Run tests"
+	@echo "  test         - Run unit tests locally"
+	@echo "  ha-test      - Trigger HA failover CI pipeline (requires gh CLI)"
+	@echo "  ha-test-watch - Trigger and stream HA test results live"
 	@echo "  clean        - Remove build artifacts"
 	@echo "  start        - Start the daemon service"
 	@echo "  stop         - Stop the daemon service"
