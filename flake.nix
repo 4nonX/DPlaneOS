@@ -186,6 +186,16 @@
         packages.iso = iso;
         packages.default = daemon;
 
+        # HA multi-node failover VM test (Tier 3).
+        # Evaluated by `nix flake check --no-build`; run with:
+        #   nix build .#checks.x86_64-linux.ha-failover -L
+        checks.ha-failover = import ./nixos/tests/ha-failover.nix {
+          inherit nixpkgs system;
+          daemonPackage = daemon;
+          haModule      = ./nixos/module.nix;
+          witnessModule = ./nixos/patroni-witness.nix;
+        };
+
         devShells.default = pkgs.mkShell {
           buildInputs = with pkgs; [ go gcc musl.dev gopls gotools postgresql git ];
           shellHook = ''

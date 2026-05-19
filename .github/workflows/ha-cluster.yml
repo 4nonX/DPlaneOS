@@ -1,0 +1,204 @@
+name: HA Cluster Tests
+
+# Dedicated workflow for the High Availability subsystem.
+#
+# WHY THIS EXISTS
+# ---------------
+# The main CI pipeline (ci.yml) thoroughly exercises storage, GitOps
+# convergence, install/upgrade, and reproducible ISO builds. It does NOT
+# exercise the HA failover decision logic: its "Fleet Simulation" job runs two
+# independent single-node daemons on one host and only checks that their state
+# does not collide. That proves multi-instance isolation, not clustering.
+#
+# This workflow closes that gap. It runs the ha-package integration suite
+# (internal/ha/failover_integration_test.go) which drives the real
+# ha.Manager state machine and every guard in checkFailover() against a real
+# PostgreSQL database, with in-process HTTP servers standing in for peers and
+# quorum witnesses. No physical BMC, PDU, or second machine is required.
+#
+# SCOPE - what job `failover-logic` proves:
+#   * a standby with a dead active peer refuses to promote when no fencing
+#     method is configured;
+#   * a standby refuses to promote when its quorum witnesses are unreachable
+#     (the core split-brain defence: the isolated side must stand down);
+#   * a reachable witness correctly clears the gate;
+#   * maintenance mode, hysteresis, and subordinate (stale-data) mode each
+#     independently suppress auto-failover;
+#   * two-node quorum math reports quorum LOST under partition;
+#   * hysteresis and subordinate state survive a daemon restart via the DB.
+#
+# SCOPE - what is intentionally NOT covered here (needs real VMs / hardware):
+#   * a real ipmitool chassis power-off;
+#   * real ZFS send/recv catch-up between two hosts;
+#   * Patroni leader election and Keepalived VIP migration under a real
+#     network partition.
+#   The `vm-cluster` job below is the placeholder for that work: it builds the
+#   NixOS HA modules so they cannot regress, and documents the nixosTest that
+#   should replace the build-only step once a VM runner is available.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  # ════════════════════════════════════════════════════════════════════════════
+  # JOB 1: HA failover decision logic against real PostgreSQL.
+  # ════════════════════════════════════════════════════════════════════════════
+  failover-logic:
+    name: HA Failover Logic (real Postgres)
+    runs-on: ubuntu-22.04
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_DB: dplaneos
+          POSTGRES_USER: dplaneos
+          POSTGRES_PASSWORD: dplaneos
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: daemon/go.mod
+          cache-dependency-path: daemon/go.sum
+
+      - name: Wait for PostgreSQL
+        run: |
+          for i in $(seq 1 30); do
+            if pg_isready -h 127.0.0.1 -p 5432 -U dplaneos; then
+              echo "PostgreSQL is ready."
+              exit 0
+            fi
+            echo "Waiting for PostgreSQL ($i/30)..."
+            sleep 2
+          done
+          echo "ERROR: PostgreSQL did not become ready in time."
+          exit 1
+
+      - name: go vet (ha package)
+        working-directory: daemon
+        run: go vet ./internal/ha/...
+
+      - name: HA failover integration tests
+        working-directory: daemon
+        env:
+          DATABASE_DSN: postgres://dplaneos:dplaneos@127.0.0.1:5432/dplaneos?sslmode=disable
+        run: |
+          # -race: the HA Manager runs concurrent heartbeat/fencing goroutines,
+          #        so the race detector is mandatory here, not optional.
+          # -count=1: never serve cached results for an integration suite.
+          go test -race -count=1 -v ./internal/ha/...
+
+      - name: HA guard-coverage gate
+        working-directory: daemon
+        env:
+          DATABASE_DSN: postgres://dplaneos:dplaneos@127.0.0.1:5432/dplaneos?sslmode=disable
+        run: |
+          # Fail the job if any of the five named split-brain guards loses its
+          # test. This pins the contract that every guard in checkFailover()
+          # stays covered; deleting a guard test is then a visible CI failure
+          # rather than a silent loss of protection.
+          set -euo pipefail
+          OUT=$(go test -count=1 -v -run TestFailover ./internal/ha/... 2>&1)
+          echo "$OUT"
+          for guard in \
+            TestFailover_NoFencingConfigured_DoesNotPromote \
+            TestFailover_WitnessUnreachable_DoesNotPromote \
+            TestFailover_WitnessReachable_ClearsWitnessGate \
+            TestFailover_MaintenanceMode_SuppressesPromotion \
+            TestFailover_HysteresisWindow_SuppressesFlapping \
+            TestFailover_SubordinateMode_SuppressesPromotion \
+            TestFailover_GuardPriority_SubordinateBeatsHysteresis ; do
+            if ! echo "$OUT" | grep -q -- "--- PASS: ${guard}"; then
+              echo "ERROR: required HA guard test '${guard}' did not pass."
+              echo "A split-brain protection guard is missing or broken."
+              exit 1
+            fi
+          done
+          echo "All required HA failover guards passed."
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # JOB 2: HA promotion mechanics against REAL ZFS pools (Tier 2).
+  # ════════════════════════════════════════════════════════════════════════════
+  promotion-zfs:
+    name: HA Promotion Mechanics (real ZFS)
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install ZFS and load the kernel module
+        run: |
+          # GitHub-hosted ubuntu-22.04 runners ship a loadable ZFS module;
+          # the base CI's storage-failure job relies on exactly this.
+          sudo apt-get update
+          sudo apt-get install -y zfsutils-linux
+          sudo modprobe zfs
+          zpool version
+
+      - name: Install shellcheck
+        run: sudo apt-get install -y shellcheck
+
+      - name: Lint the HA ZFS test script
+        run: shellcheck .github/scripts/ha-promotion-zfs-test.sh
+
+      - name: Run HA promotion ZFS test
+        run: |
+          # Exercises the local-ZFS mechanics of ExecutePromotion against real
+          # loopback pools: readonly elevation, clone promotion, pool
+          # export/import, and a regression guard for the PoolImportAll
+          # hardcoded-search-path bug. Needs root for zpool/zfs.
+          sudo bash .github/scripts/ha-promotion-zfs-test.sh
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # JOB 3: NixOS HA module build + (placeholder) VM cluster test (Tier 3).
+  # ════════════════════════════════════════════════════════════════════════════
+  vm-cluster:
+    name: HA NixOS Modules (build + VM test scaffold)
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v27
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+
+      - name: Evaluate HA NixOS modules
+        run: |
+          # Build-evaluate the HA system configurations so a broken ha.nix,
+          # patroni-witness.nix, or witness-installer.nix fails CI. This
+          # type-checks the modules and resolves Patroni/etcd/Keepalived into
+          # the closure; it does NOT boot a cluster.
+          nix flake check --no-build .
+
+      - name: Two-node failover VM test
+        run: |
+          # To enable the full multi-node VM test, replace this step with:
+          #   nix build .#checks.x86_64-linux.ha-failover -L
+          #
+          # Prerequisites before enabling:
+          #   1. Validate ha-failover.nix locally on a KVM machine first
+          #      (unit names, timeouts, settle delays may need 1-2 tweaks).
+          #   2. Add a Nix binary cache (e.g. Cachix) to avoid rebuilding
+          #      the full VM closure on every run.
+          #
+          # The test expression is already wired in flake.nix checks output
+          # and evaluates cleanly under --no-build above.
+          echo "NixOS HA modules evaluated successfully."
+          echo "VM test (ha-failover.nix) wired in flake checks; enable full"
+          echo "run by switching this step to: nix build .#checks.x86_64-linux.ha-failover -L"
