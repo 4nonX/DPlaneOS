@@ -85,71 +85,81 @@ let
     '';
 
   # Common config for the two DPlaneOS data nodes (A and B).
-  mkDataNode = { role, localIP, peerIP }: { config, pkgs, ... }: {
-    imports = [ haModule ];
+  # Returns a LIST of modules so each element has its own proper arg scope.
+  # The hostId module is kept separate so lib.mkForce is always in scope.
+  mkDataNode = { role, localIP, peerIP, hostId }: [
+    haModule
 
-    # Give the VM enough memory: Patroni + etcd + PostgreSQL + the daemon.
-    virtualisation.memorySize = 2048;
-    virtualisation.diskSize = 4096;
+    {
+      # Give the VM enough memory: Patroni + etcd + PostgreSQL + the daemon.
+      virtualisation.memorySize = 2048;
+      virtualisation.diskSize = 4096;
 
-    # Deterministic address on the test network.
-    # hostId is required by NixOS when any ZFS service is enabled.
-    networking.hostId = if role == "primary" then "dab0dade" else "deadc0de";
-    networking.interfaces.eth1.ipv4.addresses = [
-      { address = localIP; prefixLength = 24; }
-    ];
-    networking.firewall.allowedTCPPorts = [ 2379 2380 5000 5432 8008 9000 ];
+      # Deterministic address on the test network.
+      networking.interfaces.eth1.ipv4.addresses = [
+        { address = localIP; prefixLength = 24; }
+      ];
+      networking.firewall.allowedTCPPorts = [ 2379 2380 5000 5432 8008 9000 ];
 
-    services.dplaneos = {
-      enable = true;
-      daemonPackage = daemonPkg;
-      # listenAddress 0.0.0.0 so the peer node and the test driver can reach
-      # /health and /api/ha/* (default is 127.0.0.1).
-      listenAddress = "0.0.0.0";
-      listenPort = 9000;
-
-      ha = {
+      services.dplaneos = {
         enable = true;
-        inherit role;
-        localAddress = localIP;
-        peerAddress = peerIP;
-        witnessAddress = ipWitness;
-        etcdEndpoints = [
-          "http://${localIP}:2379"
-          "http://${peerIP}:2379"
-          "http://${ipWitness}:2379"
-        ];
-        # Fencing stays DISABLED: a VM has no BMC. The module-level
-        # zfs-import guard (which keys off cfg.fencing.enable) is therefore
-        # exercised separately in a dedicated assertion below by enabling it
-        # on nodeB only would change topology; instead Part A checks Patroni
-        # leadership directly, which is the guard's actual trigger.
+        daemonPackage = daemonPkg;
+        # listenAddress 0.0.0.0 so the peer node and the test driver can reach
+        # /health and /api/ha/* (default is 127.0.0.1).
+        listenAddress = "0.0.0.0";
+        listenPort = 9000;
+
+        ha = {
+          enable = true;
+          inherit role;
+          localAddress = localIP;
+          peerAddress = peerIP;
+          witnessAddress = ipWitness;
+          etcdEndpoints = [
+            "http://${localIP}:2379"
+            "http://${peerIP}:2379"
+            "http://${ipWitness}:2379"
+          ];
+          # Fencing stays DISABLED: a VM has no BMC. The module-level
+          # zfs-import guard (which keys off cfg.fencing.enable) is therefore
+          # exercised separately in a dedicated assertion below by enabling it
+          # on nodeB only would change topology; instead Part A checks Patroni
+          # leadership directly, which is the guard's actual trigger.
+        };
       };
-    };
-  };
+    }
+
+    # hostId must be set when ZFS is enabled (module.nix sets boot.supportedFilesystems).
+    # Kept in its own module so lib is in scope for mkForce.
+    ({ lib, ... }: { networking.hostId = lib.mkForce hostId; })
+  ];
 
 in
 pkgs.testers.runNixOSTest {
   name = "dplaneos-ha-failover";
 
   nodes = {
-    nodeA = mkDataNode { role = "primary";   localIP = ipNodeA; peerIP = ipNodeB; };
-    nodeB = mkDataNode { role = "secondary"; localIP = ipNodeB; peerIP = ipNodeA; };
+    nodeA = mkDataNode { role = "primary";   localIP = ipNodeA; peerIP = ipNodeB; hostId = "aabbccdd"; };
+    nodeB = mkDataNode { role = "secondary"; localIP = ipNodeB; peerIP = ipNodeA; hostId = "11223344"; };
 
-    witness = { config, pkgs, ... }: {
-      imports = [ witnessModule ];
-      virtualisation.memorySize = 512;
-      networking.hostId = "cafe0001";
-      networking.interfaces.eth1.ipv4.addresses = [
-        { address = ipWitness; prefixLength = 24; }
-      ];
-      services.dplaneos.ha.witness = {
-        enable = true;
-        localAddress = ipWitness;
-        nodeAAddress = ipNodeA;
-        nodeBAddress = ipNodeB;
-      };
-    };
+    witness = [
+      witnessModule
+
+      {
+        virtualisation.memorySize = 512;
+        networking.interfaces.eth1.ipv4.addresses = [
+          { address = ipWitness; prefixLength = 24; }
+        ];
+        services.dplaneos.ha.witness = {
+          enable = true;
+          localAddress = ipWitness;
+          nodeAAddress = ipNodeA;
+          nodeBAddress = ipNodeB;
+        };
+      }
+
+      ({ lib, ... }: { networking.hostId = lib.mkForce "55667788"; })
+    ];
   };
 
   # The test script is Python (the runNixOSTest driver language).
