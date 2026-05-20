@@ -319,11 +319,23 @@ jobs:
           bash .github/scripts/fleet-integration-test.sh
 
   # ════════════════════════════════════════════════════════════════════════════
+  # STAGE 4B: HA CLUSTER TESTS - Failover logic, ZFS promotion, NixOS modules.
+  # Runs in parallel with the integration job. Release and ISO jobs are hard-
+  # gated on this: a broken HA subsystem must never reach a published release.
+  # ════════════════════════════════════════════════════════════════════════════
+  ha-cluster:
+    name: HA Cluster Tests
+    needs: [prepare]
+    uses: ./.github/workflows/ha-cluster.yml
+    permissions:
+      contents: read
+
+  # ════════════════════════════════════════════════════════════════════════════
   # STAGE 5: RELEASE - Professional Build & Publish
   # ════════════════════════════════════════════════════════════════════════════
   release:
     name: Build & Publish Release
-    needs: [validate, integration, convergence, storage-failure]
+    needs: [validate, integration, convergence, storage-failure, ha-cluster]
     if: github.ref_type == 'tag' || github.ref == 'refs/heads/main'
     runs-on: ubuntu-22.04
     steps:
@@ -415,7 +427,7 @@ jobs:
 
   iso:
     name: Build Installer ISO
-    needs: [validate, integration]
+    needs: [validate, integration, ha-cluster]
     if: github.ref_type == 'tag' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/iso-installer'
     runs-on: ubuntu-22.04
     permissions:
@@ -485,7 +497,7 @@ jobs:
   # ════════════════════════════════════════════════════════════════════════════
   iso-arm:
     name: Build Installer ISO (arm64)
-    needs: [validate, integration]
+    needs: [validate, integration, ha-cluster]
     if: github.ref_type == 'tag' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/iso-installer'
     runs-on: ubuntu-22.04-arm
     permissions:

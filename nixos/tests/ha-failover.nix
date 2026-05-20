@@ -85,8 +85,6 @@ let
     '';
 
   # Common config for the two DPlaneOS data nodes (A and B).
-  # ha.nix (imported via haModule) auto-derives networking.hostId from localAddress,
-  # so no explicit hostId is needed here.
   mkDataNode = { role, localIP, peerIP }:
     { ... }: {
       imports = [ haModule ];
@@ -94,6 +92,11 @@ let
       # Give the VM enough memory: Patroni + etcd + PostgreSQL + the daemon.
       virtualisation.memorySize = 2048;
       virtualisation.diskSize = 4096;
+
+      # module.nix sets boot.supportedFilesystems = ["zfs"] which triggers the
+      # NixOS requirement that networking.hostId must be set. Derive a unique
+      # 8-char hex value from the node IP so each VM gets a distinct ID.
+      networking.hostId = builtins.substring 0 8 (builtins.hashString "md5" localIP);
 
       # Deterministic address on the test network.
       networking.interfaces.eth1.ipv4.addresses = [
