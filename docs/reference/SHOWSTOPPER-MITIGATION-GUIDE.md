@@ -97,25 +97,26 @@ sudo bash /var/lib/dplaneos/backups/pre-upgrade-<timestamp>/rollback.sh
 
 ### Current State
 
-Full enterprise HA is implemented across three layers:
+Full enterprise HA is implemented across three layers. Two deployment topologies are supported: shared-SAS (two data nodes, SCSI-3 PR fencing, co-located etcd witness on node A - no third machine) and replicated-ZFS (two data nodes plus a lightweight witness node for quorum).
 
 **Layer 1 - Database (Patroni/etcd/HAProxy)**
 - Automatic PostgreSQL leader election via Patroni and etcd quorum
 - HAProxy routes all application connections to the current primary transparently
-- Witness node (Raspberry Pi, small VPS) provides quorum for two-node clusters
+- Three-member etcd cluster: two full members on the data nodes plus a third member that is either co-located on node A (shared-SAS) or a separate witness machine (replicated-ZFS)
 
 **Layer 2 - Network and Storage (Keepalived + ZFS Replication)**
 - Floating virtual IP migrates automatically between nodes on failover
 - Continuous ZFS snapshot replication from primary to standby
 - Real-time replication telemetry (percentage, throughput, ETA)
 
-**Layer 3 - Fencing (STONITH/IPMI)**
-- Automatic IPMI-based fencing via BMC when primary exceeds 45-second heartbeat threshold
-- 60-second chassis power confirmation before promotion proceeds
+**Layer 3 - Fencing (STONITH)**
+- SCSI-3 Persistent Reservations (`dplane-fenced`): disk controller enforces write exclusion at the hardware level; no BMC required (shared-SAS topology)
+- IPMI/Redfish: automatic BMC-based fencing when primary exceeds 45-second heartbeat threshold (replicated topology)
+- SBD: ZFS dataset lease mechanism as an alternative to IPMI (replicated topology; requires witness node)
 - `fencingInProgress` mutex prevents concurrent fencing sequences
 - Standby-only guard - only a standby node can initiate fencing
 - Full HMAC audit trail on every fencing event
-- Maintenance mode (`POST /api/ha/maintenance`, 0–3600 s) suppresses fencing during scheduled maintenance
+- Maintenance mode (`POST /api/ha/maintenance`, 0-3600 s) suppresses fencing during scheduled maintenance
 
 **Split-brain protection:** On startup, daemon queries Patroni `/health`. If replica role is confirmed, automatic ZFS pool import is blocked.
 

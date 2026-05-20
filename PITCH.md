@@ -78,17 +78,23 @@ Git versions your infrastructure. ZFS versions your data. Each tool doing exactl
 
 ## High Availability
 
-A full DPlaneOS HA cluster is three nodes: two full NAS nodes (primary and standby) and a lightweight witness (a Raspberry Pi or minimal VM running etcd only, no NAS workloads). Three independent failure domains are protected:
+DPlaneOS supports two HA topologies. Choose based on how the storage is connected.
 
-**Database consistency (Patroni + etcd).** PostgreSQL runs in streaming replication from primary to standby. Patroni manages leader election through the three-member etcd cluster. When the primary fails, etcd detects the missing member, Patroni on the standby wins the election, and the standby is promoted. HAProxy runs on each node listening on `127.0.0.1:5000` and health-checks Patroni continuously (`GET /primary` returns 200 on the primary, 503 on the standby). The daemon always connects to `localhost:5000`, never directly to PostgreSQL. It does not need to know which physical node holds the database at any moment.
+**Shared-SAS / shared-block (two machines, no third box required).** Both nodes connect to the same physical disk shelf or SAN LUN. SCSI-3 Persistent Reservations enforce storage exclusion at the disk-controller level: the primary holds a Write Exclusive reservation on every pool disk. On failover, the surviving node preempts the faulted node's reservation via `dplane-fenced`; the disk controller rejects the faulted node's I/O with RESERVATION CONFLICT regardless of its software state. The third etcd member for Patroni quorum runs as a co-located lightweight process on node A (a second etcd instance, different port and data directory). No Raspberry Pi. No third machine. Two mini-PCs and a shared disk shelf.
+
+**Replicated / stretched-ZFS (two data nodes + one lightweight witness).** When the nodes are in separate enclosures and storage is replicated over the network via ZFS send/recv, a lightweight witness node provides the quorum tiebreaker. The witness runs only etcd, carries no NAS traffic, and runs on a Raspberry Pi 4 or any VM with 512 MB RAM.
+
+Three failure domains are protected regardless of topology:
+
+**Database consistency (Patroni + etcd).** PostgreSQL runs in streaming replication from primary to standby. Patroni manages leader election through the three-member etcd cluster (two full members plus either the co-located or separate witness). When the primary fails, etcd detects the missing member, Patroni on the standby wins the election, and the standby is promoted. HAProxy runs on each node listening on `127.0.0.1:5000` and health-checks Patroni continuously (`GET /primary` returns 200 on the primary, 503 on the standby). The daemon always connects to `localhost:5000`, never directly to PostgreSQL. It does not need to know which physical node holds the database at any moment.
 
 **Network access (Keepalived VIP).** A floating IP address moves between nodes under Keepalived control. Clients, whether SMB, NFS, iSCSI, or browser sessions, connect to the VIP and never directly to a node. Keepalived polls the daemon API every two seconds. If the daemon stops responding, the VIP migrates. The transition is sub-second for established connections.
 
 **Data integrity (ZFS pool gating).** ZFS pools are imported and mounted only on the current Patroni primary. The standby's ZFS import units are held by systemd until Patroni promotes the node. This prevents both nodes from ever mounting the same pool simultaneously, which is the most dangerous failure mode in any shared-storage HA system.
 
-**Split-brain fencing (STONITH).** A network partition where both nodes lose sight of each other is the scenario HA systems fail on silently. DPlaneOS requires explicit fencing: either IPMI/Redfish (the surviving node powers off the peer via its BMC before promoting) or SBD (each node must periodically renew a ZFS dataset lease; an expired lease means the peer is fenced). Without a confirmed fencing mechanism, the cluster will not promote. This is correct behavior: assuming the other node is dead, without proof, is not a safe basis for importing a ZFS pool.
+**Split-brain fencing (STONITH).** A network partition where both nodes lose sight of each other is the scenario HA systems fail on silently. DPlaneOS requires explicit fencing: SCSI-3 Persistent Reservations (shared-SAS; disk firmware enforces exclusion), IPMI/Redfish (the surviving node powers off the peer via its BMC before promoting), or SBD (each node periodically renews a ZFS dataset lease; an expired lease means the peer is fenced). Without a confirmed fencing mechanism, the cluster will not promote. This is correct behavior: assuming the other node is dead, without proof, is not a safe basis for importing a ZFS pool.
 
-Automatic failover RTO: 10 to 30 seconds. The witness node ensures quorum even when one main node is unreachable, so a single main-node failure does not block promotion.
+Automatic failover RTO: 10 to 30 seconds from failure detection to fully serving.
 
 See [High Availability Guide](docs/admin/HIGH-AVAILABILITY.md) for setup, fencing configuration, and day-2 operations.
 
