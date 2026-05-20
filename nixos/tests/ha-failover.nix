@@ -94,7 +94,7 @@ let
 
     # Deterministic address on the test network.
     # hostId is required by NixOS when any ZFS service is enabled.
-    networking.hostId = if role == "primary" then "da7an0de" else "db7an0de";
+    networking.hostId = if role == "primary" then "dab0dade" else "deadc0de";
     networking.interfaces.eth1.ipv4.addresses = [
       { address = localIP; prefixLength = 24; }
     ];
@@ -139,7 +139,7 @@ pkgs.testers.runNixOSTest {
     witness = { config, pkgs, ... }: {
       imports = [ witnessModule ];
       virtualisation.memorySize = 512;
-      networking.hostId = "dc7an0de";
+      networking.hostId = "cafe0001";
       networking.interfaces.eth1.ipv4.addresses = [
         { address = ipWitness; prefixLength = 24; }
       ];
