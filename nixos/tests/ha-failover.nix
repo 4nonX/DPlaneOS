@@ -85,15 +85,20 @@ let
     '';
 
   # Common config for the two DPlaneOS data nodes (A and B).
-  # Returns a LIST of modules so each element has its own proper arg scope.
-  # The hostId module is kept separate so lib.mkForce is always in scope.
-  mkDataNode = { role, localIP, peerIP, hostId }: [
-    haModule
+  # Single module function so lib is always in scope via the module args.
+  # haModule is imported via `imports` (the canonical NixOS pattern).
+  mkDataNode = { role, localIP, peerIP, hostId }:
+    { lib, ... }: {
+      imports = [ haModule ];
 
-    {
       # Give the VM enough memory: Patroni + etcd + PostgreSQL + the daemon.
       virtualisation.memorySize = 2048;
       virtualisation.diskSize = 4096;
+
+      # ZFS is enabled by module.nix (boot.supportedFilesystems = ["zfs"]).
+      # NixOS requires networking.hostId to be set whenever ZFS is enabled.
+      # mkForce ensures this wins over any default the test framework sets.
+      networking.hostId = lib.mkForce hostId;
 
       # Deterministic address on the test network.
       networking.interfaces.eth1.ipv4.addresses = [
@@ -127,12 +132,7 @@ let
           # leadership directly, which is the guard's actual trigger.
         };
       };
-    }
-
-    # hostId must be set when ZFS is enabled (module.nix sets boot.supportedFilesystems).
-    # Kept in its own module so lib is in scope for mkForce.
-    ({ lib, ... }: { networking.hostId = lib.mkForce hostId; })
-  ];
+    };
 
 in
 pkgs.testers.runNixOSTest {
@@ -142,24 +142,20 @@ pkgs.testers.runNixOSTest {
     nodeA = mkDataNode { role = "primary";   localIP = ipNodeA; peerIP = ipNodeB; hostId = "aabbccdd"; };
     nodeB = mkDataNode { role = "secondary"; localIP = ipNodeB; peerIP = ipNodeA; hostId = "11223344"; };
 
-    witness = [
-      witnessModule
-
-      {
-        virtualisation.memorySize = 512;
-        networking.interfaces.eth1.ipv4.addresses = [
-          { address = ipWitness; prefixLength = 24; }
-        ];
-        services.dplaneos.ha.witness = {
-          enable = true;
-          localAddress = ipWitness;
-          nodeAAddress = ipNodeA;
-          nodeBAddress = ipNodeB;
-        };
-      }
-
-      ({ lib, ... }: { networking.hostId = lib.mkForce "55667788"; })
-    ];
+    witness = { lib, ... }: {
+      imports = [ witnessModule ];
+      virtualisation.memorySize = 512;
+      networking.hostId = lib.mkForce "55667788";
+      networking.interfaces.eth1.ipv4.addresses = [
+        { address = ipWitness; prefixLength = 24; }
+      ];
+      services.dplaneos.ha.witness = {
+        enable = true;
+        localAddress = ipWitness;
+        nodeAAddress = ipNodeA;
+        nodeBAddress = ipNodeB;
+      };
+    };
   };
 
   # The test script is Python (the runNixOSTest driver language).
