@@ -224,15 +224,16 @@ DPlaneOS is a NAS management layer running on NixOS. It manages storage (ZFS), c
 
 ### T13: HA Split-Brain / Data Corruption on Failover
 
-**Vector**: Network partition isolates the active node from standby. Operator promotes standby. Both nodes now consider themselves active and attempt to import the same ZFS pools.
+**Vector**: Network partition isolates the active node from standby. Both nodes now consider themselves active and attempt to import the same ZFS pools simultaneously, corrupting pool state.
 
 **Mitigation**:
-- **Automated DB Failover:** Patroni/etcd handle PostgreSQL consensus, preventing DB split-brain.
-- **Orchestrated NixOS State:** HA Manager ensures state consistency between nodes.
-- **Job-based Fencing:** Active fencing suppresses destructive operations during maintenance or failover windows.
-- The HA module's `cluster.go` documents these safety properties.
+- **SCSI-3 Persistent Reservations (`dplane-fenced`) - shared-SAS topology:** Each node registers an 8-byte key derived from `/etc/machine-id` at startup. The primary holds a Write Exclusive Registrants Only (WERO) reservation on every ZFS pool member disk (APTPL=1: survives power cycles, stored in disk controller NVRAM). On unclean failover, the surviving node calls `FencedPreempt(device)` for each disk. The PROUT PREEMPT command evicts the faulted node's registration at the controller; subsequent I/O from the faulted node receives RESERVATION CONFLICT, regardless of what that node believes about its own state. Split-brain at the storage layer is physically impossible: the disk firmware is the arbiter, not a software vote.
+- **Patroni-gated pool import:** ZFS pools are imported and mounted only after Patroni confirms the local node holds the primary role. Standby nodes hold pools unexported until promotion. This gate operates independently of fencing, providing a second layer of protection.
+- **Automated DB failover (Patroni/etcd):** PostgreSQL leader election runs through a three-member etcd cluster. On shared-SAS deployments the third member is co-located on node A as a lightweight process (no separate machine required). On replicated deployments a separate witness node provides the third vote. In either case, 2-of-3 quorum is required before Patroni promotes, preventing DB split-brain.
+- **IPMI/Redfish or SBD fencing - replicated topology:** Where SCSI-3 PR is unavailable (nodes do not share physical storage), the surviving node powers off the peer via BMC (IPMI/Redfish) or waits for an SBD lease expiry before importing pools. Promotion is blocked until fencing is confirmed.
+- **Hysteresis and maintenance mode:** The `checkFailover()` guard enforces a hysteresis window before promoting to suppress flapping. `POST /api/ha/maintenance` suppresses automatic failover entirely during scheduled maintenance.
 
-**Residual risk**: LOW-MEDIUM. While DB failover is automated, ZFS pool import still requires coordination. The HA maintenance route allows safe suppression of fencing during scheduled maintenance. Skip-failover logic in Patroni provides additional safety.
+**Residual risk**: **LOW** for shared-SAS deployments - SCSI-3 PR makes storage-layer split-brain physically impossible regardless of software state. **LOW-MEDIUM** for replicated deployments - relies on software fencing (IPMI/SBD), which is effective but requires BMC or shared block device reachability; a partition that simultaneously isolates both the peer and the fencing mechanism could delay promotion without causing data corruption (the standby will not promote without confirmed fencing).
 
 ---
 
