@@ -210,30 +210,49 @@ Internet / LAN
 
 ## Multi-Node HA Architecture
 
-High Availability adds a second DPlaneOS node and a witness node. The witness is a minimal machine (Raspberry Pi or small VM) that only runs etcd - it does not serve NAS traffic.
+High Availability adds a second DPlaneOS node. Whether a third witness machine is required depends on the storage topology.
+
+**Shared-SAS / shared-block (recommended for two-box deployments):** Both nodes connect to the same physical disk shelf. SCSI-3 Persistent Reservations enforce storage exclusion at the disk-controller level. No separate witness machine is required; the third etcd member for Patroni quorum runs co-located on one of the two data nodes as a lightweight process.
+
+**Replicated / stretched-ZFS:** Nodes do not share physical storage; ZFS state is replicated over the network. A separate witness node provides the quorum tiebreaker. IPMI or SBD fencing ensures the non-surviving node is powered off before promotion.
 
 ```
+  Shared-SAS topology (no separate witness machine):
+
            ┌─────────────────────────────────────┐
            │         Client Network              │
            └──────┬──────────────────────────────┘
-                  │ VIP (Keepalived, e.g. 10.0.0.10)
+                  │ VIP (Keepalived)
          ┌────────┴────────┐
          ▼                 ▼
    [Node A - PRIMARY]   [Node B - STANDBY]
    nginx, dplaned        nginx, dplaned
    dplane-fenced         dplane-fenced
    Patroni (primary)     Patroni (replica)
-   etcd member           etcd member
-   Keepalived MASTER     Keepalived BACKUP
-   ZFS pools mounted     ZFS datasets held
+   etcd member A         etcd member B
+   etcd witness          Keepalived BACKUP
+     (co-located)
+   Keepalived MASTER
+   ZFS pools mounted     ZFS pools held
    SCSI-3 PR owner       SCSI-3 PR standby
+         │                     │
+         └──────────┬──────────┘
+                    │ shared SAS / block
+              [Disk Shelf]
+              SCSI-3 PR enforced
+              at controller level
+
+
+  Replicated topology (separate witness required):
+
+   [Node A - PRIMARY]   [Node B - STANDBY]
          │                     │
          └──────────┬──────────┘
                     │ etcd quorum
                     ▼
             [Witness Node]
             etcd member only
-            (no NAS traffic)
+            (512 MB RAM, no NAS traffic)
 ```
 
 ### PostgreSQL HA (Patroni + etcd)
@@ -272,13 +291,13 @@ Split-brain scenarios (both nodes believe they are primary) are the most dangero
 
 A floating IP (VIP) moves between nodes with Keepalived. Clients connect to the VIP; it always resolves to the current primary. Keepalived checks the daemon API every two seconds and demotes if the daemon is unresponsive.
 
-### Witness Node
+### Quorum and the Witness
 
-The witness runs only etcd. It provides the third vote in leader election, preventing a split-brain where each of the two main nodes believes the other is down and both attempt to promote.
+Patroni uses etcd for leader election and requires an odd number of etcd members to reach quorum under partition. In a two-node cluster, 1-of-2 is not a majority; a third etcd member is needed so the surviving side (2-of-3) can elect a primary without risking both sides promoting simultaneously.
 
-Without a witness, a two-node cluster cannot achieve quorum when one node fails (1-of-2 is not a majority). With a witness, the surviving main node plus the witness (2-of-3) form quorum and promotion proceeds.
+**Shared-SAS deployments** satisfy this requirement by running the third etcd member as a co-located lightweight process on one of the two data nodes. No separate machine is required. SCSI-3 PR independently guarantees storage exclusion at the hardware level, so even if the co-located etcd member's vote were unreliable, the disk controller would still reject writes from the non-reservation-holder.
 
-The witness runs no NAS workloads and requires minimal resources (512 MB RAM, any storage).
+**Replicated deployments** require a separate witness node because the storage is not shared: SCSI-3 PR is not available to mediate the split-brain question, so quorum must come from the software layer. The witness runs only etcd, carries no NAS traffic, and requires minimal resources (512 MB RAM, any storage). A Raspberry Pi 4 or spare VM qualifies.
 
 ### HA vs Single-Node: Feature Differences
 
