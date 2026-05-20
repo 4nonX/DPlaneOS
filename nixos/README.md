@@ -75,12 +75,12 @@ sudo nixos-rebuild switch
 | `console-network-wizard.nix` | Interactive static-IP console TUI for when DHCP is not available at install time |
 | `dplane-generated.nix` | JSON-to-Nix bridge: static file written once by the installer, never modified by the daemon |
 | `hardware-configuration.nix` | Auto-generated hardware config; overridden by the installer for target hardware |
-| `patroni-witness.nix` | Minimal config for a third-node Patroni/etcd quorum witness (e.g. Raspberry Pi) |
+| `patroni-witness.nix` | Minimal config for a dedicated etcd quorum witness (e.g. Raspberry Pi) - replicated topology (Path B) only; shared-SAS clusters co-locate the witness on node A |
 | `modules/samba.nix` | Samba integration NixOS module: dynamic share management via daemon |
 | `setup-nixos.sh` | Setup helper: generates host ID, detects boot loader, patches flake.nix |
 | `install.sh` | First-boot installer script: partitions, formats, and installs DPlaneOS to disk |
-| `witness-installer.nix` | Standalone witness-only ISO NixOS config (local builds only: `nix build .#iso-witness`) |
-| `witness-setup.sh` | Witness node setup wizard: collects IPs, partitions disk, installs NixOS with etcd |
+| `witness-installer.nix` | Standalone witness-only ISO NixOS config (local builds only: `nix build .#iso-witness`) - replicated topology (Path B) only |
+| `witness-setup.sh` | Witness node setup wizard: collects IPs, partitions disk, installs NixOS with etcd - replicated topology (Path B) only |
 | `ota-update.sh` | OTA update shell script: A/B slot swap, health check, and auto-revert logic |
 | `NIXOS-INSTALL-GUIDE.md` | Complete step-by-step guide for beginners |
 | `NIXOS-README.md` | Technical reference: rollback, licensing, impermanence, advanced options |
@@ -95,7 +95,7 @@ sudo nixos-rebuild switch
 | [NixOS Install Guide](NIXOS-INSTALL-GUIDE.md) | Step-by-step for NixOS beginners: from empty hardware to running NAS |
 | [Administrator Guide](../docs/admin/ADMIN-GUIDE.md) | Users, roles, storage management, containers, LDAP/AD, security practices |
 | [Backup and Replication](../docs/admin/BACKUP-REPLICATION.md) | ZFS snapshots, ZFS Send/Receive, Cloud Sync, Cold Tier, rsync, database backup |
-| [High Availability](../docs/admin/HIGH-AVAILABILITY.md) | HA cluster setup (Patroni, etcd, Keepalived, STONITH), failover, rolling upgrades |
+| [High Availability](../docs/admin/HIGH-AVAILABILITY.md) | Two-topology HA: shared-SAS with SCSI-3 PR (no separate witness) or replicated ZFS with witness node; Patroni, Keepalived, STONITH, rolling upgrades |
 | [OTA Updates](../docs/admin/OTA-UPDATES.md) | A/B slot system, health check, auto-revert, manual rollback, HA rolling upgrades |
 | [Optional Protocols](../docs/admin/OPTIONAL-PROTOCOLS.md) | iSCSI, NVMe-oF, FTP/FTPS, MinIO S3-compatible object store |
 | [Alerts and Authentication](../docs/admin/ALERTS.md) | SMTP, webhook, Telegram alerting; TOTP 2FA setup and backup codes |

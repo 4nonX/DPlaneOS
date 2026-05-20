@@ -38,7 +38,7 @@ dd if=dplaneos-v*.iso of=/dev/sdX bs=4M status=progress conv=fsync
 3. DPlaneOS is installed and running within minutes
 4. Open `http://<your-server-ip>/` - change the admin password on first login
 
-**Download:** [Latest release](https://github.com/4nonX/DPlaneOS/releases/latest) - grab `dplaneos-v*-installer-amd64.iso` (x86_64) or `...-arm64.iso` (aarch64/Raspberry Pi 5). The combined installer handles both NAS and HA witness node installation via a boot menu.
+**Download:** [Latest release](https://github.com/4nonX/DPlaneOS/releases/latest) - grab `dplaneos-v*-installer-amd64.iso` (x86_64) or `...-arm64.iso` (aarch64/Raspberry Pi 5). The combined installer handles NAS installation and, for replicated-topology HA clusters, witness node installation via a boot menu. Shared-SAS clusters need only the two data node ISOs.
 
 **Offline / air-gapped:** the ISO contains the complete NixOS closure. No internet access needed during installation.
 
@@ -110,7 +110,7 @@ Browser
 | [NixOS Install Guide](nixos/NIXOS-INSTALL-GUIDE.md) | Step-by-step for NixOS beginners: from empty hardware to running NAS |
 | [Administrator Guide](docs/admin/ADMIN-GUIDE.md) | Users, roles, permissions, storage management, containers, LDAP/AD, custom icons, security practices |
 | [Backup and Replication](docs/admin/BACKUP-REPLICATION.md) | ZFS snapshots, ZFS Send/Receive, Cloud Sync, Cold Tier, rsync, database backup, recovery |
-| [High Availability](docs/admin/HIGH-AVAILABILITY.md) | HA cluster setup (Patroni, etcd, Keepalived, STONITH), failover, rolling upgrades |
+| [High Availability](docs/admin/HIGH-AVAILABILITY.md) | Two-topology HA: shared-SAS with SCSI-3 PR fencing (two machines, no separate witness) or replicated ZFS with witness node; Patroni, Keepalived, STONITH, rolling upgrades |
 | [OTA Updates](docs/admin/OTA-UPDATES.md) | A/B slot system, health check, auto-revert, manual rollback, HA rolling upgrades |
 | [Optional Protocols](docs/admin/OPTIONAL-PROTOCOLS.md) | iSCSI, NVMe-oF, FTP/FTPS, MinIO S3-compatible object store |
 | [Alerts and Authentication](docs/admin/ALERTS.md) | SMTP, webhook, Telegram alerting; alert taxonomy; TOTP 2FA setup and backup codes |

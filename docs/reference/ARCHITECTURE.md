@@ -307,8 +307,8 @@ Patroni uses etcd for leader election and requires an odd number of etcd members
 | Failover | None (manual restart) | Automatic (Patroni, ~10-30s RTO) |
 | ZFS pools | Always mounted | Only on primary; standby holds |
 | Virtual IP | Not applicable | Keepalived VIP on primary |
-| Fencing | Not applicable | IPMI or SBD (strongly recommended) |
-| Witness | Not applicable | Required for safe quorum |
+| Fencing | Not applicable | SCSI-3 PR via dplane-fenced (shared-SAS) or IPMI/SBD (replicated) |
+| Witness | Not applicable | Co-located etcd member on node A (shared-SAS) or separate machine (replicated) |
 | OTA updates | One node, one reboot | Rolling: update standby, failover, update old primary |
 | dplaned DB | `postgres://localhost/dplaneos` | `postgres://localhost:5000/dplaneos` (via HAProxy) |
 
