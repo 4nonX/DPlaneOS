@@ -209,8 +209,8 @@ else
   ok "pool correctly absent after export"
 fi
 
-# Re-import by directory search path (loopback images live in $IMG_DIR).
-if zpool import -d "$IMG_DIR" -f "$POOL"; then
+# Re-import via the loop devices (still attached - cleanup only runs on exit).
+if zpool import -d "${LOOPS[0]}" -d "${LOOPS[1]}" -f "$POOL"; then
   ok "pool '$POOL' re-imported by surviving node"
 else
   bad "zpool import failed"
@@ -252,8 +252,8 @@ else
   echo "        -> pool because it ignores its argument. Documented bug."
 fi
 
-# Restore the pool with the correct path so cleanup can destroy it.
-zpool import -d "$IMG_DIR" -f "$POOL" 2>/dev/null || true
+# Restore the pool via loop devices so cleanup can destroy it.
+zpool import -d "${LOOPS[0]}" -d "${LOOPS[1]}" -f "$POOL" 2>/dev/null || true
 
 # ── summary ──────────────────────────────────────────────────────────────────
 echo
