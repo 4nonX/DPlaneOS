@@ -6,6 +6,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 
 
+## v11.3.0 (2026-05-20) - "Integrity"
+
+Upgrade from: v11.2.0 - Drop-in. No schema changes. No configuration changes.
+
+### Added
+- **GitOps branch URL parser**: Pasting a GitHub, GitLab, Gitea, or Bitbucket branch URL (e.g. `https://github.com/org/repo/tree/v2-stable`) into the wizard URL field now auto-extracts the repo base URL and populates the branch field. The branch input remains editable for manual override.
+- **Inline branch switcher on repo cards**: Each tracked repository on the Repositories tab now shows the current branch as a pill badge (monospace, primary color) with a dropdown. Clicking the badge fetches all remote branches and allows switching with one click; the daemon triggers an immediate pull on switch.
+- **HA failover logic job in main CI gate**: Three HA test jobs (`ha-failover-logic`, `ha-promotion-zfs`, `ha-vm-cluster`) are now inlined directly into `ci.yml` and listed as hard dependencies for the `release`, `iso`, and `iso-arm` jobs. No release artifact can publish until all HA guards pass.
+- **HA guard-coverage gate**: CI step verifies that all seven named split-brain guard tests pass by name (`TestFailover_NoFencingConfigured_DoesNotPromote`, `TestFailover_WitnessUnreachable_DoesNotPromote`, `TestFailover_WitnessReachable_ClearsWitnessGate`, `TestFailover_MaintenanceMode_SuppressesPromotion`, `TestFailover_HysteresisWindow_SuppressesFlapping`, `TestFailover_SubordinateMode_SuppressesPromotion`, `TestFailover_GuardPriority_SubordinateBeatsHysteresis`). Deleting a guard test is a visible CI failure.
+- **HA promotion ZFS job**: `ha-promotion-zfs` exercises `ExecutePromotion` against real loopback ZFS pools in CI (readonly elevation, clone promotion, pool export/import, PoolImportAll hardcoded-search-path regression guard).
+
+### Changed
+- **`docs/admin/HIGH-AVAILABILITY.md`**: Restructured to lead with Path A (shared-SAS, SCSI-3 PR fencing, co-located etcd witness on port 2381 of node A - true 2-machine HA with no separate witness machine). Path B (replicated disks, separate witness) is now second. Explicit topology boundary section at the top. Fencing reference order: SCSI-3 PR first, IPMI second, SBD third (with 2-node SBD limitation noted).
+- **`docs/reference/ARCHITECTURE.md`**: Multi-Node HA section updated. Removed "witness node required" framing; replaced with topology-dependent explanation. Two ASCII diagrams: shared-SAS (co-located witness) and replicated (separate witness). "Witness Node" section replaced with "Quorum and the Witness" explaining when co-location works vs. when a separate machine is required.
+- **`nixos/tests/ha-failover.nix`**: Fixed NixOS `networking.hostId` assertion by deriving a unique 8-char hex value per node from its IP address (`builtins.substring 0 8 (builtins.hashString "md5" localIP)`) directly in `mkDataNode`, bypassing priority-ordering issues with `lib.mkDefault`.
+- **`ci.yml`**: `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true` now applies to all jobs (was only reaching workflow-called jobs inconsistently). Node.js 20 deprecation warnings eliminated.
+
+---
+
 ## v11.2.0 (2026-05-20) - "Toolkit"
 
 Upgrade from: v11.1.0 - Drop-in. No schema changes. No configuration changes.

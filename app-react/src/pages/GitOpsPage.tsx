@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { Icon } from '@/components/ui/Icon'
@@ -25,6 +25,27 @@ interface DriftPayload {
 }
 
 function fmtDate(s?:string){if(!s)return'-';try{return new Date(s).toLocaleString('de-DE',{dateStyle:'short',timeStyle:'short'})}catch{return s}}
+
+// Parses GitHub/GitLab/Gitea/Bitbucket branch URLs into { repoUrl, branch }.
+// Returns the raw string unchanged and branch=null for plain repo URLs.
+function normalizeRepoUrl(u: string) { return u.replace(/\.git$/, '') + '.git' }
+function parseGitUrl(raw: string): { repoUrl: string; branch: string | null } {
+  const s = raw.trim()
+  let m: RegExpMatchArray | null
+  // GitHub: https://github.com/user/repo/tree/branch[/...]
+  m = s.match(/^(https?:\/\/github\.com\/[^/]+\/[^/]+)\/tree\/([^/?#]+)/)
+  if (m) return { repoUrl: normalizeRepoUrl(m[1]), branch: decodeURIComponent(m[2]) }
+  // GitLab: https://gitlab.com/user/repo/-/tree/branch
+  m = s.match(/^(https?:\/\/[^/]+\/[^/]+\/[^/]+)\/-\/tree\/([^/?#]+)/)
+  if (m) return { repoUrl: normalizeRepoUrl(m[1]), branch: decodeURIComponent(m[2]) }
+  // Gitea: https://gitea.example.com/user/repo/src/branch/branch-name
+  m = s.match(/^(https?:\/\/[^/]+\/[^/]+\/[^/]+)\/src\/branch\/([^/?#]+)/)
+  if (m) return { repoUrl: normalizeRepoUrl(m[1]), branch: decodeURIComponent(m[2]) }
+  // Bitbucket: https://bitbucket.org/user/repo/src/branch-name
+  m = s.match(/^(https?:\/\/bitbucket\.org\/[^/]+\/[^/]+)\/src\/([^/?#]+)/)
+  if (m) return { repoUrl: normalizeRepoUrl(m[1]), branch: decodeURIComponent(m[2]) }
+  return { repoUrl: s, branch: null }
+}
 
 function changeColor(a?:string):string {
   if (a === 'CREATE') return 'var(--success)'
@@ -271,10 +292,96 @@ function SettingsTab({ s, updateSettings, repos, setShowWizard, onSyncNow, summa
   )
 }
 
+// ---- BranchSwitcher ----
+function BranchSwitcher({ repo, onSelect }: { repo: Repo; onSelect: (b: string) => void }) {
+  const [open, setOpen] = useState(false)
+  const [branches, setBranches] = useState<string[]>([])
+  const [loading, setLoading] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  const current = repo.branch || 'main'
+
+  useEffect(() => {
+    if (!open) return
+    const handler = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false) }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [open])
+
+  const toggle = async () => {
+    if (!open && branches.length === 0) {
+      setLoading(true)
+      try {
+        const qs = new URLSearchParams({ url: repo.url })
+        if (repo.credential_id) qs.set('credential_id', String(repo.credential_id))
+        const res = await api.get<{ success: boolean; branches: string[] }>(`/api/git-sync/credentials/branches?${qs}`)
+        setBranches(res.branches ?? [])
+      } catch { setBranches([]) }
+      finally { setLoading(false) }
+    }
+    setOpen(v => !v)
+  }
+
+  return (
+    <div ref={ref} style={{ position:'relative', display:'inline-flex' }}>
+      <button
+        onClick={toggle}
+        title="Switch tracked branch"
+        style={{
+          display:'inline-flex', alignItems:'center', gap:4, cursor:'pointer',
+          fontFamily:'var(--font-mono)', fontSize:'var(--text-2xs)', fontWeight:600,
+          color:'var(--primary)', background:'var(--primary-bg)',
+          border:'1px solid color-mix(in srgb, var(--primary) 35%, transparent)',
+          borderRadius:99, padding:'2px 8px', lineHeight:1.6,
+        }}
+      >
+        <Icon name="call_split" size={11} />
+        {current}
+        <Icon name="unfold_more" size={11} style={{ opacity:0.55 }} />
+      </button>
+
+      {open && (
+        <div style={{
+          position:'absolute', top:'calc(100% + 4px)', left:0, zIndex:200,
+          background:'var(--bg-card)', border:'1px solid var(--border)',
+          borderRadius:'var(--radius-md)', minWidth:190, maxHeight:240, overflowY:'auto',
+          boxShadow:'0 8px 24px rgba(0,0,0,0.18)',
+        }}>
+          {loading
+            ? <div style={{ padding:'12px 16px', color:'var(--text-tertiary)', fontSize:'var(--text-xs)' }}>Fetching branches...</div>
+            : branches.length > 0
+              ? branches.map(b => (
+                  <button key={b} onClick={() => { onSelect(b); setOpen(false) }} style={{
+                    display:'flex', alignItems:'center', gap:8, width:'100%', textAlign:'left',
+                    padding:'8px 14px', background: b === current ? 'var(--primary-bg)' : 'transparent',
+                    color: b === current ? 'var(--primary)' : 'var(--text-primary)',
+                    fontSize:'var(--text-xs)', fontFamily:'var(--font-mono)', border:'none',
+                    borderBottom:'1px solid var(--border)', cursor:'pointer',
+                  }}>
+                    {b === current ? <Icon name="check" size={12} /> : <span style={{ width:12 }} />}
+                    {b}
+                  </button>
+                ))
+              : <div style={{ padding:'12px 16px', color:'var(--text-tertiary)', fontSize:'var(--text-xs)' }}>No branches found</div>
+          }
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ---- RepoCard (Merged from GitSync) ----
 function RepoCard({ repo, onRefresh, onEdit }: { repo: Repo; onRefresh: () => void; onEdit: (r: Repo) => void }) {
   const { confirm, ConfirmDialog } = useConfirm()
   const pull   = useMutation({ mutationFn: () => api.post('/api/git-sync/repos/pull',   { id: repo.id }), onSuccess: () => { toast.success('Pull triggered'); onRefresh() }, onError: (e: Error) => toast.error(e.message) })
+  const saveBranch = useMutation({
+    mutationFn: (branch: string) => api.post('/api/git-sync/repos', { ...repo, branch }),
+    onSuccess: (_, branch) => {
+      toast.success(`Now tracking ${branch}`)
+      api.post('/api/git-sync/repos/pull', { id: repo.id }).catch(() => {})
+      onRefresh()
+    },
+    onError: (e: Error) => toast.error(e.message),
+  })
   const push   = useMutation({ mutationFn: () => api.post('/api/git-sync/repos/push',   { id: repo.id }), onSuccess: () => { toast.success('Push triggered'); onRefresh() }, onError: (e: Error) => toast.error(e.message) })
   // Deploy is for Docker stacks
   const deploy = useMutation({ mutationFn: () => api.post('/api/git-sync/repos/deploy', { id: repo.id }), onSuccess: () => toast.success('Deployment queued'), onError: (e: Error) => toast.error(e.message) })
@@ -288,8 +395,10 @@ function RepoCard({ repo, onRefresh, onEdit }: { repo: Repo; onRefresh: () => vo
         <div style={{ flex:1, minWidth:0 }}>
           <div style={{ fontWeight:700, fontSize:'var(--text-sm)' }}>{repo.name || repo.url.split('/').pop()?.replace('.git','') || repo.url}</div>
           <div style={{ fontSize:'var(--text-2xs)', color:'var(--text-tertiary)', fontFamily:'var(--font-mono)', marginTop:2, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{repo.url}</div>
-          <div style={{ fontSize:'var(--text-2xs)', color:'var(--text-tertiary)', marginTop:2 }}>
-            branch: {repo.branch || 'main'}{repo.path && ` · ${repo.path}`}{repo.last_sync && ` · synced ${fmtDate(repo.last_sync)}`}
+          <div style={{ display:'flex', alignItems:'center', gap:6, marginTop:4, flexWrap:'wrap' }}>
+            <BranchSwitcher repo={repo} onSelect={(b) => saveBranch.mutate(b)} />
+            {repo.path && <span style={{ fontSize:'var(--text-2xs)', color:'var(--text-tertiary)' }}>· {repo.path}</span>}
+            {repo.last_sync && <span style={{ fontSize:'var(--text-2xs)', color:'var(--text-tertiary)' }}>· synced {fmtDate(repo.last_sync)}</span>}
           </div>
         </div>
       </div>
@@ -431,6 +540,7 @@ function RepoSyncWizard({ type, onClose, onComplete }: { type: 'state'|'nixos'; 
   const qc = useQueryClient()
   const [step, setStep] = useState(1)
   const [url, setUrl] = useState('')
+  const [branch, setBranch] = useState('main')
   const [token, setToken] = useState('')
   const [useExisting, setUseExisting] = useState<string|null>(null)
   const [isTesting, setIsTesting] = useState(false)
@@ -471,9 +581,9 @@ function RepoSyncWizard({ type, onClose, onComplete }: { type: 'state'|'nixos'; 
   const saveRepo = useMutation({
     mutationFn: () => api.post('/api/git-sync/repos', { 
       name: repoName,
-      url, 
-      branch: 'main', 
-      credential_id: useExisting || undefined 
+      url,
+      branch,
+      credential_id: useExisting || undefined
     }),
     onSuccess: (res: any) => { toast.success('Repository linked'); onComplete(res.id); qc.invalidateQueries({queryKey:['git-sync']}) },
     onError: (e: Error) => toast.error(e.message)
@@ -495,7 +605,12 @@ function RepoSyncWizard({ type, onClose, onComplete }: { type: 'state'|'nixos'; 
             <div>
               <div style={{ fontWeight:700, marginBottom:4 }}>Repository URL</div>
               <div style={{ color:'var(--text-tertiary)', fontSize:'var(--text-xs)', marginBottom:12 }}>Public or private Git repository (HTTPS).</div>
-              <input value={url} onChange={e=>setUrl(e.target.value)} placeholder="https://github.com/my-org/infra.git" className="input input-lg" style={{ fontFamily:'var(--font-mono)' }} />
+              <input value={url} onChange={e => { const p = parseGitUrl(e.target.value); setUrl(p.repoUrl); if (p.branch) setBranch(p.branch) }} placeholder="https://github.com/my-org/infra.git" className="input input-lg" style={{ fontFamily:'var(--font-mono)' }} />
+            </div>
+            <div>
+              <div style={{ fontWeight:700, marginBottom:4 }}>Branch</div>
+              <div style={{ color:'var(--text-tertiary)', fontSize:'var(--text-xs)', marginBottom:12 }}>Auto-detected from URL - edit to override.</div>
+              <input value={branch} onChange={e=>setBranch(e.target.value)} placeholder="main" className="input" />
             </div>
             <button onClick={() => setStep(2)} disabled={!url} className="btn btn-primary btn-lg" style={{ width:'100%' }}>Next: Authentication <Icon name="arrow_forward" size={16}/></button>
           </div>
