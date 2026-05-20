@@ -85,20 +85,15 @@ let
     '';
 
   # Common config for the two DPlaneOS data nodes (A and B).
-  # Single module function so lib is always in scope via the module args.
-  # haModule is imported via `imports` (the canonical NixOS pattern).
-  mkDataNode = { role, localIP, peerIP, hostId }:
-    { lib, ... }: {
+  # ha.nix (imported via haModule) auto-derives networking.hostId from localAddress,
+  # so no explicit hostId is needed here.
+  mkDataNode = { role, localIP, peerIP }:
+    { ... }: {
       imports = [ haModule ];
 
       # Give the VM enough memory: Patroni + etcd + PostgreSQL + the daemon.
       virtualisation.memorySize = 2048;
       virtualisation.diskSize = 4096;
-
-      # ZFS is enabled by module.nix (boot.supportedFilesystems = ["zfs"]).
-      # NixOS requires networking.hostId to be set whenever ZFS is enabled.
-      # mkForce ensures this wins over any default the test framework sets.
-      networking.hostId = lib.mkForce hostId;
 
       # Deterministic address on the test network.
       networking.interfaces.eth1.ipv4.addresses = [
@@ -139,13 +134,12 @@ pkgs.testers.runNixOSTest {
   name = "dplaneos-ha-failover";
 
   nodes = {
-    nodeA = mkDataNode { role = "primary";   localIP = ipNodeA; peerIP = ipNodeB; hostId = "aabbccdd"; };
-    nodeB = mkDataNode { role = "secondary"; localIP = ipNodeB; peerIP = ipNodeA; hostId = "11223344"; };
+    nodeA = mkDataNode { role = "primary";   localIP = ipNodeA; peerIP = ipNodeB; };
+    nodeB = mkDataNode { role = "secondary"; localIP = ipNodeB; peerIP = ipNodeA; };
 
-    witness = { lib, ... }: {
+    witness = { ... }: {
       imports = [ witnessModule ];
       virtualisation.memorySize = 512;
-      networking.hostId = lib.mkForce "55667788";
       networking.interfaces.eth1.ipv4.addresses = [
         { address = ipWitness; prefixLength = 24; }
       ];

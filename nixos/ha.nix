@@ -90,6 +90,15 @@ in {
   };
 
   config = lib.mkIf cfg.enable {
+    # ─── ZFS hostId ───────────────────────────────────────────────────────
+    # module.nix sets boot.supportedFilesystems = ["zfs"], which triggers the
+    # NixOS assertion that networking.hostId must be set. HA nodes are already
+    # uniquely identified by their local IP, so derive a stable 8-char hex id
+    # from it. Operators can override with: networking.hostId = lib.mkForce "...";
+    networking.hostId = lib.mkDefault (
+      builtins.substring 0 8 (builtins.hashString "md5" cfg.localAddress)
+    );
+
     # ─── Etcd ─────────────────────────────────────────────────────────────
     # Standard 3-node etcd cluster for reliable DCS and Patroni leader election
     services.etcd = {
