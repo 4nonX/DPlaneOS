@@ -29,7 +29,7 @@ Feature maturity, honestly:
 | Hot-swap detection and auto-import | Stable | udev + ZED, exercised regularly. |
 | LDAP / Active Directory integration | Beta | Works, less battle-tested than local auth. |
 | A/B OTA updates with auto-revert | Beta | Mechanism is sound, sample size is small. |
-| GitOps reconciliation | Beta | Bi-directional sync works; edge cases still surfacing. |
+| GitOps reconciliation | Beta | Structural sync (pools, datasets, shares, stacks) and capture-from-live both work. Safety rails (block destroy on used data, block pool destroy unconditionally) are well-tested. Edge cases at the property-coverage frontier still surfacing. |
 | PostgreSQL HA (Patroni + etcd) | Experimental | Tested in lab, never under real load. |
 | Replicated-topology HA with witness | Experimental | Same. Read the [Showstopper Mitigation Guide](docs/reference/SHOWSTOPPER-MITIGATION-GUIDE.md) first. |
 | Shared-SAS HA with SCSI-3 PR fencing | Experimental | Tested on one hardware configuration. Yours will differ. |
@@ -38,6 +38,46 @@ Feature maturity, honestly:
 If you're considering this for anything beyond a homelab, also read the [Threat Model](docs/reference/THREAT-MODEL.md) (13 scenarios, known gaps documented) and the [Non-ECC RAM Warning](docs/hardware/NON-ECC-WARNING.md).
 
 Bug reports are welcome. So are contributors; the [CLA](docs/legal/CLA-INDIVIDUAL.md) is upfront about copyright assignment, which some people will not be comfortable with. Fair.
+
+---
+
+## How is this possible as a solo project
+
+Reasonable question. The short answer: most of DPlaneOS isn't DPlaneOS.
+
+**NixOS does the heavy lifting.** The OS, the bootloader, service supervision, the package set, reproducible builds, generation-based rollbacks, firewall, user management, kernel module loading, the whole declarative configuration model. None of that is my code. NixOS already solved it, better than I could in ten lifetimes. DPlaneOS is a NixOS module and a daemon that drives it.
+
+**OpenZFS does the storage.** Pools, datasets, snapshots, send/receive, encryption, ARC tuning, scrub, resilver, integrity checking, all of it. The daemon shells out to `zfs` and `zpool` with allowlisted arguments and parses the output. That's it. The hard storage problems were solved by Sun, then Illumos, then OpenZFS, over twenty years.
+
+**The system stack is well-trodden upstream software.** PostgreSQL for state, nginx for the edge, Patroni and etcd for HA consensus, Keepalived for VIPs, Samba for SMB, the kernel for NFS and LIO/iSCSI, Docker for containers, NUT for UPS, rclone for cloud sync, ZED for ZFS event delivery. Each of these has more engineering hours behind it than I will produce in my career.
+
+**The Go dependency tree is deliberately small.** Eight direct dependencies: `gorilla/mux`, `gorilla/websocket`, `pgx`, `go-ldap`, `lego` (ACME), `creack/pty`, `google/uuid`, `golang.org/x/crypto`. All vendored. The daemon is not a wrapper around a large framework; it's standard library plus narrow, well-understood plumbing.
+
+So what's actually new code?
+
+**The seams.** ~49k lines of Go that tie the above together coherently: ~400 HTTP routes mapping UI intent to allowlisted exec calls, state persisted in PostgreSQL with goose migrations, a reconciler that compares declared state against observed state and handles drift, an HMAC-chained audit log, ZED events surfaced over WebSocket, the A/B OTA flow with health-checked auto-revert, the HA state machine including SCSI-3 PR fencing and Patroni integration. None of this is exotic computer science. All of it is integration work that nobody else had bothered to do under one roof.
+
+**The interface.** ~30k lines of React 19 / TypeScript: 48 pages, around 67 modal/dialog components, one embedded PTY terminal. Aimed at someone who would rather not memorise `zpool` flags or hand-edit a Samba config.
+
+**The GitOps layer.** A declarative `state.yaml` schema and a bi-directional reconciler that lets you treat a Git repo as the source of truth for the *shape* of your storage: pools, dataset hierarchy and properties (quota, compression, atime, recordsize, encryption, mountpoint), shares, NFS exports, container stacks, users, replication relationships. You can apply changes from Git to the live system, or capture the live state back into Git. What it does *not* manage is the data plane itself: dataset contents, snapshots, and `zfs send` streams stay on ZFS's terms and are backed up out of band. The reconciler is also conservative in the places that matter: pool destruction is always BLOCKED, dataset destruction is BLOCKED whenever `zfs get used` is non-zero, and there's an `ignore_extraneous` flag for partial declarations. A `git push` cannot wipe data; only metadata and configuration. This is the part I'm proudest of and also the part most likely to have rough edges at the property-coverage frontier.
+
+That's the honest accounting. DPlaneOS exists because NixOS, OpenZFS, PostgreSQL, and a dozen other projects exist. The work I did is the integration layer and the UX. Both are real work, neither is "building a storage OS from scratch," and pretending otherwise would be insulting to the upstream projects this whole thing rests on.
+
+---
+
+## Acknowledgements
+
+DPlaneOS stands on the shoulders of decades of work by people I have never met. A non-exhaustive list of the projects this would not exist without:
+
+**The foundation.** [NixOS](https://nixos.org) and [Nixpkgs](https://github.com/NixOS/nixpkgs) for the declarative OS model that makes the whole appliance approach feasible. [OpenZFS](https://openzfs.org) for the filesystem the project is named after and built around. [PostgreSQL](https://www.postgresql.org) for state that doesn't lose itself.
+
+**The services.** [nginx](https://nginx.org), [HAProxy](https://www.haproxy.org), [Samba](https://www.samba.org), [Patroni](https://github.com/patroni/patroni), [etcd](https://etcd.io), [Keepalived](https://www.keepalived.org), [Docker](https://www.docker.com), the Linux kernel's NFS and LIO/iSCSI subsystems, [rclone](https://rclone.org), [smartmontools](https://www.smartmontools.org). Each one a project I have used for years and never had cause to regret picking.
+
+**The libraries.** [gorilla/mux](https://github.com/gorilla/mux) and [gorilla/websocket](https://github.com/gorilla/websocket), [jackc/pgx](https://github.com/jackc/pgx), [go-ldap](https://github.com/go-ldap/ldap), [go-acme/lego](https://github.com/go-acme/lego), [creack/pty](https://github.com/creack/pty). Plus the Go team's `golang.org/x/crypto` and friends.
+
+**The frontend.** [React](https://react.dev), [TanStack Router and Query](https://tanstack.com), [Zustand](https://github.com/pmndrs/zustand), [xterm.js](https://xtermjs.org), [Vite](https://vitejs.dev). The [Outfit](https://github.com/Outfitio/Outfit-Fonts) and [JetBrains Mono](https://www.jetbrains.com/lp/mono/) typefaces, plus [Material Symbols](https://fonts.google.com/icons).
+
+Full license inventory and attribution in [NOTICE.md](NOTICE.md).
 
 ---
 
@@ -53,7 +93,7 @@ Bug reports are welcome. So are contributors; the [CLA](docs/legal/CLA-INDIVIDUA
 | **Identity** | Local users, LDAP / AD with group-to-role mapping, TOTP 2FA, API tokens |
 | **Security** | RBAC (4 roles, 34 permissions), HMAC audit chain, CSRF protection, firewall, TLS, allowlist-validated exec calls |
 | **System** | Dashboard, logs, UPS (NUT), IPMI / sensors, hardware auto-tuning, cloud sync (rclone), HA node monitoring |
-| **GitOps** | Git-sync repositories, bi-directional reconciliation, drift detection |
+| **GitOps** | Git-sync repositories, bi-directional reconciliation, drift detection. Manages structure (pools, dataset properties, shares, stacks, users), not data. Destructive operations on used datasets and pools are blocked by default. |
 
 ---
 
@@ -217,6 +257,7 @@ sudo dplaneos-ota-update
 | Document | What it covers |
 |----------|---------------|
 | [License](LICENSE) | GNU Affero General Public License v3.0 |
+| [Notice](NOTICE.md) | Third-party components, attributions, and licenses |
 | [Security Policy](SECURITY.md) | Vulnerability reporting, safe harbour, supported versions |
 | [Individual CLA](docs/legal/CLA-INDIVIDUAL.md) | Contributor license agreement for individuals |
 | [Entity CLA](docs/legal/CLA-ENTITY.md) | Contributor license agreement for organisations |
@@ -226,4 +267,8 @@ sudo dplaneos-ota-update
 
 ## License
 
-[GNU Affero General Public License v3.0](https://www.gnu.org/licenses/agpl-3.0.html)
+DPlaneOS is licensed under the [GNU Affero General Public License v3.0](https://www.gnu.org/licenses/agpl-3.0.html).
+
+If you run a modified version of DPlaneOS and let others interact with it over a network, AGPL § 13 requires that you offer them the Corresponding Source. The unmodified source is at [github.com/4nonX/DPlaneOS](https://github.com/4nonX/DPlaneOS); if you have modified it, you must make your modifications available to your users on equivalent terms.
+
+Third-party components and their licenses are listed in [NOTICE.md](NOTICE.md).
