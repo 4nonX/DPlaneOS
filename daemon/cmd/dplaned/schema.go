@@ -62,16 +62,19 @@ func seedDefaults(db *sql.DB) error {
 		{"storage", "read", "View Storage", "View pools, datasets, and shares", "storage"},
 		{"storage", "write", "Manage Storage", "Create and modify pools and datasets", "storage"},
 		{"storage", "delete", "Delete Storage", "Destroy pools and datasets", "storage"},
+		{"storage", "admin", "Storage Admin", "Advanced storage operations", "storage"},
 		{"snapshots", "read", "View Snapshots", "List snapshots and schedules", "storage"},
 		{"snapshots", "write", "Manage Snapshots", "Create and schedule snapshots", "storage"},
 		{"shares", "read", "View Shares", "List shared folders", "storage"},
 		{"shares", "write", "Manage Shares", "Create and modify shares", "storage"},
+		{"shares", "admin", "Shares Admin", "Advanced share management", "storage"},
 		{"files", "read", "Browse Files", "Browse and download files", "storage"},
 		{"files", "write", "Manage Files", "Upload, move, and delete files", "storage"},
 		// Compute
 		{"docker", "read", "View Containers", "List containers and images", "compute"},
 		{"docker", "write", "Manage Containers", "Start, stop, create containers", "compute"},
 		{"docker", "delete", "Remove Containers", "Delete containers and images", "compute"},
+		{"docker", "admin", "Docker Admin", "Advanced container operations", "compute"},
 		// Network
 		{"network", "read", "View Network", "View network configuration", "network"},
 		{"network", "write", "Manage Network", "Modify network settings", "network"},
@@ -80,6 +83,7 @@ func seedDefaults(db *sql.DB) error {
 		// Identity
 		{"users", "read", "View Users", "List users and groups", "identity"},
 		{"users", "write", "Manage Users", "Create and modify users", "identity"},
+		{"users", "admin", "Users Admin", "Advanced user management", "identity"},
 		{"roles", "read", "View Roles", "List roles and permissions", "identity"},
 		{"roles", "write", "Manage Roles", "Assign and modify roles", "identity"},
 		// System / Security

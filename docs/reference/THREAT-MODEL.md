@@ -104,7 +104,7 @@ DPlaneOS is a NAS management layer running on NixOS. It manages storage (ZFS), c
 - System roles (`admin`, `operator`, `user`, `viewer`) are immutable in the DB (`is_system = 1`)
 - Role assignments support expiry dates
 
-**Residual risk**: MEDIUM. Session middleware enforces authentication on all routes, but `permRoute()` is not applied to every operational route - several ZFS, Docker, snapshot, and system routes are session-authenticated only, without a per-route RBAC permission check. Any authenticated user (including `viewer`) can reach them. This is a known gap.
+**Residual risk**: LOW. All routes now carry explicit `permRoute()` RBAC checks - 21 read-only endpoints (ZFS health, metrics, iSCSI/NVMe-oF status, firewall status, certificate list, HA status, job polling, and others) that were previously session-authenticated only have been wrapped. No authenticated user below the required role can reach any operational endpoint.
 
 ---
 
@@ -241,7 +241,7 @@ DPlaneOS is a NAS management layer running on NixOS. It manages storage (ZFS), c
 
 | Surface | Exposure | Auth | Notes |
 |---------|----------|------|-------|
-| HTTP API (~400 routes) | All routes require session except `/health` and `/api/auth/*` | Session middleware (global) | ~24 routes also have per-route RBAC; remainder session-only |
+| HTTP API (~400 routes) | All routes require session except `/health` and `/api/auth/*` | Session middleware (global) | All operational routes carry per-route RBAC via `permRoute()`; self-service introspection routes (`/api/rbac/me/*`) are session-only by design |
 | WebSocket (`/api/ws/monitor`) | Authenticated | Session middleware | Validated before upgrade |
 | `exec.Command` (zfs, zpool, docker, etc.) | Internal only | **Strict sentence-based allowlist** | Path-agnostic resolution via PATH; no shell |
 | networkdwriter file writes | `/etc/systemd/network/50-dplane-*` | Root filesystem permissions | Pure file I/O; `networkctl reload` fixed args |
@@ -258,7 +258,6 @@ Run behind a VPN or reverse proxy with authentication (e.g. WireGuard, Tailscale
 
 ## Known Gaps (not mitigated)
 
-- **Partial RBAC coverage** - many operational routes (ZFS, Docker, snapshots, replication, system) are session-authenticated but lack per-route `RequirePermission` checks
 - **ZFS keys not auto-locked on shutdown** - `zfs unload-key` must be called manually before powering down if encryption-at-rest is required
 - **PostgreSQL plaintext** - DB is not encrypted independently; relies on ZFS pool-level encryption if the pool is configured that way
 - **No API request signing** - no HMAC or nonce scheme for critical destructive operations (pool export, dataset destroy, Docker remove)

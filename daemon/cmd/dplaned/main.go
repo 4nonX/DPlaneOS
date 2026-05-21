@@ -572,7 +572,7 @@ func main() {
 	r.HandleFunc("/health", healthCheckHandler).Methods("GET")
 
 	// Job status polling - used by async operations (replication, rsync, docker pull, etc.)
-	r.HandleFunc("/api/jobs/{id}", handlers.HandleJobStatus).Methods("GET")
+	r.Handle("/api/jobs/{id}", permRoute("system", "read", handlers.HandleJobStatus)).Methods("GET")
 
 	// ZFS handlers
 	zfsHandler := handlers.NewZFSHandler(db)
@@ -686,10 +686,10 @@ func main() {
 
 	// v3.0.0: ZFS Health Predictor (deep monitoring, heatmap data)
 	healthHandler := handlers.NewZFSHealthHandler()
-	r.HandleFunc("/api/zfs/health", healthHandler.GetPoolHealth).Methods("GET")
-	r.HandleFunc("/api/zfs/iostat", healthHandler.GetIOStats).Methods("GET")
-	r.HandleFunc("/api/zfs/events", healthHandler.GetPoolEvents).Methods("GET")
-	r.HandleFunc("/api/zfs/smart", healthHandler.GetSMARTHealth).Methods("GET")
+	r.Handle("/api/zfs/health", permRoute("storage", "read", healthHandler.GetPoolHealth)).Methods("GET")
+	r.Handle("/api/zfs/iostat", permRoute("storage", "read", healthHandler.GetIOStats)).Methods("GET")
+	r.Handle("/api/zfs/events", permRoute("storage", "read", healthHandler.GetPoolEvents)).Methods("GET")
+	r.Handle("/api/zfs/smart", permRoute("system", "read", healthHandler.GetSMARTHealth)).Methods("GET")
 
 	// v3.0.0: Pool Capacity Guardian (prevents ZFS full freeze)
 	capacityHandler := handlers.NewCapacityGuardianHandler()
@@ -758,7 +758,7 @@ func main() {
 	r.Handle("/api/docker/stacks/stream", permRoute("docker", "write", stackHandler.StreamStackAction)).Methods("GET")
 	r.Handle("/api/docker/stacks/logs/stream", permRoute("docker", "read", stackHandler.StreamStackLogs)).Methods("GET")
 	r.Handle("/api/docker/stacks/services/action", permRoute("docker", "write", stackHandler.ServiceAction)).Methods("POST")
-	r.HandleFunc("/ws/docker/exec", handlers.ExecContainer)
+	r.Handle("/ws/docker/exec", permRoute("docker", "write", handlers.ExecContainer))
 	r.Handle("/api/docker/convert-run", permRoute("docker", "write", stackHandler.ConvertDockerRun)).Methods("POST")
 
 	// v5.1: Multi-stack templates
@@ -773,7 +773,7 @@ func main() {
 	r.Handle("/api/system/audit/stats", permRoute("audit", "read", auditRotationHandler.GetAuditStats)).Methods("GET")
 	r.Handle("/api/system/audit/logs", permRoute("audit", "read", auditRotationHandler.GetAuditLogs)).Methods("GET")
 	r.Handle("/api/system/audit/verify-chain", permRoute("audit", "read", auditRotationHandler.VerifyAuditChain)).Methods("GET")
-	r.HandleFunc("/api/system/ce-status", auditRotationHandler.GetCEStatus).Methods("GET")
+	r.Handle("/api/system/ce-status", permRoute("system", "read", auditRotationHandler.GetCEStatus)).Methods("GET")
 
 	supportBundleHandler := handlers.NewSupportBundleHandler(db, Version)
 	r.Handle("/api/system/support-bundle", permRoute("system", "admin", supportBundleHandler.GenerateBundle)).Methods("POST")
@@ -1137,8 +1137,8 @@ func main() {
 
 	// Metrics / Reporting (v2.0.0)
 	metricsHandler := handlers.NewMetricsHandler()
-	r.HandleFunc("/api/metrics/current", metricsHandler.GetCurrentMetrics).Methods("GET")
-	r.HandleFunc("/api/metrics/history", metricsHandler.GetHistory).Methods("GET")
+	r.Handle("/api/metrics/current", permRoute("system", "read", metricsHandler.GetCurrentMetrics)).Methods("GET")
+	r.Handle("/api/metrics/history", permRoute("system", "read", metricsHandler.GetHistory)).Methods("GET")
 
 	// Background metrics collection - writes to /var/lib/dplaneos/metrics/*.json
 	// Powers the history charts in reporting.html
@@ -1153,20 +1153,20 @@ func main() {
 
 	// Firewall (v2.0.0)
 	firewallHandler := handlers.NewFirewallHandler()
-	r.HandleFunc("/api/firewall/status", firewallHandler.GetStatus).Methods("GET")
+	r.Handle("/api/firewall/status", permRoute("firewall", "read", firewallHandler.GetStatus)).Methods("GET")
 	r.Handle("/api/firewall/rule", permRoute("firewall", "write", firewallHandler.SetRule)).Methods("POST")
 	// NixOS only: sync full port list to dplane-generated.nix
 	r.Handle("/api/firewall/sync", permRoute("firewall", "write", firewallHandler.SyncFirewallToNix)).Methods("POST")
 
 	// SSL/TLS Certificates (v2.0.0)
 	certHandler := handlers.NewCertHandler()
-	r.HandleFunc("/api/certs/list", certHandler.ListCerts).Methods("GET")
+	r.Handle("/api/certs/list", permRoute("certificates", "read", certHandler.ListCerts)).Methods("GET")
 	r.Handle("/api/certs/generate", permRoute("certificates", "write", certHandler.GenerateSelfSigned)).Methods("POST")
 	r.Handle("/api/certs/activate", permRoute("certificates", "write", certHandler.ActivateCert)).Methods("POST")
 	r.Handle("/api/certs/import", permRoute("certificates", "write", certHandler.ImportCert)).Methods("POST")
 	r.Handle("/api/certs/acme", permRoute("certificates", "write", certHandler.RequestACME)).Methods("POST")
 	r.Handle("/api/certs/acme/renew-all", permRoute("certificates", "write", certHandler.RenewAllHandler)).Methods("POST")
-	r.HandleFunc("/api/system/certs/acme/check", certHandler.VerifyACMEProxy).Methods("GET")
+	r.Handle("/api/system/certs/acme/check", permRoute("certificates", "read", certHandler.VerifyACMEProxy)).Methods("GET")
 	r.Handle("/api/certs/{name}", permRoute("certificates", "write", certHandler.DeleteCert)).Methods("DELETE")
 
 	// ZFS Holds (v6.2.0)
@@ -1225,7 +1225,7 @@ func main() {
 	handlers.StartSMARTMonitor()
 
 	// ── High Availability cluster endpoints ──
-	r.HandleFunc("/api/ha/status", haHandler.GetStatus).Methods("GET")
+	r.Handle("/api/ha/status", permRoute("system", "read", haHandler.GetStatus)).Methods("GET")
 	r.Handle("/api/ha/peers", permRoute("system", "admin", haHandler.RegisterPeer)).Methods("POST")
 	r.Handle("/api/ha/peers/{id}", permRoute("system", "admin", http.HandlerFunc(haHandler.RemovePeer))).Methods("DELETE")
 	r.Handle("/api/ha/peers/{id}/role", permRoute("system", "admin", haHandler.SetPeerRole)).Methods("POST")
@@ -1259,20 +1259,20 @@ func main() {
 	r.Handle("/ws/terminal", permRoute("system", "admin", termHandler.HandleTerminal))
 
 	// v3.2.0: iSCSI target management (Phase 2)
-	r.HandleFunc("/api/iscsi/status", handlers.GetISCSIStatus).Methods("GET")
-	r.HandleFunc("/api/iscsi/targets", handlers.GetISCSITargets).Methods("GET")
+	r.Handle("/api/iscsi/status", permRoute("storage", "read", handlers.GetISCSIStatus)).Methods("GET")
+	r.Handle("/api/iscsi/targets", permRoute("storage", "read", handlers.GetISCSITargets)).Methods("GET")
 	r.Handle("/api/iscsi/targets", permRoute("storage", "write", handlers.CreateISCSITarget)).Methods("POST")
 	r.Handle("/api/iscsi/targets/update", permRoute("storage", "write", handlers.UpdateISCSITarget)).Methods("POST")
 	r.Handle("/api/iscsi/targets/{iqn}", permRoute("storage", "write", handlers.DeleteISCSITarget)).Methods("DELETE")
-	r.HandleFunc("/api/iscsi/acls", handlers.GetISCSIACLs).Methods("GET")
+	r.Handle("/api/iscsi/acls", permRoute("storage", "read", handlers.GetISCSIACLs)).Methods("GET")
 	r.Handle("/api/iscsi/acls", permRoute("storage", "write", handlers.AddISCSIACL)).Methods("POST")
 	r.Handle("/api/iscsi/acls", permRoute("storage", "write", handlers.DeleteISCSIACL)).Methods("DELETE")
-	r.HandleFunc("/api/iscsi/zvols", handlers.GetISCSIZvolList).Methods("GET")
+	r.Handle("/api/iscsi/zvols", permRoute("storage", "read", handlers.GetISCSIZvolList)).Methods("GET")
 
 	// v8.0.0: NVMe-oF target (nvmet + ZFS zvol)
-	r.HandleFunc("/api/nvmet/status", handlers.GetNVMeTargetStatus).Methods("GET")
-	r.HandleFunc("/api/nvmet/targets", handlers.ListNVMeTargets).Methods("GET")
-	r.HandleFunc("/api/nvmet/zvols", handlers.ListNVMeZvols).Methods("GET")
+	r.Handle("/api/nvmet/status", permRoute("storage", "read", handlers.GetNVMeTargetStatus)).Methods("GET")
+	r.Handle("/api/nvmet/targets", permRoute("storage", "read", handlers.ListNVMeTargets)).Methods("GET")
+	r.Handle("/api/nvmet/zvols", permRoute("storage", "read", handlers.ListNVMeZvols)).Methods("GET")
 	r.Handle("/api/nvmet/targets", permRoute("storage", "write", handlers.CreateNVMeTarget)).Methods("POST")
 	r.Handle("/api/nvmet/targets", permRoute("storage", "write", handlers.UpdateNVMeTarget)).Methods("PUT")
 	r.Handle("/api/nvmet/targets", permRoute("storage", "write", handlers.DeleteNVMeTarget)).Methods("DELETE")
@@ -1281,7 +1281,7 @@ func main() {
 	r.HandleFunc("/metrics", handlers.HandlePrometheusMetrics).Methods("GET")
 
 	// Dataset search
-	r.HandleFunc("/api/zfs/datasets/search", handlers.HandleDatasetSearch).Methods("GET")
+	r.Handle("/api/zfs/datasets/search", permRoute("storage", "read", handlers.HandleDatasetSearch)).Methods("GET")
 
 	// Replication schedules
 	replicationScheduleHandler := handlers.NewReplicationScheduleHandler(db)
