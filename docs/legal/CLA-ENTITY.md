@@ -55,8 +55,8 @@ proprietary and commercial license terms.
 
 This includes, without limitation, the right to:
 
-- License Contributions under PolyForm Shield 1.0.0 (the current Project
-  license) or any successor license;
+- License Contributions under the GNU Affero General Public License v3.0
+  (the current Project license) or any successor license;
 - Re-license the Project and Contributions under a different open-source,
   source-available, or commercial proprietary license;
 - Incorporate Contributions into commercial products and sell such products
