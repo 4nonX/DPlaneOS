@@ -2183,9 +2183,33 @@ export function PoolsPage() {
     })
   }, [wsOn, qc])
 
-  // WS: scrub events → refetch pool list (scrub status embedded in pool output)
+  // WS: scrub events → refetch pool list + scrub status
   useEffect(() => {
-    return wsOn('scrubEvent', () => {
+    const unsub1 = wsOn('scrubEvent', () => {
+      qc.invalidateQueries({ queryKey: ['zfs', 'pools'] })
+      qc.invalidateQueries({ queryKey: ['zfs', 'scrub', 'status'] })
+    })
+    const unsub2 = wsOn('scrubProgress', () => {
+      qc.invalidateQueries({ queryKey: ['zfs', 'scrub', 'status'] })
+    })
+    const unsub3 = wsOn('scrubAborted', (d: any) => {
+      toast.warning(`Scrub aborted on pool ${d?.pool ?? ''}`)
+      qc.invalidateQueries({ queryKey: ['zfs', 'scrub', 'status'] })
+      qc.invalidateQueries({ queryKey: ['zfs', 'pools'] })
+    })
+    return () => { unsub1(); unsub2(); unsub3() }
+  }, [wsOn, qc])
+
+  // WS: ZFS critical alerts (data loss, deadman, I/O errors) → error toast
+  useEffect(() => {
+    return wsOn('zfsAlert', (d: any) => {
+      const pool = d?.pool ?? ''
+      const kind = String(d?.alert_type ?? '').replace('zfs.', '')
+      const label = kind === 'data_loss' ? 'Data loss detected' :
+                    kind === 'deadman'   ? 'Pool deadman triggered' :
+                    kind === 'io_error'  ? `I/O error (${d?.kind ?? 'unknown'})` :
+                    'ZFS error'
+      toast.error(`${label}${pool ? ` on pool ${pool}` : ''}`)
       qc.invalidateQueries({ queryKey: ['zfs', 'pools'] })
     })
   }, [wsOn, qc])

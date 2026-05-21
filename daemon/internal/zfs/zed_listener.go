@@ -149,7 +149,7 @@ func zedTypedDispatch(
 
 	case "scrub_start":
 		broadcast("scrub_started", map[string]interface{}{"pool": pool}, "info")
-		go zedFastProgressPoll(pool, "zfs.scrub.progress", broadcast)
+		go zedFastProgressPoll(pool, "scrub_progress", broadcast)
 
 	case "scrub_finish":
 		broadcast("scrub_completed", map[string]interface{}{"pool": pool}, "info")
@@ -162,7 +162,7 @@ func zedTypedDispatch(
 
 	case "resilver_start":
 		broadcast("resilver_started", map[string]interface{}{"pool": pool}, "info")
-		go zedFastProgressPoll(pool, "zfs.resilver.progress", broadcast)
+		go zedFastProgressPoll(pool, "resilver_progress", broadcast)
 
 	case "resilver_finish":
 		broadcast("resilver_completed", map[string]interface{}{"pool": pool}, "info")
@@ -262,7 +262,7 @@ func zedTrimProgressPoll(pool string, broadcast func(string, interface{}, string
 			return
 		}
 
-		broadcast("zfs.trim.progress", map[string]interface{}{
+		broadcast("trim_progress", map[string]interface{}{
 			"pool":         pool,
 			"percent_done": parsed.PercentDone,
 			"eta":          parsed.ETA,

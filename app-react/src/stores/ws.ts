@@ -15,9 +15,17 @@
  *   resilver_started                     → resilverStarted subscribers
  *   resilver_progress                    → resilverProgress subscribers
  *   resilver_completed                   → resilverCompleted subscribers
+ *   scrub_started | scrub_completed      → scrubEvent subscribers
+ *   scrub_progress                       → scrubProgress subscribers
+ *   scrub_aborted                        → scrubAborted subscribers
+ *   trim_started                         → trimStarted subscribers
+ *   trim_completed                       → trimCompleted subscribers
+ *   trim_aborted                         → trimAborted subscribers
+ *   trim_progress                        → trimProgress subscribers
  *   pool_health_change                   → poolHealthChange subscribers
  *   disk_temperature_warning             → diskTempWarning subscribers
- *   scrub_started | scrub_completed      → scrubEvent subscribers
+ *   zfs.data_loss | zfs.deadman |
+ *     zfs.io_error                       → zfsAlert subscribers
  *   inotify_status                       → inotifyStats subscribers
  *   mount_health_<poolname>              → mountError subscribers
  *   gitops.drift                         → gitopsDrift subscribers
@@ -48,6 +56,13 @@ type EventMap = {
   poolHealthChange: (data: unknown) => void
   diskTempWarning: (data: unknown) => void
   scrubEvent: (data: unknown) => void
+  scrubProgress: (data: unknown) => void
+  scrubAborted: (data: unknown) => void
+  trimStarted: (data: unknown) => void
+  trimCompleted: (data: unknown) => void
+  trimAborted: (data: unknown) => void
+  trimProgress: (data: unknown) => void
+  zfsAlert: (data: unknown) => void
   inotifyStats: (data: unknown) => void
   mountError: (data: unknown) => void
   gitopsDrift: (data: unknown) => void
@@ -190,6 +205,29 @@ export const useWsStore = create<WsState>((set) => {
         case 'scrub_started':
         case 'scrub_completed':
           emit('scrubEvent', msg.data ?? msg)
+          break
+        case 'scrub_progress':
+          emit('scrubProgress', msg.data ?? msg)
+          break
+        case 'scrub_aborted':
+          emit('scrubAborted', msg.data ?? msg)
+          break
+        case 'trim_started':
+          emit('trimStarted', msg.data ?? msg)
+          break
+        case 'trim_completed':
+          emit('trimCompleted', msg.data ?? msg)
+          break
+        case 'trim_aborted':
+          emit('trimAborted', msg.data ?? msg)
+          break
+        case 'trim_progress':
+          emit('trimProgress', msg.data ?? msg)
+          break
+        case 'zfs.data_loss':
+        case 'zfs.deadman':
+        case 'zfs.io_error':
+          emit('zfsAlert', { ...(msg.data as object ?? {}), alert_type: msg.type })
           break
         case 'inotify_stats':
         case 'inotify_status':
