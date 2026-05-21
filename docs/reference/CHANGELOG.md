@@ -6,6 +6,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 
 
+## v11.4.0 (2026-05-21) - "Hardened"
+
+Upgrade from: v11.3.0 - Drop-in. No schema changes. No configuration changes.
+
+### Added
+- **API confirmation tokens for destructive operations (`internal/security/confirm.go`)**: `POST /api/confirm/issue` issues a 48-hex-char single-use token scoped to `operation + target + userID`, valid for 60 seconds. Consuming the token atomically on first use prevents replay. The `confirmRoute` middleware enforces token presence on six destructive routes: pool destroy (`pool_destroy`), pool export (`pool_export`), docker container remove (`docker_remove`), docker prune (`docker_prune`), docker image remove (`docker_rmi`), and zvol destroy (`zvol_destroy`). Returns structured `confirm_required` / `confirm_invalid` error codes.
+- **libzfs snapshot operations**: `SnapshotCreate`, `SnapshotDestroy`, and `SnapshotClone` added to `internal/libzfs` for both the cgo path (direct `zfs_snapshot`, `zfs_destroy`, `zfs_clone` C API calls) and the subprocess fallback. Two new security whitelist entries: `zfs_destroy_snapshot` and `zfs_clone`, both with strict regex patterns enforcing the `pool/dataset@snapname` format.
+- **4 missing admin-level permissions seeded (`schema.go`)**: `storage:admin`, `shares:admin`, `docker:admin`, and `users:admin` were absent from the seed list; added so role editors can assign them without manual DB intervention.
+
+### Fixed
+- **ZED event name alignment**: `zedFastProgressPoll` was broadcasting `zfs.scrub.progress` and `zfs.resilver.progress` while the frontend switch expected `scrub_progress` and `resilver_progress`. Event names unified to underscore convention throughout (`scrub_progress`, `resilver_progress`, `trim_progress`).
+- **Missing ZED typed event handlers**: Added `scrub_aborted`, `trim_started`, `trim_completed`, `trim_aborted`, `trim_progress`, and `zfs_alert` (covering `zfs.data_loss`, `zfs.deadman`, `zfs.io_error`) to the frontend WebSocket event map and PoolsPage subscriptions. Scrub abort now shows a warning toast; ZFS alert events show a human-readable error toast.
+
+### Changed
+- **RBAC gap closed**: 21 read-only endpoints that were session-authenticated only (ZFS health, scrub status, metrics, iSCSI/NVMe-oF status, firewall status, certificate list, HA status, job polling, and others) now carry explicit `permRoute()` RBAC checks. No authenticated user below the required role can reach any operational endpoint.
+- **libzfs snapshot/clone/destroy caller migration**: `zfs_snapshots.go` (`CreateSnapshot`, `DestroySnapshot`, `CloneSnapshot`), `docker_enhanced.go` (pre-update ZFS safety snapshot), and `zfs_sandbox.go` (snapshot create/destroy, clone, dataset destroy, mountpoint and origin queries) all migrated from direct `executeCommand("zfs", ...)` calls to `libzfs.SnapshotCreate`, `SnapshotDestroy`, `SnapshotClone`, `DatasetDestroy`, and `DatasetGet`. All ZFS mutation paths now go through libzfs; only read-only list queries retain subprocess calls with whitelist validation.
+- **Docker prune requires confirmation**: The prune button previously fired immediately. It now opens a confirmation modal, and the mutation issues a server-side confirmation token before executing.
+- **Pool destroy and Docker remove use confirmation tokens**: `DestroyPoolModal` and both container delete mutations (grid and list view) in `DockerPage` issue a confirmation token via `issueConfirmToken()` and attach it as `X-Confirm-Token` on the destructive request.
+- **`apiFetch` extended with custom headers**: The `opts` object now accepts a `headers` field so callers can inject `X-Confirm-Token` without bypassing the standard session/CSRF injection.
+
+---
+
 ## v11.3.0 (2026-05-20) - "Integrity"
 
 Upgrade from: v11.2.0 - Drop-in. No schema changes. No configuration changes.

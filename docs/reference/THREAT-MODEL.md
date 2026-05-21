@@ -57,7 +57,7 @@ DPlaneOS is a NAS management layer running on NixOS. It manages storage (ZFS), c
 - **2FA:** TOTP (RFC 6238) with ±1 window clock drift tolerance, bcrypt-hashed backup codes
 - **API tokens:** SHA-256 hashed, prefixed `dpl_`, scope-limited (read/write/admin)
 - **RBAC:** 4 roles (viewer, user, operator, admin) enforced at handler level, with 34 discrete permissions
-- **Command execution (ZFS):** Most ZFS operations now go through `internal/libzfs` (cgo direct C API call or subprocess fallback). Both paths pre-validate all arguments with the same allowlist validators before any system call or subprocess is created. No shell expansion occurs in either path.
+- **Command execution (ZFS):** All ZFS mutation operations (pool export/destroy/clear, dataset create/destroy/rename/promote, snapshot create/destroy/clone, vdev add/attach/replace/remove/online/offline, property get/set) now go through `internal/libzfs` (cgo direct C API call or subprocess fallback). Both paths pre-validate all arguments with the same allowlist validators before any system call or subprocess is created. No shell expansion occurs in either path. Read-only list queries retain subprocess calls with strict whitelist validation.
 - **Command execution (other):** Docker, Samba, NFS, and network tools use allowlist-based validation via `internal/security/whitelist.go`; arguments passed as separate slice elements to `exec.Command` - no shell. **v6.1.0 Hardening:** Strict `by-id` path enforcement and pool-membership safety checks for disk operations ensure enterprise-grade storage security.
 - **Database:** PostgreSQL with Patroni for HA; connections managed via `pgx/v5` pool.
 
@@ -77,7 +77,7 @@ DPlaneOS is a NAS management layer running on NixOS. It manages storage (ZFS), c
 - networkdwriter (network persistence) writes files directly, no shell involved; `networkctl reload` is called with fixed args, no user input in the command line.
 - **v3.3.2 fix:** The ZFS replication handler (`replication_remote.go`) previously constructed shell commands via `fmt.Sprintf` and executed them with `bash -c`. This has been replaced with `execPipedZFSSend()`, which connects `zfs send`, `pv` (optional), and `ssh recv` as discrete `exec.Command` processes linked via Go `io.Pipe`. No shell is invoked. Resume tokens are now validated with `isValidResumeToken()` before use as arguments.
 
-**Residual risk**: NEGLIGIBLE. The multi-layered approach (allowlist validation + fixed argument arrays + no shell + path normalization) effectively eliminates standard command injection vectors.
+**Residual risk**: NEGLIGIBLE. The multi-layered approach (allowlist validation + fixed argument arrays + no shell + path normalization + libzfs direct API for all mutation paths) effectively eliminates standard command injection vectors.
 
 ---
 
@@ -244,7 +244,7 @@ DPlaneOS is a NAS management layer running on NixOS. It manages storage (ZFS), c
 |---------|----------|------|-------|
 | HTTP API (~400 routes) | All routes require session except `/health` and `/api/auth/*` | Session middleware (global) | All operational routes carry per-route RBAC via `permRoute()`; self-service introspection routes (`/api/rbac/me/*`) are session-only by design |
 | WebSocket (`/api/ws/monitor`) | Authenticated | Session middleware | Validated before upgrade |
-| `exec.Command` (zfs, zpool, docker, etc.) | Internal only | **Strict sentence-based allowlist** | Path-agnostic resolution via PATH; no shell |
+| `exec.Command` (zfs, zpool, docker, etc.) | Internal only | **Strict allowlist + libzfs direct API for all ZFS mutations** | Path-agnostic resolution via PATH; no shell; snapshot/clone/destroy go through cgo, not subprocess |
 | networkdwriter file writes | `/etc/systemd/network/50-dplane-*` | Root filesystem permissions | Pure file I/O; `networkctl reload` fixed args |
 | PostgreSQL database | Filesystem (`/var/lib/dplaneos/pgsql/`) | OS file permissions (root/postgres) | Managed by Patroni/etcd |
 | systemd service | Root process | `CapabilityBoundingSet`, `NoNewPrivileges`, `MemoryMax` | Not a dedicated non-root user |
