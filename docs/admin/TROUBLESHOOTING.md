@@ -713,6 +713,9 @@ sudo journalctl -u dplaned -n 50 > daemon.log
 |-------|----------|--------------|------------|
 | Storage tabs empty | High | ZFS module not loaded | `modprobe zfs` |
 | No admin on first boot | Medium | DB init race | Second boot auto-recovers; or use `dplaneos-recovery` |
+| User locked out / forgot password | Medium | Lost credentials | Admin uses Settings → Users → lock_reset icon to set a temp password; user must change on next login |
+| LDAP user sees password change form | Low | `source` not yet in session cache | Re-login refreshes the session; LDAP accounts display an informational notice and the form is disabled |
+| Session survives browser close unexpectedly | Low | "Remember me" was checked at login | User checked Remember me; token is in localStorage; log out explicitly to revoke |
 | Docker installs silently fail | Medium | Firewall or proxy | Configure Docker proxy or pre-pull images |
 | UI broken after upgrade | Low | Browser cache | Hard refresh (Ctrl+Shift+R) |
 | Hot-swap disk not detected | Medium | udev rules not installed | Reinstall udev rules, reload |

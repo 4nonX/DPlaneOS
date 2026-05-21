@@ -103,7 +103,15 @@ ip addr show
 # Or check your router's DHCP leases
 ```
 
-Open `http://<server-ip>/` in a browser. The installer printed the initial admin password on the console. You are required to change it on first login.
+Open `http://<server-ip>/` in a browser. The setup wizard runs automatically on first access. You will:
+
+1. Create the admin account (username + password) - no pre-generated password
+2. Select disks and configure a storage pool (optional - can skip and do later)
+3. Set hostname and timezone
+
+After the wizard completes, log in with the credentials you just created. If setup was interrupted (browser closed mid-wizard), simply reopen the URL - the wizard detects the partial state and resumes from the disk selection step.
+
+**Session persistence:** By default the session is tab-scoped (lost on browser close). Check **Remember me** at login to persist the session in `localStorage` across browser restarts, within the 24-hour server-side TTL.
 
 ---
 

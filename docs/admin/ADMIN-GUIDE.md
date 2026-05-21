@@ -54,6 +54,16 @@ For deeper dives into operational areas, see the dedicated guides:
 
 Role changes take effect immediately (permission cache expires within ~5 minutes).
 
+### Resetting a User's Password
+
+Use this when a user is locked out or needs a forced credential rotation.
+
+1. Settings → Users → click the **lock_reset icon** next to the user
+2. Enter a temporary password (full strength requirements apply)
+3. Click **Set Temporary Password**
+
+The user's existing sessions are immediately revoked. On their next login they are blocked at the system level until they change the temporary password - no route works except `POST /api/auth/change-password`. LDAP accounts cannot have their password reset here; direct users to their directory server.
+
 ### Removing Users
 
 Users cannot be deleted while they have active sessions. User ID 1 (the initial admin) cannot be deleted.
@@ -300,7 +310,9 @@ sudo zpool import tank   # import by name
 - `/tmp/*` (Temporary files)
 - `/var/lib/dplaneos/` (Application data)
 
-**Passwords:** Minimum 12 characters, mixed case, numbers, and symbols. The installer generates a random password on first install and requires you to change it on first login.
+**Passwords:** Minimum 8 characters with uppercase, lowercase, digit, and special character (12+ recommended). On first install the setup wizard creates the admin account - no pre-generated password is printed; you set it during wizard Step 1. The forced-change flag (`must_change_password`) is server-enforced: all API routes except change-password and logout return HTTP 403 until the flag is cleared. When changing a password, all other active sessions are revoked automatically.
+
+To reset a forgotten or compromised password, an admin uses **Settings → Users → lock_reset icon** to set a temporary password (see User Management above). There is no self-service password reset - this is intentional for a NAS with no email integration.
 
 **HTTPS:** Set up a TLS certificate via certbot or your reverse proxy. The nginx config ships with appropriate security headers.
 
