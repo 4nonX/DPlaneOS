@@ -241,7 +241,7 @@ DPlaneOS is a NAS management layer running on NixOS. It manages storage (ZFS), c
 
 | Surface | Exposure | Auth | Notes |
 |---------|----------|------|-------|
-| HTTP API (~196 routes) | All routes require session except `/health` and `/api/auth/*` | Session middleware (global) | ~24 routes also have per-route RBAC; remainder session-only |
+| HTTP API (~400 routes) | All routes require session except `/health` and `/api/auth/*` | Session middleware (global) | ~24 routes also have per-route RBAC; remainder session-only |
 | WebSocket (`/api/ws/monitor`) | Authenticated | Session middleware | Validated before upgrade |
 | `exec.Command` (zfs, zpool, docker, etc.) | Internal only | **Strict sentence-based allowlist** | Path-agnostic resolution via PATH; no shell |
 | networkdwriter file writes | `/etc/systemd/network/50-dplane-*` | Root filesystem permissions | Pure file I/O; `networkctl reload` fixed args |

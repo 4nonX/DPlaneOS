@@ -1,6 +1,6 @@
 # DPlaneOS - Showstopper Mitigation Guide
 
-**Updated:** 2026-05-15
+**Updated:** 2026-05-21
 **Purpose:** Honest assessment of what works, what has documented limits, and what is genuinely out of scope.
 
 ---
@@ -120,7 +120,7 @@ Full enterprise HA is implemented across three layers. Two deployment topologies
 
 **Split-brain protection:** On startup, daemon queries Patroni `/health`. If replica role is confirmed, automatic ZFS pool import is blocked.
 
-**RTO: ~90 seconds** from failure detection to fully serving. No human intervention required.
+**RTO:** ~10-30 seconds for shared-SAS deployments (SCSI-3 PR fencing is near-instant once the preempt command completes). ~90 seconds for replicated deployments (45-second heartbeat timeout + IPMI power-off confirmation + startup). No human intervention required in either case.
 
 ---
 
