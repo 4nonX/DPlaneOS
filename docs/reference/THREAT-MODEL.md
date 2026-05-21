@@ -52,11 +52,14 @@ DPlaneOS is a NAS management layer running on NixOS. It manages storage (ZFS), c
 ## Security Features
 
 - **Destructive operation tokens:** 48-hex-char single-use confirmation tokens (`POST /api/confirm/issue`) required for pool destroy/export, Docker remove/prune/rmi, and zvol destroy. Tokens are in-memory, 60 s TTL, scoped to operation + target + user ID, consumed on first use.
-- **Sessions:** 32-byte random session tokens, stored hashed in PostgreSQL
+- **Sessions:** 32-byte random session tokens, stored hashed in PostgreSQL. Client stores token in `sessionStorage` (tab-scoped, default) or `localStorage` (persistent, requires "Remember me" opt-in). Server-side TTL is 24 hours regardless of client storage choice.
+- **Forced password change (server-enforced):** When `must_change_password = 1`, `sessionMiddleware` blocks every route except `/api/auth/change-password`, `/api/auth/logout`, and `/api/auth/session` with HTTP 403. Enforcement is server-side; the AppShell overlay provides the UI gate. API token holders bypass this check (machine-to-machine tokens are not subject to password-change policy).
+- **Session revocation on password change:** `ChangePassword` deletes all sessions for the user except the one that performed the change. Admin-initiated `reset-password` (`POST /api/users/{id}/reset-password`) deletes all sessions for the target user unconditionally.
 - **CSRF:** HMAC-SHA256 double-submit tokens on all mutating requests
 - **2FA:** TOTP (RFC 6238) with ±1 window clock drift tolerance, bcrypt-hashed backup codes
 - **API tokens:** SHA-256 hashed, prefixed `dpl_`, scope-limited (read/write/admin)
 - **RBAC:** 4 roles (viewer, user, operator, admin) enforced at handler level, with 34 discrete permissions
+- **LDAP account segregation:** `users.source` ('local'/'ldap') is returned in `GET /api/auth/session`. The password-change UI disables itself for LDAP accounts and directs users to the directory server. The admin `reset-password` endpoint rejects LDAP accounts with an explicit error.
 - **Command execution (ZFS):** All ZFS mutation operations (pool export/destroy/clear, dataset create/destroy/rename/promote, snapshot create/destroy/clone, vdev add/attach/replace/remove/online/offline, property get/set) now go through `internal/libzfs` (cgo direct C API call or subprocess fallback). Both paths pre-validate all arguments with the same allowlist validators before any system call or subprocess is created. No shell expansion occurs in either path. Read-only list queries retain subprocess calls with strict whitelist validation.
 - **Command execution (other):** Docker, Samba, NFS, and network tools use allowlist-based validation via `internal/security/whitelist.go`; arguments passed as separate slice elements to `exec.Command` - no shell. **v6.1.0 Hardening:** Strict `by-id` path enforcement and pool-membership safety checks for disk operations ensure enterprise-grade storage security.
 - **Database:** PostgreSQL with Patroni for HA; connections managed via `pgx/v5` pool.
@@ -91,6 +94,7 @@ DPlaneOS is a NAS management layer running on NixOS. It manages storage (ZFS), c
 - All other routes - including all ZFS, Docker, system, and RBAC routes - require a valid `X-Session-ID` header
 - Session validation: token format check + DB lookup + username-header match; fail-closed (DB error → 401)
 - TOTP: if enabled for a user, login issues a `pending_totp` session that can only call `/api/auth/totp/verify` - all other routes reject it
+- `must_change_password` gate: after session validation, `sessionMiddleware` queries the flag from the DB. Sessions with the flag set are restricted to three paths until the password is changed. This closes the path where a user with a forced-change password could bypass the client overlay by sending raw API requests.
 
 **Residual risk**: LOW.
 
@@ -242,11 +246,12 @@ DPlaneOS is a NAS management layer running on NixOS. It manages storage (ZFS), c
 
 | Surface | Exposure | Auth | Notes |
 |---------|----------|------|-------|
-| HTTP API (~400 routes) | All routes require session except `/health` and `/api/auth/*` | Session middleware (global) | All operational routes carry per-route RBAC via `permRoute()`; self-service introspection routes (`/api/rbac/me/*`) are session-only by design |
+| HTTP API (~400 routes) | All routes require session except `/health` and `/api/auth/*` | Session middleware (global) + `must_change_password` gate | All operational routes carry per-route RBAC via `permRoute()`; self-service introspection routes (`/api/rbac/me/*`) are session-only by design |
 | WebSocket (`/api/ws/monitor`) | Authenticated | Session middleware | Validated before upgrade |
 | `exec.Command` (zfs, zpool, docker, etc.) | Internal only | **Strict allowlist + libzfs direct API for all ZFS mutations** | Path-agnostic resolution via PATH; no shell; snapshot/clone/destroy go through cgo, not subprocess |
 | networkdwriter file writes | `/etc/systemd/network/50-dplane-*` | Root filesystem permissions | Pure file I/O; `networkctl reload` fixed args |
-| PostgreSQL database | Filesystem (`/var/lib/dplaneos/pgsql/`) | OS file permissions (root/postgres) | Managed by Patroni/etcd |
+| PostgreSQL database | Filesystem (`/var/lib/dplaneos/pgsql/`) | OS file permissions (root/postgres) | Managed by Patroni/etcd; sessions table holds hashed tokens, `must_change_password` flag enforced server-side |
+| Client session token | `sessionStorage` (default) or `localStorage` (opt-in "Remember me") | 24-hour server-side TTL, revoked on password change | localStorage token survives browser restart; XSS with localStorage access is a higher-impact scenario than sessionStorage |
 | systemd service | Root process | `CapabilityBoundingSet`, `NoNewPrivileges`, `MemoryMax` | Not a dedicated non-root user |
 
 ---
