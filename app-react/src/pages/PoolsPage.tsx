@@ -25,7 +25,8 @@
 import type React from 'react'
 import { useState, useEffect, useMemo, useRef, type Dispatch, type SetStateAction } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { api } from '@/lib/api'
+import { api, apiFetch } from '@/lib/api'
+import { issueConfirmToken } from '@/lib/confirm'
 import { Icon } from '@/components/ui/Icon'
 import { ErrorState } from '@/components/ui/ErrorState'
 import { Skeleton, Spinner } from '@/components/ui/LoadingSpinner'
@@ -1702,7 +1703,14 @@ function EncryptionTab() {
 function DestroyPoolModal({ poolName, onClose, onDestroyed }: { poolName: string; onClose: () => void; onDestroyed: () => void }) {
   const [confirmName, setConfirmName] = useState('')
   const mutation = useMutation({
-    mutationFn: () => api.post('/api/zfs/pools/destroy', { name: poolName }),
+    mutationFn: async () => {
+      const token = await issueConfirmToken('pool_destroy', poolName)
+      return apiFetch('/api/zfs/pools/destroy', {
+        method: 'POST',
+        body: { name: poolName },
+        headers: { 'X-Confirm-Token': token },
+      })
+    },
     onSuccess: () => { toast.success(`Pool ${poolName} destroyed`); onDestroyed(); onClose() },
     onError: (e: Error) => toast.error(e.message)
   })

@@ -24,7 +24,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
-import { api, getSessionId, getUsername } from '@/lib/api'
+import { api, apiFetch, getSessionId, getUsername } from '@/lib/api'
+import { issueConfirmToken } from '@/lib/confirm'
 import { Icon } from '@/components/ui/Icon'
 import { ContainerIcon } from '@/components/ui/ContainerIcon'
 import { ErrorState } from '@/components/ui/ErrorState'
@@ -207,7 +208,11 @@ function ContainerCard({ container, onRefresh }: { container: Container; onRefre
   })
 
   const deleteMutation = useMutation({
-    mutationFn: () => api.post('/api/docker/remove', { container_name: container.name.replace(/^\//, ''), force: true }),
+    mutationFn: async () => {
+      const name = container.name.replace(/^\//, '')
+      const token = await issueConfirmToken('docker_remove', name)
+      return apiFetch('/api/docker/remove', { method: 'POST', body: { container_name: name, force: true }, headers: { 'X-Confirm-Token': token } })
+    },
     onSuccess: () => { toast.success(`${container.name.replace(/^\//, '')} removed`); setShowDelete(false); onRefresh() },
     onError: (e: Error) => toast.error(e.message),
   })
@@ -603,7 +608,11 @@ function ContainerRow({ container, onRefresh }: { container: Container; onRefres
   })
 
   const deleteMutation = useMutation({
-    mutationFn: () => api.post('/api/docker/remove', { container_name: container.name.replace(/^\//, ''), force: true }),
+    mutationFn: async () => {
+      const name = container.name.replace(/^\//, '')
+      const token = await issueConfirmToken('docker_remove', name)
+      return apiFetch('/api/docker/remove', { method: 'POST', body: { container_name: name, force: true }, headers: { 'X-Confirm-Token': token } })
+    },
     onSuccess: () => { toast.success(`${container.name.replace(/^\//, '')} removed`); setShowDelete(false); onRefresh() },
     onError: (e: Error) => toast.error(e.message),
   })
@@ -796,9 +805,14 @@ function ContainersTab() {
     })
   }, [wsOn, qc])
 
+  const [showPruneConfirm, setShowPruneConfirm] = useState(false)
+
   const prune = useMutation({
-    mutationFn: () => api.post('/api/docker/prune', {}),
-    onSuccess: () => { toast.success('Docker system pruned'); qc.invalidateQueries({ queryKey: ['docker', 'containers'] }) },
+    mutationFn: async () => {
+      const token = await issueConfirmToken('docker_prune', 'all')
+      return apiFetch('/api/docker/prune', { method: 'POST', body: {}, headers: { 'X-Confirm-Token': token } })
+    },
+    onSuccess: () => { toast.success('Docker system pruned'); setShowPruneConfirm(false); qc.invalidateQueries({ queryKey: ['docker', 'containers'] }) },
     onError: (e: Error) => toast.error(e.message),
   })
 
@@ -855,9 +869,22 @@ function ContainersTab() {
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
           <button onClick={refresh} className="btn btn-ghost"><Icon name="refresh" size={14} />Refresh</button>
-          <button onClick={() => prune.mutate()} disabled={prune.isPending} className="btn btn-ghost" style={{ color: 'var(--error)', borderColor: 'var(--error-border)' }}>
+          <button onClick={() => setShowPruneConfirm(true)} disabled={prune.isPending} className="btn btn-ghost" style={{ color: 'var(--error)', borderColor: 'var(--error-border)' }}>
             <Icon name="delete_sweep" size={14} />{prune.isPending ? 'Pruning…' : 'Prune'}
           </button>
+          {showPruneConfirm && (
+            <Modal title="System Prune?" onClose={() => setShowPruneConfirm(false)}>
+              <p style={{ color: 'var(--text-secondary)', marginBottom: 20 }}>
+                Remove all stopped containers, unused images, and dangling volumes? This cannot be undone.
+              </p>
+              <div style={{ display: 'flex', gap: 10 }}>
+                <button onClick={() => prune.mutate()} disabled={prune.isPending} className="btn btn-ghost" style={{ color: 'var(--error)', borderColor: 'var(--error-border)' }}>
+                  <Icon name="delete_sweep" size={15} />{prune.isPending ? 'Pruning…' : 'Prune All'}
+                </button>
+                <button onClick={() => setShowPruneConfirm(false)} className="btn btn-ghost">Cancel</button>
+              </div>
+            </Modal>
+          )}
         </div>
       </div>
 

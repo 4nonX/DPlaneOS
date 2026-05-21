@@ -51,6 +51,7 @@ DPlaneOS is a NAS management layer running on NixOS. It manages storage (ZFS), c
 
 ## Security Features
 
+- **Destructive operation tokens:** 48-hex-char single-use confirmation tokens (`POST /api/confirm/issue`) required for pool destroy/export, Docker remove/prune/rmi, and zvol destroy. Tokens are in-memory, 60 s TTL, scoped to operation + target + user ID, consumed on first use.
 - **Sessions:** 32-byte random session tokens, stored hashed in PostgreSQL
 - **CSRF:** HMAC-SHA256 double-submit tokens on all mutating requests
 - **2FA:** TOTP (RFC 6238) with ±1 window clock drift tolerance, bcrypt-hashed backup codes
@@ -260,5 +261,4 @@ Run behind a VPN or reverse proxy with authentication (e.g. WireGuard, Tailscale
 
 - **ZFS keys not auto-locked on shutdown** - `zfs unload-key` must be called manually before powering down if encryption-at-rest is required
 - **PostgreSQL plaintext** - DB is not encrypted independently; relies on ZFS pool-level encryption if the pool is configured that way
-- **No API request signing** - no HMAC or nonce scheme for critical destructive operations (pool export, dataset destroy, Docker remove)
 - **CSP not set by daemon** - CSP only present in nginx config; direct connections to port 9000 have no CSP

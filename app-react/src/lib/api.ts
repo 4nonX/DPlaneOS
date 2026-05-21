@@ -102,6 +102,7 @@ export async function apiFetch<T>(
     method?: ApiMethod
     body?: unknown
     signal?: AbortSignal
+    headers?: Record<string, string>
   } = {},
 ): Promise<T> {
   const method = opts.method ?? 'GET'
@@ -121,6 +122,8 @@ export async function apiFetch<T>(
   const username = getUsername()
   if (sessionId) headers['X-Session-ID'] = sessionId
   if (username) headers['X-User'] = username
+
+  if (opts.headers) Object.assign(headers, opts.headers)
 
   // Hardened Mock Interceptor: Gated by build-time DEV environment check.
   // In production builds, import.meta.env.DEV is false, and this entire block

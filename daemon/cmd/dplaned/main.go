@@ -550,6 +550,7 @@ func main() {
 	r.HandleFunc("/api/auth/sessions", authHandler.ListSessions).Methods("GET", "OPTIONS")
 	r.HandleFunc("/api/auth/sessions", authHandler.RevokeSession).Methods("DELETE", "OPTIONS")
 	r.HandleFunc("/api/csrf", authHandler.CSRFToken).Methods("GET")
+	r.HandleFunc("/api/confirm/issue", handlers.HandleIssueConfirmToken).Methods("POST")
 
 	// TOTP 2FA
 	totpHandler := handlers.NewTOTPHandler(db)
@@ -626,14 +627,14 @@ func main() {
 	// v3.0.0: Docker enhanced
 	r.Handle("/api/docker/update", permRoute("docker", "admin", dockerHandler.SafeUpdate)).Methods("POST")
 	r.Handle("/api/docker/pull", permRoute("docker", "write", dockerHandler.PullImage)).Methods("POST")
-	r.Handle("/api/docker/remove", permRoute("docker", "write", dockerHandler.RemoveContainer)).Methods("POST")
-	r.Handle("/api/docker/prune", permRoute("docker", "admin", dockerHandler.PruneDocker)).Methods("POST")
+	r.Handle("/api/docker/remove", permRoute("docker", "write", confirmRoute("docker_remove", jsonField("container_name"), dockerHandler.RemoveContainer))).Methods("POST")
+	r.Handle("/api/docker/prune", permRoute("docker", "admin", confirmRoute("docker_prune", constTarget("all"), dockerHandler.PruneDocker))).Methods("POST")
 	r.Handle("/api/docker/stats", permRoute("docker", "read", dockerHandler.ContainerStats)).Methods("GET")
 	r.Handle("/api/docker/compose/up", permRoute("docker", "write", dockerHandler.ComposeUp)).Methods("POST")
 	r.Handle("/api/docker/compose/down", permRoute("docker", "write", dockerHandler.ComposeDown)).Methods("POST")
 	r.Handle("/api/docker/compose/status", permRoute("docker", "read", dockerHandler.ComposeStatus)).Methods("GET")
 	r.Handle("/api/docker/images", permRoute("docker", "read", dockerHandler.ListImages)).Methods("GET")
-	r.Handle("/api/docker/images/{id}", permRoute("docker", "write", dockerHandler.RemoveImage)).Methods("DELETE")
+	r.Handle("/api/docker/images/{id}", permRoute("docker", "write", confirmRoute("docker_rmi", muxVar("id"), dockerHandler.RemoveImage))).Methods("DELETE")
 	r.Handle("/api/docker/containers/{id}/inspect", permRoute("docker", "read", dockerHandler.InspectContainer)).Methods("GET")
 	r.Handle("/api/docker/containers/{id}/reconfigure", permRoute("docker", "write", dockerHandler.ReconfigureContainer)).Methods("POST")
 
@@ -888,7 +889,7 @@ func main() {
 
 	// NFS CRUD handler - NFSHandler manages /etc/exports via PostgreSQL
 	r.Handle("/api/zfs/pool/offline", permRoute("storage", "write", zfsHandler.OfflineDisk)).Methods("POST")
-	r.Handle("/api/zfs/pool/export", permRoute("storage", "write", zfsHandler.ExportPool)).Methods("POST")
+	r.Handle("/api/zfs/pool/export", permRoute("storage", "write", confirmRoute("pool_export", jsonField("pool"), zfsHandler.ExportPool))).Methods("POST")
 	nfsHandler := handlers.NewNFSHandler(db)
 	r.Handle("/api/nfs/status", permRoute("shares", "read", nfsHandler.GetNFSStatus)).Methods("GET")
 	r.Handle("/api/nfs/exports", permRoute("shares", "read", nfsHandler.ListNFSExports)).Methods("GET")
@@ -1180,7 +1181,7 @@ func main() {
 	// ZFS Block Volumes (zvols)
 	r.Handle("/api/zfs/volumes", permRoute("storage", "read", http.HandlerFunc(handlers.ListZvols))).Methods("GET")
 	r.Handle("/api/zfs/volumes", permRoute("storage", "write", http.HandlerFunc(handlers.CreateZvol))).Methods("POST")
-	r.Handle("/api/zfs/volumes", permRoute("storage", "write", http.HandlerFunc(handlers.DestroyZvol))).Methods("DELETE")
+	r.Handle("/api/zfs/volumes", permRoute("storage", "write", confirmRoute("zvol_destroy", jsonField("name"), handlers.DestroyZvol))).Methods("DELETE")
 	r.Handle("/api/zfs/volumes/resize", permRoute("storage", "write", http.HandlerFunc(handlers.ResizeZvol))).Methods("POST")
 
 	// ZFS TRIM
@@ -1204,7 +1205,7 @@ func main() {
 
 	// Pools lifecycle endpoints (used by PoolsPage wizard)
 	r.Handle("/api/zfs/pools/create", permRoute("storage", "write", http.HandlerFunc(handlers.HandlePoolCreate))).Methods("POST")
-	r.Handle("/api/zfs/pools/destroy", permRoute("storage", "admin", http.HandlerFunc(handlers.HandlePoolDestroy))).Methods("POST")
+	r.Handle("/api/zfs/pools/destroy", permRoute("storage", "admin", confirmRoute("pool_destroy", jsonField("name"), handlers.HandlePoolDestroy))).Methods("POST")
 
 	// Trash / Recycle Bin (v2.0.0)
 	trashHandler := handlers.NewTrashHandler()
