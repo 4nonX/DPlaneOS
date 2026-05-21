@@ -244,3 +244,42 @@ func SnapshotRelease(tag, snapshot string) error {
 	}
 	return nil
 }
+
+// SnapshotCreate creates a ZFS snapshot.
+func SnapshotCreate(name string) error {
+	if err := security.ValidateSnapshotName(name); err != nil {
+		return libzfsErr("SnapshotCreate", err.Error())
+	}
+	out, err := cmdutil.RunMedium("zfs_snapshot", "snapshot", name)
+	if err != nil {
+		return libzfsErr("SnapshotCreate", string(out))
+	}
+	return nil
+}
+
+// SnapshotDestroy destroys a ZFS snapshot.
+func SnapshotDestroy(name string) error {
+	if err := security.ValidateSnapshotName(name); err != nil {
+		return libzfsErr("SnapshotDestroy", err.Error())
+	}
+	out, err := cmdutil.RunMedium("zfs_destroy_snapshot", "destroy", name)
+	if err != nil {
+		return libzfsErr("SnapshotDestroy", string(out))
+	}
+	return nil
+}
+
+// SnapshotClone clones a ZFS snapshot into a new dataset.
+func SnapshotClone(snapshot, clone string) error {
+	if err := security.ValidateSnapshotName(snapshot); err != nil {
+		return libzfsErr("SnapshotClone", err.Error())
+	}
+	if err := security.ValidateDatasetName(clone); err != nil {
+		return libzfsErr("SnapshotClone", err.Error())
+	}
+	out, err := cmdutil.RunMedium("zfs_clone", "clone", snapshot, clone)
+	if err != nil {
+		return libzfsErr("SnapshotClone", string(out))
+	}
+	return nil
+}

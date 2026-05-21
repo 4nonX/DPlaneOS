@@ -7,6 +7,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"dplaned/internal/libzfs"
 )
 
 // ZFSSnapshotHandler handles ZFS snapshot CRUD operations
@@ -106,7 +108,7 @@ func (h *ZFSSnapshotHandler) CreateSnapshot(w http.ResponseWriter, r *http.Reque
 	}
 
 	start := time.Now()
-	_, err := executeCommand("zfs", []string{"snapshot", fullName})
+	err := libzfs.SnapshotCreate(fullName)
 	duration := time.Since(start)
 
 	if err != nil {
@@ -140,7 +142,7 @@ func (h *ZFSSnapshotHandler) DestroySnapshot(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	_, err := executeCommand("zfs", []string{"destroy", req.Snapshot})
+	err := libzfs.SnapshotDestroy(req.Snapshot)
 	if err != nil {
 		respondOK(w, map[string]interface{}{
 			"success": false,
@@ -219,7 +221,7 @@ func (h *ZFSSnapshotHandler) CloneSnapshot(w http.ResponseWriter, r *http.Reques
 	}
 
 	start := time.Now()
-	_, err := executeCommand("zfs", []string{"clone", req.Snapshot, req.Clone})
+	err := libzfs.SnapshotClone(req.Snapshot, req.Clone)
 	duration := time.Since(start)
 
 	if err != nil {

@@ -281,6 +281,31 @@ static int dplane_snapshot_release(libzfs_handle_t *hdl,
     return rc;
 }
 
+// dplane_snapshot_create creates a ZFS snapshot (non-recursive).
+static int dplane_snapshot_create(libzfs_handle_t *hdl, const char *name) {
+    return zfs_snapshot(hdl, name, B_FALSE, NULL);
+}
+
+// dplane_snapshot_destroy destroys a ZFS snapshot.
+static int dplane_snapshot_destroy(libzfs_handle_t *hdl, const char *name) {
+    zfs_handle_t *zhp = zfs_open(hdl, name, ZFS_TYPE_SNAPSHOT);
+    if (zhp == NULL) return -1;
+    int rc = zfs_destroy(zhp, B_FALSE);
+    zfs_close(zhp);
+    return rc;
+}
+
+// dplane_snapshot_clone clones a ZFS snapshot into a new dataset.
+static int dplane_snapshot_clone(libzfs_handle_t *hdl,
+                                  const char *snapshot,
+                                  const char *clone) {
+    zfs_handle_t *zhp = zfs_open(hdl, snapshot, ZFS_TYPE_SNAPSHOT);
+    if (zhp == NULL) return -1;
+    int rc = zfs_clone(zhp, clone, NULL);
+    zfs_close(zhp);
+    return rc;
+}
+
 // dplane_last_error returns the current libzfs error description.
 static const char *dplane_last_error(libzfs_handle_t *hdl) {
     return libzfs_error_description(hdl);
@@ -564,6 +589,56 @@ func SnapshotRelease(tag, snapshot string) error {
 	return withHandle(func(hdl *C.libzfs_handle_t) error {
 		if rc := C.dplane_snapshot_release(hdl, cSnap, cTag); rc != 0 {
 			return errFromHandle(hdl, "SnapshotRelease")
+		}
+		return nil
+	})
+}
+
+// SnapshotCreate creates a ZFS snapshot.
+func SnapshotCreate(name string) error {
+	if err := security.ValidateSnapshotName(name); err != nil {
+		return libzfsErr("SnapshotCreate", err.Error())
+	}
+	cName := C.CString(name)
+	defer C.free(unsafe.Pointer(cName))
+	return withHandle(func(hdl *C.libzfs_handle_t) error {
+		if rc := C.dplane_snapshot_create(hdl, cName); rc != 0 {
+			return errFromHandle(hdl, "SnapshotCreate")
+		}
+		return nil
+	})
+}
+
+// SnapshotDestroy destroys a ZFS snapshot.
+func SnapshotDestroy(name string) error {
+	if err := security.ValidateSnapshotName(name); err != nil {
+		return libzfsErr("SnapshotDestroy", err.Error())
+	}
+	cName := C.CString(name)
+	defer C.free(unsafe.Pointer(cName))
+	return withHandle(func(hdl *C.libzfs_handle_t) error {
+		if rc := C.dplane_snapshot_destroy(hdl, cName); rc != 0 {
+			return errFromHandle(hdl, "SnapshotDestroy")
+		}
+		return nil
+	})
+}
+
+// SnapshotClone clones a ZFS snapshot into a new dataset.
+func SnapshotClone(snapshot, clone string) error {
+	if err := security.ValidateSnapshotName(snapshot); err != nil {
+		return libzfsErr("SnapshotClone", err.Error())
+	}
+	if err := security.ValidateDatasetName(clone); err != nil {
+		return libzfsErr("SnapshotClone", err.Error())
+	}
+	cSnapshot := C.CString(snapshot)
+	defer C.free(unsafe.Pointer(cSnapshot))
+	cClone := C.CString(clone)
+	defer C.free(unsafe.Pointer(cClone))
+	return withHandle(func(hdl *C.libzfs_handle_t) error {
+		if rc := C.dplane_snapshot_clone(hdl, cSnapshot, cClone); rc != 0 {
+			return errFromHandle(hdl, "SnapshotClone")
 		}
 		return nil
 	})

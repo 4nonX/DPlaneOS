@@ -17,6 +17,7 @@ import (
 	"dplaned/internal/config"
 	"dplaned/internal/dockerclient"
 	"dplaned/internal/jobs"
+	"dplaned/internal/libzfs"
 )
 
 // ═══════════════════════════════════════════════════════════════
@@ -64,7 +65,7 @@ func (h *DockerHandler) SafeUpdate(w http.ResponseWriter, r *http.Request) {
 				req.ContainerName,
 				time.Now().Format("20060102-150405"),
 			)
-			_, err := executeCommand("zfs", []string{"snapshot", snapshotName})
+			err := libzfs.SnapshotCreate(snapshotName)
 			if err != nil {
 				steps = append(steps, UpdateStep{"zfs_snapshot", false, err.Error()})
 				j.Fail(fmt.Sprintf("Failed to create safety snapshot: %v", err))

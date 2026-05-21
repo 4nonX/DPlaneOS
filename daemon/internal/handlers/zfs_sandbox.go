@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"dplaned/internal/libzfs"
 )
 
 // ZFSSandboxHandler manages ephemeral ZFS clones for Docker sandboxing
@@ -60,7 +62,7 @@ func (h *ZFSSandboxHandler) CreateSandbox(w http.ResponseWriter, r *http.Request
 
 	// Step 1: Create a snapshot as clone base
 	snapName := fmt.Sprintf("%s@sandbox-base-%s", req.Dataset, sandboxName)
-	_, err := executeCommand("zfs", []string{"snapshot", snapName})
+	err := libzfs.SnapshotCreate(snapName)
 	if err != nil {
 		respondOK(w, map[string]interface{}{
 			"success": false,
@@ -75,16 +77,16 @@ func (h *ZFSSandboxHandler) CreateSandbox(w http.ResponseWriter, r *http.Request
 	poolName := strings.Split(req.Dataset, "/")[0]
 	cloneDataset := fmt.Sprintf("%s/sandboxes/%s", poolName, sandboxName)
 
-	// Ensure sandboxes parent dataset exists
-	executeCommand("zfs", []string{"create", "-p", poolName + "/sandboxes"})
+	// Ensure sandboxes parent dataset exists (idempotent: error ignored if already exists)
+	libzfs.DatasetCreate(poolName + "/sandboxes")
 
 	start := time.Now()
-	_, err = executeCommand("zfs", []string{"clone", snapName, cloneDataset})
+	err = libzfs.SnapshotClone(snapName, cloneDataset)
 	duration := time.Since(start)
 
 	if err != nil {
 		// Cleanup the snapshot on failure
-		executeCommand("zfs", []string{"destroy", snapName})
+		libzfs.SnapshotDestroy(snapName)
 		respondOK(w, map[string]interface{}{
 			"success": false,
 			"error":   fmt.Sprintf("Failed to create clone: %v", err),
@@ -93,10 +95,7 @@ func (h *ZFSSandboxHandler) CreateSandbox(w http.ResponseWriter, r *http.Request
 	}
 
 	// Get the mountpoint
-	mpOut, _ := executeCommand("zfs", []string{
-		"get", "-H", "-o", "value", "mountpoint", cloneDataset,
-	})
-	mountpoint := strings.TrimSpace(mpOut)
+	mountpoint, _ := libzfs.DatasetGet(cloneDataset, "mountpoint")
 
 	respondOK(w, map[string]interface{}{
 		"success":     true,
@@ -183,13 +182,10 @@ func (h *ZFSSandboxHandler) DestroySandbox(w http.ResponseWriter, r *http.Reques
 	}
 
 	// Get the origin snapshot before destroying the clone
-	originOut, _ := executeCommand("zfs", []string{
-		"get", "-H", "-o", "value", "origin", req.Sandbox,
-	})
-	origin := strings.TrimSpace(originOut)
+	origin, _ := libzfs.DatasetGet(req.Sandbox, "origin")
 
 	// Step 1: Destroy the clone
-	_, err := executeCommand("zfs", []string{"destroy", "-r", req.Sandbox})
+	err := libzfs.DatasetDestroy(req.Sandbox, true)
 	if err != nil {
 		respondOK(w, map[string]interface{}{
 			"success": false,
@@ -201,7 +197,7 @@ func (h *ZFSSandboxHandler) DestroySandbox(w http.ResponseWriter, r *http.Reques
 	// Step 2: Destroy the origin snapshot (no longer needed)
 	cleanedUp := false
 	if origin != "" && origin != "-" {
-		_, err := executeCommand("zfs", []string{"destroy", origin})
+		err := libzfs.SnapshotDestroy(origin)
 		cleanedUp = err == nil
 	}
 

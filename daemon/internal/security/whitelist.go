@@ -93,6 +93,23 @@ var CommandWhitelist = map[string]Command{
 		ArgPatterns: []*regexp.Regexp{regexp.MustCompile(`^[a-zA-Z0-9_\-]+/[a-zA-Z0-9_\-/]+@[a-zA-Z0-9_\-]+$`)},
 		Description: "Create ZFS snapshot",
 	},
+	"zfs_destroy_snapshot": {
+		Name:        "zfs_destroy_snapshot",
+		Path:        "zfs",
+		AllowedArgs: []string{"destroy"},
+		ArgPatterns: []*regexp.Regexp{regexp.MustCompile(`^[a-zA-Z0-9_\-]+/[a-zA-Z0-9_\-/]+@[a-zA-Z0-9_\-\.]+$`)},
+		Description: "Destroy a ZFS snapshot",
+	},
+	"zfs_clone": {
+		Name:        "zfs_clone",
+		Path:        "zfs",
+		AllowedArgs: []string{"clone"},
+		ArgPatterns: []*regexp.Regexp{
+			regexp.MustCompile(`^[a-zA-Z0-9_\-]+/[a-zA-Z0-9_\-/]+@[a-zA-Z0-9_\-\.]+$`), // snapshot source
+			regexp.MustCompile(`^[a-zA-Z0-9_\-]+/[a-zA-Z0-9_\-/]+$`),                    // clone target dataset
+		},
+		Description: "Clone a ZFS snapshot into a new dataset",
+	},
 	"zfs_list_snapshots": {
 		Name:        "zfs_list_snapshots",
 		Path:        "zfs",
