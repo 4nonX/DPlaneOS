@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/gorilla/mux"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -386,6 +387,66 @@ func (h *UserGroupHandler) deleteUser(w http.ResponseWriter, req userActionReque
 	respondJSON(w, http.StatusOK, map[string]interface{}{
 		"success": true,
 		"message": "User deleted",
+	})
+}
+
+// ResetUserPassword - POST /api/users/{id}/reset-password
+// Sets a temporary password and forces the user to change it on next login.
+// Revokes all current sessions for the target user.
+func (h *UserGroupHandler) ResetUserPassword(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	idStr := vars["id"]
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		respondErrorSimple(w, "Invalid user ID", http.StatusBadRequest)
+		return
+	}
+
+	type req struct {
+		TempPassword string `json:"temp_password"`
+	}
+	var body req
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		respondErrorSimple(w, "Invalid request", http.StatusBadRequest)
+		return
+	}
+
+	body.TempPassword = strings.TrimSpace(body.TempPassword)
+	if ok, msg := validatePasswordStrength(body.TempPassword); !ok {
+		respondErrorSimple(w, msg, http.StatusBadRequest)
+		return
+	}
+
+	var username, source string
+	err = h.db.QueryRow(`SELECT username, COALESCE(source,'local') FROM users WHERE id = $1`, id).Scan(&username, &source)
+	if err != nil {
+		respondErrorSimple(w, "User not found", http.StatusNotFound)
+		return
+	}
+
+	if source == "ldap" {
+		respondErrorSimple(w, "Cannot reset password for LDAP users - manage via directory server", http.StatusBadRequest)
+		return
+	}
+
+	hash, err := bcrypt.GenerateFromPassword([]byte(body.TempPassword), bcrypt.DefaultCost)
+	if err != nil {
+		respondErrorSimple(w, "Internal error", http.StatusInternalServerError)
+		return
+	}
+
+	_, err = h.db.Exec(`UPDATE users SET password_hash = $1, must_change_password = 1 WHERE id = $2`, string(hash), id)
+	if err != nil {
+		respondErrorSimple(w, "Failed to reset password", http.StatusInternalServerError)
+		return
+	}
+
+	// Revoke all sessions so the user must log in with the new temp password
+	h.db.Exec(`DELETE FROM sessions WHERE username = $1`, username)
+
+	respondJSON(w, http.StatusOK, map[string]interface{}{
+		"success": true,
+		"message": fmt.Sprintf("Password reset for %s - user must set a new password on next login", username),
 	})
 }
 

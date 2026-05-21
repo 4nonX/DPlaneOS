@@ -24,6 +24,7 @@ export interface SessionUser {
   email: string
   role: string
   must_change_password: boolean
+  source: string   // 'local' | 'ldap'
 }
 
 interface LoginResponse {
@@ -64,10 +65,12 @@ interface AuthState {
    * POST /api/auth/login
    * Returns { requiresTotp, pendingToken } if TOTP is enabled,
    * or void on full success.
+   * rememberMe: if true, session persists in localStorage across browser restarts.
    */
   login: (
     username: string,
     password: string,
+    rememberMe?: boolean,
   ) => Promise<{ requiresTotp: true; pendingToken: string } | void>
 
   /** POST /api/auth/logout */
@@ -91,7 +94,8 @@ export const useAuthStore = create<AuthState>((set) => ({
         username: 'admin',
         email: 'admin@dplaneos.local',
         role: 'admin',
-        must_change_password: false
+        must_change_password: false,
+        source: 'local',
       },
       isLoading: false
     })
@@ -128,7 +132,7 @@ export const useAuthStore = create<AuthState>((set) => ({
     }
   },
 
-  login: async (username, password) => {
+  login: async (username, password, rememberMe) => {
     const data = await api.post<LoginResponse>('/api/auth/login', { username, password })
 
     if (!data.success) {
@@ -144,7 +148,7 @@ export const useAuthStore = create<AuthState>((set) => ({
       throw new Error('Malformed login response from daemon')
     }
 
-    storeSession(data.session_id, data.username)
+    storeSession(data.session_id, data.username, rememberMe)
 
     // Load full user record now that session is stored
     const session = await api.get<SessionResponse>('/api/auth/session')

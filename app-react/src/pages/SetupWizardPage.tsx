@@ -150,7 +150,16 @@ function StepAdmin({ onNext, onBack }: { onNext: () => void; onBack: () => void 
   const save = useMutation({
     mutationFn: () => api.post('/api/system/setup-admin', { username, password }),
     onSuccess: () => { setError(''); onNext() },
-    onError: (e: Error) => setError(e.message),
+    onError: (e: Error) => {
+      const msg = e.message.toLowerCase()
+      if (msg.includes('already') || msg.includes('exists') || msg.includes('conflict')) {
+        // Admin was already created (e.g. browser closed mid-setup) - skip this step
+        setError('')
+        onNext()
+      } else {
+        setError(e.message)
+      }
+    },
   })
 
   function submit() {

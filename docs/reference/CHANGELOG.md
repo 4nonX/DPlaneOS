@@ -6,6 +6,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 
 
+## v11.5.0 (2026-05-21) - "Auth"
+
+Upgrade from: v11.4.0 - Drop-in. No schema changes. No configuration changes.
+
+### Added
+- **Admin reset-password endpoint (`POST /api/users/{id}/reset-password`)**: Requires `users:write` permission. Sets a temporary password (full strength validation enforced), sets `must_change_password = 1`, and revokes all sessions for the target user. Rejects LDAP accounts with a clear error. Frontend: reset-password button (lock icon, warning color) added to each user row in UsersPage, opens `ResetPasswordModal` with inline advisory note about session revocation.
+- **"Remember me" on login**: Checkbox on the credentials form. When checked, session token is stored in `localStorage` instead of `sessionStorage`, so the session persists across browser restarts within the 24-hour server-side TTL. `getSessionId()` and `getUsername()` check `localStorage` first so new tabs also pick up the persistent session.
+
+### Fixed
+- **Server-side `must_change_password` enforcement**: The session middleware now queries `must_change_password` for every session-authenticated request. When the flag is set, only `/api/auth/change-password`, `/api/auth/logout`, and `/api/auth/session` are permitted; all other routes return HTTP 403 with `{"success":false,"error":"Password change required"}`. Previously the blocking was client-side only (AppShell overlay) and could be bypassed with raw API calls.
+- **Other sessions not revoked on password change**: `ChangePassword` handler now runs `DELETE FROM sessions WHERE username = $1 AND session_id != $2` after updating the password hash, revoking all sessions except the one that performed the change. Previously all sessions remained valid after a password change.
+- **LDAP users had no feedback on password tab**: `PasswordTab` in `SecurityPage.tsx` now reads `user.source` from the session store. When `source === 'ldap'`, a notice banner explains that passwords are managed by the directory server and the form is visually disabled (`opacity: 0.4; pointer-events: none`).
+- **Session endpoint did not expose `source` field**: `GET /api/auth/session` now returns `source` ('local' or 'ldap') alongside the existing user fields. `SessionUser` interface and mock data updated.
+- **Setup wizard partial-state recovery**: `StepAdmin` (Step 1) in `SetupWizardPage.tsx` now handles "already exists" / "conflict" errors from `POST /api/system/setup-admin` by automatically advancing to the disk selection step. This recovers gracefully when the admin account was created in a previous wizard attempt before the browser was closed.
+
+### Changed
+- **Password-change info note updated**: The note at the bottom of `SecurityPage` PasswordTab now reads "All other sessions are revoked on password change" instead of the previously incorrect "Other sessions are not invalidated".
+
+---
+
 ## v11.4.0 (2026-05-21) - "Hardened"
 
 Upgrade from: v11.3.0 - Drop-in. No schema changes. No configuration changes.

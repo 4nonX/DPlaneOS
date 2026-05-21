@@ -25,6 +25,7 @@ import { useState } from 'react'
 import type React from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
+import { useAuthStore } from '@/stores/auth'
 import { Icon } from '@/components/ui/Icon'
 import { ErrorState } from '@/components/ui/ErrorState'
 import { Skeleton } from '@/components/ui/LoadingSpinner'
@@ -114,6 +115,9 @@ function PasswordStrengthBar({ password }: { password: string }) {
 // ---------------------------------------------------------------------------
 
 function PasswordTab() {
+  const user = useAuthStore(s => s.user)
+  const isLdap = user?.source === 'ldap'
+
   const [current, setCurrent]   = useState('')
   const [next, setNext]         = useState('')
   const [confirm, setConfirm]   = useState('')
@@ -160,7 +164,17 @@ function PasswordTab() {
           </div>
         </div>
 
-        <form onSubmit={handleSubmit} noValidate>
+        {isLdap && (
+          <div style={{ marginBottom: 20, padding: '14px 16px', background: 'var(--surface)', borderRadius: 'var(--radius-md)', display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+            <Icon name="corporate_fare" size={18} style={{ color: 'var(--primary)', flexShrink: 0, marginTop: 1 }} />
+            <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+              <strong style={{ color: 'var(--text)' }}>LDAP account</strong> - passwords are managed by your directory server and cannot be changed here.
+              Contact your administrator to update your password.
+            </div>
+          </div>
+        )}
+
+        <form onSubmit={handleSubmit} noValidate style={{ opacity: isLdap ? 0.4 : 1, pointerEvents: isLdap ? 'none' : 'auto' }}>
           {/* Current password */}
           <div style={{ marginBottom: 16 }}>
             <label style={{ display: 'block', fontSize: 'var(--text-xs)', fontWeight: 600,
@@ -249,8 +263,7 @@ function PasswordTab() {
         <div style={{ marginTop: 20, padding: '12px 16px', background: 'var(--surface)',
           borderRadius: 'var(--radius-sm)', fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }}>
           <Icon name="info" size={13} style={{ verticalAlign: 'middle', marginRight: 6 }} />
-          Your session remains active after changing your password.
-          Other sessions are not invalidated.
+          Your current session remains active. All other sessions are revoked on password change.
         </div>
       </div>
     </div>

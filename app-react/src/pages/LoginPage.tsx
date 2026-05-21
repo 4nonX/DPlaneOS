@@ -48,6 +48,7 @@ export function LoginPage() {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
+  const [rememberMe, setRememberMe] = useState(false)
 
   // TOTP step
   const [totpCode, setTotpCode] = useState('')
@@ -118,7 +119,7 @@ export function LoginPage() {
     setError(null)
     setLoading(true)
     try {
-      const result = await login(username.trim(), password)
+      const result = await login(username.trim(), password, rememberMe)
       if (result?.requiresTotp) {
         setPendingToken(result.pendingToken)
         setStep('totp')
@@ -174,7 +175,7 @@ export function LoginPage() {
         setError('Malformed TOTP response from server')
         return
       }
-      storeSession(data.session_id, data.username)
+      storeSession(data.session_id, data.username, rememberMe)
       // Re-validate store with new session
       await useAuthStore.getState().validateSession()
       navigate({ to: '/' })
@@ -344,6 +345,16 @@ export function LoginPage() {
                   </button>
                 </div>
               </div>
+
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 20, cursor: 'pointer', fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>
+                <input
+                  type="checkbox"
+                  checked={rememberMe}
+                  onChange={e => setRememberMe(e.target.checked)}
+                  style={{ width: 16, height: 16, cursor: 'pointer', accentColor: 'var(--primary)' }}
+                />
+                Remember me
+              </label>
 
               <button
                 type="submit"

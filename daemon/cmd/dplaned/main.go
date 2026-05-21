@@ -928,6 +928,7 @@ func main() {
 	userGroupHandler := handlers.NewUserGroupHandler(db)
 	r.Handle("/api/rbac/users", permRoute("users", "read", userGroupHandler.HandleUsers)).Methods("GET")
 	r.Handle("/api/rbac/users", permRoute("users", "write", userGroupHandler.HandleUsers)).Methods("POST")
+	r.Handle("/api/users/{id}/reset-password", permRoute("users", "write", userGroupHandler.ResetUserPassword)).Methods("POST")
 	r.Handle("/api/rbac/groups", permRoute("users", "read", userGroupHandler.HandleGroups)).Methods("GET")
 	r.Handle("/api/rbac/groups", permRoute("users", "write", userGroupHandler.HandleGroups)).Methods("POST")
 
@@ -1507,6 +1508,19 @@ func sessionMiddleware(db *sql.DB) mux.MiddlewareFunc {
 				audit.LogSecurityEvent("Session user mismatch", user, realIP(r))
 				http.Error(w, "Unauthorized", http.StatusUnauthorized)
 				return
+			}
+
+			// Enforce must_change_password: only allow change-password and logout until cleared
+			var mustChangePW int
+			db.QueryRow(`SELECT COALESCE(must_change_password, 0) FROM users WHERE username = $1`, sessionUser.Username).Scan(&mustChangePW)
+			if mustChangePW == 1 {
+				allowedPath := p == "/api/auth/change-password" || p == "/api/auth/logout" || p == "/api/auth/session"
+				if !allowedPath {
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(http.StatusForbidden)
+					w.Write([]byte(`{"success":false,"error":"Password change required"}`))
+					return
+				}
 			}
 
 			// Set user in context for downstream handlers (RBAC /me/* endpoints)

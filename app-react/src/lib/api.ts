@@ -64,24 +64,30 @@ export function getCsrfToken(): string {
 
 // ---------------------------------------------------------------------------
 // Session helpers
+// localStorage is used when "remember me" is on (persists browser restarts).
+// sessionStorage is used otherwise (cleared on tab/window close).
+// Reads check localStorage first so persistent sessions are picked up in new tabs.
 // ---------------------------------------------------------------------------
 
 export function getSessionId(): string | null {
-  return sessionStorage.getItem('session_id')
+  return localStorage.getItem('session_id') ?? sessionStorage.getItem('session_id')
 }
 
 export function getUsername(): string | null {
-  return sessionStorage.getItem('username')
+  return localStorage.getItem('username') ?? sessionStorage.getItem('username')
 }
 
-export function storeSession(sessionId: string, username: string): void {
-  sessionStorage.setItem('session_id', sessionId)
-  sessionStorage.setItem('username', username)
+export function storeSession(sessionId: string, username: string, persistent?: boolean): void {
+  const store = persistent ? localStorage : sessionStorage
+  store.setItem('session_id', sessionId)
+  store.setItem('username', username)
 }
 
 export function clearSession(): void {
   sessionStorage.removeItem('session_id')
   sessionStorage.removeItem('username')
+  localStorage.removeItem('session_id')
+  localStorage.removeItem('username')
 }
 
 // ---------------------------------------------------------------------------

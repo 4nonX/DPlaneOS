@@ -410,15 +410,15 @@ func (h *AuthHandler) Session(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var username, email, role string
+	var username, email, role, source string
 	var userID int
 	var mustChange int
 	err := h.db.QueryRow(
-		`SELECT u.id, u.username, COALESCE(u.email,''), COALESCE(u.role,'user'), COALESCE(u.must_change_password,0)
+		`SELECT u.id, u.username, COALESCE(u.email,''), COALESCE(u.role,'user'), COALESCE(u.must_change_password,0), COALESCE(u.source,'local')
 		 FROM sessions s JOIN users u ON s.username = u.username
 		 WHERE s.session_id = $1 AND (s.expires_at IS NULL OR s.expires_at > $2) AND u.active = 1`,
 		sessionID, time.Now().Unix(),
-	).Scan(&userID, &username, &email, &role, &mustChange)
+	).Scan(&userID, &username, &email, &role, &mustChange, &source)
 
 	if err != nil {
 		respondJSON(w, http.StatusUnauthorized, map[string]interface{}{
@@ -435,6 +435,7 @@ func (h *AuthHandler) Session(w http.ResponseWriter, r *http.Request) {
 			"email":                email,
 			"role":                 role,
 			"must_change_password": mustChange == 1,
+			"source":               source,
 		},
 	})
 }
@@ -530,6 +531,9 @@ func (h *AuthHandler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+
+	// Revoke all other sessions - the current session remains active
+	h.db.Exec(`DELETE FROM sessions WHERE username = $1 AND session_id != $2`, username, sessionID)
 
 	clientIP := security.RealIP(r)
 	h.auditLog(username, "password_changed", "Password changed", clientIP)

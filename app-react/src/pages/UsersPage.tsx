@@ -148,6 +148,62 @@ function UserModal({ user, onClose, onDone }: { user?: User; onClose: () => void
 }
 
 // ---------------------------------------------------------------------------
+// ResetPasswordModal - admin sets a temporary password for another user
+// ---------------------------------------------------------------------------
+
+function ResetPasswordModal({ user, onClose }: { user: User; onClose: () => void }) {
+  const [tempPassword, setTempPassword] = useState('')
+  const [showPass, setShowPass] = useState(false)
+
+  const mutation = useMutation({
+    mutationFn: () => api.post(`/api/users/${user.id}/reset-password`, { temp_password: tempPassword }),
+    onSuccess: () => {
+      toast.success(`Temporary password set for ${user.username} - they must change it on next login`)
+      onClose()
+    },
+    onError: (e: Error) => toast.error(e.message),
+  })
+
+  return (
+    <Modal title={`Reset password: ${user.username}`} onClose={onClose}>
+      <div style={{ marginBottom: 16, padding: '10px 14px', background: 'var(--warning-bg, rgba(251,191,36,0.08))', border: '1px solid var(--warning-border, rgba(251,191,36,0.2))', borderRadius: 'var(--radius-sm)', fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>
+        <Icon name="info" size={14} style={{ verticalAlign: 'middle', marginRight: 6, color: 'var(--warning, #f59e0b)' }} />
+        Set a temporary password. The user will be required to change it on next login. All existing sessions for this user will be revoked.
+      </div>
+      <label className="field">
+        <span className="field-label">Temporary password</span>
+        <div style={{ position: 'relative' }}>
+          <input
+            type={showPass ? 'text' : 'password'}
+            value={tempPassword}
+            onChange={e => setTempPassword(e.target.value)}
+            className="input"
+            autoFocus
+            autoComplete="new-password"
+            style={{ paddingRight: 40 }}
+            onKeyDown={e => e.key === 'Enter' && tempPassword.length >= 8 && mutation.mutate()}
+          />
+          <button type="button" onClick={() => setShowPass(v => !v)}
+            style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-tertiary)', display: 'flex', alignItems: 'center', padding: 4 }}>
+            <Icon name={showPass ? 'visibility_off' : 'visibility'} size={16} />
+          </button>
+        </div>
+        <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', marginTop: 4, display: 'block' }}>
+          Min 8 characters with uppercase, lowercase, number, and special character.
+        </span>
+      </label>
+      <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+        <button onClick={onClose} className="btn btn-ghost">Cancel</button>
+        <button onClick={() => mutation.mutate()} disabled={mutation.isPending || tempPassword.length < 8} className="btn btn-primary">
+          <Icon name="lock_reset" size={14} />
+          {mutation.isPending ? 'Setting…' : 'Set Temporary Password'}
+        </button>
+      </div>
+    </Modal>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // UsersTab
 // ---------------------------------------------------------------------------
 
@@ -156,6 +212,7 @@ function UsersTab() {
   const { confirm, ConfirmDialog: ConfirmUsers } = useConfirm()
   const [showCreate, setShowCreate] = useState(false)
   const [editUser, setEditUser] = useState<User | null>(null)
+  const [resetUser, setResetUser] = useState<User | null>(null)
 
   const usersQ = useQuery({
     queryKey: ['rbac', 'users'],
@@ -219,7 +276,8 @@ function UsersTab() {
                   </td>
                   <td>
                     <div style={{ display: 'flex', gap: 6 }}>
-                      <button onClick={() => setEditUser(u)} className="btn btn-ghost"><Icon name="edit" size={14} /></button>
+                      <button onClick={() => setEditUser(u)} className="btn btn-ghost" title="Edit user"><Icon name="edit" size={14} /></button>
+                      <button onClick={() => setResetUser(u)} className="btn btn-ghost" title="Reset password" style={{ color: 'var(--warning, #f59e0b)' }}><Icon name="lock_reset" size={14} /></button>
                       <button onClick={async () => { if (await confirm({ title: `Delete "${u.username}"?`, message: 'This user will be permanently removed.', danger: true, confirmLabel: 'Delete' })) deleteUser.mutate(u.id) }} className="btn btn-danger"><Icon name="delete" size={14} /></button>
                     </div>
                   </td>
@@ -235,6 +293,7 @@ function UsersTab() {
 
       {showCreate && <UserModal onClose={() => setShowCreate(false)} onDone={refresh} />}
       {editUser   && <UserModal user={editUser} onClose={() => setEditUser(null)} onDone={refresh} />}
+      {resetUser  && <ResetPasswordModal user={resetUser} onClose={() => setResetUser(null)} />}
       <ConfirmUsers />
     </>
   )
