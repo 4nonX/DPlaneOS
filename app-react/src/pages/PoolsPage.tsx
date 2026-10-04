@@ -41,6 +41,10 @@ import { useRouter } from '@tanstack/react-router'
 import { PoolTopologyView, PoolTopology, VDev } from '@/components/zfs/PoolTopology'
 import { RollbackModal } from '@/components/zfs/RollbackModal'
 import { CreateDatasetModal } from '@/components/zfs/CreateDatasetModal'
+import {
+  type DiskInfo, type DataLayout, LAYOUTS, candidates, diskId, faultTolerance, formatBytes as formatDiskBytes,
+  maxVdevs, minWidth, selectVdevs, sizeGroups, usableBytes, vdevType,
+} from '@/lib/poolLayout'
 import { ImportPoolModal } from '@/components/zfs/ImportPoolModal'
 import { useFrozenLayout } from '@/hooks/useFrozenLayout'
 
@@ -111,7 +115,6 @@ interface RAIDZExpandStatusResponse {
   eta: string
 }
 
-interface Disk { name: string; size: string; model: string; path: string }
 interface Snapshot { name: string; dataset: string; snap_name: string; used: string; refer: string; creation: string }
 
 // ---------------------------------------------------------------------------
@@ -846,9 +849,9 @@ function RAIDZExpandModal({ pool, vdev, onClose, onStarted }: {
 
   const disksQ = useQuery({
     queryKey: ['system', 'disks'],
-    queryFn: () => api.get<{ disks: Disk[] }>('/api/system/disks'),
+    queryFn: () => api.get<{ disks: DiskInfo[] }>('/api/system/disks'),
   })
-  const disks: Disk[] = (disksQ.data as { disks?: Disk[] })?.disks ?? []
+  const disks = (disksQ.data?.disks ?? []).filter(d => !d.in_use)
 
   // Auto-select the first child of the raidz vdev as the anchor
   const anchorDisk = vdev.children?.[0]?.name ?? ''
@@ -915,10 +918,10 @@ function RAIDZExpandModal({ pool, vdev, onClose, onStarted }: {
                   No available disks found
                 </div>
               )}
-              {disks.map((d: Disk) => (
+              {disks.map(d => (
                 <button
-                  key={d.path}
-                  className={`btn btn-ghost ${newDisk === d.path ? 'btn-primary' : ''}`}
+                  key={diskId(d)}
+                  className={`btn btn-ghost ${newDisk === diskId(d) ? 'btn-primary' : ''}`}
                   style={{
                     justifyContent: 'flex-start',
                     textAlign: 'left',
@@ -927,12 +930,12 @@ function RAIDZExpandModal({ pool, vdev, onClose, onStarted }: {
                     alignItems: 'flex-start',
                     padding: '10px 12px',
                     borderRadius: 'var(--radius-md)',
-                    border: newDisk === d.path ? '1px solid var(--primary)' : '1px solid var(--border-subtle)',
+                    border: newDisk === diskId(d) ? '1px solid var(--primary)' : '1px solid var(--border-subtle)',
                   }}
-                  onClick={() => setNewDisk(d.path)}
+                  onClick={() => setNewDisk(diskId(d))}
                 >
                   <div style={{ fontWeight: 600, fontSize: 'var(--text-sm)', display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <Icon name="storage" size={14} /> {d.path} ({d.size})
+                    <Icon name="storage" size={14} /> {d.name} ({d.size})
                   </div>
                   <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', marginTop: 2 }}>
                     {d.model} - {d.name}
@@ -1111,11 +1114,11 @@ function WipeDiskModalInner({ onWiped, onClose }: { onWiped: () => void; onClose
   // Need to fetch system disks (not just ZFS disks, since we want any unassigned disk)
   const disksQ = useQuery({
     queryKey: ['system', 'disks'],
-    queryFn: () => api.get<{ disks: Disk[] }>('/api/system/disks')
+    queryFn: () => api.get<{ disks: DiskInfo[] }>('/api/system/disks')
   })
-  
-  // Use heuristic to find unassigned disks: they aren't in any pool (backend handles safety too)
-  const disks = (disksQ.data as { disks?: Disk[] })?.disks ?? []
+
+  // Only disks that are not in a pool or mounted (the backend re-checks before wiping)
+  const disks = (disksQ.data?.disks ?? []).filter(d => !d.in_use)
 
   if (selected) {
     return <WipeDiskModal device={selected} onClose={() => setSelected(null)} onWiped={onWiped} />
@@ -1127,17 +1130,17 @@ function WipeDiskModalInner({ onWiped, onClose }: { onWiped: () => void; onClose
         {disks.length === 0 && !disksQ.isLoading && (
           <div style={{ textAlign: 'center', color: 'var(--text-tertiary)', paddingTop: 120 }}>No disks found</div>
         )}
-        {disks.map((d: Disk) => (
+        {disks.map(d => (
           <button 
-            key={d.path} 
+            key={diskId(d)} 
             className="btn btn-ghost" 
             style={{ width: '100%', justifyContent: 'flex-start', textAlign: 'left', marginBottom: 6, display: 'flex', flexDirection: 'column', alignItems: 'flex-start', padding: '12px 14px', borderRadius: 'var(--radius-md)' }}
-            onClick={() => setSelected(d.path)}
+            onClick={() => setSelected(diskId(d))}
           >
             <div style={{ fontWeight: 700, fontSize: 'var(--text-sm)', display: 'flex', alignItems: 'center', gap: 8 }}>
-              <Icon name="dns" size={14} /> {d.path} ({d.size})
+              <Icon name="dns" size={14} /> {d.name} ({d.size})
             </div>
-            <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', marginTop: 2 }}>{d.model} · {d.name}</div>
+            <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', marginTop: 2 }}>{d.model} · {diskId(d)}</div>
           </button>
         ))}
       </div>
@@ -1761,12 +1764,29 @@ function newId() { return `${Date.now()}-${Math.random().toString(36).slice(2, 8
 
 const VDEV_TYPES = ['stripe', 'mirror', 'raidz', 'raidz2', 'raidz3', 'draid'] as const
 
+const POOL_NAME_RE = /^[a-zA-Z][a-zA-Z0-9_.-]{0,49}$/
+
+/** Default vdev width when the user has not picked one. */
+function defaultWidth(layout: DataLayout, available: number): number {
+  const preferred = { stripe: available, mirror: 2, raidz1: 5, raidz2: 6, raidz3: 8 }[layout]
+  return Math.max(minWidth(layout), Math.min(preferred, available))
+}
+
+const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v))
+
 function CreatePoolModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
   const [name, setName] = useState('')
-  const [layout, setLayout] = useState('stripe')
-  const [selectedDisks, setSelectedDisks] = useState<string[]>([])
-  const [advanced, setAdvanced] = useState(false)
+  const [mode, setMode] = useState<'auto' | 'manual'>('auto')
   const [ashift, setAshift] = useState('')
+
+  // Automatic layout: width/vdevs of 0 mean "use the default for this layout".
+  const [layout, setLayout] = useState<DataLayout>('mirror')
+  const [groupKey, setGroupKey] = useState('')
+  const [treatAsMinimum, setTreatAsMinimum] = useState(false)
+  const [width, setWidth] = useState(0)
+  const [vdevCount, setVdevCount] = useState(0)
+
+  // Manual topology
   const [dataGroups, setDataGroups] = useState<PoolVdevDraft[]>([{ id: newId(), type: 'mirror', disks: [], draidSpec: 'draid2:8d:1s' }])
   const [specialGroups, setSpecialGroups] = useState<PoolVdevDraft[]>([])
   const [logGroups, setLogGroups] = useState<PoolVdevDraft[]>([])
@@ -1775,42 +1795,72 @@ function CreatePoolModal({ onClose, onCreated }: { onClose: () => void; onCreate
 
   const disksQ = useQuery({
     queryKey: ['system', 'disks'],
-    queryFn: () => api.get<{ disks: Disk[] }>('/api/system/disks')
+    queryFn: () => api.get<{ disks: DiskInfo[] }>('/api/system/disks')
   })
+  const allDisks = useMemo(() => disksQ.data?.disks ?? [], [disksQ.data])
+  const freeDisks = allDisks.filter(d => !d.in_use)
+  const inUseCount = allDisks.length - freeDisks.length
+
+  // ── Automatic selection (derived; nothing is stored but the user's choices) ──
+  const groups = useMemo(() => sizeGroups(allDisks), [allDisks])
+  const group = groups.find(g => g.key === groupKey) ?? groups[0]
+  const cands = useMemo(() => (group ? candidates(allDisks, group, treatAsMinimum) : []), [allDisks, group, treatAsMinimum])
+  const minW = minWidth(layout)
+  const effWidth = cands.length >= minW ? clamp(width || defaultWidth(layout, cands.length), minW, cands.length) : 0
+  const maxV = layout === 'stripe' ? (effWidth ? 1 : 0) : maxVdevs(cands.length, effWidth)
+  const effVdevs = maxV ? clamp(vdevCount || maxV, 1, maxV) : 0
+  const autoVdevs = selectVdevs(cands, effWidth, effVdevs)
+  const usable = usableBytes(layout, autoVdevs)
+  const leftover = cands.length - effWidth * effVdevs
+  const largeDisks = !!group && group.sizeBytes >= 8e12
+
+  function pickLayout(l: DataLayout) {
+    setLayout(l)
+    setWidth(0)
+    setVdevCount(0)
+  }
 
   const mutation = useMutation({
     mutationFn: () => {
-      const ash = ashift.trim() ? Number(ashift) : 0
-      if (advanced) {
-        const toAPI = (rows: PoolVdevDraft[]) =>
-          rows.filter(r => r.disks.length > 0).map(r => ({
-            type: r.type,
-            disks: r.disks,
-            ...(r.type === 'draid' && r.draidSpec.trim() ? { draid_spec: r.draidSpec.trim() } : {}),
-          }))
+      const ash = ashift.trim() ? Number(ashift) : undefined
+      if (mode === 'auto') {
         return api.post('/api/system/pool/create', {
           name,
-          ashift: ash || undefined,
-          topology: {
-            data: toAPI(dataGroups),
-            special: toAPI(specialGroups),
-            log: toAPI(logGroups),
-            cache: toAPI(cacheGroups),
-            spare: toAPI(spareGroups),
-          },
+          ashift: ash,
+          topology: { data: autoVdevs.map(v => ({ type: vdevType(layout), disks: v.map(diskId) })) },
         })
       }
-      return api.post('/api/system/pool/create', { name, layout, disks: selectedDisks, ashift: ash || undefined })
+      const toAPI = (rows: PoolVdevDraft[]) =>
+        rows.filter(r => r.disks.length > 0).map(r => ({
+          type: r.type,
+          disks: r.disks,
+          ...(r.type === 'draid' && r.draidSpec.trim() ? { draid_spec: r.draidSpec.trim() } : {}),
+        }))
+      return api.post('/api/system/pool/create', {
+        name,
+        ashift: ash,
+        topology: {
+          data: toAPI(dataGroups),
+          special: toAPI(specialGroups),
+          log: toAPI(logGroups),
+          cache: toAPI(cacheGroups),
+          spare: toAPI(spareGroups),
+        },
+      })
     },
     onSuccess: () => { toast.success(`Pool ${name} created`); onCreated(); onClose() },
     onError: (e: Error) => toast.error(e.message)
   })
 
-  const disks = (disksQ.data as { disks?: Disk[] } | undefined)?.disks ?? []
+  // ── Manual topology helpers ──
+  const allGroups = [...dataGroups, ...specialGroups, ...logGroups, ...cacheGroups, ...spareGroups]
+  function usedElsewhere(rowId: string, id: string) {
+    return allGroups.some(g => g.id !== rowId && g.disks.includes(id))
+  }
 
-  function toggleDisk(list: string[], path: string, on: boolean) {
-    if (on) return [...new Set([...list, path])]
-    return list.filter(p => p !== path)
+  function toggleDisk(list: string[], id: string, on: boolean) {
+    if (on) return [...new Set([...list, id])]
+    return list.filter(p => p !== id)
   }
 
   function updateGroup(
@@ -1867,16 +1917,22 @@ function CreatePoolModal({ onClose, onCreated }: { onClose: () => void; onCreate
             </div>
             <div style={{ fontSize: 'var(--text-2xs)', color: 'var(--text-tertiary)', marginTop: 8 }}>Disks for this group</div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 6, maxHeight: 120, overflowY: 'auto' }}>
-              {disks.map(d => (
-                <label key={row.id + d.path} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 'var(--text-2xs)', cursor: 'pointer' }}>
-                  <input
-                    type="checkbox"
-                    checked={row.disks.includes(d.path)}
-                    onChange={e => updateGroup(setter, row.id, { disks: toggleDisk(row.disks, d.path, e.target.checked) })}
-                  />
-                  {d.name}
-                </label>
-              ))}
+              {freeDisks.map(d => {
+                const id = diskId(d)
+                const taken = usedElsewhere(row.id, id)
+                return (
+                  <label key={row.id + id} title={taken ? 'Already used in another group' : d.by_id_path || d.dev_path}
+                    style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 'var(--text-2xs)', cursor: taken ? 'not-allowed' : 'pointer', opacity: taken ? 0.45 : 1 }}>
+                    <input
+                      type="checkbox"
+                      checked={row.disks.includes(id)}
+                      disabled={taken}
+                      onChange={e => updateGroup(setter, row.id, { disks: toggleDisk(row.disks, id, e.target.checked) })}
+                    />
+                    {d.name} ({formatDiskBytes(d.size_bytes)} {d.type})
+                  </label>
+                )
+              })}
             </div>
           </div>
         ))}
@@ -1884,59 +1940,127 @@ function CreatePoolModal({ onClose, onCreated }: { onClose: () => void; onCreate
     )
   }
 
-  const warn = advanced ? specialSinglePointFailure() : null
-  const canSubmit = advanced
-    ? !!name.trim() && dataGroups.some(g => g.disks.length > 0)
-    : !!name.trim() && selectedDisks.length > 0
+  const nameOk = POOL_NAME_RE.test(name)
+  const warn = mode === 'manual' ? specialSinglePointFailure() : null
+  const canSubmit = nameOk && !mutation.isPending && (mode === 'auto'
+    ? autoVdevs.length > 0
+    : dataGroups.some(g => g.disks.length > 0))
 
   return (
     <Modal title="Create New ZFS Pool" onClose={onClose} size="lg">
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16, maxHeight: '72vh', overflowY: 'auto', paddingRight: 4 }}>
         <label className="field">
           <span className="field-label">Pool Name</span>
-          <input value={name} onChange={e => setName(e.target.value)} className="input" placeholder="e.g. tank" />
-        </label>
-        <label className="field" style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
-          <input type="checkbox" checked={advanced} onChange={e => setAdvanced(e.target.checked)} />
-          <span className="field-label" style={{ margin: 0 }}>Advanced topology (special / log / cache / spare / dRAID)</span>
-        </label>
-        <label className="field">
-          <span className="field-label">Ashift (optional, 9–16)</span>
-          <input value={ashift} onChange={e => setAshift(e.target.value)} className="input" placeholder="leave empty for ZFS default" />
+          <input value={name} onChange={e => setName(e.target.value)} className="input" placeholder="e.g. tank" autoFocus />
+          {name && !nameOk && <span style={{ fontSize: 'var(--text-2xs)', color: 'var(--error)', marginTop: 4 }}>Start with a letter; letters, numbers, _ - . only (max 50).</span>}
         </label>
 
-        {!advanced ? (
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24 }}>
-            <label className="field">
-              <span className="field-label">Pool Layout</span>
-              <select value={layout} onChange={e => setLayout(e.target.value)} className="input">
-                <option value="stripe">Stripe (No redundancy)</option>
-                <option value="mirror">Mirror (RAID 1)</option>
-                <option value="raidz1">RAID-Z1 (1-disk parity)</option>
-                <option value="raidz2">RAID-Z2 (2-disk parity)</option>
-                <option value="raidz3">RAID-Z3 (3-disk parity)</option>
-              </select>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button type="button" className={`btn btn-sm ${mode === 'auto' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setMode('auto')}>
+            <Icon name="auto_fix_high" size={14} /> Automatic
+          </button>
+          <button type="button" className={`btn btn-sm ${mode === 'manual' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setMode('manual')}>
+            <Icon name="tune" size={14} /> Manual topology
+          </button>
+        </div>
+
+        {disksQ.isLoading ? (
+          <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-tertiary)' }}>Loading disks…</div>
+        ) : freeDisks.length === 0 ? (
+          <div style={{ padding: '32px 16px', textAlign: 'center', color: 'var(--text-tertiary)', border: '1px dashed var(--border)', borderRadius: 'var(--radius-md)' }}>
+            No unused disks found{inUseCount > 0 ? ` (${inUseCount} disk${inUseCount === 1 ? ' is' : 's are'} already in a pool or mounted)` : ''}.
+          </div>
+        ) : mode === 'auto' ? (
+          <>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 14 }}>
+              <label className="field">
+                <span className="field-label">Layout</span>
+                <select value={layout} onChange={e => pickLayout(e.target.value as DataLayout)} className="input">
+                  {LAYOUTS.map(l => <option key={l.value} value={l.value}>{l.label}</option>)}
+                </select>
+              </label>
+              <label className="field">
+                <span className="field-label">Disk size</span>
+                <select value={group?.key ?? ''} onChange={e => { setGroupKey(e.target.value); setWidth(0); setVdevCount(0) }} className="input">
+                  {groups.map(g => <option key={g.key} value={g.key}>{g.label} ({g.count} free)</option>)}
+                </select>
+              </label>
+              <label className="field">
+                <span className="field-label">Width (disks per vdev)</span>
+                <select value={effWidth} onChange={e => { setWidth(Number(e.target.value)); setVdevCount(0) }} className="input" disabled={!effWidth}>
+                  {!effWidth && <option value={0}>Not enough disks</option>}
+                  {effWidth > 0 && Array.from({ length: cands.length - minW + 1 }, (_, i) => minW + i).map(w => <option key={w} value={w}>{w}</option>)}
+                </select>
+              </label>
+              <label className="field">
+                <span className="field-label">Number of vdevs</span>
+                <select value={effVdevs} onChange={e => setVdevCount(Number(e.target.value))} className="input" disabled={maxV <= 1}>
+                  {maxV === 0 && <option value={0}>0</option>}
+                  {Array.from({ length: maxV }, (_, i) => i + 1).map(n => <option key={n} value={n}>{n}</option>)}
+                </select>
+              </label>
+            </div>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 'var(--text-sm)' }}>
+              <input type="checkbox" checked={treatAsMinimum} onChange={e => { setTreatAsMinimum(e.target.checked); setWidth(0); setVdevCount(0) }} />
+              Treat disk size as minimum (also use larger {group?.type ?? ''} disks; each vdev is limited by its smallest disk)
             </label>
-            <div>
-              <span className="field-label">Select Disks ({selectedDisks.length})</span>
-              <div className="card" style={{ height: 260, overflowY: 'auto', padding: 12, background: 'var(--bg-elevated)', marginTop: 8 }}>
-                {disks.length === 0 && !disksQ.isLoading && <div style={{ textAlign: 'center', color: 'var(--text-tertiary)', paddingTop: 80, fontSize: 'var(--text-sm)' }}>No unassigned disks found</div>}
-                {disks.map((d: Disk) => (
-                  <label key={d.path} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: 8, borderRadius: 'var(--radius-sm)', cursor: 'pointer', border: '1px solid var(--border-subtle)', marginBottom: 8 }}>
-                    <input
-                      type="checkbox"
-                      checked={selectedDisks.includes(d.path)}
-                      onChange={e => setSelectedDisks(toggleDisk(selectedDisks, d.path, e.target.checked))}
-                    />
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: 'var(--text-sm)', fontWeight: 600 }}>{d.name} ({d.size})</div>
-                      <div style={{ fontSize: 'var(--text-2xs)', color: 'var(--text-tertiary)' }}>{d.model} · {d.path}</div>
-                    </div>
-                  </label>
+
+            {autoVdevs.length === 0 ? (
+              <div className="alert alert-info" style={{ fontSize: 'var(--text-xs)' }}>
+                <Icon name="info" size={16} />
+                <span>
+                  {LAYOUTS.find(l => l.value === layout)!.label} needs at least {minW} matching disk{minW === 1 ? '' : 's'}; {cands.length} available.
+                  {!treatAsMinimum && groups.length > 1 ? ' Try "Treat disk size as minimum" or another disk size.' : ''}
+                </span>
+              </div>
+            ) : (
+              <div className="card" style={{ padding: 14, background: 'var(--bg-elevated)', display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+                  <strong style={{ fontSize: 'var(--text-sm)' }}>
+                    {effVdevs} × {layout === 'stripe' ? 'stripe' : vdevType(layout)} · {effWidth} wide · {effWidth * effVdevs} disks
+                  </strong>
+                  <span style={{ fontSize: 'var(--text-sm)', color: 'var(--primary)', fontWeight: 600 }}>≈ {formatDiskBytes(usable)} usable</span>
+                </div>
+                <div style={{ fontSize: 'var(--text-2xs)', color: 'var(--text-tertiary)' }}>
+                  {layout === 'stripe'
+                    ? 'No redundancy.'
+                    : `Each vdev survives ${faultTolerance(layout, effWidth)} failed disk${faultTolerance(layout, effWidth) === 1 ? '' : 's'}.`}
+                  {' '}Estimate before ZFS metadata and RAID-Z padding.
+                </div>
+                {autoVdevs.map((v, i) => (
+                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: 'var(--text-2xs)', color: 'var(--text-tertiary)', minWidth: 56 }}>vdev {i + 1}</span>
+                    {v.map(d => (
+                      <span key={diskId(d)} title={d.by_id_path || d.dev_path} style={{ fontSize: 'var(--text-2xs)', fontFamily: 'var(--font-mono)', padding: '2px 6px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-subtle)' }}>
+                        {d.name}{d.size_bytes !== group?.sizeBytes ? ` · ${formatDiskBytes(d.size_bytes)}` : ''}
+                      </span>
+                    ))}
+                  </div>
                 ))}
               </div>
-            </div>
-          </div>
+            )}
+
+            {layout === 'stripe' && autoVdevs.length > 0 && (
+              <div className="alert alert-error" style={{ fontSize: 'var(--text-xs)' }}>
+                <Icon name="warning" size={16} /><span>A stripe has no redundancy: one failed disk loses the whole pool.</span>
+              </div>
+            )}
+            {layout === 'raidz1' && largeDisks && autoVdevs.length > 0 && (
+              <div className="alert alert-warning" style={{ fontSize: 'var(--text-xs)' }}>
+                <Icon name="warning" size={16} /><span>RAID-Z1 with disks this large risks a second failure during the long resilver. RAID-Z2 is the safer choice.</span>
+              </div>
+            )}
+            {layout.startsWith('raidz') && effWidth > 12 && (
+              <div className="alert alert-warning" style={{ fontSize: 'var(--text-xs)' }}>
+                <Icon name="warning" size={16} /><span>RAID-Z vdevs wider than 12 disks resilver slowly. Consider more, narrower vdevs.</span>
+              </div>
+            )}
+            {leftover > 0 && autoVdevs.length > 0 && (
+              <div style={{ fontSize: 'var(--text-2xs)', color: 'var(--text-tertiary)' }}>
+                {leftover} matching disk{leftover === 1 ? '' : 's'} left unused. Use them later as a spare, or add another vdev of the same width.
+              </div>
+            )}
+          </>
         ) : (
           <>
             {warn && (
@@ -1951,10 +2075,15 @@ function CreatePoolModal({ onClose, onCreated }: { onClose: () => void; onCreate
             {renderTier('Hot spares', spareGroups, setSpareGroups, 'Each spare group adds a spare keyword plus selected disks.')}
           </>
         )}
+
+        <label className="field">
+          <span className="field-label">Ashift (optional, 9–16)</span>
+          <input value={ashift} onChange={e => setAshift(e.target.value)} className="input" placeholder="leave empty for ZFS default (12 = 4K sectors)" />
+        </label>
       </div>
       <div className="modal-footer">
         <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
-        <button className="btn btn-primary" disabled={!canSubmit || mutation.isPending} onClick={() => mutation.mutate()}>
+        <button className="btn btn-primary" disabled={!canSubmit} onClick={() => mutation.mutate()}>
           {mutation.isPending ? 'Creating…' : 'Create Pool'}
         </button>
       </div>
@@ -2995,7 +3124,7 @@ function CacheManageModal({ pool, onClose, onRefresh }: { pool: { name: string }
 
   const disksQ = useQuery({
     queryKey: ['system', 'disks'],
-    queryFn: () => api.get<{ disks: Disk[] }>('/api/system/disks')
+    queryFn: () => api.get<{ disks: DiskInfo[] }>('/api/system/disks')
   })
 
   const addMutation = useMutation({
@@ -3004,7 +3133,7 @@ function CacheManageModal({ pool, onClose, onRefresh }: { pool: { name: string }
     onError: (e: Error) => toast.error(e.message)
   })
 
-  const disks = disksQ.data?.disks ?? []
+  const disks = (disksQ.data?.disks ?? []).filter(d => !d.in_use)
 
   return (
     <Modal title={`Manage Cache: ${pool.name}`} onClose={onClose} size="lg">
@@ -3040,12 +3169,12 @@ function CacheManageModal({ pool, onClose, onRefresh }: { pool: { name: string }
           <h4 style={{ fontSize: 'var(--text-xs)', fontWeight: 800, textTransform: 'uppercase' }}>Select Disks</h4>
           <div className="card" style={{ height: 260, overflowY: 'auto', padding: 12, background: 'var(--bg-elevated)' }}>
             {disks.length === 0 && !disksQ.isLoading && <div style={{ textAlign: 'center', color: 'var(--text-tertiary)', paddingTop: 80, fontSize: 'var(--text-sm)' }}>No unassigned disks found</div>}
-            {disks.map((d: Disk) => (
-              <label key={d.path} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: 8, borderRadius: 'var(--radius-sm)', cursor: 'pointer', border: '1px solid var(--border-subtle)', marginBottom: 8 }}>
+            {disks.map(d => (
+              <label key={diskId(d)} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: 8, borderRadius: 'var(--radius-sm)', cursor: 'pointer', border: '1px solid var(--border-subtle)', marginBottom: 8 }}>
                 <input 
                   type="checkbox" 
-                  checked={selectedDisks.includes(d.path)}
-                  onChange={e => e.target.checked ? setSelectedDisks([...selectedDisks, d.path]) : setSelectedDisks(selectedDisks.filter(p => p !== d.path))}
+                  checked={selectedDisks.includes(diskId(d))}
+                  onChange={e => e.target.checked ? setSelectedDisks([...selectedDisks, diskId(d)]) : setSelectedDisks(selectedDisks.filter(p => p !== diskId(d)))}
                 />
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: 'var(--text-sm)', fontWeight: 600 }}>{d.name} ({d.size})</div>
