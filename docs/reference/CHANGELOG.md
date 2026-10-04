@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
 
-## v14.8.0 (TBD) - "Live Boot Release"
+## v14.8.0 (2026-10-05) - "Live Boot Release"
 
 Live boot support enables running D-PlaneOS directly from USB without installation. Full daemon and UI run in RAM, existing ZFS pools are auto-discovered and imported, and persistence is optional via USB drive.
 
@@ -17,11 +17,38 @@ Live boot support enables running D-PlaneOS directly from USB without installati
 
 - **Auto-import ZFS pools**: On boot, systemd service auto-discovers and imports any ZFS pools found on attached drives. Pools appear in UI immediately without manual intervention. Existing pool data preserved and accessible.
 
-- **Full daemon capability**: Everything works the same as installed version: SMB/NFS/iSCSI sharing, Docker containers, dataset management, snapshots, replication, UI accessible at `http://<ip>:9000`.
+- **Full daemon capability**: Everything works the same as installed version: SMB/NFS/iSCSI sharing, Docker containers, dataset management, snapshots, replication, UI accessible at `http://<ip>/` (nginx, port 80).
 
 - **Optional persistence**: Attach USB drive labeled `dplane-persist` to preserve daemon state across reboots. Without persistence, state resets on shutdown. Useful for trial/rescue scenarios or persistent operation after first boot.
 
 - **VM test suite**: nixos/tests/live-boot.nix validates boot, daemon startup, ZFS auto-import, Docker engine, ephemeral root, and clean shutdown. Runs on every CI build.
+
+### Live Boot CI Fix
+
+The live-boot VM test had failed since v14.7.0 with `dplaned.service` in state "failed":
+
+- **PostgreSQL over the Unix socket**: NixOS PostgreSQL does not listen on TCP unless `enableTCPIP` is set, so the `pg_isready -h localhost` pre-start probe could never succeed, and the default TCP DSN had no password for NixOS's default `pg_hba.conf`. The live config now connects via `host=/run/postgresql`, creates the role and database with `ensureUsers`/`ensureDatabases` and maps `root` to `dplaneos` via peer auth. The pre-start probe follows the DSN. Installed systems keep their existing DSN default.
+- **Startup ordering**: `dplaned` is ordered after `postgresql-setup.service` (which creates roles) and waits up to 60s for the database before running migrations instead of exiting.
+- **Logging**: daemon output goes to the journal again (`journalctl -u dplaned`), replacing the `kmsg` experiment. The VM test dumps unit status and journals on failure and checks the UI on port 80, not 9000.
+
+### Guided Storage UX (NEW)
+
+- **Automatic pool layout**: Create Pool picks disks by layout, disk size group (optionally treating the size as a minimum), width and vdev count, with a live preview of vdevs, usable capacity and fault tolerance. Warnings for stripes, RAID-Z1 on 8 TB+ disks, RAID-Z wider than 12 and leftover disks. Manual topology remains available.
+- **Pool import dialog**: `GET /api/zfs/pool/importable` and `POST /api/zfs/pool/import` import exported or foreign pools by GUID, with optional rename and explicit forced import for pools last used by another host. Refused on an HA standby.
+- **Dataset presets**: Generic, SMB share (case-insensitive), Apps/containers and Media. `POST /api/zfs/datasets` accepts `acltype` (posix/off; OpenZFS on Linux has no NFSv4 ACLs) and `casesensitivity`, which is passed to `zfs create -o` through a new whitelisted command.
+- **Rollback safety levels**: `POST /api/zfs/snapshots/rollback` takes `mode` = `safe` | `destroy_newer` | `destroy_clones` (no flag / `-r` / `-R`). The dialog lists the snapshots a destructive level would delete. ZFS refusals return 409 with ZFS's message.
+- **Per-share SMB options**: Time Machine (with optional size cap), Previous Versions (shadow copies), recycle bin and hosts allow/deny are set per share (migration 00012; existing shares inherit the previous global toggles). Share purposes in the UI: Default, Time Machine, Windows with file history, Public read-only. New optional share keys in `state.yaml`; omitted keys are left unmanaged.
+
+### Fixes
+
+- **Disk pickers**: Create Pool, RAID-Z expand, wipe and cache/log/special/spare dialogs read a `path` field the disk API never returns, so all disks shared one undefined id (ticking one ticked all). They now use `by_id_path`/`dev_path` and list only unused disks.
+- **Rollback**: both rollback dialogs always sent `force` (`zfs rollback -r`), silently destroying newer snapshots; the Pools page copy posted the wrong field and always failed; failures were reported as success.
+- **Hot-swap auto-import**: ran `zpool import ... -g <guid>`; `zpool import` has no `-g` flag, so automatic imports always failed. The GUID is now positional, via the whitelisted command.
+- **Samba on NixOS**: the daemon wrote its own `[global]` (security, workgroup, map to guest) into the shares include, overriding `modules/samba.nix` (including AD `security = ads`). It now writes share stanzas only and re-opens `[global]` at the end of the include.
+- **GitOps shares**: GitOps used its own reduced smb.conf writer that dropped browsable, masks and VFS options on every apply; it now shares the renderer with the UI (`internal/smbconf`). `SyncDB` upserts instead of deleting and re-inserting all shares, and writes `read_only`/`guest_ok` as integers. The generated `state.yaml` keeps share comments.
+- **Share editing**: the edit form never sent the share id, so every edit failed with "Share ID required".
+- **Time Machine discovery**: the Bonjour `_adisk` record advertised a non-existent share "DPlaneOS"; it now lists the actual Time Machine shares.
+- **Dataset creation**: ZFS failures (200 `{success:false}`) were shown as success.
 
 ### Use Cases
 
