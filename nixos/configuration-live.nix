@@ -107,6 +107,10 @@
     '';
   };
 
+  # Connect over the Unix socket: this PostgreSQL has no TCP listener and only
+  # allows root -> dplaneos through the peer-auth ident map above.
+  services.dplaneos.dbDSN = "postgres://dplaneos@/dplaneos?host=/run/postgresql&sslmode=disable";
+
   # ── D-PlaneOS daemon and frontend ──────────────────────────────────────────
   # (Provided by applianceConfig in flake.nix, same as installed system)
   # services.dplaneos.daemonPackage = ...

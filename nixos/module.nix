@@ -9,6 +9,8 @@
 
 let
   cfg = config.services.dplaneos;
+  # pg_isready target for the pre-start probe, following the DSN.
+  pgProbeHost = if lib.hasInfix "host=/run/postgresql" cfg.dbDSN then "/run/postgresql" else "localhost";
 in {
   imports = [ ./ha.nix ./console-network-wizard.nix ./modules/samba.nix ./modules/nfs.nix ./modules/fenced.nix ./modules/ctdb.nix ];
 
@@ -54,11 +56,11 @@ in {
       type    = lib.types.str;
       default = if cfg.ha.enable
                 then "postgres://dplaneos@localhost:5000/dplaneos?sslmode=disable"
-                else "postgres://dplaneos@/dplaneos?host=/run/postgresql&sslmode=disable";
+                else "postgres://dplaneos@localhost/dplaneos?sslmode=disable";
       description = ''
-        PostgreSQL Data Source Name. Without HA the daemon connects over the local
-        Unix socket: NixOS PostgreSQL does not listen on TCP unless enableTCPIP is set,
-        and its default pg_hba.conf requires a password for TCP connections.
+        PostgreSQL Data Source Name. For a local NixOS PostgreSQL without enableTCPIP,
+        use the Unix socket: postgres://dplaneos@/dplaneos?host=/run/postgresql&sslmode=disable
+        (with peer auth mapping root to dplaneos, as configuration-live.nix does).
       '';
     };
 
@@ -272,9 +274,9 @@ in {
           # Verify daemon binary exists
           "/bin/sh -c 'test -x ${cfg.daemonPackage}/bin/dplaned || (echo \"FATAL: Daemon binary not found at ${cfg.daemonPackage}/bin/dplaned\" >&2; exit 1)'"
           # Wait for PostgreSQL to be ready before starting daemon
-          # Non-HA PostgreSQL listens on the Unix socket only (services.postgresql.enableTCPIP
-          # defaults to false), so probe the socket directory, not localhost.
-          "/bin/sh -c 'echo \"[dplaned-pre] Checking PostgreSQL connectivity...\"; for i in $(${pkgs.coreutils}/bin/seq 1 30); do if ${pkgs.postgresql}/bin/pg_isready -h ${if cfg.ha.enable then "localhost" else "/run/postgresql"} -U dplaneos -d dplaneos 2>&1; then echo \"[dplaned-pre] PostgreSQL ready on attempt $i\"; exit 0; fi; ${pkgs.coreutils}/bin/sleep 1; done; echo \"FATAL: PostgreSQL not ready after 30 seconds\" >&2; exit 1'"
+          # Probe where the DSN points: the Unix socket directory for socket DSNs
+          # (NixOS PostgreSQL has no TCP listener unless enableTCPIP is set), else localhost.
+          "/bin/sh -c 'echo \"[dplaned-pre] Checking PostgreSQL connectivity...\"; for i in $(${pkgs.coreutils}/bin/seq 1 30); do if ${pkgs.postgresql}/bin/pg_isready -h ${pgProbeHost} -U dplaneos -d dplaneos 2>&1; then echo \"[dplaned-pre] PostgreSQL ready on attempt $i\"; exit 0; fi; ${pkgs.coreutils}/bin/sleep 1; done; echo \"FATAL: PostgreSQL not ready after 30 seconds\" >&2; exit 1'"
         ];
         ExecStart       = "/bin/sh -c 'echo \"[dplaned] Starting with DSN: ${cfg.dbDSN}\"; exec ${cfg.daemonPackage}/bin/dplaned -db-dsn \"${cfg.dbDSN}\" -listen ${cfg.socketPath} -socket-group dplaned'";
         WorkingDirectory = "/var/lib/dplaneos";
