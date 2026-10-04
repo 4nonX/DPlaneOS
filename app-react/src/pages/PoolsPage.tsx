@@ -37,6 +37,7 @@ import { useWsStore } from '@/stores/ws'
 import { Modal } from '@/components/ui/Modal'
 import { useRouter } from '@tanstack/react-router'
 import { PoolTopologyView, PoolTopology, VDev } from '@/components/zfs/PoolTopology'
+import { RollbackModal } from '@/components/zfs/RollbackModal'
 import { useFrozenLayout } from '@/hooks/useFrozenLayout'
 
 // ---------------------------------------------------------------------------
@@ -1665,7 +1666,7 @@ function PoolCard({ pool, datasets, filter, onRefresh }: { pool: ZFSPool; datase
 
       {rollbackDataset && (
         <RollbackModal
-          node={rollbackDataset}
+          dataset={rollbackDataset.name}
           onClose={() => setRollbackDataset(null)}
           onRollback={() => { qc.invalidateQueries({ queryKey: ['zfs', 'datasets'] }); onRefresh() }}
         />
@@ -3382,41 +3383,6 @@ function CloneSnapshotModal({ node, onClose, onCloned }: { node: TreeNode; onClo
 					className="btn btn-primary"
 				>
 					{mutation.isPending ? 'Cloning…' : 'Clone'}
-				</button>
-			</div>
-		</Modal>
-	)
-}
-
-// ---------------------------------------------------------------------------
-// RollbackModal (v7.3.0)
-// ---------------------------------------------------------------------------
-
-function RollbackModal({ node, onClose, onRollback }: { node: TreeNode; onClose: () => void; onRollback: () => void }) {
-	const [confirm, setConfirm] = useState(false)
-	const mutation = useMutation({
-		mutationFn: () => api.post('/api/zfs/snapshots/rollback', { dataset: node.name }),
-		onSuccess: () => { toast.success(`Rollback of ${node.name} initiated`); onRollback(); onClose() },
-		onError: (e: Error) => toast.error(e.message)
-	})
-
-	return (
-		<Modal title={<span style={{ color: 'var(--warning)' }}>Rollback Dataset</span>} onClose={onClose} size="sm">
-			<div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-				<div className="alert alert-warning">
-					<Icon name="history" size={16} />
-					<strong>Warning:</strong> This will roll {node.name} back to its most recent snapshot. 
-					<strong> All data changes made since that snapshot will be lost.</strong>
-				</div>
-				<label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', padding: 12, background: 'rgba(255,255,255,0.03)', borderRadius: 'var(--radius-md)' }}>
-					<input type="checkbox" checked={confirm} onChange={e => setConfirm(e.target.checked)} />
-					<span style={{ fontSize: 'var(--text-sm)' }}>I confirm I want to rollback and lose recent changes</span>
-				</label>
-			</div>
-			<div className="modal-footer">
-				<button onClick={onClose} className="btn btn-ghost">Cancel</button>
-				<button onClick={() => mutation.mutate()} disabled={!confirm || mutation.isPending} className="btn btn-warning">
-					{mutation.isPending ? 'Rolling back…' : 'Rollback'}
 				</button>
 			</div>
 		</Modal>

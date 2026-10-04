@@ -177,11 +177,13 @@ func (h *ZFSSnapshotHandler) DestroySnapshot(w http.ResponseWriter, r *http.Requ
 }
 
 // RollbackSnapshot rolls back a dataset to a snapshot
-// POST /api/zfs/snapshots/rollback { "snapshot": "tank/data@before-update", "force": true }
+// POST /api/zfs/snapshots/rollback { "snapshot": "tank/data@before-update", "mode": "safe" }
+// A refusal by ZFS (e.g. newer snapshots exist in safe mode) returns 409 with ZFS's message.
 func (h *ZFSSnapshotHandler) RollbackSnapshot(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Snapshot string `json:"snapshot"` // tank/data@snap-name
-		Force    bool   `json:"force"`    // -r flag (destroy newer snapshots)
+		Mode     string `json:"mode"`     // safe | destroy_newer | destroy_clones (see rollbackArgs)
+		Force    bool   `json:"force"`    // legacy -r flag, only used when mode is empty
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		respondErrorSimple(w, "Invalid request body", http.StatusBadRequest)
@@ -193,21 +195,22 @@ func (h *ZFSSnapshotHandler) RollbackSnapshot(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	args := []string{"rollback"}
-	if req.Force {
-		args = append(args, "-r")
+	args, err := rollbackArgs(req.Mode, req.Force, req.Snapshot)
+	if err != nil {
+		respondErrorSimple(w, err.Error(), http.StatusBadRequest)
+		return
 	}
-	args = append(args, req.Snapshot)
 
 	start := time.Now()
-	_, err := executeCommand("zfs", args)
+	out, err := executeCommand("zfs", args)
 	duration := time.Since(start)
 
 	if err != nil {
-		respondOK(w, map[string]any{
-			"success": false,
-			"error":   fmt.Sprintf("Failed to rollback: %v", err),
-		})
+		msg := strings.TrimSpace(out)
+		if msg == "" {
+			msg = err.Error()
+		}
+		respondErrorSimple(w, "Rollback refused: "+msg, http.StatusConflict)
 		return
 	}
 
@@ -225,6 +228,31 @@ func (h *ZFSSnapshotHandler) RollbackSnapshot(w http.ResponseWriter, r *http.Req
 		"message":  fmt.Sprintf("Rolled back to %s", req.Snapshot),
 		"duration": duration.Milliseconds(),
 	})
+}
+
+// rollbackArgs maps a rollback safety level to `zfs rollback` arguments.
+//
+//	safe           zfs rollback <snap>     refuses if newer snapshots, bookmarks or clones exist
+//	destroy_newer  zfs rollback -r <snap>  destroys newer snapshots, refuses if any of them has clones
+//	destroy_clones zfs rollback -R <snap>  destroys newer snapshots and their clones (no safety check)
+//
+// An empty mode keeps the pre-v14.8 behaviour of the force flag (true → -r).
+func rollbackArgs(mode string, force bool, snapshot string) ([]string, error) {
+	args := []string{"rollback"}
+	switch mode {
+	case "safe":
+	case "destroy_newer":
+		args = append(args, "-r")
+	case "destroy_clones":
+		args = append(args, "-R")
+	case "":
+		if force {
+			args = append(args, "-r")
+		}
+	default:
+		return nil, fmt.Errorf("invalid rollback mode %q (use safe, destroy_newer or destroy_clones)", mode)
+	}
+	return append(args, snapshot), nil
 }
 
 // CloneSnapshot clones a ZFS snapshot into a new dataset.

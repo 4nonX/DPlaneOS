@@ -26,6 +26,7 @@ import { ErrorState } from '@/components/ui/ErrorState'
 import { Tooltip } from '@/components/ui/Tooltip'
 import { toast } from '@/hooks/useToast'
 import { Modal } from '@/components/ui/Modal'
+import { RollbackModal } from '@/components/zfs/RollbackModal'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -589,55 +590,6 @@ function SnapshotModal({ node, onClose, onCreated }: { node: TreeNode; onClose: 
         <button onClick={onClose} className="btn btn-ghost">Cancel</button>
         <button onClick={() => mutation.mutate()} disabled={mutation.isPending} className="btn btn-primary">
           {mutation.isPending ? 'Creating…' : 'Create Snapshot'}
-        </button>
-      </div>
-    </Modal>
-  )
-}
-
-function RollbackModal({ node, onClose, onRollback }: { node: TreeNode; onClose: () => void; onRollback: () => void }) {
-  const [selectedSnap, setSelectedSnap] = useState('')
-
-  const snapsQ = useQuery({
-    queryKey: ['zfs', 'snapshots', node.name],
-    queryFn: ({ signal }) => api.get<{ snapshots: Snapshot[] }>(`/api/zfs/snapshots?dataset=${encodeURIComponent(node.name)}`, signal),
-  })
-  const snapshots = [...(snapsQ.data?.snapshots ?? [])].sort((a, b) => b.creation.localeCompare(a.creation))
-
-  const mutation = useMutation({
-    mutationFn: () => api.post('/api/zfs/snapshots/rollback', { snapshot: `${node.name}@${selectedSnap}`, force: true }),
-    onSuccess: () => { toast.success(`Rollback of ${node.name} initiated`); onRollback(); onClose() },
-    onError: (e: Error) => toast.error(e.message),
-  })
-
-  return (
-    <Modal title={<span style={{ color: 'var(--warning)' }}>Rollback Dataset</span>} onClose={onClose} size="sm">
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-        <div style={{ padding: '10px 14px', background: 'var(--error-bg)', border: '1px solid var(--error-border)', borderRadius: 'var(--radius-sm)', fontSize: 'var(--text-xs)', color: 'var(--error)' }}>
-          <strong>Warning:</strong> Rolling back destroys all data written after the selected snapshot. This cannot be undone.
-        </div>
-        <label className="field">
-          <span className="field-label">Select snapshot to roll back to</span>
-          {snapsQ.isLoading ? (
-            <div style={{ padding: '8px 0', color: 'var(--text-tertiary)', fontSize: 'var(--text-sm)' }}>Loading snapshots…</div>
-          ) : snapshots.length === 0 ? (
-            <div style={{ padding: '8px 0', color: 'var(--text-tertiary)', fontSize: 'var(--text-sm)' }}>No snapshots exist for this dataset.</div>
-          ) : (
-            <select className="input" value={selectedSnap} onChange={e => setSelectedSnap(e.target.value)}>
-              <option value="">Select a snapshot…</option>
-              {snapshots.map(s => (
-                <option key={s.name} value={s.snap_name}>
-                  {s.snap_name} — {s.creation} ({s.refer})
-                </option>
-              ))}
-            </select>
-          )}
-        </label>
-      </div>
-      <div className="modal-footer">
-        <button onClick={onClose} className="btn btn-ghost">Cancel</button>
-        <button onClick={() => mutation.mutate()} disabled={!selectedSnap || mutation.isPending || snapshots.length === 0} className="btn btn-warning">
-          {mutation.isPending ? 'Rolling back…' : 'Rollback'}
         </button>
       </div>
     </Modal>
@@ -1455,7 +1407,7 @@ export function DatasetsPage() {
       )}
       {rollbackDataset && (
         <RollbackModal
-          node={rollbackDataset}
+          dataset={rollbackDataset.name}
           onClose={() => setRollbackDataset(null)}
           onRollback={refresh}
         />
