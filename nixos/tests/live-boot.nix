@@ -50,6 +50,11 @@ pkgs.testers.nixosTest {
     virtualisation.cores = 4;
     virtualisation.memorySize = 2048;  # 2GB for ZFS ARC + daemon
 
+    # Boot with a tmpfs root like the live ISO (live-persistence.nix). The test
+    # framework otherwise replaces fileSystems."/" with a persistent ext4 disk
+    # image, and the ephemeral-root check would test the harness, not live boot.
+    virtualisation.diskImage = null;
+
     # Simulate attached storage (for ZFS pool test)
     virtualisation.emptyDiskImages = [ 512 512 ];  # Two 512MB disks for ZFS
 
@@ -135,14 +140,13 @@ pkgs.testers.nixosTest {
     # ── Step 6: Verify root is ephemeral (tmpfs) ─────────────────────────────
     @test_step("Verify ephemeral root filesystem")
     def check_ephemeral_root():
-        # Check that /persist is tmpfs (not mounted from disk)
-        mount_info = liveSystem.succeed("mount | grep ' / '")
-        # Live root should be tmpfs or overlay, not persistent storage
-        print(f"Root mount: {mount_info}")
-
-        # Check /var is in tmpfs
-        var_mount = liveSystem.succeed("mount | grep ' /var '")
-        assert "tmpfs" in var_mount, f"Expected /var to be tmpfs, got: {var_mount}"
+        # Root is tmpfs and /var is a directory on it, not a separate mount,
+        # so ask which filesystem each path resolves to.
+        root_fs = liveSystem.succeed("findmnt -n -o FSTYPE --target /").strip()
+        var_fs = liveSystem.succeed("findmnt -n -o FSTYPE --target /var").strip()
+        print(f"Filesystem of /: {root_fs}, of /var: {var_fs}")
+        assert root_fs == "tmpfs", f"Expected / to be tmpfs, got: {root_fs}"
+        assert var_fs == "tmpfs", f"Expected /var to be on tmpfs, got: {var_fs}"
 
     # ── Step 7: Check machine-id (ephemeral but preserved) ────────────────────
     @test_step("Verify machine identity")
