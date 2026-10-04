@@ -1053,6 +1053,8 @@ func main() {
 	r.Handle("/api/system/disks", permRoute("storage", "read", handlers.HandleDiskDiscovery)).Methods("GET")
 	r.Handle("/api/zfs/pool/replacement-disks", permRoute("storage", "read", handlers.HandleReplacementDiskCandidates)).Methods("GET")
 	r.Handle("/api/system/pool/create", permRoute("storage", "write", handlers.HandlePoolCreate)).Methods("POST")
+	r.Handle("/api/zfs/pool/importable", permRoute("storage", "read", handlers.HandleListImportablePools)).Methods("GET")
+	r.Handle("/api/zfs/pool/import", permRoute("storage", "write", handlers.HandleImportPool)).Methods("POST")
 
 	// Disk lifecycle event endpoint (localhost only - called by udev/systemd)
 	r.HandleFunc("/api/internal/disk-event", handlers.HandleDiskEvent).Methods("POST")

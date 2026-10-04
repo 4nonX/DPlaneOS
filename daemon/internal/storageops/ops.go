@@ -23,6 +23,7 @@ type OpType string
 const (
 	OpWipeDisk      OpType = "wipe_disk"
 	OpPoolCreate    OpType = "pool_create"
+	OpPoolImport    OpType = "pool_import"
 	OpVdevAdd       OpType = "vdev_add"
 	OpReplace       OpType = "replace"
 	OpAttach        OpType = "attach"

@@ -344,3 +344,36 @@ func TestPathCleaner(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateZpoolImport(t *testing.T) {
+	base := []string{"import", "-d", "/dev/disk/by-id"}
+	with := func(extra ...string) []string { return append(append([]string{}, base...), extra...) }
+	tests := []struct {
+		name    string
+		cmdName string
+		args    []string
+		wantErr bool
+	}{
+		{"scan", "zpool_import_scan", base, false},
+		{"scan with extra arg", "zpool_import_scan", with("tank"), true},
+		{"import by guid", "zpool_import", with("1234567890123456789"), false},
+		{"import forced", "zpool_import", with("-f", "1234567890123456789"), false},
+		{"import renamed", "zpool_import", with("1234567890123456789", "archive"), false},
+		{"import forced and renamed", "zpool_import", with("-f", "1234567890123456789", "archive"), false},
+		{"import by name rejected", "zpool_import", with("tank"), true},
+		{"import -a rejected", "zpool_import", with("-a"), true},
+		{"bad new name", "zpool_import", with("123", "1bad"), true},
+		{"injection in new name", "zpool_import", with("123", "tank;rm"), true},
+		{"too many args", "zpool_import", with("123", "a", "b"), true},
+		{"wrong device dir", "zpool_import", []string{"import", "-d", "/tmp", "123"}, true},
+		{"missing -d", "zpool_import", []string{"import", "123"}, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateCommand(tt.cmdName, tt.args)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ValidateCommand(%s, %v) error = %v, wantErr %v", tt.cmdName, tt.args, err, tt.wantErr)
+			}
+		})
+	}
+}

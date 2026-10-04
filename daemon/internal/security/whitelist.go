@@ -197,15 +197,16 @@ var CommandWhitelist = map[string]Command{
 	"zpool_import_scan": {
 		Name:        "zpool_import_scan",
 		Path:        "zpool",
-		AllowedArgs: []string{"import"},
-		Description: "Scan for importable ZFS pools",
+		AllowedArgs: []string{"import", "-d", "/dev/disk/by-id"},
+		Description: "Scan for importable ZFS pools (by-id device paths)",
 	},
+	// zpool_import: [zpool import -d /dev/disk/by-id [-f] <guid> [new-name]]
+	// Validated by validateZpoolImport; import is always by numeric GUID.
 	"zpool_import": {
 		Name:        "zpool_import",
 		Path:        "zpool",
 		AllowedArgs: []string{"import"},
-		ArgPatterns: []*regexp.Regexp{regexp.MustCompile(`^(-f|[a-zA-Z0-9_\-]+)$`)},
-		Description: "Import existing ZFS pool (with optional -f flag)",
+		Description: "Import one ZFS pool by GUID, optionally forced and/or renamed",
 	},
 	"zpool_import_all": {
 		Name:        "zpool_import_all",
@@ -938,6 +939,8 @@ func ValidateCommand(cmdName string, args []string) error {
 		return validateZfsPromote(args)
 	case "zpool_export":
 		return validateZpoolExport(args)
+	case "zpool_import":
+		return validateZpoolImport(args)
 	case "ipmitool_power_off", "ipmitool_power_status":
 		return validateIpmitoolPower(cmdName, args)
 	case "zfs_hold", "zfs_release":
@@ -1572,6 +1575,37 @@ func IsValidSessionToken(token string) bool {
 // ZFS pool names: alphanumeric, hyphens, underscores, dots. No spaces, no shell metacharacters.
 // This MUST be called before any pool name is passed to exec.Command.
 var validPoolName = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9_\-\.]{0,254}$`)
+
+var poolGUIDRe = regexp.MustCompile(`^[0-9]{1,20}$`)
+
+// ValidatePoolGUID validates a numeric ZFS pool GUID as printed by `zpool import`.
+func ValidatePoolGUID(guid string) error {
+	if !poolGUIDRe.MatchString(guid) {
+		return fmt.Errorf("invalid pool GUID: %q (must be numeric)", guid)
+	}
+	return nil
+}
+
+// validateZpoolImport enforces: import -d /dev/disk/by-id [-f] <guid> [new-name]
+func validateZpoolImport(args []string) error {
+	if len(args) < 4 || args[0] != "import" || args[1] != "-d" || args[2] != "/dev/disk/by-id" {
+		return fmt.Errorf("zpool import must be: import -d /dev/disk/by-id [-f] <guid> [new-name]")
+	}
+	rest := args[3:]
+	if rest[0] == "-f" {
+		rest = rest[1:]
+	}
+	if len(rest) < 1 || len(rest) > 2 {
+		return fmt.Errorf("zpool import takes a GUID and an optional new name")
+	}
+	if err := ValidatePoolGUID(rest[0]); err != nil {
+		return err
+	}
+	if len(rest) == 2 {
+		return ValidatePoolName(rest[1])
+	}
+	return nil
+}
 
 func ValidatePoolName(name string) error {
 	if !validPoolName.MatchString(name) {

@@ -18,6 +18,8 @@
  *   // NEW: Pool Lifecycle
  *   GET  /api/zfs/pool/replacement-disks  (eligible replacement disks, by-id)
  *   POST /api/system/pool/create     (create a new pool - simple or advanced topology)
+ *   GET  /api/zfs/pool/importable    (pools on attached disks that can be imported)
+ *   POST /api/zfs/pool/import        (import one pool by GUID, optional rename / force)
  *   POST /api/zfs/pools/expand       (add VDEV to existing pool)
  *   POST /api/zfs/pools/destroy      (destroy a pool)
  */
@@ -38,6 +40,7 @@ import { Modal } from '@/components/ui/Modal'
 import { useRouter } from '@tanstack/react-router'
 import { PoolTopologyView, PoolTopology, VDev } from '@/components/zfs/PoolTopology'
 import { RollbackModal } from '@/components/zfs/RollbackModal'
+import { ImportPoolModal } from '@/components/zfs/ImportPoolModal'
 import { useFrozenLayout } from '@/hooks/useFrozenLayout'
 
 // ---------------------------------------------------------------------------
@@ -2240,6 +2243,7 @@ export function PoolsPage() {
   const [tab, setTab] = useState<Tab>('pools')
   const [datasetFilter, setDatasetFilter] = useState('')
   const [createPoolOpen, setCreatePoolOpen] = useState(false)
+  const [importPoolOpen, setImportPoolOpen] = useState(false)
   const qc   = useQueryClient()
   const wsOn = useWsStore((s) => s.on)
   const [mountAlert, setMountAlert] = useState<{ pool: string; mountpoint: string } | null>(null)
@@ -2392,6 +2396,9 @@ export function PoolsPage() {
           <p style={{ color: 'var(--text-secondary)', fontSize: 'var(--text-md)' }}>Pools · Datasets · Scrub · Encryption</p>
         </div>
         <div style={{ display: 'flex', gap: 10 }}>
+          <button onClick={() => setImportPoolOpen(true)} className="btn btn-ghost">
+            <Icon name="input" size={18} /> Import Pool
+          </button>
           <button onClick={() => setCreatePoolOpen(true)} className="btn btn-primary">
             <Icon name="add_circle" size={18} /> Add Pool
           </button>
@@ -2436,6 +2443,14 @@ export function PoolsPage() {
             <div style={{ textAlign: 'center', padding: '64px 24px', border: '1px dashed var(--border)', borderRadius: 'var(--radius-xl)', color: 'var(--text-tertiary)' }}>
               <Icon name="storage" size={48} style={{ opacity: 0.3, display: 'block', margin: '0 auto 12px' }} />
               <div style={{ fontSize: 'var(--text-lg)', fontWeight: 600 }}>No ZFS pools found</div>
+              <div style={{ display: 'flex', gap: 10, justifyContent: 'center', marginTop: 16 }}>
+                <button onClick={() => setCreatePoolOpen(true)} className="btn btn-primary">
+                  <Icon name="add_circle" size={18} /> Create Pool
+                </button>
+                <button onClick={() => setImportPoolOpen(true)} className="btn btn-ghost">
+                  <Icon name="input" size={18} /> Import Existing Pool
+                </button>
+              </div>
             </div>
           )}
           {/* Dataset search / filter bar */}
@@ -2490,6 +2505,13 @@ export function PoolsPage() {
 
       {createPoolOpen && (
         <CreatePoolModal onClose={() => setCreatePoolOpen(false)} onCreated={refresh} />
+      )}
+      {importPoolOpen && (
+        <ImportPoolModal
+          existingPools={pools.map(p => p.name)}
+          onClose={() => setImportPoolOpen(false)}
+          onImported={refresh}
+        />
       )}
     </div>
   )

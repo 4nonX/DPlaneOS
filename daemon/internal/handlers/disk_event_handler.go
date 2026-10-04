@@ -40,6 +40,8 @@ import (
 	"os/exec"
 	"strings"
 	"time"
+
+	"dplaned/internal/cmdutil"
 )
 
 // diskEventBroadcaster is the interface we need from the WS hub.
@@ -205,18 +207,15 @@ func attemptPoolImport(disk DiskInfo) {
 
 		// HA GUARD: Before importing, ensure we are not a Patroni standby node.
 		// If Patroni is running but we are not primary, importing block devices will corrupt the cluster.
-		client := &http.Client{Timeout: 2 * time.Second}
-		if resp, err := client.Get("http://localhost:8008/primary"); err == nil {
-			defer resp.Body.Close()
-			if resp.StatusCode != http.StatusOK {
-				log.Printf("HA GUARD: Pool %q import BLOCKED. Node is running Patroni but is not primary (status %d).", poolName, resp.StatusCode)
-				continue
-			}
+		if standby, code := patroniStandby(); standby {
+			log.Printf("HA GUARD: Pool %q import BLOCKED. Node is running Patroni but is not primary (status %d).", poolName, code)
+			continue
 		}
 
 		log.Printf("DISK EVENT: attempting import of pool %q (GUID %s, disk /dev/%s added)", poolName, poolGUID, disk.Name)
 		// Import by GUID is much safer than name-based import as names can collide or change.
-		importResult, importErr := runWithTimeout(2*time.Minute, "zpool", "import", "-d", "/dev/disk/by-id", "-g", poolGUID)
+		// The GUID is positional: `zpool import` has no -g flag.
+		importResult, importErr := cmdutil.Run(2*time.Minute, "zpool_import", "import", "-d", "/dev/disk/by-id", poolGUID)
 		if importErr != nil {
 			log.Printf("DISK EVENT: pool import %q failed: %v - %s", poolName, importErr, strings.TrimSpace(string(importResult)))
 		} else {
