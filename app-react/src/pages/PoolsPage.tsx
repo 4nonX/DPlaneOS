@@ -40,6 +40,7 @@ import { Modal } from '@/components/ui/Modal'
 import { useRouter } from '@tanstack/react-router'
 import { PoolTopologyView, PoolTopology, VDev } from '@/components/zfs/PoolTopology'
 import { RollbackModal } from '@/components/zfs/RollbackModal'
+import { CreateDatasetModal } from '@/components/zfs/CreateDatasetModal'
 import { ImportPoolModal } from '@/components/zfs/ImportPoolModal'
 import { useFrozenLayout } from '@/hooks/useFrozenLayout'
 
@@ -309,76 +310,7 @@ function DatasetNode({ node, depth, onCreateChild, onEdit, onDelete, onAction }:
   )
 }
 
-// ---------------------------------------------------------------------------
-// CreateDatasetModal
-// ---------------------------------------------------------------------------
-
 const ZSTD_LEVELS = Array.from({ length: 19 }, (_, i) => `zstd-${i + 1}`)
-
-function CreateDatasetModal({ parentName, onClose, onCreated }: {
-  parentName: string; onClose: () => void; onCreated: () => void
-}) {
-  const [childName, setChildName] = useState('')
-  const [compression, setCompression] = useState('lz4')
-  const [quota, setQuota] = useState('')
-  const [dedup, setDedup] = useState('off')
-
-  const mutation = useMutation({
-    mutationFn: () => api.post('/api/zfs/datasets', {
-      name: `${parentName}/${childName}`,
-      mountpoint: `/${parentName}/${childName}`,
-      quota,
-      compression,
-      dedup,
-    }),
-    onSuccess: () => { toast.success(`Dataset ${parentName}/${childName} created`); onCreated(); onClose() },
-    onError: (e: Error) => toast.error(e.message),
-  })
-
-  function submit() {
-    if (!childName.trim()) { toast.error('Dataset name required'); return }
-    if (!/^[a-zA-Z0-9_-]+$/.test(childName)) { toast.error('Name: letters, numbers, - and _ only'); return }
-    mutation.mutate()
-  }
-
-  return (
-    <Modal title={<>New Dataset under <span style={{ color: 'var(--primary)', fontFamily: 'var(--font-mono)' }}>{parentName}</span></>} onClose={onClose}>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-        <label className="field">
-          <span className="field-label">Dataset Name</span>
-          <input value={childName} onChange={e => setChildName(e.target.value)} placeholder="e.g. photos"
-            className="input" onKeyDown={e => e.key === 'Enter' && submit()} autoFocus />
-        </label>
-        <label className="field">
-          <span className="field-label">Compression</span>
-          <select value={compression} onChange={e => setCompression(e.target.value)} className="input">
-            <option value="lz4">LZ4 (recommended)</option>
-            <option value="zstd">ZSTD (default level)</option>
-            {ZSTD_LEVELS.map(z => <option key={z} value={z}>{z}</option>)}
-            <option value="gzip">GZIP</option>
-            <option value="off">Off</option>
-          </select>
-        </label>
-        <label className="field">
-          <span className="field-label">Deduplication</span>
-          <select value={dedup} onChange={e => setDedup(e.target.value)} className="input" style={{ appearance: 'none' }}>
-            {['off', 'on', 'verify', 'sha512'].map(d => <option key={d} value={d}>{d}</option>)}
-          </select>
-        </label>
-        <label className="field">
-          <span className="field-label">Quota (optional, e.g. 100G)</span>
-          <input value={quota} onChange={e => setQuota(e.target.value)} placeholder="100G" className="input" />
-        </label>
-      </div>
-      <div className="modal-footer">
-        <button onClick={onClose} className="btn btn-ghost">Cancel</button>
-        <button onClick={submit} disabled={mutation.isPending} className="btn btn-primary">
-          {mutation.isPending ? 'Creating…' : 'Create Dataset'}
-        </button>
-      </div>
-    </Modal>
-  )
-}
 
 // ---------------------------------------------------------------------------
 // EditDatasetModal (Set properties)

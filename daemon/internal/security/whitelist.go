@@ -73,6 +73,14 @@ var CommandWhitelist = map[string]Command{
 		},
 		Description: "Bring a ZFS device back online",
 	},
+	// zfs_create_opts: [zfs create -o key=value ... pool/dataset]
+	// For create-time-only properties (casesensitivity). Validated by validateZfsCreateOpts.
+	"zfs_create_opts": {
+		Name:        "zfs_create_opts",
+		Path:        "zfs",
+		AllowedArgs: []string{"create"},
+		Description: "Create ZFS dataset with create-time-only properties",
+	},
 	"zfs_create": {
 		Name:        "zfs_create",
 		Path:        "zfs",
@@ -941,6 +949,8 @@ func ValidateCommand(cmdName string, args []string) error {
 		return validateZpoolExport(args)
 	case "zpool_import":
 		return validateZpoolImport(args)
+	case "zfs_create_opts":
+		return validateZfsCreateOpts(args)
 	case "ipmitool_power_off", "ipmitool_power_status":
 		return validateIpmitoolPower(cmdName, args)
 	case "zfs_hold", "zfs_release":
@@ -1205,6 +1215,7 @@ func validateZfsSetProperty(args []string) error {
 		"atime": true, "dedup": true, "recordsize": true, "sync": true,
 		"copies": true, "encryption": true, "keylocation": true, "keyformat": true,
 		"readonly": true, "xattr": true, "secondarycache": true,
+		"acltype": true,
 	}
 	if !allowedProps[prop] {
 		return fmt.Errorf("property not allowed: %s", prop)
@@ -1212,6 +1223,11 @@ func validateZfsSetProperty(args []string) error {
 
 	// Value validation
 	switch prop {
+	case "acltype":
+		// OpenZFS on Linux implements POSIX ACLs only; nfsv4 is FreeBSD/illumos.
+		if !linuxACLTypes[val] {
+			return fmt.Errorf("invalid acltype %q (use posix or off)", val)
+		}
 	case "mountpoint":
 		if val != "none" && val != "legacy" {
 			if err := ValidateMountPoint(val); err != nil {
@@ -1575,6 +1591,44 @@ func IsValidSessionToken(token string) bool {
 // ZFS pool names: alphanumeric, hyphens, underscores, dots. No spaces, no shell metacharacters.
 // This MUST be called before any pool name is passed to exec.Command.
 var validPoolName = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9_\-\.]{0,254}$`)
+
+// linuxACLTypes are the acltype values OpenZFS accepts on Linux.
+var linuxACLTypes = map[string]bool{"posix": true, "posixacl": true, "off": true, "noacl": true}
+
+// CreateTimeProps lists properties that ZFS only accepts at `zfs create` time,
+// with their allowed values.
+var CreateTimeProps = map[string]map[string]bool{
+	"casesensitivity": {"sensitive": true, "insensitive": true, "mixed": true},
+}
+
+// validateZfsCreateOpts enforces: create (-o key=value)+ pool/dataset
+// where every key is a create-time property from CreateTimeProps.
+func validateZfsCreateOpts(args []string) error {
+	if len(args) < 4 || args[0] != "create" || len(args)%2 != 0 {
+		return fmt.Errorf("zfs create must be: create -o key=value [...] pool/dataset")
+	}
+	for i := 1; i < len(args)-1; i += 2 {
+		if args[i] != "-o" {
+			return fmt.Errorf("expected -o at position %d, got %q", i, args[i])
+		}
+		kv := strings.SplitN(args[i+1], "=", 2)
+		if len(kv) != 2 {
+			return fmt.Errorf("invalid property assignment %q", args[i+1])
+		}
+		allowed, ok := CreateTimeProps[kv[0]]
+		if !ok {
+			return fmt.Errorf("property not allowed at create time: %s", kv[0])
+		}
+		if !allowed[kv[1]] {
+			return fmt.Errorf("invalid value for %s: %q", kv[0], kv[1])
+		}
+	}
+	name := args[len(args)-1]
+	if !strings.Contains(name, "/") {
+		return fmt.Errorf("dataset name must be pool/name: %q", name)
+	}
+	return ValidateDatasetName(name)
+}
 
 var poolGUIDRe = regexp.MustCompile(`^[0-9]{1,20}$`)
 

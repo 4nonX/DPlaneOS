@@ -239,6 +239,9 @@ func (h *ZFSHandler) CreateDataset(w http.ResponseWriter, r *http.Request) {
 		Recordsize     string `json:"recordsize"`
 		Xattr          string `json:"xattr"`
 		Secondarycache string `json:"secondarycache"`
+		Acltype        string `json:"acltype"`
+		// Casesensitivity can only be set at creation (sensitive | insensitive | mixed).
+		Casesensitivity string `json:"casesensitivity"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		respondErrorSimple(w, "Invalid request body", http.StatusBadRequest)
@@ -250,6 +253,18 @@ func (h *ZFSHandler) CreateDataset(w http.ResponseWriter, r *http.Request) {
 	if !namePattern.MatchString(req.Name) {
 		respondErrorSimple(w, "Invalid dataset name: use pool/name format, alphanumeric and - _ only", http.StatusBadRequest)
 		return
+	}
+
+	createOpts, err := datasetCreateOpts(req.Casesensitivity)
+	if err != nil {
+		respondErrorSimple(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if req.Acltype != "" {
+		if err := security.ValidateCommand("zfs_set_property", []string{"set", "acltype=" + req.Acltype, req.Name}); err != nil {
+			respondErrorSimple(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 	}
 
 	start := time.Now()
@@ -266,7 +281,7 @@ func (h *ZFSHandler) CreateDataset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err := libzfs.DatasetCreate(req.Name)
+	err = libzfs.DatasetCreateWithCreateOpts(req.Name, createOpts)
 	duration := time.Since(start)
 	audit.LogCommand(audit.LevelInfo, user, "zfs_create", []string{req.Name}, err == nil, duration, err)
 	if err != nil {
@@ -312,6 +327,7 @@ func (h *ZFSHandler) CreateDataset(w http.ResponseWriter, r *http.Request) {
 	addProp("recordsize", req.Recordsize)
 	addProp("xattr", req.Xattr)
 	addProp("secondarycache", req.Secondarycache)
+	addProp("acltype", req.Acltype)
 	if req.Dedup != "" && req.Dedup != "off" {
 		addProp("dedup", req.Dedup)
 	}
@@ -335,6 +351,18 @@ func (h *ZFSHandler) CreateDataset(w http.ResponseWriter, r *http.Request) {
 
 	// GITOPS HOOK: write state back to git
 	gitops.CommitAllAsync(h.db)
+}
+
+// datasetCreateOpts builds the create-time-only properties for `zfs create -o`.
+// "sensitive" is the ZFS default and needs no option.
+func datasetCreateOpts(casesensitivity string) (map[string]string, error) {
+	if casesensitivity == "" || casesensitivity == "sensitive" {
+		return nil, nil
+	}
+	if !security.CreateTimeProps["casesensitivity"][casesensitivity] {
+		return nil, fmt.Errorf("invalid casesensitivity %q (use sensitive, insensitive or mixed)", casesensitivity)
+	}
+	return map[string]string{"casesensitivity": casesensitivity}, nil
 }
 
 // Stderr is logged separately to prevent warning messages (e.g. "pool is DEGRADED")

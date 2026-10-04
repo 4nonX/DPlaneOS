@@ -27,6 +27,7 @@ import { Tooltip } from '@/components/ui/Tooltip'
 import { toast } from '@/hooks/useToast'
 import { Modal } from '@/components/ui/Modal'
 import { RollbackModal } from '@/components/zfs/RollbackModal'
+import { CreateDatasetModal } from '@/components/zfs/CreateDatasetModal'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -339,74 +340,6 @@ function StorageTreemap({ datasets, pools, onSelect }: {
 // ---------------------------------------------------------------------------
 // Modals - mirroring PoolsPage implementations exactly
 // ---------------------------------------------------------------------------
-
-function CreateDatasetModal({ parentName, onClose, onCreated }: {
-  parentName: string; onClose: () => void; onCreated: () => void
-}) {
-  const [childName, setChildName] = useState('')
-  const [compression, setCompression] = useState('lz4')
-  const [dedup, setDedup] = useState('off')
-  const [quota, setQuota] = useState('')
-
-  const mutation = useMutation({
-    mutationFn: () => api.post('/api/zfs/datasets', {
-      name: `${parentName}/${childName}`,
-      mountpoint: `/${parentName}/${childName}`,
-      quota,
-      compression,
-      dedup,
-    }),
-    onSuccess: () => { toast.success(`Dataset ${parentName}/${childName} created`); onCreated(); onClose() },
-    onError: (e: Error) => toast.error(e.message),
-  })
-
-  function submit() {
-    if (!childName.trim()) { toast.error('Dataset name required'); return }
-    if (!/^[a-zA-Z0-9_-]+$/.test(childName)) { toast.error('Name: letters, numbers, - and _ only'); return }
-    mutation.mutate()
-  }
-
-  return (
-    <Modal title={<>New Dataset under <span style={{ color: 'var(--primary)', fontFamily: 'var(--font-mono)' }}>{parentName}</span></>} onClose={onClose}>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-        <label className="field">
-          <span className="field-label">Dataset Name</span>
-          <input value={childName} onChange={e => setChildName(e.target.value)} placeholder="e.g. photos"
-            className="input" onKeyDown={e => e.key === 'Enter' && submit()} autoFocus />
-        </label>
-        <label className="field">
-          <span className="field-label">Compression</span>
-          <select value={compression} onChange={e => setCompression(e.target.value)} className="input">
-            <option value="lz4">LZ4 (recommended)</option>
-            <option value="zstd">ZSTD (default level)</option>
-            {ZSTD_LEVELS.map(z => <option key={z} value={z}>{z}</option>)}
-            <option value="gzip">GZIP</option>
-            <option value="off">Off</option>
-          </select>
-        </label>
-        <label className="field">
-          <span className="field-label">Deduplication</span>
-          <select value={dedup} onChange={e => setDedup(e.target.value)} className="input">
-            <option value="off">Off (recommended)</option>
-            <option value="on">On (SHA-256)</option>
-            <option value="verify">Verify (byte-for-byte)</option>
-            <option value="sha512">SHA-512</option>
-          </select>
-        </label>
-        <label className="field">
-          <span className="field-label">Quota (optional, e.g. 100G)</span>
-          <input value={quota} onChange={e => setQuota(e.target.value)} placeholder="100G" className="input" />
-        </label>
-      </div>
-      <div className="modal-footer">
-        <button onClick={onClose} className="btn btn-ghost">Cancel</button>
-        <button onClick={submit} disabled={mutation.isPending} className="btn btn-primary">
-          {mutation.isPending ? 'Creating…' : 'Create Dataset'}
-        </button>
-      </div>
-    </Modal>
-  )
-}
 
 function EditDatasetModal({ node, onClose, onUpdated }: {
   node: TreeNode; onClose: () => void; onUpdated: () => void

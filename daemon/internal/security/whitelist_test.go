@@ -377,3 +377,32 @@ func TestValidateZpoolImport(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateZfsCreateOptsAndACLType(t *testing.T) {
+	tests := []struct {
+		name    string
+		cmdName string
+		args    []string
+		wantErr bool
+	}{
+		{"insensitive", "zfs_create_opts", []string{"create", "-o", "casesensitivity=insensitive", "tank/smb"}, false},
+		{"mixed", "zfs_create_opts", []string{"create", "-o", "casesensitivity=mixed", "tank/a/b"}, false},
+		{"no options", "zfs_create_opts", []string{"create", "tank/smb"}, true},
+		{"bad value", "zfs_create_opts", []string{"create", "-o", "casesensitivity=maybe", "tank/smb"}, true},
+		{"non create-time prop", "zfs_create_opts", []string{"create", "-o", "mountpoint=/x", "tank/smb"}, true},
+		{"missing -o", "zfs_create_opts", []string{"create", "casesensitivity=insensitive", "x", "tank/smb"}, true},
+		{"pool root", "zfs_create_opts", []string{"create", "-o", "casesensitivity=insensitive", "tank"}, true},
+		{"injection", "zfs_create_opts", []string{"create", "-o", "casesensitivity=insensitive", "tank/a;rm"}, true},
+		{"acltype posix", "zfs_set_property", []string{"set", "acltype=posix", "tank/smb"}, false},
+		{"acltype off", "zfs_set_property", []string{"set", "acltype=off", "tank/smb"}, false},
+		{"acltype nfsv4 rejected on linux", "zfs_set_property", []string{"set", "acltype=nfsv4", "tank/smb"}, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateCommand(tt.cmdName, tt.args)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ValidateCommand(%s, %v) error = %v, wantErr %v", tt.cmdName, tt.args, err, tt.wantErr)
+			}
+		})
+	}
+}

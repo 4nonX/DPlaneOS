@@ -17,6 +17,7 @@ package libzfs
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"dplaned/internal/cmdutil"
@@ -215,6 +216,36 @@ func SnapshotListHolds(snapshot string) ([]HoldEntry, error) {
 		}
 	}
 	return holds, nil
+}
+
+// DatasetCreateWithCreateOpts creates a ZFS filesystem dataset, passing
+// create-time-only properties (e.g. casesensitivity) as `zfs create -o`.
+// Without such properties it is identical to DatasetCreate. With them it
+// always uses the whitelisted subprocess path, in both build variants: the
+// cgo binding has no property nvlist support.
+func DatasetCreateWithCreateOpts(name string, createOpts map[string]string) error {
+	if len(createOpts) == 0 {
+		return DatasetCreate(name)
+	}
+	keys := make([]string, 0, len(createOpts))
+	for k := range createOpts {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	args := []string{"create"}
+	for _, k := range keys {
+		args = append(args, "-o", k+"="+createOpts[k])
+	}
+	args = append(args, name)
+	out, err := cmdutil.RunZFS("zfs_create_opts", args...)
+	if err != nil {
+		msg := strings.TrimSpace(string(out))
+		if msg == "" {
+			msg = err.Error()
+		}
+		return libzfsErr("DatasetCreate", msg)
+	}
+	return nil
 }
 
 // DatasetCreateWithProps creates a ZFS filesystem dataset and sets initial
