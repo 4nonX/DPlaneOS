@@ -97,7 +97,7 @@
     ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
     🌐  WEB INTERFACE
-        Open http://<this-machine-ip>:9000 in your browser
+        Open http://<this-machine-ip>/ in your browser
         (Find your IP: ip addr show | grep "inet ")
 
     🖥️  COMMAND LINE

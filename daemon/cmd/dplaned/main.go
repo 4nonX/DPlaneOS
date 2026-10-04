@@ -275,6 +275,10 @@ func main() {
 	}
 	defer db.Close()
 
+	if err := database.WaitReady(db, 60*time.Second, 2*time.Second); err != nil {
+		log.Fatalf("%v (DSN %s)", err, *dbDSN)
+	}
+
 	// Apply any pending schema migrations, then seed default data.
 	if err := database.RunMigrations(db); err != nil {
 		log.Fatalf("Schema migration failed: %v", err)

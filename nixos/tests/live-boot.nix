@@ -78,11 +78,27 @@ pkgs.testers.nixosTest {
         return decorator
 
     # ── Step 1: System boot ──────────────────────────────────────────────────
+    def dump_diagnostics():
+        """Print why dplaned did not come up. The serial console only carries
+        kernel messages, so without this the CI log has no daemon output."""
+        units = "dplaned postgresql postgresql-setup dplaneos-zfs-gate dplane-zfs-auto-import nginx"
+        for cmd in [
+            f"systemctl status --no-pager --lines=0 {units} 2>&1",
+            "journalctl -b --no-pager -o short-monotonic -u dplaned -u postgresql -u postgresql-setup -u dplaneos-zfs-gate 2>&1 | tail -n 200",
+            "ls -la /run/postgresql /run/dplaneos 2>&1",
+        ]:
+            print(f"\n----- {cmd}")
+            print(liveSystem.execute(cmd)[1])
+
     @test_step("Boot live system")
     def boot():
         liveSystem.start()
         liveSystem.wait_for_unit("multi-user.target")
-        liveSystem.wait_for_unit("dplaned.service")
+        try:
+            liveSystem.wait_for_unit("dplaned.service")
+        except Exception:
+            dump_diagnostics()
+            raise
         time.sleep(2)  # Allow daemon to fully initialize
 
     # ── Step 2: Verify daemon is running ─────────────────────────────────────
@@ -93,10 +109,15 @@ pkgs.testers.nixosTest {
         print(f"Daemon processes: {output}")
 
     # ── Step 3: Verify UI is accessible ──────────────────────────────────────
-    @test_step("Verify UI on port 9000")
+    # nginx (module.nix) serves the UI on port 80 and proxies /api to the daemon socket.
+    @test_step("Verify UI on port 80")
     def check_ui():
-        liveSystem.wait_for_open_port(9000)
-        response = liveSystem.succeed("curl -sf http://localhost:9000/ 2>&1 | head -20")
+        try:
+            liveSystem.wait_for_open_port(80, timeout=120)
+        except Exception:
+            dump_diagnostics()
+            raise
+        response = liveSystem.succeed("curl -sf http://localhost/ 2>&1 | head -20")
         assert "<!DOCTYPE" in response or "html" in response.lower(), "UI HTML not found"
 
     # ── Step 4: Check ZFS module is loaded ───────────────────────────────────
@@ -151,7 +172,7 @@ pkgs.testers.nixosTest {
     def check_api_health():
         # Try to access a known API endpoint (if it exists)
         # For MVP, just verify HTTP connectivity
-        response = liveSystem.succeed("curl -s -o /dev/null -w '%{http_code}' http://localhost:9000/")
+        response = liveSystem.succeed("curl -s -o /dev/null -w '%{http_code}' http://localhost/")
         http_code = response.strip()
         assert http_code.startswith("2") or http_code.startswith("3"), \
             f"Expected 2xx/3xx response, got {http_code}"

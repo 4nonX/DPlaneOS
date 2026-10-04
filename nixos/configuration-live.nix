@@ -14,7 +14,7 @@
 #   1. ISO boots with read-only squashfs root
 #   2. impermanence overlays /var, /etc with tmpfs
 #   3. dplane-zfs-auto-import scans and imports any pools
-#   4. D-PlaneOS daemon starts and serves UI on port 9000
+#   4. D-PlaneOS daemon starts and serves the UI via nginx on port 80
 #   5. User can manage pools, run Docker, optionally install to disk
 
 { config, lib, pkgs, ... }:
@@ -88,9 +88,22 @@
       shared_buffers = "64MB";
       effective_cache_size = "256MB";
     };
-    initialScript = pkgs.writeText "init.sql" ''
-      CREATE USER dplaneos WITH CREATEDB;
-      CREATE DATABASE dplaneos OWNER dplaneos;
+    # Idempotent role + database creation (runs in postgresql-setup.service).
+    ensureDatabases = [ "dplaneos" ];
+    ensureUsers = [ {
+      name = "dplaneos";
+      ensureDBOwnership = true;
+      ensureClauses.createdb = true;
+    } ];
+    # dplaned runs as root and connects over the Unix socket as role dplaneos
+    # (see services.dplaneos.dbDSN). Peer auth with an ident map allows exactly
+    # that mapping; no password and no TCP listener are needed.
+    identMap = ''
+      dplaneos root     dplaneos
+      dplaneos dplaneos dplaneos
+    '';
+    authentication = lib.mkBefore ''
+      local dplaneos dplaneos peer map=dplaneos
     '';
   };
 
@@ -117,7 +130,7 @@
     Welcome to D-PlaneOS Live Boot
     ──────────────────────────────────────────────────────────────────────
 
-    Web UI:              http://localhost:9000
+    Web UI:              http://<ip-address>/
     SSH:                 root@<ip-address>
 
     ZFS pools will be automatically imported from attached drives.

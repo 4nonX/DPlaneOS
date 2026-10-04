@@ -52,10 +52,14 @@ in {
 
     dbDSN = lib.mkOption {
       type    = lib.types.str;
-      default = if cfg.ha.enable 
+      default = if cfg.ha.enable
                 then "postgres://dplaneos@localhost:5000/dplaneos?sslmode=disable"
-                else "postgres://dplaneos@localhost/dplaneos?sslmode=disable";
-      description = "PostgreSQL Data Source Name.";
+                else "postgres://dplaneos@/dplaneos?host=/run/postgresql&sslmode=disable";
+      description = ''
+        PostgreSQL Data Source Name. Without HA the daemon connects over the local
+        Unix socket: NixOS PostgreSQL does not listen on TCP unless enableTCPIP is set,
+        and its default pg_hba.conf requires a password for TCP connections.
+      '';
     };
 
     openFirewall = lib.mkOption {
@@ -251,7 +255,10 @@ in {
     # ─── DPlaneOS daemon systemd service ────────────────────────────────
     systemd.services.dplaned = {
       description = "DPlaneOS NAS Daemon";
-      after       = [ "network.target" "zfs.target" "dplaneos-zfs-gate.service" "postgresql.service" "systemd-journald.service" ] ++ lib.optionals cfg.ha.enable [ "haproxy.service" "patroni.service" ];
+      # postgresql-setup.service creates roles/databases (ensureUsers, ensureDatabases,
+      # initialScript) after postgresql.service is up. Ordering only on postgresql.service
+      # lets the daemon connect before the dplaneos role exists.
+      after       = [ "network.target" "zfs.target" "dplaneos-zfs-gate.service" "postgresql.service" "postgresql-setup.service" "systemd-journald.service" ] ++ lib.optionals cfg.ha.enable [ "haproxy.service" "patroni.service" ];
       requires    = [ "dplaneos-zfs-gate.service" ] ++ lib.optionals cfg.ha.enable [ "patroni.service" ];
       wantedBy    = [ "multi-user.target" ];
       path        = with pkgs; [ coreutils pciutils docker docker-compose postgresql ];
@@ -265,7 +272,9 @@ in {
           # Verify daemon binary exists
           "/bin/sh -c 'test -x ${cfg.daemonPackage}/bin/dplaned || (echo \"FATAL: Daemon binary not found at ${cfg.daemonPackage}/bin/dplaned\" >&2; exit 1)'"
           # Wait for PostgreSQL to be ready before starting daemon
-          "/bin/sh -c 'echo \"[dplaned-pre] Checking PostgreSQL connectivity...\"; for i in $(${pkgs.coreutils}/bin/seq 1 30); do if ${pkgs.postgresql}/bin/pg_isready -h localhost -U dplaneos -d dplaneos 2>&1; then echo \"[dplaned-pre] PostgreSQL ready on attempt $i\"; exit 0; fi; ${pkgs.coreutils}/bin/sleep 1; done; echo \"FATAL: PostgreSQL not ready after 30 seconds\" >&2; exit 1'"
+          # Non-HA PostgreSQL listens on the Unix socket only (services.postgresql.enableTCPIP
+          # defaults to false), so probe the socket directory, not localhost.
+          "/bin/sh -c 'echo \"[dplaned-pre] Checking PostgreSQL connectivity...\"; for i in $(${pkgs.coreutils}/bin/seq 1 30); do if ${pkgs.postgresql}/bin/pg_isready -h ${if cfg.ha.enable then "localhost" else "/run/postgresql"} -U dplaneos -d dplaneos 2>&1; then echo \"[dplaned-pre] PostgreSQL ready on attempt $i\"; exit 0; fi; ${pkgs.coreutils}/bin/sleep 1; done; echo \"FATAL: PostgreSQL not ready after 30 seconds\" >&2; exit 1'"
         ];
         ExecStart       = "/bin/sh -c 'echo \"[dplaned] Starting with DSN: ${cfg.dbDSN}\"; exec ${cfg.daemonPackage}/bin/dplaned -db-dsn \"${cfg.dbDSN}\" -listen ${cfg.socketPath} -socket-group dplaned'";
         WorkingDirectory = "/var/lib/dplaneos";
@@ -315,10 +324,9 @@ in {
           "CAP_FOWNER"
         ];
 
-        # Logging: use kmsg to bypass journald socket issues in constrained environments
-        # Output goes to kernel message buffer, visible via journalctl/dmesg
-        StandardOutput = "kmsg";
-        StandardError = "kmsg";
+        # Logging: journal, so `journalctl -u dplaned` works (README, recovery docs, CI diagnostics).
+        StandardOutput = "journal";
+        StandardError = "journal";
         SyslogIdentifier = "dplaned";
       };
     };
