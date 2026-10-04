@@ -1466,6 +1466,24 @@ func diffShare(desired DesiredShare, live LiveShare) []string {
 		changes = append(changes, fmt.Sprintf("guest_ok: %v → %v", live.GuestOK, desired.GuestOK))
 	}
 
+	// Per-share options are compared only when state.yaml declares them.
+	diffOptBool := func(key string, want *bool, have bool) {
+		if want != nil && *want != have {
+			changes = append(changes, fmt.Sprintf("%s: %v → %v", key, have, *want))
+		}
+	}
+	diffOptStr := func(key string, want *string, have string) {
+		if want != nil && *want != have {
+			changes = append(changes, fmt.Sprintf("%s: %q → %q", key, have, *want))
+		}
+	}
+	diffOptBool("time_machine", desired.TimeMachine, live.TimeMachine)
+	diffOptStr("time_machine_quota", desired.TimeMachineQuota, live.TimeMachineQuota)
+	diffOptBool("shadow_copy", desired.ShadowCopy, live.ShadowCopy)
+	diffOptBool("recycle_bin", desired.RecycleBin, live.RecycleBin)
+	diffOptStr("hosts_allow", desired.HostsAllow, live.HostsAllow)
+	diffOptStr("hosts_deny", desired.HostsDeny, live.HostsDeny)
+
 	return changes
 }
 

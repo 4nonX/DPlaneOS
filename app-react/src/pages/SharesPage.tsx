@@ -11,6 +11,10 @@
  *   POST   /api/shares/nfs/reload
  *   GET    /api/smb/settings
  *   POST   /api/smb/settings
+ *
+ * Time Machine, shadow copies (Previous Versions), recycle bin and host
+ * restrictions are per-share options. The global card only switches the
+ * Apple SMB extensions and can apply shadow copies / recycle bin to all shares.
  */
 
 import type React from 'react'
@@ -31,13 +35,20 @@ import { useConfirm } from '@/components/ui/ConfirmDialog'
 // ---------------------------------------------------------------------------
 
 interface Share {
-  name:          string
-  path:          string
-  comment:       string
-  read_only:     boolean  // backend field name
-  guest_ok:      boolean  // backend field name
-  browsable:     boolean  // backend field name
-  valid_users?:  string   // backend field name
+  id:                  number
+  name:                string
+  path:                string
+  comment:             string
+  read_only:           boolean
+  guest_ok:            boolean
+  browsable:           boolean
+  valid_users?:        string
+  time_machine?:       boolean
+  time_machine_quota?: string
+  shadow_copy?:        boolean
+  recycle_bin?:        boolean
+  hosts_allow?:        string
+  hosts_deny?:         string
 }
 
 interface SharesListResponse { success: boolean; shares?: Share[]; data?: Share[] }
@@ -63,7 +74,7 @@ interface SMBSession {
 // Protocol Options card
 // ---------------------------------------------------------------------------
 
-function ProtocolOptions() {
+function ProtocolOptions({ shares }: { shares: Share[] }) {
   const qc = useQueryClient()
 
   const settingsQ = useQuery<SMBSettings>({
@@ -77,15 +88,20 @@ function ProtocolOptions() {
       api.post('/api/smb/settings', patch),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['smb', 'settings'] })
+      qc.invalidateQueries({ queryKey: ['shares', 'list'] })
       toast.success('SMB settings updated')
     },
     onError: (e: Error) => toast.error(e.message),
   })
 
   const s = settingsQ.data
+  const tmShares = shares.filter(sh => sh.time_machine).length
+  const appleOn = (s?.time_machine ?? false) || tmShares > 0
 
-  function toggle(field: 'time_machine' | 'shadow_copy' | 'recycle_bin', value: boolean) {
-    updateMut.mutate({ [field]: value })
+  // all / some / none of the shares have the option
+  function coverage(key: 'shadow_copy' | 'recycle_bin'): 'all' | 'some' | 'none' {
+    const n = shares.filter(sh => sh[key]).length
+    return n === 0 ? 'none' : n === shares.length ? 'all' : 'some'
   }
 
   if (settingsQ.isLoading) {
@@ -101,43 +117,48 @@ function ProtocolOptions() {
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
         <ToggleRow
           icon="computer"
-          label="Time Machine (macOS)"
-          description="Enables Samba fruit VFS and Avahi mDNS advertisement for macOS Time Machine backups"
-          checked={s?.time_machine ?? false}
-          onChange={v => toggle('time_machine', v)}
-          disabled={updateMut.isPending}
-          extra={s?.time_machine && s.avahi_file_ok ? (
-            <span style={{ fontSize: 'var(--text-2xs)', color: 'var(--success)', fontWeight: 600 }}>Avahi advertised</span>
-          ) : s?.time_machine && !s.avahi_file_ok ? (
-            <span style={{ fontSize: 'var(--text-2xs)', color: 'var(--warning)', fontWeight: 600 }}>avahi-daemon not running</span>
+          label="macOS support (Apple SMB extensions)"
+          description={tmShares > 0
+            ? `On automatically: ${tmShares} share${tmShares === 1 ? ' is a' : 's are'} Time Machine target${tmShares === 1 ? '' : 's'}. Choose targets in each share's settings.`
+            : 'Loads the Apple SMB extensions (fruit) on every share for faster, more reliable macOS access. Time Machine targets are chosen per share.'}
+          checked={appleOn}
+          onChange={v => updateMut.mutate({ time_machine: v })}
+          disabled={updateMut.isPending || tmShares > 0}
+          extra={tmShares > 0 && s?.avahi_file_ok ? (
+            <span style={{ fontSize: 'var(--text-2xs)', color: 'var(--success)', fontWeight: 600 }}>Time Machine advertised</span>
+          ) : tmShares > 0 && !s?.avahi_file_ok ? (
+            <span style={{ fontSize: 'var(--text-2xs)', color: 'var(--warning)', fontWeight: 600 }}>Bonjour advertisement missing</span>
           ) : null}
         />
         <ToggleRow
           icon="history"
-          label="Shadow Copies (Previous Versions)"
-          description="Exposes ZFS snapshots as Windows Previous Versions via Samba shadow_copy2. Works with snapshots created by the Snapshot Scheduler using any auto- prefix."
-          checked={s?.shadow_copy ?? false}
-          onChange={v => toggle('shadow_copy', v)}
-          disabled={updateMut.isPending}
+          label="Shadow copies on all shares"
+          description={`Exposes ZFS snapshots as Windows Previous Versions. Currently on for ${coverage('shadow_copy')} of the shares; toggling applies to every share. Set it per share in the share's settings.`}
+          checked={coverage('shadow_copy') === 'all'}
+          indeterminate={coverage('shadow_copy') === 'some'}
+          onChange={v => updateMut.mutate({ shadow_copy: v })}
+          disabled={updateMut.isPending || shares.length === 0}
         />
         <ToggleRow
           icon="delete"
-          label="Recycle Bin"
-          description="Moves deleted files to a per-user .recycle folder instead of immediate deletion"
-          checked={s?.recycle_bin ?? false}
-          onChange={v => toggle('recycle_bin', v)}
-          disabled={updateMut.isPending}
+          label="Recycle bin on all shares"
+          description={`Moves deleted files to a per-user .recycle folder. Currently on for ${coverage('recycle_bin')} of the shares; toggling applies to every share.`}
+          checked={coverage('recycle_bin') === 'all'}
+          indeterminate={coverage('recycle_bin') === 'some'}
+          onChange={v => updateMut.mutate({ recycle_bin: v })}
+          disabled={updateMut.isPending || shares.length === 0}
         />
       </div>
     </div>
   )
 }
 
-function ToggleRow({ icon, label, description, checked, onChange, disabled, extra }: {
+function ToggleRow({ icon, label, description, checked, indeterminate, onChange, disabled, extra }: {
   icon: string
   label: string
   description: string
   checked: boolean
+  indeterminate?: boolean
   onChange: (v: boolean) => void
   disabled: boolean
   extra?: React.ReactNode
@@ -145,6 +166,7 @@ function ToggleRow({ icon, label, description, checked, onChange, disabled, extr
   return (
     <label style={{ display: 'flex', alignItems: 'flex-start', gap: 12, cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.7 : 1 }}>
       <input type="checkbox" checked={checked} onChange={e => onChange(e.target.checked)} disabled={disabled}
+        ref={el => { if (el) el.indeterminate = !!indeterminate }}
         style={{ accentColor: 'var(--primary)', width: 16, height: 16, marginTop: 2, flexShrink: 0 }} />
       <Icon name={icon} size={16} style={{ color: 'var(--text-tertiary)', marginTop: 2, flexShrink: 0 }} />
       <div style={{ flex: 1 }}>
@@ -162,6 +184,23 @@ function ToggleRow({ icon, label, description, checked, onChange, disabled, extr
 // CreateShareModal
 // ---------------------------------------------------------------------------
 
+type Purpose = 'default' | 'timemachine' | 'windows' | 'public'
+
+const PURPOSES: { id: Purpose; label: string; hint: string }[] = [
+  { id: 'default', label: 'Default share', hint: 'Plain SMB share for Windows, macOS and Linux.' },
+  { id: 'timemachine', label: 'Time Machine backups', hint: 'Macs can back up here. Set a size cap so backups do not fill the pool.' },
+  { id: 'windows', label: 'Windows with file history', hint: 'Previous Versions from ZFS snapshots, plus a recycle bin for deleted files.' },
+  { id: 'public', label: 'Public read-only', hint: 'Anyone on the network can read, nobody can write.' },
+]
+
+function purposeOf(sh?: Share): Purpose {
+  if (!sh) return 'default'
+  if (sh.time_machine) return 'timemachine'
+  if (sh.guest_ok && sh.read_only) return 'public'
+  if (sh.shadow_copy && sh.recycle_bin) return 'windows'
+  return 'default'
+}
+
 function ShareModal({ onClose, onSaved, editingShare }: { onClose: () => void; onSaved: () => void; editingShare?: Share }) {
   const [name, setName] = useState(editingShare?.name ?? '')
   const [path, setPath] = useState(editingShare?.path ?? '')
@@ -169,16 +208,40 @@ function ShareModal({ onClose, onSaved, editingShare }: { onClose: () => void; o
   const [readonly, setReadonly] = useState(editingShare?.read_only ?? false)
   const [guestok, setGuestok] = useState(editingShare?.guest_ok ?? false)
   const [validusers, setValidusers] = useState(editingShare?.valid_users ?? '')
+  const [purpose, setPurpose] = useState<Purpose>(purposeOf(editingShare))
+  const [timeMachine, setTimeMachine] = useState(editingShare?.time_machine ?? false)
+  const [tmQuota, setTmQuota] = useState(editingShare?.time_machine_quota ?? '')
+  const [shadowCopy, setShadowCopy] = useState(editingShare?.shadow_copy ?? false)
+  const [recycleBin, setRecycleBin] = useState(editingShare?.recycle_bin ?? false)
+  const [hostsAllow, setHostsAllow] = useState(editingShare?.hosts_allow ?? '')
+  const [hostsDeny, setHostsDeny] = useState(editingShare?.hosts_deny ?? '')
+  const [showAccess, setShowAccess] = useState(!!(editingShare?.hosts_allow || editingShare?.hosts_deny))
+
+  function pickPurpose(p: Purpose) {
+    setPurpose(p)
+    setTimeMachine(p === 'timemachine')
+    setShadowCopy(p === 'windows')
+    setRecycleBin(p === 'windows')
+    if (p === 'public') { setGuestok(true); setReadonly(true) }
+    else if (purpose === 'public') { setGuestok(false); setReadonly(false) }
+  }
 
   const mutation = useMutation({
-    mutationFn: () => api.post('/api/shares', { 
-      action: editingShare ? 'update' : 'create', 
-      name, path, comment, read_only: readonly, guest_ok: guestok, browsable: true, valid_users: validusers 
+    mutationFn: () => api.post('/api/shares', {
+      action: editingShare ? 'update' : 'create',
+      ...(editingShare ? { id: editingShare.id } : {}),
+      name, path, comment, read_only: readonly, guest_ok: guestok, browsable: true, valid_users: validusers,
+      time_machine: timeMachine,
+      time_machine_quota: timeMachine ? tmQuota.trim() : '',
+      shadow_copy: shadowCopy,
+      recycle_bin: recycleBin,
+      hosts_allow: hostsAllow.trim(),
+      hosts_deny: hostsDeny.trim(),
     }),
-    onSuccess: () => { 
-      toast.success(editingShare ? `Share "${name}" updated` : `Share "${name}" created`); 
-      onSaved(); 
-      onClose() 
+    onSuccess: () => {
+      toast.success(editingShare ? `Share "${name}" updated` : `Share "${name}" created`);
+      onSaved();
+      onClose()
     },
     onError: (e: Error) => toast.error(e.message),
   })
@@ -187,12 +250,15 @@ function ShareModal({ onClose, onSaved, editingShare }: { onClose: () => void; o
     if (!name.trim()) { toast.error('Share name required'); return }
     if (!path.trim()) { toast.error('Path required'); return }
     if (!path.startsWith('/')) { toast.error('Path must be absolute (start with /)'); return }
+    if (timeMachine && tmQuota.trim() && !/^[1-9][0-9]{0,8}[KMGT]$/.test(tmQuota.trim())) {
+      toast.error('Time Machine size cap: a number with K, M, G or T (e.g. 500G)'); return
+    }
     mutation.mutate()
   }
 
   return (
     <Modal title={editingShare ? "Edit SMB Share" : "Create SMB Share"} onClose={onClose}>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14, maxHeight: '70vh', overflowY: 'auto', paddingRight: 4 }}>
         <label className="field">
           <span className="field-label">Share Name</span>
           <input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. media" className="input" autoFocus
@@ -205,6 +271,13 @@ function ShareModal({ onClose, onSaved, editingShare }: { onClose: () => void; o
           <input value={path} onChange={e => setPath(e.target.value)} placeholder="/tank/media" className="input" />
         </label>
         <label className="field">
+          <span className="field-label">Purpose</span>
+          <select value={purpose} onChange={e => pickPurpose(e.target.value as Purpose)} className="input">
+            {PURPOSES.map(p => <option key={p.id} value={p.id}>{p.label}</option>)}
+          </select>
+          <span style={{ fontSize: 'var(--text-2xs)', color: 'var(--text-tertiary)', marginTop: 4 }}>{PURPOSES.find(p => p.id === purpose)!.hint}</span>
+        </label>
+        <label className="field">
           <span className="field-label">Comment (optional)</span>
           <input value={comment} onChange={e => setComment(e.target.value)} placeholder="Media library" className="input" />
         </label>
@@ -212,14 +285,51 @@ function ShareModal({ onClose, onSaved, editingShare }: { onClose: () => void; o
           <span className="field-label">Valid Users (optional, space-separated)</span>
           <input value={validusers} onChange={e => setValidusers(e.target.value)} placeholder="alice bob @media" className="input" />
         </label>
-        <div style={{ display: 'flex', gap: 24 }}>
+        <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap' }}>
           <CheckRow label="Read-only" checked={readonly} onChange={setReadonly} />
           <CheckRow label="Guest access" checked={guestok} onChange={setGuestok} />
         </div>
+
+        <div className="card" style={{ padding: 14, display: 'flex', flexDirection: 'column', gap: 10, background: 'var(--bg-elevated)' }}>
+          <span className="field-label" style={{ margin: 0 }}>Share options</span>
+          <CheckRow label="Time Machine target (macOS backups)" checked={timeMachine} onChange={setTimeMachine} />
+          {timeMachine && (
+            <label className="field" style={{ marginLeft: 24 }}>
+              <span className="field-label">Size cap (optional, e.g. 500G)</span>
+              <input value={tmQuota} onChange={e => setTmQuota(e.target.value)} placeholder="no cap" className="input" style={{ maxWidth: 200 }} />
+            </label>
+          )}
+          <CheckRow label="Previous Versions (ZFS snapshots as shadow copies)" checked={shadowCopy} onChange={setShadowCopy} />
+          <CheckRow label="Recycle bin (.recycle/<user>)" checked={recycleBin} onChange={setRecycleBin} />
+          {timeMachine && readonly && (
+            <div className="alert alert-warning" style={{ fontSize: 'var(--text-xs)' }}>
+              <Icon name="warning" size={16} /><span>Time Machine needs write access. Turn off Read-only.</span>
+            </div>
+          )}
+        </div>
+
+        <button type="button" className="btn btn-ghost btn-sm" style={{ alignSelf: 'flex-start' }} onClick={() => setShowAccess(a => !a)}>
+          <Icon name="lan" size={14} />{showAccess ? 'Hide' : 'Show'} network access restrictions
+        </button>
+        {showAccess && (
+          <div className="card" style={{ padding: 14, display: 'flex', flexDirection: 'column', gap: 12, background: 'var(--bg-elevated)' }}>
+            <label className="field">
+              <span className="field-label">Hosts allow (IPs, CIDRs or host names)</span>
+              <input value={hostsAllow} onChange={e => setHostsAllow(e.target.value)} placeholder="192.168.1.0/24 10.0.0.5" className="input" style={{ fontFamily: 'var(--font-mono)' }} />
+            </label>
+            <label className="field">
+              <span className="field-label">Hosts deny</span>
+              <input value={hostsDeny} onChange={e => setHostsDeny(e.target.value)} placeholder="ALL" className="input" style={{ fontFamily: 'var(--font-mono)' }} />
+            </label>
+            <span style={{ fontSize: 'var(--text-2xs)', color: 'var(--text-tertiary)' }}>
+              Empty means no restriction. When a client matches both lists, hosts allow wins.
+            </span>
+          </div>
+        )}
       </div>
       <div className="modal-footer">
         <button onClick={onClose} className="btn btn-ghost">Cancel</button>
-        <button onClick={submit} disabled={mutation.isPending} className="btn btn-primary">
+        <button onClick={submit} disabled={mutation.isPending || (timeMachine && readonly)} className="btn btn-primary">
           {mutation.isPending ? 'Saving…' : editingShare ? 'Save Changes' : 'Create Share'}
         </button>
       </div>
@@ -261,6 +371,10 @@ function ShareCard({ share, onDeleted, onEdit }: { share: Share; onDeleted: () =
           {share.read_only && <Badge label="Read-only" color="var(--warning)" />}
           {share.guest_ok && <Badge label="Guest OK" color="var(--info)" />}
           {share.valid_users && <Badge label={`Users: ${share.valid_users}`} color="var(--text-tertiary)" />}
+          {share.time_machine && <Badge label={share.time_machine_quota ? `Time Machine · ${share.time_machine_quota}` : 'Time Machine'} color="var(--primary)" />}
+          {share.shadow_copy && <Badge label="Previous Versions" color="var(--success)" />}
+          {share.recycle_bin && <Badge label="Recycle bin" color="var(--success)" />}
+          {(share.hosts_allow || share.hosts_deny) && <Badge label="Host restricted" color="var(--warning)" />}
         </div>
       </div>
       <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
@@ -449,7 +563,7 @@ export function SharesPage() {
       <div role="tabpanel" id={`shares-panel-${tab}`} aria-labelledby={`shares-tab-${tab}`}>
         {tab === 'shares' ? (
           <>
-            <ProtocolOptions />
+            <ProtocolOptions shares={shares} />
             {sharesQ.isLoading && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                 {[0, 1, 2].map(i => <Skeleton key={i} height={100} style={{ borderRadius: 'var(--radius-lg)' }} />)}

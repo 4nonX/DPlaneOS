@@ -56,6 +56,13 @@ type LiveShare struct {
 	Comment    string
 	GuestOK    bool
 	Enabled    bool
+
+	TimeMachine      bool
+	TimeMachineQuota string
+	ShadowCopy       bool
+	RecycleBin       bool
+	HostsAllow       string
+	HostsDeny        string
 }
  
 // LiveNFSExport is an NFS export from the daemon DB.
@@ -385,7 +392,8 @@ func readLiveDatasets() ([]LiveDataset, error) {
 // readLiveShares reads SMB share state from the daemon DB.
 func readLiveShares(db *sql.DB) ([]LiveShare, error) {
 	rows, err := db.Query(`
-		SELECT id, name, path, read_only, valid_users, comment, guest_ok, enabled
+		SELECT id, name, path, read_only, valid_users, comment, guest_ok, enabled,
+		       time_machine, time_machine_quota, shadow_copy, recycle_bin, hosts_allow, hosts_deny
 		FROM smb_shares ORDER BY name
 	`)
 	if err != nil {
@@ -396,13 +404,17 @@ func readLiveShares(db *sql.DB) ([]LiveShare, error) {
 	var shares []LiveShare
 	for rows.Next() {
 		var s LiveShare
-		var roInt, gokInt, enabledInt int
-		if err := rows.Scan(&s.ID, &s.Name, &s.Path, &roInt, &s.ValidUsers, &s.Comment, &gokInt, &enabledInt); err != nil {
+		var roInt, gokInt, enabledInt, tmInt, scInt, rbInt int
+		if err := rows.Scan(&s.ID, &s.Name, &s.Path, &roInt, &s.ValidUsers, &s.Comment, &gokInt, &enabledInt,
+			&tmInt, &s.TimeMachineQuota, &scInt, &rbInt, &s.HostsAllow, &s.HostsDeny); err != nil {
 			continue
 		}
 		s.ReadOnly = roInt == 1
 		s.GuestOK = gokInt == 1
 		s.Enabled = enabledInt == 1
+		s.TimeMachine = tmInt == 1
+		s.ShadowCopy = scInt == 1
+		s.RecycleBin = rbInt == 1
 		shares = append(shares, s)
 	}
 	return shares, nil

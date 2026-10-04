@@ -181,8 +181,31 @@ func GenerateStateYAML(state *LiveState) string {
 			if s.ValidUsers != "" {
 				sb.WriteString(fmt.Sprintf("    valid_users: %q\n", s.ValidUsers))
 			}
+			if s.Comment != "" {
+				sb.WriteString(fmt.Sprintf("    comment: %q\n", s.Comment))
+			}
 			if s.GuestOK {
 				sb.WriteString("    guest_ok: true\n")
+			}
+			// Per-share options are written only when they differ from the
+			// defaults (same rule as Capture), keeping plain shares short.
+			if s.TimeMachine {
+				sb.WriteString("    time_machine: true\n")
+			}
+			if s.TimeMachineQuota != "" {
+				sb.WriteString(fmt.Sprintf("    time_machine_quota: %q\n", s.TimeMachineQuota))
+			}
+			if s.ShadowCopy {
+				sb.WriteString("    shadow_copy: true\n")
+			}
+			if s.RecycleBin {
+				sb.WriteString("    recycle_bin: true\n")
+			}
+			if s.HostsAllow != "" {
+				sb.WriteString(fmt.Sprintf("    hosts_allow: %q\n", s.HostsAllow))
+			}
+			if s.HostsDeny != "" {
+				sb.WriteString(fmt.Sprintf("    hosts_deny: %q\n", s.HostsDeny))
 			}
 		}
 		sb.WriteString("\n")

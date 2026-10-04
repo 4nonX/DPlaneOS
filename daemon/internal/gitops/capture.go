@@ -72,10 +72,7 @@ func CaptureCategories(live *LiveState, categories []string) *DesiredState {
 
 	if set["smb"] {
 		for _, s := range live.Shares {
-			out.Shares = append(out.Shares, DesiredShare{
-				Name: s.Name, Path: s.Path, ReadOnly: s.ReadOnly,
-				ValidUsers: s.ValidUsers, Comment: s.Comment, GuestOK: s.GuestOK,
-			})
+			out.Shares = append(out.Shares, captureShare(s))
 		}
 	}
 
@@ -204,4 +201,35 @@ func liveSystemToDesired(s *nixwriter.DPlaneState) *DesiredSystem {
 	}
 
 	return sys
+}
+
+// captureShare converts a live share into its state.yaml form. Per-share
+// options are captured only when they differ from the defaults, so a capture
+// of a plain share stays as short as before.
+func captureShare(s LiveShare) DesiredShare {
+	d := DesiredShare{
+		Name: s.Name, Path: s.Path, ReadOnly: s.ReadOnly,
+		ValidUsers: s.ValidUsers, Comment: s.Comment, GuestOK: s.GuestOK,
+	}
+	boolPtr := func(v bool) *bool { return &v }
+	strPtr := func(v string) *string { return &v }
+	if s.TimeMachine {
+		d.TimeMachine = boolPtr(true)
+	}
+	if s.TimeMachineQuota != "" {
+		d.TimeMachineQuota = strPtr(s.TimeMachineQuota)
+	}
+	if s.ShadowCopy {
+		d.ShadowCopy = boolPtr(true)
+	}
+	if s.RecycleBin {
+		d.RecycleBin = boolPtr(true)
+	}
+	if s.HostsAllow != "" {
+		d.HostsAllow = strPtr(s.HostsAllow)
+	}
+	if s.HostsDeny != "" {
+		d.HostsDeny = strPtr(s.HostsDeny)
+	}
+	return d
 }

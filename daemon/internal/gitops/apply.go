@@ -19,6 +19,7 @@ import (
 	"dplaned/internal/libzfs"
 	"dplaned/internal/nixwriter"
 	"dplaned/internal/nvmet"
+	"dplaned/internal/smbconf"
 )
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -722,6 +723,9 @@ func createShare(db *sql.DB, smbConfPath, name string, ds *DesiredShare) error {
 	if err != nil {
 		return fmt.Errorf("insert smb_share %q: %w", name, err)
 	}
+	if err := applyShareOptions(db, name, ds); err != nil {
+		return err
+	}
 	reloadSamba(smbConfPath, db)
 	log.Printf("GITOPS: created share %q → %s", name, ds.Path)
 	return nil
@@ -875,54 +879,86 @@ func reloadNFS(exportsPath string, db *sql.DB) {
 	}
 }
 
-// reloadSamba regenerates smb.conf and sends SIGHUP to smbd.
-// Mirrors the pattern in ShareCRUDHandler.regenerateSMBConf().
+// execer is satisfied by both *sql.DB and *sql.Tx.
+type execer interface {
+	Exec(query string, args ...any) (sql.Result, error)
+}
+
+func boolToInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
+}
+
+// applyShareOptions writes the per-share options that state.yaml declares.
+// Options left out of state.yaml (nil) keep their live value.
+func applyShareOptions(db execer, name string, ds *DesiredShare) error {
+	if ds.TimeMachineQuota != nil {
+		if err := smbconf.ValidateTimeMachineQuota(*ds.TimeMachineQuota); err != nil {
+			return fmt.Errorf("share %q: %w", name, err)
+		}
+	}
+	for _, list := range []*string{ds.HostsAllow, ds.HostsDeny} {
+		if list != nil {
+			if err := smbconf.ValidateHostList(*list); err != nil {
+				return fmt.Errorf("share %q: %w", name, err)
+			}
+		}
+	}
+	b2i := boolToInt
+	type opt struct {
+		column string
+		value  any
+	}
+	var opts []opt
+	if ds.TimeMachine != nil {
+		opts = append(opts, opt{"time_machine", b2i(*ds.TimeMachine)})
+	}
+	if ds.TimeMachineQuota != nil {
+		opts = append(opts, opt{"time_machine_quota", *ds.TimeMachineQuota})
+	}
+	if ds.ShadowCopy != nil {
+		opts = append(opts, opt{"shadow_copy", b2i(*ds.ShadowCopy)})
+	}
+	if ds.RecycleBin != nil {
+		opts = append(opts, opt{"recycle_bin", b2i(*ds.RecycleBin)})
+	}
+	if ds.HostsAllow != nil {
+		opts = append(opts, opt{"hosts_allow", *ds.HostsAllow})
+	}
+	if ds.HostsDeny != nil {
+		opts = append(opts, opt{"hosts_deny", *ds.HostsDeny})
+	}
+	for _, o := range opts {
+		// Column names come from the fixed list above.
+		if _, err := db.Exec(`UPDATE smb_shares SET `+o.column+` = $1, updated_at = NOW() WHERE name = $2`, o.value, name); err != nil {
+			return fmt.Errorf("share %q: set %s: %w", name, o.column, err)
+		}
+	}
+	return nil
+}
+
+// reloadSamba regenerates the share configuration with the same renderer as
+// the share CRUD handlers (smbconf), so a GitOps apply keeps browsable, masks,
+// VFS modules and per-share options, then reloads smbd.
 func reloadSamba(smbConfPath string, db *sql.DB) {
 	if smbConfPath == "" {
 		return
 	}
-	// Regenerate config from DB
-	rows, err := db.Query(`SELECT name, path, read_only, valid_users, comment, guest_ok FROM smb_shares WHERE enabled=1`)
+	shares, err := smbconf.LoadEnabled(db)
 	if err != nil {
 		log.Printf("GITOPS: reloadSamba: query failed: %v", err)
 		return
 	}
-	defer rows.Close()
-
-	var sb strings.Builder
-	sb.WriteString("[global]\n   workgroup = WORKGROUP\n   server string = DPlaneOS NAS\n\n")
-	for rows.Next() {
-		var name, path, validUsers, comment string
-		var roInt, gokInt int
-		if err := rows.Scan(&name, &path, &roInt, &validUsers, &comment, &gokInt); err != nil {
-			continue
-		}
-		fmt.Fprintf(&sb, "[%s]\n   path = %s\n", name, path)
-		if roInt == 1 {
-			sb.WriteString("   read only = yes\n")
-		}
-		if validUsers != "" {
-			fmt.Fprintf(&sb, "   valid users = %s\n", validUsers)
-		}
-		if comment != "" {
-			fmt.Fprintf(&sb, "   comment = %s\n", comment)
-		}
-		if gokInt == 1 {
-			sb.WriteString("   guest ok = yes\n")
-		}
-		sb.WriteString("\n")
-	}
-
-	// Write atomically via temp file then rename
-	tmpPath := smbConfPath + ".gitops.tmp"
-	if err := writeFileAtomic(tmpPath, smbConfPath, []byte(sb.String())); err != nil {
+	if err := smbconf.WriteAtomic(smbConfPath, []byte(smbconf.Render(smbconf.LoadOptions(db), shares))); err != nil {
 		log.Printf("GITOPS: reloadSamba: write failed: %v", err)
 		return
 	}
-	// Reload samba
-	if _, err := cmdutil.RunFast("smbcontrol", "smbd", "reload-config"); err != nil {
+	if _, err := cmdutil.RunFast("smbcontrol", "all", "reload-config"); err != nil {
 		log.Printf("GITOPS: reloadSamba: smbcontrol reload failed (non-fatal): %v", err)
 	}
+	smbconf.SyncAvahi(smbconf.TimeMachineShares(shares))
 }
 
 // ── Utility ───────────────────────────────────────────────────────────────────
@@ -1284,16 +1320,32 @@ func SyncDB(db *sql.DB, desired *DesiredState) error {
 		}
 	}
 
-	// 3. Sync SMB Shares
-	if _, err := tx.Exec(`DELETE FROM smb_shares`); err != nil {
-		return fmt.Errorf("clearing shares: %w", err)
-	}
+	// 3. Sync SMB Shares: drop shares state.yaml no longer declares, upsert the
+	// declared ones. Upserting (rather than DELETE + INSERT) keeps columns that
+	// state.yaml does not manage (browsable, masks, omitted per-share options)
+	// at their live values. read_only/guest_ok are INTEGER columns.
+	declared := make([]string, 0, len(desired.Shares))
 	for _, s := range desired.Shares {
-		_, err := tx.Exec(`INSERT INTO smb_shares (name, path, read_only, valid_users, comment, guest_ok) 
-			VALUES ($1, $2, $3, $4, $5, $6)`,
-			s.Name, s.Path, s.ReadOnly, s.ValidUsers, s.Comment, s.GuestOK)
+		declared = append(declared, s.Name)
+	}
+	if _, err := tx.Exec(`DELETE FROM smb_shares WHERE NOT (name = ANY($1))`, declared); err != nil {
+		return fmt.Errorf("clearing undeclared shares: %w", err)
+	}
+	for i := range desired.Shares {
+		s := &desired.Shares[i]
+		_, err := tx.Exec(`
+			INSERT INTO smb_shares (name, path, read_only, valid_users, comment, guest_ok)
+			VALUES ($1, $2, $3, $4, $5, $6)
+			ON CONFLICT(name) DO UPDATE SET
+				path=EXCLUDED.path, read_only=EXCLUDED.read_only,
+				valid_users=EXCLUDED.valid_users, comment=EXCLUDED.comment,
+				guest_ok=EXCLUDED.guest_ok, updated_at=NOW()`,
+			s.Name, s.Path, boolToInt(s.ReadOnly), s.ValidUsers, s.Comment, boolToInt(s.GuestOK))
 		if err != nil {
 			return fmt.Errorf("syncing share %q: %w", s.Name, err)
+		}
+		if err := applyShareOptions(tx, s.Name, s); err != nil {
+			return err
 		}
 	}
 

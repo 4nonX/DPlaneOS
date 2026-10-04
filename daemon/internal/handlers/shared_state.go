@@ -136,10 +136,14 @@ func persistSambaGlobals(db *sql.DB) {
 	db.QueryRow(`SELECT COALESCE(value,'') FROM settings WHERE key='smb_extra_global'`).Scan(&extraGlobal)
 	if serverString == "" { serverString = "DPlaneOS NAS" }
 	if workgroup == "" { workgroup = "WORKGROUP" }
+	// Apple SMB extensions (fruit globals in modules/samba.nix) are needed as
+	// soon as any share is a Time Machine target, not only with the global toggle.
+	var tmShares int
+	db.QueryRow(`SELECT COUNT(*) FROM smb_shares WHERE enabled = 1 AND time_machine = 1`).Scan(&tmShares)
 	_ = NixWriter.SetSambaGlobals(nixwriter.SambaGlobalOpts{
 		Workgroup:    workgroup,
 		ServerString: serverString,
-		TimeMachine:  timeMachine == 1,
+		TimeMachine:  timeMachine == 1 || tmShares > 0,
 		AllowGuest:   allowGuest == 1,
 		ExtraGlobal:  extraGlobal,
 	})

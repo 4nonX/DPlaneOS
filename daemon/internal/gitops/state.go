@@ -159,8 +159,18 @@ type DesiredShare struct {
 	ValidUsers string `yaml:"valid_users"`
 	Comment    string `yaml:"comment"`
 	GuestOK    bool   `yaml:"guest_ok"`
+
+	// Per-share options. nil (key absent) means GitOps does not manage the
+	// option and leaves the live value alone, so state.yaml files written
+	// before these keys existed do not plan any change.
+	TimeMachine      *bool   `yaml:"time_machine,omitempty"`
+	TimeMachineQuota *string `yaml:"time_machine_quota,omitempty"`
+	ShadowCopy       *bool   `yaml:"shadow_copy,omitempty"`
+	RecycleBin       *bool   `yaml:"recycle_bin,omitempty"`
+	HostsAllow       *string `yaml:"hosts_allow,omitempty"`
+	HostsDeny        *string `yaml:"hosts_deny,omitempty"`
 }
- 
+
 // DesiredNFS describes an NFS export.
 type DesiredNFS struct {
 	Path    string `yaml:"path"`

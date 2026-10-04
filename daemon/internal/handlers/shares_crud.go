@@ -8,6 +8,7 @@ import (
 
 	"dplaned/internal/cmdutil"
 	"dplaned/internal/gitops"
+	"dplaned/internal/smbconf"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -52,7 +53,7 @@ func (h *ShareCRUDHandler) listShares(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rows, err := h.db.QueryContext(ctx, `SELECT id, name, path, comment, browsable, read_only, guest_ok, valid_users, write_list, create_mask, directory_mask, enabled, created_at FROM smb_shares ORDER BY name`)
+	rows, err := h.db.QueryContext(ctx, `SELECT `+smbconf.ShareColumns+`, id, enabled, created_at FROM smb_shares ORDER BY name`)
 	if err != nil {
 		respondErrorSimple(w, "Failed to list shares", http.StatusInternalServerError)
 		return
@@ -61,27 +62,14 @@ func (h *ShareCRUDHandler) listShares(w http.ResponseWriter, r *http.Request) {
 
 	var shares []map[string]any
 	for rows.Next() {
-		var id, browsable, readOnly, guestOk, enabled int
-		var name, path, comment, validUsers, writeList, createMask, dirMask, createdAt string
-		if err := rows.Scan(&id, &name, &path, &comment, &browsable, &readOnly, &guestOk, &validUsers, &writeList, &createMask, &dirMask, &enabled, &createdAt); err != nil {
+		var id, enabled int
+		var createdAt string
+		sh, err := smbconf.Scan(extraScanner{rows, []any{&id, &enabled, &createdAt}})
+		if err != nil {
 			log.Printf("WARN: smb_shares list scan: %v", err)
 			continue
 		}
-		shares = append(shares, map[string]any{
-			"id":             id,
-			"name":           name,
-			"path":           path,
-			"comment":        comment,
-			"browsable":      browsable == 1,
-			"read_only":      readOnly == 1,
-			"guest_ok":       guestOk == 1,
-			"valid_users":    validUsers,
-			"write_list":     writeList,
-			"create_mask":    createMask,
-			"directory_mask": dirMask,
-			"enabled":        enabled == 1,
-			"created_at":     createdAt,
-		})
+		shares = append(shares, shareJSON(id, sh, enabled == 1, createdAt))
 	}
 
 	if err := rows.Err(); err != nil {
@@ -101,13 +89,12 @@ func (h *ShareCRUDHandler) getShare(w http.ResponseWriter, id string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	var shareID, browsable, readOnly, guestOk, enabled int
-	var name, path, comment, validUsers, writeList, createMask, dirMask, createdAt string
-
-	err := h.db.QueryRowContext(ctx,
-		`SELECT id, name, path, comment, browsable, read_only, guest_ok, valid_users, write_list, create_mask, directory_mask, enabled, created_at FROM smb_shares WHERE id = $1`, id,
-	).Scan(&shareID, &name, &path, &comment, &browsable, &readOnly, &guestOk, &validUsers, &writeList, &createMask, &dirMask, &enabled, &createdAt)
-
+	var shareID, enabled int
+	var createdAt string
+	sh, err := smbconf.Scan(extraScanner{
+		h.db.QueryRowContext(ctx, `SELECT `+smbconf.ShareColumns+`, id, enabled, created_at FROM smb_shares WHERE id = $1`, id),
+		[]any{&shareID, &enabled, &createdAt},
+	})
 	if err != nil {
 		respondErrorSimple(w, "Share not found", http.StatusNotFound)
 		return
@@ -115,22 +102,40 @@ func (h *ShareCRUDHandler) getShare(w http.ResponseWriter, id string) {
 
 	respondJSON(w, http.StatusOK, map[string]any{
 		"success": true,
-		"share": map[string]any{
-			"id":             shareID,
-			"name":           name,
-			"path":           path,
-			"comment":        comment,
-			"browsable":      browsable == 1,
-			"read_only":      readOnly == 1,
-			"guest_ok":       guestOk == 1,
-			"valid_users":    validUsers,
-			"write_list":     writeList,
-			"create_mask":    createMask,
-			"directory_mask": dirMask,
-			"enabled":        enabled == 1,
-			"created_at":     createdAt,
-		},
+		"share":   shareJSON(shareID, sh, enabled == 1, createdAt),
 	})
+}
+
+// extraScanner appends destinations for columns selected after smbconf.ShareColumns.
+type extraScanner struct {
+	row   interface{ Scan(...any) error }
+	extra []any
+}
+
+func (e extraScanner) Scan(dest ...any) error { return e.row.Scan(append(dest, e.extra...)...) }
+
+func shareJSON(id int, s smbconf.Share, enabled bool, createdAt string) map[string]any {
+	return map[string]any{
+		"id":                 id,
+		"name":               s.Name,
+		"path":               s.Path,
+		"comment":            s.Comment,
+		"browsable":          s.Browsable,
+		"read_only":          s.ReadOnly,
+		"guest_ok":           s.GuestOK,
+		"valid_users":        s.ValidUsers,
+		"write_list":         s.WriteList,
+		"create_mask":        s.CreateMask,
+		"directory_mask":     s.DirectoryMask,
+		"time_machine":       s.TimeMachine,
+		"time_machine_quota": s.TimeMachineQuota,
+		"shadow_copy":        s.ShadowCopy,
+		"recycle_bin":        s.RecycleBin,
+		"hosts_allow":        s.HostsAllow,
+		"hosts_deny":         s.HostsDeny,
+		"enabled":            enabled,
+		"created_at":         createdAt,
+	}
 }
 
 type shareActionRequest struct {
@@ -147,6 +152,45 @@ type shareActionRequest struct {
 	CreateMask    string `json:"create_mask"`
 	DirectoryMask string `json:"directory_mask"`
 	Enabled       *bool  `json:"enabled"`
+
+	// Per-share options (pointers: nil = leave unchanged on update)
+	TimeMachine      *bool   `json:"time_machine"`
+	TimeMachineQuota *string `json:"time_machine_quota"`
+	ShadowCopy       *bool   `json:"shadow_copy"`
+	RecycleBin       *bool   `json:"recycle_bin"`
+	HostsAllow       *string `json:"hosts_allow"`
+	HostsDeny        *string `json:"hosts_deny"`
+}
+
+// validateShareOptions checks the per-share option values in a request.
+func validateShareOptions(req shareActionRequest) error {
+	if req.TimeMachineQuota != nil {
+		if err := smbconf.ValidateTimeMachineQuota(strings.TrimSpace(*req.TimeMachineQuota)); err != nil {
+			return err
+		}
+	}
+	for _, list := range []*string{req.HostsAllow, req.HostsDeny} {
+		if list != nil {
+			if err := smbconf.ValidateHostList(*list); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func boolInt(p *bool) int {
+	if p != nil && *p {
+		return 1
+	}
+	return 0
+}
+
+func strVal(p *string) string {
+	if p == nil {
+		return ""
+	}
+	return strings.TrimSpace(*p)
 }
 
 func (h *ShareCRUDHandler) shareAction(w http.ResponseWriter, r *http.Request) {
@@ -189,6 +233,11 @@ func (h *ShareCRUDHandler) createShare(w http.ResponseWriter, req shareActionReq
 		return
 	}
 
+	if err := validateShareOptions(req); err != nil {
+		respondErrorSimple(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
 	// Sanitize inputs before DB insertion (Finding #30)
 	req.Name = sanitizeSMBConfValue(req.Name)
 	req.Path = filepath.Clean(req.Path)
@@ -220,9 +269,12 @@ func (h *ShareCRUDHandler) createShare(w http.ResponseWriter, req shareActionReq
 
 	var id int64
 	err := h.db.QueryRow(
-		`INSERT INTO smb_shares (name, path, comment, browsable, read_only, guest_ok, valid_users, write_list, create_mask, directory_mask)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id`,
+		`INSERT INTO smb_shares (name, path, comment, browsable, read_only, guest_ok, valid_users, write_list, create_mask, directory_mask,
+		                         time_machine, time_machine_quota, shadow_copy, recycle_bin, hosts_allow, hosts_deny)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16) RETURNING id`,
 		req.Name, req.Path, req.Comment, browsable, readOnly, guestOk, req.ValidUsers, req.WriteList, createMask, dirMask,
+		boolInt(req.TimeMachine), strVal(req.TimeMachineQuota), boolInt(req.ShadowCopy), boolInt(req.RecycleBin),
+		strVal(req.HostsAllow), strVal(req.HostsDeny),
 	).Scan(&id)
 
 	if err != nil {
@@ -246,6 +298,10 @@ func (h *ShareCRUDHandler) createShare(w http.ResponseWriter, req shareActionReq
 func (h *ShareCRUDHandler) updateShare(w http.ResponseWriter, req shareActionRequest) {
 	if req.ID == 0 {
 		respondErrorSimple(w, "Share ID required", http.StatusBadRequest)
+		return
+	}
+	if err := validateShareOptions(req); err != nil {
+		respondErrorSimple(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -325,6 +381,28 @@ func (h *ShareCRUDHandler) updateShare(w http.ResponseWriter, req shareActionReq
 		}
 		if _, err := tx.Exec(`UPDATE smb_shares SET enabled = $1, updated_at = NOW() WHERE id = $2`, v, req.ID); err != nil {
 			respondErrorSimple(w, "Failed to update enabled: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+	}
+
+	for _, f := range []struct {
+		column string
+		set    bool
+		value  any
+	}{
+		{"time_machine", req.TimeMachine != nil, boolInt(req.TimeMachine)},
+		{"time_machine_quota", req.TimeMachineQuota != nil, strVal(req.TimeMachineQuota)},
+		{"shadow_copy", req.ShadowCopy != nil, boolInt(req.ShadowCopy)},
+		{"recycle_bin", req.RecycleBin != nil, boolInt(req.RecycleBin)},
+		{"hosts_allow", req.HostsAllow != nil, strVal(req.HostsAllow)},
+		{"hosts_deny", req.HostsDeny != nil, strVal(req.HostsDeny)},
+	} {
+		if !f.set {
+			continue
+		}
+		// Column names come from the fixed list above, never from the request.
+		if _, err := tx.Exec(`UPDATE smb_shares SET `+f.column+` = $1, updated_at = NOW() WHERE id = $2`, f.value, req.ID); err != nil {
+			respondErrorSimple(w, "Failed to update "+f.column+": "+err.Error(), http.StatusInternalServerError)
 			return
 		}
 	}
@@ -483,140 +561,17 @@ func (h *ShareCRUDHandler) GetSharesByPath(w http.ResponseWriter, r *http.Reques
 	})
 }
 
-// regenerateSMBConf rebuilds /etc/samba/smb.conf from the database
+// regenerateSMBConf rebuilds the Samba share configuration from the database
+// (smbconf.Render), reloads smbd and refreshes the Time Machine advertisement.
 func (h *ShareCRUDHandler) regenerateSMBConf() {
-	rows, err := h.db.Query(`SELECT name, path, comment, browsable, read_only, guest_ok, valid_users, write_list, create_mask, directory_mask FROM smb_shares WHERE enabled = 1`)
+	shares, err := smbconf.LoadEnabled(h.db)
 	if err != nil {
 		log.Printf("SMB REGEN ERROR: %v", err)
 		return
 	}
-	defer rows.Close()
+	opts := smbconf.LoadOptions(h.db)
 
-	// Load global VFS settings from DB
-	var globalTimeMachine, globalShadowCopy, globalRecycleBin int
-	var globalExtra string
-	h.db.QueryRow(`SELECT COALESCE(value,'0') FROM settings WHERE key='smb_time_machine'`).Scan(&globalTimeMachine)
-	h.db.QueryRow(`SELECT COALESCE(value,'0') FROM settings WHERE key='smb_shadow_copy'`).Scan(&globalShadowCopy)
-	h.db.QueryRow(`SELECT COALESCE(value,'0') FROM settings WHERE key='smb_recycle_bin'`).Scan(&globalRecycleBin)
-	h.db.QueryRow(`SELECT COALESCE(value,'') FROM settings WHERE key='smb_extra_global'`).Scan(&globalExtra)
-
-	var conf strings.Builder
-	conf.WriteString("[global]\n")
-	conf.WriteString("   workgroup = WORKGROUP\n")
-	conf.WriteString("   server string = DPlaneOS NAS\n")
-	conf.WriteString("   security = user\n")
-	conf.WriteString("   map to guest = Bad User\n")
-	conf.WriteString("   log file = /var/log/samba/log.%m\n")
-	conf.WriteString("   max log size = 1000\n")
-
-	// Global VFS modules for macOS Time Machine support
-	if globalTimeMachine == 1 {
-		conf.WriteString("   # macOS Time Machine support\n")
-		conf.WriteString("   fruit:metadata = stream\n")
-		conf.WriteString("   fruit:model = MacSamba\n")
-		conf.WriteString("   fruit:posix_rename = yes\n")
-		conf.WriteString("   fruit:veto_appledouble = no\n")
-		conf.WriteString("   fruit:nfs_aces = no\n")
-		conf.WriteString("   fruit:wipe_intentionally_left_blank_rfork = yes\n")
-		conf.WriteString("   fruit:delete_empty_adfiles = yes\n")
-	}
-
-	// Global extra parameters
-	if globalExtra != "" {
-		conf.WriteString("   # Custom global parameters\n")
-		for _, line := range strings.Split(globalExtra, "\n") {
-			trimmed := strings.TrimSpace(line)
-			if trimmed != "" {
-				// Block dangerous directives like 'include' or section headers '[...]'
-				if strings.Contains(strings.ToLower(trimmed), "include") || strings.Contains(trimmed, "[") {
-					log.Printf("SMB REGEN: blocked dangerous global parameter: %s", trimmed)
-					continue
-				}
-				conf.WriteString("   " + trimmed + "\n")
-			}
-		}
-	}
-	conf.WriteString("\n")
-
-	for rows.Next() {
-		var name, path, comment, validUsers, writeList, createMask, dirMask string
-		var browsable, readOnly, guestOk int
-		if err := rows.Scan(&name, &path, &comment, &browsable, &readOnly, &guestOk, &validUsers, &writeList, &createMask, &dirMask); err != nil {
-			log.Printf("SMB REGEN SCAN ERROR: %v", err)
-			continue
-		}
-
-		// Sanitize values to prevent injection
-		name = sanitizeSMBConfValue(name)
-		path = sanitizeSMBConfValue(path)
-		comment = sanitizeSMBConfValue(comment)
-		validUsers = sanitizeSMBConfValue(validUsers)
-		writeList = sanitizeSMBConfValue(writeList)
-
-		conf.WriteString(fmt.Sprintf("[%s]\n", name))
-		conf.WriteString(fmt.Sprintf("   path = %s\n", path))
-		if comment != "" {
-			conf.WriteString(fmt.Sprintf("   comment = %s\n", comment))
-		}
-		if browsable == 1 {
-			conf.WriteString("   browsable = yes\n")
-		} else {
-			conf.WriteString("   browsable = no\n")
-		}
-		if readOnly == 1 {
-			conf.WriteString("   read only = yes\n")
-		} else {
-			conf.WriteString("   read only = no\n")
-		}
-		if guestOk == 1 {
-			conf.WriteString("   guest ok = yes\n")
-		}
-		if validUsers != "" {
-			conf.WriteString(fmt.Sprintf("   valid users = %s\n", validUsers))
-		}
-		if writeList != "" {
-			conf.WriteString(fmt.Sprintf("   write list = %s\n", writeList))
-		}
-		conf.WriteString(fmt.Sprintf("   create mask = %s\n", createMask))
-		conf.WriteString(fmt.Sprintf("   directory mask = %s\n", dirMask))
-
-		// Per-share VFS objects
-		var vfsObjects []string
-		if globalTimeMachine == 1 {
-			vfsObjects = append(vfsObjects, "catia", "fruit", "streams_xattr")
-		}
-		if globalShadowCopy == 1 {
-			vfsObjects = append(vfsObjects, "shadow_copy2")
-			conf.WriteString("   shadow:snapdir = .zfs/snapshot\n")
-			conf.WriteString("   shadow:sort = desc\n")
-			// Strip frequency prefix (e.g. "auto-daily-", "auto-weekly-") then parse date
-			conf.WriteString("   shadow:snapprefix = ^auto-[a-z]+-\n")
-			conf.WriteString("   shadow:format = %Y%m%d-%H%M\n")
-		}
-		if globalRecycleBin == 1 {
-			vfsObjects = append(vfsObjects, "recycle")
-			conf.WriteString("   recycle:repository = .recycle/%U\n")
-			conf.WriteString("   recycle:keeptree = yes\n")
-			conf.WriteString("   recycle:versions = yes\n")
-			conf.WriteString("   recycle:touch = yes\n")
-			conf.WriteString("   recycle:directory_mode = 0770\n")
-		}
-		if len(vfsObjects) > 0 {
-			conf.WriteString(fmt.Sprintf("   vfs objects = %s\n", strings.Join(vfsObjects, " ")))
-		}
-		if globalTimeMachine == 1 {
-			conf.WriteString("   fruit:time machine = yes\n")
-		}
-
-		conf.WriteString("\n")
-	}
-	if err := rows.Err(); err != nil {
-		log.Printf("SMB REGEN: rows error, aborting config write: %v", err)
-		return
-	}
-
-	err = os.WriteFile(h.smbConfPath, []byte(conf.String()), 0644)
-	if err != nil {
+	if err := smbconf.WriteAtomic(h.smbConfPath, []byte(smbconf.Render(opts, shares))); err != nil {
 		log.Printf("SMB WRITE ERROR: %v", err)
 		return
 	}
@@ -626,11 +581,14 @@ func (h *ShareCRUDHandler) regenerateSMBConf() {
 		log.Printf("WARN: smbcontrol reload: %v", err)
 	}
 
+	smbconf.SyncAvahi(smbconf.TimeMachineShares(shares))
+
 	// On NixOS: also update dplane-generated.nix with global SMB settings
 	// so they survive the next nixos-rebuild switch.
 	persistSambaGlobals(h.db)
 
-	log.Printf("SMB config regenerated and reloaded (VFS: tm=%d sc=%d rb=%d)", globalTimeMachine, globalShadowCopy, globalRecycleBin)
+	log.Printf("SMB config regenerated and reloaded (%d shares, apple=%v, nixos=%v)",
+		len(shares), smbconf.AppleEnabled(opts, shares), opts.NixOSManaged)
 }
 
 // GetSMBSettings returns current global SMB protocol settings
@@ -640,7 +598,7 @@ func (h *ShareCRUDHandler) GetSMBSettings(w http.ResponseWriter, r *http.Request
 	h.db.QueryRow(`SELECT COALESCE(value,'0') FROM settings WHERE key='smb_time_machine'`).Scan(&timeMachine)
 	h.db.QueryRow(`SELECT COALESCE(value,'0') FROM settings WHERE key='smb_shadow_copy'`).Scan(&shadowCopy)
 	h.db.QueryRow(`SELECT COALESCE(value,'0') FROM settings WHERE key='smb_recycle_bin'`).Scan(&recycleBin)
-	_, avahiErr := os.Stat(avahiTimeMachinePath)
+	_, avahiErr := os.Stat(smbconf.AvahiServicePath)
 	respondOK(w, map[string]any{
 		"success":        true,
 		"time_machine":   timeMachine == 1,
@@ -677,24 +635,34 @@ func (h *ShareCRUDHandler) UpdateSMBSettings(w http.ResponseWriter, r *http.Requ
 		return nil
 	}
 
+	// time_machine is the global "macOS support" toggle: it loads the Apple
+	// SMB extensions on every share. Which shares are Time Machine targets is
+	// a per-share option.
 	if err := setSetting("smb_time_machine", req.TimeMachine); err != nil {
 		respondErrorSimple(w, "Failed to save settings: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-	if err := setSetting("smb_shadow_copy", req.ShadowCopy); err != nil {
-		respondErrorSimple(w, "Failed to save settings: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-	if err := setSetting("smb_recycle_bin", req.RecycleBin); err != nil {
-		respondErrorSimple(w, "Failed to save settings: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
 
-	if req.TimeMachine != nil {
-		if *req.TimeMachine {
-			writeAvahiTimeMachineService()
-		} else {
-			os.Remove(avahiTimeMachinePath)
+	// Shadow copies and the recycle bin are per-share options. The global
+	// fields remain for API compatibility and apply the value to all shares.
+	for _, bulk := range []struct {
+		key, column string
+		val         *bool
+	}{
+		{"smb_shadow_copy", "shadow_copy", req.ShadowCopy},
+		{"smb_recycle_bin", "recycle_bin", req.RecycleBin},
+	} {
+		if bulk.val == nil {
+			continue
+		}
+		if err := setSetting(bulk.key, bulk.val); err != nil {
+			respondErrorSimple(w, "Failed to save settings: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		// Column names come from the fixed list above.
+		if _, err := h.db.Exec(`UPDATE smb_shares SET `+bulk.column+` = $1, updated_at = NOW()`, boolInt(bulk.val)); err != nil {
+			respondErrorSimple(w, "Failed to update shares: "+err.Error(), http.StatusInternalServerError)
+			return
 		}
 	}
 
@@ -702,46 +670,8 @@ func (h *ShareCRUDHandler) UpdateSMBSettings(w http.ResponseWriter, r *http.Requ
 	respondOK(w, map[string]any{"success": true})
 }
 
-const avahiTimeMachinePath = "/etc/avahi/services/dplaneos-timemachine.service"
-const avahiTimeMachineXML = `<?xml version="1.0" standalone='no'?>
-<!DOCTYPE service-group SYSTEM "avahi-service.dtd">
-<service-group>
-  <name replace-wildcards="yes">%h</name>
-  <service>
-    <type>_adisk._tcp</type>
-    <port>9</port>
-    <txt-record>sys=waMa=0,adVF=0x100</txt-record>
-    <txt-record>dk0=adVN=DPlaneOS,adVF=0x82</txt-record>
-  </service>
-  <service>
-    <type>_device-info._tcp</type>
-    <port>0</port>
-    <txt-record>model=MacSamba</txt-record>
-  </service>
-</service-group>
-`
-
-func writeAvahiTimeMachineService() {
-	if err := os.MkdirAll("/etc/avahi/services", 0755); err != nil {
-		log.Printf("WARN: avahi services dir: %v", err)
-		return
-	}
-	if err := os.WriteFile(avahiTimeMachinePath, []byte(avahiTimeMachineXML), 0644); err != nil {
-		log.Printf("WARN: avahi service write: %v", err)
-	}
-}
-
 // sanitizeSMBConfValue removes newlines and other characters that could break smb.conf formatting
-func sanitizeSMBConfValue(val string) string {
-	// Remove carriage returns and newlines
-	val = strings.ReplaceAll(val, "\n", " ")
-	val = strings.ReplaceAll(val, "\r", " ")
-	// Strip characters that could break section headers or start new directives
-	val = strings.ReplaceAll(val, "[", "(")
-	val = strings.ReplaceAll(val, "]", ")")
-	val = strings.ReplaceAll(val, "=", ":")
-	return strings.TrimSpace(val)
-}
+func sanitizeSMBConfValue(val string) string { return smbconf.Sanitize(val) }
 
 // SMBSessionInfo holds per-session data from smbstatus.
 type SMBSessionInfo struct {
