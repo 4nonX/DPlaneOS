@@ -80,7 +80,7 @@ pkgs.testers.nixosTest {
         cmd = f"curl -s --max-time 120 -X {method} http://localhost{path} -H 'Content-Type: application/json'"
         if auth:
             sid, csrf = session[m.name]
-            cmd += f" -H 'X-Session-ID: {sid}' -H 'X-CSRF-Token: {csrf}'"
+            cmd += f" -H 'X-Session-ID: {sid}' -H 'X-User: admin' -H 'X-CSRF-Token: {csrf}'"
         if body is not None:
             cmd += " -d " + shlex.quote(json.dumps(body))
         out = m.succeed(cmd)
@@ -106,7 +106,7 @@ pkgs.testers.nixosTest {
                 api(m, "POST", "/api/system/setup-admin", {"username": "admin", "password": "Quorum-Test-Pass-1"}, auth=False)
                 r = api(m, "POST", "/api/auth/login", {"username": "admin", "password": "Quorum-Test-Pass-1"}, auth=False)
                 sid = r["session_id"]
-                csrf = json.loads(m.succeed(f"curl -s http://localhost/api/csrf -H 'X-Session-ID: {sid}'"))["csrf_token"]
+                csrf = json.loads(m.succeed(f"curl -s http://localhost/api/csrf -H 'X-Session-ID: {sid}' -H 'X-User: admin'"))["csrf_token"]
                 session[m.name] = (sid, csrf)
 
         with subtest("Pair the nodes"):

@@ -12,6 +12,39 @@ Before reading further, review [ARCHITECTURE.md](../reference/ARCHITECTURE.md#mu
 
 ---
 
+## Cluster Quorum and the Third Vote
+
+*New in the unreleased version (Design 0001, phase 3a). The topologies below describe the existing HA paths; quorum moves to Corosync as described here, step by step, during phase 3.*
+
+Nodes in a cluster have to agree on who is in charge. DPlaneOS uses **Corosync** for this, the same cluster engine Proxmox VE uses. Everything is set up from System › High Availability › **Cluster quorum**; there is nothing to edit on the command line.
+
+**1. Pair the nodes.** In System › Configuration Sync, pair the two nodes (join code on one, *Join another node* on the other). This establishes the trusted channel the cluster setup uses.
+
+**2. Form the cluster.** On one node, choose the paired node and **Form cluster**. The cluster addresses are suggested from the route between the nodes; change them to a dedicated network if you have one. Both nodes must reach each other on UDP 5405. The nodes then share a cluster key and keep quorum together.
+
+**3. Add a third vote.** With only two votes, a network split leaves both nodes believing they are in charge, so DPlaneOS does **not** fail over automatically with two votes: if a node fails, you take over on the other one manually. A third vote fixes this. It is tiny (no storage, no DPlaneOS installation needed) and only has to be always on and reachable from both nodes on TCP 5403. Click **Add a third vote**; you get a one-time code and two choices:
+
+- **Any Linux machine** (Raspberry Pi, a small VM, an existing server, a cloud instance; Debian, Ubuntu, Raspberry Pi OS, Fedora, RHEL, openSUSE): paste the one command shown, for example
+
+  ```
+  curl -fsSk https://nas1.lan/api/quorum/witness-setup.sh | sudo sh -s -- https://nas1.lan dpq_…
+  ```
+
+  It installs `corosync-qnetd` with the system's package manager, creates its certificate authority, starts it, opens TCP 5403 in ufw or firewalld if one is active, and registers with the cluster. No SSH access or passwords are involved: the certificates are exchanged with the one-time code.
+- **Another DPlaneOS system** (e.g. a NAS at another site): on it, open System › High Availability › **Serve as third vote** and enter the node's address and the code.
+
+The panel closes by itself when the third vote has registered and then shows *Automatic failover is possible*.
+
+**What the panel shows:** members and whether they are online, the third vote and whether it is voting, the vote count (e.g. *3 of 3 votes*) and whether automatic failover is possible, with the reason when it is not.
+
+**How it protects the data (as in Proxmox):** a node that loses quorum stops resetting its watchdog and is reset by it before the surviving node takes over; the survivor waits for that. With the third vote, a network split leaves exactly one side quorate. See [ADR-0009](../design/adr/ADR-0009-fencing-layers.md) for the protection layers.
+
+**Removing:** *Remove third vote* turns automatic failover off again; *Remove cluster* stops Corosync on all members (storage and configuration are not touched) and HA falls back to the heartbeat check.
+
+**Limitations in this release:** clusters of two nodes plus a third vote (more nodes follow with storage groups); certificates of the third vote are exchanged over the node's HTTPS without checking its (usually self-signed) certificate, protected by the single-use code; automatic failover additionally still requires IPMI or PDU fencing until the fencing layers of phase 3c are in.
+
+---
+
 ## Deployment Topologies
 
 Two supported paths. The **Setup Wizard** (Settings - High Availability - Setup Wizard) auto-detects which path applies to your hardware and shows only the relevant steps.
