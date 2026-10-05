@@ -29,6 +29,7 @@ func CommitAllAsync(db *sql.DB) {
 // then performs a git commit and push.
 // This is the post-write hook for all UI-driven infrastructure changes.
 func CommitAll(db *sql.DB) (err error) {
+	runChangeHooks()
 	defer func() { recordCommitResult(err) }()
 
 	// Only the GitOps writer commits: an HA standby's live state is not the

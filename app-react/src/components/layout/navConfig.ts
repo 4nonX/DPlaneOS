@@ -137,6 +137,7 @@ const initialNav: NavItem[] = [
     children: [
       { kind: 'leaf', id: 'settings',     label: 'Settings',         icon: 'tune',                  route: '/settings' },
       { kind: 'leaf', id: 'updates',      label: 'System Updates',   icon: 'upgrade',               route: '/updates' },
+      { kind: 'leaf', id: 'history',      label: 'Change History',   icon: 'history',               route: '/history' },
       { kind: 'leaf', id: 'logs',         label: 'Logs',             icon: 'description',           route: '/logs' },
       { kind: 'leaf', id: 'reporting',    label: 'Reporting',        icon: 'monitoring',            route: '/reporting' },
       { kind: 'leaf', id: 'monitoring',   label: 'Inotify Watches',  icon: 'notifications',         route: '/monitoring' },

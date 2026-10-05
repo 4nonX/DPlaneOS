@@ -343,6 +343,42 @@ api GET /api/nfs/exports >/dev/null
 assert_json "NFS export in list" "success" "true"
 sudo grep -q "/mnt/testpool/api-test" /etc/exports && ok "Export in /etc/exports" || fail "Export missing from /etc/exports"
 
+# 7.5 CONFIGURATION HISTORY (Design 0001, Phase 1)
+# Record, change a share, roll back to the earlier revision, export.
+api POST /api/config/capture '{}' >/dev/null
+assert_json "History: record current configuration" "success" "true"
+api GET "/api/config/history?kind=share&key=ci-share" >/dev/null
+assert_json "History: share history readable" "success" "true"
+REV1=$(python3 -c "import json; r=json.load(open('/tmp/last_resp.json'))['revisions']; print(r[0]['id'] if r else '')")
+[ -n "$REV1" ] && ok "History: ci-share recorded (revision $REV1)" || fail "History: ci-share not recorded"
+
+api GET /api/shares >/dev/null
+SHARE_ID=$(python3 -c "import json; print(next(s['id'] for s in json.load(open('/tmp/last_resp.json'))['shares'] if s['name']=='ci-share'))")
+api POST /api/shares "{\"action\":\"update\",\"id\":$SHARE_ID,\"comment\":\"Changed by CI\"}" >/dev/null
+assert_json "History: update share comment" "success" "true"
+grep -q "comment = Changed by CI" /tmp/smb.conf && ok "History: changed comment in smb.conf" || fail "History: changed comment missing from smb.conf"
+api POST /api/config/capture '{}' >/dev/null
+api GET "/api/config/history?kind=share&key=ci-share" >/dev/null
+python3 -c "
+import json, sys
+r = json.load(open('/tmp/last_resp.json'))['revisions']
+ch = {c['path']: c for c in r[0]['changes']} if r else {}
+sys.exit(0 if r and r[0]['id'] != $REV1 and ch.get('comment', {}).get('new') == 'Changed by CI' else 1)
+" && ok "History: comment change recorded with old and new value" || fail "History: comment change not recorded"
+
+if [ -n "$REV1" ]; then
+  api POST /api/config/rollback "{\"revision_id\":$REV1}" >/dev/null
+  assert_json "History: roll back share to revision $REV1" "success" "true"
+  grep -q "comment = CI Test Share" /tmp/smb.conf && ok "History: rollback restored the comment in smb.conf" || fail "History: rollback did not restore the comment"
+  api GET /api/shares >/dev/null
+  python3 -c "import json,sys; sys.exit(0 if any(s['name']=='sanitized-share' for s in json.load(open('/tmp/last_resp.json'))['shares']) else 1)" \
+    && ok "History: rollback left other shares alone" || fail "History: rollback removed another share"
+fi
+
+EXPORT=$(curl -s --max-time 15 "$BASE/api/config/export" -H "X-Session-ID: $SESSION" -H "X-User: admin")
+echo "$EXPORT" | grep -q "name: ci-share" && echo "$EXPORT" | grep -q "^version:" \
+  && ok "History: export contains the configuration as state.yaml" || fail "History: export incomplete"
+
 # 8. DOCKER
 api GET /api/docker/stacks >/dev/null
 assert_json "Docker stacks list" "success" "true"

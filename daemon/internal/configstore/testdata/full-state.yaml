@@ -1,0 +1,192 @@
+version: "6"
+
+# When false, resources that exist on the live system but are absent
+# from state.yaml will appear as DELETE items. Set to true during
+# migration if you want to manage only a subset of resources via Git.
+ignore_extraneous: false
+
+# ── Storage ────────────────────────────────────────────────────────────────
+
+pools:
+  - name: tank
+    topology:
+      data:
+        - type: mirror
+          disks:
+            # Always use /dev/disk/by-id/ paths - never /dev/sda etc.
+            # Find these via Storage - Disks in the web UI.
+            - /dev/disk/by-id/ata-WDC_WD40EFRX_WD-WCC7K0ABCDEF
+            - /dev/disk/by-id/ata-WDC_WD40EFRX_WD-WCC7K0FEDCBA
+    ashift: 12
+    options:
+      compression: lz4
+      atime: "off"
+
+datasets:
+  - name: tank/media
+    quota: 8T
+    compression: lz4
+    atime: "off"
+    recordsize: 1m        # Large records for sequential media reads
+    mountpoint: /mnt/media
+
+  - name: tank/backups
+    quota: 2T
+    compression: zstd
+    atime: "off"
+    recordsize: 128k
+
+  - name: tank/docker
+    quota: 500G
+    compression: lz4
+    atime: "off"
+    mountpoint: /var/lib/docker
+
+# ── Sharing ─────────────────────────────────────────────────────────────────
+
+shares:
+  # SMB share for Windows and macOS clients
+  - name: media
+    path: /mnt/media
+    read_only: false
+    valid_users: "@family"    # Only members of the family group
+    comment: "Family media library"
+    guest_ok: false
+
+  - name: backups
+    path: /mnt/backups
+    read_only: false
+    valid_users: "alice"
+    comment: "Alice's backup target"
+    guest_ok: false
+
+nfs:
+  # NFS export for Linux clients (e.g. a home server doing ZFS send/recv)
+  - path: /mnt/media
+    clients: "192.168.1.0/24"
+    options: "rw,sync,no_subtree_check,no_root_squash"
+    enabled: true
+
+# ── Containers ──────────────────────────────────────────────────────────────
+
+stacks:
+  - name: jellyfin
+    yaml: |
+      services:
+        jellyfin:
+          image: jellyfin/jellyfin:10.9
+          network_mode: host
+          volumes:
+            - /mnt/media:/media:ro
+            - /var/lib/docker/jellyfin/config:/config
+            - /var/lib/docker/jellyfin/cache:/cache
+          environment:
+            - JELLYFIN_PublishedServerUrl=http://nas.local:8096
+          restart: unless-stopped
+
+  - name: vaultwarden
+    yaml: |
+      services:
+        vaultwarden:
+          image: vaultwarden/server:latest
+          ports:
+            - "127.0.0.1:8080:80"
+          volumes:
+            - /var/lib/docker/vaultwarden:/data
+          environment:
+            - WEBSOCKET_ENABLED=true
+            # ADMIN_TOKEN is intentionally absent here - set it in
+            # /var/lib/docker/vaultwarden/.env or via Docker secrets.
+            # Never commit credentials to state.yaml.
+          restart: unless-stopped
+
+# ── Users and Groups ─────────────────────────────────────────────────────────
+
+users:
+  - username: alice
+    # Generate with: python3 -c "import bcrypt; print(bcrypt.hashpw(b'password', bcrypt.gensalt()).decode())"
+    # Or use the web UI to create the user and then capture.
+    password_hash: "$2b$12$Q9wLkJt0eXa7pVq3sR1mUuH8cN2bD5fG6hJ7kL8mN9pQ0rS1tU2vW"
+    email: alice@example.com
+    role: admin
+    active: true
+
+  - username: bob
+    password_hash: "$2b$12$Z1yX2wV3uT4sR5qP6oN7mOeL8kJ9iH0gF1eD2cB3aZ4yX5wV6uT7s"
+    email: bob@example.com
+    role: operator
+    active: true
+
+groups:
+  - name: family
+    description: "Family members with media access"
+    gid: 1001
+    members: [alice, bob]
+
+# ── System ───────────────────────────────────────────────────────────────────
+
+system:
+  hostname: nas-01
+  timezone: Europe/Berlin
+  dns_servers:
+    - 1.1.1.1
+    - 8.8.8.8
+  ntp_servers:
+    - 0.europe.pool.ntp.org
+    - 1.europe.pool.ntp.org
+  firewall:
+    tcp: [22, 80, 443, 445, 2049, 8096]   # SSH, HTTP, HTTPS, SMB, NFS, Jellyfin
+    udp: [137, 138]                         # NetBIOS for Samba discovery
+  networking:
+    statics:
+      eth0:
+        cidr: 192.168.1.50/24
+        gateway: 192.168.1.1
+  samba:
+    workgroup: HOME
+    server_string: "Home NAS"
+    time_machine: false
+    allow_guest: false
+  ssh:
+    port: 22
+    password_auth: false
+    permit_root_login: "no"
+
+replication:
+  - name: offsite
+    source_dataset: tank/data
+    remote_host: backup.example.com
+    remote_user: zfsrecv
+    remote_port: 22
+    remote_pool: backup
+    ssh_key_path: /var/lib/dplaneos/ssh/id_ed25519
+    interval: daily
+    trigger_on_snapshot: false
+    compress: true
+    rate_limit_mb: 50
+    enabled: true
+
+smart_tasks:
+  - device: /dev/disk/by-id/ata-WDC_WD40EFRX-68N32N0_WD-WCC7K1234567
+    type: long
+    schedule: "Sun *-*-* 03:00:00"
+    enabled: true
+
+ldap:
+  enabled: true
+  server: ldap.example.com
+  port: 636
+  use_tls: true
+  bind_dn: cn=nas,ou=services,dc=example,dc=com
+  base_dn: dc=example,dc=com
+  user_filter: (objectClass=person)
+  user_id_attr: uid
+  user_name_attr: cn
+  user_email_attr: mail
+  group_base_dn: ou=groups,dc=example,dc=com
+  group_filter: (objectClass=groupOfNames)
+  group_member_attr: member
+  jit_provisioning: true
+  default_role: viewer
+  sync_interval: 3600
+  timeout: 10

@@ -208,8 +208,10 @@ This is a fully annotated `state.yaml` for a typical home/small-business NAS wit
 version: "6"
 
 # When false, resources that exist on the live system but are absent
-# from state.yaml will appear as DELETE items. Set to true during
-# migration if you want to manage only a subset of resources via Git.
+# from state.yaml will appear as DELETE items (and undeclared users,
+# groups, shares and NFS exports are removed from the database on apply).
+# Set to true during migration if you want to manage only a subset of
+# resources via Git: undeclared resources are then left alone.
 ignore_extraneous: false
 
 # ── Storage ────────────────────────────────────────────────────────────────

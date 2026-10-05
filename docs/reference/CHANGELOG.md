@@ -20,6 +20,14 @@ Phase 0 of [Design 0001](../design/0001-distributed-state-gitops-ha.md): fixes i
 - **Plain-text secrets in `state.yaml`.** `ldap.bind_password` is rejected (apply stored it unencrypted in a column read as encrypted, breaking LDAP binds); `password_hash` must be a bcrypt hash.
 - **GitOps page status card always showed "Synchronized"**: it read fields the API does not return. It now shows drift, check time, the synced commit, drift-check errors and failed write-backs.
 
+### Added (Design 0001, Phase 1)
+
+- **Change History** (System → Change History, `/api/config/*`): every change to datasets, shares, NFS exports, users, groups, stacks, replication, SMART tasks, LDAP/ACME/certificate settings and system settings is recorded as a revision, right after a web UI change and every 5 minutes for changes made elsewhere. Each entry shows the settings before and after; secrets are stored only as fingerprints. A change can be undone ("Undo this change": back to the previous version of that resource) through the GitOps engine (BLOCKED safety rules apply), and the current configuration can be exported as `state.yaml` without a Git repository. Revisions are stored in the new `config_revisions` table.
+
+### Fixed (found during Phase 1)
+
+- **GitOps apply deleted resources that `state.yaml` did not declare, whatever `ignore_extraneous` said.** The database sync before every apply deleted all groups and group memberships, all NFS exports and undeclared shares, and deleted and re-created users declared in Git (losing their row and password hash). With `ignore_extraneous: true` it now only adds and updates declared resources; undeclared ones are removed only with `ignore_extraneous: false`, as documented. Declared users are updated in place.
+
 ### Documentation
 
 - GITOPS-DRIVEN-NAS.md: "Auto-Apply on Push" (polling, webhook) was documented but never implemented; marked as planned (Design 0001, Phase 5). Web UI write-back behaviour, HA writer rules and secrets rules documented; example hashes made valid.

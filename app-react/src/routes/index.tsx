@@ -64,6 +64,7 @@ import { FileSharesPage }    from '@/pages/FileSharesPage'
 import { SSHKeysPage }       from '@/pages/SSHKeysPage'
 import { S3Page }            from '@/pages/S3Page'
 import { AuditPage }         from '@/pages/AuditPage'
+import { ConfigHistoryPage } from '@/pages/ConfigHistoryPage'
 import { CompliancePage }    from '@/pages/CompliancePage'
 import { ApiExplorerPage }   from '@/pages/ApiExplorerPage'
 import { getPluginRoutes }   from '@/plugins'
@@ -133,6 +134,7 @@ const fileSharesRoute = createRoute({ getParentRoute: () => protectedRoute, path
 const sshKeysRoute    = createRoute({ getParentRoute: () => protectedRoute, path: '/ssh-keys',      component: SSHKeysPage })
 const s3Route         = createRoute({ getParentRoute: () => protectedRoute, path: '/s3',            component: S3Page })
 const auditRoute      = createRoute({ getParentRoute: () => protectedRoute, path: '/audit',         component: AuditPage })
+const historyRoute    = createRoute({ getParentRoute: () => protectedRoute, path: '/history',       component: ConfigHistoryPage })
 const complianceRoute = createRoute({ getParentRoute: () => protectedRoute, path: '/compliance',   component: CompliancePage })
 const delegationRoute = createRoute({ getParentRoute: () => protectedRoute, path: '/delegation',    component: DelegationPage })
 const dockerRoute     = createRoute({ getParentRoute: () => protectedRoute, path: '/docker',        component: DockerPage })
@@ -167,7 +169,7 @@ const routeTree = rootRoute.addChildren([
   protectedRoute.addChildren([
     dashboardRoute, poolsRoute, datasetsRoute, sharesRoute, nfsRoute, snapshotsRoute, replRoute,
     filesRoute, quotasRoute, aclRoute, volumesRoute, iscsiRoute, nvmeRoute, cloudRoute,
-    sandboxRoute, delegationRoute, backupRoute, auditRoute, complianceRoute, ftpRoute, fileSharesRoute, sshKeysRoute, s3Route,
+    sandboxRoute, delegationRoute, backupRoute, auditRoute, historyRoute, complianceRoute, ftpRoute, fileSharesRoute, sshKeysRoute, s3Route,
     dockerRoute, gitOpsRoute,
     networkRoute, removableRoute,
     usersRoute, directoryRoute,

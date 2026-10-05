@@ -24,6 +24,7 @@ For deeper dives into operational areas, see the dedicated guides:
 4. [File Management](#file-management)
 5. [Container Management](#container-management)
 6. [System Settings](#system-settings)
+   - [Change History](#change-history)
 7. [Monitoring and Alerts](#monitoring-and-alerts)
 8. [Backup and Recovery](#backup-and-recovery)
 9. [Security Best Practices](#security-best-practices)
@@ -258,6 +259,17 @@ Custom icons are served via `GET /api/assets/custom-icons/<filename>`. The full 
 Network → configure interface, IP address, gateway, DNS, VLANs, and bonding → **Apply**.
 
 The **Firewall** page is in the Security group. DNS changes apply in 30 seconds and can be rolled back from the same page if connectivity is lost.
+
+### Change History
+
+System → **Change History** lists every change to datasets, SMB shares, NFS exports, users, groups, Docker stacks, replication jobs, SMART tasks and system settings, newest first:
+
+- Changes made in the web UI appear right away (**Web UI**). Changes made elsewhere (shell, other tools, a GitOps apply) are found by a check every 5 minutes (**Detected**). **Record now** runs that check immediately.
+- Expand a resource to see each setting before and after the change. Secrets (LDAP bind password, ACME DNS tokens, certificate keys) are never stored; the history only shows that they changed.
+- **Undo this change** sets one resource back to how it was before that change (later changes to the same resource are undone too). The usual safety rules apply: a rollback that would delete a dataset containing data, or a share with open connections, is refused. A deleted dataset is recreated with its settings but without its data; a deleted user cannot be restored from the history (passwords are not stored). Pools, LDAP, ACME and certificates are shown but cannot be rolled back here.
+- **Export state.yaml** downloads the current configuration in the GitOps format (without secrets and certificates), with or without a Git repository.
+
+In an HA pair the history is recorded by the active node.
 
 ### Notifications
 

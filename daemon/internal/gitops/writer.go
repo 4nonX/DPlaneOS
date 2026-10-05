@@ -43,3 +43,28 @@ func IsWriter() (bool, string) {
 	}
 	return fn()
 }
+
+// ── Change hooks ──────────────────────────────────────────────────────────────
+
+var (
+	hooksMu     sync.RWMutex
+	changeHooks []func()
+)
+
+// AddChangeHook registers fn to run whenever the daemon reports a change to
+// managed configuration (the web UI write-back path, CommitAll). Hooks run in
+// the caller's goroutine, before the Git write-back; they must not block long.
+func AddChangeHook(fn func()) {
+	hooksMu.Lock()
+	changeHooks = append(changeHooks, fn)
+	hooksMu.Unlock()
+}
+
+func runChangeHooks() {
+	hooksMu.RLock()
+	hooks := append([]func(){}, changeHooks...)
+	hooksMu.RUnlock()
+	for _, h := range hooks {
+		h()
+	}
+}

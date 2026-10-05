@@ -1287,32 +1287,56 @@ func SyncDB(db *sql.DB, desired *DesiredState) error {
 	}
 	defer tx.Rollback()
 
-	// 1. Sync Users
-	if _, err := tx.Exec(`DELETE FROM users WHERE source = 'git'`); err != nil {
-		return fmt.Errorf("clearing git users: %w", err)
+	// Undeclared rows are removed only when ignore_extraneous is false, as
+	// documented: with ignore_extraneous: true, state.yaml manages the
+	// resources it declares and leaves everything else alone. (Previously
+	// every apply deleted all groups, group members and NFS exports and
+	// re-created users, whatever ignore_extraneous said.)
+	prune := !desired.IgnoreExtraneous
+
+	// 1. Users (declared users are upserted; their source and credentials are kept)
+	userNames := make([]string, 0, len(desired.Users))
+	for _, u := range desired.Users {
+		userNames = append(userNames, u.Username)
+	}
+	if prune {
+		if _, err := tx.Exec(`DELETE FROM users WHERE source = 'git' AND NOT (username = ANY($1))`, userNames); err != nil {
+			return fmt.Errorf("removing undeclared git users: %w", err)
+		}
 	}
 	for _, u := range desired.Users {
-		_, err := tx.Exec(`INSERT INTO users (username, email, role, active, source) 
-			VALUES ($1, $2, $3, $4, 'git')`,
+		_, err := tx.Exec(`INSERT INTO users (username, email, role, active, source)
+			VALUES ($1, $2, $3, $4, 'git')
+			ON CONFLICT (username) DO UPDATE SET
+				email=EXCLUDED.email, role=EXCLUDED.role, active=EXCLUDED.active, updated_at=NOW()`,
 			u.Username, u.Email, u.Role, u.Active)
 		if err != nil {
 			return fmt.Errorf("syncing user %q: %w", u.Username, err)
 		}
 	}
 
-	// 2. Sync Groups
-	if _, err := tx.Exec(`DELETE FROM groups`); err != nil {
-		return fmt.Errorf("clearing groups: %w", err)
+	// 2. Groups and their members
+	groupNames := make([]string, 0, len(desired.Groups))
+	for _, g := range desired.Groups {
+		groupNames = append(groupNames, g.Name)
 	}
-	if _, err := tx.Exec(`DELETE FROM group_members`); err != nil {
-		return fmt.Errorf("clearing group members: %w", err)
+	if prune {
+		if _, err := tx.Exec(`DELETE FROM group_members WHERE NOT (group_name = ANY($1))`, groupNames); err != nil {
+			return fmt.Errorf("removing members of undeclared groups: %w", err)
+		}
+		if _, err := tx.Exec(`DELETE FROM groups WHERE NOT (name = ANY($1))`, groupNames); err != nil {
+			return fmt.Errorf("removing undeclared groups: %w", err)
+		}
 	}
 	for _, g := range desired.Groups {
-		_, err := tx.Exec(`INSERT INTO groups (name, description, gid) 
-			VALUES ($1, $2, $3)`,
+		_, err := tx.Exec(`INSERT INTO groups (name, description, gid) VALUES ($1, $2, $3)
+			ON CONFLICT (name) DO UPDATE SET description=EXCLUDED.description, gid=EXCLUDED.gid`,
 			g.Name, g.Description, g.GID)
 		if err != nil {
 			return fmt.Errorf("syncing group %q: %w", g.Name, err)
+		}
+		if _, err := tx.Exec(`DELETE FROM group_members WHERE group_name = $1`, g.Name); err != nil {
+			return fmt.Errorf("syncing members of group %q: %w", g.Name, err)
 		}
 		for _, member := range g.Members {
 			_, err = tx.Exec(`INSERT INTO group_members (group_name, username) VALUES ($1, $2)`, g.Name, member)
@@ -1322,16 +1346,17 @@ func SyncDB(db *sql.DB, desired *DesiredState) error {
 		}
 	}
 
-	// 3. Sync SMB Shares: drop shares state.yaml no longer declares, upsert the
-	// declared ones. Upserting (rather than DELETE + INSERT) keeps columns that
-	// state.yaml does not manage (browsable, masks, omitted per-share options)
-	// at their live values. read_only/guest_ok are INTEGER columns.
+	// 3. SMB shares: upsert declared ones. Upserting keeps columns state.yaml
+	// does not manage (browsable, masks, omitted per-share options) at their
+	// live values. read_only/guest_ok are INTEGER columns.
 	declared := make([]string, 0, len(desired.Shares))
 	for _, s := range desired.Shares {
 		declared = append(declared, s.Name)
 	}
-	if _, err := tx.Exec(`DELETE FROM smb_shares WHERE NOT (name = ANY($1))`, declared); err != nil {
-		return fmt.Errorf("clearing undeclared shares: %w", err)
+	if prune {
+		if _, err := tx.Exec(`DELETE FROM smb_shares WHERE NOT (name = ANY($1))`, declared); err != nil {
+			return fmt.Errorf("clearing undeclared shares: %w", err)
+		}
 	}
 	for i := range desired.Shares {
 		s := &desired.Shares[i]
@@ -1351,12 +1376,21 @@ func SyncDB(db *sql.DB, desired *DesiredState) error {
 		}
 	}
 
-	// 4. Sync NFS Exports
-	if _, err := tx.Exec(`DELETE FROM nfs_exports`); err != nil {
-		return fmt.Errorf("clearing nfs: %w", err)
+	// 4. NFS exports (path is not unique in the table: replace per path)
+	nfsPaths := make([]string, 0, len(desired.NFS))
+	for _, n := range desired.NFS {
+		nfsPaths = append(nfsPaths, n.Path)
+	}
+	if prune {
+		if _, err := tx.Exec(`DELETE FROM nfs_exports WHERE NOT (path = ANY($1))`, nfsPaths); err != nil {
+			return fmt.Errorf("clearing undeclared nfs exports: %w", err)
+		}
 	}
 	for _, n := range desired.NFS {
-		_, err := tx.Exec(`INSERT INTO nfs_exports (path, clients, options, enabled) 
+		if _, err := tx.Exec(`DELETE FROM nfs_exports WHERE path = $1`, n.Path); err != nil {
+			return fmt.Errorf("syncing nfs %q: %w", n.Path, err)
+		}
+		_, err := tx.Exec(`INSERT INTO nfs_exports (path, clients, options, enabled)
 			VALUES ($1, $2, $3, $4)`,
 			n.Path, n.Clients, n.Options, n.Enabled)
 		if err != nil {

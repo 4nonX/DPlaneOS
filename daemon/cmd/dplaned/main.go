@@ -29,6 +29,7 @@ import (
 	"dplaned/internal/gitops"
 	"dplaned/internal/ha"
 	"dplaned/internal/bootstrap"
+	"dplaned/internal/configstore"
 	"dplaned/internal/features"
 	"dplaned/internal/handlers"
 	"dplaned/internal/hardware"
@@ -947,6 +948,24 @@ func main() {
 	// The drift detector runs inside gitopsHandler (one per daemon). Background
 	// write-back failures are broadcast as "gitops.commit_failed".
 	gitops.SetEventHub(wsHub)
+	// Configuration history (Design 0001, Phase 1): every change to a managed
+	// resource is recorded; capture runs after web UI changes (background, so
+	// the request is not delayed) and every 5 minutes for changes made elsewhere.
+	configHistory := handlers.NewConfigHistoryHandler(db, *smbConfPath)
+	gitops.AddChangeHook(func() {
+		go func() {
+			if _, err := configstore.Capture(db, configstore.OriginGUI, "", ""); err != nil {
+				log.Printf("CONFIG HISTORY: capture after change failed: %v", err)
+			}
+		}()
+	})
+	configstore.StartPeriodicCapture(db, 5*time.Minute)
+	r.Handle("/api/config/history", permRoute("system", "read", http.HandlerFunc(configHistory.History))).Methods("GET")
+	r.Handle("/api/config/revisions/{id:[0-9]+}", permRoute("system", "read", http.HandlerFunc(configHistory.Revision))).Methods("GET")
+	r.Handle("/api/config/export", permRoute("system", "read", http.HandlerFunc(configHistory.Export))).Methods("GET")
+	r.Handle("/api/config/capture", permRoute("system", "write", http.HandlerFunc(configHistory.Capture))).Methods("POST")
+	r.Handle("/api/config/rollback", permRoute("system", "admin", http.HandlerFunc(configHistory.Rollback))).Methods("POST")
+
 	r.Handle("/api/gitops/status", permRoute("system", "read", gitopsHandler.Status)).Methods("GET")
 	r.Handle("/api/gitops/plan", permRoute("system", "read", gitopsHandler.Plan)).Methods("GET")
 	r.Handle("/api/gitops/apply", permRoute("system", "admin", gitopsHandler.Apply)).Methods("POST")
