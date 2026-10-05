@@ -19,7 +19,7 @@ A single `state.yaml` mixes cluster-wide resources with node-specific ones (host
 - Scopes and owners: node (the node), group (the owner, i.e. epoch holder), cluster (the cluster coordinator), fleet (the overlay). Effective config merges fleet ⟶ cluster ⟶ group ⟶ node; the GUI shows the origin of every effective setting.
 - HA topology and fencing settings are node scope and excluded from Git.
 - Group-scope resources are defined on every candidate node and active only on the owner (stacks using the group's pools, NVMe-oF exports, shares, NFS exports). Node scope is limited to what really belongs to one machine (hostname, interfaces, BMC credentials, tuning, SMART tasks, stacks without pool volumes).
-- Topologies (design section 5.3): standalone; shared storage with SCSI-3 PR where the disks support it (proposed: ZFS multihost plus mandatory power fencing where they do not, e.g. SATA), watchdog and IPMI/PDU fencing, zero RPO; replicated with ZFS send/receive, an RPO of one interval shown in the GUI, automatic direction flip on planned moves, and promotion during a partition only when configured with witness quorum.
+- Topologies (design section 5.3): standalone; shared storage (any drives) with a third vote and watchdog self-fencing as baseline and optional multihost, SCSI-3 reservations and IPMI/PDU ([ADR-0009](ADR-0009-fencing-layers.md)), zero RPO; replicated with ZFS send/receive, an RPO of one interval shown in the GUI, automatic direction flip on planned moves, and promotion during a partition only when configured with witness quorum.
 - Apply, config writes in group scope and sync carry the group epoch; a stale epoch cannot write.
 - A reconcile failure never triggers a failover; a failover never triggers a revert.
 

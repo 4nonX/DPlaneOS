@@ -20,6 +20,7 @@ Design documents describe larger changes to how DPlaneOS works before they are i
 | [ADR-0006](adr/ADR-0006-merge-engine.md) | One merge engine; conflicts are never resolved silently | Proposed |
 | [ADR-0007](adr/ADR-0007-gitops-defaults.md) | GitOps defaults: outbox, pull, no automatic revert | Proposed |
 | [ADR-0008](adr/ADR-0008-secrets-and-credentials.md) | Secrets keys per group; no secrets in Git | Proposed |
+| [ADR-0009](adr/ADR-0009-fencing-layers.md) | Watchdog self-fencing as the baseline; stronger fencing optional; inform, do not block | Proposed |
 
 ## Process
 

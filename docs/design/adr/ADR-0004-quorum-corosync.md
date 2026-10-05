@@ -8,7 +8,7 @@
 
 ## Decision
 
-Clusters use **Corosync votequorum** for membership and quorum, with `two_node` or a **QDevice** for two-node deployments. Storage groups derive their owner from it, combined with topology-specific arbitration (reservations for shared storage). There is no fleet-wide consensus.
+Clusters use **Corosync votequorum** for membership and quorum, with `two_node` or a **QDevice** for two-node deployments. Storage groups derive their owner from it, combined with watchdog self-fencing and, where available, topology-specific arbitration (reservations, ZFS multihost) ([ADR-0009](ADR-0009-fencing-layers.md)). There is no fleet-wide consensus.
 
 ## Context
 
@@ -17,6 +17,7 @@ Today quorum comes from HTTP reachability witnesses and, for Patroni, etcd. Reac
 ## Details
 
 - Corosync votequorum per cluster; QDevice optional (Raspberry Pi, VM, another D-PlaneOS node, small cloud instance).
+- Two nodes without a QDevice run `two_node` (with `wait_for_all`) for membership only: both halves of a split stay quorate, so automatic failover requires the QDevice; without it, takeover is manual ([ADR-0009](ADR-0009-fencing-layers.md)).
 - The group epoch increments on every promotion and is stored in the revision log and, for shared storage, in the reservation key, so authority can be checked locally.
 - The HTTP witnesses remain as an additional isolation signal, not as quorum.
 - The GUI presents the votequorum options in plain language.

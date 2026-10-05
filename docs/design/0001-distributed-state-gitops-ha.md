@@ -4,7 +4,7 @@
 |---|---|
 | **Status** | Proposed |
 | **Created** | 2026-10-05 |
-| **Decisions** | [ADR-0001](adr/ADR-0001-local-first-node-state.md) to [ADR-0008](adr/ADR-0008-secrets-and-credentials.md) |
+| **Decisions** | [ADR-0001](adr/ADR-0001-local-first-node-state.md) to [ADR-0009](adr/ADR-0009-fencing-layers.md) |
 | **Supersedes (when accepted)** | The shared-database model in [HIGH-AVAILABILITY.md](../admin/HIGH-AVAILABILITY.md); parts of [GITOPS-DRIVEN-NAS.md](../admin/GITOPS-DRIVEN-NAS.md) |
 
 This document describes how DPlaneOS keeps configuration consistent across one node, an HA pair, a cluster and a fleet of hundreds of servers, how Git fits in, and how every node keeps working on its own when the network does not. It is the reference for the ADRs listed above; each ADR records one decision and its alternatives.
@@ -160,11 +160,19 @@ A **storage group** is the unit of ownership and failover: one or more pools plu
 |---|---|---|---|
 | Drives | any | SAS or SATA in a shared JBOD (through SAS expanders; SATA needs interposers for dual paths), SAN LUNs, NVMe-oF | any: SAS, SATA, NVMe |
 | Candidates | 1 | 2..n nodes seeing the same disks | 2..n nodes with own disks |
-| Data protection | — | SCSI-3 PR reservation when every pool disk passes the write probe (SAS; some enterprise SATA through SAT), + watchdog self-fence (+ IPMI/PDU). Disks without working PR (most SATA): ZFS multihost (MMP) on the pool plus mandatory power fencing (IPMI/PDU) and watchdog — *proposed, see open question 6* | ZFS send/receive + watchdog + IPMI/PDU |
+| Data protection | — | Baseline: third vote + watchdog self-fence (5.3.1). Optional: ZFS multihost (recommended), SCSI-3 reservations where the disks pass the probe, IPMI/PDU | ZFS send/receive + baseline; optional IPMI/PDU |
 | RPO | — | zero | up to one replication interval (shown in the GUI) |
-| Failover | none | automatic, reservation decides | automatic only if enabled and quorate (witness required) |
+| Failover | none | automatic with a third vote; otherwise manual takeover | automatic only if enabled and with a third vote; otherwise manual takeover |
 | Planned move | — | export/import with reservation hand-over | final incremental send, then **direction flips automatically** |
 | Maps to today | standalone node | HA Path A' | HA Path B |
+
+#### 5.3.1 Fencing and protection levels ([ADR-0009](adr/ADR-0009-fencing-layers.md))
+
+Two-node HA has to work on ordinary hardware. As in Proxmox VE, the baseline needs no fencing hardware: **a third vote for quorum plus watchdog self-fencing**. A node that loses quorum stops resetting its watchdog (hardware watchdog, or the kernel `softdog` when there is none) and resets itself; the survivor waits the watchdog timeout plus a margin before it imports the pools. This works for shared storage and replication alike, with SAS, SATA or NVMe drives.
+
+Stronger layers are optional and shown with what they add: ZFS multihost (refuses an import while the other node still writes; recommended for shared storage), SCSI-3 reservations (the disks reject the fenced node; only disks that pass the probe), IPMI/PDU power fencing. The GUI shows a protection summary and explains each missing layer as a hardware limitation ("softdog depends on the kernel still running"; "these disks do not support reservations") instead of refusing the setup.
+
+The one rule that is not optional: **automatic failover needs a third vote** (QDevice or witness on a Raspberry Pi, VM, cloud instance or another node). With only two votes, a network split leaves both halves quorate, so either could start the pool. Without a third vote the pair still works, but failover is a manual **Take over** after confirming the other node is off.
 
 - **Owner and epoch.** The owner is chosen by the group's quorum ([5.4](#54-quorum-and-epochs-adr-0004)). Every promotion increments the group epoch. Every apply, every config write in group scope and every outgoing sync carries the epoch; a node whose epoch is stale must not write (fencing token).
 - **Within a group, the owner replicates group-scope revisions to the other members** (TrueNAS model): each write is forwarded; members apply it only while they are not the owner; on failure the owner sends a full scope snapshot.
@@ -193,7 +201,7 @@ What an isolated node may change:
 |---|---|
 | node | always |
 | group, standalone topology | always |
-| group, shared storage | only while it owns the pool (holds the disk reservation, or has the pool imported under multihost protection); storage arbitration decides, not network reachability |
+| group, shared storage | only while it owns the pool (has quorum, or kept ownership through a manual takeover); storage arbitration decides, not network reachability |
 | group, replicated | the source node keeps working; promoting a target copy during a partition is allowed only if the group is configured for it and has quorum through a witness (default: off for two-node groups) |
 | cluster / fleet | as **local overrides**, marked in the GUI, merged on reconnect |
 
@@ -252,7 +260,7 @@ One engine handles all three sources of conflicting changes: reconnect after a p
 | Event | Storage | Configuration | GUI |
 |---|---|---|---|
 | Network glitch between group members | Owner keeps serving; standby does nothing unless quorum and topology rules allow promotion | Both sides keep their local stores; outbox queues | Banner on both nodes |
-| Owner node fails | Standby promotes after fencing (shared storage: takes the reservation or imports under multihost after power fencing; replicated: only if configured) | New owner continues from the replicated revision log and outbox | Cluster map shows new owner and epoch |
+| Owner node fails | With a third vote: the standby promotes after the watchdog timeout (plus reservation preempt / power-off where configured); replicated: only if enabled. Without a third vote: manual takeover | New owner continues from the replicated revision log and outbox | Cluster map shows new owner and epoch |
 | Overlay down | Unaffected | Group/node changes continue; fleet changes wait | Banner "fleet manager unreachable" |
 | Git unreachable | Unaffected | Outbox queues; drift checks pause | Sync status |
 | Apply fails | Unaffected | Scope on hold at last good revision | Hold banner with resume/revert |
@@ -302,7 +310,7 @@ Each phase ends with its tests passing in CI; later phases do not start on top o
 | **0. Fixes (independent of this design)** — implemented, see CHANGELOG "Unreleased" | GitOps write-back and drift only on the active node; apply guard checks role, not only quorum; shared secrets key for existing pairs; abort a failed rebase and report push failures; real fetch in the drift detector; reject plain-text secrets in `state.yaml`; correct GITOPS-DRIVEN-NAS.md. Found on the way: write-back refuses to commit over unapplied remote commits (synced-commit tracking); authenticated git ran without `PATH`/`HOME`; duplicate drift detector; GitOps status card. | Unit tests; live-boot and HA VM tests green. |
 | **1. Node-local store** — implemented, see CHANGELOG "Unreleased" | Revision log with scopes (`config_revisions`); capture after web UI changes and every 5 minutes; GUI history, field diff, rollback per resource; `state.yaml` export. Deviations: the outbox and holds tables are created in the phases that use them (2 and 5); `state.yaml` import stays the existing GitOps apply; pools enter the history only from `state.yaml` (the live view has no topology); automatic captures carry no author yet. Found on the way: the GitOps DB sync ignored `ignore_extraneous` and deleted undeclared groups, NFS exports and shares. | Round-trip test (`state.yaml` → revisions → `state.yaml` identical, canonical order); API test: capture, change, rollback restores `smb.conf` and leaves other shares alone, export. |
 | **2. Merge engine and node states** — implemented, see CHANGELOG "Unreleased" | Three-way merge per resource over revision ancestry (`uid`, `base_uid`, `merge_uid`); pull-based exchange between paired nodes with node-local databases (join code, merge preview, pinned TLS certificate); review screen; standalone/connected/isolated/independent; detach, remove and rejoin. Scopes corrected during the phase: the system section is split into node settings (hostname, network interfaces) and shared settings (time zone, DNS, NTP, firewall ports, Samba globals, SSH; cluster scope, exchanged); Docker stacks using a pool and NVMe-oF exports are group scope; they are recorded but not exchanged until phase 3 can run them only on the pool owner. Deviations: no default winners per scope yet (group epochs and the cluster coordinator come with phase 3), so every same-resource conflict goes to review; equal states merge automatically (the node with the lower id records the merge); exchanged kinds are datasets, shares, NFS exports, users, groups, replication and shared settings; user passwords and secret-bearing kinds (LDAP, ACME, certificates) are not exchanged until group secrets keys (phase 3); the outbox is the peers' pull cursor (no separate table) because exchange is pull-only; HA pairs on the shared Patroni database cannot be paired (same node id) until phase 3 migrates them. | CI job "Config Sync & Merge (two nodes)": two daemons with separate databases, partitioned with iptables instead of a VM test; unit tests of the merge classification. |
-| **3. Storage groups and quorum** | Corosync votequorum + QDevice; epochs; owner replication of group revisions; topologies mapped from Path A'/B; migration off the shared Patroni database. | VM tests per topology: failover, planned move, stale-owner rejection, split of a replicated group. |
+| **3. Storage groups and quorum** | Corosync votequorum + QDevice; epochs; owner replication of group revisions; topologies mapped from Path A'/B; shared storage with any drives on the watchdog baseline, multihost/reservations/power fencing as optional layers, protection summary, manual takeover without a third vote ([ADR-0009](adr/ADR-0009-fencing-layers.md)); group resources (stacks with pool volumes, NVMe-oF) synchronised to candidates and started only on the owner; migration off the shared Patroni database. | VM tests per topology: failover, planned move, stale-owner rejection, split of a replicated group, isolated node resets via softdog before the survivor imports, no automatic takeover with two votes. |
 | **4. GUI** | Wizards, cluster map, fencing and witness test buttons, conflict review, holds. | Browser tests of the wizards against a mock API; VM test of a full setup through the API. |
 | **5. Git backend** | Outbox draining, direct/PR policies, pull + verify + plan + apply with defaults, multiple remotes. | Tests against a local Git server (Gitea/Forgejo) in CI. |
 | **6. Fleet overlay** | Remote registration, fleet scope, distribution, rollouts. | Simulated fleet of 5–10 VMs in CI; overlay down → remotes unaffected. |
@@ -317,7 +325,7 @@ Each phase ends with its tests passing in CI; later phases do not start on top o
 3. **Fleet overlay as a role on any node or a separate product** ([ADR-0005](adr/ADR-0005-fleet-overlay.md)).
 4. **Git providers for the pull-request policy:** GitHub, Gitea/Forgejo, GitLab — which first.
 5. **Cluster-scope coordinator:** the owner of a designated "system" storage group, or a separately elected role.
-6. **Shared storage without working SCSI-3 PR (e.g. SATA drives in a shared JBOD):** today these are directed to the replicated topology. Proposal: allow shared storage with ZFS multihost (MMP, refuses a second import while the pool is active elsewhere) plus mandatory IPMI/PDU power fencing and watchdog, with the GUI stating that protection relies on fencing rather than the disks. MMP adds import delay on failover and does not stop writes of a hung node that still has the pool imported, hence power fencing is required, not optional.
+6. ~~Shared storage without working SCSI-3 PR~~ — decided in [ADR-0009](adr/ADR-0009-fencing-layers.md): watchdog self-fencing with a third vote is the baseline for every topology and drive type; multihost, reservations and power fencing are optional layers; hardware limitations are explained, not blocked.
 
 ---
 
