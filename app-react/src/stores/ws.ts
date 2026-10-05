@@ -29,6 +29,7 @@
  *   inotify_status                       → inotifyStats subscribers
  *   mount_health_<poolname>              → mountError subscribers
  *   gitops.drift                         → gitopsDrift subscribers
+ *   gitops.commit_failed                 → gitopsCommitFailed subscribers
  *   ha.replication_progress              → haReplicationProgress subscribers
  *   raidz_expand_started                 → raidzExpandStarted subscribers
  *   raidz_expand_progress                → raidzExpandProgress subscribers
@@ -66,6 +67,7 @@ type EventMap = {
   inotifyStats: (data: unknown) => void
   mountError: (data: unknown) => void
   gitopsDrift: (data: unknown) => void
+  gitopsCommitFailed: (data: unknown) => void
   jobProgress: (data: { job_id: string; data: { progress?: number; status?: string; [key: string]: unknown } }) => void
   jobLog:      (data: { job_id: string; line: string }) => void
   haReplicationProgress: (data: Record<string, unknown>) => void
@@ -235,6 +237,9 @@ export const useWsStore = create<WsState>((set) => {
           break
         case 'gitops.drift':
           emit('gitopsDrift', msg.data ?? msg)
+          break
+        case 'gitops.commit_failed':
+          emit('gitopsCommitFailed', msg.data ?? msg)
           break
         case 'job.progress':
           emit('jobProgress', (msg.data ?? msg) as { job_id: string; data: unknown })

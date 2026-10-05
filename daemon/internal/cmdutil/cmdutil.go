@@ -184,7 +184,9 @@ func RunInDirWithEnv(timeout time.Duration, dir string, env []string, name strin
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Dir = dir
 	if len(env) > 0 {
-		cmd.Env = env
+		// Extend the daemon environment; replacing it would drop PATH and HOME,
+		// so git could not run its askpass helper (cat) or GIT_SSH_COMMAND (ssh).
+		cmd.Env = append(os.Environ(), env...)
 	}
 	output, err := cmd.CombinedOutput()
 

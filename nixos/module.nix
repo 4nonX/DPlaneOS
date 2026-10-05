@@ -23,6 +23,9 @@ let
   # store link, and UI share changes never reach Samba.
   smbConfFlag = lib.optionalString config.services.dplaneos.samba.enable
     " -smb-conf ${config.services.dplaneos.samba.sharesConfPath}";
+  secretsFlags = " -secrets-key ${cfg.secrets.keyFile}"
+    + lib.optionalString (cfg.secrets.fallbackKeyFile != null)
+      " -secrets-key-fallback ${cfg.secrets.fallbackKeyFile}";
 in {
   imports = [ ./ha.nix ./console-network-wizard.nix ./modules/samba.nix ./modules/nfs.nix ./modules/fenced.nix ./modules/ctdb.nix ./modules/ups.nix ];
 
@@ -143,6 +146,29 @@ in {
         Enable when compose stacks use NVIDIA GPU reservations or the nvidia runtime.
         Proprietary NVIDIA drivers on the host are still configured by the operator.
       '';
+    };
+
+    secrets = {
+      keyFile = lib.mkOption {
+        type    = lib.types.str;
+        default = "/var/lib/dplaneos/secrets.key";
+        description = ''
+          AES-256 key (32 bytes) that encrypts secrets stored in the database
+          (Git tokens, LDAP/AD/OIDC/SMTP passwords, TOTP seeds). Created on
+          first start if missing. Both nodes of an HA pair must use the same
+          key; give it as a path outside the Nix store (copy it once from the
+          first node, or deploy it with agenix/sops-nix).
+        '';
+      };
+      fallbackKeyFile = lib.mkOption {
+        type    = lib.types.nullOr lib.types.str;
+        default = null;
+        description = ''
+          Previous key of this node, kept while moving to a shared key: values
+          only this key opens are re-sealed under keyFile at startup. Remove it
+          once GET /api/system/secrets/status reports healthy.
+        '';
+      };
     };
 
     coldTier = {
@@ -406,7 +432,7 @@ in {
           # (NixOS PostgreSQL has no TCP listener unless enableTCPIP is set), else localhost.
           "/bin/sh -c 'echo \"[dplaned-pre] Checking PostgreSQL connectivity...\"; for i in $(${pkgs.coreutils}/bin/seq 1 30); do if ${pkgs.postgresql}/bin/pg_isready -h ${pgProbeHost} -U dplaneos -d dplaneos 2>&1; then echo \"[dplaned-pre] PostgreSQL ready on attempt $i\"; exit 0; fi; ${pkgs.coreutils}/bin/sleep 1; done; echo \"FATAL: PostgreSQL not ready after 30 seconds\" >&2; exit 1'"
         ];
-        ExecStart       = "/bin/sh -c 'echo \"[dplaned] Starting with DSN: ${cfg.dbDSN}\"; exec ${cfg.daemonPackage}/bin/dplaned -db-dsn \"${cfg.dbDSN}\" -listen ${cfg.socketPath} -socket-group dplaned${smbConfFlag}'";
+        ExecStart       = "/bin/sh -c 'echo \"[dplaned] Starting with DSN: ${cfg.dbDSN}\"; exec ${cfg.daemonPackage}/bin/dplaned -db-dsn \"${cfg.dbDSN}\" -listen ${cfg.socketPath} -socket-group dplaned${smbConfFlag}${secretsFlags}'";
         WorkingDirectory = "/var/lib/dplaneos";
         Restart         = "on-failure";
         RestartSec      = "5s";

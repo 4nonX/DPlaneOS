@@ -161,6 +161,16 @@ curl -s -X POST -H "X-Session-ID: $(cat /tmp/session)" \
   http://localhost/api/gitops/apply
 ```
 
+### Changes made in the web UI
+
+A change made in the web UI takes effect immediately and is then written back to the repository as a snapshot commit of the live state ("feat: infrastructure state update via DPlaneOS"). Before committing, DPlaneOS fetches the repository:
+
+- If the repository contains commits that are **not applied to this system yet**, the write-back is refused instead of committing over them (a snapshot of the live state would silently revert those commits). The UI change stays live; the GitOps page shows the refusal. Apply (or review) the pending commits, and the next write-back includes your change.
+- Snapshot commits that were never pushed are regenerated from the live state, so the local clone is reset to the remote when the two have diverged.
+- A failed push or fetch is shown on the GitOps page (`last_commit` in `GET /api/gitops/status`) and broadcast as a `gitops.commit_failed` event; it is never only logged.
+
+The commit the live system corresponds to is reported as `synced_commit` in `GET /api/gitops/status`. It moves forward when this node pushes a snapshot or when an apply completes without deferred items.
+
 ### Reviewing the plan before applying
 
 If you want to see what will happen before committing to it:
@@ -181,27 +191,12 @@ The plan shows each resource with its kind (`CREATE`, `MODIFY`, `DELETE`, `NOP`,
 
 ## Auto-Apply on Push
 
-Rather than manually triggering apply after each commit, configure DPlaneOS to poll the repository and apply automatically.
+> **Not implemented yet.** Earlier versions of this guide described polling and webhook-based auto-apply (`/api/gitops/webhook`, an "Auto-apply on change" setting). Neither exists in the daemon. Automatic apply with safe defaults (no self-heal or prune by default, an empty-state guard, retry with backoff, and a hold instead of automatic revert on failure) is planned in [Design 0001](../design/0001-distributed-state-gitops-ha.md), Phase 5 ([ADR-0007](../design/adr/ADR-0007-gitops-defaults.md)).
 
-### Polling (simplest, works with any Git host)
+What happens today:
 
-In Settings - GitOps, enable **Auto-apply on change** and set the poll interval (minimum 60 seconds). The daemon fetches the repository on the interval and applies if the HEAD commit has changed since the last apply.
-
-This is the recommended approach for most installations. The poll interval means there is a delay between push and apply, but the system is simple and requires no inbound connectivity to the NAS.
-
-### Webhook (immediate apply, requires NAS to be reachable)
-
-If your NAS has a reachable HTTPS endpoint and your Git host supports webhooks, configure a webhook to `POST /api/gitops/webhook` with a shared secret.
-
-In Settings - GitOps, generate a webhook secret. On GitHub:
-
-1. Go to repository Settings - Webhooks - Add webhook
-2. Payload URL: `https://nas.example.com/api/gitops/webhook`
-3. Content type: `application/json`
-4. Secret: the value from DPlaneOS Settings
-5. Events: just `push` events on the `main` branch
-
-The daemon verifies the HMAC-SHA256 signature on every webhook delivery and ignores deliveries for branches other than the configured branch.
+- The drift detector fetches the repository every 5 minutes, fast-forwards the local clone and reports drift between the repository and the live system on the GitOps page.
+- Apply is always explicit: the **Apply** button on the GitOps page or `POST /api/gitops/apply`.
 
 ---
 
@@ -318,13 +313,13 @@ users:
   - username: alice
     # Generate with: python3 -c "import bcrypt; print(bcrypt.hashpw(b'password', bcrypt.gensalt()).decode())"
     # Or use the web UI to create the user and then capture.
-    password_hash: "$2b$12$examplehashexamplehashexamplehashexampleha"
+    password_hash: "$2b$12$Q9wLkJt0eXa7pVq3sR1mUuH8cN2bD5fG6hJ7kL8mN9pQ0rS1tU2vW"
     email: alice@example.com
     role: admin
     active: true
 
   - username: bob
-    password_hash: "$2b$12$examplehashexamplehashexamplehashexamplehb"
+    password_hash: "$2b$12$Z1yX2wV3uT4sR5qP6oN7mOeL8kJ9iH0gF1eD2cB3aZ4yX5wV6uT7s"
     email: bob@example.com
     role: operator
     active: true
@@ -373,7 +368,7 @@ system:
 
 ### What belongs in state.yaml
 
-- Password **hashes** (bcrypt) for local users - hashes are safe to commit
+- Password **hashes** (bcrypt, `$2a$`/`$2b$`/`$2y$`, 60 characters) for local users. Validation rejects anything else in `password_hash`, which catches plain-text passwords pasted by mistake.
 - Usernames, email addresses, roles
 - Share paths, permissions, comments
 - NFS client CIDRs
@@ -385,7 +380,7 @@ system:
 
 | Secret | Alternative |
 |--------|-------------|
-| LDAP bind password | Set via Settings UI or `POST /api/gitops/ldap-secret`; stored encrypted in the database |
+| LDAP bind password | Set in Directory settings in the web UI; stored encrypted in the database. `ldap.bind_password` in `state.yaml` is rejected by validation (earlier versions stored it unencrypted, which broke LDAP binds) |
 | ACME DNS API tokens | Set in the DPlaneOS secrets store; referenced by name in state.yaml |
 | Docker container passwords/tokens | Use Docker secrets, environment files outside `/var/lib/docker` (on `/persist`), or a secrets manager sidecar |
 | SSH private keys | Reference by path only; key files live on `/persist` outside Git |
@@ -479,7 +474,7 @@ For teams or when you want a review step before changes are applied:
 
 1. Set DPlaneOS to poll or listen on a non-main branch: `staging`
 2. Protect `main` with required reviews in your repository settings
-3. Apply only fires on `main`; `staging` receives PRs for preview
+3. Apply from `main`; `staging` receives PRs for preview
 
 ### Workflow
 
@@ -492,7 +487,7 @@ feature/add-backup-share
          │
          │ merge after approval
          ▼
-        main ──────────── auto-apply ────► share created on NAS
+        main ──────────── apply ─────────► share created on NAS
 ```
 
 **Drift check against a branch without applying** is useful for showing the plan in a PR comment. From a CI action in your state repository:
@@ -520,12 +515,15 @@ In a two-node HA cluster, both nodes run the GitOps daemon but only the primary 
 
 ### How apply works in HA
 
-When apply is triggered:
-- The primary node runs the full reconciler (ZFS, Docker, Samba, NFS, system)
-- The standby node runs a reduced reconciler (DB sync: users, groups, shares, NFS exports in the DB cache) so that it has current data if it becomes primary
-- Patroni is consulted before any physical execution to confirm the node is primary; if it is not, physical apply is skipped
+Only the **GitOps writer** acts on the repository: the active node, with quorum, not in subordinate mode and not fencing. On any other node:
 
-You trigger apply on the primary. In practice, direct the apply API call at the VIP (virtual IP managed by Keepalived), which always routes to the current primary.
+- `POST /api/gitops/apply` is refused with HTTP 409 and the reason (for example "standby node");
+- web UI changes are not written back to Git (a standby has no pools imported, so its live state would be pushed as a deletion);
+- the drift detector reports "drift checks run on the GitOps writer" instead of false drift.
+
+Both nodes currently share one PostgreSQL database through Patroni, so the standby needs no separate configuration sync. Trigger apply through the VIP (managed by Keepalived), which always routes to the active node.
+
+Both nodes must also use the **same secrets key** (`services.dplaneos.secrets.keyFile`), or Git credentials stored by one node cannot be used by the other after a failover. See [HIGH-AVAILABILITY.md](HIGH-AVAILABILITY.md#shared-secrets-key).
 
 ### Quorum-gated pool operations
 
@@ -552,7 +550,7 @@ If a pool operation is consistently deferred, check cluster quorum status on the
 For changes that do not affect storage (adding a user, changing a share comment):
 
 1. Commit and push
-2. Trigger apply via the VIP - both primary and standby DB sync automatically
+2. Trigger apply via the VIP (the shared database makes the change visible on both nodes)
 
 For changes that affect ZFS (new dataset, new pool):
 
@@ -684,6 +682,14 @@ Check:
 3. The repository URL uses the SSH form (`git@github.com:...`), not HTTPS
 4. The NAS can reach the Git host: `ssh -i /var/lib/dplaneos/gitops/deploy_key -T git@github.com`
 
-### Auto-apply fires but makes unexpected changes
+### Apply makes unexpected changes
 
-Set `ignore_extraneous: false` only when `state.yaml` is complete and trusted. During initial migration, keep it true to prevent the reconciler from deleting resources you have not yet captured. Review the plan output carefully before enabling unattended auto-apply.
+Set `ignore_extraneous: false` only when `state.yaml` is complete and trusted. During initial migration, keep it true to prevent the reconciler from deleting resources you have not yet captured. Review the plan output before every apply.
+
+### Web UI change was not committed to Git
+
+`GET /api/gitops/status` shows the reason in `last_commit.error`:
+
+- "the Git repository has changes that are not applied to this system yet": apply or review the pending commits; the next write-back includes the UI change.
+- "this node is not the GitOps writer": the change was made on an HA standby; make changes through the VIP.
+- push or fetch errors: check the repository credentials and connectivity.

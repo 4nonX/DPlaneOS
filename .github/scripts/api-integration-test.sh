@@ -458,6 +458,10 @@ api GET /api/system/audit/stats >/dev/null
 assert_json "Audit stats" "success" "true"
 api GET /api/system/health >/dev/null
 assert_json "Detailed system health" "success" "true"
+# Startup secrets check: every stored secret opens with this node's key.
+api GET /api/system/secrets/status >/dev/null
+assert_json "Secrets check ran" "checked" "true"
+assert_json "All stored secrets decryptable" "healthy" "true"
 
 # 10.5 GITOPS & SYSTEM CONFIG
 echo "--- Testing NixOS & System Modules ---"

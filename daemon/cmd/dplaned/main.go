@@ -64,6 +64,8 @@ func main() {
 	haLocalID := flag.String("ha-local-id", "", "Unique ID for this cluster node (default: /etc/machine-id prefix)")
 	haLocalAddr := flag.String("ha-local-addr", "", "HTTP address peers use to reach this daemon, e.g. http://10.0.0.1:5050")
 	haClusterSecret := flag.String("ha-cluster-secret", "", "Pre-shared secret for HA peer authentication; must match on all cluster nodes")
+	secretsKeyPath := flag.String("secrets-key", "/var/lib/dplaneos/secrets.key", "AES-256 key for secrets stored in the database (created if missing). Both nodes of an HA pair must use the same key.")
+	secretsKeyFallback := flag.String("secrets-key-fallback", "", "Optional previous or peer secrets key: values only it can open are re-sealed under -secrets-key at startup")
 	gitopsStatePath := flag.String("gitops-state", "/var/lib/dplaneos/gitops/state.yaml", "Path to GitOps state.yaml (managed by git repo)")
 	applyOnly := flag.Bool("apply", false, "Apply GitOps state and exit (Phase 3.1)")
 	diffOnly := flag.Bool("diff", false, "Output reconciliation plan as JSON and exit")
@@ -137,6 +139,11 @@ func main() {
 			log.Fatalf("GITOPS APPLY FAILED: %v (Status: %s, Reason: %s, Item: %s)", err, result.Status, result.HaltReason, result.Failed)
 		}
 		log.Printf("GITOPS: Apply complete! (%d items applied, Post-Apply Convergence: %s)", len(result.Applied), result.Convergence)
+		if gitops.FullyApplied(result) {
+			if err := gitops.RecordApplied(db, filepath.Dir(*gitopsStatePath)); err != nil {
+				log.Printf("GITOPS: %v", err)
+			}
+		}
 		os.Exit(0)
 	}
 
@@ -336,8 +343,28 @@ func main() {
 	}
 
 	// Initialize the secrets encryption key (AES-256-GCM at-rest encryption).
-	if err := secrets.Init("/var/lib/dplaneos/secrets.key"); err != nil {
+	if err := secrets.Init(*secretsKeyPath); err != nil {
 		log.Fatalf("FATAL: secrets key init failed: %v", err)
+	}
+	if *secretsKeyFallback != "" {
+		if err := secrets.InitFallback(*secretsKeyFallback); err != nil {
+			log.Fatalf("FATAL: %v", err)
+		}
+	}
+	// Open every stored secret once: re-seal values only the fallback key opens,
+	// and report values this node cannot decrypt (an HA peer's key is missing)
+	// now instead of at the next Git push or LDAP bind.
+	if chk, err := handlers.CheckAndResealSecrets(db); err != nil {
+		log.Printf("ERROR: secrets check failed: %v", err)
+	} else {
+		if chk.Resealed > 0 {
+			log.Printf("SECRETS: re-sealed %d value(s) from the fallback key under the active key", chk.Resealed)
+		}
+		if len(chk.Undecryptable) > 0 {
+			log.Printf("ERROR: SECRETS: %d stored secret(s) cannot be decrypted with this node's key: %v. "+
+				"If this is an HA pair, both nodes must use the same secrets key (see HIGH-AVAILABILITY.md).",
+				len(chk.Undecryptable), chk.Undecryptable)
+		}
 	}
 
 	// Initialize buffered audit logging (non-blocking)
@@ -861,8 +888,14 @@ func main() {
 	r.Handle("/api/system/audit/verify-chain", permRoute("audit", "read", auditRotationHandler.VerifyAuditChain)).Methods("GET")
 	r.Handle("/api/system/ce-status", permRoute("system", "read", auditRotationHandler.GetCEStatus)).Methods("GET")
 
-	secretsRotationHandler := handlers.NewSecretsRotationHandler(db, "/var/lib/dplaneos/secrets.key")
+	secretsRotationHandler := handlers.NewSecretsRotationHandler(db, *secretsKeyPath)
+	if nixWriter.State().HAEnable {
+		// Rotation rewrites only this node's key file; the peer could no longer
+		// decrypt anything. Refuse until rotation is pair-aware.
+		secretsRotationHandler.DisableForHA()
+	}
 	r.Handle("/api/system/secrets/rotate", permRoute("system", "admin", secretsRotationHandler.RotateKeys)).Methods("POST")
+	r.Handle("/api/system/secrets/status", permRoute("system", "read", http.HandlerFunc(handlers.SecretsStatus))).Methods("GET")
 
 	systemBackupHandler := handlers.NewSystemBackupHandler(*dbDSN)
 	r.Handle("/api/system/db/backup", permRoute("system", "admin", systemBackupHandler.DownloadBackup)).Methods("GET")
@@ -886,17 +919,34 @@ func main() {
 	// there is no hardware backstop (SCSI-3 PR is only on shared-SAS), so this
 	// software gate is the only protection before an isolated node acts on
 	// Git-desired state that says "import/create this pool".
+	//
+	// The same check makes the active node the only GitOps writer: GUI changes
+	// are committed, drift is checked and plans are applied only there. Quorum
+	// alone is not enough: in a healthy pair both nodes have quorum.
 	if nixWriter.State().HAEnable {
+		gitops.SetWriterCheck(func() (bool, string) {
+			st := clusterMgr.Status()
+			switch {
+			case st.LocalNode == nil || st.LocalNode.Role != ha.RoleActive:
+				return false, "standby node (the active node is the GitOps writer)"
+			case !st.Quorum:
+				return false, "no quorum"
+			case st.SubordinateMode:
+				return false, "subordinate mode (catching up after a fence)"
+			case clusterMgr.IsFencingInProgress():
+				return false, "fencing in progress"
+			}
+			return true, ""
+		})
 		gitopsHandler.SetOwnershipGuard(func() bool {
-			return clusterMgr.Status().Quorum
+			ok, _ := gitops.IsWriter()
+			return ok
 		})
 	}
 
-	// Start GitOps drift detector - polls every 5 minutes and broadcasts
-	// "gitops.drift" WS events so GitOpsPage reacts in real time.
-	driftDetector := gitops.NewDriftDetector(db, *gitopsStatePath, 5*time.Minute, wsHub)
-	driftDetector.Start()
-	defer driftDetector.Stop()
+	// The drift detector runs inside gitopsHandler (one per daemon). Background
+	// write-back failures are broadcast as "gitops.commit_failed".
+	gitops.SetEventHub(wsHub)
 	r.Handle("/api/gitops/status", permRoute("system", "read", gitopsHandler.Status)).Methods("GET")
 	r.Handle("/api/gitops/plan", permRoute("system", "read", gitopsHandler.Plan)).Methods("GET")
 	r.Handle("/api/gitops/apply", permRoute("system", "admin", gitopsHandler.Apply)).Methods("POST")

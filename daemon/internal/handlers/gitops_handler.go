@@ -120,6 +120,8 @@ func (h *GitOpsHandler) Status(w http.ResponseWriter, r *http.Request) {
 		"error":         result.Error,
 		"state_yaml":    result.StateYAMLPath,
 		"plan_summary":  planSummary(result.Plan),
+		"last_commit":   gitops.LastCommitStatus(),
+		"synced_commit": gitops.SyncedCommit(h.db),
 	})
 }
 
@@ -193,6 +195,13 @@ func (h *GitOpsHandler) Plan(w http.ResponseWriter, r *http.Request) {
 // Apply computes the current plan and applies it.
 // BLOCKED items that have not been approved via /api/gitops/approve halt the apply.
 func (h *GitOpsHandler) Apply(w http.ResponseWriter, r *http.Request) {
+	if ok, reason := gitops.IsWriter(); !ok {
+		respondJSON(w, http.StatusConflict, map[string]any{
+			"success": false,
+			"error":   "GitOps apply runs on the active node only: " + reason,
+		})
+		return
+	}
 	// Enforce global reconciliation lock (Safety Phase 12.1)
 	if !gitops.TryLock() {
 		respondJSON(w, 423, map[string]any{
@@ -282,6 +291,13 @@ func (h *GitOpsHandler) Apply(w http.ResponseWriter, r *http.Request) {
 	h.approvalsMu.Unlock()
 
 	log.Printf("GITOPS APPLY: success - %d items in %s", len(result.Applied), result.Duration)
+	// The live system now matches the clone's HEAD (unless pool operations
+	// were deferred); GUI write-backs may snapshot it again.
+	if gitops.FullyApplied(result) {
+		if err := gitops.RecordApplied(h.db, filepath.Dir(h.stateYAMLPath)); err != nil {
+			log.Printf("GITOPS APPLY: %v", err)
+		}
+	}
 	respondOK(w, map[string]any{
 		"success":     true,
 		"applied":     result.Applied,

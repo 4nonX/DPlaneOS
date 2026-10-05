@@ -118,11 +118,18 @@ func CommitAndPush(dir string, env []string, commitMessage string, name, email, 
 		return fmt.Errorf("git commit: %w", err)
 	}
 
-	// 4. Pull --rebase to handle diverged remotes
-	// We use the provided environment (tokens/SSH) for the pull.
-	if _, err := cmdutil.RunInDirWithEnv(cmdutil.TimeoutMedium, dir, env, "git", "pull", "--rebase", "origin", branch); err != nil {
-		log.Printf("GIT-UTIL: pull --rebase failed: %v (might be a fresh repo)", err)
-		// We continue to push if pull fails, as it might be the very first push to a fresh remote.
+	// 4. Rebase onto the remote branch if it exists. A missing branch is a
+	// fresh repository; any other failure (network, auth, conflict) is an
+	// error, and a half-done rebase is aborted so the clone stays usable.
+	heads, err := gitOut(dir, envOrEmpty(env), "ls-remote", "--heads", "origin", branch)
+	if err != nil {
+		return fmt.Errorf("reach remote: %w", err)
+	}
+	if heads != "" {
+		if out, err := cmdutil.RunInDirWithEnv(cmdutil.TimeoutMedium, dir, env, "git", "pull", "--rebase", "origin", branch); err != nil {
+			cmdutil.RunFastInDir(dir, "git", "rebase", "--abort")
+			return fmt.Errorf("git pull --rebase: %v - %s", err, strings.TrimSpace(string(out)))
+		}
 	}
 
 	// 5. Push

@@ -371,6 +371,9 @@ func validRecordsize(s string) bool {
 
 // ValidState validates a parsed DesiredState and returns a list of human-readable
 // errors. An empty slice means the state is valid and safe to diff against live.
+// bcryptHashRe matches a bcrypt hash: $2a$, $2b$ or $2y$, cost, 53 characters.
+var bcryptHashRe = regexp.MustCompile(`^\$2[aby]\$\d{2}\$[./A-Za-z0-9]{53}$`)
+
 func ValidState(s *DesiredState) []string {
 	var errs []string
 
@@ -544,6 +547,22 @@ func ValidState(s *DesiredState) []string {
 		if s.System.Hostname != "" && !validPoolRe.MatchString(s.System.Hostname) {
 			errs = append(errs, "system: invalid hostname")
 		}
+	}
+
+	// ── Secrets ────────────────────────────────────────────────────────────────
+	// Plain-text secrets do not belong in a repository. A user password may be
+	// declared as a bcrypt hash (like NixOS hashedPassword); anything else in
+	// password_hash is most likely a plain-text password. The LDAP bind password
+	// is set in the GUI, where it is stored encrypted.
+	for i, u := range s.Users {
+		if u.PasswordHash != "" && !bcryptHashRe.MatchString(u.PasswordHash) {
+			errs = append(errs, fmt.Sprintf("users[%d] %q: password_hash must be a bcrypt hash ($2a$/$2b$/$2y$); "+
+				"never put a plain-text password in state.yaml", i, u.Username))
+		}
+	}
+	if s.LDAP != nil && s.LDAP.BindPassword != "" {
+		errs = append(errs, "ldap.bind_password: secrets are not accepted in state.yaml; "+
+			"set the bind password in Directory settings (it is stored encrypted on the node)")
 	}
 
 	return errs

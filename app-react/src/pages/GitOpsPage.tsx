@@ -10,7 +10,16 @@ import { useConfirm } from '@/components/ui/ConfirmDialog'
 import { useWsStore } from '@/stores/ws'
 import { useJobStore } from '@/stores/jobs'
 
-interface GitopsStatus { success: boolean; state?: string; pending_changes?: number; last_applied?: string; drift?: boolean }
+// GET /api/gitops/status
+interface GitopsStatus {
+  success: boolean
+  status?: string                 // "pending" before the first drift check
+  drifted?: boolean
+  checked_at?: string
+  error?: string                  // drift check error (or "this node is not the writer")
+  synced_commit?: string          // commit the live system corresponds to
+  last_commit?: { at: string; ok: boolean; skipped: boolean; error?: string } | null
+}
 interface Change {
   resource?:    string
   kind?:        string
@@ -932,12 +941,22 @@ export function GitOpsPage() {
           )}
 
           {statusQ.data && (
-            <div style={{ display:'flex', alignItems:'center', gap:14, padding:'14px 20px', background:'var(--bg-card)', border:`1px solid ${statusQ.data.drift?'var(--warning-border)':'var(--border)'}`, borderRadius:'var(--radius-lg)', marginBottom:24 }}>
-              <Icon name={statusQ.data.drift ? 'warning' : 'check_circle'} size={20} style={{ color: statusQ.data.drift ? 'var(--warning)' : 'var(--success)' }} />
+            <div style={{ display:'flex', alignItems:'center', gap:14, padding:'14px 20px', background:'var(--bg-card)', border:`1px solid ${statusQ.data.drifted || statusQ.data.error ?'var(--warning-border)':'var(--border)'}`, borderRadius:'var(--radius-lg)', marginBottom:24 }}>
+              <Icon name={statusQ.data.drifted || statusQ.data.error ? 'warning' : 'check_circle'} size={20} style={{ color: statusQ.data.drifted || statusQ.data.error ? 'var(--warning)' : 'var(--success)' }} />
               <div style={{ flex:1 }}>
-                <span style={{ fontWeight:700 }}>{statusQ.data.state || 'Synchronized'}</span>
-                {statusQ.data.drift && <span style={{ marginLeft:10, fontSize:'var(--text-xs)', color:'var(--warning)' }}>Changes detected</span>}
-                {statusQ.data.last_applied && <span style={{ marginLeft:10, fontSize:'var(--text-xs)', color:'var(--text-tertiary)' }}>Last applied: {fmtDate(statusQ.data.last_applied)}</span>}
+                <span style={{ fontWeight:700 }}>
+                  {statusQ.data.status === 'pending' ? 'Checking…'
+                    : statusQ.data.error ? 'Not checked'
+                    : statusQ.data.drifted ? 'Changes pending' : 'Synchronized'}
+                </span>
+                {statusQ.data.checked_at && <span style={{ marginLeft:10, fontSize:'var(--text-xs)', color:'var(--text-tertiary)' }}>Checked: {fmtDate(statusQ.data.checked_at)}</span>}
+                {statusQ.data.synced_commit && <span style={{ marginLeft:10, fontSize:'var(--text-xs)', color:'var(--text-tertiary)', fontFamily:'var(--font-mono)' }}>System at {statusQ.data.synced_commit.slice(0, 12)}</span>}
+                {statusQ.data.error && <div style={{ fontSize:'var(--text-xs)', color:'var(--warning)', marginTop:4 }}>{statusQ.data.error}</div>}
+                {statusQ.data.last_commit && !statusQ.data.last_commit.ok && (
+                  <div style={{ fontSize:'var(--text-xs)', color:'var(--error)', marginTop:4 }}>
+                    Last web UI change was not committed to Git ({fmtDate(statusQ.data.last_commit.at)}): {statusQ.data.last_commit.error}
+                  </div>
+                )}
               </div>
               <div style={{ display:'flex', gap:8 }}>
                 <button onClick={()=>check.mutate()} disabled={check.isPending} className="btn btn-ghost"><Icon name="fact_check" size={14}/>Config Check</button>

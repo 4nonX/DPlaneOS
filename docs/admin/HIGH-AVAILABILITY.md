@@ -454,13 +454,36 @@ If watchdog is enabled: `timeout_secs` must be less than `failover_after_seconds
 
 See also [OTA-UPDATES.md](OTA-UPDATES.md#ha-rolling-upgrade).
 
-### Quorum-Aware GitOps Reconciler
+### GitOps Writer
 
-When HA is enabled, the GitOps reconciler checks quorum before executing any pool ownership operation (pool create, reshape, destroy). If this node has no quorum, those operations are deferred to the next reconcile cycle rather than failing.
+When HA is enabled, only the **GitOps writer** acts on the GitOps repository: the active node, with quorum, not in subordinate mode and not fencing. Quorum alone is not enough, since both nodes of a healthy pair have it.
 
-This is a software-level guard that prevents an isolated node from acting on Git-desired state that says "create/import this pool." On Path A' (shared-SAS), SCSI-3 PR is the hardware backstop; on Path B (replicated), this guard is the primary software protection before an isolated node acts on pool declarations.
+- Apply (`POST /api/gitops/apply`) on any other node is refused with HTTP 409 and the reason.
+- Web UI changes are written back to Git only from the writer. A standby has no pools imported (Path A') or only replication targets (Path B); committing its live state would push a `state.yaml` without the active node's pools.
+- Drift checks run only on the writer; a standby reports "drift checks run on the GitOps writer" instead of false drift.
+- Pool ownership operations (create, import, reshape, destroy) in an apply are additionally deferred when the writer check fails during the apply. On Path A' SCSI-3 PR is the hardware backstop; on Path B this is the software protection.
 
-Operations that are safe to run without quorum (dataset property changes, SMB/NFS shares, Docker stacks, user/group config) proceed normally on isolated nodes.
+### Shared Secrets Key
+
+Secrets stored by DPlaneOS (Git tokens and SSH keys, LDAP/AD/OIDC/SMTP passwords, Telegram token, TOTP seeds) are encrypted with the key in `services.dplaneos.secrets.keyFile` (default `/var/lib/dplaneos/secrets.key`, created on first start). Both nodes of a pair share one database, so **both must use the same key**; otherwise a node cannot decrypt secrets the other one stored, and after a failover Git sync, LDAP and alerting fail.
+
+Each node checks all stored secrets at startup and reports the result at `GET /api/system/secrets/status` (`healthy`, `undecryptable`). An `ERROR: SECRETS:` line in `journalctl -u dplaned` names the affected values.
+
+**New pair:** before configuring any secrets on node B, copy node A's key to node B (`/var/lib/dplaneos/secrets.key`, owner root, mode 0600), or deploy one key file to both nodes with agenix or sops-nix and set `services.dplaneos.secrets.keyFile` to it. Keep the key out of the Nix store.
+
+**Existing pair with two different keys:**
+
+1. Copy node A's key to node B as `/var/lib/dplaneos/secrets.shared.key` (root, 0600). Node A keeps using its key unchanged.
+2. On node B set:
+   ```nix
+   services.dplaneos.secrets.keyFile         = "/var/lib/dplaneos/secrets.shared.key";
+   services.dplaneos.secrets.fallbackKeyFile = "/var/lib/dplaneos/secrets.key";  # B's old key
+   ```
+   and rebuild. On start, node B re-seals every value only its old key could open under the shared key.
+3. Check `GET /api/system/secrets/status` on both nodes: `healthy: true`.
+4. Remove `fallbackKeyFile` on node B and rebuild.
+
+Key rotation (`POST /api/system/secrets/rotate`) is refused while HA is enabled: it would change the key on one node only.
 
 ### Recovering from Node Failure
 
@@ -543,9 +566,9 @@ After promotion, `runPostPromotionStacksApply` reads `state.yaml` from the local
 
 **Git is never contacted during promotion.** The function calls `os.ReadFile(stateYAMLPath)` against a local path. There is no `git pull`, no HTTP call to a remote, and no network dependency in the promotion path.
 
-**Quorum-aware reconciler:** Pool ownership operations (create, reshape, destroy) check `ha.Manager.Status().Quorum` before executing. An isolated node defers these operations rather than acting on a Git-desired state that says "create/import this pool." Non-ownership operations (dataset properties, shares, Docker stacks) proceed regardless of quorum state.
+**GitOps writer:** after promotion this node becomes the GitOps writer (see [GitOps Writer](#gitops-writer)). Pool ownership operations in a GitOps apply are deferred whenever the writer check fails, so an isolated node does not act on a Git-desired state that says "create/import this pool."
 
-**Behavior when Git is unreachable at promotion time:** The promoted node proceeds on whatever `state.yaml` was last written to disk by the background auto-sync goroutine.
+**Behavior when Git is unreachable at promotion time:** The promoted node proceeds on whatever `state.yaml` its clone holds. Both nodes fetch the repository every 5 minutes (the standby fetches but does not evaluate drift), so the clone is at most one interval behind.
 
 ---
 

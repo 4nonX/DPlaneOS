@@ -3,8 +3,10 @@ package gitops
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"sync"
 	"time"
 )
@@ -151,13 +153,25 @@ func (d *DriftDetector) runCheck() *DriftResult {
 		return result
 	}
 
+
 	if repoID.Valid {
-		// Attempt to pull from configured repo
-		// We reuse the RepoHandler's pull logic via the DB
-		// For now, we assume Config.GitOpsStateDir is where d.stateYAMLPath points
-		// and that the Check already happens against that path.
-		// To truly "pull", we'd need to invoke git commands.
-		// Since we're in the daemon, we can run git pull origin <branch>
+		// Bring the clone up to date so drift is measured against what is in
+		// the repository, not against the last state this node happened to see.
+		if err := d.pullRepo(repoID.Int64); err != nil {
+			result.Error = "cannot update from the Git repository: " + err.Error()
+			log.Printf("GITOPS DRIFT: %s", result.Error)
+			d.broadcast(result)
+			return result
+		}
+	}
+
+	// The clone is kept current on every node (fetching is read-only), so a
+	// standby promoted after a failover starts from the latest state.yaml.
+	// Drift itself is only meaningful on the writer: a standby's live state
+	// lacks the pools the active node owns and would report everything as drifted.
+	if ok, reason := IsWriter(); !ok {
+		result.Error = "drift checks run on the GitOps writer; this node: " + reason
+		return result
 	}
 
 	// 1. Read and parse state.yaml
@@ -242,3 +256,23 @@ func readFile(path string) ([]byte, error) {
 	return os.ReadFile(path)
 }
 
+// pullRepo fetches the configured repository into the state clone (the
+// directory holding d.stateYAMLPath) and fast-forwards it. Holds stateMu so it
+// cannot interleave with CommitAll or an apply.
+func (d *DriftDetector) pullRepo(repoID int64) error {
+	var repoURL, branch sql.NullString
+	if err := d.db.QueryRow(`SELECT repo_url, branch FROM git_sync_repos WHERE id = $1`, repoID).Scan(&repoURL, &branch); err != nil {
+		return fmt.Errorf("loading repository %d: %w", repoID, err)
+	}
+	dir := filepath.Dir(d.stateYAMLPath)
+	env := BuildPushEnvForRepoID(d.db, repoID)
+	defer CleanupAskpass()
+
+	stateMu.Lock()
+	defer stateMu.Unlock()
+	if err := EnsureRepoRootDir(dir, repoURL.String, branchOrMain(branch.String), env); err != nil {
+		return err
+	}
+	_, err := syncClone(dir, env, branchOrMain(branch.String))
+	return err
+}

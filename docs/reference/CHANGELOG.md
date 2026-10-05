@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
 
+## Unreleased
+
+Phase 0 of [Design 0001](../design/0001-distributed-state-gitops-ha.md): fixes in GitOps and HA that do not depend on the new architecture.
+
+### Fixed
+
+- **GitOps write-back could revert other people's commits.** A web UI change snapshots the live state and commits it. It now fetches first and refuses to commit while the repository holds commits not yet applied to this system (it would have silently reverted them); the UI change stays live and is committed with the next write-back. The commit the live system corresponds to is tracked (`synced_commit`) and advances on push and on fully successful applies.
+- **Failed rebases and pushes were only logged.** A failed `git pull --rebase` is aborted and returned instead of being ignored; a missing remote branch is told apart from a network or authentication error; write-back failures appear on the GitOps page (`last_commit`) and as a `gitops.commit_failed` notification.
+- **Authenticated Git never worked from the daemon.** `RunInDirWithEnv` replaced the whole environment with the credential variables, so git ran without `PATH` and `HOME`: the token askpass helper could not run `cat` and `GIT_SSH_COMMAND` could not find `ssh`. The credentials now extend the environment.
+- **The drift detector never fetched.** It compared against whatever the local clone held. It now fetches and fast-forwards the clone every 5 minutes on every node; local snapshot commits that diverged are reset to the remote (they are regenerated from live state). A second, duplicate drift detector started in `main` is removed.
+- **HA: both nodes acted as GitOps writers.** Only the active node with quorum (not in subordinate mode, not fencing) commits UI changes, evaluates drift and applies; elsewhere apply answers 409 with the reason. The standby still fetches so it starts from the latest `state.yaml` after a failover. The pool ownership guard uses the same check (quorum alone is true on both nodes of a healthy pair).
+- **HA: secrets were unreadable after a failover.** Each node had its own `secrets.key` while both share one database. New `services.dplaneos.secrets.keyFile` / `fallbackKeyFile` (`-secrets-key`, `-secrets-key-fallback`): every sealed value is checked at startup, values only the fallback key opens are re-sealed under the active key, and undecryptable values are reported (`GET /api/system/secrets/status`, log). Key rotation is refused while HA is enabled. Rotation now preserves unknown fields in the SMTP settings.
+- **Plain-text secrets in `state.yaml`.** `ldap.bind_password` is rejected (apply stored it unencrypted in a column read as encrypted, breaking LDAP binds); `password_hash` must be a bcrypt hash.
+- **GitOps page status card always showed "Synchronized"**: it read fields the API does not return. It now shows drift, check time, the synced commit, drift-check errors and failed write-backs.
+
+### Documentation
+
+- GITOPS-DRIVEN-NAS.md: "Auto-Apply on Push" (polling, webhook) was documented but never implemented; marked as planned (Design 0001, Phase 5). Web UI write-back behaviour, HA writer rules and secrets rules documented; example hashes made valid.
+- HIGH-AVAILABILITY.md: GitOps writer rules and a shared-secrets-key procedure for new and existing pairs.
+
 ## v14.8.0 (2026-10-05) - "Live Boot Release"
 
 Live boot support enables running D-PlaneOS directly from USB without installation. Full daemon and UI run in RAM, existing ZFS pools are auto-discovered and imported, and persistence is optional via USB drive.

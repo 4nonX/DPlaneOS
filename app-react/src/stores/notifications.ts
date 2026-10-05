@@ -77,6 +77,15 @@ export function initNotificationSubscribers() {
     })
   })
 
+  ws.on('gitopsCommitFailed', (data: unknown) => {
+    const d = data as { error?: string }
+    notify({
+      type: 'warning',
+      title: 'GitOps: change not committed',
+      message: d.error ?? 'A web UI change could not be written back to the Git repository'
+    })
+  })
+
   ws.on('gitopsDrift', (data: unknown) => {
     const d = data as { repo_url?: string }
     notify({

@@ -2,6 +2,7 @@ package gitops
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -18,7 +19,7 @@ const stateFileName = "state.yaml"
 // Use this for UI handlers where we don't want to block the response.
 func CommitAllAsync(db *sql.DB) {
 	go func() {
-		if err := CommitAll(db); err != nil {
+		if err := CommitAll(db); err != nil && !errors.Is(err, ErrNotWriter) {
 			log.Printf("GITOPS: background commit failed: %v", err)
 		}
 	}()
@@ -27,7 +28,15 @@ func CommitAllAsync(db *sql.DB) {
 // CommitAll reads the current live state and writes it back to the Git repo,
 // then performs a git commit and push.
 // This is the post-write hook for all UI-driven infrastructure changes.
-func CommitAll(db *sql.DB) error {
+func CommitAll(db *sql.DB) (err error) {
+	defer func() { recordCommitResult(err) }()
+
+	// Only the GitOps writer commits: an HA standby's live state is not the
+	// cluster's state (no pools imported) and would be pushed as a deletion.
+	if ok, reason := IsWriter(); !ok {
+		return fmt.Errorf("%w: %s", ErrNotWriter, reason)
+	}
+
 	stateMu.Lock()
 	defer stateMu.Unlock()
 
@@ -35,7 +44,7 @@ func CommitAll(db *sql.DB) error {
 	var enabled int
 	var repoID sql.NullInt64
 	var storage, access, app, identity, protection, system int
-	err := db.QueryRow(`SELECT enabled, repo_id, sync_storage, sync_access, sync_app, 
+	err = db.QueryRow(`SELECT enabled, repo_id, sync_storage, sync_access, sync_app, 
 		sync_identity, sync_protection, sync_system FROM gitops_config WHERE id = 1`).Scan(
 		&enabled, &repoID, &storage, &access, &app, &identity, &protection, &system)
 
@@ -95,8 +104,12 @@ func CommitAll(db *sql.DB) error {
 
 		if err := EnsureRepoRootDir(repoDir, repoURL.String, branch.String, env); err != nil {
 			log.Printf("GITOPS COMMIT: failed to ensure repo root %s: %v", repoDir, err)
-			return saveStateLocally(repoDir, yamlContent)
+			if serr := saveStateLocally(repoDir, yamlContent); serr != nil {
+				return serr
+			}
+			return fmt.Errorf("repository unavailable, state saved locally only: %w", err)
 		}
+		return commitSnapshot(dbSynced{db}, repoDir, env, yamlContent, branchOrMain(branch.String), commitName.String, commitEmail.String)
 	} else {
 		// No repo configured, fallback to local save if .git is missing
 		if _, err := os.Stat(filepath.Join(repoDir, ".git")); err != nil {
@@ -462,3 +475,74 @@ func saveStateLocally(dir, content string) error {
 }
 
 // buildPushEnv, cleanupAskpass and gitCommitAndPush have been moved to git_util.go
+
+func branchOrMain(b string) string {
+	if b == "" {
+		return "main"
+	}
+	return b
+}
+
+// commitSnapshot writes the live-state snapshot to a remote-backed clone and
+// pushes it, without ever overwriting remote commits that are not applied yet.
+// The caller holds stateMu.
+func commitSnapshot(store syncedStore, dir string, env []string, yamlContent, branch, name, email string) error {
+	remote, err := syncClone(dir, env, branch)
+	if err != nil {
+		return fmt.Errorf("sync with remote: %w", err)
+	}
+
+	head, err := gitOut(dir, nil, "rev-parse", "HEAD")
+	if err != nil {
+		return err
+	}
+	synced := store.get()
+	if synced == "" {
+		// First write-back since tracking began: the clone as it is now is what
+		// the live system was built from (the assumption made before tracking).
+		synced = head
+		if err := store.set(synced); err != nil {
+			return fmt.Errorf("record synced commit: %w", err)
+		}
+	}
+	if remote != "" && remote != synced && !isAncestor(dir, remote, synced) {
+		return fmt.Errorf("%w (remote is at %.12s, this system at %.12s): apply or review them on the GitOps page; "+
+			"the change made here stays live and is committed with the next write-back", ErrUnappliedRemote, remote, synced)
+	}
+
+	if err := os.WriteFile(filepath.Join(dir, stateFileName), []byte(yamlContent), 0644); err != nil {
+		return fmt.Errorf("writing state.yaml: %w", err)
+	}
+	if _, err := gitOut(dir, nil, "add", "-A"); err != nil {
+		return err
+	}
+	status, err := gitOut(dir, nil, "status", "--porcelain")
+	if err != nil {
+		return err
+	}
+	if status != "" {
+		if name == "" {
+			name = "DPlaneOS"
+		}
+		if email == "" {
+			email = "dplaneos@localhost"
+		}
+		if _, err := gitOut(dir, nil, "-c", "user.name="+name, "-c", "user.email="+email,
+			"commit", "-m", "feat: infrastructure state update via DPlaneOS"); err != nil {
+			return err
+		}
+	}
+
+	newHead, err := gitOut(dir, nil, "rev-parse", "HEAD")
+	if err != nil {
+		return err
+	}
+	if newHead != remote {
+		// No rebase: the clone is at or ahead of the remote. A rejected push means
+		// someone pushed in the meantime; the next write-back sees their commit.
+		if _, err := gitOut(dir, envOrEmpty(env), "push", "origin", "HEAD:refs/heads/"+branch); err != nil {
+			return fmt.Errorf("push: %w", err)
+		}
+	}
+	return store.set(newHead)
+}

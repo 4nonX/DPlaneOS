@@ -16,7 +16,50 @@ var (
 	mu  sync.RWMutex
 	gcm cipher.AEAD
 	ok  bool
+
+	// fallbackGCM opens values sealed under a previous or peer key (an HA pair
+	// that is being moved to one shared key). Seal always uses the active key.
+	fallbackGCM cipher.AEAD
 )
+
+// InitFallback loads an additional key that Open accepts but Seal never uses.
+// The file must exist and hold 32 bytes.
+func InitFallback(keyPath string) error {
+	data, err := os.ReadFile(keyPath)
+	if err != nil {
+		return fmt.Errorf("reading fallback secrets key: %w", err)
+	}
+	if len(data) != 32 {
+		return fmt.Errorf("fallback secrets key at %s has wrong length %d (want 32)", keyPath, len(data))
+	}
+	g, err := newGCM(data)
+	if err != nil {
+		return err
+	}
+	mu.Lock()
+	fallbackGCM = g
+	mu.Unlock()
+	return nil
+}
+
+// HasFallback reports whether a fallback key is loaded.
+func HasFallback() bool {
+	mu.RLock()
+	defer mu.RUnlock()
+	return fallbackGCM != nil
+}
+
+func newGCM(key []byte) (cipher.AEAD, error) {
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return nil, fmt.Errorf("creating AES cipher: %w", err)
+	}
+	g, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, fmt.Errorf("creating GCM: %w", err)
+	}
+	return g, nil
+}
 
 // Init loads the 32-byte AES-256 key from keyPath, creating it if absent.
 // Must be called once at daemon startup before any Seal or Open call.
@@ -142,23 +185,51 @@ func PrepareRotation(keyPath string) (
 // Open decrypts a value produced by Seal.
 // Empty input returns empty string.
 func Open(ciphertext string) (string, error) {
+	plain, err := OpenActive(ciphertext)
+	if err == nil || !HasFallback() {
+		return plain, err
+	}
+	if p, ferr := OpenFallback(ciphertext); ferr == nil {
+		return p, nil
+	}
+	return "", err
+}
+
+// OpenActive decrypts with the active key only.
+func OpenActive(ciphertext string) (string, error) {
 	if ciphertext == "" {
 		return "", nil
 	}
 	mu.RLock()
-	defer mu.RUnlock()
-	if !ok {
+	g, initialized := gcm, ok
+	mu.RUnlock()
+	if !initialized {
 		return "", fmt.Errorf("secrets.Init not called")
 	}
+	return openWith(g, ciphertext)
+}
+
+// OpenFallback decrypts with the fallback key only.
+func OpenFallback(ciphertext string) (string, error) {
+	mu.RLock()
+	g := fallbackGCM
+	mu.RUnlock()
+	if g == nil {
+		return "", fmt.Errorf("no fallback secrets key loaded")
+	}
+	return openWith(g, ciphertext)
+}
+
+func openWith(g cipher.AEAD, ciphertext string) (string, error) {
 	data, err := base64.StdEncoding.DecodeString(ciphertext)
 	if err != nil {
 		return "", fmt.Errorf("decoding ciphertext: %w", err)
 	}
-	ns := gcm.NonceSize()
+	ns := g.NonceSize()
 	if len(data) < ns {
 		return "", fmt.Errorf("ciphertext too short")
 	}
-	plaintext, err := gcm.Open(nil, data[:ns], data[ns:], nil)
+	plaintext, err := g.Open(nil, data[:ns], data[ns:], nil)
 	if err != nil {
 		return "", fmt.Errorf("decrypting: %w", err)
 	}
