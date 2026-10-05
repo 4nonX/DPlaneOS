@@ -95,6 +95,10 @@ check "xattr=sa" test "$(zfs get -H -o value xattr smoke/share)" = sa
 expect 400 POST /api/zfs/datasets '{"name":"smoke/bad","casesensitivity":"maybe"}'
 expect 400 POST /api/zfs/datasets '{"name":"smoke/bad","acltype":"nfsv4"}'
 
+# The daemon's mounts must be visible on the host (Samba, NFS, users), not
+# only inside the daemon's service namespace.
+check "smoke/share mounted on the host" mountpoint -q /smoke/share
+
 # ── Snapshots and rollback safety levels ───────────────────────────────────
 echo one > /smoke/share/file.txt
 expect 200 POST /api/zfs/snapshots '{"dataset":"smoke/share","name":"s1"}'

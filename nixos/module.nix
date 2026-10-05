@@ -145,8 +145,7 @@ in {
         description = ''
           Base directory under which rclone FUSE mounts are created by the daemon.
           The daemon creates per-remote subdirectories here (e.g. /mnt/cold/s3-backup).
-          This path is created at boot and added to dplaned ReadWritePaths so FUSE
-          mounts survive under ProtectSystem=strict.
+          This path is created at boot.
         '';
       };
     };
@@ -395,35 +394,12 @@ in {
 
         # Security hardening (matches systemd/dplaned.service)
         NoNewPrivileges       = true;
-        PrivateTmp            = true;
-        ProtectSystem         = "strict";
-        ProtectHome           = true;
-        ReadWritePaths        = [
-          # Daemon state - bind-mounted from /persist/dplaneos by impermanence.nix.
-          # All writes here physically land on the persist partition.
-          "/var/log/dplaneos"
-          "/var/lib/dplaneos"   # PostgreSQL state, Patroni config, gitops/
-          # OS config files the daemon manages (NixOS owns /etc; daemon owns subtrees)
-          "/opt/dplaneos"
-          "/etc/dplaneos"
-          "/run/dplaneos"
-          "/etc/crontab"
-          "/etc/cron.d"
-          "/etc/exports"
-          "/etc/systemd/system"
-          # Runtime units for snapshot/scrub/rsync/SMART timers on NixOS, where
-          # /etc/systemd/system is a read-only store link (internal/systemd).
-          "/run/systemd/system"
-          # networkdwriter: DPlaneOS writes 50-dplane-*.{network,netdev} here
-          # These files survive nixos-rebuild - NixOS only manages its own prefixed files
-          "/etc/systemd/network"
-          "/etc/systemd/resolved.conf.d"
-          "/sys/kernel/config"
-          # /etc/samba - removed: NixOS now owns smb.conf via modules/samba.nix
-          # Daemon writes to /var/lib/dplaneos/smb-shares.conf instead
-          # Cold Tier: rclone FUSE mount root (per-remote subdirs created at runtime)
-          cfg.coldTier.rootPath
-        ];
+        # No mount namespace (ProtectSystem/ProtectHome/PrivateTmp/ReadWritePaths):
+        # the daemon creates and mounts ZFS datasets, imports pools and mounts
+        # cold-tier FUSE remotes. In a private namespace those mounts stay
+        # invisible to Samba, NFS and the host (systemd makes the namespace a
+        # slave), and mountpoints outside ReadWritePaths cannot be created.
+        # It runs as root with CAP_SYS_ADMIN, so the namespace protected little.
         CapabilityBoundingSet = [
           "CAP_SYS_ADMIN"
           "CAP_NET_ADMIN"

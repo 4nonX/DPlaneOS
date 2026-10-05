@@ -152,11 +152,9 @@
   # See live-persistence.nix for details on /persist mount
 
   # ── Create required directories and files for sandboxed services ─────────
-  # The daemon uses ProtectSystem=strict with ReadWritePaths that require
-  # all listed directories/files to exist. In ephemeral live boot with tmpfs
-  # root, these aren't created automatically. Build them during activation.
+  # Directories and files the daemon writes to. In ephemeral live boot with a
+  # tmpfs root they are not created automatically. Build them during activation.
   system.activationScripts.ensureEtcDirs = ''
-    # Create all ReadWritePaths directories from module.nix
     mkdir -p /var/log/dplaneos
     mkdir -p /var/lib/dplaneos
     mkdir -p /opt/dplaneos
@@ -177,8 +175,6 @@
     after = [ "dplane-zfs-auto-import.service" ];
     serviceConfig = {
       # Relax security hardening in ephemeral live environment
-      ProtectSystem = lib.mkForce "off";
-      ProtectHome = lib.mkForce false;
       NoNewPrivileges = lib.mkForce false;
     };
   };
