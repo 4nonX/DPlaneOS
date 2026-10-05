@@ -567,8 +567,9 @@ func (h *AuditRotationHandler) RotateAuditLogs(w http.ResponseWriter, r *http.Re
 	h.db.QueryRow("SELECT COUNT(*) FROM audit_logs").Scan(&countBefore)
 
 	// Delete old entries
-	cutoff := time.Now().AddDate(0, 0, -req.KeepDays).Format("2006-01-02 15:04:05")
-	_, rotErr := h.db.Exec("DELETE FROM audit_logs WHERE timestamp < $1", cutoff)
+	cutoffTime := time.Now().AddDate(0, 0, -req.KeepDays)
+	cutoff := cutoffTime.Format("2006-01-02 15:04:05")
+	_, rotErr := h.db.Exec("DELETE FROM audit_logs WHERE timestamp < $1", cutoffTime.Unix()) // Unix seconds (BIGINT)
 
 	if rotErr != nil {
 		respondOK(w, map[string]any{

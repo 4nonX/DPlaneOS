@@ -140,7 +140,7 @@ func seedDefaults(db *sql.DB) error {
 		}
 
 		if _, err := db.Exec(
-			"INSERT INTO users (username, display_name, email, password_hash, active) VALUES ('admin', 'Administrator', 'admin@localhost', $1, 1)",
+			"INSERT INTO users (username, display_name, email, password_hash, role, active) VALUES ('admin', 'Administrator', 'admin@localhost', $1, 'admin', 1)",
 			passwordHash,
 		); err != nil {
 			return fmt.Errorf("admin user seed: %w", err)

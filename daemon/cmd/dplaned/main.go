@@ -1845,10 +1845,11 @@ func runRotation(db *sql.DB) {
 		}
 	}
 
-	cutoff := time.Now().AddDate(0, 0, -retentionDays).Format("2006-01-02 15:04:05")
-	log.Printf("MAINTENANCE: Running audit log rotation (cutoff: %s, retention: %d days)", cutoff, retentionDays)
+	cutoff := time.Now().AddDate(0, 0, -retentionDays)
+	log.Printf("MAINTENANCE: Running audit log rotation (cutoff: %s, retention: %d days)", cutoff.Format("2006-01-02 15:04:05"), retentionDays)
 
-	if _, err := db.Exec("DELETE FROM audit_logs WHERE timestamp < $1", cutoff); err != nil {
+	// audit_logs.timestamp is Unix seconds (BIGINT).
+	if _, err := db.Exec("DELETE FROM audit_logs WHERE timestamp < $1", cutoff.Unix()); err != nil {
 		log.Printf("ERROR: Automatic audit rotation failed: %v", err)
 		return
 	}

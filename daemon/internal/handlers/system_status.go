@@ -577,9 +577,11 @@ func (h *SystemStatusHandler) HandleSetupAdmin(w http.ResponseWriter, r *http.Re
 	storedKeyB64 := scram.EncodeBase64(scramKeys.StoredKey)
 	serverKeyB64 := scram.EncodeBase64(scramKeys.ServerKey)
 
-	// First, check if there's any user with an admin role (Finding 26)
+	// First, check if there's any admin (Finding 26). The startup seed creates
+	// 'admin' and older seeds left its role column at the 'user' default
+	// (admin rights come from user_roles), so match it by name as well.
 	var adminCount int
-	if err := tx.QueryRow(`SELECT COUNT(*) FROM users WHERE role = 'admin'`).Scan(&adminCount); err != nil {
+	if err := tx.QueryRow(`SELECT COUNT(*) FROM users WHERE role = 'admin' OR username = 'admin'`).Scan(&adminCount); err != nil {
 		respondJSON(w, http.StatusInternalServerError, map[string]any{"success": false, "error": "Internal error"})
 		return
 	}
@@ -587,7 +589,7 @@ func (h *SystemStatusHandler) HandleSetupAdmin(w http.ResponseWriter, r *http.Re
 	if adminCount > 0 {
 		// Admin already exists, update the specific seeded 'admin' account or return error
 		result, err := tx.Exec(
-			`UPDATE users SET password_hash = $1, username = $2, must_change_password = 0,
+			`UPDATE users SET password_hash = $1, username = $2, must_change_password = 0, role = 'admin',
 			 scram_salt = $3, scram_iterations = $4, scram_stored_key = $5, scram_server_key = $6
 			 WHERE username = 'admin'`,
 			string(hash), req.Username, saltB64, scramKeys.Iterations, storedKeyB64, serverKeyB64,
@@ -609,9 +611,19 @@ func (h *SystemStatusHandler) HandleSetupAdmin(w http.ResponseWriter, r *http.Re
 			req.Username, string(hash), saltB64, scramKeys.Iterations, storedKeyB64, serverKeyB64,
 		)
 		if err != nil {
+			log.Printf("SETUP: create admin: %v", err)
 			respondJSON(w, http.StatusInternalServerError, map[string]any{"success": false, "error": "Creation failed"})
 			return
 		}
+	}
+
+	// Grant the RBAC admin role (permissions are checked through user_roles).
+	if _, err := tx.Exec(`INSERT INTO user_roles (user_id, role_id, granted_by)
+		SELECT u.id, r.id, 'setup' FROM users u, roles r WHERE u.username = $1 AND r.name = 'admin'
+		ON CONFLICT DO NOTHING`, req.Username); err != nil {
+		log.Printf("SETUP: grant admin role: %v", err)
+		respondJSON(w, http.StatusInternalServerError, map[string]any{"success": false, "error": "Failed to grant admin role"})
+		return
 	}
 
 	if err := tx.Commit(); err != nil {

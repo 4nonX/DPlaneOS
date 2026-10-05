@@ -168,7 +168,7 @@ func (bl *BufferedLogger) writeDirect(events []AuditEvent) error {
 
 	for _, e := range events {
 		rowHash := computeRowHash(bl.hmacKey, prevHash, e)
-		if _, err := stmt.Exec(e.Timestamp, e.Actor, e.Action, e.Resource, e.Details, e.IPAddress, e.Success, prevHash, rowHash); err != nil {
+		if _, err := stmt.Exec(e.Timestamp, e.Actor, e.Action, e.Resource, e.Details, e.IPAddress, boolInt(e.Success), prevHash, rowHash); err != nil {
 			return fmt.Errorf("audit direct write: exec: %w", err)
 		}
 		prevHash = rowHash
@@ -220,7 +220,7 @@ func (bl *BufferedLogger) Flush() error {
 		rowHash := computeRowHash(bl.hmacKey, prevHash, event)
 		if _, err := stmt.Exec(
 			event.Timestamp, event.Actor, event.Action, event.Resource,
-			event.Details, event.IPAddress, event.Success, prevHash, rowHash,
+			event.Details, event.IPAddress, boolInt(event.Success), prevHash, rowHash,
 		); err != nil {
 			// Abort the whole batch. The defer rolls back the transaction, so
 			// prevHash is never committed and the chain stays intact. The events
@@ -274,3 +274,13 @@ func (bl *BufferedLogger) GetStats() map[string]any {
 //         Success:   true,
 //     })
 // }
+
+// boolInt maps Success onto audit_logs.success (INTEGER 0/1); pgx does not
+// encode a Go bool into int4. The row hash still uses the bool (see chain.go),
+// and verification converts the stored integer back.
+func boolInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
+}
