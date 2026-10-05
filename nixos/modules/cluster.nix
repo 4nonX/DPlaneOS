@@ -59,8 +59,12 @@ in {
       wantedBy    = [ "multi-user.target" ];
       path        = tools;
       unitConfig.ConditionPathExists = "${state}/corosync.conf";
+      # Type=notify (corosync is built with systemd support): "started" means
+      # ready for clients, so units ordered after it (qdevice) can connect.
+      # With Type=simple, corosync-qdevice raced it and failed with
+      # "Failed to initialize the cmap API" (VM test).
       serviceConfig = {
-        Type           = "simple";
+        Type           = "notify";
         ExecStart      = run "corosync -f";
         Restart        = "on-failure";
         RestartSec     = "2s";
@@ -73,12 +77,14 @@ in {
       requires    = [ "dplaneos-corosync.service" ];
       after       = [ "dplaneos-corosync.service" ];
       wantedBy    = [ "multi-user.target" ];
+      # Keep retrying after corosync restarts (e.g. when the third vote is added).
+      startLimitIntervalSec = 0;
       path        = tools;
       unitConfig.ConditionPathExists = "${state}/qdevice-enabled";
       serviceConfig = {
-        Type              = "simple";
+        Type              = "notify";
         ExecStart         = run "corosync-qdevice -f";
-        Restart           = "on-failure";
+        Restart           = "always";
         RestartSec        = "2s";
         RuntimeDirectory  = "corosync-qdevice";
       };
@@ -92,7 +98,7 @@ in {
       path        = tools;
       unitConfig.ConditionPathExists = "${state}/qnetd-enabled";
       serviceConfig = {
-        Type                 = "simple";
+        Type                 = "notify";
         ExecStart            = run "corosync-qnetd -f";
         Restart              = "on-failure";
         RestartSec           = "2s";
