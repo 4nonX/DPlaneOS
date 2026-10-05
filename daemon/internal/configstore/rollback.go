@@ -57,6 +57,17 @@ func Rollback(db *sql.DB, ctx gitops.ApplyContext, revID int64, author string) (
 	if err != nil {
 		return nil, err
 	}
+	// The engine cross-checks shares and NFS exports against the declared
+	// datasets' mountpoints, so declare the live datasets as context. They
+	// match the live system (no plan items), and the plan is filtered to the
+	// target below. A dataset target keeps its recorded version.
+	for _, d := range liveToDesired(live).Datasets {
+		if rev.Kind == KindDataset && d.Name == rev.Key {
+			continue
+		}
+		desired.Datasets = append(desired.Datasets, d)
+	}
+
 	// A rollback to "deleted" needs the engine to compute a DELETE for this
 	// resource: describe it as absent from a complete state, then keep only its
 	// plan item below.
