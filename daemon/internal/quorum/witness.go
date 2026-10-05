@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/tls"
 	_ "embed"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
@@ -23,16 +24,30 @@ var WitnessScript string
 // HdrCode carries the one-time enrollment code.
 const HdrCode = "X-DPlane-Quorum-Code"
 
-// The enrollment protocol is plain text so the shell script needs only curl:
+// The enrollment protocol is plain text so the shell script needs only curl
+// and base64. NSS writes the certificate request and the signed certificate
+// in binary (DER), so both travel base64-encoded:
 //
 //	POST /api/quorum/enroll/ca                body: qnetd CA (PEM)
-//	  → "cluster: <name>\n" + certificate request (PEM)
-//	POST /api/quorum/enroll/cert?address=<ip> body: signed certificate (PEM)
+//	  → "cluster: <name>\n" + base64(certificate request)
+//	POST /api/quorum/enroll/cert?address=<ip> body: base64(signed certificate)
 //	  → "ok <name>\n"
 
 // FormatCAResponse renders the answer to step 1.
 func FormatCAResponse(cluster string, csr []byte) string {
-	return "cluster: " + cluster + "\n" + string(csr)
+	return "cluster: " + cluster + "\n" + base64.StdEncoding.EncodeToString(csr) + "\n"
+}
+
+// DecodeBase64 decodes base64 text with line breaks (as written by base64(1)).
+func DecodeBase64(text []byte) ([]byte, error) {
+	b, err := base64.StdEncoding.DecodeString(strings.Join(strings.Fields(string(text)), ""))
+	if err != nil {
+		return nil, fmt.Errorf("invalid base64: %w", err)
+	}
+	if len(b) == 0 {
+		return nil, errors.New("empty file")
+	}
+	return b, nil
 }
 
 func enrollPost(client *http.Client, nodeURL, path, code string, body []byte) ([]byte, error) {
@@ -104,11 +119,16 @@ func JoinCluster(nodeURL, code string, sign func(cluster string, csr []byte) ([]
 	if cluster == first || !nameRe.MatchString(cluster) {
 		return "", errors.New("unexpected answer from the node")
 	}
-	cert, err := sign(cluster, []byte(rest))
+	csr, err := DecodeBase64([]byte(rest))
+	if err != nil {
+		return "", fmt.Errorf("certificate request from the node: %w", err)
+	}
+	cert, err := sign(cluster, csr)
 	if err != nil {
 		return "", err
 	}
-	if _, err := enrollPost(client, nodeURL, "/api/quorum/enroll/cert?address="+url.QueryEscape(addr), code, cert); err != nil {
+	body := []byte(base64.StdEncoding.EncodeToString(cert))
+	if _, err := enrollPost(client, nodeURL, "/api/quorum/enroll/cert?address="+url.QueryEscape(addr), code, body); err != nil {
 		return "", err
 	}
 	return cluster, nil

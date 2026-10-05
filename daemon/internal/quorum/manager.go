@@ -270,14 +270,29 @@ func nodeInitCA(caPEM []byte) error {
 	if err := certutil("qdevice_certutil", "-i", "-c", ca); err != nil {
 		return fmt.Errorf("initialising the certificate store: %w", err)
 	}
+	if _, err := os.Stat(filepath.Join(nodeDB(), "cert9.db")); err != nil {
+		return errors.New("the certificate store was not created")
+	}
 	return nil
 }
 
+// The upstream certutil scripts do not stop when a tool fails, so their exit
+// status says little: every step checks the file it should have produced.
+func produced(path, what string) ([]byte, error) {
+	b, err := os.ReadFile(path)
+	if err != nil || len(b) == 0 {
+		return nil, fmt.Errorf("%s was not created (%s)", what, filepath.Base(path))
+	}
+	return b, nil
+}
+
 func nodeCSR(cluster string) ([]byte, error) {
+	f := filepath.Join(nodeDB(), "qdevice-net-node.crq")
+	_ = os.Remove(f)
 	if err := certutil("qdevice_certutil", "-r", "-n", cluster); err != nil {
 		return nil, fmt.Errorf("creating the certificate request: %w", err)
 	}
-	return os.ReadFile(filepath.Join(nodeDB(), "qdevice-net-node.crq"))
+	return produced(f, "the certificate request")
 }
 
 func nodeImportSigned(cluster string, cert []byte) ([]byte, error) {
@@ -285,10 +300,12 @@ func nodeImportSigned(cluster string, cert []byte) ([]byte, error) {
 	if err := writeAtomic(f, cert, 0o600); err != nil {
 		return nil, err
 	}
+	p12 := filepath.Join(nodeDB(), "qdevice-net-node.p12")
+	_ = os.Remove(p12)
 	if err := certutil("qdevice_certutil", "-M", "-c", f); err != nil {
 		return nil, fmt.Errorf("importing the signed certificate: %w", err)
 	}
-	return os.ReadFile(filepath.Join(nodeDB(), "qdevice-net-node.p12"))
+	return produced(p12, "the cluster certificate bundle (the signed certificate was not accepted)")
 }
 
 func nodeImportP12(caPEM, p12 []byte) error {
@@ -301,6 +318,10 @@ func nodeImportP12(caPEM, p12 []byte) error {
 	}
 	if err := certutil("qdevice_certutil", "-m", "-c", f); err != nil {
 		return fmt.Errorf("importing the cluster certificate: %w", err)
+	}
+	// The import adds a key; without it the node cannot authenticate.
+	if _, err := produced(filepath.Join(nodeDB(), "key4.db"), "the cluster key"); err != nil {
+		return err
 	}
 	return nil
 }
@@ -584,10 +605,12 @@ func WitnessSign(db *sql.DB, cluster, nodeURL string, csr []byte) ([]byte, error
 	if err := writeAtomic(f, csr, 0o600); err != nil {
 		return nil, err
 	}
+	crt := filepath.Join(qnetdDB(), "cluster-"+cluster+".crt")
+	_ = os.Remove(crt)
 	if err := certutil("qnetd_certutil", "-s", "-c", f, "-n", cluster); err != nil {
 		return nil, fmt.Errorf("signing the certificate request: %w", err)
 	}
-	cert, err := os.ReadFile(filepath.Join(qnetdDB(), "cluster-"+cluster+".crt"))
+	cert, err := produced(crt, "the signed certificate")
 	if err != nil {
 		return nil, err
 	}

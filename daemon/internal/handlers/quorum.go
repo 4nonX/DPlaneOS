@@ -231,7 +231,12 @@ func (h *QuorumHandler) EnrollCA(w http.ResponseWriter, r *http.Request) {
 
 // EnrollCert: POST /api/quorum/enroll/cert?address= (code header, body: certificate PEM)
 func (h *QuorumHandler) EnrollCert(w http.ResponseWriter, r *http.Request) {
-	body, _ := io.ReadAll(io.LimitReader(r.Body, 64<<10))
+	raw, _ := io.ReadAll(io.LimitReader(r.Body, 64<<10))
+	body, err := quorum.DecodeBase64(raw)
+	if err != nil {
+		textError(w, "signed certificate: "+err.Error(), http.StatusBadRequest)
+		return
+	}
 	self, _ := h.self()
 	cfg, err := quorum.EnrollCert(h.db, r.Header.Get(quorum.HdrCode), body, r.URL.Query().Get("address"), self, h.push)
 	h.mon.Refresh()

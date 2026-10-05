@@ -169,3 +169,25 @@ func TestParseQuorumtool(t *testing.T) {
 		t.Error("not running expected")
 	}
 }
+
+// Certificate requests and certificates from NSS are binary (DER).
+func TestEnrollmentEncodingIsBinarySafe(t *testing.T) {
+	der := []byte{0x30, 0x82, 0x01, 0x0a, 0x00, 0xff, '\n', 'B', 'E', 'G', 'I', 'N'}
+	resp := FormatCAResponse("dplane-abc123", der)
+	first, rest, _ := strings.Cut(resp, "\n")
+	if first != "cluster: dplane-abc123" {
+		t.Fatalf("first line %q", first)
+	}
+	got, err := DecodeBase64([]byte(rest))
+	if err != nil || string(got) != string(der) {
+		t.Fatalf("round trip: %v %x", err, got)
+	}
+	// base64(1) wraps lines at 76 characters.
+	wrapped := "MIIBCgD/\nCkJFR0lO\n"
+	if b, err := DecodeBase64([]byte(wrapped)); err != nil || len(b) != 12 {
+		t.Fatalf("wrapped: %v %x", err, b)
+	}
+	if _, err := DecodeBase64([]byte("\n")); err == nil {
+		t.Error("empty input must fail")
+	}
+}

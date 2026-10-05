@@ -80,11 +80,18 @@ say "Registering with $NODE (this machine: $ADDR)"
 post /api/quorum/enroll/ca "$DB/qnetd-cacert.crt" > "$TMP/step1"
 CLUSTER=$(sed -n 's/^cluster: //p' "$TMP/step1" | head -n1)
 [ -n "$CLUSTER" ] || die "unexpected answer from $NODE"
-sed -n '/BEGIN/,$p' "$TMP/step1" > "$TMP/node.crq"
+# The certificate request is binary (DER) and travels base64-encoded.
+sed -n '2,$p' "$TMP/step1" | base64 -d > "$TMP/node.crq" 2>/dev/null || die "invalid certificate request from $NODE"
+[ -s "$TMP/node.crq" ] || die "empty certificate request from $NODE"
 
 say "Signing the certificate of cluster $CLUSTER"
-corosync-qnetd-certutil -s -c "$TMP/node.crq" -n "$CLUSTER" >/dev/null
-post "/api/quorum/enroll/cert?address=$ADDR" "$DB/cluster-$CLUSTER.crt" >/dev/null
+CRT="$DB/cluster-$CLUSTER.crt"
+rm -f "$CRT"
+# corosync-qnetd-certutil does not stop when a tool fails: check its output.
+corosync-qnetd-certutil -s -c "$TMP/node.crq" -n "$CLUSTER" >"$TMP/sign.log" 2>&1 || true
+[ -s "$CRT" ] || die "signing failed: $(cat "$TMP/sign.log")"
+base64 "$CRT" > "$TMP/crt.b64"
+post "/api/quorum/enroll/cert?address=$ADDR" "$TMP/crt.b64" >/dev/null
 
 say "Done. This machine is now the third vote of cluster $CLUSTER."
 echo "    The cluster shows it under System > High Availability within a few seconds."
