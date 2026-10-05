@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/subtle"
 	"context"
 	cryptorand "crypto/rand"
 	"database/sql"
@@ -1681,11 +1682,9 @@ func sessionMiddleware(db *sql.DB, internalCronToken string) mux.MiddlewareFunc 
 				// HA peer endpoints - called by peer daemons that have no user session
 				p == "/api/ha/heartbeat" ||
 				p == "/api/ha/sync/status" ||
-				// Internal hooks - called by systemd timers on localhost.
-				// Mandatory check: must be localhost AND carry the per-boot random token.
-				((p == "/api/zfs/snapshots/cron-hook" || p == "/api/hardware/smart/cron-hook" || p == "/api/backup/rsync/cron-hook") &&
-					(strings.HasPrefix(r.RemoteAddr, "127.0.0.1") || strings.HasPrefix(r.RemoteAddr, "[::1]")) &&
-					r.Header.Get("X-Internal-Token") == internalCronToken) ||
+				// Internal hooks - called by systemd timers on this host.
+				// Mandatory check: local caller AND the per-boot random token.
+				isInternalCronHook(r, internalCronToken) ||
 				// Internal disk events - called by udev scripts on localhost
 				p == "/api/internal/disk-event" ||
 				// Prometheus metrics - scraped by external monitoring without session
@@ -2076,4 +2075,20 @@ func runPostPromotionStacksApply(db *sql.DB, stateYAMLPath, smbConfPath string) 
 		log.Printf("HA PROMOTION: stacks apply complete - %d items applied", len(result.Applied))
 		return
 	}
+}
+
+// isInternalCronHook reports whether r is a timer hook call: a cron-hook path,
+// a local caller and the per-boot token. Timers reach the daemon over its Unix
+// socket (curl --unix-socket), where RemoteAddr is "@" or empty, not a
+// loopback address; socket access is limited by its permissions (0660).
+func isInternalCronHook(r *http.Request, token string) bool {
+	switch r.URL.Path {
+	case "/api/zfs/snapshots/cron-hook", "/api/hardware/smart/cron-hook", "/api/backup/rsync/cron-hook":
+	default:
+		return false
+	}
+	local := r.RemoteAddr == "" || r.RemoteAddr == "@" ||
+		strings.HasPrefix(r.RemoteAddr, "127.0.0.1:") || strings.HasPrefix(r.RemoteAddr, "[::1]:")
+	got := r.Header.Get("X-Internal-Token")
+	return local && token != "" && subtle.ConstantTimeCompare([]byte(got), []byte(token)) == 1
 }
