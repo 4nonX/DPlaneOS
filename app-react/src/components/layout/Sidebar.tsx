@@ -198,7 +198,7 @@ export function Sidebar({ collapsed, onToggle, isMobile: isMobileProp, mobileMen
 
               {/* Collapsed group: show icon that navigates to first child */}
               {collapsed && (
-                <Tooltip content={group.label} position="right">
+                <Tooltip content={group.label} position="right" fill>
                   <button
                     onClick={() => navigate(group.children[0]?.route ?? '/')}
                     aria-label={group.label}
@@ -355,7 +355,7 @@ function LeafItem({ leaf, isActive, collapsed, indent = false, onClick }: LeafIt
   )
 
   return collapsed ? (
-    <Tooltip content={leaf.label} position="right">{btn}</Tooltip>
+    <Tooltip content={leaf.label} position="right" fill>{btn}</Tooltip>
   ) : btn
 }
 

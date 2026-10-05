@@ -312,7 +312,8 @@ in {
     # dbPath (under /var/lib/dplaneos, persisted by impermanence).
     services.postgresql = lib.mkIf cfg.database.createLocally {
       enable          = true;
-      dataDir         = lib.mkDefault cfg.dbPath;
+      # Above nixpkgs' mkDefault (/var/lib/postgresql/<ver>), below a plain user setting.
+      dataDir         = lib.mkOverride 900 cfg.dbPath;
       ensureDatabases = [ "dplaneos" ];
       ensureUsers     = [ {
         name = "dplaneos";

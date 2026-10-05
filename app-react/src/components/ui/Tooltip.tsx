@@ -9,9 +9,11 @@ interface TooltipProps {
   children: ReactNode
   position?: 'top' | 'bottom' | 'left' | 'right'
   delay?: number
+  /** Stretch the wrapper to the container width (collapsed sidebar items). */
+  fill?: boolean
 }
 
-export function Tooltip({ content, children, position = 'top', delay = 300 }: TooltipProps) {
+export function Tooltip({ content, children, position = 'top', delay = 300, fill = false }: TooltipProps) {
   const [visible, setVisible] = useState(false)
   const timeoutRef = useRef<number | undefined>(undefined)
   const showTimeoutRef = useRef<number | undefined>(undefined)
@@ -43,7 +45,7 @@ export function Tooltip({ content, children, position = 'top', delay = 300 }: To
 
   return (
     <span
-      className="tooltip-wrapper"
+      className={fill ? 'tooltip-wrapper tooltip-wrapper-fill' : 'tooltip-wrapper'}
       onMouseEnter={show}
       onMouseLeave={hide}
       onFocus={show}

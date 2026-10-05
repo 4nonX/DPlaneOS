@@ -105,8 +105,16 @@ func (c *Checker) DisableCheck(name string) {
 
 // Check performs all enabled health checks and returns aggregated status.
 func (c *Checker) Check(ctx context.Context) SystemHealth {
+	// Copy the enabled checks and release the lock before running them:
+	// storing the result below takes the write lock.
 	c.mu.RLock()
-	defer c.mu.RUnlock()
+	enabled := make(map[string]func(context.Context) SubsystemHealth, len(c.checks))
+	for name, check := range c.checks {
+		if c.enabledChecks[name] {
+			enabled[name] = check
+		}
+	}
+	c.mu.RUnlock()
 
 	health := SystemHealth{
 		Subsystems: make(map[string]SubsystemHealth),
@@ -116,13 +124,9 @@ func (c *Checker) Check(ctx context.Context) SystemHealth {
 
 	// Run all enabled checks in parallel
 	var wg sync.WaitGroup
-	resultsChan := make(chan SubsystemHealth, len(c.checks))
+	resultsChan := make(chan SubsystemHealth, len(enabled))
 
-	for name, check := range c.checks {
-		if !c.enabledChecks[name] {
-			continue
-		}
-
+	for name, check := range enabled {
 		wg.Add(1)
 		go func(name string, check func(context.Context) SubsystemHealth) {
 			defer wg.Done()
@@ -183,24 +187,28 @@ func (c *Checker) InitializeDefaultChecks() {
 	// Phase 2: Circuit breakers
 	c.RegisterCheck("external_services", c.checkCircuitBreakers)
 
-	// Hardware-aware checks
-	if c.hwProfile.BMCType != "none" {
+	// Hardware-aware checks. Without a profile, assume no optional hardware.
+	hw := c.hwProfile
+	if hw == nil {
+		hw = &hardware.Profile{BMCType: "none"}
+	}
+	if hw.BMCType != "none" {
 		c.RegisterCheck("bmc", c.checkBMC)
 	} else {
 		c.DisableCheck("bmc")
 	}
 
-	if c.hwProfile.Capabilities["ses_enclosure"] {
+	if hw.Capabilities["ses_enclosure"] {
 		c.RegisterCheck("enclosure", c.checkEnclosure)
 	} else {
 		c.RegisterCheck("storage_monitoring", c.checkStorageMonitoring) // Fallback to S.M.A.R.T
 	}
 
-	if c.hwProfile.BondingSupport {
+	if hw.BondingSupport {
 		c.RegisterCheck("bonding", c.checkBonding)
 	}
 
-	if c.hwProfile.VLANSupport {
+	if hw.VLANSupport {
 		c.RegisterCheck("vlan", c.checkVLAN)
 	}
 

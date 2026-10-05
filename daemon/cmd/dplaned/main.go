@@ -507,7 +507,14 @@ func main() {
 	// Hardening phases 1-5: resource watcher, feature flags, crash-recovery
 	// journal, health checks, structured event log, rollback manager. They
 	// monitor and log; a failure here must not stop the daemon.
-	phases, err := bootstrap.InitializeAllPhases(daemonCtx, db, filepath.Dir(*gitopsStatePath))
+	phases, err := func() (p *bootstrap.AllPhases, err error) {
+		defer func() {
+			if r := recover(); r != nil {
+				p, err = nil, fmt.Errorf("panic: %v", r)
+			}
+		}()
+		return bootstrap.InitializeAllPhases(daemonCtx, db, filepath.Dir(*gitopsStatePath))
+	}()
 	if err != nil {
 		log.Printf("WARNING: hardening phases not started: %v", err)
 	} else {

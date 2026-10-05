@@ -63,6 +63,8 @@ The live-boot VM test had failed since v14.7.0 with `dplaned.service` in state "
 - **Hardening phases** (resource watcher, health checks, crash-recovery journal, event log, rollback manager) now start with the daemon; their migrations (feature_flags, operation_journal, audit_events) are applied, and the Settings Features tab works.
 - **OTA**: the inactive slot is resolved by partition label to exactly one device.
 - **UI**: Expand Pool adds a data vdev; the Network page gets per-interface data (it was blank and its VLAN/bond tabs crashed); actions whose failures came back as 200 `{success:false}` now show the error.
+- **Web UI layout (regression since v14.6.0)**: `#root` was a CSS grid while the shell positions the sidebar and top bar as fixed elements, so `<main>` landed in the 260px sidebar column and its margin left it 0px wide: every page body rendered blank. Tooltip wrappers no longer take 100% width in flex rows (squeezed the top bar search and the sidebar user row).
+- **Health checker**: no longer panics without a hardware profile, and no longer deadlocks on its own lock on the first check cycle.
 - NFSv4 ACL endpoints answer 501 with an explanation (OpenZFS on Linux has POSIX ACLs only; nfs4-acl-tools is not in nixpkgs).
 
 ### Use Cases

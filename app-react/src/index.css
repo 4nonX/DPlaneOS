@@ -107,29 +107,12 @@
    Main layout responsive styles
    ============================================================ */
 
-/* Desktop layout container - use CSS Grid for layout */
-#root {
-  display: grid;
-  grid-template-columns: var(--sidebar-width) 1fr;
-  grid-template-rows: var(--topbar-height) 1fr;
-  height: 100vh;
-  overflow: hidden;
-}
-
-/* On tablet: sidebar can collapse */
-@media (max-width: 1024px) {
-  #root {
-    grid-template-columns: var(--sidebar-width-collapsed) 1fr;
-  }
-}
+/* Layout: the sidebar and top bar are position: fixed and <main> is offset
+   by margins (AppShell). #root must not be a grid: <main> would be placed in
+   the sidebar-width column and its margin-left would leave it 0px wide. */
 
 /* On mobile: sidebar hidden, hamburger menu in topbar */
 @media (max-width: 768px) {
-  #root {
-    grid-template-columns: 1fr;
-    grid-template-rows: var(--topbar-height) 1fr;
-  }
-
   /* Hide sidebar on mobile - controlled by JavaScript */
   #root > aside {
     display: none;
@@ -760,10 +743,12 @@ tr:hover .row-actions { opacity: 1 !important; }
 .tooltip-wrapper {
   position: relative;
   display: inline-flex;
-  width: 100%;
 }
-#root .sidebar .tooltip-wrapper {
+/* Collapsed sidebar: the icon button fills the column. Not the default, since
+   in a flex row a 100%-wide wrapper squeezes its siblings. */
+.tooltip-wrapper-fill {
   display: flex;
+  width: 100%;
 }
 
 .tooltip {

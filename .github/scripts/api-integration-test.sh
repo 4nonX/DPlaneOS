@@ -69,6 +69,11 @@ for i in {1..20}; do
   curl -s http://127.0.0.1:9000/health >/dev/null && break
   sleep 0.5
 done
+if ! curl -s http://127.0.0.1:9000/health >/dev/null; then
+  echo "::error::dplaned did not come up; daemon log follows"
+  cat /tmp/dplaned.log
+  exit 1
+fi
 
 echo "--- Seeding CI User ---"
 CI_PASS="CiAdmin1!Test"
