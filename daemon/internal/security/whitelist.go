@@ -383,14 +383,26 @@ var CommandWhitelist = map[string]Command{
 	"systemctl_ha_smbd": {
 		Name:        "systemctl_ha_smbd",
 		Path:        "systemctl",
-		AllowedArgs: []string{"reload-or-restart", "smbd"},
-		Description: "Reload or restart Samba smbd for HA failover",
+		AllowedArgs: []string{"reload-or-restart", "samba-smbd"},
+		Description: "Reload or restart Samba smbd for HA failover (NixOS unit samba-smbd)",
 	},
 	"systemctl_ha_nmbd": {
 		Name:        "systemctl_ha_nmbd",
 		Path:        "systemctl",
-		AllowedArgs: []string{"reload-or-restart", "nmbd"},
-		Description: "Reload or restart Samba nmbd for HA failover",
+		AllowedArgs: []string{"reload-or-restart", "samba-nmbd"},
+		Description: "Reload or restart Samba nmbd for HA failover (NixOS unit samba-nmbd)",
+	},
+	"systemctl_ha_ctdb_enabled": {
+		Name:        "systemctl_ha_ctdb_enabled",
+		Path:        "systemctl",
+		AllowedArgs: []string{"is-enabled", "ctdb"},
+		Description: "Check whether CTDB is set up (HA failover)",
+	},
+	"systemctl_ha_ctdb_start": {
+		Name:        "systemctl_ha_ctdb_start",
+		Path:        "systemctl",
+		AllowedArgs: []string{"start", "ctdb"},
+		Description: "Start CTDB on the promoted node (HA failover)",
 	},
 	"systemctl_ha_nfs": {
 		Name:        "systemctl_ha_nfs",

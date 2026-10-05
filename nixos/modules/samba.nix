@@ -337,8 +337,10 @@ in {
     systemd.services.dplaneos-smb-shares-stub = {
       description = "DPlaneOS Samba shares config stub";
       # Must run before smbd starts, after the persist directory is mounted
-      before  = [ "smbd.service" ];
-      wantedBy = [ "smbd.service" ];
+      # NixOS names the unit samba-smbd; ordering on "smbd.service" is
+      # silently ignored by systemd.
+      before  = [ "samba-smbd.service" ];
+      wantedBy = [ "samba-smbd.service" ];
       serviceConfig = {
         Type            = "oneshot";
         RemainAfterExit = true;

@@ -73,6 +73,10 @@ interface Cluster {
   subordinate_mode?:   boolean   // node is catching up stale data after zombie boot
   hysteresis_active?:  boolean   // flap-guard suppressing auto-failover
   last_failover_at?:   number    // unix timestamp; 0 = never
+  last_promotion?: {             // outcome of the last automatic promotion, step by step
+    failed: boolean; degraded: boolean; finished_at: string
+    steps: { name: string; ok: boolean; skipped?: boolean; detail?: string }[]
+  }
 }
 
 interface HAStatusResponse {
@@ -2404,6 +2408,20 @@ export function HAPage() {
       </div>
 
       <QuorumPanel />
+
+      {cluster.last_promotion && (cluster.last_promotion.failed || cluster.last_promotion.degraded) && (
+        <div role="alert" className="card" style={{ marginBottom: 20, border: '1px solid var(--error-border)', background: 'var(--error-bg)' }}>
+          <strong style={{ color: 'var(--error)' }}>
+            {cluster.last_promotion.failed
+              ? 'The last automatic promotion failed: this node does not serve the data.'
+              : 'The last automatic promotion is incomplete: the pools are imported, but some steps failed.'}
+          </strong>
+          <ul style={{ fontSize: 'var(--text-sm)', margin: '8px 0 0' }}>
+            {cluster.last_promotion.steps.filter(s => !s.ok && !s.skipped).map(s => <li key={s.name}><strong>{s.name}</strong>: {s.detail}</li>)}
+          </ul>
+          <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', marginTop: 6 }}>{new Date(cluster.last_promotion.finished_at).toLocaleString()}</div>
+        </div>
+      )}
 
       {/* ── Stat Cards ──────────────────────────────────────────────────────── */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 20 }}>

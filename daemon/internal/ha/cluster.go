@@ -84,6 +84,9 @@ type ClusterStatus struct {
 	ExpectedVotes      int    `json:"expected_votes,omitempty"`
 	AutoFailover       bool   `json:"auto_failover"`
 	AutoFailoverReason string `json:"auto_failover_reason,omitempty"`
+
+	// LastPromotion is the outcome of the last automatic promotion, step by step.
+	LastPromotion *PromotionResult `json:"last_promotion,omitempty"`
 }
 
 // ExternalQuorum is the quorum reported by the cluster layer (Corosync
@@ -133,6 +136,10 @@ type Manager struct {
 	// immediately after ExecutePromotion completes. Set once at startup via
 	// SetPromotionCallback before Start(); never written again after that.
 	promotionCallback func()
+
+	// lastPromotion is the outcome of the last automatic promotion (shown in
+	// the status, so a failed or degraded promotion is visible in the GUI).
+	lastPromotion *PromotionResult
 
 	// quorumSource, when set and configured, replaces the heartbeat majority:
 	// the watchdog is reset only while it reports quorum (Proxmox model,
@@ -317,6 +324,7 @@ func (m *Manager) Status() *ClusterStatus {
 		LastFailoverAt:    lastFailoverUnix,
 		LastUpdated:       time.Now(),
 
+		LastPromotion:      m.lastPromotion,
 		QuorumProvider:     provider,
 		ExpectedVotes:      expected,
 		AutoFailover:       autoFailover,
@@ -709,11 +717,19 @@ func (m *Manager) checkFailover() {
 		go m.persistClusterState()
 
 		log.Printf("HA STONITH: Peer %s confirmed fenced. Promoting local node to active role.", deadPeer.ID)
-		ExecutePromotion(m.localID, deadPeer.ID)
+		res := ExecutePromotion(m.localID, deadPeer.ID)
 
-		m.mu.RLock()
+		m.mu.Lock()
+		m.lastPromotion = res
 		cb := m.promotionCallback
-		m.mu.RUnlock()
+		m.mu.Unlock()
+		switch {
+		case res.Failed:
+			log.Printf("HA PROMOTION FAILED: this node does not serve the data: %v", res.Err())
+			return
+		case res.Degraded:
+			log.Printf("HA PROMOTION DEGRADED: pools imported, but: %v", res.Err())
+		}
 		if cb != nil {
 			cb()
 		}

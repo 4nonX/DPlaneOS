@@ -356,12 +356,30 @@ func (h *HAHandler) Promote(w http.ResponseWriter, r *http.Request) {
 
 		// ── Step 2: Promotion orchestration ─────────────────────────────────
 		j.Log(fmt.Sprintf("HA Promote: Promoting candidate %q (leader %q)...", req.Candidate, req.Leader))
-		ha.ExecutePromotion(req.Candidate, req.Leader)
-		j.Log("HA Promote: Promotion sequence complete.")
-		j.Done(map[string]any{
-			"candidate": req.Candidate,
-			"leader":    req.Leader,
-		})
+		res := ha.ExecutePromotion(req.Candidate, req.Leader)
+		for _, s := range res.Steps {
+			switch {
+			case s.Skipped:
+				j.Log(fmt.Sprintf("HA Promote: %s: skipped (%s)", s.Name, s.Detail))
+			case s.OK:
+				j.Log(fmt.Sprintf("HA Promote: %s: ok", s.Name))
+			default:
+				j.Log(fmt.Sprintf("HA Promote: %s: FAILED: %s", s.Name, s.Detail))
+			}
+		}
+		switch {
+		case res.Failed:
+			j.Fail("Promotion failed, this node does not serve the data: " + res.Err().Error())
+		case res.Degraded:
+			j.Fail("Pools imported, but some steps failed (fix them before relying on this node): " + res.Err().Error())
+		default:
+			j.Log("HA Promote: Promotion sequence complete.")
+			j.Done(map[string]any{
+				"candidate": req.Candidate,
+				"leader":    req.Leader,
+				"steps":     res.Steps,
+			})
+		}
 	})
 
 	respondJSON(w, http.StatusOK, map[string]any{
