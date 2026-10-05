@@ -140,7 +140,7 @@ Membership information
 ----------------------
     Nodeid      Votes    Qdevice Name
          2          1   A,NV,NMW 10.0.0.2 (local)
-         0          0            Qdevice
+         0          0            Qdevice (votes 1)
 `
 
 func TestParseQuorumtool(t *testing.T) {
@@ -163,6 +163,10 @@ func TestParseQuorumtool(t *testing.T) {
 	l := ParseQuorumtool(quorumtoolLost)
 	if l.Quorate || l.QuorumVotes != 2 || l.QDeviceAlive || l.LocalNodeID != 2 {
 		t.Errorf("lost: %+v", l)
+	}
+	// Real corosync output (VM test): the non-voting device row is not a member.
+	if len(l.Members) != 1 || l.Members[0].NodeID != 2 {
+		t.Errorf("lost members: %+v", l.Members)
 	}
 
 	if ParseQuorumtool("Cannot initialize QUORUM service").Running {

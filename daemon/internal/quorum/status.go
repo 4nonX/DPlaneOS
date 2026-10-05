@@ -61,7 +61,9 @@ func ParseQuorumtool(out string) Status {
 		}
 		if inMembers {
 			if m, ok := parseMember(trim, hasQdeviceCol); ok {
-				if m.NodeID == 0 && strings.EqualFold(m.Name, "Qdevice") {
+				// The device row reads "Qdevice", or "Qdevice (votes 1)" while it
+				// contributes no vote.
+				if m.NodeID == 0 && strings.HasPrefix(strings.ToLower(m.Name), "qdevice") {
 					st.QDeviceVotes = m.Votes
 					continue
 				}

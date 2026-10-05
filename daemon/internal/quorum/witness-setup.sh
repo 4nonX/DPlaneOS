@@ -44,9 +44,13 @@ if [ ! -f "$DB/qnetd-cacert.crt" ]; then
     corosync-qnetd-certutil -i >/dev/null
 fi
 
-say "Starting corosync-qnetd"
+# Started, not restarted: a running qnetd may already serve other clusters,
+# and a restart would drop their vote for a moment.
 systemctl enable corosync-qnetd >/dev/null 2>&1 || true
-systemctl restart corosync-qnetd || die "corosync-qnetd did not start (journalctl -u corosync-qnetd)"
+if ! systemctl is-active --quiet corosync-qnetd; then
+    say "Starting corosync-qnetd"
+    systemctl start corosync-qnetd || die "corosync-qnetd did not start (journalctl -u corosync-qnetd)"
+fi
 
 if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q "Status: active"; then
     say "Opening TCP $PORT in ufw"

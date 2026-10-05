@@ -72,6 +72,9 @@ pkgs.testers.nixosTest {
   testScript = ''
     import json, shlex
 
+    # corosync-quorumtool exits non-zero while the node is not quorate and the
+    # test driver runs commands with pipefail, hence "|| true" before grep.
+
     start_all()
     for m in (a, b):
         m.wait_for_unit("dplaned.service")
@@ -125,8 +128,8 @@ pkgs.testers.nixosTest {
             assert s.get("local_addr") and s.get("peer_addr"), s
             ok(api(a, "POST", "/api/quorum/cluster", {"peer_id": peer_b, "local_addr": s["local_addr"], "peer_addr": s["peer_addr"]}), "form cluster")
             for m in (a, b):
-                m.wait_until_succeeds("corosync-quorumtool -s | grep -q 'Quorate: *Yes'", timeout=90)
-                m.wait_until_succeeds("corosync-quorumtool -s | grep -q 'Total votes: *2'", timeout=60)
+                m.wait_until_succeeds("(corosync-quorumtool -s || true) | grep -q 'Quorate: *Yes'", timeout=90)
+                m.wait_until_succeeds("(corosync-quorumtool -s || true) | grep -q 'Total votes: *2'", timeout=60)
             st = api(a, "GET", "/api/quorum/status")
             assert st["configured"] and st["status"]["quorate"], st
             assert "2Node" in (st["status"]["flags"] or []), st["status"]
@@ -139,8 +142,8 @@ pkgs.testers.nixosTest {
             assert "Done" in out, out
             assert "cannot reach" not in out, out
             for m in (a, b):
-                m.wait_until_succeeds("corosync-quorumtool -s | grep -q 'Flags:.*Qdevice'", timeout=90)
-                m.wait_until_succeeds("corosync-quorumtool -s | grep -q 'Total votes: *3'", timeout=90)
+                m.wait_until_succeeds("(corosync-quorumtool -s || true) | grep -q 'Flags:.*Qdevice'", timeout=90)
+                m.wait_until_succeeds("(corosync-quorumtool -s || true) | grep -q 'Total votes: *3'", timeout=90)
             st = api(a, "GET", "/api/quorum/status")
             assert st["info"]["expected_votes"] == 3 and st["info"]["auto_failover"] is True, st["info"]
             assert st["cluster"]["qdevice"]["host"], st["cluster"]
@@ -150,19 +153,19 @@ pkgs.testers.nixosTest {
 
         with subtest("Cut b off: a keeps quorum through the third vote, b loses it"):
             b.block()
-            a.wait_until_succeeds("corosync-quorumtool -s | grep -q 'Total votes: *2'", timeout=120)
-            a.succeed("corosync-quorumtool -s | grep -q 'Quorate: *Yes'")
-            b.wait_until_succeeds("corosync-quorumtool -s | grep -q 'Quorate: *No'", timeout=120)
+            a.wait_until_succeeds("(corosync-quorumtool -s || true) | grep -q 'Total votes: *2'", timeout=120)
+            a.succeed("(corosync-quorumtool -s || true) | grep -q 'Quorate: *Yes'")
+            b.wait_until_succeeds("(corosync-quorumtool -s || true) | grep -q 'Quorate: *No'", timeout=120)
             st = api(b, "GET", "/api/quorum/status")
             assert st["info"]["auto_failover"] is False, st["info"]
             b.unblock()
             for m in (a, b):
-                m.wait_until_succeeds("corosync-quorumtool -s | grep -q 'Total votes: *3'", timeout=180)
+                m.wait_until_succeeds("(corosync-quorumtool -s || true) | grep -q 'Total votes: *3'", timeout=180)
 
         with subtest("Remove the third vote, then the cluster"):
             ok(api(a, "DELETE", "/api/quorum/third-vote"), "remove third vote")
             for m in (a, b):
-                m.wait_until_succeeds("corosync-quorumtool -s | grep -q 'Expected votes: *2'", timeout=90)
+                m.wait_until_succeeds("(corosync-quorumtool -s || true) | grep -q 'Expected votes: *2'", timeout=90)
             ok(api(a, "DELETE", "/api/quorum/cluster"), "remove cluster")
             for m in (a, b):
                 m.wait_until_fails("systemctl is-active dplaneos-corosync", timeout=60)
