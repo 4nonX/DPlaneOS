@@ -74,6 +74,9 @@ var ErrNeedsManualAction = errors.New("needs manual action")
 // deleted) through the GitOps engine. The caller holds the reconcile lock.
 // The engine's safety rules apply unchanged.
 func applyOne(ctx gitops.ApplyContext, target Resource, live *gitops.LiveState) (*RollbackResult, error) {
+	if target.Kind == KindSettings {
+		return applySettings(ctx, target, live)
+	}
 	desired, err := Assemble([]Resource{target})
 	if err != nil {
 		return nil, err
@@ -132,6 +135,53 @@ func applyOne(ctx gitops.ApplyContext, target Resource, live *gitops.LiveState) 
 	}
 
 	return res, nil
+}
+
+// applySettings applies the shared system settings on top of this node's own
+// hostname and network interfaces: the engine handles "system" as one item.
+func applySettings(ctx gitops.ApplyContext, target Resource, live *gitops.LiveState) (*RollbackResult, error) {
+	if target.Payload == nil {
+		return nil, errors.New("system settings cannot be deleted")
+	}
+	current := liveToDesired(live).System
+	if current == nil {
+		return nil, errors.New("the system settings of this node cannot be read")
+	}
+	mine := Extract(&gitops.DesiredState{System: current}, nodeName())
+	var node Resource
+	for _, r := range mine {
+		if r.Kind == KindSystem {
+			node = r
+		}
+	}
+	desired, err := Assemble([]Resource{node, target})
+	if err != nil {
+		return nil, err
+	}
+	res := &RollbackResult{}
+	var items []gitops.DiffItem
+	for _, it := range gitops.ComputeDiff(desired, live).Items {
+		if it.Kind != gitops.KindSystem || it.Action == gitops.ActionNOP {
+			continue
+		}
+		if it.Action == gitops.ActionBlocked || it.Action == gitops.ActionAmbiguous || it.Action == gitops.ActionManual {
+			res.Blocked = append(res.Blocked, it)
+			continue
+		}
+		items = append(items, it)
+	}
+	if len(res.Blocked) > 0 {
+		return res, fmt.Errorf("%w: %s", ErrNeedsManualAction, res.Blocked[0].BlockReason)
+	}
+	if len(items) == 0 {
+		res.NoChange = true
+		return res, nil
+	}
+	result, err := gitops.ApplyPlan(ctx, &gitops.Plan{Items: items}, nil)
+	if result != nil {
+		res.Applied = result.Applied
+	}
+	return res, err
 }
 
 func liveHasUser(live *gitops.LiveState, name string) bool {

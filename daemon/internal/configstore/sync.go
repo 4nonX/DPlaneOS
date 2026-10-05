@@ -27,13 +27,21 @@ import (
 // its peers to pull ("notify"), so a peer that cannot be reached simply
 // catches up later. Nothing becomes read-only while peers are unreachable.
 
-// SyncKinds are exchanged between nodes. Node-scope resources (system
-// settings, stacks, SMART tasks, NVMe-oF) belong to their node. LDAP, ACME
-// and certificates carry secrets that are only fingerprinted in the history
-// and cannot be applied elsewhere yet; pools come only from state.yaml.
+// SyncKinds are exchanged between nodes.
+//
+// Not exchanged (yet):
+//   - node scope: hostname and network interfaces (KindSystem), SMART tasks,
+//     stacks without pool volumes: they belong to one node;
+//   - stacks with pool volumes and NVMe-oF exports: they belong to their
+//     pool, but must run only on the node that owns the pool; synchronising
+//     them needs pool ownership (phase 3), otherwise a replicated standby
+//     would start them against its replica;
+//   - LDAP, ACME, certificates: their secrets are only fingerprinted in the
+//     history (group secrets keys, phase 3); pools come only from state.yaml.
 var SyncKinds = map[string]bool{
 	KindDataset: true, KindShare: true, KindNFS: true,
 	KindUser: true, KindGroup: true, KindReplication: true,
+	KindSettings: true,
 }
 
 func syncKindList() []string {

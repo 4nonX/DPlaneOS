@@ -105,22 +105,59 @@ func TestScopes(t *testing.T) {
 		Datasets: []gitops.DesiredDataset{{Name: "tank/media"}},
 		Shares:   []gitops.DesiredShare{{Name: "media", Path: "/mnt/tank/media"}},
 		Users:    []gitops.DesiredUser{{Username: "alice"}},
-		System:   &gitops.DesiredSystem{},
+		System:   &gitops.DesiredSystem{Hostname: "nas1", Timezone: "Europe/Berlin"},
+		Stacks: []gitops.DesiredStack{
+			{Name: "plex", YAML: `services:
+  plex:
+    volumes:
+      - /mnt/tank/media:/data
+`},
+			{Name: "monitor", YAML: `services:
+  node-exporter:
+    volumes:
+      - /proc:/host/proc:ro
+`},
+		},
+		Fabrics: &gitops.DesiredFabrics{NVMe: []gitops.DesiredNVMeExport{{SubsystemNQN: "nqn.x:vm", Zvol: "/dev/zvol/fast/vm"}}},
 	}
 	got := map[string]string{}
+	payloads := map[string]map[string]any{}
 	for _, r := range Extract(ds, "node-a") {
 		got[r.ID()] = r.Scope + ":" + r.ScopeID
+		payloads[r.ID()] = r.Payload
 	}
 	want := map[string]string{
-		"dataset/tank/media": "group:tank",
-		"share/media":        "group:tank",
-		"user/alice":         "cluster:local",
-		"system/system":      "node:node-a",
+		"dataset/tank/media":   "group:tank",
+		"share/media":          "group:tank",
+		"user/alice":           "cluster:local",
+		"system/system":        "node:node-a",
+		"settings/settings":    "cluster:local",
+		"stack/plex":           "group:tank", // uses pool data: follows the pool
+		"stack/monitor":        "node:node-a",
+		"nvme_fabric/nqn.x:vm": "group:fast",
 	}
 	for id, w := range want {
 		if got[id] != w {
 			t.Errorf("%s: scope %q, want %q", id, got[id], w)
 		}
+	}
+	// Hostname stays with the node, the timezone is shared.
+	if _, ok := payloads["system/system"]["hostname"]; !ok {
+		t.Error("hostname missing from the node part")
+	}
+	if _, ok := payloads["system/system"]["timezone"]; ok {
+		t.Error("timezone must not be in the node part")
+	}
+	if payloads["settings/settings"]["timezone"] != "Europe/Berlin" {
+		t.Errorf("settings: %+v", payloads["settings/settings"])
+	}
+	// And they assemble back into one system section.
+	back, err := Assemble(Extract(ds, "node-a"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if back.System == nil || back.System.Hostname != "nas1" || back.System.Timezone != "Europe/Berlin" {
+		t.Errorf("assembled system: %+v", back.System)
 	}
 }
 

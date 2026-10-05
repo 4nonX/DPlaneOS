@@ -38,6 +38,7 @@ interface Preview { node_id: string; name: string; fingerprint: string; counts: 
 
 const KIND_LABELS: Record<string, string> = {
   dataset: 'Dataset', share: 'SMB share', nfs: 'NFS export', user: 'User', group: 'Group', replication: 'Replication',
+  settings: 'Shared settings',
 }
 
 const MODES: Record<SyncStatus['mode'], { label: string; cls: string; text: string }> = {
@@ -309,7 +310,7 @@ export function ConfigSyncPage() {
       <header className="page-header" style={{ display: 'flex', alignItems: 'flex-end', gap: 16, flexWrap: 'wrap' }}>
         <div style={{ flex: 1, minWidth: 260 }}>
           <h1 className="page-title">Configuration Sync</h1>
-          <p className="page-subtitle">Keep datasets, shares, NFS exports, users, groups and replication jobs in step across nodes. Each node keeps working on its own if the network fails.</p>
+          <p className="page-subtitle">Keep datasets, shares, NFS exports, users, groups, replication jobs and shared settings (time zone, DNS, NTP, firewall, Samba, SSH) in step across nodes. Each node keeps working on its own if the network fails.</p>
         </div>
         {st.peers.length > 0 && (
           <button className="btn btn-ghost" onClick={() => syncNow.mutate()} disabled={syncNow.isPending}>

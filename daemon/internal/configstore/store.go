@@ -319,7 +319,8 @@ func changesAgainst(current []Resource, latest map[string]Revision, imported map
 	for _, r := range current {
 		seen[r.ID()] = true
 		prev, ok := latest[r.ID()]
-		if !ok || !samePayload(prev.Payload, r.Payload) {
+		// A changed scope is a change too (e.g. a stack whose volumes moved to a pool).
+		if !ok || !samePayload(prev.Payload, r.Payload) || prev.Scope != r.Scope || prev.ScopeID != r.ScopeID {
 			changes = append(changes, r)
 		}
 	}

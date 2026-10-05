@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"reflect"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -40,14 +41,28 @@ const (
 	KindCertificate = string(gitops.KindCertificate)
 	KindSMART       = string(gitops.KindSMART)
 	KindNVMe        = string(gitops.KindNVMeFabric)
+
+	// KindSettings is the part of state.yaml's system section that should be
+	// the same on every node (timezone, DNS, NTP, firewall ports, Samba
+	// globals, SSH): cluster scope. KindSystem keeps what belongs to one node
+	// (hostname, network interfaces). Both are one "system" item for the
+	// GitOps engine.
+	KindSettings = "settings"
 )
+
+// settingsFields are the state.yaml system fields of KindSettings; the rest
+// (hostname, networking) stay in KindSystem.
+var settingsFields = map[string]bool{
+	"timezone": true, "dns_servers": true, "ntp_servers": true,
+	"firewall": true, "samba": true, "ssh": true,
+}
 
 // capturedKinds are recorded from the live system. Pools are not: the live
 // view has no vdev topology, so pool revisions come only from imported
 // state.yaml files, and a pool missing from a capture is never a deletion.
 var capturedKinds = map[string]bool{
 	KindDataset: true, KindShare: true, KindNFS: true, KindStack: true,
-	KindSystem: true, KindUser: true, KindGroup: true, KindReplication: true,
+	KindSystem: true, KindSettings: true, KindUser: true, KindGroup: true, KindReplication: true,
 	KindLDAP: true, KindACME: true, KindCertificate: true, KindSMART: true,
 	KindNVMe: true,
 }
@@ -57,6 +72,7 @@ var capturedKinds = map[string]bool{
 var RollbackKinds = map[string]bool{
 	KindDataset: true, KindShare: true, KindNFS: true, KindStack: true,
 	KindUser: true, KindGroup: true, KindReplication: true, KindSMART: true,
+	KindSettings: true,
 }
 
 // Resource is one managed object in its state.yaml form.
@@ -81,6 +97,33 @@ func poolOf(nameOrPath string) string {
 	return p
 }
 
+var mntPoolRe = regexp.MustCompile(`/mnt/([A-Za-z][A-Za-z0-9_.:-]*)(/|\s|"|'|$)`)
+
+// stackScope places a Docker stack with the pool its volumes live on: an app
+// using pool data must follow that pool on failover (and run only where the
+// pool is imported). A stack without pool volumes belongs to its node.
+func stackScope(composeYAML, nodeID string) (string, string) {
+	pools := map[string]bool{}
+	for _, m := range mntPoolRe.FindAllStringSubmatch(composeYAML, -1) {
+		pools[m[1]] = true
+	}
+	if len(pools) == 0 {
+		return ScopeNode, nodeID
+	}
+	names := make([]string, 0, len(pools))
+	for p := range pools {
+		names = append(names, p)
+	}
+	sort.Strings(names)
+	return ScopeGroup, names[0] // several pools: the first; storage groups (phase 3) will hold all of them
+}
+
+// zvolPool returns the pool of an NVMe-oF export's zvol ("tank/vol" or
+// "/dev/zvol/tank/vol").
+func zvolPool(zvol string) string {
+	return poolOf(strings.TrimPrefix(zvol, "/dev/zvol/"))
+}
+
 // Extract splits a desired state into resources. nodeID identifies this node
 // for node-scoped resources.
 func Extract(ds *gitops.DesiredState, nodeID string) []Resource {
@@ -101,10 +144,20 @@ func Extract(ds *gitops.DesiredState, nodeID string) []Resource {
 		add(KindNFS, n.Path, ScopeGroup, poolOf(n.Path), n)
 	}
 	for _, s := range ds.Stacks {
-		add(KindStack, s.Name, ScopeNode, nodeID, s)
+		scope, id := stackScope(s.YAML, nodeID)
+		add(KindStack, s.Name, scope, id, s)
 	}
 	if ds.System != nil {
-		add(KindSystem, "system", ScopeNode, nodeID, ds.System)
+		node, shared := map[string]any{}, map[string]any{}
+		for k, v := range toMap(ds.System) {
+			if settingsFields[k] {
+				shared[k] = v
+			} else {
+				node[k] = v
+			}
+		}
+		add(KindSystem, "system", ScopeNode, nodeID, node)
+		add(KindSettings, "settings", ScopeCluster, "local", shared)
 	}
 	for _, u := range ds.Users {
 		add(KindUser, u.Username, ScopeCluster, "local", u)
@@ -140,7 +193,7 @@ func Extract(ds *gitops.DesiredState, nodeID string) []Resource {
 	}
 	if ds.Fabrics != nil {
 		for _, e := range ds.Fabrics.NVMe {
-			add(KindNVMe, e.SubsystemNQN, ScopeNode, nodeID, e)
+			add(KindNVMe, e.SubsystemNQN, ScopeGroup, zvolPool(e.Zvol), e)
 		}
 	}
 	return out
@@ -162,6 +215,7 @@ func fingerprint(secret string) string {
 // content with ignore_extraneous: true (it may not list everything).
 func Assemble(resources []Resource) (*gitops.DesiredState, error) {
 	ds := &gitops.DesiredState{Version: "1", IgnoreExtraneous: true}
+	var system map[string]any // KindSystem and KindSettings merged
 	sorted := append([]Resource(nil), resources...)
 	sort.Slice(sorted, func(i, j int) bool { return sorted[i].ID() < sorted[j].ID() })
 	for _, r := range sorted {
@@ -195,10 +249,14 @@ func Assemble(resources []Resource) (*gitops.DesiredState, error) {
 			if err = fromMap(r.Payload, &v); err == nil {
 				ds.Stacks = append(ds.Stacks, v)
 			}
-		case KindSystem:
-			var v gitops.DesiredSystem
-			if err = fromMap(r.Payload, &v); err == nil {
-				ds.System = &v
+		case KindSystem, KindSettings:
+			if system == nil {
+				system = map[string]any{}
+			}
+			for k, v := range r.Payload {
+				if settingsFields[k] == (r.Kind == KindSettings) {
+					system[k] = v
+				}
 			}
 		case KindUser:
 			var v gitops.DesiredUser
@@ -249,6 +307,13 @@ func Assemble(resources []Resource) (*gitops.DesiredState, error) {
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", r.ID(), err)
 		}
+	}
+	if system != nil {
+		var v gitops.DesiredSystem
+		if err := fromMap(system, &v); err != nil {
+			return nil, fmt.Errorf("system: %w", err)
+		}
+		ds.System = &v
 	}
 	return ds, nil
 }

@@ -274,7 +274,7 @@ In an HA pair the history is recorded by the active node.
 
 ### Configuration Sync
 
-System → **Configuration Sync** keeps datasets, SMB shares, NFS exports, users, groups and replication jobs in step between nodes that each have their own database. Each node keeps working on its own when the network fails.
+System → **Configuration Sync** keeps datasets, SMB shares, NFS exports, users, groups, replication jobs and shared settings (time zone, DNS, NTP, firewall ports, Samba global settings, SSH) in step between nodes that each have their own database. Each node keeps working on its own when the network fails.
 
 **Pairing.** On the first node, **Create join code** (valid once, for 15 minutes). On the second node, **Join another node**: enter the first node's address, the code and this node's own address as the first node reaches it, then **Preview the merge**. The preview lists what pairing would change on this node (added, updated, deleted), what goes to the other node, and what differs on both sides. Nothing changes until you click **Pair**. The other node's certificate fingerprint is shown in the preview and checked on every later connection.
 
@@ -286,7 +286,7 @@ System → **Configuration Sync** keeps datasets, SMB shares, NFS exports, users
 
 **Detach** makes a node independent for good: it keeps its whole configuration and stops exchanging changes. **Remove** on a paired node stops the exchange with that one node. Both nodes can be paired again later; the preview shows what would change.
 
-Not exchanged: system settings, Docker stacks, SMART tasks and NVMe-oF exports (they belong to each node), LDAP, ACME and certificates (their secrets are not synchronised yet), pools. User passwords are not synchronised: a user created on another node needs a password set on this node. Nodes of an HA pair on a shared database already share their configuration and cannot be paired.
+Not exchanged: hostname and network interfaces and SMART tasks (they belong to each node); Docker stacks that use a pool and NVMe-oF exports (they must run only on the node that owns the pool, which comes with storage groups in a later release); LDAP, ACME and certificates (their secrets are not synchronised yet); pools. User passwords are not synchronised: a user created on another node needs a password set on this node. Nodes of an HA pair on a shared database already share their configuration and cannot be paired.
 
 ### Notifications
 

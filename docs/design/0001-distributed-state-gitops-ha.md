@@ -17,7 +17,7 @@ This document describes how DPlaneOS keeps configuration consistent across one n
 
 1. **One codebase from homelab to fabric.** The same software serves a single node, a two-node HA pair, a cluster and a 200-server storage fabric. Larger deployments add roles; they do not switch products.
 2. **Every node can operate independently.** A network glitch, a dead switch, a lost controller or an unreachable Git server never takes away a node's ability to serve storage or to be managed from its own GUI ("TrueNAS-style").
-3. **Power of choice.** Topology (standalone, shared SAS, replicated), failover behaviour, conflict policy and the use of Git are per-deployment choices, not fixed assumptions.
+3. **Power of choice.** Topology (standalone, shared storage, replicated), drive type (SAS, SATA, NVMe), failover behaviour, conflict policy and the use of Git are per-deployment choices, not fixed assumptions.
 4. **GUI-first.** Everything, including cluster setup, topology choice, fencing, conflict resolution and Git integration, is manageable from the web UI in plain language. Git and the CLI are optional power tools, never requirements.
 5. **No silent outcomes.** No change is lost, overwritten or half-applied without the operator seeing it. (The bug classes fixed in v14.8.0, where failures were logged while the API reported success, are exactly what this rules out at the architecture level.)
 6. **Data safety before availability.** Two nodes never write the same disks; data on diverged replicas is never merged automatically.
@@ -80,7 +80,7 @@ Three layers, each scaled by the deployment profile.
                   │ API tokens, revision sync        │ (overlay or group owner)
   ┌───────────────┴──────────────────────────────────┴───────────────────┐
   │ Storage group (1..n nodes)                                           │
-  │  - topology: standalone | shared SAS | replicated                    │
+  │  - topology: standalone | shared storage | replicated                │
   │  - owner node via quorum + epoch; fencing per topology               │
   │  - owner replicates group revisions to the other members             │
   └───────────────▲──────────────────────────────────────────────────────┘
@@ -141,23 +141,26 @@ holds              (scope, reason, revision_id or commit, since, set_by)
 
 | Scope | Examples | Owner of changes |
 |---|---|---|
-| **node** | hostname, interfaces, BMC/fencing credentials, tuning (ARC, sysctl), SMART tasks per device, UPS | the node itself |
-| **group** | pools, datasets, shares, NFS exports, snapshot/replication policies, stacks bound to the group's pools | the group's current owner (epoch holder) |
-| **cluster** | users, groups, directory (LDAP/AD), certificates, alerting | the cluster's elected coordinator; replicated to all members |
+| **node** | hostname, interfaces, BMC/fencing credentials, tuning (ARC, sysctl), SMART tasks per device, UPS, stacks without pool volumes | the node itself |
+| **group** | pools, datasets, shares, NFS exports, NVMe-oF exports, snapshot/replication policies, stacks using the group's pools | the group's current owner (epoch holder) |
+| **cluster** | users, groups, directory (LDAP/AD), certificates, alerting, shared system settings (time zone, DNS, NTP, firewall ports, Samba globals, SSH) | the cluster's elected coordinator; replicated to all members |
 | **fleet** | fleet-wide users, policies, defaults, update channels | the fleet overlay |
 
 Effective configuration on a node = fleet ⟶ cluster ⟶ group ⟶ node, later scopes overriding earlier ones only where a key allows overrides. The GUI shows, for every effective setting, which scope it came from and whether it is a local override.
 
 HA topology and fencing settings are node scope and are **not** managed through Git (misconfiguring them remotely is a split-brain risk).
 
+**Synchronised versus active.** A group-scope resource is *defined* on every candidate node of its group but *active* only on the current owner. Shares and NFS exports are served only by the owner; Docker stacks using the group's pools and NVMe-oF exports of its zvols are started on the owner after promotion (NVMe-oF with the same subsystem NQN, so initiators reconnect) and stopped on demotion. Running them on a replicated standby would start applications against a copy that replication keeps overwriting. Node scope is the exception list, not the default: an HA pair whose nodes differ in shared settings (Samba globals, firewall ports) behaves differently after a failover.
+
 ### 5.3 Storage groups and topologies ([ADR-0003](adr/ADR-0003-scopes-and-storage-groups.md))
 
 A **storage group** is the unit of ownership and failover: one or more pools plus the resources on them, a list of candidate nodes and a topology chosen in the GUI.
 
-| | Standalone | Shared SAS / SAN / NVMe-oF | Replicated |
+| | Standalone | Shared storage | Replicated |
 |---|---|---|---|
+| Drives | any | SAS or SATA in a shared JBOD (through SAS expanders; SATA needs interposers for dual paths), SAN LUNs, NVMe-oF | any: SAS, SATA, NVMe |
 | Candidates | 1 | 2..n nodes seeing the same disks | 2..n nodes with own disks |
-| Data protection | — | SCSI-3 PR reservation + watchdog self-fence (+ IPMI/PDU) | ZFS send/receive + watchdog + IPMI/PDU |
+| Data protection | — | SCSI-3 PR reservation when every pool disk passes the write probe (SAS; some enterprise SATA through SAT), + watchdog self-fence (+ IPMI/PDU). Disks without working PR (most SATA): ZFS multihost (MMP) on the pool plus mandatory power fencing (IPMI/PDU) and watchdog — *proposed, see open question 6* | ZFS send/receive + watchdog + IPMI/PDU |
 | RPO | — | zero | up to one replication interval (shown in the GUI) |
 | Failover | none | automatic, reservation decides | automatic only if enabled and quorate (witness required) |
 | Planned move | — | export/import with reservation hand-over | final incremental send, then **direction flips automatically** |
@@ -170,10 +173,10 @@ A **storage group** is the unit of ownership and failover: one or more pools plu
 
 ### 5.4 Quorum and epochs ([ADR-0004](adr/ADR-0004-quorum-corosync.md))
 
-- Each cluster runs **Corosync votequorum**. Storage groups derive ownership from it plus their topology-specific arbitration (reservations for shared SAS).
+- Each cluster runs **Corosync votequorum**. Storage groups derive ownership from it plus their topology-specific arbitration (disk reservations, or ZFS multihost where the disks have no working reservations, for shared storage).
 - Two-node clusters use `two_node` (implies `wait_for_all`) or a **QDevice** as third vote; the QDevice can run on a Raspberry Pi, a VM, another D-PlaneOS node or a small cloud instance.
 - Larger clusters may use `auto_tie_breaker` or `last_man_standing` where appropriate; the GUI explains each option in plain language ("Wait for both nodes on first start", "Which node wins a tie").
-- The epoch is stored in the group's revision log and, for shared SAS, also in the reservation key, so a node can check its authority locally without the network.
+- The epoch is stored in the group's revision log and, for shared storage with reservations, also in the reservation key, so a node can check its authority locally without the network.
 - The existing HTTP witnesses (`internal/ha/witness.go`) remain as an additional health signal ("am I isolated from the outside world"), not as the quorum.
 
 ### 5.5 Node states and independent operation ([ADR-0001](adr/ADR-0001-local-first-node-state.md))
@@ -190,7 +193,7 @@ What an isolated node may change:
 |---|---|
 | node | always |
 | group, standalone topology | always |
-| group, shared SAS | only while it holds the disk reservation; storage arbitration decides, not network reachability |
+| group, shared storage | only while it owns the pool (holds the disk reservation, or has the pool imported under multihost protection); storage arbitration decides, not network reachability |
 | group, replicated | the source node keeps working; promoting a target copy during a partition is allowed only if the group is configured for it and has quorum through a witness (default: off for two-node groups) |
 | cluster / fleet | as **local overrides**, marked in the GUI, merged on reconnect |
 
@@ -249,7 +252,7 @@ One engine handles all three sources of conflicting changes: reconnect after a p
 | Event | Storage | Configuration | GUI |
 |---|---|---|---|
 | Network glitch between group members | Owner keeps serving; standby does nothing unless quorum and topology rules allow promotion | Both sides keep their local stores; outbox queues | Banner on both nodes |
-| Owner node fails | Standby promotes after fencing (shared SAS: takes reservation; replicated: only if configured) | New owner continues from the replicated revision log and outbox | Cluster map shows new owner and epoch |
+| Owner node fails | Standby promotes after fencing (shared storage: takes the reservation or imports under multihost after power fencing; replicated: only if configured) | New owner continues from the replicated revision log and outbox | Cluster map shows new owner and epoch |
 | Overlay down | Unaffected | Group/node changes continue; fleet changes wait | Banner "fleet manager unreachable" |
 | Git unreachable | Unaffected | Outbox queues; drift checks pause | Sync status |
 | Apply fails | Unaffected | Scope on hold at last good revision | Hold banner with resume/revert |
@@ -260,7 +263,7 @@ One engine handles all three sources of conflicting changes: reconnect after a p
 ## 6. What changes for existing installations
 
 - **Standalone:** no behavioural change except the new history/diff/rollback and the safer Git integration. `state.yaml` repositories keep working (imported as revisions).
-- **HA Path A' (shared SAS):** becomes a two-node storage group with shared-SAS topology. The daemon moves from the shared Patroni database to the node-local database; Patroni, HAProxy and etcd are no longer needed for `dplaned`. Corosync with `two_node` or a QDevice replaces the etcd witness for quorum.
+- **HA Path A' (shared storage, SCSI-3 PR):** becomes a two-node storage group with shared-storage topology. The daemon moves from the shared Patroni database to the node-local database; Patroni, HAProxy and etcd are no longer needed for `dplaned`. Corosync with `two_node` or a QDevice replaces the etcd witness for quorum.
 - **HA Path B (replicated):** becomes a two-node replicated storage group; existing replication jobs map to the group's replication policy.
 - **Docs to correct now:** [GITOPS-DRIVEN-NAS.md](../admin/GITOPS-DRIVEN-NAS.md) (auto-apply is documented but not implemented), [HIGH-AVAILABILITY.md](../admin/HIGH-AVAILABILITY.md) and [ARCHITECTURE.md](../reference/ARCHITECTURE.md) (shared database model).
 
@@ -298,7 +301,7 @@ Each phase ends with its tests passing in CI; later phases do not start on top o
 |---|---|---|
 | **0. Fixes (independent of this design)** — implemented, see CHANGELOG "Unreleased" | GitOps write-back and drift only on the active node; apply guard checks role, not only quorum; shared secrets key for existing pairs; abort a failed rebase and report push failures; real fetch in the drift detector; reject plain-text secrets in `state.yaml`; correct GITOPS-DRIVEN-NAS.md. Found on the way: write-back refuses to commit over unapplied remote commits (synced-commit tracking); authenticated git ran without `PATH`/`HOME`; duplicate drift detector; GitOps status card. | Unit tests; live-boot and HA VM tests green. |
 | **1. Node-local store** — implemented, see CHANGELOG "Unreleased" | Revision log with scopes (`config_revisions`); capture after web UI changes and every 5 minutes; GUI history, field diff, rollback per resource; `state.yaml` export. Deviations: the outbox and holds tables are created in the phases that use them (2 and 5); `state.yaml` import stays the existing GitOps apply; pools enter the history only from `state.yaml` (the live view has no topology); automatic captures carry no author yet. Found on the way: the GitOps DB sync ignored `ignore_extraneous` and deleted undeclared groups, NFS exports and shares. | Round-trip test (`state.yaml` → revisions → `state.yaml` identical, canonical order); API test: capture, change, rollback restores `smb.conf` and leaves other shares alone, export. |
-| **2. Merge engine and node states** — implemented, see CHANGELOG "Unreleased" | Three-way merge per resource over revision ancestry (`uid`, `base_uid`, `merge_uid`); pull-based exchange between paired nodes with node-local databases (join code, merge preview, pinned TLS certificate); review screen; standalone/connected/isolated/independent; detach, remove and rejoin. Deviations: no default winners per scope yet (group epochs and the cluster coordinator come with phase 3), so every same-resource conflict goes to review; equal states merge automatically (the node with the lower id records the merge); exchanged kinds are datasets, shares, NFS exports, users, groups and replication; user passwords and secret-bearing kinds (LDAP, ACME, certificates) are not exchanged until group secrets keys (phase 3); the outbox is the peers' pull cursor (no separate table) because exchange is pull-only; HA pairs on the shared Patroni database cannot be paired (same node id) until phase 3 migrates them. | CI job "Config Sync & Merge (two nodes)": two daemons with separate databases, partitioned with iptables instead of a VM test; unit tests of the merge classification. |
+| **2. Merge engine and node states** — implemented, see CHANGELOG "Unreleased" | Three-way merge per resource over revision ancestry (`uid`, `base_uid`, `merge_uid`); pull-based exchange between paired nodes with node-local databases (join code, merge preview, pinned TLS certificate); review screen; standalone/connected/isolated/independent; detach, remove and rejoin. Scopes corrected during the phase: the system section is split into node settings (hostname, network interfaces) and shared settings (time zone, DNS, NTP, firewall ports, Samba globals, SSH; cluster scope, exchanged); Docker stacks using a pool and NVMe-oF exports are group scope; they are recorded but not exchanged until phase 3 can run them only on the pool owner. Deviations: no default winners per scope yet (group epochs and the cluster coordinator come with phase 3), so every same-resource conflict goes to review; equal states merge automatically (the node with the lower id records the merge); exchanged kinds are datasets, shares, NFS exports, users, groups, replication and shared settings; user passwords and secret-bearing kinds (LDAP, ACME, certificates) are not exchanged until group secrets keys (phase 3); the outbox is the peers' pull cursor (no separate table) because exchange is pull-only; HA pairs on the shared Patroni database cannot be paired (same node id) until phase 3 migrates them. | CI job "Config Sync & Merge (two nodes)": two daemons with separate databases, partitioned with iptables instead of a VM test; unit tests of the merge classification. |
 | **3. Storage groups and quorum** | Corosync votequorum + QDevice; epochs; owner replication of group revisions; topologies mapped from Path A'/B; migration off the shared Patroni database. | VM tests per topology: failover, planned move, stale-owner rejection, split of a replicated group. |
 | **4. GUI** | Wizards, cluster map, fencing and witness test buttons, conflict review, holds. | Browser tests of the wizards against a mock API; VM test of a full setup through the API. |
 | **5. Git backend** | Outbox draining, direct/PR policies, pull + verify + plan + apply with defaults, multiple remotes. | Tests against a local Git server (Gitea/Forgejo) in CI. |
@@ -314,6 +317,7 @@ Each phase ends with its tests passing in CI; later phases do not start on top o
 3. **Fleet overlay as a role on any node or a separate product** ([ADR-0005](adr/ADR-0005-fleet-overlay.md)).
 4. **Git providers for the pull-request policy:** GitHub, Gitea/Forgejo, GitLab — which first.
 5. **Cluster-scope coordinator:** the owner of a designated "system" storage group, or a separately elected role.
+6. **Shared storage without working SCSI-3 PR (e.g. SATA drives in a shared JBOD):** today these are directed to the replicated topology. Proposal: allow shared storage with ZFS multihost (MMP, refuses a second import while the pool is active elsewhere) plus mandatory IPMI/PDU power fencing and watchdog, with the GUI stating that protection relies on fencing rather than the disks. MMP adds import delay on failover and does not stop writes of a hung node that still has the pool imported, hence power fencing is required, not optional.
 
 ---
 
