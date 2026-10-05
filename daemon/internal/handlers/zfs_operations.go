@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/exec"
 	"regexp"
 	"strconv"
 	"strings"
@@ -421,6 +422,13 @@ func (h *ZFSHandler) SetDatasetQuota(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	for _, v := range []string{req.RefQuota, req.RefReservation} {
+		if v != "" && !isValidSize(v) {
+			respondErrorSimple(w, "Invalid size "+v+" (e.g. '500G', '1T', 'none')", http.StatusBadRequest)
+			return
+		}
+	}
+
 	results := map[string]any{"success": true, "dataset": req.Dataset}
 
 	if req.RefQuota != "" {
@@ -446,6 +454,7 @@ func (h *ZFSHandler) SetDatasetQuota(w http.ResponseWriter, r *http.Request) {
 		}
 		if err := libzfs.DatasetSet(req.Dataset, "refquota", req.RefQuota); err != nil {
 			results["refquota_error"] = err.Error()
+			results["error"] = "refquota: " + err.Error()
 			results["success"] = false
 		} else {
 			results["refquota"] = req.RefQuota
@@ -455,6 +464,7 @@ func (h *ZFSHandler) SetDatasetQuota(w http.ResponseWriter, r *http.Request) {
 	if req.RefReservation != "" {
 		if err := libzfs.DatasetSet(req.Dataset, "refreservation", req.RefReservation); err != nil {
 			results["refreservation_error"] = err.Error()
+			results["error"] = "refreservation: " + err.Error()
 			results["success"] = false
 		} else {
 			results["refreservation"] = req.RefReservation
@@ -671,6 +681,9 @@ func RevokeZFSDelegation(w http.ResponseWriter, r *http.Request) {
 var (
 	netRollbackMu    sync.Mutex // guards all netRollback* globals
 	netRollbackTimer *time.Timer
+	// netPendingCommit runs on confirm: changes that must only be saved once
+	// the operator confirmed connectivity (e.g. boot reconciliation state).
+	netPendingCommit func() error
 )
 
 // No hollow structs needed
@@ -698,6 +711,12 @@ func ApplyNetworkWithRollback(w http.ResponseWriter, r *http.Request) {
 		respondErrorSimple(w, "Invalid config path", http.StatusBadRequest)
 		return
 	}
+	// netplan is not part of NixOS (D-PlaneOS uses systemd-networkd): refuse
+	// instead of writing the file and reporting an apply that never happened.
+	if _, err := exec.LookPath("netplan"); err != nil {
+		respondErrorSimple(w, "netplan is not available on this system; configure interfaces with PUT /api/system/network", http.StatusNotImplemented)
+		return
+	}
 
 	// Save current config for rollback
 	currentConfig, err := readFileContent(req.ConfigPath)
@@ -712,8 +731,16 @@ func ApplyNetworkWithRollback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Apply
-	executeCommandWithTimeout(TimeoutMedium, "netplan", []string{"apply"})
+	// Apply; on failure put the old config back right away.
+	if out, err := executeCommandWithTimeout(TimeoutMedium, "netplan", []string{"apply"}); err != nil {
+		if werr := os.WriteFile(req.ConfigPath, currentConfig, 0600); werr != nil {
+			log.Printf("NETWORK: restore %s after failed apply: %v", req.ConfigPath, werr)
+		} else if _, aerr := executeCommandWithTimeout(TimeoutMedium, "netplan", []string{"apply"}); aerr != nil {
+			log.Printf("NETWORK: re-apply previous config: %v", aerr)
+		}
+		respondOK(w, map[string]any{"success": false, "error": "netplan apply failed (previous config restored): " + strings.TrimSpace(out) + " " + err.Error()})
+		return
+	}
 
 	// Capture path and content into closure-local vars so the timer callback has
 	// an immutable copy that won't race with a concurrent ApplyNetworkWithRollback.
@@ -724,6 +751,7 @@ func ApplyNetworkWithRollback(w http.ResponseWriter, r *http.Request) {
 	if netRollbackTimer != nil {
 		netRollbackTimer.Stop()
 	}
+	netPendingCommit = nil
 	netRollbackTimer = time.AfterFunc(time.Duration(req.TimeoutSeconds)*time.Second, func() {
 		netRollbackMu.Lock()
 		defer netRollbackMu.Unlock()
@@ -750,15 +778,53 @@ func ApplyNetworkWithRollback(w http.ResponseWriter, r *http.Request) {
 // POST /api/network/confirm
 func ConfirmNetwork(w http.ResponseWriter, r *http.Request) {
 	netRollbackMu.Lock()
-	if netRollbackTimer != nil {
+	pending := netRollbackTimer != nil
+	if pending {
 		netRollbackTimer.Stop()
 		netRollbackTimer = nil
 	}
+	commit := netPendingCommit
+	netPendingCommit = nil
 	netRollbackMu.Unlock()
+
+	if !pending {
+		respondOK(w, map[string]any{"success": false, "error": "No pending network change to confirm (it may already have been reverted)"})
+		return
+	}
+	if commit != nil {
+		if err := commit(); err != nil {
+			respondOK(w, map[string]any{"success": false, "error": "Change kept, but not saved for the next boot: " + err.Error()})
+			return
+		}
+	}
 	respondOK(w, map[string]any{
 		"success": true,
 		"message": "Network change confirmed. Rollback cancelled.",
 	})
+}
+
+// armNetworkRevert starts the confirm window for a network change: revert
+// runs unless ConfirmNetwork is called within after; commit runs on confirm.
+func armNetworkRevert(after time.Duration, revert func(), commit func() error) {
+	netRollbackMu.Lock()
+	defer netRollbackMu.Unlock()
+	if netRollbackTimer != nil {
+		netRollbackTimer.Stop()
+	}
+	netPendingCommit = commit
+	var t *time.Timer
+	t = time.AfterFunc(after, func() {
+		netRollbackMu.Lock()
+		if netRollbackTimer != t { // confirmed or superseded
+			netRollbackMu.Unlock()
+			return
+		}
+		netRollbackTimer = nil
+		netPendingCommit = nil
+		netRollbackMu.Unlock()
+		revert()
+	})
+	netRollbackTimer = t
 }
 
 func readFileContent(path string) ([]byte, error) {

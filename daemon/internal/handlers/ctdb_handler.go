@@ -173,12 +173,25 @@ func HandleCTDBSetConfig(db *sql.DB) http.HandlerFunc {
 
 		log.Printf("CTDB configuration saved (enable=%v)", cfg.Enable)
 
-		// If enabling, start CTDB service
+		// Start or stop the service; report a failure instead of claiming success.
+		var svcErr error
 		if cfg.Enable {
-			cmdutil.RunMedium("systemctl_ctdb_enable_start", "enable", "ctdb")
-			cmdutil.RunMedium("systemctl_ctdb_start", "start", "ctdb")
-		} else {
-			cmdutil.RunMedium("systemctl_ctdb_stop", "stop", "ctdb")
+			if out, err := cmdutil.RunMedium("systemctl_ctdb_enable_start", "enable", "ctdb"); err != nil {
+				svcErr = fmt.Errorf("enable ctdb: %v %s", err, strings.TrimSpace(string(out)))
+			} else if out, err := cmdutil.RunMedium("systemctl_ctdb_start", "start", "ctdb"); err != nil {
+				svcErr = fmt.Errorf("start ctdb: %v %s", err, strings.TrimSpace(string(out)))
+			}
+		} else if out, err := cmdutil.RunMedium("systemctl_ctdb_stop", "stop", "ctdb"); err != nil {
+			svcErr = fmt.Errorf("stop ctdb: %v %s", err, strings.TrimSpace(string(out)))
+		}
+		if svcErr != nil {
+			log.Printf("CTDB: %v", svcErr)
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"error":   "Configuration saved, but " + svcErr.Error(),
+			})
+			return
 		}
 
 		w.Header().Set("Content-Type", "application/json")

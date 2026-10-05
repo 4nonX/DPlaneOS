@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"strings"
@@ -175,6 +176,17 @@ func CreateVLAN(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if _, err := net.InterfaceByName(req.Parent); err != nil {
+		respondErrorSimple(w, "Parent interface "+req.Parent+" does not exist", http.StatusBadRequest)
+		return
+	}
+	if req.IP != "" {
+		if _, _, err := net.ParseCIDR(req.IP); err != nil {
+			respondErrorSimple(w, "Invalid IP: use address/prefix, e.g. 10.0.100.1/24", http.StatusBadRequest)
+			return
+		}
+	}
+
 	ifName := fmt.Sprintf("%s.%d", req.Parent, req.VlanID)
 
 	// Create VLAN interface via netlink (RTM_NEWLINK - no exec, no injection surface)
@@ -189,22 +201,34 @@ func CreateVLAN(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Bring up
-	if err := netlinkx.LinkSetUp(ifName); err != nil {
-		log.Printf("network: bring up VLAN %s: %v", ifName, err)
+	// Every later step must succeed, or the half-configured VLAN is removed
+	// and the error returned (failures used to be logged while reporting success).
+	fail := func(step string, err error) {
+		if delErr := netlinkx.LinkDel(ifName); delErr != nil {
+			log.Printf("network: undo VLAN %s: %v", ifName, delErr)
+		}
+		respondOK(w, map[string]any{"success": false, "error": step + ": " + err.Error()})
 	}
-
-	// Set IP if provided
-	if req.IP != "" && !strings.ContainsAny(req.IP, ";|&$`\\\"'") {
+	if err := netlinkx.LinkSetUp(ifName); err != nil {
+		fail("bring up "+ifName, err)
+		return
+	}
+	if req.IP != "" {
 		if err := netlinkx.AddrAdd(ifName, req.IP); err != nil {
-			log.Printf("network: assign IP %s to VLAN %s: %v", req.IP, ifName, err)
+			fail("assign "+req.IP, err)
+			return
 		}
 	}
-
-	// Persist to DB and Nix fragment
-	persistVLAN(ifName, req.Parent, req.VlanID)
+	if err := persistVLAN(ifName, req.Parent, req.VlanID); err != nil {
+		fail("save", err)
+		return
+	}
 	if req.IP != "" {
-		persistStaticIP(ifName, req.IP, "", nil)
+		if err := persistStaticIP(ifName, req.IP, "", nil); err != nil {
+			persistVLANDelete(ifName)
+			fail("save", err)
+			return
+		}
 	}
 
 	respondOK(w, map[string]any{
@@ -290,6 +314,30 @@ func CreateBond(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if len(req.Slaves) == 0 {
+		respondErrorSimple(w, "A bond needs at least one slave interface", http.StatusBadRequest)
+		return
+	}
+	slaveWasUp := map[string]bool{}
+	for _, slave := range req.Slaves {
+		if strings.ContainsAny(slave, ";|&$`\\\"' /") || len(slave) > 15 {
+			respondErrorSimple(w, "Invalid slave interface name: "+slave, http.StatusBadRequest)
+			return
+		}
+		ifc, err := net.InterfaceByName(slave)
+		if err != nil {
+			respondErrorSimple(w, "Slave interface "+slave+" does not exist", http.StatusBadRequest)
+			return
+		}
+		slaveWasUp[slave] = ifc.Flags&net.FlagUp != 0
+	}
+	if req.IP != "" {
+		if _, _, err := net.ParseCIDR(req.IP); err != nil {
+			respondErrorSimple(w, "Invalid IP: use address/prefix, e.g. 192.168.1.10/24", http.StatusBadRequest)
+			return
+		}
+	}
+
 	// Create bond via netlink (RTM_NEWLINK - no exec, no injection surface)
 	if err := netlinkx.LinkAdd(netlinkx.LinkAttrs{
 		Name:     req.Name,
@@ -300,34 +348,55 @@ func CreateBond(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Add slaves
-	for _, slave := range req.Slaves {
-		if strings.ContainsAny(slave, ";|&$`\\\"' /") {
-			continue
+	// Every later step must succeed, or the bond is deleted (the kernel
+	// releases its slaves), slaves that were up are brought back up, and the
+	// error is returned. Failures used to be logged while reporting success,
+	// and skipped slaves were still persisted.
+	fail := func(step string, err error) {
+		if delErr := netlinkx.LinkDel(req.Name); delErr != nil {
+			log.Printf("network: undo bond %s: %v", req.Name, delErr)
 		}
+		for slave, up := range slaveWasUp {
+			if up {
+				if upErr := netlinkx.LinkSetUp(slave); upErr != nil {
+					log.Printf("network: restore %s after failed bond: %v", slave, upErr)
+				}
+			}
+		}
+		respondOK(w, map[string]any{"success": false, "error": step + ": " + err.Error()})
+	}
+	for _, slave := range req.Slaves {
 		if err := netlinkx.LinkSetDown(slave); err != nil {
-			log.Printf("network: bring down slave %s for bond %s: %v", slave, req.Name, err)
+			fail("bring down "+slave, err)
+			return
 		}
 		if err := netlinkx.LinkSetMaster(slave, req.Name); err != nil {
-			log.Printf("network: set master for slave %s on bond %s: %v", slave, req.Name, err)
+			fail("add "+slave+" to "+req.Name, err)
+			return
 		}
 	}
-
-	// Bring up
 	if err := netlinkx.LinkSetUp(req.Name); err != nil {
-		log.Printf("network: bring up bond %s: %v", req.Name, err)
+		fail("bring up "+req.Name, err)
+		return
 	}
-
-	if req.IP != "" && !strings.ContainsAny(req.IP, ";|&$`\\\"'") {
+	if req.IP != "" {
 		if err := netlinkx.AddrAdd(req.Name, req.IP); err != nil {
-			log.Printf("network: assign IP %s to bond %s: %v", req.IP, req.Name, err)
+			fail("assign "+req.IP, err)
+			return
 		}
 	}
 
 	// Persist to DB (boot reconciliation) and Nix fragment (NixOS declarative)
-	persistBond(req.Name, req.Slaves, req.Mode)
+	if err := persistBond(req.Name, req.Slaves, req.Mode); err != nil {
+		fail("save", err)
+		return
+	}
 	if req.IP != "" {
-		persistStaticIP(req.Name, req.IP, "", nil)
+		if err := persistStaticIP(req.Name, req.IP, "", nil); err != nil {
+			persistBondDelete(req.Name)
+			fail("save", err)
+			return
+		}
 	}
 
 	respondOK(w, map[string]any{
@@ -391,20 +460,34 @@ func SetNTPServers(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	executeCommandWithTimeout(TimeoutFast, "timedatectl", []string{"set-ntp", "true"})
+	// On NixOS timesyncd is enabled declaratively; timedatectl set-ntp would try
+	// to enable the unit in the read-only /etc.
+	if !onNixOS() {
+		if out, err := executeCommandWithTimeout(TimeoutFast, "timedatectl", []string{"set-ntp", "true"}); err != nil {
+			respondOK(w, map[string]any{"success": false, "error": "timedatectl set-ntp: " + strings.TrimSpace(out) + " " + err.Error()})
+			return
+		}
+	}
 
 	// Write the NTP server list to systemd-timesyncd.conf (on NixOS the file
 	// is generated; persistNTP records it for the next rebuild instead).
 	if !onNixOS() {
 		conf := "[Time]\nNTP=" + strings.Join(req.Servers, " ") + "\n"
 		if err := os.WriteFile("/etc/systemd/timesyncd.conf", []byte(conf), 0644); err != nil {
-			log.Printf("WARN: SetNTPServers: failed to write timesyncd.conf: %v", err)
+			respondOK(w, map[string]any{"success": false, "error": "write timesyncd.conf: " + err.Error()})
+			return
 		}
-		executeCommandWithTimeout(TimeoutMedium, "systemctl", []string{"restart", "systemd-timesyncd"})
+		if out, err := executeCommandWithTimeout(TimeoutMedium, "systemctl", []string{"restart", "systemd-timesyncd"}); err != nil {
+			respondOK(w, map[string]any{"success": false, "error": "restart systemd-timesyncd: " + strings.TrimSpace(out) + " " + err.Error()})
+			return
+		}
 	}
 
 	// Persist to Nix fragment (NixOS: networking.timeServers)
-	persistNTP(req.Servers)
+	if err := persistNTP(req.Servers); err != nil {
+		respondOK(w, map[string]any{"success": false, "error": err.Error()})
+		return
+	}
 
 	respondOK(w, map[string]any{
 		"success": true,

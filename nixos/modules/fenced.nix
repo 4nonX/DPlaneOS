@@ -175,12 +175,8 @@ in {
       };
     };
 
-    # ── Extend dplaned's ReadWritePaths for the shared socket directory ───────
-    # dplaned's fenced_client.go connects to /run/dplaneos/fenced.sock.
-    # /run/dplaneos is already in dplaned's RuntimeDirectory; this is belt-and-
-    # suspenders to ensure the path remains writable when both services are up.
-    systemd.services.dplaned.serviceConfig.ReadWritePaths =
-      lib.mkAfter [ "/run/dplaneos" ];
+    # dplaned's fenced_client.go connects to /run/dplaneos/fenced.sock; dplaned
+    # has no mount namespace, so no ReadWritePaths are needed (see module.nix).
 
   };
 }

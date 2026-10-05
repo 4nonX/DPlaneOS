@@ -1088,7 +1088,11 @@ func (h *CertHandler) ActivateCert(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Reload nginx
-	cmdutil.RunFast("nginx", "-s", "reload")
+	if out, err := cmdutil.RunFast("nginx", "-s", "reload"); err != nil {
+		audit.LogAction("cert_activate", user, fmt.Sprintf("nginx reload failed: %s", string(out)), false, 0)
+		respondErrorSimple(w, "Certificate installed, but nginx reload failed: "+strings.TrimSpace(string(out)), http.StatusInternalServerError)
+		return
+	}
 
 	audit.LogAction("cert_activate", user, fmt.Sprintf("Activated cert: %s", req.Name), true, 0)
 	w.Header().Set("Content-Type", "application/json")
@@ -1334,7 +1338,9 @@ func (h *CertHandler) ensureACMEProxy() error {
 		return err
 	}
 
-	cmdutil.RunFast("nginx", "-s", "reload")
+	if out, err := cmdutil.RunFast("nginx", "-s", "reload"); err != nil {
+		return fmt.Errorf("nginx reload: %v %s", err, strings.TrimSpace(string(out)))
+	}
 	return nil
 }
 

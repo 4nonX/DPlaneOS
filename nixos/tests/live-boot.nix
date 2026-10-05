@@ -23,7 +23,7 @@ let
   # feature flags, migrations). Shellchecked at build time.
   smokeTest = pkgs.writeShellApplication {
     name = "dplaneos-smoke";
-    runtimeInputs = with pkgs; [ curl jq gawk avahi ];
+    runtimeInputs = with pkgs; [ curl jq gawk avahi iproute2 util-linux ];
     text = builtins.readFile ./live-boot-smoke.sh;
   };
 

@@ -19,6 +19,7 @@ import (
 	"dplaned/internal/cmdutil"
 	"dplaned/internal/netlinkx"
 	"dplaned/internal/security"
+	"dplaned/internal/reconciler"
 )
 
 type SystemHandler struct{}
@@ -321,6 +322,10 @@ func netmaskToCIDR(mask string) int {
 	return prefix
 }
 
+// networkRevertAfter is the confirm window for interface changes; the UI
+// counts down 30 s, the extra seconds cover the confirm request itself.
+const networkRevertAfter = 35 * time.Second
+
 func (h *SystemHandler) handleNetworkPost(w http.ResponseWriter, r *http.Request, user string) {
 	var req map[string]any
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -332,6 +337,7 @@ func (h *SystemHandler) handleNetworkPost(w http.ResponseWriter, r *http.Request
 	if action == "configure" {
 		opStart := time.Now()
 		iface, _ := req["interface"].(string)
+		dhcp, _ := req["dhcp"].(bool)
 		address, _ := req["address"].(string)
 		if address == "" {
 			address, _ = req["ip"].(string)
@@ -339,44 +345,98 @@ func (h *SystemHandler) handleNetworkPost(w http.ResponseWriter, r *http.Request
 		netmask, _ := req["netmask"].(string)
 		gateway, _ := req["gateway"].(string)
 
-		if !ifaceRe.MatchString(iface) || address == "" {
-			respondErrorSimple(w, "Invalid network configuration", http.StatusBadRequest)
+		if !ifaceRe.MatchString(iface) {
+			respondErrorSimple(w, "Invalid interface", http.StatusBadRequest)
 			return
 		}
-
-		// Convert netmask to CIDR if needed
-		if !strings.Contains(address, "/") && netmask != "" {
-			prefix := netmaskToCIDR(netmask)
-			if prefix < 0 {
-				respondErrorSimple(w, "Invalid netmask", http.StatusBadRequest)
+		if _, ok := req["mtu"]; ok {
+			respondErrorSimple(w, "Changing the MTU is not supported", http.StatusBadRequest)
+			return
+		}
+		if dhcp && (address != "" || gateway != "") {
+			respondErrorSimple(w, "Use either DHCP or a static address, not both", http.StatusBadRequest)
+			return
+		}
+		if !dhcp {
+			if address == "" {
+				respondErrorSimple(w, "A static configuration needs an address", http.StatusBadRequest)
 				return
 			}
-			address += "/" + strconv.Itoa(prefix)
-		}
-
-		// Validate final address
-		if !isValidIPOrCIDR(address) {
-			respondErrorSimple(w, "Invalid network configuration", http.StatusBadRequest)
-			return
-		}
-
-		// Use netlinkx.AddrReplace (atomic RTM_NEWADDR - no exec, no injection surface)
-		err := netlinkx.AddrReplace(iface, address)
-		if err == nil && gateway != "" {
-			if !isValidIPOrCIDR(gateway) {
+			// Convert netmask to CIDR if needed
+			if !strings.Contains(address, "/") && netmask != "" {
+				prefix := netmaskToCIDR(netmask)
+				if prefix < 0 {
+					respondErrorSimple(w, "Invalid netmask", http.StatusBadRequest)
+					return
+				}
+				address += "/" + strconv.Itoa(prefix)
+			}
+			if _, _, err := net.ParseCIDR(address); err != nil {
+				respondErrorSimple(w, "Invalid address: use address/prefix or give a netmask", http.StatusBadRequest)
+				return
+			}
+			if gateway != "" && net.ParseIP(gateway) == nil {
 				respondErrorSimple(w, "Invalid gateway", http.StatusBadRequest)
 				return
 			}
-			_ = netlinkx.RouteReplace("default", strings.Split(gateway, "/")[0], iface)
 		}
+		// The change is written as a networkd file so it can be reverted if the
+		// operator does not confirm (the UI shows the countdown).
+		if NetWriter == nil || !NetWriter.IsNetworkd() {
+			respondErrorSimple(w, "Interface configuration needs systemd-networkd", http.StatusNotImplemented)
+			return
+		}
+		snap, existed, err := NetWriter.Snapshot(iface)
 		if err != nil {
-			respondOK(w, map[string]any{"success": false, "error": err.Error()})
+			respondOK(w, map[string]any{"success": false, "error": "read current config: " + err.Error()})
+			return
+		}
+		restore := func() error { return NetWriter.Restore(iface, snap, existed) }
+
+		var applyErr error
+		if dhcp {
+			applyErr = NetWriter.SetDHCP(iface, nil)
+		} else if applyErr = netlinkx.AddrReplace(iface, address); applyErr == nil {
+			if gateway != "" {
+				if err := netlinkx.RouteReplace("default", gateway, iface); err != nil {
+					applyErr = fmt.Errorf("default route via %s: %w", gateway, err)
+				}
+			}
+			if applyErr == nil {
+				applyErr = NetWriter.SetStatic(iface, address, gateway, nil)
+			}
+		}
+		if applyErr != nil {
+			if err := restore(); err != nil {
+				log.Printf("network: restore %s after failed configure: %v", iface, err)
+			}
+			audit.LogCommand(audit.LevelInfo, user, "network_configure", []string{iface, address}, false, time.Since(opStart), applyErr)
+			respondOK(w, map[string]any{"success": false, "error": applyErr.Error()})
 			return
 		}
 		audit.LogCommand(audit.LevelInfo, user, "network_configure", []string{iface, address}, true, time.Since(opStart), nil)
-		// Persist to DB (boot reconciliation) and Nix fragment (NixOS: systemd.network)
-		persistStaticIP(iface, address, strings.Split(gateway, "/")[0], nil)
-		respondOK(w, map[string]any{"success": true, "message": "Interface configured"})
+
+		// Boot reconciliation state is saved only once the change is confirmed.
+		commit := func() error {
+			if ReconcilerDB == nil {
+				return nil
+			}
+			if dhcp {
+				return reconciler.SaveDHCP(ReconcilerDB, iface)
+			}
+			return reconciler.SaveStaticIP(ReconcilerDB, iface, address, gateway)
+		}
+		armNetworkRevert(networkRevertAfter, func() {
+			log.Printf("NETWORK ROLLBACK: %s not confirmed, reverting", iface)
+			if err := restore(); err != nil {
+				log.Printf("NETWORK ROLLBACK ERROR: %s: %v", iface, err)
+			}
+		}, commit)
+		respondOK(w, map[string]any{
+			"success":        true,
+			"message":        "Interface configured; confirm to keep it",
+			"revert_seconds": int(networkRevertAfter.Seconds()),
+		})
 		return
 	}
 
@@ -423,9 +483,16 @@ func (h *SystemHandler) handleNetworkPost(w http.ResponseWriter, r *http.Request
 		var servers []string
 		if raw, ok := req["nameservers"].([]any); ok {
 			for _, s := range raw {
-				if ip, ok := s.(string); ok && net.ParseIP(strings.TrimSpace(ip)) != nil {
-					servers = append(servers, strings.TrimSpace(ip))
+				ip, _ := s.(string)
+				ip = strings.TrimSpace(ip)
+				if ip == "" {
+					continue
 				}
+				if net.ParseIP(ip) == nil {
+					respondErrorSimple(w, "Invalid DNS server: "+ip, http.StatusBadRequest)
+					return
+				}
+				servers = append(servers, ip)
 			}
 		}
 		if len(servers) == 0 {
@@ -449,12 +516,16 @@ func (h *SystemHandler) handleNetworkPost(w http.ResponseWriter, r *http.Request
 		if len(searchDomains) > 0 {
 			resolvConf.WriteString("search " + strings.Join(searchDomains, " ") + "\n")
 		}
-		if err := os.WriteFile("/etc/resolv.conf", []byte(resolvConf.String()), 0644); err != nil {
-			log.Printf("WARN: write /etc/resolv.conf: %v", err)
-			// Not fatal - DNS may still work via systemd-resolved
+		if NetWriter != nil && NetWriter.IsNetworkd() {
+			// networkd/resolved own resolv.conf (NixOS): the global DNS file applies it.
+			if err := persistDNS(servers); err != nil {
+				respondOK(w, map[string]any{"success": false, "error": err.Error()})
+				return
+			}
+		} else if err := os.WriteFile("/etc/resolv.conf", []byte(resolvConf.String()), 0644); err != nil {
+			respondOK(w, map[string]any{"success": false, "error": "write /etc/resolv.conf: " + err.Error()})
+			return
 		}
-		// Persist to Nix fragment (NixOS: networking.nameservers)
-		persistDNS(servers)
 		audit.LogCommand(audit.LevelInfo, user, "dns_set", servers, true, 0, nil)
 		respondOK(w, map[string]any{"success": true, "nameservers": servers, "search": searchDomains})
 		return

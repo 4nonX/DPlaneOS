@@ -5,9 +5,9 @@
  *
  * Calls:
  *   GET  /api/system/network                          → { success, interfaces[], dns[], gateway }
- *   POST /api/network/apply  { action:'configure', interface, dhcp, ip, netmask, gateway, mtu }
- *   POST /api/network/apply  { action:'set_dns', dns[] }
- *   POST /api/network/confirm                         → confirm applied config
+ *   PUT  /api/system/network { action:'configure', interface, dhcp, ip, netmask, gateway }
+ *   PUT  /api/system/network { action:'set_dns', nameservers[] }
+ *   POST /api/network/confirm                         → keep the change (else it reverts)
  *   GET  /api/network/vlan                            → { success, vlans: string }
  *   POST /api/network/vlan   { name, parent, id }     → create VLAN
  *   POST /api/network/bond   { name, mode, slaves[] } → create bond
@@ -62,7 +62,7 @@ interface NTPResponse {
 
 // ---------------------------------------------------------------------------
 // Configure Interface Modal
-// Sends: POST /api/network/apply { action:'configure', interface, dhcp, ip?, netmask?, gateway?, mtu }
+// Sends: PUT /api/system/network { action:'configure', interface, dhcp, ip?, netmask?, gateway? }
 // After success, caller shows the 30-second confirm banner.
 // ---------------------------------------------------------------------------
 
@@ -75,17 +75,15 @@ function ConfigureIfaceModal({ iface, onClose, onDone }: {
   const [ip,      setIp]      = useState(iface.ip      ?? '')
   const [netmask, setNetmask] = useState(iface.netmask ?? '255.255.255.0')
   const [gateway, setGateway] = useState(iface.gateway ?? '')
-  const [mtu,     setMtu]     = useState(String(iface.mtu ?? 1500))
 
   const save = useMutation({
-    mutationFn: async () => ensureOk(await api.post('/api/network/apply', {
+    mutationFn: async () => ensureOk(await api.put<{ success?: boolean; error?: string }>('/api/system/network', {
       action:    'configure',
       interface: iface.name,
       dhcp,
       ip:        dhcp ? undefined : ip        || undefined,
       netmask:   dhcp ? undefined : netmask   || undefined,
       gateway:   dhcp ? undefined : gateway   || undefined,
-      mtu:       Number(mtu) || 1500,
     })),
     onSuccess: () => { toast.success(`${iface.name} - changes applied`); onDone(); onClose() },
     onError: (e: Error) => toast.error(e.message),
@@ -126,17 +124,7 @@ function ConfigureIfaceModal({ iface, onClose, onDone }: {
             <input value={gateway} onChange={e => setGateway(e.target.value)} placeholder="192.168.1.1"
               className="input" style={{ fontFamily: 'var(--font-mono)' }} />
           )}
-          {labelRow('MTU',
-            <input type="number" value={mtu} onChange={e => setMtu(e.target.value)} min={576} max={9000} className="input" />
-          )}
         </div>
-      )}
-
-      {dhcp && (
-        <label className="field">
-          <span className="field-label">MTU</span>
-          <input type="number" value={mtu} onChange={e => setMtu(e.target.value)} min={576} max={9000} className="input" style={{ width: 120 }} />
-        </label>
       )}
 
       <div style={{ padding: '10px 14px', background: 'var(--info-bg)', border: '1px solid var(--info-border)', borderRadius: 'var(--radius-sm)', fontSize: 'var(--text-xs)', color: 'var(--info)', display: 'flex', gap: 8, alignItems: 'flex-start' }}>
@@ -203,7 +191,7 @@ function InterfacesTab() {
   })
 
   const confirm = useMutation({
-    mutationFn: () => api.post('/api/network/confirm', {}),
+    mutationFn: async () => ensureOk(await api.post<{ success?: boolean; error?: string }>('/api/network/confirm', {})),
     onSuccess: () => { toast.success('Network configuration confirmed'); setPendingConfirm(false) },
     onError: (e: Error) => toast.error(e.message),
   })
@@ -301,10 +289,10 @@ function VLANsTab() {
   })
 
   const createVLAN = useMutation({
-    mutationFn: () => {
+    mutationFn: async () => {
       if (!parent.trim() || !vlanId) throw new Error('Parent interface and VLAN ID are required')
-      // Convention: parent.id (e.g. eth0.10)
-      return api.post('/api/network/vlan', { parent: parent.trim(), vlan_id: Number(vlanId) })
+      // Convention: parent.id (e.g. eth0.10). Failures come back as 200 { success: false }.
+      return ensureOk(await api.post<{ success?: boolean; error?: string }>('/api/network/vlan', { parent: parent.trim(), vlan_id: Number(vlanId) }))
     },
     onSuccess: () => {
       toast.success('VLAN created')
@@ -408,11 +396,11 @@ function BondingTab() {
   })
 
   const createBond = useMutation({
-    mutationFn: () => {
+    mutationFn: async () => {
       const slaves = slavesStr.split(',').map(s => s.trim()).filter(Boolean)
       if (!bondName.trim()) throw new Error('Bond name is required')
       if (slaves.length < 2) throw new Error('At least 2 slave interfaces are required')
-      return api.post('/api/network/bond', { name: bondName.trim(), mode, slaves })
+      return ensureOk(await api.post<{ success?: boolean; error?: string }>('/api/network/bond', { name: bondName.trim(), mode, slaves }))
     },
     onSuccess: () => {
       toast.success('Bond interface created')
@@ -528,9 +516,9 @@ function DnsNtpTab() {
   const ntpStr = ntpEdit ?? ntpQ.data?.servers?.join(', ') ?? ''
 
   const saveDns = useMutation({
-    mutationFn: () => {
-      const dns = dnsStr.split(',').map(s => s.trim()).filter(Boolean)
-      return api.post('/api/network/apply', { action: 'set_dns', dns })
+    mutationFn: async () => {
+      const nameservers = dnsStr.split(',').map(s => s.trim()).filter(Boolean)
+      return ensureOk(await api.put<{ success?: boolean; error?: string }>('/api/system/network', { action: 'set_dns', nameservers }))
     },
     onSuccess: () => {
       toast.success('DNS servers saved')

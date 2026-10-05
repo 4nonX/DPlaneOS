@@ -420,12 +420,8 @@ in {
       "d /var/lib/dplaneos       0775 root root -"  # ensure parent exists
     ];
 
-    # ── ReadWritePaths extension for dplaned service ──────────────────────────
-    # The dplaned systemd service (declared in module.nix) needs write access
-    # to the shares config path. We extend its ReadWritePaths here.
-    # lib.mkAfter ensures this appends rather than replaces module.nix's list.
-    systemd.services.dplaned.serviceConfig.ReadWritePaths =
-      lib.mkAfter [ (builtins.dirOf sharesConfPath) ];
+    # No ReadWritePaths for dplaned: any of them gives it a private mount
+    # namespace, hiding its ZFS mounts from Samba (see module.nix).
 
   };
 }

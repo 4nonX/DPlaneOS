@@ -1602,7 +1602,8 @@ var CreateTimeProps = map[string]map[string]bool{
 }
 
 // validateZfsCreateOpts enforces: create (-o key=value)+ pool/dataset
-// where every key is a create-time property from CreateTimeProps.
+// where every key is a create-time property from CreateTimeProps or a
+// property validateZfsSetProperty accepts.
 func validateZfsCreateOpts(args []string) error {
 	if len(args) < 4 || args[0] != "create" || len(args)%2 != 0 {
 		return fmt.Errorf("zfs create must be: create -o key=value [...] pool/dataset")
@@ -1615,12 +1616,15 @@ func validateZfsCreateOpts(args []string) error {
 		if len(kv) != 2 {
 			return fmt.Errorf("invalid property assignment %q", args[i+1])
 		}
-		allowed, ok := CreateTimeProps[kv[0]]
-		if !ok {
-			return fmt.Errorf("property not allowed at create time: %s", kv[0])
+		if allowed, ok := CreateTimeProps[kv[0]]; ok {
+			if !allowed[kv[1]] {
+				return fmt.Errorf("invalid value for %s: %q", kv[0], kv[1])
+			}
+			continue
 		}
-		if !allowed[kv[1]] {
-			return fmt.Errorf("invalid value for %s: %q", kv[0], kv[1])
+		// Settable properties follow the same rules as `zfs set`.
+		if err := validateZfsSetProperty([]string{"set", args[i+1], args[len(args)-1]}); err != nil {
+			return err
 		}
 	}
 	name := args[len(args)-1]

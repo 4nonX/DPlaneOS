@@ -9,6 +9,13 @@
 
 let
   cfg = config.services.dplaneos;
+  dplanedNamespaceOpts =
+    let sc = config.systemd.services.dplaned.serviceConfig or {};
+    in builtins.filter (o: sc ? ${o} && !(builtins.elem sc.${o} [ false "no" "off" [] ])) [
+      "ReadWritePaths" "ReadOnlyPaths" "InaccessiblePaths" "BindPaths" "BindReadOnlyPaths"
+      "TemporaryFileSystem" "PrivateTmp" "PrivateMounts" "PrivateDevices" "ProtectSystem"
+      "ProtectHome" "ProtectKernelTunables" "ProtectKernelModules" "ProtectControlGroups"
+    ];
   # pg_isready target for the pre-start probe, following the DSN.
   pgProbeHost = if lib.hasInfix "host=/run/postgresql" cfg.dbDSN then "/run/postgresql" else "localhost";
   # NixOS owns smb.conf (modules/samba.nix) and includes the daemon's share file.
@@ -163,6 +170,15 @@ in {
         "DPlaneOS v9.1+ requires OpenZFS 2.2.0 or later for RAID-Z parity " +
         "expansion (zpool attach on raidz silently creates a mirror on older versions). " +
         "Set boot.zfs.package = pkgs.zfs_2_2 or use NixOS 23.11+.";
+    } {
+      # Any of these gives dplaned a private mount namespace (a slave of the
+      # host): datasets it creates or imports are then mounted only inside the
+      # service, invisible to Samba, NFS and users until a reboot.
+      assertion = dplanedNamespaceOpts == [];
+      message =
+        "systemd.services.dplaned must not use mount-namespace options " +
+        "(${lib.concatStringsSep ", " dplanedNamespaceOpts}): its ZFS mounts " +
+        "would not be visible outside the service.";
     }];
 
     # ─── Required system packages ────────────────────────────────────────

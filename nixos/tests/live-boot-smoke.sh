@@ -96,6 +96,27 @@ expect 400 POST /api/zfs/datasets '{"name":"smoke/bad","casesensitivity":"maybe"
 expect 400 POST /api/zfs/datasets '{"name":"smoke/bad","acltype":"nfsv4"}'
 expect 400 POST /api/zfs/datasets '{"name":"smoke/bad","mountpoint":"/etc/evil"}'
 check "rejected mountpoint created nothing" lacks "$(zfs list -H -o name -r smoke)" 'smoke/bad'
+# Invalid properties are rejected before anything is created (they used to be
+# dropped silently after the create, which still reported success).
+expect 400 POST /api/zfs/datasets '{"name":"smoke/q","quota":"10GB"}'
+check "rejected quota created nothing" lacks "$(zfs list -H -o name -r smoke)" 'smoke/q'
+# Dataset quota (Quotas page): applied, and malformed sizes rejected.
+expect 200 POST /api/zfs/dataset/quota '{"dataset":"smoke/share","refquota":"1073741824"}'
+check "refquota is 1 GiB" test "$(zfs get -H -p -o value refquota smoke/share)" = 1073741824
+expect 400 POST /api/zfs/dataset/quota '{"dataset":"smoke/share","refquota":"1 gig"}'
+expect 200 POST /api/zfs/dataset/quota '{"dataset":"smoke/share","refquota":"none"}'
+
+# ── Network input validation: nothing is changed on bad input ─────────────
+expect 400 POST /api/network/vlan '{"parent":"eth0","vlan_id":42,"ip":"10.0.42.1"}'
+check "no VLAN left behind" lacks "$(ip -o link show)" 'eth0.42'
+expect 400 POST /api/network/bond '{"name":"bond9","mode":"active-backup","slaves":["nosuch0"]}'
+check "no bond left behind" lacks "$(ip -o link show)" 'bond9'
+expect 400 PUT /api/system/network '{"action":"configure","interface":"eth0","ip":"10.0.0.300/24"}'
+expect 400 PUT /api/system/network '{"action":"set_dns","nameservers":["1.1.1.1","not-an-ip"]}'
+expect 200 POST /api/network/confirm '{}'
+check "confirm without a pending change is refused" test "$(json .success)" = false
+# netplan does not exist on NixOS: the raw-config endpoint refuses clearly.
+expect 501 POST /api/network/apply '{"config_path":"/etc/netplan/50-x.yaml","new_config":"network: {}"}'
 
 # The daemon's mounts must be visible on the host (Samba, NFS, users), not
 # only inside the daemon's service namespace.

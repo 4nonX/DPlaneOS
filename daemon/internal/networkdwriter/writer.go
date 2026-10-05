@@ -152,6 +152,47 @@ func (w *Writer) SetDHCP(iface string, dns []string) error {
 	return w.SetStatic(iface, "", "", dns)
 }
 
+// Snapshot returns the current DPlaneOS config file for an interface, for
+// Restore. existed is false when there is none (NixOS defaults apply).
+func (w *Writer) Snapshot(iface string) (content string, existed bool, err error) {
+	if err := validateIface(iface); err != nil {
+		return "", false, err
+	}
+	data, err := os.ReadFile(filepath.Join(w.dir, FilePrefix+sanitizeIface(iface)+".network"))
+	if os.IsNotExist(err) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, err
+	}
+	return string(data), true, nil
+}
+
+// Restore puts back a Snapshot and makes networkd re-apply it to the live
+// interface (addresses added by the change are dropped).
+func (w *Writer) Restore(iface, content string, existed bool) error {
+	if err := validateIface(iface); err != nil {
+		return err
+	}
+	filename := FilePrefix + sanitizeIface(iface) + ".network"
+	var err error
+	if existed {
+		err = w.writeAndReload(filename, content)
+	} else {
+		err = w.removeAndReload(filename)
+	}
+	if err != nil {
+		return err
+	}
+	if !w.networkdUp {
+		return nil
+	}
+	if out, err := exec.Command("networkctl", "reconfigure", iface).CombinedOutput(); err != nil {
+		return fmt.Errorf("networkctl reconfigure %s: %v (%s)", iface, err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
 // RemoveInterface deletes the DPlaneOS network config for an interface.
 // After removal, NixOS's own config (or networkd defaults) take over.
 func (w *Writer) RemoveInterface(iface string) error {
@@ -457,9 +498,9 @@ func (w *Writer) reload() error {
 	}
 	out, err := exec.Command("networkctl", "reload").CombinedOutput()
 	if err != nil {
-		log.Printf("[networkdwriter] WARN: networkctl reload: %v (%s)", err, strings.TrimSpace(string(out)))
-		// Not fatal - files are written correctly, they'll be read on next boot or manual reload
-		return nil
+		// The file is written (it applies at the next boot), but the live
+		// system did not pick it up: callers must not report it as applied.
+		return fmt.Errorf("file written, but networkctl reload failed: %v (%s)", err, strings.TrimSpace(string(out)))
 	}
 	log.Printf("[networkdwriter] networkctl reload: OK")
 	return nil

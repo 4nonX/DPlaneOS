@@ -13,7 +13,7 @@
 import { useState } from 'react'
 import type React from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { api } from '@/lib/api'
+import { api, ensureOk } from '@/lib/api'
 import { Icon } from '@/components/ui/Icon'
 import { ErrorState } from '@/components/ui/ErrorState'
 import { Skeleton } from '@/components/ui/LoadingSpinner'
@@ -35,6 +35,13 @@ function parseSize(s:string):number {
   return Math.round(parseFloat(m[1])*(mul[(m[2]||'B').toLowerCase()]??1))
 }
 
+/** Size as a ZFS byte count, or null when the input does not parse (never 0,
+ *  which ZFS reads as "no quota"). */
+function zfsSize(s: string): string | null {
+  const n = parseSize(s.trim())
+  return n > 0 ? String(n) : null
+}
+
 function DatasetQuotaLookup() {
   const [dataset, setDataset] = useState('')
   const [queried, setQueried] = useState<string|null>(null)
@@ -51,17 +58,22 @@ function DatasetQuotaLookup() {
 
   const quotaQ = useQuery({
     queryKey: ['quota', 'dataset', queried],
-    queryFn:  ({ signal }) => api.get<{ success:boolean; quota?:number; refquota?:number }>(`/api/zfs/dataset/quota?dataset=${encodeURIComponent(queried!)}`, signal),
+    // Values are raw byte counts as strings ("0" = none).
+    queryFn:  ({ signal }) => api.get<{ success:boolean; quota?:string; refquota?:string }>(`/api/zfs/dataset/quota?dataset=${encodeURIComponent(queried!)}`, signal),
     enabled:  !!queried,
   })
 
   const setQ = useMutation({
-    mutationFn: () => api.post('/api/zfs/datasets', { action:'set_quota', dataset:queried, quota:parseSize(quota) }),
+    mutationFn: async () => {
+      const refquota = zfsSize(quota)
+      if (!refquota) throw new Error(`Invalid size "${quota}" (e.g. 100GB)`)
+      return ensureOk(await api.post<{ success?: boolean; error?: string }>('/api/zfs/dataset/quota', { dataset: queried, refquota }))
+    },
     onSuccess: () => { toast.success('Quota set'); qc.invalidateQueries({ queryKey:['quota','dataset',queried] }) },
     onError: (e:Error) => toast.error(e.message),
   })
   const removeQ = useMutation({
-    mutationFn: () => api.post('/api/zfs/datasets', { action:'set_quota', dataset:queried, quota:0 }),
+    mutationFn: async () => ensureOk(await api.post<{ success?: boolean; error?: string }>('/api/zfs/dataset/quota', { dataset: queried, refquota: 'none' })),
     onSuccess: () => { toast.success('Quota removed'); qc.invalidateQueries({ queryKey:['quota','dataset',queried] }) },
     onError: (e:Error) => toast.error(e.message),
   })
@@ -81,8 +93,8 @@ function DatasetQuotaLookup() {
       {quotaQ.isLoading && <Skeleton height={60}/>}
       {quotaQ.data && queried && (
         <div style={{ display:'flex', gap:16, alignItems:'center', padding:'12px 16px', background:'var(--surface)', borderRadius:'var(--radius-sm)', marginBottom:12 }}>
-          <div><div style={{ fontSize:'var(--text-xs)', color:'var(--text-tertiary)' }}>Current quota</div><div style={{ fontFamily:'var(--font-mono)', fontWeight:700 }}>{quotaQ.data.quota ? fmtSize(quotaQ.data.quota) : 'None'}</div></div>
-          {quotaQ.data.refquota != null && <div><div style={{ fontSize:'var(--text-xs)', color:'var(--text-tertiary)' }}>Refquota</div><div style={{ fontFamily:'var(--font-mono)', fontWeight:700 }}>{quotaQ.data.refquota ? fmtSize(quotaQ.data.refquota) : 'None'}</div></div>}
+          <div><div style={{ fontSize:'var(--text-xs)', color:'var(--text-tertiary)' }}>Current quota</div><div style={{ fontFamily:'var(--font-mono)', fontWeight:700 }}>{Number(quotaQ.data.refquota) ? fmtSize(Number(quotaQ.data.refquota)) : 'None'}</div></div>
+          {Number(quotaQ.data.quota) > 0 && <div><div style={{ fontSize:'var(--text-xs)', color:'var(--text-tertiary)' }}>Incl. snapshots &amp; children</div><div style={{ fontFamily:'var(--font-mono)', fontWeight:700 }}>{fmtSize(Number(quotaQ.data.quota))}</div></div>}
         </div>
       )}
       {queried && !quotaQ.isLoading && (
@@ -107,7 +119,11 @@ function UserGroupQuotas() {
 
   const ugQ = useQuery({ queryKey:['quota','usergroup'], queryFn:({signal})=>api.get<{success:boolean;quotas:UGQuota[]}>('/api/zfs/quota/usergroup',signal) })
   const set = useMutation({
-    mutationFn: () => api.post('/api/zfs/quota/usergroup', { dataset:ds, type, id:uid, quota:parseSize(quota) }),
+    mutationFn: async () => {
+      const size = zfsSize(quota)
+      if (!size) throw new Error(`Invalid size "${quota}" (e.g. 50GB)`)
+      return ensureOk(await api.post<{ success?: boolean; error?: string }>('/api/zfs/quota/usergroup', { dataset: ds, type, name: uid, quota: size }))
+    },
     onSuccess: () => { toast.success('Quota set'); setDs(''); setUid(''); setQuota(''); qc.invalidateQueries({queryKey:['quota','usergroup']}) },
     onError: (e:Error)=>toast.error(e.message),
   })
@@ -118,7 +134,7 @@ function UserGroupQuotas() {
     <div className="card" style={{ borderRadius:'var(--radius-xl)', padding:22 }}>
       <div style={{ fontWeight:700, marginBottom:14 }}>User / Group Quotas</div>
       <div style={{ display:'grid', gridTemplateColumns:'1fr 80px 1fr 100px auto', gap:8, alignItems:'flex-end', marginBottom:20 }}>
-        {[['Dataset','text',ds,setDs,'tank/home'],['User/Group ID','text',uid,setUid,'1000']].map(([lbl,t,val,setter,ph])=>(
+        {[['Dataset','text',ds,setDs,'tank/home'],['User/Group name','text',uid,setUid,'alice']].map(([lbl,t,val,setter,ph])=>(
           <label key={lbl as string} className="field">
             <span className="field-label">{lbl as string}</span>
             <input type={t as string} value={val as string} onChange={e=>(setter as React.Dispatch<React.SetStateAction<string>>)(e.target.value)} placeholder={ph as string} className="input"/>

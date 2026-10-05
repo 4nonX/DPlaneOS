@@ -255,30 +255,43 @@ func (h *ZFSHandler) CreateDataset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Validate every property before creating anything: an invalid value is
+	// a 400 and nothing is created. They used to be applied with zfs set after
+	// the create, skipped silently when invalid and with failures ignored,
+	// while the response said success.
 	createOpts, err := datasetCreateOpts(req.Casesensitivity)
 	if err != nil {
 		respondErrorSimple(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	if req.Acltype != "" {
-		if err := security.ValidateCommand("zfs_set_property", []string{"set", "acltype=" + req.Acltype, req.Name}); err != nil {
-			respondErrorSimple(w, err.Error(), http.StatusBadRequest)
-			return
-		}
+	if createOpts == nil {
+		createOpts = map[string]string{}
 	}
-
-	// Reject an invalid mountpoint up front; it used to be dropped silently
-	// after the create, leaving the dataset at the inherited location.
-	if req.Mountpoint != "" && req.Mountpoint != "none" && req.Mountpoint != "legacy" {
-		if err := security.ValidateMountPoint(req.Mountpoint); err != nil {
-			respondErrorSimple(w, err.Error(), http.StatusBadRequest)
+	for _, p := range []struct{ key, val, skip string }{
+		{"compression", req.Compression, "inherit"},
+		{"quota", req.Quota, ""},
+		{"mountpoint", req.Mountpoint, ""},
+		{"atime", req.Atime, ""},
+		{"sync", req.Sync, ""},
+		{"recordsize", req.Recordsize, ""},
+		{"xattr", req.Xattr, ""},
+		{"secondarycache", req.Secondarycache, ""},
+		{"acltype", req.Acltype, ""},
+		{"dedup", req.Dedup, "off"},
+	} {
+		if p.val == "" || p.val == p.skip {
+			continue
+		}
+		if err := security.ValidateCommand("zfs_set_property", []string{"set", p.key + "=" + p.val, req.Name}); err != nil {
+			respondErrorSimple(w, "Invalid "+p.key+": "+err.Error(), http.StatusBadRequest)
 			return
 		}
+		createOpts[p.key] = p.val
 	}
 
 	start := time.Now()
 
-	// Step 1: zfs create <name>
+	// zfs create -o ... <name>: properties are applied atomically with the create
 	if err := security.ValidateCommand("zfs_create", []string{"create", req.Name}); err != nil {
 		respondErrorSimple(w, "Dataset name not allowed: "+err.Error(), http.StatusBadRequest)
 		return
@@ -299,55 +312,6 @@ func (h *ZFSHandler) CreateDataset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	storageops.Commit(h.db, opID)
-
-	// Step 2: set optional properties
-	type prop struct{ key, val string }
-	var props []prop
-
-	if req.Compression != "" && req.Compression != "inherit" {
-		kv := "compression=" + req.Compression
-		if security.ValidateCommand("zfs_set_property", []string{"set", kv, req.Name}) == nil {
-			props = append(props, prop{"compression", req.Compression})
-		}
-	}
-	if req.Quota != "" {
-		quotaPattern := regexp.MustCompile(`^[0-9]+[KMGTP]?$`)
-		if quotaPattern.MatchString(req.Quota) {
-			props = append(props, prop{"quota", req.Quota})
-		}
-	}
-	if req.Mountpoint != "" {
-		props = append(props, prop{"mountpoint", req.Mountpoint}) // validated above
-	}
-	addProp := func(key, val string) {
-		if val == "" {
-			return
-		}
-		kv := key + "=" + val
-		if err2 := security.ValidateCommand("zfs_set_property", []string{"set", kv, req.Name}); err2 == nil {
-			props = append(props, prop{key, val})
-		}
-	}
-	addProp("atime", req.Atime)
-	addProp("sync", req.Sync)
-	addProp("recordsize", req.Recordsize)
-	addProp("xattr", req.Xattr)
-	addProp("secondarycache", req.Secondarycache)
-	addProp("acltype", req.Acltype)
-	if req.Dedup != "" && req.Dedup != "off" {
-		addProp("dedup", req.Dedup)
-	}
-
-	for _, p := range props {
-		kv := p.key + "=" + p.val
-		if err2 := security.ValidateCommand("zfs_set_property", []string{"set", kv, req.Name}); err2 == nil {
-			setDur := time.Now()
-			_, setErr := executeCommand("zfs", []string{"set", kv, req.Name})
-			audit.LogCommand(audit.LevelInfo, user, "zfs_set_property",
-				[]string{kv, req.Name}, setErr == nil, time.Since(setDur), setErr)
-			// Non-fatal: log but continue
-		}
-	}
 
 	respondOK(w, CommandResponse{
 		Success:  true,
