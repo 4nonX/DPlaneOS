@@ -59,7 +59,7 @@ check_disk_smart() {
 
 # Example: Temperature Monitoring
 check_temperature() {
-    local temp=$(sensors | grep "CPU Temperature" | awk '{print $3}' | sed 's/+//;s/캜//')
+    local temp=$(sensors | grep "CPU Temperature" | awk '{print $3}' | sed 's/+//;s/째C//')
     
     if (( $(echo "$temp > 80" | bc -l) )); then
         # Warning alert
@@ -70,11 +70,11 @@ check_temperature() {
                 \"category\": \"hardware\",
                 \"priority\": \"warning\",
                 \"title\": \"High CPU Temperature\",
-                \"message\": \"CPU temperature is ${temp}캜 (threshold: 80캜)\",
+                \"message\": \"CPU temperature is ${temp}째C (threshold: 80째C)\",
                 \"group_key\": \"cpu_temp_high\",
                 \"details\": {
-                    \"temperature\": \"${temp}캜\",
-                    \"threshold\": \"80캜\"
+                    \"temperature\": \"${temp}째C\",
+                    \"threshold\": \"80째C\"
                 }
             }"
     fi

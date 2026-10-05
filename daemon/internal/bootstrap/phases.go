@@ -230,48 +230,7 @@ func wirePhaseCallbacks(ctx context.Context, phases *AllPhases) error {
 
 // registerBuiltInFeatures registers all available features with their defaults.
 func registerBuiltInFeatures(fm *features.Manager) {
-	builtins := []features.Feature{
-		{
-			ID:          "ha_clustering",
-			Name:        "HA Clustering",
-			Description: "High-availability failover between multiple appliances (requires BMC)",
-			State:       features.StateDisabled,
-		},
-		{
-			ID:          "nvmeof_support",
-			Name:        "NVMe-oF Support",
-			Description: "NVMe over Fabrics for remote storage (requires NVMe controllers)",
-			State:       features.StateDisabled,
-		},
-		{
-			ID:          "ses_enclosure",
-			Name:        "SES Enclosure Monitoring",
-			Description: "Drive bay temperature and LED control via SES (requires SES hardware)",
-			State:       features.StateDisabled,
-		},
-		{
-			ID:          "ad_integration",
-			Name:        "Active Directory Integration",
-			Description: "User/group authentication via Active Directory",
-			State:       features.StateDisabled,
-		},
-		{
-			ID:          "oidc_sso",
-			Name:        "OIDC Single Sign-On",
-			Description: "OpenID Connect provider for federation",
-			State:       features.StateDisabled,
-		},
-		{
-			ID:          "lacp_bonding",
-			Name:        "LACP Network Bonding",
-			Description: "Link aggregation for redundant network paths",
-			State:       features.StateDisabled,
-		},
-	}
-
-	for _, f := range builtins {
-		fm.Register(f)
-	}
+	features.RegisterBuiltIns(fm)
 }
 
 // Close gracefully shuts down all phase components.

@@ -18,7 +18,7 @@
 import { useState, useEffect, useRef } from 'react'
 import type React from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { api, getSessionId, getUsername, getCsrfToken } from '@/lib/api'
+import { api, getSessionId, getUsername, getCsrfToken, ensureOk } from '@/lib/api'
 import { Icon } from '@/components/ui/Icon'
 import { ErrorState } from '@/components/ui/ErrorState'
 import { Skeleton } from '@/components/ui/LoadingSpinner'
@@ -78,7 +78,7 @@ function ConfigureIfaceModal({ iface, onClose, onDone }: {
   const [mtu,     setMtu]     = useState(String(iface.mtu ?? 1500))
 
   const save = useMutation({
-    mutationFn: () => api.post('/api/network/apply', {
+    mutationFn: async () => ensureOk(await api.post('/api/network/apply', {
       action:    'configure',
       interface: iface.name,
       dhcp,
@@ -86,7 +86,7 @@ function ConfigureIfaceModal({ iface, onClose, onDone }: {
       netmask:   dhcp ? undefined : netmask   || undefined,
       gateway:   dhcp ? undefined : gateway   || undefined,
       mtu:       Number(mtu) || 1500,
-    }),
+    })),
     onSuccess: () => { toast.success(`${iface.name} - changes applied`); onDone(); onClose() },
     onError: (e: Error) => toast.error(e.message),
   })

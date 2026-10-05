@@ -561,6 +561,19 @@ func (h *ShareCRUDHandler) GetSharesByPath(w http.ResponseWriter, r *http.Reques
 	})
 }
 
+// RegenerateSMBConf rewrites the share configuration from the database.
+// Called once at daemon startup. Outside NixOS the target is the host's own
+// smb.conf, so it is only rewritten when DPlaneOS manages shares there.
+func (h *ShareCRUDHandler) RegenerateSMBConf() {
+	if !smbconf.IsNixOS() {
+		var n int
+		if err := h.db.QueryRow(`SELECT COUNT(*) FROM smb_shares`).Scan(&n); err != nil || n == 0 {
+			return
+		}
+	}
+	h.regenerateSMBConf()
+}
+
 // regenerateSMBConf rebuilds the Samba share configuration from the database
 // (smbconf.Render), reloads smbd and refreshes the Time Machine advertisement.
 func (h *ShareCRUDHandler) regenerateSMBConf() {
@@ -598,7 +611,7 @@ func (h *ShareCRUDHandler) GetSMBSettings(w http.ResponseWriter, r *http.Request
 	h.db.QueryRow(`SELECT COALESCE(value,'0') FROM settings WHERE key='smb_time_machine'`).Scan(&timeMachine)
 	h.db.QueryRow(`SELECT COALESCE(value,'0') FROM settings WHERE key='smb_shadow_copy'`).Scan(&shadowCopy)
 	h.db.QueryRow(`SELECT COALESCE(value,'0') FROM settings WHERE key='smb_recycle_bin'`).Scan(&recycleBin)
-	_, avahiErr := os.Stat(smbconf.AvahiServicePath)
+	_, avahiErr := os.Stat(smbconf.AvahiPath())
 	respondOK(w, map[string]any{
 		"success":        true,
 		"time_machine":   timeMachine == 1,

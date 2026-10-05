@@ -124,6 +124,16 @@ func onCalendarForRsync(s RsyncSchedule) string {
 	return "*-*-* 02:00:00"
 }
 
+// RestoreRsyncTimers re-installs rsync backup timers at daemon start.
+func RestoreRsyncTimers() {
+	schedules, err := loadRsyncSchedules()
+	if err != nil {
+		log.Printf("WARN: rsync schedules: %v", err)
+		return
+	}
+	installRsyncTimers(schedules)
+}
+
 func installRsyncTimers(schedules []RsyncSchedule) {
 	systemd.UninstallAllWithPrefix("dplaneos-rsync-")
 	for _, s := range schedules {

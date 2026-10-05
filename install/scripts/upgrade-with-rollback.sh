@@ -56,7 +56,7 @@ error() {
 # Header
 clear
 echo "+--------------------------------------------------------------+"
-echo "¦       DPlaneOS v$(cat "$(dirname "$0")/../VERSION" 2>/dev/null | tr -d "[:space:]" || echo "?") - Safe Upgrade with Rollback         ¦"
+echo "Â¦       DPlaneOS v$(cat "$(dirname "$0")/../VERSION" 2>/dev/null | tr -d "[:space:]" || echo "?") - Safe Upgrade with Rollback         Â¦"
 echo "+--------------------------------------------------------------+"
 echo ""
 
@@ -138,7 +138,7 @@ cat > "$BACKUP_PATH/rollback.sh" <<'ROLLBACK_SCRIPT'
 set -euo pipefail
 
 echo "+--------------------------------------------------------------+"
-echo "¦              DPlaneOS v$(cat "$(dirname "$0")/../VERSION" 2>/dev/null | tr -d "[:space:]" || echo "?") - Rollback                     ¦"
+echo "Â¦              DPlaneOS v$(cat "$(dirname "$0")/../VERSION" 2>/dev/null | tr -d "[:space:]" || echo "?") - Rollback                     Â¦"
 echo "+--------------------------------------------------------------+"
 echo ""
 
@@ -217,7 +217,7 @@ success "Backup complete: $BACKUP_SIZE in $BACKUP_PATH"
 # Summary
 echo ""
 echo "+--------------------------------------------------------------+"
-echo "¦                    Backup Complete                           ¦"
+echo "Â¦                    Backup Complete                           Â¦"
 echo "+--------------------------------------------------------------+"
 echo ""
 echo "Backup location: $BACKUP_PATH"
@@ -253,7 +253,7 @@ if [ -f ./install.sh ]; then
         error "Upgrade failed!"
         echo ""
         echo "+--------------------------------------------------------------+"
-        echo "¦                   Automatic Rollback                         ¦"
+        echo "Â¦                   Automatic Rollback                         Â¦"
         echo "+--------------------------------------------------------------+"
         echo ""
         read -p "Start automatic rollback? [Y/n] " -n 1 -r

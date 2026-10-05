@@ -10,11 +10,19 @@ import (
 
 // SSH key used exclusively for ZFS replication.
 // Stored separately from any user keys to limit blast radius.
-const (
-	replKeyDir  = "/root/.ssh"
-	replKeyPath = "/root/.ssh/dplaneos_replication"
-	replPubPath = "/root/.ssh/dplaneos_replication.pub"
-)
+var replKeyDir, replKeyPath, replPubPath = replicationKeyPaths()
+
+// replicationKeyPaths keeps the key in /root/.ssh, except on NixOS: dplaned
+// runs with ProtectHome=true there, which hides /root, so the key lives in
+// the persisted, writable /var/lib/dplaneos instead. The key is always passed
+// to ssh with -i, so its location does not matter to ssh.
+func replicationKeyPaths() (dir, key, pub string) {
+	dir = "/root/.ssh"
+	if _, err := os.Stat("/etc/NIXOS"); err == nil {
+		dir = "/var/lib/dplaneos/ssh"
+	}
+	return dir, dir + "/dplaneos_replication", dir + "/dplaneos_replication.pub"
+}
 
 // GenerateReplicationKey generates a new ed25519 key pair at the replication key path.
 // POST /api/replication/ssh-keygen

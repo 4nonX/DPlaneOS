@@ -53,10 +53,12 @@ func FeatureFlagsHandler(featureManager *features.Manager) http.HandlerFunc {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		featureList := featureManager.List()
 
 		// Use json.Encoder for safe JSON encoding (prevents XSS)
-		if err := json.NewEncoder(w).Encode(featureList); err != nil {
+		if err := json.NewEncoder(w).Encode(map[string]any{
+			"success":  true,
+			"features": featureManager.List(),
+		}); err != nil {
 			http.Error(w, fmt.Sprintf("Failed to encode features: %v", err), http.StatusInternalServerError)
 			return
 		}
@@ -79,7 +81,16 @@ func FeatureEnableHandler(featureManager *features.Manager) http.HandlerFunc {
 		featureID := strings.TrimPrefix(r.URL.Path, "/api/system/features/")
 		featureID = strings.TrimSuffix(featureID, "/enable")
 
-		state := r.URL.Query().Get("state")
+		// State from the JSON body ({"new_state": "stable"}, as the Settings
+		// UI sends) or ?state=; defaults to beta.
+		var body struct {
+			NewState string `json:"new_state"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		state := body.NewState
+		if state == "" {
+			state = r.URL.Query().Get("state")
+		}
 		if state != "beta" && state != "stable" {
 			state = "beta"
 		}

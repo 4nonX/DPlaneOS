@@ -1,3 +1,5 @@
+-- +goose Up
+-- Moved from daemon/migrations/ (not embedded, so it was never applied).
 -- Phase 3.1: Operation Journal for crash recovery
 -- Every long-running operation writes state transitions here.
 -- Immutable history allows resuming interrupted operations.
@@ -23,3 +25,6 @@ CREATE INDEX IF NOT EXISTS idx_operation_journal_type ON operation_journal(opera
 
 -- Index for finding recent operations
 CREATE INDEX IF NOT EXISTS idx_operation_journal_started ON operation_journal(started_at DESC);
+
+-- +goose Down
+DROP TABLE IF EXISTS operation_journal;

@@ -25,7 +25,7 @@ import { itemOpacity } from '@/lib/listFilter'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
-import { api, apiFetch, getSessionId, getUsername } from '@/lib/api'
+import { api, apiFetch, getSessionId, getUsername, ensureOk } from '@/lib/api'
 import { issueConfirmToken } from '@/lib/confirm'
 import { Icon } from '@/components/ui/Icon'
 import { ContainerIcon } from '@/components/ui/ContainerIcon'
@@ -202,8 +202,8 @@ function ContainerCard({ container, onRefresh }: { container: Container; onRefre
   const [actionPending, setActionPending] = useState<string | null>(null)
 
   const action = useMutation({
-    mutationFn: ({ act, id }: { act: string; id: string }) =>
-      api.post('/api/docker/action', { action: act, container_id: id }),
+    mutationFn: async ({ act, id }: { act: string; id: string }) =>
+      ensureOk(await api.post('/api/docker/action', { action: act, container_id: id })),
     onMutate: ({ act }) => setActionPending(act),
     onSuccess: () => onRefresh(),
     onError: (e: Error) => toast.error(e.message),
@@ -607,8 +607,8 @@ function ContainerRow({ container, onRefresh, style: _rowStyle }: { container: C
   const [actionPending, setActionPending] = useState<string | null>(null)
 
   const action = useMutation({
-    mutationFn: ({ act, id }: { act: string; id: string }) =>
-      api.post('/api/docker/action', { action: act, container_id: id }),
+    mutationFn: async ({ act, id }: { act: string; id: string }) =>
+      ensureOk(await api.post('/api/docker/action', { action: act, container_id: id })),
     onMutate: ({ act }) => setActionPending(act),
     onSuccess: () => { toast.success(`Done`); onRefresh() },
     onError: (e: Error) => toast.error(e.message),
@@ -1806,13 +1806,13 @@ function ComposeManager() {
                           <span style={{ width: 8, height: 8, borderRadius: '50%', flexShrink: 0, background: up ? 'var(--success)' : 'var(--text-tertiary)', boxShadow: up ? '0 0 5px var(--success)' : 'none' }} />
                           <span style={{ fontWeight: 600, fontSize: 'var(--text-sm)', fontFamily: 'var(--font-mono)', flex: 1 }}>{svcName}</span>
                           <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', marginRight: 6 }}>{svc.Status || svc.State || 'unknown'}</span>
-                          <button onClick={() => { api.post('/api/docker/stacks/services/action', { stack: selected, service: svcName, action: 'start' }).then(() => { qc.invalidateQueries({ queryKey: ['docker', 'stacks'] }); qc.invalidateQueries({ queryKey: ['docker', 'containers'] }) }) }} className="btn btn-ghost" style={{ padding: '3px 6px', color: 'var(--success)' }} title="Start">
+                          <button onClick={() => { api.post('/api/docker/stacks/services/action', { stack: selected, service: svcName, action: 'start' }).then(ensureOk).then(() => { qc.invalidateQueries({ queryKey: ['docker', 'stacks'] }); qc.invalidateQueries({ queryKey: ['docker', 'containers'] }) }).catch((e: Error) => toast.error(`start ${svcName}: ${e.message}`)) }} className="btn btn-ghost" style={{ padding: '3px 6px', color: 'var(--success)' }} title="Start">
                             <Icon name="play_arrow" size={14} />
                           </button>
-                          <button onClick={() => { api.post('/api/docker/stacks/services/action', { stack: selected, service: svcName, action: 'stop' }).then(() => { qc.invalidateQueries({ queryKey: ['docker', 'stacks'] }); qc.invalidateQueries({ queryKey: ['docker', 'containers'] }) }) }} className="btn btn-ghost" style={{ padding: '3px 6px', color: 'var(--warning)' }} title="Stop">
+                          <button onClick={() => { api.post('/api/docker/stacks/services/action', { stack: selected, service: svcName, action: 'stop' }).then(ensureOk).then(() => { qc.invalidateQueries({ queryKey: ['docker', 'stacks'] }); qc.invalidateQueries({ queryKey: ['docker', 'containers'] }) }).catch((e: Error) => toast.error(`stop ${svcName}: ${e.message}`)) }} className="btn btn-ghost" style={{ padding: '3px 6px', color: 'var(--warning)' }} title="Stop">
                             <Icon name="stop" size={14} />
                           </button>
-                          <button onClick={() => { api.post('/api/docker/stacks/services/action', { stack: selected, service: svcName, action: 'restart' }).then(() => { qc.invalidateQueries({ queryKey: ['docker', 'stacks'] }); qc.invalidateQueries({ queryKey: ['docker', 'containers'] }) }) }} className="btn btn-ghost" style={{ padding: '3px 6px' }} title="Restart">
+                          <button onClick={() => { api.post('/api/docker/stacks/services/action', { stack: selected, service: svcName, action: 'restart' }).then(ensureOk).then(() => { qc.invalidateQueries({ queryKey: ['docker', 'stacks'] }); qc.invalidateQueries({ queryKey: ['docker', 'containers'] }) }).catch((e: Error) => toast.error(`restart ${svcName}: ${e.message}`)) }} className="btn btn-ghost" style={{ padding: '3px 6px' }} title="Restart">
                             <Icon name="restart_alt" size={14} />
                           </button>
                           {containerName && (

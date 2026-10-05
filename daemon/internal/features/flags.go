@@ -4,6 +4,7 @@
 package features
 
 import (
+	"sort"
 	"context"
 	"database/sql"
 	"fmt"
@@ -24,13 +25,13 @@ const (
 
 // Feature represents a feature that can be enabled/disabled.
 type Feature struct {
-	ID          string         // e.g., "ha_clustering", "nvmeof_support"
-	Name        string         // e.g., "HA Clustering"
-	Description string
-	State       FeatureState
-	EnabledAt   *time.Time
-	DisabledAt  *time.Time
-	Error       string         // Last error if feature failed
+	ID          string       `json:"id"`   // e.g., "ha_clustering", "nvmeof_support"
+	Name        string       `json:"name"` // e.g., "HA Clustering"
+	Description string       `json:"description"`
+	State       FeatureState `json:"state"`
+	EnabledAt   *time.Time   `json:"enabled_at,omitempty"`
+	DisabledAt  *time.Time   `json:"disabled_at,omitempty"`
+	Error       string       `json:"error,omitempty"` // Last error if feature failed
 }
 
 // Manager manages feature flags with database persistence.
@@ -154,7 +155,7 @@ func (m *Manager) OnStateChange(featureID string, callback func(Feature)) {
 // LoadFromDB loads feature states from database.
 func (m *Manager) LoadFromDB(ctx context.Context) error {
 	rows, err := m.db.QueryContext(ctx, `
-		SELECT id, name, description, state, enabled_at, disabled_at, error_msg
+		SELECT id, name, COALESCE(description, ''), state, enabled_at, disabled_at, COALESCE(error_msg, '')
 		FROM feature_flags
 		ORDER BY id
 	`)
@@ -219,5 +220,22 @@ func (m *Manager) List() []Feature {
 	for _, f := range m.features {
 		result = append(result, *f)
 	}
+	sort.Slice(result, func(i, j int) bool { return result[i].ID < result[j].ID })
 	return result
+}
+
+// RegisterBuiltIns registers the built-in optional features (default:
+// disabled). States already loaded from the database take precedence.
+func RegisterBuiltIns(m *Manager) {
+	builtins := []Feature{
+		{ID: "ha_clustering", Name: "HA Clustering", Description: "High-availability failover between multiple appliances (requires BMC)", State: StateDisabled},
+		{ID: "nvmeof_support", Name: "NVMe-oF Support", Description: "NVMe over Fabrics for remote storage (requires NVMe controllers)", State: StateDisabled},
+		{ID: "ses_enclosure", Name: "SES Enclosure Monitoring", Description: "Drive bay temperature and LED control via SES (requires SES hardware)", State: StateDisabled},
+		{ID: "ad_integration", Name: "Active Directory Integration", Description: "User/group authentication via Active Directory", State: StateDisabled},
+		{ID: "oidc_sso", Name: "OIDC Single Sign-On", Description: "OpenID Connect provider for federation", State: StateDisabled},
+		{ID: "lacp_bonding", Name: "LACP Network Bonding", Description: "Link aggregation for redundant network paths", State: StateDisabled},
+	}
+	for _, f := range builtins {
+		_ = m.Register(f) // already loaded from the database: keep the stored state
+	}
 }

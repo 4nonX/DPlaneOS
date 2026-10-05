@@ -147,7 +147,7 @@ function AddDelegationModal({ onClose, datasets, datasetsLoading, onAdded }: Add
           <label className="form-label">Dataset <span style={{ color: 'var(--error)' }}>*</span></label>
           {datasetsLoading ? (
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-secondary)', fontSize: 'var(--text-sm)' }}>
-              <Spinner size={14} /> Loading datasets…
+              <Spinner size={14} /> Loading datasetsâ€¦
             </div>
           ) : (
             <select
@@ -243,7 +243,7 @@ function AddDelegationModal({ onClose, datasets, datasetsLoading, onAdded }: Add
 
         {addMutation.isPending && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>
-            <Spinner size={14} /> Granting permissions…
+            <Spinner size={14} /> Granting permissionsâ€¦
           </div>
         )}
         {addMutation.isError && <ErrorState error={addMutation.error} title="Grant failed" />}
@@ -259,7 +259,7 @@ function AddDelegationModal({ onClose, datasets, datasetsLoading, onAdded }: Add
           disabled={addMutation.isPending || !dataset || !principal.trim() || selected.size === 0}
         >
           {addMutation.isPending ? (
-            <><Spinner size={14} /> Saving…</>
+            <><Spinner size={14} /> Savingâ€¦</>
           ) : (
             <>
               <Icon name="lock_open" size={15} /> Save Delegation
@@ -302,7 +302,7 @@ function DatasetDelegationDetail({ dataset }: { dataset: string }) {
   if (isLoading) {
     return (
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-tertiary)', fontSize: 'var(--text-xs)', padding: '8px 0' }}>
-        <Spinner size={12} /> Loading…
+        <Spinner size={12} /> Loadingâ€¦
       </div>
     )
   }
@@ -464,7 +464,7 @@ export function DelegationPage() {
           )}
         </div>
 
-        {datasetsQ.isLoading && <LoadingState message="Loading datasets…" />}
+        {datasetsQ.isLoading && <LoadingState message="Loading datasetsâ€¦" />}
         {datasetsQ.isError && (
           <ErrorState error={datasetsQ.error} onRetry={() => datasetsQ.refetch()} />
         )}

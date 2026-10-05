@@ -27,6 +27,7 @@ import (
 	"dplaned/internal/database"
 	"dplaned/internal/gitops"
 	"dplaned/internal/ha"
+	"dplaned/internal/features"
 	"dplaned/internal/handlers"
 	"dplaned/internal/hardware"
 	"dplaned/internal/jobs"
@@ -999,6 +1000,9 @@ func main() {
 
 	// Shares CRUD handlers
 	shareCRUDHandler := handlers.NewShareCRUDHandler(db, *smbConfPath)
+	// Rewrite the share config from the DB at startup: after an upgrade (new
+	// per-share columns) or on a fresh live boot the file is stale or a stub.
+	shareCRUDHandler.RegenerateSMBConf()
 	r.Handle("/api/shares/list", permRoute("shares", "read", shareCRUDHandler.HandleShares)).Methods("GET")
 	r.Handle("/api/shares", permRoute("shares", "read", shareCRUDHandler.HandleShares)).Methods("GET")
 	r.Handle("/api/shares/by-path", permRoute("shares", "read", shareCRUDHandler.GetSharesByPath)).Methods("GET")
@@ -1034,6 +1038,17 @@ func main() {
 	r.Handle("/api/system/profile", permRoute("system", "read", systemStatusHandler.HandleProfile)).Methods("GET")
 	r.Handle("/api/system/settings", permRoute("system", "read", systemStatusHandler.HandleSettings)).Methods("GET")
 	r.Handle("/api/system/settings", permRoute("system", "write", systemStatusHandler.HandleSettings)).Methods("POST")
+
+	// Optional feature flags (Settings → Features). Stored states load first;
+	// built-ins fill in the rest as disabled.
+	featureMgr := features.NewManager(db)
+	if err := featureMgr.LoadFromDB(context.Background()); err != nil {
+		log.Printf("WARNING: feature flags: %v", err)
+	}
+	features.RegisterBuiltIns(featureMgr)
+	r.Handle("/api/system/features", permRoute("system", "read", handlers.FeatureFlagsHandler(featureMgr))).Methods("GET")
+	r.Handle("/api/system/features/{id}/enable", permRoute("system", "admin", handlers.FeatureEnableHandler(featureMgr))).Methods("POST")
+	r.Handle("/api/system/features/{id}/disable", permRoute("system", "admin", handlers.FeatureDisableHandler(featureMgr))).Methods("POST")
 	r.Handle("/api/system/preflight", permRoute("system", "read", systemStatusHandler.HandlePreflight)).Methods("GET")
 
 	// OTA update endpoints (Debian/Ubuntu)
@@ -1212,6 +1227,19 @@ func main() {
 	r.Handle("/api/snapshots/run-now", permRoute("storage", "write", snapScheduleHandler.RunNow)).Methods("POST")
 	// Cron hook: called by generated systemd timer on localhost (no user session, bypassed by sessionMiddleware IP+token check)
 	r.HandleFunc("/api/zfs/snapshots/cron-hook", snapScheduleHandler.RunCronHook).Methods("POST")
+
+	// Re-install schedule timers from saved schedules. The units embed this
+	// boot's internal token (a fresh one each start), and on NixOS they are
+	// runtime units in /run/systemd/system, which a reboot clears.
+	go func() {
+		alertingHandler.RestoreScrubTimers()
+		snapScheduleHandler.RestoreTimers()
+		handlers.RestoreRsyncTimers()
+		if err := hardware.RegenerateSMARTTimers(db); err != nil {
+			log.Printf("WARN: SMART timers: %v", err)
+		}
+		log.Printf("Schedule timers restored")
+	}()
 
 	// ACL Management (v2.0.0) - POSIX ACL (getfacl/setfacl)
 	aclHandler := handlers.NewACLHandler()

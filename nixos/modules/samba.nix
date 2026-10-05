@@ -383,30 +383,30 @@ in {
       enable   = true;
       nssmdns4 = true;
       publish  = {
-        enable      = true;
-        addresses   = true;
-        workstation = true;
+        enable       = true;
+        addresses    = true;
+        workstation  = true;
+        userServices = true;
       };
-      extraServiceFiles = lib.optionalAttrs cfg.timeMachine {
-        smb = ''
-          <?xml version="1.0" standalone='no'?>
-          <!DOCTYPE service-group SYSTEM "avahi-service.dtd">
-          <service-group>
-            <name replace-wildcards="yes">%h</name>
-            <service>
-              <type>_smb._tcp</type>
-              <port>445</port>
-            </service>
-            <service>
-              <type>_adisk._tcp</type>
-              <port>9</port>
-              <txt-record>dk0=adVN=${cfg.netbiosName},adVF=0x82</txt-record>
-              <txt-record>sys=waMa=0,adVF=0x100</txt-record>
-            </service>
-          </service-group>
-        '';
-      };
+      extraServiceFiles.smb = ''
+        <?xml version="1.0" standalone='no'?>
+        <!DOCTYPE service-group SYSTEM "avahi-service.dtd">
+        <service-group>
+          <name replace-wildcards="yes">%h</name>
+          <service>
+            <type>_smb._tcp</type>
+            <port>445</port>
+          </service>
+        </service-group>
+      '';
     };
+
+    # Time Machine discovery (_adisk._tcp) must name the actual target shares,
+    # which are chosen per share in the UI. /etc is read-only, so the daemon
+    # writes the service file under /var/lib/dplaneos (smbconf.AvahiPath) and
+    # reloads avahi; this link makes avahi read it.
+    environment.etc."avahi/services/dplaneos-timemachine.service".source =
+      "/var/lib/dplaneos/avahi/dplaneos-timemachine.service";
 
     # ── Persist Samba state across reboots ────────────────────────────────────
     # passdb.tdb, secrets.tdb, etc. contain Samba user credentials.

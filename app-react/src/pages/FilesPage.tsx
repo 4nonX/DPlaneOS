@@ -306,7 +306,7 @@ function ShareLinkModal({ entry, onClose }: { entry: FileEntry; onClose: () => v
         <button className="btn btn-ghost" onClick={onClose} disabled={mut.isPending}>Cancel</button>
         <button className="btn btn-primary" onClick={() => mut.mutate()} disabled={mut.isPending}>
           {mut.isPending
-            ? <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Spinner size={14} color="rgba(0,0,0,0.7)" /> Creating…</span>
+            ? <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Spinner size={14} color="rgba(0,0,0,0.7)" /> Creatingâ€¦</span>
             : <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Icon name="add_link" size={15} /> Create Link</span>
           }
         </button>
@@ -319,7 +319,7 @@ function ModalFooter({ onClose, onConfirm, loading, label }: { onClose: () => vo
   return (
     <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
       <button onClick={onClose} className="btn btn-ghost">Cancel</button>
-      <button onClick={onConfirm} disabled={loading} className="btn btn-primary">{loading ? 'Working…' : label}</button>
+      <button onClick={onConfirm} disabled={loading} className="btn btn-primary">{loading ? 'Workingâ€¦' : label}</button>
     </div>
   )
 }
@@ -428,7 +428,7 @@ function TrashTab() {
         <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>{items.length} item{items.length !== 1 ? 's' : ''} in trash</span>
         {items.length > 0 && (
           <button onClick={() => empty.mutate()} disabled={empty.isPending} className="btn btn-danger">
-            <Icon name="delete_forever" size={14} />{empty.isPending ? 'Emptying…' : 'Empty Trash'}
+            <Icon name="delete_forever" size={14} />{empty.isPending ? 'Emptyingâ€¦' : 'Empty Trash'}
           </button>
         )}
       </div>
@@ -524,12 +524,12 @@ function TextEditorModal({ entry, onClose, onSaved }: { entry: FileEntry; onClos
         )}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }}>
-            {dirty ? 'Unsaved changes · Ctrl+S to save' : 'No unsaved changes'}
+            {dirty ? 'Unsaved changes Â· Ctrl+S to save' : 'No unsaved changes'}
           </span>
           <div style={{ display: 'flex', gap: 8 }}>
             <button onClick={onClose} className="btn btn-ghost">Cancel</button>
             <button onClick={save} disabled={saving || !dirty} className="btn btn-primary">
-              {saving ? 'Saving…' : 'Save'}
+              {saving ? 'Savingâ€¦' : 'Save'}
             </button>
           </div>
         </div>
@@ -615,7 +615,7 @@ function FileBrowser() {
     setDragOver(false)
     const droppedFiles = Array.from(e.dataTransfer.files)
     if (!droppedFiles.length) return
-    toast.success(`Uploading ${droppedFiles.length} file${droppedFiles.length > 1 ? 's' : ''}…`)
+    toast.success(`Uploading ${droppedFiles.length} file${droppedFiles.length > 1 ? 's' : ''}â€¦`)
     for (const file of droppedFiles) {
       const CHUNK = 10 * 1024 * 1024
       const totalChunks = Math.ceil(file.size / CHUNK)

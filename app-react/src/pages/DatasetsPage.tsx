@@ -19,7 +19,7 @@
 
 import { useState, useEffect, useRef, useMemo, useId } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { api } from '@/lib/api'
+import { api, ensureOk } from '@/lib/api'
 import { Icon } from '@/components/ui/Icon'
 import { Skeleton } from '@/components/ui/LoadingSpinner'
 import { ErrorState } from '@/components/ui/ErrorState'
@@ -357,12 +357,12 @@ function EditDatasetModal({ node, onClose, onUpdated }: {
   const username = () => localStorage.getItem('username') ?? ''
 
   async function zfsSet(prop: string, value: string) {
-    await api.post('/api/zfs/command', {
+    ensureOk(await api.post('/api/zfs/command', {
       command: 'zfs_set_property',
       args: ['set', `${prop}=${value}`, node.name],
       session_id: sessionId(),
       user: username(),
-    })
+    }))
   }
 
   const mutation = useMutation({
@@ -467,12 +467,12 @@ function DestroyDatasetModal({ name, onClose, onDestroyed }: {
 }) {
   const [confirmName, setConfirmName] = useState('')
   const mutation = useMutation({
-    mutationFn: () => api.post('/api/zfs/command', {
+    mutationFn: async () => ensureOk(await api.post('/api/zfs/command', {
       command: 'zfs_destroy',
       args: ['destroy', '-r', name],
       session_id: localStorage.getItem('session_id'),
       user: localStorage.getItem('username'),
-    }),
+    })),
     onSuccess: () => { toast.success(`Dataset ${name} destroyed`); onDestroyed(); onClose() },
     onError: (e: Error) => toast.error(e.message),
   })

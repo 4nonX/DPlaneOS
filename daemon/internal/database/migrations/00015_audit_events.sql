@@ -1,3 +1,15 @@
+-- +goose Up
+-- Moved from daemon/migrations/ (not embedded, so it was never applied).
+-- +goose StatementBegin
+DO $$
+BEGIN
+  CREATE EXTENSION IF NOT EXISTS pgcrypto;
+EXCEPTION WHEN OTHERS THEN
+  RAISE NOTICE 'pgcrypto unavailable (%): audit_events HMAC trigger will fail until it is installed', SQLERRM;
+END
+$$;
+-- +goose StatementEnd
+
 -- Phase 4.2: Audit event logging with HMAC integrity chain
 -- Every significant operation logged for compliance and debugging
 
@@ -25,12 +37,14 @@ CREATE INDEX IF NOT EXISTS idx_audit_events_status ON audit_events(status);
 
 -- Immutability enforcement: prevent updates and deletes on audit_events
 -- Enforced via trigger that raises exception on any modification attempt
+-- +goose StatementBegin
 CREATE OR REPLACE FUNCTION audit_prevent_modification()
 RETURNS TRIGGER AS $$
 BEGIN
   RAISE EXCEPTION 'audit_events table is immutable - updates and deletes are not allowed';
 END;
 $$ LANGUAGE plpgsql;
+-- +goose StatementEnd
 
 DROP TRIGGER IF EXISTS audit_prevent_update ON audit_events;
 CREATE TRIGGER audit_prevent_update
@@ -51,6 +65,7 @@ EXECUTE FUNCTION audit_prevent_modification();
 -- Note: Key derivation happens in application layer (daemon/internal/audit/hmac_key.go)
 -- For production, key should be managed via secure key management system
 
+-- +goose StatementBegin
 CREATE OR REPLACE FUNCTION audit_compute_hmac()
 RETURNS TRIGGER AS $$
 DECLARE
@@ -88,6 +103,7 @@ BEGIN
   RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
+-- +goose StatementEnd
 
 DROP TRIGGER IF EXISTS audit_hmac_trigger ON audit_events;
 CREATE TRIGGER audit_hmac_trigger
@@ -98,6 +114,7 @@ EXECUTE FUNCTION audit_compute_hmac();
 -- Verification function: check if audit chain is unbroken
 -- Returns (is_valid, first_invalid_id)
 -- If is_valid=false, first_invalid_id indicates where chain breaks
+-- +goose StatementBegin
 CREATE OR REPLACE FUNCTION audit_verify_chain(from_id BIGINT, to_id BIGINT)
 RETURNS TABLE(is_valid BOOLEAN, first_invalid_id BIGINT) AS $$
 DECLARE
@@ -137,3 +154,10 @@ BEGIN
   RETURN QUERY SELECT TRUE, NULL::BIGINT;
 END;
 $$ LANGUAGE plpgsql;
+-- +goose StatementEnd
+
+-- +goose Down
+DROP FUNCTION IF EXISTS audit_verify_chain(BIGINT, BIGINT);
+DROP TABLE IF EXISTS audit_events;
+DROP FUNCTION IF EXISTS audit_compute_hmac();
+DROP FUNCTION IF EXISTS audit_prevent_modification();

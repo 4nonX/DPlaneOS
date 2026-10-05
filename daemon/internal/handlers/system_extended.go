@@ -142,6 +142,22 @@ func (h *SnapshotScheduleHandler) SaveSchedules(w http.ResponseWriter, r *http.R
 	json.NewEncoder(w).Encode(map[string]any{"success": true})
 }
 
+// RestoreTimers re-installs snapshot timers from the saved schedules. Called at
+// daemon start: the units embed the per-boot internal token, and runtime units
+// (NixOS) do not survive a reboot.
+func (h *SnapshotScheduleHandler) RestoreTimers() {
+	data, err := os.ReadFile(configPath("snapshot-schedules.json"))
+	if err != nil {
+		return
+	}
+	var schedules []SnapshotSchedule
+	if err := json.Unmarshal(data, &schedules); err != nil {
+		log.Printf("WARN: snapshot schedules: %v", err)
+		return
+	}
+	h.regenerateCron(schedules)
+}
+
 func (h *SnapshotScheduleHandler) regenerateCron(schedules []SnapshotSchedule) {
 	// 1. Clear existing snapshot timers
 	if err := systemd.UninstallAllWithPrefix("dplaneos-snap-"); err != nil {

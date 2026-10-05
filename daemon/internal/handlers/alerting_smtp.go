@@ -273,6 +273,19 @@ func (h *AlertingHandler) SaveScrubSchedules(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	installScrubTimers(schedules)
+
+	// Remove legacy cron file if it exists
+	os.Remove("/etc/cron.d/dplaneos-scrub")
+
+	respondOK(w, map[string]any{
+		"success":   true,
+		"schedules": schedules,
+	})
+}
+
+// installScrubTimers replaces all scrub timers with the given schedules.
+func installScrubTimers(schedules []ScrubSchedule) {
 	// 1. Clear existing scrub timers to ensure we don't have orphans
 	if err := systemd.UninstallAllWithPrefix("dplaneos-scrub-"); err != nil {
 		log.Printf("ERROR: failed to clear existing scrub timers: %v", err)
@@ -314,13 +327,21 @@ func (h *AlertingHandler) SaveScrubSchedules(w http.ResponseWriter, r *http.Requ
 		}
 	}
 
-	// Remove legacy cron file if it exists
-	os.Remove("/etc/cron.d/dplaneos-scrub")
+}
 
-	respondOK(w, map[string]any{
-		"success":   true,
-		"schedules": schedules,
-	})
+// RestoreScrubTimers re-installs scrub timers from the saved schedules. Called
+// at daemon start: runtime units (NixOS) do not survive a reboot.
+func (h *AlertingHandler) RestoreScrubTimers() {
+	var raw string
+	if err := h.db.QueryRow(`SELECT value FROM settings WHERE key = 'scrub_schedules'`).Scan(&raw); err != nil {
+		return
+	}
+	var schedules []ScrubSchedule
+	if err := json.Unmarshal([]byte(raw), &schedules); err != nil {
+		log.Printf("WARN: scrub schedules: %v", err)
+		return
+	}
+	installScrubTimers(schedules)
 }
 
 // StartScrubMonitor runs a background goroutine checking scrub schedules

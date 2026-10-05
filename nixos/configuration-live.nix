@@ -79,37 +79,14 @@
   networking.useDHCP = lib.mkForce true;
 
   # ── PostgreSQL for daemon state (ephemeral in live boot) ───────────────────
-  # Live boot runs PostgreSQL in tmpfs /var. Database persists for session lifetime
-  # but is recreated on each boot (acceptable for live test environment).
-  services.postgresql = {
-    enable = true;
-    settings = {
-      max_connections = 50;  # Reduced for low-memory VM
-      shared_buffers = "64MB";
-      effective_cache_size = "256MB";
-    };
-    # Idempotent role + database creation (runs in postgresql-setup.service).
-    ensureDatabases = [ "dplaneos" ];
-    ensureUsers = [ {
-      name = "dplaneos";
-      ensureDBOwnership = true;
-      ensureClauses.createdb = true;
-    } ];
-    # dplaned runs as root and connects over the Unix socket as role dplaneos
-    # (see services.dplaneos.dbDSN). Peer auth with an ident map allows exactly
-    # that mapping; no password and no TCP listener are needed.
-    identMap = ''
-      dplaneos root     dplaneos
-      dplaneos dplaneos dplaneos
-    '';
-    authentication = lib.mkBefore ''
-      local dplaneos dplaneos peer map=dplaneos
-    '';
+  # module.nix runs the local database (services.dplaneos.database.createLocally,
+  # socket DSN, peer auth). In live boot it lives on the tmpfs root and is
+  # recreated on each boot; only memory settings are tuned here.
+  services.postgresql.settings = {
+    max_connections = 50;  # Reduced for low-memory VM
+    shared_buffers = "64MB";
+    effective_cache_size = "256MB";
   };
-
-  # Connect over the Unix socket: this PostgreSQL has no TCP listener and only
-  # allows root -> dplaneos through the peer-auth ident map above.
-  services.dplaneos.dbDSN = "postgres://dplaneos@/dplaneos?host=/run/postgresql&sslmode=disable";
 
   # ── D-PlaneOS daemon and frontend ──────────────────────────────────────────
   # (Provided by applianceConfig in flake.nix, same as installed system)

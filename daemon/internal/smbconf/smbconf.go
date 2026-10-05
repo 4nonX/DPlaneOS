@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -271,25 +272,37 @@ func WriteAtomic(path string, content []byte) error {
 	return os.Rename(tmp.Name(), path)
 }
 
-// AvahiServicePath is where the Time Machine Bonjour advertisement is written.
-const AvahiServicePath = "/etc/avahi/services/dplaneos-timemachine.service"
+const (
+	avahiServicePathEtc   = "/etc/avahi/services/dplaneos-timemachine.service"
+	avahiServicePathNixOS = "/var/lib/dplaneos/avahi/dplaneos-timemachine.service"
+)
 
-// SyncAvahi advertises the Time Machine target shares over Bonjour, or
-// removes the advertisement when there are none. Failures are logged only:
-// Samba keeps working, Macs just will not auto-discover the target.
-func SyncAvahi(tmShares []string) {
-	if len(tmShares) == 0 {
-		if err := os.Remove(AvahiServicePath); err != nil && !os.IsNotExist(err) {
-			log.Printf("WARN: avahi service remove: %v", err)
-		}
-		return
+// AvahiPath is where the Time Machine Bonjour advertisement is written. On
+// NixOS /etc is read-only; modules/samba.nix links the /etc/avahi/services
+// entry to a file under /var/lib/dplaneos.
+func AvahiPath() string {
+	if IsNixOS() {
+		return avahiServicePathNixOS
 	}
-	if err := os.MkdirAll(filepath.Dir(AvahiServicePath), 0o755); err != nil {
+	return avahiServicePathEtc
+}
+
+// SyncAvahi writes the Bonjour advertisement for the Time Machine target
+// shares and asks avahi to reload. With no targets the file stays valid but
+// has no _adisk record. Failures are logged only: Samba keeps working, Macs
+// just will not auto-discover the target.
+func SyncAvahi(tmShares []string) {
+	path := AvahiPath()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		log.Printf("WARN: avahi services dir: %v", err)
 		return
 	}
-	if err := os.WriteFile(AvahiServicePath, []byte(AvahiTimeMachineXML(tmShares)), 0o644); err != nil {
+	if err := WriteAtomic(path, []byte(AvahiTimeMachineXML(tmShares))); err != nil {
 		log.Printf("WARN: avahi service write: %v", err)
+		return
+	}
+	if out, err := exec.Command("avahi-daemon", "--reload").CombinedOutput(); err != nil {
+		log.Printf("WARN: avahi-daemon --reload: %v %s", err, strings.TrimSpace(string(out)))
 	}
 }
 
@@ -302,14 +315,16 @@ func AvahiTimeMachineXML(tmShares []string) string {
 	b.WriteString("<!DOCTYPE service-group SYSTEM \"avahi-service.dtd\">\n")
 	b.WriteString("<service-group>\n")
 	b.WriteString("  <name replace-wildcards=\"yes\">%h</name>\n")
-	b.WriteString("  <service>\n")
-	b.WriteString("    <type>_adisk._tcp</type>\n")
-	b.WriteString("    <port>9</port>\n")
-	b.WriteString("    <txt-record>sys=waMa=0,adVF=0x100</txt-record>\n")
-	for i, name := range tmShares {
-		fmt.Fprintf(&b, "    <txt-record>dk%d=adVN=%s,adVF=0x82</txt-record>\n", i, xmlEscape(name))
+	if len(tmShares) > 0 {
+		b.WriteString("  <service>\n")
+		b.WriteString("    <type>_adisk._tcp</type>\n")
+		b.WriteString("    <port>9</port>\n")
+		b.WriteString("    <txt-record>sys=waMa=0,adVF=0x100</txt-record>\n")
+		for i, name := range tmShares {
+			fmt.Fprintf(&b, "    <txt-record>dk%d=adVN=%s,adVF=0x82</txt-record>\n", i, xmlEscape(name))
+		}
+		b.WriteString("  </service>\n")
 	}
-	b.WriteString("  </service>\n")
 	b.WriteString("  <service>\n")
 	b.WriteString("    <type>_device-info._tcp</type>\n")
 	b.WriteString("    <port>0</port>\n")

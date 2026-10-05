@@ -17,6 +17,18 @@
 
 let
   pkgs = nixpkgs.legacyPackages.${system};
+
+  # End-to-end API smoke test (pool, vdev, dataset preset, snapshots and
+  # rollback, export/import, SMB shares with testparm, Time Machine Bonjour,
+  # feature flags, migrations). Shellchecked at build time.
+  smokeTest = pkgs.writeShellApplication {
+    name = "dplaneos-smoke";
+    runtimeInputs = with pkgs; [ curl jq gawk avahi ];
+    text = builtins.readFile ./live-boot-smoke.sh;
+  };
+
+  # A virtio disk with a serial, so udev creates /dev/disk/by-id/virtio-<serial>.
+  ciDisk = serial: { size = 512; driveConfig.deviceExtraOpts.serial = serial; };
 in
 
 pkgs.testers.nixosTest {
@@ -55,11 +67,9 @@ pkgs.testers.nixosTest {
     # image, and the ephemeral-root check would test the harness, not live boot.
     virtualisation.diskImage = null;
 
-    # Simulate attached storage (for ZFS pool test)
-    virtualisation.emptyDiskImages = [ 512 512 ];  # Two 512MB disks for ZFS
-
-    # Simple ZFS pool for testing (created in test setup)
-    # Normally auto-import would find this, but in VM we need to create it first
+    # Four 512 MiB data disks with serials (two mirrors in the smoke test).
+    # Pool creation only accepts /dev/disk/by-id paths, which need a serial.
+    virtualisation.emptyDiskImages = map ciDisk [ "dplaneci0" "dplaneci1" "dplaneci2" "dplaneci3" ];
   };
 
   testScript = ''
@@ -86,10 +96,10 @@ pkgs.testers.nixosTest {
     def dump_diagnostics():
         """Print why dplaned did not come up. The serial console only carries
         kernel messages, so without this the CI log has no daemon output."""
-        units = "dplaned postgresql postgresql-setup dplaneos-zfs-gate dplane-zfs-auto-import nginx"
+        units = "dplaned postgresql postgresql-setup dplaneos-zfs-gate dplane-zfs-auto-import nginx samba-smbd avahi-daemon"
         for cmd in [
             f"systemctl status --no-pager --lines=0 {units} 2>&1",
-            "journalctl -b --no-pager -o short-monotonic -u dplaned -u postgresql -u postgresql-setup -u dplaneos-zfs-gate 2>&1 | tail -n 200",
+            "journalctl -b --no-pager -o short-monotonic -u dplaned -u postgresql -u postgresql-setup -u dplaneos-zfs-gate -u samba-smbd -u avahi-daemon 2>&1 | tail -n 200",
             "ls -la /run/postgresql /run/dplaneos 2>&1",
         ]:
             print(f"\n----- {cmd}")
@@ -181,6 +191,15 @@ pkgs.testers.nixosTest {
         assert http_code.startswith("2") or http_code.startswith("3"), \
             f"Expected 2xx/3xx response, got {http_code}"
 
+    # ── Step 10b: End-to-end smoke test against real ZFS, Samba and Avahi ────
+    @test_step("End-to-end smoke test")
+    def smoke_test():
+        status, output = liveSystem.execute("${smokeTest}/bin/dplaneos-smoke 2>&1")
+        print(output)
+        if status != 0:
+            dump_diagnostics()
+            raise Exception(f"smoke test failed (exit {status})")
+
     # ── Step 11: Verify system can reach network (DHCP) ──────────────────────
     @test_step("Verify networking")
     def check_networking():
@@ -216,6 +235,7 @@ pkgs.testers.nixosTest {
     check_docker()
     check_daemon_logs()
     check_api_health()
+    smoke_test()
     check_networking()
     check_persistence()
     shutdown()

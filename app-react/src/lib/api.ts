@@ -306,6 +306,19 @@ export async function apiFetch<T>(
 // Convenience wrappers used by TanStack Query queryFns
 // ---------------------------------------------------------------------------
 
+/**
+ * Throws when a response reports failure in its body. Many daemon handlers
+ * answer failures with HTTP 200 { success: false, error }, which apiFetch
+ * cannot distinguish from success; wrap such calls in mutations with this.
+ */
+export function ensureOk<T>(res: T): T {
+  const body = res as { success?: boolean; error?: string; message?: string } | null
+  if (body && typeof body === 'object' && body.success === false) {
+    throw new ApiError(200, body.error || body.message || 'Request failed')
+  }
+  return res
+}
+
 export const api = {
   get: <T>(path: string, signal?: AbortSignal) =>
     apiFetch<T>(path, { method: 'GET', signal }),

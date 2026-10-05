@@ -234,10 +234,8 @@ func AddVdevToPool(w http.ResponseWriter, r *http.Request) {
 
 	if err := libzfs.VdevAdd(req.Pool, req.VdevType, req.Disks); err != nil {
 		storageops.Fail(registryDB, opID, fmt.Sprintf("zpool add: %v", err))
-		respondOK(w, map[string]any{
-			"success": false,
-			"error":   fmt.Sprintf("Failed to add vdev: %v", err),
-		})
+		// 409 so clients see the refusal; 200 {success:false} was shown as success.
+		respondErrorSimple(w, fmt.Sprintf("Failed to add vdev: %v", err), http.StatusConflict)
 		return
 	}
 	storageops.Commit(registryDB, opID)

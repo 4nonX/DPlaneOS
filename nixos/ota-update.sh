@@ -227,10 +227,15 @@ cmd_apply() {
 
     # 5. Resolve inactive slot device by PARTLABEL
     local inactive_dev
-    inactive_dev=$(blkid -L "${inactive_part_label}" 2>/dev/null || \
-                   lsblk -no PATH $(lsblk -no PATH,PARTLABEL | awk -v lbl="${inactive_part_label}" '$2==lbl{print $1}' | head -1) 2>/dev/null || \
-                   echo "")
+    # Match the GPT partition label exactly (blkid -L matches a filesystem
+    # label). The previous lsblk fallback listed every block device when the
+    # label was missing, so the result could be a multi-line device list.
+    inactive_dev=$(blkid -t "PARTLABEL=${inactive_part_label}" -o device 2>/dev/null | head -n 1)
+    if [ -z "${inactive_dev}" ]; then
+        inactive_dev=$(lsblk -nrpo PATH,PARTLABEL 2>/dev/null | awk -v lbl="${inactive_part_label}" '$2==lbl{print $1; exit}')
+    fi
     [ -n "${inactive_dev}" ] || die "Cannot find device for partition label '${inactive_part_label}'"
+    [ -b "${inactive_dev}" ] || die "Not a block device: '${inactive_dev}' (label '${inactive_part_label}')"
     log "Writing to: ${inactive_dev} (${inactive_part_label})"
 
     # 6. Mount inactive slot

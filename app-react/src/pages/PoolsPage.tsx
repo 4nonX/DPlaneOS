@@ -27,7 +27,7 @@
 import type React from 'react'
 import { useState, useEffect, useMemo, useRef, type Dispatch, type SetStateAction } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { api, apiFetch } from '@/lib/api'
+import { api, apiFetch, ensureOk } from '@/lib/api'
 import { issueConfirmToken } from '@/lib/confirm'
 import { Icon } from '@/components/ui/Icon'
 import { ErrorState } from '@/components/ui/ErrorState'
@@ -46,6 +46,7 @@ import {
   maxVdevs, minWidth, selectVdevs, sizeGroups, usableBytes, vdevType,
 } from '@/lib/poolLayout'
 import { ImportPoolModal } from '@/components/zfs/ImportPoolModal'
+import { AddVdevModal } from '@/components/zfs/AddVdevModal'
 import { useFrozenLayout } from '@/hooks/useFrozenLayout'
 
 // ---------------------------------------------------------------------------
@@ -335,12 +336,12 @@ function EditDatasetModal({ node, onClose, onUpdated }: {
   const username = () => localStorage.getItem('username') ?? ''
 
   async function zfsSet(prop: string, value: string) {
-    await api.post('/api/zfs/command', {
+    ensureOk(await api.post('/api/zfs/command', {
       command: 'zfs_set_property',
       args: ['set', `${prop}=${value}`, node.name],
       session_id: sessionId(),
       user: username(),
-    })
+    }))
   }
 
   const mutation = useMutation({
@@ -449,12 +450,12 @@ function DestroyDatasetModal({ name, onClose, onDestroyed }: {
 }) {
   const [confirmName, setConfirmName] = useState('')
   const mutation = useMutation({
-    mutationFn: () => api.post('/api/zfs/command', {
+    mutationFn: async () => ensureOk(await api.post('/api/zfs/command', {
       command: 'zfs_destroy',
       args: ['destroy', '-r', name],
       session_id: localStorage.getItem('session_id'),
       user: localStorage.getItem('username')
-    }),
+    })),
     onSuccess: () => { toast.success(`Dataset ${name} destroyed`); onDestroyed(); onClose() },
     onError: (e: Error) => toast.error(e.message)
   })
@@ -1544,9 +1545,11 @@ function PoolCard({ pool, datasets, filter, onRefresh }: { pool: ZFSPool; datase
       )}
 
       {showExpandModal && (
-        <CreatePoolModal 
-          onClose={() => setShowExpandModal(false)} 
-          onCreated={onRefresh} 
+        <AddVdevModal
+          pool={pool.name}
+          topology={pool.topology}
+          onClose={() => setShowExpandModal(false)}
+          onAdded={onRefresh}
         />
       )}
 
@@ -3128,7 +3131,10 @@ function CacheManageModal({ pool, onClose, onRefresh }: { pool: { name: string }
   })
 
   const addMutation = useMutation({
-    mutationFn: () => api.post('/api/zfs/pool/add-vdev', { pool: pool.name, vdev_type: type, disks: selectedDisks }),
+    mutationFn: async () => {
+      const res = await api.post<{ success?: boolean; error?: string }>('/api/zfs/pool/add-vdev', { pool: pool.name, vdev_type: type, disks: selectedDisks })
+      if (res && res.success === false) throw new Error(res.error || `Adding ${type} failed`)
+    },
     onSuccess: () => { toast.success(`${type} added`); onRefresh(); onClose() },
     onError: (e: Error) => toast.error(e.message)
   })

@@ -206,14 +206,8 @@ func (h *SystemHandler) handleNetworkGet(w http.ResponseWriter, _ *http.Request,
 		return
 	}
 
-	// Convert to map slice expected by frontend
-	interfaces := make([]map[string]any, 0, len(addrs))
-	for _, a := range addrs {
-		interfaces = append(interfaces, map[string]any{
-			"addr":  a.IP.String(),
-			"cidr":  a.CIDR.String(),
-		})
-	}
+	_ = addrs // address list validated above; per-interface data built below
+	var interfaces []map[string]any
 
 	// Get routes via netlinkx (reads /proc/net/route - no exec)
 	nlRoutes, routeErr := netlinkx.RouteList()
@@ -229,6 +223,14 @@ func (h *SystemHandler) handleNetworkGet(w http.ResponseWriter, _ *http.Request,
 			})
 		}
 	}
+
+	defaultGW := map[string]string{}
+	for _, rt := range nlRoutes {
+		if rt.Dst == nil || rt.Dst.String() == "0.0.0.0/0" {
+			defaultGW[rt.Iface] = rt.Gateway.String()
+		}
+	}
+	interfaces = networkInterfaces(defaultGW)
 
 	dns := map[string]any{"nameservers": []string{}, "search": []string{}}
 	if content, err := os.ReadFile("/etc/resolv.conf"); err == nil {
@@ -682,3 +684,71 @@ func parseJournalLogs(output string) []map[string]any {
 	return logs
 }
 
+
+// networkInterfaces lists one entry per interface with the fields the Network
+// page uses (name, ip, netmask, mac, mtu, up, state, type, speed, gateway,
+// primary). The previous response only had {addr, cidr} per address, so the
+// page had no interface names and its VLAN/bond tabs crashed.
+func networkInterfaces(defaultGW map[string]string) []map[string]any {
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return []map[string]any{}
+	}
+	sysRead := func(name, attr string) string {
+		b, err := os.ReadFile("/sys/class/net/" + name + "/" + attr)
+		if err != nil {
+			return ""
+		}
+		return strings.TrimSpace(string(b))
+	}
+	sysHas := func(name, sub string) bool {
+		_, err := os.Stat("/sys/class/net/" + name + "/" + sub)
+		return err == nil
+	}
+	out := make([]map[string]any, 0, len(ifaces))
+	for _, ifc := range ifaces {
+		e := map[string]any{
+			"name": ifc.Name,
+			"mtu":  ifc.MTU,
+			"mac":  ifc.HardwareAddr.String(),
+			"up":   ifc.Flags&net.FlagUp != 0,
+		}
+		switch {
+		case ifc.Flags&net.FlagLoopback != 0:
+			e["type"] = "loopback"
+		case strings.Contains(ifc.Name, "."):
+			e["type"] = "vlan"
+		case sysHas(ifc.Name, "bonding"):
+			e["type"] = "bond"
+		case sysHas(ifc.Name, "bridge"):
+			e["type"] = "bridge"
+		default:
+			e["type"] = "ethernet"
+		}
+		if st := sysRead(ifc.Name, "operstate"); st != "" {
+			e["state"] = st
+		}
+		if sp, err := strconv.Atoi(sysRead(ifc.Name, "speed")); err == nil && sp > 0 {
+			e["speed"] = fmt.Sprintf("%d Mb/s", sp)
+		}
+		if addrs, err := ifc.Addrs(); err == nil {
+			for _, a := range addrs {
+				ipnet, ok := a.(*net.IPNet)
+				if !ok || ipnet.IP.To4() == nil {
+					continue
+				}
+				e["ip"] = ipnet.IP.String()
+				e["netmask"] = net.IP(ipnet.Mask).String()
+				e["addr"] = ipnet.IP.String()
+				e["cidr"] = ipnet.String()
+				break
+			}
+		}
+		if gw, ok := defaultGW[ifc.Name]; ok {
+			e["gateway"] = gw
+			e["primary"] = true
+		}
+		out = append(out, e)
+	}
+	return out
+}

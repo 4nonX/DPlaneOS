@@ -11,6 +11,11 @@ let
   cfg = config.services.dplaneos;
   # pg_isready target for the pre-start probe, following the DSN.
   pgProbeHost = if lib.hasInfix "host=/run/postgresql" cfg.dbDSN then "/run/postgresql" else "localhost";
+  # NixOS owns smb.conf (modules/samba.nix) and includes the daemon's share file.
+  # Without this flag the daemon falls back to /etc/samba/smb.conf, a read-only
+  # store link, and UI share changes never reach Samba.
+  smbConfFlag = lib.optionalString config.services.dplaneos.samba.enable
+    " -smb-conf ${config.services.dplaneos.samba.sharesConfPath}";
 in {
   imports = [ ./ha.nix ./console-network-wizard.nix ./modules/samba.nix ./modules/nfs.nix ./modules/fenced.nix ./modules/ctdb.nix ];
 
@@ -54,13 +59,25 @@ in {
 
     dbDSN = lib.mkOption {
       type    = lib.types.str;
-      default = if cfg.ha.enable
-                then "postgres://dplaneos@localhost:5000/dplaneos?sslmode=disable"
+      default = if cfg.ha.enable then "postgres://dplaneos@localhost:5000/dplaneos?sslmode=disable"
+                else if cfg.database.createLocally then "postgres://dplaneos@/dplaneos?host=/run/postgresql&sslmode=disable"
                 else "postgres://dplaneos@localhost/dplaneos?sslmode=disable";
+      defaultText = lib.literalExpression ''
+        HA: localhost:5000 (HAProxy -> Patroni primary)
+        database.createLocally: Unix socket /run/postgresql
+        otherwise: localhost'';
+      description = "PostgreSQL Data Source Name.";
+    };
+
+    database.createLocally = lib.mkOption {
+      type    = lib.types.bool;
+      default = !cfg.ha.enable;
+      defaultText = lib.literalExpression "!config.services.dplaneos.ha.enable";
       description = ''
-        PostgreSQL Data Source Name. For a local NixOS PostgreSQL without enableTCPIP,
-        use the Unix socket: postgres://dplaneos@/dplaneos?host=/run/postgresql&sslmode=disable
-        (with peer auth mapping root to dplaneos, as configuration-live.nix does).
+        Run a local PostgreSQL for the daemon: data in dbPath, role and database
+        "dplaneos", reached over the Unix socket with peer authentication (dplaned
+        runs as root and is mapped to the dplaneos role). With HA, Patroni manages
+        PostgreSQL instead. Set to false to point dbDSN at a database you manage.
       '';
     };
 
@@ -254,6 +271,44 @@ in {
       };
     };
 
+    # ─── Local PostgreSQL (non-HA) ─────────────────────────────────────
+    # Without HA nothing else provides the daemon's database. Data lives in
+    # dbPath (under /var/lib/dplaneos, persisted by impermanence).
+    services.postgresql = lib.mkIf cfg.database.createLocally {
+      enable          = true;
+      dataDir         = lib.mkDefault cfg.dbPath;
+      ensureDatabases = [ "dplaneos" ];
+      ensureUsers     = [ {
+        name = "dplaneos";
+        ensureDBOwnership = true;
+        ensureClauses.createdb = true;
+      } ];
+      # dplaned runs as root and connects as role dplaneos over the socket.
+      identMap = ''
+        dplaneos root     dplaneos
+        dplaneos dplaneos dplaneos
+      '';
+      authentication = lib.mkBefore ''
+        local dplaneos dplaneos peer map=dplaneos
+      '';
+    };
+
+    # Never silently start an empty cluster next to existing data: if dataDir has
+    # no cluster yet but one exists in the NixOS default location, stop and say so.
+    systemd.services.postgresql.preStart = lib.mkIf cfg.database.createLocally (lib.mkBefore ''
+      if [ ! -e "${config.services.postgresql.dataDir}/PG_VERSION" ]; then
+        for existing in /var/lib/postgresql/*/PG_VERSION; do
+          if [ -e "$existing" ] && [ "$(dirname "$existing")" != "${config.services.postgresql.dataDir}" ]; then
+            echo "DPlaneOS: refusing to initialise an empty database in ${config.services.postgresql.dataDir}:" >&2
+            echo "an existing cluster was found in $(dirname "$existing")." >&2
+            echo "Move it there, set services.postgresql.dataDir to it, or set" >&2
+            echo "services.dplaneos.database.createLocally = false and point dbDSN at it." >&2
+            exit 1
+          fi
+        done
+      fi
+    '');
+
     # ─── DPlaneOS daemon systemd service ────────────────────────────────
     systemd.services.dplaned = {
       description = "DPlaneOS NAS Daemon";
@@ -262,8 +317,25 @@ in {
       # lets the daemon connect before the dplaneos role exists.
       after       = [ "network.target" "zfs.target" "dplaneos-zfs-gate.service" "postgresql.service" "postgresql-setup.service" "systemd-journald.service" ] ++ lib.optionals cfg.ha.enable [ "haproxy.service" "patroni.service" ];
       requires    = [ "dplaneos-zfs-gate.service" ] ++ lib.optionals cfg.ha.enable [ "patroni.service" ];
+      wants       = lib.optionals cfg.database.createLocally [ "postgresql.service" "postgresql-setup.service" ];
       wantedBy    = [ "multi-user.target" ];
-      path        = with pkgs; [ coreutils pciutils docker docker-compose postgresql ];
+      # Every tool the daemon executes by name. A NixOS service PATH only has
+      # these packages plus coreutils/findutils/grep/sed/systemd, so anything
+      # missing here fails at runtime with "executable file not found".
+      path = with pkgs; [
+        coreutils pciutils docker docker-compose postgresql
+        config.boot.zfs.package          # zfs, zpool (matches the kernel module)
+        util-linux                       # lsblk, wipefs, mount, umount, mountpoint, eject, ionice, logger
+        smartmontools hdparm nvme-cli lsscsi sg3_utils dmidecode ipmitool nut
+        samba                            # smbcontrol, smbstatus, testparm, net, wbinfo
+        avahi                            # avahi-daemon --reload (Time Machine discovery)
+        nfs-utils acl krb5               # exportfs; getfacl/setfacl; kinit/klist
+        iproute2 iputils traceroute dnsutils nftables
+        git openssh rsync rclone pv      # GitOps, replication, cloud sync
+        gnutar gzip curl which kmod procps fuse openssl nginx targetcli-fb
+        (lib.getBin glibc)               # getent
+        config.nix.package config.system.build.nixos-rebuild
+      ];
 
       serviceConfig = {
         Type            = "simple";
@@ -278,7 +350,7 @@ in {
           # (NixOS PostgreSQL has no TCP listener unless enableTCPIP is set), else localhost.
           "/bin/sh -c 'echo \"[dplaned-pre] Checking PostgreSQL connectivity...\"; for i in $(${pkgs.coreutils}/bin/seq 1 30); do if ${pkgs.postgresql}/bin/pg_isready -h ${pgProbeHost} -U dplaneos -d dplaneos 2>&1; then echo \"[dplaned-pre] PostgreSQL ready on attempt $i\"; exit 0; fi; ${pkgs.coreutils}/bin/sleep 1; done; echo \"FATAL: PostgreSQL not ready after 30 seconds\" >&2; exit 1'"
         ];
-        ExecStart       = "/bin/sh -c 'echo \"[dplaned] Starting with DSN: ${cfg.dbDSN}\"; exec ${cfg.daemonPackage}/bin/dplaned -db-dsn \"${cfg.dbDSN}\" -listen ${cfg.socketPath} -socket-group dplaned'";
+        ExecStart       = "/bin/sh -c 'echo \"[dplaned] Starting with DSN: ${cfg.dbDSN}\"; exec ${cfg.daemonPackage}/bin/dplaned -db-dsn \"${cfg.dbDSN}\" -listen ${cfg.socketPath} -socket-group dplaned${smbConfFlag}'";
         WorkingDirectory = "/var/lib/dplaneos";
         Restart         = "on-failure";
         RestartSec      = "5s";
@@ -301,6 +373,9 @@ in {
           "/etc/cron.d"
           "/etc/exports"
           "/etc/systemd/system"
+          # Runtime units for snapshot/scrub/rsync/SMART timers on NixOS, where
+          # /etc/systemd/system is a read-only store link (internal/systemd).
+          "/run/systemd/system"
           # networkdwriter: DPlaneOS writes 50-dplane-*.{network,netdev} here
           # These files survive nixos-rebuild - NixOS only manages its own prefixed files
           "/etc/systemd/network"
@@ -379,6 +454,9 @@ in {
       # Cold Tier root: rclone FUSE mounts land under this directory.
       # The daemon creates per-remote subdirectories at mount time.
       "d ${cfg.coldTier.rootPath} 0755 root root -"
+    ] ++ lib.optionals cfg.database.createLocally [
+      # A custom PostgreSQL dataDir must exist and belong to postgres before it starts.
+      "d ${config.services.postgresql.dataDir} 0700 postgres postgres -"
     ];
   };
 }
