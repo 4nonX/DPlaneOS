@@ -20,7 +20,7 @@
 import type React from 'react'
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { api } from '@/lib/api'
+import { api, ensureOk } from '@/lib/api'
 import { Icon } from '@/components/ui/Icon'
 import { itemOpacity } from '@/lib/listFilter'
 import { ErrorState } from '@/components/ui/ErrorState'
@@ -227,7 +227,8 @@ function ShareModal({ onClose, onSaved, editingShare }: { onClose: () => void; o
   }
 
   const mutation = useMutation({
-    mutationFn: () => api.post('/api/shares', {
+    // Failures (e.g. Samba not updated) come back as 200 { success: false }.
+    mutationFn: async () => ensureOk(await api.post<{ success?: boolean; error?: string; warning?: string }>('/api/shares', {
       action: editingShare ? 'update' : 'create',
       ...(editingShare ? { id: editingShare.id } : {}),
       name, path, comment, read_only: readonly, guest_ok: guestok, browsable: true, valid_users: validusers,
@@ -237,9 +238,10 @@ function ShareModal({ onClose, onSaved, editingShare }: { onClose: () => void; o
       recycle_bin: recycleBin,
       hosts_allow: hostsAllow.trim(),
       hosts_deny: hostsDeny.trim(),
-    }),
-    onSuccess: () => {
+    })),
+    onSuccess: (res) => {
       toast.success(editingShare ? `Share "${name}" updated` : `Share "${name}" created`);
+      if (res?.warning) toast.warning(res.warning)
       onSaved();
       onClose()
     },
@@ -355,8 +357,12 @@ function ShareCard({ share, onDeleted, onEdit }: { share: Share; onDeleted: () =
   const { confirm, ConfirmDialog } = useConfirm()
 
   const deleteMutation = useMutation({
-    mutationFn: () => api.delete('/api/shares', { name: share.name }),
-    onSuccess: () => { toast.success(`Share "${share.name}" deleted`); onDeleted() },
+    mutationFn: async () => ensureOk(await api.delete<{ success?: boolean; error?: string; warning?: string }>('/api/shares', { name: share.name })),
+    onSuccess: (res) => {
+      toast.success(`Share "${share.name}" deleted`)
+      if (res?.warning) toast.warning(res.warning)
+      onDeleted()
+    },
     onError: (e: Error) => toast.error(e.message),
   })
 

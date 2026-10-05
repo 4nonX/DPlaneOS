@@ -13,7 +13,6 @@ package smbconf
 import (
 	"database/sql"
 	"fmt"
-	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -288,22 +287,34 @@ func AvahiPath() string {
 }
 
 // SyncAvahi writes the Bonjour advertisement for the Time Machine target
-// shares and asks avahi to reload. With no targets the file stays valid but
-// has no _adisk record. Failures are logged only: Samba keeps working, Macs
-// just will not auto-discover the target.
-func SyncAvahi(tmShares []string) {
+// shares and makes avahi reload it. With no targets the file stays valid but
+// has no _adisk record. A failure does not affect Samba, but Macs will not
+// auto-discover the target, so it is returned for the caller to report.
+func SyncAvahi(tmShares []string) error {
 	path := AvahiPath()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		log.Printf("WARN: avahi services dir: %v", err)
-		return
+		return fmt.Errorf("avahi services dir: %w", err)
 	}
 	if err := WriteAtomic(path, []byte(AvahiTimeMachineXML(tmShares))); err != nil {
-		log.Printf("WARN: avahi service write: %v", err)
-		return
+		return fmt.Errorf("avahi service file: %w", err)
 	}
-	if out, err := exec.Command("avahi-daemon", "--reload").CombinedOutput(); err != nil {
-		log.Printf("WARN: avahi-daemon --reload: %v %s", err, strings.TrimSpace(string(out)))
+	return reloadAvahi()
+}
+
+// reloadAvahi asks systemd to reload avahi-daemon. `avahi-daemon --reload`
+// signals the daemon directly, which fails once it has dropped to the avahi
+// user (dplaned has no CAP_KILL); systemd sends the signal as PID 1.
+func reloadAvahi() error {
+	out, err := exec.Command("systemctl", "reload", "avahi-daemon.service").CombinedOutput()
+	if err == nil {
+		return nil
 	}
+	// No ExecReload in the unit: SIGHUP is avahi's reload signal.
+	out2, err2 := exec.Command("systemctl", "kill", "--kill-whom=main", "-s", "HUP", "avahi-daemon.service").CombinedOutput()
+	if err2 == nil {
+		return nil
+	}
+	return fmt.Errorf("reload avahi-daemon: %v %s; %v %s", err, strings.TrimSpace(string(out)), err2, strings.TrimSpace(string(out2)))
 }
 
 // AvahiTimeMachineXML is the Bonjour service file that lets Macs discover the

@@ -958,7 +958,9 @@ func reloadSamba(smbConfPath string, db *sql.DB) {
 	if _, err := cmdutil.RunFast("smbcontrol", "all", "reload-config"); err != nil {
 		log.Printf("GITOPS: reloadSamba: smbcontrol reload failed (non-fatal): %v", err)
 	}
-	smbconf.SyncAvahi(smbconf.TimeMachineShares(shares))
+	if err := smbconf.SyncAvahi(smbconf.TimeMachineShares(shares)); err != nil {
+		log.Printf("GITOPS: reloadSamba: %v", err)
+	}
 }
 
 // ── Utility ───────────────────────────────────────────────────────────────────

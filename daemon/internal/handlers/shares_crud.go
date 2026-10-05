@@ -283,9 +283,7 @@ func (h *ShareCRUDHandler) createShare(w http.ResponseWriter, req shareActionReq
 	}
 
 	// Regenerate smb.conf
-	h.regenerateSMBConf()
-
-	respondJSON(w, http.StatusOK, map[string]any{
+	h.respondAfterRegen(w, map[string]any{
 		"success": true,
 		"id":      id,
 		"message": fmt.Sprintf("Share %s created", req.Name),
@@ -412,9 +410,7 @@ func (h *ShareCRUDHandler) updateShare(w http.ResponseWriter, req shareActionReq
 		return
 	}
 
-	h.regenerateSMBConf()
-
-	respondJSON(w, http.StatusOK, map[string]any{
+	h.respondAfterRegen(w, map[string]any{
 		"success": true,
 		"message": "Share updated",
 	})
@@ -443,9 +439,7 @@ func (h *ShareCRUDHandler) deleteShare(w http.ResponseWriter, req shareActionReq
 		respondErrorSimple(w, "Failed to delete share: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-	h.regenerateSMBConf()
-
-	respondJSON(w, http.StatusOK, map[string]any{
+	h.respondAfterRegen(w, map[string]any{
 		"success": true,
 		"message": "Share deleted",
 	})
@@ -480,8 +474,7 @@ func (h *ShareCRUDHandler) deleteShareByName(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	h.regenerateSMBConf()
-	respondJSON(w, http.StatusOK, map[string]any{
+	h.respondAfterRegen(w, map[string]any{
 		"success": true,
 		"message": "Share deleted",
 	})
@@ -576,25 +569,32 @@ func (h *ShareCRUDHandler) RegenerateSMBConf() {
 
 // regenerateSMBConf rebuilds the Samba share configuration from the database
 // (smbconf.Render), reloads smbd and refreshes the Time Machine advertisement.
-func (h *ShareCRUDHandler) regenerateSMBConf() {
+//
+// err means Samba was not updated; warning means the shares are live but the
+// Time Machine Bonjour advertisement could not be refreshed.
+func (h *ShareCRUDHandler) regenerateSMBConf() (warning string, err error) {
 	shares, err := smbconf.LoadEnabled(h.db)
 	if err != nil {
 		log.Printf("SMB REGEN ERROR: %v", err)
-		return
+		return "", fmt.Errorf("load shares: %w", err)
 	}
 	opts := smbconf.LoadOptions(h.db)
 
 	if err := smbconf.WriteAtomic(h.smbConfPath, []byte(smbconf.Render(opts, shares))); err != nil {
 		log.Printf("SMB WRITE ERROR: %v", err)
-		return
+		return "", fmt.Errorf("write %s: %w", h.smbConfPath, err)
 	}
 
 	// Reload samba
-	if _, err := cmdutil.RunFast("smbcontrol", "all", "reload-config"); err != nil {
+	if out, err := cmdutil.RunFast("smbcontrol", "all", "reload-config"); err != nil {
 		log.Printf("WARN: smbcontrol reload: %v", err)
+		return "", fmt.Errorf("smbcontrol reload-config: %v %s", err, strings.TrimSpace(string(out)))
 	}
 
-	smbconf.SyncAvahi(smbconf.TimeMachineShares(shares))
+	if err := smbconf.SyncAvahi(smbconf.TimeMachineShares(shares)); err != nil {
+		log.Printf("WARN: %v", err)
+		warning = "Time Machine discovery not updated: " + err.Error()
+	}
 
 	// On NixOS: also update dplane-generated.nix with global SMB settings
 	// so they survive the next nixos-rebuild switch.
@@ -602,6 +602,21 @@ func (h *ShareCRUDHandler) regenerateSMBConf() {
 
 	log.Printf("SMB config regenerated and reloaded (%d shares, apple=%v, nixos=%v)",
 		len(shares), smbconf.AppleEnabled(opts, shares), opts.NixOSManaged)
+	return warning, nil
+}
+
+// respondAfterRegen applies the share change to Samba and answers with
+// payload, or with the failure: the database change is saved either way.
+func (h *ShareCRUDHandler) respondAfterRegen(w http.ResponseWriter, payload map[string]any) {
+	warning, err := h.regenerateSMBConf()
+	if err != nil {
+		respondJSON(w, http.StatusOK, map[string]any{"success": false, "error": "Saved, but Samba was not updated: " + err.Error()})
+		return
+	}
+	if warning != "" {
+		payload["warning"] = warning
+	}
+	respondJSON(w, http.StatusOK, payload)
 }
 
 // GetSMBSettings returns current global SMB protocol settings
@@ -679,8 +694,7 @@ func (h *ShareCRUDHandler) UpdateSMBSettings(w http.ResponseWriter, r *http.Requ
 		}
 	}
 
-	h.regenerateSMBConf()
-	respondOK(w, map[string]any{"success": true})
+	h.respondAfterRegen(w, map[string]any{"success": true})
 }
 
 // sanitizeSMBConfValue removes newlines and other characters that could break smb.conf formatting
