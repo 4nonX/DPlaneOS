@@ -240,6 +240,7 @@ sudo dplaneos-ota-update
 | [Alerts and Authentication](docs/admin/ALERTS.md) | SMTP, webhook, Telegram alerting, TOTP 2FA setup and backup codes |
 | [Troubleshooting](docs/admin/TROUBLESHOOTING.md) | Build failures, ZFS issues, DB init race, Docker behind proxy, ZED setup |
 | [Recovery Guide](docs/admin/RECOVERY.md) | Service management, DB restore, admin lockout, ZFS recovery, hot-swap, rollback |
+| [Design Documents](docs/design/README.md) | Proposed architecture changes and decision records: local-first node state, storage groups, quorum, fleet overlay, GitOps defaults |
 
 ### Reference
 
