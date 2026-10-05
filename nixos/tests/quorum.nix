@@ -61,7 +61,11 @@ pkgs.testers.nixosTest {
         RuntimeDirectory = "corosync-qnetd";
       };
     };
+    # The witness's firewall must allow TCP 5403. The script opens it in ufw
+    # and firewalld; on other firewalls (like this one) it is the admin's step,
+    # and the enrollment warns when the port is not reachable.
     networking.firewall.enable = true;
+    networking.firewall.allowedTCPPorts = [ 5403 ];
     virtualisation.memorySize = 512;
   };
 
@@ -133,6 +137,7 @@ pkgs.testers.nixosTest {
             out = w.succeed(f"curl -fsS http://a/api/quorum/witness-setup.sh | sh -s -- http://a {code} 2>&1")
             print(out)
             assert "Done" in out, out
+            assert "cannot reach" not in out, out
             for m in (a, b):
                 m.wait_until_succeeds("corosync-quorumtool -s | grep -q 'Flags:.*Qdevice'", timeout=90)
                 m.wait_until_succeeds("corosync-quorumtool -s | grep -q 'Total votes: *3'", timeout=90)

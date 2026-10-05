@@ -55,6 +55,13 @@ fi
 if command -v firewall-cmd >/dev/null 2>&1 && firewall-cmd --state >/dev/null 2>&1; then
     say "Opening TCP $PORT in firewalld"
     firewall-cmd --quiet --permanent --add-port="$PORT/tcp" && firewall-cmd --quiet --reload
+    OPENED=1
+fi
+if [ -z "${OPENED:-}" ] && ! (command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q "Status: active"); then
+    if (command -v nft >/dev/null 2>&1 && nft list ruleset 2>/dev/null | grep -q "policy drop") ||
+       (command -v iptables >/dev/null 2>&1 && iptables -S INPUT 2>/dev/null | grep -q "^-P INPUT DROP"); then
+        say "Note: a firewall is active that this script does not manage; allow incoming TCP $PORT"
+    fi
 fi
 
 # The address the cluster nodes reach this machine at: the source address of
@@ -91,7 +98,10 @@ rm -f "$CRT"
 corosync-qnetd-certutil -s -c "$TMP/node.crq" -n "$CLUSTER" >"$TMP/sign.log" 2>&1 || true
 [ -s "$CRT" ] || die "signing failed: $(cat "$TMP/sign.log")"
 base64 "$CRT" > "$TMP/crt.b64"
-post "/api/quorum/enroll/cert?address=$ADDR" "$TMP/crt.b64" >/dev/null
+post "/api/quorum/enroll/cert?address=$ADDR" "$TMP/crt.b64" > "$TMP/step2"
+if grep -q '^warning:' "$TMP/step2"; then
+    printf '\033[33m%s\033[0m\n' "$(sed -n 's/^warning: //p' "$TMP/step2")" >&2
+fi
 
 say "Done. This machine is now the third vote of cluster $CLUSTER."
 echo "    The cluster shows it under System > High Availability within a few seconds."

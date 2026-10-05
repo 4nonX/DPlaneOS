@@ -246,6 +246,17 @@ func (h *QuorumHandler) EnrollCert(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	_, _ = io.WriteString(w, "ok "+cfg.ClusterName+"\n")
+	// The most common problem is a firewall on the witness: check now and say
+	// so, instead of leaving a silently non-voting third vote.
+	if addr := r.URL.Query().Get("address"); addr != "" {
+		conn, err := net.DialTimeout("tcp", net.JoinHostPort(addr, "5403"), 3*time.Second)
+		if err != nil {
+			_, _ = io.WriteString(w, "warning: this cluster cannot reach "+net.JoinHostPort(addr, "5403")+
+				" ("+err.Error()+"). Allow incoming TCP 5403 in the witness's firewall; the vote counts as soon as it is reachable.\n")
+		} else {
+			conn.Close()
+		}
+	}
 }
 
 // ── Peer endpoint (paired-node channel) ───────────────────────────────────────
