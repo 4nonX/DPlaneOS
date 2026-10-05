@@ -162,3 +162,31 @@ func (c *peerCall) do(method, path string, body, out any) error {
 	}
 	return nil
 }
+
+// ── Calls to paired nodes (used by other packages) ────────────────────────────
+
+// NodeName is this node's display name.
+func NodeName() string { return nodeName() }
+
+// Peers lists the paired nodes.
+func Peers(db *sql.DB) ([]Peer, error) { return loadPeers(db, "") }
+
+// CallPeer sends a request to a paired node over the authenticated channel
+// (peer secret, pinned certificate). path must be one of the peer endpoints.
+func CallPeer(db *sql.DB, peerID, method, path string, body, out any) error {
+	self, err := NodeID(db)
+	if err != nil {
+		return err
+	}
+	peers, err := loadPeers(db, peerID)
+	if err != nil {
+		return err
+	}
+	if len(peers) == 0 {
+		return ErrUnknownPeer
+	}
+	p := peers[0]
+	call := &peerCall{baseURL: p.URL, pin: p.Fingerprint, timeout: 60 * time.Second,
+		headers: map[string]string{hdrNode: self, hdrSecret: p.secret}}
+	return call.do(method, path, body, out)
+}

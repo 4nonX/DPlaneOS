@@ -757,11 +757,41 @@ jobs:
           nix build .#checks.x86_64-linux.live-boot -L
 
   # ════════════════════════════════════════════════════════════════════════════
+  # STAGE 4C: CLUSTER QUORUM - Corosync + third vote on three NixOS VMs
+  # (Design 0001 phase 3a). Runs on every ref: it is the exit test of the phase.
+  # ════════════════════════════════════════════════════════════════════════════
+  quorum-vm:
+    name: Cluster Quorum (3 VMs)
+    needs: [prepare]
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v30
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+            accept-flake-config = true
+            system-features = nixos-test benchmark big-parallel kvm
+
+      - name: Run quorum VM test
+        timeout-minutes: 60
+        run: nix build .#checks.x86_64-linux.quorum -L
+
+  # ════════════════════════════════════════════════════════════════════════════
   # STAGE 5: RELEASE - Professional Build & Publish
   # ════════════════════════════════════════════════════════════════════════════
   release:
     name: Build & Publish Release
-    needs: [validate, integration, config-sync, convergence, storage-failure, ha-failover-logic, ha-promotion-zfs, ha-vm-cluster, iso, iso-arm, build-live-iso, test-live-boot]
+    needs: [validate, integration, config-sync, quorum-vm, convergence, storage-failure, ha-failover-logic, ha-promotion-zfs, ha-vm-cluster, iso, iso-arm, build-live-iso, test-live-boot]
     if: github.ref_type == 'tag' || github.ref == 'refs/heads/main'
     runs-on: ubuntu-22.04
     permissions:

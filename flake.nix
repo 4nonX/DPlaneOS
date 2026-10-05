@@ -220,6 +220,14 @@
           frontendPackage = frontend;
         };
 
+        # Cluster quorum and third vote (Design 0001 phase 3a): three VMs.
+        #   nix build .#checks.x86_64-linux.quorum -L
+        checks.quorum = import ./nixos/tests/quorum.nix {
+          inherit nixpkgs system impermanence;
+          daemonPackage = daemon;
+          frontendPackage = frontend;
+        };
+
         devShells.default = pkgs.mkShell {
           buildInputs = with pkgs; [ go gcc musl.dev gopls gotools postgresql git ];
           shellHook = ''

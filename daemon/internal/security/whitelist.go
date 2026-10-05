@@ -68,7 +68,7 @@ var CommandWhitelist = map[string]Command{
 		Path:        "zpool",
 		AllowedArgs: []string{"online"},
 		ArgPatterns: []*regexp.Regexp{
-			regexp.MustCompile(`^[a-zA-Z0-9_\-]+$`), // pool name
+			regexp.MustCompile(`^[a-zA-Z0-9_\-]+$`),  // pool name
 			regexp.MustCompile(`^[a-zA-Z0-9_\-/]+$`), // device path
 		},
 		Description: "Bring a ZFS device back online",
@@ -115,7 +115,7 @@ var CommandWhitelist = map[string]Command{
 		AllowedArgs: []string{"clone"},
 		ArgPatterns: []*regexp.Regexp{
 			regexp.MustCompile(`^[a-zA-Z0-9_\-]+/[a-zA-Z0-9_\-/]+@[a-zA-Z0-9_\-\.]+$`), // snapshot source
-			regexp.MustCompile(`^[a-zA-Z0-9_\-]+/[a-zA-Z0-9_\-/]+$`),                    // clone target dataset
+			regexp.MustCompile(`^[a-zA-Z0-9_\-]+/[a-zA-Z0-9_\-/]+$`),                   // clone target dataset
 		},
 		Description: "Clone a ZFS snapshot into a new dataset",
 	},
@@ -263,7 +263,7 @@ var CommandWhitelist = map[string]Command{
 		AllowedArgs: []string{"hold"},
 		ArgPatterns: []*regexp.Regexp{
 			regexp.MustCompile(`^[a-zA-Z0-9_\-\.]+$`), // tag
-			validDatasetRe,                           // snapshot
+			validDatasetRe, // snapshot
 		},
 		Description: "Hold a ZFS snapshot",
 	},
@@ -273,7 +273,7 @@ var CommandWhitelist = map[string]Command{
 		AllowedArgs: []string{"release"},
 		ArgPatterns: []*regexp.Regexp{
 			regexp.MustCompile(`^[a-zA-Z0-9_\-\.]+$`), // tag
-			validDatasetRe,                           // snapshot
+			validDatasetRe, // snapshot
 		},
 		Description: "Release a ZFS snapshot hold",
 	},
@@ -415,12 +415,12 @@ var CommandWhitelist = map[string]Command{
 		Path:        "net",
 		AllowedArgs: []string{"ads", "join"},
 		ArgPatterns: []*regexp.Regexp{
-			regexp.MustCompile(`^-U$`),                          // -U flag
-			regexp.MustCompile(`^[a-zA-Z0-9_\-\.\\]+$`),         // username
-			regexp.MustCompile(`^-W$`),                          // -W flag
-			regexp.MustCompile(`^[a-zA-Z0-9_\-\.]+$`),          // workgroup/domain
-			regexp.MustCompile(`^-S$`),                          // -S flag
-			regexp.MustCompile(`^[a-zA-Z0-9_\-\.]+$`),          // domain controller
+			regexp.MustCompile(`^-U$`),                  // -U flag
+			regexp.MustCompile(`^[a-zA-Z0-9_\-\.\\]+$`), // username
+			regexp.MustCompile(`^-W$`),                  // -W flag
+			regexp.MustCompile(`^[a-zA-Z0-9_\-\.]+$`),   // workgroup/domain
+			regexp.MustCompile(`^-S$`),                  // -S flag
+			regexp.MustCompile(`^[a-zA-Z0-9_\-\.]+$`),   // domain controller
 		},
 		Description: "Join Active Directory domain (password via PASSWD env)",
 	},
@@ -647,7 +647,7 @@ var CommandWhitelist = map[string]Command{
 		AllowedArgs: []string{"-m", "-x", "-R", "--set"},
 		ArgPatterns: []*regexp.Regexp{
 			regexp.MustCompile(`^((u|g|o|m)(:[a-zA-Z0-9_.\-]*)?:[rwx\-]{0,3}|#.*|,?)+$`), // ACL entry
-			regexp.MustCompile(`^/mnt/`),                                                 // path
+			regexp.MustCompile(`^/mnt/`), // path
 		},
 		Description: "Set POSIX ACL entries",
 	},
@@ -666,7 +666,7 @@ var CommandWhitelist = map[string]Command{
 		Path:        "ping",
 		AllowedArgs: []string{"-c"},
 		ArgPatterns: []*regexp.Regexp{
-			regexp.MustCompile(`^\d+$`),             // count
+			regexp.MustCompile(`^\d+$`),              // count
 			regexp.MustCompile(`^[a-zA-Z0-9\.\-]+$`), // target
 		},
 		Description: "Network ping diagnostic",
@@ -811,6 +811,48 @@ var CommandWhitelist = map[string]Command{
 		Description: "Power off the system",
 	},
 
+	// Cluster quorum: Corosync + third vote (Design 0001 phase 3a). Units are
+	// limited to the three provided by the NixOS module; certificate files
+	// to the daemon's corosync state directory.
+	"systemctl_cluster": {
+		Name: "systemctl_cluster",
+		Path: "systemctl",
+		ArgPatterns: []*regexp.Regexp{
+			regexp.MustCompile(`^(start|stop|restart|is-active)$`),
+			regexp.MustCompile(`^dplaneos-(corosync|qdevice|qnetd)$`),
+		},
+		Description: "Start, stop or check the cluster units",
+	},
+	"corosync_quorumtool": {
+		Name:        "corosync_quorumtool",
+		Path:        "corosync-quorumtool",
+		AllowedArgs: []string{"-s"},
+		Description: "Read the cluster quorum state",
+	},
+	"corosync_cfgtool_reload": {
+		Name:        "corosync_cfgtool_reload",
+		Path:        "corosync-cfgtool",
+		AllowedArgs: []string{"-R"},
+		Description: "Reload corosync.conf on all members",
+	},
+	"qdevice_certutil": {
+		Name:        "qdevice_certutil",
+		Path:        "corosync-qdevice-net-certutil",
+		AllowedArgs: []string{"-i", "-r", "-M", "-m", "-c", "-n"},
+		ArgPatterns: []*regexp.Regexp{regexp.MustCompile(`^(/var/lib/dplaneos/corosync/[A-Za-z0-9_./-]+|[A-Za-z0-9][A-Za-z0-9_-]{0,31})$`)},
+		Description: "Third-vote certificates on a cluster node",
+	},
+	"qnetd_certutil": {
+		Name:        "qnetd_certutil",
+		Path:        "corosync-qnetd-certutil",
+		AllowedArgs: []string{"-i", "-s", "-c", "-n"},
+		ArgPatterns: []*regexp.Regexp{
+			regexp.MustCompile(`^/var/lib/dplaneos/corosync/[A-Za-z0-9_./-]+$`),
+			regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,31}$`),
+		},
+		Description: "Third-vote certificate authority on a witness",
+	},
+
 	// STONITH / Fencing (v7.3.0)
 	"ipmitool_power_off": {
 		Name:        "ipmitool_power_off",
@@ -872,7 +914,7 @@ var CommandWhitelist = map[string]Command{
 		Path:        "net",
 		AllowedArgs: []string{"ads", "leave"},
 		ArgPatterns: []*regexp.Regexp{
-			regexp.MustCompile(`^-U$`),                   // -U flag
+			regexp.MustCompile(`^-U$`),                  // -U flag
 			regexp.MustCompile(`^[a-zA-Z0-9_\-\.\\]+$`), // username
 		},
 		Description: "Leave Active Directory domain (password via PASSWD env)",
@@ -888,7 +930,7 @@ var CommandWhitelist = map[string]Command{
 		Path:        "kinit",
 		AllowedArgs: []string{"-k", "-t"},
 		ArgPatterns: []*regexp.Regexp{
-			regexp.MustCompile(`^/etc/krb5\.keytab$`),           // keytab path (exact)
+			regexp.MustCompile(`^/etc/krb5\.keytab$`),             // keytab path (exact)
 			regexp.MustCompile(`^[a-zA-Z0-9._/-]+@[A-Z0-9._-]+$`), // principal
 		},
 		Description: "Renew Kerberos ticket using machine keytab",
@@ -939,6 +981,12 @@ func ValidateCommand(cmdName string, args []string) error {
 		return validatePathBasedCommand(cmdName, args)
 	case "zpool_online", "zpool_add_cache", "zpool_add_log", "zpool_remove_device", "hdparm_check", "hdparm_spindown", "hdparm_status", "wipefs", "zpool_labelclear":
 		return validateDeviceBasedCommand(cmdName, args)
+	case "qdevice_certutil", "qnetd_certutil":
+		for _, a := range args {
+			if strings.Contains(a, "..") {
+				return fmt.Errorf("invalid path for %s", cmdName)
+			}
+		}
 	case "zfs_rename":
 		return validateZfsRename(args)
 	case "zpool_offline":
@@ -1748,7 +1796,7 @@ func IsValidPath(path string) bool {
 
 	// Normalize path using filepath.Clean and ToSlash for consistent forward slashes
 	cleanPath := filepath.ToSlash(filepath.Clean(path))
-	
+
 	// Ensure it starts with / (on Windows, Clean might return \ or C:\ but we want /mnt style)
 	if !strings.HasPrefix(cleanPath, "/") {
 		// If it's a Windows-style absolute path like C:/, ignore it or handle it
@@ -1881,7 +1929,7 @@ func validateIpmitoolPower(cmdName string, args []string) error {
 	if args[7] != "chassis" || args[8] != "power" {
 		return fmt.Errorf("only chassis power commands are permitted")
 	}
-	
+
 	if cmdName == "ipmitool_power_off" && args[9] != "off" {
 		return fmt.Errorf("expected chassis power off")
 	}

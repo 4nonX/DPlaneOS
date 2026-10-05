@@ -27,7 +27,7 @@ let
     + lib.optionalString (cfg.secrets.fallbackKeyFile != null)
       " -secrets-key-fallback ${cfg.secrets.fallbackKeyFile}";
 in {
-  imports = [ ./ha.nix ./console-network-wizard.nix ./modules/samba.nix ./modules/nfs.nix ./modules/fenced.nix ./modules/ctdb.nix ./modules/ups.nix ];
+  imports = [ ./ha.nix ./console-network-wizard.nix ./modules/samba.nix ./modules/nfs.nix ./modules/fenced.nix ./modules/ctdb.nix ./modules/ups.nix ./modules/cluster.nix ];
 
   options.services.dplaneos = {
     enable = lib.mkEnableOption "DPlaneOS NAS daemon";

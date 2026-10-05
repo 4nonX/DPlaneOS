@@ -44,39 +44,56 @@ const (
 type NodeState string
 
 const (
-	StateHealthy    NodeState = "healthy"
-	StateDegraded   NodeState = "degraded"
+	StateHealthy     NodeState = "healthy"
+	StateDegraded    NodeState = "degraded"
 	StateUnreachable NodeState = "unreachable"
-	StateUnknown    NodeState = "unknown"
+	StateUnknown     NodeState = "unknown"
 )
 
 // ClusterNode represents a peer in the cluster.
 type ClusterNode struct {
-	ID           string    `json:"id"`           // unique node identifier (hostname or UUID)
-	Name         string    `json:"name"`         // human-readable label
-	Address      string    `json:"address"`      // http(s)://host:port of peer daemon
-	Role         NodeRole  `json:"role"`         // active | standby
-	State        NodeState `json:"state"`        // health from last heartbeat
+	ID           string    `json:"id"`      // unique node identifier (hostname or UUID)
+	Name         string    `json:"name"`    // human-readable label
+	Address      string    `json:"address"` // http(s)://host:port of peer daemon
+	Role         NodeRole  `json:"role"`    // active | standby
+	State        NodeState `json:"state"`   // health from last heartbeat
 	LastSeen     time.Time `json:"last_seen"`
 	LastSeenUnix int64     `json:"last_seen_unix"`
-	MissedBeats  int       `json:"missed_beats"`  // consecutive missed heartbeats
+	MissedBeats  int       `json:"missed_beats"` // consecutive missed heartbeats
 	Version      string    `json:"version"`
 	RegisteredAt time.Time `json:"registered_at"`
 }
 
 // ClusterStatus summarises the full cluster view.
 type ClusterStatus struct {
-	LocalNode          *ClusterNode   `json:"local_node"`
-	Peers              []*ClusterNode `json:"peers"`
-	Quorum             bool           `json:"quorum"`              // true if majority of nodes are reachable
-	ActiveNode         *ClusterNode   `json:"active_node"`         // which node currently holds the active role
-	HAEnabled          bool           `json:"ha_enabled"`          // true if Patroni/HAProxy is configured in NixOS
-	MaintenanceActive  bool           `json:"maintenance_active"`
-	MaintenanceUntil   int64          `json:"maintenance_until"`   // unix timestamp
-	SubordinateMode    bool           `json:"subordinate_mode"`    // true if catching up stale data post-zombie boot
-	HysteresisActive   bool           `json:"hysteresis_active"`   // true if flap-guard is suppressing auto-failover
-	LastFailoverAt     int64          `json:"last_failover_at"`    // unix timestamp of last automated failover; 0 = never
-	LastUpdated        time.Time      `json:"last_updated"`
+	LocalNode         *ClusterNode   `json:"local_node"`
+	Peers             []*ClusterNode `json:"peers"`
+	Quorum            bool           `json:"quorum"`      // true if majority of nodes are reachable
+	ActiveNode        *ClusterNode   `json:"active_node"` // which node currently holds the active role
+	HAEnabled         bool           `json:"ha_enabled"`  // true if Patroni/HAProxy is configured in NixOS
+	MaintenanceActive bool           `json:"maintenance_active"`
+	MaintenanceUntil  int64          `json:"maintenance_until"` // unix timestamp
+	SubordinateMode   bool           `json:"subordinate_mode"`  // true if catching up stale data post-zombie boot
+	HysteresisActive  bool           `json:"hysteresis_active"` // true if flap-guard is suppressing auto-failover
+	LastFailoverAt    int64          `json:"last_failover_at"`  // unix timestamp of last automated failover; 0 = never
+	LastUpdated       time.Time      `json:"last_updated"`
+
+	// Quorum source (Design 0001 phase 3a): "corosync" once a cluster is
+	// configured, otherwise "heartbeat" (majority of answering peers).
+	QuorumProvider     string `json:"quorum_provider"`
+	ExpectedVotes      int    `json:"expected_votes,omitempty"`
+	AutoFailover       bool   `json:"auto_failover"`
+	AutoFailoverReason string `json:"auto_failover_reason,omitempty"`
+}
+
+// ExternalQuorum is the quorum reported by the cluster layer (Corosync
+// votequorum with an optional third vote).
+type ExternalQuorum struct {
+	Configured    bool
+	Quorate       bool
+	ExpectedVotes int
+	AutoFailover  bool   // three votes or more and quorate
+	Reason        string // why automatic failover is not possible
 }
 
 // Manager owns the cluster state for this node.
@@ -116,6 +133,18 @@ type Manager struct {
 	// immediately after ExecutePromotion completes. Set once at startup via
 	// SetPromotionCallback before Start(); never written again after that.
 	promotionCallback func()
+
+	// quorumSource, when set and configured, replaces the heartbeat majority:
+	// the watchdog is reset only while it reports quorum (Proxmox model,
+	// ADR-0009). It must not block (it reads a cached state).
+	quorumSource func() ExternalQuorum
+}
+
+// SetQuorumSource installs the cluster quorum layer. Call before Start.
+func (m *Manager) SetQuorumSource(fn func() ExternalQuorum) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.quorumSource = fn
 }
 
 // SetClusterSecret configures the pre-shared secret that peer daemons must
@@ -140,9 +169,10 @@ func (m *Manager) SetPromotionCallback(fn func()) {
 }
 
 // NewManager creates a cluster manager for this daemon instance.
-//   localID   - unique ID for this node (use hostname or UUID from /etc/machine-id)
-//   localAddr - how peers reach this daemon, e.g. "http://10.0.0.1:5050"
-//   version   - daemon version string
+//
+//	localID   - unique ID for this node (use hostname or UUID from /etc/machine-id)
+//	localAddr - how peers reach this daemon, e.g. "http://10.0.0.1:5050"
+//	version   - daemon version string
 func NewManager(db *sql.DB, localID, localAddr, version string) *Manager {
 	m := &Manager{
 		db:        db,
@@ -182,7 +212,6 @@ func (m *Manager) Stop() {
 	m.mu.Unlock()
 	m.wg.Wait()
 }
-
 
 // RegisterPeer adds or updates a peer node in the cluster.
 // Persists to DB so peers survive restarts.
@@ -251,13 +280,20 @@ func (m *Manager) Status() *ClusterStatus {
 	// reachable - doing so would allow the watchdog to be petted before any peer
 	// has responded, defeating the startup safety requirement.
 	total := len(m.nodes) + 1 // include self
-	reachable := 1             // self is always reachable
+	reachable := 1            // self is always reachable
 	for _, n := range m.nodes {
 		if n.State == StateHealthy {
 			reachable++
 		}
 	}
 	quorum := reachable > total/2
+	provider, expected, autoFailover, autoReason := "heartbeat", 0, true, ""
+	if m.quorumSource != nil {
+		if q := m.quorumSource(); q.Configured {
+			provider, quorum, expected = "corosync", q.Quorate, q.ExpectedVotes
+			autoFailover, autoReason = q.AutoFailover, q.Reason
+		}
+	}
 
 	maintenanceActive := time.Now().Before(m.maintenanceUntil)
 
@@ -280,6 +316,11 @@ func (m *Manager) Status() *ClusterStatus {
 		HysteresisActive:  hysteresisActive,
 		LastFailoverAt:    lastFailoverUnix,
 		LastUpdated:       time.Now(),
+
+		QuorumProvider:     provider,
+		ExpectedVotes:      expected,
+		AutoFailover:       autoFailover,
+		AutoFailoverReason: autoReason,
 	}
 }
 
@@ -318,8 +359,8 @@ func (m *Manager) GetPeer(id string) (*ClusterNode, bool) {
 // Default timing constants used when the database has no row yet.
 // These match the historical compile-time values.
 const (
-	DefaultFailoverAfter    = 45 * time.Second
-	DefaultHysteresisWindow = 60 * time.Minute
+	DefaultFailoverAfter     = 45 * time.Second
+	DefaultHysteresisWindow  = 60 * time.Minute
 	DefaultHeartbeatInterval = 15 * time.Second
 )
 
@@ -521,10 +562,24 @@ func (m *Manager) checkFailover() {
 	}
 	lastFailoverAt := m.lastFailoverAt
 	subordinateMode := m.subordinateMode
+	quorumSource := m.quorumSource
 	m.mu.RUnlock()
 
 	if !isStandby || deadPeer == nil {
 		return
+	}
+
+	// Guard 0: Cluster quorum (Corosync). Automatic failover needs a third vote
+	// and this node in the quorate partition; with two votes both halves of a
+	// split stay quorate and could both take over (ADR-0009). Takeover is then
+	// a manual action.
+	if quorumSource != nil {
+		if q := quorumSource(); q.Configured && !q.AutoFailover {
+			if deadPeer.MissedBeats == 3 {
+				log.Printf("HA QUORUM: Peer %s unreachable; automatic failover not possible: %s", deadPeer.ID, q.Reason)
+			}
+			return
+		}
 	}
 
 	// Guard 1: Subordinate Mode - this node is still catching up stale data from
@@ -1063,13 +1118,13 @@ func (m *Manager) SetReplicationConfig(cfg *ReplicationConfig) error {
 			remote_port=excluded.remote_port, ssh_key_path=excluded.ssh_key_path,
 			interval_secs=excluded.interval_secs
 	`, cfg.LocalPool, cfg.RemotePool, cfg.RemoteHost, cfg.RemoteUser, cfg.RemotePort, cfg.SSHKeyPath, cfg.IntervalSecs)
-	
+
 	if err != nil {
 		return err
 	}
 
 	m.replConfig = cfg
-	
+
 	// Restart loop
 	if m.replCancel != nil {
 		m.replCancel()
@@ -1090,7 +1145,7 @@ func (m *Manager) loadPersistedReplication() {
 		SELECT local_pool, remote_pool, remote_host, remote_user, remote_port, ssh_key_path, interval_secs
 		FROM ha_replication_config WHERE id = 1
 	`).Scan(&cfg.LocalPool, &cfg.RemotePool, &cfg.RemoteHost, &cfg.RemoteUser, &cfg.RemotePort, &cfg.SSHKeyPath, &cfg.IntervalSecs)
-	
+
 	if err == nil {
 		m.replConfig = &cfg
 		ctx, cancel := context.WithCancel(context.Background())
@@ -1245,5 +1300,3 @@ func (m *Manager) persistClusterState() {
 			subordinate_mode = EXCLUDED.subordinate_mode
 	`, lastFailoverParam, subordinateMode)
 }
-
-

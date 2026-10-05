@@ -27,6 +27,7 @@ import (
 	"dplaned/internal/audit"
 	"dplaned/internal/bootstrap"
 	"dplaned/internal/configstore"
+	"dplaned/internal/quorum"
 	"dplaned/internal/database"
 	"dplaned/internal/features"
 	"dplaned/internal/gitops"
@@ -397,6 +398,15 @@ func main() {
 	}
 	clusterMgr.SetPromotionCallback(func() {
 		go runPostPromotionStacksApply(db, *gitopsStatePath, *smbConfPath)
+	})
+	// Cluster quorum (Design 0001 phase 3a): once a Corosync cluster is
+	// configured, its quorum replaces the heartbeat majority.
+	quorumMon := quorum.NewMonitor(db)
+	quorumMon.Start(3 * time.Second)
+	clusterMgr.SetQuorumSource(func() ha.ExternalQuorum {
+		in := quorumMon.Info()
+		return ha.ExternalQuorum{Configured: in.Configured, Quorate: in.Quorate,
+			ExpectedVotes: in.ExpectedVotes, AutoFailover: in.AutoFailover, Reason: in.AutoFailoverNo}
 	})
 	clusterMgr.Start()
 	defer clusterMgr.Stop()
@@ -977,6 +987,22 @@ func main() {
 	r.HandleFunc("/api/config/sync/peer/join", configSync.PeerJoin).Methods("POST")
 	r.HandleFunc("/api/config/sync/peer/notify", configSync.PeerNotify).Methods("POST")
 	r.HandleFunc("/api/config/sync/peer/leave", configSync.PeerLeave).Methods("POST")
+
+	// Cluster quorum and third vote (Design 0001 phase 3a).
+	quorumH := handlers.NewQuorumHandler(db, quorumMon)
+	r.Handle("/api/quorum/status", permRoute("system", "read", http.HandlerFunc(quorumH.Status))).Methods("GET")
+	r.Handle("/api/quorum/suggest", permRoute("system", "read", http.HandlerFunc(quorumH.Suggest))).Methods("GET")
+	r.Handle("/api/quorum/cluster", permRoute("system", "admin", http.HandlerFunc(quorumH.Form))).Methods("POST")
+	r.Handle("/api/quorum/cluster", permRoute("system", "admin", http.HandlerFunc(quorumH.Dissolve))).Methods("DELETE")
+	r.Handle("/api/quorum/third-vote/code", permRoute("system", "admin", http.HandlerFunc(quorumH.ThirdVoteCode))).Methods("POST")
+	r.Handle("/api/quorum/third-vote", permRoute("system", "admin", http.HandlerFunc(quorumH.RemoveThirdVote))).Methods("DELETE")
+	r.Handle("/api/quorum/witness/join", permRoute("system", "admin", http.HandlerFunc(quorumH.BecomeWitness))).Methods("POST")
+	// PUBLIC (session middleware): the setup script, and enrollment authenticated
+	// by the one-time code; the cluster update is authenticated as a peer call.
+	r.HandleFunc("/api/quorum/witness-setup.sh", quorumH.WitnessScript).Methods("GET")
+	r.HandleFunc("/api/quorum/enroll/ca", quorumH.EnrollCA).Methods("POST")
+	r.HandleFunc("/api/quorum/enroll/cert", quorumH.EnrollCert).Methods("POST")
+	r.HandleFunc("/api/config/sync/peer/cluster", quorumH.PeerCluster).Methods("POST")
 	gitops.AddChangeHook(func() {
 		go func() {
 			if _, err := configstore.Capture(db, configstore.OriginGUI, "", ""); err != nil {
@@ -1779,6 +1805,10 @@ func sessionMiddleware(db *sql.DB, internalCronToken string) mux.MiddlewareFunc 
 				// Configuration sync between nodes - peer secret or join token
 				// checked by the handlers (internal/handlers/config_sync.go)
 				strings.HasPrefix(p, "/api/config/sync/peer/") ||
+				// Third-vote setup: static script, and enrollment checked by the
+				// handlers with the one-time code (internal/handlers/quorum.go)
+				p == "/api/quorum/witness-setup.sh" ||
+				strings.HasPrefix(p, "/api/quorum/enroll/") ||
 				// Internal hooks - called by systemd timers on this host.
 				// Mandatory check: local caller AND the per-boot random token.
 				isInternalCronHook(r, internalCronToken) ||

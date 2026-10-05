@@ -33,6 +33,7 @@
  */
 
 import { useState, useEffect, useRef } from 'react'
+import { QuorumPanel } from '@/components/ha/QuorumPanel'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { Icon } from '@/components/ui/Icon'
@@ -2401,6 +2402,8 @@ export function HAPage() {
           )}
         </div>
       </div>
+
+      <QuorumPanel />
 
       {/* ── Stat Cards ──────────────────────────────────────────────────────── */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 20 }}>
