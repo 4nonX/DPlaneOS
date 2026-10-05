@@ -267,6 +267,15 @@ func (h *ZFSHandler) CreateDataset(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Reject an invalid mountpoint up front; it used to be dropped silently
+	// after the create, leaving the dataset at the inherited location.
+	if req.Mountpoint != "" && req.Mountpoint != "none" && req.Mountpoint != "legacy" {
+		if err := security.ValidateMountPoint(req.Mountpoint); err != nil {
+			respondErrorSimple(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+	}
+
 	start := time.Now()
 
 	// Step 1: zfs create <name>
@@ -308,10 +317,7 @@ func (h *ZFSHandler) CreateDataset(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if req.Mountpoint != "" {
-		mpPattern := regexp.MustCompile(`^/[a-zA-Z0-9_\-/]+$`)
-		if mpPattern.MatchString(req.Mountpoint) {
-			props = append(props, prop{"mountpoint", req.Mountpoint})
-		}
+		props = append(props, prop{"mountpoint", req.Mountpoint}) // validated above
 	}
 	addProp := func(key, val string) {
 		if val == "" {

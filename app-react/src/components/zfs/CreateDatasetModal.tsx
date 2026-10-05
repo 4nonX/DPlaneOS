@@ -3,7 +3,7 @@
  *
  * Create a child dataset from a preset. Shared by PoolsPage and DatasetsPage.
  *
- *   POST /api/zfs/datasets { name, mountpoint, quota, compression, dedup,
+ *   POST /api/zfs/datasets { name, quota, compression, dedup,
  *                            atime, recordsize, xattr, acltype, casesensitivity }
  *
  * Presets only pre-fill the form; every value stays editable under
@@ -72,7 +72,7 @@ export function CreateDatasetModal({ parentName, onClose, onCreated }: {
     mutationFn: async () => {
       const res = await api.post<{ success?: boolean; error?: string }>('/api/zfs/datasets', {
         name: fullName,
-        mountpoint: `/${fullName}`,
+        // No mountpoint: inherit <pool mountpoint>/<name> from the parent.
         quota: quota.trim(),
         compression: props.compression,
         dedup,

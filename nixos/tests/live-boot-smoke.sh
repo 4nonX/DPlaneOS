@@ -87,16 +87,27 @@ check "pool smoke has two mirror vdevs" contains "$(zpool status smoke)" mirror-
 expect 409 POST /api/zfs/pool/add-vdev "{\"pool\":\"smoke\",\"vdev_type\":\"mirror\",\"disks\":[\"${D[0]}\",\"${D[1]}\"]}"
 
 # ── Dataset preset: SMB share (case-insensitive, POSIX ACLs) ───────────────
-expect 200 POST /api/zfs/datasets '{"name":"smoke/share","mountpoint":"/smoke/share","compression":"lz4","atime":"off","recordsize":"128K","xattr":"sa","acltype":"posix","casesensitivity":"insensitive"}'
+expect 200 POST /api/zfs/datasets '{"name":"smoke/share","compression":"lz4","atime":"off","recordsize":"128K","xattr":"sa","acltype":"posix","casesensitivity":"insensitive"}'
 check "dataset create reported success" test "$(json .success)" = true
 check "casesensitivity=insensitive" test "$(zfs get -H -o value casesensitivity smoke/share)" = insensitive
 check "acltype=posix" test "$(zfs get -H -o value acltype smoke/share)" = posix
 check "xattr=sa" test "$(zfs get -H -o value xattr smoke/share)" = sa
 expect 400 POST /api/zfs/datasets '{"name":"smoke/bad","casesensitivity":"maybe"}'
 expect 400 POST /api/zfs/datasets '{"name":"smoke/bad","acltype":"nfsv4"}'
+expect 400 POST /api/zfs/datasets '{"name":"smoke/bad","mountpoint":"/etc/evil"}'
+check "rejected mountpoint created nothing" lacks "$(zfs list -H -o name -r smoke)" 'smoke/bad'
 
 # The daemon's mounts must be visible on the host (Samba, NFS, users), not
 # only inside the daemon's service namespace.
+if ! mountpoint -q /smoke/share; then
+  echo "--- diagnostics: smoke/share not mounted on the host"
+  zfs get -H -o property,value,source mounted,mountpoint,canmount smoke smoke/share
+  grep smoke /proc/self/mountinfo || echo "(no smoke mounts in the host namespace)"
+  pid=$(systemctl show -p MainPID --value dplaned.service)
+  echo "dplaned mnt ns: $(readlink "/proc/$pid/ns/mnt")  pid1 mnt ns: $(readlink /proc/1/ns/mnt)"
+  grep smoke "/proc/$pid/mountinfo" || echo "(no smoke mounts in dplaned's namespace)"
+  systemctl show dplaned.service -p PrivateTmp -p ProtectSystem -p ProtectHome -p ReadWritePaths -p PrivateMounts -p MountFlags
+fi
 check "smoke/share mounted on the host" mountpoint -q /smoke/share
 
 # ── Snapshots and rollback safety levels ───────────────────────────────────
