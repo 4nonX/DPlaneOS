@@ -352,6 +352,52 @@ jobs:
           bash .github/scripts/fleet-integration-test.sh
 
   # ════════════════════════════════════════════════════════════════════════════
+  # STAGE 4A: CONFIGURATION SYNC - two nodes with their own databases
+  # (Design 0001, Phase 2): pair, partition, change both sides, reconnect,
+  # merge, resolve a conflict, detach.
+  # ════════════════════════════════════════════════════════════════════════════
+  config-sync:
+    name: Config Sync & Merge (two nodes)
+    needs: [prepare, validate]
+    runs-on: ubuntu-22.04
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_DB: dplaneos
+          POSTGRES_USER: dplaneos
+          POSTGRES_PASSWORD: dplaneos
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download Build Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dplaneos-build
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y zfsutils-linux postgresql-client python3-bcrypt curl samba acl socat iptables
+          sudo modprobe zfs
+
+      - name: Positioning binary for scripts
+        run: cp build/dplaned-linux-amd64-cgo ./dplaned-ci && chmod +x ./dplaned-ci
+
+      - name: Run two-node sync test
+        env:
+          DATABASE_DSN: "postgres://dplaneos:dplaneos@localhost:5432/dplaneos?sslmode=disable"
+        run: bash .github/scripts/config-sync-test.sh
+
+  # ════════════════════════════════════════════════════════════════════════════
   # STAGE 4B: HA CLUSTER TESTS - Failover logic, ZFS promotion, NixOS modules.
   # Three parallel jobs, each gated on prepare. Release and ISO are hard-gated
   # on all three: a broken HA subsystem must never reach a published release.
@@ -577,7 +623,7 @@ jobs:
   # ════════════════════════════════════════════════════════════════════════════
   build-live-iso:
     name: Build Live Boot ISO
-    needs: [validate, integration, ha-failover-logic, ha-promotion-zfs, ha-vm-cluster]
+    needs: [validate, integration, config-sync, ha-failover-logic, ha-promotion-zfs, ha-vm-cluster]
     if: github.ref_type == 'tag' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/live-boot'
     strategy:
       matrix:
@@ -715,7 +761,7 @@ jobs:
   # ════════════════════════════════════════════════════════════════════════════
   release:
     name: Build & Publish Release
-    needs: [validate, integration, convergence, storage-failure, ha-failover-logic, ha-promotion-zfs, ha-vm-cluster, iso, iso-arm, build-live-iso, test-live-boot]
+    needs: [validate, integration, config-sync, convergence, storage-failure, ha-failover-logic, ha-promotion-zfs, ha-vm-cluster, iso, iso-arm, build-live-iso, test-live-boot]
     if: github.ref_type == 'tag' || github.ref == 'refs/heads/main'
     runs-on: ubuntu-22.04
     permissions:
@@ -900,7 +946,7 @@ jobs:
 
   iso:
     name: Build Installer ISO
-    needs: [validate, integration, ha-failover-logic, ha-promotion-zfs, ha-vm-cluster]
+    needs: [validate, integration, config-sync, ha-failover-logic, ha-promotion-zfs, ha-vm-cluster]
     if: github.ref_type == 'tag' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/iso-installer'
     runs-on: ubuntu-22.04
     permissions:
@@ -1016,7 +1062,7 @@ jobs:
   # ════════════════════════════════════════════════════════════════════════════
   iso-arm:
     name: Build Installer ISO (arm64)
-    needs: [validate, integration, ha-failover-logic, ha-promotion-zfs, ha-vm-cluster]
+    needs: [validate, integration, config-sync, ha-failover-logic, ha-promotion-zfs, ha-vm-cluster]
     if: github.ref_type == 'tag' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/iso-installer'
     runs-on: ubuntu-22.04-arm
     permissions:

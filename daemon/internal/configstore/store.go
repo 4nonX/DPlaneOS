@@ -21,23 +21,28 @@ const (
 	OriginGUI      = "gui"      // captured right after a change in the web UI
 	OriginDetected = "detected" // found by the periodic capture (shell, other tools)
 	OriginRollback = "rollback" // result of a rollback from the history
+	OriginPeer     = "peer"     // received from another node and applied here
+	OriginMerge    = "merge"    // joins two lineages: conflict resolution or equal changes
 )
 
 // Revision is one row of config_revisions.
 type Revision struct {
-	ID           int64     `json:"id"`
-	Changeset    string    `json:"changeset"`
-	Scope        string    `json:"scope"`
-	ScopeID      string    `json:"scope_id"`
-	Kind         string    `json:"kind"`
-	Key          string    `json:"key"`
+	ID           int64          `json:"id"`
+	Changeset    string         `json:"changeset"`
+	Scope        string         `json:"scope"`
+	ScopeID      string         `json:"scope_id"`
+	Kind         string         `json:"kind"`
+	Key          string         `json:"key"`
 	Payload      map[string]any `json:"payload"` // nil = deleted
-	BaseRevision *int64    `json:"base_revision,omitempty"`
-	Origin       string    `json:"origin"`
-	OriginNode   string    `json:"origin_node"`
-	Author       string    `json:"author"`
-	Note         string    `json:"note"`
-	CreatedAt    time.Time `json:"created_at"`
+	BaseRevision *int64         `json:"base_revision,omitempty"`
+	UID          string         `json:"uid"`                 // global identity, same on every node
+	BaseUID      string         `json:"base_uid,omitempty"`  // revision this change was made against
+	MergeUID     string         `json:"merge_uid,omitempty"` // second parent of a merge
+	Origin       string         `json:"origin"`
+	OriginNode   string         `json:"origin_node"`
+	Author       string         `json:"author"`
+	Note         string         `json:"note"`
+	CreatedAt    time.Time      `json:"created_at"`
 }
 
 func (r Revision) resource() Resource {
@@ -45,7 +50,8 @@ func (r Revision) resource() Resource {
 }
 
 const revisionColumns = `id, changeset, scope_type, scope_id, resource_kind, resource_key, payload,
-	base_revision, origin, origin_node, author, note, created_at`
+	base_revision, origin, origin_node, author, note, created_at,
+	uid::text, COALESCE(base_uid::text, ''), COALESCE(merge_uid::text, '')`
 
 func scanRevisions(rows *sql.Rows) ([]Revision, error) {
 	defer rows.Close()
@@ -55,7 +61,8 @@ func scanRevisions(rows *sql.Rows) ([]Revision, error) {
 		var payload []byte
 		var base sql.NullInt64
 		if err := rows.Scan(&r.ID, &r.Changeset, &r.Scope, &r.ScopeID, &r.Kind, &r.Key, &payload,
-			&base, &r.Origin, &r.OriginNode, &r.Author, &r.Note, &r.CreatedAt); err != nil {
+			&base, &r.Origin, &r.OriginNode, &r.Author, &r.Note, &r.CreatedAt,
+			&r.UID, &r.BaseUID, &r.MergeUID); err != nil {
 			return nil, err
 		}
 		if payload != nil {
@@ -155,7 +162,9 @@ func newChangeset() string {
 	return hex.EncodeToString(b)
 }
 
-func nodeID() string {
+// nodeName is the display name recorded as origin_node. The stable identity
+// of a node is NodeID (node.go).
+func nodeName() string {
 	h, err := os.Hostname()
 	if err != nil || h == "" {
 		return "local"
@@ -184,18 +193,90 @@ func record(db *sql.DB, changes []Resource, latest map[string]Revision, origin, 
 			}
 			payload = raw
 		}
-		var base any
+		var base, baseUID any
 		if prev, ok := latest[c.ID()]; ok {
-			base = prev.ID
+			base, baseUID = prev.ID, prev.UID
 		}
 		if _, err := tx.Exec(`INSERT INTO config_revisions
-			(changeset, scope_type, scope_id, resource_kind, resource_key, payload, base_revision, origin, origin_node, author, note)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
-			cs, c.Scope, c.ScopeID, c.Kind, c.Key, payload, base, origin, nodeID(), author, note); err != nil {
+			(changeset, scope_type, scope_id, resource_kind, resource_key, payload, base_revision, base_uid, origin, origin_node, author, note)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+			cs, c.Scope, c.ScopeID, c.Kind, c.Key, payload, base, baseUID, origin, nodeName(), author, note); err != nil {
 			return "", fmt.Errorf("%s: %w", c.ID(), err)
 		}
 	}
-	return cs, tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return "", err
+	}
+	notifyChange()
+	return cs, nil
+}
+
+// insertRevision records one revision with a given identity and parents: a
+// revision adopted from a peer (same uid as on the peer) or a merge (new uid,
+// two parents). uid "" lets the database assign one.
+func insertRevision(db *sql.DB, r Revision, local *Revision) (*Revision, error) {
+	var payload any
+	if r.Payload != nil {
+		raw, err := json.Marshal(r.Payload)
+		if err != nil {
+			return nil, err
+		}
+		payload = raw
+	}
+	var base any
+	if local != nil {
+		base = local.ID
+	}
+	nullUID := func(s string) any {
+		if s == "" {
+			return nil
+		}
+		return s
+	}
+	if r.Changeset == "" {
+		r.Changeset = newChangeset()
+	}
+	if r.OriginNode == "" {
+		r.OriginNode = nodeName()
+	}
+	err := db.QueryRow(`INSERT INTO config_revisions
+		(uid, changeset, scope_type, scope_id, resource_kind, resource_key, payload, base_revision, base_uid, merge_uid,
+		 origin, origin_node, author, note)
+		VALUES (COALESCE($1::uuid, gen_random_uuid()), $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+		RETURNING id, uid::text, created_at`,
+		nullUID(r.UID), r.Changeset, r.Scope, r.ScopeID, r.Kind, r.Key, payload, base, nullUID(r.BaseUID), nullUID(r.MergeUID),
+		r.Origin, r.OriginNode, r.Author, r.Note).Scan(&r.ID, &r.UID, &r.CreatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("%s/%s: %w", r.Kind, r.Key, err)
+	}
+	if local != nil {
+		b := local.ID
+		r.BaseRevision = &b
+	}
+	notifyChange()
+	return &r, nil
+}
+
+// changeListeners run after new revisions were recorded (peer notification).
+var (
+	changeListenersMu sync.Mutex
+	changeListeners   []func()
+)
+
+// OnChange registers fn to run (in its own goroutine) after revisions are recorded.
+func OnChange(fn func()) {
+	changeListenersMu.Lock()
+	defer changeListenersMu.Unlock()
+	changeListeners = append(changeListeners, fn)
+}
+
+func notifyChange() {
+	changeListenersMu.Lock()
+	fns := append([]func(){}, changeListeners...)
+	changeListenersMu.Unlock()
+	for _, fn := range fns {
+		go fn()
+	}
 }
 
 // ── Capture ───────────────────────────────────────────────────────────────────
@@ -228,8 +309,11 @@ func liveToDesired(live *gitops.LiveState) *gitops.DesiredState {
 }
 
 // changesAgainst compares the current resources with the latest revisions:
-// new or changed resources, and captured kinds that disappeared.
-func changesAgainst(current []Resource, latest map[string]Revision) []Resource {
+// new or changed resources, and captured kinds that disappeared. A group-scope
+// resource on a pool that is not imported here is not missing, only out of
+// view (exported pool, standby of shared storage): it is not recorded as
+// deleted, which would otherwise propagate to peers. imported nil = no filter.
+func changesAgainst(current []Resource, latest map[string]Revision, imported map[string]bool) []Resource {
 	var changes []Resource
 	seen := make(map[string]bool, len(current))
 	for _, r := range current {
@@ -241,6 +325,9 @@ func changesAgainst(current []Resource, latest map[string]Revision) []Resource {
 	}
 	for id, prev := range latest {
 		if !seen[id] && capturedKinds[prev.Kind] && prev.Payload != nil {
+			if imported != nil && prev.Scope == ScopeGroup && !imported[prev.ScopeID] {
+				continue
+			}
 			gone := prev.resource()
 			gone.Payload = nil
 			changes = append(changes, gone)
@@ -258,7 +345,11 @@ func Capture(db *sql.DB, origin, author, note string) (string, error) {
 	}
 	captureMu.Lock()
 	defer captureMu.Unlock()
+	return captureLocked(db, origin, author, note)
+}
 
+// captureLocked is Capture with captureMu held by the caller.
+func captureLocked(db *sql.DB, origin, author, note string) (string, error) {
 	live, err := gitops.ReadLiveState(db)
 	if err != nil {
 		return "", fmt.Errorf("reading live state: %w", err)
@@ -270,8 +361,16 @@ func Capture(db *sql.DB, origin, author, note string) (string, error) {
 	if len(latest) == 0 {
 		origin, note = OriginBaseline, "configuration when history recording started"
 	}
-	changes := changesAgainst(Extract(liveToDesired(live), nodeID()), latest)
+	changes := changesAgainst(Extract(liveToDesired(live), nodeName()), latest, importedPools(live))
 	return record(db, changes, latest, origin, author, note)
+}
+
+func importedPools(live *gitops.LiveState) map[string]bool {
+	out := make(map[string]bool, len(live.Pools))
+	for _, p := range live.Pools {
+		out[p.Name] = true
+	}
+	return out
 }
 
 // StartPeriodicCapture records changes made outside the web UI (shell, other

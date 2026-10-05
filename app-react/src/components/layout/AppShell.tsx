@@ -28,6 +28,7 @@ import { PendingChangesSidebar } from './PendingChangesSidebar'
 import { GlobalSearch } from '@/components/ui/GlobalSearch'
 import { KeyboardHelpModal } from '@/components/ui/KeyboardHelpModal'
 import { JobTaskbar } from '@/components/ui/JobTaskbar'
+import { NodeStateBanner } from './NodeStateBanner'
 import { useJobStore } from '@/stores/jobs'
 
 // ---------------------------------------------------------------------------
@@ -358,6 +359,7 @@ export function AppShell() {
           boxSizing: 'border-box',
           transition: 'padding 0.2s ease',
         }}>
+          <NodeStateBanner />
           <Outlet />
         </div>
       </main>

@@ -163,6 +163,32 @@ func reencryptAll(tx *sql.Tx, conv func(label, sealed string) (string, error)) (
 		}
 	}
 
+	// Configuration sync peer secrets (text ids).
+	type peerRow struct{ id, secret string }
+	var peers []peerRow
+	prows, err := tx.Query("SELECT id, secret FROM config_peers")
+	if err != nil {
+		return written, fmt.Errorf("config_peers: %w", err)
+	}
+	for prows.Next() {
+		var pr peerRow
+		if err := prows.Scan(&pr.id, &pr.secret); err != nil {
+			prows.Close()
+			return written, fmt.Errorf("config_peers: %w", err)
+		}
+		peers = append(peers, pr)
+	}
+	prows.Close()
+	for _, pr := range peers {
+		id := pr.id
+		if err := apply("config_peers id="+id+" secret", pr.secret, func(n string) error {
+			_, err := tx.Exec("UPDATE config_peers SET secret=$1 WHERE id=$2", n, id)
+			return err
+		}); err != nil {
+			return written, err
+		}
+	}
+
 	totp, err := collect("totp_secrets", "SELECT user_id, secret FROM totp_secrets WHERE secret != ''", false)
 	if err != nil {
 		return written, err

@@ -1,9 +1,9 @@
 package main
 
 import (
-	"crypto/subtle"
 	"context"
 	cryptorand "crypto/rand"
+	"crypto/subtle"
 	"database/sql"
 	"encoding/json"
 	"flag"
@@ -25,12 +25,12 @@ import (
 
 	"dplaned/internal/alerts"
 	"dplaned/internal/audit"
-	"dplaned/internal/database"
-	"dplaned/internal/gitops"
-	"dplaned/internal/ha"
 	"dplaned/internal/bootstrap"
 	"dplaned/internal/configstore"
+	"dplaned/internal/database"
 	"dplaned/internal/features"
+	"dplaned/internal/gitops"
+	"dplaned/internal/ha"
 	"dplaned/internal/handlers"
 	"dplaned/internal/hardware"
 	"dplaned/internal/jobs"
@@ -55,8 +55,8 @@ var (
 
 func main() {
 	// Parse flags
-	listenAddr    := flag.String("listen", "/run/dplaneos/dplaned.sock", "Listen address: Unix socket path (default) or TCP host:port for testing")
-	socketGroup   := flag.String("socket-group", "", "Group that owns the Unix socket (nginx's group, e.g. www-data or nginx); sets 0660 instead of 0666")
+	listenAddr := flag.String("listen", "/run/dplaneos/dplaned.sock", "Listen address: Unix socket path (default) or TCP host:port for testing")
+	socketGroup := flag.String("socket-group", "", "Group that owns the Unix socket (nginx's group, e.g. www-data or nginx); sets 0660 instead of 0666")
 	dbDSN := flag.String("db-dsn", "postgres://dplaneos@localhost/dplaneos?sslmode=disable", "PostgreSQL DSN")
 	telegramBot := flag.String("telegram-bot", "", "Telegram bot token (optional, for alerts)")
 	telegramChat := flag.String("telegram-chat", "", "Telegram chat ID (optional, for alerts)")
@@ -952,6 +952,31 @@ func main() {
 	// resource is recorded; capture runs after web UI changes (background, so
 	// the request is not delayed) and every 5 minutes for changes made elsewhere.
 	configHistory := handlers.NewConfigHistoryHandler(db, *smbConfPath)
+	// Revision exchange between nodes (Design 0001, Phase 2): pull every 30 s
+	// and when a peer announces a change; merge per resource.
+	configSyncer := configstore.NewSyncer(db, gitops.ApplyContext{
+		DB:             db,
+		SmbConfPath:    *smbConfPath,
+		NFSExportsPath: "/etc/exports",
+		OwnershipGuard: func() bool { ok, _ := gitops.IsWriter(); return ok },
+	})
+	configSyncer.Start(30 * time.Second)
+	configSync := handlers.NewConfigSyncHandler(db, configSyncer)
+	r.Handle("/api/config/sync/status", permRoute("system", "read", http.HandlerFunc(configSync.Status))).Methods("GET")
+	r.Handle("/api/config/sync/now", permRoute("system", "write", http.HandlerFunc(configSync.SyncNow))).Methods("POST")
+	r.Handle("/api/config/peers/token", permRoute("system", "admin", http.HandlerFunc(configSync.CreateToken))).Methods("POST")
+	r.Handle("/api/config/peers/preview", permRoute("system", "admin", http.HandlerFunc(configSync.Preview))).Methods("POST")
+	r.Handle("/api/config/peers/join", permRoute("system", "admin", http.HandlerFunc(configSync.Join))).Methods("POST")
+	r.Handle("/api/config/peers/{id}", permRoute("system", "admin", http.HandlerFunc(configSync.RemovePeer))).Methods("DELETE")
+	r.Handle("/api/config/detach", permRoute("system", "admin", http.HandlerFunc(configSync.Detach))).Methods("POST")
+	r.Handle("/api/config/conflicts", permRoute("system", "read", http.HandlerFunc(configSync.Conflicts))).Methods("GET")
+	r.Handle("/api/config/conflicts/{id:[0-9]+}/resolve", permRoute("system", "admin", http.HandlerFunc(configSync.Resolve))).Methods("POST")
+	// Peer endpoints are PUBLIC in the session middleware: other nodes call
+	// them without a session; the handlers check the peer secret or join token.
+	r.HandleFunc("/api/config/sync/peer/revisions", configSync.PeerRevisions).Methods("GET")
+	r.HandleFunc("/api/config/sync/peer/join", configSync.PeerJoin).Methods("POST")
+	r.HandleFunc("/api/config/sync/peer/notify", configSync.PeerNotify).Methods("POST")
+	r.HandleFunc("/api/config/sync/peer/leave", configSync.PeerLeave).Methods("POST")
 	gitops.AddChangeHook(func() {
 		go func() {
 			if _, err := configstore.Capture(db, configstore.OriginGUI, "", ""); err != nil {
@@ -1728,9 +1753,9 @@ func sessionMiddleware(db *sql.DB, internalCronToken string) mux.MiddlewareFunc 
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// Skip validation for public endpoints
 			// Normalize the path before any authorization check so that traversals
-		// like /api/zfs/../ha/fence cannot bypass pattern matching while gorilla/mux
-		// later resolves the cleaned path to a different route.
-		p := path.Clean(r.URL.Path)
+			// like /api/zfs/../ha/fence cannot bypass pattern matching while gorilla/mux
+			// later resolves the cleaned path to a different route.
+			p := path.Clean(r.URL.Path)
 			if p == "/health" ||
 				p == "/api/auth/login" ||
 				p == "/api/auth/logout" ||
@@ -1751,6 +1776,9 @@ func sessionMiddleware(db *sql.DB, internalCronToken string) mux.MiddlewareFunc 
 				// HA peer endpoints - called by peer daemons that have no user session
 				p == "/api/ha/heartbeat" ||
 				p == "/api/ha/sync/status" ||
+				// Configuration sync between nodes - peer secret or join token
+				// checked by the handlers (internal/handlers/config_sync.go)
+				strings.HasPrefix(p, "/api/config/sync/peer/") ||
 				// Internal hooks - called by systemd timers on this host.
 				// Mandatory check: local caller AND the per-boot random token.
 				isInternalCronHook(r, internalCronToken) ||

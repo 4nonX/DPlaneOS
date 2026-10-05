@@ -27,7 +27,7 @@ func TestChangesAgainst(t *testing.T) {
 		Datasets: []gitops.DesiredDataset{{Name: "tank/media", Quota: "1T"}, {Name: "tank/old"}},
 		Users:    []gitops.DesiredUser{{Username: "alice", Role: "admin"}},
 	}, "n")
-	if c := changesAgainst(same, latest); len(c) != 0 {
+	if c := changesAgainst(same, latest, nil); len(c) != 0 {
 		t.Fatalf("no change expected, got %+v", c)
 	}
 
@@ -36,7 +36,7 @@ func TestChangesAgainst(t *testing.T) {
 		Users:    []gitops.DesiredUser{{Username: "alice", Role: "admin"}},
 	}, "n")
 	got := map[string]bool{}
-	for _, c := range changesAgainst(after, latest) {
+	for _, c := range changesAgainst(after, latest, nil) {
 		got[c.ID()] = c.Payload == nil
 	}
 	want := map[string]bool{"dataset/tank/media": false, "dataset/tank/new": false, "dataset/tank/old": true}

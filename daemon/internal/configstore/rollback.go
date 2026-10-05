@@ -53,7 +53,28 @@ func Rollback(db *sql.DB, ctx gitops.ApplyContext, revID int64, author string) (
 		return nil, fmt.Errorf("user %q was deleted; it cannot be restored from the history because passwords are not stored", rev.Key)
 	}
 
-	desired, err := Assemble([]Resource{rev.resource()})
+	res, err := applyOne(ctx, rev.resource(), live)
+	if err != nil || res.NoChange {
+		return res, err
+	}
+
+	cs, err := Capture(db, OriginRollback, author, fmt.Sprintf("rollback of %s %q to revision %d", rev.Kind, rev.Key, rev.ID))
+	if err != nil {
+		return res, fmt.Errorf("rolled back, but recording the result failed: %w", err)
+	}
+	res.Changeset = cs
+	return res, nil
+}
+
+// ErrNeedsManualAction: the engine refused a change (BLOCKED, AMBIGUOUS or
+// MANUAL plan item), e.g. deleting a dataset that contains data.
+var ErrNeedsManualAction = errors.New("needs manual action")
+
+// applyOne brings one resource on the live system to target (Payload nil =
+// deleted) through the GitOps engine. The caller holds the reconcile lock.
+// The engine's safety rules apply unchanged.
+func applyOne(ctx gitops.ApplyContext, target Resource, live *gitops.LiveState) (*RollbackResult, error) {
+	desired, err := Assemble([]Resource{target})
 	if err != nil {
 		return nil, err
 	}
@@ -62,7 +83,7 @@ func Rollback(db *sql.DB, ctx gitops.ApplyContext, revID int64, author string) (
 	// match the live system (no plan items), and the plan is filtered to the
 	// target below. A dataset target keeps its recorded version.
 	for _, d := range liveToDesired(live).Datasets {
-		if rev.Kind == KindDataset && d.Name == rev.Key {
+		if target.Kind == KindDataset && d.Name == target.Key {
 			continue
 		}
 		desired.Datasets = append(desired.Datasets, d)
@@ -71,14 +92,14 @@ func Rollback(db *sql.DB, ctx gitops.ApplyContext, revID int64, author string) (
 	// A rollback to "deleted" needs the engine to compute a DELETE for this
 	// resource: describe it as absent from a complete state, then keep only its
 	// plan item below.
-	deleting := rev.Payload == nil
+	deleting := target.Payload == nil
 	desired.IgnoreExtraneous = !deleting
 
 	plan := gitops.ComputeDiff(desired, live)
 	var items []gitops.DiffItem
 	res := &RollbackResult{}
 	for _, it := range plan.Items {
-		if string(it.Kind) != rev.Kind || it.Name != rev.Key || it.Action == gitops.ActionNOP {
+		if string(it.Kind) != target.Kind || it.Name != target.Key || it.Action == gitops.ActionNOP {
 			continue
 		}
 		if it.Action == gitops.ActionBlocked || it.Action == gitops.ActionAmbiguous || it.Action == gitops.ActionManual {
@@ -88,7 +109,7 @@ func Rollback(db *sql.DB, ctx gitops.ApplyContext, revID int64, author string) (
 		items = append(items, it)
 	}
 	if len(res.Blocked) > 0 {
-		return res, fmt.Errorf("rollback needs manual action: %s", res.Blocked[0].BlockReason)
+		return res, fmt.Errorf("%w: %s", ErrNeedsManualAction, res.Blocked[0].BlockReason)
 	}
 	if len(items) == 0 {
 		res.NoChange = true
@@ -110,11 +131,6 @@ func Rollback(db *sql.DB, ctx gitops.ApplyContext, revID int64, author string) (
 		return res, err
 	}
 
-	cs, err := Capture(db, OriginRollback, author, fmt.Sprintf("rollback of %s %q to revision %d", rev.Kind, rev.Key, rev.ID))
-	if err != nil {
-		return res, fmt.Errorf("rolled back, but recording the result failed: %w", err)
-	}
-	res.Changeset = cs
 	return res, nil
 }
 

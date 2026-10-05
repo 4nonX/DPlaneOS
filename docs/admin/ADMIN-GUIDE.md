@@ -25,6 +25,7 @@ For deeper dives into operational areas, see the dedicated guides:
 5. [Container Management](#container-management)
 6. [System Settings](#system-settings)
    - [Change History](#change-history)
+   - [Configuration Sync](#configuration-sync)
 7. [Monitoring and Alerts](#monitoring-and-alerts)
 8. [Backup and Recovery](#backup-and-recovery)
 9. [Security Best Practices](#security-best-practices)
@@ -270,6 +271,22 @@ System → **Change History** lists every change to datasets, SMB shares, NFS ex
 - **Export state.yaml** downloads the current configuration in the GitOps format (without secrets and certificates), with or without a Git repository.
 
 In an HA pair the history is recorded by the active node.
+
+### Configuration Sync
+
+System → **Configuration Sync** keeps datasets, SMB shares, NFS exports, users, groups and replication jobs in step between nodes that each have their own database. Each node keeps working on its own when the network fails.
+
+**Pairing.** On the first node, **Create join code** (valid once, for 15 minutes). On the second node, **Join another node**: enter the first node's address, the code and this node's own address as the first node reaches it, then **Preview the merge**. The preview lists what pairing would change on this node (added, updated, deleted), what goes to the other node, and what differs on both sides. Nothing changes until you click **Pair**. The other node's certificate fingerprint is shown in the preview and checked on every later connection.
+
+**Normal operation.** Nodes exchange changes every 30 seconds and right after a change. A change made on one node is applied on the others through the same engine as GitOps, with the same safety rules: a deletion that would destroy data or interrupt open connections is refused and shown under **Received but not applied yet**. Changes for a pool that is not imported on a node wait until it is.
+
+**Network problems.** A node that cannot reach a paired node shows a banner on every page: *Operating independently since 14:02 — 3 changes waiting to sync*. Everything keeps working. When the connection is back, changes to different things merge automatically.
+
+**Conflicts.** If the same thing was changed differently on two nodes, neither change is overwritten. **Needs your decision** shows both versions side by side: keep this node's version, take the other node's, or edit a combined version. The decision is applied on both nodes.
+
+**Detach** makes a node independent for good: it keeps its whole configuration and stops exchanging changes. **Remove** on a paired node stops the exchange with that one node. Both nodes can be paired again later; the preview shows what would change.
+
+Not exchanged: system settings, Docker stacks, SMART tasks and NVMe-oF exports (they belong to each node), LDAP, ACME and certificates (their secrets are not synchronised yet), pools. User passwords are not synchronised: a user created on another node needs a password set on this node. Nodes of an HA pair on a shared database already share their configuration and cannot be paired.
 
 ### Notifications
 

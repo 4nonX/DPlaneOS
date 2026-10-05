@@ -29,7 +29,7 @@ interface Revision {
   scope_id: string
   kind: string
   key: string
-  origin: 'baseline' | 'gui' | 'detected' | 'import' | 'rollback' | 'git'
+  origin: 'baseline' | 'gui' | 'detected' | 'import' | 'rollback' | 'git' | 'peer' | 'merge'
   origin_node: string
   author: string
   note: string
@@ -62,6 +62,8 @@ const ORIGIN: Record<Revision['origin'], { label: string; cls: string; title: st
   baseline: { label: 'Baseline',  cls: 'badge-neutral', title: 'Configuration when history recording started' },
   import:   { label: 'Import',    cls: 'badge-neutral', title: 'Imported from a state.yaml file' },
   git:      { label: 'Git',       cls: 'badge-neutral', title: 'Applied from the Git repository' },
+  peer:     { label: 'Other node', cls: 'badge-primary', title: 'Changed on a paired node and applied here' },
+  merge:    { label: 'Merged',    cls: 'badge-neutral', title: 'Joins changes made on two nodes: a resolved conflict, or the same change made on both' },
 }
 
 function fmtValue(v: unknown): string {
