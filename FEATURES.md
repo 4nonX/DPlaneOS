@@ -9,7 +9,7 @@ A NixOS-based NAS operating system. Every setting is declarative, every change i
 - **ZFS pools:** mirror, RAIDZ1/2/3, dRAID, cache (L2ARC), intent log (SLOG), spare, hot-add without downtime
 - **Datasets:** compression, encryption, quotas, recordsize, atime, sync, xattr, secondarycache
 - **Block volumes:** ZVols for iSCSI and NVMe-oF backing
-- **ACL manager:** POSIX and NFSv4 access control per dataset or path
+- **ACL manager:** POSIX access control per dataset or path (OpenZFS on Linux has no native NFSv4 ACLs; the NFSv4 ACL API needs nfs4-acl-tools and applies to NFS client mounts)
 - **ZFS delegation:** fine-grained per-user/per-dataset permission grants (`zfs allow`)
 - **Snapshot scheduler:** independent retention tiers: 15 min, hourly, daily, weekly, monthly
 - **Snapshot rollback:** picker for any historical restore point, destructive-action warning

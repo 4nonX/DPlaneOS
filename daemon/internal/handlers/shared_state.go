@@ -109,15 +109,38 @@ func persistDNS(servers []string) {
 }
 
 // ── System settings ───────────────────────────────────────────────────────────
-// hostname → /etc/hostname via hostnamectl  (already persistent - no extra step)
-// timezone → /etc/localtime via timedatectl (already persistent - no extra step)
-// NTP      → /etc/systemd/timesyncd.conf   (already persistent - no extra step)
-// These functions exist as stubs so handlers compile cleanly; the persistence
-// is already handled by the OS-level tool calls in the handler code itself.
+// Elsewhere hostnamectl/timedatectl/timesyncd.conf persist these themselves.
+// On NixOS /etc/hostname, /etc/localtime and timesyncd.conf belong to the
+// system configuration (read-only, rewritten on rebuild), so the values go
+// into the JSON bridge (networking.hostName, time.timeZone,
+// services.timesyncd.servers) and apply on the next nixos-rebuild.
 
-func persistHostname(_ string) { /* hostnamectl writes /etc/hostname - already persistent */ }
-func persistTimezone(_ string)  { /* timedatectl writes /etc/localtime - already persistent */ }
-func persistNTP(_ []string)     { /* timesyncd.conf write in handler - already persistent */ }
+// onNixOS reports whether settings must be persisted through the NixOS bridge.
+func onNixOS() bool { return NixWriter != nil && NixWriter.IsNixOS() }
+
+func persistHostname(name string) {
+	if onNixOS() {
+		if err := NixWriter.SetHostname(name); err != nil {
+			log.Printf("[persist] SetHostname: %v", err)
+		}
+	}
+}
+
+func persistTimezone(tz string) {
+	if onNixOS() {
+		if err := NixWriter.SetTimezone(tz); err != nil {
+			log.Printf("[persist] SetTimezone: %v", err)
+		}
+	}
+}
+
+func persistNTP(servers []string) {
+	if onNixOS() {
+		if err := NixWriter.SetNTP(servers); err != nil {
+			log.Printf("[persist] SetNTP: %v", err)
+		}
+	}
+}
 
 // ── NixOS-only: firewall and samba ───────────────────────────────────────────
 // These have no systemd equivalent and still require nixos-rebuild switch.

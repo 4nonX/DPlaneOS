@@ -6,12 +6,15 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
 
 	"dplaned/internal/audit"
 	"dplaned/internal/cmdutil"
+	"dplaned/internal/systemd"
 )
 
 // ═══════════════════════════════════════════════════════════════
@@ -19,12 +22,24 @@ import (
 //  Manages vsftpd via systemctl and writes /etc/vsftpd.conf.
 // ═══════════════════════════════════════════════════════════════
 
-const (
-	ftpConfigFile  = "ftp-config.json"
-	vsftpdConf     = "/etc/vsftpd.conf"
-	vsftpdUserList = "/etc/vsftpd.userlist"
-	vsftpdService  = "vsftpd"
-)
+const ftpConfigFile = "ftp-config.json"
+
+// ftpPaths: on NixOS /etc is read-only and no vsftpd unit exists, so the
+// config lives in /var/lib/dplaneos/ftp and the daemon runs vsftpd as runtime
+// unit dplaneos-vsftpd (services.dplaneos.ftp.enable provides vsftpd + PAM).
+type ftpPaths struct {
+	conf, userList, service, chrootDir, defaultCert, defaultKey string
+}
+
+var ftpP = func() ftpPaths {
+	if IsNixOS() {
+		d := "/var/lib/dplaneos/ftp"
+		return ftpPaths{d + "/vsftpd.conf", d + "/vsftpd.userlist", "dplaneos-vsftpd", "/var/empty",
+			d + "/selfsigned.crt", d + "/selfsigned.key"}
+	}
+	return ftpPaths{"/etc/vsftpd.conf", "/etc/vsftpd.userlist", "vsftpd", "/var/run/vsftpd/empty",
+		"/etc/ssl/certs/ssl-cert-snakeoil.pem", "/etc/ssl/private/ssl-cert-snakeoil.key"}
+}()
 
 var ftpMu sync.RWMutex
 
@@ -60,8 +75,8 @@ func defaultFTPConfig() FTPConfig {
 		MaxClients:      10,
 		MaxPerIP:        3,
 		Banner:          "DPlaneOS FTP",
-		TLSCertPath:     "/etc/ssl/certs/ssl-cert-snakeoil.pem",
-		TLSKeyPath:      "/etc/ssl/private/ssl-cert-snakeoil.key",
+		TLSCertPath:     ftpP.defaultCert,
+		TLSKeyPath:      ftpP.defaultKey,
 		AllowedUsers:    []string{},
 	}
 }
@@ -104,7 +119,7 @@ func ftpInstalled() bool {
 
 // ftpServiceActive returns true if the vsftpd systemd unit is active.
 func ftpServiceActive() bool {
-	out, err := cmdutil.RunFast("systemctl", "is-active", vsftpdService)
+	out, err := cmdutil.RunFast("systemctl", "is-active", ftpP.service)
 	return err == nil && strings.TrimSpace(string(out)) == "active"
 }
 
@@ -201,12 +216,12 @@ func generateVsftpdConf(cfg FTPConfig) string {
 	sb.WriteString("\n")
 
 	sb.WriteString("pam_service_name=vsftpd\n")
-	sb.WriteString("secure_chroot_dir=/var/run/vsftpd/empty\n")
+	sb.WriteString(fmt.Sprintf("secure_chroot_dir=%s\n", ftpP.chrootDir))
 	sb.WriteString("\n")
 
 	// User list: only explicitly listed users may connect
 	sb.WriteString("userlist_enable=YES\n")
-	sb.WriteString(fmt.Sprintf("userlist_file=%s\n", vsftpdUserList))
+	sb.WriteString(fmt.Sprintf("userlist_file=%s\n", ftpP.userList))
 	sb.WriteString("userlist_deny=NO\n")
 	sb.WriteString("\n")
 
@@ -214,10 +229,10 @@ func generateVsftpdConf(cfg FTPConfig) string {
 	certPath := cfg.TLSCertPath
 	keyPath := cfg.TLSKeyPath
 	if certPath == "" {
-		certPath = "/etc/ssl/certs/ssl-cert-snakeoil.pem"
+		certPath = ftpP.defaultCert
 	}
 	if keyPath == "" {
-		keyPath = "/etc/ssl/private/ssl-cert-snakeoil.key"
+		keyPath = ftpP.defaultKey
 	}
 	sb.WriteString(fmt.Sprintf("rsa_cert_file=%s\n", certPath))
 	sb.WriteString(fmt.Sprintf("rsa_private_key_file=%s\n", keyPath))
@@ -240,8 +255,25 @@ func generateVsftpdConf(cfg FTPConfig) string {
 
 // applyFTPConfig writes vsftpd.conf and the user list, then starts/stops the service.
 func applyFTPConfig(cfg FTPConfig) error {
+	if err := os.MkdirAll(filepath.Dir(ftpP.conf), 0755); err != nil {
+		return fmt.Errorf("create ftp config dir: %w", err)
+	}
+	if IsNixOS() {
+		if cfg.Mode == "ftps" {
+			if err := ensureSelfSignedCert(cfg.TLSCertPath, cfg.TLSKeyPath); err != nil {
+				return fmt.Errorf("ftps certificate: %w", err)
+			}
+		}
+		unit := fmt.Sprintf("[Unit]\nDescription=DPlaneOS FTP (vsftpd)\nAfter=network.target\n\n"+
+			"[Service]\nExecStart=%s %s\nRestart=on-failure\n\n[Install]\nWantedBy=multi-user.target\n",
+			systemd.ResolveCommand("vsftpd"), ftpP.conf)
+		if err := systemd.InstallService(ftpP.service, unit); err != nil {
+			return fmt.Errorf("install vsftpd unit: %w", err)
+		}
+	}
+
 	// Write config file
-	if err := os.WriteFile(vsftpdConf, []byte(generateVsftpdConf(cfg)), 0644); err != nil {
+	if err := os.WriteFile(ftpP.conf, []byte(generateVsftpdConf(cfg)), 0644); err != nil {
 		return fmt.Errorf("write vsftpd.conf: %w", err)
 	}
 
@@ -250,21 +282,21 @@ func applyFTPConfig(cfg FTPConfig) error {
 	for _, u := range cfg.AllowedUsers {
 		userList.WriteString(u + "\n")
 	}
-	if err := os.WriteFile(vsftpdUserList, []byte(userList.String()), 0644); err != nil {
+	if err := os.WriteFile(ftpP.userList, []byte(userList.String()), 0644); err != nil {
 		return fmt.Errorf("write vsftpd.userlist: %w", err)
 	}
 
 	// Start, stop, or restart based on enabled state
 	if cfg.Enabled {
 		if ftpServiceActive() {
-			_, err := cmdutil.RunFast("systemctl", "restart", vsftpdService)
+			_, err := cmdutil.RunFast("systemctl", "restart", ftpP.service)
 			return err
 		}
-		_, err := cmdutil.RunFast("systemctl", "start", vsftpdService)
+		_, err := cmdutil.RunFast("systemctl", "start", ftpP.service)
 		return err
 	}
 	if ftpServiceActive() {
-		_, err := cmdutil.RunFast("systemctl", "stop", vsftpdService)
+		_, err := cmdutil.RunFast("systemctl", "stop", ftpP.service)
 		return err
 	}
 	return nil
@@ -339,7 +371,7 @@ func StartFTP(w http.ResponseWriter, r *http.Request) {
 		respondErrorSimple(w, "vsftpd is not installed", http.StatusServiceUnavailable)
 		return
 	}
-	if _, err := cmdutil.RunFast("systemctl", "start", vsftpdService); err != nil {
+	if _, err := cmdutil.RunFast("systemctl", "start", ftpP.service); err != nil {
 		respondUserErrStatus(w, http.StatusInternalServerError, SanitizeServiceControl("FTP", err), err)
 		return
 	}
@@ -353,7 +385,7 @@ func StopFTP(w http.ResponseWriter, r *http.Request) {
 		respondErrorSimple(w, "vsftpd is not installed", http.StatusServiceUnavailable)
 		return
 	}
-	if _, err := cmdutil.RunFast("systemctl", "stop", vsftpdService); err != nil {
+	if _, err := cmdutil.RunFast("systemctl", "stop", ftpP.service); err != nil {
 		respondUserErrStatus(w, http.StatusInternalServerError, SanitizeServiceControl("FTP", err), err)
 		return
 	}
@@ -367,10 +399,48 @@ func RestartFTP(w http.ResponseWriter, r *http.Request) {
 		respondErrorSimple(w, "vsftpd is not installed", http.StatusServiceUnavailable)
 		return
 	}
-	if _, err := cmdutil.RunFast("systemctl", "restart", vsftpdService); err != nil {
+	if _, err := cmdutil.RunFast("systemctl", "restart", ftpP.service); err != nil {
 		respondUserErrStatus(w, http.StatusInternalServerError, SanitizeServiceControl("FTP", err), err)
 		return
 	}
 	audit.LogActivity(r.Header.Get("X-User"), "ftp_restart", nil)
 	respondOK(w, map[string]any{"success": true, "active": true})
+}
+
+// ensureSelfSignedCert creates a self-signed certificate for FTPS if either
+// file is missing (NixOS has no distribution "snakeoil" certificate).
+func ensureSelfSignedCert(certPath, keyPath string) error {
+	_, certErr := os.Stat(certPath)
+	_, keyErr := os.Stat(keyPath)
+	if certErr == nil && keyErr == nil {
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(keyPath), 0700); err != nil {
+		return err
+	}
+	host, _ := os.Hostname()
+	if host == "" {
+		host = "dplaneos"
+	}
+	out, err := exec.Command("openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "3650",
+		"-subj", "/CN="+host, "-keyout", keyPath, "-out", certPath).CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("openssl: %v: %s", err, strings.TrimSpace(string(out)))
+	}
+	return os.Chmod(keyPath, 0600)
+}
+
+// RestoreFTP re-installs and starts vsftpd at daemon start when FTP is
+// enabled (NixOS runtime units are cleared on reboot).
+func RestoreFTP() {
+	if !IsNixOS() || !ftpInstalled() {
+		return
+	}
+	cfg, err := loadFTPConfig()
+	if err != nil || !cfg.Enabled {
+		return
+	}
+	if err := applyFTPConfig(cfg); err != nil {
+		log.Printf("WARN: restore ftp: %v", err)
+	}
 }

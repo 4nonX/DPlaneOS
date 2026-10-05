@@ -140,6 +140,20 @@ func (h *SystemHandler) SaveUPSConfig(w http.ResponseWriter, r *http.Request) {
 		req.Grace = 30
 	}
 
+	// NixOS: NUT is configured by services.dplaneos.ups; the policy goes into
+	// the bridge (lowBattery, finalDelay, action) and applies on rebuild.
+	if onNixOS() {
+		if err := NixWriter.SetUPSPolicy(req.Action, req.Threshold, req.Grace); err != nil {
+			respondErrorSimple(w, "Cannot save UPS policy: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		audit.LogActivity(user, "ups_config_save", map[string]any{
+			"action": req.Action, "threshold": req.Threshold, "grace": req.Grace,
+		})
+		respondOK(w, CommandResponse{Success: true, Output: "UPS policy saved; applies after the pending NixOS changes are applied"})
+		return
+	}
+
 	// Write upsmon.conf snippet - create/overwrite dplaned section
 	conf := fmt.Sprintf(
 		"# DPlaneOS UPS config - do not edit this block manually\n"+

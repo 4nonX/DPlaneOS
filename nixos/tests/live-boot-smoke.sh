@@ -176,6 +176,35 @@ check "scrub timer active" systemctl is-active --quiet dplaneos-scrub-smoke2.tim
 check "scrub timer service runs" systemctl start dplaneos-scrub-smoke2.service
 check "scrub ran on smoke2" contains "$(zpool status smoke2)" 'scrub'
 
+# ── NixOS-managed settings go into the bridge (dplane-state.json) ──────────
+STATE=/var/lib/dplaneos/dplane-state.json
+state() { jq -r "$1" "$STATE"; }
+expect 200 POST /api/system/settings '{"hostname":"dplane-smoke","timezone":"Europe/Berlin"}'
+check "hostname recorded for rebuild" test "$(state .hostname)" = dplane-smoke
+check "timezone recorded for rebuild" test "$(state .timezone)" = Europe/Berlin
+expect 200 POST /api/system/ntp '{"servers":["0.pool.ntp.org","1.pool.ntp.org"]}'
+check "NTP servers recorded for rebuild" test "$(state '.ntp_servers | length')" = 2
+expect 200 GET /api/system/tuning
+TUNING=$(jq -c '.settings // . | del(.success) | .arc_limit_gb = 1 | .swappiness = 10' "$RESP")
+expect 200 POST /api/system/tuning "$TUNING"
+check "ARC limit applied live" test "$(cat /sys/module/zfs/parameters/zfs_arc_max)" = 1073741824
+check "ARC limit recorded for rebuild" test "$(state .zfs_arc_max)" = 1073741824
+check "swappiness applied live" test "$(cat /proc/sys/vm/swappiness)" = 10
+check "swappiness recorded for rebuild" test "$(state '.sysctl["vm.swappiness"]')" = 10
+expect 200 POST /api/system/ups '{"action":"shutdown","threshold":25,"grace":15}'
+check "UPS policy recorded for rebuild" test "$(state .ups_low_battery)/$(state .ups_final_delay)" = 25/15
+
+# ── FTP runs as a daemon-managed runtime unit ──────────────────────────────
+expect 200 GET /api/ftp/status
+check "vsftpd installed (services.dplaneos.ftp.enable)" test "$(json .installed)" = true
+expect 200 GET /api/ftp/config
+FTPCFG=$(jq -c '.config // . | del(.success) | .enabled = true | .mode = "ftp" | .allowed_users = ["admin"]' "$RESP")
+expect 200 PUT /api/ftp/config "$FTPCFG"
+check "vsftpd runtime unit active" systemctl is-active --quiet dplaneos-vsftpd.service
+check "FTP answers on port 21" retry 10 bash -c 'exec 3<>/dev/tcp/127.0.0.1/21 && head -c 3 <&3 | grep -q 220'
+expect 200 GET /api/s3/status
+check "MinIO reported not installed (s3.enable off)" test "$(json .installed)" = false
+
 # ── Feature flags (Settings → Features) ────────────────────────────────────
 expect 200 GET /api/system/features
 check "features listed" test "$(jq '.features | length' "$RESP")" -ge 6

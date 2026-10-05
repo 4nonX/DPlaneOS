@@ -82,7 +82,10 @@ func applyARCLimit(gb int) error {
 		return fmt.Errorf("write zfs_arc_max sysfs: %w", err)
 	}
 
-	// Persist across reboots via modprobe
+	// Persist across reboots: NixOS kernel parameter via the bridge, else modprobe
+	if onNixOS() {
+		return NixWriter.SetZFSArcMax(bytes)
+	}
 	line := fmt.Sprintf("options zfs zfs_arc_max=%s\n", val)
 	if err := os.WriteFile("/etc/modprobe.d/zfs.conf", []byte(line), 0644); err != nil {
 		return fmt.Errorf("write /etc/modprobe.d/zfs.conf: %w", err)
@@ -100,7 +103,10 @@ func applySwappiness(v int) error {
 		return fmt.Errorf("write swappiness: %w", err)
 	}
 
-	// Persist via sysctl drop-in
+	// Persist: NixOS boot.kernel.sysctl via the bridge, else a sysctl drop-in
+	if onNixOS() {
+		return NixWriter.SetSysctl("vm.swappiness", val)
+	}
 	line := fmt.Sprintf("vm.swappiness=%s\n", val)
 	if err := os.WriteFile("/etc/sysctl.d/99-dplaneos.conf", []byte(line), 0644); err != nil {
 		return fmt.Errorf("write /etc/sysctl.d/99-dplaneos.conf: %w", err)

@@ -17,7 +17,7 @@ let
   smbConfFlag = lib.optionalString config.services.dplaneos.samba.enable
     " -smb-conf ${config.services.dplaneos.samba.sharesConfPath}";
 in {
-  imports = [ ./ha.nix ./console-network-wizard.nix ./modules/samba.nix ./modules/nfs.nix ./modules/fenced.nix ./modules/ctdb.nix ];
+  imports = [ ./ha.nix ./console-network-wizard.nix ./modules/samba.nix ./modules/nfs.nix ./modules/fenced.nix ./modules/ctdb.nix ./modules/ups.nix ];
 
   options.services.dplaneos = {
     enable = lib.mkEnableOption "DPlaneOS NAS daemon";
@@ -67,6 +67,32 @@ in {
         database.createLocally: Unix socket /run/postgresql
         otherwise: localhost'';
       description = "PostgreSQL Data Source Name.";
+    };
+
+    ftp = {
+      enable = lib.mkOption {
+        type = lib.types.bool;
+        default = true;
+        description = ''
+          Make the FTP/FTPS page usable: installs vsftpd for the daemon (which runs
+          it as a runtime unit with its config in /var/lib/dplaneos/ftp) and the
+          PAM service vsftpd needs for local-user logins.
+        '';
+      };
+      openFirewall = lib.mkOption {
+        type = lib.types.bool;
+        default = false;
+        description = "Open TCP 21 and the default passive range 40000-40100 for FTP.";
+      };
+    };
+
+    s3.enable = lib.mkOption {
+      type = lib.types.bool;
+      default = false;
+      description = ''
+        Make the S3 Object Storage page usable: installs MinIO for the daemon,
+        which runs it as a runtime unit. Off by default because of its size.
+      '';
     };
 
     database.createLocally = lib.mkOption {
@@ -236,10 +262,17 @@ in {
     users.users.nginx.extraGroups = [ "dplaned" ];
 
     # ─── Firewall ─────────────────────────────────────────────────────────
-    networking.firewall = lib.mkIf cfg.openFirewall {
-      enable              = true;
-      allowedTCPPorts     = [ 80 443 ];
-    };
+    networking.firewall = lib.mkMerge [
+      (lib.mkIf cfg.openFirewall {
+        enable              = true;
+        allowedTCPPorts     = [ 80 443 ];
+      })
+      # FTP control port and the default passive range (FTP page defaults).
+      (lib.mkIf (cfg.ftp.enable && cfg.ftp.openFirewall) {
+        allowedTCPPorts      = [ 21 ];
+        allowedTCPPortRanges = [ { from = 40000; to = 40100; } ];
+      })
+    ];
 
     # ─── nginx reverse proxy ──────────────────────────────────────────────
     services.nginx = {
@@ -270,6 +303,9 @@ in {
         };
       };
     };
+
+    # ─── FTP: PAM service for vsftpd local-user logins ─────────────────
+    security.pam.services.vsftpd = lib.mkIf cfg.ftp.enable { };
 
     # ─── Local PostgreSQL (non-HA) ─────────────────────────────────────
     # Without HA nothing else provides the daemon's database. Data lives in
@@ -335,7 +371,8 @@ in {
         gnutar gzip curl which kmod procps fuse openssl nginx targetcli-fb
         (lib.getBin glibc)               # getent
         config.nix.package config.system.build.nixos-rebuild
-      ];
+      ] ++ lib.optional cfg.ftp.enable vsftpd
+        ++ lib.optional cfg.s3.enable minio;
 
       serviceConfig = {
         Type            = "simple";

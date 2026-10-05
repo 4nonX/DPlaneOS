@@ -138,4 +138,22 @@ in
 
   # ── High Availability ────────────────────────────────────────────────────────
   services.dplaneos.ha.enable = s.ha_enable or false;
+
+  # ── Kernel tuning (Settings → Tuning) ────────────────────────────────────────
+  # mkAfter: a later zfs.zfs_arc_max on the command line wins over the default.
+  boot.kernelParams = lib.mkIf (s ? zfs_arc_max)
+    (lib.mkAfter [ "zfs.zfs_arc_max=${toString s.zfs_arc_max}" ]);
+  boot.kernel.sysctl = s.sysctl or {};
+
+  # ── Web UI TLS (Certificates → Activate) ─────────────────────────────────────
+  services.nginx.virtualHosts."_" = lib.mkIf (s ? tls_cert && s ? tls_key) {
+    addSSL            = true;
+    sslCertificate    = s.tls_cert;
+    sslCertificateKey = s.tls_key;
+  };
+
+  # ── UPS shutdown policy (UPS page; hardware in services.dplaneos.ups) ────────
+  services.dplaneos.ups.lowBattery = lib.mkIf (s ? ups_low_battery) s.ups_low_battery;
+  services.dplaneos.ups.finalDelay = lib.mkIf (s ? ups_final_delay) s.ups_final_delay;
+  services.dplaneos.ups.action     = lib.mkIf (s ? ups_action) s.ups_action;
 }

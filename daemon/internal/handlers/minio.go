@@ -13,6 +13,7 @@ import (
 
 	"dplaned/internal/audit"
 	"dplaned/internal/cmdutil"
+	"dplaned/internal/systemd"
 )
 
 // ═══════════════════════════════════════════════════════════════
@@ -22,10 +23,18 @@ import (
 
 const (
 	minioConfigFile  = "minio-config.json"
-	minioEnvFile     = "/etc/minio.env"
 	minioServiceFile = "/etc/systemd/system/minio.service"
-	minioService     = "minio"
 )
+
+// On NixOS /etc is read-only and no minio unit exists: the env file lives in
+// /var/lib/dplaneos and the daemon runs MinIO as runtime unit dplaneos-minio
+// (services.dplaneos.s3.enable provides the binary).
+var minioEnvFile, minioService = func() (string, string) {
+	if IsNixOS() {
+		return "/var/lib/dplaneos/minio/minio.env", "dplaneos-minio"
+	}
+	return "/etc/minio.env", "minio"
+}()
 
 var minioMu sync.RWMutex
 
@@ -35,6 +44,9 @@ type MinioConfig struct {
 	VolumePath   string `json:"volume_path"`
 	APIPort      int    `json:"api_port"`
 	ConsolePort  int    `json:"console_port"`
+	// Enabled records that the operator started MinIO, so the daemon can
+	// restore it at start (runtime units do not survive a reboot on NixOS).
+	Enabled bool `json:"enabled"`
 }
 
 func defaultMinioConfig() MinioConfig {
@@ -145,22 +157,24 @@ func generateMinioEnv(cfg MinioConfig) string {
 	return sb.String()
 }
 
-const minioServiceUnit = `[Unit]
+func minioServiceUnit() string {
+	return fmt.Sprintf(`[Unit]
 Description=MinIO Object Storage
 Documentation=https://docs.min.io
 After=network-online.target
 Wants=network-online.target
 
 [Service]
-EnvironmentFile=/etc/minio.env
-ExecStart=/run/current-system/sw/bin/minio server $MINIO_VOLUMES $MINIO_OPTS
+EnvironmentFile=%s
+ExecStart=%s server $MINIO_VOLUMES $MINIO_OPTS
 Restart=on-failure
 RestartSec=5
 LimitNOFILE=65536
 
 [Install]
 WantedBy=multi-user.target
-`
+`, minioEnvFile, systemd.ResolveCommand("minio"))
+}
 
 func applyMinioConfig(cfg MinioConfig) error {
 	// Ensure volume path exists
@@ -169,17 +183,24 @@ func applyMinioConfig(cfg MinioConfig) error {
 	}
 
 	// Write env file
+	if err := os.MkdirAll(filepath.Dir(minioEnvFile), 0700); err != nil {
+		return fmt.Errorf("failed to create minio env dir: %w", err)
+	}
 	if err := os.WriteFile(minioEnvFile, []byte(generateMinioEnv(cfg)), 0640); err != nil {
 		return fmt.Errorf("failed to write minio env: %w", err)
 	}
 
-	// Write service file if not already present
-	if _, err := os.Stat(minioServiceFile); os.IsNotExist(err) {
+	if IsNixOS() {
+		if err := systemd.InstallService(minioService, minioServiceUnit()); err != nil {
+			return fmt.Errorf("failed to install minio unit: %w", err)
+		}
+	} else if _, err := os.Stat(minioServiceFile); os.IsNotExist(err) {
+		// Write service file if not already present
 		serviceDir := filepath.Dir(minioServiceFile)
 		if mkErr := os.MkdirAll(serviceDir, 0755); mkErr != nil {
 			log.Printf("WARN: minio service dir: %v", mkErr)
 		}
-		if writeErr := os.WriteFile(minioServiceFile, []byte(minioServiceUnit), 0644); writeErr != nil {
+		if writeErr := os.WriteFile(minioServiceFile, []byte(minioServiceUnit()), 0644); writeErr != nil {
 			log.Printf("WARN: minio service file write: %v", writeErr)
 		} else {
 			// Daemon reload so systemd picks up the new unit
@@ -315,6 +336,7 @@ func StartMinio(w http.ResponseWriter, r *http.Request) {
 		respondUserErrStatus(w, http.StatusInternalServerError, SanitizeServiceControl("MinIO", err), err)
 		return
 	}
+	setMinioEnabled(true)
 	audit.LogActivity("system", "minio_start", nil)
 	respondOK(w, map[string]any{"success": true})
 }
@@ -326,6 +348,7 @@ func StopMinio(w http.ResponseWriter, r *http.Request) {
 		respondUserErrStatus(w, http.StatusInternalServerError, SanitizeServiceControl("MinIO", err), err)
 		return
 	}
+	setMinioEnabled(false)
 	audit.LogActivity("system", "minio_stop", nil)
 	respondOK(w, map[string]any{"success": true})
 }
@@ -348,4 +371,32 @@ func RestartMinio(w http.ResponseWriter, r *http.Request) {
 	}
 	audit.LogActivity("system", "minio_restart", nil)
 	respondOK(w, map[string]any{"success": true})
+}
+
+func setMinioEnabled(on bool) {
+	if err := atomicModifyMinioConfig(func(c MinioConfig) (MinioConfig, error) {
+		c.Enabled = on
+		return c, nil
+	}); err != nil {
+		log.Printf("WARN: minio enabled flag: %v", err)
+	}
+}
+
+// RestoreMinio re-installs and starts MinIO at daemon start when it was
+// running before (NixOS runtime units are cleared on reboot).
+func RestoreMinio() {
+	if !IsNixOS() || !minioInstalled() {
+		return
+	}
+	cfg, err := loadMinioConfig()
+	if err != nil || !cfg.Enabled {
+		return
+	}
+	if err := applyMinioConfig(cfg); err != nil {
+		log.Printf("WARN: restore minio: %v", err)
+		return
+	}
+	if _, err := cmdutil.RunFast("systemctl", "start", minioService); err != nil {
+		log.Printf("WARN: start minio: %v", err)
+	}
 }

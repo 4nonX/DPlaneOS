@@ -135,6 +135,23 @@ func InstallTimer(cfg TimerConfig) error {
 	return nil
 }
 
+// ResolveCommand makes the program of a command line absolute (see resolveCommand).
+func ResolveCommand(command string) string { return resolveCommand(command) }
+
+// InstallService writes a service unit into UnitDir and reloads systemd. Used
+// for daemon-managed services (MinIO, vsftpd) that NixOS does not declare;
+// on NixOS the unit is a runtime unit and the daemon re-installs it at start.
+func InstallService(unitName, content string) error {
+	dir := UnitDir()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("unit directory %s: %v", dir, err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, unitName+".service"), []byte(content), 0o644); err != nil {
+		return fmt.Errorf("failed to write service unit: %v", err)
+	}
+	return DaemonReload()
+}
+
 // UninstallTimer removes the service and timer units
 func UninstallTimer(name string) error {
 	unitName := name

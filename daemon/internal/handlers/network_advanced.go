@@ -393,14 +393,15 @@ func SetNTPServers(w http.ResponseWriter, r *http.Request) {
 
 	executeCommandWithTimeout(TimeoutFast, "timedatectl", []string{"set-ntp", "true"})
 
-	// Write the NTP server list to systemd-timesyncd.conf
-	conf := "[Time]\nNTP=" + strings.Join(req.Servers, " ") + "\n"
-	if err := os.WriteFile("/etc/systemd/timesyncd.conf", []byte(conf), 0644); err != nil {
-		log.Printf("WARN: SetNTPServers: failed to write timesyncd.conf: %v", err)
+	// Write the NTP server list to systemd-timesyncd.conf (on NixOS the file
+	// is generated; persistNTP records it for the next rebuild instead).
+	if !onNixOS() {
+		conf := "[Time]\nNTP=" + strings.Join(req.Servers, " ") + "\n"
+		if err := os.WriteFile("/etc/systemd/timesyncd.conf", []byte(conf), 0644); err != nil {
+			log.Printf("WARN: SetNTPServers: failed to write timesyncd.conf: %v", err)
+		}
+		executeCommandWithTimeout(TimeoutMedium, "systemctl", []string{"restart", "systemd-timesyncd"})
 	}
-
-	// Restart timesyncd
-	executeCommandWithTimeout(TimeoutMedium, "systemctl", []string{"restart", "systemd-timesyncd"})
 
 	// Persist to Nix fragment (NixOS: networking.timeServers)
 	persistNTP(req.Servers)

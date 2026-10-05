@@ -15,6 +15,9 @@ import (
 // GetNFS4ACL handles GET /api/nfs4acl?path=...
 // Returns the NFSv4 ACL for a file or directory via nfs4_getfacl.
 func GetNFS4ACL(w http.ResponseWriter, r *http.Request) {
+	if !nfs4ToolsAvailable(w, "nfs4_getfacl") {
+		return
+	}
 	user := r.Header.Get("X-User")
 	path := r.URL.Query().Get("path")
 
@@ -43,6 +46,9 @@ func GetNFS4ACL(w http.ResponseWriter, r *http.Request) {
 // SetNFS4ACL handles PUT /api/nfs4acl
 // Replaces the full NFSv4 ACL on a file or directory via nfs4_setfacl -s.
 func SetNFS4ACL(w http.ResponseWriter, r *http.Request) {
+	if !nfs4ToolsAvailable(w, "nfs4_setfacl") {
+		return
+	}
 	if r.Method != http.MethodPut {
 		respondErrorSimple(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -98,4 +104,16 @@ func SetNFS4ACL(w http.ResponseWriter, r *http.Request) {
 		"success": true,
 		"path":    req.Path,
 	})
+}
+
+// nfs4ToolsAvailable answers 501 when nfs4-acl-tools are not installed.
+// OpenZFS on Linux implements POSIX ACLs only; nfs4_getfacl/nfs4_setfacl work
+// on NFSv4 client mounts, and the package is not available in nixpkgs.
+func nfs4ToolsAvailable(w http.ResponseWriter, tool string) bool {
+	if _, err := exec.LookPath(tool); err != nil {
+		respondErrorSimple(w, "NFSv4 ACLs are unavailable: "+tool+" (nfs4-acl-tools) is not installed. "+
+			"ZFS datasets on Linux use POSIX ACLs; use the ACL Manager (/api/acl) instead.", http.StatusNotImplemented)
+		return false
+	}
+	return true
 }

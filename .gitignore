@@ -136,3 +136,11 @@ D-Plane-Compliance-Engine
 *_DESIGN.md
 INTERNAL_*.md
 PLAN_*.md
+
+# Local scratch output (test logs, file listings)
+daemon/out.txt
+daemon/test_*.txt
+app-react/compile_errors.txt
+/disk_files.txt
+/repo_files.txt
+__pycache__/

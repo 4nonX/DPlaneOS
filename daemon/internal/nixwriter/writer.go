@@ -28,6 +28,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -111,6 +112,22 @@ type DPlaneState struct {
 	// domain short name (or "*" for catch-all) to an idmap backend and range.
 	// Drives "idmap config <name> : backend/range" lines in smb.conf.
 	IDMAPDomains []IDMAPDomain `json:"idmap_domains,omitempty"`
+
+	// ── Kernel tuning (Settings → Tuning) ──────────────────────────────────────
+	// ZFSArcMax is the ARC size limit in bytes (boot.kernelParams zfs.zfs_arc_max).
+	ZFSArcMax int64 `json:"zfs_arc_max,omitempty"`
+	// Sysctl maps sysctl keys to values (boot.kernel.sysctl), e.g. vm.swappiness.
+	Sysctl map[string]string `json:"sysctl,omitempty"`
+
+	// ── Web UI TLS (Certificates → Activate) ───────────────────────────────────
+	TLSCert string `json:"tls_cert,omitempty"`
+	TLSKey  string `json:"tls_key,omitempty"`
+
+	// ── UPS shutdown policy (UPS page) ─────────────────────────────────────────
+	// Applied to NUT when services.dplaneos.ups.enable is set.
+	UPSFinalDelay int    `json:"ups_final_delay,omitempty"`
+	UPSLowBattery int    `json:"ups_low_battery,omitempty"`
+	UPSAction     string `json:"ups_action,omitempty"` // shutdown | hibernate
 }
 
 // IDMAPDomain describes one Active Directory forest's UID/GID mapping.
@@ -479,6 +496,68 @@ func (w *Writer) SetTimezone(tz string) error {
 	return w.flushLocked()
 }
  
+// SetZFSArcMax records the ARC size limit in bytes (0 clears it).
+func (w *Writer) SetZFSArcMax(bytes int64) error {
+	if bytes < 0 {
+		return fmt.Errorf("invalid zfs_arc_max: %d", bytes)
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.state.ZFSArcMax = bytes
+	return w.flushLocked()
+}
+
+var sysctlKeyRe = regexp.MustCompile(`^[a-z0-9_]+(\.[a-z0-9_-]+)+$`)
+var sysctlValRe = regexp.MustCompile(`^[0-9A-Za-z_. -]{1,64}$`)
+
+// SetSysctl records one sysctl value (an empty value removes the key).
+func (w *Writer) SetSysctl(key, value string) error {
+	if !sysctlKeyRe.MatchString(key) {
+		return fmt.Errorf("invalid sysctl key: %q", key)
+	}
+	if value != "" && !sysctlValRe.MatchString(value) {
+		return fmt.Errorf("invalid sysctl value for %s: %q", key, value)
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.state.Sysctl == nil {
+		w.state.Sysctl = map[string]string{}
+	}
+	if value == "" {
+		delete(w.state.Sysctl, key)
+	} else {
+		w.state.Sysctl[key] = value
+	}
+	return w.flushLocked()
+}
+
+// SetTLS records the certificate nginx serves the web UI with (empty clears it).
+func (w *Writer) SetTLS(certPath, keyPath string) error {
+	for _, p := range []string{certPath, keyPath} {
+		if p != "" && (!strings.HasPrefix(p, "/") || strings.ContainsAny(p, ";|&$`\\'\" \n")) {
+			return fmt.Errorf("invalid TLS path: %q", p)
+		}
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.state.TLSCert, w.state.TLSKey = certPath, keyPath
+	return w.flushLocked()
+}
+
+// SetUPSPolicy records the UPS shutdown policy.
+func (w *Writer) SetUPSPolicy(action string, lowBattery, finalDelay int) error {
+	if action != "shutdown" && action != "hibernate" {
+		return fmt.Errorf("invalid UPS action: %q", action)
+	}
+	if lowBattery < 1 || lowBattery > 99 || finalDelay < 0 || finalDelay > 600 {
+		return fmt.Errorf("invalid UPS thresholds")
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.state.UPSAction, w.state.UPSLowBattery, w.state.UPSFinalDelay = action, lowBattery, finalDelay
+	return w.flushLocked()
+}
+
 // ── Samba setter ─────────────────────────────────────────────────────────────
  
 // SambaGlobalOpts holds global Samba settings.

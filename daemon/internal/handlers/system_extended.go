@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"os/user"
 	"strconv"
 	"strings"
 	"time"
@@ -1032,6 +1033,32 @@ func (h *CertHandler) ActivateCert(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// NixOS: nginx is configured by module.nix; the certificate goes into the
+	// bridge (services.nginx.virtualHosts."_".sslCertificate) and applies on
+	// the next rebuild. nginx runs as user nginx, so the key and its directory
+	// must be readable by that group.
+	if IsNixOS() {
+		if err := shareWithNginx(filepath.Dir(keyFile), keyFile); err != nil {
+			respondErrorSimple(w, "Cannot grant nginx access to the key: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if NixWriter == nil {
+			respondErrorSimple(w, "NixOS state writer unavailable", http.StatusInternalServerError)
+			return
+		}
+		if err := NixWriter.SetTLS(certFile, keyFile); err != nil {
+			respondErrorSimple(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		audit.LogAction("cert_activate", user, fmt.Sprintf("Activated cert (pending rebuild): %s", req.Name), true, 0)
+		respondOK(w, map[string]any{
+			"success":         true,
+			"pending_rebuild": true,
+			"message":         "Certificate recorded; nginx serves it after the pending NixOS changes are applied",
+		})
+		return
+	}
+
 	// Update nginx config
 	nginxConf := "/etc/nginx/sites-enabled/dplaneos"
 	data, err := os.ReadFile(nginxConf)
@@ -1839,3 +1866,26 @@ func (h *FirewallHandler) SyncFirewallToNix(w http.ResponseWriter, r *http.Reque
 	})
 }
 
+
+// shareWithNginx gives the nginx group read access to a key file and
+// traversal of its directory (owner stays root).
+func shareWithNginx(dir, keyFile string) error {
+	grp, err := user.LookupGroup("nginx")
+	if err != nil {
+		return fmt.Errorf("group nginx: %w", err)
+	}
+	gid, err := strconv.Atoi(grp.Gid)
+	if err != nil {
+		return fmt.Errorf("group nginx gid %q: %w", grp.Gid, err)
+	}
+	if err := os.Chown(dir, 0, gid); err != nil {
+		return err
+	}
+	if err := os.Chmod(dir, 0o750); err != nil {
+		return err
+	}
+	if err := os.Chown(keyFile, 0, gid); err != nil {
+		return err
+	}
+	return os.Chmod(keyFile, 0o640)
+}

@@ -27,6 +27,7 @@ import (
 	"dplaned/internal/database"
 	"dplaned/internal/gitops"
 	"dplaned/internal/ha"
+	"dplaned/internal/bootstrap"
 	"dplaned/internal/features"
 	"dplaned/internal/handlers"
 	"dplaned/internal/hardware"
@@ -502,6 +503,16 @@ func main() {
 	// that support context-based termination (e.g. ZED listener).
 	daemonCtx, daemonCancel := context.WithCancel(context.Background())
 	defer daemonCancel()
+
+	// Hardening phases 1-5: resource watcher, feature flags, crash-recovery
+	// journal, health checks, structured event log, rollback manager. They
+	// monitor and log; a failure here must not stop the daemon.
+	phases, err := bootstrap.InitializeAllPhases(daemonCtx, db, filepath.Dir(*gitopsStatePath))
+	if err != nil {
+		log.Printf("WARNING: hardening phases not started: %v", err)
+	} else {
+		defer phases.Close()
+	}
 
 	// Initialize ZED Event Listener (Unix Socket)
 	go zfs.StartZEDListener(daemonCtx, "/run/dplaneos/dplaneos.sock",
@@ -1041,11 +1052,16 @@ func main() {
 
 	// Optional feature flags (Settings → Features). Stored states load first;
 	// built-ins fill in the rest as disabled.
-	featureMgr := features.NewManager(db)
-	if err := featureMgr.LoadFromDB(context.Background()); err != nil {
-		log.Printf("WARNING: feature flags: %v", err)
+	var featureMgr *features.Manager
+	if phases != nil {
+		featureMgr = phases.FeatureManager // loaded and registered by the bootstrap
+	} else {
+		featureMgr = features.NewManager(db)
+		if err := featureMgr.LoadFromDB(context.Background()); err != nil {
+			log.Printf("WARNING: feature flags: %v", err)
+		}
+		features.RegisterBuiltIns(featureMgr)
 	}
-	features.RegisterBuiltIns(featureMgr)
 	r.Handle("/api/system/features", permRoute("system", "read", handlers.FeatureFlagsHandler(featureMgr))).Methods("GET")
 	r.Handle("/api/system/features/{id}/enable", permRoute("system", "admin", handlers.FeatureEnableHandler(featureMgr))).Methods("POST")
 	r.Handle("/api/system/features/{id}/disable", permRoute("system", "admin", handlers.FeatureDisableHandler(featureMgr))).Methods("POST")
@@ -1238,7 +1254,9 @@ func main() {
 		if err := hardware.RegenerateSMARTTimers(db); err != nil {
 			log.Printf("WARN: SMART timers: %v", err)
 		}
-		log.Printf("Schedule timers restored")
+		handlers.RestoreMinio()
+		handlers.RestoreFTP()
+		log.Printf("Schedule timers and runtime services restored")
 	}()
 
 	// ACL Management (v2.0.0) - POSIX ACL (getfacl/setfacl)

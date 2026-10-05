@@ -50,6 +50,21 @@ The live-boot VM test had failed since v14.7.0 with `dplaned.service` in state "
 - **Time Machine discovery**: the Bonjour `_adisk` record advertised a non-existent share "DPlaneOS"; it now lists the actual Time Machine shares.
 - **Dataset creation**: ZFS failures (200 `{success:false}`) were shown as success.
 
+### NixOS Runtime Fixes (full-codebase audit)
+
+- **Database on installed systems**: non-HA installs had no PostgreSQL. `services.dplaneos.database.createLocally` (default without HA) runs it with data in `dbPath`, socket DSN and peer auth, and refuses to start an empty cluster next to existing data.
+- **Daemon tools on PATH**: zfs, zpool, lsblk, smartctl, exportfs, git, ssh, rsync, samba, avahi and the other ~80 tools the daemon executes were not on the service PATH; storage, replication and GitOps operations failed with "executable not found".
+- **SMB shares reach Samba**: `-smb-conf` is now passed, so UI shares land in the file `samba.nix` includes (they went to the read-only `/etc/samba/smb.conf`); the file is rewritten at startup.
+- **Schedules run, also after reboots**: snapshot, scrub, rsync and SMART timers are runtime units on NixOS with absolute `ExecStart`, and all platforms re-install them at daemon start (they embed the per-boot token, so they failed after every reboot).
+- **Settings persist through rebuilds**: hostname, timezone, NTP servers, ARC limit, swappiness, the web UI TLS certificate and the UPS policy go through the JSON bridge into `dplane-generated.nix`.
+- **FTP and S3**: vsftpd (`services.dplaneos.ftp.enable`, default on, with PAM) and MinIO (`services.dplaneos.s3.enable`) run as daemon-managed runtime units with config in `/var/lib/dplaneos`; FTPS gets a self-signed certificate.
+- **UPS**: new `services.dplaneos.ups` (driver, port) configures NUT; the UPS page sets low-battery level, final delay and action.
+- **Replication key** in `/var/lib/dplaneos/ssh` (ProtectHome hid `/root/.ssh`). **Time Machine** Bonjour record names the real shares.
+- **Hardening phases** (resource watcher, health checks, crash-recovery journal, event log, rollback manager) now start with the daemon; their migrations (feature_flags, operation_journal, audit_events) are applied, and the Settings Features tab works.
+- **OTA**: the inactive slot is resolved by partition label to exactly one device.
+- **UI**: Expand Pool adds a data vdev; the Network page gets per-interface data (it was blank and its VLAN/bond tabs crashed); actions whose failures came back as 200 `{success:false}` now show the error.
+- NFSv4 ACL endpoints answer 501 with an explanation (OpenZFS on Linux has POSIX ACLs only; nfs4-acl-tools is not in nixpkgs).
+
 ### Use Cases
 
 - **Trial before install**: Boot live, manage existing pools, run workloads, decide if you want to commit to disk installation
