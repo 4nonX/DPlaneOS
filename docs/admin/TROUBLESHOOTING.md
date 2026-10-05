@@ -592,7 +592,7 @@ The installer places files in these locations:
 | Version file | `/opt/dplaneos/VERSION` |
 | nginx config | Managed by NixOS (`services.nginx` in `configuration.nix`); read-only at `/etc/nginx/nginx.conf` |
 | Daemon systemd unit | `/etc/systemd/system/dplaned.service` |
-| ZED hook | `/etc/zfs/zed.d/dplaneos-notify.sh` (managed by NixOS module) |
+| ZED hook | `/etc/zfs/zed.d/all-dplaneos-notify.sh` (managed by NixOS module) |
 | udev hot-swap rules | `/etc/udev/rules.d/99-dplaneos-hotswap.rules` |
 | udev removable media rules | `/etc/udev/rules.d/99-dplaneos-removable-media.rules` |
 | Snapshot schedules | systemd timers: `/etc/systemd/system/dplaneos-snapshot-*.timer` |

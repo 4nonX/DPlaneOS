@@ -183,7 +183,7 @@ in {
 
     # ─── Required system packages ────────────────────────────────────────
     environment.systemPackages = [
-      pkgs.zfs
+      config.boot.zfs.package
       pkgs.docker
       pkgs.docker-compose
       pkgs.nginx
@@ -215,7 +215,9 @@ in {
     };
     services.zfs.zed.enableMail = false;
 
-    environment.etc."zfs/zed.d/dplaneos-notify.sh" = {
+    # ZED selects zedlets by the prefix before the first "-": "all-" runs
+    # for every event. "dplaneos-notify.sh" matched no event and never ran.
+    environment.etc."zfs/zed.d/all-dplaneos-notify.sh" = {
       source = pkgs.writeShellScript "dplaneos-notify" ''
         #!/usr/bin/env bash
         DAEMON_SOCKET="/run/dplaneos/dplaneos.sock"
@@ -235,7 +237,7 @@ in {
             *) SEVERITY="info" ;;
         esac
 
-        logger -t "$LOG_TAG" "[$SEVERITY] Pool=$ZEVENT_POOL Event=$ZEVENT_SUBCLASS State=$ZEVENT_VDEV_STATE_STR Device=$ZEVENT_VDEV_PATH"
+        ${pkgs.util-linux}/bin/logger -t "$LOG_TAG" "[$SEVERITY] Pool=$ZEVENT_POOL Event=$ZEVENT_SUBCLASS State=$ZEVENT_VDEV_STATE_STR Device=$ZEVENT_VDEV_PATH"
 
         if [ -S "$DAEMON_SOCKET" ]; then
             echo "zfs_event:$SEVERITY:$ZEVENT_POOL:$ZEVENT_SUBCLASS:$ZEVENT_VDEV_STATE_STR" | ${pkgs.socat}/bin/socat -t2 - UNIX-CONNECT:"$DAEMON_SOCKET" 2>/dev/null || true
@@ -456,7 +458,9 @@ in {
           timeout=120
           elapsed=0
           while [ $elapsed -lt $timeout ]; do
-            pool_list=$(zpool list -H -o health 2>/dev/null || true)
+            # Absolute path: a oneshot's PATH has no zpool, and a missing
+            # binary must not read as "no pools".
+            pool_list=$(${config.boot.zfs.package}/bin/zpool list -H -o health 2>/dev/null || true)
             if [ -z "$pool_list" ]; then
               # No pools exist: first boot or standby node with no imported pools.
               # Either case is valid - pass immediately so dplaned can start.

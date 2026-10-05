@@ -92,6 +92,9 @@
 
   systemd.services.dplane-link-persist = {
     description = "Link D-PlaneOS daemon state to persistent USB storage (if available)";
+    # mountpoint: without it the USB check always failed (command not found
+    # reads as "not mounted") and the state was never linked.
+    path = [ pkgs.util-linux ];
 
     # Run after:
     #   - ZFS auto-import (pools ready)

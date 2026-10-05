@@ -336,7 +336,7 @@ The ZFS Event Daemon (ZED) feeds real-time pool and device events into the daemo
 
 ### Event ingestion
 
-ZED executes `/etc/zfs/zed.d/dplaneos-notify.sh` on each kernel event. The hook formats the event as `zfs_event:<severity>:<pool>:<subclass>:<state>` and writes it to the daemon socket with a 2-second non-blocking timeout.
+ZED executes `/etc/zfs/zed.d/all-dplaneos-notify.sh` on each kernel event. The hook formats the event as `zfs_event:<severity>:<pool>:<subclass>:<state>` and writes it to the daemon socket with a 2-second non-blocking timeout.
 
 ### Typed dispatch
 

@@ -48,7 +48,13 @@ let
           pkgs.gnutar
           pkgs.openssl
           pkgs.python3
-          pkgs.zfs
+          config.boot.zfs.package  # matches the kernel module
+          # awk: inactive-slot lookup and the degraded-pool health check;
+          # without it the check found no degraded pools and passed.
+          pkgs.gawk
+          pkgs.findutils
+          pkgs.gnugrep
+          pkgs.gnused
         ]} \
         ${lib.optionalString (cfg.ota.signingKey != "")
           "--set OTA_PUBLIC_KEY '${cfg.ota.signingKey}'"}

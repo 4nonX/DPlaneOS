@@ -61,7 +61,7 @@ install:
 	sudo cp install/scripts/*.sh $(INSTALL_DIR)/install/scripts/ 2>/dev/null && sudo chmod +x $(INSTALL_DIR)/install/scripts/*.sh || true
 	# ZED hook for real-time ZFS event notification
 	@if [ -d /etc/zfs/zed.d ]; then \
-		sudo install -m 755 install/zed/dplaneos-notify.sh /etc/zfs/zed.d/ && \
+		sudo install -m 755 install/zed/dplaneos-notify.sh /etc/zfs/zed.d/all-dplaneos-notify.sh && \
 		echo "ZED hook installed"; \
 	else \
 		echo "Warning: /etc/zfs/zed.d not found - ZED hook skipped (install ZFS first)"; \

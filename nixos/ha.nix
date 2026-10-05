@@ -452,7 +452,7 @@ EOF
               # The daemon's ALUAStandby and BecomeStandby handlers are shell-
               # transparent wrappers: they call targetcli and zpool. Both binaries
               # are available here. Run them directly with the same deadlines.
-              logger -t dplaneos-ha -p daemon.crit \
+              ${pkgs.util-linux}/bin/logger -t dplaneos-ha -p daemon.crit \
                 "STONITH: daemon unreachable during notify_backup - executing failover sequence directly"
 
               # Step 1 (mirrors POST /api/ha/alua-standby):
@@ -466,7 +466,7 @@ EOF
                 ${pkgs.targetcli-fb}/bin/targetcli \
                   "/iscsi/$iqn/tpg1/alua/default_tg_pt_gp" \
                   set alua_access_state=2 2>/dev/null || true
-                logger -t dplaneos-ha "STONITH: set ALUA Standby on $iqn (direct path)"
+                ${pkgs.util-linux}/bin/logger -t dplaneos-ha "STONITH: set ALUA Standby on $iqn (direct path)"
               done
               ${pkgs.targetcli-fb}/bin/targetcli / saveconfig 2>/dev/null || true
 
@@ -475,13 +475,13 @@ EOF
               # ExportPoolTimeout in ha/standby.go. On timeout or error, reboot
               # immediately - same guarantee as daemon ForceSelfReboot.
               # stderr is NOT suppressed: failures belong in syslog.
-              for pool in $(${pkgs.zfs}/bin/zpool list -H -o name 2>/dev/null); do
-                if ${pkgs.coreutils}/bin/timeout 4 ${pkgs.zfs}/bin/zpool export "$pool"; then
-                  logger -t dplaneos-ha "STONITH: exported pool $pool (direct path)"
+              for pool in $(${config.boot.zfs.package}/bin/zpool list -H -o name 2>/dev/null); do
+                if ${pkgs.coreutils}/bin/timeout 4 ${config.boot.zfs.package}/bin/zpool export "$pool"; then
+                  ${pkgs.util-linux}/bin/logger -t dplaneos-ha "STONITH: exported pool $pool (direct path)"
                 else
-                  logger -t dplaneos-ha -p daemon.crit \
+                  ${pkgs.util-linux}/bin/logger -t dplaneos-ha -p daemon.crit \
                     "STONITH: export of $pool failed or timed out within 4s - rebooting to prevent split-brain"
-                  reboot -f
+                  ${pkgs.systemd}/bin/reboot -f
                   exit 1
                 fi
               done
@@ -554,6 +554,7 @@ EOF
     # The daemon manages the actual lease property writes at runtime.
     systemd.services.dplaneos-sbd-init = lib.mkIf (cfg.sbd.pool != "") {
       description = "DPlaneOS SBD Lease Dataset Init";
+      path        = [ config.boot.zfs.package ];  # zfs list/create
       after       = [ "zfs.target" "dplaneos-zfs-gate.service" ];
       before      = [ "dplaned.service" ];
       wantedBy    = [ "multi-user.target" ];

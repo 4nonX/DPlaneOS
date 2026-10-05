@@ -49,7 +49,7 @@
     script = ''
       set -e  # Fail on any error for visibility, but catch below
 
-      export PATH=${lib.makeBinPath [ pkgs.zfs pkgs.util-linux pkgs.coreutils pkgs.gnugrep ]}:$PATH
+      export PATH=${lib.makeBinPath [ config.boot.zfs.package pkgs.util-linux pkgs.coreutils pkgs.gnugrep ]}:$PATH
 
       echo "=== D-PlaneOS ZFS Auto-Import ==="
       echo "Timestamp: $(date -u +%Y-%m-%dT%H:%M:%SZ)"

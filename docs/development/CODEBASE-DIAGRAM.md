@@ -152,7 +152,7 @@ flowchart TD
 ```mermaid
 %%{init: {'theme':'base'}}%%
 flowchart TD
-    A["ZFS kernel event\n(disk fault, scrub, resilver, TRIM, etc.)"] --> B["ZED: zed.d/dplaneos-notify.sh"]
+    A["ZFS kernel event\n(disk fault, scrub, resilver, TRIM, etc.)"] --> B["ZED: zed.d/all-dplaneos-notify.sh"]
     B --> C["Log to syslog"]
     B --> D{"Daemon socket\n/run/dplaneos/dplaneos.sock"}
     D -->|Connected| E["zed_listener.go goroutine\nparses zfs_event line"]

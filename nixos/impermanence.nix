@@ -240,7 +240,7 @@
           # can diagnose remotely via IPMI SOL, serial console, or journald.
           msg="CRITICAL: /persist is NOT mounted - DPlaneOS cannot start safely."
           echo "$msg"
-          logger -t dplaneos-persist -p daemon.crit "$msg"
+          ${pkgs.util-linux}/bin/logger -t dplaneos-persist -p daemon.crit "$msg"
           # Write to /dev/console directly in case journald is not up yet
           echo "$msg" > /dev/console 2>/dev/null || true
           echo "Recovery: boot from installer ISO, run 'fsck.ext4 -f /dev/sdX2' on the persist partition, then reboot." > /dev/console 2>/dev/null || true

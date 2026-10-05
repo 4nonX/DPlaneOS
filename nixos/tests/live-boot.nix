@@ -96,10 +96,10 @@ pkgs.testers.nixosTest {
     def dump_diagnostics():
         """Print why dplaned did not come up. The serial console only carries
         kernel messages, so without this the CI log has no daemon output."""
-        units = "dplaned postgresql postgresql-setup dplaneos-zfs-gate dplane-zfs-auto-import nginx samba-smbd avahi-daemon"
+        units = "dplaned postgresql postgresql-setup dplaneos-zfs-gate dplane-zfs-auto-import nginx samba-smbd avahi-daemon zfs-zed"
         for cmd in [
             f"systemctl status --no-pager --lines=0 {units} 2>&1",
-            "journalctl -b --no-pager -o short-monotonic -u dplaned -u postgresql -u postgresql-setup -u dplaneos-zfs-gate -u samba-smbd -u avahi-daemon 2>&1 | tail -n 200",
+            "journalctl -b --no-pager -o short-monotonic -u dplaned -u postgresql -u postgresql-setup -u dplaneos-zfs-gate -u samba-smbd -u avahi-daemon -u zfs-zed -u 'dplaneos-snap-*' -t dplaneos-zed 2>&1 | tail -n 200",
             "ls -la /run/postgresql /run/dplaneos 2>&1",
         ]:
             print(f"\n----- {cmd}")

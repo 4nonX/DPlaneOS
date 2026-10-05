@@ -154,6 +154,11 @@ expect 200 POST /api/zfs/pool/import "{\"guid\":\"$GUID\",\"new_name\":\"smoke2\
 check "imported as smoke2" zpool list -H smoke2
 check "dataset came back with the pool" test "$(zfs get -H -o value casesensitivity smoke2/share)" = insensitive
 
+# ── ZED hook: ZED runs zedlets by event-class prefix ("all-" = every event) ─
+check "ZED hook installed as all-*" test -x /etc/zfs/zed.d/all-dplaneos-notify.sh
+zpool scrub smoke2
+check "ZED hook ran for smoke2" retry 30 bash -c 'journalctl -t dplaneos-zed --no-pager | grep -q "Pool=smoke2"'
+
 # ── SMB share with per-share options ───────────────────────────────────────
 expect 400 POST /api/shares '{"action":"create","name":"bad","path":"/smoke2/share","hosts_allow":"1.2.3.4;rm"}'
 expect 200 POST /api/shares '{"action":"create","name":"tm","path":"/smoke2/share","time_machine":true,"time_machine_quota":"100G","shadow_copy":true,"hosts_allow":"10.0.0.0/8"}'

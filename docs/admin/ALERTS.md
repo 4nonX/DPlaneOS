@@ -153,7 +153,7 @@ For direct Telegram notifications, DPlaneOS can send messages to a Telegram bot.
 
 For ZFS disk and pool events, the ZFS Event Daemon (ZED) sends events to the DPlaneOS daemon via Unix socket (`/run/dplaneos/dplaneos.sock`). The daemon then dispatches them to all configured alert channels (SMTP, Telegram, webhooks). If the daemon is down, ZED events are logged to syslog only.
 
-The ZED hook is installed automatically by the NixOS module (`services.zfs.zed.d/dplaneos-notify.sh`). No additional configuration is required.
+The ZED hook is installed automatically by the NixOS module (`services.zfs.zed.d/all-dplaneos-notify.sh`). No additional configuration is required.
 
 `zed_listener.go` dispatches ZED events to typed WebSocket events and forwards warning/error severity events to all configured alert channels. Handled subclasses: `scrub_start`, `scrub_finish`, `scrub_abort`, `resilver_start`, `resilver_finish`, `trim_start`, `trim_finish`, `trim_abort`, `vdev_clear`, `vdev_online`, `pool_import`, `data_loss`, `deadman`, `statechange`, `checksum`, `io`, `pool_destroy`, `vdev_remove`, `device_removal`. All other subclasses emit a generic `zfs.event.<subclass>` WebSocket event.
 
