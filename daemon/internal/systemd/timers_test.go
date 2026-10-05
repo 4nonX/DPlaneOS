@@ -6,13 +6,16 @@ import (
 )
 
 func TestRenderUnits(t *testing.T) {
-	svc, timer := renderUnits(TimerConfig{
+	svc, timer, err := renderUnits(TimerConfig{
 		Description: "ZFS Scrub for pool tank",
 		Command:     "/run/current-system/sw/bin/zpool scrub tank",
 		OnCalendar:  "Sun *-*-* 03:00:00",
 		Persistent:  true,
 		After:       []string{"zfs.target"},
 	}, "dplaneos-scrub-tank", "/nix/store/x-zfs/bin:/nix/store/y-curl/bin")
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	for _, want := range []string{
 		"ExecStart=/run/current-system/sw/bin/zpool scrub tank\n",
@@ -29,17 +32,21 @@ func TestRenderUnits(t *testing.T) {
 		}
 	}
 
-	svc, _ = renderUnits(TimerConfig{Description: "x", Command: "/bin/true", OnCalendar: "daily"}, "dplaneos-x", "")
+	svc, _, _ = renderUnits(TimerConfig{Description: "x", Command: "/bin/true", OnCalendar: "daily"}, "dplaneos-x", "")
 	if strings.Contains(svc, "Environment=") {
 		t.Errorf("no PATH given, no Environment line expected:\n%s", svc)
 	}
 }
 
-func TestResolveCommandKeepsAbsoluteAndUnknown(t *testing.T) {
-	if got := resolveCommand("/usr/bin/env true"); got != "/usr/bin/env true" {
-		t.Errorf("absolute command changed: %q", got)
+func TestResolveCommand(t *testing.T) {
+	if got, err := resolveCommand("/usr/bin/env true"); err != nil || got != "/usr/bin/env true" {
+		t.Errorf("absolute command changed: %q, %v", got, err)
 	}
-	if got := resolveCommand("definitely-not-a-real-binary-xyz arg"); got != "definitely-not-a-real-binary-xyz arg" {
-		t.Errorf("unresolvable command changed: %q", got)
+	// An unresolvable program must fail: systemd would not find it either.
+	if got, err := resolveCommand("definitely-not-a-real-binary-xyz arg"); err == nil {
+		t.Errorf("unresolvable command accepted as %q", got)
+	}
+	if _, _, err := renderUnits(TimerConfig{Command: "definitely-not-a-real-binary-xyz"}, "dplaneos-x", ""); err == nil {
+		t.Error("renderUnits accepted an unresolvable command")
 	}
 }

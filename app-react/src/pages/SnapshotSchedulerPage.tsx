@@ -12,7 +12,7 @@
 
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { api } from '@/lib/api'
+import { api, ensureOk } from '@/lib/api'
 import { Icon } from '@/components/ui/Icon'
 import { ErrorState } from '@/components/ui/ErrorState'
 import { Skeleton } from '@/components/ui/LoadingSpinner'
@@ -325,7 +325,7 @@ export function SnapshotSchedulerPage() {
 
   // Save the full schedule list (daemon expects full array replacement)
   const saveSchedules = useMutation({
-    mutationFn: (schedules: SnapshotSchedule[]) => api.post('/api/snapshots/schedules', schedules),
+    mutationFn: (schedules: SnapshotSchedule[]) => api.post<{ success: boolean; error?: string }>('/api/snapshots/schedules', schedules).then(ensureOk),
     onSuccess: () => { toast.success('Schedules saved'); qc.invalidateQueries({ queryKey: ['snapshots', 'schedules'] }) },
     onError: (e: Error) => toast.error(e.message),
   })

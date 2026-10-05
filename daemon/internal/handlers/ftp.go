@@ -264,9 +264,13 @@ func applyFTPConfig(cfg FTPConfig) error {
 				return fmt.Errorf("ftps certificate: %w", err)
 			}
 		}
+		vsftpd, err := systemd.ResolveCommand("vsftpd")
+		if err != nil {
+			return fmt.Errorf("vsftpd (services.dplaneos.ftp.enable): %w", err)
+		}
 		unit := fmt.Sprintf("[Unit]\nDescription=DPlaneOS FTP (vsftpd)\nAfter=network.target\n\n"+
 			"[Service]\nExecStart=%s %s\nRestart=on-failure\n\n[Install]\nWantedBy=multi-user.target\n",
-			systemd.ResolveCommand("vsftpd"), ftpP.conf)
+			vsftpd, ftpP.conf)
 		if err := systemd.InstallService(ftpP.service, unit); err != nil {
 			return fmt.Errorf("install vsftpd unit: %w", err)
 		}

@@ -43,25 +43,30 @@ func UnitDir() string {
 
 // resolveCommand makes the program in ExecStart absolute using the daemon's
 // own PATH. systemd only searches a fixed list of directories, which on NixOS
-// contains none of the tools (bash, curl, zpool) these units run.
-func resolveCommand(command string) string {
+// contains none of the tools (bash, curl, zpool) these units run, so a program
+// that cannot be resolved is an error: the unit would install but never run.
+func resolveCommand(command string) (string, error) {
 	prog, rest, _ := strings.Cut(strings.TrimSpace(command), " ")
 	if strings.HasPrefix(prog, "/") {
-		return command
+		return command, nil
 	}
 	abs, err := exec.LookPath(prog)
 	if err != nil {
-		return command
+		return "", fmt.Errorf("%s is not on the daemon's PATH: %w", prog, err)
 	}
 	if rest == "" {
-		return abs
+		return abs, nil
 	}
-	return abs + " " + rest
+	return abs + " " + rest, nil
 }
 
 // renderUnits returns the .service and .timer contents. pathEnv is passed to
 // the service so commands run inside it (e.g. curl in bash -c) resolve too.
-func renderUnits(cfg TimerConfig, unitName, pathEnv string) (service, timer string) {
+func renderUnits(cfg TimerConfig, unitName, pathEnv string) (service, timer string, err error) {
+	execStart, err := resolveCommand(cfg.Command)
+	if err != nil {
+		return "", "", err
+	}
 	env := ""
 	if pathEnv != "" {
 		env = fmt.Sprintf("Environment=\"PATH=%s\"\n", pathEnv)
@@ -77,7 +82,7 @@ User=root
 
 [Install]
 WantedBy=multi-user.target
-`, cfg.Description, strings.Join(append(cfg.After, "network.target"), " "), env, resolveCommand(cfg.Command))
+`, cfg.Description, strings.Join(append(cfg.After, "network.target"), " "), env, execStart)
 
 	persistentStr := "false"
 	if cfg.Persistent {
@@ -94,7 +99,7 @@ Unit=%s.service
 [Install]
 WantedBy=timers.target
 `, cfg.Description, cfg.OnCalendar, persistentStr, unitName)
-	return service, timer
+	return service, timer, nil
 }
 
 // InstallTimer creates a .service and .timer unit file and reloads systemd
@@ -108,7 +113,10 @@ func InstallTimer(cfg TimerConfig) error {
 		unitName = Prefix + unitName
 	}
 
-	serviceContent, timerContent := renderUnits(cfg, unitName, os.Getenv("PATH"))
+	serviceContent, timerContent, err := renderUnits(cfg, unitName, os.Getenv("PATH"))
+	if err != nil {
+		return fmt.Errorf("timer %s: %w", unitName, err)
+	}
 	dir := UnitDir()
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("unit directory %s: %v", dir, err)
@@ -136,7 +144,7 @@ func InstallTimer(cfg TimerConfig) error {
 }
 
 // ResolveCommand makes the program of a command line absolute (see resolveCommand).
-func ResolveCommand(command string) string { return resolveCommand(command) }
+func ResolveCommand(command string) (string, error) { return resolveCommand(command) }
 
 // InstallService writes a service unit into UnitDir and reloads systemd. Used
 // for daemon-managed services (MinIO, vsftpd) that NixOS does not declare;

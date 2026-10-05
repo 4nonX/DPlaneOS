@@ -1,9 +1,9 @@
 package hardware
 
 import (
+	"errors"
 	"database/sql"
 	"fmt"
-	"log"
 	"strings"
 
 	"dplaned/internal/systemd"
@@ -19,9 +19,10 @@ func SetCronToken(tok string) { cronToken = tok }
 // RegenerateSMARTTimers creates systemd timers for all enabled SMART schedules.
 // This is used by both the REST API and the GitOps reconciliation engine.
 func RegenerateSMARTTimers(db *sql.DB) error {
+	var errs []error
 	// 1. Clear existing smart timers
 	if err := systemd.UninstallAllWithPrefix("dplaneos-smart-"); err != nil {
-		log.Printf("ERROR: failed to clear existing SMART timers: %v", err)
+		errs = append(errs, fmt.Errorf("clear old timers: %w", err))
 	}
 
 	rows, err := db.Query("SELECT device, test_type, schedule FROM smart_schedules WHERE enabled = 1")
@@ -55,9 +56,9 @@ func RegenerateSMARTTimers(db *sql.DB) error {
 			Persistent:  true,
 		})
 		if err != nil {
-			log.Printf("ERROR: failed to install SMART timer for %s: %v", device, err)
+			errs = append(errs, fmt.Errorf("%s: %w", device, err))
 		}
 	}
 
-	return nil
+	return errors.Join(errs...)
 }

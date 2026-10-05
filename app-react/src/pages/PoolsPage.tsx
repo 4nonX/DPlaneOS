@@ -555,7 +555,7 @@ function ScrubScheduleModal({ pool, current, onClose, onSaved }: {
       const payload: ScrubSchedule[] = interval === 'disabled'
         ? []
         : [{ pool, interval, hour, day }]
-      return api.post('/api/zfs/scrub/schedule', payload)
+      return api.post<{ success: boolean; error?: string }>('/api/zfs/scrub/schedule', payload).then(ensureOk)
     },
     onSuccess: () => {
       toast.success(interval === 'disabled'
@@ -2191,7 +2191,7 @@ function ScrubTab({ pools }: { pools: string[] }) {
   })
 
   const saveMut = useMutation({
-    mutationFn: (schedules: ScrubSchedule[]) => api.post('/api/zfs/scrub/schedule', schedules),
+    mutationFn: (schedules: ScrubSchedule[]) => api.post<{ success: boolean; error?: string }>('/api/zfs/scrub/schedule', schedules).then(ensureOk),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['zfs', 'scrub', 'schedule'] })
       toast.success('Scrub schedule saved')

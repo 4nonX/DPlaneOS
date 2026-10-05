@@ -157,7 +157,11 @@ func generateMinioEnv(cfg MinioConfig) string {
 	return sb.String()
 }
 
-func minioServiceUnit() string {
+func minioServiceUnit() (string, error) {
+	minio, err := systemd.ResolveCommand("minio")
+	if err != nil {
+		return "", fmt.Errorf("minio (services.dplaneos.s3.enable): %w", err)
+	}
 	return fmt.Sprintf(`[Unit]
 Description=MinIO Object Storage
 Documentation=https://docs.min.io
@@ -173,7 +177,7 @@ LimitNOFILE=65536
 
 [Install]
 WantedBy=multi-user.target
-`, minioEnvFile, systemd.ResolveCommand("minio"))
+`, minioEnvFile, minio), nil
 }
 
 func applyMinioConfig(cfg MinioConfig) error {
@@ -191,7 +195,11 @@ func applyMinioConfig(cfg MinioConfig) error {
 	}
 
 	if IsNixOS() {
-		if err := systemd.InstallService(minioService, minioServiceUnit()); err != nil {
+		unit, err := minioServiceUnit()
+		if err != nil {
+			return err
+		}
+		if err := systemd.InstallService(minioService, unit); err != nil {
 			return fmt.Errorf("failed to install minio unit: %w", err)
 		}
 	} else if _, err := os.Stat(minioServiceFile); os.IsNotExist(err) {
@@ -200,7 +208,11 @@ func applyMinioConfig(cfg MinioConfig) error {
 		if mkErr := os.MkdirAll(serviceDir, 0755); mkErr != nil {
 			log.Printf("WARN: minio service dir: %v", mkErr)
 		}
-		if writeErr := os.WriteFile(minioServiceFile, []byte(minioServiceUnit()), 0644); writeErr != nil {
+		unit, unitErr := minioServiceUnit()
+		if unitErr != nil {
+			return unitErr
+		}
+		if writeErr := os.WriteFile(minioServiceFile, []byte(unit), 0644); writeErr != nil {
 			log.Printf("WARN: minio service file write: %v", writeErr)
 		} else {
 			// Daemon reload so systemd picks up the new unit

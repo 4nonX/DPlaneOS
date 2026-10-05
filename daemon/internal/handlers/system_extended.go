@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"crypto"
 	"crypto/ecdsa"
 	"crypto/elliptic"
@@ -135,8 +136,12 @@ func (h *SnapshotScheduleHandler) SaveSchedules(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	// Regenerate crontab entries
-	h.regenerateCron(schedules)
+	// Install the timers; a schedule that cannot run must not report success.
+	if err := h.regenerateCron(schedules); err != nil {
+		audit.LogAction("snapshot_schedule", user, "Schedules saved, timers failed: "+err.Error(), false, 0)
+		respondOK(w, map[string]any{"success": false, "error": "Schedules saved, but timers could not be installed: " + err.Error()})
+		return
+	}
 
 	audit.LogAction("snapshot_schedule", user, "Updated snapshot schedules", true, 0)
 	w.Header().Set("Content-Type", "application/json")
@@ -156,13 +161,16 @@ func (h *SnapshotScheduleHandler) RestoreTimers() {
 		log.Printf("WARN: snapshot schedules: %v", err)
 		return
 	}
-	h.regenerateCron(schedules)
+	if err := h.regenerateCron(schedules); err != nil {
+		log.Printf("ERROR: snapshot timers: %v", err)
+	}
 }
 
-func (h *SnapshotScheduleHandler) regenerateCron(schedules []SnapshotSchedule) {
+func (h *SnapshotScheduleHandler) regenerateCron(schedules []SnapshotSchedule) error {
+	var errs []error
 	// 1. Clear existing snapshot timers
 	if err := systemd.UninstallAllWithPrefix("dplaneos-snap-"); err != nil {
-		log.Printf("ERROR: failed to clear existing snapshot timers: %v", err)
+		errs = append(errs, fmt.Errorf("clear old timers: %w", err))
 	}
 
 	// Remove legacy cron file
@@ -227,9 +235,10 @@ func (h *SnapshotScheduleHandler) regenerateCron(schedules []SnapshotSchedule) {
 			After:       []string{"zfs.target"},
 		})
 		if err != nil {
-			log.Printf("ERROR: failed to install snapshot timer for %s: %v", s.Dataset, err)
+			errs = append(errs, fmt.Errorf("%s (%s): %w", s.Dataset, s.Frequency, err))
 		}
 	}
+	return errors.Join(errs...)
 }
 
 func (h *SnapshotScheduleHandler) RunNow(w http.ResponseWriter, r *http.Request) {

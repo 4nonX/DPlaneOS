@@ -18,7 +18,7 @@
 
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { api } from '@/lib/api'
+import { api, ensureOk } from '@/lib/api'
 import { Icon } from '@/components/ui/Icon'
 import { Spinner, Skeleton } from '@/components/ui/LoadingSpinner'
 import { ErrorState } from '@/components/ui/ErrorState'
@@ -441,7 +441,7 @@ function SchedulesTab() {
 
   const createMut = useMutation({
     mutationFn: (body: Omit<RsyncSchedule, 'id'>) =>
-      api.post<{ success: boolean; schedule: RsyncSchedule }>('/api/backup/rsync/schedules', body),
+      api.post<{ success: boolean; error?: string; schedule: RsyncSchedule }>('/api/backup/rsync/schedules', body).then(ensureOk),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['backup', 'schedules'] })
       setShowModal(false)
@@ -452,7 +452,7 @@ function SchedulesTab() {
 
   const updateMut = useMutation({
     mutationFn: ({ id, ...body }: RsyncSchedule) =>
-      api.put<{ success: boolean }>(`/api/backup/rsync/schedules/${id}`, body),
+      api.put<{ success: boolean; error?: string }>(`/api/backup/rsync/schedules/${id}`, body).then(ensureOk),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['backup', 'schedules'] })
       setEditing(null)
@@ -462,7 +462,7 @@ function SchedulesTab() {
   })
 
   const deleteMut = useMutation({
-    mutationFn: (id: string) => api.delete(`/api/backup/rsync/schedules/${id}`),
+    mutationFn: (id: string) => api.delete<{ success: boolean; error?: string }>(`/api/backup/rsync/schedules/${id}`).then(ensureOk),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['backup', 'schedules'] })
       toast.success('Schedule deleted')
@@ -492,7 +492,7 @@ function SchedulesTab() {
 
   const toggleMut = useMutation({
     mutationFn: (s: RsyncSchedule) =>
-      api.put<{ success: boolean }>(`/api/backup/rsync/schedules/${s.id}`, { ...s, enabled: !s.enabled }),
+      api.put<{ success: boolean; error?: string }>(`/api/backup/rsync/schedules/${s.id}`, { ...s, enabled: !s.enabled }).then(ensureOk),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['backup', 'schedules'] }),
     onError: (e: Error) => toast.error(e.message),
   })

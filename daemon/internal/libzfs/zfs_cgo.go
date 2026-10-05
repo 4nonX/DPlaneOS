@@ -27,7 +27,7 @@ package libzfs
 // if the given device path appears anywhere in the tree.
 static int find_device_in_vdev(nvlist_t *nv, const char *device) {
     const char *path = NULL;
-    if (nvlist_lookup_string(nv, ZPOOL_CONFIG_PATH, &path) == 0 && path != NULL) {
+    if (nvlist_lookup_string(nv, ZPOOL_CONFIG_PATH, (void *)&path) == 0 && path != NULL) {
         if (strcmp(path, device) == 0) {
             return 1;
         }
@@ -128,7 +128,7 @@ static int dplane_dataset_get_prop(libzfs_handle_t *hdl,
             nvlist_t *propval;
             if (nvlist_lookup_nvlist(user_props, propname, &propval) == 0) {
                 const char *value;
-                if (nvlist_lookup_string(propval, ZPROP_VALUE, &value) == 0) {
+                if (nvlist_lookup_string(propval, ZPROP_VALUE, (void *)&value) == 0) {
                     strncpy(buf, value, buflen - 1);
                     buf[buflen - 1] = '\0';
                     rc = 0;

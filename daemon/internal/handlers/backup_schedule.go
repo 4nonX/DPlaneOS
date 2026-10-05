@@ -131,11 +131,16 @@ func RestoreRsyncTimers() {
 		log.Printf("WARN: rsync schedules: %v", err)
 		return
 	}
-	installRsyncTimers(schedules)
+	if err := installRsyncTimers(schedules); err != nil {
+		log.Printf("ERROR: rsync timers: %v", err)
+	}
 }
 
-func installRsyncTimers(schedules []RsyncSchedule) {
-	systemd.UninstallAllWithPrefix("dplaneos-rsync-")
+func installRsyncTimers(schedules []RsyncSchedule) error {
+	var errs []error
+	if err := systemd.UninstallAllWithPrefix("dplaneos-rsync-"); err != nil {
+		errs = append(errs, fmt.Errorf("clear old timers: %w", err))
+	}
 	for _, s := range schedules {
 		if !s.Enabled {
 			continue
@@ -156,9 +161,10 @@ func installRsyncTimers(schedules []RsyncSchedule) {
 			Persistent:  true,
 		})
 		if err != nil {
-			log.Printf("ERROR: failed to install rsync timer %s: %v", s.ID, err)
+			errs = append(errs, fmt.Errorf("%s: %w", s.Name, err))
 		}
 	}
+	return errors.Join(errs...)
 }
 
 // GET /api/backup/rsync/schedules
@@ -202,7 +208,10 @@ func CreateRsyncSchedule(w http.ResponseWriter, r *http.Request) {
 		respondErrorSimple(w, "Failed to save schedules", http.StatusInternalServerError)
 		return
 	}
-	installRsyncTimers(final)
+	if err := installRsyncTimers(final); err != nil {
+		respondOK(w, map[string]any{"success": false, "error": "Schedule saved, but timers could not be installed: " + err.Error()})
+		return
+	}
 
 	audit.LogActivity(r.Header.Get("X-User"), "rsync_schedule_create", map[string]any{"id": s.ID, "name": s.Name})
 	respondOK(w, map[string]any{"success": true, "schedule": s})
@@ -242,7 +251,10 @@ func UpdateRsyncSchedule(w http.ResponseWriter, r *http.Request) {
 		respondErrorSimple(w, "Failed to save schedules", http.StatusInternalServerError)
 		return
 	}
-	installRsyncTimers(final)
+	if err := installRsyncTimers(final); err != nil {
+		respondOK(w, map[string]any{"success": false, "error": "Schedule saved, but timers could not be installed: " + err.Error()})
+		return
+	}
 
 	audit.LogActivity(r.Header.Get("X-User"), "rsync_schedule_update", map[string]any{"id": id})
 	respondOK(w, map[string]any{"success": true, "schedule": req})
@@ -278,7 +290,10 @@ func DeleteRsyncSchedule(w http.ResponseWriter, r *http.Request) {
 		respondErrorSimple(w, "Failed to save schedules", http.StatusInternalServerError)
 		return
 	}
-	installRsyncTimers(final)
+	if err := installRsyncTimers(final); err != nil {
+		respondOK(w, map[string]any{"success": false, "error": "Schedule saved, but timers could not be installed: " + err.Error()})
+		return
+	}
 
 	audit.LogActivity(r.Header.Get("X-User"), "rsync_schedule_delete", map[string]any{"id": id})
 	respondOK(w, map[string]any{"success": true})
