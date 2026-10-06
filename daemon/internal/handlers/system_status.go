@@ -44,7 +44,7 @@ func (h *SystemStatusHandler) HandleStatus(w http.ResponseWriter, r *http.Reques
 
 	// Try RunFast first, but don't fail if it times out - pool state can be transitional
 	// after offline/online operations
-	poolOutput, err := cmdutil.RunFast("zpool", "list", "-H", "-o", "name")
+	poolOutput, err := cmdutil.RunFast("zpool_list_names", "list", "-H", "-o", "name")
 	poolCount := 0
 	if err != nil {
 		// Don't fail the entire health check for pool list timeout

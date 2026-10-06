@@ -147,6 +147,11 @@ pkgs.testers.nixosTest {
             a.succeed("zpool list tank && grep -q hello /mnt/tank/data/file")
             b.fail("zpool list tank")
             assert group(a)["epoch"] == 3 and group(b)["epoch"] == 3
+        with subtest("No daemon panics, security refusals or security warnings"):
+            for m in (a, b):
+                print(m.execute("journalctl -b --no-pager -u dplaned | grep -i -E ' (warn|warning|error|failed)' | tail -n 60")[1])
+                bad = m.execute("journalctl -b --no-pager -u dplaned | grep -E 'panic:|SECURITY WARNING|security refusal' || true")[1].strip()
+                assert bad == "", f"{m.name}: {bad}"
     except Exception:
         diag()
         raise

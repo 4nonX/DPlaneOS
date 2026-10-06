@@ -63,6 +63,12 @@ var CommandWhitelist = map[string]Command{
 		AllowedArgs: []string{"settle", "--timeout=15"},
 		Description: "Wait for udev to create device links after a partition re-read",
 	},
+		"zpool_list_names": {
+		Name:        "zpool_list_names",
+		Path:        "zpool",
+		AllowedArgs: []string{"list", "-H", "-o", "name"},
+		Description: "List imported pool names",
+	},
 		"zpool_list_guid": {
 		Name:        "zpool_list_guid",
 		Path:        "zpool",
