@@ -40,7 +40,8 @@ let
     systemd.services.systemd-random-seed.enable = false;
     virtualisation.cores = 2;
     virtualisation.memorySize = 2048;
-    virtualisation.diskImage = null;
+    # A persistent root (unlike the live-boot test): the reset node must come
+    # back with its state, as an installed node does after a watchdog reset.
     virtualisation.qemu.options = [
       "-drive file=${sharedImage},if=none,id=shared,format=raw,file.locking=off,cache=none"
       "-device virtio-blk-pci,drive=shared,share-rw=on,serial=dplshared"
