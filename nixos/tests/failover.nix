@@ -166,7 +166,8 @@ pkgs.testers.nixosTest {
             wait_for(lambda: b.execute("zpool list tank")[0] == 0, "b imports the pool", ${toString (watchdogTimeout + 120)})
             took = time.time() - started
             print(f"takeover {took:.0f}s after the reset")
-            b.succeed("grep -q hello /mnt/tank/data/file")
+            # The import returns before the datasets are mounted.
+            b.wait_until_succeeds("grep -q hello /mnt/tank/data/file", timeout=60)
             gb = group(b)
             assert gb["owner"] == peer_b and gb["epoch"] == 2 and gb["can_write"], gb
 
