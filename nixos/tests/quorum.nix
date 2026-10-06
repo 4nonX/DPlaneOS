@@ -146,10 +146,14 @@ pkgs.testers.nixosTest {
                 m.wait_until_succeeds("(corosync-quorumtool -s || true) | grep -q 'Total votes: *3'", timeout=90)
             # Adding the third vote restarts corosync on each node (two_node
             # changes); the state settles within the reconfiguration window.
-            def settled(_):
+            import time
+            deadline = time.time() + 90
+            while True:
                 info = api(a, "GET", "/api/quorum/status")["info"]
-                return info["expected_votes"] == 3 and info["auto_failover"] is True
-            retry(settled, timeout=90)
+                if info["expected_votes"] == 3 and info["auto_failover"] is True:
+                    break
+                assert time.time() < deadline, f"state did not settle: {info}"
+                time.sleep(3)
             st = api(a, "GET", "/api/quorum/status")
             assert st["cluster"]["qdevice"]["host"], st["cluster"]
 
