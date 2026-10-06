@@ -43,6 +43,13 @@ var CommandWhitelist = map[string]Command{
 		ArgPatterns: []*regexp.Regexp{regexp.MustCompile(`^[a-zA-Z0-9_\-\./:]+$`)}, // dataset name
 		Description: "Get ZFS property",
 	},
+	"blockdev_flushbufs": {
+		Name:        "blockdev_flushbufs",
+		Path:        "blockdev",
+		AllowedArgs: []string{"--flushbufs"},
+		ArgPatterns: []*regexp.Regexp{regexp.MustCompile(`^/dev/(sd[a-z]+|vd[a-z]+|nvme[0-9]+n[0-9]+|dm-[0-9]+|xvd[a-z]+)(p?[0-9]+)?$`)},
+		Description: "Drop cached blocks of a disk before importing a shared pool",
+	},
 	"zpool_list_guid": {
 		Name:        "zpool_list_guid",
 		Path:        "zpool",

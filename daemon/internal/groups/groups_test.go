@@ -2,6 +2,8 @@ package groups
 
 import (
 	"testing"
+
+	"dplaned/internal/security"
 )
 
 func shared() Group {
@@ -101,5 +103,18 @@ func TestPlanAdopt(t *testing.T) {
 	imp, exp = planAdopt(g, "a", map[string]string{"tank": "999"})
 	if len(imp) != 0 || len(exp) != 0 {
 		t.Errorf("replicated standby: %v %v", imp, exp)
+	}
+}
+
+func TestFlushWhitelist(t *testing.T) {
+	for _, d := range []string{"/dev/sda", "/dev/vdb", "/dev/nvme0n1", "/dev/nvme0n1p2", "/dev/sdc1", "/dev/dm-3"} {
+		if err := security.ValidateCommand("blockdev_flushbufs", []string{"--flushbufs", d}); err != nil {
+			t.Errorf("%s rejected: %v", d, err)
+		}
+	}
+	for _, d := range []string{"/etc/passwd", "/dev/sda;reboot", "/dev/../etc"} {
+		if err := security.ValidateCommand("blockdev_flushbufs", []string{"--flushbufs", d}); err == nil {
+			t.Errorf("%s accepted", d)
+		}
 	}
 }

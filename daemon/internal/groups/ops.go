@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -38,6 +40,7 @@ var DefaultOps = Ops{
 		return m, nil
 	},
 	Import: func(guid string) error {
+		flushDiskCaches()
 		out, err := cmdutil.RunSlow("zpool_import", "import", "-d", "/dev/disk/by-id", guid)
 		if err != nil {
 			return fmt.Errorf("zpool import %s: %v: %s", guid, err, bytes.TrimSpace(out))
@@ -45,6 +48,28 @@ var DefaultOps = Ops{
 		return nil
 	},
 	Export: func(name string) error { return libzfs.PoolExport(name, false) },
+}
+
+// flushDiskCaches drops the kernel's cached blocks of the disks a pool import
+// scans. On shared storage this node read the disks before (at boot, or
+// while another node owned them); without a flush the import reads those
+// stale blocks and reports "no such pool available" (VM test).
+func flushDiskCaches() {
+	entries, err := os.ReadDir("/dev/disk/by-id")
+	if err != nil {
+		return
+	}
+	seen := map[string]bool{}
+	for _, e := range entries {
+		dev, err := filepath.EvalSymlinks(filepath.Join("/dev/disk/by-id", e.Name()))
+		if err != nil || seen[dev] {
+			continue
+		}
+		seen[dev] = true
+		if out, err := cmdutil.RunFast("blockdev_flushbufs", "--flushbufs", dev); err != nil {
+			log.Printf("GROUPS: flushing %s before import: %v: %s", dev, err, bytes.TrimSpace(out))
+		}
+	}
 }
 
 // Update is sent between members.
