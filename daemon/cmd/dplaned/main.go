@@ -1010,7 +1010,9 @@ func main() {
 		func() string { id, _ := configstore.NodeID(db); return id },
 		func() groups.View {
 			in := quorumMon.FreshInfo(time.Second)
-			return groups.View{Quorum: in.Configured, Quorate: in.Quorate}
+			// A deliberate restart of corosync (adding/removing the third
+			// vote) drops quorum briefly; the owner keeps serving.
+			return groups.View{Quorum: in.Configured, Quorate: in.Quorate || in.Reconfiguring}
 		})
 	groupMgr.Start(10 * time.Second)
 	configstore.EpochForPool = func(pool string) int64 { return groups.EpochForPool(db, pool) }

@@ -3,6 +3,7 @@ package quorum
 import (
 	"strings"
 	"testing"
+	"time"
 )
 
 func twoNodes() Config {
@@ -193,5 +194,18 @@ func TestEnrollmentEncodingIsBinarySafe(t *testing.T) {
 	}
 	if _, err := DecodeBase64([]byte("\n")); err == nil {
 		t.Error("empty input must fail")
+	}
+}
+
+func TestReconfiguringBlocksAutoFailover(t *testing.T) {
+	m := &Monitor{cfg: func() *Config { c := twoNodes(); c.QDevice = &QDevice{Host: "w", Algorithm: "ffsplit"}; return &c }(),
+		st: Status{Running: true, Quorate: true, ExpectedVotes: 3}}
+	if in := m.Info(); !in.AutoFailover {
+		t.Fatalf("expected auto failover: %+v", in)
+	}
+	markReconfiguring()
+	defer func() { reconfigMu.Lock(); reconfigUntil = time.Time{}; reconfigMu.Unlock() }()
+	if in := m.Info(); in.AutoFailover || !in.Reconfiguring {
+		t.Fatalf("reconfiguration must block automatic failover: %+v", in)
 	}
 }

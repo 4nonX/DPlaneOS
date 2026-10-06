@@ -123,6 +123,7 @@ func apply(prev *Config, cfg Config, authkey []byte) error {
 	twoNode := func(c *Config) bool { return c != nil && c.QDevice == nil && len(c.Nodes) == 2 }
 	restart := prev == nil || twoNode(prev) != twoNode(&cfg) || !bytes.Equal(oldKey, authkey) || !unitActive(unitCorosync)
 	if restart {
+		markReconfiguring()
 		if err := systemctl("restart", unitCorosync); err != nil {
 			return err
 		}
@@ -162,6 +163,32 @@ func removeAll() error {
 
 // ── Status ────────────────────────────────────────────────────────────────────
 
+// reconfigUntil: corosync is being restarted for a configuration change
+// (adding or removing the third vote switches two_node, which cannot change
+// at runtime; each member restarts once). Quorum drops briefly during that
+// window; it must not count as a failure (no self-fence, no failover).
+var (
+	reconfigMu    sync.Mutex
+	reconfigUntil time.Time
+)
+
+// ReconfigWindow is how long after a restart quorum loss is attributed to it.
+const ReconfigWindow = 60 * time.Second
+
+func markReconfiguring() {
+	reconfigMu.Lock()
+	reconfigUntil = time.Now().Add(ReconfigWindow)
+	reconfigMu.Unlock()
+}
+
+// Reconfiguring reports whether this node restarted corosync for a
+// configuration change within the last ReconfigWindow.
+func Reconfiguring() bool {
+	reconfigMu.Lock()
+	defer reconfigMu.Unlock()
+	return time.Now().Before(reconfigUntil)
+}
+
 // Info is what the HA engine needs (ADR-0009): quorum, and whether automatic
 // failover is possible at all (three votes or more).
 type Info struct {
@@ -170,6 +197,7 @@ type Info struct {
 	ExpectedVotes  int    `json:"expected_votes"`
 	AutoFailover   bool   `json:"auto_failover"`
 	AutoFailoverNo string `json:"auto_failover_reason,omitempty"`
+	Reconfiguring  bool   `json:"reconfiguring"` // cluster configuration change in progress
 }
 
 // Monitor polls corosync-quorumtool in the background.
@@ -240,11 +268,13 @@ func (m *Monitor) Info() Info {
 	if cfg == nil {
 		return Info{}
 	}
-	in := Info{Configured: true, Quorate: st.Running && st.Quorate, ExpectedVotes: cfg.ExpectedVotes()}
+	in := Info{Configured: true, Quorate: st.Running && st.Quorate, ExpectedVotes: cfg.ExpectedVotes(), Reconfiguring: Reconfiguring()}
 	if st.ExpectedVotes > in.ExpectedVotes {
 		in.ExpectedVotes = st.ExpectedVotes
 	}
 	switch {
+	case in.Reconfiguring:
+		in.AutoFailoverNo = "the cluster configuration is being changed (corosync restarts on each node)"
 	case in.ExpectedVotes < 3:
 		in.AutoFailoverNo = "no third vote: with two votes a network split leaves both nodes quorate, so failover is a manual takeover"
 	case !in.Quorate:
