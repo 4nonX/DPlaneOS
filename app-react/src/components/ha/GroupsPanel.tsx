@@ -26,6 +26,7 @@ interface GroupStatus {
   role: 'owner' | 'standby' | 'other'
   can_write: boolean
   problems: string[]
+  failover: { action: 'none' | 'wait' | 'takeover' | ''; reason?: string; wait_until?: string }
 }
 interface GroupsResponse {
   success: boolean
@@ -111,6 +112,11 @@ export function GroupsPanel() {
     },
     onError: (e: Error) => toast.error(e.message),
   })
+  const takeover = useMutation({
+    mutationFn: async (name: string) => ensureOk(await api.post<Res>(`/api/groups/${encodeURIComponent(name)}/takeover`, { confirm_owner_off: true })),
+    onSuccess: () => { toast.success('This node now owns the group'); qc.invalidateQueries({ queryKey: ['groups'] }) },
+    onError: (e: Error) => toast.error(e.message),
+  })
   const remove = useMutation({
     mutationFn: async (name: string) => ensureOk(await api.delete<Res>(`/api/groups/${encodeURIComponent(name)}`)),
     onSuccess: () => { toast.success('Group removed'); qc.invalidateQueries({ queryKey: ['groups'] }) },
@@ -153,6 +159,20 @@ export function GroupsPanel() {
               }} aria-label={`Remove ${g.name}`}><Icon name="delete" size={14} /></button>
             </span>
           </div>
+          {g.failover?.reason && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6, fontSize: 'var(--text-sm)', color: g.failover.action === 'wait' ? 'var(--warning)' : 'var(--text-secondary)' }}>
+              <Icon name={g.failover.action === 'wait' ? 'hourglass_top' : 'info'} size={14} />{g.failover.reason}
+              {g.role === 'standby' && g.failover.action === 'none' && (
+                <button className="btn btn-ghost btn-sm" style={{ marginLeft: 'auto' }} disabled={takeover.isPending} onClick={async () => {
+                  if (await confirm({
+                    title: `Take over ${g.name}?`,
+                    message: `Only do this when ${nm(g.owner)} is switched off or disconnected from the disks: two nodes must never use the pools at the same time. ZFS multihost still refuses the import if ${nm(g.owner)} is in fact still using them.`,
+                    confirmLabel: `${nm(g.owner)} is off - take over`, danger: true,
+                  })) takeover.mutate(g.name)
+                }}><Icon name="front_hand" size={14} />Take over</button>
+              )}
+            </div>
+          )}
           {g.problems.length > 0 && (
             <ul style={{ color: 'var(--error)', fontSize: 'var(--text-sm)', margin: '6px 0 0' }}>{g.problems.map(p => <li key={p}>{p}</li>)}</ul>
           )}

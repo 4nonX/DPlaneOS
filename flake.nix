@@ -236,6 +236,14 @@
           frontendPackage = frontend;
         };
 
+        # Automatic failover of a storage group (Design 0001 phase 3c).
+        #   nix build .#checks.x86_64-linux.failover -L
+        checks.failover = import ./nixos/tests/failover.nix {
+          inherit nixpkgs system impermanence;
+          daemonPackage = daemon;
+          frontendPackage = frontend;
+        };
+
         devShells.default = pkgs.mkShell {
           buildInputs = with pkgs; [ go gcc musl.dev gopls gotools postgresql git ];
           shellHook = ''

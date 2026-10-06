@@ -53,7 +53,27 @@ A **storage group** is what moves between nodes: one or more pools and everythin
 
 Exactly one node **owns** a group. The **epoch** shown next to the owner increases with every change of owner and works as a fencing token: configuration changes for the group carry it, and the other nodes refuse changes written with an older epoch (a node that was cut off and still believes it is the owner). Such a node learns the new owner within seconds of reconnecting and releases the pools.
 
-**Move to …** (owner only, shared storage) hands a group over: the pools are exported here and imported on the other node; if that node cannot import them, the pools come back. Planned moves of replicated groups and automatic failover per group follow in the next steps of phase 3.
+**Move to …** (owner only, shared storage) hands a group over: the pools are exported here and imported on the other node; if that node cannot import them, the pools come back. A move takes about half a minute: ZFS multihost checks during the import that no other node still writes to the pool.
+
+### Automatic failover and how the setup is protected
+
+The card **How this setup is protected** lists each protection layer, what it adds, and what is missing on your hardware:
+
+| Layer | Needs | Adds |
+|---|---|---|
+| Third vote | a small always-on device (see above) | automatic failover; without it, failover is a manual takeover |
+| Watchdog self-fence | `/dev/watchdog` (hardware, or the kernel's softdog) | a node that owns storage and loses quorum stops resetting its watchdog and is restarted before another node takes over |
+| ZFS multihost | shared-storage pools, any drives | refuses to import a pool another node still writes to |
+| Disk reservations | disks that pass the SCSI-3 PR probe | the disks reject writes from a fenced node |
+| Power fencing | IPMI/Redfish BMC or switched PDU | the surviving node powers the failed one off first |
+
+Nothing is refused because a layer is missing; the card says what each missing layer would add. Automatic failover needs a third vote and a fencing method (the watchdog, or power fencing).
+
+**Automatic failover** (shared-storage groups): when the owner leaves the cluster's quorate part, the first other candidate waits the fencing delay (watchdog timeout plus 15 seconds, shown on the card), powers the old owner off if power fencing is configured, and takes the group over (the epoch increases). The group's line shows the countdown. If the old owner is in fact still running, ZFS multihost refuses the import and nothing is changed.
+
+**Take over** (on a group, shown on a candidate when the owner is unreachable and automatic failover is off, e.g. two nodes without a third vote): use it only when the owner is switched off or disconnected from the disks. Multihost still refuses the import if it is not.
+
+Automatic failover of replicated groups and planned moves of replicated groups follow in a later step.
 
 **Limitations in this release:** clusters of two nodes plus a third vote (more nodes follow with storage groups); certificates of the third vote are exchanged over the node's HTTPS without checking its (usually self-signed) certificate, protected by the single-use code; automatic failover additionally still requires IPMI or PDU fencing until the fencing layers of phase 3c are in.
 

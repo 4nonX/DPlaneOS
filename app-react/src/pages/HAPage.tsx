@@ -35,6 +35,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { QuorumPanel } from '@/components/ha/QuorumPanel'
 import { GroupsPanel } from '@/components/ha/GroupsPanel'
+import { ProtectionCard } from '@/components/ha/ProtectionCard'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { Icon } from '@/components/ui/Icon'
@@ -2409,6 +2410,7 @@ export function HAPage() {
       </div>
 
       <QuorumPanel />
+      <ProtectionCard />
       <GroupsPanel />
 
       {cluster.last_promotion && (cluster.last_promotion.failed || cluster.last_promotion.degraded) && (

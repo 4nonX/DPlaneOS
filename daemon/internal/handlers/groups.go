@@ -134,6 +134,24 @@ func (h *GroupsHandler) Remove(w http.ResponseWriter, r *http.Request) {
 	respondOK(w, map[string]any{"success": true})
 }
 
+// Takeover: POST /api/groups/{name}/takeover {confirm_owner_off: true}
+// Manual takeover when automatic failover is not possible.
+func (h *GroupsHandler) Takeover(w http.ResponseWriter, r *http.Request) {
+	var b struct {
+		Confirm bool `json:"confirm_owner_off"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&b); err != nil || !b.Confirm {
+		respondErrorSimple(w, "Confirm that the current owner is switched off (confirm_owner_off)", http.StatusBadRequest)
+		return
+	}
+	g, err := h.mgr.Takeover(mux.Vars(r)["name"])
+	if err != nil {
+		respondOK(w, map[string]any{"success": false, "error": err.Error()})
+		return
+	}
+	respondOK(w, map[string]any{"success": true, "group": g})
+}
+
 // ── Peer endpoints ────────────────────────────────────────────────────────────
 
 func (h *GroupsHandler) authPeer(w http.ResponseWriter, r *http.Request) bool {

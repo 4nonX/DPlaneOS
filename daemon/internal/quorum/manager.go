@@ -198,6 +198,39 @@ type Info struct {
 	AutoFailover   bool   `json:"auto_failover"`
 	AutoFailoverNo string `json:"auto_failover_reason,omitempty"`
 	Reconfiguring  bool   `json:"reconfiguring"` // cluster configuration change in progress
+	// Online are the node keys of the members in this node's partition.
+	Online []string `json:"online"`
+}
+
+// settled reports whether a reconfiguration has completed on this node: it
+// is quorate with the configured number of votes, and the third vote (if
+// configured) is voting. The window then ends early.
+func settled(cfg Config, st Status) bool {
+	if !st.Running || !st.Quorate || st.ExpectedVotes != cfg.ExpectedVotes() {
+		return false
+	}
+	return cfg.QDevice == nil || st.QDeviceAlive
+}
+
+func endReconfiguring() {
+	reconfigMu.Lock()
+	reconfigUntil = time.Time{}
+	reconfigMu.Unlock()
+}
+
+// onlineKeys maps the membership list (names, or ring addresses for nodes
+// without a name) to node keys.
+func onlineKeys(cfg Config, st Status) []string {
+	var out []string
+	for _, m := range st.Members {
+		for _, n := range cfg.Nodes {
+			if m.NodeID == n.ID || m.Name == n.Name || m.Name == n.Addr {
+				out = append(out, n.NodeKey)
+				break
+			}
+		}
+	}
+	return out
 }
 
 // Monitor polls corosync-quorumtool in the background.
@@ -268,10 +301,14 @@ func (m *Monitor) Info() Info {
 	if cfg == nil {
 		return Info{}
 	}
+	if Reconfiguring() && settled(*cfg, st) {
+		endReconfiguring()
+	}
 	in := Info{Configured: true, Quorate: st.Running && st.Quorate, ExpectedVotes: cfg.ExpectedVotes(), Reconfiguring: Reconfiguring()}
 	if st.ExpectedVotes > in.ExpectedVotes {
 		in.ExpectedVotes = st.ExpectedVotes
 	}
+	in.Online = onlineKeys(*cfg, st)
 	switch {
 	case in.ExpectedVotes < 3:
 		// The lasting reason comes first; a restart in progress is temporary.

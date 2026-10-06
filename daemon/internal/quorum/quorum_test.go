@@ -197,6 +197,25 @@ func TestEnrollmentEncodingIsBinarySafe(t *testing.T) {
 	}
 }
 
+func TestReconfigurationEndsWhenSettled(t *testing.T) {
+	c := twoNodes()
+	c.Nodes[0].NodeKey, c.Nodes[1].NodeKey = "ka", "kb"
+	c.QDevice = &QDevice{Host: "w", Algorithm: "ffsplit"}
+	m := &Monitor{cfg: &c, st: Status{Running: true, Quorate: true, ExpectedVotes: 3, QDeviceAlive: false,
+		Members: []Member{{NodeID: 1, Name: "nas1", Local: true}}}}
+	markReconfiguring()
+	if in := m.Info(); !in.Reconfiguring {
+		t.Fatal("third vote not voting yet: still reconfiguring")
+	}
+	m.st.QDeviceAlive = true
+	if in := m.Info(); in.Reconfiguring || !in.AutoFailover {
+		t.Fatalf("settled: %+v", in)
+	}
+	if in := m.Info(); len(in.Online) != 1 || in.Online[0] != "ka" {
+		t.Fatalf("online: %+v", in.Online)
+	}
+}
+
 func TestReconfiguringBlocksAutoFailover(t *testing.T) {
 	m := &Monitor{cfg: func() *Config { c := twoNodes(); c.QDevice = &QDevice{Host: "w", Algorithm: "ffsplit"}; return &c }(),
 		st: Status{Running: true, Quorate: true, ExpectedVotes: 3}}

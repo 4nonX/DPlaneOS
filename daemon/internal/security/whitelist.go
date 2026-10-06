@@ -69,6 +69,19 @@ var CommandWhitelist = map[string]Command{
 		AllowedArgs: []string{"list", "-H", "-o", "name"},
 		Description: "List imported pool names",
 	},
+		"zpool_get_multihost": {
+		Name:        "zpool_get_multihost",
+		Path:        "zpool",
+		AllowedArgs: []string{"get", "-H", "-o", "value", "multihost"},
+		ArgPatterns: []*regexp.Regexp{regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_.:-]{0,254}$`)},
+		Description: "Read the multihost property of a pool (protection summary)",
+	},
+	"systemctl_fenced_active": {
+		Name:        "systemctl_fenced_active",
+		Path:        "systemctl",
+		AllowedArgs: []string{"is-active", "dplane-fenced"},
+		Description: "Check whether SCSI-3 reservation fencing runs",
+	},
 		"zpool_list_guid": {
 		Name:        "zpool_list_guid",
 		Path:        "zpool",

@@ -135,6 +135,14 @@ type View struct {
 	Quorum       bool            // cluster quorum configured
 	Quorate      bool            // this node is in the quorate partition
 	ImportedHere map[string]bool // pools imported on this node
+
+	// Failover inputs (phase 3c).
+	Online             []string      // node keys in this node's partition
+	AutoFailover       bool          // quorum allows automatic failover (three votes, quorate)
+	AutoFailoverReason string        // why not
+	FenceOK            bool          // a fencing method is configured (watchdog or power fencing)
+	FenceReason        string        // why not
+	FenceDelay         time.Duration // wait after the owner left before taking over
 }
 
 // Status is the evaluated state of a group on this node.

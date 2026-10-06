@@ -790,6 +790,10 @@ jobs:
         timeout-minutes: 60
         run: nix build .#checks.x86_64-linux.groups -L
 
+      - name: Run automatic failover VM test (third vote + watchdog)
+        timeout-minutes: 60
+        run: nix build .#checks.x86_64-linux.failover -L
+
   # ════════════════════════════════════════════════════════════════════════════
   # STAGE 5: RELEASE - Professional Build & Publish
   # ════════════════════════════════════════════════════════════════════════════

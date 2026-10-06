@@ -97,6 +97,10 @@ type ExternalQuorum struct {
 	ExpectedVotes int
 	AutoFailover  bool   // three votes or more and quorate
 	Reason        string // why automatic failover is not possible
+	Reconfiguring bool   // corosync restarting for a configuration change
+	// GroupsManaged: storage groups exist; failover is decided per group
+	// (internal/groups), not by this node-level engine.
+	GroupsManaged bool
 }
 
 // Manager owns the cluster state for this node.
@@ -145,6 +149,18 @@ type Manager struct {
 	// the watchdog is reset only while it reports quorum (Proxmox model,
 	// ADR-0009). It must not block (it reads a cached state).
 	quorumSource func() ExternalQuorum
+	ownsStorage  func() bool
+	fenceArmed   bool // watchdog left unreset because quorum was lost (logged once)
+}
+
+// SetOwnsStorage installs the check whether this node currently owns
+// storage (a storage group). Only such a node self-fences on quorum loss:
+// a node without anything to protect keeps running (Proxmox: only nodes
+// with active HA services are reset).
+func (m *Manager) SetOwnsStorage(fn func() bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.ownsStorage = fn
 }
 
 // SetQuorumSource installs the cluster quorum layer. Call before Start.
@@ -480,6 +496,25 @@ func (m *Manager) heartbeatLoop() {
 // (hardware failure) is indistinguishable from a partition, so we fall back to
 // IPMI/PDU fencing rather than self-fencing the healthy survivor.
 func (m *Manager) petWatchdogIfQuorum() {
+	m.mu.RLock()
+	src, owns := m.quorumSource, m.ownsStorage
+	m.mu.RUnlock()
+	if src != nil {
+		if q := src(); q.Configured {
+			// Corosync cluster (Proxmox model): reset the watchdog while this node
+			// is quorate, while corosync restarts for a configuration change, or
+			// while it owns no storage. A storage owner that lost quorum stops,
+			// and the kernel resets it before the survivor takes over.
+			if q.Quorate || q.Reconfiguring || owns == nil || !owns() {
+				m.setFenceArmed(false)
+				petWatchdog()
+				return
+			}
+			m.setFenceArmed(true)
+			return
+		}
+	}
+
 	status := m.Status()
 	if status.Quorum {
 		petWatchdog()
@@ -575,6 +610,17 @@ func (m *Manager) checkFailover() {
 
 	if !isStandby || deadPeer == nil {
 		return
+	}
+
+	// Guard 0a: storage groups decide failover per group (internal/groups);
+	// this node-level engine must not promote at the same time.
+	if quorumSource != nil {
+		if q := quorumSource(); q.Configured && q.GroupsManaged {
+			if deadPeer.MissedBeats == 3 {
+				log.Printf("HA: Peer %s unreachable; failover is handled per storage group", deadPeer.ID)
+			}
+			return
+		}
 	}
 
 	// Guard 0: Cluster quorum (Corosync). Automatic failover needs a third vote
@@ -1315,4 +1361,27 @@ func (m *Manager) persistClusterState() {
 			last_failover_at = EXCLUDED.last_failover_at,
 			subordinate_mode = EXCLUDED.subordinate_mode
 	`, lastFailoverParam, subordinateMode)
+}
+
+// setFenceArmed logs transitions of the self-fence state once.
+func (m *Manager) setFenceArmed(armed bool) {
+	m.mu.Lock()
+	changed := m.fenceArmed != armed
+	m.fenceArmed = armed
+	m.mu.Unlock()
+	if !changed {
+		return
+	}
+	if armed {
+		log.Printf("HA WATCHDOG: this node owns storage and lost quorum - not resetting the watchdog; it resets this node before another node takes over")
+	} else {
+		log.Printf("HA WATCHDOG: quorum regained - resetting the watchdog again")
+	}
+}
+
+// FenceArmed reports whether the watchdog is being left to fire.
+func (m *Manager) FenceArmed() bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.fenceArmed
 }

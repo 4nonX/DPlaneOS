@@ -20,6 +20,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -404,11 +405,30 @@ func main() {
 	// configured, its quorum replaces the heartbeat majority.
 	quorumMon := quorum.NewMonitor(db)
 	quorumMon.Start(3 * time.Second)
+	// Storage-group facts the HA engine needs without a database query under
+	// its lock: whether groups exist, whether this node owns one.
+	var groupsExist, ownsGroup atomic.Bool
+	go func() {
+		for {
+			if gs, err := groups.List(db); err == nil {
+				self, _ := configstore.NodeID(db)
+				owns := false
+				for _, g := range gs {
+					owns = owns || g.Owner == self
+				}
+				groupsExist.Store(len(gs) > 0)
+				ownsGroup.Store(owns)
+			}
+			time.Sleep(3 * time.Second)
+		}
+	}()
 	clusterMgr.SetQuorumSource(func() ha.ExternalQuorum {
 		in := quorumMon.Info()
 		return ha.ExternalQuorum{Configured: in.Configured, Quorate: in.Quorate,
-			ExpectedVotes: in.ExpectedVotes, AutoFailover: in.AutoFailover, Reason: in.AutoFailoverNo}
+			ExpectedVotes: in.ExpectedVotes, AutoFailover: in.AutoFailover, Reason: in.AutoFailoverNo,
+			Reconfiguring: in.Reconfiguring, GroupsManaged: groupsExist.Load()}
 	})
+	clusterMgr.SetOwnsStorage(ownsGroup.Load)
 	clusterMgr.Start()
 	defer clusterMgr.Stop()
 
@@ -1012,15 +1032,25 @@ func main() {
 			in := quorumMon.FreshInfo(time.Second)
 			// A deliberate restart of corosync (adding/removing the third
 			// vote) drops quorum briefly; the owner keeps serving.
-			return groups.View{Quorum: in.Configured, Quorate: in.Quorate || in.Reconfiguring}
+			v := groups.View{Quorum: in.Configured, Quorate: in.Quorate || in.Reconfiguring, Online: in.Online,
+				AutoFailover: in.AutoFailover, AutoFailoverReason: in.AutoFailoverNo}
+			fp := handlers.CurrentFencing(db)
+			v.FenceOK, v.FenceReason, v.FenceDelay = fp.OK, fp.Reason, fp.Delay
+			return v
 		})
+	groupMgr.Fence = func(owner string) error { return handlers.PowerFence(db, owner) }
+	groupMgr.WatchdogFencing = func() bool { return handlers.CurrentFencing(db).Watchdog }
 	groupMgr.Start(10 * time.Second)
+	groupMgr.StartFailover(5 * time.Second)
 	configstore.EpochForPool = func(pool string) int64 { return groups.EpochForPool(db, pool) }
 	groupsH := handlers.NewGroupsHandler(db, groupMgr)
 	r.Handle("/api/groups", permRoute("storage", "read", http.HandlerFunc(groupsH.List))).Methods("GET")
 	r.Handle("/api/groups", permRoute("storage", "admin", http.HandlerFunc(groupsH.Create))).Methods("POST")
 	r.Handle("/api/groups/{name}/move", permRoute("storage", "admin", http.HandlerFunc(groupsH.Move))).Methods("POST")
 	r.Handle("/api/groups/{name}", permRoute("storage", "admin", http.HandlerFunc(groupsH.Remove))).Methods("DELETE")
+	r.Handle("/api/groups/{name}/takeover", permRoute("storage", "admin", http.HandlerFunc(groupsH.Takeover))).Methods("POST")
+	protectionH := handlers.NewProtectionHandler(db, quorumMon, clusterMgr)
+	r.Handle("/api/ha/protection", permRoute("system", "read", http.HandlerFunc(protectionH.Get))).Methods("GET")
 	r.HandleFunc("/api/config/sync/peer/group", groupsH.PeerGroup).Methods("POST")
 	r.HandleFunc("/api/config/sync/peer/groups", groupsH.PeerGroups).Methods("GET")
 	gitops.AddChangeHook(func() {

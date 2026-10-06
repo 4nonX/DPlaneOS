@@ -8,7 +8,8 @@
 # on a; b receives it. Planned move to b: a exports, b imports, epoch 2.
 # a cannot import the pool while b holds it (multihost). A node that missed
 # the move (a's copy wound back to epoch 1) learns the new owner by pulling.
-# Move back to a: epoch 3.
+# Move back to a: epoch 3. Then a fails: with two votes there is no automatic
+# failover; b explains that and the manual takeover works (epoch 4).
 #
 # Run: nix build .#checks.x86_64-linux.groups -L
 # ─────────────────────────────────────────────────────────────────────────────
@@ -152,6 +153,22 @@ pkgs.testers.nixosTest {
                 print(m.execute("journalctl -b --no-pager -u dplaned | grep -i -E ' (warn|warning|error|failed)' | tail -n 60")[1])
                 bad = m.execute("journalctl -b --no-pager -u dplaned | grep -E 'panic:|SECURITY WARNING|security refusal' || true")[1].strip()
                 assert bad == "", f"{m.name}: {bad}"
+
+        with subtest("Two votes, owner fails: no automatic failover, manual takeover works"):
+            peer_a = group(b)["owner"]
+            a.crash()
+            deadline = __import__("time").time() + 120
+            while True:
+                gb = group(b)
+                if "manually" in (gb["failover"].get("reason") or ""):
+                    break
+                assert __import__("time").time() < deadline, gb
+                __import__("time").sleep(3)
+            b.fail("zpool list tank")
+            ok(api(b, "POST", "/api/groups/data/takeover", {"confirm_owner_off": True}), "takeover")
+            b.succeed("zpool list tank && grep -q hello /mnt/tank/data/file")
+            gb = group(b)
+            assert gb["owner"] != peer_a and gb["epoch"] == 4 and gb["can_write"], gb
     except Exception:
         diag()
         raise

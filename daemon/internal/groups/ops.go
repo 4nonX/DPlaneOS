@@ -22,7 +22,9 @@ type Ops struct {
 	// ImportedPools returns pool name → GUID of the pools imported here.
 	ImportedPools func() (map[string]string, error)
 	Import        func(guid string) error
-	Export        func(name string) error
+	// ImportForce imports a pool the previous owner did not export (failover).
+	ImportForce func(guid string) error
+	Export      func(name string) error
 }
 
 // DefaultOps use zpool through the command whitelist.
@@ -45,6 +47,14 @@ var DefaultOps = Ops{
 		out, err := cmdutil.RunSlow("zpool_import", "import", "-d", "/dev/disk/by-id", guid)
 		if err != nil {
 			return fmt.Errorf("zpool import %s: %v: %s", guid, err, bytes.TrimSpace(out))
+		}
+		return nil
+	},
+	ImportForce: func(guid string) error {
+		rescanDisks()
+		out, err := cmdutil.RunSlow("zpool_import", "import", "-d", "/dev/disk/by-id", "-f", guid)
+		if err != nil {
+			return fmt.Errorf("zpool import -f %s: %v: %s", guid, err, bytes.TrimSpace(out))
 		}
 		return nil
 	},
@@ -107,6 +117,17 @@ type Manager struct {
 	self func() string
 	view func() View
 	mu   sync.Mutex
+
+	// Fence powers off the previous owner before an automatic takeover (IPMI
+	// or PDU, when configured); nil = watchdog only. Set before Start.
+	Fence func(owner string) error
+	// WatchdogFencing: the watchdog baseline is active, so a failed power
+	// fence does not stop the takeover (the old owner resets itself).
+	WatchdogFencing func() bool
+
+	fmu       sync.Mutex // failover state
+	lostSince map[string]time.Time
+	decisions map[string]Decision
 }
 
 // NewManager wires the manager. view returns the current quorum view.
@@ -132,6 +153,7 @@ func (m *Manager) currentView() (View, error) {
 type GroupStatus struct {
 	Group
 	Status
+	Failover Decision `json:"failover"`
 }
 
 // Statuses evaluates every group on this node.
@@ -146,7 +168,7 @@ func (m *Manager) Statuses() ([]GroupStatus, error) {
 	}
 	out := make([]GroupStatus, 0, len(gs))
 	for _, g := range gs {
-		out = append(out, GroupStatus{Group: g, Status: Evaluate(g, v)})
+		out = append(out, GroupStatus{Group: g, Status: Evaluate(g, v), Failover: m.decision(g.Name)})
 	}
 	return out, nil
 }
