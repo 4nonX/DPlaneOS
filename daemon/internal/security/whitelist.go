@@ -43,6 +43,12 @@ var CommandWhitelist = map[string]Command{
 		ArgPatterns: []*regexp.Regexp{regexp.MustCompile(`^[a-zA-Z0-9_\-\./:]+$`)}, // dataset name
 		Description: "Get ZFS property",
 	},
+	"zpool_list_guid": {
+		Name:        "zpool_list_guid",
+		Path:        "zpool",
+		AllowedArgs: []string{"list", "-H", "-o", "name,guid"},
+		Description: "List imported pools with their GUIDs (storage groups)",
+	},
 	"zpool_list": {
 		Name:        "zpool_list",
 		Path:        "zpool",

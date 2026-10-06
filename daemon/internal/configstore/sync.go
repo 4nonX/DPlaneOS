@@ -284,12 +284,12 @@ func storeReceived(db *sql.DB, peerID string, revs []Revision) (bool, error) {
 		}
 		res, err := db.Exec(`INSERT INTO config_peer_revisions
 			(uid, peer_id, peer_rev_id, base_uid, merge_uid, scope_type, scope_id, resource_kind, resource_key,
-			 payload, origin, origin_node, author, note, created_at, status)
+			 payload, origin, origin_node, author, note, created_at, status, epoch)
 			SELECT $1::uuid, $2, $3, NULLIF($4, '')::uuid, NULLIF($5, '')::uuid, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
-			       CASE WHEN EXISTS (SELECT 1 FROM config_revisions WHERE uid = $1::uuid) THEN 'adopted' ELSE 'pending' END
+			       CASE WHEN EXISTS (SELECT 1 FROM config_revisions WHERE uid = $1::uuid) THEN 'adopted' ELSE 'pending' END, $16
 			ON CONFLICT (uid) DO NOTHING`,
 			r.UID, peerID, r.ID, r.BaseUID, r.MergeUID, r.Scope, r.ScopeID, r.Kind, r.Key,
-			payload, r.Origin, r.OriginNode, r.Author, r.Note, r.CreatedAt)
+			payload, r.Origin, r.OriginNode, r.Author, r.Note, r.CreatedAt, r.Epoch)
 		if err != nil {
 			return added, fmt.Errorf("storing revision %s: %w", r.UID, err)
 		}
@@ -301,7 +301,7 @@ func storeReceived(db *sql.DB, peerID string, revs []Revision) (bool, error) {
 }
 
 const peerRevisionColumns = `uid::text, COALESCE(base_uid::text, ''), COALESCE(merge_uid::text, ''), peer_rev_id,
-	scope_type, scope_id, resource_kind, resource_key, payload, origin, origin_node, author, note, created_at, status, status_detail`
+	scope_type, scope_id, resource_kind, resource_key, payload, origin, origin_node, author, note, created_at, status, status_detail, epoch`
 
 type peerRevision struct {
 	Revision
@@ -316,7 +316,7 @@ func scanPeerRevisions(rows *sql.Rows) ([]peerRevision, error) {
 		var r peerRevision
 		var payload []byte
 		if err := rows.Scan(&r.UID, &r.BaseUID, &r.MergeUID, &r.ID, &r.Scope, &r.ScopeID, &r.Kind, &r.Key,
-			&payload, &r.Origin, &r.OriginNode, &r.Author, &r.Note, &r.CreatedAt, &r.Status, &r.Detail); err != nil {
+			&payload, &r.Origin, &r.OriginNode, &r.Author, &r.Note, &r.CreatedAt, &r.Status, &r.Detail, &r.Epoch); err != nil {
 			return nil, err
 		}
 		if payload != nil {
@@ -365,7 +365,7 @@ func adopt(db *sql.DB, r Revision, local *Revision) error {
 	_, err := insertRevision(db, Revision{
 		UID: r.UID, BaseUID: r.BaseUID, MergeUID: r.MergeUID,
 		Scope: r.Scope, ScopeID: r.ScopeID, Kind: r.Kind, Key: r.Key, Payload: r.Payload,
-		Origin: OriginPeer, OriginNode: r.OriginNode, Author: r.Author, Note: r.Note,
+		Origin: OriginPeer, OriginNode: r.OriginNode, Author: r.Author, Note: r.Note, Epoch: r.Epoch,
 	}, local)
 	return err
 }
@@ -417,6 +417,10 @@ func (s *Syncer) evaluate(p Peer) error {
 			continue
 		}
 		r := h.Revision
+		if why := staleWriter(r); why != "" {
+			s.setPeerStatus(r.UID, peerBlocked, why)
+			continue
+		}
 		var local *Revision
 		if l, ok := latest[r.resource().ID()]; ok {
 			local = &l
@@ -1055,7 +1059,7 @@ func Conflicts(db *sql.DB) ([]ConflictView, []PendingView, error) {
 		var r peerRevision
 		var payload []byte
 		if err := prow.Scan(&peer, &r.UID, &r.BaseUID, &r.MergeUID, &r.ID, &r.Scope, &r.ScopeID, &r.Kind, &r.Key,
-			&payload, &r.Origin, &r.OriginNode, &r.Author, &r.Note, &r.CreatedAt, &r.Status, &r.Detail); err != nil {
+			&payload, &r.Origin, &r.OriginNode, &r.Author, &r.Note, &r.CreatedAt, &r.Status, &r.Detail, &r.Epoch); err != nil {
 			return nil, nil, err
 		}
 		if payload != nil {

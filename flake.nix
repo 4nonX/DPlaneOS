@@ -228,6 +228,14 @@
           frontendPackage = frontend;
         };
 
+        # Storage groups and epochs on a shared disk (Design 0001 phase 3b).
+        #   nix build .#checks.x86_64-linux.groups -L
+        checks.groups = import ./nixos/tests/groups.nix {
+          inherit nixpkgs system impermanence;
+          daemonPackage = daemon;
+          frontendPackage = frontend;
+        };
+
         devShells.default = pkgs.mkShell {
           buildInputs = with pkgs; [ go gcc musl.dev gopls gotools postgresql git ];
           shellHook = ''

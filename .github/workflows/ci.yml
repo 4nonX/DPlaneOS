@@ -761,7 +761,7 @@ jobs:
   # (Design 0001 phase 3a). Runs on every ref: it is the exit test of the phase.
   # ════════════════════════════════════════════════════════════════════════════
   quorum-vm:
-    name: Cluster Quorum (3 VMs)
+    name: Cluster Quorum and Storage Groups (VMs)
     needs: [prepare]
     runs-on: ubuntu-22.04
     steps:
@@ -785,6 +785,10 @@ jobs:
       - name: Run quorum VM test
         timeout-minutes: 60
         run: nix build .#checks.x86_64-linux.quorum -L
+
+      - name: Run storage groups VM test (shared disk)
+        timeout-minutes: 60
+        run: nix build .#checks.x86_64-linux.groups -L
 
   # ════════════════════════════════════════════════════════════════════════════
   # STAGE 5: RELEASE - Professional Build & Publish

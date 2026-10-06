@@ -34,6 +34,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { QuorumPanel } from '@/components/ha/QuorumPanel'
+import { GroupsPanel } from '@/components/ha/GroupsPanel'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { Icon } from '@/components/ui/Icon'
@@ -2408,6 +2409,7 @@ export function HAPage() {
       </div>
 
       <QuorumPanel />
+      <GroupsPanel />
 
       {cluster.last_promotion && (cluster.last_promotion.failed || cluster.last_promotion.degraded) && (
         <div role="alert" className="card" style={{ marginBottom: 20, border: '1px solid var(--error-border)', background: 'var(--error-bg)' }}>

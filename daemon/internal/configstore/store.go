@@ -38,6 +38,7 @@ type Revision struct {
 	UID          string         `json:"uid"`                 // global identity, same on every node
 	BaseUID      string         `json:"base_uid,omitempty"`  // revision this change was made against
 	MergeUID     string         `json:"merge_uid,omitempty"` // second parent of a merge
+	Epoch        int64          `json:"epoch,omitempty"`     // group epoch of the writer (group scope)
 	Origin       string         `json:"origin"`
 	OriginNode   string         `json:"origin_node"`
 	Author       string         `json:"author"`
@@ -51,7 +52,7 @@ func (r Revision) resource() Resource {
 
 const revisionColumns = `id, changeset, scope_type, scope_id, resource_kind, resource_key, payload,
 	base_revision, origin, origin_node, author, note, created_at,
-	uid::text, COALESCE(base_uid::text, ''), COALESCE(merge_uid::text, '')`
+	uid::text, COALESCE(base_uid::text, ''), COALESCE(merge_uid::text, ''), epoch`
 
 func scanRevisions(rows *sql.Rows) ([]Revision, error) {
 	defer rows.Close()
@@ -62,7 +63,7 @@ func scanRevisions(rows *sql.Rows) ([]Revision, error) {
 		var base sql.NullInt64
 		if err := rows.Scan(&r.ID, &r.Changeset, &r.Scope, &r.ScopeID, &r.Kind, &r.Key, &payload,
 			&base, &r.Origin, &r.OriginNode, &r.Author, &r.Note, &r.CreatedAt,
-			&r.UID, &r.BaseUID, &r.MergeUID); err != nil {
+			&r.UID, &r.BaseUID, &r.MergeUID, &r.Epoch); err != nil {
 			return nil, err
 		}
 		if payload != nil {
@@ -198,9 +199,9 @@ func record(db *sql.DB, changes []Resource, latest map[string]Revision, origin, 
 			base, baseUID = prev.ID, prev.UID
 		}
 		if _, err := tx.Exec(`INSERT INTO config_revisions
-			(changeset, scope_type, scope_id, resource_kind, resource_key, payload, base_revision, base_uid, origin, origin_node, author, note)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
-			cs, c.Scope, c.ScopeID, c.Kind, c.Key, payload, base, baseUID, origin, nodeName(), author, note); err != nil {
+			(changeset, scope_type, scope_id, resource_kind, resource_key, payload, base_revision, base_uid, origin, origin_node, author, note, epoch)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+			cs, c.Scope, c.ScopeID, c.Kind, c.Key, payload, base, baseUID, origin, nodeName(), author, note, epochFor(c.Scope, c.ScopeID)); err != nil {
 			return "", fmt.Errorf("%s: %w", c.ID(), err)
 		}
 	}
@@ -239,13 +240,16 @@ func insertRevision(db *sql.DB, r Revision, local *Revision) (*Revision, error) 
 	if r.OriginNode == "" {
 		r.OriginNode = nodeName()
 	}
+	if r.Epoch == 0 {
+		r.Epoch = epochFor(r.Scope, r.ScopeID)
+	}
 	err := db.QueryRow(`INSERT INTO config_revisions
 		(uid, changeset, scope_type, scope_id, resource_kind, resource_key, payload, base_revision, base_uid, merge_uid,
-		 origin, origin_node, author, note)
-		VALUES (COALESCE($1::uuid, gen_random_uuid()), $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+		 origin, origin_node, author, note, epoch)
+		VALUES (COALESCE($1::uuid, gen_random_uuid()), $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
 		RETURNING id, uid::text, created_at`,
 		nullUID(r.UID), r.Changeset, r.Scope, r.ScopeID, r.Kind, r.Key, payload, base, nullUID(r.BaseUID), nullUID(r.MergeUID),
-		r.Origin, r.OriginNode, r.Author, r.Note).Scan(&r.ID, &r.UID, &r.CreatedAt)
+		r.Origin, r.OriginNode, r.Author, r.Note, r.Epoch).Scan(&r.ID, &r.UID, &r.CreatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("%s/%s: %w", r.Kind, r.Key, err)
 	}
@@ -255,6 +259,30 @@ func insertRevision(db *sql.DB, r Revision, local *Revision) (*Revision, error) 
 	}
 	notifyChange()
 	return &r, nil
+}
+
+// EpochForPool returns the epoch of the storage group a pool belongs to (0
+// when it belongs to none). Set by the daemon (internal/groups); group-scope
+// revisions are stamped with it, and received ones from a lower epoch (a
+// former owner) are refused.
+var EpochForPool = func(pool string) int64 { return 0 }
+
+func epochFor(scope, scopeID string) int64 {
+	if scope != ScopeGroup || scopeID == "" {
+		return 0
+	}
+	return EpochForPool(scopeID)
+}
+
+// staleWriter reports why a received group-scope revision must be refused.
+func staleWriter(r Revision) string {
+	if r.Scope != ScopeGroup || r.Epoch == 0 {
+		return ""
+	}
+	if cur := epochFor(r.Scope, r.ScopeID); r.Epoch < cur {
+		return fmt.Sprintf("written by a former owner of the storage group of pool %s (epoch %d, current %d)", r.ScopeID, r.Epoch, cur)
+	}
+	return ""
 }
 
 // changeListeners run after new revisions were recorded (peer notification).

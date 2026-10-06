@@ -73,3 +73,32 @@ func TestCaptureSkipsPoolsNotImported(t *testing.T) {
 		t.Fatalf("changes = %+v, want only the deletion of fast/vm", changes)
 	}
 }
+
+func TestStaleWriterRefused(t *testing.T) {
+	old := EpochForPool
+	defer func() { EpochForPool = old }()
+	EpochForPool = func(pool string) int64 {
+		if pool == "tank" {
+			return 3
+		}
+		return 0
+	}
+	cases := []struct {
+		r     Revision
+		stale bool
+	}{
+		{Revision{Scope: ScopeGroup, ScopeID: "tank", Epoch: 2}, true},  // former owner
+		{Revision{Scope: ScopeGroup, ScopeID: "tank", Epoch: 3}, false}, // current owner
+		{Revision{Scope: ScopeGroup, ScopeID: "tank", Epoch: 0}, false}, // written before the group existed
+		{Revision{Scope: ScopeGroup, ScopeID: "fast", Epoch: 1}, false}, // pool in no group
+		{Revision{Scope: ScopeCluster, ScopeID: "local", Epoch: 1}, false},
+	}
+	for i, c := range cases {
+		if got := staleWriter(c.r) != ""; got != c.stale {
+			t.Errorf("case %d: stale=%v, want %v", i, got, c.stale)
+		}
+	}
+	if epochFor(ScopeGroup, "tank") != 3 || epochFor(ScopeNode, "tank") != 0 {
+		t.Error("stamping uses the group epoch for group scope only")
+	}
+}

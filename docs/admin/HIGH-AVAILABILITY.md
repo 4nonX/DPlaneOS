@@ -41,6 +41,20 @@ The panel closes by itself when the third vote has registered and then shows *Au
 
 **Removing:** *Remove third vote* turns automatic failover off again; *Remove cluster* stops Corosync on all members (storage and configuration are not touched) and HA falls back to the heartbeat check.
 
+### Storage groups
+
+A **storage group** is what moves between nodes: one or more pools and everything on them (shares, exports, later also apps). System › High Availability › **Storage groups** › *New group*: give it a name, choose the topology and the pools (imported on this node), and the other nodes that may own it.
+
+| Topology | Disks | On failover |
+|---|---|---|
+| Standalone | one node | no failover |
+| Shared storage | all nodes see the same disks: SAS or SATA in a shared JBOD, SAN, NVMe-oF | no data loss; one node imports the pools at a time (enable ZFS multihost on the pool) |
+| Replicated | each node has its own disks, any type | up to one replication interval is lost |
+
+Exactly one node **owns** a group. The **epoch** shown next to the owner increases with every change of owner and works as a fencing token: configuration changes for the group carry it, and the other nodes refuse changes written with an older epoch (a node that was cut off and still believes it is the owner). Such a node learns the new owner within seconds of reconnecting and releases the pools.
+
+**Move to …** (owner only, shared storage) hands a group over: the pools are exported here and imported on the other node; if that node cannot import them, the pools come back. Planned moves of replicated groups and automatic failover per group follow in the next steps of phase 3.
+
 **Limitations in this release:** clusters of two nodes plus a third vote (more nodes follow with storage groups); certificates of the third vote are exchanged over the node's HTTPS without checking its (usually self-signed) certificate, protected by the single-use code; automatic failover additionally still requires IPMI or PDU fencing until the fencing layers of phase 3c are in.
 
 ---

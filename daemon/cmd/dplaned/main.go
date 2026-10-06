@@ -27,6 +27,7 @@ import (
 	"dplaned/internal/audit"
 	"dplaned/internal/bootstrap"
 	"dplaned/internal/configstore"
+	"dplaned/internal/groups"
 	"dplaned/internal/quorum"
 	"dplaned/internal/database"
 	"dplaned/internal/features"
@@ -1003,6 +1004,23 @@ func main() {
 	r.HandleFunc("/api/quorum/enroll/ca", quorumH.EnrollCA).Methods("POST")
 	r.HandleFunc("/api/quorum/enroll/cert", quorumH.EnrollCert).Methods("POST")
 	r.HandleFunc("/api/config/sync/peer/cluster", quorumH.PeerCluster).Methods("POST")
+
+	// Storage groups and epochs (Design 0001 phase 3b).
+	groupMgr := groups.NewManager(db, groups.DefaultOps, handlers.GroupTransport{DB: db},
+		func() string { id, _ := configstore.NodeID(db); return id },
+		func() groups.View {
+			in := quorumMon.Info()
+			return groups.View{Quorum: in.Configured, Quorate: in.Quorate}
+		})
+	groupMgr.Start(10 * time.Second)
+	configstore.EpochForPool = func(pool string) int64 { return groups.EpochForPool(db, pool) }
+	groupsH := handlers.NewGroupsHandler(db, groupMgr)
+	r.Handle("/api/groups", permRoute("storage", "read", http.HandlerFunc(groupsH.List))).Methods("GET")
+	r.Handle("/api/groups", permRoute("storage", "admin", http.HandlerFunc(groupsH.Create))).Methods("POST")
+	r.Handle("/api/groups/{name}/move", permRoute("storage", "admin", http.HandlerFunc(groupsH.Move))).Methods("POST")
+	r.Handle("/api/groups/{name}", permRoute("storage", "admin", http.HandlerFunc(groupsH.Remove))).Methods("DELETE")
+	r.HandleFunc("/api/config/sync/peer/group", groupsH.PeerGroup).Methods("POST")
+	r.HandleFunc("/api/config/sync/peer/groups", groupsH.PeerGroups).Methods("GET")
 	gitops.AddChangeHook(func() {
 		go func() {
 			if _, err := configstore.Capture(db, configstore.OriginGUI, "", ""); err != nil {
