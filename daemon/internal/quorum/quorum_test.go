@@ -205,7 +205,12 @@ func TestReconfiguringBlocksAutoFailover(t *testing.T) {
 	}
 	markReconfiguring()
 	defer func() { reconfigMu.Lock(); reconfigUntil = time.Time{}; reconfigMu.Unlock() }()
-	if in := m.Info(); in.AutoFailover || !in.Reconfiguring {
+	if in := m.Info(); in.AutoFailover || !in.Reconfiguring || !strings.Contains(in.AutoFailoverNo, "being changed") {
 		t.Fatalf("reconfiguration must block automatic failover: %+v", in)
+	}
+	// Two votes: the lasting reason is shown, not the restart.
+	two := &Monitor{cfg: func() *Config { c := twoNodes(); return &c }(), st: Status{Running: true, Quorate: true, ExpectedVotes: 2}}
+	if in := two.Info(); !strings.Contains(in.AutoFailoverNo, "third vote") {
+		t.Fatalf("reason: %+v", in)
 	}
 }

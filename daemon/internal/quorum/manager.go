@@ -273,10 +273,11 @@ func (m *Monitor) Info() Info {
 		in.ExpectedVotes = st.ExpectedVotes
 	}
 	switch {
+	case in.ExpectedVotes < 3:
+		// The lasting reason comes first; a restart in progress is temporary.
+		in.AutoFailoverNo = "no third vote: with two votes a network split leaves both nodes quorate, so failover is a manual takeover"
 	case in.Reconfiguring:
 		in.AutoFailoverNo = "the cluster configuration is being changed (corosync restarts on each node)"
-	case in.ExpectedVotes < 3:
-		in.AutoFailoverNo = "no third vote: with two votes a network split leaves both nodes quorate, so failover is a manual takeover"
 	case !in.Quorate:
 		in.AutoFailoverNo = "this node is not part of the quorate partition"
 	default:
