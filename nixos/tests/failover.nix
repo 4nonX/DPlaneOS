@@ -128,7 +128,7 @@ pkgs.testers.nixosTest {
         with subtest("Cluster with a third vote; watchdog enabled on both nodes"):
             for m in (a, b):
                 login(m)
-                m.succeed(f"sudo -u postgres psql -d dplaneos -c \"INSERT INTO ha_watchdog_config (id, enable, device, timeout_secs, pet_interval_sec) VALUES (1, true, '/dev/watchdog', ${toString watchdogTimeout}, 5) ON CONFLICT (id) DO UPDATE SET enable = true, timeout_secs = ${toString watchdogTimeout}, pet_interval_sec = 5\"")
+                m.succeed("sudo -u postgres psql -d dplaneos -c \"INSERT INTO ha_watchdog_config (id, enable, device, timeout_secs, pet_interval_sec) VALUES (1, true, '/dev/watchdog', ${toString watchdogTimeout}, 5) ON CONFLICT (id) DO UPDATE SET enable = true, timeout_secs = ${toString watchdogTimeout}, pet_interval_sec = 5\"")
                 m.succeed("systemctl restart dplaned")
                 m.wait_until_succeeds("curl -sf http://localhost/api/system/status >/dev/null", timeout=120)
                 m.wait_until_succeeds("journalctl -u dplaned | grep -q 'HA WATCHDOG: opened'", timeout=60)
