@@ -221,6 +221,19 @@ func (m *Monitor) Snapshot() (*Config, Status, string, time.Time) {
 	return m.cfg, m.st, m.err, m.when
 }
 
+// FreshInfo is Info from a state no older than maxAge (refreshed if needed).
+// Decisions that grant write access must not use a state from before the
+// last change (e.g. right after the cluster formed).
+func (m *Monitor) FreshInfo(maxAge time.Duration) Info {
+	m.mu.RLock()
+	stale := time.Since(m.when) > maxAge
+	m.mu.RUnlock()
+	if stale {
+		m.Refresh()
+	}
+	return m.Info()
+}
+
 // Info summarises the state for the HA engine.
 func (m *Monitor) Info() Info {
 	cfg, st, _, _ := m.Snapshot()

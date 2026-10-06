@@ -1009,7 +1009,7 @@ func main() {
 	groupMgr := groups.NewManager(db, groups.DefaultOps, handlers.GroupTransport{DB: db},
 		func() string { id, _ := configstore.NodeID(db); return id },
 		func() groups.View {
-			in := quorumMon.Info()
+			in := quorumMon.FreshInfo(time.Second)
 			return groups.View{Quorum: in.Configured, Quorate: in.Quorate}
 		})
 	groupMgr.Start(10 * time.Second)
