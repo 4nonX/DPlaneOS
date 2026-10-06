@@ -50,7 +50,20 @@ var CommandWhitelist = map[string]Command{
 		ArgPatterns: []*regexp.Regexp{regexp.MustCompile(`^/dev/(sd[a-z]+|vd[a-z]+|nvme[0-9]+n[0-9]+|dm-[0-9]+|xvd[a-z]+)(p?[0-9]+)?$`)},
 		Description: "Drop cached blocks of a disk before importing a shared pool",
 	},
-	"zpool_list_guid": {
+	"blockdev_rereadpt": {
+		Name:        "blockdev_rereadpt",
+		Path:        "blockdev",
+		AllowedArgs: []string{"--rereadpt"},
+		ArgPatterns: []*regexp.Regexp{regexp.MustCompile(`^/dev/(sd[a-z]+|vd[a-z]+|xvd[a-z]+|nvme[0-9]+n[0-9]+|dm-[0-9]+)$`)},
+		Description: "Re-read a disk's partition table before importing a shared pool",
+	},
+	"udevadm_settle": {
+		Name:        "udevadm_settle",
+		Path:        "udevadm",
+		AllowedArgs: []string{"settle", "--timeout=15"},
+		Description: "Wait for udev to create device links after a partition re-read",
+	},
+		"zpool_list_guid": {
 		Name:        "zpool_list_guid",
 		Path:        "zpool",
 		AllowedArgs: []string{"list", "-H", "-o", "name,guid"},

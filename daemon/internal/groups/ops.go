@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -40,7 +41,7 @@ var DefaultOps = Ops{
 		return m, nil
 	},
 	Import: func(guid string) error {
-		flushDiskCaches()
+		rescanDisks()
 		out, err := cmdutil.RunSlow("zpool_import", "import", "-d", "/dev/disk/by-id", guid)
 		if err != nil {
 			return fmt.Errorf("zpool import %s: %v: %s", guid, err, bytes.TrimSpace(out))
@@ -50,27 +51,40 @@ var DefaultOps = Ops{
 	Export: func(name string) error { return libzfs.PoolExport(name, false) },
 }
 
-// flushDiskCaches drops the kernel's cached blocks of the disks a pool import
-// scans. On shared storage this node read the disks before (at boot, or
-// while another node owned them); without a flush the import reads those
-// stale blocks and reports "no such pool available" (VM test).
-func flushDiskCaches() {
+// rescanDisks prepares an import of a pool another node used: it drops the
+// kernel's cached blocks of the disks and re-reads their partition tables,
+// then waits for udev. On shared storage this node may have read a disk
+// before the other node created the pool on it (ZFS partitions whole disks):
+// without the re-read, the partition holding the ZFS labels does not exist
+// here and the import reports "no such pool available" (VM test). Disks in
+// use (the system disk) refuse the re-read, which is harmless.
+func rescanDisks() {
 	entries, err := os.ReadDir("/dev/disk/by-id")
 	if err != nil {
 		return
 	}
 	seen := map[string]bool{}
 	for _, e := range entries {
+		if strings.Contains(e.Name(), "-part") {
+			continue
+		}
 		dev, err := filepath.EvalSymlinks(filepath.Join("/dev/disk/by-id", e.Name()))
-		if err != nil || seen[dev] {
+		if err != nil || seen[dev] || !diskRe.MatchString(dev) {
 			continue
 		}
 		seen[dev] = true
 		if out, err := cmdutil.RunFast("blockdev_flushbufs", "--flushbufs", dev); err != nil {
 			log.Printf("GROUPS: flushing %s before import: %v: %s", dev, err, bytes.TrimSpace(out))
 		}
+		_, _ = cmdutil.RunFast("blockdev_rereadpt", "--rereadpt", dev)
+	}
+	if out, err := cmdutil.RunMedium("udevadm_settle", "settle", "--timeout=15"); err != nil {
+		log.Printf("GROUPS: udevadm settle: %v: %s", err, bytes.TrimSpace(out))
 	}
 }
+
+// diskRe matches whole-disk device nodes (no partitions, no optical drives).
+var diskRe = regexp.MustCompile(`^/dev/(sd[a-z]+|vd[a-z]+|xvd[a-z]+|nvme[0-9]+n[0-9]+|dm-[0-9]+)$`)
 
 // Update is sent between members.
 type Update struct {
