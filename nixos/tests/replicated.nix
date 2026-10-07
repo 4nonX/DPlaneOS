@@ -132,7 +132,9 @@ pkgs.testers.nixosTest {
             a.wait_until_succeeds("grep -q three /mnt/tank/data/file3", timeout=60)
 
         with subtest("Split: a's copy changed; replication refused until discarded"):
-            a.succeed("zfs set readonly=off tank && echo rogue > /mnt/tank/data/rogue && sync")
+            # Behind the system's back (as an admin might in a shell): make the copy
+            # writable (the child keeps its read-only mount until remounted).
+            a.succeed("zfs set readonly=off tank && zfs mount -o remount,rw tank/data && echo rogue > /mnt/tank/data/rogue && sync")
             r = api(b, "POST", "/api/groups/data/replicate", {})
             assert r.get("success") is not True and "changes" in r.get("error", ""), r
             a.succeed("test -f /mnt/tank/data/rogue")
