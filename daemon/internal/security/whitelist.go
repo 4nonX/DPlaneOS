@@ -122,7 +122,31 @@ var CommandWhitelist = map[string]Command{
 		},
 		Description: "Bytes written to a replica since a replication snapshot (divergence check)",
 	},
-	"zfs_repl_readonly": {
+	"zfs_repl_remount": {
+		Name:        "zfs_repl_remount",
+		Path:        "zfs",
+		AllowedArgs: []string{"mount", "-o"},
+		ArgPatterns: []*regexp.Regexp{
+			regexp.MustCompile(`^remount,(rw|ro)$`),
+			regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_.:/-]{0,254}$`),
+		},
+		Description: "Remount a dataset after switching a replicated copy read-only or writable",
+	},
+	"zfs_repl_unmount": {
+		Name:        "zfs_repl_unmount",
+		Path:        "zfs",
+		AllowedArgs: []string{"unmount"},
+		ArgPatterns: []*regexp.Regexp{regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_.:/-]{0,254}$`)},
+		Description: "Unmount a dataset (remount fallback)",
+	},
+	"zfs_repl_mount": {
+		Name:        "zfs_repl_mount",
+		Path:        "zfs",
+		AllowedArgs: []string{"mount"},
+		ArgPatterns: []*regexp.Regexp{regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_.:/-]{0,254}$`)},
+		Description: "Mount a dataset (remount fallback)",
+	},
+		"zfs_repl_readonly": {
 		Name: "zfs_repl_readonly",
 		Path: "zfs",
 		ArgPatterns: []*regexp.Regexp{

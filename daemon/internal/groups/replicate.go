@@ -81,7 +81,32 @@ var DefaultReplOps = ReplOps{
 		if out, err := cmdutil.RunFast("zfs_repl_readonly", "set", v, pool); err != nil {
 			return zfsErr("set "+v, out, err)
 		}
-		return nil
+		// Children inherit the property but keep their mount options: a
+		// dataset mounted read-only stays "readonly on (temporary)" until it
+		// is remounted (VM test). Remount every dataset of the pool.
+		out, err := cmdutil.RunFast("zfs_repl_list_datasets", "list", "-H", "-o", "name", "-r", pool)
+		if err != nil {
+			return zfsErr("list datasets", out, err)
+		}
+		mode := "remount,rw"
+		if on {
+			mode = "remount,ro"
+		}
+		var errs []error
+		for _, ds := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+			ds = strings.TrimSpace(ds)
+			if ds == "" {
+				continue
+			}
+			if rout, rerr := cmdutil.RunFast("zfs_repl_remount", "mount", "-o", mode, ds); rerr != nil {
+				// Not mounted, or remount unsupported: unmount and mount again.
+				_, _ = cmdutil.RunFast("zfs_repl_unmount", "unmount", ds)
+				if mout, merr := cmdutil.RunFast("zfs_repl_mount", "mount", ds); merr != nil && !bytes.Contains(mout, []byte("already mounted")) {
+					errs = append(errs, fmt.Errorf("remounting %s: %v: %s / %s", ds, rerr, bytes.TrimSpace(rout), bytes.TrimSpace(mout)))
+				}
+			}
+		}
+		return errors.Join(errs...)
 	},
 	Written: func(pool, snap string) (int64, error) {
 		out, err := cmdutil.RunFast("zfs_repl_written", "get", "-r", "-H", "-p", "-o", "value", "written@"+snap, pool)
