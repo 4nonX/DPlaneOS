@@ -228,7 +228,7 @@ func (h *GitSyncHandler) Pull(w http.ResponseWriter, r *http.Request) {
 		deployed := 0
 		for _, stack := range stacks {
 			dir := filepath.Dir(stack)
-			out, err := cmdutil.RunSlow("docker", "compose", "--project-directory", dir, "-f", stack, "up", "-d")
+			out, err := cmdutil.RunSlow("docker_compose", "compose", "--project-directory", dir, "-f", stack, "up", "-d")
 			if err != nil {
 				log.Printf("GIT-SYNC: Deploy failed for %s: %v - %s", stack, err, string(out))
 			} else {
@@ -319,7 +319,7 @@ func (h *GitSyncHandler) ListStacks(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Check if stack is running
-		out, err := cmdutil.RunFast("docker", "compose", "--project-directory", filepath.Dir(f), "-f", f, "ps", "--format", "json")
+		out, err := cmdutil.RunFast("docker_compose", "compose", "--project-directory", filepath.Dir(f), "-f", f, "ps", "--format", "json")
 		if err == nil && len(out) > 2 {
 			stack["running"] = true
 		} else {
@@ -375,7 +375,7 @@ func (h *GitSyncHandler) Deploy(w http.ResponseWriter, r *http.Request) {
 			args = []string{"compose", "--project-directory", dir, "-f", f, "down"}
 		}
 
-		out, err := cmdutil.RunSlow("docker", args...)
+		out, err := cmdutil.RunSlow("docker_compose", args...)
 		result := map[string]any{
 			"stack":   f,
 			"action":  action,
@@ -540,7 +540,7 @@ func (h *GitSyncHandler) ExportContainers(w http.ResponseWriter, r *http.Request
 		args = append(args, req.Containers...)
 	} else {
 		// Get all running container names
-		out, err := cmdutil.RunFast("docker", "ps", "--format", "{{.Names}}")
+		out, err := cmdutil.RunFast("docker_cli", "ps", "--format", "{{.Names}}")
 		if err != nil {
 			respondJSON(w, 500, map[string]any{"success": false, "error": "Failed to list containers"})
 			return
@@ -553,7 +553,7 @@ func (h *GitSyncHandler) ExportContainers(w http.ResponseWriter, r *http.Request
 		args = append(args, names...)
 	}
 
-	out, err := cmdutil.RunMedium("docker", args...)
+	out, err := cmdutil.RunMedium("docker_cli", args...)
 	if err != nil {
 		respondJSON(w, 500, map[string]any{"success": false, "error": "docker inspect failed: " + err.Error()})
 		return
@@ -976,7 +976,7 @@ func (h *GitSyncHandler) StartAutoSync() {
 				if cfg.AutoDeploy {
 					stacks := h.findComposeFiles(cfg.LocalPath)
 					for _, stack := range stacks {
-						if out, err := cmdutil.RunSlow("docker", "compose", "--project-directory", filepath.Dir(stack), "-f", stack, "up", "-d"); err != nil {
+						if out, err := cmdutil.RunSlow("docker_compose", "compose", "--project-directory", filepath.Dir(stack), "-f", stack, "up", "-d"); err != nil {
 							log.Printf("GIT-SYNC: Auto-deploy failed for %s: %v - %s", stack, err, string(out))
 						}
 					}

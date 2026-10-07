@@ -298,7 +298,7 @@ func (h *DockerHandler) RemoveContainer(w http.ResponseWriter, r *http.Request) 
 // ContainerStats returns CPU, memory, network stats for all running containers
 // GET /api/docker/stats
 func (h *DockerHandler) ContainerStats(w http.ResponseWriter, r *http.Request) {
-	output, err := cmdutil.RunFast("docker",
+	output, err := cmdutil.RunFast("docker_cli",
 		"stats", "--no-stream", "--format",
 		`{"name":"{{.Name}}","cpu":"{{.CPUPerc}}","memory":"{{.MemUsage}}","mem_perc":"{{.MemPerc}}","net_io":"{{.NetIO}}","block_io":"{{.BlockIO}}","pids":"{{.PIDs}}"}`)
 	if err != nil {
@@ -365,7 +365,7 @@ func (h *DockerHandler) ComposeUp(w http.ResponseWriter, r *http.Request) {
 
 	id := jobs.Start("compose_up", func(j *jobs.Job) {
 		start := time.Now()
-		output, err := cmdutil.RunSlow("docker", args...)
+		output, err := cmdutil.RunSlow("docker_compose", args...)
 		duration := time.Since(start)
 		if err != nil {
 			j.Fail(fmt.Sprintf("%v\n%s", err, string(output)))
@@ -405,7 +405,7 @@ func (h *DockerHandler) ComposeDown(w http.ResponseWriter, r *http.Request) {
 	}
 
 	id := jobs.Start("compose_down", func(j *jobs.Job) {
-		output, err := cmdutil.RunMedium("docker", args...)
+		output, err := cmdutil.RunMedium("docker_compose", args...)
 		if err != nil {
 			j.Fail(fmt.Sprintf("%v\n%s", err, string(output)))
 			return
@@ -426,7 +426,7 @@ func (h *DockerHandler) ComposeStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	output, err := cmdutil.RunFast("docker",
+	output, err := cmdutil.RunFast("docker_compose",
 		"compose", "-f", path+"/docker-compose.yml", "ps", "--format", "json")
 	if err != nil {
 		respondOK(w, map[string]any{

@@ -156,7 +156,7 @@ func (h *StackHandler) DeployStack(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Run docker compose up -d
-	output, composeErr := cmdutil.RunSlow("docker",
+	output, composeErr := cmdutil.RunSlow("docker_compose",
 		"compose", "--project-directory", dir, "-f", composePath, "up", "-d")
 	duration := time.Since(start)
 
@@ -257,7 +257,7 @@ func (h *StackHandler) ListStacks(w http.ResponseWriter, r *http.Request) {
 		stack.UpdatedAt = fileInfo.ModTime().UTC().Format(time.RFC3339)
 
 		// Get compose status (best effort, don't block on failures)
-		output, composeErr := cmdutil.RunFast("docker",
+		output, composeErr := cmdutil.RunFast("docker_compose",
 			"compose", "--project-directory", dir, "-f", composePath,
 			"ps", "--format", "json")
 
@@ -274,7 +274,7 @@ func (h *StackHandler) ListStacks(w http.ResponseWriter, r *http.Request) {
 		// stack so ModulesPage can resolve a custom icon without needing per-container data.
 		// Uses `docker ps --filter label=com.docker.compose.project=<name>` to find
 		// containers belonging to this stack.
-		labelOut, labelErr := cmdutil.RunFast("docker", "ps",
+		labelOut, labelErr := cmdutil.RunFast("docker_cli", "ps",
 			"--filter", "label=com.docker.compose.project="+name,
 			"--format", "{{.Label \"dplaneos.icon\"}}",
 			"--no-trunc")
@@ -415,7 +415,7 @@ func (h *StackHandler) UpdateStackYAML(w http.ResponseWriter, r *http.Request) {
 	// Optionally redeploy
 	if req.Redeploy {
 		start := time.Now()
-		output, composeErr := cmdutil.RunSlow("docker",
+		output, composeErr := cmdutil.RunSlow("docker_compose",
 			"compose", "--project-directory", dir, "-f", composePath, "up", "-d")
 		duration := time.Since(start)
 
@@ -464,7 +464,7 @@ func (h *StackHandler) DeleteStack(w http.ResponseWriter, r *http.Request) {
 
 	// Run compose down first (best effort - stack might already be stopped)
 	if _, err := os.Stat(composePath); err == nil {
-		output, downErr := cmdutil.RunMedium("docker",
+		output, downErr := cmdutil.RunMedium("docker_compose",
 			"compose", "--project-directory", dir, "-f", composePath, "down")
 		if downErr != nil {
 			// Log but don't fail - user may still want the directory removed
@@ -555,7 +555,7 @@ func (h *StackHandler) StackAction(w http.ResponseWriter, r *http.Request) {
 		args = []string{"compose", "--project-directory", dir, "-f", composePath, "down", "--remove-orphans"}
 	}
 
-	output, composeErr := cmdutil.RunSlow("docker", args...)
+	output, composeErr := cmdutil.RunSlow("docker_compose", args...)
 	duration := time.Since(start)
 
 	audit.LogCommand(audit.LevelInfo, user, "stack_"+req.Action,

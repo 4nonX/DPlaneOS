@@ -690,7 +690,7 @@ func (h *GitReposHandler) DeployRepo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	out, err := cmdutil.RunSlow("docker", "compose", "-f", composeFull, "up", "-d", "--remove-orphans")
+	out, err := cmdutil.RunSlow("docker_compose", "compose", "-f", composeFull, "up", "-d", "--remove-orphans")
 	if err != nil {
 		respondJSON(w, 500, map[string]any{"success": false, "error": string(out)})
 		return
@@ -722,7 +722,7 @@ func (h *GitReposHandler) ExportToRepo(w http.ResponseWriter, r *http.Request) {
 	if len(req.Containers) > 0 {
 		args = append(args, req.Containers...)
 	} else {
-		out, err := cmdutil.RunFast("docker", "ps", "--format", "{{.Names}}")
+		out, err := cmdutil.RunFast("docker_cli", "ps", "--format", "{{.Names}}")
 		if err != nil {
 			respondJSON(w, 500, map[string]any{"success": false, "error": "Failed to list containers"})
 			return
@@ -735,7 +735,7 @@ func (h *GitReposHandler) ExportToRepo(w http.ResponseWriter, r *http.Request) {
 		args = append(args, names...)
 	}
 
-	inspectOut, err := cmdutil.RunMedium("docker", args...)
+	inspectOut, err := cmdutil.RunMedium("docker_cli", args...)
 	if err != nil {
 		respondJSON(w, 500, map[string]any{"success": false, "error": "docker inspect failed"})
 		return
@@ -1102,7 +1102,7 @@ func (h *GitReposHandler) autoSyncOne(repo repoAutoSync) {
 	if _, err := os.Stat(composeFull); err != nil {
 		return
 	}
-	if out, err := cmdutil.RunSlow("docker", "compose", "-f", composeFull,
+	if out, err := cmdutil.RunSlow("docker_compose", "compose", "-f", composeFull,
 		"up", "-d", "--remove-orphans"); err != nil {
 		log.Printf("GIT-REPOS: Auto-deploy failed for %s: %v - %s", repo.name, err, string(out))
 	} else {

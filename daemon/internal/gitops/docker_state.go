@@ -60,7 +60,7 @@ func readLiveStacks() ([]LiveStack, error) {
 		}
 
 		// Get status via docker compose ps
-		output, err := cmdutil.RunFast("docker",
+		output, err := cmdutil.RunFast("docker_compose",
 			"compose", "--project-directory", dir, "-f", composePath, "ps", "--format", "json")
 		if err == nil {
 			ls.Services, ls.Status = parseStackStatus(output)
