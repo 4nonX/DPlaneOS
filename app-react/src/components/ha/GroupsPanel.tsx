@@ -30,6 +30,7 @@ interface GroupStatus {
   interval_secs: number
   auto_failover: boolean
   replication: { direction: 'out' | 'in'; peer: string; pool: string; last_snapshot: string; last_ok_at: string | null; last_error: string; discard_ok: boolean }[]
+  resources?: { stacks: { name: string }[]; nvme: { subsystem_nqn: string; zvol: string }[] }
 }
 
 function ago(iso: string | null) {
@@ -237,6 +238,12 @@ export function GroupsPanel() {
                 confirmLabel: 'Discard the changes here', danger: true,
               })) discard.mutate(g.name)
             }}><Icon name="restore" size={14} />Discard the changes here</button>
+          )}
+          {g.resources && (g.resources.stacks.length > 0 || g.resources.nvme.length > 0) && (
+            <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', marginTop: 6 }}>
+              Runs on the owner only:{' '}
+              {[...g.resources.stacks.map(st => `stack ${st.name}`), ...g.resources.nvme.map(e => `NVMe-oF ${e.zvol}`)].join(', ')}
+            </div>
           )}
           {g.problems.length > 0 && (
             <ul style={{ color: 'var(--error)', fontSize: 'var(--text-sm)', margin: '6px 0 0' }}>{g.problems.map(p => <li key={p}>{p}</li>)}</ul>

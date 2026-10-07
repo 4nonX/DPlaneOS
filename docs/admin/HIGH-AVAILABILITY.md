@@ -81,7 +81,18 @@ Each node of a replicated group has its own disks (any type) and its own pool wi
 - **Failover**: off by default for replicated groups, because changes since the last replication are lost. With *Fail over automatically* checked (and a third vote), another node takes over its copy after the fencing delay; otherwise *Take over* does it on request.
 - **Split copies**: a copy that was changed after the last replication it received (for example, a former owner that kept working during a network split) is never overwritten silently. Replication to that node stops, and its group line shows what happened with **Discard the changes here**: after copying off anything needed, that rolls the copy back to the owner's data and replication continues.
 
-**Limitations in this release:** clusters of two nodes plus a third vote (more nodes follow with storage groups); certificates of the third vote are exchanged over the node's HTTPS without checking its (usually self-signed) certificate, protected by the single-use code; automatic failover additionally still requires IPMI or PDU fencing until the fencing layers of phase 3c are in.
+### Apps and NVMe-oF exports follow the group
+
+A Docker stack whose volumes are on a group's pool (`/mnt/<pool>/...` in its compose file) and an NVMe-oF export of one of the group's zvols belong to the group, not to a node. They run only on the group's owner:
+
+- The owner publishes their definitions; every other node of the group keeps a copy (the group's line lists them), so a node that takes over has them even when the old owner is down.
+- On a **Move to …**, the stacks stop and the exports are removed on the old owner *before* its pools are released; if a stack cannot be stopped, the move is refused and the group stays where it was. The new owner writes the stacks and exports and starts them once the pools are writable there.
+- After a **failover** or **Take over**, the new owner starts them as soon as it has imported the pools. A node that finds itself running a group's stack without owning the group stops it.
+- Edit these stacks on the owner. Other stacks and exports (on pools in no group, or without pool volumes) stay per node.
+
+Container images must be available on every node of the group (from a registry, or loaded on each node); a stack that cannot start on the new owner is shown as a problem on the group's line.
+
+**Limitations in this release:** clusters of two nodes plus a third vote (more nodes follow with storage groups); certificates of the third vote are exchanged over the node's HTTPS without checking its (usually self-signed) certificate, protected by the single-use code.
 
 ---
 

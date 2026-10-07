@@ -36,6 +36,14 @@ Phase 0 of [Design 0001](../design/0001-distributed-state-gitops-ha.md): fixes i
 - **Cluster quorum with Corosync and a third vote** (System › High Availability › Cluster quorum, `/api/quorum/*`): form a cluster with a paired node (addresses suggested), see members, votes and quorum. **Add a third vote** without SSH: one pasted command on any Linux machine (`witness-setup.sh` installs and enrolls `corosync-qnetd` with a one-time code; apt, dnf, yum, zypper; opens TCP 5403 in ufw/firewalld), or *Serve as third vote* on another DPlaneOS system. With a cluster configured, its quorum replaces the heartbeat majority in the HA engine (watchdog reset only while quorate); automatic failover is refused with only two votes or outside the quorate partition, and the GUI says why. NixOS module `modules/cluster.nix` (units started only once configured; state in `/var/lib/dplaneos/corosync`; UDP 5405, TCP 5403).
 - CI: "Cluster Quorum (3 VMs)": two DPlaneOS nodes and a plain Linux witness enrolled with the one-line command, including a network partition. Releases are gated on it.
 
+### Added (Design 0001, Phase 3d)
+
+- **Apps and NVMe-oF exports follow their storage group.** Docker stacks with volumes on a group's pools and NVMe-oF exports of its zvols run only on the group's owner. The owner publishes their definitions to the other nodes of the group (`group_resources`); a planned move stops them before the pools are released (and is refused if they cannot be stopped), and the new owner starts them after a move, failover or takeover. The NVMe-oF target on each node leaves out the exports of groups it does not own and is reconfigured only when its list changes.
+
+### Fixed (Design 0001, Phase 3d)
+
+- **Docker commands bypassed the command whitelist.** All daemon calls to `docker` ran without argument checks (and logged a security warning). They now go through `docker_compose` (projects under the allowed directories, a fixed set of subcommands and flags) and `docker_cli` (read-only `ps`, `stats`, `inspect`); container names taken from requests are validated.
+
 ### Added (Design 0001, Phase 3c: replicated groups)
 
 - **Replicated storage groups**: the owner snapshots its pools recursively on the group's interval and streams `zfs send -R` (incremental from the newest common snapshot) to the other candidates over the paired-node channel (no SSH setup); copies stay read-only; old replication snapshots are pruned except those a lagging node still needs. Receivers accept streams only from the owner at the current epoch and refuse to roll back changes made to their own copy (split); the GUI shows it with "Discard the changes here". Planned move (final replication, direction flips), manual takeover, and optional automatic failover per group. "Replicate now", last replication per node in the GUI. nginx passes replication streams without size limit or buffering; the receive endpoint lifts the daemon's 30 s body read deadline.
