@@ -483,6 +483,10 @@ func (m *Manager) DiscardDivergent(group string) error {
 // target does not take over, this node stays the owner and writable.
 // Caller holds m.mu.
 func (m *Manager) moveReplicated(g Group, target string) (*MoveResult, error) {
+	if err := m.deactivate(g); err != nil {
+		go m.ActivateTick()
+		return nil, fmt.Errorf("stopping the group's stacks or exports: %w (the group stays here)", err)
+	}
 	for _, p := range g.Pools {
 		if err := m.repl.SetReadonly(p.Name, true); err != nil {
 			m.writable(g)

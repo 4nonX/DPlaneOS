@@ -198,6 +198,10 @@ func (m *Manager) takeover(name, why string) error {
 			return err
 		}
 		log.Printf("GROUPS: %s: %s, now owned by this node (epoch %d)", name, why, ng.Epoch)
+		if err := m.materialize(ng); err != nil {
+			log.Printf("GROUPS: %s: %v", name, err)
+		}
+		go m.ActivateTick()
 		for _, e := range m.pushAll(ng, g.Owner) {
 			log.Printf("GROUPS: %s: %v (retried by pulling)", name, e)
 		}
@@ -222,6 +226,10 @@ func (m *Manager) takeover(name, why string) error {
 		return err
 	}
 	log.Printf("GROUPS: %s: %s, now owned by this node (epoch %d)", name, why, ng.Epoch)
+	if err := m.materialize(ng); err != nil {
+		log.Printf("GROUPS: %s: %v", name, err)
+	}
+	go m.ActivateTick() // start the group's stacks and exports here
 	// The old owner is unreachable; it learns the new epoch when it returns.
 	for _, e := range m.pushAll(ng, g.Owner) {
 		log.Printf("GROUPS: %s: %v (retried by pulling)", name, e)

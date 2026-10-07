@@ -69,6 +69,16 @@ func (t GroupTransport) SendReplica(node, group, pool string, epoch int64, base,
 	return configstore.StreamToPeer(t.DB, node, "/api/config/sync/peer/zfs-recv?"+q.Encode(), stream, nil)
 }
 
+// FetchResources asks the owner for a group's stack and export definitions.
+func (t GroupTransport) FetchResources(node, group string) (groups.Resources, error) {
+	var resp struct {
+		Resources groups.Resources `json:"resources"`
+	}
+	q := url.Values{"group": {group}}
+	err := configstore.CallPeer(t.DB, node, "GET", "/api/config/sync/peer/group-resources?"+q.Encode(), nil, &resp)
+	return resp.Resources, err
+}
+
 // GroupsHandler serves storage groups.
 type GroupsHandler struct {
 	db  *sql.DB
@@ -193,6 +203,20 @@ func (h *GroupsHandler) DiscardDivergent(w http.ResponseWriter, r *http.Request)
 }
 
 // ── Peer endpoints ────────────────────────────────────────────────────────────
+
+// PeerResources: GET /api/config/sync/peer/group-resources?group= - the
+// owner's definitions of the group's stacks and NVMe-oF exports.
+func (h *GroupsHandler) PeerResources(w http.ResponseWriter, r *http.Request) {
+	if !h.authPeer(w, r) {
+		return
+	}
+	res, err := h.mgr.LocalResources(r.URL.Query().Get("group"))
+	if err != nil {
+		respondErrorSimple(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	respondOK(w, map[string]any{"success": true, "resources": res})
+}
 
 // PeerSnapshots: GET /api/config/sync/peer/zfs-snapshots?group=&pool=
 func (h *GroupsHandler) PeerSnapshots(w http.ResponseWriter, r *http.Request) {

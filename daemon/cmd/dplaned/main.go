@@ -1043,6 +1043,7 @@ func main() {
 	groupMgr.Start(10 * time.Second)
 	groupMgr.StartFailover(5 * time.Second)
 	groupMgr.StartReplication(30 * time.Second)
+	groupMgr.StartActivation(10 * time.Second)
 	configstore.EpochForPool = func(pool string) int64 { return groups.EpochForPool(db, pool) }
 	groupsH := handlers.NewGroupsHandler(db, groupMgr)
 	r.Handle("/api/groups", permRoute("storage", "read", http.HandlerFunc(groupsH.List))).Methods("GET")
@@ -1053,6 +1054,7 @@ func main() {
 	r.Handle("/api/groups/{name}/replicate", permRoute("storage", "admin", http.HandlerFunc(groupsH.ReplicateNow))).Methods("POST")
 	r.Handle("/api/groups/{name}/discard-divergent", permRoute("storage", "admin", http.HandlerFunc(groupsH.DiscardDivergent))).Methods("POST")
 	r.HandleFunc("/api/config/sync/peer/zfs-snapshots", groupsH.PeerSnapshots).Methods("GET")
+	r.HandleFunc("/api/config/sync/peer/group-resources", groupsH.PeerResources).Methods("GET")
 	r.HandleFunc("/api/config/sync/peer/zfs-recv", groupsH.PeerRecv).Methods("POST")
 	protectionH := handlers.NewProtectionHandler(db, quorumMon, clusterMgr)
 	r.Handle("/api/ha/protection", permRoute("system", "read", http.HandlerFunc(protectionH.Get))).Methods("GET")

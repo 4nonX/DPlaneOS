@@ -19,6 +19,15 @@ let
   pkgs = nixpkgs.legacyPackages.${system};
   sharedImage = "/tmp/dplaneos-shared-disk.img";
 
+  # An app that writes to the group's pool every 2 s (VM tests have no
+  # network: the image is built here and loaded on both nodes).
+  heartbeatImage = pkgs.dockerTools.buildImage {
+    name = "dplane-heartbeat";
+    tag = "1";
+    copyToRoot = pkgs.buildEnv { name = "root"; paths = [ pkgs.busybox ]; pathsToLink = [ "/bin" ]; };
+    config.Cmd = [ "/bin/sh" "-c" "while true; do date >> /data/heartbeat; sleep 2; done" ];
+  };
+
   dplaneNode = hostName: hostId: { lib, ... }: {
     imports = [
       ../configuration-live.nix
@@ -87,6 +96,15 @@ pkgs.testers.nixosTest {
         gs = api(m, "GET", "/api/groups")["groups"]
         return gs[0] if gs else None
 
+    def running(m):
+        return m.execute("docker ps --format '{{.Names}}' | grep -q heartbeat")[0] == 0
+
+    def beats(m):
+        # the heartbeat file grows on the node that runs the app
+        m.wait_until_succeeds("test -s /mnt/tank/data/heartbeat", timeout=30)
+        n1 = int(m.succeed("wc -l < /mnt/tank/data/heartbeat").strip())
+        m.wait_until_succeeds(f"test $(wc -l < /mnt/tank/data/heartbeat) -gt {n1}", timeout=30)
+
     def diag():
         for m in (a, b):
             print(m.execute("journalctl -b --no-pager -u dplaned | grep -i -E 'group|zpool|error' | tail -n 80")[1])
@@ -121,11 +139,27 @@ pkgs.testers.nixosTest {
             gb = group(b)
             assert gb["role"] == "standby" and gb["epoch"] == 1 and gb["problems"] == [], gb
 
+        with subtest("A stack on the group's pool runs on the owner only"):
+            for m in (a, b):
+                m.succeed("docker load < ${heartbeatImage}")
+            yaml = "services:\n  hb:\n    image: dplane-heartbeat:1\n    volumes:\n      - /mnt/tank/data:/data\n"
+            ok(api(a, "POST", "/api/docker/stacks/deploy", {"name": "heartbeat", "yaml": yaml}), "deploy stack")
+            a.wait_until_succeeds("docker ps --format '{{.Names}}' | grep -q heartbeat", timeout=120)
+            beats(a)
+            ga = group(a)
+            assert [s["name"] for s in ga["resources"]["stacks"]] == ["heartbeat"], ga["resources"]
+            # b learns the definition but does not run it
+            b.wait_until_succeeds("curl -s http://localhost/api/groups -H 'X-Session-ID: %s' -H 'X-User: admin' | grep -q heartbeat" % session["b"][0], timeout=60)
+            assert not running(b)
+
         with subtest("Planned move to b: a exports, b imports, epoch 2"):
             ok(api(a, "POST", "/api/groups/data/move", {"target": peer_b}), "move")
             b.succeed("zpool list tank")
             b.succeed("grep -q hello /mnt/tank/data/file")
             a.fail("zpool list tank")
+            assert not running(a), "the app must stop on the old owner"
+            b.wait_until_succeeds("docker ps --format '{{.Names}}' | grep -q heartbeat", timeout=120)
+            beats(b)
             ga, gb = group(a), group(b)
             assert ga["epoch"] == 2 and gb["epoch"] == 2 and gb["owner"] == peer_b, (ga, gb)
             assert gb["role"] == "owner" and gb["can_write"] and ga["role"] == "standby", (ga, gb)
@@ -147,6 +181,9 @@ pkgs.testers.nixosTest {
             ok(api(b, "POST", "/api/groups/data/move", {"target": group(b)["candidates"][0]}), "move back")
             a.succeed("zpool list tank && grep -q hello /mnt/tank/data/file")
             b.fail("zpool list tank")
+            assert not running(b)
+            a.wait_until_succeeds("docker ps --format '{{.Names}}' | grep -q heartbeat", timeout=120)
+            beats(a)
             assert group(a)["epoch"] == 3 and group(b)["epoch"] == 3
         with subtest("No daemon panics, security refusals or security warnings"):
             for m in (a, b):
@@ -169,6 +206,8 @@ pkgs.testers.nixosTest {
             b.succeed("zpool list tank && grep -q hello /mnt/tank/data/file")
             gb = group(b)
             assert gb["owner"] != peer_a and gb["epoch"] == 4 and gb["can_write"], gb
+            b.wait_until_succeeds("docker ps --format '{{.Names}}' | grep -q heartbeat", timeout=120)
+            beats(b)
     except Exception:
         diag()
         raise

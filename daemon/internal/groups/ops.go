@@ -112,6 +112,8 @@ type Transport interface {
 	// sending a zfs stream to it.
 	RemoteSnapshots(node, group, pool string) ([]string, error)
 	SendReplica(node, group, pool string, epoch int64, base, snap string, stream io.Reader) error
+	// The owner's definitions of a group's stacks and NVMe-oF exports.
+	FetchResources(node, group string) (Resources, error)
 }
 
 // Manager runs group operations for this node.
@@ -119,6 +121,7 @@ type Manager struct {
 	db   *sql.DB
 	ops  Ops
 	repl ReplOps
+	res  ResOps
 	tr   Transport
 	self func() string
 	view func() View
@@ -131,14 +134,16 @@ type Manager struct {
 	// fence does not stop the takeover (the old owner resets itself).
 	WatchdogFencing func() bool
 
-	fmu       sync.Mutex // failover state
-	lostSince map[string]time.Time
-	decisions map[string]Decision
+	fmu         sync.Mutex // failover and activation state
+	lostSince   map[string]time.Time
+	decisions   map[string]Decision
+	resProblems map[string][]string
+	exportsHash string
 }
 
 // NewManager wires the manager. view returns the current quorum view.
 func NewManager(db *sql.DB, ops Ops, tr Transport, self func() string, view func() View) *Manager {
-	return &Manager{db: db, ops: ops, repl: DefaultReplOps, tr: tr, self: self, view: view}
+	return &Manager{db: db, ops: ops, repl: DefaultReplOps, res: DefaultResOps, tr: tr, self: self, view: view}
 }
 
 func (m *Manager) currentView() (View, error) {
@@ -161,6 +166,7 @@ type GroupStatus struct {
 	Status
 	Failover    Decision    `json:"failover"`
 	Replication []ReplState `json:"replication"`
+	Resources   Resources   `json:"resources"`
 }
 
 // Statuses evaluates every group on this node.
@@ -176,6 +182,10 @@ func (m *Manager) Statuses() ([]GroupStatus, error) {
 	out := make([]GroupStatus, 0, len(gs))
 	for _, g := range gs {
 		gs := GroupStatus{Group: g, Status: Evaluate(g, v), Failover: m.decision(g.Name), Replication: []ReplState{}}
+		gs.Resources, _ = m.knownResources(g)
+		m.fmu.Lock()
+		gs.Problems = append(gs.Problems, m.resProblems[g.Name]...)
+		m.fmu.Unlock()
 		if g.Topology == Replicated {
 			gs.Replication, _ = replStates(m.db, g.Name)
 			for _, r := range gs.Replication {
@@ -341,7 +351,11 @@ func (m *Manager) Move(name, target string) (*MoveResult, error) {
 		return nil, errors.New("this node has no quorum")
 	}
 
-	// 1. Release the pools here.
+	// 1. Stop the group's apps and exports, then release the pools here.
+	if err := m.deactivate(*g); err != nil {
+		go m.ActivateTick() // restart what was stopped
+		return nil, fmt.Errorf("stopping the group's stacks or exports: %w (the group stays here)", err)
+	}
 	var exported []PoolRef
 	for _, p := range g.Pools {
 		if err := m.ops.Export(p.Name); err != nil {
@@ -419,6 +433,23 @@ func (m *Manager) adopt(g Group) error {
 	imported, err := m.ops.ImportedPools()
 	if err != nil {
 		return err
+	}
+	if cur != nil && cur.Owner == m.self() && g.Owner != m.self() {
+		// This node is no longer the owner: stop the group's apps and exports
+		// before its pools are released or made read-only.
+		if err := m.deactivate(g); err != nil {
+			log.Printf("GROUPS: %s: stopping resources: %v", g.Name, err)
+		}
+	}
+	if g.Owner == m.self() && (cur == nil || cur.Owner != m.self()) {
+		// Becoming the owner: write the group's published stacks and exports
+		// here, then start them (after the pools below are imported/writable).
+		defer func() {
+			if err := m.materialize(g); err != nil {
+				log.Printf("GROUPS: %s: %v", g.Name, err)
+			}
+			go m.ActivateTick()
+		}()
 	}
 	imports, exports := planAdopt(g, m.self(), imported)
 	// Planned move to this node: import first; refuse (no state change) if
@@ -512,6 +543,14 @@ func (m *Manager) SyncOnce() error {
 			m.mu.Unlock()
 			if err != nil && !errors.Is(err, ErrStale) {
 				errs = append(errs, fmt.Errorf("%s from %s: %w", g.Name, n, err))
+			}
+			// The owner's definitions of the group's stacks and exports.
+			if g.Owner == n && g.IsCandidate(m.self()) {
+				if r, err := m.tr.FetchResources(n, g.Name); err == nil {
+					if err := storeResources(m.db, g.Name, r); err != nil {
+						errs = append(errs, err)
+					}
+				}
 			}
 		}
 	}
