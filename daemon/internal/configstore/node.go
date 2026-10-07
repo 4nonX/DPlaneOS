@@ -95,25 +95,34 @@ func FormatFingerprint(fp string) string {
 
 func (c *peerCall) do(method, path string, body, out any) error {
 	var rdr io.Reader
+	contentType := ""
 	if body != nil {
 		raw, err := json.Marshal(body)
 		if err != nil {
 			return err
 		}
-		rdr = bytes.NewReader(raw)
+		rdr, contentType = bytes.NewReader(raw), "application/json"
 	}
+	return c.doRaw(method, path, rdr, contentType, out)
+}
+
+// doRaw sends body as is (a stream for timeout < 0: no deadline).
+func (c *peerCall) doRaw(method, path string, rdr io.Reader, contentType string, out any) error {
 	timeout := c.timeout
 	if timeout == 0 {
 		timeout = 10 * time.Second
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	ctx, cancel := context.Background(), context.CancelFunc(func() {})
+	if timeout > 0 {
+		ctx, cancel = context.WithTimeout(ctx, timeout)
+	}
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, method, strings.TrimRight(c.baseURL, "/")+path, rdr)
 	if err != nil {
 		return err
 	}
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
+	if contentType != "" {
+		req.Header.Set("Content-Type", contentType)
 	}
 	for k, v := range c.headers {
 		req.Header.Set(k, v)
@@ -189,4 +198,24 @@ func CallPeer(db *sql.DB, peerID, method, path string, body, out any) error {
 	call := &peerCall{baseURL: p.URL, pin: p.Fingerprint, timeout: 60 * time.Second,
 		headers: map[string]string{hdrNode: self, hdrSecret: p.secret}}
 	return call.do(method, path, body, out)
+}
+
+// StreamToPeer sends a data stream (e.g. zfs send) to a paired node without
+// a deadline; the peer answers with JSON (decoded into out, may be nil).
+func StreamToPeer(db *sql.DB, peerID, path string, body io.Reader, out any) error {
+	self, err := NodeID(db)
+	if err != nil {
+		return err
+	}
+	peers, err := loadPeers(db, peerID)
+	if err != nil {
+		return err
+	}
+	if len(peers) == 0 {
+		return ErrUnknownPeer
+	}
+	p := peers[0]
+	call := &peerCall{baseURL: p.URL, pin: p.Fingerprint, timeout: -1,
+		headers: map[string]string{hdrNode: self, hdrSecret: p.secret}}
+	return call.doRaw("POST", path, body, "application/octet-stream", out)
 }

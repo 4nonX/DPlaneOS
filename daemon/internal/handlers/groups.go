@@ -6,6 +6,9 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"net/url"
+	"strconv"
+	"time"
 
 	"github.com/gorilla/mux"
 
@@ -50,6 +53,22 @@ func (t GroupTransport) Fetch(node string) ([]groups.Group, error) {
 	return resp.Groups, err
 }
 
+// RemoteSnapshots lists the replication snapshots of a pool on node.
+func (t GroupTransport) RemoteSnapshots(node, group, pool string) ([]string, error) {
+	var resp struct {
+		Snapshots []string `json:"snapshots"`
+	}
+	q := url.Values{"group": {group}, "pool": {pool}}
+	err := configstore.CallPeer(t.DB, node, "GET", "/api/config/sync/peer/zfs-snapshots?"+q.Encode(), nil, &resp)
+	return resp.Snapshots, err
+}
+
+// SendReplica streams a zfs send to node.
+func (t GroupTransport) SendReplica(node, group, pool string, epoch int64, base, snap string, stream io.Reader) error {
+	q := url.Values{"group": {group}, "pool": {pool}, "epoch": {strconv.FormatInt(epoch, 10)}, "base": {base}, "snapshot": {snap}}
+	return configstore.StreamToPeer(t.DB, node, "/api/config/sync/peer/zfs-recv?"+q.Encode(), stream, nil)
+}
+
 // GroupsHandler serves storage groups.
 type GroupsHandler struct {
 	db  *sql.DB
@@ -91,16 +110,18 @@ func (h *GroupsHandler) List(w http.ResponseWriter, r *http.Request) {
 // Create: POST /api/groups {name, topology, pools, candidates}
 func (h *GroupsHandler) Create(w http.ResponseWriter, r *http.Request) {
 	var b struct {
-		Name       string   `json:"name"`
-		Topology   string   `json:"topology"`
-		Pools      []string `json:"pools"`
-		Candidates []string `json:"candidates"`
+		Name         string   `json:"name"`
+		Topology     string   `json:"topology"`
+		Pools        []string `json:"pools"`
+		Candidates   []string `json:"candidates"`
+		IntervalSecs int      `json:"interval_secs"`
+		AutoFailover bool     `json:"auto_failover"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
 		respondErrorSimple(w, "Invalid request", http.StatusBadRequest)
 		return
 	}
-	g, err := h.mgr.Create(b.Name, b.Topology, b.Pools, b.Candidates)
+	g, err := h.mgr.CreateWith(b.Name, b.Topology, b.Pools, b.Candidates, b.IntervalSecs, b.AutoFailover)
 	if err != nil {
 		respondOK(w, map[string]any{"success": g != nil, "error": err.Error(), "group": g})
 		return
@@ -152,7 +173,70 @@ func (h *GroupsHandler) Takeover(w http.ResponseWriter, r *http.Request) {
 	respondOK(w, map[string]any{"success": true, "group": g})
 }
 
+// ReplicateNow: POST /api/groups/{name}/replicate
+func (h *GroupsHandler) ReplicateNow(w http.ResponseWriter, r *http.Request) {
+	if err := h.mgr.ReplicateNow(mux.Vars(r)["name"]); err != nil {
+		respondOK(w, map[string]any{"success": false, "error": err.Error()})
+		return
+	}
+	respondOK(w, map[string]any{"success": true})
+}
+
+// DiscardDivergent: POST /api/groups/{name}/discard-divergent - the operator
+// accepts that the next replication rolls back the changes made to this copy.
+func (h *GroupsHandler) DiscardDivergent(w http.ResponseWriter, r *http.Request) {
+	if err := h.mgr.DiscardDivergent(mux.Vars(r)["name"]); err != nil {
+		respondOK(w, map[string]any{"success": false, "error": err.Error()})
+		return
+	}
+	respondOK(w, map[string]any{"success": true})
+}
+
 // ── Peer endpoints ────────────────────────────────────────────────────────────
+
+// PeerSnapshots: GET /api/config/sync/peer/zfs-snapshots?group=&pool=
+func (h *GroupsHandler) PeerSnapshots(w http.ResponseWriter, r *http.Request) {
+	if !h.authPeer(w, r) {
+		return
+	}
+	snaps, err := h.mgr.LocalSnapshots(r.URL.Query().Get("group"), r.URL.Query().Get("pool"))
+	if err != nil {
+		respondErrorSimple(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if snaps == nil {
+		snaps = []string{}
+	}
+	respondOK(w, map[string]any{"success": true, "snapshots": snaps})
+}
+
+// PeerRecv: POST /api/config/sync/peer/zfs-recv?group=&pool=&epoch=&base=&snapshot=
+// The body is a zfs send stream from the group's owner.
+func (h *GroupsHandler) PeerRecv(w http.ResponseWriter, r *http.Request) {
+	p, err := configstore.AuthenticatePeer(h.db, r.Header.Get("X-DPlane-Node"), r.Header.Get("X-DPlane-Peer-Secret"))
+	if err != nil {
+		respondErrorSimple(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	// The server's 30 s ReadTimeout covers the whole body; a replication
+	// stream can take hours.
+	if err := http.NewResponseController(w).SetReadDeadline(time.Time{}); err != nil {
+		respondErrorSimple(w, "cannot lift the read deadline: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	q := r.URL.Query()
+	epoch, _ := strconv.ParseInt(q.Get("epoch"), 10, 64)
+	err = h.mgr.ReceiveReplica(p.ID, q.Get("group"), q.Get("pool"), epoch, q.Get("base"), q.Get("snapshot"), r.Body)
+	if err != nil {
+		code := http.StatusInternalServerError
+		if errors.Is(err, groups.ErrDiverged) || errors.Is(err, groups.ErrNotOwnerSender) {
+			code = http.StatusConflict
+		}
+		respondErrorSimple(w, err.Error(), code)
+		return
+	}
+	respondOK(w, map[string]any{"success": true})
+}
 
 func (h *GroupsHandler) authPeer(w http.ResponseWriter, r *http.Request) bool {
 	if _, err := configstore.AuthenticatePeer(h.db, r.Header.Get("X-DPlane-Node"), r.Header.Get("X-DPlane-Peer-Secret")); err != nil {

@@ -48,11 +48,15 @@ func TestPlanFailover(t *testing.T) {
 	if d := planFailover(g3, failoverView("b", "b", "c"), t0, t0.Add(time.Hour)); d.Action != "takeover" {
 		t.Errorf("b takes over: %+v", d)
 	}
-	// Replicated groups: not automatic yet.
+	// Replicated groups: only with automatic failover switched on for the group.
 	r := g
 	r.Topology = Replicated
-	if d := planFailover(r, failoverView("b", "b"), t0, t0.Add(time.Hour)); d.Action != "none" {
-		t.Errorf("replicated: %+v", d)
+	if d := planFailover(r, failoverView("b", "b"), t0, t0.Add(time.Hour)); d.Action != "none" || !strings.Contains(d.Reason, "replicated") {
+		t.Errorf("replicated, off: %+v", d)
+	}
+	r.AutoFailover = true
+	if d := planFailover(r, failoverView("b", "b"), t0, t0.Add(time.Hour)); d.Action != "takeover" {
+		t.Errorf("replicated, on: %+v", d)
 	}
 	// The owner itself and non-candidates never act.
 	if d := planFailover(g, failoverView("a", "a"), t0, t0.Add(time.Hour)); d.Action != "none" {

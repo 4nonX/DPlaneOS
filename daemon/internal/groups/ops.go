@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"path/filepath"
@@ -107,12 +108,17 @@ type Transport interface {
 	Push(node string, u Update) error
 	Fetch(node string) ([]Group, error)
 	Members() []string // node keys of the cluster members (self included)
+	// Replicated groups: the replication snapshots of a pool on node, and
+	// sending a zfs stream to it.
+	RemoteSnapshots(node, group, pool string) ([]string, error)
+	SendReplica(node, group, pool string, epoch int64, base, snap string, stream io.Reader) error
 }
 
 // Manager runs group operations for this node.
 type Manager struct {
 	db   *sql.DB
 	ops  Ops
+	repl ReplOps
 	tr   Transport
 	self func() string
 	view func() View
@@ -132,7 +138,7 @@ type Manager struct {
 
 // NewManager wires the manager. view returns the current quorum view.
 func NewManager(db *sql.DB, ops Ops, tr Transport, self func() string, view func() View) *Manager {
-	return &Manager{db: db, ops: ops, tr: tr, self: self, view: view}
+	return &Manager{db: db, ops: ops, repl: DefaultReplOps, tr: tr, self: self, view: view}
 }
 
 func (m *Manager) currentView() (View, error) {
@@ -153,7 +159,8 @@ func (m *Manager) currentView() (View, error) {
 type GroupStatus struct {
 	Group
 	Status
-	Failover Decision `json:"failover"`
+	Failover    Decision    `json:"failover"`
+	Replication []ReplState `json:"replication"`
 }
 
 // Statuses evaluates every group on this node.
@@ -168,7 +175,21 @@ func (m *Manager) Statuses() ([]GroupStatus, error) {
 	}
 	out := make([]GroupStatus, 0, len(gs))
 	for _, g := range gs {
-		out = append(out, GroupStatus{Group: g, Status: Evaluate(g, v), Failover: m.decision(g.Name)})
+		gs := GroupStatus{Group: g, Status: Evaluate(g, v), Failover: m.decision(g.Name), Replication: []ReplState{}}
+		if g.Topology == Replicated {
+			gs.Replication, _ = replStates(m.db, g.Name)
+			for _, r := range gs.Replication {
+				if r.LastError == "" {
+					continue
+				}
+				if r.Direction == "out" && g.Owner == v.Self {
+					gs.Problems = append(gs.Problems, fmt.Sprintf("replication of %s to %s failed: %s", r.Pool, r.Peer, r.LastError))
+				} else if r.Direction == "in" && g.Owner != v.Self && !r.DiscardOK {
+					gs.Problems = append(gs.Problems, fmt.Sprintf("replication of %s refused here: %s", r.Pool, r.LastError))
+				}
+			}
+		}
+		out = append(out, gs)
 	}
 	return out, nil
 }
@@ -221,6 +242,12 @@ func contains(s []string, x string) bool {
 
 // Create defines a group owned by this node. Its pools must be imported here.
 func (m *Manager) Create(name, topology string, pools []string, candidates []string) (*Group, error) {
+	return m.CreateWith(name, topology, pools, candidates, 0, false)
+}
+
+// CreateWith also sets the replication interval and automatic failover of a
+// replicated group.
+func (m *Manager) CreateWith(name, topology string, pools []string, candidates []string, intervalSecs int, autoFailover bool) (*Group, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	self := m.self()
@@ -231,7 +258,11 @@ func (m *Manager) Create(name, topology string, pools []string, candidates []str
 	if err != nil {
 		return nil, err
 	}
-	g := Group{Name: name, Topology: topology, Owner: self, Epoch: 1, Version: 1, UpdatedAt: time.Now(), UpdatedBy: self}
+	g := Group{Name: name, Topology: topology, Owner: self, Epoch: 1, Version: 1, UpdatedAt: time.Now(), UpdatedBy: self,
+		IntervalSecs: intervalSecs, AutoFailover: autoFailover}
+	if g.IntervalSecs <= 0 {
+		g.IntervalSecs = 300
+	}
 	for _, p := range pools {
 		guid, ok := imported[p]
 		if !ok {
@@ -239,6 +270,9 @@ func (m *Manager) Create(name, topology string, pools []string, candidates []str
 		}
 		if other, _ := ForPool(m.db, p); other != nil {
 			return nil, fmt.Errorf("pool %s already belongs to group %s", p, other.Name)
+		}
+		if topology == Replicated {
+			guid = "" // each node's copy has its own GUID
 		}
 		g.Pools = append(g.Pools, PoolRef{Name: p, GUID: guid})
 	}
@@ -299,7 +333,7 @@ func (m *Manager) Move(name, target string) (*MoveResult, error) {
 	switch g.Topology {
 	case Shared:
 	case Replicated:
-		return nil, errors.New("planned moves of replicated groups (final send, then direction flip) are not available yet")
+		return m.moveReplicated(*g, target)
 	default:
 		return nil, errors.New("a standalone group has no other node")
 	}
@@ -402,6 +436,17 @@ func (m *Manager) adopt(g Group) error {
 			errs = append(errs, fmt.Errorf("releasing %s: %w", name, err))
 		}
 	}
+	// Replicated: the owner's copy is writable, every other copy read-only.
+	if g.Topology == Replicated {
+		for _, p := range g.Pools {
+			if _, ok := imported[p.Name]; !ok {
+				continue
+			}
+			if err := m.repl.SetReadonly(p.Name, g.Owner != m.self()); err != nil {
+				errs = append(errs, fmt.Errorf("%s: %w", p.Name, err))
+			}
+		}
+	}
 	if err := put(m.db, g); err != nil {
 		return err
 	}
@@ -412,6 +457,9 @@ func (m *Manager) adopt(g Group) error {
 // them when this node becomes the owner, release shared pools when another
 // node owns the group.
 func planAdopt(g Group, self string, imported map[string]string) (imports []PoolRef, exports []string) {
+	if g.Topology == Replicated {
+		return nil, nil // every candidate keeps its own copy imported
+	}
 	for _, p := range g.Pools {
 		_, here := imported[p.Name]
 		switch {

@@ -27,6 +27,17 @@ interface GroupStatus {
   can_write: boolean
   problems: string[]
   failover: { action: 'none' | 'wait' | 'takeover' | ''; reason?: string; wait_until?: string }
+  interval_secs: number
+  auto_failover: boolean
+  replication: { direction: 'out' | 'in'; peer: string; pool: string; last_snapshot: string; last_ok_at: string | null; last_error: string; discard_ok: boolean }[]
+}
+
+function ago(iso: string | null) {
+  if (!iso) return 'never'
+  const s = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 1000))
+  if (s < 90) return `${s} s ago`
+  if (s < 5400) return `${Math.round(s / 60)} min ago`
+  return `${Math.round(s / 3600)} h ago`
 }
 interface GroupsResponse {
   success: boolean
@@ -51,10 +62,13 @@ function CreateGroup({ data }: { data: GroupsResponse }) {
   const [pools, setPools] = useState<string[]>([])
   const others = data.members.filter(m => m.key !== data.self)
   const [cands, setCands] = useState<string[]>(others.map(m => m.key))
+  const [intervalMin, setIntervalMin] = useState(5)
+  const [autoFailover, setAutoFailover] = useState(false)
   const free = data.imported_pools.filter(p => !data.groups.some(g => g.pools.some(gp => gp.name === p)))
   const create = useMutation({
     mutationFn: async () => ensureOk(await api.post<Res>('/api/groups', {
       name, topology, pools, candidates: topology === 'standalone' ? [] : cands,
+      interval_secs: intervalMin * 60, auto_failover: autoFailover,
     })),
     onSuccess: () => { toast.success(`Group ${name} created`); setName(''); setPools([]); qc.invalidateQueries({ queryKey: ['groups'] }) },
     onError: (e: Error) => toast.error(e.message),
@@ -87,6 +101,21 @@ function CreateGroup({ data }: { data: GroupsResponse }) {
           ))}
         </div>
       )}
+      {topology === 'replicated' && (
+        <div style={{ fontSize: 'var(--text-sm)', display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <label>
+            Replicate every{' '}
+            <input type="number" min={1} max={1440} className="input" style={{ width: 80, display: 'inline-block' }} value={intervalMin}
+              onChange={e => setIntervalMin(Math.max(1, Number(e.target.value) || 5))} aria-label="Replication interval in minutes" /> minutes
+            <span style={{ color: 'var(--text-tertiary)' }}> (the most data a failover can lose)</span>
+          </label>
+          <label>
+            <input type="checkbox" checked={autoFailover} onChange={e => setAutoFailover(e.target.checked)} /> Fail over automatically
+            <span style={{ color: 'var(--text-tertiary)' }}> (needs a third vote; changes since the last replication are lost. Off: you take over manually.)</span>
+          </label>
+          <p style={{ color: 'var(--text-tertiary)', margin: 0 }}>The other nodes need a pool with the same name; its contents are replaced by the first replication if it is empty.</p>
+        </div>
+      )}
       <button className="btn btn-primary" style={{ alignSelf: 'flex-start' }} disabled={!name || pools.length === 0 || create.isPending} onClick={() => create.mutate()}>
         <Icon name="add" size={16} />Create group
       </button>
@@ -110,6 +139,16 @@ export function GroupsPanel() {
       r.result?.warnings?.forEach(w => toast.error(w))
       qc.invalidateQueries({ queryKey: ['groups'] })
     },
+    onError: (e: Error) => toast.error(e.message),
+  })
+  const replicate = useMutation({
+    mutationFn: async (name: string) => ensureOk(await api.post<Res>(`/api/groups/${encodeURIComponent(name)}/replicate`, {})),
+    onSuccess: () => { toast.success('Replicated'); qc.invalidateQueries({ queryKey: ['groups'] }) },
+    onError: (e: Error) => { toast.error(e.message); qc.invalidateQueries({ queryKey: ['groups'] }) },
+  })
+  const discard = useMutation({
+    mutationFn: async (name: string) => ensureOk(await api.post<Res>(`/api/groups/${encodeURIComponent(name)}/discard-divergent`, {})),
+    onSuccess: () => { toast.success('The next replication replaces the changes here'); qc.invalidateQueries({ queryKey: ['groups'] }) },
     onError: (e: Error) => toast.error(e.message),
   })
   const takeover = useMutation({
@@ -149,9 +188,16 @@ export function GroupsPanel() {
               ? <span className="badge badge-success">Serving</span>
               : <span className="badge badge-error">Not serving</span>)}
             <span style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
-              {g.role === 'owner' && g.topology === 'shared' && g.candidates.filter(c => c !== d.self).map(c => (
+              {g.role === 'owner' && g.topology === 'replicated' && (
+                <button className="btn btn-ghost btn-sm" disabled={replicate.isPending} onClick={() => replicate.mutate(g.name)}>
+                  <Icon name="sync" size={14} />Replicate now
+                </button>
+              )}
+              {g.role === 'owner' && g.topology !== 'standalone' && g.candidates.filter(c => c !== d.self).map(c => (
                 <button key={c} className="btn btn-ghost btn-sm" disabled={move.isPending} onClick={async () => {
-                  if (await confirm({ title: `Move ${g.name} to ${nm(c)}?`, message: `The pools are exported here and imported on ${nm(c)}. Clients are interrupted for the moment of the move. If ${nm(c)} cannot import them, this node takes them back.`, confirmLabel: 'Move' })) move.mutate({ name: g.name, target: c })
+                  if (await confirm({ title: `Move ${g.name} to ${nm(c)}?`, message: g.topology === 'replicated'
+                    ? `This copy becomes read-only, a final replication brings ${nm(c)} up to date, and ${nm(c)}'s copy becomes the writable one; replication then runs from ${nm(c)}. If anything fails, this node stays the owner.`
+                    : `The pools are exported here and imported on ${nm(c)}. Clients are interrupted for the moment of the move. If ${nm(c)} cannot import them, this node takes them back.`, confirmLabel: 'Move' })) move.mutate({ name: g.name, target: c })
                 }}><Icon name="swap_horiz" size={14} />Move to {nm(c)}</button>
               ))}
               <button className="btn btn-ghost btn-sm" style={{ color: 'var(--error)' }} onClick={async () => {
@@ -172,6 +218,25 @@ export function GroupsPanel() {
                 }}><Icon name="front_hand" size={14} />Take over</button>
               )}
             </div>
+          )}
+          {g.topology === 'replicated' && g.replication.length > 0 && (
+            <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', marginTop: 4 }}>
+              {g.replication.filter(r => r.direction === 'out').map(r => (
+                <div key={r.peer + r.pool}>{r.pool} → {nm(r.peer)}: last replication {ago(r.last_ok_at)}{r.last_error ? ' (last attempt failed)' : ''}</div>
+              ))}
+              {g.replication.filter(r => r.direction === 'in').map(r => (
+                <div key={'in' + r.peer + r.pool}>{r.pool} from {nm(r.peer)}: last received {ago(r.last_ok_at)}</div>
+              ))}
+            </div>
+          )}
+          {g.role === 'standby' && g.replication.some(r => r.direction === 'in' && r.last_error.includes('changes') && !r.discard_ok) && (
+            <button className="btn btn-ghost btn-sm" style={{ color: 'var(--error)', marginTop: 6 }} onClick={async () => {
+              if (await confirm({
+                title: `Discard the changes on this node's copy of ${g.name}?`,
+                message: `This copy was changed after the last replication from ${nm(g.owner)} (for example while it was the owner during a network split). The next replication rolls it back to ${nm(g.owner)}'s data. Copy off anything you need first.`,
+                confirmLabel: 'Discard the changes here', danger: true,
+              })) discard.mutate(g.name)
+            }}><Icon name="restore" size={14} />Discard the changes here</button>
           )}
           {g.problems.length > 0 && (
             <ul style={{ color: 'var(--error)', fontSize: 'var(--text-sm)', margin: '6px 0 0' }}>{g.problems.map(p => <li key={p}>{p}</li>)}</ul>

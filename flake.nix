@@ -244,6 +244,14 @@
           frontendPackage = frontend;
         };
 
+        # Replicated storage groups (Design 0001 phase 3c).
+        #   nix build .#checks.x86_64-linux.replicated -L
+        checks.replicated = import ./nixos/tests/replicated.nix {
+          inherit nixpkgs system impermanence;
+          daemonPackage = daemon;
+          frontendPackage = frontend;
+        };
+
         devShells.default = pkgs.mkShell {
           buildInputs = with pkgs; [ go gcc musl.dev gopls gotools postgresql git ];
           shellHook = ''

@@ -73,7 +73,13 @@ Nothing is refused because a layer is missing; the card says what each missing l
 
 **Take over** (on a group, shown on a candidate when the owner is unreachable and automatic failover is off, e.g. two nodes without a third vote): use it only when the owner is switched off or disconnected from the disks. Multihost still refuses the import if it is not.
 
-Automatic failover of replicated groups and planned moves of replicated groups follow in a later step.
+### Replicated groups
+
+Each node of a replicated group has its own disks (any type) and its own pool with the same name; the copies on the other nodes stay **read-only**. The owner replicates every few minutes (set per group: this interval is the most data a failover can lose) by streaming `zfs send` to the other nodes over the same encrypted channel as configuration sync, so no SSH keys are needed. The group's line shows when each node last received a replication; **Replicate now** runs one immediately.
+
+- **Move to …**: the owner's copy becomes read-only, a final replication brings the target up to date, and the target's copy becomes the writable one; replication then runs from the new owner.
+- **Failover**: off by default for replicated groups, because changes since the last replication are lost. With *Fail over automatically* checked (and a third vote), another node takes over its copy after the fencing delay; otherwise *Take over* does it on request.
+- **Split copies**: a copy that was changed after the last replication it received (for example, a former owner that kept working during a network split) is never overwritten silently. Replication to that node stops, and its group line shows what happened with **Discard the changes here**: after copying off anything needed, that rolls the copy back to the owner's data and replication continues.
 
 **Limitations in this release:** clusters of two nodes plus a third vote (more nodes follow with storage groups); certificates of the third vote are exchanged over the node's HTTPS without checking its (usually self-signed) certificate, protected by the single-use code; automatic failover additionally still requires IPMI or PDU fencing until the fencing layers of phase 3c are in.
 

@@ -42,6 +42,11 @@ type Group struct {
 	Version    int64     `json:"version"`
 	UpdatedAt  time.Time `json:"updated_at"`
 	UpdatedBy  string    `json:"updated_by"`
+
+	// Replicated groups: replication interval, and whether the group may fail
+	// over automatically (data written since the last replication is lost).
+	IntervalSecs int  `json:"interval_secs"`
+	AutoFailover bool `json:"auto_failover"`
 }
 
 var nameRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$`)
@@ -63,7 +68,9 @@ func (g Group) Validate() error {
 	}
 	seen := map[string]bool{}
 	for _, p := range g.Pools {
-		if !poolRe.MatchString(p.Name) || !guidRe.MatchString(p.GUID) {
+		// Each node of a replicated group has its own copy (own GUID).
+		guidOK := guidRe.MatchString(p.GUID) || (g.Topology == Replicated && p.GUID == "")
+		if !poolRe.MatchString(p.Name) || !guidOK {
 			return fmt.Errorf("invalid pool %q (guid %q)", p.Name, p.GUID)
 		}
 		if seen[p.Name] {
@@ -201,7 +208,8 @@ func scan(rows *sql.Rows) ([]Group, error) {
 	for rows.Next() {
 		var g Group
 		var pools, cands []byte
-		if err := rows.Scan(&g.Name, &g.Topology, &pools, &cands, &g.Owner, &g.Epoch, &g.Version, &g.UpdatedAt, &g.UpdatedBy); err != nil {
+		if err := rows.Scan(&g.Name, &g.Topology, &pools, &cands, &g.Owner, &g.Epoch, &g.Version, &g.UpdatedAt, &g.UpdatedBy,
+			&g.IntervalSecs, &g.AutoFailover); err != nil {
 			return nil, err
 		}
 		if err := json.Unmarshal(pools, &g.Pools); err != nil {
@@ -215,7 +223,7 @@ func scan(rows *sql.Rows) ([]Group, error) {
 	return out, rows.Err()
 }
 
-const cols = `name, topology, pools, candidates, owner, epoch, version, updated_at, updated_by`
+const cols = `name, topology, pools, candidates, owner, epoch, version, updated_at, updated_by, interval_secs, auto_failover`
 
 // List returns all groups.
 func List(db *sql.DB) ([]Group, error) {
@@ -270,11 +278,15 @@ func put(db *sql.DB, g Group) error {
 	if g.UpdatedAt.IsZero() {
 		g.UpdatedAt = time.Now()
 	}
-	_, err := db.Exec(`INSERT INTO storage_groups (`+cols+`) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+	if g.IntervalSecs <= 0 {
+		g.IntervalSecs = 300
+	}
+	_, err := db.Exec(`INSERT INTO storage_groups (`+cols+`) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 		ON CONFLICT (name) DO UPDATE SET topology = EXCLUDED.topology, pools = EXCLUDED.pools,
 			candidates = EXCLUDED.candidates, owner = EXCLUDED.owner, epoch = EXCLUDED.epoch,
-			version = EXCLUDED.version, updated_at = EXCLUDED.updated_at, updated_by = EXCLUDED.updated_by`,
-		g.Name, g.Topology, pools, cands, g.Owner, g.Epoch, g.Version, g.UpdatedAt, g.UpdatedBy)
+			version = EXCLUDED.version, updated_at = EXCLUDED.updated_at, updated_by = EXCLUDED.updated_by,
+			interval_secs = EXCLUDED.interval_secs, auto_failover = EXCLUDED.auto_failover`,
+		g.Name, g.Topology, pools, cands, g.Owner, g.Epoch, g.Version, g.UpdatedAt, g.UpdatedBy, g.IntervalSecs, g.AutoFailover)
 	return err
 }
 

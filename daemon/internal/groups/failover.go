@@ -36,8 +36,10 @@ func planFailover(g Group, v View, lostSince, now time.Time) Decision {
 		return Decision{Action: "none"}
 	}
 	switch {
-	case g.Topology != Shared:
-		return Decision{Action: "none", Reason: "the owner is not reachable; automatic failover of replicated groups is not available yet"}
+	case g.Topology == Standalone:
+		return Decision{Action: "none"}
+	case g.Topology == Replicated && !g.AutoFailover:
+		return Decision{Action: "none", Reason: "the owner is not reachable; automatic failover is off for this replicated group (changes since the last replication would be lost). Take over manually after making sure the owner is off"}
 	case !v.AutoFailover:
 		return Decision{Action: "none", Reason: "the owner is not reachable; automatic failover is off: " + v.AutoFailoverReason + ". Take over manually after making sure the owner is off"}
 	case !v.FenceOK:
@@ -177,6 +179,29 @@ func (m *Manager) takeover(name, why string) error {
 	imported, err := m.ops.ImportedPools()
 	if err != nil {
 		return err
+	}
+	if g.Topology == Replicated {
+		// The copy here becomes the group's data: changes made on the old
+		// owner since the last replication are not in it (the GUI shows when
+		// the last replication was).
+		for _, p := range g.Pools {
+			if _, ok := imported[p.Name]; !ok {
+				return fmt.Errorf("pool %s (this node's copy) is not imported here", p.Name)
+			}
+			if err := m.repl.SetReadonly(p.Name, false); err != nil {
+				return err
+			}
+		}
+		ng := *g
+		ng.Owner, ng.Epoch, ng.UpdatedAt, ng.UpdatedBy = self, g.Epoch+1, time.Now(), self
+		if err := put(m.db, ng); err != nil {
+			return err
+		}
+		log.Printf("GROUPS: %s: %s, now owned by this node (epoch %d)", name, why, ng.Epoch)
+		for _, e := range m.pushAll(ng, g.Owner) {
+			log.Printf("GROUPS: %s: %v (retried by pulling)", name, e)
+		}
+		return nil
 	}
 	var done []PoolRef
 	for _, p := range g.Pools {

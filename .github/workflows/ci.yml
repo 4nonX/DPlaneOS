@@ -794,6 +794,10 @@ jobs:
         timeout-minutes: 60
         run: nix build .#checks.x86_64-linux.failover -L
 
+      - name: Run replicated storage groups VM test
+        timeout-minutes: 60
+        run: nix build .#checks.x86_64-linux.replicated -L
+
   # ════════════════════════════════════════════════════════════════════════════
   # STAGE 5: RELEASE - Professional Build & Publish
   # ════════════════════════════════════════════════════════════════════════════
