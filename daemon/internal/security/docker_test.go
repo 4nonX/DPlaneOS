@@ -56,3 +56,22 @@ func TestDockerCLI(t *testing.T) {
 		}
 	}
 }
+
+func TestGroupAddress(t *testing.T) {
+	if err := ValidateCommand("group_address", []string{"addr", "add", "192.168.1.50/24", "dev", "eth0"}); err != nil {
+		t.Error(err)
+	}
+	if err := ValidateCommand("group_arping", []string{"-U", "-c", "3", "-I", "eth0", "192.168.1.50"}); err != nil {
+		t.Error(err)
+	}
+	for _, a := range [][]string{
+		{"addr", "flush", "dev", "eth0"},
+		{"addr", "add", "192.168.1.50/24", "dev", "eth0", "label", "x"},
+		{"link", "set", "eth0", "down", "x"},
+		{"addr", "del", "nonsense", "dev", "eth0"},
+	} {
+		if ValidateCommand("group_address", a) == nil {
+			t.Errorf("%v accepted", a)
+		}
+	}
+}

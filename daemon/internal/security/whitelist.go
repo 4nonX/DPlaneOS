@@ -69,6 +69,16 @@ var CommandWhitelist = map[string]Command{
 		AllowedArgs: []string{"list", "-H", "-o", "name"},
 		Description: "List imported pool names",
 	},
+	"group_address": {
+		Name:        "group_address",
+		Path:        "ip",
+		Description: "Add or remove a storage group's floating address (validateGroupAddress)",
+	},
+	"group_arping": {
+		Name:        "group_arping",
+		Path:        "arping",
+		Description: "Gratuitous ARP for a storage group's floating address (validateGroupArping)",
+	},
 	"zpool_set_cachefile_none": {
 		Name:        "zpool_set_cachefile_none",
 		Path:        "zpool",
@@ -1129,6 +1139,10 @@ func ValidateCommand(cmdName string, args []string) error {
 		return validatePathBasedCommand(cmdName, args)
 	case "zpool_online", "zpool_add_cache", "zpool_add_log", "zpool_remove_device", "hdparm_check", "hdparm_spindown", "hdparm_status", "wipefs", "zpool_labelclear":
 		return validateDeviceBasedCommand(cmdName, args)
+	case "group_address":
+		return validateGroupAddress(args)
+	case "group_arping":
+		return validateGroupArping(args)
 	case "docker_compose":
 		return validateDockerCompose(args)
 	case "docker_cli":

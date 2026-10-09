@@ -132,6 +132,7 @@ type Manager struct {
 	ops  Ops
 	repl ReplOps
 	res  ResOps
+	addr AddrOps
 	tr   Transport
 	self func() string
 	view func() View
@@ -152,11 +153,12 @@ type Manager struct {
 	absentSince map[string]time.Time // members first seen not answering
 	ownerImport map[string]Decision  // why the owner has not imported (phase 3e)
 	uncached    map[string]bool
+	addrApplied map[string]string // group → "iface|cidr" put on this node
 }
 
 // NewManager wires the manager. view returns the current quorum view.
 func NewManager(db *sql.DB, ops Ops, tr Transport, self func() string, view func() View) *Manager {
-	return &Manager{db: db, ops: ops, repl: DefaultReplOps, res: DefaultResOps, tr: tr, self: self, view: view}
+	return &Manager{db: db, ops: ops, repl: DefaultReplOps, res: DefaultResOps, addr: DefaultAddrOps, tr: tr, self: self, view: view}
 }
 
 func (m *Manager) currentView() (View, error) {

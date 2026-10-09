@@ -307,6 +307,9 @@ func (m *Manager) deactivate(g Group) error {
 		return err
 	}
 	var errs []error
+	if err := m.holdAddress(g, false); err != nil {
+		errs = append(errs, err)
+	}
 	for _, s := range r.Stacks {
 		if running, err := m.res.StackRunning(s.Name); err == nil && !running {
 			continue
@@ -448,7 +451,14 @@ func (m *Manager) ActivateTick() {
 		var problems []string
 		if g.Owner == self {
 			if ok, _ := m.CanWritePool(g.Pools[0].Name); !ok {
-				continue // not serving (no quorum, pool missing): do not start apps
+				// Not serving (no quorum, pool missing): no apps, no address.
+				if err := m.holdAddress(g, false); err != nil {
+					log.Printf("GROUPS: %s: %v", g.Name, err)
+				}
+				continue
+			}
+			if err := m.holdAddress(g, true); err != nil {
+				problems = append(problems, "floating address: "+err.Error())
 			}
 			r, err := m.knownResources(g)
 			if err != nil {
@@ -471,6 +481,9 @@ func (m *Manager) ActivateTick() {
 				}
 			}
 		} else if g.IsCandidate(self) {
+			if err := m.holdAddress(g, false); err != nil {
+				problems = append(problems, "floating address: "+err.Error())
+			}
 			r, _ := loadResources(m.db, g.Name)
 			for _, s := range r.Stacks {
 				if running, err := m.res.StackRunning(s.Name); err == nil && running {

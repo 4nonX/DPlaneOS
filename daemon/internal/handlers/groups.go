@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -119,7 +121,7 @@ func (h *GroupsHandler) List(w http.ResponseWriter, r *http.Request) {
 		pools = append(pools, p)
 	}
 	respondOK(w, map[string]any{"success": true, "groups": st, "self": self, "names": names,
-		"members": members, "imported_pools": pools})
+		"members": members, "imported_pools": pools, "interfaces": addressInterfaces()})
 }
 
 // Create: POST /api/groups {name, topology, pools, candidates}
@@ -131,6 +133,8 @@ func (h *GroupsHandler) Create(w http.ResponseWriter, r *http.Request) {
 		Candidates   []string `json:"candidates"`
 		IntervalSecs int      `json:"interval_secs"`
 		AutoFailover bool     `json:"auto_failover"`
+		Address      string   `json:"address"`
+		Interface    string   `json:"interface"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
 		respondErrorSimple(w, "Invalid request", http.StatusBadRequest)
@@ -139,6 +143,46 @@ func (h *GroupsHandler) Create(w http.ResponseWriter, r *http.Request) {
 	g, err := h.mgr.CreateWith(b.Name, b.Topology, b.Pools, b.Candidates, b.IntervalSecs, b.AutoFailover)
 	if err != nil {
 		respondOK(w, map[string]any{"success": g != nil, "error": err.Error(), "group": g})
+		return
+	}
+	if b.Address != "" {
+		if g, err = h.mgr.SetAddress(b.Name, b.Address, b.Interface); err != nil {
+			respondOK(w, map[string]any{"success": true, "group": g, "warning": "group created, address not set: " + err.Error()})
+			return
+		}
+	}
+	respondOK(w, map[string]any{"success": true, "group": g})
+}
+
+// addressInterfaces lists the interfaces a floating address can go on.
+func addressInterfaces() []string {
+	out := []string{}
+	ifs, err := net.Interfaces()
+	if err != nil {
+		return out
+	}
+	for _, i := range ifs {
+		if i.Flags&net.FlagLoopback != 0 || i.Flags&net.FlagUp == 0 || strings.HasPrefix(i.Name, "veth") || strings.HasPrefix(i.Name, "docker") || strings.HasPrefix(i.Name, "br-") {
+			continue
+		}
+		out = append(out, i.Name)
+	}
+	return out
+}
+
+// SetAddress: PUT /api/groups/{name}/address {address, interface} (empty: none)
+func (h *GroupsHandler) SetAddress(w http.ResponseWriter, r *http.Request) {
+	var b struct {
+		Address   string `json:"address"`
+		Interface string `json:"interface"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
+		respondErrorSimple(w, "Invalid request", http.StatusBadRequest)
+		return
+	}
+	g, err := h.mgr.SetAddress(mux.Vars(r)["name"], strings.TrimSpace(b.Address), strings.TrimSpace(b.Interface))
+	if err != nil {
+		respondOK(w, map[string]any{"success": false, "error": err.Error()})
 		return
 	}
 	respondOK(w, map[string]any{"success": true, "group": g})

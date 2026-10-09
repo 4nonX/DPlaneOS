@@ -31,6 +31,8 @@ interface GroupStatus {
   auto_failover: boolean
   replication: { direction: 'out' | 'in'; peer: string; pool: string; last_snapshot: string; last_ok_at: string | null; last_error: string; discard_ok: boolean }[]
   resources?: { stacks: { name: string }[]; nvme: { subsystem_nqn: string; zvol: string }[] }
+  address?: string
+  interface?: string
 }
 
 function ago(iso: string | null) {
@@ -47,6 +49,7 @@ interface GroupsResponse {
   names: Record<string, string>
   members: { key: string; name: string }[]
   imported_pools: string[]
+  interfaces?: string[]
 }
 type Res = { success: boolean; error?: string }
 
@@ -65,11 +68,14 @@ function CreateGroup({ data }: { data: GroupsResponse }) {
   const [cands, setCands] = useState<string[]>(others.map(m => m.key))
   const [intervalMin, setIntervalMin] = useState(5)
   const [autoFailover, setAutoFailover] = useState(false)
+  const [address, setAddress] = useState('')
+  const [iface, setIface] = useState(data.interfaces?.[0] ?? '')
   const free = data.imported_pools.filter(p => !data.groups.some(g => g.pools.some(gp => gp.name === p)))
   const create = useMutation({
     mutationFn: async () => ensureOk(await api.post<Res>('/api/groups', {
       name, topology, pools, candidates: topology === 'standalone' ? [] : cands,
       interval_secs: intervalMin * 60, auto_failover: autoFailover,
+      address: topology === 'standalone' ? '' : address.trim(), interface: address.trim() ? iface : '',
     })),
     onSuccess: () => { toast.success(`Group ${name} created`); setName(''); setPools([]); qc.invalidateQueries({ queryKey: ['groups'] }) },
     onError: (e: Error) => toast.error(e.message),
@@ -117,9 +123,46 @@ function CreateGroup({ data }: { data: GroupsResponse }) {
           <p style={{ color: 'var(--text-tertiary)', margin: 0 }}>The other nodes need a pool with the same name; its contents are replaced by the first replication if it is empty.</p>
         </div>
       )}
+      {topology !== 'standalone' && (
+        <AddressFields address={address} setAddress={setAddress} iface={iface} setIface={setIface} interfaces={data.interfaces ?? []} />
+      )}
       <button className="btn btn-primary" style={{ alignSelf: 'flex-start' }} disabled={!name || pools.length === 0 || create.isPending} onClick={() => create.mutate()}>
         <Icon name="add" size={16} />Create group
       </button>
+    </div>
+  )
+}
+
+function AddressFields({ address, setAddress, iface, setIface, interfaces }: {
+  address: string; setAddress: (v: string) => void; iface: string; setIface: (v: string) => void; interfaces: string[]
+}) {
+  return (
+    <div style={{ fontSize: 'var(--text-sm)', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6 }}>
+      Floating address
+      <input className="input" style={{ width: 170 }} placeholder="192.168.1.50/24" value={address} onChange={e => setAddress(e.target.value)} aria-label="Floating address" />
+      on
+      <select className="input" style={{ width: 'auto' }} value={iface} onChange={e => setIface(e.target.value)} aria-label="Interface">
+        {interfaces.map(i => <option key={i} value={i}>{i}</option>)}
+      </select>
+      <span style={{ color: 'var(--text-tertiary)', flexBasis: '100%' }}>Optional. Clients use this address for the group's shares; it moves with the group. The interface needs the same name on every node.</span>
+    </div>
+  )
+}
+
+function AddressEditor({ g, interfaces, onDone }: { g: GroupStatus; interfaces: string[]; onDone: () => void }) {
+  const qc = useQueryClient()
+  const [address, setAddress] = useState(g.address ?? '')
+  const [iface, setIface] = useState(g.interface || interfaces[0] || '')
+  const save = useMutation({
+    mutationFn: async () => ensureOk(await api.put<Res>(`/api/groups/${encodeURIComponent(g.name)}/address`, { address: address.trim(), interface: address.trim() ? iface : '' })),
+    onSuccess: () => { toast.success('Address saved'); qc.invalidateQueries({ queryKey: ['groups'] }); onDone() },
+    onError: (e: Error) => toast.error(e.message),
+  })
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6, flexWrap: 'wrap' }}>
+      <AddressFields address={address} setAddress={setAddress} iface={iface} setIface={setIface} interfaces={interfaces} />
+      <button className="btn btn-primary btn-sm" disabled={save.isPending} onClick={() => save.mutate()}>Save</button>
+      <button className="btn btn-ghost btn-sm" onClick={onDone}>Cancel</button>
     </div>
   )
 }
@@ -128,6 +171,7 @@ export function GroupsPanel() {
   const qc = useQueryClient()
   const { confirm, ConfirmDialog } = useConfirm()
   const [creating, setCreating] = useState(false)
+  const [editingAddr, setEditingAddr] = useState('')
   const q = useQuery({
     queryKey: ['groups'],
     queryFn: ({ signal }) => api.get<GroupsResponse>('/api/groups', signal),
@@ -248,6 +292,14 @@ export function GroupsPanel() {
               })) discard.mutate(g.name)
             }}><Icon name="restore" size={14} />Discard the changes here</button>
           )}
+          {g.topology !== 'standalone' && (editingAddr === g.name
+            ? <AddressEditor g={g} interfaces={d.interfaces ?? []} onDone={() => setEditingAddr('')} />
+            : (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', marginTop: 6 }}>
+                <Icon name="lan" size={14} />Floating address: {g.address ? <strong>{g.address} on {g.interface}</strong> : 'none'}
+                {g.role === 'owner' && <button className="btn btn-ghost btn-sm" onClick={() => setEditingAddr(g.name)}>Change</button>}
+              </div>
+            ))}
           {g.resources && (g.resources.stacks.length > 0 || g.resources.nvme.length > 0) && (
             <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', marginTop: 6 }}>
               Runs on the owner only:{' '}

@@ -28,11 +28,10 @@ import (
 	"dplaned/internal/audit"
 	"dplaned/internal/bootstrap"
 	"dplaned/internal/configstore"
-	"dplaned/internal/groups"
-	"dplaned/internal/quorum"
 	"dplaned/internal/database"
 	"dplaned/internal/features"
 	"dplaned/internal/gitops"
+	"dplaned/internal/groups"
 	"dplaned/internal/ha"
 	"dplaned/internal/handlers"
 	"dplaned/internal/hardware"
@@ -42,6 +41,7 @@ import (
 	"dplaned/internal/networkdwriter"
 	"dplaned/internal/nixwriter"
 	"dplaned/internal/persistguard"
+	"dplaned/internal/quorum"
 	"dplaned/internal/reconciler"
 	"dplaned/internal/scram"
 	"dplaned/internal/secrets"
@@ -1049,6 +1049,7 @@ func main() {
 	r.Handle("/api/groups", permRoute("storage", "read", http.HandlerFunc(groupsH.List))).Methods("GET")
 	r.Handle("/api/groups", permRoute("storage", "admin", http.HandlerFunc(groupsH.Create))).Methods("POST")
 	r.Handle("/api/groups/{name}/move", permRoute("storage", "admin", http.HandlerFunc(groupsH.Move))).Methods("POST")
+	r.Handle("/api/groups/{name}/address", permRoute("storage", "admin", http.HandlerFunc(groupsH.SetAddress))).Methods("PUT")
 	r.Handle("/api/groups/{name}", permRoute("storage", "admin", http.HandlerFunc(groupsH.Remove))).Methods("DELETE")
 	r.Handle("/api/groups/{name}/takeover", permRoute("storage", "admin", http.HandlerFunc(groupsH.Takeover))).Methods("POST")
 	r.Handle("/api/groups/{name}/replicate", permRoute("storage", "admin", http.HandlerFunc(groupsH.ReplicateNow))).Methods("POST")
