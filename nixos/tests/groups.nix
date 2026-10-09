@@ -132,7 +132,12 @@ pkgs.testers.nixosTest {
             a.succeed("zfs create tank/data && echo hello > /mnt/tank/data/file")
 
         with subtest("Create a shared storage group on a; b receives it"):
-            ok(api(a, "POST", "/api/groups", {"name": "data", "topology": "shared", "pools": ["tank"], "candidates": [peer_b]}), "create group")
+            ok(api(a, "POST", "/api/groups", {"name": "data", "topology": "shared", "pools": ["tank"], "candidates": [peer_b],
+                                             "address": "192.168.1.100/24", "interface": "eth1"}), "create group")
+            # The floating address is on the owner only
+            a.wait_until_succeeds("ip -o addr show dev eth1 | grep -q 192.168.1.100/24", timeout=60)
+            b.fail("ip -o addr show dev eth1 | grep -q 192.168.1.100/24")
+            b.succeed("ping -c 1 -W 2 192.168.1.100")
             g = group(a)
             assert g["owner"] != peer_b and g["epoch"] == 1 and g["role"] == "owner" and g["can_write"], g
             b.wait_until_succeeds("curl -s http://localhost/api/groups -H 'X-Session-ID: %s' -H 'X-User: admin' | grep -q '\"name\":\"data\"'" % session["b"][0], timeout=60)
@@ -158,6 +163,9 @@ pkgs.testers.nixosTest {
             b.succeed("grep -q hello /mnt/tank/data/file")
             a.fail("zpool list tank")
             assert not running(a), "the app must stop on the old owner"
+            a.fail("ip -o addr show dev eth1 | grep -q 192.168.1.100/24")
+            b.wait_until_succeeds("ip -o addr show dev eth1 | grep -q 192.168.1.100/24", timeout=60)
+            a.succeed("ping -c 1 -W 2 192.168.1.100")
             b.wait_until_succeeds("docker ps --format '{{.Names}}' | grep -q heartbeat", timeout=120)
             beats(b)
             ga, gb = group(a), group(b)
