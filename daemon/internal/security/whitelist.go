@@ -69,6 +69,13 @@ var CommandWhitelist = map[string]Command{
 		AllowedArgs: []string{"list", "-H", "-o", "name"},
 		Description: "List imported pool names",
 	},
+	"zpool_set_cachefile_none": {
+		Name:        "zpool_set_cachefile_none",
+		Path:        "zpool",
+		AllowedArgs: []string{"set", "cachefile=none"},
+		ArgPatterns: []*regexp.Regexp{regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_.:-]{0,254}$`)},
+		Description: "Keep a shared storage-group pool out of the boot-time import",
+	},
 	"zpool_get_multihost": {
 		Name:        "zpool_get_multihost",
 		Path:        "zpool",
@@ -1840,9 +1847,15 @@ func ValidatePoolGUID(guid string) error {
 // validateZpoolImport enforces: import -d /dev/disk/by-id [-f] <guid> [new-name]
 func validateZpoolImport(args []string) error {
 	if len(args) < 4 || args[0] != "import" || args[1] != "-d" || args[2] != "/dev/disk/by-id" {
-		return fmt.Errorf("zpool import must be: import -d /dev/disk/by-id [-f] <guid> [new-name]")
+		return fmt.Errorf("zpool import must be: import -d /dev/disk/by-id [-o cachefile=none] [-f] <guid> [new-name]")
 	}
 	rest := args[3:]
+	if len(rest) >= 2 && rest[0] == "-o" && rest[1] == "cachefile=none" {
+		rest = rest[2:]
+	}
+	if len(rest) == 0 {
+		return fmt.Errorf("zpool import takes a GUID")
+	}
 	if rest[0] == "-f" {
 		rest = rest[1:]
 	}

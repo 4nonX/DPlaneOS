@@ -45,12 +45,17 @@ func (t GroupTransport) Push(node string, u groups.Update) error {
 	return configstore.CallPeer(t.DB, node, "POST", "/api/config/sync/peer/group", u, nil)
 }
 
-func (t GroupTransport) Fetch(node string) ([]groups.Group, error) {
+func (t GroupTransport) Fetch(node string) (groups.PeerView, error) {
 	var resp struct {
-		Groups []groups.Group `json:"groups"`
+		Groups   []groups.Group `json:"groups"`
+		Imported *[]string      `json:"imported"`
 	}
 	err := configstore.CallPeer(t.DB, node, "GET", "/api/config/sync/peer/groups", nil, &resp)
-	return resp.Groups, err
+	pv := groups.PeerView{Groups: resp.Groups}
+	if resp.Imported != nil {
+		pv.Imported, pv.HasImported = *resp.Imported, true
+	}
+	return pv, err
 }
 
 // RemoteSnapshots lists the replication snapshots of a pool on node.
@@ -302,5 +307,10 @@ func (h *GroupsHandler) PeerGroups(w http.ResponseWriter, r *http.Request) {
 		respondErrorSimple(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	respondOK(w, map[string]any{"success": true, "groups": gs})
+	imported, err := h.mgr.ImportedPoolNames()
+	if err != nil {
+		respondErrorSimple(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	respondOK(w, map[string]any{"success": true, "groups": gs, "imported": imported})
 }

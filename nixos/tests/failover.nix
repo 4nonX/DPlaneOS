@@ -37,6 +37,9 @@ let
     networking.hostId   = lib.mkForce hostId;
     boot.kernelParams = [ ];
     boot.kernelModules = [ "softdog" ];
+    # As on an installed node: the live image's import-all at boot is off, so
+    # only the owner's daemon imports the shared pool.
+    systemd.services.dplane-zfs-auto-import.enable = lib.mkForce false;
     systemd.services.systemd-random-seed.enable = false;
     virtualisation.cores = 2;
     virtualisation.memorySize = 2048;
@@ -186,6 +189,25 @@ pkgs.testers.nixosTest {
             assert ga["role"] == "standby", ga
             a.fail("zpool list tank")
             b.succeed("zpool list tank")
+            assert b.succeed("zpool get -H -o value cachefile tank").strip() == "none"
+
+        with subtest("The owner reboots: the boot does not import the pool; the daemon imports it once a confirms it does not use it"):
+            # a's API is unreachable from b (a stays in the cluster): b must wait.
+            block = ("iptables -I INPUT -p tcp --dport 80 -s $(getent ahostsv4 b | head -1 | cut -d' ' -f1) -j REJECT && "
+                     "{ ! getent ahostsv6 b >/dev/null || ip6tables -I INPUT -p tcp --dport 80 -s $(getent ahostsv6 b | head -1 | cut -d' ' -f1) -j REJECT; }")
+            a.succeed(block)
+            b.shutdown()
+            b.start()
+            b.wait_for_unit("dplaned.service")
+            b.wait_until_succeeds("curl -sf http://localhost/api/system/status >/dev/null", timeout=180)
+            login(b)
+            wait_for(lambda: any("does not answer" in p or "waiting for" in p for p in (group(b) or {}).get("problems", [])), "b waits for a", 120)
+            b.fail("zpool list tank")
+            a.succeed(block.replace("-I INPUT", "-D INPUT"))
+            b.wait_until_succeeds("zpool list tank", timeout=120)
+            b.succeed("journalctl -b -u dplaned | grep -q \"importing the pools of this node's group\"")
+            a.fail("zpool list tank")
+            wait_for(lambda: group(b)["can_write"], "b serves again", 60)
 
         with subtest("No daemon panics, security refusals or security warnings"):
             for m in (a, b):

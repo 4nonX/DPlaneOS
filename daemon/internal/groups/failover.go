@@ -154,7 +154,23 @@ func (m *Manager) Takeover(name string) (*Group, error) {
 		return nil, err
 	}
 	if g.Owner == v.Self {
-		return nil, errors.New("this node already owns the group")
+		// Import here: the owner imports its pools on request (it waits for
+		// the other candidates on its own; the operator knows they are off).
+		missing := false
+		for _, p := range g.Pools {
+			if !v.ImportedHere[p.Name] {
+				missing = true
+			}
+		}
+		if !missing || g.Topology != Shared {
+			return nil, errors.New("this node already owns the group")
+		}
+		log.Printf("GROUPS: %s: Import here requested by the operator", name)
+		if err := m.importOwned(*g); err != nil {
+			return nil, err
+		}
+		go m.ActivateTick()
+		return Get(m.db, name)
 	}
 	if !g.IsCandidate(v.Self) {
 		return nil, errors.New("this node is not a candidate of the group")

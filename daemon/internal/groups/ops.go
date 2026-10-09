@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -26,6 +27,8 @@ type Ops struct {
 	// ImportForce imports a pool the previous owner did not export (failover).
 	ImportForce func(guid string) error
 	Export      func(name string) error
+	// Uncache keeps a pool out of the boot-time import (cachefile=none).
+	Uncache func(name string) error
 }
 
 // DefaultOps use zpool through the command whitelist.
@@ -45,7 +48,7 @@ var DefaultOps = Ops{
 	},
 	Import: func(guid string) error {
 		rescanDisks()
-		out, err := cmdutil.RunSlow("zpool_import", "import", "-d", "/dev/disk/by-id", guid)
+		out, err := cmdutil.RunSlow("zpool_import", "import", "-d", "/dev/disk/by-id", "-o", "cachefile=none", guid)
 		if err != nil {
 			return fmt.Errorf("zpool import %s: %v: %s", guid, err, bytes.TrimSpace(out))
 		}
@@ -53,13 +56,20 @@ var DefaultOps = Ops{
 	},
 	ImportForce: func(guid string) error {
 		rescanDisks()
-		out, err := cmdutil.RunSlow("zpool_import", "import", "-d", "/dev/disk/by-id", "-f", guid)
+		out, err := cmdutil.RunSlow("zpool_import", "import", "-d", "/dev/disk/by-id", "-o", "cachefile=none", "-f", guid)
 		if err != nil {
 			return fmt.Errorf("zpool import -f %s: %v: %s", guid, err, bytes.TrimSpace(out))
 		}
 		return nil
 	},
 	Export: func(name string) error { return libzfs.PoolExport(name, false) },
+	Uncache: func(name string) error {
+		out, err := cmdutil.RunFast("zpool_set_cachefile_none", "set", "cachefile=none", name)
+		if err != nil {
+			return fmt.Errorf("zpool set cachefile=none %s: %v: %s", name, err, bytes.TrimSpace(out))
+		}
+		return nil
+	},
 }
 
 // rescanDisks prepares an import of a pool another node used: it drops the
@@ -106,7 +116,7 @@ type Update struct {
 // Transport reaches the other members (paired-node channel).
 type Transport interface {
 	Push(node string, u Update) error
-	Fetch(node string) ([]Group, error)
+	Fetch(node string) (PeerView, error)
 	Members() []string // node keys of the cluster members (self included)
 	// Replicated groups: the replication snapshots of a pool on node, and
 	// sending a zfs stream to it.
@@ -139,6 +149,9 @@ type Manager struct {
 	decisions   map[string]Decision
 	resProblems map[string][]string
 	exportsHash string
+	absentSince map[string]time.Time // members first seen not answering
+	ownerImport map[string]Decision  // why the owner has not imported (phase 3e)
+	uncached    map[string]bool
 }
 
 // NewManager wires the manager. view returns the current quorum view.
@@ -186,6 +199,9 @@ func (m *Manager) Statuses() ([]GroupStatus, error) {
 		m.fmu.Lock()
 		gs.Problems = append(gs.Problems, m.resProblems[g.Name]...)
 		m.fmu.Unlock()
+		if d := m.ownerImportDecision(g.Name); d.Reason != "" && d.Action != "import" {
+			gs.Problems = append(gs.Problems, "Pools not imported: "+d.Reason)
+		}
 		if g.Topology == Replicated {
 			gs.Replication, _ = replStates(m.db, g.Name)
 			for _, r := range gs.Replication {
@@ -529,15 +545,25 @@ func (m *Manager) RemoveGroup(name string) error {
 // how a node that missed a change (partition, restart) learns it.
 func (m *Manager) SyncOnce() error {
 	var errs []error
+	peers := map[string]peerSeen{}
 	for _, n := range m.tr.Members() {
 		if n == m.self() {
 			continue
 		}
-		gs, err := m.tr.Fetch(n)
+		pv, err := m.tr.Fetch(n)
 		if err != nil {
+			peers[n] = peerSeen{}
 			continue // unreachable members are normal during a partition
 		}
-		for _, g := range gs {
+		ps := peerSeen{Reached: true}
+		if pv.HasImported {
+			ps.Imported = map[string]bool{}
+			for _, p := range pv.Imported {
+				ps.Imported[p] = true
+			}
+		}
+		peers[n] = ps
+		for _, g := range pv.Groups {
 			m.mu.Lock()
 			err := m.adopt(g)
 			m.mu.Unlock()
@@ -554,7 +580,34 @@ func (m *Manager) SyncOnce() error {
 			}
 		}
 	}
+	// Candidates of this node's groups that are not cluster members (yet)
+	// count as not answering.
+	if gs, err := List(m.db); err == nil {
+		for _, g := range gs {
+			for _, c := range g.Candidates {
+				if _, ok := peers[c]; !ok && c != m.self() {
+					peers[c] = peerSeen{}
+				}
+			}
+		}
+	}
+	m.reconcileOwned(peers)
 	return errors.Join(errs...)
+}
+
+// ImportedPoolNames lists the pools imported on this node (reported to the
+// other members so an owner knows nobody else uses its pools).
+func (m *Manager) ImportedPoolNames() ([]string, error) {
+	imported, err := m.ops.ImportedPools()
+	if err != nil {
+		return nil, err
+	}
+	out := make([]string, 0, len(imported))
+	for name := range imported {
+		out = append(out, name)
+	}
+	sort.Strings(out)
+	return out, nil
 }
 
 // Start pulls from the members every interval.

@@ -189,6 +189,15 @@ export function GroupsPanel() {
               ? <span className="badge badge-success">Serving</span>
               : <span className="badge badge-error">Not serving</span>)}
             <span style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
+              {g.role === 'owner' && g.topology === 'shared' && g.problems.some(p => p.startsWith('Pools not imported')) && (
+                <button className="btn btn-ghost btn-sm" disabled={takeover.isPending} onClick={async () => {
+                  if (await confirm({
+                    title: `Import the pools of ${g.name} here?`,
+                    message: `Only do this when the other nodes of the group are switched off or disconnected from the disks: two nodes must never use the pools at the same time. ZFS multihost still refuses the import if another node is in fact using them.`,
+                    confirmLabel: 'The other nodes are off - import', danger: true,
+                  })) takeover.mutate(g.name)
+                }}><Icon name="download" size={14} />Import here</button>
+              )}
               {g.role === 'owner' && g.topology === 'replicated' && (
                 <button className="btn btn-ghost btn-sm" disabled={replicate.isPending} onClick={() => replicate.mutate(g.name)}>
                   <Icon name="sync" size={14} />Replicate now
