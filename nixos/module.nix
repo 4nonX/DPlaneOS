@@ -105,6 +105,18 @@ in {
       '';
     };
 
+    database.fromPatroni = lib.mkOption {
+      type    = lib.types.bool;
+      default = false;
+      description = ''
+        The local PostgreSQL runs on the data directory Patroni left behind when
+        this node moved off the shared HA database (set by the daemon's
+        migration, Design 0001 phase 3e). Keeps PostgreSQL 15 (the version
+        Patroni ran) and, on first start, turns the former Patroni member into
+        this node's own database with its own identity.
+      '';
+    };
+
     database.createLocally = lib.mkOption {
       type    = lib.types.bool;
       default = !cfg.ha.enable;
@@ -381,6 +393,94 @@ in {
       '';
       authentication = lib.mkBefore ''
         local dplaneos dplaneos peer map=dplaneos
+      '';
+    };
+
+    # ─── Database left behind by Patroni (migration off the shared database) ──
+    # Patroni ran PostgreSQL 15 on dbPath on both nodes; each copy becomes that
+    # node's own database. A former standby must be allowed to finish recovery
+    # (settings at least as large as the old primary's) and must not wait for
+    # a primary that no longer exists (standby.signal).
+    services.postgresql.package = lib.mkIf (cfg.database.createLocally && cfg.database.fromPatroni)
+      (lib.mkDefault pkgs.postgresql_15);
+    services.postgresql.settings = lib.mkIf (cfg.database.createLocally && cfg.database.fromPatroni) {
+      max_connections = lib.mkDefault 200;
+    };
+    systemd.services.dplaneos-patroni-adopt = lib.mkIf (cfg.database.createLocally && cfg.database.fromPatroni) {
+      description = "DPlaneOS: take over the database Patroni left behind";
+      before      = [ "postgresql.service" ];
+      requiredBy  = [ "postgresql.service" ];
+      serviceConfig = { Type = "oneshot"; RemainAfterExit = true; };
+      script = ''
+        d=${lib.escapeShellArg cfg.dbPath}
+        [ -e "$d/patroni.dynamic.json" ] || exit 0
+        echo "DPlaneOS: $d was managed by Patroni; preparing it as this node's own database"
+        rm -f "$d/standby.signal" "$d/recovery.signal"
+        chown -R postgres:postgres "$d"
+      '';
+    };
+    systemd.services.dplaneos-patroni-split = lib.mkIf (cfg.database.createLocally && cfg.database.fromPatroni) {
+      description = "DPlaneOS: give this node's copy of the former shared database its own identity";
+      after       = [ "postgresql.service" "postgresql-setup.service" ];
+      requires    = [ "postgresql.service" ];
+      before      = [ "dplaned.service" ];
+      wantedBy    = [ "multi-user.target" ];
+      path        = [ config.services.postgresql.package pkgs.coreutils ];
+      serviceConfig = { Type = "oneshot"; RemainAfterExit = true; User = "postgres"; };
+      script = ''
+        set -eu
+        d=${lib.escapeShellArg cfg.dbPath}
+        [ -e "$d/patroni.dynamic.json" ] || exit 0
+        mid=$(head -c 8 /etc/machine-id)
+        # The plan written before the switch (ha_split_nodes) holds this node's
+        # new configuration identity and how to reach the other node. Without a
+        # plan (Patroni turned off by hand) the copy only gets a new identity.
+        psql -v ON_ERROR_STOP=1 -v mid="$mid" -d dplaneos -f ${pkgs.writeText "dplaneos-patroni-split.sql" ''
+          BEGIN;
+          SELECT to_regclass('ha_split_nodes') IS NOT NULL AS has_plan_table \gset
+          SELECT to_regclass('ha_nodes') IS NOT NULL AS has_ha_nodes \gset
+          SELECT false AS planned \gset
+          \if :has_plan_table
+            SELECT EXISTS (SELECT 1 FROM ha_split_nodes WHERE machine_id = :'mid') AS planned \gset
+          \endif
+          \if :planned
+            INSERT INTO settings (key, value)
+              SELECT 'config_node_id', config_node_id FROM ha_split_nodes WHERE machine_id = :'mid'
+              ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value;
+            INSERT INTO config_peers (id, name, url, secret, tls_fingerprint)
+              SELECT n.config_node_id, n.hostname, n.url, s.secret, '''
+              FROM ha_split_nodes n CROSS JOIN ha_split s WHERE n.machine_id <> :'mid'
+              ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, url = EXCLUDED.url, secret = EXCLUDED.secret,
+                tls_fingerprint = ''', cursor = 0, served_cursor = 0, unreachable_since = NULL, last_error = ''';
+            UPDATE ha_split_nodes SET status = 'split', updated_at = NOW() WHERE machine_id = :'mid';
+          \else
+            DELETE FROM settings WHERE key = 'config_node_id';
+          \endif
+          DELETE FROM settings WHERE key = 'config_node_mode';
+          \if :has_ha_nodes
+            DELETE FROM ha_nodes WHERE node_id <> :'mid';
+          \endif
+          COMMIT;
+        ''}
+        mv "$d/patroni.dynamic.json" "$d/patroni.dynamic.json.migrated"
+        echo "DPlaneOS: this node now has its own database"
+      '';
+    };
+
+    # ─── Applying the NixOS configuration from the daemon ────────────────────
+    # A unit of its own, so that a switch which restarts dplaned (as leaving the
+    # shared database does) is not killed with it.
+    systemd.services.dplaneos-apply-config = {
+      description      = "DPlaneOS: apply the NixOS configuration (started by dplaned)";
+      restartIfChanged = false;
+      path             = [ config.system.build.nixos-rebuild config.nix.package pkgs.git pkgs.coreutils ];
+      environment.NIX_PATH = lib.concatStringsSep ":" config.nix.nixPath;
+      serviceConfig.Type = "oneshot";
+      script = ''
+        if [ -e /etc/nixos/flake.nix ]; then
+          exec nixos-rebuild switch --flake /etc/nixos#dplaneos
+        fi
+        exec nixos-rebuild switch
       '';
     };
 

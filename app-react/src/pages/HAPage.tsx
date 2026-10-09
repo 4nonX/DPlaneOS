@@ -36,6 +36,7 @@ import { useState, useEffect, useRef } from 'react'
 import { QuorumPanel } from '@/components/ha/QuorumPanel'
 import { GroupsPanel } from '@/components/ha/GroupsPanel'
 import { ProtectionCard } from '@/components/ha/ProtectionCard'
+import { SplitPanel } from '@/components/ha/SplitPanel'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { Icon } from '@/components/ui/Icon'
@@ -2409,6 +2410,7 @@ export function HAPage() {
         </div>
       </div>
 
+      <SplitPanel />
       <QuorumPanel />
       <ProtectionCard />
       <GroupsPanel />

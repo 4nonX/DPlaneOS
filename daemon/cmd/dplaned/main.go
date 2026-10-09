@@ -1050,6 +1050,13 @@ func main() {
 	r.Handle("/api/groups", permRoute("storage", "admin", http.HandlerFunc(groupsH.Create))).Methods("POST")
 	r.Handle("/api/groups/{name}/move", permRoute("storage", "admin", http.HandlerFunc(groupsH.Move))).Methods("POST")
 	r.Handle("/api/groups/{name}/address", permRoute("storage", "admin", http.HandlerFunc(groupsH.SetAddress))).Methods("PUT")
+
+	// Phase 3e: moving an HA pair off the shared Patroni database.
+	splitH := handlers.NewHASplitHandler(db, quorumH, groupMgr)
+	splitH.StartWatcher(5 * time.Second)
+	r.Handle("/api/ha/split", permRoute("system", "read", http.HandlerFunc(splitH.Status))).Methods("GET")
+	r.Handle("/api/ha/split", permRoute("system", "admin", http.HandlerFunc(splitH.Start))).Methods("POST")
+	r.Handle("/api/ha/split/cancel", permRoute("system", "admin", http.HandlerFunc(splitH.Cancel))).Methods("POST")
 	r.Handle("/api/groups/{name}", permRoute("storage", "admin", http.HandlerFunc(groupsH.Remove))).Methods("DELETE")
 	r.Handle("/api/groups/{name}/takeover", permRoute("storage", "admin", http.HandlerFunc(groupsH.Takeover))).Methods("POST")
 	r.Handle("/api/groups/{name}/replicate", permRoute("storage", "admin", http.HandlerFunc(groupsH.ReplicateNow))).Methods("POST")

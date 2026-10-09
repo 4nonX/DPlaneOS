@@ -103,6 +103,9 @@ type DPlaneState struct {
 
 	// ── High Availability ──────────────────────────────────────────────────────
 	HAEnable bool `json:"ha_enable,omitempty"`
+	// DBFromPatroni: the node-local PostgreSQL runs on the data directory
+	// Patroni left behind (Design 0001 phase 3e: migration off Patroni).
+	DBFromPatroni bool `json:"db_from_patroni,omitempty"`
 
 	// ── Active Directory / IDMAP ───────────────────────────────────────────────
 	// WinbindEnable activates the winbindd service and configures Samba for
@@ -594,6 +597,16 @@ func (w *Writer) SetHA(enable bool) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	w.state.HAEnable = enable
+	return w.flushLocked()
+}
+
+// LeavePatroni disables the Patroni/HAProxy stack and keeps the database
+// Patroni managed as this node's own (phase 3e migration).
+func (w *Writer) LeavePatroni() error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.state.HAEnable = false
+	w.state.DBFromPatroni = true
 	return w.flushLocked()
 }
 
