@@ -376,36 +376,41 @@ in {
     # ─── Local PostgreSQL (non-HA) ─────────────────────────────────────
     # Without HA nothing else provides the daemon's database. Data lives in
     # dbPath (under /var/lib/dplaneos, persisted by impermanence).
-    services.postgresql = lib.mkIf cfg.database.createLocally {
-      enable          = true;
-      # Above nixpkgs' mkDefault (/var/lib/postgresql/<ver>), below a plain user setting.
-      dataDir         = lib.mkOverride 900 cfg.dbPath;
-      ensureDatabases = [ "dplaneos" ];
-      ensureUsers     = [ {
-        name = "dplaneos";
-        ensureDBOwnership = true;
-        ensureClauses.createdb = true;
-      } ];
-      # dplaned runs as root and connects as role dplaneos over the socket.
-      identMap = ''
-        dplaneos root     dplaneos
-        dplaneos dplaneos dplaneos
-      '';
-      authentication = lib.mkBefore ''
-        local dplaneos dplaneos peer map=dplaneos
-      '';
-    };
+    services.postgresql = lib.mkMerge [
+      (lib.mkIf cfg.database.createLocally {
+        enable          = true;
+        # Above nixpkgs' mkDefault (/var/lib/postgresql/<ver>), below a plain user setting.
+        dataDir         = lib.mkOverride 900 cfg.dbPath;
+        ensureDatabases = [ "dplaneos" ];
+        ensureUsers     = [ {
+          name = "dplaneos";
+          ensureDBOwnership = true;
+          ensureClauses.createdb = true;
+        } ];
+        # dplaned runs as root and connects as role dplaneos over the socket.
+        identMap = ''
+          dplaneos root     dplaneos
+          dplaneos dplaneos dplaneos
+        '';
+        authentication = lib.mkBefore ''
+          local dplaneos dplaneos peer map=dplaneos
+        '';
+      })
+      # Database left behind by Patroni: PostgreSQL 15 (the version Patroni
+      # ran); a former standby needs settings at least as large as the old
+      # primary's to finish recovery.
+      (lib.mkIf (cfg.database.createLocally && cfg.database.fromPatroni) {
+        package = lib.mkDefault pkgs.postgresql_15;
+        settings.max_connections = lib.mkDefault 200;
+      })
+    ];
 
     # ─── Database left behind by Patroni (migration off the shared database) ──
     # Patroni ran PostgreSQL 15 on dbPath on both nodes; each copy becomes that
     # node's own database. A former standby must be allowed to finish recovery
     # (settings at least as large as the old primary's) and must not wait for
     # a primary that no longer exists (standby.signal).
-    services.postgresql.package = lib.mkIf (cfg.database.createLocally && cfg.database.fromPatroni)
-      (lib.mkDefault pkgs.postgresql_15);
-    services.postgresql.settings = lib.mkIf (cfg.database.createLocally && cfg.database.fromPatroni) {
-      max_connections = lib.mkDefault 200;
-    };
+    # (merged into services.postgresql above)
     systemd.services.dplaneos-patroni-adopt = lib.mkIf (cfg.database.createLocally && cfg.database.fromPatroni) {
       description = "DPlaneOS: take over the database Patroni left behind";
       before      = [ "postgresql.service" ];
