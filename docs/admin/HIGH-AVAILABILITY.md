@@ -55,6 +55,10 @@ Exactly one node **owns** a group. The **epoch** shown next to the owner increas
 
 **Move to …** (owner only, shared storage) hands a group over: the pools are exported here and imported on the other node; if that node cannot import them, the pools come back. A move takes about half a minute: ZFS multihost checks during the import that no other node still writes to the pool.
 
+**Floating address.** A shared or replicated group can have an address (for example `192.168.1.50/24` on `eth0`) that clients use for its shares and exports. The owner holds it while it serves the group and announces it on the network when it takes it over; the other nodes never hold it, and a move removes it before the pools are released. Set it when creating the group, or with *Change* on the owner. The interface needs the same name on every node.
+
+**Shared pools after a restart.** The boot does not import the pools of a shared group: on shared disks it cannot know which node owns them. The owner's daemon imports them once the other nodes have confirmed they do not use them, or, if a node does not answer, once that node has left the cluster and the fencing delay has passed (its watchdog reset it). Until then the group's line says what it waits for; **Import here** imports them on request when you know the other nodes are off.
+
 ### Automatic failover and how the setup is protected
 
 The card **How this setup is protected** lists each protection layer, what it adds, and what is missing on your hardware:
@@ -95,6 +99,16 @@ Container images must be available on every node of the group (from a registry, 
 **Limitations in this release:** clusters of two nodes plus a third vote (more nodes follow with storage groups); certificates of the third vote are exchanged over the node's HTTPS without checking its (usually self-signed) certificate, protected by the single-use code.
 
 ---
+
+### Leaving the shared database (Patroni)
+
+HA pairs set up with earlier versions keep their configuration in one PostgreSQL database replicated by Patroni (with etcd, HAProxy and keepalived). A node cut off from that database cannot save changes. The **Leave the shared database** card on the HA page moves such a pair to the model above; nothing has to be reinstalled:
+
+1. Open the card on the node that has the pools imported. It checks the Patroni cluster (two members, one replicating), lists the pools and reads the floating address from keepalived. Choose the group name, the topology (shared disks or replicated) and the pools, then start.
+2. The other node confirms, then switches first: once its copy of the database has caught up, it applies a NixOS configuration without Patroni, etcd, HAProxy and keepalived and starts PostgreSQL 15 on its copy. Then this node does the same. Each daemon restarts once; pools stay imported and shares keep running.
+3. Each copy gets its own configuration identity and is paired with the other node (configuration sync, as if they had been paired with a join code). This node then forms the Corosync cluster and creates the storage group with the floating address.
+
+The floating address is gone for a few seconds between keepalived stopping and the storage group taking it over. Until a third vote is added again (the cluster panel shows the one command for the old witness machine or any other DPlaneOS system), failover is manual (*Take over*). Both nodes need the same secrets key, which an HA pair already has. The local PostgreSQL stays at version 15, the version Patroni ran; going back to Patroni means setting it up again.
 
 ## Deployment Topologies
 

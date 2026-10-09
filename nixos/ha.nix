@@ -291,6 +291,14 @@ bootstrap:
     - host replication replicator ${cfg.peerAddress}/32 md5
     - host replication replicator 127.0.0.1/32 md5
     - host all all 127.0.0.1/32 trust
+    # dplaned on either node reaches the primary through its local HAProxy,
+    # which connects from the node's own address.
+    - host dplaneos dplaneos ${cfg.localAddress}/32 trust
+    - host dplaneos dplaneos ${cfg.peerAddress}/32 trust
+  # The daemon's role and database (dbDSN connects as dplaneos).
+  post_bootstrap: ${pkgs.writeShellScript "dplaneos-patroni-post-bootstrap" ''
+    ${pkgs.postgresql_15}/bin/psql "$1" -v ON_ERROR_STOP=1       -c "CREATE ROLE dplaneos LOGIN CREATEDB" -c "CREATE DATABASE dplaneos OWNER dplaneos"
+  ''}
 
 postgresql:
   listen: 0.0.0.0:5432

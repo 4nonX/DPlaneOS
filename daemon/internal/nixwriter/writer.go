@@ -610,6 +610,15 @@ func (w *Writer) LeavePatroni() error {
 	return w.flushLocked()
 }
 
+// UndoLeavePatroni restores the state before LeavePatroni (the switch failed).
+func (w *Writer) UndoLeavePatroni(haEnable bool) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.state.HAEnable = haEnable
+	w.state.DBFromPatroni = false
+	return w.flushLocked()
+}
+
 // ── IDMAP / AD setter ─────────────────────────────────────────────────────────
 
 var validIDMAPBackends = map[string]bool{

@@ -252,6 +252,14 @@
           frontendPackage = frontend;
         };
 
+        # Moving an HA pair off the shared Patroni database (Design 0001 phase 3e).
+        #   nix build .#checks.x86_64-linux.ha-migrate -L
+        checks.ha-migrate = import ./nixos/tests/ha-migrate.nix {
+          inherit nixpkgs system impermanence;
+          daemonPackage = daemon;
+          frontendPackage = frontend;
+        };
+
         devShells.default = pkgs.mkShell {
           buildInputs = with pkgs; [ go gcc musl.dev gopls gotools postgresql git ];
           shellHook = ''

@@ -40,7 +40,15 @@ type HASplitHandler struct {
 
 	mu       sync.Mutex
 	launched bool   // the NixOS switch was started by this process
+	prevHA   bool   // ha_enable before the switch (restored if it fails)
 	status   string // last progress message of the watcher
+}
+
+// onSharedDatabase: Patroni runs on this node. (The NixOS state cannot tell:
+// it changes before the switch has happened.)
+func onSharedDatabase() bool {
+	_, err := patroniGet("/patroni")
+	return err == nil
 }
 
 func NewHASplitHandler(db *sql.DB, q *QuorumHandler, gm *groups.Manager) *HASplitHandler {
@@ -241,8 +249,8 @@ func (h *HASplitHandler) preflight() splitPreflight {
 		pf.Problems = append(pf.Problems, "this system is not a DPlaneOS NixOS appliance")
 		return pf
 	}
-	if !NixWriter.State().HAEnable {
-		pf.Problems = append(pf.Problems, "this node does not use the shared database")
+	if !onSharedDatabase() {
+		pf.Problems = append(pf.Problems, "this node does not use the shared database (Patroni is not running here)")
 		return pf
 	}
 	_, me, other, problems, err := patroniView()
@@ -282,7 +290,7 @@ func (h *HASplitHandler) Status(w http.ResponseWriter, r *http.Request) {
 		respondErrorSimple(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	shared := NixWriter != nil && NixWriter.State().HAEnable
+	shared := NixWriter != nil && onSharedDatabase()
 	out := map[string]any{"success": true, "shared_database": shared, "plan": plan, "nodes": nodes, "self": LocalNodeID()}
 	if shared && (plan == nil || plan.State == "cancelled") {
 		out["preflight"] = h.preflight()
@@ -432,7 +440,7 @@ func (h *HASplitHandler) Tick() {
 			other = &nodes[i]
 		}
 	}
-	if NixWriter.State().HAEnable {
+	if onSharedDatabase() {
 		h.onShared(plan, me, other)
 		return
 	}
@@ -516,13 +524,14 @@ func (h *HASplitHandler) launchSwitch(me *splitNode) {
 		h.mu.Unlock()
 		if state := applyUnitState(); strings.Contains(state, "failed") {
 			h.progress("applying the new configuration failed (journalctl -u dplaneos-apply-config); this node stays on the shared database")
-			if err := NixWriter.SetHA(true); err == nil {
+			if err := NixWriter.UndoLeavePatroni(h.prevHA); err == nil {
 				setNodeStatus(h.db, me.MachineID, "failed", "nixos-rebuild failed: see journalctl -u dplaneos-apply-config")
 			}
 		}
 		return
 	}
 	h.launched = true
+	h.prevHA = NixWriter.State().HAEnable
 	h.mu.Unlock()
 	if err := NixWriter.LeavePatroni(); err != nil {
 		h.progress("writing the NixOS state: " + err.Error())
@@ -534,7 +543,7 @@ func (h *HASplitHandler) launchSwitch(me *splitNode) {
 	h.progress("applying the configuration without the shared database (this restarts the daemon)")
 	if out, err := cmdutil.RunFast("systemctl_apply_config", "start", "--no-block", "dplaneos-apply-config.service"); err != nil {
 		h.progress(fmt.Sprintf("starting dplaneos-apply-config: %v: %s", err, strings.TrimSpace(string(out))))
-		_ = NixWriter.SetHA(true)
+		_ = NixWriter.UndoLeavePatroni(h.prevHA)
 		h.mu.Lock()
 		h.launched = false
 		h.mu.Unlock()

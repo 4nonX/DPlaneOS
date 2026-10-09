@@ -798,6 +798,10 @@ jobs:
         timeout-minutes: 60
         run: nix build .#checks.x86_64-linux.replicated -L
 
+      - name: Run migration off the shared Patroni database VM test
+        timeout-minutes: 75
+        run: nix build .#checks.x86_64-linux.ha-migrate -L
+
   # ════════════════════════════════════════════════════════════════════════════
   # STAGE 5: RELEASE - Professional Build & Publish
   # ════════════════════════════════════════════════════════════════════════════
