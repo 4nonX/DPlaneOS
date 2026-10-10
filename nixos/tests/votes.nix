@@ -136,7 +136,12 @@ pkgs.testers.nixosTest {
                 votes(m, 3)
             v.wait_until_succeeds("systemctl is-active corosync")
             v.succeed("systemctl list-timers | grep -q dplaneos-voter-sync")
-            st = api(a, "GET", "/api/quorum/status")
+            # The quorum monitor refreshes every few seconds: poll.
+            for _ in range(30):
+                st = api(a, "GET", "/api/quorum/status")
+                if st["info"]["auto_failover"] is True and "2Node" not in (st["status"]["flags"] or []):
+                    break
+                a.sleep(2)
             names = {n["name"]: n for n in st["cluster"]["nodes"]}
             assert names["v"].get("voter") is True and "2Node" not in (st["status"]["flags"] or []), st
             assert st["info"]["auto_failover"] is True, st["info"]

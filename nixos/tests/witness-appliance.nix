@@ -91,7 +91,14 @@ pkgs.testers.nixosTest {
             w.wait_for_unit("corosync-qnetd.service")
             for m in (a, b):
                 m.wait_until_succeeds("(corosync-quorumtool -s || true) | grep -q 'Total votes: *3'", timeout=120)
-            assert api(a, "GET", "/api/quorum/status")["info"]["auto_failover"] is True
+            # The quorum monitor refreshes every few seconds: poll, do not
+            # read its snapshot once right after the vote arrived.
+            for _ in range(30):
+                if api(a, "GET", "/api/quorum/status")["info"]["auto_failover"] is True:
+                    break
+                a.sleep(2)
+            else:
+                raise Exception("auto_failover did not turn on with three votes")
             out = w.succeed("dplaneos-witness status")
             assert "QDevice" in out, out
 
