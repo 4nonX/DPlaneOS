@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -433,13 +432,12 @@ func rsyncArgs(opts, src, dst string) ([]string, error) {
 	if srcRemote || dstRemote {
 		args = append(args, "-e", security.RsyncSSH)
 	}
-	args = append(args, s, d)
-	if runtime.GOOS == "linux" {
-		if err := security.ValidateCommand("rsync", args); err != nil {
-			return nil, err
-		}
+	// The options, checked here for a clear 400 (the paths were resolved
+	// above; the whole command is validated again when it runs).
+	if err := security.ValidateCommand("rsync", append(append([]string{}, args...), "/mnt/a", "/mnt/b")); err != nil {
+		return nil, err
 	}
-	return args, nil
+	return append(args, s, d), nil
 }
 
 // POST /api/backup/rsync/cron-hook
