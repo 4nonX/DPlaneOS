@@ -28,6 +28,12 @@ interface against the fields its handler reads
 
 ### Security
 
+- First-run setup: /api/system/setup-admin replaced the admin password
+  even when the installer had set one, so anyone on the network could take
+  the account over until setup was finished; /api/system/setup-complete
+  needed no login at all (and set the hostname). The admin password is
+  never overwritten now, and finishing setup needs the admin session.
+
 - Password resets and account creation ignored the role hierarchy: a
   non-admin user manager could reset an admin's password or create an
   admin. Nobody can raise their own role.
@@ -67,6 +73,9 @@ interface against the fields its handler reads
 - Concurrent storage operations on one target could both start
   (migration 00024 enforces one pending operation per target).
 - A double-submitted 2FA login returned a session id that did not exist.
+- The setup wizard could not list disks or create a pool (both need a
+  session it never had). It logs in after creating the admin account, or
+  asks for the password chosen during installation.
 - User and group management in the web interface did not work: the API
   requires the signed-in admin's current password for these changes and
   the Users page never sent it; groups were also sent by name with member
