@@ -152,14 +152,30 @@ func (h *LDAPHandler) SaveConfig(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Defaults
-	if req.Timeout <= 0 { req.Timeout = 10 }
-	if req.SyncInterval <= 0 { req.SyncInterval = 3600 }
-	if req.UserIDAttr == "" { req.UserIDAttr = "sAMAccountName" }
-	if req.UserNameAttr == "" { req.UserNameAttr = "displayName" }
-	if req.UserEmailAttr == "" { req.UserEmailAttr = "mail" }
-	if req.GroupFilter == "" { req.GroupFilter = "(&(objectClass=group)(member={user_dn}))" }
-	if req.GroupMemberAttr == "" { req.GroupMemberAttr = "member" }
-	if req.DefaultRole == "" { req.DefaultRole = "user" }
+	if req.Timeout <= 0 {
+		req.Timeout = 10
+	}
+	if req.SyncInterval <= 0 {
+		req.SyncInterval = 3600
+	}
+	if req.UserIDAttr == "" {
+		req.UserIDAttr = "sAMAccountName"
+	}
+	if req.UserNameAttr == "" {
+		req.UserNameAttr = "displayName"
+	}
+	if req.UserEmailAttr == "" {
+		req.UserEmailAttr = "mail"
+	}
+	if req.GroupFilter == "" {
+		req.GroupFilter = "(&(objectClass=group)(member={user_dn}))"
+	}
+	if req.GroupMemberAttr == "" {
+		req.GroupMemberAttr = "member"
+	}
+	if req.DefaultRole == "" {
+		req.DefaultRole = "user"
+	}
 
 	// If password is empty keep the existing sealed value; otherwise seal the new one.
 	bindPwd := ""
@@ -293,11 +309,21 @@ func (h *LDAPHandler) GetStatus(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 500, ldapResp{Error: "Status load failed"})
 		return
 	}
-	if tAt.Valid { s.LastTestAt = tAt.String }
-	if tMsg.Valid { s.LastTestMsg = tMsg.String }
-	if sAt.Valid { s.LastSyncAt = sAt.String }
-	if sMsg.Valid { s.LastSyncMsg = sMsg.String }
-	if sCnt.Valid { s.LastSyncCount = int(sCnt.Int64) }
+	if tAt.Valid {
+		s.LastTestAt = tAt.String
+	}
+	if tMsg.Valid {
+		s.LastTestMsg = tMsg.String
+	}
+	if sAt.Valid {
+		s.LastSyncAt = sAt.String
+	}
+	if sMsg.Valid {
+		s.LastSyncMsg = sMsg.String
+	}
+	if sCnt.Valid {
+		s.LastSyncCount = int(sCnt.Int64)
+	}
 	writeJSON(w, 200, ldapResp{Success: true, Data: s})
 }
 
@@ -513,7 +539,9 @@ func pgInt64Array(ids []int64) string {
 // POST /api/ldap/search-user
 // ============================================================
 func (h *LDAPHandler) SearchUser(w http.ResponseWriter, r *http.Request) {
-	var req struct{ Username string `json:"username"` }
+	var req struct {
+		Username string `json:"username"`
+	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Username == "" {
 		writeJSON(w, 400, ldapResp{Error: "Username required"})
 		return
@@ -574,14 +602,21 @@ func (h *LDAPHandler) GetMappings(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var m mapping
 		var rid sql.NullInt64
-		if err := rows.Scan(&m.ID, &m.LDAPGroup, &m.RoleName, &rid, &m.CreatedAt); err != nil { continue }
-		if rid.Valid { v := int(rid.Int64); m.RoleID = &v }
+		if err := rows.Scan(&m.ID, &m.LDAPGroup, &m.RoleName, &rid, &m.CreatedAt); err != nil {
+			continue
+		}
+		if rid.Valid {
+			v := int(rid.Int64)
+			m.RoleID = &v
+		}
 		list = append(list, m)
 	}
 	if err := rows.Err(); err != nil {
 		log.Printf("WARN: ldap_group_mappings rows: %v", err)
 	}
-	if list == nil { list = []mapping{} }
+	if list == nil {
+		list = []mapping{}
+	}
 	writeJSON(w, 200, ldapResp{Success: true, Data: list})
 }
 
@@ -652,7 +687,9 @@ func (h *LDAPHandler) DeleteMapping(w http.ResponseWriter, r *http.Request) {
 // ============================================================
 func (h *LDAPHandler) GetSyncLog(w http.ResponseWriter, r *http.Request) {
 	limit := 20
-	if l, err := strconv.Atoi(r.URL.Query().Get("limit")); err == nil && l > 0 && l <= 100 { limit = l }
+	if l, err := strconv.Atoi(r.URL.Query().Get("limit")); err == nil && l > 0 && l <= 100 {
+		limit = l
+	}
 
 	rows, err := h.db.Query("SELECT id, sync_type, success, users_synced, users_created, users_updated, users_disabled, error_msg, duration_ms, created_at FROM ldap_sync_log ORDER BY id DESC LIMIT $1", limit)
 	if err != nil {
@@ -685,7 +722,9 @@ func (h *LDAPHandler) GetSyncLog(w http.ResponseWriter, r *http.Request) {
 	if err := rows.Err(); err != nil {
 		log.Printf("LDAP SYNC LOG ROWS ERROR: %v", err)
 	}
-	if list == nil { list = []entry{} }
+	if list == nil {
+		list = []entry{}
+	}
 	writeJSON(w, 200, ldapResp{Success: true, Data: list})
 }
 
@@ -738,14 +777,20 @@ func (h *LDAPHandler) loadLDAPConfig() (*ldap.Config, error) {
 }
 
 func (h *LDAPHandler) updateTest(ok bool, msg string) {
-	v := 0; if ok { v = 1 }
+	v := 0
+	if ok {
+		v = 1
+	}
 	if _, err := h.db.Exec("UPDATE ldap_config SET last_test_at=NOW(), last_test_ok=$1, last_test_msg=$2 WHERE id=1", v, msg); err != nil {
 		log.Printf("LDAP: failed to update test status: %v", err)
 	}
 }
 
 func (h *LDAPHandler) logSync(syncType string, success bool, synced, created, updated, disabled int, errMsg string, ms int) {
-	s := 0; if success { s = 1 }
+	s := 0
+	if success {
+		s = 1
+	}
 	if _, err := h.db.Exec(`INSERT INTO ldap_sync_log (sync_type, success, users_synced, users_created, users_updated, users_disabled, error_msg, duration_ms) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
 		syncType, s, synced, created, updated, disabled, errMsg, ms); err != nil {
 		log.Printf("LDAP: failed to insert sync log: %v", err)
@@ -870,6 +915,20 @@ func (h *LDAPHandler) CreateDomain(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.IDMAPHigh <= req.IDMAPLow {
 		writeJSON(w, 400, ldapResp{Error: "idmap_high must be greater than idmap_low"})
+		return
+	}
+
+	// Each domain needs its own UID/GID range: overlapping ranges give users
+	// of two domains the same IDs (and each other's files).
+	var clash string
+	if err := h.db.QueryRow(`SELECT name FROM ad_domains WHERE name <> $1 AND idmap_low <= $3 AND idmap_high >= $2 LIMIT 1`,
+		req.Name, req.IDMAPLow, req.IDMAPHigh).Scan(&clash); err == nil {
+		writeJSON(w, 409, ldapResp{Error: fmt.Sprintf("ID range %d-%d overlaps the range of domain %s", req.IDMAPLow, req.IDMAPHigh, clash)})
+		return
+	}
+	var exists int
+	if err := h.db.QueryRow(`SELECT 1 FROM ad_domains WHERE name=$1`, req.Name).Scan(&exists); err == nil {
+		writeJSON(w, 409, ldapResp{Error: "Domain " + req.Name + " is already registered"})
 		return
 	}
 
@@ -1268,4 +1327,3 @@ func syncIDMAPToNixwriter(db *sql.DB) {
 		log.Printf("AD: syncIDMAP: nixwriter update failed: %v", err)
 	}
 }
-

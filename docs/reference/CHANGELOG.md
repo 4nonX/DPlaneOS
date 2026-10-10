@@ -91,6 +91,14 @@ interface against the fields its handler reads
 
 ### Fixed
 
+- The disk latency check called every healthy disk "slow" (it timed a
+  fixed three-second read test) and found no disks in pools imported by
+  id. It reports the measured read speed now and tests the disks at the
+  same time. Pool I/O statistics lacked write throughput and wait times.
+  Both are on the Pools page.
+- Directory services: additional Active Directory domains (register,
+  join, leave, check) are in the UI; overlapping ID ranges and duplicate
+  names are refused.
 - Let's Encrypt certificates were saved as <name>.pem while the list,
   activation and deletion only knew <name>.crt: a certificate obtained in
   the UI never appeared and could not be activated. Nothing renewed them

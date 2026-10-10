@@ -3,6 +3,8 @@ package handlers
 import (
 	"database/sql"
 	"dplaned/internal/audit"
+	"regexp"
+	"strconv"
 
 	"dplaned/internal/cmdutil"
 	"encoding/json"
@@ -737,59 +739,60 @@ func NewZombieWatcherHandler() *ZombieWatcherHandler {
 // CheckDiskLatency measures response time of each disk in the pool
 // GET /api/zfs/disk-latency
 func (h *ZombieWatcherHandler) CheckDiskLatency(w http.ResponseWriter, r *http.Request) {
-	// Get list of pool disks
-	zpoolOutput, _ := executeCommandWithTimeout(TimeoutFast, "zpool", []string{"status"})
+	// -L: real device names (sdb1) also for pools imported by id.
+	zpoolOutput, _ := executeCommandWithTimeout(TimeoutFast, "zpool", []string{"status", "-L"})
 	disks := extractDiskDevices(zpoolOutput)
 
 	type DiskLatency struct {
-		Device  string `json:"device"`
-		Latency int64  `json:"latency_ms"`
-		State   string `json:"state"` // ok, slow, zombie
+		Device  string  `json:"device"`
+		Latency int64   `json:"latency_ms"` // duration of the test
+		MBs     float64 `json:"read_mbs"`   // sequential read speed
+		State   string  `json:"state"`      // ok, slow, zombie
+		Error   string  `json:"error,omitempty"`
 	}
 
-	var results []DiskLatency
-	for _, disk := range disks {
-		devicePath := "/dev/" + disk
-		start := time.Now()
-		// Simple read test: hdparm -t (1 second timed read)
-		_, err := executeCommandWithTimeout(TimeoutMedium, "hdparm", []string{
-			"-t", "--direct", devicePath,
-		})
-		latency := time.Since(start).Milliseconds()
-
-		state := "ok"
-		if err != nil {
-			state = "zombie"
-		} else if latency > 5000 {
-			state = "zombie"
-		} else if latency > 2000 {
-			state = "slow"
-		}
-
-		results = append(results, DiskLatency{
-			Device:  disk,
-			Latency: latency,
-			State:   state,
-		})
+	// hdparm -t reads for three seconds and reports the speed; the disks
+	// are tested at the same time. A disk that does not answer within the
+	// timeout, or reads at a crawl, is failing ("zombie").
+	results := make([]DiskLatency, len(disks))
+	var wg sync.WaitGroup
+	for i, disk := range disks {
+		wg.Add(1)
+		go func(i int, disk string) {
+			defer wg.Done()
+			start := time.Now()
+			out, err := executeCommandWithTimeout(TimeoutMedium, "hdparm", []string{"-t", "--direct", "/dev/" + disk})
+			res := DiskLatency{Device: disk, Latency: time.Since(start).Milliseconds(), State: "ok"}
+			if m := hdparmSpeedRe.FindStringSubmatch(out); m != nil {
+				res.MBs, _ = strconv.ParseFloat(m[1], 64)
+				if m[2] == "kB" {
+					res.MBs /= 1024
+				} else if m[2] == "GB" {
+					res.MBs *= 1024
+				}
+			}
+			switch {
+			case err != nil:
+				res.State, res.Error = "zombie", strings.TrimSpace(err.Error())
+			case res.MBs > 0 && res.MBs < 2:
+				res.State = "zombie"
+			case res.MBs > 0 && res.MBs < 20:
+				res.State = "slow"
+			}
+			results[i] = res
+		}(i, disk)
 	}
-
-	// Determine overall status
-	hasZombie := false
-	hasSlow := false
-	for _, d := range results {
-		if d.State == "zombie" {
-			hasZombie = true
-		}
-		if d.State == "slow" {
-			hasSlow = true
-		}
-	}
+	wg.Wait()
 
 	overall := "ok"
-	if hasZombie {
-		overall = "zombie"
-	} else if hasSlow {
-		overall = "slow"
+	for _, d := range results {
+		if d.State == "zombie" {
+			overall = "zombie"
+			break
+		}
+		if d.State == "slow" {
+			overall = "slow"
+		}
 	}
 
 	respondOK(w, map[string]any{
@@ -799,6 +802,9 @@ func (h *ZombieWatcherHandler) CheckDiskLatency(w http.ResponseWriter, r *http.R
 		"count":   len(results),
 	})
 }
+
+// "Timing O_DIRECT disk reads: 512 MB in  3.00 seconds = 170.61 MB/sec"
+var hdparmSpeedRe = regexp.MustCompile(`=\s*([0-9.]+)\s*(kB|MB|GB)/sec`)
 
 // ═══════════════════════════════════════════════════════════════
 //  S.M.A.R.T. VENDOR ATTRIBUTE TRANSLATION

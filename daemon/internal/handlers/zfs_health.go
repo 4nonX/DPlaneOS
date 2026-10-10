@@ -17,12 +17,12 @@ func NewZFSHealthHandler() *ZFSHealthHandler {
 // DiskHealth represents the health data for a single disk in a pool
 type DiskHealth struct {
 	Device       string `json:"device"`
-	State        string `json:"state"`         // ONLINE, DEGRADED, FAULTED, OFFLINE
+	State        string `json:"state"` // ONLINE, DEGRADED, FAULTED, OFFLINE
 	ReadErrors   int64  `json:"read_errors"`
 	WriteErrors  int64  `json:"write_errors"`
 	ChecksumErrs int64  `json:"checksum_errors"`
 	SlowIOs      int64  `json:"slow_ios"`
-	Risk         string `json:"risk"`          // low, medium, high, critical
+	Risk         string `json:"risk"` // low, medium, high, critical
 }
 
 // PoolHealthDetail represents detailed health for a pool
@@ -65,15 +65,8 @@ func (h *ZFSHealthHandler) GetIOStats(w http.ResponseWriter, r *http.Request) {
 		"iostat", "-p", "-H", "-l",
 	})
 	if err != nil {
-		// Fallback to simpler format
-		output, err = executeCommand("zpool", []string{"iostat", "-v"})
-		if err != nil {
-			respondOK(w, map[string]any{
-				"success": true,
-				"stats":   []any{},
-			})
-			return
-		}
+		respondOK(w, map[string]any{"success": false, "error": "zpool iostat failed: " + strings.TrimSpace(output), "stats": []any{}})
+		return
 	}
 
 	stats := parseIOStats(output)
@@ -149,8 +142,8 @@ func (h *ZFSHealthHandler) GetSMARTHealth(w http.ResponseWriter, r *http.Request
 		var smartJSON map[string]any
 		if err := json.Unmarshal([]byte(output), &smartJSON); err != nil {
 			smartData = append(smartData, map[string]any{
-				"device":  disk,
-				"raw":     output,
+				"device": disk,
+				"raw":    output,
 			})
 			continue
 		}
@@ -324,24 +317,36 @@ func calculatePoolRisk(pool *PoolHealthDetail) string {
 
 // parseIOStats parses zpool iostat output
 func parseIOStats(output string) []map[string]any {
-	var stats []map[string]any
-	lines := strings.Split(strings.TrimSpace(output), "\n")
-
-	for _, line := range lines {
+	// zpool iostat -p -H -l: name alloc free read_ops write_ops read_bw
+	// write_bw total_wait(r,w) disk_wait(r,w) ... in exact numbers (bytes,
+	// nanoseconds); "-" where there is no value. Averages since boot.
+	num := func(fields []string, i int) int64 {
+		if i >= len(fields) {
+			return 0
+		}
+		v, _ := strconv.ParseInt(fields[i], 10, 64)
+		return v
+	}
+	stats := []map[string]any{}
+	for _, line := range strings.Split(strings.TrimSpace(output), "\n") {
 		if line == "" || strings.HasPrefix(line, "-") {
 			continue
 		}
 		fields := strings.Fields(line)
-		if len(fields) >= 6 {
-			stats = append(stats, map[string]any{
-				"device":    fields[0],
-				"alloc":     fields[1],
-				"free":      fields[2],
-				"read_ops":  fields[3],
-				"write_ops": fields[4],
-				"read_bw":   fields[5],
-			})
+		if len(fields) < 7 || fields[0] == "pool" || fields[0] == "capacity" {
+			continue
 		}
+		stats = append(stats, map[string]any{
+			"device":        fields[0],
+			"alloc":         num(fields, 1),
+			"free":          num(fields, 2),
+			"read_ops":      num(fields, 3),
+			"write_ops":     num(fields, 4),
+			"read_bw":       num(fields, 5),
+			"write_bw":      num(fields, 6),
+			"read_wait_ns":  num(fields, 7),
+			"write_wait_ns": num(fields, 8),
+		})
 	}
 	return stats
 }
@@ -397,4 +402,3 @@ func extractDiskDevices(output string) []string {
 	}
 	return disks
 }
-

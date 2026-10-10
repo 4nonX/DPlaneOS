@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { ADDomainsTab } from '@/components/directory/ADDomainsTab'
 import type React from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
@@ -95,7 +96,7 @@ interface CircuitBreaker {
   failures?: number
 }
 
-type Tab = 'config' | 'mappings' | 'log'
+type Tab = 'config' | 'mappings' | 'log' | 'domains'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -508,6 +509,7 @@ export function DirectoryPage() {
   const TABS: { id: Tab; label: string; icon: string }[] = [
     { id: 'config',   label: 'Directory Setup', icon: 'settings' },
     { id: 'mappings', label: 'Role Mappings', icon: 'account_tree' },
+    { id: 'domains',  label: 'More Domains',  icon: 'domain_add' },
     { id: 'log',      label: 'Diagnostics',    icon: 'history' },
   ]
 
@@ -529,6 +531,7 @@ export function DirectoryPage() {
       <div style={{ animation: 'fadeIn 0.3s ease-in-out' }}>
         {tab === 'config'   && <ConfigTab />}
         {tab === 'mappings' && <MappingsTab />}
+        {tab === 'domains'  && <ADDomainsTab />}
         {tab === 'log'      && <SyncLogTab />}
       </div>
     </div>
