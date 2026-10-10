@@ -141,6 +141,8 @@ EOF
 #!/bin/sh
 # Pulls this voter's corosync configuration from the DPlaneOS node it joined.
 set -eu
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/run/current-system/sw/bin:${PATH:-}
+export PATH
 . /etc/dplaneos-voter.conf
 T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
 if [ -n "$PIN" ]; then set -- --pinnedpubkey "sha256//$PIN"; else set --; fi
