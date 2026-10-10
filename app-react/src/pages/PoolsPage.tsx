@@ -39,6 +39,7 @@ import { useWsStore } from '@/stores/ws'
 import { Modal } from '@/components/ui/Modal'
 import { useRouter } from '@tanstack/react-router'
 import { PoolTopologyView, PoolTopology, VDev } from '@/components/zfs/PoolTopology'
+import { usePoolDeviceOps, PoolLifecycleButtons } from '@/components/zfs/PoolDeviceOps'
 import { RollbackModal } from '@/components/zfs/RollbackModal'
 import { CreateDatasetModal } from '@/components/zfs/CreateDatasetModal'
 import {
@@ -1176,6 +1177,7 @@ function PoolCard({ pool, datasets, filter, onRefresh }: { pool: ZFSPool; datase
   const [replaceDisk, setReplaceDisk] = useState<string | null>(null)
   const [expandVdev, setExpandVdev] = useState<VDev | null>(null)
   const [wipeDiskOpen, setWipeDiskOpen] = useState(false)
+  const deviceOps = usePoolDeviceOps(pool.name, () => { onRefresh(); qc.invalidateQueries({ queryKey: ['zfs', 'topology', pool.name] }) })
   const [sharingDataset,  setSharingDataset]  = useState<TreeNode | null>(null)
   const [snapshotDataset, setSnapshotDataset] = useState<TreeNode | null>(null)
   const [rollbackDataset, setRollbackDataset] = useState<TreeNode | null>(null)
@@ -1438,7 +1440,8 @@ function PoolCard({ pool, datasets, filter, onRefresh }: { pool: ZFSPool; datase
                 topology={topologyQ.data}
                 onAction={(action, vdev) => {
                    if (action === 'replace') setReplaceDisk(vdev.name)
-                   if (action === 'raidz-expand') setExpandVdev(vdev)
+                   else if (action === 'raidz-expand') setExpandVdev(vdev)
+                   else deviceOps.handle(action, vdev)
                 }}
              />
            )}
@@ -1446,6 +1449,12 @@ function PoolCard({ pool, datasets, filter, onRefresh }: { pool: ZFSPool; datase
               <button className="btn btn-xs btn-ghost" onClick={() => setWipeDiskOpen(true)}>
                  <Icon name="cleaning_services" size={12} /> Wipe a disk
               </button>
+              <PoolLifecycleButtons
+                pool={pool.name}
+                mirrorsOnly={!!topologyQ.data && (topologyQ.data.groups.data ?? []).length > 0 && (topologyQ.data.groups.data ?? []).every(v => v.type === 'mirror')}
+                onDone={() => { onRefresh(); qc.invalidateQueries({ queryKey: ['zfs'] }) }}
+              />
+              {deviceOps.element}
            </div>
         </div>
       )}

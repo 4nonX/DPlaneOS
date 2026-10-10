@@ -23,8 +23,14 @@ export interface PoolTopology {
 interface VDevItemProps {
   vdev: VDev
   level: number
+  group: string          // data, special, logs, cache, spare
+  parentType?: string    // type of the enclosing vdev (mirror, raidz, ...)
   onAction?: (action: string, vdev: VDev) => void
 }
+
+// Device actions (onAction names): replace, raidz-expand, offline, online,
+// detach (a mirror/spare member), remove (cache, log or spare device),
+// attach (add a mirror disk to a data disk).
 
 const healthColor = (h: string) =>
   h === 'ONLINE' ? 'var(--success)' : 
@@ -32,7 +38,11 @@ const healthColor = (h: string) =>
   h === 'REPLACING' || h === 'RESILVERING' ? 'var(--primary)' :
   'var(--error)'
 
-const VDevItem = ({ vdev, level, onAction }: VDevItemProps) => {
+const VDevItem = ({ vdev, level, group, parentType, onAction }: VDevItemProps) => {
+  const isDisk = vdev.type === 'disk'
+  const inMirror = parentType === 'mirror' || parentType === 'replacing' || parentType === 'spare'
+  const removable = isDisk && level === 0 && (group === 'cache' || group === 'logs' || group === 'spare')
+  const attachable = isDisk && group === 'data' && (level === 0 || parentType === 'mirror')
   const isStructural = vdev.type === 'mirror' || vdev.type === 'raidz' || vdev.type === 'replacing'
 
   return (
@@ -99,9 +109,34 @@ const VDevItem = ({ vdev, level, onAction }: VDevItemProps) => {
 
           {onAction && (
              <div className="vdev-actions" style={{ display: 'flex', gap: 4 }}>
-                {vdev.type === 'disk' && vdev.state !== 'ONLINE' && (
+                {isDisk && vdev.state !== 'ONLINE' && (
                   <button className="btn btn-xs btn-ghost" title="Replace Disk" onClick={() => onAction('replace', vdev)}>
                     <Icon name="swap_horiz" size={14} />
+                  </button>
+                )}
+                {isDisk && vdev.state === 'OFFLINE' && (
+                  <button className="btn btn-xs btn-ghost" title="Bring online" onClick={() => onAction('online', vdev)}>
+                    <Icon name="play_circle" size={14} />
+                  </button>
+                )}
+                {isDisk && vdev.state === 'ONLINE' && group !== 'cache' && group !== 'spare' && (
+                  <button className="btn btn-xs btn-ghost" title="Take offline" onClick={() => onAction('offline', vdev)}>
+                    <Icon name="pause_circle" size={14} />
+                  </button>
+                )}
+                {isDisk && inMirror && (
+                  <button className="btn btn-xs btn-ghost" title="Detach from mirror" onClick={() => onAction('detach', vdev)}>
+                    <Icon name="link_off" size={14} />
+                  </button>
+                )}
+                {removable && (
+                  <button className="btn btn-xs btn-ghost" title="Remove device from pool" onClick={() => onAction('remove', vdev)}>
+                    <Icon name="remove_circle" size={14} />
+                  </button>
+                )}
+                {attachable && (
+                  <button className="btn btn-xs btn-ghost" title="Attach a mirror disk" onClick={() => onAction('attach', vdev)}>
+                    <Icon name="add_link" size={14} />
                   </button>
                 )}
                 {vdev.type === 'raidz' && (
@@ -115,7 +150,7 @@ const VDevItem = ({ vdev, level, onAction }: VDevItemProps) => {
       </div>
 
       {vdev.children && vdev.children.map((child, i) => (
-        <VDevItem key={i} vdev={child} level={level + 1} onAction={onAction} />
+        <VDevItem key={i} vdev={child} level={level + 1} group={group} parentType={vdev.type} onAction={onAction} />
       ))}
     </div>
   )
@@ -148,7 +183,7 @@ export const PoolTopologyView = ({ topology, onAction }: { topology: PoolTopolog
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
               {vdevs.map((v, i) => (
-                <VDevItem key={i} vdev={v} level={0} onAction={onAction} />
+                <VDevItem key={i} vdev={v} level={0} group={group} onAction={onAction} />
               ))}
             </div>
           </div>
