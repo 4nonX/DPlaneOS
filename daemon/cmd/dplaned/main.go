@@ -1166,7 +1166,9 @@ func main() {
 	r.Handle("/api/system/zfs-gate-status", permRoute("system", "read", systemStatusHandler.HandleZFSGateStatus)).Methods("GET")
 	// v3.0.0: IPMI/BMC sensor data (graceful no-op if ipmitool unavailable)
 	r.Handle("/api/system/ipmi", permRoute("system", "read", systemStatusHandler.HandleIPMISensors)).Methods("GET")
-	r.HandleFunc("/api/system/setup-complete", systemStatusHandler.HandleSetupComplete).Methods("POST")
+	// Finishing setup (hostname, time zone) needs the admin's session: the
+	// wizard logs in right after creating the admin account.
+	r.Handle("/api/system/setup-complete", permRoute("system", "admin", http.HandlerFunc(systemStatusHandler.HandleSetupComplete))).Methods("POST")
 	r.Handle("/api/system/metrics", permRoute("system", "read", handlers.HandleSystemMetrics)).Methods("GET")
 	r.Handle("/api/system/tuning", permRoute("system", "read", handlers.HandleSystemSettings)).Methods("GET")
 	r.Handle("/api/system/tuning", permRoute("system", "write", handlers.HandleSystemSettings)).Methods("POST")
@@ -1724,7 +1726,6 @@ func sessionMiddleware(db *sql.DB, internalCronToken string) mux.MiddlewareFunc 
 				p == "/api/auth/oidc/exchange" ||
 				// Setup wizard - no session exists yet on fresh installs
 				p == "/api/system/setup-admin" ||
-				p == "/api/system/setup-complete" ||
 				p == "/api/system/status" || // dashboard needs status before login to detect setup_complete
 				p == "/api/system/health" || // health endpoint must be public for monitoring
 				// File share download links - no session required, token is the auth

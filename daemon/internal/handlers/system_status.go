@@ -585,6 +585,22 @@ func (h *SystemStatusHandler) HandleSetupAdmin(w http.ResponseWriter, r *http.Re
 		respondJSON(w, http.StatusInternalServerError, map[string]any{"success": false, "error": "Internal error"})
 		return
 	}
+	// An admin that already has a password (set by the installer, or by an
+	// earlier run of this step) is never overwritten by this unauthenticated
+	// endpoint: anyone on the network could otherwise take the account over
+	// before setup is finished. The wizard logs in with it instead.
+	var havePassword bool
+	if err := tx.QueryRow(`SELECT EXISTS (SELECT 1 FROM users WHERE (role = 'admin' OR username = 'admin') AND COALESCE(password_hash, '') <> '')`).Scan(&havePassword); err != nil {
+		respondJSON(w, http.StatusInternalServerError, map[string]any{"success": false, "error": "Internal error"})
+		return
+	}
+	if havePassword {
+		respondJSON(w, http.StatusConflict, map[string]any{
+			"success": false, "code": "admin_password_set",
+			"error": "An admin password is already set (during installation or an earlier setup step): log in with it",
+		})
+		return
+	}
 
 	if adminCount > 0 {
 		// Admin already exists, update the specific seeded 'admin' account or return error

@@ -59,7 +59,11 @@ retry() { # tries command... (1s apart)
 
 # ── Login ──────────────────────────────────────────────────────────────────
 check "API reachable" retry 60 curl -sf "$BASE/api/system/status" -o /dev/null
+# Finishing setup needs the admin session; setting the admin password twice
+# (anyone on the network before setup is done) is refused.
+expect 401 POST /api/system/setup-complete '{"hostname":"x"}'
 expect 200 POST /api/system/setup-admin '{"username":"admin","password":"Smoke-Test-Pass-1"}'
+expect 409 POST /api/system/setup-admin '{"username":"admin","password":"Someone-Else-1"}'
 expect 200 POST /api/auth/login '{"username":"admin","password":"Smoke-Test-Pass-1"}'
 SESSION=$(json .session_id)
 expect 200 GET /api/csrf

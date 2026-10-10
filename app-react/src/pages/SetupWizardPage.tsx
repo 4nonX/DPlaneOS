@@ -11,7 +11,7 @@
  *   3  Pool Config    → POST /api/system/pool/create { name, type, disks }
  *   4  Hostname / TZ  → (collected, sent with setup-complete)
  *   5  Complete       → POST /api/system/setup-complete { hostname, timezone }
- *                       → redirect to /login
+ *   (step 1 logs in: the later steps need the admin session)
  */
 
 import { useState, useEffect, useCallback } from 'react'
@@ -146,35 +146,56 @@ function StepAdmin({ onNext, onBack }: { onNext: () => void; onBack: () => void 
   const [confirm,  setConfirm]  = useState('')
   const [error,    setError]    = useState('')
   const [showPass, setShowPass] = useState(false)
+  // The remaining steps (disks, pool, finish) need a session: after creating
+  // the admin the wizard logs in. When the installer (or an earlier visit)
+  // already set the admin password, the API refuses to overwrite it and the
+  // wizard asks for that password instead.
+  const [mode, setMode] = useState<'create' | 'login'>('create')
+  const login = useAuthStore(st => st.login)
+  const isAuthenticated = useAuthStore(st => st.isAuthenticated)
 
   const save = useMutation({
-    mutationFn: () => api.post('/api/system/setup-admin', { username, password }),
-    onSuccess: () => { setError(''); onNext() },
-    onError: (e: Error) => {
-      const msg = e.message.toLowerCase()
-      if (msg.includes('already') || msg.includes('exists') || msg.includes('conflict')) {
-        // Admin was already created (e.g. browser closed mid-setup) - skip this step
-        setError('')
-        onNext()
-      } else {
-        setError(e.message)
+    mutationFn: async () => {
+      if (mode === 'create') {
+        let failure: unknown = null
+        await api.post('/api/system/setup-admin', { username, password }).catch((e: unknown) => { failure = e })
+        if (failure !== null) {
+          const msg = failure instanceof Error ? failure.message : String(failure)
+          if (!/already set|log in with it|already configured/i.test(msg)) throw failure
+          setMode('login')
+          setConfirm('')
+          throw new Error('An admin password is already set (during installation or an earlier visit). Log in with it to continue.')
+        }
+      }
+      const res = await login(username, password, false)
+      if (res && 'requiresTotp' in res) {
+        throw new Error('This account uses two-factor authentication: log in on the login page, then reopen setup.')
       }
     },
+    onSuccess: () => { setError(''); onNext() },
+    onError: (e: Error) => setError(e.message),
   })
 
   function submit() {
     setError('')
+    if (isAuthenticated) { onNext(); return }
     if (!username.trim()) { setError('Username is required'); return }
-    if (password.length < 8) { setError('Password must be at least 8 characters'); return }
-    if (password !== confirm) { setError('Passwords do not match'); return }
+    if (mode === 'create') {
+      if (password.length < 8) { setError('Password must be at least 8 characters'); return }
+      if (password !== confirm) { setError('Passwords do not match'); return }
+    } else if (!password) { setError('Password is required'); return }
     save.mutate()
   }
 
   return (
     <div style={{ textAlign: 'center' }}>
-      <h2 style={{ fontSize: 'var(--text-xl)', fontWeight: 700, marginBottom: 8 }}>Admin Account</h2>
+      <h2 style={{ fontSize: 'var(--text-xl)', fontWeight: 700, marginBottom: 8 }}>{mode === 'create' ? 'Admin Account' : 'Log In'}</h2>
       <p style={{ color: 'var(--text-secondary)', marginBottom: 28, fontSize: 'var(--text-sm)' }}>
-        Create the administrator account for this NAS.
+        {isAuthenticated
+          ? 'You are logged in. Continue with the setup.'
+          : mode === 'create'
+            ? 'Create the administrator account for this NAS.'
+            : 'Log in with the admin password chosen during installation.'}
       </p>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16, maxWidth: 400, margin: '0 auto', textAlign: 'left' }}>
@@ -196,10 +217,11 @@ function StepAdmin({ onNext, onBack }: { onNext: () => void; onBack: () => void 
               type={showPass ? 'text' : 'password'}
               value={password}
               onChange={e => setPassword(e.target.value)}
-              placeholder="Min. 8 characters"
+              placeholder={mode === 'create' ? 'Min. 8 characters' : 'Admin password'}
               className="input"
               style={{ paddingRight: 40 }}
-              autoComplete="new-password"
+              autoComplete={mode === 'create' ? 'new-password' : 'current-password'}
+              onKeyDown={e => mode === 'login' && e.key === 'Enter' && submit()}
             />
             <button
               type="button"
@@ -211,7 +233,7 @@ function StepAdmin({ onNext, onBack }: { onNext: () => void; onBack: () => void 
           </div>
         </label>
 
-        <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        {mode === 'create' && <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           <span style={{ fontSize: 'var(--text-xs)', fontWeight: 600, color: 'var(--text-secondary)' }}>Confirm Password</span>
           <input
             type={showPass ? 'text' : 'password'}
@@ -223,10 +245,10 @@ function StepAdmin({ onNext, onBack }: { onNext: () => void; onBack: () => void 
             autoComplete="new-password"
             onKeyDown={e => e.key === 'Enter' && submit()}
           />
-        </label>
+        </label>}
 
         {/* Password strength hint */}
-        {password.length > 0 && (
+        {mode === 'create' && password.length > 0 && (
           <div style={{ display: 'flex', gap: 4 }}>
             {[8, 12, 16].map(threshold => (
               <div key={threshold} style={{
@@ -253,7 +275,7 @@ function StepAdmin({ onNext, onBack }: { onNext: () => void; onBack: () => void 
             <Icon name="arrow_back" size={16} /> Back
           </button>
           <button onClick={submit} disabled={save.isPending} className="btn btn-primary">
-            {save.isPending ? 'Creating…' : 'Continue'} <Icon name="arrow_forward" size={16} />
+            {save.isPending ? (mode === 'create' ? 'Creating…' : 'Logging in…') : 'Continue'} <Icon name="arrow_forward" size={16} />
           </button>
         </div>
       </div>
@@ -675,7 +697,7 @@ function StepComplete({ hostname, onGoToLogin }: { hostname: string; onGoToLogin
         ))}
       </div>
       <button onClick={onGoToLogin} className="btn btn-primary" style={{ fontSize: 'var(--text-md)', padding: '14px 36px', marginTop: 24 }}>
-        Go to Login <Icon name="login" size={18} />
+        Open Dashboard <Icon name="arrow_forward" size={18} />
       </button>
     </div>
   )
@@ -807,7 +829,7 @@ export function SetupWizardPage() {
           {step === 5 && (
             <StepComplete
               hostname={hostname}
-              onGoToLogin={() => navigate({ to: '/login' })}
+              onGoToLogin={() => navigate({ to: '/' })}
             />
           )}
         </div>
