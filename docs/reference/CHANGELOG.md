@@ -19,6 +19,10 @@ PostgreSQL schema and a command fake in CI).
 - **API tokens expire.** Expiry dates were never applied; tokens past
   their date stop working after the upgrade.
 - New NFS exports default to `root_squash` (was `no_root_squash`).
+- **Webhooks created in the web interface were stored disabled** and never
+  fired (the Test button worked, real alerts were not sent), and their
+  custom headers were dropped. New and re-saved webhooks work; existing
+  ones must be re-created or enabled (`enabled = 1` in `webhook_configs`).
 
 ### Security
 
@@ -55,6 +59,9 @@ PostgreSQL schema and a command fake in CI).
 - Concurrent storage operations on one target could both start
   (migration 00024 enforces one pending operation per target).
 - A double-submitted 2FA login returned a session id that did not exist.
+- Webhook body templates inserted values unescaped: a message with a quote
+  produced invalid JSON and the alert was rejected. Webhooks cannot
+  target link-local addresses (cloud metadata).
 
 ## v15.0.0 (2026-10-10) - "Local First"
 

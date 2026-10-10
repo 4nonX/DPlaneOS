@@ -7,9 +7,13 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
+	"regexp"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -71,15 +75,60 @@ type webhookConfig struct {
 	Events       string `json:"events"` // JSON array string, e.g. '["pool.degraded","capacity.critical"]'
 	CreatedAt    string `json:"created_at"`
 	UpdatedAt    string `json:"updated_at"`
+	// Headers is the web UI's view: Content-Type and the custom header
+	// (its value masked). Only set on list responses.
+	Headers map[string]string `json:"headers,omitempty"`
+}
+
+// webhookSaveRequest accepts both the API fields and what the web UI sends
+// (headers map, method; no enabled flag).
+type webhookSaveRequest struct {
+	webhookConfig
+	Enabled json.RawMessage   `json:"enabled"` // absent = enabled; true/false or 1/0
+	Headers map[string]string `json:"headers"`
+	Method  string            `json:"method"`
+}
+
+var headerNameRe = regexp.MustCompile(`^[A-Za-z0-9!#$%&'*+.^_|~-]+$`)
+
+// toConfig folds the UI fields into a webhookConfig.
+func (r webhookSaveRequest) toConfig() (webhookConfig, error) {
+	c := r.webhookConfig
+	switch strings.TrimSpace(string(r.Enabled)) {
+	case "", "null", "true", "1":
+		c.Enabled = 1
+	case "false", "0":
+		c.Enabled = 0
+	default:
+		return c, fmt.Errorf("enabled must be true or false")
+	}
+	if m := strings.ToUpper(strings.TrimSpace(r.Method)); m != "" && m != "POST" {
+		return c, fmt.Errorf("only POST webhooks are supported")
+	}
+	for k, v := range r.Headers {
+		k = strings.TrimSpace(k)
+		if !headerNameRe.MatchString(k) || strings.ContainsAny(v, "\r\n") {
+			return c, fmt.Errorf("invalid header %q", k)
+		}
+		if strings.EqualFold(k, "Content-Type") {
+			c.ContentType = v
+			continue
+		}
+		if c.SecretHeader != "" && !strings.EqualFold(c.SecretHeader, k) {
+			return c, fmt.Errorf("only one custom header besides Content-Type is supported")
+		}
+		c.SecretHeader, c.SecretValue = k, v
+	}
+	return c, nil
 }
 
 // webhookPayload is the default JSON body sent when no body_template is set.
 type webhookPayload struct {
-	Event     string                 `json:"event"`
-	Hostname  string                 `json:"hostname"`
-	Severity  string                 `json:"severity"`
-	Message   string                 `json:"message"`
-	Timestamp string                 `json:"timestamp"`
+	Event     string         `json:"event"`
+	Hostname  string         `json:"hostname"`
+	Severity  string         `json:"severity"`
+	Message   string         `json:"message"`
+	Timestamp string         `json:"timestamp"`
 	Data      map[string]any `json:"data,omitempty"`
 }
 
@@ -110,6 +159,13 @@ func (h *WebhookHandler) ListWebhooks(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		// Never return the secret value in list responses.
+		c.Headers = map[string]string{}
+		if c.ContentType != "" {
+			c.Headers["Content-Type"] = c.ContentType
+		}
+		if c.SecretHeader != "" {
+			c.Headers[c.SecretHeader] = "********"
+		}
 		configs = append(configs, c)
 	}
 	if err := rows.Err(); err != nil {
@@ -127,9 +183,17 @@ func (h *WebhookHandler) ListWebhooks(w http.ResponseWriter, r *http.Request) {
 // POST /api/alerts/webhooks
 // Body: { name, url, secret_header, secret_value, content_type, body_template, enabled, events }
 func (h *WebhookHandler) SaveWebhook(w http.ResponseWriter, r *http.Request) {
-	var req webhookConfig
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	var in webhookSaveRequest
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 		respondError(w, http.StatusBadRequest, "Invalid request body", err)
+		return
+	}
+	// The web UI never sent "enabled": webhooks it created were stored
+	// disabled and never fired, while the Test button (which ignores the
+	// flag) reported success.
+	req, err := in.toConfig()
+	if err != nil {
+		respondErrorSimple(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -137,8 +201,8 @@ func (h *WebhookHandler) SaveWebhook(w http.ResponseWriter, r *http.Request) {
 		respondErrorSimple(w, "name and url are required", http.StatusBadRequest)
 		return
 	}
-	if !strings.HasPrefix(req.URL, "http://") && !strings.HasPrefix(req.URL, "https://") {
-		respondErrorSimple(w, "url must start with http:// or https://", http.StatusBadRequest)
+	if err := validateWebhookURL(strings.TrimSpace(req.URL)); err != nil {
+		respondErrorSimple(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -345,9 +409,62 @@ var daemonVersion = "dev"
 // SetDaemonVersion allows main to inject the build version into this package.
 func SetDaemonVersion(v string) { daemonVersion = v }
 
+// validateWebhookURL: an absolute http(s) URL with a host.
+func validateWebhookURL(raw string) error {
+	u, err := url.Parse(raw)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" {
+		return fmt.Errorf("url must be an absolute http:// or https:// URL")
+	}
+	return nil
+}
+
+// webhookDialControl refuses link-local and unspecified addresses at connect
+// time (after DNS, so a name cannot rebind to them): 169.254.169.254 is the
+// cloud metadata service, and no webhook receiver lives there. LAN and
+// loopback receivers (Home Assistant, ntfy, Gotify) stay allowed.
+func webhookDialControl(network, address string, _ syscall.RawConn) error {
+	host, _, err := net.SplitHostPort(address)
+	if err != nil {
+		return err
+	}
+	ip := net.ParseIP(host)
+	if ip == nil || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsUnspecified() || ip.IsMulticast() {
+		return fmt.Errorf("webhook target %s is not allowed (link-local, multicast or unspecified address)", host)
+	}
+	return nil
+}
+
+var webhookClient = &http.Client{
+	Timeout: 15 * time.Second,
+	Transport: &http.Transport{
+		Proxy:                 http.ProxyFromEnvironment,
+		DialContext:           (&net.Dialer{Timeout: 10 * time.Second, Control: webhookDialControl}).DialContext,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ResponseHeaderTimeout: 15 * time.Second,
+	},
+}
+
+// templateIsJSON: values substituted into a JSON body must be escaped, or a
+// message with a quote produces invalid JSON and the alert is lost.
+func templateIsJSON(contentType, tmpl string) bool {
+	if strings.TrimSpace(contentType) != "" {
+		return strings.Contains(strings.ToLower(contentType), "json")
+	}
+	t := strings.TrimSpace(tmpl)
+	return strings.HasPrefix(t, "{") || strings.HasPrefix(t, "[")
+}
+
+func jsonEscapeValue(v string) string {
+	b, _ := json.Marshal(v)
+	return string(b[1 : len(b)-1])
+}
+
 func dispatchWebhook(cfg webhookConfig, payload webhookPayload) error {
 	var bodyBytes []byte
 	contentType := "application/json"
+	if err := validateWebhookURL(cfg.URL); err != nil {
+		return err
+	}
 
 	if strings.TrimSpace(cfg.BodyTemplate) != "" {
 		// Render the body template with token substitution.
@@ -355,9 +472,13 @@ func dispatchWebhook(cfg webhookConfig, payload webhookPayload) error {
 		if hostname == "" {
 			hostname = safeHostname()
 		}
+		esc := func(v string) string { return v }
+		if templateIsJSON(cfg.ContentType, cfg.BodyTemplate) {
+			esc = jsonEscapeValue
+		}
 		rendered := strings.NewReplacer(
-			"{{event}}", payload.Event,
-			"{{pool}}", func() string {
+			"{{event}}", esc(payload.Event),
+			"{{pool}}", esc(func() string {
 				// pool name may be in Data["pool"] or in the message
 				if payload.Data != nil {
 					if p, ok := payload.Data["pool"].(string); ok {
@@ -368,11 +489,11 @@ func dispatchWebhook(cfg webhookConfig, payload webhookPayload) error {
 					}
 				}
 				return ""
-			}(),
-			"{{message}}", payload.Message,
+			}()),
+			"{{message}}", esc(payload.Message),
 			"{{timestamp}}", time.Now().UTC().Format(time.RFC3339),
-			"{{hostname}}", hostname,
-			"{{severity}}", payload.Severity,
+			"{{hostname}}", esc(hostname),
+			"{{severity}}", esc(payload.Severity),
 		).Replace(cfg.BodyTemplate)
 		bodyBytes = []byte(rendered)
 
@@ -401,8 +522,7 @@ func dispatchWebhook(cfg webhookConfig, payload webhookPayload) error {
 		req.Header.Set(cfg.SecretHeader, cfg.SecretValue)
 	}
 
-	client := &http.Client{Timeout: 15 * time.Second}
-	resp, err := client.Do(req)
+	resp, err := webhookClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("http post: %w", err)
 	}
@@ -442,4 +562,3 @@ func safeHostname() string {
 	}
 	return h
 }
-

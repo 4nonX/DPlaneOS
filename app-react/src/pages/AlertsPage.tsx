@@ -305,7 +305,7 @@ function WebhookModal({ onClose, onDone }: { onClose: () => void; onDone: () => 
         <div style={{ display: 'grid', gridTemplateColumns: '80px 1fr', gap: 10 }}>
           <Field label="Method">
             <select value={method} onChange={e => setMethod(e.target.value)} className="input" style={{ appearance: 'none' }}>
-              {['POST', 'GET', 'PUT', 'PATCH'].map(m => <option key={m} value={m}>{m}</option>)}
+              {['POST'].map(m => <option key={m} value={m}>{m}</option>)}
             </select>
           </Field>
           <Field label="URL">
