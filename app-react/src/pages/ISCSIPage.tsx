@@ -8,7 +8,7 @@
  * GET    /api/iscsi/acls             → { success, acls: ACL[] }
  * POST   /api/iscsi/acls             → { iqn, initiator }
  * DELETE /api/iscsi/acls             → { iqn, initiator }
- * GET    /api/iscsi/zvols            → { success, zvols: string[] }
+ * GET    /api/iscsi/zvols            → { success, zvols: {name,size,dev}[] }
  */
 
 import { useState } from 'react'
@@ -39,7 +39,7 @@ export function ISCSIPage() {
 
   // Targets
   const targetsQ = useQuery({ queryKey:['iscsi','targets'], queryFn:({signal})=>api.get<{success:boolean;targets:Target[]}>('/api/iscsi/targets',signal) })
-  const zvolsQ   = useQuery({ queryKey:['iscsi','zvols'],   queryFn:({signal})=>api.get<{success:boolean;zvols:string[]}>('/api/iscsi/zvols',signal) })
+  const zvolsQ   = useQuery({ queryKey:['iscsi','zvols'],   queryFn:({signal})=>api.get<{success:boolean;zvols:{name:string;size:string;dev:string}[]}>('/api/iscsi/zvols',signal) })
 
   const [iqn, setIqn] = useState('iqn.2024-01.me.dplane:')
   const [zvol, setZvol] = useState('')
@@ -149,7 +149,7 @@ export function ISCSIPage() {
                 {zvols.length > 0 ? (
                   <select value={zvol} onChange={e=>setZvol(e.target.value)} className="input" style={{ appearance:'none' }}>
                     <option value="">Select zvol…</option>
-                    {zvols.map(z => <option key={z} value={z}>{z}</option>)}
+                    {zvols.map(z => <option key={z.name} value={z.name}>{z.name} ({z.size})</option>)}
                   </select>
                 ) : (
                   <input value={zvol} onChange={e=>setZvol(e.target.value)} placeholder="tank/zvols/target0" className="input" style={{ fontFamily:'var(--font-mono)' }}/>

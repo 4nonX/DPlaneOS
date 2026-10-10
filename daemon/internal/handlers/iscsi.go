@@ -3,6 +3,7 @@ package handlers
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"regexp"
 	"strings"
@@ -60,6 +61,7 @@ const (
 type ISCSICreateRequest struct {
 	IQN         string `json:"iqn"`
 	BackingDev  string `json:"backing_dev"` // ZFS zvol path e.g. /dev/zvol/tank/lun0
+	Zvol        string `json:"zvol"`        // or the volume's dataset name (tank/lun0), as the web UI sends it
 	PortalIP    string `json:"portal_ip"`
 	PortalPort  int    `json:"portal_port"`
 	RequireCHAP bool   `json:"require_chap"` // When true, enables CHAP authentication on the TPG.
@@ -83,6 +85,44 @@ type ISCSIACLRequest struct {
 func validateIQN(iqn string) error {
 	if !iqnRegex.MatchString(iqn) {
 		return fmt.Errorf("invalid IQN format (expected iqn.YYYY-MM.reverse.domain:id)")
+	}
+	return nil
+}
+
+// targetcli is not in the command whitelist; its arguments are checked here.
+var (
+	zvolDevRe  = regexp.MustCompile(`^/dev/zvol/[A-Za-z0-9][A-Za-z0-9_.:/-]*$`)
+	chapUserRe = regexp.MustCompile(`^[A-Za-z0-9._@:-]{1,64}$`)
+	chapPassRe = regexp.MustCompile(`^[\x21-\x7e]{12,255}$`) // printable, no spaces (targetcli joins its arguments)
+)
+
+// validateBackingDev allows only ZFS volumes: anything else (a whole disk,
+// the system disk) must not be exported over the network by this API.
+// backingDev returns the device of the request: backing_dev, or the zvol
+// dataset name turned into its /dev/zvol path.
+func (req ISCSICreateRequest) backingDev() string {
+	if req.BackingDev == "" && req.Zvol != "" {
+		return "/dev/zvol/" + strings.TrimPrefix(req.Zvol, "/")
+	}
+	return req.BackingDev
+}
+
+func validateBackingDev(dev string) error {
+	if !zvolDevRe.MatchString(dev) || strings.Contains(dev, "..") {
+		return fmt.Errorf("backing_dev must be a ZFS volume (/dev/zvol/<pool>/<volume>)")
+	}
+	return nil
+}
+
+func validateCHAP(user, pass string) error {
+	if user == "" && pass == "" {
+		return nil
+	}
+	if !chapUserRe.MatchString(user) {
+		return fmt.Errorf("invalid CHAP user (letters, digits, . _ @ : -; up to 64)")
+	}
+	if !chapPassRe.MatchString(pass) {
+		return fmt.Errorf("CHAP secret must be 12 to 255 printable characters without spaces")
 	}
 	return nil
 }
@@ -124,15 +164,28 @@ func CreateISCSITarget(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusBadRequest, "Invalid request", err)
 		return
 	}
+	req.BackingDev = req.backingDev()
 	if req.BackingDev == "" {
-		respondErrorSimple(w, "backing_dev is required", http.StatusBadRequest)
+		respondErrorSimple(w, "backing_dev (or zvol) is required", http.StatusBadRequest)
+		return
+	}
+	if err := validateBackingDev(req.BackingDev); err != nil {
+		respondErrorSimple(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 	if req.PortalPort == 0 {
 		req.PortalPort = 3260
 	}
+	if req.PortalPort < 1 || req.PortalPort > 65535 {
+		respondErrorSimple(w, "invalid portal_port", http.StatusBadRequest)
+		return
+	}
 	if req.PortalIP == "" {
 		req.PortalIP = "0.0.0.0"
+	}
+	if net.ParseIP(req.PortalIP) == nil {
+		respondErrorSimple(w, "portal_ip must be an IP address", http.StatusBadRequest)
+		return
 	}
 
 	// Create target
@@ -150,9 +203,16 @@ func CreateISCSITarget(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// A half-built target is removed again (target and storage object).
+	cleanup := func() {
+		runTargetcli("/iscsi", "delete", req.IQN)                //nolint
+		runTargetcli("/backstores/block", "delete", storageName) //nolint
+	}
+
 	// Create LUN
 	tpgPath := fmt.Sprintf("/iscsi/%s/tpg1", req.IQN)
 	if _, err := runTargetcli(tpgPath+"/luns", "create", "/backstores/block/"+storageName); err != nil {
+		cleanup()
 		respondErrorSimple(w, "Failed to create LUN", http.StatusInternalServerError)
 		return
 	}
@@ -161,6 +221,7 @@ func CreateISCSITarget(w http.ResponseWriter, r *http.Request) {
 	portalAddr := fmt.Sprintf("%s:%d", req.PortalIP, req.PortalPort)
 	runTargetcli(tpgPath+"/portals", "delete", "0.0.0.0", "3260") //nolint - remove default portal
 	if _, err := runTargetcli(tpgPath+"/portals", "create", portalAddr); err != nil {
+		cleanup()
 		respondErrorSimple(w, "Failed to set portal", http.StatusInternalServerError)
 		return
 	}
@@ -170,15 +231,26 @@ func CreateISCSITarget(w http.ResponseWriter, r *http.Request) {
 	// authentication=0 relies solely on ACL (initiator IQN) matching - this is
 	// weaker because IQNs can be spoofed. Operators must explicitly opt out of CHAP
 	// by setting require_chap=false in their request; they cannot silently get it.
+	// Authentication is security-relevant: a target whose mode could not be
+	// set is not left running.
+	authMode := "authentication=0"
 	if req.RequireCHAP {
-		runTargetcli(tpgPath, "set", "attribute", "authentication=1") //nolint
+		authMode = "authentication=1"
 	} else {
 		// Operator explicitly chose ACL-only. Log so this is auditable.
 		fmt.Printf("SECURITY NOTICE: iSCSI target %s created with authentication=0 (CHAP disabled). "+
 			"Ensure network-level isolation and that initiator IQNs cannot be spoofed.\n", req.IQN)
-		runTargetcli(tpgPath, "set", "attribute", "authentication=0") //nolint
 	}
-	runTargetcli(tpgPath, "enable") //nolint
+	if _, err := runTargetcli(tpgPath, "set", "attribute", authMode); err != nil {
+		cleanup()
+		respondErrorSimple(w, "Failed to set the authentication mode; the target was removed", http.StatusInternalServerError)
+		return
+	}
+	if _, err := runTargetcli(tpgPath, "enable"); err != nil {
+		cleanup()
+		respondErrorSimple(w, "Failed to enable the target; it was removed", http.StatusInternalServerError)
+		return
+	}
 
 	// ALUA (Asymmetric Logical Unit Access / TPGS) configuration.
 	// When enabled, LIO exposes a Target Port Group so multi-path initiators can
@@ -192,8 +264,12 @@ func CreateISCSITarget(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Save config
-	runTargetcli("/", "saveconfig") //nolint
+	// Save config: without it the target is gone after a reboot.
+	if _, err := runTargetcli("/", "saveconfig"); err != nil {
+		respondOK(w, map[string]any{"success": false, "iqn": req.IQN,
+			"error": "The target is running, but saving the iSCSI configuration failed: it is lost at the next reboot"})
+		return
+	}
 
 	respondOK(w, map[string]any{
 		"success":      true,
@@ -216,8 +292,13 @@ func UpdateISCSITarget(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusBadRequest, "Invalid request", err)
 		return
 	}
+	req.BackingDev = req.backingDev()
 	if req.BackingDev == "" {
-		respondErrorSimple(w, "backing_dev is required", http.StatusBadRequest)
+		respondErrorSimple(w, "backing_dev (or zvol) is required", http.StatusBadRequest)
+		return
+	}
+	if err := validateBackingDev(req.BackingDev); err != nil {
+		respondErrorSimple(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -246,8 +327,11 @@ func UpdateISCSITarget(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Save config
-	runTargetcli("/", "saveconfig") //nolint
+	if _, err := runTargetcli("/", "saveconfig"); err != nil {
+		respondOK(w, map[string]any{"success": false, "iqn": req.IQN,
+			"error": "The target is updated, but saving the iSCSI configuration failed: the change is lost at the next reboot"})
+		return
+	}
 
 	respondOK(w, map[string]any{
 		"success": true,
@@ -316,6 +400,10 @@ func AddISCSIACL(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusBadRequest, "Invalid initiator", err)
 		return
 	}
+	if err := validateCHAP(req.CHAPUser, req.CHAPPass); err != nil {
+		respondErrorSimple(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 
 	aclPath := fmt.Sprintf("/iscsi/%s/tpg1/acls", req.TargetIQN)
 	if _, err := runTargetcli(aclPath, "create", req.InitiatorIQN); err != nil {
@@ -324,13 +412,23 @@ func AddISCSIACL(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Optional CHAP
-	if req.CHAPUser != "" && req.CHAPPass != "" {
+	// CHAP that silently failed would leave the initiator allowed without
+	// the authentication the admin asked for: undo the ACL instead.
+	if req.CHAPUser != "" {
 		initiatorPath := aclPath + "/" + req.InitiatorIQN
-		runTargetcli(initiatorPath, "set", "auth", "userid="+req.CHAPUser) //nolint
-		runTargetcli(initiatorPath, "set", "auth", "password="+req.CHAPPass) //nolint
+		_, err1 := runTargetcli(initiatorPath, "set", "auth", "userid="+req.CHAPUser)
+		_, err2 := runTargetcli(initiatorPath, "set", "auth", "password="+req.CHAPPass)
+		if err1 != nil || err2 != nil {
+			runTargetcli(aclPath, "delete", req.InitiatorIQN) //nolint
+			respondErrorSimple(w, "Failed to set CHAP credentials; the ACL was not added", http.StatusInternalServerError)
+			return
+		}
 	}
 
-	runTargetcli("/", "saveconfig") //nolint
+	if _, err := runTargetcli("/", "saveconfig"); err != nil {
+		respondOK(w, map[string]any{"success": false, "error": "The ACL is active, but saving the iSCSI configuration failed: it is lost at the next reboot"})
+		return
+	}
 	respondOK(w, map[string]any{
 		"success": true,
 		"message": "ACL added",
@@ -490,9 +588,9 @@ func GetISCSIZvolList(w http.ResponseWriter, r *http.Request) {
 		parts := strings.Fields(line)
 		if len(parts) == 2 {
 			zvols = append(zvols, map[string]string{
-				"name":    parts[0],
-				"size":    parts[1],
-				"dev":     "/dev/zvol/" + parts[0],
+				"name": parts[0],
+				"size": parts[1],
+				"dev":  "/dev/zvol/" + parts[0],
 			})
 		}
 	}
@@ -502,5 +600,3 @@ func GetISCSIZvolList(w http.ResponseWriter, r *http.Request) {
 		"zvols":   zvols,
 	})
 }
-
-
