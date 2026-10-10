@@ -151,7 +151,7 @@ ssh root@<ip>
 
 ### Method 2: Via UI (Coming Soon)
 
-A UI-based installer is planned for v14.8.0.
+A UI-based installer is planned.
 
 ### Method 3: Manual (Not Recommended)
 

@@ -928,8 +928,23 @@ jobs:
             }
           done
 
+      # A published release is never rewritten by later pushes to main: bump
+      # VERSION for the next release instead.
+      - name: Check whether this version is already published
+        id: published
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          V="v${{ steps.meta.outputs.version }}"
+          if gh release view "$V" --repo "$GITHUB_REPOSITORY" --json isDraft --jq '.isDraft' 2>/dev/null | grep -qx false; then
+            echo "::notice::$V is already published; not touching it. Bump VERSION to release again."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Publish GitHub Release
-        if: github.ref == 'refs/heads/main' || github.ref_type == 'tag'
+        if: (github.ref == 'refs/heads/main' || github.ref_type == 'tag') && steps.published.outputs.skip != 'true'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ steps.meta.outputs.version }}

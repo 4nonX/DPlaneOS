@@ -5,9 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
 
-## Unreleased
+## v15.0.0 (2026-10-10) - "Local First"
 
-Phase 0 of [Design 0001](../design/0001-distributed-state-gitops-ha.md): fixes in GitOps and HA that do not depend on the new architecture.
+[Design 0001](../design/0001-distributed-state-gitops-ha.md), phases 0 to 3: every node keeps its own database and keeps working on its own; paired nodes exchange configuration (with secrets) and merge it per resource; high availability is rebuilt on Corosync quorum, a third vote from anything, and storage groups that move between nodes with their shares, apps and a floating address.
+
+### Upgrade notes (breaking)
+
+- **Patroni-based HA is removed.** `services.dplaneos.ha` (Patroni, etcd, HAProxy, keepalived), the etcd witness and the installer's "Install Witness Node" entry are gone. Remove `services.dplaneos.ha.*` from your NixOS configuration if you set it there. HA is set up anew from the web interface: pair the nodes (System › Configuration Sync), form the cluster and add a third vote (System › High Availability), create storage groups. See [HIGH-AVAILABILITY.md](../admin/HIGH-AVAILABILITY.md).
+- **Removed API endpoints:** the legacy `/api/ha/*` routes for peers, promote, switchover, fence, maintenance, witness, network witness, SBD, cluster secret, replication, timing, toggle, heartbeat, standby and ALUA standby. Kept: `/api/ha/protection`, `/api/ha/watchdog/configure`, `/api/ha/fencing/configure`, `/api/ha/pdu/configure`, `/api/ha/hardware/detect`, `/api/ha/scsi/*`, `/api/ha/ctdb/*`.
+- **Removed daemon flags:** `--ha-local-id`, `--ha-local-addr`, `--ha-cluster-secret`.
+- **CTDB** takes its node list from the new `services.dplaneos.ctdb.nodes`.
+- **Prometheus:** the HA metrics changed (`dplaneos_ha_*`, `dplaneos_group_*`); update dashboards and use the new `prometheus/ha-alerts.yml`.
+- The database schema migrates automatically on first start (migrations up to 00023).
+
+Phase 0: fixes in GitOps and HA that do not depend on the new architecture.
 
 ### Fixed
 
@@ -15,8 +26,7 @@ Phase 0 of [Design 0001](../design/0001-distributed-state-gitops-ha.md): fixes i
 - **Failed rebases and pushes were only logged.** A failed `git pull --rebase` is aborted and returned instead of being ignored; a missing remote branch is told apart from a network or authentication error; write-back failures appear on the GitOps page (`last_commit`) and as a `gitops.commit_failed` notification.
 - **Authenticated Git never worked from the daemon.** `RunInDirWithEnv` replaced the whole environment with the credential variables, so git ran without `PATH` and `HOME`: the token askpass helper could not run `cat` and `GIT_SSH_COMMAND` could not find `ssh`. The credentials now extend the environment.
 - **The drift detector never fetched.** It compared against whatever the local clone held. It now fetches and fast-forwards the clone every 5 minutes on every node; local snapshot commits that diverged are reset to the remote (they are regenerated from live state). A second, duplicate drift detector started in `main` is removed.
-- **HA: both nodes acted as GitOps writers.** Only the active node with quorum (not in subordinate mode, not fencing) commits UI changes, evaluates drift and applies; elsewhere apply answers 409 with the reason. The standby still fetches so it starts from the latest `state.yaml` after a failover. The pool ownership guard uses the same check (quorum alone is true on both nodes of a healthy pair).
-- **HA: secrets were unreadable after a failover.** Each node had its own `secrets.key` while both share one database. New `services.dplaneos.secrets.keyFile` / `fallbackKeyFile` (`-secrets-key`, `-secrets-key-fallback`): every sealed value is checked at startup, values only the fallback key opens are re-sealed under the active key, and undecryptable values are reported (`GET /api/system/secrets/status`, log). Key rotation is refused while HA is enabled. Rotation now preserves unknown fields in the SMTP settings.
+- **Secrets key handling.** New `services.dplaneos.secrets.keyFile` / `fallbackKeyFile` (`-secrets-key`, `-secrets-key-fallback`): every sealed value is checked at startup, values only the fallback key opens are re-sealed under the active key, and undecryptable values are reported (`GET /api/system/secrets/status`, log). Rotation now preserves unknown fields in the SMTP settings.
 - **Plain-text secrets in `state.yaml`.** `ldap.bind_password` is rejected (apply stored it unencrypted in a column read as encrypted, breaking LDAP binds); `password_hash` must be a bcrypt hash.
 - **GitOps page status card always showed "Synchronized"**: it read fields the API does not return. It now shows drift, check time, the synced commit, drift-check errors and failed write-backs.
 
