@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"regexp"
 	"bufio"
 	"bytes"
 	"context"
@@ -72,8 +73,10 @@ func (h *ReplicationHandler) ReplicateToRemote(w http.ResponseWriter, r *http.Re
 			respondErrorSimple(w, "source_dataset is required when snapshot is not specified", http.StatusBadRequest)
 			return
 		}
+		// -d 1: snapshots of this dataset only (with -r the newest snapshot
+		// of a child dataset could be picked and replicated instead).
 		snapOut, snapErr := executeCommandWithTimeout(TimeoutFast, "zfs",
-			[]string{"list", "-t", "snapshot", "-H", "-o", "name", "-s", "creation", "-r", req.SourceDataset})
+			[]string{"list", "-t", "snapshot", "-H", "-o", "name", "-s", "creation", "-d", "1", req.SourceDataset})
 		if snapErr != nil || strings.TrimSpace(snapOut) == "" {
 			respondErrorSimple(w, "No snapshots found for dataset "+req.SourceDataset+" - create a snapshot first", http.StatusBadRequest)
 			return
@@ -91,8 +94,23 @@ func (h *ReplicationHandler) ReplicateToRemote(w http.ResponseWriter, r *http.Re
 		respondErrorSimple(w, "Invalid remote host", http.StatusBadRequest)
 		return
 	}
-	if strings.ContainsAny(req.RemoteHost, ";|&$`\\\"'") {
-		respondErrorSimple(w, "Invalid characters in remote host", http.StatusBadRequest)
+	if !isValidSSHHost(req.RemoteHost) {
+		respondErrorSimple(w, "Invalid remote host", http.StatusBadRequest)
+		return
+	}
+	// base_snapshot goes to "zfs send -i": a snapshot of the source
+	// dataset, full or short (@name).
+	if req.Incremental && req.BaseSnap != "" && !baseSnapRe.MatchString(req.BaseSnap) &&
+		!(isValidSnapshotName(req.BaseSnap) && strings.SplitN(req.BaseSnap, "@", 2)[0] == strings.SplitN(req.Snapshot, "@", 2)[0]) {
+		respondErrorSimple(w, "Invalid base_snapshot (a snapshot of the source dataset)", http.StatusBadRequest)
+		return
+	}
+	if req.RateLimit != "" && !rateLimitRe.MatchString(req.RateLimit) {
+		respondErrorSimple(w, "Invalid rate_limit (bytes per second, e.g. 50M)", http.StatusBadRequest)
+		return
+	}
+	if req.SSHKey != "" && (!keyPathRe.MatchString(req.SSHKey) || strings.Contains(req.SSHKey, "..")) {
+		respondErrorSimple(w, "Invalid ssh_key_path", http.StatusBadRequest)
 		return
 	}
 	if !isValidDataset(req.RemotePool) {
@@ -145,7 +163,7 @@ func (h *ReplicationHandler) ReplicateToRemote(w http.ResponseWriter, r *http.Re
 			sshArgs = append([]string{"-i", replKeyPath}, khArgs...)
 		} else {
 			sshArgs = []string{"-o", "StrictHostKeyChecking=accept-new"}
-			if req.SSHKey != "" && !strings.ContainsAny(req.SSHKey, ";|&$`\\\"'") {
+			if req.SSHKey != "" {
 				sshArgs = append(sshArgs, "-i", req.SSHKey)
 			}
 		}
@@ -187,7 +205,7 @@ func (h *ReplicationHandler) ReplicateToRemote(w http.ResponseWriter, r *http.Re
 		sendArgs = append(sendArgs, req.Snapshot)
 
 		var rateLimitBytes []string
-		if req.RateLimit != "" && !strings.ContainsAny(req.RateLimit, ";|&$`\\\"' ") {
+		if req.RateLimit != "" {
 			rateLimitBytes = []string{req.RateLimit}
 		}
 
@@ -203,6 +221,19 @@ func (h *ReplicationHandler) ReplicateToRemote(w http.ResponseWriter, r *http.Re
 
 	respondOK(w, map[string]any{"success": true, "job_id": jobID})
 }
+
+// sshHostRe: host names and IP addresses (IPv6 with colons, optionally in
+// brackets). The host is an ssh argument: no leading "-" (option injection,
+// e.g. -oProxyCommand), no spaces or shell characters.
+var sshHostRe = regexp.MustCompile(`^[A-Za-z0-9\[][A-Za-z0-9.:\[\]-]{0,252}$`)
+
+func isValidSSHHost(host string) bool { return sshHostRe.MatchString(host) }
+
+var (
+	rateLimitRe = regexp.MustCompile(`^[0-9]{1,12}[kKmMgGtT]?$`)
+	baseSnapRe  = regexp.MustCompile(`^@[a-zA-Z0-9][a-zA-Z0-9_.-]*$`)
+	keyPathRe   = regexp.MustCompile(`^/[A-Za-z0-9._/-]+$`)
+)
 
 // isValidResumeToken checks that a ZFS resume token contains only safe characters.
 // ZFS tokens are base64url-encoded opaque blobs. Reject anything with shell metacharacters.
@@ -315,6 +346,10 @@ func execPipedZFSSend(
 // Applied before RemoteUser is passed as an exec.Command argument.
 func isValidSSHUser(user string) bool {
 	if len(user) == 0 || len(user) > 64 {
+		return false
+	}
+	// ssh reads an argument starting with "-" as an option.
+	if user[0] == '-' || user[0] == '.' {
 		return false
 	}
 	for _, c := range user {

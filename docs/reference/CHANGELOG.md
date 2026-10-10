@@ -39,6 +39,10 @@ interface against the fields its handler reads
 - iSCSI targets accepted any device (the system disk could be exported);
   only zvols are accepted. Targets whose authentication setup failed were
   left running; CHAP failures left unauthenticated ACLs. Both roll back.
+- Remote replication passed base_snapshot, rate limit, key path, host and
+  user to zfs/pv/ssh with only shell characters filtered: a value starting
+  with "-" became an option (ssh -oProxyCommand runs a command as root).
+  All are validated now, for peers too.
 - The login lockout overflowed after about 35 failures and stopped
   throttling.
 - Malformed token allowlists are refused instead of treated as
@@ -51,6 +55,8 @@ interface against the fields its handler reads
 
 ### Fixed
 
+- Replicating a dataset without naming a snapshot could pick the newest
+  snapshot of a child dataset and replicate that instead.
 - Changing an encryption key failed on unlocked datasets and never checked
   the old passphrase.
 - Shrinking a zvol (which destroys data) needs `allow_shrink`.

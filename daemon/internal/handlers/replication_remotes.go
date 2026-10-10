@@ -150,7 +150,7 @@ func (h *RemotesHandler) HandleCreateRemote(w http.ResponseWriter, r *http.Reque
 		respondErrorSimple(w, "name is required (max 64 chars)", http.StatusBadRequest)
 		return
 	}
-	if req.Host == "" || len(req.Host) > 253 || strings.ContainsAny(req.Host, ";|&$`\\\"'") {
+	if !isValidSSHHost(req.Host) {
 		respondErrorSimple(w, "Invalid host", http.StatusBadRequest)
 		return
 	}
@@ -205,7 +205,7 @@ func (h *RemotesHandler) HandleUpdateRemote(w http.ResponseWriter, r *http.Reque
 	}
 
 	// Validate fields before acquiring the lock.
-	if req.Host != "" && (len(req.Host) > 253 || strings.ContainsAny(req.Host, ";|&$`\\\"'")) {
+	if req.Host != "" && !isValidSSHHost(req.Host) {
 		respondErrorSimple(w, "Invalid host", http.StatusBadRequest)
 		return
 	}
