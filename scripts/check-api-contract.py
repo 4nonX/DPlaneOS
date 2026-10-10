@@ -106,7 +106,7 @@ def fields(body, recv_type, depth=0):
     if body is None or depth > 3:
         return set()
     tags = set(re.findall(r'json:"([^",]+)', body))  # inline structs
-    for t in re.findall(r'var \w+\s+\*?(\w+)\b', body) + re.findall(r'\w+ := &?(\w+)\{\}', body):
+    for t in re.findall(r'var \w+\s+(?:\[\])?\*?(\w+)\b', body) +re.findall(r'\w+ := &?(\w+)\{\}', body):
         tags |= named_struct(t)
     tags |= set(re.findall(r'\w+\["(\w+)"\]', body))
     # helpers the handler dispatches to (directly or through middleware)
@@ -160,15 +160,47 @@ findings = []
 for f in sorted(glob.glob(os.path.join(SRC, '**', '*.ts*'), recursive=True)):
     src = open(f, encoding='utf-8').read()
     for m in call_re.finditer(src):
-        if not src[m.end():].startswith('{'):
-            continue
+        if src[m.end():].startswith('{'):
+            keys = object_keys(src, m.end())
+        else:
+            # a body built in a variable shortly before: const body = {...}
+            # (or cond ? {...} : {...}); keys of every literal are checked
+            vm = re.match(r'([A-Za-z_]\w*)\s*\)', src[m.end():])
+            if not vm:
+                continue
+            decl = None
+            for d in re.finditer(r'(?:const|let)\s+' + vm.group(1) + r'\b[^=\n]*=\s*', src[max(0, m.start() - 3000):m.start()]):
+                decl = max(0, m.start() - 3000) + d.end()
+            if decl is None:
+                continue
+            keys, j = [], decl
+            while True:
+                brace = src.find('{', j)
+                stop = src.find('\n\n', decl)
+                if brace < 0 or (0 <= stop < brace) or brace > m.start():
+                    break
+                keys += object_keys(src, brace)
+                depth, k = 0, brace
+                while k < len(src):  # skip to the end of this literal
+                    if src[k] == '{':
+                        depth += 1
+                    elif src[k] == '}':
+                        depth -= 1
+                        if depth == 0:
+                            break
+                    k += 1
+                nxt = src[k + 1:k + 40].lstrip()
+                if not nxt.startswith(':'):
+                    break
+                j = k + 1
+            if not keys:
+                continue
         meth = m.group(1).upper()
         raw = m.group(3).split('?')[0]
         # ${...} segments match any route segment
         ui_rx = re.compile('^' + re.sub(r'\\\$\\\{[^}]*\\\}', '[^/]+', re.escape(raw)) + '$')
         line = src.count('\n', 0, m.start()) + 1
         name = os.path.basename(f)
-        keys = object_keys(src, m.end())
         cands = [r for r in routes if r[1] == meth and (r[0].match(raw) or ui_rx.match(r[3]) or r[0].match(re.sub(r'\$\{[^}]*\}', 'X', raw)))]
         if not cands:
             findings.append('%s:%d %s %s: no such route' % (name, line, meth, raw))

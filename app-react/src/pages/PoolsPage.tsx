@@ -551,10 +551,13 @@ function ScrubScheduleModal({ pool, current, onClose, onSaved }: {
   const [day, setDay] = useState<number>(current?.day ?? 0)
 
   const saveMutation = useMutation({
-    mutationFn: () => {
+    mutationFn: async () => {
+      // The API stores the whole list: keep the other pools' schedules.
+      const all = await api.get<{ success: boolean; schedules: ScrubSchedule[] }>('/api/zfs/scrub/schedule')
+      const others = (all.schedules ?? []).filter(s => s.pool !== pool)
       const payload: ScrubSchedule[] = interval === 'disabled'
-        ? []
-        : [{ pool, interval, hour, day }]
+        ? others
+        : [...others, { pool, interval, hour, day }]
       return api.post<{ success: boolean; error?: string }>('/api/zfs/scrub/schedule', payload).then(ensureOk)
     },
     onSuccess: () => {

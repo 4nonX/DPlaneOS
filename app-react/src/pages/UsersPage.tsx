@@ -516,10 +516,10 @@ function RoleModal({ role, onClose, onDone }: { role?: Role; onClose: () => void
 
   const mutation = useMutation({
     mutationFn: () => {
-      const body = { name, description, permissions: [...perms] }
+      // A role's name is fixed once created.
       return isEdit
-        ? api.put(`/api/rbac/roles/${role.id}`, body)
-        : api.post('/api/rbac/roles', body)
+        ? api.put(`/api/rbac/roles/${role.id}`, { description, permissions: [...perms] })
+        : api.post('/api/rbac/roles', { name, description, permissions: [...perms] })
     },
     onSuccess: () => { toast.success(isEdit ? 'Role updated' : 'Role created'); onDone(); onClose() },
     onError: (e: Error) => toast.error(e.message),
