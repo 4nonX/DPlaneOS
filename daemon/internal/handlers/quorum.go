@@ -73,8 +73,8 @@ func (h *QuorumHandler) Suggest(w http.ResponseWriter, r *http.Request) {
 		u, _ := url.Parse(p.URL)
 		out := map[string]any{"success": true, "peer_name": p.Name, "local_name": configstore.NodeName()}
 		if u != nil {
-			if ips, err := net.LookupIP(u.Hostname()); err == nil && len(ips) > 0 {
-				out["peer_addr"] = ips[0].String()
+			if ip, err := quorum.PreferredIP(u.Hostname()); err == nil {
+				out["peer_addr"] = ip
 			}
 			if a, err := quorum.SourceAddrTowards(u.Hostname()); err == nil {
 				out["local_addr"] = a
@@ -275,7 +275,8 @@ func (h *QuorumHandler) RemoveNode(w http.ResponseWriter, r *http.Request) {
 // machine that runs only corosync joins as a voter (setup script).
 func (h *QuorumHandler) VoterJoin(w http.ResponseWriter, r *http.Request) {
 	self, _ := h.self()
-	j, err := quorum.EnrollVoter(h.db, r.Header.Get(quorum.HdrCode), r.URL.Query().Get("name"), r.URL.Query().Get("address"), self, h.push)
+	q := r.URL.Query()
+	j, err := quorum.EnrollVoter(h.db, r.Header.Get(quorum.HdrCode), q.Get("name"), q.Get("address"), q.Get("address6"), self, h.push)
 	h.mon.Refresh()
 	if err != nil {
 		textError(w, err.Error(), enrollStatus(err))

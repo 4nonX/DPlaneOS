@@ -71,16 +71,31 @@ func enrollPost(client *http.Client, nodeURL, path, code string, body []byte) ([
 
 // sourceAddrTowards returns this machine's address on the route to host.
 func sourceAddrTowards(host string) (string, error) {
-	ips, err := net.LookupIP(host)
-	if err != nil || len(ips) == 0 {
-		return "", fmt.Errorf("cannot resolve %s: %v", host, err)
+	ip, err := PreferredIP(host)
+	if err != nil {
+		return "", err
 	}
-	conn, err := net.Dial("udp", net.JoinHostPort(ips[0].String(), "5405"))
+	conn, err := net.Dial("udp", net.JoinHostPort(ip, "5405"))
 	if err != nil {
 		return "", err
 	}
 	defer conn.Close()
 	return conn.LocalAddr().(*net.UDPAddr).IP.String(), nil
+}
+
+// PreferredIP resolves host, preferring IPv4: a cluster's addresses must all
+// be of one family, and most LANs (and the third vote's setup) use IPv4.
+func PreferredIP(host string) (string, error) {
+	ips, err := net.LookupIP(host)
+	if err != nil || len(ips) == 0 {
+		return "", fmt.Errorf("cannot resolve %s: %v", host, err)
+	}
+	for _, ip := range ips {
+		if ip.To4() != nil {
+			return ip.String(), nil
+		}
+	}
+	return ips[0].String(), nil
 }
 
 // SourceAddrTowards is exported for address suggestions in the GUI.

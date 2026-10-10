@@ -57,6 +57,15 @@ func (c Config) Validate() error {
 		return errors.New("a cluster needs at least two DPlaneOS nodes")
 	}
 	ids, addrs := map[int]bool{}, map[string]bool{}
+	v4 := 0
+	for _, n := range c.Nodes {
+		if ip := net.ParseIP(n.Addr); ip != nil && ip.To4() != nil {
+			v4++
+		}
+	}
+	if v4 != 0 && v4 != len(c.Nodes) {
+		return errors.New("cluster addresses mix IPv4 and IPv6; corosync needs one family for all members")
+	}
 	for _, n := range c.Nodes {
 		if n.ID < 1 || ids[n.ID] {
 			return fmt.Errorf("invalid or duplicate node id %d", n.ID)

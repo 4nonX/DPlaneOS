@@ -1,6 +1,7 @@
 package quorum
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -62,5 +63,27 @@ func TestVoterText(t *testing.T) {
 	}
 	if strings.Contains(Render(threeWithVoter()), "dpv_") {
 		t.Error("tokens are never rendered")
+	}
+}
+
+func TestAddressFamilies(t *testing.T) {
+	mixed := threeWithVoter()
+	mixed.Nodes[2].Addr = "fd00::3"
+	if mixed.Validate() == nil {
+		t.Error("IPv4 and IPv6 members must be refused")
+	}
+	c := threeWithVoter()
+	if a, err := voterAddr(c, "10.0.0.9", "fd00::9"); err != nil || a != "10.0.0.9" {
+		t.Errorf("IPv4 cluster: %q %v", a, err)
+	}
+	v6 := threeWithVoter()
+	for i := range v6.Nodes {
+		v6.Nodes[i].Addr = fmt.Sprintf("fd00::%d", i+1)
+	}
+	if a, err := voterAddr(v6, "10.0.0.9", "fd00::9"); err != nil || a != "fd00::9" {
+		t.Errorf("IPv6 cluster: %q %v", a, err)
+	}
+	if _, err := voterAddr(v6, "10.0.0.9", ""); err == nil {
+		t.Error("an IPv6 cluster needs the voter's IPv6 address")
 	}
 }

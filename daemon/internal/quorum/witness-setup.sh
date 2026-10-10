@@ -111,7 +111,11 @@ if [ "$MODE" = voter ]; then
 
     say "Joining the cluster at $NODE as voter $NAME ($ADDR)"
     : > "$TMP/empty"
-    post "/api/quorum/voter/join?name=$NAME&address=$ADDR" "$TMP/empty" > "$TMP/join"
+    # Both families: the node picks the one its cluster uses.
+    IP6=$(getent ahostsv6 "$HOST" 2>/dev/null | awk '$1 !~ /^::ffff:/ {print $1; exit}')
+    ADDR6=""
+    [ -n "$IP6" ] && ADDR6=$(ip -o -6 route get "$IP6" 2>/dev/null | sed -n 's/.* src \([^ ]*\).*/\1/p' | head -n1)
+    post "/api/quorum/voter/join?name=$NAME&address=$ADDR&address6=$ADDR6" "$TMP/empty" > "$TMP/join"
     CLUSTER=$(sed -n 's/^cluster: //p' "$TMP/join" | head -n1)
     TOKEN=$(sed -n 's/^token: //p' "$TMP/join" | head -n1)
     [ -n "$CLUSTER" ] && [ -n "$TOKEN" ] || die "unexpected answer from $NODE"

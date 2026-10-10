@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -224,7 +225,7 @@ func voterJoin(cfg Config, key []byte) VoterJoin {
 
 // EnrollVoter adds a voter with a one-time code (the same codes as the
 // third vote) and returns its configuration and pull token.
-func EnrollVoter(db *sql.DB, code, name, addr, self string, push PushFunc) (*VoterJoin, error) {
+func EnrollVoter(db *sql.DB, code, name, addr4, addr6, self string, push PushFunc) (*VoterJoin, error) {
 	opMu.Lock()
 	defer opMu.Unlock()
 	var ok bool
@@ -240,6 +241,10 @@ func EnrollVoter(db *sql.DB, code, name, addr, self string, push PushFunc) (*Vot
 		return nil, errors.New("this node is not in a cluster")
 	}
 	name = strings.ToLower(strings.TrimSpace(name))
+	addr, err := voterAddr(*cfg, addr4, addr6)
+	if err != nil {
+		return nil, err
+	}
 	for _, n := range cfg.Nodes {
 		if n.Name == name {
 			return nil, fmt.Errorf("a member named %s exists; give the voter another hostname", name)
@@ -275,6 +280,25 @@ func EnrollVoter(db *sql.DB, code, name, addr, self string, push PushFunc) (*Vot
 	j := voterJoin(*cfg, key)
 	j.Token = token
 	return &j, nil
+}
+
+// voterAddr picks the voter's address in the cluster's address family.
+func voterAddr(cfg Config, addr4, addr6 string) (string, error) {
+	wantV4 := true
+	if len(cfg.Nodes) > 0 {
+		if ip := net.ParseIP(cfg.Nodes[0].Addr); ip != nil && ip.To4() == nil {
+			wantV4 = false
+		}
+	}
+	pick, family := addr4, "IPv4"
+	if !wantV4 {
+		pick, family = addr6, "IPv6"
+	}
+	ip := net.ParseIP(pick)
+	if ip == nil || (ip.To4() != nil) != wantV4 {
+		return "", fmt.Errorf("the cluster uses %s addresses, and this machine has no %s address towards the node", family, family)
+	}
+	return ip.String(), nil
 }
 
 // VoterConfig returns the current configuration to a voter that presents
