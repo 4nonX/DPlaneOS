@@ -17,11 +17,11 @@ func NewZFSEncryptionHandler() *ZFSEncryptionHandler {
 }
 
 type EncryptedDataset struct {
-	Name          string `json:"name"`
-	Encryption    string `json:"encryption"`
-	KeyStatus     string `json:"keystatus"`
-	KeyLocation   string `json:"keylocation"`
-	KeyFormat     string `json:"keyformat"`
+	Name        string `json:"name"`
+	Encryption  string `json:"encryption"`
+	KeyStatus   string `json:"keystatus"`
+	KeyLocation string `json:"keylocation"`
+	KeyFormat   string `json:"keyformat"`
 }
 
 // ListEncryptedDatasets lists all encrypted ZFS datasets
@@ -59,6 +59,24 @@ func (h *ZFSEncryptionHandler) ListEncryptedDatasets(w http.ResponseWriter, r *h
 	})
 }
 
+// validatePassphrase applies ZFS's passphrase rules (8 to 512 bytes). The
+// passphrase goes to zfs on stdin, one per line, so it may not contain a
+// line break.
+func validatePassphrase(p string) error {
+	if len(p) < 8 || len(p) > 512 {
+		return fmt.Errorf("the passphrase must be 8 to 512 characters")
+	}
+	if strings.ContainsAny(p, "\r\n") {
+		return fmt.Errorf("the passphrase must not contain line breaks")
+	}
+	return nil
+}
+
+func respondEncFailure(w http.ResponseWriter, msg string) {
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{"success": false, "error": msg})
+}
+
 // UnlockDataset unlocks an encrypted dataset
 func (h *ZFSEncryptionHandler) UnlockDataset(w http.ResponseWriter, r *http.Request) {
 	var req struct {
@@ -80,8 +98,11 @@ func (h *ZFSEncryptionHandler) UnlockDataset(w http.ResponseWriter, r *http.Requ
 		respondErrorSimple(w, "key is required", http.StatusBadRequest)
 		return
 	}
+	if strings.ContainsAny(req.Key, "\r\n") {
+		respondErrorSimple(w, "the passphrase must not contain line breaks", http.StatusBadRequest)
+		return
+	}
 
-	// Create temporary key file
 	output, err := cmdutil.RunWithStdin(cmdutil.TimeoutMedium, req.Key+"\n", "zfs", "load-key", req.Dataset)
 
 	if err != nil {
@@ -144,8 +165,8 @@ func (h *ZFSEncryptionHandler) CreateEncryptedDataset(w http.ResponseWriter, r *
 		req.Encryption = "aes-256-gcm"
 	}
 
-	if req.Key == "" {
-		respondErrorSimple(w, "key is required", http.StatusBadRequest)
+	if err := validatePassphrase(req.Key); err != nil {
+		respondErrorSimple(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -168,7 +189,7 @@ func (h *ZFSEncryptionHandler) CreateEncryptedDataset(w http.ResponseWriter, r *
 		"-o", "keylocation=prompt",
 		req.Name,
 	)
-	
+
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{
@@ -205,8 +226,33 @@ func (h *ZFSEncryptionHandler) ChangeKey(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	out, err := cmdutil.RunWithStdin(cmdutil.TimeoutMedium, req.OldKey+"\n"+req.NewKey+"\n"+req.NewKey+"\n",
-		"zfs", "change-key", "-l", req.Dataset)
+	if strings.ContainsAny(req.OldKey, "\r\n") {
+		respondErrorSimple(w, "the passphrase must not contain line breaks", http.StatusBadRequest)
+		return
+	}
+	if err := validatePassphrase(req.NewKey); err != nil {
+		respondErrorSimple(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// Prove the old passphrase first: change-key does not ask for it when the
+	// key is already loaded (the usual case), so it would replace the key
+	// without that check, and would read the old passphrase as the new one.
+	// load-key -n only verifies, and works on a loaded key too.
+	if out, err := cmdutil.RunWithStdin(cmdutil.TimeoutMedium, req.OldKey+"\n", "zfs", "load-key", "-n", req.Dataset); err != nil {
+		respondEncFailure(w, "The current passphrase is wrong: "+strings.TrimSpace(string(out)))
+		return
+	}
+	// change-key needs the key loaded; load it if the dataset is locked.
+	if st, err := cmdutil.RunFast("zfs", "get", "-H", "-o", "value", "keystatus", req.Dataset); err == nil && strings.TrimSpace(string(st)) != "available" {
+		if out, err := cmdutil.RunWithStdin(cmdutil.TimeoutMedium, req.OldKey+"\n", "zfs", "load-key", req.Dataset); err != nil {
+			respondEncFailure(w, fmt.Sprintf("Failed to load the current key: %v - %s", err, string(out)))
+			return
+		}
+	}
+
+	out, err := cmdutil.RunWithStdin(cmdutil.TimeoutMedium, req.NewKey+"\n"+req.NewKey+"\n",
+		"zfs", "change-key", "-o", "keyformat=passphrase", "-o", "keylocation=prompt", req.Dataset)
 
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")

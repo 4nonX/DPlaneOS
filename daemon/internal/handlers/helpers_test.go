@@ -124,24 +124,29 @@ func fail(msg string) func([]string) ([]byte, error) {
 
 // ran reports whether a command with this key ran with args starting with prefix.
 func (f *fakeCmds) ran(key string, prefix ...string) bool {
+	return f.find(key, prefix...) != nil
+}
+
+// find returns the first command with this key and argument prefix, or nil.
+func (f *fakeCmds) find(key string, prefix ...string) *cmdutil.Call {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	for _, c := range f.calls {
+	for i, c := range f.calls {
 		if c.Key != key || len(c.Args) < len(prefix) {
 			continue
 		}
 		match := true
-		for i, p := range prefix {
-			if c.Args[i] != p {
+		for j, p := range prefix {
+			if c.Args[j] != p {
 				match = false
 				break
 			}
 		}
 		if match {
-			return true
+			return &f.calls[i]
 		}
 	}
-	return false
+	return nil
 }
 
 func (f *fakeCmds) keys() []string {

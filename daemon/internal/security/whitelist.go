@@ -1931,6 +1931,15 @@ func ValidateDatasetName(name string) error {
 		if !validPattern.MatchString(part) {
 			return fmt.Errorf("invalid characters in dataset name: %s", part)
 		}
+		// "." and ".." would walk paths built from the name; a leading "-"
+		// would be read as an option ("-a" turns "zfs unload-key <name>"
+		// into unloading every key).
+		if part == "." || part == ".." {
+			return fmt.Errorf("invalid dataset name component: %s", part)
+		}
+	}
+	if strings.HasPrefix(name, "-") || strings.HasPrefix(name, ".") {
+		return fmt.Errorf("dataset name must start with a letter or digit")
 	}
 
 	return nil

@@ -11,6 +11,10 @@ var zvolNameRe = regexp.MustCompile(`^[a-zA-Z0-9_\-]+(/[a-zA-Z0-9_\-]+)+$`)
 var zvolSizeRe = regexp.MustCompile(`^[0-9]+[KMGTP]$`)
 var zvolBlockSizeRe = regexp.MustCompile(`^(512|1024|2048|4096|8192|16384|32768|65536|131072|[0-9]+[KMG])$`)
 
+// zfsCompressionRe: the compression values ZFS accepts (plain zfs is not
+// in the command whitelist, so the value is checked here).
+var zfsCompressionRe = regexp.MustCompile(`^(on|off|lz4|lzjb|zle|gzip(-[1-9])?|zstd(-([1-9]|1[0-9]))?|zstd-fast(-[0-9]+)?)$`)
+
 // Zvol represents a ZFS volume (block device)
 type Zvol struct {
 	Name         string `json:"name"`
@@ -93,6 +97,10 @@ func CreateZvol(w http.ResponseWriter, r *http.Request) {
 		args = append(args, "-b", req.VolBlockSize)
 	}
 	if req.Compression != "" {
+		if !zfsCompressionRe.MatchString(req.Compression) {
+			respondErrorSimple(w, "invalid compression (e.g. lz4, zstd, gzip-6, off)", http.StatusBadRequest)
+			return
+		}
 		args = append(args, "-o", "compression="+req.Compression)
 	}
 	if req.VolMode != "" && (req.VolMode == "dev" || req.VolMode == "geom" || req.VolMode == "none" || req.VolMode == "default") {
@@ -137,6 +145,9 @@ func ResizeZvol(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Name    string `json:"name"`
 		NewSize string `json:"size"`
+		// Shrinking truncates the block device and destroys whatever lies
+		// past the new end (filesystem, partition table backup, LUN data).
+		AllowShrink bool `json:"allow_shrink"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		respondErrorSimple(w, "Invalid request body", http.StatusBadRequest)
@@ -148,6 +159,15 @@ func ResizeZvol(w http.ResponseWriter, r *http.Request) {
 	}
 	if !zvolSizeRe.MatchString(strings.ToUpper(req.NewSize)) {
 		respondErrorSimple(w, "invalid size format", http.StatusBadRequest)
+		return
+	}
+	cur, err := executeCommandWithTimeout(TimeoutFast, "zfs", []string{"get", "-Hp", "-o", "value", "volsize", req.Name})
+	if err != nil {
+		respondErrorSimple(w, "Zvol not found: "+req.Name, http.StatusNotFound)
+		return
+	}
+	if newBytes, curBytes := humanToBytes(req.NewSize), parseRawBytes(strings.TrimSpace(cur)); newBytes < curBytes && !req.AllowShrink {
+		respondErrorSimple(w, "The new size is smaller than the current one: shrinking a zvol destroys the data past the new end. Send allow_shrink to do it anyway.", http.StatusConflict)
 		return
 	}
 	if _, err := executeCommandWithTimeout(TimeoutFast, "zfs", []string{

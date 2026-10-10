@@ -228,7 +228,7 @@ func RunWithStdin(timeout time.Duration, stdinData string, name string, args ...
 	defer cancel()
 
 	if f := loadFake(); f != nil {
-		return f(Call{Key: key, Path: name, Args: append([]string(nil), args...)})
+		return f(Call{Key: key, Path: name, Args: append([]string(nil), args...), Stdin: stdinData})
 	}
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Stdin = strings.NewReader(stdinData)
@@ -242,11 +242,13 @@ func RunWithStdin(timeout time.Duration, stdinData string, name string, args ...
 }
 
 // Call is one command as a test fake sees it: the whitelist key (or binary
-// name) the caller used, the resolved binary, and the arguments.
+// name) the caller used, the resolved binary, the arguments and, for
+// RunWithStdin, the input.
 type Call struct {
-	Key  string
-	Path string
-	Args []string
+	Key   string
+	Path  string
+	Args  []string
+	Stdin string
 }
 
 var (

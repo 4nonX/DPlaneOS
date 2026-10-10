@@ -192,6 +192,11 @@ func TestValidateDatasetName(t *testing.T) {
 			dataset: "tank0/" + string(make([]byte, 300)),
 			wantErr: true,
 		},
+		{name: "Option as a name", dataset: "-a", wantErr: true},
+		{name: "Option-looking pool", dataset: "-r/data", wantErr: true},
+		{name: "Dot-dot component", dataset: "tank0/../etc", wantErr: true},
+		{name: "Dot component", dataset: "tank0/./data", wantErr: true},
+		{name: "Dash inside a component", dataset: "tank0/my-data/-old", wantErr: false},
 	}
 
 	for _, tt := range tests {
