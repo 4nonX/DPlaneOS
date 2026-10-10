@@ -65,6 +65,24 @@ PostgreSQL schema and a command fake in CI).
   names, which the API did not accept. The page asks for the password,
   and the API accepts names. Renaming a group failed on its memberships
   (migration 00025).
+- Web pages that sent fields their API does not read (found by comparing
+  every request of the web interface with its handler):
+  - Pools: unlocking/locking encrypted datasets, clearing errors and
+    onlining disks failed.
+  - iSCSI: ACLs could not be added, removed or listed; the target and ACL
+    lists were always empty (targetcli output was misparsed).
+  - Removable media: mount, unmount and eject failed.
+  - UPS: the page edited NUT connection settings the API does not have and
+    saved defaults instead of the chosen shutdown level. It now edits the
+    shutdown policy (action, battery level, grace period).
+  - GitOps: repository pull/push/deploy/delete, credentials (save, delete,
+    test) and the setup wizard failed; saving a repository disabled it.
+  - Directory: the LDAP form did not load or save the server and TLS
+    settings; group mappings could not be added or removed.
+- **LDAP group mappings never applied and LDAP users got no permissions:**
+  sync wrote only the cosmetic users.role. Mappings now name RBAC roles,
+  sync assigns them (and revokes them when a user leaves the group; roles
+  an admin granted are kept). Migration 00026 converts existing mappings.
 - Webhook body templates inserted values unescaped: a message with a quote
   produced invalid JSON and the alert was rejected. Webhooks cannot
   target link-local addresses (cloud metadata).

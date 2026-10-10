@@ -584,3 +584,9 @@ func (c *PermissionCache) InvalidateAll() {
 	c.roles = make(map[int][]Role)
 	c.lastUpdate = make(map[int]time.Time)
 }
+
+// InvalidateUserPermissions drops a user's cached permissions and roles,
+// for code that changes user_roles directly (directory sync).
+func InvalidateUserPermissions(userID int) {
+	permCache.Invalidate(userID)
+}

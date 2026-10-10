@@ -45,7 +45,7 @@ function MountModal({ device, onClose, onDone }: { device: RemovableDevice; onCl
   const [mountPoint, setMountPoint] = useState(`/mnt/${devName}`)
 
   const mutation = useMutation({
-    mutationFn: () => api.post('/api/removable/mount', { path: device.path, mount_point: mountPoint }),
+    mutationFn: () => api.post('/api/removable/mount', { device: device.path, mount_point: mountPoint }),
     onSuccess: () => { toast.success(`Mounted at ${mountPoint}`); onDone(); onClose() },
     onError: (e: Error) => toast.error(e.message),
   })
@@ -75,12 +75,12 @@ function DeviceCard({ device, onRefresh }: { device: RemovableDevice; onRefresh:
   const [showMount, setShowMount] = useState(false)
 
   const unmount = useMutation({
-    mutationFn: () => api.post('/api/removable/unmount', { path: device.path }),
+    mutationFn: () => api.post('/api/removable/unmount', { device: device.path }),
     onSuccess: () => { toast.success('Unmounted'); onRefresh() },
     onError: (e: Error) => toast.error(e.message),
   })
   const eject = useMutation({
-    mutationFn: () => api.post('/api/removable/eject', { path: device.path }),
+    mutationFn: () => api.post('/api/removable/eject', { device: device.path }),
     onSuccess: () => { toast.success('Ejected'); onRefresh() },
     onError: (e: Error) => toast.error(e.message),
   })

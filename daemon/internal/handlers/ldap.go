@@ -20,6 +20,7 @@ import (
 	"dplaned/internal/ldap"
 	"dplaned/internal/nixwriter"
 	"dplaned/internal/secrets"
+	"dplaned/internal/security"
 )
 
 // LDAPHandler handles all LDAP/Active Directory API requests
@@ -338,22 +339,25 @@ func (h *LDAPHandler) TriggerSync(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	mappings, err := h.loadGroupMappings()
+	if err != nil {
+		writeJSON(w, 500, ldapResp{Error: "Loading group mappings failed: " + err.Error()})
+		return
+	}
+
 	// Upsert each user into the local users table (source='ldap').
 	// LDAP users get an empty password_hash - they authenticate via LDAP bind,
-	// never via local password. role defaults to 'user' unless a group mapping matches.
+	// never via local password. Permissions come from RBAC roles: the roles
+	// of the user's mapped directory groups, else the default role.
 	for _, u := range users {
-		roleIDs := client.MapGroupsToRoles(u.Groups)
-		role := cfg.DefaultRole
-		if role == "" {
-			role = "user"
+		roleNames := mappedRoles(u.Groups, mappings)
+		if len(roleNames) == 0 && cfg.DefaultRole != "" {
+			roleNames = []string{cfg.DefaultRole}
 		}
-		// Use the first mapped role if available. Roles are stored as names in the users table.
-		if len(roleIDs) > 0 && len(cfg.GroupMappings) > 0 {
-			for _, gm := range cfg.GroupMappings {
-				if gm.RoleID == roleIDs[0] && gm.RoleName != "" {
-					role = gm.RoleName
-					break
-				}
+		role := "user" // users.role: the rank used for account management
+		for _, n := range roleNames {
+			if n == "admin" {
+				role = "admin"
 			}
 		}
 
@@ -390,6 +394,15 @@ func (h *LDAPHandler) TriggerSync(w http.ResponseWriter, r *http.Request) {
 				syncRes.UsersUpdated++
 			}
 		}
+
+		// Without a successful group lookup the roles are left as they are:
+		// a directory hiccup must not strip everyone's access.
+		if !u.GroupsKnown {
+			continue
+		}
+		if err := h.applyLDAPRoles(u.Username, roleNames); err != nil {
+			syncRes.Errors = append(syncRes.Errors, "roles of "+u.Username+": "+err.Error())
+		}
 	}
 
 	ms := int(time.Since(start).Milliseconds())
@@ -414,6 +427,86 @@ func (h *LDAPHandler) TriggerSync(w http.ResponseWriter, r *http.Request) {
 		"users_skipped": syncRes.UsersSkipped,
 		"errors":        syncRes.Errors,
 	}})
+}
+
+// loadGroupMappings returns directory group (lower case) -> RBAC role names.
+func (h *LDAPHandler) loadGroupMappings() (map[string][]string, error) {
+	rows, err := h.db.Query(`SELECT ldap_group, role_name FROM ldap_group_mappings WHERE role_name <> ''`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string][]string{}
+	for rows.Next() {
+		var g, r string
+		if err := rows.Scan(&g, &r); err != nil {
+			return nil, err
+		}
+		out[strings.ToLower(g)] = append(out[strings.ToLower(g)], r)
+	}
+	return out, rows.Err()
+}
+
+// mappedRoles returns the RBAC roles of a user's directory groups.
+func mappedRoles(groups []string, mappings map[string][]string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, g := range groups {
+		for _, r := range mappings[strings.ToLower(g)] {
+			if !seen[r] {
+				seen[r] = true
+				out = append(out, r)
+			}
+		}
+	}
+	return out
+}
+
+// applyLDAPRoles makes the user's LDAP-granted RBAC roles exactly roleNames:
+// roles of groups the user left are revoked; roles granted by an admin
+// (granted_by other than 'ldap') are kept.
+func (h *LDAPHandler) applyLDAPRoles(username string, roleNames []string) error {
+	tx, err := h.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback() //nolint:errcheck
+	var userID int64
+	if err := tx.QueryRow(`SELECT id FROM users WHERE username = $1 AND source = 'ldap'`, username).Scan(&userID); err != nil {
+		return err
+	}
+	var ids []int64
+	for _, n := range roleNames {
+		var id int64
+		if err := tx.QueryRow(`SELECT id FROM roles WHERE name = $1`, n).Scan(&id); err != nil {
+			return fmt.Errorf("unknown role %q", n)
+		}
+		ids = append(ids, id)
+	}
+	if _, err := tx.Exec(`DELETE FROM user_roles WHERE user_id = $1 AND granted_by = 'ldap' AND NOT (role_id = ANY($2))`,
+		userID, pgInt64Array(ids)); err != nil {
+		return err
+	}
+	for _, id := range ids {
+		if _, err := tx.Exec(`INSERT INTO user_roles (user_id, role_id, granted_by) VALUES ($1, $2, 'ldap') ON CONFLICT (user_id, role_id) DO NOTHING`,
+			userID, id); err != nil {
+			return err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	security.InvalidateUserPermissions(int(userID))
+	return nil
+}
+
+// pgInt64Array renders ids as a PostgreSQL array literal ("{1,2}").
+func pgInt64Array(ids []int64) string {
+	parts := make([]string, len(ids))
+	for i, id := range ids {
+		parts[i] = strconv.FormatInt(id, 10)
+	}
+	return "{" + strings.Join(parts, ",") + "}"
 }
 
 // ============================================================
@@ -508,15 +601,16 @@ func (h *LDAPHandler) AddMapping(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 400, ldapResp{Error: "LDAP group and role are required"})
 		return
 	}
-	valid := map[string]bool{"admin": true, "power_user": true, "user": true, "readonly": true}
-	if !valid[req.RoleName] {
-		writeJSON(w, 400, ldapResp{Error: "Invalid role: " + req.RoleName})
+	// The mapped role is an RBAC role (what grants permissions).
+	var roleID int64
+	if err := h.db.QueryRow(`SELECT id FROM roles WHERE name = $1`, req.RoleName).Scan(&roleID); err != nil {
+		writeJSON(w, 400, ldapResp{Error: "Unknown role: " + req.RoleName})
 		return
 	}
 
 	var id int64
-	err := h.db.QueryRow("INSERT INTO ldap_group_mappings (ldap_group, role_name) VALUES ($1, $2) RETURNING id",
-		req.LDAPGroup, req.RoleName).Scan(&id)
+	err := h.db.QueryRow("INSERT INTO ldap_group_mappings (ldap_group, role_name, role_id) VALUES ($1, $2, $3) RETURNING id",
+		req.LDAPGroup, req.RoleName, roleID).Scan(&id)
 	if err != nil {
 		if strings.Contains(err.Error(), "UNIQUE") {
 			writeJSON(w, 409, ldapResp{Error: "Mapping already exists"})

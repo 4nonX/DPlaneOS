@@ -23,8 +23,8 @@ import (
 
 // GitReposHandler manages multiple git-sync repositories (Arcane-style multi-repo)
 type GitReposHandler struct {
-	db            *sql.DB
-	onRepoSynced  func(repoID int64) // called after each successful auto-sync pull
+	db           *sql.DB
+	onRepoSynced func(repoID int64) // called after each successful auto-sync pull
 }
 
 func NewGitReposHandler(db *sql.DB) *GitReposHandler {
@@ -177,8 +177,12 @@ func (h *GitReposHandler) TestCredential(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	if req.RepoURL == "" {
-		respondJSON(w, 400, map[string]any{"success": false, "error": "repo_url required for test"})
-		return
+		// Testing a stored credential: use a repository linked to it.
+		if err := h.db.QueryRow(`SELECT repo_url FROM git_sync_repos WHERE auth_type = 'cred' AND auth_token = $1 ORDER BY id LIMIT 1`,
+			fmt.Sprintf("%d", req.CredentialID)).Scan(&req.RepoURL); err != nil {
+			respondJSON(w, 400, map[string]any{"success": false, "error": "Link this credential to a repository to test it (or give repo_url)"})
+			return
+		}
 	}
 	if err := validateRepoURL(req.RepoURL); err != nil {
 		respondJSON(w, 400, map[string]any{"success": false, "error": err.Error()})
@@ -472,7 +476,7 @@ func (h *GitReposHandler) SaveRepo(w http.ResponseWriter, r *http.Request) {
 		CredentialID *int   `json:"credential_id"`
 		CommitName   string `json:"commit_name"`
 		CommitEmail  string `json:"commit_email"`
-		Enabled      bool   `json:"enabled"`
+		Enabled      *bool  `json:"enabled"` // absent = enabled
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		respondJSON(w, 400, map[string]any{"success": false, "error": "Invalid request"})
@@ -527,8 +531,10 @@ func (h *GitReposHandler) SaveRepo(w http.ResponseWriter, r *http.Request) {
 	if req.AutoSync {
 		autoSyncInt = 1
 	}
+	// A save without "enabled" (e.g. changing the branch) must not
+	// disable the repository.
 	enabledInt := 1
-	if !req.Enabled {
+	if req.Enabled != nil && !*req.Enabled {
 		enabledInt = 0
 	}
 
@@ -927,6 +933,7 @@ func validateComposePath(localPath, composePath string) (string, error) {
 	}
 	// filepath.Clean resolves ".." components
 	cleaned := filepath.Clean(composePath)
+	localPath = filepath.Clean(localPath)
 	full := filepath.Join(localPath, cleaned)
 	// After joining, the result must still be under localPath
 	if !strings.HasPrefix(full+string(filepath.Separator), localPath+string(filepath.Separator)) {
@@ -1109,4 +1116,3 @@ func (h *GitReposHandler) autoSyncOne(repo repoAutoSync) {
 		log.Printf("GIT-REPOS: Auto-deployed %s", repo.name)
 	}
 }
-

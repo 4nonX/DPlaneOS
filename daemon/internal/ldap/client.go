@@ -47,6 +47,9 @@ type GroupMapping struct {
 
 // User represents an LDAP user
 type User struct {
+	// GroupsKnown: Groups was fetched successfully (an empty list then means
+	// no groups; after a failed fetch roles must not be changed).
+	GroupsKnown bool `json:"-"`
 	DN         string
 	Username   string
 	Email      string
@@ -505,6 +508,7 @@ func (c *Client) SyncAll() (*SyncResult, []*User, error) {
 			res.Errors = append(res.Errors, fmt.Sprintf("group fetch for %s: %v", username, err))
 		} else {
 			u.Groups = groups
+			u.GroupsKnown = true
 		}
 
 		users = append(users, u)

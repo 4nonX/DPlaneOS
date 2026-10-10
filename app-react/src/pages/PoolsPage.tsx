@@ -1646,12 +1646,12 @@ function EncryptionTab() {
   })
   const unlock = useMutation({
     mutationFn: ({ name, passphrase }: { name: string; passphrase: string }) =>
-      api.post('/api/zfs/encryption/unlock', { name, passphrase }),
+      api.post('/api/zfs/encryption/unlock', { dataset: name, key: passphrase }),
     onSuccess: () => { toast.success('Dataset unlocked'); qc.invalidateQueries({ queryKey: ['zfs', 'encryption'] }); setUnlockTarget(null) },
     onError: (e: Error) => toast.error(e.message),
   })
   const lock = useMutation({
-    mutationFn: (name: string) => api.post('/api/zfs/encryption/lock', { name }),
+    mutationFn: (name: string) => api.post('/api/zfs/encryption/lock', { dataset: name }),
     onSuccess: () => { toast.success('Dataset locked'); qc.invalidateQueries({ queryKey: ['zfs', 'encryption'] }) },
     onError: (e: Error) => toast.error(e.message),
   })
@@ -3028,13 +3028,13 @@ function PoolFixerWizard({ pool, onClose, onRefresh }: { pool: PoolFixerPool; on
   const [step, setStep] = useState(1)
   
   const clearMutation = useMutation({
-    mutationFn: () => api.post('/api/zfs/pool/operations', { pool: pool.name, op: 'clear' }),
+    mutationFn: () => api.post('/api/zfs/pool/operations', { pool: pool.name, operation: 'clear' }),
     onSuccess: () => { toast.success('Errors cleared'); onRefresh() },
     onError: (e: Error) => toast.error(e.message)
   })
 
   const onlineMutation = useMutation({
-    mutationFn: (device: string) => api.post('/api/zfs/pool/operations', { pool: pool.name, op: 'online', device }),
+    mutationFn: (device: string) => api.post('/api/zfs/pool/operations', { pool: pool.name, operation: 'online', device }),
     onSuccess: () => { toast.success('Disk onlined'); onRefresh() },
     onError: (e: Error) => toast.error(e.message)
   })

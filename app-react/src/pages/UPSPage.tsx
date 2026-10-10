@@ -98,58 +98,66 @@ function statusInfo(s: string | undefined): { label: string; color: string } {
 // ConfigPanel
 // ---------------------------------------------------------------------------
 
-function ConfigPanel({ initial }: { initial: UPSResponse }) {
+interface UPSPolicy { success: boolean; action: 'shutdown' | 'hibernate'; threshold: number; grace: number }
+
+// The shutdown policy is what the API stores (POST /api/system/ups takes
+// action, threshold, grace). The NUT connection (driver, port, UPS name) is
+// part of the NixOS configuration: services.dplaneos.ups.
+function ConfigPanel() {
   const qc = useQueryClient()
-  const [driver,   setDriver]   = useState(initial.driver   ?? 'usbhid-ups')
-  const [host,     setHost]     = useState(initial.host     ?? 'localhost')
-  const [port,     setPort]     = useState(String(initial.port ?? 3493))
-  const [name,     setName]     = useState(initial.name     ?? 'ups')
-  const [shutLevel,setShutLevel]= useState(String(initial.shutdown_level ?? 10))
+  const policyQ = useQuery({
+    queryKey: ['system', 'ups', 'policy'],
+    queryFn: ({ signal }) => api.get<UPSPolicy>('/api/system/ups/policy', signal),
+  })
+  if (policyQ.isLoading) return <Skeleton height={160} />
+  if (policyQ.isError || !policyQ.data) return <ErrorState error={policyQ.error} onRetry={() => policyQ.refetch()} />
+  return <PolicyForm initial={policyQ.data} onSaved={() => qc.invalidateQueries({ queryKey: ['system', 'ups'] })} />
+}
+
+function PolicyForm({ initial, onSaved }: { initial: UPSPolicy; onSaved: () => void }) {
+  const [action, setAction] = useState(initial.action)
+  const [threshold, setThreshold] = useState(String(initial.threshold))
+  const [grace, setGrace] = useState(String(initial.grace))
 
   const save = useMutation({
-    mutationFn: () => api.post('/api/system/ups', {
-      driver, host, port: Number(port), name, shutdown_level: Number(shutLevel),
-    }),
-    onSuccess: () => { toast.success('UPS configuration saved'); qc.invalidateQueries({ queryKey: ['system', 'ups'] }) },
+    mutationFn: () => {
+      const t = Number(threshold), g = Number(grace)
+      if (!(t >= 1 && t <= 99)) throw new Error('Shutdown level must be 1 to 99 %')
+      if (!(g >= 0 && g <= 600)) throw new Error('Grace period must be 0 to 600 seconds')
+      return api.post('/api/system/ups', { action, threshold: t, grace: g })
+    },
+    onSuccess: () => { toast.success('UPS shutdown policy saved'); onSaved() },
     onError: (e: Error) => toast.error(e.message),
   })
 
   return (
     <div className="card" style={{ borderRadius: 'var(--radius-lg)', padding: '20px 24px', marginTop: 24 }}>
       <div style={{ fontWeight: 700, marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
-        <Icon name="settings" size={18} style={{ color: 'var(--primary)' }} />Configure NUT Connection
+        <Icon name="settings" size={18} style={{ color: 'var(--primary)' }} />Shutdown Policy
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 80px', gap: 14, marginBottom: 14 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 14, marginBottom: 14 }}>
         <label className="field">
-          <span className="field-label">Driver</span>
-          <select value={driver} onChange={e => setDriver(e.target.value)} className="input" style={{ appearance: 'none' }}>
-            {['usbhid-ups', 'blazer_usb', 'blazer_ser', 'snmp-ups', 'nutdrv_qx'].map(d => (
-              <option key={d} value={d}>{d}</option>
-            ))}
+          <span className="field-label">On low battery</span>
+          <select value={action} onChange={e => setAction(e.target.value as UPSPolicy['action'])} className="input" style={{ appearance: 'none' }}>
+            <option value="shutdown">Shut down</option>
+            <option value="hibernate">Hibernate</option>
           </select>
         </label>
         <label className="field">
-          <span className="field-label">NUT Host</span>
-          <input value={host} onChange={e => setHost(e.target.value)} placeholder="localhost" className="input" />
+          <span className="field-label">Shutdown at battery %</span>
+          <input type="number" value={threshold} onChange={e => setThreshold(e.target.value)} min={1} max={99} className="input" />
         </label>
         <label className="field">
-          <span className="field-label">Port</span>
-          <input type="number" value={port} onChange={e => setPort(e.target.value)} className="input" />
+          <span className="field-label">Grace period (seconds)</span>
+          <input type="number" value={grace} onChange={e => setGrace(e.target.value)} min={0} max={600} className="input" />
         </label>
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 120px', gap: 14, marginBottom: 16 }}>
-        <label className="field">
-          <span className="field-label">UPS Name</span>
-          <input value={name} onChange={e => setName(e.target.value)} placeholder="ups" className="input" style={{ fontFamily: 'var(--font-mono)' }} />
-        </label>
-        <div className="field" style={{ display: 'flex', flexDirection: 'column' }}>
-          <span className="field-label">Shutdown %</span>
-          <input type="number" value={shutLevel} onChange={e => setShutLevel(e.target.value)} min={5} max={95} className="input" />
-          <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', marginTop: 4 }}>Battery percentage at which the system begins a safe shutdown (e.g. 20 for 20%)</span>
-        </div>
-      </div>
+      <p style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', margin: '0 0 16px' }}>
+        The UPS connection (driver, port, UPS name) is set in the NixOS configuration under
+        <code style={{ margin: '0 4px' }}>services.dplaneos.ups</code>. The policy applies with the next pending NixOS changes.
+      </p>
       <button onClick={() => save.mutate()} disabled={save.isPending} className="btn btn-primary">
-        <Icon name="save" size={15} />{save.isPending ? 'Saving…' : 'Save Config'}
+        <Icon name="save" size={15} />{save.isPending ? 'Saving…' : 'Save Policy'}
       </button>
     </div>
   )
@@ -247,7 +255,7 @@ export function UPSPage() {
         </>
       )}
 
-      {showConfig && upsQ.data && <ConfigPanel initial={upsQ.data} />}
+      {showConfig && <ConfigPanel />}
     </div>
   )
 }

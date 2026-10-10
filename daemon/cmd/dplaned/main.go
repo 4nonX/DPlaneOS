@@ -673,6 +673,7 @@ func main() {
 	r.Handle("/api/sse/ticket", permRoute("system", "read", handlers.MintSSETicket)).Methods("POST")
 	r.Handle("/api/system/ups", permRoute("system", "read", systemHandler.GetUPSStatus)).Methods("GET")
 	r.Handle("/api/system/ups", permRoute("system", "write", systemHandler.SaveUPSConfig)).Methods("POST")
+	r.Handle("/api/system/ups/policy", permRoute("system", "read", systemHandler.GetUPSPolicy)).Methods("GET")
 	r.Handle("/api/system/network", permRoute("system", "read", systemHandler.HandleNetwork)).Methods("GET")
 	r.Handle("/api/system/network", permRoute("system", "write", systemHandler.HandleNetwork)).Methods("PUT")
 	r.Handle("/api/system/logs", permRoute("system", "read", systemHandler.GetSystemLogs)).Methods("GET")

@@ -33,6 +33,29 @@ interface LdapConfig {
   user_email_attr?: string
 }
 
+// The LDAP API's names (server, use_tls, bind_password) differ from the
+// form's; converted when loading and saving.
+interface LdapConfigApi extends Omit<LdapConfig, 'host' | 'tls' | 'bind_pass'> {
+  server?: string
+  use_tls?: number
+}
+
+function fromLdapApi(c: LdapConfigApi): LdapConfig {
+  const { server, use_tls, ...rest } = c
+  return { ...rest, host: server, tls: !!use_tls }
+}
+
+function toLdapApi(c: LdapConfig) {
+  const { host, tls, bind_pass, domain_joined: _joined, ...rest } = c
+  return {
+    ...rest,
+    server: host ?? '',
+    use_tls: tls ? 1 : 0,
+    enabled: c.enabled ? 1 : 0,
+    bind_password: bind_pass ?? '', // empty keeps the stored password
+  }
+}
+
 interface LdapStatus {
   success:       boolean
   enabled:       boolean
@@ -52,7 +75,7 @@ interface DirectoryStatus {
 interface Mapping {
   id?:        number | string
   ldap_group: string
-  local_role: string
+  role_name:  string
 }
 
 interface CircuitBreaker {
@@ -111,7 +134,7 @@ function ConfigTab() {
 
   const configQ = useQuery({
     queryKey: ['ldap', 'config'],
-    queryFn: ({ signal }) => api.get<LdapConfig & { success: boolean }>('/api/ldap/config', signal),
+    queryFn: async ({ signal }) => fromLdapApi(await api.get<LdapConfigApi & { success: boolean }>('/api/ldap/config', signal)),
   })
   
   const statusQ = useQuery({
@@ -150,7 +173,7 @@ function ConfigTab() {
   }
 
   const save = useMutation({
-    mutationFn: () => api.post('/api/ldap/config', { ...formCfg, host: formCfg.host, bind_password: formCfg.bind_pass }),
+    mutationFn: () => api.post('/api/ldap/config', toLdapApi(formCfg)),
     onSuccess: () => { toast.success('Configuration saved'); qc.invalidateQueries({ queryKey: ['ldap'] }) },
     onError: (e: Error) => toast.error(e.message),
   })
@@ -340,13 +363,13 @@ function MappingsTab() {
   })
 
   const add = useMutation({
-    mutationFn: () => api.post('/api/ldap/mappings', { ldap_group: ldapGroup, local_role: localRole }),
+    mutationFn: () => api.post('/api/ldap/mappings', { ldap_group: ldapGroup, role_name: localRole }),
     onSuccess: () => { toast.success('Mapping added'); setLdapGroup(''); qc.invalidateQueries({ queryKey: ['ldap', 'mappings'] }) },
     onError: (e: Error) => toast.error(e.message),
   })
 
   const remove = useMutation({
-    mutationFn: (id: number | string) => api.delete('/api/ldap/mappings', { id }),
+    mutationFn: (id: number | string) => api.delete(`/api/ldap/mappings?id=${id}`),
     onSuccess: () => { toast.success('Mapping removed'); qc.invalidateQueries({ queryKey: ['ldap', 'mappings'] }) },
     onError: (e: Error) => toast.error(e.message),
   })
@@ -381,7 +404,7 @@ function MappingsTab() {
               <code style={{ fontSize: 'var(--text-sm)', fontFamily: 'var(--font-mono)', color: 'var(--text-secondary)' }}>{m.ldap_group}</code>
             </div>
             <Icon name="arrow_forward" size={14} style={{ color: 'var(--text-tertiary)', flexShrink: 0 }} />
-            <span className="badge badge-primary" style={{ minWidth: 80, textAlign: 'center' }}>{m.local_role}</span>
+            <span className="badge badge-primary" style={{ minWidth: 80, textAlign: 'center' }}>{m.role_name}</span>
             <button onClick={async () => { if (await confirm({ title: 'Remove group mapping?', message: 'This LDAP group will no longer map to a local role.', danger: true, confirmLabel: 'Remove' })) { remove.mutate(m.id ?? m.ldap_group) } }} className="btn btn-icon-ghost" style={{ color: 'var(--error)' }}>
               <Icon name="delete" size={18} />
             </button>

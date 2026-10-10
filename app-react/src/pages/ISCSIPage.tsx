@@ -80,12 +80,12 @@ export function ISCSIPage() {
   const [initiator, setInitiator] = useState('')
 
   const addACL = useMutation({
-    mutationFn: () => api.post('/api/iscsi/acls', { iqn: aclIqn, initiator }),
+    mutationFn: () => api.post('/api/iscsi/acls', { target_iqn: aclIqn, initiator_iqn: initiator }),
     onSuccess: () => { toast.success('ACL added'); setAclIqn(''); setInitiator(''); qc.invalidateQueries({ queryKey:['iscsi','acls'] }) },
     onError: (e: Error) => toast.error(e.message),
   })
   const removeACL = useMutation({
-    mutationFn: ({ iqn, initiator }: { iqn: string; initiator: string }) => api.delete('/api/iscsi/acls', { iqn, initiator }),
+    mutationFn: ({ iqn, initiator }: { iqn: string; initiator: string }) => api.delete('/api/iscsi/acls', { target_iqn: iqn, initiator_iqn: initiator }),
     onSuccess: () => { toast.success('ACL removed'); qc.invalidateQueries({ queryKey:['iscsi','acls'] }) },
     onError: (e: Error) => toast.error(e.message),
   })

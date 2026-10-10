@@ -158,3 +158,41 @@ func TestCreateISCSITargetFromZvolName(t *testing.T) {
 		t.Errorf("traversal in zvol name: %s", r)
 	}
 }
+
+// Real targetcli output: tree markers before the IQNs.
+const targetcliISCSILs = `o- iscsi .............................................. [Targets: 2]
+  o- iqn.2026-10.lan.nas:lun0 ............................... [TPGs: 1]
+  o- iqn.2026-10.lan.nas:lun1 ............................... [TPGs: 1]
+`
+
+const targetcliACLsLs = `o- acls .................................................. [ACLs: 1]
+  o- iqn.2026-10.lan.client:host1 ................... [Mapped LUNs: 1]
+`
+
+func TestISCSIListsParseTargetcli(t *testing.T) {
+	fakeCommands(t, map[string]func([]string) ([]byte, error){
+		"targetcli": func(a []string) ([]byte, error) {
+			if a[0] == "/iscsi" {
+				return []byte(targetcliISCSILs), nil
+			}
+			if strings.HasSuffix(a[0], "/acls") {
+				return []byte(targetcliACLsLs), nil
+			}
+			return nil, nil
+		},
+		"systemctl": out("active\n"),
+	})
+	r := call(t, GetISCSITargets, req{})
+	if !r.ok() || !strings.Contains(r.raw, "iqn.2026-10.lan.nas:lun0") || !strings.Contains(r.raw, "lun1") {
+		t.Errorf("targets: %s", r)
+	}
+	// Without ?target=: ACLs of every target, with the fields the page reads.
+	r = call(t, GetISCSIACLs, req{path: "/api/iscsi/acls"})
+	if !r.ok() || strings.Count(r.raw, `"initiator":"iqn.2026-10.lan.client:host1"`) != 2 || !strings.Contains(r.raw, `"iqn":"iqn.2026-10.lan.nas:lun1"`) {
+		t.Errorf("acls: %s", r)
+	}
+	r = call(t, GetISCSIStatus, req{})
+	if r.body["target_count"] != float64(2) {
+		t.Errorf("status: %s", r)
+	}
+}

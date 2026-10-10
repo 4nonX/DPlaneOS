@@ -94,8 +94,47 @@ interface GitOpsSettings {
 interface CategoryCount { in_git: number; live: number }
 interface ManagedSummary { [cat: string]: CategoryCount }
 
-interface Repo { id: string|number; url: string; branch?: string; path?: string; name?: string; status?: string; last_sync?: string; credential_id?: string|number }
-interface Cred { id: string|number; name: string; type?: 'ssh'|'token'|'password'; username?: string }
+interface Repo { id: string|number; url: string; branch?: string; path?: string; name?: string; status?: string; last_sync?: string; credential_id?: string|number; raw?: ApiRepo }
+interface Cred { id: string|number; name: string; type?: 'ssh'|'token'; host?: string }
+
+// The git-sync API's field names (repo_url, cred_id, last_sync_at, auth_type).
+// Converted at the edges so the components keep their own shapes.
+interface ApiRepo {
+  id: number; name?: string; repo_url: string; branch?: string; compose_path?: string
+  last_sync_at?: string; last_error?: string; cred_id?: number | null
+  auto_sync?: boolean; sync_interval?: number; commit_name?: string; commit_email?: string; enabled?: boolean
+}
+interface ApiCred { id: number; name: string; host?: string; auth_type?: 'token'|'ssh' }
+
+function fromApiRepo(r: ApiRepo): Repo {
+  return {
+    id: r.id, name: r.name, url: r.repo_url, branch: r.branch, path: r.compose_path,
+    last_sync: r.last_sync_at || undefined, credential_id: r.cred_id ?? undefined,
+    status: r.last_error ? 'error' : r.last_sync_at ? 'synced' : undefined, raw: r,
+  }
+}
+
+// The API replaces every field on save: start from what it returned.
+function toApiRepo(r: Repo, vals: Partial<Repo> = {}) {
+  const m = { ...r, ...vals }
+  const cred = m.credential_id
+  return {
+    ...(r.raw ?? {}),
+    id: Number(m.id), name: m.name, repo_url: m.url, branch: m.branch,
+    compose_path: m.path ?? r.raw?.compose_path,
+    credential_id: cred !== undefined && cred !== null && cred !== '' ? Number(cred) : undefined,
+    cred_id: undefined, last_sync_at: undefined, last_error: undefined,
+  }
+}
+
+function fromApiCred(c: ApiCred): Cred {
+  return { id: c.id, name: c.name, type: c.auth_type, host: c.host }
+}
+
+function hostOf(url: string): string {
+  const m = url.match(/^(?:https?:\/\/|ssh:\/\/)?(?:[^@/]+@)?([^/:]+)/)
+  return m ? m[1] : 'github.com'
+}
 
 function statusDot(s?: string) {
   const c = s === 'synced' ? 'var(--success)' : s === 'syncing' ? 'var(--primary)' : s === 'error' ? 'var(--error)' : 'var(--text-tertiary)'
@@ -332,7 +371,7 @@ function BranchSwitcher({ repo, onSelect }: { repo: Repo; onSelect: (b: string) 
       setLoading(true)
       try {
         const qs = new URLSearchParams({ url: repo.url })
-        if (repo.credential_id) qs.set('credential_id', String(repo.credential_id))
+        if (repo.credential_id) qs.set('id', String(repo.credential_id))
         const res = await api.get<{ success: boolean; branches: string[] }>(`/api/git-sync/credentials/branches?${qs}`)
         setBranches(res.branches ?? [])
       } catch { setBranches([]) }
@@ -392,20 +431,20 @@ function BranchSwitcher({ repo, onSelect }: { repo: Repo; onSelect: (b: string) 
 // ---- RepoCard (Merged from GitSync) ----
 function RepoCard({ repo, onRefresh, onEdit }: { repo: Repo; onRefresh: () => void; onEdit: (r: Repo) => void }) {
   const { confirm, ConfirmDialog } = useConfirm()
-  const pull   = useMutation({ mutationFn: () => api.post('/api/git-sync/repos/pull',   { id: repo.id }), onSuccess: () => { toast.success('Pull triggered'); onRefresh() }, onError: (e: Error) => toast.error(e.message) })
+  const pull   = useMutation({ mutationFn: () => api.post(`/api/git-sync/repos/pull?id=${repo.id}`, {}), onSuccess: () => { toast.success('Pull triggered'); onRefresh() }, onError: (e: Error) => toast.error(e.message) })
   const saveBranch = useMutation({
-    mutationFn: (branch: string) => api.post('/api/git-sync/repos', { ...repo, branch }),
+    mutationFn: (branch: string) => api.post('/api/git-sync/repos', toApiRepo(repo, { branch })),
     onSuccess: (_, branch) => {
       toast.success(`Now tracking ${branch}`)
-      api.post('/api/git-sync/repos/pull', { id: repo.id }).catch(() => {})
+      api.post(`/api/git-sync/repos/pull?id=${repo.id}`, {}).catch(() => {})
       onRefresh()
     },
     onError: (e: Error) => toast.error(e.message),
   })
-  const push   = useMutation({ mutationFn: () => api.post('/api/git-sync/repos/push',   { id: repo.id }), onSuccess: () => { toast.success('Push triggered'); onRefresh() }, onError: (e: Error) => toast.error(e.message) })
+  const push   = useMutation({ mutationFn: () => api.post(`/api/git-sync/repos/push?id=${repo.id}`, {}), onSuccess: () => { toast.success('Push triggered'); onRefresh() }, onError: (e: Error) => toast.error(e.message) })
   // Deploy is for Docker stacks
-  const deploy = useMutation({ mutationFn: () => api.post('/api/git-sync/repos/deploy', { id: repo.id }), onSuccess: () => toast.success('Deployment queued'), onError: (e: Error) => toast.error(e.message) })
-  const del    = useMutation({ mutationFn: () => api.post('/api/git-sync/repos/delete', { id: repo.id }), onSuccess: () => { toast.success('Repository removed'); onRefresh() }, onError: (e: Error) => toast.error(e.message) })
+  const deploy = useMutation({ mutationFn: () => api.post(`/api/git-sync/repos/deploy?id=${repo.id}`, {}), onSuccess: () => toast.success('Deployment queued'), onError: (e: Error) => toast.error(e.message) })
+  const del    = useMutation({ mutationFn: () => api.post(`/api/git-sync/repos/delete?id=${repo.id}`, {}), onSuccess: () => { toast.success('Repository removed'); onRefresh() }, onError: (e: Error) => toast.error(e.message) })
   const busy   = pull.isPending || push.isPending || deploy.isPending || del.isPending
 
   return (
@@ -473,14 +512,20 @@ function CredentialsTab() {
   const { confirm, ConfirmDialog } = useConfirm()
   const [editingCred, setEditingCred] = useState<Cred | null>(null)
   const [name, setName] = useState(''); const [type, setType] = useState<'token'|'ssh'|'password'>('token')
-  const [user, setUser] = useState(''); const [secret, setSecret] = useState('')
+  const [host, setHost] = useState('github.com'); const [secret, setSecret] = useState('')
 
-  const credsQ = useQuery({ queryKey:['git-sync','creds'], queryFn:({signal})=>api.get<{success:boolean;credentials:Cred[]}>('/api/git-sync/credentials',signal) })
+  const credsQ = useQuery({ queryKey:['git-sync','creds'], queryFn:async ({signal}) => {
+    const res = await api.get<{success:boolean;credentials:ApiCred[]}>('/api/git-sync/credentials',signal)
+    return { ...res, credentials: (res.credentials ?? []).map(fromApiCred) }
+  } })
 
-  const resetForm = () => { setEditingCred(null); setName(''); setUser(''); setSecret(''); setType('token') }
+  const resetForm = () => { setEditingCred(null); setName(''); setHost('github.com'); setSecret(''); setType('token') }
 
   const save = useMutation({
-    mutationFn: () => api.post('/api/git-sync/credentials', { id: editingCred?.id, name, type, username: user, secret: secret || undefined }),
+    mutationFn: () => api.post('/api/git-sync/credentials', {
+      id: editingCred ? Number(editingCred.id) : undefined, name, host, auth_type: type,
+      ...(secret ? (type === 'ssh' ? { ssh_key: secret } : { token: secret }) : {}),
+    }),
     onSuccess: () => { toast.success(editingCred ? 'Credential updated' : 'Credential saved'); resetForm(); qc.invalidateQueries({ queryKey:['git-sync','creds'] }) },
     onError: (e: Error) => toast.error(e.message),
   })
@@ -489,19 +534,23 @@ function CredentialsTab() {
     setEditingCred(c)
     setName(String(c.name))
     setType(c.type || 'token')
-    setUser(c.username || '')
+    setHost(c.host || 'github.com')
     setSecret('') // don't show old secret for security, user can re-enter if changing
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
   const del = useMutation({
-    mutationFn: (id: string|number) => api.post('/api/git-sync/credentials/delete', { id }),
+    mutationFn: (id: string|number) => api.post(`/api/git-sync/credentials/delete?id=${id}`, {}),
     onSuccess: () => { toast.success('Removed'); qc.invalidateQueries({ queryKey:['git-sync','creds'] }) },
     onError: (e: Error) => toast.error(e.message),
   })
 
   const test = useMutation({
-    mutationFn: (id: string|number) => api.post('/api/git-sync/credentials/test', { id }),
+    mutationFn: async (id: string|number) => {
+      const res = await api.post<{success:boolean;error?:string;hint?:string}>('/api/git-sync/credentials/test', { credential_id: Number(id) })
+      if (!res.success) throw new Error([res.error, res.hint].filter(Boolean).join(' - ') || 'Test failed')
+      return res
+    },
     onSuccess: () => toast.success('Credential functional'),
     onError: (e: Error) => toast.error(e.message),
   })
@@ -519,9 +568,13 @@ function CredentialsTab() {
           </label>
           <label className="field">
             <span className="field-label">Auth Type</span>
-            <select value={type} onChange={e=>setType(e.target.value as 'token'|'ssh'|'password')} className="input" style={{ appearance:'none' }}>
-              <option value="token">Token</option><option value="ssh">SSH Private Key</option><option value="password">Password</option>
+            <select value={type} onChange={e=>setType(e.target.value as 'token'|'ssh')} className="input" style={{ appearance:'none' }}>
+              <option value="token">Token</option><option value="ssh">SSH Private Key</option>
             </select>
+          </label>
+          <label className="field">
+            <span className="field-label">Host</span>
+            <input value={host} onChange={e=>setHost(e.target.value)} placeholder="github.com" className="input" />
           </label>
           <label className="field">
             <span className="field-label">{type === 'ssh' ? 'Private Key / Content' : 'Secret / Token'} {editingCred && '(Leave empty to keep current)'}</span>
@@ -542,7 +595,7 @@ function CredentialsTab() {
             <Icon name="key" size={24} style={{ color:'var(--primary)', opacity:0.8 }} />
             <div style={{ flex:1 }}>
               <div style={{ fontWeight:700 }}>{c.name}</div>
-              <div style={{ fontSize:'var(--text-xs)', color:'var(--text-tertiary)' }}>{c.type} · {c.username || 'git'}</div>
+              <div style={{ fontSize:'var(--text-xs)', color:'var(--text-tertiary)' }}>{c.type} · {c.host || 'github.com'}</div>
             </div>
             <button onClick={() => onEdit(c)} className="btn btn-ghost btn-xs"><Icon name="edit" size={14}/> Edit</button>
             <button onClick={() => test.mutate(c.id)} disabled={test.isPending} className="btn btn-ghost btn-xs"><Icon name="cable" size={14}/> Test</button>
@@ -572,10 +625,13 @@ function RepoSyncWizard({ type, onClose, onComplete }: { type: 'state'|'nixos'; 
     ? `NixOS-Backup-${randomSuffix}`
     : `System-State-${randomSuffix}`
 
-  const credsQ = useQuery({ queryKey:['git-sync','creds'], queryFn:()=>api.get<{success:boolean;credentials:Cred[]}>('/api/git-sync/credentials') })
+  const credsQ = useQuery({ queryKey:['git-sync','creds'], queryFn:async () => {
+    const res = await api.get<{success:boolean;credentials:ApiCred[]}>('/api/git-sync/credentials')
+    return { ...res, credentials: (res.credentials ?? []).map(fromApiCred) }
+  } })
 
   const saveCred = useMutation({
-    mutationFn: () => api.post<{ id: number }>('/api/git-sync/credentials', { name: tokenName, type: 'token', username: 'git', secret: token }),
+    mutationFn: () => api.post<{ id: number }>('/api/git-sync/credentials', { name: tokenName, host: hostOf(url), auth_type: 'token', token }),
     onSuccess: (res: { id: number }) => { setUseExisting(String(res.id)); setStep(3); qc.invalidateQueries({queryKey:['git-sync','creds']}) },
     onError: (e: Error) => toast.error(e.message)
   })
@@ -583,11 +639,17 @@ function RepoSyncWizard({ type, onClose, onComplete }: { type: 'state'|'nixos'; 
   const testConnection = async () => {
     setIsTesting(true)
     try {
-      const res = await api.post<{success:boolean;error?:string;hint?:string}>('/api/git-sync/credentials/test', { 
-        url, 
-        type: 'token', 
-        secret: token || undefined,
-        credential_id: useExisting || undefined
+      // The API tests stored credentials: store a new token first.
+      let credId = useExisting
+      if (!credId && token) {
+        const saved = await api.post<{ id: number }>('/api/git-sync/credentials', { name: tokenName, host: hostOf(url), auth_type: 'token', token })
+        credId = String(saved.id)
+        setUseExisting(credId)
+        qc.invalidateQueries({ queryKey: ['git-sync', 'creds'] })
+      }
+      const res = await api.post<{success:boolean;error?:string;hint?:string}>('/api/git-sync/credentials/test', {
+        repo_url: url,
+        credential_id: credId ? Number(credId) : undefined,
       })
       if (res.success) {
         toast.success('Connection successful!')
@@ -605,9 +667,10 @@ function RepoSyncWizard({ type, onClose, onComplete }: { type: 'state'|'nixos'; 
   const saveRepo = useMutation({
     mutationFn: () => api.post<{ id: number }>('/api/git-sync/repos', {
       name: repoName,
-      url,
+      repo_url: url,
       branch,
-      credential_id: useExisting || undefined
+      credential_id: useExisting ? Number(useExisting) : undefined,
+      enabled: true,
     }),
     onSuccess: (res: { id: number }) => { toast.success('Repository linked'); onComplete(res.id); qc.invalidateQueries({queryKey:['git-sync']}) },
     onError: (e: Error) => toast.error(e.message)
@@ -695,10 +758,13 @@ function RepoEditModal({ repo, onExited, onSaved }: { repo: Repo; onExited: () =
   const [branch, setBranch] = useState(repo.branch || 'main')
   const [credId, setCredId] = useState<string|number|null>(repo.credential_id || null)
   
-  const credsQ = useQuery({ queryKey:['git-sync','creds'], queryFn:()=>api.get<{success:boolean;credentials:Cred[]}>('/api/git-sync/credentials') })
+  const credsQ = useQuery({ queryKey:['git-sync','creds'], queryFn:async () => {
+    const res = await api.get<{success:boolean;credentials:ApiCred[]}>('/api/git-sync/credentials')
+    return { ...res, credentials: (res.credentials ?? []).map(fromApiCred) }
+  } })
 
   const save = useMutation({
-    mutationFn: (vals: Partial<Repo>) => api.post('/api/git-sync/repos', { ...repo, id: repo.id, ...vals }),
+    mutationFn: (vals: Partial<Repo>) => api.post('/api/git-sync/repos', toApiRepo(repo, vals)),
     onSuccess: () => { toast.success('Repository updated'); onSaved(); onExited() },
     onError: (e: Error) => toast.error(e.message)
   })
@@ -819,7 +885,10 @@ export function GitOpsPage() {
   const planQ     = useQuery({ queryKey:['gitops','plan'],     queryFn:({signal})=>api.get<{success:boolean;changes:Change[]}>('/api/gitops/plan',signal) })
   const stateQ    = useQuery({ queryKey:['gitops','state'],    queryFn:({signal})=>api.get<{success:boolean;state:string}>('/api/gitops/state',signal) })
   const settingsQ = useQuery({ queryKey:['gitops','settings'], queryFn:()=>api.get<{success:boolean;settings:GitOpsSettings}>('/api/gitops/settings') })
-  const reposQ    = useQuery({ queryKey:['git-sync','repos'],  queryFn:({signal})=>api.get<{success:boolean;repos:Repo[]}>('/api/git-sync/repos',signal) })
+  const reposQ    = useQuery({ queryKey:['git-sync','repos'],  queryFn:async ({signal}) => {
+    const res = await api.get<{success:boolean;repos:ApiRepo[]}>('/api/git-sync/repos',signal)
+    return { ...res, repos: (res.repos ?? []).map(fromApiRepo) }
+  } })
   const summaryQ  = useQuery({ queryKey:['gitops','summary'],  queryFn:({signal})=>api.get<{success:boolean;summary:ManagedSummary}>('/api/gitops/managed-summary',signal), refetchInterval:30_000 })
 
   useEffect(() => {

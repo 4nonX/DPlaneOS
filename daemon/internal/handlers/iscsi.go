@@ -136,7 +136,7 @@ func runTargetcli(args ...string) (string, error) {
 // GetISCSITargets lists all iSCSI targets
 // GET /api/iscsi/targets
 func GetISCSITargets(w http.ResponseWriter, r *http.Request) {
-	out, err := runTargetcli("/iscsi", "ls")
+	out, err := runTargetcli("/iscsi", "ls", "depth=1")
 	if err != nil {
 		respondErrorSimple(w, "targetcli unavailable", http.StatusServiceUnavailable)
 		return
@@ -364,20 +364,35 @@ func DeleteISCSITarget(w http.ResponseWriter, r *http.Request) {
 // GetISCSIACLs lists ACLs for a target
 // GET /api/iscsi/acls?target=iqn...
 func GetISCSIACLs(w http.ResponseWriter, r *http.Request) {
-	target := r.URL.Query().Get("target")
-	if err := validateIQN(target); err != nil {
-		respondError(w, http.StatusBadRequest, "Invalid request", err)
-		return
+	// Without ?target=, the ACLs of every target (the iSCSI page lists all).
+	var targets []string
+	if target := r.URL.Query().Get("target"); target != "" {
+		if err := validateIQN(target); err != nil {
+			respondError(w, http.StatusBadRequest, "Invalid request", err)
+			return
+		}
+		targets = []string{target}
+	} else {
+		out, err := runTargetcli("/iscsi", "ls", "depth=1")
+		if err != nil {
+			respondErrorSimple(w, "targetcli unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		targets = targetcliIQNs(out)
 	}
 
-	tpgPath := fmt.Sprintf("/iscsi/%s/tpg1/acls", target)
-	out, err := runTargetcli(tpgPath, "ls")
-	if err != nil {
-		respondErrorSimple(w, "Failed to list ACLs", http.StatusInternalServerError)
-		return
+	acls := []map[string]string{}
+	for _, target := range targets {
+		out, err := runTargetcli(fmt.Sprintf("/iscsi/%s/tpg1/acls", target), "ls", "depth=1")
+		if err != nil {
+			respondErrorSimple(w, "Failed to list ACLs of "+target, http.StatusInternalServerError)
+			return
+		}
+		for _, a := range parseACLs(out) {
+			a["iqn"], a["target_iqn"] = target, target
+			acls = append(acls, a)
+		}
 	}
-
-	acls := parseACLs(out)
 	respondOK(w, map[string]any{
 		"success": true,
 		"acls":    acls,
@@ -472,8 +487,8 @@ func GetISCSIStatus(w http.ResponseWriter, r *http.Request) {
 	active := err == nil && strings.TrimSpace(out) == "active"
 
 	targetCount := 0
-	if ls, err := runTargetcli("/iscsi", "ls"); err == nil {
-		targetCount = strings.Count(ls, "iqn.")
+	if ls, err := runTargetcli("/iscsi", "ls", "depth=1"); err == nil {
+		targetCount = len(targetcliIQNs(ls))
 	}
 
 	respondOK(w, map[string]any{
@@ -487,27 +502,39 @@ func GetISCSIStatus(w http.ResponseWriter, r *http.Request) {
 
 // parseTargetcliLS parses "targetcli /iscsi ls" text output into a simple list
 func parseTargetcliLS(output string) []map[string]string {
-	var targets []map[string]string
-	for _, line := range strings.Split(output, "\n") {
-		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "iqn.") {
-			// Strip trailing status indicators like " [enabled]"
-			iqn := strings.Fields(line)[0]
-			targets = append(targets, map[string]string{"iqn": iqn})
-		}
+	targets := []map[string]string{}
+	for _, iqn := range targetcliIQNs(output) {
+		targets = append(targets, map[string]string{"iqn": iqn})
 	}
 	return targets
 }
 
+// targetcliIQNs returns the IQN nodes of "targetcli <path> ls depth=1"
+// output, whose lines look like
+//
+//	o- iqn.2026-10.lan.nas:lun0 ..................... [TPGs: 1]
+//
+// (tree marker first; the old parser expected the IQN at the line start and
+// never found any).
+func targetcliIQNs(output string) []string {
+	var out []string
+	for _, line := range strings.Split(output, "\n") {
+		f := strings.Fields(line)
+		if len(f) >= 2 && f[0] == "o-" {
+			f = f[1:]
+		}
+		if len(f) >= 1 && strings.HasPrefix(f[0], "iqn.") && validateIQN(f[0]) == nil {
+			out = append(out, f[0])
+		}
+	}
+	return out
+}
+
 // parseACLs parses ACL list output
 func parseACLs(output string) []map[string]string {
-	var acls []map[string]string
-	for _, line := range strings.Split(output, "\n") {
-		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "iqn.") {
-			iqn := strings.Fields(line)[0]
-			acls = append(acls, map[string]string{"initiator_iqn": iqn})
-		}
+	acls := []map[string]string{}
+	for _, iqn := range targetcliIQNs(output) {
+		acls = append(acls, map[string]string{"initiator_iqn": iqn, "initiator": iqn})
 	}
 	return acls
 }

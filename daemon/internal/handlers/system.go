@@ -18,8 +18,8 @@ import (
 	"dplaned/internal/audit"
 	"dplaned/internal/cmdutil"
 	"dplaned/internal/netlinkx"
-	"dplaned/internal/security"
 	"dplaned/internal/reconciler"
+	"dplaned/internal/security"
 )
 
 type SystemHandler struct{}
@@ -190,6 +190,32 @@ func (h *SystemHandler) SaveUPSConfig(w http.ResponseWriter, r *http.Request) {
 	respondOK(w, CommandResponse{Success: true, Output: "UPS config saved"})
 }
 
+// GetUPSPolicy returns the saved shutdown policy (the UPS page edits it).
+// GET /api/system/ups/policy
+// The NUT connection itself (driver, port, UPS name) comes from the NixOS
+// configuration (services.dplaneos.ups), not from this API.
+func (h *SystemHandler) GetUPSPolicy(w http.ResponseWriter, r *http.Request) {
+	action, threshold, grace := "shutdown", 20, 30
+	if onNixOS() && NixWriter != nil {
+		st := NixWriter.State()
+		if st.UPSAction != "" {
+			action = st.UPSAction
+		}
+		if st.UPSLowBattery > 0 {
+			threshold = st.UPSLowBattery
+		}
+		if st.UPSFinalDelay > 0 {
+			grace = st.UPSFinalDelay
+		}
+	}
+	respondOK(w, map[string]any{
+		"success":   true,
+		"action":    action,
+		"threshold": threshold,
+		"grace":     grace,
+	})
+}
+
 func (h *SystemHandler) HandleNetwork(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodGet {
 		h.handleNetworkGet(w, r, r.Header.Get("X-User"))
@@ -232,9 +258,9 @@ func (h *SystemHandler) handleNetworkGet(w http.ResponseWriter, _ *http.Request,
 	} else {
 		for _, rt := range nlRoutes {
 			routes = append(routes, map[string]any{
-				"dst":  rt.Dst.String(),
-				"via":  rt.Gateway.String(),
-				"dev":  rt.Iface,
+				"dst": rt.Dst.String(),
+				"via": rt.Gateway.String(),
+				"dev": rt.Iface,
 			})
 		}
 	}
@@ -768,7 +794,6 @@ func parseJournalLogs(output string) []map[string]any {
 	}
 	return logs
 }
-
 
 // networkInterfaces lists one entry per interface with the fields the Network
 // page uses (name, ip, netmask, mac, mtu, up, state, type, speed, gateway,
