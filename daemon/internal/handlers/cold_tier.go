@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -55,6 +56,8 @@ type ColdTierMount struct {
 type ColdTierHandler struct {
 	db *sql.DB
 }
+
+var coldTierNameRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
 
 func NewColdTierHandler(db *sql.DB) *ColdTierHandler {
 	return &ColdTierHandler{db: db}
@@ -192,8 +195,10 @@ func (h *ColdTierHandler) HandleCreate(w http.ResponseWriter, r *http.Request) {
 		respondErrorSimple(w, "name and remote are required", http.StatusBadRequest)
 		return
 	}
-	if strings.ContainsAny(req.Name, "/\\:*?\"<>|") {
-		respondErrorSimple(w, "name contains invalid characters", http.StatusBadRequest)
+	// The name is the mount directory below coldTierBase ("..", a leading
+	// dot or dash are no names).
+	if !coldTierNameRe.MatchString(req.Name) {
+		respondErrorSimple(w, "name: letters, digits, . _ - (starting with a letter or digit, up to 64)", http.StatusBadRequest)
 		return
 	}
 
@@ -254,10 +259,10 @@ func (h *ColdTierHandler) HandleCreate(w http.ResponseWriter, r *http.Request) {
 		"name": req.Name, "remote": req.Remote, "mount_point": mountPoint,
 	})
 	respondOK(w, map[string]any{
-		"success":     true,
-		"mount":       m,
-		"job_id":      jobID,
-		"message":     "Mount started in background",
+		"success": true,
+		"mount":   m,
+		"job_id":  jobID,
+		"message": "Mount started in background",
 	})
 }
 
