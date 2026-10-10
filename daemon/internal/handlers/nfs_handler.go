@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"path/filepath"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -18,12 +19,21 @@ import (
 
 // ═══════════════════════════════════════════════════════════════
 //  NFS Export Management
-//  Writes /etc/exports and calls exportfs -ra on every change.
-//  Requires nfs-kernel-server: apt install nfs-kernel-server
+//  Writes /etc/exports.d/dplaneos.exports and calls exportfs -ra on every
+//  change. /etc/exports itself belongs to NixOS (a read-only link to the
+//  store built from services.nfs.server.exports); exportfs reads the
+//  *.exports files in /etc/exports.d as well.
 // ═══════════════════════════════════════════════════════════════
 
 // nfsExportsPath is the exports file (a variable so tests can redirect it).
-var nfsExportsPath = "/etc/exports"
+var nfsExportsPath = "/etc/exports.d/dplaneos.exports"
+
+// NFSExportsFile is where DPlaneOS writes its exports (also used by the
+// GitOps apply path).
+func NFSExportsFile() string { return nfsExportsPath }
+
+// nfsNotInstalled is the hint when exportfs is missing.
+const nfsNotInstalled = "NFS server not available: enable it with services.dplaneos.nfs.enable = true (on by default)"
 
 const nfsDplaneosMark = "# DPlaneOS NFS exports - managed automatically, do not edit by hand"
 
@@ -123,6 +133,9 @@ func (h *NFSHandler) writeExportsFile() error {
 		return fmt.Errorf("nfs_exports scan: %w", err)
 	}
 
+	if err := os.MkdirAll(filepath.Dir(nfsExportsPath), 0755); err != nil {
+		return fmt.Errorf("create %s: %w", filepath.Dir(nfsExportsPath), err)
+	}
 	if err := os.WriteFile(nfsExportsPath, []byte(sb.String()), 0644); err != nil {
 		return fmt.Errorf("write %s: %w", nfsExportsPath, err)
 	}
@@ -161,13 +174,19 @@ func (h *NFSHandler) GetNFSStatus(w http.ResponseWriter, r *http.Request) {
 		respondOK(w, map[string]any{
 			"success":   true,
 			"installed": false,
-			"message":   "NFS server not installed. Run: sudo apt install nfs-kernel-server",
+			"message":   nfsNotInstalled,
 		})
 		return
 	}
 
-	out, err := cmdutil.RunFast("systemctl", "is-active", "nfs-kernel-server")
-	active := err == nil && strings.TrimSpace(string(out)) == "active"
+	// nfs-server is the unit on NixOS (nfs-kernel-server on Debian).
+	active := false
+	for _, unit := range []string{"nfs-server", "nfs-kernel-server"} {
+		if out, err := cmdutil.RunFast("systemctl", "is-active", unit); err == nil && strings.TrimSpace(string(out)) == "active" {
+			active = true
+			break
+		}
+	}
 
 	var count int
 	h.db.QueryRow(`SELECT COUNT(*) FROM nfs_exports WHERE enabled = 1`).Scan(&count)
@@ -186,7 +205,7 @@ func (h *NFSHandler) ListNFSExports(w http.ResponseWriter, r *http.Request) {
 		respondOK(w, map[string]any{
 			"success": true,
 			"exports": []any{},
-			"note":    "NFS server not installed. Run: sudo apt install nfs-kernel-server",
+			"note":    nfsNotInstalled,
 		})
 		return
 	}
@@ -225,7 +244,7 @@ func (h *NFSHandler) ListNFSExports(w http.ResponseWriter, r *http.Request) {
 // CreateNFSExport POST /api/nfs/exports
 func (h *NFSHandler) CreateNFSExport(w http.ResponseWriter, r *http.Request) {
 	if !nfsInstalled() {
-		respondErrorSimple(w, "NFS server not installed. Run: sudo apt install nfs-kernel-server", http.StatusServiceUnavailable)
+		respondErrorSimple(w, nfsNotInstalled, http.StatusServiceUnavailable)
 		return
 	}
 
@@ -427,7 +446,7 @@ func (h *NFSHandler) DeleteNFSExport(w http.ResponseWriter, r *http.Request) {
 // ReloadNFSExportsHandler POST /api/nfs/reload
 func (h *NFSHandler) ReloadNFSExportsHandler(w http.ResponseWriter, r *http.Request) {
 	if !nfsInstalled() {
-		respondErrorSimple(w, "NFS server not installed. Run: sudo apt install nfs-kernel-server", http.StatusServiceUnavailable)
+		respondErrorSimple(w, nfsNotInstalled, http.StatusServiceUnavailable)
 		return
 	}
 	user := r.Header.Get("X-User")

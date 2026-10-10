@@ -1,7 +1,7 @@
 /**
  * pages/ISCSIPage.tsx - iSCSI Targets (Phase 7)
  *
- * GET    /api/iscsi/status           → { success, running: bool }
+ * GET    /api/iscsi/status           → { success, service: { active }, target_count }
  * GET    /api/iscsi/targets          → { success, targets: Target[] }
  * POST   /api/iscsi/targets          → { iqn, zvol, size? }
  * DELETE /api/iscsi/targets/{iqn}
@@ -35,7 +35,7 @@ export function ISCSIPage() {
   const qc = useQueryClient()
 
   // Status
-  const statusQ = useQuery({ queryKey:['iscsi','status'], queryFn:({signal})=>api.get<{success:boolean;running:boolean}>('/api/iscsi/status',signal), refetchInterval:20000 })
+  const statusQ = useQuery({ queryKey:['iscsi','status'], queryFn:({signal})=>api.get<{success:boolean;service?:{active:boolean};target_count?:number}>('/api/iscsi/status',signal), refetchInterval:20000 })
 
   // Targets
   const targetsQ = useQuery({ queryKey:['iscsi','targets'], queryFn:({signal})=>api.get<{success:boolean;targets:Target[]}>('/api/iscsi/targets',signal) })
@@ -93,7 +93,7 @@ export function ISCSIPage() {
   const targets = targetsQ.data?.targets ?? []
   const zvols   = zvolsQ.data?.zvols ?? []
   const acls    = aclsQ.data?.acls ?? []
-  const running = statusQ.data?.running
+  const running = statusQ.data?.service?.active
 
   const handleEdit = (t: Target) => {
     setIqn(t.iqn)

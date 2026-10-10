@@ -66,7 +66,7 @@ type ApplyResult struct {
 type ApplyContext struct {
 	DB             *sql.DB
 	SmbConfPath    string // path to write smb.conf, e.g. /etc/samba/smb.conf
-	NFSExportsPath string // path to write /etc/exports
+	NFSExportsPath string // exports file to write (/etc/exports.d/dplaneos.exports)
 
 	// OwnershipGuard, when non-nil, is called before any pool ownership operation
 	// (pool create, reshape, destroy). Returning false defers those operations
@@ -846,7 +846,7 @@ func deleteNFS(db *sql.DB, exportsPath, path string) error {
 	return nil
 }
  
-// reloadNFS regenerates /etc/exports and runs exportfs -ra.
+// reloadNFS regenerates the DPlaneOS exports file and runs exportfs -ra.
 func reloadNFS(exportsPath string, db *sql.DB) {
 	if exportsPath == "" {
 		return
@@ -864,10 +864,17 @@ func reloadNFS(exportsPath string, db *sql.DB) {
 		if err := rows.Scan(&path, &clients, &options); err != nil {
 			continue
 		}
-		// Format: path client(options)
-		fmt.Fprintf(&sb, "%s %s(%s)\n", path, clients, options)
+		// One line per client: "path c1 c2(opts)" would give c1 the
+		// default options instead of these.
+		for _, client := range strings.Fields(clients) {
+			fmt.Fprintf(&sb, "%s\t%s(%s)\n", path, client, options)
+		}
 	}
  
+	if err := os.MkdirAll(filepath.Dir(exportsPath), 0755); err != nil {
+		log.Printf("GITOPS: reloadNFS: %v", err)
+		return
+	}
 	tmpPath := exportsPath + ".gitops.tmp"
 	if err := writeFileAtomic(tmpPath, exportsPath, []byte(sb.String())); err != nil {
 		log.Printf("GITOPS: reloadNFS: write failed: %v", err)

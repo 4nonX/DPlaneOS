@@ -141,7 +141,7 @@ func (h *ConfigHistoryHandler) Rollback(w http.ResponseWriter, r *http.Request) 
 	ctx := gitops.ApplyContext{
 		DB:             h.db,
 		SmbConfPath:    h.smbConfPath,
-		NFSExportsPath: "/etc/exports",
+		NFSExportsPath: NFSExportsFile(),
 		OwnershipGuard: func() bool { ok, _ := gitops.IsWriter(); return ok },
 	}
 	res, err := configstore.Rollback(h.db, ctx, req.RevisionID, r.Header.Get("X-User"))

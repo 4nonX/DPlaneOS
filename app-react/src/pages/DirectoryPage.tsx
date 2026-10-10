@@ -56,6 +56,17 @@ function toLdapApi(c: LdapConfig) {
   }
 }
 
+// The LDAP endpoints wrap their payload: { success, data, error }.
+interface LdapWrapped<T> { success: boolean; data?: T; error?: string }
+interface LdapStatusApi {
+  enabled: number; last_test_at?: string; last_test_ok?: number; last_test_msg?: string
+  last_sync_at?: string; last_sync_ok?: number; last_sync_count?: number; last_sync_msg?: string
+}
+interface SyncLogEntry {
+  id: number; sync_type: string; success: number; users_synced: number; users_created: number
+  users_updated: number; users_disabled: number; error_msg?: string; duration_ms: number; created_at: string
+}
+
 interface LdapStatus {
   success:       boolean
   enabled:       boolean
@@ -134,12 +145,22 @@ function ConfigTab() {
 
   const configQ = useQuery({
     queryKey: ['ldap', 'config'],
-    queryFn: async ({ signal }) => fromLdapApi(await api.get<LdapConfigApi & { success: boolean }>('/api/ldap/config', signal)),
+    queryFn: async ({ signal }) => fromLdapApi((await api.get<LdapWrapped<LdapConfigApi>>('/api/ldap/config', signal)).data ?? {}),
   })
   
   const statusQ = useQuery({
     queryKey: ['ldap', 'status'],
-    queryFn: ({ signal }) => api.get<LdapStatus>('/api/ldap/status', signal),
+    queryFn: async ({ signal }): Promise<LdapStatus> => {
+      const r = await api.get<LdapWrapped<LdapStatusApi>>('/api/ldap/status', signal)
+      const d = r.data
+      return {
+        success: r.success,
+        enabled: d?.enabled === 1,
+        last_test_ok: d ? d.last_test_ok === 1 : undefined,
+        last_sync: d?.last_sync_at || undefined,
+        error: r.error || (d && d.last_sync_at && d.last_sync_ok !== 1 ? d.last_sync_msg : undefined),
+      }
+    },
     refetchInterval: 30_000,
   })
 
@@ -359,7 +380,7 @@ function MappingsTab() {
 
   const mappingsQ = useQuery({
     queryKey: ['ldap', 'mappings'],
-    queryFn: ({ signal }) => api.get<{ success: boolean; mappings: Mapping[] }>('/api/ldap/mappings', signal),
+    queryFn: async ({ signal }) => ({ mappings: (await api.get<LdapWrapped<Mapping[]>>('/api/ldap/mappings', signal)).data ?? [] }),
   })
 
   const add = useMutation({
@@ -426,7 +447,15 @@ function SyncLogTab() {
   const { confirm, ConfirmDialog } = useConfirm()
   const logQ = useQuery({
     queryKey: ['ldap', 'sync-log'],
-    queryFn: ({ signal }) => api.get<{ success: boolean; entries: string[] }>('/api/ldap/sync-log', signal),
+    queryFn: async ({ signal }) => {
+      const r = await api.get<LdapWrapped<SyncLogEntry[]>>('/api/ldap/sync-log', signal)
+      return {
+        entries: (r.data ?? []).map(e =>
+          `${e.created_at}  ${e.sync_type}  ${e.success ? 'ok' : 'FAILED'}  ${e.users_synced} users` +
+          ` (+${e.users_created} new, ${e.users_updated} updated, ${e.users_disabled} disabled)  ${e.duration_ms} ms` +
+          (e.error_msg ? `  ${e.error_msg}` : '')),
+      }
+    },
   })
   const cbQ = useQuery({
     queryKey: ['ldap', 'circuit-breaker'],

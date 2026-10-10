@@ -35,10 +35,8 @@ interface NFSExport {
 }
 interface NFSExportsResponse { success: boolean; exports: NFSExport[] }
 
-interface NFSStatus {
-  running: boolean; version?: string; exports_count?: number; active_connections?: number
-}
-interface NFSStatusResponse { success: boolean; status: NFSStatus }
+// GET /api/nfs/status: flat fields.
+interface NFSStatusResponse { success: boolean; installed: boolean; active?: boolean; export_count?: number; message?: string }
 
 // ---------------------------------------------------------------------------
 // ExportModal (create / edit)
@@ -199,7 +197,8 @@ export function NFSPage() {
   function refresh() { qc.invalidateQueries({ queryKey: ['nfs'] }) }
 
   const exports = exportsQ.data?.exports ?? []
-  const status = statusQ.data?.status
+  const st = statusQ.data
+  const status = st && { running: !!st.active, exports_count: st.export_count, message: st.installed ? undefined : st.message }
 
   return (
     <div style={{ maxWidth: 1000 }}>
@@ -226,21 +225,20 @@ export function NFSPage() {
           <span style={{ fontWeight: 600, fontSize: 'var(--text-sm)' }}>
             NFS {status?.running ? 'Running' : 'Stopped'}
           </span>
-          {status?.version && <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>{status.version}</span>}
+          {status?.message && <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>{status.message}</span>}
           {status?.exports_count !== undefined && (
             <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>{status.exports_count} exports active</span>
-          )}
-          {status?.active_connections !== undefined && (
-            <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>{status.active_connections} clients connected</span>
           )}
         </div>
       )}
 
-      {/* Warning: nfs-kernel-server must be installed */}
-      <div className="alert alert-warning" style={{ marginBottom: 20, display: 'flex', gap: 10 }}>
-        <Icon name="warning" size={16} style={{ flexShrink: 0, marginTop: 1 }} />
-        Requires <code style={{ fontFamily: 'var(--font-mono)' }}>nfs-kernel-server</code> installed on the host. NixOS: managed via <code style={{ fontFamily: 'var(--font-mono)' }}>services.nfs.server</code>.
-      </div>
+      {/* Only when the NFS server is not available */}
+      {st && !st.installed && (
+        <div className="alert alert-warning" style={{ marginBottom: 20, display: 'flex', gap: 10 }}>
+          <Icon name="warning" size={16} style={{ flexShrink: 0, marginTop: 1 }} />
+          The NFS server is not enabled: set <code style={{ fontFamily: 'var(--font-mono)' }}>services.dplaneos.nfs.enable = true</code> (on by default).
+        </div>
+      )}
 
       {/* Exports list */}
       {exportsQ.isLoading && (

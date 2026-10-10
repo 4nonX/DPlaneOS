@@ -132,7 +132,7 @@ func main() {
 		ctx := gitops.ApplyContext{
 			DB:             db,
 			SmbConfPath:    *smbConfPath,
-			NFSExportsPath: "/etc/exports",
+			NFSExportsPath: handlers.NFSExportsFile(),
 		}
 		result, err := gitops.ApplyPlan(ctx, plan, desired)
 		if err != nil {
@@ -242,7 +242,7 @@ func main() {
 		}
 
 		// 1. Apply once
-		ctx := gitops.ApplyContext{DB: db, SmbConfPath: *smbConfPath, NFSExportsPath: "/etc/exports"}
+		ctx := gitops.ApplyContext{DB: db, SmbConfPath: *smbConfPath, NFSExportsPath: handlers.NFSExportsFile()}
 		live1, _ := gitops.ReadLiveState(db)
 		plan1 := gitops.ComputeDiff(desired, live1)
 		_, err = gitops.ApplyPlan(ctx, plan1, desired)
@@ -887,7 +887,7 @@ func main() {
 	configSyncer := configstore.NewSyncer(db, gitops.ApplyContext{
 		DB:             db,
 		SmbConfPath:    *smbConfPath,
-		NFSExportsPath: "/etc/exports",
+		NFSExportsPath: handlers.NFSExportsFile(),
 		OwnershipGuard: func() bool { ok, _ := gitops.IsWriter(); return ok },
 	})
 	configSyncer.Start(30 * time.Second)
@@ -1073,7 +1073,7 @@ func main() {
 	r.Handle("/api/shares/nfs/reload", permRoute("shares", "admin", handlers.ReloadNFSExports)).Methods("POST")
 	r.Handle("/api/shares/nfs/list", permRoute("shares", "read", handlers.ListNFSExports)).Methods("GET")
 
-	// NFS CRUD handler - NFSHandler manages /etc/exports via PostgreSQL
+	// NFS CRUD handler - NFSHandler writes /etc/exports.d/dplaneos.exports from PostgreSQL
 	r.Handle("/api/zfs/pool/offline", permRoute("storage", "write", zfsHandler.OfflineDisk)).Methods("POST")
 	r.Handle("/api/zfs/pool/export", permRoute("storage", "write", confirmRoute("pool_export", jsonField("pool"), zfsHandler.ExportPool))).Methods("POST")
 	nfsHandler := handlers.NewNFSHandler(db)
