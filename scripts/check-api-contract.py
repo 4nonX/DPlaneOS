@@ -184,10 +184,25 @@ for f in sorted(glob.glob(os.path.join(SRC, '**', '*.ts*'), recursive=True)):
                 continue
             findings.append('%s:%d %s %s: %s ignores "%s"' % (name, line, meth, route[3], route[2], k))
 
+# Every call (also GET and calls without a body) must have a route.
+all_calls = re.compile(r"api\.(get|post|put|patch|delete)(?:<[^()]*?>)?\(\s*(['`])(/api/[^'`]+)")
+for f in sorted(glob.glob(os.path.join(SRC, '**', '*.ts*'), recursive=True)):
+    if 'mock' in os.path.basename(f).lower():
+        continue
+    src = open(f, encoding='utf-8').read()
+    for m in all_calls.finditer(src):
+        meth, raw = m.group(1).upper(), m.group(3)
+        if '${' in raw and '}' not in raw[raw.index('${'):]:
+            raw = raw[:raw.index('${')]  # query built in a nested template
+        raw = re.sub(r'\$\{[^}]*\}', 'X', raw).split('?')[0]
+        ui_rx = re.compile('^' + re.escape(raw).replace('X', '[^/]+') + '$')
+        if not any(r[1] == meth and (r[0].match(raw) or ui_rx.match(r[3])) for r in routes):
+            findings.append('%s:%d %s %s: no such route' % (os.path.basename(f), src.count('\n', 0, m.start()) + 1, meth, raw))
+
 for x in findings:
     print(x)
 if findings:
-    print('\n%d request field(s) the API does not read. Fix the page or the handler,'
-          ' or add an ALLOW entry with the reason.' % len(findings), file=sys.stderr)
+    print('\n%d problem(s): request fields the API does not read, or calls without a route.'
+          ' Fix the page or the handler, or add an ALLOW entry with the reason.' % len(findings), file=sys.stderr)
     sys.exit(1)
 print('UI/API contract: ok')
