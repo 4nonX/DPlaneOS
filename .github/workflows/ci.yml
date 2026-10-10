@@ -112,7 +112,24 @@ jobs:
         working-directory: daemon
         env:
           DATABASE_DSN: postgres://dplaneos:dplaneos@localhost:5432/dplaneos?sslmode=disable
-        run: go test -v -race ./...
+        run: go test -v -race -coverprofile=/tmp/cover.out ./...
+
+      - name: Coverage summary
+        working-directory: daemon
+        run: |
+          go tool cover -func=/tmp/cover.out > /tmp/cover.txt
+          {
+            echo "### Go test coverage"
+            echo
+            echo "| package | coverage |"
+            echo "| --- | --- |"
+            # Per-package statement coverage from the profile.
+            awk -F'[: ,]' 'NR>1 { f=$1; sub("/[^/]*$","",f); n[f]+=$(NF-1); if ($NF>0) c[f]+=$(NF-1) }
+              END { for (k in n) printf "| %s | %.1f%% |\n", k, 100*c[k]/n[k] }' /tmp/cover.out | sort
+            echo
+            echo "Total: $(tail -1 /tmp/cover.txt | awk '{print $NF}')"
+          } >> "$GITHUB_STEP_SUMMARY"
+          tail -1 /tmp/cover.txt
 
       - name: Vulnerability scan (govulncheck)
         working-directory: daemon
