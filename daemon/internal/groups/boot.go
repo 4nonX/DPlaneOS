@@ -123,7 +123,7 @@ func (m *Manager) reconcileOwned(peers map[string]peerSeen) {
 	m.fmu.Unlock()
 
 	for _, g := range gs {
-		if g.Topology != Shared || g.Owner != v.Self {
+		if g.Topology != Shared || g.Owner != v.Self || m.isMoving(g.Name) {
 			continue
 		}
 		for _, p := range g.Pools {
@@ -166,6 +166,9 @@ func (m *Manager) importOwned(g Group) error {
 	}
 	if cur.Owner != m.self() {
 		return fmt.Errorf("group %s is now owned by %s", g.Name, cur.Owner)
+	}
+	if m.isMoving(g.Name) {
+		return fmt.Errorf("group %s is being moved", g.Name)
 	}
 	imported, err := m.ops.ImportedPools()
 	if err != nil {
@@ -210,4 +213,29 @@ func (m *Manager) ownerImportDecision(name string) Decision {
 	m.fmu.Lock()
 	defer m.fmu.Unlock()
 	return m.ownerImport[name]
+}
+
+// MayImport reports whether a pool may be imported here by hand (pool page,
+// disk hot-plug): not a pool of a shared group owned by another node. The
+// group's Move or Take over imports such pools instead.
+func (m *Manager) MayImport(guid, name string) (bool, string) {
+	gs, err := List(m.db)
+	if err != nil {
+		return false, err.Error()
+	}
+	self := m.self()
+	for _, g := range gs {
+		if g.Topology != Shared {
+			continue
+		}
+		for _, p := range g.Pools {
+			if (guid != "" && p.GUID == guid) || (name != "" && p.Name == name) {
+				if g.Owner != self {
+					return false, fmt.Sprintf("pool %s belongs to storage group %s, owned by another node; use Move on the owner, or Take over here if the owner is off", p.Name, g.Name)
+				}
+				return true, ""
+			}
+		}
+	}
+	return true, ""
 }

@@ -1,7 +1,7 @@
 //go:build linux
 
 // Package persistguard monitors durable storage (/persist) and proactively trims
-// logs so etcd/journal/PostgreSQL cannot fill the partition and break quorum.
+// logs so the journal and PostgreSQL cannot fill the partition.
 package persistguard
 
 import (

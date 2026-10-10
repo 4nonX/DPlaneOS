@@ -13,13 +13,10 @@
 #   - Path A (shared storage): CTDB database on shared SCSI-3 PR protected pool
 #   - Path B (replicated): CTDB database on replicated ZFS dataset
 #
-#   CTDB daemon runs on both nodes; Patroni/HA agent ensures:
-#   - Only primary node's CTDB participates in client connections
-#   - Secondary node's CTDB is reader-only (or disabled) during normal ops
-#   - On failover: secondary's CTDB takes over public IP and client connections
+#   CTDB runs on every node listed in `nodes`; on failover a surviving node
+#   takes over the public addresses and client connections.
 #
 # DEPENDENCIES:
-#   - HA must be enabled (cluster coordination)
 #   - Samba must be enabled (CTDB is the clustering backend for Samba)
 #   - Shared storage (pool) must be available and accessible
 #
@@ -33,7 +30,6 @@
 
 let
   cfg = config.services.dplaneos.ctdb;
-  haCfg = config.services.dplaneos.ha;
   sambaCfg = config.services.dplaneos.samba;
 
 in {
@@ -45,11 +41,18 @@ in {
       default = false;
       description = ''
         Enable CTDB clustering for Samba in HA deployments.
-        Requires: services.dplaneos.ha.enable = true; services.dplaneos.samba.enable = true;
+        Requires services.dplaneos.samba.enable = true and the cluster nodes in `nodes`.
         When enabled, Samba uses CTDB for state sharing across HA nodes.
         SMB clients survive failover without disconnecting (if witness/fencing works).
         EXPERIMENTAL - test in staging before production use.
       '';
+    };
+
+    nodes = lib.mkOption {
+      type = lib.types.listOf lib.types.str;
+      default = [ ];
+      example = [ "10.0.0.1" "10.0.0.2" ];
+      description = "Addresses of all CTDB nodes, identical and in the same order on every node.";
     };
 
     dataPool = lib.mkOption {
@@ -77,7 +80,7 @@ in {
       default = [];
       description = ''
         List of public IP addresses that clients connect to, one per line.
-        These are the IPs that Keepalived manages (VIPs).
+        These are the addresses CTDB moves between nodes.
         Example: [ "192.168.1.100/24" ]
         CTDB manages which node owns each public IP.
       '';
@@ -106,11 +109,11 @@ in {
   config = lib.mkIf cfg.enable {
 
     # ── Guard conditions ────────────────────────────────────────────────────
-    # CTDB requires HA and Samba to be enabled
+    # CTDB requires Samba and its node list
     assertions = [
       {
-        assertion = haCfg.enable;
-        message = "services.dplaneos.ctdb requires services.dplaneos.ha.enable = true";
+        assertion = cfg.nodes != [ ];
+        message = "services.dplaneos.ctdb.nodes must list the addresses of all CTDB nodes";
       }
       {
         assertion = sambaCfg.enable;
@@ -194,10 +197,8 @@ in {
 
     # Cluster node list: each node's IP and hostname
     # This must be identical on all cluster nodes.
-    environment.etc."ctdb/nodes".text = ''
-      ${haCfg.localAddress}
-      ${haCfg.peerAddress}
-    '';
+    environment.etc."ctdb/nodes".text = lib.concatMapStrings (n: n + "
+") cfg.nodes;
 
     # Public addresses: VIPs managed by CTDB
     # Format: <ip>/<mask> <interface>

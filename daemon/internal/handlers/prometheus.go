@@ -12,7 +12,9 @@ import (
 	"time"
 
 	"dplaned/internal/bmc"
+	"dplaned/internal/groups"
 	"dplaned/internal/ha"
+	"dplaned/internal/quorum"
 )
 
 // HandlePrometheusMetrics exposes system metrics in Prometheus text format.
@@ -114,40 +116,29 @@ func HandlePrometheusMetrics(w http.ResponseWriter, r *http.Request) {
 			"ZFS dataset quota bytes (0 = no quota)")
 	}
 
-	// ── HA status ───────────────────────────────────────────────────
-	if prometheusHAMgr != nil {
-		s := prometheusHAMgr.Status()
-		writeMetric(b, "dplaneos_ha_enabled", nil, 1.0, "1 if HA is configured")
-		writeMetric(b, "dplaneos_ha_peer_count", nil, float64(len(s.Peers)),
-			"Number of registered cluster peers")
-		quorum := 0.0
-		if s.Quorum {
-			quorum = 1.0
-		}
-		writeMetric(b, "dplaneos_ha_quorum", nil, quorum, "1 if cluster has quorum")
-		maint := 0.0
-		if s.MaintenanceActive {
-			maint = 1.0
-		}
-		writeMetric(b, "dplaneos_ha_maintenance_active", nil, maint,
-			"1 if node is in maintenance mode")
-		writeMetric(b, "dplaneos_ha_last_failover_timestamp_seconds", nil,
-			float64(s.LastFailoverAt),
-			"Unix timestamp of last automated failover (0 = never)")
-		for _, peer := range s.Peers {
-			var ph float64
-			switch string(peer.State) {
-			case "healthy":
-				ph = 1.0
-			case "degraded":
-				ph = 0.5
+	// ── Cluster and storage groups (Design 0001) ────────────────────
+	if prometheusQuorum != nil {
+		in := prometheusQuorum.Info()
+		writeMetric(b, "dplaneos_ha_enabled", nil, boolMetric(in.Configured), "1 if this node is in a Corosync cluster")
+		writeMetric(b, "dplaneos_ha_quorum", nil, boolMetric(in.Quorate), "1 if this node is in the quorate partition")
+		writeMetric(b, "dplaneos_ha_expected_votes", nil, float64(in.ExpectedVotes), "Votes the cluster expects (nodes plus third vote)")
+		writeMetric(b, "dplaneos_ha_online_nodes", nil, float64(len(in.Online)), "Cluster members in this node's partition")
+		writeMetric(b, "dplaneos_ha_auto_failover", nil, boolMetric(in.AutoFailover), "1 if automatic failover is possible (third vote, quorate)")
+	}
+	if prometheusKeeper != nil {
+		writeMetric(b, "dplaneos_ha_self_fence_armed", nil, boolMetric(prometheusKeeper.FenceArmed()),
+			"1 if this node owns storage, lost quorum and no longer resets its watchdog")
+	}
+	if prometheusGroups != nil {
+		if gs, err := prometheusGroups.Statuses(); err == nil {
+			for _, g := range gs {
+				l := map[string]string{"group": g.Name, "topology": g.Topology}
+				writeMetric(b, "dplaneos_group_owner_here", l, boolMetric(g.Role == "owner"), "1 if this node owns the storage group")
+				writeMetric(b, "dplaneos_group_serving", l, boolMetric(g.CanWrite), "1 if this node serves the group (owner, pools imported, quorate)")
+				writeMetric(b, "dplaneos_group_epoch", l, float64(g.Epoch), "Owner changes of the group (fencing token)")
+				writeMetric(b, "dplaneos_group_problems", l, float64(len(g.Problems)), "Problems shown on the group's line")
 			}
-			writeMetric(b, "dplaneos_ha_peer_health",
-				map[string]string{"peer": peer.ID, "role": string(peer.Role)},
-				ph, "Per-peer health: 1=healthy 0.5=degraded 0=unreachable")
 		}
-	} else {
-		writeMetric(b, "dplaneos_ha_enabled", nil, 0.0, "1 if HA is configured")
 	}
 
 	// ── Replication schedule status ─────────────────────────────────
@@ -212,13 +203,24 @@ func HandlePrometheusMetrics(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprint(w, b.String())
 }
 
-// prometheusHAMgr is set from main.go after the HA Manager is initialised.
-// Nil means single-node mode; HA metrics are omitted.
-var prometheusHAMgr *ha.Manager
+// Cluster, watchdog and storage-group sources for the exporter (set from main).
+var (
+	prometheusQuorum *quorum.Monitor
+	prometheusKeeper *ha.Keeper
+	prometheusGroups *groups.Manager
+)
 
-// SetPrometheusHAManager wires the HA Manager into the Prometheus exporter.
-// Call once from main after the Manager is created.
-func SetPrometheusHAManager(mgr *ha.Manager) { prometheusHAMgr = mgr }
+// SetPrometheusHA wires the cluster, watchdog and storage-group metrics.
+func SetPrometheusHA(mon *quorum.Monitor, keeper *ha.Keeper, gm *groups.Manager) {
+	prometheusQuorum, prometheusKeeper, prometheusGroups = mon, keeper, gm
+}
+
+func boolMetric(b bool) float64 {
+	if b {
+		return 1
+	}
+	return 0
+}
 
 // prometheusBMCDB is wired from main for BMC sensor metrics.
 var prometheusBMCDB *sql.DB

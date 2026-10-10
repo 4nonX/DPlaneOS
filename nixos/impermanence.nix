@@ -144,22 +144,7 @@
         mode      = "0755";
       }
 
-      # ── etcd cluster data ────────────────────────────────────────────────
-      # etcd stores its WAL and snap data here. Without persistence, a node
-      # that OTA-updates and reboots starts with an empty data dir. etcd then
-      # attempts to bootstrap a NEW cluster while its peers still run the
-      # existing one - this splits or stalls the cluster. With persistence,
-      # etcd detects its existing WAL on startup and rejoins the running
-      # cluster transparently regardless of initialClusterState in the Nix
-      # config (etcd ignores that flag when the data dir is non-empty).
-      {
-        directory = "/var/lib/etcd";
-        user      = "etcd";
-        group     = "etcd";
-        mode      = "0700";
-      }
-
-      # ── Avahi host database ──────────────────────────────────────────────
+# ── Avahi host database ──────────────────────────────────────────────
       {
         directory = "/var/lib/avahi-daemon";
         user      = "avahi";

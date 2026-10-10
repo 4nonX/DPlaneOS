@@ -1,6 +1,6 @@
 -- +goose Up
 -- Design 0001, phase 3e: a storage group's floating address (replaces the
--- keepalived VIP of the Patroni-based HA setup). Empty: none.
+-- former keepalived VIP). Empty: none.
 ALTER TABLE storage_groups ADD COLUMN IF NOT EXISTS address   TEXT NOT NULL DEFAULT '';
 ALTER TABLE storage_groups ADD COLUMN IF NOT EXISTS interface TEXT NOT NULL DEFAULT '';
 

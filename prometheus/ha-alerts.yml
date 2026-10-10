@@ -1,354 +1,98 @@
 # prometheus/ha-alerts.yml
-# DPlaneOS HA Cluster Alerts
+# DPlaneOS cluster and storage-group alerts.
 #
-# Alerts for monitoring High Availability cluster health, failover readiness,
-# and degradation. These rules detect problems early before they cascade
-# into data loss or unplanned downtime.
-#
-# REFERENCE: Prometheus AlertManager routing (prometheus.yml):
-#   - group_wait: 0s (alert immediately on first violation)
-#   - group_interval: 10s (batch check every 10 seconds)
-#   - repeat_interval: 1h (re-send if still firing)
-#
-# TESTING:
-#   1. Import this into Prometheus: prometheus.yml references prometheus/ha-alerts.yml
-#   2. In Prometheus UI, go to Alerts tab and search for "HA"
-#   3. Manually test: curl http://localhost:5000/api/ha/status and observe alert state
+# Metrics come from GET /api/metrics on each node (see
+# internal/handlers/prometheus.go):
+#   dplaneos_ha_enabled, dplaneos_ha_quorum, dplaneos_ha_expected_votes,
+#   dplaneos_ha_online_nodes, dplaneos_ha_auto_failover,
+#   dplaneos_ha_self_fence_armed,
+#   dplaneos_group_owner_here, dplaneos_group_serving, dplaneos_group_epoch,
+#   dplaneos_group_problems  (labels: group, topology)
 
 groups:
   - name: dplaneos-ha
     interval: 30s
     rules:
 
-      # ── Failover Readiness (Tier 1) ──────────────────────────────────────
-
-      - alert: HAQuorumLost
-        expr: ha_cluster_quorum == 0
+      - alert: DPlaneOSClusterNotQuorate
+        expr: dplaneos_ha_enabled == 1 and dplaneos_ha_quorum == 0
         for: 1m
         labels:
           severity: critical
           component: ha
         annotations:
-          summary: "HA cluster has lost quorum (cannot failover)"
+          summary: "{{ $labels.instance }} is not in the quorate partition"
           description: |
-            DPlaneOS HA cluster at {{ $labels.instance }} has lost quorum.
-            Fewer than 50% of nodes are reachable.
-            Automatic failover is BLOCKED until quorum is restored.
-            - Check witness node health
-            - Check network connectivity between cluster nodes
-            - Review firewall rules (HA port 5000 may be blocked)
+            The node cannot see enough cluster members (or the third vote) to
+            have quorum. If it owns a storage group and the watchdog is
+            enabled, it resets itself so another node can take over. Check the
+            network between the nodes and the third vote.
 
-      - alert: HAPeerUnreachable
-        expr: ha_peer_missed_beats > 2
-        for: 1m
+      - alert: DPlaneOSSelfFenceArmed
+        expr: dplaneos_ha_self_fence_armed == 1
+        labels:
+          severity: critical
+          component: ha
+        annotations:
+          summary: "{{ $labels.instance }} lost quorum while owning storage and is about to reset"
+          description: |
+            The node stopped resetting its watchdog; the kernel resets it after
+            the watchdog timeout and another node takes its storage groups over.
+
+      - alert: DPlaneOSNoAutomaticFailover
+        expr: dplaneos_ha_enabled == 1 and dplaneos_ha_quorum == 1 and dplaneos_ha_auto_failover == 0
+        for: 15m
         labels:
           severity: warning
           component: ha
         annotations:
-          summary: "HA peer {{ $labels.peer_id }} is unreachable (failover may trigger soon)"
+          summary: "Automatic failover is not available on {{ $labels.instance }}"
           description: |
-            Peer {{ $labels.peer_id }} at {{ $labels.instance }} has missed {{ $value }} heartbeats.
-            If this continues for 45+ seconds total, automatic failover will trigger.
-            - Check peer node: ping, SSH, IPMI console
-            - Check network link status
-            - Review cluster logs: journalctl -u dplaned
+            The cluster has no third vote (or it is not voting). Everything
+            works, but if a storage owner fails, an operator has to use
+            Take over. Add or repair the third vote (HA page, Cluster).
 
-      - alert: HAFencingDisabled
-        expr: ha_fencing_enabled == 0
+      - alert: DPlaneOSClusterMemberMissing
+        expr: dplaneos_ha_enabled == 1 and dplaneos_ha_online_nodes < 2
         for: 5m
         labels:
           severity: warning
           component: ha
         annotations:
-          summary: "HA fencing is DISABLED (split-brain risk)"
+          summary: "{{ $labels.instance }} sees no other cluster member"
           description: |
-            DPlaneOS HA fencing (IPMI, PDU, or watchdog) is disabled on {{ $labels.instance }}.
-            Without fencing, a failed primary node cannot be forced offline,
-            risking split-brain if network partition heals.
-            Enable fencing: Settings → High Availability → Fencing
+            The other node(s) of the cluster are not in this node's partition.
 
-      - alert: HAWitnessUnreachable
-        expr: ha_witness_reachable == 0 and ha_witness_required > 0
+      - alert: DPlaneOSGroupNotServed
+        expr: dplaneos_group_owner_here == 1 and dplaneos_group_serving == 0
         for: 2m
         labels:
-          severity: warning
-          component: ha
+          severity: critical
+          component: storage
         annotations:
-          summary: "HA witness is unreachable (automatic failover blocked)"
+          summary: "Storage group {{ $labels.group }} is owned by {{ $labels.instance }} but not served"
           description: |
-            Quorum witness at {{ $labels.witness_id }} is unreachable from {{ $labels.instance }}.
-            Automatic failover is blocked until witness is restored.
-            - Check witness node: ping, SSH, power, network
-            - Check firewall rules (witness port 2379 or HTTP endpoint)
-            - See HIGH-AVAILABILITY.md for witness recovery procedures
+            The owner has no quorum or the group's pools are not imported.
+            The group's line on the HA page says why.
 
-      - alert: HAHysteresisActive
-        expr: ha_hysteresis_active == 1
-        for: 5m
-        labels:
-          severity: info
-          component: ha
-        annotations:
-          summary: "HA flap-guard active (automatic failover rate-limited)"
-          description: |
-            Automatic failover is suppressed by hysteresis (flap-guard) on {{ $labels.instance }}.
-            Last failover was {{ $value }} ago. Hysteresis window: 60 minutes.
-            This prevents cascading failovers on unstable networks.
-            Manual override: curl -X POST http://{{ $labels.instance }}:5000/api/ha/clear_fault
-
-      - alert: HAMaintenanceModeActive
-        expr: ha_maintenance_active == 1
-        for: 1m
-        labels:
-          severity: info
-          component: ha
-        annotations:
-          summary: "HA maintenance mode active (automatic failover suspended)"
-          description: |
-            Automatic failover is suspended on {{ $labels.instance }} for maintenance.
-            Expires at: {{ $value }} (unix timestamp).
-            Disable: curl -X POST http://{{ $labels.instance }}:5000/api/ha/maintenance/disable
-
-      # ── Subordinate Mode (Data Sync) ─────────────────────────────────────
-
-      - alert: HASubordinateMode
-        expr: ha_subordinate_mode == 1
-        for: 5m
-        labels:
-          severity: warning
-          component: ha
-        annotations:
-          summary: "HA node in subordinate mode (stale data catch-up in progress)"
-          description: |
-            Node {{ $labels.instance }} is in subordinate mode.
-            It was promoted from stale data and is catching up to the original primary.
-            Automatic failover is blocked until catch-up completes.
-            - Monitor replication status: curl http://{{ $labels.instance }}:5000/api/ha/replication/status
-            - Do NOT clear subordinate mode until catch-up is complete
-            - See HA-FAILURE-MODES.md for recovery procedures
-
-      # ── Replication and Data Consistency ─────────────────────────────────
-
-      - alert: HAReplicationLagHigh
-        expr: ha_replication_lag_seconds > 300
-        for: 5m
-        labels:
-          severity: warning
-          component: ha
-        annotations:
-          summary: "HA replication lag is {{ $value }}s (RPO violation)"
-          description: |
-            Secondary node {{ $labels.instance }} is {{ $value }} seconds behind primary.
-            Recovery Point Objective (RPO) exceeded (target: <60s).
-            - Check network bandwidth between nodes
-            - Check secondary disk I/O (may be bottleneck)
-            - Review storage performance metrics
-            - See HA-FAILURE-MODES.md Scenario 5 for resolution
-
-      - alert: HAReplicationStalled
-        expr: ha_replication_lag_seconds > 600 and ha_replication_lag_seconds == ha_replication_lag_seconds offset 5m
+      - alert: DPlaneOSGroupProblems
+        expr: dplaneos_group_problems > 0
         for: 10m
         labels:
-          severity: critical
-          component: ha
-        annotations:
-          summary: "HA replication is STALLED (lag not improving)"
-          description: |
-            Replication between primary and secondary has stopped.
-            Lag is stuck at {{ $value }}s and not decreasing.
-            - SSH to secondary node and check replication processes
-            - Review PostgreSQL/ZFS replication logs
-            - May indicate network partition or storage failure
-            - See HA-FAILURE-MODES.md for emergency recovery
-
-      # ── Patroni PostgreSQL ──────────────────────────────────────────────
-
-      - alert: HAPatroniNoPrimary
-        expr: ha_patroni_primary_available == 0
-        for: 2m
-        labels:
-          severity: critical
-          component: ha
-        annotations:
-          summary: "Patroni has no primary (PostgreSQL unable to elect leader)"
-          description: |
-            Patroni on {{ $labels.instance }} cannot elect a primary.
-            PostgreSQL services are likely unavailable.
-            - Check etcd cluster health: etcdctl endpoint health
-            - Check Patroni status: patronictl list
-            - Review PostgreSQL logs: journalctl -u postgresql
-            - If etcd has no quorum, see HA-FAILURE-MODES.md Scenario 6
-
-      - alert: HAPatroniWALLagHigh
-        expr: pg_replication_lag > 30
-        for: 5m
-        labels:
           severity: warning
-          component: ha
+          component: storage
         annotations:
-          summary: "PostgreSQL replication lag is {{ $value }}s (data freshness at risk)"
+          summary: "Storage group {{ $labels.group }} reports problems on {{ $labels.instance }}"
           description: |
-            Patroni replication lag is {{ $value }} seconds on {{ $labels.instance }}.
-            Secondary is falling behind on transaction replication.
-            - Check Patroni replication stream: patronictl list
-            - Monitor primary write rate (may be under high load)
-            - See HA-FAILURE-MODES.md Scenario 5
+            See the group's line on the HA page (replication, apps, floating
+            address, pools waiting to be imported).
 
-      - alert: HAPatroniMemberUnreachable
-        expr: pg_stat_replication_state != "streaming"
-        for: 2m
-        labels:
-          severity: warning
-          component: ha
-        annotations:
-          summary: "Patroni member not streaming (replication connection down)"
-          description: |
-            Patroni replication stream from {{ $labels.instance }} is not active.
-            Secondary is not receiving transaction updates.
-            - Check PostgreSQL connection status
-            - Verify network connectivity between nodes
-            - Review PostgreSQL logs for authentication errors
-
-      # ── SCSI-3 PR Fencing (Path A) ───────────────────────────────────────
-
-      - alert: HASCSIPRFencingUnreachable
-        expr: ha_scsi_pr_reserved_devices < 1 and ha_ha_topology == "shared_storage"
-        for: 2m
-        labels:
-          severity: critical
-          component: ha
-        annotations:
-          summary: "SCSI-3 PR fencing devices unreachable (Path A failover will fail)"
-          description: |
-            Node {{ $labels.instance }} cannot communicate with any SCSI-3 PR devices.
-            Fencing will fail if primary crashes; secondary cannot take over pools.
-            - Check SAS/SCSI connections to JBOD/SAN
-            - Check dplane-fenced service: systemctl status dplane-fenced
-            - Verify dplaned can access /dev/sg* devices
-            - Review SCSI-3 PR support: curl http://{{ $labels.instance }}:5000/api/ha/scsi/status
-
-      - alert: HASCSIPRFencingSomeDevicesFailing
-        expr: ha_scsi_pr_failed_devices > 0 and ha_ha_topology == "shared_storage"
-        for: 1m
-        labels:
-          severity: warning
-          component: ha
-        annotations:
-          summary: "SCSI-3 PR fencing has {{ $value }} failed devices (partial protection)"
-          description: |
-            Some storage devices at {{ $labels.instance }} are not SCSI-3 PR compliant.
-            This is often a firmware version issue on SAS/SATA expanders or older SANs.
-            - Run PROUT probe to identify failing devices: POST /api/ha/scsi/probe
-            - Update SAS expander firmware if available
-            - May need to migrate to Path B (replicated) topology if PR support cannot be fixed
-
-      # ── Cluster State Consistency ───────────────────────────────────────
-
-      - alert: HAMultiplePrimaries
-        expr: count(ha_node_role == "active" and ha_node_state == "healthy") > 1
-        for: 1m
-        labels:
-          severity: critical
-          component: ha
-        annotations:
-          summary: "SPLIT-BRAIN DETECTED - multiple primaries active"
-          description: |
-            More than one node is acting as primary.
-            This is a data corruption risk. Immediate action required:
-            1. STOP ALL APPLICATIONS from writing
-            2. Power off the secondary immediately
-            3. Call support; data reconciliation may be needed
-            See HA-FAILURE-MODES.md Scenario 3 for detailed recovery
-
-      - alert: HAClusterDegraded
-        expr: ha_cluster_quorum == 1 and count(ha_node_state == "healthy") < (count(ha_node_state) / 2 + 1)
-        for: 5m
-        labels:
-          severity: warning
-          component: ha
-        annotations:
-          summary: "HA cluster degraded (quorum is fragile)"
-          description: |
-            Cluster at {{ $labels.instance }} has quorum, but is operating at minimum threshold.
-            One more node failure will cause loss of quorum and service interruption.
-            - Identify unreachable nodes: curl http://{{ $labels.instance }}:5000/api/ha/status
-            - Restore failed nodes or remove from cluster if permanently offline
-
-      # ── Watchdog Self-Fence (Hardware Safety Net) ───────────────────────
-
-      - alert: HAWatchdogDisabled
-        expr: ha_watchdog_enabled == 0 and ha_fencing_enabled == 0
-        for: 5m
-        labels:
-          severity: critical
-          component: ha
-        annotations:
-          summary: "HA has NO fencing or watchdog (split-brain protection disabled)"
-          description: |
-            Node {{ $labels.instance }} has both fencing and watchdog disabled.
-            If this node is partitioned from the cluster, it cannot self-fence.
-            High split-brain risk.
-            Enable at least one: watchdog (hardware) or fencing (IPMI/PDU/SBD)
-
-      - alert: HAWatchdogStuck
-        expr: ha_watchdog_enabled == 1 and ha_watchdog_last_pet_seconds > 60
-        for: 2m
-        labels:
-          severity: warning
-          component: ha
-        annotations:
-          summary: "HA watchdog not being petted (kernel may reset node soon)"
-          description: |
-            Watchdog device at {{ $labels.instance }} is armed but not being petted.
-            If petting stops for {{ watchdog_timeout }} seconds, kernel hard-resets node.
-            This indicates cluster communication may have stalled.
-            - Check dplaned status: systemctl status dplaned
-            - Check cluster connectivity: curl http://PEER_IP:5000/api/ha/status
-
-      # ── HA Service Health ──────────────────────────────────────────────
-
-      - alert: HADaemonUnresponsive
-        expr: ha_daemon_up == 0
-        for: 1m
-        labels:
-          severity: critical
-          component: ha
-        annotations:
-          summary: "DPlaneOS HA daemon is down or unresponsive"
-          description: |
-            DPlaneOS daemon on {{ $labels.instance }} is not responding to HA status queries.
-            HA cluster coordination is impaired.
-            - Check dplaned: systemctl status dplaned
-            - Review daemon logs: journalctl -u dplaned -n 50
-            - Restart if needed: systemctl restart dplaned
-
-      - alert: HAEtcdUnreachable
-        expr: ha_etcd_reachable == 0
-        for: 2m
-        labels:
-          severity: warning
-          component: ha
-        annotations:
-          summary: "HA daemon cannot reach etcd cluster"
-          description: |
-            DPlaneOS daemon on {{ $labels.instance }} cannot communicate with etcd.
-            HA coordination via Patroni may be impaired.
-            - Check etcd health: etcdctl endpoint health
-            - Verify network connectivity: nc -zv ETCD_IP 2379
-
-      # ── Historical Failovers (Informational) ─────────────────────────────
-
-      - alert: HARecentFailover
-        expr: time() - ha_last_failover_timestamp < 3600
-        for: 1m
+      - alert: DPlaneOSGroupOwnerChanged
+        expr: changes(dplaneos_group_epoch[10m]) > 0
         labels:
           severity: info
-          component: ha
+          component: storage
         annotations:
-          summary: "Automatic failover occurred in the last hour"
+          summary: "Storage group {{ $labels.group }} changed owner"
           description: |
-            {{ $labels.instance }} promoted to active role {{ humanizeDuration time() - ha_last_failover_timestamp }} ago.
-            Cluster is stable now, but review what triggered the failover:
-            - Check primary logs: journalctl -u dplaned -S '1 hour ago'
-            - Restore secondary if it's still down
-            - Clear hysteresis if needed: curl -X POST /api/ha/clear_fault
+            A planned move, failover or takeover happened in the last 10 minutes.

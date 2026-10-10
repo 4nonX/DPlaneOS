@@ -218,10 +218,6 @@ assert_json "GET /api/system/status" "success" "true"
 api POST /api/system/setup-admin "{\"username\":\"admin\",\"password\":\"$CI_PASS\"}" >/dev/null
 ok "POST /api/system/setup-admin"
 
-# HA Check
-api POST /api/ha/heartbeat '{"node_id":"ci-node-1","status":"online"}' >/dev/null
-assert_json "POST /api/ha/heartbeat" "success" "true"
-
 # 2. LOGIN
 LOGIN_JSON=$(api POST /api/auth/login "{\"username\":\"admin\",\"password\":\"$CI_PASS\"}")
 SESSION=$(echo "$LOGIN_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin).get('session_id',''))" 2>/dev/null)
@@ -230,6 +226,12 @@ SESSION=$(echo "$LOGIN_JSON" | python3 -c "import sys,json; print(json.load(sys.
 CSRF_JSON=$(api GET /api/csrf)
 CSRF_TOKEN=$(echo "$CSRF_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin).get('csrf_token',''))" 2>/dev/null)
 [ -n "$CSRF_TOKEN" ] && ok "Fetched CSRF Token" || fail "Failed to fetch CSRF Token"
+
+# Cluster and protection status (standalone node: no cluster, no groups)
+api GET /api/quorum/status >/dev/null
+assert_json "GET /api/quorum/status" "success" "true"
+api GET /api/ha/protection >/dev/null
+assert_json "GET /api/ha/protection" "success" "true"
 
 api POST /api/auth/login '{"username":"admin","password":"wrong"}' >/dev/null
 assert_json "Login with wrong password fails" "success" "false"

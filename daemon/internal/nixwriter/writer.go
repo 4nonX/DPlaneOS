@@ -102,10 +102,6 @@ type DPlaneState struct {
 	SSHPermitRootLogin string `json:"ssh_permit_root_login,omitempty"`
 
 	// ── High Availability ──────────────────────────────────────────────────────
-	HAEnable bool `json:"ha_enable,omitempty"`
-	// DBFromPatroni: the node-local PostgreSQL runs on the data directory
-	// Patroni left behind (Design 0001 phase 3e: migration off Patroni).
-	DBFromPatroni bool `json:"db_from_patroni,omitempty"`
 
 	// ── Active Directory / IDMAP ───────────────────────────────────────────────
 	// WinbindEnable activates the winbindd service and configures Samba for
@@ -316,9 +312,6 @@ func (w *Writer) DiffIntent() ([]Change, error) {
 	}
 
 	// High Availability
-	if w.state.HAEnable != appliedState.HAEnable {
-		changes = append(changes, Change{Path: "system.ha_enable", From: appliedState.HAEnable, To: w.state.HAEnable, Op: "modify"})
-	}
 
 	// This list is not exhaustive but covers the primary enterprise hardening vectors.
 	// For a production system, use reflection or a generic JSON diff library.
@@ -592,33 +585,6 @@ func (w *Writer) SetSambaGlobals(opts SambaGlobalOpts) error {
  
 // ── HA setter ────────────────────────────────────────────────────────────────
  
-// SetHA enables or disables the Patroni/HAProxy High Availability stack.
-func (w *Writer) SetHA(enable bool) error {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	w.state.HAEnable = enable
-	return w.flushLocked()
-}
-
-// LeavePatroni disables the Patroni/HAProxy stack and keeps the database
-// Patroni managed as this node's own (phase 3e migration).
-func (w *Writer) LeavePatroni() error {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	w.state.HAEnable = false
-	w.state.DBFromPatroni = true
-	return w.flushLocked()
-}
-
-// UndoLeavePatroni restores the state before LeavePatroni (the switch failed).
-func (w *Writer) UndoLeavePatroni(haEnable bool) error {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	w.state.HAEnable = haEnable
-	w.state.DBFromPatroni = false
-	return w.flushLocked()
-}
-
 // ── IDMAP / AD setter ─────────────────────────────────────────────────────────
 
 var validIDMAPBackends = map[string]bool{

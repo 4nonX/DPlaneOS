@@ -397,88 +397,6 @@ jobs:
           DATABASE_DSN: "postgres://dplaneos:dplaneos@localhost:5432/dplaneos?sslmode=disable"
         run: bash .github/scripts/config-sync-test.sh
 
-  # ════════════════════════════════════════════════════════════════════════════
-  # STAGE 4B: HA CLUSTER TESTS - Failover logic, ZFS promotion, NixOS modules.
-  # Three parallel jobs, each gated on prepare. Release and ISO are hard-gated
-  # on all three: a broken HA subsystem must never reach a published release.
-  # ════════════════════════════════════════════════════════════════════════════
-  ha-failover-logic:
-    name: HA Failover Logic (real Postgres)
-    needs: [prepare]
-    runs-on: ubuntu-22.04
-    services:
-      postgres:
-        image: postgres:15
-        env:
-          POSTGRES_DB: dplaneos
-          POSTGRES_USER: dplaneos
-          POSTGRES_PASSWORD: dplaneos
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: daemon/go.mod
-          cache-dependency-path: daemon/go.sum
-
-      - name: Wait for PostgreSQL
-        run: |
-          for i in $(seq 1 30); do
-            if pg_isready -h 127.0.0.1 -p 5432 -U dplaneos; then
-              echo "PostgreSQL is ready."
-              exit 0
-            fi
-            echo "Waiting for PostgreSQL ($i/30)..."
-            sleep 2
-          done
-          echo "ERROR: PostgreSQL did not become ready in time."
-          exit 1
-
-      - name: go vet (ha package)
-        working-directory: daemon
-        run: go vet ./internal/ha/...
-
-      - name: HA failover integration tests
-        working-directory: daemon
-        env:
-          DATABASE_DSN: postgres://dplaneos:dplaneos@127.0.0.1:5432/dplaneos?sslmode=disable
-        run: |
-          go test -race -count=1 -v ./internal/ha/...
-
-      - name: HA guard-coverage gate
-        working-directory: daemon
-        env:
-          DATABASE_DSN: postgres://dplaneos:dplaneos@127.0.0.1:5432/dplaneos?sslmode=disable
-        run: |
-          set -euo pipefail
-          OUT=$(go test -count=1 -v -run TestFailover ./internal/ha/... 2>&1)
-          echo "$OUT"
-          for guard in \
-            TestFailover_NoFencingConfigured_DoesNotPromote \
-            TestFailover_WitnessUnreachable_DoesNotPromote \
-            TestFailover_WitnessReachable_ClearsWitnessGate \
-            TestFailover_NetworkWitnessUnreachable_DoesNotPromote \
-            TestFailover_NetworkWitnessReachable_ClearsGuard \
-            TestFailover_MaintenanceMode_SuppressesPromotion \
-            TestFailover_HysteresisWindow_SuppressesFlapping \
-            TestFailover_SubordinateMode_SuppressesPromotion \
-            TestFailover_GuardPriority_SubordinateBeatsHysteresis ; do
-            if ! echo "$OUT" | grep -q -- "--- PASS: ${guard}"; then
-              echo "ERROR: required HA guard test '${guard}' did not pass."
-              echo "A split-brain protection guard is missing or broken."
-              exit 1
-            fi
-          done
-          echo "All required HA failover guards passed."
 
   # ════════════════════════════════════════════════════════════════════════════
   # STAGE 4C: ARM64 API TESTS - Behavioral coverage for the arm64 daemon
@@ -542,32 +460,9 @@ jobs:
           chmod +x .github/scripts/api-integration-test.sh
           bash .github/scripts/api-integration-test.sh
 
-  ha-promotion-zfs:
-    name: HA Promotion Mechanics (real ZFS)
-    needs: [prepare]
-    runs-on: ubuntu-22.04
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
 
-      - name: Install ZFS and load the kernel module
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y zfsutils-linux
-          sudo modprobe zfs
-          zpool version
-
-      - name: Install shellcheck
-        run: sudo apt-get install -y shellcheck
-
-      - name: Lint the HA ZFS test script
-        run: shellcheck .github/scripts/ha-promotion-zfs-test.sh
-
-      - name: Run HA promotion ZFS test
-        run: sudo bash .github/scripts/ha-promotion-zfs-test.sh
-
-  ha-vm-cluster:
-    name: HA NixOS Modules (build + VM test scaffold)
+  nix-eval:
+    name: Pin flake.lock and evaluate NixOS modules
     needs: [prepare]
     runs-on: ubuntu-22.04
     steps:
@@ -608,14 +503,8 @@ jobs:
           name: flake-lock
           path: flake.lock
 
-      - name: Evaluate HA NixOS modules
+      - name: Evaluate NixOS modules and checks
         run: nix flake check --no-build .
-
-      - name: Two-node failover VM test
-        run: |
-          echo "NixOS HA modules evaluated successfully."
-          echo "VM test (ha-failover.nix) wired in flake checks; enable full"
-          echo "run by switching this step to: nix build .#checks.x86_64-linux.ha-failover -L"
 
   # ════════════════════════════════════════════════════════════════════════════
   # STAGE 5C: LIVE BOOT ISO BUILD - Live boot environment (no installation)
@@ -623,7 +512,7 @@ jobs:
   # ════════════════════════════════════════════════════════════════════════════
   build-live-iso:
     name: Build Live Boot ISO
-    needs: [validate, integration, config-sync, ha-failover-logic, ha-promotion-zfs, ha-vm-cluster]
+    needs: [validate, integration, config-sync, nix-eval]
     if: github.ref_type == 'tag' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/live-boot'
     strategy:
       matrix:
@@ -646,7 +535,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Download pinned flake.lock from ha-vm-cluster
+      - name: Download pinned flake.lock from nix-eval
         uses: actions/download-artifact@v4
         with:
           name: flake-lock
@@ -798,16 +687,12 @@ jobs:
         timeout-minutes: 60
         run: nix build .#checks.x86_64-linux.replicated -L
 
-      - name: Run migration off the shared Patroni database VM test
-        timeout-minutes: 75
-        run: nix build .#checks.x86_64-linux.ha-migrate -L
-
   # ════════════════════════════════════════════════════════════════════════════
   # STAGE 5: RELEASE - Professional Build & Publish
   # ════════════════════════════════════════════════════════════════════════════
   release:
     name: Build & Publish Release
-    needs: [validate, integration, config-sync, quorum-vm, convergence, storage-failure, ha-failover-logic, ha-promotion-zfs, ha-vm-cluster, iso, iso-arm, build-live-iso, test-live-boot]
+    needs: [validate, integration, config-sync, quorum-vm, convergence, storage-failure, nix-eval, iso, iso-arm, build-live-iso, test-live-boot]
     if: github.ref_type == 'tag' || github.ref == 'refs/heads/main'
     runs-on: ubuntu-22.04
     permissions:
@@ -992,7 +877,7 @@ jobs:
 
   iso:
     name: Build Installer ISO
-    needs: [validate, integration, config-sync, ha-failover-logic, ha-promotion-zfs, ha-vm-cluster]
+    needs: [validate, integration, config-sync, nix-eval]
     if: github.ref_type == 'tag' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/iso-installer'
     runs-on: ubuntu-22.04
     permissions:
@@ -1002,7 +887,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Download pinned flake.lock from ha-vm-cluster
+      - name: Download pinned flake.lock from nix-eval
         uses: actions/download-artifact@v4
         with:
           name: flake-lock
@@ -1108,7 +993,7 @@ jobs:
   # ════════════════════════════════════════════════════════════════════════════
   iso-arm:
     name: Build Installer ISO (arm64)
-    needs: [validate, integration, config-sync, ha-failover-logic, ha-promotion-zfs, ha-vm-cluster]
+    needs: [validate, integration, config-sync, nix-eval]
     if: github.ref_type == 'tag' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/iso-installer'
     runs-on: ubuntu-22.04-arm
     permissions:
@@ -1118,7 +1003,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Download pinned flake.lock from ha-vm-cluster
+      - name: Download pinned flake.lock from nix-eval
         uses: actions/download-artifact@v4
         with:
           name: flake-lock

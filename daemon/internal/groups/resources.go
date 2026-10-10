@@ -448,9 +448,16 @@ func (m *Manager) ActivateTick() {
 	}
 	self := m.self()
 	for _, g := range gs {
+		if m.isMoving(g.Name) {
+			continue
+		}
 		var problems []string
 		if g.Owner == self {
-			if ok, _ := m.CanWritePool(g.Pools[0].Name); !ok {
+			v, err := m.currentView()
+			if err != nil {
+				continue // cannot tell (e.g. zpool list timed out): change nothing
+			}
+			if !Evaluate(g, v).CanWrite {
 				// Not serving (no quorum, pool missing): no apps, no address.
 				if err := m.holdAddress(g, false); err != nil {
 					log.Printf("GROUPS: %s: %v", g.Name, err)

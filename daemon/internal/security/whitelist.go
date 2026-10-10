@@ -69,18 +69,6 @@ var CommandWhitelist = map[string]Command{
 		AllowedArgs: []string{"list", "-H", "-o", "name"},
 		Description: "List imported pool names",
 	},
-	"systemctl_apply_config": {
-		Name:        "systemctl_apply_config",
-		Path:        "systemctl",
-		AllowedArgs: []string{"start", "--no-block", "dplaneos-apply-config.service"},
-		Description: "Apply the NixOS configuration in a unit that outlives dplaned (migration off Patroni)",
-	},
-	"systemctl_apply_config_state": {
-		Name:        "systemctl_apply_config_state",
-		Path:        "systemctl",
-		AllowedArgs: []string{"show", "-p", "ActiveState,Result", "--value", "dplaneos-apply-config.service"},
-		Description: "Read the state of dplaneos-apply-config",
-	},
 	"group_address": {
 		Name:        "group_address",
 		Path:        "ip",

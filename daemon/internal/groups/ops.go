@@ -154,6 +154,26 @@ type Manager struct {
 	ownerImport map[string]Decision  // why the owner has not imported (phase 3e)
 	uncached    map[string]bool
 	addrApplied map[string]string // group → "iface|cidr" put on this node
+	moving      map[string]bool   // planned moves in progress: activation leaves these alone
+}
+
+func (m *Manager) setMoving(name string, on bool) {
+	m.fmu.Lock()
+	defer m.fmu.Unlock()
+	if m.moving == nil {
+		m.moving = map[string]bool{}
+	}
+	if on {
+		m.moving[name] = true
+	} else {
+		delete(m.moving, name)
+	}
+}
+
+func (m *Manager) isMoving(name string) bool {
+	m.fmu.Lock()
+	defer m.fmu.Unlock()
+	return m.moving[name]
 }
 
 // NewManager wires the manager. view returns the current quorum view.
@@ -358,6 +378,10 @@ func (m *Manager) Move(name, target string) (*MoveResult, error) {
 	if target == self || !g.IsCandidate(target) {
 		return nil, errors.New("the target must be another candidate of the group")
 	}
+	// The activation loop and the owner's import check run without m.mu:
+	// keep them from restarting apps or importing while the group moves.
+	m.setMoving(name, true)
+	defer m.setMoving(name, false)
 	switch g.Topology {
 	case Shared:
 	case Replicated:
@@ -454,7 +478,10 @@ func (m *Manager) adopt(g Group) error {
 	}
 	if cur != nil && cur.Owner == m.self() && g.Owner != m.self() {
 		// This node is no longer the owner: stop the group's apps and exports
-		// before its pools are released or made read-only.
+		// before its pools are released or made read-only (and keep the
+		// activation loop from restarting them meanwhile).
+		m.setMoving(g.Name, true)
+		defer m.setMoving(g.Name, false)
 		if err := m.deactivate(g); err != nil {
 			log.Printf("GROUPS: %s: stopping resources: %v", g.Name, err)
 		}

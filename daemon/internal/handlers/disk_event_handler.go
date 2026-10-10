@@ -205,10 +205,9 @@ func attemptPoolImport(disk DiskInfo) {
 			continue
 		}
 
-		// HA GUARD: Before importing, ensure we are not a Patroni standby node.
-		// If Patroni is running but we are not primary, importing block devices will corrupt the cluster.
-		if standby, code := patroniStandby(); standby {
-			log.Printf("HA GUARD: Pool %q import BLOCKED. Node is running Patroni but is not primary (status %d).", poolName, code)
+		// A pool of a shared storage group is imported by its owner only.
+		if ok, why := importAllowed(poolGUID, poolName); !ok {
+			log.Printf("DISK EVENT: not importing pool %q: %s", poolName, why)
 			continue
 		}
 
@@ -511,4 +510,3 @@ func runWithTimeout(timeout time.Duration, name string, args ...string) ([]byte,
 	cmd := exec.CommandContext(ctx, name, args...)
 	return cmd.CombinedOutput()
 }
-

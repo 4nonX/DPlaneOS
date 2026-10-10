@@ -17,7 +17,7 @@ import (
 // A group may have an address that clients use for its shares and exports.
 // It is on the owner's interface while the owner serves the group, and moves
 // with the group (planned move, failover, takeover); this replaces the
-// keepalived VIP of the Patroni-based HA setup.
+// keepalived VIP of earlier versions.
 
 var ifaceRe = regexp.MustCompile(`^[A-Za-z0-9_.@-]{1,15}$`)
 

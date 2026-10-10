@@ -188,28 +188,6 @@
         packages.dplaneos-frontend       = frontend;
         packages.default = daemon;
 
-        # HA multi-node failover VM test (Tier 3).
-        # Evaluated by `nix flake check --no-build`; run with:
-        #   nix build .#checks.x86_64-linux.ha-failover -L
-        checks.ha-failover = import ./nixos/tests/ha-failover.nix {
-          inherit nixpkgs system;
-          daemonPackage = daemon;
-          haModule      = ./nixos/module.nix;
-          witnessModule = ./nixos/patroni-witness.nix;
-        };
-
-        # HA PostgreSQL load test: pgbench under failover (Tier 1.1).
-        # Validates that Patroni failover is safe under sustained I/O load.
-        # Run with:
-        #   nix build .#checks.x86_64-linux.ha-failover-load-test -L --timeout 3600
-        checks.ha-failover-load-test = import ./nixos/tests/ha-failover-load-test.nix {
-          inherit nixpkgs system;
-          daemonPackage = daemon;
-          haModule      = ./nixos/module.nix;
-          witnessModule = ./nixos/patroni-witness.nix;
-          timeout = 3600;
-        };
-
         # Live boot integration test (Tier 2).
         # Validates that D-PlaneOS boots from live ISO, daemon starts, UI accessible,
         # ZFS auto-import works, and system is ephemeral. Run with:
@@ -252,14 +230,6 @@
           frontendPackage = frontend;
         };
 
-        # Moving an HA pair off the shared Patroni database (Design 0001 phase 3e).
-        #   nix build .#checks.x86_64-linux.ha-migrate -L
-        checks.ha-migrate = import ./nixos/tests/ha-migrate.nix {
-          inherit nixpkgs system impermanence;
-          daemonPackage = daemon;
-          frontendPackage = frontend;
-        };
-
         devShells.default = pkgs.mkShell {
           buildInputs = with pkgs; [ go gcc musl.dev gopls gotools postgresql git ];
           shellHook = ''
@@ -271,7 +241,6 @@
     ) //
     {
       nixosModules.dplaneos         = import ./nixos/module.nix;
-      nixosModules.dplaneos-witness = import ./nixos/patroni-witness.nix;
 
       nixosConfigurations.dplaneos = let system = "x86_64-linux"; pkgs = nixpkgs.legacyPackages.${system}; in nixpkgs.lib.nixosSystem {
         inherit system pkgs;
@@ -407,31 +376,6 @@
 
       packages.x86_64-linux.iso  = self.nixosConfigurations.iso.config.system.build.isoImage;
       packages.aarch64-linux.iso  = self.nixosConfigurations.iso-arm.config.system.build.isoImage;
-
-      # ── Standalone Witness ISOs ───────────────────────────────────────────
-      # Minimal ISOs for the etcd quorum witness node only.
-      # Built by CI and attached to releases alongside the main installer ISOs.
-      # Advanced users can build manually: nix build .#iso-witness
-      # For git-pull installs, use nixosModules.dplaneos-witness directly.
-
-      nixosConfigurations.dplaneos-witness-iso = let
-        system = "x86_64-linux";
-      in nixpkgs.lib.nixosSystem {
-        inherit system;
-        modules = [ ./nixos/witness-installer.nix ];
-      };
-
-      nixosConfigurations.dplaneos-witness-iso-arm = let
-        system = "aarch64-linux";
-      in nixpkgs.lib.nixosSystem {
-        inherit system;
-        modules = [ ./nixos/witness-installer.nix ];
-      };
-
-      packages.x86_64-linux.iso-witness  =
-        self.nixosConfigurations.dplaneos-witness-iso.config.system.build.isoImage;
-      packages.aarch64-linux.iso-witness =
-        self.nixosConfigurations.dplaneos-witness-iso-arm.config.system.build.isoImage;
 
       # ── Live Boot Configurations ──────────────────────────────────────────
       # D-PlaneOS running directly from USB without installation.

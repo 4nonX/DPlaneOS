@@ -76,11 +76,11 @@ type Layer struct {
 type ProtectionHandler struct {
 	db  *sql.DB
 	mon *quorum.Monitor
-	ha  *ha.Manager
+	ha  *ha.Keeper
 }
 
-func NewProtectionHandler(db *sql.DB, mon *quorum.Monitor, mgr *ha.Manager) *ProtectionHandler {
-	return &ProtectionHandler{db: db, mon: mon, ha: mgr}
+func NewProtectionHandler(db *sql.DB, mon *quorum.Monitor, keeper *ha.Keeper) *ProtectionHandler {
+	return &ProtectionHandler{db: db, mon: mon, ha: keeper}
 }
 
 // watchdogKind reads the identity of the first watchdog device.

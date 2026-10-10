@@ -136,11 +136,6 @@ in
   services.openssh.settings.PermitRootLogin =
     lib.mkIf (s ? ssh_permit_root_login) s.ssh_permit_root_login;
 
-  # ── High Availability ────────────────────────────────────────────────────────
-  services.dplaneos.ha.enable = s.ha_enable or false;
-  # Set when the node moved off the shared database (keeps Patroni's data).
-  services.dplaneos.database.fromPatroni = lib.mkIf (s.db_from_patroni or false) true;
-
   # ── Kernel tuning (Settings → Tuning) ────────────────────────────────────────
   # mkAfter: a later zfs.zfs_arc_max on the command line wins over the default.
   boot.kernelParams = lib.mkIf (s ? zfs_arc_max)

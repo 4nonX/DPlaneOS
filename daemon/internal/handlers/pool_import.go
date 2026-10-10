@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
-	"time"
 
 	"dplaned/internal/cmdutil"
 	"dplaned/internal/security"
@@ -30,17 +29,17 @@ var importKeyRe = regexp.MustCompile(`^\s*(pool|id|state|status|action|comment|s
 
 // parseImportScan parses the human-readable output of `zpool import`.
 //
-//	   pool: tank
-//	     id: 15813948561712957512
-//	  state: ONLINE
-//	 status: The pool was last accessed by another system.
-//	 action: The pool can be imported using its name or numeric identifier and
-//	         the '-f' flag.
-//	 config:
+//	  pool: tank
+//	    id: 15813948561712957512
+//	 state: ONLINE
+//	status: The pool was last accessed by another system.
+//	action: The pool can be imported using its name or numeric identifier and
+//	        the '-f' flag.
+//	config:
 //
-//	         tank        ONLINE
-//	           mirror-0  ONLINE
-//	             ata-... ONLINE
+//	        tank        ONLINE
+//	          mirror-0  ONLINE
+//	            ata-... ONLINE
 func parseImportScan(out string) []ImportablePool {
 	var pools []ImportablePool
 	var cur *ImportablePool
@@ -110,16 +109,15 @@ func parseImportScan(out string) []ImportablePool {
 	return valid
 }
 
-// patroniStandby reports whether this node runs Patroni as a non-primary.
-// Importing pools on a standby would fight the primary for the same disks.
-func patroniStandby() (bool, int) {
-	client := &http.Client{Timeout: 2 * time.Second}
-	resp, err := client.Get("http://localhost:8008/primary")
-	if err != nil {
-		return false, 0 // Patroni not running: not an HA standby
+// GroupImportGuard refuses manual imports of pools that belong to a shared
+// storage group owned by another node (set from main; nil: no groups).
+var GroupImportGuard func(guid, name string) (bool, string)
+
+func importAllowed(guid, name string) (bool, string) {
+	if GroupImportGuard == nil {
+		return true, ""
 	}
-	defer resp.Body.Close()
-	return resp.StatusCode != http.StatusOK, resp.StatusCode
+	return GroupImportGuard(guid, name)
 }
 
 // HandleListImportablePools serves GET /api/zfs/pool/importable.
@@ -159,8 +157,8 @@ func HandleImportPool(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if standby, code := patroniStandby(); standby {
-		respondErrorSimple(w, "Import blocked: this node is an HA standby (Patroni status "+http.StatusText(code)+"). Import pools on the primary.", http.StatusConflict)
+	if ok, why := importAllowed(req.GUID, ""); !ok {
+		respondErrorSimple(w, "Import blocked: "+why, http.StatusConflict)
 		return
 	}
 

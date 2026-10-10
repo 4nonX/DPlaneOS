@@ -19,7 +19,7 @@ import (
 // Node identity and mode (Design 0001 section 5.5).
 //
 // The node id is generated once per database, so two daemons sharing one
-// database (an HA pair on Patroni) have the same id and cannot be paired:
+// database have the same id and cannot be paired:
 // they already share their configuration.
 
 const (

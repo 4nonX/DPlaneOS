@@ -12,7 +12,6 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"os/exec"
 	"os/signal"
 	osUser "os/user"
 	"path"
@@ -65,9 +64,6 @@ func main() {
 	telegramChat := flag.String("telegram-chat", "", "Telegram chat ID (optional, for alerts)")
 	configDir := flag.String("config-dir", "/etc/dplaneos", "Config directory (for NixOS: /var/lib/dplaneos/config)")
 	smbConfPath := flag.String("smb-conf", "/etc/samba/smb.conf", "Path to write SMB config (for NixOS: /var/lib/dplaneos/smb-shares.conf)")
-	haLocalID := flag.String("ha-local-id", "", "Unique ID for this cluster node (default: /etc/machine-id prefix)")
-	haLocalAddr := flag.String("ha-local-addr", "", "HTTP address peers use to reach this daemon, e.g. http://10.0.0.1:5050")
-	haClusterSecret := flag.String("ha-cluster-secret", "", "Pre-shared secret for HA peer authentication; must match on all cluster nodes")
 	secretsKeyPath := flag.String("secrets-key", "/var/lib/dplaneos/secrets.key", "AES-256 key for secrets stored in the database (created if missing). Both nodes of an HA pair must use the same key.")
 	secretsKeyFallback := flag.String("secrets-key-fallback", "", "Optional previous or peer secrets key: values only it can open are re-sealed under -secrets-key at startup")
 	gitopsStatePath := flag.String("gitops-state", "/var/lib/dplaneos/gitops/state.yaml", "Path to GitOps state.yaml (managed by git repo)")
@@ -383,31 +379,12 @@ func main() {
 	}
 	defer security.CloseDatabase()
 
-	// ── HA cluster manager ──
-	haID := *haLocalID
-	if haID == "" {
-		haID = handlers.LocalNodeID()
-	}
-	haAddr := *haLocalAddr
-	if haAddr == "" && !strings.HasPrefix(*listenAddr, "/") {
-		haAddr = "http://" + *listenAddr
-	}
-	clusterMgr := ha.NewManager(db, haID, haAddr, Version)
-	if *haClusterSecret != "" {
-		clusterMgr.SetClusterSecret(*haClusterSecret)
-	} else {
-		log.Printf("WARNING: --ha-cluster-secret not set; HA peer heartbeats are unauthenticated. Set this flag on all cluster nodes to enable peer authentication.")
-	}
-	clusterMgr.SetPromotionCallback(func() {
-		go runPostPromotionStacksApply(db, *gitopsStatePath, *smbConfPath)
-	})
-	// Cluster quorum (Design 0001 phase 3a): once a Corosync cluster is
-	// configured, its quorum replaces the heartbeat majority.
+	// Cluster quorum (Design 0001 phase 3a).
 	quorumMon := quorum.NewMonitor(db)
 	quorumMon.Start(3 * time.Second)
-	// Storage-group facts the HA engine needs without a database query under
-	// its lock: whether groups exist, whether this node owns one.
-	var groupsExist, ownsGroup atomic.Bool
+	// Whether this node owns a storage group (read by the watchdog keeper on
+	// every tick, without a database query).
+	var ownsGroup atomic.Bool
 	go func() {
 		for {
 			if gs, err := groups.List(db); err == nil {
@@ -416,37 +393,21 @@ func main() {
 				for _, g := range gs {
 					owns = owns || g.Owner == self
 				}
-				groupsExist.Store(len(gs) > 0)
 				ownsGroup.Store(owns)
 			}
 			time.Sleep(3 * time.Second)
 		}
 	}()
-	clusterMgr.SetQuorumSource(func() ha.ExternalQuorum {
+	// Watchdog self-fencing (ADR-0009): a storage owner that loses quorum stops
+	// resetting the watchdog and the kernel resets it before another node
+	// takes its storage over.
+	haKeeper := ha.NewKeeper(db, func() ha.ExternalQuorum {
 		in := quorumMon.Info()
-		return ha.ExternalQuorum{Configured: in.Configured, Quorate: in.Quorate,
-			ExpectedVotes: in.ExpectedVotes, AutoFailover: in.AutoFailover, Reason: in.AutoFailoverNo,
-			Reconfiguring: in.Reconfiguring, GroupsManaged: groupsExist.Load()}
-	})
-	clusterMgr.SetOwnsStorage(ownsGroup.Load)
-	clusterMgr.Start()
-	defer clusterMgr.Stop()
+		return ha.ExternalQuorum{Configured: in.Configured, Quorate: in.Quorate, Reconfiguring: in.Reconfiguring}
+	}, ownsGroup.Load)
+	haKeeper.Start()
 
-	// Start hardware watchdog self-fence if configured. The watchdog is pet on
-	// every heartbeat tick when quorum is healthy; if quorum is lost the daemon
-	// stops petting it and the kernel hard-resets the node after the timeout.
-	// This removes the BMC/PDU network-reachability assumption from fencing.
-	if wdCfg, err := ha.GetWatchdogConfig(db); err == nil {
-		clusterMgr.StartWatchdog(wdCfg)
-	}
-
-	// Start SBD lease manager if configured (no-op on unconfigured / single-node).
-	if sbdCfg, err := ha.GetSBDConfig(db); err == nil {
-		ha.GlobalSBD.Start(sbdCfg)
-	}
-	defer ha.GlobalSBD.Stop()
-
-	haHandler := handlers.NewHAHandler(clusterMgr)
+	haHandler := handlers.NewHAHandler(db, haKeeper)
 
 	// Initialize Telegram alerts (from flags OR database)
 	if *telegramBot != "" && *telegramChat != "" {
@@ -480,31 +441,7 @@ func main() {
 
 	// Phase 7: ZFS Initialization & Safety Checks
 
-	// ── Patroni Startup Split-Brain Guard (v7.1.0) ──
-	// If HA is enabled, we check the local Patroni instance role BEFORE
-	// discovering or importing ZFS pools.
-	skipZFS := false
-	if nixWriter.State().HAEnable {
-		log.Printf("HA: Checking local Patroni role before initiating ZFS operations...")
-		client := &http.Client{Timeout: 3 * time.Second}
-		resp, err := client.Get("http://localhost:8008/health")
-		if err == nil {
-			defer resp.Body.Close()
-			if resp.StatusCode != http.StatusOK {
-				// Patroni /health returns 200 for Leader, 503 for Replica (by default).
-				log.Printf("HA SAFETY: Patroni /health returned %d (Replica/Follower). Blocking automatic ZFS pool discovery to prevent split-brain.", resp.StatusCode)
-				skipZFS = true
-			} else {
-				log.Printf("HA SAFETY: Patroni /health returned 200 (Leader). Proceeding with ZFS operations.")
-			}
-		} else {
-			// No error path: If Patroni isn't running or reachable, we assume
-			// it's not a HA secondary situation we should be worried about yet.
-			log.Printf("HA: Patroni unreachable (%v) - assuming single-node or bootstrap mode. Proceeding.", err)
-		}
-	}
-
-	if !skipZFS {
+	{
 		// Initialize ZFS pool heartbeat monitoring
 		poolList, err := zfs.DiscoverPools()
 		if err != nil {
@@ -634,10 +571,6 @@ func main() {
 
 	// Wire WebSocket hub into jobs system for automatic background task updates
 	jobs.SetBroadcastCallback(wsHub.Broadcast)
-
-	clusterMgr.SetReplicationProgressReporter(func(p map[string]any) {
-		wsHub.Broadcast("ha.replication_progress", p, "info")
-	})
 
 	// Start job reaper: remove finished jobs after 1 hour
 	jobs.StartReaper(1 * time.Hour)
@@ -921,11 +854,6 @@ func main() {
 	r.Handle("/api/system/ce-status", permRoute("system", "read", auditRotationHandler.GetCEStatus)).Methods("GET")
 
 	secretsRotationHandler := handlers.NewSecretsRotationHandler(db, *secretsKeyPath)
-	if nixWriter.State().HAEnable {
-		// Rotation rewrites only this node's key file; the peer could no longer
-		// decrypt anything. Refuse until rotation is pair-aware.
-		secretsRotationHandler.DisableForHA()
-	}
 	r.Handle("/api/system/secrets/rotate", permRoute("system", "admin", secretsRotationHandler.RotateKeys)).Methods("POST")
 	r.Handle("/api/system/secrets/status", permRoute("system", "read", http.HandlerFunc(handlers.SecretsStatus))).Methods("GET")
 
@@ -945,36 +873,6 @@ func main() {
 	// Phase 3: GitOps - declarative state reconciliation
 	gitopsHandler := handlers.NewGitOpsHandler(db, *gitopsStatePath, *smbConfPath, wsHub)
 	defer gitopsHandler.Stop()
-
-	// Quorum-aware reconciler: pool create/reshape/destroy operations are deferred
-	// when HA is enabled and this node does not hold quorum. On replicated topologies
-	// there is no hardware backstop (SCSI-3 PR is only on shared-SAS), so this
-	// software gate is the only protection before an isolated node acts on
-	// Git-desired state that says "import/create this pool".
-	//
-	// The same check makes the active node the only GitOps writer: GUI changes
-	// are committed, drift is checked and plans are applied only there. Quorum
-	// alone is not enough: in a healthy pair both nodes have quorum.
-	if nixWriter.State().HAEnable {
-		gitops.SetWriterCheck(func() (bool, string) {
-			st := clusterMgr.Status()
-			switch {
-			case st.LocalNode == nil || st.LocalNode.Role != ha.RoleActive:
-				return false, "standby node (the active node is the GitOps writer)"
-			case !st.Quorum:
-				return false, "no quorum"
-			case st.SubordinateMode:
-				return false, "subordinate mode (catching up after a fence)"
-			case clusterMgr.IsFencingInProgress():
-				return false, "fencing in progress"
-			}
-			return true, ""
-		})
-		gitopsHandler.SetOwnershipGuard(func() bool {
-			ok, _ := gitops.IsWriter()
-			return ok
-		})
-	}
 
 	// The drift detector runs inside gitopsHandler (one per daemon). Background
 	// write-back failures are broadcast as "gitops.commit_failed".
@@ -1044,19 +942,13 @@ func main() {
 	groupMgr.StartFailover(5 * time.Second)
 	groupMgr.StartReplication(30 * time.Second)
 	groupMgr.StartActivation(10 * time.Second)
+	handlers.GroupImportGuard = groupMgr.MayImport
 	configstore.EpochForPool = func(pool string) int64 { return groups.EpochForPool(db, pool) }
 	groupsH := handlers.NewGroupsHandler(db, groupMgr)
 	r.Handle("/api/groups", permRoute("storage", "read", http.HandlerFunc(groupsH.List))).Methods("GET")
 	r.Handle("/api/groups", permRoute("storage", "admin", http.HandlerFunc(groupsH.Create))).Methods("POST")
 	r.Handle("/api/groups/{name}/move", permRoute("storage", "admin", http.HandlerFunc(groupsH.Move))).Methods("POST")
 	r.Handle("/api/groups/{name}/address", permRoute("storage", "admin", http.HandlerFunc(groupsH.SetAddress))).Methods("PUT")
-
-	// Phase 3e: moving an HA pair off the shared Patroni database.
-	splitH := handlers.NewHASplitHandler(db, quorumH, groupMgr)
-	splitH.StartWatcher(5 * time.Second)
-	r.Handle("/api/ha/split", permRoute("system", "read", http.HandlerFunc(splitH.Status))).Methods("GET")
-	r.Handle("/api/ha/split", permRoute("system", "admin", http.HandlerFunc(splitH.Start))).Methods("POST")
-	r.Handle("/api/ha/split/cancel", permRoute("system", "admin", http.HandlerFunc(splitH.Cancel))).Methods("POST")
 	r.Handle("/api/groups/{name}", permRoute("storage", "admin", http.HandlerFunc(groupsH.Remove))).Methods("DELETE")
 	r.Handle("/api/groups/{name}/takeover", permRoute("storage", "admin", http.HandlerFunc(groupsH.Takeover))).Methods("POST")
 	r.Handle("/api/groups/{name}/replicate", permRoute("storage", "admin", http.HandlerFunc(groupsH.ReplicateNow))).Methods("POST")
@@ -1064,7 +956,7 @@ func main() {
 	r.HandleFunc("/api/config/sync/peer/zfs-snapshots", groupsH.PeerSnapshots).Methods("GET")
 	r.HandleFunc("/api/config/sync/peer/group-resources", groupsH.PeerResources).Methods("GET")
 	r.HandleFunc("/api/config/sync/peer/zfs-recv", groupsH.PeerRecv).Methods("POST")
-	protectionH := handlers.NewProtectionHandler(db, quorumMon, clusterMgr)
+	protectionH := handlers.NewProtectionHandler(db, quorumMon, haKeeper)
 	r.Handle("/api/ha/protection", permRoute("system", "read", http.HandlerFunc(protectionH.Get))).Methods("GET")
 	r.HandleFunc("/api/config/sync/peer/group", groupsH.PeerGroup).Methods("POST")
 	r.HandleFunc("/api/config/sync/peer/groups", groupsH.PeerGroups).Methods("GET")
@@ -1551,25 +1443,10 @@ func main() {
 	handlers.StartSMARTMonitor()
 
 	// ── High Availability cluster endpoints ──
-	r.Handle("/api/ha/status", permRoute("system", "read", haHandler.GetStatus)).Methods("GET")
-	r.Handle("/api/ha/peers", permRoute("system", "admin", haHandler.RegisterPeer)).Methods("POST")
-	r.Handle("/api/ha/peers/{id}", permRoute("system", "admin", http.HandlerFunc(haHandler.RemovePeer))).Methods("DELETE")
-	r.Handle("/api/ha/peers/{id}/role", permRoute("system", "admin", haHandler.SetPeerRole)).Methods("POST")
-	r.Handle("/api/ha/replication/configure", permRoute("system", "admin", haHandler.ConfigureHAReplication)).Methods("POST")
-	r.Handle("/api/ha/replication/configure", permRoute("system", "admin", haHandler.GetReplicationConfig)).Methods("GET")
 	r.Handle("/api/ha/fencing/configure", middleware.RequireAAL2(permRoute("system", "admin", haHandler.ConfigureFencing))).Methods("POST")
 	r.Handle("/api/ha/fencing/configure", permRoute("system", "admin", haHandler.GetFencingConfig)).Methods("GET")
-	r.Handle("/api/ha/witness/configure", permRoute("system", "admin", haHandler.ConfigureWitness)).Methods("POST")
-	r.Handle("/api/ha/witness/configure", permRoute("system", "admin", haHandler.GetWitnessConfig)).Methods("GET")
-	r.Handle("/api/ha/witness/test", permRoute("system", "admin", haHandler.TestWitness)).Methods("POST")
-	r.Handle("/api/ha/promote", permRoute("system", "admin", haHandler.Promote)).Methods("POST")
-	r.Handle("/api/ha/switchover", middleware.RequireAAL2(permRoute("system", "admin", haHandler.Switchover))).Methods("POST")
-	r.Handle("/api/ha/fence", permRoute("system", "admin", haHandler.TriggerFence)).Methods("POST")
-	r.Handle("/api/ha/maintenance", permRoute("system", "admin", haHandler.RegisterMaintenance)).Methods("POST")
 	r.Handle("/api/ha/pdu/configure", permRoute("system", "admin", haHandler.ConfigurePDU)).Methods("POST")
 	r.Handle("/api/ha/pdu/configure", permRoute("system", "admin", haHandler.GetPDUConfig)).Methods("GET")
-	r.Handle("/api/ha/sbd/configure", permRoute("system", "admin", haHandler.ConfigureSBD)).Methods("POST")
-	r.Handle("/api/ha/sbd/configure", permRoute("system", "admin", haHandler.GetSBDConfig)).Methods("GET")
 
 	// CTDB clustering (SMB HA) configuration and monitoring
 	handlers.InitCTDBSchema(db)
@@ -1578,24 +1455,6 @@ func main() {
 	r.Handle("/api/ha/ctdb/status", permRoute("system", "read", handlers.HandleCTDBStatus(db))).Methods("GET")
 	r.Handle("/api/ha/ctdb/databases", permRoute("system", "read", handlers.HandleCTDBDatabaseStatus(db))).Methods("GET")
 
-	// Network quorum witness: neutral VPS/cloud IP that both nodes probe
-	// to detect network isolation without installing anything on the target
-	nwHandler := handlers.NewNetworkWitnessHandler(db)
-	r.Handle("/api/ha/network-witness", permRoute("system", "read", nwHandler.GetConfig)).Methods("GET")
-	r.Handle("/api/ha/network-witness", middleware.RequireAAL2(permRoute("system", "admin", nwHandler.SaveConfig))).Methods("POST")
-	r.Handle("/api/ha/network-witness/probe", permRoute("system", "admin", nwHandler.Probe)).Methods("POST")
-	r.Handle("/api/ha/clear_fault", permRoute("system", "admin", haHandler.ClearFault)).Methods("POST")
-	r.Handle("/api/ha/alua-standby", permRoute("system", "admin", haHandler.ALUAStandby)).Methods("POST")
-	r.Handle("/api/ha/standby", permRoute("system", "admin", haHandler.BecomeStandby)).Methods("POST")
-	r.Handle("/api/ha/cluster-secret/configure", permRoute("system", "admin", haHandler.GetClusterSecretConfig)).Methods("GET")
-	r.Handle("/api/ha/cluster-secret/configure", permRoute("system", "admin", haHandler.SetClusterSecretConfig)).Methods("POST")
-	// /api/ha/heartbeat and /api/ha/sync/status are deliberately PUBLIC - peer daemons call them without a session
-	r.HandleFunc("/api/ha/heartbeat", haHandler.PeerHeartbeat).Methods("POST")
-	r.HandleFunc("/api/ha/sync/status", haHandler.GetSyncStatus).Methods("GET")
-	r.HandleFunc("/api/ha/local", haHandler.LocalNodeInfo).Methods("GET")
-	r.Handle("/api/ha/toggle", permRoute("system", "admin", haHandler.ToggleHA)).Methods("POST")
-	r.Handle("/api/ha/timing", permRoute("system", "admin", haHandler.GetClusterTiming)).Methods("GET")
-	r.Handle("/api/ha/timing", middleware.RequireAAL2(permRoute("system", "admin", haHandler.SaveClusterTiming))).Methods("POST")
 	r.Handle("/api/ha/watchdog/configure", permRoute("system", "admin", haHandler.GetWatchdogConfig)).Methods("GET")
 	r.Handle("/api/ha/watchdog/configure", middleware.RequireAAL2(permRoute("system", "admin", haHandler.SaveWatchdogConfig))).Methods("POST")
 	r.Handle("/api/ha/hardware/detect", permRoute("system", "read", haHandler.DetectHAHardware)).Methods("GET")
@@ -1612,8 +1471,8 @@ func main() {
 	r.Handle("/api/bmc/power", middleware.RequireAAL2(permRoute("system", "admin", bmcHandler.Power))).Methods("POST")
 	r.Handle("/api/bmc/reset-cert", middleware.RequireAAL2(permRoute("system", "admin", bmcHandler.ResetCert))).Methods("POST")
 
-	// Wire HA manager and BMC DB into the Prometheus exporter
-	handlers.SetPrometheusHAManager(clusterMgr)
+	// Wire cluster, watchdog, storage groups and BMC DB into the Prometheus exporter
+	handlers.SetPrometheusHA(quorumMon, haKeeper, groupMgr)
 	handlers.SetPrometheusBMCDB(db)
 
 	// WebSocket for real-time monitoring
@@ -1864,9 +1723,6 @@ func sessionMiddleware(db *sql.DB, internalCronToken string) mux.MiddlewareFunc 
 				p == "/api/system/health" || // health endpoint must be public for monitoring
 				// File share download links - no session required, token is the auth
 				strings.HasPrefix(p, "/api/s/") ||
-				// HA peer endpoints - called by peer daemons that have no user session
-				p == "/api/ha/heartbeat" ||
-				p == "/api/ha/sync/status" ||
 				// Configuration sync between nodes - peer secret or join token
 				// checked by the handlers (internal/handlers/config_sync.go)
 				strings.HasPrefix(p, "/api/config/sync/peer/") ||
@@ -2096,183 +1952,6 @@ func bootstrapCEToken(db *sql.DB, path string) {
 	}
 }
 
-// stacksOnlyPlan returns a new Plan containing only stack items that are safe
-// to auto-apply after a promotion: Create and Modify actions only. Delete,
-// Blocked, Ambiguous, and Manual items are excluded to prevent automated
-// destructive changes.
-func stacksOnlyPlan(full *gitops.Plan) *gitops.Plan {
-	filtered := &gitops.Plan{}
-	for _, item := range full.Items {
-		if item.Kind != gitops.KindStack {
-			continue
-		}
-		switch item.Action {
-		case gitops.ActionCreate, gitops.ActionModify, gitops.ActionNOP:
-			// safe to auto-apply
-		default:
-			continue
-		}
-		filtered.Items = append(filtered.Items, item)
-		switch item.Action {
-		case gitops.ActionCreate:
-			filtered.CreateCount++
-		case gitops.ActionModify:
-			filtered.ModifyCount++
-		case gitops.ActionNOP:
-			filtered.NopCount++
-		}
-	}
-	filtered.SafeToApply = true
-	return filtered
-}
-
-// checkPromotionStateEpoch compares the local HEAD of the git repo that manages
-// stateYAMLPath against the last_commit recorded by the auto-sync goroutine.
-// A mismatch means the standby's state.yaml may be stale relative to what the
-// primary had synced. The check is advisory: it logs a warning and writes to
-// the audit log but does not halt the promotion.
-func checkPromotionStateEpoch(db *sql.DB, stateYAMLPath string) {
-	stateDir := filepath.Dir(stateYAMLPath)
-	rows, err := db.Query(`SELECT local_path, COALESCE(last_commit,'') FROM git_sync_repos`)
-	if err != nil {
-		return
-	}
-	defer rows.Close()
-	var repoPath, lastSyncedCommit string
-	for rows.Next() {
-		var lp, lc string
-		if rows.Scan(&lp, &lc) != nil {
-			continue
-		}
-		if lp == stateDir || strings.HasPrefix(stateDir+"/", lp+"/") {
-			repoPath = lp
-			lastSyncedCommit = lc
-			break
-		}
-	}
-	if repoPath == "" || lastSyncedCommit == "" {
-		return
-	}
-	out, err := exec.Command("git", "-C", repoPath, "rev-parse", "--short", "HEAD").Output()
-	if err != nil {
-		return
-	}
-	localHead := strings.TrimSpace(string(out))
-	if localHead != "" && localHead != lastSyncedCommit {
-		msg := fmt.Sprintf(
-			"state.yaml may be stale: local HEAD %s differs from last synced commit %s - "+
-				"stacks will be applied from local snapshot; run a manual git sync after promotion to restore current state",
-			localHead, lastSyncedCommit,
-		)
-		log.Printf("HA PROMOTION WARNING: %s", msg)
-		audit.LogCommand(audit.LevelWarn, "ha-promotion", "stale_state_warning",
-			[]string{"local_head=" + localHead, "last_sync_commit=" + lastSyncedCommit, "state_path=" + stateYAMLPath},
-			false, 0, fmt.Errorf("%s", msg))
-	}
-}
-
-// runPostPromotionStacksApply fires after STONITH promotion and re-applies
-// GitOps stack items on the newly-promoted primary. It retries up to 3 times
-// with a 15-second delay to give Patroni/PostgreSQL time to become writable
-// and ZFS datasets time to finish importing.
-func runPostPromotionStacksApply(db *sql.DB, stateYAMLPath, smbConfPath string) {
-	const maxAttempts = 3
-	const retryDelay = 15 * time.Second
-	const lockWaitInterval = 2 * time.Second
-	const lockMaxTries = 5
-
-	log.Printf("HA PROMOTION: starting post-promotion GitOps stacks apply")
-
-	content, err := os.ReadFile(stateYAMLPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			log.Printf("HA PROMOTION: no state file at %s - skipping stacks apply", stateYAMLPath)
-			return
-		}
-		log.Printf("HA PROMOTION: cannot read state file: %v", err)
-		return
-	}
-
-	checkPromotionStateEpoch(db, stateYAMLPath)
-
-	desired, err := gitops.ParseStateYAML(string(content))
-	if err != nil {
-		log.Printf("HA PROMOTION: cannot parse state file: %v", err)
-		return
-	}
-
-	ctx := gitops.ApplyContext{
-		DB:             db,
-		SmbConfPath:    smbConfPath,
-		NFSExportsPath: "/etc/exports",
-	}
-
-	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		// Wait for the reconcile lock; the drift detector or a concurrent apply
-		// may be holding it briefly.
-		locked := false
-		for i := 0; i < lockMaxTries; i++ {
-			if gitops.TryLock() {
-				locked = true
-				break
-			}
-			time.Sleep(lockWaitInterval)
-		}
-		if !locked {
-			log.Printf("HA PROMOTION: reconciliation lock busy after %d tries - drift detector will catch remaining drift", lockMaxTries)
-			return
-		}
-
-		live, err := gitops.ReadLiveState(db)
-		if err != nil {
-			gitops.Unlock()
-			log.Printf("HA PROMOTION: cannot read live state (attempt %d/%d): %v", attempt, maxAttempts, err)
-			if attempt < maxAttempts {
-				time.Sleep(retryDelay)
-			}
-			continue
-		}
-
-		plan := gitops.ComputeDiff(desired, live)
-		stackPlan := stacksOnlyPlan(plan)
-
-		if stackPlan.CreateCount == 0 && stackPlan.ModifyCount == 0 {
-			gitops.Unlock()
-			log.Printf("HA PROMOTION: all stacks already running on promoted node - no apply needed")
-			return
-		}
-
-		result, applyErr := gitops.ApplyPlan(ctx, stackPlan, desired)
-		gitops.Unlock()
-
-		if applyErr != nil {
-			if result != nil && result.HaltReason == "data-not-ready" {
-				if attempt < maxAttempts {
-					log.Printf("HA PROMOTION: ZFS datasets not yet mounted (attempt %d/%d), retrying in %v", attempt, maxAttempts, retryDelay)
-					time.Sleep(retryDelay)
-					continue
-				}
-				log.Printf("HA PROMOTION: datasets still not ready after %d attempts - apply manually via POST /api/gitops/apply", maxAttempts)
-				return
-			}
-			if attempt < maxAttempts {
-				log.Printf("HA PROMOTION: stacks apply failed (attempt %d/%d): %v - retrying in %v", attempt, maxAttempts, applyErr, retryDelay)
-				time.Sleep(retryDelay)
-				continue
-			}
-			log.Printf("HA PROMOTION: stacks apply failed after %d attempts: %v - apply manually via POST /api/gitops/apply", maxAttempts, applyErr)
-			return
-		}
-
-		log.Printf("HA PROMOTION: stacks apply complete - %d items applied", len(result.Applied))
-		return
-	}
-}
-
-// isInternalCronHook reports whether r is a timer hook call: a cron-hook path,
-// a local caller and the per-boot token. Timers reach the daemon over its Unix
-// socket (curl --unix-socket), where RemoteAddr is "@" or empty, not a
-// loopback address; socket access is limited by its permissions (0660).
 func isInternalCronHook(r *http.Request, token string) bool {
 	switch r.URL.Path {
 	case "/api/zfs/snapshots/cron-hook", "/api/hardware/smart/cron-hook", "/api/backup/rsync/cron-hook":
