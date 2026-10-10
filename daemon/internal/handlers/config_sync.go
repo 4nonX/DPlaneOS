@@ -172,6 +172,21 @@ func (h *ConfigSyncHandler) peer(w http.ResponseWriter, r *http.Request) *config
 	return p
 }
 
+// PeerSecret: GET /api/config/sync/peer/secret?kind=&key= - the secret
+// material of a resource, encrypted for the asking peer (only paired peers).
+func (h *ConfigSyncHandler) PeerSecret(w http.ResponseWriter, r *http.Request) {
+	p := h.peer(w, r)
+	if p == nil {
+		return
+	}
+	m, err := configstore.ServeMaterial(h.db, p, r.URL.Query().Get("kind"), r.URL.Query().Get("key"))
+	if err != nil {
+		respondErrorSimple(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	respondOK(w, map[string]any{"success": true, "material": m})
+}
+
 // PeerRevisions: GET /api/config/sync/peer/revisions?since=&limit=
 // A paired peer, or a joining node with a valid join token (merge preview).
 func (h *ConfigSyncHandler) PeerRevisions(w http.ResponseWriter, r *http.Request) {

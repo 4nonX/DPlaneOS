@@ -903,6 +903,7 @@ func main() {
 	// Peer endpoints are PUBLIC in the session middleware: other nodes call
 	// them without a session; the handlers check the peer secret or join token.
 	r.HandleFunc("/api/config/sync/peer/revisions", configSync.PeerRevisions).Methods("GET")
+	r.HandleFunc("/api/config/sync/peer/secret", configSync.PeerSecret).Methods("GET")
 	r.HandleFunc("/api/config/sync/peer/join", configSync.PeerJoin).Methods("POST")
 	r.HandleFunc("/api/config/sync/peer/notify", configSync.PeerNotify).Methods("POST")
 	r.HandleFunc("/api/config/sync/peer/leave", configSync.PeerLeave).Methods("POST")

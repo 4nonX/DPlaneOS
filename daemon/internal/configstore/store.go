@@ -390,7 +390,9 @@ func captureLocked(db *sql.DB, origin, author, note string) (string, error) {
 	if len(latest) == 0 {
 		origin, note = OriginBaseline, "configuration when history recording started"
 	}
-	changes := changesAgainst(Extract(liveToDesired(live), nodeName()), latest, importedPools(live))
+	current := Extract(liveToDesired(live), nodeName())
+	secretFingerprints(db, current)
+	changes := changesAgainst(current, latest, importedPools(live))
 	return record(db, changes, latest, origin, author, note)
 }
 

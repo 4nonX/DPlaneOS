@@ -199,6 +199,9 @@ func Extract(ds *gitops.DesiredState, nodeID string) []Resource {
 	return out
 }
 
+// isFingerprint reports whether a secret field holds a fingerprint.
+func isFingerprint(s string) bool { return strings.HasPrefix(s, "sha256:") }
+
 // fingerprint replaces a secret with a stable digest so history and diffs
 // show that it changed without ever storing it.
 func fingerprint(secret string) string {
@@ -276,18 +279,29 @@ func Assemble(resources []Resource) (*gitops.DesiredState, error) {
 		case KindLDAP:
 			var v gitops.DesiredLDAP
 			if err = fromMap(r.Payload, &v); err == nil {
-				v.BindPassword = ""
+				if isFingerprint(v.BindPassword) {
+					v.BindPassword = ""
+				}
 				ds.LDAP = &v
 			}
 		case KindACME:
 			var v gitops.DesiredACME
 			if err = fromMap(r.Payload, &v); err == nil {
-				v.DNSConfig = nil
+				for _, val := range v.DNSConfig {
+					if isFingerprint(val) {
+						v.DNSConfig = nil // fingerprints only: the credentials are not here
+						break
+					}
+				}
 				ds.ACME = &v
 			}
 		case KindCertificate:
-			// Private keys are not stored; a certificate without its key cannot
-			// be applied, so it is not exported.
+			// Private keys are not stored in revisions; a certificate is
+			// assembled only when its key was filled in (from the other node).
+			var v gitops.DesiredCertificate
+			if err = fromMap(r.Payload, &v); err == nil && v.Key != "" && !isFingerprint(v.Key) {
+				ds.Certificates = append(ds.Certificates, v)
+			}
 		case KindSMART:
 			var v gitops.DesiredSMARTTask
 			if err = fromMap(r.Payload, &v); err == nil {

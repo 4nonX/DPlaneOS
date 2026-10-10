@@ -41,7 +41,7 @@ import (
 var SyncKinds = map[string]bool{
 	KindDataset: true, KindShare: true, KindNFS: true,
 	KindUser: true, KindGroup: true, KindReplication: true,
-	KindSettings: true,
+	KindSettings: true, KindLDAP: true, KindACME: true, KindCertificate: true,
 }
 
 func syncKindList() []string {
@@ -441,11 +441,15 @@ func (s *Syncer) evaluate(p Peer) error {
 				continue
 			}
 			detail := ""
-			if r.Kind == KindUser && r.Payload != nil && !liveHasUser(live, r.Key) {
-				detail = "created without a password: passwords are not synchronised; set one on this node"
-			}
-			if _, err := applyOne(s.ctx, r.resource(), live); err != nil {
-				s.setPeerStatus(r.UID, peerBlocked, err.Error())
+			if err := s.applyRemote(p, r.resource(), live); err != nil {
+				switch {
+				case errors.Is(err, ErrSecretChanged):
+					s.setPeerStatus(r.UID, peerWaiting, "the secret changed again on "+p.Name+"; waiting for its newer revision")
+				case errors.Is(err, errMaterialUnavailable):
+					s.setPeerStatus(r.UID, peerWaiting, "waiting for the secret from "+p.Name+": "+err.Error())
+				default:
+					s.setPeerStatus(r.UID, peerBlocked, err.Error())
+				}
 				continue
 			}
 			if err := adopt(s.db, r, local); err != nil {
@@ -1151,7 +1155,11 @@ func (s *Syncer) Resolve(id int64, choice string, edited map[string]any, author 
 		if target.Scope == ScopeGroup && target.ScopeID != "" && !importedPools(live)[target.ScopeID] {
 			return fmt.Errorf("pool %s is not imported on this node", target.ScopeID)
 		}
-		if _, err := applyOne(s.ctx, target, live); err != nil {
+		peer := Peer{ID: peerID, Name: peerName}
+		if ps, err := loadPeers(s.db, peerID); err == nil && len(ps) > 0 {
+			peer = ps[0]
+		}
+		if err := s.applyRemote(peer, target, live); err != nil {
 			return err
 		}
 	}

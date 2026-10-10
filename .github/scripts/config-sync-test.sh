@@ -28,8 +28,10 @@ for n in a b; do
 done
 
 start_node() { # name port dsn
+  # Each node has its own secrets key, as on real nodes: secret material
+  # must travel between them, never the key.
   sudo ./dplaned-ci --listen "127.0.0.1:$2" --db-dsn "$3" --gitops-state "/tmp/$1-state.yaml" \
-    --smb-conf "/tmp/$1-smb.conf" > "/tmp/dplaned-$1.log" 2>&1 &
+    --smb-conf "/tmp/$1-smb.conf" -secrets-key "/tmp/$1-secrets.key" > "/tmp/dplaned-$1.log" 2>&1 &
   echo $!
 }
 PID_A=$(start_node a 9000 "$DSN_A")
@@ -161,6 +163,30 @@ api a GET /api/config/conflicts >/dev/null
 check "The conflict is closed on A too" '[ -z "$(jq_ "next((c[\"id\"] for c in d[\"conflicts\"] if c[\"key\"]==\"common\"), \"\")")" ]'
 api b GET /api/config/history?kind=share\&key=common >/dev/null
 check "B's history records the merge" '[ "$(jq_ "d[\"revisions\"][0][\"origin\"]")" = merge ]'
+echo "::endgroup::"
+
+echo "::group::Secrets (each node has its own secrets key)"
+NEW_PASS="CiAdmin2!Rotated"
+api a POST /api/auth/change-password "{\"current_password\":\"$CI_PASS\",\"new_password\":\"$NEW_PASS\"}" >/dev/null
+check "A: admin password changed" '[ "$(jq_ "d.get(\"success\")")" = True ]'
+CI_PASS="$NEW_PASS"; login a 9000
+api a POST /api/ldap/config '{"enabled":0,"server":"ldap.example.org","port":389,"use_tls":0,"bind_dn":"cn=reader,dc=example,dc=org","bind_password":"Bind-Secret-42","base_dn":"dc=example,dc=org"}' >/dev/null
+check "A: LDAP settings with a bind password saved" '[ "$(jq_ "d.get(\"success\")")" = True ]'
+capture a
+for _ in 1 2 3; do sync_now b; sleep 1; done
+resp=$(curl -s --max-time 15 -X POST "http://127.0.0.1:9001/api/auth/login" -H "Content-Type: application/json" \
+  -d "{\"username\":\"admin\",\"password\":\"$NEW_PASS\"}")
+check "B accepts the password set on A" 'echo "$resp" | grep -q session_id'
+login b 9001
+# shellcheck disable=SC2034 # used inside check's eval
+seal_a=$(psql -h localhost -U dplaneos -d dplaneos -tAc "SELECT bind_password FROM ldap_config WHERE id=1")
+seal_b=$(psql -h localhost -U dplaneos -d dplaneos_b -tAc "SELECT bind_password FROM ldap_config WHERE id=1")
+check "B stores the LDAP bind password sealed under its own key" '[ -n "$seal_b" ] && [ "$seal_b" != "$seal_a" ] && [ "$seal_b" != "Bind-Secret-42" ]'
+capture b
+api a GET "/api/config/history?kind=ldap&key=ldap" >/dev/null; fp_a=$(jq_ "d['revisions'][0]['payload'].get('bind_password','')")
+api b GET "/api/config/history?kind=ldap&key=ldap" >/dev/null; fp_b=$(jq_ "d['revisions'][0]['payload'].get('bind_password','')")
+check "B opens it: the plaintext fingerprint matches A's ($fp_a)" '[ -n "$fp_a" ] && [ "$fp_a" = "$fp_b" ]'
+check "No secret in the revision log" '! psql -h localhost -U dplaneos -d dplaneos_b -tAc "SELECT payload::text FROM config_revisions" | grep -q -e Bind-Secret-42 -e "\$2[aby]\$"'
 echo "::endgroup::"
 
 echo "::group::Detach"
