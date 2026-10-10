@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"regexp"
 	"database/sql"
 	"dplaned/internal/gitops"
 	"dplaned/internal/middleware"
@@ -117,6 +118,21 @@ type userActionRequest struct {
 	ConfirmPassword string `json:"confirm_password"` // Required for sensitive ops (#17)
 }
 
+// userRoles are the values of users.role (permissions themselves come from
+// the RBAC roles in user_roles).
+var userRoles = map[string]int{"admin": 100, "user": 10}
+
+var groupNameRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_.-]{0,31}$`)
+
+// mayManage reports whether requester may change target: admins manage
+// everyone; others only accounts of a lower rank (and never admins).
+func mayManage(requesterRole, targetRole string) bool {
+	if requesterRole == "admin" {
+		return true
+	}
+	return targetRole != "admin" && userRoles[requesterRole] > userRoles[targetRole]
+}
+
 func (h *UserGroupHandler) userAction(w http.ResponseWriter, r *http.Request) {
 	var req userActionRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -142,8 +158,12 @@ func (h *UserGroupHandler) userAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 2. Role Hierarchy Table
-	roleRank := map[string]int{"admin": 100, "user": 10, "": 0}
+	if req.Role != "" {
+		if _, ok := userRoles[req.Role]; !ok {
+			respondErrorSimple(w, "Unknown role "+req.Role+" (use admin or user)", http.StatusBadRequest)
+			return
+		}
+	}
 	
 	// 3. Sensitive Action Authorization
 	// Sensitive if updating role, password, active status, OR deleting
@@ -160,8 +180,18 @@ func (h *UserGroupHandler) userAction(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// B. Hierarchy Enforcement
-		if req.Action != "create" {
+		// B. Hierarchy Enforcement. Creating counts too: a non-admin may not
+		// create an account of equal or higher rank (e.g. a new admin).
+		if req.Action == "create" {
+			newRole := req.Role
+			if newRole == "" {
+				newRole = "user"
+			}
+			if !mayManage(reqRole, newRole) {
+				respondErrorSimple(w, fmt.Sprintf("Higher privileges required to create %s accounts", newRole), http.StatusForbidden)
+				return
+			}
+		} else {
 			var targetRole string
 			var targetID int
 			if err := h.db.QueryRow(`SELECT id, role FROM users WHERE id = $1`, req.ID).Scan(&targetID, &targetRole); err != nil {
@@ -171,16 +201,19 @@ func (h *UserGroupHandler) userAction(w http.ResponseWriter, r *http.Request) {
 
 			// Editing someone else?
 			if targetID != int(requester.ID) {
-				// 1. HARD RULE: Only admins can manage other admin accounts
 				if targetRole == "admin" && reqRole != "admin" {
 					respondErrorSimple(w, "Only admins can manage other admin accounts", http.StatusForbidden)
 					return
 				}
-				// 2. HIERARCHY: Non-admins cannot manage accounts of equal or higher rank
-				if reqRole != "admin" && roleRank[reqRole] <= roleRank[targetRole] {
+				if !mayManage(reqRole, targetRole) {
 					respondErrorSimple(w, fmt.Sprintf("Higher privileges required to manage %s accounts", targetRole), http.StatusForbidden)
 					return
 				}
+			}
+			// Nobody raises their own rank.
+			if targetID == int(requester.ID) && req.Role != "" && reqRole != "admin" && userRoles[req.Role] > userRoles[reqRole] {
+				respondErrorSimple(w, "You cannot raise your own role", http.StatusForbidden)
+				return
 			}
 		}
 	}
@@ -455,10 +488,26 @@ func (h *UserGroupHandler) ResetUserPassword(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	var username, source string
-	err = h.db.QueryRow(`SELECT username, COALESCE(source,'local') FROM users WHERE id = $1`, id).Scan(&username, &source)
+	var username, source, targetRole string
+	err = h.db.QueryRow(`SELECT username, COALESCE(source,'local'), COALESCE(role,'user') FROM users WHERE id = $1`, id).Scan(&username, &source, &targetRole)
 	if err != nil {
 		respondErrorSimple(w, "User not found", http.StatusNotFound)
+		return
+	}
+	// Resetting someone's password is taking over their account: the same
+	// hierarchy as for other changes applies.
+	u := r.Context().Value(middleware.UserContextKey)
+	if u == nil {
+		respondErrorSimple(w, "Unauthorized (No user context)", http.StatusUnauthorized)
+		return
+	}
+	var reqRole string
+	if err := h.db.QueryRow(`SELECT COALESCE(role,'user') FROM users WHERE username = $1`, u.(*middleware.User).Username).Scan(&reqRole); err != nil {
+		respondErrorSimple(w, "Error verifying requester", http.StatusInternalServerError)
+		return
+	}
+	if !mayManage(reqRole, targetRole) {
+		respondErrorSimple(w, fmt.Sprintf("Higher privileges required to reset the password of %s accounts", targetRole), http.StatusForbidden)
 		return
 	}
 
@@ -646,8 +695,8 @@ func (h *UserGroupHandler) groupAction(w http.ResponseWriter, r *http.Request) {
 
 	switch req.Action {
 	case "create":
-		if req.Name == "" {
-			respondErrorSimple(w, "Group name required", http.StatusBadRequest)
+		if !groupNameRe.MatchString(req.Name) {
+			respondErrorSimple(w, "Invalid group name (letters, digits, _ . -; up to 32, not starting with a digit or -)", http.StatusBadRequest)
 			return
 		}
 		var id int64
@@ -672,6 +721,10 @@ func (h *UserGroupHandler) groupAction(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if req.Name != "" {
+			if !groupNameRe.MatchString(req.Name) {
+				respondErrorSimple(w, "Invalid group name", http.StatusBadRequest)
+				return
+			}
 			_, err := h.db.Exec(`UPDATE groups SET name = $1 WHERE id = $2`, req.Name, req.ID)
 			if err != nil {
 				respondErrorSimple(w, "Failed to update group name (may already exist)", http.StatusConflict)
