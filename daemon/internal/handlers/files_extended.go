@@ -54,7 +54,11 @@ func (h *FilesExtendedHandler) ListFiles(w http.ResponseWriter, r *http.Request)
 	if path == "" {
 		path = "/mnt"
 	}
-	path = filepath.Clean(path)
+	path, err := resolveExisting(path)
+	if err != nil {
+		respondJSON(w, http.StatusForbidden, FileListResponse{Success: false, Error: "Path not allowed (pool and media mounts only)"})
+		return
+	}
 
 	entries, err := os.ReadDir(path)
 	if err != nil {
@@ -101,8 +105,12 @@ func (h *FilesExtendedHandler) GetFileProperties(w http.ResponseWriter, r *http.
 		respondErrorSimple(w, "path parameter required", http.StatusBadRequest)
 		return
 	}
-	path = filepath.Clean(path)
-	info, err := os.Stat(path)
+	path, err := resolveEntry(path)
+	if err != nil {
+		respondJSON(w, http.StatusForbidden, map[string]any{"success": false, "error": "Path not allowed"})
+		return
+	}
+	info, err := os.Lstat(path)
 	if err != nil {
 		respondJSON(w, http.StatusOK, map[string]any{"success": false, "error": err.Error()})
 		return
@@ -126,8 +134,8 @@ func (h *FilesExtendedHandler) ReadFile(w http.ResponseWriter, r *http.Request) 
 		respondErrorSimple(w, "path parameter required", http.StatusBadRequest)
 		return
 	}
-	safePath, ok := validateFilePath(filepath.Clean(path))
-	if !ok {
+	safePath, err := resolveExisting(path)
+	if err != nil {
 		respondJSON(w, http.StatusForbidden, map[string]any{"success": false, "error": "Path not allowed"})
 		return
 	}
@@ -177,18 +185,25 @@ func (h *FilesExtendedHandler) WriteFile(w http.ResponseWriter, r *http.Request)
 		respondErrorSimple(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
-	safePath, ok := validateFilePath(filepath.Clean(req.Path))
-	if !ok {
+	safePath, err := resolveEntry(req.Path)
+	if err != nil {
 		respondJSON(w, http.StatusForbidden, map[string]any{"success": false, "error": "Path not allowed"})
 		return
 	}
 	perm := os.FileMode(0644)
 	if req.Mode != "" {
-		if v, err := strconv.ParseUint(req.Mode, 8, 32); err == nil {
-			perm = os.FileMode(v)
+		m, err := parseFileMode(req.Mode)
+		if err != nil {
+			respondErrorSimple(w, err.Error(), http.StatusBadRequest)
+			return
 		}
+		perm = m
 	}
-	if err := os.WriteFile(safePath, []byte(req.Content), perm); err != nil {
+	if fi, err := os.Lstat(safePath); err == nil && (fi.Mode()&os.ModeSymlink != 0 || fi.IsDir()) {
+		respondJSON(w, http.StatusOK, map[string]any{"success": false, "error": "Path is a symbolic link or a directory"})
+		return
+	}
+	if err := writeFileNoFollow(safePath, []byte(req.Content), perm); err != nil {
 		respondJSON(w, http.StatusOK, map[string]any{"success": false, "error": err.Error()})
 		return
 	}
@@ -208,8 +223,8 @@ func (h *FilesExtendedHandler) DownloadFile(w http.ResponseWriter, r *http.Reque
 		respondErrorSimple(w, "path required", http.StatusBadRequest)
 		return
 	}
-	safePath, ok := validateFilePath(filepath.Clean(path))
-	if !ok {
+	safePath, err := resolveExisting(path)
+	if err != nil {
 		respondErrorSimple(w, "Path not allowed", http.StatusForbidden)
 		return
 	}
@@ -255,8 +270,8 @@ func (h *FilesExtendedHandler) RenameFile(w http.ResponseWriter, r *http.Request
 		respondErrorSimple(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
-	oldPath, ok := validateFilePath(filepath.Clean(req.OldPath))
-	if !ok {
+	oldPath, err := resolveEntry(req.OldPath)
+	if err != nil {
 		respondJSON(w, http.StatusForbidden, map[string]any{"success": false, "error": "Path not allowed"})
 		return
 	}
@@ -289,9 +304,9 @@ func (h *FilesExtendedHandler) CopyFile(w http.ResponseWriter, r *http.Request) 
 		respondErrorSimple(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
-	src, ok1 := validateFilePath(filepath.Clean(req.Source))
-	dst, ok2 := validateFilePath(filepath.Clean(req.Destination))
-	if !ok1 || !ok2 {
+	src, err1 := resolveExisting(req.Source)
+	dst, err2 := resolveDestination(req.Destination)
+	if err1 != nil || err2 != nil {
 		respondJSON(w, http.StatusForbidden, map[string]any{"success": false, "error": "Path not allowed"})
 		return
 	}
@@ -319,9 +334,9 @@ func (h *FilesExtendedHandler) MoveFile(w http.ResponseWriter, r *http.Request) 
 		respondErrorSimple(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
-	src, ok1 := validateFilePath(filepath.Clean(req.Source))
-	dst, ok2 := validateFilePath(filepath.Clean(req.Destination))
-	if !ok1 || !ok2 {
+	src, err1 := resolveEntry(req.Source)
+	dst, err2 := resolveDestination(req.Destination)
+	if err1 != nil || err2 != nil {
 		respondJSON(w, http.StatusForbidden, map[string]any{"success": false, "error": "Path not allowed"})
 		return
 	}
@@ -366,12 +381,16 @@ func (h *FilesExtendedHandler) UploadChunk(w http.ResponseWriter, r *http.Reques
 	}
 	filename = filepath.Base(filename) // no path separators
 
-	destDir, ok := validateFilePath(destDir)
-	if !ok {
+	destDir, err = resolveExisting(destDir)
+	if err != nil || filename == "." || filename == ".." || filename == string(filepath.Separator) {
 		respondJSON(w, http.StatusForbidden, map[string]any{"success": false, "error": "Path not allowed"})
 		return
 	}
 	targetPath := filepath.Join(destDir, filename)
+	if fi, err := os.Lstat(targetPath); err == nil && fi.Mode()&os.ModeSymlink != 0 {
+		respondJSON(w, http.StatusOK, map[string]any{"success": false, "error": "Target is a symbolic link"})
+		return
+	}
 
 	chunkStr := r.FormValue("chunk")
 	totalStr := r.FormValue("totalChunks")
@@ -382,7 +401,7 @@ func (h *FilesExtendedHandler) UploadChunk(w http.ResponseWriter, r *http.Reques
 		if idx == 0 {
 			flag = os.O_CREATE | os.O_WRONLY | os.O_TRUNC
 		}
-		f, err := os.OpenFile(targetPath, flag, 0644)
+		f, err := openNoFollow(targetPath, flag, 0644)
 		if err != nil {
 			respondJSON(w, http.StatusOK, map[string]any{"success": false, "error": err.Error()})
 			return
@@ -397,7 +416,7 @@ func (h *FilesExtendedHandler) UploadChunk(w http.ResponseWriter, r *http.Reques
 	}
 
 	// Non-chunked
-	f, err := os.Create(targetPath)
+	f, err := openNoFollow(targetPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
 	if err != nil {
 		respondJSON(w, http.StatusOK, map[string]any{"success": false, "error": err.Error()})
 		return

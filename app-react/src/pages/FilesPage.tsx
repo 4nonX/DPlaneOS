@@ -345,7 +345,7 @@ function UploadPanel({ currentPath, onDone }: { currentPath: string; onDone: () 
       const fd = new FormData()
       fd.append('file', chunk, file.name)
       fd.append('filename', file.name)
-      fd.append('path', `${currentPath.replace(/\/$/, '')}/${file.name}`)
+      fd.append('path', currentPath) // the destination directory; the API appends the filename
       fd.append('fileSize', String(file.size))
       fd.append('chunk', String(i))
       fd.append('totalChunks', String(totalChunks))
@@ -459,12 +459,11 @@ function TrashTab() {
 // Quick-access bookmarks
 // ---------------------------------------------------------------------------
 
+// The file manager works on pool and removable-media mounts only (system
+// directories are off limits; stacks and app icons have their own editors).
 const BOOKMARKS = [
-  { label: 'mnt',         path: '/mnt',                      icon: 'storage' },
-  { label: 'home',        path: '/home',                     icon: 'home' },
-  { label: 'stacks',      path: '/var/lib/dplaneos/stacks',  icon: 'deployed_code' },
-  { label: 'custom icons',path: '/var/lib/dplaneos/custom_icons', icon: 'image' },
-  { label: 'tmp',         path: '/tmp',                      icon: 'folder_special' },
+  { label: 'mnt',   path: '/mnt',   icon: 'storage' },
+  { label: 'media', path: '/media', icon: 'usb' },
 ]
 
 // ---------------------------------------------------------------------------

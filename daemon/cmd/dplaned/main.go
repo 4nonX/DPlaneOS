@@ -702,6 +702,7 @@ func main() {
 	// catch-all, because gorilla/mux matches in registration order and PathPrefix
 	// would otherwise intercept /api/assets/custom-icons/list.
 	r.Handle("/api/assets/custom-icons/list", permRoute("docker", "read", handlers.HandleCustomIconList)).Methods("GET")
+	r.Handle("/api/assets/custom-icons", permRoute("docker", "write", http.HandlerFunc(handlers.HandleCustomIconUpload))).Methods("POST")
 	r.PathPrefix("/api/assets/custom-icons/").Handler(permRoute("docker", "read", handlers.HandleCustomIconFile)).Methods("GET")
 	r.Handle("/api/docker/action", permRoute("docker", "write", dockerHandler.ContainerAction)).Methods("POST")
 	r.Handle("/api/docker/logs", permRoute("docker", "read", dockerHandler.ContainerLogs)).Methods("GET")

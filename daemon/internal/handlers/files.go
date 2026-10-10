@@ -8,50 +8,20 @@ import (
 
 	"dplaned/internal/audit"
 	"dplaned/internal/cmdutil"
-	"dplaned/internal/config"
 	"dplaned/internal/middleware"
 	"dplaned/internal/security"
 	"dplaned/internal/zfs"
 )
 
-// allowedBasePaths defines the directories file operations are restricted to.
-// ZFS pools are typically mounted at /mnt/<pool> or directly at /<pool>.
-// We allow /mnt/, /home/, /tmp/, /var/lib/dplaneos/, and /tank/ as common
-// pool mount points. Users with pools at other paths can navigate to them
-// via the path bar but write operations will be blocked - edit this list
-// or the daemon flag to extend access.
-var allowedBasePaths = []string{
-	"/mnt/",
-	"/home/",
-	"/tmp/",
-	config.DBDir + "/",
-	"/tank/",  // common direct ZFS pool mount
-	"/data/",  // common alternative pool name
-	"/media/", // common removable media mount
-}
-
-// validateFilePath sanitizes and validates a file path to prevent traversal attacks
-func validateFilePath(path string) (string, bool) {
-	if path == "" {
-		return "", false
+// allowedBasePaths: the file roots as path prefixes (pool-root checks below).
+// Path checks themselves: files_paths.go.
+var allowedBasePaths = func() []string {
+	out := make([]string, len(fileRoots))
+	for i, r := range fileRoots {
+		out[i] = r + "/"
 	}
-	cleaned := filepath.Clean(path)
-	// Block directory traversal
-	if strings.Contains(cleaned, "..") {
-		return "", false
-	}
-	// Must be absolute
-	if !filepath.IsAbs(cleaned) {
-		return "", false
-	}
-	// Must be under an allowed base path
-	for _, base := range allowedBasePaths {
-		if strings.HasPrefix(cleaned, base) {
-			return cleaned, true
-		}
-	}
-	return "", false
-}
+	return out
+}()
 
 // CreateDirectory creates a directory
 func CreateDirectory(w http.ResponseWriter, r *http.Request) {
@@ -72,8 +42,8 @@ func CreateDirectory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	safePath, ok := validateFilePath(req.Path)
-	if !ok {
+	safePath, err := resolveEntry(req.Path)
+	if err != nil {
 		respondJSON(w, http.StatusForbidden, map[string]any{"success": false, "error": "Path not allowed"})
 		return
 	}
@@ -116,8 +86,8 @@ func DeletePath(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	safePath, ok := validateFilePath(req.Path)
-	if !ok {
+	safePath, err := resolveEntry(req.Path)
+	if err != nil {
 		respondJSON(w, http.StatusForbidden, map[string]any{"success": false, "error": "Path not allowed"})
 		return
 	}
@@ -169,8 +139,8 @@ func ChangeOwnership(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	safePath, ok := validateFilePath(req.Path)
-	if !ok {
+	safePath, err := resolveExisting(req.Path)
+	if err != nil {
 		respondJSON(w, http.StatusForbidden, map[string]any{"success": false, "error": "Path not allowed"})
 		return
 	}
@@ -230,12 +200,16 @@ func ChangePermissions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	safePath, ok := validateFilePath(req.Path)
-	if !ok {
+	safePath, err := resolveExisting(req.Path)
+	if err != nil {
 		respondJSON(w, http.StatusForbidden, map[string]any{"success": false, "error": "Path not allowed"})
 		return
 	}
 	req.Path = safePath
+	if _, err := parseFileMode(req.Mode); err != nil {
+		respondErrorSimple(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 
 	output, err := cmdutil.RunFast("chmod", req.Mode, req.Path)
 

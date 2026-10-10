@@ -19,6 +19,7 @@
  *   POST /api/docker/update              → safe update (pull + restart)
  */
 
+import { CustomIconsButton } from '@/components/docker/CustomIconsButton'
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { itemOpacity } from '@/lib/listFilter'
@@ -990,7 +991,7 @@ function ContainerTable({ containers, onRefresh, topBorder = true, filter = '' }
                 <Tooltip content={
                     'Custom icon: add a dplaneos.icon label in docker-compose.yaml\n' +
                     '  dplaneos.icon: jellyfin        → Material Symbol name\n' +
-                    '  dplaneos.icon: mylogo.svg       → file in /var/lib/dplaneos/custom_icons/\n' +
+                    '  dplaneos.icon: mylogo.svg       → uploaded under App icons\n' +
                     '  dplaneos.icon: https://…/logo.png → remote URL'
                   }>
                   <span style={{ cursor: 'help', color: 'var(--text-tertiary)', display: 'inline-flex' }}>
@@ -2689,9 +2690,12 @@ export function DockerPage() {
 
   return (
     <div style={{ maxWidth: 1200 }}>
-      <div className="page-header">
-        <h1 className="page-title">Docker</h1>
-        <p className="page-subtitle">Containers · Images · Compose Stacks · GPU</p>
+      <div className="page-header" style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
+        <div>
+          <h1 className="page-title">Docker</h1>
+          <p className="page-subtitle">Containers · Images · Compose Stacks · GPU</p>
+        </div>
+        <CustomIconsButton />
       </div>
 
       {/* Tabs */}

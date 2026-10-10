@@ -18,6 +18,8 @@ package handlers
 //   3. Generic fallback: "deployed_code"
 
 import (
+	"regexp"
+	"io"
 	"encoding/json"
 	"mime"
 	"net/http"
@@ -86,6 +88,10 @@ func HandleCustomIconFile(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", ct)
 	w.Header().Set("Cache-Control", "public, max-age=3600")
+	// An uploaded SVG opened directly must not run scripts in the app's
+	// origin: no scripts, sandboxed, and no content sniffing.
+	w.Header().Set("Content-Security-Policy", "default-src 'none'; img-src data:; style-src 'unsafe-inline'; sandbox")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.WriteHeader(http.StatusOK)
 	w.Write(data) //nolint:errcheck
 }
@@ -120,6 +126,47 @@ func HandleCustomIconList(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{"success": true, "icons": names})
+}
+
+var customIconNameRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}\.(svg|png|webp)$`)
+
+// HandleCustomIconUpload stores an icon for the dplaneos.icon label.
+// POST /api/assets/custom-icons (multipart: file; optional name)
+func HandleCustomIconUpload(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 2<<20)
+	if err := r.ParseMultipartForm(1 << 20); err != nil {
+		respondErrorSimple(w, "Upload too large (max 1 MB) or not multipart", http.StatusBadRequest)
+		return
+	}
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		respondErrorSimple(w, "file is required", http.StatusBadRequest)
+		return
+	}
+	defer file.Close()
+	name := r.FormValue("name")
+	if name == "" {
+		name = header.Filename
+	}
+	name = strings.ToLower(filepath.Base(name))
+	if !customIconNameRe.MatchString(name) {
+		respondErrorSimple(w, "Icon name: letters, digits, . _ -, ending in .svg, .png or .webp", http.StatusBadRequest)
+		return
+	}
+	data, err := io.ReadAll(io.LimitReader(file, 1<<20+1))
+	if err != nil || len(data) > 1<<20 {
+		respondErrorSimple(w, "Icon too large (max 1 MB)", http.StatusBadRequest)
+		return
+	}
+	if err := os.MkdirAll(customIconsDir, 0755); err != nil {
+		respondErrorSimple(w, "Cannot create icons directory", http.StatusInternalServerError)
+		return
+	}
+	if err := writeFileNoFollow(filepath.Join(customIconsDir, name), data, 0644); err != nil {
+		respondErrorSimple(w, "Cannot store icon: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	respondOK(w, map[string]any{"success": true, "name": name})
 }
 
 // HandleDockerIconMap returns the built-in image-name → Material Symbol mapping.
