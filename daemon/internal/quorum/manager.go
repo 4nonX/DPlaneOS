@@ -121,14 +121,32 @@ func apply(prev *Config, cfg Config, authkey []byte) error {
 		return fmt.Errorf("writing corosync.conf: %w", err)
 	}
 	twoNode := func(c *Config) bool { return c != nil && c.QDevice == nil && len(c.Nodes) == 2 }
-	restart := prev == nil || twoNode(prev) != twoNode(&cfg) || !bytes.Equal(oldKey, authkey) || !unitActive(unitCorosync)
+	// Removing members restarts corosync: a reload is cluster-wide and can
+	// hang while the removed member still runs with the old member list.
+	removed := false
+	if prev != nil {
+		keep := map[int]bool{}
+		for _, n := range cfg.Nodes {
+			keep[n.ID] = true
+		}
+		for _, n := range prev.Nodes {
+			if !keep[n.ID] {
+				removed = true
+			}
+		}
+	}
+	restart := prev == nil || removed || twoNode(prev) != twoNode(&cfg) || !bytes.Equal(oldKey, authkey) || !unitActive(unitCorosync)
+	if !restart {
+		if out, err := cmdutil.RunFast("corosync_cfgtool_reload", "-R"); err != nil {
+			log.Printf("QUORUM: reloading corosync failed (%v: %s); restarting it instead", err, bytes.TrimSpace(out))
+			restart = true
+		}
+	}
 	if restart {
 		markReconfiguring()
 		if err := systemctl("restart", unitCorosync); err != nil {
 			return err
 		}
-	} else if out, err := cmdutil.RunFast("corosync_cfgtool_reload", "-R"); err != nil {
-		return fmt.Errorf("reloading corosync: %v: %s", err, bytes.TrimSpace(out))
 	}
 	if cfg.QDevice != nil {
 		if err := writeAtomic(qdeviceFlag(), []byte("1\n"), 0o644); err != nil {
