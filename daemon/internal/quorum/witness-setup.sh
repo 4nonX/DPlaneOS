@@ -192,7 +192,11 @@ EOF
     systemctl daemon-reload
     systemctl enable corosync >/dev/null 2>&1 || true
     systemctl restart corosync || die "corosync did not start (journalctl -u corosync)"
-    systemctl enable --now dplaneos-voter-sync.timer >/dev/null
+    if [ "$UNITS" = /run/systemd/system ]; then
+        systemctl enable --runtime --now dplaneos-voter-sync.timer >/dev/null
+    else
+        systemctl enable --now dplaneos-voter-sync.timer >/dev/null
+    fi
 
     say "Done. This machine is now a voter of cluster $CLUSTER."
     echo "    The cluster shows it under System > High Availability within a few seconds."
