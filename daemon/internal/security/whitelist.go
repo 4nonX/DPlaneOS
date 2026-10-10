@@ -204,7 +204,7 @@ var CommandWhitelist = map[string]Command{
 	"zpool_status": {
 		Name:        "zpool_status",
 		Path:        "zpool",
-		AllowedArgs: []string{"status", "-P"},
+		AllowedArgs: []string{"status", "-P", "-x"},
 		ArgPatterns: []*regexp.Regexp{regexp.MustCompile(`^[a-zA-Z0-9_\-]+$`)}, // pool name
 		Description: "Get pool status",
 	},

@@ -4,8 +4,10 @@ package monitoring
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"log"
+	"os"
 	"sync"
 	"time"
 
@@ -19,10 +21,10 @@ import (
 type HealthStatus string
 
 const (
-	HealthOK        HealthStatus = "ok"
-	HealthDegraded  HealthStatus = "degraded"
+	HealthOK          HealthStatus = "ok"
+	HealthDegraded    HealthStatus = "degraded"
 	HealthUnavailable HealthStatus = "unavailable"
-	HealthUnknown   HealthStatus = "unknown"
+	HealthUnknown     HealthStatus = "unknown"
 )
 
 // SubsystemHealth represents health of a single subsystem.
@@ -36,10 +38,10 @@ type SubsystemHealth struct {
 
 // SystemHealth aggregates all subsystem health.
 type SystemHealth struct {
-	Overall    HealthStatus                    `json:"overall"`
-	Subsystems map[string]SubsystemHealth     `json:"subsystems"`
-	CheckedAt  time.Time                      `json:"checked_at"`
-	Timestamp  time.Time                      `json:"timestamp"`
+	Overall    HealthStatus               `json:"overall"`
+	Subsystems map[string]SubsystemHealth `json:"subsystems"`
+	CheckedAt  time.Time                  `json:"checked_at"`
+	Timestamp  time.Time                  `json:"timestamp"`
 }
 
 // Checker performs health checks across all subsystems.
@@ -52,6 +54,7 @@ type Checker struct {
 	hwProfile       *hardware.Profile
 	featureManager  *features.Manager
 	enabledChecks   map[string]bool
+	db              *sql.DB
 	checks          map[string]func(context.Context) SubsystemHealth
 	log             func(string, ...interface{})
 }
@@ -76,6 +79,13 @@ func NewChecker(
 			log.Printf("[HEALTH-CHECK] "+msg, args...)
 		},
 	}
+}
+
+// SetDB gives the PostgreSQL check its connection.
+func (c *Checker) SetDB(db *sql.DB) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.db = db
 }
 
 // RegisterCheck registers a health check for a subsystem.
@@ -187,29 +197,9 @@ func (c *Checker) InitializeDefaultChecks() {
 	// Phase 2: Circuit breakers
 	c.RegisterCheck("external_services", c.checkCircuitBreakers)
 
-	// Hardware-aware checks. Without a profile, assume no optional hardware.
-	hw := c.hwProfile
-	if hw == nil {
-		hw = &hardware.Profile{BMCType: "none"}
-	}
-	if hw.BMCType != "none" {
-		c.RegisterCheck("bmc", c.checkBMC)
-	} else {
-		c.DisableCheck("bmc")
-	}
-
-	if hw.Capabilities["ses_enclosure"] {
-		c.RegisterCheck("enclosure", c.checkEnclosure)
-	} else {
-		c.RegisterCheck("storage_monitoring", c.checkStorageMonitoring) // Fallback to S.M.A.R.T
-	}
-
-	if hw.BondingSupport {
+	// Network bonds, where the kernel has any.
+	if _, err := os.Stat("/proc/net/bonding"); err == nil {
 		c.RegisterCheck("bonding", c.checkBonding)
-	}
-
-	if hw.VLANSupport {
-		c.RegisterCheck("vlan", c.checkVLAN)
 	}
 
 	// Always-enabled checks
@@ -299,87 +289,6 @@ func (c *Checker) checkCircuitBreakers(ctx context.Context) SubsystemHealth {
 	}
 
 	return sh
-}
-
-func (c *Checker) checkBMC(ctx context.Context) SubsystemHealth {
-	// TODO: Implement BMC health check (IPMI ping, sensor read)
-	return SubsystemHealth{
-		Name:      "bmc",
-		Status:    HealthUnknown,
-		CheckedAt: time.Now(),
-	}
-}
-
-func (c *Checker) checkEnclosure(ctx context.Context) SubsystemHealth {
-	// TODO: Implement SES enclosure health check
-	return SubsystemHealth{
-		Name:      "enclosure",
-		Status:    HealthUnknown,
-		CheckedAt: time.Now(),
-	}
-}
-
-func (c *Checker) checkStorageMonitoring(ctx context.Context) SubsystemHealth {
-	// Fallback S.M.A.R.T monitoring when SES unavailable
-	return SubsystemHealth{
-		Name:      "storage_monitoring",
-		Status:    HealthUnknown,
-		CheckedAt: time.Now(),
-	}
-}
-
-func (c *Checker) checkBonding(ctx context.Context) SubsystemHealth {
-	// TODO: Check bond status
-	return SubsystemHealth{
-		Name:      "bonding",
-		Status:    HealthUnknown,
-		CheckedAt: time.Now(),
-	}
-}
-
-func (c *Checker) checkVLAN(ctx context.Context) SubsystemHealth {
-	// TODO: Check VLAN configuration
-	return SubsystemHealth{
-		Name:      "vlan",
-		Status:    HealthUnknown,
-		CheckedAt: time.Now(),
-	}
-}
-
-func (c *Checker) checkZFS(ctx context.Context) SubsystemHealth {
-	// TODO: Check ZFS pool status via `zpool status -x`
-	return SubsystemHealth{
-		Name:      "zfs",
-		Status:    HealthUnknown,
-		CheckedAt: time.Now(),
-	}
-}
-
-func (c *Checker) checkDocker(ctx context.Context) SubsystemHealth {
-	// TODO: Check Docker daemon responsiveness
-	return SubsystemHealth{
-		Name:      "docker",
-		Status:    HealthUnknown,
-		CheckedAt: time.Now(),
-	}
-}
-
-func (c *Checker) checkPostgres(ctx context.Context) SubsystemHealth {
-	// TODO: Check PostgreSQL connection pool + replication lag if HA
-	return SubsystemHealth{
-		Name:      "postgres",
-		Status:    HealthUnknown,
-		CheckedAt: time.Now(),
-	}
-}
-
-func (c *Checker) checkNetwork(ctx context.Context) SubsystemHealth {
-	// TODO: Check network interfaces + routing
-	return SubsystemHealth{
-		Name:      "network",
-		Status:    HealthUnknown,
-		CheckedAt: time.Now(),
-	}
 }
 
 // aggregateStatus determines overall health from subsystems.

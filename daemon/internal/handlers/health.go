@@ -27,21 +27,16 @@ func (h *HealthHandler) SystemHealthHandler(w http.ResponseWriter, r *http.Reque
 
 	health := h.checker.GetLastHealth()
 
+	// The report itself always answers 200 (the state is in the body, the
+	// web interface reads it); /api/health/live and /ready are the probes
+	// whose status code follows the health.
 	w.Header().Set("Content-Type", "application/json")
-
-	// Set HTTP status based on overall health
-	switch health.Overall {
-	case monitoring.HealthOK:
-		w.WriteHeader(http.StatusOK)
-	case monitoring.HealthDegraded:
-		w.WriteHeader(http.StatusOK) // 200 but with degraded flag in body
-	case monitoring.HealthUnavailable:
-		w.WriteHeader(http.StatusServiceUnavailable) // 503
-	default:
-		w.WriteHeader(http.StatusInternalServerError) // 500 for unknown
-	}
-
-	json.NewEncoder(w).Encode(health)
+	json.NewEncoder(w).Encode(map[string]any{
+		"success":    true,
+		"overall":    health.Overall,
+		"subsystems": health.Subsystems,
+		"checked_at": health.CheckedAt,
+	})
 }
 
 // SubsystemHealthHandler returns GET /api/health/:subsystem for specific subsystem.

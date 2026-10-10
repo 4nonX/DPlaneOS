@@ -1141,6 +1141,15 @@ func main() {
 	r.Handle("/api/system/settings", permRoute("system", "read", systemStatusHandler.HandleSettings)).Methods("GET")
 	r.Handle("/api/system/settings", permRoute("system", "write", systemStatusHandler.HandleSettings)).Methods("POST")
 
+	// Subsystem health (ZFS, Docker, PostgreSQL, network, resources, ...).
+	if phases != nil && phases.HealthChecker != nil {
+		healthH := handlers.NewHealthHandler(phases.HealthChecker)
+		r.Handle("/api/health", permRoute("system", "read", http.HandlerFunc(healthH.SystemHealthHandler))).Methods("GET")
+		r.Handle("/api/health/subsystem", permRoute("system", "read", http.HandlerFunc(healthH.SubsystemHealthHandler))).Methods("GET")
+		r.Handle("/api/health/live", permRoute("system", "read", http.HandlerFunc(healthH.LivenessProbe))).Methods("GET")
+		r.Handle("/api/health/ready", permRoute("system", "read", http.HandlerFunc(healthH.ReadinessProbe))).Methods("GET")
+	}
+
 	// Optional feature flags (Settings → Features). Stored states load first;
 	// built-ins fill in the rest as disabled.
 	var featureMgr *features.Manager

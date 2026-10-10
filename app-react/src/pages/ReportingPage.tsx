@@ -357,8 +357,23 @@ function HistoryChart({ label, color, dataPoints, period, extractFn }: {
 // Health panel
 // ---------------------------------------------------------------------------
 
-function HealthPanel({ health }: { health: SystemHealth }) {
-  const ok = !health.filesystem_ro && health.ntp_synced
+// GET /api/health: the daemon's subsystem checks (every few seconds).
+interface SubsystemHealth { name: string; status: 'ok' | 'degraded' | 'unavailable' | 'unknown'; reason?: string }
+interface SubsystemsResponse { success: boolean; overall: string; subsystems: Record<string, SubsystemHealth> }
+
+const SUBSYSTEM_META: Record<string, { label: string; icon: string }> = {
+  zfs:               { label: 'ZFS pools',  icon: 'storage' },
+  docker:            { label: 'Docker',     icon: 'deployed_code' },
+  postgres:          { label: 'Database',   icon: 'database' },
+  network:           { label: 'Network',    icon: 'lan' },
+  bonding:           { label: 'Bonds',      icon: 'link' },
+  resources:         { label: 'Resources',  icon: 'memory' },
+  external_services: { label: 'Services',   icon: 'hub' },
+}
+
+function HealthPanel({ health, subsystems }: { health: SystemHealth; subsystems?: Record<string, SubsystemHealth> }) {
+  const subs = Object.values(subsystems ?? {}).sort((a, b) => a.name.localeCompare(b.name))
+  const ok = !health.filesystem_ro && health.ntp_synced && subs.every(x => x.status === 'ok' || x.status === 'unknown')
 
   return (
     <div style={{
@@ -385,6 +400,15 @@ function HealthPanel({ health }: { health: SystemHealth }) {
           ok={health.ntp_synced}
           value={health.ntp_synced ? 'Clock synchronised' : 'Clock not synchronised'}
         />
+        {subs.map(x => (
+          <HealthRow
+            key={x.name}
+            label={SUBSYSTEM_META[x.name]?.label ?? x.name}
+            icon={SUBSYSTEM_META[x.name]?.icon ?? 'monitor_heart'}
+            ok={x.status === 'ok'}
+            value={x.reason || (x.status === 'ok' ? 'OK' : x.status)}
+          />
+        ))}
       </div>
     </div>
   )
@@ -431,6 +455,12 @@ export function ReportingPage() {
     queryKey: ['system', 'health'],
     queryFn: ({ signal }) => api.get<SystemHealth>('/api/system/health', signal),
     refetchInterval: 120_000,
+  })
+
+  const subsystemsQ = useQuery({
+    queryKey: ['system', 'subsystems'],
+    queryFn: ({ signal }) => api.get<SubsystemsResponse>('/api/health', signal),
+    refetchInterval: 15_000,
   })
 
   const history = historyQ.data?.history ?? []
@@ -523,7 +553,7 @@ export function ReportingPage() {
       {/* System health */}
       {healthQ.isLoading && <Skeleton height={160} borderRadius="var(--radius-xl)" />}
       {healthQ.isError && <ErrorState error={healthQ.error} onRetry={() => healthQ.refetch()} />}
-      {healthQ.data && <HealthPanel health={healthQ.data} />}
+      {healthQ.data && <HealthPanel health={healthQ.data} subsystems={subsystemsQ.data?.subsystems} />}
     </div>
   )
 }

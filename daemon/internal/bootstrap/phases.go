@@ -85,7 +85,7 @@ func InitializeAllPhases(ctx context.Context, db *sql.DB, repoPath string) (*All
 	phases.StateMachine = stateMachine
 
 	log.Println("[BOOTSTRAP] Initializing Phase 3.3: Health Checks")
-	healthChecker, err := initPhase3_3(watcher, circuitPool)
+	healthChecker, err := initPhase3_3(db, watcher, circuitPool)
 	if err != nil {
 		return nil, fmt.Errorf("phase 3.3 init failed: %w", err)
 	}
@@ -174,11 +174,9 @@ func initPhase3_1(db *sql.DB) (*gitops.StateMachine, error) {
 }
 
 // initPhase3_3 initializes health check aggregation.
-func initPhase3_3(watcher *resource.Watcher, circuitPool *resilience.Pool) (*monitoring.Checker, error) {
-
-	// Note: In production, would type-assert hwProfile and pass to NewChecker
-	// For now, create checker without profile dependency
+func initPhase3_3(db *sql.DB, watcher *resource.Watcher, circuitPool *resilience.Pool) (*monitoring.Checker, error) {
 	checker := monitoring.NewChecker(watcher, circuitPool, nil, nil)
+	checker.SetDB(db)
 	checker.InitializeDefaultChecks()
 	return checker, nil
 }
