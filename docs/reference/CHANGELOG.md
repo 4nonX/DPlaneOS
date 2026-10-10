@@ -37,6 +37,11 @@ PostgreSQL schema and a command fake in CI).
   throttling.
 - Malformed token allowlists are refused instead of treated as
   unrestricted.
+- SSH keys: a key label with a line break added arbitrary
+  authorized_keys entries; key lines were not really parsed (options,
+  extra lines, bad key data); and a user could point ~/.ssh at another
+  account's directory to have the daemon (root) write that account's
+  authorized_keys. The file is now written without following symlinks.
 
 ### Fixed
 

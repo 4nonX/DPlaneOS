@@ -2,14 +2,16 @@ package handlers
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"golang.org/x/crypto/ssh"
 	"log"
 	"net/http"
 	"os"
 	"os/user"
-	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -66,8 +68,15 @@ type SSHManagedKey struct {
 
 // parseSSHPublicKey extracts the key type, base64 blob, and comment from a
 // public key line. Returns an error if the format is not a valid SSH public key.
+//
+// The line is written into authorized_keys as is, so it must be exactly one
+// key: one line, no options (command=, from=, ...), a key blob that really
+// decodes to a key of the stated type.
 func parseSSHPublicKey(raw string) (keyType, blob, comment string, err error) {
 	raw = strings.TrimSpace(raw)
+	if strings.ContainsAny(raw, "\r\n\x00") {
+		return "", "", "", fmt.Errorf("public key must be a single line")
+	}
 	parts := strings.Fields(raw)
 	if len(parts) < 2 {
 		return "", "", "", fmt.Errorf("public key must have at least two fields (type and key data)")
@@ -76,6 +85,16 @@ func parseSSHPublicKey(raw string) (keyType, blob, comment string, err error) {
 	if !validSSHKeyTypes[keyType] {
 		return "", "", "", fmt.Errorf("unsupported key type %q; accepted: rsa, ed25519, ecdsa", keyType)
 	}
+	pk, _, options, _, perr := ssh.ParseAuthorizedKey([]byte(raw))
+	if perr != nil {
+		return "", "", "", fmt.Errorf("key data does not decode: %v", perr)
+	}
+	if len(options) > 0 {
+		return "", "", "", fmt.Errorf("key options are not accepted")
+	}
+	if pk.Type() != keyType {
+		return "", "", "", fmt.Errorf("key data is a %s key, not %s", pk.Type(), keyType)
+	}
 	blob = parts[1]
 	if len(parts) >= 3 {
 		comment = strings.Join(parts[2:], " ")
@@ -83,35 +102,45 @@ func parseSSHPublicKey(raw string) (keyType, blob, comment string, err error) {
 	return keyType, blob, comment, nil
 }
 
+// sanitizeKeyLabel makes a label safe for a "# label" comment line: no line
+// breaks (a newline would start a new authorized_keys entry) or controls.
+func sanitizeKeyLabel(label string) string {
+	label = strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f {
+			return ' '
+		}
+		return r
+	}, label)
+	if len(label) > 128 {
+		label = label[:128]
+	}
+	return strings.TrimSpace(label)
+}
+
+// sshLookupUser resolves a system user (a variable so tests can use a
+// temporary home directory).
+var sshLookupUser = user.Lookup
+
 // userHomeDir returns the home directory for a system user.
 func userHomeDir(username string) (string, error) {
-	u, err := user.Lookup(username)
+	u, err := sshLookupUser(username)
 	if err != nil {
 		return "", fmt.Errorf("user %q not found: %w", username, err)
 	}
 	return u.HomeDir, nil
 }
 
-// authorizedKeysPath returns the path to the user's authorized_keys file.
-func authorizedKeysPath(username string) (string, error) {
-	home, err := userHomeDir(username)
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(home, ".ssh", "authorized_keys"), nil
-}
-
 // writeAuthorizedKeys regenerates the authorized_keys file for a user
 // from the current state of the managed store. Creates ~/.ssh/ if needed.
 func writeAuthorizedKeys(username string, keys []SSHManagedKey) error {
-	home, err := userHomeDir(username)
+	u, err := sshLookupUser(username)
 	if err != nil {
-		return err
+		return fmt.Errorf("user %q not found: %w", username, err)
 	}
-
-	sshDir := filepath.Join(home, ".ssh")
-	if err := os.MkdirAll(sshDir, 0700); err != nil {
-		return fmt.Errorf("create .ssh dir: %w", err)
+	uid, err1 := strconv.Atoi(u.Uid)
+	gid, err2 := strconv.Atoi(u.Gid)
+	if err1 != nil || err2 != nil {
+		return fmt.Errorf("user %q has no numeric uid/gid", username)
 	}
 
 	var sb strings.Builder
@@ -120,38 +149,37 @@ func writeAuthorizedKeys(username string, keys []SSHManagedKey) error {
 		if k.Username != username {
 			continue
 		}
-		if k.Label != "" {
-			fmt.Fprintf(&sb, "# %s\n", k.Label)
+		// Stored keys predate the stricter parser: re-check every line.
+		if _, _, _, err := parseSSHPublicKey(k.PublicKey); err != nil {
+			log.Printf("ssh_keys: skipping invalid stored key %s for %s: %v", k.ID, username, err)
+			continue
+		}
+		if label := sanitizeKeyLabel(k.Label); label != "" {
+			fmt.Fprintf(&sb, "# %s\n", label)
 		}
 		sb.WriteString(k.PublicKey + "\n")
 	}
 
-	akPath := filepath.Join(sshDir, "authorized_keys")
-	if err := os.WriteFile(akPath, []byte(sb.String()), 0600); err != nil {
-		return fmt.Errorf("write authorized_keys: %w", err)
-	}
-
-	// Ensure correct ownership - the daemon runs as root so this is safe
-	if _, err := cmdutil.RunFast("chown", "-R", username+":"+username, sshDir); err != nil {
-		log.Printf("ssh_keys: chown %s: %v", sshDir, err)
-	}
-
-	return nil
+	// Written as root into a directory the user controls: no symlinks are
+	// followed, the file is replaced atomically and owned by the user.
+	return writeUserSSHFile(u.HomeDir, uid, gid, "authorized_keys", []byte(sb.String()))
 }
 
 // importExistingKeys reads a user's current authorized_keys file (if any)
 // and appends any keys not already in our store. Returns the updated store.
 func importExistingKeys(username string, existing []SSHManagedKey) []SSHManagedKey {
-	akPath, err := authorizedKeysPath(username)
+	home, err := userHomeDir(username)
 	if err != nil {
 		return existing
 	}
-
-	f, err := os.Open(akPath)
+	data, err := readUserSSHFile(home, "authorized_keys")
 	if err != nil {
+		log.Printf("ssh_keys: not importing keys of %s: %v", username, err)
+		return existing
+	}
+	if len(data) == 0 {
 		return existing // file doesn't exist yet - nothing to import
 	}
-	defer f.Close()
 
 	// Build a set of blobs already in the store for this user
 	known := make(map[string]bool)
@@ -164,7 +192,7 @@ func importExistingKeys(username string, existing []SSHManagedKey) []SSHManagedK
 		}
 	}
 
-	scanner := bufio.NewScanner(f)
+	scanner := bufio.NewScanner(bytes.NewReader(data))
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" || strings.HasPrefix(line, "#") {
@@ -336,9 +364,9 @@ func AddSSHKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	label := req.Label
+	label := sanitizeKeyLabel(req.Label)
 	if label == "" {
-		label = comment
+		label = sanitizeKeyLabel(comment)
 	}
 
 	key := SSHManagedKey{
