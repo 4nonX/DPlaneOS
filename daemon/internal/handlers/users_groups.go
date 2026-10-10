@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"dplaned/internal/gitops"
 	"dplaned/internal/middleware"
+	"dplaned/internal/security"
 	"dplaned/internal/scram"
 	"encoding/json"
 	"fmt"
@@ -120,7 +121,8 @@ type userActionRequest struct {
 
 // userRoles are the values of users.role (permissions themselves come from
 // the RBAC roles in user_roles).
-var userRoles = map[string]int{"admin": 100, "user": 10, "readonly": 5}
+// Each is also the built-in RBAC role the account gets (readonly = viewer).
+var userRoles = map[string]int{"admin": 100, "operator": 50, "user": 10, "viewer": 5, "readonly": 5}
 
 var groupNameRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_.-]{0,31}$`)
 
@@ -160,7 +162,7 @@ func (h *UserGroupHandler) userAction(w http.ResponseWriter, r *http.Request) {
 
 	if req.Role != "" {
 		if _, ok := userRoles[req.Role]; !ok {
-			respondErrorSimple(w, "Unknown role "+req.Role+" (use admin, user or readonly)", http.StatusBadRequest)
+			respondErrorSimple(w, "Unknown role "+req.Role+" (use admin, operator, user or viewer)", http.StatusBadRequest)
 			return
 		}
 	}
@@ -287,6 +289,12 @@ func (h *UserGroupHandler) createUser(w http.ResponseWriter, req userActionReque
 		log.Printf("USER CREATE ERROR: %v", err)
 		return
 	}
+	// The permissions come from the RBAC role of the same name.
+	if err := security.SetPrimaryRole(int(id), "", role); err != nil {
+		h.db.Exec(`DELETE FROM users WHERE id = $1`, id) //nolint:errcheck
+		respondErrorSimple(w, "Failed to assign the role: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
 
 	respondJSON(w, http.StatusOK, map[string]any{
 		"success": true,
@@ -314,10 +322,16 @@ func (h *UserGroupHandler) updateUser(w http.ResponseWriter, req userActionReque
 		}
 	}
 	if req.Role != "" {
+		var oldRole string
+		_ = h.db.QueryRow(`SELECT COALESCE(role, '') FROM users WHERE id = $1`, req.ID).Scan(&oldRole)
 		_, err := h.db.Exec(`UPDATE users SET role = $1 WHERE id = $2`, req.Role, req.ID)
 		if err != nil {
 			respondErrorSimple(w, "Failed to update role", http.StatusInternalServerError)
 			log.Printf("USER UPDATE ROLE ERROR: %v", err)
+			return
+		}
+		if err := security.SetPrimaryRole(req.ID, oldRole, req.Role); err != nil {
+			respondErrorSimple(w, "Failed to assign the role: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
 	}

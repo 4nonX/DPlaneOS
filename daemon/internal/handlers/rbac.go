@@ -1,6 +1,8 @@
 package handlers
 
 import (
+	"strings"
+	"regexp"
 	"encoding/json"
 	"net/http"
 	"strconv"
@@ -17,16 +19,20 @@ import (
 // ============================================================================
 
 // ListRoles returns all roles
+var roleNameRe = regexp.MustCompile(`^[a-z][a-z0-9_-]{1,31}$`)
+
 func HandleListRoles(w http.ResponseWriter, r *http.Request) {
-	roles, err := security.GetAllRoles()
+	// Permissions as "resource:action" strings, as the Users page edits them.
+	roles, err := security.ListRoleSummaries()
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, "Failed to fetch roles", err)
 		return
 	}
 
 	respondJSON(w, http.StatusOK, map[string]any{
-		"roles": roles,
-		"count": len(roles),
+		"success": true,
+		"roles":   roles,
+		"count":   len(roles),
 	})
 }
 
@@ -50,9 +56,10 @@ func HandleGetRole(w http.ResponseWriter, r *http.Request) {
 // CreateRole creates a new custom role
 func HandleCreateRole(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Name        string `json:"name"`
-		DisplayName string `json:"display_name"`
-		Description string `json:"description"`
+		Name        string   `json:"name"`
+		DisplayName string   `json:"display_name"`
+		Description string   `json:"description"`
+		Permissions []string `json:"permissions"` // "resource:action"
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -60,19 +67,32 @@ func HandleCreateRole(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Validate required fields
-	if req.Name == "" || req.DisplayName == "" {
-		respondError(w, http.StatusBadRequest, "Name and display_name are required", nil)
+	if !roleNameRe.MatchString(req.Name) {
+		respondErrorSimple(w, "Invalid role name (lower case letters, digits, - and _; 2-32)", http.StatusBadRequest)
 		return
+	}
+	if req.DisplayName == "" {
+		req.DisplayName = req.Name
 	}
 
 	role, err := security.CreateRole(req.Name, req.DisplayName, req.Description)
 	if err != nil {
+		if strings.Contains(err.Error(), "duplicate") || strings.Contains(err.Error(), "unique") {
+			respondErrorSimple(w, "A role named "+req.Name+" already exists", http.StatusConflict)
+			return
+		}
 		respondError(w, http.StatusInternalServerError, "Failed to create role", err)
 		return
 	}
+	if len(req.Permissions) > 0 {
+		if err := security.SetRolePermissions(role.ID, req.Permissions); err != nil {
+			_ = security.DeleteRole(role.ID)
+			respondErrorSimple(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+	}
 
-	respondJSON(w, http.StatusCreated, role)
+	respondJSON(w, http.StatusCreated, map[string]any{"success": true, "role": role})
 }
 
 // UpdateRole updates an existing role
@@ -84,8 +104,9 @@ func HandleUpdateRole(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		DisplayName string `json:"display_name"`
-		Description string `json:"description"`
+		DisplayName string    `json:"display_name"`
+		Description *string   `json:"description"`
+		Permissions *[]string `json:"permissions"` // replaces the role's permissions
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -93,9 +114,31 @@ func HandleUpdateRole(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := security.UpdateRole(roleID, req.DisplayName, req.Description); err != nil {
-		respondError(w, http.StatusInternalServerError, "Failed to update role", err)
+	current, err := security.GetRoleByID(roleID)
+	if err != nil {
+		respondError(w, http.StatusNotFound, "Role not found", err)
 		return
+	}
+	// Built-in roles keep their name and description; their permissions
+	// (except admin's) can be adjusted.
+	if !current.IsSystem && (req.DisplayName != "" || req.Description != nil) {
+		dn, desc := current.DisplayName, current.Description
+		if req.DisplayName != "" {
+			dn = req.DisplayName
+		}
+		if req.Description != nil {
+			desc = *req.Description
+		}
+		if err := security.UpdateRole(roleID, dn, desc); err != nil {
+			respondError(w, http.StatusInternalServerError, "Failed to update role", err)
+			return
+		}
+	}
+	if req.Permissions != nil {
+		if err := security.SetRolePermissions(roleID, *req.Permissions); err != nil {
+			respondErrorSimple(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 	}
 
 	role, err := security.GetRoleByID(roleID)

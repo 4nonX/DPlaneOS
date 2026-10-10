@@ -1,6 +1,7 @@
 package security
 
 import (
+	"strconv"
 	"database/sql"
 	"fmt"
 	"sync"
@@ -452,30 +453,43 @@ func GetAllPermissions() ([]Permission, error) {
 
 // AssignPermissionToRole assigns a permission to a role
 func AssignPermissionToRole(roleID, permissionID int) error {
+	var name string
+	if err := db.QueryRow(`SELECT name FROM roles WHERE id = $1`, roleID).Scan(&name); err != nil {
+		return err
+	}
+	if name == "admin" {
+		return fmt.Errorf("the admin role always has every permission")
+	}
 	query := `
 		INSERT INTO role_permissions (role_id, permission_id)
 		VALUES ($1, $2)
 		ON CONFLICT DO NOTHING
 	`
-	_, err := db.Exec(query, roleID, permissionID)
-	return err
+	if _, err := db.Exec(query, roleID, permissionID); err != nil {
+		return err
+	}
+	permCache.InvalidateAll()
+	return nil
 }
 
 // RemovePermissionFromRole removes a permission from a role
 func RemovePermissionFromRole(roleID, permissionID int) error {
-	// Prevent modifying system roles
-	var isSystem bool
-	err := db.QueryRow("SELECT is_system FROM roles WHERE id = $1", roleID).Scan(&isSystem)
-	if err != nil {
+	// The admin role keeps every permission; the other built-in roles are
+	// adjustable like custom ones.
+	var name string
+	if err := db.QueryRow("SELECT name FROM roles WHERE id = $1", roleID).Scan(&name); err != nil {
 		return err
 	}
-	if isSystem {
-		return fmt.Errorf("cannot modify system role permissions")
+	if name == "admin" {
+		return fmt.Errorf("the admin role always has every permission")
 	}
 
 	query := "DELETE FROM role_permissions WHERE role_id = $1 AND permission_id = $2"
-	_, err = db.Exec(query, roleID, permissionID)
-	return err
+	if _, err := db.Exec(query, roleID, permissionID); err != nil {
+		return err
+	}
+	permCache.InvalidateAll()
+	return nil
 }
 
 // ============================================================================
@@ -491,8 +505,13 @@ func AssignRoleToUser(userID, roleID int, grantedBy *int, expiresAt *string) err
 			granted_by = EXCLUDED.granted_by,
 			expires_at = EXCLUDED.expires_at
 	`
+	// granted_by is a TEXT column (who granted it: a user id, "system", ...).
+	by := "system"
+	if grantedBy != nil {
+		by = strconv.Itoa(*grantedBy)
+	}
 
-	_, err := db.Exec(query, userID, roleID, grantedBy, expiresAt)
+	_, err := db.Exec(query, userID, roleID, by, expiresAt)
 	if err != nil {
 		return err
 	}

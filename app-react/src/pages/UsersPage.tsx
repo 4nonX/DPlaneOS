@@ -55,7 +55,14 @@ interface Role {
   name:        string
   description?: string
   permissions?: string[]
+  is_system?:  boolean
+  user_count?: number
 }
+
+interface PermissionDef { id: number; resource: string; action: string; display_name: string; category: string }
+
+// The role chosen for an account is also its built-in RBAC role.
+const ACCOUNT_ROLES = ['admin', 'operator', 'user', 'viewer'] as const
 
 interface UsersResponse  { success: boolean; users:  User[]  }
 interface GroupsResponse { success: boolean; groups: Group[] }
@@ -96,7 +103,7 @@ function RoleBadge({ role }: { role: string }) {
 function UserModal({ user, onClose, onDone }: { user?: User; onClose: () => void; onDone: () => void }) {
   const [username, setUsername] = useState(user?.username ?? '')
   const [email, setEmail] = useState(user?.email ?? '')
-  const [role, setRole] = useState(user?.role ?? 'user')
+  const [role, setRole] = useState(user?.role === 'readonly' ? 'viewer' : (user?.role ?? 'user'))
   const [password, setPassword] = useState('')
   const [confirmPw, setConfirmPw] = useState('')
 
@@ -141,7 +148,7 @@ function UserModal({ user, onClose, onDone }: { user?: User; onClose: () => void
         <span className="field-label">Role</span>
         <select value={role} onChange={e => setRole(e.target.value)}
           className="input" style={{ appearance: 'none' }}>
-          {['admin', 'user', 'readonly'].map(r => <option key={r} value={r}>{r}</option>)}
+          {ACCOUNT_ROLES.map(r => <option key={r} value={r}>{r}</option>)}
         </select>
       </label>
       <label className="field">
@@ -267,6 +274,7 @@ function UsersTab() {
   const [editUser, setEditUser] = useState<User | null>(null)
   const [resetUser, setResetUser] = useState<User | null>(null)
   const [deletingUser, setDeletingUser] = useState<User | null>(null)
+  const [rolesUser, setRolesUser] = useState<User | null>(null)
 
   const usersQ = useQuery({
     queryKey: ['rbac', 'users'],
@@ -331,6 +339,7 @@ function UsersTab() {
                   <td>
                     <div style={{ display: 'flex', gap: 6 }}>
                       <button onClick={() => setEditUser(u)} className="btn btn-ghost" title="Edit user"><Icon name="edit" size={14} /></button>
+                      <button onClick={() => setRolesUser(u)} className="btn btn-ghost" title="Roles"><Icon name="shield" size={14} /></button>
                       <button onClick={() => setResetUser(u)} className="btn btn-ghost" title="Reset password" style={{ color: 'var(--warning, #f59e0b)' }}><Icon name="lock_reset" size={14} /></button>
                       <button onClick={() => setDeletingUser(u)} className="btn btn-danger" title="Delete user"><Icon name="delete" size={14} /></button>
                     </div>
@@ -348,6 +357,7 @@ function UsersTab() {
       {showCreate && <UserModal onClose={() => setShowCreate(false)} onDone={refresh} />}
       {editUser   && <UserModal user={editUser} onClose={() => setEditUser(null)} onDone={refresh} />}
       {resetUser  && <ResetPasswordModal user={resetUser} onClose={() => setResetUser(null)} />}
+      {rolesUser  && <UserRolesModal user={rolesUser} onClose={() => setRolesUser(null)} />}
       {deletingUser && (
         <PasswordPromptModal
           title={`Delete "${deletingUser.username}"?`}
@@ -487,18 +497,27 @@ function GroupsTab() {
 function RoleModal({ role, onClose, onDone }: { role?: Role; onClose: () => void; onDone: () => void }) {
   const [name, setName] = useState(role?.name ?? '')
   const [description, setDescription] = useState(role?.description ?? '')
-  const [perms, setPerms] = useState((role?.permissions ?? []).join(', '))
-  
+  const [perms, setPerms] = useState<Set<string>>(new Set(role?.permissions ?? []))
   const isEdit = !!role
+  const isAdmin = role?.name === 'admin'
+
+  const permsQ = useQuery({
+    queryKey: ['rbac', 'permissions'],
+    queryFn: ({ signal }) => api.get<{ permissions: PermissionDef[] }>('/api/rbac/permissions', signal),
+  })
+  const byCategory = new Map<string, PermissionDef[]>()
+  for (const p of permsQ.data?.permissions ?? []) {
+    byCategory.set(p.category, [...(byCategory.get(p.category) ?? []), p])
+  }
+
+  function toggle(key: string) {
+    setPerms(prev => { const n = new Set(prev); if (n.has(key)) n.delete(key); else n.add(key); return n })
+  }
 
   const mutation = useMutation({
     mutationFn: () => {
-      const body = { 
-        name, 
-        description, 
-        permissions: perms.split(',').map(p => p.trim()).filter(Boolean) 
-      }
-      return isEdit 
+      const body = { name, description, permissions: [...perms] }
+      return isEdit
         ? api.put(`/api/rbac/roles/${role.id}`, body)
         : api.post('/api/rbac/roles', body)
     },
@@ -507,27 +526,88 @@ function RoleModal({ role, onClose, onDone }: { role?: Role; onClose: () => void
   })
 
   return (
-    <Modal title={isEdit ? `Edit Role: ${role!.name}` : 'Create Role'} onClose={onClose}>
+    <Modal title={isEdit ? `Edit Role: ${role!.name}` : 'Create Role'} onClose={onClose} size="lg">
       <label className="field">
         <span className="field-label">Role Name</span>
-        <input value={name} onChange={e => setName(e.target.value)} className="input" autoFocus placeholder="e.g. storage-admin" />
+        <input value={name} onChange={e => setName(e.target.value)} className="input" autoFocus placeholder="e.g. storage-admin" disabled={isEdit} />
       </label>
       <label className="field">
         <span className="field-label">Description</span>
-        <input value={description} onChange={e => setDescription(e.target.value)} className="input" placeholder="Manage storage and datasets" />
+        <input value={description} onChange={e => setDescription(e.target.value)} className="input" placeholder="Manage storage and datasets" disabled={role?.is_system} />
       </label>
-      <label className="field">
-        <span className="field-label">Permissions (comma-separated)</span>
-        <input value={perms} onChange={e => setPerms(e.target.value)} className="input" placeholder="storage:read, storage:write" />
-        <div style={{ fontSize:'var(--text-2xs)', color:'var(--text-tertiary)', marginTop:4 }}>
-          Common: <code>read, write, admin, storage, network, users, logs</code>
+      <div className="field">
+        <span className="field-label">Permissions</span>
+        {isAdmin && <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }}>The admin role always has every permission.</div>}
+        {permsQ.isLoading && <Skeleton height={120} />}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12, maxHeight: 360, overflowY: 'auto' }}>
+          {[...byCategory.entries()].map(([cat, list]) => (
+            <div key={cat}>
+              <div style={{ fontSize: 'var(--text-xs)', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-tertiary)', marginBottom: 4 }}>{cat}</div>
+              {list.map(p => {
+                const key = `${p.resource}:${p.action}`
+                return (
+                  <label key={key} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 'var(--text-sm)', padding: '2px 0' }} title={key}>
+                    <input type="checkbox" checked={isAdmin || perms.has(key)} disabled={isAdmin} onChange={() => toggle(key)} />
+                    {p.display_name}
+                  </label>
+                )
+              })}
+            </div>
+          ))}
         </div>
-      </label>
+      </div>
       <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 10 }}>
         <button onClick={onClose} className="btn btn-ghost">Cancel</button>
-        <button onClick={() => mutation.mutate()} disabled={mutation.isPending} className="btn btn-primary">
+        <button onClick={() => mutation.mutate()} disabled={mutation.isPending || isAdmin || !name} className="btn btn-primary">
           {mutation.isPending ? 'Saving…' : isEdit ? 'Save' : 'Create'}
         </button>
+      </div>
+    </Modal>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// UserRolesModal - extra roles of an account (besides its account role)
+// ---------------------------------------------------------------------------
+
+function UserRolesModal({ user, onClose }: { user: User; onClose: () => void }) {
+  const qc = useQueryClient()
+  const rolesQ = useQuery({
+    queryKey: ['rbac', 'roles'],
+    queryFn: ({ signal }) => api.get<RolesResponse>('/api/rbac/roles', signal),
+  })
+  const mineQ = useQuery({
+    queryKey: ['rbac', 'user-roles', user.id],
+    queryFn: ({ signal }) => api.get<{ roles: Role[] | null }>(`/api/rbac/users/${user.id}/roles`, signal),
+  })
+  const held = new Set((mineQ.data?.roles ?? []).map(r => String(r.id)))
+  const primary = user.role === 'readonly' ? 'viewer' : user.role
+
+  const toggle = useMutation({
+    mutationFn: (r: Role) => held.has(String(r.id))
+      ? api.delete(`/api/rbac/users/${user.id}/roles/${r.id}`)
+      : api.post(`/api/rbac/users/${user.id}/roles`, { role_id: Number(r.id) }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['rbac', 'user-roles', user.id] }),
+    onError: (e: Error) => toast.error(e.message),
+  })
+
+  return (
+    <Modal title={`Roles: ${user.username}`} onClose={onClose}>
+      <p style={{ margin: 0, fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>
+        The account role ({primary}) is set in the user's settings. Additional roles add their permissions.
+      </p>
+      {(rolesQ.isLoading || mineQ.isLoading) && <Skeleton height={120} />}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        {(rolesQ.data?.roles ?? []).map(r => (
+          <label key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 'var(--text-sm)' }}>
+            <input type="checkbox" checked={held.has(String(r.id))} disabled={r.name === primary || toggle.isPending} onChange={() => toggle.mutate(r)} />
+            <strong>{r.name}</strong>
+            {r.description && <span style={{ color: 'var(--text-tertiary)' }}>{r.description}</span>}
+          </label>
+        ))}
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+        <button onClick={onClose} className="btn btn-primary">Done</button>
       </div>
     </Modal>
   )
@@ -579,7 +659,7 @@ function RolesTab() {
           >
             <Icon name="shield" size={18} style={{ color: 'var(--primary)', flexShrink: 0 }} />
             <div style={{ flex: 1 }}>
-              <div style={{ fontWeight: 700 }}>{role.name}</div>
+              <div style={{ fontWeight: 700 }}>{role.name}{role.is_system && <span className="badge" style={{ marginLeft: 8 }}>built-in</span>}{role.user_count ? <span style={{ marginLeft: 8, fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }}>{role.user_count} user{role.user_count !== 1 ? 's' : ''}</span> : null}</div>
               {role.description && <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', marginTop: 2 }}>{role.description}</div>}
             </div>
             {role.permissions && <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }}>{role.permissions.length} permission{role.permissions.length !== 1 ? 's' : ''}</span>}
@@ -596,16 +676,16 @@ function RolesTab() {
                 <button onClick={() => setEditRole(role)} className="btn btn-ghost">
                   <Icon name="edit" size={13} />Edit Role
                 </button>
-                <button onClick={async () => { if (await confirm({ title: `Delete role "${role.name}"?`, message: 'Users assigned this role will lose its permissions.', danger: true, confirmLabel: 'Delete' })) deleteRole.mutate(role.id) }} className="btn btn-danger">
+                {!role.is_system && <button onClick={async () => { if (await confirm({ title: `Delete role "${role.name}"?`, message: 'Users assigned this role will lose its permissions.', danger: true, confirmLabel: 'Delete' })) deleteRole.mutate(role.id) }} className="btn btn-danger">
                   <Icon name="delete" size={13} />Delete Role
-                </button>
+                </button>}
               </div>
             </div>
           )}
         </div>
       ))}
       {roles.length === 0 && (
-        <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text-tertiary)' }}>No custom roles defined</div>
+        <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text-tertiary)' }}>No roles defined</div>
       )}
 
       {showCreate && <RoleModal onClose={() => setShowCreate(false)} onDone={refresh} />}

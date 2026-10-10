@@ -83,6 +83,9 @@ func testDB(t *testing.T) *sql.DB {
 	if err := security.InitDatabase(dsn); err != nil {
 		t.Fatalf("security database: %v", err)
 	}
+	if err := security.SeedRBAC(db); err != nil { // what the daemon seeds at start
+		t.Fatalf("rbac seed: %v", err)
+	}
 	return db
 }
 
