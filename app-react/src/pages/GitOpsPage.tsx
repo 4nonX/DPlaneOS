@@ -883,7 +883,7 @@ export function GitOpsPage() {
 
   const statusQ   = useQuery({ queryKey:['gitops','status'],   queryFn:({signal})=>api.get<GitopsStatus>('/api/gitops/status',signal), refetchInterval:15_000 })
   const planQ     = useQuery({ queryKey:['gitops','plan'],     queryFn:({signal})=>api.get<{success:boolean;changes:Change[]}>('/api/gitops/plan',signal) })
-  const stateQ    = useQuery({ queryKey:['gitops','state'],    queryFn:({signal})=>api.get<{success:boolean;state:string}>('/api/gitops/state',signal) })
+  const stateQ    = useQuery({ queryKey:['gitops','state'],    queryFn:({signal})=>api.get<{success:boolean;exists?:boolean;valid?:boolean;content?:string;error?:string}>('/api/gitops/state',signal) })
   const settingsQ = useQuery({ queryKey:['gitops','settings'], queryFn:()=>api.get<{success:boolean;settings:GitOpsSettings}>('/api/gitops/settings') })
   const reposQ    = useQuery({ queryKey:['git-sync','repos'],  queryFn:async ({signal}) => {
     const res = await api.get<{success:boolean;repos:ApiRepo[]}>('/api/git-sync/repos',signal)
@@ -1110,7 +1110,7 @@ export function GitOpsPage() {
             <div>
               <div style={{ fontWeight:700, marginBottom:12, display:'flex', alignItems:'center', gap:8 }}><Icon name="code" size={18} style={{ color:'var(--primary)' }}/>Live Manifest</div>
               <pre className="card" style={{ background: 'var(--surface)', padding:'12px 14px', fontFamily:'var(--font-mono)', fontSize:11, maxHeight:320, overflow:'auto', whiteSpace:'pre-wrap' }}>
-                {stateQ.data?.state || '(empty)'}
+                {stateQ.data?.content || (stateQ.data?.exists === false ? '(no state.yaml yet)' : '(empty)')}
               </pre>
             </div>
           </div>

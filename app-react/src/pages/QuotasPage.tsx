@@ -20,7 +20,9 @@ import { Skeleton } from '@/components/ui/LoadingSpinner'
 import { toast } from '@/hooks/useToast'
 import { useConfirm } from '@/components/ui/ConfirmDialog'
 
-interface UGQuota { dataset: string; type: 'user'|'group'; id: string; quota: number; used?: number }
+// GET /api/zfs/quota/usergroup?dataset= → { users: [], groups: [] } (zfs userspace/groupspace)
+interface UGEntry { name: string; type: string; used: string; quota: string }
+interface UGResponse { success: boolean; dataset: string; users: UGEntry[]; groups: UGEntry[] }
 
 function fmtSize(bytes:number):string {
   if (!bytes) return '0 B'
@@ -117,18 +119,32 @@ function UserGroupQuotas() {
   const [ds, setDs] = useState(''); const [type, setType] = useState<'user'|'group'>('user')
   const [uid, setUid] = useState(''); const [quota, setQuota] = useState('')
 
-  const ugQ = useQuery({ queryKey:['quota','usergroup'], queryFn:({signal})=>api.get<{success:boolean;quotas:UGQuota[]}>('/api/zfs/quota/usergroup',signal) })
+  // The quotas of the dataset entered/picked above (zfs userspace works per dataset).
+  const dsListQ = useQuery({
+    queryKey: ['zfs', 'datasets', 'names'],
+    queryFn: ({ signal }) => api.get<{ success: boolean; data: Array<{ name: string }> }>('/api/zfs/datasets', signal),
+  })
+  const dsNames = (dsListQ.data?.data ?? []).map(d => d.name)
+  const viewDs = dsNames.includes(ds.trim()) ? ds.trim() : ''
+  const ugQ = useQuery({
+    queryKey: ['quota', 'usergroup', viewDs],
+    queryFn: ({ signal }) => api.get<UGResponse>(`/api/zfs/quota/usergroup?dataset=${encodeURIComponent(viewDs)}`, signal),
+    enabled: !!viewDs,
+  })
   const set = useMutation({
     mutationFn: async () => {
       const size = zfsSize(quota)
       if (!size) throw new Error(`Invalid size "${quota}" (e.g. 50GB)`)
       return ensureOk(await api.post<{ success?: boolean; error?: string }>('/api/zfs/quota/usergroup', { dataset: ds, type, name: uid, quota: size }))
     },
-    onSuccess: () => { toast.success('Quota set'); setDs(''); setUid(''); setQuota(''); qc.invalidateQueries({queryKey:['quota','usergroup']}) },
+    onSuccess: () => { toast.success('Quota set'); setUid(''); setQuota(''); qc.invalidateQueries({queryKey:['quota','usergroup']}) },
     onError: (e:Error)=>toast.error(e.message),
   })
 
-  const quotas = ugQ.data?.quotas??[]
+  const quotas = [
+    ...(ugQ.data?.users ?? []).map(q => ({ ...q, kind: 'user' as const })),
+    ...(ugQ.data?.groups ?? []).map(q => ({ ...q, kind: 'group' as const })),
+  ]
 
   return (
     <div className="card" style={{ borderRadius:'var(--radius-xl)', padding:22 }}>
@@ -137,7 +153,7 @@ function UserGroupQuotas() {
         {[['Dataset','text',ds,setDs,'tank/home'],['User/Group name','text',uid,setUid,'alice']].map(([lbl,t,val,setter,ph])=>(
           <label key={lbl as string} className="field">
             <span className="field-label">{lbl as string}</span>
-            <input type={t as string} value={val as string} onChange={e=>(setter as React.Dispatch<React.SetStateAction<string>>)(e.target.value)} placeholder={ph as string} className="input"/>
+            <input type={t as string} value={val as string} onChange={e=>(setter as React.Dispatch<React.SetStateAction<string>>)(e.target.value)} placeholder={ph as string} className="input" list={lbl === 'Dataset' ? 'ug-datasets' : undefined}/>
           </label>
         ))}
         <label className="field">
@@ -150,21 +166,23 @@ function UserGroupQuotas() {
         </label>
         <button onClick={()=>set.mutate()} disabled={!ds.trim()||!uid.trim()||!quota.trim()||set.isPending} className="btn btn-primary" style={{ alignSelf:'flex-end' }}><Icon name="add" size={14}/>{set.isPending?'Setting…':'Set'}</button>
       </div>
-      {ugQ.isLoading&&<Skeleton height={100}/>}
+      <datalist id="ug-datasets">{dsNames.map(n => <option key={n} value={n} />)}</datalist>
+      {!viewDs && <div style={{ fontSize:'var(--text-sm)', color:'var(--text-tertiary)', marginBottom:8 }}>Pick a dataset to see its user and group usage and quotas.</div>}
+      {viewDs && ugQ.isLoading&&<Skeleton height={100}/>}
       {ugQ.isError&&<ErrorState error={ugQ.error}/>}
       <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
-        {quotas.map((q,i)=>(
-          <div key={i} style={{ display:'flex', alignItems:'center', gap:12, padding:'10px 14px', background:'var(--surface)', borderRadius:'var(--radius-sm)' }}>
-            <Icon name={q.type==='user'?'person':'group'} size={16} style={{ color:'var(--primary)', flexShrink:0 }}/>
+        {quotas.map(q=>(
+          <div key={q.kind + q.name} style={{ display:'flex', alignItems:'center', gap:12, padding:'10px 14px', background:'var(--surface)', borderRadius:'var(--radius-sm)' }}>
+            <Icon name={q.kind==='user'?'person':'group'} size={16} style={{ color:'var(--primary)', flexShrink:0 }}/>
             <div style={{ flex:1 }}>
-              <span style={{ fontWeight:600, fontSize:'var(--text-sm)' }}>{q.id}</span>
-              <span style={{ fontSize:'var(--text-xs)', color:'var(--text-tertiary)', marginLeft:8 }}>on {q.dataset}</span>
+              <span style={{ fontWeight:600, fontSize:'var(--text-sm)' }}>{q.name}</span>
+              <span style={{ fontSize:'var(--text-xs)', color:'var(--text-tertiary)', marginLeft:8 }}>{q.type}</span>
             </div>
-            <span style={{ fontFamily:'var(--font-mono)', fontSize:'var(--text-sm)', color:'var(--primary)' }}>{fmtSize(q.quota)}</span>
-            {q.used!=null&&<span style={{ fontSize:'var(--text-xs)', color:'var(--text-tertiary)' }}>used {fmtSize(q.used)}</span>}
+            <span style={{ fontFamily:'var(--font-mono)', fontSize:'var(--text-sm)', color:'var(--primary)' }}>{q.quota === 'none' ? 'no quota' : q.quota}</span>
+            <span style={{ fontSize:'var(--text-xs)', color:'var(--text-tertiary)' }}>used {q.used}</span>
           </div>
         ))}
-        {!ugQ.isLoading&&quotas.length===0&&<div style={{ textAlign:'center', padding:'24px 0', color:'var(--text-tertiary)', fontSize:'var(--text-sm)' }}>No user/group quotas set</div>}
+        {viewDs && !ugQ.isLoading && !ugQ.isError && quotas.length===0&&<div style={{ textAlign:'center', padding:'24px 0', color:'var(--text-tertiary)', fontSize:'var(--text-sm)' }}>No user or group usage on {viewDs}</div>}
       </div>
     </div>
   )

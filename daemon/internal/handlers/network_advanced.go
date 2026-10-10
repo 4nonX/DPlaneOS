@@ -423,6 +423,7 @@ func GetNTPStatus(w http.ResponseWriter, r *http.Request) {
 			respondOK(w, map[string]any{
 				"success": true,
 				"synced":  false,
+				"servers": configuredNTPServers(),
 				"error":   "Cannot query NTP status",
 			})
 			return
@@ -435,8 +436,27 @@ func GetNTPStatus(w http.ResponseWriter, r *http.Request) {
 	respondOK(w, map[string]any{
 		"success": true,
 		"synced":  synced,
+		"servers": configuredNTPServers(),
 		"details": strings.TrimSpace(output),
 	})
+}
+
+// configuredNTPServers: the servers set on the Network page (NixOS state),
+// else the NTP= line of timesyncd.conf.
+func configuredNTPServers() []string {
+	if onNixOS() {
+		if s := NixWriter.State().NTPServers; s != nil {
+			return s
+		}
+		return []string{}
+	}
+	b, _ := os.ReadFile("/etc/systemd/timesyncd.conf")
+	for _, l := range strings.Split(string(b), "\n") {
+		if v, ok := strings.CutPrefix(strings.TrimSpace(l), "NTP="); ok {
+			return strings.Fields(v)
+		}
+	}
+	return []string{}
 }
 
 // SetNTPServers configures NTP servers

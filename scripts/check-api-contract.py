@@ -231,10 +231,141 @@ for f in sorted(glob.glob(os.path.join(SRC, '**', '*.ts*'), recursive=True)):
         if not any(r[1] == meth and (r[0].match(raw) or ui_rx.match(r[3])) for r in routes):
             findings.append('%s:%d %s %s: no such route' % (os.path.basename(f), src.count('\n', 0, m.start()) + 1, meth, raw))
 
+# ── Responses: required keys a typed api.get<T>() expects that the handler
+# never produces (a page that silently shows nothing). ──────────────────────
+ALLOW_RESP = {
+    'GET /api/jobs/{id}': 'encodes jobs.JobSnapshot (id, status, type, started_at)',
+    'GET /api/monitoring/inotify': 'encodes monitoring.InotifyStats',
+}
+
+
+def produced(body, recv, depth=0):
+    if body is None or depth > 3:
+        return set()
+    keys = set(re.findall(r'"([a-zA-Z_]\w*)":', body))
+    keys |= set(re.findall(r'\w+\["(\w+)"\]\s*=', body))
+    keys |= set(re.findall(r'json:"([^",]+)', body))
+    for t in set(re.findall(r'\b(\w+)\{', body) + re.findall(r'\[\](\w+)', body) + re.findall(r'var \w+ \*?(\w+)', body)):
+        keys |= named_struct(t)
+    for helper in set(re.findall(r'\bh\.(\w+)\(', body)):
+        keys |= produced(func_body(recv, helper), recv, depth + 1)
+    for fn in set(re.findall(r'\b([A-Z]\w+)\(w, r\)', body)):  # delegation
+        keys |= produced(func_body(None, fn), None, depth + 1)
+    if 'CommandResponse' in body:
+        keys |= {'success', 'output', 'error', 'code', 'guide', 'duration_ms', 'data'}
+    return keys
+
+
+def ts_match(s):
+    d = 0
+    for i, c in enumerate(s):
+        if c == '{':
+            d += 1
+        elif c == '}':
+            d -= 1
+            if d == 0:
+                return i + 1
+    return len(s)
+
+
+def ts_top(s):
+    s = s[s.index('{') + 1: ts_match(s) - 1]
+    out, d = [], 0
+    for c in s:
+        if c in '{<([':
+            d += 1
+        if d == 0:
+            out.append(c)
+        if c in '}>)]':
+            d -= 1
+    return ''.join(out)
+
+
+def ts_split(s, sep):
+    parts, d, cur = [], 0, ''
+    for c in s:
+        if c in '{<([':
+            d += 1
+        if c in '}>)]':
+            d -= 1
+        if c == sep and d == 0:
+            parts.append(cur)
+            cur = ''
+        else:
+            cur += c
+    return parts + [cur]
+
+
+def ts_keys(t, src, depth=0):
+    """(required, all, resolvable) keys of a TypeScript type expression."""
+    req, allk = set(), set()
+    if depth > 3:
+        return req, allk, False
+    for part in [p.strip() for p in ts_split(t.strip(), '&')]:
+        if part.startswith('{'):
+            body = part
+        elif re.match(r'^[A-Z]\w*$', part):
+            m = re.search(r'interface ' + part + r'\b(?:\s+extends\s+([\w, &]+))?\s*\{', src)
+            if not m:
+                return req, allk, False
+            body = src[m.end() - 1:]
+            body = body[:ts_match(body)]
+            if m.group(1):
+                for base in re.split(r'[,&]', m.group(1)):
+                    r2, a2, ok = ts_keys(base.strip(), src, depth + 1)
+                    if not ok:
+                        return req, allk, False
+                    req |= r2
+                    allk |= a2
+        else:
+            return req, allk, False
+        for name, opt in re.findall(r'(?:^|[;,\n{]\s*)([A-Za-z_]\w*)(\??)\s*:', ts_top(body)):
+            allk.add(name)
+            if not opt:
+                req.add(name)
+    return req, allk, True
+
+
+for f in sorted(glob.glob(os.path.join(SRC, '**', '*.ts*'), recursive=True)):
+    if 'mock' in os.path.basename(f).lower():
+        continue
+    src = open(f, encoding='utf-8').read()
+    for m in re.finditer(r'api\.get<', src):
+        i, d = m.end(), 1
+        while d and i < len(src):
+            if src[i] == '<':
+                d += 1
+            elif src[i] == '>' and src[i - 1] != '=':
+                d -= 1
+            i += 1
+        t = src[m.end():i - 1]
+        pm = re.match(r"\(\s*(['`])(/api/[^'`]+)", src[i:])
+        if not pm:
+            continue
+        raw = pm.group(2)
+        if '${' in raw and '}' not in raw[raw.index('${'):]:
+            raw = raw[:raw.index('${')]
+        raw = re.sub(r'\$\{[^}]*\}', 'X', raw).split('?')[0]
+        ui_rx = re.compile('^' + re.escape(raw).replace('X', '[^/]+') + '$')
+        cands = [r for r in routes if r[1] == 'GET' and (r[0].match(raw) or ui_rx.match(r[3]))]
+        if not cands or ('GET ' + cands[0][3]) in ALLOW_RESP:
+            continue
+        route = cands[0]
+        body = handler_body(route[2]) if route[2] else None
+        req, allk, ok = ts_keys(t, src)
+        if body is None or not ok or not allk:
+            continue
+        have = produced(body, var_type.get(route[2].split('.')[0]))
+        missing = sorted(k for k in req if k not in have and k != 'success')
+        if missing:
+            findings.append('%s:%d GET %s: %s never answers %s' % (
+                os.path.basename(f), src.count('\n', 0, m.start()) + 1, route[3], route[2], missing))
+
+
 for x in findings:
     print(x)
 if findings:
-    print('\n%d problem(s): request fields the API does not read, or calls without a route.'
+    print('\n%d problem(s): request fields the API does not read, response fields it never sends, or calls without a route.'
           ' Fix the page or the handler, or add an ALLOW entry with the reason.' % len(findings), file=sys.stderr)
     sys.exit(1)
-print('UI/API contract: ok')
+print('UI/API contract: ok (requests and responses)')

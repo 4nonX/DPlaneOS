@@ -78,9 +78,10 @@ interface EncryptedDataset {
 interface EncryptionListResponse { success: boolean; datasets: EncryptedDataset[] }
 
 interface ScrubStatusResponse {
-  success: boolean
-  scrub: string
-  in_progress?: boolean
+  success?: boolean
+  pool?: string
+  scrubbing?: boolean   // a scrub is running (not a resilver)
+  resilvering?: boolean
   percent_done?: number
   bytes_done?: string
   eta?: string
@@ -1223,11 +1224,11 @@ function PoolCard({ pool, datasets, filter, onRefresh }: { pool: ZFSPool; datase
   })
 
   const scrubStatus = scrubQ.data
-  const isScrubbing = scrubStatus?.in_progress ?? /in progress|scrubbing/i.test(scrubStatus?.scrub ?? '')
+  const isScrubbing = !!scrubStatus?.scrubbing
   const scrubPct = scrubStatus?.percent_done ?? 0
   const scrubEta = scrubStatus?.eta ?? ''
   const scrubDone = scrubStatus?.bytes_done ?? ''
-  const scrubText = scrubStatus?.scrub || ''
+  const scrubText = isScrubbing ? `Scrub in progress${scrubPct ? `: ${scrubPct.toFixed(1)}%` : ''}` : scrubStatus?.completed ? 'Last scrub completed' : ''
 
   // ── Resilver status ───────────────────────────────────────────────────────
   const resilverQ = useQuery({
