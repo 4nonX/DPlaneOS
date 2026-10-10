@@ -159,7 +159,7 @@ pkgs.testers.nixosTest {
         with subtest("a is cut off: b keeps quorum, a stops resetting its watchdog"):
             a.block()
             b.wait_until_succeeds("(corosync-quorumtool -s || true) | grep -q 'Quorate: *Yes'", timeout=60)
-            a.wait_until_succeeds("journalctl -u dplaned | grep -q 'lost quorum - not resetting the watchdog'", timeout=60)
+            a.wait_until_succeeds("journalctl -u dplaned | grep -q 'no longer resetting the watchdog'", timeout=60)
             gb = wait_for(lambda: (lambda g: g if g["failover"].get("action") == "wait" else None)(group(b)), "b waits the fencing delay", 60)
             print(gb["failover"])
             b.fail("zpool list tank")

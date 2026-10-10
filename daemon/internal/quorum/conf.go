@@ -23,6 +23,9 @@ type Node struct {
 	Name    string `json:"name"`     // display name (hostname)
 	Addr    string `json:"addr"`     // ring0 address (IP)
 	NodeKey string `json:"node_key"` // configstore node id, used to reach the node
+	// Voter: runs only corosync (no DPlaneOS): votes, never owns storage,
+	// pulls its configuration with a token.
+	Voter bool `json:"voter,omitempty"`
 }
 
 // QDevice is the third vote: a corosync-qnetd server.
@@ -37,6 +40,9 @@ type Config struct {
 	ClusterName string   `json:"cluster_name"`
 	Nodes       []Node   `json:"nodes"`
 	QDevice     *QDevice `json:"qdevice,omitempty"`
+	// VoterTokens: voter name → SHA-256 of the token it pulls its
+	// configuration with (not rendered into corosync.conf).
+	VoterTokens map[string]string `json:"voter_tokens,omitempty"`
 }
 
 var nameRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,31}$`)
@@ -47,8 +53,8 @@ func (c Config) Validate() error {
 	if !nameRe.MatchString(c.ClusterName) {
 		return fmt.Errorf("invalid cluster name %q", c.ClusterName)
 	}
-	if len(c.Nodes) < 2 {
-		return errors.New("a cluster needs at least two nodes")
+	if c.DPlaneNodes() < 2 {
+		return errors.New("a cluster needs at least two DPlaneOS nodes")
 	}
 	ids, addrs := map[int]bool{}, map[string]bool{}
 	for _, n := range c.Nodes {
@@ -65,6 +71,9 @@ func (c Config) Validate() error {
 		addrs[n.Addr] = true
 		if !nameRe.MatchString(n.Name) {
 			return fmt.Errorf("invalid node name %q", n.Name)
+		}
+		if n.Voter && n.NodeKey != "" {
+			return fmt.Errorf("voter %q cannot be a paired node", n.Name)
 		}
 	}
 	if q := c.QDevice; q != nil {

@@ -230,6 +230,15 @@
           frontendPackage = frontend;
         };
 
+        # The third vote from anything: a voter (corosync-only machine) and a
+        # third DPlaneOS member (Design 0001 phase 3).
+        #   nix build .#checks.x86_64-linux.votes -L
+        checks.votes = import ./nixos/tests/votes.nix {
+          inherit nixpkgs system impermanence;
+          daemonPackage = daemon;
+          frontendPackage = frontend;
+        };
+
         devShells.default = pkgs.mkShell {
           buildInputs = with pkgs; [ go gcc musl.dev gopls gotools postgresql git ];
           shellHook = ''

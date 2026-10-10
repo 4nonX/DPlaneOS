@@ -38,7 +38,9 @@ func (t GroupTransport) Members() []string {
 	}
 	out := make([]string, 0, len(cfg.Nodes))
 	for _, n := range cfg.Nodes {
-		out = append(out, n.NodeKey)
+		if !n.Voter && n.NodeKey != "" { // voters hold no storage
+			out = append(out, n.NodeKey)
+		}
 	}
 	return out
 }

@@ -225,7 +225,9 @@ func onlineKeys(cfg Config, st Status) []string {
 	for _, m := range st.Members {
 		for _, n := range cfg.Nodes {
 			if m.NodeID == n.ID || m.Name == n.Name || m.Name == n.Addr {
-				out = append(out, n.NodeKey)
+				if n.NodeKey != "" {
+					out = append(out, n.NodeKey)
+				}
 				break
 			}
 		}
@@ -510,11 +512,14 @@ func Dissolve(db *sql.DB, self string, push PushFunc) error {
 	}
 	var errs []error
 	if cfg != nil {
+		for _, n := range cfg.Members(self) {
+			if err := push(n, Update{Remove: true}); err != nil {
+				errs = append(errs, fmt.Errorf("%s: %w (remove it there too)", n.Name, err))
+			}
+		}
 		for _, n := range cfg.Nodes {
-			if n.NodeKey != self {
-				if err := push(n, Update{Remove: true}); err != nil {
-					errs = append(errs, fmt.Errorf("%s: %w (remove it there too)", n.Name, err))
-				}
+			if n.Voter {
+				errs = append(errs, fmt.Errorf("voter %s: stop corosync there (systemctl disable --now corosync dplaneos-voter-sync.timer)", n.Name))
 			}
 		}
 	}
@@ -536,11 +541,9 @@ func RemoveThirdVote(db *sql.DB, self string, push PushFunc) error {
 	prev := *cfg
 	cfg.QDevice = nil
 	b64 := base64.StdEncoding.EncodeToString(key)
-	for _, n := range cfg.Nodes {
-		if n.NodeKey != self {
-			if err := push(n, Update{Config: cfg, AuthkeyB64: b64}); err != nil {
-				return fmt.Errorf("%s: %w", n.Name, err)
-			}
+	for _, n := range cfg.Members(self) {
+		if err := push(n, Update{Config: cfg, AuthkeyB64: b64}); err != nil {
+			return fmt.Errorf("%s: %w", n.Name, err)
 		}
 	}
 	if err := save(db, *cfg, key); err != nil {
@@ -636,11 +639,9 @@ func EnrollCert(db *sql.DB, code string, cert []byte, witnessAddr, self string, 
 	}
 	upd := Update{Config: cfg, AuthkeyB64: base64.StdEncoding.EncodeToString(key),
 		QDeviceCA: caPEM, QDeviceP12: base64.StdEncoding.EncodeToString(p12)}
-	for _, n := range cfg.Nodes {
-		if n.NodeKey != self {
-			if err := push(n, upd); err != nil {
-				return nil, fmt.Errorf("configuring %s: %w", n.Name, err)
-			}
+	for _, n := range cfg.Members(self) {
+		if err := push(n, upd); err != nil {
+			return nil, fmt.Errorf("configuring %s: %w", n.Name, err)
 		}
 	}
 	if err := save(db, *cfg, key); err != nil {

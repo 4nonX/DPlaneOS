@@ -13,6 +13,8 @@ import (
 
 	"dplaned/internal/configstore"
 	"dplaned/internal/quorum"
+
+	"github.com/gorilla/mux"
 )
 
 // QuorumHandler serves cluster quorum and the third vote (Design 0001 phase 3a).
@@ -215,6 +217,84 @@ func enrollStatus(err error) int {
 		return http.StatusUnauthorized
 	}
 	return http.StatusBadRequest
+}
+
+// AddNode: POST /api/quorum/nodes {peer_id, peer_addr} - a paired DPlaneOS
+// node joins the cluster.
+func (h *QuorumHandler) AddNode(w http.ResponseWriter, r *http.Request) {
+	var b struct {
+		PeerID   string `json:"peer_id"`
+		PeerAddr string `json:"peer_addr"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&b); err != nil || b.PeerID == "" {
+		respondErrorSimple(w, "peer_id and peer_addr are required", http.StatusBadRequest)
+		return
+	}
+	self, err := h.self()
+	if err != nil {
+		respondErrorSimple(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	var peerName string
+	peers, _ := configstore.Peers(h.db)
+	for _, p := range peers {
+		if p.ID == b.PeerID {
+			peerName = p.Name
+		}
+	}
+	if peerName == "" {
+		respondErrorSimple(w, "Pair the node first (System > Configuration Sync)", http.StatusBadRequest)
+		return
+	}
+	cfg, err := quorum.AddNode(h.db, self, quorum.Node{Name: clusterNodeName(peerName), Addr: b.PeerAddr, NodeKey: b.PeerID}, h.push)
+	h.mon.Refresh()
+	if err != nil {
+		respondOK(w, map[string]any{"success": false, "error": err.Error(), "cluster": cfg})
+		return
+	}
+	respondOK(w, map[string]any{"success": true, "cluster": cfg})
+}
+
+// RemoveNode: DELETE /api/quorum/nodes/{name} - a DPlaneOS node or a voter leaves.
+func (h *QuorumHandler) RemoveNode(w http.ResponseWriter, r *http.Request) {
+	self, err := h.self()
+	if err != nil {
+		respondErrorSimple(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	cfg, err := quorum.RemoveNode(h.db, self, mux.Vars(r)["name"], h.push)
+	h.mon.Refresh()
+	if err != nil {
+		respondOK(w, map[string]any{"success": false, "error": err.Error(), "cluster": cfg})
+		return
+	}
+	respondOK(w, map[string]any{"success": true, "cluster": cfg})
+}
+
+// VoterJoin: POST /api/quorum/voter/join?name=&address= (code header) - a
+// machine that runs only corosync joins as a voter (setup script).
+func (h *QuorumHandler) VoterJoin(w http.ResponseWriter, r *http.Request) {
+	self, _ := h.self()
+	j, err := quorum.EnrollVoter(h.db, r.Header.Get(quorum.HdrCode), r.URL.Query().Get("name"), r.URL.Query().Get("address"), self, h.push)
+	h.mon.Refresh()
+	if err != nil {
+		textError(w, err.Error(), enrollStatus(err))
+		return
+	}
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	_, _ = io.WriteString(w, j.Text())
+}
+
+// VoterConfig: GET /api/quorum/voter/config (headers X-DPlane-Voter,
+// X-DPlane-Voter-Token) - a voter pulls its current configuration.
+func (h *QuorumHandler) VoterConfig(w http.ResponseWriter, r *http.Request) {
+	j, err := quorum.VoterConfig(h.db, r.Header.Get("X-DPlane-Voter"), r.Header.Get("X-DPlane-Voter-Token"))
+	if err != nil {
+		textError(w, err.Error(), enrollStatus(err))
+		return
+	}
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	_, _ = io.WriteString(w, j.Text())
 }
 
 // EnrollCA: POST /api/quorum/enroll/ca (code header, body: CA PEM)

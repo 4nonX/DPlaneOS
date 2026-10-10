@@ -922,6 +922,10 @@ func main() {
 	r.HandleFunc("/api/quorum/witness-setup.sh", quorumH.WitnessScript).Methods("GET")
 	r.HandleFunc("/api/quorum/enroll/ca", quorumH.EnrollCA).Methods("POST")
 	r.HandleFunc("/api/quorum/enroll/cert", quorumH.EnrollCert).Methods("POST")
+	r.HandleFunc("/api/quorum/voter/join", quorumH.VoterJoin).Methods("POST")
+	r.HandleFunc("/api/quorum/voter/config", quorumH.VoterConfig).Methods("GET")
+	r.Handle("/api/quorum/nodes", permRoute("system", "admin", http.HandlerFunc(quorumH.AddNode))).Methods("POST")
+	r.Handle("/api/quorum/nodes/{name}", permRoute("system", "admin", http.HandlerFunc(quorumH.RemoveNode))).Methods("DELETE")
 	r.HandleFunc("/api/config/sync/peer/cluster", quorumH.PeerCluster).Methods("POST")
 
 	// Storage groups and epochs (Design 0001 phase 3b).
@@ -1731,6 +1735,9 @@ func sessionMiddleware(db *sql.DB, internalCronToken string) mux.MiddlewareFunc 
 				// handlers with the one-time code (internal/handlers/quorum.go)
 				p == "/api/quorum/witness-setup.sh" ||
 				strings.HasPrefix(p, "/api/quorum/enroll/") ||
+				// Voters (corosync-only members): one-time code or pull token,
+				// checked by the handlers
+				strings.HasPrefix(p, "/api/quorum/voter/") ||
 				// Internal hooks - called by systemd timers on this host.
 				// Mandatory check: local caller AND the per-boot random token.
 				isInternalCronHook(r, internalCronToken) ||
