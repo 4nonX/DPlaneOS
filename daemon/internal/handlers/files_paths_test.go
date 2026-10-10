@@ -230,3 +230,36 @@ func TestZFSMountsAreRoots(t *testing.T) {
 		t.Errorf("roots = %q, want %q", got, want)
 	}
 }
+
+func TestRsyncArgs(t *testing.T) {
+	root, outside := filesEnv(t)
+	share := filepath.Join(root, "share")
+	if _, err := rsyncArgs("", outside, filepath.Join(root, "copy")); err == nil {
+		t.Error("source outside the roots accepted")
+	}
+	if _, err := rsyncArgs("", share, filepath.Join(outside, "copy")); err == nil {
+		t.Error("destination outside the roots accepted")
+	}
+	for _, opts := range []string{"-avz -e sh", "-avz /etc/shadow"} {
+		if _, err := rsyncArgs(opts, share, filepath.Join(root, "copy")); err == nil {
+			t.Errorf("options %q accepted", opts)
+		}
+	}
+	link := filepath.Join(root, "share", "etc")
+	if os.Symlink(outside, link) == nil {
+		if _, err := rsyncArgs("", link+"/", filepath.Join(root, "copy")); err == nil {
+			t.Error("a symlinked source leaving the roots accepted")
+		}
+		if _, err := rsyncArgs("", share, link); err == nil {
+			t.Error("a symlinked destination leaving the roots accepted")
+		}
+	}
+	args, err := rsyncArgs("-avz --delete", share+"/", "backup@nas2.lan:/mnt/pool/share")
+	if err != nil {
+		t.Fatalf("remote backup: %v", err)
+	}
+	got := strings.Join(args, "|")
+	if !strings.HasPrefix(got, "-avz|--delete|-e|ssh -o BatchMode=yes") || !strings.HasSuffix(got, "/|backup@nas2.lan:/mnt/pool/share") {
+		t.Errorf("args: %q", got)
+	}
+}

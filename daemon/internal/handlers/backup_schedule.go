@@ -7,6 +7,8 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -14,6 +16,7 @@ import (
 	"dplaned/internal/audit"
 	"dplaned/internal/cmdutil"
 	"dplaned/internal/jobs"
+	"dplaned/internal/security"
 	"dplaned/internal/systemd"
 
 	"github.com/google/uuid"
@@ -29,8 +32,8 @@ type RsyncSchedule struct {
 	Options     string     `json:"options"`
 	Interval    string     `json:"interval"` // "hourly" | "daily" | "weekly" | "monthly"
 	Hour        int        `json:"hour"`
-	DayOfWeek   int        `json:"day_of_week"`   // 0=Sun..6=Sat, used for weekly
-	DayOfMonth  int        `json:"day_of_month"`  // 1-31, used for monthly
+	DayOfWeek   int        `json:"day_of_week"`  // 0=Sun..6=Sat, used for weekly
+	DayOfMonth  int        `json:"day_of_month"` // 1-31, used for monthly
 	Enabled     bool       `json:"enabled"`
 	LastRun     *time.Time `json:"last_run,omitempty"`
 	LastStatus  string     `json:"last_status,omitempty"`
@@ -197,6 +200,10 @@ func CreateRsyncSchedule(w http.ResponseWriter, r *http.Request) {
 	if s.Interval == "" {
 		s.Interval = "daily"
 	}
+	if _, err := rsyncArgs(s.Options, s.Source, s.Destination); err != nil {
+		respondErrorSimple(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 	s.ID = uuid.New().String()
 
 	var final []RsyncSchedule
@@ -226,7 +233,10 @@ func UpdateRsyncSchedule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	req.ID = id
-
+	if _, err := rsyncArgs(req.Options, req.Source, req.Destination); err != nil {
+		respondErrorSimple(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 	var final []RsyncSchedule
 	err := atomicModifyRsyncSchedules(func(schedules []RsyncSchedule) ([]RsyncSchedule, error) {
 		for i, s := range schedules {
@@ -324,8 +334,11 @@ func RunRsyncScheduleNow(w http.ResponseWriter, r *http.Request) {
 	scheduleID := target.ID
 
 	jobID := jobs.Start("rsync_scheduled", func(j *jobs.Job) {
-		args := append(strings.Fields(opts), src, dst)
-		output, err := cmdutil.RunSlow("rsync", args...)
+		var output []byte
+		args, err := rsyncArgs(opts, src, dst)
+		if err == nil {
+			output, err = cmdutil.RunSlow("rsync", args...)
+		}
 		now := time.Now()
 
 		rsyncSchedMu.Lock()
@@ -368,6 +381,67 @@ func RunRsyncScheduleNow(w http.ResponseWriter, r *http.Request) {
 	respondOK(w, map[string]any{"success": true, "job_id": jobID})
 }
 
+// rsyncArgs builds the rsync arguments for a backup: the options (from the
+// allowed set), the source and the destination. Local paths are resolved
+// (symlinks included) against the file roots right before every run, so a
+// folder replaced by a symlink since the task was saved cannot redirect a
+// backup into the system. With a remote side, ssh runs without prompts.
+func rsyncArgs(opts, src, dst string) ([]string, error) {
+	if strings.TrimSpace(opts) == "" {
+		opts = "-avz --progress"
+	}
+	args := strings.Fields(opts)
+	for _, a := range args {
+		if a == "-e" || !strings.HasPrefix(a, "-") {
+			return nil, fmt.Errorf("option %q not allowed", a)
+		}
+	}
+	local := func(p string, dest bool) (string, error) {
+		if _, remote := security.IsRsyncRemote(p); remote {
+			return p, nil
+		}
+		slash := len(p) > 1 && strings.HasSuffix(p, "/")
+		var real string
+		var err error
+		if dest {
+			real, err = resolveDestination(p)
+		} else {
+			real, err = resolveExisting(p)
+		}
+		if err != nil {
+			return "", fmt.Errorf("%s: %v (pool and media mounts only)", p, err)
+		}
+		real = filepath.ToSlash(real)
+		if slash {
+			real += "/"
+		}
+		return real, nil
+	}
+	s, err := local(src, false)
+	if err != nil {
+		return nil, err
+	}
+	d, err := local(dst, true)
+	if err != nil {
+		return nil, err
+	}
+	_, srcRemote := security.IsRsyncRemote(s)
+	_, dstRemote := security.IsRsyncRemote(d)
+	if srcRemote && dstRemote {
+		return nil, fmt.Errorf("source and destination cannot both be remote")
+	}
+	if srcRemote || dstRemote {
+		args = append(args, "-e", security.RsyncSSH)
+	}
+	args = append(args, s, d)
+	if runtime.GOOS == "linux" {
+		if err := security.ValidateCommand("rsync", args); err != nil {
+			return nil, err
+		}
+	}
+	return args, nil
+}
+
 // POST /api/backup/rsync/cron-hook
 // Called by systemd timers on localhost only (enforced by sessionMiddleware).
 func RsyncCronHook(w http.ResponseWriter, r *http.Request) {
@@ -404,8 +478,11 @@ func RsyncCronHook(w http.ResponseWriter, r *http.Request) {
 	scheduleID := req.ID
 
 	jobID := jobs.Start("rsync_scheduled", func(j *jobs.Job) {
-		args := append(strings.Fields(opts), src, dst)
-		output, runErr := cmdutil.RunSlow("rsync", args...)
+		var output []byte
+		args, runErr := rsyncArgs(opts, src, dst)
+		if runErr == nil {
+			output, runErr = cmdutil.RunSlow("rsync", args...)
+		}
 		now := time.Now()
 
 		rsyncSchedMu.Lock()

@@ -140,6 +140,12 @@ func ExecuteRsync(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	args, argErr := rsyncArgs(req.Options, req.Source, req.Destination)
+	if argErr != nil {
+		respondErrorSimple(w, argErr.Error(), http.StatusBadRequest)
+		return
+	}
+
 	taskID := uuid.New().String()
 	task := &BackupTask{
 		ID:        taskID,
@@ -152,7 +158,7 @@ func ExecuteRsync(w http.ResponseWriter, r *http.Request) {
 
 	src, dst := req.Source, req.Destination
 	jobID := jobs.Start("rsync_backup", func(j *jobs.Job) {
-		output, err := cmdutil.RunSlow("rsync", "-avz", "--progress", src, dst)
+		output, err := cmdutil.RunSlow("rsync", args...)
 		audit.LogActivity(user, "rsync_backup", map[string]any{
 			"source":      src,
 			"destination": dst,
@@ -229,4 +235,3 @@ func DeleteBackupTask(w http.ResponseWriter, r *http.Request) {
 
 	respondOK(w, map[string]any{"success": true, "deleted": id})
 }
-

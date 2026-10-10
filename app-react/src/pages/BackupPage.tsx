@@ -188,6 +188,9 @@ function ScheduleModal({ initial, onClose, onSave, saving }: ScheduleModalProps)
             <input className="input" type="text"
               value={form.options} onChange={e => set('options', e.target.value)} disabled={saving}
               style={{ fontFamily: 'var(--font-mono)', fontSize: 13 }} />
+            <p style={{ marginTop: 6, fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }}>
+              Allowed: -avz --delete --exclude=PATTERN --progress --partial --inplace --append --compress. Paths: folders on pools or media, or user@host:/path (SSH key login as root must be set up).
+            </p>
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
@@ -324,7 +327,7 @@ function RunNowTab() {
               onChange={e => setOptions(e.target.value)} disabled={runMut.isPending}
               style={{ fontFamily: 'var(--font-mono)', fontSize: 13 }} />
             <p style={{ marginTop: 6, fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }}>
-              Common flags: <code>-avz</code> archive + compress, <code>--delete</code> mirror source, <code>--exclude=*.tmp</code> skip patterns
+              Allowed: <code>-avz</code> archive + compress, <code>--delete</code> mirror the source, <code>--exclude=*.tmp</code> skip patterns, <code>--partial</code>, <code>--inplace</code>, <code>--append</code>, <code>--progress</code>
             </p>
           </div>
 

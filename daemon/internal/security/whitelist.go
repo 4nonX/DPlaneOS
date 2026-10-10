@@ -688,13 +688,9 @@ var CommandWhitelist = map[string]Command{
 		Path: "rsync",
 		AllowedArgs: []string{
 			"-avz", "--delete", "--progress", "--partial", "--inplace", "--append", "--compress",
-			"-e", "ssh -o StrictHostKeyChecking=accept-new",
+			"-e", RsyncSSH,
 		},
-		ArgPatterns: []*regexp.Regexp{
-			regexp.MustCompile(`^/mnt/.*$`),
-			regexp.MustCompile(`^[a-zA-Z0-9\._\-]+@[a-zA-Z0-9\.\-]+:/mnt/.*$`),
-		},
-		Description: "File synchronization",
+		Description: "File synchronization (validateRsync)",
 	},
 
 	// Power Management Operations
@@ -1140,6 +1136,8 @@ func ValidateCommand(cmdName string, args []string) error {
 		return validatePathBasedCommand(cmdName, args)
 	case "chown", "chmod", "stat", "getfacl", "setfacl":
 		return validateDataPathCommand(cmdName, args)
+	case "rsync":
+		return validateRsync(args)
 	case "zpool_online", "zpool_add_cache", "zpool_add_log", "zpool_remove_device", "hdparm_check", "hdparm_spindown", "hdparm_status", "wipefs", "zpool_labelclear":
 		return validateDeviceBasedCommand(cmdName, args)
 	case "group_address":
@@ -2043,6 +2041,69 @@ func validateDataPathCommand(cmdName string, args []string) error {
 	}
 	if paths != 1 {
 		return fmt.Errorf("%s needs exactly one path", cmdName)
+	}
+	return nil
+}
+
+// RsyncSSH is the only remote shell rsync may use: no password prompt (the
+// job has no terminal), new host keys accepted once.
+const RsyncSSH = "ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new"
+
+var rsyncRemoteRe = regexp.MustCompile(`^[a-zA-Z0-9._-]+@[a-zA-Z0-9.-]+:(/[^\s]*)$`)
+
+// --exclude=PATTERN: a file name pattern, nothing else.
+var rsyncExcludeRe = regexp.MustCompile(`^--exclude=[A-Za-z0-9._*?@+/-]{1,128}$`)
+
+// IsRsyncRemote reports whether p is user@host:/path, returning the path.
+func IsRsyncRemote(p string) (string, bool) {
+	m := rsyncRemoteRe.FindStringSubmatch(p)
+	if m == nil {
+		return "", false
+	}
+	return m[1], true
+}
+
+// validateRsync: the allowed options, then exactly a source and a
+// destination. A local path is a data path (a trailing slash, rsync's
+// "contents of", is allowed); a remote path is user@host:/absolute/path.
+// Neither may contain "..".
+func validateRsync(args []string) error {
+	cmd := CommandWhitelist["rsync"]
+	var paths []string
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		if a == "-e" {
+			if i+1 >= len(args) || args[i+1] != RsyncSSH {
+				return fmt.Errorf("rsync: remote shell not allowed")
+			}
+			i++
+			continue
+		}
+		if strings.HasPrefix(a, "-") {
+			if !slices.Contains(cmd.AllowedArgs, a) && !rsyncExcludeRe.MatchString(a) {
+				return fmt.Errorf("rsync: option %q not allowed", a)
+			}
+			continue
+		}
+		paths = append(paths, a)
+	}
+	if len(paths) != 2 {
+		return fmt.Errorf("rsync needs a source and a destination")
+	}
+	for _, p := range paths {
+		if strings.Contains(p, "..") {
+			return fmt.Errorf("rsync: path %q not allowed", p)
+		}
+		if _, remote := IsRsyncRemote(p); remote {
+			continue
+		}
+		local := p
+		if len(local) > 1 {
+			local = strings.TrimSuffix(local, "/")
+		}
+		if !IsDataPath(local) {
+			return fmt.Errorf("rsync: path %q not allowed (pool and media mounts only)", p)
+		}
 	}
 	return nil
 }

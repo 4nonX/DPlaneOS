@@ -28,6 +28,10 @@ interface against the fields its handler reads
 
 ### Security
 
+- Rsync backups: paths only had to start with /mnt/ ("/mnt/../etc/shadow"
+  as source, /etc as destination by way of a symlink). Source and
+  destination are resolved against the pool and media mounts before
+  every run; the remote shell is fixed.
 - Certificates: the Let's Encrypt request used an unchecked certificate
   name as a file path (files could be written anywhere as root), and
   activation wrote an unchecked name into the nginx configuration.
@@ -91,6 +95,10 @@ interface against the fields its handler reads
 
 ### Fixed
 
+- Rsync backups: one-off backups ignored the options entered; pools
+  mounted outside /mnt were refused; `--exclude=` patterns, shown as an
+  example, were refused; a remote backup could hang on a password prompt
+  (ssh now runs in batch mode).
 - The disk latency check called every healthy disk "slow" (it timed a
   fixed three-second read test) and found no disks in pools imported by
   id. It reports the measured read speed now and tests the disks at the
