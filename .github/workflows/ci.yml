@@ -691,12 +691,86 @@ jobs:
         timeout-minutes: 60
         run: nix build .#checks.x86_64-linux.votes -L
 
+      - name: Run witness appliance VM test (headless join)
+        timeout-minutes: 45
+        run: nix build .#checks.x86_64-linux.witness-appliance -L
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # DPlaneOS Witness images (third vote appliance, docs/admin/THIRD-VOTE.md)
+  # ════════════════════════════════════════════════════════════════════════════
+  witness-images:
+    name: Build Witness Images (${{ matrix.arch }})
+    needs: [validate, nix-eval]
+    if: github.ref_type == 'tag' || github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
+    strategy:
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-22.04
+          - arch: arm64
+            runner: ubuntu-22.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download pinned flake.lock from nix-eval
+        uses: actions/download-artifact@v4
+        with:
+          name: flake-lock
+          path: /tmp/flake-lock-artifact
+
+      - name: Install flake.lock in repo root
+        run: |
+          if [ -f /tmp/flake-lock-artifact/flake.lock ]; then cp /tmp/flake-lock-artifact/flake.lock flake.lock; fi
+
+      - name: Free disk space
+        uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be  # v1.3.1
+        with:
+          tool-cache: true
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: true
+          swap-storage: true
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v30
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+            accept-flake-config = true
+
+      - name: Build images
+        id: build
+        run: |
+          VERSION="$(tr -d '[:space:]' < VERSION)"
+          mkdir -p out
+          if [ "${{ matrix.arch }}" = x86_64 ]; then
+            nix build .#witness-image-x86_64 --print-build-logs -o raw
+            nix build .#witness-qcow2-x86_64 --print-build-logs -o qcow
+            zstd -19 -T0 -o "out/dplaneos-witness-v${VERSION}-x86_64.img.zst" raw/*.img
+            cp qcow/*.qcow2 "out/dplaneos-witness-v${VERSION}-x86_64.qcow2"
+          else
+            nix build .#witness-sd-aarch64 --print-build-logs -o sd
+            cp sd/sd-image/*.img.zst "out/dplaneos-witness-v${VERSION}-rpi-aarch64.img.zst"
+          fi
+          (cd out && sha256sum * > "SHA256SUMS-witness-${{ matrix.arch }}")
+          ls -lh out
+
+      - name: Upload witness images
+        uses: actions/upload-artifact@v4
+        with:
+          name: witness-${{ matrix.arch }}
+          path: out/*
+
   # ════════════════════════════════════════════════════════════════════════════
   # STAGE 5: RELEASE - Professional Build & Publish
   # ════════════════════════════════════════════════════════════════════════════
   release:
     name: Build & Publish Release
-    needs: [validate, integration, config-sync, quorum-vm, convergence, storage-failure, nix-eval, iso, iso-arm, build-live-iso, test-live-boot]
+    needs: [validate, integration, config-sync, quorum-vm, convergence, storage-failure, nix-eval, iso, iso-arm, build-live-iso, test-live-boot, witness-images]
     if: github.ref_type == 'tag' || github.ref == 'refs/heads/main'
     runs-on: ubuntu-22.04
     permissions:
@@ -797,6 +871,13 @@ jobs:
           merge-multiple: true
           path: iso-artifacts
 
+      - name: Download witness images from build jobs
+        uses: actions/download-artifact@v4
+        with:
+          pattern: witness-*
+          merge-multiple: true
+          path: witness-artifacts
+
       - name: Download live ISO artifacts from build jobs
         uses: actions/download-artifact@v4
         with:
@@ -864,6 +945,7 @@ jobs:
             ${{ steps.meta.outputs.arm64_tarball }}.bundle
             ${{ steps.meta.outputs.arm64_tarball }}.sbom.json
             iso-artifacts/*.iso
+            witness-artifacts/*
             iso-artifacts/*.sha256
             iso-artifacts/*.bundle
             iso-artifacts/*.sbom.json

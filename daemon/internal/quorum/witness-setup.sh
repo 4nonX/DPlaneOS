@@ -135,7 +135,9 @@ EOF
 
     # Pull the configuration every minute (nodes added or removed, key changes).
     SYNC=/usr/local/sbin/dplaneos-voter-sync
-    mkdir -p /usr/local/sbin 2>/dev/null || SYNC=/var/lib/dplaneos-voter/sync
+    # The DPlaneOS Witness image declares the units and runs the script from here.
+    [ -n "${DPLANEOS_WITNESS_IMAGE:-}" ] && SYNC=/var/lib/dplaneos-voter/sync
+    [ -n "${DPLANEOS_WITNESS_IMAGE:-}" ] || mkdir -p /usr/local/sbin 2>/dev/null || SYNC=/var/lib/dplaneos-voter/sync
     mkdir -p "$(dirname "$SYNC")"
     cat > "$SYNC" <<'EOF'
 #!/bin/sh
@@ -164,6 +166,13 @@ elif ! cmp -s "$T/conf" /etc/corosync/corosync.conf; then
 fi
 EOF
     chmod 0755 "$SYNC"
+    if [ -n "${DPLANEOS_WITNESS_IMAGE:-}" ]; then
+        say "Starting corosync"
+        systemctl restart corosync || die "corosync did not start (journalctl -u corosync)"
+        systemctl restart dplaneos-voter-sync.timer >/dev/null
+        say "Done. This witness is now a voter of cluster $CLUSTER."
+        exit 0
+    fi
     UNITS=/etc/systemd/system
     if ! touch "$UNITS/.dplaneos-probe" 2>/dev/null; then
         UNITS=/run/systemd/system

@@ -21,6 +21,8 @@ All paths start the same way: System › High Availability › **Cluster quorum*
 | Keeps itself up to date | nothing to update (the cluster's members are not part of its configuration) | pulls the cluster configuration every minute | through DPlaneOS | through DPlaneOS |
 | Best for | most setups with two nodes | three or more members on one LAN, no extra service model | sites that already run another DPlaneOS | growing to three full nodes |
 
+**No spare Linux machine set up?** Flash the [DPlaneOS Witness image](#the-dplaneos-witness-image) to a Raspberry Pi's SD card or a mini PC's USB stick or SSD: it does path 1 or path 2 without any Linux setup.
+
 **If unsure: use a QDevice on a small Linux machine.** It is what Proxmox recommends for two-node clusters, it is the lightest, and it keeps working over a slow or distant link.
 
 ---
@@ -120,11 +122,46 @@ It installs `corosync`, joins the cluster with the code (the node adds it to the
 
 ---
 
+## The DPlaneOS Witness image
+
+A ready-made system for a machine that only serves as the third vote, for people who would rather not set up Linux on it. It runs path 1 (QDevice) or path 2 (voter) with the same setup as above, and nothing else.
+
+| Image | For | File on the release page |
+|---|---|---|
+| Raspberry Pi | Raspberry Pi 3 and 4 (and other boards the generic NixOS aarch64 image supports) | `dplaneos-witness-v…-rpi-aarch64.img.zst` |
+| x86_64 raw | a mini PC or old laptop with UEFI, written to a USB stick or SSD | `dplaneos-witness-v…-x86_64.img.zst` |
+| x86_64 qcow2 | a VM on Proxmox, libvirt or any other hypervisor (UEFI firmware) | `dplaneos-witness-v…-x86_64.qcow2` |
+
+The Raspberry Pi 5 is not supported by the generic image yet; on a Pi 5, install Raspberry Pi OS and use the one-line command (path 1 or 2).
+
+**Setup without a screen (recommended for a Pi):**
+
+1. On a cluster node: System › High Availability › *Add a third vote*. Leave the dialog open; it shows the node's address and a one-time code (valid 30 minutes).
+2. Write the image to the SD card or stick (Raspberry Pi Imager › *Use custom*, balenaEtcher, or `zstd -d < image.img.zst | sudo dd of=/dev/sdX bs=4M`).
+3. On the card's boot partition (the small FAT partition any computer can open: `FIRMWARE` on the Pi image, `ESP` on x86), create `dplaneos-witness.txt`:
+
+   ```
+   node=https://nas1.lan
+   code=dpq_…
+   mode=qdevice
+   ```
+
+   `mode=voter` joins as a voter instead. With more than one witness, add `hostname=witness2` so they get different names.
+4. Put the card in and boot. The witness joins within a minute or two (it retries while the network comes up); the dialog on the node closes by itself. The file is renamed to `dplaneos-witness.txt.done`, or `dplaneos-witness.txt.error` with the reason if it failed (for example an expired code: create a new one and edit the file).
+
+**With a screen and keyboard:** after boot, a wizard on the console shows the machine's address and asks for the role, the node's address and the code.
+
+**SSH (optional):** put your public key as `dplaneos-witness-ssh.pub` on the boot partition before booting; log in as root with that key (passwords are disabled). `dplaneos-witness status` shows the role and what it votes for, `dplaneos-witness join [--voter] <node> <code>` joins, `dplaneos-witness reset` leaves.
+
+**Good:** no Linux knowledge needed, nothing else runs on it, fully headless on a Pi. **Limits:** it is a dedicated machine; updates come as new images (the witness has no data, so re-flashing and joining again with a new code is the update path).
+
+---
+
 ## Which one for my setup?
 
 | Your setup | Recommended |
 |---|---|
-| Two nodes in one rack, nothing else | A Raspberry Pi as QDevice (path 1) |
+| Two nodes in one rack, nothing else | A Raspberry Pi as QDevice (path 1), with the Witness image if you do not want to set up Linux on it |
 | Two nodes, a VM host elsewhere in the building or at another site | A small VM as QDevice (path 1) |
 | Two nodes, an existing DPlaneOS box at another site | Path 3 |
 | Two nodes, want a third full member but no third server | A Pi or mini PC as voter (path 2) |

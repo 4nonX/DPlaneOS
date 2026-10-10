@@ -69,7 +69,7 @@ With two nodes the cluster runs in Corosync's two-node mode: everything works, b
 - **another DPlaneOS system** serving as QDevice, set up in its web interface;
 - a **third DPlaneOS node**.
 
-[THIRD-VOTE.md](THIRD-VOTE.md) compares them, with what each is good at and its limits. Once the vote has registered, the panel shows *Automatic failover is possible*.
+[THIRD-VOTE.md](THIRD-VOTE.md) compares them, with what each is good at and its limits. For a Raspberry Pi or mini PC that should do nothing else, flash the **DPlaneOS Witness image** and put a small text file with the node's address and the code on its boot partition: it joins by itself on first boot. Once the vote has registered, the panel shows *Automatic failover is possible*.
 
 ### Step 4: enable the watchdog on every node
 

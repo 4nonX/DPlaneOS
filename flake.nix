@@ -239,6 +239,14 @@
           frontendPackage = frontend;
         };
 
+        # The DPlaneOS Witness appliance joins headlessly.
+        #   nix build .#checks.x86_64-linux.witness-appliance -L
+        checks.witness-appliance = import ./nixos/tests/witness-appliance.nix {
+          inherit nixpkgs system impermanence;
+          daemonPackage = daemon;
+          frontendPackage = frontend;
+        };
+
         devShells.default = pkgs.mkShell {
           buildInputs = with pkgs; [ go gcc musl.dev gopls gotools postgresql git ];
           shellHook = ''
@@ -464,6 +472,19 @@
       };
 
       # Live boot ISO packages (artifacts)
+      # ── DPlaneOS Witness (third vote appliance, docs/admin/THIRD-VOTE.md) ──
+      nixosConfigurations.witness-pi = nixpkgs.lib.nixosSystem {
+        system = "aarch64-linux";
+        modules = [ ./nixos/witness-image-pi.nix ];
+      };
+      nixosConfigurations.witness-x86 = nixpkgs.lib.nixosSystem {
+        system = "x86_64-linux";
+        modules = [ ./nixos/witness-image-x86.nix ];
+      };
+      packages.aarch64-linux.witness-sd-aarch64 = self.nixosConfigurations.witness-pi.config.system.build.sdImage;
+      packages.x86_64-linux.witness-image-x86_64 = self.nixosConfigurations.witness-x86.config.system.build.witnessRaw;
+      packages.x86_64-linux.witness-qcow2-x86_64 = self.nixosConfigurations.witness-x86.config.system.build.witnessQcow2;
+
       packages.x86_64-linux.iso-live  = self.nixosConfigurations.iso-live.config.system.build.isoImage;
       packages.aarch64-linux.iso-live  = self.nixosConfigurations.iso-live-arm.config.system.build.isoImage;
     };

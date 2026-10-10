@@ -233,6 +233,24 @@ function AddVote({ q, onClose }: { q: QStatus; onClose: () => void }) {
             </div>
           )
       )}
+      {(path === 'qdevice' || path === 'voter') && code && (
+        <details style={{ marginTop: 12, fontSize: 'var(--text-sm)' }}>
+          <summary>No Linux set up on it? Use the DPlaneOS Witness image</summary>
+          <p style={{ margin: '6px 0' }}>
+            Flash the Witness image (Raspberry Pi 3/4, or x86 for a mini PC or VM; on the release page) and create this file as
+            <code> dplaneos-witness.txt</code> on its boot partition before the first boot. It joins by itself.
+          </p>
+          <div style={{ display: 'flex', gap: 6, alignItems: 'flex-start' }}>
+            <code style={{ ...box, whiteSpace: 'pre' }}>{`node=${origin}
+code=${code.code}
+mode=${path === 'voter' ? 'voter' : 'qdevice'}`}</code>
+            <Copy text={`node=${origin}
+code=${code.code}
+mode=${path === 'voter' ? 'voter' : 'qdevice'}
+`} />
+          </div>
+        </details>
+      )}
       {path !== 'dplane-node' && code && (
         <p style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', margin: '12px 0 0' }}>
           The code works once and expires at {new Date(code.expires_at).toLocaleTimeString()}. This window closes by itself when the vote has registered.
