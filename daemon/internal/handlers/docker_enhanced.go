@@ -52,6 +52,18 @@ func (h *DockerHandler) SafeUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	ctxProj, cancelProj := context.WithTimeout(r.Context(), 10*time.Second)
+	project, err := dockerclient.New().ComposeProject(ctxProj, req.ContainerName)
+	cancelProj()
+	if err != nil {
+		respondErrorSimple(w, "Container not found: "+err.Error(), http.StatusNotFound)
+		return
+	}
+	if project != "" {
+		respondErrorSimple(w, fmt.Sprintf("%s belongs to the compose stack %q: update it with its stack (Docker → Compose → Update)", req.ContainerName, project), http.StatusConflict)
+		return
+	}
+
 	id := jobs.Start("docker_safe_update", func(j *jobs.Job) {
 		steps := []UpdateStep{}
 		startTime := time.Now()
@@ -119,18 +131,16 @@ func (h *DockerHandler) SafeUpdate(w http.ResponseWriter, r *http.Request) {
 		}
 		steps = append(steps, UpdateStep{"inspect", true, "config saved"})
 
-		// Step 4: Stop container
-		ctxStop, cancelStop := context.WithTimeout(context.Background(), 30*time.Second)
+		// Step 4: Stop the old container
+		ctxStop, cancelStop := context.WithTimeout(context.Background(), 60*time.Second)
 		defer cancelStop()
 		if err := dockerClient.Stop(ctxStop, req.ContainerName, 10); err != nil {
 			steps = append(steps, UpdateStep{"stop", false, err.Error()})
-			ctxRecover, cancelRecover := context.WithTimeout(context.Background(), 10*time.Second)
-			defer cancelRecover()
-			_ = dockerClient.Start(ctxRecover, req.ContainerName)
+			_ = dockerClient.Start(context.Background(), req.ContainerName)
 			j.Done(map[string]any{
 				"success":     false,
 				"steps":       steps,
-				"error":       "Failed to stop container, restarted original",
+				"error":       "Failed to stop container; it was left running on the old image",
 				"rollback":    snapshotName,
 				"duration_ms": time.Since(startTime).Milliseconds(),
 			})
@@ -138,23 +148,36 @@ func (h *DockerHandler) SafeUpdate(w http.ResponseWriter, r *http.Request) {
 		}
 		steps = append(steps, UpdateStep{"stop", true, ""})
 
-		// Step 5: Start with new image
-		ctxStart, cancelStart := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancelStart()
-		if err := dockerClient.Start(ctxStart, req.ContainerName); err != nil {
-			steps = append(steps, UpdateStep{"start", false, err.Error()})
+		// Step 5: Recreate from the new image with the same configuration (a
+		// restarted container keeps running the image it was created from).
+		// The old container is kept, renamed, until the new one is healthy.
+		ctxNew, cancelNew := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancelNew()
+		rec, err := dockerClient.Recreate(ctxNew, req.ContainerName, image)
+		fail := func(step, msg string) {
+			steps = append(steps, UpdateStep{step, false, msg})
+			detail := "the previous container was restored"
+			if rec != nil {
+				if rbErr := dockerClient.Rollback(context.Background(), rec); rbErr != nil {
+					detail = "restoring the previous container failed: " + rbErr.Error()
+				}
+			} else if err := dockerClient.Start(context.Background(), req.ContainerName); err != nil {
+				detail = "restarting the previous container failed: " + err.Error()
+			}
+			steps = append(steps, UpdateStep{"rollback", !strings.Contains(detail, "failed"), detail})
 			j.Done(map[string]any{
-				"success": false,
-				"steps":   steps,
-				"error": fmt.Sprintf("Container failed to start after update. "+
-					"Your data is safe in snapshot: %s. "+
-					"Rollback with: zfs rollback %s", snapshotName, snapshotName),
+				"success":     false,
+				"steps":       steps,
+				"error":       fmt.Sprintf("Update failed at %s: %s (%s)", step, msg, detail),
 				"rollback":    snapshotName,
 				"duration_ms": time.Since(startTime).Milliseconds(),
 			})
+		}
+		if err != nil {
+			fail("recreate", err.Error())
 			return
 		}
-		steps = append(steps, UpdateStep{"start", true, ""})
+		steps = append(steps, UpdateStep{"recreate", true, image})
 
 		// Step 6: Health check
 		hcTimeout := req.HealthCheckSeconds
@@ -163,21 +186,13 @@ func (h *DockerHandler) SafeUpdate(w http.ResponseWriter, r *http.Request) {
 		}
 		ctxHC, cancelHC := context.WithTimeout(context.Background(), time.Duration(hcTimeout+5)*time.Second)
 		defer cancelHC()
-		running, hcErr := dockerClient.WaitForHealthy(ctxHC, req.ContainerName,
-			time.Duration(hcTimeout)*time.Second)
-
+		running, hcErr := dockerClient.WaitForHealthy(ctxHC, rec.NewID, time.Duration(hcTimeout)*time.Second)
 		if hcErr != nil || !running {
-			steps = append(steps, UpdateStep{"health_check", false,
-				fmt.Sprintf("container not healthy after %ds: %v", hcTimeout, hcErr)})
-			j.Done(map[string]any{
-				"success": false,
-				"steps":   steps,
-				"error": fmt.Sprintf("Container not healthy after update (waited %ds). "+
-					"Rollback data with: zfs rollback %s", hcTimeout, snapshotName),
-				"rollback":    snapshotName,
-				"duration_ms": time.Since(startTime).Milliseconds(),
-			})
+			fail("health_check", fmt.Sprintf("not healthy after %ds: %v", hcTimeout, hcErr))
 			return
+		}
+		if err := dockerClient.Commit(context.Background(), rec); err != nil {
+			steps = append(steps, UpdateStep{"cleanup", false, "old container kept: " + err.Error()})
 		}
 		steps = append(steps, UpdateStep{"health_check", true, "running"})
 
@@ -505,4 +520,3 @@ func validateComposeDirPath(p string) (string, error) {
 	}
 	return "", fmt.Errorf("path must be under /opt, /srv, /home, %s, /mnt, /data, /tank, or /pool", config.DBDir)
 }
-

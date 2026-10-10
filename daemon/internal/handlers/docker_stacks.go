@@ -538,7 +538,7 @@ func (h *StackHandler) DeleteStack(w http.ResponseWriter, r *http.Request) {
 func (h *StackHandler) StackAction(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Name   string `json:"name"`
-		Action string `json:"action"` // "start", "stop", "restart"
+		Action string `json:"action"` // start | stop | restart | down | update
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		respondErrorSimple(w, "Invalid request body", http.StatusBadRequest)
@@ -552,9 +552,9 @@ func (h *StackHandler) StackAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	validActions := map[string]bool{"start": true, "stop": true, "restart": true, "down": true}
+	validActions := map[string]bool{"start": true, "stop": true, "restart": true, "down": true, "update": true}
 	if !validActions[req.Action] {
-		respondErrorSimple(w, "Invalid action: must be start, stop, restart, or down", http.StatusBadRequest)
+		respondErrorSimple(w, "Invalid action: must be start, stop, restart, down or update", http.StatusBadRequest)
 		return
 	}
 
@@ -564,7 +564,7 @@ func (h *StackHandler) StackAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.Action == "start" || req.Action == "restart" {
+	if req.Action == "start" || req.Action == "restart" || req.Action == "update" {
 		if raw, rerr := os.ReadFile(composePath); rerr == nil {
 			if err := composegpu.ValidateForDeploy(string(raw)); err != nil {
 				respondErrorSimple(w, err.Error(), http.StatusBadRequest)
@@ -586,9 +586,22 @@ func (h *StackHandler) StackAction(w http.ResponseWriter, r *http.Request) {
 		args = []string{"compose", "--project-directory", dir, "-f", composePath, "restart"}
 	case "down":
 		args = []string{"compose", "--project-directory", dir, "-f", composePath, "down", "--remove-orphans"}
+	case "update":
+		// Pull the services' images, then recreate the containers whose
+		// image changed.
+		args = []string{"compose", "--project-directory", dir, "-f", composePath, "up", "-d", "--remove-orphans"}
 	}
 
-	output, composeErr := cmdutil.RunSlow("docker_compose", args...)
+	var output []byte
+	var composeErr error
+	if req.Action == "update" {
+		output, composeErr = cmdutil.RunSlow("docker_compose", "compose", "--project-directory", dir, "-f", composePath, "pull")
+	}
+	if composeErr == nil {
+		var out []byte
+		out, composeErr = cmdutil.RunSlow("docker_compose", args...)
+		output = append(output, out...)
+	}
 	duration := time.Since(start)
 
 	audit.LogCommand(audit.LevelInfo, user, "stack_"+req.Action,
@@ -606,7 +619,7 @@ func (h *StackHandler) StackAction(w http.ResponseWriter, r *http.Request) {
 
 	respondOK(w, map[string]any{
 		"success":     true,
-		"message":     fmt.Sprintf("Stack '%s' %sed", req.Name, req.Action),
+		"message":     fmt.Sprintf("Stack '%s': %s done", req.Name, req.Action),
 		"output":      string(output),
 		"duration_ms": duration.Milliseconds(),
 	})

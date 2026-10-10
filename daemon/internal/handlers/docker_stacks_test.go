@@ -143,3 +143,23 @@ func TestStackAction(t *testing.T) {
 		t.Errorf("compose stop not run: %v", cmds.keys())
 	}
 }
+
+// update = pull, then up -d (recreates what changed).
+func TestStackUpdate(t *testing.T) {
+	h, dir, cmds := stacksEnv(t, nil)
+	stack := filepath.Join(dir, "app")
+	_ = os.MkdirAll(stack, 0750)
+	_ = os.WriteFile(filepath.Join(stack, "docker-compose.yml"), []byte(testCompose), 0640)
+	if r := call(t, h.StackAction, req{method: "POST", body: map[string]any{"name": "app", "action": "update"}}); !r.ok() {
+		t.Fatalf("update: %s", r)
+	}
+	var seq []string
+	for _, k := range cmds.keys() {
+		if strings.HasPrefix(k, "docker_compose compose") {
+			seq = append(seq, k[strings.LastIndex(k, ".yml ")+5:])
+		}
+	}
+	if len(seq) != 2 || seq[0] != "pull" || seq[1] != "up -d --remove-orphans" {
+		t.Errorf("update ran %q, want pull then up", seq)
+	}
+}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/gorilla/mux"
 	"net/http"
 	"strings"
 	"time"
@@ -245,7 +246,14 @@ func (h *DockerHandler) PruneDocker(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 120*time.Second)
 	defer cancel()
 
-	containers, images, volumes, spaceBytes, err := h.docker.PruneAll(ctx)
+	// Body (optional): {"containers": bool, "volumes": bool}. Default: dangling
+	// images only.
+	var opt struct {
+		Containers bool `json:"containers"`
+		Volumes    bool `json:"volumes"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&opt)
+	containers, images, volumes, spaceBytes, err := h.docker.PruneAll(ctx, dockerclient.PruneOptions{Containers: opt.Containers, Volumes: opt.Volumes})
 	if err != nil {
 		audit.LogCommand(audit.LevelWarn, user, "docker_prune", nil, false, 0, err)
 		respondOK(w, map[string]any{"success": false, "error": err.Error()})
@@ -288,8 +296,13 @@ func (h *DockerHandler) RemoveImage(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	case http.MethodDelete:
-		// Extract from URL if needed, but main.go uses POST for this often
-		req.ID = r.URL.Query().Get("id")
+		// DELETE /api/docker/images/{id}[?force=true] (the route's path
+		// variable; it was read from ?id= and always came back empty).
+		req.ID = mux.Vars(r)["id"]
+		if req.ID == "" {
+			req.ID = r.URL.Query().Get("id")
+		}
+		req.Force = r.URL.Query().Get("force") == "true"
 	}
 
 	if req.ID == "" {
@@ -300,26 +313,6 @@ func (h *DockerHandler) RemoveImage(w http.ResponseWriter, r *http.Request) {
 	user := r.Header.Get("X-User")
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
-
-	// Issue 3: Ancestor container check
-	if !req.Force {
-		containers, err := h.docker.ListAll(ctx)
-		if err == nil {
-			var blockers []string
-			for _, c := range containers {
-				if c.ImageID == req.ID || c.Image == req.ID {
-					blockers = append(blockers, c.ShortName())
-				}
-			}
-			if len(blockers) > 0 {
-				respondOK(w, map[string]any{
-					"success": false,
-					"error":   fmt.Sprintf("Image is in use by containers: %s. Stop and remove them first, or use force.", strings.Join(blockers, ", ")),
-				})
-				return
-			}
-		}
-	}
 
 	// Issue 3: Ancestor container check
 	if !req.Force {

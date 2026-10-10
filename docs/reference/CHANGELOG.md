@@ -28,6 +28,15 @@ interface against the fields its handler reads
 
 ### Security
 
+- File manager (runs as root; the built-in "user" role may use it): listing
+  and file properties had no path check at all, the other operations
+  checked paths lexically only (a symlink created on a share reached the
+  whole system), the allowed roots included /home, /tmp and the daemon's
+  data directory (secrets key, SSH keys), and setuid/setgid modes were
+  accepted. It is now limited to pool and removable-media mounts, every
+  path is checked after resolving symlinks, deleting or renaming a symlink
+  acts on the link itself, writes never follow a symlink, and
+  setuid/setgid modes are refused.
 - First-run setup: /api/system/setup-admin replaced the admin password
   even when the installer had set one, so anyone on the network could take
   the account over until setup was finished; /api/system/setup-complete
@@ -61,6 +70,21 @@ interface against the fields its handler reads
 
 ### Fixed
 
+- Docker: updating a container pulled the new image but only restarted
+  the old container, which kept running the old image while the update
+  reported success. It now recreates the container with the same
+  configuration and restores the previous one if the new one does not
+  come up healthy; compose containers are updated with their stack.
+- Docker: system prune also removed every stopped container and then the
+  volumes they left behind (a stopped app lost its data). It now removes
+  dangling images; stopped containers and unused volumes are separate
+  opt-ins. Removing an image from the API always failed (the ID was read
+  from the wrong place).
+- Docker page: images (list, remove), live container stats, pre-flight
+  checks, container updates and "docker run" import are now in the UI.
+- Files: the Upload button sent the file's path as the target folder, so
+  uploads failed (drag and drop worked). Custom app icons get an upload in
+  the Docker page; icon files are served with a sandboxing CSP.
 - Replicating a dataset without naming a snapshot could pick the newest
   snapshot of a child dataset and replicate that instead.
 - Changing an encryption key failed on unlocked datasets and never checked

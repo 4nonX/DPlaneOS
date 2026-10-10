@@ -15,6 +15,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -211,7 +212,7 @@ type ContainerDetail struct {
 			Name              string `json:"Name"`
 			MaximumRetryCount int    `json:"MaximumRetryCount"`
 		} `json:"RestartPolicy"`
-		Binds        []string               `json:"Binds"`
+		Binds        []string       `json:"Binds"`
 		PortBindings map[string]any `json:"PortBindings"`
 	} `json:"HostConfig"`
 	NetworkSettings struct {
@@ -572,11 +573,11 @@ type RestartPolicySpec struct {
 
 // CreateHostConfig is the HostConfig body for POST /containers/create.
 type CreateHostConfig struct {
-	Binds         []string                   `json:"Binds,omitempty"`
-	PortBindings  map[string][]PortBinding   `json:"PortBindings,omitempty"`
-	RestartPolicy RestartPolicySpec          `json:"RestartPolicy"`
-	NanoCpus      int64                      `json:"NanoCpus,omitempty"`
-	Memory        int64                      `json:"Memory,omitempty"`
+	Binds         []string                 `json:"Binds,omitempty"`
+	PortBindings  map[string][]PortBinding `json:"PortBindings,omitempty"`
+	RestartPolicy RestartPolicySpec        `json:"RestartPolicy"`
+	NanoCpus      int64                    `json:"NanoCpus,omitempty"`
+	Memory        int64                    `json:"Memory,omitempty"`
 }
 
 // CreateConfig is the full body for POST /containers/create.
@@ -607,17 +608,33 @@ func (c *Client) Create(ctx context.Context, name string, cfg CreateConfig) (str
 	return result.ID, nil
 }
 
+var errSkipped = errors.New("skipped")
+
 // PruneResult holds space reclaimed by a prune operation.
 type PruneResult struct {
 	SpaceReclaimed int64 `json:"space_reclaimed"`
 	ItemsRemoved   int   `json:"items_removed"`
 }
 
-// PruneAll removes stopped containers, dangling images, and unused volumes.
-// Returns aggregate counts and space reclaimed.
-func (c *Client) PruneAll(ctx context.Context) (containers, images, volumes int, spaceBytes int64, err error) {
+// PruneOptions: dangling images are always pruned; stopped containers and
+// unused volumes only on request (a stopped app is removed, and the volumes
+// it leaves behind can hold its data).
+type PruneOptions struct {
+	Containers bool
+	Volumes    bool
+}
+
+// PruneAll removes dangling images and, as requested, stopped containers
+// and unused volumes. Returns aggregate counts and space reclaimed.
+func (c *Client) PruneAll(ctx context.Context, opt PruneOptions) (containers, images, volumes int, spaceBytes int64, err error) {
+	var resp *http.Response
+	var e error
 	// 1. Prune stopped containers
-	resp, e := c.post(ctx, "/containers/prune", nil)
+	if opt.Containers {
+		resp, e = c.post(ctx, "/containers/prune", nil)
+	} else {
+		e = errSkipped
+	}
 	if e == nil {
 		var r struct {
 			ContainersDeleted []string `json:"ContainersDeleted"`
@@ -636,7 +653,7 @@ func (c *Client) PruneAll(ctx context.Context) (containers, images, volumes int,
 	if e == nil {
 		var r struct {
 			ImagesDeleted  []any `json:"ImagesDeleted"`
-			SpaceReclaimed int64         `json:"SpaceReclaimed"`
+			SpaceReclaimed int64 `json:"SpaceReclaimed"`
 		}
 		if decodeJSON(resp, &r) == nil {
 			images = len(r.ImagesDeleted)
@@ -645,7 +662,11 @@ func (c *Client) PruneAll(ctx context.Context) (containers, images, volumes int,
 	}
 
 	// 3. Prune unused volumes
-	resp, e = c.post(ctx, "/volumes/prune", nil)
+	if opt.Volumes {
+		resp, e = c.post(ctx, "/volumes/prune", nil)
+	} else {
+		e = errSkipped
+	}
 	if e == nil {
 		var r struct {
 			VolumesDeleted []string `json:"VolumesDeleted"`
@@ -659,4 +680,3 @@ func (c *Client) PruneAll(ctx context.Context) (containers, images, volumes int,
 
 	return containers, images, volumes, spaceBytes, nil
 }
-

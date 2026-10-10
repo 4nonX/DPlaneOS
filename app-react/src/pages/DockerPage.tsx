@@ -10,7 +10,8 @@
  *   POST /api/docker/stacks/deploy       → synchronous stack deploy { success, error?, output?, ... }
  *   GET  /api/docker/gpu                 → GPU passthrough / host report
  *   POST /api/docker/remove              → remove container
- *   POST /api/docker/prune               → system prune
+ *   Images, stats, safe update: components/docker/DockerExtras.tsx
+ *   POST /api/docker/prune {containers?, volumes?} → prune (dangling images; the rest opt-in)
  *   GET  /api/docker/logs?container=     → container logs
  *   GET  /api/docker/stats               → live resource stats
  *   POST /api/docker/compose/up          → async job { job_id }
@@ -19,6 +20,7 @@
  *   POST /api/docker/update              → safe update (pull + restart)
  */
 
+import { ImagesTab, StatsTab, SafeUpdateModal, ConvertRunButton } from '@/components/docker/DockerExtras'
 import { CustomIconsButton } from '@/components/docker/CustomIconsButton'
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -200,6 +202,7 @@ function ContainerCard({ container, onRefresh }: { container: Container; onRefre
   const [showLogs, setShowLogs] = useState(false)
   const [showEdit, setShowEdit] = useState(false)
   const [showDelete, setShowDelete] = useState(false)
+  const [showUpdate, setShowUpdate] = useState(false)
   const [actionPending, setActionPending] = useState<string | null>(null)
 
   const action = useMutation({
@@ -296,6 +299,13 @@ function ContainerCard({ container, onRefresh }: { container: Container; onRefre
               <Icon name="description" size={14} />
             </button>
           </Tooltip>
+          {!container.stack && (
+            <Tooltip content="Update image">
+              <button onClick={() => setShowUpdate(true)} className="btn btn-ghost" style={{ padding: '5px 7px' }}>
+                <Icon name="system_update_alt" size={14} />
+              </button>
+            </Tooltip>
+          )}
           <Tooltip content="Remove">
             <button onClick={() => setShowDelete(true)} className="btn btn-ghost" style={{ padding: '5px 7px', color: 'var(--error)' }}>
               <Icon name="delete" size={14} />
@@ -306,6 +316,7 @@ function ContainerCard({ container, onRefresh }: { container: Container; onRefre
 
       {showLogs && <LogsModal containerName={name} onClose={() => setShowLogs(false)} />}
       {showEdit && <ContainerEditModal container={container} onClose={() => setShowEdit(false)} onSaved={() => { setShowEdit(false); onRefresh() }} />}
+      {showUpdate && <SafeUpdateModal name={name} image={container.image} onClose={() => setShowUpdate(false)} onDone={onRefresh} />}
       {showDelete && (
         <Modal title="Remove Container?" onClose={() => setShowDelete(false)}>
           <p style={{ color: 'var(--text-secondary)', marginBottom: 20 }}>
@@ -605,6 +616,7 @@ function ContainerRow({ container, onRefresh, style: _rowStyle }: { container: C
   const [showLogs, setShowLogs] = useState(false)
   const [showEdit, setShowEdit] = useState(false)
   const [showDelete, setShowDelete] = useState(false)
+  const [showUpdate, setShowUpdate] = useState(false)
   const [actionPending, setActionPending] = useState<string | null>(null)
 
   const action = useMutation({
@@ -729,6 +741,13 @@ function ContainerRow({ container, onRefresh, style: _rowStyle }: { container: C
                 <Icon name="tune" size={14} />
               </button>
             </Tooltip>
+            {!container.stack && (
+              <Tooltip content="Update image">
+                <button onClick={() => setShowUpdate(true)} className="btn btn-ghost">
+                  <Icon name="system_update_alt" size={14} />
+                </button>
+              </Tooltip>
+            )}
             {isRunning ? (
               <>
                 <Tooltip content="Restart">
@@ -766,6 +785,7 @@ function ContainerRow({ container, onRefresh, style: _rowStyle }: { container: C
           onSaved={() => { setShowEdit(false); onRefresh() }}
         />
       )}
+      {showUpdate && <SafeUpdateModal name={container.name.replace(/^\//, '')} image={container.image} onClose={() => setShowUpdate(false)} onDone={onRefresh} />}
       {showDelete && (
         <Modal title="Remove Container?" onClose={() => setShowDelete(false)}>
           <p style={{ color: 'var(--text-secondary)', marginBottom: 20 }}>
@@ -815,13 +835,22 @@ function ContainersTab() {
   }, [wsOn, qc])
 
   const [showPruneConfirm, setShowPruneConfirm] = useState(false)
+  const [pruneContainers, setPruneContainers] = useState(false)
+  const [pruneVolumes, setPruneVolumes] = useState(false)
 
   const prune = useMutation({
     mutationFn: async () => {
       const token = await issueConfirmToken('docker_prune', 'all')
-      return apiFetch('/api/docker/prune', { method: 'POST', body: {}, headers: { 'X-Confirm-Token': token } })
+      const r = await apiFetch<{ success: boolean; error?: string; containers_removed: number; images_removed: number; volumes_removed: number; space_reclaimed: string }>(
+        '/api/docker/prune', { method: 'POST', body: { containers: pruneContainers, volumes: pruneVolumes }, headers: { 'X-Confirm-Token': token } })
+      if (!r.success) throw new Error(r.error ?? 'Prune failed')
+      return r
     },
-    onSuccess: () => { toast.success('Docker system pruned'); setShowPruneConfirm(false); qc.invalidateQueries({ queryKey: ['docker', 'containers'] }) },
+    onSuccess: r => {
+      toast.success(`Pruned: ${r.images_removed} images, ${r.containers_removed} containers, ${r.volumes_removed} volumes${r.space_reclaimed ? ` (${r.space_reclaimed} freed)` : ''}`)
+      setShowPruneConfirm(false)
+      qc.invalidateQueries({ queryKey: ['docker'] })
+    },
     onError: (e: Error) => toast.error(e.message),
   })
 
@@ -905,12 +934,20 @@ function ContainersTab() {
           </button>
           {showPruneConfirm && (
             <Modal title="System Prune?" onClose={() => setShowPruneConfirm(false)}>
-              <p style={{ color: 'var(--text-secondary)', marginBottom: 20 }}>
-                Remove all stopped containers, unused images, and dangling volumes? This cannot be undone.
+              <p style={{ color: 'var(--text-secondary)', marginBottom: 12 }}>
+                Remove dangling (untagged) images. This cannot be undone.
               </p>
+              <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', marginBottom: 8 }}>
+                <input type="checkbox" checked={pruneContainers} onChange={e => setPruneContainers(e.target.checked)} />
+                <span>Also remove <b>stopped containers</b> (stopped apps are deleted, not just paused)</span>
+              </label>
+              <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', marginBottom: 20 }}>
+                <input type="checkbox" checked={pruneVolumes} onChange={e => setPruneVolumes(e.target.checked)} />
+                <span style={{ color: pruneVolumes ? 'var(--error)' : undefined }}>Also remove <b>unused volumes</b>: data of removed or stopped-and-pruned apps is lost</span>
+              </label>
               <div style={{ display: 'flex', gap: 10 }}>
                 <button onClick={() => prune.mutate()} disabled={prune.isPending} className="btn btn-ghost" style={{ color: 'var(--error)', borderColor: 'var(--error-border)' }}>
-                  <Icon name="delete_sweep" size={15} />{prune.isPending ? 'Pruning…' : 'Prune All'}
+                  <Icon name="delete_sweep" size={15} />{prune.isPending ? 'Pruning…' : 'Prune'}
                 </button>
                 <button onClick={() => setShowPruneConfirm(false)} className="btn btn-ghost">Cancel</button>
               </div>
@@ -1695,6 +1732,7 @@ function ComposeManager() {
                 <input value={newName} onChange={e => setNewName(e.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, ''))} placeholder="my-stack" className="input" style={{ maxWidth: 200, padding: '6px 10px', fontFamily: 'var(--font-mono)' }} autoFocus />
               </div>
               <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
+                <ConvertRunButton onConverted={(y, n) => { setYaml(y); if (n && !newName) setNewName(n.toLowerCase().replace(/[^a-z0-9_-]/g, '')) }} />
                 <button onClick={() => deployNew.mutate()} disabled={deployNew.isPending || !newName.trim()} className="btn btn-primary">
                   <Icon name="rocket_launch" size={15} />{deployNew.isPending ? 'Deploying…' : 'Deploy'}
                 </button>
@@ -2675,13 +2713,15 @@ function GitSyncTab() {
 // DockerPage
 // ---------------------------------------------------------------------------
 
-type Tab = 'containers' | 'pull' | 'compose' | 'gpu' | 'gitsync'
+type Tab = 'containers' | 'images' | 'stats' | 'pull' | 'compose' | 'gpu' | 'gitsync'
 
 export function DockerPage() {
   const [tab, setTab] = usePersistedState<Tab>('docker.tab', 'containers')
 
   const TABS: { id: Tab; label: string; icon: string }[] = [
     { id: 'containers', label: 'Containers', icon: 'deployed_code' },
+    { id: 'images', label: 'Images', icon: 'layers' },
+    { id: 'stats', label: 'Stats', icon: 'monitoring' },
     { id: 'pull', label: 'Pull Image', icon: 'download' },
     { id: 'compose', label: 'Compose', icon: 'folder' },
     { id: 'gitsync', label: 'Git Sync', icon: 'source' },
@@ -2708,6 +2748,8 @@ export function DockerPage() {
       </div>
 
       {tab === 'containers' && <ContainersTab />}
+      {tab === 'images'     && <ImagesTab />}
+      {tab === 'stats'      && <StatsTab />}
       {tab === 'pull'       && <PullTab />}
       {tab === 'compose'    && <ComposeManager />}
       {tab === 'gitsync'    && <GitSyncTab />}
