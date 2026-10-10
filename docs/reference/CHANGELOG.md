@@ -5,26 +5,37 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
 
-## Unreleased
+## v15.0.0 (2026-10-10) - "Local First"
 
-Found by the new handler tests (the API handlers now run against a real
-PostgreSQL schema and a command fake in CI). CI also checks every request of the web
-interface against the fields its handler reads
-(`scripts/check-api-contract.py`).
+[Design 0001](../design/0001-distributed-state-gitops-ha.md), phases 0 to 3: every node keeps its own database and keeps working on its own; paired nodes exchange configuration (with secrets) and merge it per resource; high availability is rebuilt on Corosync quorum, a third vote from anything, and storage groups that move between nodes with their shares, apps and a floating address.
 
-### Upgrade notes
+### Upgrade notes (breaking)
+
+- **Patroni-based HA is removed.** `services.dplaneos.ha` (Patroni, etcd, HAProxy, keepalived), the etcd witness and the installer's "Install Witness Node" entry are gone. Remove `services.dplaneos.ha.*` from your NixOS configuration if you set it there. HA is set up anew from the web interface: pair the nodes (System › Configuration Sync), form the cluster and add a third vote (System › High Availability), create storage groups. See [HIGH-AVAILABILITY.md](../admin/HIGH-AVAILABILITY.md).
+- **Removed API endpoints:** the legacy `/api/ha/*` routes for peers, promote, switchover, fence, maintenance, witness, network witness, SBD, cluster secret, replication, timing, toggle, heartbeat, standby and ALUA standby. Kept: `/api/ha/protection`, `/api/ha/watchdog/configure`, `/api/ha/fencing/configure`, `/api/ha/pdu/configure`, `/api/ha/hardware/detect`, `/api/ha/scsi/*`, `/api/ha/ctdb/*`.
+- **Removed daemon flags:** `--ha-local-id`, `--ha-local-addr`, `--ha-cluster-secret`.
+- **CTDB** takes its node list from the new `services.dplaneos.ctdb.nodes`.
+- **Prometheus:** the HA metrics changed (`dplaneos_ha_*`, `dplaneos_group_*`); update dashboards and use the new `prometheus/ha-alerts.yml`.
+- The database schema migrates automatically on first start (migrations up to 00027).
+
+API and web interface: the API handlers run in CI against a real PostgreSQL
+schema and a command fake, and CI checks every request and response of the
+web interface against its handler (`scripts/check-api-contract.py`). What
+that found is listed here.
+
+### Changed
 
 - **API token scopes are enforced.** A `read` token can only read, a
-  `write` token cannot perform admin actions. Before, every token could do
-  everything its user could. Re-create automation tokens with the scope
-  they need.
-- **API tokens expire.** Expiry dates were never applied; tokens past
-  their date stop working after the upgrade.
-- New NFS exports default to `root_squash` (was `no_root_squash`).
-- **Webhooks created in the web interface were stored disabled** and never
-  fired (the Test button worked, real alerts were not sent), and their
-  custom headers were dropped. New and re-saved webhooks work; existing
-  ones must be re-created or enabled (`enabled = 1` in `webhook_configs`).
+  `write` token cannot perform admin actions.
+- **API tokens expire** on their expiry date.
+- New NFS exports default to `root_squash`.
+- The file manager, shares, exports, ACLs, backups and public file links
+  work on pool and removable-media mounts only (`/mnt`, `/tank`, `/data`,
+  `/media` and every mounted ZFS filesystem outside the system
+  directories).
+- Accounts get their permissions from RBAC roles; the built-in roles
+  (admin, operator, user, viewer) have default permissions.
+- Scheduled SMART tests use systemd calendar expressions.
 
 ### Security
 
@@ -93,7 +104,7 @@ interface against the fields its handler reads
   account's directory to have the daemon (root) write that account's
   authorized_keys. The file is now written without following symlinks.
 
-### Fixed
+### Fixed (API and web interface)
 
 - Rsync backups: one-off backups ignored the options entered; pools
   mounted outside /mnt were refused; `--exclude=` patterns, shown as an
@@ -214,19 +225,6 @@ interface against the fields its handler reads
 - Webhook body templates inserted values unescaped: a message with a quote
   produced invalid JSON and the alert was rejected. Webhooks cannot
   target link-local addresses (cloud metadata).
-
-## v15.0.0 (2026-10-10) - "Local First"
-
-[Design 0001](../design/0001-distributed-state-gitops-ha.md), phases 0 to 3: every node keeps its own database and keeps working on its own; paired nodes exchange configuration (with secrets) and merge it per resource; high availability is rebuilt on Corosync quorum, a third vote from anything, and storage groups that move between nodes with their shares, apps and a floating address.
-
-### Upgrade notes (breaking)
-
-- **Patroni-based HA is removed.** `services.dplaneos.ha` (Patroni, etcd, HAProxy, keepalived), the etcd witness and the installer's "Install Witness Node" entry are gone. Remove `services.dplaneos.ha.*` from your NixOS configuration if you set it there. HA is set up anew from the web interface: pair the nodes (System › Configuration Sync), form the cluster and add a third vote (System › High Availability), create storage groups. See [HIGH-AVAILABILITY.md](../admin/HIGH-AVAILABILITY.md).
-- **Removed API endpoints:** the legacy `/api/ha/*` routes for peers, promote, switchover, fence, maintenance, witness, network witness, SBD, cluster secret, replication, timing, toggle, heartbeat, standby and ALUA standby. Kept: `/api/ha/protection`, `/api/ha/watchdog/configure`, `/api/ha/fencing/configure`, `/api/ha/pdu/configure`, `/api/ha/hardware/detect`, `/api/ha/scsi/*`, `/api/ha/ctdb/*`.
-- **Removed daemon flags:** `--ha-local-id`, `--ha-local-addr`, `--ha-cluster-secret`.
-- **CTDB** takes its node list from the new `services.dplaneos.ctdb.nodes`.
-- **Prometheus:** the HA metrics changed (`dplaneos_ha_*`, `dplaneos_group_*`); update dashboards and use the new `prometheus/ha-alerts.yml`.
-- The database schema migrates automatically on first start (migrations up to 00023).
 
 Phase 0: fixes in GitOps and HA that do not depend on the new architecture.
 
