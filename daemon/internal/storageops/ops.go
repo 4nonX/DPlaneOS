@@ -12,6 +12,7 @@ package storageops
 import (
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -92,6 +93,11 @@ func Begin(db *sql.DB, opType OpType, target string) (int64, error) {
 		RETURNING id`,
 		string(opType), target,
 	).Scan(&id); err != nil {
+		// uq_storage_ops_pending_target: another request started an
+		// operation on this target between the check above and the insert.
+		if strings.Contains(err.Error(), "uq_storage_ops_pending_target") {
+			return 0, fmt.Errorf("operation blocked: an operation on %q is already in progress", target)
+		}
 		return 0, fmt.Errorf("storageops: insert: %w", err)
 	}
 	return id, nil
