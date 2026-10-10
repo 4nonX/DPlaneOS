@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"dplaned/internal/audit"
@@ -80,7 +81,12 @@ func computeTOTP(secret string, t time.Time) (string, error) {
 
 // validateTOTP checks the current window ±1 step for clock drift tolerance
 func validateTOTP(secret, code string) bool {
-	now := time.Now()
+	_, ok := matchTOTPStep(secret, code, time.Now())
+	return ok
+}
+
+// matchTOTPStep returns the time step (counter) the code belongs to.
+func matchTOTPStep(secret, code string, now time.Time) (int64, bool) {
 	for _, offset := range []int{-1, 0, 1} {
 		t := now.Add(time.Duration(offset) * time.Duration(totpPeriod) * time.Second)
 		expected, err := computeTOTP(secret, t)
@@ -88,10 +94,65 @@ func validateTOTP(secret, code string) bool {
 			continue
 		}
 		if hmac.Equal([]byte(expected), []byte(code)) {
-			return true
+			return t.Unix() / totpPeriod, true
 		}
 	}
-	return false
+	return 0, false
+}
+
+// totpGuard limits second-factor guessing per user (a new pending token
+// only takes the password, so a per-token limit would not hold) and
+// refuses a code whose time step was already used (replay).
+type totpGuard struct {
+	mu       sync.Mutex
+	fails    map[int][]time.Time
+	lastStep map[int]int64
+}
+
+const (
+	totpMaxFailures = 5
+	totpFailWindow  = 15 * time.Minute
+)
+
+var totpAttempts = &totpGuard{fails: map[int][]time.Time{}, lastStep: map[int]int64{}}
+
+// locked reports whether the user has too many recent failures.
+func (g *totpGuard) locked(userID int, now time.Time) bool {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	recent := g.fails[userID][:0]
+	for _, t := range g.fails[userID] {
+		if now.Sub(t) < totpFailWindow {
+			recent = append(recent, t)
+		}
+	}
+	g.fails[userID] = recent
+	return len(recent) >= totpMaxFailures
+}
+
+func (g *totpGuard) fail(userID int, now time.Time) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.fails[userID] = append(g.fails[userID], now)
+}
+
+// useStep records a successful code; false if its step (or a later one)
+// was used already.
+func (g *totpGuard) useStep(userID int, step int64) bool {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if step <= g.lastStep[userID] {
+		return false
+	}
+	g.lastStep[userID] = step
+	delete(g.fails, userID)
+	return true
+}
+
+func (g *totpGuard) succeeded(userID int) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	delete(g.fails, userID)
 }
 
 // generateBackupCodes creates 8 single-use 8-char backup codes
@@ -386,24 +447,51 @@ func (h *TOTPHandler) HandleTOTPVerify(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	valid := validateTOTP(plainVerifySecret, req.Code)
+	now := time.Now()
+	if totpAttempts.locked(userID, now) {
+		// The pending login is spent; a new one needs the password again.
+		h.db.Exec(`DELETE FROM sessions WHERE session_id = $1`, req.PendingToken) //nolint:errcheck
+		audit.LogAction("auth", username, "2FA locked: too many failed codes", false, 0)
+		respondErrorSimple(w, "Too many failed codes - try again in 15 minutes", http.StatusTooManyRequests)
+		return
+	}
 
-	// Check backup codes if TOTP failed
-	if !valid && len(req.Code) == 8 {
+	valid := false
+	if step, ok := matchTOTPStep(plainVerifySecret, req.Code, now); ok {
+		valid = totpAttempts.useStep(userID, step) // a replayed code counts as a failure
+	} else if len(req.Code) == 8 {
+		// Check backup codes if TOTP failed
 		valid = h.validateAndConsumeBackupCode(userID, req.Code, backupCodes)
+		if valid {
+			totpAttempts.succeeded(userID)
+		}
 	}
 
 	if !valid {
+		totpAttempts.fail(userID, now)
 		respondErrorSimple(w, "Invalid authentication code", http.StatusUnauthorized)
 		return
 	}
 
 	// Upgrade pending session to full active session at AAL2 (password + TOTP).
-	sessionID, _ := generateSessionID()
-	if _, err := h.db.Exec(
-		`UPDATE sessions SET session_id = $1, status = 'active', aal = 2 WHERE session_id = $2`,
-		sessionID, req.PendingToken); err != nil {
+	// Exactly one row: a pending token used twice (double submit) must not
+	// hand out a second, non-existent session id.
+	sessionID, err := generateSessionID()
+	if err != nil {
+		respondErrorSimple(w, "Internal error", http.StatusInternalServerError)
+		return
+	}
+	res, err := h.db.Exec(
+		`UPDATE sessions SET session_id = $1, status = 'active', aal = 2 WHERE session_id = $2 AND status = 'pending_totp'`,
+		sessionID, req.PendingToken)
+	if err != nil {
 		log.Printf("TOTP SESSION UPGRADE ERROR: %v", err)
+		respondErrorSimple(w, "Internal error", http.StatusInternalServerError)
+		return
+	}
+	if n, _ := res.RowsAffected(); n != 1 {
+		respondErrorSimple(w, "Invalid or expired pending session", http.StatusUnauthorized)
+		return
 	}
 
 	// Return the new full session
@@ -436,13 +524,18 @@ func (h *TOTPHandler) validateAndConsumeBackupCode(userID int, code, storedHashe
 			continue
 		}
 		if err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(code)); err == nil {
-			// Consume: replace this hash with empty string
+			// Consume: replace this hash with empty string. Compare-and-swap
+			// on the old list, so two concurrent requests with the same code
+			// cannot both succeed; a code that cannot be consumed is refused.
 			hashes[i] = ""
-			if _, err := h.db.Exec(`UPDATE totp_secrets SET backup_codes = $1 WHERE user_id = $2`,
-				strings.Join(hashes, ","), userID); err != nil {
+			res, err := h.db.Exec(`UPDATE totp_secrets SET backup_codes = $1 WHERE user_id = $2 AND backup_codes = $3`,
+				strings.Join(hashes, ","), userID, storedHashes)
+			if err != nil {
 				log.Printf("TOTP BACKUP CONSUME ERROR: %v", err)
+				return false
 			}
-			return true
+			n, _ := res.RowsAffected()
+			return n == 1
 		}
 	}
 	return false
