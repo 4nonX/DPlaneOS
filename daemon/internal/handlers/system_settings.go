@@ -12,31 +12,45 @@ import (
 	"strings"
 	"time"
 
+	"dplaned/internal/audit"
 	"dplaned/internal/monitoring"
 )
 
 // ── Settings persistence ──────────────────────────────────────────────────────
 
+// SystemSettings are the kernel tuning values the daemon applies.
+// ARCLimitGB 0 means automatic (the ZFS default, half of the RAM).
 type SystemSettings struct {
-	ARCLimitGB           int  `json:"arc_limit_gb"`
-	Swappiness           int  `json:"swappiness"`
-	RealtimeEnabled      bool `json:"realtime_enabled"`
-	PeriodicEnabled      bool `json:"periodic_enabled"`
-	InotifyWarnThreshold int  `json:"inotify_warn_threshold"`
-	MemoryWarnThreshold  int  `json:"memory_warn_threshold"`
-	IOWaitWarnThreshold  int  `json:"iowait_warn_threshold"`
-	WebSocketAlerts      bool `json:"websocket_alerts"`
+	ARCLimitGB int `json:"arc_limit_gb"`
+	Swappiness int `json:"swappiness"`
 }
 
-var defaultSystemSettings = SystemSettings{
-	ARCLimitGB:           8,
-	Swappiness:           10,
-	RealtimeEnabled:      true,
-	PeriodicEnabled:      true,
-	InotifyWarnThreshold: 80,
-	MemoryWarnThreshold:  85,
-	IOWaitWarnThreshold:  20,
-	WebSocketAlerts:      true,
+// Paths of the live kernel parameters (replaced in tests).
+var (
+	arcMaxParamPath  = "/sys/module/zfs/parameters/zfs_arc_max"
+	swappinessPath   = "/proc/sys/vm/swappiness"
+	modprobeZFSPath  = "/etc/modprobe.d/zfs.conf"
+	sysctlDropInPath = "/etc/sysctl.d/99-dplaneos.conf"
+)
+
+// liveSystemSettings reads what the kernel uses now.
+func liveSystemSettings() SystemSettings {
+	var out SystemSettings
+	if b, err := os.ReadFile(arcMaxParamPath); err == nil {
+		if v, err := strconv.ParseInt(strings.TrimSpace(string(b)), 10, 64); err == nil && v > 0 {
+			out.ARCLimitGB = int((v + (1 << 29)) >> 30)
+			if out.ARCLimitGB == 0 {
+				out.ARCLimitGB = 1
+			}
+		}
+	}
+	out.Swappiness = 60
+	if b, err := os.ReadFile(swappinessPath); err == nil {
+		if v, err := strconv.Atoi(strings.TrimSpace(string(b))); err == nil {
+			out.Swappiness = v
+		}
+	}
+	return out
 }
 
 const systemSettingsFile = "system-settings.json"
@@ -49,15 +63,15 @@ func loadSystemSettings() (SystemSettings, error) {
 	f, err := os.Open(systemSettingsPath())
 	if err != nil {
 		if os.IsNotExist(err) {
-			return defaultSystemSettings, nil
+			return liveSystemSettings(), nil
 		}
-		return defaultSystemSettings, err
+		return liveSystemSettings(), err
 	}
 	defer f.Close()
 
 	var s SystemSettings
 	if err := json.NewDecoder(f).Decode(&s); err != nil {
-		return defaultSystemSettings, err
+		return liveSystemSettings(), err
 	}
 	return s, nil
 }
@@ -78,7 +92,7 @@ func applyARCLimit(gb int) error {
 	val := strconv.FormatInt(bytes, 10)
 
 	// Live kernel parameter
-	if err := os.WriteFile("/sys/module/zfs/parameters/zfs_arc_max", []byte(val), 0644); err != nil {
+	if err := os.WriteFile(arcMaxParamPath, []byte(val), 0644); err != nil {
 		return fmt.Errorf("write zfs_arc_max sysfs: %w", err)
 	}
 
@@ -87,8 +101,8 @@ func applyARCLimit(gb int) error {
 		return NixWriter.SetZFSArcMax(bytes)
 	}
 	line := fmt.Sprintf("options zfs zfs_arc_max=%s\n", val)
-	if err := os.WriteFile("/etc/modprobe.d/zfs.conf", []byte(line), 0644); err != nil {
-		return fmt.Errorf("write /etc/modprobe.d/zfs.conf: %w", err)
+	if err := os.WriteFile(modprobeZFSPath, []byte(line), 0644); err != nil {
+		return fmt.Errorf("write %s: %w", modprobeZFSPath, err)
 	}
 	return nil
 }
@@ -99,7 +113,7 @@ func applySwappiness(v int) error {
 	val := strconv.Itoa(v)
 
 	// Live kernel parameter
-	if err := os.WriteFile("/proc/sys/vm/swappiness", []byte(val), 0644); err != nil {
+	if err := os.WriteFile(swappinessPath, []byte(val), 0644); err != nil {
 		return fmt.Errorf("write swappiness: %w", err)
 	}
 
@@ -108,8 +122,8 @@ func applySwappiness(v int) error {
 		return NixWriter.SetSysctl("vm.swappiness", val)
 	}
 	line := fmt.Sprintf("vm.swappiness=%s\n", val)
-	if err := os.WriteFile("/etc/sysctl.d/99-dplaneos.conf", []byte(line), 0644); err != nil {
-		return fmt.Errorf("write /etc/sysctl.d/99-dplaneos.conf: %w", err)
+	if err := os.WriteFile(sysctlDropInPath, []byte(line), 0644); err != nil {
+		return fmt.Errorf("write %s: %w", sysctlDropInPath, err)
 	}
 	return nil
 }
@@ -118,15 +132,18 @@ func applySwappiness(v int) error {
 // GET  - returns current settings (file or defaults).
 // POST - validates, persists, and applies kernel-level tuning.
 func HandleSystemSettings(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-
 	if r.Method == http.MethodGet {
 		settings, err := loadSystemSettings()
-		if err != nil {
-			// Non-fatal: return defaults with a warning header
-			w.Header().Set("X-Settings-Warning", "could not read settings file: "+err.Error())
+		resp := map[string]any{
+			"success":      true,
+			"arc_limit_gb": settings.ARCLimitGB,
+			"swappiness":   settings.Swappiness,
+			"live":         liveSystemSettings(),
 		}
-		json.NewEncoder(w).Encode(settings)
+		if err != nil {
+			resp["warning"] = "could not read the saved settings: " + err.Error()
+		}
+		respondOK(w, resp)
 		return
 	}
 
@@ -136,41 +153,34 @@ func HandleSystemSettings(w http.ResponseWriter, r *http.Request) {
 			respondErrorSimple(w, "Invalid request", http.StatusBadRequest)
 			return
 		}
-
-		// Basic validation
-		if settings.ARCLimitGB < 1 {
-			respondErrorSimple(w, "arc_limit_gb must be >= 1", http.StatusBadRequest)
+		if settings.ARCLimitGB < 0 || settings.ARCLimitGB > 4096 {
+			respondErrorSimple(w, "arc_limit_gb must be 0 (automatic) or a size in GB", http.StatusBadRequest)
 			return
 		}
 		if settings.Swappiness < 0 || settings.Swappiness > 100 {
-			respondErrorSimple(w, "swappiness must be 0–100", http.StatusBadRequest)
+			respondErrorSimple(w, "swappiness must be 0-100", http.StatusBadRequest)
+			return
+		}
+		if err := saveSystemSettings(settings); err != nil {
+			respondErrorSimple(w, "Could not save the settings: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
 
-		// Apply kernel-level settings (best-effort; log but don't fail the request)
+		// Kernel values: a failure is reported; the settings stay saved.
 		var applyErrors []string
-
 		if err := applyARCLimit(settings.ARCLimitGB); err != nil {
-			applyErrors = append(applyErrors, "arc_limit: "+err.Error())
+			applyErrors = append(applyErrors, "ARC limit: "+err.Error())
 		}
 		if err := applySwappiness(settings.Swappiness); err != nil {
 			applyErrors = append(applyErrors, "swappiness: "+err.Error())
 		}
-
-		// Persist to JSON (all fields including monitoring thresholds)
-		if err := saveSystemSettings(settings); err != nil {
-			respondErrorSimple(w, "Invalid request", http.StatusBadRequest)
+		audit.LogAction("system_tuning", r.Header.Get("X-User"),
+			fmt.Sprintf("arc_limit_gb=%d swappiness=%d", settings.ARCLimitGB, settings.Swappiness), len(applyErrors) == 0, 0)
+		if len(applyErrors) > 0 {
+			respondOK(w, map[string]any{"success": false, "error": "Saved, but not applied: " + strings.Join(applyErrors, "; ")})
 			return
 		}
-
-		resp := map[string]any{
-			"success": true,
-			"status":  "saved",
-		}
-		if len(applyErrors) > 0 {
-			resp["apply_warnings"] = applyErrors
-		}
-		json.NewEncoder(w).Encode(resp)
+		respondOK(w, map[string]any{"success": true, "status": "saved"})
 		return
 	}
 
@@ -499,4 +509,3 @@ func readKernelVersion() (string, error) {
 }
 
 // readLoadAvg is defined in prometheus.go - returns (load1, load5, load15 float64, err error)
-

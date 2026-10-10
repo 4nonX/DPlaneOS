@@ -477,14 +477,27 @@ function AuditTab() {
 
   const chainQ = useQuery({
     queryKey: ['audit', 'chain'],
-    queryFn: ({ signal }) => api.get<{ success: boolean; valid: boolean }>('/api/system/audit/verify-chain', signal),
+    queryFn: ({ signal }) => api.get<{ success: boolean; valid: boolean; error?: string }>('/api/system/audit/verify-chain', signal),
+  })
+  const [keepDays, setKeepDays] = useState(365)
+  const rotate = useMutation({
+    mutationFn: async () => {
+      const r = await api.post<{ success: boolean; error?: string; before_count: number; after_count: number }>('/api/system/audit/rotate', { keep_days: keepDays })
+      if (!r.success) throw new Error(r.error ?? 'Rotation failed')
+      return r
+    },
+    onSuccess: r => { toast.success(`${r.before_count - r.after_count} entries removed, ${r.after_count} kept`); qc.invalidateQueries({ queryKey: ['audit'] }) },
+    onError: (e: Error) => toast.error(e.message),
   })
 
   if (statsQ.isLoading || chainQ.isLoading) return <Skeleton height={180} />
   if (statsQ.isError) return <ErrorState error={statsQ.error} onRetry={() => qc.invalidateQueries({ queryKey: ['audit'] })} />
 
   const stats = statsQ.data
-  const chainOk = chainQ.data?.valid !== false
+  // Three states: verified, broken, or not checked (the check itself failed).
+  const chainUnknown = chainQ.isError || !chainQ.data || (!chainQ.data.success && !!chainQ.data.error)
+  const chainOk = !chainUnknown && chainQ.data?.valid === true
+  const chainColor = chainUnknown ? 'var(--warning)' : chainOk ? 'var(--success)' : 'var(--error)'
 
   return (
     <div style={{ maxWidth: 600 }}>
@@ -493,12 +506,13 @@ function AuditTab() {
           <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 8 }}>Total Entries</div>
           <div style={{ fontSize: 28, fontWeight: 700, fontFamily: 'var(--font-mono)', color: 'var(--primary)' }}>{stats?.total_entries ?? '-'}</div>
         </div>
-        <div style={{ background: 'var(--bg-card)', border: `1px solid ${chainOk ? 'var(--success-border)' : 'var(--error-border)'}`, borderRadius: 'var(--radius-lg)', padding: '18px 22px' }}>
+        <div style={{ background: 'var(--bg-card)', border: `1px solid ${chainColor}`, borderRadius: 'var(--radius-lg)', padding: '18px 22px' }}>
           <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 8 }}>Audit Chain</div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <Icon name={chainOk ? 'verified_user' : 'gpp_bad'} size={22} style={{ color: chainOk ? 'var(--success)' : 'var(--error)' }} />
-            <span style={{ fontWeight: 700, color: chainOk ? 'var(--success)' : 'var(--error)' }}>{chainOk ? 'Valid' : 'Broken'}</span>
+            <Icon name={chainUnknown ? 'help' : chainOk ? 'verified_user' : 'gpp_bad'} size={22} style={{ color: chainColor }} />
+            <span style={{ fontWeight: 700, color: chainColor }}>{chainUnknown ? 'Not verified' : chainOk ? 'Valid' : 'Broken'}</span>
           </div>
+          {chainUnknown && <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', marginTop: 6 }}>{chainQ.data?.error ?? 'The check could not be run.'}</div>}
         </div>
       </div>
 
@@ -510,6 +524,22 @@ function AuditTab() {
 
       <div style={{ marginTop: 16 }}>
         <button onClick={() => qc.invalidateQueries({ queryKey: ['audit'] })} className="btn btn-ghost"><Icon name="refresh" size={14} />Refresh</button>
+      </div>
+
+      <div className="card" style={{ borderRadius: 'var(--radius-lg)', padding: '18px 22px', marginTop: 24 }}>
+        <div style={{ fontWeight: 600, marginBottom: 6 }}>Retention</div>
+        <p style={{ margin: '0 0 12px', fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>
+          Remove audit entries older than a number of days. The removal is recorded in the log; the remaining chain stays verifiable.
+        </p>
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 'var(--text-sm)' }}>Keep the last</span>
+          <input type="number" min={1} value={keepDays} onChange={e => setKeepDays(Math.max(1, Number(e.target.value) || 1))} className="input" style={{ width: 100 }} />
+          <span style={{ fontSize: 'var(--text-sm)' }}>days</span>
+          <button className="btn btn-ghost" disabled={rotate.isPending}
+            onClick={() => { if (window.confirm(`Permanently remove audit entries older than ${keepDays} days?`)) rotate.mutate() }}>
+            <Icon name="auto_delete" size={14} />{rotate.isPending ? 'Removing…' : 'Remove older entries'}
+          </button>
+        </div>
       </div>
     </div>
   )

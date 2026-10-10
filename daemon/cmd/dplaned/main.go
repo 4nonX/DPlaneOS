@@ -1052,8 +1052,6 @@ func main() {
 	r.Handle("/api/network/confirm", permRoute("network", "write", handlers.ConfirmNetwork)).Methods("POST")
 
 	// v3.0.0: SMB VFS modules
-	r.Handle("/api/smb/vfs", permRoute("shares", "read", handlers.GetSMBVFSConfig)).Methods("GET")
-	r.Handle("/api/smb/vfs", permRoute("shares", "write", handlers.SetSMBVFSConfig)).Methods("POST")
 
 	// v3.0.0: VLAN management
 	r.Handle("/api/network/vlan", permRoute("network", "read", handlers.ListVLANs)).Methods("GET")
@@ -1876,8 +1874,11 @@ func sessionMiddleware(db *sql.DB, internalCronToken string) mux.MiddlewareFunc 
 				var storedCSRF string
 				err := db.QueryRowContext(ctx, "SELECT csrf_token FROM sessions WHERE session_id = $1", sessionID).Scan(&storedCSRF)
 				if err != nil {
-					// DB timeout - skip CSRF check, allow request (best effort operational mode)
-					log.Printf("WARN: CSRF DB unavailable - skipping for %s", user)
+					// The token cannot be checked: refuse (a security check
+					// must not pass because the database is slow).
+					log.Printf("WARN: CSRF token lookup failed for %s: %v", user, err)
+					http.Error(w, "Service temporarily unavailable (session store)", http.StatusServiceUnavailable)
+					return
 				} else if storedCSRF == "" || storedCSRF != csrfHeader {
 					audit.LogSecurityEvent("CSRF validation failed", user, realIP(r))
 					http.Error(w, "Forbidden (Invalid CSRF token)", http.StatusForbidden)

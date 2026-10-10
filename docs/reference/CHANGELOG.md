@@ -28,6 +28,8 @@ interface against the fields its handler reads
 
 ### Security
 
+- The CSRF check was skipped when the session lookup failed (database
+  slow or down); such requests are refused now.
 - Public file links: a link could be created for any file on the system
   (/etc/shadow, the daemon's secrets key) and downloaded without a login.
   Only files on pool and media mounts can be linked, and the path is
@@ -86,6 +88,18 @@ interface against the fields its handler reads
 
 ### Fixed
 
+- NixOS apply: the "confirm or roll back" banner lived only in the open
+  page (a reload lost it and the system rolled back unconfirmed), counted
+  60 s while the server waited 120 s, and its "Rollback" button only hid
+  it. The banner now follows the server's timer.
+- Settings: restoring a database backup from the UI always failed (no
+  CSRF token was sent). Memory tuning (ZFS ARC limit, swappiness) is in
+  the UI; it reported "8 GB" when nothing had been set and carried six
+  settings that did nothing. Stored-secrets check, NixOS config backup to
+  Git and audit log retention are in the UI; the audit chain no longer
+  shows "Valid" when the check could not run.
+- Removed /api/smb/vfs, which only returned text to paste into smb.conf
+  (shares have Time Machine, shadow copy and recycle bin options).
 - Scheduled SMART tests never worked from the UI: the disk name was sent
   without /dev/ and refused, a schedule was only written to the GitOps
   state file (an error without one, and nothing ran until a manual

@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"database/sql"
+	"dplaned/internal/audit"
 
 	"dplaned/internal/cmdutil"
 	"encoding/json"
@@ -13,8 +14,8 @@ import (
 	"sync"
 	"time"
 
-	"dplaned/internal/jobs"
 	"dplaned/internal/gitops"
+	"dplaned/internal/jobs"
 )
 
 // ═══════════════════════════════════════════════════════════════
@@ -583,13 +584,9 @@ func (h *AuditRotationHandler) RotateAuditLogs(w http.ResponseWriter, r *http.Re
 	var countAfter int
 	h.db.QueryRow("SELECT COUNT(*) FROM audit_logs").Scan(&countAfter)
 
-	respondOK(w, map[string]any{
-		"success":      true,
-		"keep_days":    req.KeepDays,
-		"cutoff":       cutoff,
-		"before_count": countBefore,
-		"after_count":  countAfter,
-	})
+	// The rotation is itself an audit event: entries were removed on purpose.
+	audit.LogAction("audit_rotate", r.Header.Get("X-User"),
+		fmt.Sprintf("Removed %d entries older than %d days", countBefore-countAfter, req.KeepDays), true, 0)
 
 	respondOK(w, map[string]any{
 		"success":      true,
@@ -649,7 +646,7 @@ func (h *AuditRotationHandler) GetAuditLogs(w http.ResponseWriter, r *http.Reque
 	argCount := 1
 
 	if search != "" {
-		query += fmt.Sprintf(" AND (actor ILIKE $%d OR action ILIKE $%d OR resource ILIKE $%d OR details ILIKE $%d)", 
+		query += fmt.Sprintf(" AND (actor ILIKE $%d OR action ILIKE $%d OR resource ILIKE $%d OR details ILIKE $%d)",
 			argCount, argCount, argCount, argCount)
 		args = append(args, "%"+search+"%")
 		argCount++
@@ -713,14 +710,14 @@ func (h *AuditRotationHandler) GetCEStatus(w http.ResponseWriter, r *http.Reques
 	if err != nil {
 		// Table might not exist in early v7.x or dev envs
 		respondOK(w, map[string]any{
-			"success": true,
+			"success":               true,
 			"has_compliance_engine": false,
 		})
 		return
 	}
 
 	respondOK(w, map[string]any{
-		"success": true,
+		"success":               true,
 		"has_compliance_engine": count > 0,
 	})
 }
@@ -1066,5 +1063,3 @@ func FilterDirEntries(entries []os.DirEntry, customIgnore []string) []os.DirEntr
 	}
 	return filtered
 }
-
-

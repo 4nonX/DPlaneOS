@@ -27,10 +27,11 @@
  *   POST /api/system/db/restore            → { success }
  */
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import type React from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { api } from '@/lib/api'
+import { api, getSessionId, getUsername, getCsrfToken } from '@/lib/api'
+import { TuningCard, SecretsStatusCard, NixOSBackupButton } from '@/components/settings/SystemCards'
 import { Icon } from '@/components/ui/Icon'
 import { ErrorState } from '@/components/ui/ErrorState'
 import { Skeleton } from '@/components/ui/LoadingSpinner'
@@ -213,31 +214,30 @@ function GeneralTab() {
 // NixOSConfirmBanner - 60-second countdown
 // ---------------------------------------------------------------------------
 
-function NixOSConfirmBanner({ onConfirm, onDismiss }: { onConfirm: () => void; onDismiss: () => void }) {
-  const [secs, setSecs] = useState(60)
-  const timer = useRef<ReturnType<typeof setInterval> | null>(null)
+// The rollback timer runs on the server (GET /api/nixos/watchdog): the banner
+// follows it, so it is still there after a reload or in another browser.
+function NixOSConfirmBanner({ deadline, onConfirm, confirming }: { deadline: string; onConfirm: () => void; confirming: boolean }) {
+  const left = () => Math.max(0, Math.round((new Date(deadline).getTime() - Date.now()) / 1000))
+  const [secs, setSecs] = useState(left)
 
   useEffect(() => {
-    timer.current = setInterval(() => {
-      setSecs(prev => {
-        if (prev <= 1) { clearInterval(timer.current!); onDismiss(); return 0 }
-        return prev - 1
-      })
-    }, 1000)
-    return () => clearInterval(timer.current!)
-  }, [onDismiss])
+    const t = setInterval(() => setSecs(left()), 1000)
+    return () => clearInterval(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deadline])
 
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 20px', background: 'var(--warning-bg)', border: '1px solid var(--warning-border)', borderRadius: 'var(--radius-lg)', marginBottom: 20 }}>
       <Icon name="timer" size={22} style={{ color: 'var(--warning)', flexShrink: 0 }} />
       <div style={{ flex: 1 }}>
         <div style={{ fontWeight: 700, color: 'var(--warning)' }}>NixOS rebuild applied</div>
-        <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>Auto-rolling back in {secs}s - confirm to keep this generation</div>
+        <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>
+          Rolls back automatically in {secs}s unless confirmed. Confirm if the system still works as expected.
+        </div>
       </div>
-      <button onClick={onConfirm} className="btn btn-primary" style={{ background: 'var(--warning)' }}>
-        <Icon name="check" size={15} />Confirm
+      <button onClick={onConfirm} disabled={confirming} className="btn btn-primary" style={{ background: 'var(--warning)' }}>
+        <Icon name="check" size={15} />{confirming ? 'Confirming…' : 'Keep this configuration'}
       </button>
-      <button onClick={onDismiss} className="btn btn-ghost">Rollback</button>
     </div>
   )
 }
@@ -250,7 +250,6 @@ function NixOSTab() {
   const qc = useQueryClient()
   const { confirm, ConfirmDialog } = useConfirm()
   const [flakePath,      setFlakePath]      = useState('/etc/nixos')
-  const [pendingConfirm, setPendingConfirm] = useState(false)
   const [validateResult, setValidateResult] = useState<NixOSValidate | null>(null)
 
   const detectQ = useQuery({
@@ -263,6 +262,12 @@ function NixOSTab() {
     queryFn:  ({ signal }) => api.get<GenerationsResp>('/api/nixos/generations', signal),
   })
 
+  const watchdogQ = useQuery({
+    queryKey: ['nixos', 'watchdog'],
+    queryFn: ({ signal }) => api.get<{ success: boolean; watchdog_active: boolean; deadline: string; remaining_sec: number }>('/api/nixos/watchdog', signal),
+    refetchInterval: q => (q.state.data?.watchdog_active ? 3_000 : 20_000),
+  })
+
   const validate = useMutation({
     mutationFn: () => api.post<NixOSValidate>('/api/nixos/validate', { flake_path: flakePath }),
     onSuccess: result => { setValidateResult(result); if (result.valid) { toast.success('Config is valid') } else { toast.error('Validation failed') } },
@@ -271,13 +276,13 @@ function NixOSTab() {
 
   const apply = useMutation({
     mutationFn: () => api.post('/api/nixos/apply', { flake_path: flakePath, timeout_seconds: 120 }),
-    onSuccess: () => { setPendingConfirm(true); toast.success('Rebuild applied - confirm within 60s'); qc.invalidateQueries({ queryKey: ['nixos', 'generations'] }) },
+    onSuccess: () => { toast.success('Rebuild applied - confirm to keep it'); qc.invalidateQueries({ queryKey: ['nixos'] }) },
     onError: (e: Error) => toast.error(e.message),
   })
 
   const confirmGeneration = useMutation({
     mutationFn: () => api.post('/api/nixos/confirm', {}),
-    onSuccess: () => { toast.success('Generation confirmed'); setPendingConfirm(false) },
+    onSuccess: () => { toast.success('Generation confirmed'); qc.invalidateQueries({ queryKey: ['nixos'] }) },
     onError: (e: Error) => toast.error(e.message),
   })
 
@@ -308,10 +313,11 @@ function NixOSTab() {
 
   return (
     <div style={{ maxWidth: 720, display: 'flex', flexDirection: 'column', gap: 24 }}>
-      {pendingConfirm && (
+      {watchdogQ.data?.watchdog_active && (
         <NixOSConfirmBanner
+          deadline={watchdogQ.data.deadline}
+          confirming={confirmGeneration.isPending}
           onConfirm={() => confirmGeneration.mutate()}
-          onDismiss={() => setPendingConfirm(false)}
         />
       )}
 
@@ -322,6 +328,7 @@ function NixOSTab() {
           <input value={flakePath} onChange={e => setFlakePath(e.target.value)}
             className="input" style={{ flex: 1, fontFamily: 'var(--font-mono)' }}
             placeholder="/etc/nixos" />
+          <NixOSBackupButton />
         </div>
 
         {validateResult && (
@@ -604,7 +611,7 @@ function MaintenanceTab() {
       form.append('backup', restoreFile)
       const res = await fetch('/api/system/db/restore', {
         method: 'POST',
-        headers: { 'X-Session-ID': sessionStorage.getItem('session_id') ?? '' },
+        headers: { 'X-Session-ID': getSessionId() ?? '', 'X-User': getUsername() ?? '', 'X-CSRF-Token': getCsrfToken() },
         body: form,
       })
       if (!res.ok) {
@@ -622,6 +629,8 @@ function MaintenanceTab() {
 
   return (
     <div style={{ maxWidth: 620, display: 'flex', flexDirection: 'column', gap: 20, paddingTop: 24 }}>
+      <TuningCard />
+      <SecretsStatusCard />
       <div className="card" style={{ padding: 20 }}>
         <h3 style={{ fontSize: 'var(--text-lg)', fontWeight: 600, marginBottom: 8 }}>Database Backup</h3>
         <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', marginBottom: 16 }}>
