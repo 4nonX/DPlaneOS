@@ -86,6 +86,12 @@ func DeletePath(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	const poolRootMsg = "Cannot delete a ZFS pool root or system base path via the file browser. Use the Storage tab to destroy pools."
+	// A pool root or dataset mountpoint (checked on the real path too).
+	if real, rerr := filepath.EvalSymlinks(filepath.Clean(req.Path)); rerr == nil && (isFileRoot(real) || isPoolRoot(real)) {
+		respondJSON(w, http.StatusForbidden, map[string]any{"success": false, "error": poolRootMsg})
+		return
+	}
 	safePath, err := resolveEntry(req.Path)
 	if err != nil {
 		respondJSON(w, http.StatusForbidden, map[string]any{"success": false, "error": "Path not allowed"})
@@ -95,7 +101,7 @@ func DeletePath(w http.ResponseWriter, r *http.Request) {
 
 	// GUARD: Prevent recursive deletion of pool roots or critical base paths (Finding 33)
 	if isPoolRoot(req.Path) {
-		respondJSON(w, http.StatusForbidden, map[string]any{"success": false, "error": "Cannot delete a ZFS pool root or system base path via the file browser. Use the Storage tab to destroy pools."})
+		respondJSON(w, http.StatusForbidden, map[string]any{"success": false, "error": poolRootMsg})
 		return
 	}
 
