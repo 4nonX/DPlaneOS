@@ -106,6 +106,11 @@ that found is listed here.
 
 ### Fixed (API and web interface)
 
+- Storage groups: during a planned move the old owner could take the
+  floating address (and start the group's apps) again while the new owner
+  was still importing the pool, and kept the address until its next
+  check. An activation pass that overlaps a move now leaves the group
+  alone and undoes what it had just taken.
 - Rsync backups: one-off backups ignored the options entered; pools
   mounted outside /mnt were refused; `--exclude=` patterns, shown as an
   example, were refused; a remote backup could hang on a password prompt

@@ -464,8 +464,20 @@ func (m *Manager) ActivateTick() {
 				}
 				continue
 			}
+			// A planned move may have started since this pass read the
+			// group (the view above can take seconds): it releases the
+			// address and the apps, and this pass must not take them back.
+			if m.isMoving(g.Name) {
+				continue
+			}
 			if err := m.holdAddress(g, true); err != nil {
 				problems = append(problems, "floating address: "+err.Error())
+			}
+			if m.isMoving(g.Name) {
+				if err := m.holdAddress(g, false); err != nil {
+					log.Printf("GROUPS: %s: %v", g.Name, err)
+				}
+				continue
 			}
 			r, err := m.knownResources(g)
 			if err != nil {
@@ -482,8 +494,19 @@ func (m *Manager) ActivateTick() {
 					if running, err := m.res.StackRunning(s.Name); err == nil && running {
 						continue
 					}
+					if m.isMoving(g.Name) {
+						break
+					}
 					if err := m.res.StackUp(s.Name); err != nil {
 						problems = append(problems, err.Error())
+					}
+					if m.isMoving(g.Name) {
+						// The move stops the group's apps; one started
+						// while it did so is stopped again.
+						if err := m.res.StackDown(s.Name); err != nil {
+							log.Printf("GROUPS: %s: stopping stack %s: %v", g.Name, s.Name, err)
+						}
+						break
 					}
 				}
 			}
