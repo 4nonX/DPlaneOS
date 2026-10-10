@@ -3,7 +3,7 @@ package handlers
 import (
 	"context"
 	"database/sql"
-	"path/filepath"
+	pathpkg "path"
 	"time"
 
 	"dplaned/internal/cmdutil"
@@ -240,7 +240,7 @@ func (h *ShareCRUDHandler) createShare(w http.ResponseWriter, req shareActionReq
 
 	// Sanitize inputs before DB insertion (Finding #30)
 	req.Name = sanitizeSMBConfValue(req.Name)
-	req.Path = filepath.Clean(req.Path)
+	req.Path = pathpkg.Clean(req.Path) // POSIX paths on the target system
 	req.Comment = sanitizeSMBConfValue(req.Comment)
 	req.ValidUsers = sanitizeSMBConfValue(req.ValidUsers)
 	req.WriteList = sanitizeSMBConfValue(req.WriteList)

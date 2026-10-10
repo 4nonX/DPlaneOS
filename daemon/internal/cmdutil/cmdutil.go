@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"dplaned/internal/security"
@@ -16,11 +17,11 @@ import (
 
 // Default timeouts for different operation classes
 const (
-	TimeoutFast   = 10 * time.Second  // ls, stat, status checks
-	TimeoutMedium = 60 * time.Second  // snapshot, mount, config reload
-	TimeoutSlow    = 5 * time.Minute   // scrub, resilver, large recursive ops
-	TimeoutZFS     = 2 * time.Minute   // zpool/zfs commands (can hang on bad disks)
-	TimeoutExtreme = 10 * time.Minute  // nixos-rebuild switch, large applies
+	TimeoutFast    = 10 * time.Second // ls, stat, status checks
+	TimeoutMedium  = 60 * time.Second // snapshot, mount, config reload
+	TimeoutSlow    = 5 * time.Minute  // scrub, resilver, large recursive ops
+	TimeoutZFS     = 2 * time.Minute  // zpool/zfs commands (can hang on bad disks)
+	TimeoutExtreme = 10 * time.Minute // nixos-rebuild switch, large applies
 )
 
 // Run executes a command with the given timeout, returns (output, error).
@@ -34,6 +35,7 @@ func Run(timeout time.Duration, name string, args ...string) ([]byte, error) {
 // trusted=true suppresses the governed-binary warning for paths that construct
 // arguments from validated state rather than raw user input (e.g. RunZFS).
 func runInternal(ctx context.Context, timeout time.Duration, trusted bool, name string, args ...string) ([]byte, error) {
+	key := name
 	// 1. Mandatory Security Whitelist Routing (Finding 23)
 	if cmd, exists := security.CommandWhitelist[name]; exists {
 		if err := security.ValidateCommand(name, args); err != nil {
@@ -49,6 +51,12 @@ func runInternal(ctx context.Context, timeout time.Duration, trusted bool, name 
 		if governed[name] {
 			log.Printf("SECURITY WARNING: Binary '%s' invoked directly via cmdutil without a whitelist KEY. This bypasses structural validation.", name)
 		}
+	}
+
+	// Tests replace execution here, after the whitelist check: a handler test
+	// also proves that every command it builds passes validation.
+	if f := loadFake(); f != nil {
+		return f(Call{Key: key, Path: name, Args: append([]string(nil), args...)})
 	}
 
 	// 2. Fault Injection (CI only)
@@ -152,9 +160,13 @@ func RunExtreme(name string, args ...string) ([]byte, error) {
 
 // RunInDir executes a command with the given timeout in a specific working directory.
 func RunInDir(timeout time.Duration, dir, name string, args ...string) ([]byte, error) {
+	key := name
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
+	if f := loadFake(); f != nil {
+		return f(Call{Key: key, Path: name, Args: append([]string(nil), args...)})
+	}
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Dir = dir
 	output, err := cmd.CombinedOutput()
@@ -178,9 +190,13 @@ func RunMediumInDir(dir, name string, args ...string) ([]byte, error) {
 
 // RunInDirWithEnv executes a command with the given timeout, directory, and environment variables.
 func RunInDirWithEnv(timeout time.Duration, dir string, env []string, name string, args ...string) ([]byte, error) {
+	key := name
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
+	if f := loadFake(); f != nil {
+		return f(Call{Key: key, Path: name, Args: append([]string(nil), args...)})
+	}
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Dir = dir
 	if len(env) > 0 {
@@ -207,9 +223,13 @@ func RunNoTimeout(name string, args ...string) ([]byte, error) {
 // Use for: zfs load-key, zfs create (encryption), zfs change-key - commands that
 // require passphrase input via stdin.
 func RunWithStdin(timeout time.Duration, stdinData string, name string, args ...string) ([]byte, error) {
+	key := name
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
+	if f := loadFake(); f != nil {
+		return f(Call{Key: key, Path: name, Args: append([]string(nil), args...)})
+	}
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Stdin = strings.NewReader(stdinData)
 	output, err := cmd.CombinedOutput()
@@ -221,4 +241,36 @@ func RunWithStdin(timeout time.Duration, stdinData string, name string, args ...
 	return output, err
 }
 
+// Call is one command as a test fake sees it: the whitelist key (or binary
+// name) the caller used, the resolved binary, and the arguments.
+type Call struct {
+	Key  string
+	Path string
+	Args []string
+}
 
+var (
+	fakeMu sync.RWMutex
+	fake   func(Call) ([]byte, error)
+)
+
+func loadFake() func(Call) ([]byte, error) {
+	fakeMu.RLock()
+	defer fakeMu.RUnlock()
+	return fake
+}
+
+// SetFakeForTest makes every command go to fn instead of being executed
+// (commands are still validated against the whitelist first). It returns a
+// function that restores real execution. For tests only.
+func SetFakeForTest(fn func(Call) ([]byte, error)) (restore func()) {
+	fakeMu.Lock()
+	prev := fake
+	fake = fn
+	fakeMu.Unlock()
+	return func() {
+		fakeMu.Lock()
+		fake = prev
+		fakeMu.Unlock()
+	}
+}

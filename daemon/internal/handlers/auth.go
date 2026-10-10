@@ -62,9 +62,12 @@ func getLoginDelay(failures int) time.Duration {
 	if failures <= 1 {
 		return 0
 	}
-	delay := time.Duration(1<<uint(failures-1)) * time.Second
-	delay = min(delay, 30*time.Second)
-	return delay
+	// Cap before shifting: 1<<(n-1) seconds overflows time.Duration around
+	// the 35th failure and turned the lockout negative (no throttling).
+	if failures >= 6 {
+		return 30 * time.Second
+	}
+	return time.Duration(1<<uint(failures-1)) * time.Second
 }
 
 // checkLoginThrottle returns true if the IP is currently throttled
