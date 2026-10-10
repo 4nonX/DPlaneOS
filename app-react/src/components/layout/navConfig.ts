@@ -81,6 +81,7 @@ const initialNav: NavItem[] = [
     icon: 'shield',
     children: [
       { kind: 'leaf', id: 'snapshots',   label: 'Snapshot Scheduler', icon: 'schedule',   route: '/snapshots' },
+      { kind: 'leaf', id: 'versions',    label: 'Previous Versions',  icon: 'restore',    route: '/versions' },
       { kind: 'leaf', id: 'replication', label: 'Replication',        icon: 'sync',       route: '/replication' },
       { kind: 'leaf', id: 'backup',      label: 'Backup',             icon: 'backup',     route: '/backup' },
       { kind: 'leaf', id: 'cloud-sync',  label: 'Cloud Sync',         icon: 'cloud_sync', route: '/cloud-sync' },

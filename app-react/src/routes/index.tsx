@@ -30,6 +30,7 @@ import { DatasetsPage }      from '@/pages/DatasetsPage'
 import { SharesPage }        from '@/pages/SharesPage'
 import { NFSPage }           from '@/pages/NFSPage'
 import { SnapshotSchedulerPage } from '@/pages/SnapshotSchedulerPage'
+import { PreviousVersionsPage } from '@/pages/PreviousVersionsPage'
 import { ReplicationPage }   from '@/pages/ReplicationPage'
 import { FilesPage }         from '@/pages/FilesPage'
 import { QuotasPage }        from '@/pages/QuotasPage'
@@ -113,6 +114,7 @@ const datasetsRoute   = createRoute({ getParentRoute: () => protectedRoute, path
 const sharesRoute     = createRoute({ getParentRoute: () => protectedRoute, path: '/shares',        component: SharesPage })
 const nfsRoute        = createRoute({ getParentRoute: () => protectedRoute, path: '/nfs',           component: NFSPage })
 const snapshotsRoute  = createRoute({ getParentRoute: () => protectedRoute, path: '/snapshots',     component: SnapshotSchedulerPage })
+const versionsRoute   = createRoute({ getParentRoute: () => protectedRoute, path: '/versions',      component: PreviousVersionsPage })
 const replRoute       = createRoute({ getParentRoute: () => protectedRoute, path: '/replication',   component: ReplicationPage })
 const filesRoute      = createRoute({ getParentRoute: () => protectedRoute, path: '/files',         component: FilesPage })
 const quotasRoute     = createRoute({ getParentRoute: () => protectedRoute, path: '/quotas',        component: QuotasPage })
@@ -169,7 +171,7 @@ const routeTree = rootRoute.addChildren([
   loginRoute,
   setupRoute,
   protectedRoute.addChildren([
-    dashboardRoute, poolsRoute, datasetsRoute, sharesRoute, nfsRoute, snapshotsRoute, replRoute,
+    dashboardRoute, poolsRoute, datasetsRoute, sharesRoute, nfsRoute, snapshotsRoute, versionsRoute, replRoute,
     filesRoute, quotasRoute, aclRoute, volumesRoute, iscsiRoute, nvmeRoute, cloudRoute,
     sandboxRoute, delegationRoute, backupRoute, auditRoute, historyRoute, configSyncRoute, complianceRoute, ftpRoute, fileSharesRoute, sshKeysRoute, s3Route,
     dockerRoute, gitOpsRoute,

@@ -41,7 +41,7 @@ func (h *ZFSTimeMachineHandler) ListSnapshotVersions(w http.ResponseWriter, r *h
 		"list", "-t", "snapshot", "-H",
 		"-o", "name,creation,used,refer",
 		"-s", "creation",
-		"-r", dataset,
+		"-d", "1", dataset, // the dataset's own snapshots (browsable under its mountpoint)
 	})
 	if err != nil {
 		respondOK(w, map[string]any{
@@ -111,10 +111,15 @@ func (h *ZFSTimeMachineHandler) BrowseSnapshot(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	// Check if path exists
+	// Check if path exists, and that it really is inside the snapshot: the
+	// daemon runs as root and a symlink in the data must not lead out.
 	info, err := os.Stat(fullPath)
 	if err != nil {
 		respondErrorSimple(w, "Path not found in snapshot", http.StatusNotFound)
+		return
+	}
+	if !realWithin(snapshotDir, fullPath) {
+		respondErrorSimple(w, "Path outside snapshot boundary", http.StatusBadRequest)
 		return
 	}
 
@@ -184,10 +189,10 @@ func (h *ZFSTimeMachineHandler) BrowseSnapshot(w http.ResponseWriter, r *http.Re
 // POST /api/timemachine/restore
 func (h *ZFSTimeMachineHandler) RestoreFile(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Snapshot    string `json:"snapshot"`     // tank/data@daily-2025-02-15
-		SourcePath  string `json:"source_path"`  // /photos/vacation.jpg (relative to snapshot)
-		DestPath    string `json:"dest_path"`    // /photos/vacation.jpg (relative to live dataset, optional)
-		Overwrite   bool   `json:"overwrite"`    // overwrite existing file
+		Snapshot   string `json:"snapshot"`    // tank/data@daily-2025-02-15
+		SourcePath string `json:"source_path"` // /photos/vacation.jpg (relative to snapshot)
+		DestPath   string `json:"dest_path"`   // /photos/vacation.jpg (relative to live dataset, optional)
+		Overwrite  bool   `json:"overwrite"`   // overwrite existing file
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		respondErrorSimple(w, "Invalid request body", http.StatusBadRequest)
@@ -244,27 +249,51 @@ func (h *ZFSTimeMachineHandler) RestoreFile(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	// Check source exists
-	srcInfo, err := os.Stat(snapshotFile)
+	// The daemon runs as root over data that share users control: no path
+	// may lead out of the snapshot or the dataset through a symlink (a link
+	// "photos -> /etc" would otherwise let a restore write /etc/passwd, and a
+	// link in the snapshot would copy any file of the system into the share).
+	srcInfo, err := os.Lstat(snapshotFile)
 	if err != nil {
 		respondErrorSimple(w, "Source file not found in snapshot", http.StatusNotFound)
+		return
+	}
+	if srcInfo.Mode()&os.ModeSymlink != 0 {
+		respondErrorSimple(w, "Symbolic links are not restored", http.StatusBadRequest)
 		return
 	}
 	if srcInfo.IsDir() {
 		respondErrorSimple(w, "Cannot restore directories - use ZFS rollback for that", http.StatusBadRequest)
 		return
 	}
-
-	// Check if destination exists
-	if _, err := os.Stat(liveFile); err == nil && !req.Overwrite {
-		respondErrorSimple(w, "Destination file already exists. Set overwrite=true to replace.", http.StatusConflict)
+	if !realWithin(snapshotBase, snapshotFile) {
+		respondErrorSimple(w, "Source path outside snapshot boundary", http.StatusBadRequest)
 		return
 	}
 
-	// Ensure destination directory exists
 	destDir := filepath.Dir(liveFile)
+	if !realWithin(mountpoint, existingAncestor(destDir)) {
+		respondErrorSimple(w, "Destination path outside dataset boundary", http.StatusBadRequest)
+		return
+	}
+	if fi, err := os.Lstat(liveFile); err == nil {
+		if fi.Mode()&os.ModeSymlink != 0 || fi.IsDir() {
+			respondErrorSimple(w, "Destination is a symbolic link or a directory", http.StatusBadRequest)
+			return
+		}
+		if !req.Overwrite {
+			respondErrorSimple(w, "Destination file already exists. Set overwrite=true to replace.", http.StatusConflict)
+			return
+		}
+	}
+
+	// Ensure destination directory exists (and is still inside after creating it)
 	if err := os.MkdirAll(destDir, 0755); err != nil {
 		respondErrorSimple(w, "Cannot create destination directory", http.StatusInternalServerError)
+		return
+	}
+	if !realWithin(mountpoint, destDir) {
+		respondErrorSimple(w, "Destination path outside dataset boundary", http.StatusBadRequest)
 		return
 	}
 
@@ -305,7 +334,30 @@ func getDatasetMountpoint(dataset string) (string, error) {
 	return strings.TrimSpace(output), nil
 }
 
-// copyFile copies a single file from src to dst
+// realWithin reports whether path, with symlinks resolved, lies inside base
+// (also resolved).
+func realWithin(base, path string) bool {
+	rb, err1 := filepath.EvalSymlinks(base)
+	rp, err2 := filepath.EvalSymlinks(path)
+	if err1 != nil || err2 != nil {
+		return false
+	}
+	rel, err := filepath.Rel(rb, rp)
+	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+}
+
+// existingAncestor returns path or its nearest existing parent.
+func existingAncestor(path string) string {
+	for p := path; ; p = filepath.Dir(p) {
+		if _, err := os.Lstat(p); err == nil || p == filepath.Dir(p) {
+			return p
+		}
+	}
+}
+
+// copyFile copies a single file from src to dst. An existing dst (a regular
+// file, checked by the caller) is removed first and dst is created with
+// O_EXCL, which does not follow a symlink put in its place meanwhile.
 func copyFile(src, dst string) error {
 	in, err := os.Open(src)
 	if err != nil {
@@ -313,7 +365,10 @@ func copyFile(src, dst string) error {
 	}
 	defer in.Close()
 
-	out, err := os.Create(dst)
+	if err := os.Remove(dst); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0644)
 	if err != nil {
 		return err
 	}
@@ -325,4 +380,3 @@ func copyFile(src, dst string) error {
 	}
 	return out.Sync()
 }
-
