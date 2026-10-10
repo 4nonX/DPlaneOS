@@ -415,3 +415,29 @@ func TestValidateZfsCreateOptsAndACLType(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateDevicePathCoverage(t *testing.T) {
+	for _, ok := range []string{"/dev/sda", "/dev/sdaa", "/dev/sdab3", "/dev/vda", "/dev/vdb1", "/dev/xvdc",
+		"/dev/nvme0n1", "/dev/nvme1n1p2", "/dev/sr0", "/dev/mapper/crypt-tank0",
+		"/dev/disk/by-id/ata-WDC_WD80EFAX-68KNBN0_VAJ1ABCD", "/dev/disk/by-id/wwn-0x5000c500a1b2c3d4-part1",
+		"/dev/disk/by-path/pci-0000:00:1f.2-ata-1", "/dev/disk/by-partuuid/0b2c3d4e-01"} {
+		if err := ValidateDevicePath(ok); err != nil {
+			t.Errorf("%s rejected: %v", ok, err)
+		}
+	}
+	for _, bad := range []string{"/dev/sda;rm", "/dev/../etc/shadow", "/dev/disk/by-id/../../sda", "/dev/disk/by-id/-x",
+		"sda", "/dev/mem", "/dev/disk/by-id/a b", "/etc/passwd"} {
+		if ValidateDevicePath(bad) == nil {
+			t.Errorf("%s accepted", bad)
+		}
+	}
+}
+
+func TestZpoolOnlineAcceptsStableNames(t *testing.T) {
+	if err := ValidateCommand("zpool_online", []string{"online", "tank", "/dev/disk/by-path/pci-0000:00:1f.2-ata-1"}); err != nil {
+		t.Error(err)
+	}
+	if err := ValidateCommand("zpool_online", []string{"online", "tank", "-f"}); err == nil {
+		t.Error("option as device accepted")
+	}
+}

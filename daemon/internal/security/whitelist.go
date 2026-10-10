@@ -1,6 +1,7 @@
 package security
 
 import (
+	"slices"
 	"fmt"
 	"net"
 	"path/filepath"
@@ -220,8 +221,8 @@ var CommandWhitelist = map[string]Command{
 		Path:        "zpool",
 		AllowedArgs: []string{"online"},
 		ArgPatterns: []*regexp.Regexp{
-			regexp.MustCompile(`^[a-zA-Z0-9_\-]+$`),  // pool name
-			regexp.MustCompile(`^[a-zA-Z0-9_\-/]+$`), // device path
+			regexp.MustCompile(`^[a-zA-Z0-9_\-]+$`), // pool name
+			validDevicePath,                          // device path (same rules as ValidateDevicePath)
 		},
 		Description: "Bring a ZFS device back online",
 	},
@@ -1775,14 +1776,34 @@ func validatePathBasedCommand(cmdName string, args []string) error {
 	return nil
 }
 
-func validateDeviceBasedCommand(_ string, args []string) error {
-	// Various commands that take a device path as one of their arguments
+// validateDeviceBasedCommand: every argument is one of the command's allowed
+// arguments, a valid device path, or matches one of its patterns. Options
+// that are not listed are refused (before, only arguments starting with
+// /dev/ were checked and anything else, options included, passed).
+func validateDeviceBasedCommand(cmdName string, args []string) error {
+	cmd := CommandWhitelist[cmdName]
 	for _, arg := range args {
-		// Only validate arguments that look like device paths
+		if slices.Contains(cmd.AllowedArgs, arg) {
+			continue
+		}
 		if strings.HasPrefix(arg, "/dev/") {
 			if err := ValidateDevicePath(arg); err != nil {
 				return err
 			}
+			continue
+		}
+		if strings.HasPrefix(arg, "-") {
+			return fmt.Errorf("%s: option %q is not allowed", cmdName, arg)
+		}
+		ok := false
+		for _, p := range cmd.ArgPatterns {
+			if p.MatchString(arg) {
+				ok = true
+				break
+			}
+		}
+		if !ok {
+			return fmt.Errorf("%s: invalid argument %q", cmdName, arg)
 		}
 	}
 	return nil
@@ -1946,11 +1967,21 @@ func ValidateDatasetName(name string) error {
 }
 
 // ValidateDevicePath ensures device paths are safe for exec.Command.
-// Only allows /dev/sd[a-z][0-9]*, /dev/sr[0-9]*, /dev/nvme[0-9]* patterns.
-var validDevicePath = regexp.MustCompile(`^/dev/(sd[a-z][0-9]*|sr[0-9]+|nvme[0-9]+n[0-9]+p?[0-9]*|disk/by-id/[a-zA-Z0-9_\-\.]+?)$`)
+// Allowed: SCSI/SATA/virtio/Xen disks and partitions (/dev/sda, /dev/sdaa1,
+// /dev/vdb, /dev/xvdc), NVMe namespaces and partitions, optical drives,
+// device-mapper nodes, and the stable /dev/disk/by-{id,path,uuid,partuuid}
+// links. Before, disks after the 26th (sdaa...), virtio disks (every VM) and
+// dm/by-path names were refused, so disk operations failed on them.
+var validDevicePath = regexp.MustCompile(`^/dev/(` +
+	`(sd|vd|xvd)[a-z]{1,3}[0-9]*` +
+	`|nvme[0-9]+n[0-9]+(p[0-9]+)?` +
+	`|sr[0-9]+` +
+	`|mapper/[A-Za-z0-9][A-Za-z0-9_.-]*` +
+	`|disk/by-(id|path|uuid|partuuid)/[A-Za-z0-9][A-Za-z0-9_.:+-]*` +
+	`)$`)
 
 func ValidateDevicePath(path string) error {
-	if !validDevicePath.MatchString(path) {
+	if !validDevicePath.MatchString(path) || strings.Contains(path, "..") {
 		return fmt.Errorf("invalid device path: %q (must be /dev/sdX, /dev/srN, or /dev/nvmeNnNpN)", path)
 	}
 	return nil
