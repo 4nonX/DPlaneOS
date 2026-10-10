@@ -49,7 +49,9 @@ func getUserFromRequest(r *http.Request) string {
 }
 
 // checkBinary checks if a binary exists in the system's PATH.
-func checkBinary(name string) error {
+// checkBinary reports whether a binary is installed (a variable so tests
+// can pretend it is).
+var checkBinary = func(name string) error {
 	_, err := exec.LookPath(name)
 	return err
 }

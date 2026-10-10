@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	pathpkg "path"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -34,7 +35,8 @@ import (
 //    DELETE /api/docker/stacks          - compose down + remove directory
 //    POST   /api/docker/stacks/action   - start/stop/restart a stack
 
-const defaultStacksDir = config.StacksDir
+// defaultStacksDir is a variable so tests can use a temporary directory.
+var defaultStacksDir = config.StacksDir
 
 // validStackNameRe: lowercase alphanumeric, hyphens, underscores. No dots, no spaces.
 var validStackNameRe = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,62}$`)
@@ -54,10 +56,11 @@ func stackDir(name string) (string, error) {
 	if !validStackNameRe.MatchString(name) {
 		return "", fmt.Errorf("invalid stack name: must be lowercase alphanumeric with hyphens/underscores, 1-63 chars")
 	}
-	dir := filepath.Join(defaultStacksDir, name)
+	// POSIX paths: the stacks live on the NAS (path, not filepath).
+	base := pathpkg.Clean(defaultStacksDir)
+	clean := pathpkg.Join(base, name)
 	// Double-check the path is under our stacks dir after Join
-	clean := filepath.Clean(dir)
-	if !strings.HasPrefix(clean, defaultStacksDir+"/") {
+	if !strings.HasPrefix(clean, base+"/") {
 		return "", fmt.Errorf("path traversal detected")
 	}
 	return clean, nil
@@ -461,35 +464,65 @@ func (h *StackHandler) DeleteStack(w http.ResponseWriter, r *http.Request) {
 
 	user := getUserFromRequest(r)
 	start := time.Now()
+	// force: remove even if compose down fails (containers may keep running).
+	// purge: also delete everything else in the stack folder (bind-mounted
+	// ./data and the like); by default only the compose files go.
+	force := r.URL.Query().Get("force") == "true"
+	purge := r.URL.Query().Get("purge") == "true"
 
-	// Run compose down first (best effort - stack might already be stopped)
+	// compose down first: removing the compose file of running containers
+	// leaves them running with nothing to manage them from.
 	if _, err := os.Stat(composePath); err == nil {
 		output, downErr := cmdutil.RunMedium("docker_compose",
 			"compose", "--project-directory", dir, "-f", composePath, "down")
 		if downErr != nil {
-			// Log but don't fail - user may still want the directory removed
 			audit.LogCommand(audit.LevelWarn, user, "stack_down",
 				[]string{name}, false, time.Since(start), downErr)
-			_ = output // consumed
+			if !force {
+				respondOK(w, map[string]any{
+					"success": false,
+					"error":   "Stopping the stack failed; nothing was removed: " + strings.TrimSpace(string(output)),
+				})
+				return
+			}
 		}
 	}
 
-	// Remove the stack directory
-	if err := os.RemoveAll(dir); err != nil {
-		respondOK(w, map[string]any{
-			"success": false,
-			"error":   fmt.Sprintf("Compose down succeeded but failed to remove directory: %v", err),
-		})
-		return
+	var kept []string
+	if purge {
+		if err := os.RemoveAll(dir); err != nil {
+			respondOK(w, map[string]any{"success": false, "error": fmt.Sprintf("The stack is stopped, but removing its folder failed: %v", err)})
+			return
+		}
+	} else {
+		for _, f := range []string{"docker-compose.yml", ".env"} {
+			if err := os.Remove(filepath.Join(dir, f)); err != nil && !os.IsNotExist(err) {
+				respondOK(w, map[string]any{"success": false, "error": fmt.Sprintf("The stack is stopped, but removing %s failed: %v", f, err)})
+				return
+			}
+		}
+		if entries, err := os.ReadDir(dir); err == nil {
+			for _, e := range entries {
+				kept = append(kept, e.Name())
+			}
+		}
+		if len(kept) == 0 {
+			_ = os.Remove(dir)
+		}
 	}
 
 	duration := time.Since(start)
 	audit.LogCommand(audit.LevelInfo, user, "stack_delete",
 		[]string{name}, true, duration, nil)
 
+	msg := fmt.Sprintf("Stack '%s' removed", name)
+	if len(kept) > 0 {
+		msg += fmt.Sprintf("; its other files are kept in %s", dir)
+	}
 	respondOK(w, map[string]any{
 		"success":     true,
-		"message":     fmt.Sprintf("Stack '%s' removed", name),
+		"message":     msg,
+		"kept":        kept,
 		"duration_ms": duration.Milliseconds(),
 	})
 

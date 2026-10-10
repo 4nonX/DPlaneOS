@@ -1533,6 +1533,7 @@ function ComposeManager() {
   const [envDirty, setEnvDirty] = useState(false)
   const [panelTab, setPanelTab] = useState<'yaml' | 'containers' | 'logs'>('yaml')
   const [deleteConfirm, setDeleteConfirm] = useState(false)
+  const [purgeData, setPurgeData] = useState(false)
   const [saving, setSaving] = useState(false)
   const [execTarget, setExecTarget] = useState<ExecTarget | null>(null)
 
@@ -1608,13 +1609,14 @@ function ComposeManager() {
 
   const doDelete = useMutation({
     mutationFn: async () => {
-      const res = await api.delete<{ success: boolean; error?: string }>(`/api/docker/stacks?name=${encodeURIComponent(selected!)}`)
+      const res = await api.delete<{ success: boolean; error?: string; message?: string }>(
+        `/api/docker/stacks?name=${encodeURIComponent(selected!)}${purgeData ? '&purge=true' : ''}`)
       if (!res.success) throw new Error(res.error ?? 'Delete failed')
       return res
     },
-    onSuccess: () => {
-      toast.success(`Stack "${selected}" deleted`)
-      setSelected(null); setDeleteConfirm(false)
+    onSuccess: (res) => {
+      toast.success(res.message ?? `Stack "${selected}" deleted`)
+      setSelected(null); setDeleteConfirm(false); setPurgeData(false)
       qc.invalidateQueries({ queryKey: ['docker', 'stacks'] })
       qc.invalidateQueries({ queryKey: ['docker', 'containers'] })
     },
@@ -1742,9 +1744,13 @@ function ComposeManager() {
                   </button>
                 ) : (
                   <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-                    <span style={{ fontSize: 'var(--text-xs)', color: 'var(--error)' }}>Sure?</span>
+                    <span style={{ fontSize: 'var(--text-xs)', color: 'var(--error)' }}>Stop and remove the stack?</span>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 'var(--text-xs)' }} title="Bind-mounted folders such as ./data are kept unless this is checked">
+                      <input type="checkbox" checked={purgeData} onChange={e => setPurgeData(e.target.checked)} />
+                      also delete its folder and data
+                    </label>
                     <button onClick={() => doDelete.mutate()} disabled={doDelete.isPending} className="btn btn-ghost" style={{ color: 'var(--error)', padding: '4px 8px' }}>{doDelete.isPending ? '…' : 'Yes'}</button>
-                    <button onClick={() => setDeleteConfirm(false)} className="btn btn-ghost" style={{ padding: '4px 8px' }}>No</button>
+                    <button onClick={() => { setDeleteConfirm(false); setPurgeData(false) }} className="btn btn-ghost" style={{ padding: '4px 8px' }}>No</button>
                   </div>
                 )}
               </div>
