@@ -2,7 +2,7 @@
  * pages/IPMIPage.tsx - IPMI / Hardware Sensors (Phase 6)
  *
  * Reads IPMI sensors (temperature, fan speed, voltage) from the daemon.
- * Read-only monitoring view - no mutations.
+ * Sensors, and out-of-band management through the BMC (BMCPanel).
  *
  * Calls:
  *   GET  /api/system/ipmi   → { success, sensors: { temp:[], fan:[], voltage:[] } }
@@ -13,6 +13,7 @@ import { api } from '@/lib/api'
 import { Icon } from '@/components/ui/Icon'
 import { ErrorState } from '@/components/ui/ErrorState'
 import { Skeleton } from '@/components/ui/LoadingSpinner'
+import { BMCPanel } from './BMCPanel'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -157,7 +158,6 @@ export function IPMIPage() {
   const hasCritical = allSensors.some(s => (s.status ?? 'ok').toLowerCase() === 'critical')
 
   if (ipmiQ.isLoading) return <Skeleton height={400} />
-  if (ipmiQ.isError)   return <ErrorState error={ipmiQ.error} onRetry={() => qc.invalidateQueries({ queryKey: ['system', 'ipmi'] })} />
 
   return (
     <div style={{ maxWidth: 1000 }}>
@@ -178,7 +178,9 @@ export function IPMIPage() {
         </div>
       )}
 
-      {allSensors.length === 0 ? (
+      {ipmiQ.isError ? (
+        <ErrorState error={ipmiQ.error} onRetry={() => qc.invalidateQueries({ queryKey: ['system', 'ipmi'] })} />
+      ) : allSensors.length === 0 ? (
         <div className="card" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '60px 0', gap: 12, borderRadius: 'var(--radius-xl)' }}>
           <Icon name="developer_board" size={48} style={{ color: 'var(--text-tertiary)', opacity: 0.4 }} />
           <div style={{ color: 'var(--text-tertiary)', fontSize: 'var(--text-sm)' }}>No IPMI sensors detected</div>
@@ -193,6 +195,7 @@ export function IPMIPage() {
           <SensorSection icon="bolt"          title="Voltages"    sensors={sensors.voltage ?? []} emptyMsg="No voltage sensors" />
         </div>
       )}
+      <BMCPanel />
     </div>
   )
 }
