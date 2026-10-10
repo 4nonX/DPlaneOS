@@ -343,7 +343,7 @@ api POST /api/nfs/exports '{"path":"/mnt/testpool/api-test","clients":"*","optio
 assert_json "Create NFS export" "success" "true"
 api GET /api/nfs/exports >/dev/null
 assert_json "NFS export in list" "success" "true"
-sudo grep -q "/mnt/testpool/api-test" /etc/exports && ok "Export in /etc/exports" || fail "Export missing from /etc/exports"
+sudo grep -q "/mnt/testpool/api-test" /etc/exports.d/dplaneos.exports && ok "Export in /etc/exports.d/dplaneos.exports" || fail "Export missing from /etc/exports.d/dplaneos.exports"
 
 # 7.5 CONFIGURATION HISTORY (Design 0001, Phase 1)
 # Record, change a share, roll back to the earlier revision, export.
