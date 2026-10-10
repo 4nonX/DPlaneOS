@@ -111,3 +111,17 @@ func TestNFSNotInstalled(t *testing.T) {
 		t.Errorf("without exportfs: %s", r)
 	}
 }
+
+func TestNFSCreateDisabled(t *testing.T) {
+	h, exports, exp, _ := nfsEnv(t, nil)
+	if _, err := os.Stat(exp); err != nil {
+		t.Skip("no POSIX path to export on this system")
+	}
+	if r := call(t, h.CreateNFSExport, req{method: "POST", body: map[string]any{"path": exp, "clients": "10.9.9.9", "enabled": false}}); !r.ok() {
+		t.Fatalf("create: %s", r)
+	}
+	b, _ := os.ReadFile(exports)
+	if strings.Contains(string(b), "10.9.9.9") {
+		t.Errorf("an export created disabled is exported:\n%s", b)
+	}
+}

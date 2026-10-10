@@ -73,6 +73,9 @@ jobs:
         working-directory: app-react
         run: npm run lint
 
+      - name: UI/API contract (request fields the API reads)
+        run: python3 scripts/check-api-contract.py
+
       - name: Verify app/ bundle is up to date
         if: hashFiles('app-react/package-lock.json') != ''
         run: |

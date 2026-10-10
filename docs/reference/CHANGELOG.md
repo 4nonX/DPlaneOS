@@ -8,7 +8,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 ## Unreleased
 
 Found by the new handler tests (the API handlers now run against a real
-PostgreSQL schema and a command fake in CI).
+PostgreSQL schema and a command fake in CI). CI also checks every request of the web
+interface against the fields its handler reads
+(`scripts/check-api-contract.py`).
 
 ### Upgrade notes
 
@@ -79,6 +81,10 @@ PostgreSQL schema and a command fake in CI).
     test) and the setup wizard failed; saving a repository disabled it.
   - Directory: the LDAP form did not load or save the server and TLS
     settings; group mappings could not be added or removed.
+- SMTP alerts could not be saved from the web interface (the page had no
+  recipients field and the API requires one), the saved settings did not
+  load, and the "enabled" switch did nothing. NFS exports created switched
+  off were exported anyway.
 - **LDAP group mappings never applied and LDAP users got no permissions:**
   sync wrote only the cosmetic users.role. Mappings now name RBAC roles,
   sync assigns them (and revokes them when a user leaves the group; roles

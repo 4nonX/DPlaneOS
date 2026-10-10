@@ -1,13 +1,14 @@
 package handlers
 
 import (
-	"errors"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net"
 	"net/http"
+	"net/mail"
 	"net/smtp"
 	"os"
 	"strings"
@@ -39,6 +40,29 @@ type SMTPConfig struct {
 	From     string `json:"from"`
 	To       string `json:"to"` // comma-separated
 	TLS      bool   `json:"tls"`
+	// Enabled: alerts are sent unless false (configs saved before the
+	// field existed have none and stay on).
+	Enabled *bool `json:"enabled,omitempty"`
+}
+
+func (c SMTPConfig) isEnabled() bool { return c.Enabled == nil || *c.Enabled }
+
+// validateSMTPConfig checks addresses (they go into mail headers: a line
+// break would inject headers) and the host.
+func validateSMTPConfig(c SMTPConfig) error {
+	if c.Host == "" || c.Port <= 0 || c.Port > 65535 || c.From == "" || c.To == "" {
+		return fmt.Errorf("Host, port, from, and to (recipients) are required")
+	}
+	if strings.ContainsAny(c.Host+c.From+c.To+c.Username, "\r\n") {
+		return fmt.Errorf("line breaks are not allowed")
+	}
+	if _, err := mail.ParseAddress(c.From); err != nil {
+		return fmt.Errorf("invalid from address: %v", err)
+	}
+	if _, err := mail.ParseAddressList(c.To); err != nil {
+		return fmt.Errorf("invalid recipient list: %v", err)
+	}
+	return nil
 }
 
 // GetSMTPConfig returns current SMTP configuration
@@ -56,7 +80,12 @@ func (h *AlertingHandler) GetSMTPConfig(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	cfg.Password = "***" // never expose
-	respondOK(w, map[string]any{"success": true, "configured": true, "config": cfg})
+	// Flat fields for the Alerts page; "config" for older clients.
+	respondOK(w, map[string]any{
+		"success": true, "configured": true, "config": cfg,
+		"host": cfg.Host, "port": cfg.Port, "username": cfg.Username, "from": cfg.From,
+		"to": cfg.To, "tls": cfg.TLS, "enabled": cfg.isEnabled(),
+	})
 }
 
 // SaveSMTPConfig saves SMTP settings.
@@ -68,8 +97,8 @@ func (h *AlertingHandler) SaveSMTPConfig(w http.ResponseWriter, r *http.Request)
 		respondErrorSimple(w, "Invalid request", http.StatusBadRequest)
 		return
 	}
-	if cfg.Host == "" || cfg.Port == 0 || cfg.From == "" || cfg.To == "" {
-		respondErrorSimple(w, "Host, port, from, and to are required", http.StatusBadRequest)
+	if err := validateSMTPConfig(cfg); err != nil {
+		respondErrorSimple(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -168,6 +197,9 @@ func (h *AlertingHandler) sendSMTPAlert(subject, body string) {
 	var cfg SMTPConfig
 	if json.Unmarshal([]byte(value), &cfg) != nil {
 		return
+	}
+	if !cfg.isEnabled() {
+		return // switched off on the Alerts page
 	}
 	if cfg.Password != "" {
 		plain, openErr := secrets.Open(cfg.Password)
@@ -379,4 +411,3 @@ func StartScrubMonitor() {
 		}
 	}()
 }
-

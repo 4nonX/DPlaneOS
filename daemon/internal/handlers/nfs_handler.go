@@ -24,16 +24,17 @@ import (
 
 // nfsExportsPath is the exports file (a variable so tests can redirect it).
 var nfsExportsPath = "/etc/exports"
+
 const nfsDplaneosMark = "# DPlaneOS NFS exports - managed automatically, do not edit by hand"
 
 // NFSExport represents a single exported path
 type NFSExport struct {
-	ID         int    `json:"id"`
-	Path       string `json:"path"`
-	Clients    string `json:"clients"`    // e.g. "192.168.1.0/24" or "*"
-	Options    string `json:"options"`    // e.g. "rw,sync,no_subtree_check"
-	Enabled    bool   `json:"enabled"`
-	CreatedAt  string `json:"created_at"`
+	ID        int    `json:"id"`
+	Path      string `json:"path"`
+	Clients   string `json:"clients"` // e.g. "192.168.1.0/24" or "*"
+	Options   string `json:"options"` // e.g. "rw,sync,no_subtree_check"
+	Enabled   bool   `json:"enabled"`
+	CreatedAt string `json:"created_at"`
 }
 
 // NFSHandler handles NFS export CRUD
@@ -44,7 +45,6 @@ type NFSHandler struct {
 func NewNFSHandler(db *sql.DB) *NFSHandler {
 	return &NFSHandler{db: db}
 }
-
 
 // nfsInstalled returns true if exportfs is on PATH
 func nfsInstalled() bool {
@@ -233,10 +233,15 @@ func (h *NFSHandler) CreateNFSExport(w http.ResponseWriter, r *http.Request) {
 		Path    string `json:"path"`
 		Clients string `json:"clients"`
 		Options string `json:"options"`
+		Enabled *bool  `json:"enabled"` // absent = enabled
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		respondErrorSimple(w, "invalid JSON", http.StatusBadRequest)
 		return
+	}
+	enabled := 1
+	if req.Enabled != nil && !*req.Enabled {
+		enabled = 0 // created switched off on the NFS page
 	}
 
 	// Defaults
@@ -265,8 +270,8 @@ func (h *NFSHandler) CreateNFSExport(w http.ResponseWriter, r *http.Request) {
 
 	var id int64
 	err := h.db.QueryRow(
-		`INSERT INTO nfs_exports (path, clients, options) VALUES ($1, $2, $3) RETURNING id`,
-		req.Path, req.Clients, req.Options,
+		`INSERT INTO nfs_exports (path, clients, options, enabled) VALUES ($1, $2, $3, $4) RETURNING id`,
+		req.Path, req.Clients, req.Options, enabled,
 	).Scan(&id)
 	if err != nil {
 		respondUserErrStatus(w, http.StatusInternalServerError, SanitizeDB(err), err)
@@ -436,4 +441,3 @@ func (h *NFSHandler) ReloadNFSExportsHandler(w http.ResponseWriter, r *http.Requ
 	}
 	respondOK(w, map[string]any{"success": true, "message": "NFS exports reloaded"})
 }
-

@@ -47,6 +47,7 @@ interface SMTPConfig {
   username?:  string
   password?:  string
   from?:      string
+  to?:        string
   tls?:       boolean
   enabled?:   boolean
 }
@@ -181,7 +182,7 @@ function SMTPTab() {
 
   const [password, setPassword] = useState('')
   const [dirty, setDirty] = useState<{
-    host?: string; port?: string; username?: string; from?: string; tls?: boolean; enabled?: boolean
+    host?: string; port?: string; username?: string; from?: string; to?: string; tls?: boolean; enabled?: boolean
   }>({})
 
   // Effective values: user edit OR server value
@@ -189,11 +190,12 @@ function SMTPTab() {
   const port     = dirty.port     ?? String(configQ.data?.port ?? 587)
   const username = dirty.username ?? configQ.data?.username ?? ''
   const from     = dirty.from     ?? configQ.data?.from     ?? ''
+  const to       = dirty.to       ?? configQ.data?.to       ?? ''
   const tls      = dirty.tls      ?? configQ.data?.tls      ?? true
   const enabled  = dirty.enabled  ?? !!configQ.data?.enabled
 
   const save = useMutation({
-    mutationFn: () => api.post('/api/alerts/smtp', { host, port: Number(port), username, password, from, tls, enabled }),
+    mutationFn: () => api.post('/api/alerts/smtp', { host, port: Number(port), username, password, from, to, tls, enabled }),
     onSuccess: () => {
       toast.success('SMTP config saved')
       setDirty({})
@@ -240,6 +242,10 @@ function SMTPTab() {
 
         <Field label="From Address" hint="Sender address shown in received emails">
           <input value={from} onChange={e => setDirty(d => ({ ...d, from: e.target.value }))} placeholder="dplaneos@example.com" className="input" />
+        </Field>
+
+        <Field label="Recipients" hint="Who receives alerts; separate several addresses with commas">
+          <input value={to} onChange={e => setDirty(d => ({ ...d, to: e.target.value }))} placeholder="admin@example.com, ops@example.com" className="input" />
         </Field>
 
         <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>

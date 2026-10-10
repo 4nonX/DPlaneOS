@@ -1,10 +1,12 @@
 package handlers
 
 import (
+	"dplaned/internal/secrets"
 	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -165,5 +167,37 @@ func TestTestWebhookReportsFailures(t *testing.T) {
 	res := call(t, h.TestWebhook, req{method: "POST", vars: map[string]string{"id": strconv.Itoa(id)}})
 	if res.ok() || !strings.Contains(res.raw, "500") {
 		t.Errorf("a 500 from the receiver must be reported: %s", res)
+	}
+}
+
+func TestSMTPConfigFromWebUI(t *testing.T) {
+	db := testDB(t)
+	if err := secrets.Init(filepath.Join(t.TempDir(), "secrets.key")); err != nil {
+		t.Fatal(err)
+	}
+	h := NewAlertingHandler(db)
+	base := map[string]any{"host": "smtp.example.com", "port": 587, "username": "u", "password": "pw", "from": "nas@example.com", "tls": true}
+	with := func(extra map[string]any) map[string]any {
+		b := map[string]any{}
+		for k, v := range base {
+			b[k] = v
+		}
+		for k, v := range extra {
+			b[k] = v
+		}
+		return b
+	}
+	if r := call(t, h.SaveSMTPConfig, req{method: "POST", body: with(nil)}); r.code != 400 {
+		t.Errorf("without recipients: %s", r)
+	}
+	if r := call(t, h.SaveSMTPConfig, req{method: "POST", body: with(map[string]any{"to": "a@example.com\r\nBcc: x@evil"})}); r.code != 400 {
+		t.Errorf("header injection: %s", r)
+	}
+	if r := call(t, h.SaveSMTPConfig, req{method: "POST", body: with(map[string]any{"to": "a@example.com, b@example.com", "enabled": false})}); !r.ok() {
+		t.Fatalf("save: %s", r)
+	}
+	g := call(t, h.GetSMTPConfig, req{})
+	if g.body["host"] != "smtp.example.com" || g.body["to"] != "a@example.com, b@example.com" || g.body["enabled"] != false || strings.Contains(g.raw, `"password":"pw"`) {
+		t.Errorf("get: %s", g)
 	}
 }
