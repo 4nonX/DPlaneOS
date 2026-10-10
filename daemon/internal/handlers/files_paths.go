@@ -6,6 +6,10 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
+
+	"dplaned/internal/security"
 )
 
 // File manager paths. The daemon runs as root and the files live on shares
@@ -20,7 +24,46 @@ import (
 //
 // The roots are pool and removable-media mounts only: not /home, /tmp or
 // the daemon's own data directory (the secrets key, ssh-keys.json, ...).
+// Besides the fixed mount directories, every mounted ZFS filesystem outside
+// the system directories is a root: a pool created or imported without a
+// mountpoint is mounted at /<pool>.
 var fileRoots = []string{"/mnt", "/tank", "/data", "/media"}
+
+// mountsFile lists the mounted filesystems (replaced in tests).
+var mountsFile = "/proc/self/mounts"
+
+var (
+	zfsRootsMu   sync.Mutex
+	zfsRootsAt   time.Time
+	zfsRootsList []string
+)
+
+// zfsMountRoots returns the mountpoints of ZFS filesystems outside the
+// system directories (cached briefly: path checks run per request).
+func zfsMountRoots() []string {
+	zfsRootsMu.Lock()
+	defer zfsRootsMu.Unlock()
+	if time.Since(zfsRootsAt) < 3*time.Second {
+		return zfsRootsList
+	}
+	var out []string
+	if data, err := os.ReadFile(mountsFile); err == nil {
+		for _, line := range strings.Split(string(data), "\n") {
+			f := strings.Fields(line)
+			if len(f) < 3 || f[2] != "zfs" {
+				continue
+			}
+			mp := filepath.Clean(strings.ReplaceAll(f[1], `\040`, " "))
+			parts := strings.Split(strings.Trim(filepath.ToSlash(mp), "/"), "/")
+			if mp == "/" || mp == "." || parts[0] == "" || security.SystemDirs[parts[0]] {
+				continue
+			}
+			out = append(out, mp)
+		}
+	}
+	zfsRootsList, zfsRootsAt = out, time.Now()
+	return out
+}
 
 func realRoots() []string {
 	var out []string
@@ -29,8 +72,11 @@ func realRoots() []string {
 			out = append(out, rr)
 		}
 	}
-	return out
+	return append(out, zfsMountRoots()...)
 }
+
+// FileRoots lists the directories the file manager and shares may use.
+func FileRoots() []string { return realRoots() }
 
 func underRoot(real string) bool {
 	for _, root := range realRoots() {
@@ -162,4 +208,21 @@ func writeFileNoFollow(path string, data []byte, perm os.FileMode) error {
 		return err
 	}
 	return f.Close()
+}
+
+// sharePathOK: an SMB share or NFS export must be an existing directory
+// within the file roots, given by its real path (no symlinks): a share of
+// / or /etc, or an export with no_root_squash, hands out the system.
+func sharePathOK(p string) error {
+	real, err := resolveExisting(p)
+	if err != nil {
+		return fmt.Errorf("share path must be a folder on a pool or media mount (%v)", err)
+	}
+	if fi, err := os.Stat(real); err != nil || !fi.IsDir() {
+		return fmt.Errorf("share path must be a folder")
+	}
+	if real != filepath.Clean(p) {
+		return fmt.Errorf("share path contains a symbolic link; use the real path %s", real)
+	}
+	return nil
 }

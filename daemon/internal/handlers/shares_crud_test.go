@@ -35,9 +35,16 @@ func TestShareLifecycle(t *testing.T) {
 	conf := filepath.Join(t.TempDir(), "smb.conf")
 	h := NewShareCRUDHandler(db, conf)
 	cmds := fakeCommands(t, nil)
+	root := shareRoot(t, "media", "other")
+	media := filepath.Join(root, "media")
 
+	if r := call(t, h.HandleShares, req{method: "POST", path: "/api/shares", body: map[string]any{
+		"action": "create", "name": "sys", "path": t.TempDir(),
+	}}); r.code != 400 {
+		t.Errorf("a share outside the file roots: %s", r)
+	}
 	r := call(t, h.HandleShares, req{method: "POST", path: "/api/shares", body: map[string]any{
-		"action": "create", "name": "media", "path": "/mnt/tank/media/", "comment": "Films", "read_only": true,
+		"action": "create", "name": "media", "path": media + "/", "comment": "Films", "read_only": true,
 	}})
 	if !r.ok() {
 		t.Fatalf("create: %s", r)
@@ -47,7 +54,7 @@ func TestShareLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("smb.conf not written: %v", err)
 	}
-	for _, want := range []string{"[media]", "path = /mnt/tank/media", "comment = Films", "read only = yes"} {
+	for _, want := range []string{"[media]", "path = " + media + "\n", "comment = Films", "read only = yes"} {
 		if !strings.Contains(string(b), want) {
 			t.Errorf("smb.conf lacks %q:\n%s", want, b)
 		}
@@ -57,7 +64,7 @@ func TestShareLifecycle(t *testing.T) {
 	}
 
 	if r := call(t, h.HandleShares, req{method: "POST", path: "/api/shares", body: map[string]any{
-		"action": "create", "name": "media", "path": "/mnt/tank/other",
+		"action": "create", "name": "media", "path": filepath.Join(root, "other"),
 	}}); r.code != 409 {
 		t.Errorf("duplicate name: %s", r)
 	}
@@ -67,6 +74,11 @@ func TestShareLifecycle(t *testing.T) {
 		t.Errorf("list: %s", list)
 	}
 
+	if r := call(t, h.HandleShares, req{method: "POST", path: "/api/shares", body: map[string]any{
+		"action": "update", "id": id, "path": "/etc",
+	}}); r.code != 400 {
+		t.Errorf("update moved a share outside the file roots: %s", r)
+	}
 	if r := call(t, h.HandleShares, req{method: "POST", path: "/api/shares", body: map[string]any{
 		"action": "update", "id": id, "comment": "Movies",
 	}}); !r.ok() {
@@ -92,8 +104,9 @@ func TestShareSambaReloadFailureIsReported(t *testing.T) {
 	db := testDB(t)
 	h := NewShareCRUDHandler(db, filepath.Join(t.TempDir(), "smb.conf"))
 	fakeCommands(t, map[string]func([]string) ([]byte, error){"smbcontrol": fail("smbd not running")})
+	root := shareRoot(t, "docs")
 	r := call(t, h.HandleShares, req{method: "POST", path: "/api/shares", body: map[string]any{
-		"action": "create", "name": "docs", "path": "/mnt/tank/docs",
+		"action": "create", "name": "docs", "path": filepath.Join(root, "docs"),
 	}})
 	if r.ok() || !strings.Contains(r.raw, "Saved, but Samba was not updated") {
 		t.Errorf("a failed reload must be reported: %s", r)

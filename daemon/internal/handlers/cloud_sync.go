@@ -531,17 +531,22 @@ func (h *CloudSyncHandler) runSync(w http.ResponseWriter, r *http.Request) {
 		respondErrorSimple(w, "local_path is required", http.StatusBadRequest)
 		return
 	}
-	// Restrict local paths to safe locations
-	if !strings.HasPrefix(req.LocalPath, "/mnt/") &&
-		!strings.HasPrefix(req.LocalPath, "/data/") &&
-		!strings.HasPrefix(req.LocalPath, "/tank/") {
-		respondErrorSimple(w, "local_path must be under /mnt/, /data/, or /tank/", http.StatusBadRequest)
+	// Local paths: within the file roots, checked on the resolved path (a
+	// symlink on a share must not let a download overwrite /etc). Uploads
+	// read an existing folder; downloads write to an existing folder or
+	// create a new one.
+	var local string
+	var perr error
+	if req.Direction == "download" {
+		local, perr = resolveDestination(req.LocalPath)
+	} else {
+		local, perr = resolveExisting(req.LocalPath)
+	}
+	if perr != nil {
+		respondErrorSimple(w, "local_path not allowed (pool and media mounts only): "+perr.Error(), http.StatusBadRequest)
 		return
 	}
-	if strings.Contains(req.LocalPath, "..") {
-		respondErrorSimple(w, "Path traversal not allowed", http.StatusBadRequest)
-		return
-	}
+	req.LocalPath = local
 
 	var src, dst string
 	if req.Direction == "download" {
@@ -613,4 +618,3 @@ func (h *CloudSyncHandler) runSync(w http.ResponseWriter, r *http.Request) {
 		"message":      fmt.Sprintf("Sync started: %s → %s", src, dst),
 	})
 }
-

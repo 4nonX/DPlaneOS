@@ -9,12 +9,18 @@ import (
 )
 
 func TestNFSValidators(t *testing.T) {
-	dir := t.TempDir()
+	root := shareRoot(t, "export")
 	if validateNFSPath("relative/path") == nil || validateNFSPath("/mnt/../etc") == nil || validateNFSPath("/does/not/exist-xyz") == nil {
 		t.Error("bad paths accepted")
 	}
-	if err := validateNFSPath(dir); err != nil && !strings.Contains(dir, ":") { // Windows temp paths are not absolute POSIX paths
+	if validateNFSPath(t.TempDir()) == nil {
+		t.Error("a folder outside the file roots was accepted")
+	}
+	if err := validateNFSPath(filepath.Join(root, "export")); err != nil {
 		t.Errorf("existing path: %v", err)
+	}
+	if os.Symlink(filepath.Join(root, "export"), filepath.Join(root, "link")) == nil && validateNFSPath(filepath.Join(root, "link")) == nil {
+		t.Error("a symlinked path was accepted")
 	}
 	for _, ok := range []string{"*", "192.168.1.0/24", "10.0.0.1 nas2.lan", "*.example.com"} {
 		if validateNFSClients(ok) != nil {
@@ -43,18 +49,12 @@ func nfsEnv(t *testing.T, answers map[string]func([]string) ([]byte, error)) (*N
 	prev := nfsExportsPath
 	nfsExportsPath = filepath.Join(dir, "exports")
 	t.Cleanup(func() { nfsExportsPath = prev })
-	exp := "/"
-	if _, err := os.Stat("/tmp"); err == nil {
-		exp = "/tmp"
-	}
+	exp := filepath.Join(shareRoot(t, "export"), "export")
 	return NewNFSHandler(db), nfsExportsPath, exp, fakeCommands(t, answers)
 }
 
 func TestNFSExportLifecycle(t *testing.T) {
 	h, exports, exp, cmds := nfsEnv(t, nil)
-	if _, err := os.Stat(exp); err != nil {
-		t.Skip("no POSIX path to export on this system")
-	}
 	r := call(t, h.CreateNFSExport, req{method: "POST", body: map[string]any{"path": exp, "clients": "192.168.1.0/24 10.0.0.5"}})
 	if !r.ok() {
 		t.Fatalf("create: %s", r)
@@ -95,9 +95,6 @@ func TestNFSExportLifecycle(t *testing.T) {
 
 func TestNFSApplyFailureIsReported(t *testing.T) {
 	h, _, exp, _ := nfsEnv(t, map[string]func([]string) ([]byte, error){"exportfs": fail("exportfs: /etc/exports:1: unknown keyword")})
-	if _, err := os.Stat(exp); err != nil {
-		t.Skip("no POSIX path to export on this system")
-	}
 	r := call(t, h.CreateNFSExport, req{method: "POST", body: map[string]any{"path": exp}})
 	if r.ok() || !strings.Contains(r.raw, "Saved, but NFS was not updated") {
 		t.Errorf("a failed exportfs must be reported, not \"applied\": %s", r)
@@ -114,9 +111,6 @@ func TestNFSNotInstalled(t *testing.T) {
 
 func TestNFSCreateDisabled(t *testing.T) {
 	h, exports, exp, _ := nfsEnv(t, nil)
-	if _, err := os.Stat(exp); err != nil {
-		t.Skip("no POSIX path to export on this system")
-	}
 	if r := call(t, h.CreateNFSExport, req{method: "POST", body: map[string]any{"path": exp, "clients": "10.9.9.9", "enabled": false}}); !r.ok() {
 		t.Fatalf("create: %s", r)
 	}

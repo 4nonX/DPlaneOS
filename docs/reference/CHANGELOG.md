@@ -28,6 +28,22 @@ interface against the fields its handler reads
 
 ### Security
 
+- Public file links: a link could be created for any file on the system
+  (/etc/shadow, the daemon's secrets key) and downloaded without a login.
+  Only files on pool and media mounts can be linked, and the path is
+  checked again at download.
+- Trash: a "/mnt/../etc/..." path moved system files into the trash;
+  restoring trusted the item name (path traversal) and an original
+  location read from a file on the share, so a share user could have the
+  daemon move a file anywhere as root. Paths are resolved and checked, and
+  trash folders must be owned by the daemon.
+- POSIX and NFSv4 ACLs, cloud sync folders: "/mnt/../etc" passed the prefix
+  check and symlinks were followed; the real path is checked now.
+- SMB shares and NFS exports accepted any folder (/, /etc); with
+  no_root_squash an export of / is root on the machine. Shares must be
+  folders on pool or media mounts, given by their real path, and are
+  checked again whenever the Samba and exports files are written. Updating
+  a share did not check the path at all.
 - File manager (runs as root; the built-in "user" role may use it): listing
   and file properties had no path check at all, the other operations
   checked paths lexically only (a symlink created on a share reached the
@@ -70,6 +86,15 @@ interface against the fields its handler reads
 
 ### Fixed
 
+- Trash: everything moved to the trash was copied to one folder on the
+  system disk (/mnt/.dplaneos-trash). Each filesystem now has its own
+  trash folder, so trashing is a rename and uses no extra space.
+- Pools mounted at /<pool> (created or imported without a mountpoint):
+  the file manager, ACLs and shares only knew /mnt, /tank, /data and
+  /media. Every mounted ZFS filesystem outside the system directories is
+  available now; creating folders under /media was refused.
+- Files page: Move and Properties added; copy, rename, delete, trash and
+  permission changes reported success when the server had refused them.
 - Docker: updating a container pulled the new image but only restarted
   the old container, which kept running the old image while the update
   reported success. It now recreates the container with the same

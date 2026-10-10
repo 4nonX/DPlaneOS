@@ -1198,6 +1198,7 @@ func main() {
 	filesHandler := handlers.NewFilesExtendedHandler()
 	r.Handle("/api/files/list", permRoute("storage", "read", filesHandler.ListFiles)).Methods("GET")
 	r.Handle("/api/files/properties", permRoute("storage", "read", filesHandler.GetFileProperties)).Methods("GET")
+	r.Handle("/api/files/roots", permRoute("storage", "read", filesHandler.ListRoots)).Methods("GET")
 	r.Handle("/api/files/read", permRoute("storage", "read", filesHandler.ReadFile)).Methods("GET")
 	r.Handle("/api/files/download", permRoute("storage", "read", filesHandler.DownloadFile)).Methods("GET")
 	r.Handle("/api/files/rename", permRoute("storage", "write", filesHandler.RenameFile)).Methods("POST")

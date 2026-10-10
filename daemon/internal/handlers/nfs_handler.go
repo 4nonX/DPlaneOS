@@ -1,13 +1,13 @@
 package handlers
 
 import (
-	"path/filepath"
 	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -66,16 +66,10 @@ func nfsInstalled() bool {
 var unsafePath = regexp.MustCompile(`\.\.`)
 
 func validateNFSPath(path string) error {
-	if !strings.HasPrefix(path, "/") {
-		return fmt.Errorf("path must be absolute (start with /)")
-	}
 	if unsafePath.MatchString(path) {
 		return fmt.Errorf("path must not contain path traversal sequences")
 	}
-	if _, err := os.Stat(path); err != nil {
-		return fmt.Errorf("path does not exist: %s", path)
-	}
-	return nil
+	return sharePathOK(path)
 }
 
 // validateNFSClients checks the clients field
@@ -122,6 +116,11 @@ func (h *NFSHandler) writeExportsFile() error {
 	for rows.Next() {
 		var path, clients, options string
 		if err := rows.Scan(&path, &clients, &options); err != nil {
+			continue
+		}
+		// Checked again: the folder may have been replaced by a symlink.
+		if err := sharePathOK(path); err != nil {
+			log.Printf("NFS: export %s skipped: %v", path, err)
 			continue
 		}
 		// Format: /path client1(opts) client2(opts) ...

@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 
@@ -182,10 +181,11 @@ func CreateFileShare(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Validate path: must be absolute, no traversal, must exist and be a file
-	clean := filepath.Clean(req.Path)
-	if !filepath.IsAbs(clean) || strings.Contains(clean, "..") {
-		respondErrorSimple(w, "invalid path", http.StatusBadRequest)
+	// The link is public: only files within the file roots (pool and media
+	// mounts) can be shared, checked on the resolved path.
+	clean, err := resolveExisting(req.Path)
+	if err != nil {
+		respondErrorSimple(w, "path not allowed (pool and media mounts only): "+err.Error(), http.StatusBadRequest)
 		return
 	}
 	info, err := os.Stat(clean)
@@ -292,12 +292,12 @@ func GetFileShareInfo(w http.ResponseWriter, r *http.Request) {
 	}
 
 	respondOK(w, map[string]any{
-		"success":      true,
-		"filename":     s.Filename,
-		"size":         size,
-		"has_password": s.HasPassword,
-		"expires_at":   s.ExpiresAt,
-		"max_downloads": s.MaxDownloads,
+		"success":        true,
+		"filename":       s.Filename,
+		"size":           size,
+		"has_password":   s.HasPassword,
+		"expires_at":     s.ExpiresAt,
+		"max_downloads":  s.MaxDownloads,
 		"download_count": s.DownloadCount,
 	})
 }
@@ -345,8 +345,15 @@ func DownloadFileShare(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Open file before incrementing counter so a missing file is caught early
-	f, err := os.Open(s.Path)
+	// Open file before incrementing counter so a missing file is caught
+	// early. The path is resolved again: a share user may have replaced the
+	// file with a symlink since the link was created.
+	real, rerr := resolveExisting(s.Path)
+	if rerr != nil || real != s.Path {
+		http.Error(w, "File not found", http.StatusNotFound)
+		return
+	}
+	f, err := openNoFollow(real, os.O_RDONLY, 0)
 	if err != nil {
 		log.Printf("file_share download: open %s: %v", s.Path, err)
 		http.Error(w, "File not found", http.StatusNotFound)

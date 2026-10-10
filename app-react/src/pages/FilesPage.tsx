@@ -5,6 +5,8 @@
  *   GET  /api/files/list?path=         ? { success, path, files: FileEntry[] }
  *   POST /api/files/rename             ? { old_path, new_name }
  *   POST /api/files/copy               ? { source, destination }
+ *   POST /api/files/move               ? { source, destination }
+ *   GET  /api/files/properties?path=   ? { file }
  *   POST /api/files/mkdir              ? { path }
  *   POST /api/files/delete             ? { path }
  *   POST /api/files/chown              ? { path, owner, group }
@@ -19,7 +21,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
 import type React from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { api, getSessionId, getUsername, getCsrfToken } from '@/lib/api'
+import { api, ensureOk, getSessionId, getUsername, getCsrfToken } from '@/lib/api'
 import { fmtDateTime } from '@/lib/fmt'
 import { Icon } from '@/components/ui/Icon'
 import { ErrorState } from '@/components/ui/ErrorState'
@@ -107,6 +109,8 @@ function ContextMenu({ state, onClose, onAction }: {
     ...(state.entry.is_dir ? [] : [{ label: 'Share Link', icon: 'add_link', action: 'share' }]),
     { label: 'Rename', icon: 'edit', action: 'rename' },
     { label: 'Copy', icon: 'content_copy', action: 'copy' },
+    { label: 'Move', icon: 'drive_file_move', action: 'move' },
+    { label: 'Properties', icon: 'info', action: 'properties' },
     { label: 'Change Owner', icon: 'manage_accounts', action: 'chown' },
     { label: 'Change Mode', icon: 'lock', action: 'chmod' },
     { label: 'Manage ACLs', icon: 'admin_panel_settings', action: 'acl' },
@@ -147,7 +151,7 @@ function ContextMenu({ state, onClose, onAction }: {
 function RenameModal({ entry, onClose, onDone }: { entry: FileEntry; onClose: () => void; onDone: () => void }) {
   const [name, setName] = useState(entry.name)
   const mutation = useMutation({
-    mutationFn: () => api.post('/api/files/rename', { old_path: entry.path, new_name: name }),
+    mutationFn: async () => ensureOk(await api.post('/api/files/rename', { old_path: entry.path, new_name: name })),
     onSuccess: () => { toast.success('Renamed'); onDone(); onClose() },
     onError: (e: Error) => toast.error(e.message),
   })
@@ -163,7 +167,7 @@ function RenameModal({ entry, onClose, onDone }: { entry: FileEntry; onClose: ()
 function MkdirModal({ currentPath, onClose, onDone }: { currentPath: string; onClose: () => void; onDone: () => void }) {
   const [name, setName] = useState('')
   const mutation = useMutation({
-    mutationFn: () => api.post('/api/files/mkdir', { path: `${currentPath.replace(/\/$/, '')}/${name}` }),
+    mutationFn: async () => ensureOk(await api.post('/api/files/mkdir', { path: `${currentPath.replace(/\/$/, '')}/${name}` })),
     onSuccess: () => { toast.success('Folder created'); onDone(); onClose() },
     onError: (e: Error) => toast.error(e.message),
   })
@@ -180,7 +184,7 @@ function ChownModal({ entry, onClose, onDone }: { entry: FileEntry; onClose: () 
   const [owner, setOwner] = useState(entry.owner ?? '')
   const [group, setGroup] = useState(entry.group ?? '')
   const mutation = useMutation({
-    mutationFn: () => api.post('/api/files/chown', { path: entry.path, owner, group }),
+    mutationFn: async () => ensureOk(await api.post('/api/files/chown', { path: entry.path, owner, group })),
     onSuccess: () => { toast.success('Ownership changed'); onDone(); onClose() },
     onError: (e: Error) => toast.error(e.message),
   })
@@ -204,7 +208,7 @@ function ChownModal({ entry, onClose, onDone }: { entry: FileEntry; onClose: () 
 function ChmodModal({ entry, onClose, onDone }: { entry: FileEntry; onClose: () => void; onDone: () => void }) {
   const [mode, setMode] = useState(entry.mode ?? '755')
   const mutation = useMutation({
-    mutationFn: () => api.post('/api/files/chmod', { path: entry.path, mode }),
+    mutationFn: async () => ensureOk(await api.post('/api/files/chmod', { path: entry.path, mode })),
     onSuccess: () => { toast.success('Permissions changed'); onDone(); onClose() },
     onError: (e: Error) => toast.error(e.message),
   })
@@ -407,12 +411,12 @@ function TrashTab() {
     queryFn: ({ signal }) => api.get<TrashListResponse>('/api/trash/list', signal),
   })
   const restore = useMutation({
-    mutationFn: (name: string) => api.post('/api/trash/restore', { name }),
+    mutationFn: async (name: string) => ensureOk(await api.post('/api/trash/restore', { name })),
     onSuccess: () => { toast.success('Restored'); qc.invalidateQueries({ queryKey: ['trash', 'list'] }) },
     onError: (e: Error) => toast.error(e.message),
   })
   const empty = useMutation({
-    mutationFn: () => api.post('/api/trash/empty', {}),
+    mutationFn: async () => ensureOk(await api.post('/api/trash/empty', {})),
     onSuccess: () => { toast.success('Trash emptied'); qc.invalidateQueries({ queryKey: ['trash', 'list'] }) },
     onError: (e: Error) => toast.error(e.message),
   })
@@ -461,10 +465,7 @@ function TrashTab() {
 
 // The file manager works on pool and removable-media mounts only (system
 // directories are off limits; stacks and app icons have their own editors).
-const BOOKMARKS = [
-  { label: 'mnt',   path: '/mnt',   icon: 'storage' },
-  { label: 'media', path: '/media', icon: 'usb' },
-]
+const FALLBACK_ROOTS = ['/mnt', '/media']
 
 // ---------------------------------------------------------------------------
 // TextEditorModal - inline text editor (= 2 MB files)
@@ -555,6 +556,16 @@ function FileBrowser() {
   const [dragOver, setDragOver] = useState(false)
   const dropZoneRef = useRef<HTMLDivElement>(null)
 
+  // Pool and media mounts (a pool without a mountpoint is at /<pool>).
+  const rootsQ = useQuery({
+    queryKey: ['files', 'roots'],
+    queryFn: ({ signal }) => api.get<{ success: boolean; roots: string[] }>('/api/files/roots', signal),
+    staleTime: 30_000,
+  })
+  const bookmarks = (rootsQ.data?.roots?.length ? rootsQ.data.roots : FALLBACK_ROOTS).map(p => ({
+    path: p, label: p.replace(/^\//, ''), icon: p === '/media' ? 'usb' : 'storage',
+  }))
+
   const filesQ = useQuery({
     queryKey: ['files', 'list', path],
     queryFn: ({ signal }) => api.get<FilesListResponse>(`/api/files/list?path=${encodeURIComponent(path)}`, signal),
@@ -644,12 +655,12 @@ function FileBrowser() {
   }, [path, qc])
 
   const deleteMutation = useMutation({
-    mutationFn: (p: string) => api.post('/api/files/delete', { path: p }),
+    mutationFn: async (p: string) => ensureOk(await api.post('/api/files/delete', { path: p })),
     onSuccess: () => { toast.success('Deleted'); qc.invalidateQueries({ queryKey: ['files', 'list', path] }) },
     onError: (e: Error) => toast.error(e.message),
   })
   const trashMutation = useMutation({
-    mutationFn: (p: string) => api.post('/api/trash/move', { path: p }),
+    mutationFn: async (p: string) => ensureOk(await api.post('/api/trash/move', { path: p })),
     onSuccess: () => { toast.success('Moved to trash'); qc.invalidateQueries({ queryKey: ['files', 'list', path] }) },
     onError: (e: Error) => toast.error(e.message),
   })
@@ -696,7 +707,7 @@ function FileBrowser() {
       {/* Bookmark sidebar */}
       <div style={{ width: 140, flexShrink: 0, paddingRight: 12, borderRight: '1px solid var(--border)', marginRight: 16 }}>
         <div style={{ fontSize: 'var(--text-2xs)', fontWeight: 700, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8 }}>Quick Access</div>
-        {BOOKMARKS.map(bm => (
+        {bookmarks.map(bm => (
           <button key={bm.path} onClick={() => navigate(bm.path)}
             style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 7, padding: '7px 8px', background: path === bm.path ? 'var(--primary-bg)' : 'none', border: 'none', borderRadius: 'var(--radius-sm)', cursor: 'pointer', color: path === bm.path ? 'var(--primary)' : 'var(--text-secondary)', fontSize: 'var(--text-xs)', textAlign: 'left', transition: 'background 0.1s' }}
             onMouseEnter={e => { if (path !== bm.path) e.currentTarget.style.background = 'var(--surface)' }}
@@ -888,6 +899,12 @@ function FileBrowser() {
       {modal?.type === 'chmod'  && <ChmodModal  entry={modal.entry} onClose={() => setModal(null)} onDone={refresh} />}
       {modal?.type === 'edit'   && <TextEditorModal entry={modal.entry} onClose={() => setModal(null)} onSaved={refresh} />}
       {modal?.type === 'share'  && <ShareLinkModal entry={modal.entry} onClose={() => setModal(null)} />}
+      {modal?.type === 'move'   && (
+        <Modal title={`Move - ${modal.entry.name}`} onClose={() => setModal(null)}>
+          <MoveForm entry={modal.entry} onClose={() => setModal(null)} onDone={refresh} />
+        </Modal>
+      )}
+      {modal?.type === 'properties' && <PropertiesModal entry={modal.entry} onClose={() => setModal(null)} />}
       {modal?.type === 'copy'   && (
         <Modal title={`Copy - ${modal.entry.name}`} onClose={() => setModal(null)}>
           <CopyForm entry={modal.entry} onClose={() => setModal(null)} onDone={refresh} />
@@ -906,7 +923,7 @@ function FileBrowser() {
 function CopyForm({ entry, onClose, onDone }: { entry: FileEntry; onClose: () => void; onDone: () => void }) {
   const [dest, setDest] = useState(entry.path + '_copy')
   const mutation = useMutation({
-    mutationFn: () => api.post('/api/files/copy', { source: entry.path, destination: dest }),
+    mutationFn: async () => ensureOk(await api.post('/api/files/copy', { source: entry.path, destination: dest })),
     onSuccess: () => { toast.success('Copied'); onDone(); onClose() },
     onError: (e: Error) => toast.error(e.message),
   })
@@ -918,6 +935,56 @@ function CopyForm({ entry, onClose, onDone }: { entry: FileEntry; onClose: () =>
       </label>
       <ModalFooter onClose={onClose} onConfirm={() => mutation.mutate()} loading={mutation.isPending} label="Copy" />
     </>
+  )
+}
+
+function MoveForm({ entry, onClose, onDone }: { entry: FileEntry; onClose: () => void; onDone: () => void }) {
+  const [dest, setDest] = useState(entry.path.slice(0, entry.path.lastIndexOf('/') + 1))
+  const mutation = useMutation({
+    mutationFn: async () => ensureOk(await api.post<{ success: boolean; destination: string }>('/api/files/move', { source: entry.path, destination: dest })),
+    onSuccess: r => { toast.success(`Moved to ${r.destination}`); onDone(); onClose() },
+    onError: (e: Error) => toast.error(e.message),
+  })
+  return (
+    <>
+      <label className="field">
+        <span className="field-label">Destination (an existing folder, or a new path)</span>
+        <input value={dest} onChange={e => setDest(e.target.value)} className="input" style={{ fontFamily: 'var(--font-mono)' }} autoFocus />
+      </label>
+      <ModalFooter onClose={onClose} onConfirm={() => mutation.mutate()} loading={mutation.isPending} label="Move" />
+    </>
+  )
+}
+
+function PropertiesModal({ entry, onClose }: { entry: FileEntry; onClose: () => void }) {
+  const q = useQuery({
+    queryKey: ['files', 'properties', entry.path],
+    queryFn: async ({ signal }) => ensureOk(await api.get<{ success: boolean; file: FileEntry }>(`/api/files/properties?path=${encodeURIComponent(entry.path)}`, signal)),
+  })
+  const f = q.data?.file
+  const rows: Array<[string, string]> = f ? [
+    ['Path', f.path],
+    ['Type', f.is_dir ? 'Folder' : 'File'],
+    ['Size', f.is_dir ? '' : fmtSize(f.size)],
+    ['Modified', fmtDateTime(f.mtime)],
+    ['Owner (UID)', f.owner ?? ''],
+    ['Group (GID)', f.group ?? ''],
+    ['Permissions', `${f.permissions ?? ''} (${f.mode ?? ''})`],
+  ] : []
+  return (
+    <Modal title={`Properties - ${entry.name}`} onClose={onClose}>
+      {q.isLoading && <Skeleton height={140} />}
+      {q.isError && <ErrorState error={q.error} onRetry={() => q.refetch()} />}
+      {f && (
+        <table className="table" style={{ width: '100%' }}>
+          <tbody>
+            {rows.filter(([, v]) => v).map(([k, v]) => (
+              <tr key={k}><td style={{ color: 'var(--text-tertiary)', width: 140 }}>{k}</td><td style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-sm)', wordBreak: 'break-all' }}>{v}</td></tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </Modal>
   )
 }
 

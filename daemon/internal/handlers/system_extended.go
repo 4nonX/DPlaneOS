@@ -1,19 +1,19 @@
 package handlers
 
 import (
-	"errors"
 	"crypto"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
+	"os/user"
 	"path/filepath"
 	"regexp"
-	"os/user"
 	"strconv"
 	"strings"
 	"time"
@@ -24,17 +24,17 @@ import (
 	"dplaned/internal/config"
 	"dplaned/internal/systemd"
 
+	"crypto/x509"
 	"dplaned/internal/jobs"
-	"io"
-	"net"
-	"github.com/google/uuid"
+	"encoding/pem"
 	"github.com/go-acme/lego/v4/certcrypto"
 	"github.com/go-acme/lego/v4/certificate"
 	"github.com/go-acme/lego/v4/challenge/http01"
 	"github.com/go-acme/lego/v4/lego"
 	"github.com/go-acme/lego/v4/registration"
-	"crypto/x509"
-	"encoding/pem"
+	"github.com/google/uuid"
+	"io"
+	"net"
 )
 
 // cronToken is set once at startup by main.go and used by all cron-hook timer
@@ -199,7 +199,7 @@ func (h *SnapshotScheduleHandler) regenerateCron(schedules []SnapshotSchedule) e
 			continue
 		}
 
-		// Use the cron-hook internal endpoint. 
+		// Use the cron-hook internal endpoint.
 		// We wrap it in a shell script that can also do the standalone pruning if needed.
 		// Use json.Marshal to ensure the payload is safe for insertion into a shell string
 		payloadObj := map[string]any{
@@ -210,10 +210,10 @@ func (h *SnapshotScheduleHandler) regenerateCron(schedules []SnapshotSchedule) e
 		}
 		payloadBytes, _ := json.Marshal(payloadObj)
 		payload := string(payloadBytes)
-		
+
 		// The hook handles both snapshotting and replication.
-		// Note: Finding 34: mainCmd uses single quotes around the payload. 
-		// We already validated prefix and dataset, but for extra safety, 
+		// Note: Finding 34: mainCmd uses single quotes around the payload.
+		// We already validated prefix and dataset, but for extra safety,
 		// we escape any single quotes in the json payload (though there shouldn't be any now).
 		safePayload := strings.ReplaceAll(payload, "'", "'\\''")
 		mainCmd := fmt.Sprintf(
@@ -372,9 +372,11 @@ type ACLHandler struct{}
 func NewACLHandler() *ACLHandler { return &ACLHandler{} }
 
 func (h *ACLHandler) GetACL(w http.ResponseWriter, r *http.Request) {
-	path := r.URL.Query().Get("path")
-	if path == "" || !strings.HasPrefix(path, "/mnt/") {
-		respondErrorSimple(w, "Path must start with /mnt/", http.StatusBadRequest)
+	// Resolved against the file roots: a prefix check let /mnt/../etc
+	// through, and getfacl/setfacl follow symlinks.
+	path, err := resolveExisting(r.URL.Query().Get("path"))
+	if err != nil {
+		respondErrorSimple(w, "Path not allowed (pool and media mounts only): "+err.Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -417,16 +419,12 @@ func (h *ACLHandler) SetACL(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !strings.HasPrefix(req.Path, "/mnt/") {
-		respondErrorSimple(w, "Path must start with /mnt/", http.StatusBadRequest)
+	realPath, err := resolveExisting(req.Path)
+	if err != nil {
+		respondErrorSimple(w, "Path not allowed (pool and media mounts only): "+err.Error(), http.StatusBadRequest)
 		return
 	}
-
-	// Validate path exists
-	if _, err := os.Stat(req.Path); os.IsNotExist(err) {
-		respondErrorSimple(w, "Path does not exist", http.StatusBadRequest)
-		return
-	}
+	req.Path = realPath
 
 	args := []string{}
 	if req.Recursive {
@@ -938,7 +936,7 @@ func (h *CertHandler) DeleteCert(w http.ResponseWriter, r *http.Request) {
 	// 2. Delete files
 	certFile := filepath.Join(configPath("ssl"), req.Name+".crt")
 	keyFile := filepath.Join(configPath("ssl"), req.Name+".key")
-	
+
 	_ = os.Remove(certFile)
 	_ = os.Remove(keyFile)
 
@@ -1161,7 +1159,7 @@ type LegoUser struct {
 
 func (u *LegoUser) GetEmail() string                        { return u.Email }
 func (u *LegoUser) GetRegistration() *registration.Resource { return u.Registration }
-func (u *LegoUser) GetPrivateKey() crypto.PrivateKey         { return u.key }
+func (u *LegoUser) GetPrivateKey() crypto.PrivateKey        { return u.key }
 
 // getACMEAccountKey loads the account key from disk or generates a new one.
 func getACMEAccountKey() (crypto.PrivateKey, error) {
@@ -1407,8 +1405,8 @@ func (h *CertHandler) RenewAllHandler(w http.ResponseWriter, r *http.Request) {
 
 				// We assume email is known or we use a fallback if not stored.
 				// In a full implementation, we might want to store the email in a YAML next to the cert.
-				// For now, we'll try to find a default or require it. 
-				// Actually, the lego client needs a user. 
+				// For now, we'll try to find a default or require it.
+				// Actually, the lego client needs a user.
 				// Let's assume for now we use the email from the most recent request or a global setting.
 				// PRO TIP: In v6.2.0 we'll read it from a .meta file next to the cert if it exists.
 				email := ""
@@ -1453,7 +1451,7 @@ func (h *CertHandler) VerifyACMEProxy(w http.ResponseWriter, r *http.Request) {
 		respondErrorSimple(w, "Port 8080 is already in use", http.StatusConflict)
 		return
 	}
-	
+
 	magicToken := uuid.New().String()
 
 	srv := &http.Server{
@@ -1474,7 +1472,7 @@ func (h *CertHandler) VerifyACMEProxy(w http.ResponseWriter, r *http.Request) {
 	// Try to reach it via public DNS/HTTP
 	checkURL := fmt.Sprintf("http://%s/.well-known/acme-challenge/dplaneos-check", domain)
 	client := &http.Client{Timeout: 5 * time.Second}
-	
+
 	resp, err := client.Get(checkURL)
 	if err != nil {
 		respondErrorSimple(w, "Proxy check failed: "+err.Error(), http.StatusFailedDependency)
@@ -1495,172 +1493,6 @@ func (h *CertHandler) VerifyACMEProxy(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{"success": true, "message": "Proxy verified successfully"})
-}
-
-// ============================================================
-// TRASH / RECYCLE BIN
-// ============================================================
-
-type TrashHandler struct{}
-
-func NewTrashHandler() *TrashHandler { return &TrashHandler{} }
-
-const trashBase = "/mnt/.dplaneos-trash"
-
-func (h *TrashHandler) MoveToTrash(w http.ResponseWriter, r *http.Request) {
-	user := r.Header.Get("X-User")
-
-	var req struct {
-		Path string `json:"path"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		respondErrorSimple(w, "Invalid JSON", http.StatusBadRequest)
-		return
-	}
-
-	if !strings.HasPrefix(req.Path, "/mnt/") {
-		respondErrorSimple(w, "Can only trash files under /mnt/", http.StatusBadRequest)
-		return
-	}
-
-	if _, err := os.Stat(req.Path); os.IsNotExist(err) {
-		respondErrorSimple(w, "File not found", http.StatusNotFound)
-		return
-	}
-
-	// Create trash directory structure: /mnt/.dplaneos-trash/YYYYMMDD-HHMMSS_filename
-	os.MkdirAll(trashBase, 0755)
-	baseName := filepath.Base(req.Path)
-	trashName := fmt.Sprintf("%s_%s", time.Now().Format("20060102-150405"), baseName)
-	trashPath := filepath.Join(trashBase, trashName)
-
-	// Store original path for restore
-	metaPath := trashPath + ".meta"
-	if err := os.WriteFile(metaPath, []byte(req.Path), 0644); err != nil {
-		log.Printf("WARN: failed to write trash metadata: %v", err)
-	}
-
-	start := time.Now()
-	err := os.Rename(req.Path, trashPath)
-	duration := time.Since(start)
-
-	if err != nil {
-		// Cross-device? Try mv command
-		if _, mvErr := cmdutil.RunNoTimeout("mv", req.Path, trashPath); mvErr != nil {
-			audit.LogAction("trash", user, fmt.Sprintf("Failed to trash %s: %v", req.Path, mvErr), false, duration)
-			respondErrorSimple(w, "Failed to move to trash", http.StatusInternalServerError)
-			return
-		}
-	}
-
-	audit.LogAction("trash", user, fmt.Sprintf("Moved to trash: %s", req.Path), true, duration)
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{"success": true, "trash_path": trashPath})
-}
-
-func (h *TrashHandler) ListTrash(w http.ResponseWriter, r *http.Request) {
-	os.MkdirAll(trashBase, 0755)
-
-	entries, err := os.ReadDir(trashBase)
-	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{"success": true, "items": []any{}})
-		return
-	}
-
-	var items []map[string]any
-	for _, e := range entries {
-		if strings.HasSuffix(e.Name(), ".meta") {
-			continue
-		}
-		info, _ := e.Info()
-		item := map[string]any{
-			"name":       e.Name(),
-			"size":       info.Size(),
-			"trashed_at": info.ModTime().Format(time.RFC3339),
-			"is_dir":     e.IsDir(),
-		}
-		// Read original path
-		if meta, err := os.ReadFile(filepath.Join(trashBase, e.Name()+".meta")); err == nil {
-			item["original_path"] = string(meta)
-		}
-		items = append(items, item)
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{"success": true, "items": items})
-}
-
-func (h *TrashHandler) RestoreFromTrash(w http.ResponseWriter, r *http.Request) {
-	user := r.Header.Get("X-User")
-
-	var req struct {
-		Name string `json:"name"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		respondErrorSimple(w, "Invalid JSON", http.StatusBadRequest)
-		return
-	}
-
-	trashPath := filepath.Join(trashBase, req.Name)
-	metaPath := trashPath + ".meta"
-
-	if _, err := os.Stat(trashPath); os.IsNotExist(err) {
-		respondErrorSimple(w, "Item not found in trash", http.StatusNotFound)
-		return
-	}
-
-	// Read original path
-	originalPath := ""
-	if meta, err := os.ReadFile(metaPath); err == nil {
-		originalPath = string(meta)
-	}
-
-	if originalPath == "" {
-		respondErrorSimple(w, "Cannot determine original path", http.StatusInternalServerError)
-		return
-	}
-
-	// Ensure parent directory exists
-	os.MkdirAll(filepath.Dir(originalPath), 0755)
-
-	// Check if target already exists
-	if _, err := os.Stat(originalPath); err == nil {
-		respondErrorSimple(w, "Target path already exists: "+originalPath, http.StatusConflict)
-		return
-	}
-
-	err := os.Rename(trashPath, originalPath)
-	if err != nil {
-		if _, mvErr := cmdutil.RunNoTimeout("mv", trashPath, originalPath); mvErr != nil {
-			respondErrorSimple(w, "Failed to restore", http.StatusInternalServerError)
-			return
-		}
-	}
-
-	os.Remove(metaPath)
-	audit.LogAction("trash_restore", user, fmt.Sprintf("Restored %s to %s", req.Name, originalPath), true, 0)
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{"success": true, "restored_to": originalPath})
-}
-
-func (h *TrashHandler) EmptyTrash(w http.ResponseWriter, r *http.Request) {
-	user := r.Header.Get("X-User")
-
-	start := time.Now()
-	err := os.RemoveAll(trashBase)
-	duration := time.Since(start)
-
-	if err != nil {
-		audit.LogAction("trash_empty", user, fmt.Sprintf("Failed: %v", err), false, duration)
-		respondErrorSimple(w, "Failed to empty trash", http.StatusInternalServerError)
-		return
-	}
-
-	os.MkdirAll(trashBase, 0755)
-	audit.LogAction("trash_empty", user, "Trash emptied", true, duration)
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{"success": true})
 }
 
 // ============================================================
@@ -1880,7 +1712,6 @@ func (h *FirewallHandler) SyncFirewallToNix(w http.ResponseWriter, r *http.Reque
 		"message":   "Firewall ports written to dplane-generated.nix - run nixos-rebuild switch to apply",
 	})
 }
-
 
 // shareWithNginx gives the nginx group read access to a key file and
 // traversal of its directory (owner stays root).

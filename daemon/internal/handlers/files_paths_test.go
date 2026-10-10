@@ -5,7 +5,25 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
+
+// shareRoot makes a temp dir the only file root and returns its real path
+// with the given folders created in it.
+func shareRoot(t *testing.T, dirs ...string) string {
+	t.Helper()
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	prev := fileRoots
+	fileRoots = []string{root}
+	t.Cleanup(func() { fileRoots = prev })
+	for _, d := range dirs {
+		_ = os.MkdirAll(filepath.Join(root, d), 0755)
+	}
+	return root
+}
 
 // filesEnv: one file root (a temp dir) and a directory outside it.
 func filesEnv(t *testing.T) (root, outside string) {
@@ -90,5 +108,125 @@ func TestParseFileMode(t *testing.T) {
 		if _, err := parseFileMode(bad); err == nil {
 			t.Errorf("%s accepted", bad)
 		}
+	}
+}
+
+func TestTrashRoundTrip(t *testing.T) {
+	root, _ := filesEnv(t)
+	h := NewTrashHandler()
+	doc := filepath.Join(root, "share", "doc.txt")
+	r := call(t, h.MoveToTrash, req{method: "POST", body: map[string]any{"path": doc}})
+	if !r.ok() {
+		t.Fatalf("trash: %s", r)
+	}
+	if _, err := os.Stat(doc); err == nil {
+		t.Fatal("file still in place")
+	}
+	var name string
+	if r := call(t, h.ListTrash, req{}); !r.ok() || !strings.Contains(r.raw, "doc.txt") {
+		t.Fatalf("list: %s", r)
+	} else {
+		name = r.body["items"].([]any)[0].(map[string]any)["name"].(string)
+	}
+	if r := call(t, h.RestoreFromTrash, req{method: "POST", body: map[string]any{"name": name}}); !r.ok() {
+		t.Fatalf("restore: %s", r)
+	}
+	if b, _ := os.ReadFile(doc); string(b) != "hello" {
+		t.Fatal("not restored")
+	}
+}
+
+func TestTrashRefusesEscapes(t *testing.T) {
+	root, outside := filesEnv(t)
+	h := NewTrashHandler()
+	if r := call(t, h.MoveToTrash, req{method: "POST", body: map[string]any{"path": filepath.Join(root, "..", filepath.Base(outside), "shadow")}}); r.ok() {
+		t.Errorf("trashed a file outside the roots: %s", r)
+	}
+	for _, name := range []string{"../share/doc.txt", "..", "x.meta"} {
+		if r := call(t, h.RestoreFromTrash, req{method: "POST", body: map[string]any{"name": name}}); r.ok() {
+			t.Errorf("restore %q accepted: %s", name, r)
+		}
+	}
+	// A planted item whose .meta points outside the roots is not restored.
+	trash := filepath.Join(root, trashDirName)
+	if err := checkTrashDir(trash, true); err != nil {
+		t.Fatal(err)
+	}
+	_ = os.WriteFile(filepath.Join(trash, "evil"), []byte("x"), 0600)
+	_ = os.WriteFile(filepath.Join(trash, "evil.meta"), []byte(filepath.Join(outside, "cron")), 0600)
+	if r := call(t, h.RestoreFromTrash, req{method: "POST", body: map[string]any{"name": "evil"}}); r.ok() {
+		t.Errorf("restored outside the roots: %s", r)
+	}
+	if _, err := os.Stat(filepath.Join(outside, "cron")); err == nil {
+		t.Fatal("file placed outside the roots")
+	}
+}
+
+// Public share links: only files within the roots, re-checked at download.
+func TestFileSharesStayInRoots(t *testing.T) {
+	root, outside := filesEnv(t)
+	prevConfig := ConfigDir
+	SetConfigDir(t.TempDir())
+	t.Cleanup(func() { ConfigDir = prevConfig })
+	if r := call(t, CreateFileShare, req{method: "POST", body: map[string]any{"path": filepath.Join(outside, "shadow")}}); r.ok() || r.code == 200 {
+		t.Errorf("public link to a file outside the roots: %s", r)
+	}
+	doc := filepath.Join(root, "share", "doc.txt")
+	r := call(t, CreateFileShare, req{method: "POST", body: map[string]any{"path": doc}})
+	if !r.ok() {
+		t.Fatalf("share: %s", r)
+	}
+	share, _ := r.body["share"].(map[string]any)
+	token, _ := share["token"].(string)
+	if token == "" {
+		t.Fatalf("no token: %s", r)
+	}
+	dl := func() resp {
+		return call(t, DownloadFileShare, req{path: "/api/s/" + token + "/download", vars: map[string]string{"token": token}})
+	}
+	if r := dl(); r.code != 200 || r.raw != "hello" {
+		t.Fatalf("download: %s", r)
+	}
+	// Replaced by a symlink to a secret: refused.
+	_ = os.Remove(doc)
+	if err := os.Symlink(filepath.Join(outside, "shadow"), doc); err != nil {
+		t.Skipf("symlinks not available: %v", err)
+	}
+	if r := dl(); r.code == 200 {
+		t.Errorf("download followed a swapped-in symlink: %s", r)
+	}
+}
+
+func TestCloudSyncLocalPathInRoots(t *testing.T) {
+	root, outside := filesEnv(t)
+	fakeCommands(t, nil)
+	h := NewCloudSyncHandler()
+	link := filepath.Join(root, "share", "etc")
+	symlinks := os.Symlink(outside, link) == nil
+	for _, p := range []string{outside, filepath.Join(root, "..", "x")} {
+		if r := call(t, h.runSync, req{method: "POST", body: map[string]any{"remote": "b2", "local_path": p, "direction": "download"}}); r.code != 400 {
+			t.Errorf("download to %s: %s", p, r)
+		}
+	}
+	if symlinks {
+		if r := call(t, h.runSync, req{method: "POST", body: map[string]any{"remote": "b2", "local_path": link, "direction": "download"}}); r.code != 400 {
+			t.Errorf("download through a symlink: %s", r)
+		}
+	}
+}
+
+// A pool mounted at /<pool> is a file root; system directories never are.
+func TestZFSMountsAreRoots(t *testing.T) {
+	dir := t.TempDir()
+	mounts := filepath.Join(dir, "mounts")
+	_ = os.WriteFile(mounts, []byte("rpool/root / zfs rw 0 0\nrpool/nix /nix zfs rw 0 0\nrpool/var /var/lib zfs rw 0 0\ntank /tank2 zfs rw 0 0\ntank/my\\040data /tank2/my\\040data zfs rw 0 0\n/dev/sda1 /backup ext4 rw 0 0\n"), 0644)
+	prevFile, prevRoots := mountsFile, fileRoots
+	mountsFile, fileRoots = mounts, nil
+	zfsRootsAt = time.Time{}
+	t.Cleanup(func() { mountsFile, fileRoots, zfsRootsAt = prevFile, prevRoots, time.Time{} })
+	got := strings.Join(FileRoots(), "|")
+	want := filepath.Clean("/tank2") + "|" + filepath.Clean("/tank2/my data")
+	if got != want {
+		t.Errorf("roots = %q, want %q", got, want)
 	}
 }

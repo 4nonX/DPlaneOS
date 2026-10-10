@@ -227,9 +227,8 @@ func (h *ShareCRUDHandler) createShare(w http.ResponseWriter, req shareActionReq
 		return
 	}
 
-	// Validate path (must be absolute)
-	if !strings.HasPrefix(req.Path, "/") {
-		respondErrorSimple(w, "Path must be absolute", http.StatusBadRequest)
+	if err := sharePathOK(req.Path); err != nil {
+		respondErrorSimple(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -301,6 +300,13 @@ func (h *ShareCRUDHandler) updateShare(w http.ResponseWriter, req shareActionReq
 	if err := validateShareOptions(req); err != nil {
 		respondErrorSimple(w, err.Error(), http.StatusBadRequest)
 		return
+	}
+	if req.Path != "" {
+		if err := sharePathOK(req.Path); err != nil {
+			respondErrorSimple(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		req.Path = pathpkg.Clean(req.Path)
 	}
 
 	tx, err := h.db.Begin()
@@ -579,6 +585,18 @@ func (h *ShareCRUDHandler) regenerateSMBConf() (warning string, err error) {
 		return "", fmt.Errorf("load shares: %w", err)
 	}
 	opts := smbconf.LoadOptions(h.db)
+	// Checked again: a share folder may have been replaced by a symlink.
+	kept := shares[:0]
+	var skipped []string
+	for _, sh := range shares {
+		if err := sharePathOK(sh.Path); err != nil {
+			log.Printf("SMB: share %s skipped: %v", sh.Name, err)
+			skipped = append(skipped, sh.Name)
+			continue
+		}
+		kept = append(kept, sh)
+	}
+	shares = kept
 
 	if err := smbconf.WriteAtomic(h.smbConfPath, []byte(smbconf.Render(opts, shares))); err != nil {
 		log.Printf("SMB WRITE ERROR: %v", err)
@@ -602,6 +620,13 @@ func (h *ShareCRUDHandler) regenerateSMBConf() (warning string, err error) {
 
 	log.Printf("SMB config regenerated and reloaded (%d shares, apple=%v, nixos=%v)",
 		len(shares), smbconf.AppleEnabled(opts, shares), opts.NixOSManaged)
+	if len(skipped) > 0 {
+		msg := "Shares not served (folder missing, outside the pools, or replaced by a symbolic link): " + strings.Join(skipped, ", ")
+		if warning != "" {
+			msg = warning + "; " + msg
+		}
+		warning = msg
+	}
 	return warning, nil
 }
 
@@ -628,11 +653,11 @@ func (h *ShareCRUDHandler) GetSMBSettings(w http.ResponseWriter, r *http.Request
 	h.db.QueryRow(`SELECT COALESCE(value,'0') FROM settings WHERE key='smb_recycle_bin'`).Scan(&recycleBin)
 	_, avahiErr := os.Stat(smbconf.AvahiPath())
 	respondOK(w, map[string]any{
-		"success":        true,
-		"time_machine":   timeMachine == 1,
-		"shadow_copy":    shadowCopy == 1,
-		"recycle_bin":    recycleBin == 1,
-		"avahi_file_ok":  avahiErr == nil,
+		"success":       true,
+		"time_machine":  timeMachine == 1,
+		"shadow_copy":   shadowCopy == 1,
+		"recycle_bin":   recycleBin == 1,
+		"avahi_file_ok": avahiErr == nil,
 	})
 }
 

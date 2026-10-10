@@ -9,7 +9,6 @@ import (
 
 	"dplaned/internal/acl"
 	"dplaned/internal/audit"
-	"dplaned/internal/security"
 )
 
 // GetNFS4ACL handles GET /api/nfs4acl?path=...
@@ -19,10 +18,9 @@ func GetNFS4ACL(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	user := r.Header.Get("X-User")
-	path := r.URL.Query().Get("path")
-
-	if !security.IsValidPath(path) {
-		respondErrorSimple(w, "Invalid or disallowed path", http.StatusBadRequest)
+	path, perr := resolveExisting(r.URL.Query().Get("path"))
+	if perr != nil {
+		respondErrorSimple(w, "Path not allowed (pool and media mounts only)", http.StatusBadRequest)
 		return
 	}
 
@@ -57,7 +55,7 @@ func SetNFS4ACL(w http.ResponseWriter, r *http.Request) {
 	user := r.Header.Get("X-User")
 
 	var req struct {
-		Path string        `json:"path"`
+		Path string         `json:"path"`
 		ACEs []acl.NFSv4ACE `json:"aces"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -65,10 +63,12 @@ func SetNFS4ACL(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !security.IsValidPath(req.Path) {
-		respondErrorSimple(w, "Invalid or disallowed path", http.StatusBadRequest)
+	realPath, perr := resolveExisting(req.Path)
+	if perr != nil {
+		respondErrorSimple(w, "Path not allowed (pool and media mounts only)", http.StatusBadRequest)
 		return
 	}
+	req.Path = realPath
 
 	if len(req.ACEs) == 0 {
 		respondErrorSimple(w, "ACE list cannot be empty", http.StatusBadRequest)

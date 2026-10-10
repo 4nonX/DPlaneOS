@@ -1,11 +1,12 @@
 package security
 
 import (
-	"slices"
 	"fmt"
 	"net"
+	"path"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -222,7 +223,7 @@ var CommandWhitelist = map[string]Command{
 		AllowedArgs: []string{"online"},
 		ArgPatterns: []*regexp.Regexp{
 			regexp.MustCompile(`^[a-zA-Z0-9_\-]+$`), // pool name
-			validDevicePath,                          // device path (same rules as ValidateDevicePath)
+			validDevicePath,                         // device path (same rules as ValidateDevicePath)
 		},
 		Description: "Bring a ZFS device back online",
 	},
@@ -668,7 +669,6 @@ var CommandWhitelist = map[string]Command{
 		AllowedArgs: []string{"-R"},
 		ArgPatterns: []*regexp.Regexp{
 			regexp.MustCompile(`^[a-z0-9_-]+(:[a-z0-9_-]+)?$`),
-			regexp.MustCompile(`^/(mnt|home|tmp|var/lib/dplaneos|tank|data|media|opt|srv)(/.*)?$`),
 		},
 		Description: "Change file ownership",
 	},
@@ -678,7 +678,6 @@ var CommandWhitelist = map[string]Command{
 		AllowedArgs: []string{"-R"},
 		ArgPatterns: []*regexp.Regexp{
 			regexp.MustCompile(`^[0-7]{3,4}$`),
-			regexp.MustCompile(`^/(mnt|home|tmp|var/lib/dplaneos|tank|data|media|opt|srv)(/.*)?$`),
 		},
 		Description: "Change file permissions",
 	},
@@ -801,9 +800,6 @@ var CommandWhitelist = map[string]Command{
 		Name:        "getfacl",
 		Path:        "getfacl",
 		AllowedArgs: []string{"-p"},
-		ArgPatterns: []*regexp.Regexp{
-			regexp.MustCompile(`^/mnt/`),
-		},
 		Description: "Get POSIX ACL entries",
 	},
 	"setfacl": {
@@ -812,7 +808,6 @@ var CommandWhitelist = map[string]Command{
 		AllowedArgs: []string{"-m", "-x", "-R", "--set"},
 		ArgPatterns: []*regexp.Regexp{
 			regexp.MustCompile(`^((u|g|o|m)(:[a-zA-Z0-9_.\-]*)?:[rwx\-]{0,3}|#.*|,?)+$`), // ACL entry
-			regexp.MustCompile(`^/mnt/`), // path
 		},
 		Description: "Set POSIX ACL entries",
 	},
@@ -933,7 +928,6 @@ var CommandWhitelist = map[string]Command{
 		AllowedArgs: []string{"-c"},
 		ArgPatterns: []*regexp.Regexp{
 			regexp.MustCompile(`^[^;]+$`), // format string
-			regexp.MustCompile(`^/(mnt|home|tmp|var/lib/dplaneos|tank|data|media|opt|srv)(/.*)?$`),
 		},
 		Description: "Get file/filesystem status",
 	},
@@ -1144,6 +1138,8 @@ func ValidateCommand(cmdName string, args []string) error {
 		return validateOpenssl(args)
 	case "mkdir", "rm_recursive":
 		return validatePathBasedCommand(cmdName, args)
+	case "chown", "chmod", "stat", "getfacl", "setfacl":
+		return validateDataPathCommand(cmdName, args)
 	case "zpool_online", "zpool_add_cache", "zpool_add_log", "zpool_remove_device", "hdparm_check", "hdparm_spindown", "hdparm_status", "wipefs", "zpool_labelclear":
 		return validateDeviceBasedCommand(cmdName, args)
 	case "group_address":
@@ -1769,7 +1765,7 @@ func validatePathBasedCommand(cmdName string, args []string) error {
 			continue
 		}
 		// Must be a valid absolute path under AllowedBasePaths
-		if !IsValidPath(arg) {
+		if !IsValidPath(arg) && !IsDataPath(arg) {
 			return fmt.Errorf("invalid path for %s: %s (traversal or denied base path)", cmdName, arg)
 		}
 	}
@@ -1993,6 +1989,60 @@ var validMountPoint = regexp.MustCompile(`^/(mnt|media)/[a-zA-Z0-9_\-\.]+(/[a-zA
 func ValidateMountPoint(path string) error {
 	if !validMountPoint.MatchString(path) {
 		return fmt.Errorf("invalid mount point: %q (must be under /mnt/ or /media/)", path)
+	}
+	return nil
+}
+
+// SystemDirs: top-level directories that never hold user data. A path below
+// any other top-level directory can be a data path (a pool created without
+// a mountpoint is mounted at /<pool>).
+var SystemDirs = map[string]bool{
+	"bin": true, "boot": true, "dev": true, "etc": true, "home": true, "lib": true,
+	"lib64": true, "nix": true, "opt": true, "proc": true, "root": true, "run": true,
+	"sbin": true, "sys": true, "tmp": true, "usr": true, "var": true,
+}
+
+// IsDataPath: an absolute, normalized path outside the system directories.
+// The handlers check the real path (symlinks resolved) against the mounted
+// file roots; this is the second line for the commands they run.
+func IsDataPath(p string) bool {
+	if len(p) < 2 || p[0] != '/' || strings.ContainsAny(p, "\x00\n\r") || path.Clean(p) != p {
+		return false
+	}
+	top := strings.SplitN(p[1:], "/", 2)[0]
+	return top != "" && top != ".." && !SystemDirs[top]
+}
+
+// validateDataPathCommand: chown/chmod/stat/getfacl/setfacl. Arguments are
+// the command's allowed options, values matching its patterns, and paths,
+// which must be data paths.
+func validateDataPathCommand(cmdName string, args []string) error {
+	cmd := CommandWhitelist[cmdName]
+	paths := 0
+	for _, arg := range args {
+		if slices.Contains(cmd.AllowedArgs, arg) {
+			continue
+		}
+		if strings.HasPrefix(arg, "/") {
+			if !IsDataPath(arg) && !IsValidPath(arg) {
+				return fmt.Errorf("invalid path for %s: %s", cmdName, arg)
+			}
+			paths++
+			continue
+		}
+		ok := false
+		for _, re := range cmd.ArgPatterns {
+			if re.MatchString(arg) {
+				ok = true
+				break
+			}
+		}
+		if !ok {
+			return fmt.Errorf("argument not allowed for %s: %q", cmdName, arg)
+		}
+	}
+	if paths != 1 {
+		return fmt.Errorf("%s needs exactly one path", cmdName)
 	}
 	return nil
 }

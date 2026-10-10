@@ -105,7 +105,13 @@ func (h *FilesExtendedHandler) GetFileProperties(w http.ResponseWriter, r *http.
 		respondErrorSimple(w, "path parameter required", http.StatusBadRequest)
 		return
 	}
-	path, err := resolveEntry(path)
+	// The entry itself (a symlink is described, not its target); a root or
+	// a dataset mountpoint is no entry and is resolved as a folder.
+	raw := path
+	path, err := resolveEntry(raw)
+	if err != nil {
+		path, err = resolveExisting(raw)
+	}
 	if err != nil {
 		respondJSON(w, http.StatusForbidden, map[string]any{"success": false, "error": "Path not allowed"})
 		return
@@ -434,6 +440,25 @@ func (h *FilesExtendedHandler) UploadChunk(w http.ResponseWriter, r *http.Reques
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
+// GET /api/files/roots: the folders the file manager may browse.
+func (h *FilesExtendedHandler) ListRoots(w http.ResponseWriter, r *http.Request) {
+	roots := []string{}
+	seen := map[string]bool{}
+	for _, root := range FileRoots() {
+		// A root inside another root is reached by browsing.
+		nested := false
+		for _, other := range FileRoots() {
+			if other != root && strings.HasPrefix(root, other+string(filepath.Separator)) {
+				nested = true
+			}
+		}
+		if fi, err := os.Stat(root); err == nil && fi.IsDir() && !nested && !seen[root] {
+			seen[root] = true
+			roots = append(roots, root)
+		}
+	}
+	respondJSON(w, http.StatusOK, map[string]any{"success": true, "roots": roots})
+}
 
 func fileSizeStr(b int64) string {
 	units := []string{"B", "KB", "MB", "GB", "TB"}
@@ -445,4 +470,3 @@ func fileSizeStr(b int64) string {
 	}
 	return fmt.Sprintf("%.1f %s", v, units[i])
 }
-
