@@ -25,6 +25,8 @@ type Slot struct {
 	Locate bool   `json:"locate"`
 	Fault  bool   `json:"fault"`
 	Type   string `json:"type,omitempty"`
+	// Device is the disk in the bay ("sdc"), empty for an empty bay.
+	Device string `json:"device,omitempty"`
 }
 
 // SESElement is one parsed element from sg_ses --page=es output.
@@ -92,7 +94,17 @@ func readSlot(slotPath, name string, idx int) Slot {
 		Locate: readSysFile(filepath.Join(slotPath, "locate")) == "1",
 		Fault:  readSysFile(filepath.Join(slotPath, "fault")) == "1",
 		Type:   readSysFile(filepath.Join(slotPath, "type")),
+		Device: slotDevice(slotPath),
 	}
+}
+
+// slotDevice: <slot>/device/block/<name> names the disk in the bay.
+func slotDevice(slotPath string) string {
+	entries, err := os.ReadDir(filepath.Join(slotPath, "device", "block"))
+	if err != nil || len(entries) == 0 {
+		return ""
+	}
+	return entries[0].Name()
 }
 
 func readSysFile(path string) string {
@@ -159,4 +171,3 @@ func FindSGDevice(enclosureID string) (string, error) {
 	}
 	return "", fmt.Errorf("no sg device found for enclosure %s", enclosureID)
 }
-

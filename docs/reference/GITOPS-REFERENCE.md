@@ -282,10 +282,13 @@ acme:
 ```yaml
 smart_tasks:
   - device: /dev/disk/by-id/ata-WDC_WD40EFRX_...
-    type: short               # short | long | offline
-    schedule: "0 3 * * *"
+    type: short               # short | long | conveyance
+    schedule: "*-*-* 03:00:00"  # systemd calendar expression (not cron): "daily", "Sun *-*-* 02:00:00"
     enabled: true
 ```
+
+Each task is a systemd timer. Schedules added on the Hardware page are
+stored the same way and written back to the state file.
 
 ### NVMe-oF Fabrics (optional)
 

@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -116,8 +117,16 @@ func (h *CapacityGuardianHandler) GetCapacityStatus(w http.ResponseWriter, r *ht
 // SetupReserve creates a 2% emergency reserve on a pool
 // POST /api/zfs/capacity/reserve { "pool": "tank" }
 func (h *CapacityGuardianHandler) SetupReserve(w http.ResponseWriter, r *http.Request) {
-	pool := r.URL.Query().Get("pool")
-	if pool == "" || !isValidDataset(pool) {
+	// The pool: JSON body {"pool": ...} or ?pool=.
+	var req struct {
+		Pool string `json:"pool"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&req)
+	pool := req.Pool
+	if pool == "" {
+		pool = r.URL.Query().Get("pool")
+	}
+	if pool == "" || !isValidDataset(pool) || strings.Contains(pool, "/") {
 		respondErrorSimple(w, "Invalid pool name", http.StatusBadRequest)
 		return
 	}
@@ -187,8 +196,16 @@ func (h *CapacityGuardianHandler) SetupReserve(w http.ResponseWriter, r *http.Re
 // ReleaseReserve drops the emergency reserve (when pool is at 95%+, frees space for cleanup)
 // POST /api/zfs/capacity/release { "pool": "tank" }
 func (h *CapacityGuardianHandler) ReleaseReserve(w http.ResponseWriter, r *http.Request) {
-	pool := r.URL.Query().Get("pool")
-	if pool == "" || !isValidDataset(pool) {
+	// The pool: JSON body {"pool": ...} or ?pool=.
+	var req struct {
+		Pool string `json:"pool"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&req)
+	pool := req.Pool
+	if pool == "" {
+		pool = r.URL.Query().Get("pool")
+	}
+	if pool == "" || !isValidDataset(pool) || strings.Contains(pool, "/") {
 		respondErrorSimple(w, "Invalid pool name", http.StatusBadRequest)
 		return
 	}
@@ -362,4 +379,3 @@ func StartCapacityMonitor() {
 		}
 	}()
 }
-

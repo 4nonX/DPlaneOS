@@ -17,9 +17,10 @@
  *   diskReplacementAvailable → pre-populate replace modal with faulted vdev suggestion
  */
 
+import { EnclosuresSection } from '@/components/hardware/EnclosuresSection'
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { useQuery, useQueries, useMutation, useQueryClient } from '@tanstack/react-query'
-import { api } from '@/lib/api'
+import { api, ensureOk } from '@/lib/api'
 import { ErrorState } from '@/components/ui/ErrorState'
 import { LoadingState, Skeleton, Spinner } from '@/components/ui/LoadingSpinner'
 import { Icon } from '@/components/ui/Icon'
@@ -716,11 +717,11 @@ function SmartSchedulesSection() {
   })
 
   const deleteMutation = useMutation({
-    mutationFn: (vars: { device: string; type: string }) =>
-      api.delete(`/api/hardware/smart/schedules?device=${vars.device}&type=${vars.type}`),
+    mutationFn: async (vars: { device: string; type: string }) =>
+      ensureOk(await api.delete(`/api/hardware/smart/schedules?device=${encodeURIComponent(vars.device)}&type=${encodeURIComponent(vars.type)}`)),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['hardware', 'smart', 'schedules'] })
-      toast.success('Schedule removed from GitOps state.')
+      toast.success('Schedule removed')
     },
     onError: (err: Error) => toast.error(`Failed to remove schedule: ${err.message}`),
   })
@@ -734,7 +735,7 @@ function SmartSchedulesSection() {
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 20 }}>
         <Icon name="schedule" size={18} style={{ color: 'var(--primary)' }} />
         <span style={{ fontWeight: 700, fontSize: 'var(--text-md)' }}>Automated SMART Health Checks</span>
-        <Tooltip content="These schedules are maintained in the GitOps state.yaml and applied as systemd timers.">
+        <Tooltip content="Each schedule is a systemd timer; with GitOps enabled the schedules are also written to state.yaml.">
           <Icon name="help" size={14} style={{ color: 'var(--text-tertiary)', cursor: 'help' }} />
         </Tooltip>
       </div>
@@ -750,7 +751,7 @@ function SmartSchedulesSection() {
               <tr>
                 <th>Device</th>
                 <th>Test Type</th>
-                <th>Schedule (Systemd)</th>
+                <th>Schedule</th>
                 <th>Status</th>
                 <th style={{ textAlign: 'right' }}>Actions</th>
               </tr>
@@ -758,7 +759,7 @@ function SmartSchedulesSection() {
             <tbody>
               {schedules.map(s => (
                 <tr key={`${s.device}-${s.type}`}>
-                  <td style={{ fontFamily: 'var(--font-mono)', fontWeight: 600 }}>/dev/{s.device}</td>
+                  <td style={{ fontFamily: 'var(--font-mono)', fontWeight: 600 }}>{s.device.startsWith('/') ? s.device : `/dev/${s.device}`}</td>
                   <td>
                     <span style={{ textTransform: 'capitalize', padding: '2px 6px', borderRadius: 4, background: 'var(--surface)', fontSize: 'var(--text-xs)' }}>
                       {s.type}
@@ -777,7 +778,7 @@ function SmartSchedulesSection() {
                     <button
                       className="btn-icon btn-ghost-danger"
                       onClick={() => {
-                        if (confirm(`Remove ${s.type} SMART schedule for /dev/${s.device}?`)) {
+                        if (window.confirm(`Remove the ${s.type} SMART schedule for ${s.device}?`)) {
                           deleteMutation.mutate({ device: s.device, type: s.type })
                         }
                       }}
@@ -813,8 +814,8 @@ function ScheduleSMARTModal({ device, onClose, onSuccess }: ScheduleSMARTModalPr
   const [customSchedule, setCustomSchedule] = useState<string>('')
 
   const scheduleMutation = useMutation({
-    mutationFn: (vars: { device: string; type: 'short' | 'long'; schedule: string }) =>
-      api.post(`/api/hardware/smart/schedules?schedule=${encodeURIComponent(vars.schedule)}`, { device: vars.device, type: vars.type }),
+    mutationFn: async (vars: { device: string; type: 'short' | 'long'; schedule: string }) =>
+      ensureOk(await api.post('/api/hardware/smart/schedules', { device: vars.device, type: vars.type, schedule: vars.schedule })),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['hardware', 'smart', 'schedules'] })
       toast.success(`SMART ${testType} test scheduled for /dev/${device}`)
@@ -823,15 +824,22 @@ function ScheduleSMARTModal({ device, onClose, onSuccess }: ScheduleSMARTModalPr
     onError: (err: Error) => toast.error(`Failed to schedule SMART test: ${err.message}`),
   })
 
+  // systemd calendar expressions (the tests run from systemd timers)
   const getCronSchedule = () => {
     switch (scheduleType) {
-      case 'daily': return '0 0 * * *' // Every day at midnight
-      case 'weekly': return '0 0 * * 0' // Every Sunday at midnight
-      case 'monthly': return '0 0 1 * *' // First day of every month at midnight
-      case 'custom': return customSchedule
+      case 'daily': return '*-*-* 02:00:00'
+      case 'weekly': return 'Sun *-*-* 02:00:00'
+      case 'monthly': return '*-*-01 02:00:00'
+      case 'custom': return customSchedule.trim()
       default: return ''
     }
   }
+
+  const runNow = useMutation({
+    mutationFn: async () => ensureOk(await api.post<{ success: boolean; message?: string }>('/api/hardware/smart/run-now', { device, type: testType })),
+    onSuccess: r => toast.success(r.message ?? 'SMART test started'),
+    onError: (err: Error) => toast.error(err.message),
+  })
 
   const handleSubmit = () => {
     const schedule = getCronSchedule()
@@ -876,7 +884,7 @@ function ScheduleSMARTModal({ device, onClose, onSuccess }: ScheduleSMARTModalPr
                 checked={scheduleType === 'daily'}
                 onChange={() => setScheduleType('daily')}
               />
-              Daily (every day at midnight)
+              Daily (02:00)
             </label>
             <label className="radio-label">
               <input
@@ -886,7 +894,7 @@ function ScheduleSMARTModal({ device, onClose, onSuccess }: ScheduleSMARTModalPr
                 checked={scheduleType === 'weekly'}
                 onChange={() => setScheduleType('weekly')}
               />
-              Weekly (every Sunday at midnight)
+              Weekly (Sunday 02:00)
             </label>
             <label className="radio-label">
               <input
@@ -896,7 +904,7 @@ function ScheduleSMARTModal({ device, onClose, onSuccess }: ScheduleSMARTModalPr
                 checked={scheduleType === 'monthly'}
                 onChange={() => setScheduleType('monthly')}
               />
-              Monthly (first day of every month at midnight)
+              Monthly (the 1st, 02:00)
             </label>
             <label className="radio-label">
               <input
@@ -906,29 +914,32 @@ function ScheduleSMARTModal({ device, onClose, onSuccess }: ScheduleSMARTModalPr
                 checked={scheduleType === 'custom'}
                 onChange={() => setScheduleType('custom')}
               />
-              Custom Cron Schedule
+              Custom
             </label>
           </div>
         </label>
 
         {scheduleType === 'custom' && (
           <label className="field">
-            <span className="field-label">Cron String</span>
+            <span className="field-label">systemd calendar expression</span>
             <input
               type="text"
               value={customSchedule}
               onChange={e => setCustomSchedule(e.target.value)}
               className="input"
-              placeholder="e.g., 0 0 * * *"
+              placeholder="e.g. Sat *-*-* 03:30:00"
             />
             <p style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', marginTop: 4 }}>
-              Enter a valid 5-part cron string (minute hour day_of_month month day_of_week).
+              Weekday, date and time as in systemd timers: "Mon,Thu *-*-* 04:00:00", "*-*-1,15 01:00:00", "daily". Not cron syntax.
             </p>
           </label>
         )}
       </div>
 
       <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 20 }}>
+        <button className="btn btn-ghost" style={{ marginRight: 'auto' }} onClick={() => runNow.mutate()} disabled={runNow.isPending}>
+          <Icon name="play_arrow" size={14} />{runNow.isPending ? 'Starting…' : `Run ${testType} test now`}
+        </button>
         <button className="btn btn-ghost" onClick={onClose} disabled={scheduleMutation.isPending}>
           Cancel
         </button>
@@ -1280,6 +1291,7 @@ export function HardwarePage() {
       </div>
 
       <SmartSchedulesSection />
+      <EnclosuresSection />
 
       {/* SMART detail table for disks with ATA attributes */}
       {smartQ.data && smartQ.data.disks.some(d => d.ata_smart_attributes?.table.length) && (

@@ -40,6 +40,7 @@ import { Modal } from '@/components/ui/Modal'
 import { useRouter } from '@tanstack/react-router'
 import { PoolTopologyView, PoolTopology, VDev } from '@/components/zfs/PoolTopology'
 import { usePoolDeviceOps, PoolLifecycleButtons } from '@/components/zfs/PoolDeviceOps'
+import { CapacityReserve } from '@/components/zfs/CapacityReserve'
 import { RenameDatasetModal, SnapshotHoldsModal, promoteDataset } from '@/components/zfs/DatasetOps'
 import { RollbackModal } from '@/components/zfs/RollbackModal'
 import { CreateDatasetModal } from '@/components/zfs/CreateDatasetModal'
@@ -3037,6 +3038,7 @@ function MaintenanceTab({ pools }: { pools: string[] }) {
           </div>
         )}
 
+        <CapacityReserve />
       </div>
     </div>
     <ConfirmDialog />

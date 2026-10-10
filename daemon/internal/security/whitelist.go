@@ -861,7 +861,7 @@ var CommandWhitelist = map[string]Command{
 		AllowedArgs: []string{"-t"},
 		ArgPatterns: []*regexp.Regexp{
 			regexp.MustCompile(`^(short|long|conveyance|offline)$`),
-			regexp.MustCompile(`^/dev/[a-z0-9]+$`),
+			validDevicePath, // also /dev/disk/by-id/..., as GitOps state names disks
 		},
 		Description: "Start S.M.A.R.T. self-test on disk",
 	},

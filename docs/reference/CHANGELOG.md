@@ -86,6 +86,17 @@ interface against the fields its handler reads
 
 ### Fixed
 
+- Scheduled SMART tests never worked from the UI: the disk name was sent
+  without /dev/ and refused, a schedule was only written to the GitOps
+  state file (an error without one, and nothing ran until a manual
+  apply), the list dropped every row, and schedules were cron
+  expressions handed to systemd timers. Schedules are stored, turned into
+  timers at once and written back to the GitOps state; they are systemd
+  calendar expressions. Disks named by /dev/disk/by-id work, and a test
+  can be started right away ("Run test now").
+- Hardware page: drive enclosures (bays, the disk in each, fault state)
+  with locate LEDs. Pools page: fill level and the emergency reserve
+  (reserve 2%, release when the pool is full).
 - Trash: everything moved to the trash was copied to one folder on the
   system disk (/mnt/.dplaneos-trash). Each filesystem now has its own
   trash folder, so trashing is a rename and uses no extra space.
