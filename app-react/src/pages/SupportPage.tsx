@@ -4,11 +4,15 @@
  * POST /api/system/support-bundle           → binary download (tar.gz)
  * GET  /api/system/metrics                  → { cpu, memory, disk, ... }
  * GET  /api/system/audit/verify-chain       → { valid }
+ * GET  /api/health                         → subsystem checks
+ * GET  /api/rbac/roles, /api/zfs/encryption/list (security overview)
+ * Storage operations and interrupted-operation locks: MaintenancePanels
  * GET  /api/nixos/pre-upgrade-snapshots     → { snapshots: Snapshot[] }
  */
 
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { MaintenancePanels } from './MaintenancePanels'
 import { api, getSessionId, getCsrfToken } from '@/lib/api'
 import { fmtDateTime } from '@/lib/fmt'
 import { Icon } from '@/components/ui/Icon'
@@ -26,7 +30,12 @@ export function SupportPage() {
   const [downloading, setDownloading] = useState(false)
 
   const metricsQ  = useQuery({ queryKey:['system','metrics'],  queryFn:({signal})=>api.get<SysMetrics&{success:boolean}>('/api/system/metrics',signal) })
-  const healthQ   = useQuery({ queryKey:['system','health'],   queryFn:({signal})=>api.get<{success:boolean;checks:{name:string;status:string;type:string}[]}>('/api/system/health',signal) })
+  // Subsystem checks of the daemon (ZFS, Docker, database, network, ...).
+  const healthQ   = useQuery({ queryKey:['system','subsystems'], queryFn:({signal})=>api.get<{success:boolean;overall:string;subsystems:Record<string,{name:string;status:string;reason?:string}>}>('/api/health',signal), refetchInterval: 15_000 })
+  // Security overview: measured, not asserted.
+  const auditQ    = useQuery({ queryKey:['audit','chain'],      queryFn:({signal})=>api.get<{success:boolean;valid:boolean;error?:string;checked?:number}>('/api/system/audit/verify-chain',signal), retry:false })
+  const rolesQ    = useQuery({ queryKey:['rbac','roles'],       queryFn:({signal})=>api.get<{success:boolean;roles:{name:string;user_count?:number}[]}>('/api/rbac/roles',signal), retry:false })
+  const encQ      = useQuery({ queryKey:['zfs','encryption'],   queryFn:({signal})=>api.get<{success:boolean;datasets:{name:string;keystatus:string}[]}>('/api/zfs/encryption/list',signal), retry:false })
   const snapshotsQ= useQuery({ queryKey:['nixos','pre-snaps'], queryFn:({signal})=>api.get<{success:boolean;snapshots:Snapshot[]}>('/api/nixos/pre-upgrade-snapshots',signal) })
 
   // Support bundle: binary download - can't use api.post, need raw fetch
@@ -120,16 +129,16 @@ export function SupportPage() {
             {healthQ.isError && <ErrorState error={healthQ.error}/>}
             {!healthQ.isLoading && !healthQ.isError && (
               <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
-                {(healthQ.data?.checks ?? []).map((check, i) => {
-                  const ok = check.status === 'OK'
+                {Object.values(healthQ.data?.subsystems ?? {}).sort((a, b) => a.name.localeCompare(b.name)).map(check => {
+                  const ok = check.status === 'ok'
                   return (
-                    <div key={i} style={{ display:'flex', alignItems:'center', gap:10, padding:'8px 12px', background:'var(--surface)', borderRadius:'var(--radius-sm)' }}>
-                      <Icon name={ok ? 'check_circle' : 'error'} size={16} style={{ color: ok ? 'var(--success)' : 'var(--error)', flexShrink:0 }}/>
+                    <div key={check.name} style={{ display:'flex', alignItems:'center', gap:10, padding:'8px 12px', background:'var(--surface)', borderRadius:'var(--radius-sm)' }}>
+                      <Icon name={ok ? 'check_circle' : check.status === 'unknown' ? 'help' : 'error'} size={16} style={{ color: ok ? 'var(--success)' : check.status === 'unknown' ? 'var(--text-tertiary)' : 'var(--error)', flexShrink:0 }}/>
                       <div style={{ flex:1, minWidth:0 }}>
                         <div style={{ fontWeight:600, fontSize:'var(--text-xs)' }}>{check.name}</div>
-                        <div style={{ fontSize:'var(--text-2xs)', color:'var(--text-tertiary)' }}>{check.type.toUpperCase()}</div>
+                        {check.reason && <div style={{ fontSize:'var(--text-2xs)', color:'var(--text-tertiary)' }}>{check.reason}</div>}
                       </div>
-                      <span style={{ fontSize:'var(--text-2xs)', fontWeight:700, color: ok ? 'var(--success)' : 'var(--error)' }}>{check.status}</span>
+                      <span style={{ fontSize:'var(--text-2xs)', fontWeight:700, color: ok ? 'var(--success)' : 'var(--error)' }}>{check.status.toUpperCase()}</span>
                     </div>
                   )
                 })}
@@ -180,27 +189,38 @@ export function SupportPage() {
           <div style={{ padding:'12px', background:'var(--surface)', borderRadius:'var(--radius-sm)' }}>
              <div style={{ fontSize:'var(--text-2xs)', color:'var(--text-tertiary)', textTransform:'uppercase', marginBottom:4 }}>Audit Chain</div>
              <div style={{ display:'flex', alignItems:'center', gap:6 }}>
-               <Icon name="verified" size={14} style={{ color:'var(--success)' }}/>
-               <span style={{ fontSize:'var(--text-sm)', fontWeight:600 }}>HMAC-SHA256 Valid</span>
+               <Icon name={auditQ.data?.valid ? 'verified' : 'gpp_maybe'} size={14} style={{ color: auditQ.data?.valid ? 'var(--success)' : 'var(--warning)' }}/>
+               <span style={{ fontSize:'var(--text-sm)', fontWeight:600 }} title={auditQ.data?.error}>
+                 {auditQ.isLoading ? 'Checking…' : auditQ.data?.valid ? 'HMAC chain intact' : auditQ.isError ? 'Not available' : 'Not verified'}
+               </span>
              </div>
           </div>
           <div style={{ padding:'12px', background:'var(--surface)', borderRadius:'var(--radius-sm)' }}>
              <div style={{ fontSize:'var(--text-2xs)', color:'var(--text-tertiary)', textTransform:'uppercase', marginBottom:4 }}>RBAC Enforcement</div>
              <div style={{ display:'flex', alignItems:'center', gap:6 }}>
                <Icon name="security" size={14} style={{ color:'var(--success)' }}/>
-               <span style={{ fontSize:'var(--text-sm)', fontWeight:600 }}>Active (4 Roles)</span>
+               <span style={{ fontSize:'var(--text-sm)', fontWeight:600 }}>
+                 {rolesQ.data ? `${rolesQ.data.roles.length} roles, ${rolesQ.data.roles.reduce((n, r) => n + (r.user_count ?? 0), 0)} assignments` : rolesQ.isError ? 'Not available' : '…'}
+               </span>
              </div>
           </div>
           <div style={{ padding:'12px', background:'var(--surface)', borderRadius:'var(--radius-sm)' }}>
              <div style={{ fontSize:'var(--text-2xs)', color:'var(--text-tertiary)', textTransform:'uppercase', marginBottom:4 }}>Encryption At Rest</div>
              <div style={{ display:'flex', alignItems:'center', gap:6 }}>
-               <Icon name="lock" size={14} style={{ color:'var(--info)' }}/>
-               <span style={{ fontSize:'var(--text-sm)', fontWeight:600 }}>ZFS-Native AES</span>
+               <Icon name="lock" size={14} style={{ color: (encQ.data?.datasets.length ?? 0) > 0 ? 'var(--success)' : 'var(--text-tertiary)' }}/>
+               <span style={{ fontSize:'var(--text-sm)', fontWeight:600 }}>
+                 {encQ.data ? (encQ.data.datasets.length === 0 ? 'No encrypted datasets'
+                   : `${encQ.data.datasets.length} encrypted dataset${encQ.data.datasets.length !== 1 ? 's' : ''} (${encQ.data.datasets.filter(d => d.keystatus === 'available').length} unlocked)`)
+                   : encQ.isError ? 'Not available' : '…'}
+               </span>
              </div>
           </div>
         </div>
       </div>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 20, marginTop: 20 }}>
+        <MaintenancePanels />
+      </div>
     </div>
   )
 }
-
