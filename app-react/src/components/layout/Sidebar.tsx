@@ -14,6 +14,7 @@ import { useAuthStore } from '@/stores/auth'
 import { useWsStore } from '@/stores/ws'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '@/lib/api'
+import { PowerDialog } from './PowerDialog'
 
 interface SidebarProps {
   collapsed: boolean
@@ -32,6 +33,7 @@ export function Sidebar({ collapsed, onToggle, isMobile: isMobileProp, mobileMen
   const pathname = useRouterState({ select: (s) => s.location.pathname })
   const user     = useAuthStore((s) => s.user)
   const logout   = useAuthStore((s) => s.logout)
+  const [showPower, setShowPower] = useState(false)
   const wsStatus = useWsStore((s) => s.status)
   const isMobile = isMobileProp ?? window.innerWidth < 768
 
@@ -271,6 +273,20 @@ export function Sidebar({ collapsed, onToggle, isMobile: isMobileProp, mobileMen
                 </div>
               )}
             </div>
+            {user?.role === 'admin' && (
+              <Tooltip content="Restart or shut down">
+                <button
+                  onClick={() => setShowPower(true)}
+                  aria-label="Restart or shut down"
+                  style={{
+                    background: 'none', border: 'none', cursor: 'pointer',
+                    color: 'var(--text-tertiary)', display: 'flex', alignItems: 'center',
+                    padding: '4px', borderRadius: 'var(--radius-xs)'}}
+                >
+                  <Icon name="power_settings_new" size={17} />
+                </button>
+              </Tooltip>
+            )}
             <Tooltip content="Log out">
               <button
                 onClick={async () => { await logout(); router.navigate({ to: '/login' }) }}
@@ -306,6 +322,7 @@ export function Sidebar({ collapsed, onToggle, isMobile: isMobileProp, mobileMen
         )}
       </div>
       </nav>
+      {showPower && <PowerDialog onClose={() => setShowPower(false)} />}
     </>
   )
 }
