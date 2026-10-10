@@ -1,4 +1,4 @@
-﻿// Package networkdwriter manages DPlaneOS network configuration by writing
+// Package networkdwriter manages DPlaneOS network configuration by writing
 // systemd-networkd unit files directly to /etc/systemd/network/.
 //
 // # Why this is the right approach
