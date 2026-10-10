@@ -1561,11 +1561,23 @@ func diffReplication(desired DesiredReplication, live LiveReplication) []string 
 	if desired.SourceDataset != live.SourceDataset {
 		changes = append(changes, fmt.Sprintf("source_dataset: %q → %q", live.SourceDataset, desired.SourceDataset))
 	}
-	if desired.RemoteHost != live.RemoteHost {
-		changes = append(changes, fmt.Sprintf("remote_host: %q → %q", live.RemoteHost, desired.RemoteHost))
+	if desired.Remote != live.Remote {
+		changes = append(changes, fmt.Sprintf("remote: %q → %q", live.Remote, desired.Remote))
 	}
-	if desired.RemotePort != live.RemotePort {
-		changes = append(changes, fmt.Sprintf("remote_port: %d → %d", live.RemotePort, desired.RemotePort))
+	if desired.RemotePool != live.RemotePool {
+		changes = append(changes, fmt.Sprintf("remote_pool: %q → %q", live.RemotePool, desired.RemotePool))
+	}
+	if desired.TriggerOnSnapshot != live.TriggerOnSnapshot {
+		changes = append(changes, fmt.Sprintf("trigger_on_snapshot: %v → %v", live.TriggerOnSnapshot, desired.TriggerOnSnapshot))
+	}
+	if desired.Incremental != live.Incremental {
+		changes = append(changes, fmt.Sprintf("incremental: %v → %v", live.Incremental, desired.Incremental))
+	}
+	if desired.Compress != live.Compress {
+		changes = append(changes, fmt.Sprintf("compress: %v → %v", live.Compress, desired.Compress))
+	}
+	if desired.RateLimitMB != live.RateLimitMB {
+		changes = append(changes, fmt.Sprintf("rate_limit_mb: %d → %d", live.RateLimitMB, desired.RateLimitMB))
 	}
 	if desired.Interval != live.Interval {
 		changes = append(changes, fmt.Sprintf("interval: %q → %q", live.Interval, desired.Interval))

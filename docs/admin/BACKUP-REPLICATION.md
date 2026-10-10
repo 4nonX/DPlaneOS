@@ -135,17 +135,20 @@ This is also declarable in `state.yaml` under `replication:`:
 replication:
   - name: offsite
     source_dataset: tank/data
-    remote_host: backup.example.com
-    remote_user: root
-    remote_port: 22
+    remote: backup-nas          # a peer from Replication > Peers, by name
     remote_pool: backup
-    ssh_key_path: /root/.ssh/dplaneos_replication
-    interval: daily           # hourly | daily | weekly | manual
+    interval: daily             # hourly | daily | weekly | manual
     trigger_on_snapshot: true
+    incremental: true
     compress: true
     rate_limit_mb: 100
     enabled: true
 ```
+
+The peer (host, user, port, pinned host key, authorized replication key) is
+set up under Replication › Peers; `state.yaml` refers to it by name, so the
+same file works on every node. Applying fails with a clear message if no
+peer of that name exists.
 
 `trigger_on_snapshot: true` means replication runs immediately after each automatic snapshot, rather than only on the configured interval.
 

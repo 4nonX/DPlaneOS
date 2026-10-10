@@ -1125,76 +1125,8 @@ func deleteGroup(db *sql.DB, name string) error {
 
 // ── Replication operations ────────────────────────────────────────────────────
 
-func reconcileReplication(name string, dr *DesiredReplication) error {
-	if dr == nil {
-		return fmt.Errorf("no desired replication spec for %q", name)
-	}
-	
-	// Replication schedules are managed in a JSON file
-	schedules, err := readReplicationSchedules()
-	if err != nil {
-		return fmt.Errorf("read schedules: %w", err)
-	}
-	
-	found := false
-	for i, s := range schedules {
-		if s.Name == name {
-			schedules[i] = *dr
-			found = true
-			break
-		}
-	}
-	if !found {
-		schedules = append(schedules, *dr)
-	}
-	
-	return writeReplicationSchedules(schedules)
-}
+// reconcileReplication and deleteReplication: replication.go
 
-func deleteReplication(name string) error {
-	schedules, err := readReplicationSchedules()
-	if err != nil {
-		return fmt.Errorf("read schedules: %w", err)
-	}
-	
-	newSchedules := []DesiredReplication{}
-	for _, s := range schedules {
-		if s.Name != name {
-			newSchedules = append(newSchedules, s)
-		}
-	}
-	
-	return writeReplicationSchedules(newSchedules)
-}
-
-func readReplicationSchedules() ([]DesiredReplication, error) {
-	path := "/etc/dplane/replication-schedules.json"
-	data, err := os.ReadFile(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return []DesiredReplication{}, nil
-		}
-		return nil, err
-	}
-	
-	var schedules []DesiredReplication
-	if err := json.Unmarshal(data, &schedules); err != nil {
-		return nil, fmt.Errorf("unmarshal schedules: %w", err)
-	}
-	return schedules, nil
-}
-
-func writeReplicationSchedules(schedules []DesiredReplication) error {
-	path := "/etc/dplane/replication-schedules.json"
-	data, err := json.MarshalIndent(schedules, "", "  ")
-	if err != nil {
-		return fmt.Errorf("marshal schedules: %w", err)
-	}
-	
-	tmpPath := path + ".gitops.tmp"
-	return writeFileAtomic(tmpPath, path, data)
-}
- 
 func reconcileSystem(item DiffItem) error {
 	ds := item.DesiredSystem
 	if ds == nil {

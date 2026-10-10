@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"os"
 	"strconv"
 	"strings"
 
@@ -97,13 +96,11 @@ type LiveGroup struct {
 type LiveReplication struct {
 	Name              string
 	SourceDataset     string
-	RemoteHost        string
-	RemoteUser        string
-	RemotePort        int
+	Remote            string // peer name
 	RemotePool        string
-	SSHKeyPath        string
 	Interval          string
 	TriggerOnSnapshot bool
+	Incremental       bool
 	Compress          bool
 	RateLimitMB       int
 	Enabled           bool
@@ -491,51 +488,6 @@ func readLiveGroups(db *sql.DB) ([]LiveGroup, error) {
 	}
 	return groups, nil
 }
-
-func readLiveReplication() ([]LiveReplication, error) {
-	// Usually in /etc/dplaneos/config or /var/lib/dplaneos/config
-	// We'll check common paths or use a default.
-	// For this convergence, we assume it's in the same dir as the daemon's working config.
-	path := "/etc/dplaneos/replication-schedules.json"
-	if _, err := os.Stat("/var/lib/dplaneos/config/replication-schedules.json"); err == nil {
-		path = "/var/lib/dplaneos/config/replication-schedules.json"
-	}
-
-	data, err := os.ReadFile(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-		return nil, err
-	}
-
-	var raw []map[string]any
-	if err := json.Unmarshal(data, &raw); err != nil {
-		return nil, err
-	}
-
-	var repls []LiveReplication
-	for _, m := range raw {
-		r := LiveReplication{
-			Name:              fmt.Sprint(m["name"]),
-			SourceDataset:     fmt.Sprint(m["source_dataset"]),
-			RemoteHost:        fmt.Sprint(m["remote_host"]),
-			RemoteUser:        fmt.Sprint(m["remote_user"]),
-			RemotePort:        int(m["remote_port"].(float64)),
-			RemotePool:        fmt.Sprint(m["remote_pool"]),
-			SSHKeyPath:        fmt.Sprint(m["ssh_key_path"]),
-			Interval:          fmt.Sprint(m["interval"]),
-			TriggerOnSnapshot: m["trigger_on_snapshot"] == true,
-			Compress:          m["compress"] == true,
-			RateLimitMB:       int(m["rate_limit_mb"].(float64)),
-			Enabled:           m["enabled"] == true,
-		}
-		repls = append(repls, r)
-	}
-	return repls, nil
-}
- 
- 
 
 func readLiveSystem() (*nixwriter.DPlaneState, error) {
 	w := nixwriter.DefaultWriter()

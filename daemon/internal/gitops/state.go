@@ -256,16 +256,16 @@ type DesiredGroup struct {
 	Members     []string `yaml:"members"` // member usernames
 }
 
+// DesiredReplication is a replication schedule; the target is a peer
+// (Replication > Peers) named by "remote".
 type DesiredReplication struct {
 	Name              string `yaml:"name"`
 	SourceDataset     string `yaml:"source_dataset"`
-	RemoteHost        string `yaml:"remote_host"`
-	RemoteUser        string `yaml:"remote_user"`
-	RemotePort        int    `yaml:"remote_port"`
+	Remote            string `yaml:"remote"`
 	RemotePool        string `yaml:"remote_pool"`
-	SSHKeyPath        string `yaml:"ssh_key_path"`
-	Interval          string `yaml:"interval"`
+	Interval          string `yaml:"interval"` // hourly, daily, weekly, manual
 	TriggerOnSnapshot bool   `yaml:"trigger_on_snapshot"`
+	Incremental       bool   `yaml:"incremental"`
 	Compress          bool   `yaml:"compress"`
 	RateLimitMB       int    `yaml:"rate_limit_mb"`
 	Enabled           bool   `yaml:"enabled"`
@@ -1325,13 +1325,11 @@ func mapToState(raw map[string]yamlNode) (*DesiredState, error) {
 			r := DesiredReplication{
 				Name:              strField(rm, "name"),
 				SourceDataset:     strField(rm, "source_dataset"),
-				RemoteHost:        strField(rm, "remote_host"),
-				RemoteUser:        strField(rm, "remote_user"),
-				RemotePort:        intField(rm, "remote_port"),
+				Remote:            strField(rm, "remote"),
 				RemotePool:        strField(rm, "remote_pool"),
-				SSHKeyPath:        strField(rm, "ssh_key_path"),
 				Interval:          strField(rm, "interval"),
 				TriggerOnSnapshot: strField(rm, "trigger_on_snapshot") == "true",
+				Incremental:       strField(rm, "incremental") == "true",
 				Compress:          strField(rm, "compress") == "true",
 				RateLimitMB:       intField(rm, "rate_limit_mb"),
 				Enabled:           strField(rm, "enabled") != "false",

@@ -274,6 +274,7 @@ func main() {
 
 	// Set configurable paths for NixOS compatibility
 	handlers.SetConfigDir(*configDir)
+	gitops.SetConfigDir(*configDir) // replication schedules and peers
 
 	// Expose daemon version to handlers package (used by /api/system/updates/daemon-version)
 	handlers.DaemonVersion = Version

@@ -318,12 +318,16 @@ func GenerateStateYAML(state *LiveState) string {
 		for _, r := range state.Replication {
 			sb.WriteString(fmt.Sprintf("  - name: %q\n", r.Name))
 			sb.WriteString(fmt.Sprintf("    source_dataset: %q\n", r.SourceDataset))
-			sb.WriteString(fmt.Sprintf("    remote_host: %q\n", r.RemoteHost))
-			sb.WriteString(fmt.Sprintf("    remote_port: %d\n", r.RemotePort))
+			sb.WriteString(fmt.Sprintf("    remote: %q\n", r.Remote))
+			sb.WriteString(fmt.Sprintf("    remote_pool: %q\n", r.RemotePool))
 			sb.WriteString(fmt.Sprintf("    interval: %q\n", r.Interval))
-			if !r.Enabled {
-				sb.WriteString("    enabled: false\n")
+			sb.WriteString(fmt.Sprintf("    trigger_on_snapshot: %v\n", r.TriggerOnSnapshot))
+			sb.WriteString(fmt.Sprintf("    incremental: %v\n", r.Incremental))
+			sb.WriteString(fmt.Sprintf("    compress: %v\n", r.Compress))
+			if r.RateLimitMB > 0 {
+				sb.WriteString(fmt.Sprintf("    rate_limit_mb: %d\n", r.RateLimitMB))
 			}
+			sb.WriteString(fmt.Sprintf("    enabled: %v\n", r.Enabled))
 		}
 		sb.WriteString("\n")
 	}
