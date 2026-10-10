@@ -175,7 +175,7 @@ in
   };
 
   # Console: the wizard on tty1 until a role is configured, then the status.
-  services.getty.autologinUser = "root";
+  services.getty.autologinUser = lib.mkDefault "root";
   programs.bash.loginShellInit = ''
     if [ "$(tty)" = /dev/tty1 ]; then
       if [ ! -f /etc/dplaneos-voter.conf ] && [ ! -f /etc/corosync/qnetd/nssdb/qnetd-cacert.crt ]; then
@@ -209,7 +209,7 @@ in
     '';
   };
 
-  services.timesyncd.enable = true;
-  documentation.enable = false;
+  services.timesyncd.enable = lib.mkDefault true;
+  documentation.enable = lib.mkDefault false;
   system.stateVersion = "26.05";
 }
