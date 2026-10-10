@@ -27,7 +27,13 @@ let
     + lib.optionalString (cfg.secrets.fallbackKeyFile != null)
       " -secrets-key-fallback ${cfg.secrets.fallbackKeyFile}";
 in {
-  imports = [ ./console-network-wizard.nix ./modules/samba.nix ./modules/nfs.nix ./modules/fenced.nix ./modules/ctdb.nix ./modules/ups.nix ./modules/cluster.nix ];
+  imports = [
+    (lib.mkRemovedOptionModule [ "services" "dplaneos" "ha" ] ''
+      Patroni-based HA (Patroni, etcd, HAProxy, keepalived) was removed in DPlaneOS v15.
+      Remove services.dplaneos.ha from your configuration and set HA up from the web interface:
+      pair the nodes, form the cluster with a third vote, create storage groups
+      (docs/admin/HIGH-AVAILABILITY.md).'')
+  ] ++ [ ./console-network-wizard.nix ./modules/samba.nix ./modules/nfs.nix ./modules/fenced.nix ./modules/ctdb.nix ./modules/ups.nix ./modules/cluster.nix ];
 
   options.services.dplaneos = {
     enable = lib.mkEnableOption "DPlaneOS NAS daemon";
