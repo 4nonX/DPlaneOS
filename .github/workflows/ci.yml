@@ -511,7 +511,7 @@ jobs:
   # Parallel build for x86_64 and aarch64
   # ════════════════════════════════════════════════════════════════════════════
   build-live-iso:
-    name: Build Live Boot ISO
+    name: Build Live Boot ISO (${{ matrix.arch_label }})
     needs: [validate, integration, config-sync, nix-eval]
     if: github.ref_type == 'tag' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/live-boot' || github.event_name == 'workflow_dispatch'
     strategy:
