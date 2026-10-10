@@ -5,6 +5,52 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
 
+## Unreleased
+
+Found by the new handler tests (the API handlers now run against a real
+PostgreSQL schema and a command fake in CI).
+
+### Upgrade notes
+
+- **API token scopes are enforced.** A `read` token can only read, a
+  `write` token cannot perform admin actions. Before, every token could do
+  everything its user could. Re-create automation tokens with the scope
+  they need.
+- **API tokens expire.** Expiry dates were never applied; tokens past
+  their date stop working after the upgrade.
+- New NFS exports default to `root_squash` (was `no_root_squash`).
+
+### Security
+
+- Password resets and account creation ignored the role hierarchy: a
+  non-admin user manager could reset an admin's password or create an
+  admin. Nobody can raise their own role.
+- The 2FA step had no attempt limit (5 failures in 15 minutes now lock it
+  per user); backup codes could be used twice concurrently; TOTP codes
+  could be replayed within their window.
+- Dataset names starting with `-` were accepted and read as options by
+  zfs (a "dataset" named `-a` unloaded every encryption key).
+- iSCSI targets accepted any device (the system disk could be exported);
+  only zvols are accepted. Targets whose authentication setup failed were
+  left running; CHAP failures left unauthenticated ACLs. Both roll back.
+- The login lockout overflowed after about 35 failures and stopped
+  throttling.
+- Malformed token allowlists are refused instead of treated as
+  unrestricted.
+
+### Fixed
+
+- Changing an encryption key failed on unlocked datasets and never checked
+  the old passphrase.
+- Shrinking a zvol (which destroys data) needs `allow_shrink`.
+- NFS changes said "applied" when exportfs failed; iSCSI said "created"
+  when saving the configuration failed.
+- The iSCSI page could not create or update targets (field mismatch) and
+  crashed once a zvol existed.
+- Concurrent storage operations on one target could both start
+  (migration 00024 enforces one pending operation per target).
+- A double-submitted 2FA login returned a session id that did not exist.
+
 ## v15.0.0 (2026-10-10) - "Local First"
 
 [Design 0001](../design/0001-distributed-state-gitops-ha.md), phases 0 to 3: every node keeps its own database and keeps working on its own; paired nodes exchange configuration (with secrets) and merge it per resource; high availability is rebuilt on Corosync quorum, a third vote from anything, and storage groups that move between nodes with their shares, apps and a floating address.

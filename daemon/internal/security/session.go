@@ -144,13 +144,15 @@ func ValidateUser(username string) (bool, error) {
 
 // SessionUser represents basic user info returned from session validation
 type SessionUser struct {
-	ID               int
-	Username         string
-	Email            string
+	ID       int
+	Username string
+	Email    string
 	// AllowedResources is non-nil when the session was established via an API
 	// token that has resource-level allowlist rules. The middleware enforces
 	// these before the request reaches any handler.
 	AllowedResources string // JSON array of TokenResourceRule; "" or "[]" = unrestricted
+	// Scopes of the API token ("read", "write", "admin"); empty for sessions.
+	Scopes string
 	// MustChangePassword is true when the session status is 'must_change_password'.
 	// The RBAC middleware rejects all requests except POST /api/auth/change-password
 	// until the user sets a new password.
@@ -225,17 +227,21 @@ func ValidateAPITokenAndGetUser(token string) (*SessionUser, error) {
 	hash := HashToken(token)
 
 	var user SessionUser
-	var expiresAt *string
+	// Expiry is compared in SQL: expires_at is a TIMESTAMPTZ, which scans as
+	// RFC 3339; the old string parse never matched and tokens never expired.
 	query := `
-		SELECT u.id, u.username, COALESCE(u.email, ''), COALESCE(at.allowed_resources, '[]'), at.expires_at
+		SELECT u.id, u.username, COALESCE(u.email, ''), COALESCE(at.allowed_resources, '[]'),
+		       COALESCE(NULLIF(at.scopes, ''), 'read'),
+		       (at.expires_at IS NOT NULL AND at.expires_at <= NOW())
 		FROM api_tokens at
 		JOIN users u ON u.id = at.user_id
 		WHERE at.token_hash = $1 AND u.active = 1
 		LIMIT 1
 	`
 
+	var expired bool
 	err := db.QueryRowContext(ctx, query, hash).Scan(
-		&user.ID, &user.Username, &user.Email, &user.AllowedResources, &expiresAt,
+		&user.ID, &user.Username, &user.Email, &user.AllowedResources, &user.Scopes, &expired,
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -244,12 +250,8 @@ func ValidateAPITokenAndGetUser(token string) (*SessionUser, error) {
 		return nil, fmt.Errorf("token validation failed: %w", err)
 	}
 
-	// Check expiry
-	if expiresAt != nil && *expiresAt != "" {
-		t, err := time.Parse("2006-01-02 15:04:05", *expiresAt)
-		if err == nil && time.Now().After(t) {
-			return nil, fmt.Errorf("token expired")
-		}
+	if expired {
+		return nil, fmt.Errorf("token expired")
 	}
 
 	// Update last_used asynchronously

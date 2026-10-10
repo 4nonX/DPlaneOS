@@ -74,8 +74,8 @@ func generateToken() (string, string, string, error) {
 		return "", "", "", err
 	}
 	fullHex := hex.EncodeToString(raw)
-	prefix := fullHex[:8]           // first 8 chars for display
-	full := "dpl_" + fullHex        // full token shown once at creation
+	prefix := fullHex[:8]    // first 8 chars for display
+	full := "dpl_" + fullHex // full token shown once at creation
 
 	// Hash for storage (SHA-256 - tokens are long enough to be safe without bcrypt)
 	h := sha256.Sum256([]byte(full))
@@ -110,14 +110,15 @@ func ValidateAPIToken(db *sql.DB, token string) (*ValidateAPITokenResult, error)
 
 	var userID int
 	var username, scopes, allowedResourcesJSON string
-	var expiresAt *string
+	var expired bool
 
 	err := db.QueryRow(`
-		SELECT at.user_id, u.username, at.scopes, at.allowed_resources, at.expires_at
+		SELECT at.user_id, u.username, at.scopes, COALESCE(at.allowed_resources, '[]'),
+		       (at.expires_at IS NOT NULL AND at.expires_at <= NOW())
 		FROM api_tokens at
 		JOIN users u ON u.id = at.user_id
 		WHERE at.token_hash = $1 AND u.active = 1
-	`, hash).Scan(&userID, &username, &scopes, &allowedResourcesJSON, &expiresAt)
+	`, hash).Scan(&userID, &username, &scopes, &allowedResourcesJSON, &expired)
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("invalid token")
 	}
@@ -125,16 +126,16 @@ func ValidateAPIToken(db *sql.DB, token string) (*ValidateAPITokenResult, error)
 		return nil, err
 	}
 
-	if expiresAt != nil && *expiresAt != "" {
-		t, err := time.Parse("2006-01-02 15:04:05", *expiresAt)
-		if err == nil && time.Now().After(t) {
-			return nil, fmt.Errorf("token expired")
-		}
+	if expired {
+		return nil, fmt.Errorf("token expired")
 	}
 
 	var rules []TokenResourceRule
 	if allowedResourcesJSON != "" && allowedResourcesJSON != "[]" {
-		_ = json.Unmarshal([]byte(allowedResourcesJSON), &rules)
+		// Fail closed: a malformed allowlist must not become "unrestricted".
+		if err := json.Unmarshal([]byte(allowedResourcesJSON), &rules); err != nil || len(rules) == 0 {
+			return nil, fmt.Errorf("token allowlist is malformed")
+		}
 	}
 
 	go func() {
@@ -218,12 +219,12 @@ func (h *APITokenHandler) listTokens(w http.ResponseWriter, userID int) {
 
 func (h *APITokenHandler) tokenAction(w http.ResponseWriter, r *http.Request, userID int, username string) {
 	var req struct {
-		Action           string               `json:"action"`
-		Name             string               `json:"name"`
-		Scopes           string               `json:"scopes"`
-		AllowedResources []TokenResourceRule  `json:"allowed_resources"`
-		ExpiresIn        int                  `json:"expires_in_days"` // 0 = never
-		ID               int                  `json:"id"`
+		Action           string              `json:"action"`
+		Name             string              `json:"name"`
+		Scopes           string              `json:"scopes"`
+		AllowedResources []TokenResourceRule `json:"allowed_resources"`
+		ExpiresIn        int                 `json:"expires_in_days"` // 0 = never
+		ID               int                 `json:"id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		respondErrorSimple(w, "Invalid request", http.StatusBadRequest)
@@ -345,11 +346,12 @@ func (h *APITokenHandler) revokeByID(w http.ResponseWriter, tokenID, userID int,
 }
 
 func (h *APITokenHandler) revokeTokenByID(w http.ResponseWriter, r *http.Request, userID int, username string) {
-	var req struct{ ID int `json:"id"` }
+	var req struct {
+		ID int `json:"id"`
+	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		respondErrorSimple(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	h.revokeByID(w, req.ID, userID, username)
 }
-

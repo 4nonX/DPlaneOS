@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strings"
 
 	"dplaned/internal/security"
 )
@@ -20,7 +21,32 @@ type User struct {
 	ID       int    `json:"id"`
 	Username string `json:"username"`
 	Email    string `json:"email"`
+	// TokenScopes is set for API token requests ("read", "write", "admin",
+	// comma-separated); empty for browser sessions.
+	TokenScopes string `json:"-"`
 }
+
+var scopeRank = map[string]int{"read": 1, "list": 1, "write": 2, "admin": 3}
+
+// TokenScopeAllows reports whether a token with these scopes may perform an
+// action: an action up to the highest scope's rank (read < write < admin).
+// Unknown actions need admin.
+func TokenScopeAllows(scopes, action string) bool {
+	max := 0
+	for _, s := range strings.Split(scopes, ",") {
+		if r := scopeRank[strings.TrimSpace(s)]; r > max {
+			max = r
+		}
+	}
+	need, ok := scopeRank[action]
+	if !ok {
+		need = scopeRank["admin"]
+	}
+	return max >= need
+}
+
+// TokenReadOnly reports whether the scopes only allow reading.
+func TokenReadOnly(scopes string) bool { return !TokenScopeAllows(scopes, "write") }
 
 // RequirePermission middleware checks if user has required permission
 func RequirePermission(resource, action string) func(http.Handler) http.Handler {
@@ -43,6 +69,16 @@ func RequirePermission(resource, action string) func(http.Handler) http.Handler 
 				respondJSON(w, http.StatusForbidden, map[string]string{
 					"error":   "Forbidden - database unavailable",
 					"message": "Cannot mutate during degraded state",
+				})
+				return
+			}
+
+			// An API token never exceeds its scopes, whatever its user may do.
+			if user.TokenScopes != "" && !TokenScopeAllows(user.TokenScopes, action) {
+				respondJSON(w, http.StatusForbidden, map[string]string{
+					"error":    "Forbidden - token scope",
+					"required": resource + ":" + action,
+					"message":  "This API token's scopes (" + user.TokenScopes + ") do not include " + action,
 				})
 				return
 			}

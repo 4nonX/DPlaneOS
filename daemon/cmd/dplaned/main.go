@@ -1769,10 +1769,17 @@ func sessionMiddleware(db *sql.DB, internalCronToken string) mux.MiddlewareFunc 
 							return
 						}
 					}
+					// Routes outside permRoute still see the scope: a read-only
+					// token makes only reading requests.
+					if middleware.TokenReadOnly(sessionUser.Scopes) && r.Method != http.MethodGet && r.Method != http.MethodHead {
+						http.Error(w, "Forbidden: this API token is read-only", http.StatusForbidden)
+						return
+					}
 					ctx := context.WithValue(r.Context(), middleware.UserContextKey, &middleware.User{
-						ID:       sessionUser.ID,
-						Username: sessionUser.Username,
-						Email:    sessionUser.Email,
+						ID:          sessionUser.ID,
+						Username:    sessionUser.Username,
+						Email:       sessionUser.Email,
+						TokenScopes: sessionUser.Scopes,
 					})
 					next.ServeHTTP(w, r.WithContext(ctx))
 					return
