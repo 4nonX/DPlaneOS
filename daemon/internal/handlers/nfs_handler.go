@@ -22,7 +22,8 @@ import (
 //  Requires nfs-kernel-server: apt install nfs-kernel-server
 // ═══════════════════════════════════════════════════════════════
 
-const nfsExportsPath = "/etc/exports"
+// nfsExportsPath is the exports file (a variable so tests can redirect it).
+var nfsExportsPath = "/etc/exports"
 const nfsDplaneosMark = "# DPlaneOS NFS exports - managed automatically, do not edit by hand"
 
 // NFSExport represents a single exported path
@@ -124,6 +125,18 @@ func (h *NFSHandler) writeExportsFile() error {
 
 	if err := os.WriteFile(nfsExportsPath, []byte(sb.String()), 0644); err != nil {
 		return fmt.Errorf("write %s: %w", nfsExportsPath, err)
+	}
+	return nil
+}
+
+// applyExports writes the exports file and reloads it; the error says which
+// step failed (the database change is kept either way).
+func (h *NFSHandler) applyExports(user string) error {
+	if err := h.writeExportsFile(); err != nil {
+		return err
+	}
+	if err := reloadExports(user); err != nil {
+		return fmt.Errorf("exportfs -ra: %w", err)
 	}
 	return nil
 }
@@ -231,7 +244,9 @@ func (h *NFSHandler) CreateNFSExport(w http.ResponseWriter, r *http.Request) {
 		req.Clients = "*"
 	}
 	if req.Options == "" {
-		req.Options = "rw,sync,no_subtree_check,no_root_squash"
+		// root_squash: a client's root is not root on the export (opt out
+		// per export with no_root_squash where that is really needed).
+		req.Options = "rw,sync,no_subtree_check,root_squash"
 	}
 
 	// Validate
@@ -258,13 +273,12 @@ func (h *NFSHandler) CreateNFSExport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.writeExportsFile(); err != nil {
-		log.Printf("writeExportsFile: %v", err)
-	}
-
 	user := r.Header.Get("X-User")
-	reloadExports(user)
 	audit.LogActivity(user, "nfs_export_create", map[string]any{"path": req.Path, "clients": req.Clients})
+	if err := h.applyExports(user); err != nil {
+		respondOK(w, map[string]any{"success": false, "id": id, "error": "Saved, but NFS was not updated: " + err.Error()})
+		return
+	}
 
 	respondOK(w, map[string]any{
 		"success": true,
@@ -357,12 +371,12 @@ func (h *NFSHandler) UpdateNFSExport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.writeExportsFile(); err != nil {
-		log.Printf("writeExportsFile: %v", err)
-	}
 	user := r.Header.Get("X-User")
-	reloadExports(user)
 	audit.LogActivity(user, "nfs_export_update", map[string]any{"id": id})
+	if err := h.applyExports(user); err != nil {
+		respondOK(w, map[string]any{"success": false, "error": "Saved, but NFS was not updated: " + err.Error()})
+		return
+	}
 
 	respondOK(w, map[string]any{"success": true, "message": "Export updated and applied"})
 	gitops.CommitAll(h.db)
@@ -394,12 +408,12 @@ func (h *NFSHandler) DeleteNFSExport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.writeExportsFile(); err != nil {
-		log.Printf("writeExportsFile: %v", err)
-	}
 	user := r.Header.Get("X-User")
-	reloadExports(user)
 	audit.LogActivity(user, "nfs_export_delete", map[string]any{"id": id, "path": path})
+	if err := h.applyExports(user); err != nil {
+		respondOK(w, map[string]any{"success": false, "error": "Deleted, but NFS was not updated: " + err.Error()})
+		return
+	}
 
 	respondOK(w, map[string]any{"success": true, "message": "Export deleted and applied"})
 	gitops.CommitAll(h.db)

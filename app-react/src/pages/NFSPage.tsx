@@ -44,7 +44,7 @@ interface NFSStatusResponse { success: boolean; status: NFSStatus }
 // ExportModal (create / edit)
 // ---------------------------------------------------------------------------
 
-const DEFAULT_OPTIONS = 'rw,sync,no_subtree_check,no_root_squash'
+const DEFAULT_OPTIONS = 'rw,sync,no_subtree_check,root_squash'
 
 function ExportModal({ existing, onClose, onSaved }: {
   existing?: NFSExport; onClose: () => void; onSaved: () => void
