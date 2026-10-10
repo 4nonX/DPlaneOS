@@ -70,6 +70,10 @@ firewall_open() { # port/proto
 # the route towards the node.
 HOST=$(printf '%s' "$NODE" | sed -E 's#^[a-zA-Z]+://##; s#^\[##; s#[]:/].*$##')
 IP=$(getent ahostsv4 "$HOST" 2>/dev/null | awk 'NR==1 {print $1}')
+# Minimal environments (a boot-time service) may lack a working resolver
+# for getent: /etc/hosts, then the address curl actually reached the node at.
+[ -n "$IP" ] || IP=$(awk -v h="$HOST" '$1 !~ /^#/ && $1 ~ /^[0-9.]+$/ { for (i = 2; i <= NF; i++) if ($i == h) { print $1; exit } }' /etc/hosts 2>/dev/null)
+[ -n "$IP" ] || IP=$(curl -sk -o /dev/null -w '%{remote_ip}' --max-time 10 "$NODE" 2>/dev/null)
 [ -n "$IP" ] || IP="$HOST"
 ADDR=$(ip -o route get "$IP" 2>/dev/null | sed -n 's/.* src \([^ ]*\).*/\1/p' | head -n1)
 [ -n "$ADDR" ] || die "cannot determine this machine's address towards $HOST"
@@ -115,7 +119,9 @@ if [ "$MODE" = voter ]; then
     IP6=$(getent ahostsv6 "$HOST" 2>/dev/null | awk '$1 !~ /^::ffff:/ {print $1; exit}')
     ADDR6=""
     [ -n "$IP6" ] && ADDR6=$(ip -o -6 route get "$IP6" 2>/dev/null | sed -n 's/.* src \([^ ]*\).*/\1/p' | head -n1)
-    post "/api/quorum/voter/join?name=$NAME&address=$ADDR&address6=$ADDR6" "$TMP/empty" > "$TMP/join"
+    ADDR4="$ADDR"
+    case "$ADDR" in *:*) ADDR4=""; [ -n "$ADDR6" ] || ADDR6="$ADDR" ;; esac
+    post "/api/quorum/voter/join?name=$NAME&address=$ADDR4&address6=$ADDR6" "$TMP/empty" > "$TMP/join"
     CLUSTER=$(sed -n 's/^cluster: //p' "$TMP/join" | head -n1)
     TOKEN=$(sed -n 's/^token: //p' "$TMP/join" | head -n1)
     [ -n "$CLUSTER" ] && [ -n "$TOKEN" ] || die "unexpected answer from $NODE"
