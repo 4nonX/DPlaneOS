@@ -938,6 +938,7 @@ func (h *CertHandler) DeleteCert(w http.ResponseWriter, r *http.Request) {
 	keyFile := filepath.Join(configPath("ssl"), req.Name+".key")
 
 	_ = os.Remove(certFile)
+	_ = os.Remove(certFile + ".meta")
 	_ = os.Remove(keyFile)
 
 	audit.LogActivity(user, "cert_delete", map[string]any{"name": req.Name})
@@ -1028,6 +1029,10 @@ func (h *CertHandler) ActivateCert(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if !certNameRe.MatchString(req.Name) {
+		respondErrorSimple(w, "Invalid name", http.StatusBadRequest)
+		return
+	}
 	certFile := filepath.Join(configPath("ssl"), req.Name+".crt")
 	keyFile := filepath.Join(configPath("ssl"), req.Name+".key")
 
@@ -1203,14 +1208,30 @@ func (h *CertHandler) RequestACME(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Validate inputs
+	// Validate inputs: the name becomes a file name, the domain goes to the CA.
 	if req.Domain == "" || req.Email == "" || req.Name == "" {
 		respondErrorSimple(w, "Name, Domain, and Email are required", http.StatusBadRequest)
 		return
 	}
+	if !certNameRe.MatchString(req.Name) {
+		respondErrorSimple(w, "Invalid name (letters, digits, - and _)", http.StatusBadRequest)
+		return
+	}
+	if !acmeDomainRe.MatchString(req.Domain) || len(req.Domain) > 253 {
+		respondErrorSimple(w, "Invalid domain", http.StatusBadRequest)
+		return
+	}
+	if !acmeEmailRe.MatchString(req.Email) {
+		respondErrorSimple(w, "Invalid email address", http.StatusBadRequest)
+		return
+	}
 
 	jobId := jobs.Start("acme_request", func(j *jobs.Job) {
-		h.obtainCertificate(req.Domain, req.Name, req.Email, req.Staging, user, j)
+		if err := h.obtainCertificate(req.Domain, req.Name, req.Email, req.Staging, user, j); err != nil {
+			j.Fail(err.Error())
+			return
+		}
+		j.Done(map[string]any{"name": req.Name, "domain": req.Domain})
 	})
 
 	w.Header().Set("Content-Type", "application/json")
@@ -1218,7 +1239,16 @@ func (h *CertHandler) RequestACME(w http.ResponseWriter, r *http.Request) {
 }
 
 // obtainCertificate is the shared logic for initial issuance and renewal.
-func (h *CertHandler) obtainCertificate(domain, name, email string, staging bool, user string, j *jobs.Job) {
+// Certificate names are file names; ACME domains and contact addresses.
+var (
+	certNameRe   = regexp.MustCompile(`^[a-zA-Z0-9_-]{1,64}$`)
+	acmeDomainRe = regexp.MustCompile(`^([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,63}$`)
+	acmeEmailRe  = regexp.MustCompile(`^[^@\s"'<>;]+@[^@\s"'<>;]+\.[^@\s"'<>;]+$`)
+)
+
+// obtainCertificate gets a certificate from the CA and stores it as
+// <name>.crt / <name>.key with its renewal data in <name>.crt.meta.
+func (h *CertHandler) obtainCertificate(domain, name, email string, staging bool, user string, j *jobs.Job) error {
 	j.Log("Starting ACME request for " + domain)
 
 	// Ensure Nginx proxy is present (non-NixOS only)
@@ -1232,8 +1262,7 @@ func (h *CertHandler) obtainCertificate(domain, name, email string, staging bool
 	j.Progress(map[string]string{"status": "loading_account", "message": "Loading ACME account key..."})
 	privateKey, err := getACMEAccountKey()
 	if err != nil {
-		j.Fail("Failed to load/generate ACME account key: " + err.Error())
-		return
+		return errors.New("Failed to load/generate ACME account key: " + err.Error())
 	}
 
 	myUser := LegoUser{
@@ -1251,15 +1280,13 @@ func (h *CertHandler) obtainCertificate(domain, name, email string, staging bool
 
 	client, err := lego.NewClient(config)
 	if err != nil {
-		j.Fail("Failed to create ACME client: " + err.Error())
-		return
+		return errors.New("Failed to create ACME client: " + err.Error())
 	}
 
 	j.Progress(map[string]string{"status": "setting_provider", "message": "Setting up HTTP-01 challenge server on port 8080..."})
 	err = client.Challenge.SetHTTP01Provider(http01.NewProviderServer("", "8080"))
 	if err != nil {
-		j.Fail("Failed to set challenge provider: " + err.Error())
-		return
+		return errors.New("Failed to set challenge provider: " + err.Error())
 	}
 
 	j.Progress(map[string]string{"status": "registering", "message": "Registering account with Let's Encrypt..."})
@@ -1276,22 +1303,19 @@ func (h *CertHandler) obtainCertificate(domain, name, email string, staging bool
 	}
 	certificates, err := client.Certificate.Obtain(request)
 	if err != nil {
-		j.Fail("Failed to obtain certificate: " + err.Error())
-		return
+		return errors.New("Failed to obtain certificate: " + err.Error())
 	}
 
 	j.Progress(map[string]string{"status": "saving", "message": "Saving certificates to /etc/dplaneos/ssl..."})
 	os.MkdirAll(configPath("ssl"), 0700)
-	certFile := ConfigDir + "/ssl/" + name + ".pem"
+	certFile := ConfigDir + "/ssl/" + name + ".crt"
 	keyFile := ConfigDir + "/ssl/" + name + ".key"
 
 	if err := os.WriteFile(certFile, certificates.Certificate, 0644); err != nil {
-		j.Fail("Failed to save certificate: " + err.Error())
-		return
+		return errors.New("Failed to save certificate: " + err.Error())
 	}
 	if err := os.WriteFile(keyFile, certificates.PrivateKey, 0600); err != nil {
-		j.Fail("Failed to save key: " + err.Error())
-		return
+		return errors.New("Failed to save key: " + err.Error())
 	}
 
 	// Save metadata for renewal
@@ -1304,7 +1328,7 @@ func (h *CertHandler) obtainCertificate(domain, name, email string, staging bool
 	}
 
 	audit.LogAction("cert_acme", user, fmt.Sprintf("Obtained ACME cert for %s (name: %s)", domain, name), true, 0)
-	j.Done(map[string]any{"name": name, "domain": domain})
+	return nil
 }
 
 // ensureACMEProxy injects the /.well-known/acme-challenge/ block into Nginx on non-NixOS.
@@ -1351,89 +1375,112 @@ func (h *CertHandler) ensureACMEProxy() error {
 	return nil
 }
 
-// RenewAllHandler checks all certificates and renews those expiring in < 30 days.
+// acmeRenewBefore: certificates are renewed this long before they expire.
+const acmeRenewBefore = 30 * 24 * time.Hour
+
+// renewDueCertificates renews every ACME certificate (one with renewal data
+// next to it) that expires within acmeRenewBefore, and reloads the web
+// server when one of them changed. Returns how many were renewed and failed.
+func (h *CertHandler) renewDueCertificates(j *jobs.Job) (renewed, failed int) {
+	sslDir := ConfigDir + "/ssl"
+	entries, err := os.ReadDir(sslDir)
+	if err != nil {
+		j.Log("Cannot read " + sslDir + ": " + err.Error())
+		return 0, 0
+	}
+	for _, e := range entries {
+		certName, ok := strings.CutSuffix(e.Name(), ".crt")
+		if !ok || !certNameRe.MatchString(certName) {
+			continue
+		}
+		certPath := filepath.Join(sslDir, e.Name())
+		metaData, err := os.ReadFile(certPath + ".meta")
+		if err != nil {
+			continue // not an ACME certificate (self-signed or imported)
+		}
+		var meta struct {
+			Email   string `json:"email"`
+			Staging bool   `json:"staging"`
+		}
+		if err := json.Unmarshal(metaData, &meta); err != nil || meta.Email == "" {
+			j.Log("WARN: unreadable renewal data for " + certName)
+			continue
+		}
+		data, err := os.ReadFile(certPath)
+		if err != nil {
+			j.Log("WARN: cannot read " + e.Name() + ": " + err.Error())
+			continue
+		}
+		block, _ := pem.Decode(data)
+		if block == nil {
+			j.Log("WARN: " + e.Name() + " is not PEM")
+			continue
+		}
+		cert, err := x509.ParseCertificate(block.Bytes)
+		if err != nil {
+			j.Log("WARN: cannot parse " + e.Name() + ": " + err.Error())
+			continue
+		}
+		left := time.Until(cert.NotAfter)
+		j.Log(fmt.Sprintf("%s expires in %d days", certName, int(left.Hours()/24)))
+		if left > acmeRenewBefore {
+			continue
+		}
+		domain := cert.Subject.CommonName
+		if domain == "" && len(cert.DNSNames) > 0 {
+			domain = cert.DNSNames[0]
+		}
+		if domain == "" {
+			j.Log("ERR: no domain in " + certName)
+			failed++
+			continue
+		}
+		j.Log("Renewing " + certName + " (" + domain + ")")
+		if err := h.obtainCertificate(domain, certName, meta.Email, meta.Staging, "system-renew", j); err != nil {
+			j.Log("ERR: renewing " + certName + ": " + err.Error())
+			audit.LogAction("cert_acme_renew", "system", fmt.Sprintf("Renewal of %s failed: %v", certName, err), false, 0)
+			failed++
+			continue
+		}
+		renewed++
+	}
+	if renewed > 0 {
+		// The files keep their names: the web server only has to read them again.
+		if out, err := cmdutil.RunFast("nginx", "-s", "reload"); err != nil {
+			j.Log("WARN: web server not reloaded: " + strings.TrimSpace(string(out)) + " " + err.Error())
+		}
+	}
+	return renewed, failed
+}
+
+// RenewAllHandler renews the ACME certificates that expire within 30 days.
 // POST /api/certs/acme/renew-all
 func (h *CertHandler) RenewAllHandler(w http.ResponseWriter, r *http.Request) {
 	jobId := jobs.Start("acme_renew_all", func(j *jobs.Job) {
-		j.Log("Starting ACME auto-renewal check")
-		sslDir := ConfigDir + "/ssl"
-		entries, err := os.ReadDir(sslDir)
-		if err != nil {
-			j.Fail("Failed to read SSL directory: " + err.Error())
-			return
-		}
-
-		renewCount := 0
-		for _, e := range entries {
-			if !strings.HasSuffix(e.Name(), ".pem") {
-				continue
-			}
-			certName := strings.TrimSuffix(e.Name(), ".pem")
-			certPath := filepath.Join(sslDir, e.Name())
-			data, err := os.ReadFile(certPath)
-			if err != nil {
-				j.Log("WARN: failed to read cert " + e.Name() + ": " + err.Error())
-				continue
-			}
-
-			block, _ := pem.Decode(data)
-			if block == nil {
-				j.Log("WARN: failed to decode PEM for " + e.Name())
-				continue
-			}
-
-			cert, err := x509.ParseCertificate(block.Bytes)
-			if err != nil {
-				j.Log("WARN: failed to parse certificate " + e.Name() + ": " + err.Error())
-				continue
-			}
-
-			daysRemaining := int(time.Until(cert.NotAfter).Hours() / 24)
-			j.Log(fmt.Sprintf("Cert %s expires in %d days", certName, daysRemaining))
-
-			if daysRemaining < 30 {
-				j.Log("Renewing " + certName + "...")
-				domain := cert.Subject.CommonName
-				if domain == "" && len(cert.DNSNames) > 0 {
-					domain = cert.DNSNames[0]
-				}
-
-				if domain == "" {
-					j.Log("ERR: could not determine domain for " + certName)
-					continue
-				}
-
-				// We assume email is known or we use a fallback if not stored.
-				// In a full implementation, we might want to store the email in a YAML next to the cert.
-				// For now, we'll try to find a default or require it.
-				// Actually, the lego client needs a user.
-				// Let's assume for now we use the email from the most recent request or a global setting.
-				// PRO TIP: In v6.2.0 we'll read it from a .meta file next to the cert if it exists.
-				email := ""
-				metaPath := certPath + ".meta"
-				if metaData, err := os.ReadFile(metaPath); err == nil {
-					var meta struct {
-						Email   string `json:"email"`
-						Staging bool   `json:"staging"`
-					}
-					if err := json.Unmarshal(metaData, &meta); err == nil {
-						email = meta.Email
-						staging := meta.Staging
-						renewCount++
-						// We run it synchronously inside this job
-						h.obtainCertificate(domain, certName, email, staging, "system-renew", j)
-					}
-				} else {
-					j.Log("WARN: missing metadata for " + certName + " (skipping renewal)")
-				}
-			}
-		}
-		j.Log(fmt.Sprintf("Renewal check complete. %d renewals attempt.", renewCount))
-		j.Done(map[string]any{"renewed": renewCount})
+		renewed, failed := h.renewDueCertificates(j)
+		j.Done(map[string]any{"renewed": renewed, "failed": failed})
 	})
+	respondOK(w, map[string]any{"success": true, "jobId": jobId, "job_id": jobId})
+}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{"success": true, "jobId": jobId})
+// StartACMERenewer checks the ACME certificates twice a day.
+func (h *CertHandler) StartACMERenewer(ctx context.Context) {
+	go func() {
+		timer := time.NewTimer(10 * time.Minute)
+		defer timer.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-timer.C:
+			}
+			jobs.Start("acme_renew_all", func(j *jobs.Job) {
+				renewed, failed := h.renewDueCertificates(j)
+				j.Done(map[string]any{"renewed": renewed, "failed": failed})
+			})
+			timer.Reset(12 * time.Hour)
+		}
+	}()
 }
 
 // VerifyACMEProxy checks if /.well-known/acme-challenge/ is correctly proxied to port 8080.

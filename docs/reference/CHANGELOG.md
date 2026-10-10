@@ -28,6 +28,9 @@ interface against the fields its handler reads
 
 ### Security
 
+- Certificates: the Let's Encrypt request used an unchecked certificate
+  name as a file path (files could be written anywhere as root), and
+  activation wrote an unchecked name into the nginx configuration.
 - The CSRF check was skipped when the session lookup failed (database
   slow or down); such requests are refused now.
 - Public file links: a link could be created for any file on the system
@@ -88,6 +91,13 @@ interface against the fields its handler reads
 
 ### Fixed
 
+- Let's Encrypt certificates were saved as <name>.pem while the list,
+  activation and deletion only knew <name>.crt: a certificate obtained in
+  the UI never appeared and could not be activated. Nothing renewed them
+  either: renewal ran only when its API was called, looked for the wrong
+  files and ended its job after the first certificate. Certificates are
+  now checked twice a day and renewed 30 days before they expire (the web
+  server reloads them); "Renew due certificates" runs the check at once.
 - Git repositories with auto sync: the last sync time was read back in
   the database's time zone but treated as UTC, so east of UTC a
   repository was not synced again for hours. The same mislabelling made

@@ -12,7 +12,7 @@
 
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { api } from '@/lib/api'
+import { api, ensureOk } from '@/lib/api'
 import { useJob } from '@/hooks/useJob'
 import { Icon } from '@/components/ui/Icon'
 import { ErrorState } from '@/components/ui/ErrorState'
@@ -429,10 +429,22 @@ export function CertificatesPage() {
   })
 
   const activate = useMutation({
-    mutationFn: (name: string) => api.post('/api/certs/activate', { name }),
-    onSuccess: () => { toast.success('Certificate activated - nginx reloaded'); qc.invalidateQueries({ queryKey: ['certs', 'list'] }) },
+    mutationFn: async (name: string) => ensureOk(await api.post<{ success: boolean; message?: string }>('/api/certs/activate', { name })),
+    onSuccess: r => { toast.success(r.message ?? 'Certificate activated'); qc.invalidateQueries({ queryKey: ['certs', 'list'] }) },
     onError: (e: Error) => toast.error(e.message),
   })
+
+  // Let's Encrypt certificates are renewed automatically (checked twice a
+  // day, 30 days before they expire); this runs the same check now.
+  const [renewJobId, setRenewJobId] = useState<string | null>(null)
+  const renewJob = useJob(renewJobId)
+  const renew = useMutation({
+    mutationFn: async () => ensureOk(await api.post<{ success: boolean; job_id: string }>('/api/certs/acme/renew-all', {})),
+    onSuccess: r => setRenewJobId(r.job_id),
+    onError: (e: Error) => toast.error(e.message),
+  })
+  const renewRunning = renew.isPending || (!!renewJobId && renewJob.data?.status !== 'done' && renewJob.data?.status !== 'failed')
+  const renewResult = renewJob.data?.status === 'done' ? renewJob.data.result as { renewed?: number; failed?: number } | undefined : undefined
 
   const certs     = certsQ.data?.certs ?? []
   const activeCert = certsQ.data?.active_cert ?? ''
@@ -457,6 +469,10 @@ export function CertificatesPage() {
         <button onClick={() => setShowImport(true)} className="btn btn-ghost">
           <Icon name="upload" size={15} />Import
         </button>
+        <button onClick={() => renew.mutate()} disabled={renewRunning} className="btn btn-ghost"
+          title="Let's Encrypt certificates renew automatically 30 days before they expire; this checks now">
+          <Icon name="autorenew" size={15} />{renewRunning ? 'Checking…' : 'Renew due certificates'}
+        </button>
         <button onClick={() => setShowACME(true)} className="btn btn-ghost">
           <Icon name="encrypted" size={15} />Let's Encrypt
         </button>
@@ -465,6 +481,11 @@ export function CertificatesPage() {
         </button>
       </div>
 
+      {renewResult && (
+        <div style={{ padding: '10px 16px', marginBottom: 16, borderRadius: 'var(--radius-md)', background: 'var(--surface)', fontSize: 'var(--text-sm)', color: renewResult.failed ? 'var(--error)' : 'var(--text-secondary)' }}>
+          Renewal check: {renewResult.renewed ?? 0} renewed{renewResult.failed ? `, ${renewResult.failed} failed (see the job log)` : ''}{!renewResult.renewed && !renewResult.failed ? ', nothing due' : ''}.
+        </div>
+      )}
       {certsQ.isLoading && <Skeleton height={250} />}
       {certsQ.isError   && <ErrorState error={certsQ.error} onRetry={() => qc.invalidateQueries({ queryKey: ['certs', 'list'] })} />}
 

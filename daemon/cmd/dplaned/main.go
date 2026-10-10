@@ -1386,6 +1386,7 @@ func main() {
 
 	// SSL/TLS Certificates (v2.0.0)
 	certHandler := handlers.NewCertHandler()
+	certHandler.StartACMERenewer(daemonCtx)
 	r.Handle("/api/certs/list", permRoute("certificates", "read", certHandler.ListCerts)).Methods("GET")
 	r.Handle("/api/certs/generate", permRoute("certificates", "write", certHandler.GenerateSelfSigned)).Methods("POST")
 	r.Handle("/api/certs/activate", permRoute("certificates", "write", certHandler.ActivateCert)).Methods("POST")
