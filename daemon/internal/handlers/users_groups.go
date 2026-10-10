@@ -49,7 +49,7 @@ func (h *UserGroupHandler) listUsers(w http.ResponseWriter, r *http.Request) {
 		var id, active int
 		var username, email, role, createdAt string
 		err := h.db.QueryRow(
-			`SELECT id, username, COALESCE(email,''), COALESCE(role,'user'), active, COALESCE(TO_CHAR(created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), '') FROM users WHERE id = $1`, idStr,
+			`SELECT id, username, COALESCE(email,''), COALESCE(role,'user'), active, COALESCE(TO_CHAR(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), '') FROM users WHERE id = $1`, idStr,
 		).Scan(&id, &username, &email, &role, &active, &createdAt)
 		if err != nil {
 			respondErrorSimple(w, "User not found", http.StatusNotFound)
@@ -69,7 +69,7 @@ func (h *UserGroupHandler) listUsers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rows, err := h.db.Query(`SELECT id, username, COALESCE(email,''), COALESCE(role,'user'), active, COALESCE(TO_CHAR(created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), '') FROM users ORDER BY id`)
+	rows, err := h.db.Query(`SELECT id, username, COALESCE(email,''), COALESCE(role,'user'), active, COALESCE(TO_CHAR(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), '') FROM users ORDER BY id`)
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, "Failed to list users", err)
 		return
@@ -588,7 +588,7 @@ func (h *UserGroupHandler) listGroups(w http.ResponseWriter, r *http.Request) {
 		var id, gid int
 		var name, desc, createdAt string
 		err := h.db.QueryRow(
-			`SELECT id, name, COALESCE(description,''), COALESCE(gid,0), COALESCE(TO_CHAR(created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), '') FROM groups WHERE id = $1`, idStr,
+			`SELECT id, name, COALESCE(description,''), COALESCE(gid,0), COALESCE(TO_CHAR(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), '') FROM groups WHERE id = $1`, idStr,
 		).Scan(&id, &name, &desc, &gid, &createdAt)
 		if err != nil {
 			respondErrorSimple(w, "Group not found", http.StatusNotFound)
@@ -616,7 +616,7 @@ func (h *UserGroupHandler) listGroups(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rows, err := h.db.Query(`SELECT id, name, COALESCE(description,''), COALESCE(gid,0), COALESCE(TO_CHAR(created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), '') FROM groups ORDER BY name`)
+	rows, err := h.db.Query(`SELECT id, name, COALESCE(description,''), COALESCE(gid,0), COALESCE(TO_CHAR(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), '') FROM groups ORDER BY name`)
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, "Failed to list groups", err)
 		return

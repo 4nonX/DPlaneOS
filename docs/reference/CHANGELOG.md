@@ -88,6 +88,13 @@ interface against the fields its handler reads
 
 ### Fixed
 
+- Git repositories with auto sync: the last sync time was read back in
+  the database's time zone but treated as UTC, so east of UTC a
+  repository was not synced again for hours. The same mislabelling made
+  API token, user and group timestamps wrong by the zone offset.
+- Removed the single-repository git sync endpoints (/api/git-sync/config,
+  pull, status, stacks, deploy, export, push) and its table; repositories
+  are managed under /api/git-sync/repos.
 - NixOS apply: the "confirm or roll back" banner lived only in the open
   page (a reload lost it and the system rolled back unconfirmed), counted
   60 s while the server waited 120 s, and its "Rollback" button only hid

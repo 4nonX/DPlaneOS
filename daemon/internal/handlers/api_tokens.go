@@ -182,9 +182,9 @@ func (h *APITokenHandler) HandleTokens(w http.ResponseWriter, r *http.Request) {
 func (h *APITokenHandler) listTokens(w http.ResponseWriter, userID int) {
 	rows, err := h.db.Query(`
 		SELECT id, name, token_prefix, scopes, allowed_resources,
-		       TO_CHAR(last_used, 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
-		       TO_CHAR(expires_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
-		       TO_CHAR(created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"')
+		       TO_CHAR(last_used AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
+		       TO_CHAR(expires_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
+		       TO_CHAR(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')
 		FROM api_tokens WHERE user_id = $1
 		ORDER BY created_at DESC
 	`, userID)

@@ -803,15 +803,6 @@ func main() {
 	r.Handle("/api/docker/gpu", permRoute("docker", "read", handlers.HandleDockerGPUPassthroughReport)).Methods("GET")
 
 	// ── Git Sync ──
-	gitSyncHandler := handlers.NewGitSyncHandler(db)
-	r.Handle("/api/git-sync/config", permRoute("system", "read", gitSyncHandler.GetConfig)).Methods("GET")
-	r.Handle("/api/git-sync/config", permRoute("system", "write", gitSyncHandler.SaveConfig)).Methods("POST")
-	r.Handle("/api/git-sync/pull", permRoute("system", "write", gitSyncHandler.Pull)).Methods("POST")
-	r.Handle("/api/git-sync/status", permRoute("system", "read", gitSyncHandler.Status)).Methods("GET")
-	r.Handle("/api/git-sync/stacks", permRoute("system", "read", gitSyncHandler.ListStacks)).Methods("GET")
-	r.Handle("/api/git-sync/deploy", permRoute("system", "admin", gitSyncHandler.Deploy)).Methods("POST")
-	r.Handle("/api/git-sync/export", permRoute("system", "admin", gitSyncHandler.ExportContainers)).Methods("POST")
-	r.Handle("/api/git-sync/push", permRoute("system", "write", gitSyncHandler.Push)).Methods("POST")
 
 	// Git-Sync: Multi-Repo + Credentials (v2.1.1)
 	gitReposHandler := handlers.NewGitReposHandler(db)
@@ -829,7 +820,6 @@ func main() {
 	r.Handle("/api/git-sync/credentials/branches", permRoute("system", "read", gitReposHandler.ListBranches)).Methods("GET")
 	r.Handle("/api/git-sync/repos/export", permRoute("system", "admin", gitReposHandler.ExportToRepo)).Methods("POST")
 	r.Handle("/api/git-sync/repos/status", permRoute("system", "read", gitReposHandler.StatusRepo)).Methods("GET")
-	gitSyncHandler.StartAutoSync()
 	gitReposHandler.StartAutoSync()
 
 	// v5.1: Compose stack management

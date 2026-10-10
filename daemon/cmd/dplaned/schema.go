@@ -20,7 +20,6 @@ func seedDefaults(db *sql.DB) error {
 	}{
 		{"ldap_config", "INSERT INTO ldap_config (id) VALUES (1) ON CONFLICT (id) DO NOTHING"},
 		{"telegram_config", "INSERT INTO telegram_config (id, bot_token, chat_id, enabled) VALUES (1, '', '', 0) ON CONFLICT (id) DO NOTHING"},
-		{"git_sync_config", "INSERT INTO git_sync_config (id) VALUES (1) ON CONFLICT (id) DO NOTHING"},
 		{"acme_config", "INSERT INTO acme_config (id) VALUES (1) ON CONFLICT (id) DO NOTHING"},
 		{"gitops_config", "INSERT INTO gitops_config (id, enabled) VALUES (1, 0) ON CONFLICT (id) DO NOTHING"},
 	}

@@ -413,7 +413,7 @@ func (h *GitReposHandler) ListRepos(w http.ResponseWriter, r *http.Request) {
 	rows, err := h.db.Query(`SELECT r.id, r.name, r.repo_url, r.branch, r.local_path,
 		r.compose_path, r.auto_sync, r.sync_interval,
 		r.commit_name, r.commit_email,
-		COALESCE(TO_CHAR(r.last_sync_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), ''), 
+		COALESCE(TO_CHAR(r.last_sync_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), ''), 
 		COALESCE(r.last_commit,''), COALESCE(r.last_error,''),
 		r.enabled, COALESCE(c.name,''), COALESCE(c.id, 0)
 		FROM git_sync_repos r
@@ -754,8 +754,7 @@ func (h *GitReposHandler) ExportToRepo(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Reuse compose generator from git_sync.go
-	gsh := &GitSyncHandler{db: h.db}
-	yaml := gsh.generateCompose(containers)
+	yaml := generateCompose(containers)
 
 	// Write to repo
 	composeFull, pathErr := validateComposePath(repo.LocalPath, repo.ComposePath)
@@ -815,7 +814,7 @@ func (h *GitReposHandler) loadRepo(idStr string) (*repoSync, error) {
 	var autoSync, enabled int
 	err := h.db.QueryRow(`SELECT id, name, repo_url, branch, local_path, compose_path,
 		auto_sync, sync_interval, commit_name, commit_email,
-		COALESCE(TO_CHAR(last_sync_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), ''), 
+		COALESCE(TO_CHAR(last_sync_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), ''), 
 		COALESCE(last_commit,''), COALESCE(last_error,''), enabled
 		FROM git_sync_repos WHERE id=$1`, idStr).
 		Scan(&repo.ID, &repo.Name, &repo.RepoURL, &repo.Branch, &repo.LocalPath, &repo.ComposePath,
@@ -1033,7 +1032,7 @@ func (h *GitReposHandler) StartAutoSync() {
 func (h *GitReposHandler) runAutoSyncCycle() {
 	rows, err := h.db.Query(`SELECT id, name, repo_url, branch, local_path, compose_path,
 		sync_interval,
-		COALESCE(TO_CHAR(last_sync_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), '')
+		COALESCE(TO_CHAR(last_sync_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), '')
 		FROM git_sync_repos
 		WHERE enabled=1 AND auto_sync=1`)
 	if err != nil {

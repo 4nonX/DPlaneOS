@@ -468,10 +468,8 @@ assert_json "List stacks" "success" "true"
 echo "::endgroup::"
 echo "::group::Git Sync"
 echo "--- Testing Git Sync Subsystem ---"
-api GET /api/git-sync/config >/dev/null
-assert_json "Git-sync config" "success" "true"
-api GET /api/git-sync/status >/dev/null
-assert_json "Git-sync status" "success" "true"
+api GET /api/git-sync/credentials >/dev/null
+assert_json "List git credentials" "success" "true"
 api GET /api/git-sync/repos >/dev/null
 assert_json "List git repos" "success" "true"
 api GET /api/git-sync/credentials >/dev/null
