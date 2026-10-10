@@ -68,7 +68,7 @@ pkgs.testers.nixosTest {
   };
 
   testScript = ''
-    import json, shlex, time
+    import json, shlex
 
     start_all()
     for m in (a, b, c):

@@ -513,7 +513,7 @@ jobs:
   build-live-iso:
     name: Build Live Boot ISO
     needs: [validate, integration, config-sync, nix-eval]
-    if: github.ref_type == 'tag' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/live-boot'
+    if: github.ref_type == 'tag' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/live-boot' || github.event_name == 'workflow_dispatch'
     strategy:
       matrix:
         include:
@@ -624,7 +624,7 @@ jobs:
   test-live-boot:
     name: Test Live Boot (VM)
     needs: [prepare]
-    if: github.ref_type == 'tag' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/live-boot'
+    if: github.ref_type == 'tag' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/live-boot' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-22.04
 
     steps:
@@ -882,7 +882,7 @@ jobs:
   iso:
     name: Build Installer ISO
     needs: [validate, integration, config-sync, nix-eval]
-    if: github.ref_type == 'tag' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/iso-installer'
+    if: github.ref_type == 'tag' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/iso-installer' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-22.04
     permissions:
       contents: write
@@ -998,7 +998,7 @@ jobs:
   iso-arm:
     name: Build Installer ISO (arm64)
     needs: [validate, integration, config-sync, nix-eval]
-    if: github.ref_type == 'tag' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/iso-installer'
+    if: github.ref_type == 'tag' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/iso-installer' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-22.04-arm
     permissions:
       contents: write
