@@ -40,6 +40,7 @@ import { Modal } from '@/components/ui/Modal'
 import { useRouter } from '@tanstack/react-router'
 import { PoolTopologyView, PoolTopology, VDev } from '@/components/zfs/PoolTopology'
 import { usePoolDeviceOps, PoolLifecycleButtons } from '@/components/zfs/PoolDeviceOps'
+import { RenameDatasetModal, SnapshotHoldsModal, promoteDataset } from '@/components/zfs/DatasetOps'
 import { RollbackModal } from '@/components/zfs/RollbackModal'
 import { CreateDatasetModal } from '@/components/zfs/CreateDatasetModal'
 import {
@@ -1182,6 +1183,8 @@ function PoolCard({ pool, datasets, filter, onRefresh }: { pool: ZFSPool; datase
   const [snapshotDataset, setSnapshotDataset] = useState<TreeNode | null>(null)
   const [rollbackDataset, setRollbackDataset] = useState<TreeNode | null>(null)
   const [cloneDataset,   setCloneDataset]   = useState<TreeNode | null>(null)
+  const [renameDataset,  setRenameDataset]  = useState<string | null>(null)
+  const [holdsDataset,   setHoldsDataset]   = useState<string | null>(null)
   const pct = parseCapacityPct(pool.capacity)
 
   // Apply client-side filter
@@ -1489,6 +1492,13 @@ function PoolCard({ pool, datasets, filter, onRefresh }: { pool: ZFSPool; datase
                 if (action === 'create_child') setCreateParent(node.name)
                 if (action === 'edit') setEditDataset(node)
                 if (action === 'delete') setDestroyDataset(node.name)
+                if (action === 'rename') setRenameDataset(node.name)
+                if (action === 'holds') setHoldsDataset(node.name)
+                if (action === 'promote') {
+                  promoteDataset(node.name)
+                    .then(() => { toast.success(`${node.name} promoted: it no longer depends on its origin snapshot`); onRefresh() })
+                    .catch((e: Error) => toast.error(e.message))
+                }
               }}
             />
           ))}
@@ -1582,6 +1592,8 @@ function PoolCard({ pool, datasets, filter, onRefresh }: { pool: ZFSPool; datase
         />
       )}
 
+      {renameDataset && <RenameDatasetModal name={renameDataset} onClose={() => setRenameDataset(null)} onDone={onRefresh} />}
+      {holdsDataset && <SnapshotHoldsModal dataset={holdsDataset} onClose={() => setHoldsDataset(null)} />}
       {replaceDisk && (
         <ReplaceDiskModal
           pool={pool.name}
@@ -3260,6 +3272,9 @@ function DatasetActionMenu({ node, onAction }: {
 					<MenuBtn icon="camera" label="Snapshot" onClick={() => { setOpen(false); onAction('snapshot', node) }} />
 					<MenuBtn icon="history" label="Rollback" onClick={() => { setOpen(false); onAction('rollback', node) }} />
 					<MenuBtn icon="fork_right" label="Clone Snapshot" onClick={() => { setOpen(false); onAction('clone', node) }} />
+					<MenuBtn icon="lock" label="Snapshot Holds" onClick={() => { setOpen(false); onAction('holds', node) }} />
+					<MenuBtn icon="drive_file_rename_outline" label="Rename" onClick={() => { setOpen(false); onAction('rename', node) }} />
+					<MenuBtn icon="upgrade" label="Promote Clone" onClick={() => { setOpen(false); onAction('promote', node) }} />
 					<div style={{ height: 1, background: 'var(--border-subtle)', margin: '4px 0' }} />
 					<MenuBtn icon="folder_shared" label="Manage Shares" onClick={() => { setOpen(false); onAction('manage_shares', node) }} />
 					<div style={{ height: 1, background: 'var(--border-subtle)', margin: '4px 0' }} />
