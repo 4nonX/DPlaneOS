@@ -59,6 +59,12 @@ PostgreSQL schema and a command fake in CI).
 - Concurrent storage operations on one target could both start
   (migration 00024 enforces one pending operation per target).
 - A double-submitted 2FA login returned a session id that did not exist.
+- User and group management in the web interface did not work: the API
+  requires the signed-in admin's current password for these changes and
+  the Users page never sent it; groups were also sent by name with member
+  names, which the API did not accept. The page asks for the password,
+  and the API accepts names. Renaming a group failed on its memberships
+  (migration 00025).
 - Webhook body templates inserted values unescaped: a message with a quote
   produced invalid JSON and the alert was rejected. Webhooks cannot
   target link-local addresses (cloud metadata).

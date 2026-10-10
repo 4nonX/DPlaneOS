@@ -98,6 +98,7 @@ function UserModal({ user, onClose, onDone }: { user?: User; onClose: () => void
   const [email, setEmail] = useState(user?.email ?? '')
   const [role, setRole] = useState(user?.role ?? 'user')
   const [password, setPassword] = useState('')
+  const [confirmPw, setConfirmPw] = useState('')
 
   const isEdit = !!user
 
@@ -111,9 +112,10 @@ function UserModal({ user, onClose, onDone }: { user?: User; onClose: () => void
           throw new Error('Username must be 2-32 characters')
         }
       }
+      if (!confirmPw) throw new Error('Enter your current password to authorize this change')
       const body: Record<string, unknown> = isEdit
-        ? { action: 'update', id: user!.id, email, role, ...(password ? { password } : {}) }
-        : { action: 'create', username, email, password, role }
+        ? { action: 'update', id: user!.id, email, role, confirm_password: confirmPw, ...(password ? { password } : {}) }
+        : { action: 'create', username, email, password, role, confirm_password: confirmPw }
       return api.post('/api/rbac/users', body)
     },
     onSuccess: () => { toast.success(isEdit ? 'User updated' : 'User created'); onDone(); onClose() },
@@ -148,10 +150,51 @@ function UserModal({ user, onClose, onDone }: { user?: User; onClose: () => void
         </span>
         <input type="password" value={password} onChange={e => setPassword(e.target.value)} className="input" autoComplete="new-password" />
       </label>
+      <ConfirmPasswordField value={confirmPw} onChange={setConfirmPw} />
       <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
         <button onClick={onClose} className="btn btn-ghost">Cancel</button>
-        <button onClick={() => mutation.mutate()} disabled={mutation.isPending} className="btn btn-primary">
+        <button onClick={() => mutation.mutate()} disabled={mutation.isPending || !confirmPw} className="btn btn-primary">
           {mutation.isPending ? 'Saving…' : isEdit ? 'Save' : 'Create'}
+        </button>
+      </div>
+    </Modal>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Current-password confirmation. The API requires the signed-in admin's own
+// password for user and group changes (confirm_password).
+// ---------------------------------------------------------------------------
+
+function ConfirmPasswordField({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  return (
+    <label className="field">
+      <span className="field-label">Your current password</span>
+      <input type="password" value={value} onChange={e => onChange(e.target.value)} className="input" autoComplete="current-password" />
+      <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }}>
+        Required to authorize changes to accounts and groups.
+      </span>
+    </label>
+  )
+}
+
+function PasswordPromptModal({ title, message, confirmLabel, pending, onConfirm, onClose }: {
+  title: string
+  message: string
+  confirmLabel: string
+  pending: boolean
+  onConfirm: (password: string) => void
+  onClose: () => void
+}) {
+  const [pw, setPw] = useState('')
+  return (
+    <Modal title={title} onClose={onClose} size="sm">
+      <p style={{ margin: 0, color: 'var(--text-secondary)' }}>{message}</p>
+      <ConfirmPasswordField value={pw} onChange={setPw} />
+      <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+        <button onClick={onClose} className="btn btn-ghost">Cancel</button>
+        <button onClick={() => onConfirm(pw)} disabled={!pw || pending} className="btn btn-danger">
+          {pending ? 'Working…' : confirmLabel}
         </button>
       </div>
     </Modal>
@@ -220,10 +263,10 @@ function ResetPasswordModal({ user, onClose }: { user: User; onClose: () => void
 
 function UsersTab() {
   const qc = useQueryClient()
-  const { confirm, ConfirmDialog: ConfirmUsers } = useConfirm()
   const [showCreate, setShowCreate] = useState(false)
   const [editUser, setEditUser] = useState<User | null>(null)
   const [resetUser, setResetUser] = useState<User | null>(null)
+  const [deletingUser, setDeletingUser] = useState<User | null>(null)
 
   const usersQ = useQuery({
     queryKey: ['rbac', 'users'],
@@ -231,8 +274,8 @@ function UsersTab() {
   })
 
   const deleteUser = useMutation({
-    mutationFn: (id: number) => api.post('/api/rbac/users', { action: 'delete', id }),
-    onSuccess: () => { toast.success('User deleted'); qc.invalidateQueries({ queryKey: ['rbac', 'users'] }) },
+    mutationFn: ({ id, password }: { id: number; password: string }) => api.post('/api/rbac/users', { action: 'delete', id, confirm_password: password }),
+    onSuccess: () => { toast.success('User deleted'); setDeletingUser(null); qc.invalidateQueries({ queryKey: ['rbac', 'users'] }) },
     onError: (e: Error) => toast.error(e.message),
   })
 
@@ -289,7 +332,7 @@ function UsersTab() {
                     <div style={{ display: 'flex', gap: 6 }}>
                       <button onClick={() => setEditUser(u)} className="btn btn-ghost" title="Edit user"><Icon name="edit" size={14} /></button>
                       <button onClick={() => setResetUser(u)} className="btn btn-ghost" title="Reset password" style={{ color: 'var(--warning, #f59e0b)' }}><Icon name="lock_reset" size={14} /></button>
-                      <button onClick={async () => { if (await confirm({ title: `Delete "${u.username}"?`, message: 'This user will be permanently removed.', danger: true, confirmLabel: 'Delete', confirmText: u.username })) deleteUser.mutate(u.id) }} className="btn btn-danger"><Icon name="delete" size={14} /></button>
+                      <button onClick={() => setDeletingUser(u)} className="btn btn-danger" title="Delete user"><Icon name="delete" size={14} /></button>
                     </div>
                   </td>
                 </tr>
@@ -305,7 +348,16 @@ function UsersTab() {
       {showCreate && <UserModal onClose={() => setShowCreate(false)} onDone={refresh} />}
       {editUser   && <UserModal user={editUser} onClose={() => setEditUser(null)} onDone={refresh} />}
       {resetUser  && <ResetPasswordModal user={resetUser} onClose={() => setResetUser(null)} />}
-      <ConfirmUsers />
+      {deletingUser && (
+        <PasswordPromptModal
+          title={`Delete "${deletingUser.username}"?`}
+          message="This user will be permanently removed, and their sessions ended."
+          confirmLabel="Delete"
+          pending={deleteUser.isPending}
+          onConfirm={password => deleteUser.mutate({ id: deletingUser.id, password })}
+          onClose={() => setDeletingUser(null)}
+        />
+      )}
     </>
   )
 }
@@ -318,11 +370,13 @@ function GroupModal({ group, onClose, onDone }: { group?: Group; onClose: () => 
   const [name, setName] = useState(group?.name ?? '')
   const [gid, setGid] = useState(String(group?.gid ?? ''))
   const [members, setMembers] = useState((group?.members ?? []).join(', '))
+  const [confirmPw, setConfirmPw] = useState('')
   const isEdit = !!group
 
   const mutation = useMutation({
     mutationFn: () => {
-      const body = { action: isEdit ? 'update' : 'create', name, gid: gid ? Number(gid) : undefined, members: members.split(',').map(m => m.trim()).filter(Boolean) }
+      if (!confirmPw) throw new Error('Enter your current password to authorize this change')
+      const body = { action: isEdit ? 'update' : 'create', name, gid: gid ? Number(gid) : undefined, members: members.split(',').map(m => m.trim()).filter(Boolean), confirm_password: confirmPw }
       return api.post('/api/rbac/groups', body)
     },
     onSuccess: () => { toast.success(isEdit ? 'Group updated' : 'Group created'); onDone(); onClose() },
@@ -343,9 +397,10 @@ function GroupModal({ group, onClose, onDone }: { group?: Group; onClose: () => 
         <span className="field-label">Members (comma-separated usernames)</span>
         <input value={members} onChange={e => setMembers(e.target.value)} className="input" placeholder="alice, bob" />
       </label>
+      <ConfirmPasswordField value={confirmPw} onChange={setConfirmPw} />
       <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
         <button onClick={onClose} className="btn btn-ghost">Cancel</button>
-        <button onClick={() => mutation.mutate()} disabled={mutation.isPending} className="btn btn-primary">
+        <button onClick={() => mutation.mutate()} disabled={mutation.isPending || !confirmPw} className="btn btn-primary">
           {mutation.isPending ? 'Saving…' : isEdit ? 'Save' : 'Create'}
         </button>
       </div>
@@ -359,9 +414,9 @@ function GroupModal({ group, onClose, onDone }: { group?: Group; onClose: () => 
 
 function GroupsTab() {
   const qc = useQueryClient()
-  const { confirm, ConfirmDialog: ConfirmGroups } = useConfirm()
   const [showCreate, setShowCreate] = useState(false)
   const [editGroup, setEditGroup] = useState<Group | null>(null)
+  const [deletingGroup, setDeletingGroup] = useState<Group | null>(null)
 
   const groupsQ = useQuery({
     queryKey: ['rbac', 'groups'],
@@ -369,8 +424,8 @@ function GroupsTab() {
   })
 
   const deleteGroup = useMutation({
-    mutationFn: (name: string) => api.post('/api/rbac/groups', { action: 'delete', name }),
-    onSuccess: () => { toast.success('Group deleted'); qc.invalidateQueries({ queryKey: ['rbac', 'groups'] }) },
+    mutationFn: ({ name, password }: { name: string; password: string }) => api.post('/api/rbac/groups', { action: 'delete', name, confirm_password: password }),
+    onSuccess: () => { toast.success('Group deleted'); setDeletingGroup(null); qc.invalidateQueries({ queryKey: ['rbac', 'groups'] }) },
     onError: (e: Error) => toast.error(e.message),
   })
 
@@ -400,7 +455,7 @@ function GroupsTab() {
             </div>
             <div style={{ display: 'flex', gap: 6 }}>
               <button onClick={() => setEditGroup(g)} className="btn btn-ghost"><Icon name="edit" size={14} /></button>
-              <button onClick={async () => { if (await confirm({ title: `Delete group "${g.name}"?`, message: 'Members will not be deleted, only the group.', danger: true, confirmLabel: 'Delete' })) deleteGroup.mutate(g.name) }} className="btn btn-danger"><Icon name="delete" size={14} /></button>
+              <button onClick={() => setDeletingGroup(g)} className="btn btn-danger" title="Delete group"><Icon name="delete" size={14} /></button>
             </div>
           </div>
         ))}
@@ -411,7 +466,16 @@ function GroupsTab() {
 
       {showCreate && <GroupModal onClose={() => setShowCreate(false)} onDone={refresh} />}
       {editGroup  && <GroupModal group={editGroup} onClose={() => setEditGroup(null)} onDone={refresh} />}
-      <ConfirmGroups />
+      {deletingGroup && (
+        <PasswordPromptModal
+          title={`Delete group "${deletingGroup.name}"?`}
+          message="Members will not be deleted, only the group."
+          confirmLabel="Delete"
+          pending={deleteGroup.isPending}
+          onConfirm={password => deleteGroup.mutate({ name: deletingGroup.name, password })}
+          onClose={() => setDeletingGroup(null)}
+        />
+      )}
     </>
   )
 }

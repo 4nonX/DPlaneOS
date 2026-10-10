@@ -211,3 +211,46 @@ func TestGroups(t *testing.T) {
 		t.Errorf("group change without confirmation: %s", r)
 	}
 }
+
+// What the Users page sends: member usernames, groups identified by name.
+func TestGroupsWebUIShape(t *testing.T) {
+	e := newUserEnv(t)
+	g := func(body map[string]any) resp {
+		body["confirm_password"] = "Admin-Passw0rd"
+		return call(t, e.h.HandleGroups, req{method: "POST", user: "root-admin", body: body})
+	}
+	if r := g(map[string]any{"action": "create", "name": "media", "members": []string{"regular", "nobody-here"}}); r.code != 400 {
+		t.Errorf("unknown member: %s", r)
+	}
+	if r := g(map[string]any{"action": "create", "name": "media", "gid": 3000, "members": []string{"regular"}}); !r.ok() {
+		t.Fatalf("create with members: %s", r)
+	}
+	list := call(t, e.h.HandleGroups, req{user: "root-admin"})
+	if !strings.Contains(list.raw, `"members":["regular"]`) {
+		t.Errorf("list must show member names: %s", list)
+	}
+	if r := g(map[string]any{"action": "update", "name": "media", "members": []string{"regular", "root-admin"}}); !r.ok() {
+		t.Fatalf("update by name: %s", r)
+	}
+	var n int
+	_ = e.db.QueryRow(`SELECT COUNT(*) FROM group_members WHERE group_name = 'media'`).Scan(&n)
+	if n != 2 {
+		t.Errorf("members after update: %d", n)
+	}
+	// Rename (by id): memberships follow.
+	var id int
+	_ = e.db.QueryRow(`SELECT id FROM groups WHERE name = 'media'`).Scan(&id)
+	if r := g(map[string]any{"action": "update", "id": id, "name": "video"}); !r.ok() {
+		t.Fatalf("rename: %s", r)
+	}
+	_ = e.db.QueryRow(`SELECT COUNT(*) FROM group_members WHERE group_name = 'video'`).Scan(&n)
+	if n != 2 {
+		t.Errorf("members lost on rename: %d", n)
+	}
+	if r := g(map[string]any{"action": "delete", "name": "video"}); !r.ok() {
+		t.Fatalf("delete by name: %s", r)
+	}
+	if r := g(map[string]any{"action": "delete", "name": "video"}); r.code != 404 {
+		t.Errorf("delete again: %s", r)
+	}
+}

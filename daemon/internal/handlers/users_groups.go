@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"regexp"
 	"database/sql"
 	"dplaned/internal/gitops"
 	"dplaned/internal/middleware"
@@ -11,6 +10,7 @@ import (
 	"log"
 	"net/http"
 	"os/user"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -120,7 +120,7 @@ type userActionRequest struct {
 
 // userRoles are the values of users.role (permissions themselves come from
 // the RBAC roles in user_roles).
-var userRoles = map[string]int{"admin": 100, "user": 10}
+var userRoles = map[string]int{"admin": 100, "user": 10, "readonly": 5}
 
 var groupNameRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_.-]{0,31}$`)
 
@@ -141,7 +141,7 @@ func (h *UserGroupHandler) userAction(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// ─── SECURITY & HIERRARCHY CHECKS (#17) ───────────────────────────
-	
+
 	// 1. Get Requester Info from middleware context
 	u := r.Context().Value(middleware.UserContextKey)
 	if u == nil {
@@ -160,11 +160,11 @@ func (h *UserGroupHandler) userAction(w http.ResponseWriter, r *http.Request) {
 
 	if req.Role != "" {
 		if _, ok := userRoles[req.Role]; !ok {
-			respondErrorSimple(w, "Unknown role "+req.Role+" (use admin or user)", http.StatusBadRequest)
+			respondErrorSimple(w, "Unknown role "+req.Role+" (use admin, user or readonly)", http.StatusBadRequest)
 			return
 		}
 	}
-	
+
 	// 3. Sensitive Action Authorization
 	// Sensitive if updating role, password, active status, OR deleting
 	isSensitive := req.Action == "delete" || req.Role != "" || req.Password != "" || req.Active != nil
@@ -340,7 +340,9 @@ func (h *UserGroupHandler) updateUser(w http.ResponseWriter, req userActionReque
 			}
 		}
 		activeVal := 0
-		if *req.Active { activeVal = 1 }
+		if *req.Active {
+			activeVal = 1
+		}
 		_, err := h.db.Exec(`UPDATE users SET active = $1 WHERE id = $2`, activeVal, req.ID)
 		if err != nil {
 			respondErrorSimple(w, "Failed to update active status", http.StatusInternalServerError)
@@ -593,6 +595,7 @@ func (h *UserGroupHandler) listGroups(w http.ResponseWriter, r *http.Request) {
 				"description":  desc,
 				"gid":          gid,
 				"member_count": memberCount,
+				"members":      h.groupMemberNames(name),
 				"created_at":   createdAt,
 			},
 		})
@@ -628,6 +631,7 @@ func (h *UserGroupHandler) listGroups(w http.ResponseWriter, r *http.Request) {
 			"description":  desc,
 			"gid":          gid,
 			"member_count": memberCount,
+			"members":      h.groupMemberNames(name),
 			"created_at":   createdAt,
 		})
 	}
@@ -647,13 +651,13 @@ func (h *UserGroupHandler) listGroups(w http.ResponseWriter, r *http.Request) {
 }
 
 type groupActionRequest struct {
-	Action          string `json:"action"` // create, update, delete
-	ID              int    `json:"id"`
-	Name            string `json:"name"`
-	Description     string `json:"description"`
-	GID             int    `json:"gid"`
-	Members         []int  `json:"members"`
-	ConfirmPassword string `json:"confirm_password"` // Required for all mutations (#17)
+	Action          string          `json:"action"` // create, update, delete
+	ID              int             `json:"id"`
+	Name            string          `json:"name"`
+	Description     string          `json:"description"`
+	GID             int             `json:"gid"`
+	Members         json.RawMessage `json:"members"`          // usernames (web UI) or user IDs
+	ConfirmPassword string          `json:"confirm_password"` // Required for all mutations (#17)
 }
 
 func (h *UserGroupHandler) groupAction(w http.ResponseWriter, r *http.Request) {
@@ -682,7 +686,7 @@ func (h *UserGroupHandler) groupAction(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 2. Authorization
-	// Only admins or users with sufficient privs (already checked by permRoute) 
+	// Only admins or users with sufficient privs (already checked by permRoute)
 	// but we MANDATE confirm_password for any mutation.
 	if req.ConfirmPassword == "" {
 		respondErrorSimple(w, "Current password required to authorize group management", http.StatusBadRequest)
@@ -699,114 +703,123 @@ func (h *UserGroupHandler) groupAction(w http.ResponseWriter, r *http.Request) {
 			respondErrorSimple(w, "Invalid group name (letters, digits, _ . -; up to 32, not starting with a digit or -)", http.StatusBadRequest)
 			return
 		}
+		members, err := h.resolveMembers(req.Members)
+		if err != nil {
+			respondErrorSimple(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		tx, err := h.db.Begin()
+		if err != nil {
+			respondErrorSimple(w, "Internal error", http.StatusInternalServerError)
+			return
+		}
+		defer tx.Rollback() //nolint:errcheck
 		var id int64
-		err := h.db.QueryRow(
+		if err := tx.QueryRow(
 			`INSERT INTO groups (name, description, gid) VALUES ($1, $2, $3) RETURNING id`,
 			req.Name, req.Description, req.GID,
-		).Scan(&id)
-		if err != nil {
+		).Scan(&id); err != nil {
 			respondErrorSimple(w, "Failed to create group (name may already exist)", http.StatusConflict)
+			return
+		}
+		if members != nil {
+			if err := setGroupMembers(tx, req.Name, members); err != nil {
+				respondErrorSimple(w, "Failed to add group members", http.StatusInternalServerError)
+				return
+			}
+		}
+		if err := tx.Commit(); err != nil {
+			respondErrorSimple(w, "Failed to create group", http.StatusInternalServerError)
 			return
 		}
 		respondJSON(w, http.StatusOK, map[string]any{
 			"success": true, "id": id, "message": "Group created",
 		})
-
-		// GITOPS HOOK: write state back to git
 		gitops.CommitAllAsync(h.db)
 
 	case "update":
-		if req.ID == 0 {
-			respondErrorSimple(w, "Group ID required", http.StatusBadRequest)
+		id, currentName, ok := h.findGroup(w, req)
+		if !ok {
 			return
 		}
-		if req.Name != "" {
+		members, err := h.resolveMembers(req.Members)
+		if err != nil {
+			respondErrorSimple(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		tx, err := h.db.Begin()
+		if err != nil {
+			respondErrorSimple(w, "Internal error", http.StatusInternalServerError)
+			return
+		}
+		defer tx.Rollback() //nolint:errcheck
+		// A name differing from the current one (with an id) is a rename;
+		// memberships are keyed by name and follow it (ON UPDATE CASCADE).
+		if req.ID != 0 && req.Name != "" && req.Name != currentName {
 			if !groupNameRe.MatchString(req.Name) {
 				respondErrorSimple(w, "Invalid group name", http.StatusBadRequest)
 				return
 			}
-			_, err := h.db.Exec(`UPDATE groups SET name = $1 WHERE id = $2`, req.Name, req.ID)
-			if err != nil {
+			if _, err := tx.Exec(`UPDATE groups SET name = $1 WHERE id = $2`, req.Name, id); err != nil {
 				respondErrorSimple(w, "Failed to update group name (may already exist)", http.StatusConflict)
-				log.Printf("GROUP UPDATE NAME ERROR: %v", err)
 				return
 			}
+			currentName = req.Name
 		}
 		if req.Description != "" {
-			_, err := h.db.Exec(`UPDATE groups SET description = $1 WHERE id = $2`, req.Description, req.ID)
-			if err != nil {
+			if _, err := tx.Exec(`UPDATE groups SET description = $1 WHERE id = $2`, req.Description, id); err != nil {
 				respondErrorSimple(w, "Failed to update group description", http.StatusInternalServerError)
-				log.Printf("GROUP UPDATE DESC ERROR: %v", err)
 				return
 			}
 		}
-		// Update members if provided
-		if req.Members != nil {
-			// Get current group name (to handle renames or just use current)
-			var currentName string
-			err := h.db.QueryRow(`SELECT name FROM groups WHERE id = $1`, req.ID).Scan(&currentName)
-			if err != nil {
-				respondErrorSimple(w, "Group not found", http.StatusNotFound)
+		if req.GID != 0 {
+			if _, err := tx.Exec(`UPDATE groups SET gid = $1 WHERE id = $2`, req.GID, id); err != nil {
+				respondErrorSimple(w, "Failed to update group GID", http.StatusInternalServerError)
 				return
 			}
-
-			_, err = h.db.Exec(`DELETE FROM group_members WHERE group_name = $1`, currentName)
-			if err != nil {
+		}
+		if members != nil {
+			if err := setGroupMembers(tx, currentName, members); err != nil {
+				log.Printf("GROUP UPDATE MEMBERS: %v", err)
 				respondErrorSimple(w, "Failed to update group members", http.StatusInternalServerError)
-				log.Printf("GROUP UPDATE MEMBERS DELETE ERROR: %v", err)
 				return
 			}
-
-			for _, uid := range req.Members {
-				var uname string
-				err := h.db.QueryRow(`SELECT username FROM users WHERE id = $1`, uid).Scan(&uname)
-				if err != nil {
-					log.Printf("GROUP UPDATE MEMBER: user %d not found, skipping", uid)
-					continue
-				}
-				_, err = h.db.Exec(`INSERT INTO group_members (group_name, username) VALUES ($1, $2)`, currentName, uname)
-				if err != nil {
-					respondErrorSimple(w, "Failed to add group member", http.StatusInternalServerError)
-					log.Printf("GROUP UPDATE MEMBER INSERT ERROR: %v", err)
-					return
-				}
-			}
+		}
+		if err := tx.Commit(); err != nil {
+			respondErrorSimple(w, "Failed to update group", http.StatusInternalServerError)
+			return
 		}
 		respondJSON(w, http.StatusOK, map[string]any{
 			"success": true, "message": "Group updated",
 		})
-
-		// GITOPS HOOK: write state back to git
 		gitops.CommitAllAsync(h.db)
 
 	case "delete":
-		if req.ID == 0 {
-			respondErrorSimple(w, "Group ID required", http.StatusBadRequest)
+		id, groupName, ok := h.findGroup(w, req)
+		if !ok {
 			return
 		}
-		var groupName string
-		if err := h.db.QueryRow(`SELECT name FROM groups WHERE id = $1`, req.ID).Scan(&groupName); err != nil {
-			respondErrorSimple(w, "Group not found", http.StatusNotFound)
-			return
-		}
-
-		_, err := h.db.Exec(`DELETE FROM group_members WHERE group_name = $1`, groupName)
+		tx, err := h.db.Begin()
 		if err != nil {
+			respondErrorSimple(w, "Internal error", http.StatusInternalServerError)
+			return
+		}
+		defer tx.Rollback() //nolint:errcheck
+		if _, err := tx.Exec(`DELETE FROM group_members WHERE group_name = $1`, groupName); err != nil {
 			respondErrorSimple(w, "Failed to delete group members", http.StatusInternalServerError)
-			log.Printf("GROUP DELETE MEMBERS ERROR: %v", err)
 			return
 		}
-		_, err = h.db.Exec(`DELETE FROM groups WHERE id = $1`, req.ID)
-		if err != nil {
+		if _, err := tx.Exec(`DELETE FROM groups WHERE id = $1`, id); err != nil {
 			respondErrorSimple(w, "Failed to delete group", http.StatusInternalServerError)
-			log.Printf("GROUP DELETE ERROR: %v", err)
+			return
+		}
+		if err := tx.Commit(); err != nil {
+			respondErrorSimple(w, "Failed to delete group", http.StatusInternalServerError)
 			return
 		}
 		respondJSON(w, http.StatusOK, map[string]any{
 			"success": true, "message": "Group deleted",
 		})
-
-		// GITOPS HOOK: write state back to git
 		gitops.CommitAllAsync(h.db)
 
 	default:
@@ -814,3 +827,92 @@ func (h *UserGroupHandler) groupAction(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// findGroup identifies the group of an update/delete by id, or by name
+// (the web UI sends the name).
+func (h *UserGroupHandler) findGroup(w http.ResponseWriter, req groupActionRequest) (int, string, bool) {
+	var id int
+	var name string
+	var err error
+	switch {
+	case req.ID != 0:
+		err = h.db.QueryRow(`SELECT id, name FROM groups WHERE id = $1`, req.ID).Scan(&id, &name)
+	case req.Name != "":
+		err = h.db.QueryRow(`SELECT id, name FROM groups WHERE name = $1`, req.Name).Scan(&id, &name)
+	default:
+		respondErrorSimple(w, "Group id or name required", http.StatusBadRequest)
+		return 0, "", false
+	}
+	if err != nil {
+		respondErrorSimple(w, "Group not found", http.StatusNotFound)
+		return 0, "", false
+	}
+	return id, name, true
+}
+
+// resolveMembers turns the members field (usernames or user IDs) into
+// usernames; nil when the field is absent (members unchanged). Unknown
+// users are an error, not silently skipped.
+func (h *UserGroupHandler) resolveMembers(raw json.RawMessage) ([]string, error) {
+	if len(raw) == 0 || string(raw) == "null" {
+		return nil, nil
+	}
+	var names []string
+	if err := json.Unmarshal(raw, &names); err != nil {
+		var ids []int
+		if err := json.Unmarshal(raw, &ids); err != nil {
+			return nil, fmt.Errorf("members must be a list of usernames or user IDs")
+		}
+		names = nil // a failed decode can leave partial elements behind
+		for _, uid := range ids {
+			var n string
+			if err := h.db.QueryRow(`SELECT username FROM users WHERE id = $1`, uid).Scan(&n); err != nil {
+				return nil, fmt.Errorf("unknown user id %d", uid)
+			}
+			names = append(names, n)
+		}
+		return append([]string{}, names...), nil // non-nil: an empty list clears the members
+	}
+	out := []string{}
+	for _, n := range names {
+		var exists bool
+		if err := h.db.QueryRow(`SELECT EXISTS(SELECT 1 FROM users WHERE username = $1)`, n).Scan(&exists); err != nil || !exists {
+			return nil, fmt.Errorf("unknown user %q", n)
+		}
+		out = append(out, n)
+	}
+	return out, nil
+}
+
+func setGroupMembers(tx *sql.Tx, group string, members []string) error {
+	if _, err := tx.Exec(`DELETE FROM group_members WHERE group_name = $1`, group); err != nil {
+		return err
+	}
+	seen := map[string]bool{}
+	for _, m := range members {
+		if seen[m] {
+			continue
+		}
+		seen[m] = true
+		if _, err := tx.Exec(`INSERT INTO group_members (group_name, username) VALUES ($1, $2)`, group, m); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// groupMemberNames lists a group's members.
+func (h *UserGroupHandler) groupMemberNames(group string) []string {
+	out := []string{}
+	rows, err := h.db.Query(`SELECT username FROM group_members WHERE group_name = $1 ORDER BY username`, group)
+	if err != nil {
+		return out
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var n string
+		if rows.Scan(&n) == nil {
+			out = append(out, n)
+		}
+	}
+	return out
+}
