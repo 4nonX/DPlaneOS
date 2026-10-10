@@ -66,7 +66,7 @@ Each ISO also has a `.sha256` checksum file. Verify before writing:
 sha256sum -c dplaneos-v*-installer-amd64.iso.sha256
 ```
 
-> The combined installer ISO handles both NAS and witness node installation. The "Install Witness Node" option is for replicated-topology HA clusters (Path B) where a separate witness machine is required. Shared-SAS clusters (Path A) do not need a witness node - install only from the standard NAS option on both data nodes.
+> A third vote for a cluster needs no installer: any small Linux machine runs the one-line command from the HA page (see [THIRD-VOTE.md](THIRD-VOTE.md)).
 
 ### 2. Write to USB
 
@@ -84,7 +84,6 @@ Replace `/dev/sdX` with your USB device. Double-check with `lsblk` first.
 1. Boot the target machine from the USB stick
 2. A menu appears on `tty1` with three options:
    - **Install DPlaneOS** - installs the full NAS system (offline, no internet required)
-   - **Install Witness Node** - installs a minimal etcd-only system for HA quorum on replicated-topology clusters (Path B only; shared-SAS clusters do not need this)
    - **Shell** / **Reboot** - diagnostic access
 3. Select "Install DPlaneOS" and follow the prompts: target disk, admin password, boot mode
 4. The installer partitions the disk, installs the NixOS closure from the ISO, and reboots
@@ -187,7 +186,6 @@ zpool import -a
 | Web UI files | `/opt/dplaneos/app/` |
 | Version | `/opt/dplaneos/VERSION` |
 | Database state | `/var/lib/dplaneos/pgsql/` |
-| HA config | `/etc/dplaneos/patroni.yaml` |
 | Logs | `/var/log/dplaneos/` |
 | Persistent state root | `/persist/` |
 

@@ -65,7 +65,6 @@ All system-level dependencies are declared in the NixOS module (`nixos/module.ni
 | `nginx` | Reverse proxy and static file server |
 | `zfs` | ZFS pool and dataset management (kernel module + CLI) |
 | `postgresql` | Database and CLI (`psql`) |
-| `patroni`, `etcd` | HA cluster management |
 | `smartmontools` | S.M.A.R.T. disk health monitoring |
 | `udev` (systemd) | Device event rules (hot-swap, removable media) |
 | `samba` | SMB / CIFS shares and AFP / Time Machine |

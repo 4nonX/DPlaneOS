@@ -69,18 +69,15 @@ sudo nixos-rebuild switch
 | `disko.nix` | Declarative disk partitioning: ZFS pools and datasets on root |
 | `module.nix` | Core NixOS module: all packages, services, users, and firewall rules |
 | `installer.nix` | Offline-capable bootable installer ISO NixOS configuration |
-| `ha.nix` | High Availability module: Patroni, etcd, and HAProxy for PostgreSQL failover |
 | `ota-module.nix` | OTA update module: installs the update script and health-check systemd units |
 | `impermanence.nix` | Impermanence layer: declares which paths persist across reboots (ZFS-backed) |
 | `console-network-wizard.nix` | Interactive static-IP console TUI for when DHCP is not available at install time |
 | `dplane-generated.nix` | JSON-to-Nix bridge: static file written once by the installer, never modified by the daemon |
 | `hardware-configuration.nix` | Auto-generated hardware config; overridden by the installer for target hardware |
-| `patroni-witness.nix` | Minimal config for a dedicated etcd quorum witness (e.g. Raspberry Pi) - replicated topology (Path B) only; shared-SAS clusters co-locate the witness on node A |
 | `modules/samba.nix` | Samba integration NixOS module: dynamic share management via daemon |
 | `setup-nixos.sh` | Setup helper: generates host ID, detects boot loader, patches flake.nix |
 | `install.sh` | First-boot installer script: partitions, formats, and installs DPlaneOS to disk |
 | `witness-installer.nix` | Standalone witness-only ISO NixOS config (local builds only: `nix build .#iso-witness`) - replicated topology (Path B) only |
-| `witness-setup.sh` | Witness node setup wizard: collects IPs, partitions disk, installs NixOS with etcd - replicated topology (Path B) only |
 | `ota-update.sh` | OTA update shell script: A/B slot swap, health check, and auto-revert logic |
 | `NIXOS-INSTALL-GUIDE.md` | Complete step-by-step guide for beginners |
 | `NIXOS-README.md` | Technical reference: rollback, licensing, impermanence, advanced options |
@@ -96,7 +93,7 @@ sudo nixos-rebuild switch
 | [Administrator Guide](../docs/admin/ADMIN-GUIDE.md) | Users, roles, storage management, containers, LDAP/AD, security practices |
 | [Git-Driven NAS](../docs/admin/GITOPS-DRIVEN-NAS.md) | Operating DPlaneOS entirely via state.yaml: bootstrap, auto-apply on push, secret handling, rollback, PR workflow, HA |
 | [Backup and Replication](../docs/admin/BACKUP-REPLICATION.md) | ZFS snapshots, ZFS Send/Receive, Cloud Sync, Cold Tier, rsync, database backup |
-| [High Availability](../docs/admin/HIGH-AVAILABILITY.md) | Two-topology HA: shared-SAS with SCSI-3 PR (no separate witness) or replicated ZFS with witness node; Patroni, Keepalived, STONITH, rolling upgrades |
+| [High Availability](../docs/admin/HIGH-AVAILABILITY.md) | Clusters, the third vote, storage groups (shared or replicated), protection layers |
 | [OTA Updates](../docs/admin/OTA-UPDATES.md) | A/B slot system, health check, auto-revert, manual rollback, HA rolling upgrades |
 | [Optional Protocols](../docs/admin/OPTIONAL-PROTOCOLS.md) | iSCSI, NVMe-oF, FTP/FTPS, MinIO S3-compatible object store |
 | [Alerts and Authentication](../docs/admin/ALERTS.md) | SMTP, webhook, Telegram alerting; TOTP 2FA setup and backup codes |
@@ -111,7 +108,7 @@ sudo nixos-rebuild switch
 | [Design Philosophy](../docs/reference/PHILOSOPHY.md) | Why DPlaneOS works the way it does: four core principles, design decisions |
 | [Architecture](../docs/reference/ARCHITECTURE.md) | Three-layer model, persistence, single-node and HA architecture, data flow |
 | [GitOps Reference](../docs/reference/GITOPS-REFERENCE.md) | state.yaml format, reconciliation engine, drift detection, Capture workflow |
-| [NixOS Rationale](../docs/reference/NIXOS-RATIONALE.md) | NixOS primitives DPlaneOS relies on: impermanence, disko, A/B OTA, Patroni |
+| [NixOS Rationale](../docs/reference/NIXOS-RATIONALE.md) | NixOS primitives DPlaneOS relies on: impermanence, disko, A/B OTA |
 | [NixOS Technical Reference](NIXOS-README.md) | Declarative config, rollback, licensing, impermanence, advanced options |
 | [Porting Guide](../docs/reference/PORTING-GUIDE.md) | Forking DPlaneOS for other Linux distributions - what it takes, what you lose |
 | [Changelog](../docs/reference/CHANGELOG.md) | Full version history |
@@ -168,4 +165,4 @@ sudo nixos-rebuild switch
 | **Firewall** | Only ports 80, 443, 445, 2049 open |
 | **mDNS** | NAS discoverable as `dplaneos.local` |
 | **SSH** | Password login for initial setup, SSH keys recommended after |
-| **Database** | Automated PostgreSQL HA management via Patroni/etcd |
+| **Database** | Node-local PostgreSQL, configuration exchanged between paired nodes |

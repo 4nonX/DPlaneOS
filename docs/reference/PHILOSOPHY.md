@@ -113,7 +113,7 @@ What is not in scope:
 
 **Why a custom YAML parser?** The daemon has zero external dependencies at runtime. The standard library covers everything the parser needs. Importing a third-party YAML library would add an attack surface and a dependency to maintain. The parser is deliberately minimal: it supports exactly the YAML subset that `state.yaml` uses. Unknown constructs are parse errors, not silent coercions.
 
-**Why PostgreSQL and not SQLite?** HA mode requires replication. Patroni can replicate PostgreSQL with streaming replication to a hot standby. SQLite has no equivalent. Using PostgreSQL in single-node mode means the same daemon binary works in both modes with only a connection string change.
+**Why PostgreSQL and not SQLite?** The daemon runs many concurrent workers (API, reconciler, sync, monitors) that write at the same time; PostgreSQL handles that concurrency, migrations and JSON columns well, and its footprint (~150 MB) is acceptable on a NAS.
 
 **Why a daemon in Go?** The daemon is a single statically-linked binary with no runtime dependencies. It can be copied to any Linux system and run. Static linking eliminates the "which libc version" problem. Go's concurrency model matches the workload: many independent subsystems (ZFS, Docker, Samba, NFS, WebSocket hub) running concurrently without shared mutable state.
 

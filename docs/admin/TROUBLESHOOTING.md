@@ -643,7 +643,7 @@ sudo -u postgres psql dplaneos -c \
   "SELECT dev_name, by_id_path, pool_name, health, last_seen FROM disk_registry;"
 
 # Service status
-systemctl status dplaned postgresql patroni etcd --no-pager
+systemctl status dplaned postgresql dplaneos-corosync --no-pager
 
 # Database
 sudo -u postgres psql dplaneos -c "SELECT COUNT(*) FROM users;"

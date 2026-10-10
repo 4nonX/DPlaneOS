@@ -338,10 +338,7 @@ services.postgresql.settings = {
 ```
 Then run `sudo nixos-rebuild switch`.
 
-**HA (Patroni):** `wal_level = replica` is already set. Add the archive settings through Patroni's DCS config so they are not overwritten:
-```bash
-patronictl -c /etc/dplaneos/patroni.yaml edit-config
-```
+**Clusters:** every node has its own database; set up archiving on each node you want to recover.
 Add under `postgresql.parameters`:
 ```yaml
 archive_mode: 'on'

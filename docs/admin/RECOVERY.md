@@ -62,7 +62,7 @@ curl --unix-socket /run/dplaneos/dplaned.sock http://localhost/health
 
 ## 2. Database Recovery
 
-The PostgreSQL database state is managed by Patroni and stored at `/var/lib/dplaneos/pgsql/`.
+The PostgreSQL database is node-local and stored at `/var/lib/dplaneos/pgsql/`.
 
 ### Automatic Snapshots
 
@@ -73,9 +73,9 @@ We recommend using ZFS snapshots for database recovery. The installer configures
 zfs list -t snapshot -r tank/dplaneos/pgsql
 
 # Restore a snapshot (rollback)
-sudo systemctl stop dplaned patroni postgresql
+sudo systemctl stop dplaned postgresql
 sudo zfs rollback tank/dplaneos/pgsql@backup-20260323
-sudo systemctl start postgresql patroni dplaned
+sudo systemctl start postgresql dplaned
 ```
 
 ### Manual Backup (Logical)
@@ -346,7 +346,7 @@ sudo systemctl daemon-reload
 
 ```bash
 # Service status
-systemctl status dplaned postgresql patroni etcd
+systemctl status dplaned postgresql dplaneos-corosync
 
 # Health check
 curl -s --unix-socket /run/dplaneos/dplaned.sock http://localhost/health | python3 -m json.tool

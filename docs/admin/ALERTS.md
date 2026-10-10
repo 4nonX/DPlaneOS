@@ -238,7 +238,6 @@ DPlaneOS generates alerts for the following event categories:
 | `gitops.apply_failed` | Critical | GitOps apply operation failed |
 | `ha.failover` | Critical | HA failover occurred (expected or unexpected) |
 | `ha.node.unreachable` | Critical | HA peer node is not responding |
-| `ha.fencing.triggered` | Critical | STONITH fencing action triggered |
 
 ### Alert Thresholds
 

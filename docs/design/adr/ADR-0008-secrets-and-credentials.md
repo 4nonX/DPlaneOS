@@ -2,11 +2,15 @@
 
 | | |
 |---|---|
-| **Status** | Proposed |
+| **Status** | Accepted, amended 2026-10-10 (no shared key) |
 | **Date** | 2026-10-05 |
 | **Design** | [Design 0001, section 5.9](../0001-distributed-state-gitops-ha.md) |
 
-## Decision
+## Amendment (2026-10-10)
+
+Implemented without a shared group key: every node keeps its own secrets key, and secret **material** travels between paired nodes when a revision needs it, encrypted with a key derived from the pair's peer secret (HKDF-SHA256, AES-GCM, bound to the resource) and checked against the revision's plaintext fingerprint before the receiver seals it under its own key. Reasons: no key distribution or key rotation across nodes, a compromised node does not expose the other nodes' sealed data at rest, and pairing already provides an authenticated channel. The parts on Git below are unchanged.
+
+## Decision (original)
 
 Shared configuration is sealed with a **group/cluster secrets key** established at join time; node-only secrets keep a node key. Secrets are never stored in Git — only references. Git credentials exist only where Git I/O happens, with separate read and write keys.
 

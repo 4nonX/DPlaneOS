@@ -378,7 +378,7 @@ POST /api/gitops/check
 
 **When drift is expected:** If you make a change via the UI or API (e.g., add an NFS export) but have not updated `state.yaml`, the drift detector will report drift on the next cycle. This is normal. Either update `state.yaml` manually, or use the Capture workflow (below) to generate the updated YAML.
 
-**Drift in HA mode:** Each node runs the drift detector independently. In practice only the primary should be reporting drift, since the standby does not serve ZFS pools or Docker stacks. The drift detector consults Patroni before running to avoid false positives on the standby.
+**Drift in a cluster:** each node runs the drift detector against its own live state. Resources of a storage group are only applied on the node that owns the group; on other nodes they wait until that node imports the group's pools.
 
 ---
 

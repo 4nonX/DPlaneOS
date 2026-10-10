@@ -47,7 +47,7 @@ CTDB (Clustered TDB) enables Samba to maintain state across HA failover. Without
    zfs create tank/ctdb  # At least 1GB recommended
    ```
 
-5. **Network connectivity** between nodes on HA heartbeat port (5000)
+5. **Network connectivity** between nodes on CTDB port 4379
    ```bash
    nc -zv PEER_IP 5000
    # Must succeed
@@ -85,7 +85,8 @@ Edit your flake.nix or configuration.nix:
 services.dplaneos = {
   enable = true;
   samba.enable = true;
-  ha.enable = true;  # Must be enabled first
+  # list every node, identical order on all nodes
+  ctdb.nodes = [ "10.0.0.1" "10.0.0.2" ];
 
   ctdb = {
     enable = true;
@@ -94,7 +95,7 @@ services.dplaneos = {
     
     # List of public VIPs that clients connect to (managed by CTDB)
     publicAddresses = [
-      "192.168.1.100/24 eth0"  # Client-facing IP (VIP for Keepalived)
+      "192.168.1.100/24 eth0"  # Client-facing IP managed by CTDB
     ];
     
     # Timing: how long before declaring node dead
@@ -281,8 +282,8 @@ ctdb recover -n <node_number>
 CTDB should migrate IPs within 2-3 seconds. If slower:
 
 ```bash
-# Check Keepalived isn't interfering
-systemctl status keepalived
+# A storage group's floating address must not be the same as a CTDB public address
+ip -o addr
 
 # Reduce CTDB timeouts
 # In NixOS config:

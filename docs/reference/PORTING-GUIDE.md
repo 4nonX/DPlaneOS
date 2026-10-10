@@ -64,7 +64,7 @@ nginx proxies `/api/` and `/ws` to `dplaned` via Unix socket (`http://unix:/run/
 
 ### 5. PostgreSQL Initialisation
 
-The daemon expects a PostgreSQL instance with a `dplaneos` database and a `dplaneos` user. The daemon initialises the schema on first connect. Patroni for HA is optional but recommended for production.
+The daemon expects a PostgreSQL instance with a `dplaneos` database and a `dplaneos` user. The daemon initialises the schema on first connect.
 
 ### 6. An Upgrade Path
 

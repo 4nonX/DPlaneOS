@@ -69,6 +69,12 @@ var CommandWhitelist = map[string]Command{
 		AllowedArgs: []string{"list", "-H", "-o", "name"},
 		Description: "List imported pool names",
 	},
+	"modprobe_softdog": {
+		Name:        "modprobe_softdog",
+		Path:        "modprobe",
+		AllowedArgs: []string{"softdog"},
+		Description: "Load the kernel software watchdog when no hardware watchdog exists",
+	},
 	"group_address": {
 		Name:        "group_address",
 		Path:        "ip",

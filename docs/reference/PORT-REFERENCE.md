@@ -55,13 +55,10 @@ On single-node deployments none of these are open.
 
 | Port | Proto | Interface | Service | Configurable |
 |------|-------|-----------|---------|-------------|
-| 2379 | TCP | All | etcd client API (Patroni DCS) | No |
-| 2380 | TCP | All | etcd peer communication | No |
-| 8008 | TCP | All | Patroni REST API | No |
-| 5432 | TCP | Loopback | PostgreSQL direct (HAProxy health checks) | No |
-| 5000 | TCP | Loopback | HAProxy PostgreSQL routing (daemon connects here) | No |
+| 5405 | UDP | Cluster | Corosync (knet) between all cluster members | No |
+| 5403 | TCP | Cluster | Third vote (corosync-qnetd), from every node to the QDevice | No |
 
-Etcd and Patroni ports should be firewalled to the cluster management network only.
+Cluster ports should be reachable on the cluster network only.
 
 ---
 

@@ -44,9 +44,7 @@ There are two declaration surfaces:
 
 **`state.yaml`** - Runtime configuration managed by the daemon and the GitOps engine. Covers everything that changes during normal NAS operation: ZFS datasets and their properties, SMB/NFS/iSCSI shares, Docker stacks, users and groups, replication schedules, network config, LDAP settings, ACME certificates. This file lives in a Git repository so every change is version-controlled and auditable. **Git is the authoritative source of desired runtime state.** The PostgreSQL database caches a subset of this state (share definitions, user records, replication schedules) for fast reads, but the database is a read cache - it never overrides what is in `state.yaml` and reconciliation always starts from the Git checkout, not from the DB.
 
-**`configuration.nix` / `flake.nix`** - OS-level configuration managed by NixOS. Covers everything that is fixed for the lifetime of the appliance: kernel version, ZFS package pin, systemd units, firewall baseline, package set, impermanence rules, HA cluster membership. Changes here require a NixOS rebuild (either OTA or manual `nixos-rebuild switch`).
-
-**etcd** is used exclusively as the distributed config store (DCS) for Patroni's PostgreSQL leader election. It is not a GitOps state store and does not hold `state.yaml` content. In an HA cluster, etcd runs on each data node (and optionally a witness) for quorum; outside HA it is not present.
+**`configuration.nix` / `flake.nix`** - OS-level configuration managed by NixOS. Covers everything that is fixed for the lifetime of the appliance: kernel version, ZFS package pin, systemd units, firewall baseline, package set, impermanence rules, Changes here require a NixOS rebuild (either OTA or manual `nixos-rebuild switch`).
 
 The division of responsibility is: NixOS owns the platform, the daemon owns the workload, Git owns the desired runtime state.
 
@@ -88,7 +86,7 @@ UNTRUSTED
                                      │ Unix socket only
 TRUSTED
   dplaned (Go, /run/dplaneos/dplaned.sock)
-    ├── PostgreSQL / Patroni
+    ├── PostgreSQL (node-local)
     ├── exec allowlist → zfs / zpool / docker / exportfs / smbcontrol
     ├── networkdwriter → /etc/systemd/network/
     └── /dev/disk/by-id/* │ /mnt/* │ /var/lib/dplaneos/
@@ -214,119 +212,41 @@ Internet / LAN
 
 ## Multi-Node HA Architecture
 
-High Availability adds a second DPlaneOS node. Whether a third witness machine is required depends on the storage topology.
-
-**Shared-SAS / shared-block (recommended for two-box deployments):** Both nodes connect to the same physical disk shelf. SCSI-3 Persistent Reservations enforce storage exclusion at the disk-controller level. No separate witness machine is required; the third etcd member for Patroni quorum runs co-located on one of the two data nodes as a lightweight process.
-
-**Replicated / stretched-ZFS:** Nodes do not share physical storage; ZFS state is replicated over the network. A separate witness node provides the quorum tiebreaker. IPMI or SBD fencing ensures the non-surviving node is powered off before promotion.
+High availability adds nodes without making any node depend on another to work. The user guide is [HIGH-AVAILABILITY.md](../admin/HIGH-AVAILABILITY.md); the design is [Design 0001](../design/0001-distributed-state-gitops-ha.md).
 
 ```
-  Shared-SAS topology (no separate witness machine):
-
-           ┌─────────────────────────────────────┐
-           │         Client Network              │
-           └──────┬──────────────────────────────┘
-                  │ VIP (Keepalived)
-         ┌────────┴────────┐
-         ▼                 ▼
-   [Node A - PRIMARY]   [Node B - STANDBY]
-   nginx, dplaned        nginx, dplaned
-   dplane-fenced         dplane-fenced
-   Patroni (primary)     Patroni (replica)
-   etcd member A         etcd member B
-   etcd witness          Keepalived BACKUP
-     (co-located)
-   Keepalived MASTER
-   ZFS pools mounted     ZFS pools held
-   SCSI-3 PR owner       SCSI-3 PR standby
-         │                     │
-         └──────────┬──────────┘
-                    │ shared SAS / block
-              [Disk Shelf]
-              SCSI-3 PR enforced
-              at controller level
-
-
-  Replicated topology (separate witness required):
-
-   [Node A - PRIMARY]   [Node B - STANDBY]
-         │                     │
-         └──────────┬──────────┘
-                    │ etcd quorum
-                    ▼
-            [Witness Node]
-            etcd member only
-            (512 MB RAM, no NAS traffic)
+        clients ── floating address of storage group "data" (held by the owner)
+                                   │
+        ┌──────────────────────────┴──────────────────────────┐
+   node A (owner of "data")                          node B (candidate)
+   PostgreSQL (own)  ◄── configuration sync ──►      PostgreSQL (own)
+   corosync          ◄──── UDP 5405 (knet) ────►     corosync
+   pools of "data" imported                         pools not imported (shared)
+   apps, exports, address of "data"                 / read-only copy (replicated)
+   watchdog: reset unless quorate                   watchdog: reset unless quorate
+        │                                                     │
+        └──────── corosync-qdevice ──► third vote ◄───────────┘
+                  (QDevice on a Pi/VM/DPlaneOS, or a voter, or a third node)
 ```
 
-### PostgreSQL HA (Patroni + etcd)
+**Node-local state.** Every node has its own PostgreSQL. Paired nodes exchange configuration revisions (pull every 30 s and on change) and merge them per resource with a three-way merge over revision ancestry; the same resource changed on two nodes becomes a conflict for the operator. Secrets are exchanged as material encrypted for the pair and sealed under each node's own key ([configstore](../../daemon/internal/configstore)).
 
-PostgreSQL is replicated from primary to standby in streaming replication mode. Patroni manages leader election via etcd. If the primary fails:
+**Quorum.** Corosync votequorum decides membership. Two nodes run in `two_node` mode (no automatic failover); a QDevice (`corosync-qnetd`), a voter (a corosync-only member) or a third DPlaneOS node provides the deciding vote. The daemon renders `corosync.conf`, distributes it to DPlaneOS members over the paired-node channel, and voters pull it with a token ([quorum](../../daemon/internal/quorum)).
 
-1. etcd detects the member is down
-2. Patroni on the standby wins the election
-3. Standby is promoted to primary
-4. HAProxy (`:5000`) begins routing to the new primary
-5. The daemon reconnects within seconds
+**Storage groups.** A group (pools, their shares/exports, apps with pool volumes, NVMe-oF exports of its zvols, a floating address) has exactly one owner and an epoch that rises with every change of owner and fences stale writers. Topologies: shared storage (one pool, imported by the owner, ZFS multihost) and replicated (one pool per node, `zfs send` streams from the owner, read-only copies) ([groups](../../daemon/internal/groups)).
 
-HAProxy runs on each node and listens on `127.0.0.1:5000`. It health-checks Patroni (`GET /primary` returns 200 on primary, 503 on standby) and routes only to the current primary. The daemon always connects to `localhost:5000`, never directly to PostgreSQL.
+**Protection layers** ([ADR-0009](../design/adr/ADR-0009-fencing-layers.md)): the watchdog (a storage owner that loses quorum stops resetting it and is restarted; the takeover waits the watchdog timeout plus a margin), ZFS multihost, SCSI-3 persistent reservations where the disks support them, and optional power fencing (IPMI/Redfish, PDU). Missing layers are reported, not required; automatic failover needs a third vote and a fencing method.
 
-### Roles of the Three HA Subsystems
+### HA vs Single-Node
 
-The three HA subsystems operate at different layers and are complementary, not alternatives:
-
-| Subsystem | Layer | Role |
-|-----------|-------|------|
-| **Patroni + etcd** | Software | PostgreSQL primary election. Authoritative for which node runs the PostgreSQL writer. Also gates ZFS pool import: the primary imports and mounts pools; the standby does not. |
-| **Witness HTTP probe** | Software | Network-partition guard for the DPlaneOS cluster manager. Before triggering failover, the cluster manager probes the witness to confirm it can still reach the outside network - preventing a false failover when the surviving node is the one that is network-isolated. |
-| **`dplane-fenced` (SCSI-3 PR)** | Hardware | Storage exclusion enforcement at the disk controller. Not an arbiter - it makes the failover decision stick by preventing the fenced node from issuing writes to the shared SAS disks regardless of software state. Survives reboots (APTPL=1). |
-
-For replicated topology (no shared SAS), IPMI or SBD fencing replaces SCSI-3 PR. The witness role is filled by a separate etcd member on a third machine instead of an HTTP probe.
-
-### ZFS Split-Brain Protection
-
-ZFS pools are on shared or replicated storage. Only one node may write to a pool at a time. DPlaneOS enforces this through two complementary mechanisms:
-
-**Patroni-gated pool import**: Pool import is gated on Patroni role. The primary node imports and mounts pools normally; the standby keeps pools unexported until promotion. Pool import during failover uses `libzfs.PoolImportAll` (native cgo call, no subprocess) for reliability.
-
-**SCSI-3 Persistent Reservations (`dplane-fenced`)**: A dedicated `dplane-fenced` binary registers SCSI-3 Write Exclusive Registrants Only (WERO) persistent reservations on all ZFS pool member disks at startup. Reservations survive system reboots (APTPL=1 stores them in disk controller NVRAM). On graceful failover, `dplaned` calls `FencedRelease()` via `/run/dplaneos/fenced.sock` before exporting pools; on unclean failover, the surviving node preempts the dead node's reservation via `FencedPreempt(device)`. This means a split-brain node literally cannot write to the disks - the SAS/SCSI layer rejects I/O from the non-reservation-holder.
-
-`dplane-fenced` runs in its own systemd slice (`dplaneos-fenced.slice`) isolated from `dplaneos.slice`, so it survives `dplaned` restarts and slice resets.
-
-### STONITH Fencing
-
-Split-brain scenarios (both nodes believe they are primary) are the most dangerous failure mode. DPlaneOS supports three fencing mechanisms:
-
-**SCSI-3 Persistent Reservations (recommended for shared SAS)**: Managed by `dplane-fenced`. Each node registers an 8-byte key derived from `/etc/machine-id` at boot. The primary holds a WERO reservation. On failover, the surviving node preempts the faulted node's registration, making its I/O requests fail at the disk controller. No BMC or shared block device required - the disks themselves enforce exclusion.
-
-**IPMI/Redfish fencing**: On detecting a split, the surviving node powers off the other node via its BMC. Requires IPMI credentials for the peer node.
-
-**SBD (STONITH Block Device) fencing**: A shared block device is used as a "poison pill." Each node periodically renews a lease timestamp. If a node's lease expires, the surviving node treats it as fenced. No BMC required, but requires a ZFS dataset or block device accessible to both nodes.
-
-### Virtual IP (Keepalived)
-
-A floating IP (VIP) moves between nodes with Keepalived. Clients connect to the VIP; it always resolves to the current primary. Keepalived checks the daemon API every two seconds and demotes if the daemon is unresponsive.
-
-### Quorum and the Witness
-
-Patroni uses etcd for leader election and requires an odd number of etcd members to reach quorum under partition. In a two-node cluster, 1-of-2 is not a majority; a third etcd member is needed so the surviving side (2-of-3) can elect a primary without risking both sides promoting simultaneously.
-
-**Shared-SAS deployments** satisfy this requirement by running the third etcd member as a co-located lightweight process on one of the two data nodes. No separate machine is required. SCSI-3 PR independently guarantees storage exclusion at the hardware level, so even if the co-located etcd member's vote were unreliable, the disk controller would still reject writes from the non-reservation-holder.
-
-**Replicated deployments** require a separate witness node because the storage is not shared: SCSI-3 PR is not available to mediate the split-brain question, so quorum must come from the software layer. The witness runs only etcd, carries no NAS traffic, and requires minimal resources (512 MB RAM, any storage). A Raspberry Pi 4 or spare VM qualifies.
-
-### HA vs Single-Node: Feature Differences
-
-| Feature | Single Node | HA Cluster |
-|---------|-------------|------------|
-| PostgreSQL | Local instance | Patroni + streaming replication |
-| Failover | None (manual restart) | Automatic (Patroni, ~10-30s RTO) |
-| ZFS pools | Always mounted | Only on primary; standby holds |
-| Virtual IP | Not applicable | Keepalived VIP on primary |
-| Fencing | Not applicable | SCSI-3 PR via dplane-fenced (shared-SAS) or IPMI/SBD (replicated) |
-| Witness | Not applicable | Co-located etcd member on node A (shared-SAS) or separate machine (replicated) |
-| OTA updates | One node, one reboot | Rolling: update standby, failover, update old primary |
-| dplaned DB | `postgres://localhost/dplaneos` | `postgres://localhost:5000/dplaneos` (via HAProxy) |
+| Feature | Single node | Cluster |
+|---------|-------------|---------|
+| PostgreSQL | local | local on every node; configuration exchanged |
+| Failover | none | per storage group: automatic with a third vote, otherwise *Take over* |
+| ZFS pools | imported at boot | shared groups: imported by the owner's daemon; replicated: read-only copies elsewhere |
+| Client address | the node's | the group's floating address |
+| Fencing | none | watchdog, multihost, SCSI-3 PR, optional power fencing |
+| Updates | one node, one reboot | move groups away, update, move back |
 
 ---
 

@@ -56,12 +56,12 @@ For air-gapped or high-security hosts where password authentication is disabled,
 
 ### Current State
 
-The system uses PostgreSQL for all metadata and configuration. While this adds a small RAM footprint (~150 MB for PostgreSQL/Patroni), it provides the concurrency and reliability required for enterprise-grade HA. SQLite is no longer supported for production deployments.
+The system uses PostgreSQL for all metadata and configuration. While this adds a small RAM footprint (~150 MB for PostgreSQL), it provides the concurrency and reliability required for enterprise-grade HA. SQLite is no longer supported for production deployments.
 
 Resource profile:
 
 - Daemon idle RAM: ~80–120 MB
-- Database (PostgreSQL/Patroni): ~150 MB
+- Database (PostgreSQL): ~150 MB
 - Compatible with systems with 4 GB+ RAM.
 
 ---
@@ -100,30 +100,15 @@ If the system will not boot at all: select the previous NixOS generation from th
 
 ### Current State
 
-Full enterprise HA is implemented across three layers. Two deployment topologies are supported: shared-SAS (two data nodes, SCSI-3 PR fencing, co-located etcd witness on node A - no third machine) and replicated-ZFS (two data nodes plus a lightweight witness node for quorum).
+High availability is built from node-local databases with configuration exchange, a Corosync cluster with a third vote, storage groups (shared storage or ZFS replication) and protection layers (watchdog self-fencing, ZFS multihost, SCSI-3 persistent reservations, optional IPMI/PDU power fencing). The earlier Patroni/etcd/HAProxy/keepalived stack has been removed. See [HIGH-AVAILABILITY.md](../admin/HIGH-AVAILABILITY.md) and [THIRD-VOTE.md](../admin/THIRD-VOTE.md).
 
-**Layer 1 - Database (Patroni/etcd/HAProxy)**
-- Automatic PostgreSQL leader election via Patroni and etcd quorum
-- HAProxy routes all application connections to the current primary transparently
-- Three-member etcd cluster: two full members on the data nodes plus a third member that is either co-located on node A (shared-SAS) or a separate witness machine (replicated-ZFS)
+**Limits that matter:**
+- Two nodes without a third vote never fail over automatically: failover is *Take over* by hand. That is deliberate (a split could leave both sides in charge).
+- Replicated groups lose up to one replication interval on failover, so automatic failover is off for them by default.
+- Without a hardware watchdog the kernel's softdog is used; it does not reset a node whose kernel hangs. Power fencing covers that case.
+- Tested in VM CI (quorum, groups, failover, replicated groups, voters); not yet under real production load.
 
-**Layer 2 - Network and Storage (Keepalived + ZFS Replication)**
-- Floating virtual IP migrates automatically between nodes on failover
-- Continuous ZFS snapshot replication from primary to standby
-- Real-time replication telemetry (percentage, throughput, ETA)
-
-**Layer 3 - Fencing (STONITH)**
-- SCSI-3 Persistent Reservations (`dplane-fenced`): disk controller enforces write exclusion at the hardware level; no BMC required (shared-SAS topology)
-- IPMI/Redfish: automatic BMC-based fencing when primary exceeds 45-second heartbeat threshold (replicated topology)
-- SBD: ZFS dataset lease mechanism as an alternative to IPMI (replicated topology; requires witness node)
-- `fencingInProgress` mutex prevents concurrent fencing sequences
-- Standby-only guard - only a standby node can initiate fencing
-- Full HMAC audit trail on every fencing event
-- Maintenance mode (`POST /api/ha/maintenance`, 0-3600 s) suppresses fencing during scheduled maintenance
-
-**Split-brain protection:** On startup, daemon queries Patroni at `http://localhost:8008/health`. A 503 response (replica role) blocks automatic ZFS pool import so a standby node never acquires the pools.
-
-**RTO:** ~10-30 seconds for shared-SAS deployments (SCSI-3 PR fencing is near-instant once the preempt command completes). ~90 seconds for replicated deployments (45-second heartbeat timeout + IPMI power-off confirmation + startup). No human intervention required in either case.
+**RTO:** the watchdog timeout plus 15 seconds before the takeover starts, then the import (about 30 seconds for shared pools because of the multihost activity check).
 
 ---
 
@@ -169,10 +154,10 @@ Guaranteed by NixOS. Every node builds from a pinned flake with locked inputs (`
 | Homelab / learning | Ready | Ideal use case |
 | Small office (< 20 users) | Ready | PostgreSQL handles high concurrency with ease |
 | Offsite backup / replication | Ready | Zero-touch via Peers tab; one-time password authorization, unattended thereafter |
-| Monitored active/standby | Ready | Full automatic failover with STONITH fencing, RTO ~90 seconds |
+| Monitored active/standby | Ready | Storage groups with automatic failover (third vote + fencing) |
 | Security audit required | Usable | Build from source; NixOS flake guarantees reproducibility |
-| Auto-failover | Ready | Full automatic failover with STONITH fencing |
-| Active/active shared storage | Out of scope by design | DPlaneOS uses active/passive HA with automatic STONITH failover |
+| Auto-failover | Ready | Needs a third vote and a fencing method (watchdog or power fencing) |
+| Active/active shared storage | Out of scope by design | DPlaneOS moves storage groups between nodes; one owner per group |
 
 ---
 

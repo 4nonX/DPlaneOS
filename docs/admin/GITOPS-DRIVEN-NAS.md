@@ -523,7 +523,7 @@ Only the **GitOps writer** acts on the repository: the active node, with quorum,
 - web UI changes are not written back to Git (a standby has no pools imported, so its live state would be pushed as a deletion);
 - the drift detector reports "drift checks run on the GitOps writer" instead of false drift.
 
-Both nodes currently share one PostgreSQL database through Patroni, so the standby needs no separate configuration sync. Trigger apply through the VIP (managed by Keepalived), which always routes to the active node.
+Each node has its own database and applies `state.yaml` to its own live state; resources on a storage group's pools are applied by the node that owns the group.
 
 Both nodes must also use the **same secrets key** (`services.dplaneos.secrets.keyFile`), or Git credentials stored by one node cannot be used by the other after a failover. See [HIGH-AVAILABILITY.md](HIGH-AVAILABILITY.md#shared-secrets-key).
 

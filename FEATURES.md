@@ -104,16 +104,14 @@ A NixOS-based NAS operating system. Every setting is declarative, every change i
 
 ## High Availability
 
-- **Two topologies:** shared-SAS (no witness machine needed) or replicated ZFS (separate witness)
-- **Patroni + etcd:** PostgreSQL leader election, streaming replication, automatic promotion
-- **Keepalived VIP:** floating IP always on the current primary; daemon-health-checked every 2 seconds
-- **HAProxy:** each node routes `localhost:5000` to the current PostgreSQL primary
-- **SCSI-3 Persistent Reservations:** hardware I/O exclusion at the disk controller; survives reboots (APTPL=1)
-- **IPMI / BMC fencing:** remote power-off with cryptographic jitter to prevent mutual-destruction races
-- **SBD fencing:** lease-based STONITH on a shared block device; no BMC required
-- **Witness probe:** HTTP-based network-partition guard before any automated failover fires
-- **Rolling OTA upgrades:** update standby, failover, update old primary; no service interruption
-- **HA triage panel:** surfaces automatically when a peer enters unreachable state, with inline fence and promote actions
+- **Local-first nodes:** every node has its own database; paired nodes exchange configuration (with secrets, encrypted for the pair) and merge per resource with conflict review
+- **Corosync cluster:** quorum as in Proxmox; two nodes work with manual takeover, a third vote enables automatic failover
+- **Third vote from anything:** QDevice on a Raspberry Pi/VM/cloud instance (one command), a corosync-only voter, another DPlaneOS system, or a third DPlaneOS node
+- **Storage groups:** pools with their shares, NVMe-oF exports, Docker stacks and a floating address move between nodes; epochs fence stale owners
+- **Shared or replicated:** shared SAS/SATA shelves or SANs (no data loss), or ZFS replication between independent boxes (bounded loss)
+- **Protection layers:** watchdog self-fencing, ZFS multihost, SCSI-3 persistent reservations, optional IPMI/Redfish or PDU power fencing; missing layers are explained, not required
+- **Planned moves:** apps stop, the address moves, pools are exported and imported (or a final replication runs) with rollback if the target cannot take over
+- **Monitoring:** Prometheus metrics and alert rules for quorum, self-fencing and every storage group
 
 ---
 

@@ -183,7 +183,7 @@ iSCSI with CHAP and ACL-based access control is supported. ALUA (Asymmetric Logi
 
 ### HA failover with ALUA
 
-The Keepalived notify_backup script sets iSCSI targets to Standby before exporting pools. Initiators using multi-path (DM-Multipath or MPIO) will see a clean path state transition rather than an abrupt loss.
+On a planned move, a storage group's NVMe-oF exports are removed on the old owner before its pools are released and created on the new owner once they are imported; clients using multipath reconnect through the floating address.
 
 For single-path iSCSI, clients will disconnect and reconnect on failover. This is equivalent to SMB failover behavior.
 
@@ -218,9 +218,7 @@ GET  /api/ha/timing  - read current values
 POST /api/ha/timing  - update values (requires AAL2)
 ```
 
-Default values: 45s failover threshold, 15s heartbeat interval, 60m hysteresis. For high-latency WAN links, increase failover_after_seconds proportionally. The constraint `failover_after_seconds >= heartbeat_interval_seconds * 3` is enforced.
-
-Changes to failover_after_seconds and heartbeat_interval_seconds take effect after daemon restart. hysteresis_window_minutes takes effect immediately.
+Failover timing follows the watchdog: the takeover starts the watchdog timeout plus 15 seconds after the owner left the quorate partition (set the timeout under HA › Watchdog and power fencing).
 
 ## Docker and Hardware Video Transcoding
 

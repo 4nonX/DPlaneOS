@@ -56,7 +56,7 @@ For the full threat model, see [docs/reference/THREAT-MODEL.md](docs/reference/T
 
 ## Known Limitations
 
-- **HA is job-based and Patroni-managed:** The system uses Patroni/etcd for automated PostgreSQL failover. The HA Manager handles NixOS state reconciliation and node promotion. Fencing is implemented via job-based progress tracking. See [docs/reference/THREAT-MODEL.md](docs/reference/THREAT-MODEL.md) for current limits.
+- **HA is quorum-based:** nodes keep their own databases and form a Corosync cluster; storage groups fail over only with quorum and after a fencing delay (watchdog), with optional power fencing. Secrets travel between paired nodes encrypted for the pair and are sealed under each node's own key.
 - **Partial RBAC coverage:** Many operational routes are session-authenticated but lack per-route `RequirePermission` checks
 - **ZFS delegation** (`zfs allow`) is complex; review carefully before enabling
 - **rclone credentials** are stored in `/etc/dplaneos/rclone.conf` - restrict file permissions

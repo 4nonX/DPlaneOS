@@ -14,7 +14,7 @@ DPlaneOS is a NAS management layer running on NixOS. It manages storage (ZFS), c
                            │ TLS terminated, localhost only
 ┌──────────────────────────────────────────────────────────┐
 │                        TRUSTED                           │
-│  dplaned (Go) ─┬─ PostgreSQL / Patroni                   │
+│  dplaned (Go) ─┬─ PostgreSQL (node-local)                │
 │                ├─ libzfs (cgo) → ZFS kernel              │
 │                ├─ exec.Command → docker / samba / nfs    │
 │                ├─ networkdwriter → /etc/systemd/network/ │
@@ -64,7 +64,7 @@ DPlaneOS is a NAS management layer running on NixOS. It manages storage (ZFS), c
 - **LDAP account segregation:** `users.source` ('local'/'ldap') is returned in `GET /api/auth/session`. The password-change UI disables itself for LDAP accounts and directs users to the directory server. The admin `reset-password` endpoint rejects LDAP accounts with an explicit error.
 - **Command execution (ZFS):** All ZFS mutation operations (pool export/destroy/clear, dataset create/destroy/rename/promote, snapshot create/destroy/clone, vdev add/attach/replace/remove/online/offline, property get/set) now go through `internal/libzfs` (cgo direct C API call or subprocess fallback). Both paths pre-validate all arguments with the same allowlist validators before any system call or subprocess is created. No shell expansion occurs in either path. Read-only list queries retain subprocess calls with strict whitelist validation.
 - **Command execution (other):** Docker, Samba, NFS, and network tools use allowlist-based validation via `internal/security/whitelist.go`; arguments passed as separate slice elements to `exec.Command` - no shell. **v6.1.0 Hardening:** Strict `by-id` path enforcement and pool-membership safety checks for disk operations ensure enterprise-grade storage security.
-- **Database:** PostgreSQL with Patroni for HA; connections managed via `pgx/v5` pool.
+- **Database:** node-local PostgreSQL on every node; connections managed via `pgx/v5` pool.
 
 ---
 
@@ -250,12 +250,12 @@ DPlaneOS is a NAS management layer running on NixOS. It manages storage (ZFS), c
 
 **Mitigation**:
 - **SCSI-3 Persistent Reservations (`dplane-fenced`) - shared-SAS topology:** Each node registers an 8-byte key derived from `/etc/machine-id` at startup. The primary holds a Write Exclusive Registrants Only (WERO) reservation on every ZFS pool member disk (APTPL=1: survives power cycles, stored in disk controller NVRAM). On unclean failover, the surviving node calls `FencedPreempt(device)` for each disk. The PROUT PREEMPT command evicts the faulted node's registration at the controller; subsequent I/O from the faulted node receives RESERVATION CONFLICT, regardless of what that node believes about its own state. Split-brain at the storage layer is physically impossible: the disk firmware is the arbiter, not a software vote.
-- **Patroni-gated pool import:** ZFS pools are imported and mounted only after Patroni confirms the local node holds the primary role. Standby nodes hold pools unexported until promotion. This gate operates independently of fencing, providing a second layer of protection.
-- **Automated DB failover (Patroni/etcd):** PostgreSQL leader election runs through a three-member etcd cluster. On shared-SAS deployments the third member is co-located on node A as a lightweight process (no separate machine required). On replicated deployments a separate witness node provides the third vote. In either case, 2-of-3 quorum is required before Patroni promotes, preventing DB split-brain.
-- **IPMI/Redfish or SBD fencing - replicated topology:** Where SCSI-3 PR is unavailable (nodes do not share physical storage), the surviving node powers off the peer via BMC (IPMI/Redfish) or waits for an SBD lease expiry before importing pools. Promotion is blocked until fencing is confirmed.
+- **Owner-gated pool import:** pools of shared storage groups are never imported at boot; the owner's daemon imports them only when the other candidates confirm they do not use them, or after a silent candidate left the quorate partition and the fencing delay passed. Manual imports of such pools are refused on non-owners.
+- **Quorum (Corosync):** failover needs the quorate partition; two nodes without a third vote never fail over automatically. Epochs fence stale owners in configuration and group state.
+- **Watchdog self-fencing and optional power fencing:** a storage owner that loses quorum stops resetting its watchdog and is reset before the takeover (watchdog timeout + 15 s); IPMI/Redfish or a PDU power the old owner off first when configured; ZFS multihost refuses imports of pools still in use.
 - **Hysteresis and maintenance mode:** The `checkFailover()` guard enforces a hysteresis window before promoting to suppress flapping. `POST /api/ha/maintenance` suppresses automatic failover entirely during scheduled maintenance.
 
-**Residual risk**: **LOW** for shared-SAS deployments - SCSI-3 PR makes storage-layer split-brain physically impossible regardless of software state. **LOW-MEDIUM** for replicated deployments - relies on software fencing (IPMI/SBD), which is effective but requires BMC or shared block device reachability; a partition that simultaneously isolates both the peer and the fencing mechanism could delay promotion without causing data corruption (the standby will not promote without confirmed fencing).
+**Residual risk**: **LOW** with a third vote and the watchdog: a cut-off owner resets itself before the takeover, multihost refuses double imports of shared pools, and SCSI-3 PR (where supported) rejects writes at the disk. **LOW-MEDIUM** without a hardware watchdog (softdog does not reset a hung kernel; add power fencing) or without multihost on shared pools. Two nodes without a third vote never fail over automatically, so a split cannot cause a double import, only a manual takeover decision.
 
 ---
 
@@ -267,7 +267,7 @@ DPlaneOS is a NAS management layer running on NixOS. It manages storage (ZFS), c
 | WebSocket (`/api/ws/monitor`) | Authenticated | Session middleware | Validated before upgrade |
 | `exec.Command` (zfs, zpool, docker, etc.) | Internal only | **Strict allowlist + libzfs direct API for ZFS dataset mutations** | Path-agnostic resolution via PATH; no shell; snapshot/clone/destroy go through cgo; pool import uses allowlist subprocess |
 | networkdwriter file writes | `/etc/systemd/network/50-dplane-*` | Root filesystem permissions | Pure file I/O; `networkctl reload` fixed args |
-| PostgreSQL database | Filesystem (`/var/lib/dplaneos/pgsql/`) | OS file permissions (root/postgres) | Managed by Patroni/etcd; sessions table holds hashed tokens, `must_change_password` flag enforced server-side |
+| PostgreSQL database | Filesystem (`/var/lib/dplaneos/pgsql/`) | OS file permissions (root/postgres) | One database per node; sessions table holds hashed tokens, `must_change_password` flag enforced server-side |
 | Client session token | `sessionStorage` (default) or `localStorage` (opt-in "Remember me") | 24-hour server-side TTL, revoked on password change | localStorage token survives browser restart; XSS with localStorage access is a higher-impact scenario than sessionStorage |
 | systemd service | Root process | `CapabilityBoundingSet`, `NoNewPrivileges`, `MemoryMax` | Not a dedicated non-root user |
 

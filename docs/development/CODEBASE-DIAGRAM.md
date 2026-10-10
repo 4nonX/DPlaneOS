@@ -22,7 +22,7 @@ flowchart LR
     end
 
     subgraph Data["Data and Runtime"]
-        PostgreSQL["PostgreSQL / Patroni\n/var/lib/dplaneos/pgsql/"]
+        PostgreSQL["PostgreSQL (node-local)\n/var/lib/dplaneos/pgsql/"]
         ZFS["ZFS (kernel)"]
         Docker["Docker (socket)"]
         LDAP["LDAP / AD"]

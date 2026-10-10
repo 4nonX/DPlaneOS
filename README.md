@@ -34,8 +34,7 @@ Feature maturity, honestly:
 | Live boot (ephemeral, no install needed) | Stable | Trial the software, manage pools, run containers from USB. Full daemon/UI in RAM. Persistence optional via USB. |
 | GitOps reconciliation | Beta | Structural sync (pools, datasets, shares, stacks) and capture-from-live both work. Safety rails (block destroy on used data, block pool destroy unconditionally) are well-tested. Edge cases at the property-coverage frontier still surfacing. |
 | Out-of-band hardware management (BMC) | Beta | Redfish (iLO 5+, iDRAC 9+), iLO 4 legacy REST, generic IPMI. TOFU TLS certificate pinning. Sensors, event log, power management. |
-| PostgreSQL HA (Patroni + etcd) | Experimental | Tested in lab, never under real load. |
-| Replicated-topology HA with witness | Experimental | Same. Read the [Showstopper Mitigation Guide](docs/reference/SHOWSTOPPER-MITIGATION-GUIDE.md) first. Network quorum witness (VPS ping-based) added in v14.1.0. |
+| Clusters, storage groups, third vote | Experimental | Corosync quorum, shared and replicated storage groups, failover; tested in VM CI, not yet under real load. |
 | Shared-SAS HA with SCSI-3 PR fencing | Experimental | Tested on one hardware configuration. Yours will differ. |
 | NVMe-oF over TCP | Experimental | Functional, not yet stress-tested. |
 
@@ -53,13 +52,13 @@ Reasonable question. The short answer: most of DPlaneOS isn't DPlaneOS.
 
 **OpenZFS does the storage.** Pools, datasets, snapshots, send/receive, encryption, ARC tuning, scrub, resilver, integrity checking, all of it. The daemon shells out to `zfs` and `zpool` with allowlisted arguments and parses the output. That's it. The hard storage problems were solved by Sun, then Illumos, then OpenZFS, over twenty years.
 
-**The system stack is well-trodden upstream software.** PostgreSQL for state, nginx for the edge, Patroni and etcd for HA consensus, Keepalived for VIPs, Samba for SMB, the kernel for NFS and LIO/iSCSI, Docker for containers, NUT for UPS, rclone for cloud sync, ZED for ZFS event delivery. Each of these has more engineering hours behind it than I will produce in my career.
+**The system stack is well-trodden upstream software.** PostgreSQL for state, nginx for the edge, Corosync for cluster quorum (as in Proxmox VE), Samba for SMB, the kernel for NFS and LIO/iSCSI, Docker for containers, NUT for UPS, rclone for cloud sync, ZED for ZFS event delivery. Each of these has more engineering hours behind it than I will produce in my career.
 
 **The Go dependency tree is deliberately small.** Nine direct dependencies: `gorilla/mux`, `gorilla/websocket`, `pgx`, `go-ldap`, `lego` (ACME), `creack/pty`, `google/uuid`, `golang.org/x/crypto`, `go-jose/v4` (OIDC JWS verification). All vendored. The daemon is not a wrapper around a large framework; it's standard library plus narrow, well-understood plumbing.
 
 So what's actually new code?
 
-**The seams.** ~49k lines of Go that tie the above together coherently: ~400 HTTP routes mapping UI intent to allowlisted exec calls, state persisted in PostgreSQL with goose migrations, a reconciler that compares declared state against observed state and handles drift, an HMAC-chained audit log, ZED events surfaced over WebSocket, the A/B OTA flow with health-checked auto-revert, the HA state machine including SCSI-3 PR fencing and Patroni integration. None of this is exotic computer science. All of it is integration work that nobody else had bothered to do under one roof.
+**The seams.** ~49k lines of Go that tie the above together coherently: ~400 HTTP routes mapping UI intent to allowlisted exec calls, state persisted in PostgreSQL with goose migrations, a reconciler that compares declared state against observed state and handles drift, an HMAC-chained audit log, ZED events surfaced over WebSocket, the A/B OTA flow with health-checked auto-revert, storage groups that move between nodes with quorum, epochs and layered fencing (watchdog, multihost, SCSI-3 PR, power), and configuration that merges between nodes per resource. None of this is exotic computer science. All of it is integration work that nobody else had bothered to do under one roof.
 
 **The interface.** ~30k lines of React 19 / TypeScript: 48 pages, around 67 modal/dialog components, one embedded PTY terminal. Aimed at someone who would rather not memorise `zpool` flags or hand-edit a Samba config.
 
@@ -75,7 +74,7 @@ DPlaneOS stands on the shoulders of decades of work by people I have never met. 
 
 **The foundation.** [NixOS](https://nixos.org) and [Nixpkgs](https://github.com/NixOS/nixpkgs) for the declarative OS model that makes the whole appliance approach feasible. [OpenZFS](https://openzfs.org) for the filesystem the project is named after and built around. [PostgreSQL](https://www.postgresql.org) for state that doesn't lose itself.
 
-**The services.** [nginx](https://nginx.org), [HAProxy](https://www.haproxy.org), [Samba](https://www.samba.org), [Patroni](https://github.com/patroni/patroni), [etcd](https://etcd.io), [Keepalived](https://www.keepalived.org), [Docker](https://www.docker.com), the Linux kernel's NFS and LIO/iSCSI subsystems, [rclone](https://rclone.org), [smartmontools](https://www.smartmontools.org). Each one a project I have used for years and never had cause to regret picking.
+**The services.** [nginx](https://nginx.org), [Samba](https://www.samba.org), [Corosync](https://corosync.github.io/corosync/), [Docker](https://www.docker.com), the Linux kernel's NFS and LIO/iSCSI subsystems, [rclone](https://rclone.org), [smartmontools](https://www.smartmontools.org). Each one a project I have used for years and never had cause to regret picking.
 
 **The libraries.** [gorilla/mux](https://github.com/gorilla/mux) and [gorilla/websocket](https://github.com/gorilla/websocket), [jackc/pgx](https://github.com/jackc/pgx), [go-ldap](https://github.com/go-ldap/ldap), [go-acme/lego](https://github.com/go-acme/lego), [creack/pty](https://github.com/creack/pty), [go-jose/v4](https://github.com/go-jose/go-jose). Plus the Go team's `golang.org/x/crypto` and friends.
 
@@ -112,8 +111,8 @@ Full license inventory and attribution in [NOTICE.md](NOTICE.md).
 | **Identity** | Local users, LDAP / AD with Winbind NSS integration (AD users visible in `ls -l`, ACLs, SMB), OIDC SSO (Authorization Code + PKCE), TOTP 2FA, SCRAM-SHA-512, API tokens |
 | **Security** | RBAC (4 roles, 34 permissions), HMAC audit chain, CSRF protection, firewall, TLS, allowlist-validated exec calls, govulncheck in CI |
 | **Hardware** | BMC management via Redfish (iLO 5+, iDRAC 9+), iLO 4, or IPMI. TOFU TLS certificate pinning. Temperature, fan, power sensors. Power management and event log. |
-| **Monitoring** | Prometheus/OpenMetrics at `/metrics`: ZFS pool health (4-level), dataset usage/quota, scrub progress, HA peer health, replication status, BMC sensors, build info |
-| **HA** | Optional, off by default. Enable/disable from the UI with a single toggle. Two paths: shared-SAS with SCSI-3 PR fencing (no witness needed); replicated ZFS with IPMI/PDU/SBD/network-quorum witness. Graceful primary handoff (Patroni switchover) before disable. |
+| **Monitoring** | Prometheus/OpenMetrics at `/metrics`: ZFS pool health (4-level), dataset usage/quota, scrub progress, cluster quorum and storage groups, replication status, BMC sensors, build info |
+| **HA** | Optional, off by default. Pair nodes, form a Corosync cluster, add a third vote (QDevice on a Raspberry Pi/VM, a corosync-only voter, another DPlaneOS system, or a third node), and put pools into storage groups that move between nodes with their shares, apps and a floating address. Shared storage (SAS/SATA shelf, SAN) or replicated ZFS; watchdog self-fencing, ZFS multihost, SCSI-3 PR and optional power fencing. |
 | **System** | Dashboard, logs, UPS (NUT), hardware auto-tuning, cloud sync (rclone), HA node monitoring |
 | **GitOps** | Git-sync repositories, bi-directional reconciliation, drift detection. Manages structure (pools, dataset properties, shares, stacks, users), not data. Destructive operations on used datasets and pools are blocked by default. |
 
@@ -160,7 +159,7 @@ Browser
   └── nginx :80/:443          static files from /opt/dplaneos/app/
         └── proxy /api/ /ws/
               └── dplaned (Unix socket) (Go)
-                    ├── PostgreSQL /var/lib/dplaneos/pgsql/ (embedded or Patroni-managed)
+                    ├── PostgreSQL /var/lib/dplaneos/pgsql/ (node-local)
                     ├── ZFS     kernel module via allowlisted exec
                     ├── Docker  socket
                     └── LDAP/AD optional
@@ -170,7 +169,7 @@ Browser
 |-----------|--------|
 | Frontend | React 19 + TypeScript + Vite, pre-built, no Node.js at runtime |
 | Backend | Go daemon, allowlist-validated exec, no shell invocation anywhere in the codebase |
-| Database | PostgreSQL 15+ (Patroni for HA topologies) |
+| Database | PostgreSQL 15+ (one per node) |
 | Auth | SCRAM-SHA-512 (RFC 5802, 100k PBKDF2 iterations), bcrypt (web login over HTTPS), LDAP bind (directory accounts), OIDC Authorization Code + PKCE (SSO accounts), TOTP 2FA, AAL1/AAL2 session assurance levels, CSRF double-submit |
 | ZFS events | ZED hook delivers pool fault, scrub, and resilver events in real time |
 | BMC | Redfish (iLO 5+, iDRAC 9+), iLO 4 legacy REST, generic IPMI. TOFU TLS fingerprint pinning - no InsecureSkipVerify. |
@@ -188,7 +187,6 @@ Deeper reading: [Architecture](docs/reference/ARCHITECTURE.md), [Design Philosop
 | Web UI (static) | `/opt/dplaneos/app/` |
 | Version file | `/opt/dplaneos/VERSION` |
 | Database state | `/var/lib/dplaneos/pgsql/` |
-| DB configuration | `/etc/dplaneos/patroni.yaml` |
 | Custom container icons | `/var/lib/dplaneos/custom_icons/` |
 | Logs | `/var/log/dplaneos/` |
 | ZED hook | `/etc/zfs/zed.d/dplaneos-notify.sh` |
@@ -233,7 +231,7 @@ sudo dplaneos-ota-update
 | [Administrator Guide](docs/admin/ADMIN-GUIDE.md) | Users, roles, permissions, storage, containers, LDAP/AD, security |
 | [Git-Driven NAS](docs/admin/GITOPS-DRIVEN-NAS.md) | Operating DPlaneOS entirely via state.yaml: bootstrap, auto-apply, rollback, PR workflow, HA |
 | [Backup and Replication](docs/admin/BACKUP-REPLICATION.md) | Snapshots, ZFS send/receive, cloud sync, cold tier, rsync, DB backup, recovery |
-| [High Availability](docs/admin/HIGH-AVAILABILITY.md) | HA is optional and off by default. Shared-SAS with SCSI-3 PR fencing, replicated ZFS with witness (etcd, network quorum, VPS ping), Patroni, Keepalived, STONITH, rolling upgrades |
+| [High Availability](docs/admin/HIGH-AVAILABILITY.md) | HA is optional and off by default. Clusters, the third vote (see also [Choosing a third vote](docs/admin/THIRD-VOTE.md)), storage groups (shared or replicated), protection layers, planned moves and failover |
 | [Integration Guide](docs/admin/INTEGRATION-GUIDE.md) | Prometheus scrape config, Active Directory/Winbind, SMB HA behaviour, NVMe-oF client setup, iSCSI ALUA, GitOps/CI, HA timing, Docker hardware transcoding, GPU passthrough |
 | [OTA Updates](docs/admin/OTA-UPDATES.md) | A/B slots, health check, auto-revert, manual rollback, HA rolling upgrades |
 | [Optional Protocols](docs/admin/OPTIONAL-PROTOCOLS.md) | iSCSI, NVMe-oF, FTP/FTPS, MinIO S3-compatible object store |

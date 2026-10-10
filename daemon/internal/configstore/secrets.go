@@ -18,7 +18,7 @@ import (
 	"dplaned/internal/secrets"
 )
 
-// Secret material between paired nodes (Design 0001 section 5.6).
+// Secret material between paired nodes (Design 0001 section 5.9).
 //
 // Revisions never store secrets: a secret field holds a fingerprint of the
 // plaintext, so history shows that it changed and both nodes can tell

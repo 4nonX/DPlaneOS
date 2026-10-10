@@ -7,8 +7,12 @@ package ha
 import (
 	"database/sql"
 	"log"
+	"os"
+	"strings"
 	"sync"
 	"time"
+
+	"dplaned/internal/cmdutil"
 )
 
 // ExternalQuorum is the cluster quorum as the keeper needs it.
@@ -45,6 +49,16 @@ func (k *Keeper) Start() {
 	cfg, err := GetWatchdogConfig(k.db)
 	if err != nil || !cfg.Enable {
 		return
+	}
+	// No hardware watchdog driver: the kernel's softdog stands in (it resets
+	// the node as well, but not if the kernel itself hangs).
+	if _, err := os.Stat(cfg.Device); os.IsNotExist(err) && cfg.Device == "/dev/watchdog" {
+		if out, err := cmdutil.RunFast("modprobe_softdog", "softdog"); err != nil {
+			log.Printf("HA WATCHDOG: no %s and softdog could not be loaded: %v: %s", cfg.Device, err, strings.TrimSpace(string(out)))
+		} else {
+			log.Printf("HA WATCHDOG: no hardware watchdog found; loaded softdog")
+			time.Sleep(500 * time.Millisecond)
+		}
 	}
 	if err := openWatchdog(cfg.Device); err != nil {
 		log.Printf("HA WATCHDOG: cannot open %s: %v (watchdog self-fencing is off; automatic failover needs power fencing)", cfg.Device, err)

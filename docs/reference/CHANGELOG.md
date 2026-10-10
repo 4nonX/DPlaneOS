@@ -42,11 +42,15 @@ Phase 0 of [Design 0001](../design/0001-distributed-state-gitops-ha.md): fixes i
 
 ### Added (Design 0001, Phase 3e)
 
+- **The third vote from anything.** Besides a QDevice (one command on any Linux machine, or another DPlaneOS system), a **voter**: a Raspberry Pi, mini PC or VM that runs only corosync and joins as a full member with the same one-time code (`witness-setup.sh --voter`); it pins the node's TLS key and pulls its configuration every minute, so added or removed members reach it. Clusters can grow beyond two DPlaneOS nodes (*Add a vote or node*, `POST /api/quorum/nodes`); members and voters can be removed. The HA page compares the four paths; [THIRD-VOTE.md](../admin/THIRD-VOTE.md) documents each with its strengths and limits.
+- **Secrets between paired nodes.** User passwords (with SCRAM verifiers and TOTP), the LDAP bind password, ACME DNS credentials and certificate keys now reach the other nodes. Revisions hold plaintext fingerprints; the material is fetched from the node that changed it, encrypted for the pair, checked against the fingerprint and sealed under the receiving node's own key. LDAP, ACME and certificates join the exchanged kinds.
+- **New HA documentation:** [HIGH-AVAILABILITY.md](../admin/HIGH-AVAILABILITY.md) and [HA-FAILURE-MODES.md](../admin/HA-FAILURE-MODES.md) rewritten for the new model (topologies with their trade-offs, setup, failover timeline, operations, every failure scenario with what to do).
 - **Floating address per storage group.** Held by the owner while it serves the group, announced with gratuitous ARP, removed before a planned move releases the pools; replaces the keepalived VIP.
 - **Shared pools are imported by the owner, not at boot.** Pools of shared groups are kept out of the boot-time import (`cachefile=none`); the owner imports them once the other nodes confirm they do not use them, or after a silent node left the cluster and the fencing delay passed. **Import here** on the owner imports on request. Manual imports (pool page, disk hot-plug) of a shared group's pool are refused on nodes that do not own it.
 
 ### Fixed (Design 0001, Phase 3e)
 
+- **Watchdog without a hardware driver.** With the HA module gone nothing loaded `softdog`; the daemon now loads it when the watchdog is enabled and no `/dev/watchdog` exists (it was silently off otherwise).
 - **Apps restarted on the old owner during a planned move.** The activation loop could start a group's stack again between stopping it and exporting the pools; groups being moved or released are now left alone, and a failed pool check (for example a `zpool list` timeout) no longer drops the floating address.
 - **Go 1.26.9 and golang.org/x/net v0.60.0** (GO-2026-6611 to GO-2026-6617, net/http).
 

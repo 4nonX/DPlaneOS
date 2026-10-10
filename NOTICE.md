@@ -21,10 +21,6 @@ These projects are installed as separate processes by the NixOS module and commu
 | OpenZFS | CDDL-1.0 (with file-level exceptions; see `THIRDPARTYLICENSE.*` upstream) | https://github.com/openzfs/zfs |
 | PostgreSQL | PostgreSQL License (BSD-style) | https://www.postgresql.org |
 | nginx | BSD-2-Clause | https://nginx.org |
-| HAProxy | GPL-2.0-or-later (exportable headers under LGPL-2.1-or-later) | https://www.haproxy.org |
-| Patroni | MIT | https://github.com/patroni/patroni |
-| etcd | Apache-2.0 | https://github.com/etcd-io/etcd |
-| Keepalived | GPL-2.0-or-later | https://www.keepalived.org |
 | Samba | GPL-3.0-or-later | https://www.samba.org |
 | Docker (moby) | Apache-2.0 | https://github.com/moby/moby |
 | nfs-utils | Mixed: GPL-2.0-only AND GPL-2.0-or-later AND BSD-3-Clause AND BSD-2-Clause AND others (per Fedora package metadata) | https://git.kernel.org/pub/scm/utils/nfs-utils/nfs-utils.git |
