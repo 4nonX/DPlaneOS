@@ -68,3 +68,11 @@ func TestReplicateToRemoteLatestSnapshotOfDatasetOnly(t *testing.T) {
 		t.Errorf("snapshot lookup: %v", cmds.keys())
 	}
 }
+
+func TestApplyNetworkWithRollbackPath(t *testing.T) {
+	for _, p := range []string{"/etc/shadow", "/etc/netplan/../shadow.yaml", "/etc/netplan/x.conf", ""} {
+		if r := call(t, ApplyNetworkWithRollback, req{method: "POST", body: map[string]any{"config_path": p, "new_config": "x"}}); r.code != 400 {
+			t.Errorf("%q: %s", p, r)
+		}
+	}
+}

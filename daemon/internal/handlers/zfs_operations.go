@@ -690,6 +690,8 @@ var (
 
 // ApplyNetworkWithRollback applies network config with auto-revert
 // POST /api/network/apply { "timeout_seconds": 60 }
+var netplanPathRe = regexp.MustCompile(`^/etc/netplan/[A-Za-z0-9._-]+\.ya?ml$`)
+
 func ApplyNetworkWithRollback(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		ConfigPath     string `json:"config_path"` // /etc/network/interfaces or /etc/netplan/...
@@ -707,8 +709,9 @@ func ApplyNetworkWithRollback(w http.ResponseWriter, r *http.Request) {
 		respondErrorSimple(w, "Timeout must be 15-300 seconds", http.StatusBadRequest)
 		return
 	}
-	if strings.ContainsAny(req.ConfigPath, ";|&$`\\\"'") || req.ConfigPath == "" {
-		respondErrorSimple(w, "Invalid config path", http.StatusBadRequest)
+	// The file is written as root: only netplan configuration files.
+	if !netplanPathRe.MatchString(req.ConfigPath) || strings.Contains(req.ConfigPath, "..") {
+		respondErrorSimple(w, "config_path must be a netplan file (/etc/netplan/<name>.yaml)", http.StatusBadRequest)
 		return
 	}
 	// netplan is not part of NixOS (D-PlaneOS uses systemd-networkd): refuse
