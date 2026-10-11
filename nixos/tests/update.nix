@@ -45,7 +45,7 @@ let
         upstreamCache = "http://releases/upstream/";
         healthCheckDelay = "20s";
         healthTimeout = 120;
-        minFreeMB = 500;   # the test disk is small; the updates here are too
+        minFreeMB = 1000;
       };
     };
     networking.hostName = lib.mkForce "nas";
@@ -56,6 +56,10 @@ let
     boot.loader.systemd-boot.enable = true;
     boot.loader.efi.canTouchEfiVariables = true;
     virtualisation.diskSize = 12 * 1024;
+    # The disk image is built just large enough for the system; the root
+    # file system grows into the rest of the disk at the first start.
+    boot.growPartition = true;
+    virtualisation.fileSystems."/".autoResize = true;
     virtualisation.cores = 2;
     virtualisation.memorySize = 3072;
     services.postgresql.settings = { max_connections = 50; shared_buffers = "64MB"; };

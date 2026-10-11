@@ -57,14 +57,14 @@ type PoolHeartbeat struct {
 // SendSMTPAlert are currently package-level functions in the handlers package.
 var (
 	alertSenderMu      sync.RWMutex
-	webhookAlertSender func(event, pool, msg string)
+	webhookAlertSender func(level, event, pool, msg string)
 	smtpAlertSender    func(subject, body string)
 )
 
 // SetAlertSenders wires outbound webhook + SMTP functions into the heartbeat
 // package. Call this from main.go after alert subsystems are initialized.
 func SetAlertSenders(
-	webhook func(event, pool, msg string),
+	webhook func(level, event, pool, msg string),
 	smtp func(subject, body string),
 ) {
 	alertSenderMu.Lock()
@@ -250,7 +250,7 @@ func (ph *PoolHeartbeat) sendAlert(level, event, pool, message string) {
 	alertSenderMu.RUnlock()
 
 	if wh != nil {
-		wh(event, pool, message)
+		wh(level, event, pool, message)
 	}
 	if sm != nil && (level == "critical" || level == "warning") {
 		subject := fmt.Sprintf("[DPlaneOS] %s: %s", event, pool)

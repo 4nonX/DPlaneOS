@@ -13,7 +13,8 @@
  *   POST /api/alerts/smtp/test             → send test email
  *
  *   GET  /api/alerts/webhooks              → { success, webhooks: Webhook[] }
- *   POST /api/alerts/webhooks              → { name, url, method, headers, body_template } → { success, id }
+ *   POST /api/alerts/webhooks              → { name, url, secret_header, secret_value, body_template, events } → { success, id }
+ *   GET  /api/alerts/events                → the alerts the system raises
  *   DELETE /api/alerts/webhooks/{id}
  *   POST /api/alerts/webhooks/{id}/test    → fire test payload
  */
@@ -56,9 +57,10 @@ interface Webhook {
   id:               number | string
   name:             string
   url:              string
-  method?:          string
-  headers?:         Record<string, string>
   body_template?:   string
+  enabled?:         boolean
+  /** JSON array of event names; empty array: every event. */
+  events?:          string
   last_status?:     string
 }
 
@@ -271,31 +273,38 @@ function SMTPTab() {
 // WebhookModal - create / view
 // ---------------------------------------------------------------------------
 
+interface AlertEvent { event: string; level: 'info' | 'warning' | 'critical'; description: string }
+
 function WebhookModal({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
-  const [name,     setName]     = useState('')
-  const [url,      setUrl]      = useState('')
-  const [method,   setMethod]   = useState('POST')
-  const [bodyTpl,  setBodyTpl]  = useState('{"event":"{{event}}","message":"{{message}}","timestamp":"{{timestamp}}"}')
-  const [hdrKey,   setHdrKey]   = useState('')
-  const [hdrVal,   setHdrVal]   = useState('')
-  const [headers,  setHeaders]  = useState<Record<string, string>>({
-    'Content-Type': 'application/json',
+  const [name,      setName]      = useState('')
+  const [url,       setUrl]       = useState('')
+  const [bodyTpl,   setBodyTpl]   = useState('')
+  const [hdrName,   setHdrName]   = useState('')
+  const [hdrValue,  setHdrValue]  = useState('')
+  // Empty: every event. Otherwise the chosen ones.
+  const [events,    setEvents]    = useState<string[]>([])
+
+  const eventsQ = useQuery({
+    queryKey: ['alerts', 'events'],
+    queryFn: ({ signal }) => api.get<{ success: boolean; events: AlertEvent[] }>('/api/alerts/events', signal),
+    staleTime: 60 * 60_000,
   })
+  const catalog = eventsQ.data?.events ?? []
 
-  function addHeader() {
-    if (!hdrKey.trim()) return
-    setHeaders(prev => ({ ...prev, [hdrKey.trim()]: hdrVal.trim() }))
-    setHdrKey(''); setHdrVal('')
-  }
-
-  function removeHeader(k: string) {
-    setHeaders(prev => { const n = { ...prev }; delete n[k]; return n })
+  function toggle(ev: string) {
+    setEvents(prev => prev.includes(ev) ? prev.filter(e => e !== ev) : [...prev, ev])
   }
 
   const create = useMutation({
     mutationFn: () => {
       if (!name.trim() || !url.trim()) throw new Error('Name and URL are required')
-      return api.post('/api/alerts/webhooks', { name: name.trim(), url: url.trim(), method, headers, body_template: bodyTpl })
+      if (!!hdrName.trim() !== !!hdrValue.trim()) throw new Error('Give both the name and the value of the header, or neither')
+      return api.post('/api/alerts/webhooks', {
+        name: name.trim(), url: url.trim(), enabled: true,
+        secret_header: hdrName.trim(), secret_value: hdrValue.trim(),
+        content_type: 'application/json', body_template: bodyTpl,
+        events: JSON.stringify(events),
+      })
     },
     onSuccess: () => { toast.success('Webhook created'); onDone(); onClose() },
     onError: (e: Error) => toast.error(e.message),
@@ -308,46 +317,40 @@ function WebhookModal({ onClose, onDone }: { onClose: () => void; onDone: () => 
           <input value={name} onChange={e => setName(e.target.value)} placeholder="Slack alert" className="input" autoFocus />
         </Field>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '80px 1fr', gap: 10 }}>
-          <Field label="Method">
-            <select value={method} onChange={e => setMethod(e.target.value)} className="input" style={{ appearance: 'none' }}>
-              {['POST'].map(m => <option key={m} value={m}>{m}</option>)}
-            </select>
-          </Field>
-          <Field label="URL">
-            <input value={url} onChange={e => setUrl(e.target.value)}
-              placeholder="https://hooks.slack.com/services/..." className="input" style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }} />
-          </Field>
-        </div>
+        <Field label="URL" hint="Alerts are sent with POST.">
+          <input value={url} onChange={e => setUrl(e.target.value)}
+            placeholder="https://hooks.slack.com/services/..." className="input" style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }} />
+        </Field>
 
-        {/* Headers */}
+        <Field label="Authentication header (optional)" hint="Sent with every alert, e.g. Authorization: Bearer ...">
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 8 }}>
+            <input value={hdrName} onChange={e => setHdrName(e.target.value)} placeholder="Authorization" className="input" style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }} />
+            <input value={hdrValue} onChange={e => setHdrValue(e.target.value)} placeholder="Bearer ..." type="password" autoComplete="new-password" className="input" style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }} />
+          </div>
+        </Field>
+
         <div>
-          <div style={{ fontSize: 'var(--text-xs)', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 8 }}>Headers</div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 8 }}>
-            {Object.entries(headers).map(([k, v]) => (
-              <div key={k} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', background: 'var(--surface)', borderRadius: 'var(--radius-sm)' }}>
-                <code style={{ fontSize: 11, color: 'var(--primary)', flex: '0 0 auto' }}>{k}</code>
-                <span style={{ color: 'var(--text-tertiary)', fontSize: 11 }}>:</span>
-                <code style={{ fontSize: 11, color: 'var(--text-secondary)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>{v}</code>
-                <button onClick={() => removeHeader(k)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-tertiary)', padding: 2, display: 'flex' }}
-                  onMouseEnter={e => (e.currentTarget.style.color = 'var(--error)')}
-                  onMouseLeave={e => (e.currentTarget.style.color = 'var(--text-tertiary)')}>
-                  <Icon name="close" size={14} />
-                </button>
-              </div>
+          <div style={{ fontSize: 'var(--text-xs)', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 4 }}>Events</div>
+          <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', marginBottom: 8 }}>
+            {events.length === 0 ? 'Nothing checked: every event is sent.' : `${events.length} selected: only these are sent.`}
+          </div>
+          <div style={{ maxHeight: 220, overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)' }}>
+            {catalog.map(ev => (
+              <label key={ev.event} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '8px 12px', borderBottom: '1px solid var(--border-subtle)', cursor: 'pointer' }}>
+                <input type="checkbox" checked={events.includes(ev.event)} onChange={() => toggle(ev.event)} style={{ marginTop: 3 }} />
+                <div style={{ flex: 1 }}>
+                  <code style={{ fontSize: 11, color: 'var(--primary)' }}>{ev.event}</code>
+                  <span className={`badge badge-${ev.level === 'critical' ? 'error' : ev.level === 'warning' ? 'warning' : 'neutral'}`} style={{ marginLeft: 8, fontSize: 9 }}>{ev.level}</span>
+                  <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>{ev.description}</div>
+                </div>
+              </label>
             ))}
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 8 }}>
-            <input value={hdrKey} onChange={e => setHdrKey(e.target.value)} placeholder="Header-Name" className="input" style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }} />
-            <input value={hdrVal} onChange={e => setHdrVal(e.target.value)} placeholder="value" className="input" style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }} onKeyDown={e => e.key === 'Enter' && addHeader()} />
-            <button onClick={addHeader} className="btn btn-ghost"><Icon name="add" size={14} /></button>
-          </div>
         </div>
 
-        {/* Body template */}
-        <Field label="Body Template" hint="Variables: {{event}}, {{message}}, {{timestamp}}, {{severity}}">
-          <textarea value={bodyTpl} onChange={e => setBodyTpl(e.target.value)}
-            rows={4} className="input" style={{ fontFamily: 'var(--font-mono)', fontSize: 11, resize: 'vertical', lineHeight: 1.6 }} />
+        <Field label="Body template (optional)" hint="Empty: a JSON object with event, severity, message, hostname, timestamp. Variables: {{event}}, {{message}}, {{timestamp}}, {{severity}}">
+          <textarea value={bodyTpl} onChange={e => setBodyTpl(e.target.value)} placeholder='{"text":"{{severity}}: {{message}}"}'
+            rows={3} className="input" style={{ fontFamily: 'var(--font-mono)', fontSize: 11, resize: 'vertical', lineHeight: 1.6 }} />
         </Field>
 
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
@@ -406,7 +409,7 @@ function WebhooksTab() {
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontWeight: 700, marginBottom: 4 }}>{hook.name}</div>
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                  <span style={{ padding: '2px 8px', borderRadius: 'var(--radius-xs)', background: 'var(--surface)', border: '1px solid var(--border)', fontSize: 'var(--text-xs)', fontWeight: 700, color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>{hook.method ?? 'POST'}</span>
+                  <span style={{ padding: '2px 8px', borderRadius: 'var(--radius-xs)', background: 'var(--surface)', border: '1px solid var(--border)', fontSize: 'var(--text-xs)', fontWeight: 700, color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>{(() => { try { const n = (JSON.parse(hook.events || '[]') as string[]).length; return n === 0 ? 'all events' : `${n} event${n === 1 ? '' : 's'}` } catch { return 'all events' } })()}</span>
                   <code style={{ fontSize: 11, color: 'var(--text-tertiary)', fontFamily: 'var(--font-mono)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 380 }}>{hook.url}</code>
                 </div>
                 {hook.last_status && (

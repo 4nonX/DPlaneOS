@@ -109,6 +109,12 @@ func recordLoginFailure(ip string) {
 	attempt.failures++
 	attempt.lastAttempt = time.Now()
 	attempt.lockedUntil = time.Now().Add(getLoginDelay(attempt.failures))
+	// Somebody is guessing: tell once at five failures, then every fifty.
+	if attempt.failures == 5 || attempt.failures%50 == 0 {
+		n := attempt.failures
+		go DispatchAlert("warning", EventAuthFailedBurst, ip,
+			fmt.Sprintf("%d failed sign-in attempts in a row from %s", n, ip))
+	}
 }
 
 // recordLoginSuccess resets the failure counter

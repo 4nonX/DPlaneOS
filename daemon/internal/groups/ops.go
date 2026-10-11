@@ -138,6 +138,10 @@ type Manager struct {
 	view func() View
 	mu   sync.Mutex
 
+	// Notify, when set, is told about what an operator must hear of even
+	// when nobody is looking at the page: a takeover, a failed one.
+	Notify func(level, event, group, message string)
+
 	// Fence powers off the previous owner before an automatic takeover (IPMI
 	// or PDU, when configured); nil = watchdog only. Set before Start.
 	Fence func(owner string) error
@@ -644,4 +648,10 @@ func (m *Manager) Start(interval time.Duration) {
 			}
 		}
 	}()
+}
+
+func (m *Manager) notify(level, event, group, message string) {
+	if m.Notify != nil {
+		m.Notify(level, event, group, message)
+	}
 }

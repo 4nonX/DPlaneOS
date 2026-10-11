@@ -610,12 +610,19 @@ func updateScheduleStatus(schedID, status, jobID, lastSnapshot string) {
 		return
 	}
 
-	alertLevel := "info"
-	if status == "failed" {
-		alertLevel = "warning"
+	// A replication nobody watches that fails is how backups silently stop.
+	switch status {
+	case "failed":
+		reason := ""
+		if j := jobs.Get(jobID); j != nil {
+			reason = j.Snapshot().Error
+		}
+		DispatchAlert("critical", EventReplicationFailed, schedID,
+			fmt.Sprintf("Scheduled replication %s failed: %s", schedID, reason))
+	case "success", "completed", "done":
+		DispatchAlert("info", EventReplicationCompleted, schedID,
+			fmt.Sprintf("Scheduled replication %s completed (%s)", schedID, lastSnapshot))
 	}
-	DispatchAlert(alertLevel, "replication.schedule_updated", schedID,
-		fmt.Sprintf("Schedule %s status updated to %s", schedID, status))
 }
 
 // TriggerPostSnapshotReplication fires replication for all enabled schedules

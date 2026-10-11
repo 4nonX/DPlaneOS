@@ -97,7 +97,7 @@ func TestResourceAlertLevels(t *testing.T) {
 	}
 	// Dispatch reaches the configured channels.
 	var got []string
-	SetAlertDispatchers(func(event, res, msg string) { got = append(got, event+" "+res) }, nil, nil, nil)
+	SetAlertDispatchers(func(_, event, res, msg string) { got = append(got, event+" "+res) }, nil, nil, nil)
 	t.Cleanup(func() { SetAlertDispatchers(nil, nil, nil, nil) })
 	AlertResourceChange(ok, crit)
 	if len(got) != 1 || got[0] != "system.resources system" {

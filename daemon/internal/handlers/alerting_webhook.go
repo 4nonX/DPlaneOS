@@ -25,31 +25,18 @@ import (
 //  Generic outbound webhook for system events. Covers Slack, Teams, Discord,
 //  PagerDuty, Opsgenie, and any HTTP endpoint that accepts a JSON POST.
 //
-//  Events (string constants used by callers):
-//    EventPoolDegraded      "pool.degraded"
-//    EventPoolCritical      "pool.critical"
-//    EventPoolScrubError    "pool.scrub_error"
-//    EventCapacityWarning   "capacity.warning"
-//    EventCapacityCritical  "capacity.critical"
-//    EventCapacityEmergency "capacity.emergency"
-//    EventDiskSmartFail     "disk.smart_fail"
-//    EventAuthFailedBurst   "auth.failed_burst"
-//    EventShareFailed       "share.failed"
-//    EventUpgradeApplied    "upgrade.applied"
+//  The events that are raised are listed in AlertCatalog (alert_catalog.go).
 // ═══════════════════════════════════════════════════════════════════════════════
 
-// Webhook event name constants - used by callers of SendWebhookAlert.
+// Event names of the alerts raised with these constants (the full list is
+// AlertCatalog).
 const (
 	EventPoolDegraded      = "pool.degraded"
-	EventPoolCritical      = "pool.critical"
-	EventPoolScrubError    = "pool.scrub_error"
 	EventCapacityWarning   = "capacity.warning"
 	EventCapacityCritical  = "capacity.critical"
 	EventCapacityEmergency = "capacity.emergency"
 	EventDiskSmartFail     = "disk.smart_fail"
 	EventAuthFailedBurst   = "auth.failed_burst"
-	EventShareFailed       = "share.failed"
-	EventUpgradeApplied    = "upgrade.applied"
 )
 
 // WebhookHandler manages webhook configuration CRUD.
@@ -388,7 +375,7 @@ func webhookSubscribed(eventsJSON, event string) bool {
 		return false
 	}
 	for _, e := range events {
-		if e == event {
+		if alertEventMatches(e, event) {
 			return true
 		}
 	}

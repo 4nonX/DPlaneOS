@@ -453,8 +453,8 @@ func main() {
 	// Wire webhook + SMTP senders into the ZFS heartbeat package so that
 	// pool CRITICAL / DEGRADED events also reach webhook and SMTP channels.
 	zfs.SetAlertSenders(
-		func(event, pool, msg string) {
-			handlers.SendWebhookAlert(db, event, "critical", msg,
+		func(level, event, pool, msg string) {
+			handlers.SendWebhookAlert(db, event, level, msg,
 				map[string]any{"pool": pool})
 		},
 		handlers.SendSMTPAlert,
@@ -560,6 +560,11 @@ func main() {
 		}
 	}()
 
+	// Alerts nothing else raises: the UPS going on battery, the outcome of a
+	// system update.
+	handlers.StartUPSAlerts(daemonCtx)
+	handlers.NotifyUpdateResult(db)
+
 	// Directory users: the scheduled sync (Directory page, sync interval).
 	handlers.StartDirectorySync(daemonCtx, db)
 
@@ -601,8 +606,8 @@ func main() {
 
 	// Wire the WS hub and all other dispatchers into the central alert system.
 	handlers.SetAlertDispatchers(
-		func(event, source, msg string) {
-			handlers.SendWebhookAlert(db, event, "critical", msg,
+		func(level, event, source, msg string) {
+			handlers.SendWebhookAlert(db, event, level, msg,
 				map[string]any{"source": source})
 		},
 		handlers.SendSMTPAlert,
@@ -895,6 +900,7 @@ func main() {
 	r.Handle("/api/system/support-bundle", permRoute("system", "admin", supportBundleHandler.GenerateBundle)).Methods("POST")
 
 	webhookHandler := handlers.NewWebhookHandler(db, Version)
+	r.Handle("/api/alerts/events", permRoute("system", "read", http.HandlerFunc(handlers.GetAlertEvents))).Methods("GET")
 	r.Handle("/api/alerts/webhooks", permRoute("system", "read", webhookHandler.ListWebhooks)).Methods("GET")
 	r.Handle("/api/alerts/webhooks", permRoute("system", "write", webhookHandler.SaveWebhook)).Methods("POST")
 	r.Handle("/api/alerts/webhooks/{id}", permRoute("system", "write", webhookHandler.DeleteWebhook)).Methods("DELETE")
@@ -971,6 +977,7 @@ func main() {
 			v.FenceOK, v.FenceReason, v.FenceDelay = fp.OK, fp.Reason, fp.Delay
 			return v
 		})
+	groupMgr.Notify = handlers.DispatchAlert
 	groupMgr.Fence = func(owner string) error { return handlers.PowerFence(db, owner) }
 	groupMgr.WatchdogFencing = func() bool { return handlers.CurrentFencing(db).Watchdog }
 	groupMgr.Start(10 * time.Second)

@@ -9,7 +9,7 @@ package handlers
 
 // Package-level alert function references - set from main.go.
 var (
-	webhookAlertFn   func(event, resource, message string)
+	webhookAlertFn   func(level, event, resource, message string)
 	smtpAlertFn      func(subject, body string)
 	telegramAlertFn  func(message string)
 	webSocketAlertFn func(event string, data any, level string)
@@ -19,12 +19,12 @@ var (
 // Call this from main.go after Telegram/SMTP/Webhook subsystems are ready.
 //
 //	handlers.SetAlertDispatchers(
-//	    func(event, resource, msg string) { handlers.SendWebhookAlert(db, event, "critical", msg, nil) },
+//	    func(level, event, resource, msg string) { handlers.SendWebhookAlert(db, event, level, msg, nil) },
 //	    handlers.SendSMTPAlert,
 //	    func(msg string) { alerts.SendAlert(alerts.TelegramAlert{...}) },
 //	)
 func SetAlertDispatchers(
-	webhook func(event, resource, message string),
+	webhook func(level, event, resource, message string),
 	smtp func(subject, body string),
 	telegram func(message string),
 	websocket func(event string, data any, level string),
@@ -55,7 +55,7 @@ func DispatchAlert(level, event, resource, message string) {
 		}, level)
 	}
 	if webhookAlertFn != nil {
-		webhookAlertFn(event, resource, message)
+		webhookAlertFn(level, event, resource, message)
 	}
 	if smtpAlertFn != nil && (level == "critical" || level == "warning") {
 		smtpAlertFn("[DPlaneOS] "+event+": "+resource, message)
@@ -64,4 +64,3 @@ func DispatchAlert(level, event, resource, message string) {
 		telegramAlertFn("🚨 " + event + " - " + resource + "\n" + message)
 	}
 }
-

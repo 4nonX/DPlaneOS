@@ -113,6 +113,10 @@ func (m *Manager) FailoverTick() {
 		}
 		if err := m.takeover(g.Name, "automatic failover"); err != nil {
 			log.Printf("GROUPS: automatic takeover of %s failed: %v", g.Name, err)
+			if prev, had := m.decisions[g.Name]; !had || prev.Reason != "automatic takeover failed: "+err.Error() {
+				m.notify("critical", "ha.takeover_failed", g.Name,
+					fmt.Sprintf("Storage group %s: its owner is gone and this node could not take it over: %v", g.Name, err))
+			}
 			m.fmu.Lock()
 			m.decisions[g.Name] = Decision{Action: "none", Reason: "automatic takeover failed: " + err.Error()}
 			m.fmu.Unlock()
@@ -214,6 +218,8 @@ func (m *Manager) takeover(name, why string) error {
 			return err
 		}
 		log.Printf("GROUPS: %s: %s, now owned by this node (epoch %d)", name, why, ng.Epoch)
+		m.notify("critical", "ha.takeover", name, fmt.Sprintf("Storage group %s is now served by %s (%s; before: %s). "+
+			"It was taken over from this node's copy: changes made on %s after the last replication are not in it.", name, self, why, g.Owner, g.Owner))
 		if err := m.materialize(ng); err != nil {
 			log.Printf("GROUPS: %s: %v", name, err)
 		}
@@ -242,6 +248,7 @@ func (m *Manager) takeover(name, why string) error {
 		return err
 	}
 	log.Printf("GROUPS: %s: %s, now owned by this node (epoch %d)", name, why, ng.Epoch)
+	m.notify("critical", "ha.takeover", name, fmt.Sprintf("Storage group %s is now served by %s (%s; before: %s).", name, self, why, g.Owner))
 	if err := m.materialize(ng); err != nil {
 		log.Printf("GROUPS: %s: %v", name, err)
 	}
