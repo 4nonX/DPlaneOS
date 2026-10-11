@@ -1,8 +1,10 @@
 /**
  * pages/UpdatesPage.tsx - System Updates
  *
- * For Debian/Ubuntu: shows available apt packages, apply-all and apply-security buttons.
- * For NixOS: links to the NixOS rebuild workflow in Settings.
+ * Installed system: SystemUpdatePanel (signed update file per release,
+ *   installed next to the running version and started on trial).
+ * NixOS managed by its owner with nixos-rebuild: says so.
+ * Debian/Ubuntu: available apt packages, apply-all and apply-security buttons.
  *
  * Calls:
  *   GET  /api/system/preflight                  → preflight checks
@@ -24,6 +26,7 @@ import { Tooltip } from '@/components/ui/Tooltip'
 import { toast } from '@/hooks/useToast'
 import { useJobStore } from '@/stores/jobs'
 import { JobConsole } from '@/components/ui/JobConsole'
+import { SystemUpdatePanel, useSystemUpdateStatus } from '@/components/settings/SystemUpdatePanel'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -93,10 +96,15 @@ export function UpdatesPage() {
     staleTime: 60 * 60_000, // OS type doesn't change - cache for 1 hour
   })
 
+  // An installed system updates itself; everything below is for the others.
+  const updateQ = useSystemUpdateStatus()
+  const selfUpdating = updateQ.data?.supported === true
+
   const versionQ = useQuery({
     queryKey: ['system', 'updates', 'version'],
     queryFn:  ({ signal }) => api.get<VersionResponse>('/api/system/updates/daemon-version', signal),
     staleTime: 5 * 60_000,
+    enabled: updateQ.data?.supported === false,
   })
 
   // ── Job polling (used for all three job-based operations) ─────────────────
@@ -184,8 +192,10 @@ export function UpdatesPage() {
         <p className="page-subtitle">Apply operating system and security updates</p>
       </div>
 
+      {selfUpdating && updateQ.data && <SystemUpdatePanel status={updateQ.data} />}
+
       {/* ── Daemon version banner ── */}
-      {versionQ.data?.success && (
+      {!selfUpdating && versionQ.data?.success && (
         <div style={{
           display: 'flex', alignItems: 'center', gap: 14, padding: '14px 20px',
           background: versionQ.data.update_available ? 'var(--warning-bg)' : 'var(--bg-card)',
@@ -210,15 +220,16 @@ export function UpdatesPage() {
         </div>
       )}
 
-      {/* ── NixOS callout ── */}
-      {isNixOS ? (
+      {/* ── NixOS managed with nixos-rebuild ── */}
+      {selfUpdating || updateQ.isLoading ? null : isNixOS ? (
         <div className="card" style={{
           display: 'flex', alignItems: 'center', gap: 16, padding: '18px 22px', borderRadius: 'var(--radius-xl)'}}>
           <Icon name="terminal" size={24} style={{ color: 'var(--primary)', flexShrink: 0 }} />
           <div style={{ flex: 1 }}>
-            <div style={{ fontWeight: 700, marginBottom: 3 }}>NixOS detected</div>
+            <div style={{ fontWeight: 700, marginBottom: 3 }}>This system is updated with nixos-rebuild</div>
             <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>
-              Use <strong>nixos-rebuild switch</strong> via the Settings page to apply configuration and package updates.
+              It was set up from a NixOS configuration of its own rather than from the installer. Update the D-PlaneOS input of that
+              configuration and rebuild; the Settings page lists the generations.
             </div>
           </div>
           <button onClick={() => navigate({ to: '/settings' })} className="btn btn-primary">

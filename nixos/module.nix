@@ -485,6 +485,17 @@ in {
             proxy_send_timeout 300s;
           '';
         };
+        # An update file brought by hand (Updates page): a few hundred MB,
+        # written straight to disk by the daemon.
+        locations."/api/system/update/upload" = {
+          proxyPass = "http://dplaned";
+          extraConfig = ''
+            client_max_body_size 4g;
+            proxy_request_buffering off;
+            proxy_read_timeout 3h;
+            proxy_send_timeout 3h;
+          '';
+        };
         # Replication streams between nodes (replicated storage groups): no
         # body size limit, no buffering, no time limit on a long send.
         locations."/api/config/sync/peer/zfs-recv" = {
@@ -506,6 +517,8 @@ in {
     systemd.services.dplaneos-web-cert = {
       description = "Certificate of the web interface";
       before      = [ "nginx.service" ];
+      # Named after the host, which the system settings set first.
+      after       = [ "dplaneos-system-settings.service" ];
       requiredBy  = [ "nginx.service" ];
       unitConfig.RequiresMountsFor = "/var/lib/dplaneos";
       serviceConfig = { Type = "oneshot"; RemainAfterExit = true; };

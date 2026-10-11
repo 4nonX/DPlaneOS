@@ -187,8 +187,8 @@ expect 200 POST /api/shares '{"action":"create","name":"plain","path":"/smoke2/s
 SHARES_CONF=/var/lib/dplaneos/smb-shares.conf
 CONF=$(cat "$SHARES_CONF")
 check "daemon wrote $SHARES_CONF" contains "$CONF" '^\[tm\]'
-check "shares file sets no global keys of its own" lacks "$CONF" '^ *(security|workgroup|map to guest) *='
-check "shares file re-opens [global] at the end" test "$(tail -n 1 "$SHARES_CONF")" = "[global]"
+check "the daemon's file is the whole configuration: one [global], first" test "$(grep -c '^\[global\]' "$SHARES_CONF")/$(grep -m1 '^\[' "$SHARES_CONF")" = "1/[global]"
+check "Samba reads the daemon's file" test "$(readlink -f /etc/samba/smb.conf)" = "$SHARES_CONF"
 
 section() { awk -v s="[$1]" '$0 == s { f = 1; next } /^\[/ { f = 0 } f' /tmp/testparm.txt; }
 if ! testparm -s > /tmp/testparm.txt 2>/tmp/testparm.err; then
@@ -205,9 +205,7 @@ check "testparm: [tm] shadow copies" contains "$TM" 'shadow_copy2'
 check "testparm: [tm] hosts allow" contains "$TM" 'hosts allow = 10.0.0.0/8'
 check "testparm: [plain] loads fruit" contains "$PLAIN" 'catia fruit streams_xattr'
 check "testparm: [plain] is no Time Machine target" lacks "$PLAIN" 'time machine'
-# "server string" sorts after "include" in the NixOS-rendered [global], so it
-# only stays global because the shares file re-opens [global] at its end.
-check "testparm: NixOS globals after the include stay global" contains "$GLOBAL" 'server string = '
+check "testparm: the global settings are in [global]" contains "$GLOBAL" 'server string = '
 check "testparm: no global parameter landed in a share" lacks "$(cat /tmp/testparm.err)" 'Global parameter'
 
 AVAHI=/etc/avahi/services/dplaneos-timemachine.service

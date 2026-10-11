@@ -1176,6 +1176,17 @@ func main() {
 	r.Handle("/api/system/preflight", permRoute("system", "read", systemStatusHandler.HandlePreflight)).Methods("GET")
 
 	// OTA update endpoints (Debian/Ubuntu)
+	// System updates of an installed system (signed update file per
+	// release, installed as a new generation and started on trial).
+	// DPLANEOS_UPDATE_URL: where the latest release is announced (tests, forks).
+	systemUpdateHandler := handlers.NewSystemUpdateHandler(os.Getenv("DPLANEOS_UPDATE_URL"))
+	r.Handle("/api/system/update/status", permRoute("system", "read", systemUpdateHandler.Status)).Methods("GET")
+	r.Handle("/api/system/update/check", permRoute("system", "admin", systemUpdateHandler.Check)).Methods("POST")
+	r.Handle("/api/system/update/install", permRoute("system", "admin", systemUpdateHandler.Install)).Methods("POST")
+	r.Handle("/api/system/update/upload", permRoute("system", "admin", systemUpdateHandler.Upload)).Methods("POST")
+	r.Handle("/api/system/update/revert", permRoute("system", "admin", systemUpdateHandler.Revert)).Methods("POST")
+
+	// Package updates where the system is a Debian or Ubuntu installation.
 	r.Handle("/api/system/updates/check", permRoute("system", "read", handlers.HandleUpdatesCheck)).Methods("GET")
 	r.Handle("/api/system/updates/apply", permRoute("system", "admin", handlers.HandleUpdatesApply)).Methods("POST")
 	r.Handle("/api/system/updates/apply-security", permRoute("system", "admin", handlers.HandleUpdatesApplySecurity)).Methods("POST")

@@ -1,8 +1,8 @@
 package handlers
 
 import (
-	"context"
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"

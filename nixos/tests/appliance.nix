@@ -50,7 +50,6 @@ pkgs.testers.nixosTest {
     # The test framework boots the kernel directly.
     boot.loader.systemd-boot.enable = lib.mkForce false;
     boot.loader.efi.canTouchEfiVariables = lib.mkForce false;
-    services.dplaneos.ota.enable = lib.mkForce false;
     # A small VM: PostgreSQL defaults are sized for a NAS.
     services.postgresql.settings = { max_connections = 50; shared_buffers = "64MB"; };
   };
@@ -158,7 +157,7 @@ pkgs.testers.nixosTest {
             client.wait_until_succeeds(FETCH + f"http://{NAS}/", timeout=60)
             client.succeed(FETCH + f"-k https://{NAS}/")
             client.fail(FETCH + f"https://{NAS}/")  # self-signed: not trusted
-            nas.succeed("echo | openssl s_client -connect localhost:443 2>/dev/null | openssl x509 -noout -subject | grep -q 'CN *= *dplaneos'")
+            nas.succeed("echo | ${pkgs.openssl}/bin/openssl s_client -connect localhost:443 2>/dev/null | ${pkgs.openssl}/bin/openssl x509 -noout -subject | grep -q 'CN *= *dplaneos'")
 
         with subtest("A ZFS host ID of its own"):
             hostid = nas.succeed("hostid").strip()
@@ -261,7 +260,7 @@ pkgs.testers.nixosTest {
             # A certificate made here and activated is what the web interface serves.
             ok(api("POST", "/api/certs/generate", {"name": "nascert", "cn": "tank-nas.example", "days": 30}), "generate certificate")
             ok(api("POST", "/api/certs/activate", {"name": "nascert"}), "activate certificate")
-            nas.wait_until_succeeds("echo | openssl s_client -connect localhost:443 2>/dev/null | openssl x509 -noout -subject | grep -q 'tank-nas.example'", timeout=30)
+            nas.wait_until_succeeds("echo | ${pkgs.openssl}/bin/openssl s_client -connect localhost:443 2>/dev/null | ${pkgs.openssl}/bin/openssl x509 -noout -subject | grep -q 'tank-nas.example'", timeout=30)
             client.succeed(FETCH + f"-k https://{NAS}/")
 
         with subtest("UPS: set up in the web interface"):
@@ -426,7 +425,7 @@ pkgs.testers.nixosTest {
             assert nas.succeed("cat /proc/sys/vm/swappiness").strip() == "7"
             nas.wait_until_succeeds("test \"$(cat /sys/module/zfs/parameters/zfs_arc_max)\" = " + str(1 << 30), timeout=60)
             nas.succeed("timedatectl show-timesync -p SystemNTPServers --value | grep -qw 10.0.2.2")
-            nas.succeed("echo | openssl s_client -connect localhost:443 2>/dev/null | openssl x509 -noout -subject | grep -q 'tank-nas.example'")
+            nas.succeed("echo | ${pkgs.openssl}/bin/openssl s_client -connect localhost:443 2>/dev/null | ${pkgs.openssl}/bin/openssl x509 -noout -subject | grep -q 'tank-nas.example'")
             nas.succeed("systemctl is-active dplaneos-system-settings.service")
             # The UPS is monitored again.
             nas.wait_until_succeeds("upsc testups@localhost battery.charge 2>/dev/null | grep -qx 90", timeout=90)
