@@ -31,7 +31,6 @@
 
     # System generation scripts (shared)
     ./ota-module.nix
-    ./dplane-generated.nix
   ];
 
   # ── Disable features not applicable to live boot ───────────────────────────

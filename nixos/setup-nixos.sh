@@ -150,64 +150,6 @@ else
   log "Interface: ${PRIMARY_IFACE:-eth0}"
 fi
 
-# ─── Step 5b: Install dplane-generated.nix (static JSON-to-Nix bridge) ────────
-# v5.0 architecture: the daemon writes /var/lib/dplaneos/dplane-state.json
-# (pure JSON via encoding/json). dplane-generated.nix is a STATIC file that
-# reads the JSON at eval time via builtins.fromJSON - zero dynamic Nix syntax,
-# zero risk of a daemon write breaking nixos-rebuild.
-#
-# This file is installed once here and never modified by the daemon again.
-GENERATED="/etc/nixos/dplane-generated.nix"
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SOURCE_NIX="${SCRIPT_DIR}/dplane-generated.nix"
-
-if [ -f "$SOURCE_NIX" ]; then
-  cp "$SOURCE_NIX" "$GENERATED"
-  log "Installed static JSON-to-Nix bridge: $GENERATED"
-else
-  # Fallback: write the bridge inline if the source file is missing
-  cat > "$GENERATED" << 'NIXEOF'
-{ config, lib, pkgs, ... }:
-let
-  stateFile = /var/lib/dplaneos/dplane-state.json;
-  s = if builtins.pathExists stateFile
-        then builtins.fromJSON (builtins.readFile stateFile)
-        else {};
-in {
-  networking.hostName = s.hostname or config.networking.hostName;
-  time.timeZone       = s.timezone or config.time.timeZone;
-  networking.nameservers     = s.dns_servers or [];
-  services.timesyncd.servers = s.ntp_servers or [];
-  networking.firewall.allowedTCPPorts = lib.mkIf (s ? firewall_tcp) s.firewall_tcp;
-  networking.firewall.allowedUDPPorts = lib.mkIf (s ? firewall_udp) s.firewall_udp;
-  systemd.network.enable = true;
-}
-NIXEOF
-  warn "dplane-generated.nix source not found - wrote minimal fallback to $GENERATED"
-fi
-
-# Seed an empty state file so dplane-generated.nix can always resolve on first boot
-STATE_FILE="/var/lib/dplaneos/dplane-state.json"
-mkdir -p "$(dirname "$STATE_FILE")"
-if [ ! -f "$STATE_FILE" ]; then
-  echo '{}' > "$STATE_FILE"
-  log "Created empty state file: $STATE_FILE"
-fi
-
-# Ensure dplane-generated.nix is imported by configuration.nix
-if ! grep -q "dplane-generated.nix" "$CONFIG" 2>/dev/null; then
-  # Insert the import after the first 'imports = [' line
-  if grep -q 'imports = \[' "$CONFIG"; then
-    sed -i 's|imports = \[|imports = [\n    ./dplane-generated.nix  # DPlaneOS JSON-to-Nix bridge (v5.0)|' "$CONFIG"
-    log "Added dplane-generated.nix import to $CONFIG"
-  else
-    warn "Could not auto-add import - add this to $CONFIG manually:"
-    echo "  imports = [ ./dplane-generated.nix ];"
-  fi
-else
-  log "dplane-generated.nix already imported in $CONFIG"
-fi
-
 # ─── Summary ─────────────────────────────────────────────────────────────────
 echo ""
 echo -e "${BOLD}Setup complete. Configuration written to $CONFIG${NC}"

@@ -88,6 +88,7 @@ func (e Env) Apply(st nixwriter.DPlaneState) error {
 	step("firewall", e.firewall(st.FirewallList(), st.FirewallDisabled))
 	step("web certificate", e.webCertificate(st.TLSCert, st.TLSKey))
 	step("SSH", e.ssh(st.SSHPort, st.SSHPasswordAuth, st.SSHPermitRootLogin))
+	step("UPS", e.ups(st.UPS()))
 	return errors.Join(errs...)
 }
 

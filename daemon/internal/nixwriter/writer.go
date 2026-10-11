@@ -127,8 +127,14 @@ type DPlaneState struct {
 	TLSCert string `json:"tls_cert,omitempty"`
 	TLSKey  string `json:"tls_key,omitempty"`
 
-	// ── UPS shutdown policy (UPS page) ─────────────────────────────────────────
-	// Applied to NUT when services.dplaneos.ups.enable is set.
+	// ── UPS (UPS page): connection and shutdown policy, see UPSConfig ─────────
+	UPSMode       string `json:"ups_mode,omitempty"` // "", usb, driver, remote
+	UPSName       string `json:"ups_name,omitempty"`
+	UPSDriver     string `json:"ups_driver,omitempty"`
+	UPSPort       string `json:"ups_port,omitempty"`
+	UPSHost       string `json:"ups_host,omitempty"`
+	UPSUser       string `json:"ups_user,omitempty"`
+	UPSPassword   string `json:"ups_password,omitempty"` // of the NUT server (remote); the file is root-only
 	UPSFinalDelay int    `json:"ups_final_delay,omitempty"`
 	UPSLowBattery int    `json:"ups_low_battery,omitempty"`
 	UPSAction     string `json:"ups_action,omitempty"` // shutdown | hibernate
@@ -577,20 +583,6 @@ func (w *Writer) SetTLS(certPath, keyPath string) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	w.state.TLSCert, w.state.TLSKey = certPath, keyPath
-	return w.flushLocked()
-}
-
-// SetUPSPolicy records the UPS shutdown policy.
-func (w *Writer) SetUPSPolicy(action string, lowBattery, finalDelay int) error {
-	if action != "shutdown" && action != "hibernate" {
-		return fmt.Errorf("invalid UPS action: %q", action)
-	}
-	if lowBattery < 1 || lowBattery > 99 || finalDelay < 0 || finalDelay > 600 {
-		return fmt.Errorf("invalid UPS thresholds")
-	}
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	w.state.UPSAction, w.state.UPSLowBattery, w.state.UPSFinalDelay = action, lowBattery, finalDelay
 	return w.flushLocked()
 }
 

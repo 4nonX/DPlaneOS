@@ -329,6 +329,12 @@ in {
       settings.KbdInteractiveAuthentication = lib.mkDefault null;
       settings.PermitRootLogin              = lib.mkDefault null;
       settings.AllowGroups                  = [ "wheel" "root" ];
+      # In the persisted directory: clients see the same host after a system
+      # update switched to the other system slot.
+      hostKeys = [
+        { path = "/var/lib/dplaneos/ssh/ssh_host_ed25519_key"; type = "ed25519"; }
+        { path = "/var/lib/dplaneos/ssh/ssh_host_rsa_key"; type = "rsa"; bits = 4096; }
+      ];
       extraConfig = lib.mkMerge [
         (lib.mkOrder (-100) "Include /var/lib/dplaneos/system/sshd_config.d/*.conf")
         (lib.mkAfter (lib.concatStringsSep "\n" (

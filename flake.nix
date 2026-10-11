@@ -278,7 +278,6 @@
           impermanence.nixosModules.impermanence
           ./nixos/impermanence.nix
           ./nixos/ota-module.nix
-          ./nixos/dplane-generated.nix
           applianceConfig
           (let d = mkDaemonCGO { inherit system pkgs dplaneosVersion nixpkgs; };
                f = mkFrontend { inherit pkgs; };
@@ -301,7 +300,6 @@
           impermanence.nixosModules.impermanence
           ./nixos/impermanence.nix
           ./nixos/ota-module.nix
-          ./nixos/dplane-generated.nix
           applianceConfig
           (let d = mkDaemonCGO { inherit system pkgs dplaneosVersion nixpkgs; };
                f = mkFrontend { inherit pkgs; };
@@ -344,7 +342,6 @@
           impermanence.nixosModules.impermanence
           ./nixos/impermanence.nix
           ./nixos/ota-module.nix
-          ./nixos/dplane-generated.nix
           applianceConfig
           (let d = mkDaemonCGO { inherit system pkgs dplaneosVersion nixpkgs; };
                f = mkFrontend { inherit pkgs; };

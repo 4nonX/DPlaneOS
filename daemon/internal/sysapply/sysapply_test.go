@@ -309,3 +309,97 @@ func TestSSHSettings(t *testing.T) {
 		t.Error("invalid PermitRootLogin accepted")
 	}
 }
+
+func TestUPS(t *testing.T) {
+	f, env := newFake(t)
+	nut := func(name string) string { return f.read(t, NUTDir+"/"+name) }
+	gone := func(name string) bool {
+		_, err := os.Stat(filepath.Join(f.root, NUTDir, name))
+		return err != nil
+	}
+
+	// No UPS: no configuration, no service.
+	if err := env.Apply(nixwriter.DPlaneState{}); err != nil {
+		t.Fatal(err)
+	}
+	if !gone("ups.conf") || !gone("upsmon.conf") || f.ran("systemctl restart dplaneos-ups") != 0 {
+		t.Fatalf("something was set up without a UPS: %v", f.cmds)
+	}
+
+	// A UPS on USB: driver, local server, monitor.
+	f.cmds = nil
+	st := nixwriter.DPlaneState{UPSMode: "usb", UPSLowBattery: 25, UPSFinalDelay: 15, UPSAction: "shutdown"}
+	if err := env.Apply(st); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"[ups]\n", "driver = usbhid-ups\n", "port = auto\n", "override.battery.charge.low = 25\n", "ignorelb\n"} {
+		if !strings.Contains(nut("ups.conf"), want) {
+			t.Errorf("ups.conf lacks %q:\n%s", want, nut("ups.conf"))
+		}
+	}
+	mon := nut("upsmon.conf")
+	for _, want := range []string{"MONITOR ups@localhost 1 upsmon ", " primary\n", "FINALDELAY 15\n", `SHUTDOWNCMD "/run/current-system/sw/bin/systemctl poweroff"`} {
+		if !strings.Contains(mon, want) {
+			t.Errorf("upsmon.conf lacks %q:\n%s", want, mon)
+		}
+	}
+	if !strings.Contains(nut("upsd.conf"), "LISTEN 127.0.0.1 3493") {
+		t.Errorf("the local server must not listen on the network:\n%s", nut("upsd.conf"))
+	}
+	want := []string{"systemctl restart dplaneos-upsdrv.service", "systemctl restart dplaneos-upsd.service", "systemctl restart dplaneos-upsmon.service"}
+	if strings.Join(f.cmds, "|") != strings.Join(want, "|") {
+		t.Errorf("commands: %v", f.cmds)
+	}
+	for _, u := range []string{"dplaneos-upsdrv.service", "dplaneos-upsd.service", "dplaneos-upsmon.service"} {
+		f.active[u] = true
+	}
+
+	// Only the policy changes: the driver keeps running.
+	f.cmds = nil
+	st.UPSFinalDelay, st.UPSAction = 60, "hibernate"
+	if err := env.Apply(st); err != nil {
+		t.Fatal(err)
+	}
+	if f.ran("systemctl restart dplaneos-upsdrv") != 0 || f.ran("systemctl restart dplaneos-upsmon.service") != 1 {
+		t.Errorf("commands: %v", f.cmds)
+	}
+	if !strings.Contains(nut("upsmon.conf"), "systemctl hibernate") {
+		t.Errorf("action not applied:\n%s", nut("upsmon.conf"))
+	}
+
+	// A UPS on another machine: only the monitor, as secondary.
+	f.cmds = nil
+	st = nixwriter.DPlaneState{UPSMode: "remote", UPSName: "rack", UPSHost: "10.0.0.5", UPSUser: "monuser", UPSPassword: "s3cret", UPSFinalDelay: 5}
+	if err := env.Apply(st); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(nut("upsmon.conf"), "MONITOR rack@10.0.0.5 1 monuser s3cret secondary\n") || !gone("ups.conf") || !gone("upsd.conf") {
+		t.Errorf("remote: %s", nut("upsmon.conf"))
+	}
+	if f.ran("systemctl stop dplaneos-upsdrv.service") != 1 || f.ran("systemctl stop dplaneos-upsd.service") != 1 {
+		t.Errorf("driver and server keep running: %v", f.cmds)
+	}
+
+	// Values that would break out of the file are refused.
+	for _, bad := range []nixwriter.DPlaneState{
+		{UPSMode: "remote", UPSName: "rack", UPSHost: "10.0.0.5", UPSUser: "u", UPSPassword: "a b"},
+		{UPSMode: "remote", UPSName: "rack", UPSHost: "10.0.0.5\nSHUTDOWNCMD x", UPSUser: "u", UPSPassword: "p"},
+		{UPSMode: "driver", UPSDriver: "apcsmart", UPSPort: "/dev/ttyS0\n[evil]"},
+		{UPSMode: "driver", UPSDriver: "x; reboot", UPSPort: "auto"},
+		{UPSMode: "usb", UPSName: "a b"},
+		{UPSMode: "carrier-pigeon"},
+	} {
+		if err := env.Apply(bad); err == nil || !strings.Contains(err.Error(), "UPS") {
+			t.Errorf("%+v accepted: %v", bad, err)
+		}
+	}
+
+	// Off again: everything stops and the configuration is gone.
+	f.cmds = nil
+	if err := env.Apply(nixwriter.DPlaneState{}); err != nil {
+		t.Fatal(err)
+	}
+	if !gone("upsmon.conf") || f.ran("systemctl stop dplaneos-upsmon.service") != 1 {
+		t.Errorf("not switched off: %v", f.cmds)
+	}
+}

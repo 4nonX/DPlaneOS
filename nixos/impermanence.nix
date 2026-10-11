@@ -159,25 +159,18 @@
     # ── Individual files to bind from /persist ────────────────────────────
     files = [
 
-      # ── DPlaneOS JSON state (v5.0 JSON-to-Nix bridge) ───────────────────
-      # dplane-state.json is written by the daemon on every UI change.
-      # It is read by dplane-generated.nix at nixos-rebuild eval time.
-      # Must survive reboots - without this, all UI-configured network/samba
-      # settings revert to NixOS defaults on every reboot.
-      "/var/lib/dplaneos/dplane-state.json"
+      # (The system settings file, dplane-state.json, is inside the persisted
+      # /var/lib/dplaneos. It must not be listed here as well: a mount on the
+      # file itself makes replacing it atomically fail.)
 
       # ── Machine ID ───────────────────────────────────────────────────────
       # A stable machine-id ensures journald cursors survive reboots.
       # Without this, log rotation and journald forwarding break across reboots.
       "/etc/machine-id"
 
-      # ── NixOS host SSH keys ───────────────────────────────────────────────
-      # Persisting host keys means SSH clients don't see "host key changed"
-      # warnings after an OTA update to a new system slot.
-      "/etc/ssh/ssh_host_rsa_key"
-      "/etc/ssh/ssh_host_rsa_key.pub"
-      "/etc/ssh/ssh_host_ed25519_key"
-      "/etc/ssh/ssh_host_ed25519_key.pub"
+      # (The SSH host keys are kept in /var/lib/dplaneos/ssh, see module.nix:
+      # sshd replaces a missing or empty key file, which does not work on a
+      # file that is a mount or a link of its own.)
 
     ]; # files
 

@@ -37,6 +37,7 @@ interface UPSData {
 
 interface UPSResponse {
   success: boolean
+  error?:  string
   data?:   UPSData
   // config fields may also be present
   driver?: string
@@ -98,11 +99,27 @@ function statusInfo(s: string | undefined): { label: string; color: string } {
 // ConfigPanel
 // ---------------------------------------------------------------------------
 
-interface UPSPolicy { success: boolean; action: 'shutdown' | 'hibernate'; threshold: number; grace: number }
+type UPSMode = '' | 'usb' | 'driver' | 'remote'
 
-// The shutdown policy is what the API stores (POST /api/system/ups takes
-// action, threshold, grace). The NUT connection (driver, port, UPS name) is
-// part of the NixOS configuration: services.dplaneos.ups.
+interface UPSPolicy {
+  success: boolean
+  action: 'shutdown' | 'hibernate'
+  threshold: number
+  grace: number
+  // How the UPS is connected (settable on installed systems).
+  connection_editable?: boolean
+  mode?: UPSMode
+  name?: string
+  driver?: string
+  port?: string
+  host?: string
+  username?: string
+  has_password?: boolean
+}
+
+// Connection and shutdown policy, saved together (POST /api/system/ups) and
+// applied at once: the daemon writes the NUT configuration and (re)starts
+// its services.
 function ConfigPanel() {
   const qc = useQueryClient()
   const policyQ = useQuery({
@@ -118,20 +135,85 @@ function PolicyForm({ initial, onSaved }: { initial: UPSPolicy; onSaved: () => v
   const [action, setAction] = useState(initial.action)
   const [threshold, setThreshold] = useState(String(initial.threshold))
   const [grace, setGrace] = useState(String(initial.grace))
+  const [mode, setMode] = useState<UPSMode>(initial.mode ?? '')
+  const [name, setName] = useState(initial.name || 'ups')
+  const [driver, setDriver] = useState(initial.driver || '')
+  const [port, setPort] = useState(initial.port || '')
+  const [host, setHost] = useState(initial.host || '')
+  const [username, setUsername] = useState(initial.username || '')
+  const [password, setPassword] = useState('')
+  const editable = initial.connection_editable ?? false
 
   const save = useMutation({
     mutationFn: () => {
       const t = Number(threshold), g = Number(grace)
       if (!(t >= 1 && t <= 99)) throw new Error('Shutdown level must be 1 to 99 %')
       if (!(g >= 0 && g <= 600)) throw new Error('Grace period must be 0 to 600 seconds')
-      return api.post('/api/system/ups', { action, threshold: t, grace: g })
+      const body: Record<string, unknown> = { action, threshold: t, grace: g }
+      if (editable) {
+        Object.assign(body, { mode, name: name.trim(), driver: driver.trim(), port: port.trim(), host: host.trim(), username: username.trim(), password })
+      }
+      return api.post('/api/system/ups', body)
     },
-    onSuccess: () => { toast.success('UPS shutdown policy saved'); onSaved() },
+    onSuccess: () => { toast.success(mode === '' && editable ? 'UPS monitoring is off' : 'UPS settings applied'); setPassword(''); onSaved() },
     onError: (e: Error) => toast.error(e.message),
   })
 
   return (
     <div className="card" style={{ borderRadius: 'var(--radius-lg)', padding: '20px 24px', marginTop: 24 }}>
+      {editable && (
+        <>
+          <div style={{ fontWeight: 700, marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Icon name="cable" size={18} style={{ color: 'var(--primary)' }} />Connection
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 14, marginBottom: 20 }}>
+            <label className="field">
+              <span className="field-label">UPS</span>
+              <select value={mode} onChange={e => setMode(e.target.value as UPSMode)} className="input" style={{ appearance: 'none' }}>
+                <option value="">None</option>
+                <option value="usb">Connected by USB</option>
+                <option value="driver">Serial port or other driver</option>
+                <option value="remote">On another machine (NUT server)</option>
+              </select>
+            </label>
+            {mode !== '' && (
+              <label className="field">
+                <span className="field-label">{mode === 'remote' ? 'UPS name on the server' : 'Name'}</span>
+                <input value={name} onChange={e => setName(e.target.value)} className="input" style={{ fontFamily: 'var(--font-mono)' }} />
+              </label>
+            )}
+            {mode === 'driver' && (
+              <>
+                <label className="field">
+                  <span className="field-label">NUT driver</span>
+                  <input value={driver} onChange={e => setDriver(e.target.value)} placeholder="apcsmart" className="input" style={{ fontFamily: 'var(--font-mono)' }} />
+                </label>
+                <label className="field">
+                  <span className="field-label">Port</span>
+                  <input value={port} onChange={e => setPort(e.target.value)} placeholder="/dev/ttyS0" className="input" style={{ fontFamily: 'var(--font-mono)' }} />
+                </label>
+              </>
+            )}
+            {mode === 'remote' && (
+              <>
+                <label className="field">
+                  <span className="field-label">Server</span>
+                  <input value={host} onChange={e => setHost(e.target.value)} placeholder="192.168.1.20" className="input" style={{ fontFamily: 'var(--font-mono)' }} />
+                </label>
+                <label className="field">
+                  <span className="field-label">User</span>
+                  <input value={username} onChange={e => setUsername(e.target.value)} placeholder="upsmon" className="input" autoComplete="off" />
+                </label>
+                <label className="field">
+                  <span className="field-label">Password</span>
+                  <input type="password" value={password} onChange={e => setPassword(e.target.value)} className="input" autoComplete="new-password"
+                    placeholder={initial.has_password ? 'unchanged' : ''} />
+                </label>
+              </>
+            )}
+          </div>
+        </>
+      )}
       <div style={{ fontWeight: 700, marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
         <Icon name="settings" size={18} style={{ color: 'var(--primary)' }} />Shutdown Policy
       </div>
@@ -145,7 +227,8 @@ function PolicyForm({ initial, onSaved }: { initial: UPSPolicy; onSaved: () => v
         </label>
         <label className="field">
           <span className="field-label">Shutdown at battery %</span>
-          <input type="number" value={threshold} onChange={e => setThreshold(e.target.value)} min={1} max={99} className="input" />
+          <input type="number" value={threshold} onChange={e => setThreshold(e.target.value)} min={1} max={99} className="input"
+            disabled={mode === 'remote'} title={mode === 'remote' ? 'Decided by the server the UPS is attached to' : undefined} />
         </label>
         <label className="field">
           <span className="field-label">Grace period (seconds)</span>
@@ -153,11 +236,12 @@ function PolicyForm({ initial, onSaved }: { initial: UPSPolicy; onSaved: () => v
         </label>
       </div>
       <p style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', margin: '0 0 16px' }}>
-        The UPS connection (driver, port, UPS name) is set in the NixOS configuration under
-        <code style={{ margin: '0 4px' }}>services.dplaneos.ups</code>. The policy applies with the next pending NixOS changes.
+        {mode === 'remote'
+          ? 'The server decides when the battery counts as low; this system shuts down when it says so.'
+          : 'The system shuts down when the UPS runs on battery and its charge falls to this level.'}
       </p>
       <button onClick={() => save.mutate()} disabled={save.isPending} className="btn btn-primary">
-        <Icon name="save" size={15} />{save.isPending ? 'Saving…' : 'Save Policy'}
+        <Icon name="save" size={15} />{save.isPending ? 'Applying…' : 'Apply'}
       </button>
     </div>
   )
@@ -204,11 +288,11 @@ export function UPSPage() {
       {!hasData ? (
         <div className="card" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '60px 0', gap: 16, borderRadius: 'var(--radius-xl)' }}>
           <Icon name="battery_unknown" size={56} style={{ color: 'var(--text-tertiary)', opacity: 0.4 }} />
-          <div style={{ fontWeight: 700, color: 'var(--text-secondary)', fontSize: 'var(--text-lg)' }}>No UPS detected</div>
-          <div style={{ color: 'var(--text-tertiary)', fontSize: 'var(--text-sm)', maxWidth: 380, textAlign: 'center' }}>
-            Connect a UPS device and ensure NUT (Network UPS Tools) is installed and configured.
+          <div style={{ fontWeight: 700, color: 'var(--text-secondary)', fontSize: 'var(--text-lg)' }}>No UPS data</div>
+          <div style={{ color: 'var(--text-tertiary)', fontSize: 'var(--text-sm)', maxWidth: 420, textAlign: 'center' }}>
+            {upsQ.data?.error ?? 'No UPS is set up.'}
           </div>
-          <button onClick={() => setShowConfig(true)} className="btn btn-primary"><Icon name="settings" size={15} />Configure NUT</button>
+          <button onClick={() => setShowConfig(true)} className="btn btn-primary"><Icon name="settings" size={15} />Set up a UPS</button>
         </div>
       ) : (
         <>

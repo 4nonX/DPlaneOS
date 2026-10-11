@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"bufio"
 	"encoding/json"
 	"fmt"
@@ -40,6 +41,12 @@ func (h *SystemHandler) GetUPSStatus(w http.ResponseWriter, r *http.Request) {
 	if !security.IsValidSessionToken(sessionID) {
 		audit.LogSecurityEvent("Invalid session token", user, r.RemoteAddr)
 		respondErrorSimple(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// Installed system: the UPS set up on this page.
+	if onNixOS() {
+		h.upsStatusConfigured(w, user)
 		return
 	}
 
@@ -124,9 +131,49 @@ func (h *SystemHandler) SaveUPSConfig(w http.ResponseWriter, r *http.Request) {
 		Action    string `json:"action"`    // "shutdown" or "hibernate"
 		Threshold int    `json:"threshold"` // battery % to trigger
 		Grace     int    `json:"grace"`     // seconds grace period
+
+		// Connection (installed systems): see nixwriter.UPSConfig.
+		Mode     *string `json:"mode"`
+		Name     string  `json:"name"`
+		Driver   string  `json:"driver"`
+		Port     string  `json:"port"`
+		Host     string  `json:"host"`
+		Username string  `json:"username"`
+		Password string  `json:"password"` // empty: keep the saved one
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		respondErrorSimple(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// Installed system: the connection and the policy are saved and applied
+	// at once (internal/sysapply writes the NUT configuration and restarts
+	// its services).
+	if onNixOS() {
+		cfg := NixWriter.State().UPS()
+		if req.Action != "" {
+			cfg.Action = req.Action
+		}
+		if req.Threshold != 0 {
+			cfg.LowBattery = req.Threshold
+		}
+		cfg.FinalDelay = req.Grace
+		if req.Mode != nil {
+			samePeer := cfg.Mode == "remote" && cfg.Host == req.Host && cfg.User == req.Username
+			cfg.Mode, cfg.Name, cfg.Driver, cfg.Port, cfg.Host, cfg.User = *req.Mode, req.Name, req.Driver, req.Port, req.Host, req.Username
+			if req.Password != "" || !samePeer {
+				cfg.Password = req.Password
+			}
+		}
+		if err := NixWriter.SetUPS(cfg); err != nil {
+			audit.LogActivity(user, "ups_config_save", map[string]any{"mode": cfg.Mode, "success": false, "error": err.Error()})
+			respondErrorSimple(w, "UPS settings not applied: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		audit.LogActivity(user, "ups_config_save", map[string]any{
+			"mode": cfg.Mode, "action": cfg.Action, "threshold": cfg.LowBattery, "grace": cfg.FinalDelay,
+		})
+		respondOK(w, CommandResponse{Success: true, Output: "UPS settings applied"})
 		return
 	}
 
@@ -139,20 +186,6 @@ func (h *SystemHandler) SaveUPSConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Grace < 0 || req.Grace > 600 {
 		req.Grace = 30
-	}
-
-	// NixOS: NUT is configured by services.dplaneos.ups; the policy goes into
-	// the bridge (lowBattery, finalDelay, action) and applies on rebuild.
-	if onNixOS() {
-		if err := NixWriter.SetUPSPolicy(req.Action, req.Threshold, req.Grace); err != nil {
-			respondErrorSimple(w, "Cannot save UPS policy: "+err.Error(), http.StatusBadRequest)
-			return
-		}
-		audit.LogActivity(user, "ups_config_save", map[string]any{
-			"action": req.Action, "threshold": req.Threshold, "grace": req.Grace,
-		})
-		respondOK(w, CommandResponse{Success: true, Output: "UPS policy saved; applies after the pending NixOS changes are applied"})
-		return
 	}
 
 	// Write upsmon.conf snippet - create/overwrite dplaned section
@@ -190,29 +223,70 @@ func (h *SystemHandler) SaveUPSConfig(w http.ResponseWriter, r *http.Request) {
 	respondOK(w, CommandResponse{Success: true, Output: "UPS config saved"})
 }
 
-// GetUPSPolicy returns the saved shutdown policy (the UPS page edits it).
+// GetUPSPolicy returns the saved UPS connection and shutdown policy (the
+// UPS page edits them).
 // GET /api/system/ups/policy
-// The NUT connection itself (driver, port, UPS name) comes from the NixOS
-// configuration (services.dplaneos.ups), not from this API.
 func (h *SystemHandler) GetUPSPolicy(w http.ResponseWriter, r *http.Request) {
-	action, threshold, grace := "shutdown", 20, 30
-	if onNixOS() && NixWriter != nil {
-		st := NixWriter.State()
-		if st.UPSAction != "" {
-			action = st.UPSAction
+	resp := map[string]any{"success": true, "action": "shutdown", "threshold": 20, "grace": 30, "mode": ""}
+	if onNixOS() {
+		c := NixWriter.State().UPS()
+		if c.Action != "" {
+			resp["action"] = c.Action
 		}
-		if st.UPSLowBattery > 0 {
-			threshold = st.UPSLowBattery
+		if c.LowBattery > 0 {
+			resp["threshold"] = c.LowBattery
 		}
-		if st.UPSFinalDelay > 0 {
-			grace = st.UPSFinalDelay
+		if c.Mode != "" || c.FinalDelay > 0 {
+			resp["grace"] = c.FinalDelay
 		}
+		resp["mode"], resp["name"], resp["driver"], resp["port"] = c.Mode, c.Name, c.Driver, c.Port
+		resp["host"], resp["username"], resp["has_password"] = c.Host, c.User, c.Password != ""
+		// The connection can be set here (elsewhere NUT is configured by hand).
+		resp["connection_editable"] = true
 	}
-	respondOK(w, map[string]any{
-		"success":   true,
-		"action":    action,
-		"threshold": threshold,
-		"grace":     grace,
+	respondOK(w, resp)
+}
+
+// upsStatusConfigured reports the UPS that was set up on the UPS page.
+func (h *SystemHandler) upsStatusConfigured(w http.ResponseWriter, user string) {
+	start := time.Now()
+	c := NixWriter.State().UPS()
+	if c.Mode == "" {
+		respondOK(w, CommandResponse{Success: false, Error: "No UPS is set up"})
+		return
+	}
+	target := c.Name + "@localhost"
+	if c.Mode == "remote" {
+		target = c.Name + "@" + c.Host
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "upsc", target).CombinedOutput()
+	duration := time.Since(start)
+	audit.LogCommand(audit.LevelInfo, user, "upsc_query", []string{target}, err == nil, duration, err)
+	if err != nil {
+		msg := strings.TrimSpace(string(out))
+		if i := strings.LastIndex(msg, "\n"); i >= 0 {
+			msg = msg[i+1:]
+		}
+		respondOK(w, CommandResponse{Success: false, Error: "The UPS does not answer: " + msg, Duration: duration.Milliseconds()})
+		return
+	}
+	upsData := parseUPSData(string(out))
+	respondOK(w, CommandResponse{
+		Success: true,
+		Data: map[string]any{
+			"battery_charge":  getUPSValue(upsData, "battery.charge", "N/A") + "%",
+			"battery_runtime": getUPSValue(upsData, "battery.runtime", "N/A") + " sec",
+			"status":          getUPSValue(upsData, "ups.status", "Unknown"),
+			"model":           getUPSValue(upsData, "ups.model", "Unknown"),
+			"manufacturer":    getUPSValue(upsData, "ups.mfr", "Unknown"),
+			"serial":          getUPSValue(upsData, "ups.serial", "Unknown"),
+			"load":            getUPSValue(upsData, "ups.load", "0"),
+			"input_voltage":   getUPSValue(upsData, "input.voltage", "0"),
+			"output_voltage":  getUPSValue(upsData, "output.voltage", "0"),
+		},
+		Duration: duration.Milliseconds(),
 	})
 }
 

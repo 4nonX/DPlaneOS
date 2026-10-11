@@ -28,7 +28,6 @@ pkgs.testers.nixosTest {
       impermanence.nixosModules.impermanence
       ../impermanence.nix
       ../ota-module.nix
-      ../dplane-generated.nix
     ];
     services.dplaneos = {
       inherit daemonPackage frontendPackage;
@@ -265,6 +264,24 @@ pkgs.testers.nixosTest {
             nas.wait_until_succeeds("echo | openssl s_client -connect localhost:443 2>/dev/null | openssl x509 -noout -subject | grep -q 'tank-nas.example'", timeout=30)
             client.succeed(FETCH + f"-k https://{NAS}/")
 
+        with subtest("UPS: set up in the web interface"):
+            UPS_FILE = "/var/lib/dplaneos/nut/test.dev"
+            assert refused(api("GET", "/api/system/ups")), "a UPS is reported although none is set up"
+            # A simulated UPS: NUT's dummy driver reads its state from a file.
+            nas.succeed("mkdir -p /var/lib/dplaneos/nut && printf 'ups.status: OL\nbattery.charge: 90\nups.model: Test UPS\n' > " + UPS_FILE)
+            ok(api("POST", "/api/system/ups", {"mode": "driver", "name": "testups", "driver": "dummy-ups", "port": UPS_FILE,
+                                              "action": "shutdown", "threshold": 30, "grace": 20}), "set up the UPS")
+            nas.wait_until_succeeds("upsc testups@localhost battery.charge 2>/dev/null | grep -qx 90", timeout=90)
+            status = ok(api("GET", "/api/system/ups"), "UPS status")["data"]
+            assert status["battery_charge"] == "90%" and status["model"] == "Test UPS" and status["status"] == "OL", status
+            policy = api("GET", "/api/system/ups/policy")
+            assert (policy["mode"], policy["driver"], policy["threshold"], policy["grace"]) == ("driver", "dummy-ups", 30, 20), policy
+            assert refused(api("POST", "/api/system/ups", {"mode": "driver", "name": "x y", "driver": "dummy-ups", "port": UPS_FILE}))
+            for unit in ("dplaneos-upsdrv", "dplaneos-upsd", "dplaneos-upsmon"):
+                nas.succeed(f"systemctl is-active {unit}.service")
+            # Not reachable from the network.
+            client.fail(f"timeout 5 bash -c 'echo > /dev/tcp/{NAS}/3493'")
+
         with subtest("SSH: administrators sign in with a key; settings apply at once"):
             SSH = "ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=8 -o BatchMode=yes -i /root/key "
             client.succeed("ssh-keygen -q -t ed25519 -N ''' -f /root/key")
@@ -411,6 +428,12 @@ pkgs.testers.nixosTest {
             nas.succeed("timedatectl show-timesync -p SystemNTPServers --value | grep -qw 10.0.2.2")
             nas.succeed("echo | openssl s_client -connect localhost:443 2>/dev/null | openssl x509 -noout -subject | grep -q 'tank-nas.example'")
             nas.succeed("systemctl is-active dplaneos-system-settings.service")
+            # The UPS is monitored again.
+            nas.wait_until_succeeds("upsc testups@localhost battery.charge 2>/dev/null | grep -qx 90", timeout=90)
+            nas.succeed("systemctl is-active dplaneos-upsmon.service")
+            # Settings can still be changed after a reboot (the settings file is writable).
+            ok(api("POST", "/api/firewall/rule", {"action": "allow", "port": "8090", "proto": "udp"}), "a rule after the reboot")
+            fw_delete("allow", 8090, "Anywhere")
             # The firewall rules are in force again.
             listener(8088)
             listener(8089)
@@ -461,6 +484,17 @@ pkgs.testers.nixosTest {
             login()
             assert api("GET", "/api/zfs/pools")["pools"][0]["health"] == "DEGRADED"
             nas.succeed(f"zpool online tank {D1}")
+
+        with subtest("UPS: on battery below the configured level, the system shuts down"):
+            nas.wait_until_succeeds("upsc testups@localhost ups.status 2>/dev/null | grep -qx OL", timeout=90)
+            # On battery, but above the level: nothing happens.
+            nas.succeed("printf 'ups.status: OB\nbattery.charge: 60\nups.model: Test UPS\n' > " + UPS_FILE)
+            nas.wait_until_succeeds("upsc testups@localhost ups.status 2>/dev/null | grep -qx OB", timeout=60)
+            nas.sleep(15)
+            nas.succeed("systemctl is-system-running | grep -qv stopping")
+            # Below it: low battery, and the system powers off by itself.
+            nas.succeed("printf 'ups.status: OB\nbattery.charge: 20\nups.model: Test UPS\n' > " + UPS_FILE)
+            nas.wait_for_shutdown()
     except Exception:
         diag()
         raise

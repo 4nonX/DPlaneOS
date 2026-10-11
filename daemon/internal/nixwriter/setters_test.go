@@ -35,15 +35,15 @@ func TestNewSettersValidateAndPersist(t *testing.T) {
 	if err := w.SetTLS("/a.crt\"; x", "/k"); err == nil {
 		t.Error("TLS path with quote accepted")
 	}
-	if err := w.SetUPSPolicy("shutdown", 25, 15); err != nil {
+	if err := w.SetUPS(UPSConfig{Action: "shutdown", LowBattery: 25, FinalDelay: 15}); err != nil {
 		t.Fatal(err)
 	}
 	for _, bad := range []struct {
 		a    string
 		l, d int
-	}{{"reboot", 25, 15}, {"shutdown", 0, 15}, {"shutdown", 25, 601}} {
-		if err := w.SetUPSPolicy(bad.a, bad.l, bad.d); err == nil {
-			t.Errorf("SetUPSPolicy(%q, %d, %d) accepted", bad.a, bad.l, bad.d)
+	}{{"reboot", 25, 15}, {"shutdown", 100, 15}, {"shutdown", 25, 601}} {
+		if err := w.SetUPS(UPSConfig{Action: bad.a, LowBattery: bad.l, FinalDelay: bad.d}); err == nil {
+			t.Errorf("SetUPS(%q, %d, %d) accepted", bad.a, bad.l, bad.d)
 		}
 	}
 
