@@ -27,10 +27,10 @@ import type React from 'react'
 
 interface Cert {
   name:     string
-  details?: string    // raw multi-line text from openssl x509 -text
-  subject?: string    // parsed from details
-  expires?: string    // parsed from details
-  issuer?:  string    // parsed from details
+  details?: string    // subject, issuer, names and validity, as text
+  subject?: string    // common name
+  expires?: string    // RFC 3339
+  issuer?:  string    // common name of the issuer, or "Self-signed"
 }
 
 interface CertsResponse {
@@ -494,7 +494,7 @@ export function CertificatesPage() {
           <CertCard
             key={cert.name}
             cert={cert}
-            isActive={activeCert.includes(cert.name)}
+            isActive={activeCert === cert.name}
             onActivate={() => activate.mutate(cert.name)}
             activating={activate.isPending}
           />

@@ -6,7 +6,6 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -464,12 +463,7 @@ func ensureSelfSignedCert(certPath, keyPath string) error {
 	if host == "" {
 		host = "dplaneos"
 	}
-	out, err := exec.Command("openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "3650",
-		"-subj", "/CN="+host, "-keyout", keyPath, "-out", certPath).CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("openssl: %v: %s", err, strings.TrimSpace(string(out)))
-	}
-	return os.Chmod(keyPath, 0600)
+	return writeSelfSignedCert(keyPath, certPath, host, "", 3650)
 }
 
 // RestoreFTP re-installs and starts vsftpd at daemon start when FTP is

@@ -1,14 +1,18 @@
 package handlers
 
 import (
+	"bytes"
 	"crypto"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509/pkix"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
+	"math/big"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -25,6 +29,7 @@ import (
 
 	"crypto/x509"
 	"dplaned/internal/jobs"
+	"dplaned/internal/sysapply"
 	"encoding/pem"
 	"github.com/go-acme/lego/v4/certcrypto"
 	"github.com/go-acme/lego/v4/certificate"
@@ -772,34 +777,71 @@ func (h *CertHandler) ListCerts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var certs []map[string]string
-	for _, e := range entries {
-		if name, ok := strings.CutSuffix(e.Name(), ".crt"); ok {
-			certFile := filepath.Join(configPath("ssl"), e.Name())
-			// Get cert info
-			out, _ := cmdutil.RunFast("openssl", "x509", "-in", certFile, "-noout", "-subject", "-enddate", "-issuer")
-			info := map[string]string{"name": name, "file": e.Name(), "details": strings.TrimSpace(string(out))}
-			// Check if key exists
-			keyFile := filepath.Join(configPath("ssl"), name+".key")
-			if _, err := os.Stat(keyFile); err == nil {
-				info["has_key"] = "true"
-			}
-			certs = append(certs, info)
-		}
-	}
+	// The certificate the web interface serves at the moment.
+	served, _ := os.ReadFile(sysapply.WebCertFile)
 
-	// Also check nginx current cert
-	nginxCert := ""
-	if data, err := os.ReadFile("/etc/nginx/sites-enabled/dplaneos"); err == nil {
-		for line := range strings.SplitSeq(string(data), "\n") {
-			if strings.Contains(line, "ssl_certificate ") && !strings.Contains(line, "ssl_certificate_key") {
-				nginxCert = strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(strings.TrimSpace(line), "ssl_certificate "), ";"))
+	certs := []map[string]string{}
+	activeCert := ""
+	for _, e := range entries {
+		name, ok := strings.CutSuffix(e.Name(), ".crt")
+		if !ok {
+			continue
+		}
+		certFile := filepath.Join(configPath("ssl"), e.Name())
+		info := map[string]string{"name": name, "file": e.Name()}
+		raw, err := os.ReadFile(certFile)
+		if err == nil {
+			for k, v := range describeCert(raw) {
+				info[k] = v
+			}
+			if len(served) > 0 && bytes.Equal(bytes.TrimSpace(raw), bytes.TrimSpace(served)) {
+				activeCert = name
 			}
 		}
+		if _, err := os.Stat(filepath.Join(configPath("ssl"), name+".key")); err == nil {
+			info["has_key"] = "true"
+		}
+		certs = append(certs, info)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{"success": true, "certs": certs, "active_cert": nginxCert})
+	json.NewEncoder(w).Encode(map[string]any{"success": true, "certs": certs, "active_cert": activeCert})
+}
+
+// describeCert reads what the Certificates page shows of a certificate
+// (the first one in a PEM file).
+func describeCert(pemData []byte) map[string]string {
+	block, _ := pem.Decode(pemData)
+	if block == nil {
+		return map[string]string{"details": "not a certificate"}
+	}
+	cert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return map[string]string{"details": "not a certificate: " + err.Error()}
+	}
+	subject := cert.Subject.CommonName
+	if subject == "" {
+		subject = cert.Subject.String()
+	}
+	issuer := cert.Issuer.CommonName
+	if issuer == "" {
+		issuer = cert.Issuer.String()
+	}
+	if cert.Issuer.String() == cert.Subject.String() {
+		issuer = "Self-signed"
+	}
+	names := append([]string{}, cert.DNSNames...)
+	for _, ip := range cert.IPAddresses {
+		names = append(names, ip.String())
+	}
+	return map[string]string{
+		"subject": subject,
+		"issuer":  issuer,
+		"expires": cert.NotAfter.UTC().Format(time.RFC3339),
+		"details": fmt.Sprintf("Subject: %s\nIssuer: %s\nNames: %s\nNot Before: %s\nNot After : %s",
+			cert.Subject.String(), cert.Issuer.String(), strings.Join(names, ", "),
+			cert.NotBefore.UTC().Format(time.RFC3339), cert.NotAfter.UTC().Format(time.RFC3339)),
+	}
 }
 
 // DeleteCert removes an SSL certificate and its key
@@ -875,34 +917,12 @@ func (h *CertHandler) GenerateSelfSigned(w http.ResponseWriter, r *http.Request)
 	keyFile := filepath.Join(configPath("ssl"), req.Name+".key")
 	certFile := filepath.Join(configPath("ssl"), req.Name+".crt")
 
-	// Build SAN extension
-	var sanBuf strings.Builder
-	fmt.Fprintf(&sanBuf, "subjectAltName=DNS:%s", req.CN)
-	if req.SANs != "" {
-		for san := range strings.SplitSeq(req.SANs, ",") {
-			san = strings.TrimSpace(san)
-			if san != "" {
-				if strings.Contains(san, ".") && !strings.Contains(san, ":") {
-					fmt.Fprintf(&sanBuf, ",DNS:%s", san)
-				} else {
-					fmt.Fprintf(&sanBuf, ",IP:%s", san)
-				}
-			}
-		}
-	}
-	sanExt := sanBuf.String()
-
 	start := time.Now()
-	output, err := cmdutil.RunMedium("openssl", "req", "-x509", "-newkey", "rsa:2048",
-		"-keyout", keyFile, "-out", certFile,
-		"-days", fmt.Sprintf("%d", req.Days),
-		"-nodes", "-subj", fmt.Sprintf("/CN=%s", req.CN),
-		"-addext", sanExt)
+	err := writeSelfSignedCert(keyFile, certFile, req.CN, req.SANs, req.Days)
 	duration := time.Since(start)
-
 	if err != nil {
-		audit.LogAction("cert_generate", user, fmt.Sprintf("Failed: %s", string(output)), false, duration)
-		respondErrorSimple(w, "Operation failed", http.StatusInternalServerError)
+		audit.LogAction("cert_generate", user, fmt.Sprintf("Failed: %v", err), false, duration)
+		respondErrorSimple(w, "The certificate could not be created: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -1601,4 +1621,49 @@ func (h *PowerMgmtHandler) SpindownNow(w http.ResponseWriter, r *http.Request) {
 	audit.LogAction("power_spindown_now", user, fmt.Sprintf("Spindown %s", req.Device), true, 0)
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{"success": true})
+}
+
+// writeSelfSignedCert creates a key and a certificate signed with it, for
+// the name cn and the further names and addresses in sans (comma-separated).
+func writeSelfSignedCert(keyFile, certFile, cn, sans string, days int) error {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		return err
+	}
+	serial, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 127))
+	if err != nil {
+		return err
+	}
+	tmpl := &x509.Certificate{
+		SerialNumber:          serial,
+		Subject:               pkix.Name{CommonName: cn},
+		NotBefore:             time.Now().Add(-5 * time.Minute),
+		NotAfter:              time.Now().Add(time.Duration(days) * 24 * time.Hour),
+		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		BasicConstraintsValid: true,
+	}
+	for _, name := range append([]string{cn}, strings.Split(sans, ",")...) {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		if ip := net.ParseIP(name); ip != nil {
+			tmpl.IPAddresses = append(tmpl.IPAddresses, ip)
+		} else {
+			tmpl.DNSNames = append(tmpl.DNSNames, name)
+		}
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	if err != nil {
+		return err
+	}
+	keyDER, err := x509.MarshalPKCS8PrivateKey(key)
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(keyFile, pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyDER}), 0600); err != nil {
+		return err
+	}
+	return os.WriteFile(certFile, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), 0644)
 }

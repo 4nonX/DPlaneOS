@@ -383,6 +383,10 @@ pkgs.testers.nixosTest {
             # A certificate made here and activated is what the web interface serves.
             ok(api("POST", "/api/certs/generate", {"name": "nascert", "cn": "tank-nas.example", "days": 30}), "generate certificate")
             ok(api("POST", "/api/certs/activate", {"name": "nascert"}), "activate certificate")
+            listed = ok(api("GET", "/api/certs/list"), "list certificates")
+            assert listed["active_cert"] == "nascert", listed
+            mine = [c for c in listed["certs"] if c["name"] == "nascert"][0]
+            assert mine["subject"] == "tank-nas.example" and mine["issuer"] == "Self-signed" and mine["expires"].startswith("20"), mine
             nas.wait_until_succeeds("echo | ${pkgs.openssl}/bin/openssl s_client -connect localhost:443 2>/dev/null | ${pkgs.openssl}/bin/openssl x509 -noout -subject | grep -q 'tank-nas.example'", timeout=30)
             client.succeed(FETCH + f"-k https://{NAS}/")
 
