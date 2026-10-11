@@ -138,6 +138,9 @@ This is the complete list; `GET /api/alerts/events` returns the same. An event t
 | `ups.unreachable` | warning | The UPS no longer answers |
 | `update.installed` | info | A system update was installed and kept |
 | `update.reverted` | critical | A system update was removed again; the system runs the previous version |
+| `gitops.applied` | info | A new commit of the configuration repository was applied automatically |
+| `gitops.apply_held` | warning | A new commit was not applied automatically: it deletes something, needs an approval or carries a high-risk change. It waits on the GitOps page |
+| `gitops.apply_failed` | critical | Applying a new commit automatically failed |
 | `auth.failed_burst` | warning | Repeated failed sign-in attempts from one address |
 | `directory.trust_lost` | critical | The Active Directory domain no longer accepts this system's account: domain users cannot open shares |
 | `directory.trust_restored` | info | The Active Directory domain accepts this system's account again |

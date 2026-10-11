@@ -72,6 +72,11 @@ func FullyApplied(r *ApplyResult) bool {
 	return true
 }
 
+// HeadCommit returns the commit the clone in repoDir is at.
+func HeadCommit(repoDir string) (string, error) {
+	return gitOut(repoDir, nil, "rev-parse", "HEAD")
+}
+
 // RecordApplied marks the clone's current HEAD as applied to the live system.
 // Call it after an apply that applied every item (nothing deferred).
 func RecordApplied(db *sql.DB, repoDir string) error {

@@ -33,29 +33,33 @@ type DriftBroadcaster interface {
 
 // DriftDetector monitors for divergence between desired and live state.
 type DriftDetector struct {
-	db           *sql.DB
-	stateYAMLPath string   // absolute path to state.yaml in the cloned repo
-	interval     time.Duration
-	hub          DriftBroadcaster
-	stopCh       chan struct{}
-	wg           sync.WaitGroup
-	mu           sync.Mutex
-	lastResult   *DriftResult
+	db            *sql.DB
+	stateYAMLPath string // absolute path to state.yaml in the cloned repo
+	interval      time.Duration
+	hub           DriftBroadcaster
+	stopCh        chan struct{}
+	wg            sync.WaitGroup
+	mu            sync.Mutex
+	lastResult    *DriftResult
+
+	// AfterCheck, when set, is called with the result of every check (the
+	// regular ones and those made on request). Set before Start.
+	AfterCheck func(*DriftResult)
 }
 
 // DriftResult is what the UI queries via GET /api/gitops/drift-status.
 type DriftResult struct {
-	CheckedAt    time.Time  `json:"checked_at"`
-	Drifted      bool       `json:"drifted"`
-	Plan         *Plan      `json:"plan,omitempty"`
-	Error        string     `json:"error,omitempty"`
+	CheckedAt     time.Time `json:"checked_at"`
+	Drifted       bool      `json:"drifted"`
+	Plan          *Plan     `json:"plan,omitempty"`
+	Error         string    `json:"error,omitempty"`
 	StateYAMLPath string    `json:"state_yaml_path"`
 }
 
 // NewDriftDetector creates a detector. Call Start() to begin monitoring.
 //
-//   stateYAMLPath  - full path to state.yaml, e.g. /var/lib/dplaneos/gitops/state.yaml
-//   interval       - how often to check; 5 minutes is a reasonable default
+//	stateYAMLPath  - full path to state.yaml, e.g. /var/lib/dplaneos/gitops/state.yaml
+//	interval       - how often to check; 5 minutes is a reasonable default
 func NewDriftDetector(db *sql.DB, stateYAMLPath string, interval time.Duration, hub DriftBroadcaster) *DriftDetector {
 	return &DriftDetector{
 		db:            db,
@@ -93,6 +97,9 @@ func (d *DriftDetector) CheckNow() *DriftResult {
 	d.mu.Lock()
 	d.lastResult = result
 	d.mu.Unlock()
+	if d.AfterCheck != nil {
+		d.AfterCheck(result)
+	}
 	return result
 }
 
@@ -121,10 +128,7 @@ func (d *DriftDetector) loop() {
 				continue
 			}
 			if enabled == 1 {
-				result := d.runCheck()
-				d.mu.Lock()
-				d.lastResult = result
-				d.mu.Unlock()
+				d.CheckNow()
 			}
 		}
 	}
@@ -152,7 +156,6 @@ func (d *DriftDetector) runCheck() *DriftResult {
 		result.Error = "GitOps is disabled"
 		return result
 	}
-
 
 	if repoID.Valid {
 		// Bring the clone up to date so drift is measured against what is in

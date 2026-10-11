@@ -1049,6 +1049,9 @@ func main() {
 	r.Handle("/api/config/capture", permRoute("system", "write", http.HandlerFunc(configHistory.Capture))).Methods("POST")
 	r.Handle("/api/config/rollback", permRoute("system", "admin", http.HandlerFunc(configHistory.Rollback))).Methods("POST")
 
+	// PUBLIC (session middleware): called by the Git server after a push;
+	// the handler checks the signature made with the shared secret.
+	r.HandleFunc("/api/gitops/webhook", gitopsHandler.Webhook).Methods("POST")
 	r.Handle("/api/gitops/status", permRoute("system", "read", gitopsHandler.Status)).Methods("GET")
 	r.Handle("/api/gitops/plan", permRoute("system", "read", gitopsHandler.Plan)).Methods("GET")
 	r.Handle("/api/gitops/apply", permRoute("system", "admin", gitopsHandler.Apply)).Methods("POST")
@@ -1779,6 +1782,8 @@ func sessionMiddleware(db *sql.DB, internalCronToken string) mux.MiddlewareFunc 
 				p == "/api/auth/oidc/start" ||
 				p == "/api/auth/oidc/callback" ||
 				p == "/api/auth/oidc/exchange" ||
+				// Git server → "there is a new commit"; signed with the webhook secret
+				p == "/api/gitops/webhook" ||
 				// Setup wizard - no session exists yet on fresh installs
 				p == "/api/system/setup-admin" ||
 				p == "/api/system/status" || // dashboard needs status before login to detect setup_complete

@@ -91,6 +91,15 @@ interface GitOpsSettings {
   sync_protection: boolean;
   sync_system: boolean;
   updated_at: string;
+  /** New commits are applied without anybody pressing Apply, when their plan needs no judgement. */
+  auto_apply?: boolean;
+  /** Write-only: omitted leaves it, '' removes it. */
+  webhook_secret?: string;
+  has_webhook_secret?: boolean;
+  last_auto_commit?: string;
+  last_auto_result?: '' | 'applied' | 'held' | 'failed';
+  last_auto_message?: string;
+  last_auto_at?: string;
 }
 
 interface CategoryCount { in_git: number; live: number }
@@ -154,6 +163,60 @@ const CATEGORY_META = [
   { settingsKey: 'sync_protection', captureKey: 'replication',  label: 'Protection',   desc: 'Replication Schedules',  icon: 'shield',            hint: null },
   { settingsKey: 'sync_system',     captureKey: 'system',       label: 'System',       desc: 'Hostname & Network',     icon: 'settings_ethernet', hint: null },
 ]
+
+/** What happens when a new commit arrives in the repository. */
+function AutoApplyCard({ s, updateSettings }: { s: GitOpsSettings; updateSettings: { mutate: (vals: Partial<GitOpsSettings>) => void } }) {
+  const [secret, setSecret] = useState('')
+  const hookURL = `${window.location.origin}/api/gitops/webhook`
+  const tone = s.last_auto_result === 'applied' ? 'var(--success)' : s.last_auto_result === 'failed' ? 'var(--error)' : 'var(--warning)'
+  return (
+    <div className="card-xl" style={{ marginBottom: 20 }}>
+      <div style={{ display:'flex', alignItems:'flex-start', gap:16 }}>
+        <div style={{ flex:1 }}>
+          <div style={{ fontWeight:700 }}>New commits</div>
+          <div style={{ fontSize:'var(--text-xs)', color:'var(--text-tertiary)', marginTop:4, lineHeight:1.5 }}>
+            The repository is looked at every five minutes. With this on, a new commit is applied by itself when it only
+            creates or changes things and none of the changes is high risk. A commit that deletes something, needs an
+            approval, touches a pool or carries a high-risk change (network addresses, the host name) waits here for you,
+            and you are told by alert. Off: every commit waits for Apply.
+          </div>
+        </div>
+        <label style={{ display:'flex', alignItems:'center', gap:8, cursor:'pointer', whiteSpace:'nowrap' }}>
+          <input type="checkbox" checked={!!s.auto_apply} onChange={e => updateSettings.mutate({ auto_apply: e.target.checked })}
+            style={{ width:16, height:16, accentColor:'var(--primary)' }} />
+          <span style={{ fontWeight:600 }}>Apply automatically</span>
+        </label>
+      </div>
+
+      {s.last_auto_commit && (
+        <div style={{ marginTop:14, padding:'10px 12px', borderRadius:'var(--radius-md)', background:'var(--bg)', border:'1px solid var(--border)', fontSize:'var(--text-xs)' }}>
+          <span style={{ fontWeight:700, color:tone }}>
+            {s.last_auto_result === 'applied' ? 'Applied' : s.last_auto_result === 'failed' ? 'Failed' : 'Waiting for you'}
+          </span>
+          <span style={{ fontFamily:'var(--font-mono)', marginLeft:8 }}>{s.last_auto_commit.slice(0, 12)}</span>
+          {s.last_auto_at && <span style={{ color:'var(--text-tertiary)', marginLeft:8 }}>{fmtDate(s.last_auto_at)}</span>}
+          {s.last_auto_message && <pre style={{ margin:'6px 0 0', whiteSpace:'pre-wrap', color:'var(--text-secondary)', fontFamily:'inherit' }}>{s.last_auto_message}</pre>}
+        </div>
+      )}
+
+      <div style={{ marginTop:16, paddingTop:14, borderTop:'1px solid var(--border)' }}>
+        <div style={{ fontWeight:600, fontSize:'var(--text-sm)' }}>Webhook {s.has_webhook_secret ? <span className="badge badge-success" style={{ marginLeft:6 }}>set up</span> : <span className="badge badge-neutral" style={{ marginLeft:6 }}>not set up</span>}</div>
+        <div style={{ fontSize:'var(--text-xs)', color:'var(--text-tertiary)', margin:'4px 0 10px', lineHeight:1.5 }}>
+          Optional: let the Git server say when there is a new commit, instead of waiting for the next look. Add a webhook
+          for push events there with this address and a secret of your choice, and enter the same secret here
+          (GitHub, Gitea and Forgejo sign their calls with it; GitLab sends it as its secret token).
+        </div>
+        <code style={{ display:'block', fontSize:11, padding:'6px 10px', background:'var(--bg)', border:'1px solid var(--border)', borderRadius:'var(--radius-sm)', marginBottom:10, wordBreak:'break-all' }}>{hookURL}</code>
+        <div style={{ display:'flex', gap:8 }}>
+          <input type="password" autoComplete="new-password" className="input" style={{ maxWidth:340 }} value={secret} onChange={e => setSecret(e.target.value)}
+            placeholder={s.has_webhook_secret ? 'A new secret (at least 16 characters)' : 'Secret (at least 16 characters)'} aria-label="Webhook secret" />
+          <button className="btn btn-primary" disabled={secret.trim().length < 16} onClick={() => { updateSettings.mutate({ webhook_secret: secret.trim() }); setSecret('') }}>Save secret</button>
+          {s.has_webhook_secret && <button className="btn btn-ghost" onClick={() => updateSettings.mutate({ webhook_secret: '' })}>Remove</button>}
+        </div>
+      </div>
+    </div>
+  )
+}
 
 function SettingsTab({ s, updateSettings, repos, setShowWizard, onSyncNow, summary }: {
   s: GitOpsSettings;
@@ -260,6 +323,8 @@ function SettingsTab({ s, updateSettings, repos, setShowWizard, onSyncNow, summa
           </div>
         </div>
       </div>
+
+      <AutoApplyCard s={s} updateSettings={updateSettings} />
 
       {/* Granular Resource Management */}
       <div className="card-xl">

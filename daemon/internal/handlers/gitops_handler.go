@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"dplaned/internal/gitops"
+	"dplaned/internal/secrets"
 )
 
 // Routes added in this file (declarative capture - v10.0):
@@ -83,15 +84,17 @@ func NewGitOpsHandler(
 	hub gitops.DriftBroadcaster,
 ) *GitOpsHandler {
 	detector := gitops.NewDriftDetector(db, stateYAMLPath, 5*time.Minute, hub)
-	detector.Start()
-
-	return &GitOpsHandler{
+	h := &GitOpsHandler{
 		db:            db,
 		smbConfPath:   smbConfPath,
 		stateYAMLPath: stateYAMLPath,
 		detector:      detector,
 		approvals:     make(map[string]bool),
 	}
+	// New commits are applied by themselves when that is switched on.
+	detector.AfterCheck = h.autoApply
+	detector.Start()
+	return h
 }
 
 // Stop cleans up background goroutines. Call from main defer.
@@ -513,6 +516,19 @@ type GitOpsSettings struct {
 	SyncProtection bool   `json:"sync_protection"`
 	SyncSystem     bool   `json:"sync_system"`
 	UpdatedAt      string `json:"updated_at"`
+
+	// AutoApply: new commits are applied without anybody pressing Apply,
+	// when their plan needs no judgement (gitops_auto.go).
+	AutoApply bool `json:"auto_apply"`
+	// WebhookSecret is only ever written: nil leaves it as it is, "" removes
+	// it. HasWebhookSecret says whether one is set.
+	WebhookSecret    *string `json:"webhook_secret,omitempty"`
+	HasWebhookSecret bool    `json:"has_webhook_secret"`
+	// The last commit that was tried automatically.
+	LastAutoCommit  string `json:"last_auto_commit"`
+	LastAutoResult  string `json:"last_auto_result"` // applied, held, failed
+	LastAutoMessage string `json:"last_auto_message"`
+	LastAutoAt      string `json:"last_auto_at"`
 }
 
 func (h *GitOpsHandler) GetSettings(w http.ResponseWriter, r *http.Request) {
@@ -545,6 +561,16 @@ func (h *GitOpsHandler) GetSettings(w http.ResponseWriter, r *http.Request) {
 	s.SyncIdentity = identity == 1
 	s.SyncProtection = protection == 1
 	s.SyncSystem = system == 1
+
+	var auto int
+	var sealed string
+	if err := h.db.QueryRow(`SELECT auto_apply, webhook_secret, last_auto_commit, last_auto_result, last_auto_message,
+		COALESCE(TO_CHAR(last_auto_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), '')
+		FROM gitops_config WHERE id = 1`).Scan(&auto, &sealed, &s.LastAutoCommit, &s.LastAutoResult, &s.LastAutoMessage, &s.LastAutoAt); err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to load gitops settings", err)
+		return
+	}
+	s.AutoApply, s.HasWebhookSecret = auto == 1, sealed != ""
 
 	respondOK(w, map[string]any{"success": true, "settings": s})
 }
@@ -594,6 +620,29 @@ func (h *GitOpsHandler) UpdateSettings(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, "failed to update gitops settings", err)
 		return
+	}
+	if _, err := h.db.Exec(`UPDATE gitops_config SET auto_apply = $1 WHERE id = 1`, boolToInt(req.AutoApply)); err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to update gitops settings", err)
+		return
+	}
+	if req.WebhookSecret != nil {
+		secret := strings.TrimSpace(*req.WebhookSecret)
+		if secret != "" && len(secret) < 16 {
+			respondErrorSimple(w, "The webhook secret must have at least 16 characters", http.StatusBadRequest)
+			return
+		}
+		sealed := ""
+		if secret != "" {
+			var sealErr error
+			if sealed, sealErr = secrets.Seal(secret); sealErr != nil {
+				respondError(w, http.StatusInternalServerError, "failed to store the webhook secret", sealErr)
+				return
+			}
+		}
+		if _, err := h.db.Exec(`UPDATE gitops_config SET webhook_secret = $1 WHERE id = 1`, sealed); err != nil {
+			respondError(w, http.StatusInternalServerError, "failed to update gitops settings", err)
+			return
+		}
 	}
 
 	log.Printf("GITOPS: Settings updated - enabled=%v repo=%d", req.Enabled, req.RepoID)

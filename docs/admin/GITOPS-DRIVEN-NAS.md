@@ -189,14 +189,40 @@ The plan shows each resource with its kind (`CREATE`, `MODIFY`, `DELETE`, `NOP`,
 
 ---
 
-## Auto-Apply on Push
+## Applying New Commits Automatically
 
-> **Not implemented yet.** Earlier versions of this guide described polling and webhook-based auto-apply (`/api/gitops/webhook`, an "Auto-apply on change" setting). Neither exists in the daemon. Automatic apply with safe defaults (no self-heal or prune by default, an empty-state guard, retry with backoff, and a hold instead of automatic revert on failure) is planned in [Design 0001](../design/0001-distributed-state-gitops-ha.md), Phase 5 ([ADR-0007](../design/adr/ADR-0007-gitops-defaults.md)).
+The repository is fetched every 5 minutes; the GitOps page shows the difference between it and the live system. By default nothing is applied until you press **Apply** (or call `POST /api/gitops/apply`).
 
-What happens today:
+**GitOps › Settings › New commits › Apply automatically** changes that for commits whose plan needs no judgement:
 
-- The drift detector fetches the repository every 5 minutes, fast-forwards the local clone and reports drift between the repository and the live system on the GitOps page.
-- Apply is always explicit: the **Apply** button on the GitOps page or `POST /api/gitops/apply`.
+| The plan of the new commit | What happens |
+|---|---|
+| Only creates and changes things, none of the changes high risk | Applied. Alert `gitops.applied` |
+| Deletes something; contains a `BLOCKED`, `AMBIGUOUS` or `MANUAL` item; creates or changes a pool; contains a high-risk change (network addresses, host name) | Not applied. It waits on the GitOps page; alert `gitops.apply_held` says which items and why |
+| Fails while being applied | Stops there. Alert `gitops.apply_failed` |
+
+Rules it keeps:
+
+- A commit is tried once. One that was held or failed stays as it is until you apply it yourself or a newer commit arrives; nothing is retried in a loop, and nothing is reverted automatically.
+- Only new commits are applied. A change somebody makes on the live system outside Git is reported as drift, not undone.
+- In a cluster only the GitOps writer does this (see [Clusters](#clusters)).
+
+The card shows the last commit that was tried and how it went.
+
+### Webhook
+
+To have a push applied within seconds instead of at the next look, let the Git server call the system:
+
+1. GitOps › Settings › New commits › Webhook: enter a secret (at least 16 characters).
+2. On the Git server, add a webhook for push events with the address shown on the card (`https://<system>/api/gitops/webhook`) and the same secret.
+
+GitHub, Gitea and Forgejo sign the call with the secret (HMAC-SHA256 in `X-Hub-Signature-256` or `X-Gitea-Signature`); GitLab sends it as *Secret token* (`X-Gitlab-Token`). A call without a valid signature is refused. A valid call only makes the system look at the repository now; whether the commit is then applied follows the rules above.
+
+```
+GET  /api/gitops/settings     auto_apply, has_webhook_secret, last_auto_commit / _result / _message / _at
+PUT  /api/gitops/settings     { ..., "auto_apply": true, "webhook_secret": "..." }
+POST /api/gitops/webhook      called by the Git server
+```
 
 ---
 
