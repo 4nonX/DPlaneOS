@@ -14,7 +14,7 @@ import { useState } from 'react'
 import { QuorumPanel } from '@/components/ha/QuorumPanel'
 import { GroupsPanel } from '@/components/ha/GroupsPanel'
 import { ProtectionCard } from '@/components/ha/ProtectionCard'
-import { FencingConfigForm, PDUConfigForm, SCSIFencingCard, WatchdogConfigForm } from '@/components/ha/FencingSettings'
+import { FencingConfigForm, HardwareCheckCard, PDUConfigForm, SCSIFencingCard, WatchdogConfigForm } from '@/components/ha/FencingSettings'
 import { CTDBConfig } from '@/components/ha/CTDBConfig'
 import { Icon } from '@/components/ui/Icon'
 
@@ -45,6 +45,7 @@ export function HAPage() {
         </p>
         {showSettings && (
           <div style={{ marginTop: 16, display: 'flex', flexDirection: 'column', gap: 16 }}>
+            <HardwareCheckCard />
             <WatchdogConfigForm />
             <FencingConfigForm />
             <PDUConfigForm />

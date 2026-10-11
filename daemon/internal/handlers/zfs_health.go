@@ -3,6 +3,7 @@ package handlers
 import (
 	"encoding/json"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 )
@@ -38,10 +39,11 @@ type PoolHealthDetail struct {
 // GetPoolHealth returns deep health analysis for all pools
 // GET /api/zfs/health
 func (h *ZFSHealthHandler) GetPoolHealth(w http.ResponseWriter, r *http.Request) {
-	output, err := executeCommand("zpool", []string{"status", "-p"})
+	// -p: exact numbers, -s: slow I/O column, -L: real device names.
+	output, err := executeCommand("zpool", []string{"status", "-p", "-s", "-L"})
 	if err != nil {
 		respondOK(w, map[string]any{
-			"success": true,
+			"success": false,
 			"pools":   []any{},
 			"error":   "Cannot read pool status",
 		})
@@ -222,8 +224,10 @@ func parsePoolHealth(output string) []PoolHealthDetail {
 			} else if strings.HasPrefix(trimmed, "NAME") && strings.Contains(trimmed, "STATE") {
 				inConfig = true
 			} else if inConfig && trimmed != "" && !strings.HasPrefix(trimmed, "pool:") {
+				// The pool's own row and the vdev rows (mirror-0, raidz2-1, ...)
+				// repeat the sums of their disks.
 				disk := parseDiskLine(trimmed)
-				if disk != nil {
+				if disk != nil && disk.Device != current.Name && !vdevRowRe.MatchString(disk.Device) {
 					current.Disks = append(current.Disks, *disk)
 				}
 			}
@@ -238,6 +242,8 @@ func parsePoolHealth(output string) []PoolHealthDetail {
 }
 
 // parseDiskLine parses a single disk line from zpool status
+var vdevRowRe = regexp.MustCompile(`^(mirror|raidz[123]?|draid[0-9:a-z]*|spare|replacing|special|logs|cache|dedup|indirect)(-[0-9]+)?$`)
+
 func parseDiskLine(line string) *DiskHealth {
 	fields := strings.Fields(line)
 	if len(fields) < 5 {

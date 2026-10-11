@@ -4,7 +4,8 @@
  * persistent reservation probe for shared disks.
  *
  * Calls: GET/POST /api/ha/watchdog/configure, /api/ha/fencing/configure,
- * /api/ha/pdu/configure; GET /api/ha/scsi/status; POST /api/ha/scsi/probe
+ * /api/ha/pdu/configure; GET /api/ha/scsi/status; POST /api/ha/scsi/probe;
+ * GET /api/ha/hardware/detect (what this node has: watchdog device, SAS/SCSI pool disks)
  */
 
 import { useState } from 'react'
@@ -547,6 +548,56 @@ export function WatchdogConfigForm() {
       <button onClick={submit} disabled={save.isPending || q.isLoading} className="btn btn-primary">
         <Icon name="save" size={15} />{save.isPending ? 'Saving…' : 'Save Watchdog Config'}
       </button>
+    </div>
+  )
+}
+
+interface HAHardware {
+  watchdog_available: boolean; watchdog_device: string
+  fenced_running: boolean; fenced_devices: string[] | null
+  pool_sg_devices: string[] | null
+  provisional_path: 'shared_storage' | 'replicated'; provisional_path_label: string; provisional_reason: string
+  probe_required: boolean
+}
+
+/** What this node's hardware supports, read without touching the disks. */
+export function HardwareCheckCard() {
+  const q = useQuery({
+    queryKey: ['ha', 'hardware'],
+    queryFn: ({ signal }) => api.get<HAHardware>('/api/ha/hardware/detect', signal),
+  })
+  const hw = q.data
+  const row = (ok: boolean, label: string, detail: string) => (
+    <div style={{ display: 'flex', gap: 10, alignItems: 'baseline', fontSize: 'var(--text-sm)' }}>
+      <Icon name={ok ? 'check_circle' : 'remove_circle_outline'} size={16} style={{ color: ok ? 'var(--success)' : 'var(--text-tertiary)', alignSelf: 'center' }} />
+      <span style={{ fontWeight: 600, minWidth: 190 }}>{label}</span>
+      <span style={{ color: 'var(--text-secondary)' }}>{detail}</span>
+    </div>
+  )
+  return (
+    <div className="card" style={{ borderRadius: 'var(--radius-lg)', padding: '20px 24px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
+        <Icon name="memory" size={24} style={{ color: 'var(--primary)' }} />
+        <div style={{ flex: 1 }}>
+          <div style={{ fontWeight: 700 }}>Hardware check</div>
+          <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>What this node has for protecting storage groups</div>
+        </div>
+        <button className="btn btn-ghost btn-sm" disabled={q.isFetching} onClick={() => q.refetch()}>
+          <Icon name="refresh" size={14} />{q.isFetching ? 'Checking…' : 'Check again'}
+        </button>
+      </div>
+      {q.isError && <div style={{ color: 'var(--error)', fontSize: 'var(--text-sm)' }}>{(q.error as Error).message}</div>}
+      {hw && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {row(hw.watchdog_available, 'Hardware watchdog', hw.watchdog_available ? hw.watchdog_device : 'No watchdog device: a node that loses quorum cannot reset itself')}
+          {row((hw.pool_sg_devices ?? []).length > 0, 'SAS/SCSI pool disks', (hw.pool_sg_devices ?? []).length > 0 ? (hw.pool_sg_devices ?? []).join(', ') : 'None: disks cannot be shared between nodes')}
+          {row(hw.fenced_running, 'Disk reservation service', hw.fenced_running ? `Running, ${(hw.fenced_devices ?? []).length} disk(s) reserved` : 'Not running')}
+          <div style={{ marginTop: 6, padding: '10px 12px', borderRadius: 'var(--radius-md)', background: 'var(--surface)', border: '1px solid var(--border)', fontSize: 'var(--text-sm)' }}>
+            <div style={{ fontWeight: 600 }}>Suggested setup: {hw.provisional_path_label}</div>
+            <div style={{ color: 'var(--text-secondary)', marginTop: 2 }}>{hw.provisional_reason}</div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

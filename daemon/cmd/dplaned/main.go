@@ -712,9 +712,6 @@ func main() {
 	r.Handle("/api/docker/remove", permRoute("docker", "write", confirmRoute("docker_remove", jsonField("container_name"), dockerHandler.RemoveContainer))).Methods("POST")
 	r.Handle("/api/docker/prune", permRoute("docker", "admin", confirmRoute("docker_prune", constTarget("all"), dockerHandler.PruneDocker))).Methods("POST")
 	r.Handle("/api/docker/stats", permRoute("docker", "read", dockerHandler.ContainerStats)).Methods("GET")
-	r.Handle("/api/docker/compose/up", permRoute("docker", "write", dockerHandler.ComposeUp)).Methods("POST")
-	r.Handle("/api/docker/compose/down", permRoute("docker", "write", dockerHandler.ComposeDown)).Methods("POST")
-	r.Handle("/api/docker/compose/status", permRoute("docker", "read", dockerHandler.ComposeStatus)).Methods("GET")
 	r.Handle("/api/docker/images", permRoute("docker", "read", dockerHandler.ListImages)).Methods("GET")
 	r.Handle("/api/docker/images/{id}", permRoute("docker", "write", confirmRoute("docker_rmi", muxVar("id"), dockerHandler.RemoveImage))).Methods("DELETE")
 	r.Handle("/api/docker/containers/{id}/inspect", permRoute("docker", "read", dockerHandler.InspectContainer)).Methods("GET")
@@ -829,7 +826,6 @@ func main() {
 	r.Handle("/api/docker/stacks/yaml", permRoute("docker", "read", stackHandler.GetStackYAML)).Methods("GET")
 	r.Handle("/api/docker/stacks/yaml", permRoute("docker", "write", stackHandler.UpdateStackYAML)).Methods("PUT")
 	r.Handle("/api/docker/stacks", permRoute("docker", "write", stackHandler.DeleteStack)).Methods("DELETE")
-	r.Handle("/api/docker/stacks/action", permRoute("docker", "write", stackHandler.StackAction)).Methods("POST")
 	r.Handle("/api/docker/stacks/stream", permRoute("docker", "write", stackHandler.StreamStackAction)).Methods("GET")
 	r.Handle("/api/docker/stacks/logs/stream", permRoute("docker", "read", stackHandler.StreamStackLogs)).Methods("GET")
 	r.Handle("/api/docker/stacks/services/action", permRoute("docker", "write", stackHandler.ServiceAction)).Methods("POST")
@@ -1038,7 +1034,6 @@ func main() {
 	r.Handle("/api/zfs/delegation/revoke", permRoute("storage", "admin", handlers.RevokeZFSDelegation)).Methods("POST")
 
 	// v3.0.0: Network rollback
-	r.Handle("/api/network/apply", permRoute("network", "write", handlers.ApplyNetworkWithRollback)).Methods("POST")
 	r.Handle("/api/network/confirm", permRoute("network", "write", handlers.ConfirmNetwork)).Methods("POST")
 
 	// v3.0.0: SMB VFS modules
@@ -1060,7 +1055,6 @@ func main() {
 	// Shares handlers (config management)
 	r.Handle("/api/shares/smb/reload", permRoute("shares", "admin", handlers.ReloadSMBConfig)).Methods("POST")
 	r.Handle("/api/shares/smb/test", permRoute("shares", "admin", handlers.TestSMBConfig)).Methods("POST")
-	r.Handle("/api/shares/nfs/reload", permRoute("shares", "admin", handlers.ReloadNFSExports)).Methods("POST")
 	r.Handle("/api/shares/nfs/list", permRoute("shares", "read", handlers.ListNFSExports)).Methods("GET")
 
 	// NFS CRUD handler - NFSHandler writes /etc/exports.d/dplaneos.exports from PostgreSQL
@@ -1316,9 +1310,6 @@ func main() {
 	r.Handle("/api/rbac/roles/{id}", permRoute("roles", "read", handlers.HandleGetRole)).Methods("GET")
 	r.Handle("/api/rbac/roles/{id}", permRoute("roles", "write", handlers.HandleUpdateRole)).Methods("PUT")
 	r.Handle("/api/rbac/roles/{id}", permRoute("roles", "write", handlers.HandleDeleteRole)).Methods("DELETE")
-	r.Handle("/api/rbac/roles/{id}/permissions", permRoute("roles", "read", handlers.HandleGetRolePermissions)).Methods("GET")
-	r.Handle("/api/rbac/roles/{id}/permissions", permRoute("roles", "write", handlers.HandleAssignPermissionToRole)).Methods("POST")
-	r.Handle("/api/rbac/roles/{id}/permissions/{permissionId}", permRoute("roles", "write", handlers.HandleRemovePermissionFromRole)).Methods("DELETE")
 	r.Handle("/api/rbac/permissions", permRoute("roles", "read", handlers.HandleListPermissions)).Methods("GET")
 	r.Handle("/api/rbac/users/{id}/roles", permRoute("roles", "read", handlers.HandleGetUserRoles)).Methods("GET")
 	r.Handle("/api/rbac/users/{id}/roles", permRoute("roles", "write", handlers.HandleAssignRoleToUser)).Methods("POST")
@@ -1327,7 +1318,6 @@ func main() {
 	// /me/* routes are self-service - authenticated users can always read their own permissions
 	r.HandleFunc("/api/rbac/me/permissions", handlers.HandleGetMyPermissions).Methods("GET")
 	r.HandleFunc("/api/rbac/me/roles", handlers.HandleGetMyRoles).Methods("GET")
-	r.HandleFunc("/api/rbac/check", handlers.HandleCheckPermission).Methods("GET")
 
 	// Snapshot Scheduler (v2.0.0)
 	snapScheduleHandler := handlers.NewSnapshotScheduleHandler()
@@ -1358,12 +1348,9 @@ func main() {
 	r.Handle("/api/acl/set", permRoute("storage", "write", aclHandler.SetACL)).Methods("POST")
 
 	// NFSv4 ACL Management (v9.0.0) - nfs4_getfacl / nfs4_setfacl
-	r.Handle("/api/nfs4acl", permRoute("storage", "read", http.HandlerFunc(handlers.GetNFS4ACL))).Methods("GET")
-	r.Handle("/api/nfs4acl", permRoute("storage", "write", http.HandlerFunc(handlers.SetNFS4ACL))).Methods("PUT")
 
 	// Metrics / Reporting (v2.0.0)
 	metricsHandler := handlers.NewMetricsHandler()
-	r.Handle("/api/metrics/current", permRoute("system", "read", metricsHandler.GetCurrentMetrics)).Methods("GET")
 	r.Handle("/api/metrics/history", permRoute("system", "read", metricsHandler.GetHistory)).Methods("GET")
 
 	// Background metrics collection - writes to /var/lib/dplaneos/metrics/*.json
@@ -1430,7 +1417,6 @@ func main() {
 	r.Handle("/api/zfs/quota/project", permRoute("storage", "write", http.HandlerFunc(handlers.RemoveProjectQuota))).Methods("DELETE")
 
 	// Pools lifecycle endpoints (used by PoolsPage wizard)
-	r.Handle("/api/zfs/pools/create", permRoute("storage", "write", http.HandlerFunc(handlers.HandlePoolCreate))).Methods("POST")
 	r.Handle("/api/zfs/pools/destroy", middleware.RequireAAL2(permRoute("storage", "admin", confirmRoute("pool_destroy", jsonField("name"), zfsHandler.HandlePoolDestroy)))).Methods("POST")
 
 	// Trash / Recycle Bin (v2.0.0)

@@ -1,11 +1,11 @@
 package handlers
 
 import (
-	"strings"
-	"regexp"
 	"encoding/json"
 	"net/http"
+	"regexp"
 	"strconv"
+	"strings"
 	"time"
 
 	"dplaned/internal/middleware"
@@ -193,77 +193,6 @@ func HandleListPermissions(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// GetRolePermissions returns permissions for a specific role
-func HandleGetRolePermissions(w http.ResponseWriter, r *http.Request) {
-	roleID, err := strconv.Atoi(mux.Vars(r)["id"])
-	if err != nil {
-		respondError(w, http.StatusBadRequest, "Invalid role ID", err)
-		return
-	}
-
-	permissions, err := security.GetRolePermissions(roleID)
-	if err != nil {
-		respondError(w, http.StatusInternalServerError, "Failed to fetch permissions", err)
-		return
-	}
-
-	respondJSON(w, http.StatusOK, map[string]any{
-		"permissions": permissions,
-		"count":       len(permissions),
-	})
-}
-
-// AssignPermissionToRole assigns a permission to a role
-func HandleAssignPermissionToRole(w http.ResponseWriter, r *http.Request) {
-	roleID, err := strconv.Atoi(mux.Vars(r)["id"])
-	if err != nil {
-		respondError(w, http.StatusBadRequest, "Invalid role ID", err)
-		return
-	}
-
-	var req struct {
-		PermissionID int `json:"permission_id"`
-	}
-
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		respondError(w, http.StatusBadRequest, "Invalid request body", err)
-		return
-	}
-
-	if err := security.AssignPermissionToRole(roleID, req.PermissionID); err != nil {
-		respondError(w, http.StatusInternalServerError, "Failed to assign permission", err)
-		return
-	}
-
-	respondJSON(w, http.StatusOK, map[string]string{
-		"message": "Permission assigned successfully",
-	})
-}
-
-// RemovePermissionFromRole removes a permission from a role
-func HandleRemovePermissionFromRole(w http.ResponseWriter, r *http.Request) {
-	roleID, err := strconv.Atoi(mux.Vars(r)["id"])
-	if err != nil {
-		respondError(w, http.StatusBadRequest, "Invalid role ID", err)
-		return
-	}
-
-	permissionID, err := strconv.Atoi(mux.Vars(r)["permissionId"])
-	if err != nil {
-		respondError(w, http.StatusBadRequest, "Invalid permission ID", err)
-		return
-	}
-
-	if err := security.RemovePermissionFromRole(roleID, permissionID); err != nil {
-		respondError(w, http.StatusInternalServerError, "Failed to remove permission", err)
-		return
-	}
-
-	respondJSON(w, http.StatusOK, map[string]string{
-		"message": "Permission removed successfully",
-	})
-}
-
 // ============================================================================
 // USER ROLE HANDLERS
 // ============================================================================
@@ -436,35 +365,6 @@ func HandleGetMyRoles(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, map[string]any{
 		"roles": roles,
 		"count": len(roles),
-	})
-}
-
-// CheckPermission checks if current user has a specific permission
-func HandleCheckPermission(w http.ResponseWriter, r *http.Request) {
-	user, ok := middleware.GetUserFromContext(r)
-	if !ok {
-		respondError(w, http.StatusUnauthorized, "No authenticated user", nil)
-		return
-	}
-
-	resource := r.URL.Query().Get("resource")
-	action := r.URL.Query().Get("action")
-
-	if resource == "" || action == "" {
-		respondError(w, http.StatusBadRequest, "Resource and action parameters required", nil)
-		return
-	}
-
-	hasPermission, err := security.UserHasPermission(user.ID, resource, action)
-	if err != nil {
-		respondError(w, http.StatusInternalServerError, "Failed to check permission", err)
-		return
-	}
-
-	respondJSON(w, http.StatusOK, map[string]any{
-		"resource":  resource,
-		"action":    action,
-		"permitted": hasPermission,
 	})
 }
 

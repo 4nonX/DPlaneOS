@@ -10,8 +10,7 @@
 #           and no minimum-version enforcement.
 #
 #   After:  This module owns the NFS server configuration. It enables NFSv4.2,
-#           configures rpc.idmapd for user/group name mapping, installs
-#           nfs4-acl-tools so the daemon can call nfs4_getfacl / nfs4_setfacl,
+#           configures rpc.idmapd for user/group name mapping
 #           and enforces nfs4_disable_idmapping=0 via sysctl.
 #
 # TWO-LAYER SPLIT:
@@ -20,7 +19,6 @@
 #     - services.nfs.server with NFSv4.2 and optional version floor
 #     - rpc.idmapd configuration (/etc/idmapd.conf)
 #     - sysctl fs.nfs.nfs4_disable_idmapping = 0
-#     - nfs4-acl-tools in system packages and dplaned PATH (when available in nixpkgs)
 #     - Firewall ports (TCP/UDP 2049, TCP/UDP 111)
 #
 #   DPlaneOS daemon layer owns:
@@ -54,10 +52,6 @@ let
     // lib.optionalAttrs (cfg.minVersion == "4.1" || cfg.minVersion == "4.2") { "vers3" = "n"; }
     // lib.optionalAttrs (cfg.minVersion == "4.2") { "vers4.0" = "n"; };
 
-  # nfs4-acl-tools provides nfs4_getfacl / nfs4_setfacl.
-  # The package was removed from nixpkgs after 25.05; guard against absence
-  # so the module evaluates correctly on any nixpkgs version.
-  aclToolsPkgs = lib.optionals (pkgs ? nfs4-acl-tools) [ pkgs.nfs4-acl-tools ];
 in {
 
   # ── Option declarations ───────────────────────────────────────────────────
@@ -143,14 +137,6 @@ in {
         Method = "nsswitch";
       };
     };
-
-    # ── ACL tools ─────────────────────────────────────────────────────────
-    # nfs4-acl-tools (nfs4_getfacl / nfs4_setfacl) was removed from nixpkgs
-    # after 25.05. Include it when available; the daemon handles the missing
-    # binary gracefully (NFSv4 ACL endpoints return an error if not present).
-    environment.systemPackages = aclToolsPkgs;
-
-    systemd.services.dplaned.path = lib.mkAfter aclToolsPkgs;
 
     # ── Firewall ──────────────────────────────────────────────────────────
     networking.firewall = lib.mkIf cfg.openFirewall {

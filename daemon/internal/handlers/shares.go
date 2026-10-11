@@ -58,33 +58,6 @@ func TestSMBConfig(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// ReloadNFSExports reloads NFS exports
-func ReloadNFSExports(w http.ResponseWriter, r *http.Request) {
-	user := r.Header.Get("X-User")
-	sessionID := r.Header.Get("X-Session-ID")
-
-	if valid, _ := security.ValidateSession(sessionID, user); !valid {
-		respondErrorSimple(w, "Unauthorized", http.StatusUnauthorized)
-		return
-	}
-
-	output, err := cmdutil.RunFast("exportfs", "-ra")
-
-	audit.LogActivity(user, "nfs_reload", map[string]any{
-		"success": err == nil,
-	})
-
-	if err != nil {
-		respondError(w, http.StatusInternalServerError, "Operation failed", err)
-		return
-	}
-
-	json.NewEncoder(w).Encode(map[string]any{
-		"success": true,
-		"output":  string(output),
-	})
-}
-
 // ListNFSExports lists current NFS exports
 func ListNFSExports(w http.ResponseWriter, r *http.Request) {
 	output, err := cmdutil.RunFast("exportfs", "-v")
@@ -105,4 +78,3 @@ func ListNFSExports(w http.ResponseWriter, r *http.Request) {
 		"output":  string(output),
 	})
 }
-

@@ -274,7 +274,7 @@
     };
 
     # ─── NFS - enabled by default ─────────────────────────────────────────
-    # Core NAS feature: NFSv4.2 with rpc.idmapd and nfs4-acl-tools.
+    # Core NAS feature: NFSv4.2 with rpc.idmapd.
     # Per-export options are managed by the web UI via /etc/exports.
     nfs = {
       enable     = true;

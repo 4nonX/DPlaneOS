@@ -14,9 +14,6 @@
  *   POST /api/docker/prune {containers?, volumes?} → prune (dangling images; the rest opt-in)
  *   GET  /api/docker/logs?container=     → container logs
  *   GET  /api/docker/stats               → live resource stats
- *   POST /api/docker/compose/up          → async job { job_id }
- *   POST /api/docker/compose/down        → async job { job_id }
- *   GET  /api/docker/compose/status      → compose stacks status
  *   POST /api/docker/update              → safe update (pull + restart)
  */
 

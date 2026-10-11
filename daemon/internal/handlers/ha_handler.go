@@ -149,32 +149,32 @@ func (h *HAHandler) DetectHAHardware(w http.ResponseWriter, r *http.Request) {
 	// "shared_storage" if fenced is running with active reservations, or if we
 	// can see SG devices that could support PR. Confirmed only after the probe.
 	provPath := "replicated"
-	provLabel := "Path B: Replicated ZFS (Watchdog + Replication)"
-	provReason := "No SAS/SCSI pool disks found. Use ZFS replication with hardware watchdog self-fence and a quorum witness."
+	provLabel := "Replicated pools (watchdog and third vote)"
+	provReason := "No SAS/SCSI pool disks found. Use replication between the nodes, with the watchdog and a third vote."
 	probeRequired := false
 
 	if len(poolSGDevices) > 0 || fencedRunning {
 		provPath = "shared_storage"
-		provLabel = "Path A': Shared Storage (SCSI-3 PR + Watchdog)"
+		provLabel = "Shared disks (SCSI-3 reservations and watchdog)"
 		probeRequired = true
 		if fencedRunning && len(fencedDevices) > 0 {
-			provReason = fmt.Sprintf("dplane-fenced holds reservations on %d device(s). Run the PROUT probe to confirm these devices reject writes from a second node.", len(fencedDevices))
+			provReason = fmt.Sprintf("dplane-fenced holds reservations on %d device(s). Run the reservation probe to confirm these devices reject writes from a second node.", len(fencedDevices))
 		} else {
-			provReason = fmt.Sprintf("%d SAS/SCSI pool disk(s) found. Run the PROUT probe to confirm SCSI-3 PR write support before enabling shared-storage HA.", len(poolSGDevices))
+			provReason = fmt.Sprintf("%d SAS/SCSI pool disk(s) found. Run the reservation probe to confirm SCSI-3 PR support before putting shared disks into a storage group.", len(poolSGDevices))
 		}
 	}
 
 	respondJSON(w, http.StatusOK, map[string]any{
-		"success":               true,
-		"watchdog_available":    watchdogAvail,
-		"watchdog_device":       watchdogDevice,
-		"fenced_running":        fencedRunning,
-		"fenced_devices":        fencedDevices,
-		"pool_sg_devices":       poolSGDevices,
-		"provisional_path":      provPath,
+		"success":                true,
+		"watchdog_available":     watchdogAvail,
+		"watchdog_device":        watchdogDevice,
+		"fenced_running":         fencedRunning,
+		"fenced_devices":         fencedDevices,
+		"pool_sg_devices":        poolSGDevices,
+		"provisional_path":       provPath,
 		"provisional_path_label": provLabel,
-		"provisional_reason":    provReason,
-		"probe_required":        probeRequired,
+		"provisional_reason":     provReason,
+		"probe_required":         probeRequired,
 	})
 }
 
@@ -240,11 +240,11 @@ func (h *HAHandler) ProbeSCSIDevices(w http.ResponseWriter, r *http.Request) {
 		}
 		if len(devices) == 0 {
 			respondJSON(w, http.StatusOK, map[string]any{
-				"success":        true,
+				"success":         true,
 				"auto_enumerated": true,
-				"results":        []any{},
-				"all_supported":  true,
-				"message":        "No ZFS pool member disks found - pool may not be imported or no SAS/SATA disks present",
+				"results":         []any{},
+				"all_supported":   true,
+				"message":         "No ZFS pool member disks found - pool may not be imported or no SAS/SATA disks present",
 			})
 			return
 		}

@@ -27,6 +27,7 @@ import { ErrorState } from '@/components/ui/ErrorState'
 import { Skeleton } from '@/components/ui/LoadingSpinner'
 import { toast } from '@/hooks/useToast'
 import { useConfirm } from '@/components/ui/ConfirmDialog'
+import { PermissionList } from '@/components/layout/MyAccessModal'
 import { Modal } from '@/components/ui/Modal'
 
 // ---------------------------------------------------------------------------
@@ -580,6 +581,10 @@ function UserRolesModal({ user, onClose }: { user: User; onClose: () => void }) 
     queryKey: ['rbac', 'user-roles', user.id],
     queryFn: ({ signal }) => api.get<{ roles: Role[] | null }>(`/api/rbac/users/${user.id}/roles`, signal),
   })
+  const effectiveQ = useQuery({
+    queryKey: ['rbac', 'user-permissions', user.id],
+    queryFn: ({ signal }) => api.get<{ permissions: { resource: string; action: string; display_name: string; category: string }[] | null }>(`/api/rbac/users/${user.id}/permissions`, signal),
+  })
   const held = new Set((mineQ.data?.roles ?? []).map(r => String(r.id)))
   const primary = user.role === 'readonly' ? 'viewer' : user.role
 
@@ -587,7 +592,10 @@ function UserRolesModal({ user, onClose }: { user: User; onClose: () => void }) 
     mutationFn: (r: Role) => held.has(String(r.id))
       ? api.delete(`/api/rbac/users/${user.id}/roles/${r.id}`)
       : api.post(`/api/rbac/users/${user.id}/roles`, { role_id: Number(r.id) }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['rbac', 'user-roles', user.id] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['rbac', 'user-roles', user.id] })
+      qc.invalidateQueries({ queryKey: ['rbac', 'user-permissions', user.id] })
+    },
     onError: (e: Error) => toast.error(e.message),
   })
 
@@ -606,6 +614,15 @@ function UserRolesModal({ user, onClose }: { user: User; onClose: () => void }) 
           </label>
         ))}
       </div>
+      <details>
+        <summary style={{ cursor: 'pointer', fontSize: 'var(--text-sm)', fontWeight: 600 }}>
+          Effective permissions{effectiveQ.data ? ` (${(effectiveQ.data.permissions ?? []).length})` : ''}
+        </summary>
+        <div style={{ marginTop: 10 }}>
+          {effectiveQ.isLoading && <Skeleton height={80} />}
+          {effectiveQ.data && <PermissionList permissions={effectiveQ.data.permissions ?? []} />}
+        </div>
+      </details>
       <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
         <button onClick={onClose} className="btn btn-primary">Done</button>
       </div>

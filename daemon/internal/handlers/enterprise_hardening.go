@@ -173,6 +173,10 @@ func (h *NixOSGuardHandler) DiffGenerations(w http.ResponseWriter, r *http.Reque
 		}
 	}
 
+	if from == "" {
+		respondErrorSimple(w, "from (a generation number) is required", http.StatusBadRequest)
+		return
+	}
 	if to == "" {
 		to = "current"
 	}
@@ -195,6 +199,8 @@ func (h *NixOSGuardHandler) DiffGenerations(w http.ResponseWriter, r *http.Reque
 		respondOK(w, map[string]any{
 			"success":       true,
 			"method":        "package-list",
+			"from":          from,
+			"to":            to,
 			"from_packages": strings.Fields(fromPkgs),
 			"to_packages":   strings.Fields(toPkgs),
 		})

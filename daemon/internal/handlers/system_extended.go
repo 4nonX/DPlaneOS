@@ -523,56 +523,6 @@ func NewMetricsHandler() *MetricsHandler { return &MetricsHandler{} }
 
 const metricsDir = config.MetricsDir
 
-func (h *MetricsHandler) GetCurrentMetrics(w http.ResponseWriter, r *http.Request) {
-	metrics := map[string]any{}
-
-	// CPU usage
-	if data, err := os.ReadFile("/proc/stat"); err == nil {
-		metrics["cpu_raw"] = strings.Split(string(data), "\n")[0]
-	}
-
-	// Memory
-	if data, err := os.ReadFile("/proc/meminfo"); err == nil {
-		lines := strings.Split(string(data), "\n")
-		mem := map[string]string{}
-		for _, line := range lines[:6] {
-			parts := strings.SplitN(line, ":", 2)
-			if len(parts) == 2 {
-				mem[strings.TrimSpace(parts[0])] = strings.TrimSpace(parts[1])
-			}
-		}
-		metrics["memory"] = mem
-	}
-
-	// Disk I/O from /proc/diskstats
-	if data, err := os.ReadFile("/proc/diskstats"); err == nil {
-		metrics["diskstats"] = string(data)
-	}
-
-	// Network from /proc/net/dev
-	if data, err := os.ReadFile("/proc/net/dev"); err == nil {
-		metrics["netdev"] = string(data)
-	}
-
-	// Load average
-	if data, err := os.ReadFile("/proc/loadavg"); err == nil {
-		metrics["loadavg"] = strings.TrimSpace(string(data))
-	}
-
-	// ZFS ARC stats
-	if data, err := os.ReadFile("/proc/spl/kstat/zfs/arcstats"); err == nil {
-		metrics["arcstats"] = string(data)
-	}
-
-	// Pool usage (zpool list)
-	if cmd, err := cmdutil.RunZFS("zpool", "list", "-Hp"); err == nil {
-		metrics["zpools"] = string(cmd)
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{"success": true, "metrics": metrics, "timestamp": time.Now().Unix()})
-}
-
 func (h *MetricsHandler) GetHistory(w http.ResponseWriter, r *http.Request) {
 	period := r.URL.Query().Get("period") // hour, day, week
 	if period == "" {

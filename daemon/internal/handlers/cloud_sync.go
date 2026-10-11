@@ -21,7 +21,7 @@ import (
 )
 
 // CloudSyncHandler manages rclone-based cloud storage remotes and sync jobs.
-// Requires rclone to be installed: apt install rclone
+// Requires rclone to be installed.
 type CloudSyncHandler struct{}
 
 func NewCloudSyncHandler() *CloudSyncHandler { return &CloudSyncHandler{} }
@@ -283,7 +283,7 @@ func (h *CloudSyncHandler) getStatus(w http.ResponseWriter) {
 		respondJSON(w, http.StatusOK, map[string]any{
 			"success":          true,
 			"rclone_available": false,
-			"message":          "rclone not installed. Run: apt install rclone",
+			"message":          "rclone is not installed",
 		})
 		return
 	}

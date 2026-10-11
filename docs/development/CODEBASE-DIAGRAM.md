@@ -64,7 +64,6 @@ flowchart TB
         database["database/migrations/ - SQL migration files"]
         gitops["gitops/ - state.yaml parser, diff engine, apply engine"]
         hardware["hardware/ - SES enclosure, SMART timer management"]
-        acl["acl/ - NFSv4 ACL parsing and validation"]
         scsipr["scsipr/ - SCSI-3 persistent reservation primitives"]
         nvmet["nvmet/ - NVMe-oF target configuration"]
         nixwriter["nixwriter/ - NixOS config file writer"]
@@ -85,7 +84,6 @@ flowchart TB
     handlers --> ha
     handlers --> zfs_pkg
     handlers --> hardware
-    handlers --> acl
     handlers --> nvmet
     handlers --> composegpu
     gitops --> libzfs

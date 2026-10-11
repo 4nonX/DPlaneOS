@@ -2,6 +2,7 @@
  * PoolIOPanel - pool I/O averages and an on-demand disk read test.
  *
  *   GET /api/zfs/iostat        → { stats: [{device, read_ops, write_ops, read_bw, write_bw, read_wait_ns, write_wait_ns}] }
+ *   GET /api/zfs/health        → { pools: [{name, state, scan_status, errors, overall_risk, disks: [{device, state, read_errors, write_errors, checksum_errors, slow_ios, risk}]}] }
  *   GET /api/zfs/disk-latency  → { overall, disks: [{device, read_mbs, latency_ms, state, error?}] }
  */
 import { useQuery } from '@tanstack/react-query'
@@ -86,6 +87,68 @@ export function PoolIOPanel() {
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+interface DiskHealth { device: string; state: string; read_errors: number; write_errors: number; checksum_errors: number; slow_ios: number; risk: string }
+interface PoolHealth { name: string; state: string; scan_status: string; errors: string; overall_risk: 'low' | 'medium' | 'high' | 'critical'; disks: DiskHealth[] | null }
+
+const RISK: Record<string, { label: string; color: string }> = {
+  low: { label: 'Healthy', color: 'var(--success)' },
+  medium: { label: 'Watch', color: 'var(--warning)' },
+  high: { label: 'At risk', color: 'var(--error)' },
+  critical: { label: 'Critical', color: 'var(--error)' },
+}
+
+/** Error counters of every pool disk, with a risk rating per disk and pool. */
+export function PoolHealthPanel() {
+  const q = useQuery({
+    queryKey: ['zfs', 'health'],
+    queryFn: ({ signal }) => api.get<{ success: boolean; error?: string; pools: PoolHealth[] | null }>('/api/zfs/health', signal),
+    refetchInterval: 60_000,
+  })
+  const pools = q.data?.pools ?? []
+  if (!q.data || (pools.length === 0 && !q.data.error)) return null
+  return (
+    <div className="card" style={{ borderRadius: 'var(--radius-xl)', padding: 20, marginTop: 24 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+        <Icon name="monitor_heart" size={18} style={{ color: 'var(--primary)' }} />
+        <span style={{ fontWeight: 700 }}>Disk errors</span>
+        <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }}>counted by ZFS since the pool was imported or cleared</span>
+      </div>
+      {q.data.error && <div style={{ color: 'var(--warning)', fontSize: 'var(--text-sm)' }}>{q.data.error}</div>}
+      {pools.map(p => {
+        const risk = RISK[p.overall_risk] ?? RISK.low
+        return (
+          <div key={p.name} style={{ marginBottom: 16 }}>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap', marginBottom: 6 }}>
+              <span style={{ fontWeight: 600 }}>{p.name}</span>
+              <span style={{ fontSize: 'var(--text-xs)', fontWeight: 700, color: risk.color }}>{risk.label}</span>
+              <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }}>{p.state}{p.errors ? ` · ${p.errors}` : ''}</span>
+            </div>
+            {p.scan_status && <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', marginBottom: 6 }}>Last scan: {p.scan_status}</div>}
+            <div style={{ overflowX: 'auto' }}>
+              <table className="table" style={{ width: '100%' }}>
+                <thead><tr><th>Disk</th><th>State</th><th>Read</th><th>Write</th><th>Checksum</th><th>Slow I/O</th></tr></thead>
+                <tbody>
+                  {(p.disks ?? []).map(d => {
+                    const c = d.risk === 'low' ? undefined : RISK[d.risk]?.color
+                    const cell = (n: number) => <td style={{ color: n > 0 ? (c ?? 'var(--warning)') : undefined, fontWeight: n > 0 ? 600 : undefined }}>{n}</td>
+                    return (
+                      <tr key={d.device}>
+                        <td style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)' }}>{d.device}</td>
+                        <td style={{ color: d.state === 'ONLINE' ? undefined : 'var(--error)' }}>{d.state}</td>
+                        {cell(d.read_errors)}{cell(d.write_errors)}{cell(d.checksum_errors)}{cell(d.slow_ios)}
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )
+      })}
     </div>
   )
 }

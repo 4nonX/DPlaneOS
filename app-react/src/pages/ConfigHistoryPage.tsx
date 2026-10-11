@@ -7,15 +7,17 @@
  *
  * Calls:
  *   GET  /api/config/history?kind=&limit=&before=  → { revisions[] }
+ *   GET  /api/config/revisions/{id}                → { revision } with its full payload
  *   POST /api/config/rollback { revision_id }      → { success, result }
  *   POST /api/config/capture                       → { changed }
  *   GET  /api/config/export                        → state.yaml download
  */
 
 import { useMemo, useState } from 'react'
-import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, ensureOk, getSessionId } from '@/lib/api'
 import { Icon } from '@/components/ui/Icon'
+import { Modal } from '@/components/ui/Modal'
 import { Skeleton } from '@/components/ui/LoadingSpinner'
 import { ErrorState } from '@/components/ui/ErrorState'
 import { useConfirm } from '@/components/ui/ConfirmDialog'
@@ -112,11 +114,62 @@ function ChangeTable({ rev }: { rev: Revision }) {
   )
 }
 
+/** Flattens a payload into dotted setting paths, like the change table uses. */
+function flatten(v: unknown, prefix = '', out: [string, unknown][] = []): [string, unknown][] {
+  if (v && typeof v === 'object' && !Array.isArray(v) && Object.keys(v).length > 0) {
+    for (const [k, x] of Object.entries(v as Record<string, unknown>)) flatten(x, prefix ? `${prefix}.${k}` : k, out)
+  } else if (prefix) {
+    out.push([prefix, v])
+  }
+  return out
+}
+
+/** The complete settings of a resource as recorded in one revision. */
+function RevisionModal({ id, onClose }: { id: number; onClose: () => void }) {
+  const q = useQuery({
+    queryKey: ['config', 'revision', id],
+    queryFn: ({ signal }) => api.get<{ success: boolean; revision: Revision & { payload: Record<string, unknown> | null } }>(`/api/config/revisions/${id}`, signal),
+  })
+  const rev = q.data?.revision
+  const rows = rev?.payload ? flatten(rev.payload).sort((a, b) => a[0].localeCompare(b[0])) : []
+  return (
+    <Modal title={rev ? `${KIND_LABELS[rev.kind] ?? rev.kind} "${rev.key}"` : 'Recorded settings'} onClose={onClose} size="lg">
+      {q.isLoading && <Skeleton height={200} />}
+      {q.isError && <ErrorState error={q.error} onRetry={() => q.refetch()} />}
+      {rev && (
+        <>
+          <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>
+            As recorded on {fmtTime(rev.created_at)}{rev.author ? ` by ${rev.author}` : ''}{rev.origin_node ? ` on ${rev.origin_node}` : ''} (revision {rev.id}). Secrets are shown as fingerprints.
+          </div>
+          {rev.payload === null
+            ? <div style={{ color: 'var(--error)' }}>This revision records the deletion of the resource.</div>
+            : (
+              <div style={{ maxHeight: '60vh', overflowY: 'auto' }}>
+                <table className="data-table" style={{ fontSize: 'var(--text-sm)' }}>
+                  <thead><tr><th>Setting</th><th>Value</th></tr></thead>
+                  <tbody>
+                    {rows.map(([k, v]) => (
+                      <tr key={k}>
+                        <td style={{ fontFamily: 'var(--font-mono)' }}>{k}</td>
+                        <td style={{ wordBreak: 'break-all' }}>{typeof v === 'string' && v.startsWith('sha256:') ? '(secret)' : fmtValue(v)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+        </>
+      )}
+    </Modal>
+  )
+}
+
 export function ConfigHistoryPage() {
   const qc = useQueryClient()
   const { confirm, ConfirmDialog } = useConfirm()
   const [kind, setKind] = useState('')
   const [open, setOpen] = useState<Record<number, boolean>>({})
+  const [viewing, setViewing] = useState<number | null>(null)
 
   const history = useInfiniteQuery({
     queryKey: ['config', 'history', kind],
@@ -230,6 +283,11 @@ export function ConfigHistoryPage() {
                       {rev.deleted ? 'deleted' : rev.created ? (first.origin === 'baseline' ? 'recorded' : 'created') : `${rev.changes.length} change${rev.changes.length === 1 ? '' : 's'}`}
                     </span>
                     <span style={{ marginLeft: 'auto' }} />
+                    {!rev.deleted && (
+                      <button className="btn btn-ghost btn-sm" onClick={() => setViewing(rev.id)} title="All settings of this resource as recorded here">
+                        <Icon name="description" size={14} />All settings
+                      </button>
+                    )}
                     {rev.can_rollback && rev.base_revision && !rev.created && (
                       <button className="btn btn-ghost btn-sm" onClick={() => askUndo(rev)} disabled={rollback.isPending}
                         title="Set this resource back to how it was before this change">
@@ -252,6 +310,7 @@ export function ConfigHistoryPage() {
           </button>
         </div>
       )}
+      {viewing !== null && <RevisionModal id={viewing} onClose={() => setViewing(null)} />}
       <ConfirmDialog />
     </div>
   )

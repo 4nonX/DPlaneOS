@@ -4,17 +4,62 @@
  *
  *   GET /api/enclosure                              → { enclosures: Enclosure[] }
  *   PUT /api/enclosure/{id}/slot/{index}/locate     { locate } → { ok, locate }
+ *   GET /api/enclosure/{id}/ses-status              → { device, elements: [{type, descriptor, status, details?}] }
  */
+import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { Icon } from '@/components/ui/Icon'
+import { Modal } from '@/components/ui/Modal'
+import { Skeleton } from '@/components/ui/LoadingSpinner'
 import { toast } from '@/hooks/useToast'
 
 interface Slot { index: number; name: string; status: string; locate: boolean; fault: boolean; type?: string; device?: string }
 interface Enclosure { id: string; sys_path: string; slots: Slot[] }
 
+interface SESElement { type: string; descriptor: string; status: string; details?: string }
+
+/** Everything the enclosure reports about itself: power supplies, fans, temperatures, bays. */
+function SESModal({ id, onClose }: { id: string; onClose: () => void }) {
+  const q = useQuery({
+    queryKey: ['hardware', 'enclosure-ses', id],
+    queryFn: ({ signal }) => api.get<{ device: string; elements: SESElement[] }>(`/api/enclosure/${encodeURIComponent(id)}/ses-status`, signal),
+    retry: false,
+  })
+  const elements = q.data?.elements ?? []
+  const bad = (st: string) => !/^(ok|not installed|unsupported)$/i.test(st.trim())
+  return (
+    <Modal title={`Enclosure ${id}`} onClose={onClose} size="lg">
+      {q.isLoading && <Skeleton height={160} />}
+      {q.isError && <div style={{ color: 'var(--error)', fontSize: 'var(--text-sm)' }}>{(q.error as Error).message}</div>}
+      {q.data && (
+        <>
+          <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }}>Read from {q.data.device} (SCSI Enclosure Services)</div>
+          <div style={{ maxHeight: '60vh', overflowY: 'auto' }}>
+            <table className="table" style={{ width: '100%' }}>
+              <thead><tr><th>Element</th><th>Name</th><th>Status</th><th>Details</th></tr></thead>
+              <tbody>
+                {elements.map((e, i) => (
+                  <tr key={i}>
+                    <td>{e.type}</td>
+                    <td>{e.descriptor || '-'}</td>
+                    <td style={{ fontWeight: 600, color: bad(e.status) ? 'var(--warning)' : undefined }}>{e.status}</td>
+                    <td style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>{e.details || ''}</td>
+                  </tr>
+                ))}
+                {elements.length === 0 && <tr><td colSpan={4} style={{ textAlign: 'center', color: 'var(--text-tertiary)' }}>The enclosure reports no elements.</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+    </Modal>
+  )
+}
+
 export function EnclosuresSection() {
   const qc = useQueryClient()
+  const [ses, setSes] = useState<string | null>(null)
   const q = useQuery({
     queryKey: ['hardware', 'enclosures'],
     queryFn: ({ signal }) => api.get<{ enclosures: Enclosure[] }>('/api/enclosure', signal),
@@ -41,8 +86,14 @@ export function EnclosuresSection() {
       </div>
       {enclosures.map(enc => (
         <div key={enc.id} style={{ marginBottom: 16 }}>
-          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', marginBottom: 8 }}>
-            Enclosure {enc.id} · {enc.slots.length} bays
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }}>
+              Enclosure {enc.id} · {enc.slots.length} bays
+            </span>
+            <button className="btn btn-xs btn-ghost" style={{ marginLeft: 'auto' }} onClick={() => setSes(enc.id)}
+              title="Power supplies, fans and temperatures as the enclosure reports them">
+              <Icon name="monitor_heart" size={14} />Enclosure status
+            </button>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 8 }}>
             {enc.slots.map(slot => {
@@ -68,6 +119,7 @@ export function EnclosuresSection() {
           </div>
         </div>
       ))}
+      {ses && <SESModal id={ses} onClose={() => setSes(null)} />}
     </div>
   )
 }

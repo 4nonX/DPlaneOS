@@ -16,6 +16,7 @@ import { findNavEntry } from './navConfig'
 import { api } from '@/lib/api'
 import { useNotificationsStore } from '@/stores/notifications'
 import { JobIndicator } from '@/components/ui/JobIndicator'
+import { MyAccessModal } from './MyAccessModal'
 
 interface ZFSPool {
   name: string
@@ -39,6 +40,7 @@ interface TopBarProps {
 export function TopBar({ sidebarCollapsed, onSearchOpen, onHelpOpen, isMobile, mobileMenuOpen, onMobileMenuToggle }: TopBarProps) {
   const pathname = useRouterState({ select: (s) => s.location.pathname })
   const user     = useAuthStore((s) => s.user)
+  const [showAccess, setShowAccess] = useState(false)
 
   const entry     = findNavEntry(pathname)
   const pageTitle = entry?.leaf.label ?? (pathname === '/' ? 'Dashboard' : pathname.slice(1))
@@ -199,17 +201,18 @@ export function TopBar({ sidebarCollapsed, onSearchOpen, onHelpOpen, isMobile, m
 
         {user && (
           <Tooltip content={user.role && user.role !== 'user' ? `${user.username} · ${user.role}` : user.username}>
-            <div style={{
-              width: 30, height: 30, borderRadius: '50%',
+            <button type="button" onClick={() => setShowAccess(true)} aria-label={`Account ${user.username}: roles and permissions`} style={{
+              width: 30, height: 30, borderRadius: '50%', border: 'none', padding: 0,
               background: 'linear-gradient(135deg, var(--primary) 0%, hsl(260, 55%, 62%) 100%)',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               fontSize: 13, fontWeight: 700, color: 'var(--text-on-primary)',
-              flexShrink: 0, userSelect: 'none', cursor: 'default',
+              flexShrink: 0, userSelect: 'none', cursor: 'pointer',
               boxShadow: 'var(--shadow-sm)'}}>
               {user.username[0].toUpperCase()}
-            </div>
+            </button>
           </Tooltip>
         )}
+        {user && showAccess && <MyAccessModal username={user.username} onClose={() => setShowAccess(false)} />}
 
         <ThemeToggle />
         <JobIndicator />

@@ -3,6 +3,8 @@
  *
  * POST /api/system/support-bundle           → binary download (tar.gz)
  * GET  /api/system/metrics                  → { cpu, memory, disk, ... }
+ * GET  /api/system/profile                  → { profile: { hostname, timezone, description, version, kernel, arch, uptime } }
+ * GET  /api/system/zfs-gate-status          → { gate_ready }
  * GET  /api/system/audit/verify-chain       → { valid }
  * GET  /api/health                         → subsystem checks
  * GET  /api/rbac/roles, /api/zfs/encryption/list (security overview)
@@ -30,6 +32,9 @@ export function SupportPage() {
   const [downloading, setDownloading] = useState(false)
 
   const metricsQ  = useQuery({ queryKey:['system','metrics'],  queryFn:({signal})=>api.get<SysMetrics&{success:boolean}>('/api/system/metrics',signal) })
+  // Identity of this node and whether the pools were ready when the daemon started.
+  const profileQ  = useQuery({ queryKey:['system','profile'],  queryFn:({signal})=>api.get<{success:boolean;profile:{hostname:string;timezone:string;description:string;version:string;kernel:string;arch:string;uptime:number}}>('/api/system/profile',signal) })
+  const gateQ     = useQuery({ queryKey:['system','zfs-gate'], queryFn:({signal})=>api.get<{success:boolean;gate_ready:boolean}>('/api/system/zfs-gate-status',signal), refetchInterval: 30_000 })
   // Subsystem checks of the daemon (ZFS, Docker, database, network, ...).
   const healthQ   = useQuery({ queryKey:['system','subsystems'], queryFn:({signal})=>api.get<{success:boolean;overall:string;subsystems:Record<string,{name:string;status:string;reason?:string}>}>('/api/health',signal), refetchInterval: 15_000 })
   // Security overview: measured, not asserted.
@@ -67,6 +72,18 @@ export function SupportPage() {
 
   const m = metricsQ.data
   const snaps = snapshotsQ.data?.snapshots ?? []
+
+  const pr = profileQ.data?.profile
+  const fmtUptime = (s:number) => { const d=Math.floor(s/86400), h=Math.floor(s%86400/3600), mi=Math.floor(s%3600/60); return d ? `${d} d ${h} h` : h ? `${h} h ${mi} min` : `${mi} min` }
+  const profileRows = pr ? [
+    { label:'Host name',     value: pr.hostname || '-' },
+    ...(pr.description ? [{ label:'Description', value: pr.description }] : []),
+    { label:'D-PlaneOS',     value: pr.version || '-' },
+    { label:'Architecture',  value: pr.arch || '-' },
+    { label:'Time zone',     value: pr.timezone || '-' },
+    { label:'Service running for', value: fmtUptime(pr.uptime) },
+    ...(gateQ.data ? [{ label:'Pools at startup', value: gateQ.data.gate_ready ? 'Online before services started' : 'Not online in time: check the pools' }] : []),
+  ] : []
 
   const metricRows = m ? [
     { label:'CPU Model',    value: m.cpu_model || '-' },
@@ -110,7 +127,7 @@ export function SupportPage() {
           {metricsQ.isLoading && <Skeleton height={180}/>}
           {metricsQ.isError   && <ErrorState error={metricsQ.error}/>}
           <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
-            {metricRows.map(({ label, value }) => (
+            {[...profileRows, ...metricRows].map(({ label, value }) => (
               <div key={label} style={{ display:'flex', justifyContent:'space-between', padding:'8px 12px', background:'var(--surface)', borderRadius:'var(--radius-sm)', gap:12 }}>
                 <span style={{ fontSize:'var(--text-xs)', color:'var(--text-tertiary)', flexShrink:0 }}>{label}</span>
                 <span style={{ fontSize:'var(--text-xs)', fontWeight:600, textAlign:'right', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', maxWidth:'60%' }}>{value}</span>

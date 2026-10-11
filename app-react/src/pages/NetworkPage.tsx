@@ -143,7 +143,7 @@ function ConfigureIfaceModal({ iface, onClose, onDone }: {
 }
 
 // ---------------------------------------------------------------------------
-// ConfirmBanner - shown after a network/apply, counts down 30 s
+// ConfirmBanner - shown after a network change, counts down 30 s
 // ---------------------------------------------------------------------------
 
 function ConfirmBanner({ onConfirm, onDismiss }: { onConfirm: () => void; onDismiss: () => void }) {
@@ -490,7 +490,7 @@ function BondingTab() {
 
 // ---------------------------------------------------------------------------
 // DnsNtpTab
-// POST /api/network/apply { action:'set_dns', dns:[] }
+// PUT  /api/system/network { action:'set_dns', nameservers:[] }
 // GET  /api/system/ntp → { servers[], synced, details }
 // POST /api/system/ntp { servers[] }
 // ---------------------------------------------------------------------------

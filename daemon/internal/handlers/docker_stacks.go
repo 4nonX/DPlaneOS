@@ -1,12 +1,12 @@
 package handlers
 
 import (
-	pathpkg "path"
 	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
+	pathpkg "path"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -33,7 +33,7 @@ import (
 //    GET    /api/docker/stacks/yaml     - read a stack's YAML
 //    PUT    /api/docker/stacks/yaml     - update YAML + optional redeploy
 //    DELETE /api/docker/stacks          - compose down + remove directory
-//    POST   /api/docker/stacks/action   - start/stop/restart a stack
+//    GET    /api/docker/stacks/stream   - start/stop/restart/down/update a stack (docker_stream.go)
 
 // defaultStacksDir is a variable so tests can use a temporary directory.
 var defaultStacksDir = config.StacksDir
@@ -196,14 +196,14 @@ func (h *StackHandler) DeployStack(w http.ResponseWriter, r *http.Request) {
 // ─────────────────────────────────────────────────────────────
 
 type StackInfo struct {
-	Name         string                   `json:"name"`
-	Path         string                   `json:"path"`
-	Status       string                   `json:"status"`   // "running", "partial", "stopped", "unknown"
-	Services     []map[string]any `json:"services"` // compose ps output
-	FileSize     int64                    `json:"file_size"`
-	CreatedAt    string                   `json:"created_at"`
-	UpdatedAt    string                   `json:"updated_at"`
-	Labels       map[string]string        `json:"labels,omitempty"`        // dplaneos.* labels from first container
+	Name      string            `json:"name"`
+	Path      string            `json:"path"`
+	Status    string            `json:"status"`   // "running", "partial", "stopped", "unknown"
+	Services  []map[string]any  `json:"services"` // compose ps output
+	FileSize  int64             `json:"file_size"`
+	CreatedAt string            `json:"created_at"`
+	UpdatedAt string            `json:"updated_at"`
+	Labels    map[string]string `json:"labels,omitempty"` // dplaneos.* labels from first container
 }
 
 func (h *StackHandler) ListStacks(w http.ResponseWriter, r *http.Request) {
@@ -531,104 +531,6 @@ func (h *StackHandler) DeleteStack(w http.ResponseWriter, r *http.Request) {
 }
 
 // ─────────────────────────────────────────────────────────────
-//  POST /api/docker/stacks/action
-//  Start, stop, or restart a stack via compose.
-// ─────────────────────────────────────────────────────────────
-
-func (h *StackHandler) StackAction(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Name   string `json:"name"`
-		Action string `json:"action"` // start | stop | restart | down | update
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		respondErrorSimple(w, "Invalid request body", http.StatusBadRequest)
-		return
-	}
-
-	req.Name = strings.ToLower(strings.TrimSpace(req.Name))
-	dir, err := stackDir(req.Name)
-	if err != nil {
-		respondErrorSimple(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	validActions := map[string]bool{"start": true, "stop": true, "restart": true, "down": true, "update": true}
-	if !validActions[req.Action] {
-		respondErrorSimple(w, "Invalid action: must be start, stop, restart, down or update", http.StatusBadRequest)
-		return
-	}
-
-	composePath := filepath.Join(dir, "docker-compose.yml")
-	if _, err := os.Stat(composePath); os.IsNotExist(err) {
-		respondErrorSimple(w, fmt.Sprintf("Stack '%s' not found", req.Name), http.StatusNotFound)
-		return
-	}
-
-	if req.Action == "start" || req.Action == "restart" || req.Action == "update" {
-		if raw, rerr := os.ReadFile(composePath); rerr == nil {
-			if err := composegpu.ValidateForDeploy(string(raw)); err != nil {
-				respondErrorSimple(w, err.Error(), http.StatusBadRequest)
-				return
-			}
-		}
-	}
-
-	user := getUserFromRequest(r)
-	start := time.Now()
-
-	var args []string
-	switch req.Action {
-	case "start":
-		args = []string{"compose", "--project-directory", dir, "-f", composePath, "up", "-d", "--remove-orphans"}
-	case "stop":
-		args = []string{"compose", "--project-directory", dir, "-f", composePath, "stop"}
-	case "restart":
-		args = []string{"compose", "--project-directory", dir, "-f", composePath, "restart"}
-	case "down":
-		args = []string{"compose", "--project-directory", dir, "-f", composePath, "down", "--remove-orphans"}
-	case "update":
-		// Pull the services' images, then recreate the containers whose
-		// image changed.
-		args = []string{"compose", "--project-directory", dir, "-f", composePath, "up", "-d", "--remove-orphans"}
-	}
-
-	var output []byte
-	var composeErr error
-	if req.Action == "update" {
-		output, composeErr = cmdutil.RunSlow("docker_compose", "compose", "--project-directory", dir, "-f", composePath, "pull")
-	}
-	if composeErr == nil {
-		var out []byte
-		out, composeErr = cmdutil.RunSlow("docker_compose", args...)
-		output = append(output, out...)
-	}
-	duration := time.Since(start)
-
-	audit.LogCommand(audit.LevelInfo, user, "stack_"+req.Action,
-		[]string{req.Name}, composeErr == nil, duration, composeErr)
-
-	if composeErr != nil {
-		respondOK(w, map[string]any{
-			"success":     false,
-			"error":       composeErr.Error(),
-			"output":      string(output),
-			"duration_ms": duration.Milliseconds(),
-		})
-		return
-	}
-
-	respondOK(w, map[string]any{
-		"success":     true,
-		"message":     fmt.Sprintf("Stack '%s': %s done", req.Name, req.Action),
-		"output":      string(output),
-		"duration_ms": duration.Milliseconds(),
-	})
-
-	// GITOPS HOOK: write state back to git
-	gitops.CommitAllAsync(h.db)
-}
-
-// ─────────────────────────────────────────────────────────────
 //  Helpers
 // ─────────────────────────────────────────────────────────────
 
@@ -887,4 +789,3 @@ func shellSplit(s string) []string {
 	}
 	return args
 }
-

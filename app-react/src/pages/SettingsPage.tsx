@@ -19,6 +19,7 @@
  *   POST /api/nixos/confirm                → confirm applied generation
  *   GET  /api/nixos/generations            → { success, generations: Generation[] }
  *   POST /api/nixos/rollback { generation } → { success }
+ *   GET  /api/nixos/diff?from=N            → { method: 'nix-diff', diff } | { method: 'package-list', from_packages, to_packages }
  *   POST /api/system/secrets/rotate        → { success, rotated_count: number }
  *   GET  /api/system/features              → { success, features: Feature[] }
  *   POST /api/system/features/:id/enable   → { success }
@@ -33,6 +34,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api, getSessionId, getUsername, getCsrfToken } from '@/lib/api'
 import { TuningCard, SecretsStatusCard, NixOSBackupButton } from '@/components/settings/SystemCards'
 import { Icon } from '@/components/ui/Icon'
+import { Modal } from '@/components/ui/Modal'
 import { ErrorState } from '@/components/ui/ErrorState'
 import { Skeleton } from '@/components/ui/LoadingSpinner'
 import { toast } from '@/hooks/useToast'
@@ -47,6 +49,7 @@ interface SettingsResponse { success: boolean; settings: Record<string, string> 
 interface NixOSDetect      { success: boolean; is_nixos: boolean; message?: string }
 interface NixOSValidate    { success: boolean; valid: boolean; errors?: string[] }
 interface Generation       { number: number; date: string; current: boolean; description?: string }
+interface GenerationDiff   { success: boolean; method: 'nix-diff' | 'package-list'; diff?: string; from_packages?: string[]; to_packages?: string[] }
 interface GenerationsResp  { success: boolean; generations: Generation[] }
 
 interface OIDCConfig {
@@ -257,6 +260,7 @@ function NixOSTab() {
     queryFn:  ({ signal }) => api.get<NixOSDetect>('/api/nixos/detect', signal),
   })
 
+  const [comparing, setComparing] = useState<number | null>(null)
   const gensQ = useQuery({
     queryKey: ['nixos', 'generations'],
     queryFn:  ({ signal }) => api.get<GenerationsResp>('/api/nixos/generations', signal),
@@ -378,6 +382,11 @@ function NixOSTab() {
                 </div>
               </div>
               {!gen.current && (
+                <button onClick={() => setComparing(gen.number)} className="btn btn-ghost" title="What differs between this generation and the running system">
+                  <Icon name="difference" size={14} />Compare
+                </button>
+              )}
+              {!gen.current && (
                 <button onClick={async () => { if (await confirm({ title: `Roll back to generation ${gen.number}?`, message: 'The system will switch to this NixOS generation. Current generation will be kept as a fallback.', danger: true, confirmLabel: 'Rollback' })) rollback.mutate(gen.number) }}
                   disabled={rollback.isPending} className="btn btn-danger">
                   <Icon name="history" size={14} />Rollback
@@ -390,8 +399,43 @@ function NixOSTab() {
           )}
         </div>
       </div>
+      {comparing !== null && <GenerationDiffModal generation={comparing} onClose={() => setComparing(null)} />}
       <ConfirmDialog />
     </div>
+  )
+}
+
+/** Package changes between a generation and the running system. */
+function GenerationDiffModal({ generation, onClose }: { generation: number; onClose: () => void }) {
+  const q = useQuery({
+    queryKey: ['nixos', 'diff', generation],
+    queryFn: ({ signal }) => api.get<GenerationDiff>(`/api/nixos/diff?from=${generation}`, signal),
+    retry: false,
+  })
+  const d = q.data
+  const from = new Set(d?.from_packages ?? [])
+  const to = new Set(d?.to_packages ?? [])
+  const added = [...to].filter(x => !from.has(x)).sort()
+  const removed = [...from].filter(x => !to.has(x)).sort()
+  const pre: React.CSSProperties = { maxHeight: '55vh', overflow: 'auto', margin: 0, padding: 12, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)', whiteSpace: 'pre-wrap' }
+  return (
+    <Modal title={`Generation ${generation} compared with the running system`} onClose={onClose} size="lg">
+      {q.isLoading && <Skeleton height={160} />}
+      {q.isError && <ErrorState error={q.error} onRetry={() => q.refetch()} />}
+      {d?.method === 'nix-diff' && (
+        d.diff
+          ? <><div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>Package versions: generation {generation} → running system.</div><pre style={pre}>{d.diff}</pre></>
+          : <div style={{ color: 'var(--text-secondary)' }}>No package differences: only configuration files differ, or nothing.</div>
+      )}
+      {d?.method === 'package-list' && (
+        <>
+          <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>Commands in the system path (the detailed comparison is not available on this system).</div>
+          {added.length === 0 && removed.length === 0 && <div style={{ color: 'var(--text-secondary)' }}>The same commands are installed.</div>}
+          {added.length > 0 && <><div style={{ fontWeight: 600 }}>Only in the running system</div><pre style={pre}>{added.join('\n')}</pre></>}
+          {removed.length > 0 && <><div style={{ fontWeight: 600 }}>Only in generation {generation}</div><pre style={pre}>{removed.join('\n')}</pre></>}
+        </>
+      )}
+    </Modal>
   )
 }
 

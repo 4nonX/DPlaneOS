@@ -498,6 +498,9 @@ in {
           set -e
           timeout=120
           elapsed=0
+          # The daemon reports this marker (GET /api/system/zfs-gate-status).
+          open_gate() { mkdir -p /run/dplaneos; : > /run/dplaneos/zfs-ready; exit 0; }
+          rm -f /run/dplaneos/zfs-ready
           while [ $elapsed -lt $timeout ]; do
             # Absolute path: a oneshot's PATH has no zpool, and a missing
             # binary must not read as "no pools".
@@ -506,11 +509,11 @@ in {
               # No pools exist: first boot or standby node with no imported pools.
               # Either case is valid - pass immediately so dplaned can start.
               echo "ZFS gate: no pools present (first boot or standby node) - gate open"
-              exit 0
+              open_gate
             fi
             if echo "$pool_list" | grep -q ONLINE; then
               echo "ZFS gate: pools ONLINE - gate open"
-              exit 0
+              open_gate
             fi
             sleep 2
             elapsed=$((elapsed + 2))

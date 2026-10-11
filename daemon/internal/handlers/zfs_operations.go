@@ -6,7 +6,6 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"os/exec"
 	"regexp"
 	"strconv"
 	"strings"
@@ -120,7 +119,7 @@ func GetScrubStatus(w http.ResponseWriter, r *http.Request) {
 		respondErrorSimple(w, "Invalid pool", http.StatusBadRequest)
 		return
 	}
-	
+
 	rawScan, err := zfs.GetPoolScanLine(pool)
 	if err != nil {
 		respondOK(w, map[string]any{"success": false, "error": err.Error()})
@@ -349,10 +348,10 @@ func ReplaceDisk(w http.ResponseWriter, r *http.Request) {
 			go func() {
 				ticker := time.NewTicker(15 * time.Second)
 				defer ticker.Stop()
-				
+
 				// Safety timeout: 48 hours for large multi-TB resilvers
 				timeout := time.After(48 * time.Hour)
-				
+
 				for {
 					select {
 					case <-ticker.C:
@@ -685,97 +684,6 @@ var (
 	// the operator confirmed connectivity (e.g. boot reconciliation state).
 	netPendingCommit func() error
 )
-
-// No hollow structs needed
-
-// ApplyNetworkWithRollback applies network config with auto-revert
-// POST /api/network/apply { "timeout_seconds": 60 }
-var netplanPathRe = regexp.MustCompile(`^/etc/netplan/[A-Za-z0-9._-]+\.ya?ml$`)
-
-func ApplyNetworkWithRollback(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		ConfigPath     string `json:"config_path"` // /etc/network/interfaces or /etc/netplan/...
-		NewConfig      string `json:"new_config"`
-		TimeoutSeconds int    `json:"timeout_seconds"` // default 60
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		respondErrorSimple(w, "Invalid request", http.StatusBadRequest)
-		return
-	}
-	if req.TimeoutSeconds == 0 {
-		req.TimeoutSeconds = 60
-	}
-	if req.TimeoutSeconds < 15 || req.TimeoutSeconds > 300 {
-		respondErrorSimple(w, "Timeout must be 15-300 seconds", http.StatusBadRequest)
-		return
-	}
-	// The file is written as root: only netplan configuration files.
-	if !netplanPathRe.MatchString(req.ConfigPath) || strings.Contains(req.ConfigPath, "..") {
-		respondErrorSimple(w, "config_path must be a netplan file (/etc/netplan/<name>.yaml)", http.StatusBadRequest)
-		return
-	}
-	// netplan is not part of NixOS (D-PlaneOS uses systemd-networkd): refuse
-	// instead of writing the file and reporting an apply that never happened.
-	if _, err := exec.LookPath("netplan"); err != nil {
-		respondErrorSimple(w, "netplan is not available on this system; configure interfaces with PUT /api/system/network", http.StatusNotImplemented)
-		return
-	}
-
-	// Save current config for rollback
-	currentConfig, err := readFileContent(req.ConfigPath)
-	if err != nil {
-		respondOK(w, map[string]any{"success": false, "error": "Cannot read current config"})
-		return
-	}
-
-	// Write new config
-	if err := writeFileContent(req.ConfigPath, []byte(req.NewConfig)); err != nil {
-		respondOK(w, map[string]any{"success": false, "error": "Cannot write new config"})
-		return
-	}
-
-	// Apply; on failure put the old config back right away.
-	if out, err := executeCommandWithTimeout(TimeoutMedium, "netplan", []string{"apply"}); err != nil {
-		if werr := os.WriteFile(req.ConfigPath, currentConfig, 0600); werr != nil {
-			log.Printf("NETWORK: restore %s after failed apply: %v", req.ConfigPath, werr)
-		} else if _, aerr := executeCommandWithTimeout(TimeoutMedium, "netplan", []string{"apply"}); aerr != nil {
-			log.Printf("NETWORK: re-apply previous config: %v", aerr)
-		}
-		respondOK(w, map[string]any{"success": false, "error": "netplan apply failed (previous config restored): " + strings.TrimSpace(out) + " " + err.Error()})
-		return
-	}
-
-	// Capture path and content into closure-local vars so the timer callback has
-	// an immutable copy that won't race with a concurrent ApplyNetworkWithRollback.
-	rollbackPath := req.ConfigPath
-	rollbackContent := currentConfig
-
-	netRollbackMu.Lock()
-	if netRollbackTimer != nil {
-		netRollbackTimer.Stop()
-	}
-	netPendingCommit = nil
-	netRollbackTimer = time.AfterFunc(time.Duration(req.TimeoutSeconds)*time.Second, func() {
-		netRollbackMu.Lock()
-		defer netRollbackMu.Unlock()
-		log.Printf("NETWORK ROLLBACK: Timer expired, reverting %s", rollbackPath)
-		if err := os.WriteFile(rollbackPath, rollbackContent, 0600); err != nil {
-			log.Printf("NETWORK ROLLBACK ERROR: Failed to write rollback config: %v", err)
-			return
-		}
-		if _, err := executeCommandWithTimeout(TimeoutMedium, "netplan", []string{"apply"}); err != nil {
-			log.Printf("NETWORK ROLLBACK ERROR: Failed to apply rollback config: %v", err)
-		}
-		netRollbackTimer = nil
-	})
-	netRollbackMu.Unlock()
-
-	respondOK(w, map[string]any{
-		"success":         true,
-		"timeout_seconds": req.TimeoutSeconds,
-		"message":         fmt.Sprintf("Network config applied. Confirm within %d seconds or auto-revert.", req.TimeoutSeconds),
-	})
-}
 
 // ConfirmNetwork cancels the rollback timer
 // POST /api/network/confirm
@@ -1370,7 +1278,7 @@ func parseZpoolStatus(output, poolName string) PoolTopology {
 
 	currentGroup := "data"
 	groupData := []VDev{}
-	
+
 	// parentStack tracks (indentation, pointer to Children slice)
 	type stackItem struct {
 		indent   int
@@ -1469,10 +1377,10 @@ func parseZpoolStatus(output, poolName string) PoolTopology {
 		// Add to parent and push to stack if this vdev has children (mirror, raidz, replacing)
 		parentChildren := stack[len(stack)-1].children
 		*parentChildren = append(*parentChildren, vdev)
-		
+
 		// Map the newly appended vdev so we can reference its Children slice
 		newVdev := &(*parentChildren)[len(*parentChildren)-1]
-		
+
 		// If it's a structural VDEV, push to stack
 		if vdev.Type != "disk" {
 			stack = append(stack, stackItem{indent: indent, children: &newVdev.Children})
@@ -1615,7 +1523,6 @@ func (h *ZFSHandler) PromoteDataset(w http.ResponseWriter, r *http.Request) {
 	respondOK(w, map[string]any{"success": true})
 }
 
-
 // OfflineDisk takes a ZFS device offline
 // POST /api/zfs/pool/offline
 // Body: {"pool": "tank", "device": "/dev/sdb", "temporary": true}
@@ -1701,8 +1608,8 @@ func (h *ZFSHandler) ExportPool(w http.ResponseWriter, r *http.Request) {
 		deps, err := poolDependencyCheck(h.db, req.Pool)
 		if err == nil && len(deps) > 0 {
 			respondJSON(w, http.StatusConflict, map[string]any{
-				"success": false,
-				"error":   "force export refused: active mounts or shares detected; stop all services first",
+				"success":      false,
+				"error":        "force export refused: active mounts or shares detected; stop all services first",
 				"dependencies": deps,
 			})
 			return

@@ -8,6 +8,7 @@
  *   POST   /api/nfs/exports/{id}/update
  *   DELETE /api/nfs/exports/{id}
  *   POST   /api/nfs/reload
+ *   GET    /api/shares/nfs/list       → { output } what the kernel exports right now (exportfs -v)
  */
 
 import { useState } from 'react'
@@ -177,6 +178,7 @@ export function NFSPage() {
   const [showCreate, setShowCreate] = useState(false)
   const [editTarget, setEditTarget] = useState<NFSExport | null>(null)
 
+  const [showActive, setShowActive] = useState(false)
   const statusQ = useQuery({
     queryKey: ['nfs', 'status'],
     queryFn: ({ signal }) => api.get<NFSStatusResponse>('/api/nfs/status', signal),
@@ -209,6 +211,9 @@ export function NFSPage() {
           <p className="page-subtitle">Manage /etc/exports - changes apply on reload</p>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={() => setShowActive(true)} className="btn btn-ghost" title="What the NFS server exports right now, with the options in effect">
+            <Icon name="list_alt" size={16} />Active exports
+          </button>
           <button onClick={() => reload.mutate()} disabled={reload.isPending} className="btn btn-ghost">
             <Icon name="sync" size={16} />{reload.isPending ? 'Reloading…' : 'Reload (exportfs -ra)'}
           </button>
@@ -260,9 +265,31 @@ export function NFSPage() {
         ))}
       </div>
 
+      {showActive && <ActiveExportsModal onClose={() => setShowActive(false)} />}
       {showCreate && <ExportModal onClose={() => setShowCreate(false)} onSaved={refresh} />}
       {editTarget && <ExportModal existing={editTarget} onClose={() => setEditTarget(null)} onSaved={refresh} />}
     </div>
   )
 }
 
+/** The exports in effect in the kernel, which can differ from the list until a reload. */
+function ActiveExportsModal({ onClose }: { onClose: () => void }) {
+  const q = useQuery({
+    queryKey: ['nfs', 'active'],
+    queryFn: ({ signal }) => api.get<{ success: boolean; output?: string; note?: string }>('/api/shares/nfs/list', signal),
+  })
+  const output = (q.data?.output ?? '').trim()
+  return (
+    <Modal title="Active NFS exports" onClose={onClose} size="lg">
+      {q.isLoading && <Skeleton height={120} />}
+      {q.isError && <ErrorState error={q.error} onRetry={() => q.refetch()} />}
+      {q.data && (output
+        ? <pre style={{ margin: 0, padding: 12, maxHeight: '55vh', overflow: 'auto', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)', whiteSpace: 'pre-wrap' }}>{output}</pre>
+        : <div style={{ color: 'var(--text-secondary)', fontSize: 'var(--text-sm)' }}>{q.data.note ?? 'Nothing is exported right now.'}</div>)}
+      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+        <button className="btn btn-ghost" onClick={() => q.refetch()} disabled={q.isFetching}><Icon name="refresh" size={14} />Refresh</button>
+        <button className="btn btn-primary" onClick={onClose}>Close</button>
+      </div>
+    </Modal>
+  )
+}

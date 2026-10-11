@@ -35,6 +35,17 @@ const CATALOG: EndpointGroup[] = [
       { method: 'GET',  path: '/api/auth/check',   description: 'Check if the current session is authenticated' },
       { method: 'GET',  path: '/api/auth/session',  description: 'Get current session details' },
       { method: 'GET',  path: '/api/csrf',           description: 'Fetch a fresh CSRF token' },
+      { method: 'POST', path: '/api/auth/scram/challenge', description: 'Sign in without sending the password (SCRAM-SHA-256), step 1: get salt, iterations and server nonce', defaultBody: '{\n  "username": "admin",\n  "client_nonce": "<random base64>"\n}' },
+      { method: 'POST', path: '/api/auth/scram/verify',    description: 'SCRAM step 2: send the client proof, get a session', defaultBody: '{\n  "challenge_id": "<from step 1>",\n  "client_proof": "<base64>"\n}' },
+    ],
+  },
+  {
+    label: 'Monitoring probes', icon: 'monitor_heart',
+    endpoints: [
+      { method: 'GET',  path: '/api/health',                      description: 'All subsystem checks (ZFS, Docker, database, network, ...) with the overall state' },
+      { method: 'GET',  path: '/api/health/subsystem?subsystem=zfs', description: 'One subsystem check; answers 503 when the subsystem is unavailable' },
+      { method: 'GET',  path: '/api/health/live',                 description: 'Liveness: the daemon answers' },
+      { method: 'GET',  path: '/api/health/ready',                description: 'Readiness: the daemon can serve requests (503 otherwise)' },
     ],
   },
   {

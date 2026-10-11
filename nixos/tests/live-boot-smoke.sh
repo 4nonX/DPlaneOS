@@ -119,8 +119,6 @@ expect 400 PUT /api/system/network '{"action":"configure","interface":"eth0","ip
 expect 400 PUT /api/system/network '{"action":"set_dns","nameservers":["1.1.1.1","not-an-ip"]}'
 expect 200 POST /api/network/confirm '{}'
 check "confirm without a pending change is refused" test "$(json .success)" = false
-# netplan does not exist on NixOS: the raw-config endpoint refuses clearly.
-expect 501 POST /api/network/apply '{"config_path":"/etc/netplan/50-x.yaml","new_config":"network: {}"}'
 
 # The daemon's mounts must be visible on the host (Samba, NFS, users), not
 # only inside the daemon's service namespace.

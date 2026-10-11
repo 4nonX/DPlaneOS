@@ -4,6 +4,7 @@
  *
  * Calls:
  *   GET  /api/bmc/info, /api/bmc/power, /api/bmc/events?limit=
+ *   GET  /api/bmc/health → { success, health: { overall_status, sensors: [{name, value, unit, status, category}] } }
  *   POST /api/bmc/power {action}, /api/bmc/enroll, /api/bmc/reset-cert
  *
  * Credentials come from the power fencing settings (High Availability page).
@@ -18,7 +19,13 @@ import { toast } from '@/hooks/useToast'
 import { fmtDateTime } from '@/lib/fmt'
 
 interface BMCInfo { protocol: string; vendor?: string; model?: string; firmware_version?: string; hostname?: string }
+interface BMCSensor { name: string; value: number; unit: string; status: string; category: string }
+interface BMCHealth { overall_status: string; sensors: BMCSensor[] | null; collected_at?: string }
 interface BMCEvent { id: string; timestamp: string; severity: string; message: string; source?: string }
+
+const STATUS_COLOR: Record<string, string> = { ok: 'var(--success)', warning: 'var(--warning)', critical: 'var(--error)' }
+const SENSOR_UNIT: Record<string, string> = { Celsius: '°C', Watts: 'W', Volts: 'V' }
+const CATEGORIES: [string, string][] = [['temperature', 'Temperatures'], ['fan', 'Fans'], ['power', 'Power'], ['voltage', 'Voltages'], ['other', 'Other']]
 
 const ACTIONS: { action: string; label: string; icon: string; danger: boolean; text: string }[] = [
   { action: 'on',             label: 'Power on',       icon: 'power',              danger: false, text: 'Switch the machine on.' },
@@ -50,6 +57,12 @@ export function BMCPanel() {
     enabled: configured, retry: false,
   })
 
+  const healthQ = useQuery({
+    queryKey: ['bmc', 'health'],
+    queryFn: ({ signal }) => api.get<{ success: boolean; health?: BMCHealth; error?: string }>('/api/bmc/health', signal),
+    enabled: configured, refetchInterval: 60_000, retry: false,
+  })
+
   const power = useMutation({
     mutationFn: (action: string) => api.post<{ success: boolean; error?: string }>('/api/bmc/power', { action }),
     onSuccess: (r) => { if (r.success) toast.success('Power command sent'); else toast.error(r.error ?? 'Failed'); qc.invalidateQueries({ queryKey: ['bmc', 'power'] }) },
@@ -68,6 +81,9 @@ export function BMCPanel() {
 
   const info = infoQ.data?.info
   const state = powerQ.data?.power_state
+  const health = healthQ.data?.success ? healthQ.data.health : undefined
+  const sensors = health?.sensors ?? []
+  const healthError = healthQ.data && !healthQ.data.success ? healthQ.data.error : (healthQ.error as Error | null)?.message
 
   return (
     <div className="card" style={{ borderRadius: 'var(--radius-xl)', padding: 24, marginTop: 28 }}>
@@ -122,6 +138,40 @@ export function BMCPanel() {
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+            <span style={{ fontWeight: 700 }}>Sensors</span>
+            {health && (
+              <span style={{ fontSize: 'var(--text-xs)', fontWeight: 600, color: STATUS_COLOR[health.overall_status] ?? 'var(--text-tertiary)' }}>
+                {health.overall_status}
+              </span>
+            )}
+            <button className="btn btn-ghost btn-sm" style={{ marginLeft: 'auto' }} disabled={healthQ.isFetching} onClick={() => healthQ.refetch()}>
+              <Icon name="refresh" size={14} />{healthQ.isFetching ? 'Reading…' : 'Refresh'}
+            </button>
+          </div>
+          {healthQ.isLoading && <Skeleton height={80} />}
+          {healthError && <div style={{ color: 'var(--error)', fontSize: 'var(--text-sm)', marginBottom: 16 }}>{healthError}</div>}
+          {health && sensors.length === 0 && <div style={{ color: 'var(--text-tertiary)', fontSize: 'var(--text-sm)', marginBottom: 16 }}>The BMC reports no sensors.</div>}
+          {CATEGORIES.map(([cat, label]) => {
+            const list = sensors.filter(x => (CATEGORIES.some(c => c[0] === x.category) ? x.category : 'other') === cat)
+            if (list.length === 0) return null
+            return (
+              <div key={cat} style={{ marginBottom: 14 }}>
+                <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', marginBottom: 6 }}>{label}</div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))', gap: 8 }}>
+                  {list.map(x => (
+                    <div key={cat + x.name} style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', padding: '6px 10px', fontSize: 'var(--text-sm)' }}>
+                      <div style={{ color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={x.name}>{x.name}</div>
+                      <div style={{ fontWeight: 600, color: x.status === 'ok' ? undefined : STATUS_COLOR[x.status] }}>
+                        {Number.isInteger(x.value) ? x.value : x.value.toFixed(1)} {SENSOR_UNIT[x.unit] ?? x.unit}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )
+          })}
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '20px 0 8px' }}>
             <span style={{ fontWeight: 700 }}>System event log</span>
             <select value={limit} onChange={e => setLimit(Number(e.target.value))} className="input" style={{ width: 'auto', marginLeft: 'auto' }}>
               {[25, 50, 200].map(n => <option key={n} value={n}>last {n}</option>)}

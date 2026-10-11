@@ -1156,6 +1156,16 @@ export function DatasetsPage() {
   )
 
   const filterLower = filter.toLowerCase()
+  // "@" in the filter searches snapshot names on the server (they are not part of the tree).
+  const snapTerm = filter.includes('@') ? filter.trim().replace(/^@/, '') : ''
+  const snapSearch = snapTerm.length >= 2
+  const snapQ = useQuery({
+    queryKey: ['zfs', 'snapshot-search', snapTerm],
+    queryFn: ({ signal }) => api.get<{ success: boolean; results: { name: string; used: string; refer: string; type: string }[] | null }>(`/api/zfs/datasets/search?q=${encodeURIComponent('@' + snapTerm)}`, signal),
+    enabled: snapSearch,
+    staleTime: 10_000,
+  })
+  const snapshots = (snapQ.data?.results ?? []).filter(x => x.type === 'snapshot')
   const matchedDatasets = useMemo(() => {
     if (!filterLower) return totalDatasets
     return allDatasets.filter(d =>
@@ -1246,7 +1256,7 @@ export function DatasetsPage() {
           <input
             value={filter}
             onChange={e => setFilter(e.target.value)}
-            placeholder="Filter datasets by name or mountpoint across all pools…"
+            placeholder="Filter datasets by name or mountpoint; type @ to search snapshots…"
             className="input"
             style={{ paddingLeft: 34, paddingRight: filter ? 32 : 12 }}
           />
@@ -1291,7 +1301,33 @@ export function DatasetsPage() {
               />
             ))
           )}
-          {filterLower && matchedDatasets === 0 && pools.length > 0 && (
+          {snapSearch && (
+            <div className="card" style={{ borderRadius: 'var(--radius-xl)', padding: 20, marginTop: 16 }}>
+              <div style={{ fontWeight: 700, marginBottom: 10 }}>
+                Snapshots matching "{snapTerm}"{snapQ.data ? ` (${snapshots.length})` : ''}
+              </div>
+              {snapQ.isLoading && <Skeleton height={80} />}
+              {snapQ.isError && <div style={{ color: 'var(--error)', fontSize: 'var(--text-sm)' }}>{(snapQ.error as Error).message}</div>}
+              {snapQ.data && snapshots.length === 0 && <div style={{ color: 'var(--text-tertiary)', fontSize: 'var(--text-sm)' }}>No snapshot name contains "{snapTerm}".</div>}
+              {snapshots.length > 0 && (
+                <div style={{ maxHeight: 360, overflowY: 'auto' }}>
+                  <table className="table" style={{ width: '100%' }}>
+                    <thead><tr><th>Snapshot</th><th>Used</th><th>Refers to</th></tr></thead>
+                    <tbody>
+                      {snapshots.slice(0, 500).map(sn => (
+                        <tr key={sn.name}>
+                          <td style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)', wordBreak: 'break-all' }}>{sn.name}</td>
+                          <td>{sn.used}</td><td>{sn.refer}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {snapshots.length > 500 && <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', marginTop: 6 }}>Showing the first 500: narrow the search.</div>}
+                </div>
+              )}
+            </div>
+          )}
+          {filterLower && !snapSearch && matchedDatasets === 0 && pools.length > 0 && (
             <div className="empty-state">
               <Icon name="search_off" size={48} style={{ opacity: 0.3, display: 'block', margin: '0 auto 16px' }} />
               <div className="empty-state-title">No datasets match</div>

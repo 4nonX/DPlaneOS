@@ -542,41 +542,58 @@ func (h *LDAPHandler) SearchUser(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Username string `json:"username"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Username == "" {
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || strings.TrimSpace(req.Username) == "" {
 		writeJSON(w, 400, ldapResp{Error: "Username required"})
 		return
 	}
+	req.Username = strings.TrimSpace(req.Username)
 
 	cfg, err := h.loadLDAPConfig()
 	if err != nil {
 		writeJSON(w, 500, ldapResp{Error: "Config error"})
 		return
 	}
-
 	client, err := ldap.NewClient(cfg)
 	if err != nil {
 		writeJSON(w, 500, ldapResp{Error: err.Error()})
 		return
 	}
-
-	if err := client.Connect(); err != nil {
-		writeJSON(w, 200, ldapResp{Success: false, Error: "Connect failed: " + err.Error()})
-		return
-	}
-	defer client.Close()
-
-	if err := client.Bind(); err != nil {
-		writeJSON(w, 200, ldapResp{Success: false, Error: "Bind failed: " + err.Error()})
+	user, err := client.LookupUser(req.Username)
+	if err != nil {
+		writeJSON(w, 200, ldapResp{Success: false, Error: err.Error()})
 		return
 	}
 
-	// Search for user using configured filter
-	filter := strings.Replace(cfg.UserFilter, "{username}", req.Username, 1)
-	writeJSON(w, 200, ldapResp{Success: true, Data: map[string]string{
-		"username": req.Username,
-		"filter":   filter,
-		"base_dn":  cfg.BaseDN,
-		"message":  "Search executed - check server logs for results",
+	// The roles a login of this user would get from the group mappings.
+	roles := []string{}
+	seen := map[string]bool{}
+	mappings, err := h.loadGroupMappings()
+	if err != nil {
+		writeJSON(w, 500, ldapResp{Error: "Group mappings: " + err.Error()})
+		return
+	}
+	for _, g := range user.Groups {
+		for _, role := range mappings[strings.ToLower(g)] {
+			if !seen[role] {
+				seen[role] = true
+				roles = append(roles, role)
+			}
+		}
+	}
+	if len(roles) == 0 && cfg.DefaultRole != "" {
+		roles = append(roles, cfg.DefaultRole+" (default)")
+	}
+	groups := user.Groups
+	if groups == nil {
+		groups = []string{}
+	}
+	writeJSON(w, 200, ldapResp{Success: true, Data: map[string]any{
+		"dn":        user.DN,
+		"username":  user.Username,
+		"full_name": user.FullName,
+		"email":     user.Email,
+		"groups":    groups,
+		"roles":     roles,
 	}})
 }
 

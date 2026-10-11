@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { ADDomainsTab } from '@/components/directory/ADDomainsTab'
 import type React from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { api } from '@/lib/api'
+import { api, ensureOk } from '@/lib/api'
 import { fmtDateTime } from '@/lib/fmt'
 import { Icon } from '@/components/ui/Icon'
 import { ErrorState } from '@/components/ui/ErrorState'
@@ -13,6 +13,8 @@ import { useConfirm } from '@/components/ui/ConfirmDialog'
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
+
+interface DirectoryUser { dn: string; username: string; full_name: string; email: string; groups: string[]; roles: string[] }
 
 type ProviderType = 'openldap' | 'ad' | 'active-directory' | 'apple-od'
 
@@ -216,8 +218,15 @@ function ConfigTab() {
   })
 
   const test = useMutation({
-    mutationFn: () => api.post<{ success: boolean; message?: string }>('/api/ldap/test', {}),
-    onSuccess: data => { toast.success(data.message ?? 'Connection successful'); qc.invalidateQueries({ queryKey: ['ldap', 'status'] }) },
+    mutationFn: async () => ensureOk(await api.post<{ success: boolean; error?: string; data?: { message?: string } }>('/api/ldap/test', {})),
+    onSuccess: data => { toast.success(data.data?.message ?? 'Connection successful'); qc.invalidateQueries({ queryKey: ['ldap', 'status'] }) },
+    onError: (e: Error) => { toast.error(e.message); qc.invalidateQueries({ queryKey: ['ldap', 'status'] }) },
+  })
+
+  // What the directory returns for one user: the entry, its groups and the roles a login would get.
+  const [lookupName, setLookupName] = useState('')
+  const lookup = useMutation({
+    mutationFn: async () => ensureOk(await api.post<{ success: boolean; error?: string; data?: DirectoryUser }>('/api/ldap/search-user', { username: lookupName.trim() })),
     onError: (e: Error) => toast.error(e.message),
   })
 
@@ -367,6 +376,36 @@ function ConfigTab() {
               )}
             </div>
           </div>
+        </div>
+
+        <div className="card" style={{ padding: 20 }}>
+          <h3 style={{ marginBottom: 6, fontSize: 'var(--text-lg)', fontWeight: 600 }}>Look up a user</h3>
+          <p style={{ margin: '0 0 12px', fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>
+            Searches the directory with the saved settings and shows what a login of this user would get. Use it to check the user filter and the group mappings.
+          </p>
+          <form style={{ display: 'flex', gap: 8 }} onSubmit={e => { e.preventDefault(); if (lookupName.trim()) lookup.mutate() }}>
+            <input value={lookupName} onChange={e => setLookupName(e.target.value)} placeholder="User name" className="input" style={{ maxWidth: 280 }} aria-label="User name to look up" />
+            <button type="submit" className="btn btn-ghost" disabled={lookup.isPending || !lookupName.trim()}>
+              <Icon name="person_search" size={16} />{lookup.isPending ? 'Searching…' : 'Look up'}
+            </button>
+          </form>
+          {lookup.data?.data && (
+            <div style={{ marginTop: 14, display: 'grid', gridTemplateColumns: 'max-content 1fr', gap: '6px 16px', fontSize: 'var(--text-sm)' }}>
+              {([
+                ['User name', lookup.data.data.username],
+                ['Full name', lookup.data.data.full_name || '-'],
+                ['Email', lookup.data.data.email || '-'],
+                ['Entry', lookup.data.data.dn],
+                ['Groups', lookup.data.data.groups.length ? lookup.data.data.groups.join(', ') : 'none found'],
+                ['Roles on login', lookup.data.data.roles.length ? lookup.data.data.roles.join(', ') : 'none'],
+              ] as [string, string][]).map(([k, v]) => (
+                <div key={k} style={{ display: 'contents' }}>
+                  <span style={{ color: 'var(--text-tertiary)' }}>{k}</span>
+                  <span style={{ wordBreak: 'break-all' }}>{v}</span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </>

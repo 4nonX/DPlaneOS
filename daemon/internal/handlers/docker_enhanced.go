@@ -5,16 +5,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"os"
-	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
 
 	"dplaned/internal/audit"
 	"dplaned/internal/cmdutil"
-	"dplaned/internal/composegpu"
-	"dplaned/internal/config"
 	"dplaned/internal/dockerclient"
 	"dplaned/internal/jobs"
 	"dplaned/internal/libzfs"
@@ -347,129 +343,6 @@ func (h *DockerHandler) ContainerStats(w http.ResponseWriter, r *http.Request) {
 //  Docker Compose
 // ═══════════════════════════════════════════════════════════════
 
-// ComposeUp starts a docker-compose stack
-// POST /api/docker/compose/up { "path": "/opt/stacks/plex", "detach": true }
-func (h *DockerHandler) ComposeUp(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Path   string `json:"path"`   // directory containing docker-compose.yml
-		Detach bool   `json:"detach"` // -d flag
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		respondErrorSimple(w, "Invalid request", http.StatusBadRequest)
-		return
-	}
-
-	cleanPath, err := validateComposeDirPath(req.Path)
-	if err != nil {
-		respondErrorSimple(w, "Invalid path: "+err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	composeFile := filepath.Join(cleanPath, "docker-compose.yml")
-	if raw, rerr := os.ReadFile(composeFile); rerr == nil {
-		if err := composegpu.ValidateForDeploy(string(raw)); err != nil {
-			respondErrorSimple(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-	}
-
-	args := []string{"compose", "--project-directory", cleanPath, "-f", composeFile, "up"}
-	if req.Detach {
-		args = append(args, "-d")
-	}
-
-	id := jobs.Start("compose_up", func(j *jobs.Job) {
-		start := time.Now()
-		output, err := cmdutil.RunSlow("docker_compose", args...)
-		duration := time.Since(start)
-		if err != nil {
-			j.Fail(fmt.Sprintf("%v\n%s", err, string(output)))
-			return
-		}
-		j.Done(map[string]any{
-			"output":      string(output),
-			"duration_ms": duration.Milliseconds(),
-		})
-	})
-
-	respondOK(w, map[string]any{"job_id": id})
-}
-
-// ComposeDown stops a docker-compose stack
-// POST /api/docker/compose/down { "path": "/opt/stacks/plex" }
-func (h *DockerHandler) ComposeDown(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Path          string `json:"path"`
-		RemoveVolumes bool   `json:"remove_volumes"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		respondErrorSimple(w, "Invalid request", http.StatusBadRequest)
-		return
-	}
-
-	cleanPath, err := validateComposeDirPath(req.Path)
-	if err != nil {
-		respondErrorSimple(w, "Invalid path: "+err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	composeFile := filepath.Join(cleanPath, "docker-compose.yml")
-	args := []string{"compose", "--project-directory", cleanPath, "-f", composeFile, "down"}
-	if req.RemoveVolumes {
-		args = append(args, "-v")
-	}
-
-	id := jobs.Start("compose_down", func(j *jobs.Job) {
-		output, err := cmdutil.RunMedium("docker_compose", args...)
-		if err != nil {
-			j.Fail(fmt.Sprintf("%v\n%s", err, string(output)))
-			return
-		}
-		j.Done(map[string]any{"output": string(output)})
-	})
-
-	respondOK(w, map[string]any{"job_id": id})
-}
-
-// ComposeStatus shows status of a docker-compose stack
-// GET /api/docker/compose/status?path=/opt/stacks/plex
-func (h *DockerHandler) ComposeStatus(w http.ResponseWriter, r *http.Request) {
-	rawPath := r.URL.Query().Get("path")
-	path, pathErr := validateComposeDirPath(rawPath)
-	if pathErr != nil {
-		respondErrorSimple(w, "Invalid path: "+pathErr.Error(), http.StatusBadRequest)
-		return
-	}
-
-	output, err := cmdutil.RunFast("docker_compose",
-		"compose", "-f", path+"/docker-compose.yml", "ps", "--format", "json")
-	if err != nil {
-		respondOK(w, map[string]any{
-			"success":  true,
-			"services": []any{},
-			"error":    "Compose stack not found or not running",
-		})
-		return
-	}
-
-	var services []map[string]any
-	for line := range strings.SplitSeq(strings.TrimSpace(string(output)), "\n") {
-		if line == "" {
-			continue
-		}
-		var s map[string]any
-		if err := json.Unmarshal([]byte(line), &s); err == nil {
-			services = append(services, s)
-		}
-	}
-
-	respondOK(w, map[string]any{
-		"success":  true,
-		"services": services,
-		"count":    len(services),
-	})
-}
-
 // ═══════════════════════════════════════════════════════════════
 //  Helpers
 // ═══════════════════════════════════════════════════════════════
@@ -481,42 +354,3 @@ func isValidContainerName(name string) bool {
 }
 
 // waitForHealthy is implemented in internal/dockerclient - use dockerClient.WaitForHealthy()
-
-// validateComposeDirPath validates a directory path for docker compose operations.
-// Rules:
-//   - Must be an absolute path
-//   - No null bytes
-//   - After filepath.Clean, must still be absolute (no traversal to relative)
-//   - Must be under one of the allowed base directories
-//
-// Allowed bases: /opt, /srv, /home, /var/lib/dplaneos/git-stacks, /mnt, /data, /tank, /pool
-// This prevents arbitrary file access outside of typical Docker stack directories.
-func validateComposeDirPath(p string) (string, error) {
-	if strings.ContainsRune(p, 0) {
-		return "", fmt.Errorf("null byte in path")
-	}
-	if !filepath.IsAbs(p) {
-		return "", fmt.Errorf("must be an absolute path")
-	}
-	clean := filepath.Clean(p)
-	if !filepath.IsAbs(clean) {
-		return "", fmt.Errorf("path traversal detected")
-	}
-
-	allowedPrefixes := []string{
-		"/opt/",
-		"/srv/",
-		"/home/",
-		config.DBDir + "/",
-		"/mnt/",
-		"/data/",
-		"/tank/",
-		"/pool/",
-	}
-	for _, prefix := range allowedPrefixes {
-		if strings.HasPrefix(clean+"/", prefix) || clean == strings.TrimSuffix(prefix, "/") {
-			return clean, nil
-		}
-	}
-	return "", fmt.Errorf("path must be under /opt, /srv, /home, %s, /mnt, /data, /tank, or /pool", config.DBDir)
-}

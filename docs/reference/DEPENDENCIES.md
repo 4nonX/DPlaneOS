@@ -69,7 +69,6 @@ All system-level dependencies are declared in the NixOS module (`nixos/module.ni
 | `udev` (systemd) | Device event rules (hot-swap, removable media) |
 | `samba` | SMB / CIFS shares and AFP / Time Machine |
 | `nfs-utils` | NFS exports (`exportfs`) |
-| `nfs4-acl-tools` | NFSv4 ACL management (`nfs4_getfacl`, `nfs4_setfacl`) |
 | `docker` + `docker-compose` | Container management |
 | `ipmitool` | IPMI / BMC monitoring |
 | `rclone` + `fuse3` | Cloud sync and Cold Tier FUSE mounts |

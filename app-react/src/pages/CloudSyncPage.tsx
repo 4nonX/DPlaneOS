@@ -8,6 +8,7 @@
  *   GET  /api/cloud-sync?action=remotes   → { remotes: Remote[] }
  *   GET  /api/cloud-sync?action=providers → { providers: Provider[] }
  *   POST /api/cloud-sync { action:'configure'|'sync'|'test'|'delete', ... }
+ *   GET  /api/cloud-sync/jobs             → { jobs: SyncJob[] } (the 20 most recent transfers)
  *
  * Cold Tier API:
  *   GET    /api/storage/cold-tier         → { mounts: ColdTierMount[] }
@@ -31,6 +32,8 @@ import { useConfirm } from '@/components/ui/ConfirmDialog'
 interface Remote   { name: string; type?: string; status?: string; last_sync?: string; config?: Record<string,unknown> }
 interface Provider { id: string; name: string; icon?: string; fields?: ProviderField[] }
 interface ProviderField { key: string; label: string; type?: string; required?: boolean }
+
+interface SyncJob { id: string; provider: string; action: string; source: string; destination: string; status: 'running' | 'done' | 'failed'; started_at: string; finished_at?: string; error?: string }
 
 interface ColdTierMount {
   id: number
@@ -274,6 +277,14 @@ export function CloudSyncPage() {
   const remotesQ   = useQuery({ queryKey:['cloud','remotes'],   queryFn:({signal})=>api.get<{success:boolean;remotes:Remote[]}>('/api/cloud-sync?action=remotes',signal) })
   const providersQ = useQuery({ queryKey:['cloud','providers'], queryFn:({signal})=>api.get<{success:boolean;providers:Provider[]}>('/api/cloud-sync?action=providers',signal) })
 
+  // Transfers run in the background; the list follows them while one is running.
+  const jobsQ = useQuery({
+    queryKey: ['cloud', 'jobs'],
+    queryFn: ({ signal }) => api.get<{ success: boolean; jobs: SyncJob[] | null }>('/api/cloud-sync/jobs', signal),
+    refetchInterval: q => (q.state.data?.jobs?.some(j => j.status === 'running') ? 3_000 : 30_000),
+  })
+  const syncJobs = jobsQ.data?.jobs ?? []
+
   const configure = useMutation({
     mutationFn: () => api.post('/api/cloud-sync', { 
       action: isEditing ? 'update' : 'configure', 
@@ -293,7 +304,7 @@ export function CloudSyncPage() {
   })
   const sync = useMutation({
     mutationFn: () => api.post('/api/cloud-sync', { action:'sync', remote:syncRemote, local_path:syncPath, direction:syncDir, dry_run:dryRun }),
-    onSuccess: () => toast.success(dryRun ? 'Dry run complete' : 'Sync started'),
+    onSuccess: () => { toast.success(dryRun ? 'Dry run started' : 'Sync started'); qc.invalidateQueries({ queryKey: ['cloud', 'jobs'] }) },
     onError: (e:Error)=>toast.error(e.message),
   })
   const testRemote = useMutation({
@@ -460,6 +471,31 @@ export function CloudSyncPage() {
             <input type="checkbox" checked={dryRun} onChange={e=>setDryRun(e.target.checked)} style={{ accentColor:'var(--primary)' }}/>
             Dry run (no changes)
           </label>
+        </div>
+      )}
+
+      {/* Transfers */}
+      {syncJobs.length > 0 && (
+        <div className="card card-xl" style={{ marginTop: 20 }}>
+          <div style={{ fontWeight: 700, marginBottom: 10 }}>Recent transfers</div>
+          <div style={{ overflowX: 'auto' }}>
+            <table className="table" style={{ width: '100%' }}>
+              <thead><tr><th>Started</th><th>Action</th><th>From</th><th>To</th><th>State</th></tr></thead>
+              <tbody>
+                {syncJobs.map(j => (
+                  <tr key={j.id}>
+                    <td style={{ whiteSpace: 'nowrap' }}>{fmtDate(j.started_at)}</td>
+                    <td>{j.action}</td>
+                    <td style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)' }}>{j.source}</td>
+                    <td style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)' }}>{j.destination}</td>
+                    <td style={{ fontWeight: 600, color: j.status === 'failed' ? 'var(--error)' : j.status === 'done' ? 'var(--success)' : 'var(--primary)' }} title={j.error}>
+                      {j.status === 'running' ? 'Running…' : j.status === 'done' ? `Done${j.finished_at ? ` · ${fmtDate(j.finished_at)}` : ''}` : `Failed${j.error ? `: ${j.error}` : ''}`}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
       <ConfirmDialog />

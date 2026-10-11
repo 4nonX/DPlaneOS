@@ -494,12 +494,6 @@ var CommandWhitelist = map[string]Command{
 		Path:        "ip",
 		Description: "Add or delete routing table entries",
 	},
-	"network_apply": {
-		Name:        "network_apply",
-		Path:        "netplan",
-		AllowedArgs: []string{"apply"},
-		Description: "Apply network configuration (netplan)",
-	},
 
 	// ZFS Replication Operations
 	"zfs_send": {
