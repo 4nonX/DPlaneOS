@@ -1,0 +1,28 @@
+name: Samba with Active Directory support
+description: >
+  The appliance's Samba (nixos/samba-package.nix) is not in the public binary
+  cache and takes a long time to build. This keeps the build in the workflow
+  cache: restored where there is one, built and saved where there is not.
+runs:
+  using: composite
+  steps:
+    - name: Restore the Samba build
+      uses: actions/cache@v4
+      with:
+        path: ~/samba-ads-cache
+        key: samba-ads-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('flake.lock', 'nixos/samba-package.nix') }}
+
+    - name: Samba with Active Directory support
+      shell: bash
+      run: |
+        set -euo pipefail
+        cache="$HOME/samba-ads-cache"
+        paths=$(nix eval --raw .#samba-ads --apply 'p: builtins.concatStringsSep " " (map (o: p.${o}.outPath) p.outputs)')
+        if [ -f "$cache/nix-cache-info" ]; then
+          # shellcheck disable=SC2086
+          nix copy --no-check-sigs --from "file://$cache" $paths || echo "The cached build could not be used; building."
+        fi
+        nix build '.#samba-ads^*' --no-link --print-build-logs
+        if [ ! -f "$cache/nix-cache-info" ]; then
+          nix copy --to "file://$cache?compression=zstd" '.#samba-ads^*'
+        fi

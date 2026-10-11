@@ -34,6 +34,17 @@ in
       description = "Open Samba ports in the NixOS firewall (TCP 445, 139; UDP 137, 138).";
     };
 
+    package = lib.mkOption {
+      type        = lib.types.package;
+      default     = import ../samba-package.nix pkgs;
+      defaultText = lib.literalExpression "pkgs.samba.override { enableLDAP = true; }";
+      description = ''
+        The Samba package: smbd, nmbd, winbindd, and the tools the daemon
+        calls (net, wbinfo, testparm). Built with Active Directory support,
+        which joining a domain needs.
+      '';
+    };
+
     sharesConfPath = lib.mkOption {
       type     = lib.types.path;
       default  = confPath;
@@ -49,7 +60,7 @@ in
 
     services.samba = {
       enable       = true;
-      package      = pkgs.samba;
+      package      = cfg.package;
       openFirewall = false;   # below, with the UDP ports
     };
 
@@ -94,7 +105,7 @@ in
 
     # Users and groups of a directory domain resolve through winbind once
     # the system has joined one (without a domain winbind has none to offer).
-    system.nssModules   = [ pkgs.samba ];
+    system.nssModules   = [ cfg.package ];
     system.nssDatabases = {
       passwd = lib.mkAfter [ "winbind" ];
       group  = lib.mkAfter [ "winbind" ];

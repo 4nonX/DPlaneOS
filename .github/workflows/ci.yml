@@ -48,6 +48,9 @@ jobs:
             accept-flake-config = true
             system-features = nixos-test benchmark big-parallel kvm
 
+      - name: Samba with Active Directory support (from the workflow cache, or built)
+        uses: ./.github/actions/samba-ads
+
       - name: Run the VM test
         timeout-minutes: 60
         env:
@@ -628,6 +631,9 @@ jobs:
             extra-substituters = https://cache.nixos.org
             trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY=
 
+      - name: Samba with Active Directory support (from the workflow cache, or built)
+        uses: ./.github/actions/samba-ads
+
       - name: Verify VERSION matches tag
         id: version
         run: |
@@ -696,10 +702,57 @@ jobs:
             extra-substituters = https://cache.nixos.org
             trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY=
 
+      - name: Samba with Active Directory support (from the workflow cache, or built)
+        uses: ./.github/actions/samba-ads
+
       - name: Run live boot VM test (x86_64)
         timeout-minutes: 15
         run: |
           nix build .#checks.x86_64-linux.live-boot -L
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # STAGE 4B: THE APPLIANCE AS INSTALLED - each test starts the system the
+  # installer puts on disk and uses it the way the web interface does.
+  #   appliance     first boot, shares, users, directory, settings, block
+  #                 services, UPS, replication, firewall, network, restart
+  #   install       the installer on an empty disk, then the disk on its own
+  #   update        a signed update: installed, on trial, kept; a bad one removed
+  #   domain        membership in an Active Directory domain
+  #   reservations  shared disks: the owner holds them, a takeover shuts out
+  #                 a previous owner that is still writing
+  # ════════════════════════════════════════════════════════════════════════════
+  appliance-vm:
+    name: Appliance (${{ matrix.check }})
+    needs: [prepare]
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        check: [appliance, install, update, domain, reservations]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v30
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+            accept-flake-config = true
+            system-features = nixos-test benchmark big-parallel kvm
+
+      - name: Samba with Active Directory support (from the workflow cache, or built)
+        uses: ./.github/actions/samba-ads
+
+      - name: Run the VM test
+        timeout-minutes: 90
+        run: nix build ".#checks.x86_64-linux.${{ matrix.check }}" -L
 
   # ════════════════════════════════════════════════════════════════════════════
   # STAGE 4C: CLUSTER QUORUM - Corosync + third vote on three NixOS VMs
@@ -727,6 +780,9 @@ jobs:
             accept-flake-config = true
             system-features = nixos-test benchmark big-parallel kvm
 
+      - name: Samba with Active Directory support (from the workflow cache, or built)
+        uses: ./.github/actions/samba-ads
+
       - name: Run quorum VM test
         timeout-minutes: 60
         run: nix build .#checks.x86_64-linux.quorum -L
@@ -734,10 +790,6 @@ jobs:
       - name: Run storage groups VM test (shared disk)
         timeout-minutes: 60
         run: nix build .#checks.x86_64-linux.groups -L
-
-      - name: Run disk reservations VM test (shared disks, owner cut off but writing)
-        timeout-minutes: 60
-        run: nix build .#checks.x86_64-linux.reservations -L
 
       - name: Run automatic failover VM test (third vote + watchdog)
         timeout-minutes: 60
@@ -830,7 +882,7 @@ jobs:
   # ════════════════════════════════════════════════════════════════════════════
   release:
     name: Build & Publish Release
-    needs: [validate, integration, config-sync, quorum-vm, convergence, storage-failure, nix-eval, iso, iso-arm, build-live-iso, test-live-boot, witness-images]
+    needs: [validate, integration, config-sync, quorum-vm, appliance-vm, convergence, storage-failure, nix-eval, iso, iso-arm, build-live-iso, test-live-boot, witness-images]
     if: github.ref_type == 'tag' || github.ref == 'refs/heads/main'
     runs-on: ubuntu-22.04
     permissions:
@@ -1088,6 +1140,9 @@ jobs:
             extra-substituters = https://cache.nixos.org
             trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY=
 
+      - name: Samba with Active Directory support (from the workflow cache, or built)
+        uses: ./.github/actions/samba-ads
+
       - name: Report available disk space
         run: df -h /
 
@@ -1242,6 +1297,9 @@ jobs:
             accept-flake-config = true
             extra-substituters = https://cache.nixos.org
             trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY=
+
+      - name: Samba with Active Directory support (from the workflow cache, or built)
+        uses: ./.github/actions/samba-ads
 
       - name: Report available disk space
         run: df -h /
