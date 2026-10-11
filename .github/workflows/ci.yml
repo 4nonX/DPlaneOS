@@ -1016,6 +1016,7 @@ jobs:
             ${{ steps.meta.outputs.arm64_tarball }}.bundle
             ${{ steps.meta.outputs.arm64_tarball }}.sbom.json
             iso-artifacts/*.iso
+            iso-artifacts/*.update
             witness-artifacts/*
             iso-artifacts/*.sha256
             iso-artifacts/*.bundle
@@ -1134,6 +1135,44 @@ jobs:
           echo "SBOM: $(python3 -c "import json; d=json.load(open('${ISO_NAME}.sbom.json')); print(len(d['packages']),'packages')" 2>/dev/null)"
           echo "iso_sbom=${ISO_NAME}.sbom.json" >> $GITHUB_OUTPUT
 
+      # The update file of this release for installed systems (Updates page):
+      # the parts of the system the public NixOS cache does not have, as a
+      # signed binary cache. Built from the same system the ISO installs.
+      - name: Build the update file
+        id: update
+        env:
+          UPDATE_SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          if [ -z "$UPDATE_SIGNING_KEY" ]; then
+            if [[ "${{ github.ref_type }}" == "tag" || "${{ github.ref }}" == "refs/heads/main" ]]; then
+              echo "::error::The secret UPDATE_SIGNING_KEY is not set: a release without update file leaves installed systems without updates."
+              exit 1
+            fi
+            echo "::warning::UPDATE_SIGNING_KEY is not set; no update file is built."
+            exit 0
+          fi
+          SYSTEM_PATH=$(nix eval --raw ".#nixosConfigurations.dplaneos-for-iso.config.system.build.toplevel")
+          KEY="$RUNNER_TEMP/update-signing.pem"
+          ( umask 077; printf '%s\n' "$UPDATE_SIGNING_KEY" > "$KEY" )
+          UPDATE_SIGNING_KEY_FILE="$KEY" bash scripts/make-update-file.sh "$SYSTEM_PATH" "$VERSION" .
+          rm -f "$KEY"
+          UPDATE_FILE="dplaneos-v${VERSION}-$(uname -m).update"
+          test -s "$UPDATE_FILE"
+
+          # A system that has nothing of this release must be able to get all
+          # of it from the update file and the public cache (dry run: what
+          # would be fetched; fails if any path has no source).
+          CHECK="$RUNNER_TEMP/update-check"
+          mkdir -p "$CHECK"
+          tar -xf "$UPDATE_FILE" -C "$CHECK" update.tar
+          tar -xf "$CHECK/update.tar" -C "$CHECK"
+          nix-store --store "$CHECK/root" --realise --dry-run "$SYSTEM_PATH" \
+            --option substituters "file://$CHECK/cache?trusted=true https://cache.nixos.org/" \
+            --option require-sigs true 2>&1 | tail -n 5
+          rm -rf "$CHECK"
+          echo "update_file=${UPDATE_FILE}" >> "$GITHUB_OUTPUT"
+
       - name: Upload ISO artifact for signing in release job
         uses: actions/upload-artifact@v4
         with:
@@ -1142,6 +1181,7 @@ jobs:
             ${{ steps.package.outputs.iso_name }}
             ${{ steps.package.outputs.iso_sha }}
             ${{ steps.package.outputs.iso_sbom }}
+            ${{ steps.update.outputs.update_file }}
 
   # ════════════════════════════════════════════════════════════════════════════
   # STAGE 5B: ISO ARM64 - Combined installer for aarch64 clusters
@@ -1245,6 +1285,44 @@ jobs:
           echo "SBOM: $(python3 -c "import json; d=json.load(open('${ISO_NAME}.sbom.json')); print(len(d['packages']),'packages')" 2>/dev/null)"
           echo "iso_sbom=${ISO_NAME}.sbom.json" >> $GITHUB_OUTPUT
 
+      # The update file of this release for installed systems (Updates page):
+      # the parts of the system the public NixOS cache does not have, as a
+      # signed binary cache. Built from the same system the ISO installs.
+      - name: Build the update file
+        id: update
+        env:
+          UPDATE_SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          if [ -z "$UPDATE_SIGNING_KEY" ]; then
+            if [[ "${{ github.ref_type }}" == "tag" || "${{ github.ref }}" == "refs/heads/main" ]]; then
+              echo "::error::The secret UPDATE_SIGNING_KEY is not set: a release without update file leaves installed systems without updates."
+              exit 1
+            fi
+            echo "::warning::UPDATE_SIGNING_KEY is not set; no update file is built."
+            exit 0
+          fi
+          SYSTEM_PATH=$(nix eval --raw ".#nixosConfigurations.dplaneos-arm.config.system.build.toplevel")
+          KEY="$RUNNER_TEMP/update-signing.pem"
+          ( umask 077; printf '%s\n' "$UPDATE_SIGNING_KEY" > "$KEY" )
+          UPDATE_SIGNING_KEY_FILE="$KEY" bash scripts/make-update-file.sh "$SYSTEM_PATH" "$VERSION" .
+          rm -f "$KEY"
+          UPDATE_FILE="dplaneos-v${VERSION}-$(uname -m).update"
+          test -s "$UPDATE_FILE"
+
+          # A system that has nothing of this release must be able to get all
+          # of it from the update file and the public cache (dry run: what
+          # would be fetched; fails if any path has no source).
+          CHECK="$RUNNER_TEMP/update-check"
+          mkdir -p "$CHECK"
+          tar -xf "$UPDATE_FILE" -C "$CHECK" update.tar
+          tar -xf "$CHECK/update.tar" -C "$CHECK"
+          nix-store --store "$CHECK/root" --realise --dry-run "$SYSTEM_PATH" \
+            --option substituters "file://$CHECK/cache?trusted=true https://cache.nixos.org/" \
+            --option require-sigs true 2>&1 | tail -n 5
+          rm -rf "$CHECK"
+          echo "update_file=${UPDATE_FILE}" >> "$GITHUB_OUTPUT"
+
       - name: Upload arm64 ISO artifact for signing in release job
         uses: actions/upload-artifact@v4
         with:
@@ -1253,4 +1331,5 @@ jobs:
             ${{ steps.package.outputs.iso_name }}
             ${{ steps.package.outputs.iso_sha }}
             ${{ steps.package.outputs.iso_sbom }}
+            ${{ steps.update.outputs.update_file }}
 

@@ -1,22 +1,32 @@
 #!/usr/bin/env bash
 # DPlaneOS Installer
 # ─────────────────────────────────────────────────────────────────────────────
-# TUI installer - mirrors the TrueNAS SCALE installation flow.
-# Works fully offline: the ISO contains the complete DPlaneOS closure.
+# Works fully offline: the ISO contains the complete DPlaneOS system.
 #
 # Flow:
 #   1. Welcome screen
-#   2. Select boot/OS disk
-#   3. Set admin password
-#   4. Select boot mode (UEFI / Legacy BIOS)
-#   5. Confirm and install
-#   6. Complete - show IP and access URL
+#   2. Select the disk for the operating system
+#   3. Set the administrator password
+#   4. Confirm and install
+#   5. Complete: remove the installation medium, restart
+#
+# Unattended (provisioning, tests): no questions are asked when
+#   DPLANEOS_INSTALL_UNATTENDED=1
+#   DPLANEOS_INSTALL_DISK=/dev/...            the disk to erase and install on
+#   DPLANEOS_INSTALL_PASSWORD_FILE=/path      file with the administrator password
+# are set; the script exits when the installation is done (0) or failed (1)
+# and does not restart the machine.
 # ─────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
-DPLANEOS_VERSION=$(cat /etc/dplaneos-install/VERSION 2>/dev/null || echo "7.1.0")
+DPLANEOS_VERSION=$(cat /etc/dplaneos-install/VERSION 2>/dev/null || echo "unknown")
 INSTALL_DIR="/etc/dplaneos-install"
 LOG_FILE="/tmp/dplaneos-install.log"
+UNATTENDED="${DPLANEOS_INSTALL_UNATTENDED:-0}"
+
+# The system needs 1 GB for the boot partition, 20 GB for the system and
+# room for its state (database, logs, containers).
+MIN_DISK_BYTES=$((32 * 1000 * 1000 * 1000))
 
 BORDER_COLOR="#6366f1"
 TITLE_COLOR="#a5b4fc"
@@ -26,12 +36,17 @@ DIM_COLOR="#6b7280"
 
 INSTALL_DISK=""
 ADMIN_PASS=""
-BOOT_MODE=""
 PRIMARY_IP=""
 
 log() { echo "[$(date '+%H:%M:%S')] $*" | tee -a "$LOG_FILE"; }
 
 die() {
+    if [ "$UNATTENDED" = 1 ]; then
+        echo "INSTALLATION FAILED: $*" >&2
+        echo "Log: $LOG_FILE" >&2
+        tail -n 40 "$LOG_FILE" >&2 || true
+        exit 1
+    fi
     clear
     gum style \
         --border double \
@@ -86,39 +101,50 @@ show_welcome() {
     esac
 }
 
+# candidate_disks prints one line per disk the system can be installed on:
+#   /dev/name<TAB>bytes<TAB>model
+# Whole disks of at least MIN_DISK_BYTES that are not in use (the medium
+# this installer runs from has a mounted file system and is left out).
+candidate_disks() {
+    local name size type model
+    # MODEL last: it may be empty or contain spaces.
+    lsblk -d -n -b -o NAME,SIZE,TYPE,MODEL 2>/dev/null | while read -r name size type model; do
+        [ "$type" = "disk" ] || continue
+        [ "${size:-0}" -ge "$MIN_DISK_BYTES" ] || continue
+        if lsblk -n -o MOUNTPOINTS "/dev/$name" 2>/dev/null | grep -q '[^[:space:]]'; then
+            continue
+        fi
+        printf '/dev/%s\t%s\t%s\n' "$name" "$size" "${model:-Unknown}"
+    done | sort
+}
+
+human_size() {
+    awk -v s="$1" 'BEGIN {
+        if (s >= 1000000000000) printf "%.1f TB", s / 1000000000000;
+        else printf "%.0f GB", s / 1000000000;
+    }'
+}
+
 select_disk() {
     clear
     gum style --foreground "$TITLE_COLOR" --bold --margin "1 0 0 1" \
-        "Step 1 of 4 - Select boot disk"
+        "Step 1 of 3 - Select the system disk"
     gum style --foreground "$DIM_COLOR" --margin "0 0 1 1" \
-        "This disk will hold the DPlaneOS operating system (A/B slots + persistent state)." \
+        "This disk will hold the DPlaneOS operating system and its state." \
         "Your data disks are NOT touched here - ZFS pools are created after install."
 
-    local disk_list=()
-    while IFS= read -r line; do
-        disk_list+=("$line")
-    done < <(lsblk -d -o NAME,SIZE,MODEL,TYPE --noheadings --bytes 2>/dev/null \
-        | awk '$4=="disk" {
-            size=$2+0
-            if (size > 10737418240) {
-                if (size >= 1099511627776)      hr=sprintf("%.0f TB", size/1099511627776)
-                else if (size >= 1073741824)    hr=sprintf("%.0f GB", size/1073741824)
-                else                            hr=sprintf("%.0f MB", size/1048576)
-                model=$3
-                for(i=4;i<=NF-1;i++) model=model" "$i
-                gsub(/[[:space:]]+$/, "", model)
-                if (model == "") model = "Unknown"
-                printf "/dev/%-8s  %-8s  %s\n", $1, hr, model
-            }
-        }' | sort)
+    local disk_list=() dev size model
+    while IFS=$'\t' read -r dev size model; do
+        disk_list+=("$(printf '%-14s %-9s %s' "$dev" "$(human_size "$size")" "$model")")
+    done < <(candidate_disks)
 
     if [ ${#disk_list[@]} -eq 0 ]; then
-        die "No suitable disks found (minimum 10 GB required).\nCheck hardware connections and retry."
+        die "No suitable disk found (at least 32 GB, not in use).\nCheck hardware connections and retry."
     fi
 
     local selected
     selected=$(gum choose \
-        --header "Available disks - select the OS boot disk:" \
+        --header "Available disks - select the system disk:" \
         --header.foreground "$TITLE_COLOR" \
         --cursor.foreground "$BORDER_COLOR" \
         "${disk_list[@]}")
@@ -144,16 +170,35 @@ select_disk() {
     log "Selected disk: $INSTALL_DISK ($selected)"
 }
 
+# password_problem prints why a password is not acceptable (the rules of the
+# web interface), or nothing.
+password_problem() {
+    python3 - "$1" <<'PY'
+import sys, unicodedata
+p = sys.argv[1]
+if len(p) < 8:
+    print("Password must be at least 8 characters.")
+    sys.exit()
+missing = []
+if not any(c.isupper() for c in p): missing.append("an uppercase letter")
+if not any(c.islower() for c in p): missing.append("a lowercase letter")
+if not any(c.isdigit() for c in p): missing.append("a digit")
+if not any(unicodedata.category(c)[0] in "PS" for c in p): missing.append("a special character")
+if missing:
+    print("Password must contain " + ", ".join(missing) + ".")
+PY
+}
+
 set_admin_password() {
     clear
     gum style --foreground "$TITLE_COLOR" --bold --margin "1 0 0 1" \
-        "Step 2 of 4 - Administrator password"
+        "Step 2 of 3 - Administrator password"
     gum style --foreground "$DIM_COLOR" --margin "0 0 1 1" \
-        "This password is used to log into the DPlaneOS web interface." \
+        "This password is used to log into the DPlaneOS web interface (user: admin)." \
         "Minimum 8 characters. Must contain upper, lower, digit, and symbol."
 
     while true; do
-        local pass1 pass2
+        local pass1 pass2 problem
         pass1=$(gum input \
             --password \
             --placeholder "Enter admin password" \
@@ -176,15 +221,9 @@ set_admin_password() {
             continue
         fi
 
-        if [ ${#pass1} -lt 8 ]; then
-            gum style --foreground "$ERROR_COLOR" --margin "0 0 0 1" \
-                "✗  Password must be at least 8 characters."
-            continue
-        fi
-
-        if ! echo "$pass1" | grep -qP '(?=.*[A-Z])(?=.*[a-z])(?=.*[0-9])(?=.*[^A-Za-z0-9])'; then
-            gum style --foreground "$ERROR_COLOR" --margin "0 0 0 1" \
-                "✗  Password must contain uppercase, lowercase, digit, and symbol."
+        problem=$(password_problem "$pass1")
+        if [ -n "$problem" ]; then
+            gum style --foreground "$ERROR_COLOR" --margin "0 0 0 1" "✗  $problem"
             continue
         fi
 
@@ -195,27 +234,14 @@ set_admin_password() {
     log "Admin password configured."
 }
 
-select_boot_mode() {
-    clear
-    gum style --foreground "$TITLE_COLOR" --bold --margin "1 0 0 1" \
-        "Step 3 of 4 - Boot mode"
-
-    if [ -d /sys/firmware/efi ]; then
-        gum style --foreground "$SUCCESS_COLOR" --margin "0 0 1 1" \
-            "✓  UEFI firmware detected."
-        BOOT_MODE="UEFI (recommended)"
-    else
-        gum style --foreground "$DIM_COLOR" --margin "0 0 1 1" \
-            "UEFI firmware not detected on this system."
-        BOOT_MODE=$(gum choose \
-            --header "Select boot mode:" \
-            --header.foreground "$TITLE_COLOR" \
-            --cursor.foreground "$BORDER_COLOR" \
-            "UEFI (recommended)" \
-            "Legacy BIOS")
+# The installed system starts through systemd-boot, which needs UEFI.
+# (DPLANEOS_INSTALL_ASSUME_UEFI: for the installation test, whose installer
+# machine is started without firmware; the installed disk is then booted
+# with UEFI.)
+require_uefi() {
+    if [ ! -d /sys/firmware/efi ] && [ "${DPLANEOS_INSTALL_ASSUME_UEFI:-0}" != 1 ]; then
+        die "This machine was started in legacy BIOS mode.\n\nDPlaneOS needs UEFI: enable UEFI boot (and disable CSM / legacy boot)\nin the firmware setup, then start the installer again."
     fi
-
-    log "Boot mode: $BOOT_MODE"
 }
 
 confirm_install() {
@@ -225,12 +251,11 @@ confirm_install() {
         --border-foreground "$BORDER_COLOR" \
         --padding "1 3" \
         --margin "1" \
-        "$(gum style --foreground "$TITLE_COLOR" --bold "Installation Summary")" \
+        "$(gum style --foreground "$TITLE_COLOR" --bold "Step 3 of 3 - Installation Summary")" \
         "" \
-        "  OS disk:    $(gum style --foreground "$TITLE_COLOR" "$INSTALL_DISK")" \
-        "  Boot mode:  $(gum style --foreground "$TITLE_COLOR" "$BOOT_MODE")" \
-        "  Admin user: $(gum style --foreground "$TITLE_COLOR" "admin")" \
-        "  Install:    $(gum style --foreground "$SUCCESS_COLOR" "Offline (no internet required)")" \
+        "  System disk: $(gum style --foreground "$TITLE_COLOR" "$INSTALL_DISK")" \
+        "  Admin user:  $(gum style --foreground "$TITLE_COLOR" "admin")" \
+        "  Install:     $(gum style --foreground "$SUCCESS_COLOR" "Offline (no internet required)")" \
         "" \
         "$(gum style --foreground "$ERROR_COLOR" --bold \
             "  ⚠  ALL EXISTING DATA ON $INSTALL_DISK WILL BE DESTROYED")"
@@ -247,64 +272,59 @@ progress_step() {
     local title="$1"
     local cmd="$2"
     log "Starting: $title"
-    gum spin \
-        --spinner dot \
-        --spinner.foreground "$BORDER_COLOR" \
-        --title "  $title" \
-        -- bash -c "$cmd >> $LOG_FILE 2>&1" \
-        || die "Step failed: $title\n\nSee log for details: $LOG_FILE"
+    if [ "$UNATTENDED" = 1 ]; then
+        bash -c "$cmd >> $LOG_FILE 2>&1" || die "Step failed: $title"
+    else
+        gum spin \
+            --spinner dot \
+            --spinner.foreground "$BORDER_COLOR" \
+            --title "  $title" \
+            -- bash -c "$cmd >> $LOG_FILE 2>&1" \
+            || die "Step failed: $title\n\nSee log for details: $LOG_FILE"
+    fi
     log "Complete: $title"
 }
 
 run_install() {
-    clear
-    gum style --foreground "$TITLE_COLOR" --bold --margin "1 0 1 1" \
-        "Installing DPlaneOS v${DPLANEOS_VERSION}..."
+    if [ "$UNATTENDED" != 1 ]; then
+        clear
+        gum style --foreground "$TITLE_COLOR" --bold --margin "1 0 1 1" \
+            "Installing DPlaneOS v${DPLANEOS_VERSION}..."
+    fi
+
+    local SYSTEM_PATH
+    SYSTEM_PATH=$(cat "$INSTALL_DIR/system-path" 2>/dev/null || echo "")
+    if [ -z "$SYSTEM_PATH" ] || [ ! -d "$SYSTEM_PATH" ]; then
+        die "This installation medium is incomplete (the system is missing from it).\nDownload the ISO again and check its checksum."
+    fi
 
     local patched_disko="/tmp/disko-install.nix"
     sed "s|device = \"/dev/nvme0n1\"|device = \"${INSTALL_DISK}\"|g" \
         "$INSTALL_DIR/disko.nix" > "$patched_disko"
+    grep -q "device = \"${INSTALL_DISK}\"" "$patched_disko" \
+        || die "The partition layout could not be prepared for $INSTALL_DISK."
 
     progress_step \
-        "Partitioning $INSTALL_DISK (ESP + A/B slots + persist)..." \
+        "Partitioning $INSTALL_DISK (boot, system, persistent state)..." \
         "disko --mode disko $patched_disko"
 
     progress_step \
         "Mounting filesystems..." \
         "disko --mode mount $patched_disko"
 
+    mountpoint -q /mnt/persist || die "The persistent state partition is not mounted."
+
     progress_step \
-        "Preparing system configuration..." \
-        "
-        mkdir -p /mnt/etc/nixos
-        cp '$patched_disko' /mnt/etc/nixos/disko.nix
-        nixos-generate-config --root /mnt --no-filesystems
-        "
+        "Installing system (offline - reading from the installation medium)..." \
+        "nixos-install \
+            --root /mnt \
+            --system '$SYSTEM_PATH' \
+            --no-root-passwd \
+            --no-channel-copy"
 
-    local SYSTEM_PATH
-    SYSTEM_PATH=$(cat "$INSTALL_DIR/system-path" 2>/dev/null || echo "")
-
-    if [ -n "$SYSTEM_PATH" ] && [ -d "$SYSTEM_PATH" ]; then
-        progress_step \
-            "Installing system (offline - reading from ISO nix store)..." \
-            "nixos-install \
-                --root /mnt \
-                --system '$SYSTEM_PATH' \
-                --no-root-passwd \
-                --no-channel-copy \
-                --option substitute false \
-                --option binary-caches ''"
-    else
-        log "WARNING: pre-built closure not found, falling back to online install"
-        progress_step \
-            "Installing system (online - fetching from binary cache)..." \
-            "nixos-install \
-                --root /mnt \
-                --flake 'github:4nonX/DPlaneOS#dplaneos' \
-                --no-root-passwd \
-                --no-channel-copy"
-    fi
-
+    # The administrator's password, as a hash, where the system keeps its
+    # state: /var/lib/dplaneos lives on the persistent partition. The daemon
+    # creates the admin account with it at first start and deletes the file.
     _PASS_TMP=$(mktemp)
     chmod 600 "$_PASS_TMP"
     printf '%s' "$ADMIN_PASS" > "$_PASS_TMP"
@@ -315,22 +335,26 @@ run_install() {
         HASH=\$(python3 -c \"
 import bcrypt, sys
 with open(sys.argv[1], 'rb') as f:
-    pw = f.read().strip()
+    pw = f.read()
 print(bcrypt.hashpw(pw, bcrypt.gensalt(rounds=12)).decode())
 \" $_PASS_TMP)
-        mkdir -p /mnt/var/lib/dplaneos
-        printf '%s' \"\$HASH\" > /mnt/var/lib/dplaneos/.first-boot-password
-        chmod 600 /mnt/var/lib/dplaneos/.first-boot-password
+        test -n \"\$HASH\"
+        install -d -m 755 /mnt/persist/var/lib/dplaneos
+        ( umask 077; printf '%s' \"\$HASH\" > /mnt/persist/var/lib/dplaneos/.first-boot-password )
         "
 
     rm -f "$_PASS_TMP"
 
+    progress_step \
+        "Finishing..." \
+        "sync; umount -R /mnt"
+
     PRIMARY_IP=$(ip route get 1.1.1.1 2>/dev/null \
         | awk '{for(i=1;i<=NF;i++) if ($i=="src") {print $(i+1); exit}}' \
         || echo "")
-    [ -z "$PRIMARY_IP" ] && PRIMARY_IP="<your-server-ip>"
+    [ -z "$PRIMARY_IP" ] && PRIMARY_IP="<address of this machine>"
 
-    log "Installation complete. Access IP: $PRIMARY_IP"
+    log "Installation complete."
 }
 
 show_complete() {
@@ -344,16 +368,19 @@ show_complete() {
         "$(gum style --foreground "$SUCCESS_COLOR" --bold \
             "✓  DPlaneOS Installed Successfully")" \
         "" \
-        "Open a browser on any device in your network and go to:" \
+        "After the restart, open a browser on any device in your network and go to:" \
         "" \
         "$(gum style --foreground "$TITLE_COLOR" --bold \
             "    http://${PRIMARY_IP}")" \
+        "" \
+        "$(gum style --foreground "$DIM_COLOR" "(the address may differ if your network assigns another one;")" \
+        "$(gum style --foreground "$DIM_COLOR" " the console of the installed system shows it)")" \
         "" \
         "$(gum style --foreground "$DIM_COLOR" "Username:  admin")" \
         "$(gum style --foreground "$DIM_COLOR" "Password:  (as configured)")" \
         "" \
         "$(gum style --foreground "$DIM_COLOR" \
-            "Remove the USB drive, then press Enter to reboot.")"
+            "Remove the installation medium, then press Enter to restart.")"
 
     echo ""
     read -r _
@@ -361,13 +388,27 @@ show_complete() {
 }
 
 do_install() {
+    require_uefi
     select_disk
     set_admin_password
-    select_boot_mode
     confirm_install
     run_install
     show_complete
 }
+
+if [ "$UNATTENDED" = 1 ]; then
+    INSTALL_DISK="${DPLANEOS_INSTALL_DISK:?DPLANEOS_INSTALL_DISK is not set}"
+    [ -b "$INSTALL_DISK" ] || die "$INSTALL_DISK is not a disk"
+    candidate_disks | cut -f1 | grep -qxF "$INSTALL_DISK" \
+        || die "$INSTALL_DISK cannot be used: it is in use, or smaller than 32 GB"
+    ADMIN_PASS=$(cat "${DPLANEOS_INSTALL_PASSWORD_FILE:?DPLANEOS_INSTALL_PASSWORD_FILE is not set}")
+    problem=$(password_problem "$ADMIN_PASS")
+    [ -z "$problem" ] || die "$problem"
+    require_uefi
+    run_install
+    echo "DPlaneOS v${DPLANEOS_VERSION} is installed on $INSTALL_DISK."
+    exit 0
+fi
 
 trap '
     echo ""

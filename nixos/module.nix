@@ -613,7 +613,7 @@ in {
         git openssh rsync rclone pv      # GitOps, replication, cloud sync
         gnutar gzip curl which kmod procps fuse openssl nginx targetcli-fb
         bash  # timer units run bash -c "curl ..." (internal/systemd resolves ExecStart from this PATH)
-        (lib.getBin glibc)               # getent
+        getent                           # getent passwd/group (accounts, quotas)
         config.nix.package config.system.build.nixos-rebuild
       ] ++ lib.optional cfg.ftp.enable vsftpd
         ++ lib.optional cfg.s3.enable minio;

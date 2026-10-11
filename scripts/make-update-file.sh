@@ -31,7 +31,6 @@ out="${3:?out-dir}"
 upstream="${UPSTREAM_CACHE:-https://cache.nixos.org}"
 key="${UPDATE_SIGNING_KEY_FILE:?UPDATE_SIGNING_KEY_FILE is not set: the update file must be signed}"
 pub="${UPDATE_PUBLIC_KEY_FILE:-$(dirname "$0")/../nixos/update-signing.pub}"
-nix=(nix --extra-experimental-features nix-command)
 
 [ -x "${system}/bin/switch-to-configuration" ] || { echo "${system} is not a NixOS system" >&2; exit 1; }
 arch=$(uname -m)
@@ -70,8 +69,7 @@ grep -qxF "${system}" "${work}/include" || { echo "the system path itself must b
 echo "update file: ${count} of ${total} store paths (the rest comes from ${upstream})"
 
 mkdir "${work}/payload"
-# shellcheck disable=SC2046
-"${nix[@]}" copy --no-recursive --no-check-sigs --to "file://${work}/payload/cache?compression=zstd" $(cat "${work}/include")
+python3 "$(dirname "$0")/write-binary-cache.py" "${work}/payload/cache" < "${work}/include"
 
 cat > "${work}/payload/metadata.json" <<EOF
 {

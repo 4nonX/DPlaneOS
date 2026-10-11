@@ -81,7 +81,7 @@ pkgs.testers.nixosTest {
       virtualHosts.default = { default = true; root = "/srv/www"; };
     };
     systemd.tmpfiles.rules = [ "d /srv/www 0755 root root -" ];
-    environment.systemPackages = [ pkgs.openssl pkgs.curl pkgs.gnutar pkgs.jq ];
+    environment.systemPackages = [ pkgs.openssl pkgs.curl pkgs.gnutar pkgs.jq pkgs.python3 pkgs.zstd ];
     nix.settings.experimental-features = [ "nix-command" ];
     virtualisation.memorySize = 2048;
     # The systems are in this machine's store (it "built" them).
@@ -155,7 +155,7 @@ pkgs.testers.nixosTest {
         # What the release pipeline does: build the update file, announce it.
         releases.succeed(
             f"UPDATE_SIGNING_KEY_FILE={key} UPDATE_PUBLIC_KEY_FILE={key}.pub EXCLUDE_CLOSURE_OF=${v1} "
-            f"bash ${../../scripts/make-update-file.sh} {system} {version} /srv/www >&2"
+            f"bash ${../../scripts}/make-update-file.sh {system} {version} /srv/www >&2"
         )
         name = f"dplaneos-v{version}-x86_64.update"
         size = int(releases.succeed(f"stat -c %s /srv/www/{name}").strip())

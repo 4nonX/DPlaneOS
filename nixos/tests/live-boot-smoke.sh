@@ -259,7 +259,7 @@ check "UPS policy saved" test "$(state .ups_low_battery)/$(state .ups_final_dela
 expect 200 GET /api/ftp/status
 check "vsftpd installed (services.dplaneos.ftp.enable)" test "$(json .installed)" = true
 expect 200 GET /api/ftp/config
-FTPCFG=$(jq -c '.config // . | del(.success) | .enabled = true | .mode = "ftp" | .allowed_users = ["admin"]' "$RESP")
+FTPCFG=$(jq -c '.config // . | del(.success) | .enabled = true | .mode = "ftp" | .root_dir = "/smoke2/share" | .allowed_users = ["admin"]' "$RESP")
 expect 200 PUT /api/ftp/config "$FTPCFG"
 check "vsftpd runtime unit active" systemctl is-active --quiet dplaneos-vsftpd.service
 check "FTP answers on port 21" retry 10 bash -c 'exec 3<>/dev/tcp/127.0.0.1/21 && head -c 3 <&3 | grep -q 220'

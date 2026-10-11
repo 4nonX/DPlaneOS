@@ -9,7 +9,7 @@
 #   nixos-install copies paths from the local /nix/store on the booted ISO
 #   rather than fetching from cache.nixos.org. Zero network required.
 #
-# ISO size: ~3-5 GB (zstd compressed) due to both closures being baked in.
+# ISO size: about 2 GB (zstd compressed), both closures included.
 # Build time: 20-40 min on first build, cached on subsequent builds.
 #
 # Build:   nix build .#iso
@@ -29,7 +29,12 @@ in {
     # Minimal bootable ISO - console only, no desktop, no Calamares.
     # Server-appropriate: works over serial, IPMI SOL, KVM-over-IP.
     "${modulesPath}/installer/cd-dvd/installation-cd-minimal.nix"
+    # install.sh, the partition layout, the tools (shared with the
+    # installation test).
+    ./installer-common.nix
   ];
+
+  dplaneos.installer.targetSystem = dplaneosSystem;
 
   # ── Pre-bake the DPlaneOS target closure into the ISO's nix store ────────
   # Core of offline installation - nixos-install reads from here,
@@ -41,18 +46,6 @@ in {
   # Set false to keep ISO smaller; installed system fetches updates normally.
   # Set true if you need the installed system to rebuild itself offline.
   isoImage.includeSystemBuildDependencies = false;
-
-  # ── Installer tools ────────────────────────────────────────────────────────
-  environment.systemPackages = with pkgs; [
-    gum                                          # TUI wizard
-    disko                                        # declarative partitioning
-    python311                                     # system tools
-    (python311.withPackages (ps: [ ps.bcrypt ]))   # password hashing
-    parted gptfdisk util-linux e2fsprogs         # disk tools
-    iproute2 inetutils                           # network / IP detection
-    pciutils lshw                                # hardware enumeration
-    jq bc git
-  ];
 
   # ── Kernel - match appliance pin exactly ──────────────────────────────────
   # Must stay in sync with applianceConfig in flake.nix. A mismatch causes
@@ -76,16 +69,6 @@ in {
 
   # ── Auto-login and launch installer ───────────────────────────────────────
   services.getty.autologinUser = lib.mkForce "root";
-
-  environment.etc = {
-    "dplaneos-install/install.sh".source     = ./install.sh;
-    "dplaneos-install/install.sh".mode       = "0755";
-    "dplaneos-install/disko.nix".source      = ./disko.nix;
-    "dplaneos-install/disko.nix".mode       = "0644";
-    # Tell install.sh where the pre-built closure lives in the nix store
-    "dplaneos-install/system-path".text      = dplaneosSystem.outPath;
-    "dplaneos-install/system-path".mode      = "0644";
-  };
 
   programs.bash.loginShellInit = ''
     if [ "$(tty)" = "/dev/tty1" ]; then
@@ -114,13 +97,6 @@ in {
   documentation.doc.enable    = false;
   documentation.nixos.enable  = false;
   environment.extraOutputsToInstall = lib.mkForce [];
-
-  # ── Nix - disable all substituters for true offline operation ─────────────
-  nix.settings = {
-    experimental-features = [ "nix-command" "flakes" ];
-    substituters          = lib.mkForce [];
-    trusted-substituters  = lib.mkForce [];
-  };
 
   # DHCP for IP detection at the completion screen
   networking.useDHCP = lib.mkForce true;

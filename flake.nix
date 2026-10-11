@@ -178,6 +178,36 @@
         documentation.nixos.enable = false;
       };
 
+      # The system the x86_64 installer puts on disk (and the update file of
+      # a release delivers, and the installation test installs). Like
+      # nixosConfigurations.dplaneos without the large Intel-only extras:
+      #
+      # intel-media-driver  (~100 MB): VA-API hardware video transcoding.
+      # intel-compute-runtime (~300 MB): OpenCL GPU compute.
+      # Neither is needed for the storage stack, and with them the ISO does
+      # not fit the size limit of a release asset. CPU microcode updates
+      # stay: small and security-critical.
+      isoApplianceModules = system: let pkgs = nixpkgs.legacyPackages.${system}; in [
+        ./nixos/configuration-standalone.nix
+        (import ./nixos/module.nix)
+        disko.nixosModules.disko
+        ./nixos/disko.nix
+        impermanence.nixosModules.impermanence
+        ./nixos/impermanence.nix
+        ./nixos/ota-module.nix
+        applianceConfig
+        (let d = mkDaemonCGO { inherit system pkgs dplaneosVersion nixpkgs; };
+             f = mkFrontend { inherit pkgs; };
+         in {
+          services.dplaneos.daemonPackage   = d;
+          services.dplaneos.fenced.package  = d;
+          services.dplaneos.frontendPackage = f;
+        })
+        ({ lib, ... }: {
+          hardware.graphics.extraPackages = lib.mkForce [];
+        })
+      ];
+
     in
     flake-utils.lib.eachSystem supportedSystems (system:
       let
@@ -270,6 +300,14 @@
           frontendPackage = frontend;
         };
 
+        # The installer, end to end: install.sh puts the system on an empty
+        # disk, the machine then boots from that disk.
+        #   nix build .#checks.x86_64-linux.install -L
+        checks.install = import ./nixos/tests/install.nix {
+          inherit nixpkgs system;
+          applianceModules = isoApplianceModules system;
+        };
+
         devShells.default = pkgs.mkShell {
           buildInputs = with pkgs; [ go gcc musl.dev gopls gotools postgresql git ];
           shellHook = ''
@@ -338,49 +376,13 @@
       # can be passed via specialArgs without triggering evaluation loops.
       # Each arch bakes its own NAS closure into the ISO for offline install.
 
-      # dplaneos-for-iso: identical to dplaneos but strips the large Intel-only
-      # extras (intel-media-driver ~100 MB, intel-compute-runtime ~300 MB) that
-      # push the x86_64 squashfs over the GitHub Actions disk limit.
-      # The running system (dplaneos) keeps them; users who need VA-API/OpenCL
-      # on an offline-installed system can add them via nixos-rebuild.
-      nixosConfigurations.dplaneos-for-iso = let
+      # dplaneos-for-iso: what the x86_64 installer installs and the update
+      # file of a release delivers (isoApplianceModules above).
+      nixosConfigurations.dplaneos-for-iso = nixpkgs.lib.nixosSystem {
         system = "x86_64-linux";
-        pkgs   = nixpkgs.legacyPackages.${system};
-      in nixpkgs.lib.nixosSystem {
-        inherit system pkgs;
+        pkgs   = nixpkgs.legacyPackages."x86_64-linux";
         specialArgs = { inherit self; };
-        modules = [
-          ./nixos/configuration-standalone.nix
-          self.nixosModules.dplaneos
-          disko.nixosModules.disko
-          ./nixos/disko.nix
-          impermanence.nixosModules.impermanence
-          ./nixos/impermanence.nix
-          ./nixos/ota-module.nix
-          applianceConfig
-          (let d = mkDaemonCGO { inherit system pkgs dplaneosVersion nixpkgs; };
-               f = mkFrontend { inherit pkgs; };
-           in {
-            services.dplaneos.daemonPackage   = d;
-            services.dplaneos.fenced.package  = d;
-            services.dplaneos.frontendPackage = f;
-          })
-          # Strip packages that bloat the squashfs but are not needed to install
-          # or run the core NAS stack. They can be fetched post-install via
-          # nixos-rebuild once the system is on the network.
-          #
-          # intel-media-driver  (~100 MB): VA-API hardware video transcoding.
-          #   Needed for Jellyfin/Plex hardware transcode; NOT needed for ZFS/SMB/NFS/iSCSI/HA.
-          # intel-compute-runtime (~300 MB): OpenCL GPU compute.
-          #   Needed for GPU compute workloads; NOT needed for GPU passthrough (VFIO) or NAS core.
-          #
-          # NOTE: hardware.cpu.intel.updateMicrocode is intentionally NOT stripped.
-          # CPU microcode updates (Spectre/Meltdown/Raptor Lake errata) are small and
-          # security-critical; they belong in the offline-installed system.
-          ({ lib, ... }: {
-            hardware.graphics.extraPackages = nixpkgs.lib.mkForce [];
-          })
-        ];
+        modules = isoApplianceModules "x86_64-linux";
       };
 
       nixosConfigurations.iso = let
