@@ -7,7 +7,7 @@ import (
 	"log"
 	"slices"
 
-	"dplaned/internal/networkdwriter"
+	"dplaned/internal/netconf"
 	"dplaned/internal/nixwriter"
 	"dplaned/internal/reconciler"
 	"strconv"
@@ -17,11 +17,6 @@ import (
 // Package-level singletons injected by main.go at startup.
 
 var (
-	// NetWriter writes systemd-networkd unit files.
-	// Works on ALL systemd distros. Changes survive reboot AND nixos-rebuild.
-	// Never nil - falls back gracefully when networkd is not active.
-	NetWriter *networkdwriter.Writer
-
 	// NixWriter writes dplane-generated.nix fragments.
 	// Used ONLY for NixOS-specific settings with no networkd equivalent:
 	//   - Firewall ports (networking.firewall)
@@ -29,111 +24,120 @@ var (
 	// nil on non-NixOS systems.
 	NixWriter *nixwriter.Writer
 
-	// ReconcilerDB for non-systemd-networkd fallback (legacy netlink restore).
+	// ReconcilerDB holds the network configuration (interfaces, bonds,
+	// VLANs, DNS) that internal/netconf renders for systemd-networkd.
 	ReconcilerDB *sql.DB
 
 	// GitOpsStatePath is the absolute path to state.yaml.
 	GitOpsStatePath string
 )
 
-func SetNetWriter(w *networkdwriter.Writer)  { NetWriter = w }
-func SetNixWriter(w *nixwriter.Writer)       { NixWriter = w }
-func SetReconcilerDB(db *sql.DB)             { ReconcilerDB = db }
-func SetGitOpsStatePath(p string)           { GitOpsStatePath = p }
+func SetNixWriter(w *nixwriter.Writer) { NixWriter = w }
+func SetReconcilerDB(db *sql.DB)       { ReconcilerDB = db }
+func SetGitOpsStatePath(p string)      { GitOpsStatePath = p }
 
 // ── Network persistence ───────────────────────────────────────────────────────
-// These functions are the single call-site for every network change.
-// They write to networkd files (primary) and the reconciler DB (fallback).
+// Every network change is saved to the database and then the complete set
+// of systemd-networkd files is rendered from it again (internal/netconf).
+// Each function returns an error when the change could not be saved or
+// applied; callers must not report success then.
 
-// persistStaticIP, persistVLAN and persistBond return an error when the
-// change could not be saved; callers must not report success then, since the
-// setting would be lost at the next reboot.
-
-func persistStaticIP(iface, cidr, gateway string, dns []string) error {
-	var errs []error
-	if NetWriter != nil {
-		if err := NetWriter.SetStatic(iface, cidr, gateway, dns); err != nil {
-			errs = append(errs, fmt.Errorf("networkd file: %w", err))
-		}
+// ApplyNetworkConfig renders the saved network configuration and makes
+// systemd-networkd and systemd-resolved use it. Called at start (the files
+// then match the database whatever happened before) and after every change.
+func ApplyNetworkConfig() error {
+	if ReconcilerDB == nil {
+		return errors.New("no database")
 	}
-	if ReconcilerDB != nil {
-		if err := reconciler.SaveStaticIP(ReconcilerDB, iface, cidr, gateway); err != nil {
-			errs = append(errs, fmt.Errorf("reconciler: %w", err))
-		}
+	cfg, err := netconf.Load(ReconcilerDB)
+	if err != nil {
+		return fmt.Errorf("reading the network configuration: %w", err)
 	}
-	return persistErr("static IP "+iface, errs)
-}
-
-func persistVLAN(name, parent string, vid int) error {
-	var errs []error
-	if NetWriter != nil {
-		if err := NetWriter.SetVLAN(name, parent, vid, "", nil); err != nil {
-			errs = append(errs, fmt.Errorf("networkd file: %w", err))
-		}
-	}
-	if ReconcilerDB != nil {
-		if err := reconciler.SaveVLAN(ReconcilerDB, name, parent, vid); err != nil {
-			errs = append(errs, fmt.Errorf("reconciler: %w", err))
-		}
-	}
-	return persistErr("VLAN "+name, errs)
-}
-
-func persistErr(what string, errs []error) error {
-	if len(errs) == 0 {
+	if !netconf.Active() {
+		// Not managed by systemd-networkd: nothing would read the files.
 		return nil
 	}
-	err := fmt.Errorf("saving %s: %w", what, errors.Join(errs...))
+	if _, err := netconf.System().Apply(cfg); err != nil {
+		return err
+	}
+	return nil
+}
+
+func persistNetwork(what string, saveErr error) error {
+	if saveErr == nil {
+		saveErr = ApplyNetworkConfig()
+	}
+	if saveErr == nil {
+		return nil
+	}
+	err := fmt.Errorf("saving %s: %w", what, saveErr)
 	log.Printf("[persist] %v", err)
 	return err
 }
 
-func persistVLANDelete(name string) {
-	// need parent+vid to remove all 3 files - best effort on just the .network
-	if NetWriter != nil {
-		if err := NetWriter.RemoveInterface(name); err != nil {
-			log.Printf("[persist] RemoveInterface(vlan) %s: %v", name, err)
-		}
+func persistStaticIP(iface, cidr, gateway string) error {
+	if ReconcilerDB == nil {
+		return persistNetwork("address of "+iface, errors.New("no database"))
 	}
-	if ReconcilerDB != nil {
-		_ = reconciler.DeleteVLAN(ReconcilerDB, name)
+	if cidr == "" {
+		return persistNetwork("address of "+iface, reconciler.SaveDHCP(ReconcilerDB, iface))
 	}
+	return persistNetwork("address of "+iface, reconciler.SaveStaticIP(ReconcilerDB, iface, cidr, gateway))
 }
 
-func persistBond(name string, slaves []string, mode string) error {
-	var errs []error
-	if NetWriter != nil {
-		if err := NetWriter.SetBond(name, slaves, mode, "", nil); err != nil {
-			errs = append(errs, fmt.Errorf("networkd file: %w", err))
-		}
+// persistVLAN saves a VLAN, with its address if it has one (cidr may be
+// empty), and applies both in one step.
+func persistVLAN(name, parent string, vid int, cidr string) error {
+	if ReconcilerDB == nil {
+		return persistNetwork("VLAN "+name, errors.New("no database"))
 	}
-	if ReconcilerDB != nil {
-		if err := reconciler.SaveBond(ReconcilerDB, name, slaves, mode); err != nil {
-			errs = append(errs, fmt.Errorf("reconciler: %w", err))
-		}
+	err := reconciler.SaveVLAN(ReconcilerDB, name, parent, vid)
+	if err == nil && cidr != "" {
+		err = reconciler.SaveStaticIP(ReconcilerDB, name, cidr, "")
 	}
-	return persistErr("bond "+name, errs)
+	return persistNetwork("VLAN "+name, err)
 }
 
-func persistBondDelete(name string) {
-	if NetWriter != nil {
-		if err := NetWriter.RemoveBond(name, nil); err != nil {
-			log.Printf("[persist] RemoveBond %s: %v", name, err)
-		}
+func persistVLANDelete(name string) error {
+	if ReconcilerDB == nil {
+		return persistNetwork("removal of VLAN "+name, errors.New("no database"))
 	}
-	if ReconcilerDB != nil {
-		_ = reconciler.DeleteBond(ReconcilerDB, name)
+	err := reconciler.DeleteVLAN(ReconcilerDB, name)
+	if err == nil {
+		err = reconciler.DeleteInterface(ReconcilerDB, name)
 	}
+	return persistNetwork("removal of VLAN "+name, err)
 }
 
-func persistDNS(servers []string) error {
-	if NetWriter != nil {
-		if err := NetWriter.SetGlobalDNS(servers); err != nil {
-			return persistErr("DNS servers", []error{err})
-		}
+// persistBond saves a bond, with its address if it has one (cidr may be
+// empty: DHCP), and applies both in one step.
+func persistBond(name string, slaves []string, mode, cidr string) error {
+	if ReconcilerDB == nil {
+		return persistNetwork("bond "+name, errors.New("no database"))
 	}
-	// NixWriter.SetDNS removed - networkd handles this now
-	return nil
+	err := reconciler.SaveBond(ReconcilerDB, name, slaves, mode)
+	if err == nil && cidr != "" {
+		err = reconciler.SaveStaticIP(ReconcilerDB, name, cidr, "")
+	}
+	return persistNetwork("bond "+name, err)
+}
+
+func persistBondDelete(name string) error {
+	if ReconcilerDB == nil {
+		return persistNetwork("removal of bond "+name, errors.New("no database"))
+	}
+	err := reconciler.DeleteBond(ReconcilerDB, name)
+	if err == nil {
+		err = reconciler.DeleteInterface(ReconcilerDB, name)
+	}
+	return persistNetwork("removal of bond "+name, err)
+}
+
+func persistDNS(servers, search []string) error {
+	if ReconcilerDB == nil {
+		return persistNetwork("DNS servers", errors.New("no database"))
+	}
+	return persistNetwork("DNS servers", netconf.SaveDNS(ReconcilerDB, servers, search))
 }
 
 // ── System settings ───────────────────────────────────────────────────────────
@@ -165,7 +169,7 @@ func persistTimezone(tz string) {
 func persistNTP(servers []string) error {
 	if onNixOS() {
 		if err := NixWriter.SetNTP(servers); err != nil {
-			return persistErr("NTP servers", []error{err})
+			return fmt.Errorf("saving NTP servers: %w", err)
 		}
 	}
 	return nil
@@ -186,8 +190,12 @@ func persistSambaGlobals(db *sql.DB) {
 	db.QueryRow(`SELECT COALESCE(value,'DPlaneOS NAS') FROM settings WHERE key='smb_server_string'`).Scan(&serverString)
 	db.QueryRow(`SELECT COALESCE(value,'WORKGROUP') FROM settings WHERE key='smb_workgroup'`).Scan(&workgroup)
 	db.QueryRow(`SELECT COALESCE(value,'') FROM settings WHERE key='smb_extra_global'`).Scan(&extraGlobal)
-	if serverString == "" { serverString = "DPlaneOS NAS" }
-	if workgroup == "" { workgroup = "WORKGROUP" }
+	if serverString == "" {
+		serverString = "DPlaneOS NAS"
+	}
+	if workgroup == "" {
+		workgroup = "WORKGROUP"
+	}
 	// Apple SMB extensions (fruit globals in modules/samba.nix) are needed as
 	// soon as any share is a Time Machine target, not only with the global toggle.
 	var tmShares int
@@ -271,4 +279,3 @@ func removePort(ports []int, port int) ([]int, bool) {
 	}
 	return newPorts, found
 }
-

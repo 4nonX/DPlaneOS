@@ -535,6 +535,36 @@ in {
       '';
     };
 
+    # ─── Network configuration set in the web interface ───────────────────
+    # The daemon renders addresses, bonds, VLANs and DNS servers from its
+    # database into /var/lib/dplaneos/network ("10-dplane-*"). At boot they
+    # are put where systemd-networkd and systemd-resolved read them, before
+    # either starts: the network comes up as configured without waiting for
+    # the database. The files sort before the system's default (DHCP on
+    # every wired interface), which keeps applying to all other interfaces.
+    systemd.services.dplaneos-network = {
+      description = "Network configuration set in the web interface";
+      wantedBy    = [ "systemd-networkd.service" "multi-user.target" ];
+      before      = [ "systemd-networkd.service" "systemd-resolved.service" "network-pre.target" ];
+      wants       = [ "network-pre.target" ];
+      unitConfig.DefaultDependencies = false;
+      unitConfig.RequiresMountsFor = "/var/lib/dplaneos";
+      serviceConfig = { Type = "oneshot"; RemainAfterExit = true; };
+      script = ''
+        src=/var/lib/dplaneos/network
+        ${pkgs.coreutils}/bin/mkdir -p /run/systemd/network /run/systemd/resolved.conf.d
+        ${pkgs.coreutils}/bin/rm -f /run/systemd/network/10-dplane-* /run/systemd/resolved.conf.d/10-dplane-*
+        [ -d "$src" ] || exit 0
+        for f in "$src"/10-dplane-*.network "$src"/10-dplane-*.netdev; do
+          [ -e "$f" ] || continue
+          ${pkgs.coreutils}/bin/install -m 644 "$f" /run/systemd/network/
+        done
+        if [ -e "$src/10-dplane-dns.conf" ]; then
+          ${pkgs.coreutils}/bin/install -m 644 "$src/10-dplane-dns.conf" /run/systemd/resolved.conf.d/
+        fi
+      '';
+    };
+
     # ─── Import the pools at boot ─────────────────────────────────────────
     # NixOS only imports pools named in its configuration; the pools of an
     # appliance are created in the web interface. Every pool that was

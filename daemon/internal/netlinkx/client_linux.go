@@ -3,11 +3,12 @@
 // Package netlinkx provides a minimal Linux netlink/rtnetlink client.
 //
 // Why not vishvananda/netlink?
-//   vishvananda/netlink requires golang.org/x/sys, which in turn adds CGO
-//   build constraints and a large external dependency. For the ~15 ip(8)
-//   calls DPlaneOS makes (link add/del/set, addr add/replace, route replace),
-//   raw rtnetlink via the stdlib syscall package is sufficient and keeps the
-//   daemon dependency-free.
+//
+//	vishvananda/netlink requires golang.org/x/sys, which in turn adds CGO
+//	build constraints and a large external dependency. For the ~15 ip(8)
+//	calls DPlaneOS makes (link add/del/set, addr add/replace, route replace),
+//	raw rtnetlink via the stdlib syscall package is sufficient and keeps the
+//	daemon dependency-free.
 //
 // Supported operations (covers all current ip(8) exec.Command calls):
 //   - LinkList()                          → ip link show
@@ -27,9 +28,9 @@ package netlinkx
 
 import (
 	"encoding/binary"
-	"os"
 	"fmt"
 	"net"
+	"os"
 	"syscall"
 	"unsafe"
 )
@@ -48,16 +49,17 @@ const (
 	IFLA_VLAN_ID = 1
 
 	// Bond attributes
-	IFLA_BOND_MODE = 1
+	IFLA_BOND_MODE   = 1
+	IFLA_BOND_MIIMON = 3
 
 	// Bond modes
-	bondModeBalanceRR  = 0
+	bondModeBalanceRR    = 0
 	bondModeActiveBackup = 1
-	bondModeBalanceXOR = 2
-	bondModeBroadcast  = 3
-	bondMode8023AD     = 4
-	bondModeBalanceTLB = 5
-	bondModeBalanceALB = 6
+	bondModeBalanceXOR   = 2
+	bondModeBroadcast    = 3
+	bondMode8023AD       = 4
+	bondModeBalanceTLB   = 5
+	bondModeBalanceALB   = 6
 
 	// RTM flags
 	rtmFlagReplace = 0x100 // NLM_F_REPLACE
@@ -65,11 +67,11 @@ const (
 	rtmFlagAppend  = 0x800 // NLM_F_APPEND
 
 	// Route table/protocol
-	rtTableMain = 254
-	rtProtoStatic = 4
-	rtScopeLink   = 253
+	rtTableMain     = 254
+	rtProtoStatic   = 4
+	rtScopeLink     = 253
 	rtScopeUniverse = 0
-	rtTypeUnicast = 1
+	rtTypeUnicast   = 1
 
 	// Address flags
 	ifaFlagPermanent = 0x80
@@ -158,9 +160,17 @@ func nlAttr(typ uint16, data []byte) []byte {
 	return buf
 }
 
-func nlAttrStr(typ uint16, s string) []byte  { return nlAttr(typ, append([]byte(s), 0)) }
-func nlAttrU16(typ uint16, v uint16) []byte  { b := make([]byte, 2); binary.LittleEndian.PutUint16(b, v); return nlAttr(typ, b) }
-func nlAttrU32(typ uint16, v uint32) []byte  { b := make([]byte, 4); binary.LittleEndian.PutUint32(b, v); return nlAttr(typ, b) }
+func nlAttrStr(typ uint16, s string) []byte { return nlAttr(typ, append([]byte(s), 0)) }
+func nlAttrU16(typ uint16, v uint16) []byte {
+	b := make([]byte, 2)
+	binary.LittleEndian.PutUint16(b, v)
+	return nlAttr(typ, b)
+}
+func nlAttrU32(typ uint16, v uint32) []byte {
+	b := make([]byte, 4)
+	binary.LittleEndian.PutUint32(b, v)
+	return nlAttr(typ, b)
+}
 func nlAttrNested(typ uint16, inner []byte) []byte { return nlAttr(typ|0x8000, inner) } // NLA_F_NESTED
 
 // sendrecv sends a netlink request and returns all response messages.
@@ -345,6 +355,9 @@ func LinkAdd(attrs LinkAttrs) error {
 			return fmt.Errorf("unknown bond mode %q", attrs.BondMode)
 		}
 		bondData := nlAttrU8(IFLA_BOND_MODE, uint8(mode))
+		// Link monitoring every 100 ms: without it (the kernel's default)
+		// a bond never notices a dead member.
+		bondData = append(bondData, nlAttrU32(IFLA_BOND_MIIMON, 100)...)
 		linkInfo := nlAttrStr(IFLA_INFO_KIND, "bond")
 		linkInfo = append(linkInfo, nlAttrNested(IFLA_INFO_DATA, bondData)...)
 		payload = append(payload, nlAttrNested(IFLA_LINKINFO, linkInfo)...)
@@ -411,11 +424,11 @@ func addrOp(ifaceName, cidr string, nlmFlags uint16) error {
 
 	// ifa_msg: family(1) + prefixlen(1) + flags(1) + scope(1) + index(4)
 	header := []byte{
-		syscall.AF_INET,          // family
-		byte(ones),               // prefixlen
-		ifaFlagPermanent,         // flags
-		rtScopeUniverse,          // scope
-		0, 0, 0, 0,               // index (4 bytes LE)
+		syscall.AF_INET,  // family
+		byte(ones),       // prefixlen
+		ifaFlagPermanent, // flags
+		rtScopeUniverse,  // scope
+		0, 0, 0, 0,       // index (4 bytes LE)
 	}
 	binary.LittleEndian.PutUint32(header[4:], uint32(idx))
 
@@ -554,15 +567,15 @@ func RouteReplace(dst, gateway, ifaceName string) error {
 
 	// rtmsg: family(1) + dst_len(1) + src_len(1) + tos(1) + table(1) + protocol(1) + scope(1) + type(1) + flags(4)
 	header := []byte{
-		syscall.AF_INET,   // family
-		byte(ones),        // dst_len
-		0,                 // src_len
-		0,                 // tos
-		rtTableMain,       // table
-		rtProtoStatic,     // protocol
-		rtScopeUniverse,   // scope
-		rtTypeUnicast,     // type
-		0, 0, 0, 0,        // flags
+		syscall.AF_INET, // family
+		byte(ones),      // dst_len
+		0,               // src_len
+		0,               // tos
+		rtTableMain,     // table
+		rtProtoStatic,   // protocol
+		rtScopeUniverse, // scope
+		rtTypeUnicast,   // type
+		0, 0, 0, 0,      // flags
 	}
 
 	payload := header
@@ -680,4 +693,3 @@ func maskBits(mask net.IPMask) int {
 	ones, _ := mask.Size()
 	return ones
 }
-

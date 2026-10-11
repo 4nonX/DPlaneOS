@@ -122,19 +122,11 @@
         mode      = "0755";
       }
 
-      # ── systemd-networkd unit files (DPlaneOS 50-dplane-* managed) ────────
-      # The root ext4 slot is replaced on every OTA update. Without this,
-      # 50-dplane-*.{network,netdev} written by networkdwriter are lost after
-      # the next OTA and network reverts to NixOS defaults on reboot.
-      # NixOS activation writes its own 10-/20- prefixed files into this same
-      # directory; both sets coexist because the bind-mount is set up before
-      # NixOS activation runs.
-      {
-        directory = "/etc/systemd/network";
-        user      = "root";
-        group     = "root";
-        mode      = "0755";
-      }
+      # The network configuration set in the web interface is kept in
+      # /var/lib/dplaneos/network (persisted with /var/lib/dplaneos) and put
+      # in front of systemd-networkd by dplaneos-network.service. Persisting
+      # /etc/systemd/network itself would hide the system's own files in it,
+      # among them the default "DHCP on every wired interface".
 
       # ── systemd-networkd lease files ────────────────────────────────────
       {
@@ -215,7 +207,7 @@
       ExecStart       = pkgs.writeShellScript "persist-check" ''
         #!/bin/sh
         set -e
-        if ! mountpoint -q /persist; then
+        if ! ${pkgs.util-linux}/bin/mountpoint -q /persist; then
           # Write to all available outputs before halting so operators
           # can diagnose remotely via IPMI SOL, serial console, or journald.
           msg="CRITICAL: /persist is NOT mounted - DPlaneOS cannot start safely."

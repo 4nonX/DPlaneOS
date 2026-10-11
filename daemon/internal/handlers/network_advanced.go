@@ -94,16 +94,12 @@ func CreateVLAN(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if err := persistVLAN(ifName, req.Parent, req.VlanID); err != nil {
+	if err := persistVLAN(ifName, req.Parent, req.VlanID, req.IP); err != nil {
+		if delErr := persistVLANDelete(ifName); delErr != nil {
+			log.Printf("network: undo VLAN %s: %v", ifName, delErr)
+		}
 		fail("save", err)
 		return
-	}
-	if req.IP != "" {
-		if err := persistStaticIP(ifName, req.IP, "", nil); err != nil {
-			persistVLANDelete(ifName)
-			fail("save", err)
-			return
-		}
 	}
 
 	respondOK(w, map[string]any{
@@ -129,11 +125,19 @@ func DeleteVLAN(w http.ResponseWriter, r *http.Request) {
 		respondErrorSimple(w, "Invalid VLAN interface", http.StatusBadRequest)
 		return
 	}
-	if err := netlinkx.LinkDel(req.Interface); err != nil {
-		respondOK(w, map[string]any{"success": false, "error": err.Error()})
+	// A VLAN that is saved but missing from the kernel (its parent was
+	// unplugged, say) is still removed from the configuration.
+	_, lookupErr := net.InterfaceByName(req.Interface)
+	if lookupErr == nil {
+		if err := netlinkx.LinkDel(req.Interface); err != nil {
+			respondOK(w, map[string]any{"success": false, "error": err.Error()})
+			return
+		}
+	}
+	if err := persistVLANDelete(req.Interface); err != nil {
+		respondOK(w, map[string]any{"success": false, "error": "The VLAN is removed, but the change could not be saved: it would come back at the next start. " + err.Error()})
 		return
 	}
-	persistVLANDelete(req.Interface)
 	respondOK(w, map[string]any{"success": true, "deleted": req.Interface})
 }
 
@@ -262,16 +266,12 @@ func CreateBond(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Persist to DB (boot reconciliation) and Nix fragment (NixOS declarative)
-	if err := persistBond(req.Name, req.Slaves, req.Mode); err != nil {
+	if err := persistBond(req.Name, req.Slaves, req.Mode, req.IP); err != nil {
+		if delErr := persistBondDelete(req.Name); delErr != nil {
+			log.Printf("network: undo bond %s: %v", req.Name, delErr)
+		}
 		fail("save", err)
 		return
-	}
-	if req.IP != "" {
-		if err := persistStaticIP(req.Name, req.IP, "", nil); err != nil {
-			persistBondDelete(req.Name)
-			fail("save", err)
-			return
-		}
 	}
 
 	respondOK(w, map[string]any{
@@ -477,16 +477,20 @@ func DeleteBond(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Bring down before deleting
-	_ = netlinkx.LinkSetDown(name)
-
-	if err := netlinkx.LinkDel(name); err != nil {
-		respondErrorSimple(w, "Invalid request", http.StatusBadRequest)
-		return
+	if _, err := net.InterfaceByName(name); err == nil {
+		// Bring down before deleting
+		_ = netlinkx.LinkSetDown(name)
+		if err := netlinkx.LinkDel(name); err != nil {
+			respondErrorSimple(w, "Deleting "+name+" failed: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
 	}
 
-	// Remove from persistence layers
-	persistBondDelete(name)
+	// The members go back to their own configuration (DHCP unless set).
+	if err := persistBondDelete(name); err != nil {
+		respondErrorSimple(w, "The bond is removed, but the change could not be saved: it would come back at the next start. "+err.Error(), http.StatusInternalServerError)
+		return
+	}
 
 	respondOK(w, map[string]any{
 		"success": true,

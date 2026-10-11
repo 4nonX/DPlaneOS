@@ -58,6 +58,8 @@
   networking.useNetworkd = true;
   networking.useDHCP     = lib.mkDefault true;
   systemd.network.enable = true;
+  # DNS servers set in the web interface are a systemd-resolved drop-in.
+  services.resolved.enable = true;
   # One interface with an address is enough to finish booting.
   systemd.network.wait-online.anyInterface = true;
   systemd.network.wait-online.timeout = 30;

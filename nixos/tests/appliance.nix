@@ -113,6 +113,9 @@ pkgs.testers.nixosTest {
             # DHCP on a wired interface nobody named in the configuration.
             nas.wait_until_succeeds("ip -4 -o addr show dev eth0 | grep -q 'inet 10.0.2.'", timeout=60)
 
+            # /persist is checked at every boot (and found).
+            nas.succeed("journalctl -b -u persist-health-check | grep -q 'persist-health-check: OK'")
+
         with subtest("A ZFS host ID of its own"):
             hostid = nas.succeed("hostid").strip()
             assert hostid != "00000000" and len(hostid) == 8, hostid
@@ -174,6 +177,51 @@ pkgs.testers.nixosTest {
             bad = dict(cfg, root_dir="")
             assert api("PUT", "/api/ftp/config", bad).get("success") is not True
 
+        with subtest("Network settings: tried, confirmed or reverted, and nothing left behind"):
+            LIVE, KEPT = "/run/systemd/network", "/var/lib/dplaneos/network"
+            def addr(dev, cidr):
+                return f"ip -4 -o addr show dev {dev} | grep -qw {cidr}"
+
+            # A static address that is not confirmed is undone.
+            resp = ok(api("PUT", "/api/system/network", {"action": "configure", "interface": "eth1", "dhcp": False, "address": "10.55.0.2/24"}), "configure eth1")
+            assert resp["revert_seconds"] > 0, resp
+            nas.succeed(addr("eth1", "10.55.0.2/24"))
+            nas.fail(f"test -e {KEPT}/10-dplane-eth1.network")
+            nas.wait_until_fails(addr("eth1", "10.55.0.2/24"), timeout=90)
+            nas.fail(f"test -e {LIVE}/10-dplane-eth1.network")
+            # The interface the web interface is reached on still has its DHCP address.
+            nas.succeed("ip -4 -o addr show dev eth0 | grep -q 'inet 10.0.2.'")
+
+            # Confirmed, it is kept.
+            ok(api("PUT", "/api/system/network", {"action": "configure", "interface": "eth1", "dhcp": False, "address": "10.55.0.2/24"}), "configure eth1")
+            ok(api("POST", "/api/network/confirm", {}), "confirm")
+            nas.succeed(f"grep -q 'Address=10.55.0.2/24' {KEPT}/10-dplane-eth1.network {LIVE}/10-dplane-eth1.network")
+            # An address networkd cannot set is reported, not offered for confirmation.
+            bad = api("PUT", "/api/system/network", {"action": "configure", "interface": "eth1", "dhcp": False, "address": "10.55.0.2/24", "gateway": "not-an-ip"})
+            assert bad.get("success") is not True, bad
+
+            # Two VLANs on the same interface, one with an address.
+            ok(api("POST", "/api/network/vlan", {"parent": "eth1", "vlan_id": 100, "ip": "10.77.0.1/24"}), "create VLAN 100")
+            ok(api("POST", "/api/network/vlan", {"parent": "eth1", "vlan_id": 200}), "create VLAN 200")
+            nas.wait_until_succeeds(addr("eth1.100", "10.77.0.1/24"), timeout=30)
+            # One file for eth1: its address and both VLANs.
+            eth1 = nas.succeed(f"cat {LIVE}/10-dplane-eth1.network")
+            assert "Address=10.55.0.2/24" in eth1 and "VLAN=eth1.100" in eth1 and "VLAN=eth1.200" in eth1, eth1
+            nas.wait_until_succeeds(addr("eth1", "10.55.0.2/24"), timeout=30)
+            nas.wait_until_succeeds("networkctl status eth1.100 | grep -q 'Network File: /run/systemd/network/10-dplane-eth1.100.network'", timeout=30)
+
+            # Deleting a VLAN removes its device and every trace in the files.
+            ok(api("DELETE", "/api/network/vlan", {"interface": "eth1.200"}), "delete VLAN 200")
+            nas.fail("ip link show eth1.200")
+            nas.fail(f"ls {LIVE} {KEPT} | grep -F 'eth1.200'")
+            nas.fail(f"grep -rF 'eth1.200' {LIVE} {KEPT}")
+            nas.succeed(addr("eth1.100", "10.77.0.1/24"))
+
+            # DNS servers and a search domain.
+            ok(api("PUT", "/api/system/network", {"action": "set_dns", "nameservers": ["10.0.2.3", "9.9.9.9"], "search": ["lan.example"]}), "set DNS")
+            nas.wait_until_succeeds("resolvectl dns | grep -F 'Global' | grep -qF '9.9.9.9'", timeout=30)
+            nas.succeed("resolvectl domain | grep -F 'Global' | grep -qF 'lan.example'")
+
         with subtest("Reboot: everything is still there"):
             nas.shutdown()
             nas.start()
@@ -192,6 +240,20 @@ pkgs.testers.nixosTest {
             assert [p["name"] for p in api("GET", "/api/zfs/pools")["pools"]] == ["tank"]
             nas.wait_until_succeeds("exportfs -v | grep -q " + mp, timeout=60)
             nas.succeed("testparm -s 2>/dev/null | grep -q '^\\[data\\]'")
+            # The network came up as configured (before the database was there).
+            nas.succeed("ip -4 -o addr show dev eth1 | grep -qw 10.55.0.2/24")
+            nas.succeed("ip -4 -o addr show dev eth1.100 | grep -qw 10.77.0.1/24")
+            nas.fail("ip link show eth1.200")
+            nas.succeed("ip -4 -o addr show dev eth0 | grep -q 'inet 10.0.2.'")
+            nas.succeed("resolvectl dns | grep -F 'Global' | grep -qF '9.9.9.9'")
+            nas.succeed("systemctl is-active dplaneos-network.service")
+            # Back to DHCP and without VLAN: no file of ours is left.
+            ok(api("DELETE", "/api/network/vlan", {"interface": "eth1.100"}), "delete VLAN 100")
+            ok(api("PUT", "/api/system/network", {"action": "configure", "interface": "eth1", "dhcp": True}), "eth1 back to DHCP")
+            ok(api("POST", "/api/network/confirm", {}), "confirm")
+            nas.fail("ip link show eth1.100")
+            nas.wait_until_fails("ip -4 -o addr show dev eth1 | grep -qw 10.55.0.2/24", timeout=30)
+
             # The same account (number, password, group) after the reboot.
             nas.wait_until_succeeds(SMBCLIENT + f" //localhost/data -U alice%{USER_PASSWORD2} -c 'get from-alice.txt /tmp/back'", timeout=90)
             assert nas.succeed("id -u alice").strip() == alice_uid

@@ -37,7 +37,7 @@ import (
 	"dplaned/internal/jobs"
 	"dplaned/internal/middleware"
 	"dplaned/internal/monitoring"
-	"dplaned/internal/networkdwriter"
+	"dplaned/internal/netconf"
 	"dplaned/internal/nixwriter"
 	"dplaned/internal/persistguard"
 	"dplaned/internal/quorum"
@@ -307,21 +307,9 @@ func main() {
 		log.Printf("WARNING: reconciler schema failed: %v", err)
 	}
 
-	// networkdwriter: writes /etc/systemd/network/50-dplane-*.{network,netdev}
-	// These files survive reboots AND nixos-rebuild switch with zero extra steps.
-	// Works on every systemd distro: NixOS, Debian, Ubuntu, Arch, RHEL.
-	netWriter := networkdwriter.Default()
-	if netWriter.IsNetworkd() {
-		log.Printf("systemd-networkd active - networkd file writer enabled (%s)", networkdwriter.DefaultNetworkDir)
-	} else {
-		log.Printf("systemd-networkd not active - networkd files written, reload deferred")
-	}
-	handlers.SetNetWriter(netWriter)
-
 	// nixwriter: NixOS-only, ONLY for settings with no networkd equivalent:
 	//   - networking.firewall (firewall ports)
 	//   - services.dplaneos.samba (samba globals)
-	// All network config (IPs, VLANs, bonds, DNS) now goes through networkdwriter.
 	nixWriter := nixwriter.DefaultWriter()
 	_ = nixWriter.LoadFromDisk()
 	if nixWriter.IsNixOS() {
@@ -332,10 +320,21 @@ func main() {
 	handlers.SetRegistryDB(db)
 	handlers.SetGitOpsStatePath(*gitopsStatePath)
 
-	// Boot reconciler: fallback for systems where networkd was not active when
-	// files were written, or for Debian/Ubuntu with NetworkManager instead of networkd.
-	// On NixOS + networkd: this is a no-op (networkd already read the files at boot).
-	go reconciler.Run(db)
+	// The network configuration (addresses, bonds, VLANs, DNS) lives in the
+	// database; internal/netconf renders it for systemd-networkd. Rendering
+	// at start makes the files match the database whatever happened before
+	// (a change that was being tried when the system went down, a restored
+	// database).
+	if netconf.Active() {
+		if err := handlers.ApplyNetworkConfig(); err != nil {
+			log.Printf("WARNING: network configuration: %v", err)
+		}
+	} else {
+		// Without systemd-networkd nothing reads those files: bonds and
+		// VLANs are created directly.
+		log.Printf("systemd-networkd is not active: restoring bonds and VLANs directly")
+		go reconciler.Run(db)
+	}
 
 	// Load or create the HMAC key for audit chain integrity (Phase 1.5)
 	auditKey, err := audit.LoadOrCreateAuditKey("/var/lib/dplaneos/audit.key")

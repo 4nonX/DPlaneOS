@@ -241,6 +241,12 @@ func SaveStaticIP(db *sql.DB, iface, cidr, gateway string) error {
 	return err
 }
 
+// DeleteInterface forgets the address configuration of an interface.
+func DeleteInterface(db *sql.DB, iface string) error {
+	_, err := db.Exec(`DELETE FROM network_interfaces WHERE interface = $1`, iface)
+	return err
+}
+
 // SaveDHCP marks an interface as DHCP (clears any static config).
 func SaveDHCP(db *sql.DB, iface string) error {
 	_, err := db.Exec(`
@@ -336,9 +342,9 @@ func restoreBond(b BondState) error {
 
 func restoreVLAN(v VLANState) error {
 	if err := netlinkx.LinkAdd(netlinkx.LinkAttrs{
-		Name:     v.Name,
-		Type:     netlinkx.LinkTypeVLAN,
-		VLANID:   v.VID,
+		Name:       v.Name,
+		Type:       netlinkx.LinkTypeVLAN,
+		VLANID:     v.VID,
 		ParentName: v.Parent,
 	}); err != nil {
 		return fmt.Errorf("create VLAN: %w", err)
@@ -363,4 +369,3 @@ func hasAddress(link netlinkx.LinkInfo, cidr string) bool {
 	}
 	return false
 }
-

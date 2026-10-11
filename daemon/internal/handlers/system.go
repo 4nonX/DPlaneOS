@@ -17,8 +17,8 @@ import (
 
 	"dplaned/internal/audit"
 	"dplaned/internal/cmdutil"
+	"dplaned/internal/netconf"
 	"dplaned/internal/netlinkx"
-	"dplaned/internal/reconciler"
 	"dplaned/internal/security"
 )
 
@@ -406,31 +406,33 @@ func (h *SystemHandler) handleNetworkPost(w http.ResponseWriter, r *http.Request
 				return
 			}
 		}
-		// The change is written as a networkd file so it can be reverted if the
-		// operator does not confirm (the UI shows the countdown).
-		if NetWriter == nil || !NetWriter.IsNetworkd() {
+		// The change is tried first: written only where systemd-networkd reads
+		// it, not to the saved configuration. It is saved when the operator
+		// confirms (the UI shows the countdown) and undone otherwise; a
+		// restart in between also comes back with the saved configuration.
+		if ReconcilerDB == nil || !netconf.Active() {
 			respondErrorSimple(w, "Interface configuration needs systemd-networkd", http.StatusNotImplemented)
 			return
 		}
-		snap, existed, err := NetWriter.Snapshot(iface)
+		savedCfg, err := netconf.Load(ReconcilerDB)
 		if err != nil {
 			respondOK(w, map[string]any{"success": false, "error": "read current config: " + err.Error()})
 			return
 		}
-		restore := func() error { return NetWriter.Restore(iface, snap, existed) }
+		restore := func() error {
+			if _, err := netconf.Trial().Apply(savedCfg); err != nil {
+				return err
+			}
+			return netconf.Reconfigure(iface)
+		}
 
-		var applyErr error
-		if dhcp {
-			applyErr = NetWriter.SetDHCP(iface, nil)
-		} else if applyErr = netlinkx.AddrReplace(iface, address); applyErr == nil {
-			if gateway != "" {
-				if err := netlinkx.RouteReplace("default", gateway, iface); err != nil {
-					applyErr = fmt.Errorf("default route via %s: %w", gateway, err)
-				}
-			}
-			if applyErr == nil {
-				applyErr = NetWriter.SetStatic(iface, address, gateway, nil)
-			}
+		candidate := savedCfg.With(netconf.Interface{Name: iface, DHCP: dhcp, CIDR: address, Gateway: gateway})
+		_, applyErr := netconf.Trial().Apply(candidate)
+		if applyErr == nil {
+			applyErr = netconf.Reconfigure(iface)
+		}
+		if applyErr == nil && !dhcp {
+			applyErr = waitForAddress(iface, address, 15*time.Second)
 		}
 		if applyErr != nil {
 			if err := restore(); err != nil {
@@ -442,16 +444,7 @@ func (h *SystemHandler) handleNetworkPost(w http.ResponseWriter, r *http.Request
 		}
 		audit.LogCommand(audit.LevelInfo, user, "network_configure", []string{iface, address}, true, time.Since(opStart), nil)
 
-		// Boot reconciliation state is saved only once the change is confirmed.
-		commit := func() error {
-			if ReconcilerDB == nil {
-				return nil
-			}
-			if dhcp {
-				return reconciler.SaveDHCP(ReconcilerDB, iface)
-			}
-			return reconciler.SaveStaticIP(ReconcilerDB, iface, address, gateway)
-		}
+		commit := func() error { return persistStaticIP(iface, address, gateway) }
 		armNetworkRevert(networkRevertAfter, func() {
 			log.Printf("NETWORK ROLLBACK: %s not confirmed, reverting", iface)
 			if err := restore(); err != nil {
@@ -521,10 +514,6 @@ func (h *SystemHandler) handleNetworkPost(w http.ResponseWriter, r *http.Request
 				servers = append(servers, ip)
 			}
 		}
-		if len(servers) == 0 {
-			respondErrorSimple(w, "At least one valid DNS server IP required", http.StatusBadRequest)
-			return
-		}
 		var searchDomains []string
 		if raw, ok := req["search"].([]any); ok {
 			for _, s := range raw {
@@ -532,6 +521,11 @@ func (h *SystemHandler) handleNetworkPost(w http.ResponseWriter, r *http.Request
 					searchDomains = append(searchDomains, strings.TrimSpace(domain))
 				}
 			}
+		}
+		// No servers and no domains: back to what DHCP announces.
+		if _, err := netconf.RenderDNS(servers, searchDomains); err != nil {
+			respondErrorSimple(w, err.Error(), http.StatusBadRequest)
+			return
 		}
 		// Write to resolv.conf (imperative - works on Debian/Ubuntu)
 		var resolvConf strings.Builder
@@ -542,9 +536,9 @@ func (h *SystemHandler) handleNetworkPost(w http.ResponseWriter, r *http.Request
 		if len(searchDomains) > 0 {
 			resolvConf.WriteString("search " + strings.Join(searchDomains, " ") + "\n")
 		}
-		if NetWriter != nil && NetWriter.IsNetworkd() {
-			// networkd/resolved own resolv.conf (NixOS): the global DNS file applies it.
-			if err := persistDNS(servers); err != nil {
+		if netconf.Active() {
+			// systemd-resolved owns resolv.conf: a drop-in sets the servers.
+			if err := persistDNS(servers, searchDomains); err != nil {
 				respondOK(w, map[string]any{"success": false, "error": err.Error()})
 				return
 			}
@@ -861,4 +855,32 @@ func networkInterfaces(defaultGW map[string]string) []map[string]any {
 		out = append(out, e)
 	}
 	return out
+}
+
+// waitForAddress waits until the interface carries the address (networkd
+// applies a changed file asynchronously), so a configuration that does not
+// take effect is reported instead of being offered for confirmation.
+func waitForAddress(iface, cidr string, timeout time.Duration) error {
+	want, wantNet, err := net.ParseCIDR(cidr)
+	if err != nil {
+		return err
+	}
+	wantOnes, _ := wantNet.Mask.Size()
+	deadline := time.Now().Add(timeout)
+	for {
+		if ifc, err := net.InterfaceByName(iface); err == nil {
+			addrs, _ := ifc.Addrs()
+			for _, a := range addrs {
+				if ipn, ok := a.(*net.IPNet); ok && ipn.IP.Equal(want) {
+					if ones, _ := ipn.Mask.Size(); ones == wantOnes {
+						return nil
+					}
+				}
+			}
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("%s did not take the address %s within %s", iface, cidr, timeout)
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
 }
