@@ -88,16 +88,6 @@ in {
   users.users.root.password = lib.mkForce "dplaneos";
   users.users.root.initialHashedPassword = lib.mkForce null;
 
-  # ── Documentation - suppress broken python3.11 doc build ─────────────────
-  # nixpkgs 26.05 ships Sphinx 9.1 + docutils 0.22.4 which fail to build
-  # python3.11 HTML docs. NixOS defaults documentation.doc.enable = true,
-  # which causes system-path to pull the .doc output for every systemPackage,
-  # including python311. Disabling doc outputs entirely prevents the broken
-  # derivation from entering the installer closure.
-  documentation.doc.enable    = false;
-  documentation.nixos.enable  = false;
-  environment.extraOutputsToInstall = lib.mkForce [];
-
   # DHCP for IP detection at the completion screen
   networking.useDHCP = lib.mkForce true;
 

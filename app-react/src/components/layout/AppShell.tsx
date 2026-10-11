@@ -24,7 +24,6 @@ import { useAuthStore } from '@/stores/auth'
 import { api } from '@/lib/api'
 import { Icon } from '@/components/ui/Icon'
 import { initNotificationSubscribers } from '@/stores/notifications'
-import { PendingChangesSidebar } from './PendingChangesSidebar'
 import { GlobalSearch } from '@/components/ui/GlobalSearch'
 import { KeyboardHelpModal } from '@/components/ui/KeyboardHelpModal'
 import { JobTaskbar } from '@/components/ui/JobTaskbar'
@@ -363,7 +362,6 @@ export function AppShell() {
           <Outlet />
         </div>
       </main>
-      <PendingChangesSidebar />
       <ToastContainer />
       <JobTaskbar sidebarCollapsed={collapsed} />
     </>

@@ -19,8 +19,6 @@ export interface AppNotification {
 
 interface NotificationsState {
   notifications: AppNotification[]
-  isSidebarOpen: boolean
-  setSidebarOpen: (open: boolean) => void
   addNotification: (n: Omit<AppNotification, 'id' | 'timestamp' | 'read'>) => void
   markRead: (id: string | 'all') => void
   clear: () => void
@@ -28,9 +26,7 @@ interface NotificationsState {
 
 export const useNotificationsStore = create<NotificationsState>((set) => ({
   notifications: [],
-  isSidebarOpen: false,
 
-  setSidebarOpen: (open) => set({ isSidebarOpen: open }),
 
   addNotification: (n) => set((s) => ({
     notifications: [

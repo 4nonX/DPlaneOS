@@ -10,10 +10,7 @@ import (
 	"time"
 
 	"dplaned/internal/cmdutil"
-	"dplaned/internal/forensics"
 	"dplaned/internal/gitops"
-	"dplaned/internal/jobs"
-	"dplaned/internal/nixwriter"
 	"log"
 )
 
@@ -85,7 +82,7 @@ func (h *NixOSGuardHandler) DetectNixOS(w http.ResponseWriter, r *http.Request) 
 	nixos := IsNixOS()
 
 	result := map[string]any{
-		"success": true,
+		"success":  true,
 		"is_nixos": nixos,
 	}
 
@@ -110,161 +107,6 @@ func (h *NixOSGuardHandler) DetectNixOS(w http.ResponseWriter, r *http.Request) 
 	}
 
 	respondOK(w, result)
-}
-
-// Status reports whether there are pending changes that need reconciliation.
-// GET /api/nixos/status
-func (h *NixOSGuardHandler) GetStatus(w http.ResponseWriter, r *http.Request) {
-	if !IsNixOS() {
-		respondOK(w, map[string]any{"success": true, "is_nixos": false})
-		return
-	}
-
-	dirty, err := NixWriter.IsDirty()
-	if err != nil {
-		log.Printf("NixOS Status: IsDirty failed: %v", err)
-	}
-
-	// ── Phase 2: Physical Truth (Forensics) ──
-	physicalTCP, physicalUDP, forensicErr := forensics.GetPhysicalFirewallPorts()
-	if forensicErr != nil {
-		log.Printf("NixOS Status: Forensics failure: %v", forensicErr)
-	}
-
-	diverged := false
-	shadowTCP := []int{}
-	shadowUDP := []int{}
-
-	// We compare physical kernel state against the LAST APPLIED intent.
-	// This ensures we only flag manual CLI edits, not pending UI changes.
-	appliedData, _ := os.ReadFile(nixwriter.AppliedStatePath)
-	if appliedData != nil {
-		var applied nixwriter.DPlaneState
-		if err := json.Unmarshal(appliedData, &applied); err == nil {
-			if checkDivergence(physicalTCP, applied.FirewallTCP, &shadowTCP) {
-				diverged = true
-			}
-			if checkDivergence(physicalUDP, applied.FirewallUDP, &shadowUDP) {
-				diverged = true
-			}
-		}
-	}
-
-	respondOK(w, map[string]any{
-		"success":     true,
-		"is_nixos":    true,
-		"is_dirty":    dirty,
-		"is_diverged": diverged,
-		"shadow_ports": map[string][]int{
-			"tcp": shadowTCP,
-			"udp": shadowUDP,
-		},
-	})
-}
-
-// checkDivergence finds ports in the physical list that are NOT in the intent list.
-func checkDivergence(physical, intent []int, shadow *[]int) bool {
-	intentMap := make(map[int]bool)
-	for _, p := range intent {
-		intentMap[p] = true
-	}
-
-	found := false
-	for _, p := range physical {
-		// DPlaneOS ignores well-known OS-managed ports and ports the user
-		// intentionally opened via declarative NixOS config. Flag only ports
-		// not declared in state.yaml and not in the fixed OS set.
-		if !intentMap[p] {
-			// SSH, HTTP, HTTPS are always managed by the OS, never by state.yaml.
-			if p == 22 || p == 80 || p == 443 {
-				continue
-			}
-			*shadow = append(*shadow, p)
-			found = true
-		}
-	}
-	return found
-}
-
-// DiffIntent reports the detailed changes between current intent and applied state.
-// GET /api/nixos/diff-intent
-func (h *NixOSGuardHandler) DiffIntent(w http.ResponseWriter, r *http.Request) {
-	if !IsNixOS() {
-		respondOK(w, map[string]any{"success": true, "changes": []any{}})
-		return
-	}
-
-	changes, err := NixWriter.DiffIntent()
-	if err != nil {
-		respondError(w, http.StatusInternalServerError, "Failed to calculate diff", err)
-		return
-	}
-
-	respondOK(w, map[string]any{
-		"success": true,
-		"changes": changes,
-		"count":   len(changes),
-	})
-}
-
-// Reconcile triggers a nixos-rebuild switch to apply pending changes.
-// POST /api/nixos/reconcile
-func (h *NixOSGuardHandler) Reconcile(w http.ResponseWriter, r *http.Request) {
-	if !IsNixOS() {
-		respondErrorSimple(w, "Not a NixOS system", http.StatusBadRequest)
-		return
-	}
-
-	// Enforce global reconciliation lock (Safety Phase 12.1)
-	if !gitops.TryLock() {
-		respondJSON(w, 423, map[string]any{
-			"success": false,
-			"error":   "A reconciliation is already in progress. Please wait for the current operation to finish.",
-		})
-		return
-	}
-
-	jobID := jobs.Start("nixos-reconcile", func(j *jobs.Job) {
-		defer gitops.Unlock()
-		j.Log("Starting NixOS system reconciliation...")
-
-		// 1. Double check if dirty
-		dirty, err := NixWriter.IsDirty()
-		if err != nil {
-			j.Log(fmt.Sprintf("Warning: Checksum verification error: %v", err))
-		}
-		if !dirty {
-			j.Log("System is already in sync. NixWriter report: NOT_DIRTY.")
-			// We still run the rebuild to be safe, or should we stop?
-			// User might have manually edited files. Let's proceed.
-		}
-
-		// 2. Run rebuild switch
-		j.Log("Executing nixos-rebuild switch...")
-		output, err := cmdutil.RunExtreme("nixos-rebuild", "switch")
-		if err != nil {
-			j.Log("NixOS reconciliation failed!")
-			j.Fail(fmt.Sprintf("Rebuild failed: %v\nOutput: %s", err, output))
-			return
-		}
-
-		// 3. Mark as applied on success
-		j.Log("Rebuild successful. Committing checksum to applied-state registry...")
-		if err := NixWriter.MarkApplied(); err != nil {
-			j.Log(fmt.Sprintf("Warning: Failed to mark state as applied: %v", err))
-		}
-
-		j.Log("System successfully reconciled with declarative intent.")
-		j.Done(map[string]any{
-			"output": string(output),
-		})
-	})
-
-	respondOK(w, map[string]any{
-		"success": true,
-		"job_id":  jobID,
-		"message": "Reconciliation started in background",
-	})
 }
 
 // ValidateConfig dry-runs a NixOS configuration change
@@ -455,13 +297,13 @@ func (h *NixOSGuardHandler) RollbackGeneration(w http.ResponseWriter, r *http.Re
 // GET /api/nixos/pre-upgrade-snapshots
 func (h *NixOSGuardHandler) ListPreUpgradeSnapshots(w http.ResponseWriter, r *http.Request) {
 	type snap struct {
-		ID          int64  `json:"id"`
-		Snapshot    string `json:"snapshot"`
-		Pool        string `json:"pool"`
-		CreatedAt   string `json:"created_at"`
-		NixOSApply  string `json:"nixos_apply"`
-		Success     int    `json:"success"`
-		Error       string `json:"error,omitempty"`
+		ID         int64  `json:"id"`
+		Snapshot   string `json:"snapshot"`
+		Pool       string `json:"pool"`
+		CreatedAt  string `json:"created_at"`
+		NixOSApply string `json:"nixos_apply"`
+		Success    int    `json:"success"`
+		Error      string `json:"error,omitempty"`
 	}
 
 	rows, err := h.db.Query(`

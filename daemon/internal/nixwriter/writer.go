@@ -1,29 +1,18 @@
-// Package nixwriter bridges DPlaneOS's imperative management layer with
-// NixOS's declarative configuration system.
+// Package nixwriter is the store of the system settings made in the web
+// interface: host name, time zone, NTP servers, firewall rules, kernel
+// tuning, the web certificate, SSH daemon and UPS settings, Samba's
+// directory membership.
 //
-// # v5.0 Architecture: JSON-to-Nix Bridge
+// The settings live in one JSON file (StateJSONPath). Every setter writes the
+// whole file atomically and then has the running system brought in line with
+// it (the Apply hook, internal/sysapply); the same happens at every boot. An
+// installed system is an image, so nothing here waits for a rebuild.
 //
-// The previous approach ("The Surgeon") wrote raw Nix syntax stanzas from Go
-// string templates. This was fragile: any special character, missing escape, or
-// unexpected value could produce a file that fails nix-instantiate --parse,
-// silently breaking the next nixos-rebuild.
-//
-// The v5 approach:
-//   - The daemon writes ONE file: /var/lib/dplaneos/dplane-state.json
-//     This is pure JSON produced by encoding/json.Marshal - 100% safe by construction.
-//   - /etc/nixos/dplane-generated.nix is a STATIC file installed once by
-//     setup-nixos.sh. It never changes. It contains:
-//     let s = builtins.fromJSON (builtins.readFile /var/lib/dplaneos/dplane-state.json);
-//     and maps JSON keys to NixOS module options using `s.key or default` guards.
-//   - Because the .nix file is static and contains no interpolated values,
-//     there is NO syntax error risk from daemon writes, ever.
-//
-// Caller API is identical to v4 - handlers call Set*() methods and never
-// know or care whether a .nix file or a .json file is being written.
+// (The name is historical: the file used to be read by a generated NixOS
+// module at rebuild time.)
 package nixwriter
 
 import (
-	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -36,29 +25,13 @@ import (
 )
 
 const (
-	// StateJSONPath is the only file the daemon ever writes for NixOS state.
-	// The static dplane-generated.nix reads this file via builtins.fromJSON.
+	// StateJSONPath is the settings file.
 	StateJSONPath = "/var/lib/dplaneos/dplane-state.json"
-
-	// GeneratedNixPath is where setup-nixos.sh installs the static bridge file.
-	// The daemon does NOT write to this path in v5.
-	GeneratedNixPath = "/etc/nixos/dplane-generated.nix"
-
-	// AppliedChecksumPath stores the SHA256 of the dplane-state.json that
-	// was last successfully applied via nixos-rebuild.
-	AppliedChecksumPath = "/var/lib/dplaneos/applied-checksum"
-
-	// AppliedStatePath stores a copy of the dplane-state.json that was last applied.
-	AppliedStatePath = "/var/lib/dplaneos/dplane-state.applied.json"
 )
 
-// DPlaneState is the complete set of system settings that DPlaneOS can manage
-// on a NixOS host. It is serialised to JSON and read by dplane-generated.nix.
+// DPlaneState is the complete set of system settings, as stored.
 //
-// All fields use `omitempty` so unset values are absent from JSON, and the Nix
-// `s.key or default` guard in dplane-generated.nix supplies the NixOS default.
-//
-// Field naming: use snake_case to match the Nix key names in dplane-generated.nix.
+// Unset values are left out of the file (omitempty).
 type DPlaneState struct {
 	// ── System ────────────────────────────────────────────────────────────────
 	Hostname string `json:"hostname,omitempty"`
@@ -225,136 +198,6 @@ func isNixOS() bool {
 
 // IsNixOS reports whether this system is NixOS.
 func (w *Writer) IsNixOS() bool { return w.nixOS }
-
-// IsDirty checks if the intent (json on disk) is ahead of the applied state.
-func (w *Writer) IsDirty() (bool, error) {
-	if !w.nixOS {
-		return false, nil
-	}
-
-	// 1. Get checksum of current state file
-	currentJSON, err := os.ReadFile(w.path)
-	if os.IsNotExist(err) {
-		return false, nil // no state = not dirty
-	}
-	if err != nil {
-		return false, fmt.Errorf("read state: %w", err)
-	}
-	currentCS := fmt.Sprintf("%x", sha256.Sum256(currentJSON))
-
-	// 2. Get checksum of last applied state
-	appliedCS, err := os.ReadFile(AppliedChecksumPath)
-	if os.IsNotExist(err) {
-		return true, nil // has state but no applied record = dirty
-	}
-	if err != nil {
-		return false, fmt.Errorf("read applied-checksum: %w", err)
-	}
-
-	return currentCS != strings.TrimSpace(string(appliedCS)), nil
-}
-
-// MarkApplied records that the current state on disk has been successfully
-// activated by nixos-rebuild.
-func (w *Writer) MarkApplied() error {
-	if !w.nixOS {
-		return nil
-	}
-
-	currentJSON, err := os.ReadFile(w.path)
-	if err != nil {
-		return fmt.Errorf("read state for marking: %w", err)
-	}
-	currentCS := fmt.Sprintf("%x", sha256.Sum256(currentJSON))
-
-	if err := os.WriteFile(AppliedChecksumPath, []byte(currentCS), 0644); err != nil {
-		return err
-	}
-
-	// Also save a copy of the state itself for diff purposes
-	return os.WriteFile(AppliedStatePath, currentJSON, 0644)
-}
-
-// Change represents a single property change in the declarative state.
-type Change struct {
-	Path string `json:"path"`
-	From any    `json:"from"`
-	To   any    `json:"to"`
-	Op   string `json:"op"` // "add", "remove", "modify"
-}
-
-// DiffIntent calculates the differences between the current in-memory state
-// and the last applied state on disk.
-func (w *Writer) DiffIntent() ([]Change, error) {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-
-	var appliedState DPlaneState
-	data, err := os.ReadFile(AppliedStatePath)
-	if err == nil {
-		if err := json.Unmarshal(data, &appliedState); err != nil {
-			return nil, fmt.Errorf("diff: unmarshal applied state: %v", err)
-		}
-	} else if !os.IsNotExist(err) {
-		return nil, fmt.Errorf("diff: read applied state: %v", err)
-	}
-	// if file doesn't exist, appliedState is empty - we'll show everything as added
-
-	var changes []Change
-
-	// Helper to compare integer slices (Firewall)
-	compareInts := func(path string, from, to []int) {
-		fMap := make(map[int]bool)
-		for _, x := range from {
-			fMap[x] = true
-		}
-		tMap := make(map[int]bool)
-		for _, x := range to {
-			tMap[x] = true
-		}
-
-		for x := range tMap {
-			if !fMap[x] {
-				changes = append(changes, Change{Path: path, To: x, Op: "add"})
-			}
-		}
-		for x := range fMap {
-			if !tMap[x] {
-				changes = append(changes, Change{Path: path, From: x, Op: "remove"})
-			}
-		}
-	}
-
-	// System
-	if w.state.Hostname != appliedState.Hostname {
-		changes = append(changes, Change{Path: "system.hostname", From: appliedState.Hostname, To: w.state.Hostname, Op: "modify"})
-	}
-	if w.state.Timezone != appliedState.Timezone {
-		changes = append(changes, Change{Path: "system.timezone", From: appliedState.Timezone, To: w.state.Timezone, Op: "modify"})
-	}
-
-	// Firewall
-	compareInts("firewall.tcp", appliedState.FirewallTCP, w.state.FirewallTCP)
-	compareInts("firewall.udp", appliedState.FirewallUDP, w.state.FirewallUDP)
-
-	// SSH Daemon
-	if w.state.SSHPort != appliedState.SSHPort {
-		changes = append(changes, Change{Path: "ssh.port", From: appliedState.SSHPort, To: w.state.SSHPort, Op: "modify"})
-	}
-	if !boolPtrEqual(w.state.SSHPasswordAuth, appliedState.SSHPasswordAuth) {
-		changes = append(changes, Change{Path: "ssh.password_auth", From: appliedState.SSHPasswordAuth, To: w.state.SSHPasswordAuth, Op: "modify"})
-	}
-	if w.state.SSHPermitRootLogin != appliedState.SSHPermitRootLogin {
-		changes = append(changes, Change{Path: "ssh.permit_root_login", From: appliedState.SSHPermitRootLogin, To: w.state.SSHPermitRootLogin, Op: "modify"})
-	}
-
-	// High Availability
-
-	// This list is not exhaustive but covers the primary enterprise hardening vectors.
-	// For a production system, use reflection or a generic JSON diff library.
-
-	return changes, nil
-}
 
 // State returns a copy of the current in-memory state.
 func (w *Writer) State() DPlaneState {

@@ -4,7 +4,7 @@
  * Fixed top bar with page icon, title, breadcrumb group, and user chip.
  */
 
-import { useRouterState, useNavigate } from '@tanstack/react-router'
+import { useRouterState } from '@tanstack/react-router'
 import { toggleTheme, getTheme } from '@/lib/theme'
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
@@ -228,29 +228,20 @@ export function TopBar({ sidebarCollapsed, onSearchOpen, onHelpOpen, isMobile, m
 
 function NotificationsBell() {
   const [showFlyout, setShowFlyout] = useState(false)
-  const { setSidebarOpen } = useNotificationsStore()
-  const navigate = useNavigate()
   
-  const statusQ = useQuery({
-    queryKey: ['nixos', 'status'],
-    queryFn: () => api.get<{ is_dirty: boolean }>('/api/nixos/status'),
-    refetchInterval: 60_000,
-  })
-
-  const isDirty = statusQ.data?.is_dirty ?? false
   const notifications = useNotificationsStore(s => s.notifications) // Use the new notification history
 
   return (
     <div style={{ position: 'relative' }}>
       <button
         onClick={() => setShowFlyout(!showFlyout)}
-        aria-label={isDirty ? 'Notifications, action required' : 'Notifications'}
+        aria-label="Notifications"
         aria-expanded={showFlyout}
         style={{
           background: 'none',
           border: 'none',
           cursor: 'pointer',
-          color: isDirty ? 'var(--warning)' : 'var(--text-tertiary)',
+          color: 'var(--text-tertiary)',
           display: 'flex',
           alignItems: 'center',
           padding: 8,
@@ -259,10 +250,10 @@ function NotificationsBell() {
           position: 'relative'
         }}
         onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; e.currentTarget.style.color = 'var(--text)' }}
-        onMouseLeave={e => { e.currentTarget.style.background = 'none'; e.currentTarget.style.color = isDirty ? 'var(--warning)' : 'var(--text-tertiary)' }}
+        onMouseLeave={e => { e.currentTarget.style.background = 'none'; e.currentTarget.style.color = 'var(--text-tertiary)' }}
       >
-        <Icon name={isDirty ? 'notifications_active' : 'notifications'} size={20} />
-        {(isDirty || notifications.some(n => !n.read)) && (
+        <Icon name="notifications" size={20} />
+        {notifications.some(n => !n.read) && (
           <span style={{
             position: 'absolute',
             top: 6,
@@ -270,9 +261,9 @@ function NotificationsBell() {
             width: 8,
             height: 8,
             borderRadius: '50%',
-            background: isDirty ? 'var(--warning)' : 'var(--primary)',
+            background: 'var(--primary)',
             border: '2px solid var(--surface)',
-            boxShadow: isDirty ? '0 0 8px var(--warning)' : 'none'
+            boxShadow: 'none'
           }} />
         )}
       </button>
@@ -294,48 +285,9 @@ function NotificationsBell() {
           }}>
             <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border-subtle)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span style={{ fontWeight: 700, fontSize: 'var(--text-sm)' }}>Notifications</span>
-              {isDirty && <span className="badge badge-warning">System Dirty</span>}
             </div>
 
             <div style={{ maxHeight: 400, overflowY: 'auto' }}>
-              {isDirty && (
-                <div style={{ padding: 16, background: 'var(--warning-bg)', borderBottom: '1px solid var(--border-subtle)' }}>
-                  <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
-                    <Icon name="potted_plant" size={20} style={{ color: 'var(--warning)', marginTop: 2 }} />
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontWeight: 600, fontSize: 'var(--text-sm)', marginBottom: 4 }}>Reconciliation Required</div>
-                      <p style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', margin: 0, lineHeight: 1.4 }}>
-                        System configuration has changed. Apply changes to ensure persistence after reboot.
-                      </p>
-                      <div style={{ display: 'flex', gap: 12, marginTop: 12 }}>
-                        <button 
-                          onClick={() => { setSidebarOpen(true); setShowFlyout(false) }}
-                          style={{
-                            padding: '6px 12px',
-                            background: 'rgba(255,255,255,0.05)',
-                            border: '1px solid var(--border-subtle)',
-                            borderRadius: 'var(--radius-sm)',
-                            fontSize: 'var(--text-xs)',
-                            fontWeight: 600,
-                            color: 'var(--primary)',
-                            cursor: 'pointer'
-                          }}
-                        >
-                          View Details
-                        </button>
-                        <button
-                          className="btn btn-primary btn-xs"
-                          style={{ padding: '6px 12px', fontSize: 'var(--text-xs)', height: 'auto' }}
-                          onClick={() => { navigate({ to: '/settings' }); setShowFlyout(false) }}
-                        >
-                          Reconcile Now
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
-
               {notifications.map((n) => (
                 <div key={n.id} style={{ padding: 16, borderBottom: '1px solid var(--border-subtle)', opacity: n.read ? 0.6 : 1 }}>
                   <div style={{ display: 'flex', gap: 12 }}>
@@ -348,7 +300,7 @@ function NotificationsBell() {
                 </div>
               ))}
 
-              {notifications.length === 0 && !isDirty && (
+              {notifications.length === 0 && (
                 <div style={{ padding: '40px 20px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 'var(--text-sm)' }}>
                   No notifications
                 </div>

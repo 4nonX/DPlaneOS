@@ -88,7 +88,6 @@ function GeneralTab() {
   })
 
   const [dirty, setDirty] = useState<{ hostname?: string; timezone?: string; motd?: string; licenseKey?: string }>({})
-  const [autoReconcile, setAutoReconcile] = useState(false)
 
   const s = settingsQ.data?.settings
   const hostname   = dirty.hostname   ?? s?.['hostname']    ?? ''
@@ -101,15 +100,6 @@ function GeneralTab() {
   const setMotd       = (v: string) => setDirty(p => ({ ...p, motd: v }))
   const setLicenseKey = (v: string) => setDirty(p => ({ ...p, licenseKey: v }))
 
-  const diffQ = useQuery({
-    queryKey: ['nixos', 'diff-intent'],
-    queryFn: () => api.get<{ changes: Array<{ path: string; to: unknown }> }>('/api/nixos/diff-intent'),
-  })
-
-  const reconcileM = useMutation({
-    mutationFn: () => api.post('/api/nixos/reconcile', {}),
-  })
-
   const save = useMutation({
     mutationFn: () => {
       const body: Record<string, string> = {}
@@ -119,22 +109,10 @@ function GeneralTab() {
       body['license_key'] = licenseKey
       return api.post('/api/system/settings', body)
     },
-    onSuccess: async () => {
+    onSuccess: () => {
       setDirty({})
       qc.invalidateQueries({ queryKey: ['system', 'settings'] })
-      qc.invalidateQueries({ queryKey: ['nixos', 'diff-intent'] })
-
-      if (autoReconcile) {
-        toast.info('Settings stored. Reconciling system...')
-        try {
-          await reconcileM.mutateAsync()
-          toast.success('System settings applied to Nix generation')
-        } catch (err: unknown) {
-          toast.error(`Reconciliation failed: ${err instanceof Error ? err.message : String(err)}`)
-        }
-      } else {
-        toast.success('Settings staged. Remember to Reconcile to apply changes.')
-      }
+      toast.success('Settings applied')
     },
     onError: (e: Error) => toast.error(e.message),
   })
@@ -151,24 +129,18 @@ function GeneralTab() {
 
   return (
     <div style={{ maxWidth: 560, display: 'flex', flexDirection: 'column', gap: 20 }}>
-      <Field label="Hostname" hint="Staged in dplane-state.json - reconciles etc/hostname">
+      <Field label="Hostname" hint="The name of this system in the network. Takes effect immediately.">
         <div style={{ position: 'relative' }}>
           <input value={hostname} onChange={e => setHostname(e.target.value)}
             placeholder="dplaneos" className="input" style={{ width: '100%', fontFamily: 'var(--font-mono)' }} />
-          {diffQ.data?.changes.find(c => c.path === 'hostname') && (
-            <span className="badge badge-warning" style={{ position: 'absolute', right: -70, top: 10, fontSize: 8 }}>STAGED</span>
-          )}
         </div>
       </Field>
 
-      <Field label="Timezone" hint="Staged in dplane-state.json - reconciles NixOS time.timeZone">
+      <Field label="Timezone" hint="Takes effect immediately.">
         {/* Combo: free-text with datalist for common zones */}
         <div style={{ position: 'relative' }}>
           <input value={timezone} onChange={e => setTimezone(e.target.value)}
             list="tz-list" placeholder="Europe/Berlin" className="input" style={{ width: '100%' }} />
-          {diffQ.data?.changes.find(c => c.path === 'timezone') && (
-            <span className="badge badge-warning" style={{ position: 'absolute', right: -70, top: 10, fontSize: 8 }}>STAGED</span>
-          )}
         </div>
         <datalist id="tz-list">
           {TIMEZONES.map(tz => <option key={tz} value={tz} />)}
@@ -197,10 +169,6 @@ function GeneralTab() {
       }) || null}
 
       <div>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', marginBottom: 16 }}>
-          <input type="checkbox" checked={autoReconcile} onChange={e => setAutoReconcile(e.target.checked)} />
-          Apply & Reconcile immediately (triggers Nix rebuild)
-        </label>
         <button onClick={() => save.mutate()} disabled={save.isPending} className="btn btn-primary">
           <Icon name="save" size={15} />{save.isPending ? 'Saving…' : 'Save Settings'}
         </button>
