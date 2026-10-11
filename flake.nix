@@ -221,8 +221,10 @@
         packages.dplaneos-daemon-cgo     = mkDaemonCGO { inherit system pkgs dplaneosVersion nixpkgs; };
         packages.dplaneos-frontend       = frontend;
         # The appliance's Samba (with Active Directory support); CI builds
-        # it once and keeps it in its cache.
-        packages.samba-ads               = import ./nixos/samba-package.nix pkgs;
+        # it once and keeps it in its cache. (Under legacyPackages: the
+        # per-system "packages" above are replaced by the image packages
+        # further down.)
+        legacyPackages.samba-ads         = import ./nixos/samba-package.nix pkgs;
         packages.default = daemon;
 
         # Live boot integration test (Tier 2).
