@@ -71,7 +71,6 @@
 
   # ARC cache: 17GB (same as installed, for consistent behavior)
   # Use mkDefault so applianceConfig can set this without conflict
-  boot.kernelParams = lib.mkDefault [ "zfs.zfs_arc_max=17179869184" ];
 
   # ── Network configuration (live boot requires DHCP for automatic connectivity) ────────────────────────────
   networking.useNetworkd = true;

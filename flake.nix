@@ -145,7 +145,6 @@
       applianceConfig = { config, lib, pkgs, ... }: {
         boot.kernelPackages = pkgs.linuxPackages_6_12;
         boot.zfs.package = pkgs.zfs;
-        boot.kernelParams = [ "zfs.zfs_arc_max=17179869184" ];
         assertions = [
           {
             assertion = lib.versionAtLeast config.boot.kernelPackages.kernel.version "6.12";
@@ -242,6 +241,15 @@
         # The DPlaneOS Witness appliance joins headlessly.
         #   nix build .#checks.x86_64-linux.witness-appliance -L
         checks.witness-appliance = import ./nixos/tests/witness-appliance.nix {
+          inherit nixpkgs system impermanence;
+          daemonPackage = daemon;
+          frontendPackage = frontend;
+        };
+
+        # The installed appliance: the configuration the ISO installs, on a
+        # disk that survives reboots.
+        #   nix build .#checks.x86_64-linux.appliance -L
+        checks.appliance = import ./nixos/tests/appliance.nix {
           inherit nixpkgs system impermanence;
           daemonPackage = daemon;
           frontendPackage = frontend;

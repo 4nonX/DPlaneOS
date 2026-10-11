@@ -474,28 +474,22 @@ in {
         Restart         = "on-failure";
         RestartSec      = "5s";
 
-        # Security hardening (matches systemd/dplaned.service)
-        NoNewPrivileges       = true;
-        # No mount namespace (ProtectSystem/ProtectHome/PrivateTmp/ReadWritePaths):
-        # the daemon creates and mounts ZFS datasets, imports pools and mounts
-        # cold-tier FUSE remotes. In a private namespace those mounts stay
-        # invisible to Samba, NFS and the host (systemd makes the namespace a
-        # slave), and mountpoints outside ReadWritePaths cannot be created.
-        # It runs as root with CAP_SYS_ADMIN, so the namespace protected little.
-        CapabilityBoundingSet = [
-          "CAP_SYS_ADMIN"
-          "CAP_NET_ADMIN"
-          "CAP_DAC_READ_SEARCH"
-          "CAP_CHOWN"
-          "CAP_FOWNER"
-        ];
-        AmbientCapabilities   = [
-          "CAP_SYS_ADMIN"
-          "CAP_NET_ADMIN"
-          "CAP_DAC_READ_SEARCH"
-          "CAP_CHOWN"
-          "CAP_FOWNER"
-        ];
+        # The daemon is the system's administrator: it manages files of every
+        # user, runs backups, loads kernel modules, sends raw SCSI and ARP
+        # packets and switches system configurations. It therefore runs as
+        # root with all capabilities. A reduced capability set (it had one:
+        # SYS_ADMIN, NET_ADMIN, DAC_READ_SEARCH, CHOWN, FOWNER) contained
+        # nothing, since CAP_SYS_ADMIN alone is equivalent to root, and it
+        # broke the file manager and backups in folders owned by users, disk
+        # power management, reservation probes and gratuitous ARP.
+        # What limits the daemon is in the daemon: sessions and RBAC, the
+        # command whitelist and the path checks.
+        #
+        # No mount namespace either (ProtectSystem/ProtectHome/PrivateTmp/
+        # ReadWritePaths): the daemon creates and mounts ZFS datasets, imports
+        # pools and mounts cold-tier FUSE remotes. In a private namespace those
+        # mounts stay invisible to Samba, NFS and the host.
+        NoNewPrivileges = true;
 
         # Logging: journal, so `journalctl -u dplaned` works (README, recovery docs, CI diagnostics).
         StandardOutput = "journal";

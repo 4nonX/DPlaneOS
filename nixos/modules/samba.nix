@@ -269,7 +269,6 @@ in {
         global = {
           "workgroup"           = cfg.workgroup;
           "server string"       = cfg.serverString;
-          "netbios name"        = cfg.netbiosName;
           "security"            = cfg.securityMode;
           "passdb backend"      = if cfg.securityMode == "ads" then "secrets" else "tdbsam";
           "map to guest"        = if cfg.allowGuest then "Bad User" else "Never";
@@ -289,6 +288,9 @@ in {
           # without giving the daemon ownership of the whole smb.conf.
           "include"             = sharesConfPath;
         } // idmapAttrs // adAttrs
+          # Without a name here Samba uses the system's host name, which the
+          # web interface can change at any time.
+          // lib.optionalAttrs (cfg.netbiosName != "") { "netbios name" = cfg.netbiosName; }
           // lib.optionalAttrs cfg.timeMachine {
           "fruit:metadata"                        = "stream";
           "fruit:model"                           = "MacSamba";

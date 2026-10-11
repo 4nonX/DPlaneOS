@@ -269,7 +269,7 @@ DPlaneOS is a NAS management layer running on NixOS. It manages storage (ZFS), c
 | networkdwriter file writes | `/etc/systemd/network/50-dplane-*` | Root filesystem permissions | Pure file I/O; `networkctl reload` fixed args |
 | PostgreSQL database | Filesystem (`/var/lib/dplaneos/pgsql/`) | OS file permissions (root/postgres) | One database per node; sessions table holds hashed tokens, `must_change_password` flag enforced server-side |
 | Client session token | `sessionStorage` (default) or `localStorage` (opt-in "Remember me") | 24-hour server-side TTL, revoked on password change | localStorage token survives browser restart; XSS with localStorage access is a higher-impact scenario than sessionStorage |
-| systemd service | Root process | `CapabilityBoundingSet`, `NoNewPrivileges`, `MemoryMax` | Not a dedicated non-root user |
+| systemd service | Root process with all capabilities | `NoNewPrivileges`; inside the daemon: sessions, RBAC, command allowlist, path checks | Not a dedicated non-root user: a compromised daemon is root on the system |
 
 ---
 
