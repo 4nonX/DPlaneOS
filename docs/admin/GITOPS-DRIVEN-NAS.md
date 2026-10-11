@@ -376,7 +376,7 @@ system:
 - NFS client CIDRs
 - Docker image names and non-sensitive environment variables
 - Hostnames, IP addresses, DNS servers
-- Firewall rules
+- Open firewall ports
 
 ### What does not belong in state.yaml
 

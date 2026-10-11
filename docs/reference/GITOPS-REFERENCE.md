@@ -201,6 +201,13 @@ system:
     permit_root_login: "no"
 ```
 
+How the section is applied:
+
+- `hostname`, `timezone`, `dns_servers` and `ntp_servers` are changed only when given. DNS servers are used in the order listed.
+- `firewall` lists the ports that are open to everyone, completely: a port that is not listed is closed. Rules made on the Firewall page that allow a port for one source only, or deny it, are not part of `state.yaml` and stay as they are.
+- `networking` describes static addresses, bonds and VLANs completely once it names any of them: an interface whose static address is no longer listed goes back to DHCP, a bond or VLAN that is no longer listed is removed. A section without `networking` leaves the interfaces alone. Network changes are applied at once and without the trial period the Network page uses, so the plan marks them as high risk: check the address of the interface you reach the system through before you apply.
+- The UPS, the web certificate and SSH keys are not part of `state.yaml`.
+
 ### Users and Groups
 
 ```yaml
