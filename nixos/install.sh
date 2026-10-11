@@ -14,6 +14,7 @@
 #   DPLANEOS_INSTALL_UNATTENDED=1
 #   DPLANEOS_INSTALL_DISK=/dev/...            the disk to erase and install on
 #   DPLANEOS_INSTALL_PASSWORD_FILE=/path      file with the administrator password
+#   DPLANEOS_INSTALL_ERASE_DISK=1             needed when the disk is not empty
 # are set; the script exits when the installation is done (0) or failed (1)
 # and does not restart the machine.
 # ─────────────────────────────────────────────────────────────────────────────
@@ -60,7 +61,15 @@ die() {
         "$(gum style --foreground "$DIM_COLOR" "Full log: $LOG_FILE")" \
         "$(gum style --foreground "$DIM_COLOR" "Press Enter to return to the menu.")"
     read -r _
-    show_welcome
+    back_to_menu
+}
+
+# back_to_menu starts the installer afresh. It never returns: a step that
+# was left ("No" at a confirmation, an error, Ctrl-C) must not go on where
+# it stopped. (It used to call the menu as a function; leaving the menu with
+# Esc then returned into the installation that had just been declined.)
+back_to_menu() {
+    exec bash "$0"
 }
 
 show_welcome() {
@@ -102,6 +111,7 @@ show_welcome() {
         "Allow remote access to this installer (SSH)") do_remote_access ;;
         "Shell")                exec bash ;;
         "Reboot")               reboot ;;
+        *)                      back_to_menu ;;   # left with Esc: show it again
     esac
 }
 
@@ -129,17 +139,37 @@ human_size() {
     }'
 }
 
+# disk_contents says what a disk holds, in a few words: "empty", the ZFS
+# pool it belongs to, or the file systems on it.
+disk_contents() {
+    local dev="$1" pools others
+    pools=$(lsblk -rn -o FSTYPE,LABEL "$dev" 2>/dev/null | awk '$1 == "zfs_member" { print $2 }' | sort -u | paste -sd, -)
+    if [ -n "$pools" ]; then
+        echo "ZFS pool $pools"
+        return
+    fi
+    others=$(lsblk -rn -o FSTYPE "$dev" 2>/dev/null | grep -v '^$' | sort -u | paste -sd, -)
+    if [ -n "$others" ]; then
+        echo "in use: $others"
+    elif lsblk -rn -o TYPE "$dev" 2>/dev/null | grep -q part; then
+        echo "partitioned"
+    else
+        echo "empty"
+    fi
+}
+
 select_disk() {
     clear
     gum style --foreground "$TITLE_COLOR" --bold --margin "1 0 0 1" \
         "Step 1 of 3 - Select the system disk"
     gum style --foreground "$DIM_COLOR" --margin "0 0 1 1" \
-        "This disk will hold the DPlaneOS operating system and its state." \
-        "Your data disks are NOT touched here - ZFS pools are created after install."
+        "This disk will hold the DPlaneOS operating system and its state, and is" \
+        "erased completely. The list says what each disk holds now: do not choose" \
+        "a disk of a pool you want to keep. The other disks are not touched."
 
     local disk_list=() dev size model
     while IFS=$'\t' read -r dev size model; do
-        disk_list+=("$(printf '%-14s %-9s %s' "$dev" "$(human_size "$size")" "$model")")
+        disk_list+=("$(printf '%-14s %-9s %-26s %s' "$dev" "$(human_size "$size")" "$model" "[$(disk_contents "$dev")]")")
     done < <(candidate_disks)
 
     if [ ${#disk_list[@]} -eq 0 ]; then
@@ -155,21 +185,36 @@ select_disk() {
 
     INSTALL_DISK=$(echo "$selected" | awk '{print $1}')
 
-    local part_count
-    part_count=$(lsblk "$INSTALL_DISK" --noheadings -o TYPE 2>/dev/null \
-        | grep -c "part" || true)
-
-    if [ "$part_count" -gt 0 ]; then
-        echo ""
-        gum style --foreground "$ERROR_COLOR" --bold --margin "0 0 0 1" \
-            "⚠  WARNING: $INSTALL_DISK has $part_count existing partition(s)."
-        gum style --foreground "$DIM_COLOR" --margin "0 0 1 1" \
-            "ALL data on $INSTALL_DISK will be permanently destroyed."
-        gum confirm \
-            --prompt.foreground "$ERROR_COLOR" \
-            "Continue and erase $INSTALL_DISK?" \
-            || show_welcome
-    fi
+    local contents
+    contents=$(disk_contents "$INSTALL_DISK")
+    case "$contents" in
+        empty) ;;
+        "ZFS pool "*)
+            # A member of a pool: the name of the pool has to be typed.
+            local pool typed
+            pool="${contents#ZFS pool }"
+            echo ""
+            gum style --foreground "$ERROR_COLOR" --bold --margin "0 0 0 1" \
+                "⚠  $INSTALL_DISK is part of the $contents."
+            gum style --foreground "$DIM_COLOR" --margin "0 0 1 1" \
+                "Installing here erases this disk and damages or destroys that pool." \
+                "If this is the disk you mean, type the name of the pool to go on."
+            typed=$(gum input --placeholder "name of the pool" --prompt "  › " --prompt.foreground "$ERROR_COLOR") || back_to_menu
+            [ "$typed" = "$pool" ] || back_to_menu
+            ;;
+        *)
+            echo ""
+            gum style --foreground "$ERROR_COLOR" --bold --margin "0 0 0 1" \
+                "⚠  WARNING: $INSTALL_DISK is not empty ($contents)."
+            gum style --foreground "$DIM_COLOR" --margin "0 0 1 1" \
+                "ALL data on $INSTALL_DISK will be permanently destroyed."
+            gum confirm \
+                --default=false \
+                --prompt.foreground "$ERROR_COLOR" \
+                "Continue and erase $INSTALL_DISK?" \
+                || back_to_menu
+            ;;
+    esac
 
     log "Selected disk: $INSTALL_DISK ($selected)"
 }
@@ -269,7 +314,7 @@ confirm_install() {
         --prompt.foreground "$ERROR_COLOR" \
         --default=false \
         "Begin installation?" \
-        || show_welcome
+        || back_to_menu
 }
 
 progress_step() {
@@ -413,7 +458,7 @@ do_remote_access() {
     echo ""
     echo "Press Enter to return to the menu."
     read -r _
-    show_welcome
+    back_to_menu
 }
 
 # ── Lost administrator password ──────────────────────────────────────────────
@@ -475,7 +520,7 @@ do_reset_password() {
             "No installed DPlaneOS system was found on the disks of this machine."
         echo "Press Enter to return to the menu."
         read -r _
-        show_welcome
+        back_to_menu
         return
     fi
     if [ "$(printf '%s\n' "$parts" | wc -l)" -gt 1 ]; then
@@ -484,7 +529,7 @@ do_reset_password() {
     else
         part="$parts"
     fi
-    [ -n "$part" ] || { show_welcome; return; }
+    [ -n "$part" ] || back_to_menu
 
     set_admin_password
     write_password_reset "$part"
@@ -532,6 +577,11 @@ if [ "$UNATTENDED" = 1 ]; then
     ADMIN_PASS=$(cat "${DPLANEOS_INSTALL_PASSWORD_FILE:?DPLANEOS_INSTALL_PASSWORD_FILE is not set}")
     problem=$(password_problem "$ADMIN_PASS")
     [ -z "$problem" ] || die "$problem"
+    # A disk that holds something is only erased when that is said too.
+    contents=$(disk_contents "$INSTALL_DISK")
+    if [ "$contents" != "empty" ] && [ "${DPLANEOS_INSTALL_ERASE_DISK:-0}" != 1 ]; then
+        die "$INSTALL_DISK is not empty ($contents). Set DPLANEOS_INSTALL_ERASE_DISK=1 to erase it."
+    fi
     require_uefi
     run_install
     echo "DPlaneOS v${DPLANEOS_VERSION} is installed on $INSTALL_DISK."
@@ -541,7 +591,7 @@ fi
 trap '
     echo ""
     if gum confirm "Abort and return to menu?" 2>/dev/null; then
-        show_welcome
+        back_to_menu
     fi
 ' INT
 

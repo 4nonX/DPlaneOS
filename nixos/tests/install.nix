@@ -131,8 +131,14 @@ pkgs.testers.nixosTest {
         # Nothing was written.
         installer.fail("lsblk -n -o TYPE /dev/vda | grep -q part")
 
-    with subtest("Installation on the empty disk"):
-        print(installer.succeed(INSTALL.format("/dev/vda")))
+    with subtest("A disk that holds something is not erased without being told to"):
+        # The disk carries a file system (the test framework made one).
+        out = installer.fail(INSTALL.format("/dev/vda"))
+        assert "is not empty" in out, out
+        installer.fail("lsblk -n -o TYPE /dev/vda | grep -q part")
+
+    with subtest("Installation"):
+        print(installer.succeed("DPLANEOS_INSTALL_ERASE_DISK=1 " + INSTALL.format("/dev/vda")))
         labels = installer.succeed("lsblk -n -o PARTLABEL /dev/vda").split()
         assert labels == ["ESP", "system", "persist"], labels
         # Nothing is left mounted; the machine can be switched off.

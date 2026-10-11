@@ -228,7 +228,6 @@ Locked out, no network, a system that does not start: [Recovery Guide](docs/admi
 | Document | What it covers |
 |----------|---------------|
 | [Installation Guide](docs/admin/INSTALLATION-GUIDE.md) | Requirements, the installer, first steps, updates |
-| [NixOS Install Guide](nixos/NIXOS-INSTALL-GUIDE.md) | For NixOS beginners: empty hardware to running NAS |
 | [Administrator Guide](docs/admin/ADMIN-GUIDE.md) | Users, roles, permissions, storage, containers, LDAP/AD, security |
 | [Git-Driven NAS](docs/admin/GITOPS-DRIVEN-NAS.md) | Operating DPlaneOS from `state.yaml`: bootstrap, automatic apply, rollback, PR workflow, clusters |
 | [Backup and Replication](docs/admin/BACKUP-REPLICATION.md) | Snapshots, ZFS send/receive, cloud sync, cold tier, rsync, DB backup, recovery |
@@ -270,9 +269,7 @@ Locked out, no network, a system that does not start: [Recovery Guide](docs/admi
 
 | Document | What it covers |
 |----------|---------------|
-| [NixOS Overview](nixos/README.md) | ISO, Flake, and standalone install paths |
-| [NixOS Install Guide](nixos/NIXOS-INSTALL-GUIDE.md) | Step-by-step for beginners |
-| [NixOS Technical Reference](nixos/NIXOS-README.md) | Declarative config, rollback, licensing, advanced options |
+| [The NixOS side](nixos/README.md) | How an installed system is put together, building the images, running the tests, the files |
 
 ### Development
 

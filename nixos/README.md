@@ -1,168 +1,74 @@
-# DPlaneOS on NixOS
+# The NixOS side of DPlaneOS
 
-> Your complete NAS defined in a single text file. Reproducible, versioned, rollback-safe.
+DPlaneOS is a NixOS system: the kernel, ZFS, Samba, PostgreSQL, nginx and everything else come from the NixOS release pinned in `flake.lock`, put together by the modules in this directory. It is delivered as an image. You do not need to know NixOS to use it, and an installed system is not changed with `nixos-rebuild`: settings are made in the web interface and take effect at once; the system itself is replaced as a whole by an update.
 
-**License:** DPlaneOS uses [GNU Affero General Public License v3.0 (AGPLv3)](https://www.gnu.org/licenses/agpl-3.0.html).
-Free to use and modify - see [NIXOS-README.md](NIXOS-README.md#a-note-on-licensing-and-nix-unfree) for
-how this works with Nix's unfree package handling (short version: it's handled automatically).
+To install, see the [Installation Guide](../docs/admin/INSTALLATION-GUIDE.md). This page is for people who want to build the images, read the modules, or use them in a NixOS configuration of their own.
 
-## Three Installation Paths
+## How an installed system is put together
 
-### Path 1: Boot the ISO (easiest: no NixOS knowledge needed)
+| Part | Where | Changes when |
+|---|---|---|
+| The system (kernel, services, the daemon, the web interface) | `/nix/store`, one generation per installed version, chosen by the boot loader (systemd-boot) | an update is installed |
+| State: database, settings, keys, certificates, Samba and network configuration written by the daemon | `/persist` (a partition of its own), mounted to `/var/lib/dplaneos` and a few other places ([impermanence.nix](impermanence.nix)) | you change something in the web interface |
+| Data | ZFS pools on the other disks | you use the NAS |
 
-Flash the ISO to a USB stick, boot it, and you're in a live DPlaneOS
-environment. The web UI runs immediately. Type `dplaneos-install` to
-install permanently.
+Settings that on an ordinary NixOS system are part of the configuration (host name, time zone, DNS and NTP servers, firewall ports, SSH, Samba, UPS, network interfaces) are runtime state here: the daemon stores them and applies them at once, and a unit applies them again at every start (`dplaneos-system-settings`, `dplaneos-network`). That is what makes one image work for everybody.
+
+## Build
 
 ```bash
-# Build the ISO (or download a release)
-nix build .#nixosConfigurations.dplaneos-iso.config.system.build.isoImage
-sudo dd if=result/iso/dplaneos-3.0.0-x86_64-linux.iso of=/dev/sdX bs=4M status=progress
+nix build .#iso            # installer ISO (x86_64; .#packages.aarch64-linux.iso on aarch64)
+nix build .#iso-live       # live image: the system running from the medium
+nix build .#packages.aarch64-linux.witness-sd-aarch64   # third vote: Raspberry Pi SD card image
+nix build .#packages.x86_64-linux.witness-image-x86_64   # third vote: x86 disk image
 ```
 
-### Path 2: Flake (for existing NixOS users)
+The appliance's Samba is built with Active Directory support ([samba-package.nix](samba-package.nix)), which is not in the public binary cache: the first build takes a while.
 
-Reproducible, pinned versions, one command to update.
+An update file for a system built this way is made with [`scripts/make-update-file.sh`](../scripts/make-update-file.sh) and signed with your own key; set `services.dplaneos.ota.publicKeyFile` to its public half, or the systems you build will only accept the project's releases.
 
-```bash
-# On a running NixOS:
-git clone https://github.com/4nonX/DPlaneOS
-cd DPlaneOS/nixos
+## Test
 
-# Run setup helper (fills in host ID, timezone, etc.)
-sudo bash setup-nixos.sh
-
-# Build the system
-sudo nixos-rebuild switch --flake .#dplaneos
-
-# Open browser → http://dplaneos.local
-```
-
-**Update:**
-```bash
-cd DPlaneOS/nixos && git pull
-sudo nixos-rebuild switch --flake .#dplaneos
-```
-
-**Rollback:**
-```bash
-sudo nixos-rebuild switch --rollback
-```
-
-### Path 3: Standalone (without Flake)
-
-Simpler if you don't want to use Flakes yet.
+Every test starts real systems in virtual machines (KVM) and uses them through the API, as the web interface does:
 
 ```bash
-sudo cp configuration-standalone.nix /etc/nixos/configuration.nix
-sudo bash setup-nixos.sh
-sudo nixos-rebuild switch
+nix build .#checks.x86_64-linux.appliance -L      # the installed system, end to end
+nix build .#checks.x86_64-linux.install -L        # the installer, then the installed disk
+nix build .#checks.x86_64-linux.update -L         # updates: trial, keep, return
+nix build .#checks.x86_64-linux.domain -L         # Active Directory membership
+nix build .#checks.x86_64-linux.reservations -L   # disk reservations on shared disks
+nix build .#checks.x86_64-linux.groups -L         # storage groups on a shared disk
+nix build .#checks.x86_64-linux.failover -L       # automatic failover
+nix build .#checks.x86_64-linux.replicated -L     # replicated storage groups
+nix build .#checks.x86_64-linux.quorum -L         # cluster and third vote
+nix build .#checks.x86_64-linux.votes -L          # voters
+nix build .#checks.x86_64-linux.witness-appliance -L
+nix build .#checks.x86_64-linux.live-boot -L      # the live image
 ```
 
 ## Files
 
-| File | Description |
-|------|-------------|
-| `flake.nix` | Flake definition: packages, inputs, dev shell |
-| `configuration.nix` | NAS config (Flake version, receives packages via `specialArgs`) |
-| `configuration-standalone.nix` | NAS config (standalone, packages defined inline) |
-| `disko.nix` | Declarative disk partitioning: ZFS pools and datasets on root |
-| `module.nix` | Core NixOS module: all packages, services, users, and firewall rules |
-| `installer.nix` | Offline-capable bootable installer ISO NixOS configuration |
-| `ota-module.nix` | OTA update module: installs the update script and health-check systemd units |
-| `impermanence.nix` | Impermanence layer: declares which paths persist across reboots (ZFS-backed) |
-| `console-network-wizard.nix` | Interactive static-IP console TUI for when DHCP is not available at install time |
-| `dplane-generated.nix` | JSON-to-Nix bridge: static file written once by the installer, never modified by the daemon |
-| `hardware-configuration.nix` | Auto-generated hardware config; overridden by the installer for target hardware |
-| `modules/samba.nix` | Samba integration NixOS module: dynamic share management via daemon |
-| `setup-nixos.sh` | Setup helper: generates host ID, detects boot loader, patches flake.nix |
-| `install.sh` | First-boot installer script: partitions, formats, and installs DPlaneOS to disk |
-| `witness-installer.nix` | Standalone witness-only ISO NixOS config (local builds only: `nix build .#iso-witness`) - replicated topology (Path B) only |
-| `ota-update.sh` | OTA update shell script: A/B slot swap, health check, and auto-revert logic |
-| `NIXOS-INSTALL-GUIDE.md` | Complete step-by-step guide for beginners |
-| `NIXOS-README.md` | Technical reference: rollback, licensing, impermanence, advanced options |
+| File | What it is |
+|---|---|
+| `../flake.nix` | Inputs, the daemon and web interface packages, the system configurations (installed system, installer ISO, live ISO, witness images), the checks |
+| `module.nix` | The DPlaneOS module: the daemon, nginx, PostgreSQL, ZFS, Docker, firewall, SSH, the units that apply settings at start |
+| `modules/samba.nix`, `modules/nfs.nix`, `modules/ups.nix`, `modules/cluster.nix` | The services whose configuration the daemon writes |
+| `configuration-standalone.nix` | The installed system: `module.nix` plus boot loader, kernel and hardware settings |
+| `impermanence.nix` | What is kept on `/persist` |
+| `ota-module.nix`, `dplaneos-update.sh` | System updates: verify, install next to the running version, trial start, keep or return |
+| `update-signing.pub` | The public key update files of the project's releases are checked against |
+| `disko.nix` | The layout of the system disk: boot, system, persist |
+| `installer.nix`, `installer-common.nix`, `install.sh` | The installer ISO and what it runs |
+| `console-network-wizard.nix` | `dplaneos-console-net`: an address from the console when there is no DHCP |
+| `configuration-live.nix`, `live-iso.nix`, `live-persistence.nix`, `live-zfs-auto-import.nix` | The live image |
+| `witness.nix`, `witness-image-pi.nix`, `witness-image-x86.nix` | The third-vote appliance |
+| `samba-package.nix` | Samba with Active Directory support |
+| `tests/` | The VM tests |
 
-## Documentation
+## Using the module in your own NixOS configuration
 
-### Installation and operation
+The flake exports `nixosModules.dplaneos` ([module.nix](module.nix)). This is how the VM tests build their systems (see [tests/groups.nix](tests/groups.nix) for a small one), so it works; it is not how the project is delivered, and updating such a system is yours to do with `nixos-rebuild`, not the web interface's. The settings pages work the same way there: the daemon applies them at runtime, and where your Nix configuration and the web interface set the same thing, the web interface wins while the system runs.
 
-| Document | What it covers |
-|----------|---------------|
-| [Installation Guide](../docs/admin/INSTALLATION-GUIDE.md) | System requirements, ISO install flow, post-install checklist |
-| [NixOS Install Guide](NIXOS-INSTALL-GUIDE.md) | Step-by-step for NixOS beginners: from empty hardware to running NAS |
-| [Administrator Guide](../docs/admin/ADMIN-GUIDE.md) | Users, roles, storage management, containers, LDAP/AD, security practices |
-| [Git-Driven NAS](../docs/admin/GITOPS-DRIVEN-NAS.md) | Operating DPlaneOS entirely via state.yaml: bootstrap, auto-apply on push, secret handling, rollback, PR workflow, HA |
-| [Backup and Replication](../docs/admin/BACKUP-REPLICATION.md) | ZFS snapshots, ZFS Send/Receive, Cloud Sync, Cold Tier, rsync, database backup |
-| [High Availability](../docs/admin/HIGH-AVAILABILITY.md) | Clusters, the third vote, storage groups (shared or replicated), protection layers |
-| [OTA Updates](../docs/admin/OTA-UPDATES.md) | A/B slot system, health check, auto-revert, manual rollback, HA rolling upgrades |
-| [Optional Protocols](../docs/admin/OPTIONAL-PROTOCOLS.md) | iSCSI, NVMe-oF, FTP/FTPS, MinIO S3-compatible object store |
-| [Alerts and Authentication](../docs/admin/ALERTS.md) | SMTP, webhook, Telegram alerting; TOTP 2FA setup and backup codes |
-| [Troubleshooting](../docs/admin/TROUBLESHOOTING.md) | Build failures, ZFS issues, DB init race, ZED setup |
-| [Recovery Guide](../docs/admin/RECOVERY.md) | Database restore, admin lockout, ZFS recovery, rollback procedure |
+## License
 
-### Reference
-
-| Document | What it covers |
-|----------|---------------|
-| [Features](../FEATURES.md) | Complete feature list by category |
-| [Design Philosophy](../docs/reference/PHILOSOPHY.md) | Why DPlaneOS works the way it does: four core principles, design decisions |
-| [Architecture](../docs/reference/ARCHITECTURE.md) | Three-layer model, persistence, single-node and HA architecture, data flow |
-| [GitOps Reference](../docs/reference/GITOPS-REFERENCE.md) | state.yaml format, reconciliation engine, drift detection, Capture workflow |
-| [NixOS Rationale](../docs/reference/NIXOS-RATIONALE.md) | NixOS primitives DPlaneOS relies on: impermanence, disko, A/B OTA |
-| [NixOS Technical Reference](NIXOS-README.md) | Declarative config, rollback, licensing, impermanence, advanced options |
-| [Porting Guide](../docs/reference/PORTING-GUIDE.md) | Forking DPlaneOS for other Linux distributions - what it takes, what you lose |
-| [Changelog](../docs/reference/CHANGELOG.md) | Full version history |
-| [Port Reference](../docs/reference/PORT-REFERENCE.md) | Every port the system listens on, its service, interface binding, and safe ranges for Docker containers |
-| [Error Reference](../docs/reference/ERROR-REFERENCE.md) | Every HTTP error code the API returns, with cause and fix |
-| [Showstopper Mitigation Guide](../docs/reference/SHOWSTOPPER-MITIGATION-GUIDE.md) | Honest assessment of HA limits, binary-trust, resolved vs open issues |
-| [Threat Model](../docs/reference/THREAT-MODEL.md) | Security architecture, threat scenarios, mitigations, residual risks |
-| [Dependencies](../docs/reference/DEPENDENCIES.md) | All bundled Go and frontend deps, system requirements, build instructions |
-| [Pitch](../PITCH.md) | Git as control plane: the enterprise and fleet case |
-
-### Hardware
-
-| Document | What it covers |
-|----------|---------------|
-| [Hardware Compatibility](../docs/hardware/HARDWARE-COMPATIBILITY.md) | Supported CPUs, RAM, disk types, network, RAID controllers |
-| [Non-ECC RAM Warning](../docs/hardware/NON-ECC-WARNING.md) | Why ZFS + non-ECC is risky, probability analysis, mitigations |
-
-### Development
-
-| Document | What it covers |
-|----------|---------------|
-| [Contributing](../CONTRIBUTING.md) | Dev setup, project structure, coding conventions, security requirements for PRs |
-| [Codebase Diagram](../docs/development/CODEBASE-DIAGRAM.md) | Mermaid diagrams: system overview, daemon internals, request lifecycle, disk events, auth flow |
-| [Design System](../app-react/.stitch/DESIGN.md) | Frontend design tokens, spacing grid, component patterns, anti-pattern list |
-
-### Legal
-
-| Document | What it covers |
-|----------|---------------|
-| [Notice](../NOTICE.md) | Third-party components, attributions, and licenses |
-| [Security Policy](../SECURITY.md) | Vulnerability reporting, safe harbour, supported versions |
-| [Individual CLA](../docs/legal/CLA-INDIVIDUAL.md) | Contributor license agreement for individuals |
-| [Entity CLA](../docs/legal/CLA-ENTITY.md) | Contributor license agreement for organisations |
-| [PostgreSQL Migration Guide](../MIGRATION.md) | Upgrading from SQLite to PostgreSQL (v7.0.0) |
-
-## System Requirements
-
-- NixOS 26.05 (stable)
-- Minimum 8 GB RAM (more RAM = larger ZFS ARC read cache)
-- Separate boot disk (SSD) + data disks (HDD/SSD for ZFS pool)
-- Network connection
-
-## What's Included
-
-| Component | Details |
-|-----------|---------|
-| **ZFS** | Auto-import, monthly scrub, auto-snapshots (15min/hourly/daily/weekly/monthly) |
-| **DPlaneOS Daemon** | systemd service, OOM-protected (1 GB), **path-agnostic execution**, hardened (ProtectSystem=strict) |
-| **nginx** | Reverse proxy, security headers, PHP blocked |
-| **Docker** | ZFS storage driver, weekly prune |
-| **Samba** | Performance-tuned, dynamic shares via daemon |
-| **NFS** | Server enabled |
-| **S.M.A.R.T.** | Automatic disk health monitoring |
-| **Firewall** | Only ports 80, 443, 445, 2049 open |
-| **mDNS** | NAS discoverable as `dplaneos.local` |
-| **SSH** | Password login for initial setup, SSH keys recommended after |
-| **Database** | Node-local PostgreSQL, configuration exchanged between paired nodes |
+DPlaneOS is AGPL-3.0. Nix does not treat it as unfree; no `allowUnfree` is needed.
