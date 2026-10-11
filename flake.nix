@@ -94,6 +94,7 @@
       };
 
       # mkDaemonCGO: glibc build with CGO_ENABLED=1 and libzfs headers.
+      # EXPERIMENTAL, not installed by any image (see daemonShipped below).
       #
       # This variant activates the daemon/internal/libzfs/zfs_cgo.go code path,
       # which calls libzfs directly via cgo instead of spawning ZFS subprocesses.
@@ -196,7 +197,7 @@
         ./nixos/impermanence.nix
         ./nixos/ota-module.nix
         applianceConfig
-        (let d = mkDaemonCGO { inherit system pkgs dplaneosVersion nixpkgs; };
+        (let d = mkDaemon { inherit system pkgs dplaneosVersion nixpkgs; pkgsStatic = pkgs.pkgsStatic; };
              f = mkFrontend { inherit pkgs; };
          in {
           services.dplaneos.daemonPackage   = d;
@@ -215,9 +216,13 @@
         daemon     = mkDaemon { inherit system pkgs pkgsStatic dplaneosVersion nixpkgs; };
         daemonDyn  = mkDaemonDynamic { inherit system pkgs dplaneosVersion nixpkgs; };
         frontend   = mkFrontend { inherit pkgs; };
-        # The daemon as it is installed (built with libzfs). The VM tests
-        # run this one: what is tested is what ships.
-        daemonShipped = mkDaemonCGO { inherit system pkgs dplaneosVersion nixpkgs; };
+        # The daemon as it is installed, and as the VM tests run it: what is
+        # tested is what ships. It drives ZFS through the zfs and zpool
+        # commands. (mkDaemonCGO, which calls libzfs directly, is not
+        # installed: it does not do everything the commands do around an
+        # operation, such as unmounting before an export; with it a planned
+        # move of a storage group failed with "pool is busy".)
+        daemonShipped = daemon;
       in {
         packages.dplaneos-daemon         = daemon;
         packages.dplaneos-daemon-dynamic = daemonDyn;
@@ -357,7 +362,7 @@
           ./nixos/impermanence.nix
           ./nixos/ota-module.nix
           applianceConfig
-          (let d = mkDaemonCGO { inherit system pkgs dplaneosVersion nixpkgs; };
+          (let d = mkDaemon { inherit system pkgs dplaneosVersion nixpkgs; pkgsStatic = pkgs.pkgsStatic; };
                f = mkFrontend { inherit pkgs; };
            in {
             services.dplaneos.daemonPackage    = d;
@@ -378,7 +383,7 @@
           ./nixos/impermanence.nix
           ./nixos/ota-module.nix
           applianceConfig
-          (let d = mkDaemonCGO { inherit system pkgs dplaneosVersion nixpkgs; };
+          (let d = mkDaemon { inherit system pkgs dplaneosVersion nixpkgs; pkgsStatic = pkgs.pkgsStatic; };
                f = mkFrontend { inherit pkgs; };
            in {
             services.dplaneos.daemonPackage    = d;
@@ -455,7 +460,7 @@
           ./nixos/configuration-live.nix
           impermanence.nixosModules.impermanence
           applianceConfig
-          (let d = mkDaemonCGO { inherit system pkgs dplaneosVersion nixpkgs; };
+          (let d = mkDaemon { inherit system pkgs dplaneosVersion nixpkgs; pkgsStatic = pkgs.pkgsStatic; };
                f = mkFrontend { inherit pkgs; };
            in {
             services.dplaneos.daemonPackage    = d;
@@ -474,7 +479,7 @@
           ./nixos/configuration-live.nix
           impermanence.nixosModules.impermanence
           applianceConfig
-          (let d = mkDaemonCGO { inherit system pkgs dplaneosVersion nixpkgs; };
+          (let d = mkDaemon { inherit system pkgs dplaneosVersion nixpkgs; pkgsStatic = pkgs.pkgsStatic; };
                f = mkFrontend { inherit pkgs; };
            in {
             services.dplaneos.daemonPackage    = d;

@@ -95,7 +95,6 @@ A NAS operating system built on NixOS and ZFS. It is installed as an image, conf
 - **CSRF protection:** custom header + double-submit token on all mutations
 - **TLS certificates:** a self-signed certificate from the first start; ACME / Let's Encrypt, uploaded certificates, or one made on the system
 - **Exec allowlist:** every subprocess validated against predefined binary + argument grammars; no shell string, no expansion
-- **libzfs cgo:** ZFS operations bypass the subprocess layer entirely in the production binary
 - **Rate limiting:** 100 requests per minute and client address; failed sign-ins make that address wait longer each time
 - **What limits the daemon:** it runs as root (it creates pools, mounts datasets and manages accounts), so the limits are in the daemon: sessions and permissions on every route, the command allowlist, path checks. `NoNewPrivileges` is set; a mount or capability sandbox is not, because it broke what a NAS daemon has to do
 - **SSE ticket auth:** one-time 30-second tokens for `EventSource` connections; session IDs never appear in any URL
@@ -146,6 +145,6 @@ A NAS operating system built on NixOS and ZFS. It is installed as an image, conf
 - **Offline installer ISO:** everything needed is on the medium; no network at install time. UEFI systems
 - **Disk layout:** boot, system and persistent state partitions on the system disk; data disks are never touched by the installer or an update
 - **Live image:** the system running from the installation medium, to try it or to rescue one
-- **Daemon:** one Go program; ZFS through libzfs where built with it, otherwise through an allowlist of commands
+- **Daemon:** one Go program, statically linked; ZFS through the `zfs` and `zpool` commands, every call checked against an allowlist
 - **Extension points in the web interface:** navigation, settings and routes can be added by a build (used by the optional compliance engine); there is no plugin API for third parties
 - **AGPL-3.0:** free to use, modify, and distribute

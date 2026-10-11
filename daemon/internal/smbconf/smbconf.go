@@ -196,7 +196,11 @@ func Render(o Options, shares []Share) string {
 	if ads {
 		b.WriteString("   security = ads\n")
 		fmt.Fprintf(&b, "   realm = %s\n", strings.ToUpper(o.Realm))
-		b.WriteString("   kerberos method = secrets and keytab\n")
+		// Samba keeps the keys of the machine account itself. A system keytab
+		// (/etc/krb5.keytab) is for other Kerberos services, and its mere
+		// presence makes the NFS Kerberos daemon start, and fail.
+		b.WriteString("   kerberos method = secrets only
+")
 		b.WriteString("   winbind use default domain = yes\n")
 		b.WriteString("   winbind refresh tickets = yes\n")
 		b.WriteString("   winbind offline logon = yes\n")

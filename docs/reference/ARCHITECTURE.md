@@ -32,7 +32,7 @@ DPlaneOS is built around a strict separation between declaration, reconciliation
 │  Makes changes happen                                           │
 │                                                                 │
 │  dplaned daemon           NixOS activation scripts             │
-│  libzfs (cgo) / exec      systemd, kernel modules,             │
+│  zfs / zpool (allowlist)  systemd, kernel modules,             │
 │  allowlist, docker,       Nix store population                  │
 │  samba, nfs, nvmet                                              │
 └─────────────────────────────────────────────────────────────────┘
@@ -66,7 +66,7 @@ A background detector runs every five minutes and broadcasts drift events to con
 
 The daemon executes changes through two paths, depending on the operation:
 
-**`internal/libzfs` (cgo or subprocess fallback)**: All destructive ZFS operations (dataset create/modify/destroy, pool create/destroy, vdev add/attach/replace/remove/detach/online/offline, snapshot hold/release, pool property set, pool clear) go through the `libzfs` package. When built with `//go:build linux && cgo && libzfs`, calls invoke the native `libzfs.h` C API directly - no subprocess, no argument marshalling. When built without CGO (static musl build, CI), the same package interfaces fall back to validated subprocess calls. This means most ZFS operations do not spawn external processes at all in the production binary.
+**`internal/libzfs`**: all ZFS operations that change something (datasets, pools, vdevs, snapshots, properties) go through this package, which validates its input and runs the `zfs` and `zpool` commands through the exec allowlist. (An experimental build calls libzfs directly for some of them; see below. It is not what is installed.)
 
 **Exec allowlist (`internal/security/whitelist.go`)**: Operations that have no clean native libzfs equivalent (Docker Compose, Samba reload, NFS exportfs, SSH, network tools, the small set of complex zpool operations) still call external binaries through the allowlist. Only predefined, validated command structures are permitted. There is no shell; every `exec.Command` call is a named binary with a validated argument slice - no shell expansion. A compromised API request cannot execute arbitrary commands.
 
@@ -104,17 +104,13 @@ Arguments are passed to `exec.Command` as a string slice, never as a shell strin
 
 Input is validated before it reaches the allowlist. Pool names, dataset names, device paths, and share names each pass through dedicated validators (`ValidatePoolName`, `ValidateDatasetName`, `ValidateDevicePath`) that reject shell metacharacters with HTTP 400 before any command is constructed. Device paths must be stable `/dev/disk/by-id/` paths; short `/dev/sdX` paths are rejected at `state.yaml` parse time, long before execution.
 
-For ZFS operations that go through the libzfs package, the same input validators run before the cgo call - so validated strings are passed as C arguments, not shell-expanded. The combination of libzfs + allowlist means arbitrary command execution is structurally unavailable from any code path.
+There is no shell anywhere: a command is a binary and a list of arguments, each checked against the allowlist entry for that operation.
 
 ### The libzfs Package
 
-`internal/libzfs` provides two compile paths behind Go build tags:
+`internal/libzfs` is where the daemon's ZFS operations are; despite its name, the installed daemon runs them through the `zfs` and `zpool` commands (`zfs_fallback.go` and `zfs.go`, through the exec allowlist). That is the path every test of the system exercises.
 
-- **`zfs_cgo.go`** (`//go:build linux && cgo && libzfs`): calls `libzfs.h` directly via cgo. Uses `runtime.LockOSThread` and a per-call `libzfs_init/libzfs_fini` handle. No subprocess is spawned for pool/dataset operations.
-- **`zfs_fallback.go`** (`//go:build !linux || !cgo || !libzfs`): provides identical function signatures via `cmdutil` subprocess calls routed through the exec allowlist. Active for the static musl production build and CI.
-- **`zfs.go`** (no build tag): shared functions that use subprocess in all variants - complex topology operations (VdevAdd, VdevAttach, VdevReplace, PoolCreate, PoolSplit) where native libzfs would require C nvlist construction but the subprocess call is already safe and validated.
-
-The calling code never knows which path is active. From `handlers/` and `gitops/`, a call to `libzfs.DatasetCreate("tank/media")` either calls `zfs_create()` directly in C or spawns `zfs create tank/media` through the allowlist, depending on build tags.
+`zfs_cgo.go` (`//go:build linux && cgo && libzfs`) calls `libzfs.h` directly for some of the operations. It is experimental and **not installed by any image**: the commands do more than the library calls they end in (unmounting before an export or a destroy, mounting after a create or a clone), and the bindings do not reproduce all of that. With it, a planned move of a storage group failed with "pool is busy". libzfs is also not a stable interface of OpenZFS.
 
 ### Daemon Hardening
 
@@ -193,7 +189,7 @@ Internet / LAN
   [dplaned (socket)] ←── WebSocket hub (real-time UI updates)
       │
       ├── PostgreSQL (local socket, /var/lib/dplaneos/pgsql/)
-      ├── ZFS via libzfs (cgo) or exec allowlist fallback
+      ├── ZFS via the zfs and zpool commands (exec allowlist)
       ├── ZED listener (/run/dplaneos/dplaneos.sock, typed dispatch)
       ├── Docker (unix socket)
       ├── Samba (smbd, controlled via systemctl + smbcontrol)
