@@ -538,6 +538,9 @@ func (w *Writer) SetSSHDaemon(opts SSHDaemonOpts) error {
 
 // ── Core write mechanics ─────────────────────────────────────────────────────
 
+// flushLocked saves the state and brings the system in line with it. A
+// change the system does not take is taken back: the file, the state in
+// memory and the system return to what they were, and the error says why.
 func (w *Writer) flushLocked() error {
 	if !w.nixOS {
 		return nil
@@ -545,7 +548,44 @@ func (w *Writer) flushLocked() error {
 	if w.loadErr != nil {
 		return fmt.Errorf("the saved system settings (%s) cannot be read, not overwriting them: %w", w.path, w.loadErr)
 	}
+	previous, prevErr := os.ReadFile(w.path)
+	if err := w.writeLocked(); err != nil {
+		return err
+	}
+	if Apply == nil || w != defaultWriter {
+		return nil
+	}
+	applyErr := Apply(w.state)
+	if applyErr == nil {
+		return nil
+	}
+	changed := w.state
+	var old DPlaneState
+	if prevErr == nil {
+		if err := json.Unmarshal(previous, &old); err != nil {
+			return fmt.Errorf("saved, but not in effect: %w", applyErr)
+		}
+	}
+	w.state = old
+	if err := w.writeLocked(); err != nil {
+		w.state = changed
+		return fmt.Errorf("saved, but not in effect: %w", applyErr)
+	}
+	if err := Apply(old); err != nil {
+		// The system had a problem before this change, which is therefore
+		// not what failed: keep it rather than refuse every change from
+		// now on.
+		w.state = changed
+		if werr := w.writeLocked(); werr != nil {
+			return werr
+		}
+		return fmt.Errorf("saved; part of the system settings could not be applied: %w", Apply(changed))
+	}
+	return fmt.Errorf("not applied: %w", applyErr)
+}
 
+// writeLocked writes the state to the file, atomically.
+func (w *Writer) writeLocked() error {
 	data, err := json.MarshalIndent(w.state, "", "  ")
 	if err != nil {
 		return fmt.Errorf("nixwriter: marshal state: %w", err)
@@ -585,11 +625,6 @@ func (w *Writer) flushLocked() error {
 		return fmt.Errorf("nixwriter: rename: %w", err)
 	}
 
-	if Apply != nil && w == defaultWriter {
-		if err := Apply(w.state); err != nil {
-			return fmt.Errorf("saved, but not in effect yet: %w", err)
-		}
-	}
 	return nil
 }
 

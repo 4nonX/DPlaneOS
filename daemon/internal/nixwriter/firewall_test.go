@@ -1,8 +1,10 @@
 package nixwriter
 
 import (
+	"fmt"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -110,5 +112,49 @@ func TestFirewallRuleValidation(t *testing.T) {
 func TestDefaultIsOneInstance(t *testing.T) {
 	if Default() != Default() || Default() != DefaultWriter() {
 		t.Fatal("Default returns different writers")
+	}
+}
+
+// A change the system refuses is taken back everywhere.
+func TestRefusedChangeIsTakenBack(t *testing.T) {
+	w := newTestWriter(t)
+	prevDefault, prevApply := defaultWriter, Apply
+	defaultWriter = w
+	t.Cleanup(func() { defaultWriter, Apply = prevDefault, prevApply })
+
+	Apply = func(st DPlaneState) error {
+		if st.Timezone == "Mars/Olympus" {
+			return fmt.Errorf("unknown time zone")
+		}
+		return nil
+	}
+	if err := w.SetTimezone("Europe/Berlin"); err != nil {
+		t.Fatal(err)
+	}
+	err := w.SetTimezone("Mars/Olympus")
+	if err == nil || !strings.Contains(err.Error(), "not applied") {
+		t.Fatalf("error: %v", err)
+	}
+	if got := w.State().Timezone; got != "Europe/Berlin" {
+		t.Errorf("state in memory: %q", got)
+	}
+	w2 := New(w.path)
+	w2.nixOS = true
+	if err := w2.LoadFromDisk(); err != nil || w2.State().Timezone != "Europe/Berlin" {
+		t.Errorf("state on disk: %q, %v", w2.State().Timezone, err)
+	}
+	// The next, unrelated change is not affected.
+	if err := w.SetNTP([]string{"10.0.0.1"}); err != nil {
+		t.Errorf("following change: %v", err)
+	}
+
+	// A system that already has a problem does not refuse every change.
+	Apply = func(DPlaneState) error { return fmt.Errorf("UPS: the driver does not start") }
+	err = w.SetHostname("nas2")
+	if err == nil || !strings.Contains(err.Error(), "saved;") {
+		t.Fatalf("error: %v", err)
+	}
+	if w.State().Hostname != "nas2" {
+		t.Errorf("the change was dropped: %+v", w.State())
 	}
 }
