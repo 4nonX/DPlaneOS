@@ -444,7 +444,8 @@ in {
         config.boot.zfs.package          # zfs, zpool (matches the kernel module)
         util-linux                       # lsblk, wipefs, mount, umount, mountpoint, eject, ionice, logger
         smartmontools hdparm nvme-cli lsscsi sg3_utils dmidecode ipmitool nut
-        samba                            # smbcontrol, smbstatus, testparm, net, wbinfo
+        samba                            # smbcontrol, smbstatus, testparm, net, wbinfo, pdbedit
+        shadow                           # useradd, usermod, groupadd: accounts of the users (fileaccounts)
         avahi                            # avahi-daemon --reload (Time Machine discovery)
         nfs-utils acl krb5               # exportfs; getfacl/setfacl; kinit/klist
         iproute2 iputils traceroute dnsutils nftables

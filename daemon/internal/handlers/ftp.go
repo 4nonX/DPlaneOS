@@ -45,7 +45,7 @@ var ftpMu sync.RWMutex
 
 type FTPConfig struct {
 	Enabled         bool     `json:"enabled"`
-	Mode            string   `json:"mode"`             // "ftp" | "ftps"
+	Mode            string   `json:"mode"` // "ftp" | "ftps"
 	Port            int      `json:"port"`
 	PassiveMinPort  int      `json:"passive_min_port"`
 	PassiveMaxPort  int      `json:"passive_max_port"`
@@ -59,6 +59,9 @@ type FTPConfig struct {
 	TLSCertPath     string   `json:"tls_cert_path"`
 	TLSKeyPath      string   `json:"tls_key_path"`
 	AllowedUsers    []string `json:"allowed_users"`
+	// RootDir is the folder FTP users work in (their accounts have no home
+	// directory). Required to enable the service.
+	RootDir string `json:"root_dir"`
 }
 
 func defaultFTPConfig() FTPConfig {
@@ -155,6 +158,16 @@ func validateFTPConfig(cfg FTPConfig) error {
 	if cfg.TLSKeyPath != "" && !strings.HasPrefix(cfg.TLSKeyPath, "/") {
 		return fmt.Errorf("tls_key_path must be an absolute path")
 	}
+	if cfg.RootDir != "" {
+		if err := sharePathOK(cfg.RootDir); err != nil {
+			return fmt.Errorf("folder: %w", err)
+		}
+	} else if cfg.Enabled {
+		return fmt.Errorf("choose the folder FTP users work in")
+	}
+	if cfg.Enabled && cfg.AllowLocalUsers && len(cfg.AllowedUsers) == 0 && !cfg.AllowAnonymous {
+		return fmt.Errorf("no user is allowed to connect: check at least one under Allowed Users")
+	}
 	validUser := regexp.MustCompile(`^[a-zA-Z0-9_.-]+$`)
 	for _, u := range cfg.AllowedUsers {
 		if !validUser.MatchString(u) {
@@ -184,9 +197,15 @@ func generateVsftpdConf(cfg FTPConfig) string {
 	sb.WriteString(fmt.Sprintf("anonymous_enable=%s\n", boolVal(cfg.AllowAnonymous)))
 	sb.WriteString(fmt.Sprintf("local_enable=%s\n", boolVal(cfg.AllowLocalUsers)))
 	sb.WriteString(fmt.Sprintf("write_enable=%s\n", boolVal(cfg.WriteEnable)))
-	sb.WriteString("local_umask=022\n")
+	sb.WriteString("local_umask=002\n")
 	sb.WriteString("\n")
 
+	if cfg.RootDir != "" {
+		sb.WriteString(fmt.Sprintf("local_root=%s\n", cfg.RootDir))
+		sb.WriteString(fmt.Sprintf("anon_root=%s\n", cfg.RootDir))
+	}
+	// Uploads stay usable by the other file users (group "users"), as over SMB.
+	sb.WriteString("file_open_mode=0666\n")
 	sb.WriteString(fmt.Sprintf("chroot_local_user=%s\n", boolVal(cfg.ChrootLocalUser)))
 	if cfg.ChrootLocalUser {
 		sb.WriteString("allow_writeable_chroot=YES\n")
@@ -216,6 +235,8 @@ func generateVsftpdConf(cfg FTPConfig) string {
 	sb.WriteString("\n")
 
 	sb.WriteString("pam_service_name=vsftpd\n")
+	// vsftpd's seccomp filter kills its own processes on current kernels.
+	sb.WriteString("seccomp_sandbox=NO\n")
 	sb.WriteString(fmt.Sprintf("secure_chroot_dir=%s\n", ftpP.chrootDir))
 	sb.WriteString("\n")
 
@@ -274,6 +295,10 @@ func applyFTPConfig(cfg FTPConfig) error {
 		if err := systemd.InstallService(ftpP.service, unit); err != nil {
 			return fmt.Errorf("install vsftpd unit: %w", err)
 		}
+	}
+
+	if cfg.Enabled && cfg.RootDir != "" {
+		prepareShareRoot(cfg.RootDir)
 	}
 
 	// Write config file

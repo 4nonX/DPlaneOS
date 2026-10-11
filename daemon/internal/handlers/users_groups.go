@@ -2,10 +2,11 @@ package handlers
 
 import (
 	"database/sql"
+	"dplaned/internal/fileaccounts"
 	"dplaned/internal/gitops"
 	"dplaned/internal/middleware"
-	"dplaned/internal/security"
 	"dplaned/internal/scram"
+	"dplaned/internal/security"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -69,7 +70,9 @@ func (h *UserGroupHandler) listUsers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rows, err := h.db.Query(`SELECT id, username, COALESCE(email,''), COALESCE(role,'user'), active, COALESCE(TO_CHAR(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), '') FROM users ORDER BY id`)
+	rows, err := h.db.Query(`SELECT id, username, COALESCE(email,''), COALESCE(role,'user'), active, COALESCE(TO_CHAR(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), ''),
+		COALESCE(source,'local'), COALESCE(nt_hash,'') <> '',
+		COALESCE(TO_CHAR(last_login AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), '') FROM users ORDER BY id`)
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, "Failed to list users", err)
 		return
@@ -79,18 +82,34 @@ func (h *UserGroupHandler) listUsers(w http.ResponseWriter, r *http.Request) {
 	var users []map[string]any
 	for rows.Next() {
 		var id, active int
-		var username, email, role, createdAt string
-		if err := rows.Scan(&id, &username, &email, &role, &active, &createdAt); err != nil {
+		var username, email, role, createdAt, source, lastLogin string
+		var hasFilePassword bool
+		if err := rows.Scan(&id, &username, &email, &role, &active, &createdAt, &source, &hasFilePassword, &lastLogin); err != nil {
 			log.Printf("USER LIST SCAN ERROR: %v", err)
 			continue
 		}
+		// SMB and FTP sign-in (internal/fileaccounts): "ready", or why not.
+		fileAccess := "ready"
+		switch {
+		case source != "local":
+			fileAccess = "directory" // signs in to SMB through the domain
+		case !fileaccounts.ValidName(username):
+			fileAccess = "name" // not usable as a system account name
+		case !hasFilePassword:
+			fileAccess = "sign_in" // gets it at the next sign-in or password change
+		case active != 1:
+			fileAccess = "disabled"
+		}
 		users = append(users, map[string]any{
-			"id":         id,
-			"username":   username,
-			"email":      email,
-			"role":       role,
-			"active":     active == 1,
-			"created_at": createdAt,
+			"id":          id,
+			"username":    username,
+			"email":       email,
+			"role":        role,
+			"active":      active == 1,
+			"created_at":  createdAt,
+			"last_login":  lastLogin,
+			"source":      source,
+			"file_access": fileAccess,
 		})
 	}
 	if err := rows.Err(); err != nil {
@@ -295,6 +314,7 @@ func (h *UserGroupHandler) createUser(w http.ResponseWriter, req userActionReque
 		respondErrorSimple(w, "Failed to assign the role: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
+	setFilePassword(h.db, req.Username, req.Password)
 
 	respondJSON(w, http.StatusOK, map[string]any{
 		"success": true,
@@ -393,7 +413,13 @@ func (h *UserGroupHandler) updateUser(w http.ResponseWriter, req userActionReque
 			log.Printf("USER UPDATE PASSWORD ERROR: %v", err)
 			return
 		}
+		var name string
+		if h.db.QueryRow(`SELECT username FROM users WHERE id = $1`, req.ID).Scan(&name) == nil {
+			setFilePassword(h.db, name, req.Password)
+		}
 	}
+	// Activating or deactivating a user adds or removes its file accounts.
+	fileaccounts.RequestSync()
 
 	respondJSON(w, http.StatusOK, map[string]any{
 		"success": true,
@@ -471,6 +497,7 @@ func (h *UserGroupHandler) deleteUser(w http.ResponseWriter, req userActionReque
 		return
 	}
 
+	fileaccounts.RequestSync()
 	respondJSON(w, http.StatusOK, map[string]any{
 		"success": true,
 		"message": "User deleted",
@@ -555,6 +582,8 @@ func (h *UserGroupHandler) ResetUserPassword(w http.ResponseWriter, r *http.Requ
 		respondErrorSimple(w, "Failed to reset password", http.StatusInternalServerError)
 		return
 	}
+
+	setFilePassword(h.db, username, body.TempPassword)
 
 	// Revoke all sessions so the user must log in with the new temp password
 	if _, err := h.db.Exec(`DELETE FROM sessions WHERE username = $1`, username); err != nil {
@@ -750,6 +779,7 @@ func (h *UserGroupHandler) groupAction(w http.ResponseWriter, r *http.Request) {
 			"success": true, "id": id, "message": "Group created",
 		})
 		gitops.CommitAllAsync(h.db)
+		fileaccounts.RequestSync()
 
 	case "update":
 		id, currentName, ok := h.findGroup(w, req)
@@ -807,6 +837,7 @@ func (h *UserGroupHandler) groupAction(w http.ResponseWriter, r *http.Request) {
 			"success": true, "message": "Group updated",
 		})
 		gitops.CommitAllAsync(h.db)
+		fileaccounts.RequestSync()
 
 	case "delete":
 		id, groupName, ok := h.findGroup(w, req)
@@ -835,6 +866,7 @@ func (h *UserGroupHandler) groupAction(w http.ResponseWriter, r *http.Request) {
 			"success": true, "message": "Group deleted",
 		})
 		gitops.CommitAllAsync(h.db)
+		fileaccounts.RequestSync()
 
 	default:
 		respondErrorSimple(w, "Unknown action", http.StatusBadRequest)

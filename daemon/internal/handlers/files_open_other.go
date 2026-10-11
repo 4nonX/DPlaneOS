@@ -21,3 +21,5 @@ func privateToDaemon(os.FileInfo) bool { return true }
 // deviceOf (development builds): device IDs are unknown; the trash goes to
 // the file root.
 func deviceOf(os.FileInfo) (uint64, bool) { return 0, false }
+
+func ownerOf(os.FileInfo) (uid, gid uint32, ok bool) { return 0, 0, false }

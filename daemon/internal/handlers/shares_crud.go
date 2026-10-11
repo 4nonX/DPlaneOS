@@ -236,6 +236,7 @@ func (h *ShareCRUDHandler) createShare(w http.ResponseWriter, req shareActionReq
 		respondErrorSimple(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	prepareShareRoot(req.Path)
 
 	// Sanitize inputs before DB insertion (Finding #30)
 	req.Name = sanitizeSMBConfValue(req.Name)

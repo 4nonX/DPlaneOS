@@ -96,7 +96,7 @@ func LoadOptions(db *sql.DB) Options {
 	var apple int
 	var extra string
 	db.QueryRow(`SELECT COALESCE(value,'0') FROM settings WHERE key='smb_time_machine'`).Scan(&apple) //nolint:errcheck
-	db.QueryRow(`SELECT COALESCE(value,'') FROM settings WHERE key='smb_extra_global'`).Scan(&extra) //nolint:errcheck
+	db.QueryRow(`SELECT COALESCE(value,'') FROM settings WHERE key='smb_extra_global'`).Scan(&extra)  //nolint:errcheck
 	return Options{NixOSManaged: IsNixOS(), AppleExtensions: apple == 1, ExtraGlobal: extra}
 }
 
@@ -199,6 +199,9 @@ func renderShare(b *strings.Builder, s Share, apple bool) {
 	if v := Sanitize(s.WriteList); v != "" {
 		fmt.Fprintf(b, "   write list = %s\n", v)
 	}
+	// Every file user is in the group "users": what one of them creates in
+	// a share, the others who are allowed into the share can work with.
+	b.WriteString("   force group = users\n")
 	fmt.Fprintf(b, "   create mask = %s\n", orDefault(maskOrEmpty(s.CreateMask), "0664"))
 	fmt.Fprintf(b, "   directory mask = %s\n", orDefault(maskOrEmpty(s.DirectoryMask), "0775"))
 	if v := hostListOrEmpty(s.HostsAllow); v != "" {

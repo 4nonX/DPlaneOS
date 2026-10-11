@@ -40,8 +40,19 @@ interface User {
   email?:         string
   role:           string
   created_at:     string
-  last_login_at?: string
-  locked_until?:  string
+  active?:        boolean
+  last_login?:    string
+  source?:        string
+  /** SMB and FTP sign-in: ready, or why not yet. */
+  file_access?:   'ready' | 'sign_in' | 'name' | 'directory' | 'disabled'
+}
+
+const FILE_ACCESS: Record<string, { label: string; cls: string; title: string }> = {
+  ready:     { label: 'Ready',            cls: 'badge-success', title: 'Signs in to SMB shares and FTP with the same user name and password' },
+  sign_in:   { label: 'After next sign-in', cls: 'badge-warning', title: 'This account was created before file sign-in existed, or by the installer: it works for SMB and FTP once the user has signed in here or changed the password' },
+  name:      { label: 'Name not usable',  cls: 'badge-neutral', title: 'The user name cannot be a system account name (lower-case letters, digits, - and _, starting with a letter): no SMB or FTP sign-in' },
+  directory: { label: 'Directory',        cls: 'badge-neutral', title: 'A directory user: signs in to SMB through the domain' },
+  disabled:  { label: 'Off',              cls: 'badge-neutral', title: 'The account is disabled' },
 }
 
 interface Group {
@@ -76,10 +87,6 @@ interface RolesResponse  { success: boolean; roles:  Role[]  }
 function fmtDate(s?: string) {
   if (!s) return 'Never'
   return fmtDateTime(s)
-}
-
-function isLocked(u: User): boolean {
-  return !!(u.locked_until && new Date(u.locked_until) > new Date())
 }
 
 const ROLE_COLORS: Record<string, string> = {
@@ -306,7 +313,7 @@ function UsersTab() {
           <table className="data-table">
             <thead>
               <tr style={{ background: 'rgba(255,255,255,0.03)' }}>
-                {['User', 'Email', 'Role', 'Last Login', 'Status', 'Actions'].map(h => (
+                {['User', 'Email', 'Role', 'Last Login', 'Status', 'SMB / FTP', 'Actions'].map(h => (
                   <th key={h}>{h}</th>
                 ))}
               </tr>
@@ -330,12 +337,15 @@ function UsersTab() {
                   </td>
                   <td style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>{u.email ?? '-'}</td>
                   <td><RoleBadge role={u.role} /></td>
-                  <td style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', whiteSpace: 'nowrap' }}>{fmtDate(u.last_login_at)}</td>
+                  <td style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', whiteSpace: 'nowrap' }}>{fmtDate(u.last_login)}</td>
                   <td>
-                    {isLocked(u)
-                      ? <span className="badge badge-error">Locked</span>
+                    {u.active === false
+                      ? <span className="badge badge-neutral">Disabled</span>
                       : <span className="badge badge-success">Active</span>
                     }
+                  </td>
+                  <td>
+                    {(() => { const f = FILE_ACCESS[u.file_access ?? 'sign_in']; return <span className={`badge ${f.cls}`} title={f.title}>{f.label}</span> })()}
                   </td>
                   <td>
                     <div style={{ display: 'flex', gap: 6 }}>

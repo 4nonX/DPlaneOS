@@ -647,6 +647,7 @@ func (h *SystemStatusHandler) HandleSetupAdmin(w http.ResponseWriter, r *http.Re
 		return
 	}
 
+	setFilePassword(h.db, req.Username, req.Password)
 	log.Printf("SETUP: admin credentials configured for user '%s'", req.Username)
 	respondJSON(w, http.StatusOK, map[string]any{
 		"success": true, "message": "Admin credentials configured",

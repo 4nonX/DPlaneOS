@@ -129,6 +129,21 @@ func reencryptAll(tx *sql.Tx, conv func(label, sealed string) (string, error)) (
 		return out, rows.Err()
 	}
 
+	// SMB password hashes of the users (internal/fileaccounts).
+	nt, err := collect("users nt_hash", "SELECT id, COALESCE(nt_hash,'') FROM users WHERE COALESCE(nt_hash,'') <> ''", false)
+	if err != nil {
+		return written, err
+	}
+	for _, r := range nt {
+		id := r.id
+		if err := apply(fmt.Sprintf("user %d nt_hash", id), r.a, func(n string) error {
+			_, err := tx.Exec("UPDATE users SET nt_hash=$1 WHERE id=$2", n, id)
+			return err
+		}); err != nil {
+			return written, err
+		}
+	}
+
 	ad, err := collect("ad_domains", "SELECT id, COALESCE(bind_password,'') FROM ad_domains", false)
 	if err != nil {
 		return written, err

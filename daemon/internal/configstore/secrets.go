@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 
+	"dplaned/internal/fileaccounts"
 	"dplaned/internal/gitops"
 	"dplaned/internal/secrets"
 )
@@ -47,7 +48,10 @@ type Material map[string]string
 // credentialFields of a user, in fingerprint order.
 var credentialFields = []string{"password_hash", "must_change_password", "totp_enabled",
 	"scram_salt", "scram_iterations", "scram_stored_key", "scram_server_key",
-	"totp_secret", "totp_secret_enabled", "totp_backup_codes"}
+	"totp_secret", "totp_secret_enabled", "totp_backup_codes",
+	// File service accounts (internal/fileaccounts): the same account
+	// number and SMB/FTP password on every node.
+	"uid", "nt_hash", "unix_hash"}
 
 // credentialsFingerprint is the fingerprint of a user's credentials.
 func credentialsFingerprint(m Material) string {
@@ -79,6 +83,22 @@ func ReadMaterial(db *sql.DB, kind, key string) (Material, error) {
 		}
 		m["password_hash"], m["must_change_password"], m["totp_enabled"] = hash, strconv.Itoa(mustChange), strconv.Itoa(totpEnabled)
 		m["scram_salt"], m["scram_iterations"], m["scram_stored_key"], m["scram_server_key"] = salt, strconv.Itoa(iterations), stored, server
+		var uid int
+		var ntSealed, unixHash string
+		if err := db.QueryRow(`SELECT COALESCE(uid, 0), nt_hash, unix_hash FROM users WHERE username = $1`, key).
+			Scan(&uid, &ntSealed, &unixHash); err != nil {
+			return nil, err
+		}
+		if ntSealed != "" {
+			nt, err := secrets.Open(ntSealed)
+			if err != nil {
+				return nil, fmt.Errorf("opening the SMB hash of %s: %w", key, err)
+			}
+			m["nt_hash"], m["unix_hash"] = nt, unixHash
+			if uid != 0 {
+				m["uid"] = strconv.Itoa(uid)
+			}
+		}
 		var sealed, codes string
 		var enabled int
 		err = db.QueryRow(`SELECT t.secret, t.enabled, t.backup_codes FROM totp_secrets t JOIN users u ON u.id = t.user_id
@@ -249,7 +269,28 @@ func writeMaterial(db *sql.DB, r Resource, m Material) error {
 				return err
 			}
 		}
-		return tx.Commit()
+		// File service accounts: the other node's password hashes, and its
+		// account number unless that number is taken here.
+		if m["nt_hash"] != "" {
+			ntSealed, err := secrets.Seal(m["nt_hash"])
+			if err != nil {
+				return err
+			}
+			if _, err := tx.Exec(`UPDATE users SET nt_hash = $2, unix_hash = $3 WHERE id = $1`, uid, ntSealed, m["unix_hash"]); err != nil {
+				return err
+			}
+			if n := atoi(m["uid"]); n > 0 {
+				if _, err := tx.Exec(`UPDATE users SET uid = $2 WHERE id = $1
+					AND NOT EXISTS (SELECT 1 FROM users WHERE uid = $2 AND id <> $1)`, uid, n); err != nil {
+					return err
+				}
+			}
+		}
+		if err := tx.Commit(); err != nil {
+			return err
+		}
+		fileaccounts.RequestSync()
+		return nil
 	case KindLDAP:
 		sealed := ""
 		if m["bind_password"] != "" {

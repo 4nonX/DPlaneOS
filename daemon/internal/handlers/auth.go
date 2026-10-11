@@ -14,6 +14,7 @@ import (
 	"unicode"
 
 	"dplaned/internal/audit"
+	"dplaned/internal/fileaccounts"
 	ldapinternal "dplaned/internal/ldap"
 	"dplaned/internal/middleware"
 	"dplaned/internal/scram"
@@ -268,6 +269,12 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 			})
 			return
 		}
+	}
+
+	// An account from before file service passwords existed (or set up by
+	// the installer, which only has a hash) gets them at this sign-in.
+	if source != "ldap" && !fileaccounts.HasPassword(h.db, req.Username) {
+		setFilePassword(h.db, req.Username, req.Password)
 	}
 
 	// Generate session token (32 bytes = 64 hex chars)
@@ -558,6 +565,8 @@ func (h *AuthHandler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+
+	setFilePassword(h.db, username, req.NewPassword)
 
 	// Revoke all other sessions - the current session remains active
 	if _, err := h.db.Exec(`DELETE FROM sessions WHERE username = $1 AND session_id != $2`, username, sessionID); err != nil {

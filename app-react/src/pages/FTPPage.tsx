@@ -41,6 +41,7 @@ interface FTPConfig {
   tls_cert_path: string
   tls_key_path: string
   allowed_users: string[]
+  root_dir: string
 }
 
 interface FTPStatusResponse {
@@ -59,6 +60,7 @@ interface SystemUser {
   id: number
   username: string
   active: boolean
+  file_access?: string
 }
 
 interface UsersResponse {
@@ -181,7 +183,8 @@ export function FTPPage() {
 
   const status = statusData
   const isLoading = statusLoading || configLoading
-  const serviceUsers = usersData?.users?.filter(u => u.active) ?? []
+  // Users that have a file service account (see Users: SMB / FTP).
+  const serviceUsers = usersData?.users?.filter(u => u.active && u.file_access === 'ready') ?? []
   const actionPending = startMut.isPending || stopMut.isPending || restartMut.isPending
 
   if (isLoading) {
@@ -312,6 +315,16 @@ export function FTPPage() {
               </div>
             </div>
 
+            <div style={{ marginBottom: 20 }}>
+              <label style={{ display: 'block', fontSize: 'var(--text-sm)', fontWeight: 500, marginBottom: 6 }}>Folder</label>
+              <input className="input" type="text" placeholder="/mnt/tank/ftp" required={form.enabled}
+                value={form.root_dir ?? ''} onChange={e => set('root_dir', e.target.value)}
+                style={{ fontFamily: 'var(--font-mono)', fontSize: 13 }} />
+              <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', marginTop: 6 }}>
+                The folder FTP users see after signing in: a dataset's mount point or a folder below it.
+              </div>
+            </div>
+
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 20 }}>
               {(
                 [
@@ -319,7 +332,7 @@ export function FTPPage() {
                   ['allow_anonymous',  'Allow anonymous access'],
                   ['allow_local_users','Allow local user login'],
                   ['write_enable',     'Allow uploads (write)'],
-                  ['chroot_local_user','Restrict users to home directory (chroot)'],
+                  ['chroot_local_user','Restrict users to the folder (chroot)'],
                 ] as [keyof FTPConfig, string][]
               ).map(([key, label]) => (
                 <label key={key} style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', userSelect: 'none' }}>
@@ -360,10 +373,10 @@ export function FTPPage() {
           <div className="card" style={{ padding: 24, marginBottom: 24 }}>
             <h2 style={{ fontSize: 'var(--text-base)', fontWeight: 700, marginBottom: 6 }}>Allowed Users</h2>
             <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-tertiary)', marginBottom: 16 }}>
-              Only checked users may connect via FTP. Unchecked users are blocked at login even if their system credentials are valid.
+              Only checked users may connect via FTP, with the user name and password they use here.
             </p>
             {serviceUsers.length === 0 ? (
-              <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-tertiary)' }}>No active system users found.</div>
+              <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-tertiary)' }}>No user with file access yet. A user gets it at the first sign-in here or with a new password (Users: SMB / FTP).</div>
             ) : (
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 10 }}>
                 {serviceUsers.map(u => (

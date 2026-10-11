@@ -60,6 +60,12 @@ pkgs.testers.nixosTest {
     import json, shlex
 
     PASSWORD = "Appliance-Test-Pass-1"
+    USER_PASSWORD = "Alice-Share-Pass-7"
+    USER_PASSWORD2 = "Alice-Other-Pass-8"
+    SMBCLIENT = "${pkgs.samba}/bin/smbclient"
+
+    def smb(password, commands):
+        return nas.succeed(SMBCLIENT + f" //localhost/data -U alice%{password} -c " + shlex.quote(commands))
     session = {}
 
     def api(method, path, body=None, auth=True):
@@ -126,6 +132,48 @@ pkgs.testers.nixosTest {
             nas.wait_until_succeeds("exportfs -v | grep -q " + mp, timeout=30)
             nas.succeed("testparm -s 2>/dev/null | grep -q '^\\[data\\]'")
 
+        with subtest("A user of the web interface signs in to the share over SMB"):
+            ok(api("POST", "/api/rbac/users", {"action": "create", "username": "alice", "password": USER_PASSWORD, "role": "user", "confirm_password": PASSWORD}), "create user")
+            ok(api("POST", "/api/rbac/groups", {"action": "create", "name": "family", "members": ["alice"], "confirm_password": PASSWORD}), "create group")
+            nas.wait_until_succeeds("pdbedit -L | grep -q '^alice:'", timeout=60)
+            nas.wait_until_succeeds("id -nG alice | grep -qw family", timeout=60)
+            assert nas.succeed("id -gn alice").strip() == "users"
+            # No shell: the account is for file services only.
+            assert nas.succeed("getent passwd alice | cut -d: -f7").strip().endswith("nologin")
+            smb(USER_PASSWORD, "put /etc/os-release from-alice.txt; get file /tmp/got")
+            nas.succeed("grep -qx kept /tmp/got")
+            assert nas.succeed(f"stat -c %U:%G {mp}/from-alice.txt").strip() == "alice:users"
+            # The admin who set the system up has file access too.
+            nas.wait_until_succeeds(SMBCLIENT + f" //localhost/data -U admin%{PASSWORD} -c ls", timeout=60)
+            nas.fail(SMBCLIENT + " //localhost/data -U alice%wrong-password -c ls")
+            nas.fail(SMBCLIENT + " //localhost/data -U nosuchuser%x -c ls")
+            # A new password replaces the old one.
+            alice = [u for u in api("GET", "/api/rbac/users")["users"] if u["username"] == "alice"][0]
+            assert alice["file_access"] == "ready", alice
+            ok(api("POST", "/api/rbac/users", {"action": "update", "id": alice["id"], "password": USER_PASSWORD2, "confirm_password": PASSWORD}), "change password")
+            nas.wait_until_succeeds(SMBCLIENT + f" //localhost/data -U alice%{USER_PASSWORD2} -c ls", timeout=60)
+            nas.fail(SMBCLIENT + f" //localhost/data -U alice%{USER_PASSWORD} -c ls")
+            alice_uid = nas.succeed("id -u alice").strip()
+
+        with subtest("The same user signs in over FTP"):
+            cfg = api("GET", "/api/ftp/config")["config"]
+            cfg.update(enabled=True, mode="ftp", root_dir=mp, allowed_users=["alice"])
+            resp = ok(api("PUT", "/api/ftp/config", cfg), "enable FTP")
+            assert not resp.get("warning"), resp
+            nas.wait_for_open_port(21)
+            FTP = f"curl -sS --fail --max-time 30 --user alice:{USER_PASSWORD2} ftp://localhost/"
+            assert nas.succeed(FTP + "file").strip() == "kept"
+            nas.succeed(FTP + " -T /etc/os-release")
+            assert nas.succeed(f"stat -c %U:%G {mp}/os-release").strip() == "alice:users"
+            # Restricted to the folder.
+            nas.fail(FTP + "../../etc/passwd")
+            nas.fail(f"curl -sS --fail --max-time 30 --user alice:wrong ftp://localhost/file")
+            # Not in the list of allowed users.
+            nas.fail(f"curl -sS --fail --max-time 30 --user admin:{PASSWORD} ftp://localhost/file")
+            # Without a folder the service cannot be enabled.
+            bad = dict(cfg, root_dir="")
+            assert api("PUT", "/api/ftp/config", bad).get("success") is not True
+
         with subtest("Reboot: everything is still there"):
             nas.shutdown()
             nas.start()
@@ -144,6 +192,18 @@ pkgs.testers.nixosTest {
             assert [p["name"] for p in api("GET", "/api/zfs/pools")["pools"]] == ["tank"]
             nas.wait_until_succeeds("exportfs -v | grep -q " + mp, timeout=60)
             nas.succeed("testparm -s 2>/dev/null | grep -q '^\\[data\\]'")
+            # The same account (number, password, group) after the reboot.
+            nas.wait_until_succeeds(SMBCLIENT + f" //localhost/data -U alice%{USER_PASSWORD2} -c 'get from-alice.txt /tmp/back'", timeout=90)
+            assert nas.succeed("id -u alice").strip() == alice_uid
+            nas.succeed("id -nG alice | grep -qw family")
+            # FTP is running again, with the same accounts.
+            nas.wait_for_open_port(21)
+            assert nas.succeed(f"curl -sS --fail --max-time 30 --user alice:{USER_PASSWORD2} ftp://localhost/file").strip() == "kept"
+            # Deleting the user ends its file access.
+            ok(api("POST", "/api/rbac/users", {"action": "delete", "id": alice["id"], "confirm_password": PASSWORD}), "delete user")
+            nas.wait_until_fails("getent passwd alice", timeout=60)
+            nas.fail(SMBCLIENT + f" //localhost/data -U alice%{USER_PASSWORD2} -c ls")
+            nas.fail(f"curl -sS --fail --max-time 30 --user alice:{USER_PASSWORD2} ftp://localhost/file")
 
         with subtest("A degraded pool does not keep the web interface from starting"):
             nas.succeed(f"zpool offline tank {D1}")

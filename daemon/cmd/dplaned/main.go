@@ -28,6 +28,7 @@ import (
 	"dplaned/internal/audit"
 	"dplaned/internal/configstore"
 	"dplaned/internal/database"
+	"dplaned/internal/fileaccounts"
 	"dplaned/internal/gitops"
 	"dplaned/internal/groups"
 	"dplaned/internal/ha"
@@ -519,6 +520,9 @@ func main() {
 	// known pool whose disks came back, replacement suggestions).
 	handlers.StartDiskEventListener(daemonCtx)
 	handlers.StartDiskRegistrySync(daemonCtx, db, 2*time.Minute)
+
+	// Unix and Samba accounts of the users (SMB and FTP sign-in, file ownership).
+	fileaccounts.Start(db, daemonCtx.Done())
 
 	// Initialize ZED Event Listener (Unix Socket)
 	go zfs.StartZEDListener(daemonCtx, "/run/dplaneos/dplaneos.sock",
