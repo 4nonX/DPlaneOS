@@ -103,6 +103,17 @@
         mode      = "0755";
       }
 
+      # ── iSCSI target (LIO) ───────────────────────────────────────────────
+      # The saved targets (restored when the daemon starts) and what the
+      # kernel keeps about its initiators: persistent reservations (pr/)
+      # and ALUA states (alua/). The kernel uses /etc/target when it exists.
+      {
+        directory = "/etc/target";
+        user      = "root";
+        group     = "root";
+        mode      = "0700";
+      }
+
       # ── Docker (container state, images, volumes) ────────────────────────
       # Docker's overlay2 graph is large and contains container state.
       # Without this, all containers are gone after reboot.

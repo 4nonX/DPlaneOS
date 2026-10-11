@@ -404,6 +404,11 @@ pkgs.testers.nixosTest {
             ISCSI_DEV = client.succeed("readlink -f /dev/disk/by-path/*iscsi*lun-0").strip()
             client.succeed(f"echo written-over-iscsi | dd of={ISCSI_DEV} oflag=direct conv=sync bs=512 count=1 2>/dev/null")
             nas.wait_until_succeeds("dd if=/dev/zvol/tank/lun0 bs=512 count=1 2>/dev/null | grep -q written-over-iscsi", timeout=30)
+            # Cluster software on the initiators reserves its disks; the
+            # target has to keep those reservations.
+            client.succeed(f"${pkgs.sg3_utils}/bin/sg_persist --out --register --param-sark=0xabc123 {ISCSI_DEV}")
+            assert "0xabc123" in client.succeed(f"${pkgs.sg3_utils}/bin/sg_persist --in --read-keys {ISCSI_DEV}")
+            client.succeed(f"${pkgs.sg3_utils}/bin/sg_persist --out --register --param-rk=0xabc123 {ISCSI_DEV}")
             client.succeed(f"iscsiadm -m node -T {IQN} -p {NAS} --logout")
 
             # NVMe over TCP.

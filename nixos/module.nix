@@ -826,6 +826,11 @@ in {
 
     # ─── Persistent state directories ─────────────────────────────────────
     systemd.tmpfiles.rules = [
+      # The iSCSI target keeps the reservations of its initiators here;
+      # without the directory it refuses every reservation command.
+      "d /etc/target       0700 root root -"
+      "d /etc/target/pr    0700 root root -"
+      "d /etc/target/alua  0700 root root -"
       "d /var/lib/dplaneos        0775 root root -"
       "d /var/log/dplaneos        0755 root root -"
       "d /etc/dplaneos            0755 root root -"

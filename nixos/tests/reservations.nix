@@ -66,6 +66,8 @@ pkgs.testers.nixosTest {
     networking.firewall.allowedTCPPorts = [ 3260 ];
     systemd.tmpfiles.rules = [
       "d /etc/target 0755 root root -"
+      "d /etc/target/pr 0755 root root -"
+      "d /etc/target/alua 0755 root root -"
       "d /var/target 0755 root root -"
       "d /var/target/pr 0755 root root -"
       "d /var/target/alua 0755 root root -"
