@@ -232,7 +232,7 @@ pkgs.testers.nixosTest {
 
         with subtest("The owner is cut off but alive and writing: a takeover shuts it out"):
             # Something that keeps writing to the pool on a.
-            a.succeed("systemd-run --unit=writer --collect sh -c 'while true; do date >> /mnt/tank/data/log; sync; sleep 1; done'")
+            a.succeed("systemd-run --unit=writer --collect --setenv=PATH=/run/current-system/sw/bin /run/current-system/sw/bin/sh -c 'while true; do date >> /mnt/tank/data/log; sleep 1; done'")
             a.wait_until_succeeds("test -s /mnt/tank/data/log", timeout=30)
             a.block()   # the cluster network only: a still reaches the disks
             wait_for(lambda: "manually" in ((group(b) or {}).get("failover", {}).get("reason") or ""), "b: the owner is gone, takeover is manual", 120)
