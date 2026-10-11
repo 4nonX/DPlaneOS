@@ -107,18 +107,18 @@
   # Defaults; vm.swappiness and the ZFS ARC limit can be changed under
   # Settings.
   boot.kernel.sysctl = {
-    "fs.inotify.max_user_watches"   = lib.mkDefault 524288;
-    "fs.inotify.max_user_instances" = lib.mkDefault 512;
-    "fs.inotify.max_queued_events"  = lib.mkDefault 32768;
-    "vm.swappiness"                 = lib.mkDefault 10;
-    "vm.vfs_cache_pressure"         = lib.mkDefault 50;
-    "vm.dirty_background_ratio"     = lib.mkDefault 5;
-    "vm.dirty_ratio"                = lib.mkDefault 15;
-    "net.core.rmem_max"             = lib.mkDefault 134217728;
-    "net.core.wmem_max"             = lib.mkDefault 134217728;
-    "net.ipv4.tcp_rmem"             = lib.mkDefault "4096 87380 67108864";
-    "net.ipv4.tcp_wmem"             = lib.mkDefault "4096 65536 67108864";
-    "net.ipv4.tcp_congestion_control" = lib.mkDefault "bbr";
+    "fs.inotify.max_user_watches"   = 524288;
+    "fs.inotify.max_user_instances" = 512;
+    "fs.inotify.max_queued_events"  = 32768;
+    "vm.swappiness"                 = 10;
+    "vm.vfs_cache_pressure"         = 50;
+    "vm.dirty_background_ratio"     = 5;
+    "vm.dirty_ratio"                = 15;
+    "net.core.rmem_max"             = 134217728;
+    "net.core.wmem_max"             = 134217728;
+    "net.ipv4.tcp_rmem"             = "4096 87380 67108864";
+    "net.ipv4.tcp_wmem"             = "4096 65536 67108864";
+    "net.ipv4.tcp_congestion_control" = "bbr";
   };
 
   # ─── Tools for the console and the web terminal ─────────────────────────
