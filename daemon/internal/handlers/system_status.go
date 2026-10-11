@@ -97,21 +97,19 @@ func (h *SystemStatusHandler) HandleSetupComplete(w http.ResponseWriter, r *http
 		if _, err := h.db.Exec(`INSERT INTO system_config (key, value) VALUES ('hostname', $1) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`, body.Hostname); err != nil {
 			log.Printf("WARN: system_config hostname: %v", err)
 		}
-		if _, err := cmdutil.RunFast("hostnamectl", "set-hostname", body.Hostname); err != nil {
-			log.Printf("WARN: hostnamectl: %v", err)
+		if err := persistHostname(body.Hostname); err != nil {
+			respondJSON(w, http.StatusBadRequest, map[string]any{"success": false, "error": "Setting the host name failed: " + err.Error()})
+			return
 		}
-		// Persist to Nix fragment (NixOS: networking.hostName)
-		persistHostname(body.Hostname)
 	}
 	if body.Timezone != "" {
 		if _, err := h.db.Exec(`INSERT INTO system_config (key, value) VALUES ('timezone', $1) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`, body.Timezone); err != nil {
 			log.Printf("WARN: system_config timezone: %v", err)
 		}
-		if _, err := cmdutil.RunFast("timedatectl", "set-timezone", body.Timezone); err != nil {
-			log.Printf("WARN: timedatectl: %v", err)
+		if err := persistTimezone(body.Timezone); err != nil {
+			respondJSON(w, http.StatusBadRequest, map[string]any{"success": false, "error": "Setting the time zone failed: " + err.Error()})
+			return
 		}
-		// Persist to Nix fragment (NixOS: time.timeZone)
-		persistTimezone(body.Timezone)
 	}
 	respondJSON(w, http.StatusOK, map[string]any{"success": true, "message": "Setup completed"})
 }
@@ -268,23 +266,25 @@ func (h *SystemStatusHandler) HandleSettings(w http.ResponseWriter, r *http.Requ
 			respondErrorSimple(w, "Invalid request", http.StatusBadRequest)
 			return
 		}
-		for k, v := range body {
-			if _, err := h.db.Exec(`INSERT INTO system_config (key, value, updated_at) VALUES ($1, $2, NOW()) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`, k, v); err != nil {
-				log.Printf("WARN: system_config upsert key=%s: %v", k, err)
-			}
-		}
-		// Persist system-level changes to Nix fragment so they survive nixos-rebuild
+		// The host name and the time zone are applied to the system first:
+		// a value the system does not take is not saved as if it had.
 		if hn, ok := body["hostname"]; ok && hn != "" {
-			if _, err := cmdutil.RunFast("hostnamectl", "set-hostname", hn); err != nil {
-				log.Printf("WARN: hostnamectl runtime: %v", err)
+			if err := persistHostname(hn); err != nil {
+				respondErrorSimple(w, "Setting the host name failed: "+err.Error(), http.StatusBadRequest)
+				return
 			}
-			persistHostname(hn)
 		}
 		if tz, ok := body["timezone"]; ok && tz != "" {
-			if _, err := cmdutil.RunFast("timedatectl", "set-timezone", tz); err != nil {
-				log.Printf("WARN: timedatectl runtime: %v", err)
+			if err := persistTimezone(tz); err != nil {
+				respondErrorSimple(w, "Setting the time zone failed: "+err.Error(), http.StatusBadRequest)
+				return
 			}
-			persistTimezone(tz)
+		}
+		for k, v := range body {
+			if _, err := h.db.Exec(`INSERT INTO system_config (key, value, updated_at) VALUES ($1, $2, NOW()) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`, k, v); err != nil {
+				respondErrorSimple(w, "Saving "+k+" failed: "+err.Error(), http.StatusInternalServerError)
+				return
+			}
 		}
 		respondJSON(w, http.StatusOK, map[string]any{"success": true, "message": fmt.Sprintf("%d settings saved", len(body))})
 	default:

@@ -56,6 +56,13 @@ pkgs.testers.nixosTest {
     services.postgresql.settings = { max_connections = 50; shared_buffers = "64MB"; };
   };
 
+  # Another machine on the same network: what the appliance offers is used
+  # from here, through its firewall.
+  nodes.client = { pkgs, ... }: {
+    environment.systemPackages = [ pkgs.samba pkgs.curl pkgs.openssl ];
+    virtualisation.memorySize = 768;
+  };
+
   testScript = ''
     import json, shlex
 
@@ -81,9 +88,14 @@ pkgs.testers.nixosTest {
             raise Exception(f"{method} {path}: not JSON: {out[:500]}")
 
     def ok(resp, what):
-        if resp.get("success") is not True:
+        # Most endpoints answer {"success": true, ...}; a few return the
+        # created object. Either way a failure says so.
+        if not isinstance(resp, dict) or resp.get("success") is False or resp.get("error"):
             raise Exception(f"{what}: {resp}")
         return resp
+
+    def refused(resp):
+        return isinstance(resp, dict) and (resp.get("success") is False or bool(resp.get("error")))
 
     def login():
         sid = api("POST", "/api/auth/login", {"username": "admin", "password": PASSWORD}, auth=False)["session_id"]
@@ -103,7 +115,28 @@ pkgs.testers.nixosTest {
     D0 = "/dev/disk/by-id/virtio-dplanedata0"
     D1 = "/dev/disk/by-id/virtio-dplanedata1"
 
+    def nas_address():
+        return nas.succeed("ip -4 -o addr show dev eth1 | awk '{print $4}' | cut -d/ -f1 | head -n1").strip()
+
+    def fw_rules():
+        return ok(api("GET", "/api/firewall/status"), "firewall status")["rules"]
+
+    def fw_delete(action, port, source):
+        for rule in fw_rules():
+            if rule["action"] == action and rule["port"] == str(port) and rule["from"] == source:
+                ok(api("POST", "/api/firewall/rule", {"action": "delete", "rule_num": rule["id"]}), "delete rule")
+                return
+        raise Exception(f"no rule {action} {port} from {source}: {fw_rules()}")
+
+    def listener(port):
+        # Something that answers on a port no system service uses.
+        nas.succeed(f"systemd-run --unit=listener-{port} --collect ${pkgs.python3}/bin/python3 -m http.server {port} --directory /var/empty")
+        nas.wait_for_open_port(port)
+
+    FETCH = "curl -sS --fail --max-time 6 -o /dev/null "
+
     nas.start()
+    client.start()
     try:
         with subtest("First boot: the system comes up without any machine-specific setting"):
             wait_up()
@@ -115,6 +148,18 @@ pkgs.testers.nixosTest {
 
             # /persist is checked at every boot (and found).
             nas.succeed("journalctl -b -u persist-health-check | grep -q 'persist-health-check: OK'")
+
+            assert nas.succeed("hostname").strip() == "dplaneos", "a fresh system is called dplaneos"
+            nas.succeed("grep -qx dplaneos /etc/hostname")
+            # The web interface over HTTP and, with a certificate of its own, HTTPS;
+            # from another machine, through the firewall.
+            client.wait_for_unit("multi-user.target")
+            NAS = nas_address()
+            CLIENT = client.succeed("ip -4 -o addr show dev eth1 | awk '{print $4}' | cut -d/ -f1 | head -n1").strip()
+            client.wait_until_succeeds(FETCH + f"http://{NAS}/", timeout=60)
+            client.succeed(FETCH + f"-k https://{NAS}/")
+            client.fail(FETCH + f"https://{NAS}/")  # self-signed: not trusted
+            nas.succeed("echo | openssl s_client -connect localhost:443 2>/dev/null | openssl x509 -noout -subject | grep -q 'CN *= *dplaneos'")
 
         with subtest("A ZFS host ID of its own"):
             hostid = nas.succeed("hostid").strip()
@@ -146,6 +191,22 @@ pkgs.testers.nixosTest {
             smb(USER_PASSWORD, "put /etc/os-release from-alice.txt; get file /tmp/got")
             nas.succeed("grep -qx kept /tmp/got")
             assert nas.succeed(f"stat -c %U:%G {mp}/from-alice.txt").strip() == "alice:users"
+            # From another machine, through the firewall.
+            client.succeed(f"smbclient //{NAS}/data -U alice%{USER_PASSWORD} -c 'get file /tmp/got-remote' && grep -qx kept /tmp/got-remote")
+            client.fail(f"smbclient //{NAS}/data -U alice%wrong-password -c ls")
+            # Without a guest share nobody gets in without a password.
+            client.fail(f"smbclient //{NAS}/data -N -c ls")
+            # A share with guest access is open to everyone; the others stay closed.
+            nas.succeed(f"mkdir -p {mp}/pub && echo hello > {mp}/pub/readme && chmod -R a+rX {mp}/pub")
+            ok(api("POST", "/api/shares", {"action": "create", "name": "public", "path": f"{mp}/pub", "guest_ok": True, "read_only": True}), "create guest share")
+            client.wait_until_succeeds(f"smbclient //{NAS}/public -N -c 'get readme /tmp/readme' && grep -qx hello /tmp/readme", timeout=30)
+            client.fail(f"smbclient //{NAS}/data -N -c ls")
+            # Workgroup and description are settings, not part of the system image.
+            assert nas.succeed("readlink -f /etc/samba/smb.conf").strip() == "/var/lib/dplaneos/smb-shares.conf"
+            ok(api("POST", "/api/smb/settings", {"workgroup": "office", "server_string": "Team files"}), "SMB settings")
+            nas.wait_until_succeeds("testparm -s 2>/dev/null | grep -q 'workgroup = OFFICE'", timeout=30)
+            assert refused(api("POST", "/api/smb/settings", {"workgroup": "not a workgroup!"}))
+            client.wait_until_succeeds(f"smbclient -L //{NAS} -U alice%{USER_PASSWORD} 2>/dev/null | grep -q 'Team files'", timeout=60)
             # The admin who set the system up has file access too.
             nas.wait_until_succeeds(SMBCLIENT + f" //localhost/data -U admin%{PASSWORD} -c ls", timeout=60)
             nas.fail(SMBCLIENT + " //localhost/data -U alice%wrong-password -c ls")
@@ -168,6 +229,9 @@ pkgs.testers.nixosTest {
             assert nas.succeed(FTP + "file").strip() == "kept"
             nas.succeed(FTP + " -T /etc/os-release")
             assert nas.succeed(f"stat -c %U:%G {mp}/os-release").strip() == "alice:users"
+            # From another machine: the firewall opened the control port and the
+            # passive range when FTP was switched on.
+            assert client.succeed(f"curl -sS --fail --max-time 30 --user alice:{USER_PASSWORD2} ftp://{NAS}/file").strip() == "kept"
             # Restricted to the folder.
             nas.fail(FTP + "../../etc/passwd")
             nas.fail("curl -sS --fail --max-time 30 --user alice:wrong ftp://localhost/file")
@@ -175,7 +239,78 @@ pkgs.testers.nixosTest {
             nas.fail(f"curl -sS --fail --max-time 30 --user admin:{PASSWORD} ftp://localhost/file")
             # Without a folder the service cannot be enabled.
             bad = dict(cfg, root_dir="")
-            assert api("PUT", "/api/ftp/config", bad).get("success") is not True
+            assert refused(api("PUT", "/api/ftp/config", bad))
+
+        with subtest("System settings take effect at once"):
+            ok(api("POST", "/api/system/settings", {"hostname": "tank-nas", "timezone": "Europe/Berlin"}), "host name and time zone")
+            assert nas.succeed("hostname").strip() == "tank-nas"
+            assert nas.succeed("readlink /etc/localtime").strip() == "/etc/zoneinfo/Europe/Berlin"
+            assert nas.succeed("date +%Z").strip() in ("CET", "CEST")
+            # A value the system does not take is refused, not stored.
+            assert refused(api("POST", "/api/system/settings", {"timezone": "Mars/Olympus"}))
+            assert nas.succeed("readlink /etc/localtime").strip() == "/etc/zoneinfo/Europe/Berlin"
+            assert refused(api("POST", "/api/system/settings", {"hostname": "bad name!"}))
+            assert nas.succeed("hostname").strip() == "tank-nas"
+
+            ok(api("POST", "/api/system/ntp", {"servers": ["10.0.2.2"]}), "NTP servers")
+            nas.wait_until_succeeds("timedatectl show-timesync -p SystemNTPServers --value | grep -qw 10.0.2.2", timeout=30)
+
+            ok(api("POST", "/api/system/tuning", {"arc_limit_gb": 1, "swappiness": 7}), "tuning")
+            assert nas.succeed("cat /proc/sys/vm/swappiness").strip() == "7"
+            assert nas.succeed("cat /sys/module/zfs/parameters/zfs_arc_max").strip() == str(1 << 30)
+
+            # A certificate made here and activated is what the web interface serves.
+            ok(api("POST", "/api/certs/generate", {"name": "nascert", "cn": "tank-nas.example", "days": 30}), "generate certificate")
+            ok(api("POST", "/api/certs/activate", {"name": "nascert"}), "activate certificate")
+            nas.wait_until_succeeds("echo | openssl s_client -connect localhost:443 2>/dev/null | openssl x509 -noout -subject | grep -q 'tank-nas.example'", timeout=30)
+            client.succeed(FETCH + f"-k https://{NAS}/")
+
+        with subtest("Firewall: rules take effect at once, deny beats allow"):
+            listener(8088)
+            listener(8089)
+            status = ok(api("GET", "/api/firewall/status"), "firewall status")
+            assert status["status"] == "active" and status["rules"] == [], status
+            for port in ("80/tcp", "443/tcp", "445/tcp", "22/tcp"):
+                assert port in status["system_ports"], (port, status["system_ports"])
+            client.fail(FETCH + f"http://{NAS}:8088/")
+
+            ok(api("POST", "/api/firewall/rule", {"action": "allow", "port": "8088", "proto": "tcp"}), "allow 8088")
+            client.succeed(FETCH + f"http://{NAS}:8088/")
+            client.fail(FETCH + f"http://{NAS}:8089/")
+
+            # Only from one source.
+            ok(api("POST", "/api/firewall/rule", {"action": "allow", "port": "8089", "proto": "tcp", "from": "10.99.0.0/24"}), "allow 8089 from elsewhere")
+            client.fail(FETCH + f"http://{NAS}:8089/")
+            ok(api("POST", "/api/firewall/rule", {"action": "allow", "port": "8089", "proto": "tcp", "from": CLIENT}), "allow 8089 from the client")
+            client.succeed(FETCH + f"http://{NAS}:8089/")
+
+            # A deny rule closes a port another rule opens, and one the system opens.
+            ok(api("POST", "/api/firewall/rule", {"action": "deny", "port": "8088", "proto": "tcp", "from": CLIENT}), "deny 8088")
+            client.fail(FETCH + f"http://{NAS}:8088/")
+            ok(api("POST", "/api/firewall/rule", {"action": "deny", "port": "80", "proto": "tcp", "from": CLIENT}), "deny 80")
+            client.fail(FETCH + f"http://{NAS}/")
+            nas.succeed("curl -sf http://localhost/api/system/status >/dev/null")  # not the machine itself
+            assert [r["action"] for r in fw_rules()][:2] == ["deny", "deny"], fw_rules()
+            fw_delete("deny", 80, CLIENT)
+            fw_delete("deny", 8088, CLIENT)
+            client.succeed(FETCH + f"http://{NAS}/")
+            client.succeed(FETCH + f"http://{NAS}:8088/")
+
+            # Invalid rules are refused.
+            for bad in ({"action": "allow", "port": "http"}, {"action": "allow", "port": "99999"},
+                        {"action": "allow", "port": "80", "from": "10.0.0.0/24; reboot"}, {"action": "delete", "rule_num": 99}):
+                assert refused(api("POST", "/api/firewall/rule", bad)), bad
+
+            # Off: everything is reachable. On again: as before.
+            fw_delete("allow", 8089, CLIENT)
+            client.fail(FETCH + f"http://{NAS}:8089/")
+            ok(api("POST", "/api/firewall/rule", {"action": "disable"}), "firewall off")
+            assert api("GET", "/api/firewall/status")["status"] == "inactive"
+            client.succeed(FETCH + f"http://{NAS}:8089/")
+            ok(api("POST", "/api/firewall/rule", {"action": "enable"}), "firewall on")
+            assert api("GET", "/api/firewall/status")["status"] == "active"
+            client.fail(FETCH + f"http://{NAS}:8089/")
+            client.succeed(FETCH + f"http://{NAS}:8088/")
 
         with subtest("Network settings: tried, confirmed or reverted, and nothing left behind"):
             LIVE, KEPT = "/run/systemd/network", "/var/lib/dplaneos/network"
@@ -198,7 +333,7 @@ pkgs.testers.nixosTest {
             nas.succeed(f"grep -q 'Address=10.55.0.2/24' {KEPT}/10-dplane-eth1.network {LIVE}/10-dplane-eth1.network")
             # An address networkd cannot set is reported, not offered for confirmation.
             bad = api("PUT", "/api/system/network", {"action": "configure", "interface": "eth1", "dhcp": False, "address": "10.55.0.2/24", "gateway": "not-an-ip"})
-            assert bad.get("success") is not True, bad
+            assert refused(bad), bad
 
             # Two VLANs on the same interface, one with an address.
             ok(api("POST", "/api/network/vlan", {"parent": "eth1", "vlan_id": 100, "ip": "10.77.0.1/24"}), "create VLAN 100")
@@ -240,6 +375,20 @@ pkgs.testers.nixosTest {
             assert [p["name"] for p in api("GET", "/api/zfs/pools")["pools"]] == ["tank"]
             nas.wait_until_succeeds("exportfs -v | grep -q " + mp, timeout=60)
             nas.succeed("testparm -s 2>/dev/null | grep -q '^\\[data\\]'")
+            # The system settings were applied before anything else started.
+            assert nas.succeed("hostname").strip() == "tank-nas"
+            assert nas.succeed("readlink /etc/localtime").strip() == "/etc/zoneinfo/Europe/Berlin"
+            assert nas.succeed("cat /proc/sys/vm/swappiness").strip() == "7"
+            nas.wait_until_succeeds("test \"$(cat /sys/module/zfs/parameters/zfs_arc_max)\" = " + str(1 << 30), timeout=60)
+            nas.succeed("timedatectl show-timesync -p SystemNTPServers --value | grep -qw 10.0.2.2")
+            nas.succeed("echo | openssl s_client -connect localhost:443 2>/dev/null | openssl x509 -noout -subject | grep -q 'tank-nas.example'")
+            nas.succeed("systemctl is-active dplaneos-system-settings.service")
+            # The firewall rules are in force again.
+            listener(8088)
+            listener(8089)
+            assert [(r["action"], r["port"], r["from"]) for r in fw_rules()] == [("allow", "8089", "10.99.0.0/24"), ("allow", "8088", "Anywhere")], fw_rules()
+            nas.succeed("iptables -w -C nixos-fw -p tcp --dport 8088 -j nixos-fw-accept")
+
             # The network came up as configured (before the database was there).
             nas.succeed("ip -4 -o addr show dev eth1 | grep -qw 10.55.0.2/24")
             nas.succeed("ip -4 -o addr show dev eth1.100 | grep -qw 10.77.0.1/24")
@@ -258,8 +407,13 @@ pkgs.testers.nixosTest {
             nas.wait_until_succeeds(SMBCLIENT + f" //localhost/data -U alice%{USER_PASSWORD2} -c 'get from-alice.txt /tmp/back'", timeout=90)
             assert nas.succeed("id -u alice").strip() == alice_uid
             nas.succeed("id -nG alice | grep -qw family")
-            # FTP is running again, with the same accounts.
+            # eth1 has its own address again: the client reaches the system.
+            client.wait_until_succeeds(FETCH + f"http://{NAS}:8088/", timeout=60)
+            client.fail(FETCH + f"http://{NAS}:8089/")
+            # FTP is running again, with the same accounts, and reachable.
             nas.wait_for_open_port(21)
+            client.wait_until_succeeds(f"curl -sS --fail --max-time 30 --user alice:{USER_PASSWORD2} ftp://{NAS}/file", timeout=60)
+            client.succeed(f"smbclient //{NAS}/data -U alice%{USER_PASSWORD2} -c ls")
             assert nas.succeed(f"curl -sS --fail --max-time 30 --user alice:{USER_PASSWORD2} ftp://localhost/file").strip() == "kept"
             # Deleting the user ends its file access.
             ok(api("POST", "/api/rbac/users", {"action": "delete", "id": alice["id"], "confirm_password": PASSWORD}), "delete user")

@@ -11,7 +11,6 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"os/user"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -620,7 +619,7 @@ func NewFirewallHandler() *FirewallHandler { return &FirewallHandler{} }
 
 func (h *FirewallHandler) GetStatus(w http.ResponseWriter, r *http.Request) {
 	if NixWriter != nil && NixWriter.IsNixOS() {
-		h.GetStatusNixOS(w, r)
+		h.getStatusNative(w, r)
 		return
 	}
 	output, err := cmdutil.RunFast("ufw", "status", "numbered")
@@ -643,43 +642,6 @@ func (h *FirewallHandler) GetStatus(w http.ResponseWriter, r *http.Request) {
 		"status":    status,
 		"rules":     rules,     // always a []map - never a raw string
 		"rules_raw": rawOutput, // raw text for debugging
-	})
-}
-
-// GetStatusNixOS provides a ufw-compatible status response from NixWriter state.
-func (h *FirewallHandler) GetStatusNixOS(w http.ResponseWriter, r *http.Request) {
-	state := NixWriter.State()
-	tcp := state.FirewallTCP
-	udp := state.FirewallUDP
-
-	var raw strings.Builder
-	raw.WriteString("Status: active\n\n     To                         Action      From\n     --                         ------      ----\n")
-
-	rules := []map[string]any{}
-	id := 1
-	for _, p := range tcp {
-		portStr := fmt.Sprintf("%d/tcp", p)
-		fmt.Fprintf(&raw, "[%2d] %-25s ALLOW IN    Anywhere\n", id, portStr)
-		rules = append(rules, map[string]any{
-			"id": id, "action": "allow", "port": fmt.Sprintf("%d", p), "proto": "tcp", "from": "Anywhere",
-		})
-		id++
-	}
-	for _, p := range udp {
-		portStr := fmt.Sprintf("%d/udp", p)
-		fmt.Fprintf(&raw, "[%2d] %-25s ALLOW IN    Anywhere\n", id, portStr)
-		rules = append(rules, map[string]any{
-			"id": id, "action": "allow", "port": fmt.Sprintf("%d", p), "proto": "udp", "from": "Anywhere",
-		})
-		id++
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{
-		"success":   true,
-		"status":    "active",
-		"rules":     rules,
-		"rules_raw": raw.String(),
 	})
 }
 
@@ -723,9 +685,14 @@ func (h *FirewallHandler) SetRule(w http.ResponseWriter, r *http.Request) {
 		Port    string `json:"port"`     // e.g. "80/tcp", "443", "22/tcp"
 		From    string `json:"from"`     // source IP/CIDR (optional)
 		RuleNum int    `json:"rule_num"` // for delete
+		Proto   string `json:"proto"`    // tcp (default) or udp, when not part of port
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		respondErrorSimple(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+	if NixWriter != nil && NixWriter.IsNixOS() {
+		h.setRuleNative(w, r, user, req.Action, req.Port, req.From, req.Proto, req.RuleNum)
 		return
 	}
 
@@ -770,18 +737,7 @@ func (h *FirewallHandler) SetRule(w http.ResponseWriter, r *http.Request) {
 	}
 
 	start := time.Now()
-	var (
-		output []byte
-		err    error
-	)
-	if NixWriter != nil && NixWriter.IsNixOS() {
-		// On NixOS we skip the real ufw command; persistFirewallFromRequest below
-		// will handle the state update.
-		output = []byte("Rule updated (NixOS native)")
-		err = nil
-	} else {
-		output, err = cmdutil.RunMedium("ufw", args...)
-	}
+	output, err := cmdutil.RunMedium("ufw", args...)
 	duration := time.Since(start)
 
 	if err != nil {
@@ -791,12 +747,6 @@ func (h *FirewallHandler) SetRule(w http.ResponseWriter, r *http.Request) {
 	}
 
 	audit.LogAction("firewall", user, fmt.Sprintf("ufw %s", strings.Join(args, " ")), true, duration)
-
-	// On NixOS: persist firewall state to dplane-generated.nix
-	// ufw is not used on NixOS; we translate allow/deny rules to NixOS port lists
-	if NixWriter != nil && NixWriter.IsNixOS() {
-		persistFirewallFromRequest(req.Action, req.Port)
-	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{"success": true, "output": string(output)})
@@ -995,28 +945,23 @@ func (h *CertHandler) ActivateCert(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// NixOS: nginx is configured by module.nix; the certificate goes into the
-	// bridge (services.nginx.virtualHosts."_".sslCertificate) and applies on
-	// the next rebuild. nginx runs as user nginx, so the key and its directory
-	// must be readable by that group.
+	// Installed system: nginx always serves port 443 from a fixed pair of
+	// files; activating copies this certificate there and reloads nginx
+	// (internal/sysapply), after checking that certificate and key match.
 	if IsNixOS() {
-		if err := shareWithNginx(filepath.Dir(keyFile), keyFile); err != nil {
-			respondErrorSimple(w, "Cannot grant nginx access to the key: "+err.Error(), http.StatusInternalServerError)
-			return
-		}
 		if NixWriter == nil {
-			respondErrorSimple(w, "NixOS state writer unavailable", http.StatusInternalServerError)
+			respondErrorSimple(w, "System settings are unavailable", http.StatusInternalServerError)
 			return
 		}
 		if err := NixWriter.SetTLS(certFile, keyFile); err != nil {
+			audit.LogAction("cert_activate", user, fmt.Sprintf("Failed to activate %s: %v", req.Name, err), false, 0)
 			respondErrorSimple(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		audit.LogAction("cert_activate", user, fmt.Sprintf("Activated cert (pending rebuild): %s", req.Name), true, 0)
+		audit.LogAction("cert_activate", user, fmt.Sprintf("Activated cert: %s", req.Name), true, 0)
 		respondOK(w, map[string]any{
-			"success":         true,
-			"pending_rebuild": true,
-			"message":         "Certificate recorded; nginx serves it after the pending NixOS changes are applied",
+			"success": true,
+			"message": "The web interface now uses this certificate",
 		})
 		return
 	}
@@ -1656,79 +1601,4 @@ func (h *PowerMgmtHandler) SpindownNow(w http.ResponseWriter, r *http.Request) {
 	audit.LogAction("power_spindown_now", user, fmt.Sprintf("Spindown %s", req.Device), true, 0)
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{"success": true})
-}
-
-// SyncFirewallToNix reads current ufw rules, extracts simple allow rules,
-// and writes the port list to dplane-generated.nix.
-// POST /api/network/firewall/sync
-// Called by UI after any firewall change to keep NixOS in sync.
-func (h *FirewallHandler) SyncFirewallToNix(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		respondErrorSimple(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	if NixWriter == nil || !NixWriter.IsNixOS() {
-		respondOK(w, map[string]any{
-			"success": true,
-			"message": "Not on NixOS - sync is a no-op",
-		})
-		return
-	}
-
-	// Accept explicit port list from request body (preferred - UI knows the desired state)
-	var req struct {
-		TCPPorts []int `json:"tcp_ports"` // complete desired TCP allow list
-		UDPPorts []int `json:"udp_ports"` // complete desired UDP allow list
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		respondErrorSimple(w, "Invalid request", http.StatusBadRequest)
-		return
-	}
-
-	// Validate port numbers
-	for _, p := range append(req.TCPPorts, req.UDPPorts...) {
-		if p < 1 || p > 65535 {
-			respondErrorSimple(w, fmt.Sprintf("Invalid port number: %d", p), http.StatusBadRequest)
-			return
-		}
-	}
-
-	if err := NixWriter.SetFirewallPorts(req.TCPPorts, req.UDPPorts); err != nil {
-		respondOK(w, map[string]any{
-			"success": false,
-			"error":   "Failed to write Nix firewall fragment: " + err.Error(),
-		})
-		return
-	}
-
-	log.Printf("[nixwriter] firewall synced: tcp=%v udp=%v", req.TCPPorts, req.UDPPorts)
-	respondOK(w, map[string]any{
-		"success":   true,
-		"tcp_ports": req.TCPPorts,
-		"udp_ports": req.UDPPorts,
-		"message":   "Firewall ports written to dplane-generated.nix - run nixos-rebuild switch to apply",
-	})
-}
-
-// shareWithNginx gives the nginx group read access to a key file and
-// traversal of its directory (owner stays root).
-func shareWithNginx(dir, keyFile string) error {
-	grp, err := user.LookupGroup("nginx")
-	if err != nil {
-		return fmt.Errorf("group nginx: %w", err)
-	}
-	gid, err := strconv.Atoi(grp.Gid)
-	if err != nil {
-		return fmt.Errorf("group nginx gid %q: %w", grp.Gid, err)
-	}
-	if err := os.Chown(dir, 0, gid); err != nil {
-		return err
-	}
-	if err := os.Chmod(dir, 0o750); err != nil {
-		return err
-	}
-	if err := os.Chown(keyFile, 0, gid); err != nil {
-		return err
-	}
-	return os.Chmod(keyFile, 0o640)
 }

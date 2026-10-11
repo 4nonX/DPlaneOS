@@ -1,13 +1,12 @@
-// Package smbconf renders the Samba share configuration from the smb_shares
-// table. It is the single renderer for both the share CRUD handlers and the
-// GitOps reconciler, so a GitOps apply produces the same file as the UI.
+// Package smbconf renders Samba's configuration: the [global] section from
+// the settings (workgroup, macOS support, directory membership) and one
+// section per row of smb_shares. It is the single renderer for the share
+// handlers and the GitOps reconciler, so both produce the same file.
 //
-// On NixOS, modules/samba.nix owns [global] and pulls this file in with
-// `include = /var/lib/dplaneos/smb-shares.conf` from inside [global]. The
-// file therefore contains share stanzas only and ends by re-opening [global],
-// so whatever global keys NixOS renders after the include line still land in
-// [global] rather than in the last share. Elsewhere the file is the complete
-// smb.conf and starts with its own [global].
+// The file is the complete smb.conf. On an installed system
+// /etc/samba/smb.conf is a link to it (nixos/modules/samba.nix): nothing of
+// Samba's configuration is fixed in the system image, so every setting
+// takes effect when it is saved.
 package smbconf
 
 import (
@@ -18,6 +17,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"dplaned/internal/nixwriter"
 )
 
 // Share is one row of smb_shares, as rendered into a share stanza.
@@ -48,14 +49,31 @@ type Share struct {
 
 // Options are the settings outside smb_shares that affect rendering.
 type Options struct {
-	// NixOSManaged: NixOS owns [global]; render share stanzas only.
-	NixOSManaged bool
+	// Workgroup and ServerString; empty means WORKGROUP and "DPlaneOS NAS".
+	Workgroup    string
+	ServerString string
 	// AppleExtensions is the global "macOS support" toggle (settings key
 	// smb_time_machine). Apple extensions are also enabled automatically
 	// when any share is a Time Machine target.
 	AppleExtensions bool
-	// ExtraGlobal is appended to [global] when not NixOS-managed.
+	// ExtraGlobal is appended to [global].
 	ExtraGlobal string
+	// SecurityMode is "ads" on a member of an Active Directory domain
+	// (Realm), "user" or empty otherwise.
+	SecurityMode string
+	Realm        string
+	// IDMAP maps the accounts of directory domains to Unix IDs.
+	IDMAP []IDMAPDomain
+	// SystemdLog sends Samba's log to the journal instead of files.
+	SystemdLog bool
+}
+
+// IDMAPDomain is the Unix ID range of one directory domain.
+type IDMAPDomain struct {
+	Name    string // NetBIOS domain name
+	Backend string // rid, ad, autorid, tdb
+	Low     int
+	High    int
 }
 
 // ShareColumns lists the smb_shares columns in the order Scan expects.
@@ -91,13 +109,24 @@ func LoadEnabled(db *sql.DB) ([]Share, error) {
 	return shares, rows.Err()
 }
 
-// LoadOptions reads the global options from the settings table.
+// LoadOptions reads the global options: from the settings table, and the
+// directory membership from the system settings (set when a domain is
+// joined).
 func LoadOptions(db *sql.DB) Options {
 	var apple int
-	var extra string
-	db.QueryRow(`SELECT COALESCE(value,'0') FROM settings WHERE key='smb_time_machine'`).Scan(&apple) //nolint:errcheck
-	db.QueryRow(`SELECT COALESCE(value,'') FROM settings WHERE key='smb_extra_global'`).Scan(&extra)  //nolint:errcheck
-	return Options{NixOSManaged: IsNixOS(), AppleExtensions: apple == 1, ExtraGlobal: extra}
+	o := Options{SystemdLog: IsNixOS()}
+	db.QueryRow(`SELECT COALESCE(value,'0') FROM settings WHERE key='smb_time_machine'`).Scan(&apple)          //nolint:errcheck
+	db.QueryRow(`SELECT COALESCE(value,'') FROM settings WHERE key='smb_extra_global'`).Scan(&o.ExtraGlobal)   //nolint:errcheck
+	db.QueryRow(`SELECT COALESCE(value,'') FROM settings WHERE key='smb_workgroup'`).Scan(&o.Workgroup)        //nolint:errcheck
+	db.QueryRow(`SELECT COALESCE(value,'') FROM settings WHERE key='smb_server_string'`).Scan(&o.ServerString) //nolint:errcheck
+	o.AppleExtensions = apple == 1
+
+	st := nixwriter.Default().State()
+	o.SecurityMode, o.Realm = st.SambaSecurityMode, st.SambaRealm
+	for _, d := range st.IDMAPDomains {
+		o.IDMAP = append(o.IDMAP, IDMAPDomain{Name: d.Name, Backend: d.Backend, Low: d.Low, High: d.High})
+	}
+	return o
 }
 
 // IsNixOS reports whether this host is NixOS (same check as nixwriter).
@@ -132,52 +161,126 @@ func TimeMachineShares(shares []Share) []string {
 	return names
 }
 
+var (
+	workgroupRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,14}$`)
+	realmRe     = regexp.MustCompile(`^[A-Za-z0-9]([A-Za-z0-9.-]{0,253}[A-Za-z0-9])?$`)
+)
+
+// ValidWorkgroup reports whether s can be a workgroup (NetBIOS domain) name.
+func ValidWorkgroup(s string) bool { return workgroupRe.MatchString(s) }
+
 // Render produces the configuration file content.
 func Render(o Options, shares []Share) string {
 	apple := AppleEnabled(o, shares)
 	var b strings.Builder
 
-	if o.NixOSManaged {
-		b.WriteString("# Managed by dplaned: share stanzas only. [global] is owned by NixOS\n")
-		b.WriteString("# (modules/samba.nix), which includes this file.\n\n")
+	workgroup := strings.ToUpper(o.Workgroup)
+	if !ValidWorkgroup(workgroup) {
+		workgroup = "WORKGROUP"
+	}
+	serverString := Sanitize(o.ServerString)
+	if serverString == "" {
+		serverString = "DPlaneOS NAS"
+	}
+	ads := o.SecurityMode == "ads" && realmRe.MatchString(o.Realm)
+	guest := false
+	for _, s := range shares {
+		guest = guest || s.GuestOK
+	}
+
+	b.WriteString("# Written by DPlaneOS from its database. Changes made here are overwritten;\n")
+	b.WriteString("# use the web interface (Shares).\n\n")
+	b.WriteString("[global]\n")
+	fmt.Fprintf(&b, "   workgroup = %s\n", workgroup)
+	fmt.Fprintf(&b, "   server string = %s\n", serverString)
+	if ads {
+		b.WriteString("   security = ads\n")
+		fmt.Fprintf(&b, "   realm = %s\n", strings.ToUpper(o.Realm))
+		b.WriteString("   kerberos method = secrets and keytab\n")
+		b.WriteString("   winbind use default domain = yes\n")
+		b.WriteString("   winbind refresh tickets = yes\n")
+		b.WriteString("   winbind offline logon = yes\n")
+		b.WriteString("   template shell = /run/current-system/sw/bin/nologin\n")
 	} else {
-		b.WriteString("[global]\n")
-		b.WriteString("   workgroup = WORKGROUP\n")
-		b.WriteString("   server string = DPlaneOS NAS\n")
 		b.WriteString("   security = user\n")
+	}
+	b.WriteString("   passdb backend = tdbsam\n")
+	// A share with guest access needs unknown users mapped to the guest
+	// account; without such a share nobody gets in without a password.
+	if guest {
 		b.WriteString("   map to guest = Bad User\n")
+	} else {
+		b.WriteString("   map to guest = Never\n")
+	}
+	b.WriteString("   server min protocol = SMB2\n")
+	b.WriteString("   unix charset = UTF-8\n")
+	if o.SystemdLog {
+		b.WriteString("   logging = systemd\n")
+	} else {
 		b.WriteString("   log file = /var/log/samba/log.%m\n")
 		b.WriteString("   max log size = 1000\n")
-		if apple {
-			b.WriteString("   # macOS support (Apple SMB2 extensions)\n")
-			b.WriteString("   fruit:model = MacSamba\n")
-			b.WriteString("   fruit:posix_rename = yes\n")
-			b.WriteString("   fruit:nfs_aces = no\n")
-		}
-		if o.ExtraGlobal != "" {
-			b.WriteString("   # Custom global parameters\n")
-			for _, line := range strings.Split(o.ExtraGlobal, "\n") {
-				t := strings.TrimSpace(line)
-				if t == "" {
-					continue
-				}
-				// Block directives that could escape [global] or pull in other files.
-				if strings.Contains(strings.ToLower(t), "include") || strings.Contains(t, "[") {
-					continue
-				}
-				b.WriteString("   " + t + "\n")
-			}
-		}
-		b.WriteString("\n")
 	}
+	b.WriteString("   log level = 1\n")
+	b.WriteString("   use sendfile = yes\n")
+	// No printers.
+	b.WriteString("   load printers = no\n")
+	b.WriteString("   printing = bsd\n")
+	b.WriteString("   printcap name = /dev/null\n")
+	b.WriteString("   disable spoolss = yes\n")
+
+	// Unix IDs of accounts that are not local: the default range, and one
+	// range per directory domain. Local users have IDs below 3000
+	// (internal/fileaccounts).
+	b.WriteString("   idmap config * : backend = tdb\n")
+	b.WriteString("   idmap config * : range = 3000-7999\n")
+	if ads {
+		domains := o.IDMAP
+		named := false
+		for _, d := range domains {
+			named = named || d.Name != "*"
+		}
+		if !named {
+			domains = append(domains, IDMAPDomain{Name: workgroup, Backend: "rid", Low: 10000, High: 999999})
+		}
+		for _, d := range domains {
+			name := strings.ToUpper(d.Name)
+			if d.Name == "*" || !ValidWorkgroup(name) || d.Low < 8000 || d.High <= d.Low {
+				continue
+			}
+			backend := d.Backend
+			switch backend {
+			case "rid", "ad", "autorid", "tdb":
+			default:
+				backend = "rid"
+			}
+			fmt.Fprintf(&b, "   idmap config %s : backend = %s\n", name, backend)
+			fmt.Fprintf(&b, "   idmap config %s : range = %d-%d\n", name, d.Low, d.High)
+		}
+	}
+	if apple {
+		b.WriteString("   # macOS support (Apple SMB2 extensions)\n")
+		b.WriteString("   fruit:model = MacSamba\n")
+		b.WriteString("   fruit:posix_rename = yes\n")
+		b.WriteString("   fruit:nfs_aces = no\n")
+	}
+	if o.ExtraGlobal != "" {
+		b.WriteString("   # Custom global parameters\n")
+		for _, line := range strings.Split(o.ExtraGlobal, "\n") {
+			t := strings.TrimSpace(line)
+			if t == "" {
+				continue
+			}
+			// Block directives that could escape [global] or pull in other files.
+			if strings.Contains(strings.ToLower(t), "include") || strings.Contains(t, "[") {
+				continue
+			}
+			b.WriteString("   " + t + "\n")
+		}
+	}
+	b.WriteString("\n")
 
 	for _, s := range shares {
 		renderShare(&b, s, apple)
-	}
-
-	if o.NixOSManaged {
-		b.WriteString("# Re-open [global] for the NixOS keys that follow the include line.\n")
-		b.WriteString("[global]\n")
 	}
 	return b.String()
 }

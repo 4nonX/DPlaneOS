@@ -37,6 +37,10 @@ interface FirewallStatus {
   success: boolean
   status:  'active' | 'inactive' | string
   rules?:  FirewallRule[]
+  /** Switched off here (as opposed to: failed to start). */
+  disabled?: boolean
+  /** Ports the system opens for its own services, e.g. "80/tcp". */
+  system_ports?: string[]
 }
 
 // ---------------------------------------------------------------------------
@@ -54,7 +58,7 @@ function StatusBanner({ active, onToggle, pending }: { active: boolean; onToggle
           Firewall {active ? 'Active' : 'Inactive'}
         </div>
         <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>
-          {active ? 'nftables rules are applied and protecting the system' : 'No firewall rules are active - all traffic is allowed'}
+          {active ? 'Everything is refused except the system services and the rules below' : 'The firewall is off - all traffic is allowed'}
         </div>
       </div>
       <button onClick={onToggle} disabled={pending} className={active ? 'btn btn-danger' : 'btn btn-primary'}>
@@ -69,7 +73,7 @@ function StatusBanner({ active, onToggle, pending }: { active: boolean; onToggle
 // AddRuleForm
 // ---------------------------------------------------------------------------
 
-function AddRuleForm({ onAdd, pending, autoReconcile, setAutoReconcile }: { onAdd: (rule: { action: string; port: string; from: string; proto: string }) => void; pending: boolean; autoReconcile: boolean; setAutoReconcile: (v: boolean) => void }) {
+function AddRuleForm({ onAdd, pending }: { onAdd: (rule: { action: string; port: string; from: string; proto: string }) => void; pending: boolean }) {
   const [action, setAction] = useState<'allow' | 'deny'>('allow')
   const [port,   setPort]   = useState('')
   const [from,   setFrom]   = useState('')
@@ -118,12 +122,6 @@ function AddRuleForm({ onAdd, pending, autoReconcile, setAutoReconcile }: { onAd
           <Icon name="add" size={15} />{pending ? 'Adding…' : 'Add Rule'}
         </button>
       </div>
-      <div style={{ marginTop: 12 }}>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>
-          <input type="checkbox" checked={autoReconcile} onChange={e => setAutoReconcile(e.target.checked)} />
-          Reconcile system immediately after adding (NixOS only)
-        </label>
-      </div>
     </div>
   )
 }
@@ -132,7 +130,7 @@ function AddRuleForm({ onAdd, pending, autoReconcile, setAutoReconcile }: { onAd
 // FirewallPage
 // ---------------------------------------------------------------------------
 
-function EditRuleModal({ rule, onClose, onSave, pending, autoReconcile, setAutoReconcile }: { rule: FirewallRule; onClose: () => void; onSave: (r: { action: string; port: string; from: string; proto: string }) => void; pending: boolean; autoReconcile: boolean; setAutoReconcile: (v: boolean) => void }) {
+function EditRuleModal({ rule, onClose, onSave, pending }: { rule: FirewallRule; onClose: () => void; onSave: (r: { action: string; port: string; from: string; proto: string }) => void; pending: boolean }) {
   const [action, setAction] = useState<'allow' | 'deny'>(rule.action)
   const [port,   setPort]   = useState(rule.port || '')
   const [from,   setFrom]   = useState(rule.from || '')
@@ -178,11 +176,6 @@ function EditRuleModal({ rule, onClose, onSave, pending, autoReconcile, setAutoR
             <span className="field-label">Source IP (optional)</span>
             <input value={from} onChange={e => setFrom(e.target.value)} placeholder="any" className="input" />
           </label>
-
-          <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', marginTop: 8 }}>
-            <input type="checkbox" checked={autoReconcile} onChange={e => setAutoReconcile(e.target.checked)} />
-            Apply changes to NixOS immediately
-          </label>
         </div>
 
         <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 24 }}>
@@ -203,17 +196,7 @@ function EditRuleModal({ rule, onClose, onSave, pending, autoReconcile, setAutoR
 export function FirewallPage() {
   const qc = useQueryClient()
   const [editingRule, setEditingRule] = useState<FirewallRule | null>(null)
-  const [autoReconcile, setAutoReconcile] = useState(false)
   const { confirm, ConfirmDialog } = useConfirm()
-
-  const diffQ = useQuery({
-    queryKey: ['nixos', 'diff-intent'],
-    queryFn: () => api.get<{ changes: Array<{ path: string; to: unknown; from: unknown }> }>('/api/nixos/diff-intent'),
-  })
-
-  const reconcileM = useMutation({
-    mutationFn: () => api.post('/api/nixos/reconcile', {}),
-  })
 
   const statusQ = useQuery({
     queryKey: ['firewall', 'status'],
@@ -225,45 +208,22 @@ export function FirewallPage() {
     mutationFn: (body: Record<string, unknown>) => api.post('/api/firewall/rule', body),
     onSuccess: async () => {
       qc.invalidateQueries({ queryKey: ['firewall', 'status'] })
-      qc.invalidateQueries({ queryKey: ['nixos', 'status'] })
-      qc.invalidateQueries({ queryKey: ['nixos', 'diff-intent'] })
-      
-      if (autoReconcile) {
-        toast.info('Rule staged. Triggering NixOS reconciliation...')
-        try {
-          await reconcileM.mutateAsync()
-          toast.success('Changes applied to kernel successfully')
-        } catch (e: unknown) {
-          toast.error(`Reconciliation failed: ${e instanceof Error ? e.message : String(e)}`)
-        }
-      } else {
-        toast.success('Rule staged in configuration. Remember to Reconcile to apply changes.')
-      }
+      toast.success('Firewall updated')
       setEditingRule(null)
-    },
-    onError: (e: Error) => toast.error(e.message),
-  })
-
-  const syncMut = useMutation({
-    mutationFn: () => api.post('/api/firewall/sync', {}),
-    onSuccess: () => {
-      toast.success('Firewall synced to NixOS configuration')
-      qc.invalidateQueries({ queryKey: ['nixos', 'status'] })
     },
     onError: (e: Error) => toast.error(e.message),
   })
 
   const isActive = statusQ.data?.status === 'active'
   const rules    = statusQ.data?.rules ?? []
+  const systemPorts = statusQ.data?.system_ports ?? []
 
   if (statusQ.isLoading) return <Skeleton height={320} />
   if (statusQ.isError)   return <ErrorState error={statusQ.error} onRetry={() => qc.invalidateQueries({ queryKey: ['firewall', 'status'] })} />
 
   function handleEditSave(updated: { action: string; port: string; from: string; proto: string }) {
     if (!editingRule) return
-    // To "edit" a ufw rule, we must delete the old one by ID and add the new one
-    // But since the backend SetRule for "delete" takes rule_num (id), we can do it in two steps
-    // or sequential mutations. For simplicity, we sequence them.
+    // Editing is deleting the rule and adding the changed one.
     rulesMut.mutateAsync({ action: 'delete', rule_num: editingRule.id }).then(() => {
       rulesMut.mutate({ action: updated.action, port: updated.port, from: updated.from || undefined, proto: updated.proto })
     })
@@ -277,14 +237,12 @@ export function FirewallPage() {
           onClose={() => setEditingRule(null)}
           onSave={handleEditSave}
           pending={rulesMut.isPending}
-          autoReconcile={autoReconcile}
-          setAutoReconcile={setAutoReconcile}
         />
       )}
 
       <div className="page-header">
         <h1 className="page-title">Firewall</h1>
-        <p className="page-subtitle">nftables rules - allow and deny traffic by port and source</p>
+        <p className="page-subtitle">Allow and deny traffic by port and source. Changes take effect immediately.</p>
       </div>
 
       <StatusBanner
@@ -296,19 +254,14 @@ export function FirewallPage() {
       <AddRuleForm
         onAdd={r => rulesMut.mutate({ action: r.action, port: r.port, from: r.from || undefined, proto: r.proto })}
         pending={rulesMut.isPending}
-        autoReconcile={autoReconcile}
-        setAutoReconcile={setAutoReconcile}
       />
 
       {/* Rules table */}
       <div style={{ marginBottom: 14, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <div style={{ fontWeight: 700 }}>Active Rules ({rules.length})</div>
+        <div style={{ fontWeight: 700 }}>Rules ({rules.length})</div>
         <div style={{ display: 'flex', gap: 8 }}>
           <button onClick={() => qc.invalidateQueries({ queryKey: ['firewall', 'status'] })} className="btn btn-ghost">
             <Icon name="refresh" size={14} />Refresh
-          </button>
-          <button onClick={() => syncMut.mutate()} disabled={syncMut.isPending} className="btn btn-ghost">
-            <Icon name="sync" size={14} />{syncMut.isPending ? 'Syncing…' : 'Sync to NixOS'}
           </button>
         </div>
       </div>
@@ -338,9 +291,6 @@ export function FirewallPage() {
                   </td>
                   <td style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-sm)', fontWeight: 600 }}>
                     {rule.port ?? '-'}
-                    {diffQ.data?.changes.find(c => c.path.includes('.tcp') && c.to == rule.port) && (
-                      <span className="badge badge-warning" style={{ fontSize: 8, marginLeft: 6 }}>STAGED</span>
-                    )}
                   </td>
                   <td style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>
                     {rule.from ?? 'any'}
@@ -373,6 +323,21 @@ export function FirewallPage() {
           <Icon name="shield" size={40} style={{ color: 'var(--text-tertiary)', opacity: 0.4 }} />
           <div style={{ color: 'var(--text-tertiary)', fontSize: 'var(--text-sm)' }}>No rules configured</div>
           <div style={{ color: 'var(--text-tertiary)', fontSize: 'var(--text-xs)' }}>Add a rule above to control traffic</div>
+        </div>
+      )}
+
+      {systemPorts.length > 0 && (
+        <div className="card" style={{ borderRadius: 'var(--radius-lg)', padding: '16px 22px', marginTop: 24 }}>
+          <div style={{ fontWeight: 700, marginBottom: 6 }}>System services</div>
+          <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', marginBottom: 12 }}>
+            Open for the system's own services (web interface, file sharing, SSH and what is switched on elsewhere).
+            A deny rule above closes one of them for a source.
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+            {systemPorts.map(p => (
+              <span key={p} className="badge badge-neutral" style={{ fontFamily: 'var(--font-mono)' }}>{p}</span>
+            ))}
+          </div>
         </div>
       )}
       <ConfirmDialog />

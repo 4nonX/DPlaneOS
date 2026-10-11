@@ -5,13 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"slices"
+	"strings"
 
+	"dplaned/internal/cmdutil"
 	"dplaned/internal/netconf"
 	"dplaned/internal/nixwriter"
 	"dplaned/internal/reconciler"
-	"strconv"
-	"strings"
 )
 
 // Package-level singletons injected by main.go at startup.
@@ -141,29 +140,34 @@ func persistDNS(servers, search []string) error {
 }
 
 // ── System settings ───────────────────────────────────────────────────────────
-// Elsewhere hostnamectl/timedatectl/timesyncd.conf persist these themselves.
-// On NixOS /etc/hostname, /etc/localtime and timesyncd.conf belong to the
-// system configuration (read-only, rewritten on rebuild), so the values go
-// into the JSON bridge (networking.hostName, time.timeZone,
-// services.timesyncd.servers) and apply on the next nixos-rebuild.
+// On an installed system the settings are saved in the system state file and
+// applied at once and at every boot (internal/sysapply); the system is an
+// image, nothing rebuilds it. Elsewhere hostnamectl, timedatectl and
+// timesyncd.conf do both.
 
-// onNixOS reports whether settings must be persisted through the NixOS bridge.
+// onNixOS reports whether settings go through the system state file.
 func onNixOS() bool { return NixWriter != nil && NixWriter.IsNixOS() }
 
-func persistHostname(name string) {
+// persistHostname sets the host name, now and for every boot.
+func persistHostname(name string) error {
 	if onNixOS() {
-		if err := NixWriter.SetHostname(name); err != nil {
-			log.Printf("[persist] SetHostname: %v", err)
-		}
+		return NixWriter.SetHostname(name)
 	}
+	if out, err := cmdutil.RunFast("hostnamectl", "set-hostname", name); err != nil {
+		return fmt.Errorf("hostnamectl: %v: %s", err, strings.TrimSpace(string(out)))
+	}
+	return nil
 }
 
-func persistTimezone(tz string) {
+// persistTimezone sets the time zone, now and for every boot.
+func persistTimezone(tz string) error {
 	if onNixOS() {
-		if err := NixWriter.SetTimezone(tz); err != nil {
-			log.Printf("[persist] SetTimezone: %v", err)
-		}
+		return NixWriter.SetTimezone(tz)
 	}
+	if out, err := cmdutil.RunFast("timedatectl", "set-timezone", tz); err != nil {
+		return fmt.Errorf("timedatectl: %v: %s", err, strings.TrimSpace(string(out)))
+	}
+	return nil
 }
 
 func persistNTP(servers []string) error {
@@ -175,9 +179,7 @@ func persistNTP(servers []string) error {
 	return nil
 }
 
-// ── NixOS-only: firewall and samba ───────────────────────────────────────────
-// These have no systemd equivalent and still require nixos-rebuild switch.
-// That is acceptable: firewall and samba global settings change rarely.
+// ── Samba ─────────────────────────────────────────────────────────────────────
 
 func persistSambaGlobals(db *sql.DB) {
 	if NixWriter == nil || !NixWriter.IsNixOS() {
@@ -207,75 +209,4 @@ func persistSambaGlobals(db *sql.DB) {
 		AllowGuest:   allowGuest == 1,
 		ExtraGlobal:  extraGlobal,
 	})
-}
-
-// persistFirewallFromRequest is called on every ufw rule change.
-// On NixOS it updates the NixWriter state with the new port lists.
-func persistFirewallFromRequest(action, portSpec string) {
-	if NixWriter == nil || !NixWriter.IsNixOS() {
-		return
-	}
-
-	// Parse port and protocol (e.g. "80", "80/tcp", "53/udp")
-	portStr := portSpec
-	proto := "tcp"
-	if strings.Contains(portSpec, "/") {
-		parts := strings.SplitN(portSpec, "/", 2)
-		portStr = parts[0]
-		proto = parts[1]
-	}
-	port, err := strconv.Atoi(portStr)
-	if err != nil {
-		log.Printf("[persist] invalid port spec: %s", portSpec)
-		return
-	}
-
-	state := NixWriter.State()
-	tcpPorts := state.FirewallTCP
-	udpPorts := state.FirewallUDP
-
-	modified := false
-	switch action {
-	case "allow":
-		if proto == "tcp" {
-			if !containsPort(tcpPorts, port) {
-				tcpPorts = append(tcpPorts, port)
-				modified = true
-			}
-		} else {
-			if !containsPort(udpPorts, port) {
-				udpPorts = append(udpPorts, port)
-				modified = true
-			}
-		}
-	case "deny", "delete":
-		if proto == "tcp" {
-			tcpPorts, modified = removePort(tcpPorts, port)
-		} else {
-			udpPorts, modified = removePort(udpPorts, port)
-		}
-	}
-
-	if modified {
-		if err := NixWriter.SetFirewallPorts(tcpPorts, udpPorts); err != nil {
-			log.Printf("[persist] SetFirewallPorts failed: %v", err)
-		}
-	}
-}
-
-func containsPort(ports []int, port int) bool {
-	return slices.Contains(ports, port)
-}
-
-func removePort(ports []int, port int) ([]int, bool) {
-	newPorts := []int{}
-	found := false
-	for _, p := range ports {
-		if p == port {
-			found = true
-			continue
-		}
-		newPorts = append(newPorts, p)
-	}
-	return newPorts, found
 }

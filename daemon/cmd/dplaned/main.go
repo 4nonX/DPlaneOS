@@ -46,6 +46,7 @@ import (
 	"dplaned/internal/scram"
 	"dplaned/internal/secrets"
 	"dplaned/internal/security"
+	"dplaned/internal/sysapply"
 	"dplaned/internal/websocket"
 	"dplaned/internal/zfs"
 	"github.com/gorilla/mux"
@@ -76,7 +77,19 @@ func main() {
 	ceTokenFile := flag.String("ce-token-file", "", "Path to Compliance Engine API token file (Phase 6.2)")
 	initOnly := flag.Bool("init-only", false, "Initialize database schema and exit")
 	showVersion := flag.Bool("version", false, "Print version and exit")
+	applySystemSettings := flag.Bool("apply-system-settings", false, "Apply the saved system settings (host name, time zone, NTP, tuning, firewall ports) and exit. Run at boot by dplaneos-system-settings.service.")
 	flag.Parse()
+
+	if *applySystemSettings {
+		w := nixwriter.Default()
+		if err := w.LoadFromDisk(); err != nil {
+			log.Fatalf("system settings: %v", err)
+		}
+		if err := (sysapply.Env{}).Apply(w.State()); err != nil {
+			log.Fatalf("system settings: %v", err)
+		}
+		os.Exit(0)
+	}
 
 	if *showVersion {
 		fmt.Printf("DPlaneOS v%s\n", Version)
@@ -311,7 +324,14 @@ func main() {
 	//   - networking.firewall (firewall ports)
 	//   - services.dplaneos.samba (samba globals)
 	nixWriter := nixwriter.DefaultWriter()
-	_ = nixWriter.LoadFromDisk()
+	// System settings take effect when they are saved, and now (the boot
+	// service ran before the ZFS module and the firewall were there).
+	nixwriter.Apply = func(st nixwriter.DPlaneState) error { return (sysapply.Env{}).Apply(st) }
+	if nixWriter.IsNixOS() {
+		if err := nixwriter.Apply(nixWriter.State()); err != nil {
+			log.Printf("WARNING: system settings: %v", err)
+		}
+	}
 	if nixWriter.IsNixOS() {
 		log.Printf("NixOS detected - JSON state writer active: %s", nixwriter.StateJSONPath)
 	}
@@ -519,6 +539,26 @@ func main() {
 	// known pool whose disks came back, replacement suggestions).
 	handlers.StartDiskEventListener(daemonCtx)
 	handlers.StartDiskRegistrySync(daemonCtx, db, 2*time.Minute)
+
+	// The system settings are applied again every ten minutes: a renewed
+	// certificate reaches nginx, and anything changed behind the daemon's
+	// back (a flushed firewall rule file, a kernel value) is put right.
+	go func() {
+		t := time.NewTicker(10 * time.Minute)
+		defer t.Stop()
+		for {
+			select {
+			case <-daemonCtx.Done():
+				return
+			case <-t.C:
+				if nixWriter.IsNixOS() {
+					if err := nixwriter.Apply(nixWriter.State()); err != nil {
+						log.Printf("WARNING: system settings: %v", err)
+					}
+				}
+			}
+		}
+	}()
 
 	// Unix and Samba accounts of the users (SMB and FTP sign-in, file ownership).
 	fileaccounts.Start(db, daemonCtx.Done())
@@ -1352,7 +1392,6 @@ func main() {
 	r.Handle("/api/firewall/status", permRoute("firewall", "read", firewallHandler.GetStatus)).Methods("GET")
 	r.Handle("/api/firewall/rule", permRoute("firewall", "write", firewallHandler.SetRule)).Methods("POST")
 	// NixOS only: sync full port list to dplane-generated.nix
-	r.Handle("/api/firewall/sync", permRoute("firewall", "write", firewallHandler.SyncFirewallToNix)).Methods("POST")
 
 	// SSL/TLS Certificates (v2.0.0)
 	certHandler := handlers.NewCertHandler()

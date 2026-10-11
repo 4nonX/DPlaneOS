@@ -22,29 +22,99 @@ func stanza(conf, name string) string {
 	return rest
 }
 
-func TestRenderNixOSSharesOnly(t *testing.T) {
-	conf := Render(Options{NixOSManaged: true}, []Share{share("data")})
-	if strings.HasPrefix(conf, "[global]") || strings.Contains(conf, "security =") || strings.Contains(conf, "workgroup =") {
-		t.Errorf("NixOS-managed output must not set global keys:\n%s", conf)
+func global(conf string) string {
+	start := strings.Index(conf, "[global]\n")
+	if start < 0 {
+		return ""
 	}
-	if !strings.HasSuffix(conf, "[global]\n") {
-		t.Errorf("NixOS-managed output must end by re-opening [global]:\n%s", conf)
+	rest := conf[start:]
+	if end := strings.Index(rest, "\n["); end >= 0 {
+		rest = rest[:end]
+	}
+	return rest
+}
+
+func TestRenderGlobal(t *testing.T) {
+	conf := Render(Options{ExtraGlobal: "server min protocol = SMB3\ninclude = /etc/evil\n[x]"}, []Share{share("data")})
+	g := global(conf)
+	for _, want := range []string{
+		"workgroup = WORKGROUP\n", "server string = DPlaneOS NAS\n", "security = user\n", "map to guest = Never\n",
+		"passdb backend = tdbsam\n", "idmap config * : range = 3000-7999\n", "server min protocol = SMB3\n",
+	} {
+		if !strings.Contains(g, want) {
+			t.Errorf("[global] lacks %q:\n%s", want, g)
+		}
+	}
+	if strings.Contains(conf, "/etc/evil") || strings.Contains(conf, "[x]") {
+		t.Error("dangerous extra global lines must be dropped")
+	}
+	if strings.Contains(g, "realm") || strings.Contains(g, "winbind") {
+		t.Errorf("directory settings without a directory:\n%s", g)
 	}
 	if !strings.Contains(stanza(conf, "data"), "path = /tank/data") {
 		t.Errorf("share stanza missing:\n%s", conf)
 	}
+	// Nothing after the shares: the file is the whole configuration.
+	if strings.Count(conf, "[global]") != 1 {
+		t.Errorf("more than one [global]:\n%s", conf)
+	}
 }
 
-func TestRenderStandaloneHasGlobal(t *testing.T) {
-	conf := Render(Options{ExtraGlobal: "server min protocol = SMB3\ninclude = /etc/evil\n[x]"}, []Share{share("data")})
-	if !strings.HasPrefix(conf, "[global]\n") {
-		t.Fatalf("standalone output must start with [global]:\n%s", conf)
+func TestGlobalSettings(t *testing.T) {
+	g := global(Render(Options{Workgroup: "office", ServerString: "Files\n[evil]", SystemdLog: true}, nil))
+	if !strings.Contains(g, "workgroup = OFFICE\n") || !strings.Contains(g, "logging = systemd\n") {
+		t.Errorf("settings not rendered:\n%s", g)
 	}
-	if !strings.Contains(conf, "server min protocol = SMB3") {
-		t.Error("extra global parameter missing")
+	if strings.Contains(g, "\n[evil]") {
+		t.Errorf("server string injection:\n%s", g)
 	}
-	if strings.Contains(conf, "/etc/evil") || strings.Contains(conf, "[x]") {
-		t.Error("dangerous extra global lines must be dropped")
+	// An unusable workgroup falls back instead of breaking the file.
+	if g := global(Render(Options{Workgroup: "bad name\n[x]"}, nil)); !strings.Contains(g, "workgroup = WORKGROUP\n") {
+		t.Errorf("invalid workgroup rendered:\n%s", g)
+	}
+}
+
+// A share with guest access only works when unknown users are mapped to
+// the guest account.
+func TestGuestShareEnablesGuestMapping(t *testing.T) {
+	pub := share("public")
+	pub.GuestOK = true
+	conf := Render(Options{}, []Share{share("private"), pub})
+	if !strings.Contains(global(conf), "map to guest = Bad User\n") {
+		t.Errorf("guest share without guest mapping:\n%s", global(conf))
+	}
+	if !strings.Contains(stanza(conf, "public"), "guest ok = yes") || strings.Contains(stanza(conf, "private"), "guest ok") {
+		t.Errorf("guest ok on the wrong share:\n%s", conf)
+	}
+}
+
+func TestDirectoryMember(t *testing.T) {
+	g := global(Render(Options{Workgroup: "corp", SecurityMode: "ads", Realm: "corp.example.com"}, nil))
+	for _, want := range []string{
+		"security = ads\n", "realm = CORP.EXAMPLE.COM\n", "kerberos method = secrets and keytab\n",
+		"idmap config * : range = 3000-7999\n", "idmap config CORP : backend = rid\n", "idmap config CORP : range = 10000-999999\n",
+	} {
+		if !strings.Contains(g, want) {
+			t.Errorf("[global] lacks %q:\n%s", want, g)
+		}
+	}
+	g = global(Render(Options{Workgroup: "corp", SecurityMode: "ads", Realm: "corp.example.com", IDMAP: []IDMAPDomain{
+		{Name: "*", Backend: "tdb", Low: 3000, High: 7999},
+		{Name: "corp", Backend: "rid", Low: 100000, High: 199999},
+		{Name: "partner", Backend: "weird", Low: 200000, High: 299999},
+		{Name: "overlap", Backend: "rid", Low: 1000, High: 2000}, // would collide with local users
+	}}, nil))
+	for _, want := range []string{"idmap config CORP : range = 100000-199999\n", "idmap config PARTNER : backend = rid\n"} {
+		if !strings.Contains(g, want) {
+			t.Errorf("[global] lacks %q:\n%s", want, g)
+		}
+	}
+	if strings.Contains(g, "OVERLAP") || strings.Count(g, "idmap config * : range") != 1 {
+		t.Errorf("unsafe or duplicate ID ranges:\n%s", g)
+	}
+	// A realm that is not one keeps the server out of directory mode.
+	if g := global(Render(Options{SecurityMode: "ads", Realm: "x\nsecurity = share"}, nil)); !strings.Contains(g, "security = user\n") {
+		t.Errorf("invalid realm:\n%s", g)
 	}
 }
 
@@ -59,7 +129,7 @@ func TestPerShareOptions(t *testing.T) {
 	docs.HostsDeny = "ALL"
 	plain := share("plain")
 
-	conf := Render(Options{NixOSManaged: true}, []Share{tm, docs, plain})
+	conf := Render(Options{}, []Share{tm, docs, plain})
 
 	m := stanza(conf, "macs")
 	for _, want := range []string{"vfs objects = catia fruit streams_xattr\n", "fruit:time machine = yes", "fruit:time machine max size = 500G"} {
@@ -108,7 +178,7 @@ func TestSanitizationAndValidation(t *testing.T) {
 	evil.TimeMachineQuota = "lots"
 	evil.TimeMachine = true
 	evil.CreateMask = "0777\n[y]"
-	conf := Render(Options{NixOSManaged: true}, []Share{evil})
+	conf := Render(Options{}, []Share{evil})
 	s := stanza(conf, "x")
 	if strings.Contains(s, "\n[") || strings.Contains(s, "security = share") {
 		t.Errorf("comment injection not neutralised:\n%s", conf)

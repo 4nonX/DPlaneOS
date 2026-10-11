@@ -1,48 +1,15 @@
 # nixos/modules/samba.nix
 # ─────────────────────────────────────────────────────────────────────────────
-# DPlaneOS Samba Integration Module
+# DPlaneOS Samba integration
 #
-# ARCHITECTURE PROBLEM THIS SOLVES:
-#
-#   Before: DPlaneOS wrote directly to /etc/samba/smb.conf (imperative).
-#           NixOS doesn't know about this file, so every nixos-rebuild
-#           regenerates smb.conf from scratch, wiping all UI-configured shares.
-#
-#   After:  NixOS OWNS Samba via services.samba. It writes the [global]
-#           section and then appends:
-#               include = /var/lib/dplaneos/smb-shares.conf
-#           DPlaneOS writes ONLY the per-share stanzas into that file.
-#           On rebuild: NixOS regenerates [global], DPlaneOS's shares survive.
-#
-# TWO-LAYER SPLIT:
-#
-#   NixOS layer (this file) : owns:
-#     • services.samba.enable
-#     • [global] section (workgroup, security, logging, VFS globals)
-#     • include = /var/lib/dplaneos/smb-shares.conf
-#     • Firewall ports (445, 139, 137/udp, 138/udp)
-#     • systemd service ordering (after ZFS, after dplaned)
-#     • passdb backend (tdbsam - persisted via impermanence.nix)
-#
-#   DPlaneOS layer (/var/lib/dplaneos/smb-shares.conf) : owns:
-#     • Every [share-name] stanza
-#     • Per-share path, permissions, valid users, VFS objects
-#     • Written atomically by daemon on every share create/update/delete
-#
-# USAGE:
-#   In configuration.nix or flake.nix:
-#     imports = [
-#       ./dplane-generated.nix          # network config
-#       ./modules/samba.nix             # samba module
-#     ];
-#     services.dplaneos.samba.enable = true;
-#
-#   Or with full options:
-#     services.dplaneos.samba = {
-#       enable    = true;
-#       workgroup = "MYCOMPANY";
-#       timeMachine = true;
-#     };
+# The system provides Samba (smbd, nmbd, winbindd), its firewall ports, the
+# Bonjour advertisement and the NSS hook for directory users. The
+# configuration itself is not part of the system: the daemon writes the
+# complete smb.conf (internal/smbconf: [global] from the settings, one
+# section per share) to /var/lib/dplaneos/smb-shares.conf, and
+# /etc/samba/smb.conf is a link to that file. Every setting of the Shares
+# page and joining a directory domain therefore take effect when they are
+# made, without rebuilding anything.
 # ─────────────────────────────────────────────────────────────────────────────
 
 { config, lib, pkgs, ... }:
@@ -50,112 +17,15 @@
 let
   cfg = config.services.dplaneos.samba;
 
-  # Path the DPlaneOS daemon writes per-share stanzas to.
-  # Passed to dplaned via: --smb-conf /var/lib/dplaneos/smb-shares.conf
-  sharesConfPath = "/var/lib/dplaneos/smb-shares.conf";
-
-  # The [global] section is fully owned by NixOS.
-  # It is rendered here from options - never touched by the daemon.
-  globalSection = ''
-    [global]
-       workgroup = ${cfg.workgroup}
-       server string = ${cfg.serverString}
-       netbios name = ${cfg.netbiosName}
-
-       # Authentication
-       security = user
-       passdb backend = tdbsam
-       map to guest = ${if cfg.allowGuest then "Bad User" else "Never"}
-       ${lib.optionalString cfg.allowGuest "guest account = nobody"}
-
-       # Protocol : SMB2/3 only (SMB1 disabled, security risk)
-       server min protocol = SMB2
-       server max protocol = SMB3
-
-       # Character encoding
-       unix charset = UTF-8
-       dos charset = CP850
-
-       # Logging (NixOS journal, not a file : use: journalctl -u smbd)
-       logging = systemd
-       log level = 1
-
-       # Performance
-       socket options = TCP_NODELAY IPTOS_LOWDELAY SO_RCVBUF=131072 SO_SNDBUF=131072
-       read raw = yes
-       write raw = yes
-       use sendfile = yes
-
-       ${lib.optionalString cfg.timeMachine ''
-       # macOS Time Machine (Bonjour/mDNS advertisement)
-       fruit:metadata = stream
-       fruit:model = MacSamba
-       fruit:posix_rename = yes
-       fruit:veto_appledouble = no
-       fruit:nfs_aces = no
-       fruit:wipe_intentionally_left_blank_rfork = yes
-       fruit:delete_empty_adfiles = yes
-       vfs objects = catia fruit streams_xattr
-       ''}
-
-       ${lib.optionalString (cfg.extraGlobalConfig != "") ''
-       # Extra global config (from DPlaneOS settings UI)
-       ${cfg.extraGlobalConfig}
-       ''}
-
-       # Include DPlaneOS share definitions (written by web UI)
-       # This line is the bridge: NixOS owns [global], daemon owns share stanzas.
-       include = ${sharesConfPath}
-  '';
-
-in {
-
-  # ── Option declarations ─────────────────────────────────────────────────────
-
+  # The smb.conf the daemon writes (dplaned -smb-conf).
+  confPath = "/var/lib/dplaneos/smb-shares.conf";
+in
+{
   options.services.dplaneos.samba = {
-
     enable = lib.mkOption {
       type        = lib.types.bool;
       default     = true;
       description = "Enable DPlaneOS Samba (SMB) integration. Samba is a core NAS feature and is enabled by default.";
-    };
-
-    workgroup = lib.mkOption {
-      type    = lib.types.str;
-      default = "WORKGROUP";
-      description = "SMB workgroup name. Change to match your Windows domain if applicable.";
-      example = "MYCOMPANY";
-    };
-
-    serverString = lib.mkOption {
-      type    = lib.types.str;
-      default = "DPlaneOS NAS";
-      description = "Samba server description shown in network browsers.";
-    };
-
-    netbiosName = lib.mkOption {
-      type    = lib.types.str;
-      default = config.networking.hostName;
-      description = "NetBIOS name. Defaults to the system hostname.";
-    };
-
-    allowGuest = lib.mkOption {
-      type    = lib.types.bool;
-      default = false;
-      description = ''
-        Allow guest (unauthenticated) access to shares marked guest ok = yes.
-        Disabled by default - guest access is a security risk on production NAS.
-      '';
-    };
-
-    timeMachine = lib.mkOption {
-      type    = lib.types.bool;
-      default = false;
-      description = ''
-        Enable macOS Time Machine support (Bonjour advertisement + fruit VFS).
-        Set to true if any Macs will back up to this NAS.
-        Corresponds to the "Time Machine" toggle in the DPlaneOS Shares UI.
-      '';
     };
 
     openFirewall = lib.mkOption {
@@ -164,219 +34,72 @@ in {
       description = "Open Samba ports in the NixOS firewall (TCP 445, 139; UDP 137, 138).";
     };
 
-    extraGlobalConfig = lib.mkOption {
-      type    = lib.types.lines;
-      default = "";
-      description = ''
-        Extra lines appended verbatim to the [global] section.
-        Corresponds to the "Extra Global Parameters" field in the Shares UI.
-        This value should be set programmatically by the DPlaneOS settings
-        handler, not edited by hand.
-      '';
-    };
-
-    securityMode = lib.mkOption {
-      type = lib.types.enum [ "user" "ads" ];
-      default = "user";
-      description = "Samba security mode (security = ...)";
-    };
-    realm = lib.mkOption {
-      type = lib.types.nullOr lib.types.str;
-      default = null;
-      description = "Active Directory Realm (AD only)";
-    };
-    domainController = lib.mkOption {
-      type = lib.types.nullOr lib.types.str;
-      default = null;
-      description = "Active Directory Domain Controller (AD only)";
-    };
-
-    idmapDomains = lib.mkOption {
-      type = lib.types.listOf (lib.types.submodule {
-        options = {
-          name    = lib.mkOption { type = lib.types.str; description = "Domain short name or \"*\" for catch-all"; };
-          backend = lib.mkOption { type = lib.types.enum [ "rid" "ad" "tdb" "autorid" ]; default = "rid"; };
-          low     = lib.mkOption { type = lib.types.int; default = 10000; };
-          high    = lib.mkOption { type = lib.types.int; default = 999999; };
-        };
-      });
-      default = [];
-      description = ''
-        Per-forest UID/GID range mappings. Each entry generates:
-          idmap config <name> : backend = <backend>
-          idmap config <name> : range   = <low>-<high>
-        A "*" entry for the catch-all backend is added automatically when
-        this list is empty; override it by including a "*" entry here.
-      '';
-    };
-
     sharesConfPath = lib.mkOption {
-      type    = lib.types.path;
-      default = sharesConfPath;
+      type     = lib.types.path;
+      default  = confPath;
       readOnly = true;
       description = ''
-        Path where the DPlaneOS daemon writes per-share SMB stanzas.
-        This is the file passed to dplaned via --smb-conf.
-        Read-only - changing this would desync the daemon and NixOS.
+        Where the DPlaneOS daemon writes smb.conf (passed to it as -smb-conf).
+        Read-only: changing it would separate the daemon from Samba.
       '';
     };
-
   };
-
-  # ── Implementation ──────────────────────────────────────────────────────────
 
   config = lib.mkIf cfg.enable {
 
-    # ── Samba service ─────────────────────────────────────────────────────────
-    # NixOS services.samba manages smbd/nmbd/winbindd lifetimes, the
-    # passdb backend, and the main smb.conf.
-    # We hand it the [global] section we built above.
     services.samba = {
-      enable = true;
-      package = pkgs.samba;
-      # openFirewall handled below so we can also open UDP ports
-      openFirewall = false;
-
-      # Use our rendered config. services.samba writes this to
-      # /etc/samba/smb.conf at activation time.
-      # The "include = ..." line at the bottom pulls in daemon-managed shares.
-      settings = let
-        # Build "idmap config <name> : backend/range" attrs from cfg.idmapDomains.
-        # When idmapDomains is empty, keep legacy hardcoded defaults so existing
-        # installs that have not configured multi-forest IDMAP are unaffected.
-        defaultIdmap = {
-          "idmap config * : backend" = "tdb";
-          "idmap config * : range"   = "3000-7999";
-          "idmap config ${cfg.workgroup} : backend" = "rid";
-          "idmap config ${cfg.workgroup} : range"   = "10000-999999";
-        };
-        domainIdmap = lib.foldl' (acc: d: acc // {
-          "idmap config ${d.name} : backend" = d.backend;
-          "idmap config ${d.name} : range"   = "${toString d.low}-${toString d.high}";
-        }) {} cfg.idmapDomains;
-        idmapAttrs = if cfg.idmapDomains == [] then defaultIdmap else domainIdmap;
-        # AD-specific settings: only included when securityMode == "ads".
-        # lib.mkIf is NOT valid inside settings values (services.samba.settings
-        # expects plain str/bool/int); use lib.optionalAttrs at the attrset level.
-        adAttrs = lib.optionalAttrs (cfg.securityMode == "ads") ({
-          "kerberos method"            = "secrets and keytab";
-          "winbind use default domain" = "yes";
-          "winbind offline logon"      = "yes";
-        } // lib.optionalAttrs (cfg.realm != null) {
-          "realm" = lib.toUpper (toString cfg.realm);
-        });
-      in {
-        global = {
-          "workgroup"           = cfg.workgroup;
-          "server string"       = cfg.serverString;
-          "security"            = cfg.securityMode;
-          "passdb backend"      = if cfg.securityMode == "ads" then "secrets" else "tdbsam";
-          "map to guest"        = if cfg.allowGuest then "Bad User" else "Never";
-          "server min protocol" = "SMB2";
-          "server max protocol" = "SMB3";
-          "unix charset"        = "UTF-8";
-          "dos charset"         = "CP850";
-          "logging"             = "systemd";
-          "log level"           = "1";
-          "socket options"      = "TCP_NODELAY IPTOS_LOWDELAY SO_RCVBUF=131072 SO_SNDBUF=131072";
-          "read raw"            = "yes";
-          "write raw"           = "yes";
-          "use sendfile"        = "yes";
-          # ── THE BRIDGE LINE ───────────────────────────────────────────────
-          # NixOS writes the [global] section; DPlaneOS writes the shares.
-          # This include makes NixOS aware of DPlaneOS's share stanzas
-          # without giving the daemon ownership of the whole smb.conf.
-          "include"             = sharesConfPath;
-        } // idmapAttrs // adAttrs
-          # Without a name here Samba uses the system's host name, which the
-          # web interface can change at any time.
-          // lib.optionalAttrs (cfg.netbiosName != "") { "netbios name" = cfg.netbiosName; }
-          // lib.optionalAttrs cfg.timeMachine {
-          "fruit:metadata"                        = "stream";
-          "fruit:model"                           = "MacSamba";
-          "fruit:posix_rename"                    = "yes";
-          "fruit:veto_appledouble"                = "no";
-          "fruit:nfs_aces"                        = "no";
-          "fruit:wipe_intentionally_left_blank_rfork" = "yes";
-          "fruit:delete_empty_adfiles"            = "yes";
-          "vfs objects"                           = "catia fruit streams_xattr";
-        };
-      };
+      enable       = true;
+      package      = pkgs.samba;
+      openFirewall = false;   # below, with the UDP ports
     };
 
-    # Note: winbind is embedded in pkgs.samba and started automatically by
-    # smbd when securityMode = "ads". There is no separate services.winbind
-    # NixOS module in nixpkgs 25.11 - do not reference it.
+    # Samba reads the daemon's file. (services.samba would write a file of
+    # its own here; it is replaced, not merged: two sources for [global]
+    # could contradict each other.)
+    environment.etc."samba/smb.conf".source = lib.mkForce confPath;
 
-    # ── NSS integration for AD user/group name resolution ─────────────────────
-    # Without this, tools like `ls -l`, `id`, `stat`, and file ACL display show
-    # numeric UIDs for AD users. `system.nssModules` ensures libnss_winbind.so
-    # is available; `system.nssDatabases` appends "winbind" to passwd and group
-    # in /etc/nsswitch.conf so NSS lookups resolve AD identities.
-    system.nssModules = lib.optional (cfg.securityMode == "ads") pkgs.samba;
-    system.nssDatabases = lib.mkIf (cfg.securityMode == "ads") {
+    # A configuration must exist before Samba starts for the first time;
+    # the daemon replaces it as soon as it runs.
+    systemd.services.dplaneos-smb-conf = {
+      description = "Initial Samba configuration";
+      before      = [ "samba-smbd.service" "samba-nmbd.service" "samba-winbindd.service" ];
+      requiredBy  = [ "samba-smbd.service" "samba-nmbd.service" "samba-winbindd.service" ];
+      unitConfig.RequiresMountsFor = "/var/lib/dplaneos";
+      serviceConfig = { Type = "oneshot"; RemainAfterExit = true; };
+      script = ''
+        conf=${confPath}
+        ${pkgs.coreutils}/bin/mkdir -p "$(${pkgs.coreutils}/bin/dirname "$conf")"
+        if [ ! -s "$conf" ] || ! ${pkgs.gnugrep}/bin/grep -q '^\[global\]' "$conf"; then
+          ${pkgs.coreutils}/bin/cat > "$conf.new" <<'EOF'
+        # Initial configuration; DPlaneOS replaces this file from its database.
+        [global]
+           workgroup = WORKGROUP
+           server string = DPlaneOS NAS
+           security = user
+           passdb backend = tdbsam
+           map to guest = Never
+           server min protocol = SMB2
+           logging = systemd
+           load printers = no
+           printing = bsd
+           printcap name = /dev/null
+           disable spoolss = yes
+           idmap config * : backend = tdb
+           idmap config * : range = 3000-7999
+        EOF
+          ${pkgs.coreutils}/bin/mv "$conf.new" "$conf"
+        fi
+      '';
+    };
+
+    # Users and groups of a directory domain resolve through winbind once
+    # the system has joined one (without a domain winbind has none to offer).
+    system.nssModules   = [ pkgs.samba ];
+    system.nssDatabases = {
       passwd = lib.mkAfter [ "winbind" ];
       group  = lib.mkAfter [ "winbind" ];
     };
 
-    # ── Kerberos ──────────────────────────────────────────────────────────────
-    security.krb5 = lib.mkIf (cfg.securityMode == "ads" && cfg.realm != null) {
-      enable = true;
-      settings = {
-        libdefaults.default_realm = if cfg.realm != null then lib.toUpper cfg.realm else "";
-        realms = if (cfg.realm != null) then {
-          "${lib.toUpper cfg.realm}" = {
-            kdc = cfg.domainController;
-            admin_server = cfg.domainController;
-          };
-        } else {};
-      };
-    };
-
-    # ── Ensure the shares config file exists before smbd starts ──────────────
-    # smbd will refuse to start if the include target is missing.
-    # We create an empty-but-valid stub; the daemon will populate it.
-    systemd.services.dplaneos-smb-shares-stub = {
-      description = "DPlaneOS Samba shares config stub";
-      # Must run before smbd starts, after the persist directory is mounted
-      # NixOS names the unit samba-smbd; ordering on "smbd.service" is
-      # silently ignored by systemd.
-      before  = [ "samba-smbd.service" ];
-      wantedBy = [ "samba-smbd.service" ];
-      serviceConfig = {
-        Type            = "oneshot";
-        RemainAfterExit = true;
-        ExecStart = pkgs.writeShellScript "smb-stub" ''
-          set -e
-          CONF="${sharesConfPath}"
-          DIR="$(dirname "$CONF")"
-          mkdir -p "$DIR"
-          if [ ! -f "$CONF" ]; then
-            echo "# DPlaneOS per-share SMB config"              >  "$CONF"
-            echo "# Written by DPlaneOS daemon on share changes" >> "$CONF"
-            echo "# DO NOT EDIT - changes will be overwritten"    >> "$CONF"
-            echo ""                                               >> "$CONF"
-            echo "# (no shares configured yet)"                  >> "$CONF"
-            echo "Created $CONF stub"
-          fi
-        '';
-      };
-    };
-
-    # ── smbd ordering: after DPlaneOS daemon has written the shares file ─────
-    # dplaned writes smb-shares.conf at startup (it reads the DB and rewrites
-    # the file to match). We want smbd to start AFTER that write.
-    systemd.services.smbd = {
-      after  = [ "dplaned.service" "dplaneos-smb-shares-stub.service" ];
-      wants  = [ "dplaneos-smb-shares-stub.service" ];
-    };
-
-    # ── Also make dplaned reload samba when it changes the shares file ────────
-    # dplaned calls `smbcontrol all reload-config` after writing the file.
-    # Ensure dplaned can run smbcontrol - add it to the allowed commands.
-    # (The capability CAP_SYS_ADMIN in module.nix's service config covers this.)
-
-    # ── Firewall ──────────────────────────────────────────────────────────────
     networking.firewall = lib.mkIf cfg.openFirewall {
       allowedTCPPorts = [ 445 139 ];
       allowedUDPPorts = [ 137 138 ];
@@ -412,20 +135,16 @@ in {
     environment.etc."avahi/services/dplaneos-timemachine.service".source =
       "/var/lib/dplaneos/avahi/dplaneos-timemachine.service";
 
-    # ── Persist Samba state across reboots ────────────────────────────────────
-    # passdb.tdb, secrets.tdb, etc. contain Samba user credentials.
-    # Without persistence, all Samba passwords are lost on reboot.
-    # Note: impermanence.nix also persists /var/lib/samba : this is a
-    # belt-and-suspenders assertion using tmpfiles for non-impermanence setups.
+    # passdb.tdb and secrets.tdb hold the SMB passwords and the domain
+    # membership (impermanence.nix persists /var/lib/samba).
     systemd.tmpfiles.rules = [
       "d /var/lib/samba          0755 root root -"
       "d /var/lib/samba/private  0700 root root -"
       "d /var/log/samba          0755 root root -"
-      "d /var/lib/dplaneos       0775 root root -"  # ensure parent exists
+      "d /var/lib/dplaneos       0775 root root -"
     ];
 
     # No ReadWritePaths for dplaned: any of them gives it a private mount
     # namespace, hiding its ZFS mounts from Samba (see module.nix).
-
   };
 }

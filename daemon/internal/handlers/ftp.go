@@ -14,6 +14,7 @@ import (
 
 	"dplaned/internal/audit"
 	"dplaned/internal/cmdutil"
+	"dplaned/internal/sysapply"
 	"dplaned/internal/systemd"
 )
 
@@ -313,6 +314,18 @@ func applyFTPConfig(cfg FTPConfig) error {
 	}
 	if err := os.WriteFile(ftpP.userList, []byte(userList.String()), 0644); err != nil {
 		return fmt.Errorf("write vsftpd.userlist: %w", err)
+	}
+
+	// The firewall lets FTP in while it is switched on: the control port and
+	// the passive range.
+	var ports []string
+	if cfg.Enabled {
+		ports = []string{fmt.Sprintf("tcp %d", cfg.Port), fmt.Sprintf("tcp %d:%d", cfg.PassiveMinPort, cfg.PassiveMaxPort)}
+	}
+	if IsNixOS() {
+		if err := (sysapply.Env{}).SetServicePorts("ftp", ports); err != nil {
+			return fmt.Errorf("firewall: %w", err)
+		}
 	}
 
 	// Start, stop, or restart based on enabled state

@@ -95,11 +95,6 @@ in {
           PAM service vsftpd needs for local-user logins.
         '';
       };
-      openFirewall = lib.mkOption {
-        type = lib.types.bool;
-        default = false;
-        description = "Open TCP 21 and the default passive range 40000-40100 for FTP.";
-      };
     };
 
     s3.enable = lib.mkOption {
@@ -336,12 +331,101 @@ in {
         enable              = true;
         allowedTCPPorts     = [ 80 443 ];
       })
-      # FTP control port and the default passive range (FTP page defaults).
-      (lib.mkIf (cfg.ftp.enable && cfg.ftp.openFirewall) {
-        allowedTCPPorts      = [ 21 ];
-        allowedTCPPortRanges = [ { from = 40000; to = 40100; } ];
-      })
+      # Rules set in the web interface (Firewall page) and the ports of
+      # services switched on there. The daemon writes them to files
+      # (internal/sysapply) and reloads the firewall; they are read here
+      # whenever it starts or reloads, so they need no rebuild.
+      #
+      #   firewall-rules          "allow tcp 8080 any" / "deny tcp 22 10.0.0.0/8"
+      #   firewall-services.d/*   "tcp 21" / "tcp 40000:40100" (one file per service)
+      #
+      # Deny rules sit in front of everything (chain dplane-fw, first in
+      # INPUT, loopback exempt), so they also close ports the system opens.
+      {
+        extraCommands = lib.mkAfter ''
+          dplane_all="iptables${lib.optionalString config.networking.enableIPv6 " ip6tables"}"
+          dplane_rule() {
+            # $1 iptables|ip6tables|ip46tables, rest: rule
+            cmd=$1; shift
+            $cmd -w "$@"
+          }
+          for cmd in $dplane_all; do
+            $cmd -w -D INPUT -j dplane-fw 2>/dev/null || true
+            $cmd -w -F dplane-fw 2>/dev/null || true
+            $cmd -w -X dplane-fw 2>/dev/null || true
+            $cmd -w -N dplane-fw
+            $cmd -w -A dplane-fw -i lo -j RETURN
+          done
+          if [ -r /var/lib/dplaneos/system/firewall-rules ]; then
+            while read -r action proto port src; do
+              case "$proto" in tcp|udp) ;; *) continue ;; esac
+              case "$port" in ""|*[!0-9:]*) continue ;; esac
+              case "$src" in
+                any) cmds="$dplane_all"; match="" ;;
+                *:*) cmds="${lib.optionalString config.networking.enableIPv6 "ip6tables"}"; match="-s $src" ;;
+                *.*) cmds="iptables"; match="-s $src" ;;
+                *) continue ;;
+              esac
+              case "$action" in
+                allow) target=nixos-fw-accept ;;
+                deny)  target=nixos-fw-refuse ;;
+                *) continue ;;
+              esac
+              for cmd in $cmds; do
+                # shellcheck disable=SC2086
+                if [ "$action" = deny ]; then
+                  dplane_rule "$cmd" -A dplane-fw -p "$proto" --dport "$port" $match -j "$target"
+                else
+                  dplane_rule "$cmd" -A nixos-fw -p "$proto" --dport "$port" $match -j "$target"
+                fi
+              done
+            done < /var/lib/dplaneos/system/firewall-rules
+          fi
+          for f in /var/lib/dplaneos/system/firewall-services.d/*; do
+            [ -r "$f" ] || continue
+            while read -r proto port; do
+              case "$proto" in tcp|udp) ;; *) continue ;; esac
+              case "$port" in ""|*[!0-9:]*) continue ;; esac
+              ip46tables -w -A nixos-fw -p "$proto" --dport "$port" -j nixos-fw-accept
+            done < "$f"
+          done
+          for cmd in $dplane_all; do
+            $cmd -w -I INPUT 1 -j dplane-fw
+          done
+        '';
+        extraStopCommands = lib.mkAfter ''
+          dplane_all="iptables${lib.optionalString config.networking.enableIPv6 " ip6tables"}"
+          for cmd in $dplane_all; do
+            $cmd -w -D INPUT -j dplane-fw 2>/dev/null || true
+            $cmd -w -F dplane-fw 2>/dev/null || true
+            $cmd -w -X dplane-fw 2>/dev/null || true
+          done
+        '';
+      }
     ];
+
+    # Switched off in the web interface: the firewall does not start.
+    systemd.services.firewall.unitConfig.ConditionPathExists = "!/var/lib/dplaneos/system/firewall-disabled";
+
+    # ─── System settings saved in the web interface ───────────────────────
+    # Host name, time zone, NTP servers, kernel tuning, firewall rules: the
+    # daemon applies them when they are changed; this applies them at boot,
+    # before the network comes up (the host name is sent with DHCP requests)
+    # and without waiting for the database.
+    systemd.services.dplaneos-system-settings = {
+      description = "System settings saved in the web interface";
+      wantedBy    = [ "multi-user.target" "network-pre.target" ];
+      before      = [ "network-pre.target" "systemd-networkd.service" "firewall.service" "systemd-timesyncd.service" "dplaned.service" ];
+      after       = [ "systemd-remount-fs.service" "systemd-modules-load.service" ];
+      unitConfig.DefaultDependencies = false;
+      unitConfig.RequiresMountsFor = "/var/lib/dplaneos";
+      path = [ pkgs.systemd ];
+      serviceConfig = {
+        Type = "oneshot";
+        RemainAfterExit = true;
+        ExecStart = "${cfg.daemonPackage}/bin/dplaned -apply-system-settings";
+      };
+    };
 
     # ─── nginx reverse proxy ──────────────────────────────────────────────
     services.nginx = {
@@ -352,6 +436,12 @@ in {
       upstreams."dplaned".servers."unix:${cfg.socketPath}" = {};
       virtualHosts."_" = {
         root       = "${cfg.frontendPackage}";
+        # HTTPS from the first boot on: a self-signed certificate until one
+        # is activated on the Certificates page (dplaneos-web-cert below;
+        # the daemon replaces the content of these files and reloads nginx).
+        addSSL            = true;
+        sslCertificate    = "/var/lib/dplaneos/tls/web.crt";
+        sslCertificateKey = "/var/lib/dplaneos/tls/web.key";
         locations."/" = {
           tryFiles = "$uri $uri/ /index.html";
         };
@@ -382,6 +472,34 @@ in {
           proxyWebsockets = true;
         };
       };
+    };
+
+    systemd.services.dplaneos-web-cert = {
+      description = "Certificate of the web interface";
+      before      = [ "nginx.service" ];
+      requiredBy  = [ "nginx.service" ];
+      unitConfig.RequiresMountsFor = "/var/lib/dplaneos";
+      serviceConfig = { Type = "oneshot"; RemainAfterExit = true; };
+      path = [ pkgs.openssl pkgs.coreutils ];
+      script = ''
+        dir=/var/lib/dplaneos/tls
+        mkdir -p "$dir"
+        if [ ! -s "$dir/web.crt" ] || [ ! -s "$dir/web.key" ] \
+           || ! openssl x509 -in "$dir/web.crt" -noout 2>/dev/null; then
+          name=$(cat /proc/sys/kernel/hostname)
+          umask 077
+          openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes \
+            -days 3650 -subj "/CN=$name" -addext "subjectAltName=DNS:$name,DNS:localhost" \
+            -keyout "$dir/web.key.new" -out "$dir/web.crt.new"
+          mv "$dir/web.key.new" "$dir/web.key"
+          mv "$dir/web.crt.new" "$dir/web.crt"
+          echo "created a self-signed certificate for $name"
+        fi
+        chown root:nginx "$dir" "$dir/web.key"
+        chmod 750 "$dir"
+        chmod 640 "$dir/web.key"
+        chmod 644 "$dir/web.crt"
+      '';
     };
 
     # ─── FTP: PAM service for vsftpd local-user logins ─────────────────
@@ -449,6 +567,7 @@ in {
         avahi                            # avahi-daemon --reload (Time Machine discovery)
         nfs-utils acl krb5               # exportfs; getfacl/setfacl; kinit/klist
         iproute2 iputils traceroute dnsutils nftables
+        iptables                         # reading the firewall's open ports (Firewall page)
         git openssh rsync rclone pv      # GitOps, replication, cloud sync
         gnutar gzip curl which kmod procps fuse openssl nginx targetcli-fb
         bash  # timer units run bash -c "curl ..." (internal/systemd resolves ExecStart from this PATH)

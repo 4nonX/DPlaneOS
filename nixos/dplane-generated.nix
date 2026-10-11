@@ -35,55 +35,12 @@ let
 
 in
 {
-  # ── System ──────────────────────────────────────────────────────────────────
-  networking.hostName    = lib.mkIf (s ? hostname) s.hostname;
-  time.timeZone          = lib.mkIf (s ? timezone) s.timezone;
-
-  # ── DNS / NTP ───────────────────────────────────────────────────────────────
-  services.timesyncd.servers    = s.ntp_servers or [];
-
-  # ── Firewall ────────────────────────────────────────────────────────────────
-  # Only override if the daemon has explicitly set these lists.
-  # If absent, NixOS keeps whatever configuration.nix declared.
-  networking.firewall.allowedTCPPorts = lib.mkIf (s ? firewall_tcp) s.firewall_tcp;
-  networking.firewall.allowedUDPPorts = lib.mkIf (s ? firewall_udp) s.firewall_udp;
-
-  # ── Samba global settings ────────────────────────────────────────────────────
-  # These feed into modules/samba.nix via the services.dplaneos.samba options.
-  # Only applied when samba is enabled (samba.nix config = lib.mkIf cfg.enable {...})
-  services.dplaneos.samba = lib.mkIf (s ? samba_workgroup) {
-    workgroup         = s.samba_workgroup      or "WORKGROUP";
-    serverString      = s.samba_server_string  or "DPlaneOS NAS";
-    timeMachine       = s.samba_time_machine   or false;
-    allowGuest        = s.samba_allow_guest    or false;
-    extraGlobalConfig = s.samba_extra_global   or "";
-    securityMode      = s.samba_security_mode  or "user";
-    realm             = s.samba_realm          or null;
-    domainController  = s.samba_domain_controller or null;
-    # Multi-forest IDMAP: list of { name, backend, low, high } attrsets.
-    # samba.nix translates each entry into "idmap config <name> : ..." lines.
-    idmapDomains      = s.idmap_domains        or [];
-  };
-
   # ── SSH Daemon ───────────────────────────────────────────────────────────────
   services.openssh.ports           = lib.mkIf (s ? ssh_port) [ s.ssh_port ];
   services.openssh.settings.PasswordAuthentication =
     lib.mkIf (s ? ssh_password_auth) s.ssh_password_auth;
   services.openssh.settings.PermitRootLogin =
     lib.mkIf (s ? ssh_permit_root_login) s.ssh_permit_root_login;
-
-  # ── Kernel tuning (Settings → Tuning) ────────────────────────────────────────
-  # mkAfter: a later zfs.zfs_arc_max on the command line wins over the default.
-  boot.kernelParams = lib.mkIf (s ? zfs_arc_max)
-    (lib.mkAfter [ "zfs.zfs_arc_max=${toString s.zfs_arc_max}" ]);
-  boot.kernel.sysctl = s.sysctl or {};
-
-  # ── Web UI TLS (Certificates → Activate) ─────────────────────────────────────
-  services.nginx.virtualHosts."_" = lib.mkIf (s ? tls_cert && s ? tls_key) {
-    addSSL            = true;
-    sslCertificate    = s.tls_cert;
-    sslCertificateKey = s.tls_key;
-  };
 
   # ── UPS shutdown policy (UPS page; hardware in services.dplaneos.ups) ────────
   services.dplaneos.ups.lowBattery = lib.mkIf (s ? ups_low_battery) s.ups_low_battery;

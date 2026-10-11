@@ -59,6 +59,10 @@ interface SMBSettings {
   shadow_copy: boolean
   recycle_bin: boolean
   avahi_file_ok: boolean
+  workgroup?: string
+  server_string?: string
+  /** Member of a directory domain: the workgroup is the domain's. */
+  domain_member?: boolean
 }
 
 interface SMBSession {
@@ -84,7 +88,7 @@ function ProtocolOptions({ shares }: { shares: Share[] }) {
   })
 
   const updateMut = useMutation({
-    mutationFn: (patch: { time_machine?: boolean; shadow_copy?: boolean; recycle_bin?: boolean }) =>
+    mutationFn: (patch: { time_machine?: boolean; shadow_copy?: boolean; recycle_bin?: boolean; workgroup?: string; server_string?: string }) =>
       api.post('/api/smb/settings', patch),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['smb', 'settings'] })
@@ -148,7 +152,45 @@ function ProtocolOptions({ shares }: { shares: Share[] }) {
           onChange={v => updateMut.mutate({ recycle_bin: v })}
           disabled={updateMut.isPending || shares.length === 0}
         />
+        <ServerIdentity key={`${s?.workgroup}|${s?.server_string}`} settings={s}
+          pending={updateMut.isPending} onSave={patch => updateMut.mutate(patch)} />
       </div>
+    </div>
+  )
+}
+
+/** Workgroup and description: how the server shows up in the network. */
+function ServerIdentity({ settings, pending, onSave }: {
+  settings?: SMBSettings
+  pending: boolean
+  onSave: (patch: { workgroup?: string; server_string?: string }) => void
+}) {
+  const [workgroup, setWorkgroup] = useState(settings?.workgroup ?? 'WORKGROUP')
+  const [description, setDescription] = useState(settings?.server_string ?? '')
+  const member = settings?.domain_member ?? false
+  const changed = workgroup.trim().toUpperCase() !== (settings?.workgroup ?? 'WORKGROUP') || description.trim() !== (settings?.server_string ?? '')
+
+  function save() {
+    const patch: { workgroup?: string; server_string?: string } = { server_string: description.trim() }
+    if (!member) patch.workgroup = workgroup.trim().toUpperCase()
+    onSave(patch)
+  }
+
+  return (
+    <div style={{ display: 'flex', alignItems: 'flex-end', gap: 12, flexWrap: 'wrap', paddingTop: 12, borderTop: '1px solid var(--border)' }}>
+      <label className="field" style={{ width: 180 }}>
+        <span className="field-label">Workgroup</span>
+        <input className="input" value={workgroup} maxLength={15} disabled={member}
+          title={member ? 'This system is a member of a directory domain; the workgroup is the domain\'s' : undefined}
+          onChange={e => setWorkgroup(e.target.value)} style={{ fontFamily: 'var(--font-mono)', textTransform: 'uppercase' }} />
+      </label>
+      <label className="field" style={{ flex: 1, minWidth: 220 }}>
+        <span className="field-label">Description</span>
+        <input className="input" value={description} maxLength={48} onChange={e => setDescription(e.target.value)} />
+      </label>
+      <button className="btn btn-primary" onClick={save} disabled={pending || !changed}>
+        <Icon name="save" size={15} />Save
+      </button>
     </div>
   )
 }

@@ -63,7 +63,7 @@ type LiveShare struct {
 	HostsAllow       string
 	HostsDeny        string
 }
- 
+
 // LiveNFSExport is an NFS export from the daemon DB.
 type LiveNFSExport struct {
 	ID      int64
@@ -106,20 +106,19 @@ type LiveReplication struct {
 	Enabled           bool
 }
 
-
 // LiveState is the complete observed system state.
 type LiveState struct {
-	Pools    []LivePool
-	Datasets []LiveDataset
-	Shares   []LiveShare
-	NFS      []LiveNFSExport
-	Stacks      []LiveStack
-	System      *nixwriter.DPlaneState
-	Users       []LiveUser
-	Groups      []LiveGroup
-	Replication []LiveReplication
-	LDAP        *DesiredLDAP
-	ACME        *DesiredACME
+	Pools        []LivePool
+	Datasets     []LiveDataset
+	Shares       []LiveShare
+	NFS          []LiveNFSExport
+	Stacks       []LiveStack
+	System       *nixwriter.DPlaneState
+	Users        []LiveUser
+	Groups       []LiveGroup
+	Replication  []LiveReplication
+	LDAP         *DesiredLDAP
+	ACME         *DesiredACME
 	Certificates []DesiredCertificate
 	SMART        []DesiredSMARTTask
 	// NVMeFabric is the persisted NVMe-oF target list (when fabrics are managed).
@@ -171,7 +170,7 @@ func ReadLiveState(db *sql.DB) (*LiveState, error) {
 	if err != nil {
 		return nil, fmt.Errorf("reading live NFS: %w", err)
 	}
- 
+
 	state.System, err = readLiveSystem()
 	if err != nil {
 		return nil, fmt.Errorf("reading live system: %w", err)
@@ -416,7 +415,7 @@ func readLiveShares(db *sql.DB) ([]LiveShare, error) {
 	}
 	return shares, nil
 }
- 
+
 func readLiveNFSExports(db *sql.DB) ([]LiveNFSExport, error) {
 	rows, err := db.Query(`SELECT id, path, clients, options, enabled FROM nfs_exports ORDER BY id`)
 	if err != nil {
@@ -424,7 +423,7 @@ func readLiveNFSExports(db *sql.DB) ([]LiveNFSExport, error) {
 		return nil, nil
 	}
 	defer rows.Close()
- 
+
 	var exports []LiveNFSExport
 	for rows.Next() {
 		var e LiveNFSExport
@@ -490,11 +489,7 @@ func readLiveGroups(db *sql.DB) ([]LiveGroup, error) {
 }
 
 func readLiveSystem() (*nixwriter.DPlaneState, error) {
-	w := nixwriter.DefaultWriter()
-	if err := w.LoadFromDisk(); err != nil {
-		return nil, err
-	}
-	s := w.State()
+	s := nixwriter.DefaultWriter().State()
 	return &s, nil
 }
 

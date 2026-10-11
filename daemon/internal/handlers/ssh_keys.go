@@ -480,9 +480,6 @@ var validPermitRootLoginValues = map[string]bool{
 // Returns current SSH daemon settings from the nixwriter state.
 func GetSSHDaemon(w http.ResponseWriter, r *http.Request) {
 	nw := nixwriter.Default()
-	if err := nw.LoadFromDisk(); err != nil {
-		log.Printf("ssh_daemon: load nixwriter state: %v", err)
-	}
 	state := nw.State()
 
 	var passwordAuth *bool
@@ -532,9 +529,6 @@ func PostSSHDaemon(w http.ResponseWriter, r *http.Request) {
 	}
 
 	nw := nixwriter.Default()
-	if err := nw.LoadFromDisk(); err != nil {
-		log.Printf("ssh_daemon: load nixwriter state: %v", err)
-	}
 
 	if err := nw.SetSSHDaemon(nixwriter.SSHDaemonOpts{
 		Port:            port,

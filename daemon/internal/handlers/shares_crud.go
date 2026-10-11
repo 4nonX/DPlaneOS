@@ -14,6 +14,9 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/exec"
+	"path/filepath"
+	"regexp"
 	"strings"
 )
 
@@ -599,13 +602,25 @@ func (h *ShareCRUDHandler) regenerateSMBConf() (warning string, err error) {
 	}
 	shares = kept
 
-	if err := smbconf.WriteAtomic(h.smbConfPath, []byte(smbconf.Render(opts, shares))); err != nil {
+	previous, _ := os.ReadFile(h.smbConfPath)
+	content := smbconf.Render(opts, shares)
+	// Samba checks the new configuration before it replaces the one in use.
+	if err := checkSMBConf(h.smbConfPath, content); err != nil {
+		log.Printf("SMB CHECK ERROR: %v", err)
+		return "", err
+	}
+	if err := smbconf.WriteAtomic(h.smbConfPath, []byte(content)); err != nil {
 		log.Printf("SMB WRITE ERROR: %v", err)
 		return "", fmt.Errorf("write %s: %w", h.smbConfPath, err)
 	}
 
-	// Reload samba
-	if out, err := cmdutil.RunFast("smbcontrol", "all", "reload-config"); err != nil {
+	// A changed workgroup or directory membership needs the services
+	// restarted; everything else is picked up by a reload.
+	if smbIdentity(string(previous)) != smbIdentity(content) && len(previous) > 0 {
+		if out, err := exec.Command("systemctl", "try-restart", "samba-smbd.service", "samba-nmbd.service", "samba-winbindd.service").CombinedOutput(); err != nil {
+			return "", fmt.Errorf("restarting Samba: %v %s", err, strings.TrimSpace(string(out)))
+		}
+	} else if out, err := cmdutil.RunFast("smbcontrol", "all", "reload-config"); err != nil {
 		log.Printf("WARN: smbcontrol reload: %v", err)
 		return "", fmt.Errorf("smbcontrol reload-config: %v %s", err, strings.TrimSpace(string(out)))
 	}
@@ -615,12 +630,11 @@ func (h *ShareCRUDHandler) regenerateSMBConf() (warning string, err error) {
 		warning = "Time Machine discovery not updated: " + err.Error()
 	}
 
-	// On NixOS: also update dplane-generated.nix with global SMB settings
-	// so they survive the next nixos-rebuild switch.
+	// The system settings (configuration history, GitOps) carry a copy.
 	persistSambaGlobals(h.db)
 
-	log.Printf("SMB config regenerated and reloaded (%d shares, apple=%v, nixos=%v)",
-		len(shares), smbconf.AppleEnabled(opts, shares), opts.NixOSManaged)
+	log.Printf("SMB config regenerated and reloaded (%d shares, apple=%v)",
+		len(shares), smbconf.AppleEnabled(opts, shares))
 	if len(skipped) > 0 {
 		msg := "Shares not served (folder missing, outside the pools, or replaced by a symbolic link): " + strings.Join(skipped, ", ")
 		if warning != "" {
@@ -649,6 +663,14 @@ func (h *ShareCRUDHandler) respondAfterRegen(w http.ResponseWriter, payload map[
 // GET /api/smb/settings
 func (h *ShareCRUDHandler) GetSMBSettings(w http.ResponseWriter, r *http.Request) {
 	var timeMachine, shadowCopy, recycleBin int
+	opts := smbconf.LoadOptions(h.db)
+	workgroup, serverString := strings.ToUpper(opts.Workgroup), opts.ServerString
+	if !smbconf.ValidWorkgroup(workgroup) {
+		workgroup = "WORKGROUP"
+	}
+	if serverString == "" {
+		serverString = "DPlaneOS NAS"
+	}
 	h.db.QueryRow(`SELECT COALESCE(value,'0') FROM settings WHERE key='smb_time_machine'`).Scan(&timeMachine)
 	h.db.QueryRow(`SELECT COALESCE(value,'0') FROM settings WHERE key='smb_shadow_copy'`).Scan(&shadowCopy)
 	h.db.QueryRow(`SELECT COALESCE(value,'0') FROM settings WHERE key='smb_recycle_bin'`).Scan(&recycleBin)
@@ -659,6 +681,10 @@ func (h *ShareCRUDHandler) GetSMBSettings(w http.ResponseWriter, r *http.Request
 		"shadow_copy":   shadowCopy == 1,
 		"recycle_bin":   recycleBin == 1,
 		"avahi_file_ok": avahiErr == nil,
+		"workgroup":     workgroup,
+		"server_string": serverString,
+		// A member of a directory domain: the workgroup is the domain's.
+		"domain_member": opts.SecurityMode == "ads",
 	})
 }
 
@@ -666,13 +692,45 @@ func (h *ShareCRUDHandler) GetSMBSettings(w http.ResponseWriter, r *http.Request
 // POST /api/smb/settings
 func (h *ShareCRUDHandler) UpdateSMBSettings(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		TimeMachine *bool `json:"time_machine"`
-		ShadowCopy  *bool `json:"shadow_copy"`
-		RecycleBin  *bool `json:"recycle_bin"`
+		TimeMachine  *bool   `json:"time_machine"`
+		ShadowCopy   *bool   `json:"shadow_copy"`
+		RecycleBin   *bool   `json:"recycle_bin"`
+		Workgroup    *string `json:"workgroup"`
+		ServerString *string `json:"server_string"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		respondErrorSimple(w, "Invalid request", http.StatusBadRequest)
 		return
+	}
+	setText := func(key, v string) error {
+		_, err := h.db.Exec(`INSERT INTO settings (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`, key, v)
+		return err
+	}
+	if req.Workgroup != nil {
+		wg := strings.ToUpper(strings.TrimSpace(*req.Workgroup))
+		if !smbconf.ValidWorkgroup(wg) {
+			respondErrorSimple(w, "Workgroup: up to 15 letters, digits, dots, dashes or underscores", http.StatusBadRequest)
+			return
+		}
+		if smbconf.LoadOptions(h.db).SecurityMode == "ads" {
+			respondErrorSimple(w, "This system is a member of a directory domain; the workgroup is the domain's", http.StatusConflict)
+			return
+		}
+		if err := setText("smb_workgroup", wg); err != nil {
+			respondErrorSimple(w, "Failed to save settings: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+	}
+	if req.ServerString != nil {
+		desc := strings.TrimSpace(*req.ServerString)
+		if len(desc) > 48 || strings.ContainsAny(desc, "\n\r[]=;#\"") {
+			respondErrorSimple(w, "Description: up to 48 characters, without [ ] = ; # or quotes", http.StatusBadRequest)
+			return
+		}
+		if err := setText("smb_server_string", desc); err != nil {
+			respondErrorSimple(w, "Failed to save settings: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
 	}
 
 	setSetting := func(key string, val *bool) error {
@@ -843,4 +901,53 @@ func (h *ShareCRUDHandler) DisconnectSMBSession(w http.ResponseWriter, r *http.R
 		return
 	}
 	respondOK(w, map[string]any{"success": true})
+}
+
+var smbIdentityRe = regexp.MustCompile(`(?m)^\s*(workgroup|security|realm)\s*=\s*(.*)$`)
+
+// smbIdentity is the part of an smb.conf that Samba only reads at start.
+func smbIdentity(conf string) string {
+	global := conf
+	if i := strings.Index(conf, "\n["); i >= 0 {
+		if j := strings.Index(conf[i+1:], "\n["); j >= 0 {
+			global = conf[:i+1+j]
+		}
+	}
+	var parts []string
+	for _, m := range smbIdentityRe.FindAllStringSubmatch(global, -1) {
+		parts = append(parts, m[1]+"="+strings.TrimSpace(m[2]))
+	}
+	return strings.Join(parts, ";")
+}
+
+// checkSMBConf has Samba's own checker read the configuration before it is
+// put in place: a file smbd would refuse must never replace a working one.
+func checkSMBConf(target, content string) error {
+	if checkBinary("testparm") != nil {
+		return nil // no Samba here (development machine)
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(target), ".smb-check-*.conf")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmp.Name())
+	if _, err := tmp.WriteString(content); err != nil {
+		tmp.Close()
+		return err
+	}
+	tmp.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	if out, err := exec.CommandContext(ctx, "testparm", "-s", "--suppress-prompt", tmp.Name()).CombinedOutput(); err != nil {
+		return fmt.Errorf("Samba does not accept the configuration (kept the previous one): %s", lastLines(string(out), 3))
+	}
+	return nil
+}
+
+func lastLines(s string, n int) string {
+	lines := strings.Split(strings.TrimSpace(s), "\n")
+	if len(lines) > n {
+		lines = lines[len(lines)-n:]
+	}
+	return strings.Join(lines, " | ")
 }
