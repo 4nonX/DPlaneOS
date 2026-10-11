@@ -54,7 +54,7 @@ func TestCreateISCSITarget(t *testing.T) {
 	for _, want := range [][]string{
 		{"/iscsi", "create", testIQN},
 		{"/backstores/block", "create"},
-		{tpg + "/portals", "create", "0.0.0.0:3260"},
+		{tpg + "/portals", "create", "0.0.0.0", "3260"}, // address and port as targetcli takes them
 		{tpg, "set", "attribute", "authentication=1"},
 		{tpg, "enable"},
 		{"/", "saveconfig"},
