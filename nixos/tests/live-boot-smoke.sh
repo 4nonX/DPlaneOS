@@ -266,12 +266,10 @@ expect 200 GET /api/s3/status
 check "MinIO reported not installed (s3.enable off)" test "$(json .installed)" = false
 
 
-# ── Migrations moved into the embedded set ─────────────────────────────────
-check "operation_journal and audit_events exist" \
-  test "$(runuser -u postgres -- psql -d dplaneos -tAc "SELECT count(*) FROM information_schema.tables WHERE table_name IN ('operation_journal','audit_events')")" = 2
-runuser -u postgres -- psql -d dplaneos -v ON_ERROR_STOP=1 -qc \
-  "INSERT INTO audit_events (event_type, component, status) VALUES ('smoke', 'ci', 'success')"
-check "audit_events HMAC trigger fills hmac (pgcrypto)" \
-  test -n "$(runuser -u postgres -- psql -d dplaneos -tAc "SELECT hmac FROM audit_events WHERE event_type = 'smoke'")"
+# ── Audit log: every action above is recorded and the chain verifies ───────
+expect 200 GET /api/system/audit/verify-chain
+check "audit chain is valid" test "$(json .valid)" = true
+check "audit chain covers the actions of this run" test "$(json .checked_rows)" -gt 10
+check "the audit log records what an action was applied to"   test "$(runuser -u postgres -- psql -d dplaneos -tAc "SELECT count(*) FROM audit_logs WHERE resource <> ''")" -gt 0
 
 echo "SMOKE TEST PASSED"

@@ -9,6 +9,8 @@
 
 let
   cfg = config.services.dplaneos;
+  # ZFS's record of the imported pools (see dplaneos-zfs-import below).
+  zpoolCache = "/var/lib/dplaneos/zpool.cache";
   dplanedNamespaceOpts =
     let sc = config.systemd.services.dplaned.serviceConfig or {};
     in builtins.filter (o: sc ? ${o} && !(builtins.elem sc.${o} [ false "no" "off" [] ])) [
@@ -431,8 +433,8 @@ in {
       # initialScript) after postgresql.service is up. Ordering only on postgresql.service
       # lets the daemon connect before the dplaneos role exists.
       after       = [ "network.target" "zfs.target" "dplaneos-zfs-gate.service" "postgresql.service" "postgresql-setup.service" "systemd-journald.service" ];
-      requires    = [ "dplaneos-zfs-gate.service" ];
-      wants       = lib.optionals cfg.database.createLocally [ "postgresql.service" "postgresql-setup.service" ];
+      wants       = [ "dplaneos-zfs-gate.service" ]
+        ++ lib.optionals cfg.database.createLocally [ "postgresql.service" "postgresql-setup.service" ];
       wantedBy    = [ "multi-user.target" ];
       # Every tool the daemon executes by name. A NixOS service PATH only has
       # these packages plus coreutils/findutils/grep/sed/systemd, so anything
@@ -502,46 +504,127 @@ in {
       };
     };
 
+    # ─── Unique ZFS host ID ───────────────────────────────────────────────
+    # ZFS uses the host ID to tell systems apart: importing a pool that
+    # another system has in use is refused, and multihost (the protection of
+    # shared disks) needs a non-zero ID that differs between nodes. An
+    # installed image is the same on every machine, so the ID cannot come from
+    # the configuration: it is generated at first boot and kept. /etc/hostid
+    # points at it. networking.hostId only satisfies the NixOS ZFS module.
+    networking.hostId = lib.mkDefault "00000000";
+    environment.etc.hostid.source = lib.mkForce "/var/lib/dplaneos/hostid";
+    systemd.services.dplaneos-hostid = {
+      description = "Unique ZFS host ID";
+      wantedBy    = [ "zfs-import.target" "multi-user.target" ];
+      before      = [ "zfs-import.target" "dplaneos-zfs-import.service" "dplaned.service" ];
+      after       = [ "systemd-remount-fs.service" ];
+      # zfs-import.target comes before local-fs.target: no default
+      # dependencies (they would order this after basic.target).
+      unitConfig.DefaultDependencies = false;
+      unitConfig.RequiresMountsFor = "/var/lib/dplaneos";
+      serviceConfig = { Type = "oneshot"; RemainAfterExit = true; };
+      script = ''
+        f=/var/lib/dplaneos/hostid
+        mkdir -p /var/lib/dplaneos
+        current=""
+        if [ -s "$f" ]; then current=$(${pkgs.coreutils}/bin/od -An -tx1 "$f" | ${pkgs.coreutils}/bin/tr -d ' \n'); fi
+        if [ "''${#current}" != 8 ] || [ "$current" = 00000000 ]; then
+          while :; do
+            ${pkgs.coreutils}/bin/head -c 4 /dev/urandom > "$f.new"
+            [ "$(${pkgs.coreutils}/bin/od -An -tx1 "$f.new" | ${pkgs.coreutils}/bin/tr -d ' \n')" != 00000000 ] && break
+          done
+          ${pkgs.coreutils}/bin/chmod 644 "$f.new"
+          ${pkgs.coreutils}/bin/mv "$f.new" "$f"
+          echo "generated a ZFS host ID"
+        fi
+      '';
+    };
+
+    # ─── Import the pools at boot ─────────────────────────────────────────
+    # NixOS only imports pools named in its configuration; the pools of an
+    # appliance are created in the web interface. Every pool that was
+    # imported when the system went down is imported again from ZFS's own
+    # record of imported pools: not the pools that were exported on purpose,
+    # and not the pools of shared storage groups (cachefile=none: their owner
+    # imports them once the cluster agrees who that is).
+    # The record is kept in /var/lib/dplaneos (not /etc/zfs), which survives
+    # an update to the other system slot.
+    boot.extraModprobeConfig = "options zfs spa_config_path=${zpoolCache}";
+    systemd.services.dplaneos-zfs-import = {
+      description = "Import the ZFS pools of this system";
+      wantedBy    = [ "zfs-import.target" ];
+      before      = [ "zfs-import.target" "zfs-mount.service" "dplaneos-zfs-gate.service" ];
+      after       = [ "systemd-udev-settle.service" "systemd-modules-load.service" "dplaneos-hostid.service" ];
+      wants       = [ "systemd-udev-settle.service" ];
+      unitConfig.DefaultDependencies = false;
+      unitConfig.RequiresMountsFor = "/var/lib/dplaneos";
+      serviceConfig = { Type = "oneshot"; RemainAfterExit = true; };
+      script = ''
+        zpool=${config.boot.zfs.package}/bin/zpool
+        cache=${zpoolCache}
+        if [ ! -s "$cache" ]; then
+          echo "no pools recorded"
+          exit 0
+        fi
+        # Disks of a large enclosure can take a while to appear.
+        for attempt in 1 2 3 4 5 6; do
+          "$zpool" import -c "$cache" -a -N 2>&1 || true
+          # Nothing left to import from the record: done.
+          if ! "$zpool" import -c "$cache" 2>/dev/null | ${pkgs.gnugrep}/bin/grep -q '^ *pool:'; then
+            exit 0
+          fi
+          echo "not every recorded pool could be imported yet (attempt $attempt)"
+          ${pkgs.coreutils}/bin/sleep 5
+        done
+        echo "giving up on the pools listed above: their disks did not appear"
+        "$zpool" import -c "$cache" 2>&1 || true
+        exit 0
+      '';
+    };
+
     # ─── ZFS boot gate ────────────────────────────────────────────────────
-    # Blocks dplaned until ZFS pools are ONLINE and writable.
-    # Mirrors the logic in systemd/dplaneos-zfs-mount-wait.service.
+    # Runs after the pools were imported and mounted, and gives them a moment
+    # to settle. It orders the daemon and Docker after the pools (a container
+    # started before its pool is mounted would run on an empty directory and
+    # block the mount), but it never keeps the daemon from starting: a pool
+    # that is degraded or missing is exactly when the web interface is needed.
+    # The marker tells the daemon whether every pool was usable
+    # (GET /api/system/zfs-gate-status).
     systemd.services.dplaneos-zfs-gate = {
-      description = "DPlaneOS ZFS Mount Gate";
-      after       = [ "zfs.target" ];
-      before      = [ "dplaned.service" ];
+      description = "Wait for the ZFS pools";
+      after       = [ "zfs.target" "zfs-import.target" "zfs-mount.service" ];
+      before      = [ "dplaned.service" "docker.service" ];
       wantedBy    = [ "multi-user.target" ];
       serviceConfig = {
         Type            = "oneshot";
         RemainAfterExit = true;
         ExecStart       = pkgs.writeShellScript "zfs-gate" ''
-          #!/usr/bin/env sh
-          set -e
-          timeout=120
+          zpool=${config.boot.zfs.package}/bin/zpool
+          marker=/run/dplaneos/zfs-ready
+          mkdir -p /run/dplaneos
+          rm -f "$marker"
           elapsed=0
-          # The daemon reports this marker (GET /api/system/zfs-gate-status).
-          open_gate() { mkdir -p /run/dplaneos; : > /run/dplaneos/zfs-ready; exit 0; }
-          rm -f /run/dplaneos/zfs-ready
-          while [ $elapsed -lt $timeout ]; do
-            # Absolute path: a oneshot's PATH has no zpool, and a missing
-            # binary must not read as "no pools".
-            pool_list=$(${config.boot.zfs.package}/bin/zpool list -H -o health 2>/dev/null || true)
-            if [ -z "$pool_list" ]; then
-              # No pools exist: first boot or standby node with no imported pools.
-              # Either case is valid - pass immediately so dplaned can start.
-              echo "ZFS gate: no pools present (first boot or standby node) - gate open"
-              open_gate
-            fi
-            if echo "$pool_list" | grep -q ONLINE; then
-              echo "ZFS gate: pools ONLINE - gate open"
-              open_gate
+          while [ "$elapsed" -lt 60 ]; do
+            # No pools (first boot, or a node that owns none) or every pool
+            # usable (ONLINE or DEGRADED): ready.
+            if ! "$zpool" list -H -o health 2>/dev/null | grep -qvE '^(ONLINE|DEGRADED)$'; then
+              : > "$marker"
+              echo "ZFS gate: pools ready"
+              exit 0
             fi
             sleep 2
             elapsed=$((elapsed + 2))
           done
-          echo "ZFS gate timeout after ${toString 120}s - pools exist but not ONLINE"
-          exit 1
+          echo "ZFS gate: not every pool is usable after 60s; starting anyway:"
+          "$zpool" list -H -o name,health || true
+          exit 0
         '';
       };
+    };
+    # Docker waits for the pools as well (it is ordered after the gate above).
+    systemd.services.docker = {
+      after = [ "dplaneos-zfs-gate.service" ];
+      wants = [ "dplaneos-zfs-gate.service" ];
     };
 
     # ─── Persistent state directories ─────────────────────────────────────

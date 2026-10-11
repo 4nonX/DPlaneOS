@@ -38,7 +38,7 @@ export function SupportPage() {
   // Subsystem checks of the daemon (ZFS, Docker, database, network, ...).
   const healthQ   = useQuery({ queryKey:['system','subsystems'], queryFn:({signal})=>api.get<{success:boolean;overall:string;subsystems:Record<string,{name:string;status:string;reason?:string}>}>('/api/health',signal), refetchInterval: 15_000 })
   // Security overview: measured, not asserted.
-  const auditQ    = useQuery({ queryKey:['audit','chain'],      queryFn:({signal})=>api.get<{success:boolean;valid:boolean;error?:string;checked?:number}>('/api/system/audit/verify-chain',signal), retry:false })
+  const auditQ    = useQuery({ queryKey:['audit','chain'],      queryFn:({signal})=>api.get<{success:boolean;valid:boolean;error?:string;checked_rows?:number}>('/api/system/audit/verify-chain',signal), retry:false })
   const rolesQ    = useQuery({ queryKey:['rbac','roles'],       queryFn:({signal})=>api.get<{success:boolean;roles:{name:string;user_count?:number}[]}>('/api/rbac/roles',signal), retry:false })
   const encQ      = useQuery({ queryKey:['zfs','encryption'],   queryFn:({signal})=>api.get<{success:boolean;datasets:{name:string;keystatus:string}[]}>('/api/zfs/encryption/list',signal), retry:false })
   const snapshotsQ= useQuery({ queryKey:['nixos','pre-snaps'], queryFn:({signal})=>api.get<{success:boolean;snapshots:Snapshot[]}>('/api/nixos/pre-upgrade-snapshots',signal) })
@@ -208,7 +208,7 @@ export function SupportPage() {
              <div style={{ display:'flex', alignItems:'center', gap:6 }}>
                <Icon name={auditQ.data?.valid ? 'verified' : 'gpp_maybe'} size={14} style={{ color: auditQ.data?.valid ? 'var(--success)' : 'var(--warning)' }}/>
                <span style={{ fontSize:'var(--text-sm)', fontWeight:600 }} title={auditQ.data?.error}>
-                 {auditQ.isLoading ? 'Checking…' : auditQ.data?.valid ? 'HMAC chain intact' : auditQ.isError ? 'Not available' : 'Not verified'}
+                 {auditQ.isLoading ? 'Checking…' : auditQ.data?.valid ? `HMAC chain intact (${auditQ.data.checked_rows ?? 0} entries)` : auditQ.isError ? 'Not available' : 'Not verified'}
                </span>
              </div>
           </div>

@@ -187,11 +187,6 @@
       "/etc/ssh/ssh_host_ed25519_key"
       "/etc/ssh/ssh_host_ed25519_key.pub"
 
-      # ── ZFS hostid ───────────────────────────────────────────────────────
-      # NixOS writes this from networking.hostId. Persisting avoids
-      # a ZFS "pool was last used by another system" error after slot swap.
-      "/etc/hostid"
-
     ]; # files
 
   }; # environment.persistence."/persist"
