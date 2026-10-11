@@ -65,6 +65,31 @@ func TestCreateISCSITarget(t *testing.T) {
 	}
 }
 
+// targetcli gives a new target the default portal by itself: it is kept when
+// it is the one asked for, and replaced when another one is.
+func TestISCSIPortal(t *testing.T) {
+	old := iscsiPortalsOf
+	iscsiPortalsOf = func(string) []string { return []string{"0.0.0.0:3260"} }
+	t.Cleanup(func() { iscsiPortalsOf = old })
+	tpg := "/iscsi/" + testIQN + "/tpg1"
+
+	cmds := fakeCommands(t, nil)
+	if r := call(t, CreateISCSITarget, req{method: "POST", body: map[string]any{"iqn": testIQN, "backing_dev": "/dev/zvol/tank/lun0", "require_chap": true}}); !r.ok() {
+		t.Fatalf("create: %s", r)
+	}
+	if cmds.ran("targetcli", tpg+"/portals", "create") || cmds.ran("targetcli", tpg+"/portals", "delete") {
+		t.Errorf("the portal that was already right was touched: %v", cmds.keys())
+	}
+
+	cmds = fakeCommands(t, nil)
+	if r := call(t, CreateISCSITarget, req{method: "POST", body: map[string]any{"iqn": testIQN, "backing_dev": "/dev/zvol/tank/lun0", "require_chap": true, "portal_ip": "192.0.2.10"}}); !r.ok() {
+		t.Fatalf("create: %s", r)
+	}
+	if !cmds.ran("targetcli", tpg+"/portals", "delete", "0.0.0.0", "3260") || !cmds.ran("targetcli", tpg+"/portals", "create", "192.0.2.10", "3260") {
+		t.Errorf("the default portal was not replaced: %v", cmds.keys())
+	}
+}
+
 func TestCreateISCSITargetCleansUpOnAuthFailure(t *testing.T) {
 	cmds := fakeCommands(t, map[string]func([]string) ([]byte, error){
 		"targetcli": func(a []string) ([]byte, error) {

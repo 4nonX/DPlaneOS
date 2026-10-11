@@ -6,7 +6,10 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"os"
+	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -133,6 +136,20 @@ func runTargetcli(args ...string) (string, error) {
 	return executeCommandWithTimeout(TimeoutSlow, "targetcli", args)
 }
 
+// iscsiPortalsOf lists the addresses ("ip:port") a target listens on, as the
+// kernel has them.
+var iscsiPortalsOf = func(iqn string) []string {
+	entries, err := os.ReadDir(filepath.Join("/sys/kernel/config/target/iscsi", iqn, "tpgt_1", "np"))
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for _, e := range entries {
+		out = append(out, e.Name())
+	}
+	return out
+}
+
 // targetcliSays is what targetcli answered, short enough for an error
 // message: its last line that says something, or the error itself.
 func targetcliSays(out string, err error) string {
@@ -237,17 +254,26 @@ func CreateISCSITarget(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// The address the target listens on. targetcli gives a new target the
-	// portal 0.0.0.0:3260 (depending on its settings); the target ends up
-	// with exactly the one asked for.
+	// The address the target listens on. targetcli may have given the new
+	// target the portal 0.0.0.0:3260 already (its default); the target ends
+	// up with exactly the one asked for.
 	port := strconv.Itoa(req.PortalPort)
-	if req.PortalIP != "0.0.0.0" || req.PortalPort != 3260 {
-		runTargetcli(tpgPath+"/portals", "delete", "0.0.0.0", "3260") //nolint: absent when targetcli did not add it
+	want := net.JoinHostPort(req.PortalIP, port)
+	have := iscsiPortalsOf(req.IQN)
+	for _, existing := range have {
+		if existing == want {
+			continue
+		}
+		if host, p, err := net.SplitHostPort(existing); err == nil {
+			runTargetcli(tpgPath+"/portals", "delete", host, p) //nolint: the create below says if something is in the way
+		}
 	}
-	if out, err := runTargetcli(tpgPath+"/portals", "create", req.PortalIP, port); err != nil && !strings.Contains(strings.ToLower(out+err.Error()), "exist") {
-		cleanup()
-		respondErrorSimple(w, "Failed to set the portal "+req.PortalIP+":"+port+": "+targetcliSays(out, err), http.StatusInternalServerError)
-		return
+	if !slices.Contains(have, want) {
+		if out, err := runTargetcli(tpgPath+"/portals", "create", req.PortalIP, port); err != nil {
+			cleanup()
+			respondErrorSimple(w, "Failed to set the portal "+want+": "+targetcliSays(out, err), http.StatusInternalServerError)
+			return
+		}
 	}
 
 	// Configure authentication on the TPG.

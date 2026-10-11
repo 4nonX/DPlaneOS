@@ -91,7 +91,7 @@ func TestGuestShareEnablesGuestMapping(t *testing.T) {
 func TestDirectoryMember(t *testing.T) {
 	g := global(Render(Options{Workgroup: "corp", SecurityMode: "ads", Realm: "corp.example.com"}, nil))
 	for _, want := range []string{
-		"security = ads\n", "realm = CORP.EXAMPLE.COM\n", "kerberos method = secrets and keytab\n",
+		"security = ads\n", "realm = CORP.EXAMPLE.COM\n", "kerberos method = secrets only\n",
 		"idmap config * : range = 3000-7999\n", "idmap config CORP : backend = rid\n", "idmap config CORP : range = 10000-999999\n",
 	} {
 		if !strings.Contains(g, want) {
