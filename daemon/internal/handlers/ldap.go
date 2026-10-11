@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -10,6 +11,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -336,123 +338,226 @@ func (h *LDAPHandler) TriggerSync(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 400, ldapResp{Error: "LDAP not enabled or not configured"})
 		return
 	}
+	res, err := h.syncDirectory(cfg, "manual")
+	audit.Log(audit.AuditLog{Level: audit.LevelInfo, Command: "LDAP_SYNC_MANUAL", User: r.Header.Get("X-User"), Success: err == nil && len(res.Errors) == 0})
+	if err != nil {
+		writeJSON(w, 200, ldapResp{Success: false, Error: err.Error()})
+		return
+	}
+	writeJSON(w, 200, ldapResp{Success: len(res.Errors) == 0, Data: map[string]any{
+		"message":       res.message,
+		"duration_ms":   res.ms,
+		"users_found":   res.UsersFound,
+		"users_created": res.UsersCreated,
+		"users_updated": res.UsersUpdated,
+		"users_skipped": res.UsersSkipped,
+		"errors":        res.Errors,
+	}})
+}
+
+type directorySync struct {
+	*ldap.SyncResult
+	message string
+	ms      int
+}
+
+// ldapSyncMu: one sync at a time (manual and scheduled).
+var ldapSyncMu sync.Mutex
+
+// syncDirectory fetches all users of the directory and brings the local
+// accounts in line with them. syncType ("manual", "scheduled") goes into
+// the sync log.
+func (h *LDAPHandler) syncDirectory(cfg *ldap.Config, syncType string) (*directorySync, error) {
+	ldapSyncMu.Lock()
+	defer ldapSyncMu.Unlock()
+	fail := func(what string, err error) (*directorySync, error) {
+		h.logSync(syncType, false, 0, 0, 0, 0, err.Error(), 0)
+		if _, dbErr := h.db.Exec(`UPDATE ldap_config SET last_sync_at=NOW(), last_sync_ok=false, last_sync_msg=$1 WHERE id=1`, what+": "+err.Error()); dbErr != nil {
+			log.Printf("LDAP: failed to update sync status: %v", dbErr)
+		}
+		return nil, fmt.Errorf("%s: %w", what, err)
+	}
 
 	client, err := ldap.NewClient(cfg)
 	if err != nil {
-		writeJSON(w, 500, ldapResp{Error: "Client error: " + err.Error()})
-		return
+		return fail("Client error", err)
 	}
-
 	start := time.Now()
 	if err := client.Connect(); err != nil {
-		h.logSync("manual", false, 0, 0, 0, 0, err.Error(), 0)
-		writeJSON(w, 200, ldapResp{Success: false, Error: "Connect failed: " + err.Error()})
-		return
+		return fail("Connect failed", err)
 	}
 	defer client.Close()
-
 	if err := client.Bind(); err != nil {
-		h.logSync("manual", false, 0, 0, 0, 0, err.Error(), 0)
-		writeJSON(w, 200, ldapResp{Success: false, Error: "Bind failed: " + err.Error()})
-		return
+		return fail("Bind failed", err)
 	}
-
-	// Actually fetch all users from the directory.
 	syncRes, users, err := client.SyncAll()
 	if err != nil {
-		h.logSync("manual", false, 0, 0, 0, 0, err.Error(), 0)
-		writeJSON(w, 200, ldapResp{Success: false, Error: "Sync search failed: " + err.Error()})
-		return
+		return fail("Sync search failed", err)
 	}
-
 	mappings, err := h.loadGroupMappings()
 	if err != nil {
-		writeJSON(w, 500, ldapResp{Error: "Loading group mappings failed: " + err.Error()})
-		return
+		return fail("Loading group mappings failed", err)
 	}
-
-	// Upsert each user into the local users table (source='ldap').
-	// LDAP users get an empty password_hash - they authenticate via LDAP bind,
-	// never via local password. Permissions come from RBAC roles: the roles
-	// of the user's mapped directory groups, else the default role.
 	for _, u := range users {
-		roleNames := mappedRoles(u.Groups, mappings)
-		if len(roleNames) == 0 && cfg.DefaultRole != "" {
-			roleNames = []string{cfg.DefaultRole}
-		}
-		role := "user" // users.role: the rank used for account management
-		for _, n := range roleNames {
-			if n == "admin" {
-				role = "admin"
-			}
-		}
-
-		var existing int
-		row := h.db.QueryRow(`SELECT COUNT(*) FROM users WHERE username=$1 AND source='ldap'`, u.Username)
-		if scanErr := row.Scan(&existing); scanErr != nil {
-			syncRes.Errors = append(syncRes.Errors, "db scan for "+u.Username+": "+scanErr.Error())
+		created, err := h.upsertDirectoryUser(u, mappings, cfg.DefaultRole)
+		switch {
+		case err != nil:
+			syncRes.Errors = append(syncRes.Errors, u.Username+": "+err.Error())
 			syncRes.UsersSkipped++
-			continue
-		}
-
-		if existing == 0 {
-			_, dbErr := h.db.Exec(
-				`INSERT INTO users (username, email, display_name, role, source, password_hash, updated_at)
-				 VALUES ($1, $2, $3, $4, 'ldap', '', NOW())`,
-				u.Username, u.Email, u.FullName, role,
-			)
-			if dbErr != nil {
-				syncRes.Errors = append(syncRes.Errors, "insert "+u.Username+": "+dbErr.Error())
-				syncRes.UsersSkipped++
-			} else {
-				syncRes.UsersCreated++
-			}
-		} else {
-			_, dbErr := h.db.Exec(
-				`UPDATE users SET email=$1, display_name=$2, role=$3, updated_at=NOW()
-				 WHERE username=$4 AND source='ldap'`,
-				u.Email, u.FullName, role, u.Username,
-			)
-			if dbErr != nil {
-				syncRes.Errors = append(syncRes.Errors, "update "+u.Username+": "+dbErr.Error())
-				syncRes.UsersSkipped++
-			} else {
-				syncRes.UsersUpdated++
-			}
-		}
-
-		// Without a successful group lookup the roles are left as they are:
-		// a directory hiccup must not strip everyone's access.
-		if !u.GroupsKnown {
-			continue
-		}
-		if err := h.applyLDAPRoles(u.Username, roleNames); err != nil {
-			syncRes.Errors = append(syncRes.Errors, "roles of "+u.Username+": "+err.Error())
+		case created:
+			syncRes.UsersCreated++
+		default:
+			syncRes.UsersUpdated++
 		}
 	}
 
-	ms := int(time.Since(start).Milliseconds())
+	res := &directorySync{SyncResult: syncRes, ms: int(time.Since(start).Milliseconds())}
 	success := len(syncRes.Errors) == 0
-	msg := fmt.Sprintf("Sync completed: found=%d created=%d updated=%d skipped=%d",
+	res.message = fmt.Sprintf("Sync completed: found=%d created=%d updated=%d skipped=%d",
 		syncRes.UsersFound, syncRes.UsersCreated, syncRes.UsersUpdated, syncRes.UsersSkipped)
-
-	h.logSync("manual", success, syncRes.UsersFound, syncRes.UsersCreated, syncRes.UsersUpdated, syncRes.UsersSkipped, msg, ms)
-
+	h.logSync(syncType, success, syncRes.UsersFound, syncRes.UsersCreated, syncRes.UsersUpdated, syncRes.UsersSkipped, res.message, res.ms)
 	if _, dbErr := h.db.Exec(`UPDATE ldap_config SET last_sync_at=NOW(), last_sync_ok=$1, last_sync_msg=$2 WHERE id=1`,
-		success, msg); dbErr != nil {
+		success, res.message); dbErr != nil {
 		log.Printf("LDAP: failed to update sync status: %v", dbErr)
 	}
+	return res, nil
+}
 
-	audit.Log(audit.AuditLog{Level: audit.LevelInfo, Command: "LDAP_SYNC_MANUAL", User: r.Header.Get("X-User"), Success: success})
-	writeJSON(w, 200, ldapResp{Success: success, Data: map[string]any{
-		"message":       msg,
-		"duration_ms":   ms,
-		"users_found":   syncRes.UsersFound,
-		"users_created": syncRes.UsersCreated,
-		"users_updated": syncRes.UsersUpdated,
-		"users_skipped": syncRes.UsersSkipped,
-		"errors":        syncRes.Errors,
-	}})
+// upsertDirectoryUser creates or updates the local account of a directory
+// user (source='ldap'). Such accounts have no local password: they sign in
+// with a bind against the directory. Permissions come from RBAC roles: the
+// roles of the user's mapped directory groups, else the default role.
+func (h *LDAPHandler) upsertDirectoryUser(u *ldap.User, mappings map[string][]string, defaultRole string) (created bool, err error) {
+	roleNames := mappedRoles(u.Groups, mappings)
+	if len(roleNames) == 0 && defaultRole != "" {
+		roleNames = []string{defaultRole}
+	}
+	role := "user" // users.role: the rank used for account management
+	for _, n := range roleNames {
+		if n == "admin" {
+			role = "admin"
+		}
+	}
+
+	var source string
+	switch err := h.db.QueryRow(`SELECT COALESCE(source,'local') FROM users WHERE username=$1`, u.Username).Scan(&source); {
+	case err == sql.ErrNoRows:
+		if _, err := h.db.Exec(
+			`INSERT INTO users (username, email, display_name, role, source, password_hash, updated_at)
+			 VALUES ($1, $2, $3, $4, 'ldap', '', NOW())`,
+			u.Username, u.Email, u.FullName, role,
+		); err != nil {
+			return false, fmt.Errorf("insert: %w", err)
+		}
+		created = true
+	case err != nil:
+		return false, err
+	case source != "ldap":
+		// A local account of the same name is never taken over by the directory.
+		return false, fmt.Errorf("a local account of that name exists")
+	default:
+		if _, err := h.db.Exec(
+			`UPDATE users SET email=$1, display_name=$2, role=$3, updated_at=NOW()
+			 WHERE username=$4 AND source='ldap'`,
+			u.Email, u.FullName, role, u.Username,
+		); err != nil {
+			return false, fmt.Errorf("update: %w", err)
+		}
+	}
+
+	// Without a successful group lookup the roles are left as they are:
+	// a directory hiccup must not strip everyone's access.
+	if u.GroupsKnown || created {
+		if err := h.applyLDAPRoles(u.Username, roleNames); err != nil {
+			return created, fmt.Errorf("roles: %w", err)
+		}
+	}
+	return created, nil
+}
+
+// ProvisionDirectoryUserAtLogin is "just-in-time provisioning": somebody
+// who is in the directory but has no account here yet signs in for the
+// first time. With the option on and the password accepted by the
+// directory, the account is created (roles from the group mappings, else
+// the default role) and the sign-in goes on as for any directory user.
+// It reports whether an account was created.
+func ProvisionDirectoryUserAtLogin(db *sql.DB, username, password string) bool {
+	h := NewLDAPHandler(db)
+	cfg, err := h.loadLDAPConfig()
+	if err != nil || !cfg.Enabled || !cfg.JITProvisioning || cfg.Server == "" {
+		return false
+	}
+	if !ldapCBAllow() {
+		return false
+	}
+	client, err := ldap.NewClient(cfg)
+	if err != nil {
+		return false
+	}
+	u, err := client.Authenticate(username, password)
+	if err != nil {
+		if isLDAPConnError(err) {
+			ldapCBFailure()
+		} else {
+			ldapCBSuccess()
+		}
+		return false
+	}
+	ldapCBSuccess()
+	// The name the directory knows the user by must be the one typed: the
+	// account is looked up by it afterwards.
+	if !strings.EqualFold(u.Username, username) {
+		return false
+	}
+	u.Username = username
+	u.GroupsKnown = true
+	mappings, err := h.loadGroupMappings()
+	if err != nil {
+		log.Printf("LDAP JIT: group mappings: %v", err)
+		return false
+	}
+	created, err := h.upsertDirectoryUser(u, mappings, cfg.DefaultRole)
+	if err != nil {
+		log.Printf("LDAP JIT: %s: %v", username, err)
+		return false
+	}
+	if created {
+		log.Printf("LDAP JIT: account created for %s at first sign-in", username)
+		audit.Log(audit.AuditLog{Level: audit.LevelInfo, Command: "LDAP_JIT_PROVISION", User: username, Success: true})
+	}
+	return created
+}
+
+// StartDirectorySync runs the scheduled sync: every sync_interval seconds
+// (0: never) while the directory is enabled. Accounts of new directory
+// users appear, names, addresses and roles follow the directory.
+func StartDirectorySync(ctx context.Context, db *sql.DB) {
+	h := NewLDAPHandler(db)
+	go func() {
+		t := time.NewTicker(time.Minute)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+			}
+			cfg, err := h.loadLDAPConfig()
+			if err != nil || !cfg.Enabled || cfg.Server == "" || cfg.SyncInterval <= 0 {
+				continue
+			}
+			var due bool
+			if err := db.QueryRow(`SELECT last_sync_at IS NULL OR last_sync_at < NOW() - make_interval(secs => $1) FROM ldap_config WHERE id=1`,
+				cfg.SyncInterval).Scan(&due); err != nil || !due {
+				continue
+			}
+			if res, err := h.syncDirectory(cfg, "scheduled"); err != nil {
+				log.Printf("LDAP: scheduled sync: %v", err)
+			} else {
+				log.Printf("LDAP: scheduled sync: %s", res.message)
+			}
+		}
+	}()
 }
 
 // loadGroupMappings returns directory group (lower case) -> RBAC role names.
@@ -790,6 +895,7 @@ func (h *LDAPHandler) loadLDAPConfig() (*ldap.Config, error) {
 		JITProvisioning:    jit == 1,
 		DefaultRole:        defaultRole,
 		Timeout:            timeout,
+		SyncInterval:       syncInterval,
 	}, nil
 }
 

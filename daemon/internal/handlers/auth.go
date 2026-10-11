@@ -224,6 +224,16 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		req.Username,
 	).Scan(&userID, &storedHash, &active, &mustChange, &source)
 
+	// Not known here, but perhaps in the directory (first sign-in with
+	// just-in-time provisioning on): the directory checks the password, the
+	// account is created, and the sign-in goes on with it.
+	if err == sql.ErrNoRows && ProvisionDirectoryUserAtLogin(h.db, req.Username, req.Password) {
+		err = h.db.QueryRow(
+			`SELECT id, password_hash, active, COALESCE(must_change_password, 0), COALESCE(source,'local') FROM users WHERE username = $1 LIMIT 1`,
+			req.Username,
+		).Scan(&userID, &storedHash, &active, &mustChange, &source)
+	}
+
 	if err == sql.ErrNoRows {
 		// Constant-time: still do a bcrypt compare to prevent timing attacks
 		bcrypt.CompareHashAndPassword([]byte("$2a$10$dummyhashfortimingoracle000000000000000000000000000000"), []byte(req.Password))
@@ -701,12 +711,13 @@ func (h *AuthHandler) ldapAuthenticate(username, password string) error {
 		       COALESCE(user_email_attribute,'mail'),
 		       COALESCE(use_tls,1),
 		       COALESCE(timeout,10)
-		FROM ldap_config WHERE id=1`).Scan(
+		FROM ldap_config WHERE id=1 AND enabled = 1`).Scan(
 		&server, &port, &bindDN, &bindPassword, &baseDN,
 		&userFilter, &userIDAttr, &userNameAttr, &userEmailAttr, &useTLS, &timeout,
 	)
 	if err != nil || server == "" {
-		return fmt.Errorf("LDAP not configured")
+		// Switched off (or never set up): directory users do not sign in.
+		return fmt.Errorf("the directory is not enabled")
 	}
 
 	plainPwd, openErr := secrets.Open(bindPassword)

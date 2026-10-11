@@ -560,6 +560,9 @@ func main() {
 		}
 	}()
 
+	// Directory users: the scheduled sync (Directory page, sync interval).
+	handlers.StartDirectorySync(daemonCtx, db)
+
 	// Unix and Samba accounts of the users (SMB and FTP sign-in, file ownership).
 	fileaccounts.Start(db, daemonCtx.Done())
 

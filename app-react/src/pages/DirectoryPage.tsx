@@ -34,6 +34,12 @@ interface LdapConfig {
   user_id_attr?:   string
   user_name_attr?: string
   user_email_attr?: string
+  /** Create the account of a directory user at the first sign-in. */
+  jit_provisioning?: number
+  /** Role of directory users whose groups map to none. */
+  default_role?:   string
+  /** Seconds between scheduled syncs; 0: only when asked. */
+  sync_interval?:  number
 }
 
 // The LDAP API's names (server, use_tls, bind_password) differ from the
@@ -346,6 +352,30 @@ function ConfigTab() {
                 <input type="password" value={formCfg.bind_pass ?? ''} onChange={e => set('bind_pass', e.target.value)} className="input" autoComplete="new-password" />
               </Field>
             </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <Field label="Sync with the directory">
+                <select className="input" value={String(formCfg.sync_interval ?? 3600)} onChange={e => set('sync_interval', Number(e.target.value))}>
+                  <option value="0">Only when I click Sync</option>
+                  <option value="900">Every 15 minutes</option>
+                  <option value="3600">Every hour</option>
+                  <option value="21600">Every 6 hours</option>
+                  <option value="86400">Once a day</option>
+                </select>
+              </Field>
+              <Field label="Role without a group mapping">
+                <select className="input" value={formCfg.default_role ?? ''} onChange={e => set('default_role', e.target.value)}>
+                  <option value="">None (no access)</option>
+                  <option value="viewer">Viewer</option>
+                  <option value="user">User</option>
+                  <option value="operator">Operator</option>
+                </select>
+              </Field>
+            </div>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 'var(--text-sm)' }}>
+              <input type="checkbox" checked={!!formCfg.jit_provisioning} onChange={e => set('jit_provisioning', e.target.checked ? 1 : 0)} />
+              Create the account of a directory user at the first sign-in (without waiting for a sync)
+            </label>
 
             <details>
               <summary style={{ cursor: 'pointer', padding: '10px 0', fontSize: 'var(--text-sm)', fontWeight: 600 }}>Advanced Attribute Mapping</summary>

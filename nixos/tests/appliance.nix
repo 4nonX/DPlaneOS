@@ -58,6 +58,56 @@ pkgs.testers.nixosTest {
   # from here, through its firewall.
   nodes.client = { pkgs, ... }: {
     environment.systemPackages = [ pkgs.samba pkgs.curl pkgs.openssl pkgs.nvme-cli pkgs.rclone ];
+    # A directory (OpenLDAP) with two people and a group.
+    networking.firewall.allowedTCPPorts = [ 389 ];
+    services.openldap = {
+      enable = true;
+      urlList = [ "ldap:///" ];
+      settings = {
+        children = {
+          "cn=schema".includes = [
+            "${pkgs.openldap}/etc/schema/core.ldif"
+            "${pkgs.openldap}/etc/schema/cosine.ldif"
+            "${pkgs.openldap}/etc/schema/inetorgperson.ldif"
+          ];
+          "olcDatabase={1}mdb".attrs = {
+            objectClass = [ "olcDatabaseConfig" "olcMdbConfig" ];
+            olcDatabase = "{1}mdb";
+            olcDbDirectory = "/var/lib/openldap/db";
+            olcSuffix = "dc=example,dc=test";
+            olcRootDN = "cn=admin,dc=example,dc=test";
+            olcRootPW = "ldapadmin";
+            olcAccess = [ "{0}to * by * read" ];
+          };
+        };
+      };
+      declarativeContents."dc=example,dc=test" = ''
+        dn: dc=example,dc=test
+        objectClass: domain
+        dc: example
+
+        dn: ou=people,dc=example,dc=test
+        objectClass: organizationalUnit
+        ou: people
+
+        dn: ou=groups,dc=example,dc=test
+        objectClass: organizationalUnit
+        ou: groups
+
+        dn: uid=dora,ou=people,dc=example,dc=test
+        objectClass: inetOrgPerson
+        uid: dora
+        cn: Dora Directory
+        sn: Directory
+        mail: dora@example.test
+        userPassword: Dora-Dir-Pass-1
+
+        dn: cn=storage-ops,ou=groups,dc=example,dc=test
+        objectClass: groupOfNames
+        cn: storage-ops
+        member: uid=dora,ou=people,dc=example,dc=test
+      '';
+    };
     # An iSCSI initiator and an NVMe/TCP host.
     services.openiscsi = { enable = true; name = "iqn.2026-01.test.client:c1"; };
     boot.kernelModules = [ "nvme-tcp" ];
@@ -242,6 +292,52 @@ pkgs.testers.nixosTest {
             bad = dict(cfg, root_dir="")
             assert refused(api("PUT", "/api/ftp/config", bad))
 
+        with subtest("Directory users: sync, group roles, first sign-in, scheduled sync"):
+            client.wait_for_unit("openldap.service")
+            def try_login(user, password):
+                return api("POST", "/api/auth/login", {"username": user, "password": password}, auth=False)
+            def ldap_person(uid):
+                ldif = (f"dn: uid={uid},ou=people,dc=example,dc=test\nobjectClass: inetOrgPerson\nuid: {uid}\n"
+                        f"cn: {uid} person\nsn: person\nmail: {uid}@example.test\nuserPassword: {uid}-Dir-Pass-1\n")
+                client.succeed(f"ldapadd -x -H ldap://localhost -D cn=admin,dc=example,dc=test -w ldapadmin <<'EOF'\n{ldif}EOF")
+            directory = {"enabled": 1, "server": CLIENT, "port": 389, "use_tls": 0, "provider_type": "openldap",
+                         "bind_dn": "cn=admin,dc=example,dc=test", "bind_password": "ldapadmin", "base_dn": "dc=example,dc=test",
+                         "user_filter": "(&(objectClass=inetOrgPerson)(uid={username}))", "user_id_attr": "uid",
+                         "user_name_attr": "cn", "user_email_attr": "mail",
+                         "group_base_dn": "ou=groups,dc=example,dc=test", "group_filter": "(&(objectClass=groupOfNames)(member={user_dn}))",
+                         "group_member_attr": "member", "jit_provisioning": 0, "default_role": "viewer", "sync_interval": 0, "timeout": 10}
+            ok(api("POST", "/api/ldap/config", directory), "directory settings")
+            ok(api("POST", "/api/ldap/test", {}), "directory test")
+            ok(api("POST", "/api/ldap/mappings", {"ldap_group": "storage-ops", "role_name": "operator"}), "group mapping")
+            # Unknown here until the first sync.
+            assert not try_login("dora", "Dora-Dir-Pass-1").get("session_id")
+            res = ok(api("POST", "/api/ldap/sync", {}), "sync")
+            assert res["data"]["users_created"] == 1, res
+            assert try_login("dora", "Dora-Dir-Pass-1").get("session_id"), "a synced directory user cannot sign in"
+            assert not try_login("dora", "wrong").get("session_id")
+            users = {u["username"]: u for u in api("GET", "/api/rbac/users")["users"]}
+            assert users["dora"]["source"] == "ldap" and users["dora"]["file_access"] == "directory", users["dora"]
+            dora_roles = nas.succeed("runuser -u postgres -- psql -d dplaneos -tAc \"SELECT r.name FROM user_roles ur JOIN roles r ON r.id = ur.role_id "
+                                     "JOIN users u ON u.id = ur.user_id WHERE u.username = 'dora'\"").split()
+            assert dora_roles == ["operator"], dora_roles
+
+            # Somebody new in the directory: no account here, no sign-in ...
+            ldap_person("jit")
+            assert not try_login("jit", "jit-Dir-Pass-1").get("session_id")
+            # ... unless accounts are created at the first sign-in.
+            ok(api("POST", "/api/ldap/config", dict(directory, jit_provisioning=1)), "first sign-in creates accounts")
+            assert not try_login("jit", "not-the-password").get("session_id")
+            assert "jit" not in {u["username"] for u in api("GET", "/api/rbac/users")["users"]}, "an account was created for a wrong password"
+            assert try_login("jit", "jit-Dir-Pass-1").get("session_id"), "first sign-in of a directory user failed"
+            assert not try_login("nobody-at-all", "x").get("session_id")
+
+            # The scheduled sync finds the next one by itself.
+            ldap_person("sched")
+            ok(api("POST", "/api/ldap/config", dict(directory, sync_interval=60)), "scheduled sync")
+            nas.wait_until_succeeds("runuser -u postgres -- psql -d dplaneos -tAc \"SELECT 1 FROM users WHERE username = 'sched' AND source = 'ldap'\" | grep -qx 1", timeout=200)
+            ok(api("POST", "/api/ldap/config", dict(directory, enabled=0)), "directory off")
+            assert not try_login("dora", "Dora-Dir-Pass-1").get("session_id"), "sign-in although the directory is switched off"
+
         with subtest("System settings take effect at once"):
             ok(api("POST", "/api/system/settings", {"hostname": "tank-nas", "timezone": "Europe/Berlin"}), "host name and time zone")
             assert nas.succeed("hostname").strip() == "tank-nas"
@@ -254,7 +350,9 @@ pkgs.testers.nixosTest {
             assert nas.succeed("hostname").strip() == "tank-nas"
 
             ok(api("POST", "/api/system/ntp", {"servers": ["10.0.2.2"]}), "NTP servers")
-            nas.wait_until_succeeds("timedatectl show-timesync -p SystemNTPServers --value | grep -qw 10.0.2.2", timeout=30)
+            # (The time service itself is switched off in test machines; its
+            # configuration is what can be checked here.)
+            nas.succeed("grep -qx 'NTP=10.0.2.2' /run/systemd/timesyncd.conf.d/10-dplane.conf")
 
             ok(api("POST", "/api/system/tuning", {"arc_limit_gb": 1, "swappiness": 7}), "tuning")
             assert nas.succeed("cat /proc/sys/vm/swappiness").strip() == "7"
@@ -507,7 +605,7 @@ pkgs.testers.nixosTest {
             assert nas.succeed("readlink /etc/localtime").strip() == "/etc/zoneinfo/Europe/Berlin"
             assert nas.succeed("cat /proc/sys/vm/swappiness").strip() == "7"
             nas.wait_until_succeeds("test \"$(cat /sys/module/zfs/parameters/zfs_arc_max)\" = " + str(1 << 30), timeout=60)
-            nas.succeed("timedatectl show-timesync -p SystemNTPServers --value | grep -qw 10.0.2.2")
+            nas.succeed("grep -qx 'NTP=10.0.2.2' /run/systemd/timesyncd.conf.d/10-dplane.conf")
             nas.succeed("echo | ${pkgs.openssl}/bin/openssl s_client -connect localhost:443 2>/dev/null | ${pkgs.openssl}/bin/openssl x509 -noout -subject | grep -q 'tank-nas.example'")
             nas.succeed("systemctl is-active dplaneos-system-settings.service")
             # The UPS is monitored again.

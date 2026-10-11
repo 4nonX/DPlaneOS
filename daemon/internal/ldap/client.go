@@ -157,6 +157,7 @@ func (c *Client) Authenticate(username, password string) (*User, error) {
 		return nil, err
 	}
 	user.Groups = groups
+	user.GroupsKnown = true
 
 	return user, nil
 }
