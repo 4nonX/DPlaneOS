@@ -185,7 +185,7 @@ cmd_install() {
 
     log "fetching DPlaneOS ${version} (${system})"
     if ! nix-store --realise "${system}" \
-            --option substituters "file://${work}/cache?trusted=1 ${UPSTREAM_CACHE}" \
+            --option substituters "file://${work}/cache?trusted=true ${UPSTREAM_CACHE}" \
             --option require-sigs true \
             --option fallback false \
             --option builders "" \

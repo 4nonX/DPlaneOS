@@ -155,11 +155,17 @@
             message = "DPlaneOS requires OpenZFS >= 2.3 (LTS branch).";
           }
         ];
-        boot.loader.systemd-boot = { enable = true; configurationLimit = 2; };
+        # (How many boot entries are kept is set with the update mechanism,
+        # nixos/ota-module.nix: the running version, the previous one, and
+        # one on trial.)
+        boot.loader.systemd-boot.enable = true;
         boot.loader.efi.canTouchEfiVariables = true;
         services.dplaneos.dbPath = "/var/lib/dplaneos/pgsql";
         nix.settings.auto-optimise-store = true;
-        nix.gc = { automatic = true; dates = "weekly"; options = "--delete-older-than 14d"; };
+        # No timed garbage collection: it would delete the previous version
+        # after two weeks, and with it the way back. dplaneos-update removes
+        # what an update leaves behind.
+        nix.gc.automatic = false;
 
         # python3.11-3.11.15-doc fails to build in nixpkgs 26.05 (Sphinx 9.1
         # + docutils 0.22.4 incompatibility). The doc derivation's store path
@@ -251,6 +257,15 @@
         #   nix build .#checks.x86_64-linux.appliance -L
         checks.appliance = import ./nixos/tests/appliance.nix {
           inherit nixpkgs system impermanence;
+          daemonPackage = daemon;
+          frontendPackage = frontend;
+        };
+
+        # System updates on a machine that boots through its boot loader:
+        # install, trial start, automatic and manual return.
+        #   nix build .#checks.x86_64-linux.update -L
+        checks.update = import ./nixos/tests/update.nix {
+          inherit nixpkgs system;
           daemonPackage = daemon;
           frontendPackage = frontend;
         };

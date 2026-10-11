@@ -42,8 +42,8 @@ const (
 type SystemUpdateHandler struct {
 	releaseURL string
 
-	mu        sync.Mutex
-	lastCheck map[string]any // result of the last check, shown with the status
+	mu         sync.Mutex
+	lastCheck  map[string]any // result of the last check, shown with the status
 	installing bool
 }
 

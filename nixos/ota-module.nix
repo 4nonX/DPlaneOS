@@ -28,7 +28,10 @@ let
     # The script sets its own options and is checked as written.
     bashOptions = [ ];
     checkPhase = "";
-    text = builtins.readFile ./dplaneos-update.sh;
+    text = ''
+      export DPLANEOS_UPDATE_UPSTREAM=''${DPLANEOS_UPDATE_UPSTREAM:-${lib.escapeShellArg cfg.ota.upstreamCache}}
+      export DPLANEOS_UPDATE_HEALTH_TIMEOUT=''${DPLANEOS_UPDATE_HEALTH_TIMEOUT:-${toString cfg.ota.healthTimeout}}
+    '' + builtins.readFile ./dplaneos-update.sh;
   };
 
 in {
@@ -72,6 +75,26 @@ in {
         Where the latest release is announced, in the format of GitHub's
         "latest release" API. Null: the DPlaneOS releases. Its update files
         must be signed with the key in publicKeyFile.
+      '';
+    };
+
+    upstreamCache = lib.mkOption {
+      type    = lib.types.str;
+      default = "https://cache.nixos.org/";
+      description = ''
+        Binary cache the parts of a new system are fetched from that are not
+        in the update file itself (everything DPlaneOS does not build: the
+        kernel, ZFS, Samba, ...). A site without internet access points this
+        at a mirror of the NixOS cache.
+      '';
+    };
+
+    healthTimeout = lib.mkOption {
+      type    = lib.types.ints.between 30 3600;
+      default = 300;
+      description = ''
+        Seconds the check of an update on trial waits for the system to
+        become healthy before it restores the previous version.
       '';
     };
 
