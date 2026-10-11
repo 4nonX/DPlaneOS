@@ -103,7 +103,7 @@
     openFirewall = true;
     samba.enable = true;
     nfs.enable   = true;
-    # MinIO is part of the image: the S3 page switches it on.
+    # The S3 server is part of the image: the S3 page switches it on.
     s3.enable    = true;
   };
 

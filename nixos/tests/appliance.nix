@@ -57,7 +57,7 @@ pkgs.testers.nixosTest {
   # Another machine on the same network: what the appliance offers is used
   # from here, through its firewall.
   nodes.client = { pkgs, ... }: {
-    environment.systemPackages = [ pkgs.samba pkgs.curl pkgs.openssl pkgs.nvme-cli ];
+    environment.systemPackages = [ pkgs.samba pkgs.curl pkgs.openssl pkgs.nvme-cli pkgs.rclone ];
     # An iSCSI initiator and an NVMe/TCP host.
     services.openiscsi = { enable = true; name = "iqn.2026-01.test.client:c1"; };
     boot.kernelModules = [ "nvme-tcp" ];
@@ -297,19 +297,30 @@ pkgs.testers.nixosTest {
             nas.wait_until_succeeds("dd if=/dev/zvol/tank/nv0 bs=512 count=1 2>/dev/null | grep -q written-over-nvme", timeout=30)
             client.succeed(f"nvme disconnect -n {NQN}")
 
-            # S3 (MinIO).
+            # S3: buckets and objects, with a real client; they are files in the dataset.
             st = ok(api("GET", "/api/s3/status"), "S3 status")
             assert st["installed"] is True and st["active"] is False, st
+            assert refused(api("POST", "/api/s3/start", {})), "started without settings"
             nas.succeed(f"mkdir -p {mp}/s3")
-            ok(api("PUT", "/api/s3/config", {"root_user": "s3admin", "root_password": "S3-Test-Pass-9", "volume_path": f"{mp}/s3",
-                                             "api_port": 9000, "console_port": 9001}), "S3 settings")
+            assert refused(api("PUT", "/api/s3/config", {"root_user": "s3admin", "root_password": "S3-Test-Pass-9", "volume_path": "/etc"}))
+            ok(api("PUT", "/api/s3/config", {"root_user": "s3admin", "root_password": "S3-Test-Pass-9", "volume_path": f"{mp}/s3", "api_port": 9000}), "S3 settings")
             ok(api("POST", "/api/s3/start", {}), "start S3")
-            client.wait_until_succeeds(FETCH + f"http://{NAS}:9000/minio/health/live", timeout=90)
-            # Stopped: the ports close again.
+            client.wait_until_succeeds(FETCH + f"http://{NAS}:9000/health", timeout=90)
+            def rclone(secret, args):
+                return ("RCLONE_CONFIG_NAS_TYPE=s3 RCLONE_CONFIG_NAS_PROVIDER=Other RCLONE_CONFIG_NAS_ACCESS_KEY_ID=s3admin "
+                        f"RCLONE_CONFIG_NAS_SECRET_ACCESS_KEY={secret} RCLONE_CONFIG_NAS_ENDPOINT=http://{NAS}:9000 "
+                        "RCLONE_CONFIG_NAS_FORCE_PATH_STYLE=true rclone --retries 1 --low-level-retries 1 --contimeout 10s " + args)
+            client.succeed(rclone("S3-Test-Pass-9", "mkdir nas:backups"))
+            client.succeed(rclone("S3-Test-Pass-9", "copyto /etc/os-release nas:backups/os-release"))
+            client.succeed(rclone("S3-Test-Pass-9", "copyto nas:backups/os-release /tmp/from-s3") + " && cmp /tmp/from-s3 /etc/os-release")
+            client.fail(rclone("wrong-secret-key", "lsf nas:backups"))
+            client.fail(FETCH + f"http://{NAS}:9000/backups/os-release")  # not without credentials
+            nas.succeed(f"cmp {mp}/s3/backups/os-release /etc/os-release")
+            # Stopped: the port closes again.
             ok(api("POST", "/api/s3/stop", {}), "stop S3")
             client.fail(f"timeout 5 bash -c 'echo > /dev/tcp/{NAS}/9000'")
             ok(api("POST", "/api/s3/start", {}), "start S3 again")
-            client.wait_until_succeeds(FETCH + f"http://{NAS}:9000/minio/health/live", timeout=90)
+            client.wait_until_succeeds(FETCH + f"http://{NAS}:9000/health", timeout=90)
 
         with subtest("UPS: set up in the web interface"):
             UPS_FILE = "/var/lib/dplaneos/nut/test.dev"
@@ -521,7 +532,8 @@ pkgs.testers.nixosTest {
             client.wait_until_succeeds("nvme list -o json | ${pkgs.jq}/bin/jq -e '.Devices | length > 0'", timeout=30)
             client.succeed("dd if=$(nvme list -o json | ${pkgs.jq}/bin/jq -r '.Devices[0].DevicePath') bs=512 count=1 2>/dev/null | grep -q written-over-nvme")
             client.succeed(f"nvme disconnect -n {NQN}")
-            client.wait_until_succeeds(FETCH + f"http://{NAS}:9000/minio/health/live", timeout=120)
+            client.wait_until_succeeds(rclone("S3-Test-Pass-9", "copyto nas:backups/os-release /tmp/from-s3-again"), timeout=120)
+            client.succeed("cmp /tmp/from-s3-again /etc/os-release")
             # FTP is running again, with the same accounts, and reachable.
             nas.wait_for_open_port(21)
             client.wait_until_succeeds(f"curl -sS --fail --max-time 30 --user alice:{USER_PASSWORD2} ftp://{NAS}/file", timeout=60)

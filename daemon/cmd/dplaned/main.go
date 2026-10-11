@@ -1114,13 +1114,13 @@ func main() {
 	r.Handle("/api/ftp/stop", permRoute("shares", "admin", http.HandlerFunc(handlers.StopFTP))).Methods("POST")
 	r.Handle("/api/ftp/restart", permRoute("shares", "admin", http.HandlerFunc(handlers.RestartFTP))).Methods("POST")
 
-	// MinIO S3 object storage handlers
-	r.Handle("/api/s3/status", permRoute("storage", "read", http.HandlerFunc(handlers.GetMinioStatus))).Methods("GET")
-	r.Handle("/api/s3/config", permRoute("storage", "read", http.HandlerFunc(handlers.GetMinioConfig))).Methods("GET")
-	r.Handle("/api/s3/config", permRoute("storage", "admin", http.HandlerFunc(handlers.UpdateMinioConfig))).Methods("PUT")
-	r.Handle("/api/s3/start", permRoute("storage", "admin", http.HandlerFunc(handlers.StartMinio))).Methods("POST")
-	r.Handle("/api/s3/stop", permRoute("storage", "admin", http.HandlerFunc(handlers.StopMinio))).Methods("POST")
-	r.Handle("/api/s3/restart", permRoute("storage", "admin", http.HandlerFunc(handlers.RestartMinio))).Methods("POST")
+	// S3 object storage (Versity Gateway)
+	r.Handle("/api/s3/status", permRoute("storage", "read", http.HandlerFunc(handlers.GetS3Status))).Methods("GET")
+	r.Handle("/api/s3/config", permRoute("storage", "read", http.HandlerFunc(handlers.GetS3Config))).Methods("GET")
+	r.Handle("/api/s3/config", permRoute("storage", "admin", http.HandlerFunc(handlers.UpdateS3Config))).Methods("PUT")
+	r.Handle("/api/s3/start", permRoute("storage", "admin", http.HandlerFunc(handlers.StartS3))).Methods("POST")
+	r.Handle("/api/s3/stop", permRoute("storage", "admin", http.HandlerFunc(handlers.StopS3))).Methods("POST")
+	r.Handle("/api/s3/restart", permRoute("storage", "admin", http.HandlerFunc(handlers.RestartS3))).Methods("POST")
 
 	// Shares CRUD handlers
 	shareCRUDHandler := handlers.NewShareCRUDHandler(db, *smbConfPath)
@@ -1368,7 +1368,7 @@ func main() {
 		if err := hardware.RegenerateSMARTTimers(db); err != nil {
 			log.Printf("WARN: SMART timers: %v", err)
 		}
-		handlers.RestoreMinio()
+		handlers.RestoreS3()
 		handlers.RestoreFTP()
 		// The kernel forgets its iSCSI and NVMe-oF targets at a reboot.
 		handlers.RestoreISCSI()

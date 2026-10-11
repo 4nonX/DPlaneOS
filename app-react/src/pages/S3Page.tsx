@@ -1,12 +1,12 @@
 /**
- * pages/S3Page.tsx - MinIO S3 Object Storage
+ * pages/S3Page.tsx - S3 Object Storage
  *
- * Manages a local MinIO instance as an S3-compatible object storage service.
- * MinIO is installed as a system package and managed via systemd.
+ * Serves a folder of a pool over the S3 protocol (Versity Gateway): buckets
+ * are its directories, objects are plain files in them.
  *
  * API:
- *   GET  /api/s3/status   - { installed, active, api_port, console_port }
- *   GET  /api/s3/config   - { config: { root_user, root_password(redacted), volume_path, api_port, console_port } }
+ *   GET  /api/s3/status   - { installed, active, api_port }
+ *   GET  /api/s3/config   - { config: { root_user, root_password(redacted), volume_path, api_port } }
  *   PUT  /api/s3/config   - update config and apply
  *   POST /api/s3/start    - start service
  *   POST /api/s3/stop     - stop service
@@ -25,22 +25,20 @@ import { toast } from '@/hooks/useToast'
 // Types
 // ---------------------------------------------------------------------------
 
-interface MinioStatus {
+interface S3Status {
   success: boolean
   installed: boolean
   active: boolean
   api_port: number
-  console_port: number
 }
 
-interface MinioConfigResponse {
+interface S3ConfigResponse {
   success: boolean
   config: {
     root_user: string
     root_password: string
     volume_path: string
     api_port: number
-    console_port: number
   }
 }
 
@@ -76,19 +74,18 @@ export function S3Page() {
     root_password?: string
     volume_path?: string
     api_port?: number
-    console_port?: number
   }>({})
   const [showPassword, setShowPassword] = useState(false)
 
-  const statusQ = useQuery<MinioStatus>({
+  const statusQ = useQuery<S3Status>({
     queryKey: ['s3', 'status'],
-    queryFn: () => api.get<MinioStatus>('/api/s3/status'),
+    queryFn: () => api.get<S3Status>('/api/s3/status'),
     refetchInterval: 10_000,
   })
 
-  const configQ = useQuery<MinioConfigResponse>({
+  const configQ = useQuery<S3ConfigResponse>({
     queryKey: ['s3', 'config'],
-    queryFn: () => api.get<MinioConfigResponse>('/api/s3/config'),
+    queryFn: () => api.get<S3ConfigResponse>('/api/s3/config'),
   })
 
   // Effective form: user edits OR server value (no seeding effect needed)
@@ -98,7 +95,6 @@ export function S3Page() {
     root_password: dirtyForm.root_password ?? '',
     volume_path:   dirtyForm.volume_path   ?? sc?.volume_path  ?? '',
     api_port:      dirtyForm.api_port      ?? sc?.api_port     ?? 9000,
-    console_port:  dirtyForm.console_port  ?? sc?.console_port ?? 9001,
   }
   const dirty = Object.keys(dirtyForm).length > 0
 
@@ -115,17 +111,17 @@ export function S3Page() {
 
   const startMut = useMutation({
     mutationFn: () => api.post('/api/s3/start', {}),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['s3', 'status'] }); toast.success('MinIO started') },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['s3', 'status'] }); toast.success('S3 service started') },
     onError: (e: Error) => toast.error(e.message),
   })
   const stopMut = useMutation({
     mutationFn: () => api.post('/api/s3/stop', {}),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['s3', 'status'] }); toast.success('MinIO stopped') },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['s3', 'status'] }); toast.success('S3 service stopped') },
     onError: (e: Error) => toast.error(e.message),
   })
   const restartMut = useMutation({
     mutationFn: () => api.post('/api/s3/restart', {}),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['s3', 'status'] }); toast.success('MinIO restarted') },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['s3', 'status'] }); toast.success('S3 service restarted') },
     onError: (e: Error) => toast.error(e.message),
   })
 
@@ -147,7 +143,7 @@ export function S3Page() {
       <header className="page-header">
         <div>
           <h1 className="page-title">S3 Object Storage</h1>
-          <p className="page-subtitle">Local MinIO instance providing S3-compatible object storage.</p>
+          <p className="page-subtitle">Serve a folder of a pool over the S3 protocol. Buckets are its directories; objects are ordinary files in them.</p>
         </div>
       </header>
 
@@ -164,23 +160,10 @@ export function S3Page() {
                   <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>
                     API port <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 600 }}>{status?.api_port}</span>
                   </span>
-                  <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>
-                    Console port <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 600 }}>{status?.console_port}</span>
-                  </span>
                 </>
               )}
             </div>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              {isActive && status?.console_port && (
-                <a
-                  href={`http://${window.location.hostname}:${status.console_port}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="btn btn-ghost"
-                >
-                  <Icon name="open_in_new" size={15} />Open MinIO Console
-                </a>
-              )}
               {isActive ? (
                 <>
                   <button className="btn btn-ghost" onClick={() => restartMut.mutate()} disabled={anyPending}>
@@ -204,13 +187,12 @@ export function S3Page() {
         )}
         {!status?.installed && !statusQ.isLoading && (
           <div style={{ marginTop: 12, fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }}>
-            MinIO is not installed. Add <code>services.minio.enable = true;</code> to your NixOS configuration, or install the <code>minio</code> package.
+The S3 server is not part of this system (it was built without <code>services.dplaneos.s3.enable</code>).
           </div>
         )}
         {isActive && (
           <div style={{ marginTop: 12, display: 'flex', gap: 16, flexWrap: 'wrap' }}>
             <EndpointLink label="S3 API" port={status?.api_port} />
-            <EndpointLink label="Web Console" port={status?.console_port} />
           </div>
         )}
       </div>
@@ -229,12 +211,12 @@ export function S3Page() {
           <form onSubmit={handleSubmit}>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
               <div>
-                <label style={{ display: 'block', fontSize: 'var(--text-sm)', fontWeight: 500, marginBottom: 6 }}>Root user (access key)</label>
+                <label style={{ display: 'block', fontSize: 'var(--text-sm)', fontWeight: 500, marginBottom: 6 }}>Access key</label>
                 <input className="input" value={form.root_user} onChange={e => field('root_user', e.target.value)}
-                  placeholder="minioadmin" disabled={saveMut.isPending} />
+                  placeholder="s3admin" disabled={saveMut.isPending} />
               </div>
               <div>
-                <label style={{ display: 'block', fontSize: 'var(--text-sm)', fontWeight: 500, marginBottom: 6 }}>Root password (secret key)</label>
+                <label style={{ display: 'block', fontSize: 'var(--text-sm)', fontWeight: 500, marginBottom: 6 }}>Secret key</label>
                 <div style={{ position: 'relative' }}>
                   <input className="input" type={showPassword ? 'text' : 'password'}
                     value={form.root_password}
@@ -249,22 +231,18 @@ export function S3Page() {
                 </div>
               </div>
               <div style={{ gridColumn: '1 / -1' }}>
-                <label style={{ display: 'block', fontSize: 'var(--text-sm)', fontWeight: 500, marginBottom: 6 }}>Data volume path</label>
+                <label style={{ display: 'block', fontSize: 'var(--text-sm)', fontWeight: 500, marginBottom: 6 }}>Folder</label>
                 <input className="input" value={form.volume_path} onChange={e => field('volume_path', e.target.value)}
-                  placeholder="/tank/minio" disabled={saveMut.isPending} />
+                  placeholder="/mnt/tank/s3" disabled={saveMut.isPending} />
                 <p style={{ marginTop: 4, fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }}>
-                  Absolute path to the directory where MinIO stores object data. Use a ZFS dataset mountpoint for best results.
+                  A dataset's mount point or a folder below it. Each bucket is a directory in it, each object a file: snapshots,
+                  replication and the file browser see them like any other data.
                 </p>
               </div>
               <div>
                 <label style={{ display: 'block', fontSize: 'var(--text-sm)', fontWeight: 500, marginBottom: 6 }}>API port (S3 endpoint)</label>
                 <input className="input" type="number" min={1} max={65535} value={form.api_port}
                   onChange={e => field('api_port', Number(e.target.value))} disabled={saveMut.isPending} />
-              </div>
-              <div>
-                <label style={{ display: 'block', fontSize: 'var(--text-sm)', fontWeight: 500, marginBottom: 6 }}>Console port (web UI)</label>
-                <input className="input" type="number" min={1} max={65535} value={form.console_port}
-                  onChange={e => field('console_port', Number(e.target.value))} disabled={saveMut.isPending} />
               </div>
             </div>
 

@@ -147,7 +147,7 @@ func InstallTimer(cfg TimerConfig) error {
 func ResolveCommand(command string) (string, error) { return resolveCommand(command) }
 
 // InstallService writes a service unit into UnitDir and reloads systemd. Used
-// for daemon-managed services (MinIO, vsftpd) that NixOS does not declare;
+// for daemon-managed services (the S3 gateway, vsftpd) that NixOS does not declare;
 // on NixOS the unit is a runtime unit and the daemon re-installs it at start.
 func InstallService(unitName, content string) error {
 	dir := UnitDir()

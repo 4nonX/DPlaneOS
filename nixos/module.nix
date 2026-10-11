@@ -101,8 +101,8 @@ in {
       type = lib.types.bool;
       default = false;
       description = ''
-        Make the S3 Object Storage page usable: installs MinIO for the daemon,
-        which runs it as a runtime unit. Off by default because of its size.
+        Make the S3 Object Storage page usable: installs Versity Gateway
+        (versitygw) for the daemon, which runs it as a unit of its own.
       '';
     };
 
@@ -616,7 +616,7 @@ in {
         getent                           # getent passwd/group (accounts, quotas)
         config.nix.package config.system.build.nixos-rebuild
       ] ++ lib.optional cfg.ftp.enable vsftpd
-        ++ lib.optional cfg.s3.enable minio;
+        ++ lib.optional cfg.s3.enable versitygw;
 
       serviceConfig = {
         Type            = "simple";
