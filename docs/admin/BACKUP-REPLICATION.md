@@ -225,7 +225,7 @@ Cloud Sync uses rclone to synchronize datasets to object storage providers: S3-c
 | Amazon S3 | `s3` |
 | Backblaze B2 | `b2` |
 | Wasabi | `s3` (endpoint override) |
-| MinIO (local) | `s3` (endpoint override) |
+| Another S3 service (e.g. a second DPlaneOS) | `s3` (endpoint override) |
 | Azure Blob Storage | `azureblob` |
 | SFTP | `sftp` |
 | FTP / FTPS | `ftp` |

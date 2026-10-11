@@ -1,96 +1,58 @@
 # DPlaneOS Port Reference
 
-Every port the system listens on, what listens on it, and whether it is configurable. Use this when assigning ports to Docker containers to avoid conflicts.
+Every port the system listens on, what listens there, and when. The firewall is on from the first start and lets in only what is listed here plus the rules you add under Security › Firewall. The Firewall page shows the ports that are open at the moment ("opened by the system").
 
-The internal nginx-to-daemon pipe uses a **Unix domain socket** (`/run/dplaneos/dplaned.sock`), not a TCP port. No OS-internal port is reserved for DPlaneOS plumbing. The only open ports are the protocol ports operators already expect.
-
----
-
-## Always Active
-
-| Port | Proto | Interface | Service | Configurable |
-|------|-------|-----------|---------|-------------|
-| 22 | TCP | All | OpenSSH | Yes - Settings > Security > SSH Port |
-| 80 | TCP | All | nginx (HTTP) | No |
-| 443 | TCP | All | nginx (HTTPS, TLS terminated) | No |
-| 5353 | UDP | All | Avahi mDNS (`dplaneos.local` discovery) | No |
+nginx talks to the daemon over a Unix socket (`/run/dplaneos/dplaned.sock`) and the daemon to PostgreSQL over another: neither has a TCP port.
 
 ---
 
-## File Sharing (active when service is enabled)
+## Always
 
-Samba and NFS are **enabled by default**. iSCSI and NVMe-oF are off until targets are created.
+| Port | Proto | Service | Changeable |
+|------|-------|---------|------------|
+| 22 | TCP | SSH (keys only unless you allow passwords; root does not sign in) | Yes, Identity › SSH Keys |
+| 80 | TCP | Web interface (HTTP) | No |
+| 443 | TCP | Web interface and API (HTTPS) | No |
+| 445, 139 | TCP | SMB (Samba) | No |
+| 137, 138 | UDP | NetBIOS name service and datagrams (Samba) | No |
+| 2049, 111 | TCP+UDP | NFS, rpcbind | No |
+| 5353 | UDP | mDNS: the system is found by name, Time Machine shares are announced | No |
 
-| Port | Proto | Interface | Service | Configurable |
-|------|-------|-----------|---------|-------------|
-| 445 | TCP | All | Samba (SMB2/3) | No |
-| 139 | TCP | All | Samba (NetBIOS Session Service) | No |
-| 137 | UDP | All | Samba (NetBIOS Name Service) | No |
-| 138 | UDP | All | Samba (NetBIOS Datagram) | No |
-| 2049 | TCP+UDP | All | NFS (nfsd) | No |
-| 111 | TCP+UDP | All | rpcbind / portmap (NFS) | No |
-| 21 | TCP | All | vsftpd control channel (FTP/FTPS) | Yes - Settings > FTP |
-| 40000-40100 | TCP | All | vsftpd passive data range | Yes - Settings > FTP |
-| 3260 | TCP | All | iSCSI (kernel LIO via nvmet) | No |
-| 4420 | TCP | All | NVMe-oF over TCP (default per-target) | Yes - per-target `listen_port` in state.yaml |
+## When switched on
 
-FTP/FTPS is **disabled by default** and must be started via Settings > Sharing > FTP.
+| Port | Proto | Service | Opens when | Changeable |
+|------|-------|---------|-----------|------------|
+| 21 | TCP | FTP / FTPS control | FTP is enabled | Yes, Sharing › FTP / FTPS |
+| 40000-40100 | TCP | FTP passive data | FTP is enabled | Yes, there |
+| 3260 | TCP | iSCSI | the first target exists | Per target |
+| 4420 | TCP | NVMe over TCP | the first export exists | Per export |
+| 9000 | TCP | S3 (Versity Gateway) | S3 is started | Yes, Sharing › S3 Object Storage |
 
----
+These ports close again when the service is switched off or its last target is removed.
 
-## S3 Object Storage / MinIO (active when started)
+## Cluster nodes
 
-| Port | Proto | Interface | Service | Configurable |
-|------|-------|-----------|---------|-------------|
-| 9000 | TCP | All | MinIO S3 API | Yes - Settings > S3 |
-| 9001 | TCP | All | MinIO web console | Yes - Settings > S3 |
+| Port | Proto | Service |
+|------|-------|---------|
+| 5405 | UDP | Corosync, between all members |
+| 5403 | TCP | The third vote (corosync-qnetd), from every node to the machine that gives it |
+| 443 | TCP | Exchange of configuration between the nodes (HTTPS, with pinned certificates) |
+| 22 | TCP | Replication of replicated storage groups (ZFS streams over SSH) |
 
-MinIO is **off by default**. Ports only open when MinIO is started via Settings > Sharing > S3.
+Keep 5405 and 5403 to the cluster network.
 
----
+## Outgoing only
 
-## High Availability (HA cluster nodes only)
+| Port | Proto | For |
+|------|-------|-----|
+| 389, 636 | TCP | LDAP / LDAPS directory |
+| 88, 389, 445, 464 | TCP+UDP | Active Directory domain controllers (a member only) |
+| 443 | TCP | OIDC provider, ACME, cloud targets, looking for updates |
+| 25, 465, 587 | TCP | E-mail alerts |
+| 22 | TCP | Replication to another system |
+| 123 | UDP | Time servers |
+| 3493 | TCP | A UPS server on another machine (the local one listens on loopback only) |
 
-On single-node deployments none of these are open.
+## Ports for containers
 
-| Port | Proto | Interface | Service | Configurable |
-|------|-------|-----------|---------|-------------|
-| 5405 | UDP | Cluster | Corosync (knet) between all cluster members | No |
-| 5403 | TCP | Cluster | Third vote (corosync-qnetd), from every node to the QDevice | No |
-
-Cluster ports should be reachable on the cluster network only.
-
----
-
-## Outbound Only (no listening port on the NAS)
-
-| Destination Port | Proto | Service |
-|-----------------|-------|---------|
-| 389 | TCP | LDAP (to directory server) |
-| 636 | TCP | LDAPS (to directory server) |
-| 443 | TCP | OIDC IdP, ACME/Let's Encrypt, rclone cloud targets |
-| 25 / 587 / 465 | TCP | SMTP alert delivery |
-| 22 | TCP | ZFS replication SSH to remote host |
-| 3493 | TCP | NUT upsd (local UPS daemon, loopback only) |
-
----
-
-## Docker Container Port Safety
-
-Safe ranges for container `-p HOST:CONTAINER` bindings on a default single-node installation:
-
-**Always reserved:** `22`, `80`, `443`, `5353/UDP`
-
-**Reserved when Samba active (default on):** `137-139`, `445`
-
-**Reserved when NFS active (default on):** `111`, `2049`
-
-**Reserved when optional services active:**
-`21`, `40000-40100` (FTP), `3260` (iSCSI), `4420` (NVMe-oF), `9000-9001` (MinIO)
-
-**Reserved on HA nodes:** `2379`, `2380`, `5000`, `5432`, `8008`
-
-**Broadly safe for container use on a default single-node install:**
-`1024-8079`, `8081-8999`, `9002-40099`, `40101-65535`
-
-(excluding any ports manually opened in Settings > Firewall or declared under `system.firewall` in `state.yaml`)
+Containers publish their ports through Docker, which does its own packet filtering: a published port is reachable whatever the Firewall page says. Avoid the ports above; everything else is free, for example `1024-2048`, `2050-3259`, `4421-5352`, `5406-8999`, `9001-39999`, `40101-65535`.

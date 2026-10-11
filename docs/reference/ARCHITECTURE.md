@@ -332,7 +332,7 @@ This illustrates the reconciliatory loop: the daemon can make immediate changes,
 | High Availability setup and day-2 operations | [High Availability Guide](../admin/HIGH-AVAILABILITY.md) |
 | OTA update procedure and rollback | [OTA Updates](../admin/OTA-UPDATES.md) |
 | Security threats, mitigations, and residual risks | [Threat Model](THREAT-MODEL.md) |
-| iSCSI, FTP, NVMe-oF, MinIO | [Optional Protocols](../admin/OPTIONAL-PROTOCOLS.md) |
+| iSCSI, FTP, NVMe-oF, S3 | [Optional Protocols](../admin/OPTIONAL-PROTOCOLS.md) |
 | SMTP, webhook, and Telegram alerts; TOTP/2FA | [Alerts and Authentication](../admin/ALERTS.md) |
 | Why NixOS exclusively | [NixOS Rationale](NIXOS-RATIONALE.md) |
 | Impermanence: what persists and what does not | [NixOS Rationale - Impermanence](NIXOS-RATIONALE.md#impermanence) |

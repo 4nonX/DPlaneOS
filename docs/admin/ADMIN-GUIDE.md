@@ -11,7 +11,7 @@ For deeper dives into operational areas, see the dedicated guides:
 - [Backup and Replication](BACKUP-REPLICATION.md) - ZFS snapshots, replication, Cloud Sync, rsync, database backup
 - [High Availability](HIGH-AVAILABILITY.md) - HA cluster setup, failover, rolling upgrades
 - [OTA Updates](OTA-UPDATES.md) - A/B slot updates, health check, auto-revert, rollback
-- [Optional Protocols](OPTIONAL-PROTOCOLS.md) - iSCSI, NVMe-oF, FTP/FTPS, MinIO
+- [Optional Protocols](OPTIONAL-PROTOCOLS.md) - iSCSI, NVMe-oF, FTP/FTPS, S3
 - [Alerts and Authentication](ALERTS.md) - SMTP, webhook, Telegram, TOTP 2FA
 
 ---
