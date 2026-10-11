@@ -53,91 +53,80 @@ There is no native SNMP MIB. For environments that require SNMP, use `snmp_expor
 
 ## Active Directory / Windows Domain
 
-DPlaneOS supports full Active Directory domain membership with winbind, Kerberos, and NSS integration. The implementation covers:
+There are two separate things a domain can do for DPlaneOS:
 
-- Samba in ADS security mode with machine account
-- Kerberos TGT acquisition and background ticket renewal
-- Winbind for SID-to-UID/GID mapping (multi-forest with configurable IDMAP backends)
-- NSS integration so `ls -l`, `id`, `stat`, and SMB ACL display resolve AD names
-- Per-forest IDMAP range configuration (RID, AD, TDB, or autorid backends)
+- **Sign-in to the web interface** with domain accounts: Directory › Directory Setup (the domain is used as an LDAP directory; no membership needed).
+- **SMB shares for domain users**: the system becomes a **member of the domain**. Domain users then open the shares with their domain password (Kerberos or NTLM), own the files they create, and show up by name in `ls -l`, in share permissions and in ACLs. This section is about that.
 
-### Joining a Domain
+A system is a member of **one** domain. Users of other domains come in through trusts between the domains.
 
-**Via UI:** Directory Services -> Active Directory -> Add Domain -> Join
+### Before joining
 
-1. Register the domain: provide the realm (FQDN, uppercase, e.g. `CORP.EXAMPLE.COM`), NetBIOS workgroup, and a domain controller address.
-2. Click Join. Provide an AD admin username and password. The join flow:
-   - Validates DNS SRV records (`_kerberos._tcp.REALM`, `_ldap._tcp.REALM`) to confirm the DC is reachable
-   - Runs `kinit <admin>@REALM` via stdin (password never appears in process args)
-   - Runs `net ads join -k` (Kerberos-authenticated)
-   - Updates the NixOS config to enable ADS security mode, configure IDMAP, and activate winbind + NSS
-   - Starts background Kerberos ticket renewal (every 15 minutes)
+- **DNS:** the system must use the domain's DNS server (Network › DNS). A member finds its domain controllers through DNS; the join refuses to start when it cannot.
+- **Time:** the clocks of the system and the domain controllers must agree to within five minutes. Use the domain controller as the time server (System › Settings).
+- **Host name:** at most 15 characters (System › Settings). It becomes the name of the computer account.
+- An account that may join computers to the domain.
 
-**Via API:**
+### Joining
+
+Directory › **Domain Membership** › *Add domain*: the short (NetBIOS) name of the domain, e.g. `CORP`; the Kerberos realm, e.g. `CORP.EXAMPLE.COM`; optionally a domain controller (found through DNS when empty); and the range of user IDs the domain's users get on this system. Then **Join**, with the account's user name (without the domain) and password. The password is used once, passed to Samba on a pipe, and not stored.
+
+What happens: the domain controllers are looked up, Samba's configuration is written for the domain, the system joins (`net ads join`), Samba is restarted and the new computer account is checked against the domain. If any step fails, the configuration goes back to what it was and the reason is shown.
+
 ```
 POST /api/ldap/domains
-{ "name": "CORP", "realm": "CORP.EXAMPLE.COM", "server": "dc1.corp.example.com",
-  "idmap_backend": "rid", "idmap_low": 10000, "idmap_high": 999999 }
+{ "name": "CORP", "realm": "CORP.EXAMPLE.COM", "server": "",
+  "idmap_backend": "rid", "idmap_low": 100000, "idmap_high": 999999 }
 
-POST /api/ldap/domains/CORP/join
-{ "username": "Administrator", "password": "..." }
+POST /api/ldap/domains/CORP/join          → { "job_id": "..." }
+{ "username": "Administrator", "password": "...", "ou": "Servers/NAS" }
+
+GET  /api/jobs/{job_id}                   the steps, and the result
+GET  /api/directory/status                member of which domain; is the account accepted
+GET  /api/ldap/domains/CORP/status        winbind, trust check, sample users and groups
 ```
 
-### Verifying the Join
+### After joining
 
-```
-GET /api/ldap/domains/CORP/status
-```
+- Domain users sign in to shares as `CORP\alice` (or just `alice` from a domain computer). On the system they are `alice`; a local account of the same name takes precedence, so avoid giving local accounts the names of domain users.
+- **Local accounts keep working**, but from other computers they must now be given with the system's name: `NASNAME\localuser`.
+- Limit a share to a domain group with *Valid users*: `@"domain users"`, `@nas-team`.
+- Files belong to the domain user and to the group `users`, like files of local users.
+- Every 15 minutes the system checks that the domain still accepts its account. If not (the computer account was deleted or reset, or no controller is reachable), the alert `directory.trust_lost` is raised: domain users cannot open shares until that is repaired.
 
-Returns: winbind daemon ping, machine account trust check (`wbinfo -t`), DC online status, and sample AD users and groups. If trust_ok is true and sample_users is populated, NSS resolution is working.
+On the system:
 
-**On the NAS via SSH:**
 ```bash
-wbinfo -t                    # machine account trust check
-wbinfo -u | head -10         # list AD users
-id CORP\\username             # verify UID/GID resolution
-getent passwd CORP\\username  # verify NSS lookup
+wbinfo -t              # is the computer account accepted
+wbinfo -u | head       # domain users
+id alice               # user and group IDs of a domain user
 ```
 
-### IDMAP Configuration
+### ID ranges and trusted domains
 
-Each AD forest needs an IDMAP backend and UID/GID range. The RID backend is the recommended default for single-forest setups (maps RIDs to UIDs predictably across reboots). For multi-forest or when RID-based mapping is not suitable, use the AD backend (requires RFC2307 attributes in AD) or autorid.
+Each domain's users are mapped to a range of Unix user IDs. `rid` (the default) derives the ID from the user's number in the domain: the same on every DPlaneOS system that uses the same range. `ad` takes the IDs from the Unix attributes in the directory. Local users have IDs below 3000; ranges for domains start above that.
 
-| Backend | Use case |
-|---------|----------|
-| `rid` | Single forest, most deployments |
-| `ad` | Forest with RFC2307 Unix attributes in AD |
-| `autorid` | Multiple forests, non-overlapping ranges managed automatically |
-| `tdb` | Catch-all / fallback for unmapped SIDs |
+For a domain that the joined domain trusts, add it under Domain Membership **without joining it**: that gives its users a range of their own. Ranges must not overlap.
 
-### SMB with AD ACLs
+### Leaving
 
-Once the domain is joined and winbind is running, Samba shares use AD SIDs for file ACLs. Windows clients see domain users and groups in the ACL editor. NFSv4 clients on Linux see resolved usernames in `ls -l` output via the NSS winbind integration.
+**Leave** on the domain, with an account that may remove the computer account. The system goes back to its local accounts. If the domain no longer exists or cannot be reached, tick *Leave even if the domain does not answer*; the computer account then stays behind in the domain.
 
-### Known limitations
+### Limits
 
-- **SMB failover**: Samba state is not shared between nodes. SMB clients disconnect and reconnect on failover. Byte-range lock state is lost. This is the same behavior as TrueNAS active-passive HA.
-- **Backup DC**: Only one domain controller is stored per domain. Add a secondary DC to your DNS SRV records for automatic failover at the DNS level.
-- **Home directory creation**: No automatic home directory creation on first login (`pam_mkhomedir`). Users need home directories created manually or via the Dataset UI.
-
-### Leaving a Domain
-
-```
-POST /api/ldap/domains/CORP/leave
-{ "username": "Administrator", "password": "..." }
-```
-
-Runs `net ads leave -k` and clears the join state. The NixOS config reverts Samba to `user` security mode on next rebuild.
+- **Failover:** Samba's session and lock state is not shared between nodes. SMB clients reconnect after a failover; byte-range locks are lost.
+- The membership belongs to one node. In a cluster, join each node (each has its own computer account).
+- No home directories are created for domain users.
+- Tested against a Samba domain controller (automated, for every release: `nixos/tests/domain.nix`). Not tested by the project against Windows Server; the commands and protocols are the same, but report what you find.
 
 ---
 
 ## SMB / Samba
 
-SMB shares work for local and LDAP-authenticated users. Limitations:
+SMB shares work for local users and, when the system is a member of a domain, for domain users (see above). Users of an LDAP directory that is only used for sign-in to the web interface have no SMB access.
 
-- **SMB failover**: In HA configurations, SMB clients disconnect and reconnect on failover. Byte-range locks are not preserved.
-- **No Winbind**: AD SID-to-UID mapping is not available.
-- **Reconnect time**: Typically 5-30 seconds depending on client retry settings.
+- **Failover:** in clusters, SMB clients disconnect and reconnect on failover. Byte-range locks are not preserved.
+- **Reconnect time:** typically 5-30 seconds, depending on the client's retry settings.
 
 Applications that depend on lock continuity (Outlook PST files, Access databases, certain CAD tools) will experience errors on failover. For these workloads, pre-schedule failovers during maintenance windows and notify connected users.
 

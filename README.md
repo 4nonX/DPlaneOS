@@ -27,7 +27,7 @@ Feature maturity, honestly:
 | SMB, NFS, iSCSI sharing | Stable | Samba + kernel NFS + LIO. |
 | Container management (Docker, Compose) | Stable | Including ZFS-clone sandboxes. |
 | Hot-swap detection and auto-import | Stable | udev + ZED, exercised regularly. |
-| LDAP / Active Directory integration | Beta | Winbind NSS integration shipped in v14.1.0: AD users resolve in `ls -l`, ACLs, and SMB. |
+| LDAP / Active Directory integration | Beta | Sign-in with directory accounts; membership in an Active Directory domain (domain users on SMB shares, resolved in `ls -l` and ACLs). Tested against OpenLDAP and a Samba domain controller, not against Windows Server. |
 | OIDC / SSO (Authorization Code + PKCE) | Beta | Keycloak, Authentik, Dex, Entra ID, and any OIDC-compliant provider. |
 | Enterprise Licensing & Compliance Engine | Stable | Ed25519 offline license verification. Optional compliance reporting sidecar. Automatic activation and expiration handling. |
 | A/B OTA updates with auto-revert | Beta | Mechanism is sound, sample size is small. |
