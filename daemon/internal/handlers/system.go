@@ -39,7 +39,7 @@ func (h *SystemHandler) GetUPSStatus(w http.ResponseWriter, r *http.Request) {
 	sessionID := r.Header.Get("X-Session-ID")
 
 	if !security.IsValidSessionToken(sessionID) {
-		audit.LogSecurityEvent("Invalid session token", user, r.RemoteAddr)
+		audit.LogSecurityEvent("Invalid session token", user, security.RealIP(r))
 		respondErrorSimple(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
@@ -122,7 +122,7 @@ func (h *SystemHandler) SaveUPSConfig(w http.ResponseWriter, r *http.Request) {
 	sessionID := r.Header.Get("X-Session-ID")
 
 	if !security.IsValidSessionToken(sessionID) {
-		audit.LogSecurityEvent("Invalid session token", user, r.RemoteAddr)
+		audit.LogSecurityEvent("Invalid session token", user, security.RealIP(r))
 		respondErrorSimple(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
@@ -299,7 +299,7 @@ func (h *SystemHandler) HandleNetwork(w http.ResponseWriter, r *http.Request) {
 		user := r.Header.Get("X-User")
 		sessionID := r.Header.Get("X-Session-ID")
 		if !security.IsValidSessionToken(sessionID) {
-			audit.LogSecurityEvent("Invalid session token", user, r.RemoteAddr)
+			audit.LogSecurityEvent("Invalid session token", user, security.RealIP(r))
 			respondErrorSimple(w, "Unauthorized", http.StatusUnauthorized)
 			return
 		}
@@ -638,7 +638,7 @@ func (h *SystemHandler) GetSystemLogs(w http.ResponseWriter, r *http.Request) {
 	sessionID := r.Header.Get("X-Session-ID")
 
 	if !security.IsValidSessionToken(sessionID) {
-		audit.LogSecurityEvent("Invalid session token", user, r.RemoteAddr)
+		audit.LogSecurityEvent("Invalid session token", user, security.RealIP(r))
 		respondErrorSimple(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}

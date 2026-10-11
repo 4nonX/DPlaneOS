@@ -35,7 +35,6 @@ let
     imports = [ ../configuration-standalone.nix ../module.nix ../ota-module.nix extra ];
     services.dplaneos = {
       inherit daemonPackage frontendPackage;
-      fenced.package = daemonPackage;
       ota = {
         inherit version;
         publicKeyFile = "${testKey}/pub.pem";
@@ -238,10 +237,15 @@ pkgs.testers.nixosTest {
             assert versions(st) == ["1.0.0", "2.0.0"], st
             # A second installation while one is on trial is refused.
             assert api("POST", "/api/system/update/install", {}).get("success") is not True
-            # The default boot entry is still the running version.
-            entries = json.loads(nas.succeed("bootctl list --json=short"))
-            default = [e["id"] for e in entries if e.get("isDefault")]
-            assert default == ["nixos-generation-1.conf"], entries
+            # The boot loader is told to start the new version once; the
+            # default stays the running version, so that a machine that
+            # does not come up in the new one is back on the old one after
+            # a power cycle.
+            def loader_var(name):
+                raw = nas.succeed(f"tail -c +5 /sys/firmware/efi/efivars/{name}-4a67b082-0a4c-41cf-b6c7-440b29bb8c4f | tr -d '\\000'")
+                return raw.strip()
+            assert loader_var("LoaderEntryDefault") == "nixos-generation-1.conf", loader_var("LoaderEntryDefault")
+            assert loader_var("LoaderEntryOneShot") == "nixos-generation-2.conf", loader_var("LoaderEntryOneShot")
 
             restart_into_trial()
             wait_up()

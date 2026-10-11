@@ -151,11 +151,7 @@ func (h *ProtectionHandler) Get(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Disk reservations.
-	if _, err := cmdutil.RunFast("systemctl_fenced_active", "is-active", "dplane-fenced"); err == nil {
-		layers = append(layers, Layer{"Disk reservations (SCSI-3 PR)", "ok", "Active: the disks themselves reject writes from a fenced node."})
-	} else {
-		layers = append(layers, Layer{"Disk reservations (SCSI-3 PR)", "off", "Not in use. Only disks that pass the reservation probe support it (SAS, some enterprise SATA); without it the protection comes from the watchdog and multihost."})
-	}
+	layers = append(layers, reservationLayer(h.db))
 
 	// Power fencing.
 	ipmi, _ := ha.GetFencingConfig(h.db)

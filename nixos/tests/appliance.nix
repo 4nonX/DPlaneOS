@@ -31,7 +31,6 @@ pkgs.testers.nixosTest {
     ];
     services.dplaneos = {
       inherit daemonPackage frontendPackage;
-      fenced.package = daemonPackage;
     };
 
     # Like an installation: NixOS owns neither the host name nor the host ID.
@@ -115,7 +114,7 @@ pkgs.testers.nixosTest {
   };
 
   testScript = ''
-    import json, shlex
+    import json, shlex, time
 
     PASSWORD = "Appliance-Test-Pass-1"
     USER_PASSWORD = "Alice-Share-Pass-7"
@@ -296,6 +295,20 @@ pkgs.testers.nixosTest {
             client.wait_for_unit("openldap.service")
             def try_login(user, password):
                 return api("POST", "/api/auth/login", {"username": user, "password": password}, auth=False)
+            def attempt_from_client(user, password):
+                body = shlex.quote(json.dumps({"username": user, "password": password}))
+                return json.loads(client.succeed(f"curl -sk --max-time 60 -X POST https://{NAS}/api/auth/login -H 'Content-Type: application/json' -d {body}"))
+            def refused_login(user, password):
+                # Sign-ins that must fail are made from the other machine:
+                # repeated failures make that address wait before its next
+                # attempt (and only that address). The wait is sat out, so
+                # that the answer is about the user and the password.
+                for _ in range(60):
+                    res = attempt_from_client(user, password)
+                    if "Too many attempts" not in str(res.get("error", "")):
+                        return not res.get("session_id")
+                    time.sleep(2)
+                raise Exception("still made to wait after two minutes")
             def ldap_person(uid):
                 ldif = (f"dn: uid={uid},ou=people,dc=example,dc=test\nobjectClass: inetOrgPerson\nuid: {uid}\n"
                         f"cn: {uid} person\nsn: person\nmail: {uid}@example.test\nuserPassword: {uid}-Dir-Pass-1\n")
@@ -310,11 +323,14 @@ pkgs.testers.nixosTest {
             ok(api("POST", "/api/ldap/test", {}), "directory test")
             ok(api("POST", "/api/ldap/mappings", {"ldap_group": "storage-ops", "role_name": "operator"}), "group mapping")
             # Unknown here until the first sync.
-            assert not try_login("dora", "Dora-Dir-Pass-1").get("session_id")
+            assert refused_login("dora", "Dora-Dir-Pass-1")
             res = ok(api("POST", "/api/ldap/sync", {}), "sync")
             assert res["data"]["users_created"] == 1, res
             assert try_login("dora", "Dora-Dir-Pass-1").get("session_id"), "a synced directory user cannot sign in"
-            assert not try_login("dora", "wrong").get("session_id")
+            assert refused_login("dora", "wrong")
+            # The daemon knows which machine that was (it is behind the web
+            # server, which has to tell it).
+            nas.succeed(f"journalctl -u dplaned --no-pager | grep -F 'AUTH FAIL' | grep -F 'from {CLIENT}'")
             users = {u["username"]: u for u in api("GET", "/api/rbac/users")["users"]}
             assert users["dora"]["source"] == "ldap" and users["dora"]["file_access"] == "directory", users["dora"]
             dora_roles = nas.succeed("runuser -u postgres -- psql -d dplaneos -tAc \"SELECT r.name FROM user_roles ur JOIN roles r ON r.id = ur.role_id "
@@ -323,20 +339,26 @@ pkgs.testers.nixosTest {
 
             # Somebody new in the directory: no account here, no sign-in ...
             ldap_person("jit")
-            assert not try_login("jit", "jit-Dir-Pass-1").get("session_id")
+            assert refused_login("jit", "jit-Dir-Pass-1")
             # ... unless accounts are created at the first sign-in.
             ok(api("POST", "/api/ldap/config", dict(directory, jit_provisioning=1)), "first sign-in creates accounts")
-            assert not try_login("jit", "not-the-password").get("session_id")
+            assert refused_login("jit", "not-the-password")
             assert "jit" not in {u["username"] for u in api("GET", "/api/rbac/users")["users"]}, "an account was created for a wrong password"
             assert try_login("jit", "jit-Dir-Pass-1").get("session_id"), "first sign-in of a directory user failed"
-            assert not try_login("nobody-at-all", "x").get("session_id")
+            assert refused_login("nobody-at-all", "x")
 
             # The scheduled sync finds the next one by itself.
             ldap_person("sched")
             ok(api("POST", "/api/ldap/config", dict(directory, sync_interval=60)), "scheduled sync")
             nas.wait_until_succeeds("runuser -u postgres -- psql -d dplaneos -tAc \"SELECT 1 FROM users WHERE username = 'sched' AND source = 'ldap'\" | grep -qx 1", timeout=200)
             ok(api("POST", "/api/ldap/config", dict(directory, enabled=0)), "directory off")
-            assert not try_login("dora", "Dora-Dir-Pass-1").get("session_id"), "sign-in although the directory is switched off"
+            assert refused_login("dora", "Dora-Dir-Pass-1"), "sign-in although the directory is switched off"
+
+            # Many failures from one address: that address has to wait, the
+            # others do not.
+            assert refused_login("admin", "guess")
+            assert "Too many attempts" in str(attempt_from_client("admin", "guess").get("error")), "no waiting time after repeated failures"
+            assert try_login("admin", PASSWORD).get("session_id"), "failed sign-ins from another machine locked the administrator out"
 
         with subtest("System settings take effect at once"):
             ok(api("POST", "/api/system/settings", {"hostname": "tank-nas", "timezone": "Europe/Berlin"}), "host name and time zone")

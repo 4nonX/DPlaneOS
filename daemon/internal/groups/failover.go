@@ -234,11 +234,20 @@ func (m *Manager) takeover(name, why string) error {
 		if _, ok := imported[p.Name]; ok {
 			continue
 		}
+		// The disks are taken from the previous owner first (where they have
+		// reservations): from here on they refuse its writes, whatever state
+		// it is in, and the import below finds a pool nobody writes to.
+		if err := m.reserve(*g, p); err != nil {
+			for _, d := range done {
+				_ = m.ops.Export(d.Name)
+			}
+			return err
+		}
 		if err := m.ops.ImportForce(p.GUID); err != nil {
 			for _, d := range done {
 				_ = m.ops.Export(d.Name)
 			}
-			return fmt.Errorf("importing %s: %w (if the old owner is still running, ZFS multihost refuses the import: that is the protection working)", p.Name, err)
+			return fmt.Errorf("importing %s: %w (if the old owner is still running and the disks have no reservations, ZFS multihost refuses the import: that is the protection working)", p.Name, err)
 		}
 		done = append(done, p)
 	}

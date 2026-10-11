@@ -28,6 +28,7 @@ import (
 	"dplaned/internal/audit"
 	"dplaned/internal/configstore"
 	"dplaned/internal/database"
+	"dplaned/internal/diskres"
 	"dplaned/internal/fileaccounts"
 	"dplaned/internal/gitops"
 	"dplaned/internal/groups"
@@ -978,12 +979,29 @@ func main() {
 			return v
 		})
 	groupMgr.Notify = handlers.DispatchAlert
+	// Disks shared between nodes are reserved for the node that serves
+	// them (SCSI-3 persistent reservations, where the disks have them).
+	if self, err := configstore.NodeID(db); err == nil && self != "" {
+		reserver := diskres.New(self, func() int {
+			cfg, err := ha.GetFencingConfig(db)
+			if err != nil {
+				return 0
+			}
+			return cfg.DiskFaultTolerancePct
+		})
+		reserver.Rescan = groups.RescanDisks
+		groupMgr.Reservations = reserver
+		handlers.DiskReservationStatus = groupMgr.ReservationStatus
+	} else {
+		log.Printf("GROUPS: disk reservations are off: this node has no ID (%v)", err)
+	}
 	groupMgr.Fence = func(owner string) error { return handlers.PowerFence(db, owner) }
 	groupMgr.WatchdogFencing = func() bool { return handlers.CurrentFencing(db).Watchdog }
 	groupMgr.Start(10 * time.Second)
 	groupMgr.StartFailover(5 * time.Second)
 	groupMgr.StartReplication(30 * time.Second)
 	groupMgr.StartActivation(10 * time.Second)
+	groupMgr.StartReservations(30 * time.Second)
 	handlers.GroupImportGuard = groupMgr.MayImport
 	// GitOps in a cluster: only the node that serves every storage group
 	// commits to the repository, compares with it and applies it.
@@ -1685,7 +1703,7 @@ func loggingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		next.ServeHTTP(w, r)
-		log.Printf("%s %s %s %v", r.RemoteAddr, r.Method, r.URL.Path, time.Since(start))
+		log.Printf("%s %s %s %v", security.RealIP(r), r.Method, r.URL.Path, time.Since(start))
 	})
 }
 
@@ -2013,8 +2031,9 @@ func isInternalCronHook(r *http.Request, token string) bool {
 	default:
 		return false
 	}
-	local := r.RemoteAddr == "" || r.RemoteAddr == "@" ||
-		strings.HasPrefix(r.RemoteAddr, "127.0.0.1:") || strings.HasPrefix(r.RemoteAddr, "[::1]:")
+	// Made on this machine: a remote client arrives through the web
+	// server, which names the client's address.
+	local := security.IsLocal(r)
 	got := r.Header.Get("X-Internal-Token")
 	return local && token != "" && subtle.ConstantTimeCompare([]byte(got), []byte(token)) == 1
 }

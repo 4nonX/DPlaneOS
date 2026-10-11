@@ -48,7 +48,7 @@ func (h *DockerHandler) ListContainers(w http.ResponseWriter, r *http.Request) {
 	sessionID := r.Header.Get("X-Session-ID")
 
 	if !security.IsValidSessionToken(sessionID) {
-		audit.LogSecurityEvent("Invalid session token", user, r.RemoteAddr)
+		audit.LogSecurityEvent("Invalid session token", user, security.RealIP(r))
 		respondErrorSimple(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
@@ -111,7 +111,7 @@ func (h *DockerHandler) ContainerAction(w http.ResponseWriter, r *http.Request) 
 	}
 
 	if !security.IsValidSessionToken(req.SessionID) {
-		audit.LogSecurityEvent("Invalid session token", req.User, r.RemoteAddr)
+		audit.LogSecurityEvent("Invalid session token", req.User, security.RealIP(r))
 		respondErrorSimple(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}

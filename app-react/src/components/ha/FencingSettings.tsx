@@ -1,7 +1,7 @@
 /**
  * FencingSettings - node-level protection used by storage groups (ADR-0009):
  * watchdog self-fencing, power fencing (IPMI/Redfish, PDU) and the SCSI-3
- * persistent reservation probe for shared disks.
+ * persistent reservations on the disks of shared storage groups.
  *
  * Calls: GET/POST /api/ha/watchdog/configure, /api/ha/fencing/configure,
  * /api/ha/pdu/configure; GET /api/ha/scsi/status; POST /api/ha/scsi/probe;
@@ -33,12 +33,31 @@ interface PDUConfig {
   expected_status: number   // 0 = any 2xx
 }
 
+interface ReservedDisk {
+  device:       string
+  state:        'held' | 'unclaimed' | 'foreign' | 'shared' | 'unsupported' | 'error'
+  holder?:      string
+  holder_node?: string
+  keys?:        string[]
+  error?:       string
+}
+
+interface ReservedPool {
+  group:  string
+  pool:   string
+  owner:  string
+  mine:   boolean
+  disks:  ReservedDisk[]
+  state:  'reserved' | 'partial' | 'unsupported' | 'unreserved' | 'shut_out'
+  detail: string
+  error?: string
+}
+
 interface SCSIStatusResponse {
-  success:  boolean
-  running:  boolean
-  key?:     string
-  devices?: string[]
-  message?: string
+  success: boolean
+  active:  boolean
+  key?:    string
+  pools:   ReservedPool[]
 }
 
 interface SCSIProbeResult {
@@ -150,7 +169,7 @@ export function FencingConfigForm() {
             className="input" disabled={q.isLoading} />
         </label>
         <p style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', margin: 0, paddingBottom: 6 }}>
-          Jitter: random delay before firing to prevent mutual destruction. Disk tolerance: % of pool disks that may fail SCSI-3 PR without aborting (0 = all-or-nothing, default 10).
+          Jitter: random delay before firing to prevent mutual destruction. Disk tolerance: the share of a pool's disks (%) that may fail to be reserved before an import of the pool is refused (0: every disk that has reservations must be reserved; default 10).
         </p>
       </div>
 
@@ -282,10 +301,12 @@ export function SCSIFencingCard() {
     try {
       const result = await api.post<SCSIProbeResponse>('/api/ha/scsi/probe', {})
       setProbeResult(result)
-      if (result.all_supported) {
-        toast.success(`All ${result.device_count} disk(s) support SCSI-3 PR`)
+      if (result.device_count === 0) {
+        toast.info(result.message ?? 'No SCSI disks to probe')
+      } else if (result.all_supported) {
+        toast.success(`All ${result.device_count} disk(s) have persistent reservations`)
       } else {
-        toast.error('One or more disks do not support SCSI-3 PR - shared-storage fencing will fail on those devices')
+        toast.error('One or more disks have no persistent reservations: those are protected by the watchdog and multihost only')
       }
     } catch (e: unknown) {
       toast.error(`Probe failed: ${(e as Error).message}`)
@@ -295,83 +316,99 @@ export function SCSIFencingCard() {
   }
 
   const status = statusQ.data
-  const fencedDevices = status?.devices ?? []
+  const pools = status?.pools ?? []
+  const shutOut = pools.some(p => p.state === 'shut_out')
+  const tone = (st: ReservedPool['state']) =>
+    st === 'reserved' ? 'success' : st === 'shut_out' ? 'error' : st === 'partial' ? 'warning' : 'neutral'
+  const label: Record<ReservedPool['state'], string> = {
+    reserved: 'Reserved', partial: 'Partly reserved', unsupported: 'Not supported by the disks',
+    unreserved: 'Not reserved', shut_out: 'This node is shut out',
+  }
+  const diskLabel: Record<ReservedDisk['state'], string> = {
+    held: 'this node', unclaimed: 'nobody', foreign: 'another node', shared: 'several nodes',
+    unsupported: 'no reservations', error: 'error',
+  }
 
   return (
     <div className="card" style={{
       borderRadius: 'var(--radius-lg)', padding: '20px 24px', marginTop: 24,
-      borderLeft: status?.running ? '4px solid var(--success)' : '4px solid var(--border)',
+      borderLeft: shutOut ? '4px solid var(--error)' : status?.active ? '4px solid var(--success)' : '4px solid var(--border)',
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
-        <Icon name="storage" size={24} style={{ color: status?.running ? 'var(--success)' : 'var(--text-tertiary)' }} />
+        <Icon name="storage" size={24} style={{ color: shutOut ? 'var(--error)' : status?.active ? 'var(--success)' : 'var(--text-tertiary)' }} />
         <div style={{ flex: 1 }}>
-          <div style={{ fontWeight: 700 }}>SCSI-3 Persistent Reservations</div>
+          <div style={{ fontWeight: 700 }}>Disk reservations (SCSI-3)</div>
           <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>
-            Shared-storage write exclusivity via dplane-fenced - hardware split-brain protection
+            The disks of a shared storage group accept writes only from the node that serves it
           </div>
         </div>
         <div style={{
           padding: '4px 10px', borderRadius: 'var(--radius-md)', fontSize: 'var(--text-xs)', fontWeight: 600,
-          background: status?.running ? 'var(--success-bg)' : 'var(--surface)',
-          border: `1px solid ${status?.running ? 'var(--success-border)' : 'var(--border)'}`,
-          color: status?.running ? 'var(--success)' : 'var(--text-tertiary)',
+          background: status?.active ? 'var(--success-bg)' : 'var(--surface)',
+          border: `1px solid ${status?.active ? 'var(--success-border)' : 'var(--border)'}`,
+          color: status?.active ? 'var(--success)' : 'var(--text-tertiary)',
         }}>
-          {statusQ.isLoading ? 'Checking…' : status?.running ? 'Active' : 'Not Running'}
+          {statusQ.isLoading ? 'Checking…' : status?.active ? 'In use' : 'Not in use'}
         </div>
       </div>
 
-      {status?.running ? (
-        <>
-          <div style={{ marginBottom: 14 }}>
-            <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-              Reservation Key
-            </div>
-            <code style={{ fontSize: 'var(--text-xs)', fontFamily: 'var(--font-mono)', background: 'var(--surface)', padding: '3px 8px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)' }}>
-              {status.key ?? 'unknown'}
-            </code>
-          </div>
+      <div style={{ marginBottom: 14, fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+        Nothing has to be switched on. A node that imports the pool of a shared storage group takes the reservation on its
+        disks first, and takes it away from the node that had it. A node that is hung or cut off can then no longer write to
+        the pool, whatever state it is in. Disks without reservations (virtual disks, NVMe, SATA behind most adapters) are
+        protected by the watchdog and ZFS multihost alone.
+      </div>
 
-          <div style={{ marginBottom: 14 }}>
-            <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-              Reserved Devices ({fencedDevices.length})
-            </div>
-            {fencedDevices.length === 0 ? (
-              <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', fontStyle: 'italic' }}>
-                No devices currently reserved. Pool may not be imported or dplane-fenced is starting up.
-              </div>
-            ) : (
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                {fencedDevices.map(dev => (
-                  <span key={dev} style={{
-                    fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)',
-                    background: 'var(--success-bg)', border: '1px solid var(--success-border)',
-                    color: 'var(--success)', padding: '2px 8px', borderRadius: 'var(--radius-sm)',
-                  }}>
-                    <Icon name="lock" size={11} style={{ verticalAlign: 'middle', marginRight: 4 }} />{dev}
-                  </span>
-                ))}
-              </div>
-            )}
+      {statusQ.isError && <div style={{ color: 'var(--error)', fontSize: 'var(--text-sm)', marginBottom: 14 }}>{(statusQ.error as Error).message}</div>}
+
+      {pools.length === 0 ? (
+        <div style={{ marginBottom: 14, fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', fontStyle: 'italic' }}>
+          No shared storage groups.
+        </div>
+      ) : pools.map(p => (
+        <div key={p.group + '/' + p.pool} style={{ marginBottom: 14, padding: '12px 14px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+            <span style={{ fontWeight: 600, fontFamily: 'var(--font-mono)', fontSize: 'var(--text-sm)' }}>{p.pool}</span>
+            <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }}>group {p.group}</span>
+            <span className={`badge badge-${tone(p.state)}`} style={{ marginLeft: 'auto' }}>{label[p.state]}</span>
           </div>
-        </>
-      ) : (
-        <div style={{ marginBottom: 14, fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', lineHeight: 1.6 }}>
-          {status?.message ?? 'dplane-fenced is not running. Shared-storage SCSI-3 PR fencing requires the dplane-fenced service to be enabled in NixOS configuration.'}
+          <div style={{ fontSize: 'var(--text-xs)', color: p.state === 'shut_out' ? 'var(--error)' : 'var(--text-secondary)', lineHeight: 1.5, marginBottom: p.disks.length ? 8 : 0 }}>{p.detail}</div>
+          {p.disks.length > 0 && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+              {p.disks.map(d => (
+                <span key={d.device} title={d.error ?? (d.holder ? `reservation key ${d.holder}` : '')} style={{
+                  fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)', padding: '2px 8px', borderRadius: 'var(--radius-sm)',
+                  background: 'var(--bg-card)', border: '1px solid var(--border)',
+                  color: d.state === 'held' ? 'var(--success)' : d.state === 'error' ? 'var(--error)' : 'var(--text-secondary)',
+                }}>
+                  <Icon name={d.state === 'held' || d.state === 'foreign' ? 'lock' : 'lock_open'} size={11} style={{ verticalAlign: 'middle', marginRight: 4 }} />
+                  {d.device}: {d.state === 'foreign' && d.holder_node ? d.holder_node : diskLabel[d.state]}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      ))}
+
+      {status?.key && (
+        <div style={{ marginBottom: 14, fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }}>
+          Reservation key of this node: <code style={{ fontFamily: 'var(--font-mono)' }}>{status.key}</code>
         </div>
       )}
 
       <div style={{ borderTop: '1px solid var(--border)', paddingTop: 14, marginTop: 4 }}>
         <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', marginBottom: 10, lineHeight: 1.6 }}>
-          <strong>Validate before enabling shared-storage HA.</strong> The probe runs a full PROUT write round-trip
-          on each pool disk - the only reliable test. PRIN read-only probes produce false positives on drives that
-          answer READ KEYS but reject REGISTER, which silently arms the cluster with broken fencing.
+          <strong>Do the disks of this node have reservations?</strong> The probe registers a test key on every SCSI disk
+          of the pools imported here, checks that the disk lists it, and removes it again. Reading alone proves nothing:
+          some adapters answer the question and then refuse the registration. Disks that are already reserved are reported
+          as supported without being touched.
         </div>
         <button
           onClick={runProbe}
           disabled={probing}
           className="btn btn-ghost"
         >
-          <Icon name="search" size={14} />{probing ? 'Probing disks…' : 'Probe PR Support on Pool Disks'}
+          <Icon name="search" size={14} />{probing ? 'Probing disks…' : 'Probe the pool disks'}
         </button>
       </div>
 
@@ -392,8 +429,9 @@ export function SCSIFencingCard() {
               color: probeResult.all_supported ? 'var(--success)' : 'var(--error)',
             }}>
               {probeResult.all_supported
-                ? `All ${probeResult.device_count} device(s) support SCSI-3 PR - shared-storage fencing is safe`
-                : `${probeResult.results.filter(r => !r.supported).length} of ${probeResult.device_count} device(s) do NOT support SCSI-3 PR`}
+                ? `All ${probeResult.device_count} disk(s) have persistent reservations`
+                : probeResult.device_count === 0 ? 'Nothing to probe'
+                : `${probeResult.results.filter(r => !r.supported).length} of ${probeResult.device_count} disk(s) have no persistent reservations`}
             </span>
           </div>
           {probeResult.message && (
@@ -554,7 +592,6 @@ export function WatchdogConfigForm() {
 
 interface HAHardware {
   watchdog_available: boolean; watchdog_device: string
-  fenced_running: boolean; fenced_devices: string[] | null
   pool_sg_devices: string[] | null
   provisional_path: 'shared_storage' | 'replicated'; provisional_path_label: string; provisional_reason: string
   probe_required: boolean
@@ -591,7 +628,6 @@ export function HardwareCheckCard() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {row(hw.watchdog_available, 'Hardware watchdog', hw.watchdog_available ? hw.watchdog_device : 'No watchdog device: a node that loses quorum cannot reset itself')}
           {row((hw.pool_sg_devices ?? []).length > 0, 'SAS/SCSI pool disks', (hw.pool_sg_devices ?? []).length > 0 ? (hw.pool_sg_devices ?? []).join(', ') : 'None: disks cannot be shared between nodes')}
-          {row(hw.fenced_running, 'Disk reservation service', hw.fenced_running ? `Running, ${(hw.fenced_devices ?? []).length} disk(s) reserved` : 'Not running')}
           <div style={{ marginTop: 6, padding: '10px 12px', borderRadius: 'var(--radius-md)', background: 'var(--surface)', border: '1px solid var(--border)', fontSize: 'var(--text-sm)' }}>
             <div style={{ fontWeight: 600 }}>Suggested setup: {hw.provisional_path_label}</div>
             <div style={{ color: 'var(--text-secondary)', marginTop: 2 }}>{hw.provisional_reason}</div>

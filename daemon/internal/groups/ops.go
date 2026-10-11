@@ -72,6 +72,9 @@ var DefaultOps = Ops{
 	},
 }
 
+// RescanDisks makes the kernel look at the disks again (see rescanDisks).
+func RescanDisks() { rescanDisks() }
+
 // rescanDisks prepares an import of a pool another node used: it drops the
 // kernel's cached blocks of the disks and re-reads their partition tables,
 // then waits for udev. On shared storage this node may have read a disk
@@ -138,6 +141,10 @@ type Manager struct {
 	view func() View
 	mu   sync.Mutex
 
+	// Reservations, when set, keeps the disks of shared pools reserved for
+	// the node that serves them. Set before Start.
+	Reservations Reserver
+
 	// Notify, when set, is told about what an operator must hear of even
 	// when nobody is looking at the page: a takeover, a failed one.
 	Notify func(level, event, group, message string)
@@ -157,6 +164,7 @@ type Manager struct {
 	absentSince map[string]time.Time // members first seen not answering
 	ownerImport map[string]Decision  // why the owner has not imported (phase 3e)
 	uncached    map[string]bool
+	shutOut     map[string]bool   // pools whose disks another node took from this one
 	addrApplied map[string]string // group → "iface|cidr" put on this node
 	moving      map[string]bool   // planned moves in progress: activation leaves these alone
 }
@@ -335,6 +343,11 @@ func (m *Manager) CreateWith(name, topology string, pools []string, candidates [
 			}
 		}
 	}
+	for _, pr := range g.Pools {
+		if err := m.reserve(g, pr); err != nil {
+			return nil, err
+		}
+	}
 	if err := put(m.db, g); err != nil {
 		return nil, err
 	}
@@ -400,16 +413,17 @@ func (m *Manager) Move(name, target string) (*MoveResult, error) {
 	var exported []PoolRef
 	for _, p := range g.Pools {
 		if err := m.ops.Export(p.Name); err != nil {
-			m.reimport(exported)
+			m.reimport(*g, exported)
 			return nil, fmt.Errorf("exporting %s: %w (the group stays here)", p.Name, err)
 		}
+		m.unreserve(*g, p)
 		exported = append(exported, p)
 	}
 	// 2. New epoch, the target imports.
 	ng := *g
 	ng.Owner, ng.Epoch, ng.UpdatedAt, ng.UpdatedBy = target, g.Epoch+1, time.Now(), self
 	if err := m.tr.Push(target, Update{Group: ng}); err != nil {
-		if rerr := m.reimport(exported); rerr != nil {
+		if rerr := m.reimport(*g, exported); rerr != nil {
 			return nil, fmt.Errorf("the target did not take over (%v) and re-importing here failed: %v. The pools are imported nowhere: import them on one node", err, rerr)
 		}
 		return nil, fmt.Errorf("the target did not take over: %w (the group stays here)", err)
@@ -425,9 +439,13 @@ func (m *Manager) Move(name, target string) (*MoveResult, error) {
 	return res, nil
 }
 
-func (m *Manager) reimport(pools []PoolRef) error {
+func (m *Manager) reimport(g Group, pools []PoolRef) error {
 	var errs []error
 	for _, p := range pools {
+		if err := m.reserve(g, p); err != nil {
+			errs = append(errs, err)
+			continue
+		}
 		if err := m.ops.Import(p.GUID); err != nil {
 			errs = append(errs, fmt.Errorf("%s: %w", p.Name, err))
 		}
@@ -452,6 +470,7 @@ func (m *Manager) Receive(u Update) error {
 		if u.Group.Epoch < cur.Epoch {
 			return fmt.Errorf("%w: removal at epoch %d, stored %d", ErrStale, u.Group.Epoch, cur.Epoch)
 		}
+		m.unreserveOwned(*cur)
 		return Remove(m.db, u.Group.Name)
 	}
 	return m.adopt(u.Group)
@@ -499,6 +518,9 @@ func (m *Manager) adopt(g Group) error {
 	// Planned move to this node: import first; refuse (no state change) if
 	// that fails, so the sender takes the pools back.
 	for _, p := range imports {
+		if err := m.reserve(g, p); err != nil {
+			return err
+		}
 		if err := m.ops.Import(p.GUID); err != nil {
 			return fmt.Errorf("importing %s: %w", p.Name, err)
 		}
@@ -509,6 +531,13 @@ func (m *Manager) adopt(g Group) error {
 		log.Printf("GROUPS: %s is owned by %s at epoch %d; releasing %s here", g.Name, g.Owner, g.Epoch, name)
 		if err := m.ops.Export(name); err != nil {
 			errs = append(errs, fmt.Errorf("releasing %s: %w", name, err))
+			continue
+		}
+		// Nothing to give up if the new owner already took the disks.
+		for _, p := range g.Pools {
+			if p.Name == name {
+				m.unreserve(g, p)
+			}
 		}
 	}
 	// Replicated: the owner's copy is writable, every other copy read-only.
@@ -563,10 +592,22 @@ func (m *Manager) RemoveGroup(name string) error {
 			}
 		}
 	}
+	m.unreserveOwned(*g)
 	if err := Remove(m.db, name); err != nil {
 		return err
 	}
 	return errors.Join(errs...)
+}
+
+// unreserveOwned gives up the disks of a group that stops being one: its
+// pools stay imported on the owner, as ordinary pools of that node.
+func (m *Manager) unreserveOwned(g Group) {
+	if g.Owner != m.self() {
+		return
+	}
+	for _, p := range g.Pools {
+		m.unreserve(g, p)
+	}
 }
 
 // SyncOnce pulls the groups of every member and adopts newer ones. This is

@@ -56,7 +56,7 @@
         src          = nixpkgs.lib.cleanSource ./daemon;
         env.CGO_ENABLED = "0";
         vendorHash   = null;
-        subPackages  = [ "cmd/dplaned" "cmd/dplane-fenced" ];
+        subPackages  = [ "cmd/dplaned" ];
         nativeBuildInputs = [];
         ldflags = [
           "-s" "-w"
@@ -84,7 +84,7 @@
         src          = nixpkgs.lib.cleanSource ./daemon;
         env.CGO_ENABLED = "0";
         vendorHash   = null;
-        subPackages  = [ "cmd/dplaned" "cmd/dplane-fenced" ];
+        subPackages  = [ "cmd/dplaned" ];
         nativeBuildInputs = [];
         ldflags = [ "-s" "-w" "-X" "main.Version=${dplaneosVersion}" ];
         meta = with nixpkgs.lib; {
@@ -113,7 +113,7 @@
         src          = nixpkgs.lib.cleanSource ./daemon;
         env.CGO_ENABLED = "1";
         vendorHash   = null;
-        subPackages  = [ "cmd/dplaned" "cmd/dplane-fenced" ];
+        subPackages  = [ "cmd/dplaned" ];
         nativeBuildInputs = with pkgs; [ gcc pkg-config ];
         buildInputs  = with pkgs; [ zfs.dev zfs ];
         # CGO bypasses the GCC wrapper and does not see NIX_CFLAGS_COMPILE.
@@ -200,7 +200,6 @@
              f = mkFrontend { inherit pkgs; };
          in {
           services.dplaneos.daemonPackage   = d;
-          services.dplaneos.fenced.package  = d;
           services.dplaneos.frontendPackage = f;
         })
         ({ lib, ... }: {
@@ -244,6 +243,15 @@
         # Storage groups and epochs on a shared disk (Design 0001 phase 3b).
         #   nix build .#checks.x86_64-linux.groups -L
         checks.groups = import ./nixos/tests/groups.nix {
+          inherit nixpkgs system impermanence;
+          daemonPackage = daemon;
+          frontendPackage = frontend;
+        };
+
+        # Disk reservations on shared storage: the owner holds the disks, a
+        # takeover shuts a previous owner out that is still writing.
+        #   nix build .#checks.x86_64-linux.reservations -L
+        checks.reservations = import ./nixos/tests/reservations.nix {
           inherit nixpkgs system impermanence;
           daemonPackage = daemon;
           frontendPackage = frontend;
@@ -336,7 +344,6 @@
                f = mkFrontend { inherit pkgs; };
            in {
             services.dplaneos.daemonPackage    = d;
-            services.dplaneos.fenced.package   = d;
             services.dplaneos.frontendPackage  = f;
           })
         ];
@@ -358,7 +365,6 @@
                f = mkFrontend { inherit pkgs; };
            in {
             services.dplaneos.daemonPackage    = d;
-            services.dplaneos.fenced.package   = d;
             services.dplaneos.frontendPackage  = f;
           })
           # Hard override: ensure no x86_64-only Intel packages are evaluated for aarch64.
@@ -436,7 +442,6 @@
                f = mkFrontend { inherit pkgs; };
            in {
             services.dplaneos.daemonPackage    = d;
-            services.dplaneos.fenced.package   = d;
             services.dplaneos.frontendPackage  = f;
           })
         ];
@@ -456,7 +461,6 @@
                f = mkFrontend { inherit pkgs; };
            in {
             services.dplaneos.daemonPackage    = d;
-            services.dplaneos.fenced.package   = d;
             services.dplaneos.frontendPackage  = f;
           })
           ({ lib, ... }: {

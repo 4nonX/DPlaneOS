@@ -131,6 +131,7 @@ This is the complete list; `GET /api/alerts/events` returns the same. An event t
 | `replication.restore_complete` | info | A restore from a replication target finished |
 | `ha.takeover` | critical | A storage group is now served by another node than before |
 | `ha.takeover_failed` | critical | The owner of a storage group is gone and this node could not take the group over |
+| `ha.fenced` | critical | Another node has taken the disks of a pool this node served: this node has been shut out |
 | `ups.on_battery` | warning | The UPS runs on battery: mains power is out |
 | `ups.low_battery` | critical | The UPS battery is low; the system shuts down as configured |
 | `ups.online` | info | Mains power is back |

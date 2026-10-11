@@ -902,7 +902,7 @@ func (h *AuthHandler) RevokeSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.auditLog(user.Username, "session_revoked", fmt.Sprintf("Revoked session %s", req.ID[:8]), r.RemoteAddr)
+	h.auditLog(user.Username, "session_revoked", fmt.Sprintf("Revoked session %s", req.ID[:8]), security.RealIP(r))
 	respondJSON(w, http.StatusOK, map[string]any{"success": true})
 }
 

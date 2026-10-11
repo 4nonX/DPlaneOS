@@ -4,8 +4,8 @@
 
 { config, lib, pkgs, ... }:
 
-# Samba, NFS, and fenced modules are imported below and are available to all
-# DPlaneOS installations. Samba and NFS default to enabled; fenced defaults to disabled.
+# The Samba and NFS modules are imported below and are available to all
+# DPlaneOS installations; both default to enabled.
 
 let
   cfg = config.services.dplaneos;
@@ -35,7 +35,7 @@ in {
       Remove services.dplaneos.ha from your configuration and set HA up from the web interface:
       pair the nodes, form the cluster with a third vote, create storage groups
       (docs/admin/HIGH-AVAILABILITY.md).'')
-  ] ++ [ ./console-network-wizard.nix ./modules/samba.nix ./modules/nfs.nix ./modules/fenced.nix ./modules/ups.nix ./modules/cluster.nix ];
+  ] ++ [ ./console-network-wizard.nix ./modules/samba.nix ./modules/nfs.nix ./modules/ups.nix ./modules/cluster.nix ];
 
   options.services.dplaneos = {
     enable = lib.mkEnableOption "DPlaneOS NAS daemon";
@@ -470,6 +470,10 @@ in {
       # Inline unix: proxy_pass with a path suffix causes nginx to strip
       # the location prefix, breaking all /api/* routes.
       upstreams."dplaned".servers."unix:${cfg.socketPath}" = {};
+      # The daemon is told who the client is (X-Real-IP, overwriting what
+      # the client sent) and which host name it used: sign-in throttling
+      # and the audit log are per client address.
+      recommendedProxySettings = true;
       virtualHosts."_" = {
         root       = "${cfg.frontendPackage}";
         # HTTPS from the first boot on: a self-signed certificate until one

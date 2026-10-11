@@ -181,6 +181,9 @@ func (m *Manager) importOwned(g Group) error {
 		// -f: the pool was last used by another node (a takeover) or not
 		// exported (a crash). ZFS multihost still refuses a pool that is
 		// active elsewhere.
+		if err := m.reserve(*cur, p); err != nil {
+			return err
+		}
 		if err := m.ops.ImportForce(p.GUID); err != nil {
 			return fmt.Errorf("importing %s: %w", p.Name, err)
 		}

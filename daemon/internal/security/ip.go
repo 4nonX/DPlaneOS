@@ -38,29 +38,66 @@ func isTrustedProxy(ip net.IP) bool {
 	return false
 }
 
-// RealIP extracts the real client IP for rate limiting and logging.
-// X-Forwarded-For and X-Real-IP headers are only honoured when the direct
-// connection comes from a trusted proxy (loopback or RFC 1918).  All other
-// connections use RemoteAddr directly, preventing header spoofing.
+// Local is what RealIP returns for a request made on this machine itself
+// through the daemon's socket (a timer, a command), not through the proxy.
+const Local = "local"
+
+// forwardedIP returns the client address a proxy put into the headers, if
+// it is an address at all.
+func forwardedIP(r *http.Request) string {
+	if v := strings.TrimSpace(r.Header.Get("X-Real-IP")); v != "" && net.ParseIP(v) != nil {
+		return v
+	}
+	if v := r.Header.Get("X-Forwarded-For"); v != "" {
+		if idx := strings.Index(v, ","); idx != -1 {
+			v = v[:idx]
+		}
+		if v = strings.TrimSpace(v); net.ParseIP(v) != nil {
+			return v
+		}
+	}
+	return ""
+}
+
+// RealIP returns the address of the client, for rate limiting and logging.
+//
+// On an installed system every request arrives through the web server on
+// this machine, over the daemon's socket: the connection itself has no
+// address then, and the web server passes the client's in X-Real-IP (it
+// overwrites whatever the client sent). Without that header the request
+// was made on this machine.
+//
+// On a TCP connection the headers are honoured only when the peer is a
+// trusted proxy (loopback or a private range); any other peer is the client.
 func RealIP(r *http.Request) string {
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
 		host = r.RemoteAddr
 	}
 	ip := net.ParseIP(host)
-	if ip == nil || !isTrustedProxy(ip) {
-		return host // direct connection or untrusted source – use RemoteAddr
+	if ip == nil {
+		// The daemon's socket ("@" or empty): only the web server and
+		// local administrators can connect to it.
+		if v := forwardedIP(r); v != "" {
+			return v
+		}
+		return Local
 	}
-
-	// Request arrived from a trusted proxy – honour forwarded headers.
-	if v := r.Header.Get("X-Real-IP"); v != "" {
+	if !isTrustedProxy(ip) {
+		return host
+	}
+	if v := forwardedIP(r); v != "" {
 		return v
 	}
-	if v := r.Header.Get("X-Forwarded-For"); v != "" {
-		if idx := strings.Index(v, ","); idx != -1 {
-			return strings.TrimSpace(v[:idx])
-		}
-		return strings.TrimSpace(v)
-	}
 	return host
+}
+
+// IsLocal reports whether the request was made on this machine itself.
+func IsLocal(r *http.Request) bool {
+	v := RealIP(r)
+	if v == Local {
+		return true
+	}
+	ip := net.ParseIP(v)
+	return ip != nil && ip.IsLoopback()
 }

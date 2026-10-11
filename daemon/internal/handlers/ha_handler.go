@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"dplaned/internal/ha"
@@ -94,17 +95,13 @@ func (h *HAHandler) ConfigurePDU(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// DetectHAHardware performs a quick (non-destructive) hardware capability scan and
-// returns a provisional HA path recommendation. It checks watchdog availability and
-// queries dplane-fenced for current reservation status but does NOT run the PROUT
-// write round-trip - that is the operator's explicit action via POST /api/ha/scsi/probe.
-//
-// Path A' (shared_storage): SCSI-3 PR capable disks are in use - hardware arbitrates writes.
-// Path B (replicated):      No PR hardware - ZFS replication + watchdog self-fence.
+// DetectHAHardware reports what this node has for protecting storage
+// groups, without touching the disks: a watchdog device, and SCSI disks in
+// its pools (the only kind that can have persistent reservations; whether
+// they do is what POST /api/ha/scsi/probe finds out).
 //
 // GET /api/ha/hardware/detect
 func (h *HAHandler) DetectHAHardware(w http.ResponseWriter, r *http.Request) {
-	// 1. Watchdog availability - check common device paths.
 	watchdogAvail := false
 	watchdogDevice := ""
 	for _, dev := range []string{"/dev/watchdog", "/dev/watchdog0"} {
@@ -114,85 +111,28 @@ func (h *HAHandler) DetectHAHardware(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 	}
-
-	// 2. dplane-fenced status (quick socket call, no disk I/O).
-	fencedRunning := false
-	fencedDevices := []string{}
-	if status, err := ha.FencedStatus(); err == nil {
-		fencedRunning = true
-		if devs, ok := status["devices"].([]any); ok {
-			for _, d := range devs {
-				if s, ok2 := d.(string); ok2 {
-					fencedDevices = append(fencedDevices, s)
-				}
-			}
-		}
-	}
-
-	// 3. Count SG devices from pool (no probe write - just enumeration).
 	poolSGDevices, _ := enumPoolSGDevices()
 
-	// 4. Determine provisional recommendation.
-	// "shared_storage" if fenced is running with active reservations, or if we
-	// can see SG devices that could support PR. Confirmed only after the probe.
 	provPath := "replicated"
 	provLabel := "Replicated pools (watchdog and third vote)"
 	provReason := "No SAS/SCSI pool disks found. Use replication between the nodes, with the watchdog and a third vote."
 	probeRequired := false
-
-	if len(poolSGDevices) > 0 || fencedRunning {
+	if len(poolSGDevices) > 0 {
 		provPath = "shared_storage"
-		provLabel = "Shared disks (SCSI-3 reservations and watchdog)"
+		provLabel = "Shared disks (disk reservations and watchdog)"
 		probeRequired = true
-		if fencedRunning && len(fencedDevices) > 0 {
-			provReason = fmt.Sprintf("dplane-fenced holds reservations on %d device(s). Run the reservation probe to confirm these devices reject writes from a second node.", len(fencedDevices))
-		} else {
-			provReason = fmt.Sprintf("%d SAS/SCSI pool disk(s) found. Run the reservation probe to confirm SCSI-3 PR support before putting shared disks into a storage group.", len(poolSGDevices))
-		}
+		provReason = fmt.Sprintf("%d SAS/SCSI pool disk(s) found. If both nodes are connected to these disks, a shared storage group can use them; run the reservation probe to see whether the disks can also shut a failed node out by themselves.", len(poolSGDevices))
 	}
 
 	respondJSON(w, http.StatusOK, map[string]any{
 		"success":                true,
 		"watchdog_available":     watchdogAvail,
 		"watchdog_device":        watchdogDevice,
-		"fenced_running":         fencedRunning,
-		"fenced_devices":         fencedDevices,
 		"pool_sg_devices":        poolSGDevices,
 		"provisional_path":       provPath,
 		"provisional_path_label": provLabel,
 		"provisional_reason":     provReason,
 		"probe_required":         probeRequired,
-	})
-}
-
-// GetSCSIStatus returns the current SCSI-3 PR reservation state from dplane-fenced.
-// The response includes which /dev/sgN devices are currently reserved, the
-// reservation key in use, and whether the fenced daemon is reachable.
-// GET /api/ha/scsi/status
-func (h *HAHandler) GetSCSIStatus(w http.ResponseWriter, r *http.Request) {
-	status, err := ha.FencedStatus()
-	if err != nil {
-		// dplane-fenced not running or socket unavailable - not an error, just not configured
-		respondJSON(w, http.StatusOK, map[string]any{
-			"success": true,
-			"running": false,
-			"message": "dplane-fenced not reachable: " + err.Error(),
-			"devices": []string{},
-		})
-		return
-	}
-	devices, _ := status["devices"].([]any)
-	devStrs := make([]string, 0, len(devices))
-	for _, d := range devices {
-		if s, ok := d.(string); ok {
-			devStrs = append(devStrs, s)
-		}
-	}
-	respondJSON(w, http.StatusOK, map[string]any{
-		"success": true,
-		"running": true,
-		"key":     status["key"],
-		"devices": devStrs,
 	})
 }
 
@@ -230,9 +170,16 @@ func (h *HAHandler) ProbeSCSIDevices(w http.ResponseWriter, r *http.Request) {
 				"success":         true,
 				"auto_enumerated": true,
 				"results":         []any{},
-				"all_supported":   true,
-				"message":         "No ZFS pool member disks found - pool may not be imported or no SAS/SATA disks present",
+				"all_supported":   false,
+				"device_count":    0,
+				"message":         "No SCSI disks in the pools imported on this node: nothing to probe. NVMe and virtual disks have no persistent reservations of this kind.",
 			})
+			return
+		}
+	}
+	for _, dev := range devices {
+		if !probeDeviceRe.MatchString(dev) {
+			respondErrorSimple(w, "not a SCSI disk device: "+dev, http.StatusBadRequest)
 			return
 		}
 	}
@@ -263,58 +210,63 @@ func (h *HAHandler) ProbeSCSIDevices(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// enumPoolSGDevices returns /dev/sgN paths for all current ZFS pool member disks.
-// Mirrors the enumeration logic in dplane-fenced so setup probes and runtime
-// fencing operate on the same device set.
+// probeDeviceRe: what the probe may be pointed at.
+var probeDeviceRe = regexp.MustCompile(`^/dev/(sd[a-z]+|sg[0-9]+)$`)
+
+// poolMemberDevices parses the device paths out of `zpool status -P`.
+func poolMemberDevices(status string) []string {
+	var devs []string
+	for _, line := range strings.Split(status, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) > 0 && strings.HasPrefix(fields[0], "/dev/") {
+			devs = append(devs, fields[0])
+		}
+	}
+	return devs
+}
+
+// wholeDisk returns the disk a device node belongs to (itself, or the disk
+// of a partition: ZFS puts its data on partition 1 of a whole disk), and
+// whether that disk takes SCSI commands. sysBlock is /sys/class/block.
+func wholeDisk(sysBlock, dev string) (disk string, scsi bool, err error) {
+	resolved, err := filepath.EvalSymlinks(dev)
+	if err != nil {
+		return "", false, err
+	}
+	name := filepath.Base(resolved)
+	entry, err := filepath.EvalSymlinks(filepath.Join(sysBlock, name))
+	if err != nil {
+		return "", false, err
+	}
+	if _, err := os.Stat(filepath.Join(entry, "partition")); err == nil {
+		entry = filepath.Dir(entry)
+		name = filepath.Base(entry)
+	}
+	// SCSI disks (SAS, SATA, iSCSI, FC) have a scsi_generic companion;
+	// NVMe and virtual disks do not.
+	_, gerr := os.Stat(filepath.Join(entry, "device", "generic"))
+	return "/dev/" + name, gerr == nil, nil
+}
+
+// enumPoolSGDevices returns the SCSI disks (whole disks, /dev/sdX) of the
+// pools imported on this node: the disks that can have persistent
+// reservations at all.
 func enumPoolSGDevices() ([]string, error) {
 	out, err := exec.Command("zpool", "status", "-P").Output()
 	if err != nil {
 		return nil, fmt.Errorf("zpool status: %w", err)
 	}
-
-	var sgDevs []string
-	seen := make(map[string]bool)
-
-	for _, line := range strings.Split(string(out), "\n") {
-		line = strings.TrimSpace(line)
-		if !strings.HasPrefix(line, "/dev/") {
+	disks := []string{}
+	seen := map[string]bool{}
+	for _, dev := range poolMemberDevices(string(out)) {
+		disk, scsi, err := wholeDisk("/sys/class/block", dev)
+		if err != nil || !scsi || seen[disk] {
 			continue
 		}
-		fields := strings.Fields(line)
-		if len(fields) == 0 {
-			continue
-		}
-		blockDev := fields[0]
-
-		sg, err := blockDevToSG(blockDev)
-		if err != nil {
-			continue
-		}
-		if seen[sg] {
-			continue
-		}
-		seen[sg] = true
-		sgDevs = append(sgDevs, sg)
+		seen[disk] = true
+		disks = append(disks, disk)
 	}
-	return sgDevs, nil
-}
-
-// blockDevToSG resolves a block device path to its /dev/sgN counterpart via sysfs.
-func blockDevToSG(blockDev string) (string, error) {
-	resolved, err := filepath.EvalSymlinks(blockDev)
-	if err != nil {
-		return "", fmt.Errorf("resolve %s: %w", blockDev, err)
-	}
-	base := filepath.Base(resolved)
-	if strings.HasPrefix(base, "nvme") {
-		return "", fmt.Errorf("NVMe devices do not use SG_IO (%s)", base)
-	}
-	genericLink := fmt.Sprintf("/sys/class/block/%s/device/generic", base)
-	sgTarget, err := filepath.EvalSymlinks(genericLink)
-	if err != nil {
-		return "", fmt.Errorf("no scsi_generic for %s: %w", base, err)
-	}
-	return "/dev/" + filepath.Base(sgTarget), nil
+	return disks, nil
 }
 
 // GetWatchdogConfig returns the hardware watchdog self-fence configuration.

@@ -17,12 +17,12 @@ import (
 )
 
 type FencingConfig struct {
-	Enable                 bool   `json:"enable"`
-	BMCIP                  string `json:"bmc_ip"`
-	BMCUser                string `json:"bmc_user"`
-	BMCPasswordFile        string `json:"bmc_password_file"`
-	JitterMaxMs            int    `json:"jitter_max_ms"`            // max random pre-fire delay in ms; default 3000
-	DiskFaultTolerancePct  int    `json:"disk_fault_tolerance_pct"` // % of pool disks that may fail SCSI-3 PR without aborting; default 10
+	Enable                bool   `json:"enable"`
+	BMCIP                 string `json:"bmc_ip"`
+	BMCUser               string `json:"bmc_user"`
+	BMCPasswordFile       string `json:"bmc_password_file"`
+	JitterMaxMs           int    `json:"jitter_max_ms"`            // max random pre-fire delay in ms; default 3000
+	DiskFaultTolerancePct int    `json:"disk_fault_tolerance_pct"` // % of pool disks that may fail SCSI-3 PR without aborting; default 10
 }
 
 // GetFencingConfig reads the Fencing HA config from the PostgreSQL database.
@@ -78,15 +78,6 @@ func SaveFencingConfig(db *sql.DB, cfg FencingConfig) error {
 	if err != nil {
 		return err
 	}
-	// Write the tolerance file for dplane-fenced which has no DB access.
-	// Use atomic temp-file + rename to prevent a partial write racing with pool
-	// export. If /var/lib/dplaneos/ is on a ZFS dataset being exported, the write
-	// may fail - dplane-fenced falls back to its in-memory default (10%).
-	_ = os.MkdirAll("/var/lib/dplaneos", 0750)
-	tmp := "/var/lib/dplaneos/fence-tolerance.tmp"
-	if werr := os.WriteFile(tmp, fmt.Appendf(nil, "%d\n", tol), 0640); werr == nil {
-		_ = os.Rename(tmp, "/var/lib/dplaneos/fence-tolerance")
-	}
 	return nil
 }
 
@@ -109,7 +100,7 @@ func stonithJitter(maxMs int) time.Duration {
 func ExecuteFencing(nodeID string, cfg FencingConfig) error {
 	log.Printf("STONITH: Initiating fencing sequence against node %s at BMC %s", nodeID, cfg.BMCIP)
 	start := time.Now()
-	
+
 	if !cfg.Enable {
 		return fmt.Errorf("fencing is disabled but ExecuteFencing was invoked")
 	}
@@ -197,4 +188,3 @@ statusLoop:
 	audit.LogAction("ha_fence", "system", fmt.Sprintf("Fenced node %s at BMC %s - chassis confirmed dark", nodeID, cfg.BMCIP), true, time.Since(start))
 	return nil
 }
-

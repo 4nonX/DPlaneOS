@@ -60,7 +60,7 @@ func (h *ZFSHandler) HandleCommand(w http.ResponseWriter, r *http.Request) {
 
 	// Validate session token format
 	if !security.IsValidSessionToken(req.SessionID) {
-		audit.LogSecurityEvent("Invalid session token format", req.User, r.RemoteAddr)
+		audit.LogSecurityEvent("Invalid session token format", req.User, security.RealIP(r))
 		respondErrorSimple(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
@@ -68,14 +68,14 @@ func (h *ZFSHandler) HandleCommand(w http.ResponseWriter, r *http.Request) {
 	// This route sets dataset properties and destroys datasets: nothing else
 	// of the command whitelist (disk wipes, services, ...) is reachable here.
 	if req.Command != "zfs_destroy" && req.Command != "zfs_set_property" {
-		audit.LogSecurityEvent("Command not available on /api/zfs/command: "+req.Command, req.User, r.RemoteAddr)
+		audit.LogSecurityEvent("Command not available on /api/zfs/command: "+req.Command, req.User, security.RealIP(r))
 		respondErrorSimple(w, "command not allowed here", http.StatusForbidden)
 		return
 	}
 
 	// Validate command is whitelisted
 	if err := security.ValidateCommand(req.Command, req.Args); err != nil {
-		audit.LogSecurityEvent(fmt.Sprintf("Command validation failed: %v", err), req.User, r.RemoteAddr)
+		audit.LogSecurityEvent(fmt.Sprintf("Command validation failed: %v", err), req.User, security.RealIP(r))
 		respondErrorSimple(w, err.Error(), http.StatusForbidden)
 		return
 	}
@@ -155,7 +155,7 @@ func (h *ZFSHandler) ListPools(w http.ResponseWriter, r *http.Request) {
 	sessionID := r.Header.Get("X-Session-ID")
 
 	if !security.IsValidSessionToken(sessionID) {
-		audit.LogSecurityEvent("Invalid session token", user, r.RemoteAddr)
+		audit.LogSecurityEvent("Invalid session token", user, security.RealIP(r))
 		respondErrorSimple(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
@@ -195,7 +195,7 @@ func (h *ZFSHandler) ListDatasets(w http.ResponseWriter, r *http.Request) {
 	sessionID := r.Header.Get("X-Session-ID")
 
 	if !security.IsValidSessionToken(sessionID) {
-		audit.LogSecurityEvent("Invalid session token", user, r.RemoteAddr)
+		audit.LogSecurityEvent("Invalid session token", user, security.RealIP(r))
 		respondErrorSimple(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
@@ -241,7 +241,7 @@ func (h *ZFSHandler) CreateDataset(w http.ResponseWriter, r *http.Request) {
 	sessionID := r.Header.Get("X-Session-ID")
 
 	if !security.IsValidSessionToken(sessionID) {
-		audit.LogSecurityEvent("Invalid session token", user, r.RemoteAddr)
+		audit.LogSecurityEvent("Invalid session token", user, security.RealIP(r))
 		respondErrorSimple(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
