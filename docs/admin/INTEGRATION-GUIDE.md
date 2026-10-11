@@ -116,7 +116,7 @@ Once the domain is joined and winbind is running, Samba shares use AD SIDs for f
 
 ### Known limitations
 
-- **CTDB**: In HA configurations, Samba state is not distributed. SMB clients disconnect and reconnect on failover. Byte-range lock state is lost. This is the same behavior as TrueNAS active-passive HA.
+- **SMB failover**: Samba state is not shared between nodes. SMB clients disconnect and reconnect on failover. Byte-range lock state is lost. This is the same behavior as TrueNAS active-passive HA.
 - **Backup DC**: Only one domain controller is stored per domain. Add a secondary DC to your DNS SRV records for automatic failover at the DNS level.
 - **Home directory creation**: No automatic home directory creation on first login (`pam_mkhomedir`). Users need home directories created manually or via the Dataset UI.
 
@@ -135,7 +135,7 @@ Runs `net ads leave -k` and clears the join state. The NixOS config reverts Samb
 
 SMB shares work for local and LDAP-authenticated users. Limitations:
 
-- **No CTDB**: In HA configurations, SMB clients disconnect and reconnect on failover. Byte-range locks are not preserved.
+- **SMB failover**: In HA configurations, SMB clients disconnect and reconnect on failover. Byte-range locks are not preserved.
 - **No Winbind**: AD SID-to-UID mapping is not available.
 - **Reconnect time**: Typically 5-30 seconds depending on client retry settings.
 

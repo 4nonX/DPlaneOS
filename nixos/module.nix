@@ -33,7 +33,7 @@ in {
       Remove services.dplaneos.ha from your configuration and set HA up from the web interface:
       pair the nodes, form the cluster with a third vote, create storage groups
       (docs/admin/HIGH-AVAILABILITY.md).'')
-  ] ++ [ ./console-network-wizard.nix ./modules/samba.nix ./modules/nfs.nix ./modules/fenced.nix ./modules/ctdb.nix ./modules/ups.nix ./modules/cluster.nix ];
+  ] ++ [ ./console-network-wizard.nix ./modules/samba.nix ./modules/nfs.nix ./modules/fenced.nix ./modules/ups.nix ./modules/cluster.nix ];
 
   options.services.dplaneos = {
     enable = lib.mkEnableOption "DPlaneOS NAS daemon";

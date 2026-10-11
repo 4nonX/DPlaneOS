@@ -127,7 +127,7 @@ curl -X POST http://localhost:5000/api/ha/scsi/probe
 
 ### Detection & Debugging
 
-The fencing alert `HAScsiPrFencingFailed` (from Prometheus/HA-CTDB-SETUP.md) will fire if SCSI-3 PR fails. In a Proxmox guest, common causes:
+The fencing alert `HAScsiPrFencingFailed` (from `prometheus/ha-alerts.yml`) will fire if SCSI-3 PR fails. In a Proxmox guest, common causes:
 
 - `qemu-pr-helper` not running on hypervisor: `systemctl status qemu-pr-helper`
 - VM disk not using `scsi-block`: check `qemu-system-x86_64` process args; should include `pr-manager=default`
@@ -327,7 +327,6 @@ sg_persist --release /dev/sg0
 ## References
 
 - SCSI-3 / SPC-4 Specification (ISO/IEC 14776)
-- Samba CTDB PR Documentation
 - Vendor-specific SCSI-3 Implementation Guides
 
 ---

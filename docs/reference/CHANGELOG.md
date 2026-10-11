@@ -14,9 +14,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 - **Patroni-based HA is removed.** `services.dplaneos.ha` (Patroni, etcd, HAProxy, keepalived), the etcd witness and the installer's "Install Witness Node" entry are gone. Remove `services.dplaneos.ha.*` from your NixOS configuration if you set it there. HA is set up anew from the web interface: pair the nodes (System › Configuration Sync), form the cluster and add a third vote (System › High Availability), create storage groups. See [HIGH-AVAILABILITY.md](../admin/HIGH-AVAILABILITY.md).
 - **Removed API endpoints:** the legacy `/api/ha/*` routes for peers, promote, switchover, fence, maintenance, witness, network witness, SBD, cluster secret, replication, timing, toggle, heartbeat, standby and ALUA standby. Kept: `/api/ha/protection`, `/api/ha/watchdog/configure`, `/api/ha/fencing/configure`, `/api/ha/pdu/configure`, `/api/ha/hardware/detect`, `/api/ha/scsi/*`, `/api/ha/ctdb/*`.
 - **Removed daemon flags:** `--ha-local-id`, `--ha-local-addr`, `--ha-cluster-secret`.
-- **CTDB** takes its node list from the new `services.dplaneos.ctdb.nodes`.
+- **Samba clustering (CTDB) is removed** (`services.dplaneos.ctdb`, `/api/ha/ctdb/*`, the card on the High Availability page). It could not work: the Samba package has no cluster support, the service used options ctdbd no longer has, and CTDB needs a file system mounted on all nodes at once, while a ZFS pool belongs to one node at a time. Remove `services.dplaneos.ctdb.*` from your NixOS configuration. SMB clients reconnect to the floating address after a failover.
 - **Prometheus:** the HA metrics changed (`dplaneos_ha_*`, `dplaneos_group_*`); update dashboards and use the new `prometheus/ha-alerts.yml`.
-- The database schema migrates automatically on first start (migrations up to 00027).
+- The database schema migrates automatically on first start (migrations up to 00028).
 
 API and web interface: the API handlers run in CI against a real PostgreSQL
 schema and a command fake, and CI checks every request and response of the
@@ -37,8 +37,36 @@ that found is listed here.
   (admin, operator, user, viewer) have default permissions.
 - Scheduled SMART tests use systemd calendar expressions.
 
+- Every API feature has its place in the web interface:
+  - BMC panel: sensors (temperatures, fans, power, voltages).
+  - Cloud Sync: the recent transfers and their result.
+  - Change History: all settings of a resource as recorded in a revision.
+  - Hardware: enclosure status (power supplies, fans, temperatures).
+  - High Availability: hardware check (watchdog, SAS/SCSI pool disks,
+    disk reservations).
+  - Directory: look up a user (entry, groups, the roles a login would get).
+  - Settings, NixOS: compare a generation with the running system.
+  - Users: effective permissions of an account. Top bar: the signed-in
+    account's roles and permissions.
+  - NFS: the exports in effect in the kernel.
+  - Datasets: "@" in the filter searches snapshot names.
+  - Pools: disk error counters with a risk rating.
+  - Support: host name, version, time zone, state of the pools at startup.
+  - API Explorer: monitoring probes and SCRAM sign-in.
+- Removed API endpoints that could not work or duplicated another one:
+  `/api/nfs4acl` (NFSv4 ACLs do not exist in OpenZFS on Linux),
+  `/api/network/apply` (netplan only), `/api/metrics/current`
+  (use `/api/system/metrics`), `/api/docker/compose/up|down|status` and
+  `/api/docker/stacks/action` (use `/api/docker/stacks*`),
+  `/api/rbac/roles/{id}/permissions` and `/api/rbac/check` (roles are saved
+  with their permissions; `/api/rbac/me/permissions`),
+  `/api/shares/nfs/reload` (use `/api/nfs/reload`), `/api/zfs/pools/create`
+  (use `/api/system/pool/create`).
+
 ### Security
 
+- Directory logins: the user name was put into the LDAP search filter
+  unescaped.
 - Rsync backups: paths only had to start with /mnt/ ("/mnt/../etc/shadow"
   as source, /etc as destination by way of a symlink). Source and
   destination are resolved against the pool and media mounts before
@@ -147,6 +175,13 @@ that found is listed here.
   settings that did nothing. Stored-secrets check, NixOS config backup to
   Git and audit log retention are in the UI; the audit chain no longer
   shows "Valid" when the check could not run.
+- Directory user lookup (/api/ldap/search-user) searched nothing and
+  answered "check server logs"; it returns the entry, its groups and the
+  mapped roles.
+- Pool health (/api/zfs/health) listed the pool and vdev rows as disks,
+  never had slow I/O counts, and reported a failed status query as healthy.
+- The pools-at-startup state (/api/system/zfs-gate-status) was always "not
+  ready" on NixOS: the gate did not write the marker.
 - Removed /api/smb/vfs, which only returned text to paste into smb.conf
   (shares have Time Machine, shadow copy and recycle bin options).
 - Scheduled SMART tests never worked from the UI: the disk name was sent

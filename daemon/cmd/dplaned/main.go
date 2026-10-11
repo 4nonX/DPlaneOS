@@ -1443,13 +1443,6 @@ func main() {
 	r.Handle("/api/ha/pdu/configure", permRoute("system", "admin", haHandler.ConfigurePDU)).Methods("POST")
 	r.Handle("/api/ha/pdu/configure", permRoute("system", "admin", haHandler.GetPDUConfig)).Methods("GET")
 
-	// CTDB clustering (SMB HA) configuration and monitoring
-	handlers.InitCTDBSchema(db)
-	r.Handle("/api/ha/ctdb/configure", permRoute("system", "admin", handlers.HandleCTDBGetConfig(db))).Methods("GET")
-	r.Handle("/api/ha/ctdb/configure", middleware.RequireAAL2(permRoute("system", "admin", handlers.HandleCTDBSetConfig(db)))).Methods("POST")
-	r.Handle("/api/ha/ctdb/status", permRoute("system", "read", handlers.HandleCTDBStatus(db))).Methods("GET")
-	r.Handle("/api/ha/ctdb/databases", permRoute("system", "read", handlers.HandleCTDBDatabaseStatus(db))).Methods("GET")
-
 	r.Handle("/api/ha/watchdog/configure", permRoute("system", "admin", haHandler.GetWatchdogConfig)).Methods("GET")
 	r.Handle("/api/ha/watchdog/configure", middleware.RequireAAL2(permRoute("system", "admin", haHandler.SaveWatchdogConfig))).Methods("POST")
 	r.Handle("/api/ha/hardware/detect", permRoute("system", "read", haHandler.DetectHAHardware)).Methods("GET")

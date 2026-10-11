@@ -7,7 +7,6 @@
  *   - how the setup is protected                     ProtectionCard
  *   - storage groups: what moves between nodes       GroupsPanel
  *   - watchdog and power fencing settings            FencingSettings
- *   - optional Samba clustering                      CTDBConfig
  */
 
 import { useState } from 'react'
@@ -15,7 +14,6 @@ import { QuorumPanel } from '@/components/ha/QuorumPanel'
 import { GroupsPanel } from '@/components/ha/GroupsPanel'
 import { ProtectionCard } from '@/components/ha/ProtectionCard'
 import { FencingConfigForm, HardwareCheckCard, PDUConfigForm, SCSIFencingCard, WatchdogConfigForm } from '@/components/ha/FencingSettings'
-import { CTDBConfig } from '@/components/ha/CTDBConfig'
 import { Icon } from '@/components/ui/Icon'
 
 export function HAPage() {
@@ -54,7 +52,6 @@ export function HAPage() {
         )}
       </div>
 
-      <CTDBConfig />
     </div>
   )
 }

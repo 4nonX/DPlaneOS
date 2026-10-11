@@ -162,9 +162,9 @@ Ready-made alert rules are in `prometheus/ha-alerts.yml` (not quorate, self-fenc
 
 ---
 
-## 9. Samba clustering (CTDB)
+## 9. SMB clients and failover
 
-CTDB is optional and experimental: it shares Samba's lock and session state between nodes so SMB clients keep byte-range locks across a failover. Without it, SMB clients reconnect after a failover (which modern clients do transparently). See [HA-CTDB-SETUP.md](HA-CTDB-SETUP.md); set `services.dplaneos.ctdb.nodes` to the addresses of all nodes.
+When a storage group moves, its floating address moves with it and Samba on the new owner serves the shares. SMB clients reconnect to the same address (current Windows, macOS and Linux clients do this on their own); open files are reopened by the client, byte-range locks held at the moment of the failover are lost. Samba clustering (CTDB) is not available: it needs a file system that is mounted on all nodes at once, and a ZFS pool belongs to one node at a time.
 
 ---
 
