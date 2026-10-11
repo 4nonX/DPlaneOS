@@ -152,6 +152,10 @@ pkgs.testers.nixosTest {
             failed = target.succeed("systemctl --failed --no-legend --plain | awk '{print $1}'").split()
             assert failed == [], f"failed units: {failed}"
             assert target.succeed("hostname").strip() == "dplaneos"
+            # The start does not wait for anything that is not needed to
+            # run (it used to sit three minutes in a connectivity check).
+            finish = int(target.succeed("systemctl show -p FinishTimestampMonotonic --value").strip()) / 1e6
+            assert 0 < finish < 150, f"the system took {finish:.0f}s to start"
             target.succeed("journalctl -b -u persist-health-check | grep -q 'persist-health-check: OK'")
 
         with subtest("The administrator signs in with the password given to the installer"):

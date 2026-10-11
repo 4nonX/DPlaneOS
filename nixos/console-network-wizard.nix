@@ -1,5 +1,11 @@
-# Interactive static IPv4 on the physical console when DHCP does not provide connectivity.
-# Installs `dplaneos-console-net` (gum TUI) and an optional boot-time wall hint.
+# An IPv4 address from the physical console, for a system that got none (no
+# DHCP server on the network): `dplaneos-console-net` asks for interface,
+# address and gateway and sets them until the next restart, enough to reach
+# the web interface and make the setting there.
+#
+# A while after the start, a system without any IPv4 address says so on the
+# console. That check looks at the system's own interfaces: it does not
+# contact anything, and it does not hold up the start.
 
 { config, lib, pkgs, ... }:
 
@@ -15,7 +21,7 @@ let
         exit 1
       fi
       gum style --bold --foreground 212 "DPlaneOS - emergency IPv4 (console)"
-      gum style --width 72 "Use this if DHCP failed and you cannot open the web UI. Applies now with ip(8); persist the same values in Settings → Network after login."
+      gum style --width 72 "Use this if the system got no address and you cannot open the web interface. The address is set until the next restart: sign in to the web interface and enter the same values under Network to keep them."
       shopt -s nullglob
       ifaces=()
       for f in /sys/class/net/*; do
@@ -36,10 +42,7 @@ let
       ip addr flush dev "$IFACE" || true
       ip addr add "$CIDR" dev "$IFACE"
       ip route replace default via "$GW" dev "$IFACE" || ip route add default via "$GW" dev "$IFACE"
-      if command -v resolvectl >/dev/null 2>&1; then
-        resolvectl dns "$IFACE" 1.1.1.1 8.8.8.8 2>/dev/null || true
-      fi
-      gum style --foreground 46 "Applied. Try: ping -c2 1.1.1.1  then open the UI in your browser."
+      gum style --foreground 46 "Set. Open http://''${CIDR%%/*}/ in a browser on the same network."
     '';
   };
 in {
@@ -54,39 +57,43 @@ in {
     };
     bootHintDelaySec = lib.mkOption {
       type = lib.types.int;
-      default = 180;
+      default = 120;
       description = ''
-        Seconds after boot before checking outbound IPv4; if check fails, broadcast a wall hint
-        to all logged-in users to run `sudo dplaneos-console-net`.
+        Seconds after the start before the system looks whether it has an
+        IPv4 address (DHCP may take a while).
       '';
     };
     enableBootHint = lib.mkOption {
       type = lib.types.bool;
       default = true;
-      description = "Run outbound connectivity check and wall(1) hint when ping fails.";
+      description = "Say on the console when the system has no IPv4 address.";
     };
   };
 
   config = lib.mkIf (config.services.dplaneos.enable && cfg.enable) {
     environment.systemPackages = [ dplaneosConsoleNet ];
 
+    # A timer, not a service that sleeps: the start of the system does not
+    # wait for it.
+    systemd.timers.dplaneos-console-net-hint = lib.mkIf cfg.enableBootHint {
+      description = "DPlaneOS: look for an IPv4 address a while after the start";
+      wantedBy = [ "timers.target" ];
+      timerConfig.OnBootSec = "${toString cfg.bootHintDelaySec}s";
+    };
     systemd.services.dplaneos-console-net-hint = lib.mkIf cfg.enableBootHint {
-      description = "DPlaneOS: hint for console static IP if no default IPv4";
-      wantedBy = [ "multi-user.target" ];
-      after = [ "network.target" ];
+      description = "DPlaneOS: say on the console when the system has no IPv4 address";
       serviceConfig = {
         Type = "oneshot";
-        RemainAfterExit = true;
-        # Use ExecStart (not deprecated script=) for nixpkgs 25.05+ systemd module.
         ExecStart = "${pkgs.writeShellScript "dplaneos-console-net-hint" ''
           set -eu
-          echo "dplaneos-console-net-hint: waiting ${toString cfg.bootHintDelaySec}s then probing connectivity..."
-          sleep ${toString cfg.bootHintDelaySec}
-          if ${pkgs.iputils}/bin/ping -c1 -W4 1.1.1.1 >/dev/null 2>&1; then
+          # Any address that is not the loopback's or a link-local one.
+          if ${pkgs.iproute2}/bin/ip -4 -o addr show scope global | ${pkgs.gnugrep}/bin/grep -q inet; then
             exit 0
           fi
-          msg="DPlaneOS: no outbound IPv4 detected. At the physical console run: sudo dplaneos-console-net"
+          msg="DPlaneOS: this system has no IPv4 address (no DHCP server answered). At this console, sign in and run: sudo dplaneos-console-net"
+          echo "$msg"
           echo "$msg" | ${pkgs.util-linux}/bin/wall || true
+          echo "$msg" > /dev/console 2>/dev/null || true
         ''}";
       };
     };
