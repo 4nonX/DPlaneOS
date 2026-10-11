@@ -262,7 +262,8 @@ pkgs.testers.nixosTest {
             st = ok(api("GET", "/api/directory/status"), "status")["data"]
             assert st["domain_joined"] is False, st
             conf = nas.succeed("testparm -s 2>/dev/null")
-            assert "security = ADS" not in conf and "workgroup = WORKGROUP" in conf, conf
+            # (testparm leaves out what is at its default: workgroup WORKGROUP.)
+            assert "security = USER" in conf and "realm" not in conf and "workgroup = " not in conf, conf
             dc.fail("samba-tool computer list | grep -i '^DPLANEOS\\$'")
             client.wait_until_succeeds(f"smbclient //{NAS}/data -U local1%Local-User-Pass-1 -c ls", timeout=60)
             client.fail(f"smbclient //{NAS}/data -U '{DOMAIN}\\alice%Alice-Dom-Pass-1' -c ls")

@@ -69,6 +69,8 @@ interface Role {
   permissions?: string[]
   is_system?:  boolean
   user_count?: number
+  /** In the roles of one user: when the assignment ends by itself. */
+  expires_at?: string
 }
 
 interface PermissionDef { id: number; resource: string; action: string; display_name: string; category: string }
@@ -596,12 +598,18 @@ function UserRolesModal({ user, onClose }: { user: User; onClose: () => void }) 
     queryFn: ({ signal }) => api.get<{ permissions: { resource: string; action: string; display_name: string; category: string }[] | null }>(`/api/rbac/users/${user.id}/permissions`, signal),
   })
   const held = new Set((mineQ.data?.roles ?? []).map(r => String(r.id)))
+  const until = new Map((mineQ.data?.roles ?? []).map(r => [String(r.id), r.expires_at]))
   const primary = user.role === 'readonly' ? 'viewer' : user.role
+  // A role given from now on ends by itself on this day (empty: it does not).
+  const [endDate, setEndDate] = useState('')
 
   const toggle = useMutation({
     mutationFn: (r: Role) => held.has(String(r.id))
       ? api.delete(`/api/rbac/users/${user.id}/roles/${r.id}`)
-      : api.post(`/api/rbac/users/${user.id}/roles`, { role_id: Number(r.id) }),
+      : api.post(`/api/rbac/users/${user.id}/roles`, {
+          role_id: Number(r.id),
+          ...(endDate ? { expires_at: new Date(endDate + 'T23:59:59').toISOString().replace(/\.\d+Z$/, 'Z') } : {}),
+        }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['rbac', 'user-roles', user.id] })
       qc.invalidateQueries({ queryKey: ['rbac', 'user-permissions', user.id] })
@@ -621,9 +629,14 @@ function UserRolesModal({ user, onClose }: { user: User; onClose: () => void }) 
             <input type="checkbox" checked={held.has(String(r.id))} disabled={r.name === primary || toggle.isPending} onChange={() => toggle.mutate(r)} />
             <strong>{r.name}</strong>
             {r.description && <span style={{ color: 'var(--text-tertiary)' }}>{r.description}</span>}
+            {until.get(String(r.id)) && <span className="badge badge-warning" style={{ marginLeft: 'auto' }}>until {new Date(until.get(String(r.id)) as string).toLocaleDateString()}</span>}
           </label>
         ))}
       </div>
+      <label className="field" style={{ maxWidth: 260 }}>
+        <span className="field-label">Roles given now end on (optional)</span>
+        <input type="date" className="input" value={endDate} min={new Date().toISOString().slice(0, 10)} onChange={e => setEndDate(e.target.value)} />
+      </label>
       <details>
         <summary style={{ cursor: 'pointer', fontSize: 'var(--text-sm)', fontWeight: 600 }}>
           Effective permissions{effectiveQ.data ? ` (${(effectiveQ.data.permissions ?? []).length})` : ''}

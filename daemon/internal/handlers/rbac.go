@@ -275,8 +275,13 @@ func HandleAssignRoleToUser(w http.ResponseWriter, r *http.Request) {
 	var expiresAt *string
 	if req.ExpiresAt != "" {
 		// Validate format
-		if _, err := time.Parse(time.RFC3339, req.ExpiresAt); err != nil {
+		until, err := time.Parse(time.RFC3339, req.ExpiresAt)
+		if err != nil {
 			respondError(w, http.StatusBadRequest, "Invalid expiry date format", err)
+			return
+		}
+		if !until.After(time.Now()) {
+			respondErrorSimple(w, "The end of the assignment must be in the future", http.StatusBadRequest)
 			return
 		}
 		expiresAt = &req.ExpiresAt

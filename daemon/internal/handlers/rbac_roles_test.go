@@ -86,3 +86,45 @@ func TestRoleEditing(t *testing.T) {
 		t.Errorf("emptying the admin role: %s", r)
 	}
 }
+
+// A role can be given for a time: it ends by itself.
+func TestRoleAssignmentExpires(t *testing.T) {
+	e := newUserEnv(t)
+	r := e.action(t, "root-admin", map[string]any{"action": "create", "username": "temp", "password": "Some-Passw0rd!", "role": "viewer", "confirm_password": "Admin-Passw0rd"})
+	if !r.ok() {
+		t.Fatalf("create: %s", r)
+	}
+	uid := int(r.body["id"].(float64))
+	var operator int
+	if err := e.db.QueryRow(`SELECT id FROM roles WHERE name = 'operator'`).Scan(&operator); err != nil {
+		t.Fatal(err)
+	}
+	until := "2099-01-01T00:00:00Z"
+	if err := security.AssignRoleToUser(uid, operator, nil, &until); err != nil {
+		t.Fatal(err)
+	}
+	if !can(t, uid, "storage", "write") {
+		t.Fatal("the role given for a time does not count")
+	}
+	roles, err := security.GetUserRoles(uid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, role := range roles {
+		if role.Name == "operator" {
+			found = role.ExpiresAt != nil && strings.HasPrefix(*role.ExpiresAt, "2099-01-01")
+		}
+	}
+	if !found {
+		t.Errorf("the end of the assignment is not reported: %+v", roles)
+	}
+	// Its time is over.
+	if _, err := e.db.Exec(`UPDATE user_roles SET expires_at = NOW() - INTERVAL '1 minute' WHERE user_id = $1 AND role_id = $2`, uid, operator); err != nil {
+		t.Fatal(err)
+	}
+	security.InvalidateUserPermissions(uid)
+	if can(t, uid, "storage", "write") || !can(t, uid, "storage", "read") {
+		t.Error("an expired role still counts (or the account role was lost with it)")
+	}
+}

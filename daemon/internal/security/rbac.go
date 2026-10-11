@@ -27,8 +27,11 @@ type Role struct {
 	Description string       `json:"description"`
 	IsSystem    bool         `json:"is_system"`
 	Permissions []Permission `json:"permissions,omitempty"`
-	CreatedAt   string       `json:"created_at"`
-	UpdatedAt   string       `json:"updated_at"`
+	// ExpiresAt is set in the roles of a user when that assignment ends
+	// by itself (RFC 3339).
+	ExpiresAt *string `json:"expires_at,omitempty"`
+	CreatedAt string  `json:"created_at"`
+	UpdatedAt string  `json:"updated_at"`
 }
 
 // UserRole represents a user's role assignment
@@ -157,7 +160,8 @@ func GetUserRoles(userID int) ([]Role, error) {
 	}
 
 	query := `
-		SELECT r.id, r.name, r.display_name, r.description, r.is_system, r.created_at, r.updated_at
+		SELECT r.id, r.name, r.display_name, r.description, r.is_system, r.created_at, r.updated_at,
+		       TO_CHAR(ur.expires_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')
 		FROM roles r
 		JOIN user_roles ur ON r.id = ur.role_id
 		WHERE ur.user_id = $1
@@ -182,6 +186,7 @@ func GetUserRoles(userID int) ([]Role, error) {
 			&role.IsSystem,
 			&role.CreatedAt,
 			&role.UpdatedAt,
+			&role.ExpiresAt,
 		)
 		if err != nil {
 			return nil, err

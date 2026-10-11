@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -132,6 +133,24 @@ func runTargetcli(args ...string) (string, error) {
 	return executeCommandWithTimeout(TimeoutSlow, "targetcli", args)
 }
 
+// targetcliSays is what targetcli answered, short enough for an error
+// message: its last line that says something, or the error itself.
+func targetcliSays(out string, err error) string {
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		if t := strings.TrimSpace(lines[i]); t != "" {
+			if len(t) > 240 {
+				t = t[:240]
+			}
+			return t
+		}
+	}
+	if err != nil {
+		return err.Error()
+	}
+	return "no message"
+}
+
 // ─── Handlers ───────────────────────────────────────────────────
 
 // GetISCSITargets lists all iSCSI targets
@@ -190,17 +209,17 @@ func CreateISCSITarget(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Create target
-	if _, err := runTargetcli("/iscsi", "create", req.IQN); err != nil {
-		respondErrorSimple(w, "Failed to create target", http.StatusInternalServerError)
+	if out, err := runTargetcli("/iscsi", "create", req.IQN); err != nil {
+		respondErrorSimple(w, "Failed to create target: "+targetcliSays(out, err), http.StatusInternalServerError)
 		return
 	}
 
 	// Create block storage object
 	storageName := sanitizeForTargetcli(req.IQN)
-	if _, err := runTargetcli("/backstores/block", "create", storageName, req.BackingDev); err != nil {
+	if out, err := runTargetcli("/backstores/block", "create", storageName, req.BackingDev); err != nil {
 		// Best-effort cleanup
 		runTargetcli("/iscsi/"+req.IQN, "delete") //nolint
-		respondErrorSimple(w, "Failed to create storage object", http.StatusInternalServerError)
+		respondErrorSimple(w, "Failed to create storage object: "+targetcliSays(out, err), http.StatusInternalServerError)
 		return
 	}
 
@@ -212,18 +231,22 @@ func CreateISCSITarget(w http.ResponseWriter, r *http.Request) {
 
 	// Create LUN
 	tpgPath := fmt.Sprintf("/iscsi/%s/tpg1", req.IQN)
-	if _, err := runTargetcli(tpgPath+"/luns", "create", "/backstores/block/"+storageName); err != nil {
+	if out, err := runTargetcli(tpgPath+"/luns", "create", "/backstores/block/"+storageName); err != nil {
 		cleanup()
-		respondErrorSimple(w, "Failed to create LUN", http.StatusInternalServerError)
+		respondErrorSimple(w, "Failed to create LUN: "+targetcliSays(out, err), http.StatusInternalServerError)
 		return
 	}
 
-	// Set portal
-	portalAddr := fmt.Sprintf("%s:%d", req.PortalIP, req.PortalPort)
-	runTargetcli(tpgPath+"/portals", "delete", "0.0.0.0", "3260") //nolint - remove default portal
-	if _, err := runTargetcli(tpgPath+"/portals", "create", portalAddr); err != nil {
+	// The address the target listens on. targetcli gives a new target the
+	// portal 0.0.0.0:3260 (depending on its settings); the target ends up
+	// with exactly the one asked for.
+	port := strconv.Itoa(req.PortalPort)
+	if req.PortalIP != "0.0.0.0" || req.PortalPort != 3260 {
+		runTargetcli(tpgPath+"/portals", "delete", "0.0.0.0", "3260") //nolint: absent when targetcli did not add it
+	}
+	if out, err := runTargetcli(tpgPath+"/portals", "create", req.PortalIP, port); err != nil && !strings.Contains(strings.ToLower(out+err.Error()), "exist") {
 		cleanup()
-		respondErrorSimple(w, "Failed to set portal", http.StatusInternalServerError)
+		respondErrorSimple(w, "Failed to set the portal "+req.PortalIP+":"+port+": "+targetcliSays(out, err), http.StatusInternalServerError)
 		return
 	}
 
@@ -242,14 +265,14 @@ func CreateISCSITarget(w http.ResponseWriter, r *http.Request) {
 		fmt.Printf("SECURITY NOTICE: iSCSI target %s created with authentication=0 (CHAP disabled). "+
 			"Ensure network-level isolation and that initiator IQNs cannot be spoofed.\n", req.IQN)
 	}
-	if _, err := runTargetcli(tpgPath, "set", "attribute", authMode); err != nil {
+	if out, err := runTargetcli(tpgPath, "set", "attribute", authMode); err != nil {
 		cleanup()
-		respondErrorSimple(w, "Failed to set the authentication mode; the target was removed", http.StatusInternalServerError)
+		respondErrorSimple(w, "Failed to set the authentication mode; the target was removed: "+targetcliSays(out, err), http.StatusInternalServerError)
 		return
 	}
-	if _, err := runTargetcli(tpgPath, "enable"); err != nil {
+	if out, err := runTargetcli(tpgPath, "enable"); err != nil {
 		cleanup()
-		respondErrorSimple(w, "Failed to enable the target; it was removed", http.StatusInternalServerError)
+		respondErrorSimple(w, "Failed to enable the target; it was removed: "+targetcliSays(out, err), http.StatusInternalServerError)
 		return
 	}
 
@@ -322,14 +345,14 @@ func UpdateISCSITarget(w http.ResponseWriter, r *http.Request) {
 	runTargetcli("/backstores/block", "delete", storageName) //nolint
 
 	// 3. Create new storage object
-	if _, err := runTargetcli("/backstores/block", "create", storageName, req.BackingDev); err != nil {
-		respondErrorSimple(w, "Failed to create new storage object", http.StatusInternalServerError)
+	if out, err := runTargetcli("/backstores/block", "create", storageName, req.BackingDev); err != nil {
+		respondErrorSimple(w, "Failed to create new storage object: "+targetcliSays(out, err), http.StatusInternalServerError)
 		return
 	}
 
 	// 4. Create new LUN 0
-	if _, err := runTargetcli(tpgPath+"/luns", "create", "/backstores/block/"+storageName); err != nil {
-		respondErrorSimple(w, "Failed to create new LUN", http.StatusInternalServerError)
+	if out, err := runTargetcli(tpgPath+"/luns", "create", "/backstores/block/"+storageName); err != nil {
+		respondErrorSimple(w, "Failed to create new LUN: "+targetcliSays(out, err), http.StatusInternalServerError)
 		return
 	}
 
@@ -355,12 +378,12 @@ func DeleteISCSITarget(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, err := runTargetcli("/iscsi", "delete", iqn); err != nil {
-		respondErrorSimple(w, "Failed to delete target", http.StatusInternalServerError)
+	if out, err := runTargetcli("/iscsi", "delete", iqn); err != nil {
+		respondErrorSimple(w, "Failed to delete target: "+targetcliSays(out, err), http.StatusInternalServerError)
 		return
 	}
-	if _, err := runTargetcli("/", "saveconfig"); err != nil {
-		respondErrorSimple(w, "The target is deleted, but saving the iSCSI configuration failed: it comes back at the next reboot", http.StatusInternalServerError)
+	if out, err := runTargetcli("/", "saveconfig"); err != nil {
+		respondErrorSimple(w, "The target is deleted, but saving the iSCSI configuration failed: it comes back at the next reboot: "+targetcliSays(out, err), http.StatusInternalServerError)
 		return
 	}
 	if err := syncISCSIFirewall(); err != nil {
@@ -433,8 +456,8 @@ func AddISCSIACL(w http.ResponseWriter, r *http.Request) {
 	}
 
 	aclPath := fmt.Sprintf("/iscsi/%s/tpg1/acls", req.TargetIQN)
-	if _, err := runTargetcli(aclPath, "create", req.InitiatorIQN); err != nil {
-		respondErrorSimple(w, "Failed to add ACL", http.StatusInternalServerError)
+	if out, err := runTargetcli(aclPath, "create", req.InitiatorIQN); err != nil {
+		respondErrorSimple(w, "Failed to add ACL: "+targetcliSays(out, err), http.StatusInternalServerError)
 		return
 	}
 
@@ -480,8 +503,8 @@ func DeleteISCSIACL(w http.ResponseWriter, r *http.Request) {
 	}
 
 	aclPath := fmt.Sprintf("/iscsi/%s/tpg1/acls", req.TargetIQN)
-	if _, err := runTargetcli(aclPath, "delete", req.InitiatorIQN); err != nil {
-		respondErrorSimple(w, "Failed to delete ACL", http.StatusInternalServerError)
+	if out, err := runTargetcli(aclPath, "delete", req.InitiatorIQN); err != nil {
+		respondErrorSimple(w, "Failed to delete ACL: "+targetcliSays(out, err), http.StatusInternalServerError)
 		return
 	}
 	runTargetcli("/", "saveconfig") //nolint
