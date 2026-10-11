@@ -1079,7 +1079,7 @@ func (h *LDAPHandler) CreateDomain(w http.ResponseWriter, r *http.Request) {
 		User: r.Header.Get("X-User"), Success: true,
 		Metadata: map[string]any{"name": req.Name, "realm": req.Realm},
 	})
-	syncIDMAPToNixwriter(h.db)
+	applyIDRanges(h.db)
 	writeJSON(w, 200, ldapResp{Success: true})
 }
 
@@ -1114,7 +1114,7 @@ func (h *LDAPHandler) DeleteDomain(w http.ResponseWriter, r *http.Request) {
 		User: r.Header.Get("X-User"), Success: true,
 		Metadata: map[string]any{"name": name},
 	})
-	syncIDMAPToNixwriter(h.db)
+	applyIDRanges(h.db)
 	writeJSON(w, 200, ldapResp{Success: true})
 }
 

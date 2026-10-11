@@ -33,7 +33,7 @@
 #   update.tar.sha256      its checksum
 #   update.tar.sha256.sig  Ed25519 signature of the checksum file, made with
 #                          the release key. The public key is part of the
-#                          system: /etc/dplaneos/update-signing.pub
+#                          system: the key the system was built with
 # ─────────────────────────────────────────────────────────────────────────────
 
 set -euo pipefail

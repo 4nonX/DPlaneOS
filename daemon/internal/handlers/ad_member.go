@@ -235,6 +235,23 @@ func applySambaConf() error {
 	return err
 }
 
+// applyIDRanges makes the ID ranges of the registered domains the ones
+// Samba uses. They only matter to a member of a domain: there the
+// configuration is rewritten and winbind, which maps the IDs, restarted.
+func applyIDRanges(db *sql.DB) {
+	syncIDMAPToNixwriter(db)
+	if nixwriter.Default().State().SambaSecurityMode != "ads" {
+		return
+	}
+	if err := applySambaConf(); err != nil {
+		log.Printf("AD: applying the ID ranges: %v", err)
+		return
+	}
+	if out, err := exec.Command("systemctl", "try-restart", "samba-winbindd.service").CombinedOutput(); err != nil {
+		log.Printf("AD: restarting winbind for the new ID ranges: %v %s", err, strings.TrimSpace(string(out)))
+	}
+}
+
 // joinADDomain joins the domain registered as name. step reports progress.
 func joinADDomain(db *sql.DB, name, username, password, ou string, step func(string)) error {
 	adMu.Lock()

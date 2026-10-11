@@ -76,7 +76,7 @@ Everything else a new version may bring (a newer kernel, ZFS, Samba, ...) is fet
 
 A site without internet access can run a mirror of the NixOS cache and point the system at it. This is a build-time option of the system (`services.dplaneos.ota.upstreamCache`), not a setting.
 
-A file that is not signed with the release key, or was changed after signing, is refused. The public key is part of the system (`/etc/dplaneos/update-signing.pub`).
+A file that is not signed with the release key, or was changed after signing, is refused. The public key is part of the system itself (read-only, with the system files).
 
 ---
 

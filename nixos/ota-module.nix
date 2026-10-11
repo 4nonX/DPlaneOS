@@ -2,7 +2,7 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # Installs dplaneos-update (nixos/dplaneos-update.sh) and what it needs:
 #
-#   /etc/dplaneos/update-signing.pub   the key update files are checked against
+#   the key update files are checked against (part of the system, in the store)
 #   <system>/dplaneos-version          the version of each installed system
 #   dplaneos-update-confirm.timer      a few minutes after every boot: an
 #                                      update that is on trial is kept if the
@@ -30,6 +30,10 @@ let
     checkPhase = "";
     text = ''
       export DPLANEOS_UPDATE_UPSTREAM=''${DPLANEOS_UPDATE_UPSTREAM:-${lib.escapeShellArg cfg.ota.upstreamCache}}
+      # The key updates are checked against is part of the system itself
+      # (read-only, in the store). /etc/dplaneos is persistent state on an
+      # installed system: a file the system puts there is hidden by it.
+      export DPLANEOS_UPDATE_PUBKEY=''${DPLANEOS_UPDATE_PUBKEY:-${"${cfg.ota.publicKeyFile}"}}
       export DPLANEOS_UPDATE_MIN_FREE_MB=''${DPLANEOS_UPDATE_MIN_FREE_MB:-${toString cfg.ota.minFreeMB}}
       export DPLANEOS_UPDATE_HEALTH_TIMEOUT=''${DPLANEOS_UPDATE_HEALTH_TIMEOUT:-${toString cfg.ota.healthTimeout}}
     '' + builtins.readFile ./dplaneos-update.sh;
@@ -117,7 +121,6 @@ in {
   config = lib.mkIf (cfg.enable && cfg.ota.enable) {
 
     environment.systemPackages = [ updatePackage ];
-    environment.etc."dplaneos/update-signing.pub".source = cfg.ota.publicKeyFile;
 
     # The daemon runs the tool (Updates page).
     systemd.services.dplaned.path = [ updatePackage ];
