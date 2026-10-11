@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"dplaned/internal/fileaccounts"
 	"dplaned/internal/audit"
 	"dplaned/internal/cmdutil"
 	"dplaned/internal/nixwriter"
@@ -359,6 +360,11 @@ func AddSSHKey(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Verify system user exists
+	// Only administrators have an account with a shell (internal/fileaccounts).
+	if IsNixOS() && !fileaccounts.CanSignIn(req.Username) {
+		respondErrorSimple(w, req.Username+" cannot sign in over SSH: only administrators can, once they have signed in to the web interface (their account is created then)", http.StatusBadRequest)
+		return
+	}
 	if _, err := userHomeDir(req.Username); err != nil {
 		respondErrorSimple(w, "User not found on system: "+req.Username, http.StatusBadRequest)
 		return
@@ -498,7 +504,8 @@ func GetSSHDaemon(w http.ResponseWriter, r *http.Request) {
 
 // PostSSHDaemon POST /api/system/ssh-daemon
 // Body: { port?: int, password_auth?: bool|null, permit_root_login?: string }
-// Writes settings to nixwriter state. Changes take effect on next nixos-rebuild.
+// Saves the settings and applies them (internal/sysapply): sshd checks and
+// reloads them, the firewall follows a changed port.
 func PostSSHDaemon(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Port            *int    `json:"port"`
@@ -535,7 +542,7 @@ func PostSSHDaemon(w http.ResponseWriter, r *http.Request) {
 		PasswordAuth:    req.PasswordAuth,
 		PermitRootLogin: permitRootLogin,
 	}); err != nil {
-		respondErrorSimple(w, "Failed to save SSH daemon settings: "+err.Error(), http.StatusInternalServerError)
+		respondErrorSimple(w, "SSH daemon settings not applied: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -546,6 +553,6 @@ func PostSSHDaemon(w http.ResponseWriter, r *http.Request) {
 	})
 	respondOK(w, map[string]any{
 		"success": true,
-		"message": "SSH daemon settings saved. Apply NixOS configuration to activate.",
+		"message": "SSH daemon settings applied",
 	})
 }

@@ -45,7 +45,7 @@ interface SSHManagedKey {
 interface KeysResponse  { success: boolean; keys: SSHManagedKey[] }
 interface StatusResponse { success: boolean; active: boolean; port: string }
 
-interface SystemUser { id: number; username: string; active: boolean }
+interface SystemUser { id: number; username: string; active: boolean; role?: string; file_access?: string }
 interface UsersResponse { users: SystemUser[] }
 
 interface SSHDaemonResponse {
@@ -120,12 +120,12 @@ function AddKeyModal({ users, defaultUsername, onClose }: AddKeyModalProps) {
       <form onSubmit={handleSubmit}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           <div>
-            <label style={{ display: 'block', fontSize: 'var(--text-sm)', fontWeight: 500, marginBottom: 6 }}>System user</label>
+            <label style={{ display: 'block', fontSize: 'var(--text-sm)', fontWeight: 500, marginBottom: 6 }}>Administrator</label>
             <select className="input" value={username} onChange={e => setUsername(e.target.value)} disabled={mut.isPending}>
               {users.map(u => <option key={u.username} value={u.username}>{u.username}</option>)}
             </select>
             <p style={{ marginTop: 4, fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }}>
-              The key will be written to this user's ~/.ssh/authorized_keys.
+              Administrators can sign in over SSH with a key (and use sudo with their password). Other users have no shell access.
             </p>
           </div>
 
@@ -232,7 +232,7 @@ function DaemonSettingsTab() {
       <div className="card" style={{ padding: 24 }}>
         <h3 style={{ margin: '0 0 4px', fontSize: 'var(--text-base)', fontWeight: 600 }}>SSH Daemon Settings</h3>
         <p style={{ margin: '0 0 20px', fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>
-          Settings are written to the NixOS state file. Use Apply NixOS Configuration to activate changes.
+          Changes take effect immediately: the SSH service checks and reloads them, and the firewall follows a changed port.
         </p>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 20 }}>
@@ -245,13 +245,13 @@ function DaemonSettingsTab() {
               type="number"
               min={1}
               max={65535}
-              placeholder="22 (NixOS default)"
+              placeholder="22"
               value={port}
               onChange={e => setPort(e.target.value)}
               disabled={mut.isPending}
             />
             <p style={{ marginTop: 4, fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }}>
-              Leave blank to use the NixOS default (22).
+              Leave blank for the standard port (22).
             </p>
           </div>
 
@@ -359,7 +359,8 @@ export function SSHKeysPage() {
   }
 
   const allKeys = keysData?.keys ?? []
-  const activeUsers = usersData?.users?.filter(u => u.active) ?? []
+  // Who can sign in over SSH: administrators whose system account exists.
+  const activeUsers = usersData?.users?.filter(u => u.active && u.role === 'admin' && u.file_access === 'ready') ?? []
 
   // Unique usernames that have at least one key
   const usersWithKeys = [...new Set(allKeys.map(k => k.username))].sort()

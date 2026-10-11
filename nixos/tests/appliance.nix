@@ -265,12 +265,40 @@ pkgs.testers.nixosTest {
             nas.wait_until_succeeds("echo | openssl s_client -connect localhost:443 2>/dev/null | openssl x509 -noout -subject | grep -q 'tank-nas.example'", timeout=30)
             client.succeed(FETCH + f"-k https://{NAS}/")
 
+        with subtest("SSH: administrators sign in with a key; settings apply at once"):
+            SSH = "ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=8 -o BatchMode=yes -i /root/key "
+            client.succeed("ssh-keygen -q -t ed25519 -N ''' -f /root/key")
+            pub = client.succeed("cat /root/key.pub").strip()
+            # Nobody gets in before a key is added.
+            client.fail(SSH + f"admin@{NAS} true")
+            ok(api("POST", "/api/ssh/keys", {"username": "admin", "label": "test client", "public_key": pub}), "add key")
+            client.wait_until_succeeds(SSH + f"admin@{NAS} true", timeout=30)
+            assert client.succeed(SSH + f"admin@{NAS} id -un").strip() == "admin"
+            # sudo with the password of the web interface.
+            assert client.succeed(SSH + f"admin@{NAS} \"echo '{PASSWORD}' | sudo -S -p ''' id -u\"").strip() == "0"
+            # The home directory survives system updates.
+            assert nas.succeed("getent passwd admin | cut -d: -f6").strip() == "/var/lib/dplaneos/home/admin"
+            # A user who is not an administrator has no shell account: no key, no login.
+            assert refused(api("POST", "/api/ssh/keys", {"username": "alice", "label": "x", "public_key": pub}))
+            client.fail(SSH + f"alice@{NAS} true")
+            client.fail(SSH + f"root@{NAS} true")
+            # No password sign-in.
+            client.fail(f"ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=8 -o BatchMode=yes -o PubkeyAuthentication=no admin@{NAS} true")
+            nas.succeed("sshd -T | grep -qx 'passwordauthentication no'")
+
+            # Another port: sshd moves there and the firewall follows.
+            ok(api("POST", "/api/system/ssh-daemon", {"port": 2222, "permit_root_login": "no"}), "SSH port")
+            client.wait_until_succeeds(SSH + f"-p 2222 admin@{NAS} true", timeout=30)
+            client.fail(SSH + f"admin@{NAS} true")
+            assert "2222/tcp" in api("GET", "/api/firewall/status")["system_ports"]
+            assert refused(api("POST", "/api/system/ssh-daemon", {"port": 2222, "permit_root_login": "sometimes"}))
+
         with subtest("Firewall: rules take effect at once, deny beats allow"):
             listener(8088)
             listener(8089)
             status = ok(api("GET", "/api/firewall/status"), "firewall status")
             assert status["status"] == "active" and status["rules"] == [], status
-            for port in ("80/tcp", "443/tcp", "445/tcp", "22/tcp"):
+            for port in ("80/tcp", "443/tcp", "445/tcp", "2222/tcp"):
                 assert port in status["system_ports"], (port, status["system_ports"])
             client.fail(FETCH + f"http://{NAS}:8088/")
 
@@ -410,6 +438,9 @@ pkgs.testers.nixosTest {
             # eth1 has its own address again: the client reaches the system.
             client.wait_until_succeeds(FETCH + f"http://{NAS}:8088/", timeout=60)
             client.fail(FETCH + f"http://{NAS}:8089/")
+            # SSH on its port, with the administrator's key.
+            client.wait_until_succeeds(SSH + f"-p 2222 admin@{NAS} true", timeout=60)
+            client.fail(SSH + f"admin@{NAS} true")
             # FTP is running again, with the same accounts, and reachable.
             nas.wait_for_open_port(21)
             client.wait_until_succeeds(f"curl -sS --fail --max-time 30 --user alice:{USER_PASSWORD2} ftp://{NAS}/file", timeout=60)

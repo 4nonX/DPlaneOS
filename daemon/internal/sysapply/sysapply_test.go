@@ -146,7 +146,7 @@ func TestApplySettingsAndOnlyWhatChanged(t *testing.T) {
 	if got := f.read(t, FirewallRulesFile); got != want {
 		t.Errorf("firewall rules:\n%s\nwant\n%s", got, want)
 	}
-	if f.ran("systemctl reload firewall.service") != 1 || f.ran("systemctl --no-block try-restart systemd-timesyncd.service") != 1 {
+	if f.ran("systemctl reload firewall.service") < 1 || f.ran("systemctl --no-block try-restart systemd-timesyncd.service") != 1 {
 		t.Errorf("commands: %v", f.cmds)
 	}
 
@@ -250,5 +250,62 @@ func TestServicePorts(t *testing.T) {
 	}
 	if err := env.SetServicePorts("../x", []string{"tcp 1"}); err == nil {
 		t.Error("path in service name accepted")
+	}
+}
+
+func TestSSHSettings(t *testing.T) {
+	f, env := newFake(t)
+	f.active["sshd.service"] = true
+	read := func() string { return f.read(t, SSHConfigFile) }
+
+	// Nothing set: port 22, opened in the firewall, the rest left to the system.
+	if err := env.Apply(nixwriter.DPlaneState{}); err != nil {
+		t.Fatal(err)
+	}
+	if got := read(); !strings.Contains(got, "Port 22\n") || strings.Contains(got, "PasswordAuthentication") || strings.Contains(got, "PermitRootLogin") {
+		t.Errorf("default file: %q", got)
+	}
+	if got := f.read(t, FirewallServicesDir+"/ssh"); got != "tcp 22\n" {
+		t.Errorf("firewall: %q", got)
+	}
+
+	yes := true
+	f.cmds = nil
+	if err := env.Apply(nixwriter.DPlaneState{SSHPort: 2222, SSHPasswordAuth: &yes, SSHPermitRootLogin: "prohibit-password"}); err != nil {
+		t.Fatal(err)
+	}
+	got := read()
+	for _, want := range []string{"Port 2222\n", "PasswordAuthentication yes\n", "KbdInteractiveAuthentication yes\n", "PermitRootLogin prohibit-password\n"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("file lacks %q: %q", want, got)
+		}
+	}
+	if strings.Contains(got, "Port 22\n") {
+		t.Errorf("the old port is still listed: %q", got)
+	}
+	if got := f.read(t, FirewallServicesDir+"/ssh"); got != "tcp 2222\n" {
+		t.Errorf("firewall: %q", got)
+	}
+	if f.ran("sshd -t") != 1 || f.ran("systemctl reload sshd.service") != 1 {
+		t.Errorf("commands: %v", f.cmds)
+	}
+
+	// Settings sshd refuses are taken back.
+	before := read()
+	env.Run = func(name string, args ...string) error {
+		if name == "sshd" {
+			return errors.New("bad configuration")
+		}
+		return f.run(name, args...)
+	}
+	err := env.Apply(nixwriter.DPlaneState{SSHPort: 2200})
+	if err == nil || !strings.Contains(err.Error(), "sshd does not accept") {
+		t.Fatalf("error: %v", err)
+	}
+	if read() != before {
+		t.Errorf("refused settings were kept: %q", read())
+	}
+	if err := env.Apply(nixwriter.DPlaneState{SSHPermitRootLogin: "maybe"}); err == nil {
+		t.Error("invalid PermitRootLogin accepted")
 	}
 }

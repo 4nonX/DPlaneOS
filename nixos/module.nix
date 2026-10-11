@@ -311,11 +311,34 @@ in {
     };
 
     # ─── SSH ─────────────────────────────────────────────────────────────
+    # Who can sign in: administrators of the web interface, with a key
+    # (their accounts are in wheel, internal/fileaccounts; keys on the SSH
+    # page). Port, password sign-in and root login can be changed on the SSH
+    # page: the daemon writes them to a file that is included before the
+    # settings below (sshd uses the first value it reads) and reloads sshd.
     services.openssh = {
       enable                  = true;
-      settings.PasswordAuthentication = false;
-      settings.PermitRootLogin        = "no";
+      # No "Port" line from here: the daemon's file names the port (22
+      # unless changed) and opens it in the firewall.
+      ports                   = lib.mkDefault [ ];
+      openFirewall            = false;
+      # Unset here so that they do not come before the daemon's file; the
+      # defaults follow the Include below. (A configuration that sets them,
+      # like the live system, keeps its values.)
+      settings.PasswordAuthentication       = lib.mkDefault null;
+      settings.KbdInteractiveAuthentication = lib.mkDefault null;
+      settings.PermitRootLogin              = lib.mkDefault null;
+      settings.AllowGroups                  = [ "wheel" "root" ];
+      extraConfig = lib.mkMerge [
+        (lib.mkOrder (-100) "Include /var/lib/dplaneos/system/sshd_config.d/*.conf")
+        (lib.mkAfter (lib.concatStringsSep "\n" (
+          lib.optional (config.services.openssh.settings.PasswordAuthentication == null) "PasswordAuthentication no"
+          ++ lib.optional (config.services.openssh.settings.KbdInteractiveAuthentication == null) "KbdInteractiveAuthentication no"
+          ++ lib.optional (config.services.openssh.settings.PermitRootLogin == null) "PermitRootLogin no"
+        )))
+      ];
     };
+    security.sudo.enable = true;
 
     # ─── SSH authorised keys (replaces password auth) ───────────────────
     users.users.root.openssh.authorizedKeys.keys = cfg.sshKeys;

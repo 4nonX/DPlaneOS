@@ -16,6 +16,8 @@ import (
 // fakeSystem stands in for /etc/passwd, /etc/group and Samba's database.
 type fakeSystem struct {
 	passwd map[string][2]string // name -> uid, gecos
+	login  map[string][2]string // name -> home, shell
+	homes  map[string]bool
 	shadow map[string]string
 	groups map[string][2]string // name -> gid, members
 	samba  map[string]string    // name -> nt hash
@@ -26,7 +28,9 @@ func newFakeSystem() *fakeSystem {
 	return &fakeSystem{
 		passwd: map[string][2]string{"root": {"0", "System administrator"}, "postgres": {"71", "PostgreSQL"}},
 		shadow: map[string]string{},
-		groups: map[string][2]string{"root": {"0", ""}, "users": {"100", ""}},
+		login:  map[string][2]string{},
+		homes:  map[string]bool{},
+		groups: map[string][2]string{"root": {"0", ""}, "users": {"100", ""}, "wheel": {"1", "operator"}},
 		samba:  map[string]string{},
 	}
 }
@@ -47,8 +51,15 @@ func (f *fakeSystem) run(stdin, name string, args ...string) (string, error) {
 		var b strings.Builder
 		if args[0] == "passwd" {
 			for n, v := range f.passwd {
-				fmt.Fprintf(&b, "%s:x:%s:100:%s:/var/empty:/bin/nologin\n", n, v[0], v[1])
+				l := f.login[n]
+				fmt.Fprintf(&b, "%s:x:%s:100:%s:%s:%s\n", n, v[0], v[1], l[0], l[1])
 			}
+		} else if len(args) == 2 {
+			v, ok := f.groups[args[1]]
+			if !ok {
+				return "", fmt.Errorf("exit status 2")
+			}
+			return fmt.Sprintf("%s:x:%s:%s\n", args[1], v[0], v[1]), nil
 		} else {
 			for n, v := range f.groups {
 				fmt.Fprintf(&b, "%s:x:%s:%s\n", n, v[0], v[1])
@@ -57,15 +68,44 @@ func (f *fakeSystem) run(stdin, name string, args ...string) (string, error) {
 		return b.String(), nil
 	case "useradd":
 		f.passwd[last] = [2]string{arg("-u"), arg("-c")}
+		f.login[last] = [2]string{arg("-d"), arg("-s")}
 	case "usermod":
-		f.shadow[last] = arg("-p")
+		if p := arg("-p"); p != "" {
+			f.shadow[last] = p
+		}
+		if s := arg("-s"); s != "" {
+			f.login[last] = [2]string{arg("-d"), s}
+		}
+	case "install":
+		f.homes[last] = true
 	case "userdel":
 		delete(f.passwd, last)
 		delete(f.shadow, last)
 	case "groupadd":
 		f.groups[last] = [2]string{arg("-g"), ""}
 	case "gpasswd":
-		f.groups[last] = [2]string{f.groups[last][0], arg("-M")}
+		g := f.groups[last]
+		members := map[string]bool{}
+		for _, m := range strings.Split(g[1], ",") {
+			if m != "" {
+				members[m] = true
+			}
+		}
+		switch args[0] {
+		case "-M":
+			f.groups[last] = [2]string{g[0], arg("-M")}
+			return "", nil
+		case "-a":
+			members[args[1]] = true
+		case "-d":
+			delete(members, args[1])
+		}
+		var list []string
+		for m := range members {
+			list = append(list, m)
+		}
+		sort.Strings(list)
+		f.groups[last] = [2]string{g[0], strings.Join(list, ",")}
 	case "groupdel":
 		delete(f.groups, last)
 	case "pdbedit":
@@ -213,3 +253,50 @@ func TestSyncCreatesAndRemovesAccounts(t *testing.T) {
 }
 
 func TestMain(m *testing.M) { os.Exit(m.Run()) }
+
+func TestAdministratorsGetAShell(t *testing.T) {
+	db, sys := setup(t)
+	addUser(t, db, "alice", "local", 1)
+	addUser(t, db, "root2", "local", 1)
+	if _, err := db.Exec(`UPDATE users SET role = 'admin' WHERE username = 'root2'`); err != nil {
+		t.Fatal(err)
+	}
+	for _, u := range []string{"alice", "root2"} {
+		if err := SetPassword(db, u, "Secret-"+u); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := Sync(db); err != nil {
+		t.Fatal(err)
+	}
+	if sys.login["alice"] != [2]string{noHome, noLogin} {
+		t.Errorf("alice: %v", sys.login["alice"])
+	}
+	if sys.login["root2"] != [2]string{HomeBase + "/root2", adminShell} || !sys.homes[HomeBase+"/root2"] {
+		t.Errorf("root2: %v, homes %v", sys.login["root2"], sys.homes)
+	}
+	// Other members of the group are left alone.
+	if got := sys.groups["wheel"][1]; got != "operator,root2" {
+		t.Errorf("wheel: %q", got)
+	}
+	if !CanSignIn("root2") || CanSignIn("alice") || CanSignIn("root") {
+		t.Error("CanSignIn")
+	}
+
+	// No longer an administrator: no shell, no sudo. A new administrator gets both.
+	if _, err := db.Exec(`UPDATE users SET role = CASE username WHEN 'root2' THEN 'user' ELSE 'admin' END`); err != nil {
+		t.Fatal(err)
+	}
+	if err := Sync(db); err != nil {
+		t.Fatal(err)
+	}
+	if sys.login["root2"] != [2]string{noHome, noLogin} || sys.login["alice"][1] != adminShell {
+		t.Errorf("after the role change: %v", sys.login)
+	}
+	if got := sys.groups["wheel"][1]; got != "alice,operator" {
+		t.Errorf("wheel after the role change: %q", got)
+	}
+	if CanSignIn("root2") {
+		t.Error("a former administrator can still sign in")
+	}
+}

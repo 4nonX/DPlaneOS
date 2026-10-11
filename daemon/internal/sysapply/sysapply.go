@@ -87,6 +87,7 @@ func (e Env) Apply(st nixwriter.DPlaneState) error {
 	step("ZFS cache limit", e.arcMax(st.ZFSArcMax))
 	step("firewall", e.firewall(st.FirewallList(), st.FirewallDisabled))
 	step("web certificate", e.webCertificate(st.TLSCert, st.TLSKey))
+	step("SSH", e.ssh(st.SSHPort, st.SSHPasswordAuth, st.SSHPermitRootLogin))
 	return errors.Join(errs...)
 }
 
@@ -361,4 +362,65 @@ func (e Env) webCertificate(certPath, keyPath string) error {
 		return nil // reads the files when it starts
 	}
 	return e.run("systemctl", "reload", "nginx.service")
+}
+
+// SSHConfigFile is read by sshd before the system's own settings (an
+// Include at the top of sshd_config, nixos/module.nix), so what is set here
+// takes precedence.
+const SSHConfigFile = "/var/lib/dplaneos/system/sshd_config.d/10-dplane.conf"
+
+// ssh writes the SSH daemon settings, has sshd check them, reloads it, and
+// opens the port in the firewall. Settings sshd does not accept are taken
+// back: a broken configuration would lock everybody out at the next restart.
+func (e Env) ssh(port int, passwordAuth *bool, permitRootLogin string) error {
+	var b strings.Builder
+	b.WriteString("# Written by DPlaneOS (SSH page).\n")
+	listen := 22
+	if port != 0 {
+		if port < 1 || port > 65535 {
+			return fmt.Errorf("invalid port %d", port)
+		}
+		listen = port
+	}
+	// Always written: the system configuration names no port of its own,
+	// so that this one replaces 22 instead of being added to it.
+	fmt.Fprintf(&b, "Port %d\n", listen)
+	if passwordAuth != nil {
+		v := "no"
+		if *passwordAuth {
+			v = "yes"
+		}
+		// Both, or neither: keyboard-interactive is password sign-in through PAM.
+		fmt.Fprintf(&b, "PasswordAuthentication %s\nKbdInteractiveAuthentication %s\n", v, v)
+	}
+	switch permitRootLogin {
+	case "":
+	case "yes", "no", "prohibit-password", "forced-commands-only":
+		fmt.Fprintf(&b, "PermitRootLogin %s\n", permitRootLogin)
+	default:
+		return fmt.Errorf("invalid PermitRootLogin value %q", permitRootLogin)
+	}
+
+	file := e.path(SSHConfigFile)
+	previous, readErr := os.ReadFile(file)
+	changed, err := writeIfChanged(file, b.String(), 0644)
+	if err != nil {
+		return err
+	}
+	// The firewall follows the port (and reads the file itself at boot).
+	if err := e.SetServicePorts("ssh", []string{fmt.Sprintf("tcp %d", listen)}); err != nil {
+		return err
+	}
+	if !changed || e.run("systemctl", "is-active", "--quiet", "sshd.service") != nil {
+		return nil // not running (early boot): it reads the file when it starts
+	}
+	if err := e.run("sshd", "-t"); err != nil {
+		if readErr == nil {
+			_, _ = writeIfChanged(file, string(previous), 0644)
+		} else {
+			os.Remove(file)
+		}
+		return fmt.Errorf("sshd does not accept the settings (not applied): %w", err)
+	}
+	return e.run("systemctl", "reload", "sshd.service")
 }

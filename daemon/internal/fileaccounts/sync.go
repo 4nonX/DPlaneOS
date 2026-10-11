@@ -29,6 +29,15 @@ const (
 
 	usersGroup = "users"
 	noLogin    = "/run/current-system/sw/bin/nologin"
+	noHome     = "/var/empty"
+
+	// Administrators can sign in over SSH (with a key, see the SSH page):
+	// their account has a shell, a home directory that survives system
+	// updates, and is in the group that may use sudo. Everybody else's
+	// account is for file services only.
+	adminShell = "/run/current-system/sw/bin/bash"
+	adminGroup = "wheel"
+	HomeBase   = "/var/lib/dplaneos/home"
 )
 
 // nameRe: what useradd and Samba accept as an account name.
@@ -81,6 +90,27 @@ type account struct {
 	uid      int
 	ntHash   string
 	unixHash string
+	admin    bool
+}
+
+func (a account) home() string {
+	if a.admin {
+		return HomeBase + "/" + a.name
+	}
+	return noHome
+}
+
+func (a account) shell() string {
+	if a.admin {
+		return adminShell
+	}
+	return noLogin
+}
+
+// sysAccount is an account of ours as the system has it.
+type sysAccount struct {
+	uid         int
+	home, shell string
 }
 
 type group struct {
@@ -115,6 +145,7 @@ func Sync(db *sql.DB) error {
 	if err != nil {
 		return err
 	}
+	sudoers := groupMembers(adminGroup)
 
 	var problems []string
 	note := func(format string, a ...any) { problems = append(problems, fmt.Sprintf(format, a...)) }
@@ -126,14 +157,35 @@ func Sync(db *sql.DB) error {
 			continue
 		}
 		wanted[a.name] = true
-		if uid, ok := have[a.name]; !ok {
-			if out, err := run("", "useradd", "-M", "-N", "-g", usersGroup, "-s", noLogin, "-c", gecos, "-u", strconv.Itoa(a.uid), a.name); err != nil {
+		if cur, ok := have[a.name]; !ok {
+			if out, err := run("", "useradd", "-M", "-N", "-g", usersGroup, "-d", a.home(), "-s", a.shell(), "-c", gecos, "-u", strconv.Itoa(a.uid), a.name); err != nil {
 				note("%s: useradd: %v: %s", a.name, err, strings.TrimSpace(out))
 				continue
 			}
-		} else if uid != a.uid {
-			// The files of this user carry the old number.
-			note("%s: the system account has ID %d, the database says %d; keeping %d", a.name, uid, a.uid, uid)
+		} else {
+			if cur.uid != a.uid {
+				// The files of this user carry the old number.
+				note("%s: the system account has ID %d, the database says %d; keeping %d", a.name, cur.uid, a.uid, cur.uid)
+			}
+			if cur.home != a.home() || cur.shell != a.shell() {
+				if out, err := run("", "usermod", "-d", a.home(), "-s", a.shell(), a.name); err != nil {
+					note("%s: usermod: %v: %s", a.name, err, strings.TrimSpace(out))
+				}
+			}
+		}
+		if a.admin {
+			if out, err := run("", "install", "-d", "-m", "700", "-o", a.name, "-g", usersGroup, a.home()); err != nil {
+				note("%s: home directory: %v: %s", a.name, err, strings.TrimSpace(out))
+			}
+		}
+		if a.admin != sudoers[a.name] {
+			flag := "-a"
+			if !a.admin {
+				flag = "-d"
+			}
+			if out, err := run("", "gpasswd", flag, a.name, adminGroup); err != nil {
+				note("%s: group %s: %v: %s", a.name, adminGroup, err, strings.TrimSpace(out))
+			}
 		}
 		if out, err := run("", "usermod", "-p", a.unixHash, a.name); err != nil {
 			note("%s: usermod: %v: %s", a.name, err, strings.TrimSpace(out))
@@ -187,7 +239,7 @@ func lastLine(s string) string {
 // wantedAccounts: active local users with a stored password, each with a
 // stable ID (assigned here on first use).
 func wantedAccounts(db *sql.DB) ([]account, error) {
-	rows, err := db.Query(`SELECT username, COALESCE(uid, 0), COALESCE(nt_hash, ''), COALESCE(unix_hash, '')
+	rows, err := db.Query(`SELECT username, COALESCE(uid, 0), COALESCE(nt_hash, ''), COALESCE(unix_hash, ''), COALESCE(role, '') = 'admin'
 		FROM users WHERE active = 1 AND COALESCE(source, 'local') = 'local' ORDER BY id`)
 	if err != nil {
 		return nil, err
@@ -196,7 +248,7 @@ func wantedAccounts(db *sql.DB) ([]account, error) {
 	for rows.Next() {
 		var a account
 		var sealed string
-		if err := rows.Scan(&a.name, &a.uid, &sealed, &a.unixHash); err != nil {
+		if err := rows.Scan(&a.name, &a.uid, &sealed, &a.unixHash, &a.admin); err != nil {
 			rows.Close()
 			return nil, err
 		}
@@ -297,24 +349,55 @@ func allocate(db *sql.DB, table, column string) (int, error) {
 // systemAccounts reads /etc/passwd through getent: the accounts this
 // package owns (by their comment field) with their IDs, and the names of
 // all others.
-func systemAccounts() (mine map[string]int, foreign map[string]bool, err error) {
+func systemAccounts() (mine map[string]sysAccount, foreign map[string]bool, err error) {
 	out, err := run("", "getent", "passwd")
 	if err != nil {
 		return nil, nil, fmt.Errorf("getent passwd: %v: %s", err, strings.TrimSpace(out))
 	}
-	mine, foreign = map[string]int{}, map[string]bool{}
+	mine, foreign = map[string]sysAccount{}, map[string]bool{}
 	for _, line := range strings.Split(out, "\n") {
 		f := strings.Split(line, ":")
 		if len(f) < 7 {
 			continue
 		}
 		if f[4] == gecos {
-			mine[f[0]], _ = strconv.Atoi(f[2])
+			uid, _ := strconv.Atoi(f[2])
+			mine[f[0]] = sysAccount{uid: uid, home: f[5], shell: f[6]}
 		} else {
 			foreign[f[0]] = true
 		}
 	}
 	return mine, foreign, nil
+}
+
+// groupMembers returns the members a system group lists (not those who have
+// it as their primary group).
+func groupMembers(group string) map[string]bool {
+	members := map[string]bool{}
+	out, err := run("", "getent", "group", group)
+	if err != nil {
+		return members
+	}
+	f := strings.Split(strings.TrimSpace(out), ":")
+	if len(f) >= 4 {
+		for _, m := range strings.Split(f[3], ",") {
+			if m != "" {
+				members[m] = true
+			}
+		}
+	}
+	return members
+}
+
+// CanSignIn reports whether the user has an account with a shell (an
+// administrator whose account exists): the precondition for SSH keys.
+func CanSignIn(username string) bool {
+	mine, _, err := systemAccounts()
+	if err != nil {
+		return false
+	}
+	a, ok := mine[username]
+	return ok && a.shell == adminShell
 }
 
 // sambaAccounts lists the names in Samba's password database.
