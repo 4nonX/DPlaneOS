@@ -170,7 +170,7 @@ pkgs.testers.nixosTest {
             assert nas.succeed(f"stat -c %U:%G {mp}/os-release").strip() == "alice:users"
             # Restricted to the folder.
             nas.fail(FTP + "../../etc/passwd")
-            nas.fail(f"curl -sS --fail --max-time 30 --user alice:wrong ftp://localhost/file")
+            nas.fail("curl -sS --fail --max-time 30 --user alice:wrong ftp://localhost/file")
             # Not in the list of allowed users.
             nas.fail(f"curl -sS --fail --max-time 30 --user admin:{PASSWORD} ftp://localhost/file")
             # Without a folder the service cannot be enabled.
