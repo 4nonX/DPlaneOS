@@ -57,7 +57,10 @@ pkgs.testers.nixosTest {
   # Another machine on the same network: what the appliance offers is used
   # from here, through its firewall.
   nodes.client = { pkgs, ... }: {
-    environment.systemPackages = [ pkgs.samba pkgs.curl pkgs.openssl ];
+    environment.systemPackages = [ pkgs.samba pkgs.curl pkgs.openssl pkgs.nvme-cli ];
+    # An iSCSI initiator and an NVMe/TCP host.
+    services.openiscsi = { enable = true; name = "iqn.2026-01.test.client:c1"; };
+    boot.kernelModules = [ "nvme-tcp" ];
     virtualisation.memorySize = 768;
   };
 
@@ -263,6 +266,51 @@ pkgs.testers.nixosTest {
             nas.wait_until_succeeds("echo | ${pkgs.openssl}/bin/openssl s_client -connect localhost:443 2>/dev/null | ${pkgs.openssl}/bin/openssl x509 -noout -subject | grep -q 'tank-nas.example'", timeout=30)
             client.succeed(FETCH + f"-k https://{NAS}/")
 
+        with subtest("iSCSI, NVMe-oF and S3: used from another machine"):
+            IQN = "iqn.2026-01.test.nas:lun0"
+            NQN = "nqn.2026-01.test.nas:nv0"
+            nas.succeed("zfs create -V 64M tank/lun0 && zfs create -V 64M tank/nv0 && udevadm settle")
+            nas.wait_until_succeeds("test -b /dev/zvol/tank/lun0 && test -b /dev/zvol/tank/nv0", timeout=30)
+
+            # iSCSI: a target for one initiator.
+            client.fail(f"timeout 5 bash -c 'echo > /dev/tcp/{NAS}/3260'")
+            ok(api("POST", "/api/iscsi/targets", {"iqn": IQN, "zvol": "tank/lun0"}), "create iSCSI target")
+            ok(api("POST", "/api/iscsi/acls", {"target_iqn": IQN, "initiator_iqn": "iqn.2026-01.test.client:c1"}), "allow the initiator")
+            assert "3260/tcp" in api("GET", "/api/firewall/status")["system_ports"]
+            client.wait_for_unit("iscsid.service")
+            client.wait_until_succeeds(f"iscsiadm -m discovery -t sendtargets -p {NAS} | grep -q {IQN}", timeout=60)
+            client.succeed(f"iscsiadm -m node -T {IQN} -p {NAS} --login")
+            client.wait_until_succeeds("test -b /dev/disk/by-path/*iscsi*lun-0", timeout=30)
+            ISCSI_DEV = client.succeed("readlink -f /dev/disk/by-path/*iscsi*lun-0").strip()
+            client.succeed(f"echo written-over-iscsi | dd of={ISCSI_DEV} oflag=direct conv=sync bs=512 count=1 2>/dev/null")
+            nas.wait_until_succeeds("dd if=/dev/zvol/tank/lun0 bs=512 count=1 2>/dev/null | grep -q written-over-iscsi", timeout=30)
+            client.succeed(f"iscsiadm -m node -T {IQN} -p {NAS} --logout")
+
+            # NVMe over TCP.
+            client.fail(f"timeout 5 bash -c 'echo > /dev/tcp/{NAS}/4420'")
+            ok(api("POST", "/api/nvmet/targets", {"subsystem_nqn": NQN, "zvol": "tank/nv0", "allow_any_host": True}), "create NVMe-oF export")
+            assert "4420/tcp" in api("GET", "/api/firewall/status")["system_ports"]
+            client.wait_until_succeeds(f"nvme connect -t tcp -a {NAS} -s 4420 -n {NQN}", timeout=60)
+            client.wait_until_succeeds("ls /dev/disk/by-id/ | grep -q nvme-", timeout=30)
+            NVME_DEV = client.succeed("nvme list -o json | ${pkgs.jq}/bin/jq -r '.Devices[0].DevicePath'").strip()
+            client.succeed(f"echo written-over-nvme | dd of={NVME_DEV} oflag=direct conv=sync bs=512 count=1 2>/dev/null")
+            nas.wait_until_succeeds("dd if=/dev/zvol/tank/nv0 bs=512 count=1 2>/dev/null | grep -q written-over-nvme", timeout=30)
+            client.succeed(f"nvme disconnect -n {NQN}")
+
+            # S3 (MinIO).
+            st = ok(api("GET", "/api/s3/status"), "S3 status")
+            assert st["installed"] is True and st["active"] is False, st
+            nas.succeed(f"mkdir -p {mp}/s3")
+            ok(api("PUT", "/api/s3/config", {"root_user": "s3admin", "root_password": "S3-Test-Pass-9", "volume_path": f"{mp}/s3",
+                                             "api_port": 9000, "console_port": 9001}), "S3 settings")
+            ok(api("POST", "/api/s3/start", {}), "start S3")
+            client.wait_until_succeeds(FETCH + f"http://{NAS}:9000/minio/health/live", timeout=90)
+            # Stopped: the ports close again.
+            ok(api("POST", "/api/s3/stop", {}), "stop S3")
+            client.fail(f"timeout 5 bash -c 'echo > /dev/tcp/{NAS}/9000'")
+            ok(api("POST", "/api/s3/start", {}), "start S3 again")
+            client.wait_until_succeeds(FETCH + f"http://{NAS}:9000/minio/health/live", timeout=90)
+
         with subtest("UPS: set up in the web interface"):
             UPS_FILE = "/var/lib/dplaneos/nut/test.dev"
             assert refused(api("GET", "/api/system/ups")), "a UPS is reported although none is set up"
@@ -463,6 +511,17 @@ pkgs.testers.nixosTest {
             # SSH on its port, with the administrator's key.
             client.wait_until_succeeds(SSH + f"-p 2222 admin@{NAS} true", timeout=60)
             client.fail(SSH + f"admin@{NAS} true")
+            # The block targets and S3 are back, with their data.
+            client.wait_until_succeeds(f"iscsiadm -m discovery -t sendtargets -p {NAS} | grep -q {IQN}", timeout=120)
+            client.succeed(f"iscsiadm -m node -T {IQN} -p {NAS} --login")
+            client.wait_until_succeeds("test -b /dev/disk/by-path/*iscsi*lun-0", timeout=30)
+            client.succeed("dd if=$(readlink -f /dev/disk/by-path/*iscsi*lun-0) bs=512 count=1 2>/dev/null | grep -q written-over-iscsi")
+            client.succeed(f"iscsiadm -m node -T {IQN} -p {NAS} --logout")
+            client.wait_until_succeeds(f"nvme connect -t tcp -a {NAS} -s 4420 -n {NQN}", timeout=120)
+            client.wait_until_succeeds("nvme list -o json | ${pkgs.jq}/bin/jq -e '.Devices | length > 0'", timeout=30)
+            client.succeed("dd if=$(nvme list -o json | ${pkgs.jq}/bin/jq -r '.Devices[0].DevicePath') bs=512 count=1 2>/dev/null | grep -q written-over-nvme")
+            client.succeed(f"nvme disconnect -n {NQN}")
+            client.wait_until_succeeds(FETCH + f"http://{NAS}:9000/minio/health/live", timeout=120)
             # FTP is running again, with the same accounts, and reachable.
             nas.wait_for_open_port(21)
             client.wait_until_succeeds(f"curl -sS --fail --max-time 30 --user alice:{USER_PASSWORD2} ftp://{NAS}/file", timeout=60)

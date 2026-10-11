@@ -13,8 +13,8 @@ import (
 var nvmeMu sync.Mutex
 
 var (
-	errNVMeConflict   = errors.New("nvme subsystem_nqn already exists")
-	errNVMeNotFound   = errors.New("nvme subsystem not found")
+	errNVMeConflict = errors.New("nvme subsystem_nqn already exists")
+	errNVMeNotFound = errors.New("nvme subsystem not found")
 )
 
 // atomicModifyNVMeTargets holds nvmeMu across the full load-modify-save cycle.
@@ -107,6 +107,10 @@ func CreateNVMeTarget(w http.ResponseWriter, r *http.Request) {
 		respondErrorSimple(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	if err := syncNVMeFirewall(list); err != nil {
+		respondErrorSimple(w, "The export is configured, but the firewall could not be updated: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
 	respondOK(w, map[string]any{
 		"success":       true,
 		"message":       "NVMe-oF target created",
@@ -147,6 +151,10 @@ func UpdateNVMeTarget(w http.ResponseWriter, r *http.Request) {
 		respondErrorSimple(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	if err := syncNVMeFirewall(list); err != nil {
+		respondErrorSimple(w, "The export is configured, but the firewall could not be updated: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
 	respondOK(w, map[string]any{
 		"success": true,
 		"message": "NVMe-oF target updated",
@@ -183,6 +191,10 @@ func DeleteNVMeTarget(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := nvmet.Apply(list); err != nil {
 		respondErrorSimple(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if err := syncNVMeFirewall(list); err != nil {
+		respondErrorSimple(w, "The export is configured, but the firewall could not be updated: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 	respondOK(w, map[string]any{

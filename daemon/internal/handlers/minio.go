@@ -220,6 +220,15 @@ func applyMinioConfig(cfg MinioConfig) error {
 		}
 	}
 
+	// The firewall lets S3 clients and the console in while it is switched on.
+	var ports []string
+	if cfg.Enabled {
+		ports = []string{fmt.Sprintf("tcp %d", cfg.APIPort), fmt.Sprintf("tcp %d", cfg.ConsolePort)}
+	}
+	if err := openServicePorts("s3", ports); err != nil {
+		return fmt.Errorf("firewall: %w", err)
+	}
+
 	// Restart if already running, otherwise just reload env
 	if minioServiceActive() {
 		_, err := cmdutil.RunFast("systemctl", "restart", minioService)
@@ -257,7 +266,7 @@ func GetMinioConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	// Redact password in response
 	out := map[string]any{
-		"root_user":    cfg.RootUser,
+		"root_user": cfg.RootUser,
 		"root_password": func() string {
 			if cfg.RootPassword != "" {
 				return "••••••••"
@@ -385,12 +394,21 @@ func RestartMinio(w http.ResponseWriter, r *http.Request) {
 	respondOK(w, map[string]any{"success": true})
 }
 
+// setMinioEnabled records whether MinIO is switched on (it is started again
+// after a reboot) and opens or closes its ports in the firewall.
 func setMinioEnabled(on bool) {
+	var ports []string
 	if err := atomicModifyMinioConfig(func(c MinioConfig) (MinioConfig, error) {
 		c.Enabled = on
+		if on {
+			ports = []string{fmt.Sprintf("tcp %d", c.APIPort), fmt.Sprintf("tcp %d", c.ConsolePort)}
+		}
 		return c, nil
 	}); err != nil {
 		log.Printf("WARN: minio enabled flag: %v", err)
+	}
+	if err := openServicePorts("s3", ports); err != nil {
+		log.Printf("WARN: minio firewall: %v", err)
 	}
 }
 

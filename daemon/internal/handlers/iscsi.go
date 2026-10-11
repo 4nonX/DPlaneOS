@@ -3,6 +3,7 @@ package handlers
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net"
 	"net/http"
 	"regexp"
@@ -270,6 +271,11 @@ func CreateISCSITarget(w http.ResponseWriter, r *http.Request) {
 			"error": "The target is running, but saving the iSCSI configuration failed: it is lost at the next reboot"})
 		return
 	}
+	if err := syncISCSIFirewall(); err != nil {
+		respondOK(w, map[string]any{"success": false, "iqn": req.IQN,
+			"error": "The target is running, but the firewall could not be opened for it: " + err.Error()})
+		return
+	}
 
 	respondOK(w, map[string]any{
 		"success":      true,
@@ -353,7 +359,13 @@ func DeleteISCSITarget(w http.ResponseWriter, r *http.Request) {
 		respondErrorSimple(w, "Failed to delete target", http.StatusInternalServerError)
 		return
 	}
-	runTargetcli("/", "saveconfig") //nolint
+	if _, err := runTargetcli("/", "saveconfig"); err != nil {
+		respondErrorSimple(w, "The target is deleted, but saving the iSCSI configuration failed: it comes back at the next reboot", http.StatusInternalServerError)
+		return
+	}
+	if err := syncISCSIFirewall(); err != nil {
+		log.Printf("ISCSI: firewall: %v", err)
+	}
 
 	respondOK(w, map[string]any{
 		"success": true,

@@ -103,6 +103,8 @@
     openFirewall = true;
     samba.enable = true;
     nfs.enable   = true;
+    # MinIO is part of the image: the S3 page switches it on.
+    s3.enable    = true;
   };
 
   # ─── Kernel settings for file serving ───────────────────────────────────

@@ -50,7 +50,6 @@ pkgs.testers.nixosTest {
     imports = [
       common
       ../installer-common.nix
-      "${nixpkgs}/nixos/tests/common/auto-format-root-device.nix"
     ];
     dplaneos.installer.targetSystem = targetSystem;
     environment.etc."dplaneos-install/VERSION".text = "test";
@@ -59,6 +58,7 @@ pkgs.testers.nixosTest {
     # install on is the first one, during and after the installation.
     virtualisation.emptyDiskImages = [ 2048 ];
     virtualisation.rootDevice = "/dev/vdb";
+    virtualisation.fileSystems."/".autoFormat = true;
 
     # The system to install is in this machine's store, as on the ISO.
     virtualisation.additionalPaths = [ targetSystem ];

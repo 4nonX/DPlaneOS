@@ -1370,6 +1370,9 @@ func main() {
 		}
 		handlers.RestoreMinio()
 		handlers.RestoreFTP()
+		// The kernel forgets its iSCSI and NVMe-oF targets at a reboot.
+		handlers.RestoreISCSI()
+		handlers.RestoreNVMeTargets()
 		log.Printf("Schedule timers and runtime services restored")
 	}()
 
