@@ -250,7 +250,9 @@ pkgs.testers.nixosTest {
             restart_into_trial()
             wait_up()
             st = status()
-            assert st["running_version"] == "2.0.0" and st["pending"]["running"] is True, st
+            # On trial, or already checked and kept (the check runs soon
+            # after the start).
+            assert st["running_version"] == "2.0.0" and (st["pending"] is None or st["pending"]["running"] is True), st
             # The check runs by itself (timer) and keeps the new version.
             nas.wait_until_fails("test -e /var/lib/dplaneos/updates/pending", timeout=180)
             st = status()

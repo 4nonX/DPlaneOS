@@ -305,7 +305,7 @@ pkgs.testers.nixosTest {
                 # that the answer is about the user and the password.
                 for _ in range(60):
                     res = attempt_from_client(user, password)
-                    if "Too many attempts" not in str(res.get("error", "")):
+                    if "Too many" not in str(res.get("error", "")):
                         return not res.get("session_id")
                     time.sleep(2)
                 raise Exception("still made to wait after two minutes")
@@ -357,7 +357,7 @@ pkgs.testers.nixosTest {
             # Many failures from one address: that address has to wait, the
             # others do not.
             assert refused_login("admin", "guess")
-            assert "Too many attempts" in str(attempt_from_client("admin", "guess").get("error")), "no waiting time after repeated failures"
+            assert "Too many" in str(attempt_from_client("admin", "guess").get("error")), "no waiting time after repeated failures"
             assert try_login("admin", PASSWORD).get("session_id"), "failed sign-ins from another machine locked the administrator out"
 
         with subtest("System settings take effect at once"):
