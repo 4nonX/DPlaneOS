@@ -215,6 +215,9 @@
         daemon     = mkDaemon { inherit system pkgs pkgsStatic dplaneosVersion nixpkgs; };
         daemonDyn  = mkDaemonDynamic { inherit system pkgs dplaneosVersion nixpkgs; };
         frontend   = mkFrontend { inherit pkgs; };
+        # The daemon as it is installed (built with libzfs). The VM tests
+        # run this one: what is tested is what ships.
+        daemonShipped = mkDaemonCGO { inherit system pkgs dplaneosVersion nixpkgs; };
       in {
         packages.dplaneos-daemon         = daemon;
         packages.dplaneos-daemon-dynamic = daemonDyn;
@@ -233,7 +236,7 @@
         #   nix build .#checks.x86_64-linux.live-boot -L
         checks.live-boot = import ./nixos/tests/live-boot.nix {
           inherit nixpkgs system impermanence;
-          daemonPackage = daemon;
+          daemonPackage = daemonShipped;
           frontendPackage = frontend;
         };
 
@@ -241,7 +244,7 @@
         #   nix build .#checks.x86_64-linux.quorum -L
         checks.quorum = import ./nixos/tests/quorum.nix {
           inherit nixpkgs system impermanence;
-          daemonPackage = daemon;
+          daemonPackage = daemonShipped;
           frontendPackage = frontend;
         };
 
@@ -249,7 +252,7 @@
         #   nix build .#checks.x86_64-linux.groups -L
         checks.groups = import ./nixos/tests/groups.nix {
           inherit nixpkgs system impermanence;
-          daemonPackage = daemon;
+          daemonPackage = daemonShipped;
           frontendPackage = frontend;
         };
 
@@ -258,7 +261,7 @@
         #   nix build .#checks.x86_64-linux.reservations -L
         checks.reservations = import ./nixos/tests/reservations.nix {
           inherit nixpkgs system impermanence;
-          daemonPackage = daemon;
+          daemonPackage = daemonShipped;
           frontendPackage = frontend;
         };
 
@@ -266,7 +269,7 @@
         #   nix build .#checks.x86_64-linux.failover -L
         checks.failover = import ./nixos/tests/failover.nix {
           inherit nixpkgs system impermanence;
-          daemonPackage = daemon;
+          daemonPackage = daemonShipped;
           frontendPackage = frontend;
         };
 
@@ -274,7 +277,7 @@
         #   nix build .#checks.x86_64-linux.replicated -L
         checks.replicated = import ./nixos/tests/replicated.nix {
           inherit nixpkgs system impermanence;
-          daemonPackage = daemon;
+          daemonPackage = daemonShipped;
           frontendPackage = frontend;
         };
 
@@ -283,7 +286,7 @@
         #   nix build .#checks.x86_64-linux.votes -L
         checks.votes = import ./nixos/tests/votes.nix {
           inherit nixpkgs system impermanence;
-          daemonPackage = daemon;
+          daemonPackage = daemonShipped;
           frontendPackage = frontend;
         };
 
@@ -291,7 +294,7 @@
         #   nix build .#checks.x86_64-linux.witness-appliance -L
         checks.witness-appliance = import ./nixos/tests/witness-appliance.nix {
           inherit nixpkgs system impermanence;
-          daemonPackage = daemon;
+          daemonPackage = daemonShipped;
           frontendPackage = frontend;
         };
 
@@ -300,7 +303,7 @@
         #   nix build .#checks.x86_64-linux.appliance -L
         checks.appliance = import ./nixos/tests/appliance.nix {
           inherit nixpkgs system impermanence;
-          daemonPackage = daemon;
+          daemonPackage = daemonShipped;
           frontendPackage = frontend;
         };
 
@@ -309,7 +312,7 @@
         #   nix build .#checks.x86_64-linux.domain -L
         checks.domain = import ./nixos/tests/domain.nix {
           inherit nixpkgs system impermanence;
-          daemonPackage = daemon;
+          daemonPackage = daemonShipped;
           frontendPackage = frontend;
         };
 
@@ -318,7 +321,7 @@
         #   nix build .#checks.x86_64-linux.update -L
         checks.update = import ./nixos/tests/update.nix {
           inherit nixpkgs system;
-          daemonPackage = daemon;
+          daemonPackage = daemonShipped;
           frontendPackage = frontend;
         };
 
