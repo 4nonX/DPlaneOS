@@ -30,6 +30,7 @@ let
     checkPhase = "";
     text = ''
       export DPLANEOS_UPDATE_UPSTREAM=''${DPLANEOS_UPDATE_UPSTREAM:-${lib.escapeShellArg cfg.ota.upstreamCache}}
+      export DPLANEOS_UPDATE_MIN_FREE_MB=''${DPLANEOS_UPDATE_MIN_FREE_MB:-${toString cfg.ota.minFreeMB}}
       export DPLANEOS_UPDATE_HEALTH_TIMEOUT=''${DPLANEOS_UPDATE_HEALTH_TIMEOUT:-${toString cfg.ota.healthTimeout}}
     '' + builtins.readFile ./dplaneos-update.sh;
   };
@@ -87,6 +88,12 @@ in {
         kernel, ZFS, Samba, ...). A site without internet access points this
         at a mirror of the NixOS cache.
       '';
+    };
+
+    minFreeMB = lib.mkOption {
+      type    = lib.types.ints.positive;
+      default = 3000;
+      description = "Free space (MB) on the system disk without which an update is not started.";
     };
 
     healthTimeout = lib.mkOption {

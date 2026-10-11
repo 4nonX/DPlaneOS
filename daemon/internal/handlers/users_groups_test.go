@@ -222,7 +222,7 @@ func TestGroupsWebUIShape(t *testing.T) {
 	if r := g(map[string]any{"action": "create", "name": "media", "members": []string{"regular", "nobody-here"}}); r.code != 400 {
 		t.Errorf("unknown member: %s", r)
 	}
-	if r := g(map[string]any{"action": "create", "name": "media", "gid": 3000, "members": []string{"regular"}}); !r.ok() {
+	if r := g(map[string]any{"action": "create", "name": "media", "gid": 2000, "members": []string{"regular"}}); !r.ok() {
 		t.Fatalf("create with members: %s", r)
 	}
 	list := call(t, e.h.HandleGroups, req{user: "root-admin"})

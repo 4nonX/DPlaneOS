@@ -20,8 +20,8 @@ import (
 // IDs of the accounts this package creates. Below the ranges Samba maps
 // directory users into (idmap, from 3000), above NixOS's own accounts.
 const (
-	firstID = 1100
-	lastID  = 2999
+	FirstID = 1100
+	LastID  = 2999
 
 	// gecos marks the accounts this package owns; it never changes or
 	// removes any other account of the system.
@@ -299,7 +299,7 @@ func wantedGroups(db *sql.DB) ([]group, error) {
 	}
 	rows.Close()
 	for i := range list {
-		if list[i].gid < firstID || list[i].gid > lastID {
+		if list[i].gid < FirstID || list[i].gid > LastID {
 			gid, err := allocate(db, "groups", "gid")
 			if err != nil {
 				return nil, err
@@ -338,12 +338,12 @@ func allocate(db *sql.DB, table, column string) (int, error) {
 			used[n] = true
 		}
 	}
-	for id := firstID; id <= lastID; id++ {
+	for id := FirstID; id <= LastID; id++ {
 		if !used[id] {
 			return id, nil
 		}
 	}
-	return 0, fmt.Errorf("no free account ID left between %d and %d", firstID, lastID)
+	return 0, fmt.Errorf("no free account ID left between %d and %d", FirstID, LastID)
 }
 
 // systemAccounts reads /etc/passwd through getent: the accounts this
@@ -437,7 +437,7 @@ func syncGroups(groups []group, accounts map[string]bool, note func(string, ...a
 	wanted := map[string]bool{}
 	for _, g := range groups {
 		sg, exists := system[g.name]
-		if exists && (sg.gid < firstID || sg.gid > lastID) {
+		if exists && (sg.gid < FirstID || sg.gid > LastID) {
 			note("group %s: a system group of that name exists; not managed", g.name)
 			continue
 		}
@@ -463,7 +463,7 @@ func syncGroups(groups []group, accounts map[string]bool, note func(string, ...a
 	}
 	// Groups in our ID range that are gone from the database.
 	for name, sg := range system {
-		if sg.gid >= firstID && sg.gid <= lastID && !wanted[name] {
+		if sg.gid >= FirstID && sg.gid <= LastID && !wanted[name] {
 			if out, err := run("", "groupdel", name); err != nil {
 				note("group %s: groupdel: %v: %s", name, err, strings.TrimSpace(out))
 			}

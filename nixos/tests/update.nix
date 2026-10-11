@@ -45,6 +45,7 @@ let
         upstreamCache = "http://releases/upstream/";
         healthCheckDelay = "20s";
         healthTimeout = 120;
+        minFreeMB = 500;   # the test disk is small; the updates here are too
       };
     };
     networking.hostName = lib.mkForce "nas";
@@ -173,7 +174,7 @@ pkgs.testers.nixosTest {
 
     def diag():
         print(nas.execute("cat /var/lib/dplaneos/updates/update.log; cat /var/lib/dplaneos/updates/pending; bootctl list --no-pager; "
-                          "ls -la /nix/var/nix/profiles/; journalctl -b --no-pager -u dplaneos-update-confirm -u dplaned | tail -n 80")[1])
+                          "ls -la /nix/var/nix/profiles/; df -h / /nix/store /boot; journalctl -b --no-pager -u dplaneos-update-confirm -u dplaned | tail -n 80")[1])
 
     releases.start()
     nas.start()

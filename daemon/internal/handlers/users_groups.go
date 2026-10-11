@@ -742,8 +742,13 @@ func (h *UserGroupHandler) groupAction(w http.ResponseWriter, r *http.Request) {
 
 	switch req.Action {
 	case "create":
-		if !groupNameRe.MatchString(req.Name) {
-			respondErrorSimple(w, "Invalid group name (letters, digits, _ . -; up to 32, not starting with a digit or -)", http.StatusBadRequest)
+		// A group is a Unix group on the system (file ownership in shares).
+		if !fileaccounts.ValidName(req.Name) {
+			respondErrorSimple(w, "Invalid group name: lower-case letters, digits, - and _, starting with a letter, up to 32 characters", http.StatusBadRequest)
+			return
+		}
+		if msg := h.groupIDProblem(req.GID, req.Name); msg != "" {
+			respondErrorSimple(w, msg, http.StatusBadRequest)
 			return
 		}
 		members, err := h.resolveMembers(req.Members)
@@ -759,7 +764,7 @@ func (h *UserGroupHandler) groupAction(w http.ResponseWriter, r *http.Request) {
 		defer tx.Rollback() //nolint:errcheck
 		var id int64
 		if err := tx.QueryRow(
-			`INSERT INTO groups (name, description, gid) VALUES ($1, $2, $3) RETURNING id`,
+			`INSERT INTO groups (name, description, gid) VALUES ($1, $2, NULLIF($3, 0)) RETURNING id`,
 			req.Name, req.Description, req.GID,
 		).Scan(&id); err != nil {
 			respondErrorSimple(w, "Failed to create group (name may already exist)", http.StatusConflict)
@@ -817,6 +822,10 @@ func (h *UserGroupHandler) groupAction(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if req.GID != 0 {
+			if msg := h.groupIDProblem(req.GID, currentName); msg != "" {
+				respondErrorSimple(w, msg, http.StatusBadRequest)
+				return
+			}
 			if _, err := tx.Exec(`UPDATE groups SET gid = $1 WHERE id = $2`, req.GID, id); err != nil {
 				respondErrorSimple(w, "Failed to update group GID", http.StatusInternalServerError)
 				return
@@ -961,4 +970,20 @@ func (h *UserGroupHandler) groupMemberNames(group string) []string {
 		}
 	}
 	return out
+}
+
+// groupIDProblem says why a group ID given by hand cannot be used (0: one is
+// assigned).
+func (h *UserGroupHandler) groupIDProblem(gid int, name string) string {
+	if gid == 0 {
+		return ""
+	}
+	if gid < fileaccounts.FirstID || gid > fileaccounts.LastID {
+		return fmt.Sprintf("Group ID must be between %d and %d (or empty: one is assigned)", fileaccounts.FirstID, fileaccounts.LastID)
+	}
+	var other string
+	if h.db.QueryRow(`SELECT name FROM groups WHERE gid = $1 AND name <> $2`, gid, name).Scan(&other) == nil {
+		return fmt.Sprintf("Group ID %d belongs to the group %s", gid, other)
+	}
+	return ""
 }

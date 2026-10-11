@@ -412,7 +412,7 @@ function GroupModal({ group, onClose, onDone }: { group?: Group; onClose: () => 
       </label>
       <label className="field">
         <span className="field-label">GID (optional)</span>
-        <input type="number" value={gid} onChange={e => setGid(e.target.value)} className="input" placeholder="auto" />
+        <input type="number" value={gid} onChange={e => setGid(e.target.value)} className="input" placeholder="auto" min={1100} max={2999} title="Empty: assigned automatically. Otherwise 1100 to 2999." />
       </label>
       <label className="field">
         <span className="field-label">Members (comma-separated usernames)</span>

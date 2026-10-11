@@ -99,5 +99,5 @@ Update one node at a time, the standby first:
 | "The new version did not start" | The trial start did not get as far as the check | The system is on the old version. If it happens again, report it with the hardware details |
 | "the signature ... is not valid" | The file is not a release of this project, or is damaged | Download it again from the release page |
 | "could not be fetched completely" | `cache.nixos.org` (or your mirror) was not reachable | Check the system's internet access and DNS, then install again |
-| "less than 3 GB free on the system disk" | The system partition is full | `nix-store --gc` on the system frees what old versions left behind |
+| "only N MB free on the system disk" | The system partition is full | `nix-store --gc` on the system frees what old versions left behind |
 | *Check for updates* says a version has no update file for this kind of machine | The release was published without one for this architecture | Nothing to do on the system; the release is incomplete |

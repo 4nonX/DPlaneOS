@@ -48,6 +48,8 @@ UPSTREAM_CACHE="${DPLANEOS_UPDATE_UPSTREAM:-https://cache.nixos.org/}"
 SOCKET=/run/dplaneos/dplaned.sock
 # How long "confirm" waits for the system to become healthy.
 HEALTH_TIMEOUT="${DPLANEOS_UPDATE_HEALTH_TIMEOUT:-300}"
+# Free space on the system disk an update needs.
+MIN_FREE_MB="${DPLANEOS_UPDATE_MIN_FREE_MB:-3000}"
 # Units whose state before the update is compared with their state after it.
 WATCHED_UNITS="dplaned nginx postgresql samba-smbd nfs-server docker sshd dplaneos-vsftpd dplaneos-upsmon"
 
@@ -181,7 +183,7 @@ cmd_install() {
     # downloaded): refuse early rather than fill the disk half way.
     local free_kb
     free_kb=$(df -Pk /nix/store | awk 'NR==2 {print $4}')
-    [ "${free_kb}" -ge 3000000 ] || die "less than 3 GB free on the system disk: not enough room for an update"
+    [ "${free_kb}" -ge $((MIN_FREE_MB * 1024)) ]         || die "only $((free_kb / 1024)) MB free on the system disk; an update needs ${MIN_FREE_MB} MB"
 
     log "fetching DPlaneOS ${version} (${system})"
     if ! nix-store --realise "${system}" \
