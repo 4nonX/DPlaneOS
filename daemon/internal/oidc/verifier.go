@@ -147,6 +147,11 @@ func VerifyIDToken(ctx context.Context, ks KeySource, cfg Config, rawIDToken, ex
 	if err := validateClaims(rc, cfg, expectedNonce, time.Now()); err != nil {
 		return nil, err
 	}
+	// Identity providers name the claim that lists a user's groups
+	// differently ("groups", "roles", a URL); it is a setting.
+	if gc := cfg.GroupClaim; gc != "" && gc != "groups" {
+		rc.Groups = groupsFromClaim(payload, gc)
+	}
 
 	return &Claims{
 		Issuer:            rc.Issuer,
@@ -226,5 +231,27 @@ func validateClaims(rc rawClaims, cfg Config, expectedNonce string, now time.Tim
 		}
 	}
 
+	return nil
+}
+
+// groupsFromClaim reads a list of group names from the named claim of a
+// verified token: an array of strings, or one string.
+func groupsFromClaim(payload []byte, claim string) []string {
+	var all map[string]json.RawMessage
+	if err := json.Unmarshal(payload, &all); err != nil {
+		return nil
+	}
+	raw, ok := all[claim]
+	if !ok {
+		return nil
+	}
+	var list []string
+	if err := json.Unmarshal(raw, &list); err == nil {
+		return list
+	}
+	var one string
+	if err := json.Unmarshal(raw, &one); err == nil && one != "" {
+		return []string{one}
+	}
 	return nil
 }

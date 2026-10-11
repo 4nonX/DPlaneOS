@@ -23,23 +23,23 @@ const defaultClockSkew = 2 * time.Minute
 // Verification errors. Callers compare with errors.Is to map to HTTP responses
 // without leaking detail to the end user.
 var (
-	ErrNoSignatures        = errors.New("oidc: id_token has no signatures")
-	ErrMultipleSignatures  = errors.New("oidc: id_token has multiple signatures")
-	ErrUnsupportedAlg      = errors.New("oidc: id_token signed with disallowed algorithm")
-	ErrKeyNotFound         = errors.New("oidc: no matching signing key for kid")
-	ErrBadSignature        = errors.New("oidc: id_token signature verification failed")
-	ErrIssuerMismatch      = errors.New("oidc: id_token issuer mismatch")
-	ErrAudienceMismatch    = errors.New("oidc: id_token audience does not include client_id")
-	ErrAzpMismatch         = errors.New("oidc: id_token azp does not match client_id")
-	ErrExpired             = errors.New("oidc: id_token expired")
-	ErrIssuedInFuture      = errors.New("oidc: id_token iat is in the future")
-	ErrNotYetValid         = errors.New("oidc: id_token nbf is in the future")
-	ErrNonceMissing        = errors.New("oidc: id_token nonce missing")
-	ErrNonceMismatch       = errors.New("oidc: id_token nonce mismatch")
-	ErrMissingSubject      = errors.New("oidc: id_token missing sub claim")
-	ErrTokenTooOld         = errors.New("oidc: id_token iat is older than max age")
-	ErrDiscoveryIssuer     = errors.New("oidc: discovery document issuer mismatch")
-	ErrConfigInvalid       = errors.New("oidc: invalid configuration")
+	ErrNoSignatures       = errors.New("oidc: id_token has no signatures")
+	ErrMultipleSignatures = errors.New("oidc: id_token has multiple signatures")
+	ErrUnsupportedAlg     = errors.New("oidc: id_token signed with disallowed algorithm")
+	ErrKeyNotFound        = errors.New("oidc: no matching signing key for kid")
+	ErrBadSignature       = errors.New("oidc: id_token signature verification failed")
+	ErrIssuerMismatch     = errors.New("oidc: id_token issuer mismatch")
+	ErrAudienceMismatch   = errors.New("oidc: id_token audience does not include client_id")
+	ErrAzpMismatch        = errors.New("oidc: id_token azp does not match client_id")
+	ErrExpired            = errors.New("oidc: id_token expired")
+	ErrIssuedInFuture     = errors.New("oidc: id_token iat is in the future")
+	ErrNotYetValid        = errors.New("oidc: id_token nbf is in the future")
+	ErrNonceMissing       = errors.New("oidc: id_token nonce missing")
+	ErrNonceMismatch      = errors.New("oidc: id_token nonce mismatch")
+	ErrMissingSubject     = errors.New("oidc: id_token missing sub claim")
+	ErrTokenTooOld        = errors.New("oidc: id_token iat is older than max age")
+	ErrDiscoveryIssuer    = errors.New("oidc: discovery document issuer mismatch")
+	ErrConfigInvalid      = errors.New("oidc: invalid configuration")
 )
 
 // Config is the verified relying-party configuration required to validate an
@@ -71,6 +71,10 @@ type Config struct {
 	// supplied at verification time. This must be true for the Authorization
 	// Code flow used by DPlaneOS.
 	RequireNonce bool
+
+	// GroupClaim names the claim that lists the user's groups ("groups"
+	// when empty).
+	GroupClaim string
 }
 
 // validate returns ErrConfigInvalid if the configuration cannot be used safely.

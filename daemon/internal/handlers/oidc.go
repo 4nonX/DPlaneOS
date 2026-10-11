@@ -401,6 +401,7 @@ func (h *OIDCHandler) Callback(w http.ResponseWriter, r *http.Request) {
 		ClientID:     cfg.ClientID,
 		AllowedAlgs:  oidcSplitTrimmed(cfg.AllowedAlgs, ","),
 		RequireNonce: true,
+		GroupClaim:   cfg.GroupClaim,
 	}
 	claims, err := oidc.VerifyIDToken(ctx, provider, verifyCfg, rawIDToken, nonce)
 	if err != nil {
@@ -598,11 +599,23 @@ func (h *OIDCHandler) resolveUser(cfg *oidcConfigRow, claims *oidc.Claims) (int6
 	if err != sql.ErrNoRows {
 		return 0, "", fmt.Errorf("identity lookup: %w", err)
 	}
+	// Known, but the account is switched off here: that is the answer. (It
+	// must not get a second account through the steps below.)
+	var known int
+	if err := h.db.QueryRow(`SELECT COUNT(*) FROM oidc_identities WHERE issuer = $1 AND subject = $2`,
+		claims.Issuer, claims.Subject).Scan(&known); err != nil {
+		return 0, "", fmt.Errorf("identity lookup: %w", err)
+	}
+	if known > 0 {
+		return 0, "", fmt.Errorf("the account of this identity is disabled")
+	}
 
 	// 2. Email-based linking: link the IdP identity to an existing account that
-	// shares the same verified email. Email is informational after this point;
-	// future logins will match via the identity row created here.
-	if claims.Email != "" {
+	// has the same e-mail address, if the identity provider says the address
+	// was verified. Without that anybody who can set an address at the
+	// provider could take over the account of somebody else here. Future
+	// logins match through the identity row created here.
+	if claims.Email != "" && claims.EmailVerified {
 		var existID int64
 		var existName string
 		err := h.db.QueryRow(`SELECT id, username FROM users WHERE email = $1 AND active = 1 LIMIT 1`,
@@ -626,6 +639,17 @@ func (h *OIDCHandler) resolveUser(cfg *oidcConfigRow, claims *oidc.Claims) (int6
 	// 3. Auto-provision a new local account.
 	if !cfg.AutoProvision {
 		return 0, "", fmt.Errorf("no matching account and auto-provision is disabled")
+	}
+	// An address that belongs to an account here, but is not verified at
+	// the provider: neither that account nor a new one.
+	if claims.Email != "" {
+		var taken int
+		if err := h.db.QueryRow(`SELECT COUNT(*) FROM users WHERE email = $1`, claims.Email).Scan(&taken); err != nil {
+			return 0, "", fmt.Errorf("email lookup: %w", err)
+		}
+		if taken > 0 {
+			return 0, "", fmt.Errorf("the e-mail address belongs to an account here and the identity provider has not verified it")
+		}
 	}
 
 	newName := h.uniquifyUsername(deriveOIDCUsername(claims))
@@ -664,9 +688,14 @@ func (h *OIDCHandler) resolveUser(cfg *oidcConfigRow, claims *oidc.Claims) (int6
 	return newID, newName, nil
 }
 
-// assignRoles maps IdP group names to local role names and assigns all
-// matching roles to the user. Unrecognized group names are silently skipped.
+// assignRoles gives the user the roles that are named like groups of the
+// identity provider, and takes away roles it gave earlier for groups the
+// user is no longer in: leaving the "admin" group at the provider ends
+// being an administrator here at the next sign-in. Roles given by an
+// administrator here, and the default role of accounts created at sign-in,
+// are not touched.
 func (h *OIDCHandler) assignRoles(userID int64, groups []string) error {
+	keep := []int64{}
 	for _, group := range groups {
 		var roleID int64
 		err := h.db.QueryRow(`SELECT id FROM roles WHERE name = $1`, group).Scan(&roleID)
@@ -676,15 +705,18 @@ func (h *OIDCHandler) assignRoles(userID int64, groups []string) error {
 		if err != nil {
 			return err
 		}
+		keep = append(keep, roleID)
 		if _, err := h.db.Exec(`
 			INSERT INTO user_roles (user_id, role_id, granted_by)
-			VALUES ($1, $2, 'oidc-provider')
+			VALUES ($1, $2, 'oidc-group')
 			ON CONFLICT (user_id, role_id) DO NOTHING
 		`, userID, roleID); err != nil {
-			log.Printf("OIDC: role assign warn user=%d role=%d: %v", userID, roleID, err)
+			return err
 		}
 	}
-	return nil
+	_, err := h.db.Exec(`DELETE FROM user_roles WHERE user_id = $1 AND granted_by = 'oidc-group' AND NOT (role_id = ANY($2))`,
+		userID, keep)
+	return err
 }
 
 // mintOIDCSession inserts a new active session row and returns (sessionID,
