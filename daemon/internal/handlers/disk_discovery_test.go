@@ -39,27 +39,3 @@ func TestHasMountPoint(t *testing.T) {
 		})
 	}
 }
-
-func TestDiskNameInZpoolStatus(t *testing.T) {
-	status := `
-  pool: tank
- state: ONLINE
-config:
-
-	NAME                        STATE     READ WRITE CKSUM
-	tank                        ONLINE       0     0     0
-	  raidz1-0                  ONLINE       0     0     0
-	    /dev/disk/by-id/ata-sda ONLINE       0     0     0
-	    /dev/disk/by-id/ata-sdaa ONLINE      0     0     0
-`
-
-	if !diskNameInZpoolStatus(status, "sda") {
-		t.Fatalf("expected sda to match")
-	}
-	if !diskNameInZpoolStatus(status, "sdaa") {
-		t.Fatalf("expected sdaa to match")
-	}
-	if diskNameInZpoolStatus(status, "sdb") {
-		t.Fatalf("did not expect sdb to match")
-	}
-}

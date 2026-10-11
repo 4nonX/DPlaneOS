@@ -36,10 +36,18 @@ func WipeDisk(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// CRITICAL SAFETY CHECK: disk must NOT be part of any active ZFS pool.
-	// libzfs.PoolIsMember walks the vdev nvlist tree directly (no subprocess
-	// string grep) so it correctly handles by-id paths and bare /dev/sdX paths.
-	if membership, merr := libzfs.PoolIsMember(req.Device); merr == nil && membership.InPool {
+	// The disk must not be part of an imported pool. If that cannot be
+	// determined, the disk is not wiped.
+	membership, merr := libzfs.PoolIsMember(req.Device)
+	if merr != nil {
+		storageops.Fail(registryDB, opID, "pool membership check: "+merr.Error())
+		respondOK(w, map[string]any{
+			"success": false,
+			"error":   "Cannot check whether the disk belongs to a pool; not wiped: " + merr.Error(),
+		})
+		return
+	}
+	if membership.InPool {
 		storageops.Fail(registryDB, opID, "disk is a member of pool "+membership.PoolName)
 		respondOK(w, map[string]any{
 			"success": false,

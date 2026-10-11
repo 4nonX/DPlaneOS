@@ -1,10 +1,8 @@
 package audit
 
 import (
-	"encoding/json"
 	"fmt"
-	"os"
-	"sync"
+	"strings"
 	"time"
 )
 
@@ -32,19 +30,9 @@ type AuditLog struct {
 	Metadata  map[string]any `json:"metadata,omitempty"`
 }
 
-type Logger struct {
-	file *os.File
-	mu   sync.Mutex
+var globalBufferedLogger interface {
+	Log(AuditEvent) error
 }
-
-var (
-	defaultLogger        *Logger
-	globalBufferedLogger interface {
-		Log(AuditEvent) error
-	}
-	globalEventLogger *EventLogger
-	once              sync.Once
-)
 
 // SetGlobalBufferedLogger sets the database-backed logger
 func SetGlobalBufferedLogger(bl interface {
@@ -53,78 +41,21 @@ func SetGlobalBufferedLogger(bl interface {
 	globalBufferedLogger = bl
 }
 
-// InitLogger initializes the audit logger
-func InitLogger(logPath string) error {
-	var err error
-	once.Do(func() {
-		defaultLogger, err = NewLogger(logPath)
-	})
-	return err
-}
-
-// NewLogger creates a new audit logger
-func NewLogger(logPath string) (*Logger, error) {
-	file, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open audit log: %w", err)
-	}
-
-	return &Logger{
-		file: file,
-	}, nil
-}
-
-// Log writes an audit log entry
-func (l *Logger) Log(entry AuditLog) error {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-
-	entry.Timestamp = time.Now()
-
-	data, err := json.Marshal(entry)
-	if err != nil {
-		return err
-	}
-
-	_, err = l.file.Write(append(data, '\n'))
-	if err != nil {
-		return err
-	}
-
-	// Also log to stderr for systemd journal
-	fmt.Fprintf(os.Stderr, "%s\n", string(data))
-
-	return l.file.Sync()
-}
-
-// Close closes the audit log file
-func (l *Logger) Close() error {
-	return l.file.Close()
-}
-
-// Convenience functions using default logger
+// Log writes an entry to the audit log (table audit_logs, HMAC-chained).
+// The command's arguments are recorded as the resource it acted on.
 func Log(entry AuditLog) error {
-	// 1. Log to legacy text file if initialized
-	if defaultLogger != nil {
-		_ = defaultLogger.Log(entry)
-	}
-
-	// 2. Log to database-backed buffered logger if set
-	if globalBufferedLogger != nil {
-		_ = globalBufferedLogger.Log(AuditEvent{
-			Timestamp: time.Now().Unix(),
-			Actor:     entry.User,
-			Action:    entry.Command,
-			Details:   entry.Error,
-			IPAddress: entry.SourceIP,
-			Success:   entry.Success,
-		})
-	}
-
-	if defaultLogger == nil && globalBufferedLogger == nil {
+	if globalBufferedLogger == nil {
 		return fmt.Errorf("audit logger not initialized")
 	}
-	return nil
+	return globalBufferedLogger.Log(AuditEvent{
+		Timestamp: time.Now().Unix(),
+		Actor:     entry.User,
+		Action:    entry.Command,
+		Resource:  strings.Join(entry.Args, " "),
+		Details:   entry.Error,
+		IPAddress: entry.SourceIP,
+		Success:   entry.Success,
+	})
 }
 
 func LogCommand(level LogLevel, user, command string, args []string, success bool, duration time.Duration, err error) error {
@@ -155,13 +86,6 @@ func LogSecurityEvent(message, user, sourceIP string) error {
 	})
 }
 
-func Close() error {
-	if defaultLogger == nil {
-		return nil
-	}
-	return defaultLogger.Close()
-}
-
 // LogAction is a convenience function for handler-level audit logging.
 // Used by system_extended.go and similar handlers.
 // Call pattern: audit.LogAction("snapshot_run", user, "Created snapshot", true, duration)
@@ -180,12 +104,18 @@ func LogAction(action, user, message string, success bool, duration time.Duratio
 // Used by files.go and replication.go.
 // Call pattern: audit.LogActivity(user, "directory_create", map[string]any{...})
 func LogActivity(user, action string, details map[string]any) {
+	// A caller that reports the outcome in details ("success": false) must
+	// not be recorded as a success.
+	success := true
+	if v, ok := details["success"].(bool); ok {
+		success = v
+	}
 	msg := fmt.Sprintf("%v", details)
 	Log(AuditLog{
 		Level:   LevelInfo,
 		Command: action,
 		User:    user,
-		Success: true,
+		Success: success,
 		Error:   msg,
 	})
 }

@@ -738,20 +738,6 @@ func armNetworkRevert(after time.Duration, revert func(), commit func() error) {
 	netRollbackTimer = t
 }
 
-func readFileContent(path string) ([]byte, error) {
-	return executeCommandBytes("cat", []string{path})
-}
-
-func writeFileContent(path string, content []byte) error {
-	// Secure root-level write for configuration files
-	return os.WriteFile(path, content, 0600)
-}
-
-func executeCommandBytes(path string, args []string) ([]byte, error) {
-	out, err := executeCommandWithTimeout(TimeoutFast, path, args)
-	return []byte(out), err
-}
-
 // ═══════════════════════════════════════════════════════════════
 //  Helper for quota size validation
 // ═══════════════════════════════════════════════════════════════

@@ -315,8 +315,10 @@ func errFromHandle(hdl *C.libzfs_handle_t, op string) error {
 
 // ── Public API ────────────────────────────────────────────────────────────
 
-// PoolIsMember reports whether device is a member vdev of any active pool.
-// Uses a direct nvlist walk of the pool config (no subprocess).
+// PoolIsMember reports whether device is a member vdev of any active pool:
+// by its exact path in the pool configuration (nvlist walk), or, as the
+// configuration names partitions (...-part1) and often another alias of the
+// disk, by kernel device name (poolIsMemberByStatus).
 func PoolIsMember(device string) (PoolMembership, error) {
 	cDevice := C.CString(device)
 	defer C.free(unsafe.Pointer(cDevice))
@@ -331,7 +333,10 @@ func PoolIsMember(device string) (PoolMembership, error) {
 		}
 		return nil
 	})
-	return result, err
+	if err != nil || result.InPool {
+		return result, err
+	}
+	return poolIsMemberByStatus(device)
 }
 
 // PoolImportAll imports all importable pools from /dev/disk/by-id.

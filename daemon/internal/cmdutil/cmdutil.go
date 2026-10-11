@@ -183,11 +183,6 @@ func RunFastInDir(dir, name string, args ...string) ([]byte, error) {
 	return RunInDir(TimeoutFast, dir, name, args...)
 }
 
-// RunMediumInDir executes a command with TimeoutMedium (60s) in a specific directory.
-func RunMediumInDir(dir, name string, args ...string) ([]byte, error) {
-	return RunInDir(TimeoutMedium, dir, name, args...)
-}
-
 // RunInDirWithEnv executes a command with the given timeout, directory, and environment variables.
 func RunInDirWithEnv(timeout time.Duration, dir string, env []string, name string, args ...string) ([]byte, error) {
 	key := name

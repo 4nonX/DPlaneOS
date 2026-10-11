@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -85,63 +86,6 @@ func ValidateSession(sessionID, username string) (bool, error) {
 	return false, nil
 }
 
-// GetUserFromSession retrieves the username associated with a session
-func GetUserFromSession(sessionID string) (string, error) {
-	if db == nil {
-		return "", fmt.Errorf("database not initialized")
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), dbQueryTimeout)
-	defer cancel()
-
-	var username string
-	query := `
-		SELECT username 
-		FROM sessions 
-		WHERE session_id = $1
-		AND (expires_at IS NULL OR expires_at > $2)
-		LIMIT 1
-	`
-
-	err := db.QueryRowContext(ctx, query, sessionID, time.Now().Unix()).Scan(&username)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			return "", fmt.Errorf("session not found")
-		}
-		return "", fmt.Errorf("failed to get user: %w", err)
-	}
-
-	return username, nil
-}
-
-// ValidateUser checks if a user exists and is active
-func ValidateUser(username string) (bool, error) {
-	if db == nil {
-		return false, fmt.Errorf("database not initialized")
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), dbQueryTimeout)
-	defer cancel()
-
-	var count int
-	query := `
-		SELECT COUNT(*) 
-		FROM users 
-		WHERE username = $1
-		AND active = 1
-	`
-
-	err := db.QueryRowContext(ctx, query, username).Scan(&count)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			return false, nil
-		}
-		return false, fmt.Errorf("user validation failed: %w", err)
-	}
-
-	return count > 0, nil
-}
-
 // SessionUser represents basic user info returned from session validation
 type SessionUser struct {
 	ID       int
@@ -162,6 +106,10 @@ type SessionUser struct {
 	// Routes that require AAL2 are rejected with 403 if AAL < 2.
 	AAL int
 }
+
+// ErrInvalidSession: no such session, or it expired, was revoked, or its
+// user is disabled. Any other error means the session could not be checked.
+var ErrInvalidSession = errors.New("invalid or expired session")
 
 // ValidateSessionAndGetUser validates a session token and returns the associated user
 func ValidateSessionAndGetUser(sessionToken string) (*SessionUser, error) {
@@ -191,7 +139,7 @@ func ValidateSessionAndGetUser(sessionToken string) (*SessionUser, error) {
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			return nil, fmt.Errorf("invalid or expired session")
+			return nil, ErrInvalidSession
 		}
 		return nil, fmt.Errorf("session validation failed: %w", err)
 	}

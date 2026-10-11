@@ -39,13 +39,6 @@ func userErr(message, code, guide string) UserError {
 	return UserError{Error: message, Code: code, Guide: guide}
 }
 
-// respondUserErr sends a 400 Bad Request with the structured UserError.
-// The raw technical error (if provided) is logged at WARNING level but
-// never included in the response body.
-func respondUserErr(w http.ResponseWriter, ue UserError, rawErr error) {
-	respondUserErrStatus(w, http.StatusBadRequest, ue, rawErr)
-}
-
 // respondUserErrStatus sends the given HTTP status with the structured UserError.
 func respondUserErrStatus(w http.ResponseWriter, status int, ue UserError, rawErr error) {
 	if rawErr != nil {
@@ -201,28 +194,6 @@ func SanitizeServiceControl(service string, err error) UserError {
 		"service_control_error",
 		"Use the System Logs page to view recent service errors.",
 	)
-}
-
-// SanitizeHTTP maps HTTP client errors (for proxy/ACME/webhook operations).
-func SanitizeHTTP(operation string, err error) UserError {
-	if err == nil {
-		return userErr("", "", "")
-	}
-	msg := err.Error()
-	switch {
-	case contains(msg, "connection refused", "no route to host", "dial"):
-		return userErr(fmt.Sprintf("Cannot reach the %s endpoint. Check the URL and network connectivity.", operation),
-			"http_connection_failed", "")
-	case contains(msg, "tls", "certificate", "x509"):
-		return userErr(fmt.Sprintf("TLS certificate error connecting to %s. The certificate may be expired or untrusted.", operation),
-			"http_tls_error", "")
-	case contains(msg, "timeout"):
-		return userErr(fmt.Sprintf("The %s request timed out. The remote server may be overloaded.", operation),
-			"http_timeout", "")
-	default:
-		return userErr(fmt.Sprintf("The %s request failed. Check the URL and try again.", operation),
-			"http_error", "")
-	}
 }
 
 // contains checks if s contains any of the substrings (case-insensitive).

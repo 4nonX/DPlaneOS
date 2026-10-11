@@ -15,7 +15,7 @@ DPlaneOS runs on any reasonable Linux-capable hardware, from Raspberry Pi to ent
 | OS storage | 8 GB |
 | Network | 100 Mbps Ethernet |
 
-Limitations at this tier: slow ZFS operations, limited concurrent users, no real-time file indexing.
+Limitations at this tier: slow ZFS operations, limited concurrent users.
 
 ### Recommended
 
@@ -225,7 +225,6 @@ Auto-tuned:
 ### Low RAM (< 8 GB)
 
 - ARC is automatically reduced
-- Consider periodic-only file indexing (disable real-time)
 - Monitor swap usage
 
 ### Virtualised Systems

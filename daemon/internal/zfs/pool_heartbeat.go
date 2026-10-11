@@ -258,28 +258,6 @@ func (ph *PoolHeartbeat) sendAlert(level, event, pool, message string) {
 	}
 }
 
-func (ph *PoolHeartbeat) GetStatus() (time.Time, error) {
-	ph.mu.RLock()
-	defer ph.mu.RUnlock()
-	return ph.lastSuccess, ph.lastError
-}
-
-func (ph *PoolHeartbeat) IsHealthy() bool {
-	ph.mu.RLock()
-	defer ph.mu.RUnlock()
-
-	if ph.lastError != nil {
-		return false
-	}
-
-	if ph.lastSuccess.IsZero() {
-		return false
-	}
-
-	maxAge := ph.checkInterval * 2
-	return time.Since(ph.lastSuccess) <= maxAge
-}
-
 type PoolInfo struct {
 	Name       string
 	MountPoint string
@@ -380,4 +358,3 @@ func (ph *PoolHeartbeat) triggerDegradedAlert(err error, details map[string]stri
 		ph.onDegradedWarning(ph.poolName, err, details)
 	}
 }
-

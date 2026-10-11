@@ -6,6 +6,7 @@ import (
 	"crypto/subtle"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -25,10 +26,8 @@ import (
 
 	"dplaned/internal/alerts"
 	"dplaned/internal/audit"
-	"dplaned/internal/bootstrap"
 	"dplaned/internal/configstore"
 	"dplaned/internal/database"
-	"dplaned/internal/features"
 	"dplaned/internal/gitops"
 	"dplaned/internal/groups"
 	"dplaned/internal/ha"
@@ -42,6 +41,7 @@ import (
 	"dplaned/internal/persistguard"
 	"dplaned/internal/quorum"
 	"dplaned/internal/reconciler"
+	"dplaned/internal/resource"
 	"dplaned/internal/scram"
 	"dplaned/internal/secrets"
 	"dplaned/internal/security"
@@ -502,22 +502,18 @@ func main() {
 	daemonCtx, daemonCancel := context.WithCancel(context.Background())
 	defer daemonCancel()
 
-	// Hardening phases 1-5: resource watcher, feature flags, crash-recovery
-	// journal, health checks, structured event log, rollback manager. They
-	// monitor and log; a failure here must not stop the daemon.
-	phases, err := func() (p *bootstrap.AllPhases, err error) {
-		defer func() {
-			if r := recover(); r != nil {
-				p, err = nil, fmt.Errorf("panic: %v", r)
-			}
-		}()
-		return bootstrap.InitializeAllPhases(daemonCtx, db, filepath.Dir(*gitopsStatePath))
-	}()
-	if err != nil {
-		log.Printf("WARNING: hardening phases not started: %v", err)
-	} else {
-		defer phases.Close()
-	}
+	// What the daemon itself needs: space on the system disk, memory, file
+	// descriptors. Shown as the "resources" health check; a change to
+	// degraded or critical (and back) is sent as an alert.
+	resourceWatcher := resource.NewWatcher(15*time.Second, []string{"/var/lib/dplaneos", "/"})
+	resourceWatcher.OnChange(handlers.AlertResourceChange)
+	resourceWatcher.Start()
+	defer resourceWatcher.Stop()
+	healthChecker := monitoring.NewChecker(resourceWatcher)
+	healthChecker.SetDB(db)
+	healthChecker.InitializeDefaultChecks()
+	healthChecker.RegisterCheck("directory", handlers.DirectoryHealthCheck(db))
+	healthChecker.Start(daemonCtx)
 
 	// Initialize ZED Event Listener (Unix Socket)
 	go zfs.StartZEDListener(daemonCtx, "/run/dplaneos/dplaneos.sock",
@@ -780,9 +776,6 @@ func main() {
 	r.Handle("/api/zfs/capacity/release", permRoute("storage", "admin", capacityHandler.ReleaseReserve)).Methods("POST")
 
 	// v3.0.0: Power-loss state locks
-	stateLockHandler := handlers.NewStateLockHandler()
-	r.Handle("/api/system/stale-locks", permRoute("system", "read", stateLockHandler.CheckStaleLocks)).Methods("GET")
-	r.Handle("/api/system/stale-locks/clear", permRoute("system", "admin", stateLockHandler.ClearStaleLock)).Methods("POST")
 
 	// v3.0.0: Sandbox orphan cleanup
 	r.Handle("/api/sandbox/cleanup", permRoute("docker", "admin", sandboxHandler.CleanOrphanVolumes)).Methods("POST")
@@ -1125,30 +1118,13 @@ func main() {
 	r.Handle("/api/system/settings", permRoute("system", "read", systemStatusHandler.HandleSettings)).Methods("GET")
 	r.Handle("/api/system/settings", permRoute("system", "write", systemStatusHandler.HandleSettings)).Methods("POST")
 
-	// Subsystem health (ZFS, Docker, PostgreSQL, network, resources, ...).
-	if phases != nil && phases.HealthChecker != nil {
-		healthH := handlers.NewHealthHandler(phases.HealthChecker)
-		r.Handle("/api/health", permRoute("system", "read", http.HandlerFunc(healthH.SystemHealthHandler))).Methods("GET")
-		r.Handle("/api/health/subsystem", permRoute("system", "read", http.HandlerFunc(healthH.SubsystemHealthHandler))).Methods("GET")
-		r.Handle("/api/health/live", permRoute("system", "read", http.HandlerFunc(healthH.LivenessProbe))).Methods("GET")
-		r.Handle("/api/health/ready", permRoute("system", "read", http.HandlerFunc(healthH.ReadinessProbe))).Methods("GET")
-	}
+	// Subsystem health (ZFS, Docker, PostgreSQL, network, resources, directory).
+	healthH := handlers.NewHealthHandler(healthChecker)
+	r.Handle("/api/health", permRoute("system", "read", http.HandlerFunc(healthH.SystemHealthHandler))).Methods("GET")
+	r.Handle("/api/health/subsystem", permRoute("system", "read", http.HandlerFunc(healthH.SubsystemHealthHandler))).Methods("GET")
+	r.Handle("/api/health/live", permRoute("system", "read", http.HandlerFunc(healthH.LivenessProbe))).Methods("GET")
+	r.Handle("/api/health/ready", permRoute("system", "read", http.HandlerFunc(healthH.ReadinessProbe))).Methods("GET")
 
-	// Optional feature flags (Settings → Features). Stored states load first;
-	// built-ins fill in the rest as disabled.
-	var featureMgr *features.Manager
-	if phases != nil {
-		featureMgr = phases.FeatureManager // loaded and registered by the bootstrap
-	} else {
-		featureMgr = features.NewManager(db)
-		if err := featureMgr.LoadFromDB(context.Background()); err != nil {
-			log.Printf("WARNING: feature flags: %v", err)
-		}
-		features.RegisterBuiltIns(featureMgr)
-	}
-	r.Handle("/api/system/features", permRoute("system", "read", handlers.FeatureFlagsHandler(featureMgr))).Methods("GET")
-	r.Handle("/api/system/features/{id}/enable", permRoute("system", "admin", handlers.FeatureEnableHandler(featureMgr))).Methods("POST")
-	r.Handle("/api/system/features/{id}/disable", permRoute("system", "admin", handlers.FeatureDisableHandler(featureMgr))).Methods("POST")
 	r.Handle("/api/system/preflight", permRoute("system", "read", systemStatusHandler.HandlePreflight)).Methods("GET")
 
 	// OTA update endpoints (Debian/Ubuntu)
@@ -1796,16 +1772,15 @@ func sessionMiddleware(db *sql.DB, internalCronToken string) mux.MiddlewareFunc 
 			// Validate session and get user details
 			sessionUser, err := security.ValidateSessionAndGetUser(sessionID)
 			if err != nil {
-				// DB timeout/unavailable - allow request to proceed
-				// System degraded: only has header auth, no DB session proof
-				log.Printf("WARN: Session DB unavailable (%v) - allowing read-only for %s", err, user)
-				// Allow request with degraded flag
-				ctx := context.WithValue(r.Context(), middleware.UserContextKey, &middleware.User{
-					ID:       0,
-					Username: user,
-					Email:    "",
-				})
-				next.ServeHTTP(w, r.WithContext(ctx))
+				// No valid session: refuse. This also holds when the session
+				// store cannot be read (database down or slow): a request is
+				// never let through on its headers alone.
+				if errors.Is(err, security.ErrInvalidSession) {
+					http.Error(w, "Unauthorized", http.StatusUnauthorized)
+				} else {
+					log.Printf("WARN: session lookup failed for %s: %v", user, err)
+					http.Error(w, "Service temporarily unavailable (session store)", http.StatusServiceUnavailable)
+				}
 				return
 			}
 

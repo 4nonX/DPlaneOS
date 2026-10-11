@@ -150,32 +150,6 @@ func MarkDiskRemoved(db *sql.DB, byID string) error {
 	return err
 }
 
-// GetAllDisks returns all disk_registry rows, including removed disks.
-// Rows are ordered by last_seen descending so the most recent observation
-// appears first.
-func GetAllDisks(db *sql.DB) ([]DiskRecord, error) {
-	rows, err := db.Query(`
-		SELECT id, dev_name, by_id_path, serial, wwn, model, size_bytes, disk_type,
-		       pool_name, health, last_seen, first_seen, removed_at, temp_c
-		FROM disk_registry
-		ORDER BY last_seen DESC
-	`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var records []DiskRecord
-	for rows.Next() {
-		rec, err := scanDiskRecordFromRows(rows)
-		if err != nil {
-			return nil, err
-		}
-		records = append(records, *rec)
-	}
-	return records, rows.Err()
-}
-
 func scanDiskRecord(row *sql.Row) (*DiskRecord, error) {
 	var rec DiskRecord
 	var removedAt sql.NullTime
@@ -195,21 +169,3 @@ func scanDiskRecord(row *sql.Row) (*DiskRecord, error) {
 	}
 	return &rec, nil
 }
-
-func scanDiskRecordFromRows(rows *sql.Rows) (*DiskRecord, error) {
-	var rec DiskRecord
-	var removedAt sql.NullTime
-	err := rows.Scan(
-		&rec.ID, &rec.DevName, &rec.ByIDPath, &rec.Serial, &rec.WWN, &rec.Model,
-		&rec.SizeBytes, &rec.DiskType, &rec.PoolName, &rec.Health,
-		&rec.LastSeen, &rec.FirstSeen, &removedAt, &rec.TempC,
-	)
-	if err != nil {
-		return nil, err
-	}
-	if removedAt.Valid {
-		rec.RemovedAt = &removedAt.Time
-	}
-	return &rec, nil
-}
-

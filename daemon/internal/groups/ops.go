@@ -288,11 +288,6 @@ func contains(s []string, x string) bool {
 	return false
 }
 
-// Create defines a group owned by this node. Its pools must be imported here.
-func (m *Manager) Create(name, topology string, pools []string, candidates []string) (*Group, error) {
-	return m.CreateWith(name, topology, pools, candidates, 0, false)
-}
-
 // CreateWith also sets the replication interval and automatic failover of a
 // replicated group.
 func (m *Manager) CreateWith(name, topology string, pools []string, candidates []string, intervalSecs int, autoFailover bool) (*Group, error) {

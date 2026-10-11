@@ -484,7 +484,6 @@ function MappingsTab() {
 
 function SyncLogTab() {
   const qc = useQueryClient()
-  const { confirm, ConfirmDialog } = useConfirm()
   const logQ = useQuery({
     queryKey: ['ldap', 'sync-log'],
     queryFn: async ({ signal }) => {
@@ -517,12 +516,18 @@ function SyncLogTab() {
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 18px', background: 'var(--bg-card)', border: `1px solid ${cbColor}30`, borderRadius: 'var(--radius-lg)', marginBottom: 24 }}>
           <Icon name="electrical_services" size={20} style={{ color: cbColor, flexShrink: 0 }} />
           <div style={{ flex: 1 }}>
-            <span style={{ fontWeight: 700, color: cbColor, textTransform: 'capitalize', fontSize: 'var(--text-md)' }}>Circuit Breaker: {cb.state}</span>
-            {cb.failures !== undefined && <span style={{ marginLeft: 12, fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }}>{cb.failures} failure{cb.failures !== 1 ? 's' : ''} detected</span>}
+            <span style={{ fontWeight: 700, color: cbColor, fontSize: 'var(--text-md)' }}>
+              {cb.state === 'closed' ? 'Directory logins: server reachable' : cb.state === 'open' ? 'Directory logins paused: the server did not answer' : 'Directory logins: trying the server again'}
+            </span>
+            <span style={{ marginLeft: 12, fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }}>
+              {cb.state === 'closed'
+                ? (cb.failures ? `${cb.failures} failed connection${cb.failures !== 1 ? 's' : ''} in a row` : '')
+                : 'Directory users cannot sign in until it answers; local accounts work.'}
+            </span>
           </div>
           {cb.state !== 'closed' && (
-            <button onClick={async () => { if (await confirm({ title: 'Reset directory cache?', message: 'The cache will be cleared and rebuilt from the directory server. Users may experience brief authentication delays.', danger: false, confirmLabel: 'Reset Cache' })) { resetCB.mutate() } }} disabled={resetCB.isPending} className="btn btn-ghost">
-              <Icon name="restart_alt" size={16} />Reset Breaker
+            <button onClick={() => resetCB.mutate()} disabled={resetCB.isPending} className="btn btn-ghost" title="Try the directory server again at the next login">
+              <Icon name="restart_alt" size={16} />Try again now
             </button>
           )}
         </div>
@@ -537,7 +542,6 @@ function SyncLogTab() {
           {logQ.isLoading ? 'Loading logs...' : (logQ.data?.entries?.join('\n') || '(no sync log entries found)')}
         </pre>
       </div>
-      <ConfirmDialog />
     </>
   )
 }

@@ -577,21 +577,6 @@ func computeStackStatus(services []map[string]any) string {
 
 // getUserFromRequest is defined in auth.go - reused here for cookie-based auth
 
-// Ensure stacks directory exists and is writable.
-// Called once at daemon startup.
-func EnsureStacksDir() error {
-	if err := os.MkdirAll(defaultStacksDir, 0750); err != nil {
-		return fmt.Errorf("stacks dir: %w", err)
-	}
-	// Write probe to verify the directory is writable
-	probe := filepath.Join(defaultStacksDir, ".probe")
-	if err := os.WriteFile(probe, []byte("ok"), 0640); err != nil {
-		return fmt.Errorf("stacks dir not writable: %w", err)
-	}
-	_ = os.Remove(probe)
-	return nil
-}
-
 // readEnvFile reads the .env file from a stack directory (best effort)
 func readEnvFile(dir string) string {
 	data, err := os.ReadFile(filepath.Join(dir, ".env"))

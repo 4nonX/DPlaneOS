@@ -26,19 +26,6 @@ func NewHAHandler(db *sql.DB, keeper *ha.Keeper) *HAHandler {
 	return &HAHandler{db: db, keeper: keeper}
 }
 
-// localNodeID returns the machine ID from /etc/machine-id, falling back to hostname.
-func LocalNodeID() string {
-	data, err := os.ReadFile("/etc/machine-id")
-	if err == nil {
-		id := strings.TrimSpace(string(data))
-		if len(id) >= 8 {
-			return id[:8] // use first 8 chars as short ID
-		}
-	}
-	host, _ := os.Hostname()
-	return host
-}
-
 // GetFencingConfig fetches STONITH parameters.
 // GET /api/ha/fencing/configure
 func (h *HAHandler) GetFencingConfig(w http.ResponseWriter, r *http.Request) {

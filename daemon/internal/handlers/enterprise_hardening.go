@@ -25,100 +25,6 @@ import (
 //  Prevents async state between Docker and ZFS after power failure
 // ═══════════════════════════════════════════════════════════════
 
-// StateLockHandler manages ZFS user properties for crash-safe operations
-type StateLockHandler struct{}
-
-func NewStateLockHandler() *StateLockHandler {
-	return &StateLockHandler{}
-}
-
-// SetLock marks a dataset as having an operation in progress
-func SetOperationLock(dataset, operation string) error {
-	if !isValidDataset(dataset) {
-		return fmt.Errorf("invalid dataset")
-	}
-	_, err := executeCommandWithTimeout(TimeoutMedium, "zfs", []string{
-		"set", fmt.Sprintf("dplane:op_in_progress=%s", operation),
-		dataset,
-	})
-	if err != nil {
-		return err
-	}
-	_, err = executeCommandWithTimeout(TimeoutMedium, "zfs", []string{
-		"set", fmt.Sprintf("dplane:op_started=%s", time.Now().Format(time.RFC3339)),
-		dataset,
-	})
-	return err
-}
-
-// ClearLock removes the operation lock
-func ClearOperationLock(dataset string) error {
-	if !isValidDataset(dataset) {
-		return fmt.Errorf("invalid dataset")
-	}
-	executeCommandWithTimeout(TimeoutMedium, "zfs", []string{
-		"inherit", "dplane:op_in_progress", dataset,
-	})
-	executeCommandWithTimeout(TimeoutMedium, "zfs", []string{
-		"inherit", "dplane:op_started", dataset,
-	})
-	return nil
-}
-
-// CheckStaleLocks checks all datasets for stale operation locks (from power loss)
-// Called at daemon startup
-// GET /api/system/stale-locks
-func (h *StateLockHandler) CheckStaleLocks(w http.ResponseWriter, r *http.Request) {
-	output, err := executeCommandWithTimeout(TimeoutFast, "zfs", []string{
-		"get", "-H", "-o", "name,value", "-t", "filesystem",
-		"-r", "dplane:op_in_progress",
-	})
-
-	var staleLocks []map[string]string
-
-	if err == nil {
-		for _, line := range strings.Split(strings.TrimSpace(output), "\n") {
-			if line == "" {
-				continue
-			}
-			parts := strings.Fields(line)
-			if len(parts) >= 2 && parts[1] != "-" && parts[1] != "" {
-				staleLocks = append(staleLocks, map[string]string{
-					"dataset":   parts[0],
-					"operation": parts[1],
-				})
-			}
-		}
-	}
-
-	respondOK(w, map[string]any{
-		"success":     true,
-		"stale_locks": staleLocks,
-		"count":       len(staleLocks),
-		"hint":        "These datasets had operations interrupted by power loss. Review and clear them.",
-	})
-}
-
-// ClearStaleLock clears a specific stale lock
-// POST /api/system/stale-locks/clear { "dataset": "tank/docker" }
-func (h *StateLockHandler) ClearStaleLock(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Dataset string `json:"dataset"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		respondErrorSimple(w, "Invalid request", http.StatusBadRequest)
-		return
-	}
-	if err := ClearOperationLock(req.Dataset); err != nil {
-		respondOK(w, map[string]any{"success": false, "error": err.Error()})
-		return
-	}
-	respondOK(w, map[string]any{
-		"success": true,
-		"message": fmt.Sprintf("Lock cleared on %s", req.Dataset),
-	})
-}
-
 // ═══════════════════════════════════════════════════════════════
 //  FILE BROWSER IGNORE LIST
 // ═══════════════════════════════════════════════════════════════
@@ -500,25 +406,6 @@ func (h *DockerHandler) PreFlightCheck(w http.ResponseWriter, r *http.Request) {
 			"pools": strings.TrimSpace(poolOut),
 		})
 	}
-
-	// Check 4: No stale operation locks
-	lockOut, _ := executeCommandWithTimeout(TimeoutFast, "zfs", []string{
-		"get", "-H", "-o", "name,value", "-r", "dplane:op_in_progress",
-	})
-	hasStale := false
-	if lockOut != "" {
-		for _, line := range strings.Split(lockOut, "\n") {
-			parts := strings.Fields(line)
-			if len(parts) >= 2 && parts[1] != "-" && parts[1] != "" {
-				hasStale = true
-				break
-			}
-		}
-	}
-	checks = append(checks, map[string]any{
-		"check": "no_stale_locks",
-		"pass":  !hasStale,
-	})
 
 	allPass := true
 	for _, c := range checks {
@@ -1053,25 +940,3 @@ func runSMARTScan() {
 // ═══════════════════════════════════════════════════════════════
 //  HELPER: ignore patterns for file listings
 // ═══════════════════════════════════════════════════════════════
-
-// FilterIgnoredFiles removes ignored files from a directory listing
-func FilterIgnoredFiles(entries []SnapshotEntry, customIgnore []string) []SnapshotEntry {
-	var filtered []SnapshotEntry
-	for _, e := range entries {
-		if !ShouldIgnoreFile(e.Name, customIgnore) {
-			filtered = append(filtered, e)
-		}
-	}
-	return filtered
-}
-
-// FilterDirEntries removes ignored files from os.ReadDir results
-func FilterDirEntries(entries []os.DirEntry, customIgnore []string) []os.DirEntry {
-	var filtered []os.DirEntry
-	for _, e := range entries {
-		if !ShouldIgnoreFile(e.Name(), customIgnore) {
-			filtered = append(filtered, e)
-		}
-	}
-	return filtered
-}

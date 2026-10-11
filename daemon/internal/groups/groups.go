@@ -264,21 +264,6 @@ func Get(db *sql.DB, name string) (*Group, error) {
 // ErrStale: the update is not newer than the stored group.
 var ErrStale = errors.New("stale group update")
 
-// Accept stores g if it is newer than the stored copy (or unknown).
-func Accept(db *sql.DB, g Group) error {
-	if err := g.Validate(); err != nil {
-		return err
-	}
-	cur, err := Get(db, g.Name)
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return err
-	}
-	if cur != nil && !g.Newer(*cur) {
-		return fmt.Errorf("%w: %s epoch %d/%d, stored %d/%d", ErrStale, g.Name, g.Epoch, g.Version, cur.Epoch, cur.Version)
-	}
-	return put(db, g)
-}
-
 func put(db *sql.DB, g Group) error {
 	pools, _ := json.Marshal(g.Pools)
 	cands, _ := json.Marshal(g.Candidates)

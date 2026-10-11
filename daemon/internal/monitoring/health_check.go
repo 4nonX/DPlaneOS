@@ -5,15 +5,12 @@ package monitoring
 import (
 	"context"
 	"database/sql"
-	"fmt"
 	"log"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
-	"dplaned/internal/features"
-	"dplaned/internal/hardware"
-	"dplaned/internal/resilience"
 	"dplaned/internal/resource"
 )
 
@@ -50,9 +47,6 @@ type Checker struct {
 	lastHealth      *SystemHealth
 	checkInterval   time.Duration
 	resourceWatcher *resource.Watcher
-	circuitPool     *resilience.Pool
-	hwProfile       *hardware.Profile
-	featureManager  *features.Manager
 	enabledChecks   map[string]bool
 	db              *sql.DB
 	checks          map[string]func(context.Context) SubsystemHealth
@@ -60,19 +54,11 @@ type Checker struct {
 }
 
 // NewChecker creates a health checker.
-func NewChecker(
-	resourceWatcher *resource.Watcher,
-	circuitPool *resilience.Pool,
-	hwProfile *hardware.Profile,
-	featureManager *features.Manager,
-) *Checker {
+func NewChecker(resourceWatcher *resource.Watcher) *Checker {
 	return &Checker{
 		lastHealth:      &SystemHealth{Subsystems: make(map[string]SubsystemHealth)},
 		checkInterval:   5 * time.Second,
 		resourceWatcher: resourceWatcher,
-		circuitPool:     circuitPool,
-		hwProfile:       hwProfile,
-		featureManager:  featureManager,
 		enabledChecks:   make(map[string]bool),
 		checks:          make(map[string]func(context.Context) SubsystemHealth),
 		log: func(msg string, args ...interface{}) {
@@ -95,22 +81,6 @@ func (c *Checker) RegisterCheck(name string, fn func(context.Context) SubsystemH
 	c.checks[name] = fn
 	c.enabledChecks[name] = true
 	c.log("Registered health check: %s", name)
-}
-
-// EnableCheck enables a check by name.
-func (c *Checker) EnableCheck(name string) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.enabledChecks[name] = true
-	c.log("Enabled health check: %s", name)
-}
-
-// DisableCheck disables a check by name.
-func (c *Checker) DisableCheck(name string) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.enabledChecks[name] = false
-	c.log("Disabled health check: %s", name)
 }
 
 // Check performs all enabled health checks and returns aggregated status.
@@ -191,11 +161,7 @@ func (c *Checker) Start(ctx context.Context) {
 
 // InitializeDefaultChecks sets up built-in health checks.
 func (c *Checker) InitializeDefaultChecks() {
-	// Phase 1: Resource monitoring
 	c.RegisterCheck("resources", c.checkResources)
-
-	// Phase 2: Circuit breakers
-	c.RegisterCheck("external_services", c.checkCircuitBreakers)
 
 	// Network bonds, where the kernel has any.
 	if _, err := os.Stat("/proc/net/bonding"); err == nil {
@@ -228,6 +194,7 @@ func (c *Checker) checkResources(ctx context.Context) SubsystemHealth {
 		Name:      "resources",
 		CheckedAt: time.Now(),
 		Details: map[string]interface{}{
+			"disk_path":               status.DiskPath,
 			"disk_usage_percent":      status.DiskUsagePercent,
 			"disk_available_gb":       status.DiskAvailableGB,
 			"memory_percent":          status.MemoryPercent,
@@ -240,52 +207,12 @@ func (c *Checker) checkResources(ctx context.Context) SubsystemHealth {
 		sh.Status = HealthOK
 	case "DEGRADED":
 		sh.Status = HealthDegraded
-		sh.Reason = fmt.Sprintf("Resource degraded: %v", status.Warnings)
+		sh.Reason = strings.Join(status.Warnings, "; ")
 	case "CRITICAL":
 		sh.Status = HealthUnavailable
-		sh.Reason = fmt.Sprintf("Resource critical: %v", status.Warnings)
+		sh.Reason = strings.Join(status.Warnings, "; ")
 	default:
 		sh.Status = HealthUnknown
-	}
-
-	return sh
-}
-
-func (c *Checker) checkCircuitBreakers(ctx context.Context) SubsystemHealth {
-	if c.circuitPool == nil {
-		return SubsystemHealth{
-			Name:      "external_services",
-			Status:    HealthUnknown,
-			CheckedAt: time.Now(),
-		}
-	}
-
-	sh := SubsystemHealth{
-		Name:      "external_services",
-		CheckedAt: time.Now(),
-		Details:   make(map[string]interface{}),
-	}
-
-	allStats := c.circuitPool.GetAll()
-	openCount := 0
-
-	for service, stats := range allStats {
-		state, _ := stats["state"].(string)
-		if state == "open" {
-			openCount++
-		}
-		sh.Details[service] = stats
-	}
-
-	if openCount == 0 {
-		sh.Status = HealthOK
-		sh.Reason = fmt.Sprintf("All %d external services operational", len(allStats))
-	} else if openCount < len(allStats)/2 {
-		sh.Status = HealthDegraded
-		sh.Reason = fmt.Sprintf("%d/%d external services degraded", openCount, len(allStats))
-	} else {
-		sh.Status = HealthUnavailable
-		sh.Reason = fmt.Sprintf("Majority of external services unavailable (%d/%d)", openCount, len(allStats))
 	}
 
 	return sh

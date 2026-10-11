@@ -1,298 +1,272 @@
-// Package resource monitors and enforces resource limits (disk, memory, file descriptors).
-// Prevents catastrophic failures from resource exhaustion.
+// Package resource watches what the daemon itself needs to keep working:
+// free space on the system disk, free system memory and file descriptors.
+// The result is the "resources" health check; a change to DEGRADED or
+// CRITICAL (and back) is reported through the callback, which the daemon
+// turns into an alert.
 package resource
 
 import (
 	"fmt"
 	"os"
 	"os/exec"
-	"runtime"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 )
 
-// ResourceStatus tracks current resource usage.
+// Thresholds in percent used.
+const (
+	diskDegraded, diskCritical = 90, 97
+	memDegraded, memCritical   = 90, 97
+	fdDegraded, fdCritical     = 80, 90
+)
+
+// ResourceStatus is one measurement.
 type ResourceStatus struct {
-	Timestamp       time.Time
-	DiskUsagePercent int    // 0-100
-	DiskAvailableGB  float64
-	MemoryUsageBytes uint64
-	MemoryLimitBytes uint64
-	MemoryPercent    int    // 0-100
-	OpenFileCount    int
-	FileDescriptorMax int
+	Timestamp             time.Time
+	DiskPath              string // the fullest of the watched file systems
+	DiskUsagePercent      int
+	DiskAvailableGB       float64
+	MemoryPercent         int // system memory in use, not counting what the ZFS ARC gives back
+	OpenFileCount         int
+	FileDescriptorMax     int
 	FileDescriptorPercent int
-	Status           string // "OK", "DEGRADED", "CRITICAL"
-	Warnings         []string
+	Status                string // "OK", "DEGRADED", "CRITICAL"
+	Warnings              []string
 }
 
-// Watcher monitors system resources and triggers callbacks on threshold violations.
+// Watcher measures periodically and reports status changes.
 type Watcher struct {
-	mu                sync.RWMutex
-	lastStatus        *ResourceStatus
-	checkInterval     time.Duration
-	stopChan          chan bool
-	diskCheckPaths    []string // paths to monitor (e.g., ["/persist", "/"])
-	memoryLimitBytes  uint64
-	onCritical        func(ResourceStatus) // callback when CRITICAL threshold hit
-	onDegraded        func(ResourceStatus) // callback when DEGRADED threshold hit
+	mu            sync.RWMutex
+	lastStatus    ResourceStatus
+	checkInterval time.Duration
+	stopChan      chan struct{}
+	stopOnce      sync.Once
+	diskPaths     []string
+	onChange      func(prev, cur ResourceStatus)
+
+	// Replaced in tests.
+	diskUsage func(path string) (percent int, availGB float64, ok bool)
+	memUsage  func() (percent int, ok bool)
+	fdUsage   func() (open, max int, ok bool)
 }
 
-// NewWatcher creates a resource watcher.
-func NewWatcher(checkInterval time.Duration, memoryLimitBytes uint64, diskPaths []string) *Watcher {
-	if len(diskPaths) == 0 {
-		diskPaths = []string{"/persist", "/"}
-	}
+// NewWatcher creates a watcher for the file systems holding diskPaths
+// (paths that do not exist are skipped).
+func NewWatcher(checkInterval time.Duration, diskPaths []string) *Watcher {
 	w := &Watcher{
-		checkInterval:    checkInterval,
-		memoryLimitBytes: memoryLimitBytes,
-		diskCheckPaths:   diskPaths,
-		stopChan:         make(chan bool),
+		checkInterval: checkInterval,
+		diskPaths:     diskPaths,
+		stopChan:      make(chan struct{}),
+		diskUsage:     dfUsage,
+		memUsage:      systemMemoryUsage,
+		fdUsage:       fileDescriptorUsage,
 	}
-	// Perform initial check so GetStatus() doesn't return UNKNOWN
-	status := w.check()
-	w.lastStatus = &status
+	w.lastStatus = w.check()
 	return w
 }
 
-// SetCriticalCallback sets the callback invoked when resource hits CRITICAL threshold.
-func (w *Watcher) SetCriticalCallback(fn func(ResourceStatus)) {
+// OnChange sets the function called when the status changes (OK, DEGRADED,
+// CRITICAL). It runs in its own goroutine.
+func (w *Watcher) OnChange(fn func(prev, cur ResourceStatus)) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	w.onCritical = fn
+	w.onChange = fn
 }
 
-// SetDegradedCallback sets the callback invoked when resource hits DEGRADED threshold.
-func (w *Watcher) SetDegradedCallback(fn func(ResourceStatus)) {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	w.onDegraded = fn
-}
+// Start measures every interval until Stop.
+func (w *Watcher) Start() { go w.loop() }
 
-// Start begins monitoring resources in a background goroutine.
-func (w *Watcher) Start() {
-	go w.loop()
-}
+// Stop ends the loop.
+func (w *Watcher) Stop() { w.stopOnce.Do(func() { close(w.stopChan) }) }
 
-// Stop stops the monitoring loop.
-func (w *Watcher) Stop() {
-	w.stopChan <- true
-}
-
-// GetStatus returns the last known resource status.
+// GetStatus returns the last measurement.
 func (w *Watcher) GetStatus() ResourceStatus {
 	w.mu.RLock()
 	defer w.mu.RUnlock()
-	if w.lastStatus == nil {
-		return ResourceStatus{Status: "UNKNOWN"}
-	}
-	return *w.lastStatus
+	return w.lastStatus
 }
 
 func (w *Watcher) loop() {
 	ticker := time.NewTicker(w.checkInterval)
 	defer ticker.Stop()
-
-	var lastStatus ResourceStatus
 	for {
 		select {
 		case <-w.stopChan:
 			return
 		case <-ticker.C:
-			status := w.check()
-			w.mu.Lock()
-			w.lastStatus = &status
-			w.mu.Unlock()
-
-			// Trigger callbacks on state change
-			if status.Status == "CRITICAL" && lastStatus.Status != "CRITICAL" {
-				if w.onCritical != nil {
-					go w.onCritical(status)
-				}
-			}
-			if status.Status == "DEGRADED" && lastStatus.Status != "DEGRADED" && lastStatus.Status != "CRITICAL" {
-				if w.onDegraded != nil {
-					go w.onDegraded(status)
-				}
-			}
-			lastStatus = status
+			w.Tick()
 		}
+	}
+}
+
+// Tick measures once and reports a status change.
+func (w *Watcher) Tick() {
+	cur := w.check()
+	w.mu.Lock()
+	prev := w.lastStatus
+	w.lastStatus = cur
+	fn := w.onChange
+	w.mu.Unlock()
+	if fn != nil && prev.Status != cur.Status {
+		go fn(prev, cur)
 	}
 }
 
 func (w *Watcher) check() ResourceStatus {
-	status := ResourceStatus{
-		Timestamp: time.Now(),
-		Warnings:  []string{},
-		Status:    "OK",
+	st := ResourceStatus{Timestamp: time.Now(), Warnings: []string{}, Status: "OK"}
+	raise := func(level, msg string) {
+		if level == "CRITICAL" || st.Status == "OK" {
+			st.Status = level
+		}
+		st.Warnings = append(st.Warnings, msg)
 	}
-
-	// Check disk usage (monitor primary path)
-	if len(w.diskCheckPaths) > 0 {
-		diskUsage := w.checkDisk(w.diskCheckPaths[0])
-		status.DiskUsagePercent = diskUsage.Percent
-		status.DiskAvailableGB = diskUsage.AvailableGB
-
-		if diskUsage.Percent >= 98 {
-			status.Status = "CRITICAL"
-			status.Warnings = append(status.Warnings, fmt.Sprintf("Disk CRITICAL: %d%% used", diskUsage.Percent))
-		} else if diskUsage.Percent >= 95 {
-			if status.Status != "CRITICAL" {
-				status.Status = "DEGRADED"
-			}
-			status.Warnings = append(status.Warnings, fmt.Sprintf("Disk DEGRADED: %d%% used", diskUsage.Percent))
-		} else if diskUsage.Percent >= 90 {
-			status.Warnings = append(status.Warnings, fmt.Sprintf("Disk WARNING: %d%% used", diskUsage.Percent))
+	grade := func(percent, degraded, critical int, what string) {
+		switch {
+		case percent >= critical:
+			raise("CRITICAL", what)
+		case percent >= degraded:
+			raise("DEGRADED", what)
 		}
 	}
 
-	// Check memory usage
-	memStatus := w.checkMemory()
-	status.MemoryUsageBytes = memStatus.UsageBytes
-	status.MemoryLimitBytes = memStatus.LimitBytes
-	status.MemoryPercent = memStatus.Percent
-
-	if memStatus.Percent >= 95 {
-		status.Status = "CRITICAL"
-		status.Warnings = append(status.Warnings, fmt.Sprintf("Memory CRITICAL: %d%% used", memStatus.Percent))
-	} else if memStatus.Percent >= 85 {
-		if status.Status != "CRITICAL" {
-			status.Status = "DEGRADED"
+	// The fullest of the watched file systems counts.
+	st.DiskUsagePercent = -1
+	for _, p := range w.diskPaths {
+		pct, avail, ok := w.diskUsage(p)
+		if ok && pct > st.DiskUsagePercent {
+			st.DiskPath, st.DiskUsagePercent, st.DiskAvailableGB = p, pct, avail
 		}
-		status.Warnings = append(status.Warnings, fmt.Sprintf("Memory DEGRADED: %d%% used", memStatus.Percent))
+	}
+	if st.DiskUsagePercent < 0 {
+		st.DiskUsagePercent = 0
+	} else {
+		grade(st.DiskUsagePercent, diskDegraded, diskCritical,
+			fmt.Sprintf("system disk (%s) %d%% full, %.1f GB free", st.DiskPath, st.DiskUsagePercent, st.DiskAvailableGB))
 	}
 
-	// Check file descriptors
-	fdStatus := w.checkFileDescriptors()
-	status.OpenFileCount = fdStatus.Open
-	status.FileDescriptorMax = fdStatus.Max
-	status.FileDescriptorPercent = fdStatus.Percent
-
-	if fdStatus.Percent >= 90 {
-		status.Status = "CRITICAL"
-		status.Warnings = append(status.Warnings, fmt.Sprintf("File descriptors CRITICAL: %d/%d (%.1f%%)", fdStatus.Open, fdStatus.Max, float64(fdStatus.Percent)))
-	} else if fdStatus.Percent >= 80 {
-		if status.Status != "CRITICAL" {
-			status.Status = "DEGRADED"
-		}
-		status.Warnings = append(status.Warnings, fmt.Sprintf("File descriptors DEGRADED: %d/%d (%.1f%%)", fdStatus.Open, fdStatus.Max, float64(fdStatus.Percent)))
+	if pct, ok := w.memUsage(); ok {
+		st.MemoryPercent = pct
+		grade(pct, memDegraded, memCritical, fmt.Sprintf("memory %d%% in use", pct))
 	}
 
-	return status
+	if open, max, ok := w.fdUsage(); ok && max > 0 {
+		st.OpenFileCount, st.FileDescriptorMax = open, max
+		st.FileDescriptorPercent = min(open*100/max, 100)
+		grade(st.FileDescriptorPercent, fdDegraded, fdCritical,
+			fmt.Sprintf("the daemon has %d of %d file descriptors open", open, max))
+	}
+	return st
 }
 
-type diskUsage struct {
-	Percent      int
-	AvailableGB  float64
-}
-
-func (w *Watcher) checkDisk(path string) diskUsage {
-	// Parse /proc/mounts and df output for cross-platform compatibility
-	cmd := exec.Command("df", "-B1", path)
-	output, err := cmd.Output()
+// dfUsage reads the usage of the file system holding path.
+func dfUsage(path string) (int, float64, bool) {
+	if _, err := os.Stat(path); err != nil {
+		return 0, 0, false
+	}
+	out, err := exec.Command("df", "-P", "-B1", path).Output()
 	if err != nil {
-		return diskUsage{Percent: 0, AvailableGB: 0}
+		return 0, 0, false
 	}
+	return parseDf(string(out))
+}
 
-	lines := strings.Split(string(output), "\n")
+// parseDf reads "df -P -B1" output: Filesystem, blocks, used, available, ...
+// Percent is used/(used+available), as df prints it (root-reserved blocks
+// are not available to the daemon's data either way).
+func parseDf(out string) (int, float64, bool) {
+	lines := strings.Split(strings.TrimSpace(out), "\n")
 	if len(lines) < 2 {
-		return diskUsage{Percent: 0, AvailableGB: 0}
+		return 0, 0, false
 	}
-
-	// Parse second line (skip header)
-	fields := strings.Fields(lines[1])
-	if len(fields) < 5 {
-		return diskUsage{Percent: 0, AvailableGB: 0}
+	f := strings.Fields(lines[len(lines)-1])
+	if len(f) < 4 {
+		return 0, 0, false
 	}
-
-	totalBytes, _ := strconv.ParseUint(fields[1], 10, 64)
-	usedBytes, _ := strconv.ParseUint(fields[2], 10, 64)
-	availBytes, _ := strconv.ParseUint(fields[3], 10, 64)
-
-	var percent int
-	if totalBytes > 0 {
-		percent = int((usedBytes * 100) / totalBytes)
+	used, err1 := strconv.ParseUint(f[2], 10, 64)
+	avail, err2 := strconv.ParseUint(f[3], 10, 64)
+	if err1 != nil || err2 != nil || used+avail == 0 {
+		return 0, 0, false
 	}
-
-	availGB := float64(availBytes) / (1024 * 1024 * 1024)
-	return diskUsage{Percent: percent, AvailableGB: availGB}
+	pct := int((used*100 + (used+avail)/2) / (used + avail))
+	return pct, float64(avail) / (1 << 30), true
 }
 
-type memoryStatus struct {
-	UsageBytes uint64
-	LimitBytes uint64
-	Percent    int
-}
-
-func (w *Watcher) checkMemory() memoryStatus {
-	var m runtime.MemStats
-	runtime.ReadMemStats(&m)
-
-	limitBytes := w.memoryLimitBytes
-	if limitBytes == 0 {
-		limitBytes = 1024 * 1024 * 1024 // Default to 1 GB
-	}
-
-	usageBytes := m.Alloc
-	var percent int
-	if limitBytes > 0 {
-		percent = int((usageBytes * 100) / limitBytes)
-	}
-
-	return memoryStatus{
-		UsageBytes: usageBytes,
-		LimitBytes: limitBytes,
-		Percent:    percent,
-	}
-}
-
-type fdStatus struct {
-	Open    int
-	Max     int
-	Percent int
-}
-
-func (w *Watcher) checkFileDescriptors() fdStatus {
-	// Read /proc/self/limits to get FD limit
-	limitsPath := "/proc/self/limits"
-	data, err := os.ReadFile(limitsPath)
+// systemMemoryUsage: memory in use as the kernel sees it, minus what the ZFS
+// ARC releases under pressure (the ARC is not page cache, so MemAvailable
+// does not count it; on a NAS it holds most of the RAM by design).
+func systemMemoryUsage() (int, bool) {
+	data, err := os.ReadFile("/proc/meminfo")
 	if err != nil {
-		// Fallback: no /proc on this system
-		return fdStatus{Open: 0, Max: 0, Percent: 0}
+		return 0, false
 	}
+	arc, _ := os.ReadFile("/proc/spl/kstat/zfs/arcstats")
+	return parseMemory(string(data), string(arc))
+}
 
-	maxFD := 1024 // Conservative default
-	for _, line := range strings.Split(string(data), "\n") {
-		// Parse "Max open files" line
-		if strings.Contains(line, "Max open files") {
-			fields := strings.Fields(line)
-			if len(fields) >= 4 {
-				if val, err := strconv.Atoi(fields[3]); err == nil {
-					maxFD = val
+func parseMemory(meminfo, arcstats string) (int, bool) {
+	kb := func(key string) (uint64, bool) {
+		for _, line := range strings.Split(meminfo, "\n") {
+			if rest, ok := strings.CutPrefix(line, key+":"); ok {
+				f := strings.Fields(rest)
+				if len(f) == 0 {
+					return 0, false
 				}
+				v, err := strconv.ParseUint(f[0], 10, 64)
+				return v, err == nil
+			}
+		}
+		return 0, false
+	}
+	total, ok1 := kb("MemTotal")
+	avail, ok2 := kb("MemAvailable")
+	if !ok1 || !ok2 || total == 0 {
+		return 0, false
+	}
+	availBytes := avail * 1024
+	// arcstats lines: name type data
+	var size, cmin uint64
+	for _, line := range strings.Split(arcstats, "\n") {
+		f := strings.Fields(line)
+		if len(f) != 3 {
+			continue
+		}
+		switch f[0] {
+		case "size":
+			size, _ = strconv.ParseUint(f[2], 10, 64)
+		case "c_min":
+			cmin, _ = strconv.ParseUint(f[2], 10, 64)
+		}
+	}
+	if size > cmin {
+		availBytes += size - cmin
+	}
+	totalBytes := total * 1024
+	if availBytes > totalBytes {
+		availBytes = totalBytes
+	}
+	return int((totalBytes - availBytes) * 100 / totalBytes), true
+}
+
+// fileDescriptorUsage: the daemon's open descriptors against its limit.
+func fileDescriptorUsage() (int, int, bool) {
+	data, err := os.ReadFile("/proc/self/limits")
+	if err != nil {
+		return 0, 0, false
+	}
+	max := 0
+	for _, line := range strings.Split(string(data), "\n") {
+		if strings.HasPrefix(line, "Max open files") {
+			if f := strings.Fields(line); len(f) >= 4 {
+				max, _ = strconv.Atoi(f[3])
 			}
 			break
 		}
 	}
-
-	// Count open FDs in /proc/self/fd
-	fdDir := "/proc/self/fd"
-	entries, err := os.ReadDir(fdDir)
-	if err != nil {
-		return fdStatus{Open: 0, Max: maxFD, Percent: 0}
+	entries, err := os.ReadDir("/proc/self/fd")
+	if err != nil || max <= 0 {
+		return 0, 0, false
 	}
-
-	openCount := len(entries)
-	percent := (openCount * 100) / maxFD
-	if percent > 100 {
-		percent = 100
-	}
-
-	return fdStatus{
-		Open:    openCount,
-		Max:     maxFD,
-		Percent: percent,
-	}
+	return len(entries), max, true
 }

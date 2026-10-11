@@ -1,162 +1,86 @@
 package handlers
 
 import (
+	"context"
+	"database/sql"
 	"net/http"
-	"sync"
 	"time"
+
+	"dplaned/internal/monitoring"
 )
 
-// ═══════════════════════════════════════════════════════════════
-//  LDAP CIRCUIT BREAKER
-//  Prevents the web UI from hanging when LDAP is slow/unreachable
-// ═══════════════════════════════════════════════════════════════
+// Status of the directory login circuit breaker (auth.go: ldapCB*), the one
+// the login path uses: after ldapCBThreshold connection failures in a row,
+// directory logins fail at once for ldapCBResetAfter instead of each waiting
+// for a timeout.
 
-// CircuitState represents the state of the circuit breaker
-type CircuitState int
-
-const (
-	CircuitClosed   CircuitState = iota // Normal operation
-	CircuitOpen                         // LDAP failed, using cache
-	CircuitHalfOpen                     // Testing if LDAP recovered
-)
-
-// LDAPCircuitBreaker protects against slow/dead LDAP servers
-type LDAPCircuitBreaker struct {
-	mu              sync.RWMutex
-	state           CircuitState
-	failures        int
-	lastFailure     time.Time
-	lastSuccess     time.Time
-	maxFailures     int           // trips to Open after this many failures
-	resetTimeout    time.Duration // time before trying again (half-open)
-	requestTimeout  time.Duration // max time to wait for LDAP response
-}
-
-// CachedCredential stores a hashed credential for degraded-mode auth
-type CachedCredential struct {
-	Username     string
-	PasswordHash string // bcrypt hash
-	Roles        []string
-	CachedAt     time.Time
-	TTL          time.Duration
-}
-
-var (
-	ldapBreaker *LDAPCircuitBreaker
-	credCache   map[string]*CachedCredential
-	cacheMu     sync.RWMutex
-)
-
-func init() {
-	ldapBreaker = &LDAPCircuitBreaker{
-		state:          CircuitClosed,
-		maxFailures:    3,
-		resetTimeout:   30 * time.Second,
-		requestTimeout: 500 * time.Millisecond,
-	}
-	credCache = make(map[string]*CachedCredential)
-}
-
-// State returns the current circuit state
-func (cb *LDAPCircuitBreaker) State() CircuitState {
-	cb.mu.RLock()
-	defer cb.mu.RUnlock()
-
-	if cb.state == CircuitOpen {
-		// Check if enough time has passed to try again
-		if time.Since(cb.lastFailure) > cb.resetTimeout {
-			return CircuitHalfOpen
-		}
-	}
-	return cb.state
-}
-
-// RecordSuccess records a successful LDAP operation
-func (cb *LDAPCircuitBreaker) RecordSuccess() {
-	cb.mu.Lock()
-	defer cb.mu.Unlock()
-	cb.failures = 0
-	cb.state = CircuitClosed
-	cb.lastSuccess = time.Now()
-}
-
-// RecordFailure records a failed LDAP operation
-func (cb *LDAPCircuitBreaker) RecordFailure() {
-	cb.mu.Lock()
-	defer cb.mu.Unlock()
-	cb.failures++
-	cb.lastFailure = time.Now()
-	if cb.failures >= cb.maxFailures {
-		cb.state = CircuitOpen
+// ldapCBState returns "closed", "open" or "half-open" and the failure count.
+func ldapCBState() (string, int, time.Time) {
+	ldapCBMu.Lock()
+	defer ldapCBMu.Unlock()
+	switch {
+	case ldapCBFailures < ldapCBThreshold:
+		return "closed", ldapCBFailures, ldapCBOpenUntil
+	case time.Now().Before(ldapCBOpenUntil):
+		return "open", ldapCBFailures, ldapCBOpenUntil
+	default:
+		return "half-open", ldapCBFailures, ldapCBOpenUntil // the next login is let through
 	}
 }
 
-// CacheCredential stores credentials for degraded-mode auth
-func CacheCredential(username, passwordHash string, roles []string) {
-	cacheMu.Lock()
-	defer cacheMu.Unlock()
-	credCache[username] = &CachedCredential{
-		Username:     username,
-		PasswordHash: passwordHash,
-		Roles:        roles,
-		CachedAt:     time.Now(),
-		TTL:          24 * time.Hour, // cached creds valid for 24h
-	}
-}
-
-// GetCachedCredential returns cached credentials if valid
-func GetCachedCredential(username string) *CachedCredential {
-	cacheMu.RLock()
-	defer cacheMu.RUnlock()
-	cred, ok := credCache[username]
-	if !ok {
-		return nil
-	}
-	if time.Since(cred.CachedAt) > cred.TTL {
-		return nil // expired
-	}
-	return cred
-}
-
-// GetCircuitBreakerStatus returns the LDAP circuit breaker status
-// GET /api/ldap/circuit-breaker
+// GetCircuitBreakerStatus GET /api/ldap/circuit-breaker
 func GetCircuitBreakerStatus(w http.ResponseWriter, r *http.Request) {
-	state := ldapBreaker.State()
-	stateStr := "closed"
-	switch state {
-	case CircuitOpen:
-		stateStr = "open"
-	case CircuitHalfOpen:
-		stateStr = "half-open"
+	state, failures, openUntil := ldapCBState()
+	resp := map[string]any{
+		"success":       true,
+		"state":         state,
+		"failures":      failures,
+		"max_failures":  ldapCBThreshold,
+		"reset_timeout": ldapCBResetAfter.String(),
 	}
-
-	ldapBreaker.mu.RLock()
-	defer ldapBreaker.mu.RUnlock()
-
-	respondOK(w, map[string]any{
-		"success":         true,
-		"state":           stateStr,
-		"failures":        ldapBreaker.failures,
-		"max_failures":    ldapBreaker.maxFailures,
-		"last_failure":    ldapBreaker.lastFailure.Format(time.RFC3339),
-		"last_success":    ldapBreaker.lastSuccess.Format(time.RFC3339),
-		"reset_timeout":   ldapBreaker.resetTimeout.String(),
-		"request_timeout": ldapBreaker.requestTimeout.String(),
-		"cached_users":    len(credCache),
-		"degraded_mode":   state == CircuitOpen,
-	})
+	if state == "open" {
+		resp["open_until"] = openUntil.UTC().Format(time.RFC3339)
+	}
+	respondOK(w, resp)
 }
 
-// ResetCircuitBreaker manually resets the circuit breaker
-// POST /api/ldap/circuit-breaker/reset
+// ResetCircuitBreaker POST /api/ldap/circuit-breaker/reset
+// The next directory login is tried against the server again.
 func ResetCircuitBreaker(w http.ResponseWriter, r *http.Request) {
-	ldapBreaker.mu.Lock()
-	ldapBreaker.state = CircuitClosed
-	ldapBreaker.failures = 0
-	ldapBreaker.mu.Unlock()
+	ldapCBSuccess()
+	respondOK(w, map[string]any{"success": true, "message": "Circuit breaker reset"})
+}
 
-	respondOK(w, map[string]any{
-		"success": true,
-		"message": "Circuit breaker reset to closed state",
-	})
+// DirectoryHealthCheck is the "directory" subsystem check: whether the
+// configured directory server answers logins and the last sync worked.
+func DirectoryHealthCheck(db *sql.DB) func(context.Context) monitoring.SubsystemHealth {
+	return func(ctx context.Context) monitoring.SubsystemHealth {
+		sh := monitoring.SubsystemHealth{Name: "directory", CheckedAt: time.Now(), Status: monitoring.HealthOK}
+		var enabled int
+		var syncOK sql.NullInt64
+		var syncAt, syncMsg sql.NullString
+		err := db.QueryRowContext(ctx, `SELECT COALESCE(enabled,0), last_sync_ok, last_sync_at, last_sync_msg FROM ldap_config WHERE id=1`).
+			Scan(&enabled, &syncOK, &syncAt, &syncMsg)
+		if err == sql.ErrNoRows || (err == nil && enabled == 0) {
+			sh.Reason = "No directory configured"
+			return sh
+		}
+		if err != nil {
+			sh.Status, sh.Reason = monitoring.HealthUnknown, "Cannot read the directory configuration: "+err.Error()
+			return sh
+		}
+		state, failures, _ := ldapCBState()
+		sh.Details = map[string]any{"circuit_breaker": state, "failures": failures}
+		switch {
+		case state != "closed":
+			sh.Status = monitoring.HealthUnavailable
+			sh.Reason = "The directory server does not answer: logins of directory users fail, local accounts work"
+		case syncAt.Valid && syncAt.String != "" && syncOK.Valid && syncOK.Int64 == 0:
+			sh.Status = monitoring.HealthDegraded
+			sh.Reason = "The last directory sync failed: " + syncMsg.String
+		default:
+			sh.Reason = "The directory server answers"
+		}
+		return sh
+	}
 }

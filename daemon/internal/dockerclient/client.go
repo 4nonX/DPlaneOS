@@ -460,29 +460,6 @@ func (c *Client) RemoveImage(ctx context.Context, imageID string, force bool) er
 //  System
 // ─────────────────────────────────────────────
 
-// Info returns Docker system information.
-func (c *Client) Info(ctx context.Context) (map[string]any, error) {
-	resp, err := c.get(ctx, "/info", nil)
-	if err != nil {
-		return nil, fmt.Errorf("docker info: %w", err)
-	}
-	var info map[string]any
-	if err := decodeJSON(resp, &info); err != nil {
-		return nil, fmt.Errorf("docker info decode: %w", err)
-	}
-	return info, nil
-}
-
-// IsAvailable returns true if the Docker socket is reachable.
-func (c *Client) IsAvailable(ctx context.Context) bool {
-	resp, err := c.get(ctx, "/ping", nil)
-	if err != nil {
-		return false
-	}
-	resp.Body.Close()
-	return resp.StatusCode == 200
-}
-
 // WaitForHealthy polls until the container is running and healthy.
 // Respects Docker HEALTHCHECK: if defined, waits for "healthy" not just "running".
 func (c *Client) WaitForHealthy(ctx context.Context, id string, timeout time.Duration) (bool, error) {

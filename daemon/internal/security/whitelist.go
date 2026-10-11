@@ -2,7 +2,6 @@ package security
 
 import (
 	"fmt"
-	"net"
 	"path"
 	"path/filepath"
 	"regexp"
@@ -206,7 +205,7 @@ var CommandWhitelist = map[string]Command{
 	"zpool_status": {
 		Name:        "zpool_status",
 		Path:        "zpool",
-		AllowedArgs: []string{"status", "-P", "-x"},
+		AllowedArgs: []string{"status", "-P", "-L", "-x"},
 		ArgPatterns: []*regexp.Regexp{regexp.MustCompile(`^[a-zA-Z0-9_\-]+$`)}, // pool name
 		Description: "Get pool status",
 	},
@@ -2138,54 +2137,11 @@ func IsValidPath(path string) bool {
 // validHostnameLabel matches a single DNS label per RFC 1123.
 var validHostnameLabel = regexp.MustCompile(`^[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?$`)
 
-// ValidateHostname validates a hostname or IP address for use as an SSH/network target.
-// Accepts RFC 1123 hostnames and IPv4/IPv6 addresses. Rejects anything containing
-// shell metacharacters, which would be dangerous in SSH remote command strings.
-func ValidateHostname(h string) error {
-	if len(h) == 0 || len(h) > 253 {
-		return fmt.Errorf("invalid hostname length: %q", h)
-	}
-	if net.ParseIP(h) != nil {
-		return nil
-	}
-	labels := strings.Split(h, ".")
-	for _, label := range labels {
-		if !validHostnameLabel.MatchString(label) {
-			return fmt.Errorf("invalid hostname: %q", h)
-		}
-	}
-	return nil
-}
-
 // validUnixUsername matches POSIX portable filenames used as usernames.
 var validUnixUsername = regexp.MustCompile(`^[a-z_][a-z0-9_\-]{0,30}$`)
 
-// ValidateUnixUsername validates a Unix username for use as an SSH login user.
-func ValidateUnixUsername(u string) error {
-	if !validUnixUsername.MatchString(u) {
-		return fmt.Errorf("invalid unix username: %q", u)
-	}
-	return nil
-}
-
 // validAbsPath matches absolute paths containing only safe characters.
 var validAbsPath = regexp.MustCompile(`^/[a-zA-Z0-9_\-\./]+$`)
-
-// ValidateAbsolutePath validates an absolute file path that will be used as an
-// argument to exec.Command (e.g. an SSH private key path). Rejects relative paths,
-// path traversal, and any shell metacharacters.
-func ValidateAbsolutePath(p string) error {
-	if !strings.HasPrefix(p, "/") {
-		return fmt.Errorf("path must be absolute: %q", p)
-	}
-	if strings.Contains(p, "..") {
-		return fmt.Errorf("path traversal not allowed: %q", p)
-	}
-	if !validAbsPath.MatchString(p) {
-		return fmt.Errorf("invalid characters in path: %q", p)
-	}
-	return nil
-}
 
 // IsSafeFilename checks if a filename doesn't contain path traversal or dangerous characters.
 func IsSafeFilename(filename string) bool {

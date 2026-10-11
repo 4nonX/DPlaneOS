@@ -16,7 +16,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 - **Removed daemon flags:** `--ha-local-id`, `--ha-local-addr`, `--ha-cluster-secret`.
 - **Samba clustering (CTDB) is removed** (`services.dplaneos.ctdb`, `/api/ha/ctdb/*`, the card on the High Availability page). It could not work: the Samba package has no cluster support, the service used options ctdbd no longer has, and CTDB needs a file system mounted on all nodes at once, while a ZFS pool belongs to one node at a time. Remove `services.dplaneos.ctdb.*` from your NixOS configuration. SMB clients reconnect to the floating address after a failover.
 - **Prometheus:** the HA metrics changed (`dplaneos_ha_*`, `dplaneos_group_*`); update dashboards and use the new `prometheus/ha-alerts.yml`.
-- The database schema migrates automatically on first start (migrations up to 00028).
+- The database schema migrates automatically on first start (migrations up to 00029).
 
 API and web interface: the API handlers run in CI against a real PostgreSQL
 schema and a command fake, and CI checks every request and response of the
@@ -53,6 +53,17 @@ that found is listed here.
   - Pools: disk error counters with a risk rating.
   - Support: host name, version, time zone, state of the pools at startup.
   - API Explorer: monitoring probes and SCRAM sign-in.
+- Removed what only looked like a function:
+  - Settings, Features: six switches (HA clustering, NVMe-oF, enclosures,
+    Active Directory, OIDC, LACP) that were stored and never consulted;
+    these functions work without a switch.
+  - "Interrupted operations" under Support and the matching pre-flight
+    check: nothing ever set the marker they looked for. Storage operations
+    are journalled under "Storage operations" as before.
+  - A startup "recovery of incomplete operations" and "rollback manager"
+    that read a journal nothing wrote to; a second audit event table;
+    unused request guards. Tables `feature_flags`, `operation_journal` and
+    `audit_events` are dropped.
 - Removed API endpoints that could not work or duplicated another one:
   `/api/nfs4acl` (NFSv4 ACLs do not exist in OpenZFS on Linux),
   `/api/network/apply` (netplan only), `/api/metrics/current`
@@ -65,6 +76,18 @@ that found is listed here.
 
 ### Security
 
+- **Login could be bypassed.** A request with made-up `X-Session-ID` and
+  `X-User` headers was let through as a "degraded mode" user, because an
+  invalid session was handled like an unreachable database. Without any
+  login this opened every read endpoint (file contents on the pools,
+  configuration export, logs, users) and the routes outside the permission
+  check. A request now needs a valid session or API token; when the session
+  store cannot be read the answer is 503, never access.
+- Disk wipe: the check that the disk is not part of an imported pool
+  compared device paths as text, which never matched a disk given by
+  another name or a pool that names the disk's partition (the usual case),
+  and a failed check was ignored. Disks are compared by kernel device name,
+  and the wipe is refused when the check cannot be made.
 - Directory logins: the user name was put into the LDAP search filter
   unescaped.
 - Rsync backups: paths only had to start with /mnt/ ("/mnt/../etc/shadow"
@@ -175,6 +198,17 @@ that found is listed here.
   settings that did nothing. Stored-secrets check, NixOS config backup to
   Git and audit log retention are in the UI; the audit chain no longer
   shows "Valid" when the check could not run.
+- The audit log did not record what an action was applied to (the
+  command's arguments were dropped), and file and replication actions were
+  recorded as successful when they failed.
+- Directory page: the circuit breaker shown was not the one the login path
+  uses and never changed. It now shows the real state.
+- Health checks: "external services" always reported "all 0 services
+  operational". Replaced by a "directory" check (server reachable, last
+  sync). The "resources" check measured the daemon's own heap against an
+  arbitrary limit and only one path: it now watches the system disk, system
+  memory (without what the ZFS ARC gives back) and file descriptors, and a
+  change to low or critical is sent as an alert (`system.resources`).
 - Directory user lookup (/api/ldap/search-user) searched nothing and
   answered "check server logs"; it returns the entry, its groups and the
   mapped roles.

@@ -14,8 +14,8 @@ import (
 // configured timeout. Writing 'V' before closing disables the watchdog
 // gracefully (magic close).
 type watchdogState struct {
-	mu     sync.Mutex
-	f      *os.File
+	mu      sync.Mutex
+	f       *os.File
 	petting atomic.Bool // true while quorum is healthy and we should keep petting
 }
 
@@ -62,16 +62,4 @@ func shutdownWatchdog() {
 	_ = globalWatchdog.f.Close()
 	globalWatchdog.f = nil
 	log.Printf("HA WATCHDOG: graceful shutdown (magic close)")
-}
-
-// closeWatchdog closes the device without the magic 'V'. Used in error paths
-// where we want the watchdog to fire (e.g. quorum lost and no recovery).
-func closeWatchdog() {
-	globalWatchdog.mu.Lock()
-	defer globalWatchdog.mu.Unlock()
-	if globalWatchdog.f == nil {
-		return
-	}
-	_ = globalWatchdog.f.Close()
-	globalWatchdog.f = nil
 }

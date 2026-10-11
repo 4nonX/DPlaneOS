@@ -114,7 +114,6 @@ const PREFLIGHT_LABELS: Record<string, string> = {
   docker_running: 'Docker daemon running',
   storage_driver_zfs: 'Docker storage driver is zfs (informational: overlay2 on ZFS 2.2+ works too)',
   zfs_pools: 'ZFS pools imported and healthy',
-  no_stale_locks: 'No stale storage operation locks',
 }
 
 function PreflightCard() {

@@ -1,9 +1,9 @@
 package security
 
 import (
-	"strconv"
 	"database/sql"
 	"fmt"
+	"strconv"
 	"sync"
 	"time"
 )
@@ -59,11 +59,6 @@ var permCache = &PermissionCache{
 // Database connection (should be injected)
 var db *sql.DB
 
-// SetDatabase sets the database connection
-func SetDatabase(database *sql.DB) {
-	db = database
-}
-
 // ============================================================================
 // PERMISSION CHECKING
 // ============================================================================
@@ -103,34 +98,6 @@ func UserHasPermission(userID int, resource, action string) (bool, error) {
 	}
 
 	return false, nil
-}
-
-// UserHasAnyPermission checks if user has at least one of the specified permissions
-func UserHasAnyPermission(userID int, permissions []Permission) (bool, error) {
-	for _, perm := range permissions {
-		has, err := UserHasPermission(userID, perm.Resource, perm.Action)
-		if err != nil {
-			return false, err
-		}
-		if has {
-			return true, nil
-		}
-	}
-	return false, nil
-}
-
-// UserHasAllPermissions checks if user has all specified permissions
-func UserHasAllPermissions(userID int, permissions []Permission) (bool, error) {
-	for _, perm := range permissions {
-		has, err := UserHasPermission(userID, perm.Resource, perm.Action)
-		if err != nil {
-			return false, err
-		}
-		if !has {
-			return false, nil
-		}
-	}
-	return true, nil
 }
 
 // LoadUserPermissions loads all permissions for a user from database (exported for API)
@@ -180,29 +147,6 @@ func loadUserPermissions(userID int) ([]Permission, error) {
 // ============================================================================
 // ROLE CHECKING
 // ============================================================================
-
-// UserHasRole checks if a user has a specific role
-func UserHasRole(userID int, roleName string) (bool, error) {
-	query := `
-		SELECT 1
-		FROM user_roles ur
-		JOIN roles r ON ur.role_id = r.id
-		WHERE ur.user_id = $1 AND r.name = $2
-		AND (ur.expires_at IS NULL OR ur.expires_at > NOW())
-		LIMIT 1
-	`
-
-	var exists int
-	err := db.QueryRow(query, userID, roleName).Scan(&exists)
-	if err == sql.ErrNoRows {
-		return false, nil
-	}
-	if err != nil {
-		return false, err
-	}
-
-	return true, nil
-}
 
 // GetUserRoles returns all roles for a user
 func GetUserRoles(userID int) ([]Role, error) {
@@ -299,41 +243,6 @@ func GetRoleByID(roleID int) (*Role, error) {
 	}
 
 	return &role, nil
-}
-
-// GetAllRoles retrieves all roles
-func GetAllRoles() ([]Role, error) {
-	query := `
-		SELECT id, name, display_name, description, is_system, created_at, updated_at
-		FROM roles
-		ORDER BY is_system DESC, name ASC
-	`
-
-	rows, err := db.Query(query)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var roles []Role
-	for rows.Next() {
-		var role Role
-		err := rows.Scan(
-			&role.ID,
-			&role.Name,
-			&role.DisplayName,
-			&role.Description,
-			&role.IsSystem,
-			&role.CreatedAt,
-			&role.UpdatedAt,
-		)
-		if err != nil {
-			return nil, err
-		}
-		roles = append(roles, role)
-	}
-
-	return roles, nil
 }
 
 // UpdateRole updates a role
@@ -449,47 +358,6 @@ func GetAllPermissions() ([]Permission, error) {
 	}
 
 	return permissions, nil
-}
-
-// AssignPermissionToRole assigns a permission to a role
-func AssignPermissionToRole(roleID, permissionID int) error {
-	var name string
-	if err := db.QueryRow(`SELECT name FROM roles WHERE id = $1`, roleID).Scan(&name); err != nil {
-		return err
-	}
-	if name == "admin" {
-		return fmt.Errorf("the admin role always has every permission")
-	}
-	query := `
-		INSERT INTO role_permissions (role_id, permission_id)
-		VALUES ($1, $2)
-		ON CONFLICT DO NOTHING
-	`
-	if _, err := db.Exec(query, roleID, permissionID); err != nil {
-		return err
-	}
-	permCache.InvalidateAll()
-	return nil
-}
-
-// RemovePermissionFromRole removes a permission from a role
-func RemovePermissionFromRole(roleID, permissionID int) error {
-	// The admin role keeps every permission; the other built-in roles are
-	// adjustable like custom ones.
-	var name string
-	if err := db.QueryRow("SELECT name FROM roles WHERE id = $1", roleID).Scan(&name); err != nil {
-		return err
-	}
-	if name == "admin" {
-		return fmt.Errorf("the admin role always has every permission")
-	}
-
-	query := "DELETE FROM role_permissions WHERE role_id = $1 AND permission_id = $2"
-	if _, err := db.Exec(query, roleID, permissionID); err != nil {
-		return err
-	}
-	permCache.InvalidateAll()
-	return nil
 }
 
 // ============================================================================

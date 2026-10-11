@@ -148,7 +148,7 @@ function InotifyCard({ stats, lastUpdated }: InotifyCardProps) {
       )}
       {stats.critical && (
         <div className="alert alert-error" style={{ marginBottom: 12 }}>
-          <strong>Inotify exhaustion imminent.</strong> File indexing may fail silently.
+          <strong>Inotify exhaustion imminent.</strong> Containers and services that watch files will stop noticing changes.
           Immediately increase <code style={{ fontFamily: 'var(--font-mono)',
             background: 'rgba(0,0,0,0.2)', padding: '1px 4px', borderRadius: 2 }}>
             fs.inotify.max_user_watches</code> or disable file watching services.

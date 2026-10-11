@@ -13,43 +13,9 @@ import (
 	"dplaned/internal/security"
 )
 
-// PoolIsMember reports whether device is a member of any active ZFS pool.
-// Uses `zpool status -P` and scans the output for the device path.
-// The cgo variant does this via a direct vdev-tree nvlist walk.
+// PoolIsMember reports whether device is a member of an imported pool.
 func PoolIsMember(device string) (PoolMembership, error) {
-	out, err := cmdutil.RunFast("zpool_status", "status", "-P")
-	if err != nil {
-		return PoolMembership{}, libzfsErr("PoolIsMember", string(out))
-	}
-	status := string(out)
-	bare := strings.TrimPrefix(device, "/dev/")
-
-	var currentPool string
-	for _, line := range strings.Split(status, "\n") {
-		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "pool:") {
-			currentPool = strings.TrimSpace(strings.TrimPrefix(trimmed, "pool:"))
-			continue
-		}
-		if strings.Contains(trimmed, device) || strings.Contains(trimmed, bare) {
-			if currentPool != "" {
-				return PoolMembership{InPool: true, PoolName: currentPool}, nil
-			}
-		}
-	}
-	return PoolMembership{InPool: false}, nil
-}
-
-// PoolImportAll imports all importable pools from /dev/disk/by-id.
-// The path is hardcoded by design: the security whitelist entry "zpool_import_all"
-// permits only this path. By-id paths are stable across reboots, bus re-enumeration,
-// and kernel updates, and cannot be redirected via API call.
-func PoolImportAll() error {
-	out, err := cmdutil.RunSlow("zpool_import_all", "import", "-a", "-f", "-d", "/dev/disk/by-id")
-	if err != nil {
-		return libzfsErr("PoolImportAll", string(out))
-	}
-	return nil
+	return poolIsMemberByStatus(device)
 }
 
 // PoolExport exports a ZFS pool, optionally with -f to force.
