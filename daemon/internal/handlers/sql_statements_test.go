@@ -24,6 +24,7 @@ var (
 	sqlFormat   = regexp.MustCompile(`%[svdq]`)
 	sqlMethods  = map[string]bool{"Exec": true, "Query": true, "QueryRow": true, "ExecContext": true, "QueryContext": true, "QueryRowContext": true}
 	sqlParamRef = regexp.MustCompile(`\$(\d+)`)
+	bareUser    = regexp.MustCompile(`(?i)(SELECT|,)\s*user\s*(,|\sFROM)`)
 )
 
 // Every SQL statement written out in the daemon is prepared against the
@@ -139,6 +140,12 @@ func TestSQLStatementsMatchTheSchema(t *testing.T) {
 	for i, s := range stmts {
 		name := fmt.Sprintf("chk_%d", i)
 		q := strings.TrimRight(strings.TrimSpace(s.sql), ";")
+		// "user" without quotes is not a column: it is the name of the
+		// database account, and a query that selects it gets that back.
+		if bareUser.MatchString(q) {
+			report(s, "selects the keyword user (the database account), not a column")
+			continue
+		}
 		if _, err := conn.ExecContext(ctx, "PREPARE "+name+" AS "+q); err != nil {
 			report(s, "%v", err)
 			continue

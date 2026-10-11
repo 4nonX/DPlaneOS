@@ -91,11 +91,15 @@ show_welcome() {
         --selected.foreground "$TITLE_COLOR" \
         --cursor.foreground "$BORDER_COLOR" \
         "Install DPlaneOS" \
+        "Reset the administrator password of an installed system" \
+        "Allow remote access to this installer (SSH)" \
         "Shell" \
         "Reboot")
 
     case "$ACTION" in
         "Install DPlaneOS")    do_install ;;
+        "Reset the administrator password of an installed system") do_reset_password ;;
+        "Allow remote access to this installer (SSH)") do_remote_access ;;
         "Shell")                exec bash ;;
         "Reboot")               reboot ;;
     esac
@@ -192,7 +196,7 @@ PY
 set_admin_password() {
     clear
     gum style --foreground "$TITLE_COLOR" --bold --margin "1 0 0 1" \
-        "Step 2 of 3 - Administrator password"
+        "Administrator password"
     gum style --foreground "$DIM_COLOR" --margin "0 0 1 1" \
         "This password is used to log into the DPlaneOS web interface (user: admin)." \
         "Minimum 8 characters. Must contain upper, lower, digit, and symbol."
@@ -387,6 +391,115 @@ show_complete() {
     reboot
 }
 
+# ── Remote access to the installer ───────────────────────────────────────────
+# For machines without a usable console: SSH is started with a password made
+# up now and shown here. It is gone when the installer restarts.
+do_remote_access() {
+    clear
+    local pw addrs
+    pw=$(python3 -c "import secrets, string; a = string.ascii_lowercase + string.digits; print('-'.join(''.join(secrets.choice(a) for _ in range(5)) for _ in range(3)))")
+    if ! printf 'root:%s\n' "$pw" | chpasswd 2>>"$LOG_FILE" || ! systemctl start sshd 2>>"$LOG_FILE"; then
+        die "Remote access could not be switched on."
+    fi
+    addrs=$(ip -4 -o addr show scope global 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | tr '\n' ' ')
+    gum style --border rounded --border-foreground "$BORDER_COLOR" --padding "1 4" --margin "1" \
+        "$(gum style --foreground "$TITLE_COLOR" --bold "Remote access is on until this installer restarts.")" \
+        "" \
+        "  ssh root@${addrs:-<address of this machine>}" \
+        "  Password: $(gum style --foreground "$SUCCESS_COLOR" --bold "$pw")" \
+        "" \
+        "$(gum style --foreground "$DIM_COLOR" "The installer starts when you sign in. Anybody who has this password")" \
+        "$(gum style --foreground "$DIM_COLOR" "can install on this machine: use it on a network you trust.")"
+    echo ""
+    echo "Press Enter to return to the menu."
+    read -r _
+    show_welcome
+}
+
+# ── Lost administrator password ──────────────────────────────────────────────
+# An installed system keeps its state on the partition labelled "persist".
+# A new password is left there as a hash; the system takes it at its next
+# start (and removes the file): the administrator can sign in again, without
+# the second factor, and every session of that account is ended. Nothing
+# else on the system changes.
+
+# installed_systems prints the persist partitions of installed systems.
+installed_systems() {
+    lsblk -rn -o PATH,PARTLABEL 2>/dev/null | awk '$2 == "persist" { print $1 }'
+}
+
+# write_password_reset PARTITION: leaves the hash of ADMIN_PASS there.
+write_password_reset() {
+    local part="$1" mnt hash pass_tmp
+    mnt=$(mktemp -d)
+    mount "$part" "$mnt" || die "$part cannot be mounted."
+    if [ ! -d "$mnt/var/lib/dplaneos" ]; then
+        umount "$mnt"
+        die "$part does not hold the state of an installed DPlaneOS system."
+    fi
+    pass_tmp=$(mktemp)
+    chmod 600 "$pass_tmp"
+    printf '%s' "$ADMIN_PASS" > "$pass_tmp"
+    hash=$(python3 -c "
+import bcrypt, sys
+with open(sys.argv[1], 'rb') as f:
+    pw = f.read()
+print(bcrypt.hashpw(pw, bcrypt.gensalt(rounds=12)).decode())
+" "$pass_tmp") || true
+    rm -f "$pass_tmp"
+    if [ -z "$hash" ]; then
+        umount "$mnt"
+        die "The password could not be prepared."
+    fi
+    ( umask 077; printf '%s\n' "$hash" > "$mnt/var/lib/dplaneos/.reset-admin-password" )
+    sync
+    umount "$mnt"
+    rmdir "$mnt" 2>/dev/null || true
+    log "Password reset left on $part."
+}
+
+do_reset_password() {
+    clear
+    gum style --foreground "$TITLE_COLOR" --bold --margin "1 0 0 1" \
+        "Reset the administrator password"
+    gum style --foreground "$DIM_COLOR" --margin "0 0 1 1" \
+        "For an installed system whose administrator cannot sign in any more." \
+        "The system takes the new password at its next start. Two-factor sign-in" \
+        "is switched off for the administrator and its sessions are ended." \
+        "Other users, settings and data are not touched."
+
+    local parts part
+    parts=$(installed_systems)
+    if [ -z "$parts" ]; then
+        gum style --foreground "$ERROR_COLOR" --margin "0 0 1 1" \
+            "No installed DPlaneOS system was found on the disks of this machine."
+        echo "Press Enter to return to the menu."
+        read -r _
+        show_welcome
+        return
+    fi
+    if [ "$(printf '%s\n' "$parts" | wc -l)" -gt 1 ]; then
+        # shellcheck disable=SC2086
+        part=$(gum choose --header "Which system?" --header.foreground "$TITLE_COLOR" $parts)
+    else
+        part="$parts"
+    fi
+    [ -n "$part" ] || { show_welcome; return; }
+
+    set_admin_password
+    write_password_reset "$part"
+
+    clear
+    gum style --border rounded --border-foreground "$SUCCESS_COLOR" --padding "1 4" --margin "1" \
+        "$(gum style --foreground "$SUCCESS_COLOR" --bold "The new password is in place.")" \
+        "" \
+        "$(gum style --foreground "$DIM_COLOR" "Remove the installation medium, then press Enter to restart.")" \
+        "$(gum style --foreground "$DIM_COLOR" "Sign in to the web interface as admin with the new password.")"
+    echo ""
+    read -r _
+    reboot
+}
+
 do_install() {
     require_uefi
     select_disk
@@ -395,6 +508,21 @@ do_install() {
     run_install
     show_complete
 }
+
+# Without questions (tests): DPLANEOS_RESET_PASSWORD=1 leaves the password
+# from DPLANEOS_INSTALL_PASSWORD_FILE on the one installed system there is.
+if [ "${DPLANEOS_RESET_PASSWORD:-0}" = 1 ]; then
+    UNATTENDED=1
+    ADMIN_PASS=$(cat "${DPLANEOS_INSTALL_PASSWORD_FILE:?DPLANEOS_INSTALL_PASSWORD_FILE is not set}")
+    problem=$(password_problem "$ADMIN_PASS")
+    [ -z "$problem" ] || die "$problem"
+    parts=$(installed_systems)
+    [ -n "$parts" ] || die "No installed DPlaneOS system was found."
+    [ "$(printf '%s\n' "$parts" | wc -l)" = 1 ] || die "More than one installed system: $parts"
+    write_password_reset "$parts"
+    echo "The administrator password of the system on $parts was reset."
+    exit 0
+fi
 
 if [ "$UNATTENDED" = 1 ]; then
     INSTALL_DISK="${DPLANEOS_INSTALL_DISK:?DPLANEOS_INSTALL_DISK is not set}"

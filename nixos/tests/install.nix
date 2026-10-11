@@ -192,6 +192,27 @@ pkgs.testers.nixosTest {
             login()
             failed = target.succeed("systemctl --failed --no-legend --plain | awk '{print $1}'").split()
             assert failed == [], f"failed units after restart: {failed}"
+
+        with subtest("A lost administrator password is reset from the installation medium"):
+            target.shutdown()
+            installer.start()
+            installer.wait_for_unit("multi-user.target")
+            installer.succeed("udevadm settle")
+            NEW = "Recovered-Pass-2!"
+            installer.succeed(f"printf '%s' '{NEW}' > /tmp/newpass")
+            print(installer.succeed("DPLANEOS_RESET_PASSWORD=1 DPLANEOS_INSTALL_PASSWORD_FILE=/tmp/newpass bash /etc/dplaneos-install/install.sh 2>&1"))
+            installer.fail("findmnt -n -S PARTLABEL=persist")
+            installer.shutdown()
+            target.start()
+            wait_up()
+            old = api("POST", "/api/auth/login", {"username": "admin", "password": PASSWORD}, auth=False)
+            assert not old.get("session_id"), "the lost password still works"
+            login(NEW)
+            # Used once.
+            target.fail("test -e /var/lib/dplaneos/.reset-admin-password")
+            target.succeed("journalctl -b -u dplaned | grep -q 'RECOVERY: the password of \"admin\" was reset'")
+            # Everything else is as it was.
+            assert target.succeed("hostname").strip() == "installed-nas"
     except Exception:
         print(target.execute("systemctl --failed --no-pager; journalctl -b --no-pager -u dplaned -u postgresql -u dplaneos-system-settings | tail -n 120; "
                              "findmnt; ls -la /var/lib/dplaneos /persist /persist/var/lib/dplaneos")[1])

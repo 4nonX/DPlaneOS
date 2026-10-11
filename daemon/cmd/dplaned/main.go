@@ -395,6 +395,12 @@ func main() {
 	defer bufferedLogger.Stop()
 	audit.SetGlobalBufferedLogger(bufferedLogger)
 
+	// The way back in after a lost administrator password: a new one left
+	// on the system disk by the installation medium (docs/admin/RECOVERY.md).
+	if err := applyAdminPasswordReset(db); err != nil {
+		log.Printf("RECOVERY: %v", err)
+	}
+
 	// Initialize database connection for session validation
 	if err := security.InitDatabase(*dbDSN); err != nil {
 		log.Fatalf("Failed to initialize database: %v", err)

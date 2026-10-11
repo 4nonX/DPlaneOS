@@ -1,372 +1,136 @@
 # DPlaneOS Recovery Guide
 
-## Quick Reference
+For an installed DPlaneOS system (the installer ISO). What to do when you cannot sign in, the system does not start, the web interface does not answer, or a pool does not come up.
 
-| Problem | Command |
-|---------|---------|
-| Service will not start | `journalctl -u dplaned -n 50` |
-| Database locked | `systemctl restart dplaned` |
-| Database corrupted | Restore from backup (see below) |
-| Lost admin access | `sudo dplaneos-recovery` (option 5) |
-| Pool not importing | `zpool import -f <pool>` |
-| Web UI unreachable | `curl --unix-socket /run/dplaneos/dplaned.sock http://localhost/health` |
-| High memory usage | Check `MemoryMax` in systemd unit, restart service |
+Your data is in ZFS pools on the data disks. Nothing in this guide touches them unless it says so, and nearly every problem below is a problem of the system disk or of the configuration, not of the data.
+
+## Quick reference
+
+| Problem | Way out |
+|---|---|
+| Lost the administrator password, or its second factor | [Reset it from the installation medium](#1-lost-administrator-password) |
+| The system does not start after an update | It returns to the previous version by itself; otherwise [choose it in the boot menu](#2-the-system-does-not-start) |
+| The web interface does not answer | [Check the services](#3-the-web-interface-does-not-answer) |
+| No network after a change, or no address at all | [Network](#4-no-network) |
+| A pool is missing, degraded or locked | [ZFS](#5-zfs) |
+| The system disk died | [Reinstall; import the pools](#7-the-system-disk-is-gone) |
+
+Signing in at the console or over SSH: administrators of the web interface sign in with their user name and password (`sudo` asks for the same password). There is no `root` password.
 
 ---
 
-## System Halts on Boot
+## 1. Lost administrator password
 
-If the system halts immediately after booting with no console output beyond early boot messages, the `persist-health-check` service has determined that `/persist` is not mounted or not writable. This is intentional: DPlaneOS cannot safely operate without its persistent state partition and halts rather than continuing in a degraded state that could corrupt the database or ZFS state.
+You need the machine in front of you and the installation medium (the installer ISO of any DPlaneOS version).
 
-To diagnose: attach a serial console or IPMI SOL, then look for journal entries from `dplaneos-persist-check`. The most common cause is a failed `/persist` ext4 partition (fsck failure) or a missing partition entry after a disk replacement. Boot from the installer ISO, run `fsck.ext4 -f /dev/sdX2` (the persist partition), mount it, and verify `/persist/dplaneos/` is readable.
+1. Start the machine from the installation medium.
+2. In the menu choose **Reset the administrator password of an installed system**.
+3. Enter the new password twice.
+4. Remove the medium and restart.
 
-If `/persist` is permanently lost, follow the Complete Database Reset procedure in section 2.
+At its next start the system gives the administrator account (`admin`; if there is none, the oldest local administrator; if there is no administrator at all, a new `admin`) the new password. For that account, two-factor sign-in is switched off and all sessions are ended, and it is active again if it was disabled. Other users, settings and data are not touched. The reset is used once and recorded in the audit log.
 
-## 1. Service Management
+If only another user is locked out, an administrator resets that user's password or second factor on the Users page.
 
-### Check Status
+---
 
-```bash
-systemctl status dplaned
-```
+## 2. The system does not start
 
-### View Logs
+**After an update.** A new version is started once on trial. If it does not come up healthy within a few minutes (the web interface answers, the pools are back, the persistent state is mounted), the system restarts into the previous version by itself. If it hangs before that point, switch the machine off and on: the trial start is used up and the previous version starts.
 
-```bash
-# Last 50 lines
-journalctl -u dplaned -n 50
+**Choosing a version by hand.** The boot menu (hold the space bar while the machine starts) lists the installed versions. Choose an older one. When the system is up, **System › Updates › Return to the previous version** makes that permanent.
 
-# Follow live
-journalctl -u dplaned -f
+**"Waiting for /persist" or emergency mode.** The system keeps its state (database, settings, keys) on the partition labelled `persist` of the system disk. If that partition cannot be mounted the system stops rather than run with an empty state. Start from the installation medium, choose *Shell*, and check the file system: `fsck.ext4 -f /dev/disk/by-partlabel/persist`.
 
-# Since last boot
-journalctl -u dplaned -b
-```
+---
 
-### Restart
+## 3. The web interface does not answer
+
+Sign in at the console or over SSH.
 
 ```bash
+systemctl status dplaned nginx postgresql      # the daemon, the web server, the database
+journalctl -u dplaned -b --no-pager | tail -n 100
 sudo systemctl restart dplaned
-```
 
-Graceful shutdown: the daemon drains active connections before stopping (15 s timeout).
-
-### Verify Health
-
-```bash
-curl --unix-socket /run/dplaneos/dplaned.sock http://localhost/health
-# Expected: {"status":"ok","version":"4.x.x"}
-```
-
----
-
-## 2. Database Recovery
-
-The PostgreSQL database is node-local and stored at `/var/lib/dplaneos/pgsql/`.
-
-### Automatic Snapshots
-
-We recommend using ZFS snapshots for database recovery. The installer configures a separate dataset for the PostgreSQL state if a pool exists.
-
-```bash
-# View available snapshots
-zfs list -t snapshot -r tank/dplaneos/pgsql
-
-# Restore a snapshot (rollback)
-sudo systemctl stop dplaned postgresql
-sudo zfs rollback tank/dplaneos/pgsql@backup-20260323
-sudo systemctl start postgresql dplaned
-```
-
-### Manual Backup (Logical)
-
-```bash
-# Backup the entire dplaneos database
-sudo -u postgres pg_dump dplaneos > /backup/dplaneos-$(date +%Y%m%d).sql
-
-# Restore from SQL dump
-sudo systemctl stop dplaned
-sudo -u postgres psql dplaneos < /backup/dplaneos-20260323.sql
-sudo systemctl start dplaned
-```
-
-### Complete Database Reset
-
-If the database is unrecoverable, you can drop and let the daemon recreate the schema from scratch (roles, permissions, and the default admin user will be seeded automatically):
-
-```bash
-sudo systemctl stop dplaned
-sudo -u postgres psql -c "DROP DATABASE dplaneos;"
-sudo -u postgres psql -c "CREATE DATABASE dplaneos;"
-sudo systemctl start dplaned
-# Check logs: should show "Seeded 4 built-in RBAC roles"
-```
-
-**Note:** This resets all sessions, user accounts, roles, and settings. ZFS pools, shares, and Docker containers are preserved as they live outside the database.
-
----
-
-## 3. Authentication Recovery
-
-### Interactive Recovery CLI
-
-The fastest option for most recovery tasks. Run from SSH or a local console:
-
-```bash
-sudo dplaneos-recovery
-```
-
-Available options:
-
-| # | Option | What it does |
-|---|--------|--------------|
-| 1 | System Status | Hostname, kernel, uptime, RAM, disk, service status |
-| 2 | Check Services | nginx and dplaned status with port availability |
-| 3 | Restart Services | Restarts nginx and dplaned |
-| 4 | Check Database | PostgreSQL service, connection, user and session counts |
-| 5 | Reset Admin Password | Prompts for a new password and updates the database |
-| 6 | Check ZFS Pools | Full `zpool status` output |
-| 7 | Import/Export Pool | Interactive pool name input for import or export |
-| 8 | Check Network | `ip addr` and `ip route` output |
-| 9 | Fix Permissions | Resets ownership on `/var/lib/dplaneos`, `/var/log/dplaneos`, `/etc/dplaneos` |
-| 10 | UPS Status | Reads from NUT (`upsc`) or apcupsd (`apcaccess`) |
-| 11 | View Logs | journalctl for dplaned, errors, nixos-rebuild, kernel, or last 5 minutes |
-| 12 | Run Diagnostics | Service loop, ZFS pool summary, disk space, memory, load |
-| 13 | Emergency Shutdown | Power off or reboot with confirmation prompt |
-| 14 | Exit | |
-
-Requires `dialog` to be installed. On NixOS: `nix-env -iA nixpkgs.dialog`.
-
-### Locked Out - Clear All Sessions
-
-Sessions are stored in the `sessions` table. To force-logout all users:
-
-```bash
-sudo -u postgres psql dplaneos -c "DELETE FROM sessions;"
-# All users must log in again
-```
-
-### Reset Admin User Directly
-
-```bash
-# Write the password to a temp file to avoid shell quoting issues
-PASS_TMP=$(mktemp)
-chmod 600 "$PASS_TMP"
-printf '%s' 'your-new-password' > "$PASS_TMP"
-
-NEW_HASH=$(python3 -c "
-import bcrypt, sys
-with open(sys.argv[1], 'rb') as f:
-    pw = f.read().strip()
-print(bcrypt.hashpw(pw, bcrypt.gensalt(rounds=12)).decode())
-" "$PASS_TMP")
-rm -f "$PASS_TMP"
-
-sudo -u postgres psql dplaneos -c "
-  INSERT INTO users (id, username, password_hash, display_name, email, active, source)
-  VALUES (1, 'admin', '${NEW_HASH}', 'Administrator', 'admin@localhost', 1, 'local')
-  ON CONFLICT (id) DO UPDATE SET password_hash = EXCLUDED.password_hash;
-"
-```
-
-**Note (v14.0.0):** This procedure resets only the bcrypt password hash. DPlaneOS v14.0.0 also stores SCRAM-SHA-512 keys (salt, iterations, StoredKey, ServerKey) that are not regenerated by this script. After using this procedure, the account will function for web login (bcrypt path) but SCRAM clients will need to trigger a password change to regenerate their keys. The safest recovery path is to use the NixOS recovery shell or the daemon's bootstrap endpoint (`POST /api/system/setup/admin`) which regenerates both bcrypt and SCRAM keys atomically.
-
----
-
-## 4. ZFS Recovery
-
-### Pool Will Not Import
-
-```bash
-# List available pools
-sudo zpool import
-
-# Force import (e.g. after hardware move)
-sudo zpool import -f <poolname>
-
-# Import with different mountpoint
-sudo zpool import -f -R /mnt <poolname>
-```
-
-### Pool Degraded
-
-```bash
-sudo zpool status <poolname>
-
-# Replace failed disk
-sudo zpool replace <poolname> <old-device> <new-device>
-
-# Start scrub to verify data integrity
-sudo zpool scrub <poolname>
-```
-
-### Automatic Pool Import on Hot-Swap
-
-When a disk is physically reconnected, the udev hot-swap rules (`99-dplaneos-hotswap.rules`) fire automatically. The daemon receives the event via `POST /api/internal/disk-event` and:
-
-1. Enriches the device with stable identifiers (by-id path, WWN, size)
-2. Cross-checks the disk registry for pool membership
-3. Runs `zpool import -d /dev/disk/by-id <poolname>` automatically if the disk belongs to a known FAULTED, UNAVAIL, or importable pool
-4. Broadcasts a `poolHealthChanged` WebSocket event to update the UI
-5. If faulted vdevs exist, broadcasts `diskReplacementAvailable` and pre-populates the Replace modal
-
-No manual `zpool import` is needed for pools the daemon has previously seen.
-
-### Encrypted Dataset Locked
-
-```bash
-# List locked datasets
-sudo zfs list -o name,keystatus -r <poolname>
-
-# Unlock (prompts for passphrase)
-sudo zfs load-key <poolname/dataset>
-
-# Mount after unlocking
-sudo zfs mount <poolname/dataset>
-```
-
-Or use the web UI: **Storage → Encryption → Unlock**.
-
----
-
-## 5. Reverse Proxy Issues
-
-`dplaned` communicates with nginx via a Unix socket (`/run/dplaneos/dplaned.sock`). If the web UI is unreachable, test the daemon directly first:
-
-```bash
+# Does the daemon answer at all (without the web server)?
 curl --unix-socket /run/dplaneos/dplaned.sock http://localhost/health
 ```
 
-If this returns `{"status":"ok"}` but the browser cannot reach the UI, the issue is in nginx.
-
-### Check nginx
-
-```bash
-systemctl status nginx
-sudo nginx -t
-sudo journalctl -u nginx -n 20
-```
-
-### nginx Configuration Location
-
-```
-/etc/nginx/sites-available/dplaneos
-/etc/nginx/sites-enabled/dplaneos  (symlink)
-```
-
-The installer regenerates this file on every install/upgrade. To restore a known-good config, re-run the installer with `--upgrade`.
+- `dplaned` restarts in a loop: the last lines of its log say why. The usual causes are a full system disk (`df -h / /persist`) and a database that does not start (`journalctl -u postgresql -b`).
+- The browser refuses the certificate after you activated a broken one: remove `/var/lib/dplaneos/tls/web.crt` and `web.key` and restart the system; it makes a self-signed certificate again.
+- Too many failed sign-ins make an address wait (30 seconds at most). Waiting, or signing in from another machine, gets around it.
 
 ---
 
-## 6. Performance Issues
+## 4. No network
 
-### High Memory
+**After a change on the Network page.** A change to an interface is on trial: if you do not confirm it in the web interface within the time shown, the previous setting comes back by itself. Wait for that before doing anything else.
 
-```bash
-# Check daemon memory usage
-systemctl status dplaned | grep Memory
-
-# The systemd unit caps daemon memory at 512 MB (MemoryMax=512M)
-# If hitting limits, check for:
-#   - Large audit log table → purge old entries (see below)
-#   - Many open WebSocket connections
-#   - ZFS ARC pressure (kernel, not dplaned - check with arc_summary)
-```
-
-### Database Maintenance (PostgreSQL)
+**No address at all** (no DHCP server on this network): at the console, sign in and run
 
 ```bash
-# Reclaim storage and update statistics
-sudo -u postgres vacuumdb --all --analyze --verbose
-
-# Check connection status
-sudo -u postgres psql -c "\conninfo"
+sudo dplaneos-console-net
 ```
 
-### Audit Log Growth
+It asks for the interface, an address and the gateway and sets them until the next restart. Then open the web interface and enter the same values under **Network**, where they are kept.
 
-```bash
-# Count audit entries
-sudo -u postgres psql dplaneos -c "SELECT COUNT(*) FROM audit_logs;"
-
-# Purge entries older than 90 days
-sudo -u postgres psql dplaneos -c "
-  DELETE FROM audit_logs WHERE timestamp < (EXTRACT(EPOCH FROM NOW()) - (90 * 86400));
-"
-```
+Interfaces that are not configured use DHCP; what is configured on the Network page is kept in the database and applied at every start.
 
 ---
 
-## 7. Reinstallation
-
-### Upgrade (Preserves Data)
+## 5. ZFS
 
 ```bash
-sudo bash install.sh --upgrade
+zpool status              # what is imported, and how it is
+zpool import              # pools that could be imported
+sudo zpool import tank    # import one
+sudo zpool import -f tank # ... that was last used by another system
 ```
 
-The installer backs up the database, nginx config, and systemd unit before making any changes. On failure, it automatically restores from backup.
+- **Pool not imported after a start.** The Pools page offers the import. A pool of a shared storage group is imported by the node that serves the group; see [High Availability](HIGH-AVAILABILITY.md).
+- **Degraded.** A disk failed or is missing. The Pools page shows which and offers the replacement; from the shell: `sudo zpool replace tank <old> <new>`. A returned disk is taken back by itself.
+- **Suspended.** All paths to the data were lost (a shelf or cable). When the disks are back: `sudo zpool clear tank`. On a node of a cluster, a suspended pool together with the alert "this node has been shut out" means another node took the group over: restart this node.
+- **Encrypted dataset locked.** `sudo zfs load-key tank/secure && sudo zfs mount tank/secure`, or unlock it on the Datasets page.
+- **Deleted or changed files.** Snapshots: the Snapshots page, or `ls <folder of the dataset>/.zfs/snapshot/`.
 
-To roll back a failed upgrade manually:
+Do not use `zpool import -F`, `zpool labelclear` or `zpool destroy` on a pool you want to keep without understanding what they discard.
+
+---
+
+## 6. The database and the configuration
+
+The database is PostgreSQL in `/var/lib/dplaneos/pgsql` (on the `persist` partition).
+
 ```bash
-ls /var/lib/dplaneos/backups/
-sudo bash /var/lib/dplaneos/backups/pre-upgrade-<timestamp>/rollback.sh
-```
+# A copy of everything the system knows about itself
+sudo -u postgres pg_dump dplaneos > /mnt/tank/backup/dplaneos-$(date +%F).sql
 
-### Clean Install (Preserves Data)
-
-```bash
+# Back from a copy (all current settings are replaced)
 sudo systemctl stop dplaned
-# Re-run installer from the new release directory
-sudo bash install.sh
+sudo -u postgres psql -c 'DROP DATABASE dplaneos' -c 'CREATE DATABASE dplaneos OWNER dplaneos'
+sudo -u postgres psql dplaneos < /mnt/tank/backup/dplaneos-2026-01-31.sql
 sudo systemctl start dplaned
 ```
 
-ZFS pools, Docker containers, and network configuration are unaffected - they live in the kernel, not in `dplaned`.
+Passwords of other systems that are stored in the database (directory, cloud accounts, mail) are encrypted with `/var/lib/dplaneos/secrets.key`. A copy of the database is only complete together with that file.
 
-### Complete Uninstall
+**Earlier settings.** System › Configuration History records every change to shares, users, exports and settings, shows the difference and restores single items.
 
-```bash
-sudo systemctl stop dplaned nginx
-sudo systemctl disable dplaned nginx
-sudo rm -f /etc/systemd/system/dplaned.service
-sudo rm -f /etc/systemd/system/dplaneos-*.service
-sudo rm -rf /opt/dplaneos
-sudo rm -rf /var/lib/dplaneos
-sudo rm -rf /var/log/dplaneos
-sudo rm -f /etc/nginx/sites-available/dplaneos
-sudo rm -f /etc/nginx/sites-enabled/dplaneos
-sudo rm -f /etc/sudoers.d/dplaneos
-sudo systemctl daemon-reload
-```
+**Starting over.** Dropping the database as above without restoring a copy gives a system with no users and no settings; the setup dialog appears again. Pools, datasets and their files are untouched; shares and users have to be set up again.
 
 ---
 
-## 8. Diagnostic Commands
+## 7. The system disk is gone
 
-```bash
-# Service status
-systemctl status dplaned postgresql dplaneos-corosync
+1. Replace the disk and install DPlaneOS from the installation medium. The installer only writes to the disk you choose.
+2. Sign in, open **Storage › Pools** and import the pools. Datasets, snapshots and files are as they were.
+3. Shares, users, schedules and settings were on the system disk. Restore the database copy (section 6) together with `secrets.key`, or apply your `state.yaml` if you keep the configuration in Git, or set them up again.
 
-# Health check
-curl -s --unix-socket /run/dplaneos/dplaned.sock http://localhost/health | python3 -m json.tool
+The same applies to moving the data disks to another machine.
 
-# Database tables
-sudo -u postgres psql dplaneos -c "\dt"
+---
 
-# Active sessions
-sudo -u postgres psql dplaneos -c \
-  "SELECT username, to_timestamp(created_at) FROM sessions WHERE status='active';"
+## 8. Collecting information
 
-# RBAC roles
-sudo -u postgres psql dplaneos -c \
-  "SELECT name, display_name, is_system FROM roles;"
-
-# Recent audit entries
-sudo -u postgres psql dplaneos -c \
-  "SELECT to_timestamp(timestamp), \"user\", action, resource FROM audit_logs ORDER BY id DESC LIMIT 20;"
-
-# Daemon version
-/opt/dplaneos/daemon/dplaned -version 2>/dev/null || \
-  curl -s --unix-socket /run/dplaneos/dplaned.sock http://localhost/health | grep version
-```
+**System › Support › Download bundle** packs the daemon's log, the state of pools, disks and the network, and the last entries of the audit log into one file. It contains no passwords and no keys; it does contain user names and addresses. For a cluster, add the output of `corosync-quorumtool -s` from each node.

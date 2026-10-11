@@ -71,23 +71,32 @@ in {
   # ── Auto-login and launch installer ───────────────────────────────────────
   services.getty.autologinUser = lib.mkForce "root";
 
+  # On the screen, on the serial console, and for somebody who signed in
+  # over SSH after remote access was allowed at the console.
   programs.bash.loginShellInit = ''
-    if [ "$(tty)" = "/dev/tty1" ]; then
+    case "$(tty)" in
+      /dev/tty1|/dev/ttyS*) start_installer=1 ;;
+      *) start_installer=''${SSH_CONNECTION:+1} ;;
+    esac
+    if [ -n "''${start_installer:-}" ] && [ -z "''${DPLANEOS_INSTALLER_RUNNING:-}" ]; then
+      export DPLANEOS_INSTALLER_RUNNING=1
       clear
       exec bash /etc/dplaneos-install/install.sh
     fi
   '';
 
   # ── SSH for remote/headless installs ──────────────────────────────────────
-  # Temporary installer password - this system has no sensitive data.
-  # Users can SSH to the installer as root with password "dplaneos".
+  # Off until somebody at the console asks for it ("Allow remote access" in
+  # the installer's menu), and then with a password made up for that one
+  # session and shown on the screen. An installer that anybody on the
+  # network can sign in to with a known password could be made to install
+  # a system that is not the one on the medium.
   services.openssh = {
     enable                          = true;
     settings.PermitRootLogin        = "yes";
     settings.PasswordAuthentication = true;
   };
-  users.users.root.password = lib.mkForce "dplaneos";
-  users.users.root.initialHashedPassword = lib.mkForce null;
+  systemd.services.sshd.wantedBy = lib.mkForce [ ];
 
   # DHCP for IP detection at the completion screen
   networking.useDHCP = lib.mkForce true;

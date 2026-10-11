@@ -89,7 +89,7 @@ Replace `/dev/sdX` with your USB device. Double-check with `lsblk` first.
 4. The installer partitions the disk, installs the NixOS closure from the ISO, and reboots
 5. Remove the USB stick when prompted
 
-**Headless / remote install:** SSH to the installer as `root` with password `dplaneos` (installer environment only - this password does not persist to the installed system).
+**Headless / remote install:** the installer also runs on the serial console (115200 baud). To install over the network, choose *Allow remote access to this installer (SSH)* at the console: SSH is started with a password made up for that session and shown on the screen; sign in as `root` and the installer starts. Remote access is off until you ask for it.
 
 **Installation time:** 5-10 minutes from boot to running system.
 
