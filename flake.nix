@@ -392,6 +392,7 @@
         specialArgs = {
           inherit self;
           targetSystem = self.nixosConfigurations.dplaneos-for-iso.config.system.build.toplevel;
+          targetDiskoScript = self.nixosConfigurations.dplaneos-for-iso.config.system.build.diskoScript;
         };
         modules = [
           ./nixos/installer.nix
@@ -406,6 +407,7 @@
         specialArgs = {
           inherit self;
           targetSystem = self.nixosConfigurations.dplaneos-arm.config.system.build.toplevel;
+          targetDiskoScript = self.nixosConfigurations.dplaneos-arm.config.system.build.diskoScript;
         };
         modules = [
           ./nixos/installer.nix

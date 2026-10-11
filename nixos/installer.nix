@@ -17,7 +17,7 @@
 # Write:   dd if=result/iso/*.iso of=/dev/sdX bs=4M status=progress conv=fsync
 # ─────────────────────────────────────────────────────────────────────────────
 
-{ modulesPath, pkgs, lib, config, self, targetSystem, ... }:
+{ modulesPath, pkgs, lib, config, self, targetSystem, targetDiskoScript, ... }:
 
 let
   # The DPlaneOS target system closure - baked into the ISO's nix store.
@@ -35,6 +35,7 @@ in {
   ];
 
   dplaneos.installer.targetSystem = dplaneosSystem;
+  dplaneos.installer.diskoScript  = targetDiskoScript;
 
   # ── Pre-bake the DPlaneOS target closure into the ISO's nix store ────────
   # Core of offline installation - nixos-install reads from here,

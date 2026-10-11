@@ -52,6 +52,7 @@ pkgs.testers.nixosTest {
       ../installer-common.nix
     ];
     dplaneos.installer.targetSystem = targetSystem;
+    dplaneos.installer.diskoScript = target.config.system.build.diskoScript;
     environment.etc."dplaneos-install/VERSION".text = "test";
 
     # The installer's own root is a small second disk, so that the disk to

@@ -298,19 +298,19 @@ run_install() {
         die "This installation medium is incomplete (the system is missing from it).\nDownload the ISO again and check its checksum."
     fi
 
-    local patched_disko="/tmp/disko-install.nix"
-    sed "s|device = \"/dev/nvme0n1\"|device = \"${INSTALL_DISK}\"|g" \
-        "$INSTALL_DIR/disko.nix" > "$patched_disko"
-    grep -q "device = \"${INSTALL_DISK}\"" "$patched_disko" \
-        || die "The partition layout could not be prepared for $INSTALL_DISK."
+    # The partitioning script was prepared with the installer; only the
+    # placeholder device in it is replaced by the chosen disk.
+    local partition_script="/tmp/dplaneos-partition.sh"
+    [ -r "$INSTALL_DIR/disko-script" ] \
+        || die "This installation medium is incomplete (the partitioning script is missing)."
+    grep -q '/dev/nvme0n1' "$INSTALL_DIR/disko-script" \
+        || die "The partitioning script has no device to replace."
+    sed "s|/dev/nvme0n1|${INSTALL_DISK}|g" "$INSTALL_DIR/disko-script" > "$partition_script"
+    chmod 700 "$partition_script"
 
     progress_step \
         "Partitioning $INSTALL_DISK (boot, system, persistent state)..." \
-        "disko --mode disko $patched_disko"
-
-    progress_step \
-        "Mounting filesystems..." \
-        "disko --mode mount $patched_disko"
+        "'$partition_script'"
 
     mountpoint -q /mnt/persist || die "The persistent state partition is not mounted."
 

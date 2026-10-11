@@ -14,10 +14,20 @@
     '';
   };
 
+  options.dplaneos.installer.diskoScript = lib.mkOption {
+    type = lib.types.package;
+    description = ''
+      The script that partitions, formats and mounts the system disk
+      (config.system.build.diskoScript of the system to install, built from
+      disko.nix). It is prepared here, when the installer is built: at
+      installation time nothing is evaluated or built, only the placeholder
+      device in it is replaced by the chosen disk.
+    '';
+  };
+
   config = {
     environment.systemPackages = with pkgs; [
       gum                                          # the installer's dialogs
-      disko                                        # partitioning
       (python311.withPackages (ps: [ ps.bcrypt ])) # password rules and hash
       parted gptfdisk util-linux e2fsprogs dosfstools
       iproute2 inetutils
@@ -28,8 +38,7 @@
     environment.etc = {
       "dplaneos-install/install.sh".source = ./install.sh;
       "dplaneos-install/install.sh".mode   = "0755";
-      "dplaneos-install/disko.nix".source  = ./disko.nix;
-      "dplaneos-install/disko.nix".mode    = "0644";
+      "dplaneos-install/disko-script".source = config.dplaneos.installer.diskoScript;
       # Where the system to install is in this machine's Nix store.
       "dplaneos-install/system-path".text  = config.dplaneos.installer.targetSystem.outPath;
       "dplaneos-install/system-path".mode  = "0644";
