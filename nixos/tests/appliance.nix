@@ -368,6 +368,30 @@ pkgs.testers.nixosTest {
             assert "2222/tcp" in api("GET", "/api/firewall/status")["system_ports"]
             assert refused(api("POST", "/api/system/ssh-daemon", {"port": 2222, "permit_root_login": "sometimes"}))
 
+        with subtest("Replication to a D-PlaneOS system: through an administrator account, without root sign-in"):
+            # The target here is this same system, reached like any other:
+            # over SSH, as the administrator who was given the source's key.
+            nas.succeed("truncate -s 256M /var/lib/replica.img && zpool create replica /var/lib/replica.img")
+            key = api("GET", "/api/replication/ssh-pubkey")
+            if not key.get("public_key"):
+                ok(api("POST", "/api/replication/ssh-keygen", {}), "replication key")
+                key = api("GET", "/api/replication/ssh-pubkey")
+            ok(api("POST", "/api/ssh/keys", {"username": "admin", "label": "replication from nas", "public_key": key["public_key"]}), "authorize the key on the target")
+            peer = ok(api("POST", "/api/replication/remotes", {"name": "self", "host": "127.0.0.1", "user": "admin", "port": 2222}), "add peer")["remote"]
+            res = ok(api("POST", f"/api/replication/remotes/{peer['id']}/test", {}), "test peer")
+            assert res.get("zfs_ready") is True and res.get("zfs_access") == "sudo", res
+            nas.succeed("zfs snapshot tank/data@repl1")
+            jid = ok(api("POST", "/api/replication/remote", {"snapshot": "tank/data@repl1", "remote_id": peer["id"], "remote_pool": "replica"}), "replicate")["job_id"]
+            nas.wait_until_succeeds("zfs list -H -t snapshot -o name replica/data@repl1", timeout=120)
+            assert api("GET", f"/api/jobs/{jid}")["status"] in ("done", "running")
+            nas.succeed("grep -qx kept /replica/data/file || (zfs mount replica/data; grep -qx kept /replica/data/file)")
+            # An incremental run on top of it.
+            nas.succeed(f"echo more > {mp}/second && zfs snapshot tank/data@repl2")
+            ok(api("POST", "/api/replication/remote", {"snapshot": "tank/data@repl2", "remote_id": peer["id"], "remote_pool": "replica",
+                                                       "incremental": True, "base_snapshot": "tank/data@repl1"}), "replicate incrementally")
+            nas.wait_until_succeeds("zfs list -H -t snapshot -o name replica/data@repl2", timeout=120)
+            nas.succeed("zpool export replica")
+
         with subtest("Firewall: rules take effect at once, deny beats allow"):
             listener(8088)
             listener(8089)

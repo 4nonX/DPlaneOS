@@ -48,12 +48,12 @@ type ReplicationSchedule struct {
 	ID                     string     `json:"id"`
 	Name                   string     `json:"name"`
 	SourceDataset          string     `json:"source_dataset"`
-	RemoteID               string     `json:"remote_id"`            // references a Remote peer
-	RemotePool             string     `json:"remote_pool"`          // destination pool/dataset on the remote
-	Interval               string     `json:"interval"`             // "hourly","daily","weekly","manual"
-	TriggerOnSnapshot      bool       `json:"trigger_on_snapshot"`  // replicate after each auto-snapshot
-	Incremental            bool       `json:"incremental"`          // use -i with last replicated snapshot as base
-	Resume                 bool       `json:"resume"`               // check for resume token before sending
+	RemoteID               string     `json:"remote_id"`           // references a Remote peer
+	RemotePool             string     `json:"remote_pool"`         // destination pool/dataset on the remote
+	Interval               string     `json:"interval"`            // "hourly","daily","weekly","manual"
+	TriggerOnSnapshot      bool       `json:"trigger_on_snapshot"` // replicate after each auto-snapshot
+	Incremental            bool       `json:"incremental"`         // use -i with last replicated snapshot as base
+	Resume                 bool       `json:"resume"`              // check for resume token before sending
 	Compress               bool       `json:"compress"`
 	NonRecursive           bool       `json:"non_recursive,omitempty"` // when true, omit -R from zfs send
 	RateLimitMB            int        `json:"rate_limit_mb"`
@@ -507,7 +507,7 @@ func launchReplicationJob(s ReplicationSchedule) string {
 				}
 				remoteListArgs := append([]string{}, sshArgs...)
 				remoteListArgs = append(remoteListArgs, sshTarget,
-					"zfs", "list", "-H", "-t", "snapshot", "-o", "name", remoteBase)
+					remoteZFS(sshTarget), "list", "-H", "-t", "snapshot", "-o", "name", remoteBase)
 				_, remoteCheckErr := executeCommandWithTimeout(TimeoutMedium, "ssh", remoteListArgs)
 				if remoteCheckErr != nil {
 					j.Log(fmt.Sprintf("WARN: incremental base %q not found on remote - falling back to full send (remote chain broken)", remoteBase))
@@ -570,7 +570,7 @@ func launchReplicationJob(s ReplicationSchedule) string {
 			remoteSnap := remoteDataset + "@" + snapPartsVerify[1]
 			verifyArgs := append([]string{}, sshArgs...)
 			verifyArgs = append(verifyArgs, sshTarget,
-				"zfs", "list", "-H", "-t", "snapshot", "-o", "name", remoteSnap)
+				remoteZFS(sshTarget), "list", "-H", "-t", "snapshot", "-o", "name", remoteSnap)
 			verifyOut, verifyErr := executeCommandWithTimeout(TimeoutMedium, "ssh", verifyArgs)
 			if verifyErr != nil || strings.TrimSpace(verifyOut) != remoteSnap {
 				j.Fail(fmt.Sprintf("Replication integrity check failed: snapshot %q not found on remote after send (partial transfer?)", remoteSnap))
@@ -766,4 +766,3 @@ func isReplicationDue(s ReplicationSchedule, t time.Time) bool {
 		return false
 	}
 }
-

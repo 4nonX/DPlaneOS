@@ -430,7 +430,7 @@ function PeersTab({ confirm }: { confirm: ConfirmFn }) {
   const testMutation = useMutation({
     mutationFn: (id: string) => {
       setTestingId(id)
-      return api.post<{ success: boolean; remote_hostname?: string; zfs_version?: string; zfs_ready?: boolean; duration_ms?: number; error?: string }>(`/api/replication/remotes/${id}/test`, {})
+      return api.post<{ success: boolean; remote_hostname?: string; zfs_version?: string; zfs_ready?: boolean; zfs_access?: 'root' | 'sudo' | 'none'; duration_ms?: number; error?: string }>(`/api/replication/remotes/${id}/test`, {})
     },
     onSuccess: data => {
       setTestingId(null)
@@ -440,7 +440,11 @@ function PeersTab({ confirm }: { confirm: ConfirmFn }) {
         if (data.zfs_ready) parts.push(`ZFS ${data.zfs_version ?? 'ready'}`)
         else parts.push('no ZFS')
         if (data.duration_ms != null) parts.push(`${data.duration_ms}ms`)
-        toast.success(`Test OK: ${parts.join(' | ')}`)
+        if (data.zfs_ready && data.zfs_access === 'none') {
+          toast.error(`Signed in to ${parts[0]}, but this account cannot run zfs there: it must be root, or allowed to run "sudo zfs" without a password (on a D-PlaneOS system: an administrator)`)
+        } else {
+          toast.success(`Test OK: ${parts.join(' | ')}`)
+        }
       } else {
         toast.error(`Test failed: ${data.error ?? 'unknown error'}`)
       }

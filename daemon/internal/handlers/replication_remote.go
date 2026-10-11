@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"regexp"
 	"bufio"
 	"bytes"
 	"context"
@@ -9,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"os/exec"
+	"regexp"
 	"strings"
 	"time"
 
@@ -267,7 +267,7 @@ func execPipedZFSSend(
 	defer cancel()
 
 	sshFullArgs := append([]string{}, sshArgs...)
-	sshFullArgs = append(sshFullArgs, sshTarget, "zfs")
+	sshFullArgs = append(sshFullArgs, sshTarget, remoteZFS(sshTarget))
 	sshFullArgs = append(sshFullArgs, recvArgs...)
 
 	sender := exec.CommandContext(ctx, "zfs", sendArgs...)
@@ -365,7 +365,7 @@ func isValidSSHUser(user string) bool {
 func getResumeToken(sshArgs []string, sshTarget, remoteDataset string) string {
 	checkArgs := append([]string{}, sshArgs...)
 	checkArgs = append(checkArgs, sshTarget,
-		"zfs", "get", "-H", "-o", "value", "receive_resume_token", remoteDataset,
+		remoteZFS(sshTarget), "get", "-H", "-o", "value", "receive_resume_token", remoteDataset,
 	)
 
 	output, err := executeCommandWithTimeout(TimeoutFast, "ssh", checkArgs)
@@ -436,7 +436,7 @@ func (h *ReplicationHandler) RestoreFromRemote(w http.ResponseWriter, r *http.Re
 		// Verify the snapshot exists on the remote before starting.
 		checkArgs := append([]string{}, sshArgs...)
 		checkArgs = append(checkArgs, sshTarget,
-			"zfs", "list", "-H", "-t", "snapshot", "-o", "name", req.RemoteSnapshot)
+			remoteZFS(sshTarget), "list", "-H", "-t", "snapshot", "-o", "name", req.RemoteSnapshot)
 		if _, checkErr := executeCommandWithTimeout(TimeoutMedium, "ssh", checkArgs); checkErr != nil {
 			j.Fail(fmt.Sprintf("Snapshot %q not found on remote %s: %v", req.RemoteSnapshot, remote.Name, checkErr))
 			return
@@ -464,7 +464,7 @@ func (h *ReplicationHandler) RestoreFromRemote(w http.ResponseWriter, r *http.Re
 		// execPipedZFSSend directly since it always does local-send | ssh-recv.
 		// Instead we implement the same pipe pattern inline.
 		sshSendArgs := append([]string{}, sshArgs...)
-		sshSendArgs = append(sshSendArgs, sshTarget, "zfs")
+		sshSendArgs = append(sshSendArgs, sshTarget, remoteZFS(sshTarget))
 		sshSendArgs = append(sshSendArgs, remoteSendCmd...)
 
 		_, restoreErr := execPipedRestore(j, sshSendArgs, recvArgs)
@@ -558,3 +558,13 @@ func execPipedRestore(j *jobs.Job, sshArgs []string, recvArgs []string) (string,
 	return recvOut.String(), nil
 }
 
+// remoteZFS is how zfs is run on the other side. root runs it directly. Any
+// other account goes through sudo: on a DPlaneOS system the administrators'
+// accounts may run zfs that way without a password (nixos/module.nix), and
+// root does not sign in over SSH at all.
+func remoteZFS(sshTarget string) string {
+	if user, _, ok := strings.Cut(sshTarget, "@"); ok && user != "root" {
+		return "sudo -n zfs"
+	}
+	return "zfs"
+}

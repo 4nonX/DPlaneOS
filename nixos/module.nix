@@ -345,6 +345,13 @@ in {
       ];
     };
     security.sudo.enable = true;
+    # Replication from another system signs in as an administrator (root
+    # does not sign in over SSH) and runs zfs through sudo, without a
+    # terminal to type a password into.
+    security.sudo.extraRules = [ {
+      groups   = [ "wheel" ];
+      commands = [ { command = "/run/current-system/sw/bin/zfs"; options = [ "NOPASSWD" ]; } ];
+    } ];
 
     # ─── SSH authorised keys (replaces password auth) ───────────────────
     users.users.root.openssh.authorizedKeys.keys = cfg.sshKeys;
