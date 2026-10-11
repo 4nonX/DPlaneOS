@@ -403,8 +403,8 @@ api GET /api/iscsi/status >/dev/null
 assert_json "iSCSI status" "success" "true"
 api GET /api/ldap/status >/dev/null
 assert_json "LDAP status" "success" "true"
-api GET /api/metrics/current >/dev/null
-assert_json "Metrics current" "success" "true"
+api GET /api/system/metrics >/dev/null
+assert_json "System metrics" "success" "true"
 api GET /api/alerts/webhooks >/dev/null
 assert_json "Alerts/Webhooks" "success" "true"
 api GET /api/monitoring/inotify >/dev/null

@@ -211,7 +211,6 @@
   virtualisation.docker = {
     enable        = true;
     storageDriver = "overlay2";
-    autoPrune.enable = true;
     # Container logs go to the system journal (bounded by 512 MB above)
     # instead of accumulating as JSON files on the NVMe boot drive.
     daemon.settings.log-driver = "journald";

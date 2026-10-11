@@ -43,67 +43,6 @@ func SetRegistryDB(db *sql.DB) {
 	registryDB = db
 }
 
-// UpsertDisk inserts or updates a disk_registry row from a live DiskInfo.
-// The UNIQUE(dev_name, by_id_path) constraint means a disk is uniquely
-// identified by the pair; by_id_path may be empty for devices that lack
-// a stable symlink (e.g., some virtual disks).
-//
-// On conflict the existing row is updated with the latest observations while
-// preserving first_seen and removed_at = NULL (marks the disk as present).
-func UpsertDisk(db *sql.DB, disk DiskInfo) error {
-
-	// Coerce NULL-unfriendly empty strings to empty (PostgreSQL stores them as '').
-	byID := disk.ByIDPath
-	serial := disk.Serial
-	wwn := disk.WWN
-	model := disk.Model
-	poolName := disk.PoolName
-	health := disk.Health
-	if health == "" {
-		health = "UNKNOWN"
-	}
-
-	_, err := db.Exec(`
-		INSERT INTO disk_registry
-			(dev_name, by_id_path, serial, wwn, model, size_bytes, disk_type, pool_name, health,
-			 last_seen, first_seen, removed_at, temp_c)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW(), NULL, $10)
-		ON CONFLICT(dev_name, by_id_path) DO UPDATE SET
-			serial     = excluded.serial,
-			wwn        = excluded.wwn,
-			model      = excluded.model,
-			size_bytes = excluded.size_bytes,
-			disk_type  = excluded.disk_type,
-			pool_name  = excluded.pool_name,
-			health     = excluded.health,
-			last_seen  = NOW(),
-			removed_at = NULL,
-			temp_c     = excluded.temp_c
-	`,
-		disk.Name, byID, serial, wwn, model,
-		int64(disk.SizeBytes), disk.Type, poolName, health,
-		disk.Temp,
-	)
-	return err
-}
-
-// GetDiskBySerial returns the most-recently-seen disk record with the given
-// serial number, or nil if not found.
-func GetDiskBySerial(db *sql.DB, serial string) (*DiskRecord, error) {
-	if serial == "" {
-		return nil, nil
-	}
-	row := db.QueryRow(`
-		SELECT id, dev_name, by_id_path, serial, wwn, model, size_bytes, disk_type,
-		       pool_name, health, last_seen, first_seen, removed_at, temp_c
-		FROM disk_registry
-		WHERE serial = $1
-		ORDER BY last_seen DESC
-		LIMIT 1
-	`, serial)
-	return scanDiskRecord(row)
-}
-
 // GetDiskByByID returns a disk record by its /dev/disk/by-id path.
 func GetDiskByByID(db *sql.DB, byID string) (*DiskRecord, error) {
 	if byID == "" {
@@ -134,20 +73,6 @@ func GetDiskByDevName(db *sql.DB, devName string) (*DiskRecord, error) {
 		LIMIT 1
 	`, devName)
 	return scanDiskRecord(row)
-}
-
-// MarkDiskRemoved sets the removed_at timestamp on a disk_registry row,
-// indicating the disk has been physically removed from the system.
-// Identified by by_id_path; if byID is empty the call is a no-op.
-func MarkDiskRemoved(db *sql.DB, byID string) error {
-	if byID == "" {
-		return nil
-	}
-	_, err := db.Exec(
-		`UPDATE disk_registry SET removed_at = NOW(), health = 'REMOVED' WHERE by_id_path = $1`,
-		byID,
-	)
-	return err
 }
 
 func scanDiskRecord(row *sql.Row) (*DiskRecord, error) {

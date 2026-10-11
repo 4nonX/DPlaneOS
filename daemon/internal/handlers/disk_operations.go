@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"path/filepath"
 
 	"dplaned/internal/libzfs"
 	"dplaned/internal/security"
@@ -72,6 +73,9 @@ func WipeDisk(w http.ResponseWriter, r *http.Request) {
 	labelOut, _ := executeCommandWithTimeout(TimeoutMedium, "zpool", []string{"labelclear", "-f", req.Device})
 
 	storageops.Commit(registryDB, opID)
+	if real, err := filepath.EvalSymlinks(req.Device); err == nil {
+		ForgetDiskPool(registryDB, filepath.Base(real))
+	}
 	respondOK(w, map[string]any{
 		"success": true,
 		"device":  req.Device,

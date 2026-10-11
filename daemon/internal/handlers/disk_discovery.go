@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"dplaned/internal/gitops"
+	"dplaned/internal/libzfs"
 	"dplaned/internal/storageops"
 )
 
@@ -123,7 +124,7 @@ func discoverDisks() ([]DiskInfo, error) {
 	}
 
 	// Fetch zpool status once; pass to all disks.
-	zpoolOut, _ := runFast("zpool", "status", "-P", "-v")
+	zpoolOut, _ := runFast("zpool", "status", "-L", "-P")
 	zpoolStatus := string(zpoolOut)
 
 	var disks []DiskInfo
@@ -139,7 +140,7 @@ func discoverDisks() ([]DiskInfo, error) {
 		diskType := detectDiskTypeEnhanced(dev.Name)
 		temp := readDiskTempFast(dev.Name)
 
-		poolName, health := getPoolForDisk(byID, dev.Name, zpoolStatus)
+		poolName, health := libzfs.MemberOf(zpoolStatus, dev.Name)
 		inUse := hasMountPoint(dev) || poolName != ""
 
 		disks = append(disks, DiskInfo{
@@ -355,54 +356,6 @@ func readDiskTempFast(devName string) int {
 }
 
 // ── Pool membership ────────────────────────────────────────────────────────────
-
-// getPoolForDisk parses `zpool status -P -v` output to determine which pool
-// (if any) owns this disk, and what health state the vdev is in.
-// It matches against both the by-id path and the bare /dev/<name> path.
-func getPoolForDisk(byIDPath, devName string, zpoolStatus string) (poolName, health string) {
-	if zpoolStatus == "" {
-		return "", ""
-	}
-
-	// Split output into per-pool sections at "pool:" lines.
-	lines := strings.Split(zpoolStatus, "\n")
-	currentPool := ""
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if v, ok := strings.CutPrefix(trimmed, "pool:"); ok {
-			currentPool = strings.TrimSpace(v)
-			continue
-		}
-		if currentPool == "" {
-			continue
-		}
-		// Check if this vdev line references our disk.
-		matched := false
-		if byIDPath != "" && strings.Contains(trimmed, byIDPath) {
-			matched = true
-		}
-		if !matched && strings.Contains(trimmed, "/dev/"+devName) {
-			matched = true
-		}
-		// Also match bare device names (e.g., "sda" in older zpool output).
-		if !matched {
-			fields := strings.Fields(trimmed)
-			if len(fields) > 0 && fields[0] == devName {
-				matched = true
-			}
-		}
-		if matched {
-			// The vdev state is the second whitespace-separated field on the line.
-			fields := strings.Fields(trimmed)
-			state := ""
-			if len(fields) >= 2 {
-				state = fields[1]
-			}
-			return currentPool, state
-		}
-	}
-	return "", ""
-}
 
 // hasMountPoint returns true if the device or any of its partitions is mounted.
 func hasMountPoint(dev blockDevice) bool {

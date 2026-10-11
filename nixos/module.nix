@@ -288,10 +288,30 @@ in {
       {
         enable           = true;
         storageDriver    = "overlay2";
-        autoPrune.enable = true;
+        # Not autoPrune: it runs "docker system prune", which also deletes
+        # every stopped container. A container someone stopped must still be
+        # there next week; only unused image layers are cleaned up (below).
+        autoPrune.enable = false;
       }
       (lib.mkIf cfg.docker.enableNvidia { enableNvidia = true; })
     ];
+
+    # Weekly: remove dangling image layers and build cache (never containers
+    # or volumes).
+    systemd.services.dplaneos-docker-image-prune = {
+      description = "Remove unused Docker image layers";
+      after = [ "docker.service" ];
+      requires = [ "docker.service" ];
+      serviceConfig.Type = "oneshot";
+      script = ''
+        ${config.virtualisation.docker.package}/bin/docker image prune -f
+        ${config.virtualisation.docker.package}/bin/docker builder prune -f
+      '';
+    };
+    systemd.timers.dplaneos-docker-image-prune = {
+      wantedBy = [ "timers.target" ];
+      timerConfig = { OnCalendar = "weekly"; Persistent = true; RandomizedDelaySec = "1h"; };
+    };
 
     # ─── SSH ─────────────────────────────────────────────────────────────
     services.openssh = {

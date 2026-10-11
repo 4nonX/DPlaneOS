@@ -112,26 +112,23 @@ export function ImagesTab() {
 
 const PREFLIGHT_LABELS: Record<string, string> = {
   docker_running: 'Docker daemon running',
-  storage_driver_zfs: 'Docker storage driver is zfs (informational: overlay2 on ZFS 2.2+ works too)',
   zfs_pools: 'ZFS pools imported and healthy',
 }
 
 function PreflightCard() {
   const q = useQuery({
     queryKey: ['docker', 'preflight'],
-    queryFn: ({ signal }) => api.get<{ success: boolean; all_pass: boolean; checks: Array<{ check: string; pass: boolean; error?: string; driver?: string }> }>('/api/docker/preflight', signal),
+    queryFn: ({ signal }) => api.get<{ success: boolean; all_pass: boolean; checks: Array<{ check: string; pass: boolean; error?: string }> }>('/api/docker/preflight', signal),
   })
   if (!q.data) return null
   return (
     <div className="card" style={{ borderRadius: 'var(--radius-xl)', padding: 16, marginBottom: 16 }}>
       <div style={{ fontWeight: 600, marginBottom: 8 }}>Pre-flight checks</div>
       {q.data.checks.map(c => {
-        const info = c.check === 'storage_driver_zfs'
         return (
           <div key={c.check} style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 'var(--text-sm)', padding: '2px 0' }}>
-            <Icon name={c.pass ? 'check_circle' : info ? 'info' : 'error'} size={15}
-              style={{ color: c.pass ? 'var(--success)' : info ? 'var(--text-tertiary)' : 'var(--error)' }} />
-            <span>{PREFLIGHT_LABELS[c.check] ?? c.check}{c.driver ? ` (now: ${c.driver})` : ''}{c.error ? `: ${c.error}` : ''}</span>
+            <Icon name={c.pass ? 'check_circle' : 'error'} size={15} style={{ color: c.pass ? 'var(--success)' : 'var(--error)' }} />
+            <span>{PREFLIGHT_LABELS[c.check] ?? c.check}{c.error ? `: ${c.error}` : ''}</span>
           </div>
         )
       })}

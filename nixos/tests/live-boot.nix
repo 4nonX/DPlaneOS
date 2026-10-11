@@ -27,6 +27,40 @@ let
     text = builtins.readFile ./live-boot-smoke.sh;
   };
 
+  hotplugImage = "/tmp/dplaneos-hotplug-disk.img";
+  sataImage = "/tmp/dplaneos-sata-disk.img";
+
+  # What the daemon's service context can do: run with the capability set of
+  # dplaned.service. Prints one line per probe; never fails (diagnostic).
+  capabilityProbes = pkgs.writeShellScript "dplaneos-capability-probes" ''
+    sata=$1
+    probe() { # name command...
+      local name=$1 out status
+      shift
+      out=$("$@" 2>&1)
+      status=$?
+      if [ "$status" = 0 ]; then echo "PROBE [ok] $name"; else echo "PROBE [FAIL $status] $name"; fi
+      echo "$out" | head -n 12 | sed 's/^/      /'
+    }
+    probe "SMART on a SATA disk (ATA pass-through)" smartctl -H -i "$sata"
+    probe "hdparm power state" hdparm -C "$sata"
+    probe "create a file in a folder owned by a user (mode 755)" touch /mnt/captest/userdir/new
+    probe "create a folder in a folder owned by a user" mkdir /mnt/captest/userdir/newdir
+    probe "delete a file in a folder owned by a user" rm /mnt/captest/src/sub/f
+    probe "rsync -a of a tree owned by a user" rsync -a /mnt/captest/src/ /mnt/captest/dst/
+    probe "result of that rsync" ls -lnR /mnt/captest/dst
+    probe "gratuitous ARP (arping)" arping -U -c 1 -I eth0 "$(ip -4 -o addr show dev eth0 | awk '{print $4}' | cut -d/ -f1 | head -n1)"
+    probe "load a kernel module" modprobe dummy
+    probe "signal a process of another user" kill -0 "$(pgrep -u postgres | head -n1)"
+    probe "nft list tables" nft list tables
+    probe "iptables -S" iptables -S
+    probe "dmidecode" dmidecode -t system
+    probe "sg_persist read keys" sg_persist --in -k "$sata"
+    probe "useradd" useradd -M captestuser
+    probe "run a command as another user" runuser -u nobody -- id
+    exit 0
+  '';
+
   # A virtio disk with a serial, so udev creates /dev/disk/by-id/virtio-<serial>.
   ciDisk = serial: { size = 512; driveConfig.deviceExtraOpts.serial = serial; };
 in
@@ -70,6 +104,16 @@ pkgs.testers.nixosTest {
     # Four 512 MiB data disks with serials (two mirrors in the smoke test).
     # Pool creation only accepts /dev/disk/by-id paths, which need a serial.
     virtualisation.emptyDiskImages = map ciDisk [ "dplaneci0" "dplaneci1" "dplaneci2" "dplaneci3" ];
+
+    # A SCSI controller to hot-plug a disk into (works on every machine
+    # type), and one SATA disk: QEMU's emulated SATA disk answers SMART, so
+    # the SMART path through ATA pass-through is tested.
+    virtualisation.qemu.options = [
+      "-device virtio-scsi-pci,id=hotscsi"
+      "-drive file=${sataImage},if=none,id=sata0,format=raw,cache=unsafe"
+      "-device ahci,id=ahci0"
+      "-device ide-hd,drive=sata0,bus=ahci0.0,serial=dplanesata"
+    ];
   };
 
   testScript = ''
@@ -107,6 +151,9 @@ pkgs.testers.nixosTest {
 
     @test_step("Boot live system")
     def boot():
+        for image in ("${hotplugImage}", "${sataImage}"):
+            with open(image, "wb") as f:
+                f.truncate(256 * 1024 * 1024)
         liveSystem.start()
         liveSystem.wait_for_unit("multi-user.target")
         try:
@@ -200,6 +247,73 @@ pkgs.testers.nixosTest {
             dump_diagnostics()
             raise Exception(f"smoke test failed (exit {status})")
 
+    # ── Step 10c: Disk hot-plug ──────────────────────────────────────────────
+    HOT = "/dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_dplanehot"
+
+    def registry(where):
+        """Number of disk registry rows of the hot-plug disk matching where."""
+        sql = f"SELECT count(*) FROM disk_registry WHERE by_id_path LIKE '%dplanehot' AND {where}"
+        return f'test "$(runuser -u postgres -- psql -d dplaneos -tAc "{sql}")" = 1'
+
+    def monitor(cmd):
+        out = liveSystem.send_monitor_command(cmd)
+        assert "rror" not in out, f"QEMU monitor: {cmd}: {out}"
+
+    def plug():
+        monitor("drive_add 0 file=${hotplugImage},if=none,id=hot,format=raw,cache=unsafe")
+        monitor("device_add scsi-hd,drive=hot,bus=hotscsi.0,serial=dplanehot,id=hotdev")
+
+    def unplug():
+        monitor("device_del hotdev")
+        liveSystem.wait_until_fails(f"test -e {HOT}", timeout=60)
+
+    def journal_count(text):
+        return int(liveSystem.succeed(f"journalctl -u dplaned --no-pager | grep -c '{text}' || true").strip())
+
+    @test_step("Disk hot-plug: the daemon notices, and a known pool returns with its disk")
+    def hotplug():
+        try:
+            plug()
+            liveSystem.wait_until_succeeds(f"test -b {HOT}", timeout=60)
+            liveSystem.wait_until_succeeds("journalctl -u dplaned --no-pager | grep -q 'DISK EVENT: added /dev/sd'", timeout=60)
+            liveSystem.wait_until_succeeds(registry("removed_at IS NULL"), timeout=60)
+
+            # A pool on the new disk: the registry learns which pool the disk is in.
+            liveSystem.succeed(f"zpool create -f -m /mnt/hotpool hotpool {HOT} && echo kept > /mnt/hotpool/file")
+            liveSystem.wait_until_succeeds(registry("pool_name = 'hotpool'"), timeout=180)
+
+            # Unplugged cleanly and plugged back in: the pool is imported again.
+            liveSystem.succeed("zpool export hotpool")
+            removed = journal_count("DISK EVENT: removed /dev/sd")
+            unplug()
+            liveSystem.wait_until_succeeds(
+                f"test $(journalctl -u dplaned --no-pager | grep -c 'DISK EVENT: removed /dev/sd') -gt {removed}", timeout=60)
+            liveSystem.wait_until_succeeds(registry("removed_at IS NOT NULL AND pool_name = 'hotpool'"), timeout=60)
+            liveSystem.fail("zpool list -H -o name | grep -qx hotpool")
+            plug()
+            liveSystem.wait_until_succeeds("zpool list -H -o name | grep -qx hotpool", timeout=120)
+            liveSystem.succeed("grep -qx kept /mnt/hotpool/file")
+            liveSystem.succeed("zpool destroy hotpool")
+            unplug()
+        except Exception:
+            print(liveSystem.execute("journalctl -u dplaned --no-pager | grep -E 'DISK|REGISTRY' | tail -n 60; zpool import; zpool list; ls -l /dev/disk/by-id; "
+                                     "runuser -u postgres -- psql -d dplaneos -c 'SELECT dev_name, by_id_path, pool_name, removed_at FROM disk_registry'")[1])
+            raise
+
+    # ── Step 10d: What the daemon's service context can do ───────────────────
+    @test_step("Capability probes (diagnostic)")
+    def capability_probes():
+        caps = liveSystem.succeed("systemctl show dplaned -p CapabilityBoundingSet --value").strip()
+        print(f"dplaned CapabilityBoundingSet: {caps}")
+        sata = liveSystem.succeed("readlink -f /dev/disk/by-id/ata-QEMU_HARDDISK_dplanesata").strip()
+        liveSystem.succeed("mkdir -p /mnt/captest/userdir /mnt/captest/src/sub && echo x > /mnt/captest/src/sub/f "
+                           "&& chown -R 1000:1000 /mnt/captest/userdir /mnt/captest/src && chmod -R go-w /mnt/captest")
+        print(liveSystem.execute(
+            "systemd-run --wait --pipe --quiet --collect -p NoNewPrivileges=yes "
+            f"-p CapabilityBoundingSet='{caps}' -p AmbientCapabilities='{caps}' "
+            f"-E PATH=\"$(systemctl show dplaned -p Environment --value | tr ' ' '\\n' | sed -n 's/^PATH=//p'):/run/current-system/sw/bin\" "
+            f"${capabilityProbes} {sata} 2>&1")[1])
+
     # ── Step 11: Verify system can reach network (DHCP) ──────────────────────
     @test_step("Verify networking")
     def check_networking():
@@ -236,6 +350,8 @@ pkgs.testers.nixosTest {
     check_daemon_logs()
     check_api_health()
     smoke_test()
+    hotplug()
+    capability_probes()
     check_networking()
     check_persistence()
     shutdown()

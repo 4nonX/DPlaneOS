@@ -8,6 +8,11 @@ on:
       - 'docs/**'
       - '**/*.md'
   workflow_dispatch:
+    inputs:
+      vm_check:
+        description: "Run only this VM test (flake check name, e.g. live-boot, failover). Empty: the full pipeline."
+        required: false
+        default: ""
 
 permissions:
   contents: write
@@ -19,8 +24,39 @@ jobs:
   # ════════════════════════════════════════════════════════════════════════════
   # STAGE 1: PREPARE - Build & Verify
   # ════════════════════════════════════════════════════════════════════════════
+  # One VM test on its own (workflow_dispatch with vm_check): for working on
+  # a test without waiting for the whole pipeline.
+  vm-check:
+    name: VM test (${{ inputs.vm_check }})
+    if: ${{ inputs.vm_check }}
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v30
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+            accept-flake-config = true
+            system-features = nixos-test benchmark big-parallel kvm
+
+      - name: Run the VM test
+        timeout-minutes: 60
+        env:
+          VM_CHECK: ${{ inputs.vm_check }}
+        run: nix build ".#checks.x86_64-linux.$VM_CHECK" -L
+
   prepare:
     name: Build & Verify
+    if: ${{ !inputs.vm_check }}
     runs-on: ubuntu-22.04
     services:
       postgres:

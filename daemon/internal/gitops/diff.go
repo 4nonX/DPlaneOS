@@ -92,14 +92,14 @@ const (
 type ResourceKind string
 
 const (
-	KindPool    ResourceKind = "pool"
-	KindDataset ResourceKind = "dataset"
-	KindShare   ResourceKind = "share"
-	KindNFS     ResourceKind = "nfs"
-	KindStack   ResourceKind = "stack"
-	KindSystem  ResourceKind = "system"
-	KindUser    ResourceKind = "user"
-	KindGroup   ResourceKind = "group"
+	KindPool        ResourceKind = "pool"
+	KindDataset     ResourceKind = "dataset"
+	KindShare       ResourceKind = "share"
+	KindNFS         ResourceKind = "nfs"
+	KindStack       ResourceKind = "stack"
+	KindSystem      ResourceKind = "system"
+	KindUser        ResourceKind = "user"
+	KindGroup       ResourceKind = "group"
 	KindReplication ResourceKind = "replication"
 	KindLDAP        ResourceKind = "ldap"
 	KindACME        ResourceKind = "acme"
@@ -110,9 +110,9 @@ const (
 
 // DiffItem is one entry in the reconciliation plan.
 type DiffItem struct {
-	Kind    ResourceKind `json:"kind"`
-	Name    string       `json:"name"`
-	Action  DiffAction   `json:"action"`
+	Kind   ResourceKind `json:"kind"`
+	Name   string       `json:"name"`
+	Action DiffAction   `json:"action"`
 
 	// Changes lists the specific property deltas (for MODIFY actions).
 	// Format: "property: live_value → desired_value"
@@ -132,14 +132,14 @@ type DiffItem struct {
 
 	// Desired* carry the full spec for CREATE/MODIFY operations so the apply
 	// engine does not need to re-look up the DesiredState.
-	DesiredPool    *DesiredPool    `json:"desired_pool,omitempty"`
-	DesiredDataset *DesiredDataset `json:"desired_dataset,omitempty"`
-	DesiredShare   *DesiredShare   `json:"desired_share,omitempty"`
-	DesiredNFS     *DesiredNFS     `json:"desired_nfs,omitempty"`
-	DesiredStack   *DesiredStack   `json:"desired_stack,omitempty"`
-	DesiredSystem  *DesiredSystem  `json:"desired_system,omitempty"`
-	DesiredUser    *DesiredUser    `json:"desired_user,omitempty"`
-	DesiredGroup   *DesiredGroup   `json:"desired_group,omitempty"`
+	DesiredPool        *DesiredPool        `json:"desired_pool,omitempty"`
+	DesiredDataset     *DesiredDataset     `json:"desired_dataset,omitempty"`
+	DesiredShare       *DesiredShare       `json:"desired_share,omitempty"`
+	DesiredNFS         *DesiredNFS         `json:"desired_nfs,omitempty"`
+	DesiredStack       *DesiredStack       `json:"desired_stack,omitempty"`
+	DesiredSystem      *DesiredSystem      `json:"desired_system,omitempty"`
+	DesiredUser        *DesiredUser        `json:"desired_user,omitempty"`
+	DesiredGroup       *DesiredGroup       `json:"desired_group,omitempty"`
 	DesiredReplication *DesiredReplication `json:"desired_replication,omitempty"`
 	DesiredLDAP        *DesiredLDAP        `json:"desired_ldap,omitempty"`
 	DesiredACME        *DesiredACME        `json:"desired_acme,omitempty"`
@@ -152,17 +152,17 @@ type DiffItem struct {
 // Items are ordered: CREATE first, then MODIFY, then DELETE/BLOCKED last.
 // This ordering ensures new dependencies exist before things that need them.
 type Plan struct {
-	Items        []DiffItem `json:"items"`
-	HasBlocked   bool       `json:"has_blocked"`
-	SafeToApply  bool       `json:"safe_to_apply"`  // true only if zero BLOCKED items
-	CreateCount  int        `json:"create_count"`
-	ModifyCount  int        `json:"modify_count"`
-	DeleteCount  int        `json:"delete_count"`
-	BlockedCount int        `json:"blocked_count"`
-	AmbiguousCount int     `json:"ambiguous_count"`
-	ManualCount    int     `json:"manual_count"`
-	NopCount     int        `json:"nop_count"`
-	HasAmbiguous bool       `json:"has_ambiguous"`
+	Items          []DiffItem `json:"items"`
+	HasBlocked     bool       `json:"has_blocked"`
+	SafeToApply    bool       `json:"safe_to_apply"` // true only if zero BLOCKED items
+	CreateCount    int        `json:"create_count"`
+	ModifyCount    int        `json:"modify_count"`
+	DeleteCount    int        `json:"delete_count"`
+	BlockedCount   int        `json:"blocked_count"`
+	AmbiguousCount int        `json:"ambiguous_count"`
+	ManualCount    int        `json:"manual_count"`
+	NopCount       int        `json:"nop_count"`
+	HasAmbiguous   bool       `json:"has_ambiguous"`
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -207,7 +207,7 @@ func ComputeDiff(desired *DesiredState, live *LiveState, ctx ...*DiffContext) *P
 	for _, s := range live.Shares {
 		liveShares[s.Name] = s
 	}
- 
+
 	liveNFS := make(map[string]LiveNFSExport)
 	for _, e := range live.NFS {
 		liveNFS[e.Path] = e
@@ -289,7 +289,7 @@ func ComputeDiff(desired *DesiredState, live *LiveState, ctx ...*DiffContext) *P
 			Action: ActionAmbiguous,
 			BlockReason: fmt.Sprintf(
 				"Multiple pools found with name %q. Automated GitOps cannot safely distinguish "+
-				"between them. Please resolve the name collision manually (e.g. by exporting or renaming one).",
+					"between them. Please resolve the name collision manually (e.g. by exporting or renaming one).",
 				name,
 			),
 			RiskLevel: "critical",
@@ -314,11 +314,11 @@ func ComputeDiff(desired *DesiredState, live *LiveState, ctx ...*DiffContext) *P
 	if plan.HasAmbiguous {
 		return plan
 	}
- 
+
 	// ── Phase 0: SYSTEM configuration ─────────────────────────────────────────
 	if desired.System != nil {
 		if live.System == nil {
-			// System always exists conceptually, but if for some reason live state 
+			// System always exists conceptually, but if for some reason live state
 			// reading failed, we treat it as a modify if we have desired state.
 			// Actually ReadLiveState always returns a non-nil System if it doesn't error.
 			plan.Items = append(plan.Items, DiffItem{
@@ -353,7 +353,7 @@ func ComputeDiff(desired *DesiredState, live *LiveState, ctx ...*DiffContext) *P
 	for _, dp := range desired.Pools {
 		if _, exists := livePools[dp.Name]; !exists {
 			item := dp // copy
-		plan.Items = append(plan.Items, DiffItem{
+			plan.Items = append(plan.Items, DiffItem{
 				Kind:        KindPool,
 				Name:        dp.Name,
 				Action:      ActionCreate,
@@ -366,12 +366,12 @@ func ComputeDiff(desired *DesiredState, live *LiveState, ctx ...*DiffContext) *P
 	for _, dd := range desired.Datasets {
 		if _, exists := liveDatasets[dd.Name]; !exists {
 			item := dd // copy
-		plan.Items = append(plan.Items, DiffItem{
-				Kind:            KindDataset,
-				Name:            dd.Name,
-				Action:          ActionCreate,
-				RiskLevel:       "low",
-				DesiredDataset:  &item,
+			plan.Items = append(plan.Items, DiffItem{
+				Kind:           KindDataset,
+				Name:           dd.Name,
+				Action:         ActionCreate,
+				RiskLevel:      "low",
+				DesiredDataset: &item,
 			})
 		}
 	}
@@ -411,7 +411,7 @@ func ComputeDiff(desired *DesiredState, live *LiveState, ctx ...*DiffContext) *P
 			})
 		}
 	}
- 
+
 	for _, dn := range desired.NFS {
 		if _, exists := liveNFS[dn.Path]; !exists {
 			item := dn // copy
@@ -666,7 +666,7 @@ func ComputeDiff(desired *DesiredState, live *LiveState, ctx ...*DiffContext) *P
 			DesiredShare: &dsCopy,
 		})
 	}
- 
+
 	for _, dn := range desired.NFS {
 		ln, exists := liveNFS[dn.Path]
 		if !exists {
@@ -917,7 +917,7 @@ func ComputeDiff(desired *DesiredState, live *LiveState, ctx ...*DiffContext) *P
 			plan.Items = append(plan.Items, item)
 		}
 	}
- 
+
 	if !desired.IgnoreExtraneous {
 		for _, ln := range live.NFS {
 			if _, wanted := desiredNFS[ln.Path]; wanted {
@@ -965,7 +965,10 @@ func ComputeDiff(desired *DesiredState, live *LiveState, ctx ...*DiffContext) *P
 	for _, lu := range live.Users {
 		found := false
 		for _, du := range desired.Users {
-			if du.Username == lu.Username { found = true; break }
+			if du.Username == lu.Username {
+				found = true
+				break
+			}
 		}
 		// Protect system users (UID < 1000) and specific accounts
 		if !found && lu.Username != "admin" && lu.Username != "root" && lu.ID >= 1000 {
@@ -1015,7 +1018,10 @@ func ComputeDiff(desired *DesiredState, live *LiveState, ctx ...*DiffContext) *P
 		for _, lc := range live.Certificates {
 			wanted := false
 			for _, dc := range desired.Certificates {
-				if dc.Name == lc.Name { wanted = true; break }
+				if dc.Name == lc.Name {
+					wanted = true
+					break
+				}
 			}
 			if !wanted {
 				plan.Items = append(plan.Items, DiffItem{
@@ -1030,7 +1036,10 @@ func ComputeDiff(desired *DesiredState, live *LiveState, ctx ...*DiffContext) *P
 		for _, lt := range live.SMART {
 			wanted := false
 			for _, dt := range desired.SMART {
-				if dt.Device == lt.Device && dt.Type == lt.Type { wanted = true; break }
+				if dt.Device == lt.Device && dt.Type == lt.Type {
+					wanted = true
+					break
+				}
 			}
 			if !wanted {
 				plan.Items = append(plan.Items, DiffItem{
@@ -1080,9 +1089,9 @@ func ComputeDiff(desired *DesiredState, live *LiveState, ctx ...*DiffContext) *P
 		KindLDAP:        9,
 		KindACME:        10,
 		KindCertificate: 11,
-		KindSMART:      12,
-		KindNVMeFabric: 13,
-		KindStack:      14,
+		KindSMART:       12,
+		KindNVMeFabric:  13,
+		KindStack:       14,
 	}
 
 	sort.SliceStable(plan.Items, func(i, j int) bool {
@@ -1184,62 +1193,6 @@ func blockedCheckDataset(ld LiveDataset, ctx *DiffContext) DiffItem {
 		Action:    ActionDelete,
 		RiskLevel: "medium",
 	}
-}
-
-// datasetAttachmentReason queries the database for services that reference
-// the given dataset name or mountpoint. Returns a non-empty string if any
-// attachment is found, which becomes the BLOCKED reason.
-//
-// Mirrors TrueNAS pool_/dataset_attachments.py: before a dataset can be
-// destroyed, all attachment services (shares, exports, containers, targets)
-// are queried. This prevents destroying a dataset that has an active NFS
-// export, SMB share, Docker volume, or iSCSI target pointing at it.
-func datasetAttachmentReason(db *sql.DB, datasetName, mountpoint string) string {
-	var attachments []string
-
-	// Check SMB shares referencing this dataset's mountpoint
-	if mountpoint != "" {
-		var shareCount int
-		db.QueryRow(`SELECT COUNT(*) FROM smb_shares WHERE path = $1`, mountpoint).Scan(&shareCount) //nolint:errcheck
-		if shareCount > 0 {
-			attachments = append(attachments, fmt.Sprintf("%d SMB share(s) at %s", shareCount, mountpoint))
-		}
-
-		// Check NFS exports referencing this mountpoint
-		var nfsCount int
-		db.QueryRow(`SELECT COUNT(*) FROM nfs_exports WHERE path = $1`, mountpoint).Scan(&nfsCount) //nolint:errcheck
-		if nfsCount > 0 {
-			attachments = append(attachments, fmt.Sprintf("%d NFS export(s) at %s", nfsCount, mountpoint))
-		}
-	}
-
-	// Check iSCSI extents referencing a ZVol from this dataset (e.g. tank/data/vol)
-	var iscsiCount int
-	db.QueryRow(`SELECT COUNT(*) FROM iscsi_targets WHERE zvol_path LIKE $1`,
-		datasetName+"/%").Scan(&iscsiCount) //nolint:errcheck
-	if iscsiCount > 0 {
-		attachments = append(attachments, fmt.Sprintf("%d iSCSI target(s) using ZVols under %s", iscsiCount, datasetName))
-	}
-
-	// Check Docker stack configs referencing this mountpoint as a bind mount
-	if mountpoint != "" {
-		var stackCount int
-		db.QueryRow(`SELECT COUNT(*) FROM docker_stacks WHERE compose_yaml LIKE $1`,
-			"%"+mountpoint+"%").Scan(&stackCount) //nolint:errcheck
-		if stackCount > 0 {
-			attachments = append(attachments, fmt.Sprintf("%d Docker stack(s) with volumes from %s", stackCount, mountpoint))
-		}
-	}
-
-	if len(attachments) == 0 {
-		return ""
-	}
-
-	return fmt.Sprintf(
-		"Dataset %q cannot be deleted: it is still referenced by active services: %s. "+
-			"Remove these attachments first, then re-apply the plan.",
-		datasetName, strings.Join(attachments, "; "),
-	)
 }
 
 // blockedCheckShare evaluates whether removing a share should be BLOCKED.
@@ -1524,7 +1477,7 @@ func riskForStackChanges(changes []string) string {
 	}
 	return "medium"
 }
- 
+
 func diffUser(desired DesiredUser, live LiveUser) []string {
 	var changes []string
 	if desired.PasswordHash != "" && desired.PasswordHash != live.PasswordHash {
@@ -1596,7 +1549,7 @@ func riskForSystemChanges(changes []string) string {
 	}
 	return "medium"
 }
- 
+
 func diffNFS(desired DesiredNFS, live LiveNFSExport) []string {
 	var changes []string
 	if desired.Options != live.Options {
@@ -1630,7 +1583,7 @@ func diffSystem(desired DesiredSystem, live nixwriter.DPlaneState) []string {
 	if desired.Timezone != "" && desired.Timezone != live.Timezone {
 		changes = append(changes, fmt.Sprintf("timezone: %q → %q", live.Timezone, desired.Timezone))
 	}
- 
+
 	// Order-insensitive comparisons for DNS and NTP
 	if !equalSlicesSorted(desired.DNSServers, live.DNSServers) {
 		changes = append(changes, "dns_servers changed")
@@ -1655,7 +1608,7 @@ func diffSystem(desired DesiredSystem, live nixwriter.DPlaneState) []string {
 	for _, p := range udpRemoved {
 		changes = append(changes, fmt.Sprintf("firewall-udp-remove: %d", p))
 	}
-	
+
 	// Networking: Actual detailed comparison
 	for iface, ds := range desired.Networking.Statics {
 		ls, ok := live.NetworkStatics[iface]
@@ -1693,27 +1646,35 @@ func diffSystem(desired DesiredSystem, live nixwriter.DPlaneState) []string {
 
 	return changes
 }
- 
+
 func equalSlicesSorted(a, b []string) bool {
-	if len(a) != len(b) { return false }
+	if len(a) != len(b) {
+		return false
+	}
 	ac := append([]string{}, a...)
 	bc := append([]string{}, b...)
 	sort.Strings(ac)
 	sort.Strings(bc)
 	for i := range ac {
-		if ac[i] != bc[i] { return false }
+		if ac[i] != bc[i] {
+			return false
+		}
 	}
 	return true
 }
- 
+
 func equalSlices(a, b []string) bool {
-	if len(a) != len(b) { return false }
+	if len(a) != len(b) {
+		return false
+	}
 	for i := range a {
-		if a[i] != b[i] { return false }
+		if a[i] != b[i] {
+			return false
+		}
 	}
 	return true
 }
- 
+
 func diffIntSlices(live, desired []int) (added, removed []int) {
 	liveMap := make(map[int]bool)
 	for _, v := range live {

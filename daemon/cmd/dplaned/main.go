@@ -515,6 +515,11 @@ func main() {
 	healthChecker.RegisterCheck("directory", handlers.DirectoryHealthCheck(db))
 	healthChecker.Start(daemonCtx)
 
+	// Disk hot-plug: kernel device events (registry, UI events, import of a
+	// known pool whose disks came back, replacement suggestions).
+	handlers.StartDiskEventListener(daemonCtx)
+	handlers.StartDiskRegistrySync(daemonCtx, db, 2*time.Minute)
+
 	// Initialize ZED Event Listener (Unix Socket)
 	go zfs.StartZEDListener(daemonCtx, "/run/dplaneos/dplaneos.sock",
 		func(eventType string, data any, level string) {
@@ -1150,7 +1155,6 @@ func main() {
 	r.Handle("/api/zfs/pool/import", permRoute("storage", "write", handlers.HandleImportPool)).Methods("POST")
 
 	// Disk lifecycle event endpoint (localhost only - called by udev/systemd)
-	r.HandleFunc("/api/internal/disk-event", handlers.HandleDiskEvent).Methods("POST")
 
 	// Files handlers
 	filesHandler := handlers.NewFilesExtendedHandler()
@@ -1699,8 +1703,6 @@ func sessionMiddleware(db *sql.DB, internalCronToken string) mux.MiddlewareFunc 
 				// Internal hooks - called by systemd timers on this host.
 				// Mandatory check: local caller AND the per-boot random token.
 				isInternalCronHook(r, internalCronToken) ||
-				// Internal disk events - called by udev scripts on localhost
-				p == "/api/internal/disk-event" ||
 				// Prometheus metrics - scraped by external monitoring without session
 				p == "/metrics" {
 				next.ServeHTTP(w, r)

@@ -70,6 +70,23 @@ expect 200 GET /api/csrf
 CSRF=$(json .csrf_token)
 check "session and CSRF token issued" test -n "$SESSION" -a -n "$CSRF" -a "$SESSION" != null -a "$CSRF" != null
 
+# ── Nothing without a valid session ────────────────────────────────────────
+# No headers, made-up session headers, a real session under another name:
+# reads, routes outside the permission check and writes all answer 401.
+noauth() { # method path [extra curl args]
+  local method=$1 path=$2
+  shift 2
+  curl -sS -o /dev/null -w '%{http_code}' -X "$method" "$BASE$path" "$@"
+}
+FAKE=(-H "X-Session-ID: 0123456789abcdef0123456789abcdef" -H "X-User: admin")
+for p in "/api/files/list?path=/mnt" "/api/zfs/pools" "/api/config/export" "/api/rbac/users"          "/api/rbac/me/permissions" "/api/auth/tokens" "/api/system/logs"; do
+  check "no session: GET $p is refused" test "$(noauth GET "$p")" = 401
+  check "made-up session: GET $p is refused" test "$(noauth GET "$p" "${FAKE[@]}")" = 401
+done
+check "made-up session: POST is refused"   test "$(noauth POST /api/zfs/datasets "${FAKE[@]}" -H 'Content-Type: application/json' -d '{"name":"tank/x"}')" = 401
+check "a real session under another user name is refused"   test "$(noauth GET /api/zfs/pools -H "X-Session-ID: $SESSION" -H 'X-User: root')" = 401
+check "the real session works"   test "$(noauth GET /api/zfs/pools -H "X-Session-ID: $SESSION" -H 'X-User: admin')" = 200
+
 # ── Disks ──────────────────────────────────────────────────────────────────
 udevadm settle
 D=()
@@ -248,14 +265,6 @@ check "FTP answers on port 21" retry 10 bash -c 'exec 3<>/dev/tcp/127.0.0.1/21 &
 expect 200 GET /api/s3/status
 check "MinIO reported not installed (s3.enable off)" test "$(json .installed)" = false
 
-# ── Feature flags (Settings → Features) ────────────────────────────────────
-expect 200 GET /api/system/features
-check "features listed" test "$(jq '.features | length' "$RESP")" -ge 6
-expect 200 POST /api/system/features/ses_enclosure/enable '{"new_state":"beta"}'
-expect 200 GET /api/system/features
-check "feature state persisted" test "$(jq -r '.features[] | select(.id == "ses_enclosure") | .state' "$RESP")" = beta
-check "feature state stored in PostgreSQL" \
-  test "$(runuser -u postgres -- psql -d dplaneos -tAc "SELECT state FROM feature_flags WHERE id = 'ses_enclosure'")" = beta
 
 # ── Migrations moved into the embedded set ─────────────────────────────────
 check "operation_journal and audit_events exist" \

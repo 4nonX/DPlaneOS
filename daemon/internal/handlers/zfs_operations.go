@@ -1607,6 +1607,8 @@ func (h *ZFSHandler) ExportPool(w http.ResponseWriter, r *http.Request) {
 		respondErrorSimple(w, "Export failed: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
+	// Exported on purpose: its disks coming back do not import it again.
+	ForgetPoolDisks(h.db, req.Pool)
 
 	respondOK(w, map[string]any{"success": true})
 }

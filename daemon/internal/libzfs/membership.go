@@ -21,12 +21,13 @@ func poolIsMemberByStatus(device string) (PoolMembership, error) {
 	if r, err := filepath.EvalSymlinks(device); err == nil {
 		real = r
 	}
-	return poolMembership(string(out), filepath.Base(filepath.ToSlash(real))), nil
+	m, _ := poolMembership(string(out), filepath.Base(filepath.ToSlash(real)))
+	return m, nil
 }
 
 // poolMembership finds the kernel device name dev (sdb, sdb1, nvme0n1) in
 // "zpool status -L -P" output.
-func poolMembership(status, dev string) PoolMembership {
+func poolMembership(status, dev string) (PoolMembership, string) {
 	var currentPool string
 	for _, line := range strings.Split(status, "\n") {
 		f := strings.Fields(line)
@@ -39,10 +40,26 @@ func poolMembership(status, dev string) PoolMembership {
 		}
 		member := f[0][strings.LastIndex(f[0], "/")+1:]
 		if member == dev || isPartitionOf(member, dev) {
-			return PoolMembership{InPool: true, PoolName: currentPool}
+			return PoolMembership{InPool: true, PoolName: currentPool}, vdevState(f)
 		}
 	}
-	return PoolMembership{}
+	return PoolMembership{}, ""
+}
+
+func vdevState(fields []string) string {
+	if len(fields) >= 2 {
+		return fields[1]
+	}
+	return ""
+}
+
+// MemberOf finds the kernel device name dev (sdb, nvme0n1; a whole disk
+// matches through its partitions) in "zpool status -L -P" output and returns
+// the pool and the vdev's state (ONLINE, FAULTED, ...), or "" when the
+// device is in no imported pool.
+func MemberOf(statusLP, dev string) (pool, state string) {
+	m, st := poolMembership(statusLP, dev)
+	return m.PoolName, st
 }
 
 // isPartitionOf: sdb1 of sdb, nvme0n1p2 of nvme0n1, mmcblk0p1 of mmcblk0.

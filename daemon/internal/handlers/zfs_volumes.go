@@ -128,6 +128,13 @@ func DestroyZvol(w http.ResponseWriter, r *http.Request) {
 		respondErrorSimple(w, "invalid zvol name", http.StatusBadRequest)
 		return
 	}
+	// A volume that is still exported (iSCSI, NVMe-oF) is not destroyed.
+	if registryDB != nil {
+		if reason := destroyBlockedReason(registryDB, req.Name); reason != "" {
+			respondErrorSimple(w, reason, http.StatusConflict)
+			return
+		}
+	}
 	args := []string{"destroy"}
 	if req.Force {
 		args = append(args, "-f")

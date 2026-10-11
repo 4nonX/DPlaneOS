@@ -371,7 +371,7 @@ func (h *NixOSGuardHandler) WatchdogStatus(w http.ResponseWriter, r *http.Reques
 //  Verify ZFS backend before Docker starts
 // ═══════════════════════════════════════════════════════════════
 
-// DockerPreFlight verifies Docker and ZFS are in sync
+// PreFlightCheck: Docker answers and the pools are healthy.
 // GET /api/docker/preflight
 func (h *DockerHandler) PreFlightCheck(w http.ResponseWriter, r *http.Request) {
 	checks := []map[string]any{}
@@ -384,17 +384,7 @@ func (h *DockerHandler) PreFlightCheck(w http.ResponseWriter, r *http.Request) {
 		checks = append(checks, map[string]any{"check": "docker_running", "pass": true})
 	}
 
-	// Check 2: Docker storage driver is ZFS
-	driverOut, _ := executeCommandWithTimeout(TimeoutFast, "docker", []string{"info", "--format", "{{.Driver}}"})
-	driver := strings.TrimSpace(driverOut)
-	isZFS := driver == "zfs"
-	checks = append(checks, map[string]any{
-		"check":  "storage_driver_zfs",
-		"pass":   isZFS,
-		"driver": driver,
-	})
-
-	// Check 3: ZFS pools are imported
+	// Check 2: ZFS pools are imported
 	poolOut, err := executeCommandWithTimeout(TimeoutFast, "zpool", []string{"list", "-H", "-o", "name,health"})
 	if err != nil {
 		checks = append(checks, map[string]any{"check": "zfs_pools", "pass": false, "error": "No ZFS pools found"})

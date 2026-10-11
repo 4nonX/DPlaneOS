@@ -206,6 +206,11 @@ func zedTypedDispatch(
 		broadcast("pool_imported", map[string]any{"pool": pool}, "info")
 		refreshPoolHealth()
 
+	// Pool created, exported or reshaped: the pool list and the disks'
+	// membership changed.
+	case "pool_create", "pool_export", "config_sync", "vdev_add", "vdev_attach":
+		refreshPoolHealth()
+
 	// ── Data loss and system errors ───────────────────────────────────────────
 
 	case "data_loss":

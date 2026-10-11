@@ -37,9 +37,9 @@ func TestPoolMembership(t *testing.T) {
 		"nvme0n":    "",
 		"tank":      "", // the pool's own row is not a device
 	} {
-		m := poolMembership(statusLP, dev)
-		if m.PoolName != want || m.InPool != (want != "") {
-			t.Errorf("%s: got %+v, want pool %q", dev, m, want)
+		m, state := poolMembership(statusLP, dev)
+		if m.PoolName != want || m.InPool != (want != "") || (want != "" && state != "ONLINE") {
+			t.Errorf("%s: got %+v %q, want pool %q", dev, m, state, want)
 		}
 	}
 }

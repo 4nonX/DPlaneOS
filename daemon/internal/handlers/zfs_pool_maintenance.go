@@ -116,7 +116,11 @@ func (h *ZFSHandler) HandlePoolDestroy(w http.ResponseWriter, r *http.Request) {
 	// destroy is final either way; clients lose access regardless.
 	if !req.Force {
 		deps, err := poolDependencyCheck(h.db, req.Name)
-		if err == nil && len(deps) > 0 {
+		if err != nil {
+			respondErrorSimple(w, "Cannot check what still uses pool "+req.Name+" ("+err.Error()+"); not destroyed. Use force to destroy it anyway.", http.StatusConflict)
+			return
+		}
+		if len(deps) > 0 {
 			guidedPoolDestroyBlocked(w, req.Name, deps)
 			return
 		}
@@ -126,21 +130,22 @@ func (h *ZFSHandler) HandlePoolDestroy(w http.ResponseWriter, r *http.Request) {
 		respondErrorSimple(w, "Failed to destroy pool: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
+	ForgetPoolDisks(h.db, req.Name)
 	respondOK(w, CommandResponse{Success: true, Output: "Pool " + req.Name + " destroyed"})
 }
 
 // PoolFeature represents a single ZFS feature flag.
 type PoolFeature struct {
 	Name        string `json:"name"`
-	State       string `json:"state"`    // active | enabled | disabled
+	State       string `json:"state"` // active | enabled | disabled
 	Description string `json:"description,omitempty"`
 }
 
 // PoolCheckpointStatus contains checkpoint information for a pool.
 type PoolCheckpointStatus struct {
-	Pool       string `json:"pool"`
+	Pool          string `json:"pool"`
 	HasCheckpoint bool   `json:"has_checkpoint"`
-	Size       string `json:"size,omitempty"`
+	Size          string `json:"size,omitempty"`
 }
 
 // GetCheckpointStatus handles GET /api/zfs/checkpoint

@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -8,7 +9,6 @@ import (
 	"regexp"
 	"strings"
 	"time"
-	"database/sql"
 
 	"dplaned/internal/audit"
 	"dplaned/internal/gitops"
@@ -65,6 +65,14 @@ func (h *ZFSHandler) HandleCommand(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// This route sets dataset properties and destroys datasets: nothing else
+	// of the command whitelist (disk wipes, services, ...) is reachable here.
+	if req.Command != "zfs_destroy" && req.Command != "zfs_set_property" {
+		audit.LogSecurityEvent("Command not available on /api/zfs/command: "+req.Command, req.User, r.RemoteAddr)
+		respondErrorSimple(w, "command not allowed here", http.StatusForbidden)
+		return
+	}
+
 	// Validate command is whitelisted
 	if err := security.ValidateCommand(req.Command, req.Args); err != nil {
 		audit.LogSecurityEvent(fmt.Sprintf("Command validation failed: %v", err), req.User, r.RemoteAddr)
@@ -77,6 +85,16 @@ func (h *ZFSHandler) HandleCommand(w http.ResponseWriter, r *http.Request) {
 	if !exists {
 		respondErrorSimple(w, "Command not found", http.StatusNotFound)
 		return
+	}
+
+	// A dataset that shares, exports or stacks still use is not destroyed.
+	if req.Command == "zfs_destroy" {
+		if target := destroyTarget(req.Args); target != "" {
+			if reason := destroyBlockedReason(h.db, target); reason != "" {
+				respondOK(w, CommandResponse{Success: false, Error: reason, Code: "dataset_in_use"})
+				return
+			}
+		}
 	}
 
 	// Execute command
@@ -446,4 +464,3 @@ func parseZfsList(output string) []map[string]string {
 }
 
 // respondJSON and respondError are defined in helpers.go
-
