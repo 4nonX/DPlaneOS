@@ -590,9 +590,9 @@ func main() {
 		},
 	)
 
-	// Kerberos ticket renewal loop: wakes every 15 minutes and renews machine
-	// account TGTs for any joined AD domain. No-op when AD is not configured.
-	handlers.StartKerberosRenewer(daemonCtx, db)
+	// Active Directory membership: checked every 15 minutes (winbind keeps
+	// the machine account and its tickets current by itself).
+	handlers.StartDomainMonitor(daemonCtx, db)
 
 	// Initialize Background Monitor (30s interval)
 	// Broadcasts inotify stats to WebSocket clients
@@ -1355,7 +1355,6 @@ func main() {
 	r.Handle("/api/ldap/mappings", permRoute("system", "write", ldapHandler.DeleteMapping)).Methods("DELETE")
 	r.Handle("/api/ldap/sync-log", permRoute("system", "read", ldapHandler.GetSyncLog)).Methods("GET")
 	// Active Directory Domain Join (v7.3.0)
-	r.Handle("/api/directory/join", permRoute("system", "admin", ldapHandler.JoinADDomain)).Methods("POST")
 	r.Handle("/api/directory/status", permRoute("system", "read", ldapHandler.GetDirectoryStatus)).Methods("GET")
 
 	// Multi-forest AD domain CRUD + join/leave (v8.0.0)

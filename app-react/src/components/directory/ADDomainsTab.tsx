@@ -1,12 +1,13 @@
 /**
- * ADDomainsTab - additional Active Directory domains (other forests), each
- * with its own UID/GID range.
+ * ADDomainsTab - membership in an Active Directory domain. The system joins
+ * one domain; further entries are domains it trusts, each with its own
+ * UID/GID range.
  *
  *   GET    /api/ldap/domains                      → { data: Domain[] }
  *   POST   /api/ldap/domains {name, realm, server, idmap_backend, idmap_low, idmap_high}
  *   DELETE /api/ldap/domains/{name}
  *   POST   /api/ldap/domains/{name}/join  {username, password, ou?} → { job_id }
- *   POST   /api/ldap/domains/{name}/leave {username, password}      → { job_id }
+ *   POST   /api/ldap/domains/{name}/leave {username, password, force?} → { job_id }
  *   GET    /api/ldap/domains/{name}/status        → { joined, message?, winbind_ping_error? }
  */
 import { useState } from 'react'
@@ -70,12 +71,13 @@ function JoinLeaveModal({ domain, mode, onClose, onDone }: { domain: Domain; mod
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [ou, setOu] = useState('')
+  const [force, setForce] = useState(false)
   const [jobId, setJobId] = useState<string | null>(null)
   const job = useJob(jobId)
   const start = useMutation({
     mutationFn: async () => {
       const r = await api.post<{ job_id?: string; error?: string }>(`/api/ldap/domains/${encodeURIComponent(domain.name)}/${mode}`,
-        mode === 'join' ? { username, password, ou } : { username, password })
+        mode === 'join' ? { username, password, ou } : { username, password, force })
       if (!r.job_id) throw new Error(r.error ?? 'Could not start')
       return r.job_id
     },
@@ -98,6 +100,12 @@ function JoinLeaveModal({ domain, mode, onClose, onDone }: { domain: Domain; mod
             <label className="field"><span className="field-label">Organizational unit (optional)</span>
               <input className="input" value={ou} onChange={e => setOu(e.target.value)} placeholder="Servers/NAS" /></label>
           )}
+          {mode === 'leave' && (
+            <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: 'var(--text-sm)' }}>
+              <input type="checkbox" checked={force} onChange={e => setForce(e.target.checked)} style={{ marginTop: 3 }} />
+              <span>Leave even if the domain does not answer or refuses. The computer account then stays in the domain and has to be deleted there by hand.</span>
+            </label>
+          )}
           <div style={{ display: 'flex', gap: 10 }}>
             <button className="btn btn-primary" disabled={start.isPending || !username || !password} onClick={() => start.mutate()}>
               {mode === 'join' ? 'Join domain' : 'Leave domain'}
@@ -108,6 +116,9 @@ function JoinLeaveModal({ domain, mode, onClose, onDone }: { domain: Domain; mod
       ) : (
         <>
           {!finished && <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}><Icon name="progress_activity" size={16} />Working…</div>}
+          {(job.data?.logs ?? []).length > 0 && (
+            <pre style={{ margin: 0, fontSize: 'var(--text-xs)', whiteSpace: 'pre-wrap', color: 'var(--text-secondary)' }}>{(job.data?.logs ?? []).join('\n')}</pre>
+          )}
           {job.data?.status === 'done' && <div style={{ color: 'var(--success)', fontWeight: 600 }}>{mode === 'join' ? 'Joined.' : 'Left the domain.'}</div>}
           {job.data?.status === 'failed' && <div style={{ color: 'var(--error)' }}>{job.data.error}</div>}
           {finished && <button className="btn btn-primary" onClick={() => { onDone(); onClose() }}>Close</button>}
@@ -149,11 +160,11 @@ export function ADDomainsTab() {
   return (
     <div className="card" style={{ borderRadius: 'var(--radius-xl)', padding: 20 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
-        <span style={{ fontWeight: 700 }}>Additional Active Directory domains</span>
+        <span style={{ fontWeight: 700 }}>Active Directory membership</span>
         <button className="btn btn-primary btn-sm" style={{ marginLeft: 'auto' }} onClick={() => setAdding(true)}><Icon name="add" size={14} />Add domain</button>
       </div>
       <p style={{ margin: '0 0 12px', fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>
-        For users of further domains or forests besides the one under Directory Setup. Each domain maps its users to its own range of user IDs.
+        A system is a member of one domain: add it here and join it. Its users, and those of domains it trusts, then use the SMB shares with their domain accounts and own their files. Add a trusted domain (without joining it) to give its users a range of user IDs of their own. This system must use the domain's DNS server (Network › DNS).
       </p>
       <div style={{ overflowX: 'auto' }}>
         <table className="table" style={{ width: '100%' }}>
@@ -164,7 +175,7 @@ export function ADDomainsTab() {
                 <td style={{ fontWeight: 600 }}>{d.name}</td>
                 <td style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)' }}>{d.realm}</td>
                 <td style={{ fontSize: 'var(--text-xs)' }}>{d.idmap_backend} · {d.idmap_low}-{d.idmap_high}</td>
-                <td><span style={{ color: d.domain_joined ? 'var(--success)' : 'var(--text-tertiary)', fontWeight: 600 }}>{d.domain_joined ? 'Joined' : 'Not joined'}</span></td>
+                <td><span style={{ color: !d.domain_joined ? 'var(--text-tertiary)' : d.kinit_ok ? 'var(--success)' : 'var(--error)', fontWeight: 600 }}>{!d.domain_joined ? 'Not joined' : d.kinit_ok ? 'Member' : 'Member, account not accepted'}</span></td>
                 <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
                   {d.domain_joined ? (
                     <>
@@ -173,7 +184,7 @@ export function ADDomainsTab() {
                     </>
                   ) : (
                     <>
-                      <button className="btn btn-xs btn-ghost" onClick={() => setAction({ domain: d, mode: 'join' })}><Icon name="login" size={14} />Join</button>
+                      {!domains.some(x => x.domain_joined) && <button className="btn btn-xs btn-ghost" onClick={() => setAction({ domain: d, mode: 'join' })}><Icon name="login" size={14} />Join</button>}
                       <button className="btn btn-xs btn-ghost" style={{ color: 'var(--error)' }} disabled={remove.isPending}
                         onClick={async () => { if (await confirm({ title: `Remove ${d.name}?`, message: 'The domain registration and its ID range are removed.', confirmLabel: 'Remove', danger: true })) remove.mutate(d.name) }}>
                         <Icon name="delete" size={14} />Remove
@@ -183,7 +194,7 @@ export function ADDomainsTab() {
                 </td>
               </tr>
             ))}
-            {domains.length === 0 && <tr><td colSpan={5} style={{ textAlign: 'center', color: 'var(--text-tertiary)' }}>No additional domains.</td></tr>}
+            {domains.length === 0 && <tr><td colSpan={5} style={{ textAlign: 'center', color: 'var(--text-tertiary)' }}>No domain. This system uses its local accounts.</td></tr>}
           </tbody>
         </table>
       </div>

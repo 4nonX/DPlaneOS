@@ -85,11 +85,15 @@ interface LdapStatus {
 }
 
 interface DirectoryStatus {
-  provider_type:    string
-  domain_joined:    boolean
-  domain_joined_at: string | null
-  realm:            string
-  net_ads_info:     string
+  provider_type:     string
+  domain_joined:     boolean
+  domain_joined_at?: string | null
+  domain?:           string
+  realm?:            string
+  /** false: the domain does not accept this system's account at the moment */
+  trust_ok?:         boolean
+  /** false: this system's Samba cannot join a domain */
+  supported?:        boolean
 }
 
 interface Mapping {
@@ -149,7 +153,7 @@ function StatusBar({ status, onSync }: { status: LdapStatus; onSync: () => void 
 // ConfigTab
 // ---------------------------------------------------------------------------
 
-function ConfigTab() {
+function ConfigTab({ onOpenMembership }: { onOpenMembership: () => void }) {
   const qc = useQueryClient()
 
   const configQ = useQuery({
@@ -180,7 +184,6 @@ function ConfigTab() {
   })
 
   const [cfg, setCfg] = useState<LdapConfig | null>(null)
-  const [joinCreds, setJoinCreds] = useState({ username: '', password: '' })
 
   const formCfg: LdapConfig = cfg ?? configQ.data ?? { provider_type: 'openldap' }
 
@@ -205,21 +208,6 @@ function ConfigTab() {
   const save = useMutation({
     mutationFn: () => api.post('/api/ldap/config', toLdapApi(formCfg)),
     onSuccess: () => { toast.success('Configuration saved'); qc.invalidateQueries({ queryKey: ['ldap'] }) },
-    onError: (e: Error) => toast.error(e.message),
-  })
-
-  const join = useMutation({
-    mutationFn: () => api.post('/api/directory/join', {
-      username: joinCreds.username,
-      password: joinCreds.password,
-      domain: formCfg.realm,
-      domain_controller: formCfg.host
-    }),
-    onSuccess: () => { 
-      toast.success('Successfully joined domain'); 
-      qc.invalidateQueries({ queryKey: ['directory'] });
-      setJoinCreds({ username: '', password: '' });
-    },
     onError: (e: Error) => toast.error(e.message),
   })
 
@@ -269,13 +257,16 @@ function ConfigTab() {
           <div className="card" style={{ padding: 20, borderLeft: '4px solid var(--primary)' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
               <Icon name="verified_user" size={20} style={{ color: 'var(--primary)' }} />
-              <h3 style={{ fontSize: 'var(--text-lg)', fontWeight: 600, margin: 0 }}>Active Directory Domain Join</h3>
+              <h3 style={{ fontSize: 'var(--text-lg)', fontWeight: 600, margin: 0 }}>Active Directory membership</h3>
             </div>
             
             {adStatusQ.data?.data.domain_joined ? (
-              <div style={{ background: 'var(--bg-success-subtle)', padding: 12, borderRadius: 'var(--radius-sm)', marginBottom: 16 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--success)', fontWeight: 600 }}>
-                  <Icon name="check_circle" size={16} /> Joined to {adStatusQ.data.data.realm}
+              <div style={{ background: 'var(--bg-success-subtle)', padding: 12, borderRadius: 'var(--radius-sm)', marginBottom: 12 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: adStatusQ.data.data.trust_ok === false ? 'var(--error)' : 'var(--success)', fontWeight: 600 }}>
+                  <Icon name={adStatusQ.data.data.trust_ok === false ? 'error' : 'check_circle'} size={16} />
+                  {adStatusQ.data.data.trust_ok === false
+                    ? `Member of ${adStatusQ.data.data.realm}, but the domain does not accept this system's account at the moment`
+                    : `Member of ${adStatusQ.data.data.realm}`}
                 </div>
                 {adStatusQ.data.data.domain_joined_at && (
                   <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', marginTop: 4 }}>
@@ -284,33 +275,15 @@ function ConfigTab() {
                 )}
               </div>
             ) : (
-              <div style={{ display: 'grid', gap: 12 }}>
-                <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', marginBottom: 8 }}>
-                  To enable Kerberos authentication for SMB shares, D-PlaneOS must join the AD domain.
-                  The system clock must be NTP-synchronized before joining.
-                </p>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                  <Field label="Domain Admin User">
-                    <input value={joinCreds.username} onChange={e => setJoinCreds(p => ({ ...p, username: e.target.value }))} placeholder="administrator" className="input" />
-                  </Field>
-                  <Field label="Domain Admin Password">
-                    <input type="password" value={joinCreds.password} onChange={e => setJoinCreds(p => ({ ...p, password: e.target.value }))} className="input" />
-                  </Field>
-                </div>
-                <button onClick={() => join.mutate()} disabled={join.isPending || !joinCreds.username || !joinCreds.password} className="btn btn-primary" style={{ justifySelf: 'start' }}>
-                  {join.isPending ? 'Joining Domain...' : 'Join Domain'}
-                </button>
-              </div>
+              <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', margin: '0 0 12px' }}>
+                {adStatusQ.data?.data.supported === false
+                  ? 'This system cannot join a domain: its Samba was built without Active Directory support.'
+                  : 'Not a member of a domain. The settings below let domain users sign in to this web interface. To let them use the SMB shares with their domain accounts, the system joins the domain.'}
+              </p>
             )}
-            
-            {adStatusQ.data?.data.net_ads_info && (
-              <details style={{ marginTop: 12 }}>
-                <summary style={{ fontSize: 'var(--text-xs)', cursor: 'pointer', color: 'var(--text-tertiary)' }}>Advanced Status Info</summary>
-                <pre style={{ fontSize: 10, background: 'var(--bg-code)', padding: 8, borderRadius: 4, marginTop: 4, whiteSpace: 'pre-wrap' }}>
-                  {adStatusQ.data.data.net_ads_info}
-                </pre>
-              </details>
-            )}
+            <button className="btn btn-ghost" onClick={onOpenMembership}>
+              <Icon name="domain_add" size={16} />{adStatusQ.data?.data.domain_joined ? 'Domain membership' : 'Join a domain'}
+            </button>
           </div>
         )}
 
@@ -582,7 +555,7 @@ export function DirectoryPage() {
   const TABS: { id: Tab; label: string; icon: string }[] = [
     { id: 'config',   label: 'Directory Setup', icon: 'settings' },
     { id: 'mappings', label: 'Role Mappings', icon: 'account_tree' },
-    { id: 'domains',  label: 'More Domains',  icon: 'domain_add' },
+    { id: 'domains',  label: 'Domain Membership', icon: 'domain_add' },
     { id: 'log',      label: 'Diagnostics',    icon: 'history' },
   ]
 
@@ -602,7 +575,7 @@ export function DirectoryPage() {
       </div>
 
       <div style={{ animation: 'fadeIn 0.3s ease-in-out' }}>
-        {tab === 'config'   && <ConfigTab />}
+        {tab === 'config'   && <ConfigTab onOpenMembership={() => setTab('domains')} />}
         {tab === 'mappings' && <MappingsTab />}
         {tab === 'domains'  && <ADDomainsTab />}
         {tab === 'log'      && <SyncLogTab />}

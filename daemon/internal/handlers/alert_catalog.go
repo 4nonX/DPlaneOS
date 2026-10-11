@@ -22,6 +22,9 @@ const (
 	EventUPSUnreachable       = "ups.unreachable"
 	EventUpdateInstalled      = "update.installed"
 	EventUpdateReverted       = "update.reverted"
+
+	EventDirectoryTrustLost     = "directory.trust_lost"
+	EventDirectoryTrustRestored = "directory.trust_restored"
 )
 
 // AlertEvent describes one kind of alert the system raises.
@@ -63,6 +66,8 @@ var AlertCatalog = []AlertEvent{
 	{EventUpdateInstalled, "info", "A system update was installed and kept."},
 	{EventUpdateReverted, "critical", "A system update was removed again; the system runs the previous version."},
 	{EventAuthFailedBurst, "warning", "Repeated failed sign-in attempts from one address."},
+	{EventDirectoryTrustLost, "critical", "The Active Directory domain no longer accepts this system's account: domain users cannot open shares."},
+	{EventDirectoryTrustRestored, "info", "The Active Directory domain accepts this system's account again."},
 }
 
 // GetAlertEvents GET /api/alerts/events

@@ -242,10 +242,11 @@ func wholeDisk(sysBlock, dev string) (disk string, scsi bool, err error) {
 		entry = filepath.Dir(entry)
 		name = filepath.Base(entry)
 	}
-	// SCSI disks (SAS, SATA, iSCSI, FC) have a scsi_generic companion;
-	// NVMe and virtual disks do not.
-	_, gerr := os.Stat(filepath.Join(entry, "device", "generic"))
-	return "/dev/" + name, gerr == nil, nil
+	// SCSI disks (SAS, SATA, iSCSI, FC) hang off a SCSI device; NVMe and
+	// virtual disks do not. (The scsi_generic companion would say the same,
+	// but only while the sg module is loaded.)
+	_, serr := os.Stat(filepath.Join(entry, "device", "scsi_device"))
+	return "/dev/" + name, serr == nil, nil
 }
 
 // enumPoolSGDevices returns the SCSI disks (whole disks, /dev/sdX) of the

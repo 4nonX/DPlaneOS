@@ -139,6 +139,8 @@ This is the complete list; `GET /api/alerts/events` returns the same. An event t
 | `update.installed` | info | A system update was installed and kept |
 | `update.reverted` | critical | A system update was removed again; the system runs the previous version |
 | `auth.failed_burst` | warning | Repeated failed sign-in attempts from one address |
+| `directory.trust_lost` | critical | The Active Directory domain no longer accepts this system's account: domain users cannot open shares |
+| `directory.trust_restored` | info | The Active Directory domain accepts this system's account again |
 
 ZFS events reach the daemon from the ZFS event daemon (ZED) through a hook that the system installs. If the DPlaneOS daemon is not running, ZED events are only in the system log.
 

@@ -27,7 +27,9 @@ type ShareCRUDHandler struct {
 }
 
 func NewShareCRUDHandler(db *sql.DB, smbConfPath string) *ShareCRUDHandler {
-	return &ShareCRUDHandler{db: db, smbConfPath: smbConfPath}
+	h := &ShareCRUDHandler{db: db, smbConfPath: smbConfPath}
+	sambaShares = h // joining a domain rewrites smb.conf through it
+	return h
 }
 
 func (h *ShareCRUDHandler) HandleShares(w http.ResponseWriter, r *http.Request) {
@@ -583,36 +585,11 @@ func (h *ShareCRUDHandler) RegenerateSMBConf() {
 // err means Samba was not updated; warning means the shares are live but the
 // Time Machine Bonjour advertisement could not be refreshed.
 func (h *ShareCRUDHandler) regenerateSMBConf() (warning string, err error) {
-	shares, err := smbconf.LoadEnabled(h.db)
+	previous, content, shares, skipped, err := h.writeSMBConf()
 	if err != nil {
-		log.Printf("SMB REGEN ERROR: %v", err)
-		return "", fmt.Errorf("load shares: %w", err)
-	}
-	opts := smbconf.LoadOptions(h.db)
-	// Checked again: a share folder may have been replaced by a symlink.
-	kept := shares[:0]
-	var skipped []string
-	for _, sh := range shares {
-		if err := sharePathOK(sh.Path); err != nil {
-			log.Printf("SMB: share %s skipped: %v", sh.Name, err)
-			skipped = append(skipped, sh.Name)
-			continue
-		}
-		kept = append(kept, sh)
-	}
-	shares = kept
-
-	previous, _ := os.ReadFile(h.smbConfPath)
-	content := smbconf.Render(opts, shares)
-	// Samba checks the new configuration before it replaces the one in use.
-	if err := checkSMBConf(h.smbConfPath, content); err != nil {
-		log.Printf("SMB CHECK ERROR: %v", err)
 		return "", err
 	}
-	if err := smbconf.WriteAtomic(h.smbConfPath, []byte(content)); err != nil {
-		log.Printf("SMB WRITE ERROR: %v", err)
-		return "", fmt.Errorf("write %s: %w", h.smbConfPath, err)
-	}
+	opts := smbconf.LoadOptions(h.db)
 
 	// A changed workgroup or directory membership needs the services
 	// restarted; everything else is picked up by a reload.
@@ -643,6 +620,43 @@ func (h *ShareCRUDHandler) regenerateSMBConf() (warning string, err error) {
 		warning = msg
 	}
 	return warning, nil
+}
+
+// writeSMBConf renders the configuration from the database, has Samba check
+// it and puts it in place. The running services are not told: joining a
+// domain needs the file written before the join and the services restarted
+// after it.
+func (h *ShareCRUDHandler) writeSMBConf() (previous []byte, content string, shares []smbconf.Share, skipped []string, err error) {
+	shares, err = smbconf.LoadEnabled(h.db)
+	if err != nil {
+		log.Printf("SMB REGEN ERROR: %v", err)
+		return nil, "", nil, nil, fmt.Errorf("load shares: %w", err)
+	}
+	opts := smbconf.LoadOptions(h.db)
+	// Checked again: a share folder may have been replaced by a symlink.
+	kept := shares[:0]
+	for _, sh := range shares {
+		if err := sharePathOK(sh.Path); err != nil {
+			log.Printf("SMB: share %s skipped: %v", sh.Name, err)
+			skipped = append(skipped, sh.Name)
+			continue
+		}
+		kept = append(kept, sh)
+	}
+	shares = kept
+
+	previous, _ = os.ReadFile(h.smbConfPath)
+	content = smbconf.Render(opts, shares)
+	// Samba checks the new configuration before it replaces the one in use.
+	if err := checkSMBConf(h.smbConfPath, content); err != nil {
+		log.Printf("SMB CHECK ERROR: %v", err)
+		return nil, "", nil, nil, err
+	}
+	if err := smbconf.WriteAtomic(h.smbConfPath, []byte(content)); err != nil {
+		log.Printf("SMB WRITE ERROR: %v", err)
+		return nil, "", nil, nil, fmt.Errorf("write %s: %w", h.smbConfPath, err)
+	}
+	return previous, content, shares, skipped, nil
 }
 
 // respondAfterRegen applies the share change to Samba and answers with

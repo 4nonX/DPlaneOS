@@ -24,6 +24,8 @@ export interface JobSnapshot {
   id: string
   type: string
   status: 'running' | 'done' | 'failed'
+  /** progress lines written by the job */
+  logs?: string[]
   result?: Record<string, unknown>
   error?: string
   started_at: string

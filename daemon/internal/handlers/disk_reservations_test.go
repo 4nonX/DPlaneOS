@@ -84,7 +84,7 @@ func TestWholeDisk(t *testing.T) {
 		}
 	}
 	// A SCSI disk with a partition, an NVMe disk with one.
-	mk(filepath.Join(sys, "sdb", "device", "generic"))
+	mk(filepath.Join(sys, "sdb", "device", "scsi_device"))
 	touch(filepath.Join(sys, "sdb", "sdb1", "partition"))
 	mk(filepath.Join(sys, "nvme0n1", "device"))
 	touch(filepath.Join(sys, "nvme0n1", "nvme0n1p1", "partition"))

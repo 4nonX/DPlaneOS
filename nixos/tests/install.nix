@@ -31,9 +31,11 @@ let
   };
   targetSystem = target.config.system.build.toplevel;
 
-  # Installer and installed system use the same disk.
+  # Installer and installed system use the same disk: one image file, named
+  # by its full path (every test machine has a directory of its own, where
+  # a relative name would be a different file for each).
   common = {
-    virtualisation.diskImage = "./target.qcow2";
+    virtualisation.diskImage = "/tmp/dplaneos-install-target.qcow2";
     virtualisation.diskSize = 40 * 1024;
     virtualisation.cores = 2;
     virtualisation.memorySize = 3072;
@@ -108,8 +110,8 @@ pkgs.testers.nixosTest {
         session.update(sid=sid, csrf=csrf)
 
     def wait_up():
-        target.wait_for_unit("multi-user.target")
-        target.wait_for_unit("dplaned.service")
+        target.wait_for_unit("multi-user.target", timeout=900)
+        target.wait_for_unit("dplaned.service", timeout=300)
         target.wait_until_succeeds("curl -sf http://localhost/api/system/status >/dev/null", timeout=300)
 
     installer.start()
