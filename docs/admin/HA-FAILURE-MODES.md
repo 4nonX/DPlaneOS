@@ -97,9 +97,14 @@ What happens in a DPlaneOS cluster when something fails, what you see, what the 
 - UDP 5405 must be open between all members (the NixOS module opens it on DPlaneOS nodes; check firewalls in between and on voters).
 - The cluster addresses must be reachable from each other; change them by removing and re-forming the cluster if the network changed.
 
-## 12. Disk reservations (SCSI-3 PR) report errors
+## 12. Disk reservations
 
-Disk reservations are an optional layer for shared SAS disks. If the probe on the protection card reports disks without support, those disks rely on ZFS multihost and the watchdog alone. Run *Probe PR Support on Pool Disks* again (HA › Watchdog and power fencing) after changing the shelf.
+The card *Disk reservations* (HA › Watchdog and power fencing) shows, for every pool of a shared storage group, every disk and which node holds it.
+
+- **Not supported by the disks:** the disks have no persistent reservations (most SATA disks, NVMe, virtual disks). Nothing is wrong; these pools rely on the watchdog and ZFS multihost. The probe on the card tells you for each disk.
+- **Partly reserved:** some disks of the pool are not held by the owner alone. A disk that was just added or replaced is reserved within a minute. A disk in state *error* did not answer: check its cabling and health.
+- **This node is shut out** (alert `ha.fenced`): another node took the group over while this one still had the pool imported. The disks refuse this node's writes and its pool is stopped. Restart this node; it then follows the new owner. Find out why the cluster lost contact with it (network, a long hang) before relying on it again.
+- **A takeover fails with "disks ... could not be reserved for this node":** more disks than the tolerance allows have reservations but did not let this node take them (default: more than 10 % of the pool's disks). The pool is not imported, because another node may still hold those disks. Check that this node reaches every disk of the shelf (both cables, both expanders), then try again.
 
 ---
 

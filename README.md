@@ -35,7 +35,7 @@ Feature maturity, honestly:
 | GitOps reconciliation | Beta | Structural sync (pools, datasets, shares, stacks) and capture-from-live both work. Safety rails (block destroy on used data, block pool destroy unconditionally) are well-tested. Edge cases at the property-coverage frontier still surfacing. |
 | Out-of-band hardware management (BMC) | Beta | Redfish (iLO 5+, iDRAC 9+), iLO 4 legacy REST, generic IPMI. TOFU TLS certificate pinning. Sensors, event log, power management. |
 | Clusters, storage groups, third vote | Experimental | Corosync quorum, shared and replicated storage groups, failover; tested in VM CI, not yet under real load. |
-| Shared-SAS HA with SCSI-3 PR fencing | Experimental | Tested on one hardware configuration. Yours will differ. |
+| Shared-disk HA with disk reservations (SCSI-3) | Experimental | Automated test against shared iSCSI disks, for every release. Not validated on physical SAS shelves by the project: run the probe and the [takeover test](docs/reference/HA-HARDWARE-MATRIX.md) on yours. |
 | NVMe-oF over TCP | Experimental | Functional, not yet stress-tested. |
 
 If you're considering this for anything beyond a homelab, also read the [Threat Model](docs/reference/THREAT-MODEL.md) (13 scenarios, known gaps documented) and the [Non-ECC RAM Warning](docs/hardware/NON-ECC-WARNING.md).

@@ -40,6 +40,8 @@ A storage group has one of three topologies:
 
 **Shared storage, good:** zero data loss on failover, a single copy of the data, fast moves. **Limits:** needs a shared disk shelf; both nodes must never import the pool at once, so enable **ZFS multihost** on these pools (DPlaneOS refuses nothing, but the protection card tells you when it is off).
 
+**Disk reservations.** Where the shared disks have SCSI-3 persistent reservations (SAS disks normally do, most SATA disks do not), DPlaneOS uses them without any setup: the node that imports the pool takes the reservation on every disk first and removes any other node's, and from then on the disks themselves refuse writes from every other node. This is the one protection that does not depend on the failed node doing anything. The card *Disk reservations* shows every disk and who holds it, and has a probe that tells you whether your disks have them; see [Disk reservations: which disks have them](../reference/HA-HARDWARE-MATRIX.md).
+
 **Replicated, good:** any hardware, the two nodes can be in different rooms or sites, each node has a full copy (also a backup of sorts). **Limits:** the newest changes since the last replication are lost on a failover, so automatic failover is off by default for replicated groups; double the disks.
 
 You can mix topologies: different groups on the same cluster can be shared and replicated.
@@ -115,9 +117,12 @@ Automatic failover of a group (a third vote and a fencing method are present):
 4. If power fencing is configured, it powers the old owner off.
 5. It imports the pools (shared) or makes its copy writable (replicated), raises the epoch, takes the floating address and starts the group's apps and exports.
 
-If the old owner is in fact still writing to a shared pool, ZFS multihost refuses the import and nothing changes.
+What happens if the old owner is in fact still running and writing to a shared pool depends on the disks:
 
-Without a third vote, or for replicated groups with automatic failover off, step 3 stops with an explanation, and **Take over** on the surviving node does steps 4 and 5 on request. Use it only when the old owner is off or disconnected from the disks.
+- **Disks with reservations:** the new owner takes the disks first. From that moment they refuse the old owner's writes; its pool stops (SUSPENDED), it raises the alert "this node has been shut out" and takes nothing back. The new owner imports a pool nobody else writes to. Restart the old owner; it rejoins as standby.
+- **Disks without reservations:** ZFS multihost notices that the pool is in use and refuses the import. Nothing changes; the group is not served by the new node until the old owner is really off.
+
+Without a third vote, or for replicated groups with automatic failover off, step 3 stops with an explanation, and **Take over** on the surviving node does steps 4 and 5 on request. On disks without reservations, use it only when the old owner is off or disconnected from the disks.
 
 ---
 
