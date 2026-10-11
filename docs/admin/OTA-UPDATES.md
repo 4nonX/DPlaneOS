@@ -1,232 +1,103 @@
-# DPlaneOS OTA Updates
+# DPlaneOS System Updates
 
-DPlaneOS updates are atomic and automatically self-reverting. An update either fully succeeds or the system rolls back to the previous version - there is no partially-upgraded state.
+A system installed from the installer image updates itself from the web interface. A new version is installed next to the running one, started once on trial, and kept only if the system is healthy afterwards. Otherwise the system returns to the version before by itself.
 
----
-
-## How A/B Slot Updates Work
-
-The boot disk has two OS slots: Slot A and Slot B. At any time, one slot is active (booted) and the other is standby. OTA updates write to the standby slot; the active slot is never touched during an update.
-
-```
-Boot disk:
-├── ESP (/boot)           systemd-boot, slot A/B boot entries
-├── Slot A (ext4)         NixOS system closure (may be active or standby)
-├── Slot B (ext4)         NixOS system closure (may be active or standby)
-├── swap
-└── /persist (ext4)       All durable state - never touched by OTA
-```
-
-The update sequence:
-
-```
-1. Fetch new NixOS closure (from GitHub + Nix cache)
-          │
-2. Write closure to inactive slot (Slot B if A is active)
-          │
-3. Update systemd-boot to boot into the new slot first
-          │
-4. Write pending-revert marker to /persist/ota/
-          │
-5. Reboot into new slot
-          │
-6. 90 seconds after boot: OTA health check fires
-          │
-     ┌────┴────┐
-     │         │
-  PASS       FAIL
-     │         │
-Clear marker  Revert bootloader to previous slot
-              │
-              Reboot into old slot
-              │
-              Clear marker
-```
-
-If the health check passes, the system is on the new version. If it fails, the system is automatically back on the old version without operator intervention.
+(A system that was set up from the DPlaneOS flake with its own NixOS configuration is updated the NixOS way instead: update the flake input and run `nixos-rebuild`.)
 
 ---
 
-## What the Health Check Verifies
+## How an update works
 
-The post-boot health check (`dplaneos-ota-health`) verifies four things:
-
-1. **Daemon API** - `GET http://localhost/api/system/health` (via nginx) returns 200 within 10 seconds
-2. **ZFS pool health** - `zpool list` reports all pools as ONLINE; a non-zero exit from `zpool list` also counts as failure
-3. **/persist mounted** - `/persist` is verified as an active mountpoint; not mounted counts as failure
-4. **Samba** (conditional) - if active SMB shares exist in the database, `smbd` must be running; if no shares are configured this check is skipped
-
-If all checks pass, the pending-revert marker is cleared and the update is committed. Any failure triggers the auto-revert sequence immediately.
-
-The check fires 90 seconds after boot by default. This delay gives all services time to start fully. Adjust in `configuration.nix`:
-```nix
-services.dplaneos.ota.healthCheckDelay = "120s";   # increase if services are slow to start
 ```
+1. Check        the Updates page asks the release server for the latest release
+2. Download     the update file of that release for this kind of machine
+3. Verify       its signature is checked against the release key in the system
+4. Install      the new system is added to the Nix store next to the running one,
+                and a boot entry for it is written
+5. Restart      you choose when. The boot loader starts the new version ONCE;
+                the default entry is still the old version
+6. Check        a few minutes after the start: everything that worked before
+                the update must work again
+        ┌───────┴────────┐
+     healthy          not healthy
+        │                │
+   the new version    the old version is restored,
+   becomes the        the system restarts into it
+   default
+```
+
+If the new version does not start at all (it hangs, the machine is power cycled), the next start is the old version again, because the boot loader was only told to start the new one once. The system then notes that the update did not start and removes it.
+
+Nothing of your data or settings is part of this: they live on the persistent partition and in your pools, and both versions use the same ones.
+
+### What "healthy" means
+
+Before the update is installed, the system notes what works. After the trial start, for up to five minutes, it waits for:
+
+- the DPlaneOS service to answer
+- every service that was running before to be running again (web server, database, Samba, NFS, Docker, SSH, FTP, UPS monitoring)
+- every pool that was online before to be online again
+- the persistent partition to be mounted
+
+If any of these is still missing when the time is up, the update is removed and the reason is shown on the Updates page.
+
+### What stays installed
+
+The running version and the one before it. Older versions are removed after a successful update.
 
 ---
 
-## Triggering an Update
+## Installing an update
 
-### Via the UI
+**Updates page (System, Updates).** *Check for updates* shows the latest release and its notes; *Install* downloads and installs it. The page then offers *Restart now*. Until you restart, nothing has changed for the running system, and *Cancel the update* removes the installed version again.
 
-Settings: System: Updates: Check for Updates. If an update is available, click **Install Update**.
+**From a file.** *Install from file* takes the update file of a release (`dplaneos-v<version>-<arch>.update`, on the release page) from your computer. Use it when the system cannot reach the release server.
 
-The UI shows:
-- Current version
-- Available version
-- Changelog
-- Estimated install time
+**Return to the previous version.** *Return to previous version* on the same page restarts the system into the version before.
 
-Click **Install and Reboot** to start the process. The system reboots automatically. The UI reconnects once the daemon is responsive on the new slot.
-
-### Via the API
-
-```
-POST /api/ota/check
-# Returns: {"available": true, "version": "10.1.0", "current": "10.0.0"}
-
-POST /api/ota/update
-# Triggers the update; streams progress via WebSocket
-```
-
-### Via the CLI (on the node)
+On the system itself the same is available as a command:
 
 ```bash
-# Check for available update
-dplaneos-ota-update --check
-
-# Run the update
-sudo dplaneos-ota-update
-
-# Verify-only: build the closure without installing
-sudo dplaneos-ota-update --verify-only
-
-# Force revert to previous slot (manual rollback)
-sudo dplaneos-ota-update --revert
+dplaneos-update status                 # versions, update on trial, last result (JSON)
+dplaneos-update verify  <file.update>  # check a file's signature, show what it is
+dplaneos-update install <file.update>  # install; the new version starts at the next restart
+dplaneos-update revert                 # take an update on trial back, or return to the previous version
 ```
+
+The log of all of this is `/var/lib/dplaneos/updates/update.log`.
 
 ---
 
-## Update Sources
+## What an update file is, and what it needs
 
-Updates are distributed via GitHub. The OTA script runs:
-```bash
-git -C /var/lib/dplaneos/gitops/dplaneos-src pull origin main
-nixos-rebuild switch --flake .#dplaneos
-```
+An update file contains the parts of the system that DPlaneOS builds itself (the daemon, the web interface, the system configuration), as a Nix binary cache, signed with the release key (Ed25519). The file is a few hundred megabytes at most.
 
-The Nix build system handles fetching required store paths from the Nix binary cache. The flake's content-addressed store and lockfile pin provide integrity at the package level.
+Everything else a new version may bring (a newer kernel, ZFS, Samba, ...) is fetched from the public NixOS cache, `https://cache.nixos.org`, when the update is installed. **The system therefore needs internet access to install an update**, also when the update file itself is brought by hand. Nothing is changed if the download cannot be completed.
 
-**Airgap environments:** The ISO contains the full system closure for the version it ships with. Installing from the ISO does not require internet access. OTA updates, however, require Nix cache access to fetch new store paths. Airgap OTA requires a local Nix binary cache or pre-fetched closures.
+A site without internet access can run a mirror of the NixOS cache and point the system at it. This is a build-time option of the system (`services.dplaneos.ota.upstreamCache`), not a setting.
+
+A file that is not signed with the release key, or was changed after signing, is refused. The public key is part of the system (`/etc/dplaneos/update-signing.pub`).
 
 ---
 
-## Manual Revert
+## High availability: updating both nodes
 
-If the automatic health check fails, the system reverts automatically. If you need to revert manually after a successful update (e.g., discovered a regression after the health check passed):
+Update one node at a time, the standby first:
 
-```bash
-# From the running system
-sudo dplaneos-ota-update --revert
-# This flips the bootloader to the other slot and reboots
-
-# From the bootloader (if the system won't boot at all)
-# At the systemd-boot menu, select the previous NixOS generation
-# Press 'd' to set it as default, then Enter to boot it
-```
-
-The previous slot's closure is always preserved until the next OTA update overwrites it. This means you always have exactly one version of rollback available.
-
----
-
-## HA Rolling Upgrade
-
-In a HA cluster, update both nodes without downtime by updating one at a time:
-
-```
-1. Place node B (standby) in maintenance mode
-   POST /api/ha/maintenance {"enable": true, "duration_minutes": 120}
-
-2. Trigger OTA on node B
-   # SSH into node B:
-   sudo dplaneos-ota-update
-
-3. Node B reboots, health check runs, update commits
-
-4. Verify node B is healthy
-   GET /api/ha/status  # from node B
-
-5. Initiate a controlled failover (node B becomes primary)
-   POST /api/ha/failover {"dry_run": false}
-
-6. Verify clients are connecting via node B (VIP has moved)
-
-7. Place node A in maintenance mode
-   POST /api/ha/maintenance {"enable": true, "duration_minutes": 120}
-
-8. Trigger OTA on node A
-   sudo dplaneos-ota-update
-
-9. Node A reboots, becomes standby on new version
-
-10. Release maintenance mode on both nodes
-    POST /api/ha/maintenance {"enable": false}
-```
-
-Total downtime: zero. The VIP moves during the failover step (step 5) but the transition is sub-second for established connections and ~2 seconds for new connections.
-
----
-
-## Verify-Only Mode
-
-Run the update process through fetching and building the new closure without rebooting:
-
-```bash
-sudo dplaneos-ota-update --verify-only
-```
-
-This validates that:
-- The new version is fetchable from GitHub
-- All required Nix store paths are available in the cache
-- The closure builds cleanly
-- The new system configuration passes `nixos-rebuild dry-run` checks
-
-Use verify-only before scheduling an update on a production system to confirm the update will succeed.
-
----
-
-## Update Log
-
-OTA update history is stored at `/persist/ota/update.log`. View via:
-
-```bash
-cat /persist/ota/update.log
-```
-
-Or via the UI: Settings: System: Update History.
-
----
-
-## Preventing Unintended Updates
-
-To pin a system to a specific version and prevent automatic updates:
-
-```nix
-# In configuration.nix
-services.dplaneos.ota.enable = false;
-```
-
-When `ota.enable = false`, the health check timer does not run. You can still trigger updates manually via `dplaneos-ota-update` but automatic post-boot revert checking is disabled. Use this only if you fully manage the update lifecycle externally.
+1. Put the standby node into maintenance mode (HA page).
+2. Install the update on it and restart it. Wait until the Updates page shows the update as kept.
+3. End maintenance mode; move the storage groups to the updated node.
+4. Repeat with the other node.
 
 ---
 
 ## Troubleshooting
 
-| Symptom | Cause | Resolution |
-|---------|-------|------------|
-| System booted into old version unexpectedly | Health check failed; auto-revert triggered | Check `/persist/ota/update.log`; fix the underlying issue; retry update |
-| Health check passes but services are broken | Check evaluated services that the health check does not test (e.g., NFS, iSCSI) | Run `sudo dplaneos-ota-update --revert` manually; file a bug |
-| Update fails at build step | Nix cache unreachable or store path unavailable | Check internet access; try again; check if the target version was published |
-| Boot hangs after update | Kernel incompatibility with hardware | Boot previous generation from systemd-boot menu; report with hardware details |
-| `dplaneos-ota-update` not found | OTA module not in system closure | Check `services.dplaneos.ota.enable = true` in configuration.nix |
-| `/persist` not mounted at boot | disko or fstab misconfiguration | The persist-health-check service will have failed; check `journalctl -u persist-health-check` |
+| What you see | Why | What to do |
+|---|---|---|
+| "The update to X was not kept", with a reason | The health check found something that worked before and did not after | The reason names it. The system is on the old version; report the problem with the log |
+| "The new version did not start" | The trial start did not get as far as the check | The system is on the old version. If it happens again, report it with the hardware details |
+| "the signature ... is not valid" | The file is not a release of this project, or is damaged | Download it again from the release page |
+| "could not be fetched completely" | `cache.nixos.org` (or your mirror) was not reachable | Check the system's internet access and DNS, then install again |
+| "less than 3 GB free on the system disk" | The system partition is full | `nix-store --gc` on the system frees what old versions left behind |
+| *Check for updates* says a version has no update file for this kind of machine | The release was published without one for this architecture | Nothing to do on the system; the release is incomplete |

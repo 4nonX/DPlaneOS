@@ -87,6 +87,12 @@ func (h *NixOSGuardHandler) DetectNixOS(w http.ResponseWriter, r *http.Request) 
 	}
 
 	if nixos {
+		// An installed appliance is an image without a configuration of its
+		// own: it is updated with update files (Updates page), not rebuilt.
+		_, flakeErr := os.Stat("/etc/nixos/flake.nix")
+		_, confErr := os.Stat("/etc/nixos/configuration.nix")
+		result["image_install"] = updateToolAvailable() && flakeErr != nil && confErr != nil
+
 		// Get current NixOS version
 		if data, err := os.ReadFile("/etc/os-release"); err == nil {
 			for _, line := range strings.Split(string(data), "\n") {

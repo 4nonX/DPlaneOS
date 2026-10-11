@@ -42,7 +42,7 @@ import { pluginSettingsInject } from '../plugins'
 // ---------------------------------------------------------------------------
 
 interface SettingsResponse { success: boolean; settings: Record<string, string> }
-interface NixOSDetect      { success: boolean; is_nixos: boolean; message?: string }
+interface NixOSDetect      { success: boolean; is_nixos: boolean; image_install?: boolean; message?: string }
 interface NixOSValidate    { success: boolean; valid: boolean; errors?: string[] }
 interface Generation       { number: number; date: string; current: boolean; description?: string }
 interface GenerationDiff   { success: boolean; method: 'nix-diff' | 'package-list'; diff?: string; from_packages?: string[]; to_packages?: string[] }
@@ -273,6 +273,23 @@ function NixOSTab() {
           <div style={{ fontWeight: 700, marginBottom: 4 }}>Not running on NixOS</div>
           <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>
             {detectQ.data?.message ?? 'NixOS features are only available on NixOS systems.'}
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // Installed from the installer image: there is no configuration to rebuild.
+  if (detectQ.data?.image_install) {
+    return (
+      <div className="card" style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '24px 28px', borderRadius: 'var(--radius-xl)', maxWidth: 620 }}>
+        <Icon name="info" size={24} style={{ color: 'var(--text-tertiary)', flexShrink: 0 }} />
+        <div>
+          <div style={{ fontWeight: 700, marginBottom: 4 }}>This system was installed from the installer image</div>
+          <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>
+            Its settings take effect when you save them, and new versions are installed on the Updates page (System, Updates), where
+            you can also return to the previous version. Rebuilding from a NixOS configuration applies to systems that were set up
+            from the D-PlaneOS flake.
           </div>
         </div>
       </div>
