@@ -118,3 +118,25 @@ func TestFlushWhitelist(t *testing.T) {
 		}
 	}
 }
+
+func TestGitWriter(t *testing.T) {
+	mine := Group{Name: "a", Owner: "n1"}
+	theirs := Group{Name: "b", Owner: "n2"}
+	for _, c := range []struct {
+		name               string
+		all                []Group
+		clustered, quorate bool
+		want               bool
+	}{
+		{"standalone", nil, false, false, true},
+		{"cluster without groups", nil, true, true, true},
+		{"serves every group", []Group{mine}, true, true, true},
+		{"another node serves a group", []Group{mine, theirs}, true, true, false},
+		{"no quorum", []Group{mine}, true, false, false},
+	} {
+		ok, reason := GitWriter(c.all, "n1", c.clustered, c.quorate)
+		if ok != c.want || (!ok && reason == "") {
+			t.Errorf("%s: %v %q", c.name, ok, reason)
+		}
+	}
+}

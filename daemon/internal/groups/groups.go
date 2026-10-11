@@ -314,3 +314,27 @@ func EpochForPool(db *sql.DB, pool string) int64 {
 	}
 	return g.Epoch
 }
+
+// GitWriter reports whether this node may act on a Git repository that
+// describes the system (commit changes made here, compare, apply).
+//
+// The repository describes pools, datasets and shares as one system. In a
+// cluster a node only has the pools of the groups it serves: on any other
+// node the pools of the repository are missing, a comparison would report
+// them as to be created, and a commit would record them as removed. So the
+// node that serves every storage group is the writer, and only while the
+// cluster has quorum; with groups served by different nodes there is none.
+func GitWriter(all []Group, self string, clustered, quorate bool) (bool, string) {
+	if !clustered {
+		return true, ""
+	}
+	if !quorate {
+		return false, "this node has no quorum"
+	}
+	for _, g := range all {
+		if g.Owner != self {
+			return false, fmt.Sprintf("storage group %s is served by %s (the node that serves every storage group works with the repository)", g.Name, g.Owner)
+		}
+	}
+	return true, ""
+}

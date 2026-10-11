@@ -17,6 +17,8 @@ interface GitopsStatus {
   drifted?: boolean
   checked_at?: string
   error?: string                  // drift check error (or "this node is not the writer")
+  writer?: boolean                // false: in a cluster, another node works with the repository
+  writer_reason?: string
   synced_commit?: string          // commit the live system corresponds to
   last_commit?: { at: string; ok: boolean; skipped: boolean; error?: string } | null
 }

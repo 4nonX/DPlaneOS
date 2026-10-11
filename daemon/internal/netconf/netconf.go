@@ -171,6 +171,76 @@ func SaveDNS(db *sql.DB, servers, search []string) error {
 	return tx.Commit()
 }
 
+// Save replaces the whole configuration in the database (a configuration
+// that comes from outside: a Git repository, another node). It is checked
+// first: one that cannot be rendered is not saved.
+func Save(db *sql.DB, c Config) error {
+	if _, err := Render(c); err != nil {
+		return err
+	}
+	if _, err := RenderDNS(c.DNS, c.Search); err != nil {
+		return err
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback() //nolint:errcheck
+	for _, t := range []string{"network_interfaces", "network_bonds", "network_vlans", "network_dns"} {
+		if _, err := tx.Exec(`DELETE FROM ` + t); err != nil {
+			return err
+		}
+	}
+	for _, i := range c.Interfaces {
+		typ, cidr, gw := "static", i.CIDR, i.Gateway
+		if i.DHCP || i.CIDR == "" {
+			typ, cidr, gw = "dhcp", "", ""
+		}
+		if _, err := tx.Exec(`INSERT INTO network_interfaces (interface, type, cidr, gateway, updated_at)
+			VALUES ($1, $2, $3, $4, NOW())`, i.Name, typ, cidr, gw); err != nil {
+			return err
+		}
+	}
+	for _, b := range c.Bonds {
+		if _, err := tx.Exec(`INSERT INTO network_bonds (name, slaves, mode, updated_at) VALUES ($1, $2, $3, NOW())`,
+			b.Name, strings.Join(b.Slaves, ","), b.Mode); err != nil {
+			return err
+		}
+	}
+	for _, v := range c.VLANs {
+		if _, err := tx.Exec(`INSERT INTO network_vlans (name, parent, vid, updated_at) VALUES ($1, $2, $3, NOW())`,
+			v.Name, v.Parent, v.VID); err != nil {
+			return err
+		}
+	}
+	for i, s := range c.DNS {
+		if _, err := tx.Exec(`INSERT INTO network_dns (kind, position, value) VALUES ('server', $1, $2)`, i, s); err != nil {
+			return err
+		}
+	}
+	for i, s := range c.Search {
+		if _, err := tx.Exec(`INSERT INTO network_dns (kind, position, value) VALUES ('search', $1, $2)`, i, s); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+// ApplyDB renders the configuration saved in the database and makes
+// systemd-networkd and systemd-resolved use it.
+func ApplyDB(db *sql.DB) error {
+	cfg, err := Load(db)
+	if err != nil {
+		return fmt.Errorf("reading the network configuration: %w", err)
+	}
+	if !Active() {
+		// Not managed by systemd-networkd: nothing would read the files.
+		return nil
+	}
+	_, err = System().Apply(cfg)
+	return err
+}
+
 // With returns a copy of the configuration with the address configuration
 // of one interface replaced (a change that is tried before it is saved).
 func (c Config) With(i Interface) Config {

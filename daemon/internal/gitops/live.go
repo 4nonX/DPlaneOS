@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"dplaned/internal/cmdutil"
+	"dplaned/internal/netconf"
 	"dplaned/internal/nixwriter"
 	"dplaned/internal/nvmet"
 )
@@ -171,7 +172,7 @@ func ReadLiveState(db *sql.DB) (*LiveState, error) {
 		return nil, fmt.Errorf("reading live NFS: %w", err)
 	}
 
-	state.System, err = readLiveSystem()
+	state.System, err = readLiveSystem(db)
 	if err != nil {
 		return nil, fmt.Errorf("reading live system: %w", err)
 	}
@@ -488,8 +489,40 @@ func readLiveGroups(db *sql.DB) ([]LiveGroup, error) {
 	return groups, nil
 }
 
-func readLiveSystem() (*nixwriter.DPlaneState, error) {
+// readLiveSystem is the "system" section as it is now: the settings from the
+// system state, the network configuration from the database.
+func readLiveSystem(db *sql.DB) (*nixwriter.DPlaneState, error) {
 	s := nixwriter.DefaultWriter().State()
+	s.DNSServers, s.NetworkStatics, s.NetworkBonds, s.NetworkVLANs = nil, nil, nil, nil
+	if db == nil {
+		return &s, nil
+	}
+	cfg, err := netconf.Load(db)
+	if err != nil {
+		return nil, err
+	}
+	s.DNSServers = cfg.DNS
+	for _, i := range cfg.Interfaces {
+		if i.DHCP {
+			continue
+		}
+		if s.NetworkStatics == nil {
+			s.NetworkStatics = map[string]nixwriter.NetworkStaticEntry{}
+		}
+		s.NetworkStatics[i.Name] = nixwriter.NetworkStaticEntry{CIDR: i.CIDR, Gateway: i.Gateway}
+	}
+	for _, b := range cfg.Bonds {
+		if s.NetworkBonds == nil {
+			s.NetworkBonds = map[string]nixwriter.NetworkBondEntry{}
+		}
+		s.NetworkBonds[b.Name] = nixwriter.NetworkBondEntry{Slaves: b.Slaves, Mode: b.Mode}
+	}
+	for _, v := range cfg.VLANs {
+		if s.NetworkVLANs == nil {
+			s.NetworkVLANs = map[string]nixwriter.NetworkVLANEntry{}
+		}
+		s.NetworkVLANs[v.Name] = nixwriter.NetworkVLANEntry{Parent: v.Parent, VID: v.VID}
+	}
 	return &s, nil
 }
 

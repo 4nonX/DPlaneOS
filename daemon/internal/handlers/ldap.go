@@ -372,7 +372,7 @@ func (h *LDAPHandler) syncDirectory(cfg *ldap.Config, syncType string) (*directo
 	defer ldapSyncMu.Unlock()
 	fail := func(what string, err error) (*directorySync, error) {
 		h.logSync(syncType, false, 0, 0, 0, 0, err.Error(), 0)
-		if _, dbErr := h.db.Exec(`UPDATE ldap_config SET last_sync_at=NOW(), last_sync_ok=false, last_sync_msg=$1 WHERE id=1`, what+": "+err.Error()); dbErr != nil {
+		if _, dbErr := h.db.Exec(`UPDATE ldap_config SET last_sync_at=NOW(), last_sync_ok=0, last_sync_msg=$1 WHERE id=1`, what+": "+err.Error()); dbErr != nil {
 			log.Printf("LDAP: failed to update sync status: %v", dbErr)
 		}
 		return nil, fmt.Errorf("%s: %w", what, err)
@@ -416,8 +416,12 @@ func (h *LDAPHandler) syncDirectory(cfg *ldap.Config, syncType string) (*directo
 	res.message = fmt.Sprintf("Sync completed: found=%d created=%d updated=%d skipped=%d",
 		syncRes.UsersFound, syncRes.UsersCreated, syncRes.UsersUpdated, syncRes.UsersSkipped)
 	h.logSync(syncType, success, syncRes.UsersFound, syncRes.UsersCreated, syncRes.UsersUpdated, syncRes.UsersSkipped, res.message, res.ms)
-	if _, dbErr := h.db.Exec(`UPDATE ldap_config SET last_sync_at=NOW(), last_sync_ok=$1, last_sync_msg=$2 WHERE id=1`,
-		success, res.message); dbErr != nil {
+	okInt := 0
+	if success {
+		okInt = 1
+	}
+	if _, dbErr := h.db.Exec(`UPDATE ldap_config SET last_sync_at=NOW(), last_sync_ok=$1, last_sync_count=$2, last_sync_msg=$3 WHERE id=1`,
+		okInt, syncRes.UsersFound, res.message); dbErr != nil {
 		log.Printf("LDAP: failed to update sync status: %v", dbErr)
 	}
 	return res, nil

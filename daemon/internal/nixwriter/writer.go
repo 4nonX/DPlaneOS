@@ -38,7 +38,11 @@ type DPlaneState struct {
 	Timezone string `json:"timezone,omitempty"`
 
 	// ── Network ───────────────────────────────────────────────────────────────
-	DNSServers []string `json:"dns_servers,omitempty"`
+	// DNSServers and the Network* fields below are not stored here: the
+	// network configuration lives in the database (internal/netconf).
+	// GitOps fills them in when it reads the live system, so that one
+	// structure describes the "system" section of state.yaml.
+	DNSServers []string `json:"-"`
 	NTPServers []string `json:"ntp_servers,omitempty"`
 
 	// Firewall: complete allowed port lists. Nil = "use NixOS defaults".
@@ -52,13 +56,13 @@ type DPlaneState struct {
 	FirewallDisabled bool `json:"firewall_disabled,omitempty"`
 
 	// Static interface configs. Key = interface name (e.g. "eth0").
-	NetworkStatics map[string]NetworkStaticEntry `json:"network_statics,omitempty"`
+	NetworkStatics map[string]NetworkStaticEntry `json:"-"`
 
 	// Bond devices. Key = bond name.
-	NetworkBonds map[string]NetworkBondEntry `json:"network_bonds,omitempty"`
+	NetworkBonds map[string]NetworkBondEntry `json:"-"`
 
 	// VLAN devices. Key = vlan interface name (e.g. "eth0.10").
-	NetworkVLANs map[string]NetworkVLANEntry `json:"network_vlans,omitempty"`
+	NetworkVLANs map[string]NetworkVLANEntry `json:"-"`
 
 	// ── Samba ────────────────────────────────────────────────────────────────
 	SambaWorkgroup        string `json:"samba_workgroup,omitempty"`
@@ -225,109 +229,7 @@ func (w *Writer) LoadFromDisk() error {
 	return json.Unmarshal(data, &w.state)
 }
 
-// ── Network setters ──────────────────────────────────────────────────────────
-
-// SetStaticInterface records a static IP assignment for an interface.
-// Pass cidr="" to configure DHCP (removes any static config for the interface).
-func (w *Writer) SetStaticInterface(iface, cidr, gateway string) error {
-	if !validateIface(iface) {
-		return fmt.Errorf("invalid interface name: %q", iface)
-	}
-	if cidr != "" && !validateCIDR(cidr) {
-		return fmt.Errorf("invalid CIDR: %q", cidr)
-	}
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	if w.state.NetworkStatics == nil {
-		w.state.NetworkStatics = make(map[string]NetworkStaticEntry)
-	}
-	if cidr == "" {
-		delete(w.state.NetworkStatics, iface)
-	} else {
-		w.state.NetworkStatics[iface] = NetworkStaticEntry{CIDR: cidr, Gateway: gateway}
-	}
-	return w.flushLocked()
-}
-
-// RemoveStaticInterface removes the static IP config for an interface.
-func (w *Writer) RemoveStaticInterface(iface string) error {
-	return w.SetStaticInterface(iface, "", "")
-}
-
-// SetBond records a bond interface configuration.
-func (w *Writer) SetBond(name string, slaves []string, mode string) error {
-	if !validateIface(name) {
-		return fmt.Errorf("invalid bond name: %q", name)
-	}
-	for _, s := range slaves {
-		if !validateIface(s) {
-			return fmt.Errorf("invalid slave interface: %q", s)
-		}
-	}
-	validModes := map[string]bool{
-		"balance-rr": true, "active-backup": true, "balance-xor": true,
-		"broadcast": true, "802.3ad": true, "balance-tlb": true, "balance-alb": true,
-	}
-	if !validModes[mode] {
-		return fmt.Errorf("unknown bond mode: %q", mode)
-	}
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	if w.state.NetworkBonds == nil {
-		w.state.NetworkBonds = make(map[string]NetworkBondEntry)
-	}
-	w.state.NetworkBonds[name] = NetworkBondEntry{Slaves: slaves, Mode: mode}
-	return w.flushLocked()
-}
-
-// RemoveBond removes a bond interface configuration.
-func (w *Writer) RemoveBond(name string) error {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	delete(w.state.NetworkBonds, name)
-	return w.flushLocked()
-}
-
-// SetVLAN records a VLAN sub-interface configuration.
-func (w *Writer) SetVLAN(ifName, parent string, vid int) error {
-	if !validateIface(ifName) || !validateIface(parent) {
-		return fmt.Errorf("invalid interface name")
-	}
-	if vid < 1 || vid > 4094 {
-		return fmt.Errorf("VLAN ID %d out of range 1–4094", vid)
-	}
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	if w.state.NetworkVLANs == nil {
-		w.state.NetworkVLANs = make(map[string]NetworkVLANEntry)
-	}
-	w.state.NetworkVLANs[ifName] = NetworkVLANEntry{Parent: parent, VID: vid}
-	return w.flushLocked()
-}
-
-// RemoveVLAN removes a VLAN sub-interface configuration.
-func (w *Writer) RemoveVLAN(ifName string) error {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	delete(w.state.NetworkVLANs, ifName)
-	return w.flushLocked()
-}
-
 // ── System setters ───────────────────────────────────────────────────────────
-
-// SetDNS records persistent DNS server configuration.
-func (w *Writer) SetDNS(servers []string) error {
-	for _, s := range servers {
-		if !validateIP(s) {
-			return fmt.Errorf("invalid DNS server IP: %q", s)
-		}
-	}
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	sort.Strings(servers)
-	w.state.DNSServers = servers
-	return w.flushLocked()
-}
 
 // SetHostname records the system hostname.
 func (w *Writer) SetHostname(name string) error {

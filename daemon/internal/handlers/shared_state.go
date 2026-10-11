@@ -48,18 +48,7 @@ func ApplyNetworkConfig() error {
 	if ReconcilerDB == nil {
 		return errors.New("no database")
 	}
-	cfg, err := netconf.Load(ReconcilerDB)
-	if err != nil {
-		return fmt.Errorf("reading the network configuration: %w", err)
-	}
-	if !netconf.Active() {
-		// Not managed by systemd-networkd: nothing would read the files.
-		return nil
-	}
-	if _, err := netconf.System().Apply(cfg); err != nil {
-		return err
-	}
-	return nil
+	return netconf.ApplyDB(ReconcilerDB)
 }
 
 func persistNetwork(what string, saveErr error) error {

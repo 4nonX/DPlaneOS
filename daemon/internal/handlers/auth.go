@@ -712,9 +712,9 @@ func (h *AuthHandler) ldapAuthenticate(username, password string) error {
 	err := h.db.QueryRow(`
 		SELECT server, port, bind_dn, COALESCE(bind_password,''), base_dn,
 		       COALESCE(user_filter,'(sAMAccountName={username})'),
-		       COALESCE(user_id_attribute,'sAMAccountName'),
-		       COALESCE(user_name_attribute,'displayName'),
-		       COALESCE(user_email_attribute,'mail'),
+		       COALESCE(user_id_attr,'sAMAccountName'),
+		       COALESCE(user_name_attr,'displayName'),
+		       COALESCE(user_email_attr,'mail'),
 		       COALESCE(use_tls,1),
 		       COALESCE(timeout,10)
 		FROM ldap_config WHERE id=1 AND enabled = 1`).Scan(
@@ -1041,9 +1041,8 @@ func (h *AuthHandler) SCRAMVerify(w http.ResponseWriter, r *http.Request) {
 	var userID int
 	var active, mustChange, totpEnabled int
 	err = h.db.QueryRow(
-		`SELECT u.id, u.active, COALESCE(u.must_change_password,0), COALESCE(t.totp_enabled,0)
-		 FROM users u LEFT JOIN totp_secrets t ON t.user_id = u.id
-		 WHERE u.username = $1 LIMIT 1`, ch.Username,
+		`SELECT id, active, COALESCE(must_change_password,0), COALESCE(totp_enabled,0)
+		 FROM users WHERE username = $1 LIMIT 1`, ch.Username,
 	).Scan(&userID, &active, &mustChange, &totpEnabled)
 	if err != nil || active != 1 {
 		fail()

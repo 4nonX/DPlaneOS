@@ -985,6 +985,21 @@ func main() {
 	groupMgr.StartReplication(30 * time.Second)
 	groupMgr.StartActivation(10 * time.Second)
 	handlers.GroupImportGuard = groupMgr.MayImport
+	// GitOps in a cluster: only the node that serves every storage group
+	// commits to the repository, compares with it and applies it.
+	gitops.SetWriterCheck(func() (bool, string) {
+		in := quorumMon.Info()
+		if !in.Configured {
+			return true, ""
+		}
+		all, err := groups.List(db)
+		if err != nil {
+			return false, "the storage groups cannot be read: " + err.Error()
+		}
+		self, _ := configstore.NodeID(db)
+		return groups.GitWriter(all, self, true, in.Quorate)
+	})
+	gitopsHandler.SetOwnershipGuard(func() bool { ok, _ := gitops.IsWriter(); return ok })
 	configstore.EpochForPool = func(pool string) int64 { return groups.EpochForPool(db, pool) }
 	groupsH := handlers.NewGroupsHandler(db, groupMgr)
 	r.Handle("/api/groups", permRoute("storage", "read", http.HandlerFunc(groupsH.List))).Methods("GET")

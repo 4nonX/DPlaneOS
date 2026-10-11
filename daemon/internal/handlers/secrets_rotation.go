@@ -12,14 +12,9 @@ import (
 )
 
 type SecretsRotationHandler struct {
-	db       *sql.DB
-	keyPath  string
-	haLocked bool
+	db      *sql.DB
+	keyPath string
 }
-
-// DisableForHA makes RotateKeys refuse: in an HA pair both nodes share the key,
-// and rotating it on one node would leave the other unable to decrypt.
-func (h *SecretsRotationHandler) DisableForHA() { h.haLocked = true }
 
 // SecretsStatus returns the startup secrets check.
 // GET /api/system/secrets/status
@@ -250,11 +245,6 @@ func reencryptAll(tx *sql.Tx, conv func(label, sealed string) (string, error)) (
 // RotateKeys re-encrypts every stored secret under a new AES-256-GCM key.
 // POST /api/system/secrets/rotate
 func (h *SecretsRotationHandler) RotateKeys(w http.ResponseWriter, r *http.Request) {
-	if h.haLocked {
-		respondErrorSimple(w, "Key rotation is not available while HA is enabled: both nodes share the secrets key, "+
-			"and rotating it on one node would leave the other unable to decrypt", http.StatusConflict)
-		return
-	}
 	openOld, sealNew, commit, err := secrets.PrepareRotation(h.keyPath)
 	if err != nil {
 		respondErrorSimple(w, "Failed to prepare rotation: "+err.Error(), http.StatusInternalServerError)

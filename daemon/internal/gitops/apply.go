@@ -3,12 +3,15 @@ package gitops
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -17,6 +20,7 @@ import (
 	"dplaned/internal/composegpu"
 	"dplaned/internal/hardware"
 	"dplaned/internal/libzfs"
+	"dplaned/internal/netconf"
 	"dplaned/internal/nixwriter"
 	"dplaned/internal/nvmet"
 	"dplaned/internal/smbconf"
@@ -50,12 +54,12 @@ var ErrHasBlocked = fmt.Errorf("plan contains BLOCKED items that require explici
 
 // ApplyResult describes the outcome of an ApplyPlan call.
 type ApplyResult struct {
-	Applied    []string      // names of successfully applied items
-	Failed     string        // name of the item that caused a halt (empty if all succeeded)
-	Error      error         // the error from the failed item
+	Applied    []string // names of successfully applied items
+	Failed     string   // name of the item that caused a halt (empty if all succeeded)
+	Error      error    // the error from the failed item
 	Duration   time.Duration
-	Status      string        // OK, DEGRADED, FAILED
-	HaltReason  string        // why the plan stopped (e.g. "blocked", "io-error")
+	Status     string // OK, DEGRADED, FAILED
+	HaltReason string // why the plan stopped (e.g. "blocked", "io-error")
 	// Convergence indicates the post-apply state: CONVERGED, DEGRADED, NOT_CONVERGED, ERROR
 	Convergence string `json:"convergence"`
 	// Verification contains the results of post-apply synthetic liveness probes (Phase 12.6)
@@ -361,7 +365,7 @@ func executeModify(ctx ApplyContext, item DiffItem) error {
 	case KindNFS:
 		return modifyNFS(ctx.DB, ctx.NFSExportsPath, item.Name, item.DesiredNFS)
 	case KindSystem:
-		return reconcileSystem(item)
+		return reconcileSystem(ctx.DB, item)
 	case KindUser:
 		return reconcileUser(ctx.DB, item.Name, item.DesiredUser)
 	case KindGroup:
@@ -576,16 +580,16 @@ func createDataset(name string, ds *DesiredDataset) error {
 
 		sendCmd := exec.Command("ssh", host, "zfs", "send", "-R", remoteDS)
 		recvCmd := exec.Command("zfs", "receive", "-u", name)
- 
+
 		pr, pw := io.Pipe()
 		sendCmd.Stdout = pw
 		recvCmd.Stdin = pr
- 
+
 		// Capture errors from both
 		var errOut strings.Builder
 		sendCmd.Stderr = &errOut
 		recvCmd.Stderr = &errOut
- 
+
 		if err := sendCmd.Start(); err != nil {
 			pw.Close()
 			return fmt.Errorf("failed to start ssh send: %w", err)
@@ -806,9 +810,9 @@ func deleteStack(name string) error {
 	log.Printf("GITOPS: removed stack %q", name)
 	return nil
 }
- 
+
 // ── NFS operations ────────────────────────────────────────────────────────────
- 
+
 func createNFS(db *sql.DB, exportsPath, path string, dn *DesiredNFS) error {
 	if dn == nil {
 		return fmt.Errorf("no desired NFS spec for %q", path)
@@ -832,11 +836,11 @@ func createNFS(db *sql.DB, exportsPath, path string, dn *DesiredNFS) error {
 	log.Printf("GITOPS: created NFS export %q", path)
 	return nil
 }
- 
+
 func modifyNFS(db *sql.DB, exportsPath, path string, dn *DesiredNFS) error {
 	return createNFS(db, exportsPath, path, dn)
 }
- 
+
 func deleteNFS(db *sql.DB, exportsPath, path string) error {
 	if _, err := db.Exec("DELETE FROM nfs_exports WHERE path = $1", path); err != nil {
 		return fmt.Errorf("delete nfs_export %q: %w", path, err)
@@ -845,7 +849,7 @@ func deleteNFS(db *sql.DB, exportsPath, path string) error {
 	log.Printf("GITOPS: deleted NFS export %q", path)
 	return nil
 }
- 
+
 // reloadNFS regenerates the DPlaneOS exports file and runs exportfs -ra.
 func reloadNFS(exportsPath string, db *sql.DB) {
 	if exportsPath == "" {
@@ -857,7 +861,7 @@ func reloadNFS(exportsPath string, db *sql.DB) {
 		return
 	}
 	defer rows.Close()
- 
+
 	var sb strings.Builder
 	for rows.Next() {
 		var path, clients, options string
@@ -870,7 +874,7 @@ func reloadNFS(exportsPath string, db *sql.DB) {
 			fmt.Fprintf(&sb, "%s\t%s(%s)\n", path, client, options)
 		}
 	}
- 
+
 	if err := os.MkdirAll(filepath.Dir(exportsPath), 0755); err != nil {
 		log.Printf("GITOPS: reloadNFS: %v", err)
 		return
@@ -880,7 +884,7 @@ func reloadNFS(exportsPath string, db *sql.DB) {
 		log.Printf("GITOPS: reloadNFS: write failed: %v", err)
 		return
 	}
- 
+
 	if _, err := cmdutil.RunFast("exportfs", "-ra"); err != nil {
 		log.Printf("GITOPS: reloadNFS: exportfs -ra failed (non-fatal): %v", err)
 	}
@@ -1024,7 +1028,7 @@ func reconcileUser(db *sql.DB, username string, du *DesiredUser) error {
 	if du.Active {
 		activeInt = 1
 	}
-	
+
 	// If PasswordHash is empty, we don't update it to avoid wiping existing passwords
 	// unless this is a CREATE.
 	var err error
@@ -1052,7 +1056,7 @@ func reconcileUser(db *sql.DB, username string, du *DesiredUser) error {
 			username, du.Email, du.Role, activeInt,
 		)
 	}
-	
+
 	if err != nil {
 		return fmt.Errorf("reconcile user %q: %w", username, err)
 	}
@@ -1078,33 +1082,32 @@ func reconcileGroup(db *sql.DB, name string, dg *DesiredGroup) error {
 	if dg == nil {
 		return fmt.Errorf("no desired group spec for %q", name)
 	}
-	
+
 	_, err := db.Exec(`
 		INSERT INTO groups (name, description, gid)
 		VALUES ($1, $2, $3)
 		ON CONFLICT(name) DO UPDATE SET
 			description=EXCLUDED.description,
-			gid=EXCLUDED.gid,
-			updated_at=NOW()`,
+			gid=EXCLUDED.gid`,
 		name, dg.Description, dg.GID,
 	)
 	if err != nil {
 		return fmt.Errorf("reconcile group %q: %w", name, err)
 	}
-	
+
 	// Sync members
 	_, err = db.Exec("DELETE FROM group_members WHERE group_name = $1", name)
 	if err != nil {
 		return fmt.Errorf("clear members for group %q: %w", name, err)
 	}
-	
+
 	for _, member := range dg.Members {
 		_, err = db.Exec("INSERT INTO group_members (group_name, username) VALUES ($1, $2)", name, member)
 		if err != nil {
 			return fmt.Errorf("add member %q to group %q: %w", member, name, err)
 		}
 	}
-	
+
 	log.Printf("GITOPS: reconciled group %q", name)
 	return nil
 }
@@ -1114,7 +1117,7 @@ func deleteGroup(db *sql.DB, name string) error {
 	if _, err := db.Exec("DELETE FROM group_members WHERE group_name = $1", name); err != nil {
 		log.Printf("GITOPS: failed to clear members for group %q (proceeding with group delete): %v", name, err)
 	}
-	
+
 	_, err := db.Exec("DELETE FROM groups WHERE name = $1", name)
 	if err != nil {
 		return fmt.Errorf("delete group %q: %w", name, err)
@@ -1127,56 +1130,141 @@ func deleteGroup(db *sql.DB, name string) error {
 
 // reconcileReplication and deleteReplication: replication.go
 
-func reconcileSystem(item DiffItem) error {
+// reconcileSystem makes the system settings and the network configuration
+// what the "system" section says. Every part is attempted; what could not
+// be applied is reported (a setting the system refuses is not kept).
+func reconcileSystem(db *sql.DB, item DiffItem) error {
 	ds := item.DesiredSystem
 	if ds == nil {
 		return nil
 	}
 	w := nixwriter.DefaultWriter()
- 
+	var errs []error
+	note := func(what string, err error) {
+		if err != nil {
+			errs = append(errs, fmt.Errorf("%s: %w", what, err))
+		}
+	}
+
 	if ds.Hostname != "" {
-		w.SetHostname(ds.Hostname)
+		note("hostname", w.SetHostname(ds.Hostname))
 	}
 	if ds.Timezone != "" {
-		w.SetTimezone(ds.Timezone)
-	}
-	if len(ds.DNSServers) > 0 {
-		w.SetDNS(ds.DNSServers)
+		note("timezone", w.SetTimezone(ds.Timezone))
 	}
 	if len(ds.NTPServers) > 0 {
-		w.SetNTP(ds.NTPServers)
+		note("ntp_servers", w.SetNTP(ds.NTPServers))
 	}
- 
-	w.SetFirewallPorts(ds.Firewall.TCP, ds.Firewall.UDP)
- 
-	smb := nixwriter.SambaGlobalOpts{
+	note("firewall", w.SetFirewallPorts(ds.Firewall.TCP, ds.Firewall.UDP))
+	note("samba", w.SetSambaGlobals(nixwriter.SambaGlobalOpts{
 		Workgroup:    ds.Samba.Workgroup,
 		ServerString: ds.Samba.ServerString,
 		TimeMachine:  ds.Samba.TimeMachine,
 		AllowGuest:   ds.Samba.AllowGuest,
 		ExtraGlobal:  ds.Samba.ExtraGlobal,
-	}
-	w.SetSambaGlobals(smb)
- 
-	for iface, st := range ds.Networking.Statics {
-		w.SetStaticInterface(iface, st.CIDR, st.Gateway)
-	}
-	for name, b := range ds.Networking.Bonds {
-		w.SetBond(name, b.Slaves, b.Mode)
-	}
-	for name, v := range ds.Networking.VLANs {
-		w.SetVLAN(name, v.Parent, v.VID)
-	}
-
+	}))
 	if ds.SSH.Port != 0 || ds.SSH.PasswordAuth != nil || ds.SSH.PermitRootLogin != "" {
-		w.SetSSHDaemon(nixwriter.SSHDaemonOpts{
+		note("ssh", w.SetSSHDaemon(nixwriter.SSHDaemonOpts{
 			Port:            ds.SSH.Port,
 			PasswordAuth:    ds.SSH.PasswordAuth,
 			PermitRootLogin: ds.SSH.PermitRootLogin,
-		})
+		}))
 	}
+	note("networking", reconcileNetwork(db, ds))
+	return errors.Join(errs...)
+}
 
-	return nil // nixwriter flushes on every setter currently
+// networkGiven reports whether the section describes interfaces at all. One
+// that names no static address, bond or VLAN leaves them alone: a section
+// written for the hostname must not take the addresses away.
+func networkGiven(n DesiredNetworking) bool {
+	return len(n.Statics)+len(n.Bonds)+len(n.VLANs) > 0
+}
+
+// desiredNetwork is the network configuration the "system" section asks
+// for, given the one there is. When the section describes interfaces, it
+// lists static addresses, bonds and VLANs completely: what is not in it is
+// removed (an interface without a static address goes back to DHCP). DNS
+// servers are only changed when the section names some; search domains are
+// not part of it and stay.
+func desiredNetwork(ds *DesiredSystem, cur netconf.Config) netconf.Config {
+	want := netconf.Config{DNS: cur.DNS, Search: cur.Search}
+	if len(ds.DNSServers) > 0 {
+		want.DNS = append([]string(nil), ds.DNSServers...)
+	}
+	if !networkGiven(ds.Networking) {
+		want.Interfaces, want.Bonds, want.VLANs = cur.Interfaces, cur.Bonds, cur.VLANs
+		return want
+	}
+	names := func(n int, each func(yield func(string))) []string {
+		out := make([]string, 0, n)
+		each(func(s string) { out = append(out, s) })
+		sort.Strings(out)
+		return out
+	}
+	for _, name := range names(len(ds.Networking.Bonds), func(y func(string)) {
+		for k := range ds.Networking.Bonds {
+			y(k)
+		}
+	}) {
+		b := ds.Networking.Bonds[name]
+		want.Bonds = append(want.Bonds, netconf.Bond{Name: name, Mode: b.Mode, Slaves: append([]string(nil), b.Slaves...)})
+	}
+	for _, name := range names(len(ds.Networking.VLANs), func(y func(string)) {
+		for k := range ds.Networking.VLANs {
+			y(k)
+		}
+	}) {
+		v := ds.Networking.VLANs[name]
+		want.VLANs = append(want.VLANs, netconf.VLAN{Name: name, Parent: v.Parent, VID: v.VID})
+	}
+	for _, name := range names(len(ds.Networking.Statics), func(y func(string)) {
+		for k := range ds.Networking.Statics {
+			y(k)
+		}
+	}) {
+		st := ds.Networking.Statics[name]
+		want.Interfaces = append(want.Interfaces, netconf.Interface{Name: name, CIDR: st.CIDR, Gateway: st.Gateway})
+	}
+	return want
+}
+
+func reconcileNetwork(db *sql.DB, ds *DesiredSystem) error {
+	if db == nil {
+		return errors.New("no database")
+	}
+	cur, err := netconf.Load(db)
+	if err != nil {
+		return err
+	}
+	want := desiredNetwork(ds, cur)
+	if reflect.DeepEqual(networkShape(cur), networkShape(want)) {
+		return nil
+	}
+	if err := netconf.Save(db, want); err != nil {
+		return err
+	}
+	log.Printf("GITOPS: network configuration changed by the repository")
+	return netconf.ApplyDB(db)
+}
+
+// networkShape is a configuration reduced to what state.yaml describes, in
+// a fixed order, for comparison.
+func networkShape(c netconf.Config) netconf.Config {
+	out := netconf.Config{DNS: append([]string{}, c.DNS...), Search: append([]string{}, c.Search...)}
+	for _, i := range c.Interfaces {
+		if !i.DHCP && i.CIDR != "" {
+			out.Interfaces = append(out.Interfaces, netconf.Interface{Name: i.Name, CIDR: i.CIDR, Gateway: i.Gateway})
+		}
+	}
+	sort.Slice(out.Interfaces, func(a, b int) bool { return out.Interfaces[a].Name < out.Interfaces[b].Name })
+	for _, b := range c.Bonds {
+		out.Bonds = append(out.Bonds, netconf.Bond{Name: b.Name, Mode: b.Mode, Slaves: append([]string{}, b.Slaves...)})
+	}
+	sort.Slice(out.Bonds, func(a, b int) bool { return out.Bonds[a].Name < out.Bonds[b].Name })
+	out.VLANs = append(out.VLANs, c.VLANs...)
+	sort.Slice(out.VLANs, func(a, b int) bool { return out.VLANs[a].Name < out.VLANs[b].Name })
+	return out
 }
 
 func reconcileLDAP(db *sql.DB, desired *DesiredLDAP) error {

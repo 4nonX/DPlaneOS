@@ -73,9 +73,9 @@ func (h *GitOpsHandler) getOwnershipGuard() func() bool {
 
 // NewGitOpsHandler constructs the handler and starts the drift detector.
 //
-//   stateYAMLPath  - absolute path to state.yaml in the git repo
-//   smbConfPath    - absolute path to smb.conf for share reloads
-//   hub            - WebSocket hub for drift event broadcasting
+//	stateYAMLPath  - absolute path to state.yaml in the git repo
+//	smbConfPath    - absolute path to smb.conf for share reloads
+//	hub            - WebSocket hub for drift event broadcasting
 func NewGitOpsHandler(
 	db *sql.DB,
 	stateYAMLPath string,
@@ -105,16 +105,21 @@ func (h *GitOpsHandler) Stop() {
 // For a fresh computation, use /api/gitops/check first.
 func (h *GitOpsHandler) Status(w http.ResponseWriter, r *http.Request) {
 	result := h.detector.LastResult()
+	writer, writerWhy := gitops.IsWriter()
 	if result == nil {
 		respondOK(w, map[string]any{
-			"success": true,
-			"status":  "pending",
-			"message": "First drift check has not completed yet - try again in a moment",
+			"success":       true,
+			"status":        "pending",
+			"message":       "First drift check has not completed yet - try again in a moment",
+			"writer":        writer,
+			"writer_reason": writerWhy,
 		})
 		return
 	}
 	respondOK(w, map[string]any{
 		"success":       true,
+		"writer":        writer,
+		"writer_reason": writerWhy,
 		"drifted":       result.Drifted,
 		"checked_at":    result.CheckedAt.Format(time.RFC3339),
 		"error":         result.Error,
@@ -182,11 +187,11 @@ func (h *GitOpsHandler) Plan(w http.ResponseWriter, r *http.Request) {
 	}
 
 	respondOK(w, map[string]any{
-		"success":       true,
-		"plan":          plan,
-		"changes":       uiChanges,
-		"plan_summary":  planSummary(plan),
-		"computed_at":   time.Now().Format(time.RFC3339),
+		"success":      true,
+		"plan":         plan,
+		"changes":      uiChanges,
+		"plan_summary": planSummary(plan),
+		"computed_at":  time.Now().Format(time.RFC3339),
 	})
 }
 
@@ -198,7 +203,7 @@ func (h *GitOpsHandler) Apply(w http.ResponseWriter, r *http.Request) {
 	if ok, reason := gitops.IsWriter(); !ok {
 		respondJSON(w, http.StatusConflict, map[string]any{
 			"success": false,
-			"error":   "GitOps apply runs on the active node only: " + reason,
+			"error":   "This node does not apply the repository: " + reason,
 		})
 		return
 	}
@@ -429,8 +434,8 @@ func (h *GitOpsHandler) GetState(w http.ResponseWriter, r *http.Request) {
 // Body: { "content": "version: \"1\"\npools: ..." }
 func (h *GitOpsHandler) PutState(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Content  string `json:"content"`
-		DryRun   bool   `json:"dry_run"` // validate only, do not write
+		Content string `json:"content"`
+		DryRun  bool   `json:"dry_run"` // validate only, do not write
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		respondError(w, http.StatusBadRequest, "invalid request body", err)
@@ -444,10 +449,10 @@ func (h *GitOpsHandler) PutState(w http.ResponseWriter, r *http.Request) {
 	// Validate before writing - fail closed
 	if _, err := gitops.ParseStateYAML(req.Content); err != nil {
 		respondOK(w, map[string]any{
-			"success":  false,
-			"valid":    false,
-			"error":    err.Error(),
-			"message":  "state.yaml validation failed - file NOT written",
+			"success": false,
+			"valid":   false,
+			"error":   err.Error(),
+			"message": "state.yaml validation failed - file NOT written",
 		})
 		return
 	}
@@ -603,8 +608,8 @@ func (h *GitOpsHandler) SyncNow(w http.ResponseWriter, r *http.Request) {
 	result := h.detector.CheckNow()
 	if result.Error != "" {
 		respondOK(w, map[string]any{
-			"success": false, 
-			"error": "Pull failed: " + result.Error,
+			"success": false,
+			"error":   "Pull failed: " + result.Error,
 		})
 		return
 	}
@@ -612,14 +617,14 @@ func (h *GitOpsHandler) SyncNow(w http.ResponseWriter, r *http.Request) {
 	// 2. Commit All current state
 	if err := gitops.CommitAll(h.db); err != nil {
 		respondOK(w, map[string]any{
-			"success": false, 
-			"error": "Commit/Push failed: " + err.Error(),
+			"success": false,
+			"error":   "Commit/Push failed: " + err.Error(),
 		})
 		return
 	}
 
 	respondOK(w, map[string]any{
-		"success": true, 
+		"success": true,
 		"message": "Manual sync completed successfully",
 	})
 }
@@ -661,7 +666,7 @@ func planSummary(plan *gitops.Plan) map[string]any {
 		"delete_count":    plan.DeleteCount,
 		"blocked_count":   plan.BlockedCount,
 		"ambiguous_count": plan.AmbiguousCount,
-		"nop_count":        plan.NopCount,
+		"nop_count":       plan.NopCount,
 		"has_blocked":     plan.HasBlocked,
 		"has_ambiguous":   plan.HasAmbiguous,
 		"safe_to_apply":   plan.SafeToApply && !plan.HasAmbiguous,
@@ -751,11 +756,11 @@ func (h *GitOpsHandler) Capture(w http.ResponseWriter, r *http.Request) {
 
 	summary := gitops.SummarizeManagedResources(merged, live)
 	respondOK(w, map[string]any{
-		"success":    true,
-		"captured":   req.Categories,
-		"summary":    summary,
-		"bytes":      len(newYAML),
-		"message":    fmt.Sprintf("Captured %d category(s) into state.yaml - drift check triggered", len(req.Categories)),
+		"success":  true,
+		"captured": req.Categories,
+		"summary":  summary,
+		"bytes":    len(newYAML),
+		"message":  fmt.Sprintf("Captured %d category(s) into state.yaml - drift check triggered", len(req.Categories)),
 	})
 }
 
@@ -824,4 +829,3 @@ datasets: []
 shares: []
 `
 }
-

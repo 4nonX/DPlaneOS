@@ -1543,7 +1543,7 @@ func diffReplication(desired DesiredReplication, live LiveReplication) []string 
 
 func riskForSystemChanges(changes []string) string {
 	for _, c := range changes {
-		if strings.Contains(c, "hostname") || strings.Contains(c, "networking") {
+		if strings.HasPrefix(c, "hostname") || strings.HasPrefix(c, "network-") || strings.HasPrefix(c, "dns_servers") {
 			return "high" // changes that can break connectivity
 		}
 	}
@@ -1584,12 +1584,13 @@ func diffSystem(desired DesiredSystem, live nixwriter.DPlaneState) []string {
 		changes = append(changes, fmt.Sprintf("timezone: %q → %q", live.Timezone, desired.Timezone))
 	}
 
-	// Order-insensitive comparisons for DNS and NTP
-	if !equalSlicesSorted(desired.DNSServers, live.DNSServers) {
-		changes = append(changes, "dns_servers changed")
+	// DNS and NTP servers are only changed when the section names some
+	// (the order of DNS servers matters: the first is asked first).
+	if len(desired.DNSServers) > 0 && !equalSlices(desired.DNSServers, live.DNSServers) {
+		changes = append(changes, fmt.Sprintf("dns_servers: %v → %v", live.DNSServers, desired.DNSServers))
 	}
-	if !equalSlicesSorted(desired.NTPServers, live.NTPServers) {
-		changes = append(changes, "ntp_servers changed")
+	if len(desired.NTPServers) > 0 && !equalSlicesSorted(desired.NTPServers, live.NTPServers) {
+		changes = append(changes, fmt.Sprintf("ntp_servers: %v → %v", live.NTPServers, desired.NTPServers))
 	}
 	// Firewall TCP
 	tcpAdded, tcpRemoved := diffIntSlices(live.FirewallTCP, desired.Firewall.TCP)
@@ -1623,12 +1624,41 @@ func diffSystem(desired DesiredSystem, live nixwriter.DPlaneState) []string {
 			changes = append(changes, fmt.Sprintf("network-gateway: %s: %s → %s", iface, ls.Gateway, ds.Gateway))
 		}
 	}
-	// Check for removals in statics
+	// What the section does not list is removed, when it describes
+	// interfaces at all (networkGiven).
+	given := networkGiven(desired.Networking)
 	for iface := range live.NetworkStatics {
-		if _, ok := desired.Networking.Statics[iface]; !ok {
-			changes = append(changes, fmt.Sprintf("network-remove: %s", iface))
+		if _, ok := desired.Networking.Statics[iface]; !ok && given {
+			changes = append(changes, fmt.Sprintf("network-remove: %s (static address removed, back to DHCP)", iface))
 		}
 	}
+	for name, db := range desired.Networking.Bonds {
+		lb, ok := live.NetworkBonds[name]
+		if !ok {
+			changes = append(changes, fmt.Sprintf("network-bond-add: %s (%s: %s)", name, db.Mode, strings.Join(db.Slaves, ", ")))
+		} else if db.Mode != lb.Mode || !equalSlicesSorted(db.Slaves, lb.Slaves) {
+			changes = append(changes, fmt.Sprintf("network-bond-change: %s (%s: %s)", name, db.Mode, strings.Join(db.Slaves, ", ")))
+		}
+	}
+	for name := range live.NetworkBonds {
+		if _, ok := desired.Networking.Bonds[name]; !ok && given {
+			changes = append(changes, fmt.Sprintf("network-bond-remove: %s", name))
+		}
+	}
+	for name, dv := range desired.Networking.VLANs {
+		lv, ok := live.NetworkVLANs[name]
+		if !ok {
+			changes = append(changes, fmt.Sprintf("network-vlan-add: %s (VLAN %d on %s)", name, dv.VID, dv.Parent))
+		} else if dv.Parent != lv.Parent || dv.VID != lv.VID {
+			changes = append(changes, fmt.Sprintf("network-vlan-change: %s (VLAN %d on %s)", name, dv.VID, dv.Parent))
+		}
+	}
+	for name := range live.NetworkVLANs {
+		if _, ok := desired.Networking.VLANs[name]; !ok && given {
+			changes = append(changes, fmt.Sprintf("network-vlan-remove: %s", name))
+		}
+	}
+	sort.Strings(changes)
 
 	// SSH daemon settings
 	if desired.SSH.Port != 0 && desired.SSH.Port != live.SSHPort {

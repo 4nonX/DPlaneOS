@@ -2,7 +2,7 @@
 
 DPlaneOS can be operated entirely through Git commits. Every share, dataset, user, Docker stack, and network setting is expressible in `state.yaml`. When you push a change, DPlaneOS applies it. When you revert a commit, DPlaneOS rolls back to the previous state. When a setting drifts away from what Git says, DPlaneOS tells you.
 
-This guide covers the complete workflow from first commit to production operations, including secret handling, auto-apply on push, rollback, and HA environments.
+This guide covers the complete workflow from first commit to production operations, including secret handling, auto-apply on push, rollback, and clusters.
 
 For the technical format spec (every field, validation rules, enum values), see [GITOPS-REFERENCE.md](../reference/GITOPS-REFERENCE.md).
 
@@ -511,58 +511,25 @@ jobs:
 
 ---
 
-## HA Environments
+## Clusters
 
-In a two-node HA cluster, both nodes run the GitOps daemon but only the primary node holds active ZFS pools and Docker stacks.
+The repository describes pools, datasets and shares as one system. In a cluster, a node only has the pools of the storage groups it serves. On any other node those pools are missing: comparing with the repository there would report them as to be created, and committing from there would record them as removed.
 
-### How apply works in HA
+So in a cluster one node works with the repository, the **GitOps writer**: the node that serves **every** storage group, while the cluster has quorum. On any other node:
 
-Only the **GitOps writer** acts on the repository: the active node, with quorum, not in subordinate mode and not fencing. On any other node:
+- `POST /api/gitops/apply` is refused with HTTP 409 and the reason;
+- changes made in the web interface are not committed to Git;
+- the drift check reports "drift checks run on the GitOps writer" instead of false drift.
 
-- `POST /api/gitops/apply` is refused with HTTP 409 and the reason (for example "standby node");
-- web UI changes are not written back to Git (a standby has no pools imported, so its live state would be pushed as a deletion);
-- the drift detector reports "drift checks run on the GitOps writer" instead of false drift.
+The GitOps page shows the reason on a node that is not the writer; `GET /api/gitops/status` returns it as `writer` and `writer_reason`.
 
-Each node has its own database and applies `state.yaml` to its own live state; resources on a storage group's pools are applied by the node that owns the group.
+What follows from this:
 
-Both nodes must also use the **same secrets key** (`services.dplaneos.secrets.keyFile`), or Git credentials stored by one node cannot be used by the other after a failover. See [HIGH-AVAILABILITY.md](HIGH-AVAILABILITY.md#shared-secrets-key).
+- **One storage group, or all groups on one node:** GitOps works on that node. After a failover or a move, the node that now serves the groups is the writer. Set the repository up on each node that can serve them (the repository settings and its credentials are kept per node).
+- **Groups served by different nodes:** no node is the writer, and GitOps does not act until one node serves all groups. Configuration is still kept the same on all nodes by the cluster itself (configuration history and synchronization), which does not need Git.
+- **A node without quorum** never acts on the repository; pool operations in a plan are deferred (`[DEFERRED no-quorum]`) rather than run.
 
-### Quorum-gated pool operations
-
-When HA is active, pool ownership operations - `CREATE`, `IMPORT`, `RESHAPE`, and `DESTROY` in the plan - are gated on cluster quorum. An isolated node (one that has lost contact with its peer and all witnesses) will not act on these plan items, regardless of what `state.yaml` says. The operations are **deferred**, not failed: they appear in the plan result as `[DEFERRED no-quorum]` and are retried automatically on the next reconcile cycle once quorum is restored.
-
-This is the sole software-level write guard for replicated-topology clusters (Path B). On shared-storage clusters (Path A'), the SCSI-3 PR hardware reservation is a physical backstop, but the quorum gate fires first in software.
-
-**Operations that are NOT quorum-gated:**
-
-| Operation | Gated on quorum? | Reason |
-|---|---|---|
-| Pool `CREATE` / `IMPORT` / `RESHAPE` / `DESTROY` | Yes | Dual-writer corruption risk |
-| Dataset `CREATE` / `DELETE` / `MODIFY` | No | Dataset lives on already-imported pool |
-| SMB share `CREATE` / `DELETE` | No | Config-only, no block-level risk |
-| NFS export changes | No | Config-only |
-| Docker stack changes | No | No ownership question |
-| User / group changes | No | DB-only |
-| System / network changes | No | No pool ownership question |
-
-If a pool operation is consistently deferred, check cluster quorum status on the HA page before diagnosing the GitOps config.
-
-### Rolling configuration updates
-
-For changes that do not affect storage (adding a user, changing a share comment):
-
-1. Commit and push
-2. Trigger apply via the VIP (the shared database makes the change visible on both nodes)
-
-For changes that affect ZFS (new dataset, new pool):
-
-1. Commit and push
-2. Trigger apply via the VIP on the primary
-3. ZFS replication (if configured) propagates the dataset to the standby on the next replication cycle
-
-For changes that affect the NixOS layer (not state.yaml - actual module changes):
-
-Follow the HA rolling upgrade procedure in [HIGH-AVAILABILITY.md](HIGH-AVAILABILITY.md) instead.
+Each node has its own database and its own secrets key. Nothing has to be copied between nodes for GitOps.
 
 ---
 
@@ -693,5 +660,5 @@ Set `ignore_extraneous: false` only when `state.yaml` is complete and trusted. D
 `GET /api/gitops/status` shows the reason in `last_commit.error`:
 
 - "the Git repository has changes that are not applied to this system yet": apply or review the pending commits; the next write-back includes the UI change.
-- "this node is not the GitOps writer": the change was made on an HA standby; make changes through the VIP.
+- "this node is not the GitOps writer": in a cluster, only the node that serves every storage group commits (see [Clusters](#clusters)).
 - push or fetch errors: check the repository credentials and connectivity.
