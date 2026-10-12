@@ -994,13 +994,6 @@ var CommandWhitelist = map[string]Command{
 		AllowedArgs: []string{"switch"},
 		Description: "Apply NixOS configuration",
 	},
-	"nft_list_json": {
-		Name:        "nft_list_json",
-		Path:        "nft",
-		AllowedArgs: []string{"-j", "list", "ruleset"},
-		Description: "Forensic Probe: List all firewall rules in JSON format",
-	},
-
 	// NFSv4 ACL Operations (v9.0.0)
 	"nfs4_getfacl": {
 		Name:        "nfs4_getfacl",
