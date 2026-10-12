@@ -188,71 +188,27 @@ All operations available in the UI are available via the REST API. The API token
 
 ---
 
-## HA Timing Tuning
+## Failover timing
 
-The failover threshold and hysteresis window are now runtime-configurable (changed in v14.0.0):
+An automatic takeover starts the watchdog timeout plus 15 seconds after the owner left the quorate partition: the time the old owner needs to have reset itself. Set the watchdog timeout under HA › Watchdog and power fencing. Client timeouts (iSCSI, NVMe, NFS) should be longer than that plus the time the pools need to import.
 
-```
-GET  /api/ha/timing  - read current values
-POST /api/ha/timing  - update values (requires AAL2)
-```
+## Containers and GPUs
 
-Failover timing follows the watchdog: the takeover starts the watchdog timeout plus 15 seconds after the owner left the quorate partition (set the timeout under HA › Watchdog and power fencing).
-
-## Docker and Hardware Video Transcoding
-
-DPlaneOS ships Docker and docker-compose in the running system. Containers have full access to the host network and can mount ZFS datasets as volumes.
-
-### Intel hardware transcoding (Jellyfin, Plex, Handbrake)
-
-Intel VA-API hardware video transcoding is supported via `intel-media-driver` (iHD, for Gen 9-12 including Raptor Lake) and `intel-compute-runtime` (OpenCL). These are included in the running system by default:
-
-```nix
-hardware.graphics = {
-  enable        = true;
-  extraPackages = [ pkgs.intel-media-driver pkgs.intel-compute-runtime ];
-};
-```
-
-To use hardware transcoding in a Docker container, pass the render device:
+**Intel and AMD graphics (VA-API, Quick Sync).** The kernel drivers are part of the system; the render device appears as `/dev/dri/renderD128`. Pass it to the container, which brings the user-space driver itself (the Jellyfin, Plex and similar images do):
 
 ```yaml
-# docker-compose.yml (Jellyfin example)
-devices:
-  - /dev/dri/renderD128:/dev/dri/renderD128
-environment:
-  - LIBVA_DRIVER_NAME=iHD
+# compose file (Jellyfin as an example)
+services:
+  jellyfin:
+    image: jellyfin/jellyfin
+    devices:
+      - /dev/dri/renderD128:/dev/dri/renderD128
+    group_add:
+      - "GID"        # the numeric group that owns the device on the host: ls -ln /dev/dri
 ```
 
-**Verify VA-API is working on the host before configuring containers:**
+Containers › Docker › *GPU / hardware* shows the devices the system has, and a stack that asks for one that is not there is refused with a message instead of failing at start.
 
-```bash
-nix-shell -p libva-utils --run "vainfo"
-# Should show iHD driver and VAEntrypointEncSlice / VAEntrypointVLD profiles
-```
+**NVIDIA.** The proprietary driver and the NVIDIA container toolkit are not part of the released images, so NVIDIA cards cannot be used by containers on a system installed from them. An image you build yourself can include them (`services.dplaneos.docker.enableNvidia`, plus the NVIDIA driver in your configuration; see [the NixOS side](../../nixos/README.md)).
 
-### Offline installs and hardware transcoding
-
-The installer ISO embeds the core DPlaneOS system for airgapped installation but excludes `intel-media-driver` and `intel-compute-runtime` to keep the ISO within a manageable size (~2 GB). These packages grew substantially in nixpkgs 26.05 (~400 MB combined).
-
-**On a system installed from ISO without internet access:**
-
-Hardware transcoding will not be available immediately after installation. To enable it once the system is on the network:
-
-```bash
-nixos-rebuild switch
-```
-
-This fetches the packages from `cache.nixos.org` and activates VA-API. All other NAS functionality (ZFS, SMB, NFS, iSCSI, NVMe-oF, HA, Docker) works immediately from an offline install.
-
-**On a system installed from ISO with internet access**, or on any system that was deployed via GitOps (not from ISO), the packages are present from the first boot.
-
-### GPU passthrough to VMs
-
-GPU passthrough (VFIO) to virtual machines or containers does not require `intel-media-driver` or `intel-compute-runtime` on the host. The host needs:
-
-- `kvm-intel` kernel module (included)
-- IOMMU enabled: add `intel_iommu=on iommu=pt` to `boot.kernelParams` in your NixOS configuration
-- The GPU bound to `vfio-pci` before the host driver claims it
-
-The guest VM installs its own GPU drivers. No special host-side GPU software is required beyond the VFIO kernel modules.
+DPlaneOS does not run virtual machines; there is no GPU passthrough to VMs.

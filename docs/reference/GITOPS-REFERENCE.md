@@ -29,7 +29,7 @@ Git repository
                              ┌─────────┴──────────┐
                              ▼                    ▼
                        DB sync (cache)     Physical execution
-                    (users, shares,        (libzfs, docker compose,
+                    (users, shares,        (zfs, zpool, docker compose,
                      NFS, LDAP)            exportfs, smbd)
                                                   │
                                           Convergence check
@@ -367,7 +367,7 @@ The engine runs two categories of changes in parallel:
 
 **Stateless DB sync (cache):** Users, groups, shares, NFS exports, LDAP config, and replication schedules are synced from the desired state directly into the database. The database is treated as a read cache - it never overrides state.yaml.
 
-**Physical execution:** ZFS datasets, pools, Docker stacks, Samba config (`smb.conf`), NFS exports (`/etc/exports`), and system networking are applied by the engine. ZFS operations (dataset create/modify/destroy, pool create/destroy, pool properties) go through `internal/libzfs` - either the native cgo libzfs path or the subprocess fallback depending on build tags. Docker, Samba, NFS, and network operations go through the exec allowlist.
+**Physical execution:** ZFS datasets, pools, Docker stacks, Samba config (`smb.conf`), NFS exports (`/etc/exports`), and system networking are applied by the engine. ZFS operations (dataset create/modify/destroy, pool create/destroy, pool properties) are run as `zfs` and `zpool` commands through the exec allowlist. Docker, Samba, NFS, and network operations go through the exec allowlist.
 
 ### 6. Convergence Check
 
@@ -432,7 +432,7 @@ The captured YAML is returned in the API response for review. It is never automa
 
 The GitOps engine expects a Git repository with `state.yaml` at the repository root.
 
-Configure the repository in Settings: GitOps, or via `state.yaml` itself under `system:`:
+Configure the repository under Containers › GitOps Engine (Repositories, then choose it as *System State* under Settings), or through the API:
 
 ```
 POST /api/gitops/config

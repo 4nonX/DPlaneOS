@@ -58,7 +58,7 @@ Two nodes, a third vote, and for shared storage a disk shelf both nodes are cabl
 |---|---|
 | UPS | through NUT: USB and serial models with a NUT driver, or a NUT server on another machine |
 | BMC | IPMI and Redfish, for sensors, power control and fencing |
-| GPUs | passed to containers (NVIDIA through its container runtime; Intel and AMD as devices). The drivers for transcoding are those the container image brings |
+| GPUs | Intel and AMD graphics are passed to containers as devices, for transcoding with the drivers the container image brings. NVIDIA cards need the proprietary driver, which the released images do not contain ([Integration Guide](../admin/INTEGRATION-GUIDE.md#containers-and-gpus)) |
 
 ## Will not work
 

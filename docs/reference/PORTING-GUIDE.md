@@ -14,10 +14,12 @@ For the rationale behind the NixOS-only decision, see [NixOS Rationale](NIXOS-RA
 
 `daemon/cmd/dplaned` is a standard Go program. It compiles to a static binary with `CGO_ENABLED=0` and has no runtime dependency on NixOS, systemd, or any specific package manager. It runs on any Linux kernel that supports ZFS and has the required system tools available in `PATH`.
 
-The daemon calls system tools via a strict exec allowlist - `zpool`, `zfs`, `docker`, `zfs`, `smartctl`, `ipmitool`, and others. As long as these binaries are present in `PATH`, the daemon functions.
+The daemon calls system tools via a strict exec allowlist - `zpool`, `zfs`, `docker`, `smartctl`, `ipmitool`, and others, which must be in its `PATH`.
+
+What is not portable inside the daemon: system settings, the firewall, SSH, the network and system updates are applied by code written for the image (it looks for NixOS and the image's units). Without them the daemon takes other paths, or none; those paths are exercised only by the API tests in CI (which install the daemon on Ubuntu with `install.sh`), not by the tests that start whole systems. Expect to write and test that part yourself.
 
 ```bash
-# Build a portable static binary on any Linux with Go 1.22+
+# Build a static binary on any Linux with the Go version named in daemon/go.mod
 cd daemon
 CGO_ENABLED=0 go build \
   -ldflags="-s -w -X main.Version=$(cat ../VERSION)" \
@@ -79,7 +81,7 @@ You must design and test your own upgrade and rollback procedure.
 
 ### 7. Impermanence (Optional but Strongly Recommended)
 
-The NixOS appliance mounts `/` as tmpfs and persists only declared paths. On a traditional distribution, accumulated state (stale config, rotated credentials, leftover temp files) builds up over time and creates support surface. There is no standard equivalent to NixOS impermanence on traditional distributions.
+The NixOS appliance keeps everything it remembers on one partition, by a list that is part of the system (`nixos/impermanence.nix`), and replaces the rest with every update. On a traditional distribution, state spreads over `/etc` and `/var` and survives upgrades whether it should or not; decide what belongs to the NAS and how it is backed up.
 
 ---
 

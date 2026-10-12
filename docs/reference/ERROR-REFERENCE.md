@@ -132,7 +132,6 @@ Returned when user input fails the security allowlist before reaching any system
 
 | Error Pattern | Meaning | Resolution |
 |---------------|---------|------------|
-| `ufw failed` | Firewall command error | Check `ufw status`; ensure ufw is installed |
 | `nginx config test failed` | Bad SSL cert configuration | Check certificate paths; run `nginx -t` manually |
 | `hdparm failed` | Disk power management error | Verify device supports APM |
 | `lsblk failed` | Block device listing error | Check `/dev/` permissions |
