@@ -10,10 +10,10 @@ import (
 func TestGenerateStateYAML_System(t *testing.T) {
 	state := &LiveState{
 		System: &nixwriter.DPlaneState{
-			Hostname:   "dplane-test",
-			Timezone:   "Europe/London",
-			DNSServers: []string{"8.8.8.8", "1.1.1.1"},
-			NTPServers: []string{"pool.ntp.org"},
+			Hostname:    "dplane-test",
+			Timezone:    "Europe/London",
+			DNSServers:  []string{"8.8.8.8", "1.1.1.1"},
+			NTPServers:  []string{"pool.ntp.org"},
 			FirewallTCP: []int{22, 80, 443},
 			FirewallUDP: []int{53},
 			NetworkStatics: map[string]nixwriter.NetworkStaticEntry{
@@ -28,8 +28,8 @@ func TestGenerateStateYAML_System(t *testing.T) {
 	yaml := GenerateStateYAML(state)
 
 	// Verify top-level
-	if !strings.Contains(yaml, "version: 1") {
-		t.Error("missing version: 1")
+	if !strings.Contains(yaml, `version: "6"`) {
+		t.Error(`missing version: "6"`)
 	}
 
 	// Verify system block

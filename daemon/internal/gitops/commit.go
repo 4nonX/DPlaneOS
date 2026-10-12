@@ -141,10 +141,16 @@ func CommitAll(db *sql.DB) (err error) {
 func GenerateStateYAML(state *LiveState) string {
 	var sb strings.Builder
 
-	sb.WriteString("version: 1\n\n")
+	sb.WriteString("version: \"6\"\n\n")
 
 	// 1. Pools
-	if len(state.Pools) > 0 {
+	recordable := 0
+	for _, p := range state.Pools {
+		if p.Layout != nil {
+			recordable++
+		}
+	}
+	if recordable > 0 {
 		sort.Slice(state.Pools, func(i, j int) bool {
 			return state.Pools[i].Name < state.Pools[j].Name
 		})

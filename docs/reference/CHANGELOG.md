@@ -167,6 +167,12 @@ failover, replicated groups, quorum and votes, the live image.
 - **Share options in `state.yaml` did nothing.** Shadow copies, recycle
   bin, Time Machine and host lists were written to the file and never read
   from it. They are read, planned and applied.
+- **GitOps blocked the system's own shares.** A share or export counted as
+  "on a dataset" only if its path was exactly a mountpoint spelt out in
+  the file: a dataset with the mountpoint ZFS gave it, or a share of a
+  directory inside a dataset, was BLOCKED, among them every share in the
+  file DPlaneOS writes. A path on or below a dataset that is declared or
+  exists is accepted.
 - **The GitOps page announced success for what had failed**: "Deploy Now"
   said the reconciliation had started when the daemon had refused it
   (blocked items), "Sync" and "Config Check" said done whatever came back.

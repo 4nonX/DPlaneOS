@@ -377,13 +377,7 @@ func ComputeDiff(desired *DesiredState, live *LiveState, ctx ...*DiffContext) *P
 			item := ds // copy
 			// Gap 4: Validate that the share path points to a known dataset mountpoint.
 			// This prevents "dangling shares" and ensures proper ordering.
-			datasetFound := false
-			for _, dd := range desired.Datasets {
-				if dd.Mountpoint != "" && ds.Path == dd.Mountpoint {
-					datasetFound = true
-					break
-				}
-			}
+			datasetFound := onADataset(ds.Path, desired, live)
 			if !datasetFound {
 				plan.Items = append(plan.Items, DiffItem{
 					Kind:   KindShare,
@@ -412,13 +406,7 @@ func ComputeDiff(desired *DesiredState, live *LiveState, ctx ...*DiffContext) *P
 		if _, exists := liveNFS[dn.Path]; !exists {
 			item := dn // copy
 			// Gap 4: Validation for NFS paths
-			datasetFound := false
-			for _, dd := range desired.Datasets {
-				if dd.Mountpoint != "" && dn.Path == dd.Mountpoint {
-					datasetFound = true
-					break
-				}
-			}
+			datasetFound := onADataset(dn.Path, desired, live)
 			if !datasetFound {
 				plan.Items = append(plan.Items, DiffItem{
 					Kind:   KindNFS,
@@ -624,13 +612,7 @@ func ComputeDiff(desired *DesiredState, live *LiveState, ctx ...*DiffContext) *P
 		}
 
 		// Gap 4: Validation for modified shares too
-		datasetFound := false
-		for _, dd := range desired.Datasets {
-			if dd.Mountpoint != "" && ds.Path == dd.Mountpoint {
-				datasetFound = true
-				break
-			}
-		}
+		datasetFound := onADataset(ds.Path, desired, live)
 		if !datasetFound {
 			plan.Items = append(plan.Items, DiffItem{
 				Kind:   KindShare,
@@ -1017,6 +999,44 @@ func ComputeDiff(desired *DesiredState, live *LiveState, ctx ...*DiffContext) *P
 //  contract described at the top of this file.
 //  They make live system calls to gather current state at plan-evaluation time.
 // ═══════════════════════════════════════════════════════════════════════════════
+
+// onADataset reports whether a share or export path lies on a dataset: one
+// the file declares, or one that exists. The path may be the dataset's
+// mountpoint or a directory below it.
+//
+// (The rule used to be "equal to the mountpoint a dataset declares in the
+// file". A dataset without a declared mountpoint has one all the same, the
+// one ZFS gives it, and a share of a directory inside a dataset is an
+// ordinary share: both were BLOCKED, among them every share in the file
+// DPlaneOS itself writes.)
+func onADataset(path string, desired *DesiredState, live *LiveState) bool {
+	under := func(mp string) bool {
+		mp = strings.TrimRight(mp, "/")
+		return mp != "" && mp != "none" && mp != "legacy" && mp != "-" && (path == mp || strings.HasPrefix(path, mp+"/"))
+	}
+	liveMount := map[string]string{}
+	if live != nil {
+		for _, ld := range live.Datasets {
+			liveMount[ld.Name] = ld.Mountpoint
+			if under(ld.Mountpoint) {
+				return true
+			}
+		}
+	}
+	for _, dd := range desired.Datasets {
+		mp := dd.Mountpoint
+		if mp == "" {
+			mp = liveMount[dd.Name]
+		}
+		if mp == "" {
+			mp = "/" + dd.Name // where ZFS mounts a new dataset of a pool mounted at /<pool>
+		}
+		if under(mp) {
+			return true
+		}
+	}
+	return false
+}
 
 // blockedCheckPool evaluates whether destroying a pool should be BLOCKED.
 //
