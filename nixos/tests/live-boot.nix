@@ -341,7 +341,11 @@ pkgs.testers.nixosTest {
     # ── Step 12: The state of the live system is in memory ───────────────────
     @test_step("State is in memory")
     def check_persistence():
-        assert liveSystem.succeed("findmnt -n -o FSTYPE /persist").strip() == "tmpfs"
+        # Whatever holds the daemon's state and the database is a memory
+        # filesystem: nothing of a session is written to a disk.
+        for path in ["/var/lib/dplaneos", "/var/lib/postgresql", "/"]:
+            fstype = liveSystem.succeed("findmnt -n -o FSTYPE -T " + path).strip()
+            assert fstype == "tmpfs", f"{path} is on {fstype}"
         assert liveSystem.succeed("cat /etc/dplaneos-live/mode").strip() == "live-boot"
 
     # ── Step 13: Shutdown and verify clean exit ──────────────────────────────
