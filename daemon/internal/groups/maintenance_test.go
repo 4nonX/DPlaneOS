@@ -4,6 +4,7 @@ import (
 	"errors"
 	"reflect"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -86,7 +87,11 @@ func TestFailoverRespectsMaintenance(t *testing.T) {
 func TestEnterAndLeaveMaintenance(t *testing.T) {
 	db := groupsTestDB(t)
 	a, rec, _, tr := testManager(t, db, "a", map[string]string{"pool-77": "77", "pool-5": "5"})
-	a.view = func() View { return View{Quorum: true, Quorate: true, Online: []string{"a", "b"}} }
+	// The view is read by the manager's background work too: the test
+	// changes who is online through this, not by replacing the function.
+	var online atomic.Value
+	online.Store([]string{"a", "b"})
+	a.view = func() View { return View{Quorum: true, Quorate: true, Online: online.Load().([]string)} }
 	if _, err := a.CreateWith("g", Shared, []string{"pool-77"}, []string{"b"}, 0, false); err != nil {
 		t.Fatal(err)
 	}
@@ -127,7 +132,7 @@ func TestEnterAndLeaveMaintenance(t *testing.T) {
 	if _, err := a.Takeover("g"); !errors.Is(err, ErrInMaintenance) && !errors.Is(err, ErrOwnerOnline) {
 		t.Errorf("takeover in maintenance: %v", err)
 	}
-	a.view = func() View { return View{Quorum: true, Quorate: true, Online: []string{"a"}} }
+	online.Store([]string{"a"})
 	if _, err := a.Takeover("g"); !errors.Is(err, ErrInMaintenance) {
 		t.Errorf("takeover in maintenance with the owner away: %v", err)
 	}
@@ -153,7 +158,7 @@ func TestEnterAndLeaveMaintenance(t *testing.T) {
 	if err := a.Receive(Update{Group: *back}); err != nil {
 		t.Fatal(err)
 	}
-	a.view = func() View { return View{Quorum: true, Quorate: true, Online: []string{"a"}} }
+	online.Store([]string{"a"})
 	if _, err := a.EnterMaintenance("x", "admin", false); !errors.Is(err, ErrMaintenanceBlocked) {
 		t.Fatalf("want ErrMaintenanceBlocked, got %v", err)
 	}
@@ -173,7 +178,7 @@ func TestEnterAndLeaveMaintenance(t *testing.T) {
 
 	// A move that the target refuses: the group stays, the step says why.
 	_ = a.LeaveMaintenance()
-	a.view = func() View { return View{Quorum: true, Quorate: true, Online: []string{"a", "b"}} }
+	online.Store([]string{"a", "b"})
 	tr.pushErr = errors.New("b says no")
 	steps, err = a.EnterMaintenance("y", "admin", false)
 	if err != nil {
