@@ -50,6 +50,10 @@ You can mix topologies: different groups on the same cluster can be shared and r
 
 ## 3. Setting it up
 
+**The guided way:** System › High Availability › **Set up high availability** asks what you want (this system alone; two systems, one takes over; add this system to an existing cluster) and leads through the steps below in order. Each step is the same form the page has further down, with what it is for and what you go without if you skip it. Which steps are done is read from the system, so you can close it and continue later, also from the other node. Its last step runs the checks (third vote, power fencing, replication) and says in one paragraph what will happen when a node fails.
+
+The steps by hand:
+
 ### Step 1: pair the nodes
 
 On node A: System › Configuration Sync › *Create a join code*. On node B: *Join another node*, enter A's address and the code, review the merge preview (what will be exchanged in each direction), and join. The nodes pin each other's TLS certificate on first contact and from then on exchange changes every 30 seconds and right after a change.
@@ -77,7 +81,7 @@ With two nodes the cluster runs in Corosync's two-node mode: everything works, b
 
 High Availability › *Watchdog and power fencing* › **Watchdog**: enable it on every node (default timeout 30 s; 60 s on slow hardware). A node that owns a storage group and loses quorum stops resetting its watchdog and the kernel restarts it, before another node takes over. If the board has no hardware watchdog (iTCO, sp5100_tco, the Raspberry Pi's bcm2835), DPlaneOS loads the kernel's `softdog`, which works the same way except when the kernel itself hangs.
 
-Optional: **power fencing** with the nodes' BMCs (IPMI/Redfish) or a switched PDU. The surviving node then also powers the failed one off before taking over.
+Optional: **power fencing**. Before a node takes a group over from a node that stopped answering, it switches that node off: through that node's BMC (IPMI, or Redfish once its certificate is pinned) or a switched PDU. *Watchdog and power fencing* › **Power fencing** has one entry **per other node**, on every node that may take over: the address, the user name and the password (stored encrypted). A node without an entry is never switched off by this one; a takeover from it relies on the watchdog. **Test** on an entry signs in and reads the power state, or asks the PDU for its status; it switches nothing. (The BMC of the system itself, for sensors and the power buttons, is a separate setting under Hardware › IPMI.)
 
 ### Step 5: create storage groups
 
@@ -130,13 +134,28 @@ Without a third vote, or for replicated groups with automatic failover off, step
 
 **Planned move** (maintenance, updates): on the owner, *Move to …* on the group. Shared: apps and exports stop, the address is released, the pools are exported and imported on the target (about 30 s for the multihost check); if the target cannot import them, they come back. Replicated: the owner's copy becomes read-only, a final replication brings the target up to date, the target becomes the owner.
 
-**Updating nodes one at a time:** move all groups off node A, update and reboot A, move them back (or leave them), then do the same for B. The cluster stays quorate as long as one node and the third vote are up.
+**Maintenance mode** (work on a machine: a restart, firmware, a disk shelf): on that node, *Cluster map* › **Maintenance…** shows what will happen to each group it owns before anything happens: *moves to* another node (the first other candidate that is reachable and not in maintenance itself), *stays* (a standalone group: it exists on this node only), or *cannot move*. With a reason and **Enter maintenance** the groups are moved, by the same planned move as above. A node in maintenance takes no group: not automatically, not by *Take over*, not as the target of a move, and the other nodes pass it over when they choose who takes over. Every node shows it on its map. If a group cannot move, maintenance is refused, unless you choose to enter anyway and leave that group where it is. **Leave maintenance** moves nothing back: you decide where a group runs.
+
+**Updating nodes one at a time:** put node A into maintenance (its groups move away), update and restart A, leave maintenance, move the groups back or leave them; then do the same for B. The cluster stays quorate as long as one node and the third vote are up.
 
 **Adding a node:** pair it, *Add a vote or node* › *A third DPlaneOS node*, then add it as a candidate to groups. **Removing a node:** move its groups away first, then remove it in the member list.
 
 **Configuration changes:** make them on any node; they reach the others within seconds. Conflicts (the same resource changed on two nodes while they were apart) appear on the Configuration Sync page with both versions.
 
 **Removing HA:** remove the groups (only the definitions; pools and data stay), then *Remove cluster*, then detach the nodes in Configuration Sync if you want them fully independent.
+
+---
+
+**The cluster map** at the top of the page is the overview: every node with its state (online, not reachable, in maintenance, votes only), what it owns and whether this node can switch it off; every group with its owner, its epoch, who takes over in which order, whether it is served, how long ago each copy of a replicated group was brought up to date, and what is wrong. It shows what this node knows; things are changed in the panels below it.
+
+**Checking that it works**, at any time and without changing anything:
+
+| Check | Where | What it tries |
+|---|---|---|
+| Third vote | Cluster quorum › *Test the third vote* | this node connects to the vote server, and the vote server votes (two findings: reachable is not the same as voting); for a third member, that it is in the membership |
+| Power fencing | Power fencing › *Test* on an entry | signs in to the BMC and reads the power state, or asks the PDU for its status |
+| Replication | Storage groups › *Check replication* (on the owner) | every copy answers and accepts this node; whether the next run is incremental, a full copy, or has nothing to send |
+| Disk reservations | Watchdog and power fencing › Disk reservations › *Probe the pool disks* | whether the disks of the pools keep reservations |
 
 ---
 
@@ -147,6 +166,7 @@ Without a third vote, or for replicated groups with automatic failover off, step
 | Metric | Meaning |
 |---|---|
 | `dplaneos_ha_enabled`, `dplaneos_ha_quorum` | in a cluster; in the quorate part |
+| `dplaneos_ha_maintenance` | this node is in maintenance |
 | `dplaneos_ha_expected_votes`, `dplaneos_ha_online_nodes` | votes expected; members this node sees |
 | `dplaneos_ha_auto_failover` | automatic failover possible |
 | `dplaneos_ha_self_fence_armed` | owns storage, lost quorum, about to reset |

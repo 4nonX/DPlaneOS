@@ -144,6 +144,7 @@ System → **Change History** lists every change to datasets, SMB shares, NFS ex
 
 - Changes made in the web UI appear right away (**Web UI**). Changes made elsewhere (shell, other tools, a GitOps apply) are found by a check every 5 minutes (**Detected**). **Record now** runs that check immediately.
 - Expand a resource to see each setting before and after the change. Secrets (LDAP bind password, ACME DNS tokens, certificate keys) are never stored; the history only shows that they changed.
+- Each change says where it applies: *This node only* (host name, interfaces: never exchanged), *On all nodes*, *From another node*, or *Only here so far* (made on this node, in effect here, and not fetched yet by the nodes it names, for example while the node was cut off).
 - **Undo this change** sets one resource back to how it was before that change (later changes to the same resource are undone too). The usual safety rules apply: a rollback that would delete a dataset containing data, or a share with open connections, is refused. A deleted dataset is recreated with its settings but without its data; a deleted user cannot be restored from the history (passwords are not stored). Pools, LDAP, ACME and certificates are shown but cannot be rolled back here.
 - **Export state.yaml** downloads the current configuration in the GitOps format (without secrets and certificates), with or without a Git repository.
 

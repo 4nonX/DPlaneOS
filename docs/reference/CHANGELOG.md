@@ -51,7 +51,7 @@ failover, replicated groups, quorum and votes, the live image.
   filled two tables nothing read (certificates are managed under Security ›
   Certificates, and a private key does not belong in a repository). Pool
   `options` are limited to the properties listed in the GitOps reference.
-- Migrations up to 00035.
+- Migrations up to 00037.
 
 #### Security
 
@@ -236,6 +236,43 @@ failover, replicated groups, quorum and votes, the live image.
   before it is stored), for a system without a repository or when the Git
   server cannot be reached.
 
+#### High availability: guided setup, the map, maintenance (Design 0001, phase 4)
+
+- **Set up high availability**, a wizard on the High Availability page: it
+  asks what is wanted (this system alone; two systems, one takes over; add
+  this system to a cluster) and leads through pairing, the cluster, the
+  third vote, the watchdog and the first storage group in order, with what
+  each step is for and what is missing without it. It uses the forms of
+  the page, reads from the system which steps are done (so it can be
+  closed and continued), and ends by running the checks and saying what
+  happens when a node fails.
+- **Cluster map**: nodes with state, votes and maintenance, what each
+  owns, whether this node can switch it off; groups with owner, epoch,
+  takeover order, replication lag and problems.
+- **Maintenance mode** per node: shows what will move before anything
+  moves, hands the groups to another node, and from then on takes none
+  (not automatically, not on request, not as the target of a move) while
+  the others pass it over. Leaving moves nothing back. Alert event
+  `ha.maintenance`, metric `dplaneos_ha_maintenance`.
+- **Checks that change nothing**: the third vote (reachable and voting,
+  told apart), power fencing per node (signs in, reads the power state),
+  replication (what the next run would send).
+- **Power fencing switched off the configured machine, whoever had
+  failed.** There was one BMC or PDU record: right for a pair at best, and
+  with three nodes a takeover could power off a healthy one. The same
+  record was also "this system's BMC" on the hardware page. There is one
+  entry per node now; a node without one is never switched off. The
+  password is typed in the web interface and stored encrypted (it was the
+  path of a file to create by hand), and the power-off is done when the
+  BMC reports the machine off. **API:** `/api/ha/pdu/configure` and the BMC
+  fields of `/api/ha/fencing/configure` are replaced by
+  `/api/ha/power-targets`; this system's own BMC is `GET`/`PUT
+  /api/bmc/config`.
+- Change History says for every change where it applies and whether the
+  other nodes have it yet.
+- Browser tests of the web interface (Playwright, against a mock of the
+  API) run with every build.
+
 #### Removed, because it did nothing
 
 - ALUA and ANA settings (see above); the `acme:` and `certificates:`
@@ -266,7 +303,7 @@ security policy.
 - **Removed daemon flags:** `--ha-local-id`, `--ha-local-addr`, `--ha-cluster-secret`.
 - **Samba clustering (CTDB) is removed** (`services.dplaneos.ctdb`, `/api/ha/ctdb/*`, the card on the High Availability page). It could not work: the Samba package has no cluster support, the service used options ctdbd no longer has, and CTDB needs a file system mounted on all nodes at once, while a ZFS pool belongs to one node at a time. Remove `services.dplaneos.ctdb.*` from your NixOS configuration. SMB clients reconnect to the floating address after a failover.
 - **Prometheus:** the HA metrics changed (`dplaneos_ha_*`, `dplaneos_group_*`); update dashboards and use the new `prometheus/ha-alerts.yml`.
-- The database schema migrates automatically on first start (migrations up to 00034).
+- The database schema migrates automatically on first start (migrations up to 00037).
 
 API and web interface: the API handlers run in CI against a real PostgreSQL
 schema and a command fake, and CI checks every request and response of the

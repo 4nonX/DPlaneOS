@@ -43,6 +43,7 @@ Without a token the answer is `401`. In a cluster, scrape every node: each repor
 | `dplaneos_ha_enabled`, `dplaneos_ha_quorum` | In a cluster; in the part that has quorum |
 | `dplaneos_ha_expected_votes`, `dplaneos_ha_online_nodes` | Votes expected; members this node sees |
 | `dplaneos_ha_auto_failover`, `dplaneos_ha_self_fence_armed` | Automatic failover possible; this node would shut itself out when it loses quorum |
+| `dplaneos_ha_maintenance` | This node is in maintenance (hands its groups over, takes none) |
 | `dplaneos_group_serving{group}`, `dplaneos_group_owner_here{group}` | The storage group is served; by this node |
 | `dplaneos_group_epoch{group}`, `dplaneos_group_problems{group}` | Ownership changes so far; open problems of the group |
 | `dplaneos_replication_enabled{schedule,dataset}` | 1 if the schedule is enabled |

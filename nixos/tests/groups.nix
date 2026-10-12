@@ -316,6 +316,76 @@ pkgs.testers.nixosTest {
             client_reads("two")
             client_writes("three")
             assert identity() == disks["identity"], (identity(), disks)
+        with subtest("The map and the checks say what is there"):
+            m = ok(api(a, "GET", "/api/ha/map"), "map")
+            nodes = {n["name"]: n for n in m["nodes"]}
+            assert len(nodes) == 2 and nodes["a"]["self"] and nodes["a"]["owns"] == ["data"], m["nodes"]
+            assert nodes["b"]["state"] == "online" and nodes["b"]["owns"] == [] and not nodes["b"]["maintenance"], m["nodes"]
+            g = m["groups"][0]
+            assert g["name"] == "data" and g["owner_name"] == "a" and g["serving"] and g["epoch"] == 3 and g["candidates"] == ["a", "b"], g
+            assert m["quorum"]["configured"] and m["quorum"]["quorate"] and not m["quorum"]["auto_failover"], m["quorum"]
+            # Two votes and no third one: the test says so, it does not pass.
+            vote = ok(api(a, "POST", "/api/quorum/third-vote/test", {}), "third vote test")
+            assert vote["ok"] is False and "two votes" in vote["steps"][0]["detail"], vote
+            # Power fencing: nothing configured, the other node is offered.
+            targets = ok(api(a, "GET", "/api/ha/power-targets"), "power targets")
+            assert targets["targets"] == [] and [n["name"] for n in targets["nodes_without"]] == ["b"], targets
+            # A BMC that is not there: stored, and the test says it does not answer.
+            ok(api(a, "PUT", "/api/ha/power-targets/" + peer_b, {"kind": "bmc", "enabled": False, "host": "192.0.2.77", "username": "admin", "password": "x"}), "save target")
+            test = ok(api(a, "POST", "/api/ha/power-targets/" + peer_b + "/test", {}), "test target")["result"]
+            assert test["ok"] is False and "192.0.2.77" in test["detail"], test
+            stored = a.succeed("sudo -u postgres psql -d dplaneos -tAc 'SELECT password FROM power_targets'").strip()
+            assert len(stored) > 8 and stored != "x", "the BMC password is not stored sealed"
+            ok(api(a, "DELETE", "/api/ha/power-targets/" + peer_b), "remove target")
+
+        with subtest("Maintenance: a hands its group to b, takes nothing, and nothing comes back by itself"):
+            peer_a_key = group(a)["owner"]
+            plan = ok(api(a, "GET", "/api/ha/maintenance"), "maintenance plan")
+            assert not plan["maintenance"]["active"], plan
+            assert [(s["group"], s["action"], s.get("target_name")) for s in plan["plan"]] == [("data", "move", "b")], plan
+            # Looking at the plan moved nothing.
+            assert group(a)["epoch"] == 3 and group(a)["role"] == "owner"
+
+            res = ok(api(a, "POST", "/api/ha/maintenance", {"reason": "replacing a fan"}), "enter maintenance")
+            assert res["not_moved"] == 0 and res["plan"][0]["done"], res
+            b.succeed("zpool list tank && grep -q hello /mnt/tank/data/file")
+            a.fail("zpool list tank")
+            b.wait_until_succeeds("docker ps --format '{{.Names}}' | grep -q heartbeat", timeout=120)
+            assert group(b)["epoch"] == 4 and group(b)["role"] == "owner", group(b)
+            serves(b, True)
+            serves(a, False)
+            # The client's disks went along, as with a move by hand.
+            client_reads("three")
+            assert identity() == disks["identity"], (identity(), disks)
+
+            # b learns that a is in maintenance and shows it.
+            b.wait_until_succeeds(
+                "curl -s http://localhost/api/ha/map -H 'X-Session-ID: " + session["b"][0] + "' -H 'X-User: admin' "
+                "| ${pkgs.jq}/bin/jq -e '.nodes[] | select(.name == \"a\") | .maintenance'", timeout=60)
+            # In maintenance a takes nothing: not on request ...
+            refused = api(a, "POST", "/api/groups/data/takeover", {"confirm_owner_off": True})
+            assert refused.get("success") is not True, refused
+            # ... and not when b tries to move the group to it.
+            refused = api(b, "POST", "/api/groups/data/move", {"target": peer_a_key})
+            assert refused.get("success") is not True and "maintenance" in str(refused), refused
+            b.succeed("zpool list tank")
+            assert group(b)["epoch"] == 4, group(b)
+
+            ok(api(a, "DELETE", "/api/ha/maintenance"), "leave maintenance")
+            a.sleep(15)
+            assert group(b)["owner"] != peer_a_key and group(b)["epoch"] == 4, "leaving maintenance moved the group"
+            # The operator moves it back: now a takes it.
+            b.wait_until_succeeds(
+                "curl -s http://localhost/api/ha/map -H 'X-Session-ID: " + session["b"][0] + "' -H 'X-User: admin' "
+                "| ${pkgs.jq}/bin/jq -e '.nodes[] | select(.name == \"a\") | .maintenance | not'", timeout=60)
+            ok(api(b, "POST", "/api/groups/data/move", {"target": peer_a_key}), "move back after maintenance")
+            a.succeed("zpool list tank && grep -q hello /mnt/tank/data/file")
+            a.wait_until_succeeds("docker ps --format '{{.Names}}' | grep -q heartbeat", timeout=120)
+            assert group(a)["epoch"] == 5 and group(a)["role"] == "owner", group(a)
+            serves(a, True)
+            serves(b, False)
+            client_reads("three")
+
         with subtest("No daemon panics, security refusals or security warnings"):
             for m in (a, b):
                 print(m.execute("journalctl -b --no-pager -u dplaned | grep -i -E ' (warn|warning|error|failed)' | tail -n 60")[1])
@@ -336,7 +406,7 @@ pkgs.testers.nixosTest {
             ok(api(b, "POST", "/api/groups/data/takeover", {"confirm_owner_off": True}), "takeover")
             b.succeed("zpool list tank && grep -q hello /mnt/tank/data/file")
             gb = group(b)
-            assert gb["owner"] != peer_a and gb["epoch"] == 4 and gb["can_write"], gb
+            assert gb["owner"] != peer_a and gb["epoch"] == 6 and gb["can_write"], gb
             b.wait_until_succeeds("docker ps --format '{{.Names}}' | grep -q heartbeat", timeout=120)
             beats(b)
             # The owner was gone without a word: the client finds its disks
