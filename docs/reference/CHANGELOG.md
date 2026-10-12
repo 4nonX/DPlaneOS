@@ -203,6 +203,12 @@ failover, replicated groups, quorum and votes, the live image.
   exercised and that failed to export a busy pool; all images use the
   path the tests use.
 - "Test" on a cloud remote said "Connection OK" whatever the answer was.
+- **A degraded pool with `multihost` could not be imported after a
+  restart or a takeover.** The images carried OpenZFS 2.4.3, which refuses
+  such a pool ("pool is imported on host '<unknown>' (hostid=0)", also
+  with `-f`; openzfs/zfs#18823). The images are built with OpenZFS 2.4.4,
+  which fixes it, and no image can be built with 2.4.1 to 2.4.3 any more.
+  The VM test restarts the system with a disk of the pool offline.
 - **Prometheus could not scrape an installed system.** `/metrics` was
   documented on the web port, which did not forward it: a collector got
   the web page. It is forwarded, and read with an API token of the *read*

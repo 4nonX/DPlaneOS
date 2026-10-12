@@ -198,6 +198,18 @@ in {
         "expansion (zpool attach on raidz silently creates a mirror on older versions). " +
         "Set boot.zfs.package = pkgs.zfs_2_2 or use NixOS 23.11+.";
     } {
+      # OpenZFS 2.4.1 to 2.4.3 cannot import a multihost pool that has a
+      # mirror leg offline (or a hole left by a removed device) once it was
+      # not exported: "pool is imported on host '<unknown>' (hostid=0)",
+      # also with -f (openzfs/zfs#18823, fixed in 2.4.4). Storage groups use
+      # multihost: a degraded pool could not be taken over, or brought back
+      # after a power loss. No image is built with those releases.
+      assertion = let v = config.boot.zfs.package.version; in
+        !(lib.versionAtLeast v "2.4.1" && lib.versionOlder v "2.4.4");
+      message =
+        "OpenZFS ${config.boot.zfs.package.version} cannot import a degraded multihost pool " +
+        "(openzfs/zfs#18823). Use a nixpkgs revision with OpenZFS 2.4.4 or later.";
+    } {
       # Any of these gives dplaned a private mount namespace (a slave of the
       # host): datasets it creates or imports are then mounted only inside the
       # service, invisible to Samba, NFS and users until a reboot.

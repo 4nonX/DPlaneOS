@@ -264,10 +264,6 @@
         # Disk reservations on shared storage: the owner holds the disks, a
         # takeover shuts a previous owner out that is still writing.
         #   nix build .#checks.x86_64-linux.reservations -L
-        checks.mmp-degraded = import ./nixos/tests/mmp-degraded.nix {
-          inherit nixpkgs system;
-        };
-
         checks.reservations = import ./nixos/tests/reservations.nix {
           inherit nixpkgs system impermanence;
           daemonPackage = daemonShipped;

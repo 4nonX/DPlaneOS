@@ -932,6 +932,8 @@ pkgs.testers.nixosTest {
             nas.fail(f"curl -sS --fail --max-time 30 --user alice:{USER_PASSWORD2} ftp://localhost/file")
 
         with subtest("A degraded pool does not keep the web interface from starting"):
+            # multihost is on and the pool is not exported at shutdown: the
+            # case OpenZFS 2.4.1 to 2.4.3 could not import (openzfs/zfs#18823).
             nas.succeed(f"zpool offline tank {D1}")
             nas.shutdown()
             nas.start()
