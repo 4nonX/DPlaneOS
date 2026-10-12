@@ -813,10 +813,10 @@ pkgs.testers.nixosTest {
             listing = nas.succeed("cd /tmp/bundle && find . -type f | sort")
             for part in ["dplaned-journal.txt", "warnings-this-boot.txt", "pool-status.txt", "ip-addr.txt"]:
                 assert part in listing, f"{part} missing from the bundle: {listing}"
-            refused = nas.succeed(
+            bundle_errors = nas.succeed(
                 "cd /tmp/bundle && { grep -rl 'security refusal' . ; "
                 "grep -rl '^ERROR running' $(find . -type d -name logs) $(find . -type d -name zfs) ; } || true").strip()
-            assert refused == "", f"bundle parts that hold an error instead of data: {refused}"
+            assert bundle_errors == "", f"bundle parts that hold an error instead of data: {bundle_errors}"
             nas.succeed("cd /tmp/bundle && grep -q dplaned $(find . -name dplaned-journal.txt)")
             nas.succeed("cd /tmp/bundle && grep -q tank $(find . -name pool-status.txt)")
 
