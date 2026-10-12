@@ -1,265 +1,142 @@
 # DPlaneOS Administrator Guide
 
-Complete reference for system administration, storage management, sharing protocols, and identity management.
+Day-to-day administration, by area of the web interface. Each area's deeper guide is linked where there is one.
 
-For the system architecture and design philosophy, see the reference section:
-- [Design Philosophy](../reference/PHILOSOPHY.md) - why DPlaneOS works the way it does
-- [Architecture](../reference/ARCHITECTURE.md) - three-layer model, single-node and HA
-- [GitOps Reference](../reference/GITOPS-REFERENCE.md) - state.yaml format and reconciliation
-
-For deeper dives into operational areas, see the dedicated guides:
-- [Backup and Replication](BACKUP-REPLICATION.md) - ZFS snapshots, replication, Cloud Sync, rsync, database backup
-- [High Availability](HIGH-AVAILABILITY.md) - HA cluster setup, failover, rolling upgrades
-- [OTA Updates](OTA-UPDATES.md) - A/B slot updates, health check, auto-revert, rollback
-- [Optional Protocols](OPTIONAL-PROTOCOLS.md) - iSCSI, NVMe-oF, FTP/FTPS, S3
-- [Alerts and Authentication](ALERTS.md) - SMTP, webhook, Telegram, TOTP 2FA
-
----
-
-## Table of Contents
-
-1. [User Management](#user-management)
-2. [Role Management](#role-management)
-3. [Storage Management](#storage-management)
-4. [File Management](#file-management)
-5. [Container Management](#container-management)
-6. [System Settings](#system-settings)
-   - [Change History](#change-history)
-   - [Configuration Sync](#configuration-sync)
-7. [Monitoring and Alerts](#monitoring-and-alerts)
-8. [Backup and Recovery](#backup-and-recovery)
-9. [Security Best Practices](#security-best-practices)
-10. [Directory Service (LDAP / Active Directory)](#directory-service-ldap--active-directory)
-11. [SSO (OIDC)](#sso-oidc)
-12. [Custom Container Icons](#custom-container-icons)
-13. [Troubleshooting](#troubleshooting)
+| | |
+|---|---|
+| Installing, first steps | [Installation Guide](INSTALLATION-GUIDE.md) |
+| Snapshots, replication, cloud sync, rsync | [Backup and Replication](BACKUP-REPLICATION.md) |
+| iSCSI, NVMe-oF, FTP, S3 | [Optional Protocols](OPTIONAL-PROTOCOLS.md) |
+| Alerts and their channels, two-factor sign-in | [Alerts and Authentication](ALERTS.md) |
+| Updates | [System Updates](OTA-UPDATES.md) |
+| Clusters | [High Availability](HIGH-AVAILABILITY.md) |
+| Configuration in Git | [Git-Driven NAS](GITOPS-DRIVEN-NAS.md) |
+| When something is wrong | [Troubleshooting](TROUBLESHOOTING.md), [Recovery](RECOVERY.md) |
 
 ---
 
-## User Management
+## Users, groups and roles
 
-### Creating Users
+**Identity › Users & Groups.**
 
-**Via UI:**
-1. Navigate to **Settings → Users**
-2. Click **Create User**
-3. Fill in username (lowercase, no spaces), email, and password (12+ characters)
-4. Click **Create**
-5. Assign a role (see Role Management)
+### Users
 
-### Assigning Roles
+A user of the web interface is also the Unix, SMB and FTP account of the same name, with the same password: files a user writes over a share belong to that user, and group membership decides access to folders.
 
-1. Settings → Users → click on the user
-2. Roles section → **Assign Role**
-3. Select a role: Admin, Operator, Viewer, or User
-4. Optionally set an expiry date
-5. Click **Assign**
+- **Create**: name, password (at least 8 characters, with upper and lower case, a digit and a special character), optionally an e-mail address. Then give the user a role.
+- **Reset a password**: sets a temporary password. The user's sessions end, and at the next sign-in the user can do nothing but choose a new one. Resetting another user's password requires that your own account signs in with a second factor (Security Settings › 2FA): without one the request is refused.
+- **Delete**: removes the account, its role assignments and its sessions. The last active administrator cannot be deleted. Files the user owned stay, owned by a number without a name.
+- Users from a directory or from single sign-on have no password here; it is changed where the account lives.
 
-Role changes take effect immediately. The permission cache is invalidated on each assignment or removal. The 5-minute TTL is only a fallback for changes made directly to the database outside the daemon.
+### Groups
 
-### Resetting a User's Password
+Groups are Unix groups: use them for the permissions of shared folders (owner group of a dataset, entries in ACLs, *valid users* of an SMB share).
 
-Use this when a user is locked out or needs a forced credential rotation.
+### Roles
 
-1. Settings → Users → click the **lock_reset icon** next to the user
-2. Enter a temporary password (full strength requirements apply)
-3. Click **Set Temporary Password**
+A role is a set of permissions for the web interface and the API.
 
-The user's existing sessions are immediately revoked. On their next login they are blocked at the system level until they change the temporary password - only `/api/auth/change-password`, `/api/auth/logout`, and `/api/auth/session` are accessible until the flag is cleared. LDAP accounts cannot have their password reset here; direct users to their directory server.
+| Role | |
+|---|---|
+| **Admin** | everything, including users, roles and system settings. An administrator is root on the machine (terminal, containers, `sudo` over SSH) |
+| **Operator** | storage, shares, containers, files; not users, roles or system settings |
+| **Viewer** | reads everything, changes nothing |
+| **User** | the file explorer and their own account |
 
-**AAL2 required:** Resetting another user's password requires the admin session to be authenticated at AAL2 (Authentication Assurance Level 2), meaning the admin must have verified TOTP during login. A password-only session (AAL1) is rejected with HTTP 403 and `action: "enable_totp"`. This prevents an account compromise from triggering unauthorized password resets.
+The built-in roles cannot be changed. **Roles › Create role** makes your own from the permission list (`resource:action`, for example `storage:write`, `shares:admin`, `docker:read`). An assignment can have an end date, after which it lapses by itself. Changes take effect at once.
 
-### Removing Users
+### Sessions
 
-Users cannot be deleted while they have active sessions. User ID 1 (the initial admin) cannot be deleted.
+The **Sessions** tab lists who is signed in from where, and ends sessions. A session ends by itself after 24 hours, or after 30 minutes without use.
 
-1. Settings → Users → click on the user
-2. Click **Delete User** and confirm
+### Your own account
 
-On deletion: the account, role assignments, and active sessions are all removed. An audit log entry is created.
+**Security › Security Settings**: change your password, enable two-factor sign-in, create API tokens (with a scope: read, write or admin), end your other sessions, and check the audit log's integrity.
 
 ---
 
-## Role Management
+## Storage
 
-### Built-in Roles
+### Pools
 
-**Admin** - All 31 permissions. Can manage users, roles, and system settings. Cannot be deleted (system role).
+**Storage › ZFS Pools › Create Pool**: choose the disks and the layout.
 
-**Operator** - Storage, Docker, and file management. Cannot create users or assign roles.
+| Layout | Disks | Survives |
+|---|---|---|
+| Mirror | 2 or more | all but one disk of the mirror |
+| RAID-Z1 | 3 or more | one disk |
+| RAID-Z2 | 4 or more | two disks |
+| RAID-Z3 | 5 or more | three disks |
 
-**Viewer** - Read-only access to all data. Can download files and view logs. Cannot modify anything.
+Disks are used by their stable names (`/dev/disk/by-id`), so a pool does not depend on the order in which the system finds them. Pools from another system appear under *Import*.
 
-**User** - Upload and download files, view own storage usage, read system status.
+The pool's page has the rest: **Scrub Schedules** (a scrub reads everything and repairs what does not match its checksum; monthly is usual), TRIM, replacing and adding disks, clearing error counters, checkpoints, encryption, and for clusters Multihost.
 
-### Creating Custom Roles
+**A failed disk**: the pool is shown as degraded and an alert is sent. Replace the disk (hot, where the hardware allows), then use *Replace* on the failed device and choose the new disk; the pool rebuilds itself while it stays in use.
 
-1. Settings → Roles and Permissions → **Create Role**
-2. Enter a name, display name, and description
-3. Save, then click on the new role
-4. Select the permissions it should have
-5. Click **Save Permissions**
+**Destroying a pool** asks for its name, needs an account with a second factor, and is refused while shares, exports, targets or stacks still use it.
 
-### Permission Reference
+### Datasets
 
-Permissions are `resource:action` pairs. Not all resources expose all actions.
+**Storage › Datasets**: one dataset per kind of data (per share, per application), so that each can have its own snapshots, quota, compression and encryption. Compression (`lz4`) is on by default and costs nothing noticeable. A quota below what the dataset already holds is refused.
 
-| Resource | Actions | What it covers |
-|----------|---------|----------------|
-| `storage` | read, write, delete, admin | Pools, datasets, quotas, encryption, replication |
-| `snapshots` | read, write | Snapshot schedules and management |
-| `shares` | read, write, admin | SMB/NFS share configuration and reload |
-| `files` | read, write | File Explorer: browse/download and upload/modify/delete |
-| `docker` | read, write, delete, admin | Containers, images, compose, prune |
-| `network` | read, write | Network interfaces and routing |
-| `firewall` | read, write | Firewall rules |
-| `users` | read, write, admin | User accounts, groups, and sessions |
-| `roles` | read, write | Role and permission management |
-| `system` | read, write, admin | System settings, reboot, poweroff, audit log rotation |
-| `monitoring` | read | Metrics and health dashboard |
-| `audit` | read | Audit log chain view and verification |
-| `certificates` | read, write | TLS certificate management |
+### Volumes
+
+**Storage › Block Volumes**: ZFS volumes, the disks behind iSCSI targets and NVMe-oF exports.
+
+### Quotas, permissions
+
+**Storage › Quotas** limits users and groups within a dataset. **Storage › ACL Manager** shows and changes the POSIX ACL of a folder: entries for users and groups, applied to the folder alone or to everything in it.
 
 ---
 
-## Storage Management
+## Sharing
 
-### Creating Pools
+**Sharing › SMB Shares**: a folder, who may use it (*valid users*: users and groups, also of a domain the system is a member of), read-only or not, and per share: Previous Versions (snapshots shown to Windows clients), recycle bin, Time Machine with a size limit, allowed and denied hosts.
 
-| Disks | Configuration | Usable Space | Failure Tolerance |
-|-------|---------------|--------------|-------------------|
-| 2 | Mirror | 50% | 1 disk |
-| 3 | RAID-Z1 | 67% | 1 disk |
-| 4 | RAID-Z2 | 50% | 2 disks |
-| 6 | RAID-Z2 | 67% | 2 disks |
-| 6 | RAID-Z3 | 50% | 3 disks |
+**Sharing › NFS Exports**: a folder and the client networks that may mount it, read-only or read-write.
 
-**Steps:** Storage → Pools → **Create Pool** → select disks → choose RAID level → enter pool name → Create.
+**Sharing › File Share Links**: a link to one file or folder, for someone without an account, with an expiry.
 
-### Managing Datasets
-
-**Create:** Storage → Datasets → **Create Dataset**. Recommended settings: compression `lz4`, set quotas per user.
-
-**Best practices:**
-- Use hierarchical names: `pool/data/users/alice`
-- Enable compression (saves ~30% on typical data)
-- Set quotas for user datasets
-- Take regular snapshots (see Backup section)
-
-### Scrubbing Pools
-
-Scrubs verify on-disk data integrity and auto-repair from parity. Recommended monthly.
-
-**Via UI:** Storage → Pools → select pool → **Start Scrub**.
-
-### Pool Maintenance (Clear/Online)
-
-For troubleshooting pool errors or managing hot-swap replacements:
-
-- **Clear Errors**: Storage → Pools → select pool → **Clear**. Resets the pool's error counters (useful after a known cable issue or transient fault).
-- **Online Device**: If a device was previously detached or disconnected, use the **Online** action in the disk management view to attempt to bring it back into the pool.
-
-**Via cron:**
-```bash
-sudo crontab -e
-# Add:
-0 2 1 * * /usr/sbin/zpool scrub tank
-```
-
-### Pool and Dataset Constraints
-
-**Pool destroy dependency check:** A pool cannot be destroyed (without force) if any dataset within it is actively mounted, or if any NFS export or SMB share references a path within the pool. The operation returns a list of blocking dependencies. Remove or disable the shares first, then retry. The Force option bypasses this check: if a share entry is corrupt and cannot be removed, force allows recovery. Force does not protect against connected clients seeing an abrupt loss - pool destroy is final regardless. The destroy confirmation (which requires typing the pool name) runs before force has any effect. Note: pool export with force behaves differently and still validates dependencies, because a forced export with open handles causes client-side data corruption whereas a forced destroy is terminal either way.
-
-**Snapshot clone detection:** If a snapshot has dependent clones, destroy is rejected with a message naming the clone. Promote or destroy the clone first.
-
-**Quota guard:** Setting a refquota below the dataset's current referenced usage is rejected. The error message includes the current usage so you can choose an appropriate quota value.
-
-## File Management
-
-### File Explorer
-
-DPlaneOS includes a web-based file explorer accessible via the **Files** navigation item.
-
-- **Navigation**: Browse datasets and directories in real-time.
-- **Uploads**: Supports large, chunked multi-gigabyte uploads directly to the server.
-- **Operations**: Rename, Copy, Move, and Delete files/directories.
-
-### ACL Management (POSIX ACLs)
-
-For granular access control beyond standard owner/group permissions, the File Explorer supports POSIX ACLs.
-
-1. Navigate to **Files**.
-2. Right-click any file or directory.
-3. Select **Manage Permissions (ACL)**.
-4. From this dialog, you can:
-   - View current ACL entries.
-   - Add new entries for specific users or groups.
-   - Set permissions (Read, Write, Execute).
-   - Apply changes recursively to directory contents.
-
-> [!IMPORTANT]
-> To use ACLs, the underlying ZFS dataset must have `acltype=posixacl` set. The installer enables this by default for new pools created through the UI.
+The configuration of Samba and NFS is written by the system; a configuration Samba does not accept is not applied, and the previous one stays.
 
 ---
 
-## Container Management
+## Files
 
-Requires permission: `docker:write`.
-
-### Deploying Containers
-
-Containers → Docker → **Pull Image** tab to pull an image, or **Compose Stacks** tab to deploy a `docker-compose.yml`. Standalone containers can be deployed from the Containers tab via **Deploy Container**.
-
-### View Modes
-
-The Containers tab offers three layouts: **Grid** (icon card per container, default), **By Stack** (grouped by compose project), and **List** (table with resource usage). The selected layout persists across sessions.
-
-### Editing a Container
-
-Click the tune icon on any container card to open the edit modal. You can change:
-- **Icon** - Material Symbol name, `.svg`/`.png` filename, or a URL
-- **Restart policy** - no / always / unless-stopped / on-failure
-- **Ports**, **Volumes**, and **Environment variables**
-
-Changes are applied by stopping and recreating the container. Compose-managed containers should be edited via their compose file in the Compose Stacks tab.
-
-### Container Icons
-
-Each container displays an icon resolved in this order:
-
-1. **`dplaneos.icon` label** on the container (set in `docker-compose.yaml`):
-   - A Material Symbol name (e.g. `database`) - renders as a vector icon
-   - A filename ending in `.svg`, `.png`, or `.webp` - served from `/var/lib/dplaneos/custom_icons/`
-   - A full URL starting with `http` or `/` - loaded as an image
-2. **Built-in image-name mapping** - covers 80+ well-known images (Jellyfin, Plex, Nextcloud, Grafana, etc.)
-3. **Fallback** - generic `deployed_code` icon
-
-**Adding a custom icon:**
-1. Copy your image file to `/var/lib/dplaneos/custom_icons/myapp.svg`
-2. In your `docker-compose.yaml` or container config, add:
-   ```yaml
-   labels:
-     dplaneos.icon: myapp.svg
-   ```
-
-Custom icons are served via `GET /api/assets/custom-icons/<filename>`. The full icon list is available at `GET /api/assets/custom-icons/list`.
-
-### Managing Containers
-
-- **Start/Stop:** click on container → Start or Stop
-- **Logs:** click on container → Logs tab
-- **Exec:** click on container → Exec tab → enter `bash` or any command
-- **Remove:** click on container → Delete → confirm
+**File Explorer** browses the pools: upload (large files in parts), download, rename, copy, move, delete, and the permissions of a file or folder. It works within the pools only.
 
 ---
 
-## System Settings
+## Containers
 
-### Network Configuration
+**Containers › Docker.**
 
-Network → configure interface, IP address, gateway, DNS, VLANs, and bonding → **Apply**.
+- **Compose** deploys a stack from a compose file, and edits and redeploys it. **Git Sync** keeps a stack in step with a compose file in a Git repository.
+- **Containers** shows what runs, by container, by stack or as a list, with logs, a shell in the container, start, stop, restart and removal. Removing containers and images asks for confirmation.
+- **Images** and **Pull Image**; **Stats** for what each container uses; **GPU / hardware** for what can be passed to containers.
 
-The **Firewall** page is in the Security group. DNS changes apply in 30 seconds and can be rolled back from the same page if connectivity is lost.
+Put a stack's data on a pool (`/mnt/<pool>/...`): it is then covered by snapshots and replication, and in a cluster the stack follows its storage group.
+
+Containers get what their compose file gives them, including host paths and host networking, and the ports they publish are reachable whatever the Firewall page says. Deploy only what you would run as root.
+
+**Icons.** A container shows the icon named by its label `dplaneos.icon` (the name of a Material Symbol, the file name of an image uploaded on the Docker page, or a URL), otherwise one chosen by the image name.
+
+---
+
+## Network and system
+
+**Network**: addresses (DHCP or static), VLANs, bonds, DNS servers and time servers. A change takes effect at once and is taken back by itself unless you confirm it within 30 seconds: one that cuts your connection undoes itself.
+
+**Security › Firewall**: the ports the system opened for its own services, and your rules. The firewall is on from the start.
+
+**Security › Certificates**: the certificate of the web interface: self-signed at first, one you upload, or one from an ACME certificate authority.
+
+**Identity › SSH Keys**: the keys that may sign in over SSH (administrators only; no passwords and no root unless you change that), and the SSH port.
+
+**System › Settings**: host name, time zone, tuning (the ZFS cache limit).
+
+**System › Power Management**, **UPS**, **Hardware**, **IPMI**: disk spin-down, shutting down on battery, disks and their SMART values, the machine's BMC.
 
 ### Change History
 
@@ -270,7 +147,7 @@ System → **Change History** lists every change to datasets, SMB shares, NFS ex
 - **Undo this change** sets one resource back to how it was before that change (later changes to the same resource are undone too). The usual safety rules apply: a rollback that would delete a dataset containing data, or a share with open connections, is refused. A deleted dataset is recreated with its settings but without its data; a deleted user cannot be restored from the history (passwords are not stored). Pools, LDAP, ACME and certificates are shown but cannot be rolled back here.
 - **Export state.yaml** downloads the current configuration in the GitOps format (without secrets and certificates), with or without a Git repository.
 
-In an HA pair the history is recorded by the active node.
+In a cluster every node records what changes on it.
 
 ### Configuration Sync
 
@@ -286,329 +163,74 @@ System → **Configuration Sync** keeps datasets, SMB shares, NFS exports, users
 
 **Detach** makes a node independent for good: it keeps its whole configuration and stops exchanging changes. **Remove** on a paired node stops the exchange with that one node. Both nodes can be paired again later; the preview shows what would change.
 
-Not exchanged: hostname and network interfaces and SMART tasks (they belong to each node); Docker stacks that use a pool and NVMe-oF exports (they must run only on the node that owns the pool, which comes with storage groups in a later release); LDAP, ACME and certificates (their secrets are not synchronised yet); pools. User passwords are not synchronised: a user created on another node needs a password set on this node. Nodes of an HA pair on a shared database already share their configuration and cannot be paired.
-
-### Notifications
-
-Settings → System → Notifications - configure SMTP for email alerts. The ZED hook also supports direct Telegram alerts for critical ZFS events (pool degraded, disk faulted). See `install/zed/dplaneos-notify.sh` for configuration details (reads `telegram_config` from the database).
+Not exchanged: hostname and network interfaces and SMART tasks (they belong to each node); Docker stacks that use a pool, iSCSI targets and NVMe-oF exports (they run only on the node that owns the pool; in a cluster they follow their storage group, see [High Availability](HIGH-AVAILABILITY.md)); LDAP, ACME and certificates (their secrets are not synchronised yet); pools. User passwords are not synchronised: a user created on another node needs a password set on this node. Nodes of an HA pair on a shared database already share their configuration and cannot be paired.
 
 ---
 
-## Monitoring and Alerts
+## Monitoring
 
-### Dashboard Metrics
+**Dashboard**: load, memory, network, pool health and containers, live.
 
-CPU, RAM, disk I/O, network traffic, pool health, and container status are displayed on the dashboard in real time via WebSocket.
+**System › Alerts**: where alerts go (e-mail, webhooks, Telegram) and which events each webhook gets. Set this up before you need it: a degraded pool that nobody hears of is the usual way data is lost. See [Alerts](ALERTS.md).
 
-### Alert Thresholds
+**System › Reporting**: history of the system's metrics. For your own monitoring, `/metrics` serves them in Prometheus format ([Integration Guide](INTEGRATION-GUIDE.md)).
 
-Monitoring → Settings - configure thresholds for CPU, RAM, disk capacity, and I/O wait. Alerts route to email, webhook, Telegram, and the dashboard.
-
-### Viewing Logs
-
-- System logs: System → Logs
-- Audit log: Security → Audit Log (HMAC-chained, tamper-evident)
-- Container logs: Containers → Docker → select container → Logs
+**System › Logs**: the daemon's and the system's logs. **Security › Audit Log**: who changed what, from where; the log is chained so that a removed or altered entry is detected.
 
 ---
 
-## Backup and Recovery
+## Directory users (LDAP)
 
-### ZFS Snapshots
+**Identity › Directory Service**: users of an LDAP directory (OpenLDAP, FreeIPA, Active Directory over LDAP) sign in to the web interface with their directory password.
 
-```bash
-# Manual snapshot
-zfs snapshot tank/data@backup-$(date +%Y%m%d)
+1. Choose a preset, enter the server, the account the system reads the directory with (bind DN and password; a read-only account), and the base DN. **Test Connection**.
+2. Map directory groups to roles (**Add Mapping**).
+3. Save and enable.
 
-# Automatic snapshots - configure via services.zfs.autoSnapshot in configuration.nix
-# services.zfs.autoSnapshot.enable = true;
-```
+- A directory user's password is checked against the directory at every sign-in; it is never stored here.
+- Accounts are created by **Sync**, on its schedule, or at the first sign-in (if that is enabled).
+- Roles follow the groups: a user who leaves a mapped group loses the role at the next sync or sign-in. Roles you assign by hand stay.
+- Local accounts do not depend on the directory: if it is unreachable, `admin` still signs in.
+- Connections use TLS (LDAPS or StartTLS) unless you switch that off.
 
-### Database Backup
-
-The daemon management of PostgreSQL includes automated schema maintenance. For backups, use standard PostgreSQL tools:
-
-```bash
-# Default state location
-/var/lib/dplaneos/pgsql/
-
-# Manual backup (via pg_dump)
-sudo -u postgres pg_dump dplaneos > /backup/dplaneos-$(date +%Y%m%d).sql
-
-# Restore
-sudo systemctl stop dplaned
-sudo -u postgres psql dplaneos < /backup/dplaneos-20260309.sql
-sudo systemctl start dplaned
-```
-
-### Pool Export/Import
-
-```bash
-# Export (for moving to another system)
-sudo zpool export tank
-
-# Import
-sudo zpool import        # list importable pools
-sudo zpool import tank   # import by name
-```
-
----
-
-## Security Best Practices
-
-**Hardened Execution Whitelist (v6.1.0):** The daemon uses a strict, "sentence-based" allowlist for all system commands (`zfs`, `zpool`, `ufw`, etc.). This means only predefined, safe command structures are allowed. Modification of critical ZFS properties (like `mountpoint`, `quota`, `atime`) and firewall rules is restricted to validated patterns to prevent accidental or malicious system disruption. In v6.1.0, disk operations like `zpool attach` and `zpool replace` are strictly validated against `by-id` paths and pool membership.
-
-**Path Normalization:** DPlaneOS is fully path-agnostic. It does not rely on hardcoded absolute paths (`/usr/bin/`, `/bin/`) for key binaries, instead using the system's `PATH` for resolution. On NixOS this is essential as binaries live under `/nix/store`.
-
-**Allowed Base Paths:** File operations (create, delete, rename, chown, chmod) are restricted to a defined set of "safe" base paths:
-- `/mnt/*` (Main storage pools)
-- `/home/*` (User directories)
-- `/tank/*`, `/data/*`, `/media/*`, `/opt/*`, `/srv/*` (Common storage mountpoints)
-- `/tmp/*` (Temporary files)
-- `/var/lib/dplaneos/` (Application data)
-
-**Passwords:** Minimum 8 characters with uppercase, lowercase, digit, and special character (12+ recommended). On first install the setup wizard creates the admin account - no pre-generated password is printed; you set it during wizard Step 1. The forced-change flag (`must_change_password`) is server-enforced: all API routes except `/api/auth/change-password`, `/api/auth/logout`, and `/api/auth/session` return HTTP 403 until the flag is cleared. When changing a password, all other active sessions are revoked automatically.
-
-To reset a forgotten or compromised password, an admin uses **Settings → Users → lock_reset icon** to set a temporary password (see User Management above). There is no self-service password reset - this is intentional for a NAS with no email integration.
-
-**HTTPS:** Set up a TLS certificate via certbot or your reverse proxy. The nginx config ships with appropriate security headers.
-
-**Firewall:**
-```bash
-sudo ufw allow 80/tcp
-sudo ufw allow 443/tcp
-sudo ufw allow 22/tcp
-sudo ufw enable
-```
-
-**Fail2ban:** Install `fail2ban` and configure it to monitor `/var/log/dplaneos/access.log` (maxretry 5, bantime 3600).
-
-**Audit logs:** Review monthly via Settings → Audit Log. Look for failed logins, unexpected role changes, and out-of-hours access.
-
-**Least privilege:** Use Operator or Viewer roles for daily-use accounts; reserve Admin for administrative tasks only. Review role assignments quarterly.
-
-**Database access for direct queries:**
-```bash
-sudo -u postgres psql dplaneos -c "SELECT r.name FROM roles r \
-  JOIN user_roles ur ON r.id = ur.role_id WHERE ur.user_id = X;"
-```
-
----
-
-## Directory Service (LDAP / Active Directory)
-
-### Quick Setup
-
-1. Navigate to **Identity → Directory Service**
-2. Select a preset: **Active Directory**, **OpenLDAP**, **FreeIPA**, or **Custom**
-3. Enter server address, Bind DN, Bind Password, and Base DN
-4. Click **Test Connection**
-5. Click **Save Configuration** and enable the toggle
-
-### Group to Role Mapping
-
-| AD Group | DPlaneOS Role | Access Level |
-|----------|----------------|--------------|
-| `IT_Admins` | Administrator | Full system access |
-| `Storage_Team` | Operator | Storage, Docker, Shares |
-| `Domain Users` | User | Files, Dashboard |
-| `Auditors` | Viewer | Read-only |
-
-To add a mapping: click **Add Mapping**, enter the LDAP group name, select the role, click **Add Mapping**.
-
-### Authentication Model
-
-DPlaneOS uses **directory-sourced user provisioning with local authentication**. This is intentionally different from live LDAP auth:
-
-- Users are **synced from the directory** into the local database (`POST /api/ldap/sync`), with group-to-role mappings applied at sync time.
-- At login, synced users authenticate via **LDAP bind** - the daemon connects to the directory server and verifies credentials in real time.
-- Local accounts (including the system administrator) always authenticate via bcrypt regardless of LDAP state.
-- If the LDAP server is unreachable, **all local accounts continue to work** - the UI is never fully locked out.
-
-This model gives you directory-controlled access without making the management UI dependent on directory availability.
-
-> **Note:** Unlike TrueNAS Scale and Unraid, which only use LDAP/AD for SMB share authentication, DPlaneOS uses LDAP credentials to authenticate web UI logins for directory-sourced accounts.
-
-### Sync vs Live Auth
-
-| Account type | How it authenticates |
+| Problem | Look at |
 |---|---|
-| `source=local` | bcrypt against local `password_hash` |
-| `source=ldap` | Real-time LDAP bind against the configured server |
-| User ID 1 (admin) | Always local bcrypt, even if `source=ldap` |
+| Connection failed | address, port, the directory's certificate, a firewall in between |
+| Bind failed | the bind DN and password; a locked service account |
+| User not found | the user filter: Active Directory uses `sAMAccountName`, OpenLDAP `uid` |
+| No role after sign-in | the group mappings, the group base DN and filter |
 
-### Security Notes
+## Active Directory membership
 
-- The system administrator (user ID 1) always uses local authentication, even when LDAP is enabled, preventing lockout if the directory server goes down.
-- TLS is enforced by default (TLS 1.2+).
-- The bind password is stored in PostgreSQL - use a read-only service account.
-- If the LDAP server is unreachable, local accounts continue to work. Directory-sourced accounts will fail login until the server is reachable again.
+On the same page, **Active Directory**: the system joins a domain, and domain users and groups then open SMB shares with their domain accounts and appear in permissions and ACLs. Joining needs a domain account that may add computers; its password is used once and not stored. The page shows whether the domain still accepts the system's account, and an alert is raised when it stops. A system is a member of one domain. See the [Integration Guide](INTEGRATION-GUIDE.md).
 
-### LDAP API
+## Single sign-on (OIDC)
 
-```
-GET    /api/ldap/config
-POST   /api/ldap/config
-POST   /api/ldap/test
-GET    /api/ldap/status
-POST   /api/ldap/sync
-POST   /api/ldap/search-user
-GET    /api/ldap/mappings
-POST   /api/ldap/mappings
-DELETE /api/ldap/mappings?id=N
-GET    /api/ldap/sync-log
-```
+**System › Settings › SSO / OIDC**: sign-in through an OpenID Connect provider (Keycloak, Authentik, Entra ID and others), Authorization Code with PKCE.
 
-### Troubleshooting LDAP
+1. At the provider, register a confidential client with the redirect URI `https://<address of this system>/api/auth/oidc/callback` and the scopes `openid email profile` (and the one that carries groups).
+2. Here: issuer URL, client ID, client secret, the label of the button on the sign-in page. Enable and save. The provider's endpoints are found from the issuer URL.
 
-| Issue | Solution |
-|-------|----------|
-| Connection failed | Verify server address, port, and firewall rules |
-| Bind failed | Verify Bind DN and password; check the service account is not locked |
-| User not found | Check User Filter: AD uses `sAMAccountName`, OpenLDAP uses `uid` |
-| No groups mapped | Verify Group Base DN and Group Filter |
-| Admin locked out | User ID 1 always uses local auth - log in with local credentials |
+- **Who gets in.** A user who signed in through the provider before is recognised by the provider's identifier. Otherwise an existing account is linked by e-mail address, but only if the provider says the address is verified. Otherwise, with *Auto-provision* on, an account is created with the default role; with it off, the sign-in is refused. An account that is disabled here stays out.
+- **Roles follow groups.** Groups from the token (claim `groups`, or the one you name) whose names match role names give those roles, and a role given this way is taken away when the group is no longer in the token. Roles you assign by hand stay.
+- Local sign-in keeps working next to it.
+
+| Message | Cause |
+|---|---|
+| The button does not appear | SSO is not enabled, or the issuer URL cannot be reached from this system |
+| "SSO session expired" | more than ten minutes between starting and finishing the sign-in, or clocks that differ |
+| "Invalid identity token" | the token's signature algorithm is not among those allowed here; clocks that differ |
+| "Your account is not authorized" | no linked account, and auto-provision is off; or the account is disabled |
+| Redirect URI mismatch at the provider | the registered URI must be exactly the one above |
 
 ---
 
-## SSO (OIDC)
+## Good practice
 
-DPlaneOS supports single sign-on via any OpenID Connect (OIDC) Authorization Code + PKCE provider: Keycloak, Authentik, Dex, Auth0, Microsoft Entra ID, Google Workspace, and others.
-
-### Quick Setup
-
-1. Navigate to **Settings → SSO / OIDC**
-2. Enter the **Issuer URL** (the base URL of your provider, e.g. `https://auth.example.com/realms/myrealm`)
-3. Enter your **Client ID** and **Client Secret** from the IdP application registration
-4. Set a **Button Label** (displayed on the login page, e.g. "Sign in with Keycloak")
-5. Toggle **Enable SSO** and click **Save Configuration**
-
-DPlaneOS auto-discovers the provider's endpoints from `{issuer}/.well-known/openid-configuration`. No manual endpoint configuration is required.
-
-### IdP Application Registration
-
-Register DPlaneOS as a confidential client with:
-
-- **Redirect URI:** `https://your-dplaneos-hostname/api/auth/oidc/callback`
-- **Grant type:** Authorization Code
-- **PKCE:** S256 (required; if your IdP allows disabling PKCE, do not)
-- **Scopes:** `openid email profile groups` (adjust if your IdP uses a different claim for group membership)
-
-### Group to Role Mapping
-
-OIDC group names are matched against DPlaneOS role names at each login. Any IdP group whose name exactly matches a DPlaneOS role is assigned to the user. The claim that carries group membership is configurable (default: `groups`).
-
-| IdP group | DPlaneOS role matched | Access level |
-|-----------|----------------------|--------------|
-| `dplaneos-admins` | Administrator | Full system access |
-| `storage-operators` | Operator | Storage, Docker, Shares |
-| `domain-users` | User | Files, Dashboard |
-| `auditors` | Viewer | Read-only |
-
-Groups that do not match any role name are silently ignored. The assignment uses `granted_by = 'oidc-provider'` and is re-evaluated on every login; roles not granted by the IdP are not revoked automatically (they may have been assigned manually).
-
-### User Provisioning
-
-DPlaneOS resolves users in priority order:
-
-1. **Existing OIDC identity link** - the `(issuer, subject)` pair from the IdP is the stable, authoritative key. Matched immediately on subsequent logins regardless of email changes.
-2. **Email-based link** - if no identity link exists, DPlaneOS checks whether a local account shares the same email address and links it. Subsequent logins use the identity link.
-3. **Auto-provision** - if no match and **Auto-provision accounts** is enabled, a new local account is created with `source = 'oidc'` and the configured Default Role assigned.
-
-If **Auto-provision** is disabled and neither of the first two paths match, login is rejected with a "not authorized" error on the login page.
-
-Auto-provisioned usernames are derived from the IdP's `preferred_username` claim, falling back to the local part of the email address, then the subject. Characters outside `[a-zA-Z0-9_-]` are replaced with `_`. Duplicate names get a numeric suffix.
-
-### Account Sources
-
-| `source` | How it authenticates |
-|----------|----------------------|
-| `local` | bcrypt against local `password_hash` |
-| `ldap` | Real-time LDAP bind against the configured directory server |
-| `oidc` | OIDC flow; no local password; password-change UI is disabled for these accounts |
-| User ID 1 (admin) | Always local bcrypt regardless of source |
-
-### Login Flow
-
-1. User clicks the SSO button on the login page.
-2. Browser is redirected to the IdP authorization endpoint with a PKCE S256 challenge.
-3. After the user authenticates, the IdP redirects to `/api/auth/oidc/callback`.
-4. The daemon validates state, exchanges the code for tokens, verifies the ID token, resolves the user, and stores a one-time 2-minute handoff code.
-5. Browser is redirected to `/login?oidc_handoff=<code>`.
-6. The login page detects the parameter, exchanges it via `POST /api/auth/oidc/exchange`, and stores the session - identical in shape to a normal login response.
-
-The handoff code is necessary because the session token cannot safely travel in a redirect URL (browser history and access logs would expose it). The exchange call is a normal XHR that the SPA makes directly, so the token stays out of the URL entirely.
-
-### OIDC API
-
-```
-GET    /api/auth/oidc/info        public - login page queries this for SSO button
-GET    /api/auth/oidc/start       public - initiates IdP redirect
-GET    /api/auth/oidc/callback    public - receives IdP redirect (internal, not for direct use)
-POST   /api/auth/oidc/exchange    public - SPA exchanges handoff code for session
-GET    /api/auth/oidc/config      system:admin - read OIDC configuration (client secret omitted)
-POST   /api/auth/oidc/config      system:admin - write OIDC configuration
-```
-
-### Troubleshooting OIDC
-
-| Issue | Solution |
-|-------|----------|
-| SSO button does not appear | Enable SSO in Settings and confirm the provider discovery URL is reachable from the server |
-| "SSO session expired - please try again" | State row expired (10-minute TTL). Browser clock may be far ahead of server. |
-| "Invalid identity token from SSO provider" | Check **Allowed Algorithms** matches what your IdP signs with (default: `RS256`); check clock skew |
-| "Your account is not authorized to log in" | Auto-provision is off and no local account matches the email; create a local account or enable auto-provision |
-| "SSO provider is temporarily unavailable" | The daemon could not reach the IdP discovery URL; check network connectivity from the server |
-| Redirect URI mismatch | The registered redirect URI must exactly match `https://your-dplaneos-hostname/api/auth/oidc/callback` - note the trailing path |
-
----
-
-## Custom Container Icons
-
-The daemon serves custom icons from `/var/lib/dplaneos/custom_icons/`.
-
-Supported formats: `.svg`, `.png`, `.webp`
-
-**API endpoints:**
-- `GET /api/assets/custom-icons/<filename>` - serve a single icon file
-- `GET /api/assets/custom-icons/list` - JSON list of available filenames
-- `GET /api/docker/icon-map` - built-in image-name to Material Symbol mapping (80+ entries)
-
-**Usage:** Drop an image file into `/var/lib/dplaneos/custom_icons/`, then reference it via the `dplaneos.icon` container label. No daemon restart is required.
-
----
-
-## Troubleshooting
-
-See [TROUBLESHOOTING.md](TROUBLESHOOTING.md) for comprehensive troubleshooting steps.
-
-### Common Issues
-
-**Permission Denied (403):**
-```bash
-# Check user's roles
-sudo -u postgres psql dplaneos -c \
-  "SELECT r.name FROM roles r JOIN user_roles ur ON r.id = ur.role_id WHERE ur.user_id = X;"
-sudo systemctl restart dplaned  # clears permission cache
-```
-
-**Pool Will Not Mount:**
-```bash
-sudo zpool status
-sudo zpool import -f tank
-sudo zpool status -v  # check for errors
-```
-
-**High Memory Usage:**
-```bash
-arc_summary  # ZFS ARC breakdown
-# To limit ARC (in /etc/modprobe.d/zfs.conf):
-# options zfs zfs_arc_max=17179869184  (16 GB in bytes)
-```
-
-**Slow Web Interface:**
-```bash
-htop      # CPU
-iotop     # disk I/O
-sudo systemctl restart dplaned
-```
+- Give every person an account of their own, with the smallest role that does the job; keep `admin` for administration.
+- Enable two-factor sign-in for administrators. Some operations require it.
+- Install a certificate the browsers trust, and reach the web interface from a network you control or over a VPN, not from the internet.
+- Set up alerts and test them.
+- Snapshots are not a backup: replicate or sync to another system ([Backup and Replication](BACKUP-REPLICATION.md)).
+- Keep a copy of the configuration: `state.yaml` in Git, or a copy of the database ([Recovery](RECOVERY.md#6-the-database-and-the-configuration)).
+- Read the audit log now and then: failed sign-ins, role changes, sessions from addresses you do not know.
