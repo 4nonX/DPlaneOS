@@ -1589,9 +1589,10 @@ func main() {
 	r.Handle("/api/nvmet/targets", permRoute("storage", "write", handlers.UpdateNVMeTarget)).Methods("PUT")
 	r.Handle("/api/nvmet/targets", permRoute("storage", "write", handlers.DeleteNVMeTarget)).Methods("DELETE")
 
-	// v3.2.0 / v14.0.0: Prometheus/OpenMetrics exporter
-	// No auth required so Prometheus can scrape without tokens.
-	// Restrict access via firewall / nginx allow list if needed.
+	// Prometheus/OpenMetrics exporter. A monitoring system reads it with an
+	// API token of the "read" scope (Authorization: Bearer ...): pool and
+	// dataset names, sizes and the state of a cluster are not for everybody
+	// who can reach the web port.
 	r.HandleFunc("/metrics", handlers.HandlePrometheusMetrics).Methods("GET")
 
 	// Dataset search
@@ -1822,9 +1823,7 @@ func sessionMiddleware(db *sql.DB, internalCronToken string) mux.MiddlewareFunc 
 				strings.HasPrefix(p, "/api/quorum/voter/") ||
 				// Internal hooks - called by systemd timers on this host.
 				// Mandatory check: local caller AND the per-boot random token.
-				isInternalCronHook(r, internalCronToken) ||
-				// Prometheus metrics - scraped by external monitoring without session
-				p == "/metrics" {
+				isInternalCronHook(r, internalCronToken) {
 				next.ServeHTTP(w, r)
 				return
 			}

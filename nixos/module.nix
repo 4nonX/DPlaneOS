@@ -502,6 +502,10 @@ in {
         locations."/.well-known/acme-challenge/" = {
           proxyPass = "http://127.0.0.1:8080";
         };
+        # Prometheus metrics, for a monitoring system with an API token.
+        locations."= /metrics" = {
+          proxyPass = "http://dplaned";
+        };
         locations."/api/" = {
           proxyPass = "http://dplaned";
           proxyWebsockets = true;

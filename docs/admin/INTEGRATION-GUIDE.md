@@ -4,7 +4,28 @@ This document covers integrating DPlaneOS with external systems. Each section is
 
 ## Monitoring (Prometheus / Grafana / Datadog)
 
-DPlaneOS exposes a Prometheus/OpenMetrics endpoint at `GET /metrics` (no authentication required). Scrape it with any standard collector.
+DPlaneOS serves its metrics in the Prometheus/OpenMetrics text format at `GET /metrics`, on the web interface's address, to a request that carries an API token.
+
+1. **Security › API Tokens**: create a token with the scope *read* for the monitoring system. It is shown once.
+2. Point the collector at `https://<system>/metrics` with that token.
+
+### Prometheus scrape config example
+
+```yaml
+scrape_configs:
+  - job_name: dplaneos
+    scheme: https
+    metrics_path: /metrics
+    authorization:
+      type: Bearer
+      credentials: dpl_...            # or credentials_file
+    tls_config:
+      insecure_skip_verify: true      # with the system's self-signed certificate; better: ca_file, or a trusted certificate
+    static_configs:
+      - targets: ['nas.example.com']
+```
+
+Without a token the answer is `401`. In a cluster, scrape every node: each reports what it sees and serves.
 
 ### Metrics exposed
 
@@ -18,36 +39,28 @@ DPlaneOS exposes a Prometheus/OpenMetrics endpoint at `GET /metrics` (no authent
 | `dplaneos_zfs_dataset_used_bytes{dataset}` | Dataset used bytes (compressed) |
 | `dplaneos_zfs_dataset_available_bytes{dataset}` | Dataset available bytes |
 | `dplaneos_zfs_dataset_quota_bytes{dataset}` | Dataset quota (0 = no quota) |
-| `dplaneos_zfs_arc_size_bytes` | ZFS ARC current size |
-| `dplaneos_zfs_arc_max_bytes` | ZFS ARC maximum size |
-| `dplaneos_ha_enabled` | 1 if HA is configured |
-| `dplaneos_ha_peer_count` | Number of cluster peers |
-| `dplaneos_ha_quorum` | 1 if cluster has quorum |
-| `dplaneos_ha_last_failover_timestamp_seconds` | Unix timestamp of last failover |
-| `dplaneos_ha_peer_health{peer,role}` | Per-peer health: 1=healthy 0.5=degraded 0=unreachable |
-| `dplaneos_replication_enabled{schedule,dataset}` | 1 if schedule is enabled |
-| `dplaneos_replication_last_run_timestamp_seconds{schedule,dataset}` | Last run timestamp |
-| `dplaneos_replication_last_success{schedule,dataset}` | 1 if last run succeeded |
-| `dplaneos_memory_total_bytes` | Total physical memory |
-| `dplaneos_memory_used_bytes` | Used memory |
-| `dplaneos_cpu_iowait_ratio` | CPU IO wait fraction (0-1) |
+| `dplaneos_zfs_arc_size_bytes`, `dplaneos_zfs_arc_max_bytes` | ZFS ARC current and maximum size |
+| `dplaneos_ha_enabled`, `dplaneos_ha_quorum` | In a cluster; in the part that has quorum |
+| `dplaneos_ha_expected_votes`, `dplaneos_ha_online_nodes` | Votes expected; members this node sees |
+| `dplaneos_ha_auto_failover`, `dplaneos_ha_self_fence_armed` | Automatic failover possible; this node would shut itself out when it loses quorum |
+| `dplaneos_group_serving{group}`, `dplaneos_group_owner_here{group}` | The storage group is served; by this node |
+| `dplaneos_group_epoch{group}`, `dplaneos_group_problems{group}` | Ownership changes so far; open problems of the group |
+| `dplaneos_replication_enabled{schedule,dataset}` | 1 if the schedule is enabled |
+| `dplaneos_replication_last_run_timestamp_seconds{schedule,dataset}` | Last run |
+| `dplaneos_replication_last_success{schedule,dataset}` | 1 if the last run succeeded |
+| `dplaneos_bmc_scrape_ok`, `dplaneos_bmc_chassis_power` | The BMC answered; chassis power is on |
+| `dplaneos_bmc_sensor_value{...}`, `dplaneos_bmc_sensor_ok{...}` | BMC sensor readings and their state (when a BMC is configured) |
+| `dplaneos_memory_total_bytes`, `dplaneos_memory_available_bytes`, `dplaneos_memory_used_bytes` | Memory |
+| `dplaneos_cpu_iowait_ratio` | CPU I/O wait fraction (0-1) |
 | `dplaneos_load_1` / `_5` / `_15` | Load averages |
-| `dplaneos_build_info{version}` | Build metadata |
+| `dplaneos_inotify_active_instances`, `dplaneos_inotify_max_watches` | File watch use and limit |
+| `dplaneos_build_info{version}`, `dplaneos_scrape_timestamp_ms` | Version; time of the scrape |
 
-### Prometheus scrape config example
-
-```yaml
-scrape_configs:
-  - job_name: dplaneos
-    static_configs:
-      - targets: ['nas.example.com:80']
-    metrics_path: /metrics
-    scheme: http  # or https if TLS is configured
-```
+Alert rules for a cluster are in [`prometheus/ha-alerts.yml`](../../prometheus/ha-alerts.yml).
 
 ### SNMP
 
-There is no native SNMP MIB. For environments that require SNMP, use `snmp_exporter` with a custom module that scrapes `/metrics` and re-exposes via SNMP, or use Prometheus federation.
+There is no SNMP agent. Where SNMP is required, convert from Prometheus on the monitoring side.
 
 ---
 

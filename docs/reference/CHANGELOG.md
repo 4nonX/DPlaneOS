@@ -197,6 +197,11 @@ failover, replicated groups, quorum and votes, the live image.
   exercised and that failed to export a busy pool; all images use the
   path the tests use.
 - "Test" on a cloud remote said "Connection OK" whatever the answer was.
+- **Prometheus could not scrape an installed system.** `/metrics` was
+  documented on the web port, which did not forward it: a collector got
+  the web page. It is forwarded, and read with an API token of the *read*
+  scope (it was open to everybody on systems where it was reachable). The
+  list of metrics in the Integration Guide named three that do not exist.
 
 #### Added
 

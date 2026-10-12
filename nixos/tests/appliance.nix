@@ -526,6 +526,21 @@ pkgs.testers.nixosTest {
             assert api("GET", "/api/certs/list")["active_cert"] == "nas-acme"
             client.succeed(f"curl -sfk --max-time 20 https://{NAS}/health")
 
+        with subtest("Monitoring: Prometheus metrics for a monitoring system with a token, and for nobody else"):
+            scrape = "curl -sk --max-time 30 -o /tmp/metrics -w '%{http_code}' " + f"https://{NAS}/metrics"
+            assert client.succeed(scrape).strip() == "401", "metrics are served without a token"
+            token = ok(api("POST", "/api/auth/tokens", {"action": "create", "name": "prometheus", "scopes": "read"}), "create a token")["token"]
+            assert client.succeed(scrape + f" -H 'Authorization: Bearer {token}'").strip() == "200"
+            metrics = client.succeed("cat /tmp/metrics")
+            assert 'dplaneos_zfs_pool_healthy{pool="tank"} 1' in metrics, metrics[:2000]
+            assert "dplaneos_build_info" in metrics and "<html" not in metrics.lower()
+            # The token reads; it cannot change anything.
+            denied = client.succeed(
+                f"curl -sk --max-time 30 -o /dev/null -w '%{{http_code}}' -X POST https://{NAS}/api/zfs/datasets "
+                f"-H 'Authorization: Bearer {token}' -H 'Content-Type: application/json' -d '{{\"name\": \"tank/by-token\"}}'").strip()
+            assert denied == "403", denied
+            nas.fail("zfs list tank/by-token")
+
         with subtest("iSCSI, NVMe-oF and S3: used from another machine"):
             IQN = "iqn.2026-01.test.nas:lun0"
             NQN = "nqn.2026-01.test.nas:nv0"

@@ -142,7 +142,7 @@ Without a third vote, or for replicated groups with automatic failover off, step
 
 ## 7. Monitoring
 
-`GET /api/metrics` on each node exports, among others:
+`GET /metrics` on each node (Prometheus format, read with an API token: [Integration Guide](INTEGRATION-GUIDE.md#monitoring-prometheus--grafana--datadog)) exports, among others:
 
 | Metric | Meaning |
 |---|---|
