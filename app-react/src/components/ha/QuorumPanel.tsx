@@ -13,7 +13,7 @@
  * GET /api/config/sync/status (paired nodes).
  */
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useId } from 'react'
 import { Link } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, ensureOk } from '@/lib/api'
@@ -25,7 +25,7 @@ import { toast } from '@/hooks/useToast'
 import { useSyncStatus } from '@/components/layout/NodeStateBanner'
 
 interface QNode { nodeid: number; name: string; addr: string; node_key: string; voter?: boolean }
-interface QStatus {
+export interface QStatus {
   success: boolean
   configured: boolean
   cluster: { cluster_name: string; nodes: QNode[]; qdevice?: { host: string; algorithm: string } } | null
@@ -51,8 +51,10 @@ function Copy({ text }: { text: string }) {
   )
 }
 
-function FormCluster() {
+export function FormCluster() {
   const qc = useQueryClient()
+  // The form is on the page and in the setup wizard at the same time.
+  const uid = useId()
   const sync = useSyncStatus()
   const peers = sync.data?.peers ?? []
   const [peer, setPeer] = useState('')
@@ -83,8 +85,8 @@ function FormCluster() {
   }
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxWidth: 520 }}>
-      <label style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }} htmlFor="q-peer">Form a cluster with</label>
-      <select id="q-peer" className="input" value={peer} onChange={e => { setPeer(e.target.value); setLocalAddr(null); setPeerAddr(null) }}>
+      <label style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }} htmlFor={`${uid}-peer`}>Form a cluster with</label>
+      <select id={`${uid}-peer`} className="input" value={peer} onChange={e => { setPeer(e.target.value); setLocalAddr(null); setPeerAddr(null) }}>
         <option value="">Choose a paired node…</option>
         {peers.map(p => <option key={p.id} value={p.id}>{p.name} ({p.url})</option>)}
       </select>
@@ -92,12 +94,12 @@ function FormCluster() {
         <>
           <div style={{ display: 'flex', gap: 8 }}>
             <div style={{ flex: 1 }}>
-              <label style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }} htmlFor="q-local">This node's cluster address</label>
-              <input id="q-local" className="input" value={localAddr} onChange={e => setLocalAddr(e.target.value)} placeholder="10.0.0.1" />
+              <label style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }} htmlFor={`${uid}-local`}>This node's cluster address</label>
+              <input id={`${uid}-local`} className="input" value={localAddr} onChange={e => setLocalAddr(e.target.value)} placeholder="10.0.0.1" />
             </div>
             <div style={{ flex: 1 }}>
-              <label style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }} htmlFor="q-peer-addr">Other node's cluster address</label>
-              <input id="q-peer-addr" className="input" value={peerAddr} onChange={e => setPeerAddr(e.target.value)} placeholder="10.0.0.2" />
+              <label style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }} htmlFor={`${uid}-peer-addr`}>Other node's cluster address</label>
+              <input id={`${uid}-peer-addr`} className="input" value={peerAddr} onChange={e => setPeerAddr(e.target.value)} placeholder="10.0.0.2" />
             </div>
           </div>
           <p style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', margin: 0 }}>
@@ -137,7 +139,7 @@ const PATHS: { id: VotePath; title: string; good: string; limits: string }[] = [
   },
 ]
 
-function AddVote({ q, onClose }: { q: QStatus; onClose: () => void }) {
+export function AddVote({ q, onClose }: { q: QStatus; onClose: () => void }) {
   const qc = useQueryClient()
   const [path, setPath] = useState<VotePath>(q.cluster?.qdevice ? 'dplane-node' : 'qdevice')
   const [code, setCode] = useState<{ code: string; expires_at: string } | null>(null)

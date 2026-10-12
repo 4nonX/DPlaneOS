@@ -44,7 +44,7 @@ function ago(iso: string | null) {
   if (s < 5400) return `${Math.round(s / 60)} min ago`
   return `${Math.round(s / 3600)} h ago`
 }
-interface GroupsResponse {
+export interface GroupsResponse {
   success: boolean
   groups: GroupStatus[]
   self: string
@@ -61,7 +61,7 @@ const TOPOLOGY: Record<string, { label: string; text: string }> = {
   replicated: { label: 'Replicated', text: 'Each candidate has its own disks, kept in sync by ZFS replication. Works with any drives; on failover you lose up to one replication interval.' },
 }
 
-function CreateGroup({ data }: { data: GroupsResponse }) {
+export function CreateGroup({ data }: { data: GroupsResponse }) {
   const qc = useQueryClient()
   const [name, setName] = useState('')
   const [topology, setTopology] = useState<'standalone' | 'shared' | 'replicated'>(data.members.length > 1 ? 'shared' : 'standalone')

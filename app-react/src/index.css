@@ -604,6 +604,7 @@ textarea.input { resize: vertical; min-height: 120px; line-height: 1.5; }
 
 .modal-sm { width: 420px; }
 .modal-lg { width: 680px; }
+.modal-xl { width: 1040px; max-width: calc(100vw - 48px); }
 
 /* Mobile: Full-screen modals */
 @media (max-width: 768px) {
@@ -617,7 +618,7 @@ textarea.input { resize: vertical; min-height: 120px; line-height: 1.5; }
     animation: modalSlideUpMobile 0.3s cubic-bezier(0.2,0,0,1);
   }
 
-  .modal-sm, .modal-lg { width: 100%; }
+  .modal-sm, .modal-lg, .modal-xl { width: 100%; }
 }
 
 @keyframes modalSlideUpMobile {

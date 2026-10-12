@@ -130,6 +130,24 @@ jobs:
             exit 1
           fi
 
+      # The web interface in a browser, against a mock of the daemon's API
+      # (app-react/e2e): the setup wizard, the cluster map and maintenance,
+      # power fencing. Runs on the bundle that was just built.
+      - name: Browser tests of the web interface
+        if: hashFiles('app-react/package-lock.json') != ''
+        working-directory: app-react
+        run: |
+          npx playwright install --with-deps chromium
+          npx playwright test
+
+      - name: Keep the browser test report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: app-react/playwright-report
+          if-no-files-found: ignore
+
       - name: Set up Go
         uses: actions/setup-go@v5
         with:

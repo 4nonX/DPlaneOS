@@ -55,27 +55,30 @@ function TargetForm({ initial, isNew, onDone }: { initial: PowerTarget; isNew: b
   const [result, setResult] = useState<TestResult | null>(null)
   const set = <K extends keyof PowerTarget>(k: K, v: PowerTarget[K]) => { setT(p => ({ ...p, [k]: v })); setResult(null) }
   const refresh = () => { qc.invalidateQueries({ queryKey: ['ha', 'power-targets'] }); qc.invalidateQueries({ queryKey: ['ha'] }) }
-  const path = `/api/ha/power-targets/${encodeURIComponent(t.node)}`
+  const node = encodeURIComponent(t.node)
 
   const save = useMutation({
-    mutationFn: async () => ensureOk(await api.put<{ success: boolean; error?: string }>(path, {
-      ...t, ...(password !== '' ? { password } : {}),
+    mutationFn: async () => ensureOk(await api.put<{ success: boolean; error?: string }>(`/api/ha/power-targets/${node}`, {
+      kind: t.kind, enabled: t.enabled, host: t.host, username: t.username,
+      off_url: t.off_url, status_url: t.status_url, http_method: t.http_method,
+      expected_status: t.expected_status, timeout_secs: t.timeout_secs,
+      ...(password !== '' ? { password } : {}),
     })),
     onSuccess: () => { toast.success(`Saved for ${t.name}. Use Test to see that it works.`); setPassword(''); refresh(); if (isNew) onDone() },
     onError: (e: Error) => toast.error(e.message),
   })
   const test = useMutation({
-    mutationFn: () => api.post<{ success: boolean; result: TestResult }>(`${path}/test`, {}),
+    mutationFn: () => api.post<{ success: boolean; result: TestResult }>(`/api/ha/power-targets/${node}/test`, {}),
     onSuccess: (r) => setResult(r.result),
     onError: (e: Error) => setResult({ ok: false, detail: e.message, confirms: '' }),
   })
   const pin = useMutation({
-    mutationFn: async (reset: boolean) => ensureOk(await api.post<{ success: boolean; error?: string; fingerprint?: string }>(`${path}/enroll`, { reset })),
+    mutationFn: async (reset: boolean) => ensureOk(await api.post<{ success: boolean; error?: string; fingerprint?: string }>(`/api/ha/power-targets/${node}/enroll`, { reset })),
     onSuccess: (_r, reset) => { toast.success(reset ? 'Certificate forgotten' : 'Certificate pinned'); refresh() },
     onError: (e: Error) => toast.error(e.message),
   })
   const remove = useMutation({
-    mutationFn: () => api.delete(path),
+    mutationFn: () => api.delete(`/api/ha/power-targets/${node}`),
     onSuccess: () => { toast.success(`Power fencing removed for ${t.name}`); refresh(); onDone() },
     onError: (e: Error) => toast.error(e.message),
   })

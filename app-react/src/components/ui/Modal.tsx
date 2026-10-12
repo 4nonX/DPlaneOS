@@ -10,7 +10,7 @@
  *     </div>
  *   </Modal>
  *
- * Size variants: size="sm" | "md" (default) | "lg"
+ * Size variants: size="sm" | "md" (default) | "lg" | "xl" (a guided setup with forms in it)
  * Clicking the backdrop calls onClose.
  */
 
@@ -24,7 +24,7 @@ interface ModalProps {
   title?: ReactNode
   onClose: () => void
   children: ReactNode
-  size?: 'sm' | 'md' | 'lg'
+  size?: 'sm' | 'md' | 'lg' | 'xl'
 }
 
 const FOCUSABLE = [
@@ -38,7 +38,7 @@ const FOCUSABLE = [
 ].join(',')
 
 export function Modal({ title, onClose, children, size = 'md' }: ModalProps) {
-  const sizeClass = size === 'sm' ? 'modal-sm' : size === 'lg' ? 'modal-lg' : ''
+  const sizeClass = size === 'sm' ? 'modal-sm' : size === 'lg' ? 'modal-lg' : size === 'xl' ? 'modal-xl' : ''
   const modalRoot = document.getElementById('modal-root')
   const panelRef = useRef<HTMLDivElement>(null)
   const titleId = useId()

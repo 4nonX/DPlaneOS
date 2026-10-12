@@ -3,6 +3,7 @@
  *
  * Every node keeps its own database; paired nodes exchange configuration.
  * High availability is built from:
+ *   - the guided setup                               SetupWizard
  *   - the map: nodes, groups, maintenance mode       ClusterMap
  *   - the cluster (Corosync) and its third vote      QuorumPanel
  *   - how the setup is protected                     ProtectionCard
@@ -12,6 +13,7 @@
 
 import { useState } from 'react'
 import { ClusterMap } from '@/components/ha/ClusterMap'
+import { SetupWizard } from '@/components/ha/SetupWizard'
 import { QuorumPanel } from '@/components/ha/QuorumPanel'
 import { GroupsPanel } from '@/components/ha/GroupsPanel'
 import { ProtectionCard } from '@/components/ha/ProtectionCard'
@@ -21,15 +23,22 @@ import { Icon } from '@/components/ui/Icon'
 
 export function HAPage() {
   const [showSettings, setShowSettings] = useState(false)
+  const [wizard, setWizard] = useState(false)
   return (
     <div style={{ maxWidth: 900 }}>
-      <div style={{ marginBottom: 28 }}>
-        <h1 className="page-title">High Availability</h1>
-        <p className="page-subtitle">
-          Pair nodes, form a cluster with a third vote, and put pools into storage groups that move between nodes.
-          Every node keeps working on its own if it is cut off.
-        </p>
+      <div style={{ marginBottom: 28, display: 'flex', alignItems: 'flex-end', gap: 16 }}>
+        <div style={{ flex: 1 }}>
+          <h1 className="page-title">High Availability</h1>
+          <p className="page-subtitle">
+            Pair nodes, form a cluster with a third vote, and put pools into storage groups that move between nodes.
+            Every node keeps working on its own if it is cut off.
+          </p>
+        </div>
+        <button className="btn btn-primary" onClick={() => setWizard(true)} data-testid="open-wizard">
+          <Icon name="auto_fix_high" size={16} />Set up high availability
+        </button>
       </div>
+      {wizard && <SetupWizard onClose={() => setWizard(false)} />}
 
       <ClusterMap />
       <QuorumPanel />

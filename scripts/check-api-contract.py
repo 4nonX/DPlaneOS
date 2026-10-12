@@ -29,6 +29,13 @@ ALLOW = {
 main = open(os.path.join(D, 'cmd', 'dplaned', 'main.go'), encoding='utf-8').read()
 gofiles = [f for f in glob.glob(os.path.join(D, 'internal', 'handlers', '*.go')) if not f.endswith('_test.go')]
 allgo = '\n'.join(open(f, encoding='utf-8').read() for f in gofiles)
+# Request and response types also live in the packages the handlers use
+# (ha.PowerTarget, groups.Group, ...): struct definitions are looked up in
+# all of them.
+alltypes = allgo + '\n' + '\n'.join(
+    open(f, encoding='utf-8').read()
+    for f in glob.glob(os.path.join(D, 'internal', '**', '*.go'), recursive=True)
+    if not f.endswith('_test.go') and os.sep + 'handlers' + os.sep not in f and os.sep + 'vendor' + os.sep not in f)
 
 # handler variable -> type (fooHandler := handlers.NewFooHandler(...))
 var_type = {}
@@ -92,12 +99,12 @@ def named_struct(tname, seen=None):
     if tname in seen:
         return set()
     seen.add(tname)
-    m = re.search(r'\ntype ' + re.escape(tname) + r' struct \{', allgo)
+    m = re.search(r'\ntype ' + re.escape(tname) + r' struct \{', alltypes)
     if not m:
         return set()
-    body = block(allgo, m.end() - 1)
+    body = block(alltypes, m.end() - 1)
     tags = set(re.findall(r'json:"([^",]+)', body))
-    for emb in re.findall(r'^\s+(\w+)\s*$', body, re.M):
+    for emb in re.findall(r'^\s+(?:\w+\.)?(\w+)\s*$', body, re.M):
         tags |= named_struct(emb, seen)
     return tags
 
@@ -106,7 +113,10 @@ def fields(body, recv_type, depth=0):
     if body is None or depth > 3:
         return set()
     tags = set(re.findall(r'json:"([^",]+)', body))  # inline structs
-    for t in re.findall(r'var \w+\s+(?:\[\])?\*?(\w+)\b', body) +re.findall(r'\w+ := &?(\w+)\{\}', body):
+    for t in (re.findall(r'var \w+\s+(?:\[\])?\*?(?:\w+\.)?(\w+)\b', body)
+              + re.findall(r'\w+ := &?(?:\w+\.)?(\w+)\{\}', body)
+              # a type embedded in an inline request struct
+              + re.findall(r'^\s+(?:\w+\.)?([A-Z]\w+)\s*$', body, re.M)):
         tags |= named_struct(t)
     tags |= set(re.findall(r'\w+\["(\w+)"\]', body))
     # helpers the handler dispatches to (directly or through middleware)

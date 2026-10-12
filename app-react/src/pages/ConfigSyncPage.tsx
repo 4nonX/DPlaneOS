@@ -89,7 +89,7 @@ function ChangeTable({ changes, left, right }: { changes: FieldChange[]; left: s
 
 // ── Pairing ───────────────────────────────────────────────────────────────────
 
-function InviteCard() {
+export function InviteCard() {
   const [invite, setInvite] = useState<{ token: string; expires_at: string } | null>(null)
   const create = useMutation({
     mutationFn: async () => ensureOk(await api.post<{ success: boolean; error?: string; token: string; expires_at: string }>('/api/config/peers/token', {})),
@@ -124,7 +124,7 @@ function InviteCard() {
   )
 }
 
-function JoinCard() {
+export function JoinCard() {
   const qc = useQueryClient()
   const [url, setUrl] = useState('')
   const [token, setToken] = useState('')
