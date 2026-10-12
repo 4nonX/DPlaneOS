@@ -343,7 +343,9 @@ pkgs.testers.nixosTest {
     def check_persistence():
         # Whatever holds the daemon's state and the database is a memory
         # filesystem: nothing of a session is written to a disk.
-        for path in ["/var/lib/dplaneos", "/var/lib/postgresql", "/"]:
+        pgdata = liveSystem.succeed("systemctl show -p Environment postgresql | tr ' ' '\n' | sed -n 's/^PGDATA=//p'").strip()
+        assert pgdata.startswith("/"), f"database directory not found: {pgdata!r}"
+        for path in ["/var/lib/dplaneos", pgdata, "/"]:
             fstype = liveSystem.succeed("findmnt -n -o FSTYPE -T " + path).strip()
             assert fstype == "tmpfs", f"{path} is on {fstype}"
         assert liveSystem.succeed("cat /etc/dplaneos-live/mode").strip() == "live-boot"
