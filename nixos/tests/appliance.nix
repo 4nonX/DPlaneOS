@@ -678,6 +678,21 @@ pkgs.testers.nixosTest {
             nas.wait_until_succeeds("resolvectl dns | grep -F 'Global' | grep -qF '9.9.9.9'", timeout=30)
             nas.succeed("resolvectl domain | grep -F 'Global' | grep -qF 'lan.example'")
 
+        with subtest("Support bundle: holds the logs, not error messages"):
+            nas.succeed(
+                "curl -sf --max-time 180 -X POST http://localhost/api/system/support-bundle -o /tmp/bundle.tgz "
+                f"-H 'X-Session-ID: {session['sid']}' -H 'X-User: admin' -H 'X-CSRF-Token: {session['csrf']}'")
+            nas.succeed("mkdir -p /tmp/bundle && tar -xzf /tmp/bundle.tgz -C /tmp/bundle")
+            listing = nas.succeed("cd /tmp/bundle && find . -type f | sort")
+            for part in ["dplaned-journal.txt", "warnings-this-boot.txt", "pool-status.txt", "ip-addr.txt"]:
+                assert part in listing, f"{part} missing from the bundle: {listing}"
+            refused = nas.succeed(
+                "cd /tmp/bundle && { grep -rl 'security refusal' . ; "
+                "grep -rl '^ERROR running' $(find . -type d -name logs) $(find . -type d -name zfs) ; } || true").strip()
+            assert refused == "", f"bundle parts that hold an error instead of data: {refused}"
+            nas.succeed("cd /tmp/bundle && grep -q dplaned $(find . -name dplaned-journal.txt)")
+            nas.succeed("cd /tmp/bundle && grep -q tank $(find . -name pool-status.txt)")
+
         with subtest("Reboot: everything is still there"):
             nas.shutdown()
             nas.start()

@@ -188,8 +188,16 @@ func (h *SupportBundleHandler) GenerateBundle(w http.ResponseWriter, r *http.Req
 	sections = append(sections,
 		collectCmd("logs/dplaned-journal.txt", cmdutil.RunMedium,
 			"journalctl", "-n", "1000", "--no-pager", "-u", "dplaned"),
-		collectCmd("logs/nixos-rebuild-journal.txt", cmdutil.RunMedium,
-			"journalctl", "-n", "500", "--no-pager", "-u", "nixos-rebuild"),
+		// Everything of this boot at warning level and above, from all
+		// services (ZFS event daemon, Samba, NFS, the kernel, ...).
+		collectCmd("logs/warnings-this-boot.txt", cmdutil.RunMedium,
+			"journalctl", "-b", "-p", "warning", "-n", "2000", "--no-pager"),
+		// The cluster services (empty on a system that is not in a cluster).
+		collectCmd("logs/cluster-journal.txt", cmdutil.RunMedium,
+			"journalctl", "-n", "1000", "--no-pager", "-u", "corosync", "-u", "dplaneos-corosync", "-u", "dplaneos-qdevice"),
+		// The check that keeps or returns a system update after its first start.
+		collectCmd("logs/update-journal.txt", cmdutil.RunMedium,
+			"journalctl", "-n", "300", "--no-pager", "-u", "dplaneos-update-confirm"),
 		collectFile("logs/dplaned.log.tail", "/var/log/dplaneos/dplaned.log", 512*1024),
 	)
 

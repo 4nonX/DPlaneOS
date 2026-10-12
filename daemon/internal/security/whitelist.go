@@ -757,9 +757,7 @@ var CommandWhitelist = map[string]Command{
 	"journalctl": {
 		Name:        "journalctl",
 		Path:        "journalctl",
-		AllowedArgs: []string{"-n", "--no-pager", "-o", "json"},
-		ArgPatterns: []*regexp.Regexp{regexp.MustCompile(`^\d+$`)}, // line count
-		Description: "Get system logs",
+		Description: "Read the journal (see validateJournalctl)",
 	},
 	"systemctl_daemon_reload": {
 		Name:        "systemctl_daemon_reload",
@@ -1109,6 +1107,8 @@ func ValidateCommand(cmdName string, args []string) error {
 		return validateRsync(args)
 	case "systemctl_unit":
 		return validateSystemctlUnit(args)
+	case "journalctl":
+		return validateJournalctl(args)
 	case "zpool_online", "zpool_add_cache", "zpool_add_log", "zpool_remove_device", "hdparm_check", "hdparm_spindown", "hdparm_status", "wipefs", "zpool_labelclear":
 		return validateDeviceBasedCommand(cmdName, args)
 	case "group_address":
@@ -1978,6 +1978,58 @@ func validateSystemctlUnit(args []string) error {
 	}
 	if len(rest) != 1 || !systemctlUnitRe.MatchString(rest[0]) {
 		return fmt.Errorf("systemctl %s: exactly one unit name is needed", verb)
+	}
+	return nil
+}
+
+// validateJournalctl allows reading the journal: a number of lines, units,
+// a priority, this boot, and an output format. Nothing that writes
+// (--vacuum-*, --rotate, --flush), follows, or reads another journal
+// (--file, --directory, --root, -M).
+//
+// The earlier rule was a fixed list for one caller ("-n N --no-pager -o
+// json"); the other two callers passed "-u <unit>" and were refused, so the
+// support bundle held an error message where the daemon's log should be and
+// the health page never showed a service's recent warnings.
+func validateJournalctl(args []string) error {
+	lines := regexp.MustCompile(`^\d{1,6}$`)
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		value := func() (string, bool) {
+			if i+1 >= len(args) {
+				return "", false
+			}
+			i++
+			return args[i], true
+		}
+		switch a {
+		case "--no-pager", "-b":
+		case "--output=short-iso", "--output=json":
+		case "-n":
+			if v, ok := value(); !ok || !lines.MatchString(v) {
+				return fmt.Errorf("journalctl -n: a number of lines is needed")
+			}
+		case "-u":
+			if v, ok := value(); !ok || !systemctlUnitRe.MatchString(v) {
+				return fmt.Errorf("journalctl -u: a unit name is needed")
+			}
+		case "-o":
+			if v, ok := value(); !ok || (v != "json" && v != "short-iso") {
+				return fmt.Errorf("journalctl -o: json or short-iso")
+			}
+		case "-p":
+			v, ok := value()
+			if !ok {
+				return fmt.Errorf("journalctl -p: a priority is needed")
+			}
+			switch v {
+			case "emerg", "alert", "crit", "err", "warning", "notice", "info", "debug":
+			default:
+				return fmt.Errorf("journalctl -p: %q is not a priority", v)
+			}
+		default:
+			return fmt.Errorf("journalctl: %q not allowed", a)
+		}
 	}
 	return nil
 }

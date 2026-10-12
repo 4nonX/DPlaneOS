@@ -429,3 +429,37 @@ func TestZpoolOnlineAcceptsStableNames(t *testing.T) {
 		t.Error("option as device accepted")
 	}
 }
+
+// The journal can be read the way the daemon reads it (log page, health
+// page, support bundle), and in no other way.
+func TestValidateJournalctl(t *testing.T) {
+	for _, ok := range [][]string{
+		{"-n", "100", "--no-pager", "-o", "json"},
+		{"-n", "1000", "--no-pager", "-u", "dplaned"},
+		{"-u", "smbd.service", "--no-pager", "-n", "10", "-p", "warning", "--output=short-iso"},
+		{"-b", "-p", "warning", "-n", "2000", "--no-pager"},
+		{"-n", "1000", "--no-pager", "-u", "corosync", "-u", "dplaneos-corosync", "-u", "dplaneos-qdevice"},
+	} {
+		if err := ValidateCommand("journalctl", ok); err != nil {
+			t.Errorf("journalctl %v refused: %v", ok, err)
+		}
+	}
+	for _, bad := range [][]string{
+		{"--vacuum-size=1M"},
+		{"--rotate"},
+		{"--flush"},
+		{"-f"},
+		{"--file", "/etc/shadow"},
+		{"-D", "/mnt/tank"},
+		{"-n"},
+		{"-n", "all; reboot"},
+		{"-u", "../x"},
+		{"-u", "a b"},
+		{"-p", "0..7 --rotate"},
+		{"-o", "export"},
+	} {
+		if err := ValidateCommand("journalctl", bad); err == nil {
+			t.Errorf("journalctl %v accepted", bad)
+		}
+	}
+}
