@@ -463,3 +463,15 @@ func TestValidateJournalctl(t *testing.T) {
 		}
 	}
 }
+
+// The clock check of the health page asks the way the allowlist allows.
+// (It asked for two properties, the rule named one: the check was refused
+// and the page said "synchronised" whatever the clock did.)
+func TestTimedatectlShowAsTheHealthCheckCallsIt(t *testing.T) {
+	if err := ValidateCommand("timedatectl_show", []string{"show", "--property=NTPSynchronized,TimeUSec"}); err != nil {
+		t.Errorf("refused: %v", err)
+	}
+	if err := ValidateCommand("timedatectl_show", []string{"set-time", "2020-01-01"}); err == nil {
+		t.Error("setting the clock must not pass as showing it")
+	}
+}

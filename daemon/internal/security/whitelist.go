@@ -605,7 +605,7 @@ var CommandWhitelist = map[string]Command{
 	"timedatectl_show": {
 		Name:        "timedatectl_show",
 		Path:        "timedatectl",
-		AllowedArgs: []string{"show", "--property=NTPSynchronized"},
+		AllowedArgs: []string{"show", "--property=NTPSynchronized,TimeUSec"},
 		Description: "Check if system clock is NTP synchronized",
 	},
 
