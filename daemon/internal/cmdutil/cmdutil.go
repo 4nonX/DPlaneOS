@@ -39,6 +39,11 @@ func runInternal(ctx context.Context, timeout time.Duration, trusted bool, name 
 	// 1. Mandatory Security Whitelist Routing (Finding 23)
 	if cmd, exists := security.CommandWhitelist[name]; exists {
 		if err := security.ValidateCommand(name, args); err != nil {
+			// Logged here, not only returned: callers that treat a failed
+			// command as "no data" would otherwise hide a rule that refuses
+			// what the daemon itself asks for. (The arguments are not
+			// logged: they can hold what a request sent.)
+			log.Printf("SECURITY: command refused by the allowlist: %s (%d arguments): %v (security refusal)", name, len(args), err)
 			return nil, fmt.Errorf("security refusal: %w", err)
 		}
 		// Rewrite the name to the absolute binary path from the whitelist

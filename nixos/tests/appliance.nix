@@ -797,6 +797,10 @@ pkgs.testers.nixosTest {
             assert api("GET", "/api/zfs/pools")["data"][0]["health"] == "DEGRADED"
             nas.succeed(f"zpool online tank {D1}")
 
+        with subtest("No daemon panics, and the allowlist refused nothing the daemon asked for"):
+            bad = nas.execute("journalctl --no-pager -u dplaned | grep -E 'panic:|SECURITY WARNING|security refusal' || true")[1].strip()
+            assert bad == "", "daemon log: " + bad[:3000]
+
         with subtest("UPS: on battery below the configured level, the system shuts down"):
             nas.wait_until_succeeds("upsc testups@localhost ups.status 2>/dev/null | grep -qx OL", timeout=90)
             # On battery, but above the level: nothing happens.
