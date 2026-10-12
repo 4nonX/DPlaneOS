@@ -136,7 +136,7 @@ dd if=dplaneos-v*.iso of=/dev/sdX bs=4M status=progress conv=fsync
 
 **Offline / air-gapped:** the ISO contains the complete system. No internet access is needed to install or to run it. Updates can be brought as files.
 
-**Updates:** System › Updates finds new releases, or takes an update file you upload. Update files are signed; a system only installs what is signed with the release key it was installed with.
+**Updates:** System › System Updates finds new releases, or takes an update file you upload. Update files are signed; a system only installs what is signed with the release key it was installed with.
 
 **Cosign / provenance:** every ISO is signed with [cosign](https://github.com/sigstore/cosign) and accompanied by an SPDX SBOM. Verify with `cosign verify-blob --bundle dplaneos-v*.iso.bundle dplaneos-v*.iso`.
 

@@ -38,7 +38,7 @@ If only another user is locked out, an administrator resets that user's password
 
 **After an update.** A new version is started once on trial. If it does not come up healthy within a few minutes (the web interface answers, the pools are back, the persistent state is mounted), the system restarts into the previous version by itself. If it hangs before that point, switch the machine off and on: the trial start is used up and the previous version starts.
 
-**Choosing a version by hand.** The boot menu (hold the space bar while the machine starts) lists the installed versions. Choose an older one. When the system is up, **System › Updates › Return to the previous version** makes that permanent.
+**Choosing a version by hand.** The boot menu (hold the space bar while the machine starts) lists the installed versions. Choose an older one. When the system is up, **System › System Updates › Return to the previous version** makes that permanent.
 
 **"Waiting for /persist" or emergency mode.** The system keeps its state (database, settings, keys) on the partition labelled `persist` of the system disk. If that partition cannot be mounted the system stops rather than run with an empty state. Start from the installation medium, choose *Shell*, and check the file system: `fsck.ext4 -f /dev/disk/by-partlabel/persist`.
 
@@ -115,7 +115,7 @@ sudo systemctl start dplaned
 
 Passwords of other systems that are stored in the database (directory, cloud accounts, mail) are encrypted with `/var/lib/dplaneos/secrets.key`. A copy of the database is only complete together with that file.
 
-**Earlier settings.** System › Configuration History records every change to shares, users, exports and settings, shows the difference and restores single items.
+**Earlier settings.** System › Change History records every change to shares, users, exports and settings, shows the difference and restores single items.
 
 **Starting over.** Dropping the database as above without restoring a copy gives a system with no users and no settings; the setup dialog appears again. Pools, datasets and their files are untouched; shares and users have to be set up again.
 
@@ -124,7 +124,7 @@ Passwords of other systems that are stored in the database (directory, cloud acc
 ## 7. The system disk is gone
 
 1. Replace the disk and install DPlaneOS from the installation medium. The installer only writes to the disk you choose.
-2. Sign in, open **Storage › Pools** and import the pools. Datasets, snapshots and files are as they were.
+2. Sign in, open **Storage › ZFS Pools** and import the pools. Datasets, snapshots and files are as they were.
 3. Shares, users, schedules and settings were on the system disk. Restore the database copy (section 6) together with `secrets.key`, or apply your `state.yaml` if you keep the configuration in Git, or set them up again.
 
 The same applies to moving the data disks to another machine.

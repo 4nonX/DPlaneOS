@@ -6,7 +6,7 @@ This document covers integrating DPlaneOS with external systems. Each section is
 
 DPlaneOS serves its metrics in the Prometheus/OpenMetrics text format at `GET /metrics`, on the web interface's address, to a request that carries an API token.
 
-1. **Security › API Tokens**: create a token with the scope *read* for the monitoring system. It is shown once.
+1. **Security › Security Settings › API Tokens**: create a token with the scope *read* for the monitoring system. It is shown once.
 2. Point the collector at `https://<system>/metrics` with that token.
 
 ### Prometheus scrape config example
@@ -68,7 +68,7 @@ There is no SNMP agent. Where SNMP is required, convert from Prometheus on the m
 
 There are two separate things a domain can do for DPlaneOS:
 
-- **Sign-in to the web interface** with domain accounts: Directory › Directory Setup (the domain is used as an LDAP directory; no membership needed).
+- **Sign-in to the web interface** with domain accounts: Identity › Directory Service › Directory Setup (the domain is used as an LDAP directory; no membership needed).
 - **SMB shares for domain users**: the system becomes a **member of the domain**. Domain users then open the shares with their domain password (Kerberos or NTLM), own the files they create, and show up by name in `ls -l`, in share permissions and in ACLs. This section is about that.
 
 A system is a member of **one** domain. Users of other domains come in through trusts between the domains.
@@ -82,7 +82,7 @@ A system is a member of **one** domain. Users of other domains come in through t
 
 ### Joining
 
-Directory › **Domain Membership** › *Add domain*: the short (NetBIOS) name of the domain, e.g. `CORP`; the Kerberos realm, e.g. `CORP.EXAMPLE.COM`; optionally a domain controller (found through DNS when empty); and the range of user IDs the domain's users get on this system. Then **Join**, with the account's user name (without the domain) and password. The password is used once, passed to Samba on a pipe, and not stored.
+Identity › Directory Service › **Domain Membership** › *Add domain*: the short (NetBIOS) name of the domain, e.g. `CORP`; the Kerberos realm, e.g. `CORP.EXAMPLE.COM`; optionally a domain controller (found through DNS when empty); and the range of user IDs the domain's users get on this system. Then **Join**, with the account's user name (without the domain) and password. The password is used once, passed to Samba on a pipe, and not stored.
 
 What happens: the domain controllers are looked up, Samba's configuration is written for the domain, the system joins (`net ads join`), Samba is restarted and the new computer account is checked against the domain. If any step fails, the configuration goes back to what it was and the reason is shown.
 

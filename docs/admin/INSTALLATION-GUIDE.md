@@ -77,7 +77,7 @@ No DHCP on the network: at the console, sign in as `admin` and run `sudo dplaneo
 
 Then, in this order:
 
-1. **Storage › Pools:** create a pool from the data disks, or import an existing one.
+1. **Storage › ZFS Pools:** create a pool from the data disks, or import an existing one.
 2. **Datasets and Shares:** a dataset for each kind of data, shared over SMB or NFS.
 3. **Users:** every user of the web interface is also the SMB and FTP account of the same name and password.
 4. **System › Settings:** host name, time zone, time servers.
@@ -88,11 +88,11 @@ Then, in this order:
 
 ## Updates
 
-**System › Updates** finds new releases, or takes an update file you upload (for systems without internet access). An update is installed next to the running version, started once on trial after a restart, and kept only if the system comes up healthy; otherwise the system returns to the previous version by itself. Update files are signed, and a system only installs what is signed with the release key it was installed with. See [System Updates](OTA-UPDATES.md).
+**System › System Updates** finds new releases, or takes an update file you upload (for systems without internet access). An update is installed next to the running version, started once on trial after a restart, and kept only if the system comes up healthy; otherwise the system returns to the previous version by itself. Update files are signed, and a system only installs what is signed with the release key it was installed with. See [System Updates](OTA-UPDATES.md).
 
 ## Reinstalling, and moving the disks
 
-Reinstalling erases the system disk, and with it the settings, users and shares (they are in the system's database). The pools on the data disks are untouched: import them under **Storage › Pools** afterwards. To keep the configuration across a reinstall, see [Recovery, section 6](RECOVERY.md#6-the-database-and-the-configuration).
+Reinstalling erases the system disk, and with it the settings, users and shares (they are in the system's database). The pools on the data disks are untouched: import them under **Storage › ZFS Pools** afterwards. To keep the configuration across a reinstall, see [Recovery, section 6](RECOVERY.md#6-the-database-and-the-configuration).
 
 ## If something goes wrong
 

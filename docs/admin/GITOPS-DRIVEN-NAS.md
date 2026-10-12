@@ -6,6 +6,8 @@ This guide covers the complete workflow from first commit to production operatio
 
 For the technical format spec (every field, validation rules, enum values), see [GITOPS-REFERENCE.md](../reference/GITOPS-REFERENCE.md).
 
+In the web interface this is **Containers › GitOps Engine**, with the tabs Status, Repositories, Credentials and Settings; "GitOps › Settings" below means the Settings tab there.
+
 ---
 
 ## Why Git-Driven
@@ -73,7 +75,7 @@ The clone lives in `/var/lib/dplaneos/gitops/` and survives restarts and updates
 
 ### Requests from scripts
 
-Requests from a script are made with an API token (Security › API Tokens; a
+Requests from a script are made with an API token (Security › Security Settings › API Tokens; a
 token that may change things needs the *admin* scope):
 
 ```bash
@@ -114,7 +116,7 @@ Capture replaces those sections of the local `state.yaml` and leaves the others 
 | Users | Yes | Username, e-mail, role, active |
 | Groups | Yes | Name, GID, members |
 | Passwords | **Never** | Neither the password nor its hash. A user without `password_hash` in the file keeps the password it has |
-| Directory bind password | **Never** | Set under Identity › Directory; an apply never changes it |
+| Directory bind password | **Never** | Set under Identity › Directory Service; an apply never changes it |
 | Certificates and keys | **Never** | Not part of `state.yaml` |
 
 Then check that the file and the system agree: the Status tab should show no drift, or

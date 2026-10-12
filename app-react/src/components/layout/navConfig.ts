@@ -148,7 +148,7 @@ const initialNav: NavItem[] = [
       { kind: 'leaf', id: 'power',        label: 'Power Management', icon: 'power_settings_new',    route: '/power' },
       { kind: 'leaf', id: 'hardware',     label: 'Hardware',         icon: 'memory',                route: '/hardware' },
       { kind: 'leaf', id: 'ipmi',         label: 'IPMI',             icon: 'devices_other',         route: '/ipmi' },
-      { kind: 'leaf', id: 'ha',           label: 'HA Cluster',       icon: 'device_hub',            route: '/ha' },
+      { kind: 'leaf', id: 'ha',           label: 'High Availability', icon: 'device_hub',            route: '/ha' },
       { kind: 'leaf', id: 'removable',    label: 'Removable Media',  icon: 'usb',                   route: '/removable' },
       { kind: 'leaf', id: 'support',      label: 'Support',          icon: 'support_agent',         route: '/support' },
       { kind: 'leaf', id: 'terminal',     label: 'Terminal',         icon: 'terminal',              route: '/terminal' },

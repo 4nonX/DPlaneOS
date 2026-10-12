@@ -282,7 +282,7 @@ ldap:
   timeout: 10
 ```
 
-The bind password is not part of the file (`bind_password` is refused): set it under Identity › Directory, where it is stored encrypted. An apply never changes it, and a setting the file leaves out keeps the value it has.
+The bind password is not part of the file (`bind_password` is refused): set it under Identity › Directory Service, where it is stored encrypted. An apply never changes it, and a setting the file leaves out keeps the value it has.
 
 ### SMART Tasks
 
@@ -426,6 +426,8 @@ The answer lists what was captured and how many resources of each category are n
 ## Git Repository Setup
 
 The engine expects `state.yaml` at the root of the repository's branch.
+
+(GitOps is **Containers › GitOps Engine** in the web interface.)
 
 1. **GitOps › Credentials**: add what the Git server accepts for this repository: an access token (HTTPS), or an SSH private key whose public key is a deploy key there. It needs write access if the system is to commit its own changes (write-back), read access otherwise. Stored encrypted.
 2. **GitOps › Repositories › Link Repository** (or the wizard on the Settings tab): the URL, the branch, the credential, and the name and e-mail for the system's commits.

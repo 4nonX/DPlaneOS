@@ -10,19 +10,20 @@ Quick reference for all HTTP error codes returned by the daemon.
 |------|---------|------|
 | 200 | OK | Request succeeded |
 | 400 | Bad Request | Invalid input, validation failed |
-| 401 | Unauthorized | Missing or invalid session |
-| 403 | Forbidden | RBAC permission denied |
+| 401 | Unauthorized | No valid session and no valid API token |
+| 403 | Forbidden | The account's roles, or the API token's scope, do not allow it |
+| 423 | Locked | A GitOps apply is already running |
 | 404 | Not Found | Resource or endpoint does not exist |
 | 405 | Method Not Allowed | Wrong HTTP method (e.g. GET on a POST-only route) |
 | 409 | Conflict | Target already exists |
-| 429 | Too Many Requests | Rate limit exceeded (100 req/min per IP) |
+| 429 | Too Many Requests | More than 100 requests in a minute from one client address |
 | 500 | Internal Server Error | Server-side failure |
 
 ---
 
 ## Input Validation Errors (400)
 
-Returned when user input fails the security allowlist before reaching any system command.
+Returned when input fails validation, before any system command runs. Many handlers answer a failed operation with HTTP 200 and `{"success": false, "error": "..."}` instead of an error status: check `success`.
 
 ### ZFS Names
 
@@ -45,11 +46,11 @@ Returned when user input fails the security allowlist before reaching any system
 
 | Error | Cause |
 |-------|-------|
-| `Path must start with /mnt/` | ACL or trash operation on system path |
+| `path not allowed` | A file, ACL, share or export path outside the pools and removable media (the system's own directories are not reachable through the API) |
+| `invalid path`, `path must be absolute` | Not an absolute path, or one with `..` or control characters |
 | `Invalid ACL entry format` | Expected `u:user:rwx`, `g:group:rx`, etc. |
-| `User 'X' not found` | ACL user does not exist locally or in LDAP |
-| `Group 'X' not found` | ACL group does not exist locally or in LDAP |
-| `Can only trash files under /mnt/` | Trash operation outside storage pool |
+| `User 'X' not found` | ACL user does not exist locally or in the directory |
+| `Group 'X' not found` | ACL group does not exist locally or in the directory |
 
 ### Docker
 
@@ -96,72 +97,52 @@ Returned when user input fails the security allowlist before reaching any system
 
 | Error | Cause | Fix |
 |-------|-------|-----|
-| `Unauthorized` | No `X-Session-ID` header | Include a valid session token |
-| `No authenticated user` | Session valid but user context missing | Re-login |
+| `Unauthorized` | Neither a session (`X-Session-ID` and `X-User`) nor an API token (`Authorization: Bearer dpl_...`) that is valid | Sign in, or send a valid token |
+| `No authenticated user` | Session valid but user context missing | Sign in again |
+
+Requests that change something with a session also need the session's CSRF token (`X-CSRF-Token`, from `GET /api/csrf`). API tokens need none.
 
 ### 403 Forbidden
 
 | Error | Cause | Fix |
 |-------|-------|-----|
-| `Permission denied: storage:write` | User role lacks this permission | Assign a role with the required permission |
-| `Permission denied: docker:execute` | Attempting container exec without execute permission | Assign `operator` or `admin` role |
+| `Forbidden - insufficient permissions` (with `"required": "storage:write"`) | None of the account's roles has this permission | Give the account a role that has it |
+| `Forbidden - token scope` | The API token's scope does not cover the action (a *read* token on a change, a *write* token on an admin action) | Use a token with the needed scope |
+| `Forbidden: this API token is read-only` | A *read* token on a request that changes something | Use a *write* or *admin* token |
+| `Forbidden: this token is not permitted to access ...` | The token is limited to certain paths | Extend its allowlist or use another token |
 
 **Built-in roles:**
 
 | Role | Description |
 |------|-------------|
-| `admin` | Full access (all 31 permissions) |
+| `admin` | Full access |
 | `operator` | Start/stop services, manage containers, view all |
 | `user` | Read storage, files, and own profile |
 | `viewer` | Read-only access to dashboards and status |
 
 ---
 
-## ZFS Operation Errors (500)
+## Operation Errors
+
+A command that fails returns what the command said, with the secrets and the unhelpful parts removed. Frequent ones:
 
 | Error Pattern | Meaning | Resolution |
 |---------------|---------|------------|
-| `pool status failed` | `zpool status` returned an error | Check if pool is imported: `zpool import` |
-| `Failed to list datasets` | `zfs list` failed | Verify ZFS kernel module: `modprobe zfs` |
-| `Snapshot failed` | `zfs snapshot` failed | Check dataset exists and there is sufficient space |
-| `pool 'X' is degraded` | Disk failure detected | Replace failed disk, then `zpool replace` |
-
----
-
-## System Operation Errors (500)
-
-| Error Pattern | Meaning | Resolution |
-|---------------|---------|------------|
-| `nginx config test failed` | Bad SSL cert configuration | Check certificate paths; run `nginx -t` manually |
-| `hdparm failed` | Disk power management error | Verify device supports APM |
-| `lsblk failed` | Block device listing error | Check `/dev/` permissions |
-| `getfacl/setfacl failed` | ACL operation error | Ensure `acl` mount option is set on the filesystem |
+| `pool status failed` | `zpool status` returned an error | Is the pool imported? Storage › ZFS Pools shows pools that can be imported |
+| `Snapshot failed` | `zfs snapshot` failed | Check that the dataset exists and the pool has space |
+| `pool 'X' is degraded` | A disk failed or is missing | Replace the disk (Storage › ZFS Pools › the pool) |
+| `security refusal: ...` | The command allowlist refused what the daemon was about to run | A defect: report it with the daemon log (the refusal is logged as `SECURITY: command refused by the allowlist`) |
 
 ---
 
 ## Daemon Logs
 
-All errors are logged to `journalctl -u dplaned` and `/var/log/dplaneos/audit.log`.
+The daemon logs to the journal: `journalctl -u dplaned`, or System › Logs. What users and the system did is in the audit log (Security › Audit Log), which is kept in the database and chained so that a removed or changed entry is noticed.
 
-### Log Format
-
-```
-2026-03-09 08:30:00 127.0.0.1:45678 POST /api/zfs/encryption/lock 324µs
-```
-
-### Security Events
+Each request is one line:
 
 ```
-SECURITY: Invalid session token from admin@192.168.1.50
-SECURITY: RBAC denied storage:write for user jdoe
-```
-
-### ZFS Events (via ZED hook)
-
-```
-[critical] Pool=tank Event=statechange State=FAULTED Device=/dev/sdb
-[warning]  Pool=tank Event=io_failure State=DEGRADED Device=/dev/sdc
-[info]     Pool=tank Event=scrub_finish State=ONLINE
+2026/10/12 08:30:00 192.168.1.50 POST /api/zfs/encryption/lock 324µs
 ```
 
 ---
@@ -175,8 +156,10 @@ systemctl status dplaned
 # Live logs
 journalctl -u dplaned -f
 
-# Health check (no auth required)
-curl http://localhost/health
+# Health check (no auth required), from the system itself
+curl --unix-socket /run/dplaneos/dplaned.sock http://localhost/health
+# ... and from another machine
+curl -k https://<system>/api/system/health
 
 # DB integrity
 sudo -u postgres psql dplaneos -c "\dt"

@@ -108,4 +108,4 @@ The card *Disk reservations* (HA › Watchdog and power fencing) shows, for ever
 
 ---
 
-**Collect information for a bug report:** System › Support Bundle (includes the daemon log), plus the output of `corosync-quorumtool -s` on each node and a screenshot of the HA page.
+**Collect information for a bug report:** System › Support › Support Bundle (it holds the logs of the daemon and of the cluster services), plus the output of `corosync-quorumtool -s` on each node and a screenshot of the HA page.

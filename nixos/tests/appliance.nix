@@ -514,7 +514,7 @@ pkgs.testers.nixosTest {
             first = served()
             assert "nas.dplane.test" in first and "Pebble" in first, first
             assert api("GET", "/api/certs/list")["active_cert"] == "nas-acme"
-            client.succeed(f"curl -sfk --max-time 20 https://{NAS}/health")
+            client.succeed(f"curl -sfk --max-time 20 https://{NAS}/api/system/health | grep -q success")
 
             # Issued again under the same name, which is what a renewal
             # does: the web server serves the new certificate, not a copy of
@@ -524,7 +524,7 @@ pkgs.testers.nixosTest {
             second = served()
             assert "Pebble" in second and second != first, f"still the old certificate:\n{first}\n{second}"
             assert api("GET", "/api/certs/list")["active_cert"] == "nas-acme"
-            client.succeed(f"curl -sfk --max-time 20 https://{NAS}/health")
+            client.succeed(f"curl -sfk --max-time 20 https://{NAS}/api/system/health | grep -q success")
 
         with subtest("Monitoring: Prometheus metrics for a monitoring system with a token, and for nobody else"):
             scrape = "curl -sk --max-time 30 -o /tmp/metrics -w '%{http_code}' " + f"https://{NAS}/metrics"
