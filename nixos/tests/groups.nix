@@ -71,7 +71,7 @@ pkgs.testers.nixosTest {
   };
 
   testScript = ''
-    import json, shlex
+    import json, shlex, time
 
     with open("${sharedImage}", "wb") as f:
         f.truncate(1 << 30)
@@ -145,8 +145,14 @@ pkgs.testers.nixosTest {
         ti = [t for t in api(m, "GET", "/api/iscsi/targets")["targets"] if t["iqn"] == IQN]
         tn = [t for t in api(m, "GET", "/api/nvmet/targets")["targets"] if t["subsystem_nqn"] == NQN]
         assert ti and tn and ti[0]["active"] is yes and tn[0]["active"] is yes, (m.name, ti, tn)
-        ports = api(m, "GET", "/api/firewall/status")["system_ports"]
-        assert ("3260/tcp" in ports) is yes and ("4420/tcp" in ports) is yes, (m.name, ports)
+        # The firewall follows what is served (a moment after it).
+        for _ in range(30):
+            ports = api(m, "GET", "/api/firewall/status")["system_ports"]
+            if ("3260/tcp" in ports) is yes and ("4420/tcp" in ports) is yes:
+                break
+            time.sleep(1)
+        else:
+            raise Exception(f"{m.name}: firewall ports do not follow the block targets: {ports}")
 
     def diag():
         print(client.execute("iscsiadm -m session 2>&1; nvme list 2>&1; dmesg | grep -i -E 'nvme|iscsi|sd[a-z]' | tail -n 40")[1])
