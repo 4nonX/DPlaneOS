@@ -552,9 +552,8 @@ pkgs.testers.nixosTest {
             # What sshd itself says it uses (all of it in the log, for when this fails).
             effective = nas.succeed("$(readlink -f $(command -v sshd)) -T 2>&1; cat /var/lib/dplaneos/system/sshd_config.d/*.conf; grep -n -i -E 'Include|PasswordAuth|PermitRoot|KbdInter' /etc/ssh/sshd_config").lower()
             print(effective)
-            assert "
-passwordauthentication no" in effective and "
-permitrootlogin no" in effective, "password or root sign-in is not off"
+            settings = [l.strip() for l in effective.splitlines()]
+            assert "passwordauthentication no" in settings and "permitrootlogin no" in settings, "password or root sign-in is not off"
 
             # Another port: sshd moves there and the firewall follows.
             ok(api("POST", "/api/system/ssh-daemon", {"port": 2222, "permit_root_login": "no"}), "SSH port")
