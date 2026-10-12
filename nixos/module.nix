@@ -482,6 +482,20 @@ in {
         addSSL            = true;
         sslCertificate    = "/var/lib/dplaneos/tls/web.crt";
         sslCertificateKey = "/var/lib/dplaneos/tls/web.key";
+        # What the browser is told about the pages: scripts come from this
+        # system only (nothing a stored name or a log line could smuggle in
+        # is run), the interface is not shown inside another site's page, and
+        # nothing is told to other sites about where a link was followed
+        # from. Styles are inline in the interface, images may be data and
+        # the icon URLs a container names. No Strict-Transport-Security: with
+        # the self-signed certificate of a new system it would leave the
+        # browser no way past its warning.
+        extraConfig = ''
+          add_header X-Content-Type-Options "nosniff" always;
+          add_header X-Frame-Options "SAMEORIGIN" always;
+          add_header Referrer-Policy "no-referrer" always;
+          add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https: http:; font-src 'self' data:; connect-src 'self' ws://$host wss://$host; frame-src 'self' http://$host:9001 https://$host:9001; frame-ancestors 'self'; base-uri 'self'; form-action 'self'; object-src 'none'" always;
+        '';
         locations."/" = {
           tryFiles = "$uri $uri/ /index.html";
         };

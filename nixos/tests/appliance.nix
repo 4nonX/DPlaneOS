@@ -209,6 +209,15 @@ pkgs.testers.nixosTest {
             client.wait_until_succeeds(FETCH + f"http://{NAS}/", timeout=60)
             client.succeed(FETCH + f"-k https://{NAS}/")
             client.fail(FETCH + f"https://{NAS}/")  # self-signed: not trusted
+            # What the browser is told: scripts from this system only, no
+            # framing by other sites; on the pages and on API answers alike.
+            for path in ("/", "/api/system/status"):
+                head = client.succeed(f"curl -sk --max-time 30 -D - -o /dev/null https://{NAS}{path}").lower()
+                assert "content-security-policy: default-src 'self'; script-src 'self';" in head, head
+                assert "x-content-type-options: nosniff" in head and "x-frame-options: sameorigin" in head, head
+            # The pages load nothing from anywhere else.
+            page = client.succeed(f"curl -sk --max-time 30 https://{NAS}/")
+            assert "http://" not in page and "https://" not in page, page
             nas.succeed("echo | ${pkgs.openssl}/bin/openssl s_client -connect localhost:443 2>/dev/null | ${pkgs.openssl}/bin/openssl x509 -noout -subject | grep -q 'CN *= *dplaneos'")
 
         with subtest("A ZFS host ID of its own"):

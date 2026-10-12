@@ -21,7 +21,8 @@
  * GET    /api/system/audit/verify-chain → { success, valid: bool }
  */
 
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
+import qrcode from 'qrcode-generator'
 import type React from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
@@ -274,10 +275,28 @@ function PasswordTab() {
 // QR Code renderer
 // ---------------------------------------------------------------------------
 
+// Drawn here, in the browser. The code holds the TOTP secret: it must not be
+// sent to anybody else to be drawn (and a system without internet access
+// could not show it).
 function QRImage({ uri }: { uri: string }) {
-  const url = `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(uri)}`
-  return <img src={url} alt="TOTP QR Code" width={180} height={180}
-    style={{ borderRadius: 8, border: '4px solid #fff', display: 'block' }} />
+  const cells = useMemo(() => {
+    const qr = qrcode(0, 'M') // the smallest version the text fits
+    qr.addData(uri)
+    qr.make()
+    const n = qr.getModuleCount()
+    const dark: [number, number][] = []
+    for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) if (qr.isDark(r, c)) dark.push([r, c])
+    return { n, dark }
+  }, [uri])
+  const quiet = 4 // modules of white around the code, as scanners expect
+  const size = cells.n + 2 * quiet
+  return (
+    <svg role="img" aria-label="QR code for the authenticator app" width={196} height={196} viewBox={`0 0 ${size} ${size}`}
+      shapeRendering="crispEdges" style={{ borderRadius: 8, display: 'block', background: '#fff' }}>
+      <rect width={size} height={size} fill="#fff" />
+      {cells.dark.map(([r, c]) => <rect key={`${r}.${c}`} x={c + quiet} y={r + quiet} width={1} height={1} fill="#000" />)}
+    </svg>
+  )
 }
 
 // ---------------------------------------------------------------------------
