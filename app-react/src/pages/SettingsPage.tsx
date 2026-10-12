@@ -87,18 +87,16 @@ function GeneralTab() {
     queryFn:  ({ signal }) => api.get<SettingsResponse>('/api/system/settings', signal),
   })
 
-  const [dirty, setDirty] = useState<{ hostname?: string; timezone?: string; motd?: string; licenseKey?: string }>({})
+  const [dirty, setDirty] = useState<{ hostname?: string; timezone?: string; motd?: string }>({})
 
   const s = settingsQ.data?.settings
   const hostname   = dirty.hostname   ?? s?.['hostname']    ?? ''
   const timezone   = dirty.timezone   ?? s?.['timezone']    ?? ''
   const motd       = dirty.motd       ?? s?.['motd']        ?? ''
-  const licenseKey = dirty.licenseKey ?? s?.['license_key'] ?? ''
 
   const setHostname   = (v: string) => setDirty(p => ({ ...p, hostname: v }))
   const setTimezone   = (v: string) => setDirty(p => ({ ...p, timezone: v }))
   const setMotd       = (v: string) => setDirty(p => ({ ...p, motd: v }))
-  const setLicenseKey = (v: string) => setDirty(p => ({ ...p, licenseKey: v }))
 
   const save = useMutation({
     mutationFn: () => {
@@ -106,7 +104,6 @@ function GeneralTab() {
       if (hostname.trim()) body['hostname'] = hostname.trim()
       if (timezone.trim()) body['timezone'] = timezone.trim()
       body['motd'] = motd
-      body['license_key'] = licenseKey
       return api.post('/api/system/settings', body)
     },
     onSuccess: () => {
@@ -153,19 +150,10 @@ function GeneralTab() {
           className="input" style={{ resize: 'vertical', lineHeight: 1.6, fontFamily: 'var(--font-ui)' }} />
       </Field>
 
-      <Field label="Enterprise License Key" hint="Unlocks cryptographic compliance engine and audit automation">
-        <input type="password" value={licenseKey} onChange={e => setLicenseKey(e.target.value)}
-          placeholder="Unlicensed" className="input" style={{ fontFamily: 'var(--font-mono)' }} />
-        <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', marginTop: 4 }}>
-          Activates optional add-ons (Compliance Engine, advanced HA features). Leave blank for the standard open-source build.
-        </span>
-      </Field>
-
       {pluginSettingsInject({
         hostname, setHostname,
         timezone, setTimezone,
         motd, setMotd,
-        licenseKey, setLicenseKey
       }) || null}
 
       <div>
@@ -706,6 +694,7 @@ function MaintenanceTab() {
 // ---------------------------------------------------------------------------
 
 interface LicenseStatus {
+  configured?: boolean
   active: boolean
   customer?: string
   audits_limit?: number
@@ -820,8 +809,16 @@ type Tab = 'general' | 'nixos' | 'oidc' | 'security' | 'license' | 'maintenance'
 
 export function SettingsPage() {
   const [tab, setTab] = useState<Tab>('general')
+  // The License tab exists only on a build that can verify a license (one
+  // that was given the vendor's public key). The released images are not.
+  const licenseQ = useQuery({
+    queryKey: ['license', 'status'],
+    queryFn: ({ signal }) => api.get<LicenseStatus>('/api/system/license/status', signal),
+    staleTime: 30000,
+  })
+  const licensing = licenseQ.data?.configured === true
 
-  const TABS: { id: Tab; label: string; icon: string }[] = [
+  const ALL_TABS: { id: Tab; label: string; icon: string }[] = [
     { id: 'general',     label: 'General',     icon: 'tune' },
     { id: 'nixos',       label: 'NixOS',       icon: 'terminal' },
     { id: 'oidc',        label: 'SSO / OIDC',  icon: 'key' },
@@ -829,6 +826,7 @@ export function SettingsPage() {
     { id: 'license',     label: 'License',     icon: 'card_membership' },
     { id: 'maintenance', label: 'Maintenance', icon: 'database' },
   ]
+  const TABS = ALL_TABS.filter(t => t.id !== 'license' || licensing)
 
   return (
     <div style={{ maxWidth: 860 }}>
@@ -849,7 +847,7 @@ export function SettingsPage() {
       {tab === 'nixos'       && <NixOSTab />}
       {tab === 'oidc'        && <OIDCTab />}
       {tab === 'security'    && <SecurityTab />}
-      {tab === 'license'     && <LicenseTab />}
+      {tab === 'license'     && licensing && <LicenseTab />}
       {tab === 'maintenance' && <MaintenanceTab />}
     </div>
   )

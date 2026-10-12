@@ -19,16 +19,20 @@ import (
 var licensePublicKeyBase64 = os.Getenv("DPLANE_LICENSE_PUBLIC_KEY")
 
 type LicensePayload struct {
-	Customer       string `json:"customer"`
-	AuditsLimit    int    `json:"audits_limit"`
-	ExpiresAt      string `json:"expires_at"`
-	CERepoURL      string `json:"ce_repo_url"`
-	CEVersion      string `json:"ce_version"`
-	CEAccessToken  string `json:"ce_access_token"`
-	IssuedAt       string `json:"issued_at"`
+	Customer      string `json:"customer"`
+	AuditsLimit   int    `json:"audits_limit"`
+	ExpiresAt     string `json:"expires_at"`
+	CERepoURL     string `json:"ce_repo_url"`
+	CEVersion     string `json:"ce_version"`
+	CEAccessToken string `json:"ce_access_token"`
+	IssuedAt      string `json:"issued_at"`
 }
 
 type LicenseStatus struct {
+	// Configured: this build can verify a license at all (it was started
+	// with the vendor's public key). The released images are not; the web
+	// interface shows nothing about licences there.
+	Configured      bool   `json:"configured"`
 	Active          bool   `json:"active"`
 	Customer        string `json:"customer,omitempty"`
 	AuditsLimit     int    `json:"audits_limit,omitempty"`
@@ -135,11 +139,11 @@ func handleLicenseActivate(db *sql.DB) http.HandlerFunc {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success":        true,
-			"customer":       payload.Customer,
-			"audits_limit":   payload.AuditsLimit,
-			"expires_at":     payload.ExpiresAt,
-			"message":        "Enterprise license activated successfully",
+			"success":      true,
+			"customer":     payload.Customer,
+			"audits_limit": payload.AuditsLimit,
+			"expires_at":   payload.ExpiresAt,
+			"message":      "Enterprise license activated successfully",
 		})
 	}
 }
@@ -156,9 +160,10 @@ func handleLicenseStatus(db *sql.DB) http.HandlerFunc {
 			FROM enterprise_license WHERE id = 1
 		`).Scan(&customer, &auditsLimit, &auditsConsumed, &expiresAt)
 
-		if err == sql.ErrNoRows || customer == "" {
+		configured := licensePublicKeyBase64 != ""
+		if !configured || err == sql.ErrNoRows || customer == "" {
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(LicenseStatus{Active: false})
+			json.NewEncoder(w).Encode(LicenseStatus{Configured: configured, Active: false})
 			return
 		}
 
@@ -177,6 +182,7 @@ func handleLicenseStatus(db *sql.DB) http.HandlerFunc {
 		ceInstalled := isCECodeInstalled()
 
 		status := LicenseStatus{
+			Configured:  true,
 			Active:      !isExpired,
 			Customer:    customer,
 			AuditsLimit: auditsLimit,

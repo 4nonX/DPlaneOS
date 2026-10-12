@@ -1,5 +1,18 @@
 # Enterprise License Setup Guide
 
+> **Status: not part of the released images, and not tested.** This file
+> describes the vendor's integration of a separate, closed program (the
+> Compliance Engine). The images of a release are built without the
+> licence public key, so they have no License tab and no Compliance entry,
+> and `POST /api/system/license/activate` answers "Licensing not
+> configured". Known gaps of the integration itself, for whoever builds it:
+> the sidecar needs `/etc/dplaneos-compliance/token` and
+> `/var/log/dplaneos-compliance/`, which nothing creates; it is started at
+> activation only, not after a restart; the downloaded program is not
+> verified beyond the licence that names it; the page expects it on port
+> 9001, which the firewall and the web server's content policy do not
+> open; only an x86_64 download is named.
+
 End-to-end integration of DPlaneOS with Compliance Engine licensing system.
 
 ## Architecture Overview

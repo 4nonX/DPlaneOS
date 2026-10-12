@@ -25,6 +25,7 @@ interface SidebarProps {
 }
 
 interface LicenseStatus {
+  configured?: boolean
   active: boolean
 }
 
