@@ -1,132 +1,76 @@
 # DPlaneOS Design Philosophy
 
-This document explains the design decisions behind DPlaneOS: why it is built the way it is, what problems it is solving, and what trade-offs were made intentionally. Read this before the [Architecture Reference](ARCHITECTURE.md) if you want to understand the reasoning before the mechanics.
+Why the system is built the way it is, and which trade-offs were made on purpose. For how it works, see the [Architecture Reference](ARCHITECTURE.md).
 
 ---
 
-## The Problem
+## The problem
 
-Traditional NAS software accumulates state over time. Packages are installed imperatively. Configuration files are hand-edited. Services are enabled one at a time. After six months, no one can fully describe what the running system is - and recreating it from scratch is a multi-day exercise.
+A NAS is infrastructure: when it fails, data is at risk, and whoever runs it must be able to say what it is doing and to set it up again. Ordinary NAS software makes both hard over time. Packages are installed one by one, configuration files are edited by tools and by hand, and after a year nobody can describe the running system completely.
 
-This is tolerable for a general-purpose workstation. It is not tolerable for a storage appliance. A NAS is infrastructure. When it fails, data is at risk. The operator needs to be able to rebuild it exactly - not approximately - from known-good state.
+DPlaneOS answers with two descriptions that together are the system:
 
-The secondary problem is correctness. Traditional NAS management tools let you configure things through a web UI and then silently write config files. The UI and the config can drift apart. You can make a change via SSH that the UI does not know about. There is no authoritative source of truth.
+- **the release**: one image with the kernel, ZFS, every service and their configuration, built from a tagged commit;
+- **the configuration**: pools, datasets, shares, users, schedules, network and system settings, held in the system's database and, if you want, as `state.yaml` in Git.
 
-DPlaneOS is built around a single answer to both problems: **the entire system state is always derivable from two text files**.
-
----
-
-## The Four Principles
-
-### 1. Everything is Declared
-
-There is no imperative installation of DPlaneOS. You do not run `apt install`, configure systemd units by hand, or manage nginx with chef recipes. You write a declaration. The system applies it.
-
-Two declarations cover the entire system:
-
-- **`configuration.nix` / `flake.nix`:** The OS-level declaration. Kernel version, ZFS package, systemd units, firewall baseline, package set, HA cluster membership. Managed by NixOS. Changes here require a rebuild.
-- **`state.yaml`:** The runtime declaration. ZFS pools and datasets, SMB/NFS shares, Docker stacks, users and groups, replication schedules, network config. Managed by the GitOps engine. Changes here are applied without a rebuild.
-
-Everything that the system does is derivable from these two files. Given the files and a blank machine, you can produce the exact running system.
-
-### 2. The System Can Always Reproduce Itself
-
-The flake lockfile pins every input: nixpkgs revision, kernel version, ZFS package version. Two builds from the same lockfile produce byte-for-byte identical systems. The ISO you download was built from the same inputs you can build locally.
-
-This matters because upgrade paths are predictable. You can see exactly what is changing before applying it. Rolling back is not "undo" - it is booting the previous immutable system closure, which is still present in the inactive boot slot.
-
-The corollary: if you have `state.yaml` in Git and can boot the ISO, you can fully recover the system. No installation procedures, no "I think I had this setting", no partial states.
-
-### 3. Execution is Constrained
-
-The daemon makes changes by calling system tools (`zfs`, `zpool`, `docker`, `samba`, `exportfs`, `nvmetcli`). It does not execute arbitrary shell commands. Every `exec.Command` call goes through a strict allowlist (`internal/security/whitelist.go`) that validates the binary name and each argument against predefined patterns.
-
-This has two effects:
-
-**Security:** A compromised API request cannot leverage the daemon to execute arbitrary commands on the host. The worst a compromised request can do is trigger one of the predefined, validated operations.
-
-**Auditability:** Because every system-level action is a named, validated operation, the audit log can describe exactly what was done and why. There is no "ran shell script" entry - there are specific named operations with specific named parameters.
-
-### 4. Drift is Made Visible
-
-The GitOps engine continuously compares the live system state against `state.yaml`. Any divergence - a dataset created via `zfs create` directly on the shell, a share added via the UI without updating `state.yaml` - is detected and surfaced to the operator within five minutes.
-
-This is intentional. The UI can make immediate changes, and the daemon can apply them instantly. But long-term truth lives in `state.yaml`. The drift detector keeps operators honest: changes that are not committed to Git are not permanent.
-
-The alternative (enforcing that changes can only happen through `state.yaml`) would eliminate the useful property of immediate effect. The chosen model allows both: instant changes when needed, declarative source of truth always visible.
+A machine with the release installed and the configuration applied is the NAS. The data lives in ZFS pools on disks of their own and comes back by importing them.
 
 ---
 
-## The Three Layers
+## Principles
 
-These four principles map onto three distinct layers of the system:
+### 1. The system is replaced, not modified
 
-```
-WHAT IT SHOULD BE  →  configuration.nix / state.yaml     (Declaration)
-HOW TO GET THERE   →  nixos-rebuild / GitOps apply engine  (Reconciliation)
-MAKING IT HAPPEN   →  dplaned daemon / NixOS activation   (Execution)
-```
+Nothing is installed or upgraded piece by piece on a running system. An update is the next image, placed next to the running one, started once on trial, and kept only if the system is healthy with it. Returning to the previous version means starting it: it is still there, complete.
 
-Each layer has a clear owner and a clear scope:
+### 2. Configuration can be declared, and does not have to be
 
-- **NixOS owns the platform.** The kernel, ZFS module, systemd units, nginx, PostgreSQL, and the daemon binary all come from the NixOS system closure. NixOS guarantees they are present, correctly versioned, and activated.
-- **The daemon owns the workload.** ZFS datasets, SMB shares, NFS exports, Docker stacks, users - these are the things that change during normal NAS operation. The daemon manages them against `state.yaml`.
-- **Neither layer reaches into the other.** The daemon does not modify the NixOS system. NixOS does not manage dataset quotas.
+Changes made in the web interface take effect at once. The same configuration can be written down as `state.yaml`: the system compares the file with what is running, shows the difference as a plan, and applies only that difference. *Capture* writes the file from the running system. Both ways lead to the same state, and the system shows when they have drifted apart.
 
-This separation is why OTA updates are safe: the OS slot can be updated atomically without touching the workload state. The workload state can be changed without rebooting. They are genuinely independent.
+Requiring every change to go through Git would lose the immediate change that an operator sometimes needs; allowing only the interface would lose review, history and reproducibility. Both are there, and the difference between them is always visible.
 
----
+### 3. What destroys data waits for a person
 
-## The Data Safety Model
+Applying a `state.yaml` never deletes a dataset that holds data, removes a pool or takes a share away from connected clients on its own: such steps are marked as blocked in the plan and need an explicit approval, whatever the file says. Automatic apply of new commits (off by default) only ever adds and modifies. In the web interface, destroying a pool or a volume needs a confirmation that names it; destroying a pool also needs an account with a second factor.
 
-Data on ZFS pools is the most valuable thing the system holds. The architecture reflects this:
+### 4. The daemon runs programs, never text
 
-**ZFS pools are independent of the OS.** Data disks are entirely separate from the boot disk. A complete boot disk failure - including reinstalling DPlaneOS from scratch - does not affect pool data. After reinstall, `zpool import -a`.
+Everything the daemon does to the system is done by running a program from an allowlist, with arguments that have been checked, passed as a list. A request cannot make it run something else. The audit log records what was changed, by whom, from where, and is chained so that a removed or altered entry is detected.
 
-**Impermanence protects the OS layer.** The root filesystem (`/`) is ephemeral and replaced on every OTA update. Only what is explicitly listed in `impermanence.nix` survives across reboots. This prevents the accumulation of unmanaged state that would make the system non-reproducible.
+### 5. Say what is not there
 
-**Execution is transactional.** The GitOps apply engine halts on the first failure. Already-applied items are safe by design (ZFS operations are idempotent). A partially-applied plan leaves the system in a known state, not an unknown one.
-
-**Destructive changes require explicit approval.** The diff engine classifies operations as `BLOCKED` when they are potentially destructive (deleting a dataset, removing a disk from a pool). BLOCKED items do not execute without explicit operator approval, even when `state.yaml` says to do it.
+The interface and the documentation state what a feature does and where it stops: which protection layers of a cluster are active and which are missing, which hardware the project has tested and which it has not, what a status has actually been verified against. A feature that does not work end to end is a defect to fix or to remove, not a line to keep in a list.
 
 ---
 
-## The Operational Trust Model
+## The data comes first
 
-DPlaneOS is designed for a specific trust model: an operator with physical access to the hardware who needs to be able to fully audit and reproduce everything the system does.
+**Pools are independent of the system.** The installer and every update touch only the system disk. A lost system disk costs the configuration (unless it is in Git or in a copy of the database), never the pools.
 
-This means:
+**Two nodes never write to one pool.** In a cluster, a node takes a storage group over only with quorum; an owner that loses quorum resets itself; ZFS multihost and, where the disks support them, disk reservations stop a second writer at the pool and at the disks. Where these layers are missing, the interface says so, and automatic failover without a third vote does not exist.
 
-- **The audit log is tamper-evident.** Entries are HMAC-chained. You cannot remove an entry without breaking the chain. The audit log is a forensic record, not an operational convenience.
-- **All user-facing credentials are bcrypt-hashed.** Passwords are never stored in reversible form. The GitOps capture workflow never exports password hashes.
-- **Session management is explicit.** Sessions have a fixed lifetime. There are no "remember me" tokens that persist indefinitely.
-- **RBAC is fine-grained.** 34 discrete permissions. Role assignments have optional expiry. Changes are audited.
-
-What is not in scope:
-
-- **Multi-tenant isolation.** DPlaneOS assumes a single operator or a small team. Users share a system; they do not have isolated namespaces. ZFS dataset quotas and SMB share permissions provide data separation, not process isolation.
-- **Air-gapped operation after install.** The system can be installed from the ISO without internet access. Ongoing OTA updates require Nix cache access. `state.yaml` Git operations require Git remote access.
+**A change the system does not take is taken back.** Where a setting is written and then applied (network, firewall, shares, block targets), a failed apply restores the previous state, and the error says why. The saved configuration does not claim more than the system does.
 
 ---
 
-## Design Decisions That May Surprise You
+## Decisions that may surprise
 
-**Why a custom YAML parser?** The daemon has zero external dependencies at runtime. The standard library covers everything the parser needs. Importing a third-party YAML library would add an attack surface and a dependency to maintain. The parser is deliberately minimal: it supports exactly the YAML subset that `state.yaml` uses. Unknown constructs are parse errors, not silent coercions.
+**One daemon, running as root.** A NAS manager imports pools, mounts file systems, configures the network and the firewall. Splitting that into privilege-separated parts would be a larger system with more to go wrong; a reduced capability set that still contains what is needed is root in all but name. What limits the daemon is inside it: sessions, permissions on every route, the command allowlist, path checks. The [Threat Model](THREAT-MODEL.md) says plainly what follows from that.
 
-**Why PostgreSQL and not SQLite?** The daemon runs many concurrent workers (API, reconciler, sync, monitors) that write at the same time; PostgreSQL handles that concurrency, migrations and JSON columns well, and its footprint (~150 MB) is acceptable on a NAS.
+**Its own YAML parser.** `state.yaml` uses a small part of YAML. The parser accepts exactly that part and treats everything else as an error, instead of the surprises a full YAML implementation allows (anchors, type guessing, multiple documents).
 
-**Why a daemon in Go?** The daemon is a single statically-linked binary with no runtime dependencies. It can be copied to any Linux system and run. Static linking eliminates the "which libc version" problem. Go's concurrency model matches the workload: many independent subsystems (ZFS, Docker, Samba, NFS, WebSocket hub) running concurrently without shared mutable state.
+**Few dependencies.** Eleven direct Go dependencies, vendored in the repository; a static binary. Less to audit, less to break on an update.
 
-**Why NixOS exclusively?** Every capability that distinguishes DPlaneOS from "just another web UI for ZFS" - atomic upgrades, reproducible builds, impermanence, A/B slots, pinned kernel and ZFS versions - depends on NixOS primitives. These are not optional features. They are the architecture. A port to another Linux distribution would need to reimplement all of them, at which point you have built your own NixOS subset. See [PORTING-GUIDE.md](PORTING-GUIDE.md) for what that actually entails.
+**PostgreSQL, on every node.** Many parts of the daemon write at the same time, and PostgreSQL handles that, migrations and JSON well. Each node of a cluster has its own database and keeps working when it is cut off; the nodes exchange configuration and merge it per item, instead of depending on one shared database being reachable.
+
+**Mature software underneath.** ZFS for the data, Samba, the kernel's NFS and block targets, Corosync for quorum, Docker for containers. DPlaneOS is what ties them together and keeps their configuration; it does not reimplement them.
+
+**NixOS, exclusively.** See [Why DPlaneOS is built on NixOS](NIXOS-RATIONALE.md).
 
 ---
 
-## Where to Go Next
+## What it is not
 
-| Question | Document |
-|----------|----------|
-| How does the architecture actually work? | [ARCHITECTURE.md](ARCHITECTURE.md) |
-| What goes in state.yaml and how does apply work? | [GITOPS-REFERENCE.md](GITOPS-REFERENCE.md) |
-| How does NixOS make this possible? | [NIXOS-RATIONALE.md](NIXOS-RATIONALE.md) |
-| How do I run this on hardware? | [INSTALLATION-GUIDE.md](../admin/INSTALLATION-GUIDE.md) |
-| What are the security boundaries? | [THREAT-MODEL.md](THREAT-MODEL.md) |
+- **Not multi-tenant.** One operator or a small team; users are separated by file permissions and quotas, not from each other as tenants.
+- **Not a general-purpose server.** There is no package manager to add software with; applications run as containers.
+- **Not finished.** Which parts are stable, which are beta and which are experimental is listed in the [README](../../README.md#project-status).

@@ -96,7 +96,7 @@ ZFS native encryption per dataset, with lock, unlock and change of key in the we
 
 ## The system itself, and updates
 
-- The system is an image: its programs live in a read-only store; a restart returns everything outside the persistent state to what the image says.
+- The system is an image: its programs and their configuration live in a read-only store and are replaced as a whole by an update. Nothing is installed or upgraded piece by piece on a running system.
 - An update is a file signed with the release key (Ed25519). The system verifies the signature against the public key in its own image before anything of it is used, and refuses a file for another machine type. A new version runs once on trial and is removed if the system is not healthy with it. (Tested: update.)
 - Release images are built by CI from the tagged source, signed with cosign, and accompanied by an SBOM; `govulncheck` runs for every build.
 - The installer needs no network and starts no SSH unless asked at its console; it refuses weak administrator passwords.
