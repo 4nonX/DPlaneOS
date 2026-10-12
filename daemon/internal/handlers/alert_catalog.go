@@ -61,6 +61,7 @@ var AlertCatalog = []AlertEvent{
 	{"ha.takeover", "critical", "A storage group is now served by another node than before."},
 	{"ha.takeover_failed", "critical", "The owner of a storage group is gone and this node could not take the group over."},
 	{"ha.fenced", "critical", "Another node has taken the disks of a pool this node served: this node has been shut out."},
+	{"ha.maintenance", "info", "A node entered or left maintenance (it hands its storage groups over and takes none)."},
 	{EventUPSOnBattery, "warning", "The UPS runs on battery: mains power is out."},
 	{EventUPSLowBattery, "critical", "The UPS battery is low; the system shuts down as configured."},
 	{EventUPSOnline, "info", "Mains power is back."},

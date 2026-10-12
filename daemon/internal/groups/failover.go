@@ -38,6 +38,8 @@ func planFailover(g Group, v View, lostSince, now time.Time) Decision {
 	switch {
 	case g.Topology == Standalone:
 		return Decision{Action: "none"}
+	case v.Maintenance[v.Self]:
+		return Decision{Action: "none", Reason: "the owner is not reachable; this node is in maintenance and takes nothing over"}
 	case g.Topology == Replicated && !g.AutoFailover:
 		return Decision{Action: "none", Reason: "the owner is not reachable; automatic failover is off for this replicated group (changes since the last replication would be lost). Take over manually after making sure the owner is off"}
 	case !v.AutoFailover:
@@ -46,7 +48,8 @@ func planFailover(g Group, v View, lostSince, now time.Time) Decision {
 		return Decision{Action: "none", Reason: "the owner is not reachable; automatic failover needs a fencing method: " + v.FenceReason}
 	}
 	for _, c := range g.Candidates {
-		if c == g.Owner || !contains2(v.Online, c) {
+		// A candidate in maintenance is passed over like one that is away.
+		if c == g.Owner || !contains2(v.Online, c) || v.Maintenance[c] {
 			continue
 		}
 		if c != v.Self {
@@ -178,6 +181,9 @@ func (m *Manager) Takeover(name string) (*Group, error) {
 	}
 	if !g.IsCandidate(v.Self) {
 		return nil, errors.New("this node is not a candidate of the group")
+	}
+	if v.Maintenance[v.Self] {
+		return nil, ErrInMaintenance
 	}
 	if v.Quorum && contains2(v.Online, g.Owner) {
 		return nil, ErrOwnerOnline

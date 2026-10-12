@@ -168,6 +168,7 @@ type Manager struct {
 	shutOut     map[string]bool   // pools whose disks another node took from this one
 	addrApplied map[string]string // group → "iface|cidr" put on this node
 	moving      map[string]bool   // planned moves in progress: activation leaves these alone
+	peerMaint   map[string]bool   // members that reported maintenance at the last exchange
 }
 
 func (m *Manager) setMoving(name string, on bool) {
@@ -204,6 +205,13 @@ func (m *Manager) currentView() (View, error) {
 	v.ImportedHere = map[string]bool{}
 	for name := range imported {
 		v.ImportedHere[name] = true
+	}
+	v.Maintenance = map[string]bool{}
+	if m.inMaintenance() {
+		v.Maintenance[v.Self] = true
+	}
+	for _, n := range m.PeersInMaintenance() {
+		v.Maintenance[n] = true
 	}
 	return v, nil
 }
@@ -395,6 +403,9 @@ func (m *Manager) Move(name, target string) (*MoveResult, error) {
 	if target == self || !g.IsCandidate(target) {
 		return nil, errors.New("the target must be another candidate of the group")
 	}
+	if m.peerInMaintenance(target) {
+		return nil, errors.New("the target is in maintenance: it takes no group")
+	}
 	// The activation loop and the owner's import check run without m.mu:
 	// keep them from restarting apps or importing while the group moves.
 	m.setMoving(name, true)
@@ -478,8 +489,19 @@ func (m *Manager) Receive(u Update) error {
 		m.unreserveOwned(*cur)
 		return Remove(m.db, u.Group.Name)
 	}
+	// A node in maintenance is not given a group it does not own. (The
+	// mover asks before it stops anything; this is the same answer from the
+	// node itself, should the mover not have heard yet.)
+	if u.Group.Owner == m.self() && m.inMaintenance() {
+		if cur, err := Get(m.db, u.Group.Name); err != nil || cur.Owner != m.self() {
+			return ErrInMaintenance
+		}
+	}
 	return m.adopt(u.Group)
 }
+
+// ErrInMaintenance: this node is in maintenance and takes no group.
+var ErrInMaintenance = errors.New("this node is in maintenance: it takes no group")
 
 func (m *Manager) adopt(g Group) error {
 	cur, err := Get(m.db, g.Name)
@@ -630,6 +652,7 @@ func (m *Manager) SyncOnce() error {
 			continue // unreachable members are normal during a partition
 		}
 		ps := peerSeen{Reached: true}
+		m.setPeerMaintenance(n, pv.Maintenance)
 		if pv.HasImported {
 			ps.Imported = map[string]bool{}
 			for _, p := range pv.Imported {

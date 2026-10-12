@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -51,11 +52,12 @@ func (t GroupTransport) Push(node string, u groups.Update) error {
 
 func (t GroupTransport) Fetch(node string) (groups.PeerView, error) {
 	var resp struct {
-		Groups   []groups.Group `json:"groups"`
-		Imported *[]string      `json:"imported"`
+		Groups      []groups.Group `json:"groups"`
+		Imported    *[]string      `json:"imported"`
+		Maintenance bool           `json:"maintenance"`
 	}
 	err := configstore.CallPeer(t.DB, node, "GET", "/api/config/sync/peer/groups", nil, &resp)
-	pv := groups.PeerView{Groups: resp.Groups}
+	pv := groups.PeerView{Groups: resp.Groups, Maintenance: resp.Maintenance}
 	if resp.Imported != nil {
 		pv.Imported, pv.HasImported = *resp.Imported, true
 	}
@@ -243,6 +245,89 @@ func (h *GroupsHandler) ReplicateNow(w http.ResponseWriter, r *http.Request) {
 	respondOK(w, map[string]any{"success": true})
 }
 
+// Maintenance: GET /api/ha/maintenance - the maintenance state of this
+// node, what entering it would do with the groups it owns, and the other
+// nodes that are in maintenance.
+func (h *GroupsHandler) Maintenance(w http.ResponseWriter, r *http.Request) {
+	st, err := groups.GetMaintenance(h.db)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "Failed to read the maintenance state", err)
+		return
+	}
+	plan, err := h.mgr.MaintenancePlan()
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "Failed to plan", err)
+		return
+	}
+	names := PowerTargetNodes()
+	nameOf := func(key string) string {
+		if n := names[key]; n != "" {
+			return n
+		}
+		return key
+	}
+	type step struct {
+		groups.MaintStep
+		TargetName string `json:"target_name,omitempty"`
+	}
+	steps := []step{}
+	for _, s := range plan {
+		st := step{MaintStep: s}
+		if s.Target != "" {
+			st.TargetName = nameOf(s.Target)
+		}
+		// The plan speaks of nodes by their keys; people know them by name.
+		for key, name := range names {
+			st.Detail = strings.ReplaceAll(st.Detail, key, name)
+		}
+		steps = append(steps, st)
+	}
+	others := []string{}
+	for _, n := range h.mgr.PeersInMaintenance() {
+		others = append(others, nameOf(n))
+	}
+	respondOK(w, map[string]any{"success": true, "maintenance": st, "plan": steps, "others_in_maintenance": others})
+}
+
+// EnterMaintenance: POST /api/ha/maintenance {"reason": "...", "force": false}
+func (h *GroupsHandler) EnterMaintenance(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Reason string `json:"reason"`
+		Force  bool   `json:"force"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&req)
+	req.Reason = strings.TrimSpace(req.Reason)
+	if len(req.Reason) > 200 {
+		req.Reason = req.Reason[:200]
+	}
+	steps, err := h.mgr.EnterMaintenance(req.Reason, r.Header.Get("X-User"), req.Force)
+	if err != nil {
+		respondOK(w, map[string]any{"success": false, "error": err.Error(), "plan": steps,
+			"blocked": errors.Is(err, groups.ErrMaintenanceBlocked)})
+		return
+	}
+	failed := 0
+	for _, s := range steps {
+		if s.Error != "" {
+			failed++
+		}
+	}
+	msg := "This node is in maintenance."
+	if failed > 0 {
+		msg = fmt.Sprintf("This node is in maintenance, but %d group(s) could not be moved and are still served here.", failed)
+	}
+	respondOK(w, map[string]any{"success": true, "message": msg, "plan": steps, "not_moved": failed})
+}
+
+// LeaveMaintenance: DELETE /api/ha/maintenance
+func (h *GroupsHandler) LeaveMaintenance(w http.ResponseWriter, r *http.Request) {
+	if err := h.mgr.LeaveMaintenance(); err != nil {
+		respondError(w, http.StatusInternalServerError, "Failed to leave maintenance", err)
+		return
+	}
+	respondOK(w, map[string]any{"success": true, "message": "This node left maintenance. Groups are not moved back by themselves."})
+}
+
 // CheckReplication: POST /api/groups/{name}/replicate/check - what the next
 // replication would do, per pool and copy, without sending anything.
 func (h *GroupsHandler) CheckReplication(w http.ResponseWriter, r *http.Request) {
@@ -384,5 +469,5 @@ func (h *GroupsHandler) PeerGroups(w http.ResponseWriter, r *http.Request) {
 		respondErrorSimple(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	respondOK(w, map[string]any{"success": true, "groups": gs, "imported": imported})
+	respondOK(w, map[string]any{"success": true, "groups": gs, "imported": imported, "maintenance": h.mgr.InMaintenance()})
 }

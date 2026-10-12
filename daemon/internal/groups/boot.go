@@ -25,6 +25,7 @@ type PeerView struct {
 	Groups      []Group
 	Imported    []string
 	HasImported bool // false: an older version that does not report pools
+	Maintenance bool // the member is in maintenance: it takes no group
 }
 
 type peerSeen struct {

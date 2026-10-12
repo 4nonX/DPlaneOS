@@ -130,6 +130,8 @@ func HandlePrometheusMetrics(w http.ResponseWriter, r *http.Request) {
 			"1 if this node owns storage, lost quorum and no longer resets its watchdog")
 	}
 	if prometheusGroups != nil {
+		writeMetric(b, "dplaneos_ha_maintenance", nil, boolMetric(prometheusGroups.InMaintenance()),
+			"1 if this node is in maintenance: it hands its storage groups over and takes none")
 		if gs, err := prometheusGroups.Statuses(); err == nil {
 			for _, g := range gs {
 				l := map[string]string{"group": g.Name, "topology": g.Topology}
