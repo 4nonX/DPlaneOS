@@ -935,6 +935,11 @@ var CommandWhitelist = map[string]Command{
 	// Cluster quorum: Corosync + third vote (Design 0001 phase 3a). Units are
 	// limited to the three provided by the NixOS module; certificate files
 	// to the daemon's corosync state directory.
+	"systemctl_unit": {
+		Name:        "systemctl_unit",
+		Path:        "systemctl",
+		Description: "Query or control one unit of the system (validateSystemctlUnit)",
+	},
 	"systemctl_cluster": {
 		Name: "systemctl_cluster",
 		Path: "systemctl",
@@ -1102,6 +1107,8 @@ func ValidateCommand(cmdName string, args []string) error {
 		return validateDataPathCommand(cmdName, args)
 	case "rsync":
 		return validateRsync(args)
+	case "systemctl_unit":
+		return validateSystemctlUnit(args)
 	case "zpool_online", "zpool_add_cache", "zpool_add_log", "zpool_remove_device", "hdparm_check", "hdparm_spindown", "hdparm_status", "wipefs", "zpool_labelclear":
 		return validateDeviceBasedCommand(cmdName, args)
 	case "group_address":
@@ -1942,6 +1949,35 @@ func validateDataPathCommand(cmdName string, args []string) error {
 	}
 	if paths != 1 {
 		return fmt.Errorf("%s needs exactly one path", cmdName)
+	}
+	return nil
+}
+
+var systemctlUnitRe = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9@_.-]{0,127}$`)
+
+// validateSystemctlUnit: "is-active [--quiet] <unit>", or one of start,
+// stop, restart, reload with a unit, or "daemon-reload". The callers name
+// the units of the services they manage; nothing else of systemctl
+// (enable, mask, edit, isolate, set-property, ...) is reachable.
+func validateSystemctlUnit(args []string) error {
+	if len(args) == 1 && args[0] == "daemon-reload" {
+		return nil
+	}
+	if len(args) < 2 {
+		return fmt.Errorf("systemctl: a verb and a unit are needed")
+	}
+	verb, rest := args[0], args[1:]
+	switch verb {
+	case "is-active":
+		if rest[0] == "--quiet" {
+			rest = rest[1:]
+		}
+	case "start", "stop", "restart", "reload":
+	default:
+		return fmt.Errorf("systemctl: %q not allowed", verb)
+	}
+	if len(rest) != 1 || !systemctlUnitRe.MatchString(rest[0]) {
+		return fmt.Errorf("systemctl %s: exactly one unit name is needed", verb)
 	}
 	return nil
 }

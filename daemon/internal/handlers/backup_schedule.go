@@ -147,17 +147,11 @@ func installRsyncTimers(schedules []RsyncSchedule) error {
 			continue
 		}
 		payload, _ := json.Marshal(map[string]string{"id": s.ID})
-		safePayload := strings.ReplaceAll(string(payload), "'", "'\\''")
-		cmd := fmt.Sprintf(
-			"curl -sf --unix-socket /run/dplaneos/dplaned.sock -X POST http://localhost/api/backup/rsync/cron-hook -H 'Content-Type: application/json' -H 'X-Internal-Token: %s' -d '%s'",
-			cronToken,
-			safePayload,
-		)
 		safeName := strings.NewReplacer("/", "-", " ", "_").Replace(s.ID)
 		err := systemd.InstallTimer(systemd.TimerConfig{
 			Name:        fmt.Sprintf("rsync-%s", safeName),
 			Description: fmt.Sprintf("Rsync backup: %s", s.Name),
-			Command:     fmt.Sprintf("bash -c \"%s\"", strings.ReplaceAll(cmd, "\"", "\\\"")),
+			Hook:        &systemd.Hook{Path: "/api/backup/rsync/cron-hook", Token: cronToken, Payload: payload},
 			OnCalendar:  onCalendarForRsync(s),
 			Persistent:  true,
 		})

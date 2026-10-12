@@ -637,7 +637,7 @@ in {
         iptables                         # reading the firewall's open ports (Firewall page)
         git openssh rsync rclone pv      # GitOps, replication, cloud sync
         gnutar gzip curl which kmod procps fuse openssl nginx targetcli-fb
-        bash  # timer units run bash -c "curl ..." (internal/systemd resolves ExecStart from this PATH)
+        bash  # the web terminal and container shells; (timer units run curl, resolved from this PATH)
         getent                           # getent passwd/group (accounts, quotas)
         config.nix.package config.system.build.nixos-rebuild
       ] ++ lib.optional cfg.ftp.enable vsftpd

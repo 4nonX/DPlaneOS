@@ -154,7 +154,7 @@ dd if=dplaneos-v*.iso of=/dev/sdX bs=4M status=progress conv=fsync
 
 ## Architecture
 
-The runtime is a single statically linked Go daemon (`dplaned`) behind nginx, with PostgreSQL for state. The daemon talks to ZFS, Docker and the system by running commands from a strict allowlist (no shell, no string interpolation). The frontend is a pre-built React 19 bundle served as static files.
+The runtime is a single statically linked Go daemon (`dplaned`) behind nginx, with PostgreSQL for state. The daemon talks to ZFS, Docker and the system by running commands checked against an allowlist (no shell, no string interpolation). The frontend is a pre-built React 19 bundle served as static files.
 
 ```
 Browser
@@ -170,7 +170,7 @@ Browser
 | Component | Detail |
 |-----------|--------|
 | Frontend | React 19 + TypeScript + Vite, pre-built, no Node.js at runtime |
-| Backend | Go daemon, allowlist-validated exec, no shell invocation anywhere in the codebase |
+| Backend | Go daemon; commands run with argument lists, never through a shell, and against an allowlist where arguments come from requests |
 | Database | PostgreSQL 15+ (one per node) |
 | Auth | SCRAM-SHA-512 (RFC 5802, 100k PBKDF2 iterations), bcrypt (web login over HTTPS), LDAP bind (directory accounts), OIDC Authorization Code + PKCE (SSO accounts), TOTP 2FA, AAL1/AAL2 session assurance levels, CSRF double-submit |
 | ZFS events | ZED hook delivers pool fault, scrub, and resilver events in real time |

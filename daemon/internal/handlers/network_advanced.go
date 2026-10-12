@@ -372,7 +372,7 @@ func SetNTPServers(w http.ResponseWriter, r *http.Request) {
 			respondOK(w, map[string]any{"success": false, "error": "write timesyncd.conf: " + err.Error()})
 			return
 		}
-		if out, err := executeCommandWithTimeout(TimeoutMedium, "systemctl", []string{"restart", "systemd-timesyncd"}); err != nil {
+		if out, err := executeCommandWithTimeout(TimeoutMedium, "systemctl_unit", []string{"restart", "systemd-timesyncd"}); err != nil {
 			respondOK(w, map[string]any{"success": false, "error": "restart systemd-timesyncd: " + strings.TrimSpace(out) + " " + err.Error()})
 			return
 		}

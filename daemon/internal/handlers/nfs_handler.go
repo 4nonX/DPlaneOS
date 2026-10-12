@@ -181,7 +181,7 @@ func (h *NFSHandler) GetNFSStatus(w http.ResponseWriter, r *http.Request) {
 	// nfs-server is the unit on NixOS (nfs-kernel-server on Debian).
 	active := false
 	for _, unit := range []string{"nfs-server", "nfs-kernel-server"} {
-		if out, err := cmdutil.RunFast("systemctl", "is-active", unit); err == nil && strings.TrimSpace(string(out)) == "active" {
+		if out, err := cmdutil.RunFast("systemctl_unit", "is-active", unit); err == nil && strings.TrimSpace(string(out)) == "active" {
 			active = true
 			break
 		}

@@ -27,7 +27,7 @@ import (
 // opens it.
 
 func firewallActive() bool {
-	_, err := cmdutil.RunFast("systemctl", "is-active", "--quiet", "firewall.service")
+	_, err := cmdutil.RunFast("systemctl_unit", "is-active", "--quiet", "firewall.service")
 	return err == nil
 }
 

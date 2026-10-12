@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 )
 
@@ -22,10 +23,95 @@ const (
 type TimerConfig struct {
 	Name        string
 	Description string
-	Command     string
-	OnCalendar  string // e.g. "Mon *-*-* 04:00:00"
-	Persistent  bool
-	After       []string
+	// Command is a program with fixed arguments (no shell). Either this or
+	// Hook is set.
+	Command string
+	// Hook makes the timer call the daemon's own API.
+	Hook       *Hook
+	OnCalendar string // e.g. "Mon *-*-* 04:00:00"
+	Persistent bool
+	After      []string
+}
+
+// Hook is a request a timer makes to the daemon over its socket: a POST of
+// Payload to Path, with the daemon's internal token.
+//
+// Nothing of it goes into the unit: the unit runs "curl -K <file>", and the
+// request (with the token) is in that file and a payload file next to it,
+// readable by root only. There is no shell, and no name from a request (a
+// dataset, a device) is ever part of a command line. (The units used to run
+// bash -c "curl ... -d '<json>'", with the token in a world-readable unit.)
+type Hook struct {
+	Path    string // e.g. /api/zfs/snapshots/cron-hook
+	Token   string
+	Payload []byte // JSON
+}
+
+// Replaced in tests.
+var (
+	// HookDir holds the request files of hook timers. Like the runtime
+	// units it is gone after a restart; the daemon writes both again when
+	// it starts.
+	HookDir = "/run/dplaneos/timers"
+	// Socket is the daemon's socket.
+	Socket = "/run/dplaneos/dplaned.sock"
+)
+
+var (
+	unitNameRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9:_.@-]{0,200}$`)
+	hookPathRe = regexp.MustCompile(`^/api/[a-z0-9/_-]+$`)
+	tokenRe    = regexp.MustCompile(`^[A-Za-z0-9._~+/=-]+$`)
+)
+
+// oneLine makes a text safe as the value of a unit setting: a line break in
+// it would start a setting of its own (an ExecStart, say), and "%" starts a
+// specifier.
+func oneLine(s string) string {
+	s = strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f {
+			return ' '
+		}
+		return r
+	}, s)
+	return strings.ReplaceAll(strings.TrimSpace(s), "%", "%%")
+}
+
+// writeHook writes the request files of a hook timer and returns the
+// command of its unit.
+func writeHook(unitName string, h *Hook) (string, error) {
+	if !hookPathRe.MatchString(h.Path) {
+		return "", fmt.Errorf("invalid hook path %q", h.Path)
+	}
+	if !tokenRe.MatchString(h.Token) {
+		return "", fmt.Errorf("the internal token is missing or malformed")
+	}
+	if err := os.MkdirAll(HookDir, 0o700); err != nil {
+		return "", err
+	}
+	payload := filepath.Join(HookDir, unitName+".json")
+	config := filepath.Join(HookDir, unitName+".curl")
+	if err := os.WriteFile(payload, h.Payload, 0o600); err != nil {
+		return "", err
+	}
+	cfg := fmt.Sprintf(`# Written by DPlaneOS: the request of %s.timer.
+silent
+fail
+unix-socket = "%s"
+request = "POST"
+url = "http://localhost%s"
+header = "Content-Type: application/json"
+header = "X-Internal-Token: %s"
+data-binary = "@%s"
+`, unitName, Socket, h.Path, h.Token, payload)
+	if err := os.WriteFile(config, []byte(cfg), 0o600); err != nil {
+		return "", err
+	}
+	return "curl -K " + config, nil
+}
+
+func removeHook(unitName string) {
+	os.Remove(filepath.Join(HookDir, unitName+".json"))
+	os.Remove(filepath.Join(HookDir, unitName+".curl"))
 }
 
 func isNixOS() bool {
@@ -82,7 +168,7 @@ User=root
 
 [Install]
 WantedBy=multi-user.target
-`, cfg.Description, strings.Join(append(cfg.After, "network.target"), " "), env, execStart)
+`, oneLine(cfg.Description), strings.Join(append(cfg.After, "network.target"), " "), env, execStart)
 
 	persistentStr := "false"
 	if cfg.Persistent {
@@ -98,19 +184,36 @@ Unit=%s.service
 
 [Install]
 WantedBy=timers.target
-`, cfg.Description, cfg.OnCalendar, persistentStr, unitName)
+`, oneLine(cfg.Description), cfg.OnCalendar, persistentStr, unitName)
 	return service, timer, nil
 }
 
 // InstallTimer creates a .service and .timer unit file and reloads systemd
 func InstallTimer(cfg TimerConfig) error {
-	if cfg.Name == "" || cfg.Command == "" || cfg.OnCalendar == "" {
+	if cfg.Name == "" || (cfg.Command == "" && cfg.Hook == nil) || cfg.OnCalendar == "" {
 		return fmt.Errorf("invalid timer config: name, command, and onCalendar are required")
 	}
 
 	unitName := cfg.Name
 	if !strings.HasPrefix(unitName, Prefix) {
 		unitName = Prefix + unitName
+	}
+	// The name becomes file names, the schedule a line of the unit.
+	if !unitNameRe.MatchString(unitName) {
+		return fmt.Errorf("invalid timer name %q", unitName)
+	}
+	if strings.ContainsAny(cfg.OnCalendar, "\n\r%") || strings.TrimSpace(cfg.OnCalendar) == "" {
+		return fmt.Errorf("timer %s: invalid schedule %q", unitName, cfg.OnCalendar)
+	}
+	if strings.ContainsAny(cfg.Command, "\n\r") {
+		return fmt.Errorf("timer %s: invalid command", unitName)
+	}
+	if cfg.Hook != nil {
+		command, err := writeHook(unitName, cfg.Hook)
+		if err != nil {
+			return fmt.Errorf("timer %s: %w", unitName, err)
+		}
+		cfg.Command = command
 	}
 
 	serviceContent, timerContent, err := renderUnits(cfg, unitName, os.Getenv("PATH"))
@@ -174,6 +277,7 @@ func UninstallTimer(name string) error {
 	dir := UnitDir()
 	os.Remove(filepath.Join(dir, unitName+".timer"))
 	os.Remove(filepath.Join(dir, unitName+".service"))
+	removeHook(unitName)
 
 	return DaemonReload()
 }

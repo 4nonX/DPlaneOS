@@ -122,7 +122,7 @@ func ftpInstalled() bool {
 
 // ftpServiceActive returns true if the vsftpd systemd unit is active.
 func ftpServiceActive() bool {
-	out, err := cmdutil.RunFast("systemctl", "is-active", ftpP.service)
+	out, err := cmdutil.RunFast("systemctl_unit", "is-active", ftpP.service)
 	return err == nil && strings.TrimSpace(string(out)) == "active"
 }
 
@@ -330,14 +330,14 @@ func applyFTPConfig(cfg FTPConfig) error {
 	// Start, stop, or restart based on enabled state
 	if cfg.Enabled {
 		if ftpServiceActive() {
-			_, err := cmdutil.RunFast("systemctl", "restart", ftpP.service)
+			_, err := cmdutil.RunFast("systemctl_unit", "restart", ftpP.service)
 			return err
 		}
-		_, err := cmdutil.RunFast("systemctl", "start", ftpP.service)
+		_, err := cmdutil.RunFast("systemctl_unit", "start", ftpP.service)
 		return err
 	}
 	if ftpServiceActive() {
-		_, err := cmdutil.RunFast("systemctl", "stop", ftpP.service)
+		_, err := cmdutil.RunFast("systemctl_unit", "stop", ftpP.service)
 		return err
 	}
 	return nil
@@ -412,7 +412,7 @@ func StartFTP(w http.ResponseWriter, r *http.Request) {
 		respondErrorSimple(w, "vsftpd is not installed", http.StatusServiceUnavailable)
 		return
 	}
-	if _, err := cmdutil.RunFast("systemctl", "start", ftpP.service); err != nil {
+	if _, err := cmdutil.RunFast("systemctl_unit", "start", ftpP.service); err != nil {
 		respondUserErrStatus(w, http.StatusInternalServerError, SanitizeServiceControl("FTP", err), err)
 		return
 	}
@@ -426,7 +426,7 @@ func StopFTP(w http.ResponseWriter, r *http.Request) {
 		respondErrorSimple(w, "vsftpd is not installed", http.StatusServiceUnavailable)
 		return
 	}
-	if _, err := cmdutil.RunFast("systemctl", "stop", ftpP.service); err != nil {
+	if _, err := cmdutil.RunFast("systemctl_unit", "stop", ftpP.service); err != nil {
 		respondUserErrStatus(w, http.StatusInternalServerError, SanitizeServiceControl("FTP", err), err)
 		return
 	}
@@ -440,7 +440,7 @@ func RestartFTP(w http.ResponseWriter, r *http.Request) {
 		respondErrorSimple(w, "vsftpd is not installed", http.StatusServiceUnavailable)
 		return
 	}
-	if _, err := cmdutil.RunFast("systemctl", "restart", ftpP.service); err != nil {
+	if _, err := cmdutil.RunFast("systemctl_unit", "restart", ftpP.service); err != nil {
 		respondUserErrStatus(w, http.StatusInternalServerError, SanitizeServiceControl("FTP", err), err)
 		return
 	}

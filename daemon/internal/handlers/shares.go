@@ -19,7 +19,7 @@ func ReloadSMBConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	output, err := cmdutil.RunFast("systemctl", "reload", "smbd")
+	output, err := cmdutil.RunFast("systemctl_unit", "reload", "smbd")
 
 	audit.LogActivity(user, "samba_reload", map[string]any{
 		"success": err == nil,

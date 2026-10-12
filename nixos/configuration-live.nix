@@ -109,8 +109,8 @@
     Welcome to D-PlaneOS Live Boot
     ──────────────────────────────────────────────────────────────────────
 
-    Web UI:              http://<ip-address>/
-    SSH:                 root@<ip-address>
+    Web interface:       https://<ip-address>/   (ip addr shows the address)
+    SSH:                 off for root until a password is set here (passwd)
 
     ZFS pools will be automatically imported from attached drives.
 

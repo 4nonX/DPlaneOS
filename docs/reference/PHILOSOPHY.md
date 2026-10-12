@@ -35,7 +35,7 @@ Applying a `state.yaml` never deletes a dataset that holds data, removes a pool 
 
 ### 4. The daemon runs programs, never text
 
-Everything the daemon does to the system is done by running a program from an allowlist, with arguments that have been checked, passed as a list. A request cannot make it run something else. The audit log records what was changed, by whom, from where, and is chained so that a removed or altered entry is detected.
+The daemon changes the system by running programs with their arguments as a list, never by handing text to a shell. Where arguments come from a request, the program, its sub-command and the shape of each argument are fixed by an allowlist. A request cannot make it run something else. The audit log records what was changed, by whom, from where, and is chained so that a removed or altered entry is detected.
 
 ### 5. Say what is not there
 

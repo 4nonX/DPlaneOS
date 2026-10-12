@@ -67,7 +67,7 @@ What the layers are for:
 ### Daemon
 
 - **Validate, then act.** Input from a request is checked before it reaches a command, a path or a query.
-- **No shell.** Programs are run through `cmdutil`, which checks them against `internal/security/whitelist.go`. A new program or a new form of arguments needs an allowlist entry, with a test.
+- **No shell.** Programs are run with their arguments as a list. Anything whose arguments come from a request goes through `cmdutil` with an allowlist entry (`internal/security/whitelist.go`): a new program or a new form of arguments needs an entry, with a test. Nothing from a request goes into a unit file, a configuration file or a command line without being validated for that place.
 - **Every route has a permission** (`permRoute`); routes without one are the few that must be public, each with its own check.
 - **A change that fails is taken back.** If a setting is saved and then applied, a failed apply restores what was there, and the error says what the system said.
 - **Errors are reported, not logged and forgotten.** If part of an operation fails, the response says so.

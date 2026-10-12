@@ -57,7 +57,7 @@ Applying a plan from `state.yaml` adds: the plan is computed first and shown; st
 The [Threat Model](THREAT-MODEL.md) is the full account. In short:
 
 - **The boundary is the API.** nginx serves the interface and passes API requests to the daemon over a Unix socket; the daemon has no network port of its own. Every route needs a session (or an API token) and carries the permission it requires.
-- **No shell.** A command is a program from the allowlist (`internal/security/whitelist.go`) and a list of checked arguments.
+- **No shell.** A command is a program and a list of arguments; where they come from a request, the allowlist (`internal/security/whitelist.go`) fixes their shape.
 - **The daemon is root**, with `NoNewPrivileges` and nothing else from systemd: it imports pools, mounts datasets and configures the network, so a sandbox around it would have to be full of holes. What limits it is inside it.
 - **Sessions** are random tokens in a request header, with a CSRF token for changing requests; TOTP as a second factor; sign-in attempts throttled per client address.
 - **The audit log** is chained with an HMAC whose key is kept outside the database.

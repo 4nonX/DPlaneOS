@@ -63,13 +63,15 @@ Every route of the API carries the permission it needs (`resource:action`); four
 
 ## Commands
 
-The daemon manages the system by running programs. It never runs a shell with text it was given:
+The daemon manages the system by running programs. It never hands text to a shell:
 
-- every program it may run, with the sub-commands and the shape of each argument, is on an allowlist (`internal/security/whitelist.go`); arguments are passed as a list, not as a line;
+- a program runs with its arguments as a list, so nothing in an argument is interpreted;
+- programs whose arguments come from requests (`zfs`, `zpool`, `docker`, `rsync`, file and permission tools, and more) run through an allowlist (`internal/security/whitelist.go`) that fixes, per operation, the program, its sub-command and the shape of every argument. A handler test fails if a handler builds a command the allowlist would refuse;
 - names from requests (pools, datasets, snapshots, shares, users, interfaces) are validated before they reach a command, and may not begin with `-`;
-- paths from requests are cleaned and must lie under the allowed roots (pools, the stacks directory); symbolic links out of them are refused where files are read or written for a user.
+- paths from requests are cleaned and must lie under the allowed roots (pools, the stacks directory); symbolic links out of them are refused where files are read or written for a user;
+- scheduled jobs (snapshots, backups, SMART tests) are systemd timers that call the daemon back; their units contain no shell, no secret and no name from a request.
 
-`targetcli` (iSCSI) is not on the general allowlist; the package that runs it checks its arguments itself.
+Not everything goes through the allowlist. Commands with fixed arguments (reloading a service, loading a kernel module, asking systemd for a state) are run directly, and so are `targetcli` (iSCSI) and `rclone` (cloud sync), whose arguments are checked by the code that calls them. The web terminal and the shell in a container are shells by design, for administrators.
 
 ## The web interface
 

@@ -280,7 +280,7 @@ func atomicModifySSHKeys(fn func([]SSHManagedKey) ([]SSHManagedKey, error)) erro
 // GetSSHStatus GET /api/ssh/status
 // Returns whether the SSH daemon is running and which port it listens on.
 func GetSSHStatus(w http.ResponseWriter, r *http.Request) {
-	out, err := cmdutil.RunFast("systemctl", "is-active", "sshd")
+	out, err := cmdutil.RunFast("systemctl_unit", "is-active", "sshd")
 	active := err == nil && strings.TrimSpace(string(out)) == "active"
 
 	port := ""

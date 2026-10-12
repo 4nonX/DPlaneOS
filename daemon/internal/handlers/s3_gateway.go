@@ -120,7 +120,7 @@ func s3Installed() bool {
 }
 
 func s3ServiceActive() bool {
-	out, err := cmdutil.RunFast("systemctl", "is-active", s3Service)
+	out, err := cmdutil.RunFast("systemctl_unit", "is-active", s3Service)
 	return err == nil && strings.TrimSpace(string(out)) == "active"
 }
 
@@ -220,7 +220,7 @@ func applyS3Config(cfg S3Config) error {
 			log.Printf("WARN: s3 service file write: %v", writeErr)
 		} else {
 			// Daemon reload so systemd picks up the new unit
-			cmdutil.RunFast("systemctl", "daemon-reload") //nolint
+			cmdutil.RunFast("systemctl_unit", "daemon-reload") //nolint
 		}
 	}
 
@@ -235,7 +235,7 @@ func applyS3Config(cfg S3Config) error {
 
 	// Restart if already running, otherwise just reload env
 	if s3ServiceActive() {
-		_, err := cmdutil.RunFast("systemctl", "restart", s3Service)
+		_, err := cmdutil.RunFast("systemctl_unit", "restart", s3Service)
 		if err != nil {
 			return fmt.Errorf("failed to restart the S3 service: %w", err)
 		}
@@ -352,7 +352,7 @@ func StartS3(w http.ResponseWriter, r *http.Request) {
 		respondErrorSimple(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	if _, err := cmdutil.RunFast("systemctl", "start", s3Service); err != nil {
+	if _, err := cmdutil.RunFast("systemctl_unit", "start", s3Service); err != nil {
 		respondUserErrStatus(w, http.StatusInternalServerError, SanitizeServiceControl("S3", err), err)
 		return
 	}
@@ -364,7 +364,7 @@ func StartS3(w http.ResponseWriter, r *http.Request) {
 // StopS3 stops the S3 service.
 // POST /api/s3/stop
 func StopS3(w http.ResponseWriter, r *http.Request) {
-	if _, err := cmdutil.RunFast("systemctl", "stop", s3Service); err != nil {
+	if _, err := cmdutil.RunFast("systemctl_unit", "stop", s3Service); err != nil {
 		respondUserErrStatus(w, http.StatusInternalServerError, SanitizeServiceControl("S3", err), err)
 		return
 	}
@@ -385,7 +385,7 @@ func RestartS3(w http.ResponseWriter, r *http.Request) {
 		respondErrorSimple(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	if _, err := cmdutil.RunFast("systemctl", "restart", s3Service); err != nil {
+	if _, err := cmdutil.RunFast("systemctl_unit", "restart", s3Service); err != nil {
 		respondUserErrStatus(w, http.StatusInternalServerError, SanitizeServiceControl("S3", err), err)
 		return
 	}
@@ -425,7 +425,7 @@ func RestoreS3() {
 		log.Printf("WARN: restore s3: %v", err)
 		return
 	}
-	if _, err := cmdutil.RunFast("systemctl", "start", s3Service); err != nil {
+	if _, err := cmdutil.RunFast("systemctl_unit", "start", s3Service); err != nil {
 		log.Printf("WARN: start s3: %v", err)
 	}
 }

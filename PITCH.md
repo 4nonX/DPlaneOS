@@ -116,7 +116,7 @@ The ISO contains the complete system. Installation requires no internet connecti
 
 ## Security Architecture
 
-**One process, no shell.** The daemon manages the system by running programs, and every program it may run, with its sub-commands and the shape of each argument, is on an allowlist (`internal/security/whitelist.go`). Arguments are passed as a list, never as a line for a shell. Names from requests are validated before they reach a command. The daemon itself runs as root, as a NAS manager has to; what limits it is inside it.
+**One process, no shell.** The daemon manages the system by running programs with their arguments as a list, never as a line for a shell. For every operation whose arguments come from a request, the program, its sub-command and the shape of each argument are fixed by an allowlist (`internal/security/whitelist.go`). Names from requests are validated before they reach a command. The daemon itself runs as root, as a NAS manager has to; what limits it is inside it.
 
 **Authentication and sessions.** Session tokens are 32-byte random values that travel in a request header, not a cookie, so a browser does not attach them to requests another site triggers; changing requests carry a CSRF token as well. TOTP two-factor sign-in; the operations with the largest blast radius (destroying a pool, fencing) require it. Failed sign-ins are throttled per client address.
 

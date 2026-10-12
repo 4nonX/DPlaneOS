@@ -1,8 +1,9 @@
 package hardware
 
 import (
-	"errors"
 	"database/sql"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -37,12 +38,7 @@ func RegenerateSMARTTimers(db *sql.DB) error {
 			continue
 		}
 
-		payload := fmt.Sprintf(`{"device":"%s","type":"%s"}`, device, testType)
-		mainCmd := fmt.Sprintf(
-			`curl -sf --unix-socket /run/dplaneos/dplaned.sock -X POST http://localhost/api/hardware/smart/cron-hook -H 'Content-Type: application/json' -H 'X-Internal-Token: %s' -d '%s'`,
-			cronToken,
-			payload,
-		)
+		payload, _ := json.Marshal(map[string]string{"device": device, "type": testType})
 
 		// Sanitize device name for unit file (e.g. /dev/sda -> sda)
 		safeDev := strings.ReplaceAll(strings.TrimPrefix(device, "/dev/"), "/", "-")
@@ -51,7 +47,7 @@ func RegenerateSMARTTimers(db *sql.DB) error {
 		err := systemd.InstallTimer(systemd.TimerConfig{
 			Name:        unitName,
 			Description: fmt.Sprintf("SMART %s test for %s", testType, device),
-			Command:     fmt.Sprintf("bash -c \"%s\"", strings.ReplaceAll(mainCmd, "\"", "\\\"")),
+			Hook:        &systemd.Hook{Path: "/api/hardware/smart/cron-hook", Token: cronToken, Payload: payload},
 			OnCalendar:  schedule,
 			Persistent:  true,
 		})

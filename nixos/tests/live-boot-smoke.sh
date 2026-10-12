@@ -235,6 +235,11 @@ expect 200 POST /api/snapshots/schedules '[{"dataset":"smoke2/share","frequency"
 SNAP_UNIT=dplaneos-snap-smoke2-share-daily
 check "snapshot timer active" systemctl is-active --quiet "$SNAP_UNIT.timer"
 check "snapshot unit ExecStart is absolute" contains "$(systemctl cat "$SNAP_UNIT.service")" 'ExecStart=/'
+# The unit runs curl with a request file: no shell, and neither the internal
+# token nor the dataset's name is in the unit (which everybody can read).
+check "snapshot unit runs no shell" lacks "$(systemctl cat "$SNAP_UNIT.service" | grep '^ExecStart=')" 'bash'
+check "snapshot unit carries no token" lacks "$(systemctl cat "$SNAP_UNIT.service")" 'X-Internal-Token'
+check "the request file is root's alone" test "$(stat -c %a "/run/dplaneos/timers/$SNAP_UNIT.curl")" = 600
 check "snapshot timer service runs" systemctl start "$SNAP_UNIT.service"
 check "timer run created an auto-daily snapshot" contains "$(zfs list -H -t snapshot -o name -r smoke2/share)" '@auto-daily'
 
