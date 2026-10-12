@@ -219,9 +219,9 @@ POST   /api/auth/totp/verify  # step 2 of login: exchange pending_token + TOTP c
    # Use this session_id for all subsequent requests
 ```
 
-If the code is wrong: the request fails with 401. There is no per-attempt lockout at the TOTP step. Rate limiting applies at the password step (`POST /api/auth/login`) and is IP-based with exponential backoff: delays grow from 2 seconds after the second failure to a 30-second cap after six or more failures. The counter resets after 15 minutes of inactivity.
+If the code is wrong, the request fails with 401. Repeated wrong codes lock the second step for that user for 15 minutes; the pending sign-in is then spent and a new one needs the password again. A code that was already used is refused. Wrong passwords at the first step make the client's address wait longer each time (2 seconds after the second failure, up to 30 seconds), forgotten after 15 minutes without a failure.
 
-After TOTP verification, the session's `aal` field is upgraded to 2 (Authentication Assurance Level 2). Operations with elevated risk (pool destroy, password reset, fencing configuration, ALUA state flip) require AAL2. A session authenticated with password only (AAL1) is rejected at those endpoints with HTTP 403 and `action: "enable_totp"`.
+After the second step, the session counts as signed in with two factors. The operations with the largest blast radius (destroying a pool, resetting another user's password, configuring fencing and the watchdog, enrolling and using a BMC) require such a session: with a password-only session they are refused with HTTP 403 and `action: "enable_totp"`.
 
 ### Clock Synchronization
 

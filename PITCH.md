@@ -66,7 +66,7 @@ From kernel to container, the state of a node is text in Git: the release it run
 
 **The one layer Git does not touch is the data layer, and that is intentional.** Raw data does not belong in Git. It belongs in ZFS, which provides the equivalent guarantee at the data level: checksums on every block, point-in-time snapshots, and native encryption at rest. For backup and replication, DPlaneOS ships every option built in:
 
-- **ZFS snapshots:** automatic, tiered schedules (every 15 minutes, hourly, daily, weekly, monthly), retained and expired without manual intervention
+- **ZFS snapshots:** scheduled per dataset (hourly, daily, weekly, monthly), kept by number or by age and expired without manual intervention
 - **ZFS Send/Receive:** efficient incremental replication to any other ZFS system, local or remote, over SSH
 - **Cloud sync:** rclone-backed sync to any S3-compatible store, Backblaze B2, Google Drive, or any of the 40+ providers rclone supports
 - **Remote storage as a folder:** an rclone remote mounted into the file tree, for data that may live elsewhere

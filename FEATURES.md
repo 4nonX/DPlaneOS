@@ -11,7 +11,7 @@ A NAS operating system built on NixOS and ZFS. It is installed as an image, conf
 - **Block volumes:** ZVols for iSCSI and NVMe-oF backing
 - **ACL manager:** POSIX access control per dataset or path (OpenZFS on Linux has no native NFSv4 ACLs; the NFSv4 ACL API needs nfs4-acl-tools and applies to NFS client mounts)
 - **ZFS delegation:** fine-grained per-user/per-dataset permission grants (`zfs allow`)
-- **Snapshot scheduler:** independent retention tiers: 15 min, hourly, daily, weekly, monthly
+- **Snapshot scheduler:** per dataset: hourly, daily, weekly or monthly, kept by number or by age
 - **Snapshot rollback:** picker for any historical restore point, destructive-action warning
 - **Pool health:** real-time status, degraded/faulted vdev banner, one-click scrub
 - **ZED events:** scrub, resilver, trim, data loss, checksum and I/O errors dispatched live to the UI
@@ -24,7 +24,7 @@ A NAS operating system built on NixOS and ZFS. It is installed as an image, conf
 - **SMB / Samba:** per-share user restrictions, Time Machine support, active-session viewer and disconnect
 - **NFS:** per-export client rules, dynamic `exportfs` reload
 - **iSCSI:** targets on ZVols (Linux LIO), per-initiator access lists, CHAP; a LUN keeps its identity and the initiators' persistent reservations across restarts; targets follow their storage group
-- **NVMe-oF:** NVMe over TCP with per-initiator host NQN allowlist
+- **NVMe-oF:** NVMe over TCP, for named hosts or any host; a namespace keeps its identity across restarts; exports follow their storage group
 - **FTP / FTPS:** vsftpd, with the users and passwords of the web interface, each confined to the configured folder
 - **File share links:** time-limited browser-downloadable links, no authentication required
 - **S3 object storage:** a folder served over the S3 protocol (Versity Gateway), with one access key
@@ -42,9 +42,9 @@ A NAS operating system built on NixOS and ZFS. It is installed as an image, conf
 ## Data Protection
 
 - **ZFS replication:** incremental send/receive over SSH, configurable schedule and rate limit
-- **Backup:** rsync-based backup tasks
-- **Cloud sync:** S3, Backblaze B2, Google Drive, Azure, Dropbox, and any rclone-supported target
-- **Cold tier:** FUSE-mounted object storage for archive datasets
+- **Backup:** rsync to a local folder or over SSH, by hand or on a schedule; a failed run raises an alert
+- **Cloud sync:** tasks that copy (or, if chosen, mirror) a folder to or from S3-compatible storage, Backblaze B2, Azure Blob, SFTP, FTP or WebDAV, by hand or on a schedule, with a dry run
+- **A remote as a folder:** a folder of a cloud remote mounted into the file tree
 
 ---
 
@@ -83,7 +83,7 @@ A NAS operating system built on NixOS and ZFS. It is installed as an image, conf
 - **Local users and groups:** every user also is a Unix and SMB/FTP account with the same password; roles, and additional roles that can end on a date
 - **LDAP / Active Directory:** sign-in with directory accounts (accounts created at first sign-in or by a scheduled sync, groups mapped to roles); membership in an Active Directory domain, so that domain users use the SMB shares
 - **OIDC SSO:** Authorization Code + PKCE; accounts linked by verified e-mail address or created at first sign-in; roles follow the provider's groups; a handoff code keeps the session token out of the URL
-- **TOTP two-factor auth:** per-user, with backup codes
+- **TOTP two-factor auth:** per-user, with backup codes; the setup code is drawn in the browser and sent nowhere
 - **SSH:** administrators sign in with their account; public keys, port, password and root sign-in are settings
 - **RBAC:** four roles (viewer, user, operator, admin), 31 discrete permissions, enforced at handler level
 
@@ -92,7 +92,7 @@ A NAS operating system built on NixOS and ZFS. It is installed as an image, conf
 ## Security
 
 - **Audit chain:** every state change appended to an HMAC-SHA256 linked log; key stored separately from the database; chain verifiable on demand
-- **CSRF protection:** custom header + double-submit token on all mutations
+- **Requests from other sites:** the session token travels in a header, not a cookie, and changing requests need a CSRF token bound to the session; the web server sends a Content-Security-Policy that allows scripts from the system only
 - **TLS certificates:** a self-signed certificate from the first start; ACME / Let's Encrypt, uploaded certificates, or one made on the system
 - **Exec allowlist:** every subprocess validated against predefined binary + argument grammars; no shell string, no expansion
 - **Rate limiting:** 100 requests per minute and client address; failed sign-ins make that address wait longer each time
@@ -106,7 +106,7 @@ A NAS operating system built on NixOS and ZFS. It is installed as an image, conf
 - **Local-first nodes:** every node has its own database; paired nodes exchange configuration (with secrets, encrypted for the pair) and merge per resource with conflict review
 - **Corosync cluster:** quorum as in Proxmox; two nodes work with manual takeover, a third vote enables automatic failover
 - **Third vote from anything:** QDevice on a Raspberry Pi/VM/cloud instance (one command), a corosync-only voter, another DPlaneOS system, or a third DPlaneOS node
-- **Storage groups:** pools with their shares, NVMe-oF exports, Docker stacks and a floating address move between nodes; epochs fence stale owners
+- **Storage groups:** pools with their shares, iSCSI targets, NVMe-oF exports, Docker stacks and a floating address move between nodes; an initiator keeps its disk across a move; epochs fence stale owners
 - **Shared or replicated:** shared SAS/SATA shelves or SANs (no data loss), or ZFS replication between independent boxes (bounded loss)
 - **Protection layers:** watchdog self-fencing, ZFS multihost, disk reservations (SCSI-3: the disks of a shared group refuse writes from every node but its owner), optional IPMI/Redfish or PDU power fencing; missing layers are explained, not required
 - **Planned moves:** apps stop, the address moves, pools are exported and imported (or a final replication runs) with rollback if the target cannot take over
