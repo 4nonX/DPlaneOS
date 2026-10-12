@@ -180,6 +180,9 @@ function ScheduleModal({ initial, onClose, onSave, saving }: ScheduleModalProps)
               <input className="input" type="text" placeholder="/mnt/backup  or  user@host:/path"
                 value={form.destination} onChange={e => set('destination', e.target.value)} disabled={saving}
                 style={{ fontFamily: 'var(--font-mono)', fontSize: 13 }} />
+              <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', marginTop: 4 }}>
+                Over SSH, this system signs in with its own key (Replication, Peers shows it): add it to the user's authorized_keys at the destination.
+              </div>
             </div>
           </div>
 
@@ -318,6 +321,9 @@ function RunNowTab() {
               <label style={{ display: 'block', fontSize: 'var(--text-sm)', fontWeight: 500, marginBottom: 6 }}>Destination</label>
               <input className="input" type="text" placeholder="/mnt/backup  or  user@host:/remote/path"
                 value={dest} onChange={e => setDest(e.target.value)} disabled={runMut.isPending} />
+              <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', marginTop: 4 }}>
+                Over SSH, this system signs in with its own key (Replication, Peers shows it): add it to the user's authorized_keys at the destination.
+              </div>
             </div>
           </div>
 

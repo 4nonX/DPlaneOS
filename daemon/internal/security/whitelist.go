@@ -2,6 +2,7 @@ package security
 
 import (
 	"fmt"
+	"os"
 	"path"
 	"path/filepath"
 	"regexp"
@@ -2020,9 +2021,21 @@ func validateDataPathCommand(cmdName string, args []string) error {
 	return nil
 }
 
-// RsyncSSH is the only remote shell rsync may use: no password prompt (the
-// job has no terminal), new host keys accepted once.
-const RsyncSSH = "ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new"
+// RsyncSSH is the only remote shell rsync may use: this system's replication
+// key (the one shown under Replication, Peers; root has no key of its own on
+// an installed system), no password prompt (the job has no terminal), and a
+// host key that is accepted at the first connection and has to stay the
+// same afterwards (remembered in a file that survives restarts).
+var RsyncSSH = rsyncSSH()
+
+func rsyncSSH() string {
+	dir := "/root/.ssh"
+	if _, err := os.Stat("/etc/NIXOS"); err == nil {
+		dir = "/var/lib/dplaneos/ssh"
+	}
+	return "ssh -i " + dir + "/dplaneos_replication -o IdentitiesOnly=yes -o BatchMode=yes" +
+		" -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=" + dir + "/rsync_known_hosts"
+}
 
 var rsyncRemoteRe = regexp.MustCompile(`^[a-zA-Z0-9._-]+@[a-zA-Z0-9.-]+:(/[^\s]*)$`)
 

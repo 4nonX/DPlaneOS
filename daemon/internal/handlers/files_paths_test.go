@@ -199,17 +199,20 @@ func TestFileSharesStayInRoots(t *testing.T) {
 
 func TestCloudSyncLocalPathInRoots(t *testing.T) {
 	root, outside := filesEnv(t)
-	fakeCommands(t, nil)
+	fakeCommands(t, map[string]func([]string) ([]byte, error){"rclone": out("b2:\n")})
+	prevDir := ConfigDir
+	ConfigDir = t.TempDir()
+	t.Cleanup(func() { ConfigDir = prevDir })
 	h := NewCloudSyncHandler()
 	link := filepath.Join(root, "share", "etc")
 	symlinks := os.Symlink(outside, link) == nil
 	for _, p := range []string{outside, filepath.Join(root, "..", "x")} {
-		if r := call(t, h.runSync, req{method: "POST", body: map[string]any{"remote": "b2", "local_path": p, "direction": "download"}}); r.code != 400 {
+		if r := call(t, h.CreateCloudSyncTask, req{method: "POST", body: map[string]any{"name": "t", "remote": "b2", "remote_path": "bucket", "local_path": p, "direction": "download"}}); r.code != 400 {
 			t.Errorf("download to %s: %s", p, r)
 		}
 	}
 	if symlinks {
-		if r := call(t, h.runSync, req{method: "POST", body: map[string]any{"remote": "b2", "local_path": link, "direction": "download"}}); r.code != 400 {
+		if r := call(t, h.CreateCloudSyncTask, req{method: "POST", body: map[string]any{"name": "t", "remote": "b2", "remote_path": "bucket", "local_path": link, "direction": "download"}}); r.code != 400 {
 			t.Errorf("download through a symlink: %s", r)
 		}
 	}
@@ -232,6 +235,13 @@ func TestZFSMountsAreRoots(t *testing.T) {
 }
 
 func TestRsyncArgs(t *testing.T) {
+	// This system's SSH key exists (a remote backup would make it otherwise).
+	prevKey := replKeyPath
+	replKeyPath = filepath.Join(t.TempDir(), "key")
+	if err := os.WriteFile(replKeyPath, []byte("key"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { replKeyPath = prevKey })
 	root, outside := filesEnv(t)
 	share := filepath.Join(root, "share")
 	if _, err := rsyncArgs("", outside, filepath.Join(root, "copy")); err == nil {
@@ -259,7 +269,8 @@ func TestRsyncArgs(t *testing.T) {
 		t.Fatalf("remote backup: %v", err)
 	}
 	got := strings.Join(args, "|")
-	if !strings.HasPrefix(got, "-avz|--delete|-e|ssh -o BatchMode=yes") || !strings.HasSuffix(got, "/|backup@nas2.lan:/mnt/pool/share") {
+	// Over SSH with this system's own key, and no password prompt.
+	if !strings.HasPrefix(got, "-avz|--delete|-e|ssh -i ") || !strings.Contains(got, "dplaneos_replication -o IdentitiesOnly=yes -o BatchMode=yes") || !strings.HasSuffix(got, "/|backup@nas2.lan:/mnt/pool/share") {
 		t.Errorf("args: %q", got)
 	}
 }

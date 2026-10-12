@@ -28,12 +28,12 @@ import { ErrorState } from '@/components/ui/ErrorState'
 import { Skeleton } from '@/components/ui/LoadingSpinner'
 import { toast } from '@/hooks/useToast'
 import { useConfirm } from '@/components/ui/ConfirmDialog'
+import { CloudTasksTab } from '@/components/cloud/CloudTasksTab'
 
 interface Remote   { name: string; type?: string; status?: string; last_sync?: string; config?: Record<string,unknown> }
 interface Provider { id: string; name: string; icon?: string; fields?: ProviderField[] }
 interface ProviderField { key: string; label: string; type?: string; required?: boolean }
 
-interface SyncJob { id: string; provider: string; action: string; source: string; destination: string; status: 'running' | 'done' | 'failed'; started_at: string; finished_at?: string; error?: string }
 
 interface ColdTierMount {
   id: number
@@ -264,26 +264,15 @@ function ColdTierTab({ remotes }: { remotes: Remote[] }) {
 export function CloudSyncPage() {
   const qc = useQueryClient()
   const { confirm, ConfirmDialog } = useConfirm()
-  const [tab, setTab] = useState<'remotes' | 'cold-tier'>('remotes')
+  const [tab, setTab] = useState<'remotes' | 'tasks' | 'cold-tier'>('remotes')
+  const [taskRemote, setTaskRemote] = useState<string | undefined>()
   const [selectedProvider, setSelectedProvider] = useState<Provider|null>(null)
   const [isEditing, setIsEditing] = useState(false)
   const [configName, setConfigName] = useState('')
   const [configFields, setConfigFields] = useState<Record<string,string>>({})
-  const [syncRemote, setSyncRemote] = useState('')
-  const [syncPath, setSyncPath] = useState('')
-  const [syncDir, setSyncDir] = useState<'push'|'pull'>('push')
-  const [dryRun, setDryRun] = useState(false)
 
   const remotesQ   = useQuery({ queryKey:['cloud','remotes'],   queryFn:({signal})=>api.get<{success:boolean;remotes:Remote[]}>('/api/cloud-sync?action=remotes',signal) })
   const providersQ = useQuery({ queryKey:['cloud','providers'], queryFn:({signal})=>api.get<{success:boolean;providers:Provider[]}>('/api/cloud-sync?action=providers',signal) })
-
-  // Transfers run in the background; the list follows them while one is running.
-  const jobsQ = useQuery({
-    queryKey: ['cloud', 'jobs'],
-    queryFn: ({ signal }) => api.get<{ success: boolean; jobs: SyncJob[] | null }>('/api/cloud-sync/jobs', signal),
-    refetchInterval: q => (q.state.data?.jobs?.some(j => j.status === 'running') ? 3_000 : 30_000),
-  })
-  const syncJobs = jobsQ.data?.jobs ?? []
 
   const configure = useMutation({
     mutationFn: () => api.post('/api/cloud-sync', { 
@@ -302,14 +291,10 @@ export function CloudSyncPage() {
     },
     onError: (e:Error)=>toast.error(e.message),
   })
-  const sync = useMutation({
-    mutationFn: () => api.post('/api/cloud-sync', { action:'sync', remote:syncRemote, local_path:syncPath, direction:syncDir, dry_run:dryRun }),
-    onSuccess: () => { toast.success(dryRun ? 'Dry run started' : 'Sync started'); qc.invalidateQueries({ queryKey: ['cloud', 'jobs'] }) },
-    onError: (e:Error)=>toast.error(e.message),
-  })
   const testRemote = useMutation({
-    mutationFn: (name:string) => api.post('/api/cloud-sync', { action:'test', remote:name }),
-    onSuccess: () => toast.success('Connection OK'),
+    mutationFn: (name:string) => api.post<{ success: boolean; connected?: boolean; error?: string }>('/api/cloud-sync', { action:'test', remote:name }),
+    // The request succeeding says nothing yet: the answer says whether the remote could be reached.
+    onSuccess: (res) => { if (res.connected) toast.success('Connection OK'); else toast.error(`Could not connect: ${res.error || 'no answer from the remote'}`) },
     onError: (e:Error)=>toast.error(e.message),
   })
   const del = useMutation({
@@ -334,7 +319,7 @@ export function CloudSyncPage() {
     <div style={{ maxWidth:1000 }}>
       <div className="page-header">
         <h1 className="page-title">Cloud Sync</h1>
-        <p className="page-subtitle">rclone-powered sync and cold-tier FUSE mounts</p>
+        <p className="page-subtitle">Copy folders to and from cloud storage, by hand or on a schedule; mount a remote as a folder</p>
       </div>
 
       {/* Tab bar */}
@@ -342,12 +327,16 @@ export function CloudSyncPage() {
         <button className={`tab ${tab === 'remotes' ? 'tab-active' : ''}`} onClick={() => setTab('remotes')}>
           Remotes
         </button>
+        <button className={`tab ${tab === 'tasks' ? 'tab-active' : ''}`} onClick={() => setTab('tasks')}>
+          Tasks
+        </button>
         <button className={`tab ${tab === 'cold-tier' ? 'tab-active' : ''}`} onClick={() => setTab('cold-tier')}>
           Cold Tier
         </button>
       </div>
 
       {tab === 'cold-tier' && <ColdTierTab remotes={remotes} />}
+      {tab === 'tasks' && <CloudTasksTab remotes={remotes} preselect={taskRemote} />}
 
       {tab === 'remotes' && <>
 
@@ -435,7 +424,7 @@ export function CloudSyncPage() {
             <div style={{ display:'flex', gap:6 }}>
               <button onClick={()=>handleEdit(r)} className="btn btn-ghost"><Icon name="edit" size={13}/>Edit</button>
               <button onClick={()=>testRemote.mutate(r.name)} disabled={testRemote.isPending} className="btn btn-ghost"><Icon name="cable" size={13}/>Test</button>
-              <button onClick={()=>{ setSyncRemote(r.name) }} className="btn btn-ghost"><Icon name="sync" size={13}/>Sync</button>
+              <button onClick={()=>{ setTaskRemote(r.name); setTab('tasks') }} className="btn btn-ghost"><Icon name="sync" size={13}/>Tasks</button>
               <button onClick={async ()=>{ if(await confirm({ title:`Remove "${r.name}"?`, message:'This will disconnect the remote and delete its configuration.', danger:true, confirmLabel:'Remove' })) del.mutate(r.name) }} className="btn btn-ghost" style={{ color:'var(--error)', borderColor:'var(--error-border)' }}><Icon name="delete" size={13}/></button>
             </div>
           </div>
@@ -447,57 +436,6 @@ export function CloudSyncPage() {
         )}
       </div>
 
-      {/* Sync panel */}
-      {syncRemote && (
-        <div className="card card-xl" style={{ border:'1px solid rgba(138,156,255,0.3)' }}>
-          <div style={{ fontWeight:700, marginBottom:14 }}>Sync: {syncRemote}</div>
-          <div style={{ display:'grid', gridTemplateColumns:'1fr 120px auto', gap:8, alignItems:'flex-end', marginBottom:10 }}>
-            <label className="field">
-              <span className="field-label">Local path</span>
-              <input value={syncPath} onChange={e=>setSyncPath(e.target.value)} placeholder="/mnt/tank/data" className="input" style={{ fontFamily:'var(--font-mono)' }}/>
-            </label>
-            <label className="field">
-              <span className="field-label">Direction</span>
-              <select value={syncDir} onChange={e=>setSyncDir(e.target.value as 'push'|'pull')} className="input" style={{ appearance:'none' }}>
-                <option value="push">Push ↑</option>
-                <option value="pull">Pull ↓</option>
-              </select>
-            </label>
-            <button onClick={()=>sync.mutate()} disabled={!syncPath.trim()||sync.isPending} className="btn btn-primary" style={{ alignSelf:'flex-end' }}>
-              <Icon name="sync" size={14}/>{sync.isPending?'Syncing…':dryRun?'Dry Run':'Sync'}
-            </button>
-          </div>
-          <label style={{ display:'flex', alignItems:'center', gap:8, cursor:'pointer', fontSize:'var(--text-sm)' }}>
-            <input type="checkbox" checked={dryRun} onChange={e=>setDryRun(e.target.checked)} style={{ accentColor:'var(--primary)' }}/>
-            Dry run (no changes)
-          </label>
-        </div>
-      )}
-
-      {/* Transfers */}
-      {syncJobs.length > 0 && (
-        <div className="card card-xl" style={{ marginTop: 20 }}>
-          <div style={{ fontWeight: 700, marginBottom: 10 }}>Recent transfers</div>
-          <div style={{ overflowX: 'auto' }}>
-            <table className="table" style={{ width: '100%' }}>
-              <thead><tr><th>Started</th><th>Action</th><th>From</th><th>To</th><th>State</th></tr></thead>
-              <tbody>
-                {syncJobs.map(j => (
-                  <tr key={j.id}>
-                    <td style={{ whiteSpace: 'nowrap' }}>{fmtDate(j.started_at)}</td>
-                    <td>{j.action}</td>
-                    <td style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)' }}>{j.source}</td>
-                    <td style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)' }}>{j.destination}</td>
-                    <td style={{ fontWeight: 600, color: j.status === 'failed' ? 'var(--error)' : j.status === 'done' ? 'var(--success)' : 'var(--primary)' }} title={j.error}>
-                      {j.status === 'running' ? 'Running…' : j.status === 'done' ? `Done${j.finished_at ? ` · ${fmtDate(j.finished_at)}` : ''}` : `Failed${j.error ? `: ${j.error}` : ''}`}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
       <ConfirmDialog />
 
       </>}

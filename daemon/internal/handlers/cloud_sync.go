@@ -15,9 +15,6 @@ import (
 
 	"dplaned/internal/audit"
 	"dplaned/internal/cmdutil"
-	"dplaned/internal/jobs"
-
-	"github.com/google/uuid"
 )
 
 // CloudSyncHandler manages rclone-based cloud storage remotes and sync jobs.
@@ -36,11 +33,6 @@ func ensureConfigDir() error {
 func runRclone(args ...string) ([]byte, error) {
 	a := append([]string{"--config", rcloneConfig}, args...)
 	return cmdutil.RunFast("rclone", a...)
-}
-
-func runRcloneSlow(args ...string) ([]byte, error) {
-	a := append([]string{"--config", rcloneConfig}, args...)
-	return cmdutil.RunSlow("rclone", a...)
 }
 
 // providerDef describes a supported cloud storage provider
@@ -63,7 +55,7 @@ type providerField struct {
 
 var supportedProviders = []providerDef{
 	{
-		ID: "s3", Name: "Amazon S3 / S3-Compatible", Description: "Amazon S3 or any S3-compatible service (MinIO, Wasabi, Cloudflare R2)",
+		ID: "s3", Name: "Amazon S3 / S3-Compatible", Description: "Amazon S3 or any S3-compatible service (Wasabi, Cloudflare R2, another DPlaneOS)",
 		Icon: "cloud",
 		Fields: []providerField{
 			{Key: "access_key_id", Label: "Access Key ID", Type: "text", Required: true, Placeholder: "AKIAIOSFODNN7EXAMPLE"},
@@ -97,7 +89,7 @@ var supportedProviders = []providerDef{
 			{Key: "user", Label: "Username", Type: "text", Required: true},
 			{Key: "port", Label: "Port", Type: "text", Placeholder: "22"},
 			{Key: "pass", Label: "Password", Type: "password", Help: "Leave blank if using SSH key"},
-			{Key: "key_file", Label: "SSH Key Path", Type: "text", Help: "Absolute path to private key, e.g. /root/.ssh/id_rsa"},
+			{Key: "key_file", Label: "SSH Key Path", Type: "text", Help: "Absolute path to a private key on this system, e.g. /var/lib/dplaneos/keys/backup_ed25519"},
 		},
 	},
 	{
@@ -267,8 +259,6 @@ func (h *CloudSyncHandler) HandleCloudSync(w http.ResponseWriter, r *http.Reques
 			h.updateRemote(w, r)
 		case "delete":
 			h.deleteRemote(w, r)
-		case "sync", "copy":
-			h.runSync(w, r)
 		default:
 			respondErrorSimple(w, "Unknown POST action: "+action, http.StatusBadRequest)
 		}
@@ -496,6 +486,11 @@ func (h *CloudSyncHandler) deleteRemote(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	if used := tasksUsingRemote(remoteName); len(used) > 0 {
+		respondErrorSimple(w, "This remote is used by the task(s) "+strings.Join(used, ", ")+": remove them first", http.StatusConflict)
+		return
+	}
+
 	out, err := runRclone("config", "delete", remoteName)
 	if err != nil {
 		respondErrorSimple(w, "Failed to delete remote: "+strings.TrimSpace(string(out)), http.StatusInternalServerError)
@@ -506,115 +501,5 @@ func (h *CloudSyncHandler) deleteRemote(w http.ResponseWriter, r *http.Request) 
 	respondJSON(w, http.StatusOK, map[string]any{
 		"success": true,
 		"message": fmt.Sprintf("Remote '%s' deleted", remoteName),
-	})
-}
-
-func (h *CloudSyncHandler) runSync(w http.ResponseWriter, r *http.Request) {
-	user := r.Header.Get("X-User")
-	var req struct {
-		Remote    string `json:"remote"`
-		LocalPath string `json:"local_path"`
-		Direction string `json:"direction"` // "upload" or "download"
-		DryRun    bool   `json:"dry_run"`
-		Action    string `json:"action"` // "sync" or "copy"
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		respondErrorSimple(w, "Invalid request", http.StatusBadRequest)
-		return
-	}
-
-	if !validateRemoteName(req.Remote) {
-		respondErrorSimple(w, "Invalid remote name", http.StatusBadRequest)
-		return
-	}
-	if req.LocalPath == "" {
-		respondErrorSimple(w, "local_path is required", http.StatusBadRequest)
-		return
-	}
-	// Local paths: within the file roots, checked on the resolved path (a
-	// symlink on a share must not let a download overwrite /etc). Uploads
-	// read an existing folder; downloads write to an existing folder or
-	// create a new one.
-	var local string
-	var perr error
-	if req.Direction == "download" {
-		local, perr = resolveDestination(req.LocalPath)
-	} else {
-		local, perr = resolveExisting(req.LocalPath)
-	}
-	if perr != nil {
-		respondErrorSimple(w, "local_path not allowed (pool and media mounts only): "+perr.Error(), http.StatusBadRequest)
-		return
-	}
-	req.LocalPath = local
-
-	var src, dst string
-	if req.Direction == "download" {
-		src = req.Remote + ":"
-		dst = req.LocalPath
-	} else {
-		src = req.LocalPath
-		dst = req.Remote + ":"
-	}
-
-	// Default rclone sub-command is "sync"; "copy" is supported too.
-	rcloneCmd := "sync"
-	actionLabel := req.Action
-	if req.Action == "copy" {
-		rcloneCmd = "copy"
-	}
-	if actionLabel == "" {
-		actionLabel = "sync"
-	}
-
-	args := []string{rcloneCmd, src, dst, "--stats-one-line", "--stats", "5s"}
-	if req.DryRun {
-		args = append(args, "--dry-run")
-	}
-
-	// Create an in-memory tracking record for this job.
-	cj := &CloudSyncJob{
-		ID:          uuid.New().String(),
-		Provider:    req.Remote,
-		Action:      actionLabel,
-		Source:      src,
-		Destination: dst,
-		Status:      jobs.StatusRunning,
-		StartedAt:   time.Now(),
-	}
-	addCloudJob(cj)
-	cjID := cj.ID
-
-	jobID := jobs.Start("cloud_sync", func(j *jobs.Job) {
-		out, err := runRcloneSlow(args...)
-		audit.LogAction("cloud_sync", user, fmt.Sprintf("Sync %s ↔ %s (%s)", req.Remote, req.LocalPath, req.Direction), err == nil, 0)
-
-		now := time.Now()
-		if err != nil {
-			errMsg := strings.TrimSpace(string(out))
-			j.Fail(errMsg)
-			updateCloudJob(cjID, func(cj *CloudSyncJob) {
-				cj.Status = jobs.StatusFailed
-				cj.FinishedAt = &now
-				cj.Error = errMsg
-			})
-			return
-		}
-		j.Done(map[string]any{"output": strings.TrimSpace(string(out))})
-		updateCloudJob(cjID, func(cj *CloudSyncJob) {
-			cj.Status = jobs.StatusDone
-			cj.FinishedAt = &now
-		})
-	})
-
-	updateCloudJob(cjID, func(cj *CloudSyncJob) {
-		cj.JobID = jobID
-	})
-
-	respondJSON(w, http.StatusOK, map[string]any{
-		"success":      true,
-		"job_id":       jobID,
-		"cloud_job_id": cjID,
-		"message":      fmt.Sprintf("Sync started: %s → %s", src, dst),
 	})
 }

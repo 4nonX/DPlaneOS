@@ -1,113 +1,43 @@
 # DPlaneOS Backup and Replication
 
-DPlaneOS provides several complementary backup strategies. Understanding which to use requires knowing what data lives where and what each strategy protects.
-
-For the persistence model (what survives reboots vs. what is ephemeral), see [ARCHITECTURE.md](../reference/ARCHITECTURE.md#the-persistence-model).
+What protects what, and how to set each of it up. Everything here is in the web interface under **Data Protection**.
 
 ---
 
-## What Needs Backing Up
+## What needs a backup
 
-| Data | Location | Backup strategy |
-|------|----------|-----------------|
-| User files | ZFS pools on data disks | ZFS snapshots + ZFS Send/Receive |
-| NAS configuration (runtime) | `state.yaml` in Git | Git push to remote |
-| NAS configuration (OS-level) | `configuration.nix` / `flake.nix` | Git push to remote |
-| Database (users, roles, audit) | `/var/lib/dplaneos/pgsql/` | `pg_dump` or ZFS snapshot of the dataset |
-| Docker container state | `/var/lib/docker/` | ZFS snapshot (if on a ZFS dataset) or container volume backup |
-| TLS certificates | `/etc/dplaneos/ssl/` (persisted) | Included in ZFS snapshot of `/persist` |
+| | Where it is | Protected by |
+|---|---|---|
+| Your files | ZFS pools on the data disks | snapshots (against mistakes), replication or cloud sync (against losing the machine) |
+| The configuration: users, shares, schedules, settings | the system's database, on the system disk | a copy of the database ([Recovery, section 6](RECOVERY.md#6-the-database-and-the-configuration)), or `state.yaml` in Git ([Git-Driven NAS](GITOPS-DRIVEN-NAS.md)) |
+| Container data | wherever the stack's volumes point; put them on a pool | as your files |
+| The system itself | the system disk | nothing needed: it is reinstalled from the installation medium |
 
-**What you do NOT need to back up:** The NixOS system closure itself. If the boot disk fails, you reinstall from the ISO and import your ZFS pools. The ISO always contains the correct system closure for the pinned nixpkgs revision.
+A snapshot is not a backup: it lives in the same pool as the data. A pool that is lost takes its snapshots with it.
 
 ---
 
-## ZFS Snapshots
+## Snapshots
 
-Snapshots are the primary backup mechanism for user data. They are instantaneous, space-efficient (copy-on-write), and can be replicated to a remote system.
+A snapshot is the state of a dataset at one moment. It costs nothing when taken and grows only with what changes afterwards.
 
-### Manual Snapshots
+**Data Protection › Snapshot Scheduler**: per dataset, how often (hourly, daily, weekly, monthly), and how many to keep, by number or by age. The scheduler removes the snapshots it made when they fall out of the retention; snapshots made by hand are never removed by it. *Run now* takes one at once.
 
-```bash
-# Take a snapshot
-zfs snapshot tank/data@backup-$(date +%Y%m%d)
+**Getting files back:**
 
-# List snapshots
-zfs list -t snapshot tank/data
-
-# Roll back to a snapshot (destroys later data)
-zfs rollback tank/data@backup-20260509
-
-# Restore a single file from a snapshot (snapshots appear in .zfs/snapshot/)
-ls /mnt/data/.zfs/snapshot/backup-20260509/myfile.txt
-cp /mnt/data/.zfs/snapshot/backup-20260509/myfile.txt /mnt/data/myfile.txt
-```
-
-### Automatic Snapshots via NixOS
-
-```nix
-# In configuration.nix or nixos/module.nix
-services.zfs.autoSnapshot = {
-  enable = true;
-  frequent = 4;   # every 15 minutes, keep 4
-  hourly   = 24;  # keep 24 hourly
-  daily    = 7;   # keep 7 daily
-  weekly   = 4;   # keep 4 weekly
-  monthly  = 12;  # keep 12 monthly
-};
-```
-
-Snapshots created by `autoSnapshot` follow the naming convention `zfs-auto-snap_<freq>-<timestamp>` and are taken for all datasets with the `com.sun:auto-snapshot` property set to `true` (set by default on pool creation).
-
-Opt a dataset out of automatic snapshots:
-```bash
-zfs set com.sun:auto-snapshot=false tank/scratch
-```
-
-### Scheduled Snapshots via the UI
-
-Data Protection → Snapshot Scheduler. Set a per-dataset schedule (hourly/daily/weekly/monthly), retention count, and whether to include child datasets.
-
-These schedules are stored in `/etc/dplaneos/snapshot-schedules.json` and survive reboots (the `/etc/dplaneos/` directory is bind-mounted from `/persist`). SMART task schedules are separate and can be declared in `state.yaml` under `smart_tasks`.
+- **Data Protection › Previous Versions** browses a dataset's snapshots and restores single files or folders.
+- From a client: on SMB shares with the option *Previous Versions* switched on, Windows shows them in the folder's properties; on the system and over NFS they are in the hidden folder `.zfs/snapshot/<name>/` of the dataset.
+- **Rollback** (Datasets page) returns the whole dataset to a snapshot. Everything written since is lost, and so are the snapshots after it.
 
 ---
 
-## ZFS Send/Receive (Replication)
-
-ZFS Send/Receive transmits a stream of ZFS data from one pool to another, either locally or over SSH. It is the most efficient way to replicate large datasets because it is block-level and incremental.
-
-### Local Clone
-
-```bash
-# Initial full send
-zfs send tank/data@backup-20260509 | zfs recv backup/data
-
-# Incremental send
-zfs send -i tank/data@backup-20260501 tank/data@backup-20260509 | zfs recv backup/data
-```
-
-### Remote Replication via SSH
-
-```bash
-# Initial send to remote
-zfs send -R tank/data@backup-20260509 | \
-  ssh backup@backup-server.example.com "zfs recv -Fu backup/data"
-
-# Incremental
-zfs send -i tank/data@backup-20260501 tank/data@backup-20260509 | \
-  ssh -C backup@backup-server.example.com "zfs recv -F backup/data"
-```
-
-**`-R` flag:** Sends the dataset and all child datasets recursively. Use for first full replication.
-
-**`-C` flag on SSH:** Enables SSH compression. Useful on slow links but adds CPU overhead on fast links.
-
-### Scheduled Remote Replication via UI
+## Replication to another system
 
 Replication is configured through two screens under **Data Protection → Replication** in the nav:
 
 **Step 1 - Add a Peer** (Replication: Peers: Add Peer)
 
-Enter a name, host, SSH user (default: root), and port. Then click **Authorize** and enter the host's SSH password once. The daemon installs its ed25519 replication key via the Go SSH client. The password exists only in the request buffer and is never stored. After authorization, click **Test** to confirm key-based access and ZFS readiness.
+Enter a name, host, SSH user and port. For another DPlaneOS system the user is an administrator of that system (root does not sign in over SSH there; the administrator runs `zfs` through `sudo`); for other ZFS systems, a user that may run `zfs receive`. Then click **Authorize** and enter the host's SSH password once. The daemon installs its ed25519 replication key via the Go SSH client. The password exists only in the request buffer and is never stored. After authorization, click **Test** to confirm key-based access and ZFS readiness.
 
 For air-gapped or high-security hosts where password auth is disabled: copy the **Sovereign Target Key** shown in the Peers panel to the target's `authorized_keys` manually, then click **Test** to verify and pin the fingerprint. No password is required.
 
@@ -214,218 +144,58 @@ POST /api/replication/restore
 
 ---
 
-## Cloud Sync (rclone)
-
-Cloud Sync uses rclone to synchronize datasets to object storage providers: S3-compatible stores (AWS, Backblaze B2, Wasabi, MinIO), Azure Blob, SFTP, FTP, and WebDAV.
-
-### Supported Providers
-
-| Provider | Backend identifier |
-|----------|--------------------|
-| Amazon S3 | `s3` |
-| Backblaze B2 | `b2` |
-| Wasabi | `s3` (endpoint override) |
-| Another S3 service (e.g. a second DPlaneOS) | `s3` (endpoint override) |
-| Azure Blob Storage | `azureblob` |
-| SFTP | `sftp` |
-| FTP / FTPS | `ftp` |
-| WebDAV / Nextcloud | `webdav` |
-| Google Cloud Storage | `gcs` |
-
-### Setup via UI
-
-Data Protection → Cloud Sync → Add Provider.
-
-1. Select provider type
-2. Enter credentials (access key, secret key, region, endpoint for S3-compatible)
-3. Enter the destination bucket/container/path
-4. Set schedule and options:
-   - **Direction:** Upload, Download, or Sync (bidirectional)
-   - **Delete:** whether to delete files at the destination that no longer exist at the source
-   - **Bandwidth limit**
-
-### Setup via rclone config directly
-
-The rclone config is stored at `/etc/dplaneos/rclone.conf` (persisted). Direct edits are supported:
-
-```bash
-# Test connectivity
-rclone ls backblaze:mybucket
-
-# Manual sync
-rclone sync /mnt/tank/data backblaze:mybucket/nas-backup --progress
-```
-
-### Schedule expression
-
-Cloud Sync tasks use standard 5-field cron expressions:
-```
-* * * * *
-│ │ │ │ └── day of week (0-7, Sunday = 0 or 7)
-│ │ │ └──── month (1-12)
-│ │ └────── day of month (1-31)
-│ └──────── hour (0-23)
-└────────── minute (0-59)
-```
-
 ---
 
-## Cold Tier (FUSE Mounts)
+## Cloud Sync
 
-Cold Tier exposes remote object storage as a local FUSE mount under `/mnt/cold/`. Files appear as regular filesystem paths; reads and writes are transparently forwarded to the remote store via rclone.
+Copies a folder to cloud storage, or back: S3 and compatible services, Backblaze B2, Azure Blob, SFTP, FTP, WebDAV. The transfers are made by rclone.
 
-Cold Tier is intended for archival data that is accessed infrequently. It is not a substitute for ZFS replication for primary data.
+**1. A remote** (Data Protection › Cloud Sync › Remotes): the provider and its credentials. *Test* checks that they work.
 
-### Enable via UI
+**2. A task** (tab Tasks):
 
-Settings: Cold Tier: Add Remote. Select provider, enter credentials, choose a local mount name.
+| Field | |
+|---|---|
+| Direction | Upload (this system to the remote) or Download |
+| Folder on this system | a folder in a pool |
+| Bucket / folder in the remote | where in the remote. Always required: a task never works on a remote as a whole |
+| Copy or Mirror | **Copy** (the default) adds and updates files at the destination and never deletes there. **Mirror** makes the destination identical to the source: what is only at the destination is deleted |
+| Runs | by hand, every hour, daily or weekly at an hour you choose |
 
-The mount appears at `/mnt/cold/<name>`. Docker containers can use this path as a volume mount.
+*Dry run* shows what a run would transfer and delete, without doing it: use it before the first run of a mirror. A run that was missed while the system was off is made up for once after the start. A task that is still running is not started a second time. A failed run keeps its error message on the task and raises the alert `backup.failed`.
 
-### Enable via NixOS module
+Cloud sync copies files, not ZFS snapshots: for a consistent copy of data that changes while it is copied, replicate to a second ZFS system instead, or sync from a snapshot folder (`.zfs/snapshot/<name>/...`).
 
-```nix
-services.dplaneos.coldTier = {
-  enable = true;
-  mountPath = "/mnt/cold";
-};
-```
+## A remote as a folder (Cold Tier)
 
-The daemon manages rclone FUSE mount lifecycle (start, stop, health monitoring). On boot, all configured cold tier mounts are restored automatically.
+**Data Protection › Cloud Sync › Cold Tier** mounts a folder of a remote under `/mnt/cold/<name>`: files there are read from and written to the remote as they are used. For data that may live elsewhere and is rarely needed. It is not a backup, and nothing is moved there by itself. Mounts are restored when the system starts.
 
 ---
 
 ## Rsync
 
-For irregular or one-off backups where ZFS Send/Receive is not available (e.g., backing up to a non-ZFS remote), use rsync.
+For targets that are neither ZFS nor cloud storage: another NAS, a server reached over SSH, a USB disk.
 
-```bash
-# Backup to remote
-rsync -avz --delete /mnt/tank/data/ backup@backup-server.example.com:/backup/data/
+**Data Protection › Backup**: source, destination (a local folder, or `user@host:/path` over SSH), and rsync options; *Run now*, or a schedule (hourly, daily, weekly, monthly). Runs take as long as they need. A failed scheduled run raises the alert `backup.failed`, and its job shows what rsync said.
 
-# Backup with SSH and compression
-rsync -avz --compress-level=6 -e "ssh -p 22" /mnt/tank/data/ backup@server:/backup/
-
-# Exclude specific paths
-rsync -avz --exclude='.zfs/' --exclude='*.tmp' /mnt/tank/data/ backup@server:/backup/
-```
-
-**Rsync vs. ZFS Send/Receive:** Rsync is file-level and must stat every file to detect changes. On large datasets, ZFS Send/Receive is significantly faster for incremental replication because it works at the block level. Use Rsync for interoperability with non-ZFS systems or when the remote does not support `zfs receive`.
+A destination over SSH is reached with this system's own SSH key (shown under Replication › Peers): add it to `authorized_keys` of the user at the destination. The destination's host key is accepted at the first connection and must stay the same afterwards.
 
 ---
 
-## Database Backup
+## Which one
 
-The DPlaneOS PostgreSQL database contains users, roles, audit logs, container metadata, and monitoring history. It is separate from ZFS pool data.
+| You have | Use |
+|---|---|
+| A second DPlaneOS or other ZFS system | Replication: block-level, incremental, keeps snapshots, verifiable |
+| Cloud storage | Cloud Sync, Copy mode, daily |
+| Any other machine with SSH | Rsync |
+| Two DPlaneOS nodes that should take over from each other | a replicated storage group ([High Availability](HIGH-AVAILABILITY.md)) |
 
-### One-time backup
+Whichever you use: set up an alert channel (System › Alerts), and now and then get a file back from the copy.
 
-```bash
-sudo -u postgres pg_dump dplaneos > /mnt/backup/dplaneos-$(date +%Y%m%d).sql
+## When something is lost
 
-# Compressed
-sudo -u postgres pg_dump dplaneos | gzip > /mnt/backup/dplaneos-$(date +%Y%m%d).sql.gz
-```
-
-### Continuous archiving (WAL)
-
-For point-in-time recovery, configure WAL archiving via the NixOS module. Do not edit `postgresql.conf` directly - NixOS regenerates it on every `nixos-rebuild switch`.
-
-**Standalone (no HA):** add to `configuration.nix`:
-```nix
-services.postgresql.settings = {
-  archive_mode    = "on";
-  archive_command = "cp %p /mnt/backup/wal/%f";
-  wal_level       = "replica";
-};
-```
-Then run `sudo nixos-rebuild switch`.
-
-**Clusters:** every node has its own database; set up archiving on each node you want to recover.
-Add under `postgresql.parameters`:
-```yaml
-archive_mode: 'on'
-archive_command: 'cp %p /mnt/backup/wal/%f'
-```
-
-### Restore
-
-```bash
-sudo systemctl stop dplaned
-sudo -u postgres psql -c "DROP DATABASE dplaneos;"
-sudo -u postgres psql -c "CREATE DATABASE dplaneos OWNER dplaneos;"
-sudo -u postgres psql dplaneos < /mnt/backup/dplaneos-20260509.sql
-sudo systemctl start dplaned
-```
-
----
-
-## NixOS Configuration Backup
-
-The OS-level configuration (`configuration.nix`, `flake.nix`, `flake.lock`, all `nixos/*.nix` files) should be kept in a separate Git repository.
-
-```bash
-# In the DPlaneOS project directory
-git push origin main   # or whichever remote holds your fork/customizations
-```
-
-For a custom installation (operator-managed flake), back up at minimum:
-- `flake.nix` and `flake.lock`
-- `nixos/configuration-standalone.nix` (or your custom configuration)
-- Any site-local patches or overrides
-
-If you use the stock DPlaneOS flake without customization, you only need to know the DPlaneOS version you were running - any future install from the same release tag produces an identical system.
-
----
-
-## Recovery Procedure
-
-### Boot disk failure (no data loss)
-
-1. Boot from DPlaneOS ISO and install to replacement boot disk
-2. After first boot, import data pools: `zpool import -a`
-3. Restore `state.yaml` from Git: Settings: GitOps: configure repository
-4. Apply: `POST /api/gitops/apply`
-5. Restore the PostgreSQL database from backup if needed
-
-ZFS pools on the data disks are completely independent of the boot disk. A boot disk failure does not affect pool data as long as the pool was cleanly exported (or the system crashed cleanly - ZFS's transaction group model tolerates sudden power loss).
-
-### Pool data loss (disk failure)
-
-ZFS RAID-Z provides redundancy within a pool. With RAID-Z1, one disk failure is tolerated:
-
-```bash
-# Check pool status
-zpool status tank
-
-# Replace a failed disk (hot-swap)
-zpool replace tank /dev/disk/by-id/old-disk /dev/disk/by-id/new-disk
-
-# Monitor resilver progress
-zpool status -v tank
-```
-
-For catastrophic failure (multiple simultaneous disk failures exceeding RAID level), restore from the most recent ZFS send/receive or cloud sync backup.
-
-### Snapshot rollback
-
-```bash
-# List available snapshots
-zfs list -t snapshot tank/data
-
-# Roll back (destroys any data written after the snapshot)
-zfs rollback -r tank/data@backup-20260509
-```
-
-### Point-in-time recovery from .zfs/snapshot
-
-```bash
-# Access snapshot files without rolling back
-ls /mnt/data/.zfs/snapshot/
-ls /mnt/data/.zfs/snapshot/backup-20260509/path/to/file
-
-# Restore a single file
-cp /mnt/data/.zfs/snapshot/backup-20260509/important.doc /mnt/data/important.doc
-```
-
-The `.zfs/snapshot` directory is read-only and hidden from `ls` by default but always accessible by its full path.
+- A file or folder: Previous Versions.
+- A dataset: Replication › Restore from the copy on the other system, or copy back from cloud storage with a Download task.
+- A disk: replace it on the pool's page; the pool rebuilds itself.
+- The system disk, or the whole machine: [Recovery, section 7](RECOVERY.md#7-the-system-disk-is-gone).

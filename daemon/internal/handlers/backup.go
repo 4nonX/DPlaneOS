@@ -158,7 +158,7 @@ func ExecuteRsync(w http.ResponseWriter, r *http.Request) {
 
 	src, dst := req.Source, req.Destination
 	jobID := jobs.Start("rsync_backup", func(j *jobs.Job) {
-		output, err := cmdutil.RunSlow("rsync", args...)
+		output, err := runRsync(args...)
 		audit.LogActivity(user, "rsync_backup", map[string]any{
 			"source":      src,
 			"destination": dst,
@@ -167,7 +167,7 @@ func ExecuteRsync(w http.ResponseWriter, r *http.Request) {
 
 		now := time.Now()
 		if err != nil {
-			j.Fail(err.Error())
+			j.Fail(rsyncFailure(output, err))
 			updateTask(taskID, func(t *BackupTask) {
 				t.Status = jobs.StatusFailed
 				t.FinishedAt = &now
@@ -234,4 +234,19 @@ func DeleteBackupTask(w http.ResponseWriter, r *http.Request) {
 	}
 
 	respondOK(w, map[string]any{"success": true, "deleted": id})
+}
+
+// runRsync runs a backup, however long it takes (a first copy of a large
+// folder takes hours). Replaced in tests.
+var runRsync = func(args ...string) ([]byte, error) {
+	return cmdutil.RunNoTimeout("rsync", args...)
+}
+
+// rsyncFailure says why a backup failed: what rsync wrote last, not only
+// its exit status.
+func rsyncFailure(output []byte, err error) string {
+	if msg := tailLines(string(output), 3); msg != "" {
+		return msg + " (" + err.Error() + ")"
+	}
+	return err.Error()
 }

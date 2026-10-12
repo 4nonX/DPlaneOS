@@ -470,6 +470,42 @@ pkgs.testers.nixosTest {
             client.fail(rclone("wrong-secret-key", "lsf nas:backups"))
             client.fail(FETCH + f"http://{NAS}:9000/backups/os-release")  # not without credentials
             nas.succeed(f"cmp {mp}/s3/backups/os-release /etc/os-release")
+            # Cloud sync: a task copies a folder into a bucket (this system's
+            # own S3 service stands in for the cloud).
+            ok(api("POST", "/api/cloud-sync", {"action": "configure", "name": "cloud", "type": "s3", "config": {
+                "provider": "Other", "access_key_id": "s3admin", "secret_access_key": "S3-Test-Pass-9", "endpoint": "http://127.0.0.1:9000"}}), "cloud remote")
+            assert api("POST", "/api/cloud-sync", {"action": "test", "remote": "cloud"})["connected"] is True
+            nas.succeed(f"mkdir -p {mp}/cloudsrc && echo one > {mp}/cloudsrc/a.txt")
+            # Never a whole remote, never a folder outside the pools.
+            assert refused(api("POST", "/api/cloud-sync/tasks", {"name": "whole", "remote": "cloud", "remote_path": "", "local_path": f"{mp}/cloudsrc"}))
+            assert refused(api("POST", "/api/cloud-sync/tasks", {"name": "etc", "remote": "cloud", "remote_path": "backups/etc", "local_path": "/etc"}))
+            ok(api("POST", "/api/cloud-sync/tasks", {"name": "offsite", "remote": "cloud", "remote_path": "backups/cloud", "local_path": f"{mp}/cloudsrc", "interval": "manual"}), "cloud sync task")
+            task = api("GET", "/api/cloud-sync/tasks")["tasks"][0]
+
+            def run_task(dry=False):
+                ok(api("POST", "/api/cloud-sync/tasks/" + task["id"] + "/run", {"dry_run": dry}), "run the task")
+                for _ in range(60):
+                    jobs = api("GET", "/api/cloud-sync/jobs")["jobs"]
+                    if jobs and jobs[0]["status"] != "running":
+                        assert jobs[0]["status"] == "done", jobs[0]
+                        return
+                    time.sleep(2)
+                raise Exception("the cloud sync task did not finish")
+
+            run_task(dry=True)
+            nas.fail(f"test -e {mp}/s3/backups/cloud/a.txt")  # a dry run transfers nothing
+            run_task()
+            assert nas.succeed(f"cat {mp}/s3/backups/cloud/a.txt").strip() == "one"
+            # Copy never deletes at the destination, and nothing next to the
+            # task's folder is touched.
+            nas.succeed(f"rm {mp}/cloudsrc/a.txt && echo two > {mp}/cloudsrc/b.txt")
+            run_task()
+            nas.succeed(f"test -f {mp}/s3/backups/cloud/a.txt && test -f {mp}/s3/backups/cloud/b.txt && cmp {mp}/s3/backups/os-release /etc/os-release")
+            done = api("GET", "/api/cloud-sync/tasks")["tasks"][0]
+            assert done["last_status"] == "done" and done["last_run"], done
+            # A remote that a task uses is not removed from under it.
+            assert refused(api("POST", "/api/cloud-sync", {"action": "delete", "remote": "cloud"}))
+
             # Stopped: the port closes again.
             ok(api("POST", "/api/s3/stop", {}), "stop S3")
             client.fail(f"timeout 5 bash -c 'echo > /dev/tcp/{NAS}/9000'")

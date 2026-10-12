@@ -15,6 +15,7 @@ import (
 // Events raised by code in this package that are not declared elsewhere.
 const (
 	EventReplicationFailed    = "replication.failed"
+	EventBackupFailed         = "backup.failed"
 	EventReplicationCompleted = "replication.completed"
 	EventUPSOnBattery         = "ups.on_battery"
 	EventUPSLowBattery        = "ups.low_battery"
@@ -56,6 +57,7 @@ var AlertCatalog = []AlertEvent{
 	{EventReplicationFailed, "critical", "A scheduled replication failed."},
 	{EventReplicationCompleted, "info", "A scheduled replication completed."},
 	{"replication.restore_complete", "info", "A restore from a replication target finished."},
+	{EventBackupFailed, "critical", "A scheduled rsync backup or cloud sync task failed."},
 	{"ha.takeover", "critical", "A storage group is now served by another node than before."},
 	{"ha.takeover_failed", "critical", "The owner of a storage group is gone and this node could not take the group over."},
 	{"ha.fenced", "critical", "Another node has taken the disks of a pool this node served: this node has been shut out."},

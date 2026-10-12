@@ -1311,6 +1311,12 @@ func main() {
 	r.Handle("/api/cloud-sync", permRoute("storage", "read", cloudSyncHandler.HandleCloudSync)).Methods("GET")
 	r.Handle("/api/cloud-sync", permRoute("storage", "write", cloudSyncHandler.HandleCloudSync)).Methods("POST")
 	r.Handle("/api/cloud-sync/jobs", permRoute("storage", "read", handlers.HandleCloudSyncJobs)).Methods("GET")
+	r.Handle("/api/cloud-sync/tasks", permRoute("storage", "read", http.HandlerFunc(handlers.ListCloudSyncTasks))).Methods("GET")
+	r.Handle("/api/cloud-sync/tasks", permRoute("storage", "write", http.HandlerFunc(cloudSyncHandler.CreateCloudSyncTask))).Methods("POST")
+	r.Handle("/api/cloud-sync/tasks/{id}", permRoute("storage", "write", http.HandlerFunc(cloudSyncHandler.UpdateCloudSyncTask))).Methods("PUT")
+	r.Handle("/api/cloud-sync/tasks/{id}", permRoute("storage", "write", http.HandlerFunc(handlers.DeleteCloudSyncTask))).Methods("DELETE")
+	r.Handle("/api/cloud-sync/tasks/{id}/run", permRoute("storage", "write", http.HandlerFunc(handlers.RunCloudSyncTask))).Methods("POST")
+	handlers.StartCloudSyncScheduler()
 
 	// Cold Tier (rclone FUSE mounts)
 	coldTierHandler := handlers.NewColdTierHandler(db)

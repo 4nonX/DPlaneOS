@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"dplaned/internal/audit"
-	"dplaned/internal/cmdutil"
 	"dplaned/internal/jobs"
 	"dplaned/internal/security"
 	"dplaned/internal/systemd"
@@ -336,7 +335,7 @@ func RunRsyncScheduleNow(w http.ResponseWriter, r *http.Request) {
 		var output []byte
 		args, err := rsyncArgs(opts, src, dst)
 		if err == nil {
-			output, err = cmdutil.RunSlow("rsync", args...)
+			output, err = runRsync(args...)
 		}
 		now := time.Now()
 
@@ -349,7 +348,7 @@ func RunRsyncScheduleNow(w http.ResponseWriter, r *http.Request) {
 				all[i].LastRun = &now
 				if err != nil {
 					all[i].LastStatus = "failed"
-					j.Fail(err.Error())
+					j.Fail(rsyncFailure(output, err))
 				} else {
 					all[i].LastStatus = "done"
 					j.Done(map[string]any{"output": string(output)})
@@ -430,6 +429,12 @@ func rsyncArgs(opts, src, dst string) ([]string, error) {
 		return nil, fmt.Errorf("source and destination cannot both be remote")
 	}
 	if srcRemote || dstRemote {
+		// Over SSH with this system's replication key, made on first use.
+		if _, err := os.Stat(replKeyPath); err != nil {
+			if err := generateReplKeyInternal(); err != nil {
+				return nil, fmt.Errorf("creating this system's SSH key: %w", err)
+			}
+		}
 		args = append(args, "-e", security.RsyncSSH)
 	}
 	// The options, checked here for a clear 400 (the paths were resolved
@@ -479,7 +484,7 @@ func RsyncCronHook(w http.ResponseWriter, r *http.Request) {
 		var output []byte
 		args, runErr := rsyncArgs(opts, src, dst)
 		if runErr == nil {
-			output, runErr = cmdutil.RunSlow("rsync", args...)
+			output, runErr = runRsync(args...)
 		}
 		now := time.Now()
 
@@ -493,7 +498,10 @@ func RsyncCronHook(w http.ResponseWriter, r *http.Request) {
 				all[i].LastJobID = j.ID
 				if runErr != nil {
 					all[i].LastStatus = "failed"
-					j.Fail(runErr.Error())
+					why := rsyncFailure(output, runErr)
+					j.Fail(why)
+					DispatchAlert("critical", EventBackupFailed, all[i].Name,
+						fmt.Sprintf("Scheduled rsync backup %q (%s to %s) failed: %s", all[i].Name, src, dst, why))
 				} else {
 					all[i].LastStatus = "done"
 					j.Done(map[string]any{"output": string(output)})
