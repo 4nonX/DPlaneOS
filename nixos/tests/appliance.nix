@@ -859,7 +859,7 @@ pkgs.testers.nixosTest {
             assert nas.succeed("cat /proc/sys/vm/swappiness").strip() == "7"
             nas.wait_until_succeeds("test \"$(cat /sys/module/zfs/parameters/zfs_arc_max)\" = " + str(1 << 30), timeout=60)
             nas.succeed("grep -qx 'NTP=10.0.2.2' /run/systemd/timesyncd.conf.d/10-dplane.conf")
-            nas.succeed("echo | ${pkgs.openssl}/bin/openssl s_client -connect localhost:443 2>/dev/null | ${pkgs.openssl}/bin/openssl x509 -noout -subject | grep -q 'tank-nas.example'")
+            nas.succeed("echo | ${pkgs.openssl}/bin/openssl s_client -connect localhost:443 2>/dev/null | ${pkgs.openssl}/bin/openssl x509 -noout -issuer | grep -q 'Pebble'")
             nas.succeed("systemctl is-active dplaneos-system-settings.service")
             # The UPS is monitored again.
             nas.wait_until_succeeds("upsc testups@localhost battery.charge 2>/dev/null | grep -qx 90", timeout=90)
