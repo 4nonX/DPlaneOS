@@ -146,5 +146,4 @@ A NAS operating system built on NixOS and ZFS. It is installed as an image, conf
 - **Disk layout:** boot, system and persistent state partitions on the system disk; data disks are never touched by the installer or an update
 - **Live image:** the system running from the installation medium, to try it or to rescue one
 - **Daemon:** one Go program, statically linked; ZFS through the `zfs` and `zpool` commands, checked against an allowlist
-- **Extension points in the web interface:** navigation, settings and routes can be added by a build (used by the optional compliance engine); there is no plugin API for third parties
 - **AGPL-3.0:** free to use, modify, and distribute

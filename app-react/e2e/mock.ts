@@ -246,7 +246,6 @@ export async function mockApi(page: Page, s: Sys) {
       return json(route, { success: true, message: 'This node left maintenance. Groups are not moved back by themselves.' })
     }
 
-    if (key === 'GET /api/system/license/status') return json(route, { configured: false, active: false })
     return json(route, { success: true })
   })
 }

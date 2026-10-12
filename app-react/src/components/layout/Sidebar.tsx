@@ -24,11 +24,6 @@ interface SidebarProps {
   onMobileMenuClose?: () => void
 }
 
-interface LicenseStatus {
-  configured?: boolean
-  active: boolean
-}
-
 export function Sidebar({ collapsed, onToggle, isMobile: isMobileProp, mobileMenuOpen, onMobileMenuClose }: SidebarProps) {
   const router   = useRouter()
   const pathname = useRouterState({ select: (s) => s.location.pathname })
@@ -37,12 +32,6 @@ export function Sidebar({ collapsed, onToggle, isMobile: isMobileProp, mobileMen
   const [showPower, setShowPower] = useState(false)
   const wsStatus = useWsStore((s) => s.status)
   const isMobile = isMobileProp ?? window.innerWidth < 768
-
-  const licenseQ = useQuery({
-    queryKey: ['license', 'status'],
-    queryFn: ({ signal }) => api.get<LicenseStatus>('/api/system/license/status', signal),
-    staleTime: 30000,
-  })
 
   const activeEntry = findNavEntry(pathname)
   // manuallyOpenedGroups tracks groups the user has explicitly toggled open/closed.
@@ -145,9 +134,6 @@ export function Sidebar({ collapsed, onToggle, isMobile: isMobileProp, mobileMen
         {NAV.map((item) => {
           if (item.kind === 'leaf') {
             const leaf = item as NavLeaf
-            const isEnterprise = leaf.enterprise === true
-            if (isEnterprise && !licenseQ.data?.active) return null
-
             return (
               <LeafItem key={leaf.id} leaf={leaf}
                 isActive={pathname === leaf.route}
@@ -157,10 +143,7 @@ export function Sidebar({ collapsed, onToggle, isMobile: isMobileProp, mobileMen
           }
 
           const group = item as NavGroup
-          const filteredChildren = group.children.filter((c) => {
-            const isEnterprise = c.enterprise === true
-            return !isEnterprise || licenseQ.data?.active
-          })
+          const filteredChildren = group.children
           const isOpen = openGroups.has(group.id)
           const hasActive = filteredChildren.some((c) => c.route === pathname)
 

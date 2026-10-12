@@ -121,7 +121,6 @@ id_rsa
 id_ed25519
 *.p12
 *.pfx
-D-Plane-Compliance-Engine
 
 # ── RULE: Planning & implementation documentation (internal only) ──────────────
 # Internal development docs are not committed to public repo.

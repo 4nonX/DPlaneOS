@@ -51,7 +51,7 @@ failover, replicated groups, quorum and votes, the live image.
   filled two tables nothing read (certificates are managed under Security ›
   Certificates, and a private key does not belong in a repository). Pool
   `options` are limited to the properties listed in the GitOps reference.
-- Migrations up to 00037.
+- Migrations up to 00038.
 
 #### Security
 
@@ -278,6 +278,29 @@ failover, replicated groups, quorum and votes, the live image.
 - Browser tests of the web interface (Playwright, against a mock of the
   API) run with every build.
 
+#### The Audit Log page showed nothing
+
+- Security › Audit Log listed entries only on a system that had the
+  optional Compliance Engine; everywhere else it said that nothing had
+  been recorded, while the log was being written all along. It is the
+  system's own page now: every entry with user, action, resource,
+  details, address and result, a search, a filter for failures, older
+  entries on request, and whether the chain of entries is intact.
+
+#### Removed: licensing and the Compliance Engine
+
+- The licence activation (`/api/system/license/*`, the License tab that a
+  build with a vendor key showed), the Compliance page, the
+  `-ce-token-file` option, the licence tools under `daemon/cmd` and the
+  `enterprise_license` table. Activation fetched a closed program from an
+  address named in the licence and ran it as root; none of that was built,
+  tested or shipped with the system. DPlaneOS has no licence keys and no
+  features behind one.
+- The scripts of the earlier plain-Linux installation (`install/`, the
+  root `install.sh`, the `Makefile`): not tested, not in step with the
+  daemon, and not how the system is installed (that is the installer ISO,
+  `nixos/install.sh`). The release archives no longer contain them.
+
 #### Removed, because it did nothing
 
 - ALUA and ANA settings (see above); the `acme:` and `certificates:`
@@ -308,7 +331,7 @@ security policy.
 - **Removed daemon flags:** `--ha-local-id`, `--ha-local-addr`, `--ha-cluster-secret`.
 - **Samba clustering (CTDB) is removed** (`services.dplaneos.ctdb`, `/api/ha/ctdb/*`, the card on the High Availability page). It could not work: the Samba package has no cluster support, the service used options ctdbd no longer has, and CTDB needs a file system mounted on all nodes at once, while a ZFS pool belongs to one node at a time. Remove `services.dplaneos.ctdb.*` from your NixOS configuration. SMB clients reconnect to the floating address after a failover.
 - **Prometheus:** the HA metrics changed (`dplaneos_ha_*`, `dplaneos_group_*`); update dashboards and use the new `prometheus/ha-alerts.yml`.
-- The database schema migrates automatically on first start (migrations up to 00037).
+- The database schema migrates automatically on first start (migrations up to 00038).
 
 API and web interface: the API handlers run in CI against a real PostgreSQL
 schema and a command fake, and CI checks every request and response of the

@@ -29,7 +29,6 @@ Feature maturity, honestly:
 | Hot-swap detection and auto-import | Stable | udev + ZED, exercised regularly. |
 | LDAP / Active Directory integration | Beta | Sign-in with directory accounts; membership in an Active Directory domain (domain users on SMB shares, resolved in `ls -l` and ACLs). Tested against OpenLDAP and a Samba domain controller, not against Windows Server. |
 | OIDC / SSO (Authorization Code + PKCE) | Beta | Standard OpenID Connect; tested against a simulated provider (the whole flow), not against a particular product. |
-| Licensing & Compliance Engine | Not in this repository | An optional, separate, closed program. Nothing here builds or tests it. |
 | System updates with automatic return | Beta | Signed update files; the new version runs on trial and is removed again if the system is not healthy. Tested in VMs for every release; few real machines so far. |
 | Live boot (ephemeral, no install needed) | Stable | Trial the software, manage pools, run containers from USB. Full daemon/UI in RAM. Persistence optional via USB. |
 | GitOps reconciliation | Beta | Plan and apply from `state.yaml`, capture from the live system, drift detection, optional automatic apply of harmless commits. Destroying data needs an approval, always. Edge cases at the property-coverage frontier still surfacing. |

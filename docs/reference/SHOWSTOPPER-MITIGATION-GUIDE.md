@@ -63,10 +63,6 @@ Time to recover: the watchdog timeout plus 15 seconds before the takeover starts
 - Network settings from the repository are applied at once, without the trial period the Network page uses.
 - Secrets are never read from or written to the repository.
 
-### The compliance engine
-
-The optional License/Compliance Engine is a separate, closed program that is not part of this repository. Nothing here tests it.
-
 ---
 
 ## Trusting the binaries

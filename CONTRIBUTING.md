@@ -19,10 +19,7 @@ DPlaneOS/
 ├── nixos/                   the system: modules, installer, update, images, VM tests
 ├── flake.nix, flake.lock    how everything is built, and from what
 ├── scripts/                 release tooling
-├── docs/                    documentation
-└── install/, install.sh, Makefile
-                             a plain-Linux installation of the daemon, used by some
-                             CI jobs to test the API. Not a supported way to run DPlaneOS.
+└── docs/                    documentation
 ```
 
 ## Building

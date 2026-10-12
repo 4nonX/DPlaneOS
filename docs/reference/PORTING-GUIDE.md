@@ -52,7 +52,7 @@ A service unit for `dplaned` must be created and installed. The required capabil
 - `ProtectSystem=strict` with explicit `ReadWritePaths`
 - `PrivateTmp=true`, `NoNewPrivileges=true`
 
-The existing `install/scripts/` directory contains scripts and unit files from an earlier pre-NixOS port that can serve as a starting point, with the caveat that they are not tested or maintained.
+The repository contains no unit file for other distributions (the scripts of an earlier, pre-NixOS installation were removed with v15.0.0: they were not tested and no longer matched the daemon). `nixos/module.nix` is the reference: the service definition, its dependencies and the paths it may write.
 
 ### 3. ZFS Kernel Module
 
@@ -114,6 +114,6 @@ Forks must:
 
 ## Starting Point
 
-The closest starting point for a non-NixOS port is the existing `install/scripts/` directory, which contains scripts from an earlier pre-NixOS installation path. These scripts are not maintained or tested and may have significant gaps relative to the current daemon feature set, but they reflect the general shape of what a manual install requires.
+The starting point for a non-NixOS port is `nixos/module.nix`: it is the complete and tested description of what the daemon needs around it (packages, the service and its capabilities, nginx, PostgreSQL, the directories). The history of this repository before v15.0.0 holds the scripts of an earlier plain-Linux installation; they were removed because they were neither tested nor in step with the daemon.
 
 For any questions about porting, open a discussion on the [GitHub repository](https://github.com/4nonX/DPlaneOS). Note that porting assistance is best-effort and not part of the project's core support scope.

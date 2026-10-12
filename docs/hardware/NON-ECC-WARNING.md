@@ -45,17 +45,15 @@ Not all flips hit active data. Most hit unused memory or data that is immediatel
 
 ### ZFS ARC Limit
 
-`install.sh` sets `zfs_arc_max` proportional to available RAM:
+The ZFS cache (ARC) uses up to half of the RAM unless a limit is set. System › Settings › General › *ZFS cache (ARC) limit* sets one in GB; it takes effect at once and is kept across restarts. Less data held in the ARC at any moment means less exposure time per byte, at the cost of read speed. As a guide:
 
-| RAM | ARC Limit |
+| RAM | ARC limit |
 |-----|-----------|
 | 4 GB | 1 GB |
 | 8 GB | 2 GB |
 | 16 GB | 4 GB |
 | 32 GB | 8 GB |
 | 64 GB | 16 GB |
-
-Less data held in ARC at any moment means less exposure time per byte. Configured in `/etc/modprobe.d/zfs.conf`.
 
 ### Non-ECC Advisory
 

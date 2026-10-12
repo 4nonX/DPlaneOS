@@ -12,7 +12,6 @@ export interface NavLeaf {
   label: string
   icon: string
   route: string
-  enterprise?: boolean
 }
 
 export interface NavGroup {
@@ -127,7 +126,6 @@ const initialNav: NavItem[] = [
       { kind: 'leaf', id: 'firewall',     label: 'Firewall',          icon: 'local_fire_department', route: '/firewall' },
       { kind: 'leaf', id: 'certificates', label: 'Certificates',      icon: 'verified_user',         route: '/certificates' },
       { kind: 'leaf', id: 'audit',        label: 'Audit Log',         icon: 'policy',                route: '/audit' },
-      { kind: 'leaf', id: 'compliance',   label: 'Compliance',         icon: 'shield_check',          route: '/compliance', enterprise: true },
     ],
   },
   {

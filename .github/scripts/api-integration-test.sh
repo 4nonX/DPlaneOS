@@ -492,6 +492,13 @@ fi
 
 api GET /api/system/audit/stats >/dev/null
 assert_json "Audit stats" "success" "true"
+# The Audit Log page: this run signed in, so there is something to list.
+AUDIT=$(api GET "/api/system/audit/logs?limit=100")
+if echo "$AUDIT" | python3 -c "import sys,json; d=json.load(sys.stdin); sys.exit(0 if d.get('success') and len(d['logs']) > 0 and all(k in d['logs'][0] for k in ('timestamp','actor','action','ip_address','success')) else 1)"; then
+  ok "Audit log lists entries"
+else
+  fail "Audit log is empty or malformed: $(echo "$AUDIT" | head -c 300)"
+fi
 api GET /api/system/health >/dev/null
 assert_json "Detailed system health" "success" "true"
 # Startup secrets check: every stored secret opens with this node's key.

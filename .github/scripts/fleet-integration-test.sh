@@ -5,35 +5,10 @@ set -e
 ok()   { echo -e "  \033[0;32m✓\033[0m $1"; }
 fail() { echo -e "  \033[0;31m✗\033[0m $1"; exit 1; }
 
-echo "--- Phase 1: Installation Simulation ---"
-sudo truncate -s 512M /tmp/inst0.img /tmp/inst1.img
-# Use the fixed installer with PostgreSQL DSN
-sudo bash install.sh --unattended --port 9100 --db-dsn "$DATABASE_DSN"
+# (Installing the system is tested where it is done: the installer ISO on
+# an empty disk, in nixos/tests/install.nix.)
 
-# Verify installation artifacts
-[ -f /opt/dplaneos/daemon/dplaned ] && ok "Daemon binary installed" || fail "Binary missing"
-[ -f /etc/nginx/sites-enabled/dplaneos ] && ok "Nginx config enabled" || fail "Nginx config missing"
-export PGPASSWORD=dplaneos
-psql -h localhost -U dplaneos -d dplaneos -c "SELECT 1" >/dev/null && ok "Database initialized" || fail "DB missing or unreachable"
-
-# Health check
-for i in $(seq 1 10); do
-  curl -sf http://127.0.0.1:9100/health | grep -q '"ok"' && break
-  sleep 1
-done
-curl -sf http://127.0.0.1:9100/health | grep -q '"ok"' && ok "Health check passed" || fail "Health check failed"
-
-# Version check
-INST_VER=$(curl -sf http://127.0.0.1:9100/api/system/status | python3 -c "import sys,json; print(json.load(sys.stdin).get('version',''))")
-EXPECT_VER=$(cat VERSION | tr -d '[:space:]')
-[ "$INST_VER" = "$EXPECT_VER" ] && ok "Version match: $INST_VER" || fail "Version mismatch: $INST_VER vs $EXPECT_VER"
-
-echo "--- Phase 2: Idempotency & Upgrade Simulation ---"
-sudo bash install.sh --unattended --upgrade --port 9101 --db-dsn "$DATABASE_DSN"
-grep -q "listen 9101" /etc/nginx/sites-available/dplaneos && ok "Upgrade port updated" || fail "Upgrade port mismatch"
-curl -sf http://127.0.0.1:9101/health | grep -q '"ok"' && ok "Health check after upgrade passed"
-
-echo "--- Phase 3: GitOps Simulation ---"
+echo "--- Phase 1: GitOps Simulation ---"
 sudo truncate -s 512M /tmp/gitops0.img /tmp/gitops1.img
 LOOP0=$(sudo losetup --find --show /tmp/gitops0.img)
 LOOP1=$(sudo losetup --find --show /tmp/gitops1.img)
@@ -67,7 +42,7 @@ sudo ./dplaned-ci -apply -db-dsn "$DATABASE_DSN" -gitops-state /tmp/gitops.yaml
 COMP=$(sudo zfs get -H -o value compression gitopspool/data)
 [ "$COMP" = "lz4" ] && ok "Drift corrected (lz4)" || fail "Drift correction failed: $COMP"
 
-# Cleanup Phase 3 pool to avoid interference with declarative Node A/B in Phase 4
+# Cleanup Phase 1 pool to avoid interference with declarative Node A/B in Phase 2
 # Multi-stage forceful cleanup because of persistent Ubuntu runner unmount failures
 sudo zfs unmount -f gitopspool/data || true
 sudo zfs unmount -f gitopspool || true
@@ -76,7 +51,7 @@ sudo umount -l /mnt/gitops || true
 sudo zpool destroy -f gitopspool || true
 sudo losetup -d "$LOOP0" "$LOOP1" || true
 
-echo "--- Phase 4: Fleet Simulation (Multi-Node) ---"
+echo "--- Phase 2: Fleet Simulation (Multi-Node) ---"
 # Node A
 sudo truncate -s 512M /tmp/nodea0.img /tmp/nodea1.img
 LA0=$(sudo losetup --find --show /tmp/nodea0.img)
