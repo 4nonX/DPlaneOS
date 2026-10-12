@@ -293,6 +293,72 @@ func (m *Manager) ReplicateNow(name string) error {
 	return m.replicate(*g, nil)
 }
 
+// ReplCheck is what a replication of one pool to one node would do, found
+// out without sending anything.
+type ReplCheck struct {
+	Target string `json:"target"`
+	Pool   string `json:"pool"`
+	OK     bool   `json:"ok"`
+	// Mode: "incremental" (the copy has a snapshot this side still has),
+	// "full" (it has none: the whole pool is sent), "current" (the copy has
+	// the newest snapshot).
+	Mode   string `json:"mode,omitempty"`
+	Base   string `json:"base,omitempty"`
+	Detail string `json:"detail"`
+}
+
+// CheckReplication asks every copy of a replicated group for its snapshots
+// and works out what the next run would send: that the other node answers,
+// accepts this node, has the pool, and whether the run is incremental. It
+// takes no snapshot and sends nothing.
+func (m *Manager) CheckReplication(name string) ([]ReplCheck, error) {
+	g, err := Get(m.db, name)
+	if err != nil {
+		return nil, err
+	}
+	self := m.self()
+	if g.Topology != Replicated {
+		return nil, errors.New("this group is not replicated")
+	}
+	if g.Owner != self {
+		return nil, errors.New("the check runs on the node that owns the group (it is the one that sends)")
+	}
+	var out []ReplCheck
+	for _, p := range g.Pools {
+		local, lerr := m.repl.Snapshots(p.Name)
+		for _, t := range without(g.Candidates, self) {
+			c := ReplCheck{Target: t, Pool: p.Name}
+			if lerr != nil {
+				c.Detail = "the snapshots of the pool cannot be listed here: " + lerr.Error()
+				out = append(out, c)
+				continue
+			}
+			remote, err := m.tr.RemoteSnapshots(t, g.Name, p.Name)
+			out = append(out, replCheck(t, p.Name, local, remote, err))
+		}
+	}
+	return out, nil
+}
+
+func replCheck(target, pool string, local, remote []string, remoteErr error) ReplCheck {
+	c := ReplCheck{Target: target, Pool: pool}
+	if remoteErr != nil {
+		c.Detail = "the other node did not answer for its copy: " + remoteErr.Error()
+		return c
+	}
+	c.OK = true
+	c.Base = latestCommon(local, remote)
+	switch {
+	case c.Base == "":
+		c.Mode, c.Detail = "full", "The copy has no snapshot this node still has: the next run sends the whole pool."
+	case c.Base == local[len(local)-1]:
+		c.Mode, c.Detail = "current", "The copy has the newest snapshot."
+	default:
+		c.Mode, c.Detail = "incremental", "The next run sends the changes since "+c.Base+"."
+	}
+	return c
+}
+
 // replicate sends every pool of g to the targets (all other candidates when
 // targets is nil). One new snapshot per pool serves all targets.
 func (m *Manager) replicate(g Group, targets []string) error {

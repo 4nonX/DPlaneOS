@@ -243,6 +243,32 @@ func (h *GroupsHandler) ReplicateNow(w http.ResponseWriter, r *http.Request) {
 	respondOK(w, map[string]any{"success": true})
 }
 
+// CheckReplication: POST /api/groups/{name}/replicate/check - what the next
+// replication would do, per pool and copy, without sending anything.
+func (h *GroupsHandler) CheckReplication(w http.ResponseWriter, r *http.Request) {
+	checks, err := h.mgr.CheckReplication(mux.Vars(r)["name"])
+	if err != nil {
+		respondOK(w, map[string]any{"success": false, "error": err.Error()})
+		return
+	}
+	names := PowerTargetNodes()
+	type row struct {
+		groups.ReplCheck
+		TargetName string `json:"target_name"`
+	}
+	rows := make([]row, 0, len(checks))
+	ok := true
+	for _, c := range checks {
+		name := names[c.Target]
+		if name == "" {
+			name = c.Target
+		}
+		rows = append(rows, row{c, name})
+		ok = ok && c.OK
+	}
+	respondOK(w, map[string]any{"success": true, "ok": ok, "checks": rows})
+}
+
 // DiscardDivergent: POST /api/groups/{name}/discard-divergent - the operator
 // accepts that the next replication rolls back the changes made to this copy.
 func (h *GroupsHandler) DiscardDivergent(w http.ResponseWriter, r *http.Request) {

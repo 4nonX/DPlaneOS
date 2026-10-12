@@ -4,10 +4,12 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -55,6 +57,86 @@ func (h *QuorumHandler) Status(w http.ResponseWriter, r *http.Request) {
 			"clusters": clusters,
 		},
 	})
+}
+
+// dialTCP is replaced in tests.
+var dialTCP = func(addr string, timeout time.Duration) error {
+	c, err := net.DialTimeout("tcp", addr, timeout)
+	if err == nil {
+		c.Close()
+	}
+	return err
+}
+
+// TestThirdVote checks, now, that the vote which lets the cluster fail over
+// automatically is there: for a vote server (QDevice) that this node
+// reaches it and that it votes; for a third member that it is in the
+// membership with its vote.
+// POST /api/quorum/third-vote/test
+func (h *QuorumHandler) TestThirdVote(w http.ResponseWriter, r *http.Request) {
+	h.mon.Refresh()
+	cfg, st, errMsg, _ := h.mon.Snapshot()
+	kind, steps := thirdVoteSteps(cfg, st, errMsg)
+	ok := len(steps) > 0
+	for _, s := range steps {
+		ok = ok && s.OK
+	}
+	respondOK(w, map[string]any{"success": true, "ok": ok, "kind": kind, "steps": steps})
+}
+
+// voteStep is one finding of the third-vote test.
+type voteStep struct {
+	Name   string `json:"name"`
+	OK     bool   `json:"ok"`
+	Detail string `json:"detail"`
+}
+
+func thirdVoteSteps(cfg *quorum.Config, st quorum.Status, errMsg string) (kind string, steps []voteStep) {
+	switch {
+	case cfg == nil:
+		return "none", []voteStep{{"Cluster", false, "No cluster is formed on this node."}}
+	case cfg.QDevice != nil:
+		port := cfg.QDevice.Port
+		if port == 0 {
+			port = 5403
+		}
+		addr := net.JoinHostPort(cfg.QDevice.Host, strconv.Itoa(port))
+		if err := dialTCP(addr, 4*time.Second); err != nil {
+			steps = append(steps, voteStep{"Reachable", false, fmt.Sprintf("This node cannot connect to the vote server at %s: %v", addr, err)})
+		} else {
+			steps = append(steps, voteStep{"Reachable", true, "This node connects to the vote server at " + addr + "."})
+		}
+		switch {
+		case !st.Running:
+			steps = append(steps, voteStep{"Voting", false, "The cluster service is not running on this node: " + errMsg})
+		case st.QDeviceAlive:
+			steps = append(steps, voteStep{"Voting", true, fmt.Sprintf("The vote server votes: %d of %d votes are present.", st.TotalVotes, st.ExpectedVotes)})
+		default:
+			steps = append(steps, voteStep{"Voting", false, "The vote server is configured but does not vote. On the vote server, check that corosync-qnetd runs and that TCP 5403 is open for every node."})
+		}
+		return "qdevice", steps
+	}
+	present := map[string]bool{}
+	for _, m := range st.Members {
+		present[m.Name] = true
+	}
+	var away []string
+	for _, n := range cfg.Nodes {
+		if !present[n.Name] {
+			away = append(away, n.Name)
+		}
+	}
+	switch {
+	case len(cfg.Nodes) < 3:
+		steps = append(steps, voteStep{"Third vote", false, "The cluster has two votes and no third one: failover stays a manual takeover."})
+	case !st.Running:
+		steps = append(steps, voteStep{"Membership", false, "The cluster service is not running on this node: " + errMsg})
+	case len(away) > 0:
+		steps = append(steps, voteStep{"Membership", false, "Not in the membership now: " + strings.Join(away, ", ") + "."})
+	default:
+		steps = append(steps, voteStep{"Membership", true, fmt.Sprintf("All %d members are present with their votes.", len(cfg.Nodes))})
+	}
+	return "member", steps
 }
 
 // Suggest proposes the cluster addresses for pairing with a paired node.

@@ -70,3 +70,31 @@ func TestCheckReceive(t *testing.T) {
 		}
 	}
 }
+
+// What the next replication would do, from the two snapshot lists.
+func TestReplCheck(t *testing.T) {
+	local := []string{"dplane-1-1", "dplane-1-2", "dplane-1-3"}
+	for _, c := range []struct {
+		name   string
+		remote []string
+		err    error
+		ok     bool
+		mode   string
+		base   string
+	}{
+		{"copy is behind", []string{"dplane-1-1", "dplane-1-2"}, nil, true, "incremental", "dplane-1-2"},
+		{"copy is current", local, nil, true, "current", "dplane-1-3"},
+		{"copy is empty", nil, nil, true, "full", ""},
+		{"copy has other snapshots only", []string{"dplane-9-9"}, nil, true, "full", ""},
+		{"node does not answer", nil, errors.New("connection refused"), false, "", ""},
+	} {
+		got := replCheck("b", "tank", local, c.remote, c.err)
+		if got.OK != c.ok || got.Mode != c.mode || got.Base != c.base || got.Detail == "" {
+			t.Errorf("%s: %+v", c.name, got)
+		}
+	}
+	// Nothing here yet (a group that never replicated): a full copy, no panic.
+	if got := replCheck("b", "tank", nil, nil, nil); !got.OK || got.Mode != "full" {
+		t.Errorf("no snapshots anywhere: %+v", got)
+	}
+}

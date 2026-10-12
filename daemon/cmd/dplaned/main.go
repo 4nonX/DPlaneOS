@@ -961,6 +961,7 @@ func main() {
 	r.Handle("/api/quorum/cluster", permRoute("system", "admin", http.HandlerFunc(quorumH.Dissolve))).Methods("DELETE")
 	r.Handle("/api/quorum/third-vote/code", permRoute("system", "admin", http.HandlerFunc(quorumH.ThirdVoteCode))).Methods("POST")
 	r.Handle("/api/quorum/third-vote", permRoute("system", "admin", http.HandlerFunc(quorumH.RemoveThirdVote))).Methods("DELETE")
+	r.Handle("/api/quorum/third-vote/test", permRoute("system", "read", http.HandlerFunc(quorumH.TestThirdVote))).Methods("POST")
 	r.Handle("/api/quorum/witness/join", permRoute("system", "admin", http.HandlerFunc(quorumH.BecomeWitness))).Methods("POST")
 	// PUBLIC (session middleware): the setup script, and enrollment authenticated
 	// by the one-time code; the cluster update is authenticated as a peer call.
@@ -1008,6 +1009,16 @@ func main() {
 	} else {
 		log.Printf("GROUPS: disk reservations are off: this node has no ID (%v)", err)
 	}
+	// The nodes this one can be told to power off: the ones it is paired with.
+	handlers.PowerTargetNodes = func() map[string]string {
+		out := map[string]string{}
+		if peers, err := configstore.Peers(db); err == nil {
+			for _, p := range peers {
+				out[p.ID] = p.Name
+			}
+		}
+		return out
+	}
 	groupMgr.Fence = func(owner string) error { return handlers.PowerFence(db, owner) }
 	groupMgr.WatchdogFencing = func() bool { return handlers.CurrentFencing(db).Watchdog }
 	groupMgr.Start(10 * time.Second)
@@ -1042,6 +1053,7 @@ func main() {
 	r.Handle("/api/groups/{name}", permRoute("storage", "admin", http.HandlerFunc(groupsH.Remove))).Methods("DELETE")
 	r.Handle("/api/groups/{name}/takeover", permRoute("storage", "admin", http.HandlerFunc(groupsH.Takeover))).Methods("POST")
 	r.Handle("/api/groups/{name}/replicate", permRoute("storage", "admin", http.HandlerFunc(groupsH.ReplicateNow))).Methods("POST")
+	r.Handle("/api/groups/{name}/replicate/check", permRoute("storage", "read", http.HandlerFunc(groupsH.CheckReplication))).Methods("POST")
 	r.Handle("/api/groups/{name}/discard-divergent", permRoute("storage", "admin", http.HandlerFunc(groupsH.DiscardDivergent))).Methods("POST")
 	r.HandleFunc("/api/config/sync/peer/zfs-snapshots", groupsH.PeerSnapshots).Methods("GET")
 	r.HandleFunc("/api/config/sync/peer/group-resources", groupsH.PeerResources).Methods("GET")
@@ -1539,8 +1551,11 @@ func main() {
 	// ── High Availability cluster endpoints ──
 	r.Handle("/api/ha/fencing/configure", middleware.RequireAAL2(permRoute("system", "admin", haHandler.ConfigureFencing))).Methods("POST")
 	r.Handle("/api/ha/fencing/configure", permRoute("system", "admin", haHandler.GetFencingConfig)).Methods("GET")
-	r.Handle("/api/ha/pdu/configure", permRoute("system", "admin", haHandler.ConfigurePDU)).Methods("POST")
-	r.Handle("/api/ha/pdu/configure", permRoute("system", "admin", haHandler.GetPDUConfig)).Methods("GET")
+	r.Handle("/api/ha/power-targets", permRoute("system", "admin", haHandler.ListPowerTargets)).Methods("GET")
+	r.Handle("/api/ha/power-targets/{node}", middleware.RequireAAL2(permRoute("system", "admin", haHandler.SavePowerTarget))).Methods("PUT")
+	r.Handle("/api/ha/power-targets/{node}", middleware.RequireAAL2(permRoute("system", "admin", haHandler.DeletePowerTarget))).Methods("DELETE")
+	r.Handle("/api/ha/power-targets/{node}/test", permRoute("system", "admin", haHandler.TestPowerTarget)).Methods("POST")
+	r.Handle("/api/ha/power-targets/{node}/enroll", middleware.RequireAAL2(permRoute("system", "admin", haHandler.EnrollPowerTarget))).Methods("POST")
 
 	r.Handle("/api/ha/watchdog/configure", permRoute("system", "admin", haHandler.GetWatchdogConfig)).Methods("GET")
 	r.Handle("/api/ha/watchdog/configure", middleware.RequireAAL2(permRoute("system", "admin", haHandler.SaveWatchdogConfig))).Methods("POST")
@@ -1551,6 +1566,8 @@ func main() {
 	// BMC / out-of-band hardware management (iLO, iDRAC, IPMI)
 	bmcHandler := handlers.NewBMCHandler(db)
 	r.Handle("/api/bmc/enroll", middleware.RequireAAL2(permRoute("system", "admin", bmcHandler.Enroll))).Methods("POST")
+	r.Handle("/api/bmc/config", permRoute("system", "admin", bmcHandler.GetConfig)).Methods("GET")
+	r.Handle("/api/bmc/config", middleware.RequireAAL2(permRoute("system", "admin", bmcHandler.SaveConfig))).Methods("PUT")
 	r.Handle("/api/bmc/info", permRoute("system", "read", bmcHandler.Info)).Methods("GET")
 	r.Handle("/api/bmc/health", permRoute("system", "read", bmcHandler.Health)).Methods("GET")
 	r.Handle("/api/bmc/events", permRoute("system", "read", bmcHandler.Events)).Methods("GET")

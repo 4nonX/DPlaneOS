@@ -978,16 +978,6 @@ var CommandWhitelist = map[string]Command{
 	},
 
 	// STONITH / Fencing (v7.3.0)
-	"ipmitool_power_off": {
-		Name:        "ipmitool_power_off",
-		Path:        "ipmitool",
-		Description: "Fencing: Power off BMC",
-	},
-	"ipmitool_power_status": {
-		Name:        "ipmitool_power_status",
-		Path:        "ipmitool",
-		Description: "Fencing: Check BMC power status",
-	},
 	"nixos_rebuild": {
 		Name:        "nixos_rebuild",
 		Path:        "nixos-rebuild",
@@ -1130,8 +1120,6 @@ func ValidateCommand(cmdName string, args []string) error {
 		return validateZpoolImport(args)
 	case "zfs_create_opts":
 		return validateZfsCreateOpts(args)
-	case "ipmitool_power_off", "ipmitool_power_status":
-		return validateIpmitoolPower(cmdName, args)
 	case "zfs_hold", "zfs_release":
 		if len(args) != 3 {
 			return fmt.Errorf("%s requires exactly 2 arguments after command", cmdName)
@@ -2178,44 +2166,4 @@ func IsSafeFilename(filename string) bool {
 	}
 
 	return true
-}
-
-// validateIpmitoolPower secures the Fencing executor arguments
-func validateIpmitoolPower(cmdName string, args []string) error {
-	// Require exactly: -I lanplus -H <ip> -U <user> -E chassis power <off|status>
-	if len(args) != 10 {
-		return fmt.Errorf("ipmitool command requires exactly 10 arguments")
-	}
-	if args[0] != "-I" || args[1] != "lanplus" {
-		return fmt.Errorf("ipmitool must use lanplus interface")
-	}
-	if args[2] != "-H" {
-		return fmt.Errorf("missing -H flag")
-	}
-	ipPattern := regexp.MustCompile(`^[a-zA-Z0-9\.\-\:]+$`) // IPv4, IPv6, or hostname
-	if !ipPattern.MatchString(args[3]) {
-		return fmt.Errorf("invalid BMC IP/hostname")
-	}
-	if args[4] != "-U" {
-		return fmt.Errorf("missing -U flag")
-	}
-	userPattern := regexp.MustCompile(`^[a-zA-Z0-9_\-]+$`)
-	if !userPattern.MatchString(args[5]) {
-		return fmt.Errorf("invalid BMC username (alphanumeric, dashes, and underscores only)")
-	}
-	if args[6] != "-E" {
-		return fmt.Errorf("password must be passed via environment variable (-E), never via -P")
-	}
-	if args[7] != "chassis" || args[8] != "power" {
-		return fmt.Errorf("only chassis power commands are permitted")
-	}
-
-	if cmdName == "ipmitool_power_off" && args[9] != "off" {
-		return fmt.Errorf("expected chassis power off")
-	}
-	if cmdName == "ipmitool_power_status" && args[9] != "status" {
-		return fmt.Errorf("expected chassis power status")
-	}
-
-	return nil
 }

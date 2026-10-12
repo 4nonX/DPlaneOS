@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -40,29 +41,51 @@ func CurrentFencing(db *sql.DB) Fencing {
 	var f Fencing
 	wd, _ := ha.GetWatchdogConfig(db)
 	f.Watchdog = wd.Enable
-	ipmi, _ := ha.GetFencingConfig(db)
-	pdu, _ := ha.GetPDUConfig(db)
-	f.Power = ipmi.Enable || pdu.Enable
+	// Power fencing counts as this node's fencing method only when every
+	// node it may take over from can be powered off.
+	covered, missing := powerCoverage(db)
+	f.Power = covered > 0 && len(missing) == 0
 	switch {
 	case f.Watchdog:
 		f.OK, f.Delay = true, time.Duration(wd.TimeoutSecs)*time.Second+fencingMargin
 	case f.Power:
 		f.OK, f.Delay = true, fencingMargin
 	default:
-		f.Reason = "enable the watchdog (System › High Availability) or configure IPMI/PDU power fencing"
+		f.Reason = "enable the watchdog (System › High Availability) or configure power fencing for every other node"
+		if covered > 0 {
+			f.Reason = "power fencing is not configured for " + strings.Join(missing, ", ") + "; enable the watchdog, or add those nodes"
+		}
 	}
 	return f
 }
 
-// PowerFence powers off the previous owner if IPMI or PDU fencing is configured.
+// powerCoverage reports for how many of the other nodes power fencing is
+// configured and enabled, and the names of those without.
+func powerCoverage(db *sql.DB) (covered int, missing []string) {
+	targets, _ := ha.ListPowerTargets(db)
+	enabled := map[string]bool{}
+	for _, t := range targets {
+		if t.Enabled {
+			enabled[t.Node] = true
+		}
+	}
+	for key, name := range PowerTargetNodes() {
+		if enabled[key] {
+			covered++
+		} else {
+			missing = append(missing, name)
+		}
+	}
+	sort.Strings(missing)
+	return covered, missing
+}
+
+// PowerFence powers off the previous owner of a storage group, the node
+// with that key, through the power target configured for it. Without one
+// it returns ha.ErrNoPowerTarget: the caller then relies on the watchdog,
+// or does not take over. It never powers off another machine instead.
 func PowerFence(db *sql.DB, owner string) error {
-	if ipmi, _ := ha.GetFencingConfig(db); ipmi.Enable {
-		return ha.ExecuteFencing(owner, ipmi)
-	}
-	if pdu, _ := ha.GetPDUConfig(db); pdu.Enable {
-		return ha.ExecutePDUFencing(owner, pdu)
-	}
-	return nil
+	return ha.PowerOff(db, owner)
 }
 
 // Layer is one line of the protection summary.
@@ -154,15 +177,14 @@ func (h *ProtectionHandler) Get(w http.ResponseWriter, r *http.Request) {
 	layers = append(layers, reservationLayer(h.db))
 
 	// Power fencing.
-	ipmi, _ := ha.GetFencingConfig(h.db)
-	pdu, _ := ha.GetPDUConfig(h.db)
+	covered, missing := powerCoverage(h.db)
 	switch {
-	case ipmi.Enable:
-		layers = append(layers, Layer{"Power fencing", "ok", "IPMI/Redfish: the surviving node powers the failed one off before taking over."})
-	case pdu.Enable:
-		layers = append(layers, Layer{"Power fencing", "ok", "Switched PDU: the surviving node cuts the failed one's power before taking over."})
+	case covered > 0 && len(missing) == 0:
+		layers = append(layers, Layer{"Power fencing", "ok", fmt.Sprintf("This node can power off every other node (%d) before it takes a group over from it.", covered)})
+	case covered > 0:
+		layers = append(layers, Layer{"Power fencing", "warn", "Configured for some nodes only. Not for: " + strings.Join(missing, ", ") + ". A takeover from one of those relies on the watchdog."})
 	default:
-		layers = append(layers, Layer{"Power fencing", "off", "Not configured (optional). Needs a BMC or a switched PDU reachable from the other node."})
+		layers = append(layers, Layer{"Power fencing", "off", "Not configured (optional). Needs the BMC of each other node, or a switched PDU, reachable from this node."})
 	}
 
 	fence := CurrentFencing(h.db)

@@ -1,15 +1,20 @@
 package handlers
 
 import (
+	"context"
 	"database/sql"
+	"dplaned/internal/bmc"
 	"encoding/json"
 	"fmt"
+	"github.com/gorilla/mux"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
+	"time"
 
 	"dplaned/internal/ha"
 	"dplaned/internal/scsipr"
@@ -27,7 +32,7 @@ func NewHAHandler(db *sql.DB, keeper *ha.Keeper) *HAHandler {
 	return &HAHandler{db: db, keeper: keeper}
 }
 
-// GetFencingConfig fetches STONITH parameters.
+// GetFencingConfig returns the fencing settings that are not about one node.
 // GET /api/ha/fencing/configure
 func (h *HAHandler) GetFencingConfig(w http.ResponseWriter, r *http.Request) {
 	cfg, err := ha.GetFencingConfig(h.db)
@@ -41,7 +46,7 @@ func (h *HAHandler) GetFencingConfig(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// ConfigureFencing configures STONITH parameters.
+// ConfigureFencing stores them.
 // POST /api/ha/fencing/configure
 func (h *HAHandler) ConfigureFencing(w http.ResponseWriter, r *http.Request) {
 	var req ha.FencingConfig
@@ -55,44 +60,139 @@ func (h *HAHandler) ConfigureFencing(w http.ResponseWriter, r *http.Request) {
 	}
 	respondJSON(w, http.StatusOK, map[string]any{
 		"success": true,
-		"message": "Fencing configuration updated successfully",
+		"message": "Fencing settings saved",
 	})
 }
 
-// GetPDUConfig fetches the PDU outlet-fencing configuration.
-// GET /api/ha/pdu/configure
-func (h *HAHandler) GetPDUConfig(w http.ResponseWriter, r *http.Request) {
-	cfg, err := ha.GetPDUConfig(h.db)
+// PowerTargetNodes returns the nodes this one can be asked to power off:
+// the nodes it is paired with. Set at startup.
+var PowerTargetNodes = func() map[string]string { return nil }
+
+// ListPowerTargets returns how this node powers each other node off, and
+// the nodes that have nothing configured yet.
+// GET /api/ha/power-targets
+func (h *HAHandler) ListPowerTargets(w http.ResponseWriter, r *http.Request) {
+	targets, err := ha.ListPowerTargets(h.db)
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, "Failed to read PDU config", err)
+		respondError(w, http.StatusInternalServerError, "Failed to read the power targets", err)
 		return
 	}
-	respondJSON(w, http.StatusOK, map[string]any{
-		"success": true,
-		"config":  cfg,
-	})
+	names := PowerTargetNodes()
+	type row struct {
+		ha.PowerTarget
+		Name    string `json:"name"`
+		Unknown bool   `json:"unknown_node"` // not (any more) a node this one is paired with
+	}
+	rows := []row{}
+	have := map[string]bool{}
+	for _, t := range targets {
+		have[t.Node] = true
+		name, known := names[t.Node]
+		if !known {
+			name = t.Node
+		}
+		rows = append(rows, row{PowerTarget: t, Name: name, Unknown: !known})
+	}
+	type node struct {
+		Node string `json:"node"`
+		Name string `json:"name"`
+	}
+	missing := []node{}
+	for key, name := range names {
+		if !have[key] {
+			missing = append(missing, node{key, name})
+		}
+	}
+	sort.Slice(missing, func(i, j int) bool { return missing[i].Name < missing[j].Name })
+	respondOK(w, map[string]any{"success": true, "targets": rows, "nodes_without": missing})
 }
 
-// ConfigurePDU saves the PDU outlet-fencing configuration.
-// POST /api/ha/pdu/configure
-func (h *HAHandler) ConfigurePDU(w http.ResponseWriter, r *http.Request) {
-	var req ha.PDUConfig
+// SavePowerTarget stores how this node powers one node off. The password
+// is kept when the field is left out.
+// PUT /api/ha/power-targets/{node}
+func (h *HAHandler) SavePowerTarget(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		ha.PowerTarget
+		Password *string `json:"password"`
+	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		respondError(w, http.StatusBadRequest, "Invalid request body", err)
+		respondErrorSimple(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
-	if req.Enable && req.OutletOffURL == "" {
-		respondErrorSimple(w, "outlet_off_url is required when PDU fencing is enabled", http.StatusBadRequest)
+	req.Node = mux.Vars(r)["node"]
+	if req.Node == "" {
+		respondErrorSimple(w, "The node is required", http.StatusBadRequest)
 		return
 	}
-	if err := ha.SavePDUConfig(h.db, req); err != nil {
-		respondError(w, http.StatusInternalServerError, "Failed to save PDU config", err)
+	if _, known := PowerTargetNodes()[req.Node]; !known {
+		respondErrorSimple(w, "This node is not paired with that node: pair them first (System, Configuration Sync)", http.StatusBadRequest)
 		return
 	}
-	respondJSON(w, http.StatusOK, map[string]any{
-		"success": true,
-		"message": "PDU fencing configuration saved",
-	})
+	req.Host, req.Username = strings.TrimSpace(req.Host), strings.TrimSpace(req.Username)
+	req.OffURL, req.StatusURL = strings.TrimSpace(req.OffURL), strings.TrimSpace(req.StatusURL)
+	if err := ha.SavePowerTarget(h.db, req.PowerTarget, req.Password); err != nil {
+		respondErrorSimple(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	respondOK(w, map[string]any{"success": true, "message": "Saved. Use Test to see that it works."})
+}
+
+// DeletePowerTarget removes a node's power target.
+// DELETE /api/ha/power-targets/{node}
+func (h *HAHandler) DeletePowerTarget(w http.ResponseWriter, r *http.Request) {
+	if err := ha.DeletePowerTarget(h.db, mux.Vars(r)["node"]); err != nil {
+		respondError(w, http.StatusInternalServerError, "Failed to remove the power target", err)
+		return
+	}
+	respondOK(w, map[string]any{"success": true})
+}
+
+// TestPowerTarget tries a node's power target without switching anything:
+// signs in to the BMC and reads the power state, or asks the PDU for its
+// status.
+// POST /api/ha/power-targets/{node}/test
+func (h *HAHandler) TestPowerTarget(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 25*time.Second)
+	defer cancel()
+	res := ha.TestPowerTarget(ctx, h.db, mux.Vars(r)["node"])
+	respondOK(w, map[string]any{"success": true, "result": res})
+}
+
+// EnrollPowerTarget pins the TLS certificate of a node's BMC (Redfish):
+// after that the sign-in and the power-off go only to the machine that
+// showed this certificate.
+// POST /api/ha/power-targets/{node}/enroll   {"reset": true} forgets it
+func (h *HAHandler) EnrollPowerTarget(w http.ResponseWriter, r *http.Request) {
+	node := mux.Vars(r)["node"]
+	var req struct {
+		Reset bool `json:"reset"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&req)
+	if req.Reset {
+		if err := bmc.ClearTLSFingerprint(h.db, node); err != nil {
+			respondError(w, http.StatusInternalServerError, "Failed to forget the certificate", err)
+			return
+		}
+		respondOK(w, map[string]any{"success": true, "message": "The certificate is forgotten"})
+		return
+	}
+	creds, _, err := bmc.LoadNode(h.db, node)
+	if err != nil {
+		respondErrorSimple(w, err.Error(), http.StatusPreconditionFailed)
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	defer cancel()
+	pin, info, err := bmc.EnrollCertificate(ctx, creds)
+	if err != nil {
+		respondOK(w, map[string]any{"success": false, "error": "The BMC did not answer over Redfish: " + err.Error() + ". Without a pinned certificate IPMI is used."})
+		return
+	}
+	if err := bmc.SaveTLSFingerprint(h.db, node, pin); err != nil {
+		respondError(w, http.StatusInternalServerError, "Failed to store the certificate", err)
+		return
+	}
+	respondOK(w, map[string]any{"success": true, "fingerprint": pin.Fingerprint, "bmc_info": info})
 }
 
 // DetectHAHardware reports what this node has for protecting storage

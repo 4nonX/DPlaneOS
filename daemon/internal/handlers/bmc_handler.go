@@ -21,9 +21,11 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"dplaned/internal/bmc"
+	"dplaned/internal/ha"
 )
 
 // BMCHandler provides HTTP API access to out-of-band hardware management.
@@ -33,6 +35,50 @@ type BMCHandler struct {
 
 func NewBMCHandler(db *sql.DB) *BMCHandler {
 	return &BMCHandler{db: db}
+}
+
+// GetConfig returns the settings of this system's own BMC (never the
+// password).
+// GET /api/bmc/config
+func (h *BMCHandler) GetConfig(w http.ResponseWriter, r *http.Request) {
+	t, _, err := ha.GetPowerTarget(h.db, bmc.Self)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "Failed to read the BMC settings", err)
+		return
+	}
+	respondOK(w, map[string]any{"success": true, "config": map[string]any{
+		"host": t.Host, "username": t.Username, "has_password": t.HasPassword,
+		"tls_fingerprint": t.Fingerprint, "tls_pinned_at": t.PinnedAt,
+	}})
+}
+
+// SaveConfig stores the address and sign-in of this system's own BMC. The
+// password is kept when the field is left out.
+// PUT /api/bmc/config {"host": "...", "username": "...", "password": "..."}
+func (h *BMCHandler) SaveConfig(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Host     string  `json:"host"`
+		Username string  `json:"username"`
+		Password *string `json:"password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondErrorSimple(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+	if strings.TrimSpace(req.Host) == "" {
+		if _, err := h.db.Exec(`DELETE FROM power_targets WHERE node = ''`); err != nil {
+			respondError(w, http.StatusInternalServerError, "Failed to remove the BMC settings", err)
+			return
+		}
+		respondOK(w, map[string]any{"success": true, "message": "The BMC settings are removed"})
+		return
+	}
+	t := ha.PowerTarget{Node: bmc.Self, Kind: "bmc", Host: strings.TrimSpace(req.Host), Username: strings.TrimSpace(req.Username)}
+	if err := ha.SavePowerTarget(h.db, t, req.Password); err != nil {
+		respondErrorSimple(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	respondOK(w, map[string]any{"success": true, "message": "The BMC settings are saved"})
 }
 
 // Enroll performs the initial TOFU connection: probes the BMC, captures its
@@ -45,7 +91,7 @@ func (h *BMCHandler) Enroll(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		respondGuided(w, http.StatusPreconditionFailed, guidedError{
 			Error:  "BMC not configured: " + err.Error(),
-			Guide:  "Add the BMC IP address, username, and password file under Settings > HA > Fencing, then retry.",
+			Guide:  "Enter the address, user name and password of this system's BMC under Hardware, IPMI, then retry.",
 			Code:   "bmc_not_configured",
 			Action: "configure_bmc",
 		})
@@ -65,7 +111,7 @@ func (h *BMCHandler) Enroll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := bmc.SaveTLSFingerprint(h.db, pin); err != nil {
+	if err := bmc.SaveTLSFingerprint(h.db, bmc.Self, pin); err != nil {
 		respondErrorSimple(w, "Failed to store certificate fingerprint: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -221,7 +267,7 @@ func (h *BMCHandler) Power(w http.ResponseWriter, r *http.Request) {
 // re-captures it. Requires AAL2 (applied at route registration).
 // POST /api/bmc/reset-cert
 func (h *BMCHandler) ResetCert(w http.ResponseWriter, r *http.Request) {
-	if err := bmc.ClearTLSFingerprint(h.db); err != nil {
+	if err := bmc.ClearTLSFingerprint(h.db, bmc.Self); err != nil {
 		respondErrorSimple(w, "Failed to clear certificate: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
