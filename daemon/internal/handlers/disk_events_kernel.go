@@ -67,7 +67,8 @@ type diskEvents struct {
 func (d *diskEvents) handle(ev uevent.Event) {
 	if ev.Action == "overflow" {
 		// The kernel dropped events: at least refresh what the UI shows.
-		go onEventsMissed()
+		missed := onEventsMissed
+		go missed()
 		return
 	}
 	req, ok := diskEventOf(ev)
@@ -83,21 +84,24 @@ func (d *diskEvents) handle(ev uevent.Event) {
 	gen := d.gen[name]
 	d.mu.Unlock()
 
+	// The handlers as they are now: the goroutine below may still be waiting
+	// for a disk to settle when a test puts the real ones back.
+	settled, added, removed := diskSettled, onDiskAdded, onDiskRemoved
 	go func() {
 		if req.Action == "removed" {
-			onDiskRemoved(name, req)
+			removed(name, req)
 			return
 		}
 		// The kernel announces the disk before its size is read and before
 		// udev has created the /dev/disk/by-id links.
-		diskSettled(name)
+		settled(name)
 		d.mu.Lock()
 		current := d.gen[name] == gen
 		d.mu.Unlock()
 		if !current {
 			return // removed (or re-added) while waiting
 		}
-		onDiskAdded(name, req)
+		added(name, req)
 	}()
 }
 

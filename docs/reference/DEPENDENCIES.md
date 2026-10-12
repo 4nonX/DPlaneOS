@@ -1,165 +1,78 @@
 # DPlaneOS Dependencies
 
-All Go and frontend dependencies are bundled in the release tarball. Only system-level tools need to be installed separately.
+What DPlaneOS is made of. On an installed system there is nothing to install: everything below is part of the image, at the versions pinned in `flake.lock`.
 
 ---
 
-## Bundled (no installation required)
+## The daemon (Go)
 
-### Frontend - `app/`
+Eleven direct dependencies, vendored in `daemon/vendor/` (the daemon builds without network access):
 
-The React SPA is pre-built. No Node.js or npm is required at runtime.
+| Package | For |
+|---|---|
+| `github.com/gorilla/mux` | HTTP routing |
+| `github.com/gorilla/websocket` | live events, terminal |
+| `github.com/jackc/pgx/v5` | PostgreSQL |
+| `github.com/pressly/goose/v3` | database migrations |
+| `github.com/go-ldap/ldap/v3` | LDAP sign-in and directory sync |
+| `github.com/go-jose/go-jose/v4` | OIDC: verifying ID tokens |
+| `github.com/go-acme/lego/v4` | ACME certificates |
+| `github.com/creack/pty` | the terminal |
+| `github.com/google/uuid` | identifiers |
+| `golang.org/x/crypto` | bcrypt, SSH |
+| `golang.org/x/sys` | system calls (SCSI, netlink) |
 
-| Asset | Description |
-|-------|-------------|
-| `app/index.html` | SPA entry point |
-| `app/assets/index-*.js` | Application bundle (React 19, TanStack Router, TanStack Query, Zustand) |
-| `app/assets/tanstack-*.js` | Router and Query split chunks |
-| `app/assets/zustand-*.js` | State management |
-| `app/assets/index-*.css` | Compiled styles |
-| `app/assets/fonts/outfit.woff2` | UI font (variable, 100–900 weight) |
-| `app/assets/fonts/jetbrains-mono.woff2` | Monospace font (variable, 100–900 weight) |
-| `app/assets/fonts/MaterialSymbolsRounded.woff2` | Icon font (variable) |
-| `app/assets/fonts/fonts.css` | Font-face declarations |
+The rest of `go.mod` are their dependencies. `govulncheck` runs against the whole set in CI.
 
-Zero external requests at runtime. All fonts and assets are local - no CDN dependencies.
+The daemon is built with `CGO_ENABLED=0`: one static binary. (A build that links `libzfs` exists as an experiment, `dplaneos-daemon-cgo` in the flake; no image installs it. See the [Architecture Reference](ARCHITECTURE.md#zfs).)
 
-### Go Vendor - `daemon/vendor/`
+## The web interface
 
-All Go dependencies are vendored. No internet access is needed to build.
+Built ahead of time into `app/` (committed, and copied into the image as it is): static files, served by nginx.
 
-| Package | Purpose |
-|---------|---------|
-| `github.com/gorilla/mux` | HTTP router |
-| `github.com/gorilla/websocket` | WebSocket (real-time monitor) |
-| `github.com/jackc/pgx/v5` | PostgreSQL driver (pure Go) |
-| `github.com/jackc/puddle/v2` | Connection pool (pgx dependency) |
-| `github.com/google/uuid` | Job store UUIDs |
-| `github.com/go-ldap/ldap/v3` | LDAP / Active Directory integration |
-| `github.com/go-asn1-ber/asn1-ber` | ASN.1 BER encoding (LDAP dependency) |
-| `github.com/Azure/go-ntlmssp` | NTLM authentication (LDAP) |
-| `github.com/go-jose/go-jose/v4` | OIDC JWS/JWK parsing and ID token verification |
-| `github.com/go-acme/lego` | ACME / Let's Encrypt TLS certificate automation |
-| `github.com/pressly/goose/v3` | SQL migration runner |
-| `github.com/mfridman/interpolate` | Environment variable interpolation (goose dependency) |
-| `github.com/miekg/dns` | DNS resolution for ACME DNS-01 challenges |
-| `github.com/cenkalti/backoff/v5` | Exponential backoff for retries |
-| `github.com/sethvargo/go-retry` | Retry helper |
-| `github.com/creack/pty` | PTY (pseudo-terminal) for terminal emulator |
-| `go.uber.org/multierr` | Multi-error aggregation |
-| `golang.org/x/crypto` | bcrypt password hashing, additional crypto primitives |
-| `golang.org/x/net` | HTTP/2 and extended net utilities |
-| `golang.org/x/sys` | Low-level OS syscall wrappers |
-| `golang.org/x/text` | Unicode normalization |
+| Package | For |
+|---|---|
+| `react`, `react-dom` | the interface |
+| `@tanstack/react-router`, `@tanstack/react-query` | navigation, server state |
+| `zustand` | client state |
+| `@xterm/xterm` and add-ons | the terminal |
+| `qrcode-generator` | the QR code for two-factor setup, drawn in the browser |
+| `@fontsource-variable/*`, Material Symbols | fonts and icons, served by the system itself |
 
----
+The interface loads nothing from other hosts.
 
-## System Dependencies
+## The system
 
-All system-level dependencies are declared in the NixOS module (`nixos/module.nix`) and provisioned automatically at build time. No manual package installation is required or supported.
+From the pinned NixOS release, put together by `nixos/module.nix` and the modules next to it:
 
-### Provided by the NixOS module
+| | |
+|---|---|
+| Linux kernel (6.12 or newer), OpenZFS (2.3 or newer) | the build fails if the pair is not what is expected |
+| PostgreSQL | state |
+| nginx | web interface, TLS, proxy to the daemon |
+| Samba (built with Active Directory support), nfs-utils | file sharing |
+| the kernel's LIO and NVMe targets, `targetcli` | iSCSI, NVMe-oF |
+| vsftpd, Versity Gateway | FTP, S3 |
+| Docker, Docker Compose | containers |
+| Corosync, corosync-qdevice | cluster membership and quorum |
+| rclone, rsync, OpenSSH, pv | cloud sync, backups, replication |
+| smartmontools, hdparm, nvme-cli, sg3_utils, lsscsi | disks |
+| ipmitool, dmidecode, lm_sensors, NUT | BMC, hardware identity, sensors, UPS |
+| git | configuration repositories |
+| systemd (networkd, resolved, timesyncd, boot) | network, time, boot loader |
 
-| Dependency | Purpose |
-|------------|---------|
-| `nginx` | Reverse proxy and static file server |
-| `zfs` | ZFS pool and dataset management (kernel module + CLI) |
-| `postgresql` | Database and CLI (`psql`) |
-| `smartmontools` | S.M.A.R.T. disk health monitoring |
-| `udev` (systemd) | Device event rules (hot-swap, removable media) |
-| `samba` | SMB / CIFS shares and AFP / Time Machine |
-| `nfs-utils` | NFS exports (`exportfs`) |
-| `docker` + `docker-compose` | Container management |
-| `ipmitool` | IPMI / BMC monitoring |
-| `rclone` + `fuse3` | Cloud sync and Cold Tier FUSE mounts |
-| `targetcli-fb` | iSCSI block targets |
-| `openssh` | Remote access |
-| `git` | GitOps repository sync |
-| `sg3_utils` | SCSI-3 diagnostic tools (optional; `sg_persist` for reservation verification) |
+## Building
 
-All packages are pinned via the flake lockfile. Versions are reproducible across every build.
+Everything is built through the flake ([the NixOS side](../../nixos/README.md)): `nix build .#iso`. A development shell with the pinned Go and Node.js: `nix develop`.
 
-### Build-time Only (not needed on the NAS)
-
-| Dependency | Purpose |
-|------------|---------|
-| Go 1.22+ | Rebuild the daemon from source |
-| Node.js 20+ | Rebuild the frontend from source |
-| gcc / CGO | Required for the cgo (`libzfs`) build path |
-| `libzfs.h` + `pkg-config` + `pkgs.zfs` | Required for `dplaneos-daemon-cgo` build target only |
-
-Pre-built binaries are included in the release tarball. Go and Node.js are not needed to install or run DPlaneOS.
-
-### Two build variants
-
-The standard production build (`dplaneos-daemon`) uses a static musl binary with CGO disabled. ZFS operations use subprocess calls through the exec allowlist. This binary has no runtime dependency on `libzfs.so`.
-
-The cgo build (`dplaneos-daemon-cgo`) links against `libzfs.so` at runtime and calls ZFS operations natively via `libzfs.h`. It requires `gcc`, `pkg-config`, and `pkgs.zfs` at build time and produces a glibc-linked binary. Enable with:
+By hand:
 
 ```bash
-nix build .#dplaneos-daemon-cgo
+# Daemon (the Go version named in daemon/go.mod)
+cd daemon && CGO_ENABLED=0 go build -mod=vendor -o ../build/dplaned ./cmd/dplaned/
+
+# Web interface (Node.js 20 or newer); the result goes to ../app/
+cd app-react && npm ci && npm run build
 ```
 
-Both variants expose identical APIs. The build tag `libzfs` controls which path is compiled:
-
-```bash
-# Explicit cgo build
-go build -tags "linux cgo libzfs" -mod=vendor ./cmd/dplaned/
-
-# Standard static build (default)
-CGO_ENABLED=0 go build -mod=vendor ./cmd/dplaned/
-```
-
----
-
-## Dependency Check
-
-```bash
-#!/bin/bash
-echo "=== DPlaneOS Dependency Check ==="
-
-check() {
-    printf "%-20s" "$1:"
-    command -v $2 &>/dev/null && echo "ok" || echo "missing"
-}
-
-check_service() {
-    printf "%-20s" "$1:"
-    systemctl is-active --quiet $2 2>/dev/null && echo "running" || echo "not running"
-}
-
-check "nginx"        nginx
-check "zpool (ZFS)"  zpool
-check "psql (Postgres)" psql
-check "docker"       docker
-check "smartctl"     smartctl
-check "ipmitool"     ipmitool
-check "rclone"       rclone
-check "samba"        smbd
-check "nfs"          exportfs
-
-echo ""
-check_service "dplaned"  dplaned
-check_service "nginx"    nginx
-check_service "docker"   docker
-```
-
----
-
-## Building from Source
-
-Only needed if you want to modify the daemon or frontend.
-
-```bash
-# Daemon (requires Go 1.22+ and gcc)
-cd daemon
-go build -mod=vendor \
-  -ldflags "-s -w -X main.Version=$(cat ../VERSION)" \
-  -o ../build/dplaned ./cmd/dplaned/
-
-# Frontend (requires Node.js 20+ and npm)
-cd app-react
-npm install
-npm run build
-# Output goes to ../app/
-```
+`app/` is committed: a change to `app-react/` is not in an image until the interface has been rebuilt and the result committed with it. CI fails when the two do not match.

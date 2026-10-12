@@ -10,7 +10,7 @@ Visual overview of the codebase. Render in any Mermaid-compatible viewer (GitHub
 %%{init: {'theme':'base', 'themeVariables': { 'primaryColor':'#b2dfdb', 'primaryTextColor':'#004d40', 'primaryBorderColor':'#00695c', 'lineColor':'#00695c', 'secondaryColor':'#e0f2f1', 'tertiaryColor':'#fff' }}}%%
 flowchart LR
     subgraph Client
-        Browser["Browser (Material Design 3)"]
+        Browser["Browser (React app)"]
     end
 
     subgraph Edge
@@ -25,15 +25,17 @@ flowchart LR
         PostgreSQL["PostgreSQL (node-local)\n/var/lib/dplaneos/pgsql/"]
         ZFS["ZFS (kernel)"]
         Docker["Docker (socket)"]
-        LDAP["LDAP / AD"]
+        Services["Samba, NFS, block targets,\nnetwork, firewall"]
+        LDAP["LDAP / AD / OIDC"]
     end
 
     Browser -->|"static + /api/*"| nginx
     nginx -->|"proxy /api/, /ws/"| dplaned
-    nginx -->|"serve /opt/dplaneos/app"| Browser
+    nginx -->|"static files of the web interface"| Browser
     dplaned --> PostgreSQL
     dplaned --> ZFS
     dplaned --> Docker
+    dplaned --> Services
     dplaned --> LDAP
 ```
 
@@ -45,51 +47,74 @@ flowchart LR
 %%{init: {'theme':'base', 'themeVariables': { 'primaryColor':'#b2dfdb', 'primaryTextColor':'#004d40', 'primaryBorderColor':'#00695c', 'lineColor':'#00695c', 'secondaryColor':'#e0f2f1' }}}%%
 flowchart TB
     subgraph cmd["cmd/"]
-        main["dplaned/main.go - flags, DB init, router setup"]
-        fenced["dplane-fenced/main.go - SCSI-3 PR reservation manager"]
+        main["dplaned/main.go - flags, database, router, background loops"]
     end
 
-    subgraph internal["internal/"]
-        handlers["handlers/ - ~55 handler files (one per feature)"]
-        middleware["middleware/ - logging, session, rate limit"]
-        audit["audit/ - buffered logger, HMAC chain"]
-        security["security/ - session validation, RBAC, command whitelist"]
-        ha["ha/ - cluster manager, fenced client, promote/demote"]
-        zfs_pkg["zfs/ - pool heartbeat, ZED listener, status parsing"]
-        libzfs["libzfs/ - cgo libzfs bindings (+ subprocess fallback)"]
-        storageops["storageops/ - transactional storage op guard"]
-        jobs["jobs/ - async job store (in-memory)"]
-        cmdutil["cmdutil/ - safe exec.Command wrappers"]
-        netlinkx["netlinkx/ - netlink syscalls (no CGO)"]
-        database["database/migrations/ - SQL migration files"]
-        gitops["gitops/ - state.yaml parser, diff engine, apply engine"]
-        hardware["hardware/ - SES enclosure, SMART timer management"]
-        scsipr["scsipr/ - SCSI-3 persistent reservation primitives"]
-        nvmet["nvmet/ - NVMe-oF target configuration"]
-        nixwriter["nixwriter/ - NixOS config file writer"]
-        composegpu["composegpu/ - Docker Compose + GPU validation"]
+    subgraph api["internal/ - the API"]
+        handlers["handlers/ - one file per feature of the interface"]
+        middleware["middleware/ - permissions, second factor"]
+        security["security/ - sessions, RBAC, command allowlist, client address"]
+        audit["audit/ - buffered log, HMAC chain"]
+        jobs["jobs/ - long-running operations"]
+        websocket["websocket/ - live events for the interface"]
+    end
+
+    subgraph storage["internal/ - storage"]
+        libzfs["libzfs/ - ZFS operations (zfs and zpool commands)"]
+        zfs_pkg["zfs/ - ZED listener, pool heartbeat, status parsing"]
+        storageops["storageops/ - one storage operation at a time per pool"]
+        hardware["hardware/ - SMART, enclosures, GPUs"]
+        uevent["uevent/ - kernel device events (disks added and removed)"]
+        iscsit["iscsit/ - iSCSI targets (LIO)"]
+        nvmet["nvmet/ - NVMe-oF exports"]
+        smbconf["smbconf/ - Samba configuration"]
+    end
+
+    subgraph system["internal/ - system"]
+        nixwriter["nixwriter/ - system settings (state file)"]
+        sysapply["sysapply/ - applies settings: host name, time, firewall, SSH"]
+        netconf["netconf/ - network configuration (systemd-networkd)"]
+        netlinkx["netlinkx/ - netlink (addresses, links)"]
+        cmdutil["cmdutil/ - runs programs through the allowlist"]
+        database["database/ - migrations (goose)"]
+        secrets["secrets/ - encryption of stored secrets"]
+    end
+
+    subgraph cluster["internal/ - GitOps and clusters"]
+        gitops["gitops/ - state.yaml parser, plan, apply, drift"]
+        configstore["configstore/ - configuration exchange between nodes"]
+        quorum["quorum/ - corosync membership and votes"]
+        groups["groups/ - storage groups: ownership, moves, failover, replication"]
+        diskres["diskres/ + scsipr/ - disk reservations (SCSI-3)"]
+        ha["ha/ - watchdog, power fencing"]
     end
 
     main --> handlers
-    main --> middleware
+    main --> groups
     main --> gitops
-    handlers --> audit
+    handlers --> middleware
     handlers --> security
-    handlers --> cmdutil
-    handlers --> libzfs
-    handlers --> storageops
+    handlers --> audit
     handlers --> jobs
-    handlers --> netlinkx
-    handlers --> database
-    handlers --> ha
-    handlers --> zfs_pkg
-    handlers --> hardware
+    handlers --> libzfs
+    handlers --> iscsit
     handlers --> nvmet
-    handlers --> composegpu
+    handlers --> smbconf
+    handlers --> nixwriter
+    handlers --> netconf
+    handlers --> gitops
+    handlers --> groups
+    libzfs --> cmdutil
+    nixwriter --> sysapply
     gitops --> libzfs
-    gitops --> nixwriter
-    ha --> scsipr
-    fenced --> scsipr
+    gitops --> netconf
+    groups --> quorum
+    groups --> configstore
+    groups --> diskres
+    groups --> iscsit
+    groups --> nvmet
+    groups --> ha
+    cmdutil --> security
 ```
 
 ---
@@ -103,7 +128,7 @@ sequenceDiagram
     participant N as nginx
     participant M as Middleware
     participant H as Handler
-    participant C as libzfs / exec.Command / PostgreSQL
+    participant C as PostgreSQL / allowlisted command / kernel
 
     B->>N: HTTP request
     N->>M: proxy_pass unix socket
@@ -113,9 +138,9 @@ sequenceDiagram
     M->>M: RBAC permission check
     M->>H: dispatch to handler
     H->>H: input allowlist validation
-    H->>C: PostgreSQL query, libzfs call, or exec.Command
+    H->>C: PostgreSQL query, allowlisted command, or configuration write
     C-->>H: result
-    H->>H: audit.LogAction()
+    H->>H: audit log entry
     H-->>B: JSON response
 ```
 
@@ -126,19 +151,20 @@ sequenceDiagram
 ```mermaid
 %%{init: {'theme':'base'}}%%
 flowchart TD
-    A["Physical disk connected"] --> B["udev: 99-dplaneos-hotswap.rules"]
-    B --> C["install/scripts/notify-disk-added.sh"]
-    C --> D["POST /api/internal/disk-event\n(localhost only)"]
-    D --> E["Enrich device\n(by-id, WWN, size, type, temp)"]
-    E --> F["Upsert disk registry (PostgreSQL)"]
-    F --> G["Broadcast diskAdded WS event"]
-    G --> H["2 s settle delay"]
-    H --> I{"Pool importable?"}
-    I -->|Yes| J["libzfs.PoolImportAll(/dev/disk/by-id)"]
-    J --> K["Broadcast poolHealthChanged WS event"]
-    I -->|No| K
-    K --> L{"Faulted vdevs exist?"}
-    L -->|Yes| M["Broadcast diskReplacementAvailable\nPre-populate Replace modal in UI"]
+    A["Disk connected"] --> B["Kernel device event (netlink)"]
+    B --> C["internal/uevent: the daemon listens itself\n(no udev rule, no helper script)"]
+    C --> D["Wait until the disk reports its size\nand has a by-id link (up to 15 s)"]
+    D --> E["Describe the device\n(by-id, WWN, size, type)"]
+    E --> F["Update the disk registry (PostgreSQL)"]
+    F --> G["Broadcast diskAdded to the interface"]
+    G --> I{"Belonged to a known pool?"}
+    I -->|"pool suspended"| J1["zpool clear: I/O resumes"]
+    I -->|"pool not imported"| J2["import the pool"]
+    I -->|"no"| K
+    J1 --> K["Broadcast pool health"]
+    J2 --> K
+    K --> L{"Pool has a faulted device?"}
+    L -->|Yes| M["Offer the new disk as a replacement"]
     L -->|No| N["Done"]
     M --> N
 ```

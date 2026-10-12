@@ -24,8 +24,9 @@ type cloudTasksEnv struct {
 func newCloudTasksEnv(t *testing.T) *cloudTasksEnv {
 	t.Helper()
 	e := &cloudTasksEnv{root: shareRoot(t, "data", "restore"), done: make(chan struct{}, 16)}
-	prevDir, prevRun, prevHook := ConfigDir, runRcloneTransfer, webhookAlertFn
+	prevDir, prevRun, prevHook, prevConf := ConfigDir, runRcloneTransfer, webhookAlertFn, rcloneConfig
 	ConfigDir = t.TempDir()
+	rcloneConfig = filepath.Join(ConfigDir, "rclone.conf")
 	runRcloneTransfer = func(args ...string) ([]byte, error) {
 		e.mu.Lock()
 		e.runs = append(e.runs, args)
@@ -42,7 +43,9 @@ func newCloudTasksEnv(t *testing.T) *cloudTasksEnv {
 		e.alerts = append(e.alerts, event+" "+resource+": "+message)
 		e.mu.Unlock()
 	}
-	t.Cleanup(func() { ConfigDir, runRcloneTransfer, webhookAlertFn = prevDir, prevRun, prevHook })
+	t.Cleanup(func() {
+		ConfigDir, runRcloneTransfer, webhookAlertFn, rcloneConfig = prevDir, prevRun, prevHook, prevConf
+	})
 	fakeCommands(t, map[string]func([]string) ([]byte, error){"rclone": out("b2:\nnas2:\n")})
 	return e
 }

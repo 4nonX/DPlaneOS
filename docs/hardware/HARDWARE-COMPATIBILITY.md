@@ -1,240 +1,68 @@
 # DPlaneOS Hardware Compatibility
 
-DPlaneOS runs on any reasonable Linux-capable hardware, from Raspberry Pi to enterprise servers. The installer automatically detects hardware capabilities and tunes the system accordingly.
+What DPlaneOS needs, what it has been tested on, and what to avoid.
+
+**What the project tests.** Every release is installed and exercised in x86_64 virtual machines (KVM), with virtual disks and network cards. The project has no hardware lab: no list of servers, controllers or disk shelves below is a list of tested products. DPlaneOS runs the Linux kernel and OpenZFS of the pinned NixOS release; hardware that works with those works with DPlaneOS, and the notes below are about what suits a ZFS NAS.
 
 ---
 
 ## Requirements
 
-### Absolute Minimum
+| | Minimum | Sensible |
+|---|---|---|
+| CPU | 64-bit x86 (x86_64), or 64-bit ARM (aarch64) | four cores or more |
+| Firmware | UEFI | |
+| Memory | 8 GB | 16 GB or more; ECC |
+| System disk | 32 GB, used by nothing else | an SSD of 64 GB or more |
+| Data disks | one | two or more, for redundancy |
+| Network | one wired Ethernet port | |
 
-| Component | Minimum |
-|-----------|---------|
-| CPU | 1 core, x86_64 or ARM64 (64-bit only) |
-| RAM | 2 GB |
-| OS storage | 8 GB |
-| Network | 100 Mbps Ethernet |
+The installed system starts through a UEFI boot loader; machines with BIOS-only firmware cannot start it.
 
-Limitations at this tier: slow ZFS operations, limited concurrent users.
+**ARM.** Images for aarch64 are built for every release, for machines with UEFI firmware (ARM servers, virtual machines). The automated tests do not run on ARM. Single-board computers that start through their own boot firmware instead of UEFI (a Raspberry Pi out of the box) are not supported as a NAS. For the third vote of a cluster there is a separate small image for the Raspberry Pi ([Choosing a third vote](../admin/THIRD-VOTE.md)).
 
-### Recommended
-
-| Component | Recommended |
-|-----------|-------------|
-| CPU | 4 cores / 8 threads |
-| RAM | 16 GB+ (ECC preferred) |
-| OS storage | NVMe SSD, 20 GB+ |
-| Network | 1 Gbps+ Ethernet |
-
-### Optimal
-
-| Component | Optimal |
-|-----------|---------|
-| CPU | 8+ cores with SMT |
-| RAM | 32 GB+ ECC |
-| OS storage | NVMe |
-| Network | 10 GbE |
-
----
-
-## CPU Compatibility
-
-### x86_64
-
-| Vendor | Series | Status |
-|--------|--------|--------|
-| Intel | Core i3/i5/i7/i9 (all generations) | Supported |
-| Intel | Xeon (E3, E5, Scalable) | Supported |
-| Intel | Pentium / Celeron | Supported (limited performance) |
-| Intel | Atom | Supported (minimal performance) |
-| AMD | Ryzen 3/5/7/9 (all series) | Supported |
-| AMD | Threadripper | Supported |
-| AMD | EPYC | Supported |
-| AMD | Athlon / A-Series | Supported (limited performance) |
-
-### ARM
-
-| Platform | Status | Notes |
-|----------|--------|-------|
-| Raspberry Pi 4/5 (4 GB+) | Supported | ZFS operations slow; consider ext4 |
-| Generic ARM64 | Supported | |
-| 32-bit ARM | Not supported | 64-bit required |
-
----
+**Virtual machines.** DPlaneOS runs as a VM (that is how it is tested). For real data, give the VM whole disks or a whole controller (passthrough), not virtual disks on a host file system that does its own redundancy and caching.
 
 ## Memory
 
-### ECC vs Non-ECC
+ZFS uses free memory as a read cache (the ARC) and gives it back when programs need it; by default up to half of the memory. The limit can be set under System › Settings. More memory makes a NAS faster; it does not need a fixed amount per terabyte.
 
-| Type | Status | Notes |
-|------|--------|-------|
-| ECC Unbuffered (UDIMM) | Recommended | Best for data integrity |
-| ECC Registered (RDIMM) | Recommended | Enterprise servers |
-| Non-ECC | Supported with caveats | See [NON-ECC-WARNING.md](NON-ECC-WARNING.md) |
+ECC memory is strongly recommended: ZFS detects damage on disk, not data that was damaged in memory before it was written. See [Non-ECC RAM Warning](NON-ECC-WARNING.md); the dashboard says when the machine has none.
 
-### Auto-Tuned ARC Limits
+## Disks and controllers
 
-| RAM | ARC Limit | Inotify Watches |
-|-----|-----------|-----------------|
-| 2 GB | 512 MB | 65K |
-| 4 GB | 1 GB | 131K |
-| 8 GB | 2 GB | 262K |
-| 16 GB | 4 GB | 524K |
-| 32 GB | 8 GB | 1M |
-| 64 GB | 16 GB | 1M |
-| 128 GB+ | 32 GB | 1M |
+| | |
+|---|---|
+| SATA, SAS, NVMe disks | all fine for pools. Disks are addressed by their stable names (`/dev/disk/by-id`) |
+| Controller | an HBA, or a RAID controller in pass-through ("IT", "JBOD") mode: ZFS has to see every disk itself |
+| Hardware RAID | **not for pools.** ZFS on top of a RAID volume cannot tell which disk returned bad data and cannot repair it, and the controller hides SMART data |
+| SMR disks | avoid in pools that are rebuilt (RAID-Z, mirrors): resilvers take days and disks drop out |
+| USB disks | for backups and removable media, not for pools: USB bridges drop disks under load and often hide their identity and SMART data |
+| The system disk | one disk, not redundant. It holds the system and its configuration, never your files: if it fails, reinstall and import the pools ([Recovery](../admin/RECOVERY.md#7-the-system-disk-is-gone)) |
 
-On virtualised systems, ARC is reduced by 25% and inotify by 50%.
+Pools are ZFS. Other file systems appear only on removable media (USB sticks and disks mounted under Removable Media: what the kernel can mount, such as ext4, FAT and exFAT); they are not tested by the project.
 
----
-
-## Storage
-
-### Disk Types
-
-| Type | Status | Notes |
-|------|--------|-------|
-| NVMe | Excellent | Best for OS and cache |
-| SSD (SATA) | Good | Suitable for OS and data |
-| HDD 7200 RPM | Good | Bulk storage |
-| HDD 5400 RPM | Acceptable | Archive |
-| USB 3.0+ | Supported | External backup only |
-| USB 2.0 | Not recommended | Too slow |
-| SMR HDD | Not recommended | Very poor ZFS performance; use CMR |
-
-### Filesystems
-
-| Filesystem | Status | Notes |
-|------------|--------|-------|
-| ZFS | Primary | Full features |
-| Btrfs | Supported | Good alternative |
-| ext4 | Supported | Lightweight, no COW |
-| XFS | Supported | Large files |
-| NTFS | Limited | Read-only via ntfs-3g |
-| FAT32 / exFAT | Limited | Removable media only |
-
-### RAID Controllers
-
-| Type | Status | Notes |
-|------|--------|-------|
-| ZFS RAID-Z | Full support | Recommended |
-| Software RAID (mdadm) | Full support | Use with ext4 or XFS |
-| HBA in passthrough mode | Full support | Passes individual disks to ZFS |
-| Hardware RAID in RAID mode | Limited | ZFS cannot see individual disks |
-
----
+Disk enclosures with SES (slot LEDs, slot numbers) and SMART monitoring are used where the hardware provides them; a disk behind a bridge that passes neither through is shown without them.
 
 ## Network
 
-| Interface | Status | Notes |
-|-----------|--------|-------|
-| 1 GbE | Full support | Standard |
-| 2.5 GbE | Full support | Good upgrade |
-| 10 GbE | Full support | High performance |
-| Bonding / LACP | Full support | Multiple NICs |
-| WiFi | Not recommended | Use wired for NAS |
+Wired Ethernet, any speed the kernel has a driver for. Bonds (LACP and the other Linux modes), VLANs and static or DHCP addressing are configured under Network. Wi-Fi is not configured by DPlaneOS.
 
----
+## Clusters
 
-## Hardware That Will Not Work
+Two nodes, a third vote, and for shared storage a disk shelf both nodes are cabled to. What the layers of protection need from the hardware (a watchdog, disks with SCSI-3 persistent reservations, a BMC or a switched PDU), and how to find out what a given shelf supports, is in the [HA Hardware Matrix](../reference/HA-HARDWARE-MATRIX.md).
 
-| Hardware | Reason |
-|----------|--------|
-| 32-bit x86 | 64-bit CPU required |
-| < 2 GB RAM | Insufficient for daemon + ZFS |
-| Hardware RAID in RAID mode | ZFS requires individual disk visibility |
+## Other hardware
 
----
+| | |
+|---|---|
+| UPS | through NUT: USB and serial models with a NUT driver, or a NUT server on another machine |
+| BMC | IPMI and Redfish, for sensors, power control and fencing |
+| GPUs | passed to containers (NVIDIA through its container runtime; Intel and AMD as devices). The drivers for transcoding are those the container image brings |
 
-## Auto-Tuning
+## Will not work
 
-On install, the system detects:
-- CPU vendor, cores, threads
-- Total RAM and ECC status
-- Disk types (NVMe, SSD, HDD)
-- Platform (bare metal vs virtualised)
-
-Settings automatically configured:
-- ZFS ARC limit (`/etc/modprobe.d/zfs.conf`)
-- inotify max watches (`/etc/sysctl.d/99-dplaneos.conf`)
-- ZFS DKMS headers for the running kernel
-
----
-
-## Example Configurations
-
-### Budget Home Server (8 GB, non-ECC)
-
-```
-CPU:     Intel Celeron J4125
-RAM:     8 GB DDR4 Non-ECC
-Storage: 500 GB SSD + 4x 4TB HDD (RAID-Z1)
-
-Auto-tuned:
-  ZFS ARC:   2 GB
-  Inotify:   262,144 watches
-```
-
-### Enterprise Server (128 GB ECC)
-
-```
-CPU:     AMD EPYC 7452
-RAM:     128 GB DDR4 ECC
-Storage: 2x 1TB NVMe + 24x 8TB HDD (RAID-Z2)
-
-Auto-tuned:
-  ZFS ARC:   32 GB
-  Inotify:   1,048,576 watches
-```
-
-### Raspberry Pi 4
-
-```
-CPU:     ARM Cortex-A72 (4 cores)
-RAM:     4 GB LPDDR4
-Storage: 64 GB microSD + USB 3.0 HDD
-
-Auto-tuned:
-  ZFS ARC:   1 GB
-  Inotify:   131,072 watches
-  Note:      ZFS operations slow; ext4 performs better here
-```
-
-### VM on Proxmox (16 GB allocated)
-
-```
-CPU:     4 vCPUs
-RAM:     16 GB virtual (host has 64 GB ECC)
-Storage: Virtual disk on ZFS pool
-
-Auto-tuned:
-  ZFS ARC:   3 GB (VM reduction applied)
-  Inotify:   262,144 watches
-```
-
----
-
-## Troubleshooting by Hardware Type
-
-### Raspberry Pi
-
-- Use ext4 instead of ZFS for ZFS-on-sdcard setups
-- Boot from SSD rather than microSD if possible
-- Limit ZFS ARC manually if RAM < 4 GB
-
-### Low RAM (< 8 GB)
-
-- ARC is automatically reduced
-- Monitor swap usage
-
-### Virtualised Systems
-
-- Pass disks through directly (HBA passthrough) rather than using virtual disks
-- Do not nest ZFS (host on ZFS + VM using ZFS = poor performance and potential corruption)
-- Allocate at least 8 GB RAM to the VM
-- Use virtio drivers
-
-### Old Hardware (pre-2015)
-
-- Use ext4 or XFS instead of ZFS if CPU is a bottleneck
-- Reduce worker threads in system settings
+- 32-bit CPUs.
+- BIOS-only machines.
+- A RAID controller that cannot pass disks through, if you want ZFS to protect your data.
+- Less than 8 GB of memory: the installer does not refuse, but the system with a database, containers and ZFS has no room.

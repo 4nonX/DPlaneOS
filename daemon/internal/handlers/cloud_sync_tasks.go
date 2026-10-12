@@ -264,6 +264,12 @@ func startCloudTask(t CloudSyncTask, dryRun bool, user string) (string, error) {
 	addCloudJob(cj)
 
 	jobID := jobs.Start("cloud_sync", func(j *jobs.Job) {
+		// "Running" until everything about the run is recorded.
+		defer func() {
+			cloudTasksMu.Lock()
+			delete(cloudTasksRunning, t.ID)
+			cloudTasksMu.Unlock()
+		}()
 		started := time.Now()
 		out, err := runRcloneTransfer(args...)
 		now := time.Now()
@@ -274,9 +280,6 @@ func startCloudTask(t CloudSyncTask, dryRun bool, user string) (string, error) {
 				msg = err.Error()
 			}
 		}
-		cloudTasksMu.Lock()
-		delete(cloudTasksRunning, t.ID)
-		cloudTasksMu.Unlock()
 		if !dryRun {
 			_ = modifyCloudTasks(func(all []CloudSyncTask) ([]CloudSyncTask, error) {
 				for i := range all {

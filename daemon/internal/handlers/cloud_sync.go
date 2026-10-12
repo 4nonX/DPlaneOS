@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -23,10 +24,11 @@ type CloudSyncHandler struct{}
 
 func NewCloudSyncHandler() *CloudSyncHandler { return &CloudSyncHandler{} }
 
-const rcloneConfig = "/etc/dplaneos/rclone.conf"
+// Replaced in tests.
+var rcloneConfig = "/etc/dplaneos/rclone.conf"
 
 func ensureConfigDir() error {
-	return os.MkdirAll("/etc/dplaneos", 0700)
+	return os.MkdirAll(filepath.Dir(rcloneConfig), 0700)
 }
 
 // runRclone executes rclone with our config file
