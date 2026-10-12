@@ -772,9 +772,11 @@ pkgs.testers.nixosTest {
             nas.succeed("ip -4 -o addr show dev eth0 | grep -q 'inet 10.0.2.'")
             nas.succeed("resolvectl dns | grep -F 'Global' | grep -qF '9.9.9.9'")
             nas.succeed("systemctl is-active dplaneos-network.service")
-            # Back to DHCP and without VLAN: no file of ours is left.
+            # Without the VLAN, and with the address the client knows: a
+            # change after the restart works like one before it. (Not DHCP:
+            # nothing hands out addresses on this test network.)
             ok(api("DELETE", "/api/network/vlan", {"interface": "eth1.100"}), "delete VLAN 100")
-            ok(api("PUT", "/api/system/network", {"action": "configure", "interface": "eth1", "dhcp": True}), "eth1 back to DHCP")
+            ok(api("PUT", "/api/system/network", {"action": "configure", "interface": "eth1", "address": NAS + "/24"}), "eth1 back to its address")
             ok(api("POST", "/api/network/confirm", {}), "confirm")
             nas.fail("ip link show eth1.100")
             nas.wait_until_fails("ip -4 -o addr show dev eth1 | grep -qw 10.55.0.2/24", timeout=30)
@@ -783,7 +785,7 @@ pkgs.testers.nixosTest {
             nas.wait_until_succeeds(SMBCLIENT + f" //localhost/data -U alice%{USER_PASSWORD2} -c 'get from-alice.txt /tmp/back'", timeout=90)
             assert nas.succeed("id -u alice").strip() == alice_uid
             nas.succeed("id -nG alice | grep -qw family")
-            # eth1 has its own address again: the client reaches the system.
+            # eth1 has the first address again: the client reaches the system.
             client.wait_until_succeeds(FETCH + f"http://{NAS}:8088/", timeout=60)
             client.fail(FETCH + f"http://{NAS}:8089/")
             # SSH on its port, with the administrator's key.

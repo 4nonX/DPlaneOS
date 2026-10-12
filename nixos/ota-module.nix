@@ -12,7 +12,7 @@
 # generation stays installed to go back to. See docs/admin/OTA-UPDATES.md.
 # ─────────────────────────────────────────────────────────────────────────────
 
-{ config, lib, pkgs, ... }:
+{ config, lib, pkgs, options, ... }:
 
 let
   cfg = config.services.dplaneos;
@@ -130,7 +130,9 @@ in {
 
     # Every system knows its version: the running one, and each generation
     # that is installed next to it.
-    system.extraSystemBuilderCmds = ''
+    # (nixpkgs renamed the option; both names are served, without the
+    # warning the old one prints on a newer nixpkgs.)
+    system.${if options.system ? systemBuilderCommands then "systemBuilderCommands" else "extraSystemBuilderCmds"} = ''
       echo ${lib.escapeShellArg cfg.ota.version} > $out/dplaneos-version
     '';
 
