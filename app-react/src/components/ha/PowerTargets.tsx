@@ -245,7 +245,8 @@ export function PowerFencingCard() {
       <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', margin: '8px 0 14px' }}>
         One entry per other node, on every node that may take over. A node without an entry is never switched off by this
         one: a takeover from it relies on the watchdog. The BMC of <em>this</em> system (sensors, power buttons) is set under
-        System, IPMI.
+        System, IPMI. Saving or removing an entry needs a sign-in with a second factor (Security, Security Settings):
+        this is the setting that can switch a machine off.
       </p>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 14 }}>

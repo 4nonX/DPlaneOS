@@ -330,13 +330,15 @@ pkgs.testers.nixosTest {
             # Power fencing: nothing configured, the other node is offered.
             targets = ok(api(a, "GET", "/api/ha/power-targets"), "power targets")
             assert targets["targets"] == [] and [n["name"] for n in targets["nodes_without"]] == ["b"], targets
-            # A BMC that is not there: stored, and the test says it does not answer.
-            ok(api(a, "PUT", "/api/ha/power-targets/" + peer_b, {"kind": "bmc", "enabled": False, "host": "192.0.2.77", "username": "admin", "password": "x"}), "save target")
+            # How another machine is switched off is changed only by a
+            # session with a second factor: a password alone is refused.
+            refused = api(a, "PUT", "/api/ha/power-targets/" + peer_b, {"kind": "bmc", "enabled": True, "host": "192.0.2.77", "username": "admin", "password": "x"})
+            assert refused.get("code") == "aal2_required", refused
+            assert ok(api(a, "GET", "/api/ha/power-targets"), "power targets")["targets"] == []
+            # A node without an entry: the test says so, and fencing it is
+            # refused by name rather than done to another machine.
             test = ok(api(a, "POST", "/api/ha/power-targets/" + peer_b + "/test", {}), "test target")["result"]
-            assert test["ok"] is False and "192.0.2.77" in test["detail"], test
-            stored = a.succeed("sudo -u postgres psql -d dplaneos -tAc 'SELECT password FROM power_targets'").strip()
-            assert len(stored) > 8 and stored != "x", "the BMC password is not stored sealed"
-            ok(api(a, "DELETE", "/api/ha/power-targets/" + peer_b), "remove target")
+            assert test["ok"] is False and "nothing is configured" in test["detail"], test
 
         with subtest("Maintenance: a hands its group to b, takes nothing, and nothing comes back by itself"):
             peer_a_key = group(a)["owner"]
