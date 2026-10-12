@@ -83,6 +83,9 @@ EOF
 
 mkdir "${work}/outer"
 tar -cf "${work}/outer/update.tar" -C "${work}/payload" --sort=name --owner=0 --group=0 --numeric-owner metadata.json cache
+# The payload is in the archive now: its copy on disk is not needed any more
+# (a build machine has room for the update file once, not three times).
+rm -rf "${work}/payload"
 ( cd "${work}/outer" && sha256sum update.tar > update.tar.sha256 )
 openssl pkeyutl -sign -inkey "${key}" -rawin -in "${work}/outer/update.tar.sha256" -out "${work}/outer/update.tar.sha256.sig"
 # What goes out must be what systems accept.

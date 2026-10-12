@@ -1214,7 +1214,12 @@ jobs:
           SYSTEM_PATH=$(nix eval --raw ".#nixosConfigurations.dplaneos-for-iso.config.system.build.toplevel")
           KEY="$RUNNER_TEMP/update-signing.pem"
           ( umask 077; printf '%s\n' "$UPDATE_SIGNING_KEY" > "$KEY" )
-          UPDATE_SIGNING_KEY_FILE="$KEY" bash scripts/make-update-file.sh "$SYSTEM_PATH" "$VERSION" .
+          # Work where the space is: the runner's free space was made part of
+          # /nix, the root file system has only a few GB left.
+          BIG=/nix/dplaneos-update-work
+          sudo mkdir -p "$BIG" && sudo chown "$(id -u):$(id -g)" "$BIG"
+          df -h / /nix | sed 's/^/  /'
+          TMPDIR="$BIG" UPDATE_SIGNING_KEY_FILE="$KEY" bash scripts/make-update-file.sh "$SYSTEM_PATH" "$VERSION" .
           rm -f "$KEY"
           UPDATE_FILE="dplaneos-v${VERSION}-$(uname -m).update"
           test -s "$UPDATE_FILE"
@@ -1222,7 +1227,7 @@ jobs:
           # A system that has nothing of this release must be able to get all
           # of it from the update file and the public cache (dry run: what
           # would be fetched; fails if any path has no source).
-          CHECK="$RUNNER_TEMP/update-check"
+          CHECK="$BIG/update-check"
           mkdir -p "$CHECK"
           tar -xf "$UPDATE_FILE" -C "$CHECK" update.tar
           tar -xf "$CHECK/update.tar" -C "$CHECK"
@@ -1230,6 +1235,7 @@ jobs:
             --option substituters "file://$CHECK/cache?trusted=true https://cache.nixos.org/" \
             --option require-sigs true 2>&1 | tail -n 5
           rm -rf "$CHECK"
+          sudo rm -rf "$BIG"
           echo "update_file=${UPDATE_FILE}" >> "$GITHUB_OUTPUT"
 
       - name: Upload ISO artifact for signing in release job
@@ -1367,7 +1373,12 @@ jobs:
           SYSTEM_PATH=$(nix eval --raw ".#nixosConfigurations.dplaneos-arm.config.system.build.toplevel")
           KEY="$RUNNER_TEMP/update-signing.pem"
           ( umask 077; printf '%s\n' "$UPDATE_SIGNING_KEY" > "$KEY" )
-          UPDATE_SIGNING_KEY_FILE="$KEY" bash scripts/make-update-file.sh "$SYSTEM_PATH" "$VERSION" .
+          # Work where the space is: the runner's free space was made part of
+          # /nix, the root file system has only a few GB left.
+          BIG=/nix/dplaneos-update-work
+          sudo mkdir -p "$BIG" && sudo chown "$(id -u):$(id -g)" "$BIG"
+          df -h / /nix | sed 's/^/  /'
+          TMPDIR="$BIG" UPDATE_SIGNING_KEY_FILE="$KEY" bash scripts/make-update-file.sh "$SYSTEM_PATH" "$VERSION" .
           rm -f "$KEY"
           UPDATE_FILE="dplaneos-v${VERSION}-$(uname -m).update"
           test -s "$UPDATE_FILE"
@@ -1375,7 +1386,7 @@ jobs:
           # A system that has nothing of this release must be able to get all
           # of it from the update file and the public cache (dry run: what
           # would be fetched; fails if any path has no source).
-          CHECK="$RUNNER_TEMP/update-check"
+          CHECK="$BIG/update-check"
           mkdir -p "$CHECK"
           tar -xf "$UPDATE_FILE" -C "$CHECK" update.tar
           tar -xf "$CHECK/update.tar" -C "$CHECK"
@@ -1383,6 +1394,7 @@ jobs:
             --option substituters "file://$CHECK/cache?trusted=true https://cache.nixos.org/" \
             --option require-sigs true 2>&1 | tail -n 5
           rm -rf "$CHECK"
+          sudo rm -rf "$BIG"
           echo "update_file=${UPDATE_FILE}" >> "$GITHUB_OUTPUT"
 
       - name: Upload arm64 ISO artifact for signing in release job
