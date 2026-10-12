@@ -45,6 +45,8 @@ interface User {
   source?:        string
   /** SMB and FTP sign-in: ready, or why not yet. */
   file_access?:   'ready' | 'sign_in' | 'name' | 'directory' | 'disabled'
+  /** Signs in with a second factor (TOTP). */
+  two_factor?:    boolean
 }
 
 const FILE_ACCESS: Record<string, { label: string; cls: string; title: string }> = {
@@ -285,6 +287,13 @@ function UsersTab() {
   const [resetUser, setResetUser] = useState<User | null>(null)
   const [deletingUser, setDeletingUser] = useState<User | null>(null)
   const [rolesUser, setRolesUser] = useState<User | null>(null)
+  const { confirm, ConfirmDialog: ConfirmUsers } = useConfirm()
+
+  const resetTwoFactor = useMutation({
+    mutationFn: (u: User) => api.post<{ success: boolean; message?: string }>(`/api/users/${u.id}/reset-two-factor`, {}),
+    onSuccess: (res) => { toast.success(res.message ?? 'Two-factor sign-in reset'); qc.invalidateQueries({ queryKey: ['rbac', 'users'] }) },
+    onError: (e: Error) => toast.error(e.message),
+  })
 
   const usersQ = useQuery({
     queryKey: ['rbac', 'users'],
@@ -354,6 +363,19 @@ function UsersTab() {
                       <button onClick={() => setEditUser(u)} className="btn btn-ghost" title="Edit user"><Icon name="edit" size={14} /></button>
                       <button onClick={() => setRolesUser(u)} className="btn btn-ghost" title="Roles"><Icon name="shield" size={14} /></button>
                       <button onClick={() => setResetUser(u)} className="btn btn-ghost" title="Reset password" style={{ color: 'var(--warning, #f59e0b)' }}><Icon name="lock_reset" size={14} /></button>
+                      {u.two_factor && (
+                        <button className="btn btn-ghost" title="Reset two-factor sign-in (the user lost the authenticator)" style={{ color: 'var(--warning, #f59e0b)' }}
+                          disabled={resetTwoFactor.isPending}
+                          onClick={async () => {
+                            if (await confirm({
+                              title: `Reset two-factor sign-in of ${u.username}?`,
+                              message: `For a user who lost the authenticator and the backup codes. ${u.username} then signs in with the password alone, until two-factor sign-in is set up again; open sessions of the account end. Make sure the request really comes from ${u.username}.`,
+                              danger: true, confirmLabel: 'Reset two-factor sign-in',
+                            })) resetTwoFactor.mutate(u)
+                          }}>
+                          <Icon name="phonelink_erase" size={14} />
+                        </button>
+                      )}
                       <button onClick={() => setDeletingUser(u)} className="btn btn-danger" title="Delete user"><Icon name="delete" size={14} /></button>
                     </div>
                   </td>
@@ -381,6 +403,7 @@ function UsersTab() {
           onClose={() => setDeletingUser(null)}
         />
       )}
+      <ConfirmUsers />
     </>
   )
 }

@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"database/sql"
+	"dplaned/internal/audit"
 	"dplaned/internal/fileaccounts"
 	"dplaned/internal/gitops"
 	"dplaned/internal/middleware"
@@ -72,7 +73,8 @@ func (h *UserGroupHandler) listUsers(w http.ResponseWriter, r *http.Request) {
 
 	rows, err := h.db.Query(`SELECT id, username, COALESCE(email,''), COALESCE(role,'user'), active, COALESCE(TO_CHAR(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), ''),
 		COALESCE(source,'local'), COALESCE(nt_hash,'') <> '',
-		COALESCE(TO_CHAR(last_login AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), '') FROM users ORDER BY id`)
+		COALESCE(TO_CHAR(last_login AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), ''),
+		COALESCE(totp_enabled, 0) = 1 FROM users ORDER BY id`)
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, "Failed to list users", err)
 		return
@@ -83,8 +85,8 @@ func (h *UserGroupHandler) listUsers(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var id, active int
 		var username, email, role, createdAt, source, lastLogin string
-		var hasFilePassword bool
-		if err := rows.Scan(&id, &username, &email, &role, &active, &createdAt, &source, &hasFilePassword, &lastLogin); err != nil {
+		var hasFilePassword, twoFactor bool
+		if err := rows.Scan(&id, &username, &email, &role, &active, &createdAt, &source, &hasFilePassword, &lastLogin, &twoFactor); err != nil {
 			log.Printf("USER LIST SCAN ERROR: %v", err)
 			continue
 		}
@@ -110,6 +112,7 @@ func (h *UserGroupHandler) listUsers(w http.ResponseWriter, r *http.Request) {
 			"last_login":  lastLogin,
 			"source":      source,
 			"file_access": fileAccess,
+			"two_factor":  twoFactor,
 		})
 	}
 	if err := rows.Err(); err != nil {
@@ -593,6 +596,83 @@ func (h *UserGroupHandler) ResetUserPassword(w http.ResponseWriter, r *http.Requ
 	respondJSON(w, http.StatusOK, map[string]any{
 		"success": true,
 		"message": fmt.Sprintf("Password reset for %s - user must set a new password on next login", username),
+	})
+}
+
+// ResetUserTwoFactor switches two-factor sign-in off for a user who lost
+// the authenticator and the backup codes. The user signs in with the
+// password alone afterwards and sets it up again.
+// POST /api/users/{id}/reset-two-factor
+//
+// Like resetting a password this is taking the account over, so the same
+// rules apply: the requester's own session must have a second factor (the
+// route), and the requester must rank above the account. One's own second
+// factor is switched off on one's own Security page, with the password and
+// a code.
+func (h *UserGroupHandler) ResetUserTwoFactor(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.Atoi(mux.Vars(r)["id"])
+	if err != nil {
+		respondErrorSimple(w, "Invalid user ID", http.StatusBadRequest)
+		return
+	}
+	u := r.Context().Value(middleware.UserContextKey)
+	if u == nil {
+		respondErrorSimple(w, "Unauthorized (No user context)", http.StatusUnauthorized)
+		return
+	}
+	requester := u.(*middleware.User).Username
+
+	var username, targetRole string
+	var enabled bool
+	if err := h.db.QueryRow(`SELECT username, COALESCE(role,'user'), COALESCE(totp_enabled, 0) = 1 FROM users WHERE id = $1`, id).
+		Scan(&username, &targetRole, &enabled); err != nil {
+		respondErrorSimple(w, "User not found", http.StatusNotFound)
+		return
+	}
+	if username == requester {
+		respondErrorSimple(w, "Switch your own two-factor sign-in off on your Security page (it asks for your password and a code)", http.StatusBadRequest)
+		return
+	}
+	var reqRole string
+	if err := h.db.QueryRow(`SELECT COALESCE(role,'user') FROM users WHERE username = $1`, requester).Scan(&reqRole); err != nil {
+		respondErrorSimple(w, "Error verifying requester", http.StatusInternalServerError)
+		return
+	}
+	if !mayManage(reqRole, targetRole) {
+		respondErrorSimple(w, fmt.Sprintf("Higher privileges required to reset the two-factor sign-in of %s accounts", targetRole), http.StatusForbidden)
+		return
+	}
+	if !enabled {
+		respondErrorSimple(w, username+" has no two-factor sign-in to reset", http.StatusConflict)
+		return
+	}
+
+	tx, err := h.db.Begin()
+	if err != nil {
+		respondErrorSimple(w, "Internal error", http.StatusInternalServerError)
+		return
+	}
+	defer tx.Rollback() //nolint:errcheck
+	// The secret and the backup codes go; a session opened with them ends.
+	for _, q := range []string{
+		`DELETE FROM totp_secrets WHERE user_id = $1`,
+		`UPDATE users SET totp_enabled = 0 WHERE id = $1`,
+		`DELETE FROM sessions WHERE username = (SELECT username FROM users WHERE id = $1)`,
+	} {
+		if _, err := tx.Exec(q, id); err != nil {
+			log.Printf("RESET TWO-FACTOR: %s: %v", username, err)
+			respondErrorSimple(w, "Failed to reset two-factor sign-in", http.StatusInternalServerError)
+			return
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		respondErrorSimple(w, "Failed to reset two-factor sign-in", http.StatusInternalServerError)
+		return
+	}
+	audit.LogActivity(requester, "user_two_factor_reset", map[string]any{"user": username})
+	respondOK(w, map[string]any{
+		"success": true,
+		"message": fmt.Sprintf("Two-factor sign-in of %s is off; the user signs in with the password and can set it up again", username),
 	})
 }
 

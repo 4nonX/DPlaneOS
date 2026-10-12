@@ -1203,6 +1203,7 @@ func main() {
 	r.Handle("/api/rbac/users", permRoute("users", "read", userGroupHandler.HandleUsers)).Methods("GET")
 	r.Handle("/api/rbac/users", permRoute("users", "write", userGroupHandler.HandleUsers)).Methods("POST")
 	r.Handle("/api/users/{id}/reset-password", middleware.RequireAAL2(permRoute("users", "write", userGroupHandler.ResetUserPassword))).Methods("POST")
+	r.Handle("/api/users/{id}/reset-two-factor", middleware.RequireAAL2(permRoute("users", "write", http.HandlerFunc(userGroupHandler.ResetUserTwoFactor)))).Methods("POST")
 	r.Handle("/api/rbac/groups", permRoute("users", "read", userGroupHandler.HandleGroups)).Methods("GET")
 	r.Handle("/api/rbac/groups", permRoute("users", "write", userGroupHandler.HandleGroups)).Methods("POST")
 

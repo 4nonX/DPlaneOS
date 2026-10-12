@@ -158,45 +158,24 @@ TOTP (Time-based One-Time Password) adds a second factor to login. After enterin
 
 DPlaneOS implements RFC 6238 TOTP: 6-digit codes, 30-second period, SHA-1 HMAC, with clock tolerance of ±1 step (allows up to 30 seconds of clock skew between the NAS and the user's device).
 
-### Enabling TOTP for Your Account
+### Enabling it for your account
 
-1. Settings: Account: Two-Factor Authentication: Enable
-2. Scan the QR code with an authenticator app (Google Authenticator, Authy, 1Password, Bitwarden, etc.)
-3. Enter the current 6-digit code to confirm the setup
-4. Copy and store the 8 backup codes shown - these are shown only once
+**Security › Security Settings › 2FA / TOTP**
 
-TOTP is per-account. An admin can require TOTP for all users in Settings: Security.
+1. Scan the QR code with an authenticator app (any that supports TOTP). The code is drawn in your browser; the secret is not sent anywhere else.
+2. Enter the current 6-digit code to confirm.
+3. Store the backup codes that are shown: this is the only time they are shown.
 
-### Enforcing TOTP Org-Wide
+Two-factor sign-in is per account; each user enables it for themselves. Some operations (destroying a pool, resetting another user's password or second factor, fencing and BMC settings) are only available to accounts that signed in with a second factor: enable it for every administrator.
 
-Settings: Security: Require 2FA: Enable.
+### Backup codes
 
-When enabled:
-- Existing users without TOTP are prompted to enroll on next login
-- New users are required to set up TOTP before accessing any other page
-- The local admin (user ID 1) is exempt from org-wide enforcement so the account is always recoverable
+Eight single-use codes are made at setup, and stored as hashes. Each one works once in place of a code from the app. After using one because the device is lost, switch two-factor sign-in off and set it up again with a new device (the same page; it asks for your password and a code).
 
-### Backup Codes
+### A lost authenticator
 
-On TOTP setup, 8 single-use backup codes are generated. Each code:
-- Is 8 characters (alphanumeric, case-insensitive)
-- Can only be used once
-- Is stored as a bcrypt hash (the plaintext is shown only during setup)
-- Bypasses the TOTP requirement entirely
-
-Use a backup code if your authenticator device is lost. After using a backup code, re-enroll TOTP immediately (delete and re-setup via `DELETE /api/auth/totp/setup` followed by `POST`).
-
-### Admin Reset (Account Recovery)
-
-There is no in-app admin path for resetting another user's TOTP. If a non-admin user loses both their authenticator and all backup codes, an admin must disable TOTP directly in the database:
-
-```sql
-UPDATE totp_secrets SET enabled = 0 WHERE user_id = <id>;
-```
-
-This forces re-enrollment on the user's next login.
-
-If user 1 (the local admin) is locked out, use SSH access to the NAS and the `dplaneos-recovery` CLI tool (option 5: Reset Admin Password, available when logged in as root via SSH).
+- **A user** who lost the authenticator and the backup codes: an administrator opens **Identity › Users & Groups** and uses *Reset two-factor sign-in* on that user. The user's sessions end; the user signs in with the password alone and sets two-factor sign-in up again. The administrator's own session must have a second factor, and the reset is recorded in the audit log.
+- **The administrator** who lost theirs: another administrator does the same. If there is none, use the installation medium: *Reset the administrator password of an installed system* also switches two-factor sign-in off for the administrator ([Recovery](RECOVERY.md#1-lost-administrator-password)). That needs the machine itself.
 
 ### TOTP API
 
@@ -206,6 +185,7 @@ POST   /api/auth/totp/setup   # confirm setup with a valid 6-digit TOTP code; re
 DELETE /api/auth/totp/setup   # disable TOTP (requires password + current TOTP code in body)
 
 POST   /api/auth/totp/verify  # step 2 of login: exchange pending_token + TOTP code for a session
+POST   /api/users/{id}/reset-two-factor   # an administrator switches it off for a user who lost the device
 ```
 
 ### Login Flow with TOTP

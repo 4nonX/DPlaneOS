@@ -254,3 +254,63 @@ func TestGroupsWebUIShape(t *testing.T) {
 		t.Errorf("delete again: %s", r)
 	}
 }
+
+// A user who lost the authenticator is let back in by an administrator, and
+// by nobody of lower rank; one's own second factor is not reset this way.
+func TestResetUserTwoFactor(t *testing.T) {
+	e := newUserEnv(t)
+	reset := func(as string, id int) resp {
+		return call(t, e.h.ResetUserTwoFactor, req{method: "POST", user: as, vars: map[string]string{"id": strconv.Itoa(id)}})
+	}
+	enable := func(id int, name string) {
+		t.Helper()
+		if _, err := e.db.Exec(`INSERT INTO totp_secrets (user_id, secret, enabled, backup_codes) VALUES ($1, 'sealed', 1, '[]')`, id); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := e.db.Exec(`UPDATE users SET totp_enabled = 1 WHERE id = $1`, id); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := e.db.Exec(`INSERT INTO sessions (session_id, user_id, username, created_at, expires_at, status) VALUES ($1, $2, $3, 0, 9999999999, 'active')`,
+			"session-of-"+name, id, name); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Nothing to reset.
+	if r := reset("root-admin", e.user); r.code != 409 {
+		t.Errorf("a user without two-factor sign-in: %s", r)
+	}
+	enable(e.user, "regular")
+	enable(e.admin, "root-admin")
+
+	if r := reset("regular", e.admin); r.code != 403 {
+		t.Errorf("a user resetting an administrator's second factor: %s", r)
+	}
+	if r := reset("root-admin", e.admin); r.code != 400 {
+		t.Errorf("resetting one's own second factor this way: %s", r)
+	}
+	if r := reset("root-admin", 999999); r.code != 404 {
+		t.Errorf("unknown user: %s", r)
+	}
+	if r := reset("root-admin", e.user); !r.ok() {
+		t.Fatalf("reset: %s", r)
+	}
+	var secrets, sessions, enabled int
+	_ = e.db.QueryRow(`SELECT COUNT(*) FROM totp_secrets WHERE user_id = $1`, e.user).Scan(&secrets)
+	_ = e.db.QueryRow(`SELECT COUNT(*) FROM sessions WHERE username = 'regular'`).Scan(&sessions)
+	_ = e.db.QueryRow(`SELECT totp_enabled FROM users WHERE id = $1`, e.user).Scan(&enabled)
+	if secrets != 0 || sessions != 0 || enabled != 0 {
+		t.Errorf("after the reset: %d secrets, %d sessions, totp_enabled=%d", secrets, sessions, enabled)
+	}
+	// The administrator's own are untouched.
+	_ = e.db.QueryRow(`SELECT COUNT(*) FROM totp_secrets WHERE user_id = $1`, e.admin).Scan(&secrets)
+	_ = e.db.QueryRow(`SELECT COUNT(*) FROM sessions WHERE username = 'root-admin'`).Scan(&sessions)
+	if secrets != 1 || sessions != 1 {
+		t.Errorf("the requester's own second factor or session was touched: %d secrets, %d sessions", secrets, sessions)
+	}
+	// The list says who signs in with a second factor.
+	list := call(t, e.h.HandleUsers, req{user: "root-admin"})
+	if !list.ok() || strings.Count(list.raw, `"two_factor":true`) != 1 {
+		t.Errorf("list: %s", list)
+	}
+}
