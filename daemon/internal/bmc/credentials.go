@@ -17,7 +17,7 @@ import (
 const Self = ""
 
 // ErrNotConfigured: no BMC address is stored.
-var ErrNotConfigured = errors.New("no BMC is configured for this system (Hardware, IPMI: BMC settings)")
+var ErrNotConfigured = errors.New("no BMC is configured for this system (System, IPMI: BMC settings)")
 
 // LoadFromDB reads the credentials and the pinned TLS certificate of this
 // system's own BMC.

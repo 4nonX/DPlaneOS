@@ -91,7 +91,7 @@ func (h *BMCHandler) Enroll(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		respondGuided(w, http.StatusPreconditionFailed, guidedError{
 			Error:  "BMC not configured: " + err.Error(),
-			Guide:  "Enter the address, user name and password of this system's BMC under Hardware, IPMI, then retry.",
+			Guide:  "Enter the address, user name and password of this system's BMC under System, IPMI, then retry.",
 			Code:   "bmc_not_configured",
 			Action: "configure_bmc",
 		})

@@ -94,6 +94,11 @@ failover, replicated groups, quorum and votes, the live image.
   page); before, that took a statement typed into the database.
 - CHAP secrets and compose files are not part of a storage group's status;
   unit control from the API goes through the command allowlist.
+- `zfs` and `zpool` have a rule in the command allowlist under their own
+  names (the subcommands the daemon runs, no line breaks in arguments);
+  about eighty calls ran outside it and wrote a security warning into the
+  log on every use. No command with a rule of its own is run outside the
+  allowlist any more, and the VM tests fail on that warning.
 
 #### Fixed: did not work on an installed system
 

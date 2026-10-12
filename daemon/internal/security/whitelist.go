@@ -180,6 +180,18 @@ var CommandWhitelist = map[string]Command{
 		Path:        "docker",
 		Description: "docker compose on a project under the allowed directories (validateDockerCompose)",
 	},
+	"docker_info_driver": {
+		Name:        "docker_info_driver",
+		Path:        "docker",
+		AllowedArgs: []string{"info", "--format", "{{.Driver}}"},
+		Description: "Which storage driver Docker uses (pre-flight check)",
+	},
+	"docker_volume_prune": {
+		Name:        "docker_volume_prune",
+		Path:        "docker",
+		AllowedArgs: []string{"volume", "prune", "-f"},
+		Description: "Remove Docker volumes no container uses (Sandbox page)",
+	},
 	"docker_cli": {
 		Name:        "docker_cli",
 		Path:        "docker",
@@ -754,6 +766,18 @@ var CommandWhitelist = map[string]Command{
 		ArgPatterns: []*regexp.Regexp{regexp.MustCompile(`^[a-zA-Z0-9_\-\.]+$`)}, // service name
 		Description: "Get service status",
 	},
+	// zfs and zpool by their own names: what the many callers run that have
+	// no narrower rule of their own (validateZFSCommand).
+	"zfs": {
+		Name:        "zfs",
+		Path:        "zfs",
+		Description: "ZFS dataset commands (subcommand allowlist, see validateZFSCommand)",
+	},
+	"zpool": {
+		Name:        "zpool",
+		Path:        "zpool",
+		Description: "ZFS pool commands (subcommand allowlist, see validateZFSCommand)",
+	},
 	"journalctl": {
 		Name:        "journalctl",
 		Path:        "journalctl",
@@ -1092,6 +1116,8 @@ func ValidateCommand(cmdName string, args []string) error {
 		return validateSystemctlUnit(args)
 	case "journalctl":
 		return validateJournalctl(args)
+	case "zfs", "zpool":
+		return validateZFSCommand(cmdName, args)
 	case "zpool_online", "zpool_add_cache", "zpool_add_log", "zpool_remove_device", "hdparm_check", "hdparm_spindown", "hdparm_status", "wipefs", "zpool_labelclear":
 		return validateDeviceBasedCommand(cmdName, args)
 	case "group_address":
@@ -1959,6 +1985,56 @@ func validateSystemctlUnit(args []string) error {
 	}
 	if len(rest) != 1 || !systemctlUnitRe.MatchString(rest[0]) {
 		return fmt.Errorf("systemctl %s: exactly one unit name is needed", verb)
+	}
+	return nil
+}
+
+// The subcommands of zfs and zpool the daemon runs. A subcommand that is
+// not here is refused: the daemon has no business with `zfs program` (a
+// script run inside the kernel) on behalf of a request, or with `zpool
+// reguid`.
+var (
+	zfsSubcommands = map[string]bool{
+		"list": true, "get": true, "set": true, "inherit": true, "create": true, "destroy": true,
+		"snapshot": true, "rollback": true, "clone": true, "promote": true, "rename": true,
+		"mount": true, "unmount": true, "send": true, "receive": true, "recv": true,
+		"hold": true, "release": true, "holds": true,
+		"load-key": true, "unload-key": true, "change-key": true,
+		"allow": true, "unallow": true, // the Delegation page
+		"userspace": true, "groupspace": true, "diff": true, "bookmark": true, "version": true,
+	}
+	zpoolSubcommands = map[string]bool{
+		"list": true, "status": true, "get": true, "set": true, "create": true, "destroy": true,
+		"import": true, "export": true, "scrub": true, "trim": true, "clear": true,
+		"online": true, "offline": true, "replace": true, "attach": true, "detach": true,
+		"add": true, "remove": true, "labelclear": true, "checkpoint": true, "events": true,
+		"history": true, "split": true, "upgrade": true, "sync": true, "reopen": true,
+		"initialize": true, "iostat": true, "version": true,
+	}
+)
+
+// validateZFSCommand is the rule for zfs and zpool run under their own
+// names. Dataset, pool and property names are validated by the callers
+// (they know which argument is which); what is checked here holds for
+// every call: the subcommand is one the daemon uses, and no argument
+// carries a line break or a NUL (a name with one would be read by zfs as
+// something else than what was validated, or end up as two lines in a
+// log).
+func validateZFSCommand(cmdName string, args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("%s: a subcommand is needed", cmdName)
+	}
+	allowed := zfsSubcommands
+	if cmdName == "zpool" {
+		allowed = zpoolSubcommands
+	}
+	if !allowed[args[0]] {
+		return fmt.Errorf("%s %s is not a command the daemon runs", cmdName, args[0])
+	}
+	for _, a := range args {
+		if len(a) > 4096 || strings.ContainsAny(a, "\x00\n\r") {
+			return fmt.Errorf("%s %s: an argument has a line break or is too long", cmdName, args[0])
+		}
 	}
 	return nil
 }

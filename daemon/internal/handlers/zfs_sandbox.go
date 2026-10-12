@@ -20,7 +20,7 @@ func NewZFSSandboxHandler() *ZFSSandboxHandler {
 // SandboxInfo represents an active sandbox
 type SandboxInfo struct {
 	Name       string `json:"name"`
-	Origin     string `json:"origin"`     // parent snapshot
+	Origin     string `json:"origin"` // parent snapshot
 	Mountpoint string `json:"mountpoint"`
 	Used       string `json:"used"`
 	Creation   string `json:"creation"`
@@ -117,8 +117,8 @@ func (h *ZFSSandboxHandler) ListSandboxes(w http.ResponseWriter, r *http.Request
 	})
 	if err != nil {
 		respondOK(w, map[string]any{
-			"success":    true,
-			"sandboxes":  []any{},
+			"success":   true,
+			"sandboxes": []any{},
 		})
 		return
 	}
@@ -202,16 +202,16 @@ func (h *ZFSSandboxHandler) DestroySandbox(w http.ResponseWriter, r *http.Reques
 	}
 
 	respondOK(w, map[string]any{
-		"success":          true,
-		"destroyed":        req.Sandbox,
-		"origin_cleaned":   cleanedUp,
+		"success":        true,
+		"destroyed":      req.Sandbox,
+		"origin_cleaned": cleanedUp,
 	})
 }
 
 // CleanOrphanVolumes removes orphaned Docker volumes left by sandboxes
 // POST /api/sandbox/cleanup
 func (h *ZFSSandboxHandler) CleanOrphanVolumes(w http.ResponseWriter, r *http.Request) {
-	output, err := executeCommand("docker", []string{"volume", "prune", "-f"})
+	output, err := executeCommand("docker_volume_prune", []string{"volume", "prune", "-f"})
 	if err != nil {
 		respondOK(w, map[string]any{
 			"success": false,
@@ -224,4 +224,3 @@ func (h *ZFSSandboxHandler) CleanOrphanVolumes(w http.ResponseWriter, r *http.Re
 		"output":  strings.TrimSpace(output),
 	})
 }
-

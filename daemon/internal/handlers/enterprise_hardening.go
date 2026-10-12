@@ -377,7 +377,7 @@ func (h *DockerHandler) PreFlightCheck(w http.ResponseWriter, r *http.Request) {
 	checks := []map[string]any{}
 
 	// Check 1: Docker is running
-	_, err := executeCommandWithTimeout(TimeoutFast, "docker", []string{"info", "--format", "{{.Driver}}"})
+	_, err := executeCommandWithTimeout(TimeoutFast, "docker_info_driver", []string{"info", "--format", "{{.Driver}}"})
 	if err != nil {
 		checks = append(checks, map[string]any{"check": "docker_running", "pass": false, "error": "Docker daemon not responding"})
 	} else {
