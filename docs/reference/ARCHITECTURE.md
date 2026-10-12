@@ -1,208 +1,118 @@
 # DPlaneOS System Architecture
 
-This document describes how DPlaneOS is structured at a system level: how state flows from declaration to reality, how the layers interact, and how the architecture changes between a single-node appliance and a multi-node HA cluster.
+This document describes how DPlaneOS is structured at a system level: how state flows from declaration to reality, what runs where, and how a cluster differs from a single node.
 
 If you want to understand the design reasoning before the mechanics, read [PHILOSOPHY.md](PHILOSOPHY.md) first. This document covers the structure; PHILOSOPHY.md covers the why.
 
 ---
 
-## The Three-Layer Model
+## Two descriptions
 
-DPlaneOS is built around a strict separation between declaration, reconciliation, and execution.
+A running DPlaneOS system is the product of two descriptions.
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│  DECLARATION LAYER                                              │
-│  What the system should look like                               │
-│                                                                 │
-│  state.yaml          configuration.nix / flake.nix             │
-│  (runtime config)    (OS-level config)                          │
-└───────────────────────────┬─────────────────────────────────────┘
-                            │ reconcile
-┌───────────────────────────▼─────────────────────────────────────┐
-│  RECONCILIATION LAYER                                           │
-│  Closes the gap between declared and actual state               │
-│                                                                 │
-│  GitOps apply engine      nixos-rebuild switch                  │
-│  (runtime drift check)    (OS drift check + activation)         │
-└───────────────────────────┬─────────────────────────────────────┘
-                            │ execute
-┌───────────────────────────▼─────────────────────────────────────┐
-│  EXECUTION LAYER                                                │
-│  Makes changes happen                                           │
-│                                                                 │
-│  dplaned daemon           NixOS activation scripts             │
-│  zfs / zpool (allowlist)  systemd, kernel modules,             │
-│  allowlist, docker,       Nix store population                  │
-│  samba, nfs, nvmet                                              │
-└─────────────────────────────────────────────────────────────────┘
+ THE RELEASE                                  THE CONFIGURATION
+ one image, built from a tagged commit        what this NAS is set up to do
+ ─────────────────────────────────────        ─────────────────────────────
+ kernel, OpenZFS, Samba, NFS, PostgreSQL,     pools, datasets, shares, users,
+ nginx, Docker, the daemon, the web UI,       schedules, stacks, network and
+ and how they are wired together              system settings
+
+ changes: by a system update                  changes: in the web interface,
+ (the whole image is replaced)                or by applying state.yaml
+
+ lives in: the Nix store on the               lives in: the database on the
+ system partition                             persist partition (and, if you
+                                              want, as state.yaml in Git)
 ```
 
-### Declaration Layer
+The data itself is in ZFS pools on disks of their own, and belongs to neither.
 
-There are two declaration surfaces:
+**The release** is the same for every installation. An installed system has no configuration file of the operating system to edit: what differs between machines (host name, network, firewall, time, SSH) is configuration, applied by the daemon at runtime and again at every start.
 
-**`state.yaml`** - Runtime configuration managed by the daemon and the GitOps engine. Covers everything that changes during normal NAS operation: ZFS datasets and their properties, SMB and NFS shares, NVMe-oF exports, Docker stacks, users and groups, replication schedules, network config, LDAP settings, ACME certificates. This file lives in a Git repository so every change is version-controlled and auditable. **Git is the authoritative source of desired runtime state.** The PostgreSQL database caches a subset of this state (share definitions, user records, replication schedules) for fast reads, but the database is a read cache - it never overrides what is in `state.yaml` and reconciliation always starts from the Git checkout, not from the DB.
+**The configuration** has one home, the database, and two ways in. The web interface changes it directly, with immediate effect. `state.yaml` is the same configuration written down: the daemon compares the file with the running system, shows the difference as a plan, and applies it; *Capture* writes the file from the running system. The drift check runs in the background and shows when the file and the system have moved apart. See the [GitOps Reference](GITOPS-REFERENCE.md).
 
-**`configuration.nix` / `flake.nix`** - OS-level configuration managed by NixOS. Covers everything that is fixed for the lifetime of the appliance: kernel version, ZFS package pin, systemd units, firewall baseline, package set, impermanence rules, Changes here require a NixOS rebuild (either OTA or manual `nixos-rebuild switch`).
+## How a change happens
 
-The division of responsibility is: NixOS owns the platform, the daemon owns the workload, Git owns the desired runtime state.
+Whether a change comes from the web interface or from a plan, the daemon makes it the same way:
 
-### Reconciliation Layer
+1. The request is authenticated, and the route's permission is checked.
+2. Its input is validated (names, paths, addresses).
+3. The configuration is saved, and the system is changed: by running a program from the allowlist (`zfs`, `zpool`, `docker`, `exportfs`, ...), by writing a service's configuration and reloading it, or by writing to the kernel's configuration (block targets, network).
+4. Where the system refuses, what was saved is put back, and the error says why.
+5. The change is recorded in the audit log.
 
-**GitOps apply engine** runs inside the daemon. On every `POST /api/gitops/apply`, it:
+Applying a plan from `state.yaml` adds: the plan is computed first and shown; steps that would destroy data are blocked until approved; steps run in order (create, modify, delete) and stop at the first failure; afterwards the system is read again to verify that it matches.
 
-1. Reads `state.yaml` from the configured Git repository
-2. Reads the current live system state (ZFS, Docker, Samba, NFS, DB)
-3. Computes a diff plan: which items to CREATE, MODIFY, DELETE, or block
-4. Executes the plan transactionally (halt on first failure; already-applied items are safe by design)
-5. Verifies convergence by re-reading live state after apply
+### ZFS
 
-A background detector runs every five minutes and broadcasts drift events to connected UI clients. Operators can also trigger an immediate check or apply via the UI or API.
+`internal/libzfs` is where the daemon's ZFS operations are; despite its name, the installed daemon runs them through the `zfs` and `zpool` commands, through the exec allowlist. That is the path every test of the system exercises.
 
-**`nixos-rebuild switch`** is the OS-layer reconciler. It reads the flake, computes which store paths are needed, builds or fetches them, and atomically activates the new system configuration. OTA updates wrap this in an A/B slot mechanism with automatic health-check rollback.
-
-### Execution Layer
-
-The daemon executes changes through two paths, depending on the operation:
-
-**`internal/libzfs`**: all ZFS operations that change something (datasets, pools, vdevs, snapshots, properties) go through this package, which validates its input and runs the `zfs` and `zpool` commands through the exec allowlist. (An experimental build calls libzfs directly for some of them; see below. It is not what is installed.)
-
-**Exec allowlist (`internal/security/whitelist.go`)**: Operations that have no clean native libzfs equivalent (Docker Compose, Samba reload, NFS exportfs, SSH, network tools, the small set of complex zpool operations) still call external binaries through the allowlist. Only predefined, validated command structures are permitted. There is no shell; every `exec.Command` call is a named binary with a validated argument slice - no shell expansion. A compromised API request cannot execute arbitrary commands.
+`zfs_cgo.go` (`//go:build linux && cgo && libzfs`) calls `libzfs.h` directly for some of the operations. It is experimental and **not installed by any image**: the commands do more than the library calls they end in (unmounting before an export or a destroy, mounting after a create or a clone), and the bindings do not reproduce all of that.
 
 ---
 
-## Security Architecture
+## Security
 
-Security in DPlaneOS is layered. Each layer independently limits what a compromised request or compromised component can do.
+The [Threat Model](THREAT-MODEL.md) is the full account. In short:
 
-### Trust Boundary
-
-The daemon communicates with nginx exclusively through a Unix domain socket (`/run/dplaneos/dplaned.sock`). It is not reachable from the network at all - no TCP port is open for internal plumbing. Everything behind nginx is trusted; everything in front is not.
-
-```
-UNTRUSTED
-  Browser ──── Network ──── Reverse Proxy (TLS terminated)
-                                     │ Unix socket only
-TRUSTED
-  dplaned (Go, /run/dplaneos/dplaned.sock)
-    ├── PostgreSQL (node-local)
-    ├── exec allowlist → zfs / zpool / docker / exportfs / smbcontrol
-    ├── networkdwriter → /etc/systemd/network/
-    └── /dev/disk/by-id/* │ /mnt/* │ /var/lib/dplaneos/
-```
-
-### The Exec Allowlist
-
-For operations that still use subprocess calls (Docker, Samba, NFS, networking tools, and complex ZFS topology operations), every call goes through `internal/security/whitelist.go`, which validates:
-
-1. The binary name (only known tools are permitted)
-2. The subcommand (e.g., `zpool add` is validated with a dedicated argument grammar)
-3. Each argument individually against predefined regex patterns
-
-Arguments are passed to `exec.Command` as a string slice, never as a shell string. There is no `bash -c`, no shell expansion. A request that passes all API-level validation but asks for a command not in the allowlist is rejected before any process is spawned.
-
-Input is validated before it reaches the allowlist. Pool names, dataset names, device paths, and share names each pass through dedicated validators (`ValidatePoolName`, `ValidateDatasetName`, `ValidateDevicePath`) that reject shell metacharacters with HTTP 400 before any command is constructed. Device paths must be stable `/dev/disk/by-id/` paths; short `/dev/sdX` paths are rejected at `state.yaml` parse time, long before execution.
-
-There is no shell anywhere: a command is a binary and a list of arguments, each checked against the allowlist entry for that operation.
-
-### The libzfs Package
-
-`internal/libzfs` is where the daemon's ZFS operations are; despite its name, the installed daemon runs them through the `zfs` and `zpool` commands (`zfs_fallback.go` and `zfs.go`, through the exec allowlist). That is the path every test of the system exercises.
-
-`zfs_cgo.go` (`//go:build linux && cgo && libzfs`) calls `libzfs.h` directly for some of the operations. It is experimental and **not installed by any image**: the commands do more than the library calls they end in (unmounting before an export or a destroy, mounting after a create or a clone), and the bindings do not reproduce all of that. With it, a planned move of a storage group failed with "pool is busy". libzfs is also not a stable interface of OpenZFS.
-
-### Daemon Hardening
-
-The daemon runs as root but constrains itself at the systemd unit level:
-
-- `ProtectSystem=strict`: the NixOS system closure is read-only from the daemon's perspective
-- `NoNewPrivileges=true`: the daemon cannot escalate beyond its initial capabilities
-- `MemoryMax=1G`: bounded memory prevents OOM-triggered system instability
-
-### Authentication and Session Model
-
-Session tokens are 32-byte random values stored hashed in PostgreSQL. They travel in the `X-Session-ID` request header, not a cookie. Browsers cannot auto-submit arbitrary headers cross-origin, which makes the session design inherently CSRF-resistant. HMAC-SHA256 double-submit CSRF tokens are layered on top for defence in depth.
-
-TOTP two-factor authentication is available per user. When enabled, login issues a `pending_totp` session that can only call `/api/auth/totp/verify`; all other routes reject it until the second factor is verified.
-
-**OIDC SSO** uses the Authorization Code flow with PKCE (S256). After the IdP redirect lands on `/api/auth/oidc/callback`, the daemon stores the minted session under a one-time 2-minute handoff code and redirects the browser to `/login?oidc_handoff=<code>`. The SPA exchanges the code via `POST /api/auth/oidc/exchange` and receives `{ session_id, username, expires_at }` - identical in shape to a normal login response. This indirection keeps the session token out of the URL (browser history / access log exposure). The handoff row is consumed atomically with `DELETE ... RETURNING`, preventing replay. OIDC accounts (`source = 'oidc'`) have no local password; their identity is the stable `(issuer, subject)` pair from the IdP.
-
-### RBAC
-
-Four roles (viewer, user, operator, admin) with 31 discrete permissions enforced at the handler level via `permRoute()` middleware. System roles are immutable in the database (`is_system = 1`). Role assignments support expiry dates.
-
-### Audit Chain
-
-Every state-changing operation appends to an audit log stored in PostgreSQL. Each row includes an HMAC-SHA256 hash computed over its content plus the previous row's hash, keyed by a 32-byte key at `/var/lib/dplaneos/audit.key`. The key is stored separately from the database. An attacker with database write access alone cannot forge the chain without also possessing the key. Chain integrity is verifiable at any time via `GET /api/system/audit/verify-chain`.
-
-### Rate Limiting
-
-100 requests per minute per source IP, enforced in-process before any handler runs. Returns HTTP 429 and logs a security event.
+- **The boundary is the API.** nginx serves the interface and passes API requests to the daemon over a Unix socket; the daemon has no network port of its own. Every route needs a session (or an API token) and carries the permission it requires.
+- **No shell.** A command is a program from the allowlist (`internal/security/whitelist.go`) and a list of checked arguments.
+- **The daemon is root**, with `NoNewPrivileges` and nothing else from systemd: it imports pools, mounts datasets and configures the network, so a sandbox around it would have to be full of holes. What limits it is inside it.
+- **Sessions** are random tokens in a request header, with a CSRF token for changing requests; TOTP as a second factor; sign-in attempts throttled per client address.
+- **The audit log** is chained with an HMAC whose key is kept outside the database.
+- **Secrets of integrations** are stored encrypted with a key file on the persist partition.
 
 ---
 
-## The Persistence Model
-
-DPlaneOS uses NixOS impermanence: the root filesystem (`/`) is ephemeral and is replaced on every OTA update. All state that must survive reboots lives on a dedicated `/persist` partition.
+## Where things are
 
 ```
-Boot disk layout (disko.nix):
-├── ESP                 /boot       (EFI, systemd-boot, slot A/B entries)
-├── Slot A              /           (ephemeral ext4, active NixOS closure)
-├── Slot B              /           (ephemeral ext4, standby NixOS closure)
-├── swap
-└── /persist            /persist    (durable ext4, all runtime state)
+System disk (written by the installer, nixos/disko.nix):
+├── ESP        /boot      boot loader (systemd-boot), kernels of the installed versions
+├── system     /          the Nix store: the running version and the previous one
+└── persist    /persist   everything the system remembers
 
-ZFS data disks (separate from boot disk):
-└── tank/               (user data pool, survives any OS reinstall)
+Data disks:
+└── ZFS pools, mounted under /mnt/<pool>
 ```
 
-The `/persist` partition is bind-mounted into the live filesystem at boot. From the daemon's perspective, it writes to `/var/lib/dplaneos`, `/etc/dplaneos`, `/var/lib/docker`, and similar paths - but these are bind-mounts from `/persist` and always land on the durable partition.
-
-Key items on `/persist`:
+Directories on `persist` are bound into place at start (`nixos/impermanence.nix`), so the daemon and the services write to their usual paths:
 
 | Path | Contents |
 |------|----------|
-| `/persist/dplaneos/` | PostgreSQL data, daemon DB, audit HMAC key, gitops repo checkout |
-| `/persist/docker/` (bind to `/var/lib/docker`) | Container state, images, overlay2 volumes |
-| `/persist/samba/` (bind to `/var/lib/samba`) | Samba passdb.tdb, secrets, user accounts |
-| `/persist/ssh/` | NixOS SSH host keys (prevents "host key changed" warnings after OTA) |
-| `/persist/ota/` | A/B slot markers, pending-revert marker, OTA log |
-| `/persist/nixos/` | NixOS UID/GID allocation map (stable ownership across rebuilds) |
+| `/var/lib/dplaneos` | the database (`pgsql/`), keys (`secrets.key`, `audit.key`), certificates (`tls/`), the daemon's SSH key (`ssh/`), Samba and network configuration, saved block targets, the checkout of the configuration repository |
+| `/etc/dplaneos` | cloud remotes, schedules |
+| `/var/lib/docker` | images, containers, volumes that are not on a pool |
+| `/var/lib/samba`, `/var/lib/nfs`, `/etc/target` | state of Samba, NFS and the iSCSI target |
+| `/var/log/dplaneos`, `/var/log/samba` | logs |
 
-ZFS data pools on separate disks are fully independent of this mechanism. A complete reinstall of the boot disk does not touch data pools. After reinstall, run `zpool import -a`.
+A system update replaces what is on `system` and leaves `persist` alone.
 
 ---
 
-## Single-Node Architecture
-
-On a single node, the full stack runs on one machine:
+## One node
 
 ```
-Internet / LAN
-      │
-      ▼
-  [nginx :80/:443]
-      │ proxy /api/ /ws/
-      ▼
-  [dplaned (socket)] ←── WebSocket hub (real-time UI updates)
-      │
-      ├── PostgreSQL (local socket, /var/lib/dplaneos/pgsql/)
-      ├── ZFS via the zfs and zpool commands (exec allowlist)
-      ├── ZED listener (/run/dplaneos/dplaneos.sock, typed dispatch)
-      ├── Docker (unix socket)
-      ├── Samba (smbd, controlled via systemctl + smbcontrol)
-      ├── NFS (kernel nfsd, controlled via exportfs)
-      ├── iSCSI (kernel LIO), NVMe-oF (kernel nvmet)
-      └── rclone (cloud sync, cold tier FUSE mounts)
+ clients
+    │
+    ▼
+ nginx :80/:443 ── static files (the web interface)
+    │ /api/, /ws/
+    ▼
+ dplaned (Unix socket) ── WebSocket hub (live updates in the interface)
+    ├── PostgreSQL (local socket, /var/lib/dplaneos/pgsql)
+    ├── ZFS: the zfs and zpool commands; events from ZED
+    ├── Docker (its socket)
+    ├── Samba, NFS (their configuration, reload)
+    ├── iSCSI (kernel LIO), NVMe-oF (kernel nvmet), FTP, S3
+    ├── network and firewall (systemd-networkd, the kernel's packet filter)
+    └── rclone (cloud sync, remotes mounted as folders), rsync
 ```
 
-**Database**: PostgreSQL runs embedded (single instance, no replication). The daemon connects via `postgres://dplaneos@localhost/dplaneos`. The data directory lives on `/persist`.
+At start, pools are imported (`dplaneos-zfs-import`), the saved system settings and network are applied, the database comes up, then the daemon; the daemon restores what the kernel forgets at a restart (block targets, schedules' timers, floating addresses).
 
-**Failure mode**: If the node goes down, the NAS is unavailable. Data on ZFS pools is safe as long as the pool was cleanly exported. On restart, dplaned reconnects to PostgreSQL, re-imports ZFS pools (via the ZFS gate service), and resumes all operations.
-
-**Upgrades**: OTA updates write to the inactive boot slot. A reboot activates the new system. If the health check fails, the system automatically reverts.
+**Updates**: the new version is installed next to the running one, started once on trial, and kept if the system is healthy; see [System Updates](../admin/OTA-UPDATES.md).
 
 ---
 
@@ -229,7 +139,7 @@ High availability adds nodes without making any node depend on another to work. 
 
 **Quorum.** Corosync votequorum decides membership. Two nodes run in `two_node` mode (no automatic failover); a QDevice (`corosync-qnetd`), a voter (a corosync-only member) or a third DPlaneOS node provides the deciding vote. The daemon renders `corosync.conf`, distributes it to DPlaneOS members over the paired-node channel, and voters pull it with a token ([quorum](../../daemon/internal/quorum)).
 
-**Storage groups.** A group (pools, their shares/exports, apps with pool volumes, NVMe-oF exports of its zvols, a floating address) has exactly one owner and an epoch that rises with every change of owner and fences stale writers. Topologies: shared storage (one pool, imported by the owner, ZFS multihost) and replicated (one pool per node, `zfs send` streams from the owner, read-only copies) ([groups](../../daemon/internal/groups)).
+**Storage groups.** A group (pools, their shares/exports, apps with pool volumes, iSCSI targets and NVMe-oF exports of its volumes, a floating address) has exactly one owner and an epoch that rises with every change of owner and fences stale writers. Topologies: shared storage (one pool, imported by the owner, ZFS multihost) and replicated (one pool per node, `zfs send` streams from the owner, read-only copies) ([groups](../../daemon/internal/groups)).
 
 **Protection layers** ([ADR-0009](../design/adr/ADR-0009-fencing-layers.md)): the watchdog (a storage owner that loses quorum stops resetting it and is restarted; the takeover waits the watchdog timeout plus a margin), ZFS multihost, SCSI-3 persistent reservations where the disks support them, and optional power fencing (IPMI/Redfish, PDU). Missing layers are reported, not required; automatic failover needs a third vote and a fencing method.
 
@@ -308,7 +218,7 @@ A concrete example - user adds an NFS export via the UI:
          │
 5. NFS kernel exports new share immediately
          │
-6. GitOps drift detector (next 5-min tick) compares live state to state.yaml
+6. The drift check (in the background, if a state.yaml is configured) compares live state to it
          │
 7. If state.yaml has not been updated, drift is reported in UI
          │
@@ -330,9 +240,8 @@ This illustrates the reconciliatory loop: the daemon can make immediate changes,
 | GitOps state.yaml format and reconciliation | [GitOps Reference](GITOPS-REFERENCE.md) |
 | Backup: ZFS replication, Rsync, Cloud Sync, Cold Tier | [Backup and Replication](../admin/BACKUP-REPLICATION.md) |
 | High Availability setup and day-2 operations | [High Availability Guide](../admin/HIGH-AVAILABILITY.md) |
-| OTA update procedure and rollback | [OTA Updates](../admin/OTA-UPDATES.md) |
+| System updates and the return to the previous version | [System Updates](../admin/OTA-UPDATES.md) |
 | Security threats, mitigations, and residual risks | [Threat Model](THREAT-MODEL.md) |
 | iSCSI, FTP, NVMe-oF, S3 | [Optional Protocols](../admin/OPTIONAL-PROTOCOLS.md) |
 | SMTP, webhook, and Telegram alerts; TOTP/2FA | [Alerts and Authentication](../admin/ALERTS.md) |
-| Why NixOS exclusively | [NixOS Rationale](NIXOS-RATIONALE.md) |
-| Impermanence: what persists and what does not | [NixOS Rationale - Impermanence](NIXOS-RATIONALE.md#impermanence) |
+| Why NixOS, and what is kept across updates | [NixOS Rationale](NIXOS-RATIONALE.md) |
