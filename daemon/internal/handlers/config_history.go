@@ -32,6 +32,10 @@ type revisionView struct {
 	Created     bool                      `json:"created"` // no earlier revision
 	Deleted     bool                      `json:"deleted"`
 	CanRollback bool                      `json:"can_rollback"`
+	// Reach: where the change applies and whether the other nodes have it
+	// (revisionReach).
+	Reach      string   `json:"reach"`
+	WaitingFor []string `json:"waiting_for,omitempty"`
 }
 
 func (h *ConfigHistoryHandler) views(revs []configstore.Revision) ([]revisionView, error) {
@@ -65,21 +69,56 @@ func (h *ConfigHistoryHandler) views(revs []configstore.Revision) ([]revisionVie
 		}
 		rows.Close()
 	}
+	peers, _ := configstore.Peers(h.db)
 	out := make([]revisionView, 0, len(revs))
 	for _, r := range revs {
 		var base map[string]any
 		if r.BaseRevision != nil {
 			base = bases[*r.BaseRevision]
 		}
+		reach, waiting := revisionReach(r, peers)
 		out = append(out, revisionView{
 			Revision:    r,
 			Changes:     configstore.DiffPayloads(base, r.Payload),
 			Created:     r.BaseRevision == nil || (base == nil && r.Payload != nil),
 			Deleted:     r.Payload == nil,
 			CanRollback: configstore.RollbackKinds[r.Kind],
+			Reach:       reach,
+			WaitingFor:  waiting,
 		})
 	}
 	return out, nil
+}
+
+// revisionReach says where a recorded change applies and whether the other
+// nodes have it:
+//
+//	node      a setting of this node only (host name, interfaces, SMART
+//	          tasks, ...): never exchanged
+//	received  it came from another node
+//	alone     it would be shared, but this node is paired with nobody
+//	shared    every paired node has fetched it
+//	waiting   made here and not fetched yet by the nodes in waitingFor (a
+//	          change made while this node was cut off stays here, in
+//	          effect, until they see each other again)
+func revisionReach(r configstore.Revision, peers []configstore.Peer) (reach string, waitingFor []string) {
+	switch {
+	case r.Scope == configstore.ScopeNode || !configstore.SyncKinds[r.Kind]:
+		return "node", nil
+	case r.Origin == "peer":
+		return "received", nil
+	case len(peers) == 0:
+		return "alone", nil
+	}
+	for _, p := range peers {
+		if p.ServedCursor < r.ID {
+			waitingFor = append(waitingFor, p.Name)
+		}
+	}
+	if len(waitingFor) > 0 {
+		return "waiting", waitingFor
+	}
+	return "shared", nil
 }
 
 // History lists revisions, newest first.

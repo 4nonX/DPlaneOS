@@ -41,6 +41,8 @@ interface Revision {
   created: boolean
   deleted: boolean
   can_rollback: boolean
+  reach: 'node' | 'received' | 'alone' | 'shared' | 'waiting'
+  waiting_for?: string[]
 }
 interface HistoryResponse { success: boolean; revisions: Revision[] }
 interface RollbackResponse {
@@ -50,6 +52,23 @@ interface RollbackResponse {
 }
 
 const PAGE = 100
+
+// Where a change applies, and whether the other nodes have it.
+function reachOf(rev: Revision): { label: string; cls: string; title: string } {
+  switch (rev.reach) {
+    case 'node':
+      return { label: 'This node only', cls: 'badge-neutral', title: 'A setting of this node: it is not exchanged with other nodes' }
+    case 'received':
+      return { label: 'From another node', cls: 'badge-neutral', title: 'This change was made on another node and received here' }
+    case 'shared':
+      return { label: 'On all nodes', cls: 'badge-success', title: 'Every paired node has this change' }
+    case 'waiting':
+      return { label: `Only here so far`, cls: 'badge-warning',
+        title: `Made on this node and in effect here; not fetched yet by ${(rev.waiting_for ?? []).join(', ')}. It reaches them when the nodes see each other.` }
+    default:
+      return { label: 'Shared setting', cls: 'badge-neutral', title: 'Would be exchanged with other nodes; this node is paired with none' }
+  }
+}
 
 const KIND_LABELS: Record<string, string> = {
   dataset: 'Dataset', share: 'SMB share', nfs: 'NFS export', stack: 'Stack', system: 'Node settings (hostname, network)', settings: 'Shared settings',
@@ -281,6 +300,9 @@ export function ConfigHistoryPage() {
                     <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 600 }}>{rev.key}</span>
                     <span style={{ fontSize: 'var(--text-xs)', color: rev.deleted ? 'var(--error)' : rev.created ? 'var(--success)' : 'var(--text-secondary)' }}>
                       {rev.deleted ? 'deleted' : rev.created ? (first.origin === 'baseline' ? 'recorded' : 'created') : `${rev.changes.length} change${rev.changes.length === 1 ? '' : 's'}`}
+                    </span>
+                    <span className={`badge ${reachOf(rev).cls}`} title={reachOf(rev).title} style={{ fontSize: 'var(--text-2xs)' }}>
+                      {reachOf(rev).label}{rev.scope === 'group' && rev.scope_id ? ` · pool ${rev.scope_id}` : ''}
                     </span>
                     <span style={{ marginLeft: 'auto' }} />
                     {!rev.deleted && (
