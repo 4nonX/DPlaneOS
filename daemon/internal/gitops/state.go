@@ -55,7 +55,7 @@ import (
 //	    compression: lz4
 //	    atime: "off"
 //
-// Shares, NFS exports, stacks (compose), system, users, groups, replication, LDAP, ACME, certificates,
+// Shares, NFS exports, stacks (compose), system, users, groups, replication, LDAP,
 // and SMART tasks use the struct tags on this package’s types as YAML keys; validation enforces required fields.
 type DesiredState struct {
 	Version          string               `yaml:"version"`
@@ -70,8 +70,6 @@ type DesiredState struct {
 	Groups           []DesiredGroup       `yaml:"groups"`
 	Replication      []DesiredReplication `yaml:"replication"`
 	LDAP             *DesiredLDAP         `yaml:"ldap"`
-	ACME             *DesiredACME         `yaml:"acme"`
-	Certificates     []DesiredCertificate `yaml:"certificates"`
 	SMART            []DesiredSMARTTask   `yaml:"smart_tasks"`
 	// Fabrics is optional. When nil, GitOps does not manage NVMe-oF exports (UI/API-only).
 	Fabrics *DesiredFabrics `yaml:"fabrics,omitempty"`
@@ -86,10 +84,10 @@ type DesiredFabrics struct {
 type DesiredNVMeExport struct {
 	SubsystemNQN string   `yaml:"subsystem_nqn"`
 	Zvol         string   `yaml:"zvol"`
-	Transport    string   `yaml:"transport,omitempty"`     // tcp (default)
-	ListenAddr   string   `yaml:"listen_addr,omitempty"`   // default 0.0.0.0
-	ListenPort   int      `yaml:"listen_port,omitempty"`   // default 4420
-	NamespaceID  int      `yaml:"namespace_id,omitempty"`  // default 1
+	Transport    string   `yaml:"transport,omitempty"`    // tcp (default)
+	ListenAddr   string   `yaml:"listen_addr,omitempty"`  // default 0.0.0.0
+	ListenPort   int      `yaml:"listen_port,omitempty"`  // default 4420
+	NamespaceID  int      `yaml:"namespace_id,omitempty"` // default 1
 	AllowAnyHost bool     `yaml:"allow_any_host,omitempty"`
 	HostNQNs     []string `yaml:"host_nqns,omitempty"`
 }
@@ -105,7 +103,7 @@ type PoolTopology struct {
 
 // VdevGroup is one vdev subtree: mirror, raidz*, stripe, or draid (with DraidSpec).
 type VdevGroup struct {
-	Type      string   `yaml:"type"`                 // mirror | stripe | raidz | raidz1 | raidz2 | raidz3 | draid
+	Type      string   `yaml:"type"` // mirror | stripe | raidz | raidz1 | raidz2 | raidz3 | draid
 	Disks     []string `yaml:"disks"`
 	DraidSpec string   `yaml:"draid_spec,omitempty"` // e.g. draid2:8d:1s (OpenZFS)
 }
@@ -113,15 +111,15 @@ type VdevGroup struct {
 // DesiredPool describes a ZFS pool.
 // Disks MUST use /dev/disk/by-id/ paths - enforced at parse time.
 type DesiredPool struct {
-	Name         string            `yaml:"name"`
-	Topology     PoolTopology      `yaml:"topology"`
-	Ashift       int               `yaml:"ashift"` // 0 = omit ashift flag on create
-	GUID         string            `yaml:"guid,omitempty"`
-	Options      map[string]string `yaml:"options"` // pool properties (-O on create; also reconciled via zpool set)
+	Name     string            `yaml:"name"`
+	Topology PoolTopology      `yaml:"topology"`
+	Ashift   int               `yaml:"ashift"` // 0 = omit ashift flag on create
+	GUID     string            `yaml:"guid,omitempty"`
+	Options  map[string]string `yaml:"options"` // properties of the pool or of its root dataset (see poolProperties)
 	// ForceReshape enables declarative `zpool add` for purely additive topology
 	// changes (new vdev groups, cache, log, spare). When false, additive drift
 	// is surfaced as MANUAL. Removals are always MANUAL regardless of this flag.
-	ForceReshape bool             `yaml:"force_reshape,omitempty"`
+	ForceReshape bool `yaml:"force_reshape,omitempty"`
 }
 
 // SimpleMirrorTopology builds a minimal topology for tests and simple callers.
@@ -133,22 +131,16 @@ func SimpleMirrorTopology(disks ...string) PoolTopology {
 
 // DesiredDataset describes a ZFS dataset.
 type DesiredDataset struct {
-	Name            string         `yaml:"name"`
-	Quota           string         `yaml:"quota"` // e.g. "2T", "500G", "none"
-	Compression     string         `yaml:"compression"`
-	Atime           string         `yaml:"atime"` // on, off
-	Sync            string         `yaml:"sync,omitempty"`
-	Recordsize      string         `yaml:"recordsize,omitempty"`
-	Xattr           string         `yaml:"xattr,omitempty"`
-	Secondarycache  string         `yaml:"secondarycache,omitempty"`
-	Mountpoint      string         `yaml:"mountpoint"`
-	Encrypted       bool           `yaml:"encrypted"`
-	Restore         *RestoreConfig `yaml:"restore,omitempty"`
-}
-
-type RestoreConfig struct {
-	Type   string `yaml:"type"`   // zfs-send, rclone, "" (none)
-	Source string `yaml:"source"` // remote host or bucket
+	Name           string `yaml:"name"`
+	Quota          string `yaml:"quota"` // e.g. "2T", "500G", "none"
+	Compression    string `yaml:"compression"`
+	Atime          string `yaml:"atime"` // on, off
+	Sync           string `yaml:"sync,omitempty"`
+	Recordsize     string `yaml:"recordsize,omitempty"`
+	Xattr          string `yaml:"xattr,omitempty"`
+	Secondarycache string `yaml:"secondarycache,omitempty"`
+	Mountpoint     string `yaml:"mountpoint"`
+	Encrypted      bool   `yaml:"encrypted"`
 }
 
 // DesiredShare describes an SMB share.
@@ -184,7 +176,7 @@ type DesiredStack struct {
 	Name string `yaml:"name"`
 	YAML string `yaml:"yaml"`
 }
- 
+
 // DesiredSystem describes the system-level configuration (NixOS state).
 type DesiredSystem struct {
 	Hostname   string             `yaml:"hostname"`
@@ -206,33 +198,33 @@ type DesiredSSH struct {
 	// PermitRootLogin: "" means unset. Valid: "yes", "no", "prohibit-password", "forced-commands-only".
 	PermitRootLogin string `yaml:"permit_root_login"`
 }
- 
+
 type DesiredFirewall struct {
 	TCP []int `yaml:"tcp"`
 	UDP []int `yaml:"udp"`
 }
- 
+
 type DesiredNetworking struct {
 	Statics map[string]DesiredNetworkStatic `yaml:"statics"`
 	Bonds   map[string]DesiredNetworkBond   `yaml:"bonds"`
 	VLANs   map[string]DesiredNetworkVLAN   `yaml:"vlans"`
 }
- 
+
 type DesiredNetworkStatic struct {
 	CIDR    string `yaml:"cidr"`
 	Gateway string `yaml:"gateway"`
 }
- 
+
 type DesiredNetworkBond struct {
 	Slaves []string `yaml:"slaves"`
 	Mode   string   `yaml:"mode"`
 }
- 
+
 type DesiredNetworkVLAN struct {
 	Parent string `yaml:"parent"`
 	VID    int    `yaml:"vid"`
 }
- 
+
 type DesiredSambaGlobal struct {
 	Workgroup    string `yaml:"workgroup"`
 	ServerString string `yaml:"server_string"`
@@ -290,21 +282,6 @@ type DesiredLDAP struct {
 	DefaultRole     string `yaml:"default_role"`
 	SyncInterval    int    `yaml:"sync_interval"`
 	Timeout         int    `yaml:"timeout"`
-}
-
-type DesiredACME struct {
-	Email      string   `yaml:"email"`
-	Server     string   `yaml:"server"` // e.g. https://acme-v02.api.letsencrypt.org/directory
-	Domains    []string `yaml:"domains"`
-	Resolver   string   `yaml:"resolver"` // http, tls, or dns provider name
-	DNSConfig  map[string]string `yaml:"dns_config"` // ENV vars for DNS providers
-	Enabled    bool     `yaml:"enabled"`
-}
-
-type DesiredCertificate struct {
-	Name string `yaml:"name"`
-	Cert string `yaml:"cert"` // PEM
-	Key  string `yaml:"key"`  // PEM
 }
 
 type DesiredSMARTTask struct {
@@ -398,6 +375,15 @@ func ValidState(s *DesiredState) []string {
 			errs = append(errs, pfx+": "+err.Error())
 		}
 
+		for k := range p.Options {
+			if !validPoolOption(strings.TrimSpace(k)) {
+				errs = append(errs, fmt.Sprintf("%s: options.%s is not a property a pool can be given here "+
+					"(pool: autoexpand, autoreplace, autotrim, failmode, listsnapshots, comment; "+
+					"root dataset: compression, atime, recordsize, sync, xattr, acltype, secondarycache, copies, dedup; "+
+					"at creation only: relatime, dnodesize, normalization, casesensitivity, utf8only)", pfx, k))
+			}
+		}
+
 		// THE HARD RULE: every disk must be a /dev/disk/by-id/ path.
 		for _, d := range topologyAllDisks(p.Topology) {
 			if !strings.HasPrefix(d, byIDPrefix) && !strings.HasPrefix(d, "/dev/loop") {
@@ -480,7 +466,7 @@ func ValidState(s *DesiredState) []string {
 			errs = append(errs, pfx+": path must be a non-empty absolute path")
 		}
 	}
- 
+
 	// ── NFS ──────────────────────────────────────────────────────────────────
 	for i, n := range s.NFS {
 		pfx := fmt.Sprintf("nfs[%d] %q", i, n.Path)
@@ -590,6 +576,13 @@ func ParseStateYAML(content string) (*DesiredState, error) {
 		return nil, fmt.Errorf("parse error: %w", err)
 	}
 
+	// A setting the file names and this version does not know is an error,
+	// not something to skip: a misspelt "quota" would otherwise be a quota
+	// that silently does not exist.
+	if unknown := unknownKeys(raw); len(unknown) > 0 {
+		return nil, fmt.Errorf("unknown settings (misspelt, or not part of state.yaml):\n  - %s", strings.Join(unknown, "\n  - "))
+	}
+
 	state, err := mapToState(raw)
 	if err != nil {
 		return nil, fmt.Errorf("schema error: %w", err)
@@ -697,11 +690,6 @@ func PrintStateYAML(s *DesiredState) string {
 			if d.Encrypted {
 				b.WriteString("    encrypted: true\n")
 			}
-			if d.Restore != nil {
-				b.WriteString("    restore:\n")
-				fmt.Fprintf(&b, "      type: %s\n", d.Restore.Type)
-				fmt.Fprintf(&b, "      source: %s\n", d.Restore.Source)
-			}
 		}
 	}
 
@@ -721,6 +709,24 @@ func PrintStateYAML(s *DesiredState) string {
 			}
 			if sh.GuestOK {
 				b.WriteString("    guest_ok: true\n")
+			}
+			if sh.TimeMachine != nil {
+				fmt.Fprintf(&b, "    time_machine: %v\n", *sh.TimeMachine)
+			}
+			if sh.TimeMachineQuota != nil {
+				fmt.Fprintf(&b, "    time_machine_quota: %q\n", *sh.TimeMachineQuota)
+			}
+			if sh.ShadowCopy != nil {
+				fmt.Fprintf(&b, "    shadow_copy: %v\n", *sh.ShadowCopy)
+			}
+			if sh.RecycleBin != nil {
+				fmt.Fprintf(&b, "    recycle_bin: %v\n", *sh.RecycleBin)
+			}
+			if sh.HostsAllow != nil {
+				fmt.Fprintf(&b, "    hosts_allow: %q\n", *sh.HostsAllow)
+			}
+			if sh.HostsDeny != nil {
+				fmt.Fprintf(&b, "    hosts_deny: %q\n", *sh.HostsDeny)
 			}
 		}
 	}
@@ -859,52 +865,6 @@ func PrintStateYAML(s *DesiredState) string {
 			lines := strings.Split(strings.TrimSpace(s.System.Samba.ExtraGlobal), "\n")
 			for _, line := range lines {
 				fmt.Fprintf(&b, "      %s\n", line)
-			}
-		}
-	}
-
-	if s.ACME != nil && s.ACME.Enabled {
-		b.WriteString("\nacme:\n")
-		fmt.Fprintf(&b, "  email: %s\n", s.ACME.Email)
-		fmt.Fprintf(&b, "  server: %s\n", s.ACME.Server)
-		fmt.Fprintf(&b, "  resolver: %s\n", s.ACME.Resolver)
-		if len(s.ACME.Domains) > 0 {
-			b.WriteString("  domains:\n")
-			for _, d := range s.ACME.Domains {
-				fmt.Fprintf(&b, "    - %s\n", d)
-			}
-		}
-		if len(s.ACME.DNSConfig) > 0 {
-			b.WriteString("  dns_config:\n")
-			var keys []string
-			for k := range s.ACME.DNSConfig {
-				keys = append(keys, k)
-			}
-			sort.Strings(keys)
-			for _, k := range keys {
-				fmt.Fprintf(&b, "    %s: %s\n", k, s.ACME.DNSConfig[k])
-			}
-		}
-		b.WriteString("  enabled: true\n")
-	}
-
-	if len(s.Certificates) > 0 {
-		b.WriteString("\ncertificates:\n")
-		for _, c := range s.Certificates {
-			fmt.Fprintf(&b, "  - name: %s\n", c.Name)
-			if c.Cert != "" {
-				b.WriteString("    cert: |\n")
-				lines := strings.Split(strings.TrimSpace(c.Cert), "\n")
-				for _, line := range lines {
-					fmt.Fprintf(&b, "      %s\n", line)
-				}
-			}
-			if c.Key != "" {
-				b.WriteString("    key: |\n")
-				lines := strings.Split(strings.TrimSpace(c.Key), "\n")
-				for _, line := range lines {
-					fmt.Fprintf(&b, "      %s\n", line)
-				}
 			}
 		}
 	}
@@ -1254,7 +1214,7 @@ func mapToState(raw map[string]yamlNode) (*DesiredState, error) {
 			s.Shares = append(s.Shares, sh)
 		}
 	}
- 
+
 	if nfsRaw, ok := raw["nfs"]; ok {
 		nfs, err := toSliceOfMaps(nfsRaw, "nfs")
 		if err != nil {
@@ -1284,7 +1244,7 @@ func mapToState(raw map[string]yamlNode) (*DesiredState, error) {
 			s.Stacks = append(s.Stacks, st)
 		}
 	}
- 
+
 	if sysRaw, ok := raw["system"]; ok {
 		if sysMap, ok := sysRaw.(map[string]yamlNode); ok {
 			s.System = mapToSystem(sysMap)
@@ -1360,39 +1320,6 @@ func mapToState(raw map[string]yamlNode) (*DesiredState, error) {
 				SyncInterval:    intField(lm, "sync_interval"),
 				Timeout:         intField(lm, "timeout"),
 			}
-		}
-	}
-
-	if acmeRaw, ok := raw["acme"]; ok {
-		if am, ok := acmeRaw.(map[string]yamlNode); ok {
-			s.ACME = &DesiredACME{
-				Email:    strField(am, "email"),
-				Server:   strField(am, "server"),
-				Resolver: strField(am, "resolver"),
-				Enabled:  strField(am, "enabled") == "true",
-			}
-			if dm, ok := am["domains"]; ok {
-				s.ACME.Domains, _ = toStringSlice(dm, "domains")
-			}
-			if cfg, ok := am["dns_config"]; ok {
-				if cfgMap, ok := cfg.(map[string]yamlNode); ok {
-					s.ACME.DNSConfig = make(map[string]string)
-					for k, v := range cfgMap {
-						s.ACME.DNSConfig[k] = fmt.Sprintf("%v", v)
-					}
-				}
-			}
-		}
-	}
-
-	if certsRaw, ok := raw["certificates"]; ok {
-		certs, _ := toSliceOfMaps(certsRaw, "certificates")
-		for _, cm := range certs {
-			s.Certificates = append(s.Certificates, DesiredCertificate{
-				Name: strField(cm, "name"),
-				Cert: strField(cm, "cert"),
-				Key:  strField(cm, "key"),
-			})
 		}
 	}
 
@@ -1566,6 +1493,35 @@ func mapToShare(m map[string]yamlNode) (DesiredShare, error) {
 	if gok := strField(m, "guest_ok"); gok == "true" {
 		sh.GuestOK = true
 	}
+	// Per-share options: one that the file does not name is left as it is
+	// on the system (nil); one it names is set, also to false or to "".
+	optBool := func(key string) *bool {
+		if _, ok := m[key]; !ok {
+			return nil
+		}
+		v := strField(m, key) == "true"
+		return &v
+	}
+	optStr := func(key string) *string {
+		if _, ok := m[key]; !ok {
+			return nil
+		}
+		v := strField(m, key)
+		return &v
+	}
+	sh.TimeMachine = optBool("time_machine")
+	sh.TimeMachineQuota = optStr("time_machine_quota")
+	sh.ShadowCopy = optBool("shadow_copy")
+	sh.RecycleBin = optBool("recycle_bin")
+	sh.HostsAllow = optStr("hosts_allow")
+	sh.HostsDeny = optStr("hosts_deny")
+	for _, key := range []string{"read_only", "guest_ok", "time_machine", "shadow_copy", "recycle_bin"} {
+		if _, ok := m[key]; ok {
+			if v := strField(m, key); v != "true" && v != "false" {
+				return sh, fmt.Errorf("shares: %s of %q must be true or false, not %q", key, sh.Name, v)
+			}
+		}
+	}
 	return sh, nil
 }
 
@@ -1614,14 +1570,14 @@ func mapToSystem(m map[string]yamlNode) *DesiredSystem {
 		DNSServers: toStringSliceQuiet(m["dns_servers"]),
 		NTPServers: toStringSliceQuiet(m["ntp_servers"]),
 	}
- 
+
 	if fwRaw, ok := m["firewall"]; ok {
 		if fwMap, ok := fwRaw.(map[string]yamlNode); ok {
 			sys.Firewall.TCP = toIntSlice(fwMap["tcp"])
 			sys.Firewall.UDP = toIntSlice(fwMap["udp"])
 		}
 	}
- 
+
 	if nwRaw, ok := m["networking"]; ok {
 		if nwMap, ok := nwRaw.(map[string]yamlNode); ok {
 			if stRaw, ok := nwMap["statics"]; ok {
@@ -1665,7 +1621,7 @@ func mapToSystem(m map[string]yamlNode) *DesiredSystem {
 			}
 		}
 	}
- 
+
 	if smbRaw, ok := m["samba"]; ok {
 		if smbMap, ok := smbRaw.(map[string]yamlNode); ok {
 			sys.Samba.Workgroup = strField(smbMap, "workgroup")
@@ -1695,7 +1651,7 @@ func mapToSystem(m map[string]yamlNode) *DesiredSystem {
 
 	return sys
 }
- 
+
 func toStringSliceQuiet(v yamlNode) []string {
 	if v == nil {
 		return nil
@@ -1710,7 +1666,7 @@ func toStringSliceQuiet(v yamlNode) []string {
 	}
 	return res
 }
- 
+
 func toIntSlice(v yamlNode) []int {
 	if v == nil {
 		return nil
@@ -1727,7 +1683,7 @@ func toIntSlice(v yamlNode) []int {
 	}
 	return res
 }
- 
+
 func intField(m map[string]yamlNode, key string) int {
 	v, ok := m[key]
 	if !ok {
@@ -1737,4 +1693,3 @@ func intField(m map[string]yamlNode, key string) int {
 	fmt.Sscanf(fmt.Sprintf("%v", v), "%d", &n)
 	return n
 }
-

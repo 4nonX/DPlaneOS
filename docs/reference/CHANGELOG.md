@@ -20,8 +20,9 @@ see below); pools are imported afterwards as they are.
 
 **Tested for every release now** (VM tests, part of the pipeline; a release
 is not built unless they pass): installation from the ISO, the installed
-system with a client machine (shares, users, directory sign-in, block
-targets, S3, cloud sync, firewall, network, SSH, restart), system updates
+system with a client machine (shares, users, directory sign-in, GitOps
+record and apply, block targets, S3, cloud sync, firewall, network, SSH,
+support bundle, restart), system updates
 (trial, keep, return), Active Directory membership against a domain
 controller, disk reservations on shared disks, storage groups with a client
 that keeps its iSCSI and NVMe disks across moves and a crash of the owner,
@@ -44,7 +45,13 @@ failover, replicated groups, quorum and votes, the live image.
   `nixos/setup-nixos.sh` are removed: DPlaneOS is installed from its image.
 - The password given to `POST /api/system/setup-admin` must satisfy the
   password rules; the live image also asks for a setup code there.
-- Migrations up to 00034.
+- **`state.yaml` is read strictly.** A section or setting the format does
+  not have is an error that names the place (`datasets[1].qouta`) instead
+  of being skipped. The sections `acme:` and `certificates:` are gone: they
+  filled two tables nothing read (certificates are managed under Security ›
+  Certificates, and a private key does not belong in a repository). Pool
+  `options` are limited to the properties listed in the GitOps reference.
+- Migrations up to 00035.
 
 #### Security
 
@@ -137,6 +144,39 @@ failover, replicated groups, quorum and votes, the live image.
   failed; network settings in it were ignored; `dplaned -apply` on a new
   database failed. Fixed, with a test that prepares every SQL statement of
   the daemon against the schema.
+- **GitOps recorded every pool as a stripe.** The file DPlaneOS commits to
+  the repository listed a pool as one stripe of all its partitions,
+  whatever it was: a mirror stood in Git as a stripe, and a machine rebuilt
+  from that file would have got a pool without redundancy. Pools are
+  recorded as they are built (mirrors, raidz groups, dRAID, log, cache,
+  spare, special), with their disks; while a disk is being replaced
+  nothing is committed, and the page says why.
+- **A pool declared with its disks never matched itself** on real disks:
+  ZFS reports the partition it made on a whole disk (`…-part1`), the
+  comparison was by name, and the plan showed disks to add and to remove
+  for ever. Disks are compared as disks.
+- **Pool `options` failed after the pool existed.** They were passed as
+  dataset properties when the pool was created and then compared with, and
+  "corrected" as, pool properties, which ZFS refuses for `compression` or
+  `atime` (the documented example). Each option is set where ZFS keeps it.
+- **An apply broke directory sign-in.** A `state.yaml` with an `ldap:`
+  section (every file DPlaneOS wrote itself had one) stored an empty bind
+  password and emptied the attribute and group settings it did not name.
+  An apply never touches the bind password, and a setting the file leaves
+  out keeps its value.
+- **Share options in `state.yaml` did nothing.** Shadow copies, recycle
+  bin, Time Machine and host lists were written to the file and never read
+  from it. They are read, planned and applied.
+- **The GitOps page announced success for what had failed**: "Deploy Now"
+  said the reconciliation had started when the daemon had refused it
+  (blocked items), "Sync" and "Config Check" said done whatever came back.
+  Each says what happened. "Sync Now" also works on the first use, when the
+  repository has no `state.yaml` yet.
+- **The support bundle held an error message instead of the daemon's
+  log**, and the health page never showed a service's recent warnings: the
+  command allowlist refused the way both asked for a log. The bundle also
+  has this boot's warnings, the cluster services and the update check now.
+  A command the allowlist refuses is logged, and the VM tests fail on one.
 - **Settings that were saved but not applied** on an installed system: host
   name, time zone, time servers, firewall rules, SSH, Samba settings, UPS,
   the ZFS cache limit, HTTPS certificates. They take effect at once and at
@@ -166,10 +206,17 @@ failover, replicated groups, quorum and votes, the live image.
 - Role assignments with an end date in the Users page; the iSCSI page shows
   volume, size, address, CHAP, connected initiators and whether this node
   serves the target, and takes CHAP credentials.
+- GitOps, Status: the local `state.yaml` can be edited in place (validated
+  before it is stored), for a system without a repository or when the Git
+  server cannot be reached.
 
 #### Removed, because it did nothing
 
-- ALUA and ANA settings (see above); "persistence on a USB drive" for the
+- ALUA and ANA settings (see above); the `acme:` and `certificates:`
+  sections of `state.yaml` and a dataset "restore" hook no file could
+  reach; an "Enterprise License Key" field under Settings that was stored
+  and read by nothing (the License tab itself is shown only on a build
+  that can verify a license); "persistence on a USB drive" for the
   live image (it mounted the drive and linked a directory nothing read);
   a "Base System" card in GitOps on systems that have no NixOS
   configuration of their own; `daemon/ARCHITECTURE.md` and

@@ -36,7 +36,7 @@ import (
 // certificate private keys.
 
 // SecretKinds carry secret material.
-var SecretKinds = map[string]bool{KindUser: true, KindLDAP: true, KindACME: true, KindCertificate: true}
+var SecretKinds = map[string]bool{KindUser: true, KindLDAP: true}
 
 // ErrSecretChanged: the other node's current secret is not the one the
 // revision refers to (it changed again; a newer revision follows).
@@ -126,24 +126,6 @@ func ReadMaterial(db *sql.DB, kind, key string) (Material, error) {
 			}
 		}
 		return Material{"bind_password": plain}, nil
-	case KindACME:
-		var raw string
-		if err := db.QueryRow(`SELECT COALESCE(dns_config, '{}') FROM acme_config WHERE id = 1`).Scan(&raw); err != nil {
-			return nil, err
-		}
-		var cfg map[string]string
-		_ = json.Unmarshal([]byte(raw), &cfg)
-		m := Material{}
-		for k, v := range cfg {
-			m["dns_config."+k] = v
-		}
-		return m, nil
-	case KindCertificate:
-		var keyPEM string
-		if err := db.QueryRow(`SELECT key_pem FROM certificates WHERE name = $1`, key).Scan(&keyPEM); err != nil {
-			return nil, err
-		}
-		return Material{"key": keyPEM}, nil
 	}
 	return nil, fmt.Errorf("%s carries no secrets", kind)
 }
@@ -184,26 +166,13 @@ func materialMatches(r Resource, m Material) error {
 		if fingerprint(m["bind_password"]) != want {
 			return ErrSecretChanged
 		}
-	case KindACME:
-		dns, _ := p["dns_config"].(map[string]any)
-		for k, v := range dns {
-			if want, _ := v.(string); fingerprint(m["dns_config."+k]) != want {
-				return ErrSecretChanged
-			}
-		}
-	case KindCertificate:
-		want, _ := p["key"].(string)
-		if fingerprint(m["key"]) != want {
-			return ErrSecretChanged
-		}
 	}
 	return nil
 }
 
-// withMaterial returns the resource with plaintext secrets in its payload
-// where the GitOps engine applies them (ACME DNS credentials, certificate
-// key); user credentials and the LDAP bind password are written by
-// writeMaterial instead (sealed, outside the engine).
+// withMaterial returns the resource as the GitOps engine applies it: user
+// credentials and the LDAP bind password are not in the payload, they are
+// written by writeMaterial (sealed, outside the engine).
 func withMaterial(r Resource, m Material) Resource {
 	if r.Payload == nil {
 		return r
@@ -213,16 +182,6 @@ func withMaterial(r Resource, m Material) Resource {
 		p[k] = v
 	}
 	switch r.Kind {
-	case KindACME:
-		if dns, ok := p["dns_config"].(map[string]any); ok {
-			plain := make(map[string]any, len(dns))
-			for k := range dns {
-				plain[k] = m["dns_config."+k]
-			}
-			p["dns_config"] = plain
-		}
-	case KindCertificate:
-		p["key"] = m["key"]
 	case KindLDAP:
 		p["bind_password"] = "" // written sealed by writeMaterial
 	case KindUser:
@@ -317,12 +276,6 @@ func needsMaterial(r Resource) bool {
 		return s != ""
 	case KindLDAP:
 		s, _ := r.Payload["bind_password"].(string)
-		return s != ""
-	case KindACME:
-		dns, _ := r.Payload["dns_config"].(map[string]any)
-		return len(dns) > 0
-	case KindCertificate:
-		s, _ := r.Payload["key"].(string)
 		return s != ""
 	}
 	return false

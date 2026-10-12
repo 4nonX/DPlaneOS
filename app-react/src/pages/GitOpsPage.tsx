@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { api } from '@/lib/api'
+import { api, ensureOk } from '@/lib/api'
 import { fmtDateTime } from '@/lib/fmt'
 import { Icon } from '@/components/ui/Icon'
 import { Modal } from '@/components/ui/Modal'
@@ -8,7 +8,6 @@ import { Skeleton } from '@/components/ui/LoadingSpinner'
 import { toast } from '@/hooks/useToast'
 import { useConfirm } from '@/components/ui/ConfirmDialog'
 import { useWsStore } from '@/stores/ws'
-import { useJobStore } from '@/stores/jobs'
 
 // GET /api/gitops/status
 interface GitopsStatus {
@@ -236,8 +235,8 @@ function SettingsTab({ s, updateSettings, repos, setShowWizard, onSyncNow, summa
   })
   const hasNixConfig = nixosQ.data?.is_nixos === true && nixosQ.data?.image_install !== true
   const syncNow = useMutation({
-    mutationFn: () => api.post('/api/gitops/sync', {}),
-    onSuccess: () => { toast.success('Sync completed'); onSyncNow() },
+    mutationFn: async () => ensureOk(await api.post<{ success: boolean; error?: string }>('/api/gitops/sync', {})),
+    onSuccess: () => { toast.success('The state of the system is recorded'); onSyncNow() },
     onError: (e: Error) => toast.error(e.message)
   })
 
@@ -885,6 +884,75 @@ function RepoEditModal({ repo, onExited, onSaved }: { repo: Repo; onExited: () =
   )
 }
 
+// ── StateEditModal ────────────────────────────────────────────────────────────
+// The state.yaml of this system, edited in place. The file is validated
+// before it is stored; what is wrong is shown with its place in the file.
+
+function StateEditModal({ content, linked, onClose, onSaved }: {
+  content:  string
+  linked:   boolean
+  onClose:  () => void
+  onSaved:  () => void
+}) {
+  const [text, setText] = useState(content)
+  const [problem, setProblem] = useState('')
+  const [checked, setChecked] = useState(false)
+  const send = useMutation({
+    mutationFn: (dryRun: boolean) =>
+      api.put<{ success: boolean; valid?: boolean; error?: string }>('/api/gitops/state', { content: text, dry_run: dryRun })
+        .then(res => ({ res, dryRun })),
+    onSuccess: ({ res, dryRun }) => {
+      if (!res.success) { setProblem(res.error || 'The file is not valid'); setChecked(false); return }
+      setProblem('')
+      if (dryRun) { setChecked(true); return }
+      toast.success('state.yaml stored; comparing it with the system')
+      onSaved()
+    },
+    onError: (e: Error) => setProblem(e.message),
+  })
+
+  return (
+    <Modal title="Edit state.yaml" onClose={onClose} size="lg">
+      <div style={{ padding:'0 24px 8px' }}>
+        {linked && (
+          <div className="alert alert-warning" style={{ marginBottom:12, fontSize:'var(--text-xs)' }}>
+            <Icon name="info" size={15} />
+            <div>
+              A repository is linked. This changes the copy on this system only: the next fetch brings it back in line with
+              the repository. Make lasting changes in the repository; use this when the Git server cannot be reached.
+            </div>
+          </div>
+        )}
+        <textarea
+          value={text}
+          onChange={e => { setText(e.target.value); setChecked(false) }}
+          spellCheck={false}
+          className="input"
+          style={{ width:'100%', minHeight:360, fontFamily:'var(--font-mono)', fontSize:12, lineHeight:1.5, whiteSpace:'pre', resize:'vertical' }}
+        />
+        {problem && (
+          <pre className="alert alert-error" style={{ marginTop:12, fontSize:'var(--text-xs)', whiteSpace:'pre-wrap', fontFamily:'var(--font-mono)' }}>{problem}</pre>
+        )}
+        {checked && !problem && (
+          <div className="alert alert-success" style={{ marginTop:12, fontSize:'var(--text-xs)' }}>
+            <Icon name="check_circle" size={15} /> The file is valid. Nothing was stored yet.
+          </div>
+        )}
+        <div style={{ fontSize:'var(--text-xs)', color:'var(--text-tertiary)', marginTop:8 }}>
+          Storing the file changes nothing on the system: the plan shows what an apply would do.
+        </div>
+      </div>
+      <div className="modal-footer">
+        <button onClick={onClose} className="btn btn-ghost">Cancel</button>
+        <button onClick={() => send.mutate(true)} disabled={send.isPending || !text.trim()} className="btn btn-ghost">Validate</button>
+        <button onClick={() => send.mutate(false)} disabled={send.isPending || !text.trim()} className="btn btn-primary">
+          {send.isPending ? 'Checking...' : 'Store'}
+        </button>
+      </div>
+    </Modal>
+  )
+}
+
 // ── BlockedApprovalModal ──────────────────────────────────────────────────────
 
 function BlockedApprovalModal({ change, onClose, onApproved }: {
@@ -981,24 +1049,39 @@ export function GitOpsPage() {
   }, [wsOn, qc])
 
   const [showWizard, setShowWizard] = useState<'state'|'nixos'|null>(null)
+  const [editState, setEditState] = useState(false)
   const updateSettings = useMutation({
     mutationFn: (vals: Partial<GitOpsSettings>) => api.put('/api/gitops/settings', { ...settingsQ.data?.settings, ...vals }),
     onSuccess: () => { toast.success('Settings saved'); qc.invalidateQueries({queryKey:['gitops','settings']}) },
     onError: (e: Error) => toast.error(e.message)
   })
 
-  const check   = useMutation({ mutationFn: () => api.post('/api/gitops/check',{}), onSuccess: () => toast.success('Config valid'), onError: (e:Error)=>toast.error(e.message) })
-  const setJob = useJobStore((s) => s.setActiveJob)
+  // Each of these says what happened. (They used to announce success for
+  // whatever came back: an apply the daemon had refused was "started".)
+  const check   = useMutation({
+    mutationFn: () => api.post<{ success: boolean; drifted?: boolean; error?: string }>('/api/gitops/check', {}),
+    onSuccess: (res) => {
+      if (res.error) toast.error(res.error)
+      else if (res.drifted) toast.warning('The repository and the system differ: see the plan')
+      else toast.success('The repository and the system agree')
+      qc.invalidateQueries({ queryKey: ['gitops'] })
+    },
+    onError: (e:Error)=>toast.error(e.message)
+  })
 
   const apply   = useMutation({ 
-    mutationFn: () => api.post<{ success: boolean; job_id: string }>('/api/gitops/apply',{}), 
-    onSuccess: (data) => { 
-      toast.success('Reconciliation Started'); 
-      setDriftAlert(null); 
-      setJob(data.job_id, 'System Reconciliation');
-      qc.invalidateQueries({queryKey:['gitops']}) 
-    }, 
-    onError: (e:Error)=>toast.error(e.message) 
+    mutationFn: () => api.post<{ success: boolean; count?: number; error?: string; unapproved?: string[] }>('/api/gitops/apply',{}),
+    onSuccess: (data) => {
+      qc.invalidateQueries({queryKey:['gitops']})
+      if (!data.success) {
+        const waiting = data.unapproved?.length ? ` (${data.unapproved.join(', ')})` : ''
+        toast.error((data.error || 'The apply failed') + waiting)
+        return
+      }
+      toast.success(data.count ? `Applied: ${data.count} change(s)` : 'Nothing to apply: the system already matches')
+      setDriftAlert(null)
+    },
+    onError: (e:Error)=>toast.error(e.message)
   })
 
   if (settingsQ.data?.settings && !settingsQ.data.settings.enabled && tab !== 'settings') {
@@ -1026,6 +1109,14 @@ export function GitOpsPage() {
 
   return (
     <div style={{ maxWidth: 1000 }}>
+      {editState && (
+        <StateEditModal
+          content={stateQ.data?.content ?? ''}
+          linked={settingsQ.data?.settings?.repo_id != null}
+          onClose={() => setEditState(false)}
+          onSaved={() => { setEditState(false); qc.invalidateQueries({ queryKey: ['gitops'] }) }}
+        />
+      )}
       {showWizard && (
         <RepoSyncWizard 
           type={showWizard}
@@ -1044,7 +1135,7 @@ export function GitOpsPage() {
           <p className="page-subtitle">Configuration in Git: plan, apply, capture, and drift between the repository and the running system</p>
         </div>
         <div style={{ display:'flex', gap:10, marginBottom:4 }}>
-          <button onClick={() => api.post('/api/gitops/sync', {}).then(() => { toast.success('Sync triggered'); qc.invalidateQueries({queryKey:['gitops']}) })} className="btn btn-ghost" title="Manual Sync">
+          <button onClick={() => api.post<{ success: boolean; error?: string }>('/api/gitops/sync', {}).then(ensureOk).then(() => { toast.success('The state of the system is recorded') }).catch((e: Error) => toast.error(e.message)).finally(() => qc.invalidateQueries({queryKey:['gitops']}))} className="btn btn-ghost" title="Manual Sync">
             <Icon name="sync" size={16} /> Sync Now
           </button>
           <button onClick={() => setTab('settings')} className="btn btn-ghost" title="Settings">
@@ -1185,7 +1276,13 @@ export function GitOpsPage() {
               </div>
             </div>
             <div>
-              <div style={{ fontWeight:700, marginBottom:12, display:'flex', alignItems:'center', gap:8 }}><Icon name="code" size={18} style={{ color:'var(--primary)' }}/>Live Manifest</div>
+              <div style={{ fontWeight:700, marginBottom:12, display:'flex', alignItems:'center', gap:8 }}>
+                <Icon name="code" size={18} style={{ color:'var(--primary)' }}/>state.yaml on this system
+                <button onClick={() => setEditState(true)} className="btn btn-ghost" style={{ marginLeft:'auto', fontSize:'var(--text-xs)' }}
+                  title="Edit the local state.yaml (validated before it is stored)">
+                  <Icon name="edit" size={13} />Edit
+                </button>
+              </div>
               <pre className="card" style={{ background: 'var(--surface)', padding:'12px 14px', fontFamily:'var(--font-mono)', fontSize:11, maxHeight:320, overflow:'auto', whiteSpace:'pre-wrap' }}>
                 {stateQ.data?.content || (stateQ.data?.exists === false ? '(no state.yaml yet)' : '(empty)')}
               </pre>

@@ -653,12 +653,15 @@ func (h *GitOpsHandler) UpdateSettings(w http.ResponseWriter, r *http.Request) {
 
 // SyncNow performs a manual pull -> commitall -> push fallback.
 func (h *GitOpsHandler) SyncNow(w http.ResponseWriter, r *http.Request) {
-	// 1. Trigger Drift Check (which pulls)
+	// 1. Fetch first: a snapshot is never committed over commits this
+	// system has not seen. Only a failed fetch stops here. A state.yaml
+	// that does not exist yet (the first use, with an empty repository) or
+	// that is not valid is what this very commit is there to replace.
 	result := h.detector.CheckNow()
-	if result.Error != "" {
+	if result.FetchFailed {
 		respondOK(w, map[string]any{
 			"success": false,
-			"error":   "Pull failed: " + result.Error,
+			"error":   result.Error,
 		})
 		return
 	}
@@ -667,14 +670,15 @@ func (h *GitOpsHandler) SyncNow(w http.ResponseWriter, r *http.Request) {
 	if err := gitops.CommitAll(h.db); err != nil {
 		respondOK(w, map[string]any{
 			"success": false,
-			"error":   "Commit/Push failed: " + err.Error(),
+			"error":   "The state of the system was not recorded: " + err.Error(),
 		})
 		return
 	}
+	go h.detector.CheckNow()
 
 	respondOK(w, map[string]any{
 		"success": true,
-		"message": "Manual sync completed successfully",
+		"message": "The state of the system is recorded",
 	})
 }
 

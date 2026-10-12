@@ -2,9 +2,9 @@ package gitops
 
 import (
 	"database/sql"
-	"encoding/json"
 	"fmt"
 	"log"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -26,8 +26,12 @@ type LivePool struct {
 	Name    string
 	GUID    string
 	Health  string            // ONLINE, DEGRADED, FAULTED, UNAVAIL, REMOVED
-	Disks   []string          // /dev/disk/by-id/... paths from `zpool status`
-	Options map[string]string // subset of zpool properties for reconcile
+	Disks   []string          // the pool's disks (see diskOfVdev), from `zpool status -P`
+	Options map[string]string // pool properties and properties of the root dataset
+	// Layout is the pool's vdev structure; nil while it is not settled
+	// (LayoutNote says why: a disk is being replaced, a spare is in use).
+	Layout     *PoolTopology
+	LayoutNote string
 }
 
 // LiveDataset is the observed state of a ZFS dataset.
@@ -109,19 +113,17 @@ type LiveReplication struct {
 
 // LiveState is the complete observed system state.
 type LiveState struct {
-	Pools        []LivePool
-	Datasets     []LiveDataset
-	Shares       []LiveShare
-	NFS          []LiveNFSExport
-	Stacks       []LiveStack
-	System       *nixwriter.DPlaneState
-	Users        []LiveUser
-	Groups       []LiveGroup
-	Replication  []LiveReplication
-	LDAP         *DesiredLDAP
-	ACME         *DesiredACME
-	Certificates []DesiredCertificate
-	SMART        []DesiredSMARTTask
+	Pools       []LivePool
+	Datasets    []LiveDataset
+	Shares      []LiveShare
+	NFS         []LiveNFSExport
+	Stacks      []LiveStack
+	System      *nixwriter.DPlaneState
+	Users       []LiveUser
+	Groups      []LiveGroup
+	Replication []LiveReplication
+	LDAP        *DesiredLDAP
+	SMART       []DesiredSMARTTask
 	// NVMeFabric is the persisted NVMe-oF target list (when fabrics are managed).
 	NVMeFabric []DesiredNVMeExport
 }
@@ -181,16 +183,6 @@ func ReadLiveState(db *sql.DB) (*LiveState, error) {
 		state.LDAP = ldap
 	} else if err != sql.ErrNoRows {
 		log.Printf("gitops: live state: LDAP config: %v", err)
-	}
-	if acme, err := readLiveACME(db); err == nil {
-		state.ACME = acme
-	} else {
-		log.Printf("gitops: live state: ACME config: %v", err)
-	}
-	if certs, err := readLiveCertificates(db); err == nil {
-		state.Certificates = certs
-	} else {
-		log.Printf("gitops: live state: certificates: %v", err)
 	}
 	if smart, err := readLiveSMART(db); err == nil {
 		state.SMART = smart
@@ -252,19 +244,48 @@ func readLivePools() ([]LivePool, error) {
 	// Disk membership: `zpool status` with -P flag for full paths
 	statusOut, err := cmdutil.RunZFS("zpool", "status", "-P")
 	if err == nil {
-		disksByPool := parseZpoolStatusPaths(string(statusOut))
+		layouts := parsePoolLayouts(string(statusOut))
 		for i, p := range pools {
-			if disks, ok := disksByPool[p.Name]; ok {
-				pools[i].Disks = disks
+			l, ok := layouts[p.Name]
+			if !ok {
+				pools[i].LayoutNote = "the pool is not in the output of zpool status"
+				continue
 			}
+			pools[i].Disks = l.Disks
+			if l.Settled {
+				top := l.Topology
+				pools[i].Layout = &top
+			} else {
+				pools[i].LayoutNote = l.Reason
+			}
+		}
+	} else {
+		for i := range pools {
+			pools[i].LayoutNote = "zpool status failed: " + err.Error()
 		}
 	}
 
-	poolProps := []string{"autoexpand", "autoreplace", "comment", "failmode", "listsnapshots"}
+	var poolProps, rootProps []string
+	for k := range poolProperties {
+		poolProps = append(poolProps, k)
+	}
+	for k, compared := range rootDatasetProperties {
+		if compared {
+			rootProps = append(rootProps, k)
+		}
+	}
+	sort.Strings(poolProps)
+	sort.Strings(rootProps)
 	for i, p := range pools {
 		opts, err := readZpoolProperties(p.Name, poolProps)
 		if err != nil {
 			continue
+		}
+		// The root dataset's own properties (what the pool's datasets inherit).
+		if out, err := cmdutil.RunZFS("zfs", "get", "-H", "-o", "property,value", strings.Join(rootProps, ","), p.Name); err == nil {
+			for k, v := range parsePropertyLines(string(out)) {
+				opts[k] = v
+			}
 		}
 		pools[i].Options = opts
 	}
@@ -280,41 +301,25 @@ func readZpoolProperties(pool string, props []string) (map[string]string, error)
 	if err != nil {
 		return nil, err
 	}
-	m := make(map[string]string)
-	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-		fields := strings.Fields(line)
-		if len(fields) >= 2 {
-			m[fields[0]] = fields[1]
-		}
-	}
-	return m, nil
+	return parsePropertyLines(string(out)), nil
 }
 
-// parseZpoolStatusPaths extracts per-pool disk paths from `zpool status -P`.
-// Only lines with /dev/disk/by-id/ paths are kept - everything else (mirror,
-// raidz, spares, cache headers) is ignored.
-func parseZpoolStatusPaths(output string) map[string][]string {
-	result := make(map[string][]string)
-	var currentPool string
-
-	for _, line := range strings.Split(output, "\n") {
-		trimmed := strings.TrimSpace(line)
-
-		// Pool header: "  pool: tank"
-		if strings.HasPrefix(trimmed, "pool:") {
-			currentPool = strings.TrimSpace(strings.TrimPrefix(trimmed, "pool:"))
+// parsePropertyLines reads "property<TAB>value" lines (zpool get -H, zfs
+// get -H). The value is everything after the tab: a comment has spaces.
+func parsePropertyLines(out string) map[string]string {
+	m := make(map[string]string)
+	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+		k, v, ok := strings.Cut(line, "\t")
+		if !ok {
 			continue
 		}
-
-		// Device line: contains any /dev/ path
-		if currentPool != "" && strings.Contains(trimmed, "/dev/") {
-			fields := strings.Fields(trimmed)
-			if len(fields) >= 1 {
-				result[currentPool] = append(result[currentPool], fields[0])
-			}
+		v = strings.TrimSpace(v)
+		if v == "-" {
+			v = ""
 		}
+		m[strings.TrimSpace(k)] = v
 	}
-	return result
+	return m
 }
 
 // readLiveDatasets reads dataset properties via `zfs get`.
@@ -584,40 +589,6 @@ func readLDAPConfig(db *sql.DB) (*DesiredLDAP, error) {
 	cfg.UseTLS = useTLS == 1
 	cfg.JITProvisioning = jit == 1
 	return &cfg, nil
-}
-
-func readLiveACME(db *sql.DB) (*DesiredACME, error) {
-	row := db.QueryRow(`SELECT email, server, resolver, dns_config, domains, enabled FROM acme_config WHERE id=1`)
-	var email, server, resolver, dnsJson, domainsJson string
-	var enabled int
-	if err := row.Scan(&email, &server, &resolver, &dnsJson, &domainsJson, &enabled); err != nil {
-		return nil, nil
-	}
-	cfg := &DesiredACME{
-		Email:    email,
-		Server:   server,
-		Resolver: resolver,
-		Enabled:  enabled == 1,
-	}
-	json.Unmarshal([]byte(dnsJson), &cfg.DNSConfig)
-	json.Unmarshal([]byte(domainsJson), &cfg.Domains)
-	return cfg, nil
-}
-
-func readLiveCertificates(db *sql.DB) ([]DesiredCertificate, error) {
-	rows, err := db.Query(`SELECT name, cert_pem, key_pem FROM certificates ORDER BY name`)
-	if err != nil {
-		return nil, nil
-	}
-	defer rows.Close()
-	var certs []DesiredCertificate
-	for rows.Next() {
-		var c DesiredCertificate
-		if err := rows.Scan(&c.Name, &c.Cert, &c.Key); err == nil {
-			certs = append(certs, c)
-		}
-	}
-	return certs, nil
 }
 
 func readLiveSMART(db *sql.DB) ([]DesiredSMARTTask, error) {

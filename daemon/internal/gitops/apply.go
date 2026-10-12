@@ -2,18 +2,14 @@ package gitops
 
 import (
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"reflect"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 
 	"dplaned/internal/cmdutil"
@@ -342,10 +338,6 @@ func executeCreate(ctx ApplyContext, item DiffItem) error {
 		return reconcileReplication(item.Name, item.DesiredReplication)
 	case KindLDAP:
 		return reconcileLDAP(ctx.DB, item.DesiredLDAP)
-	case KindACME:
-		return reconcileACME(ctx.DB, item.DesiredACME)
-	case KindCertificate:
-		return reconcileCertificate(ctx.DB, item.DesiredCertificate)
 	case KindSMART:
 		return reconcileSMART(ctx.DB, item.DesiredSMART)
 	case KindNVMeFabric:
@@ -376,10 +368,6 @@ func executeModify(ctx ApplyContext, item DiffItem) error {
 		return reconcileReplication(item.Name, item.DesiredReplication)
 	case KindLDAP:
 		return reconcileLDAP(ctx.DB, item.DesiredLDAP)
-	case KindACME:
-		return reconcileACME(ctx.DB, item.DesiredACME)
-	case KindCertificate:
-		return reconcileCertificate(ctx.DB, item.DesiredCertificate)
 	case KindSMART:
 		return reconcileSMART(ctx.DB, item.DesiredSMART)
 	case KindNVMeFabric:
@@ -407,10 +395,6 @@ func executeDelete(ctx ApplyContext, item DiffItem) error {
 		return deleteGroup(ctx.DB, item.Name)
 	case KindReplication:
 		return deleteReplication(item.Name)
-	case KindACME:
-		return disableACME(ctx.DB)
-	case KindCertificate:
-		return deleteCertificate(ctx.DB, item.Name)
 	case KindSMART:
 		return deleteSMART(ctx.DB, item.Name)
 	case KindNVMeFabric:
@@ -446,10 +430,18 @@ func modifyPool(name string, changes []string) error {
 			if k == "" {
 				continue
 			}
-			if err := libzfs.PoolSetProperty(name, k, v); err != nil {
-				return fmt.Errorf("zpool set %s=%s on %s: %w", k, v, name, err)
+			if IsPoolProperty(k) {
+				if err := libzfs.PoolSetProperty(name, k, v); err != nil {
+					return fmt.Errorf("zpool set %s=%s on %s: %w", k, v, name, err)
+				}
+				log.Printf("GITOPS: zpool set %s=%s on pool %q", k, v, name)
+				continue
 			}
-			log.Printf("GITOPS: zpool set %s=%s on pool %q", k, v, name)
+			// A property of the pool's root dataset.
+			if err := libzfs.DatasetSet(name, k, v); err != nil {
+				return fmt.Errorf("zfs set %s=%s on %s: %w", k, v, name, err)
+			}
+			log.Printf("GITOPS: zfs set %s=%s on the root dataset of pool %q", k, v, name)
 			continue
 		}
 		if strings.Contains(change, "topology-drift") || strings.Contains(change, "guid-mismatch") || strings.HasPrefix(change, "health:") {
@@ -555,71 +547,6 @@ func createDataset(name string, ds *DesiredDataset) error {
 	out, err := cmdutil.RunZFS("zfs", "list", "-H", "-o", "name", name)
 	if err == nil && strings.TrimSpace(string(out)) == name {
 		log.Printf("GITOPS: dataset %q already exists - skipping create", name)
-		return nil
-	}
-
-	// Phase 3.2: Data Plane Hooks - Restore before create if specified
-	if ds != nil && ds.Restore != nil && ds.Restore.Type == "zfs-send" && ds.Restore.Source != "" {
-		log.Printf("GITOPS: Restore hook triggered for %q from %q", name, ds.Restore.Source)
-		// SECURITY: We only allow source strings that look like "host:dataset" or simple datasets
-		// to prevent arbitrary command injection.
-		source := ds.Restore.Source
-		if strings.ContainsAny(source, ";|&$`\\\"' \t\n") {
-			return fmt.Errorf("invalid restore source %q - potential injection", source)
-		}
-
-		// Simple implementation: pull via SSH
-		// Assumes SSH keys are already configured (e.g. by bootstrap)
-		parts := strings.SplitN(source, ":", 2)
-		if len(parts) != 2 {
-			return fmt.Errorf("invalid zfs-send source %q: expected host:dataset", source)
-		}
-		host := parts[0]
-		remoteDS := parts[1]
-
-		// cmd := fmt.Sprintf("ssh %s zfs send -R %s | zfs receive -u %s", host, remoteDS, name)
-		log.Printf("GITOPS: Executing safe restore: ssh %s zfs send -R %s | zfs receive -u %s", host, remoteDS, name)
-
-		sendCmd := exec.Command("ssh", host, "zfs", "send", "-R", remoteDS)
-		recvCmd := exec.Command("zfs", "receive", "-u", name)
-
-		pr, pw := io.Pipe()
-		sendCmd.Stdout = pw
-		recvCmd.Stdin = pr
-
-		// Capture errors from both
-		var errOut strings.Builder
-		sendCmd.Stderr = &errOut
-		recvCmd.Stderr = &errOut
-
-		if err := sendCmd.Start(); err != nil {
-			pw.Close()
-			return fmt.Errorf("failed to start ssh send: %w", err)
-		}
-		if err := recvCmd.Start(); err != nil {
-			pw.Close()
-			// sendCmd is already running; kill and reap it to avoid an orphaned process.
-			_ = sendCmd.Process.Kill()
-			_ = sendCmd.Wait()
-			return fmt.Errorf("failed to start zfs receive: %w", err)
-		}
-
-		// Use sync.Once so pw is closed exactly once regardless of which
-		// goroutine reaches it first, and a WaitGroup so the caller never
-		// returns while the sender goroutine is still live.
-		var closeOnce sync.Once
-		var wg sync.WaitGroup
-		wg.Go(func() {
-			_ = sendCmd.Wait()
-			closeOnce.Do(func() { pw.Close() })
-		})
-
-		recvErr := recvCmd.Wait()
-		wg.Wait() // ensure sender goroutine has exited before returning
-		if recvErr != nil {
-			return fmt.Errorf("zfs restore for %s failed: %s: %w", name, errOut.String(), recvErr)
-		}
-		log.Printf("GITOPS: dataset %q restored from %s", name, source)
 		return nil
 	}
 
@@ -1269,6 +1196,15 @@ func networkShape(c netconf.Config) netconf.Config {
 	return out
 }
 
+// reconcileLDAP writes the directory settings a state.yaml declares.
+//
+// It never touches the bind password: state.yaml cannot carry it (validation
+// refuses it), it is set in the web interface and stored sealed. And a
+// setting the file leaves out keeps the value it has. (Before, every apply
+// of a file with an "ldap:" section stored an empty bind password and
+// emptied the attribute and group settings the file did not name, among
+// them every file DPlaneOS itself wrote to the repository: directory
+// sign-in stopped working after the first apply.)
 func reconcileLDAP(db *sql.DB, desired *DesiredLDAP) error {
 	if desired == nil {
 		return nil
@@ -1287,17 +1223,20 @@ func reconcileLDAP(db *sql.DB, desired *DesiredLDAP) error {
 		jit = 1
 	}
 
-	_, err := db.Exec(`UPDATE ldap_config SET
-		enabled=$1, server=$2, port=$3, use_tls=$4, bind_dn=$5, bind_password=$6, base_dn=$7,
-		user_filter=$8, user_id_attr=$9, user_name_attr=$10, user_email_attr=$11,
-		group_base_dn=$12, group_filter=$13, group_member_attr=$14,
-		jit_provisioning=$15, default_role=$16, sync_interval=$17, timeout=$18,
-		updated_at=NOW() WHERE id=1`,
-		enabled, desired.Server, desired.Port, useTLS, desired.BindDN, desired.BindPassword, desired.BaseDN,
+	keep := func(col string, n int) string { return fmt.Sprintf("%s = COALESCE(NULLIF($%d, ''), %s)", col, n, col) }
+	keepInt := func(col string, n int) string { return fmt.Sprintf("%s = COALESCE(NULLIF($%d, 0), %s)", col, n, col) }
+	_, err := db.Exec(`UPDATE ldap_config SET enabled=$1, use_tls=$2, jit_provisioning=$3, `+
+		strings.Join([]string{
+			keep("server", 4), keepInt("port", 5), keep("bind_dn", 6), keep("base_dn", 7),
+			keep("user_filter", 8), keep("user_id_attr", 9), keep("user_name_attr", 10), keep("user_email_attr", 11),
+			keep("group_base_dn", 12), keep("group_filter", 13), keep("group_member_attr", 14),
+			keep("default_role", 15), keepInt("sync_interval", 16), keepInt("timeout", 17),
+		}, ", ")+`, updated_at=NOW() WHERE id=1`,
+		enabled, useTLS, jit,
+		desired.Server, desired.Port, desired.BindDN, desired.BaseDN,
 		desired.UserFilter, desired.UserIDAttr, desired.UserNameAttr, desired.UserEmailAttr,
 		desired.GroupBaseDN, desired.GroupFilter, desired.GroupMemberAttr,
-		jit, desired.DefaultRole, desired.SyncInterval, desired.Timeout)
-
+		desired.DefaultRole, desired.SyncInterval, desired.Timeout)
 	if err != nil {
 		return fmt.Errorf("failed to update ldap_config: %w", err)
 	}
@@ -1514,58 +1453,6 @@ func ConvergenceCheck(db *sql.DB, desired *DesiredState) (string, error) {
 	}
 
 	return "NOT_CONVERGED", nil
-}
-func reconcileACME(db *sql.DB, desired *DesiredACME) error {
-	if desired == nil {
-		return nil
-	}
-	dnsJson, _ := json.Marshal(desired.DNSConfig)
-	domainsJson, _ := json.Marshal(desired.Domains)
-	enabled := 0
-	if desired.Enabled {
-		enabled = 1
-	}
-
-	_, err := db.Exec(`UPDATE acme_config SET 
-		email=$1, server=$2, resolver=$3, dns_config=$4, domains=$5, enabled=$6, 
-		updated_at=NOW() WHERE id=1`,
-		desired.Email, desired.Server, desired.Resolver, string(dnsJson), string(domainsJson), enabled)
-	if err != nil {
-		return fmt.Errorf("update acme_config: %w", err)
-	}
-	log.Printf("GITOPS: reconciled ACME configuration")
-	return nil
-}
-
-func disableACME(db *sql.DB) error {
-	_, err := db.Exec(`UPDATE acme_config SET enabled=0, updated_at=NOW() WHERE id=1`)
-	return err
-}
-
-func reconcileCertificate(db *sql.DB, desired *DesiredCertificate) error {
-	if desired == nil {
-		return nil
-	}
-	_, err := db.Exec(`INSERT INTO certificates (name, cert_pem, key_pem, updated_at) 
-		VALUES ($1, $2, $3, NOW()) 
-		ON CONFLICT(name) DO UPDATE SET 
-			cert_pem=EXCLUDED.cert_pem, key_pem=EXCLUDED.key_pem, 
-			updated_at=NOW()`,
-		desired.Name, desired.Cert, desired.Key)
-	if err != nil {
-		return fmt.Errorf("reconcile certificate %q: %w", desired.Name, err)
-	}
-	log.Printf("GITOPS: reconciled certificate %q", desired.Name)
-	return nil
-}
-
-func deleteCertificate(db *sql.DB, name string) error {
-	_, err := db.Exec(`DELETE FROM certificates WHERE name=$1`, name)
-	if err != nil {
-		return fmt.Errorf("delete certificate %q: %w", name, err)
-	}
-	log.Printf("GITOPS: deleted certificate %q", name)
-	return nil
 }
 
 func reconcileSMART(db *sql.DB, desired *DesiredSMARTTask) error {

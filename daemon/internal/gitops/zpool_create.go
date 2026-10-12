@@ -82,7 +82,12 @@ func ZpoolCreateFullArgs(dp DesiredPool, force bool) ([]string, error) {
 		if strings.ContainsAny(k, " \t\n;|&$`") || strings.ContainsAny(v, "\n\r") {
 			return nil, fmt.Errorf("invalid pool option %q=%q", k, v)
 		}
-		args = append(args, "-O", fmt.Sprintf("%s=%s", k, v))
+		// A property of the pool, or one of its root dataset.
+		flag := "-O"
+		if IsPoolProperty(k) {
+			flag = "-o"
+		}
+		args = append(args, flag, fmt.Sprintf("%s=%s", k, v))
 	}
 	args = append(args, dp.Name)
 	vdev, err := ZpoolCreateVdevArgs(dp.Topology)

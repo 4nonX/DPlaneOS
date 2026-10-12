@@ -327,8 +327,6 @@ func liveToDesired(live *gitops.LiveState) *gitops.DesiredState {
 		})
 	}
 	ds.LDAP = live.LDAP
-	ds.ACME = live.ACME
-	ds.Certificates = live.Certificates
 	ds.SMART = live.SMART
 	if len(live.NVMeFabric) > 0 {
 		ds.Fabrics = &gitops.DesiredFabrics{NVMe: live.NVMeFabric}

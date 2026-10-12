@@ -36,12 +36,12 @@ import (
 //     pool, but must run only on the node that owns the pool; synchronising
 //     them needs pool ownership (phase 3), otherwise a replicated standby
 //     would start them against its replica;
-//   - LDAP, ACME, certificates: their secrets are only fingerprinted in the
+//   - LDAP: its secret is only fingerprinted in the
 //     history (group secrets keys, phase 3); pools come only from state.yaml.
 var SyncKinds = map[string]bool{
 	KindDataset: true, KindShare: true, KindNFS: true,
 	KindUser: true, KindGroup: true, KindReplication: true,
-	KindSettings: true, KindLDAP: true, KindACME: true, KindCertificate: true,
+	KindSettings: true, KindLDAP: true,
 }
 
 func syncKindList() []string {

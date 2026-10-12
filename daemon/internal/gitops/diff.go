@@ -102,8 +102,6 @@ const (
 	KindGroup       ResourceKind = "group"
 	KindReplication ResourceKind = "replication"
 	KindLDAP        ResourceKind = "ldap"
-	KindACME        ResourceKind = "acme"
-	KindCertificate ResourceKind = "certificate"
 	KindSMART       ResourceKind = "smart_task"
 	KindNVMeFabric  ResourceKind = "nvme_fabric"
 )
@@ -142,8 +140,6 @@ type DiffItem struct {
 	DesiredGroup       *DesiredGroup       `json:"desired_group,omitempty"`
 	DesiredReplication *DesiredReplication `json:"desired_replication,omitempty"`
 	DesiredLDAP        *DesiredLDAP        `json:"desired_ldap,omitempty"`
-	DesiredACME        *DesiredACME        `json:"desired_acme,omitempty"`
-	DesiredCertificate *DesiredCertificate `json:"desired_certificate,omitempty"`
 	DesiredSMART       *DesiredSMARTTask   `json:"desired_smart_task,omitempty"`
 	DesiredNVMeExport  *DesiredNVMeExport  `json:"desired_nvme_export,omitempty"`
 }
@@ -788,66 +784,6 @@ func ComputeDiff(desired *DesiredState, live *LiveState, ctx ...*DiffContext) *P
 		}
 	}
 
-	if desired.ACME != nil {
-		if live.ACME == nil || !live.ACME.Enabled {
-			if desired.ACME.Enabled {
-				item := *desired.ACME
-				plan.Items = append(plan.Items, DiffItem{
-					Kind:        KindACME,
-					Name:        "acme",
-					Action:      ActionCreate,
-					RiskLevel:   "medium",
-					DesiredACME: &item,
-				})
-			}
-		} else {
-			changes := diffACME(*desired.ACME, *live.ACME)
-			if len(changes) > 0 {
-				item := *desired.ACME
-				plan.Items = append(plan.Items, DiffItem{
-					Kind:        KindACME,
-					Name:        "acme",
-					Action:      ActionModify,
-					Changes:     changes,
-					RiskLevel:   "medium",
-					DesiredACME: &item,
-				})
-			}
-		}
-	}
-
-	for _, dc := range desired.Certificates {
-		found := false
-		for _, lc := range live.Certificates {
-			if lc.Name == dc.Name {
-				found = true
-				changes := diffCertificate(dc, lc)
-				if len(changes) > 0 {
-					item := dc
-					plan.Items = append(plan.Items, DiffItem{
-						Kind:               KindCertificate,
-						Name:               dc.Name,
-						Action:             ActionModify,
-						Changes:            changes,
-						RiskLevel:          "medium",
-						DesiredCertificate: &item,
-					})
-				}
-				break
-			}
-		}
-		if !found {
-			item := dc
-			plan.Items = append(plan.Items, DiffItem{
-				Kind:               KindCertificate,
-				Name:               dc.Name,
-				Action:             ActionCreate,
-				RiskLevel:          "medium",
-				DesiredCertificate: &item,
-			})
-		}
-	}
-
 	for _, dt := range desired.SMART {
 		found := false
 		for _, lt := range live.SMART {
@@ -1006,32 +942,6 @@ func ComputeDiff(desired *DesiredState, live *LiveState, ctx ...*DiffContext) *P
 	}
 
 	if !desired.IgnoreExtraneous {
-		if desired.ACME == nil && live.ACME != nil && live.ACME.Enabled {
-			plan.Items = append(plan.Items, DiffItem{
-				Kind:      KindACME,
-				Name:      "acme",
-				Action:    ActionDelete, // Disabling ACME
-				RiskLevel: "medium",
-			})
-		}
-
-		for _, lc := range live.Certificates {
-			wanted := false
-			for _, dc := range desired.Certificates {
-				if dc.Name == lc.Name {
-					wanted = true
-					break
-				}
-			}
-			if !wanted {
-				plan.Items = append(plan.Items, DiffItem{
-					Kind:      KindCertificate,
-					Name:      lc.Name,
-					Action:    ActionDelete,
-					RiskLevel: "medium",
-				})
-			}
-		}
 
 		for _, lt := range live.SMART {
 			wanted := false
@@ -1087,8 +997,6 @@ func ComputeDiff(desired *DesiredState, live *LiveState, ctx ...*DiffContext) *P
 		KindGroup:       7,
 		KindReplication: 8,
 		KindLDAP:        9,
-		KindACME:        10,
-		KindCertificate: 11,
 		KindSMART:       12,
 		KindNVMeFabric:  13,
 		KindStack:       14,
@@ -1275,10 +1183,12 @@ func diffPool(desired DesiredPool, live LivePool) []string {
 		liveSet[d] = true
 	}
 
+	// Disks are compared as disks: ZFS reports the partition it made on a
+	// disk it was given whole (see diskOfVdev), on both sides here.
 	desiredFlat := TopologyDiskFingerprint(desired.Topology)
 	desiredSet := make(map[string]bool, len(desiredFlat))
 	for _, d := range desiredFlat {
-		desiredSet[d] = true
+		desiredSet[diskOfVdev(d)] = true
 	}
 
 	addedSet := make(map[string]bool)
@@ -1314,7 +1224,7 @@ func diffPool(desired DesiredPool, live LivePool) []string {
 				allNew := true
 				allOld := true
 				for _, d := range g.Disks {
-					if addedSet[d] {
+					if addedSet[diskOfVdev(d)] {
 						allOld = false
 					} else {
 						allNew = false
@@ -1354,7 +1264,10 @@ func diffPool(desired DesiredPool, live LivePool) []string {
 		if k == "" {
 			continue
 		}
-		if live.Options == nil || live.Options[k] != v {
+		if !comparedPoolOption(k) {
+			continue // can only be given when the pool is created
+		}
+		if live.Options == nil || !strings.EqualFold(live.Options[k], v) {
 			changes = append(changes, fmt.Sprintf("zpool-set: %s=%s", k, v))
 		}
 	}
@@ -1773,34 +1686,6 @@ func HumaniseBytes(b uint64) string {
 		exp++
 	}
 	return fmt.Sprintf("%.1f %ciB", float64(b)/float64(div), "KMGTPE"[exp])
-}
-
-func diffACME(d, l DesiredACME) []string {
-	var changes []string
-	if d.Email != l.Email {
-		changes = append(changes, fmt.Sprintf("email: %s → %s", l.Email, d.Email))
-	}
-	if d.Server != l.Server {
-		changes = append(changes, fmt.Sprintf("server: %s → %s", l.Server, d.Server))
-	}
-	if d.Resolver != l.Resolver {
-		changes = append(changes, fmt.Sprintf("resolver: %s → %s", l.Resolver, d.Resolver))
-	}
-	if d.Enabled != l.Enabled {
-		changes = append(changes, fmt.Sprintf("enabled: %v → %v", l.Enabled, d.Enabled))
-	}
-	return changes
-}
-
-func diffCertificate(d, l DesiredCertificate) []string {
-	var changes []string
-	if strings.TrimSpace(d.Cert) != strings.TrimSpace(l.Cert) {
-		changes = append(changes, "certificate: (pem content changed)")
-	}
-	if strings.TrimSpace(d.Key) != strings.TrimSpace(l.Key) {
-		changes = append(changes, "private_key: (pem content changed)")
-	}
-	return changes
 }
 
 func diffSMART(d, l DesiredSMARTTask) []string {

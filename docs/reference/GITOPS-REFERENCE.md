@@ -42,7 +42,9 @@ The apply engine holds a global lock while running so only one apply can execute
 
 ## state.yaml Format
 
-`state.yaml` is stored in the configured Git repository and is the single source of truth for all runtime configuration. The parser is custom (no external YAML library) and validates strictly: unknown fields are rejected, and invalid values cause a parse failure rather than silent coercion.
+`state.yaml` is stored in the configured Git repository and is the single source of truth for all runtime configuration. The parser is custom (no external YAML library) and validates strictly: a section or setting it does not know is an error that names the place (`datasets[1].qouta`), and invalid values cause a parse failure rather than silent coercion. Nothing is applied from a file that does not validate.
+
+Not part of `state.yaml`: certificates and their keys (Security › Certificates; a private key does not belong in a repository), the directory bind password, user passwords in clear text, iSCSI targets, the UPS, SSH keys.
 
 ### Top-Level Structure
 
@@ -60,8 +62,6 @@ users:        []  # local user accounts
 groups:       []  # local groups
 replication:  []  # ZFS replication schedules
 ldap:             # LDAP/AD directory integration
-acme:             # ACME certificate automation
-certificates: []  # manually provisioned TLS certificates
 smart_tasks:  []  # SMART test schedules
 fabrics:          # NVMe-oF targets (optional)
 ```
@@ -101,6 +101,12 @@ pools:
 
 **Supported vdev types:** `mirror`, `stripe`, `raidz`, `raidz1`, `raidz2`, `raidz3`, `draid`
 
+**`options`:** properties of the pool (`autoexpand`, `autoreplace`, `autotrim`, `failmode`, `listsnapshots`, `comment`) and of its root dataset, which its datasets inherit (`compression`, `atime`, `recordsize`, `sync`, `xattr`, `acltype`, `secondarycache`, `copies`, `dedup`). Each is set where ZFS keeps it and corrected when it differs. `relatime`, `dnodesize`, `normalization`, `casesensitivity` and `utf8only` are used when the pool is created and not compared afterwards. Any other key is refused.
+
+**Disks and partitions:** name the disk. ZFS partitions a disk it is given whole and reports the first partition (`…-part1`); DPlaneOS compares the disks, so the pool matches its declaration. A partition you gave ZFS on purpose is named as that partition.
+
+**What DPlaneOS writes:** with *Storage* switched on under GitOps › Settings, the file it commits records each pool as it is built (mirrors, raidz groups, log, cache, spare, special), with its GUID. While a disk is being replaced or a spare has stepped in, it does not commit at all and says why on the GitOps page, because the layout of that moment is not the one to keep.
+
 **`force_reshape`:** When true, the reconciler allows purely additive topology changes (`zpool add` for new vdev groups, cache, log, spare). Removals are always surfaced as `MANUAL` regardless.
 
 ### Datasets
@@ -131,6 +137,13 @@ shares:
     valid_users: "@storage alice"
     comment: "Media library"
     guest_ok: false
+    # Optional. One that is left out stays as it is on the system.
+    shadow_copy: true            # snapshots as "Previous Versions"
+    recycle_bin: true
+    time_machine: false
+    time_machine_quota: "500G"
+    hosts_allow: "192.168.1.0/24"
+    hosts_deny: ""
 ```
 
 ### NFS Exports
@@ -255,7 +268,6 @@ ldap:
   port: 636
   use_tls: true
   bind_dn: "cn=dplaneos,ou=service,dc=example,dc=com"
-  bind_password: "..."
   base_dn: "dc=example,dc=com"
   user_filter: "(objectClass=person)"
   user_id_attr: uid
@@ -270,19 +282,7 @@ ldap:
   timeout: 10
 ```
 
-### ACME (Let's Encrypt)
-
-```yaml
-acme:
-  enabled: true
-  email: admin@example.com
-  server: https://acme-v02.api.letsencrypt.org/directory
-  domains:
-    - nas.example.com
-  resolver: http              # http | tls | dns provider name
-  dns_config:
-    CLOUDFLARE_API_TOKEN: "..."
-```
+The bind password is not part of the file (`bind_password` is refused): set it under Identity › Directory, where it is stored encrypted. An apply never changes it, and a setting the file leaves out keeps the value it has.
 
 ### SMART Tasks
 
@@ -321,9 +321,10 @@ Triggering an apply (`POST /api/gitops/apply`) runs the following steps:
 
 ### 1. Parse and Validate
 
-The engine fetches `state.yaml` from the configured Git repository checkout and parses it. Any parse or validation error aborts immediately - nothing is changed.
+The engine reads `state.yaml` from the local clone of the repository and parses it. The clone is brought up to date by the drift check (every five minutes, or `POST /api/gitops/check`, or the Git server's webhook); an apply itself does not fetch. Any parse or validation error aborts immediately - nothing is changed.
 
 Validation rules include:
+- every section and setting must be one this page describes
 - `version` must be `"1"` or `"6"` (`"6"` is recommended for new configurations)
 - All disk paths must begin with `/dev/disk/by-id/`
 - Pool and dataset names must match `[a-zA-Z0-9][a-zA-Z0-9/_\-\.]*`
@@ -391,66 +392,57 @@ POST /api/gitops/check
 
 **When drift is expected:** If you make a change via the UI or API (e.g., add an NFS export) but have not updated `state.yaml`, the drift detector will report drift on the next cycle. This is normal. Either update `state.yaml` manually, or use the Capture workflow (below) to generate the updated YAML.
 
-**Drift in a cluster:** each node runs the drift detector against its own live state. Resources of a storage group are only applied on the node that owns the group; on other nodes they wait until that node imports the group's pools.
+**Drift in a cluster:** every node keeps its clone current, but only the GitOps writer (the node that serves every storage group, while the cluster has quorum) compares and applies. See [Git-Driven NAS, Clusters](../admin/GITOPS-DRIVEN-NAS.md#clusters).
 
 ---
 
 ## Capture: Live State to YAML
 
-The Capture workflow reads the live system state and generates the corresponding `state.yaml` sections. Use it when you have made UI-driven changes and want to commit them to Git.
+Capture replaces sections of the local `state.yaml` with what the system has now. Sections you do not name are left as they are. Use it to bring an already configured system under Git, one category at a time, under GitOps › Settings.
 
 ```
 POST /api/gitops/capture
-{"categories": ["pools", "datasets", "shares", "nfs", "stacks", "users", "groups"]}
+{"categories": ["smb", "nfs", "users", "groups", "stacks", "replication", "system"]}
 ```
 
-**What Capture does and does not export:**
+| Category | What is written |
+|----------|-----------------|
+| `smb` | shares with their options |
+| `nfs` | exports |
+| `users` | name, e-mail, role, active. Never a password or its hash: a user without `password_hash` in the file keeps the password it has |
+| `groups` | name, description, GID, members |
+| `stacks` | the Compose file of each stack |
+| `replication` | schedules (the peer by name) |
+| `system` | host name, time zone, DNS and time servers, firewall ports, network, Samba and SSH settings |
 
-| Resource | Exported | Notes |
-|----------|----------|-------|
-| ZFS pools | Yes | Topology, ashift, properties |
-| ZFS datasets | Yes | All properties |
-| SMB shares | Yes | Path, permissions, comment |
-| NFS exports | Yes | Path, clients, options |
-| Docker stacks | Yes | Full compose YAML |
-| Users | Yes | Username, email, role, active - NOT passwords |
-| Groups | Yes | Name, GID, members |
-| Passwords | Never | Capture never exports password hashes |
+Pools and datasets have no capture: they are recorded by the write-back below when *Storage* is switched on.
 
-The captured YAML is returned in the API response for review. It is never automatically committed - the operator reviews, edits if needed, and commits manually.
+The answer lists what was captured and how many resources of each category are now in the file; a drift check follows at once.
 
-**Workflow:**
-1. Make changes via the UI or API
-2. `POST /api/gitops/capture` with the relevant categories
-3. Review the output
-4. Commit the updated `state.yaml` to Git
-5. Run `POST /api/gitops/apply` or let the drift detector confirm convergence
+**Write-back.** With a repository linked, DPlaneOS itself commits and pushes a snapshot of the live state after every change made in the web interface, and on *Sync Now*: all categories that are switched on under GitOps › Settings, generated from the system. The file in the repository is therefore rewritten by the system; comments in it are not kept.
 
 ---
 
 ## Git Repository Setup
 
-The GitOps engine expects a Git repository with `state.yaml` at the repository root.
+The engine expects `state.yaml` at the root of the repository's branch.
 
-Configure the repository under Containers › GitOps Engine (Repositories, then choose it as *System State* under Settings), or through the API:
+1. **GitOps › Credentials**: add what the Git server accepts for this repository: an access token (HTTPS), or an SSH private key whose public key is a deploy key there. It needs write access if the system is to commit its own changes (write-back), read access otherwise. Stored encrypted.
+2. **GitOps › Repositories › Link Repository** (or the wizard on the Settings tab): the URL, the branch, the credential, and the name and e-mail for the system's commits.
+3. **GitOps › Settings**: switch GitOps on, choose the repository as *System State*, and choose the categories the system writes back.
+
+The clone lives in `/var/lib/dplaneos/gitops/` and survives restarts and updates.
+
+The same through the API:
 
 ```
-POST /api/gitops/config
-{
-  "repo_url": "git@github.com:yourorg/nas-state.git",
-  "branch": "main",
-  "ssh_key_path": "/var/lib/dplaneos/gitops/deploy_key"
-}
+POST /api/git-sync/credentials   {"name": "state-repo", "host": "github.com", "auth_type": "token", "token": "..."}
+                                 {"name": "state-repo", "host": "github.com", "auth_type": "ssh", "ssh_key": "-----BEGIN OPENSSH PRIVATE KEY-----..."}
+POST /api/git-sync/repos         {"name": "nas-state", "repo_url": "https://github.com/yourorg/nas-state.git", "branch": "main",
+                                  "credential_id": 1, "commit_name": "nas-01", "commit_email": "nas-01@example.com"}
+PUT  /api/gitops/settings        {"enabled": true, "repo_id": 1, "sync_storage": true, "sync_access": true, "sync_app": true,
+                                  "sync_identity": true, "sync_protection": true, "sync_system": true, "auto_apply": false}
 ```
-
-For private repositories, generate a deploy key and add it to the repository:
-```bash
-ssh-keygen -t ed25519 -f /var/lib/dplaneos/gitops/deploy_key -N ""
-cat /var/lib/dplaneos/gitops/deploy_key.pub
-# Add this public key as a deploy key on GitHub/GitLab with read access
-```
-
-The daemon clones and fetches the repository to `/var/lib/dplaneos/gitops/repo/`. This path is on `/persist` and survives reboots.
 
 ---
 
@@ -458,15 +450,18 @@ The daemon clones and fetches the repository to `/var/lib/dplaneos/gitops/repo/`
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/api/gitops/status` | Current sync status, last apply result, drift state |
-| `GET` | `/api/gitops/config` | Repository URL, branch, key path |
-| `POST` | `/api/gitops/config` | Update repository configuration |
-| `POST` | `/api/gitops/apply` | Pull latest state.yaml and apply |
-| `POST` | `/api/gitops/check` | Compute drift plan without applying |
-| `GET` | `/api/gitops/plan` | Last computed plan (items, kinds, descriptions) |
-| `POST` | `/api/gitops/approve` | Approve a BLOCKED item |
-| `POST` | `/api/gitops/capture` | Generate state.yaml from live system |
-| `GET` | `/api/gitops/history` | Apply history log |
+| `GET` | `/api/gitops/status` | Whether this node is the writer, drift, last check, last commit of the system, the commit the system corresponds to |
+| `POST` | `/api/gitops/check` | Fetch the repository and compare it with the system now |
+| `GET` | `/api/gitops/plan` | The plan: `changes` (what would be done), `plan` (all items), `plan_summary` |
+| `POST` | `/api/gitops/apply` | Apply the `state.yaml` of the local clone |
+| `POST` | `/api/gitops/approve` | Approve a BLOCKED item: `{"kind": "dataset", "name": "tank/old", "reason": "..."}` |
+| `GET` / `PUT` | `/api/gitops/state` | Read or replace the local `state.yaml` |
+| `GET` / `PUT` | `/api/gitops/settings` | Repository, categories, automatic apply, webhook secret |
+| `POST` | `/api/gitops/sync` | Fetch, then commit and push a snapshot of the live state (*Sync Now*) |
+| `POST` | `/api/gitops/capture` | Replace sections of `state.yaml` with the live state |
+| `GET` | `/api/gitops/managed-summary` | Per category: resources in the file and on the system |
+| `POST` | `/api/gitops/webhook` | Called by the Git server on a push (signed) |
+| | `/api/git-sync/credentials`, `/api/git-sync/repos` | Credentials and repositories (above) |
 
 ---
 
@@ -475,7 +470,8 @@ The daemon clones and fetches the repository to `/var/lib/dplaneos/gitops/repo/`
 | Error | Cause | Resolution |
 |-------|-------|------------|
 | `disk must use /dev/disk/by-id/ path` | `state.yaml` contains an `/dev/sdX` path | Replace with the stable by-id path from the disk discovery UI |
-| `unsupported state.yaml version` | `version` field is not `"1"` or `"6"` | Set `version: "1"` |
+| `unsupported state.yaml version` | `version` field is not `"1"` or `"6"` | Set `version: "6"` |
+| `unknown settings` | A section or key the format does not have (misspelt, or from another version) | The message names each place; correct or remove it |
 | `plan contains BLOCKED items` | A destructive change needs approval | Review the blocked items in the UI and approve explicitly |
 | `global lock held` | Another apply is running | Wait for the current apply to complete |
 | `data-not-ready` | A Docker stack requires a ZFS dataset that is not yet mounted | Ensure the dataset is created before the stack, or add it to the desired state |

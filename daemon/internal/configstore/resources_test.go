@@ -75,14 +75,10 @@ func TestSecretsAreFingerprintedNotStored(t *testing.T) {
 	ds := &gitops.DesiredState{
 		Version: "1",
 		LDAP:    &gitops.DesiredLDAP{Server: "ldap", BindPassword: "s3cret"},
-		ACME:    &gitops.DesiredACME{Email: "a@b", DNSConfig: map[string]string{"CF_API_TOKEN": "tok"}},
-		Certificates: []gitops.DesiredCertificate{
-			{Name: "web", Cert: "-----BEGIN CERTIFICATE-----", Key: "-----BEGIN PRIVATE KEY-----"},
-		},
 	}
 	rs := Extract(ds, "n")
 	raw, _ := json.Marshal(rs)
-	for _, secret := range []string{"s3cret", "\"tok\"", "PRIVATE KEY"} {
+	for _, secret := range []string{"s3cret"} {
 		if strings.Contains(string(raw), secret) {
 			t.Errorf("secret %q stored in the history: %s", secret, raw)
 		}
@@ -95,8 +91,8 @@ func TestSecretsAreFingerprintedNotStored(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if assembled.LDAP.BindPassword != "" || assembled.ACME.DNSConfig != nil || len(assembled.Certificates) != 0 {
-		t.Errorf("export must not carry secrets or fingerprints: %+v %+v %+v", assembled.LDAP, assembled.ACME, assembled.Certificates)
+	if assembled.LDAP.BindPassword != "" {
+		t.Errorf("export must not carry secrets or fingerprints: %+v", assembled.LDAP)
 	}
 }
 

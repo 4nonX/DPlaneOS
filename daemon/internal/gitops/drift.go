@@ -54,6 +54,9 @@ type DriftResult struct {
 	Plan          *Plan     `json:"plan,omitempty"`
 	Error         string    `json:"error,omitempty"`
 	StateYAMLPath string    `json:"state_yaml_path"`
+	// FetchFailed: the repository could not be fetched (as opposed to a
+	// state.yaml that is missing or invalid, or a node that is not the writer).
+	FetchFailed bool `json:"fetch_failed,omitempty"`
 }
 
 // NewDriftDetector creates a detector. Call Start() to begin monitoring.
@@ -161,6 +164,7 @@ func (d *DriftDetector) runCheck() *DriftResult {
 		// Bring the clone up to date so drift is measured against what is in
 		// the repository, not against the last state this node happened to see.
 		if err := d.pullRepo(repoID.Int64); err != nil {
+			result.FetchFailed = true
 			result.Error = "cannot update from the Git repository: " + err.Error()
 			log.Printf("GITOPS DRIFT: %s", result.Error)
 			d.broadcast(result)

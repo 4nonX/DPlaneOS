@@ -53,8 +53,8 @@ const PAGE = 100
 
 const KIND_LABELS: Record<string, string> = {
   dataset: 'Dataset', share: 'SMB share', nfs: 'NFS export', stack: 'Stack', system: 'Node settings (hostname, network)', settings: 'Shared settings',
-  user: 'User', group: 'Group', replication: 'Replication', ldap: 'Directory (LDAP)', acme: 'ACME',
-  certificate: 'Certificate', smart_task: 'SMART task', nvme_fabric: 'NVMe-oF export', pool: 'Pool',
+  user: 'User', group: 'Group', replication: 'Replication', ldap: 'Directory (LDAP)',
+  smart_task: 'SMART task', nvme_fabric: 'NVMe-oF export', pool: 'Pool',
 }
 
 const ORIGIN: Record<Revision['origin'], { label: string; cls: string; title: string }> = {

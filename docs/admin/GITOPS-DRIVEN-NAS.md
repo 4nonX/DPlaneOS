@@ -54,39 +54,34 @@ nas-state/
   README.md   (optional)
 ```
 
-### Step 2: Generate a deploy key
+### Step 2: Give DPlaneOS access to the repository
 
-The DPlaneOS daemon needs read access to the repository. Generate a dedicated key:
+Under **GitOps › Credentials**, add what your Git server accepts:
+
+- an **access token** for HTTPS (a fine-grained token limited to this repository), or
+- an **SSH private key**. Make a key pair for this purpose on your own machine (`ssh-keygen -t ed25519 -f nas-state -N ""`), add `nas-state.pub` to the repository as a deploy key, and paste the private key into the credential.
+
+The credential needs **write access** if the system is to commit the changes made in its web interface (see [Changes made in the web UI](#changes-made-in-the-web-ui)); read access is enough if the repository is only ever changed by you. It is stored encrypted on the system.
+
+### Step 3: Link the repository
+
+**GitOps › Repositories › Link Repository**: the URL, the branch (`main`), the credential, and the name and e-mail the system commits under.
+
+Then **GitOps › Settings**: switch GitOps on, choose the repository as *System State*, and choose which categories the system records (storage, shares, containers, users and groups, replication, system settings).
+
+The clone lives in `/var/lib/dplaneos/gitops/` and survives restarts and updates.
+
+### Requests from scripts
+
+Requests from a script are made with an API token (Security › API Tokens; a
+token that may change things needs the *admin* scope):
 
 ```bash
-ssh-keygen -t ed25519 -f /var/lib/dplaneos/gitops/deploy_key -N ""
-cat /var/lib/dplaneos/gitops/deploy_key.pub
+NAS=https://nas.example.lan
+AUTH="Authorization: Bearer dpl_..."
 ```
 
-Add the public key to your repository as a deploy key with **read-only** access. If you want the daemon to be able to write back (for auto-commit of captures, or future features), grant read-write. For security, read-only is sufficient for the apply workflow.
-
-### Step 3: Configure the repository in DPlaneOS
-
-Navigate to **Settings - GitOps** and enter:
-
-- **Repository URL:** `git@github.com:yourorg/nas-state.git`
-- **Branch:** `main`
-- **SSH key path:** `/var/lib/dplaneos/gitops/deploy_key`
-
-Or via API:
-
-```bash
-curl -X POST http://nas/api/gitops/config \
-  -H "X-Session-ID: $SESSION" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "repo_url": "git@github.com:yourorg/nas-state.git",
-    "branch": "main",
-    "ssh_key_path": "/var/lib/dplaneos/gitops/deploy_key"
-  }'
-```
-
-The daemon clones the repository to `/var/lib/dplaneos/gitops/repo/`. This path is on `/persist` and survives reboots.
+The examples below use these two variables.
 
 ---
 
@@ -94,45 +89,42 @@ The daemon clones the repository to `/var/lib/dplaneos/gitops/repo/`. This path 
 
 If you have already configured your NAS via the web UI and want to bring it under Git control, use Capture to generate the initial `state.yaml`.
 
-### Capture everything
+### Record what is there
 
-In the UI: **GitOps - Capture**. Select all categories and review the output.
+With the repository linked and the categories chosen, press **Sync Now** on the Settings tab. The system commits a `state.yaml` generated from what it has now and pushes it: pools as they are built, datasets, shares, exports, stacks, users and groups, replication, system settings.
 
-Via API:
+To take over one category at a time instead (for example into a file you maintain by hand), use the **Capture** button of that category on the Settings tab, or:
 
 ```bash
-curl -X POST http://nas/api/gitops/capture \
-  -H "X-Session-ID: $SESSION" \
-  -H "Content-Type: application/json" \
-  -d '{"categories": ["pools", "datasets", "shares", "nfs", "stacks", "users", "groups", "system"]}' \
-  | jq -r '.yaml'
+curl -X POST "$NAS/api/gitops/capture" -H "$AUTH" -H "Content-Type: application/json" \
+  -d '{"categories": ["smb", "nfs", "users", "groups", "stacks", "replication", "system"]}'
 ```
 
-The output is a complete `state.yaml` reflecting the current live state. Paste it into your repository, review it carefully, and commit.
+Capture replaces those sections of the local `state.yaml` and leaves the others as they are.
 
-**What Capture exports and does not export:**
+**What is recorded and what is not:**
 
-| Resource | Exported | Notes |
+| Resource | Recorded | Notes |
 |----------|----------|-------|
-| ZFS pools | Yes | Topology, ashift, properties |
-| ZFS datasets | Yes | All managed properties |
-| SMB shares | Yes | Path, permissions, comment |
+| ZFS pools | Yes (write-back) | As built: mirrors, raidz groups, log, cache, spare, special. Not while a disk is being replaced |
+| ZFS datasets | Yes (write-back) | The managed properties |
+| SMB shares | Yes | Path, permissions, comment, options |
 | NFS exports | Yes | Path, clients, options |
-| Docker stacks | Yes | Full Compose YAML |
-| Users | Yes | Username, email, role, active |
+| Docker stacks | Yes | The Compose file |
+| Users | Yes | Username, e-mail, role, active |
 | Groups | Yes | Name, GID, members |
-| Passwords | **Never** | Hashes are captured, plaintexts are never stored anywhere |
-| LDAP bind password | **Never** | Set this field manually after capture |
-| SSH private keys | **Never** | Reference by path only |
+| Passwords | **Never** | Neither the password nor its hash. A user without `password_hash` in the file keeps the password it has |
+| Directory bind password | **Never** | Set under Identity › Directory; an apply never changes it |
+| Certificates and keys | **Never** | Not part of `state.yaml` |
 
-After committing the captured state, run an apply immediately to verify that the reconciler computes an all-NOP plan (meaning the captured YAML matches reality exactly):
+Then check that the file and the system agree: the Status tab should show no drift, or
 
 ```bash
-curl -X POST http://nas/api/gitops/apply \
-  -H "X-Session-ID: $SESSION"
+curl -X POST "$NAS/api/gitops/check" -H "$AUTH"
+curl "$NAS/api/gitops/plan" -H "$AUTH" | jq '.changes'
 ```
 
-If you see any CREATE, MODIFY, or DELETE items, resolve them before considering the bootstrap complete.
+should print an empty list. Resolve anything it shows before you rely on the repository.
 
 ---
 
@@ -140,26 +132,20 @@ If you see any CREATE, MODIFY, or DELETE items, resolve them before considering 
 
 ### Making a change
 
-1. Edit `state.yaml` in your editor or via the GitHub/GitLab web UI
+1. Edit `state.yaml` in your editor or in the Git server's web interface
 2. Commit with a meaningful message: `add media share for alice and bob`
-3. Push to main
-4. Pull and apply in DPlaneOS
+3. Push
+4. Have the system look at the repository, review, apply
 
-The apply fetches the latest commit and runs the reconciler. For small changes (adding a share, changing a quota), the full cycle completes in seconds.
+The system fetches the repository every five minutes (at once with a [webhook](#webhook)) and shows the difference on the GitOps page. **Config Check** fetches now. **Deploy Now** applies the file as fetched. For small changes (adding a share, changing a quota), this completes in seconds.
 
-**Via UI:** GitOps page - Pull and Apply button.
-
-**Via API:**
 ```bash
-curl -X POST http://nas/api/gitops/apply \
-  -H "X-Session-ID: $SESSION"
+curl -X POST "$NAS/api/gitops/check" -H "$AUTH"      # fetch and compare
+curl "$NAS/api/gitops/plan" -H "$AUTH" | jq '.changes' # what would be done
+curl -X POST "$NAS/api/gitops/apply" -H "$AUTH"      # do it
 ```
 
-**Via CLI (from the NAS itself):**
-```bash
-curl -s -X POST -H "X-Session-ID: $(cat /tmp/session)" \
-  http://localhost/api/gitops/apply
-```
+An apply does not fetch by itself: it applies what the last check brought.
 
 ### Changes made in the web UI
 
@@ -171,21 +157,9 @@ A change made in the web UI takes effect immediately and is then written back to
 
 The commit the live system corresponds to is reported as `synced_commit` in `GET /api/gitops/status`. It moves forward when this node pushes a snapshot or when an apply completes without deferred items.
 
-### Reviewing the plan before applying
+### Reading the plan
 
-If you want to see what will happen before committing to it:
-
-```bash
-# Pull latest state.yaml without applying
-curl -X POST http://nas/api/gitops/check \
-  -H "X-Session-ID: $SESSION"
-
-# Read the resulting plan
-curl http://nas/api/gitops/plan \
-  -H "X-Session-ID: $SESSION" | jq '.items'
-```
-
-The plan shows each resource with its kind (`CREATE`, `MODIFY`, `DELETE`, `NOP`, `BLOCKED`, `MANUAL`) and a human-readable description of what will change.
+Each item of the plan has a kind (`CREATE`, `MODIFY`, `DELETE`, `NOP`, `BLOCKED`, `MANUAL`) and says what will change. `GET /api/gitops/plan` returns the items that are not `NOP` as `changes`, all items as `plan`.
 
 ---
 
@@ -409,9 +383,9 @@ system:
 | Secret | Alternative |
 |--------|-------------|
 | LDAP bind password | Set in Directory settings in the web UI; stored encrypted in the database. `ldap.bind_password` in `state.yaml` is rejected by validation (earlier versions stored it unencrypted, which broke LDAP binds) |
-| ACME DNS API tokens | Set in the DPlaneOS secrets store; referenced by name in state.yaml |
-| Docker container passwords/tokens | Use Docker secrets, environment files outside `/var/lib/docker` (on `/persist`), or a secrets manager sidecar |
-| SSH private keys | Reference by path only; key files live on `/persist` outside Git |
+| Certificates and their keys | Security › Certificates. Not part of `state.yaml` |
+| Docker container passwords/tokens | An environment file on a dataset, outside Git (below) |
+| The repository's own access token or SSH key | GitOps › Credentials; stored encrypted |
 | Webhook secrets | Configured in Settings only |
 
 ### Handling Docker container credentials
@@ -429,7 +403,7 @@ stacks:
             - DATABASE_PASSWORD=hunter2   # This ends up in Git
 ```
 
-Use an env_file that lives on `/persist` (which survives reboots but is not in Git):
+Use an env_file on a dataset of your pool (it is not in Git; give it to administrators only):
 
 ```yaml
 # Do this instead
@@ -439,16 +413,17 @@ stacks:
       services:
         myapp:
           env_file:
-            - /persist/secrets/myapp.env   # Created manually on the NAS
+            - /mnt/tank/secrets/myapp.env   # created once on the system
 ```
 
-Create the secrets file on the NAS once:
+Create the file once, in the file manager or over SSH as an administrator:
 ```bash
-cat > /persist/secrets/myapp.env <<EOF
+sudo install -d -m 700 /mnt/tank/secrets
+sudo sh -c 'cat > /mnt/tank/secrets/myapp.env' <<EOF
 DATABASE_PASSWORD=hunter2
 API_KEY=secret
 EOF
-chmod 600 /persist/secrets/myapp.env
+sudo chmod 600 /mnt/tank/secrets/myapp.env
 ```
 
 ---
@@ -478,62 +453,30 @@ git commit -m "revert to state from 3 commits ago"
 git push
 ```
 
-### Emergency revert without Git
+### Emergency revert without the Git server
 
-If Git is inaccessible (network outage, repository issue), you can revert directly from the NAS:
+If the Git server cannot be reached, the file can be put back on the system itself: **GitOps › Status › state.yaml on this system › Edit** (the file is validated before it is stored), or
 
 ```bash
-cd /var/lib/dplaneos/gitops/repo
-git log --oneline    # Find the previous good commit
-git checkout abc1234 -- state.yaml    # Restore the file
-curl -X POST http://localhost/api/gitops/apply \
-  -H "X-Session-ID: $(cat /tmp/session)"
+curl "$NAS/api/gitops/state" -H "$AUTH" | jq -r '.content' > state.yaml   # what the system has
+# edit, or take the earlier version from your own clone of the repository
+jq -Rs '{content: .}' state.yaml | curl -X PUT "$NAS/api/gitops/state" -H "$AUTH" -H "Content-Type: application/json" -d @-
+curl -X POST "$NAS/api/gitops/apply" -H "$AUTH"
 ```
 
-This applies the previous state without touching the remote repository. Once connectivity is restored, update the remote to match.
+The file is validated before it is stored. Once the Git server is back, make the same change there: the next fetch brings the clone in line with the repository again.
 
 ---
 
-## Pull Request Workflow
+## Review Before Apply
 
-For teams or when you want a review step before changes are applied:
+DPlaneOS follows one branch. Review happens before a change reaches that branch, on the Git server:
 
-### Setup
+1. Protect the branch the system follows and require a review for it.
+2. Propose changes as pull (merge) requests.
+3. After the merge the system fetches the commit. With automatic apply off, it waits on the GitOps page with its plan; with automatic apply on, it is applied if its plan needs no judgement (see above).
 
-1. Set DPlaneOS to poll or listen on a non-main branch: `staging`
-2. Protect `main` with required reviews in your repository settings
-3. Apply from `main`; `staging` receives PRs for preview
-
-### Workflow
-
-```
-feature/add-backup-share
-         │
-         │ pull request (human review)
-         ▼
-      staging ──── drift-check only ────► "Plan: CREATE shares/backups"
-         │
-         │ merge after approval
-         ▼
-        main ──────────── apply ─────────► share created on NAS
-```
-
-**Drift check against a branch without applying** is useful for showing the plan in a PR comment. From a CI action in your state repository:
-
-```yaml
-# .github/workflows/plan.yml
-on: [pull_request]
-jobs:
-  plan:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Trigger plan
-        run: |
-          curl -X POST ${{ secrets.NAS_URL }}/api/gitops/check \
-            -H "X-Session-ID: ${{ secrets.NAS_SESSION }}"
-          curl ${{ secrets.NAS_URL }}/api/gitops/plan \
-            -H "X-Session-ID: ${{ secrets.NAS_SESSION }}" | jq '.items'
-```
+A file that does not validate (a misspelt setting, a disk that is not a `/dev/disk/by-id/` path, a plain-text password) is refused as a whole; nothing of it is applied.
 
 ---
 
@@ -613,21 +556,17 @@ groups:
 
 Set `active: false`. The account is suspended but the data and history are retained. Use `active: true` to re-enable.
 
-### Running a one-off container
-
-Use a Docker stack with `restart: "no"`. Apply starts the container once. Capture will export it; you can then delete it from `state.yaml` and apply again to remove it.
-
 ### Stopped containers are restarted by apply
 
 A stack in `state.yaml` is desired to be running. If a container is stopped (manually via `docker stop` or by the container itself exiting), the diff engine sees `status: stopped → running` and the next apply will restart it.
 
-This is intentional: GitOps owns the desired state, and the desired state for a declared stack is "running." If you want a stack to be stopped, remove it from `state.yaml`. If you need it stopped temporarily without triggering a DELETE plan item, set `ignore_extraneous: true` and stop the container manually - the reconciler will not notice the extraneous stopped stack. Remember to set `ignore_extraneous: false` again once the operation is complete.
+This is intentional: GitOps owns the desired state, and the desired state for a declared stack is "running." If you want a stack to be stopped, remove it from `state.yaml`: with `ignore_extraneous: true` it is then left as it is (stopped or running), with `ignore_extraneous: false` it is removed.
 
 ### Decommissioning a share
 
-Remove it from `shares:` and apply. The reconciler computes a DELETE plan item. If the share has no open sessions, it is removed immediately. If sessions are active, they are disconnected first.
+Remove it from `shares:` and apply. A share nobody is connected to is removed. A share with open connections is not: the item is `BLOCKED`, and it stays so until the clients have disconnected.
 
-**The underlying dataset is not touched.** Removing a share entry only removes the SMB share definition. The data remains. To delete the dataset, also remove it from `datasets:`, which generates a `BLOCKED` item requiring explicit approval.
+**The underlying dataset is not touched.** Removing a share entry only removes the SMB share definition. The data remains. To delete the dataset, also remove it from `datasets:`: an empty dataset is destroyed, one that holds data is a `BLOCKED` item that needs your approval. A pool is never destroyed by an apply.
 
 ---
 
@@ -645,10 +584,8 @@ You have resources on the live system that are not in `state.yaml`. Either:
 A BLOCKED item is a potentially destructive change that requires explicit confirmation. Read the description in the plan - it explains what data is at risk. To approve:
 
 ```bash
-curl -X POST http://nas/api/gitops/approve \
-  -H "X-Session-ID: $SESSION" \
-  -H "Content-Type: application/json" \
-  -d '{"item_id": "datasets/tank/old-data", "reason": "dataset is empty, confirmed"}'
+curl -X POST "$NAS/api/gitops/approve" -H "$AUTH" -H "Content-Type: application/json" \
+  -d '{"kind": "dataset", "name": "tank/old-data", "reason": "moved to tank/archive, confirmed"}'
 ```
 
 Then run apply again.
@@ -665,17 +602,16 @@ The live system was modified outside of state.yaml (via UI, CLI, or another proc
 The error message names the exact field and index. Common causes:
 
 - Disk path is `/dev/sda` instead of `/dev/disk/by-id/...`
-- `version` field is missing or not `"1"`
-- An enum value is misspelled (e.g., `compress: lz4` instead of `compression: lz4`)
-- Unknown field added (state.yaml uses strict parsing - no extra fields allowed)
+- `version` field is missing or not `"6"` (`"1"` is still read)
+- A setting is misspelt (`compress: lz4` instead of `compression: lz4`): the message names the place, for example `datasets[0].compress`
+- A section that is not part of the format (certificates, for example)
 
-### Repository clone fails
+### The repository cannot be fetched
 
-Check:
-1. The deploy key is added to the repository with the correct permissions
-2. The key file at `ssh_key_path` is readable by the `dplaneos` user
-3. The repository URL uses the SSH form (`git@github.com:...`), not HTTPS
-4. The NAS can reach the Git host: `ssh -i /var/lib/dplaneos/gitops/deploy_key -T git@github.com`
+The GitOps page and `GET /api/gitops/status` show the Git error. Check:
+1. the credential (GitOps › Credentials › Test): the token has not expired, or the public key of the SSH key is still a deploy key of the repository;
+2. the URL matches the credential: `https://…` with a token, `git@host:…` with an SSH key;
+3. the system can reach the Git server (DNS, firewall, proxy).
 
 ### Apply makes unexpected changes
 

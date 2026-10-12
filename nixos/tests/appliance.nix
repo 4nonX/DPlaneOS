@@ -369,6 +369,40 @@ pkgs.testers.nixosTest {
             assert "Too many" in str(attempt_from_client("admin", "guess").get("error")), "no waiting time after repeated failures"
             assert try_login("admin", PASSWORD).get("session_id"), "failed sign-ins from another machine locked the administrator out"
 
+        with subtest("GitOps: what the system records is what is there, and applying it changes nothing"):
+            ok(api("POST", "/api/ldap/config", directory), "directory on")
+            assert try_login("dora", "Dora-Dir-Pass-1").get("session_id"), "directory sign-in before GitOps"
+            st = api("GET", "/api/gitops/settings")["settings"]
+            st.update({"enabled": True, "sync_storage": True, "sync_access": True, "sync_app": True,
+                       "sync_identity": True, "sync_protection": True, "sync_system": True})
+            ok(api("PUT", "/api/gitops/settings", st), "GitOps on")
+            ok(api("POST", "/api/gitops/sync", {}), "record the state of the system")
+            state = api("GET", "/api/gitops/state")["content"]
+            print(state)
+            # The pool as it is built, with its disks (not as a stripe of partitions).
+            assert "type: mirror" in state and "stripe" not in state, "the mirror is not recorded as a mirror"
+            assert D0 in state and D1 in state and "-part1" not in state, "the pool's disks are not recorded as disks"
+            # No secrets.
+            assert "ldap:" in state and "bind_password" not in state and "password_hash" not in state
+            # The record of the system plans nothing against the system.
+            api("POST", "/api/gitops/check", {})
+            plan = api("GET", "/api/gitops/plan")
+            assert plan["changes"] == [], f"the system's own record plans changes: {plan['changes']}"
+            ok(api("POST", "/api/gitops/apply", {}), "apply")
+            # The directory still works: the apply did not touch its bind password or settings.
+            assert try_login("dora", "Dora-Dir-Pass-1").get("session_id"), "directory sign-in broke with an apply"
+            nas.succeed("zpool status tank | grep -q mirror-0")
+            nas.succeed("testparm -s 2>/dev/null | grep -q '^\\[data\\]'")
+            # A misspelt setting is refused with its place, and nothing is stored.
+            typo = state.replace("datasets:", "datasets:\n  - name: tank/typo\n    qouta: 1G", 1)
+            assert typo != state
+            bad = api("PUT", "/api/gitops/state", {"content": typo})
+            assert bad.get("success") is False and "qouta" in str(bad.get("error")), bad
+            assert api("GET", "/api/gitops/state")["content"] == state, "a refused file was stored"
+            st["enabled"] = False
+            ok(api("PUT", "/api/gitops/settings", st), "GitOps off")
+            ok(api("POST", "/api/ldap/config", dict(directory, enabled=0)), "directory off")
+
         with subtest("System settings take effect at once"):
             ok(api("POST", "/api/system/settings", {"hostname": "tank-nas", "timezone": "Europe/Berlin"}), "host name and time zone")
             assert nas.succeed("hostname").strip() == "tank-nas"

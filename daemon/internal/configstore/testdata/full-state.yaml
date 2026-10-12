@@ -155,11 +155,8 @@ system:
 replication:
   - name: offsite
     source_dataset: tank/data
-    remote_host: backup.example.com
-    remote_user: zfsrecv
-    remote_port: 22
+    remote: backup-nas
     remote_pool: backup
-    ssh_key_path: /var/lib/dplaneos/ssh/id_ed25519
     interval: daily
     trigger_on_snapshot: false
     compress: true

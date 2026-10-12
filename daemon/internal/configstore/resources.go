@@ -37,8 +37,6 @@ const (
 	KindGroup       = string(gitops.KindGroup)
 	KindReplication = string(gitops.KindReplication)
 	KindLDAP        = string(gitops.KindLDAP)
-	KindACME        = string(gitops.KindACME)
-	KindCertificate = string(gitops.KindCertificate)
 	KindSMART       = string(gitops.KindSMART)
 	KindNVMe        = string(gitops.KindNVMeFabric)
 
@@ -63,12 +61,12 @@ var settingsFields = map[string]bool{
 var capturedKinds = map[string]bool{
 	KindDataset: true, KindShare: true, KindNFS: true, KindStack: true,
 	KindSystem: true, KindSettings: true, KindUser: true, KindGroup: true, KindReplication: true,
-	KindLDAP: true, KindACME: true, KindCertificate: true, KindSMART: true,
+	KindLDAP: true, KindSMART: true,
 	KindNVMe: true,
 }
 
 // RollbackKinds can be rolled back from the GUI in Phase 1. Kinds that carry
-// secrets (LDAP, ACME, certificates) and pools are excluded.
+// secrets (LDAP) and pools are excluded.
 var RollbackKinds = map[string]bool{
 	KindDataset: true, KindShare: true, KindNFS: true, KindStack: true,
 	KindUser: true, KindGroup: true, KindReplication: true, KindSMART: true,
@@ -173,21 +171,6 @@ func Extract(ds *gitops.DesiredState, nodeID string) []Resource {
 		l.BindPassword = fingerprint(l.BindPassword)
 		add(KindLDAP, "ldap", ScopeCluster, "local", l)
 	}
-	if ds.ACME != nil {
-		a := *ds.ACME
-		if len(a.DNSConfig) > 0 {
-			red := make(map[string]string, len(a.DNSConfig))
-			for k, v := range a.DNSConfig {
-				red[k] = fingerprint(v)
-			}
-			a.DNSConfig = red
-		}
-		add(KindACME, "acme", ScopeCluster, "local", a)
-	}
-	for _, c := range ds.Certificates {
-		c.Key = fingerprint(c.Key)
-		add(KindCertificate, c.Name, ScopeCluster, "local", c)
-	}
 	for _, t := range ds.SMART {
 		add(KindSMART, fmt.Sprintf("%s-%s", t.Device, t.Type), ScopeNode, nodeID, t)
 	}
@@ -283,24 +266,6 @@ func Assemble(resources []Resource) (*gitops.DesiredState, error) {
 					v.BindPassword = ""
 				}
 				ds.LDAP = &v
-			}
-		case KindACME:
-			var v gitops.DesiredACME
-			if err = fromMap(r.Payload, &v); err == nil {
-				for _, val := range v.DNSConfig {
-					if isFingerprint(val) {
-						v.DNSConfig = nil // fingerprints only: the credentials are not here
-						break
-					}
-				}
-				ds.ACME = &v
-			}
-		case KindCertificate:
-			// Private keys are not stored in revisions; a certificate is
-			// assembled only when its key was filled in (from the other node).
-			var v gitops.DesiredCertificate
-			if err = fromMap(r.Payload, &v); err == nil && v.Key != "" && !isFingerprint(v.Key) {
-				ds.Certificates = append(ds.Certificates, v)
 			}
 		case KindSMART:
 			var v gitops.DesiredSMARTTask

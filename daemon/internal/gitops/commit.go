@@ -68,6 +68,14 @@ func CommitAll(db *sql.DB) (err error) {
 		state.Pools = nil
 		state.Datasets = nil
 	}
+	// A pool is recorded as it is built, or not at all: while a disk is
+	// being replaced or a spare has stepped in, its layout is not the one
+	// to keep, and leaving the pool out would read as "remove this pool".
+	for _, p := range state.Pools {
+		if p.Layout == nil {
+			return fmt.Errorf("the layout of pool %s cannot be recorded now (%s); the repository is updated once it is settled", p.Name, p.LayoutNote)
+		}
+	}
 	if access == 0 {
 		state.Shares = nil
 	}
@@ -84,7 +92,7 @@ func CommitAll(db *sql.DB) (err error) {
 	}
 
 	repoDir := config.GitOpsStateDir
-	
+
 	// 2. Generate YAML
 	yamlContent := GenerateStateYAML(state)
 
@@ -142,18 +150,18 @@ func GenerateStateYAML(state *LiveState) string {
 		})
 		sb.WriteString("pools:\n")
 		for _, p := range state.Pools {
-			if len(p.Disks) == 0 {
+			// The pool as it is built: its mirrors, raidz groups, log, cache
+			// and spare disks. A pool whose layout cannot be read for
+			// certain is not written (CommitAll refuses to commit then).
+			if p.Layout == nil {
 				continue
 			}
 			sb.WriteString(fmt.Sprintf("  - name: %q\n", p.Name))
-			sort.Strings(p.Disks)
-			sb.WriteString("    topology:\n")
-			sb.WriteString("      data:\n")
-			sb.WriteString("        - type: stripe\n")
-			sb.WriteString("          disks:\n")
-			for _, d := range p.Disks {
-				sb.WriteString(fmt.Sprintf("            - %q\n", d))
+			if p.GUID != "" {
+				sb.WriteString(fmt.Sprintf("    guid: %q\n", p.GUID))
 			}
+			sb.WriteString("    topology:\n")
+			printTopologyYAML(&sb, "      ", *p.Layout)
 		}
 		sb.WriteString("\n")
 	}
@@ -342,6 +350,12 @@ func GenerateStateYAML(state *LiveState) string {
 		sb.WriteString(fmt.Sprintf("  bind_dn: %q\n", state.LDAP.BindDN))
 		sb.WriteString(fmt.Sprintf("  base_dn: %q\n", state.LDAP.BaseDN))
 		sb.WriteString(fmt.Sprintf("  user_filter: %q\n", state.LDAP.UserFilter))
+		sb.WriteString(fmt.Sprintf("  user_id_attr: %q\n", state.LDAP.UserIDAttr))
+		sb.WriteString(fmt.Sprintf("  user_name_attr: %q\n", state.LDAP.UserNameAttr))
+		sb.WriteString(fmt.Sprintf("  user_email_attr: %q\n", state.LDAP.UserEmailAttr))
+		sb.WriteString(fmt.Sprintf("  group_base_dn: %q\n", state.LDAP.GroupBaseDN))
+		sb.WriteString(fmt.Sprintf("  group_filter: %q\n", state.LDAP.GroupFilter))
+		sb.WriteString(fmt.Sprintf("  group_member_attr: %q\n", state.LDAP.GroupMemberAttr))
 		sb.WriteString(fmt.Sprintf("  jit_provisioning: %v\n", state.LDAP.JITProvisioning))
 		sb.WriteString(fmt.Sprintf("  default_role: %q\n", state.LDAP.DefaultRole))
 		sb.WriteString(fmt.Sprintf("  sync_interval: %d\n", state.LDAP.SyncInterval))
