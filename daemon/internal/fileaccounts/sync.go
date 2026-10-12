@@ -65,10 +65,16 @@ var run = func(stdin string, name string, args ...string) (string, error) {
 // for the user: the NT hash (SMB, sealed) and a crypt(3) hash (FTP). Call it
 // wherever a password is set, then Sync (or RequestSync).
 func SetPassword(db *sql.DB, username, password string) error {
-	crypt, err := SHA512Crypt(password)
-	if err != nil {
+	// The salt of the FTP hash follows the user's password hash (see
+	// SHA512CryptFor), which the callers have stored before they come here.
+	var anchor string
+	if err := db.QueryRow(`SELECT COALESCE(password_hash, '') FROM users WHERE username = $1`, username).Scan(&anchor); err != nil {
 		return err
 	}
+	if anchor == "" {
+		return fmt.Errorf("user %s has no password hash yet", username)
+	}
+	crypt := SHA512CryptFor(username, password, anchor)
 	sealed, err := secrets.Seal(NTHash(password))
 	if err != nil {
 		return err
@@ -265,6 +271,8 @@ func wantedAccounts(db *sql.DB) ([]account, error) {
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
+	allocMu.Lock()
+	defer allocMu.Unlock()
 	for i := range list {
 		if list[i].uid != 0 {
 			continue
@@ -300,11 +308,13 @@ func wantedGroups(db *sql.DB) ([]group, error) {
 	rows.Close()
 	for i := range list {
 		if list[i].gid < FirstID || list[i].gid > LastID {
+			allocMu.Lock()
 			gid, err := allocate(db, "groups", "gid")
-			if err != nil {
-				return nil, err
+			if err == nil {
+				_, err = db.Exec(`UPDATE groups SET gid = $2 WHERE name = $1`, list[i].name, gid)
 			}
-			if _, err := db.Exec(`UPDATE groups SET gid = $2 WHERE name = $1`, list[i].name, gid); err != nil {
+			allocMu.Unlock()
+			if err != nil {
 				return nil, err
 			}
 			list[i].gid = gid
@@ -325,6 +335,52 @@ func wantedGroups(db *sql.DB) ([]group, error) {
 }
 
 // allocate returns the lowest free ID of the range in table.column.
+// allocMu serialises the allocation of account and group numbers.
+var allocMu sync.Mutex
+
+// EnsureUID gives a user an account number now, if it has none.
+//
+// Called where a user is created or gets its password, before the change
+// is recorded for the other nodes of a cluster: the number travels with the
+// user. If each node chose one when it first needed it, the same user could
+// own files under two numbers on a pool that moves between the nodes.
+func EnsureUID(db *sql.DB, username string) error {
+	allocMu.Lock()
+	defer allocMu.Unlock()
+	var uid int
+	if err := db.QueryRow(`SELECT COALESCE(uid, 0) FROM users WHERE username = $1`, username).Scan(&uid); err != nil {
+		return err
+	}
+	if uid != 0 || !ValidName(username) {
+		return nil
+	}
+	uid, err := allocate(db, "users", "uid")
+	if err != nil {
+		return err
+	}
+	_, err = db.Exec(`UPDATE users SET uid = $2 WHERE username = $1 AND COALESCE(uid, 0) = 0`, username, uid)
+	return err
+}
+
+// EnsureGID is EnsureUID for a group.
+func EnsureGID(db *sql.DB, name string) error {
+	allocMu.Lock()
+	defer allocMu.Unlock()
+	var gid int
+	if err := db.QueryRow(`SELECT COALESCE(gid, 0) FROM groups WHERE name = $1`, name).Scan(&gid); err != nil {
+		return err
+	}
+	if gid >= FirstID && gid <= LastID {
+		return nil
+	}
+	gid, err := allocate(db, "groups", "gid")
+	if err != nil {
+		return err
+	}
+	_, err = db.Exec(`UPDATE groups SET gid = $2 WHERE name = $1`, name, gid)
+	return err
+}
+
 func allocate(db *sql.DB, table, column string) (int, error) {
 	rows, err := db.Query(`SELECT ` + column + ` FROM ` + table + ` WHERE ` + column + ` IS NOT NULL`)
 	if err != nil {

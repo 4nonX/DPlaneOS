@@ -6,7 +6,7 @@
 package fileaccounts
 
 import (
-	"crypto/rand"
+	"crypto/sha256"
 	"crypto/sha512"
 	"encoding/hex"
 	"strings"
@@ -30,18 +30,26 @@ func NTHash(password string) string {
 
 const cryptAlphabet = "./0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
 
-// SHA512Crypt returns a "$6$salt$hash" entry for /etc/shadow (the SHA-512
-// scheme of crypt(3), 5000 rounds) with a random salt.
-func SHA512Crypt(password string) (string, error) {
-	raw := make([]byte, 16)
-	if _, err := rand.Read(raw); err != nil {
-		return "", err
-	}
+// SHA512CryptFor returns the "$6$salt$hash" entry of a user's password with
+// a salt derived from the user name and anchor, the user's password hash in
+// the database (bcrypt, with a random salt of its own).
+//
+// Every node of a cluster makes this entry (at the user's first sign-in
+// there), and the nodes exchange and compare a user's credentials. With a
+// random salt each node arrived at a different entry for the same password,
+// and the user counted as "changed on both nodes". The anchor is exchanged
+// between the nodes, so they arrive at the same salt; it is random per
+// user and changes with every password, so the salt is unique as a salt
+// should be. It is deliberately not derived from the password itself: a
+// salt that is a fast hash of the password would let anyone who reads the
+// entry test guesses with one hash instead of five thousand rounds.
+func SHA512CryptFor(username, password, anchor string) string {
+	sum := sha256.Sum256([]byte("dplaneos file account salt\x00" + username + "\x00" + anchor))
 	salt := make([]byte, 16)
-	for i, b := range raw {
-		salt[i] = cryptAlphabet[int(b)%len(cryptAlphabet)]
+	for i := range salt {
+		salt[i] = cryptAlphabet[int(sum[i])%len(cryptAlphabet)]
 	}
-	return sha512Crypt([]byte(password), salt), nil
+	return sha512Crypt([]byte(password), salt)
 }
 
 // sha512Crypt implements the algorithm of

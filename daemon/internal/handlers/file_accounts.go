@@ -18,6 +18,11 @@ func setFilePassword(db *sql.DB, username, password string) {
 		log.Printf("FILE ACCOUNTS: storing the file service password of %s: %v", username, err)
 		return
 	}
+	// The account number is chosen here, with the password, so that it is
+	// part of what the other nodes of a cluster receive for this user.
+	if err := fileaccounts.EnsureUID(db, username); err != nil {
+		log.Printf("FILE ACCOUNTS: account number of %s: %v", username, err)
+	}
 	fileaccounts.RequestSync()
 }
 

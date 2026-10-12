@@ -860,6 +860,11 @@ func (h *UserGroupHandler) groupAction(w http.ResponseWriter, r *http.Request) {
 			respondErrorSimple(w, "Failed to create group", http.StatusInternalServerError)
 			return
 		}
+		// The group's number is chosen now, so that it is part of what the
+		// other nodes of a cluster receive for this group.
+		if err := fileaccounts.EnsureGID(h.db, req.Name); err != nil {
+			log.Printf("FILE ACCOUNTS: group number of %s: %v", req.Name, err)
+		}
 		respondJSON(w, http.StatusOK, map[string]any{
 			"success": true, "id": id, "message": "Group created",
 		})

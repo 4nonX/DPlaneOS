@@ -43,12 +43,35 @@ func TestSHA512Crypt(t *testing.T) {
 		t.Error("different keys, same hash")
 	}
 
-	a, err := SHA512Crypt("x")
-	if err != nil {
-		t.Fatal(err)
+}
+
+// The entry for a user's password is the same wherever it is made (the
+// nodes of a cluster each make it, from the same password hash), differs
+// between users and from one password to the next, and its salt is no
+// shortcut to the password.
+func TestSHA512CryptFor(t *testing.T) {
+	const anchor1 = "$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy"
+	const anchor2 = "$2a$10$7EqJtq98hPqEX7fNZaFWoOhi5BW0p3dT9nG0Rj3iFJvQ1YqU8n8rW"
+	a := SHA512CryptFor("alice", "Correct-Horse-1", anchor1)
+	if a != SHA512CryptFor("alice", "Correct-Horse-1", anchor1) {
+		t.Error("the same user, password and password hash gave two entries")
 	}
-	b, _ := SHA512Crypt("x")
-	if a == b || !strings.HasPrefix(a, "$6$") {
-		t.Errorf("salts must differ: %s %s", a, b)
+	if !strings.HasPrefix(a, "$6$") || len(strings.Split(a, "$")) != 4 || len(strings.Split(a, "$")[2]) != 16 {
+		t.Errorf("not a SHA-512 crypt entry with a 16 character salt: %s", a)
+	}
+	salt := func(e string) string { return strings.Split(e, "$")[2] }
+	if salt(a) == salt(SHA512CryptFor("bob", "Correct-Horse-1", anchor1)) {
+		t.Error("two users share a salt")
+	}
+	if salt(a) == salt(SHA512CryptFor("alice", "Correct-Horse-1", anchor2)) {
+		t.Error("a new password hash kept the old salt")
+	}
+	// The salt does not depend on the password: it cannot be used to test guesses.
+	if salt(a) != salt(SHA512CryptFor("alice", "a wrong guess", anchor1)) {
+		t.Error("the salt changes with the password: it would be a fast test for guesses")
+	}
+	// It verifies as crypt(3) would: the same salt gives the same entry.
+	if a != sha512Crypt([]byte("Correct-Horse-1"), []byte(salt(a))) {
+		t.Error("the entry does not verify against its own salt")
 	}
 }
