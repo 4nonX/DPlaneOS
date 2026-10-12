@@ -34,7 +34,7 @@ The operator reviews the output, adjusts if needed, and commits it to Git. Nothi
 
 During initial setup, this means you can make every change freely through the UI, as fast as you like, with as many people working concurrently as needed. When the system looks right, capture once, review once, commit once as the baseline.
 
-Drift between what is in Git and what is running on the node is detected automatically every five minutes and surfaced immediately in the UI. Drift cannot hide.
+Drift between what is in Git and what is running on the node is detected automatically and shown in the UI. A node can also apply new commits by itself (off by default): only changes that add or modify, never ones that destroy data or touch a pool, and each commit is tried once.
 
 ---
 
@@ -56,20 +56,20 @@ When something breaks, you know exactly what changed and when. When you need to 
 
 This is not a partial claim. Every layer of the stack has a native, integrated mechanism for declaring its state in Git. Not bolted on. Not optional. Not "most things."
 
-**The OS layer:** NixOS. The kernel version, kernel modules, system services, firewall rules, users, network configuration: all declared in the flake. Checked in. In Git. Changing the kernel is a one-line commit. Rolling it back is a revert.
+**The OS layer:** NixOS. The kernel, ZFS, every service and their configuration are built from the flake in the project's Git at a tagged commit into one image; a node runs exactly that image, and an update replaces it as a whole. What differs between nodes (host name, network, firewall, time) is runtime state, and part of `state.yaml`.
 
-**The state layer:** DPlaneOS configuration. Storage pools, datasets, shares, container definitions, network topology: reconciled from `state.yaml` in Git. The daemon reads it, computes a diff against live state, and applies only what has changed.
+**The state layer:** DPlaneOS configuration. Pools, datasets and their properties, shares, users and groups, stacks, replication, NVMe-oF exports, system and network settings: reconciled from `state.yaml` in Git. The daemon reads it, computes a diff against the live state, and applies only what has changed; what would destroy data waits for an approval.
 
 **The app layer:** Docker Compose. Every container a node runs, its configuration, its dependencies, its version: in Git. Not in a proprietary catalog. In a plain text file in your repository, the same as every other piece of your infrastructure.
 
-From kernel to container, the entire system has one source of truth. A single Git repository that a new engineer can clone, read, and understand completely. A repository that, on its own, is sufficient to reproduce the node from scratch.
+From kernel to container, the state of a node is text in Git: the release it runs, and its `state.yaml`. Together they are enough to set the node up again on new hardware; the data comes back with the pools or from replication.
 
 **The one layer Git does not touch is the data layer, and that is intentional.** Raw data does not belong in Git. It belongs in ZFS, which provides the equivalent guarantee at the data level: checksums on every block, point-in-time snapshots, and native encryption at rest. For backup and replication, DPlaneOS ships every option built in:
 
 - **ZFS snapshots:** automatic, tiered schedules (every 15 minutes, hourly, daily, weekly, monthly), retained and expired without manual intervention
 - **ZFS Send/Receive:** efficient incremental replication to any other ZFS system, local or remote, over SSH
 - **Cloud sync:** rclone-backed sync to any S3-compatible store, Backblaze B2, Google Drive, or any of the 40+ providers rclone supports
-- **Cold-tier offload:** move aged data to lower-cost storage automatically, keeping hot data local
+- **Remote storage as a folder:** an rclone remote mounted into the file tree, for data that may live elsewhere
 - **rsync:** for replication to non-ZFS targets when needed
 
 Git versions your infrastructure. ZFS versions your data. Each tool doing exactly what it was built for.
@@ -92,74 +92,55 @@ See [High Availability Guide](docs/admin/HIGH-AVAILABILITY.md) for setup, fencin
 
 ---
 
-## Atomic Updates, Automatic Rollback
+## Updates That Take Themselves Back
 
-The boot disk has two OS slots managed by systemd-boot: Slot A and Slot B. One is active; the other is standby. OTA updates write the new NixOS closure to the standby slot. The active slot is never modified during an update.
+A node is an image. An update is a signed file with the next image: the node verifies the signature against the release key it was installed with, installs the new version next to the running one, and starts it once on trial. Before the update it noted what worked: the services, the pools, the persistent state. If all of that works again after the trial start, the new version becomes the default. If not, or if the new version does not start at all, the node is back on the previous version after the next start, without anyone at the console.
 
-Before rebooting into the new slot, the OTA system writes a pending-revert marker to `/persist/ota/`. If the boot fails or the post-boot health check fails, the marker triggers an automatic revert: the bootloader flips back to the previous slot and the system reboots. No operator intervention is required.
+Data and settings are not part of the image: both versions use the same pools and the same persistent partition.
 
-The health check fires 90 seconds after boot and verifies four things in sequence:
+Update files can be carried to nodes without internet access. In a cluster, move the storage groups away, update, move them back.
 
-1. The daemon API responds at `localhost/api/health` (via nginx)
-2. All ZFS pools report ONLINE with no faulted devices (`zpool status`)
-3. PostgreSQL accepts connections and executes `SELECT 1`
-4. Samba responds to `smbcontrol smbd ping`
-
-All four must pass within three retries. On success the marker is cleared and the update is committed. On any failure the revert sequence runs immediately.
-
-The `/persist` partition is never touched by OTA. PostgreSQL data, container images, Samba state, GitOps repository checkout, SSH host keys: all survive every update unchanged, on a dedicated partition separate from both OS slots.
-
-In a HA cluster, OTA is zero-downtime: update the standby, verify it, initiate a controlled failover so the VIP migrates to the freshly-updated node, then update the node that is now standby. Total client impact is one VIP migration.
-
-See [OTA Updates](docs/admin/OTA-UPDATES.md) for the full procedure, verify-only mode, and manual rollback.
+See [System Updates](docs/admin/OTA-UPDATES.md).
 
 ---
 
 ## No Cloud Dependency
 
-The daemon communicates via a Unix socket only. It is not reachable from the network at all without a reverse proxy. It makes no outbound connections except to:
+A node makes outbound connections only for what you set up: the Git repositories you configure, the cloud targets you configure, your mail server or webhook for alerts, your directory or identity provider, an ACME certificate authority if you ask for certificates, and the project's release page when you look for updates (update files can be uploaded instead).
 
-- The Git repository you configure, which can be self-hosted on Gitea, Forgejo, GitLab, or any bare Git server
-- rclone targets you explicitly configure, which are opt-in and operator-controlled
-- Nix binary caches during OTA updates, which can be self-hosted for air-gap environments
+There is no telemetry. No license server. No activation. No subscription required to operate. The web interface loads nothing from other hosts. The system continues to run on the installed version indefinitely without any external contact.
 
-There is no telemetry. No license server. No activation. No subscription required to operate. The system continues to run on the installed version indefinitely without any external contact.
-
-The ISO contains the complete NixOS closure for its shipped version. Installation from ISO requires no internet connection at any point.
-
-The GitOps deploy key is generated by the operator, stored on the node, and under the operator's full control. Rotate or revoke it at any time without contacting a vendor.
+The ISO contains the complete system. Installation requires no internet connection at any point.
 
 ---
 
 ## Security Architecture
 
-The daemon runs as root but constrains itself at the systemd unit level: `ProtectSystem=strict`, `NoNewPrivileges=true`, and a 1 GB `MemoryMax`. It cannot modify the NixOS system closure beneath it.
+**One process, no shell.** The daemon manages the system by running programs, and every program it may run, with its sub-commands and the shape of each argument, is on an allowlist (`internal/security/whitelist.go`). Arguments are passed as a list, never as a line for a shell. Names from requests are validated before they reach a command. The daemon itself runs as root, as a NAS manager has to; what limits it is inside it.
 
-**The exec allowlist.** Every call to a system tool passes through `internal/security/whitelist.go` before execution. The allowlist validates the binary name, the subcommand, and each argument individually against strict predefined patterns. Arguments reach `exec.Command` as a string slice, never as a shell string. There is no `bash -c`, no shell expansion, no string interpolation. A request that passes all API-level validation but attempts a command not in the allowlist is rejected before any process is spawned.
+**Authentication and sessions.** Session tokens are 32-byte random values that travel in a request header, not a cookie, so a browser does not attach them to requests another site triggers; changing requests carry a CSRF token as well. TOTP two-factor sign-in; the operations with the largest blast radius (destroying a pool, fencing) require it. Failed sign-ins are throttled per client address.
 
-Input is validated before it reaches the allowlist at all. Pool names, dataset names, device paths, and share names each pass through dedicated validators (`ValidatePoolName`, `ValidateDatasetName`, `ValidateDevicePath`) that reject shell metacharacters with HTTP 400 before any command is constructed. Device paths must be stable `/dev/disk/by-id/` paths; short `/dev/sdX` paths are rejected at `state.yaml` parse time, long before execution.
+**RBAC.** Four built-in roles (viewer, user, operator, admin) and custom roles over 31 permissions, checked on every route. Role assignments support expiry dates.
 
-**Authentication and sessions.** Session tokens are 32-byte random values stored hashed in PostgreSQL. They travel in the `X-Session-ID` request header, not a cookie. Browsers cannot auto-submit headers cross-origin, which makes the architecture inherently CSRF-resistant. CSRF tokens (HMAC-SHA256 double-submit) are layered on top for defence in depth. TOTP two-factor authentication is available per user.
+**The audit chain.** Changes are appended to an audit log in which each entry carries an HMAC over its content and the entry before it, with a key kept outside the database. Removing or changing an entry breaks the chain, and the check says where.
 
-**RBAC.** Four roles (viewer, user, operator, admin) with 34 discrete permissions enforced at the handler level. Role assignments support expiry dates. System roles are immutable in the database.
+**Signed all the way.** Release images are built by CI from the tagged source, signed, and shipped with an SBOM. A node installs only updates signed with the release key in its own image.
 
-**The audit chain.** Every state-changing operation appends to an audit log. Each row includes an HMAC-SHA256 hash computed over its content plus the previous row's hash, keyed by a 32-byte key stored separately from the database at `/var/lib/dplaneos/audit.key`. Deleting or modifying any row breaks the chain, detectable via `GET /api/system/audit/verify-chain`. An attacker with database write access alone cannot forge the chain without also possessing the key.
-
-**Rate limiting.** 100 requests per minute per source IP enforced in-process before any handler runs.
-
-See [Threat Model](docs/reference/THREAT-MODEL.md) for the full threat analysis, all 13 threat scenarios, known gaps, and residual risks.
+See [Threat Model](docs/reference/THREAT-MODEL.md) for what is defended, and what is not.
 
 ---
 
-## Enterprise Identity: LDAP and Active Directory
+## Identity: LDAP, Active Directory, OIDC
 
-DPlaneOS integrates natively with any LDAPv3 directory: Active Directory, FreeIPA, OpenLDAP, Azure AD via LDAP proxy, or any standards-compliant directory service.
+**LDAP sign-in.** Directory users sign in to the web interface with their directory password; the account is created at the first sign-in, and directory groups map to roles. Works with OpenLDAP, FreeIPA, Active Directory over LDAP.
 
-Directory users authenticate against the configured bind DN directly. On first successful login, the account is JIT-provisioned in DPlaneOS with the configured default role. Directory groups map to DPlaneOS roles: membership in `cn=nas-admins` can automatically grant the `admin` role; membership in `cn=nas-readers` can grant `viewer`. Role changes in the directory propagate on the next sync cycle (default: 1 hour, configurable).
+**Active Directory membership.** The NAS joins the domain: domain users and groups open SMB shares with their domain credentials, and appear in permissions and ACLs.
 
-Local accounts and directory accounts coexist. The `admin` account created at install time is always local and is unaffected by LDAP configuration. If the directory is unreachable, local accounts continue to work. There is no hard dependency on directory availability for system operation.
+**OIDC single sign-on.** Authorization Code with PKCE against any standard provider; roles follow the groups in the token.
 
-LDAP bind passwords are stored in PostgreSQL and are redacted from all API responses. The `GET /api/ldap/config` endpoint never returns the bind password in any form.
+Local accounts and directory accounts coexist. The `admin` account created at install time is always local: if the directory is unreachable, it still signs in.
+
+Bind passwords and client secrets are stored encrypted and are never returned by the API.
 
 ---
 
@@ -169,12 +150,12 @@ Every layer is declarative, version-controlled, and rollback-safe:
 
 | Layer | Technology | What it means |
 |-------|------------|---------------|
-| **OS** | NixOS | Every node boots from the same cryptographically-derived closure declared in the flake. Byte-identical. Guaranteed. |
+| **OS** | NixOS | Every node runs the image built from one tagged commit. The same bytes on every node of a release. |
 | **Apps** | Docker Compose | Any `docker-compose.yml`, from any source. Not an approved catalog. Not a Helm chart waiting on a vendor's update cycle. The entire Docker ecosystem, deployed through the same Git workflow as everything else. |
-| **Data** | ZFS + built-in backup | Checksums on every block. Snapshots, replication, cloud sync, and cold-tier offload built in. Data integrity and recovery are not configuration options. |
+| **Data** | ZFS + built-in backup | Checksums on every block. Snapshots, replication and cloud sync built in. |
 | **Database** | PostgreSQL per node | Each node keeps working on its own; configuration merges per resource with conflict review. |
-| **Identity** | LDAP / Active Directory | Native LDAPv3 integration with JIT provisioning, group-to-role mapping, and local account fallback. |
-| **Architecture** | x86_64 + ARM64 | Graviton and Ampere nodes supported from day one. |
+| **Identity** | LDAP, Active Directory, OIDC | Directory sign-in with group-to-role mapping, domain membership for SMB, single sign-on, and a local administrator that always works. |
+| **Architecture** | x86_64 + ARM64 | Images for both are built for every release. The automated tests run on x86_64. |
 
 ---
 
@@ -199,6 +180,6 @@ Your storage infrastructure, managed with the same tools and discipline as your 
 
 ---
 
-**Open source. AGPLv3. Production today.**
+**Open source. AGPLv3.** What is stable, what is beta and what is experimental is listed, feature by feature, in the [README](README.md#project-status).
 
 [Get started](docs/admin/INSTALLATION-GUIDE.md) | [Architecture](docs/reference/ARCHITECTURE.md) | [GitOps Reference](docs/reference/GITOPS-REFERENCE.md) | [Design Philosophy](docs/reference/PHILOSOPHY.md) | [Threat Model](docs/reference/THREAT-MODEL.md) | [High Availability](docs/admin/HIGH-AVAILABILITY.md)

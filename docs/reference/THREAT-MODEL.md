@@ -1,286 +1,138 @@
-# DPlaneOS - Threat Model
+# DPlaneOS Threat Model
 
-## System Context
+What the system defends, against whom, by what means, and what it does not defend. Statements here are about the installed system (the image); where something is checked by the automated tests of every release, that is said.
 
-DPlaneOS is a NAS management layer running on NixOS. It manages storage (ZFS), containers (Docker), network (systemd-networkd), and identity on a single server. It runs as one Go binary (`dplaned`) communicating with nginx via a Unix socket (`/run/dplaneos/dplaned.sock`). No TCP port is consumed for internal plumbing. External access is via reverse proxy (nginx/Caddy/Pangolin).
+## The system
 
-**Trust boundary**: the reverse proxy. Everything behind it (dplaned, PostgreSQL, ZFS/Docker/systemd commands) is trusted. Everything in front (browser, network) is untrusted.
+One machine: the kernel with ZFS, and the services of a NAS (Samba, NFS, the iSCSI and NVMe targets, Docker, SSH). They are managed by one program, `dplaned`, which runs as root. The web interface is static files served by nginx; nginx passes API requests to the daemon over a Unix socket. The daemon keeps its state in a PostgreSQL database on the same machine, reached over another Unix socket.
 
 ```
-┌──────────────────────────────────────────────────────────┐
-│                       UNTRUSTED                          │
-│  Browser ──── Internet ──── Reverse Proxy (TLS)          │
-└──────────────────────────┬───────────────────────────────┘
-                           │ TLS terminated, localhost only
-┌──────────────────────────────────────────────────────────┐
-│                        TRUSTED                           │
-│  dplaned (Go) ─┬─ PostgreSQL (node-local)                │
-│                ├─ libzfs (cgo) → ZFS kernel              │
-│                ├─ exec.Command → docker / samba / nfs    │
-│                ├─ networkdwriter → /etc/systemd/network/ │
-│                └─ /dev/sd* │ /mnt/* │ /var/lib/dplaneos/ │
-└──────────────────────────────────────────────────────────┘
+ untrusted                                  trusted (root on the machine)
+ ───────────                                ──────────────────────────────
+ browser ── HTTPS ──▶ nginx ── socket ──▶ dplaned ──▶ PostgreSQL (socket)
+ SMB / NFS / iSCSI / NVMe / FTP / S3 clients ──▶ the services themselves
+ other nodes of a cluster ── HTTPS, pinned certificates ──▶ dplaned
 ```
 
-## Assets
+**The trust boundary is the daemon's API.** Whoever is root on the machine, or can write to the database, has everything; nothing below tries to defend against that.
 
-| Asset | Value | Location |
-|-------|-------|----------|
-| User data (files, datasets) | CRITICAL | ZFS pools on `/mnt/*` |
-| ZFS pool metadata | CRITICAL | Pool vdevs |
-| ZFS encryption keys (loaded) | CRITICAL | Kernel memory |
-| PostgreSQL database | HIGH | `/var/lib/dplaneos/pgsql/` |
-| Session tokens | HIGH | DB `sessions` table |
-| LDAP bind password | HIGH | DB `ldap_config` table (redacted in API responses) |
-| OIDC client secret | HIGH | DB `oidc_config` table (never returned by API) |
-| Telegram bot token | MEDIUM | DB `telegram_config` table |
-| TOTP secrets | HIGH | DB `totp_secrets` table |
-| Audit log + HMAC key | MEDIUM | DB `audit_logs` + `/var/lib/dplaneos/audit.key` |
-| Configuration | LOW | DB tables + CLI flags |
+## What is worth protecting
 
-## Threat Actors
+| | Where |
+|---|---|
+| The data | ZFS pools |
+| Accounts: password hashes, TOTP secrets, API tokens (hashes), sessions | database |
+| Secrets of integrations: LDAP bind password, OIDC client secret, SMTP password, Telegram token, Git credentials, the cluster's key | database, encrypted with a key kept in a file next to it (`/var/lib/dplaneos`) |
+| CHAP secrets of iSCSI initiators | a root-only file and the database, not encrypted (the kernel holds them in clear as well) |
+| The audit log | database, each entry chained to the one before with an HMAC; the key is a file |
+| The release key's public half | part of the system image |
 
-| Actor | Capability | Goal |
-|-------|-----------|------|
-| Remote unauthenticated | HTTP to reverse proxy | Data theft, service disruption |
-| Remote authenticated (low-priv) | Valid session, `viewer` or `user` role | Privilege escalation, unauthorized data access |
-| Local network attacker | Direct access to nginx port 80/443 | Full API access without TLS if HTTP allowed |
-| Physical attacker | Access to hardware | Disk theft, boot manipulation |
-| Malicious container | Docker container with host mounts | Escape to host filesystem |
+## Who attacks
+
+| | Can | Wants |
+|---|---|---|
+| Anyone on the network, not signed in | reach the web interface and the file services | data, a foothold |
+| A signed-in user with few rights | call the API as themselves | more rights, other users' data |
+| A website the administrator visits | make the browser send requests | actions in the administrator's name |
+| Someone with the hardware | take disks, start another system | data |
+| A container | whatever its compose file gave it | the host |
+| A node of the cluster that is cut off, or a stale one | still write to shared disks | (no intent: corruption) |
 
 ---
 
-## Security Features
+## Sign-in and sessions
 
-- **Destructive operation tokens:** 48-hex-char single-use confirmation tokens (`POST /api/confirm/issue`) required for pool destroy/export, Docker remove/prune/rmi, and zvol destroy. Tokens are in-memory, 60 s TTL, scoped to operation + target + user ID, consumed on first use.
-- **Sessions:** 32-byte random session tokens, stored hashed in PostgreSQL. Client stores token in `sessionStorage` (tab-scoped, default) or `localStorage` (persistent, requires "Remember me" opt-in). Server-side TTL is 24 hours regardless of client storage choice.
-- **Forced password change (server-enforced):** When `must_change_password = 1`, `sessionMiddleware` blocks every route except `/api/auth/change-password`, `/api/auth/logout`, and `/api/auth/session` with HTTP 403. Enforcement is server-side; the AppShell overlay provides the UI gate. API token holders bypass this check (machine-to-machine tokens are not subject to password-change policy).
-- **Authentication Assurance Level (AAL2) enforcement:** Sessions carry an `aal` field: 1 = password only (AAL1), 2 = password + TOTP verified (AAL2). The `RequireAAL2` middleware is fail-closed: requests without a valid session token return HTTP 401; valid sessions with `aal < 2` return HTTP 403 with `action: "enable_totp"`. Only sessions with `aal >= 2` reach the handler. Applied to: pool destroy, password reset, fencing configuration, and ALUA state flip. Rationale: these operations are irreversible or have large blast radius; a compromised password-only account must not be able to trigger them.
-- **Session revocation on password change:** `ChangePassword` deletes all sessions for the user except the one that performed the change. Admin-initiated `reset-password` (`POST /api/users/{id}/reset-password`) deletes all sessions for the target user unconditionally.
-- **CSRF:** HMAC-SHA256 double-submit tokens on all mutating requests
-- **2FA:** TOTP (RFC 6238) with ±1 window clock drift tolerance, bcrypt-hashed backup codes
-- **API tokens:** SHA-256 hashed, prefixed `dpl_`, scope-limited (read/write/admin)
-- **RBAC:** 4 roles (viewer, user, operator, admin) enforced at handler level, with 31 discrete permissions
-- **LDAP account segregation:** `users.source` ('local'/'ldap') is returned in `GET /api/auth/session`. The password-change UI disables itself for LDAP accounts and directs users to the directory server. The admin `reset-password` endpoint rejects LDAP accounts with an explicit error.
-- **Command execution (ZFS):** All ZFS mutation operations (pool export/destroy/clear, dataset create/destroy/rename/promote, snapshot create/destroy/clone, vdev add/attach/replace/remove/online/offline, property get/set) now go through `internal/libzfs` (cgo direct C API call or subprocess fallback). Both paths pre-validate all arguments with the same allowlist validators before any system call or subprocess is created. No shell expansion occurs in either path. Read-only list queries retain subprocess calls with strict whitelist validation.
-- **Command execution (other):** Docker, Samba, NFS, and network tools use allowlist-based validation via `internal/security/whitelist.go`; arguments passed as separate slice elements to `exec.Command` - no shell. **v6.1.0 Hardening:** Strict `by-id` path enforcement and pool-membership safety checks for disk operations ensure enterprise-grade storage security.
-- **Database:** node-local PostgreSQL on every node; connections managed via `pgx/v5` pool.
+- Passwords are stored as bcrypt hashes. The password rules (length, character classes) are enforced by the server, in the installer too.
+- **Failed sign-ins are throttled per client address**: after each failure the address waits longer (up to 30 seconds per attempt); other addresses are not affected. A burst of failures raises an alert. (Tested: appliance.)
+- A session is a random 32-byte token sent in a request header, not a cookie: a browser does not attach it to requests another site triggers. Changing requests also need a CSRF token bound to the session.
+- Sessions end after 24 hours, and after 30 minutes without use. Changing a password ends the user's other sessions; an administrator's reset ends all of them.
+- **Two-factor sign-in (TOTP)**: with it enabled, the password alone gives a session that can do nothing but present the code. Secrets are stored encrypted; backup codes as hashes. The QR code for the authenticator app is drawn in the browser; the secret is sent nowhere.
+- **Operations with a large blast radius need a session that has presented a second factor**: destroying a pool, resetting another user's password, configuring fencing and the watchdog, enrolling and using a BMC. Without TOTP enabled on the account these are refused.
+- Destroying or exporting a pool, destroying a volume and removing containers and images need a confirmation token: single use, valid 60 seconds, bound to the user, the operation and its target.
+- **API tokens** are stored as SHA-256 hashes, carry a scope (read, write, admin), and can be limited to paths.
+- **Directory users (LDAP)** sign in against the directory; their roles follow their groups. **OIDC**: Authorization Code with PKCE; the ID token's signature, issuer, audience, expiry and nonce are checked; an existing account is linked only by an e-mail address the provider marks as verified; a disabled account stays out. (Tested against a simulated provider.)
+- A lost administrator password is reset from the installation medium, which needs the machine itself.
 
----
+*Not defended:* session tokens are stored in the database as issued, not hashed: whoever can read the database can use the sessions that are active at that moment.
 
-## Threats & Mitigations
+## Rights
 
-### T1: Command Injection via API Parameters
+Every route of the API carries the permission it needs (`resource:action`); four built-in roles and custom roles map users to permissions; assignments can have an end date. Roles given by a directory or an identity provider are taken away when the group membership ends.
 
-**Vector**: Attacker sends `{"pool":"tank; rm -rf /"}` to a ZFS endpoint, or manipulates replication parameters to inject shell commands.
+*Not defended:* an administrator of the web interface is root: the terminal, containers with host mounts, and SSH (administrators may sign in with their key and use `sudo`) are part of the role.
 
-**Mitigation**:
-- All parameters validated by strict allowlist regex validators (`ValidatePoolName`, `ValidateDevicePath`, `ValidateDatasetName`, etc.) - rejects shell metacharacters with HTTP 400 before any command is executed.
-- **v6.1.0 Hardening:** Standardized on strict `by-id` path enforcement and pool-membership safety checks for disk operations. Implemented a mandatory allowlist for `zfs set` properties, ensuring only safe parameters (e.g., `quota`, `atime`, `compression`) can be modified via the API.
-- Mandatory `filepath.Clean` normalization and explicit rejection of dot-slash patterns in all file-based operations.
-- Go `exec.Command` passes arguments as a string array - no shell expansion, no `/bin/sh -c` for standard operations.
-- networkdwriter (network persistence) writes files directly, no shell involved; `networkctl reload` is called with fixed args, no user input in the command line.
-- **v3.3.2 fix:** The ZFS replication handler (`replication_remote.go`) previously constructed shell commands via `fmt.Sprintf` and executed them with `bash -c`. This has been replaced with `execPipedZFSSend()`, which connects `zfs send`, `pv` (optional), and `ssh recv` as discrete `exec.Command` processes linked via Go `io.Pipe`. No shell is invoked. Resume tokens are now validated with `isValidResumeToken()` before use as arguments.
+## Commands
 
-**Residual risk**: NEGLIGIBLE. The multi-layered approach (allowlist validation + fixed argument arrays + no shell + path normalization + libzfs direct API for dataset mutations) effectively eliminates standard command injection vectors.
+The daemon manages the system by running programs. It never runs a shell with text it was given:
 
----
+- every program it may run, with the sub-commands and the shape of each argument, is on an allowlist (`internal/security/whitelist.go`); arguments are passed as a list, not as a line;
+- names from requests (pools, datasets, snapshots, shares, users, interfaces) are validated before they reach a command, and may not begin with `-`;
+- paths from requests are cleaned and must lie under the allowed roots (pools, the stacks directory); symbolic links out of them are refused where files are read or written for a user.
 
-### T2: Authentication Bypass
+`targetcli` (iSCSI) is not on the general allowlist; the package that runs it checks its arguments itself.
 
-**Vector**: Attacker crafts API requests without a valid session.
+## The web interface
 
-**Mitigation**:
-- `sessionMiddleware` runs globally on all routes via `r.Use()`
-- Public exceptions are explicitly allowlisted in the middleware: `/health`, `/api/auth/*`, `/api/csrf`; OIDC endpoints (`/api/auth/oidc/info`, `/api/auth/oidc/start`, `/api/auth/oidc/callback`, `/api/auth/oidc/exchange`) are also in the allowlist as they must be reachable before a session exists
-- All other routes - including all ZFS, Docker, system, and RBAC routes - require a valid `X-Session-ID` header
-- Session validation: token format check + DB lookup + username-header match; fail-closed (DB error → 401)
-- TOTP: if enabled for a user, login issues a `pending_totp` session that can only call `/api/auth/totp/verify` - all other routes reject it
-- OIDC handoff: the one-time code stored in `oidc_handoff` is consumed atomically via `DELETE ... RETURNING`; a second exchange attempt gets `sql.ErrNoRows` and a 401. The code expires in 2 minutes. This prevents an attacker who observes the `/login?oidc_handoff=` URL from replaying it.
-- `must_change_password` gate: after session validation, `sessionMiddleware` queries the flag from the DB. Sessions with the flag set are restricted to three paths until the password is changed. This closes the path where a user with a forced-change password could bypass the client overlay by sending raw API requests.
+- nginx sends a Content-Security-Policy that allows scripts from the system itself only, forbids framing by other sites, and sends `X-Content-Type-Options: nosniff` and `Referrer-Policy: no-referrer`. (Tested: appliance.) The interface is a React application: text from the server is inserted as text, not as HTML.
+- The pages load nothing from other hosts: fonts and icons are part of the system. A container icon given as a URL is the one exception, and the administrator's choice.
+- HTTPS from the first start, with a self-signed certificate until one is installed (your own, or from an ACME certificate authority). HTTP stays available. No `Strict-Transport-Security` header is sent: with a self-signed certificate it would lock the browser out.
 
-**Residual risk**: LOW.
+*Not defended:* until a trusted certificate is installed, the browser cannot tell the system from someone in the middle; the first warning has to be accepted on trust. Styles are inline (`style-src 'unsafe-inline'`).
 
----
+## The network
 
-### T3: Privilege Escalation (RBAC Bypass)
+- The firewall is on from the first start and lets in the web interface, SSH, SMB, NFS and mDNS; every other service opens its port when it is switched on and closes it again. Published container ports bypass it (Docker filters for itself).
+- SSH: keys only, no root sign-in, unless changed in the web interface.
+- The API is limited to 100 requests per minute per client address.
+- SMB: users of the web interface with their own password; NFS: by client network, as NFS is; FTP: off, plain or TLS; S3: off, one account, HTTP; iSCSI: per initiator, CHAP on by default; NVMe over TCP: per host name only (no secrets).
 
-**Vector**: A `viewer`-role user attempts `storage:write` operations.
+*Not defended:* NFS exports, NVMe-oF exports for "any host", iSCSI targets without CHAP and plain FTP trust the network they are offered on. A signed-in user can start expensive operations (scrubs, image pulls) within the request limit.
 
-**Mitigation**:
-- `permRoute()` helper wraps sensitive handlers with `RequirePermission(resource, action)` middleware
-- System roles (`admin`, `operator`, `user`, `viewer`) are immutable in the DB (`is_system = 1`)
-- Role assignments support expiry dates
+## Data at rest
 
-**Residual risk**: LOW. All routes now carry explicit `permRoute()` RBAC checks - 21 read-only endpoints (ZFS health, metrics, iSCSI/NVMe-oF status, firewall status, certificate list, HA status, job polling, and others) that were previously session-authenticated only have been wrapped. No authenticated user below the required role can reach any operational endpoint.
+ZFS native encryption per dataset, with lock, unlock and change of key in the web interface. A dataset that is locked is unreadable until its key is given again.
 
----
+*Not defended:* datasets that are not encrypted are readable from the disks. The system disk is not encrypted: the database (with the secrets above and the file that holds their key) is readable by whoever has that disk.
 
-### T4: SQL Injection
+## The system itself, and updates
 
-**Vector**: Malicious input in API parameters reaches SQL queries.
+- The system is an image: its programs live in a read-only store; a restart returns everything outside the persistent state to what the image says.
+- An update is a file signed with the release key (Ed25519). The system verifies the signature against the public key in its own image before anything of it is used, and refuses a file for another machine type. A new version runs once on trial and is removed if the system is not healthy with it. (Tested: update.)
+- Release images are built by CI from the tagged source, signed with cosign, and accompanied by an SBOM; `govulncheck` runs for every build.
+- The installer needs no network and starts no SSH unless asked at its console; it refuses weak administrator passwords.
 
-**Mitigation**:
-- All SQL uses `?` parameterized queries - no string concatenation in query construction
-- Allowlist input validation rejects metacharacters before they reach the DB layer
+*Not defended:* the daemon is one root process with all capabilities. It is not sandboxed by systemd (it imports pools, mounts datasets, configures the network and the firewall): a flaw that gives code execution in it gives the machine.
 
-**Residual risk**: NEGLIGIBLE.
+## Containers
 
----
+DPlaneOS deploys what a compose file says. A container that is given a host path, the Docker socket, `privileged` or host networking has what it was given.
 
-### T5: Cross-Site Scripting (XSS)
+*Not defended:* containers are not confined beyond Docker's defaults, and their published ports are not subject to the firewall page.
 
-**Vector**: Stored XSS via file names, share names, alert titles, or other server-sourced strings rendered in the UI.
+## The audit log
 
-**Mitigation**:
-- CSP header set in `nginx-dplaneos.conf`: `default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ws: wss:; font-src 'self'; frame-ancestors 'self';`
-- API responses are JSON, not rendered HTML
-- All server-sourced values interpolated into `innerHTML` are passed through an `esc()` / `escapeHtml()` sanitiser before insertion - applied consistently across all frontend pages and the alert system (v3.3.0)
+Sign-ins and the changes made through the API are recorded with the user and the client address. Each entry carries an HMAC over itself and the one before it; the check on the Security Settings page (`GET /api/system/audit/verify-chain`) finds entries that were changed or removed.
 
-**Residual risk**: LOW. CSP `'unsafe-inline'` remains present for style/script compatibility; the sanitiser closes the practical injection vector. Residual theoretical risk requires both a server-side data injection and a sanitiser bypass simultaneously.
+*Not defended:* whoever has both the database and the key file can forge a consistent log. Send alerts or logs off the machine if that matters to you.
+
+## Clusters
+
+- Nodes are paired with a one-time code; afterwards they recognise each other by pinned certificates and exchange configuration, including secrets, over HTTPS.
+- **Two nodes must never write to the same pool.** In layers: only a node of the quorate partition takes a group over; a storage owner that loses quorum stops feeding its watchdog and is reset before anyone takes over; pools of shared groups carry ZFS multihost, which refuses an import while another host is writing; where the disks support SCSI-3 persistent reservations, the new owner takes the disks first, and the old owner's writes are then refused by the disks themselves; power fencing (IPMI, a PDU) switches the old owner off where configured. Two nodes without a third vote never fail over by themselves. (Tested: quorum, failover, reservations, on virtual hardware.)
+- Every change of owner raises the group's epoch; a node that returns with an older one follows.
+
+*Not defended:* a cluster without a hardware watchdog, without multihost and without reservations has only quorum between it and a double import; the HA page says which layers are active. Reservations and failover are tested on virtual disks and iSCSI LUNs, not on physical SAS shelves by the project ([HA Hardware Matrix](HA-HARDWARE-MATRIX.md)).
 
 ---
 
-### T6: Cross-Site Request Forgery (CSRF)
+## Recommended
 
-**Vector**: Malicious page tricks an authenticated browser into making state-changing API requests.
+- Install a trusted certificate, and reach the web interface from a management network or a VPN; do not put it on the internet.
+- Enable two-factor sign-in for every administrator.
+- Encrypt datasets whose disks could leave the building.
+- Put iSCSI, NVMe-oF and NFS on a storage network.
+- Keep alerts going somewhere outside the machine.
 
-**Mitigation**:
-- `GET /api/csrf` issues a CSRF token stored server-side in the session
-- Token is required on state-changing requests (validated in `sessionMiddleware`)
-- Session tokens are transmitted in `X-Session-ID` header (not cookies), which browsers do not auto-send cross-origin
+## Reporting a vulnerability
 
-**Residual risk**: LOW. Header-based sessions are inherently CSRF-resistant. CSRF token provides defence-in-depth.
-
----
-
-### T7: Denial of Service
-
-**Vector**: Flood of API requests exhausts resources.
-
-**Mitigation**:
-- In-process rate limiter: 100 requests/minute per source IP; returns HTTP 429 and logs a security event
-- PostgreSQL persistent connections with pool management via `pgx/v5`
-- Buffered audit logging prevents I/O stalls on high event volume
-- Graceful shutdown (15 s timeout) drains in-flight requests on SIGTERM
-
-**Residual risk**: MEDIUM. A valid authenticated user can trigger expensive operations (ZFS scrub, Docker image pull, dataset encryption) that the rate limiter does not separately throttle. The 100 req/min limit applies uniformly, not per-operation cost.
-
----
-
-### T8: Data at Rest (Stolen Hardware)
-
-**Vector**: Attacker steals physical server or individual disks.
-
-**Mitigation**:
-- ZFS native encryption (AES-256-GCM or AES-128-CCM) supported per dataset
-- UI exposes lock / unlock / change-key operations (`/api/zfs/encryption/*`)
-- `zfs unload-key` available via UI; not automatically called on daemon SIGTERM - operator must lock datasets before physical removal
-
-**Residual risk**: LOW if encryption is enabled and keys are locked. HIGH if encryption is not enabled - plaintext data on disks. PostgreSQL state is also plaintext on disk; ZFS pool-level encryption covers it only if the DB lives on an encrypted dataset.
-
----
-
-### T9: Man-in-the-Middle
-
-**Vector**: Attacker intercepts traffic between browser and server.
-
-**Mitigation**:
-- `dplaned` listens on a Unix socket (`/run/dplaneos/dplaned.sock`) - not reachable from the network at all; no TCP port is bound
-- TLS terminated at reverse proxy (nginx/Caddy/Pangolin)
-- Session tokens transmitted in request headers, not URL parameters
-
-**Residual risk**: LOW with correct reverse proxy setup. HIGH if the daemon is exposed directly to the network or TLS is misconfigured.
-
----
-
-### T10: LDAP Credential Exposure
-
-**Vector**: LDAP bind password compromised via DB access or API.
-
-**Mitigation**:
-- Bind password stored in PostgreSQL (not in a plaintext config file)
-- GET `/api/ldap/config` redacts the password field
-- Only accessible via authenticated + RBAC-checked API endpoint
-
-**Residual risk**: MEDIUM. Root access to the host exposes the DB file directly. Inherent to single-server NAS architecture.
-
----
-
-### T10a: OIDC Client Secret Exposure
-
-**Vector**: OIDC client secret compromised via DB access or API. An attacker with the secret and the issuer/client-id could impersonate DPlaneOS at the IdP's token endpoint.
-
-**Mitigation**:
-- Client secret stored in PostgreSQL `oidc_config` table (not in a config file)
-- GET `/api/auth/oidc/config` omits the `client_secret` field entirely - it is never returned to the browser
-- POST `/api/auth/oidc/config` preserves the existing secret when the field is sent empty, preventing accidental clearing
-- Config endpoint is protected by `system:admin` RBAC
-
-**Residual risk**: MEDIUM. Root access to the host exposes the DB directly. Use a confidential client with the narrowest IdP scope needed. Rotate the secret if DB access is suspected. Note: PKCE is required regardless, so a stolen secret alone cannot initiate a flow without also controlling the browser redirect.
-
----
-
-### T11: Container Escape
-
-**Vector**: Malicious Docker container with host filesystem bind mount.
-
-**Mitigation**:
-- DPlaneOS manages container lifecycle but does not enforce container security policies
-- Users are responsible for configuring bind mounts and network policies
-
-**Residual risk**: HIGH. Docker-level concern outside DPlaneOS's control.
-
----
-
-### T12: Audit Log Tampering
-
-**Vector**: Attacker with DB write access removes or alters audit entries.
-
-**Mitigation**:
-- HMAC-SHA256 chain: each audit row includes a `row_hash` computed over its content + the previous row's hash, keyed by `audit.key`
-- Chain integrity verifiable via `GET /api/system/audit/verify-chain`
-- `audit.key` is a 32-byte random key stored separately from the DB
-
-**Residual risk**: LOW if `audit.key` is protected. An attacker with both DB write access and the key can forge the chain - but these together represent full root compromise.
-
-### T13: HA Split-Brain / Data Corruption on Failover
-
-**Vector**: Network partition isolates the active node from standby. Both nodes now consider themselves active and attempt to import the same ZFS pools simultaneously, corrupting pool state.
-
-**Mitigation**:
-- **SCSI-3 Persistent Reservations (`dplane-fenced`) - shared-SAS topology:** Each node registers an 8-byte key derived from `/etc/machine-id` at startup. The primary holds a Write Exclusive Registrants Only (WERO) reservation on every ZFS pool member disk (APTPL=1: survives power cycles, stored in disk controller NVRAM). On unclean failover, the surviving node calls `FencedPreempt(device)` for each disk. The PROUT PREEMPT command evicts the faulted node's registration at the controller; subsequent I/O from the faulted node receives RESERVATION CONFLICT, regardless of what that node believes about its own state. Split-brain at the storage layer is physically impossible: the disk firmware is the arbiter, not a software vote.
-- **Owner-gated pool import:** pools of shared storage groups are never imported at boot; the owner's daemon imports them only when the other candidates confirm they do not use them, or after a silent candidate left the quorate partition and the fencing delay passed. Manual imports of such pools are refused on non-owners.
-- **Quorum (Corosync):** failover needs the quorate partition; two nodes without a third vote never fail over automatically. Epochs fence stale owners in configuration and group state.
-- **Watchdog self-fencing and optional power fencing:** a storage owner that loses quorum stops resetting its watchdog and is reset before the takeover (watchdog timeout + 15 s); IPMI/Redfish or a PDU power the old owner off first when configured; ZFS multihost refuses imports of pools still in use.
-- **Hysteresis and maintenance mode:** The `checkFailover()` guard enforces a hysteresis window before promoting to suppress flapping. `POST /api/ha/maintenance` suppresses automatic failover entirely during scheduled maintenance.
-
-**Residual risk**: **LOW** with a third vote and the watchdog: a cut-off owner resets itself before the takeover, multihost refuses double imports of shared pools, and SCSI-3 PR (where supported) rejects writes at the disk. **LOW-MEDIUM** without a hardware watchdog (softdog does not reset a hung kernel; add power fencing) or without multihost on shared pools. Two nodes without a third vote never fail over automatically, so a split cannot cause a double import, only a manual takeover decision.
-
----
-
-## Attack Surface Summary
-
-| Surface | Exposure | Auth | Notes |
-|---------|----------|------|-------|
-| HTTP API (~400 routes) | All routes require session except `/health`, `/api/auth/*`, and `/api/csrf` | Session middleware (global) + `must_change_password` gate | All operational routes carry per-route RBAC via `permRoute()`; self-service introspection routes (`/api/rbac/me/*`) are session-only by design; OIDC endpoints in `/api/auth/oidc/*` are public by necessity |
-| WebSocket (`/api/ws/monitor`) | Authenticated | Session middleware | Validated before upgrade |
-| `exec.Command` (zfs, zpool, docker, etc.) | Internal only | **Strict allowlist + libzfs direct API for ZFS dataset mutations** | Path-agnostic resolution via PATH; no shell; snapshot/clone/destroy go through cgo; pool import uses allowlist subprocess |
-| networkdwriter file writes | `/etc/systemd/network/50-dplane-*` | Root filesystem permissions | Pure file I/O; `networkctl reload` fixed args |
-| PostgreSQL database | Filesystem (`/var/lib/dplaneos/pgsql/`) | OS file permissions (root/postgres) | One database per node; sessions table holds hashed tokens, `must_change_password` flag enforced server-side |
-| Client session token | `sessionStorage` (default) or `localStorage` (opt-in "Remember me") | 24-hour server-side TTL, revoked on password change | localStorage token survives browser restart; XSS with localStorage access is a higher-impact scenario than sessionStorage |
-| systemd service | Root process with all capabilities | `NoNewPrivileges`; inside the daemon: sessions, RBAC, command allowlist, path checks | Not a dedicated non-root user: a compromised daemon is root on the system |
-
----
-
-## Recommended Deployment
-
-Run behind a VPN or reverse proxy with authentication (e.g. WireGuard, Tailscale, Cloudflare, Pangolin). Enable ZFS dataset encryption with a strong passphrase for protection against physical access. Do not expose nginx port 80 without TLS for internet-facing deployments. For internet-facing deployments, layered security middlewares are strongly recommended: CrowdSec (proactive IP reputation), GeoBlock (country-level filtering), and Fail2ban (reactive ban on suspicious behaviour) in front of the reverse proxy.
-
----
-
-## Known Gaps (not mitigated)
-
-- **ZFS keys not auto-locked on shutdown** - `zfs unload-key` must be called manually before powering down if encryption-at-rest is required
-- **PostgreSQL plaintext** - DB is not encrypted independently; relies on ZFS pool-level encryption if the pool is configured that way
-- **CSP not set by daemon** - CSP only present in nginx config; the daemon socket is not directly accessible from the network, so this is only relevant if someone has local shell access
+See [Security Policy](../../SECURITY.md).
