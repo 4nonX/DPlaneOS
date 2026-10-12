@@ -298,7 +298,13 @@ func storeNames() []string {
 		if !strings.HasPrefix(hba, "iblock_") {
 			continue
 		}
-		out = append(out, dirNames(filepath.Join(Configfs, "core", hba))...)
+		// Next to the storage objects (directories) the kernel keeps
+		// files about the adapter itself (hba_info, hba_mode).
+		for _, name := range dirNames(filepath.Join(Configfs, "core", hba)) {
+			if st, err := os.Stat(filepath.Join(Configfs, "core", hba, name)); err == nil && st.IsDir() {
+				out = append(out, name)
+			}
+		}
 	}
 	sort.Strings(out)
 	return out

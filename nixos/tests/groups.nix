@@ -253,7 +253,11 @@ pkgs.testers.nixosTest {
             a.succeed("dd if=/dev/zvol/tank/nv bs=512 count=1 2>/dev/null | grep -q one-nvme")
             assert api(a, "GET", "/api/iscsi/targets")["targets"][0]["sessions"] == 1
             # b has the definitions, and serves nothing.
-            b.wait_until_succeeds("curl -s http://localhost/api/groups -H 'X-Session-ID: %s' -H 'X-User: admin' | grep -q %s" % (session["b"][0], IQN), timeout=60)
+            # (b asks the owner for them every few seconds.)
+            for _ in range(60):
+                if published(b):
+                    break
+                time.sleep(2)
             assert published(b), group(b)["resources"]
             for path in ("/sys/kernel/config/target/iscsi/" + IQN, "/sys/kernel/config/nvmet/subsystems/" + NQN):
                 b.fail("test -e " + path)

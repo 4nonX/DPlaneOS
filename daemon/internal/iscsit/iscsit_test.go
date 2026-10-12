@@ -30,6 +30,14 @@ func newFake(t *testing.T) *fakeLIO {
 			t.Fatal(err)
 		}
 	}
+	// What the kernel keeps next to the storage objects of an adapter, and
+	// next to the targets: not storage objects, not targets.
+	f.write("HBA Index: 0", "core", "iblock_0", "hba_info")
+	f.write("0", "core", "iblock_0", "hba_mode")
+	f.write("Datera Inc. iSCSI Target", "iscsi", "lio_version")
+	if err := os.MkdirAll(filepath.Join(f.root, "iscsi", "discovery_auth"), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	oldRoot, oldRun, oldDev := Configfs, Run, deviceOK
 	Configfs, Run = f.root, f.run
 	deviceOK = func(string) error { return nil }
