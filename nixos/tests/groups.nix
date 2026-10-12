@@ -205,8 +205,10 @@ pkgs.testers.nixosTest {
         with subtest("iSCSI and NVMe-oF on the group's volumes, used from another machine"):
             a.succeed("zfs create -V 64M tank/lun && zfs create -V 64M tank/nv && udevadm settle")
             a.wait_until_succeeds("test -b /dev/zvol/tank/lun && test -b /dev/zvol/tank/nv", timeout=30)
-            hostnqn = client.succeed("nvme show-hostnqn").strip()
-            assert hostnqn.startswith("nqn."), hostnqn
+            # The client's NVMe identity (a machine set up for NVMe has it in
+            # /etc/nvme; here it is given with the connect).
+            hostid = "0f0e0d0c-0b0a-4908-8706-050403020100"
+            hostnqn = "nqn.2014-08.org.nvmexpress:uuid:" + hostid
             ok(api(a, "POST", "/api/iscsi/targets", {"iqn": IQN, "zvol": "tank/lun", "require_chap": True}), "iSCSI target")
             # CHAP is required: an initiator without a secret is not accepted.
             assert api(a, "POST", "/api/iscsi/acls", {"target_iqn": IQN, "initiator_iqn": INITIATOR}).get("success") is not True
@@ -234,7 +236,9 @@ pkgs.testers.nixosTest {
             client.succeed(f"iscsiadm -m node -T {IQN} -p {FIP} --login")
             client.wait_until_succeeds("test -b /dev/disk/by-path/*iscsi*lun-0", timeout=30)
             disks["iscsi"] = client.succeed("readlink -f /dev/disk/by-path/*iscsi*lun-0").strip()
-            client.succeed(f"nvme connect -t tcp -a {FIP} -s 4420 -n {NQN} --ctrl-loss-tmo=600 --reconnect-delay=2")
+            # Another host is not let in.
+            client.fail(f"nvme connect -t tcp -a {FIP} -s 4420 -n {NQN} --hostnqn=nqn.2014-08.org.nvmexpress:uuid:ffffffff-0b0a-4908-8706-050403020100 --hostid=ffffffff-0b0a-4908-8706-050403020100")
+            client.succeed(f"nvme connect -t tcp -a {FIP} -s 4420 -n {NQN} --hostnqn={hostnqn} --hostid={hostid} --ctrl-loss-tmo=600 --reconnect-delay=2")
             client.wait_until_succeeds("test -b /dev/nvme0n1", timeout=30)
             disks["identity"] = identity()
             assert all(disks["identity"]), disks

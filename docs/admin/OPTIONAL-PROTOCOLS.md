@@ -75,6 +75,7 @@ modprobe nvme-tcp
 nvme connect -t tcp -a NAS_ADDRESS -s 4420 -n nqn.2026-01.lan.nas:fast0
 nvme list            # the disk appears as /dev/nvmeXnY
 nvme show-hostnqn    # this machine's host NQN, for the list of allowed hosts
+                     # (kept in /etc/nvme/hostnqn; without that file, give --hostnqn and --hostid to connect)
 ```
 
 ---
