@@ -109,18 +109,6 @@ func TestValidateCommand(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name:    "Valid openssl with subj",
-			cmdName: "openssl",
-			args:    []string{"req", "-newkey", "rsa:2048", "-nodes", "-keyout", "key.pem", "-x509", "-days", "365", "-out", "cert.pem", "-subj", "/CN=example.com"},
-			wantErr: false,
-		},
-		{
-			name:    "Invalid openssl subj",
-			cmdName: "openssl",
-			args:    []string{"-subj", "/CN=../../etc/passwd"},
-			wantErr: true,
-		},
-		{
 			name:    "Valid mkdir with space",
 			cmdName: "mkdir",
 			args:    []string{"-p", "/mnt/valid path"},
@@ -253,9 +241,9 @@ func TestIsValidSessionToken(t *testing.T) {
 
 func TestSanitizeOutput(t *testing.T) {
 	tests := []struct {
-		name   string
-		input  string
-		want   string
+		name  string
+		input string
+		want  string
 	}{
 		{
 			name:  "Password in output",

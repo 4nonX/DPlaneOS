@@ -227,6 +227,14 @@ function SettingsTab({ s, updateSettings, repos, setShowWizard, onSyncNow, summa
   summary: ManagedSummary | null;
 }) {
   const qc = useQueryClient()
+  // A system set up from a NixOS configuration of its own has one to keep in
+  // a repository; a system installed from the image has none.
+  const nixosQ = useQuery({
+    queryKey: ['nixos', 'detect'],
+    queryFn: ({ signal }) => api.get<{ success: boolean; is_nixos?: boolean; image_install?: boolean }>('/api/nixos/detect', signal),
+    staleTime: 60 * 60_000,
+  })
+  const hasNixConfig = nixosQ.data?.is_nixos === true && nixosQ.data?.image_install !== true
   const syncNow = useMutation({
     mutationFn: () => api.post('/api/gitops/sync', {}),
     onSuccess: () => { toast.success('Sync completed'); onSyncNow() },
@@ -304,6 +312,7 @@ function SettingsTab({ s, updateSettings, repos, setShowWizard, onSyncNow, summa
           </div>
         </div>
 
+        {hasNixConfig && (
         <div className="card-xl">
           <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:12 }}>
             <div style={{ fontWeight:700 }}>Base System</div>
@@ -322,6 +331,7 @@ function SettingsTab({ s, updateSettings, repos, setShowWizard, onSyncNow, summa
             Backs up <code>/etc/nixos</code> (configuration.nix and flake).
           </div>
         </div>
+        )}
       </div>
 
       <AutoApplyCard s={s} updateSettings={updateSettings} />
@@ -1031,7 +1041,7 @@ export function GitOpsPage() {
       <div className="page-header" style={{ display:'flex', alignItems:'flex-end' }}>
         <div style={{ flex:1 }}>
           <h1 className="page-title">GitOps Engine</h1>
-          <p className="page-subtitle">Continuous reconciliation between Git and Live state (State & Base System)</p>
+          <p className="page-subtitle">Configuration in Git: plan, apply, capture, and drift between the repository and the running system</p>
         </div>
         <div style={{ display:'flex', gap:10, marginBottom:4 }}>
           <button onClick={() => api.post('/api/gitops/sync', {}).then(() => { toast.success('Sync triggered'); qc.invalidateQueries({queryKey:['gitops']}) })} className="btn btn-ghost" title="Manual Sync">

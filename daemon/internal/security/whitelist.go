@@ -884,16 +884,6 @@ var CommandWhitelist = map[string]Command{
 		},
 		Description: "Nginx configuration test and reload",
 	},
-	"openssl": {
-		Name:        "openssl",
-		Path:        "openssl",
-		AllowedArgs: nil,
-		ArgPatterns: []*regexp.Regexp{
-			regexp.MustCompile(`^(req|x509|genrsa)$`),
-			regexp.MustCompile(`.*`), // Catch-all for complex openssl flags/subcommands
-		},
-		Description: "SSL certificate operations",
-	},
 	"stat": {
 		Name:        "stat",
 		Path:        "stat",
@@ -1106,8 +1096,6 @@ func ValidateCommand(cmdName string, args []string) error {
 		return validateZpoolDetach(args)
 	case "zpool_add_special":
 		return validateZpoolAddSpecial(args)
-	case "openssl":
-		return validateOpenssl(args)
 	case "mkdir", "rm_recursive":
 		return validatePathBasedCommand(cmdName, args)
 	case "chown", "chmod", "stat", "getfacl", "setfacl":
@@ -1513,69 +1501,6 @@ func validateIpRoute(args []string) error {
 	}
 
 	return fmt.Errorf("unauthorized ip route command structure: %s", cmdStr)
-}
-
-// validateOpenssl validates -subj pattern and other allowed arguments
-func validateOpenssl(args []string) error {
-	allowedArgs := map[string]bool{
-		"req": true, "x509": true, "-x509": true, "-newkey": true, "rsa:2048": true,
-		"-keyout": true, "-out": true, "-days": true, "-nodes": true, "-subj": true,
-		"-noout": true, "-subject": true, "-enddate": true, "-issuer": true, "-in": true,
-		"-addext": true, "v3_req": true, "extensions": true,
-	}
-
-	for i := 0; i < len(args); i++ {
-		arg := args[i]
-		if arg == "-subj" {
-			if i+1 >= len(args) {
-				return fmt.Errorf("missing value for -subj")
-			}
-			val := args[i+1]
-			// Allow commonName (CN) only
-			if !regexp.MustCompile(`^/CN=[a-zA-Z0-9\.\-]+$`).MatchString(val) {
-				return fmt.Errorf("invalid -subj value: %s (only /CN= is allowed)", val)
-			}
-			i++ // skip the value
-			continue
-		}
-		if allowedArgs[arg] {
-			continue
-		}
-		// Allow path-like values for -keyout, -out, -in
-		if (arg == "-keyout" || arg == "-out" || arg == "-in") && i+1 < len(args) {
-			pathArg := args[i+1]
-			// Use IsValidPath but allow relative filenames for new files in AllowedBasePaths
-			if !IsValidPath(pathArg) && !IsSafeFilename(pathArg) {
-				return fmt.Errorf("invalid path for %s: %s", arg, pathArg)
-			}
-			i++ // skip the path value
-			continue
-		}
-		// If it doesn't start with -, it might be a positional arg or a value we allow
-		if !strings.HasPrefix(arg, "-") {
-			if IsValidPath(arg) || IsSafeFilename(arg) || regexp.MustCompile(`^[a-zA-Z0-9_\-\.\*]+$`).MatchString(arg) {
-				continue
-			}
-		}
-		// Allow numeric values for -days
-		if arg == "-days" && i+1 < len(args) {
-			if _, err := strconv.Atoi(args[i+1]); err == nil {
-				i++ // skip the numeric value
-				continue
-			}
-		}
-		// Allow specific extension values for -addext
-		if arg == "-addext" && i+1 < len(args) {
-			extVal := args[i+1]
-			if regexp.MustCompile(`^subjectAltName=DNS:[a-zA-Z0-9\.\-]+(?:,DNS:[a-zA-Z0-9\.\-]+)*$`).MatchString(extVal) {
-				i++ // skip the extension value
-				continue
-			}
-		}
-
-		return fmt.Errorf("unauthorized openssl argument: %s", arg)
-	}
-	return nil
 }
 
 // validateZpoolReplace validates zpool replace args
