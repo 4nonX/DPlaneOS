@@ -62,8 +62,17 @@ check "API reachable" retry 60 curl -sf "$BASE/api/system/status" -o /dev/null
 # Finishing setup needs the admin session; setting the admin password twice
 # (anyone on the network before setup is done) is refused.
 expect 401 POST /api/system/setup-complete '{"hostname":"x"}'
-expect 200 POST /api/system/setup-admin '{"username":"admin","password":"Smoke-Test-Pass-1"}'
-expect 409 POST /api/system/setup-admin '{"username":"admin","password":"Someone-Else-1"}'
+# The live image shows a setup code on its console: without it, nobody on
+# the network creates the administrator.
+if [ -s /run/dplaneos/setup-code ]; then
+  expect 403 POST /api/system/setup-admin '{"username":"admin","password":"Smoke-Test-Pass-1"}'
+  expect 403 POST /api/system/setup-admin '{"username":"admin","password":"Smoke-Test-Pass-1","setup_code":"0000-0000"}'
+  SETUP_CODE=$(cat /run/dplaneos/setup-code)
+else
+  SETUP_CODE=""
+fi
+expect 200 POST /api/system/setup-admin "{\"username\":\"admin\",\"password\":\"Smoke-Test-Pass-1\",\"setup_code\":\"$SETUP_CODE\"}"
+expect 409 POST /api/system/setup-admin "{\"username\":\"admin\",\"password\":\"Someone-Else-1\",\"setup_code\":\"$SETUP_CODE\"}"
 expect 200 POST /api/auth/login '{"username":"admin","password":"Smoke-Test-Pass-1"}'
 SESSION=$(json .session_id)
 expect 200 GET /api/csrf

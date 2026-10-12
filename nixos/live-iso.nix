@@ -17,6 +17,8 @@
   imports = [
     # Base NixOS minimal ISO
     "${modulesPath}/installer/cd-dvd/installation-cd-minimal.nix"
+    # The code the first visit of the web interface asks for.
+    ./live-setup-code.nix
   ];
 
   # ── Pre-bake the D-PlaneOS live closure into the ISO ──────────────────────
@@ -92,29 +94,32 @@
     ╚═══════════════════════════════════════════════════════════════════════════╝
 
     This is a live environment. D-PlaneOS is running in RAM.
-    Existing ZFS pools will be automatically imported from your drives.
+    ZFS pools on your drives are imported, unless they were last used by
+    another system: those you import in the web interface (Storage, ZFS
+    Pools, Import). At shutdown the pools are exported again.
 
     ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
     🌐  WEB INTERFACE
-        Open http://<this-machine-ip>/ in your browser
+        Open https://<this-machine-ip>/ in your browser
         (Find your IP: ip addr show | grep "inet ")
+        The first visit creates the administrator and asks for the
+        setup code shown below this text.
 
     🖥️  COMMAND LINE
         zpool list                  # List ZFS pools
         zfs list                    # List datasets
         docker ps                   # List containers
-        journalctl -u dplaneos -f   # Follow daemon logs
+        journalctl -u dplaned -f    # Follow daemon logs
 
-    💾  PERSISTENCE (Optional)
-        System state is ephemeral by default (lost on shutdown).
-        To persist daemon configuration and Docker state:
-          1. Mount USB drive labeled "dplane-persist"
-          2. Daemon state will link to USB automatically on boot
+    💾  NOTHING IS KEPT
+        The live system runs from memory: users, shares and settings made
+        here are gone at shutdown. What you write to the pools stays.
+        To keep the settings, install the system (the installer image).
 
     🛠️  TROUBLESHOOTING
         Check ZFS auto-import: journalctl -u dplane-zfs-auto-import
-        Check daemon status: systemctl status dplaneos
+        Check daemon status: systemctl status dplaned
         Check docker status: systemctl status docker
 
     📖  DOCUMENTATION
@@ -133,6 +138,13 @@
       clear
       cat /etc/dplaneos-live/welcome.txt
 
+      echo ""
+      for addr in $(${pkgs.iproute2}/bin/ip -4 -o addr show scope global 2>/dev/null | ${pkgs.gawk}/bin/awk '{ sub(/\/.*/, "", $4); print $4 }'); do
+        echo "    WEB INTERFACE:  https://$addr/"
+      done
+      if [ -s /run/dplaneos/setup-code ]; then
+        echo "    SETUP CODE (for creating the administrator in the web interface):  $(cat /run/dplaneos/setup-code)"
+      fi
       echo ""
       echo "System startup in progress... Services should be ready in ~30 seconds."
       echo "Press Enter to dismiss this message."

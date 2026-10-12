@@ -146,6 +146,14 @@ function StepAdmin({ onNext, onBack }: { onNext: () => void; onBack: () => void 
   const [confirm,  setConfirm]  = useState('')
   const [error,    setError]    = useState('')
   const [showPass, setShowPass] = useState(false)
+  // A system that shows a setup code on its console (the live image) only
+  // creates the administrator for someone who can read that console.
+  const [setupCode, setSetupCode] = useState('')
+  const statusQ = useQuery({
+    queryKey: ['system', 'status', 'setup'],
+    queryFn: ({ signal }) => api.get<{ setup_code_required?: boolean }>('/api/system/status', signal),
+  })
+  const codeRequired = statusQ.data?.setup_code_required === true
   // The remaining steps (disks, pool, finish) need a session: after creating
   // the admin the wizard logs in. When the installer (or an earlier visit)
   // already set the admin password, the API refuses to overwrite it and the
@@ -158,7 +166,7 @@ function StepAdmin({ onNext, onBack }: { onNext: () => void; onBack: () => void 
     mutationFn: async () => {
       if (mode === 'create') {
         let failure: unknown = null
-        await api.post('/api/system/setup-admin', { username, password }).catch((e: unknown) => { failure = e })
+        await api.post('/api/system/setup-admin', { username, password, setup_code: setupCode.trim() }).catch((e: unknown) => { failure = e })
         if (failure !== null) {
           const msg = failure instanceof Error ? failure.message : String(failure)
           if (!/already set|log in with it|already configured/i.test(msg)) throw failure
@@ -183,6 +191,7 @@ function StepAdmin({ onNext, onBack }: { onNext: () => void; onBack: () => void 
     if (mode === 'create') {
       if (password.length < 8) { setError('Password must be at least 8 characters'); return }
       if (password !== confirm) { setError('Passwords do not match'); return }
+      if (codeRequired && !setupCode.trim()) { setError('Enter the setup code shown on the console of this system'); return }
     } else if (!password) { setError('Password is required'); return }
     save.mutate()
   }
@@ -245,6 +254,22 @@ function StepAdmin({ onNext, onBack }: { onNext: () => void; onBack: () => void 
             autoComplete="new-password"
             onKeyDown={e => e.key === 'Enter' && submit()}
           />
+        </label>}
+
+        {mode === 'create' && codeRequired && <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <span style={{ fontSize: 'var(--text-xs)', fontWeight: 600, color: 'var(--text-secondary)' }}>Setup code</span>
+          <input
+            value={setupCode}
+            onChange={e => setSetupCode(e.target.value)}
+            placeholder="0000-0000"
+            className="input"
+            inputMode="numeric"
+            autoComplete="off"
+            style={{ fontFamily: 'var(--font-mono)', letterSpacing: 2 }}
+          />
+          <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }}>
+            Shown on the screen of the machine itself (and on its serial console). It proves that you are the one who started it.
+          </span>
         </label>}
 
         {/* Password strength hint */}

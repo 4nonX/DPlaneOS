@@ -60,18 +60,28 @@
       DEVICES=$(lsblk -nd -o NAME,SIZE,TYPE 2>/dev/null | grep disk || echo "(no disks found)")
       echo "$DEVICES"
 
-      # Step 2: Try to import all pools
-      # -a: import all pools found
-      # -N: don't mount (we do it separately)
-      # -f: force import (in case of soft errors)
+      # Step 2: import the pools that are free to import.
+      # -a: all pools found; -N: do not mount yet (step 4).
+      # Never -f: a pool that was last used by another system and not
+      # exported there may still be in use (a shelf shared with another
+      # node, a disk taken from a running machine), and forcing it in would
+      # let two systems write to it. Such pools are listed and left alone;
+      # the administrator imports them under Storage, ZFS Pools, Import,
+      # where the question is asked.
       echo ""
       echo "[2/4] Importing ZFS pools..."
-      if zpool import -a -N -f 2>&1; then
+      if zpool import -a -N 2>&1; then
         IMPORT_STATUS="OK"
         echo "✓ Pool import succeeded"
       else
         IMPORT_STATUS="PARTIAL"
-        echo "⚠ Pool import had errors (common if no pools present)"
+        echo "⚠ Not every pool was imported"
+      fi
+      LEFT=$(zpool import 2>/dev/null | grep -c '^ *pool:' || true)
+      if [ "''${LEFT:-0}" -gt 0 ]; then
+        echo "$LEFT pool(s) were not imported (last used by another system, or incomplete):"
+        zpool import 2>/dev/null | grep -E '^ *(pool|state|status):' || true
+        echo "Import them in the web interface (Storage, ZFS Pools, Import) if no other system uses them."
       fi
 
       # Step 3: List imported pools (verify success)
@@ -102,6 +112,17 @@
       echo "Status: $IMPORT_STATUS"
       echo "Pools available: $(zpool list -H 2>/dev/null | wc -l)"
       echo ""
+    '';
+
+    # At shutdown the pools are exported: the system that has them
+    # afterwards (the installed one, most of the time) finds them free and
+    # imports them without being asked to force anything. The daemon and
+    # Docker are stopped before this unit (it is ordered before them).
+    preStop = ''
+      export PATH=${lib.makeBinPath [ config.boot.zfs.package pkgs.coreutils ]}:$PATH
+      for pool in $(zpool list -H -o name 2>/dev/null); do
+        zpool export "$pool" 2>&1 || echo "pool $pool could not be exported: the next system has to import it with force"
+      done
     '';
 
     # Explicitly set TERM for better output

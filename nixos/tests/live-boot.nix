@@ -83,6 +83,7 @@ pkgs.testers.nixosTest {
   nodes.liveSystem = { config, pkgs, lib, self, ... }: {
     imports = [
       ../configuration-live.nix
+      ../live-setup-code.nix
       impermanence.nixosModules.impermanence
       ../module.nix
     ];
@@ -337,12 +338,11 @@ pkgs.testers.nixosTest {
         ip_output = liveSystem.succeed("ip addr show | grep 'inet ' | head -1")
         print(f"Network config: {ip_output}")
 
-    # ── Step 12: Check for data persistence markers ──────────────────────────
-    @test_step("Check persistence markers")
+    # ── Step 12: The state of the live system is in memory ───────────────────
+    @test_step("State is in memory")
     def check_persistence():
-        # Live environment creates markers for persistent/ephemeral mode
-        ephemeral_marker = liveSystem.succeed("ls /run/dplane-persist-* 2>&1 || echo 'none'")
-        print(f"Persistence mode: {ephemeral_marker}")
+        assert liveSystem.succeed("findmnt -n -o FSTYPE /persist").strip() == "tmpfs"
+        assert liveSystem.succeed("cat /etc/dplaneos-live/mode").strip() == "live-boot"
 
     # ── Step 13: Shutdown and verify clean exit ──────────────────────────────
     @test_step("Clean shutdown")

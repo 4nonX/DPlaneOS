@@ -119,8 +119,7 @@
       zfs list                # List datasets
       docker ps               # List containers
 
-    System state is ephemeral (lost on shutdown).
-    To persist daemon config, mount USB labeled "dplane-persist".
+    Settings made here are lost at shutdown; the data in the pools stays.
 
     Type 'exit' to return to login prompt.
   '';

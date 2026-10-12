@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"crypto/subtle"
 	"database/sql"
 	"dplaned/internal/cmdutil"
 	"dplaned/internal/scram"
@@ -63,13 +64,15 @@ func (h *SystemStatusHandler) HandleStatus(w http.ResponseWriter, r *http.Reques
 	respondJSON(w, http.StatusOK, map[string]any{
 		"success": true, "version": h.version, "setup_complete": setupDone > 0,
 		"has_users": userCount > 0, "has_pools": poolCount > 0,
-		"first_run":       setupDone == 0 && userCount <= 1,
-		"uptime_seconds":  int(time.Since(h.startTime).Seconds()),
-		"ecc_ram":         ecc.HasECC,
-		"ecc_known":       ecc.Known,
-		"ecc_virtual":     ecc.IsVirtual,
-		"ecc_warning":     !ecc.HasECC && ecc.Known && !ecc.IsVirtual,
-		"ecc_warning_msg": ecc.Warning,
+		"first_run": setupDone == 0 && userCount <= 1,
+		// Creating the administrator asks for the code on the console.
+		"setup_code_required": setupDone == 0 && requiredSetupCode() != "",
+		"uptime_seconds":      int(time.Since(h.startTime).Seconds()),
+		"ecc_ram":             ecc.HasECC,
+		"ecc_known":           ecc.Known,
+		"ecc_virtual":         ecc.IsVirtual,
+		"ecc_warning":         !ecc.HasECC && ecc.Known && !ecc.IsVirtual,
+		"ecc_warning_msg":     ecc.Warning,
 	})
 }
 
@@ -493,6 +496,21 @@ func splitValueUnit(raw string) (string, string) {
 	return value, unit
 }
 
+// setupCodePath holds the setup code of a system that shows one on its
+// console (written at boot by the live image; an installed system has its
+// administrator from the installer and no code).
+var setupCodePath = "/run/dplaneos/setup-code"
+
+// requiredSetupCode returns the code that creating the administrator needs
+// (digits only), or "" when none is required.
+func requiredSetupCode() string {
+	b, err := os.ReadFile(setupCodePath)
+	if err != nil {
+		return ""
+	}
+	return strings.NewReplacer("-", "", " ", "", "\n", "").Replace(string(b))
+}
+
 // HandleSetupAdmin - POST /api/system/setup-admin
 // Sets the admin password during initial setup. Only works before setup is marked complete.
 // This endpoint is public (no session required) but is gated by setup_complete flag.
@@ -535,14 +553,28 @@ func (h *SystemStatusHandler) HandleSetupAdmin(w http.ResponseWriter, r *http.Re
 	}
 
 	var req struct {
-		Username string `json:"username"`
-		Password string `json:"password"`
+		Username  string `json:"username"`
+		Password  string `json:"password"`
+		SetupCode string `json:"setup_code"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		respondJSON(w, http.StatusBadRequest, map[string]any{
 			"success": false, "error": "Invalid request body",
 		})
 		return
+	}
+	// Where the system shows a setup code on its console (the live image),
+	// the administrator is created by whoever can read that console, not by
+	// whoever reaches the web interface first.
+	if code := requiredSetupCode(); code != "" {
+		given := strings.NewReplacer("-", "", " ", "").Replace(req.SetupCode)
+		if subtle.ConstantTimeCompare([]byte(given), []byte(code)) != 1 {
+			respondJSON(w, http.StatusForbidden, map[string]any{
+				"success": false, "code": "setup_code",
+				"error": "Enter the setup code shown on the console of this system",
+			})
+			return
+		}
 	}
 
 	if req.Username == "" || req.Password == "" {
@@ -551,10 +583,9 @@ func (h *SystemStatusHandler) HandleSetupAdmin(w http.ResponseWriter, r *http.Re
 		})
 		return
 	}
-	if len(req.Password) < 8 {
-		respondJSON(w, http.StatusBadRequest, map[string]any{
-			"success": false, "error": "Password must be at least 8 characters",
-		})
+	// The same rules as for every other password of the system.
+	if ok, msg := validatePasswordStrength(req.Password); !ok {
+		respondJSON(w, http.StatusBadRequest, map[string]any{"success": false, "error": msg})
 		return
 	}
 
