@@ -1,65 +1,45 @@
 # Security Policy
 
-## Supported Versions
+## Supported versions
 
-| Version | Supported |
-|---------|-----------|
-| 6.x | Active development - all fixes |
-| 5.x | Maintenance/LTS - security fixes only |
-| 4.x | End of life - upgrade required |
-| 3.x | End of life - upgrade required |
-| < 3.0 | End of life - upgrade required |
+| Version | |
+|---------|---|
+| 15.x | supported: fixes are released as updates of 15 |
+| older | not supported: update to 15 |
 
-## Reporting a Vulnerability
+## Reporting a vulnerability
 
-**Do not report security vulnerabilities via GitHub Issues.**
+**Do not report security vulnerabilities in public issues.**
 
-Report privately via GitHub Security Advisories:
+Report privately through GitHub Security Advisories:
 `https://github.com/4nonX/DPlaneOS/security/advisories/new`
 
-Or email the maintainer directly (see GitHub profile). Include:
+Or write to the maintainer (see the GitHub profile). Please include:
 
-1. Description of the vulnerability
-2. Affected component (daemon, nginx config, frontend, etc.)
-3. Steps to reproduce with a minimal working example
-4. Impact assessment: what an attacker could achieve
-5. Suggested fix (optional)
+1. What the vulnerability is
+2. The affected part (daemon, web interface, system image, installer)
+3. Steps to reproduce, as small as possible
+4. What an attacker could achieve
+5. A suggested fix, if you have one
 
-### Response Timeline
+### What to expect
 
-- Acknowledgement within 48 hours
-- Status update within 7 days confirming the issue and timeline
-- Fix within 30 days for critical issues, 90 days for others
-- Credit in the changelog if you would like it (opt-in)
+DPlaneOS is maintained by one person. You will get an acknowledgement as soon as the report has been read, normally within a few days, and an assessment after it has been reproduced. Critical issues are fixed first and released as an update with a note in the changelog; you are credited there if you want to be.
 
-### Safe Harbour
+### Safe harbour
 
-We will not pursue legal action against researchers who:
-- Report issues privately before public disclosure
-- Do not access, modify, or delete data beyond what is needed to demonstrate the issue
-- Do not disrupt service availability
-- Give us reasonable time (30–90 days) to patch before disclosing
+No legal action will be pursued against researchers who:
 
-## Security Architecture
+- report privately before disclosing publicly,
+- do not access, change or delete data beyond what is needed to show the issue,
+- do not disrupt systems that are not their own,
+- allow a reasonable time for a fix (30 to 90 days) before disclosure.
 
-DPlaneOS is designed as an internal network appliance. It is not intended to be exposed directly to the public internet. Key properties:
+## What is defended, and what is not
 
-- **Authentication:** bcrypt-hashed passwords, rate-limited login with exponential backoff
-- **Sessions:** 32-byte random session tokens, stored hashed in PostgreSQL
-- **CSRF:** HMAC-SHA256 double-submit tokens on all mutating requests
-- **2FA:** TOTP (RFC 6238) with ±1 window clock drift tolerance, bcrypt-hashed backup codes
-- **API tokens:** SHA-256 hashed, prefixed `dpl_`, scope-limited (read/write/admin)
-- **RBAC:** 4 roles (viewer, user, operator, admin) enforced at handler level, with 34 discrete permissions
-- **Command execution:** Allowlist-based validation via `internal/security/whitelist.go`; arguments passed as separate slice elements to `exec.Command` - no shell. **v6.1.0 Hardening:** Strict `by-id` path enforcement and pool-membership safety checks for disk operations ensure enterprise-grade storage security.
+DPlaneOS is an appliance for a network you control; its web interface is not meant to face the internet. The [Threat Model](docs/reference/THREAT-MODEL.md) describes the security design, and names what it does not defend against. The points most worth knowing:
 
-For the full threat model, see [docs/reference/THREAT-MODEL.md](docs/reference/THREAT-MODEL.md).
-
-## Known Limitations
-
-- **HA is quorum-based:** nodes keep their own databases and form a Corosync cluster; storage groups fail over only with quorum and after a fencing delay (watchdog), with optional power fencing. Secrets travel between paired nodes encrypted for the pair and are sealed under each node's own key.
-- **Partial RBAC coverage:** Many operational routes are session-authenticated but lack per-route `RequirePermission` checks
-- **ZFS delegation** (`zfs allow`) is complex; review carefully before enabling
-- **rclone credentials** are stored in `/etc/dplaneos/rclone.conf` - restrict file permissions
-- **Docker socket** is accessible to the daemon - containers with host mounts can escalate
-- **LDAP bind password** is stored in PostgreSQL - use a dedicated read-only LDAP account
-
+- The daemon runs as root, and an administrator of the web interface is root on the machine.
+- The system disk is not encrypted: the database, with the (encrypted) secrets of integrations and the file holding their key, is readable by whoever has the disk. Session tokens and the CHAP secrets of iSCSI initiators are stored unencrypted.
+- Containers are confined only as far as their compose files confine them, and their published ports bypass the firewall page.
+- NFS, NVMe over TCP, iSCSI without CHAP and plain FTP trust the network they are offered on.

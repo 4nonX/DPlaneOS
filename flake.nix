@@ -339,9 +339,12 @@
         };
 
         devShells.default = pkgs.mkShell {
-          buildInputs = with pkgs; [ go gcc musl.dev gopls gotools postgresql git ];
+          # Go and Node.js for the daemon and the web interface; PostgreSQL
+          # for the tests that need a database; gcc for the experimental
+          # libzfs build.
+          buildInputs = with pkgs; [ go gopls gotools nodejs postgresql git gcc ];
           shellHook = ''
-            export CGO_ENABLED=1
+            export CGO_ENABLED=0
             echo "DPlaneOS dev shell"
           '';
         };
