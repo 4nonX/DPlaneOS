@@ -9,6 +9,183 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 [Design 0001](../design/0001-distributed-state-gitops-ha.md), phases 0 to 3: every node keeps its own database and keeps working on its own; paired nodes exchange configuration (with secrets) and merge it per resource; high availability is rebuilt on Corosync quorum, a third vote from anything, and storage groups that move between nodes with their shares, apps and a floating address.
 
+### The installed system, checked end to end
+
+After the first v15.0.0 images, every function the repository describes was
+followed from the web interface to the running system, on systems installed
+from the images and driven through the API from a second machine. The
+images of v15.0.0 were rebuilt with what that found. Systems installed from
+the first images should be reinstalled (they cannot verify an update file,
+see below); pools are imported afterwards as they are.
+
+**Tested for every release now** (VM tests, part of the pipeline; a release
+is not built unless they pass): installation from the ISO, the installed
+system with a client machine (shares, users, directory sign-in, block
+targets, S3, cloud sync, firewall, network, SSH, restart), system updates
+(trial, keep, return), Active Directory membership against a domain
+controller, disk reservations on shared disks, storage groups with a client
+that keeps its iSCSI and NVMe disks across moves and a crash of the owner,
+failover, replicated groups, quorum and votes, the live image.
+
+#### Upgrade notes
+
+- **S3** is served by Versity Gateway; MinIO is gone. The folder's
+  directories are the buckets. One access key.
+- **iSCSI ALUA and NVMe ANA settings are removed** (`alua_enabled`,
+  `alua_state`, `POST /api/iscsi/targets/alua`, `ana_enabled`,
+  `ana_groups`). They never set anything. A target or export of a storage
+  group's volume now moves with the group instead.
+- **Cloud sync** works through tasks (`/api/cloud-sync/tasks`); the action
+  `sync` of `POST /api/cloud-sync` is gone. A task names a bucket or folder
+  inside the remote.
+- **`dplane-fenced`** (a separate reservation daemon) is removed; the main
+  daemon holds the disk reservations.
+- **The NixOS installation guides for installing by hand** and
+  `nixos/setup-nixos.sh` are removed: DPlaneOS is installed from its image.
+- The password given to `POST /api/system/setup-admin` must satisfy the
+  password rules; the live image also asks for a setup code there.
+- Migrations up to 00034.
+
+#### Security
+
+- **Two-factor setup sent the secret to a third party.** The QR code was
+  drawn by `api.qrserver.com`: the TOTP secret of the account went there in
+  the URL. It is drawn in the browser. Accounts whose second factor was set
+  up with an earlier build should set it up again.
+- **Single sign-on:** an account was linked by an e-mail address the
+  provider had not verified (account takeover with a provider that lets
+  users choose their address); a disabled account could sign in; roles
+  given by a group stayed after the group was gone. All three are closed,
+  and the flow is tested against a simulated provider.
+- **The installer** started SSH with root and a known password, and a "No"
+  at "Begin installation?" could end in an installation after all. SSH is
+  off until asked for at the console (with a password made up for that
+  session); "No" returns to the menu for good; a disk that belongs to a ZFS
+  pool is only accepted after the pool's name is typed.
+- **The live image** imported every pool it found with force, also one
+  another system still used, and let whoever reached its web interface
+  first create the administrator. It imports what is free, exports at
+  shutdown, and creating the administrator needs a code shown on the
+  console.
+- **Cloud sync deleted outside what it was given.** It ran
+  `rclone sync <folder> <remote>:` against the whole remote: every
+  top-level folder became a bucket and the contents of other buckets were
+  deleted as "not in the source"; "Pull" ran as an upload. Tasks now work
+  inside a bucket or folder of the remote, copy unless told to mirror, and
+  have a dry run.
+- **Scheduled jobs ran through a shell**, with the daemon's internal token
+  in unit files everybody can read and names from requests inside the
+  command line. The units run `curl -K <file>`; request and payload are in
+  files only root reads. Text from a request cannot add a line to a unit.
+- **The web server sent no security headers.** It now sends a
+  Content-Security-Policy (scripts from the system only), and
+  `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy`.
+- **Sign-in throttling was shared by everybody** (all requests appeared to
+  come from the web server): one person's wrong passwords locked everyone
+  out, and the audit log had no client addresses. Clients are told apart.
+- An administrator can **reset a user's lost two-factor sign-in** (Users
+  page); before, that took a statement typed into the database.
+- CHAP secrets and compose files are not part of a storage group's status;
+  unit control from the API goes through the command allowlist.
+
+#### Fixed: did not work on an installed system
+
+- **System updates.** No update could be installed, and none verified:
+  there was no signed update file and the public key was hidden by a mount.
+  A release now has a signed update file per architecture; the system
+  installs it next to the running version, starts it once on trial and
+  keeps it only if what worked before works again.
+- **Installation** needed network access for a step it did not say, and a
+  fresh system came up without network configuration. Both fixed; the
+  installation is tested from the ISO without a network.
+- **A lost administrator password** had no way back. The installation
+  medium resets it (and switches a lost second factor off).
+- **Sign-in with a directory account (LDAP) and with SCRAM** failed with a
+  database error. Scheduled directory sync, accounts at first sign-in and
+  roles that follow groups work and are tested against OpenLDAP.
+- **Joining an Active Directory domain** could not work (Samba was built
+  without it, and the steps ran in an order that fails). One join
+  procedure, tested against a Samba domain controller: domain users open
+  shares, a restart keeps the membership, leaving returns to local
+  accounts.
+- **Users could not sign in to SMB shares or FTP**: the accounts of the web
+  interface did not exist for the file services. Every user is also the
+  Unix, SMB and FTP account of the same name and password.
+- **iSCSI targets could not be created** (portal syntax); **NVMe-oF exports
+  could not be created at all** (the code wrote files the kernel's target
+  does not have). Both are a saved list the kernel is brought in line with:
+  a change to one target leaves the others' initiators connected; a deleted
+  target releases its volume; the disk keeps its identity (serial number,
+  namespace UUID) across restarts and nodes; initiators' persistent
+  reservations are kept.
+- **In a cluster, an iSCSI target stayed behind when its storage group
+  moved** (and kept the pool from being exported), and an NVMe-oF export
+  kept the pool busy. Both follow their group; tested with a client that
+  keeps writing through two planned moves and a crash of the owner.
+- **Disk reservations (SCSI-3) never took effect.** Rewritten and tested on
+  shared disks: a takeover shuts out an owner that is cut off but still
+  writing.
+- **A user who signed in on two nodes counted as changed on both**, and
+  password changes stopped reaching the other node; account numbers could
+  differ between nodes. Credentials derived on each node are the same on
+  each node, and account numbers travel with the user.
+- **Backups longer than five minutes were killed** (rsync, cloud sync), and
+  rsync over SSH had no key to sign in with. They run as long as they
+  take, with the system's own key; a failed scheduled run raises the new
+  alert `backup.failed` and keeps what the tool said.
+- **Applying a `state.yaml`** that declared users, NFS exports or groups
+  failed; network settings in it were ignored; `dplaned -apply` on a new
+  database failed. Fixed, with a test that prepares every SQL statement of
+  the daemon against the schema.
+- **Settings that were saved but not applied** on an installed system: host
+  name, time zone, time servers, firewall rules, SSH, Samba settings, UPS,
+  the ZFS cache limit, HTTPS certificates. They take effect at once and at
+  every start; a setting the system refuses is taken back.
+- **Certificates** could not be generated; the system has a self-signed one
+  from the first start and serves HTTPS.
+- **The start waited three minutes** and contacted an address on the
+  internet to see if it was online. It does neither.
+- **Replication to another DPlaneOS system** needed root over SSH, which is
+  off. It signs in as an administrator there.
+- The installed daemon used ZFS through a library path that no test
+  exercised and that failed to export a busy pool; all images use the
+  path the tests use.
+- "Test" on a cloud remote said "Connection OK" whatever the answer was.
+
+#### Added
+
+- **Automatic apply for GitOps** (off by default): new commits are applied
+  by themselves when their plan only creates and modifies; anything that
+  deletes, needs approval or is high risk waits. A Git server can announce
+  commits with a signed webhook. In a cluster one node writes.
+- **Alerts** have one documented list of events; each webhook chooses its
+  events. New events for replication, takeovers, fencing, UPS, updates,
+  failed sign-ins, domain trust, automatic apply, backups.
+- **Cloud sync tasks** with schedules (hourly, daily, weekly), dry run,
+  and making up for a run missed while the system was off.
+- Role assignments with an end date in the Users page; the iSCSI page shows
+  volume, size, address, CHAP, connected initiators and whether this node
+  serves the target, and takes CHAP credentials.
+
+#### Removed, because it did nothing
+
+- ALUA and ANA settings (see above); "persistence on a USB drive" for the
+  live image (it mounted the drive and linked a directory nothing read);
+  a "Base System" card in GitOps on systems that have no NixOS
+  configuration of their own; `daemon/ARCHITECTURE.md` and
+  `daemon/TROUBLESHOOTING.md` (feature flags, an operation journal and
+  circuit breakers that are not in the code).
+
+#### Documentation
+
+Rewritten for what the system does: README, installation, administration,
+backup and replication, optional protocols, troubleshooting, recovery, live
+image, alerts and two-factor sign-in, threat model, architecture, design
+philosophy, NixOS rationale, hardware compatibility (no list of tested
+hardware: the project has none), HA hardware matrix (the earlier list of
+hardware was not based on tests), ports, dependencies, contributing,
+security policy.
+
 ### Upgrade notes (breaking)
 
 - **Patroni-based HA is removed.** `services.dplaneos.ha` (Patroni, etcd, HAProxy, keepalived), the etcd witness and the installer's "Install Witness Node" entry are gone. Remove `services.dplaneos.ha.*` from your NixOS configuration if you set it there. HA is set up anew from the web interface: pair the nodes (System › Configuration Sync), form the cluster and add a third vote (System › High Availability), create storage groups. See [HIGH-AVAILABILITY.md](../admin/HIGH-AVAILABILITY.md).
@@ -16,7 +193,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 - **Removed daemon flags:** `--ha-local-id`, `--ha-local-addr`, `--ha-cluster-secret`.
 - **Samba clustering (CTDB) is removed** (`services.dplaneos.ctdb`, `/api/ha/ctdb/*`, the card on the High Availability page). It could not work: the Samba package has no cluster support, the service used options ctdbd no longer has, and CTDB needs a file system mounted on all nodes at once, while a ZFS pool belongs to one node at a time. Remove `services.dplaneos.ctdb.*` from your NixOS configuration. SMB clients reconnect to the floating address after a failover.
 - **Prometheus:** the HA metrics changed (`dplaneos_ha_*`, `dplaneos_group_*`); update dashboards and use the new `prometheus/ha-alerts.yml`.
-- The database schema migrates automatically on first start (migrations up to 00029).
+- The database schema migrates automatically on first start (migrations up to 00034).
 
 API and web interface: the API handlers run in CI against a real PostgreSQL
 schema and a command fake, and CI checks every request and response of the
