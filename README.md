@@ -232,7 +232,7 @@ Locked out, no network, a system that does not start: [Recovery Guide](docs/admi
 | [Git-Driven NAS](docs/admin/GITOPS-DRIVEN-NAS.md) | Operating DPlaneOS from `state.yaml`: bootstrap, automatic apply, rollback, PR workflow, clusters |
 | [Backup and Replication](docs/admin/BACKUP-REPLICATION.md) | Snapshots, ZFS send/receive, cloud sync, cold tier, rsync, DB backup, recovery |
 | [High Availability](docs/admin/HIGH-AVAILABILITY.md) | HA is optional and off by default. Clusters, the third vote (see also [Choosing a third vote](docs/admin/THIRD-VOTE.md)), storage groups (shared or replicated), protection layers, planned moves and failover |
-| [Integration Guide](docs/admin/INTEGRATION-GUIDE.md) | Prometheus, Active Directory membership, SMB and failover, NVMe-oF clients, iSCSI ALUA, GitOps in CI, GPU passthrough |
+| [Integration Guide](docs/admin/INTEGRATION-GUIDE.md) | Prometheus, Active Directory membership, SMB and failover, iSCSI and NVMe-oF clients and failover, GitOps in CI, GPU passthrough |
 | [System Updates](docs/admin/OTA-UPDATES.md) | Signed update files, the trial start, automatic and manual return, updating without internet access |
 | [Optional Protocols](docs/admin/OPTIONAL-PROTOCOLS.md) | iSCSI, NVMe-oF, FTP/FTPS, S3 |
 | [Alerts and Authentication](docs/admin/ALERTS.md) | SMTP, webhook, Telegram alerting, TOTP 2FA setup and backup codes |

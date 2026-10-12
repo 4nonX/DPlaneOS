@@ -17,6 +17,7 @@ import (
 
 	"dplaned/internal/database"
 	"dplaned/internal/diskres"
+	"dplaned/internal/iscsit"
 	"dplaned/internal/nvmet"
 )
 
@@ -173,6 +174,9 @@ func testManager(t *testing.T, db *sql.DB, self string, imported map[string]stri
 		LocalExports: func() ([]nvmet.Export, error) { return nil, nil },
 		SaveExports:  func([]nvmet.Export) error { return nil },
 		ApplyExports: func([]nvmet.Export) error { return nil },
+		LocalTargets: func() ([]iscsit.Target, error) { return nil, nil },
+		SaveTargets:  func([]iscsit.Target) error { return nil },
+		ApplyTargets: func([]iscsit.Target) error { return nil },
 	}
 	m.addr = AddrOps{
 		Present:  func(string, string) (bool, error) { return false, nil },

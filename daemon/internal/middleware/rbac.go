@@ -104,7 +104,7 @@ func RequirePermission(resource, action string) func(http.Handler) http.Handler 
 // RequireAAL2 wraps a handler and rejects requests whose session has not been
 // upgraded to AAL2 (password + TOTP). Apply this to routes where the operation
 // is irreversible or has elevated blast radius: user deletion, password reset,
-// pool destroy, fencing configuration, and ALUA state flip.
+// pool destroy and fencing configuration.
 //
 // API token requests (Authorization: Bearer dpl_...) do not carry a session ID
 // and will receive HTTP 401 "authentication required". This is intentional policy:

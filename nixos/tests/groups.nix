@@ -61,6 +61,15 @@ pkgs.testers.nixosTest {
   nodes.a = dplaneNode "a" "aaaa0001";
   nodes.b = dplaneNode "b" "bbbb0002";
 
+  # Another machine that uses the group's iSCSI target and NVMe-oF export
+  # through the floating address, across every move of the group.
+  nodes.client = { pkgs, ... }: {
+    services.openiscsi = { enable = true; name = "iqn.2026-01.test.client:c1"; };
+    boot.kernelModules = [ "nvme-tcp" ];
+    environment.systemPackages = [ pkgs.nvme-cli ];
+    virtualisation.memorySize = 1024;
+  };
+
   testScript = ''
     import json, shlex
 
@@ -105,8 +114,44 @@ pkgs.testers.nixosTest {
         n1 = int(m.succeed("wc -l < /mnt/tank/data/heartbeat").strip())
         m.wait_until_succeeds(f"test $(wc -l < /mnt/tank/data/heartbeat) -gt {n1}", timeout=30)
 
+    IQN = "iqn.2026-01.test.nas:g"
+    NQN = "nqn.2026-01.test.nas:g"
+    INITIATOR = "iqn.2026-01.test.client:c1"
+    CHAP = "Groups-Chap-Secret-1"
+    FIP = "192.168.1.100"
+    disks = {}
+
+    def identity():
+        # What the client recognises its two disks by.
+        return (client.succeed("cat /sys/block/%s/device/wwid" % disks["iscsi"].split("/")[-1]).strip(),
+                client.succeed("cat /sys/block/nvme0n1/uuid").strip())
+
+    def client_reads(tag):
+        # Waits through a failover: the initiators reconnect by themselves.
+        client.succeed("dd if=%s iflag=direct bs=512 count=1 2>/dev/null | grep -q %s-iscsi" % (disks["iscsi"], tag), timeout=300)
+        client.succeed("dd if=/dev/nvme0n1 iflag=direct bs=512 count=1 2>/dev/null | grep -q %s-nvme" % tag, timeout=300)
+
+    def client_writes(tag):
+        client.succeed("echo %s-iscsi | dd of=%s oflag=direct conv=sync bs=512 count=1 2>/dev/null" % (tag, disks["iscsi"]), timeout=300)
+        client.succeed("echo %s-nvme | dd of=/dev/nvme0n1 oflag=direct conv=sync bs=512 count=1 2>/dev/null" % tag, timeout=300)
+
+    def serves(m, yes):
+        paths = ("/sys/kernel/config/target/iscsi/%s/tpgt_1/acls/%s" % (IQN, INITIATOR), "/sys/kernel/config/nvmet/subsystems/%s/namespaces/1" % NQN)
+        for path in paths:
+            if yes:
+                m.wait_until_succeeds("test -e " + path, timeout=90)
+            else:
+                m.fail("test -e " + path)
+        ti = [t for t in api(m, "GET", "/api/iscsi/targets")["targets"] if t["iqn"] == IQN]
+        tn = [t for t in api(m, "GET", "/api/nvmet/targets")["targets"] if t["subsystem_nqn"] == NQN]
+        assert ti and tn and ti[0]["active"] is yes and tn[0]["active"] is yes, (m.name, ti, tn)
+        ports = api(m, "GET", "/api/firewall/status")["system_ports"]
+        assert ("3260/tcp" in ports) is yes and ("4420/tcp" in ports) is yes, (m.name, ports)
+
     def diag():
+        print(client.execute("iscsiadm -m session 2>&1; nvme list 2>&1; dmesg | grep -i -E 'nvme|iscsi|sd[a-z]' | tail -n 40")[1])
         for m in (a, b):
+            print(m.execute("ls -R /sys/kernel/config/nvmet/ports /sys/kernel/config/target/iscsi 2>&1 | head -60")[1])
             print(m.execute("journalctl -b --no-pager -u dplaned | grep -i -E 'group|zpool|error' | tail -n 80")[1])
             print(m.execute("zpool status 2>&1; zpool import -d /dev/disk/by-id 2>&1 | head -20")[1])
 
@@ -157,7 +202,54 @@ pkgs.testers.nixosTest {
             b.wait_until_succeeds("curl -s http://localhost/api/groups -H 'X-Session-ID: %s' -H 'X-User: admin' | grep -q heartbeat" % session["b"][0], timeout=60)
             assert not running(b)
 
+        with subtest("iSCSI and NVMe-oF on the group's volumes, used from another machine"):
+            a.succeed("zfs create -V 64M tank/lun && zfs create -V 64M tank/nv && udevadm settle")
+            a.wait_until_succeeds("test -b /dev/zvol/tank/lun && test -b /dev/zvol/tank/nv", timeout=30)
+            client.succeed("mkdir -p /etc/nvme && nvme gen-hostnqn > /etc/nvme/hostnqn")
+            hostnqn = client.succeed("cat /etc/nvme/hostnqn").strip()
+            ok(api(a, "POST", "/api/iscsi/targets", {"iqn": IQN, "zvol": "tank/lun", "require_chap": True}), "iSCSI target")
+            # CHAP is required: an initiator without a secret is not accepted.
+            assert api(a, "POST", "/api/iscsi/acls", {"target_iqn": IQN, "initiator_iqn": INITIATOR}).get("success") is not True
+            ok(api(a, "POST", "/api/iscsi/acls", {"target_iqn": IQN, "initiator_iqn": INITIATOR, "chap_user": "c1", "chap_pass": CHAP}), "allow the initiator")
+            # The export listens on the group's floating address.
+            ok(api(a, "POST", "/api/nvmet/targets", {"subsystem_nqn": NQN, "zvol": "tank/nv", "listen_addr": FIP, "host_nqns": [hostnqn]}), "NVMe-oF export")
+            # The volume is not on b: nothing can be offered from there.
+            assert api(b, "POST", "/api/iscsi/targets", {"iqn": "iqn.2026-01.test.nas:other", "zvol": "tank/lun"}).get("success") is not True
+            serves(a, True)
+            assert api(a, "GET", "/api/iscsi/targets")["targets"][0]["size"] == 64 << 20
+            # They belong to the group; its status names them, without the secret.
+            def published(m):
+                r = group(m)["resources"]
+                return [t["iqn"] for t in r["iscsi"]] == [IQN] and [e["subsystem_nqn"] for e in r["nvme"]] == [NQN]
+            assert published(a), group(a)["resources"]
+            for m in (a, b):
+                assert CHAP not in m.succeed("curl -s http://localhost/api/groups -H 'X-Session-ID: %s' -H 'X-User: admin'" % session[m.name][0])
+                assert CHAP not in json.dumps(api(m, "GET", "/api/iscsi/targets")) + json.dumps(api(m, "GET", "/api/iscsi/acls"))
+
+            client.wait_for_unit("iscsid.service")
+            client.wait_until_succeeds(f"iscsiadm -m discovery -t sendtargets -p {FIP} | grep -q {IQN}", timeout=60)
+            client.fail(f"iscsiadm -m node -T {IQN} -p {FIP} --login")  # no secret, no disk
+            for key, value in (("authmethod", "CHAP"), ("username", "c1"), ("password", CHAP)):
+                client.succeed(f"iscsiadm -m node -T {IQN} -p {FIP} -o update -n node.session.auth.{key} -v {value}")
+            client.succeed(f"iscsiadm -m node -T {IQN} -p {FIP} --login")
+            client.wait_until_succeeds("test -b /dev/disk/by-path/*iscsi*lun-0", timeout=30)
+            disks["iscsi"] = client.succeed("readlink -f /dev/disk/by-path/*iscsi*lun-0").strip()
+            client.succeed(f"nvme connect -t tcp -a {FIP} -s 4420 -n {NQN} --ctrl-loss-tmo=600 --reconnect-delay=2")
+            client.wait_until_succeeds("test -b /dev/nvme0n1", timeout=30)
+            disks["identity"] = identity()
+            assert all(disks["identity"]), disks
+            client_writes("one")
+            a.succeed("dd if=/dev/zvol/tank/lun bs=512 count=1 2>/dev/null | grep -q one-iscsi")
+            a.succeed("dd if=/dev/zvol/tank/nv bs=512 count=1 2>/dev/null | grep -q one-nvme")
+            assert api(a, "GET", "/api/iscsi/targets")["targets"][0]["sessions"] == 1
+            # b has the definitions, and serves nothing.
+            b.wait_until_succeeds("curl -s http://localhost/api/groups -H 'X-Session-ID: %s' -H 'X-User: admin' | grep -q %s" % (session["b"][0], IQN), timeout=60)
+            assert published(b), group(b)["resources"]
+            for path in ("/sys/kernel/config/target/iscsi/" + IQN, "/sys/kernel/config/nvmet/subsystems/" + NQN):
+                b.fail("test -e " + path)
+
         with subtest("Planned move to b: a exports, b imports, epoch 2"):
+            # With an initiator connected to each of the group's volumes.
             ok(api(a, "POST", "/api/groups/data/move", {"target": peer_b}), "move")
             b.succeed("zpool list tank")
             b.succeed("grep -q hello /mnt/tank/data/file")
@@ -171,6 +263,15 @@ pkgs.testers.nixosTest {
             ga, gb = group(a), group(b)
             assert ga["epoch"] == 2 and gb["epoch"] == 2 and gb["owner"] == peer_b, (ga, gb)
             assert gb["role"] == "owner" and gb["can_write"] and ga["role"] == "standby", (ga, gb)
+
+        with subtest("The client's disks moved with the group: same disks, no new login"):
+            serves(b, True)
+            serves(a, False)
+            client_reads("one")
+            client_writes("two")
+            b.succeed("dd if=/dev/zvol/tank/lun bs=512 count=1 2>/dev/null | grep -q two-iscsi")
+            b.succeed("dd if=/dev/zvol/tank/nv bs=512 count=1 2>/dev/null | grep -q two-nvme")
+            assert identity() == disks["identity"], (identity(), disks)
 
         with subtest("a cannot import the pool while b holds it (multihost)"):
             guid = b.succeed("zpool get -H -o value guid tank").strip()
@@ -193,6 +294,11 @@ pkgs.testers.nixosTest {
             a.wait_until_succeeds("docker ps --format '{{.Names}}' | grep -q heartbeat", timeout=120)
             beats(a)
             assert group(a)["epoch"] == 3 and group(b)["epoch"] == 3
+            serves(a, True)
+            serves(b, False)
+            client_reads("two")
+            client_writes("three")
+            assert identity() == disks["identity"], (identity(), disks)
         with subtest("No daemon panics, security refusals or security warnings"):
             for m in (a, b):
                 print(m.execute("journalctl -b --no-pager -u dplaned | grep -i -E ' (warn|warning|error|failed)' | tail -n 60")[1])
@@ -216,6 +322,12 @@ pkgs.testers.nixosTest {
             assert gb["owner"] != peer_a and gb["epoch"] == 4 and gb["can_write"], gb
             b.wait_until_succeeds("docker ps --format '{{.Names}}' | grep -q heartbeat", timeout=120)
             beats(b)
+            # The owner was gone without a word: the client finds its disks
+            # again on b, with what it had been told was written.
+            serves(b, True)
+            client_reads("three")
+            client_writes("four")
+            assert identity() == disks["identity"], (identity(), disks)
     except Exception:
         diag()
         raise

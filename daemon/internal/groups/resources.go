@@ -18,14 +18,15 @@ import (
 
 	"dplaned/internal/cmdutil"
 	"dplaned/internal/config"
+	"dplaned/internal/iscsit"
 	"dplaned/internal/nvmet"
 )
 
 // Group resources (Design 0001 phase 3d).
 //
-// A Docker stack whose volumes are on a group's pools, and an NVMe-oF export
-// of one of its zvols, belong to the group, not to a node: they run only on
-// the group's owner. The owner publishes their definitions; every candidate
+// A Docker stack whose volumes are on a group's pools, and an iSCSI target or
+// NVMe-oF export of one of its zvols, belong to the group, not to a node:
+// they run only on the group's owner. The owner publishes their definitions; every candidate
 // keeps a copy, and the activation loop on each node starts them where this
 // node owns the group and stops them everywhere else. Before a node gives a
 // group up (planned move, release), its resources stop first: a pool with
@@ -33,8 +34,33 @@ import (
 
 // Resources of a group.
 type Resources struct {
-	Stacks []StackDef     `json:"stacks"`
-	NVMe   []nvmet.Export `json:"nvme"`
+	Stacks []StackDef      `json:"stacks"`
+	NVMe   []nvmet.Export  `json:"nvme"`
+	ISCSI  []iscsit.Target `json:"iscsi"`
+}
+
+func emptyResources() Resources {
+	return Resources{Stacks: []StackDef{}, NVMe: []nvmet.Export{}, ISCSI: []iscsit.Target{}}
+}
+
+// summary is what a status shows of a group's resources: which they are,
+// without what is secret in them (the CHAP secrets of iSCSI initiators, and
+// compose files, which often carry passwords).
+func (r Resources) summary() Resources {
+	out := emptyResources()
+	for _, s := range r.Stacks {
+		out.Stacks = append(out.Stacks, StackDef{Name: s.Name})
+	}
+	out.NVMe = append(out.NVMe, r.NVMe...)
+	for _, t := range r.ISCSI {
+		c := t
+		c.ACLs = make([]iscsit.ACL, 0, len(t.ACLs))
+		for _, a := range t.ACLs {
+			c.ACLs = append(c.ACLs, iscsit.ACL{InitiatorIQN: a.InitiatorIQN, CHAPUser: a.CHAPUser})
+		}
+		out.ISCSI = append(out.ISCSI, c)
+	}
+	return out
 }
 
 // StackDef is a compose project.
@@ -78,9 +104,15 @@ func zvolPool(zvol string) string {
 	return z
 }
 
-// filterResources picks the stacks and exports of g out of all definitions.
-func filterResources(g Group, stacks []StackDef, exports []nvmet.Export) Resources {
-	r := Resources{Stacks: []StackDef{}, NVMe: []nvmet.Export{}}
+// filterResources picks the stacks, exports and targets of g out of all
+// definitions.
+func filterResources(g Group, stacks []StackDef, exports []nvmet.Export, targets []iscsit.Target) Resources {
+	r := emptyResources()
+	for _, t := range targets {
+		if g.HasPool(zvolPool(t.Zvol)) {
+			r.ISCSI = append(r.ISCSI, t)
+		}
+	}
 	for _, s := range stacks {
 		if g.usesPool(stackPools(s.YAML)...) {
 			r.Stacks = append(r.Stacks, s)
@@ -94,18 +126,46 @@ func filterResources(g Group, stacks []StackDef, exports []nvmet.Export) Resourc
 	return r
 }
 
+func groupOfPool(groups []Group, pool string) (Group, bool) {
+	for _, g := range groups {
+		if g.HasPool(pool) {
+			return g, true
+		}
+	}
+	return Group{}, false
+}
+
+// appliedTargets is appliedExports for iSCSI targets.
+func appliedTargets(local []iscsit.Target, groups []Group, self string, known map[string][]iscsit.Target) []iscsit.Target {
+	have := map[string]bool{}
+	var out []iscsit.Target
+	for _, t := range local {
+		if g, ok := groupOfPool(groups, zvolPool(t.Zvol)); ok && g.Owner != self {
+			continue
+		}
+		have[t.IQN] = true
+		out = append(out, t)
+	}
+	for _, g := range groups {
+		if g.Owner != self {
+			continue
+		}
+		for _, t := range known[g.Name] {
+			if !have[t.IQN] {
+				have[t.IQN] = true
+				out = append(out, t)
+			}
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].IQN < out[j].IQN })
+	return out
+}
+
 // appliedExports is the list of exports this node applies: its own list
 // without the exports of groups it does not own, plus the exports of groups
 // it owns that it only knows from their previous owner.
 func appliedExports(local []nvmet.Export, groups []Group, self string, known map[string][]nvmet.Export) []nvmet.Export {
-	ownerOf := func(pool string) (Group, bool) {
-		for _, g := range groups {
-			if g.HasPool(pool) {
-				return g, true
-			}
-		}
-		return Group{}, false
-	}
+	ownerOf := func(pool string) (Group, bool) { return groupOfPool(groups, pool) }
 	have := map[string]bool{}
 	var out []nvmet.Export
 	for _, e := range local {
@@ -142,6 +202,9 @@ type ResOps struct {
 	LocalExports func() ([]nvmet.Export, error)
 	SaveExports  func([]nvmet.Export) error
 	ApplyExports func([]nvmet.Export) error
+	LocalTargets func() ([]iscsit.Target, error)
+	SaveTargets  func([]iscsit.Target) error
+	ApplyTargets func([]iscsit.Target) error
 }
 
 func stackPaths(name string) (string, string) {
@@ -155,7 +218,7 @@ func compose(name string, sub ...string) ([]byte, error) {
 	return cmdutil.RunSlow("docker_compose", args...)
 }
 
-// DefaultResOps use the stacks directory, docker compose and nvmet.
+// DefaultResOps use the stacks directory, docker compose, nvmet and LIO.
 var DefaultResOps = ResOps{
 	LocalStacks: func() ([]StackDef, error) {
 		entries, err := os.ReadDir(config.StacksDir)
@@ -220,6 +283,9 @@ var DefaultResOps = ResOps{
 	},
 	SaveExports:  func(e []nvmet.Export) error { return nvmet.SaveExports(nvmet.TargetsFile, e) },
 	ApplyExports: nvmet.Apply,
+	LocalTargets: func() ([]iscsit.Target, error) { return iscsit.Load(iscsit.TargetsFile) },
+	SaveTargets:  func(t []iscsit.Target) error { return iscsit.Save(iscsit.TargetsFile, t) },
+	ApplyTargets: iscsit.Apply,
 }
 
 // ── Publishing and storing definitions ────────────────────────────────────────
@@ -239,7 +305,11 @@ func (m *Manager) LocalResources(name string) (Resources, error) {
 	if err != nil {
 		return Resources{}, err
 	}
-	return filterResources(*g, stacks, exports), nil
+	targets, err := m.res.LocalTargets()
+	if err != nil {
+		return Resources{}, err
+	}
+	return filterResources(*g, stacks, exports, targets), nil
 }
 
 func storeResources(db *sql.DB, group string, r Resources) error {
@@ -263,11 +333,17 @@ func storeResources(db *sql.DB, group string, r Resources) error {
 			return err
 		}
 	}
+	for _, t := range r.ISCSI {
+		b, _ := json.Marshal(t)
+		if _, err := tx.Exec(`INSERT INTO group_resources (group_name, kind, key, payload) VALUES ($1, 'iscsi', $2, $3)`, group, t.IQN, b); err != nil {
+			return err
+		}
+	}
 	return tx.Commit()
 }
 
 func loadResources(db *sql.DB, group string) (Resources, error) {
-	r := Resources{Stacks: []StackDef{}, NVMe: []nvmet.Export{}}
+	r := emptyResources()
 	rows, err := db.Query(`SELECT kind, key, payload FROM group_resources WHERE group_name = $1 ORDER BY kind, key`, group)
 	if err != nil {
 		return r, err
@@ -292,6 +368,11 @@ func loadResources(db *sql.DB, group string) (Resources, error) {
 			if json.Unmarshal(raw, &e) == nil {
 				r.NVMe = append(r.NVMe, e)
 			}
+		case "iscsi":
+			var t iscsit.Target
+			if json.Unmarshal(raw, &t) == nil {
+				r.ISCSI = append(r.ISCSI, t)
+			}
 		}
 	}
 	return r, rows.Err()
@@ -299,8 +380,10 @@ func loadResources(db *sql.DB, group string) (Resources, error) {
 
 // ── Activation ────────────────────────────────────────────────────────────────
 
-// deactivate stops a group's stacks on this node and leaves its exports out.
-// Called before the pools are exported or made read-only.
+// deactivate stops a group's stacks on this node and stops serving its
+// exports and targets (they hold their volumes open: a pool with one of
+// them served cannot be exported). Called before the pools are exported or
+// made read-only, with the group marked as moving.
 func (m *Manager) deactivate(g Group) error {
 	r, err := m.knownResources(g)
 	if err != nil {
@@ -318,10 +401,11 @@ func (m *Manager) deactivate(g Group) error {
 			errs = append(errs, err)
 		}
 	}
-	if len(r.NVMe) > 0 {
-		if err := m.applyExports(); err != nil {
-			errs = append(errs, err)
-		}
+	if err := m.applyExports(true); err != nil {
+		errs = append(errs, err)
+	}
+	if err := m.applyTargets(); err != nil {
+		errs = append(errs, err)
 	}
 	return errors.Join(errs...)
 }
@@ -348,6 +432,14 @@ func (m *Manager) knownResources(g Group) (Resources, error) {
 	}
 	for _, e := range stored.NVMe {
 		seen["n/"+e.SubsystemNQN] = true
+	}
+	for _, t := range stored.ISCSI {
+		seen["i/"+t.IQN] = true
+	}
+	for _, t := range local.ISCSI {
+		if !seen["i/"+t.IQN] {
+			stored.ISCSI = append(stored.ISCSI, t)
+		}
 	}
 	for _, s := range local.Stacks {
 		if !seen["s/"+s.Name] {
@@ -397,12 +489,53 @@ func (m *Manager) materialize(g Group) error {
 			}
 		}
 	}
+	if len(stored.ISCSI) > 0 {
+		local, err := m.res.LocalTargets()
+		if err != nil {
+			return errors.Join(append(errs, err)...)
+		}
+		have := map[string]bool{}
+		for _, t := range local {
+			have[t.IQN] = true
+		}
+		changed := false
+		for _, t := range stored.ISCSI {
+			if !have[t.IQN] {
+				local = append(local, t)
+				changed = true
+			}
+		}
+		if changed {
+			if err := m.res.SaveTargets(local); err != nil {
+				errs = append(errs, err)
+			}
+		}
+	}
 	return errors.Join(errs...)
 }
 
-// applyExports applies this node's export list (only when it changed).
-func (m *Manager) applyExports() error {
+// servingGroups lists the groups as this node serves them: a group that is
+// being moved away is not served any more, whoever its owner still is (its
+// exports and targets must let go of their volumes before the pools can be
+// exported).
+func (m *Manager) servingGroups() ([]Group, error) {
 	gs, err := List(m.db)
+	if err != nil {
+		return nil, err
+	}
+	for i := range gs {
+		if m.isMoving(gs[i].Name) && gs[i].Owner == m.self() {
+			gs[i].Owner = ""
+		}
+	}
+	return gs, nil
+}
+
+// applyExports applies this node's NVMe-oF exports: only when the list
+// changed, unless force is set (after a change through the API, or when
+// something must be stopped now).
+func (m *Manager) applyExports(force bool) error {
+	gs, err := m.servingGroups()
 	if err != nil {
 		return err
 	}
@@ -421,17 +554,23 @@ func (m *Manager) applyExports() error {
 	h := hex.EncodeToString(sum[:])
 	m.fmu.Lock()
 	same := h == m.exportsHash
+	first := m.exportsHash == ""
 	m.fmu.Unlock()
-	if same {
+	if same && !force {
 		return nil
 	}
-	if len(list) == 0 && len(local) == 0 && m.exportsHash == "" {
+	if len(list) == 0 && len(local) == 0 && first && !force {
 		m.fmu.Lock()
 		m.exportsHash = h
 		m.fmu.Unlock()
 		return nil // nothing configured, nothing applied yet
 	}
 	if err := m.res.ApplyExports(list); err != nil {
+		// Not remembered as applied: the next pass tries again (a volume
+		// that was not there yet).
+		m.fmu.Lock()
+		m.exportsHash = "retry"
+		m.fmu.Unlock()
 		return fmt.Errorf("applying NVMe-oF exports: %w", err)
 	}
 	m.fmu.Lock()
@@ -439,6 +578,36 @@ func (m *Manager) applyExports() error {
 	m.fmu.Unlock()
 	return nil
 }
+
+// applyTargets applies this node's iSCSI targets. Applying a list that is
+// already served runs nothing, so this is done on every pass.
+func (m *Manager) applyTargets() error {
+	gs, err := m.servingGroups()
+	if err != nil {
+		return err
+	}
+	local, err := m.res.LocalTargets()
+	if err != nil {
+		return err
+	}
+	known := map[string][]iscsit.Target{}
+	for _, g := range gs {
+		r, _ := loadResources(m.db, g.Name)
+		known[g.Name] = r.ISCSI
+	}
+	if err := m.res.ApplyTargets(appliedTargets(local, gs, m.self(), known)); err != nil {
+		return fmt.Errorf("applying iSCSI targets: %w", err)
+	}
+	return nil
+}
+
+// ApplyExports applies this node's NVMe-oF exports now (the API calls it
+// after a change).
+func (m *Manager) ApplyExports() error { return m.applyExports(true) }
+
+// ApplyTargets applies this node's iSCSI targets now (the API calls it
+// after a change).
+func (m *Manager) ApplyTargets() error { return m.applyTargets() }
 
 // ActivateTick publishes, stores and runs group resources on this node.
 func (m *Manager) ActivateTick() {
@@ -531,8 +700,34 @@ func (m *Manager) ActivateTick() {
 		m.resProblems[g.Name] = problems
 		m.fmu.Unlock()
 	}
-	if err := m.applyExports(); err != nil {
-		log.Printf("GROUPS: %v", err)
+	if err := m.applyExports(false); err != nil {
+		m.logOnce("exports", err)
+	} else {
+		m.logOnce("exports", nil)
+	}
+	if err := m.applyTargets(); err != nil {
+		m.logOnce("targets", err)
+	} else {
+		m.logOnce("targets", nil)
+	}
+}
+
+// logOnce logs a problem of the activation loop when it appears or changes,
+// not on every pass.
+func (m *Manager) logOnce(what string, err error) {
+	msg := ""
+	if err != nil {
+		msg = err.Error()
+	}
+	m.fmu.Lock()
+	if m.lastLogged == nil {
+		m.lastLogged = map[string]string{}
+	}
+	changed := m.lastLogged[what] != msg
+	m.lastLogged[what] = msg
+	m.fmu.Unlock()
+	if changed && msg != "" {
+		log.Printf("GROUPS: %s", msg)
 	}
 }
 

@@ -30,7 +30,7 @@ interface GroupStatus {
   interval_secs: number
   auto_failover: boolean
   replication: { direction: 'out' | 'in'; peer: string; pool: string; last_snapshot: string; last_ok_at: string | null; last_error: string; discard_ok: boolean }[]
-  resources?: { stacks: { name: string }[]; nvme: { subsystem_nqn: string; zvol: string }[] }
+  resources?: { stacks: { name: string }[]; nvme: { subsystem_nqn: string; zvol: string }[]; iscsi?: { iqn: string; zvol: string }[] }
   address?: string
   interface?: string
 }
@@ -300,10 +300,10 @@ export function GroupsPanel() {
                 {g.role === 'owner' && <button className="btn btn-ghost btn-sm" onClick={() => setEditingAddr(g.name)}>Change</button>}
               </div>
             ))}
-          {g.resources && (g.resources.stacks.length > 0 || g.resources.nvme.length > 0) && (
+          {g.resources && (g.resources.stacks.length > 0 || g.resources.nvme.length > 0 || (g.resources.iscsi ?? []).length > 0) && (
             <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', marginTop: 6 }}>
               Runs on the owner only:{' '}
-              {[...g.resources.stacks.map(st => `stack ${st.name}`), ...g.resources.nvme.map(e => `NVMe-oF ${e.zvol}`)].join(', ')}
+              {[...g.resources.stacks.map(st => `stack ${st.name}`), ...(g.resources.iscsi ?? []).map(t => `iSCSI ${t.zvol}`), ...g.resources.nvme.map(e => `NVMe-oF ${e.zvol}`)].join(', ')}
             </div>
           )}
           {g.problems.length > 0 && (

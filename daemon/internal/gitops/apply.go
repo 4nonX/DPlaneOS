@@ -312,7 +312,9 @@ func reconcileNVMeFabrics(f *DesiredFabrics) error {
 	if err := nvmet.SaveExports(nvmet.TargetsFile, list); err != nil {
 		return err
 	}
-	return nvmet.Apply(list)
+	// Applied as the API does: by the node that has the volume, with the
+	// firewall opened for the ports that are served.
+	return nvmet.ApplySaved()
 }
 
 // ── Per-action executors ──────────────────────────────────────────────────────

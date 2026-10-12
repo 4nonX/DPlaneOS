@@ -36,8 +36,7 @@ These ports close again when the service is switched off or its last target is r
 |------|-------|---------|
 | 5405 | UDP | Corosync, between all members |
 | 5403 | TCP | The third vote (corosync-qnetd), from every node to the machine that gives it |
-| 443 | TCP | Exchange of configuration between the nodes (HTTPS, with pinned certificates) |
-| 22 | TCP | Replication of replicated storage groups (ZFS streams over SSH) |
+| 443 | TCP | Exchange of configuration between the nodes, and the replication of replicated storage groups (HTTPS, with pinned certificates) |
 
 Keep 5405 and 5403 to the cluster network.
 

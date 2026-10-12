@@ -99,7 +99,7 @@ For replicated groups also choose the replication interval and whether the group
 
 **Floating address.** Held by the owner while it serves the group and announced on the network (gratuitous ARP) when it takes the group over; removed before a planned move releases the pools.
 
-**Apps and NVMe-oF exports.** Docker stacks with volumes on the group's pools (`/mnt/<pool>/...`) and NVMe-oF exports of its zvols run only on the owner. The owner publishes their definitions to the other candidates, so a node that takes over has them even if the old owner is gone. Container images must be available on every candidate (from a registry, or loaded on each node). Edit these stacks on the owner.
+**Apps, iSCSI targets and NVMe-oF exports.** Docker stacks with volumes on the group's pools (`/mnt/<pool>/...`), and iSCSI targets and NVMe-oF exports of its volumes, run only on the owner. A target comes back on the new owner as the same disk (same serial number, same access list and CHAP secrets), so initiators reconnect and carry on. The owner publishes their definitions to the other candidates, so a node that takes over has them even if the old owner is gone. Container images must be available on every candidate (from a registry, or loaded on each node). Edit these stacks on the owner.
 
 **Shares and NFS exports** live on the pools and follow them; their configuration is exchanged between the paired nodes anyway.
 

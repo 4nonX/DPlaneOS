@@ -17,16 +17,20 @@ A block device for another machine: a ZFS volume (zvol) offered as a disk over t
 | Target name (IQN) | e.g. `iqn.2026-01.lan.nas:vm-disk` |
 | Volume | the zvol to offer (create it under Storage › Block Volumes) |
 | Portal address and port | where the target listens; all addresses, port 3260, unless you say otherwise |
-| Require CHAP | on: initiators need the user name and password set with their access entry |
+| Require CHAP | on (the default): initiators sign in with the user and secret set with their access entry |
 
-Then allow the initiators that may use it, each by its IQN (tab **ACLs / Initiators**), with CHAP credentials if CHAP is required. A target without CHAP relies on the initiator names alone, which a machine on the network can claim: use it only on a storage network you control.
+Then allow the initiators that may use it, each by its IQN (tab **ACLs / Initiators**), with CHAP credentials if CHAP is required. Nobody can connect to a target until its initiators are listed. A target without CHAP relies on the initiator names alone, which a machine on the network can claim: use it only on a storage network you control.
 
-Reservations that cluster software on the initiators places on the disk (SCSI-3 persistent reservations) are kept by the target, across restarts too.
+The page shows for each target whether this node serves it and how many of its initiators are connected. Changing a target's access list does not disturb the initiators that stay; changing its volume, address or CHAP mode rebuilds it, and its initiators reconnect.
+
+The disk keeps its serial number across restarts, and reservations that cluster software on the initiators places on it (SCSI-3 persistent reservations) are kept too.
 
 ```
-POST   /api/iscsi/targets   { "iqn": "...", "zvol": "tank/vm-disk", "require_chap": true }
-POST   /api/iscsi/acls      { "target_iqn": "...", "initiator_iqn": "...", "chap_user": "...", "chap_pass": "..." }
-GET    /api/iscsi/targets   GET /api/iscsi/acls?target=...
+POST   /api/iscsi/targets          { "iqn": "...", "zvol": "tank/vm-disk", "portal_ip": "0.0.0.0", "portal_port": 3260, "require_chap": true }
+POST   /api/iscsi/targets/update   the same fields
+POST   /api/iscsi/acls             { "target_iqn": "...", "initiator_iqn": "...", "chap_user": "...", "chap_pass": "..." }
+DELETE /api/iscsi/acls             { "target_iqn": "...", "initiator_iqn": "..." }
+GET    /api/iscsi/targets          GET /api/iscsi/acls?target=...    GET /api/iscsi/status
 DELETE /api/iscsi/targets/{iqn}
 ```
 
@@ -40,7 +44,7 @@ iscsiadm -m node -T iqn.2026-01.lan.nas:vm-disk -p NAS_ADDRESS --login
 
 Windows: *iSCSI Initiator* › Discovery › the address of the NAS. ESXi: add a software iSCSI adapter and a dynamic discovery address.
 
-In a cluster, a target on a volume of a storage group moves with the group; give the group a floating address and let the initiators use that.
+In a cluster, a target on a volume of a storage group moves with the group; give the group a floating address and let the initiators use that. See [Integration Guide](INTEGRATION-GUIDE.md#iscsi-and-nvme-of-clients) for the initiators' timeouts.
 
 ---
 
@@ -57,7 +61,7 @@ The same idea with the NVMe protocol: lower overhead than iSCSI, for initiators 
 | Port | 4420 unless you say otherwise |
 | Hosts | the host NQNs that may connect, or any host |
 
-"Any host" means any machine that reaches the port: NVMe over TCP as used here has no passwords.
+"Any host" means any machine that reaches the port: NVMe over TCP as used here has no passwords. Changing the list of hosts does not disturb the initiators that stay. The namespace keeps its UUID across restarts, and an export of a storage group's volume moves with the group.
 
 ```
 POST /api/nvmet/targets   { "subsystem_nqn": "...", "zvol": "tank/fast0", "allow_any_host": false, "host_nqns": ["nqn...."] }

@@ -161,6 +161,7 @@ type Manager struct {
 	decisions   map[string]Decision
 	resProblems map[string][]string
 	exportsHash string
+	lastLogged  map[string]string    // problems of the activation loop already logged
 	absentSince map[string]time.Time // members first seen not answering
 	ownerImport map[string]Decision  // why the owner has not imported (phase 3e)
 	uncached    map[string]bool
@@ -229,7 +230,11 @@ func (m *Manager) Statuses() ([]GroupStatus, error) {
 	out := make([]GroupStatus, 0, len(gs))
 	for _, g := range gs {
 		gs := GroupStatus{Group: g, Status: Evaluate(g, v), Failover: m.decision(g.Name), Replication: []ReplState{}}
-		gs.Resources, _ = m.knownResources(g)
+		if r, err := m.knownResources(g); err == nil {
+			gs.Resources = r.summary()
+		} else {
+			gs.Resources = emptyResources()
+		}
 		m.fmu.Lock()
 		gs.Problems = append(gs.Problems, m.resProblems[g.Name]...)
 		m.fmu.Unlock()

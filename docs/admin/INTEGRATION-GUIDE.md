@@ -132,49 +132,39 @@ Applications that depend on lock continuity (Outlook PST files, Access databases
 
 ---
 
-## NVMe-oF
+## iSCSI and NVMe-oF clients
 
-NVMe-oF over TCP is fully supported. ANA (Asymmetric Namespace Access) is supported for multi-path configurations.
+Setting up targets and exports is described in [Optional Protocols](OPTIONAL-PROTOCOLS.md). What a client should know:
 
-### Setup in state.yaml
+**The disk keeps its identity.** The serial number of an iSCSI LUN, and the UUID and NGUID of an NVMe namespace, are derived from the name of the target or export. An initiator that reconnects after a restart of the NAS, or after the target moved to another node, finds the same disk and carries on; file systems on it stay mounted.
+
+**Failover in a cluster.** A target or export of a volume in a storage group is served by the node that owns the group. On a move the old owner stops serving it, the pools move, and the new owner serves it again, on the group's floating address. For the initiator this is a connection that drops and comes back after the failover time; I/O waits meanwhile and continues. Set the initiator's timeouts above the failover time of the cluster (HA page), for example:
+
+```bash
+# iSCSI (open-iscsi), in /etc/iscsi/iscsid.conf, before logging in
+node.session.timeo.replacement_timeout = 180
+
+# NVMe over TCP
+nvme connect -t tcp -a <floating address> -s 4420 -n <subsystem NQN> --ctrl-loss-tmo=600 --reconnect-delay=5
+```
+
+Point initiators at the floating address of the group, not at a node. Both nodes never serve the same volume at once, so there is no second path to configure: multipath (ALUA, ANA) is not used.
+
+**NVMe-oF in state.yaml:**
 
 ```yaml
 fabrics:
   nvme:
-    - subsystem_nqn: nqn.2024-01.io.dplane:my-volume
+    - subsystem_nqn: nqn.2026-01.lan.nas:my-volume
       zvol: tank/nvme/vol0
-      transport: tcp
       listen_addr: 0.0.0.0
       listen_port: 4420
       allow_any_host: false
       host_nqns:
         - nqn.2014-08.org.nvmexpress:uuid:YOUR-HOST-UUID
-      ana_enabled: true
-      ana_groups:
-        - group_id: 1
-          namespace_id: 1
-          state: optimized
 ```
 
-### Connecting from a Linux initiator
-
-```bash
-modprobe nvme-tcp
-nvme discover -t tcp -a <nas-ip> -s 4420
-nvme connect -t tcp -a <nas-ip> -s 4420 -n nqn.2024-01.io.dplane:my-volume
-```
-
----
-
-## iSCSI
-
-iSCSI with CHAP and ACL-based access control is supported. ALUA (Asymmetric Logical Unit Access) is supported for HA path management.
-
-### HA failover with ALUA
-
-On a planned move, a storage group's NVMe-oF exports are removed on the old owner before its pools are released and created on the new owner once they are imported; clients using multipath reconnect through the floating address.
-
-For single-path iSCSI, clients will disconnect and reconnect on failover. This is equivalent to SMB failover behavior.
+iSCSI targets are set up in the web interface or through the API; they are not part of `state.yaml`.
 
 ---
 

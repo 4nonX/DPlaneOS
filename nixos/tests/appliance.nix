@@ -406,6 +406,10 @@ pkgs.testers.nixosTest {
             client.succeed(f"iscsiadm -m node -T {IQN} -p {NAS} --login")
             client.wait_until_succeeds("test -b /dev/disk/by-path/*iscsi*lun-0", timeout=30)
             ISCSI_DEV = client.succeed("readlink -f /dev/disk/by-path/*iscsi*lun-0").strip()
+            ISCSI_ID = client.succeed("cat /sys/block/%s/device/wwid" % ISCSI_DEV.split("/")[-1]).strip()
+            assert ISCSI_ID, "the iSCSI disk has no identity"
+            listed = api("GET", "/api/iscsi/targets")["targets"]
+            assert len(listed) == 1 and listed[0]["active"] and listed[0]["sessions"] == 1 and listed[0]["size"] == 64 << 20, listed
             client.succeed(f"echo written-over-iscsi | dd of={ISCSI_DEV} oflag=direct conv=sync bs=512 count=1 2>/dev/null")
             nas.wait_until_succeeds("dd if=/dev/zvol/tank/lun0 bs=512 count=1 2>/dev/null | grep -q written-over-iscsi", timeout=30)
             # Cluster software on the initiators reserves its disks; the
@@ -422,6 +426,18 @@ pkgs.testers.nixosTest {
             client.wait_until_succeeds(f"nvme connect -t tcp -a {NAS} -s 4420 -n {NQN}", timeout=60)
             client.wait_until_succeeds("ls /dev/disk/by-id/ | grep -q nvme-", timeout=30)
             NVME_DEV = client.succeed("nvme list -o json | ${pkgs.jq}/bin/jq -r '.Devices[0].DevicePath'").strip()
+            NVME_ID = client.succeed("cat /sys/block/%s/uuid" % NVME_DEV.split("/")[-1]).strip()
+            assert NVME_ID and NVME_ID != "00000000-0000-0000-0000-000000000000", NVME_ID
+            assert api("GET", "/api/nvmet/targets")["targets"][0]["active"] is True
+            # A second export does not disturb the first one's initiator.
+            nas.succeed("zfs create -V 16M tank/nv1 && udevadm settle")
+            nas.wait_until_succeeds("test -b /dev/zvol/tank/nv1", timeout=30)
+            ok(api("POST", "/api/nvmet/targets", {"subsystem_nqn": NQN + "-second", "zvol": "tank/nv1", "allow_any_host": True}), "second NVMe-oF export")
+            assert client.succeed("cat /sys/class/nvme/nvme0/state").strip() == "live"
+            assert "reconnect" not in client.succeed("dmesg | grep -i nvme || true").lower()
+            ok(api("DELETE", "/api/nvmet/targets?subsystem_nqn=" + NQN + "-second"), "remove the second export")
+            nas.succeed("zfs destroy tank/nv1")  # nothing holds the volume any more
+            assert client.succeed("cat /sys/class/nvme/nvme0/state").strip() == "live"
             client.succeed(f"echo written-over-nvme | dd of={NVME_DEV} oflag=direct conv=sync bs=512 count=1 2>/dev/null")
             nas.wait_until_succeeds("dd if=/dev/zvol/tank/nv0 bs=512 count=1 2>/dev/null | grep -q written-over-nvme", timeout=30)
             client.succeed(f"nvme disconnect -n {NQN}")
@@ -680,11 +696,20 @@ pkgs.testers.nixosTest {
             client.succeed(f"iscsiadm -m node -T {IQN} -p {NAS} --login")
             client.wait_until_succeeds("test -b /dev/disk/by-path/*iscsi*lun-0", timeout=30)
             client.succeed("dd if=$(readlink -f /dev/disk/by-path/*iscsi*lun-0) bs=512 count=1 2>/dev/null | grep -q written-over-iscsi")
+            # The same disk as before the restart, for the initiator too.
+            assert client.succeed("cat /sys/block/$(basename $(readlink -f /dev/disk/by-path/*iscsi*lun-0))/device/wwid").strip() == ISCSI_ID
             client.succeed(f"iscsiadm -m node -T {IQN} -p {NAS} --logout")
             client.wait_until_succeeds(f"nvme connect -t tcp -a {NAS} -s 4420 -n {NQN}", timeout=120)
             client.wait_until_succeeds("nvme list -o json | ${pkgs.jq}/bin/jq -e '.Devices | length > 0'", timeout=30)
             client.succeed("dd if=$(nvme list -o json | ${pkgs.jq}/bin/jq -r '.Devices[0].DevicePath') bs=512 count=1 2>/dev/null | grep -q written-over-nvme")
+            assert client.succeed("cat /sys/block/$(basename $(nvme list -o json | ${pkgs.jq}/bin/jq -r '.Devices[0].DevicePath'))/uuid").strip() == NVME_ID
             client.succeed(f"nvme disconnect -n {NQN}")
+            # Removed: the ports close and the volumes are free again.
+            ok(api("DELETE", "/api/iscsi/targets/" + IQN), "delete the iSCSI target")
+            ok(api("DELETE", "/api/nvmet/targets?subsystem_nqn=" + NQN), "remove the NVMe-oF export")
+            ports = api("GET", "/api/firewall/status")["system_ports"]
+            assert "3260/tcp" not in ports and "4420/tcp" not in ports, ports
+            nas.succeed("zfs destroy tank/lun0 && zfs destroy tank/nv0")
             client.wait_until_succeeds(rclone("S3-Test-Pass-9", "copyto nas:backups/os-release /tmp/from-s3-again"), timeout=120)
             client.succeed("cmp /tmp/from-s3-again /etc/os-release")
             # FTP is running again, with the same accounts, and reachable.

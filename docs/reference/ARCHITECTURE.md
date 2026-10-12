@@ -42,7 +42,7 @@ DPlaneOS is built around a strict separation between declaration, reconciliation
 
 There are two declaration surfaces:
 
-**`state.yaml`** - Runtime configuration managed by the daemon and the GitOps engine. Covers everything that changes during normal NAS operation: ZFS datasets and their properties, SMB/NFS/iSCSI shares, Docker stacks, users and groups, replication schedules, network config, LDAP settings, ACME certificates. This file lives in a Git repository so every change is version-controlled and auditable. **Git is the authoritative source of desired runtime state.** The PostgreSQL database caches a subset of this state (share definitions, user records, replication schedules) for fast reads, but the database is a read cache - it never overrides what is in `state.yaml` and reconciliation always starts from the Git checkout, not from the DB.
+**`state.yaml`** - Runtime configuration managed by the daemon and the GitOps engine. Covers everything that changes during normal NAS operation: ZFS datasets and their properties, SMB and NFS shares, NVMe-oF exports, Docker stacks, users and groups, replication schedules, network config, LDAP settings, ACME certificates. This file lives in a Git repository so every change is version-controlled and auditable. **Git is the authoritative source of desired runtime state.** The PostgreSQL database caches a subset of this state (share definitions, user records, replication schedules) for fast reads, but the database is a read cache - it never overrides what is in `state.yaml` and reconciliation always starts from the Git checkout, not from the DB.
 
 **`configuration.nix` / `flake.nix`** - OS-level configuration managed by NixOS. Covers everything that is fixed for the lifetime of the appliance: kernel version, ZFS package pin, systemd units, firewall baseline, package set, impermanence rules, Changes here require a NixOS rebuild (either OTA or manual `nixos-rebuild switch`).
 
@@ -194,7 +194,7 @@ Internet / LAN
       ├── Docker (unix socket)
       ├── Samba (smbd, controlled via systemctl + smbcontrol)
       ├── NFS (kernel nfsd, controlled via exportfs)
-      ├── iSCSI (kernel nvmet via configfs)
+      ├── iSCSI (kernel LIO), NVMe-oF (kernel nvmet)
       └── rclone (cloud sync, cold tier FUSE mounts)
 ```
 

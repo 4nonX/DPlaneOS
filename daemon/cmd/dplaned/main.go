@@ -35,11 +35,13 @@ import (
 	"dplaned/internal/ha"
 	"dplaned/internal/handlers"
 	"dplaned/internal/hardware"
+	"dplaned/internal/iscsit"
 	"dplaned/internal/jobs"
 	"dplaned/internal/middleware"
 	"dplaned/internal/monitoring"
 	"dplaned/internal/netconf"
 	"dplaned/internal/nixwriter"
+	"dplaned/internal/nvmet"
 	"dplaned/internal/persistguard"
 	"dplaned/internal/quorum"
 	"dplaned/internal/reconciler"
@@ -972,6 +974,11 @@ func main() {
 	r.HandleFunc("/api/config/sync/peer/cluster", quorumH.PeerCluster).Methods("POST")
 
 	// Storage groups and epochs (Design 0001 phase 3b).
+	// iSCSI targets and NVMe-oF exports are served by the node that has
+	// their volume: the group manager applies them (with the firewall), and
+	// the API and GitOps apply through it.
+	groups.DefaultResOps.ApplyExports = handlers.ApplyNVMeExports
+	groups.DefaultResOps.ApplyTargets = handlers.ApplyISCSITargets
 	groupMgr := groups.NewManager(db, groups.DefaultOps, handlers.GroupTransport{DB: db},
 		func() string { id, _ := configstore.NodeID(db); return id },
 		func() groups.View {
@@ -1007,6 +1014,8 @@ func main() {
 	groupMgr.StartFailover(5 * time.Second)
 	groupMgr.StartReplication(30 * time.Second)
 	groupMgr.StartActivation(10 * time.Second)
+	nvmet.ApplySaved = groupMgr.ApplyExports
+	iscsit.ApplySaved = groupMgr.ApplyTargets
 	groupMgr.StartReservations(30 * time.Second)
 	handlers.GroupImportGuard = groupMgr.MayImport
 	// GitOps in a cluster: only the node that serves every storage group
@@ -1422,8 +1431,7 @@ func main() {
 		handlers.RestoreS3()
 		handlers.RestoreFTP()
 		// The kernel forgets its iSCSI and NVMe-oF targets at a reboot.
-		handlers.RestoreISCSI()
-		handlers.RestoreNVMeTargets()
+		handlers.RestoreBlockTargets()
 		log.Printf("Schedule timers and runtime services restored")
 	}()
 
@@ -1565,7 +1573,6 @@ func main() {
 	r.Handle("/api/iscsi/acls", permRoute("storage", "write", handlers.AddISCSIACL)).Methods("POST")
 	r.Handle("/api/iscsi/acls", permRoute("storage", "write", handlers.DeleteISCSIACL)).Methods("DELETE")
 	r.Handle("/api/iscsi/zvols", permRoute("storage", "read", handlers.GetISCSIZvolList)).Methods("GET")
-	r.Handle("/api/iscsi/targets/alua", middleware.RequireAAL2(permRoute("storage", "write", handlers.SetISCSIALUAState))).Methods("POST")
 
 	// v8.0.0: NVMe-oF target (nvmet + ZFS zvol)
 	r.Handle("/api/nvmet/status", permRoute("storage", "read", handlers.GetNVMeTargetStatus)).Methods("GET")

@@ -23,7 +23,7 @@ A NAS operating system built on NixOS and ZFS. It is installed as an image, conf
 
 - **SMB / Samba:** per-share user restrictions, Time Machine support, active-session viewer and disconnect
 - **NFS:** per-export client rules, dynamic `exportfs` reload
-- **iSCSI:** targets on ZVols (Linux LIO), per-initiator access lists, optional CHAP, ALUA state; the initiators' persistent reservations are kept
+- **iSCSI:** targets on ZVols (Linux LIO), per-initiator access lists, CHAP; a LUN keeps its identity and the initiators' persistent reservations across restarts; targets follow their storage group
 - **NVMe-oF:** NVMe over TCP with per-initiator host NQN allowlist
 - **FTP / FTPS:** vsftpd, with the users and passwords of the web interface, each confined to the configured folder
 - **File share links:** time-limited browser-downloadable links, no authentication required

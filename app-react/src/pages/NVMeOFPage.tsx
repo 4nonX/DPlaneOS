@@ -30,8 +30,12 @@ interface NVMeExport {
   namespace_id?: number
   allow_any_host?: boolean
   host_nqns?: string[]
-  ana_enabled?: boolean
+  size?: number
+  /** Served by this node right now (an export of a storage group's volume is served by the group's owner). */
+  active?: boolean
 }
+
+function fmtSize(b?: number) { if (!b) return '-'; const u = ['B', 'KB', 'MB', 'GB', 'TB']; const i = Math.min(Math.floor(Math.log(b) / Math.log(1024)), 4); return `${(b / 1024 ** i).toFixed(1)} ${u[i]}` }
 
 export function NVMeOFPage() {
   const qc = useQueryClient()
@@ -59,7 +63,6 @@ export function NVMeOFPage() {
   const [listenPort, setListenPort] = useState('4420')
   const [allowAny, setAllowAny] = useState(false)
   const [hostNqnsText, setHostNqnsText] = useState('')
-  const [anaEnabled, setAnaEnabled] = useState(false)
   const [editingNqn, setEditingNqn] = useState<string | null>(null)
 
   const save = useMutation({
@@ -76,8 +79,6 @@ export function NVMeOFPage() {
         listen_port: parseInt(listenPort, 10) || 4420,
         allow_any_host: allowAny,
         host_nqns: allowAny ? [] : host_nqns,
-        ana_enabled: anaEnabled,
-        ana_groups: anaEnabled ? [{ group_id: 1, namespace_id: 1, state: 'optimized' }] : [],
       }
       const url = editingNqn ? '/api/nvmet/targets' : '/api/nvmet/targets'
       return editingNqn ? api.put(url, body) : api.post(url, body)
@@ -115,7 +116,6 @@ export function NVMeOFPage() {
     setListenPort(String(t.listen_port || 4420))
     setAllowAny(!!t.allow_any_host)
     setHostNqnsText((t.host_nqns || []).join('\n'))
-    setAnaEnabled(!!t.ana_enabled)
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
@@ -127,14 +127,13 @@ export function NVMeOFPage() {
     setListenPort('4420')
     setAllowAny(false)
     setHostNqnsText('')
-    setAnaEnabled(false)
   }
 
   return (
     <div style={{ maxWidth: 960 }}>
       <div className="page-header">
         <h1 className="page-title">NVMe-oF</h1>
-        <p className="page-subtitle">Export ZFS zvols over NVMe/TCP - optional block fabric alongside ZFS replication</p>
+        <p className="page-subtitle">ZFS volumes offered as NVMe disks to other machines, over TCP</p>
       </div>
 
       {statusQ.data && (
@@ -160,7 +159,7 @@ export function NVMeOFPage() {
             }}
           />
           <span style={{ fontWeight: 700, color: ready ? 'var(--success)' : 'var(--text-tertiary)' }}>
-            {ready ? 'nvmet configfs ready' : 'nvmet not available (load nvmet / nvmet-tcp, mount configfs)'}
+            {ready ? 'The NVMe target of this system is available' : 'The NVMe target is not available on this system (kernel modules nvmet and nvmet-tcp)'}
           </span>
         </div>
       )}
@@ -168,12 +167,13 @@ export function NVMeOFPage() {
       <div className="card" style={{ borderRadius: 'var(--radius-lg)', padding: 18, marginBottom: 22, fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>
         <div style={{ fontWeight: 700, marginBottom: 8, color: 'var(--text)' }}>When to use this</div>
         <p style={{ margin: '0 0 8px' }}>
-          <strong>ZFS send/recv</strong> (Replication page, GitOps) replicates datasets and snapshots. <strong>NVMe-oF</strong> exposes a{' '}
-          <em>zvol</em> as a remote NVMe namespace so another machine can mount a VMFS, ext4, or clustered app on top.
+          An export gives another machine a <em>volume</em> of this system as a disk: for a hypervisor's datastore, a database, a
+          clustered application. (To copy datasets to another system, use Replication.)
         </p>
         <p style={{ margin: 0 }}>
-          Declarative option: add a <code style={{ fontSize: 12 }}>fabrics.nvme</code> list in <code style={{ fontSize: 12 }}>state.yaml</code>; GitOps apply
-          syncs the same JSON the UI edits. Omit <code style={{ fontSize: 12 }}>fabrics:</code> entirely if you only manage targets from the UI.
+          The firewall is opened for the port of an export while it exists. An initiator that reconnects after a restart of this
+          system, or after the export moved to another node of a cluster, finds the same disk. Exports can also be declared as{' '}
+          <code style={{ fontSize: 12 }}>fabrics.nvme</code> in <code style={{ fontSize: 12 }}>state.yaml</code>.
         </p>
       </div>
 
@@ -217,11 +217,7 @@ export function NVMeOFPage() {
           </div>
           <label className="field" style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
             <input type="checkbox" checked={allowAny} onChange={e => setAllowAny(e.target.checked)} />
-            <span className="field-label" style={{ margin: 0 }}>Allow any host NQN (insecure on untrusted networks)</span>
-          </label>
-          <label className="field" style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-            <input type="checkbox" checked={anaEnabled} onChange={e => setAnaEnabled(e.target.checked)} />
-            <span className="field-label" style={{ margin: 0 }}>Enable ANA (Asymmetric Namespace Access) for multi-path HA</span>
+            <span className="field-label" style={{ margin: 0 }}>Allow any host (every machine that reaches the port can use the volume: NVMe over TCP has no passwords here)</span>
           </label>
           {!allowAny && (
             <label className="field">
@@ -262,7 +258,7 @@ export function NVMeOFPage() {
         <table className="data-table">
           <thead>
             <tr>
-              {['Subsystem NQN', 'Zvol', 'Listen', 'Access', 'Actions'].map(h => (
+              {['Subsystem NQN', 'Volume', 'Size', 'Listens on', 'Access', 'State', 'Actions'].map(h => (
                 <th key={h}>{h}</th>
               ))}
             </tr>
@@ -272,10 +268,15 @@ export function NVMeOFPage() {
               <tr key={t.subsystem_nqn}>
                 <td style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)', color: 'var(--primary)' }}>{t.subsystem_nqn}</td>
                 <td style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)' }}>{t.zvol}</td>
+                <td style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>{fmtSize(t.size)}</td>
                 <td style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>
                   {t.listen_addr || '0.0.0.0'}:{t.listen_port || 4420}
                 </td>
                 <td style={{ fontSize: 'var(--text-xs)' }}>{t.allow_any_host ? 'Any host' : `${(t.host_nqns || []).length} host(s)`}</td>
+                <td style={{ fontSize: 'var(--text-xs)', color: t.active ? 'var(--success)' : 'var(--text-tertiary)' }}
+                  title={t.active ? 'This node serves the export' : 'This node does not serve the export: its volume is not here (the pool is not imported, or belongs to a storage group another node owns)'}>
+                  {t.active ? 'Served here' : 'Not served here'}
+                </td>
                 <td>
                   <div style={{ display: 'flex', gap: 6 }}>
                     <button type="button" onClick={() => startEdit(t)} className="btn btn-sm btn-ghost">
@@ -287,8 +288,8 @@ export function NVMeOFPage() {
                       onClick={async () => {
                         if (
                           await confirm({
-                            title: 'Remove NVMe target?',
-                            message: t.subsystem_nqn,
+                            title: 'Remove NVMe-oF export?',
+                            message: `${t.subsystem_nqn}: connected initiators lose the disk. The volume and its data stay.`,
                             danger: true,
                             confirmLabel: 'Remove',
                           })
@@ -306,7 +307,7 @@ export function NVMeOFPage() {
             ))}
             {!targetsQ.isLoading && targets.length === 0 && (
               <tr>
-                <td colSpan={5} style={{ padding: '36px 16px', textAlign: 'center', color: 'var(--text-tertiary)' }}>
+                <td colSpan={7} style={{ padding: '36px 16px', textAlign: 'center', color: 'var(--text-tertiary)' }}>
                   No NVMe-oF targets - create one above or define <code>fabrics.nvme</code> in GitOps.
                 </td>
               </tr>
@@ -318,11 +319,11 @@ export function NVMeOFPage() {
       <div className="card" style={{ marginTop: 22, padding: 18, borderRadius: 'var(--radius-lg)', fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>
         <div style={{ fontWeight: 700, marginBottom: 8, color: 'var(--text)' }}>Initiator (Linux) quick test</div>
         <pre style={{ margin: 0, padding: 12, background: 'var(--surface-2)', borderRadius: 8, fontSize: 12, overflow: 'auto' }}>
-          {`modprobe nvme-fabrics
-nvme discover -t tcp -a <this-host-ip> -s 4420
-nvme connect -t tcp -n <subsystem_nqn> -a <this-host-ip> -s 4420`}
+          {`modprobe nvme-tcp
+nvme discover -t tcp -a <address of this system> -s ${listenPort || '4420'}
+nvme connect -t tcp -n <subsystem NQN> -a <address of this system> -s ${listenPort || '4420'}`}
         </pre>
-        <p style={{ margin: '12px 0 0', fontSize: 'var(--text-xs)' }}>Open firewall TCP {listenPort || '4420'} on this NAS if clients are remote.</p>
+        <p style={{ margin: '12px 0 0', fontSize: 'var(--text-xs)' }}>The host NQN of a Linux initiator is in <code>/etc/nvme/hostnqn</code>.</p>
       </div>
 
       <ConfirmDialog />
