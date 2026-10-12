@@ -183,6 +183,12 @@ failover, replicated groups, quorum and votes, the live image.
   every start; a setting the system refuses is taken back.
 - **Certificates** could not be generated; the system has a self-signed one
   from the first start and serves HTTPS.
+- **A renewed certificate was not served.** The web server serves a copy
+  of the certificate that was activated; the automatic renewal of a Let's
+  Encrypt certificate replaced the original and left the copy, so the old
+  certificate would have been served until it expired. The copy is
+  replaced and the web server reads it. Tested against an ACME certificate
+  authority in the VM test (issue, activate, issue again).
 - **The start waited three minutes** and contacted an address on the
   internet to see if it was online. It does neither.
 - **Replication to another DPlaneOS system** needed root over SSH, which is
@@ -206,6 +212,9 @@ failover, replicated groups, quorum and votes, the live image.
 - Role assignments with an end date in the Users page; the iSCSI page shows
   volume, size, address, CHAP, connected initiators and whether this node
   serves the target, and takes CHAP credentials.
+- Certificates: another ACME certificate authority than Let's Encrypt can
+  be used (its directory address and, for an internal one, its CA
+  certificate).
 - GitOps, Status: the local `state.yaml` can be edited in place (validated
   before it is stored), for a system without a repository or when the Git
   server cannot be reached.

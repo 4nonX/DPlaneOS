@@ -130,7 +130,7 @@ Containers get what their compose file gives them, including host paths and host
 
 **Security › Firewall**: the ports the system opened for its own services, and your rules. The firewall is on from the start.
 
-**Security › Certificates**: the certificate of the web interface: self-signed at first, one you upload, or one from an ACME certificate authority.
+**Security › Certificates**: the certificate of the web interface: self-signed at first, one you upload, or one from an ACME certificate authority. *Let's Encrypt* requests one for a name under which the system can be reached from the internet on port 80 (the proof is delivered there); try the staging service first, its certificate is for testing and not trusted by browsers. *Another ACME certificate authority* takes the directory address of an internal one (step-ca, for example) and its CA certificate. A certificate is used once you **activate** it. Certificates from an ACME authority are renewed by the system 30 days before they expire (checked twice a day), and the web server then serves the renewed one.
 
 **Identity › SSH Keys**: the keys that may sign in over SSH (administrators only; no passwords and no root unless you change that), and the SSH port.
 

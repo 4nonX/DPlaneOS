@@ -79,3 +79,35 @@ func TestRenewDueCertificatesSkipsOthers(t *testing.T) {
 		t.Fatal("renewal check did not finish")
 	}
 }
+
+// Another certificate authority's directory: https only, no credentials in
+// the address, the staging switch is Let's Encrypt's, and a CA certificate
+// is a certificate.
+func TestACMEOptions(t *testing.T) {
+	const pem = "-----BEGIN CERTIFICATE-----\nMIIBhTCCASugAwIBAgIQIRi6zePL6mKjOipn+dNuaTAKBggqhkjOPQQDAjASMRAw\nDgYDVQQKEwdBY21lIENvMB4XDTE3MTAyMDE5NDMwNloXDTE4MTAyMDE5NDMwNlow\nEjEQMA4GA1UEChMHQWNtZSBDbzBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABD0d\n7VNhbWvZLWPuj/RtHFjvtJBEwOkhbN/BnnE8rnZR8+sbwnc/KhCk3FhnpHZnQz7B\n5aETbbIgmuvewdjvSBSjYzBhMA4GA1UdDwEB/wQEAwICpDATBgNVHSUEDDAKBggr\nBgEFBQcDATAPBgNVHRMBAf8EBTADAQH/MCkGA1UdEQQiMCCCDmxvY2FsaG9zdDo1\nNDUzgg4xMjcuMC4wLjE6NTQ1MzAKBggqhkjOPQQDAgNIADBFAiEA2zpJEPQyz6/l\nWf86aX6PepsntZv2GYlA5UpabfT2EZICICpJ5h/iI+i341gBmLiAFQOyTDT+/wQc\n6MF9+Yw1Yy0t\n-----END CERTIFICATE-----\n"
+	ok := []acmeOptions{
+		{Email: "a@example.com"},
+		{Email: "a@example.com", Staging: true},
+		{Email: "a@example.com", DirectoryURL: "https://ca.example.lan/acme/acme/directory"},
+		{Email: "a@example.com", DirectoryURL: "https://192.168.1.1:14000/dir", CAPEM: pem},
+	}
+	for _, o := range ok {
+		if err := o.validate(); err != nil {
+			t.Errorf("%+v refused: %v", o, err)
+		}
+	}
+	bad := map[string]acmeOptions{
+		"no address":         {Email: "nobody"},
+		"plain http":         {Email: "a@example.com", DirectoryURL: "http://ca.example.lan/dir"},
+		"credentials":        {Email: "a@example.com", DirectoryURL: "https://user:pw@ca.example.lan/dir"},
+		"a file":             {Email: "a@example.com", DirectoryURL: "file:///etc/shadow"},
+		"staging elsewhere":  {Email: "a@example.com", DirectoryURL: "https://ca.example.lan/dir", Staging: true},
+		"CA without address": {Email: "a@example.com", CAPEM: pem},
+		"not a certificate":  {Email: "a@example.com", DirectoryURL: "https://ca.example.lan/dir", CAPEM: "hello"},
+	}
+	for name, o := range bad {
+		if err := o.validate(); err == nil {
+			t.Errorf("%s accepted: %+v", name, o)
+		}
+	}
+}

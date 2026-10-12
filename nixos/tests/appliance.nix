@@ -57,8 +57,51 @@ pkgs.testers.nixosTest {
   # from here, through its firewall.
   nodes.client = { pkgs, ... }: {
     environment.systemPackages = [ pkgs.samba pkgs.curl pkgs.openssl pkgs.nvme-cli pkgs.rclone ];
-    # A directory (OpenLDAP) with two people and a group.
-    networking.firewall.allowedTCPPorts = [ 389 ];
+    # A directory (OpenLDAP) with two people and a group; an ACME
+    # certificate authority (Pebble, the test server of Let's Encrypt).
+    networking.firewall.allowedTCPPorts = [ 389 14000 ];
+    # The name the certificate is requested for. The certificate authority
+    # looks the system up under it (the appliance has the second address of
+    # the test network; the test checks that).
+    networking.extraHosts = "192.168.1.2 nas.dplane.test";
+    # The certificate authority's own HTTPS certificate, from a CA the
+    # appliance is given with the request (as with an internal CA).
+    systemd.services.pebble-certs = {
+      wantedBy = [ "multi-user.target" ];
+      before = [ "pebble.service" ];
+      path = [ pkgs.openssl ];
+      serviceConfig = { Type = "oneshot"; RemainAfterExit = true; StateDirectory = "pebble"; };
+      script = ''
+        cd /var/lib/pebble
+        [ -e cert.pem ] && exit 0
+        openssl req -x509 -newkey rsa:2048 -nodes -days 30 -keyout ca.key -out ca.pem \
+          -subj "/CN=Test ACME directory CA" -addext "basicConstraints=critical,CA:TRUE"
+        openssl req -newkey rsa:2048 -nodes -keyout key.pem -out req.pem -subj "/CN=192.168.1.1"
+        printf 'subjectAltName=IP:192.168.1.1\nbasicConstraints=CA:FALSE\n' > ext
+        openssl x509 -req -in req.pem -CA ca.pem -CAkey ca.key -CAcreateserial -days 30 -extfile ext -out cert.pem
+        chmod 644 ca.pem cert.pem key.pem
+      '';
+    };
+    systemd.services.pebble = {
+      wantedBy = [ "multi-user.target" ];
+      requires = [ "pebble-certs.service" ];
+      after = [ "pebble-certs.service" "network.target" ];
+      # Validate at once, and do not reject requests at random (Pebble does
+      # both by default to exercise clients).
+      environment = { PEBBLE_VA_NOSLEEP = "1"; PEBBLE_WFE_NONCEREJECT = "0"; };
+      serviceConfig.ExecStart = "${pkgs.pebble}/bin/pebble -config ${pkgs.writeText "pebble.json" (builtins.toJSON {
+        pebble = {
+          listenAddress = "0.0.0.0:14000";
+          managementListenAddress = "127.0.0.1:15000";
+          certificate = "/var/lib/pebble/cert.pem";
+          privateKey = "/var/lib/pebble/key.pem";
+          httpPort = 80;
+          tlsPort = 443;
+          ocspResponderURL = "";
+          externalAccountBindingRequired = false;
+        };
+      })}";
+    };
     services.openldap = {
       enable = true;
       urlList = [ "ldap:///" ];
@@ -432,6 +475,56 @@ pkgs.testers.nixosTest {
             assert mine["subject"] == "tank-nas.example" and mine["issuer"] == "Self-signed" and mine["expires"].startswith("20"), mine
             nas.wait_until_succeeds("echo | ${pkgs.openssl}/bin/openssl s_client -connect localhost:443 2>/dev/null | ${pkgs.openssl}/bin/openssl x509 -noout -subject | grep -q 'tank-nas.example'", timeout=30)
             client.succeed(FETCH + f"-k https://{NAS}/")
+
+        with subtest("Certificates: issued by an ACME certificate authority, served, and replaced when issued again"):
+            assert NAS == "192.168.1.2" and CLIENT == "192.168.1.1", (NAS, CLIENT)
+            client.wait_for_unit("pebble.service")
+            client.wait_for_open_port(14000)
+            directory_ca = client.succeed("cat /var/lib/pebble/ca.pem")
+            request = {"name": "nas-acme", "domain": "nas.dplane.test", "email": "admin@dplane.test",
+                       "directory_url": f"https://{CLIENT}:14000/dir"}
+
+            def issue(body):
+                jid = api("POST", "/api/certs/acme", body)["jobId"]
+                job = {}
+                for _ in range(90):
+                    job = api("GET", f"/api/jobs/{jid}")
+                    if job.get("status") in ("done", "failed"):
+                        break
+                    nas.sleep(2)
+                return job
+
+            def served():
+                return client.succeed(
+                    f"echo | openssl s_client -connect {NAS}:443 -servername nas.dplane.test 2>/dev/null "
+                    "| openssl x509 -noout -serial -issuer -ext subjectAltName")
+
+            before = served()
+            # A certificate authority whose own certificate nobody vouches
+            # for is not talked to: nothing is issued.
+            job = issue(request)
+            assert job.get("status") == "failed", job
+            assert "nas-acme" not in [c["name"] for c in api("GET", "/api/certs/list")["certs"]]
+
+            job = issue(dict(request, ca_pem=directory_ca))
+            assert job.get("status") == "done", job
+            assert "nas-acme" in [c["name"] for c in api("GET", "/api/certs/list")["certs"]]
+            assert served() == before, "a certificate was served before it was activated"
+            ok(api("POST", "/api/certs/activate", {"name": "nas-acme"}), "activate")
+            first = served()
+            assert "nas.dplane.test" in first and "Pebble" in first, first
+            assert api("GET", "/api/certs/list")["active_cert"] == "nas-acme"
+            client.succeed(f"curl -sfk --max-time 20 https://{NAS}/health")
+
+            # Issued again under the same name, which is what a renewal
+            # does: the web server serves the new certificate, not a copy of
+            # the old one.
+            job = issue(dict(request, ca_pem=directory_ca))
+            assert job.get("status") == "done", job
+            second = served()
+            assert "Pebble" in second and second != first, f"still the old certificate:\n{first}\n{second}"
+            assert api("GET", "/api/certs/list")["active_cert"] == "nas-acme"
+            client.succeed(f"curl -sfk --max-time 20 https://{NAS}/health")
 
         with subtest("iSCSI, NVMe-oF and S3: used from another machine"):
             IQN = "iqn.2026-01.test.nas:lun0"

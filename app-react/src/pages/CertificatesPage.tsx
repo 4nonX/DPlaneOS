@@ -206,6 +206,10 @@ function ACMEWizard({ onClose, onDone }: { onClose: () => void; onDone: () => vo
   const [domain, setDomain] = useState('')
   const [email, setEmail]   = useState('')
   const [staging, setStaging] = useState(true)
+  // Another ACME certificate authority than Let's Encrypt (optional).
+  const [otherCA, setOtherCA] = useState(false)
+  const [directoryURL, setDirectoryURL] = useState('')
+  const [caPEM, setCaPEM] = useState('')
   const [jobId, setJobId]   = useState<string | null>(null)
   const [verifying, setVerifying] = useState(false)
   const [verified, setVerified]   = useState(false)
@@ -237,7 +241,8 @@ function ACMEWizard({ onClose, onDone }: { onClose: () => void; onDone: () => vo
   const request = useMutation({
     mutationFn: async () => {
       if (!name.trim() || !domain.trim() || !email.trim()) throw new Error('Name, Domain, and Email are required')
-      if (!verified && !staging) {
+      if (otherCA && !directoryURL.trim()) throw new Error('The directory address of the certificate authority is required')
+      if (!verified && !staging && !otherCA) {
         if (!confirm('Proxy verification has not been completed. The ACME request might fail if port 80 is not correctly proxied to 8080. Proceed anyway?')) {
           throw new Error('Verification cancelled')
         }
@@ -246,7 +251,8 @@ function ACMEWizard({ onClose, onDone }: { onClose: () => void; onDone: () => vo
         name: name.trim(),
         domain: domain.trim(),
         email: email.trim(),
-        staging,
+        staging: otherCA ? false : staging,
+        ...(otherCA ? { directory_url: directoryURL.trim(), ca_pem: caPEM.trim() } : {}),
       })
       setJobId(resp.jobId)
       return resp
@@ -326,14 +332,36 @@ function ACMEWizard({ onClose, onDone }: { onClose: () => void; onDone: () => vo
               </button>
             </div>
 
-            <Field label="Email Address" hint="For Let's Encrypt expiration notices">
+            <Field label="Email Address" hint="The certificate authority sends expiry notices there">
               <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="admin@example.com" className="input" />
             </Field>
 
+            {!otherCA && (
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+                <input type="checkbox" id="acme-staging" checked={staging} onChange={e => setStaging(e.target.checked)} style={{ marginTop: 3 }} />
+                <label htmlFor="acme-staging" style={{ fontSize: 'var(--text-sm)', cursor: 'pointer' }}>
+                  Trial run with Let's Encrypt's staging service
+                  <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }}>
+                    Issues a test certificate that browsers do not trust. Use it to see that everything works, then untick it for the real certificate.
+                  </div>
+                </label>
+              </div>
+            )}
+
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <input type="checkbox" id="acme-staging" checked={staging} onChange={e => setStaging(e.target.checked)} />
-              <label htmlFor="acme-staging" style={{ fontSize: 'var(--text-sm)', cursor: 'pointer' }}>Use Staging Environment (Recommended)</label>
+              <input type="checkbox" id="acme-other" checked={otherCA} onChange={e => setOtherCA(e.target.checked)} />
+              <label htmlFor="acme-other" style={{ fontSize: 'var(--text-sm)', cursor: 'pointer' }}>Another ACME certificate authority (an internal one, for example)</label>
             </div>
+            {otherCA && (
+              <>
+                <Field label="Directory address" hint="The ACME directory of the certificate authority (https://...)">
+                  <input value={directoryURL} onChange={e => setDirectoryURL(e.target.value)} placeholder="https://ca.example.lan/acme/acme/directory" className="input" style={{ fontFamily: 'var(--font-mono)' }} />
+                </Field>
+                <Field label="CA certificate (PEM, optional)" hint="Only if the directory's own certificate is not from a CA this system trusts already">
+                  <textarea value={caPEM} onChange={e => setCaPEM(e.target.value)} rows={4} placeholder="-----BEGIN CERTIFICATE-----" className="input" style={{ fontFamily: 'var(--font-mono)', fontSize: 11, resize: 'vertical' }} />
+                </Field>
+              </>
+            )}
 
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
               <button onClick={onClose} className="btn btn-ghost">Cancel</button>

@@ -7,6 +7,7 @@ import (
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/tls"
 	"crypto/x509/pkix"
 	"encoding/json"
 	"errors"
@@ -14,6 +15,7 @@ import (
 	"log"
 	"math/big"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -1094,15 +1096,56 @@ func getACMEAccountKey() (crypto.PrivateKey, error) {
 	return privateKey, nil
 }
 
-// RequestACME requests a certificate from Let's Encrypt using HTTP-01.
+// acmeOptions is what a certificate is requested with, and renewed with
+// (it is kept next to the certificate).
+type acmeOptions struct {
+	Email   string `json:"email"`
+	Staging bool   `json:"staging"`
+	// DirectoryURL: another ACME certificate authority than Let's Encrypt
+	// (an internal one such as step-ca, or another public one). Empty:
+	// Let's Encrypt.
+	DirectoryURL string `json:"directory_url,omitempty"`
+	// CAPEM: the certificate authority that signed the TLS certificate of
+	// that directory, when it is not one the system trusts already.
+	CAPEM string `json:"ca_pem,omitempty"`
+}
+
+func (o acmeOptions) validate() error {
+	if !acmeEmailRe.MatchString(o.Email) {
+		return errors.New("Invalid email address")
+	}
+	if o.DirectoryURL != "" {
+		u, err := url.Parse(o.DirectoryURL)
+		if err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil {
+			return errors.New("The directory address must be an https:// URL")
+		}
+		if o.Staging {
+			return errors.New("The staging service is Let's Encrypt's: not with another certificate authority")
+		}
+	}
+	if o.CAPEM != "" {
+		if o.DirectoryURL == "" {
+			return errors.New("A CA certificate is only used with another certificate authority's directory")
+		}
+		if len(o.CAPEM) > 64*1024 || !x509.NewCertPool().AppendCertsFromPEM([]byte(o.CAPEM)) {
+			return errors.New("The CA certificate is not a PEM certificate")
+		}
+	}
+	return nil
+}
+
+// RequestACME requests a certificate from an ACME certificate authority
+// (Let's Encrypt unless another directory is given) using HTTP-01.
 // POST /api/certs/acme
 func (h *CertHandler) RequestACME(w http.ResponseWriter, r *http.Request) {
 	user := r.Header.Get("X-User")
 	var req struct {
-		Name    string `json:"name"`
-		Domain  string `json:"domain"`
-		Email   string `json:"email"`
-		Staging bool   `json:"staging"`
+		Name         string `json:"name"`
+		Domain       string `json:"domain"`
+		Email        string `json:"email"`
+		Staging      bool   `json:"staging"`
+		DirectoryURL string `json:"directory_url"`
+		CAPEM        string `json:"ca_pem"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		respondErrorSimple(w, "Invalid JSON", http.StatusBadRequest)
@@ -1122,13 +1165,15 @@ func (h *CertHandler) RequestACME(w http.ResponseWriter, r *http.Request) {
 		respondErrorSimple(w, "Invalid domain", http.StatusBadRequest)
 		return
 	}
-	if !acmeEmailRe.MatchString(req.Email) {
-		respondErrorSimple(w, "Invalid email address", http.StatusBadRequest)
+	opts := acmeOptions{Email: req.Email, Staging: req.Staging,
+		DirectoryURL: strings.TrimSpace(req.DirectoryURL), CAPEM: strings.TrimSpace(req.CAPEM)}
+	if err := opts.validate(); err != nil {
+		respondErrorSimple(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
 	jobId := jobs.Start("acme_request", func(j *jobs.Job) {
-		if err := h.obtainCertificate(req.Domain, req.Name, req.Email, req.Staging, user, j); err != nil {
+		if err := h.obtainCertificate(req.Domain, req.Name, opts, user, j); err != nil {
 			j.Fail(err.Error())
 			return
 		}
@@ -1149,7 +1194,8 @@ var (
 
 // obtainCertificate gets a certificate from the CA and stores it as
 // <name>.crt / <name>.key with its renewal data in <name>.crt.meta.
-func (h *CertHandler) obtainCertificate(domain, name, email string, staging bool, user string, j *jobs.Job) error {
+func (h *CertHandler) obtainCertificate(domain, name string, opts acmeOptions, user string, j *jobs.Job) error {
+	email, staging := opts.Email, opts.Staging
 	j.Log("Starting ACME request for " + domain)
 
 	// Ensure Nginx proxy is present (non-NixOS only)
@@ -1172,10 +1218,34 @@ func (h *CertHandler) obtainCertificate(domain, name, email string, staging bool
 	}
 
 	config := lego.NewConfig(&myUser)
-	if staging {
+	switch {
+	case opts.DirectoryURL != "":
+		config.CADirURL = opts.DirectoryURL
+	case staging:
 		config.CADirURL = "https://acme-staging-v02.api.letsencrypt.org/directory"
-	} else {
+	default:
 		config.CADirURL = lego.LEDirectoryProduction
+	}
+	if opts.CAPEM != "" {
+		// The directory of an internal certificate authority: its TLS
+		// certificate is checked against the CA given with the request (in
+		// addition to the ones the system trusts).
+		pool, err := x509.SystemCertPool()
+		if err != nil || pool == nil {
+			pool = x509.NewCertPool()
+		}
+		if !pool.AppendCertsFromPEM([]byte(opts.CAPEM)) {
+			return errors.New("The CA certificate is not a PEM certificate")
+		}
+		config.HTTPClient = &http.Client{
+			Timeout: 60 * time.Second,
+			Transport: &http.Transport{
+				Proxy:                 http.ProxyFromEnvironment,
+				TLSClientConfig:       &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12},
+				TLSHandshakeTimeout:   30 * time.Second,
+				ResponseHeaderTimeout: 30 * time.Second,
+			},
+		}
 	}
 	config.Certificate.KeyType = certcrypto.RSA2048
 
@@ -1190,7 +1260,7 @@ func (h *CertHandler) obtainCertificate(domain, name, email string, staging bool
 		return errors.New("Failed to set challenge provider: " + err.Error())
 	}
 
-	j.Progress(map[string]string{"status": "registering", "message": "Registering account with Let's Encrypt..."})
+	j.Progress(map[string]string{"status": "registering", "message": "Registering the account with the certificate authority..."})
 	reg, err := client.Registration.Register(registration.RegisterOptions{TermsOfServiceAgreed: true})
 	if err != nil {
 		j.Log("Note: Registration might already exist: " + err.Error())
@@ -1219,16 +1289,24 @@ func (h *CertHandler) obtainCertificate(domain, name, email string, staging bool
 		return errors.New("Failed to save key: " + err.Error())
 	}
 
-	// Save metadata for renewal
-	meta := struct {
-		Email   string `json:"email"`
-		Staging bool   `json:"staging"`
-	}{Email: email, Staging: staging}
-	if metaBytes, err := json.Marshal(meta); err == nil {
+	// Save what the certificate was requested with, for its renewal.
+	if metaBytes, err := json.Marshal(opts); err == nil {
 		os.WriteFile(certFile+".meta", metaBytes, 0644)
 	}
 
 	audit.LogAction("cert_acme", user, fmt.Sprintf("Obtained ACME cert for %s (name: %s)", domain, name), true, 0)
+
+	// The web server serves a copy of the certificate that was activated.
+	// When this is that certificate (a renewal, or the same name requested
+	// again), the copy is replaced and the web server reads it: without
+	// this, a certificate was "renewed" and the old one kept being served
+	// until it expired.
+	if IsNixOS() && NixWriter != nil && NixWriter.State().TLSCert == certFile {
+		if err := NixWriter.SetTLS(certFile, keyFile); err != nil {
+			return errors.New("The certificate is renewed, but the web server does not serve it yet: " + err.Error())
+		}
+		j.Log("The web server now serves the new certificate")
+	}
 	return nil
 }
 
@@ -1299,10 +1377,7 @@ func (h *CertHandler) renewDueCertificates(j *jobs.Job) (renewed, failed int) {
 		if err != nil {
 			continue // not an ACME certificate (self-signed or imported)
 		}
-		var meta struct {
-			Email   string `json:"email"`
-			Staging bool   `json:"staging"`
-		}
+		var meta acmeOptions
 		if err := json.Unmarshal(metaData, &meta); err != nil || meta.Email == "" {
 			j.Log("WARN: unreadable renewal data for " + certName)
 			continue
@@ -1337,7 +1412,7 @@ func (h *CertHandler) renewDueCertificates(j *jobs.Job) (renewed, failed int) {
 			continue
 		}
 		j.Log("Renewing " + certName + " (" + domain + ")")
-		if err := h.obtainCertificate(domain, certName, meta.Email, meta.Staging, "system-renew", j); err != nil {
+		if err := h.obtainCertificate(domain, certName, meta, "system-renew", j); err != nil {
 			j.Log("ERR: renewing " + certName + ": " + err.Error())
 			audit.LogAction("cert_acme_renew", "system", fmt.Sprintf("Renewal of %s failed: %v", certName, err), false, 0)
 			failed++
@@ -1345,8 +1420,10 @@ func (h *CertHandler) renewDueCertificates(j *jobs.Job) (renewed, failed int) {
 		}
 		renewed++
 	}
-	if renewed > 0 {
-		// The files keep their names: the web server only has to read them again.
+	if renewed > 0 && !IsNixOS() {
+		// The files keep their names: the web server only has to read them
+		// again. (On an installed system it serves a copy, which
+		// obtainCertificate has replaced.)
 		if out, err := cmdutil.RunFast("nginx", "-s", "reload"); err != nil {
 			j.Log("WARN: web server not reloaded: " + strings.TrimSpace(string(out)) + " " + err.Error())
 		}
