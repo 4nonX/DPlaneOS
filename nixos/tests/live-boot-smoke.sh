@@ -278,7 +278,7 @@ expect 200 PUT /api/ftp/config "$FTPCFG"
 check "vsftpd runtime unit active" systemctl is-active --quiet dplaneos-vsftpd.service
 check "FTP answers on port 21" retry 10 bash -c 'exec 3<>/dev/tcp/127.0.0.1/21 && head -c 3 <&3 | grep -q 220'
 expect 200 GET /api/s3/status
-check "the S3 service is reported as not part of this system (s3.enable off)" test "$(json .installed)" = false
+check "the S3 service is part of the system, and off until it is set up" test "$(json .installed)" = true -a "$(json .active)" = false
 
 
 # ── Audit log: every action above is recorded and the chain verifies ───────
