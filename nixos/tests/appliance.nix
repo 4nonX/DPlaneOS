@@ -499,6 +499,16 @@ pkgs.testers.nixosTest {
                     f"echo | openssl s_client -connect {NAS}:443 -servername nas.dplane.test 2>/dev/null "
                     "| openssl x509 -noout -serial -issuer -ext subjectAltName")
 
+            def served_changes_from(old):
+                # The web server takes a new certificate with a reload, which
+                # is done a moment after it was asked for.
+                for _ in range(30):
+                    now = served()
+                    if now != old:
+                        return now
+                    nas.sleep(1)
+                return served()
+
             before = served()
             # A certificate authority whose own certificate nobody vouches
             # for is not talked to: nothing is issued.
@@ -511,7 +521,7 @@ pkgs.testers.nixosTest {
             assert "nas-acme" in [c["name"] for c in api("GET", "/api/certs/list")["certs"]]
             assert served() == before, "a certificate was served before it was activated"
             ok(api("POST", "/api/certs/activate", {"name": "nas-acme"}), "activate")
-            first = served()
+            first = served_changes_from(before)
             assert "nas.dplane.test" in first and "Pebble" in first, first
             assert api("GET", "/api/certs/list")["active_cert"] == "nas-acme"
             client.succeed(f"curl -sfk --max-time 20 https://{NAS}/api/system/health | grep -q success")
@@ -521,7 +531,7 @@ pkgs.testers.nixosTest {
             # the old one.
             job = issue(dict(request, ca_pem=directory_ca))
             assert job.get("status") == "done", job
-            second = served()
+            second = served_changes_from(first)
             assert "Pebble" in second and second != first, f"still the old certificate:\n{first}\n{second}"
             assert api("GET", "/api/certs/list")["active_cert"] == "nas-acme"
             client.succeed(f"curl -sfk --max-time 20 https://{NAS}/api/system/health | grep -q success")
