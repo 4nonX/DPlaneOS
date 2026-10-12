@@ -74,7 +74,7 @@ GET  /api/nvmet/targets   PUT /api/nvmet/targets   DELETE /api/nvmet/targets?sub
 modprobe nvme-tcp
 nvme connect -t tcp -a NAS_ADDRESS -s 4420 -n nqn.2026-01.lan.nas:fast0
 nvme list            # the disk appears as /dev/nvmeXnY
-cat /etc/nvme/hostnqn   # this machine's host NQN, for the list of allowed hosts
+nvme show-hostnqn    # this machine's host NQN, for the list of allowed hosts
 ```
 
 ---

@@ -463,7 +463,7 @@ pkgs.testers.nixosTest {
             def rclone(secret, args):
                 return ("RCLONE_CONFIG_NAS_TYPE=s3 RCLONE_CONFIG_NAS_PROVIDER=Other RCLONE_CONFIG_NAS_ACCESS_KEY_ID=s3admin "
                         f"RCLONE_CONFIG_NAS_SECRET_ACCESS_KEY={secret} RCLONE_CONFIG_NAS_ENDPOINT=http://{NAS}:9000 "
-                        "RCLONE_CONFIG_NAS_FORCE_PATH_STYLE=true rclone --retries 1 --low-level-retries 1 --contimeout 10s " + args)
+                        "RCLONE_CONFIG_NAS_FORCE_PATH_STYLE=true rclone --copy-links --retries 1 --low-level-retries 1 --contimeout 10s " + args)
             client.succeed(rclone("S3-Test-Pass-9", "mkdir nas:backups"))
             client.succeed(rclone("S3-Test-Pass-9", "copyto /etc/os-release nas:backups/os-release"))
             client.succeed(rclone("S3-Test-Pass-9", "copyto nas:backups/os-release /tmp/from-s3") + " && cmp /tmp/from-s3 /etc/os-release")

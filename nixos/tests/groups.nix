@@ -205,8 +205,8 @@ pkgs.testers.nixosTest {
         with subtest("iSCSI and NVMe-oF on the group's volumes, used from another machine"):
             a.succeed("zfs create -V 64M tank/lun && zfs create -V 64M tank/nv && udevadm settle")
             a.wait_until_succeeds("test -b /dev/zvol/tank/lun && test -b /dev/zvol/tank/nv", timeout=30)
-            client.succeed("mkdir -p /etc/nvme && nvme gen-hostnqn > /etc/nvme/hostnqn")
-            hostnqn = client.succeed("cat /etc/nvme/hostnqn").strip()
+            hostnqn = client.succeed("nvme show-hostnqn").strip()
+            assert hostnqn.startswith("nqn."), hostnqn
             ok(api(a, "POST", "/api/iscsi/targets", {"iqn": IQN, "zvol": "tank/lun", "require_chap": True}), "iSCSI target")
             # CHAP is required: an initiator without a secret is not accepted.
             assert api(a, "POST", "/api/iscsi/acls", {"target_iqn": IQN, "initiator_iqn": INITIATOR}).get("success") is not True

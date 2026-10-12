@@ -323,7 +323,7 @@ export function NVMeOFPage() {
 nvme discover -t tcp -a <address of this system> -s ${listenPort || '4420'}
 nvme connect -t tcp -n <subsystem NQN> -a <address of this system> -s ${listenPort || '4420'}`}
         </pre>
-        <p style={{ margin: '12px 0 0', fontSize: 'var(--text-xs)' }}>The host NQN of a Linux initiator is in <code>/etc/nvme/hostnqn</code>.</p>
+        <p style={{ margin: '12px 0 0', fontSize: 'var(--text-xs)' }}>A Linux initiator shows its host NQN with <code>nvme show-hostnqn</code>.</p>
       </div>
 
       <ConfirmDialog />
