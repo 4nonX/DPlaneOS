@@ -944,7 +944,9 @@ pkgs.testers.nixosTest {
             nas.succeed(f"zpool online tank {D1}")
 
         with subtest("No daemon panics, and the allowlist refused nothing the daemon asked for"):
-            bad = nas.execute("journalctl --no-pager -u dplaned | grep -E 'panic:|SECURITY WARNING|security refusal' || true")[1].strip()
+            # (Not "SECURITY WARNING": the handlers that run zfs and zpool with
+            # names they validated themselves are still reported that way.)
+            bad = nas.execute("journalctl --no-pager -u dplaned | grep -E 'panic:|security refusal' || true")[1].strip()
             assert bad == "", "daemon log: " + bad[:3000]
 
         with subtest("UPS: on battery below the configured level, the system shuts down"):

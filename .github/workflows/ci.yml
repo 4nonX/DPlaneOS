@@ -621,6 +621,11 @@ jobs:
 
       - name: Reclaim disk space for Nix store
         uses: wimpysworld/nothing-but-nix@687c797a730352432950c707ab493fcc951818d7  # main
+        with:
+          # The ISO, its checksum and the update file are written to the
+          # workspace on /: the default leaves 2 GB there, which the ISO
+          # alone fills.
+          root-safe-haven: '12288'
 
       - name: Install Nix
         uses: cachix/install-nix-action@v30
@@ -1130,6 +1135,11 @@ jobs:
 
       - name: Reclaim disk space for Nix store
         uses: wimpysworld/nothing-but-nix@687c797a730352432950c707ab493fcc951818d7  # main
+        with:
+          # The ISO, its checksum and the update file are written to the
+          # workspace on /: the default leaves 2 GB there, which the ISO
+          # alone fills.
+          root-safe-haven: '12288'
 
       - name: Install Nix
         uses: cachix/install-nix-action@v30
@@ -1294,6 +1304,11 @@ jobs:
 
       - name: Reclaim disk space for Nix store
         uses: wimpysworld/nothing-but-nix@687c797a730352432950c707ab493fcc951818d7  # main
+        with:
+          # The ISO, its checksum and the update file are written to the
+          # workspace on /: the default leaves 2 GB there, which the ISO
+          # alone fills.
+          root-safe-haven: '12288'
 
       - name: Install Nix
         uses: cachix/install-nix-action@v30
