@@ -549,7 +549,7 @@ pkgs.testers.nixosTest {
             client.fail(SSH + f"root@{NAS} true")
             # No password sign-in.
             client.fail(f"ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=8 -o BatchMode=yes -o PubkeyAuthentication=no admin@{NAS} true")
-            nas.succeed("sshd -T | grep -qx 'passwordauthentication no'")
+            nas.succeed("$(command -v sshd) -T | grep -qx 'passwordauthentication no'")
 
             # Another port: sshd moves there and the firewall follows.
             ok(api("POST", "/api/system/ssh-daemon", {"port": 2222, "permit_root_login": "no"}), "SSH port")
