@@ -693,7 +693,7 @@ pkgs.testers.nixosTest {
                         "\"$(systemctl show -p ExecMainExitTimestampMonotonic --value dplaneos-zfs-gate)\"")
             nas.succeed("test -e /run/dplaneos/zfs-ready")
             login()
-            assert [p["name"] for p in api("GET", "/api/zfs/pools")["pools"]] == ["tank"]
+            assert [p["name"] for p in api("GET", "/api/zfs/pools")["data"]] == ["tank"]
             nas.wait_until_succeeds("exportfs -v | grep -q " + mp, timeout=60)
             nas.succeed("testparm -s 2>/dev/null | grep -q '^\\[data\\]'")
             # The system settings were applied before anything else started.
@@ -779,7 +779,7 @@ pkgs.testers.nixosTest {
             wait_up()
             nas.wait_until_succeeds("zpool list -H -o health tank | grep -qx DEGRADED", timeout=60)
             login()
-            assert api("GET", "/api/zfs/pools")["pools"][0]["health"] == "DEGRADED"
+            assert api("GET", "/api/zfs/pools")["data"][0]["health"] == "DEGRADED"
             nas.succeed(f"zpool online tank {D1}")
 
         with subtest("UPS: on battery below the configured level, the system shuts down"):

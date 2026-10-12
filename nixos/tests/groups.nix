@@ -132,8 +132,11 @@ pkgs.testers.nixosTest {
         client.succeed("dd if=/dev/nvme0n1 iflag=direct bs=512 count=1 2>/dev/null | grep -q %s-nvme" % tag, timeout=300)
 
     def client_writes(tag):
-        client.succeed("echo %s-iscsi | dd of=%s oflag=direct conv=sync bs=512 count=1 2>/dev/null" % (tag, disks["iscsi"]), timeout=300)
-        client.succeed("echo %s-nvme | dd of=/dev/nvme0n1 oflag=direct conv=sync bs=512 count=1 2>/dev/null" % tag, timeout=300)
+        # Written and flushed (dsync): what the client was told is on disk
+        # must be there after the owner dies. (A write that was not flushed
+        # may be lost with the node that held it, as with any disk.)
+        client.succeed("echo %s-iscsi | dd of=%s oflag=direct,dsync conv=sync bs=512 count=1 2>/dev/null" % (tag, disks["iscsi"]), timeout=300)
+        client.succeed("echo %s-nvme | dd of=/dev/nvme0n1 oflag=direct,dsync conv=sync bs=512 count=1 2>/dev/null" % tag, timeout=300)
 
     def serves(m, yes):
         paths = ("/sys/kernel/config/target/iscsi/%s/tpgt_1/acls/%s" % (IQN, INITIATOR), "/sys/kernel/config/nvmet/subsystems/%s/namespaces/1" % NQN)
