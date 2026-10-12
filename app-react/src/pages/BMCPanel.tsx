@@ -6,12 +6,14 @@
  *   GET  /api/bmc/info, /api/bmc/power, /api/bmc/events?limit=
  *   GET  /api/bmc/health → { success, health: { overall_status, sensors: [{name, value, unit, status, category}] } }
  *   POST /api/bmc/power {action}, /api/bmc/enroll, /api/bmc/reset-cert
+ *   GET/PUT /api/bmc/config: the address and sign-in of this system's own BMC
  *
- * Credentials come from the power fencing settings (High Availability page).
+ * (How this node powers another node off is a different setting: High
+ * Availability, power fencing.)
  */
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { api } from '@/lib/api'
+import { api, ensureOk } from '@/lib/api'
 import { Icon } from '@/components/ui/Icon'
 import { Skeleton } from '@/components/ui/LoadingSpinner'
 import { useConfirm } from '@/components/ui/ConfirmDialog'
@@ -34,6 +36,47 @@ const ACTIONS: { action: string; label: string; icon: string; danger: boolean; t
   { action: 'reset',          label: 'Hard reset',     icon: 'bolt',               danger: true,  text: 'Reset the machine immediately, like the reset button: unsaved data is lost.' },
   { action: 'off',            label: 'Power off',      icon: 'power_off',          danger: true,  text: 'Cut power immediately: unsaved data is lost and pools may need a scrub.' },
 ]
+
+interface BMCConfig { host: string; username: string; has_password: boolean; tls_fingerprint: string }
+
+/** The address and sign-in of this system's own BMC. */
+function BMCSettings({ onSaved }: { onSaved: () => void }) {
+  const q = useQuery({
+    queryKey: ['bmc', 'config'],
+    queryFn: ({ signal }) => api.get<{ success: boolean; config: BMCConfig }>('/api/bmc/config', signal),
+  })
+  const [dirty, setDirty] = useState<{ host?: string; username?: string; password?: string }>({})
+  const host = dirty.host ?? q.data?.config.host ?? ''
+  const username = dirty.username ?? q.data?.config.username ?? ''
+  const save = useMutation({
+    mutationFn: async () => ensureOk(await api.put<{ success: boolean; error?: string; message?: string }>('/api/bmc/config', {
+      host: host.trim(), username: username.trim(), ...(dirty.password ? { password: dirty.password } : {}),
+    })),
+    onSuccess: (r) => { toast.success(r.message || 'Saved'); setDirty({}); onSaved() },
+    onError: (e: Error) => toast.error(e.message),
+  })
+  const changed = dirty.host !== undefined || dirty.username !== undefined || !!dirty.password
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr auto', gap: 12, alignItems: 'end', marginBottom: 18 }}>
+      <label className="field">
+        <span className="field-label">Address of this system's BMC</span>
+        <input value={host} onChange={e => setDirty(p => ({ ...p, host: e.target.value }))} placeholder="10.0.0.11" className="input" style={{ fontFamily: 'var(--font-mono)' }} />
+      </label>
+      <label className="field">
+        <span className="field-label">User name</span>
+        <input value={username} onChange={e => setDirty(p => ({ ...p, username: e.target.value }))} autoComplete="off" className="input" />
+      </label>
+      <label className="field">
+        <span className="field-label">Password</span>
+        <input type="password" value={dirty.password ?? ''} onChange={e => setDirty(p => ({ ...p, password: e.target.value }))} autoComplete="new-password"
+          placeholder={q.data?.config.has_password ? 'stored; leave empty to keep' : ''} className="input" />
+      </label>
+      <button onClick={() => save.mutate()} disabled={save.isPending || !changed} className="btn btn-primary" title="An empty address removes the settings">
+        <Icon name="save" size={15} />{save.isPending ? 'Saving…' : 'Save'}
+      </button>
+    </div>
+  )
+}
 
 export function BMCPanel() {
   const qc = useQueryClient()
@@ -104,11 +147,12 @@ export function BMCPanel() {
         </div>
       </div>
 
+      <BMCSettings onSaved={() => qc.invalidateQueries({ queryKey: ['bmc'] })} />
+
       {infoQ.isLoading && <Skeleton height={80} />}
       {!infoQ.isLoading && !configured && (
         <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>
-          {infoQ.data?.error || (infoQ.error as Error | null)?.message || 'No BMC configured.'}{' '}
-          Set the BMC address and credentials under High Availability › Watchdog and power fencing; they are used here as well.
+          {infoQ.data?.error || (infoQ.error as Error | null)?.message || 'No BMC configured.'}
         </div>
       )}
 
@@ -130,7 +174,7 @@ export function BMCPanel() {
               <button key={a.action} disabled={power.isPending}
                 className={`btn ${a.danger ? 'btn-ghost' : 'btn-primary'}`} style={a.danger ? { color: 'var(--error)' } : undefined}
                 onClick={async () => {
-                  if (await confirm({ title: `${a.label}?`, message: `${a.text} This acts on the machine this BMC belongs to, usually this NAS itself.`, danger: a.danger, confirmLabel: a.label })) power.mutate(a.action)
+                  if (await confirm({ title: `${a.label}?`, message: `${a.text} This acts on this system itself, through its BMC.`, danger: a.danger, confirmLabel: a.label })) power.mutate(a.action)
                 }}>
                 <Icon name={a.icon} size={14} />{a.label}
               </button>

@@ -18,6 +18,7 @@ import { Link } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, ensureOk } from '@/lib/api'
 import { Icon } from '@/components/ui/Icon'
+import { ThirdVoteTest } from '@/components/ha/Checks'
 import { Modal } from '@/components/ui/Modal'
 import { useConfirm } from '@/components/ui/ConfirmDialog'
 import { toast } from '@/hooks/useToast'
@@ -377,6 +378,8 @@ export function QuorumPanel() {
                 : <>Automatic failover is off: {d.info.auto_failover_reason}. {!d.cluster!.qdevice && 'Everything else works normally; if a node fails, you take over on the other node manually.'}</>}
             </div>
             {d.error && <p style={{ color: 'var(--error)', fontSize: 'var(--text-sm)' }}>{d.error}</p>}
+
+            {(d.cluster!.qdevice || d.cluster!.nodes.length >= 3) && <div style={{ marginTop: 12 }}><ThirdVoteTest /></div>}
 
             <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
               <button className={`btn ${d.info.expected_votes < 3 ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setAdding(true)}><Icon name="how_to_vote" size={16} />{d.info.expected_votes < 3 ? 'Add a third vote' : 'Add a vote or node'}</button>

@@ -5,7 +5,8 @@
  * them, a topology, the current owner and the epoch (increases with every
  * change of owner; a node with an older epoch must not write).
  *
- * Calls: GET/POST /api/groups, POST /api/groups/{name}/move, DELETE /api/groups/{name}
+ * Calls: GET/POST /api/groups, POST /api/groups/{name}/move, DELETE /api/groups/{name},
+ * POST /api/groups/{name}/replicate/check (what the next replication would do)
  */
 
 import { useState } from 'react'
@@ -14,6 +15,7 @@ import { api, ensureOk } from '@/lib/api'
 import { Icon } from '@/components/ui/Icon'
 import { useConfirm } from '@/components/ui/ConfirmDialog'
 import { toast } from '@/hooks/useToast'
+import { CheckResult, replicationLines, useReplicationCheck } from '@/components/ha/Checks'
 
 interface GroupStatus {
   name: string
@@ -191,6 +193,8 @@ export function GroupsPanel() {
     onSuccess: () => { toast.success('Replicated'); qc.invalidateQueries({ queryKey: ['groups'] }) },
     onError: (e: Error) => { toast.error(e.message); qc.invalidateQueries({ queryKey: ['groups'] }) },
   })
+  const replCheck = useReplicationCheck()
+  const [checked, setChecked] = useState('')
   const discard = useMutation({
     mutationFn: async (name: string) => ensureOk(await api.post<Res>(`/api/groups/${encodeURIComponent(name)}/discard-divergent`, {})),
     onSuccess: () => { toast.success('The next replication replaces the changes here'); qc.invalidateQueries({ queryKey: ['groups'] }) },
@@ -247,6 +251,13 @@ export function GroupsPanel() {
                   <Icon name="sync" size={14} />Replicate now
                 </button>
               )}
+              {g.role === 'owner' && g.topology === 'replicated' && (
+                <button className="btn btn-ghost btn-sm" disabled={replCheck.isPending}
+                  title="Asks every copy for its state and says what the next run would send. Sends nothing."
+                  onClick={() => { setChecked(g.name); replCheck.mutate(g.name) }}>
+                  <Icon name="fact_check" size={14} />Check replication
+                </button>
+              )}
               {g.role === 'owner' && g.topology !== 'standalone' && g.candidates.filter(c => c !== d.self).map(c => (
                 <button key={c} className="btn btn-ghost btn-sm" disabled={move.isPending} onClick={async () => {
                   if (await confirm({ title: `Move ${g.name} to ${nm(c)}?`, message: g.topology === 'replicated'
@@ -282,6 +293,9 @@ export function GroupsPanel() {
                 <div key={'in' + r.peer + r.pool}>{r.pool} from {nm(r.peer)}: last received {ago(r.last_ok_at)}</div>
               ))}
             </div>
+          )}
+          {checked === g.name && !replCheck.isPending && (
+            <CheckResult lines={replicationLines(replCheck.data)} error={(replCheck.error as Error | null)?.message} />
           )}
           {g.role === 'standby' && g.replication.some(r => r.direction === 'in' && r.last_error.includes('changes') && !r.discard_ok) && (
             <button className="btn btn-ghost btn-sm" style={{ color: 'var(--error)', marginTop: 6 }} onClick={async () => {

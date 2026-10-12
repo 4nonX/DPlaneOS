@@ -3,6 +3,7 @@
  *
  * Every node keeps its own database; paired nodes exchange configuration.
  * High availability is built from:
+ *   - the map: nodes, groups, maintenance mode       ClusterMap
  *   - the cluster (Corosync) and its third vote      QuorumPanel
  *   - how the setup is protected                     ProtectionCard
  *   - storage groups: what moves between nodes       GroupsPanel
@@ -10,10 +11,12 @@
  */
 
 import { useState } from 'react'
+import { ClusterMap } from '@/components/ha/ClusterMap'
 import { QuorumPanel } from '@/components/ha/QuorumPanel'
 import { GroupsPanel } from '@/components/ha/GroupsPanel'
 import { ProtectionCard } from '@/components/ha/ProtectionCard'
-import { FencingConfigForm, HardwareCheckCard, PDUConfigForm, SCSIFencingCard, WatchdogConfigForm } from '@/components/ha/FencingSettings'
+import { HardwareCheckCard, SCSIFencingCard, WatchdogConfigForm } from '@/components/ha/FencingSettings'
+import { PowerFencingCard } from '@/components/ha/PowerTargets'
 import { Icon } from '@/components/ui/Icon'
 
 export function HAPage() {
@@ -28,6 +31,7 @@ export function HAPage() {
         </p>
       </div>
 
+      <ClusterMap />
       <QuorumPanel />
       <ProtectionCard />
       <GroupsPanel />
@@ -39,14 +43,13 @@ export function HAPage() {
         </button>
         <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', margin: '6px 0 0' }}>
           The watchdog lets a storage owner that lost quorum reset itself, so another node can take over without reaching it.
-          Power fencing (IPMI/Redfish or a switched PDU) is an optional extra layer. Set these on every node.
+          Power fencing (the other node's BMC, or a switched PDU) is an optional extra layer, with a test for each node. Set these on every node.
         </p>
         {showSettings && (
           <div style={{ marginTop: 16, display: 'flex', flexDirection: 'column', gap: 16 }}>
             <HardwareCheckCard />
             <WatchdogConfigForm />
-            <FencingConfigForm />
-            <PDUConfigForm />
+            <PowerFencingCard />
             <SCSIFencingCard />
           </div>
         )}
