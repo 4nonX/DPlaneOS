@@ -1026,9 +1026,9 @@ func reconcileUser(db *sql.DB, username string, du *DesiredUser) error {
 	}
 	
 	// If PasswordHash is empty, we don't update it to avoid wiping existing passwords
-	// unless this is a CREATE.
+	// unless this is a CREATE. A secret reference also keeps the node's password.
 	var err error
-	if du.PasswordHash != "" {
+	if du.PasswordHash != "" && !IsSecretRef(du.PasswordHash) {
 		_, err = db.Exec(`
 			INSERT INTO users (username, password_hash, email, role, active)
 			VALUES ($1, $2, $3, $4, $5)
@@ -1197,13 +1197,15 @@ func reconcileLDAP(db *sql.DB, desired *DesiredLDAP) error {
 		jit = 1
 	}
 
+	// A secret reference keeps the bind password stored (sealed) on this node.
+	bindPassword := sql.NullString{String: desired.BindPassword, Valid: !IsSecretRef(desired.BindPassword)}
 	_, err := db.Exec(`UPDATE ldap_config SET
-		enabled=$1, server=$2, port=$3, use_tls=$4, bind_dn=$5, bind_password=$6, base_dn=$7,
+		enabled=$1, server=$2, port=$3, use_tls=$4, bind_dn=$5, bind_password=COALESCE($6, bind_password), base_dn=$7,
 		user_filter=$8, user_id_attr=$9, user_name_attr=$10, user_email_attr=$11,
 		group_base_dn=$12, group_filter=$13, group_member_attr=$14,
 		jit_provisioning=$15, default_role=$16, sync_interval=$17, timeout=$18,
 		updated_at=NOW() WHERE id=1`,
-		enabled, desired.Server, desired.Port, useTLS, desired.BindDN, desired.BindPassword, desired.BaseDN,
+		enabled, desired.Server, desired.Port, useTLS, desired.BindDN, bindPassword, desired.BaseDN,
 		desired.UserFilter, desired.UserIDAttr, desired.UserNameAttr, desired.UserEmailAttr,
 		desired.GroupBaseDN, desired.GroupFilter, desired.GroupMemberAttr,
 		jit, desired.DefaultRole, desired.SyncInterval, desired.Timeout)

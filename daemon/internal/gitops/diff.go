@@ -1527,7 +1527,7 @@ func riskForStackChanges(changes []string) string {
  
 func diffUser(desired DesiredUser, live LiveUser) []string {
 	var changes []string
-	if desired.PasswordHash != "" && desired.PasswordHash != live.PasswordHash {
+	if desired.PasswordHash != "" && !IsSecretRef(desired.PasswordHash) && desired.PasswordHash != live.PasswordHash {
 		changes = append(changes, "password_hash: (hidden) → (updated)")
 	}
 	if desired.Email != live.Email {

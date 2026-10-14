@@ -374,6 +374,13 @@ func validRecordsize(s string) bool {
 // bcryptHashRe matches a bcrypt hash: $2a$, $2b$ or $2y$, cost, 53 characters.
 var bcryptHashRe = regexp.MustCompile(`^\$2[aby]\$\d{2}\$[./A-Za-z0-9]{53}$`)
 
+// SecretRefPrefix starts a secret reference in state.yaml: the value stays on
+// the node that holds it (Design 0001 section 5.9).
+const SecretRefPrefix = "secret://"
+
+// IsSecretRef reports whether v is a secret reference.
+func IsSecretRef(v string) bool { return strings.HasPrefix(v, SecretRefPrefix) }
+
 func ValidState(s *DesiredState) []string {
 	var errs []string
 
@@ -554,13 +561,15 @@ func ValidState(s *DesiredState) []string {
 	// declared as a bcrypt hash (like NixOS hashedPassword); anything else in
 	// password_hash is most likely a plain-text password. The LDAP bind password
 	// is set in the GUI, where it is stored encrypted.
+	// A secret reference ("secret://user/alice/password") means: keep the
+	// secret this node holds; the repository never carries the secret itself.
 	for i, u := range s.Users {
-		if u.PasswordHash != "" && !bcryptHashRe.MatchString(u.PasswordHash) {
+		if u.PasswordHash != "" && !bcryptHashRe.MatchString(u.PasswordHash) && !IsSecretRef(u.PasswordHash) {
 			errs = append(errs, fmt.Sprintf("users[%d] %q: password_hash must be a bcrypt hash ($2a$/$2b$/$2y$); "+
 				"never put a plain-text password in state.yaml", i, u.Username))
 		}
 	}
-	if s.LDAP != nil && s.LDAP.BindPassword != "" {
+	if s.LDAP != nil && s.LDAP.BindPassword != "" && !IsSecretRef(s.LDAP.BindPassword) {
 		errs = append(errs, "ldap.bind_password: secrets are not accepted in state.yaml; "+
 			"set the bind password in Directory settings (it is stored encrypted on the node)")
 	}
@@ -863,8 +872,84 @@ func PrintStateYAML(s *DesiredState) string {
 		}
 	}
 
+	if len(s.Users) > 0 {
+		b.WriteString("\nusers:\n")
+		users := append([]DesiredUser(nil), s.Users...)
+		sort.Slice(users, func(i, j int) bool { return users[i].Username < users[j].Username })
+		for _, u := range users {
+			fmt.Fprintf(&b, "  - username: %q\n", u.Username)
+			if u.PasswordHash != "" {
+				fmt.Fprintf(&b, "    password_hash: %q\n", u.PasswordHash)
+			}
+			fmt.Fprintf(&b, "    email: %q\n", u.Email)
+			fmt.Fprintf(&b, "    role: %q\n", u.Role)
+			fmt.Fprintf(&b, "    active: %v\n", u.Active)
+		}
+	}
+
+	if len(s.Groups) > 0 {
+		b.WriteString("\ngroups:\n")
+		groups := append([]DesiredGroup(nil), s.Groups...)
+		sort.Slice(groups, func(i, j int) bool { return groups[i].Name < groups[j].Name })
+		for _, g := range groups {
+			fmt.Fprintf(&b, "  - name: %q\n", g.Name)
+			fmt.Fprintf(&b, "    description: %q\n", g.Description)
+			fmt.Fprintf(&b, "    gid: %d\n", g.GID)
+			if len(g.Members) > 0 {
+				b.WriteString("    members:\n")
+				for _, m := range g.Members {
+					fmt.Fprintf(&b, "      - %q\n", m)
+				}
+			}
+		}
+	}
+
+	if len(s.Replication) > 0 {
+		b.WriteString("\nreplication:\n")
+		repls := append([]DesiredReplication(nil), s.Replication...)
+		sort.Slice(repls, func(i, j int) bool { return repls[i].Name < repls[j].Name })
+		for _, r := range repls {
+			fmt.Fprintf(&b, "  - name: %q\n", r.Name)
+			fmt.Fprintf(&b, "    source_dataset: %q\n", r.SourceDataset)
+			fmt.Fprintf(&b, "    remote: %q\n", r.Remote)
+			fmt.Fprintf(&b, "    remote_pool: %q\n", r.RemotePool)
+			fmt.Fprintf(&b, "    interval: %q\n", r.Interval)
+			fmt.Fprintf(&b, "    trigger_on_snapshot: %v\n", r.TriggerOnSnapshot)
+			fmt.Fprintf(&b, "    incremental: %v\n", r.Incremental)
+			fmt.Fprintf(&b, "    compress: %v\n", r.Compress)
+			fmt.Fprintf(&b, "    rate_limit_mb: %d\n", r.RateLimitMB)
+			fmt.Fprintf(&b, "    enabled: %v\n", r.Enabled)
+		}
+	}
+
+	if s.LDAP != nil {
+		l := s.LDAP
+		b.WriteString("\nldap:\n")
+		fmt.Fprintf(&b, "  enabled: %v\n", l.Enabled)
+		fmt.Fprintf(&b, "  server: %q\n", l.Server)
+		fmt.Fprintf(&b, "  port: %d\n", l.Port)
+		fmt.Fprintf(&b, "  use_tls: %v\n", l.UseTLS)
+		fmt.Fprintf(&b, "  bind_dn: %q\n", l.BindDN)
+		if l.BindPassword != "" {
+			fmt.Fprintf(&b, "  bind_password: %q\n", l.BindPassword)
+		}
+		fmt.Fprintf(&b, "  base_dn: %q\n", l.BaseDN)
+		fmt.Fprintf(&b, "  user_filter: %q\n", l.UserFilter)
+		fmt.Fprintf(&b, "  user_id_attr: %q\n", l.UserIDAttr)
+		fmt.Fprintf(&b, "  user_name_attr: %q\n", l.UserNameAttr)
+		fmt.Fprintf(&b, "  user_email_attr: %q\n", l.UserEmailAttr)
+		fmt.Fprintf(&b, "  group_base_dn: %q\n", l.GroupBaseDN)
+		fmt.Fprintf(&b, "  group_filter: %q\n", l.GroupFilter)
+		fmt.Fprintf(&b, "  group_member_attr: %q\n", l.GroupMemberAttr)
+		fmt.Fprintf(&b, "  jit_provisioning: %v\n", l.JITProvisioning)
+		fmt.Fprintf(&b, "  default_role: %q\n", l.DefaultRole)
+		fmt.Fprintf(&b, "  sync_interval: %d\n", l.SyncInterval)
+		fmt.Fprintf(&b, "  timeout: %d\n", l.Timeout)
+	}
+
 	if s.ACME != nil && s.ACME.Enabled {
 		b.WriteString("\nacme:\n")
+		b.WriteString("  enabled: true\n")
 		fmt.Fprintf(&b, "  email: %s\n", s.ACME.Email)
 		fmt.Fprintf(&b, "  server: %s\n", s.ACME.Server)
 		fmt.Fprintf(&b, "  resolver: %s\n", s.ACME.Resolver)
