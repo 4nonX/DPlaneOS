@@ -63,7 +63,7 @@ PID=$!
 trap 'sudo kill $PID 2>/dev/null || true' EXIT
 for _ in $(seq 1 40); do curl -s http://127.0.0.1:9000/health >/dev/null && break; sleep 0.5; done
 CI_HASH=$(python3 -c "import bcrypt; print(bcrypt.hashpw(b'$CI_PASS', bcrypt.gensalt(rounds=10)).decode())")
-PGPASSWORD=dplaneos psql -h localhost -U dplaneos -d dplaneos -c \
+psql "$DATABASE_DSN" -c \
   "UPDATE users SET password_hash='$CI_HASH', active=1, role='admin', must_change_password=0 WHERE username='admin';" >/dev/null
 SESSION=$(curl -s -X POST http://127.0.0.1:9000/api/auth/login -H 'Content-Type: application/json' \
   -d "{\"username\":\"admin\",\"password\":\"$CI_PASS\"}" | python3 -c "import sys,json; print(json.load(sys.stdin)['session_id'])")
@@ -92,7 +92,7 @@ user_field() { # username field
 }
 sync_now() { api POST /api/config/capture '{}'; api POST /api/gitops/sync '{}'; }
 SCOPE="next(x for x in d['status']['scopes'] if x['scope'] == 'all')"
-scope_counts() { api GET /api/gitops/status; py "' '.join(str(len($SCOPE)[k])) for k in ('push', 'pull', 'conflicts'))"; }
+scope_counts() { api GET /api/gitops/status; py "' '.join(str(len(($SCOPE)[k])) for k in ('push', 'pull', 'conflicts'))"; }
 scope_pull_ids() { api GET /api/gitops/status; py "','.join(c['id'] for c in ($SCOPE)['pull'])"; }
 hold_reason() { api GET /api/gitops/status; py "next((h['reason'] for h in d['holds'] if h['scope'] == 'all'), '')"; }
 

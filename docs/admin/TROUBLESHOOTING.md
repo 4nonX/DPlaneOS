@@ -680,8 +680,8 @@ DPlaneOS runs on NixOS. A full reset means reinstalling the OS from the ISO and 
 
 1. Boot from the DPlaneOS ISO and reinstall to the OS disk
 2. After first boot, import data pools: `sudo zpool import -a`
-3. Configure the GitOps repository: Settings - GitOps
-4. Apply: `POST /api/gitops/apply` or run `sudo dplaned --apply-only`
+3. Restore the configuration from Git: System › Git › Configuration repository: add the credentials and the repository, save
+4. The first check lists the repository's configuration as changes waiting on each scope: **Apply** them (or switch on automatic apply for this once); or apply a `state.yaml` file directly with `sudo dplaned --apply-only`
 5. Restore the PostgreSQL database from backup if needed (see [BACKUP-REPLICATION.md](BACKUP-REPLICATION.md))
 
 ZFS data pools are on separate disks and are completely unaffected by a boot disk reinstall.

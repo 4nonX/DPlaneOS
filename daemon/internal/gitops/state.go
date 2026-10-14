@@ -979,9 +979,9 @@ func PrintStateYAML(s *DesiredState) string {
 		fmt.Fprintf(&b, "  timeout: %d\n", l.Timeout)
 	}
 
-	if s.ACME != nil && s.ACME.Enabled {
+	if s.ACME != nil {
 		b.WriteString("\nacme:\n")
-		b.WriteString("  enabled: true\n")
+		fmt.Fprintf(&b, "  enabled: %v\n", s.ACME.Enabled)
 		fmt.Fprintf(&b, "  email: %s\n", s.ACME.Email)
 		fmt.Fprintf(&b, "  server: %s\n", s.ACME.Server)
 		fmt.Fprintf(&b, "  resolver: %s\n", s.ACME.Resolver)
@@ -1002,7 +1002,6 @@ func PrintStateYAML(s *DesiredState) string {
 				fmt.Fprintf(&b, "    %s: %s\n", k, s.ACME.DNSConfig[k])
 			}
 		}
-		b.WriteString("  enabled: true\n")
 	}
 
 	if len(s.Certificates) > 0 {

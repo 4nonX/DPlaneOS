@@ -1250,7 +1250,7 @@ func SyncDB(db *sql.DB, desired *DesiredState) error {
 			VALUES ($1, $2, $3, $4, 'git')
 			ON CONFLICT (username) DO UPDATE SET
 				email=EXCLUDED.email, role=EXCLUDED.role, active=EXCLUDED.active, updated_at=NOW()`,
-			u.Username, u.Email, u.Role, u.Active)
+			u.Username, u.Email, u.Role, boolToInt(u.Active)) // users.active is an integer column
 		if err != nil {
 			return fmt.Errorf("syncing user %q: %w", u.Username, err)
 		}
@@ -1333,7 +1333,7 @@ func SyncDB(db *sql.DB, desired *DesiredState) error {
 		}
 		_, err := tx.Exec(`INSERT INTO nfs_exports (path, clients, options, enabled)
 			VALUES ($1, $2, $3, $4)`,
-			n.Path, n.Clients, n.Options, n.Enabled)
+			n.Path, n.Clients, n.Options, boolToInt(n.Enabled)) // nfs_exports.enabled is an integer column
 		if err != nil {
 			return fmt.Errorf("syncing nfs %q: %w", n.Path, err)
 		}

@@ -157,11 +157,12 @@ func ToGit(r configstore.Resource) configstore.Resource {
 	for _, f := range secretFields[r.Kind] {
 		switch r.Kind {
 		case configstore.KindUser:
+			// A payload of this store carries a fingerprint; one read from the
+			// repository already carries the reference (or a hash written
+			// there), which stays as it is.
 			delete(p, f.field)
 			if fp, _ := r.Payload[f.field].(string); fp != "" {
 				p[f.yaml] = secretRef(r.Kind, r.Key, "password")
-			} else {
-				delete(p, f.yaml)
 			}
 		case configstore.KindACME:
 			if dns, ok := p[f.field].(map[string]any); ok {
@@ -245,9 +246,45 @@ func Hash(r configstore.Resource) string {
 	if r.Payload == nil {
 		return ""
 	}
-	raw, _ := json.Marshal(ToGit(r).Payload) // map keys are sorted
+	raw, _ := json.Marshal(canonical(ToGit(r).Payload)) // map keys are sorted
 	sum := sha256.Sum256(raw)
 	return hex.EncodeToString(sum[:])
+}
+
+// canonical drops empty values: state.yaml does not tell an empty string,
+// list or map from an absent one, so none may count as a difference.
+func canonical(v any) any {
+	switch t := v.(type) {
+	case string:
+		if t == "" {
+			return nil
+		}
+	case map[string]any:
+		out := map[string]any{}
+		for k, e := range t {
+			if c := canonical(e); c != nil {
+				out[k] = c
+			}
+		}
+		if len(out) == 0 {
+			return nil
+		}
+		return out
+	case []any:
+		if len(t) == 0 {
+			return nil
+		}
+		out := make([]any, len(t))
+		for i, e := range t {
+			out[i] = canonical(e)
+		}
+		return out
+	case []string:
+		if len(t) == 0 {
+			return nil
+		}
+	}
+	return v
 }
 
 // ── Rendering and parsing scope files ─────────────────────────────────────────
@@ -266,6 +303,32 @@ func Render(rs []configstore.Resource) (string, error) {
 		return "", err
 	}
 	return gitops.PrintStateYAML(ds), nil
+}
+
+// CheckRoundTrip reads content back and checks that each of want comes out
+// as it went in (secrets aside). A difference is a gap in the state.yaml
+// format; the file is not written rather than written wrong.
+func CheckRoundTrip(content, node string, want []configstore.Resource) error {
+	back, err := Parse(content, node)
+	if err != nil {
+		return fmt.Errorf("the file this node would write does not read back: %w", err)
+	}
+	byID := map[string]configstore.Resource{}
+	for _, r := range back {
+		byID[r.ID()] = r
+	}
+	var lost []string
+	for _, w := range want {
+		got, ok := byID[w.ID()]
+		if !ok || Hash(FromGit(got, w.Payload)) != Hash(w) {
+			lost = append(lost, w.ID())
+		}
+	}
+	if len(lost) > 0 {
+		sort.Strings(lost)
+		return fmt.Errorf("state.yaml cannot hold these exactly as they are; not written: %s", strings.Join(lost, ", "))
+	}
+	return nil
 }
 
 // Parse reads a scope file into resources (with references, as in the file).

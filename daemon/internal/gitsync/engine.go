@@ -672,6 +672,18 @@ func (c *cycle) push(sc, path string, ss *ScopeStatus, state *scopeState, ids []
 	if len(rs) == 0 {
 		content = "" // removes the file
 	}
+	// Never push a file that would read back differently: the next cycle
+	// would take the difference for a change made in the repository.
+	var written []configstore.Resource
+	for _, id := range ids {
+		if l := local[id]; l.Payload != nil {
+			written = append(written, l.Resource())
+		}
+	}
+	if err := CheckRoundTrip(content, c.node, written); err != nil {
+		ss.Push = ids
+		return err
+	}
 	sum := sha256.Sum256([]byte(content))
 	contentHash := hex.EncodeToString(sum[:])
 	if s.Policy == PolicyPullRequest && state.Declined == contentHash {

@@ -427,6 +427,7 @@ in {
         nfs-utils acl krb5               # exportfs; getfacl/setfacl; kinit/klist
         iproute2 iputils traceroute dnsutils nftables
         git openssh rsync rclone pv      # GitOps, replication, cloud sync
+        gnupg                            # Git backend: verifying GPG-signed commits
         gnutar gzip curl which kmod procps fuse openssl nginx targetcli-fb
         bash  # timer units run bash -c "curl ..." (internal/systemd resolves ExecStart from this PATH)
         (lib.getBin glibc)               # getent

@@ -7,9 +7,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## Unreleased
 
-[Design 0001](../design/0001-distributed-state-gitops-ha.md), phase 4 (web interface).
+[Design 0001](../design/0001-distributed-state-gitops-ha.md), phases 4 (web interface) and 5 (Git backend).
+
+### Upgrade notes
+
+- **GitOps works differently.** Web UI changes are no longer pushed as snapshot commits by every node, and there is no manual "Deploy" of `state.yaml` any more. The configuration repository is set up on the Git page (System › Git); existing settings (repository, branch, file, categories) are taken over. On paired nodes, switch to one file per scope. Changes from the repository wait for approval unless automatic apply is switched on. See [GITOPS-DRIVEN-NAS.md](../admin/GITOPS-DRIVEN-NAS.md).
+- **Removed API endpoints:** `POST /api/gitops/apply`, `/check`, `/capture`, `GET /api/gitops/managed-summary`, `PUT /api/gitops/state`. `GET /api/gitops/status` and `/plan` have new shapes.
 
 ### Added
+
+- **Git backend.** The configuration is kept in a Git repository, one `state.yaml` per scope (cluster, each storage group, each node) or one file on a standalone node. The node that owns a scope writes it: the coordinator, the group's owner, the node itself. Changes in the web UI are committed to the branch or proposed as pull requests (GitHub, Gitea/Forgejo, GitLab); changes in the repository are applied after approval or automatically, through the same merge as changes from other nodes, and conflicts are decided in Configuration Sync. Several remotes; credentials sent to the paired nodes encrypted; push notifications (webhooks) from GitHub, Gitea/Forgejo and GitLab.
+- **Safe defaults** (as in Argo CD): no automatic apply, no automatic deletion, no self-heal, an empty-state guard, no automatic revert. A commit that cannot be taken (failed apply, unsigned, unreadable, guard) puts its scope **on hold** at the last good commit, raises an alert and sets a failure status on the commit; **Resume** retries, **Revert** writes the last good version back.
+- **Commit signatures:** only commits signed by allowed SSH or GPG keys are taken (optional); nodes can sign their own commits.
+- **Secrets never go to the repository:** passwords, the LDAP bind password, ACME DNS credentials and certificate keys appear as `secret://` references; each node keeps its own.
 
 - **Guided setup** (High Availability › Guided setup): one node, or two and more nodes with failover: pair, form the cluster, add a third vote, protect (watchdog), create a storage group. Each step shows whether it is done from the system's state, so the guide can be left and resumed.
 - **Cluster Map** (System › Cluster Map): every node and vote, which node owns which storage group and which may take it over (in order), epochs, quorum, the coordinator, replication lag and node states.
@@ -21,13 +31,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ### Fixed
 
+- Accounts with two-factor authentication could not log in through the web interface: the second login step was refused before reaching the server's check.
+- `state.yaml`: per-share options (Time Machine, shadow copies, recycle bin, hosts allow/deny) were never read; dataset `restore` was not read; `force_reshape` and the SSH settings were not written; the export left out users, groups, replication, LDAP and a disabled ACME configuration; multi-line values (compose files, certificates, Samba extra settings) gained a leading space and lost blank lines and comments; list values containing ":" (NVMe host NQNs) were misread.
+- Applying users or NFS exports from `state.yaml` failed on PostgreSQL (`active`/`enabled` sent as booleans to integer columns).
 - A storage group created right after forming the cluster had no other candidate: the form kept the member list from when it was opened.
 - A revision adopted from another node was stamped with this node's group epoch instead of keeping the writer's.
 
 ### Changed
 
 - API: `GET /api/config/conflicts` also returns `proposals` and `policies`; `GET /api/ha/protection` also returns `fencing_ok` and `fencing_reason`. New: `GET /api/cluster/map`, `GET|POST|DELETE /api/cluster/maintenance`, `POST /api/cluster/test/{qdevice|fencing|pdu|replication}`, `POST /api/config/proposals/{id}/apply|dismiss`, `PUT /api/config/policy`, `GET /api/config/current`.
-- The database schema migrates automatically (migration 00028).
+- The database schema migrates automatically (migrations 00028, 00029).
 
 ## v15.0.0 (2026-10-10) - "Local First"
 

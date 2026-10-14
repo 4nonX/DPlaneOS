@@ -432,6 +432,63 @@ jobs:
           DATABASE_DSN: "postgres://dplaneos:dplaneos@localhost:5432/dplaneos?sslmode=disable"
         run: bash .github/scripts/config-sync-test.sh
 
+  # ════════════════════════════════════════════════════════════════════════════
+  # STAGE 4B: GIT BACKEND - the configuration in a real Git server (Gitea,
+  # the Forgejo API) (Design 0001, Phase 5): commit, approve and apply a
+  # repository change with a commit status, pull request merged, empty-state
+  # guard and revert.
+  # ════════════════════════════════════════════════════════════════════════════
+  git-backend:
+    name: Git Backend (Gitea)
+    needs: [prepare, validate]
+    runs-on: ubuntu-22.04
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_DB: dplaneos
+          POSTGRES_USER: dplaneos
+          POSTGRES_PASSWORD: dplaneos
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      gitea:
+        image: gitea/gitea:1.22.6
+        env:
+          GITEA__security__INSTALL_LOCK: "true"
+          GITEA__database__DB_TYPE: sqlite3
+          GITEA__server__ROOT_URL: http://localhost:3000/
+          GITEA__server__HTTP_PORT: "3000"
+        ports:
+          - 3000:3000
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download Build Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dplaneos-build
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y zfsutils-linux postgresql-client python3-bcrypt curl git
+          sudo modprobe zfs
+
+      - name: Positioning binary for scripts
+        run: cp build/dplaned-linux-amd64-cgo ./dplaned-ci && chmod +x ./dplaned-ci
+
+      - name: Run Git backend test
+        env:
+          DATABASE_DSN: "postgres://dplaneos:dplaneos@localhost:5432/dplaneos?sslmode=disable"
+          GITEA_CLI: "docker exec -u git ${{ job.services.gitea.id }} gitea"
+        run: bash .github/scripts/git-backend-test.sh
+
 
   # ════════════════════════════════════════════════════════════════════════════
   # STAGE 4C: ARM64 API TESTS - Behavioral coverage for the arm64 daemon

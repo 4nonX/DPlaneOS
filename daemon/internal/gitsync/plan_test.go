@@ -206,3 +206,35 @@ func TestManagedCategories(t *testing.T) {
 		t.Error("categories")
 	}
 }
+
+func TestCheckRoundTrip(t *testing.T) {
+	acme := configstore.Resource{Kind: "acme", Key: "acme", Scope: configstore.ScopeCluster,
+		Payload: map[string]any{"email": "ops@x.lan", "server": "https://acme", "domains": []any{"nas.x.lan"},
+			"resolver": "http", "dns_config": map[string]any{}, "enabled": false}}
+	out, err := Render([]configstore.Resource{acme})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A disabled ACME configuration is still written and read back.
+	if err := CheckRoundTrip(out, "nas1", []configstore.Resource{acme}); err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	if err := CheckRoundTrip("version: \"1\"\n", "nas1", []configstore.Resource{acme}); err == nil {
+		t.Error("a file that lost the resource must be refused")
+	}
+}
+
+// A resource read from the repository and written back unchanged (it rides
+// along in a file with another resource's change) keeps its reference.
+func TestToGitKeepsReferencesOfRepositoryVersions(t *testing.T) {
+	fromRepo := configstore.Resource{Kind: "user", Key: "admin", Scope: configstore.ScopeCluster,
+		Payload: map[string]any{"username": "admin", "email": "a@x", "password_hash": "secret://user/admin/password"}}
+	if got := ToGit(fromRepo).Payload["password_hash"]; got != "secret://user/admin/password" {
+		t.Fatalf("reference lost: %v", got)
+	}
+	local := configstore.Resource{Kind: "user", Key: "admin", Scope: configstore.ScopeCluster,
+		Payload: map[string]any{"username": "admin", "email": "a@x", "password_hash": "", "credentials": "sha256:fp"}}
+	if Hash(FromGit(fromRepo, local.Payload)) != Hash(local) {
+		t.Fatal("the repository's version must equal this node's")
+	}
+}
