@@ -114,11 +114,17 @@ pkgs.testers.nixosTest {
         o = h[-1] & 0x0F
         return "%06d" % ((struct.unpack(">I", h[o:o + 4])[0] & 0x7FFFFFFF) % 1000000)
 
+    totp_secret = {}
+
     def login_2fa(m):
         # Fencing settings need a session with two-factor authentication (AAL2).
         login(m)
         secret = api(m, "GET", "/api/auth/totp/setup")["secret"]
         ok(api(m, "POST", "/api/auth/totp/setup", {"code": totp(secret)}), f"{m.name}: enable 2FA")
+        totp_secret[m.name] = secret
+        login_totp(m, secret)
+
+    def login_totp(m, secret):
         time.sleep(31 - time.time() % 30)  # a code is accepted once: next 30-second step
         r = api(m, "POST", "/api/auth/login", {"username": "admin", "password": PASSWORD}, auth=False)
         assert r.get("requires_totp"), r
@@ -156,6 +162,12 @@ pkgs.testers.nixosTest {
         for m in (a, b):
             print(m.execute("journalctl -b --no-pager -u dplaned | grep -i -E 'group|sync|conflict|quorum|error|maintenance' | tail -n 80")[1])
             print(m.execute("(corosync-quorumtool -s || true)")[1])
+            try:
+                c = api(m, "GET", "/api/config/conflicts")
+                print(m.name, "conflicts:", [(x["kind"], x["key"]) for x in c.get("conflicts", [])],
+                      "proposals:", [(x["kind"], x["key"]) for x in c.get("proposals", [])])
+            except Exception as e:
+                print(m.name, "conflicts unavailable:", e)
 
     try:
         with subtest("1. Watchdog on both nodes through the API"):
@@ -171,6 +183,19 @@ pkgs.testers.nixosTest {
             preview = ok(api(b, "POST", "/api/config/peers/preview", {"url": "http://a", "token": token}), "merge preview")["preview"]
             assert preview["name"] == "a", preview
             ok(api(b, "POST", "/api/config/peers/join", {"url": "http://a", "token": token, "self_url": "http://b"}), "join")
+            # Each node set up its own admin (own password hash, own 2FA secret):
+            # pairing raises one conflict on that account, settled by the operator
+            # before a cluster (and a coordinator to decide) exists. a's version.
+            def admin_conflicts():
+                sync(b, a, b)
+                return [(m, c) for m in (a, b) for c in api(m, "GET", "/api/config/conflicts")["conflicts"]]
+            found = wait_for(admin_conflicts, "the conflict on the admin account", 60)
+            assert [(c["kind"], c["key"]) for _, c in found] == [("user", "admin")], [(m.name, c["kind"], c["key"]) for m, c in found]
+            for m, c in found:
+                ok(api(m, "POST", f"/api/config/conflicts/{c['id']}/resolve", {"choice": "local" if m is a else "remote"}), "keep a's admin")
+            wait_for(lambda: (sync(b, a, b), not admin_conflicts())[1], "no open conflict after pairing", 60)
+            # b's admin is now a's, credentials included: a's second factor works on b.
+            login_totp(b, totp_secret["a"])
             sa = api(a, "GET", "/api/config/sync/status")["status"]
             peer_b, node_a = sa["peers"][0]["id"], sa["node_id"]
             s = api(a, "GET", f"/api/quorum/suggest?peer_id={peer_b}")
