@@ -362,10 +362,16 @@ func (s *Syncer) closeConflict(peerID, kind, key, resolution string) {
 
 // adopt records a peer revision in this node's log under its own uid.
 func adopt(db *sql.DB, r Revision, local *Revision) error {
+	// A change from the repository enters through the owner of its scope and
+	// carries that node's authority (epoch or coordinator term).
+	origin := OriginPeer
+	if r.Origin == OriginGit {
+		origin = OriginGit
+	}
 	_, err := insertRevision(db, Revision{
 		UID: r.UID, BaseUID: r.BaseUID, MergeUID: r.MergeUID,
 		Scope: r.Scope, ScopeID: r.ScopeID, Kind: r.Kind, Key: r.Key, Payload: r.Payload,
-		Origin: OriginPeer, OriginNode: r.OriginNode, Author: r.Author, Note: r.Note, Epoch: r.Epoch,
+		Origin: origin, OriginNode: r.OriginNode, Author: r.Author, Note: r.Note, Epoch: r.Epoch,
 	}, local)
 	return err
 }
@@ -512,7 +518,8 @@ func (s *Syncer) evaluate(p Peer) error {
 // conflict waits for the operator.
 func (s *Syncer) settleConflict(p Peer, local, r Revision) error {
 	winner, reason := WinnerNone, ""
-	if Policy(s.db, r.Scope) == PolicyAuto {
+	// The repository has no authority of its own: its conflicts wait for the operator.
+	if p.ID != GitPeerID && Policy(s.db, r.Scope) == PolicyAuto {
 		winner, reason = DefaultWinner(local, r)
 	}
 	if winner == WinnerLocal {

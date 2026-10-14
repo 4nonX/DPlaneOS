@@ -134,6 +134,11 @@ func Compare(local map[string]configstore.Revision, remote []configstore.Resourc
 			if b != nil {
 				c.BaseUID = b.UID
 			}
+			if act == Pull && hasLocal {
+				// This node's version is the base content-wise: building on its
+				// revision makes the change a fast-forward in the merge engine.
+				c.BaseUID = l.UID
+			}
 			if act == Pull {
 				plan.Pull = append(plan.Pull, c)
 			} else {

@@ -49,6 +49,9 @@ type Revision struct {
 	CreatedAt  time.Time `json:"created_at"`
 }
 
+// Resource returns the resource state the revision records.
+func (r Revision) Resource() Resource { return r.resource() }
+
 func (r Revision) resource() Resource {
 	return Resource{Kind: r.Kind, Key: r.Key, Scope: r.Scope, ScopeID: r.ScopeID, Payload: r.Payload}
 }

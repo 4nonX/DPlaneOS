@@ -1,827 +1,285 @@
 package handlers
 
 import (
+	"crypto/rand"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
-	"fmt"
+	"io"
 	"log"
 	"net/http"
-	"os"
-	"path/filepath"
 	"strings"
-	"sync"
-	"time"
 
-	"dplaned/internal/gitops"
+	"github.com/gorilla/mux"
+
+	"dplaned/internal/configstore"
+	"dplaned/internal/gitsync"
 )
 
-// Routes added in this file (declarative capture - v10.0):
-//   POST /api/gitops/capture          - snapshot live state into state.yaml
-//   GET  /api/gitops/managed-summary  - per-category resource counts (git vs live)
-
 // ═══════════════════════════════════════════════════════════════════════════════
-//  GITOPS HTTP HANDLER  (Phase 3)
+//  GIT BACKEND  (Design 0001 phase 5, section 5.8)
 //
-//  Routes:
-//    GET  /api/gitops/status          - last drift result + plan summary
-//    GET  /api/gitops/plan            - full diff plan (live computation)
-//    POST /api/gitops/apply           - apply the current plan
-//    POST /api/gitops/approve         - mark a BLOCKED item as approved
-//    POST /api/gitops/check           - trigger an immediate drift check
-//    GET  /api/gitops/settings        - return GitOps configuration (enabled, granular flags)
-//    PUT  /api/gitops/settings        - update GitOps configuration
-//    POST /api/gitops/sync            - manual sync fallback (pull -> commitall -> push)
-//    GET  /api/gitops/state           - return current state.yaml content
-//    PUT  /api/gitops/state           - write and validate a new state.yaml
-//
-//  The handler holds no plan cache - every GET /plan computes fresh from ZFS.
-//  State (approvals) IS held in memory and in the DB between calls.
+//    GET  /api/gitops/status                    last cycle: remotes, scopes, holds
+//    GET  /api/gitops/plan                      what waits per scope (pull, push, conflicts)
+//    POST /api/gitops/sync                      run a cycle now
+//    GET  /api/gitops/settings                  repository settings
+//    PUT  /api/gitops/settings                  save (and send to the paired nodes)
+//    POST /api/gitops/approve   {scope, sha}    apply the repository's changes of a scope
+//    POST /api/gitops/take      {scope}         replace local-only changes with the repository's
+//    POST /api/gitops/holds/{scope}/resume      clear a hold and retry
+//    POST /api/gitops/holds/{scope}/revert      write the last good version back, clear the hold
+//    GET  /api/gitops/state?scope=              a scope's file in the newest commit
+//    POST /api/gitops/webhook                   push notification (public, HMAC/token)
+//    POST /api/config/sync/peer/gitops          settings from a paired node (peer secret)
 // ═══════════════════════════════════════════════════════════════════════════════
 
-// GitOpsHandler is the HTTP handler for all GitOps endpoints.
+// GitOpsHandler serves the Git backend.
 type GitOpsHandler struct {
-	db            *sql.DB
-	smbConfPath   string
-	stateYAMLPath string
-	detector      *gitops.DriftDetector
-	// approvals tracks BLOCKED items that the operator has approved.
-	// Key: "<kind>/<name>". Cleared after a successful apply.
-	approvalsMu sync.Mutex
-	approvals   map[string]bool
-
-	// ownershipGuardMu protects ownershipGuard.
-	ownershipGuardMu sync.RWMutex
-	// ownershipGuard is called before pool ownership operations in applies
-	// triggered through this handler. Nil means no restriction.
-	ownershipGuard func() bool
+	db     *sql.DB
+	engine *gitsync.Engine
 }
 
-// SetOwnershipGuard registers the quorum check function. When set, pool
-// create/destroy/reshape operations in operator-triggered applies are deferred
-// if the function returns false. Wire this to clusterMgr.Status().Quorum.
-func (h *GitOpsHandler) SetOwnershipGuard(fn func() bool) {
-	h.ownershipGuardMu.Lock()
-	h.ownershipGuard = fn
-	h.ownershipGuardMu.Unlock()
+func NewGitOpsHandler(db *sql.DB, engine *gitsync.Engine) *GitOpsHandler {
+	return &GitOpsHandler{db: db, engine: engine}
 }
 
-func (h *GitOpsHandler) getOwnershipGuard() func() bool {
-	h.ownershipGuardMu.RLock()
-	defer h.ownershipGuardMu.RUnlock()
-	return h.ownershipGuard
-}
-
-// NewGitOpsHandler constructs the handler and starts the drift detector.
-//
-//   stateYAMLPath  - absolute path to state.yaml in the git repo
-//   smbConfPath    - absolute path to smb.conf for share reloads
-//   hub            - WebSocket hub for drift event broadcasting
-func NewGitOpsHandler(
-	db *sql.DB,
-	stateYAMLPath string,
-	smbConfPath string,
-	hub gitops.DriftBroadcaster,
-) *GitOpsHandler {
-	detector := gitops.NewDriftDetector(db, stateYAMLPath, 5*time.Minute, hub)
-	detector.Start()
-
-	return &GitOpsHandler{
-		db:            db,
-		smbConfPath:   smbConfPath,
-		stateYAMLPath: stateYAMLPath,
-		detector:      detector,
-		approvals:     make(map[string]bool),
-	}
-}
-
-// Stop cleans up background goroutines. Call from main defer.
-func (h *GitOpsHandler) Stop() {
-	h.detector.Stop()
-}
-
-// ── GET /api/gitops/status ────────────────────────────────────────────────────
-
-// Status returns the last drift detection result without re-computing.
-// For a fresh computation, use /api/gitops/check first.
+// Status: GET /api/gitops/status
 func (h *GitOpsHandler) Status(w http.ResponseWriter, r *http.Request) {
-	result := h.detector.LastResult()
-	if result == nil {
-		respondOK(w, map[string]any{
-			"success": true,
-			"status":  "pending",
-			"message": "First drift check has not completed yet - try again in a moment",
-		})
+	holds, err := gitsync.Holds(h.db)
+	if err != nil {
+		respondErrorSimple(w, "Failed to read holds: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-	respondOK(w, map[string]any{
-		"success":       true,
-		"drifted":       result.Drifted,
-		"checked_at":    result.CheckedAt.Format(time.RFC3339),
-		"error":         result.Error,
-		"state_yaml":    result.StateYAMLPath,
-		"plan_summary":  planSummary(result.Plan),
-		"last_commit":   gitops.LastCommitStatus(),
-		"synced_commit": gitops.SyncedCommit(h.db),
-	})
+	respondOK(w, map[string]any{"success": true, "status": h.engine.Status(), "holds": holds})
 }
 
-// ── GET /api/gitops/plan ──────────────────────────────────────────────────────
-
-// Plan computes and returns the full diff plan against live state.
-// This makes live ZFS calls - may take 1-3 seconds on large pools.
+// Plan: GET /api/gitops/plan - what waits, per scope this node writes.
 func (h *GitOpsHandler) Plan(w http.ResponseWriter, r *http.Request) {
-	desired, err := h.loadDesiredState()
+	st := h.engine.Status()
+	scopes := []gitsync.ScopeStatus{}
+	for _, s := range st.Scopes {
+		if s.Owner {
+			scopes = append(scopes, s)
+		}
+	}
+	respondOK(w, map[string]any{"success": true, "head": st.Head, "scopes": scopes})
+}
+
+// SyncNow: POST /api/gitops/sync
+func (h *GitOpsHandler) SyncNow(w http.ResponseWriter, r *http.Request) {
+	err := h.engine.Run()
+	resp := map[string]any{"success": err == nil, "status": h.engine.Status()}
 	if err != nil {
-		respondError(w, http.StatusUnprocessableEntity, "state.yaml error", err)
+		resp["error"] = err.Error()
+	}
+	respondOK(w, resp)
+}
+
+type settingsView struct {
+	gitsync.Settings
+	WebhookSecretSet bool   `json:"webhook_secret_set"`
+	WebhookPath      string `json:"webhook_path"`
+}
+
+// GetSettings: GET /api/gitops/settings
+func (h *GitOpsHandler) GetSettings(w http.ResponseWriter, r *http.Request) {
+	s, err := gitsync.Load(h.db)
+	if err != nil {
+		respondErrorSimple(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	respondOK(w, map[string]any{"success": true, "settings": settingsView{Settings: *s,
+		WebhookSecretSet: s.WebhookSecret != "", WebhookPath: "/api/gitops/webhook"}})
+}
 
-	live, err := gitops.ReadLiveState(h.db)
-	if err != nil {
-		respondError(w, http.StatusInternalServerError, "cannot read live state", err)
+// UpdateSettings: PUT /api/gitops/settings
+// webhook_secret: "" keeps the current one, "generate" creates a new one
+// (returned once), "none" removes it.
+func (h *GitOpsHandler) UpdateSettings(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		gitsync.Settings
+		WebhookSecret string `json:"webhook_secret"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&req); err != nil {
+		respondErrorSimple(w, "Invalid request", http.StatusBadRequest)
 		return
 	}
-
-	plan := gitops.ComputeDiff(desired, live, &gitops.DiffContext{DB: h.db})
-	h.stampApprovals(plan)
-
-	// Build the flat `changes` list consumed by the UI plan view.
-	// Exclude NOP items - only show actionable/informational drift.
-	type planChange struct {
-		Resource    string   `json:"resource"`
-		Kind        string   `json:"kind"`
-		Name        string   `json:"name"`
-		Action      string   `json:"action"`
-		Description string   `json:"description"`
-		Changes     []string `json:"changes,omitempty"`
-		RiskLevel   string   `json:"risk_level,omitempty"`
-		Approved    bool     `json:"approved"`
+	cur, err := gitsync.Load(h.db)
+	if err != nil {
+		respondErrorSimple(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
-	var uiChanges []planChange
-	for _, item := range plan.Items {
-		if item.Action == gitops.ActionNOP {
+	s := req.Settings
+	if s.Categories == nil {
+		s.Categories = cur.Categories
+	}
+	generated := ""
+	switch req.WebhookSecret {
+	case "":
+		s.WebhookSecret = cur.WebhookSecret
+	case "none":
+		s.WebhookSecret = ""
+	case "generate":
+		b := make([]byte, 24)
+		if _, err := rand.Read(b); err != nil {
+			respondErrorSimple(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		generated = hex.EncodeToString(b)
+		s.WebhookSecret = generated
+	default:
+		respondErrorSimple(w, `webhook_secret: "", "generate" or "none"`, http.StatusBadRequest)
+		return
+	}
+	for _, name := range append([]string{s.ProviderCred}, credNames(s.Remotes)...) {
+		if name == "" {
 			continue
 		}
-		desc := item.BlockReason
-		if desc == "" && len(item.Changes) > 0 {
-			desc = strings.Join(item.Changes, "; ")
-		}
-		uiChanges = append(uiChanges, planChange{
-			Resource:    fmt.Sprintf("%s/%s", item.Kind, item.Name),
-			Kind:        string(item.Kind),
-			Name:        item.Name,
-			Action:      string(item.Action),
-			Description: desc,
-			Changes:     item.Changes,
-			RiskLevel:   item.RiskLevel,
-			Approved:    item.Approved,
-		})
-	}
-	if uiChanges == nil {
-		uiChanges = []planChange{}
-	}
-
-	respondOK(w, map[string]any{
-		"success":       true,
-		"plan":          plan,
-		"changes":       uiChanges,
-		"plan_summary":  planSummary(plan),
-		"computed_at":   time.Now().Format(time.RFC3339),
-	})
-}
-
-// ── POST /api/gitops/apply ────────────────────────────────────────────────────
-
-// Apply computes the current plan and applies it.
-// BLOCKED items that have not been approved via /api/gitops/approve halt the apply.
-func (h *GitOpsHandler) Apply(w http.ResponseWriter, r *http.Request) {
-	if ok, reason := gitops.IsWriter(); !ok {
-		respondJSON(w, http.StatusConflict, map[string]any{
-			"success": false,
-			"error":   "GitOps apply runs on the active node only: " + reason,
-		})
-		return
-	}
-	// Enforce global reconciliation lock (Safety Phase 12.1)
-	if !gitops.TryLock() {
-		respondJSON(w, 423, map[string]any{
-			"success": false,
-			"error":   "A reconciliation is already in progress. Please wait for the current operation to finish.",
-		})
-		return
-	}
-	defer gitops.Unlock()
-
-	desired, err := h.loadDesiredState()
-	if err != nil {
-		respondError(w, http.StatusUnprocessableEntity, "state.yaml error", err)
-		return
-	}
-
-	live, err := gitops.ReadLiveState(h.db)
-	if err != nil {
-		respondError(w, http.StatusInternalServerError, "cannot read live state", err)
-		return
-	}
-
-	plan := gitops.ComputeDiff(desired, live, &gitops.DiffContext{DB: h.db})
-	h.stampApprovals(plan)
-
-	if plan.HasBlocked {
-		// Check if all blocked items have been approved
-		allApproved := true
-		var unapproved []string
-		for _, item := range plan.Items {
-			if item.Action == gitops.ActionBlocked && !item.Approved {
-				allApproved = false
-				unapproved = append(unapproved, fmt.Sprintf("%s/%s", item.Kind, item.Name))
-			}
-		}
-		if !allApproved {
-			respondOK(w, map[string]any{
-				"success":       false,
-				"error":         "plan contains BLOCKED items that require explicit approval",
-				"unapproved":    unapproved,
-				"blocked_count": plan.BlockedCount,
-				"hint":          "POST /api/gitops/approve with {kind, name} for each blocked item, then re-apply",
-			})
+		if _, err := gitsync.LoadCredential(h.db, name); err != nil {
+			respondOK(w, map[string]any{"success": false, "error": err.Error()})
 			return
 		}
 	}
-
-	if plan.HasAmbiguous {
-		var ambiguousItems []string
-		for _, item := range plan.Items {
-			if item.Action == gitops.ActionAmbiguous {
-				ambiguousItems = append(ambiguousItems, fmt.Sprintf("%s/%s: %s", item.Kind, item.Name, item.BlockReason))
-			}
-		}
-		respondOK(w, map[string]any{
-			"success":         false,
-			"error":           "plan contains AMBIGUOUS states that require manual resolution",
-			"ambiguous":       ambiguousItems,
-			"ambiguous_count": plan.AmbiguousCount,
-			"hint":            "Manual intervention required on the host (e.g. resolve duplicate pool names)",
-		})
+	if err := gitsync.Save(h.db, &s, configstore.NodeName()); err != nil {
+		respondOK(w, map[string]any{"success": false, "error": err.Error()})
 		return
 	}
-
-	ctx := gitops.ApplyContext{
-		DB:             h.db,
-		SmbConfPath:    h.smbConfPath,
-		OwnershipGuard: h.getOwnershipGuard(),
+	resp := map[string]any{"success": true}
+	if generated != "" {
+		resp["webhook_secret"] = generated
 	}
-
-	result, applyErr := gitops.ApplyPlan(ctx, plan, desired)
-
-	if applyErr != nil {
-		log.Printf("GITOPS APPLY ERROR: %v", applyErr)
-		respondOK(w, map[string]any{
-			"success": false,
-			"error":   applyErr.Error(),
-			"applied": result.Applied,
-			"failed":  result.Failed,
-		})
-		return
-	}
-
-	// Clear approvals after successful apply
-	h.approvalsMu.Lock()
-	h.approvals = make(map[string]bool)
-	h.approvalsMu.Unlock()
-
-	log.Printf("GITOPS APPLY: success - %d items in %s", len(result.Applied), result.Duration)
-	// The live system now matches the clone's HEAD (unless pool operations
-	// were deferred); GUI write-backs may snapshot it again.
-	if gitops.FullyApplied(result) {
-		if err := gitops.RecordApplied(h.db, filepath.Dir(h.stateYAMLPath)); err != nil {
-			log.Printf("GITOPS APPLY: %v", err)
+	if errs := h.sendToPeers(); len(errs) > 0 {
+		msgs := make([]string, 0, len(errs))
+		for _, e := range errs {
+			msgs = append(msgs, e.Error())
 		}
+		resp["warning"] = "saved here, not yet on every paired node (sent again with the next change): " + strings.Join(msgs, "; ")
 	}
-	respondOK(w, map[string]any{
-		"success":     true,
-		"applied":     result.Applied,
-		"count":       len(result.Applied),
-		"duration":    result.Duration.String(),
-		"convergence": result.Convergence,
-	})
+	h.engine.Trigger()
+	respondOK(w, resp)
 }
 
-// ── POST /api/gitops/approve ──────────────────────────────────────────────────
+func credNames(rs []gitsync.RemoteSetting) []string {
+	var out []string
+	for _, r := range rs {
+		out = append(out, r.FetchCred, r.PushCred)
+	}
+	return out
+}
 
-// Approve marks a BLOCKED item as operator-approved, allowing it to be applied.
-// Body: { "kind": "dataset", "name": "tank/old-data", "reason": "verified empty" }
+const peerGitopsPath = "/api/config/sync/peer/gitops"
+
+func (h *GitOpsHandler) sendToPeers() []error {
+	b, err := gitsync.ExportBundle(h.db)
+	if err != nil {
+		return []error{err}
+	}
+	return configstore.SendSealed(h.db, peerGitopsPath, "gitops", b)
+}
+
+// PeerSettings: POST /api/config/sync/peer/gitops - a paired node sends its
+// (newer) repository settings with their credentials, encrypted.
+func (h *GitOpsHandler) PeerSettings(w http.ResponseWriter, r *http.Request) {
+	p, err := configstore.AuthenticatePeer(h.db, r.Header.Get("X-DPlane-Node"), r.Header.Get("X-DPlane-Peer-Secret"))
+	if err != nil {
+		respondErrorSimple(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	var in configstore.SealedDoc
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&in); err != nil {
+		respondErrorSimple(w, "Invalid request", http.StatusBadRequest)
+		return
+	}
+	var b gitsync.Bundle
+	if err := configstore.OpenSealed(p, "gitops", in, &b); err != nil {
+		respondErrorSimple(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	adopted, err := gitsync.ImportBundle(h.db, &b)
+	if err != nil {
+		respondErrorSimple(w, err.Error(), http.StatusUnprocessableEntity)
+		return
+	}
+	if adopted {
+		log.Printf("GIT: repository settings version %d from %s adopted", b.Settings.Version, p.Name)
+		h.engine.Trigger()
+	}
+	respondOK(w, map[string]any{"success": true, "adopted": adopted})
+}
+
+// Approve: POST /api/gitops/approve {scope, sha}
 func (h *GitOpsHandler) Approve(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Kind   string `json:"kind"`
-		Name   string `json:"name"`
-		Reason string `json:"reason"`
+	var b struct {
+		Scope string `json:"scope"`
+		SHA   string `json:"sha"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		respondError(w, http.StatusBadRequest, "invalid request body", err)
+	if err := json.NewDecoder(r.Body).Decode(&b); err != nil || b.Scope == "" || b.SHA == "" {
+		respondErrorSimple(w, "scope and sha are required", http.StatusBadRequest)
 		return
 	}
+	h.result(w, h.engine.Approve(b.Scope, b.SHA))
+}
 
-	if req.Kind == "" || req.Name == "" {
-		respondErrorSimple(w, "kind and name are required", http.StatusBadRequest)
+// Take: POST /api/gitops/take {scope}
+func (h *GitOpsHandler) Take(w http.ResponseWriter, r *http.Request) {
+	var b struct {
+		Scope string `json:"scope"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&b); err != nil || b.Scope == "" {
+		respondErrorSimple(w, "scope is required", http.StatusBadRequest)
 		return
 	}
+	h.result(w, h.engine.TakeRepository(b.Scope))
+}
 
-	// Validate the item is actually BLOCKED in the current plan before approving.
-	// This prevents pre-approving items that haven't been evaluated yet.
-	desired, err := h.loadDesiredState()
+// Resume: POST /api/gitops/holds/{scope}/resume
+func (h *GitOpsHandler) Resume(w http.ResponseWriter, r *http.Request) {
+	h.result(w, h.engine.Resume(mux.Vars(r)["scope"], r.Header.Get("X-User")))
+}
+
+// Revert: POST /api/gitops/holds/{scope}/revert
+func (h *GitOpsHandler) Revert(w http.ResponseWriter, r *http.Request) {
+	h.result(w, h.engine.Revert(mux.Vars(r)["scope"], r.Header.Get("X-User")))
+}
+
+func (h *GitOpsHandler) result(w http.ResponseWriter, err error) {
+	resp := map[string]any{"success": err == nil, "status": h.engine.Status()}
 	if err != nil {
-		respondError(w, http.StatusUnprocessableEntity, "state.yaml error", err)
-		return
+		resp["error"] = err.Error()
 	}
-	live, err := gitops.ReadLiveState(h.db)
+	respondOK(w, resp)
+}
+
+// State: GET /api/gitops/state?scope= - the scope's file in the newest commit.
+func (h *GitOpsHandler) State(w http.ResponseWriter, r *http.Request) {
+	content, path, sha, err := h.engine.File(r.URL.Query().Get("scope"))
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, "cannot read live state", err)
+		respondOK(w, map[string]any{"success": false, "error": err.Error()})
 		return
 	}
-	plan := gitops.ComputeDiff(desired, live, &gitops.DiffContext{DB: h.db})
-
-	found := false
-	var blockReason string
-	for _, item := range plan.Items {
-		if string(item.Kind) == req.Kind && item.Name == req.Name && item.Action == gitops.ActionBlocked {
-			found = true
-			blockReason = item.BlockReason
-			break
-		}
-	}
-
-	if !found {
-		respondOK(w, map[string]any{
-			"success": false,
-			"error":   fmt.Sprintf("%s/%s is not currently BLOCKED in the plan - re-evaluate before approving", req.Kind, req.Name),
-		})
-		return
-	}
-
-	key := req.Kind + "/" + req.Name
-	h.approvalsMu.Lock()
-	h.approvals[key] = true
-	h.approvalsMu.Unlock()
-
-	// Persist approval to DB so it survives a daemon restart
-	if _, err := h.db.Exec(`
-		INSERT INTO gitops_approvals (kind, name, reason, approved_at)
-		VALUES ($1, $2, $3, NOW())
-		ON CONFLICT(kind, name) DO UPDATE SET reason=EXCLUDED.reason, approved_at=NOW()`,
-		req.Kind, req.Name, req.Reason,
-	); err != nil {
-		log.Printf("GITOPS: failed to persist approval for %s/%s: %v", req.Kind, req.Name, err)
-	}
-
-	log.Printf("GITOPS APPROVE: %s/%s approved - reason: %q", req.Kind, req.Name, req.Reason)
-	respondOK(w, map[string]any{
-		"success":      true,
-		"approved":     key,
-		"block_reason": blockReason,
-		"message":      fmt.Sprintf("%s/%s approved. Apply the plan to execute.", req.Kind, req.Name),
-	})
+	respondOK(w, map[string]any{"success": true, "path": path, "sha": sha, "content": content})
 }
 
-// ── POST /api/gitops/check ────────────────────────────────────────────────────
-
-// Check triggers an immediate drift check and returns the result.
-func (h *GitOpsHandler) Check(w http.ResponseWriter, r *http.Request) {
-	result := h.detector.CheckNow()
-	respondOK(w, map[string]any{
-		"success":      true,
-		"drifted":      result.Drifted,
-		"checked_at":   result.CheckedAt.Format(time.RFC3339),
-		"error":        result.Error,
-		"plan_summary": planSummary(result.Plan),
-	})
-}
-
-// ── GET /api/gitops/state ─────────────────────────────────────────────────────
-
-// GetState returns the current state.yaml content as a string.
-func (h *GitOpsHandler) GetState(w http.ResponseWriter, r *http.Request) {
-	content, err := os.ReadFile(h.stateYAMLPath)
+// Webhook: POST /api/gitops/webhook - PUBLIC; authenticated by the shared
+// secret (GitHub/Gitea/Forgejo HMAC signature, GitLab token).
+func (h *GitOpsHandler) Webhook(w http.ResponseWriter, r *http.Request) {
+	body, err := io.ReadAll(io.LimitReader(r.Body, 5<<20))
 	if err != nil {
-		if os.IsNotExist(err) {
-			respondOK(w, map[string]any{
-				"success": true,
-				"exists":  false,
-				"content": defaultStateYAML(),
-			})
-			return
-		}
-		respondError(w, http.StatusInternalServerError, "cannot read state.yaml", err)
+		respondErrorSimple(w, "Invalid request", http.StatusBadRequest)
 		return
 	}
-	respondOK(w, map[string]any{
-		"success": true,
-		"exists":  true,
-		"content": string(content),
-		"path":    h.stateYAMLPath,
-	})
+	s, err := gitsync.Load(h.db)
+	if err != nil || !s.Enabled {
+		respondErrorSimple(w, "Git is not enabled", http.StatusNotFound)
+		return
+	}
+	provider, ok := gitsync.VerifyWebhook(r.Header, body, s.WebhookSecret)
+	if !ok {
+		respondErrorSimple(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	log.Printf("GIT: push notification from %s", provider)
+	h.engine.Trigger()
+	w.WriteHeader(http.StatusAccepted)
+	_, _ = w.Write([]byte(`{"success":true}`))
 }
-
-// ── PUT /api/gitops/state ─────────────────────────────────────────────────────
-
-// PutState validates and writes a new state.yaml.
-// Validation runs before any write - an invalid YAML is rejected entirely.
-// Body: { "content": "version: \"1\"\npools: ..." }
-func (h *GitOpsHandler) PutState(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Content  string `json:"content"`
-		DryRun   bool   `json:"dry_run"` // validate only, do not write
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		respondError(w, http.StatusBadRequest, "invalid request body", err)
-		return
-	}
-	if strings.TrimSpace(req.Content) == "" {
-		respondErrorSimple(w, "content is required", http.StatusBadRequest)
-		return
-	}
-
-	// Validate before writing - fail closed
-	if _, err := gitops.ParseStateYAML(req.Content); err != nil {
-		respondOK(w, map[string]any{
-			"success":  false,
-			"valid":    false,
-			"error":    err.Error(),
-			"message":  "state.yaml validation failed - file NOT written",
-		})
-		return
-	}
-
-	// dry_run: validate only, return success without writing
-	if req.DryRun {
-		respondOK(w, map[string]any{
-			"success": true,
-			"valid":   true,
-			"message": "state.yaml is valid (dry run - not written)",
-		})
-		return
-	}
-
-	// Ensure directory exists
-	if err := os.MkdirAll(filepath.Dir(h.stateYAMLPath), 0755); err != nil {
-		respondError(w, http.StatusInternalServerError, "cannot create state directory", err)
-		return
-	}
-
-	// Write atomically
-	tmp := h.stateYAMLPath + ".tmp"
-	if err := os.WriteFile(tmp, []byte(req.Content), 0644); err != nil {
-		respondError(w, http.StatusInternalServerError, "write failed", err)
-		return
-	}
-	if err := os.Rename(tmp, h.stateYAMLPath); err != nil {
-		os.Remove(tmp)
-		respondError(w, http.StatusInternalServerError, "rename failed", err)
-		return
-	}
-
-	log.Printf("GITOPS: state.yaml updated (%d bytes)", len(req.Content))
-
-	// Trigger an immediate check so the UI reflects the new state
-	go h.detector.CheckNow()
-
-	respondOK(w, map[string]any{
-		"success": true,
-		"valid":   true,
-		"path":    h.stateYAMLPath,
-		"bytes":   len(req.Content),
-		"message": "state.yaml saved and validated - drift check triggered",
-	})
-}
-
-// ── GET /api/gitops/settings ──────────────────────────────────────────────────
-
-type GitOpsSettings struct {
-	Enabled        bool   `json:"enabled"`
-	RepoID         *int64 `json:"repo_id"`
-	NixOSRepoID    *int64 `json:"nixos_repo_id"`
-	StatePath      string `json:"state_path"`
-	SyncStorage    bool   `json:"sync_storage"`
-	SyncAccess     bool   `json:"sync_access"`
-	SyncApp        bool   `json:"sync_app"`
-	SyncIdentity   bool   `json:"sync_identity"`
-	SyncProtection bool   `json:"sync_protection"`
-	SyncSystem     bool   `json:"sync_system"`
-	UpdatedAt      string `json:"updated_at"`
-}
-
-func (h *GitOpsHandler) GetSettings(w http.ResponseWriter, r *http.Request) {
-	var s GitOpsSettings
-	var enabled, storage, access, app, identity, protection, system int
-	var repoID, nixosRepoID sql.NullInt64
-
-	err := h.db.QueryRow(`SELECT enabled, repo_id, nixos_repo_id, state_path, sync_storage, sync_access, 
-		sync_app, sync_identity, sync_protection, sync_system, updated_at 
-		FROM gitops_config WHERE id = 1`).Scan(
-		&enabled, &repoID, &nixosRepoID, &s.StatePath, &storage, &access, &app, &identity, &protection, &system, &s.UpdatedAt)
-
-	if err != nil {
-		respondError(w, http.StatusInternalServerError, "failed to load gitops settings", err)
-		return
-	}
-
-	s.Enabled = enabled == 1
-	if repoID.Valid {
-		v := repoID.Int64
-		s.RepoID = &v
-	}
-	if nixosRepoID.Valid {
-		v := nixosRepoID.Int64
-		s.NixOSRepoID = &v
-	}
-	s.SyncStorage = storage == 1
-	s.SyncAccess = access == 1
-	s.SyncApp = app == 1
-	s.SyncIdentity = identity == 1
-	s.SyncProtection = protection == 1
-	s.SyncSystem = system == 1
-
-	respondOK(w, map[string]any{"success": true, "settings": s})
-}
-
-// ── PUT /api/gitops/settings ──────────────────────────────────────────────────
-
-func (h *GitOpsHandler) UpdateSettings(w http.ResponseWriter, r *http.Request) {
-	var req GitOpsSettings
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		respondError(w, http.StatusBadRequest, "invalid request body", err)
-		return
-	}
-
-	boolToInt := func(b bool) int {
-		if b {
-			return 1
-		}
-		return 0
-	}
-
-	enabledInt := 0
-	if req.Enabled {
-		enabledInt = 1
-	}
-
-	repoID := sql.NullInt64{}
-	if req.RepoID != nil {
-		repoID.Valid = true
-		repoID.Int64 = *req.RepoID
-	}
-
-	nixosRepoID := sql.NullInt64{}
-	if req.NixOSRepoID != nil {
-		nixosRepoID.Valid = true
-		nixosRepoID.Int64 = *req.NixOSRepoID
-	}
-
-	_, err := h.db.Exec(`UPDATE gitops_config SET 
-		enabled=$1, repo_id=$2, nixos_repo_id=$3, state_path=$4,
-		sync_storage=$5, sync_access=$6, sync_app=$7, 
-		sync_identity=$8, sync_protection=$9, sync_system=$10,
-		updated_at=NOW() WHERE id=1`,
-		enabledInt, repoID, nixosRepoID, req.StatePath,
-		boolToInt(req.SyncStorage), boolToInt(req.SyncAccess), boolToInt(req.SyncApp),
-		boolToInt(req.SyncIdentity), boolToInt(req.SyncProtection), boolToInt(req.SyncSystem))
-
-	if err != nil {
-		respondError(w, http.StatusInternalServerError, "failed to update gitops settings", err)
-		return
-	}
-
-	log.Printf("GITOPS: Settings updated - enabled=%v repo=%d", req.Enabled, req.RepoID)
-	respondOK(w, map[string]any{"success": true, "message": "Settings updated"})
-}
-
-// ── POST /api/gitops/sync ───────────────────────────────────────────────────
-
-// SyncNow performs a manual pull -> commitall -> push fallback.
-func (h *GitOpsHandler) SyncNow(w http.ResponseWriter, r *http.Request) {
-	// 1. Trigger Drift Check (which pulls)
-	result := h.detector.CheckNow()
-	if result.Error != "" {
-		respondOK(w, map[string]any{
-			"success": false, 
-			"error": "Pull failed: " + result.Error,
-		})
-		return
-	}
-
-	// 2. Commit All current state
-	if err := gitops.CommitAll(h.db); err != nil {
-		respondOK(w, map[string]any{
-			"success": false, 
-			"error": "Commit/Push failed: " + err.Error(),
-		})
-		return
-	}
-
-	respondOK(w, map[string]any{
-		"success": true, 
-		"message": "Manual sync completed successfully",
-	})
-}
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-// loadDesiredState reads and parses state.yaml from disk.
-func (h *GitOpsHandler) loadDesiredState() (*gitops.DesiredState, error) {
-	content, err := os.ReadFile(h.stateYAMLPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, fmt.Errorf("state.yaml not found at %s - create it via PUT /api/gitops/state", h.stateYAMLPath)
-		}
-		return nil, fmt.Errorf("reading state.yaml: %w", err)
-	}
-	return gitops.ParseStateYAML(string(content))
-}
-
-// stampApprovals marks plan items as Approved if the operator has approved them.
-func (h *GitOpsHandler) stampApprovals(plan *gitops.Plan) {
-	h.approvalsMu.Lock()
-	defer h.approvalsMu.Unlock()
-	for i, item := range plan.Items {
-		key := string(item.Kind) + "/" + item.Name
-		if h.approvals[key] {
-			plan.Items[i].Approved = true
-		}
-	}
-}
-
-// planSummary returns a compact map suitable for the status endpoint.
-func planSummary(plan *gitops.Plan) map[string]any {
-	if plan == nil {
-		return nil
-	}
-	return map[string]any{
-		"create_count":    plan.CreateCount,
-		"modify_count":    plan.ModifyCount,
-		"delete_count":    plan.DeleteCount,
-		"blocked_count":   plan.BlockedCount,
-		"ambiguous_count": plan.AmbiguousCount,
-		"nop_count":        plan.NopCount,
-		"has_blocked":     plan.HasBlocked,
-		"has_ambiguous":   plan.HasAmbiguous,
-		"safe_to_apply":   plan.SafeToApply && !plan.HasAmbiguous,
-	}
-}
-
-// ── POST /api/gitops/capture ──────────────────────────────────────────────────
-
-// Capture reads current live state for the requested categories and merges it into
-// state.yaml, replacing only those sections. Categories not listed are left intact.
-//
-// Body: { "categories": ["nfs", "smb", "users", "groups", "stacks", "replication", "system"] }
-func (h *GitOpsHandler) Capture(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		respondErrorSimple(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	var req struct {
-		Categories []string `json:"categories"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		respondError(w, http.StatusBadRequest, "invalid request body", err)
-		return
-	}
-	if len(req.Categories) == 0 {
-		respondErrorSimple(w, "categories is required", http.StatusBadRequest)
-		return
-	}
-	for _, c := range req.Categories {
-		if !gitops.ValidCategories[c] {
-			respondErrorSimple(w, fmt.Sprintf("unknown category %q - valid: nfs, smb, users, groups, stacks, replication, system", c), http.StatusBadRequest)
-			return
-		}
-	}
-
-	// Read live system state (the same source used by the diff engine)
-	live, err := gitops.ReadLiveState(h.db)
-	if err != nil {
-		respondError(w, http.StatusInternalServerError, "cannot read live state", err)
-		return
-	}
-
-	// Load existing state.yaml so we preserve sections not being captured
-	existing := &gitops.DesiredState{Version: "1"}
-	if content, readErr := os.ReadFile(h.stateYAMLPath); readErr == nil {
-		if parsed, parseErr := gitops.ParseStateYAML(string(content)); parseErr == nil {
-			existing = parsed
-		}
-	}
-
-	// Convert live → desired for requested categories, then overlay onto existing
-	captured := gitops.CaptureCategories(live, req.Categories)
-	merged := gitops.MergeCapture(existing, captured, req.Categories)
-
-	// Ensure version is set
-	if merged.Version == "" {
-		merged.Version = "1"
-	}
-
-	newYAML := gitops.PrintStateYAML(merged)
-
-	// Validate before writing - fail closed
-	if _, err := gitops.ParseStateYAML(newYAML); err != nil {
-		respondError(w, http.StatusInternalServerError, "generated YAML failed validation", err)
-		return
-	}
-
-	// Write atomically
-	if err := os.MkdirAll(filepath.Dir(h.stateYAMLPath), 0755); err != nil {
-		respondError(w, http.StatusInternalServerError, "cannot create state directory", err)
-		return
-	}
-	tmp := h.stateYAMLPath + ".tmp"
-	if err := os.WriteFile(tmp, []byte(newYAML), 0644); err != nil {
-		respondError(w, http.StatusInternalServerError, "write failed", err)
-		return
-	}
-	if err := os.Rename(tmp, h.stateYAMLPath); err != nil {
-		os.Remove(tmp)
-		respondError(w, http.StatusInternalServerError, "rename failed", err)
-		return
-	}
-
-	log.Printf("GITOPS CAPTURE: categories=%v bytes=%d", req.Categories, len(newYAML))
-	go h.detector.CheckNow()
-
-	summary := gitops.SummarizeManagedResources(merged, live)
-	respondOK(w, map[string]any{
-		"success":    true,
-		"captured":   req.Categories,
-		"summary":    summary,
-		"bytes":      len(newYAML),
-		"message":    fmt.Sprintf("Captured %d category(s) into state.yaml - drift check triggered", len(req.Categories)),
-	})
-}
-
-// ── GET /api/gitops/managed-summary ──────────────────────────────────────────
-
-// ManagedSummary returns per-category resource counts: how many are tracked in
-// state.yaml (in_git) versus how many exist on the live system (live).
-// Used by the UI to show capture status per category.
-func (h *GitOpsHandler) ManagedSummary(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		respondErrorSimple(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	var desired *gitops.DesiredState
-	if content, err := os.ReadFile(h.stateYAMLPath); err == nil {
-		if ds, parseErr := gitops.ParseStateYAML(string(content)); parseErr != nil {
-			log.Printf("gitops: ManagedSummary: state.yaml parse error: %v", parseErr)
-		} else {
-			desired = ds
-		}
-	}
-
-	live, err := gitops.ReadLiveState(h.db)
-	if err != nil {
-		respondError(w, http.StatusInternalServerError, "cannot read live state", err)
-		return
-	}
-
-	respondOK(w, map[string]any{
-		"success": true,
-		"summary": gitops.SummarizeManagedResources(desired, live),
-	})
-}
-
-// ── OnRepoSynced (called by git-sync auto-worker) ────────────────────────────
-
-// OnRepoSynced is invoked by the git-sync auto-sync worker after a successful pull.
-// If the synced repo is the configured state.yaml repo, an immediate drift check
-// is triggered so the UI reflects the new desired state without waiting for the
-// 5-minute DriftDetector tick.
-func (h *GitOpsHandler) OnRepoSynced(repoID int64) {
-	var configuredRepoID sql.NullInt64
-	if err := h.db.QueryRow(`SELECT repo_id FROM gitops_config WHERE id = 1`).Scan(&configuredRepoID); err != nil {
-		return
-	}
-	if configuredRepoID.Valid && configuredRepoID.Int64 == repoID {
-		log.Printf("GITOPS: state.yaml repo synced (repo_id=%d) - triggering drift check", repoID)
-		go h.detector.CheckNow()
-	}
-}
-
-// ── defaultStateYAML ─────────────────────────────────────────────────────────
-
-// defaultStateYAML returns a valid empty starter when no state.yaml exists yet.
-// Operators add pools using real /dev/disk/by-id/ paths from this machine (e.g. GET /api/system/disks).
-func defaultStateYAML() string {
-	return `# DPlaneOS state.yaml - declarative NAS configuration
-# Use version "1". Every disk path must be a real symlink under /dev/disk/by-id/ from this system
-# (see Storage → disks in the UI, or GET /api/system/disks). /dev/sdX paths are rejected.
-#
-# Add pools, datasets, and shares after you have imported or created storage; start from [] below.
-version: "1"
-pools: []
-datasets: []
-shares: []
-`
-}
-

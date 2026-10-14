@@ -26,10 +26,12 @@ import (
 	"dplaned/internal/alerts"
 	"dplaned/internal/audit"
 	"dplaned/internal/bootstrap"
+	"dplaned/internal/config"
 	"dplaned/internal/configstore"
 	"dplaned/internal/database"
 	"dplaned/internal/features"
 	"dplaned/internal/gitops"
+	"dplaned/internal/gitsync"
 	"dplaned/internal/groups"
 	"dplaned/internal/ha"
 	"dplaned/internal/handlers"
@@ -139,10 +141,8 @@ func main() {
 			log.Fatalf("GITOPS APPLY FAILED: %v (Status: %s, Reason: %s, Item: %s)", err, result.Status, result.HaltReason, result.Failed)
 		}
 		log.Printf("GITOPS: Apply complete! (%d items applied, Post-Apply Convergence: %s)", len(result.Applied), result.Convergence)
-		if gitops.FullyApplied(result) {
-			if err := gitops.RecordApplied(db, filepath.Dir(*gitopsStatePath)); err != nil {
-				log.Printf("GITOPS: %v", err)
-			}
+		if !gitops.FullyApplied(result) {
+			log.Printf("GITOPS: not every item was applied (deferred or failed); run again when the cause is fixed")
 		}
 		os.Exit(0)
 	}
@@ -863,13 +863,6 @@ func main() {
 	r.Handle("/api/alerts/webhooks/{id}", permRoute("system", "write", webhookHandler.DeleteWebhook)).Methods("DELETE")
 	r.Handle("/api/alerts/webhooks/{id}/test", permRoute("system", "write", webhookHandler.TestWebhook)).Methods("POST")
 
-	// Phase 3: GitOps - declarative state reconciliation
-	gitopsHandler := handlers.NewGitOpsHandler(db, *gitopsStatePath, *smbConfPath, wsHub)
-	defer gitopsHandler.Stop()
-
-	// The drift detector runs inside gitopsHandler (one per daemon). Background
-	// write-back failures are broadcast as "gitops.commit_failed".
-	gitops.SetEventHub(wsHub)
 	// Configuration history (Design 0001, Phase 1): every change to a managed
 	// resource is recorded; capture runs after web UI changes (background, so
 	// the request is not delayed) and every 5 minutes for changes made elsewhere.
@@ -990,21 +983,54 @@ func main() {
 	r.Handle("/api/config/capture", permRoute("system", "write", http.HandlerFunc(configHistory.Capture))).Methods("POST")
 	r.Handle("/api/config/rollback", permRoute("system", "admin", http.HandlerFunc(configHistory.Rollback))).Methods("POST")
 
-	r.Handle("/api/gitops/status", permRoute("system", "read", gitopsHandler.Status)).Methods("GET")
-	r.Handle("/api/gitops/plan", permRoute("system", "read", gitopsHandler.Plan)).Methods("GET")
-	r.Handle("/api/gitops/apply", permRoute("system", "admin", gitopsHandler.Apply)).Methods("POST")
-	r.Handle("/api/gitops/approve", permRoute("system", "admin", gitopsHandler.Approve)).Methods("POST")
-	r.Handle("/api/gitops/check", permRoute("system", "admin", gitopsHandler.Check)).Methods("POST")
-	r.Handle("/api/gitops/state", permRoute("system", "read", gitopsHandler.GetState)).Methods("GET")
-	r.Handle("/api/gitops/state", permRoute("system", "admin", gitopsHandler.PutState)).Methods("PUT")
-	r.Handle("/api/gitops/settings", permRoute("system", "read", gitopsHandler.GetSettings)).Methods("GET")
-	r.Handle("/api/gitops/settings", permRoute("system", "admin", gitopsHandler.UpdateSettings)).Methods("PUT")
-	r.Handle("/api/gitops/sync", permRoute("system", "admin", gitopsHandler.SyncNow)).Methods("POST")
-	r.Handle("/api/gitops/capture", permRoute("system", "admin", gitopsHandler.Capture)).Methods("POST")
-	r.Handle("/api/gitops/managed-summary", permRoute("system", "read", gitopsHandler.ManagedSummary)).Methods("GET")
-
-	// Wire git-sync auto-sync callback so a state.yaml pull triggers an immediate drift check
-	gitReposHandler.SetRepoSyncedCallback(gitopsHandler.OnRepoSynced)
+	// Git backend (Design 0001 phase 5): the configuration store synchronised
+	// with a repository, per scope, by the scope's owner.
+	gitEngine := gitsync.New(gitsync.Env{
+		DB:       db,
+		Syncer:   configSyncer,
+		Dir:      filepath.Join(config.DBDir, "git"),
+		NodeName: configstore.NodeName,
+		IsOwner: func(scope string) (bool, string) {
+			return handlers.GitScopeOwner(db, quorumMon, scope)
+		},
+		GroupOf: func(pool string) string {
+			if g, err := groups.ForPool(db, pool); err == nil && g != nil {
+				return g.Name
+			}
+			return ""
+		},
+		Groups: func() []string {
+			gs, _ := groups.List(db)
+			names := make([]string, 0, len(gs))
+			for _, g := range gs {
+				names = append(names, g.Name)
+			}
+			return names
+		},
+		Paired: func() bool {
+			ps, _ := configstore.Peers(db)
+			return len(ps) > 0
+		},
+		Alert:     handlers.DispatchAlert,
+		Broadcast: wsHub.Broadcast,
+	})
+	gitops.SetGitNotify(gitEngine.Trigger)
+	configstore.OnChange(gitEngine.Trigger) // changes adopted from peers reach the scope's owner
+	gitEngine.Start()
+	gitopsHandler := handlers.NewGitOpsHandler(db, gitEngine)
+	r.Handle("/api/gitops/status", permRoute("system", "read", http.HandlerFunc(gitopsHandler.Status))).Methods("GET")
+	r.Handle("/api/gitops/plan", permRoute("system", "read", http.HandlerFunc(gitopsHandler.Plan))).Methods("GET")
+	r.Handle("/api/gitops/sync", permRoute("system", "admin", http.HandlerFunc(gitopsHandler.SyncNow))).Methods("POST")
+	r.Handle("/api/gitops/settings", permRoute("system", "read", http.HandlerFunc(gitopsHandler.GetSettings))).Methods("GET")
+	r.Handle("/api/gitops/settings", permRoute("system", "admin", http.HandlerFunc(gitopsHandler.UpdateSettings))).Methods("PUT")
+	r.Handle("/api/gitops/approve", permRoute("system", "admin", http.HandlerFunc(gitopsHandler.Approve))).Methods("POST")
+	r.Handle("/api/gitops/take", permRoute("system", "admin", http.HandlerFunc(gitopsHandler.Take))).Methods("POST")
+	r.Handle("/api/gitops/holds/{scope}/resume", permRoute("system", "admin", http.HandlerFunc(gitopsHandler.Resume))).Methods("POST")
+	r.Handle("/api/gitops/holds/{scope}/revert", permRoute("system", "admin", http.HandlerFunc(gitopsHandler.Revert))).Methods("POST")
+	r.Handle("/api/gitops/state", permRoute("system", "read", http.HandlerFunc(gitopsHandler.State))).Methods("GET")
+	// PUBLIC (session middleware): authenticated by the webhook secret / the peer secret.
+	r.HandleFunc("/api/gitops/webhook", gitopsHandler.Webhook).Methods("POST")
+	r.HandleFunc("/api/config/sync/peer/gitops", gitopsHandler.PeerSettings).Methods("POST")
 
 	// v3.0.0: Zombie disk watcher
 	zombieHandler := handlers.NewZombieWatcherHandler()
@@ -1752,6 +1778,9 @@ func sessionMiddleware(db *sql.DB, internalCronToken string) mux.MiddlewareFunc 
 				// Configuration sync between nodes - peer secret or join token
 				// checked by the handlers (internal/handlers/config_sync.go)
 				strings.HasPrefix(p, "/api/config/sync/peer/") ||
+				// Git push notifications: HMAC signature or token checked by
+				// the handler (internal/handlers/gitops_handler.go)
+				p == "/api/gitops/webhook" ||
 				// Third-vote setup: static script, and enrollment checked by the
 				// handlers with the one-time code (internal/handlers/quorum.go)
 				p == "/api/quorum/witness-setup.sh" ||

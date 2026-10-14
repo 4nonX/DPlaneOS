@@ -387,6 +387,8 @@ func (s *Syncer) applyRemote(p Peer, r Resource, live *gitops.LiveState) error {
 	if needsMaterial(r) {
 		if local, err := ReadMaterial(s.db, r.Kind, r.Key); err == nil && materialMatches(r, local) == nil {
 			m = local
+		} else if p.ID == GitPeerID {
+			return fmt.Errorf("%w: secrets are never taken from the Git repository; set it on this node", errMaterialUnavailable)
 		} else {
 			fetched, err := fetchMaterial(s.db, p, r.Kind, r.Key)
 			if err != nil {

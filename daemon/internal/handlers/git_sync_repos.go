@@ -23,19 +23,11 @@ import (
 
 // GitReposHandler manages multiple git-sync repositories (Arcane-style multi-repo)
 type GitReposHandler struct {
-	db           *sql.DB
-	onRepoSynced func(repoID int64) // called after each successful auto-sync pull
+	db *sql.DB
 }
 
 func NewGitReposHandler(db *sql.DB) *GitReposHandler {
 	return &GitReposHandler{db: db}
-}
-
-// SetRepoSyncedCallback registers a function to be called after each successful
-// auto-sync pull. The GitOps handler uses this to trigger an immediate drift check
-// when the state.yaml repo is updated.
-func (h *GitReposHandler) SetRepoSyncedCallback(fn func(repoID int64)) {
-	h.onRepoSynced = fn
 }
 
 // ─────────────────────────────────────────────
@@ -1094,11 +1086,6 @@ func (h *GitReposHandler) autoSyncOne(repo repoAutoSync) {
 		log.Printf("GIT-REPOS: failed to update auto-sync status for %s: %v", repo.name, dbErr)
 	}
 	log.Printf("GIT-REPOS: Auto-sync complete for %s - %s", repo.name, commit)
-
-	// Notify GitOps handler so it can trigger a drift check if this is the state.yaml repo
-	if h.onRepoSynced != nil {
-		go h.onRepoSynced(int64(repo.id))
-	}
 
 	// Run compose up if the file exists
 	composeFull, pathErr := validateComposePath(repo.localPath, repo.composePath)

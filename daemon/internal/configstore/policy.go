@@ -189,7 +189,7 @@ func Proposals(db *sql.DB) ([]Proposal, error) {
 }
 
 func peerNames(db *sql.DB) map[string]string {
-	names := map[string]string{}
+	names := map[string]string{GitPeerID: gitPeer.Name}
 	rows, err := db.Query(`SELECT id, name FROM config_peers`)
 	if err != nil {
 		return names

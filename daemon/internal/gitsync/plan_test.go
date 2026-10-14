@@ -79,7 +79,8 @@ func TestCompareScope(t *testing.T) {
 	if got := p.Pull[1].Remote.Payload; got["credentials"] != "sha256:bbb" || got["password_hash"] != nil || got["email"] != "b@git" {
 		t.Errorf("bob from the repository: %v", got)
 	}
-	if p.Pull[1].BaseUID != "user/bob-base" {
+	// Built on this node's current revision: a fast-forward in the merge engine.
+	if p.Pull[1].BaseUID != "user/bob-uid" {
 		t.Errorf("base uid: %q", p.Pull[1].BaseUID)
 	}
 	if len(p.Conflicts) != 0 || len(p.InSync) != 0 {

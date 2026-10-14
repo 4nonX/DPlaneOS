@@ -54,3 +54,25 @@ func TestSecretReferencesValidate(t *testing.T) {
 		t.Errorf("plain-text secrets accepted: %v", errs)
 	}
 }
+
+// Block scalars keep blank lines and comment lines: they are part of a
+// compose file, not YAML comments of state.yaml.
+func TestBlockScalarKeepsBlankLinesAndComments(t *testing.T) {
+	compose := "services:\n  web:\n    image: nginx\n\n  # the database\n  db:\n    image: postgres\n    environment:\n      - A=1"
+	in := &DesiredState{Version: "1", Stacks: []DesiredStack{{Name: "app", YAML: compose}}}
+	back, err := ParseStateYAML(PrintStateYAML(in))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if back.Stacks[0].YAML != compose {
+		t.Fatalf("compose changed:\n%q\nwant\n%q", back.Stacks[0].YAML, compose)
+	}
+	// Folded scalars join lines.
+	folded, err := ParseStateYAML("version: \"1\"\nsystem:\n  samba:\n    workgroup: W\n    server_string: >\n      one\n      two\n\n      three\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := folded.System.Samba.ServerString; got != "one two\nthree" {
+		t.Errorf("folded: %q", got)
+	}
+}

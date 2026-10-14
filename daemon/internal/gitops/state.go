@@ -672,6 +672,9 @@ func PrintStateYAML(s *DesiredState) string {
 					fmt.Fprintf(&b, "      %s: %s\n", k, p.Options[k])
 				}
 			}
+			if p.ForceReshape {
+				b.WriteString("    force_reshape: true\n")
+			}
 		}
 	}
 
@@ -730,6 +733,23 @@ func PrintStateYAML(s *DesiredState) string {
 			}
 			if sh.GuestOK {
 				b.WriteString("    guest_ok: true\n")
+			}
+			// Per-share options: written only when managed (absent = unmanaged).
+			for _, o := range []struct {
+				key string
+				v   *bool
+			}{{"time_machine", sh.TimeMachine}, {"shadow_copy", sh.ShadowCopy}, {"recycle_bin", sh.RecycleBin}} {
+				if o.v != nil {
+					fmt.Fprintf(&b, "    %s: %v\n", o.key, *o.v)
+				}
+			}
+			for _, o := range []struct {
+				key string
+				v   *string
+			}{{"time_machine_quota", sh.TimeMachineQuota}, {"hosts_allow", sh.HostsAllow}, {"hosts_deny", sh.HostsDeny}} {
+				if o.v != nil {
+					fmt.Fprintf(&b, "    %s: %q\n", o.key, *o.v)
+				}
 			}
 		}
 	}
@@ -868,6 +888,18 @@ func PrintStateYAML(s *DesiredState) string {
 			lines := strings.Split(strings.TrimSpace(s.System.Samba.ExtraGlobal), "\n")
 			for _, line := range lines {
 				fmt.Fprintf(&b, "      %s\n", line)
+			}
+		}
+		if ssh := s.System.SSH; ssh.Port != 0 || ssh.PasswordAuth != nil || ssh.PermitRootLogin != "" {
+			b.WriteString("  ssh:\n")
+			if ssh.Port != 0 {
+				fmt.Fprintf(&b, "    port: %d\n", ssh.Port)
+			}
+			if ssh.PasswordAuth != nil {
+				fmt.Fprintf(&b, "    password_auth: %v\n", *ssh.PasswordAuth)
+			}
+			if ssh.PermitRootLogin != "" {
+				fmt.Fprintf(&b, "    permit_root_login: %s\n", ssh.PermitRootLogin)
 			}
 		}
 	}
@@ -1030,7 +1062,7 @@ func PrintStateYAML(s *DesiredState) string {
 			if len(ex.HostNQNs) > 0 {
 				b.WriteString("      host_nqns:\n")
 				for _, h := range ex.HostNQNs {
-					fmt.Fprintf(&b, "        - %s\n", h)
+					fmt.Fprintf(&b, "        - %q\n", h) // NQNs contain ":"
 				}
 			}
 		}
@@ -1051,6 +1083,9 @@ type parsedLine struct {
 	content string // trimmed content, comments stripped
 	raw     string
 	lineNum int
+	// gap holds the blank and comment-only lines just before this line (raw):
+	// structure ignores them, but inside a block scalar they are content.
+	gap []string
 }
 
 type yamlNode = any // string | map[string]yamlNode | []yamlNode
@@ -1059,13 +1094,15 @@ func splitLines(s string) []parsedLine {
 	var result []parsedLine
 	scanner := bufio.NewScanner(strings.NewReader(s))
 	lineNum := 0
+	var gap []string
 	for scanner.Scan() {
 		lineNum++
 		raw := scanner.Text()
 		// Strip comment - but only outside quoted strings (simplified: strip # at word boundary)
 		content := stripComment(raw)
 		if strings.TrimSpace(content) == "" {
-			continue // blank or comment-only lines
+			gap = append(gap, raw) // blank or comment-only line
+			continue
 		}
 		indent := countIndent(raw)
 		result = append(result, parsedLine{
@@ -1073,7 +1110,9 @@ func splitLines(s string) []parsedLine {
 			content: strings.TrimSpace(content),
 			raw:     raw,
 			lineNum: lineNum,
+			gap:     gap,
 		})
+		gap = nil
 	}
 	return result
 }
@@ -1160,8 +1199,11 @@ func (p *yamlParser) parseMapping(minIndent, depth int) (map[string]yamlNode, er
 				val = ""
 			}
 		} else if rest == "|" || rest == ">" {
-			// Block scalar literal
-			val = p.parseBlockScalar(line.indent + 1)
+			// Block scalar: its indentation is that of its first line.
+			val = ""
+			if p.pos < len(p.lines) && p.lines[p.pos].indent > line.indent {
+				val = p.parseBlockScalar(p.lines[p.pos].indent, rest == ">")
+			}
 		} else if strings.HasPrefix(rest, "[") {
 			// Inline sequence: [a, b, c]
 			val, err = parseInlineSequence(rest)
@@ -1176,6 +1218,22 @@ func (p *yamlParser) parseMapping(minIndent, depth int) (map[string]yamlNode, er
 		result[key] = val
 	}
 	return result, nil
+}
+
+// mapItemColon returns the colon that makes a sequence item a mapping
+// ("name: tank", "data:"), or -1 for a scalar. As in YAML, the colon must be
+// followed by a space or end the item, and a quoted item is always a scalar:
+// "- nqn.2014-08.org.example:host1" and `- "a: b"` are strings.
+func mapItemColon(item string) int {
+	if strings.HasPrefix(item, `"`) || strings.HasPrefix(item, "'") {
+		return -1
+	}
+	for i := 0; i < len(item); i++ {
+		if item[i] == ':' && (i == len(item)-1 || item[i+1] == ' ') {
+			return i
+		}
+	}
+	return -1
 }
 
 // parseSequence parses a block sequence (lines starting with "- ").
@@ -1210,11 +1268,10 @@ func (p *yamlParser) parseSequence(minIndent, depth int) ([]yamlNode, error) {
 			} else {
 				result = append(result, "")
 			}
-		} else if strings.Contains(itemContent, ":") {
+		} else if colonIdx := mapItemColon(itemContent); colonIdx >= 0 {
 			// Inline key: value as first field of mapping item
 			// e.g. "- name: tank"
 			// Build a sub-mapping starting with this key:value
-			colonIdx := strings.Index(itemContent, ":")
 			key := strings.TrimSpace(itemContent[:colonIdx])
 			val := strings.TrimSpace(itemContent[colonIdx+1:])
 
@@ -1240,22 +1297,44 @@ func (p *yamlParser) parseSequence(minIndent, depth int) ([]yamlNode, error) {
 }
 
 // parseBlockScalar reads all lines at a deeper indent level and preserves them literally.
-func (p *yamlParser) parseBlockScalar(minIndent int) string {
-	var b strings.Builder
-	first := true
+//
+// Lines keep their indentation relative to the block. Blank lines and lines
+// starting with "#" inside the block are content (a compose file keeps its
+// blank lines and comments); trailing blank lines are dropped ("clip"). With
+// folded (">"), lines are joined with spaces and blank lines become newlines.
+func (p *yamlParser) parseBlockScalar(blockIndent int, folded bool) string {
+	var lines []string
 	for p.pos < len(p.lines) {
 		line := p.lines[p.pos]
-		if line.indent < minIndent {
+		if line.indent < blockIndent {
 			break
 		}
-		if !first {
-			b.WriteRune('\n')
+		if len(lines) > 0 {
+			for _, g := range line.gap {
+				switch {
+				case strings.TrimSpace(g) == "":
+					lines = append(lines, "")
+				case countIndent(g) >= blockIndent:
+					lines = append(lines, g[blockIndent:])
+				}
+			}
 		}
-		// Preserve indentation relative to the block start
-		// (very basic: just strip the minIndent spaces)
-		b.WriteString(line.raw[minIndent:])
+		lines = append(lines, line.raw[blockIndent:])
 		p.pos++
-		first = false
+	}
+	if !folded {
+		return strings.Join(lines, "\n")
+	}
+	var b strings.Builder
+	for i, l := range lines {
+		switch {
+		case l == "":
+			b.WriteString("\n")
+		case i > 0 && lines[i-1] != "":
+			b.WriteString(" " + l)
+		default:
+			b.WriteString(l)
+		}
 	}
 	return b.String()
 }
@@ -1635,7 +1714,29 @@ func mapToDataset(m map[string]yamlNode) (DesiredDataset, error) {
 	if enc := strField(m, "encrypted"); enc == "true" {
 		d.Encrypted = true
 	}
+	if rm, ok := m["restore"].(map[string]yamlNode); ok {
+		d.Restore = &RestoreConfig{Type: strField(rm, "type"), Source: strField(rm, "source")}
+	}
 	return d, nil
+}
+
+// optBool and optString read optional keys: nil when the key is absent
+// (the option is not managed), so files written before the key existed
+// plan no change.
+func optBool(m map[string]yamlNode, key string) *bool {
+	if _, ok := m[key]; !ok {
+		return nil
+	}
+	v := strField(m, key) == "true"
+	return &v
+}
+
+func optString(m map[string]yamlNode, key string) *string {
+	if _, ok := m[key]; !ok {
+		return nil
+	}
+	v := strField(m, key)
+	return &v
 }
 
 func mapToShare(m map[string]yamlNode) (DesiredShare, error) {
@@ -1651,6 +1752,12 @@ func mapToShare(m map[string]yamlNode) (DesiredShare, error) {
 	if gok := strField(m, "guest_ok"); gok == "true" {
 		sh.GuestOK = true
 	}
+	sh.TimeMachine = optBool(m, "time_machine")
+	sh.TimeMachineQuota = optString(m, "time_machine_quota")
+	sh.ShadowCopy = optBool(m, "shadow_copy")
+	sh.RecycleBin = optBool(m, "recycle_bin")
+	sh.HostsAllow = optString(m, "hosts_allow")
+	sh.HostsDeny = optString(m, "hosts_deny")
 	return sh, nil
 }
 

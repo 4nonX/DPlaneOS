@@ -193,3 +193,26 @@ func EnsureRepoRootDir(dir string, remoteURL string, branch string, env []string
 
 	return nil
 }
+
+// gitOut runs git in dir and returns trimmed stdout. env carries credentials
+// for commands that talk to the remote.
+func gitOut(dir string, env []string, args ...string) (string, error) {
+	var out []byte
+	var err error
+	if env != nil {
+		out, err = cmdutil.RunInDirWithEnv(cmdutil.TimeoutMedium, dir, env, "git", args...)
+	} else {
+		out, err = cmdutil.RunFastInDir(dir, "git", args...)
+	}
+	if err != nil {
+		return "", fmt.Errorf("git %s: %v: %s", strings.Join(args, " "), err, strings.TrimSpace(string(out)))
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+func envOrEmpty(env []string) []string {
+	if env == nil {
+		return []string{}
+	}
+	return env
+}
