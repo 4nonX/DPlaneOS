@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
 
+## Unreleased
+
+[Design 0001](../design/0001-distributed-state-gitops-ha.md), phase 4 (web interface).
+
+### Added
+
+- **Guided setup** (High Availability › Guided setup): one node, or two and more nodes with failover: pair, form the cluster, add a third vote, protect (watchdog), create a storage group. Each step shows whether it is done from the system's state, so the guide can be left and resumed.
+- **Cluster Map** (System › Cluster Map): every node and vote, which node owns which storage group and which may take it over (in order), epochs, quorum, the coordinator, replication lag and node states.
+- **Maintenance mode** per node (Cluster Map): its shared and replicated groups move to other nodes first; while in maintenance it is never chosen to take a group over and is refused as the target of a move. Nothing changes if a group has nowhere to go.
+- **Safety checks** that change nothing: the third vote (reachable on TCP 5403, voting for this node), the BMC (power status with the stored credentials), the PDU (answers; the outlet URL is never called in a test), and *Test replication* per replicated group.
+- **Default conflict rules** (Configuration Sync): the same resource changed on two nodes settles by itself where a rule applies. Pool resources: the version written by the storage group's owner (higher epoch) wins. Users, groups, directory, certificates and shared settings: the version written by the **cluster coordinator** wins, the DPlaneOS member with the lowest cluster node id in the quorate partition. The losing change is kept on its node as a **proposal** to apply again or dismiss. Each rule can be switched off (every conflict then waits for a decision).
+- **Current configuration** (Change History): every resource with its scope, the node and change its current version comes from, and whether the paired nodes have it yet (changes made while cut off show as *Only here*).
+- When creating a storage group: what this node's disks suggest (shared or replicated) and what happens when a node fails, per topology.
+
+### Fixed
+
+- A storage group created right after forming the cluster had no other candidate: the form kept the member list from when it was opened.
+- A revision adopted from another node was stamped with this node's group epoch instead of keeping the writer's.
+
+### Changed
+
+- API: `GET /api/config/conflicts` also returns `proposals` and `policies`; `GET /api/ha/protection` also returns `fencing_ok` and `fencing_reason`. New: `GET /api/cluster/map`, `GET|POST|DELETE /api/cluster/maintenance`, `POST /api/cluster/test/{qdevice|fencing|pdu|replication}`, `POST /api/config/proposals/{id}/apply|dismiss`, `PUT /api/config/policy`, `GET /api/config/current`.
+- The database schema migrates automatically (migration 00028).
+
 ## v15.0.0 (2026-10-10) - "Local First"
 
 [Design 0001](../design/0001-distributed-state-gitops-ha.md), phases 0 to 3: every node keeps its own database and keeps working on its own; paired nodes exchange configuration (with secrets) and merge it per resource; high availability is rebuilt on Corosync quorum, a third vote from anything, and storage groups that move between nodes with their shares, apps and a floating address.

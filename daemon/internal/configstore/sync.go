@@ -417,15 +417,28 @@ func (s *Syncer) evaluate(p Peer) error {
 			continue
 		}
 		r := h.Revision
-		if why := staleWriter(r); why != "" {
-			s.setPeerStatus(r.UID, peerBlocked, why)
-			continue
-		}
 		var local *Revision
 		if l, ok := latest[r.resource().ID()]; ok {
 			local = &l
 		}
-		switch Classify(local, &r, anc) {
+		action := Classify(local, &r, anc)
+		if why := staleWriter(r); why != "" {
+			// Written by a former owner of the storage group: never applied.
+			// If this node changed the same resource as the current owner,
+			// settle it so the former owner can follow (it keeps its change
+			// as a proposal); otherwise the revision stays refused.
+			if action == MergeConflict && Policy(s.db, r.Scope) == PolicyAuto {
+				if w, _ := DefaultWinner(*local, r); w == WinnerLocal {
+					if err := s.settleConflict(p, *local, r); err != nil {
+						return err
+					}
+					continue
+				}
+			}
+			s.setPeerStatus(r.UID, peerBlocked, why)
+			continue
+		}
+		switch action {
 		case MergeNone:
 			s.setPeerStatus(r.UID, peerSuperseded, "")
 			s.closeConflict(p.ID, r.Kind, r.Key, "this node is ahead")
