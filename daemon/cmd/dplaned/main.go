@@ -1028,6 +1028,7 @@ func main() {
 	r.Handle("/api/gitops/holds/{scope}/resume", permRoute("system", "admin", http.HandlerFunc(gitopsHandler.Resume))).Methods("POST")
 	r.Handle("/api/gitops/holds/{scope}/revert", permRoute("system", "admin", http.HandlerFunc(gitopsHandler.Revert))).Methods("POST")
 	r.Handle("/api/gitops/state", permRoute("system", "read", http.HandlerFunc(gitopsHandler.State))).Methods("GET")
+	r.Handle("/api/gitops/nixos-repo", permRoute("system", "admin", http.HandlerFunc(gitopsHandler.SetNixOSRepo))).Methods("PUT")
 	// PUBLIC (session middleware): authenticated by the webhook secret / the peer secret.
 	r.HandleFunc("/api/gitops/webhook", gitopsHandler.Webhook).Methods("POST")
 	r.HandleFunc("/api/config/sync/peer/gitops", gitopsHandler.PeerSettings).Methods("POST")

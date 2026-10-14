@@ -29,6 +29,7 @@ import (
 //    POST /api/gitops/holds/{scope}/resume      clear a hold and retry
 //    POST /api/gitops/holds/{scope}/revert      write the last good version back, clear the hold
 //    GET  /api/gitops/state?scope=              a scope's file in the newest commit
+//    PUT  /api/gitops/nixos-repo {repo_id}      the tracked repository holding the NixOS configuration
 //    POST /api/gitops/webhook                   push notification (public, HMAC/token)
 //    POST /api/config/sync/peer/gitops          settings from a paired node (peer secret)
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -79,6 +80,7 @@ type settingsView struct {
 	gitsync.Settings
 	WebhookSecretSet bool   `json:"webhook_secret_set"`
 	WebhookPath      string `json:"webhook_path"`
+	NixOSRepoID      *int64 `json:"nixos_repo_id"`
 }
 
 // GetSettings: GET /api/gitops/settings
@@ -88,8 +90,40 @@ func (h *GitOpsHandler) GetSettings(w http.ResponseWriter, r *http.Request) {
 		respondErrorSimple(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	respondOK(w, map[string]any{"success": true, "settings": settingsView{Settings: *s,
-		WebhookSecretSet: s.WebhookSecret != "", WebhookPath: "/api/gitops/webhook"}})
+	var nixos sql.NullInt64
+	if err := h.db.QueryRow(`SELECT nixos_repo_id FROM gitops_config WHERE id = 1`).Scan(&nixos); err != nil {
+		respondErrorSimple(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	view := settingsView{Settings: *s, WebhookSecretSet: s.WebhookSecret != "", WebhookPath: "/api/gitops/webhook"}
+	if nixos.Valid {
+		view.NixOSRepoID = &nixos.Int64
+	}
+	respondOK(w, map[string]any{"success": true, "settings": view})
+}
+
+// SetNixOSRepo: PUT /api/gitops/nixos-repo {repo_id} (null: none) - the
+// tracked repository the NixOS configuration guard uses.
+func (h *GitOpsHandler) SetNixOSRepo(w http.ResponseWriter, r *http.Request) {
+	var b struct {
+		RepoID *int64 `json:"repo_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
+		respondErrorSimple(w, "Invalid request", http.StatusBadRequest)
+		return
+	}
+	if b.RepoID != nil {
+		var n int
+		if err := h.db.QueryRow(`SELECT COUNT(*) FROM git_sync_repos WHERE id = $1`, *b.RepoID).Scan(&n); err != nil || n == 0 {
+			respondErrorSimple(w, "unknown repository", http.StatusBadRequest)
+			return
+		}
+	}
+	if _, err := h.db.Exec(`UPDATE gitops_config SET nixos_repo_id = $1, updated_at = NOW() WHERE id = 1`, b.RepoID); err != nil {
+		respondErrorSimple(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	respondOK(w, map[string]any{"success": true})
 }
 
 // UpdateSettings: PUT /api/gitops/settings

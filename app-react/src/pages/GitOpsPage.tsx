@@ -3,46 +3,10 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { fmtDateTime } from '@/lib/fmt'
 import { Icon } from '@/components/ui/Icon'
-import { Modal } from '@/components/ui/Modal'
+import { ConfigRepository } from '@/components/gitops/ConfigRepository'
 import { Skeleton } from '@/components/ui/LoadingSpinner'
 import { toast } from '@/hooks/useToast'
 import { useConfirm } from '@/components/ui/ConfirmDialog'
-import { useWsStore } from '@/stores/ws'
-import { useJobStore } from '@/stores/jobs'
-
-// GET /api/gitops/status
-interface GitopsStatus {
-  success: boolean
-  status?: string                 // "pending" before the first drift check
-  drifted?: boolean
-  checked_at?: string
-  error?: string                  // drift check error (or "this node is not the writer")
-  synced_commit?: string          // commit the live system corresponds to
-  last_commit?: { at: string; ok: boolean; skipped: boolean; error?: string } | null
-}
-interface Change {
-  resource?:    string
-  kind?:        string
-  name?:        string
-  action?:      string
-  description?: string
-  changes?:     string[]
-  risk_level?:  string
-  approved?:    boolean
-}
-
-// Payload from daemon gitops.drift WS event
-interface DriftPayload {
-  drifted:       boolean
-  error?:        string
-  checked_at:    string
-  create_count:  number
-  modify_count:  number
-  delete_count:  number
-  blocked_count: number
-  manual_count:  number
-  safe_to_apply: boolean
-}
 
 function fmtDate(s?:string){if(!s)return'-';return fmtDateTime(s)}
 
@@ -67,35 +31,9 @@ function parseGitUrl(raw: string): { repoUrl: string; branch: string | null } {
   return { repoUrl: s, branch: null }
 }
 
-function changeColor(a?:string):string {
-  if (a === 'CREATE') return 'var(--success)'
-  if (a === 'DELETE') return 'var(--error)'
-  if (a === 'BLOCKED') return 'var(--error)'
-  if (a === 'MANUAL') return 'var(--warning)'
-  if (a === 'MODIFY') return 'var(--primary)'
-  if (a === 'RESHAPE') return 'var(--warning)'
-  return 'var(--text-tertiary)'
-}
-
-interface GitOpsSettings {
-  enabled: boolean;
-  repo_id: number | null;
-  nixos_repo_id: number | null;
-  state_path: string;
-  sync_storage: boolean;
-  sync_access: boolean;
-  sync_app: boolean;
-  sync_identity: boolean;
-  sync_protection: boolean;
-  sync_system: boolean;
-  updated_at: string;
-}
-
-interface CategoryCount { in_git: number; live: number }
-interface ManagedSummary { [cat: string]: CategoryCount }
 
 interface Repo { id: string|number; url: string; branch?: string; path?: string; name?: string; status?: string; last_sync?: string; credential_id?: string|number; raw?: ApiRepo }
-interface Cred { id: string|number; name: string; type?: 'ssh'|'token'; host?: string }
+interface Cred { id: string|number; name: string; type?: 'ssh'|'token'; host?: string; username?: string }
 
 // The git-sync API's field names (repo_url, cred_id, last_sync_at, auth_type).
 // Converted at the edges so the components keep their own shapes.
@@ -104,7 +42,7 @@ interface ApiRepo {
   last_sync_at?: string; last_error?: string; cred_id?: number | null
   auto_sync?: boolean; sync_interval?: number; commit_name?: string; commit_email?: string; enabled?: boolean
 }
-interface ApiCred { id: number; name: string; host?: string; auth_type?: 'token'|'ssh' }
+interface ApiCred { id: number; name: string; host?: string; auth_type?: 'token'|'ssh'; username?: string }
 
 function fromApiRepo(r: ApiRepo): Repo {
   return {
@@ -128,7 +66,7 @@ function toApiRepo(r: Repo, vals: Partial<Repo> = {}) {
 }
 
 function fromApiCred(c: ApiCred): Cred {
-  return { id: c.id, name: c.name, type: c.auth_type, host: c.host }
+  return { id: c.id, name: c.name, type: c.auth_type, host: c.host, username: c.username }
 }
 
 function hostOf(url: string): string {
@@ -144,214 +82,6 @@ function statusDot(s?: string) {
 // CategoryCard maps sync_* settings keys to their capturable category names.
 // Storage (pools/datasets) has no capture button - ZFS topology is machine-specific
 // and should never be snapshotted from live into state.yaml automatically.
-const CATEGORY_META = [
-  { settingsKey: 'sync_storage',    captureKey: null,           label: 'Storage',      desc: 'ZFS Pools & Datasets',   icon: 'storage',           hint: 'Declare pools and datasets manually - disk paths are machine-specific.' },
-  { settingsKey: 'sync_access',     captureKey: 'nfs,smb',      label: 'Data Access',  desc: 'SMB & NFS Shares',       icon: 'folder_shared',     hint: null },
-  { settingsKey: 'sync_app',        captureKey: 'stacks',       label: 'Applications', desc: 'Docker Stacks',          icon: 'apps',              hint: null },
-  { settingsKey: 'sync_identity',   captureKey: 'users,groups', label: 'Identity',     desc: 'Users & Groups',         icon: 'person',            hint: null },
-  { settingsKey: 'sync_protection', captureKey: 'replication',  label: 'Protection',   desc: 'Replication Schedules',  icon: 'shield',            hint: null },
-  { settingsKey: 'sync_system',     captureKey: 'system',       label: 'System',       desc: 'Hostname & Network',     icon: 'settings_ethernet', hint: null },
-]
-
-function SettingsTab({ s, updateSettings, repos, setShowWizard, onSyncNow, summary }: {
-  s: GitOpsSettings;
-  updateSettings: { mutate: (vals: Partial<GitOpsSettings>) => void };
-  repos: Repo[];
-  setShowWizard: (t: 'state'|'nixos') => void;
-  onSyncNow: () => void;
-  summary: ManagedSummary | null;
-}) {
-  const qc = useQueryClient()
-  const syncNow = useMutation({
-    mutationFn: () => api.post('/api/gitops/sync', {}),
-    onSuccess: () => { toast.success('Sync completed'); onSyncNow() },
-    onError: (e: Error) => toast.error(e.message)
-  })
-
-  const capture = useMutation({
-    mutationFn: (categories: string[]) => api.post<{success:boolean;error?:string;message?:string}>('/api/gitops/capture', { categories }),
-    onSuccess: (res, categories) => {
-      if (res.success) {
-        toast.success(`Captured ${categories.join(', ')} into state.yaml`)
-        qc.invalidateQueries({ queryKey: ['gitops'] })
-      } else {
-        toast.error(res.error || 'Capture failed')
-      }
-    },
-    onError: (e: Error) => toast.error(e.message),
-  })
-
-  // Counts for a capture key (may be composite like "nfs,smb")
-  const countFor = (captureKey: string | null): { inGit: number; live: number } | null => {
-    if (!captureKey || !summary) return null
-    const cats = captureKey.split(',')
-    return cats.reduce((acc, cat) => {
-      const c = summary[cat]
-      if (!c) return acc
-      return { inGit: acc.inGit + c.in_git, live: acc.live + c.live }
-    }, { inGit: 0, live: 0 })
-  }
-
-  return (
-    <div style={{ display:'flex', flexDirection:'column', gap:24 }}>
-
-      {/* Global Toggle */}
-      <div className="card-xl" style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'20px 24px', borderLeft:`4px solid ${s.enabled?'var(--primary)':'var(--border)'}` }}>
-        <div>
-          <div style={{ fontSize:'var(--text-lg)', fontWeight:700 }}>Enable GitOps Synchronization</div>
-          <div style={{ color:'var(--text-tertiary)', fontSize:'var(--text-sm)' }}>Sync local appliance state with a remote Git repository</div>
-        </div>
-        <button onClick={() => updateSettings.mutate({ enabled: !s.enabled })} className={`btn ${s.enabled?'btn-primary':'btn-ghost'}`}>
-          <Icon name={s.enabled?'check_circle':'power_settings_new'} size={16} />
-          {s.enabled ? 'Enabled' : 'Disabled'}
-        </button>
-      </div>
-
-      {/* Repo Bindings */}
-      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:20 }}>
-        <div className="card-xl">
-          <div style={{ fontWeight:700, marginBottom:16 }}>Fallback Operations</div>
-          <button onClick={() => syncNow.mutate()} disabled={syncNow.isPending} className="btn btn-ghost" style={{ width:'100%', justifyContent:'flex-start' }}>
-            <Icon name="sync" size={16} />
-            {syncNow.isPending ? 'Syncing...' : 'Sync State Now'}
-          </button>
-          <div style={{ marginTop:12, fontSize:'var(--text-2xs)', color:'var(--text-tertiary)' }}>
-            Force pull, write-back all current DB state, and push to remote.
-          </div>
-        </div>
-
-        <div className="card-xl">
-          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:12 }}>
-            <div style={{ fontWeight:700 }}>System State</div>
-            <button onClick={() => setShowWizard('state')} className="btn btn-ghost" style={{ fontSize:'var(--text-2xs)', color:'var(--primary)' }}>
-              <Icon name="auto_fix_high" size={13} /> Wizard
-            </button>
-          </div>
-          <label className="field">
-            <span className="field-label">Repository</span>
-            <select value={s.repo_id || ''} onChange={e=>updateSettings.mutate({ repo_id: e.target.value ? Number(e.target.value) : null })} className="input">
-              <option value="">(None)</option>
-              {repos.map(r => <option key={r.id} value={r.id}>{r.name || r.url}</option>)}
-            </select>
-          </label>
-          <div style={{ marginTop:8, fontSize:'var(--text-xs)', color:'var(--text-tertiary)' }}>
-            Contains <code>state.yaml</code> - pulled automatically on schedule.
-          </div>
-        </div>
-
-        <div className="card-xl">
-          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:12 }}>
-            <div style={{ fontWeight:700 }}>Base System</div>
-            <button onClick={() => setShowWizard('nixos')} className="btn btn-ghost" style={{ fontSize:'var(--text-2xs)', color:'var(--primary)' }}>
-              <Icon name="auto_fix_high" size={13} /> Wizard
-            </button>
-          </div>
-          <label className="field">
-            <span className="field-label">Repository</span>
-            <select value={s.nixos_repo_id || ''} onChange={e=>updateSettings.mutate({ nixos_repo_id: e.target.value ? Number(e.target.value) : null })} className="input">
-              <option value="">(None)</option>
-              {repos.map(r => <option key={r.id} value={r.id}>{r.name || r.url}</option>)}
-            </select>
-          </label>
-          <div style={{ marginTop:8, fontSize:'var(--text-xs)', color:'var(--text-tertiary)' }}>
-            Backs up <code>/etc/nixos</code> (configuration.nix and flake).
-          </div>
-        </div>
-      </div>
-
-      {/* Granular Resource Management */}
-      <div className="card-xl">
-        <div style={{ marginBottom:20 }}>
-          <div style={{ fontWeight:700, fontSize:'var(--text-base)' }}>Managed Resources</div>
-          <div style={{ fontSize:'var(--text-xs)', color:'var(--text-tertiary)', marginTop:4 }}>
-            Enable a category to include it in drift detection and reconciliation.
-            Use <strong>Capture</strong> to snapshot your current running config into state.yaml as a starting point.
-          </div>
-        </div>
-
-        <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
-          {CATEGORY_META.map(cat => {
-            const enabled = !!s[cat.settingsKey as keyof GitOpsSettings]
-            const counts = countFor(cat.captureKey)
-            const notCaptured = enabled && cat.captureKey && counts && counts.inGit === 0 && counts.live > 0
-            const cats = cat.captureKey ? cat.captureKey.split(',') : []
-            const isCaptureLoading = capture.isPending && cats.length > 0
-
-            return (
-              <div key={cat.settingsKey} style={{
-                display:'flex', alignItems:'center', gap:16, padding:'14px 18px',
-                background:'var(--bg)', borderRadius:'var(--radius-md)',
-                border:`1px solid ${notCaptured ? 'var(--warning-border)' : 'var(--border)'}`,
-                transition:'border-color 0.2s',
-              }}>
-                <Icon name={cat.icon} size={20} style={{ color: enabled ? 'var(--primary)' : 'var(--text-tertiary)', flexShrink:0 }} />
-
-                <div style={{ flex:1, minWidth:0 }}>
-                  <div style={{ fontWeight:600, fontSize:'var(--text-sm)', display:'flex', alignItems:'center', gap:8 }}>
-                    {cat.label}
-                    {enabled && counts && counts.inGit > 0 && (
-                      <span style={{ fontSize:'var(--text-2xs)', fontWeight:500, color:'var(--success)', background:'var(--success-bg)', padding:'1px 7px', borderRadius:99 }}>
-                        {counts.inGit} in git
-                      </span>
-                    )}
-                    {notCaptured && (
-                      <span style={{ fontSize:'var(--text-2xs)', fontWeight:600, color:'var(--warning)', background:'var(--warning-bg)', padding:'1px 7px', borderRadius:99 }}>
-                        {counts!.live} live, not captured
-                      </span>
-                    )}
-                  </div>
-                  <div style={{ fontSize:'var(--text-2xs)', color:'var(--text-tertiary)', marginTop:2 }}>
-                    {cat.hint || cat.desc}
-                    {enabled && counts && counts.live > 0 && counts.inGit > 0 && (
-                      <span style={{ marginLeft:6, color:'var(--text-tertiary)' }}>
-                        ({counts.inGit}/{counts.live} resources tracked)
-                      </span>
-                    )}
-                  </div>
-                </div>
-
-                <div style={{ display:'flex', alignItems:'center', gap:10, flexShrink:0 }}>
-                  {/* Capture button - only for capturable categories */}
-                  {cat.captureKey && enabled && (
-                    <button
-                      onClick={() => capture.mutate(cats)}
-                      disabled={isCaptureLoading}
-                      className="btn btn-ghost btn-xs"
-                      title={counts && counts.inGit > 0 ? 'Re-capture current live state' : 'Snapshot current live state into state.yaml'}
-                      style={{ color: notCaptured ? 'var(--warning)' : 'var(--text-secondary)' }}
-                    >
-                      <Icon name="download_for_offline" size={13} />
-                      {isCaptureLoading ? 'Capturing...' : counts && counts.inGit > 0 ? 'Re-capture' : 'Capture'}
-                    </button>
-                  )}
-
-                  {/* Enable/disable toggle */}
-                  <input
-                    type="checkbox"
-                    checked={enabled}
-                    onChange={() => updateSettings.mutate({ [cat.settingsKey]: !enabled })}
-                    style={{ width:18, height:18, cursor:'pointer', flexShrink:0 }}
-                    title={`${enabled ? 'Disable' : 'Enable'} ${cat.label} sync`}
-                  />
-                </div>
-              </div>
-            )
-          })}
-        </div>
-
-        <div style={{ marginTop:16, padding:'12px 14px', background:'var(--surface)', borderRadius:'var(--radius-md)', fontSize:'var(--text-2xs)', color:'var(--text-tertiary)', lineHeight:1.6 }}>
-          <strong style={{ color:'var(--text-secondary)' }}>How capture works:</strong>{' '}
-          Capture reads the live system state and writes it into state.yaml, replacing that section.
-          Existing sections you did not capture are left intact.
-          After capturing, the diff engine will show NOP (no change) for those resources - they are now tracked.
-          Future changes you make via the UI will appear as drift and can be applied back from state.yaml.
-        </div>
-      </div>
-    </div>
-  )
-}
-
-// ---- BranchSwitcher ----
 function BranchSwitcher({ repo, onSelect }: { repo: Repo; onSelect: (b: string) => void }) {
   const [open, setOpen] = useState(false)
   const [branches, setBranches] = useState<string[]>([])
@@ -513,17 +243,18 @@ function CredentialsTab() {
   const [editingCred, setEditingCred] = useState<Cred | null>(null)
   const [name, setName] = useState(''); const [type, setType] = useState<'token'|'ssh'|'password'>('token')
   const [host, setHost] = useState('github.com'); const [secret, setSecret] = useState('')
+  const [username, setUsername] = useState('')
 
   const credsQ = useQuery({ queryKey:['git-sync','creds'], queryFn:async ({signal}) => {
     const res = await api.get<{success:boolean;credentials:ApiCred[]}>('/api/git-sync/credentials',signal)
     return { ...res, credentials: (res.credentials ?? []).map(fromApiCred) }
   } })
 
-  const resetForm = () => { setEditingCred(null); setName(''); setHost('github.com'); setSecret(''); setType('token') }
+  const resetForm = () => { setEditingCred(null); setName(''); setHost('github.com'); setSecret(''); setType('token'); setUsername('') }
 
   const save = useMutation({
     mutationFn: () => api.post('/api/git-sync/credentials', {
-      id: editingCred ? Number(editingCred.id) : undefined, name, host, auth_type: type,
+      id: editingCred ? Number(editingCred.id) : undefined, name, host, auth_type: type, username: type === 'token' ? username.trim() : '',
       ...(secret ? (type === 'ssh' ? { ssh_key: secret } : { token: secret }) : {}),
     }),
     onSuccess: () => { toast.success(editingCred ? 'Credential updated' : 'Credential saved'); resetForm(); qc.invalidateQueries({ queryKey:['git-sync','creds'] }) },
@@ -535,6 +266,7 @@ function CredentialsTab() {
     setName(String(c.name))
     setType(c.type || 'token')
     setHost(c.host || 'github.com')
+    setUsername(c.username ?? '')
     setSecret('') // don't show old secret for security, user can re-enter if changing
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
@@ -576,6 +308,13 @@ function CredentialsTab() {
             <span className="field-label">Host</span>
             <input value={host} onChange={e=>setHost(e.target.value)} placeholder="github.com" className="input" />
           </label>
+          {type === 'token' && (
+            <label className="field">
+              <span className="field-label">User name (optional)</span>
+              <input value={username} onChange={e=>setUsername(e.target.value)} placeholder="x-access-token" className="input"
+                title="Sent with the token. GitHub accepts any; Gitea, Forgejo and GitLab may need the account's name." />
+            </label>
+          )}
           <label className="field">
             <span className="field-label">{type === 'ssh' ? 'Private Key / Content' : 'Secret / Token'} {editingCred && '(Leave empty to keep current)'}</span>
             <input type="password" value={secret} onChange={e=>setSecret(e.target.value)} className="input" style={{ fontFamily:'var(--font-mono)' }} />
@@ -618,12 +357,12 @@ function RepoSyncWizard({ type, onClose, onComplete }: { type: 'state'|'nixos'; 
   const [useExisting, setUseExisting] = useState<string|null>(null)
   const [isTesting, setIsTesting] = useState(false)
 
-  const tokenName = type === 'nixos' ? 'NixOS Base System Token' : 'Infrastructure State Token'
+  const tokenName = type === 'nixos' ? 'NixOS Base System Token' : 'Repository Token'
   // Lazy initializer runs once at mount - stable random suffix, readable during render
   const [randomSuffix] = useState(() => Math.floor(Math.random() * 1000))
   const repoName = type === 'nixos'
     ? `NixOS-Backup-${randomSuffix}`
-    : `System-State-${randomSuffix}`
+    : `Repository-${randomSuffix}`
 
   const credsQ = useQuery({ queryKey:['git-sync','creds'], queryFn:async () => {
     const res = await api.get<{success:boolean;credentials:ApiCred[]}>('/api/git-sync/credentials')
@@ -683,7 +422,7 @@ function RepoSyncWizard({ type, onClose, onComplete }: { type: 'state'|'nixos'; 
         
         <div style={{ textAlign:'center', marginBottom:32 }}>
           <Icon name={type === 'nixos' ? 'settings_suggest' : 'auto_fix_high'} size={40} style={{ color:'var(--primary)', marginBottom:12 }} />
-          <h2 style={{ fontSize:'var(--text-xl)', fontWeight:800 }}>{type === 'nixos' ? 'Base System' : 'System State'} Link</h2>
+          <h2 style={{ fontSize:'var(--text-xl)', fontWeight:800 }}>{type === 'nixos' ? 'Base System' : 'Repository'} Link</h2>
           <div style={{ color:'var(--text-tertiary)', fontSize:'var(--text-sm)' }}>Step {step} of 3</div>
         </div>
 
@@ -752,7 +491,7 @@ function RepoSyncWizard({ type, onClose, onComplete }: { type: 'state'|'nixos'; 
   )
 }
 
-type GTab = 'status'|'repos'|'credentials'|'settings'
+type GTab = 'config' | 'repos' | 'credentials'
 function RepoEditModal({ repo, onExited, onSaved }: { repo: Repo; onExited: () => void; onSaved: () => void }) {
   const [name, setName] = useState(repo.name)
   const [branch, setBranch] = useState(repo.branch || 'main')
@@ -810,173 +549,38 @@ function RepoEditModal({ repo, onExited, onSaved }: { repo: Repo; onExited: () =
 
 // ── BlockedApprovalModal ──────────────────────────────────────────────────────
 
-function BlockedApprovalModal({ change, onClose, onApproved }: {
-  change:      Change
-  onClose:     () => void
-  onApproved:  () => void
-}) {
-  const [reason, setReason] = useState('')
-  const approve = useMutation({
-    mutationFn: () => api.post('/api/gitops/approve', { kind: change.kind, name: change.name, reason: reason.trim() }),
-    onSuccess: () => { toast.success(`Approved destruction of ${change.resource}`); onApproved(); onClose() },
-    onError: (e: Error) => toast.error(e.message),
-  })
-
-  return (
-    <Modal
-      title={<span style={{ color: 'var(--error)', display:'flex', alignItems:'center', gap:8 }}><Icon name="warning" size={20} />Approve Destructive Operation</span>}
-      onClose={onClose}
-    >
-      <div style={{ padding:'0 24px 8px' }}>
-        <div style={{ background:'var(--error-bg)', border:'1px solid var(--error-border)', borderRadius:'var(--radius-md)', padding:'12px 16px', marginBottom:16 }}>
-          <div style={{ fontSize:'var(--text-xs)', color:'var(--text-secondary)', marginBottom:6, textTransform:'uppercase', letterSpacing:'0.05em', fontWeight:600 }}>Resource to be destroyed</div>
-          <div style={{ fontFamily:'var(--font-mono)', fontWeight:700, color:'var(--error)' }}>{change.resource}</div>
-          {change.description && (
-            <div style={{ fontSize:'var(--text-xs)', color:'var(--text-secondary)', marginTop:6 }}>{change.description}</div>
-          )}
-        </div>
-
-        <div className="alert alert-warning" style={{ marginBottom:16, fontSize:'var(--text-xs)' }}>
-          <Icon name="info" size={15} />
-          <div>
-            The GitOps engine blocked this automatically because the data would be permanently destroyed. Approving allows the deletion to proceed on the next Deploy. Back up any active data before approving.
-          </div>
-        </div>
-
-        <label className="field" style={{ marginBottom:8 }}>
-          <span className="field-label">Reason for approval <span style={{ color:'var(--error)' }}>*</span></span>
-          <input
-            value={reason}
-            onChange={e => setReason(e.target.value)}
-            placeholder="e.g. Dataset migrated to tank/backup on 2026-06-03, confirmed empty"
-            className="input"
-            autoFocus
-          />
-          <div style={{ fontSize:'var(--text-2xs)', color:'var(--text-tertiary)', marginTop:4 }}>Logged to the audit trail. Required.</div>
-        </label>
-      </div>
-
-      <div className="modal-footer">
-        <button onClick={onClose} className="btn btn-ghost">Cancel</button>
-        <button
-          onClick={() => approve.mutate()}
-          disabled={approve.isPending || reason.trim().length < 4}
-          className="btn btn-danger"
-        >
-          <Icon name="delete_forever" size={15} />
-          {approve.isPending ? 'Approving…' : 'Approve Destruction'}
-        </button>
-      </div>
-    </Modal>
-  )
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function GitOpsPage() {
   const qc = useQueryClient()
-  const wsOn = useWsStore((s) => s.on)
-  const [tab, setTab] = useState<GTab>('status')
-  const [driftAlert, setDriftAlert] = useState<DriftPayload | null>(null)
-  const [approvingChange, setApprovingChange] = useState<Change | null>(null)
+  const [tab, setTab] = useState<GTab>('config')
   const [editingRepo, setEditingRepo] = useState<Repo | null>(null)
-
-  const statusQ   = useQuery({ queryKey:['gitops','status'],   queryFn:({signal})=>api.get<GitopsStatus>('/api/gitops/status',signal), refetchInterval:15_000 })
-  const planQ     = useQuery({ queryKey:['gitops','plan'],     queryFn:({signal})=>api.get<{success:boolean;changes:Change[]}>('/api/gitops/plan',signal) })
-  const stateQ    = useQuery({ queryKey:['gitops','state'],    queryFn:({signal})=>api.get<{success:boolean;exists?:boolean;valid?:boolean;content?:string;error?:string}>('/api/gitops/state',signal) })
-  const settingsQ = useQuery({ queryKey:['gitops','settings'], queryFn:()=>api.get<{success:boolean;settings:GitOpsSettings}>('/api/gitops/settings') })
-  const reposQ    = useQuery({ queryKey:['git-sync','repos'],  queryFn:async ({signal}) => {
+  const [showWizard, setShowWizard] = useState<'state'|'nixos'|null>(null)
+  const reposQ = useQuery({ queryKey:['git-sync','repos'], queryFn:async ({signal}) => {
     const res = await api.get<{success:boolean;repos:ApiRepo[]}>('/api/git-sync/repos',signal)
     return { ...res, repos: (res.repos ?? []).map(fromApiRepo) }
   } })
-  const summaryQ  = useQuery({ queryKey:['gitops','summary'],  queryFn:({signal})=>api.get<{success:boolean;summary:ManagedSummary}>('/api/gitops/managed-summary',signal), refetchInterval:30_000 })
-
-  useEffect(() => {
-    return wsOn('gitopsDrift', (data) => {
-      const d = data as DriftPayload
-      if (d.drifted || d.error) {
-        setDriftAlert(d)
-        qc.invalidateQueries({ queryKey: ['gitops'] })
-      } else {
-        setDriftAlert(null)
-      }
-    })
-  }, [wsOn, qc])
-
-  const [showWizard, setShowWizard] = useState<'state'|'nixos'|null>(null)
-  const updateSettings = useMutation({
-    mutationFn: (vals: Partial<GitOpsSettings>) => api.put('/api/gitops/settings', { ...settingsQ.data?.settings, ...vals }),
-    onSuccess: () => { toast.success('Settings saved'); qc.invalidateQueries({queryKey:['gitops','settings']}) },
-    onError: (e: Error) => toast.error(e.message)
-  })
-
-  const check   = useMutation({ mutationFn: () => api.post('/api/gitops/check',{}), onSuccess: () => toast.success('Config valid'), onError: (e:Error)=>toast.error(e.message) })
-  const setJob = useJobStore((s) => s.setActiveJob)
-
-  const apply   = useMutation({ 
-    mutationFn: () => api.post<{ success: boolean; job_id: string }>('/api/gitops/apply',{}), 
-    onSuccess: (data) => { 
-      toast.success('Reconciliation Started'); 
-      setDriftAlert(null); 
-      setJob(data.job_id, 'System Reconciliation');
-      qc.invalidateQueries({queryKey:['gitops']}) 
-    }, 
-    onError: (e:Error)=>toast.error(e.message) 
-  })
-
-  if (settingsQ.data?.settings && !settingsQ.data.settings.enabled && tab !== 'settings') {
-    return (
-      <div style={{ maxWidth: 800, margin: '40px auto', textAlign:'center' }}>
-        <Icon name="git_repository" size={64} style={{ color:'var(--text-tertiary)', opacity:0.2, marginBottom:24 }} />
-        <h1 className="page-title">Unlock Declarative Freedom</h1>
-        <p className="page-subtitle" style={{ maxWidth: 500, margin:'0 auto 30px' }}>
-          GitOps allows you to manage your entire D-PlaneOS instance from a Git repository.
-          Version your config, audit changes, and rollback with ease.
-        </p>
-        <button onClick={() => setTab('settings')} className="btn btn-primary btn-lg">
-          <Icon name="settings" size={18} /> Configure GitOps
-        </button>
-      </div>
-    )
-  }
 
   const TABS = [
-    { id:'status' as const,       label:'Status',       icon:'analytics' },
-    { id:'repos' as const,        label:'Repositories', icon:'source' },
-    { id:'credentials' as const,  label:'Credentials',  icon:'key' },
-    { id:'settings' as const,     label:'Settings',     icon:'settings' },
+    { id:'config' as const,       label:'Configuration repository', icon:'account_tree' },
+    { id:'repos' as const,        label:'Stack repositories',       icon:'source' },
+    { id:'credentials' as const,  label:'Credentials',              icon:'key' },
   ]
 
   return (
     <div style={{ maxWidth: 1000 }}>
       {showWizard && (
-        <RepoSyncWizard 
+        <RepoSyncWizard
           type={showWizard}
-          onClose={() => setShowWizard(null)} 
-          onComplete={(repoId) => {
-            if (showWizard === 'state') updateSettings.mutate({ repo_id: repoId })
-            else updateSettings.mutate({ nixos_repo_id: repoId })
-            setShowWizard(null)
-          }} 
+          onClose={() => setShowWizard(null)}
+          onComplete={() => { qc.invalidateQueries({ queryKey:['git-sync'] }); setShowWizard(null) }}
         />
       )}
-      {/* Header */}
-      <div className="page-header" style={{ display:'flex', alignItems:'flex-end' }}>
-        <div style={{ flex:1 }}>
-          <h1 className="page-title">GitOps Engine</h1>
-          <p className="page-subtitle">Continuous reconciliation between Git and Live state (State & Base System)</p>
-        </div>
-        <div style={{ display:'flex', gap:10, marginBottom:4 }}>
-          <button onClick={() => api.post('/api/gitops/sync', {}).then(() => { toast.success('Sync triggered'); qc.invalidateQueries({queryKey:['gitops']}) })} className="btn btn-ghost" title="Manual Sync">
-            <Icon name="sync" size={16} /> Sync Now
-          </button>
-          <button onClick={() => setTab('settings')} className="btn btn-ghost" title="Settings">
-            <Icon name="settings" size={16} />
-          </button>
-        </div>
+      <div className="page-header">
+        <h1 className="page-title">Git</h1>
+        <p className="page-subtitle">Keep this system's configuration in a Git repository, and deploy stacks from repositories.</p>
       </div>
 
-      {/* Tabs */}
       <div className="tabs-underline" style={{ marginBottom:24 }}>
         {TABS.map(t => (
           <button key={t.id} onClick={()=>setTab(t.id)} className={`tab-underline${tab === t.id ? ' active' : ''}`}>
@@ -985,158 +589,17 @@ export function GitOpsPage() {
         ))}
       </div>
 
-      {tab === 'status'      && (
-        <>
-          {driftAlert && (
-            <div className={`alert ${driftAlert.blocked_count > 0 ? 'alert-error' : 'alert-warning'}`} style={{ marginBottom: driftAlert.blocked_count > 0 ? 8 : 20 }}>
-              <Icon name={driftAlert.blocked_count > 0 ? 'error' : 'warning'} size={16} />
-              <span>
-                {driftAlert.error
-                  ? `GitOps error: ${driftAlert.error}`
-                  : <>Drift detected at {fmtDate(driftAlert.checked_at)} - <strong>{driftAlert.create_count + driftAlert.modify_count + driftAlert.delete_count}</strong> pending change(s). {driftAlert.safe_to_apply ? 'Safe to apply.' : 'Manual review required.'}</>
-                }
-              </span>
-              <button onClick={() => setDriftAlert(null)} style={{ marginLeft:'auto', background:'none', border:'none', cursor:'pointer', color:'inherit' }}><Icon name="close" size={15} /></button>
-            </div>
-          )}
-          {driftAlert && driftAlert.blocked_count > 0 && (
-            <div className="alert alert-error" style={{ marginBottom:20 }}>
-              <Icon name="delete_forever" size={16} />
-              <div style={{ flex:1 }}>
-                <strong>{driftAlert.blocked_count} destructive deletion{driftAlert.blocked_count !== 1 ? 's' : ''} require manual approval.</strong>
-                {' '}The engine blocked these automatically to prevent data loss. Review each BLOCKED item in the Pending Plan below, confirm the data is safe to delete, and click <strong>Approve</strong> on each one before deploying.
-              </div>
-            </div>
-          )}
-
-          {statusQ.data && (
-            <div style={{ display:'flex', alignItems:'center', gap:14, padding:'14px 20px', background:'var(--bg-card)', border:`1px solid ${statusQ.data.drifted || statusQ.data.error ?'var(--warning-border)':'var(--border)'}`, borderRadius:'var(--radius-lg)', marginBottom:24 }}>
-              <Icon name={statusQ.data.drifted || statusQ.data.error ? 'warning' : 'check_circle'} size={20} style={{ color: statusQ.data.drifted || statusQ.data.error ? 'var(--warning)' : 'var(--success)' }} />
-              <div style={{ flex:1 }}>
-                <span style={{ fontWeight:700 }}>
-                  {statusQ.data.status === 'pending' ? 'Checking…'
-                    : statusQ.data.error ? 'Not checked'
-                    : statusQ.data.drifted ? 'Changes pending' : 'Synchronized'}
-                </span>
-                {statusQ.data.checked_at && <span style={{ marginLeft:10, fontSize:'var(--text-xs)', color:'var(--text-tertiary)' }}>Checked: {fmtDate(statusQ.data.checked_at)}</span>}
-                {statusQ.data.synced_commit && <span style={{ marginLeft:10, fontSize:'var(--text-xs)', color:'var(--text-tertiary)', fontFamily:'var(--font-mono)' }}>System at {statusQ.data.synced_commit.slice(0, 12)}</span>}
-                {statusQ.data.error && <div style={{ fontSize:'var(--text-xs)', color:'var(--warning)', marginTop:4 }}>{statusQ.data.error}</div>}
-                {statusQ.data.last_commit && !statusQ.data.last_commit.ok && (
-                  <div style={{ fontSize:'var(--text-xs)', color:'var(--error)', marginTop:4 }}>
-                    Last web UI change was not committed to Git ({fmtDate(statusQ.data.last_commit.at)}): {statusQ.data.last_commit.error}
-                  </div>
-                )}
-              </div>
-              <div style={{ display:'flex', gap:8 }}>
-                <button onClick={()=>check.mutate()} disabled={check.isPending} className="btn btn-ghost"><Icon name="fact_check" size={14}/>Config Check</button>
-                <button onClick={()=>apply.mutate()} disabled={apply.isPending} className="btn btn-primary"><Icon name="rocket_launch" size={14}/>Deploy Now</button>
-              </div>
-            </div>
-          )}
-
-          {/* Managed resources summary strip */}
-          {summaryQ.data?.summary && (
-            <div style={{ display:'flex', gap:8, flexWrap:'wrap', marginBottom:20 }}>
-              {CATEGORY_META.map(cat => {
-                if (!cat.captureKey) return null
-                const cats = cat.captureKey.split(',')
-                const counts = cats.reduce((acc, c) => {
-                  const v = summaryQ.data!.summary[c]
-                  return v ? { inGit: acc.inGit + v.in_git, live: acc.live + v.live } : acc
-                }, { inGit: 0, live: 0 })
-                const color = counts.inGit > 0 ? 'var(--success)' : 'var(--text-tertiary)'
-                return (
-                  <div key={cat.settingsKey} style={{ display:'flex', alignItems:'center', gap:6, padding:'5px 12px', background:'var(--bg-card)', border:'1px solid var(--border)', borderRadius:99, fontSize:'var(--text-2xs)' }}>
-                    <Icon name={cat.icon} size={13} style={{ color }} />
-                    <span style={{ color:'var(--text-secondary)', fontWeight:500 }}>{cat.label}</span>
-                    <span style={{ color }}>{counts.inGit}/{counts.live}</span>
-                  </div>
-                )
-              })}
-              <button onClick={() => setTab('settings')} className="btn btn-ghost btn-xs" style={{ borderRadius:99, fontSize:'var(--text-2xs)' }}>
-                <Icon name="tune" size={13} />Manage
-              </button>
-            </div>
-          )}
-
-          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:20 }}>
-            <div>
-              <div style={{ fontWeight:700, marginBottom:12, display:'flex', alignItems:'center', gap:8 }}><Icon name="list_alt" size={18} style={{ color:'var(--primary)' }}/>Pending Plan</div>
-              <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
-                {(planQ.data?.changes ?? []).map((c, i) => {
-                  const isBlocked  = c.action === 'BLOCKED'
-                  const isApproved = isBlocked && c.approved
-                  const actionLabel = isApproved ? 'APPROVED' : c.action
-                  const actionColor = isApproved ? 'var(--success)' : changeColor(c.action)
-                  return (
-                    <div key={i} style={{ display:'flex', alignItems:'flex-start', gap:10, padding:'10px 14px', background:'var(--bg-card)', border:`1px solid ${actionColor}20`, borderRadius:'var(--radius-md)' }}>
-                      <span style={{ padding:'2px 6px', borderRadius:'var(--radius-sm)', background:`${actionColor}18`, color:actionColor, fontSize:'var(--text-2xs)', fontWeight:700, textTransform:'uppercase', flexShrink:0, marginTop:1 }}>{actionLabel}</span>
-                      <div style={{ flex:1, minWidth:0 }}>
-                        <div style={{ fontWeight:600, fontSize:'var(--text-sm)' }}>{c.resource}</div>
-                        {c.description && (
-                          <div style={{ fontSize:'var(--text-2xs)', color:'var(--text-tertiary)', marginTop:2 }}>{c.description}</div>
-                        )}
-                        {c.action === 'RESHAPE' && c.changes && c.changes.length > 0 && (
-                          <div style={{ marginTop:4, display:'flex', flexDirection:'column', gap:2 }}>
-                            {c.changes.map((ch, ci) => (
-                              <code key={ci} style={{ fontFamily:'var(--font-mono)', fontSize:11, color:'var(--warning)', background:'var(--warning-bg)', padding:'1px 6px', borderRadius:'var(--radius-xs)', display:'block' }}>
-                                zpool add {c.resource} {ch.replace(/^add-\w+: /, '')}
-                              </code>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                      {isBlocked && !isApproved && (
-                        <button
-                          onClick={() => setApprovingChange(c)}
-                          className="btn btn-danger"
-                          style={{ flexShrink:0, fontSize:'var(--text-xs)', padding:'4px 10px' }}
-                          title="Approve this destructive operation to allow it to proceed on next deploy"
-                        >
-                          <Icon name="lock_open" size={13} />Approve
-                        </button>
-                      )}
-                      {isApproved && (
-                        <span style={{ fontSize:'var(--text-2xs)', color:'var(--success)', flexShrink:0, display:'flex', alignItems:'center', gap:4 }}>
-                          <Icon name="check_circle" size={13} />Approved
-                        </span>
-                      )}
-                    </div>
-                  )
-                })}
-                {(planQ.data?.changes ?? []).length === 0 && <div className="card" style={{ textAlign:'center', padding:'40px 0', opacity:0.5 }}>Zero drift between Git and Live state</div>}
-              </div>
-            </div>
-            <div>
-              <div style={{ fontWeight:700, marginBottom:12, display:'flex', alignItems:'center', gap:8 }}><Icon name="code" size={18} style={{ color:'var(--primary)' }}/>Live Manifest</div>
-              <pre className="card" style={{ background: 'var(--surface)', padding:'12px 14px', fontFamily:'var(--font-mono)', fontSize:11, maxHeight:320, overflow:'auto', whiteSpace:'pre-wrap' }}>
-                {stateQ.data?.content || (stateQ.data?.exists === false ? '(no state.yaml yet)' : '(empty)')}
-              </pre>
-            </div>
-          </div>
-        </>
-      )}
-
-      {tab === 'repos'       && (
-        <RepositoriesTab 
-          repos={reposQ.data?.repos ?? []} 
+      {tab === 'config' && <ConfigRepository />}
+      {tab === 'repos' && (
+        <RepositoriesTab
+          repos={reposQ.data?.repos ?? []}
           isLoading={reposQ.isLoading}
-          onWizardClick={(type: 'state'|'nixos') => { setTab('settings'); setShowWizard(type) }} 
+          onWizardClick={(type: 'state'|'nixos') => setShowWizard(type)}
           onRefresh={() => qc.invalidateQueries({ queryKey:['git-sync'] })}
           onEdit={setEditingRepo}
         />
       )}
       {tab === 'credentials' && <CredentialsTab />}
-      {tab === 'settings'    && settingsQ.data && (
-        <SettingsTab
-          s={settingsQ.data.settings}
-          updateSettings={updateSettings}
-          repos={reposQ.data?.repos ?? []}
-          setShowWizard={setShowWizard}
-          onSyncNow={() => qc.invalidateQueries({queryKey:['gitops']})}
-          summary={summaryQ.data?.summary ?? null}
-        />
-      )}
 
       {editingRepo && (
         <RepoEditModal
@@ -1145,18 +608,6 @@ export function GitOpsPage() {
           onSaved={() => qc.invalidateQueries({ queryKey:['git-sync','repos'] })}
         />
       )}
-
-      {approvingChange && (
-        <BlockedApprovalModal
-          change={approvingChange}
-          onClose={() => setApprovingChange(null)}
-          onApproved={() => {
-            setApprovingChange(null)
-            qc.invalidateQueries({ queryKey:['gitops'] })
-          }}
-        />
-      )}
     </div>
   )
 }
-

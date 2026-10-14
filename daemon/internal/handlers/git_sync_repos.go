@@ -36,7 +36,7 @@ func NewGitReposHandler(db *sql.DB) *GitReposHandler {
 
 // ListCredentials - GET /api/git-sync/credentials
 func (h *GitReposHandler) ListCredentials(w http.ResponseWriter, r *http.Request) {
-	rows, err := h.db.Query(`SELECT id, name, host, auth_type, notes, created_at,
+	rows, err := h.db.Query(`SELECT id, name, host, auth_type, username, notes, created_at,
 		CASE WHEN token <> '' THEN 1 ELSE 0 END as has_token,
 		CASE WHEN ssh_key <> '' THEN 1 ELSE 0 END as has_ssh
 		FROM git_credentials ORDER BY name`)
@@ -49,14 +49,14 @@ func (h *GitReposHandler) ListCredentials(w http.ResponseWriter, r *http.Request
 	var creds []map[string]any
 	for rows.Next() {
 		var id int
-		var name, host, authType, notes, createdAt string
+		var name, host, authType, username, notes, createdAt string
 		var hasToken, hasSSH int
-		if err := rows.Scan(&id, &name, &host, &authType, &notes, &createdAt, &hasToken, &hasSSH); err != nil {
+		if err := rows.Scan(&id, &name, &host, &authType, &username, &notes, &createdAt, &hasToken, &hasSSH); err != nil {
 			log.Printf("GIT CREDS LIST SCAN ERROR: %v", err)
 			continue
 		}
 		creds = append(creds, map[string]any{
-			"id": id, "name": name, "host": host, "auth_type": authType,
+			"id": id, "name": name, "host": host, "auth_type": authType, "username": username,
 			"notes": notes, "created_at": createdAt,
 			"has_token": hasToken == 1, "has_ssh": hasSSH == 1,
 		})
@@ -77,6 +77,7 @@ func (h *GitReposHandler) SaveCredential(w http.ResponseWriter, r *http.Request)
 		Name     string `json:"name"`
 		Host     string `json:"host"`
 		AuthType string `json:"auth_type"` // "token" or "ssh"
+		Username string `json:"username"`  // sent with a token ("" = x-access-token)
 		Token    string `json:"token"`
 		SSHKey   string `json:"ssh_key"`
 		Notes    string `json:"notes"`
@@ -122,6 +123,9 @@ func (h *GitReposHandler) SaveCredential(w http.ResponseWriter, r *http.Request)
 			_, execErr = h.db.Exec(`UPDATE git_credentials SET name=$1, host=$2, auth_type=$3, notes=$4 WHERE id=$5`,
 				req.Name, req.Host, req.AuthType, req.Notes, *req.ID)
 		}
+		if execErr == nil {
+			_, execErr = h.db.Exec(`UPDATE git_credentials SET username = $1 WHERE id = $2`, req.Username, *req.ID)
+		}
 		if execErr != nil {
 			respondJSON(w, 500, map[string]any{"success": false, "error": execErr.Error()})
 			return
@@ -145,8 +149,8 @@ func (h *GitReposHandler) SaveCredential(w http.ResponseWriter, r *http.Request)
 	}
 
 	var id int64
-	dbErr := h.db.QueryRow(`INSERT INTO git_credentials (name, host, auth_type, token, ssh_key, notes) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
-		req.Name, req.Host, req.AuthType, tokenStore, sshKeyStore, req.Notes).Scan(&id)
+	dbErr := h.db.QueryRow(`INSERT INTO git_credentials (name, host, auth_type, username, token, ssh_key, notes) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`,
+		req.Name, req.Host, req.AuthType, req.Username, tokenStore, sshKeyStore, req.Notes).Scan(&id)
 	if dbErr != nil {
 		if strings.Contains(dbErr.Error(), "unique constraint") || strings.Contains(dbErr.Error(), "duplicate key") {
 			respondJSON(w, 409, map[string]any{"success": false, "error": "A credential with this name already exists"})
