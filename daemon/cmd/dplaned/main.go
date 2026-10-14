@@ -1763,6 +1763,9 @@ func sessionMiddleware(db *sql.DB, internalCronToken string) mux.MiddlewareFunc 
 				p == "/api/auth/login" ||
 				p == "/api/auth/logout" ||
 				p == "/api/auth/check" ||
+				// Second login step: no session exists yet; the handler checks
+				// the pending token from the first step and limits guessing.
+				p == "/api/auth/totp/verify" ||
 				p == "/api/csrf" ||
 				// OIDC SSO login flow - no session exists at these points
 				p == "/api/auth/oidc/info" ||

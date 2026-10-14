@@ -70,7 +70,7 @@ pkgs.testers.nixosTest {
   };
 
   testScript = ''
-    import json, shlex, time
+    import base64, hashlib, hmac, json, shlex, struct, time
 
     with open("${sharedImage}", "wb") as f:
         f.truncate(1 << 30)
@@ -108,6 +108,24 @@ pkgs.testers.nixosTest {
         csrf = json.loads(m.succeed(f"curl -s http://localhost/api/csrf -H 'X-Session-ID: {sid}' -H 'X-User: admin'"))["csrf_token"]
         session[m.name] = (sid, csrf)
 
+    def totp(secret):
+        key = base64.b32decode(secret.upper() + "=" * (-len(secret) % 8))
+        h = hmac.new(key, struct.pack(">Q", int(time.time()) // 30), hashlib.sha1).digest()
+        o = h[-1] & 0x0F
+        return "%06d" % ((struct.unpack(">I", h[o:o + 4])[0] & 0x7FFFFFFF) % 1000000)
+
+    def login_2fa(m):
+        # Fencing settings need a session with two-factor authentication (AAL2).
+        login(m)
+        secret = api(m, "GET", "/api/auth/totp/setup")["secret"]
+        ok(api(m, "POST", "/api/auth/totp/setup", {"code": totp(secret)}), f"{m.name}: enable 2FA")
+        time.sleep(31 - time.time() % 30)  # a code is accepted once: next 30-second step
+        r = api(m, "POST", "/api/auth/login", {"username": "admin", "password": PASSWORD}, auth=False)
+        assert r.get("requires_totp"), r
+        sid = ok(api(m, "POST", "/api/auth/totp/verify", {"pending_token": r["pending_token"], "code": totp(secret)}, auth=False), f"{m.name}: 2FA login")["session_id"]
+        csrf = json.loads(m.succeed(f"curl -s http://localhost/api/csrf -H 'X-Session-ID: {sid}' -H 'X-User: admin'"))["csrf_token"]
+        session[m.name] = (sid, csrf)
+
     def wait_for(fn, what, timeout):
         deadline = time.time() + timeout
         while True:
@@ -142,10 +160,10 @@ pkgs.testers.nixosTest {
     try:
         with subtest("1. Watchdog on both nodes through the API"):
             for m in (a, b):
-                login(m)
+                login_2fa(m)
                 prot = api(m, "GET", "/api/ha/protection")
                 assert prot["fencing_ok"] is False, prot
-                api(m, "POST", "/api/ha/watchdog/configure", {"enable": True, "device": "/dev/watchdog", "timeout_secs": 60, "pet_interval_sec": 5})
+                ok(api(m, "POST", "/api/ha/watchdog/configure", {"enable": True, "device": "/dev/watchdog", "timeout_secs": 60, "pet_interval_sec": 5}), f"{m.name}: watchdog")
                 wait_for(lambda: api(m, "GET", "/api/ha/protection")["fencing_ok"], f"{m.name}: fencing configured", 60)
 
         with subtest("2. Pair, form the cluster, add the third vote"):

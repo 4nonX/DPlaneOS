@@ -120,6 +120,10 @@ function StepProtect({ p }: { p?: Protection }) {
         that lost quorum. Power fencing (IPMI or a switched PDU) is an optional extra layer.
       </p>
       {p && !p.fencing_ok && <p style={{ fontSize: 'var(--text-sm)', color: 'var(--warning)' }}>Not protected yet: {p.fencing_reason}.</p>}
+      <p style={hint}>
+        Fencing settings can only be saved in a session with two-factor authentication: enable it under
+        {' '}<Link to="/security">Security</Link>, then log out and in again with your code.
+      </p>
       <ProtectionCard />
       <WatchdogConfigForm />
       <div style={{ marginTop: 16 }}><SafetyChecks /></div>
