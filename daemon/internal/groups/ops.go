@@ -155,6 +155,7 @@ type Manager struct {
 	uncached    map[string]bool
 	addrApplied map[string]string // group → "iface|cidr" put on this node
 	moving      map[string]bool   // planned moves in progress: activation leaves these alone
+	peerMaint   map[string]bool   // members' maintenance mode, as last reported
 }
 
 func (m *Manager) setMoving(name string, on bool) {
@@ -192,6 +193,7 @@ func (m *Manager) currentView() (View, error) {
 	for name := range imported {
 		v.ImportedHere[name] = true
 	}
+	v.Maintenance = m.Maintenances()
 	return v, nil
 }
 
@@ -377,6 +379,9 @@ func (m *Manager) Move(name, target string) (*MoveResult, error) {
 	}
 	if target == self || !g.IsCandidate(target) {
 		return nil, errors.New("the target must be another candidate of the group")
+	}
+	if m.Maintenances()[target] {
+		return nil, errors.New("the target is in maintenance mode; take it out of maintenance first")
 	}
 	// The activation loop and the owner's import check run without m.mu:
 	// keep them from restarting apps or importing while the group moves.
@@ -585,6 +590,7 @@ func (m *Manager) SyncOnce() error {
 			continue // unreachable members are normal during a partition
 		}
 		ps := peerSeen{Reached: true}
+		m.notePeerMaintenance(n, pv.Maintenance)
 		if pv.HasImported {
 			ps.Imported = map[string]bool{}
 			for _, p := range pv.Imported {

@@ -293,6 +293,55 @@ func (m *Manager) ReplicateNow(name string) error {
 	return m.replicate(*g, nil)
 }
 
+// ReplicationCheck is the result of testing replication to one copy.
+type ReplicationCheck struct {
+	Target string `json:"target"`
+	Pool   string `json:"pool"`
+	OK     bool   `json:"ok"`
+	Detail string `json:"detail"`
+}
+
+// TestReplication checks, without sending data, that every other candidate
+// of a replicated group answers over the peer channel, has the group and a
+// copy of each pool, and shares a snapshot with this node (otherwise the next
+// replication sends the whole pool).
+func (m *Manager) TestReplication(name string) ([]ReplicationCheck, error) {
+	g, err := Get(m.db, name)
+	if err != nil {
+		return nil, err
+	}
+	if g.Topology != Replicated {
+		return nil, errors.New("only replicated groups replicate")
+	}
+	self := m.self()
+	out := []ReplicationCheck{}
+	for _, p := range g.Pools {
+		local, lerr := m.repl.Snapshots(p.Name)
+		for _, t := range without(g.Candidates, self) {
+			c := ReplicationCheck{Target: t, Pool: p.Name}
+			remote, err := m.tr.RemoteSnapshots(t, g.Name, p.Name)
+			switch {
+			case err != nil:
+				c.Detail = "the copy cannot be read: " + err.Error()
+			case lerr != nil:
+				c.Detail = "this node's snapshots cannot be listed: " + lerr.Error()
+			case len(remote) == 0:
+				c.OK, c.Detail = true, "reachable; the copy has no replication snapshot yet, so the next replication sends the whole pool"
+			default:
+				if base := latestCommon(local, remote); base != "" {
+					c.OK, c.Detail = true, fmt.Sprintf("reachable; the next replication is incremental from %s", base)
+				} else if g.Owner == self {
+					c.Detail = "reachable, but the copy shares no snapshot with this node: it was changed or replaced; the next replication is refused until it is discarded there"
+				} else {
+					c.OK, c.Detail = true, "reachable (this node is not the owner; it receives replication)"
+				}
+			}
+			out = append(out, c)
+		}
+	}
+	return out, nil
+}
+
 // replicate sends every pool of g to the targets (all other candidates when
 // targets is nil). One new snapshot per pool serves all targets.
 func (m *Manager) replicate(g Group, targets []string) error {

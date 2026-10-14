@@ -157,6 +157,10 @@ type View struct {
 	FenceOK            bool          // a fencing method is configured (watchdog or power fencing)
 	FenceReason        string        // why not
 	FenceDelay         time.Duration // wait after the owner left before taking over
+
+	// Maintenance are the nodes in maintenance mode (this one included):
+	// never chosen to take a group over (phase 4).
+	Maintenance map[string]bool
 }
 
 // Status is the evaluated state of a group on this node.

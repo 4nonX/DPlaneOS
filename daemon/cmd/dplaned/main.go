@@ -893,6 +893,9 @@ func main() {
 	r.Handle("/api/config/detach", permRoute("system", "admin", http.HandlerFunc(configSync.Detach))).Methods("POST")
 	r.Handle("/api/config/conflicts", permRoute("system", "read", http.HandlerFunc(configSync.Conflicts))).Methods("GET")
 	r.Handle("/api/config/conflicts/{id:[0-9]+}/resolve", permRoute("system", "admin", http.HandlerFunc(configSync.Resolve))).Methods("POST")
+	r.Handle("/api/config/proposals/{id:[0-9]+}/apply", permRoute("system", "admin", http.HandlerFunc(configSync.ApplyProposal))).Methods("POST")
+	r.Handle("/api/config/proposals/{id:[0-9]+}/dismiss", permRoute("system", "admin", http.HandlerFunc(configSync.DismissProposal))).Methods("POST")
+	r.Handle("/api/config/policy", permRoute("system", "admin", http.HandlerFunc(configSync.SetPolicy))).Methods("PUT")
 	// Peer endpoints are PUBLIC in the session middleware: other nodes call
 	// them without a session; the handlers check the peer secret or join token.
 	r.HandleFunc("/api/config/sync/peer/revisions", configSync.PeerRevisions).Methods("GET")
@@ -942,6 +945,13 @@ func main() {
 	groupMgr.StartActivation(10 * time.Second)
 	handlers.GroupImportGuard = groupMgr.MayImport
 	configstore.EpochForPool = func(pool string) int64 { return groups.EpochForPool(db, pool) }
+	configstore.CoordinatorTerm = func() int64 {
+		in := quorumMon.FreshInfo(time.Second)
+		if self, _ := configstore.NodeID(db); in.Coordinator != "" && in.Coordinator == self {
+			return in.Term
+		}
+		return 0
+	}
 	groupsH := handlers.NewGroupsHandler(db, groupMgr)
 	r.Handle("/api/groups", permRoute("storage", "read", http.HandlerFunc(groupsH.List))).Methods("GET")
 	r.Handle("/api/groups", permRoute("storage", "admin", http.HandlerFunc(groupsH.Create))).Methods("POST")
@@ -956,6 +966,13 @@ func main() {
 	r.HandleFunc("/api/config/sync/peer/zfs-recv", groupsH.PeerRecv).Methods("POST")
 	protectionH := handlers.NewProtectionHandler(db, quorumMon, haKeeper)
 	r.Handle("/api/ha/protection", permRoute("system", "read", http.HandlerFunc(protectionH.Get))).Methods("GET")
+	// Cluster map, maintenance mode and safety tests (Design 0001 phase 4).
+	clusterH := handlers.NewClusterHandler(db, groupMgr, quorumMon)
+	r.Handle("/api/cluster/map", permRoute("system", "read", http.HandlerFunc(clusterH.Map))).Methods("GET")
+	r.Handle("/api/cluster/maintenance", permRoute("system", "read", http.HandlerFunc(clusterH.GetMaintenance))).Methods("GET")
+	r.Handle("/api/cluster/maintenance", permRoute("storage", "admin", http.HandlerFunc(clusterH.EnterMaintenance))).Methods("POST")
+	r.Handle("/api/cluster/maintenance", permRoute("storage", "admin", http.HandlerFunc(clusterH.ExitMaintenance))).Methods("DELETE")
+	r.Handle("/api/cluster/test/{kind}", permRoute("system", "admin", http.HandlerFunc(clusterH.Test))).Methods("POST")
 	r.HandleFunc("/api/config/sync/peer/group", groupsH.PeerGroup).Methods("POST")
 	r.HandleFunc("/api/config/sync/peer/groups", groupsH.PeerGroups).Methods("GET")
 	gitops.AddChangeHook(func() {

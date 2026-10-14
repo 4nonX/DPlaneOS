@@ -51,11 +51,12 @@ func (t GroupTransport) Push(node string, u groups.Update) error {
 
 func (t GroupTransport) Fetch(node string) (groups.PeerView, error) {
 	var resp struct {
-		Groups   []groups.Group `json:"groups"`
-		Imported *[]string      `json:"imported"`
+		Groups      []groups.Group `json:"groups"`
+		Imported    *[]string      `json:"imported"`
+		Maintenance bool           `json:"maintenance"`
 	}
 	err := configstore.CallPeer(t.DB, node, "GET", "/api/config/sync/peer/groups", nil, &resp)
-	pv := groups.PeerView{Groups: resp.Groups}
+	pv := groups.PeerView{Groups: resp.Groups, Maintenance: resp.Maintenance}
 	if resp.Imported != nil {
 		pv.Imported, pv.HasImported = *resp.Imported, true
 	}
@@ -358,5 +359,10 @@ func (h *GroupsHandler) PeerGroups(w http.ResponseWriter, r *http.Request) {
 		respondErrorSimple(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	respondOK(w, map[string]any{"success": true, "groups": gs, "imported": imported})
+	mt, err := groups.GetMaintenance(h.db)
+	if err != nil {
+		respondErrorSimple(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	respondOK(w, map[string]any{"success": true, "groups": gs, "imported": imported, "maintenance": mt.Enabled})
 }

@@ -28,6 +28,10 @@ type Status struct {
 	Members       []Member `json:"members"`
 	QDeviceVotes  int      `json:"qdevice_votes"` // votes the third vote currently contributes
 	QDeviceAlive  bool     `json:"qdevice_alive"` // flag "Qdevice" present and the device votes
+	// RingSeq is the sequence part of the ring id ("Ring ID: 1.1d" → 0x1d).
+	// Totem gives every new membership a higher sequence than any before it,
+	// across all partitions, so it orders coordinator terms.
+	RingSeq int64 `json:"ring_seq"`
 }
 
 // HasFlag reports whether votequorum reported flag f (e.g. "2Node", "Qdevice").
@@ -91,6 +95,8 @@ func ParseQuorumtool(out string) Status {
 			st.QuorumVotes = atoiPrefix(val)
 		case "Flags":
 			st.Flags = strings.Fields(val)
+		case "Ring ID":
+			st.RingSeq = parseRingSeq(val)
 		}
 	}
 	st.QDeviceAlive = st.HasFlag("Qdevice") && st.QDeviceVotes > 0
@@ -130,6 +136,27 @@ func isQdeviceFlags(s string) bool {
 		}
 	}
 	return true
+}
+
+// parseRingSeq reads the sequence of a ring id: "1.1d" (corosync 3, hex) or
+// "1/92" (corosync 2, decimal). 0 if unreadable.
+func parseRingSeq(s string) int64 {
+	s = strings.TrimSpace(s)
+	if _, seq, ok := strings.Cut(s, "."); ok {
+		n, err := strconv.ParseUint(seq, 16, 63)
+		if err != nil {
+			return 0
+		}
+		return int64(n)
+	}
+	if _, seq, ok := strings.Cut(s, "/"); ok {
+		n, err := strconv.ParseUint(seq, 10, 63)
+		if err != nil {
+			return 0
+		}
+		return int64(n)
+	}
+	return 0
 }
 
 func atoi(s string) int {

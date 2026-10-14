@@ -218,6 +218,14 @@ type Info struct {
 	Reconfiguring  bool   `json:"reconfiguring"` // cluster configuration change in progress
 	// Online are the node keys of the members in this node's partition.
 	Online []string `json:"online"`
+	// Coordinator is the node key of the cluster-scope coordinator (design
+	// 5.2, 5.6): the DPlaneOS member with the lowest corosync node id in the
+	// quorate partition. Empty without quorum: then no node decides
+	// cluster-scope conflicts and they go to review.
+	Coordinator string `json:"coordinator,omitempty"`
+	// Term orders coordinators: the ring sequence of the membership in which
+	// Coordinator was chosen (0 without a coordinator).
+	Term int64 `json:"term,omitempty"`
 }
 
 // settled reports whether a reconfiguration has completed on this node: it
@@ -251,6 +259,32 @@ func onlineKeys(cfg Config, st Status) []string {
 		}
 	}
 	return out
+}
+
+// coordinator returns the node key of the DPlaneOS member with the lowest
+// corosync node id in this node's partition, if the partition is quorate.
+// Voters (corosync-only members) never coordinate: they hold no configuration.
+// Every member of the quorate partition sees the same membership and so
+// elects the same node; corosync allows only one quorate partition.
+func coordinator(cfg Config, st Status) (string, int64) {
+	if !st.Running || !st.Quorate {
+		return "", 0
+	}
+	best, key := 0, ""
+	for _, m := range st.Members {
+		for _, n := range cfg.Nodes {
+			if m.NodeID == n.ID || m.Name == n.Name || m.Name == n.Addr { // as onlineKeys
+				if !n.Voter && n.NodeKey != "" && (key == "" || n.ID < best) {
+					best, key = n.ID, n.NodeKey
+				}
+				break
+			}
+		}
+	}
+	if key == "" {
+		return "", 0
+	}
+	return key, st.RingSeq
 }
 
 // Monitor polls corosync-quorumtool in the background.
@@ -329,6 +363,7 @@ func (m *Monitor) Info() Info {
 		in.ExpectedVotes = st.ExpectedVotes
 	}
 	in.Online = onlineKeys(*cfg, st)
+	in.Coordinator, in.Term = coordinator(*cfg, st)
 	switch {
 	case in.ExpectedVotes < 3:
 		// The lasting reason comes first; a restart in progress is temporary.
