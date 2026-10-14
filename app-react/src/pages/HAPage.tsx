@@ -6,33 +6,41 @@
  *   - the cluster (Corosync) and its third vote      QuorumPanel
  *   - how the setup is protected                     ProtectionCard
  *   - storage groups: what moves between nodes       GroupsPanel
+ *   - tests of the third vote and power fencing      SafetyChecks
  *   - watchdog and power fencing settings            FencingSettings
  *   - optional Samba clustering                      CTDBConfig
  */
 
 import { useState } from 'react'
+import { Link } from '@tanstack/react-router'
 import { QuorumPanel } from '@/components/ha/QuorumPanel'
 import { GroupsPanel } from '@/components/ha/GroupsPanel'
 import { ProtectionCard } from '@/components/ha/ProtectionCard'
 import { FencingConfigForm, PDUConfigForm, SCSIFencingCard, WatchdogConfigForm } from '@/components/ha/FencingSettings'
 import { CTDBConfig } from '@/components/ha/CTDBConfig'
+import { SafetyChecks } from '@/components/ha/SafetyChecks'
 import { Icon } from '@/components/ui/Icon'
 
 export function HAPage() {
   const [showSettings, setShowSettings] = useState(false)
   return (
     <div style={{ maxWidth: 900 }}>
-      <div style={{ marginBottom: 28 }}>
-        <h1 className="page-title">High Availability</h1>
-        <p className="page-subtitle">
-          Pair nodes, form a cluster with a third vote, and put pools into storage groups that move between nodes.
-          Every node keeps working on its own if it is cut off.
-        </p>
+      <div style={{ marginBottom: 28, display: 'flex', gap: 16, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+        <div style={{ flex: 1, minWidth: 260 }}>
+          <h1 className="page-title">High Availability</h1>
+          <p className="page-subtitle">
+            Pair nodes, form a cluster with a third vote, and put pools into storage groups that move between nodes.
+            Every node keeps working on its own if it is cut off.
+          </p>
+        </div>
+        <Link to="/ha/setup" className="btn btn-primary"><Icon name="checklist" size={16} />Guided setup</Link>
+        <Link to="/cluster" className="btn btn-ghost"><Icon name="hub" size={16} />Cluster Map</Link>
       </div>
 
       <QuorumPanel />
       <ProtectionCard />
       <GroupsPanel />
+      <SafetyChecks />
 
       <div className="card" style={{ marginBottom: 20 }}>
         <button className="btn btn-ghost" style={{ padding: 0 }} onClick={() => setShowSettings(!showSettings)} aria-expanded={showSettings}>

@@ -896,6 +896,7 @@ func main() {
 	r.Handle("/api/config/proposals/{id:[0-9]+}/apply", permRoute("system", "admin", http.HandlerFunc(configSync.ApplyProposal))).Methods("POST")
 	r.Handle("/api/config/proposals/{id:[0-9]+}/dismiss", permRoute("system", "admin", http.HandlerFunc(configSync.DismissProposal))).Methods("POST")
 	r.Handle("/api/config/policy", permRoute("system", "admin", http.HandlerFunc(configSync.SetPolicy))).Methods("PUT")
+	r.Handle("/api/config/current", permRoute("system", "read", http.HandlerFunc(configSync.Current))).Methods("GET")
 	// Peer endpoints are PUBLIC in the session middleware: other nodes call
 	// them without a session; the handlers check the peer secret or join token.
 	r.HandleFunc("/api/config/sync/peer/revisions", configSync.PeerRevisions).Methods("GET")

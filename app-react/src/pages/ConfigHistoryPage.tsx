@@ -10,10 +10,12 @@
  *   POST /api/config/rollback { revision_id }      → { success, result }
  *   POST /api/config/capture                       → { changed }
  *   GET  /api/config/export                        → state.yaml download
+ *   GET  /api/config/current                       → { items[] } current version of each resource and its source
  */
 
 import { useMemo, useState } from 'react'
-import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { Link } from '@tanstack/react-router'
 import { api, ensureOk, getSessionId } from '@/lib/api'
 import { Icon } from '@/components/ui/Icon'
 import { Skeleton } from '@/components/ui/LoadingSpinner'
@@ -47,7 +49,69 @@ interface RollbackResponse {
   result?: { applied?: string[]; no_change?: boolean; blocked?: { name: string; block_reason?: string }[] }
 }
 
+interface CurrentItem {
+  kind: string; key: string; scope: 'node' | 'group' | 'cluster'; scope_id?: string; revision_id: number
+  origin: Revision['origin']; origin_node: string; author?: string; created_at: string
+  exchanged: boolean; not_pulled_by?: string[]; authority?: string; conflict: boolean; proposal: boolean
+}
+
 const PAGE = 100
+
+const SCOPE: Record<CurrentItem['scope'], { label: string; title: string }> = {
+  node: { label: 'This node', title: 'Belongs to this node only (hostname, network, node tasks); never exchanged' },
+  group: { label: 'Storage group', title: 'Belongs to a pool: changed by the node that owns its storage group, exchanged with the group\'s nodes' },
+  cluster: { label: 'Cluster', title: 'Shared by all paired nodes: users, groups, directory, certificates, shared settings' },
+}
+
+function CurrentConfig() {
+  const q = useQuery({
+    queryKey: ['config', 'current'],
+    queryFn: ({ signal }) => api.get<{ success: boolean; items: CurrentItem[] }>('/api/config/current', signal),
+    refetchInterval: 30_000,
+  })
+  if (q.isLoading) return <Skeleton height={300} />
+  if (q.isError || !q.data) return <ErrorState error={q.error} onRetry={() => q.refetch()} />
+  const items = q.data.items
+  const local = items.filter(i => (i.not_pulled_by ?? []).length > 0).length
+  return (
+    <>
+      <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>
+        The current version of every resource: which scope it belongs to, where its current version was made, and whether paired nodes have it.
+        {local > 0 && <> <strong>{local}</strong> change{local === 1 ? ' exists' : 's exist'} only on this node so far (local override until the other nodes take {local === 1 ? 'it' : 'them'}).</>}
+      </p>
+      <div className="card" style={{ padding: 0, overflow: 'auto' }}>
+        <table className="data-table" style={{ fontSize: 'var(--text-sm)' }}>
+          <thead><tr><th>Type</th><th>Name</th><th>Scope</th><th>Current version</th><th>Other nodes</th></tr></thead>
+          <tbody>
+            {items.map(i => {
+              const origin = ORIGIN[i.origin] ?? ORIGIN.detected
+              const missing = i.not_pulled_by ?? []
+              return (
+                <tr key={`${i.kind}/${i.key}`}>
+                  <td style={{ color: 'var(--text-tertiary)' }}>{KIND_LABELS[i.kind] ?? i.kind}</td>
+                  <td style={{ fontFamily: 'var(--font-mono)' }}>{i.key}</td>
+                  <td title={SCOPE[i.scope]?.title}>{SCOPE[i.scope]?.label ?? i.scope}{i.scope === 'group' && i.scope_id ? ` (${i.scope_id})` : ''}</td>
+                  <td>
+                    <span className={`badge ${origin.cls}`} title={origin.title}>{origin.label}</span>{' '}
+                    on {i.origin_node || '—'}, {fmtTime(i.created_at)}{i.author ? ` by ${i.author}` : ''}
+                    {i.authority && <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }}>written as {i.authority}</div>}
+                  </td>
+                  <td>
+                    {!i.exchanged ? <span style={{ color: 'var(--text-tertiary)' }}>not exchanged</span>
+                      : missing.length > 0 ? <span className="badge badge-warning" title="Made on this node; the other nodes have not taken it yet">Only here: not yet on {missing.join(', ')}</span>
+                        : <span style={{ color: 'var(--text-secondary)' }}>in step</span>}
+                    {i.conflict && <> <Link to="/config-sync"><span className="badge badge-warning">Conflict</span></Link></>}
+                    {i.proposal && <> <Link to="/config-sync"><span className="badge badge-neutral">Proposal</span></Link></>}
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+    </>
+  )
+}
 
 const KIND_LABELS: Record<string, string> = {
   dataset: 'Dataset', share: 'SMB share', nfs: 'NFS export', stack: 'Stack', system: 'Node settings (hostname, network)', settings: 'Shared settings',
@@ -116,6 +180,7 @@ export function ConfigHistoryPage() {
   const qc = useQueryClient()
   const { confirm, ConfirmDialog } = useConfirm()
   const [kind, setKind] = useState('')
+  const [view, setView] = useState<'changes' | 'current'>('changes')
   const [open, setOpen] = useState<Record<number, boolean>>({})
 
   const history = useInfiniteQuery({
@@ -179,10 +244,14 @@ export function ConfigHistoryPage() {
           <h1 className="page-title">Change History</h1>
           <p className="page-subtitle">Every change to datasets, shares, users, stacks and settings, with what changed and the option to roll back.</p>
         </div>
-        <select value={kind} onChange={e => setKind(e.target.value)} className="input" style={{ width: 180 }} aria-label="Filter by type">
+        <div role="tablist" style={{ display: 'flex', gap: 4 }}>
+          <button role="tab" aria-selected={view === 'changes'} className={`btn btn-sm ${view === 'changes' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setView('changes')}>Changes</button>
+          <button role="tab" aria-selected={view === 'current'} className={`btn btn-sm ${view === 'current' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setView('current')}>Current configuration</button>
+        </div>
+        {view === 'changes' && <select value={kind} onChange={e => setKind(e.target.value)} className="input" style={{ width: 180 }} aria-label="Filter by type">
           <option value="">All types</option>
           {Object.entries(KIND_LABELS).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
-        </select>
+        </select>}
         <button className="btn btn-ghost" onClick={() => capture.mutate()} disabled={capture.isPending}>
           <Icon name="history" size={16} />Record now
         </button>
@@ -191,6 +260,8 @@ export function ConfigHistoryPage() {
         </button>
       </header>
 
+      {view === 'current' && <CurrentConfig />}
+      {view === 'changes' && <>
       {history.isLoading && <Skeleton height={300} />}
       {history.isError && <ErrorState error={history.error} onRetry={() => history.refetch()} />}
       {!history.isLoading && !history.isError && groups.length === 0 && (
@@ -252,6 +323,7 @@ export function ConfigHistoryPage() {
           </button>
         </div>
       )}
+      </>}
       <ConfirmDialog />
     </div>
   )

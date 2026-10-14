@@ -140,6 +140,17 @@ func (h *ConfigSyncHandler) Conflicts(w http.ResponseWriter, r *http.Request) {
 		"proposals": proposals, "policies": configstore.Policies(h.db)})
 }
 
+// Current: GET /api/config/current - the current revision of every resource,
+// its scope and source, and whether paired nodes have taken it yet.
+func (h *ConfigSyncHandler) Current(w http.ResponseWriter, r *http.Request) {
+	items, err := configstore.Current(h.db)
+	if err != nil {
+		respondErrorSimple(w, "Failed to read the configuration: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	respondOK(w, map[string]any{"success": true, "items": items})
+}
+
 // ApplyProposal: POST /api/config/proposals/{id}/apply - make a change that
 // lost a conflict under the default rules this node's version again.
 func (h *ConfigSyncHandler) ApplyProposal(w http.ResponseWriter, r *http.Request) {

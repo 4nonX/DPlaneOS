@@ -24,7 +24,7 @@ import { toast } from '@/hooks/useToast'
 import { useSyncStatus } from '@/components/layout/NodeStateBanner'
 
 interface QNode { nodeid: number; name: string; addr: string; node_key: string; voter?: boolean }
-interface QStatus {
+export interface QStatus {
   success: boolean
   configured: boolean
   cluster: { cluster_name: string; nodes: QNode[]; qdevice?: { host: string; algorithm: string } } | null
@@ -50,7 +50,7 @@ function Copy({ text }: { text: string }) {
   )
 }
 
-function FormCluster() {
+export function FormCluster() {
   const qc = useQueryClient()
   const sync = useSyncStatus()
   const peers = sync.data?.peers ?? []
@@ -69,7 +69,11 @@ function FormCluster() {
 
   const form = useMutation({
     mutationFn: async () => ensureOk(await api.post<Res>('/api/quorum/cluster', { peer_id: peer, local_addr: localAddr, peer_addr: peerAddr })),
-    onSuccess: () => { toast.success('Cluster formed'); qc.invalidateQueries({ queryKey: ['quorum'] }) },
+    onSuccess: () => {
+      toast.success('Cluster formed')
+      // Membership changed: storage group candidates and the map follow it.
+      for (const key of ['quorum', 'groups', 'cluster', 'ha']) qc.invalidateQueries({ queryKey: [key] })
+    },
     onError: (e: Error) => toast.error(e.message),
   })
 
@@ -136,7 +140,7 @@ const PATHS: { id: VotePath; title: string; good: string; limits: string }[] = [
   },
 ]
 
-function AddVote({ q, onClose }: { q: QStatus; onClose: () => void }) {
+export function AddVote({ q, onClose }: { q: QStatus; onClose: () => void }) {
   const qc = useQueryClient()
   const [path, setPath] = useState<VotePath>(q.cluster?.qdevice ? 'dplane-node' : 'qdevice')
   const [code, setCode] = useState<{ code: string; expires_at: string } | null>(null)

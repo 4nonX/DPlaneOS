@@ -66,7 +66,7 @@ jobs:
       - name: TypeScript typecheck
         if: hashFiles('app-react/package-lock.json') != ''
         working-directory: app-react
-        run: npx tsc --noEmit
+        run: npm run typecheck
 
       - name: Frontend lint (eslint)
         if: hashFiles('app-react/package-lock.json') != ''
@@ -75,6 +75,21 @@ jobs:
 
       - name: UI/API contract (request fields the API reads)
         run: python3 scripts/check-api-contract.py
+
+      - name: Browser tests of the web interface (mocked API)
+        if: hashFiles('app-react/package-lock.json') != ''
+        working-directory: app-react
+        run: |
+          npx playwright install --with-deps chromium
+          npx playwright test
+
+      - name: Upload browser test report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: app-react/playwright-report
+          retention-days: 7
 
       - name: Verify app/ bundle is up to date
         if: hashFiles('app-react/package-lock.json') != ''
@@ -710,6 +725,10 @@ jobs:
       - name: Run votes VM test (voter, third DPlaneOS node)
         timeout-minutes: 60
         run: nix build .#checks.x86_64-linux.votes -L
+
+      - name: Run full setup VM test (API setup, conflict rules, maintenance)
+        timeout-minutes: 60
+        run: nix build .#checks.x86_64-linux.setup -L
 
       - name: Run witness appliance VM test (headless join)
         timeout-minutes: 45

@@ -452,7 +452,7 @@ export function WatchdogConfigForm() {
     mutationFn: (cfg: WatchdogConfig) => api.post('/api/ha/watchdog/configure', cfg),
     onSuccess: () => {
       toast.success('Watchdog self-fence configuration saved')
-      qc.invalidateQueries({ queryKey: ['ha', 'watchdog'] })
+      qc.invalidateQueries({ queryKey: ['ha'] }) // the protection summary depends on it too
     },
     onError: (e: Error) => toast.error(e.message),
   })

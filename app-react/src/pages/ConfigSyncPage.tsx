@@ -14,8 +14,11 @@
  *   POST   /api/config/peers/join             { url, token, self_url }
  *   DELETE /api/config/peers/{id}
  *   POST   /api/config/detach
- *   GET    /api/config/conflicts              → { conflicts[], pending[] }
+ *   GET    /api/config/conflicts              → { conflicts[], pending[], proposals[], policies }
  *   POST   /api/config/conflicts/{id}/resolve { choice, payload? }
+ *   POST   /api/config/proposals/{id}/apply
+ *   POST   /api/config/proposals/{id}/dismiss
+ *   PUT    /api/config/policy                 { scope, policy }
  */
 
 import { useState } from 'react'
@@ -31,7 +34,17 @@ import { useSyncStatus, type SyncStatus } from '@/components/layout/NodeStateBan
 
 interface FieldChange { path: string; old: unknown; new: unknown }
 interface Revision { uid: string; kind: string; key: string; payload: Record<string, unknown> | null; origin_node: string; author: string; created_at: string }
-interface Conflict { id: number; peer_id: string; peer_name: string; kind: string; key: string; local: Revision | null; remote: Revision | null; changes: FieldChange[]; created_at: string }
+interface Conflict {
+  id: number; peer_id: string; peer_name: string; kind: string; key: string; local: Revision | null; remote: Revision | null
+  changes: FieldChange[]; created_at: string
+  auto_winner?: string; auto_reason?: string   // the default rule makes this peer's version win
+}
+interface Proposal {
+  id: number; peer_id: string; peer_name: string; scope: string; kind: string; key: string
+  payload: Record<string, unknown> | null; reason: string; created_at: string; changes: FieldChange[]
+}
+type Policy = 'auto' | 'review'
+interface ConflictsResponse { success: boolean; conflicts: Conflict[]; pending: Pending[]; proposals: Proposal[]; policies: Record<'group' | 'cluster', Policy> }
 interface Pending { peer_name: string; kind: string; key: string; status: 'waiting' | 'blocked'; detail: string }
 interface PreviewItem { kind: string; key: string; action: string; detail?: string; changes?: FieldChange[] }
 interface Preview { node_id: string; name: string; fingerprint: string; counts: Record<string, number>; items: PreviewItem[] }
@@ -89,7 +102,7 @@ function ChangeTable({ changes, left, right }: { changes: FieldChange[]; left: s
 
 // ── Pairing ───────────────────────────────────────────────────────────────────
 
-function InviteCard() {
+export function InviteCard() {
   const [invite, setInvite] = useState<{ token: string; expires_at: string } | null>(null)
   const create = useMutation({
     mutationFn: async () => ensureOk(await api.post<{ success: boolean; error?: string; token: string; expires_at: string }>('/api/config/peers/token', {})),
@@ -124,7 +137,7 @@ function InviteCard() {
   )
 }
 
-function JoinCard() {
+export function JoinCard() {
   const qc = useQueryClient()
   const [url, setUrl] = useState('')
   const [token, setToken] = useState('')
@@ -232,6 +245,12 @@ function ConflictCard({ c }: { c: Conflict }) {
         <strong>{label}</strong>
         <span style={{ color: 'var(--text-tertiary)', fontSize: 'var(--text-sm)' }}>changed here and on {c.peer_name || c.peer_id}</span>
       </div>
+      {c.auto_winner && (
+        <p style={{ fontSize: 'var(--text-sm)', padding: '8px 10px', borderRadius: 6, background: 'var(--surface)', margin: '0 0 10px' }}>
+          <Icon name="schedule" size={14} /> Resolves by itself: {c.auto_reason}. {c.peer_name || 'The other node'} records the decision and this node takes it over on the next exchange;
+          this node's version is kept as a proposal. You can still decide here.
+        </p>
+      )}
       {deletedHere || deletedThere ? (
         <p style={{ fontSize: 'var(--text-sm)' }}>{deletedHere ? 'Deleted on this node' : 'Changed on this node'}; {deletedThere ? `deleted on ${c.peer_name}` : `changed on ${c.peer_name}`}.</p>
       ) : null}
@@ -260,6 +279,77 @@ function ConflictCard({ c }: { c: Conflict }) {
   )
 }
 
+// ── Proposals and rules ───────────────────────────────────────────────────────
+
+function ProposalCard({ p }: { p: Proposal }) {
+  const qc = useQueryClient()
+  const { confirm, ConfirmDialog } = useConfirm()
+  const refresh = () => qc.invalidateQueries({ queryKey: ['config'] })
+  const apply = useMutation({
+    mutationFn: async () => ensureOk(await api.post<{ success: boolean; error?: string }>(`/api/config/proposals/${p.id}/apply`, {})),
+    onSuccess: () => { toast.success('Applied; the other nodes take it over'); refresh() },
+    onError: (e: Error) => toast.error(e.message),
+  })
+  const dismiss = useMutation({
+    mutationFn: async () => ensureOk(await api.post<{ success: boolean; error?: string }>(`/api/config/proposals/${p.id}/dismiss`, {})),
+    onSuccess: refresh,
+    onError: (e: Error) => toast.error(e.message),
+  })
+  const label = `${KIND_LABELS[p.kind] ?? p.kind} "${p.key}"`
+  return (
+    <div className="card" style={{ padding: 16 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 8 }}>
+        <span className="badge badge-neutral">Proposal</span>
+        <strong>{label}</strong>
+        <span style={{ color: 'var(--text-tertiary)', fontSize: 'var(--text-sm)' }}>
+          your change of {fmtTime(p.created_at)}; {p.reason} ({p.peer_name || p.peer_id})
+        </span>
+      </div>
+      {p.payload === null
+        ? <p style={{ fontSize: 'var(--text-sm)' }}>Your change was to delete it.</p>
+        : <ChangeTable changes={p.changes} left="Now" right="Your change" />}
+      <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+        <button className="btn btn-primary btn-sm" disabled={apply.isPending} onClick={async () => {
+          if (await confirm({ title: `Apply your change to ${label} again?`, message: 'It becomes the current version on this node and is sent to the other nodes like any new change.', confirmLabel: 'Apply' })) apply.mutate()
+        }}>Apply again</button>
+        <button className="btn btn-ghost btn-sm" disabled={dismiss.isPending} onClick={() => dismiss.mutate()}>Dismiss</button>
+      </div>
+      <ConfirmDialog />
+    </div>
+  )
+}
+
+const RULES: { scope: 'group' | 'cluster'; title: string; rule: string }[] = [
+  { scope: 'group', title: 'Datasets, shares and exports on pools in a storage group', rule: 'the version written by the node that owned the group at the time wins' },
+  { scope: 'cluster', title: 'Users, groups, directory, certificates and shared settings', rule: 'the version written by the cluster coordinator wins' },
+]
+
+function ConflictRules({ policies }: { policies: Record<'group' | 'cluster', Policy> }) {
+  const qc = useQueryClient()
+  const set = useMutation({
+    mutationFn: async (v: { scope: string; policy: Policy }) => ensureOk(await api.put<{ success: boolean; error?: string }>('/api/config/policy', v)),
+    onSuccess: () => { toast.success('Saved'); qc.invalidateQueries({ queryKey: ['config'] }) },
+    onError: (e: Error) => toast.error(e.message),
+  })
+  return (
+    <section className="card" style={{ marginBottom: 16 }}>
+      <h3 style={{ marginTop: 0 }}>When the same thing was changed on two nodes</h3>
+      <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>
+        With a rule switched on, such a conflict settles by itself, and the change that lost is kept as a proposal on the node that made it.
+        Switched off, it waits here for your decision. The rules need a cluster (High Availability); between nodes that are only paired, every conflict waits.
+      </p>
+      {RULES.map(r => (
+        <label key={r.scope} style={{ display: 'flex', gap: 10, alignItems: 'flex-start', fontSize: 'var(--text-sm)', marginTop: 8 }}>
+          <input type="checkbox" checked={policies[r.scope] === 'auto'} disabled={set.isPending}
+            onChange={e => set.mutate({ scope: r.scope, policy: e.target.checked ? 'auto' : 'review' })} />
+          <span><strong>{r.title}</strong>: {r.rule}.</span>
+        </label>
+      ))}
+      <p style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', marginBottom: 0 }}>Set this the same on every node.</p>
+    </section>
+  )
+}
+
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export function ConfigSyncPage() {
@@ -268,7 +358,7 @@ export function ConfigSyncPage() {
   const status = useSyncStatus()
   const conflicts = useQuery({
     queryKey: ['config', 'conflicts'],
-    queryFn: ({ signal }) => api.get<{ success: boolean; conflicts: Conflict[]; pending: Pending[] }>('/api/config/conflicts', signal),
+    queryFn: ({ signal }) => api.get<ConflictsResponse>('/api/config/conflicts', signal),
     refetchInterval: 30_000,
   })
   const syncNow = useMutation({
@@ -350,6 +440,18 @@ export function ConfigSyncPage() {
         </section>
       )}
 
+      {(conflicts.data?.proposals.length ?? 0) > 0 && (
+        <section style={{ marginBottom: 16 }}>
+          <h2 style={{ fontSize: 'var(--text-lg)' }}>Your changes that lost a conflict</h2>
+          <p style={{ color: 'var(--text-secondary)', fontSize: 'var(--text-sm)' }}>
+            Another node's version of these won under the conflict rules. Your change is kept here: apply it again or dismiss it.
+          </p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {conflicts.data!.proposals.map(p => <ProposalCard key={p.id} p={p} />)}
+          </div>
+        </section>
+      )}
+
       {(conflicts.data?.pending.length ?? 0) > 0 && (
         <section className="card" style={{ marginBottom: 16 }}>
           <h3 style={{ marginTop: 0 }}>Received but not applied yet</h3>
@@ -396,6 +498,8 @@ export function ConfigSyncPage() {
           </table>
         </section>
       )}
+
+      {st.peers.length > 0 && conflicts.data?.policies && <ConflictRules policies={conflicts.data.policies} />}
 
       <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
         <InviteCard />

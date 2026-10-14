@@ -239,6 +239,15 @@
           frontendPackage = frontend;
         };
 
+        # A full setup through the API, conflict rules and maintenance
+        # (Design 0001 phase 4).
+        #   nix build .#checks.x86_64-linux.setup -L
+        checks.setup = import ./nixos/tests/setup.nix {
+          inherit nixpkgs system impermanence;
+          daemonPackage = daemon;
+          frontendPackage = frontend;
+        };
+
         # The DPlaneOS Witness appliance joins headlessly.
         #   nix build .#checks.x86_64-linux.witness-appliance -L
         checks.witness-appliance = import ./nixos/tests/witness-appliance.nix {

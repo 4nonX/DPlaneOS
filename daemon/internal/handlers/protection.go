@@ -182,5 +182,7 @@ func (h *ProtectionHandler) Get(w http.ResponseWriter, r *http.Request) {
 		"auto_failover_reason": reason,
 		"failover_delay_secs":  int(fence.Delay.Seconds()),
 		"self_fence_armed":     h.ha.FenceArmed(),
+		"fencing_ok":           fence.OK, // a fencing method (watchdog or power) is configured
+		"fencing_reason":       fence.Reason,
 	})
 }

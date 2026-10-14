@@ -207,3 +207,33 @@ func mustLatest(t *testing.T, db *sql.DB) map[string]Revision {
 	}
 	return l
 }
+
+func TestCurrentMarksChangesNotPulledYet(t *testing.T) {
+	db := storeTestDB(t)
+	local, _ := conflictPair(t, db, 3, 4)
+	if _, err := db.Exec(`INSERT INTO config_peers (id, name, url, secret, tls_fingerprint, served_cursor)
+		VALUES ('kb', 'nas2', 'https://nas2', '', '', 0)`); err != nil {
+		t.Fatal(err)
+	}
+	if err := keepAsProposal(db, "kb", local, "00000000-0000-4000-8000-000000000001", "test"); err != nil {
+		t.Fatal(err)
+	}
+	items, err := Current(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("items: %+v", items)
+	}
+	it := items[0]
+	if !it.Exchanged || len(it.NotPulledBy) != 1 || it.NotPulledBy[0] != "nas2" || !it.Proposal || it.Authority == "" {
+		t.Fatalf("item: %+v", it)
+	}
+	// nas2 pulled it.
+	if _, err := db.Exec(`UPDATE config_peers SET served_cursor = $1 WHERE id = 'kb'`, local.ID); err != nil {
+		t.Fatal(err)
+	}
+	if items, _ := Current(db); len(items[0].NotPulledBy) != 0 {
+		t.Fatalf("after pull: %+v", items[0])
+	}
+}
