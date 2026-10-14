@@ -147,3 +147,6 @@ app-react/compile_errors.txt
 /disk_files.txt
 /repo_files.txt
 __pycache__/
+
+# Daemon binary the CI scripts place in the repository root
+/dplaned-ci
