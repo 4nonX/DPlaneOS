@@ -962,44 +962,52 @@ func ComputeDiff(desired *DesiredState, live *LiveState, ctx ...*DiffContext) *P
 		}
 	}
 
-	for _, lu := range live.Users {
-		found := false
-		for _, du := range desired.Users {
-			if du.Username == lu.Username { found = true; break }
+	// Users, groups and replication tasks missing from the desired state are
+	// deleted only when it is complete (ignore_extraneous false), like every
+	// other kind: a partial state (one resource from a peer or the fleet)
+	// must never delete the rest.
+	if !desired.IgnoreExtraneous {
+		for _, lu := range live.Users {
+			found := false
+			for _, du := range desired.Users {
+				if du.Username == lu.Username { found = true; break }
+			}
+			// The built-in accounts are never deleted, nor accounts that come from
+			// a directory (LDAP, OIDC): they are not declared in state.yaml.
+			local := lu.Source == "" || lu.Source == "local" || lu.Source == "git"
+			if !found && lu.Username != "admin" && lu.Username != "root" && local {
+				plan.Items = append(plan.Items, DiffItem{
+					Kind:      KindUser,
+					Name:      lu.Username,
+					Action:    ActionDelete,
+					RiskLevel: "high",
+				})
+			}
 		}
-		// Protect system users (UID < 1000) and specific accounts
-		if !found && lu.Username != "admin" && lu.Username != "root" && lu.ID >= 1000 {
+
+		for _, lg := range live.Groups {
+			if _, wanted := desiredGroups[lg.Name]; wanted {
+				continue
+			}
 			plan.Items = append(plan.Items, DiffItem{
-				Kind:      KindUser,
-				Name:      lu.Username,
+				Kind:      KindGroup,
+				Name:      lg.Name,
 				Action:    ActionDelete,
-				RiskLevel: "high",
+				RiskLevel: "medium",
 			})
 		}
-	}
 
-	for _, lg := range live.Groups {
-		if _, wanted := desiredGroups[lg.Name]; wanted {
-			continue
+		for _, lr := range live.Replication {
+			if _, wanted := desiredRepls[lr.Name]; wanted {
+				continue
+			}
+			plan.Items = append(plan.Items, DiffItem{
+				Kind:      KindReplication,
+				Name:      lr.Name,
+				Action:    ActionDelete,
+				RiskLevel: "low",
+			})
 		}
-		plan.Items = append(plan.Items, DiffItem{
-			Kind:      KindGroup,
-			Name:      lg.Name,
-			Action:    ActionDelete,
-			RiskLevel: "medium",
-		})
-	}
-
-	for _, lr := range live.Replication {
-		if _, wanted := desiredRepls[lr.Name]; wanted {
-			continue
-		}
-		plan.Items = append(plan.Items, DiffItem{
-			Kind:      KindReplication,
-			Name:      lr.Name,
-			Action:    ActionDelete,
-			RiskLevel: "low",
-		})
 	}
 
 	if !desired.IgnoreExtraneous {

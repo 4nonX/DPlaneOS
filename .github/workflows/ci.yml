@@ -433,6 +433,52 @@ jobs:
         run: bash .github/scripts/config-sync-test.sh
 
   # ════════════════════════════════════════════════════════════════════════════
+  # STAGE 4A2: FLEET OVERLAY (Design 0001, Phase 6): a manager and five remotes
+  # with their own databases - inventory, canary rollout, fleet version wins
+  # with the local change kept as a proposal, an unreachable remote pauses the
+  # rollout, the remotes keep working while the manager is down.
+  # ════════════════════════════════════════════════════════════════════════════
+  fleet-overlay:
+    name: Fleet Overlay (manager and five remotes)
+    needs: [prepare, validate]
+    runs-on: ubuntu-22.04
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_DB: dplaneos
+          POSTGRES_USER: dplaneos
+          POSTGRES_PASSWORD: dplaneos
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download Build Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dplaneos-build
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y postgresql-client python3-bcrypt curl samba acl
+
+      - name: Positioning binary for scripts
+        run: cp build/dplaned-linux-amd64-cgo ./dplaned-ci && chmod +x ./dplaned-ci
+
+      - name: Run fleet overlay test
+        env:
+          DATABASE_DSN: "postgres://dplaneos:dplaneos@localhost:5432/dplaneos?sslmode=disable"
+        run: bash .github/scripts/fleet-overlay-test.sh
+
+  # ════════════════════════════════════════════════════════════════════════════
   # STAGE 4B: GIT BACKEND - the configuration in a real Git server (Gitea,
   # the Forgejo API) (Design 0001, Phase 5): commit, approve and apply a
   # repository change with a commit status, pull request merged, empty-state

@@ -76,3 +76,35 @@ func TestBlockScalarKeepsBlankLinesAndComments(t *testing.T) {
 		t.Errorf("folded: %q", got)
 	}
 }
+
+// Users missing from a complete desired state are deleted, except the
+// built-in accounts and accounts that come from a directory.
+func TestUndeclaredUsersAreDeletedExceptBuiltInAndDirectory(t *testing.T) {
+	live := &LiveState{Users: []LiveUser{
+		{ID: 1, Username: "admin", Source: "local"},
+		{ID: 2, Username: "bob", Source: "local"},
+		{ID: 3, Username: "carol", Source: "git"},
+		{ID: 4, Username: "dave", Source: "ldap"},
+		{ID: 5, Username: "erin", Source: "oidc"},
+	}}
+	plan := ComputeDiff(&DesiredState{Version: "1"}, live)
+	var deleted []string
+	for _, it := range plan.Items {
+		if it.Kind == KindUser && it.Action == ActionDelete {
+			deleted = append(deleted, it.Name)
+		}
+	}
+	if len(deleted) != 2 || deleted[0] != "bob" || deleted[1] != "carol" {
+		t.Fatalf("deleted %v, want [bob carol]", deleted)
+	}
+
+	// A partial state (ignore_extraneous) deletes nothing it does not name.
+	live.Groups = []LiveGroup{{ID: 1, Name: "staff"}}
+	live.Replication = []LiveReplication{{Name: "offsite"}}
+	plan = ComputeDiff(&DesiredState{Version: "1", IgnoreExtraneous: true}, live)
+	for _, it := range plan.Items {
+		if it.Action == ActionDelete {
+			t.Errorf("partial state deletes %s %s", it.Kind, it.Name)
+		}
+	}
+}

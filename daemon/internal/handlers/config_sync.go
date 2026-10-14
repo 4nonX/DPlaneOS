@@ -48,7 +48,13 @@ func (h *ConfigSyncHandler) Status(w http.ResponseWriter, r *http.Request) {
 		respondErrorSimple(w, "Failed to read sync status: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-	respondOK(w, map[string]any{"success": true, "status": st})
+	// The fleet this node belongs to, for the "fleet manager unreachable" banner.
+	member, err := configstore.FleetMembership(h.db)
+	if err != nil {
+		respondErrorSimple(w, "Failed to read the fleet membership: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	respondOK(w, map[string]any{"success": true, "status": st, "fleet": member})
 }
 
 // SyncNow: POST /api/config/sync/now

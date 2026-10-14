@@ -261,9 +261,11 @@ func ApplyPlan(ctx ApplyContext, plan *Plan, desired *DesiredState) (*ApplyResul
 		}
 	}
 
-	// Gap 5: Post-apply convergence check
-	conv, err := ConvergenceCheck(ctx.DB, desired)
-	if err != nil {
+	// Gap 5: Post-apply convergence check. A plan applied without a desired
+	// state (a single deletion) has nothing to converge to.
+	if desired == nil {
+		result.Convergence = "SKIPPED"
+	} else if conv, err := ConvergenceCheck(ctx.DB, desired); err != nil {
 		log.Printf("GITOPS APPLY: convergence check failed: %v", err)
 		result.Convergence = "ERROR"
 	} else {

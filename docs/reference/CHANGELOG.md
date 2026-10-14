@@ -7,7 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## Unreleased
 
-[Design 0001](../design/0001-distributed-state-gitops-ha.md), phases 4 (web interface) and 5 (Git backend).
+[Design 0001](../design/0001-distributed-state-gitops-ha.md), phases 4 (web interface), 5 (Git backend) and 6 (fleet).
 
 ### Upgrade notes
 
@@ -29,6 +29,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 - **Current configuration** (Change History): every resource with its scope, the node and change its current version comes from, and whether the paired nodes have it yet (changes made while cut off show as *Only here*).
 - When creating a storage group: what this node's disks suggest (shared or replicated) and what happens when a node fails, per topology.
 
+- **Fleet** (System › Fleet). Any node can be the fleet manager: it registers other DPlaneOS nodes with an API token of each (their TLS certificate pinned), shows their health (pools, mode, cluster and quorum, owned storage groups, maintenance, conflicts, holds) and rolls out fleet-wide users, groups and shared settings in waves: canary first, a soak time, then the rest, automatically or after **Continue**; a node that fails three times pauses the rollout. On a node, the fleet's version wins and a change made there since is kept as a proposal. A cluster receives a rollout through its coordinator. The nodes never depend on the manager; when it has not called for five minutes they show "Fleet manager unreachable". See [FLEET.md](../admin/FLEET.md).
+
 ### Fixed
 
 - Accounts with two-factor authentication could not log in through the web interface: the second login step was refused before reaching the server's check.
@@ -36,11 +38,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 - Applying users or NFS exports from `state.yaml` failed on PostgreSQL (`active`/`enabled` sent as booleans to integer columns).
 - A storage group created right after forming the cluster had no other candidate: the form kept the member list from when it was opened.
 - A revision adopted from another node was stamped with this node's group epoch instead of keeping the writer's.
+- Users removed from `state.yaml` were never deleted (the check compared the database id with a POSIX UID). Directory accounts (LDAP, OIDC) and `admin` stay protected.
+- A `state.yaml` with `ignore_extraneous: true` still deleted the groups and replication tasks it did not list.
+- Applying a deletion on its own (rolling back a resource that was created) ended with an internal error in the convergence check.
 
 ### Changed
 
-- API: `GET /api/config/conflicts` also returns `proposals` and `policies`; `GET /api/ha/protection` also returns `fencing_ok` and `fencing_reason`. New: `GET /api/cluster/map`, `GET|POST|DELETE /api/cluster/maintenance`, `POST /api/cluster/test/{qdevice|fencing|pdu|replication}`, `POST /api/config/proposals/{id}/apply|dismiss`, `PUT /api/config/policy`, `GET /api/config/current`.
-- The database schema migrates automatically (migrations 00028, 00029).
+- API: `GET /api/config/conflicts` also returns `proposals` and `policies`; `GET /api/ha/protection` also returns `fencing_ok` and `fencing_reason`. New: `GET /api/cluster/map`, `GET|POST|DELETE /api/cluster/maintenance`, `POST /api/cluster/test/{qdevice|fencing|pdu|replication}`, `POST /api/config/proposals/{id}/apply|dismiss`, `PUT /api/config/policy`, `GET /api/config/current`. `GET /api/config/sync/status` also returns `fleet` (membership, manager unreachable). The fleet endpoints `/api/fleet/...` are listed in [FLEET.md](../admin/FLEET.md).
+- The database schema migrates automatically (migrations 00028, 00029, 00030).
 
 ## v15.0.0 (2026-10-10) - "Local First"
 

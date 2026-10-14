@@ -32,13 +32,50 @@ export interface SyncStatus {
   }[]
 }
 
-export function useSyncStatus() {
+export interface FleetMembership {
+  fleet: string
+  manager: string
+  last_apply_at?: string
+  last_rollout?: string
+  last_contact_at?: string
+  unreachable: boolean
+}
+
+type SyncStatusResponse = { success: boolean; status: SyncStatus; fleet?: FleetMembership }
+
+function useSyncStatusResponse<T>(select: (r: SyncStatusResponse) => T) {
   return useQuery({
     queryKey: ['config', 'sync', 'status'],
-    queryFn: ({ signal }) => api.get<{ success: boolean; status: SyncStatus }>('/api/config/sync/status', signal),
+    queryFn: ({ signal }) => api.get<SyncStatusResponse>('/api/config/sync/status', signal),
     refetchInterval: 30_000,
-    select: r => r.status,
+    select,
   })
+}
+
+export function useSyncStatus() {
+  return useSyncStatusResponse(r => r.status)
+}
+
+/** The fleet manager has not called for a while (Design 0001 section 5.11). */
+function FleetManagerBanner() {
+  const { data: f } = useSyncStatusResponse(r => r.fleet)
+  if (!f?.unreachable) return null
+  return (
+    <div role="status" style={{
+      display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
+      padding: '10px 14px', marginBottom: 20, borderRadius: 'var(--radius-lg)',
+      border: '1px solid var(--warning)', background: 'var(--warning-bg)', color: 'var(--text-primary)', fontSize: 'var(--text-sm)',
+    }}>
+      <Icon name="lan" size={18} style={{ color: 'var(--warning)' }} />
+      <span style={{ flex: '1 1 320px' }}>
+        <strong>Fleet manager unreachable</strong>
+        {' — '}
+        {f.manager || 'The manager'} of fleet {f.fleet} has not contacted this node {f.last_contact_at ? `since ${fmtTime(f.last_contact_at)}` : 'yet'}.
+        This node is not affected; only new fleet changes wait.
+      </span>
+      <Link to="/fleet" style={{ marginLeft: 'auto', color: 'var(--warning)', fontWeight: 600 }}>Details</Link>
+    </div>
+  )
 }
 
 function fmtTime(s: string) {
@@ -48,6 +85,10 @@ function fmtTime(s: string) {
 }
 
 export function NodeStateBanner() {
+  return <><SyncBanner /><FleetManagerBanner /></>
+}
+
+function SyncBanner() {
   const { data: st } = useSyncStatus()
   if (!st) return null
   const isolated = st.mode === 'isolated'

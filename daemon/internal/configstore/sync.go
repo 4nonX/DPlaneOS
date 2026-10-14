@@ -364,9 +364,11 @@ func (s *Syncer) closeConflict(peerID, kind, key, resolution string) {
 func adopt(db *sql.DB, r Revision, local *Revision) error {
 	// A change from the repository enters through the owner of its scope and
 	// carries that node's authority (epoch or coordinator term).
+	// Changes from the repository or the fleet manager keep that origin on
+	// every node (the fleet tells its own changes from local ones by it).
 	origin := OriginPeer
-	if r.Origin == OriginGit {
-		origin = OriginGit
+	if r.Origin == OriginGit || r.Origin == OriginOverlay {
+		origin = r.Origin
 	}
 	_, err := insertRevision(db, Revision{
 		UID: r.UID, BaseUID: r.BaseUID, MergeUID: r.MergeUID,

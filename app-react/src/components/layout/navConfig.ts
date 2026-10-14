@@ -150,6 +150,7 @@ const initialNav: NavItem[] = [
       { kind: 'leaf', id: 'ipmi',         label: 'IPMI',             icon: 'devices_other',         route: '/ipmi' },
       { kind: 'leaf', id: 'ha',           label: 'HA Cluster',       icon: 'device_hub',            route: '/ha' },
       { kind: 'leaf', id: 'cluster',      label: 'Cluster Map',      icon: 'hub',                   route: '/cluster' },
+      { kind: 'leaf', id: 'fleet',        label: 'Fleet',            icon: 'lan',                   route: '/fleet' },
       { kind: 'leaf', id: 'removable',    label: 'Removable Media',  icon: 'usb',                   route: '/removable' },
       { kind: 'leaf', id: 'support',      label: 'Support',          icon: 'support_agent',         route: '/support' },
       { kind: 'leaf', id: 'terminal',     label: 'Terminal',         icon: 'terminal',              route: '/terminal' },

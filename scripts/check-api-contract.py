@@ -87,18 +87,30 @@ def handler_body(handler):
     return func_body(var_type.get(var), name)
 
 
-def named_struct(tname, seen=None):
+pkg_src = {}
+
+
+def package_go(pkg):
+    """Non-test Go source of internal/<pkg> (request structs of other packages)."""
+    if pkg not in pkg_src:
+        files = [f for f in glob.glob(os.path.join(D, 'internal', pkg, '*.go')) if not f.endswith('_test.go')]
+        pkg_src[pkg] = '\n'.join(open(f, encoding='utf-8').read() for f in files)
+    return pkg_src[pkg]
+
+
+def named_struct(tname, seen=None, pkg=''):
     seen = seen or set()
-    if tname in seen:
+    if (pkg, tname) in seen:
         return set()
-    seen.add(tname)
-    m = re.search(r'\ntype ' + re.escape(tname) + r' struct \{', allgo)
+    seen.add((pkg, tname))
+    src = package_go(pkg) if pkg else allgo
+    m = re.search(r'\ntype ' + re.escape(tname) + r' struct \{', src)
     if not m:
         return set()
-    body = block(allgo, m.end() - 1)
+    body = block(src, m.end() - 1)
     tags = set(re.findall(r'json:"([^",]+)', body))
-    for emb in re.findall(r'^\s+(\w+)\s*$', body, re.M):
-        tags |= named_struct(emb, seen)
+    for epkg, emb in re.findall(r'^\s+(?:(\w+)\.)?(\w+)\s*$', body, re.M):
+        tags |= named_struct(emb, seen, epkg or pkg)
     return tags
 
 
@@ -106,8 +118,8 @@ def fields(body, recv_type, depth=0):
     if body is None or depth > 3:
         return set()
     tags = set(re.findall(r'json:"([^",]+)', body))  # inline structs
-    for t in re.findall(r'var \w+\s+(?:\[\])?\*?(\w+)\b', body) +re.findall(r'\w+ := &?(\w+)\{\}', body):
-        tags |= named_struct(t)
+    for pkg, t in re.findall(r'var \w+\s+(?:\[\])?\*?(?:(\w+)\.)?(\w+)\b', body) + re.findall(r'\w+ := &?(?:(\w+)\.)?(\w+)\{\}', body):
+        tags |= named_struct(t, pkg=pkg)
     tags |= set(re.findall(r'\w+\["(\w+)"\]', body))
     # helpers the handler dispatches to (directly or through middleware)
     for helper in set(re.findall(r'\bh\.(\w+)\((?:w, r|w, req|w, r,)', body) + re.findall(r'http\.HandlerFunc\(h\.(\w+)\)', body)):

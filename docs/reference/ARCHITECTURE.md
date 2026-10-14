@@ -50,7 +50,7 @@ The division of responsibility is: NixOS owns the platform, the daemon owns the 
 
 ### Reconciliation Layer
 
-**GitOps apply engine** runs inside the daemon. Whenever a change is applied (from another node, from the Git repository through the Git backend in `internal/gitsync`, a rollback from the history, or `dplaned --apply-only`), it:
+**GitOps apply engine** runs inside the daemon. Whenever a change is applied (from another node, from the Git repository through the Git backend in `internal/gitsync`, from the fleet manager (`internal/fleet`, see [FLEET.md](../admin/FLEET.md)), a rollback from the history, or `dplaned --apply-only`), it:
 
 1. Takes the desired state of the resources concerned
 2. Reads the current live system state (ZFS, Docker, Samba, NFS, DB)

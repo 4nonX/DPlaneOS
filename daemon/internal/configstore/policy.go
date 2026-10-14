@@ -136,7 +136,7 @@ func keepAsProposal(db *sql.DB, peerID string, lost Revision, winnerUID, reason 
 	}
 	_, err := db.Exec(`INSERT INTO config_proposals
 		(peer_id, scope_type, scope_id, resource_kind, resource_key, payload, source_uid, winner_uid, reason)
-		VALUES ($1, $2, $3, $4, $5, $6, $7::uuid, $8::uuid, $9)
+		VALUES ($1, $2, $3, $4, $5, $6, $7::uuid, NULLIF($8, '')::uuid, $9)
 		ON CONFLICT (source_uid) DO UPDATE SET winner_uid = EXCLUDED.winner_uid, reason = EXCLUDED.reason`,
 		peerID, lost.Scope, lost.ScopeID, lost.Kind, lost.Key, payload, lost.UID, winnerUID, reason)
 	return err
@@ -158,7 +158,7 @@ func Proposals(db *sql.DB) ([]Proposal, error) {
 		return nil, err
 	}
 	rows, err := db.Query(`SELECT id, peer_id, scope_type, scope_id, resource_kind, resource_key, payload,
-		source_uid::text, winner_uid::text, reason, status, created_at
+		source_uid::text, COALESCE(winner_uid::text, ''), reason, status, created_at
 		FROM config_proposals WHERE status = 'open' ORDER BY created_at, id`)
 	if err != nil {
 		return nil, err
@@ -189,7 +189,7 @@ func Proposals(db *sql.DB) ([]Proposal, error) {
 }
 
 func peerNames(db *sql.DB) map[string]string {
-	names := map[string]string{GitPeerID: gitPeer.Name}
+	names := map[string]string{GitPeerID: gitPeer.Name, FleetPeerID: "the fleet manager"}
 	rows, err := db.Query(`SELECT id, name FROM config_peers`)
 	if err != nil {
 		return names

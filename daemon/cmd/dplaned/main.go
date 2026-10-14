@@ -30,6 +30,7 @@ import (
 	"dplaned/internal/configstore"
 	"dplaned/internal/database"
 	"dplaned/internal/features"
+	"dplaned/internal/fleet"
 	"dplaned/internal/gitops"
 	"dplaned/internal/gitsync"
 	"dplaned/internal/groups"
@@ -1029,6 +1030,29 @@ func main() {
 	r.Handle("/api/gitops/holds/{scope}/revert", permRoute("system", "admin", http.HandlerFunc(gitopsHandler.Revert))).Methods("POST")
 	r.Handle("/api/gitops/state", permRoute("system", "read", http.HandlerFunc(gitopsHandler.State))).Methods("GET")
 	r.Handle("/api/gitops/nixos-repo", permRoute("system", "admin", http.HandlerFunc(gitopsHandler.SetNixOSRepo))).Methods("PUT")
+
+	// Fleet overlay (Design 0001 phase 6): the manager role, and every node's
+	// side of it (inventory report, applying fleet resources).
+	fleetMgr := fleet.NewManager(db, configstore.NodeName)
+	fleetMgr.Start()
+	fleetH := handlers.NewFleetHandler(db, fleetMgr, quorumMon, gitops.ApplyContext{
+		DB: db, SmbConfPath: *smbConfPath, NFSExportsPath: handlers.NFSExportsFile(),
+		OwnershipGuard: func() bool { ok, _ := gitops.IsWriter(); return ok },
+	})
+	r.Handle("/api/fleet", permRoute("system", "read", http.HandlerFunc(fleetH.Overview))).Methods("GET")
+	r.Handle("/api/fleet/settings", permRoute("system", "admin", http.HandlerFunc(fleetH.SaveSettings))).Methods("PUT")
+	r.Handle("/api/fleet/remotes", permRoute("system", "admin", http.HandlerFunc(fleetH.AddRemote))).Methods("POST")
+	r.Handle("/api/fleet/remotes/{id:[0-9]+}/labels", permRoute("system", "admin", http.HandlerFunc(fleetH.SetLabels))).Methods("PUT")
+	r.Handle("/api/fleet/remotes/{id:[0-9]+}", permRoute("system", "admin", http.HandlerFunc(fleetH.RemoveRemote))).Methods("DELETE")
+	r.Handle("/api/fleet/poll", permRoute("system", "admin", http.HandlerFunc(fleetH.Poll))).Methods("POST")
+	r.Handle("/api/fleet/resources", permRoute("system", "admin", http.HandlerFunc(fleetH.PutResource))).Methods("PUT")
+	r.Handle("/api/fleet/resources/{kind}/{key}", permRoute("system", "admin", http.HandlerFunc(fleetH.ForgetResource))).Methods("DELETE")
+	r.Handle("/api/fleet/local/{kind}/{key}", permRoute("system", "read", http.HandlerFunc(fleetH.LocalResource))).Methods("GET")
+	r.Handle("/api/fleet/rollouts", permRoute("system", "admin", http.HandlerFunc(fleetH.CreateRollout))).Methods("POST")
+	r.Handle("/api/fleet/rollouts/{id:[0-9]+}/{action}", permRoute("system", "admin", http.HandlerFunc(fleetH.RolloutAction))).Methods("POST")
+	r.Handle("/api/fleet/membership", permRoute("system", "admin", http.HandlerFunc(fleetH.LeaveFleet))).Methods("DELETE")
+	r.Handle("/api/fleet/node-status", permRoute("system", "read", http.HandlerFunc(fleetH.NodeStatus))).Methods("GET")
+	r.Handle("/api/fleet/apply", permRoute("system", "admin", http.HandlerFunc(fleetH.Apply))).Methods("POST")
 	// PUBLIC (session middleware): authenticated by the webhook secret / the peer secret.
 	r.HandleFunc("/api/gitops/webhook", gitopsHandler.Webhook).Methods("POST")
 	r.HandleFunc("/api/config/sync/peer/gitops", gitopsHandler.PeerSettings).Methods("POST")

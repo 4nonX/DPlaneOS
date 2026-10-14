@@ -57,6 +57,7 @@ import { IPMIPage }          from '@/pages/IPMIPage'
 import { HAPage }            from '@/pages/HAPage'
 import { ClusterPage }       from '@/pages/ClusterPage'
 import { HASetupPage }       from '@/pages/HASetupPage'
+import { FleetPage }         from '@/pages/FleetPage'
 import { SupportPage }       from '@/pages/SupportPage'
 import { TerminalPage }      from '@/pages/TerminalPage'
 import { SandboxPage }       from '@/pages/SandboxPage'
@@ -162,6 +163,7 @@ const ipmiRoute       = createRoute({ getParentRoute: () => protectedRoute, path
 const haRoute         = createRoute({ getParentRoute: () => protectedRoute, path: '/ha',            component: HAPage })
 const clusterRoute    = createRoute({ getParentRoute: () => protectedRoute, path: '/cluster',       component: ClusterPage })
 const haSetupRoute    = createRoute({ getParentRoute: () => protectedRoute, path: '/ha/setup',      component: HASetupPage })
+const fleetRoute      = createRoute({ getParentRoute: () => protectedRoute, path: '/fleet',         component: FleetPage })
 const monitoringRoute = createRoute({ getParentRoute: () => protectedRoute, path: '/monitoring',    component: MonitoringPage })
 const apiExplRoute    = createRoute({ getParentRoute: () => protectedRoute, path: '/api-explorer',  component: ApiExplorerPage })
 const logsRoute       = createRoute({ getParentRoute: () => protectedRoute, path: '/logs',          component: LogsPage })
@@ -183,7 +185,7 @@ const routeTree = rootRoute.addChildren([
     usersRoute, directoryRoute,
     securityRoute, firewallRoute, certsRoute,
     settingsRoute, updatesRoute, alertsRoute, upsRoute, powerRoute,
-    hardwareRoute, ipmiRoute, haRoute, clusterRoute, haSetupRoute, monitoringRoute, apiExplRoute, logsRoute,
+    hardwareRoute, ipmiRoute, haRoute, clusterRoute, haSetupRoute, fleetRoute, monitoringRoute, apiExplRoute, logsRoute,
     reportingRoute, supportRoute, terminalRoute,
     ...getPluginRoutes(protectedRoute),
   ]),
