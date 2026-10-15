@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
 
-## Unreleased
+## v15.1.0 (2026-10-15) - "Fleet"
 
 [Design 0001](../design/0001-distributed-state-gitops-ha.md), phases 4 (web interface), 5 (Git backend), 6 (fleet) and 7 (hardening).
 
