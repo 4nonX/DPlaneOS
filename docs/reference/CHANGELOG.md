@@ -44,7 +44,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 - The capacity guardian, the scrub monitor, scheduled replication and retention, and the metrics endpoint called `zfs`/`zpool` without command validation, logging a security warning every five minutes on a node with pools. They now go through validated command entries.
 - Creating a replicated group and replicating it at once could run two first replications side by side; the second failed. Replications of a node now run one at a time.
 - With the Git repository unreachable, the Git page lost the list of changes waiting to be pushed; it is now computed from the node's own store.
-- A Git remote that accepted connections but answered nothing (packets dropped) held each sync cycle for minutes per Git command. Transfers below 1 KB/s for 30 seconds now fail, and SSH remotes have connect and keepalive timeouts.
+- A Git remote that accepted connections but answered nothing (packets dropped) held each sync cycle for minutes per Git command. A transfer that receives nothing for a minute now fails, and SSH remotes have connect and keepalive timeouts.
 - A fleet remote whose traffic was dropped held a rollout for the 5-minute apply timeout on each of three attempts; the manager now checks it is reachable first.
 - Users removed from `state.yaml` were never deleted (the check compared the database id with a POSIX UID). Directory accounts (LDAP, OIDC) and `admin` stay protected.
 - A `state.yaml` with `ignore_extraneous: true` still deleted the groups and replication tasks it did not list.

@@ -28,6 +28,9 @@ PASS=0; FAIL=0; FAILURES=""
 ok()   { printf "  \033[32m✓\033[0m %s\n" "$1"; PASS=$((PASS+1)); }
 fail() { FAIL=$((FAIL+1)); FAILURES="$FAILURES\n  ✗ $1"; echo "  ✗ $1 (last response: $(head -c 400 /tmp/last_resp.json 2>/dev/null))"; }
 check() { if eval "$2"; then ok "$1"; else fail "$1"; fi; }
+# eventually "desc" "condition" seconds: a cycle may already be running
+# (started by a settings change), so poll instead of checking once.
+eventually() { local end=$((SECONDS + $3)); while [ $SECONDS -lt $end ]; do eval "$2" && { ok "$1"; return; }; sleep 3; done; fail "$1"; }
 # py EXPR: evaluate a Python expression over the last response (d).
 py() { python3 -c "import json; d = json.load(open('/tmp/last_resp.json')); print($1)"; }
 
@@ -179,9 +182,7 @@ echo "delay 300" > $LINK
 api GET /api/rbac/users
 BOB_ID=$(py "next(u['id'] for u in d['users'] if u['username'] == 'bob')")
 api POST /api/rbac/users "{\"action\":\"update\",\"id\":$BOB_ID,\"email\":\"bob@slow.lan\"}"
-sync_now
-FILE=$(gitea_file state.yaml)
-check "over a slow link the change reaches the branch" 'echo "$FILE" | grep -q "bob@slow.lan"'
+eventually "over a slow link the change reaches the branch" 'sync_now; gitea_file state.yaml | grep -q "bob@slow.lan"' 120
 echo drop > $LINK
 START=$SECONDS
 api POST /api/rbac/users "{\"action\":\"update\",\"id\":$BOB_ID,\"email\":\"bob@offline.lan\"}"
@@ -198,9 +199,7 @@ check "the change waits to be pushed" '[ "$(py "\",\".join(($SCOPE)[\"push\"])")
 FILE=$(gitea_file state.yaml)
 check "the branch does not have it yet" '! echo "$FILE" | grep -q "bob@offline.lan"'
 echo ok > $LINK
-sync_now
-FILE=$(gitea_file state.yaml)
-check "once the link is back the change is pushed" 'echo "$FILE" | grep -q "bob@offline.lan"'
+eventually "once the link is back the change is pushed" 'sync_now; gitea_file state.yaml | grep -q "bob@offline.lan"' 180
 COUNTS=$(scope_counts)
 check "and the scope is in step" '[ "$COUNTS" = "0 0 0" ]'
 
