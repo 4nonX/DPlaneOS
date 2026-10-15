@@ -395,7 +395,7 @@ func launchReplicationJob(s ReplicationSchedule) string {
 		conn.Close()
 
 		// Step 4: Find the newest snapshot for the source dataset
-		snapOutput, snapErr := executeCommandWithTimeout(TimeoutFast, "zfs",
+		snapOutput, snapErr := executeCommandWithTimeout(TimeoutFast, "sched_zfs_list_snapshots",
 			[]string{"list", "-t", "snapshot", "-H", "-o", "name", "-s", "creation", "-r", s.SourceDataset})
 		if snapErr != nil {
 			j.Fail(fmt.Sprintf("Failed to list snapshots for %s: %v", s.SourceDataset, snapErr))
@@ -492,7 +492,7 @@ func launchReplicationJob(s ReplicationSchedule) string {
 		useIncremental := false
 		if s.Incremental && s.LastReplicatedSnapshot != "" && isValidSnapshotName(s.LastReplicatedSnapshot) {
 			// Verify the base snapshot still exists locally.
-			_, localCheckErr := executeCommandWithTimeout(TimeoutFast, "zfs",
+			_, localCheckErr := executeCommandWithTimeout(TimeoutFast, "sched_zfs_snapshot_exists",
 				[]string{"list", "-t", "snapshot", "-H", "-o", "name", s.LastReplicatedSnapshot})
 			if localCheckErr != nil {
 				j.Log(fmt.Sprintf("WARN: local incremental base %q no longer exists - falling back to full send", s.LastReplicatedSnapshot))

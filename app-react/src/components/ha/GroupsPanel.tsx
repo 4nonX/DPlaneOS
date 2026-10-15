@@ -31,6 +31,7 @@ interface GroupStatus {
   interval_secs: number
   auto_failover: boolean
   replication: { direction: 'out' | 'in'; peer: string; pool: string; last_snapshot: string; last_ok_at: string | null; last_error: string; discard_ok: boolean }[]
+  splits?: { pool: string; name: string; used: number; created: string }[]
   resources?: { stacks: { name: string }[]; nvme: { subsystem_nqn: string; zvol: string }[] }
   address?: string
   interface?: string
@@ -246,9 +247,31 @@ export function GroupsPanel() {
     onSuccess: () => { toast.success('Replicated'); qc.invalidateQueries({ queryKey: ['groups'] }) },
     onError: (e: Error) => { toast.error(e.message); qc.invalidateQueries({ queryKey: ['groups'] }) },
   })
+  // Discarding keeps the changes on the owner first (a separate copy); only
+  // when that is impossible may the operator discard them for good.
+  type DiscardRes = Res & { kept?: string[]; can_discard_without_keeping?: boolean }
   const discard = useMutation({
-    mutationFn: async (name: string) => ensureOk(await api.post<Res>(`/api/groups/${encodeURIComponent(name)}/discard-divergent`, {})),
-    onSuccess: () => { toast.success('The next replication replaces the changes here'); qc.invalidateQueries({ queryKey: ['groups'] }) },
+    mutationFn: async (v: { name: string; keep: boolean }) =>
+      await api.post<DiscardRes>(`/api/groups/${encodeURIComponent(v.name)}/discard-divergent`, { keep: v.keep }),
+    onSuccess: async (r, v) => {
+      qc.invalidateQueries({ queryKey: ['groups'] })
+      if (r.success) {
+        toast.success(r.kept?.length ? `Kept on the owner as ${r.kept.join(', ')}; the next replication replaces the changes here` : 'The next replication replaces the changes here')
+        return
+      }
+      if (r.can_discard_without_keeping && await confirm({
+        title: 'The changes cannot be kept',
+        message: `${r.error ?? ''}. Discard them for good? Copy off anything you need first.`,
+        confirmLabel: 'Discard for good', danger: true,
+      })) discard.mutate({ name: v.name, keep: false })
+      else if (!r.can_discard_without_keeping) toast.error(r.error ?? 'Failed')
+    },
+    onError: (e: Error) => toast.error(e.message),
+  })
+  const deleteSplit = useMutation({
+    mutationFn: async (v: { group: string; pool: string; name: string }) =>
+      ensureOk(await api.delete<Res>(`/api/groups/${encodeURIComponent(v.group)}/splits/${encodeURIComponent(v.pool)}/${encodeURIComponent(v.name)}`)),
+    onSuccess: () => { toast.success('Kept copy deleted; replication removes it from the other copies'); qc.invalidateQueries({ queryKey: ['groups'] }) },
     onError: (e: Error) => toast.error(e.message),
   })
   const takeover = useMutation({
@@ -343,10 +366,27 @@ export function GroupsPanel() {
             <button className="btn btn-ghost btn-sm" style={{ color: 'var(--error)', marginTop: 6 }} onClick={async () => {
               if (await confirm({
                 title: `Discard the changes on this node's copy of ${g.name}?`,
-                message: `This copy was changed after the last replication from ${nm(g.owner)} (for example while it was the owner during a network split). The next replication rolls it back to ${nm(g.owner)}'s data. Copy off anything you need first.`,
-                confirmLabel: 'Discard the changes here', danger: true,
-              })) discard.mutate(g.name)
+                message: `This copy was changed after the last replication from ${nm(g.owner)} (for example while it was the owner during a network split). The changes are first kept on ${nm(g.owner)} as a separate copy (listed under the group, on every node, until you delete it); then the next replication rolls this copy back to ${nm(g.owner)}'s data.`,
+                confirmLabel: 'Keep the changes on the owner and discard them here', danger: true,
+              })) discard.mutate({ name: g.name, keep: true })
             }}><Icon name="restore" size={14} />Discard the changes here</button>
+          )}
+          {(g.splits ?? []).length > 0 && (
+            <div style={{ fontSize: 'var(--text-sm)', marginTop: 6 }}>
+              <div style={{ color: 'var(--text-secondary)' }}>Kept copies of discarded changes (browse them under the pool's mount point):</div>
+              {(g.splits ?? []).map(s => (
+                <div key={s.pool + s.name} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <Icon name="inventory_2" size={14} /><code>{s.pool}/{s.name}</code>
+                  <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }}>{(s.used / 1048576).toFixed(1)} MiB · {new Date(s.created).toLocaleString()}</span>
+                  {g.role === 'owner' && (
+                    <button className="btn btn-ghost btn-sm" aria-label={`Delete ${s.name}`} disabled={deleteSplit.isPending} onClick={async () => {
+                      if (await confirm({ title: `Delete the kept copy ${s.name}?`, message: 'The changes it holds are deleted on every node.', confirmLabel: 'Delete', danger: true }))
+                        deleteSplit.mutate({ group: g.name, pool: s.pool, name: s.name })
+                    }}><Icon name="delete" size={14} /></button>
+                  )}
+                </div>
+              ))}
+            </div>
           )}
           {g.topology !== 'standalone' && (editingAddr === g.name
             ? <AddressEditor g={g} interfaces={d.interfaces ?? []} onDone={() => setEditingAddr('')} />

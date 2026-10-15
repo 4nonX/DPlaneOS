@@ -278,7 +278,7 @@ func kbToBytes(kb float64) float64 { return kb * 1024 }
 
 // readZpoolScanLine returns the scan: line from `zpool status <pool>`.
 func readZpoolScanLine(pool string) string {
-	out, err := executeCommandWithTimeout(TimeoutFast, "zpool", []string{"status", pool})
+	out, err := executeCommandWithTimeout(TimeoutFast, "zpool_status_one", []string{"status", pool})
 	if err != nil {
 		return ""
 	}
@@ -321,7 +321,7 @@ type zfsDSStat struct {
 
 // readZFSDatasets runs zfs list and returns per-dataset usage.
 func readZFSDatasets() []zfsDSStat {
-	out, err := executeCommandWithTimeout(TimeoutFast, "zfs",
+	out, err := executeCommandWithTimeout(TimeoutFast, "prom_zfs_list",
 		[]string{"list", "-Hp", "-o", "name,used,avail,quota", "-t", "filesystem,volume"})
 	if err != nil {
 		return nil

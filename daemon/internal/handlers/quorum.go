@@ -4,7 +4,9 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"net/url"
@@ -252,7 +254,19 @@ func (h *QuorumHandler) AddNode(w http.ResponseWriter, r *http.Request) {
 		respondOK(w, map[string]any{"success": false, "error": err.Error(), "cluster": cfg})
 		return
 	}
-	respondOK(w, map[string]any{"success": true, "cluster": cfg})
+	// Every member pairs with every other: introduce the new node to the
+	// members this node is paired with.
+	var warnings []string
+	for _, n := range cfg.Nodes {
+		if n.Voter || n.NodeKey == "" || n.NodeKey == self || n.NodeKey == b.PeerID {
+			continue
+		}
+		if err := configstore.Introduce(h.db, b.PeerID, n.NodeKey); err != nil {
+			log.Printf("QUORUM: %v", err)
+			warnings = append(warnings, fmt.Sprintf("Pair %s with %s yourself (System > Configuration Sync): %v", peerName, n.Name, err))
+		}
+	}
+	respondOK(w, map[string]any{"success": true, "cluster": cfg, "warnings": warnings})
 }
 
 // RemoveNode: DELETE /api/quorum/nodes/{name} - a DPlaneOS node or a voter leaves.

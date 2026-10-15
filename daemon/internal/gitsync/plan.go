@@ -69,6 +69,30 @@ type ScopePlan struct {
 	EmptyKinds []string `json:"empty_kinds,omitempty"`
 }
 
+// Pending lists what this node changed since the synchronised versions (the
+// changes it would push), without the repository: shown while no remote can
+// be reached.
+func Pending(local map[string]configstore.Revision, base map[string]Base) []string {
+	out := []string{}
+	for id, l := range local {
+		lHash := ""
+		if l.Payload != nil {
+			lHash = Hash(configstore.Resource{Kind: l.Kind, Key: l.Key, Payload: l.Payload})
+		}
+		b, ok := base[id]
+		if (ok && b.Hash != lHash) || (!ok && lHash != "") {
+			out = append(out, id)
+		}
+	}
+	for id := range base {
+		if _, ok := local[id]; !ok {
+			out = append(out, id)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
 // Compare builds the plan of one scope. local holds this node's current
 // revisions of the scope's resources (deleted ones included, nil payload);
 // remote the resources of the newest commit as written in the file; base

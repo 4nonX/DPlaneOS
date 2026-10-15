@@ -32,8 +32,13 @@ wait_up() { # name
   echo "::error::node $1 did not come up"; cat "/tmp/dplaned-fl-$1.log"; exit 1
 }
 stop_node() { sudo kill "${PID[$1]}" 2>/dev/null || true; for _ in $(seq 1 20); do curl -s "http://127.0.0.1:${PORT[$1]}/health" >/dev/null || return 0; sleep 0.5; done; }
+# Power loss: the daemon itself gets SIGKILL (no shutdown), not the sudo wrapper.
+power_off() { sudo pkill -9 -f -- "--listen 127.0.0.1:${PORT[$1]}" || true; for _ in $(seq 1 20); do curl -s "http://127.0.0.1:${PORT[$1]}/health" >/dev/null || return 0; sleep 0.5; done; }
 for n in $NODES; do start_node $n; done
-cleanup() { for n in $NODES; do sudo kill "${PID[$n]}" 2>/dev/null || true; done; }
+# r4 is reached through a proxy that can make its link slow or cut it off.
+LINK=/tmp/fl-r4-link; echo ok > $LINK
+python3 "$(dirname "$0")/netproxy.py" 19104 "127.0.0.1:${PORT[r4]}" $LINK & PROXY=$!
+cleanup() { for n in $NODES; do sudo kill "${PID[$n]}" 2>/dev/null || true; done; kill $PROXY 2>/dev/null || true; }
 trap cleanup EXIT
 for n in $NODES; do wait_up $n; done
 
@@ -94,7 +99,8 @@ api m POST /api/fleet/remotes "{\"name\":\"bad\",\"url\":\"http://127.0.0.1:${PO
 check "A wrong token is refused when adding" '[ "$(jq_ "d.get(\"success\")")" != True ]'
 for n in r1 r2 r3 r4 r5; do
   label=$([ $n = r1 ] && echo '{"tier":"canary"}' || echo '{"site":"lab"}')
-  api m POST /api/fleet/remotes "{\"name\":\"$n\",\"url\":\"http://127.0.0.1:${PORT[$n]}\",\"token\":\"${TOKEN[$n]}\",\"labels\":$label}" >/dev/null
+  port=$([ $n = r4 ] && echo 19104 || echo "${PORT[$n]}")
+  api m POST /api/fleet/remotes "{\"name\":\"$n\",\"url\":\"http://127.0.0.1:$port\",\"token\":\"${TOKEN[$n]}\",\"labels\":$label}" >/dev/null
 done
 api m POST /api/fleet/poll '{}' >/dev/null
 check "Five remotes registered and reporting" '[ "$(jq_ "sum(1 for r in d[\"remotes\"] if r.get(\"status\") and not r.get(\"last_error\"))")" = 5 ]'
@@ -152,6 +158,52 @@ ID=$(jq_ "next(r['id'] for r in d['rollouts'] if r['name']=='ops')")
 api m POST "/api/fleet/rollouts/$ID/continue" '{}' >/dev/null
 eventually "Continue finishes the rollout" '[ "$(rollout_state ops)" = done ]' 60
 check "r5 got group ops after continue" '[ "$(groups_named r5 ops)" = 1 ]'
+echo "::endgroup::"
+
+all_remotes() { api m GET /api/fleet >/dev/null; jq_ "[r['id'] for r in d['remotes']]"; }
+rollout_all() { # name group gid
+  api m PUT /api/fleet/resources "{\"kind\":\"group\",\"key\":\"$2\",\"payload\":{\"name\":\"$2\",\"gid\":$3,\"description\":\"\",\"members\":[]}}" >/dev/null
+  api m POST /api/fleet/rollouts "{\"name\":\"$1\",\"resources\":[{\"kind\":\"group\",\"key\":\"$2\"}],\"waves\":[{\"name\":\"all\",\"remotes\":$(all_remotes)}],\"soak_secs\":0,\"auto_advance\":true}" >/dev/null
+}
+
+echo "::group::A slow link, then a cut-off link to one remote"
+echo "delay 800" > $LINK # every chunk 0.8 s late
+rollout_all slow slow 3300
+eventually "A rollout finishes over the slow link" '[ "$(rollout_state slow)" = done ]' 120
+check "The remote behind the slow link got it" '[ "$(groups_named r4 slow)" = 1 ]'
+api m POST /api/fleet/poll '{}' >/dev/null
+check "The slow remote still reports its inventory" '[ "$(jq_ "next(not r.get(\"last_error\") for r in d[\"remotes\"] if r[\"name\"]==\"r4\")")" = True ]'
+echo drop > $LINK # nothing gets through, nothing is refused
+START=$SECONDS
+rollout_all cut cut 3400
+eventually "A rollout pauses for a cut-off remote" '[ "$(rollout_state cut)" = paused ]' 240
+echo "  (paused after $((SECONDS - START)) s)"
+check "The cut-off remote is found within minutes, not the apply timeout" '[ $((SECONDS - START)) -lt 200 ]'
+check "The other remotes got it meanwhile" '[ "$(groups_named r1 cut)" = 1 ] && [ "$(groups_named r5 cut)" = 1 ]'
+api m GET /api/fleet >/dev/null
+check "The pause names the cut-off remote" '[ "$(jq_ "\"r4\" in next(r[\"message\"] for r in d[\"rollouts\"] if r[\"name\"]==\"cut\")")" = True ]'
+echo ok > $LINK
+api m POST "/api/fleet/rollouts/$(jq_ "next(r['id'] for r in d['rollouts'] if r['name']=='cut')")/continue" '{}' >/dev/null
+eventually "The link is back: continue finishes the rollout" '[ "$(rollout_state cut)" = done ]' 90
+check "r4 got it after the link came back" '[ "$(groups_named r4 cut)" = 1 ]'
+echo "::endgroup::"
+
+echo "::group::The manager loses power in the middle of a rollout"
+api m PUT /api/fleet/resources '{"kind":"group","key":"night","payload":{"name":"night","gid":3500,"description":"","members":[]}}' >/dev/null
+R1=$(remote_id r1); REST=$(jq_ "[r['id'] for r in d['remotes'] if r['name']!='r1']")
+api m POST /api/fleet/rollouts "{\"name\":\"night\",\"resources\":[{\"kind\":\"group\",\"key\":\"night\"}],
+  \"waves\":[{\"name\":\"canary\",\"remotes\":[$R1]},{\"name\":\"rest\",\"remotes\":$REST}],\"soak_secs\":30,\"auto_advance\":true}" >/dev/null
+eventually "The canary got it" '[ "$(groups_named r1 night)" = 1 ]' 60
+# Wait until the manager has recorded it: cut earlier, the canary is applied
+# once more after the restart (harmless: unchanged), which is not what this checks.
+eventually "The manager recorded the canary as done" '[ "$(api m GET /api/fleet >/dev/null; jq_ "next(t[\"state\"] for r in d[\"rollouts\"] if r[\"name\"]==\"night\" for t in r[\"targets\"] if t[\"name\"]==\"r1\")")" = done ]' 60
+APPLIED_R1=$(grep -c "POST /api/fleet/apply" /tmp/dplaned-fl-r1.log)
+power_off m
+check "The other remotes have not got it yet (soak time)" '[ "$(groups_named r2 night)" = 0 ]'
+start_node m; wait_up m; login m
+eventually "After the power loss the rollout continues and finishes" '[ "$(rollout_state night)" = done ]' 150
+check "Every remote got it" '[ "$(groups_named r2 night)" = 1 ] && [ "$(groups_named r5 night)" = 1 ]'
+check "The canary was not applied again" '[ "$(grep -c "POST /api/fleet/apply" /tmp/dplaned-fl-r1.log)" = "$APPLIED_R1" ]'
 echo "::endgroup::"
 
 echo "::group::The manager goes down; the remotes do not care"

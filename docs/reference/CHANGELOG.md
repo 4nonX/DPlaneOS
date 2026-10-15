@@ -7,7 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## Unreleased
 
-[Design 0001](../design/0001-distributed-state-gitops-ha.md), phases 4 (web interface), 5 (Git backend) and 6 (fleet).
+[Design 0001](../design/0001-distributed-state-gitops-ha.md), phases 4 (web interface), 5 (Git backend), 6 (fleet) and 7 (hardening).
 
 ### Upgrade notes
 
@@ -29,6 +29,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 - **Current configuration** (Change History): every resource with its scope, the node and change its current version comes from, and whether the paired nodes have it yet (changes made while cut off show as *Only here*).
 - When creating a storage group: what this node's disks suggest (shared or replicated) and what happens when a node fails, per topology.
 
+- **Discarded changes of a replicated copy are kept.** *Discard the changes here* (a copy changed after the last replication, e.g. a former owner during a split) first sends those changes to the owner, kept as `<pool>/dplane-split-<time>-from-<node>`; replication brings it to every copy and it is listed under the group until deleted on the owner. Previously the changes were destroyed. New: `DELETE /api/groups/{name}/splits/{pool}/{split}`; `POST /api/groups/{name}/discard-divergent` takes `{keep}` (default true) and returns `kept`.
+- **Cluster members are paired with each other automatically.** Adding a DPlaneOS node to a cluster through one member pairs it with every other member too, so configuration and storage-group changes keep flowing when any one node is down. A member that cannot be reached is named, to pair by hand.
 - **Fleet** (System › Fleet). Any node can be the fleet manager: it registers other DPlaneOS nodes with an API token of each (their TLS certificate pinned), shows their health (pools, mode, cluster and quorum, owned storage groups, maintenance, conflicts, holds) and rolls out fleet-wide users, groups and shared settings in waves: canary first, a soak time, then the rest, automatically or after **Continue**; a node that fails three times pauses the rollout. On a node, the fleet's version wins and a change made there since is kept as a proposal. A cluster receives a rollout through its coordinator. The nodes never depend on the manager; when it has not called for five minutes they show "Fleet manager unreachable". See [FLEET.md](../admin/FLEET.md).
 
 ### Fixed
@@ -38,6 +40,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 - Applying users or NFS exports from `state.yaml` failed on PostgreSQL (`active`/`enabled` sent as booleans to integer columns).
 - A storage group created right after forming the cluster had no other candidate: the form kept the member list from when it was opened.
 - A revision adopted from another node was stamped with this node's group epoch instead of keeping the writer's.
+- In a cluster of three or more DPlaneOS nodes, a node was paired only with the member it joined through: with that member down, the others exchanged no configuration, and a node taking over a storage group could not tell the third node.
+- The capacity guardian, the scrub monitor, scheduled replication and retention, and the metrics endpoint called `zfs`/`zpool` without command validation, logging a security warning every five minutes on a node with pools. They now go through validated command entries.
+- Creating a replicated group and replicating it at once could run two first replications side by side; the second failed. Replications of a node now run one at a time.
+- With the Git repository unreachable, the Git page lost the list of changes waiting to be pushed; it is now computed from the node's own store.
+- A Git remote that accepted connections but answered nothing (packets dropped) held each sync cycle for minutes per Git command. Transfers below 1 KB/s for 30 seconds now fail, and SSH remotes have connect and keepalive timeouts.
+- A fleet remote whose traffic was dropped held a rollout for the 5-minute apply timeout on each of three attempts; the manager now checks it is reachable first.
 - Users removed from `state.yaml` were never deleted (the check compared the database id with a POSIX UID). Directory accounts (LDAP, OIDC) and `admin` stay protected.
 - A `state.yaml` with `ignore_extraneous: true` still deleted the groups and replication tasks it did not list.
 - Applying a deletion on its own (rolling back a resource that was created) ended with an internal error in the convergence check.

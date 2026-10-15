@@ -109,7 +109,7 @@ It installs `corosync`, joins the cluster with the code (the node adds it to the
 
 **Setup.**
 1. Install DPlaneOS on it and pair it with one of the nodes in System › Configuration Sync.
-2. On a cluster member: *Add a vote or node* › **A third DPlaneOS node**, choose it, check the suggested cluster address, and *Add to cluster*.
+2. On the member it is paired with: *Add a vote or node* › **A third DPlaneOS node**, choose it, check the suggested cluster address, and *Add to cluster*. That member pairs the new node with every other member (they must all be paired with each other, so that changes keep flowing when one is down); a member that cannot be reached is named, to pair by hand.
 3. Add it as a candidate to the storage groups it should be able to take over.
 
 **Good:**

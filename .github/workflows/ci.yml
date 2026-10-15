@@ -468,7 +468,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y postgresql-client python3-bcrypt curl samba acl
+          sudo apt-get install -y zfsutils-linux postgresql-client python3-bcrypt curl samba acl
 
       - name: Positioning binary for scripts
         run: cp build/dplaned-linux-amd64-cgo ./dplaned-ci && chmod +x ./dplaned-ci
@@ -836,6 +836,48 @@ jobs:
       - name: Run witness appliance VM test (headless join)
         timeout-minutes: 45
         run: nix build .#checks.x86_64-linux.witness-appliance -L
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # STAGE 4D: HARDENING (Design 0001 phase 7) - slow network, splits and power
+  # loss per deployment profile (failure semantics, section 5.11).
+  # ════════════════════════════════════════════════════════════════════════════
+  hardening-vm:
+    name: Hardening (VMs)
+    needs: [prepare]
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v30
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+            accept-flake-config = true
+            system-features = nixos-test benchmark big-parallel kvm
+
+      - name: Pair with shared storage (slow network, split, power loss)
+        timeout-minutes: 60
+        run: nix build .#checks.x86_64-linux.hardening-pair -L
+
+      - name: Pair with replicated storage (slow replication, split, owner power loss)
+        timeout-minutes: 60
+        run: nix build .#checks.x86_64-linux.hardening-replicated -L
+
+      - name: Cluster of three (minority split, coordinator and owner power loss, slow network)
+        timeout-minutes: 60
+        run: nix build .#checks.x86_64-linux.hardening-cluster -L
+
+      - name: Standalone (power loss during changes)
+        timeout-minutes: 45
+        run: nix build .#checks.x86_64-linux.hardening-standalone -L
 
   # ════════════════════════════════════════════════════════════════════════════
   # DPlaneOS Witness images (third vote appliance, docs/admin/THIRD-VOTE.md)

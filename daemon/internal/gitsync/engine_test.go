@@ -367,3 +367,81 @@ func TestEnginePullRequestDeclinedIsNotReopened(t *testing.T) {
 		t.Fatalf("declined: %+v, created %d", sc, created)
 	}
 }
+
+// A repository change that fails to apply puts the scope on hold at the last
+// good commit, reports the failure on the commit, and is not retried until
+// the operator resumes (section 5.11, "Apply fails").
+func TestEngineFailedApplyHolds(t *testing.T) {
+	te := newTestEngine(t, func(s *Settings) { s.Layout, s.StatePath, s.AutoApply = LayoutSingle, "state.yaml", true })
+	record(t, te.db, "user", "bob", "cluster", bob)
+	if err := te.Run(); err != nil {
+		t.Fatal(err)
+	}
+	good := te.scope(t, ScopeAll).SyncedSHA
+	file := remoteFile(t, te.remote, "state.yaml")
+	// This test node has no smb.conf to write: applying a share fails.
+	bad := commitRemote(t, te.remote, "state.yaml", file+"\nshares:\n  - name: \"media\"\n    path: \"/mnt/tank/media\"\n")
+	_ = te.Run()
+	sc := te.scope(t, ScopeAll)
+	if sc.Hold == nil || !strings.Contains(sc.Hold.Reason, "applying commit") || sc.Hold.GoodSHA != good {
+		t.Fatalf("hold: %+v (error %q)", sc.Hold, sc.Error)
+	}
+	if sc.SyncedSHA == bad {
+		t.Fatal("a failed commit must not count as synced")
+	}
+	if len(te.alerts) != 1 {
+		t.Errorf("alerts: %v", te.alerts)
+	}
+	// On hold, the next cycle does not try again.
+	_ = te.Run()
+	if n := len(te.alerts); n != 1 {
+		t.Errorf("retried while on hold: %d alerts", n)
+	}
+	// Resume tries again (and holds again: the cause is still there).
+	if err := te.Resume(ScopeAll, "admin"); err != nil {
+		t.Fatal(err)
+	}
+	if sc := te.scope(t, ScopeAll); sc.Hold == nil || len(te.alerts) != 2 {
+		t.Fatalf("resume must retry and hold again: %+v, alerts %v", sc, te.alerts)
+	}
+}
+
+// With no remote reachable, the status still shows what waits to be pushed
+// (section 5.11, "Git unreachable").
+func TestEngineShowsPendingChangesWhileUnreachable(t *testing.T) {
+	te := newTestEngine(t, nil)
+	record(t, te.db, "user", "bob", "cluster", bob)
+	if err := te.Run(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(te.remote, te.remote+".gone"); err != nil {
+		t.Fatal(err)
+	}
+	changed := map[string]any{}
+	for k, v := range bob {
+		changed[k] = v
+	}
+	changed["email"] = "bob@offline.lan"
+	record(t, te.db, "user", "bob", "cluster", changed)
+	if err := te.Run(); err == nil {
+		t.Fatal("a cycle without a reachable remote must report an error")
+	}
+	st := te.Status()
+	if len(st.Remotes) != 1 || st.Remotes[0].Error == "" {
+		t.Fatalf("remote error: %+v", st.Remotes)
+	}
+	sc := te.scope(t, ScopeCluster)
+	if len(sc.Push) != 1 || sc.Push[0] != "user/bob" || sc.Error == "" {
+		t.Fatalf("pending: %+v", sc)
+	}
+	// Back: the change is pushed.
+	if err := os.Rename(te.remote+".gone", te.remote); err != nil {
+		t.Fatal(err)
+	}
+	if err := te.Run(); err != nil {
+		t.Fatal(err)
+	}
+	if f := remoteFile(t, te.remote, "cluster/state.yaml"); !strings.Contains(f, "bob@offline.lan") {
+		t.Fatalf("not pushed:\n%s", f)
+	}
+}

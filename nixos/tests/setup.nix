@@ -190,7 +190,8 @@ pkgs.testers.nixosTest {
                 sync(b, a, b)
                 return [(m, c) for m in (a, b) for c in api(m, "GET", "/api/config/conflicts")["conflicts"]]
             found = wait_for(admin_conflicts, "the conflict on the admin account", 60)
-            assert [(c["kind"], c["key"]) for _, c in found] == [("user", "admin")], [(m.name, c["kind"], c["key"]) for m, c in found]
+            # Each node records the conflict on its side.
+            assert all((c["kind"], c["key"]) == ("user", "admin") for _, c in found), [(m.name, c["kind"], c["key"]) for m, c in found]
             for m, c in found:
                 ok(api(m, "POST", f"/api/config/conflicts/{c['id']}/resolve", {"choice": "local" if m is a else "remote"}), "keep a's admin")
             wait_for(lambda: (sync(b, a, b), not admin_conflicts())[1], "no open conflict after pairing", 60)

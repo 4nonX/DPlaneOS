@@ -224,7 +224,7 @@ func checkReceive(g Group, self, sender string, epoch int64, base string, writte
 		return nil
 	}
 	if base != "" && written > 0 {
-		return fmt.Errorf("%w: %d bytes written here since %s. Replication to this node is paused; to resume, discard the changes here (System › High Availability › Storage groups), after copying off anything you need", ErrDiverged, written, base)
+		return fmt.Errorf("%w: %d bytes written here since %s. Replication to this node is paused; to resume, discard the changes here (System › High Availability › Storage groups): they are kept on the owner as a separate copy", ErrDiverged, written, base)
 	}
 	if base == "" && datasets > 1 {
 		return fmt.Errorf("%w: a first full replication would replace the %d datasets of this copy. Confirm by discarding the copy here (System › High Availability › Storage groups)", ErrDiverged, datasets-1)
@@ -345,6 +345,11 @@ func (m *Manager) TestReplication(name string) ([]ReplicationCheck, error) {
 // replicate sends every pool of g to the targets (all other candidates when
 // targets is nil). One new snapshot per pool serves all targets.
 func (m *Manager) replicate(g Group, targets []string) error {
+	// One replication at a time: two concurrent first sends (the interval
+	// tick and "Replicate now") would both send a full stream, and the
+	// second is refused by the copy the first one created.
+	m.replMu.Lock()
+	defer m.replMu.Unlock()
 	self := m.self()
 	if g.Topology != Replicated || g.Owner != self {
 		return errors.New("only the owner of a replicated group replicates it")
@@ -377,7 +382,7 @@ func (m *Manager) replicate(g Group, targets []string) error {
 			}
 		}
 		for _, s := range pruneList(local, 3, needed) {
-			if err := m.repl.Destroy(p.Name, s); err != nil {
+			if err := m.repl.Destroy(p.Name, s); err != nil && !isDependentClones(err) {
 				log.Printf("GROUPS: pruning %s@%s: %v", p.Name, s, err)
 			}
 		}
@@ -506,24 +511,38 @@ func (m *Manager) ReceiveReplica(sender, group, pool string, epoch int64, base, 
 }
 
 // DiscardDivergent lets the next replication stream roll back the changes
-// made to this node's copy (operator decision, once).
-func (m *Manager) DiscardDivergent(group string) error {
+// made to this node's copy (operator decision, once). With keep, the changes
+// are first sent to the owner and kept there as a separate copy (section
+// 5.11); if that fails, nothing is discarded. It returns the kept copies.
+func (m *Manager) DiscardDivergent(group string, keep bool) ([]string, error) {
 	g, err := Get(m.db, group)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if g.Owner == m.self() {
-		return errors.New("this node owns the group; its copy is the one replicated")
+		return nil, errors.New("this node owns the group; its copy is the one replicated")
+	}
+	kept := []string{}
+	if keep && g.Topology == Replicated {
+		for _, p := range g.Pools {
+			name, err := m.keepDivergent(*g, p.Name)
+			if err != nil {
+				return kept, err
+			}
+			if name != "" {
+				kept = append(kept, p.Name+"/"+name)
+			}
+		}
 	}
 	for _, p := range g.Pools {
 		if _, err := m.db.Exec(`INSERT INTO group_replication (group_name, direction, peer, pool, discard_ok)
 			VALUES ($1, 'in', $2, $3, TRUE)
 			ON CONFLICT (group_name, direction, peer, pool) DO UPDATE SET discard_ok = TRUE, updated_at = NOW()`,
 			group, g.Owner, p.Name); err != nil {
-			return err
+			return kept, err
 		}
 	}
-	return nil
+	return kept, nil
 }
 
 // moveReplicated hands a replicated group to target: a final replication,

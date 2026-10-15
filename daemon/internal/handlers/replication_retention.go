@@ -148,7 +148,7 @@ type retSnap struct {
 // It only touches snapshots whose @name starts with policy.Prefix.
 // Returns a list of pruned snapshot names and any errors encountered.
 func ApplyRetentionPolicy(dataset string, policy SnapshotRetentionPolicy) ([]string, error) {
-	out, err := executeCommandWithTimeout(TimeoutFast, "zfs",
+	out, err := executeCommandWithTimeout(TimeoutFast, "ret_zfs_list_snapshots",
 		[]string{"list", "-H", "-t", "snapshot", "-o", "name,creation", "-r", "-s", "creation", dataset})
 	if err != nil {
 		return nil, fmt.Errorf("list snapshots: %w", err)
@@ -194,7 +194,7 @@ func ApplyRetentionPolicy(dataset string, policy SnapshotRetentionPolicy) ([]str
 		if keep[s.name] {
 			continue
 		}
-		if _, delErr := executeCommandWithTimeout(TimeoutMedium, "zfs",
+		if _, delErr := executeCommandWithTimeout(TimeoutMedium, "ret_zfs_destroy_snapshot",
 			[]string{"destroy", s.name}); delErr != nil {
 			log.Printf("retention: failed to destroy %s: %v", s.name, delErr)
 		} else {

@@ -366,7 +366,9 @@ func credEnv(c *Credential, knownHosts string) (env []string, cleanup func(), er
 		if err := os.WriteFile(key, []byte(material), 0o600); err != nil {
 			return nil, cleanup, err
 		}
-		cmd := fmt.Sprintf("ssh -i %s -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=%s", key, knownHosts)
+		// ConnectTimeout and keepalives: an unreachable or silent remote fails
+		// within about half a minute.
+		cmd := fmt.Sprintf("ssh -i %s -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=%s -o ConnectTimeout=15 -o ServerAliveInterval=10 -o ServerAliveCountMax=3", key, knownHosts)
 		return []string{"GIT_SSH_COMMAND=" + cmd}, cleanup, nil
 	}
 	return nil, cleanup, fmt.Errorf("credential %q: unknown type %q", c.Name, c.AuthType)

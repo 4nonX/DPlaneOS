@@ -75,8 +75,11 @@ func (f *fakeTransport) Push(node string, u Update) error {
 	f.pushed = append(f.pushed, node+" "+u.Group.Name+" "+u.Group.Owner)
 	return nil
 }
-func (f *fakeTransport) Fetch(string) (PeerView, error)                           { return PeerView{}, nil }
-func (f *fakeTransport) Members() []string                                        { return f.members }
+func (f *fakeTransport) Fetch(string) (PeerView, error) { return PeerView{}, nil }
+func (f *fakeTransport) Members() []string              { return f.members }
+func (f *fakeTransport) SendSplit(string, string, string, string, string, string, io.Reader) error {
+	return nil
+}
 func (f *fakeTransport) RemoteSnapshots(string, string, string) ([]string, error) { return nil, nil }
 func (f *fakeTransport) SendReplica(string, string, string, int64, string, string, io.Reader) error {
 	return nil

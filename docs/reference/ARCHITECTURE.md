@@ -15,16 +15,17 @@ DPlaneOS is built around a strict separation between declaration, reconciliation
 │  DECLARATION LAYER                                              │
 │  What the system should look like                               │
 │                                                                 │
-│  state.yaml          configuration.nix / flake.nix             │
-│  (runtime config)    (OS-level config)                          │
+│  revision store      configuration.nix / flake.nix             │
+│  (runtime config;    (OS-level config)                          │
+│   state.yaml, Git)                                              │
 └───────────────────────────┬─────────────────────────────────────┘
                             │ reconcile
 ┌───────────────────────────▼─────────────────────────────────────┐
 │  RECONCILIATION LAYER                                           │
 │  Closes the gap between declared and actual state               │
 │                                                                 │
-│  GitOps apply engine      nixos-rebuild switch                  │
-│  (runtime drift check)    (OS drift check + activation)         │
+│  apply engine + merge     nixos-rebuild switch                  │
+│  (peers, Git, fleet)      (OS drift check + activation)         │
 └───────────────────────────┬─────────────────────────────────────┘
                             │ execute
 ┌───────────────────────────▼─────────────────────────────────────┐
@@ -42,11 +43,11 @@ DPlaneOS is built around a strict separation between declaration, reconciliation
 
 There are two declaration surfaces:
 
-**`state.yaml`** - Runtime configuration managed by the daemon and the GitOps engine. Covers everything that changes during normal NAS operation: ZFS datasets and their properties, SMB/NFS/iSCSI shares, Docker stacks, users and groups, replication schedules, network config, LDAP settings, ACME certificates. This file lives in a Git repository so every change is version-controlled and auditable. **Git is the authoritative source of desired runtime state.** The PostgreSQL database caches a subset of this state (share definitions, user records, replication schedules) for fast reads, but the database is a read cache - it never overrides what is in `state.yaml` and reconciliation always starts from the Git checkout, not from the DB.
+**The node's revision store** - Runtime configuration: ZFS datasets and their properties, SMB/NFS/iSCSI shares, Docker stacks, users and groups, replication schedules, network config, LDAP settings, ACME certificates. Every node keeps it in its own PostgreSQL database as a log of revisions per resource (`config_revisions`, [Design 0001](../design/0001-distributed-state-gitops-ha.md) section 5.2), whatever changed it: the web UI, the API, a paired node, the Git repository, the fleet manager, a rollback. **The node's own store is the source of truth for that node**, so a node keeps working with no network at all. Paired nodes exchange revisions and merge them (three-way, per resource; conflicts are decided by rules or by the operator, never silently). `state.yaml` is the text form of the store: exported, imported, and kept in a Git repository when the Git backend is switched on, where the repository is one more peer of the merge (see [GITOPS-DRIVEN-NAS.md](../admin/GITOPS-DRIVEN-NAS.md)).
 
 **`configuration.nix` / `flake.nix`** - OS-level configuration managed by NixOS. Covers everything that is fixed for the lifetime of the appliance: kernel version, ZFS package pin, systemd units, firewall baseline, package set, impermanence rules, Changes here require a NixOS rebuild (either OTA or manual `nixos-rebuild switch`).
 
-The division of responsibility is: NixOS owns the platform, the daemon owns the workload, Git owns the desired runtime state.
+The division of responsibility is: NixOS owns the platform, the daemon owns the workload and its configuration history, Git (optional) holds a reviewed, versioned copy of it.
 
 ### Reconciliation Layer
 
@@ -58,7 +59,7 @@ The division of responsibility is: NixOS owns the platform, the daemon owns the 
 4. Executes the plan transactionally (halt on first failure; already-applied items are safe by design)
 5. Verifies convergence by re-reading live state after apply
 
-A background detector runs every five minutes and broadcasts drift events to connected UI clients. Operators can also trigger an immediate check or apply via the UI or API.
+After every change through the web UI or the API, and every five minutes, the daemon records the live configuration in the revision store (a *capture*): a change made outside the daemon (a shell, another tool) appears in the history as *detected*. When the Git backend is on, changes the node owns are written to the repository and changes found in the repository wait for approval or are applied, through the same merge as changes from paired nodes.
 
 **`nixos-rebuild switch`** is the OS-layer reconciler. It reads the flake, computes which store paths are needed, builds or fetches them, and atomically activates the new system configuration. OTA updates wrap this in an A/B slot mechanism with automatic health-check rollback.
 
@@ -237,6 +238,8 @@ High availability adds nodes without making any node depend on another to work. 
 
 **Protection layers** ([ADR-0009](../design/adr/ADR-0009-fencing-layers.md)): the watchdog (a storage owner that loses quorum stops resetting it and is restarted; the takeover waits the watchdog timeout plus a margin), ZFS multihost, SCSI-3 persistent reservations where the disks support them, and optional power fencing (IPMI/Redfish, PDU). Missing layers are reported, not required; automatic failover needs a third vote and a fencing method.
 
+**Fleet.** Many nodes and clusters can be managed together by a fleet manager, a role any node can take: it reads every node's health and rolls out fleet-wide users, groups and shared settings in waves. It is a loose overlay without consensus; the nodes never depend on it ([FLEET.md](../admin/FLEET.md), [fleet](../../daemon/internal/fleet)).
+
 ### HA vs Single-Node
 
 | Feature | Single node | Cluster |
@@ -299,31 +302,28 @@ Severity-mapped events with severity `warning` or higher are also forwarded to t
 
 ## Data Flow: User Action to System State
 
-A concrete example - user adds an NFS export via the UI:
+A concrete example - user adds an NFS export via the UI on a node that is paired with another and keeps its configuration in Git:
 
 ```
 1. Browser POST /api/nfs/exports
          │
-2. dplaned validates request, writes to PostgreSQL
+2. dplaned validates the request, writes PostgreSQL, writes /etc/exports,
+   calls exportfs -ra (exec allowlist): the export is live
          │
-3. dplaned writes /etc/exports (via nfs_handler.go)
+3. The change is captured: a new revision of nfs_export/<path> in the
+   node's revision store (Change History shows it, with a rollback)
          │
-4. dplaned calls exportfs -ra (via exec allowlist)
+4. The paired node pulls the revision (within 30 s, at once when notified),
+   merges it per resource and applies it: its /etc/exports follows
          │
-5. NFS kernel exports new share immediately
+5. If the Git backend is on and this node owns the scope, the revision is
+   committed to the branch (direct policy) or proposed as a pull request
          │
-6. GitOps drift detector (next 5-min tick) compares live state to state.yaml
-         │
-7. If state.yaml has not been updated, drift is reported in UI
-         │
-8. Operator updates state.yaml (manually or via Capture) and commits to Git
-         │
-9. GitOps apply engine pulls new state.yaml, sees NFS entry matches live, no action needed
-         │
-10. Drift resolved. System is converged.
+6. The repository, the paired node and this node agree; the Git page and
+   Configuration Sync show every scope in step
 ```
 
-This illustrates the reconciliatory loop: the daemon can make immediate changes, but long-term truth lives in state.yaml. Drift between the two is surfaced continuously.
+Every step after 2 can fail without affecting the export: a node that cannot reach its peer keeps the change and sends it later (*isolated*), a repository that cannot be reached keeps the change waiting to be pushed. What happens on each kind of failure is the failure semantics table of [Design 0001](../design/0001-distributed-state-gitops-ha.md) (section 5.11), each row covered by an automated test.
 
 ---
 
@@ -332,6 +332,7 @@ This illustrates the reconciliatory loop: the daemon can make immediate changes,
 | Topic | Document |
 |-------|----------|
 | GitOps state.yaml format and reconciliation | [GitOps Reference](GITOPS-REFERENCE.md) |
+| Many nodes in one view, fleet-wide rollouts | [Fleet](../admin/FLEET.md) |
 | Backup: ZFS replication, Rsync, Cloud Sync, Cold Tier | [Backup and Replication](../admin/BACKUP-REPLICATION.md) |
 | High Availability setup and day-2 operations | [High Availability Guide](../admin/HIGH-AVAILABILITY.md) |
 | OTA update procedure and rollback | [OTA Updates](../admin/OTA-UPDATES.md) |

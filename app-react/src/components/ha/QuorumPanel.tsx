@@ -175,7 +175,12 @@ export function AddVote({ q, onClose }: { q: QStatus; onClose: () => void }) {
   const [addrEdit, setAddr] = useState<string | null>(null)
   const peerAddr = addrEdit ?? suggest.data?.peer_addr ?? ''
   const addNode = useMutation({
-    mutationFn: async () => ensureOk(await api.post<Res>('/api/quorum/nodes', { peer_id: peer, peer_addr: peerAddr })),
+    mutationFn: async () => ensureOk(await api.post<Res & { warnings?: string[] }>('/api/quorum/nodes', { peer_id: peer, peer_addr: peerAddr })),
+    // The node is in the cluster; a member it could not be paired with is named.
+    onSuccess: r => {
+      r.warnings?.forEach(w => toast.error(w))
+      qc.invalidateQueries({ queryKey: ['config', 'sync', 'status'] })
+    },
     onError: (e: Error) => toast.error(e.message),
   })
 

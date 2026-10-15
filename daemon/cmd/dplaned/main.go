@@ -898,6 +898,8 @@ func main() {
 	r.HandleFunc("/api/config/sync/peer/join", configSync.PeerJoin).Methods("POST")
 	r.HandleFunc("/api/config/sync/peer/notify", configSync.PeerNotify).Methods("POST")
 	r.HandleFunc("/api/config/sync/peer/leave", configSync.PeerLeave).Methods("POST")
+	r.HandleFunc("/api/config/sync/peer/introduce-token", configSync.PeerIntroduceToken).Methods("POST")
+	r.HandleFunc("/api/config/sync/peer/introduce", configSync.PeerIntroduce).Methods("POST")
 
 	// Cluster quorum and third vote (Design 0001 phase 3a).
 	quorumH := handlers.NewQuorumHandler(db, quorumMon)
@@ -956,9 +958,11 @@ func main() {
 	r.Handle("/api/groups/{name}/takeover", permRoute("storage", "admin", http.HandlerFunc(groupsH.Takeover))).Methods("POST")
 	r.Handle("/api/groups/{name}/replicate", permRoute("storage", "admin", http.HandlerFunc(groupsH.ReplicateNow))).Methods("POST")
 	r.Handle("/api/groups/{name}/discard-divergent", permRoute("storage", "admin", http.HandlerFunc(groupsH.DiscardDivergent))).Methods("POST")
+	r.Handle("/api/groups/{name}/splits/{pool}/{split}", permRoute("storage", "admin", http.HandlerFunc(groupsH.DeleteSplit))).Methods("DELETE")
 	r.HandleFunc("/api/config/sync/peer/zfs-snapshots", groupsH.PeerSnapshots).Methods("GET")
 	r.HandleFunc("/api/config/sync/peer/group-resources", groupsH.PeerResources).Methods("GET")
 	r.HandleFunc("/api/config/sync/peer/zfs-recv", groupsH.PeerRecv).Methods("POST")
+	r.HandleFunc("/api/config/sync/peer/zfs-recv-split", groupsH.PeerRecvSplit).Methods("POST")
 	protectionH := handlers.NewProtectionHandler(db, quorumMon, haKeeper)
 	r.Handle("/api/ha/protection", permRoute("system", "read", http.HandlerFunc(protectionH.Get))).Methods("GET")
 	// Cluster map, maintenance mode and safety tests (Design 0001 phase 4).

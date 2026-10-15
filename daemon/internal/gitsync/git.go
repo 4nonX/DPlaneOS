@@ -78,7 +78,12 @@ func (c *Clone) git(env []string, stdin []byte, args ...string) (string, error) 
 	cmd.Dir = c.Dir
 	// A clean, non-interactive environment: no user config, no prompts.
 	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=/dev/null",
-		"LC_ALL=C")
+		"LC_ALL=C",
+		// A remote that accepts the connection but sends nothing (packets
+		// dropped on the way) fails after 30 seconds below 1 KB/s instead of
+		// holding the cycle for the whole timeout.
+		"GIT_CONFIG_COUNT=2", "GIT_CONFIG_KEY_0=http.lowSpeedLimit", "GIT_CONFIG_VALUE_0=1000",
+		"GIT_CONFIG_KEY_1=http.lowSpeedTime", "GIT_CONFIG_VALUE_1=30")
 	cmd.Env = append(cmd.Env, env...)
 	if stdin != nil {
 		cmd.Stdin = bytes.NewReader(stdin)

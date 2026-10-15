@@ -8,6 +8,9 @@
 #   pull-request policy: a change opens a pull request; merged, it counts
 #   the empty-state guard holds a commit that removes every user; Revert
 #   writes the last good version back
+#   the repository behind a slow link, then unreachable (Design 0001 phase 7,
+#   section 5.11 "Git unreachable"): the node keeps working, changes wait and
+#   the status says why; they are pushed once the link is back
 #
 # Needs: GITEA_CLI (the gitea command, e.g. "docker exec -u git <container> gitea"),
 # DATABASE_DSN, ./dplaned-ci.
@@ -80,7 +83,7 @@ settings() { # policy auto_apply prune
   python3 - "$@" <<PY
 import json, sys
 print(json.dumps({'enabled': True, 'branch': 'main', 'layout': 'single', 'state_path': 'state.yaml',
-  'remotes': [{'url': '$GITEA/$GIT_USER/nas.git', 'fetch_cred': 'forge', 'push_cred': 'forge'}],
+  'remotes': [{'url': '${REMOTE_BASE:-$GITEA}/$GIT_USER/nas.git', 'fetch_cred': 'forge', 'push_cred': 'forge'}],
   'categories': {'identity': True}, 'policy': sys.argv[1], 'provider': 'gitea',
   'provider_api_url': '$GITEA/api/v1', 'provider_repo': '$GIT_USER/nas', 'provider_cred': 'forge',
   'auto_apply': sys.argv[2] == 'true', 'prune': sys.argv[3] == 'true', 'interval_secs': 3600}))
@@ -134,7 +137,14 @@ PR=$(py "next((p['number'] for p in d if p['head']['ref'] == 'dplaneos/state'), 
 check "a pull request from dplaneos/state is open" '[ -n "$PR" ]'
 FILE=$(gitea_file state.yaml)
 check "the branch itself is unchanged" '! echo "$FILE" | grep -q "bob@pr.lan"'
-gitea POST "/repos/$GIT_USER/nas/pulls/$PR/merge" '{"Do":"merge"}'
+# Gitea refuses the merge (405) until it has finished checking the new pull request.
+for _ in $(seq 1 20); do
+  gitea POST "/repos/$GIT_USER/nas/pulls/$PR/merge" '{"Do":"merge"}'
+  gitea GET "/repos/$GIT_USER/nas/pulls/$PR"
+  [ "$(py "d.get('merged')")" = True ] && break
+  sleep 2
+done
+check "the pull request is merged" '[ "$(py "d.get(\"merged\")")" = True ]'
 sync_now
 FILE=$(gitea_file state.yaml)
 check "after the merge the branch has the change" 'echo "$FILE" | grep -q "bob@pr.lan"'
@@ -155,6 +165,44 @@ FILE=$(gitea_file state.yaml)
 check "the branch has the users again" 'echo "$FILE" | grep -q "username: \"bob\""'
 REASON=$(hold_reason)
 check "the hold is cleared" '[ -z "$REASON" ]'
+
+echo "--- 5. The repository behind a slow link, then unreachable ---"
+# The node reaches the repository through a proxy that delays or swallows
+# traffic (the provider API stays direct).
+LINK=/tmp/git-link; echo ok > $LINK
+python3 "$(dirname "$0")/netproxy.py" 13000 localhost:3000 $LINK & PROXY=$!
+trap 'sudo kill $PID 2>/dev/null || true; kill $PROXY 2>/dev/null || true' EXIT
+REMOTE_BASE=http://localhost:13000
+api PUT /api/gitops/settings "$(settings direct false false)"
+check "the remote goes through the proxy" 'succeeded'
+echo "delay 300" > $LINK
+api GET /api/rbac/users
+BOB_ID=$(py "next(u['id'] for u in d['users'] if u['username'] == 'bob')")
+api POST /api/rbac/users "{\"action\":\"update\",\"id\":$BOB_ID,\"email\":\"bob@slow.lan\"}"
+sync_now
+FILE=$(gitea_file state.yaml)
+check "over a slow link the change reaches the branch" 'echo "$FILE" | grep -q "bob@slow.lan"'
+echo drop > $LINK
+START=$SECONDS
+api POST /api/rbac/users "{\"action\":\"update\",\"id\":$BOB_ID,\"email\":\"bob@offline.lan\"}"
+check "with the repository unreachable, a change in the web UI still works at once" 'succeeded && [ $((SECONDS - START)) -lt 10 ]'
+EMAIL=$(user_field bob email)
+check "and is applied on the node" '[ "$EMAIL" = "bob@offline.lan" ]'
+api POST /api/config/capture '{}'
+curl -s --max-time 400 -X POST http://127.0.0.1:9000/api/gitops/sync -H "X-Session-ID: $SESSION" -H "X-CSRF-Token: $CSRF"   -H "X-User: admin" -H "Content-Type: application/json" -d '{}' > /dev/null || true
+echo "  (sync with the link down took $((SECONDS - START)) s)"
+check "a repository that does not answer fails the cycle within minutes, not hangs it" '[ $((SECONDS - START)) -lt 240 ]'
+api GET /api/gitops/status
+check "the status names the unreachable remote" '[ -n "$(py "d[\"status\"][\"remotes\"][0].get(\"error\", \"\")")" ]'
+check "the change waits to be pushed" '[ "$(py "\",\".join(($SCOPE)[\"push\"])")" = "user/bob" ]'
+FILE=$(gitea_file state.yaml)
+check "the branch does not have it yet" '! echo "$FILE" | grep -q "bob@offline.lan"'
+echo ok > $LINK
+sync_now
+FILE=$(gitea_file state.yaml)
+check "once the link is back the change is pushed" 'echo "$FILE" | grep -q "bob@offline.lan"'
+COUNTS=$(scope_counts)
+check "and the scope is in step" '[ "$COUNTS" = "0 0 0" ]'
 
 echo ""
 echo "Git backend: $PASS passed, $FAIL failed"

@@ -79,6 +79,12 @@ func (t GroupTransport) SendReplica(node, group, pool string, epoch int64, base,
 	return configstore.StreamToPeer(t.DB, node, "/api/config/sync/peer/zfs-recv?"+q.Encode(), stream, nil)
 }
 
+// SendSplit streams a dataset of a discarded copy to the owner, to be kept.
+func (t GroupTransport) SendSplit(node, group, pool, name, rel, base string, stream io.Reader) error {
+	q := url.Values{"group": {group}, "pool": {pool}, "name": {name}, "rel": {rel}, "base": {base}}
+	return configstore.StreamToPeer(t.DB, node, "/api/config/sync/peer/zfs-recv-split?"+q.Encode(), stream, nil)
+}
+
 // FetchResources asks the owner for a group's stack and export definitions.
 func (t GroupTransport) FetchResources(node, group string) (groups.Resources, error) {
 	var resp struct {
@@ -244,10 +250,29 @@ func (h *GroupsHandler) ReplicateNow(w http.ResponseWriter, r *http.Request) {
 	respondOK(w, map[string]any{"success": true})
 }
 
-// DiscardDivergent: POST /api/groups/{name}/discard-divergent - the operator
-// accepts that the next replication rolls back the changes made to this copy.
+// DiscardDivergent: POST /api/groups/{name}/discard-divergent {keep} - the
+// operator accepts that the next replication rolls back the changes made to
+// this copy. keep (default true): the changes are first kept on the owner
+// as a separate copy; with keep false they are discarded for good.
 func (h *GroupsHandler) DiscardDivergent(w http.ResponseWriter, r *http.Request) {
-	if err := h.mgr.DiscardDivergent(mux.Vars(r)["name"]); err != nil {
+	b := struct {
+		Keep *bool `json:"keep"`
+	}{}
+	_ = json.NewDecoder(io.LimitReader(r.Body, 1<<10)).Decode(&b)
+	keep := b.Keep == nil || *b.Keep
+	kept, err := h.mgr.DiscardDivergent(mux.Vars(r)["name"], keep)
+	if err != nil {
+		respondOK(w, map[string]any{"success": false, "error": err.Error(), "can_discard_without_keeping": errors.Is(err, groups.ErrCannotKeep)})
+		return
+	}
+	respondOK(w, map[string]any{"success": true, "kept": kept})
+}
+
+// DeleteSplit: DELETE /api/groups/{name}/splits/{pool}/{split} - on the
+// owner: delete a kept copy (replication removes it from the other copies).
+func (h *GroupsHandler) DeleteSplit(w http.ResponseWriter, r *http.Request) {
+	v := mux.Vars(r)
+	if err := h.mgr.DeleteSplit(v["name"], v["pool"], v["split"]); err != nil {
 		respondOK(w, map[string]any{"success": false, "error": err.Error()})
 		return
 	}
@@ -309,6 +334,26 @@ func (h *GroupsHandler) PeerRecv(w http.ResponseWriter, r *http.Request) {
 			code = http.StatusConflict
 		}
 		respondErrorSimple(w, err.Error(), code)
+		return
+	}
+	respondOK(w, map[string]any{"success": true})
+}
+
+// PeerRecvSplit: POST /api/config/sync/peer/zfs-recv-split - a member that
+// discards its divergent copy sends a changed dataset to keep here (owner).
+func (h *GroupsHandler) PeerRecvSplit(w http.ResponseWriter, r *http.Request) {
+	p, err := configstore.AuthenticatePeer(h.db, r.Header.Get("X-DPlane-Node"), r.Header.Get("X-DPlane-Peer-Secret"))
+	if err != nil {
+		respondErrorSimple(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	if err := http.NewResponseController(w).SetReadDeadline(time.Time{}); err != nil {
+		respondErrorSimple(w, "cannot lift the read deadline: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	q := r.URL.Query()
+	if err := h.mgr.ReceiveSplit(p.ID, q.Get("group"), q.Get("pool"), q.Get("name"), q.Get("rel"), q.Get("base"), r.Body); err != nil {
+		respondErrorSimple(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	respondOK(w, map[string]any{"success": true})

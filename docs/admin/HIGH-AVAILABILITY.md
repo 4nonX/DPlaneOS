@@ -103,7 +103,7 @@ For replicated groups also choose the replication interval and whether the group
 
 **Shares and NFS exports** live on the pools and follow them; their configuration is exchanged between the paired nodes anyway.
 
-**Replicated groups.** The owner sends `zfs send` streams to the other candidates over the same encrypted channel as configuration sync (no SSH keys). The other copies are read-only. A copy that was changed behind the cluster's back (for example a former owner that kept working during a split) is never overwritten silently: replication to it stops and its line offers **Discard the changes here** once you have copied off anything you need.
+**Replicated groups.** The owner sends `zfs send` streams to the other candidates over the same encrypted channel as configuration sync (no SSH keys). The other copies are read-only. A copy that was changed behind the cluster's back (for example a former owner that kept working during a split) is never overwritten silently: replication to it stops and its line offers **Discard the changes here**. The changes are not lost: before the copy is rolled back they are sent to the owner and kept there as a separate dataset, `<pool>/dplane-split-<date>-<time>-from-<node>` (only what changed since the last replication travels). Replication carries it to every copy; the group lists it under *Kept copies* on every node, and it can be browsed under the pool's mount point until you delete it on the owner. If it cannot be kept (the owner unreachable, or no longer holding the last common snapshot), nothing is discarded and you are asked whether to discard for good.
 
 ---
 
@@ -129,7 +129,7 @@ Without a third vote, or for replicated groups with automatic failover off, step
 
 **Updating nodes one at a time:** start maintenance on node A (its groups move away), update and reboot A, end maintenance, move groups back if you want, then do the same for B. The cluster stays quorate as long as one node and the third vote are up.
 
-**Adding a node:** pair it, *Add a vote or node* › *A third DPlaneOS node*, then add it as a candidate to groups. **Removing a node:** move its groups away first, then remove it in the member list.
+**Adding a node:** pair it with one member, *Add a vote or node* › *A third DPlaneOS node* on that member, then add it as a candidate to groups. The member introduces the new node to every other member, so all members are paired with each other: configuration and storage-group changes keep flowing when any one node is down. If an introduction fails (a member unreachable), the dialog says which pair to join yourself in Configuration Sync. **Removing a node:** move its groups away first, then remove it in the member list.
 
 **Maintenance mode:** System › Cluster Map › *Start maintenance…* on the node you want to work on. Its shared and replicated groups move to other nodes first (planned moves); standalone groups stay. While in maintenance the node is never chosen to take a group over and is refused as the target of a move, so a failure elsewhere does not send storage to a node you are rebooting. If a group has no other node that is online and out of maintenance, nothing changes. *End maintenance* moves nothing back.
 

@@ -728,6 +728,12 @@ func AcceptJoin(db *sql.DB, token string, req JoinRequest) (*JoinResponse, error
 // Join pairs this node with the node at url, which issued token. selfURL is
 // how the other node reaches this one.
 func (s *Syncer) Join(url, token, selfURL string) (*Peer, error) {
+	return s.join(url, token, selfURL, "")
+}
+
+// join pairs with the node at url; pin, when known, is the certificate
+// fingerprint the node must present (an introduction by a common peer).
+func (s *Syncer) join(url, token, selfURL, pin string) (*Peer, error) {
 	self, err := NodeID(s.db)
 	if err != nil {
 		return nil, err
@@ -737,7 +743,7 @@ func (s *Syncer) Join(url, token, selfURL string) (*Peer, error) {
 	if url == "" || selfURL == "" {
 		return nil, errors.New("both addresses are required")
 	}
-	call := &peerCall{baseURL: url, headers: map[string]string{hdrJoinToken: token}}
+	call := &peerCall{baseURL: url, pin: pin, headers: map[string]string{hdrJoinToken: token}}
 	var resp JoinResponse
 	if err := call.do("POST", "/api/config/sync/peer/join", JoinRequest{NodeID: self, Name: nodeName(), URL: selfURL}, &resp); err != nil {
 		return nil, err

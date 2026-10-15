@@ -140,7 +140,15 @@ func (m *Manager) advance(s Settings, r Rollout) {
 		slots <- struct{}{}
 		go func(id int64, rm Remote) {
 			defer func() { <-slots; wg.Done() }()
-			results, err := rm.Client(s.Name, m.nodeName()).Apply(s.Name, m.nodeName(), tag, r.Resources)
+			// An apply may legitimately take minutes; a remote cut off from
+			// the manager is found by the inventory call's short timeout
+			// instead of waiting out the apply's.
+			c := rm.Client(s.Name, m.nodeName())
+			if _, err := c.Status(); err != nil {
+				m.setTarget(r.ID, id, TargetPending, "not reachable: "+err.Error(), true)
+				return
+			}
+			results, err := c.Apply(s.Name, m.nodeName(), tag, r.Resources)
 			switch {
 			case err != nil:
 				m.setTarget(r.ID, id, TargetPending, err.Error(), true)

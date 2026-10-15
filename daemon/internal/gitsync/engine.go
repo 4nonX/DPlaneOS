@@ -299,6 +299,8 @@ func (c *cycle) run(st *Status) error {
 		st.Remotes = append(st.Remotes, rs)
 	}
 	if err != nil {
+		// No remote answers: the node works on; show what waits to be pushed.
+		c.offlineScopes(st)
 		return err
 	}
 	c.head, st.Head = head, head
@@ -352,6 +354,46 @@ func (c *cycle) run(st *Status) error {
 		st.Scopes = append(st.Scopes, ss)
 	}
 	return firstErr
+}
+
+// offlineScopes fills the scope status from this node's store alone, while
+// no remote can be reached: the changes waiting to be pushed and any hold.
+func (c *cycle) offlineScopes(st *Status) {
+	e, s := c.e, c.s
+	latest, err := configstore.Latest(e.env.DB)
+	if err != nil {
+		return
+	}
+	byScope := map[string]map[string]configstore.Revision{}
+	for id, r := range latest {
+		if !Managed(r.Kind, s.Categories) {
+			continue
+		}
+		sc := ScopeOf(s.Layout, r.Resource(), e.env.GroupOf, c.node)
+		if byScope[sc] == nil {
+			byScope[sc] = map[string]configstore.Revision{}
+		}
+		byScope[sc][id] = r
+	}
+	names := make([]string, 0, len(byScope))
+	for sc := range byScope {
+		names = append(names, sc)
+	}
+	sort.Strings(names)
+	for _, sc := range names {
+		ss := ScopeStatus{Scope: sc, Push: []string{}, Pull: []Change{}, Conflicts: []Change{}, CheckedAt: time.Now(),
+			Error: "the repository cannot be reached; changes wait to be pushed"}
+		ss.Path, _ = ScopePath(s.Layout, s.StatePath, sc)
+		ss.Owner, ss.OwnerReason = e.env.IsOwner(sc)
+		if state, err := loadScope(e.env.DB, sc); err == nil {
+			ss.SyncedSHA = state.SyncedSHA
+		}
+		ss.Hold, _ = OpenHold(e.env.DB, sc)
+		if base, err := loadBase(e.env.DB, sc); err == nil && ss.Owner {
+			ss.Push = Pending(byScope[sc], base)
+		}
+		st.Scopes = append(st.Scopes, ss)
+	}
 }
 
 // remotes builds the remotes with their credentials (push credentials are

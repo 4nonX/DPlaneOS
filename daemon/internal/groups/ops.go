@@ -122,21 +122,28 @@ type Transport interface {
 	// sending a zfs stream to it.
 	RemoteSnapshots(node, group, pool string) ([]string, error)
 	SendReplica(node, group, pool string, epoch int64, base, snap string, stream io.Reader) error
+	// A dataset of a copy being discarded, sent to the owner to be kept
+	// (pool/name/rel, a clone of pool/rel@base when base is set).
+	SendSplit(node, group, pool, name, rel, base string, stream io.Reader) error
 	// The owner's definitions of a group's stacks and NVMe-oF exports.
 	FetchResources(node, group string) (Resources, error)
 }
 
 // Manager runs group operations for this node.
 type Manager struct {
-	db   *sql.DB
-	ops  Ops
-	repl ReplOps
-	res  ResOps
-	addr AddrOps
-	tr   Transport
-	self func() string
-	view func() View
-	mu   sync.Mutex
+	db    *sql.DB
+	ops   Ops
+	repl  ReplOps
+	split SplitOps
+	res   ResOps
+	addr  AddrOps
+	tr    Transport
+	self  func() string
+	view  func() View
+	mu    sync.Mutex
+	// replMu serialises replication runs (the interval tick, "Replicate
+	// now" and the final replication of a move).
+	replMu sync.Mutex
 
 	// Fence powers off the previous owner before an automatic takeover (IPMI
 	// or PDU, when configured); nil = watchdog only. Set before Start.
@@ -179,7 +186,7 @@ func (m *Manager) isMoving(name string) bool {
 
 // NewManager wires the manager. view returns the current quorum view.
 func NewManager(db *sql.DB, ops Ops, tr Transport, self func() string, view func() View) *Manager {
-	return &Manager{db: db, ops: ops, repl: DefaultReplOps, res: DefaultResOps, addr: DefaultAddrOps, tr: tr, self: self, view: view}
+	return &Manager{db: db, ops: ops, repl: DefaultReplOps, split: DefaultSplitOps, res: DefaultResOps, addr: DefaultAddrOps, tr: tr, self: self, view: view}
 }
 
 func (m *Manager) currentView() (View, error) {
@@ -204,6 +211,8 @@ type GroupStatus struct {
 	Failover    Decision    `json:"failover"`
 	Replication []ReplState `json:"replication"`
 	Resources   Resources   `json:"resources"`
+	// Splits are copies kept from discarded divergent copies (replicated).
+	Splits []SplitCopy `json:"splits"`
 }
 
 // Statuses evaluates every group on this node.
@@ -218,7 +227,7 @@ func (m *Manager) Statuses() ([]GroupStatus, error) {
 	}
 	out := make([]GroupStatus, 0, len(gs))
 	for _, g := range gs {
-		gs := GroupStatus{Group: g, Status: Evaluate(g, v), Failover: m.decision(g.Name), Replication: []ReplState{}}
+		gs := GroupStatus{Group: g, Status: Evaluate(g, v), Failover: m.decision(g.Name), Replication: []ReplState{}, Splits: m.Splits(g)}
 		gs.Resources, _ = m.knownResources(g)
 		m.fmu.Lock()
 		gs.Problems = append(gs.Problems, m.resProblems[g.Name]...)

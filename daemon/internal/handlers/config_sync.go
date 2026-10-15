@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"log"
 	"net/http"
 	"strconv"
 
@@ -312,6 +313,41 @@ func (h *ConfigSyncHandler) PeerNotify(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.s.Trigger(false)
+	respondOK(w, map[string]any{"success": true})
+}
+
+// PeerIntroduceToken: POST /api/config/sync/peer/introduce-token - a peer
+// wants to pair another of its peers with this node (cluster members are all
+// paired): a join code for it.
+func (h *ConfigSyncHandler) PeerIntroduceToken(w http.ResponseWriter, r *http.Request) {
+	if h.peer(w, r) == nil {
+		return
+	}
+	token, _, err := configstore.CreateJoinToken(h.db)
+	if err != nil {
+		respondOK(w, map[string]any{"success": false, "error": err.Error()})
+		return
+	}
+	respondOK(w, map[string]any{"success": true, "token": token})
+}
+
+// PeerIntroduce: POST /api/config/sync/peer/introduce - a peer tells this
+// node to pair with another member of their cluster.
+func (h *ConfigSyncHandler) PeerIntroduce(w http.ResponseWriter, r *http.Request) {
+	p := h.peer(w, r)
+	if p == nil {
+		return
+	}
+	var req configstore.IntroduceRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondErrorSimple(w, "Invalid request", http.StatusBadRequest)
+		return
+	}
+	if err := h.s.AcceptIntroduction(req); err != nil {
+		respondOK(w, map[string]any{"success": false, "error": err.Error()})
+		return
+	}
+	log.Printf("CONFIG SYNC: paired with %s, introduced by %s", req.URL, p.Name)
 	respondOK(w, map[string]any{"success": true})
 }
 
