@@ -31,9 +31,15 @@ wait_up() { # name
   for _ in $(seq 1 60); do curl -s "http://127.0.0.1:${PORT[$1]}/health" >/dev/null && return 0; sleep 0.5; done
   echo "::error::node $1 did not come up"; cat "/tmp/dplaned-fl-$1.log"; exit 1
 }
-stop_node() { sudo kill "${PID[$1]}" 2>/dev/null || true; for _ in $(seq 1 20); do curl -s "http://127.0.0.1:${PORT[$1]}/health" >/dev/null || return 0; sleep 0.5; done; }
-# Power loss: the daemon itself gets SIGKILL (no shutdown), not the sudo wrapper.
-power_off() { sudo pkill -9 -f -- "--listen 127.0.0.1:${PORT[$1]}" || true; for _ in $(seq 1 20); do curl -s "http://127.0.0.1:${PORT[$1]}/health" >/dev/null || return 0; sleep 0.5; done; }
+# The signal goes to the daemon itself: sudo does not always pass on a signal
+# sent to it. stop_node shuts it down (SIGTERM), power_off kills it (SIGKILL).
+halt_node() { # name signal
+  sudo pkill "-$2" -f -- "--listen 127.0.0.1:${PORT[$1]}" || true
+  for _ in $(seq 1 40); do curl -s --max-time 2 "http://127.0.0.1:${PORT[$1]}/health" >/dev/null || return 0; sleep 0.5; done
+  echo "::error::node $1 is still running"; exit 1
+}
+stop_node() { halt_node "$1" TERM; }
+power_off() { halt_node "$1" KILL; }
 for n in $NODES; do start_node $n; done
 # r4 is reached through a proxy that can make its link slow or cut it off.
 LINK=/tmp/fl-r4-link; echo ok > $LINK
