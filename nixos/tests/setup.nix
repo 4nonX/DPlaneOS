@@ -192,9 +192,15 @@ pkgs.testers.nixosTest {
             found = wait_for(admin_conflicts, "the conflict on the admin account", 60)
             # Each node records the conflict on its side.
             assert all((c["kind"], c["key"]) == ("user", "admin") for _, c in found), [(m.name, c["kind"], c["key"]) for m, c in found]
-            for m, c in found:
-                ok(api(m, "POST", f"/api/config/conflicts/{c['id']}/resolve", {"choice": "local" if m is a else "remote"}), "keep a's admin")
-            wait_for(lambda: (sync(b, a, b), not admin_conflicts())[1], "no open conflict after pairing", 60)
+            # Resolving one side can close the other (the result is adopted
+            # there): each round, read the open conflicts again and resolve one.
+            def resolve_one():
+                open_ = admin_conflicts()
+                for m, c in open_:
+                    api(m, "POST", f"/api/config/conflicts/{c['id']}/resolve", {"choice": "local" if m is a else "remote"})
+                    break
+                return not open_
+            wait_for(resolve_one, "no open conflict after pairing", 120)
             # b's admin is now a's, credentials included: a's second factor works on b.
             login_totp(b, totp_secret["a"])
             sa = api(a, "GET", "/api/config/sync/status")["status"]

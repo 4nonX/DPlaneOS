@@ -171,12 +171,18 @@ pkgs.testers.nixosTest {
         def conflicts():
             sync(*nodes)
             return [(m, x) for m in nodes for x in api(m, "GET", "/api/config/conflicts")["conflicts"]]
-        for m, x in wait_for(conflicts, "the admin conflicts from pairing", 90):
-            assert (x["kind"], x["key"]) == ("user", "admin"), x
-            # An apply may be running on that node (another resolution): try again.
-            wait_for(lambda: api(m, "POST", f"/api/config/conflicts/{x['id']}/resolve", {"choice": "local" if m is a else "remote"}).get("success"),
-                     f"{m.name}: keep a's admin", 60)
-        wait_for(lambda: not conflicts(), "no conflict after pairing", 90)
+        wait_for(conflicts, "the admin conflicts from pairing", 90)
+        # Resolving one side can close the other (the result is adopted
+        # there), and a node may be busy applying: each round, read the
+        # open conflicts again and resolve one.
+        def resolve_one():
+            open_ = conflicts()
+            for m, x in open_:
+                assert (x["kind"], x["key"]) == ("user", "admin"), x
+                api(m, "POST", f"/api/config/conflicts/{x['id']}/resolve", {"choice": "local" if m is a else "remote"})
+                break
+            return not open_
+        wait_for(resolve_one, "no conflict after pairing", 180)
 
     def diag():
         for m in NODES:

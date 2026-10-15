@@ -196,11 +196,18 @@ pkgs.testers.nixosTest {
             def conflicts():
                 sync(b, a, b)
                 return [(m, c) for m in (a, b) for c in api(m, "GET", "/api/config/conflicts")["conflicts"]]
-            for m, c in wait_for(conflicts, "the admin conflict from pairing", 60):
-                assert (c["kind"], c["key"]) == ("user", "admin"), c
-                wait_for(lambda: api(m, "POST", f"/api/config/conflicts/{c['id']}/resolve", {"choice": "local" if m is a else "remote"}).get("success"),
-                         f"{m.name}: keep a's admin", 60)
-            wait_for(lambda: not conflicts(), "no conflict after pairing", 60)
+            wait_for(conflicts, "the admin conflict from pairing", 60)
+            # Resolving one side can close the other (the result is adopted
+            # there), and a node may be busy applying: each round, read the
+            # open conflicts again and resolve one.
+            def resolve_one():
+                open_ = conflicts()
+                for m, c in open_:
+                    assert (c["kind"], c["key"]) == ("user", "admin"), c
+                    api(m, "POST", f"/api/config/conflicts/{c['id']}/resolve", {"choice": "local" if m is a else "remote"})
+                    break
+                return not open_
+            wait_for(resolve_one, "no conflict after pairing", 120)
             login(b)
             sa = api(a, "GET", "/api/config/sync/status")["status"]
             peer_b, node_a = sa["peers"][0]["id"], sa["node_id"]
