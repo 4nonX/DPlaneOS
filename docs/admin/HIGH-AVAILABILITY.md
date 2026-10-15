@@ -2,7 +2,7 @@
 
 High availability (HA) in DPlaneOS means: if a node fails, another node takes over its pools, shares, exports and apps, and clients reconnect to the same address. It is optional. A single DPlaneOS node is a complete NAS; add HA when unplanned downtime is not acceptable and you have a second node.
 
-Everything below is set up in the web interface (System › Configuration Sync and System › High Availability). There is nothing to edit on the command line and no extra software to install on the nodes.
+Everything below is set up in the web interface (System › Configuration Sync and System › High Availability). There is nothing to edit on the command line and no extra software to install on the nodes. **High Availability › Guided setup** walks through section 3 step by step and shows which steps are already done; **System › Cluster Map** shows the result.
 
 **If something goes wrong:** [HA-FAILURE-MODES.md](HA-FAILURE-MODES.md) walks through each failure scenario: what you see, what happens on its own, and what to do.
 
@@ -20,7 +20,7 @@ Five building blocks, each with one job:
 | **Storage groups** | What moves between nodes: pools with their shares, exports, apps and a floating address. Exactly one node owns a group at a time. | HA › Storage groups |
 | **Protection layers** | Make sure a failed or cut-off owner stops writing before another node takes over: the watchdog, ZFS multihost, disk reservations, power fencing. | HA › How this setup is protected |
 
-**Why a node that is cut off keeps working.** Configuration is local first: a node that loses its partner keeps its own database, keeps serving what it owns as long as it is in the quorate part of the cluster, and lets you change its configuration. When the nodes see each other again, changes merge per resource; the same resource changed on both sides becomes a conflict you resolve on the Configuration Sync page, never silently.
+**Why a node that is cut off keeps working.** Configuration is local first: a node that loses its partner keeps its own database, keeps serving what it owns as long as it is in the quorate part of the cluster, and lets you change its configuration. When the nodes see each other again, changes merge per resource. The same resource changed on both sides is settled by a rule where one applies (section 6, *Conflicts*), and otherwise becomes a conflict you resolve on the Configuration Sync page; nothing is lost silently.
 
 **Why no shared database.** Earlier versions used a database replicated by Patroni (with etcd, HAProxy and keepalived). That made a node's management depend on reaching the database primary. It has been removed; every node now stands on its own.
 
@@ -83,9 +83,11 @@ HA › Storage groups › *New group*: a name, the topology, the pools (imported
 
 For replicated groups also choose the replication interval and whether the group may fail over automatically (off by default: changes since the last replication would be lost).
 
-### Step 6: check the protection card
+### Step 6: check the protection card and run the safety checks
 
 *How this setup is protected* lists each layer, whether it is active on this hardware, and what a missing one would add. Nothing is refused because a layer is missing. Automatic failover needs a third vote and a fencing method (the watchdog, or power fencing).
+
+**Safety checks** test, from the node you are on, what failover relies on, without changing anything: the third vote (TCP 5403 and whether it votes for this node), the BMC (a power *status* query with the stored credentials) and the PDU (whether it answers; the outlet URL itself is never called in a test, because that cuts the power). Replicated groups have **Test replication**: every copy must answer and share a snapshot with the owner. Disk reservations are tested with the probe under *Watchdog and power fencing*. Run the checks on every node.
 
 ---
 
@@ -101,7 +103,7 @@ For replicated groups also choose the replication interval and whether the group
 
 **Shares and NFS exports** live on the pools and follow them; their configuration is exchanged between the paired nodes anyway.
 
-**Replicated groups.** The owner sends `zfs send` streams to the other candidates over the same encrypted channel as configuration sync (no SSH keys). The other copies are read-only. A copy that was changed behind the cluster's back (for example a former owner that kept working during a split) is never overwritten silently: replication to it stops and its line offers **Discard the changes here** once you have copied off anything you need.
+**Replicated groups.** The owner sends `zfs send` streams to the other candidates over the same encrypted channel as configuration sync (no SSH keys). The other copies are read-only. A copy that was changed behind the cluster's back (for example a former owner that kept working during a split) is never overwritten silently: replication to it stops and its line offers **Discard the changes here**. The changes are not lost: before the copy is rolled back they are sent to the owner and kept there as a separate dataset, `<pool>/dplane-split-<date>-<time>-from-<node>` (only what changed since the last replication travels). Replication carries it to every copy; the group lists it under *Kept copies* on every node, and it can be browsed under the pool's mount point until you delete it on the owner. If it cannot be kept (the owner unreachable, or no longer holding the last common snapshot), nothing is discarded and you are asked whether to discard for good.
 
 ---
 
@@ -125,17 +127,33 @@ Without a third vote, or for replicated groups with automatic failover off, step
 
 **Planned move** (maintenance, updates): on the owner, *Move to …* on the group. Shared: apps and exports stop, the address is released, the pools are exported and imported on the target (about 30 s for the multihost check); if the target cannot import them, they come back. Replicated: the owner's copy becomes read-only, a final replication brings the target up to date, the target becomes the owner.
 
-**Updating nodes one at a time:** move all groups off node A, update and reboot A, move them back (or leave them), then do the same for B. The cluster stays quorate as long as one node and the third vote are up.
+**Updating nodes one at a time:** start maintenance on node A (its groups move away), update and reboot A, end maintenance, move groups back if you want, then do the same for B. The cluster stays quorate as long as one node and the third vote are up.
 
-**Adding a node:** pair it, *Add a vote or node* › *A third DPlaneOS node*, then add it as a candidate to groups. **Removing a node:** move its groups away first, then remove it in the member list.
+**Adding a node:** pair it with one member, *Add a vote or node* › *A third DPlaneOS node* on that member, then add it as a candidate to groups. The member introduces the new node to every other member, so all members are paired with each other: configuration and storage-group changes keep flowing when any one node is down. If an introduction fails (a member unreachable), the dialog says which pair to join yourself in Configuration Sync. **Removing a node:** move its groups away first, then remove it in the member list.
 
-**Configuration changes:** make them on any node; they reach the others within seconds. Conflicts (the same resource changed on two nodes while they were apart) appear on the Configuration Sync page with both versions.
+**Maintenance mode:** System › Cluster Map › *Start maintenance…* on the node you want to work on. Its shared and replicated groups move to other nodes first (planned moves); standalone groups stay. While in maintenance the node is never chosen to take a group over and is refused as the target of a move, so a failure elsewhere does not send storage to a node you are rebooting. If a group has no other node that is online and out of maintenance, nothing changes. *End maintenance* moves nothing back.
+
+**Configuration changes:** make them on any node; they reach the others within seconds.
+
+**Conflicts.** When the same resource was changed on two nodes while they were apart, a rule decides where one applies, from the changes alone, so both nodes reach the same verdict:
+
+| What | The version that wins |
+|---|---|
+| datasets, shares and exports on pools in a storage group | the one written by the group's owner at the time (higher epoch) |
+| users, groups, directory, certificates, shared settings | the one written by the **cluster coordinator**: the DPlaneOS member with the lowest cluster node id in the quorate part (later coordinators win over earlier ones) |
+
+The losing change is not dropped: the node that made it keeps it as a **proposal** (Configuration Sync › *Your changes that lost a conflict*) to apply again or dismiss. Where no rule applies (two nodes that are only paired, or both changes made without a coordinator) the conflict waits on the Configuration Sync page with both versions. The rules can be switched off per kind on that page; then every conflict waits for a decision. Set them the same on all nodes.
+
+**Where a setting comes from:** System › Change History › *Current configuration* lists every resource with its scope (this node, storage group, cluster), the node and change its current version comes from, and whether the paired nodes have it yet. A change made while a node is cut off shows as *Only here* until the others take it.
 
 **Removing HA:** remove the groups (only the definitions; pools and data stay), then *Remove cluster*, then detach the nodes in Configuration Sync if you want them fully independent.
 
 ---
 
 ## 7. Monitoring
+
+**System › Cluster Map** shows the whole setup as the node you are on sees it: every node and vote (in the cluster, reachable, coordinator, maintenance, changes it has not taken yet), and for each storage group its owner, the standbys in takeover order, the epoch, replication lag and whether it is served.
+
 
 `GET /api/metrics` on each node exports, among others:
 

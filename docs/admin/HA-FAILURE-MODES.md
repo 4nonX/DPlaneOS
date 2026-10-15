@@ -58,7 +58,7 @@ What happens in a DPlaneOS cluster when something fails, what you see, what the 
 
 - You see: on the returning node the group shows the new owner and a higher epoch within seconds of reconnecting; the node is standby.
 - On its own: it releases anything it still holds for that group (for shared storage it cannot import the pool anyway: the new owner holds it and multihost refuses); its apps for the group stay stopped.
-- Replicated: if its copy was changed after the last replication (it kept working during a split), replication to it stops and its line offers **Discard the changes here**. Copy off what you need first; discarding rolls the copy back to the owner's data and replication resumes.
+- Replicated: if its copy was changed after the last replication (it kept working during a split), replication to it stops and its line offers **Discard the changes here**, which rolls the copy back to the owner's data so replication resumes. The changes are not lost: before the copy is rolled back they are sent to the owner and kept there as a separate dataset, `<pool>/dplane-split-<date>-<time>-from-<node>` (only what changed since the last replication travels). Replication carries it to every copy; the group lists it under *Kept copies* on every node, and it can be browsed under the pool's mount point until you delete it on the owner. If it cannot be kept (the owner unreachable, or no longer holding the last common snapshot), nothing is discarded and you are asked whether to discard for good.
 
 ## 6. A node restarts by itself every few minutes
 

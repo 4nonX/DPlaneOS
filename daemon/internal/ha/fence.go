@@ -104,6 +104,34 @@ func stonithJitter(maxMs int) time.Duration {
 	return time.Duration(n.Int64()) * time.Millisecond
 }
 
+// TestFencing checks the configured BMC without changing anything: it asks
+// for the chassis power status with the stored credentials. It proves the
+// BMC is reachable from this node and accepts the credentials; it returns
+// the BMC's answer (e.g. "Chassis Power is on").
+func TestFencing(cfg FencingConfig) (string, error) {
+	if cfg.BMCIP == "" || cfg.BMCUser == "" || cfg.BMCPasswordFile == "" {
+		return "", fmt.Errorf("power fencing is not configured: BMC address, user and password are needed")
+	}
+	passBytes, err := os.ReadFile(cfg.BMCPasswordFile)
+	if err != nil {
+		return "", fmt.Errorf("reading the BMC password file: %v", err)
+	}
+	args := []string{"-I", "lanplus", "-H", cfg.BMCIP, "-U", cfg.BMCUser, "-E", "chassis", "power", "status"}
+	if err := security.ValidateCommand("ipmitool_power_status", args); err != nil {
+		return "", fmt.Errorf("security validation rejected the status command: %v", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "ipmitool", args...)
+	cmd.Env = append(os.Environ(), "IPMI_PASSWORD="+strings.TrimSpace(string(passBytes)))
+	out, err := cmd.CombinedOutput()
+	answer := strings.TrimSpace(string(out))
+	if err != nil {
+		return answer, fmt.Errorf("the BMC at %s did not answer: %v %s", cfg.BMCIP, err, answer)
+	}
+	return answer, nil
+}
+
 // ExecuteFencing safely connects to the BMC and forces a chassis power off.
 // Returns an error if the power off is unsuccessful or chassis doesn't go dark within 60s.
 func ExecuteFencing(nodeID string, cfg FencingConfig) error {

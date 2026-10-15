@@ -362,10 +362,18 @@ func (s *Syncer) closeConflict(peerID, kind, key, resolution string) {
 
 // adopt records a peer revision in this node's log under its own uid.
 func adopt(db *sql.DB, r Revision, local *Revision) error {
+	// A change from the repository enters through the owner of its scope and
+	// carries that node's authority (epoch or coordinator term).
+	// Changes from the repository or the fleet manager keep that origin on
+	// every node (the fleet tells its own changes from local ones by it).
+	origin := OriginPeer
+	if r.Origin == OriginGit || r.Origin == OriginOverlay {
+		origin = r.Origin
+	}
 	_, err := insertRevision(db, Revision{
 		UID: r.UID, BaseUID: r.BaseUID, MergeUID: r.MergeUID,
 		Scope: r.Scope, ScopeID: r.ScopeID, Kind: r.Kind, Key: r.Key, Payload: r.Payload,
-		Origin: OriginPeer, OriginNode: r.OriginNode, Author: r.Author, Note: r.Note, Epoch: r.Epoch,
+		Origin: origin, OriginNode: r.OriginNode, Author: r.Author, Note: r.Note, Epoch: r.Epoch,
 	}, local)
 	return err
 }
@@ -417,15 +425,28 @@ func (s *Syncer) evaluate(p Peer) error {
 			continue
 		}
 		r := h.Revision
-		if why := staleWriter(r); why != "" {
-			s.setPeerStatus(r.UID, peerBlocked, why)
-			continue
-		}
 		var local *Revision
 		if l, ok := latest[r.resource().ID()]; ok {
 			local = &l
 		}
-		switch Classify(local, &r, anc) {
+		action := Classify(local, &r, anc)
+		if why := staleWriter(r); why != "" {
+			// Written by a former owner of the storage group: never applied.
+			// If this node changed the same resource as the current owner,
+			// settle it so the former owner can follow (it keeps its change
+			// as a proposal); otherwise the revision stays refused.
+			if action == MergeConflict && Policy(s.db, r.Scope) == PolicyAuto {
+				if w, _ := DefaultWinner(*local, r); w == WinnerLocal {
+					if err := s.settleConflict(p, *local, r); err != nil {
+						return err
+					}
+					continue
+				}
+			}
+			s.setPeerStatus(r.UID, peerBlocked, why)
+			continue
+		}
+		switch action {
 		case MergeNone:
 			s.setPeerStatus(r.UID, peerSuperseded, "")
 			s.closeConflict(p.ID, r.Kind, r.Key, "this node is ahead")
@@ -476,14 +497,9 @@ func (s *Syncer) evaluate(p Peer) error {
 			s.setPeerStatus(r.UID, peerAdopted, "merged: same state on both nodes")
 			s.closeConflict(p.ID, r.Kind, r.Key, "both nodes reached the same state")
 		case MergeConflict:
-			if _, err := s.db.Exec(`INSERT INTO config_conflicts (peer_id, resource_kind, resource_key, local_uid, remote_uid)
-				VALUES ($1, $2, $3, $4::uuid, $5::uuid)
-				ON CONFLICT (peer_id, resource_kind, resource_key) WHERE status = 'open'
-				DO UPDATE SET local_uid = EXCLUDED.local_uid, remote_uid = EXCLUDED.remote_uid`,
-				p.ID, r.Kind, r.Key, local.UID, r.UID); err != nil {
+			if err := s.settleConflict(p, *local, r); err != nil {
 				return err
 			}
-			s.setPeerStatus(r.UID, peerConflict, "changed on both nodes")
 		}
 	}
 	// Older revisions of the same resources are history of the peer.
@@ -494,6 +510,52 @@ func (s *Syncer) evaluate(p Peer) error {
 	if applied {
 		gitops.CommitAllAsync(s.db)
 	}
+	return nil
+}
+
+// settleConflict handles the same resource changed differently on this node
+// (local) and on peer p (r). Under the default rule of its scope, the node
+// whose version wins records the resolution; the other node keeps its
+// change as a proposal and waits for that resolution. Without a rule the
+// conflict waits for the operator.
+func (s *Syncer) settleConflict(p Peer, local, r Revision) error {
+	winner, reason := WinnerNone, ""
+	// The repository has no authority of its own: its conflicts wait for the operator.
+	if p.ID != GitPeerID && Policy(s.db, r.Scope) == PolicyAuto {
+		winner, reason = DefaultWinner(local, r)
+	}
+	if winner == WinnerLocal {
+		if _, err := insertRevision(s.db, Revision{
+			BaseUID: local.UID, MergeUID: r.UID,
+			Scope: local.Scope, ScopeID: local.ScopeID, Kind: local.Kind, Key: local.Key, Payload: local.Payload,
+			Origin: OriginMerge, Note: "conflict with " + p.Name + ": " + reason + " (this node's)",
+		}, &local); err != nil {
+			return err
+		}
+		s.setPeerStatus(r.UID, peerSuperseded, reason)
+		s.closeConflict(p.ID, r.Kind, r.Key, reason)
+		return nil
+	}
+	autoWinner := ""
+	if winner == WinnerRemote {
+		if err := keepAsProposal(s.db, p.ID, local, r.UID, reason); err != nil {
+			return err
+		}
+		autoWinner = p.ID
+	}
+	if _, err := s.db.Exec(`INSERT INTO config_conflicts (peer_id, resource_kind, resource_key, local_uid, remote_uid, auto_winner, auto_reason)
+		VALUES ($1, $2, $3, $4::uuid, $5::uuid, $6, $7)
+		ON CONFLICT (peer_id, resource_kind, resource_key) WHERE status = 'open'
+		DO UPDATE SET local_uid = EXCLUDED.local_uid, remote_uid = EXCLUDED.remote_uid,
+			auto_winner = EXCLUDED.auto_winner, auto_reason = EXCLUDED.auto_reason`,
+		p.ID, r.Kind, r.Key, local.UID, r.UID, autoWinner, reason); err != nil {
+		return err
+	}
+	detail := "changed on both nodes"
+	if autoWinner != "" {
+		detail += "; " + reason + ": " + p.Name + " resolves it"
+	}
+	s.setPeerStatus(r.UID, peerConflict, detail)
 	return nil
 }
 
@@ -666,6 +728,12 @@ func AcceptJoin(db *sql.DB, token string, req JoinRequest) (*JoinResponse, error
 // Join pairs this node with the node at url, which issued token. selfURL is
 // how the other node reaches this one.
 func (s *Syncer) Join(url, token, selfURL string) (*Peer, error) {
+	return s.join(url, token, selfURL, "")
+}
+
+// join pairs with the node at url; pin, when known, is the certificate
+// fingerprint the node must present (an introduction by a common peer).
+func (s *Syncer) join(url, token, selfURL, pin string) (*Peer, error) {
 	self, err := NodeID(s.db)
 	if err != nil {
 		return nil, err
@@ -675,7 +743,7 @@ func (s *Syncer) Join(url, token, selfURL string) (*Peer, error) {
 	if url == "" || selfURL == "" {
 		return nil, errors.New("both addresses are required")
 	}
-	call := &peerCall{baseURL: url, headers: map[string]string{hdrJoinToken: token}}
+	call := &peerCall{baseURL: url, pin: pin, headers: map[string]string{hdrJoinToken: token}}
 	var resp JoinResponse
 	if err := call.do("POST", "/api/config/sync/peer/join", JoinRequest{NodeID: self, Name: nodeName(), URL: selfURL}, &resp); err != nil {
 		return nil, err
@@ -967,6 +1035,10 @@ type ConflictView struct {
 	Remote    *Revision     `json:"remote"`
 	Changes   []FieldChange `json:"changes"` // this node → other node
 	CreatedAt time.Time     `json:"created_at"`
+	// AutoWinner is the peer whose version wins under the default rules and
+	// which records the resolution ("" = the operator decides).
+	AutoWinner string `json:"auto_winner,omitempty"`
+	AutoReason string `json:"auto_reason,omitempty"`
 }
 
 // PendingView is a received change that could not be applied yet.
@@ -997,21 +1069,12 @@ func peerRevisionByUID(db *sql.DB, uid string) (*peerRevision, error) {
 
 // Conflicts lists open conflicts and received changes that wait or were blocked.
 func Conflicts(db *sql.DB) ([]ConflictView, []PendingView, error) {
-	names := map[string]string{}
-	if rows, err := db.Query(`SELECT id, name FROM config_peers`); err == nil {
-		for rows.Next() {
-			var id, n string
-			if rows.Scan(&id, &n) == nil {
-				names[id] = n
-			}
-		}
-		rows.Close()
-	}
+	names := peerNames(db)
 	latest, err := Latest(db)
 	if err != nil {
 		return nil, nil, err
 	}
-	rows, err := db.Query(`SELECT id, peer_id, resource_kind, resource_key, remote_uid::text, created_at
+	rows, err := db.Query(`SELECT id, peer_id, resource_kind, resource_key, remote_uid::text, created_at, auto_winner, auto_reason
 		FROM config_conflicts WHERE status = 'open' ORDER BY created_at`)
 	if err != nil {
 		return nil, nil, err
@@ -1020,11 +1083,12 @@ func Conflicts(db *sql.DB) ([]ConflictView, []PendingView, error) {
 		id                    int64
 		peer, kind, key, ruid string
 		created               time.Time
+		autoWinner, autoWhy   string
 	}
 	var open []row
 	for rows.Next() {
 		var r row
-		if err := rows.Scan(&r.id, &r.peer, &r.kind, &r.key, &r.ruid, &r.created); err != nil {
+		if err := rows.Scan(&r.id, &r.peer, &r.kind, &r.key, &r.ruid, &r.created, &r.autoWinner, &r.autoWhy); err != nil {
 			rows.Close()
 			return nil, nil, err
 		}
@@ -1033,7 +1097,8 @@ func Conflicts(db *sql.DB) ([]ConflictView, []PendingView, error) {
 	rows.Close()
 	conflicts := []ConflictView{}
 	for _, c := range open {
-		v := ConflictView{ID: c.id, PeerID: c.peer, PeerName: names[c.peer], Kind: c.kind, Key: c.key, CreatedAt: c.created}
+		v := ConflictView{ID: c.id, PeerID: c.peer, PeerName: names[c.peer], Kind: c.kind, Key: c.key, CreatedAt: c.created,
+			AutoWinner: c.autoWinner, AutoReason: c.autoWhy}
 		if l, ok := latest[c.kind+"/"+c.key]; ok {
 			v.Local = &l
 		}
@@ -1175,6 +1240,13 @@ func (s *Syncer) Resolve(id int64, choice string, edited map[string]any, author 
 		return err
 	}
 	s.setPeerStatus(remote.UID, peerAdopted, "conflict resolved: "+choice)
+	if choice != ResolveRemote {
+		// This node's change was kept (or merged by hand): a proposal made
+		// from it while waiting for the other node has nothing left to offer.
+		if err := dropProposal(s.db, l.UID, author); err != nil {
+			return err
+		}
+	}
 	if choice != ResolveLocal {
 		gitops.CommitAllAsync(s.db)
 	}

@@ -38,13 +38,19 @@ type Revision struct {
 	UID          string         `json:"uid"`                 // global identity, same on every node
 	BaseUID      string         `json:"base_uid,omitempty"`  // revision this change was made against
 	MergeUID     string         `json:"merge_uid,omitempty"` // second parent of a merge
-	Epoch        int64          `json:"epoch,omitempty"`     // group epoch of the writer (group scope)
-	Origin       string         `json:"origin"`
-	OriginNode   string         `json:"origin_node"`
-	Author       string         `json:"author"`
-	Note         string         `json:"note"`
-	CreatedAt    time.Time      `json:"created_at"`
+	// Epoch is the writer's authority: the group epoch (group scope), or the
+	// coordinator term if the writer was the cluster coordinator (cluster
+	// scope, 0 otherwise). The default conflict rules compare it.
+	Epoch      int64     `json:"epoch,omitempty"`
+	Origin     string    `json:"origin"`
+	OriginNode string    `json:"origin_node"`
+	Author     string    `json:"author"`
+	Note       string    `json:"note"`
+	CreatedAt  time.Time `json:"created_at"`
 }
+
+// Resource returns the resource state the revision records.
+func (r Revision) Resource() Resource { return r.resource() }
 
 func (r Revision) resource() Resource {
 	return Resource{Kind: r.Kind, Key: r.Key, Scope: r.Scope, ScopeID: r.ScopeID, Payload: r.Payload}
@@ -240,7 +246,9 @@ func insertRevision(db *sql.DB, r Revision, local *Revision) (*Revision, error) 
 	if r.OriginNode == "" {
 		r.OriginNode = nodeName()
 	}
-	if r.Epoch == 0 {
+	// A revision adopted from a peer keeps the writer's authority; stamping it
+	// with this node's would claim an authority the writer did not have.
+	if r.Epoch == 0 && r.Origin != OriginPeer {
 		r.Epoch = epochFor(r.Scope, r.ScopeID)
 	}
 	err := db.QueryRow(`INSERT INTO config_revisions
@@ -267,11 +275,19 @@ func insertRevision(db *sql.DB, r Revision, local *Revision) (*Revision, error) 
 // former owner) are refused.
 var EpochForPool = func(pool string) int64 { return 0 }
 
+// CoordinatorTerm returns the coordinator term while this node is the
+// cluster-scope coordinator, else 0. Set by the daemon (internal/quorum);
+// cluster-scope revisions are stamped with it.
+var CoordinatorTerm = func() int64 { return 0 }
+
 func epochFor(scope, scopeID string) int64 {
-	if scope != ScopeGroup || scopeID == "" {
-		return 0
+	switch {
+	case scope == ScopeGroup && scopeID != "":
+		return EpochForPool(scopeID)
+	case scope == ScopeCluster:
+		return CoordinatorTerm()
 	}
-	return EpochForPool(scopeID)
+	return 0
 }
 
 // staleWriter reports why a received group-scope revision must be refused.

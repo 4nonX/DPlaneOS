@@ -374,6 +374,13 @@ func validRecordsize(s string) bool {
 // bcryptHashRe matches a bcrypt hash: $2a$, $2b$ or $2y$, cost, 53 characters.
 var bcryptHashRe = regexp.MustCompile(`^\$2[aby]\$\d{2}\$[./A-Za-z0-9]{53}$`)
 
+// SecretRefPrefix starts a secret reference in state.yaml: the value stays on
+// the node that holds it (Design 0001 section 5.9).
+const SecretRefPrefix = "secret://"
+
+// IsSecretRef reports whether v is a secret reference.
+func IsSecretRef(v string) bool { return strings.HasPrefix(v, SecretRefPrefix) }
+
 func ValidState(s *DesiredState) []string {
 	var errs []string
 
@@ -554,13 +561,15 @@ func ValidState(s *DesiredState) []string {
 	// declared as a bcrypt hash (like NixOS hashedPassword); anything else in
 	// password_hash is most likely a plain-text password. The LDAP bind password
 	// is set in the GUI, where it is stored encrypted.
+	// A secret reference ("secret://user/alice/password") means: keep the
+	// secret this node holds; the repository never carries the secret itself.
 	for i, u := range s.Users {
-		if u.PasswordHash != "" && !bcryptHashRe.MatchString(u.PasswordHash) {
+		if u.PasswordHash != "" && !bcryptHashRe.MatchString(u.PasswordHash) && !IsSecretRef(u.PasswordHash) {
 			errs = append(errs, fmt.Sprintf("users[%d] %q: password_hash must be a bcrypt hash ($2a$/$2b$/$2y$); "+
 				"never put a plain-text password in state.yaml", i, u.Username))
 		}
 	}
-	if s.LDAP != nil && s.LDAP.BindPassword != "" {
+	if s.LDAP != nil && s.LDAP.BindPassword != "" && !IsSecretRef(s.LDAP.BindPassword) {
 		errs = append(errs, "ldap.bind_password: secrets are not accepted in state.yaml; "+
 			"set the bind password in Directory settings (it is stored encrypted on the node)")
 	}
@@ -663,6 +672,9 @@ func PrintStateYAML(s *DesiredState) string {
 					fmt.Fprintf(&b, "      %s: %s\n", k, p.Options[k])
 				}
 			}
+			if p.ForceReshape {
+				b.WriteString("    force_reshape: true\n")
+			}
 		}
 	}
 
@@ -721,6 +733,23 @@ func PrintStateYAML(s *DesiredState) string {
 			}
 			if sh.GuestOK {
 				b.WriteString("    guest_ok: true\n")
+			}
+			// Per-share options: written only when managed (absent = unmanaged).
+			for _, o := range []struct {
+				key string
+				v   *bool
+			}{{"time_machine", sh.TimeMachine}, {"shadow_copy", sh.ShadowCopy}, {"recycle_bin", sh.RecycleBin}} {
+				if o.v != nil {
+					fmt.Fprintf(&b, "    %s: %v\n", o.key, *o.v)
+				}
+			}
+			for _, o := range []struct {
+				key string
+				v   *string
+			}{{"time_machine_quota", sh.TimeMachineQuota}, {"hosts_allow", sh.HostsAllow}, {"hosts_deny", sh.HostsDeny}} {
+				if o.v != nil {
+					fmt.Fprintf(&b, "    %s: %q\n", o.key, *o.v)
+				}
 			}
 		}
 	}
@@ -861,10 +890,98 @@ func PrintStateYAML(s *DesiredState) string {
 				fmt.Fprintf(&b, "      %s\n", line)
 			}
 		}
+		if ssh := s.System.SSH; ssh.Port != 0 || ssh.PasswordAuth != nil || ssh.PermitRootLogin != "" {
+			b.WriteString("  ssh:\n")
+			if ssh.Port != 0 {
+				fmt.Fprintf(&b, "    port: %d\n", ssh.Port)
+			}
+			if ssh.PasswordAuth != nil {
+				fmt.Fprintf(&b, "    password_auth: %v\n", *ssh.PasswordAuth)
+			}
+			if ssh.PermitRootLogin != "" {
+				fmt.Fprintf(&b, "    permit_root_login: %s\n", ssh.PermitRootLogin)
+			}
+		}
 	}
 
-	if s.ACME != nil && s.ACME.Enabled {
+	if len(s.Users) > 0 {
+		b.WriteString("\nusers:\n")
+		users := append([]DesiredUser(nil), s.Users...)
+		sort.Slice(users, func(i, j int) bool { return users[i].Username < users[j].Username })
+		for _, u := range users {
+			fmt.Fprintf(&b, "  - username: %q\n", u.Username)
+			if u.PasswordHash != "" {
+				fmt.Fprintf(&b, "    password_hash: %q\n", u.PasswordHash)
+			}
+			fmt.Fprintf(&b, "    email: %q\n", u.Email)
+			fmt.Fprintf(&b, "    role: %q\n", u.Role)
+			fmt.Fprintf(&b, "    active: %v\n", u.Active)
+		}
+	}
+
+	if len(s.Groups) > 0 {
+		b.WriteString("\ngroups:\n")
+		groups := append([]DesiredGroup(nil), s.Groups...)
+		sort.Slice(groups, func(i, j int) bool { return groups[i].Name < groups[j].Name })
+		for _, g := range groups {
+			fmt.Fprintf(&b, "  - name: %q\n", g.Name)
+			fmt.Fprintf(&b, "    description: %q\n", g.Description)
+			fmt.Fprintf(&b, "    gid: %d\n", g.GID)
+			if len(g.Members) > 0 {
+				b.WriteString("    members:\n")
+				for _, m := range g.Members {
+					fmt.Fprintf(&b, "      - %q\n", m)
+				}
+			}
+		}
+	}
+
+	if len(s.Replication) > 0 {
+		b.WriteString("\nreplication:\n")
+		repls := append([]DesiredReplication(nil), s.Replication...)
+		sort.Slice(repls, func(i, j int) bool { return repls[i].Name < repls[j].Name })
+		for _, r := range repls {
+			fmt.Fprintf(&b, "  - name: %q\n", r.Name)
+			fmt.Fprintf(&b, "    source_dataset: %q\n", r.SourceDataset)
+			fmt.Fprintf(&b, "    remote: %q\n", r.Remote)
+			fmt.Fprintf(&b, "    remote_pool: %q\n", r.RemotePool)
+			fmt.Fprintf(&b, "    interval: %q\n", r.Interval)
+			fmt.Fprintf(&b, "    trigger_on_snapshot: %v\n", r.TriggerOnSnapshot)
+			fmt.Fprintf(&b, "    incremental: %v\n", r.Incremental)
+			fmt.Fprintf(&b, "    compress: %v\n", r.Compress)
+			fmt.Fprintf(&b, "    rate_limit_mb: %d\n", r.RateLimitMB)
+			fmt.Fprintf(&b, "    enabled: %v\n", r.Enabled)
+		}
+	}
+
+	if s.LDAP != nil {
+		l := s.LDAP
+		b.WriteString("\nldap:\n")
+		fmt.Fprintf(&b, "  enabled: %v\n", l.Enabled)
+		fmt.Fprintf(&b, "  server: %q\n", l.Server)
+		fmt.Fprintf(&b, "  port: %d\n", l.Port)
+		fmt.Fprintf(&b, "  use_tls: %v\n", l.UseTLS)
+		fmt.Fprintf(&b, "  bind_dn: %q\n", l.BindDN)
+		if l.BindPassword != "" {
+			fmt.Fprintf(&b, "  bind_password: %q\n", l.BindPassword)
+		}
+		fmt.Fprintf(&b, "  base_dn: %q\n", l.BaseDN)
+		fmt.Fprintf(&b, "  user_filter: %q\n", l.UserFilter)
+		fmt.Fprintf(&b, "  user_id_attr: %q\n", l.UserIDAttr)
+		fmt.Fprintf(&b, "  user_name_attr: %q\n", l.UserNameAttr)
+		fmt.Fprintf(&b, "  user_email_attr: %q\n", l.UserEmailAttr)
+		fmt.Fprintf(&b, "  group_base_dn: %q\n", l.GroupBaseDN)
+		fmt.Fprintf(&b, "  group_filter: %q\n", l.GroupFilter)
+		fmt.Fprintf(&b, "  group_member_attr: %q\n", l.GroupMemberAttr)
+		fmt.Fprintf(&b, "  jit_provisioning: %v\n", l.JITProvisioning)
+		fmt.Fprintf(&b, "  default_role: %q\n", l.DefaultRole)
+		fmt.Fprintf(&b, "  sync_interval: %d\n", l.SyncInterval)
+		fmt.Fprintf(&b, "  timeout: %d\n", l.Timeout)
+	}
+
+	if s.ACME != nil {
 		b.WriteString("\nacme:\n")
+		fmt.Fprintf(&b, "  enabled: %v\n", s.ACME.Enabled)
 		fmt.Fprintf(&b, "  email: %s\n", s.ACME.Email)
 		fmt.Fprintf(&b, "  server: %s\n", s.ACME.Server)
 		fmt.Fprintf(&b, "  resolver: %s\n", s.ACME.Resolver)
@@ -885,7 +1002,6 @@ func PrintStateYAML(s *DesiredState) string {
 				fmt.Fprintf(&b, "    %s: %s\n", k, s.ACME.DNSConfig[k])
 			}
 		}
-		b.WriteString("  enabled: true\n")
 	}
 
 	if len(s.Certificates) > 0 {
@@ -945,7 +1061,7 @@ func PrintStateYAML(s *DesiredState) string {
 			if len(ex.HostNQNs) > 0 {
 				b.WriteString("      host_nqns:\n")
 				for _, h := range ex.HostNQNs {
-					fmt.Fprintf(&b, "        - %s\n", h)
+					fmt.Fprintf(&b, "        - %q\n", h) // NQNs contain ":"
 				}
 			}
 		}
@@ -966,6 +1082,9 @@ type parsedLine struct {
 	content string // trimmed content, comments stripped
 	raw     string
 	lineNum int
+	// gap holds the blank and comment-only lines just before this line (raw):
+	// structure ignores them, but inside a block scalar they are content.
+	gap []string
 }
 
 type yamlNode = any // string | map[string]yamlNode | []yamlNode
@@ -974,13 +1093,15 @@ func splitLines(s string) []parsedLine {
 	var result []parsedLine
 	scanner := bufio.NewScanner(strings.NewReader(s))
 	lineNum := 0
+	var gap []string
 	for scanner.Scan() {
 		lineNum++
 		raw := scanner.Text()
 		// Strip comment - but only outside quoted strings (simplified: strip # at word boundary)
 		content := stripComment(raw)
 		if strings.TrimSpace(content) == "" {
-			continue // blank or comment-only lines
+			gap = append(gap, raw) // blank or comment-only line
+			continue
 		}
 		indent := countIndent(raw)
 		result = append(result, parsedLine{
@@ -988,7 +1109,9 @@ func splitLines(s string) []parsedLine {
 			content: strings.TrimSpace(content),
 			raw:     raw,
 			lineNum: lineNum,
+			gap:     gap,
 		})
+		gap = nil
 	}
 	return result
 }
@@ -1075,8 +1198,11 @@ func (p *yamlParser) parseMapping(minIndent, depth int) (map[string]yamlNode, er
 				val = ""
 			}
 		} else if rest == "|" || rest == ">" {
-			// Block scalar literal
-			val = p.parseBlockScalar(line.indent + 1)
+			// Block scalar: its indentation is that of its first line.
+			val = ""
+			if p.pos < len(p.lines) && p.lines[p.pos].indent > line.indent {
+				val = p.parseBlockScalar(p.lines[p.pos].indent, rest == ">")
+			}
 		} else if strings.HasPrefix(rest, "[") {
 			// Inline sequence: [a, b, c]
 			val, err = parseInlineSequence(rest)
@@ -1091,6 +1217,22 @@ func (p *yamlParser) parseMapping(minIndent, depth int) (map[string]yamlNode, er
 		result[key] = val
 	}
 	return result, nil
+}
+
+// mapItemColon returns the colon that makes a sequence item a mapping
+// ("name: tank", "data:"), or -1 for a scalar. As in YAML, the colon must be
+// followed by a space or end the item, and a quoted item is always a scalar:
+// "- nqn.2014-08.org.example:host1" and `- "a: b"` are strings.
+func mapItemColon(item string) int {
+	if strings.HasPrefix(item, `"`) || strings.HasPrefix(item, "'") {
+		return -1
+	}
+	for i := 0; i < len(item); i++ {
+		if item[i] == ':' && (i == len(item)-1 || item[i+1] == ' ') {
+			return i
+		}
+	}
+	return -1
 }
 
 // parseSequence parses a block sequence (lines starting with "- ").
@@ -1125,11 +1267,10 @@ func (p *yamlParser) parseSequence(minIndent, depth int) ([]yamlNode, error) {
 			} else {
 				result = append(result, "")
 			}
-		} else if strings.Contains(itemContent, ":") {
+		} else if colonIdx := mapItemColon(itemContent); colonIdx >= 0 {
 			// Inline key: value as first field of mapping item
 			// e.g. "- name: tank"
 			// Build a sub-mapping starting with this key:value
-			colonIdx := strings.Index(itemContent, ":")
 			key := strings.TrimSpace(itemContent[:colonIdx])
 			val := strings.TrimSpace(itemContent[colonIdx+1:])
 
@@ -1155,22 +1296,44 @@ func (p *yamlParser) parseSequence(minIndent, depth int) ([]yamlNode, error) {
 }
 
 // parseBlockScalar reads all lines at a deeper indent level and preserves them literally.
-func (p *yamlParser) parseBlockScalar(minIndent int) string {
-	var b strings.Builder
-	first := true
+//
+// Lines keep their indentation relative to the block. Blank lines and lines
+// starting with "#" inside the block are content (a compose file keeps its
+// blank lines and comments); trailing blank lines are dropped ("clip"). With
+// folded (">"), lines are joined with spaces and blank lines become newlines.
+func (p *yamlParser) parseBlockScalar(blockIndent int, folded bool) string {
+	var lines []string
 	for p.pos < len(p.lines) {
 		line := p.lines[p.pos]
-		if line.indent < minIndent {
+		if line.indent < blockIndent {
 			break
 		}
-		if !first {
-			b.WriteRune('\n')
+		if len(lines) > 0 {
+			for _, g := range line.gap {
+				switch {
+				case strings.TrimSpace(g) == "":
+					lines = append(lines, "")
+				case countIndent(g) >= blockIndent:
+					lines = append(lines, g[blockIndent:])
+				}
+			}
 		}
-		// Preserve indentation relative to the block start
-		// (very basic: just strip the minIndent spaces)
-		b.WriteString(line.raw[minIndent:])
+		lines = append(lines, line.raw[blockIndent:])
 		p.pos++
-		first = false
+	}
+	if !folded {
+		return strings.Join(lines, "\n")
+	}
+	var b strings.Builder
+	for i, l := range lines {
+		switch {
+		case l == "":
+			b.WriteString("\n")
+		case i > 0 && lines[i-1] != "":
+			b.WriteString(" " + l)
+		default:
+			b.WriteString(l)
+		}
 	}
 	return b.String()
 }
@@ -1550,7 +1713,29 @@ func mapToDataset(m map[string]yamlNode) (DesiredDataset, error) {
 	if enc := strField(m, "encrypted"); enc == "true" {
 		d.Encrypted = true
 	}
+	if rm, ok := m["restore"].(map[string]yamlNode); ok {
+		d.Restore = &RestoreConfig{Type: strField(rm, "type"), Source: strField(rm, "source")}
+	}
 	return d, nil
+}
+
+// optBool and optString read optional keys: nil when the key is absent
+// (the option is not managed), so files written before the key existed
+// plan no change.
+func optBool(m map[string]yamlNode, key string) *bool {
+	if _, ok := m[key]; !ok {
+		return nil
+	}
+	v := strField(m, key) == "true"
+	return &v
+}
+
+func optString(m map[string]yamlNode, key string) *string {
+	if _, ok := m[key]; !ok {
+		return nil
+	}
+	v := strField(m, key)
+	return &v
 }
 
 func mapToShare(m map[string]yamlNode) (DesiredShare, error) {
@@ -1566,6 +1751,12 @@ func mapToShare(m map[string]yamlNode) (DesiredShare, error) {
 	if gok := strField(m, "guest_ok"); gok == "true" {
 		sh.GuestOK = true
 	}
+	sh.TimeMachine = optBool(m, "time_machine")
+	sh.TimeMachineQuota = optString(m, "time_machine_quota")
+	sh.ShadowCopy = optBool(m, "shadow_copy")
+	sh.RecycleBin = optBool(m, "recycle_bin")
+	sh.HostsAllow = optString(m, "hosts_allow")
+	sh.HostsDeny = optString(m, "hosts_deny")
 	return sh, nil
 }
 

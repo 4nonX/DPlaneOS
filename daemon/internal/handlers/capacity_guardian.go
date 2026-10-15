@@ -56,7 +56,7 @@ func (h *CapacityGuardianHandler) capacityState(pct float64) string {
 // GetCapacityStatus returns capacity status for all pools with risk assessment
 // GET /api/zfs/capacity
 func (h *CapacityGuardianHandler) GetCapacityStatus(w http.ResponseWriter, r *http.Request) {
-	output, err := executeCommandWithTimeout(TimeoutFast, "zpool", []string{
+	output, err := executeCommandWithTimeout(TimeoutFast, "cap_zpool_list", []string{
 		"list", "-Hp", "-o", "name,size,alloc,free,capacity",
 	})
 	if err != nil {
@@ -88,7 +88,7 @@ func (h *CapacityGuardianHandler) GetCapacityStatus(w http.ResponseWriter, r *ht
 		hasReserve := checkReserveExists(poolName)
 		reserveSize := "none"
 		if hasReserve {
-			if rOut, err := executeCommandWithTimeout(TimeoutFast, "zfs", []string{
+			if rOut, err := executeCommandWithTimeout(TimeoutFast, "cap_zfs_get_reservation", []string{
 				"get", "-Hp", "-o", "value", "reservation", poolName + "/dplane-reserved",
 			}); err == nil {
 				reserveSize = strings.TrimSpace(rOut)
@@ -132,7 +132,7 @@ func (h *CapacityGuardianHandler) SetupReserve(w http.ResponseWriter, r *http.Re
 	}
 
 	// Get pool size
-	output, err := executeCommandWithTimeout(TimeoutFast, "zpool", []string{
+	output, err := executeCommandWithTimeout(TimeoutFast, "cap_zpool_size", []string{
 		"list", "-Hp", "-o", "size", pool,
 	})
 	if err != nil {
@@ -160,7 +160,7 @@ func (h *CapacityGuardianHandler) SetupReserve(w http.ResponseWriter, r *http.Re
 
 	// Create the reserve dataset if it doesn't exist
 	if !checkReserveExists(pool) {
-		_, err := executeCommandWithTimeout(TimeoutMedium, "zfs", []string{
+		_, err := executeCommandWithTimeout(TimeoutMedium, "cap_zfs_create_reserve", []string{
 			"create", reserveDataset,
 		})
 		if err != nil {
@@ -173,7 +173,7 @@ func (h *CapacityGuardianHandler) SetupReserve(w http.ResponseWriter, r *http.Re
 	}
 
 	// Set the reservation
-	_, err = executeCommandWithTimeout(TimeoutMedium, "zfs", []string{
+	_, err = executeCommandWithTimeout(TimeoutMedium, "cap_zfs_set_reservation", []string{
 		"set", fmt.Sprintf("reservation=%s", reserveStr), reserveDataset,
 	})
 	if err != nil {
@@ -213,12 +213,12 @@ func (h *CapacityGuardianHandler) ReleaseReserve(w http.ResponseWriter, r *http.
 	reserveDataset := pool + "/dplane-reserved"
 
 	// Remove reservation first
-	executeCommandWithTimeout(TimeoutMedium, "zfs", []string{
+	executeCommandWithTimeout(TimeoutMedium, "cap_zfs_set_reservation", []string{
 		"set", "reservation=none", reserveDataset,
 	})
 
 	// Destroy the reserve dataset to free its space
-	_, err := executeCommandWithTimeout(TimeoutMedium, "zfs", []string{
+	_, err := executeCommandWithTimeout(TimeoutMedium, "cap_zfs_destroy_reserve", []string{
 		"destroy", reserveDataset,
 	})
 	if err != nil {
@@ -237,7 +237,7 @@ func (h *CapacityGuardianHandler) ReleaseReserve(w http.ResponseWriter, r *http.
 
 // checkReserveExists checks if the reserve dataset exists
 func checkReserveExists(pool string) bool {
-	_, err := executeCommandWithTimeout(TimeoutFast, "zfs", []string{
+	_, err := executeCommandWithTimeout(TimeoutFast, "cap_zfs_list_reserve", []string{
 		"list", "-H", pool + "/dplane-reserved",
 	})
 	return err == nil
@@ -266,7 +266,7 @@ func humanizeBytes(bytes int64) string {
 // RunCapacityCheck is called periodically by the daemon to check all pools
 // Returns pools that need attention
 func RunCapacityCheck(warningPct, criticalPct, emergencyPct float64) []PoolCapacityStatus {
-	output, _ := executeCommandWithTimeout(TimeoutFast, "zpool", []string{
+	output, _ := executeCommandWithTimeout(TimeoutFast, "cap_zpool_list_capacity", []string{
 		"list", "-Hp", "-o", "name,capacity",
 	})
 	if output == "" {
@@ -333,10 +333,10 @@ func StartCapacityMonitor() {
 				case "emergency":
 					// Auto-release reserve so the operator has space to clean up
 					if checkReserveExists(a.Pool) {
-						executeCommandWithTimeout(TimeoutMedium, "zfs", []string{
+						executeCommandWithTimeout(TimeoutMedium, "cap_zfs_set_reservation", []string{
 							"set", "reservation=none", a.Pool + "/dplane-reserved",
 						})
-						executeCommandWithTimeout(TimeoutMedium, "zfs", []string{
+						executeCommandWithTimeout(TimeoutMedium, "cap_zfs_destroy_reserve", []string{
 							"destroy", a.Pool + "/dplane-reserved",
 						})
 					}

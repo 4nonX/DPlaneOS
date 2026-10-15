@@ -1,6 +1,6 @@
 # DPlaneOS GitOps Reference
 
-GitOps is the mechanism that makes DPlaneOS declarative at the runtime level. This document covers how `state.yaml` is structured, how the reconciliation engine applies it, how drift is detected, and how to use the Capture workflow to generate state from a live system.
+GitOps is the mechanism that makes DPlaneOS declarative at the runtime level. This document covers how `state.yaml` is structured and how the reconciliation engine applies it. How the configuration is kept in a Git repository (files per scope, approvals, holds, pull requests) is in [GITOPS-DRIVEN-NAS.md](../admin/GITOPS-DRIVEN-NAS.md).
 
 For the broader architectural picture, read [ARCHITECTURE.md](ARCHITECTURE.md) first.
 
@@ -310,7 +310,7 @@ fabrics:
 
 ## Reconciliation: How Apply Works
 
-Triggering an apply (`POST /api/gitops/apply`) runs the following steps:
+Every apply (a change from the Git repository, approved or automatic; a change from another node; a rollback; `dplaned --apply-only`) runs the following steps:
 
 ### 1. Parse and Validate
 
@@ -373,77 +373,11 @@ After execution, the engine re-reads the live state and verifies it matches the 
 
 ---
 
-## Drift Detection
+## Changes Made Outside the Repository
 
-A background goroutine runs every five minutes and computes the same diff plan without applying it. If any `CREATE`, `MODIFY`, or `DELETE` items are found, a drift event is broadcast to all connected WebSocket clients and the UI displays a drift banner.
+A change made in the web interface, through the API or on the command line is recorded in the configuration history (right after a web UI change, and every 5 minutes for everything else) and written to the repository by the node that owns its scope. There is no separate drift state: what differs between a node and the repository is shown per scope on the Git page as *not yet in the repository*, *changed in the repository* or a conflict. With self-heal on, changes made outside the web interface are replaced by the repository's version instead.
 
-Operators can also trigger an immediate drift check:
-```
-POST /api/gitops/check
-```
-
-**When drift is expected:** If you make a change via the UI or API (e.g., add an NFS export) but have not updated `state.yaml`, the drift detector will report drift on the next cycle. This is normal. Either update `state.yaml` manually, or use the Capture workflow (below) to generate the updated YAML.
-
-**Drift in a cluster:** each node runs the drift detector against its own live state. Resources of a storage group are only applied on the node that owns the group; on other nodes they wait until that node imports the group's pools.
-
----
-
-## Capture: Live State to YAML
-
-The Capture workflow reads the live system state and generates the corresponding `state.yaml` sections. Use it when you have made UI-driven changes and want to commit them to Git.
-
-```
-POST /api/gitops/capture
-{"categories": ["pools", "datasets", "shares", "nfs", "stacks", "users", "groups"]}
-```
-
-**What Capture does and does not export:**
-
-| Resource | Exported | Notes |
-|----------|----------|-------|
-| ZFS pools | Yes | Topology, ashift, properties |
-| ZFS datasets | Yes | All properties |
-| SMB shares | Yes | Path, permissions, comment |
-| NFS exports | Yes | Path, clients, options |
-| Docker stacks | Yes | Full compose YAML |
-| Users | Yes | Username, email, role, active - NOT passwords |
-| Groups | Yes | Name, GID, members |
-| Passwords | Never | Capture never exports password hashes |
-
-The captured YAML is returned in the API response for review. It is never automatically committed - the operator reviews, edits if needed, and commits manually.
-
-**Workflow:**
-1. Make changes via the UI or API
-2. `POST /api/gitops/capture` with the relevant categories
-3. Review the output
-4. Commit the updated `state.yaml` to Git
-5. Run `POST /api/gitops/apply` or let the drift detector confirm convergence
-
----
-
-## Git Repository Setup
-
-The GitOps engine expects a Git repository with `state.yaml` at the repository root.
-
-Configure the repository in Settings: GitOps, or via `state.yaml` itself under `system:`:
-
-```
-POST /api/gitops/config
-{
-  "repo_url": "git@github.com:yourorg/nas-state.git",
-  "branch": "main",
-  "ssh_key_path": "/var/lib/dplaneos/gitops/deploy_key"
-}
-```
-
-For private repositories, generate a deploy key and add it to the repository:
-```bash
-ssh-keygen -t ed25519 -f /var/lib/dplaneos/gitops/deploy_key -N ""
-cat /var/lib/dplaneos/gitops/deploy_key.pub
-# Add this public key as a deploy key on GitHub/GitLab with read access
-```
-
-The daemon clones and fetches the repository to `/var/lib/dplaneos/gitops/repo/`. This path is on `/persist` and survives reboots.
+`GET /api/config/export` returns the current configuration as one `state.yaml` at any time, with or without Git.
 
 ---
 
@@ -451,15 +385,17 @@ The daemon clones and fetches the repository to `/var/lib/dplaneos/gitops/repo/`
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/api/gitops/status` | Current sync status, last apply result, drift state |
-| `GET` | `/api/gitops/config` | Repository URL, branch, key path |
-| `POST` | `/api/gitops/config` | Update repository configuration |
-| `POST` | `/api/gitops/apply` | Pull latest state.yaml and apply |
-| `POST` | `/api/gitops/check` | Compute drift plan without applying |
-| `GET` | `/api/gitops/plan` | Last computed plan (items, kinds, descriptions) |
-| `POST` | `/api/gitops/approve` | Approve a BLOCKED item |
-| `POST` | `/api/gitops/capture` | Generate state.yaml from live system |
-| `GET` | `/api/gitops/history` | Apply history log |
+| `GET` | `/api/gitops/status` | Last check: newest commit, remotes, per scope what is in step, waiting, conflicting, held; open holds |
+| `GET` | `/api/gitops/plan` | What waits, for the scopes this node writes |
+| `POST` | `/api/gitops/sync` | Check now |
+| `GET` / `PUT` | `/api/gitops/settings` | Repository settings (`webhook_secret`: `""` keep, `"generate"`, `"none"`) |
+| `POST` | `/api/gitops/approve` | `{scope, sha}` apply the repository's changes of a scope at that commit |
+| `POST` | `/api/gitops/take` | `{scope}` replace this node's changes with the repository's version |
+| `POST` | `/api/gitops/holds/{scope}/resume` | Clear a hold and try again |
+| `POST` | `/api/gitops/holds/{scope}/revert` | Write back the last good version and clear the hold |
+| `GET` | `/api/gitops/state?scope=` | A scope's file in the newest commit |
+| `PUT` | `/api/gitops/nixos-repo` | `{repo_id}` the tracked repository with the NixOS configuration |
+| `POST` | `/api/gitops/webhook` | Push notification (HMAC signature or GitLab token; no session) |
 
 ---
 
@@ -469,7 +405,7 @@ The daemon clones and fetches the repository to `/var/lib/dplaneos/gitops/repo/`
 |-------|-------|------------|
 | `disk must use /dev/disk/by-id/ path` | `state.yaml` contains an `/dev/sdX` path | Replace with the stable by-id path from the disk discovery UI |
 | `unsupported state.yaml version` | `version` field is not `"1"` or `"6"` | Set `version: "1"` |
-| `plan contains BLOCKED items` | A destructive change needs approval | Review the blocked items in the UI and approve explicitly |
+| `needs manual action` | A destructive change (dataset with data, share with open connections) | Do it by hand after checking, or change the commit |
 | `global lock held` | Another apply is running | Wait for the current apply to complete |
 | `data-not-ready` | A Docker stack requires a ZFS dataset that is not yet mounted | Ensure the dataset is created before the stack, or add it to the desired state |
 | `validation errors` | `state.yaml` schema violation | Read the error message; it identifies the exact field and index |

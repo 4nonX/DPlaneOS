@@ -28,6 +28,9 @@ dist/
 # ── Frontend build output (intermediate dir, outDir is ../app) ────────────────
 app-built/
 app-react/dist/
+# Browser tests (Playwright)
+app-react/test-results/
+app-react/playwright-report/
 
 # ── rclone config (contains credentials) ─────────────────────────────────────
 /etc/dplaneos/rclone.conf
@@ -144,3 +147,6 @@ app-react/compile_errors.txt
 /disk_files.txt
 /repo_files.txt
 __pycache__/
+
+# Daemon binary the CI scripts place in the repository root
+/dplaned-ci

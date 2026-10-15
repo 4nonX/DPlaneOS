@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"log"
 	"net/http"
 	"strconv"
 
@@ -48,7 +49,13 @@ func (h *ConfigSyncHandler) Status(w http.ResponseWriter, r *http.Request) {
 		respondErrorSimple(w, "Failed to read sync status: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-	respondOK(w, map[string]any{"success": true, "status": st})
+	// The fleet this node belongs to, for the "fleet manager unreachable" banner.
+	member, err := configstore.FleetMembership(h.db)
+	if err != nil {
+		respondErrorSimple(w, "Failed to read the fleet membership: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	respondOK(w, map[string]any{"success": true, "status": st, "fleet": member})
 }
 
 // SyncNow: POST /api/config/sync/now
@@ -131,7 +138,78 @@ func (h *ConfigSyncHandler) Conflicts(w http.ResponseWriter, r *http.Request) {
 		respondErrorSimple(w, "Failed to read conflicts: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-	respondOK(w, map[string]any{"success": true, "conflicts": conflicts, "pending": pending})
+	proposals, err := configstore.Proposals(h.db)
+	if err != nil {
+		respondErrorSimple(w, "Failed to read proposals: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	respondOK(w, map[string]any{"success": true, "conflicts": conflicts, "pending": pending,
+		"proposals": proposals, "policies": configstore.Policies(h.db)})
+}
+
+// Current: GET /api/config/current - the current revision of every resource,
+// its scope and source, and whether paired nodes have taken it yet.
+func (h *ConfigSyncHandler) Current(w http.ResponseWriter, r *http.Request) {
+	items, err := configstore.Current(h.db)
+	if err != nil {
+		respondErrorSimple(w, "Failed to read the configuration: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	respondOK(w, map[string]any{"success": true, "items": items})
+}
+
+// ApplyProposal: POST /api/config/proposals/{id}/apply - make a change that
+// lost a conflict under the default rules this node's version again.
+func (h *ConfigSyncHandler) ApplyProposal(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(mux.Vars(r)["id"], 10, 64)
+	if err != nil {
+		respondErrorSimple(w, "Invalid proposal id", http.StatusBadRequest)
+		return
+	}
+	res, err := h.s.ApplyProposal(id, r.Header.Get("X-User"))
+	if err != nil {
+		if errors.Is(err, configstore.ErrBusy) || errors.Is(err, gitops.ErrNotWriter) {
+			syncError(w, err)
+			return
+		}
+		respondOK(w, map[string]any{"success": false, "error": err.Error(), "result": res})
+		return
+	}
+	h.s.Trigger(false)
+	respondOK(w, map[string]any{"success": true, "result": res})
+}
+
+// DismissProposal: POST /api/config/proposals/{id}/dismiss
+func (h *ConfigSyncHandler) DismissProposal(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(mux.Vars(r)["id"], 10, 64)
+	if err != nil {
+		respondErrorSimple(w, "Invalid proposal id", http.StatusBadRequest)
+		return
+	}
+	if err := configstore.DismissProposal(h.db, id, r.Header.Get("X-User")); err != nil {
+		respondOK(w, map[string]any{"success": false, "error": err.Error()})
+		return
+	}
+	respondOK(w, map[string]any{"success": true})
+}
+
+// SetPolicy: PUT /api/config/policy {scope, policy} - turn the default
+// conflict rule of a scope on (auto) or off (review).
+func (h *ConfigSyncHandler) SetPolicy(w http.ResponseWriter, r *http.Request) {
+	var b struct {
+		Scope  string `json:"scope"`
+		Policy string `json:"policy"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
+		respondErrorSimple(w, "Invalid request", http.StatusBadRequest)
+		return
+	}
+	if err := configstore.SetPolicy(h.db, b.Scope, b.Policy); err != nil {
+		respondErrorSimple(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	h.s.Trigger(true) // re-evaluate open conflicts under the new rule
+	respondOK(w, map[string]any{"success": true, "policies": configstore.Policies(h.db)})
 }
 
 // Resolve: POST /api/config/conflicts/{id}/resolve {choice, payload}
@@ -235,6 +313,41 @@ func (h *ConfigSyncHandler) PeerNotify(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.s.Trigger(false)
+	respondOK(w, map[string]any{"success": true})
+}
+
+// PeerIntroduceToken: POST /api/config/sync/peer/introduce-token - a peer
+// wants to pair another of its peers with this node (cluster members are all
+// paired): a join code for it.
+func (h *ConfigSyncHandler) PeerIntroduceToken(w http.ResponseWriter, r *http.Request) {
+	if h.peer(w, r) == nil {
+		return
+	}
+	token, _, err := configstore.CreateJoinToken(h.db)
+	if err != nil {
+		respondOK(w, map[string]any{"success": false, "error": err.Error()})
+		return
+	}
+	respondOK(w, map[string]any{"success": true, "token": token})
+}
+
+// PeerIntroduce: POST /api/config/sync/peer/introduce - a peer tells this
+// node to pair with another member of their cluster.
+func (h *ConfigSyncHandler) PeerIntroduce(w http.ResponseWriter, r *http.Request) {
+	p := h.peer(w, r)
+	if p == nil {
+		return
+	}
+	var req configstore.IntroduceRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondErrorSimple(w, "Invalid request", http.StatusBadRequest)
+		return
+	}
+	if err := h.s.AcceptIntroduction(req); err != nil {
+		respondOK(w, map[string]any{"success": false, "error": err.Error()})
+		return
+	}
+	log.Printf("CONFIG SYNC: paired with %s, introduced by %s", req.URL, p.Name)
 	respondOK(w, map[string]any{"success": true})
 }
 

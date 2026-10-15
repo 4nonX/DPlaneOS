@@ -5,7 +5,8 @@
  * them, a topology, the current owner and the epoch (increases with every
  * change of owner; a node with an older epoch must not write).
  *
- * Calls: GET/POST /api/groups, POST /api/groups/{name}/move, DELETE /api/groups/{name}
+ * Calls: GET/POST /api/groups, POST /api/groups/{name}/move, DELETE /api/groups/{name},
+ *        GET /api/ha/hardware/detect, POST /api/cluster/test/replication {group}
  */
 
 import { useState } from 'react'
@@ -30,6 +31,7 @@ interface GroupStatus {
   interval_secs: number
   auto_failover: boolean
   replication: { direction: 'out' | 'in'; peer: string; pool: string; last_snapshot: string; last_ok_at: string | null; last_error: string; discard_ok: boolean }[]
+  splits?: { pool: string; name: string; used: number; created: string }[]
   resources?: { stacks: { name: string }[]; nvme: { subsystem_nqn: string; zvol: string }[] }
   address?: string
   interface?: string
@@ -42,7 +44,7 @@ function ago(iso: string | null) {
   if (s < 5400) return `${Math.round(s / 60)} min ago`
   return `${Math.round(s / 3600)} h ago`
 }
-interface GroupsResponse {
+export interface GroupsResponse {
   success: boolean
   groups: GroupStatus[]
   self: string
@@ -59,13 +61,25 @@ const TOPOLOGY: Record<string, { label: string; text: string }> = {
   replicated: { label: 'Replicated', text: 'Each candidate has its own disks, kept in sync by ZFS replication. Works with any drives; on failover you lose up to one replication interval.' },
 }
 
-function CreateGroup({ data }: { data: GroupsResponse }) {
+interface HWDetect { provisional_path: 'shared_storage' | 'replicated'; provisional_reason: string; probe_required: boolean; watchdog_available: boolean }
+
+/** What happens when a node fails, per topology, given the cluster's votes. */
+const ON_FAILURE: Record<string, string> = {
+  standalone: 'If this node fails, the data waits on its disks until the node is back.',
+  shared: 'If the owner fails, another candidate imports the same disks: with a third vote automatically after the watchdog delay, otherwise when you click Take over. Nothing written before the failure is lost.',
+  replicated: 'If the owner fails, another candidate makes its copy writable: automatically only if you allow it below and there is a third vote, otherwise when you click Take over. Changes since the last replication are lost.',
+}
+
+export function CreateGroup({ data, onCreated }: { data: GroupsResponse; onCreated?: () => void }) {
   const qc = useQueryClient()
   const [name, setName] = useState('')
   const [topology, setTopology] = useState<'standalone' | 'shared' | 'replicated'>(data.members.length > 1 ? 'shared' : 'standalone')
   const [pools, setPools] = useState<string[]>([])
   const others = data.members.filter(m => m.key !== data.self)
-  const [cands, setCands] = useState<string[]>(others.map(m => m.key))
+  // Store the nodes left out, not the ones chosen: members that appear after
+  // the form opened (e.g. the cluster was just formed) are candidates too.
+  const [excluded, setExcluded] = useState<string[]>([])
+  const cands = others.map(m => m.key).filter(k => !excluded.includes(k))
   const [intervalMin, setIntervalMin] = useState(5)
   const [autoFailover, setAutoFailover] = useState(false)
   const [address, setAddress] = useState('')
@@ -77,10 +91,20 @@ function CreateGroup({ data }: { data: GroupsResponse }) {
       interval_secs: intervalMin * 60, auto_failover: autoFailover,
       address: topology === 'standalone' ? '' : address.trim(), interface: address.trim() ? iface : '',
     })),
-    onSuccess: () => { toast.success(`Group ${name} created`); setName(''); setPools([]); qc.invalidateQueries({ queryKey: ['groups'] }) },
+    onSuccess: () => {
+      toast.success(`Group ${name} created`); setName(''); setPools([])
+      qc.invalidateQueries({ queryKey: ['groups'] }); qc.invalidateQueries({ queryKey: ['cluster'] })
+      onCreated?.()
+    },
     onError: (e: Error) => toast.error(e.message),
   })
   const toggle = (list: string[], set: (v: string[]) => void, v: string) => set(list.includes(v) ? list.filter(x => x !== v) : [...list, v])
+  const hw = useQuery({
+    queryKey: ['ha', 'hardware'],
+    queryFn: ({ signal }) => api.get<HWDetect & { success: boolean }>('/api/ha/hardware/detect', signal),
+    enabled: data.members.length > 1,
+    staleTime: 60_000,
+  })
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 12, maxWidth: 560 }}>
@@ -89,7 +113,13 @@ function CreateGroup({ data }: { data: GroupsResponse }) {
       <select className="input" value={topology} onChange={e => setTopology(e.target.value as typeof topology)} aria-label="Topology">
         {Object.entries(TOPOLOGY).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
       </select>
-      <p style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', margin: 0 }}>{TOPOLOGY[topology].text}</p>
+      <p style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', margin: 0 }}>{TOPOLOGY[topology].text} {ON_FAILURE[topology]}</p>
+      {hw.data && topology !== 'standalone' && (
+        <p style={{ fontSize: 'var(--text-xs)', margin: 0, color: (hw.data.provisional_path === 'shared_storage') === (topology === 'shared') ? 'var(--text-secondary)' : 'var(--warning)' }}>
+          <Icon name="memory" size={12} /> This node's disks: {hw.data.provisional_reason}
+          {hw.data.provisional_path === 'replicated' && topology === 'shared' && ' Shared storage needs disks that every candidate sees.'}
+        </p>
+      )}
       <div style={{ fontSize: 'var(--text-sm)' }}>
         Pools (imported on this node):{' '}
         {free.length === 0 ? <em>none available</em> : free.map(p => (
@@ -103,7 +133,7 @@ function CreateGroup({ data }: { data: GroupsResponse }) {
           Other nodes that may own it:{' '}
           {others.length === 0 ? <em>form a cluster first (above)</em> : others.map(m => (
             <label key={m.key} style={{ marginRight: 12 }}>
-              <input type="checkbox" checked={cands.includes(m.key)} onChange={() => toggle(cands, setCands, m.key)} /> {m.name}
+              <input type="checkbox" checked={cands.includes(m.key)} onChange={() => toggle(excluded, setExcluded, m.key)} /> {m.name}
             </label>
           ))}
         </div>
@@ -167,6 +197,32 @@ function AddressEditor({ g, interfaces, onDone }: { g: GroupStatus; interfaces: 
   )
 }
 
+interface ReplCheck { target: string; pool: string; ok: boolean; detail: string }
+
+function ReplicationTest({ group, name }: { group: string; name: (k: string) => string }) {
+  const [res, setRes] = useState<{ ok: boolean; detail: string; checks?: ReplCheck[] } | null>(null)
+  const test = useMutation({
+    mutationFn: async () => ensureOk(await api.post<{ success: boolean; error?: string; result: { ok: boolean; detail: string; checks?: ReplCheck[] } }>('/api/cluster/test/replication', { group })),
+    onSuccess: r => setRes(r.result),
+    onError: (e: Error) => toast.error(e.message),
+  })
+  return (
+    <div style={{ marginTop: 6, fontSize: 'var(--text-sm)' }}>
+      <button className="btn btn-ghost btn-sm" disabled={test.isPending} onClick={() => test.mutate()}>
+        <Icon name="network_check" size={14} />{test.isPending ? 'Testing…' : 'Test replication'}
+      </button>
+      {res && (
+        <div style={{ color: res.ok ? 'var(--success)' : 'var(--error)' }}>
+          {res.detail}
+          {(res.checks ?? []).map(c => (
+            <div key={c.target + c.pool} style={{ color: c.ok ? 'var(--text-secondary)' : 'var(--error)' }}>{c.pool} → {name(c.target)}: {c.detail}</div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function GroupsPanel() {
   const qc = useQueryClient()
   const { confirm, ConfirmDialog } = useConfirm()
@@ -191,9 +247,31 @@ export function GroupsPanel() {
     onSuccess: () => { toast.success('Replicated'); qc.invalidateQueries({ queryKey: ['groups'] }) },
     onError: (e: Error) => { toast.error(e.message); qc.invalidateQueries({ queryKey: ['groups'] }) },
   })
+  // Discarding keeps the changes on the owner first (a separate copy); only
+  // when that is impossible may the operator discard them for good.
+  type DiscardRes = Res & { kept?: string[]; can_discard_without_keeping?: boolean }
   const discard = useMutation({
-    mutationFn: async (name: string) => ensureOk(await api.post<Res>(`/api/groups/${encodeURIComponent(name)}/discard-divergent`, {})),
-    onSuccess: () => { toast.success('The next replication replaces the changes here'); qc.invalidateQueries({ queryKey: ['groups'] }) },
+    mutationFn: async (v: { name: string; keep: boolean }) =>
+      await api.post<DiscardRes>(`/api/groups/${encodeURIComponent(v.name)}/discard-divergent`, { keep: v.keep }),
+    onSuccess: async (r, v) => {
+      qc.invalidateQueries({ queryKey: ['groups'] })
+      if (r.success) {
+        toast.success(r.kept?.length ? `Kept on the owner as ${r.kept.join(', ')}; the next replication replaces the changes here` : 'The next replication replaces the changes here')
+        return
+      }
+      if (r.can_discard_without_keeping && await confirm({
+        title: 'The changes cannot be kept',
+        message: `${r.error ?? ''}. Discard them for good? Copy off anything you need first.`,
+        confirmLabel: 'Discard for good', danger: true,
+      })) discard.mutate({ name: v.name, keep: false })
+      else if (!r.can_discard_without_keeping) toast.error(r.error ?? 'Failed')
+    },
+    onError: (e: Error) => toast.error(e.message),
+  })
+  const deleteSplit = useMutation({
+    mutationFn: async (v: { group: string; pool: string; name: string }) =>
+      ensureOk(await api.delete<Res>(`/api/groups/${encodeURIComponent(v.group)}/splits/${encodeURIComponent(v.pool)}/${encodeURIComponent(v.name)}`)),
+    onSuccess: () => { toast.success('Kept copy deleted; replication removes it from the other copies'); qc.invalidateQueries({ queryKey: ['groups'] }) },
     onError: (e: Error) => toast.error(e.message),
   })
   const takeover = useMutation({
@@ -283,14 +361,32 @@ export function GroupsPanel() {
               ))}
             </div>
           )}
+          {g.topology === 'replicated' && g.role === 'owner' && <ReplicationTest group={g.name} name={nm} />}
           {g.role === 'standby' && g.replication.some(r => r.direction === 'in' && r.last_error.includes('changes') && !r.discard_ok) && (
             <button className="btn btn-ghost btn-sm" style={{ color: 'var(--error)', marginTop: 6 }} onClick={async () => {
               if (await confirm({
                 title: `Discard the changes on this node's copy of ${g.name}?`,
-                message: `This copy was changed after the last replication from ${nm(g.owner)} (for example while it was the owner during a network split). The next replication rolls it back to ${nm(g.owner)}'s data. Copy off anything you need first.`,
-                confirmLabel: 'Discard the changes here', danger: true,
-              })) discard.mutate(g.name)
+                message: `This copy was changed after the last replication from ${nm(g.owner)} (for example while it was the owner during a network split). The changes are first kept on ${nm(g.owner)} as a separate copy (listed under the group, on every node, until you delete it); then the next replication rolls this copy back to ${nm(g.owner)}'s data.`,
+                confirmLabel: 'Keep the changes on the owner and discard them here', danger: true,
+              })) discard.mutate({ name: g.name, keep: true })
             }}><Icon name="restore" size={14} />Discard the changes here</button>
+          )}
+          {(g.splits ?? []).length > 0 && (
+            <div style={{ fontSize: 'var(--text-sm)', marginTop: 6 }}>
+              <div style={{ color: 'var(--text-secondary)' }}>Kept copies of discarded changes (browse them under the pool's mount point):</div>
+              {(g.splits ?? []).map(s => (
+                <div key={s.pool + s.name} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <Icon name="inventory_2" size={14} /><code>{s.pool}/{s.name}</code>
+                  <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }}>{(s.used / 1048576).toFixed(1)} MiB · {new Date(s.created).toLocaleString()}</span>
+                  {g.role === 'owner' && (
+                    <button className="btn btn-ghost btn-sm" aria-label={`Delete ${s.name}`} disabled={deleteSplit.isPending} onClick={async () => {
+                      if (await confirm({ title: `Delete the kept copy ${s.name}?`, message: 'The changes it holds are deleted on every node.', confirmLabel: 'Delete', danger: true }))
+                        deleteSplit.mutate({ group: g.name, pool: s.pool, name: s.name })
+                    }}><Icon name="delete" size={14} /></button>
+                  )}
+                </div>
+              ))}
+            </div>
           )}
           {g.topology !== 'standalone' && (editingAddr === g.name
             ? <AddressEditor g={g} interfaces={d.interfaces ?? []} onDone={() => setEditingAddr('')} />

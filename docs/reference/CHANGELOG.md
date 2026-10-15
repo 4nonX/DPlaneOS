@@ -5,6 +5,56 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
 
+## v15.1.0 (2026-10-15) - "Fleet"
+
+[Design 0001](../design/0001-distributed-state-gitops-ha.md), phases 4 (web interface), 5 (Git backend), 6 (fleet) and 7 (hardening).
+
+### Upgrade notes
+
+- **GitOps works differently.** Web UI changes are no longer pushed as snapshot commits by every node, and there is no manual "Deploy" of `state.yaml` any more. The configuration repository is set up on the Git page (System › Git); existing settings (repository, branch, file, categories) are taken over. On paired nodes, switch to one file per scope. Changes from the repository wait for approval unless automatic apply is switched on. See [GITOPS-DRIVEN-NAS.md](../admin/GITOPS-DRIVEN-NAS.md).
+- **Removed API endpoints:** `POST /api/gitops/apply`, `/check`, `/capture`, `GET /api/gitops/managed-summary`, `PUT /api/gitops/state`. `GET /api/gitops/status` and `/plan` have new shapes.
+
+### Added
+
+- **Git backend.** The configuration is kept in a Git repository, one `state.yaml` per scope (cluster, each storage group, each node) or one file on a standalone node. The node that owns a scope writes it: the coordinator, the group's owner, the node itself. Changes in the web UI are committed to the branch or proposed as pull requests (GitHub, Gitea/Forgejo, GitLab); changes in the repository are applied after approval or automatically, through the same merge as changes from other nodes, and conflicts are decided in Configuration Sync. Several remotes; credentials sent to the paired nodes encrypted; push notifications (webhooks) from GitHub, Gitea/Forgejo and GitLab.
+- **Safe defaults** (as in Argo CD): no automatic apply, no automatic deletion, no self-heal, an empty-state guard, no automatic revert. A commit that cannot be taken (failed apply, unsigned, unreadable, guard) puts its scope **on hold** at the last good commit, raises an alert and sets a failure status on the commit; **Resume** retries, **Revert** writes the last good version back.
+- **Commit signatures:** only commits signed by allowed SSH or GPG keys are taken (optional); nodes can sign their own commits.
+- **Secrets never go to the repository:** passwords, the LDAP bind password, ACME DNS credentials and certificate keys appear as `secret://` references; each node keeps its own.
+
+- **Guided setup** (High Availability › Guided setup): one node, or two and more nodes with failover: pair, form the cluster, add a third vote, protect (watchdog), create a storage group. Each step shows whether it is done from the system's state, so the guide can be left and resumed.
+- **Cluster Map** (System › Cluster Map): every node and vote, which node owns which storage group and which may take it over (in order), epochs, quorum, the coordinator, replication lag and node states.
+- **Maintenance mode** per node (Cluster Map): its shared and replicated groups move to other nodes first; while in maintenance it is never chosen to take a group over and is refused as the target of a move. Nothing changes if a group has nowhere to go.
+- **Safety checks** that change nothing: the third vote (reachable on TCP 5403, voting for this node), the BMC (power status with the stored credentials), the PDU (answers; the outlet URL is never called in a test), and *Test replication* per replicated group.
+- **Default conflict rules** (Configuration Sync): the same resource changed on two nodes settles by itself where a rule applies. Pool resources: the version written by the storage group's owner (higher epoch) wins. Users, groups, directory, certificates and shared settings: the version written by the **cluster coordinator** wins, the DPlaneOS member with the lowest cluster node id in the quorate partition. The losing change is kept on its node as a **proposal** to apply again or dismiss. Each rule can be switched off (every conflict then waits for a decision).
+- **Current configuration** (Change History): every resource with its scope, the node and change its current version comes from, and whether the paired nodes have it yet (changes made while cut off show as *Only here*).
+- When creating a storage group: what this node's disks suggest (shared or replicated) and what happens when a node fails, per topology.
+
+- **Discarded changes of a replicated copy are kept.** *Discard the changes here* (a copy changed after the last replication, e.g. a former owner during a split) first sends those changes to the owner, kept as `<pool>/dplane-split-<time>-from-<node>`; replication brings it to every copy and it is listed under the group until deleted on the owner. Previously the changes were destroyed. New: `DELETE /api/groups/{name}/splits/{pool}/{split}`; `POST /api/groups/{name}/discard-divergent` takes `{keep}` (default true) and returns `kept`.
+- **Cluster members are paired with each other automatically.** Adding a DPlaneOS node to a cluster through one member pairs it with every other member too, so configuration and storage-group changes keep flowing when any one node is down. A member that cannot be reached is named, to pair by hand.
+- **Fleet** (System › Fleet). Any node can be the fleet manager: it registers other DPlaneOS nodes with an API token of each (their TLS certificate pinned), shows their health (pools, mode, cluster and quorum, owned storage groups, maintenance, conflicts, holds) and rolls out fleet-wide users, groups and shared settings in waves: canary first, a soak time, then the rest, automatically or after **Continue**; a node that fails three times pauses the rollout. On a node, the fleet's version wins and a change made there since is kept as a proposal. A cluster receives a rollout through its coordinator. The nodes never depend on the manager; when it has not called for five minutes they show "Fleet manager unreachable". See [FLEET.md](../admin/FLEET.md).
+
+### Fixed
+
+- Accounts with two-factor authentication could not log in through the web interface: the second login step was refused before reaching the server's check.
+- `state.yaml`: per-share options (Time Machine, shadow copies, recycle bin, hosts allow/deny) were never read; dataset `restore` was not read; `force_reshape` and the SSH settings were not written; the export left out users, groups, replication, LDAP and a disabled ACME configuration; multi-line values (compose files, certificates, Samba extra settings) gained a leading space and lost blank lines and comments; list values containing ":" (NVMe host NQNs) were misread.
+- Applying users or NFS exports from `state.yaml` failed on PostgreSQL (`active`/`enabled` sent as booleans to integer columns).
+- A storage group created right after forming the cluster had no other candidate: the form kept the member list from when it was opened.
+- A revision adopted from another node was stamped with this node's group epoch instead of keeping the writer's.
+- In a cluster of three or more DPlaneOS nodes, a node was paired only with the member it joined through: with that member down, the others exchanged no configuration, and a node taking over a storage group could not tell the third node.
+- The capacity guardian, the scrub monitor, scheduled replication and retention, and the metrics endpoint called `zfs`/`zpool` without command validation, logging a security warning every five minutes on a node with pools. They now go through validated command entries.
+- Creating a replicated group and replicating it at once could run two first replications side by side; the second failed. Replications of a node now run one at a time.
+- With the Git repository unreachable, the Git page lost the list of changes waiting to be pushed; it is now computed from the node's own store.
+- A Git remote that accepted connections but answered nothing (packets dropped) held each sync cycle for minutes per Git command. A transfer that receives nothing for a minute now fails, and SSH remotes have connect and keepalive timeouts.
+- A fleet remote whose traffic was dropped held a rollout for the 5-minute apply timeout on each of three attempts; the manager now checks it is reachable first.
+- Users removed from `state.yaml` were never deleted (the check compared the database id with a POSIX UID). Directory accounts (LDAP, OIDC) and `admin` stay protected.
+- A `state.yaml` with `ignore_extraneous: true` still deleted the groups and replication tasks it did not list.
+- Applying a deletion on its own (rolling back a resource that was created) ended with an internal error in the convergence check.
+
+### Changed
+
+- API: `GET /api/config/conflicts` also returns `proposals` and `policies`; `GET /api/ha/protection` also returns `fencing_ok` and `fencing_reason`. New: `GET /api/cluster/map`, `GET|POST|DELETE /api/cluster/maintenance`, `POST /api/cluster/test/{qdevice|fencing|pdu|replication}`, `POST /api/config/proposals/{id}/apply|dismiss`, `PUT /api/config/policy`, `GET /api/config/current`. `GET /api/config/sync/status` also returns `fleet` (membership, manager unreachable). The fleet endpoints `/api/fleet/...` are listed in [FLEET.md](../admin/FLEET.md).
+- The database schema migrates automatically (migrations 00028, 00029, 00030).
+
 ## v15.0.0 (2026-10-10) - "Local First"
 
 [Design 0001](../design/0001-distributed-state-gitops-ha.md), phases 0 to 3: every node keeps its own database and keeps working on its own; paired nodes exchange configuration (with secrets) and merge it per resource; high availability is rebuilt on Corosync quorum, a third vote from anything, and storage groups that move between nodes with their shares, apps and a floating address.

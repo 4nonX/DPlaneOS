@@ -1,202 +1,116 @@
-# Git-Driven NAS: Operating DPlaneOS via state.yaml
+# Git-Driven NAS: Keeping the Configuration in Git
 
-DPlaneOS can be operated entirely through Git commits. Every share, dataset, user, Docker stack, and network setting is expressible in `state.yaml`. When you push a change, DPlaneOS applies it. When you revert a commit, DPlaneOS rolls back to the previous state. When a setting drifts away from what Git says, DPlaneOS tells you.
+DPlaneOS can keep its whole configuration in a Git repository you control: shares, datasets, users, groups, stacks, replication jobs and system settings, as `state.yaml` files. A change made in the web interface becomes a commit (or a pull request); a change made in the repository comes back to the system, after your approval or automatically, with safety rules that never let a bad commit destroy data. Git is optional: without it, change history, rollback and the `state.yaml` export work as they are.
 
-This guide covers the complete workflow from first commit to production operations, including secret handling, auto-apply on push, rollback, and HA environments.
-
-For the technical format spec (every field, validation rules, enum values), see [GITOPS-REFERENCE.md](../reference/GITOPS-REFERENCE.md).
+Everything here is set up on the **Git** page (System › Git › Configuration repository). For the file format (every field, validation rules), see [GITOPS-REFERENCE.md](../reference/GITOPS-REFERENCE.md). The design is [Design 0001](../design/0001-distributed-state-gitops-ha.md), section 5.8, and [ADR-0007](../design/adr/ADR-0007-gitops-defaults.md).
 
 ---
 
-## Why Git-Driven
+## How it works
 
-The configuration of a NAS accretes over years: shares added, users removed, quotas adjusted, containers started and forgotten. Without a canonical record, the live system becomes the only source of truth, and that source can be destroyed.
+**One file per scope.** On a cluster the repository holds one file per scope, and exactly one node writes each:
 
-Git-driven operation gives you:
+| File | Holds | Written by |
+|---|---|---|
+| `cluster/state.yaml` | users, groups, directory (LDAP), certificates, ACME, shared settings (time zone, DNS, NTP, firewall, Samba, SSH) | the cluster coordinator (the DPlaneOS member with the lowest cluster node id in the quorate part); between paired nodes without a cluster, the paired node with the lowest node id |
+| `groups/<group>/state.yaml` | the pools of a storage group and what lives on them (datasets, shares, NFS and NVMe-oF exports, stacks using them) | the group's current owner |
+| `nodes/<node>/state.yaml` | the node's own settings (hostname, interfaces, SMART tasks) and its pools outside any storage group | the node itself |
 
-- **Audit history.** Every share ever created, with who created it and why, is in the commit log.
-- **Reproducibility.** A replacement machine can be brought to the same state by cloning the repository and running a single apply.
-- **Safe changes.** The reconciler plans before executing. You see what will happen before it happens, and destructive changes require explicit approval.
-- **Rollback.** `git revert` + apply undoes any change without manual bookkeeping.
-- **Review.** Share configuration changes go through the same pull request process as application code.
+A standalone node can instead use **one file** (`state.yaml`, or a path you choose), the format earlier versions wrote. A paired node needs one file per scope: otherwise two nodes would write the same file.
 
----
+**The repository is one more peer.** For every resource the node compares three versions: the one in the commit it last reconciled with, its own current one, and the one in the newest commit.
 
-## Concepts
+- Changed only on this node: committed (or proposed in a pull request).
+- Changed only in the repository: applied on this node, after your approval or automatically (see below), then passed on to the other nodes like any change.
+- Changed on both: a conflict, decided on the **Configuration Sync** page with both versions side by side, like a conflict between two nodes. Git conflicts are never settled by a rule.
 
-### state.yaml
+**Nothing waits in an outbox.** What a node still has to write is exactly what differs between its configuration and the reconciled commit. After a crash, a restart or a failover the new writer computes the same difference from its own configuration (which holds the same changes), so nothing is lost. The local clone (`/var/lib/dplaneos/git/clone`) is disposable: a broken clone is simply created again.
 
-`state.yaml` is the single source of truth for all runtime configuration managed by DPlaneOS. It lives in a Git repository you control. The file is structured YAML with a strict schema: unknown fields are rejected rather than silently ignored.
-
-### Reconciler
-
-The reconciler compares `state.yaml` (desired state) against the live system (actual state) and produces a plan: which resources to create, modify, delete, or leave alone. You review the plan before it executes.
-
-### Drift detection
-
-Every five minutes, the reconciler runs a plan without executing it. If any differences are found between `state.yaml` and the live system, a drift banner appears in the UI. Drift is expected if you make changes via the web UI and have not yet updated `state.yaml` to match.
-
-### Capture
-
-Capture reads the live system and produces the corresponding `state.yaml` YAML for review. It never commits automatically. You use it to bootstrap the initial `state.yaml` from an already-configured system, or to generate YAML for a change you made interactively.
+**Secrets never go to the repository.** A user's password, the LDAP bind password, ACME DNS credentials and certificate keys appear as references (`password_hash: "secret://user/alice/password"`). A node reading a reference keeps the secret it holds. Changing a password is therefore never a change for the repository. Paired nodes exchange secrets among themselves, encrypted (see [HIGH-AVAILABILITY.md](HIGH-AVAILABILITY.md)). A bcrypt hash written into `password_hash` by hand still sets that password.
 
 ---
 
-## Initial Setup
+## Setting it up
 
-### Step 1: Create the state repository
+1. **Create an empty repository** on your Git server (GitHub, Gitea, Forgejo, GitLab or anything reachable over HTTPS or SSH).
+2. **Add credentials** (Git › Credentials): a token, with an optional user name (GitHub accepts any; Gitea, Forgejo and GitLab may want the account name), or an SSH private key. Ideally a read-only deploy key to fetch and a separate credential to push.
+3. **Configure the repository** (Git › Configuration repository):
+   - **Remotes:** one or more URLs, each with its fetch and push credential. The node fetches from all of them and works from the newest history; it pushes to all. If remotes disagree on history, nothing is done until you bring them together.
+   - **Branch** (default `main`) and **files** (one per scope, or one file for a standalone node).
+   - **What the repository manages:** storage, sharing, apps, identity, protection, system.
+   - **How changes made here reach the repository:** committed to the branch, or as a pull request (needs a provider: GitHub, Gitea/Forgejo or GitLab, the API URL, `owner/name` and a token credential).
+   - **Changes from the repository**, **signatures** and **push notifications**: below.
+4. **Save.** The settings, with the credentials they name, are sent to the paired nodes (encrypted with the pair's key), so whichever node becomes a scope's writer can work. The newest saved version wins on every node.
 
-Create a private Git repository. Any Git host works (GitHub, GitLab, Gitea, a bare repo on your backup server). The repository needs a single file at the root: `state.yaml`.
-
-```
-nas-state/
-  state.yaml
-  README.md   (optional)
-```
-
-### Step 2: Generate a deploy key
-
-The DPlaneOS daemon needs read access to the repository. Generate a dedicated key:
-
-```bash
-ssh-keygen -t ed25519 -f /var/lib/dplaneos/gitops/deploy_key -N ""
-cat /var/lib/dplaneos/gitops/deploy_key.pub
-```
-
-Add the public key to your repository as a deploy key with **read-only** access. If you want the daemon to be able to write back (for auto-commit of captures, or future features), grant read-write. For security, read-only is sufficient for the apply workflow.
-
-### Step 3: Configure the repository in DPlaneOS
-
-Navigate to **Settings - GitOps** and enter:
-
-- **Repository URL:** `git@github.com:yourorg/nas-state.git`
-- **Branch:** `main`
-- **SSH key path:** `/var/lib/dplaneos/gitops/deploy_key`
-
-Or via API:
-
-```bash
-curl -X POST http://nas/api/gitops/config \
-  -H "X-Session-ID: $SESSION" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "repo_url": "git@github.com:yourorg/nas-state.git",
-    "branch": "main",
-    "ssh_key_path": "/var/lib/dplaneos/gitops/deploy_key"
-  }'
-```
-
-The daemon clones the repository to `/var/lib/dplaneos/gitops/repo/`. This path is on `/persist` and survives reboots.
+The first cycle writes the current configuration to the repository. From then on, the page shows per scope: whether it is in step, what is not yet in the repository, what changed in the repository and waits, open pull requests, conflicts and holds.
 
 ---
 
-## Bootstrap: From Live System to First Commit
+## Day to day
 
-If you have already configured your NAS via the web UI and want to bring it under Git control, use Capture to generate the initial `state.yaml`.
+**Changing something in the web interface.** It takes effect immediately. Within seconds the writer of its scope commits it (*"cluster: 1 change(s) from nas1"*, listing each resource, who changed it and when). If the branch moved on meanwhile, the push is refused, the node fetches and tries again; if someone changed the same resource in the repository, it becomes a conflict to decide.
 
-### Capture everything
+**With pull requests,** the change is committed to `dplaneos/<scope>` (for example `dplaneos/cluster`) and a pull request is opened or updated. It counts once it is merged. If the pull request is closed without merging, the same change is not proposed again; the page offers **Take the repository's version**, which replaces this node's change with what the repository has.
 
-In the UI: **GitOps - Capture**. Select all categories and review the output.
+**Changing something in the repository.** Commit and push as usual. The writer of the scope notices on its next check (every 5 minutes by default) or at once with a push notification. With automatic apply off (the default) the change appears under the scope with **Apply from <commit>**; with it on, it is applied. Either way the commit gets a status (`dplaneos: success` or the reason it failed) on the provider, if one is configured.
 
-Via API:
-
-```bash
-curl -X POST http://nas/api/gitops/capture \
-  -H "X-Session-ID: $SESSION" \
-  -H "Content-Type: application/json" \
-  -d '{"categories": ["pools", "datasets", "shares", "nfs", "stacks", "users", "groups", "system"]}' \
-  | jq -r '.yaml'
-```
-
-The output is a complete `state.yaml` reflecting the current live state. Paste it into your repository, review it carefully, and commit.
-
-**What Capture exports and does not export:**
-
-| Resource | Exported | Notes |
-|----------|----------|-------|
-| ZFS pools | Yes | Topology, ashift, properties |
-| ZFS datasets | Yes | All managed properties |
-| SMB shares | Yes | Path, permissions, comment |
-| NFS exports | Yes | Path, clients, options |
-| Docker stacks | Yes | Full Compose YAML |
-| Users | Yes | Username, email, role, active |
-| Groups | Yes | Name, GID, members |
-| Passwords | **Never** | Hashes are captured, plaintexts are never stored anywhere |
-| LDAP bind password | **Never** | Set this field manually after capture |
-| SSH private keys | **Never** | Reference by path only |
-
-After committing the captured state, run an apply immediately to verify that the reconciler computes an all-NOP plan (meaning the captured YAML matches reality exactly):
-
-```bash
-curl -X POST http://nas/api/gitops/apply \
-  -H "X-Session-ID: $SESSION"
-```
-
-If you see any CREATE, MODIFY, or DELETE items, resolve them before considering the bootstrap complete.
+**Viewing a file** as it is in the newest commit: **View file** on the scope.
 
 ---
 
-## Day-to-Day Workflow
+## Safety rules (the defaults)
 
-### Making a change
+The defaults follow Argo CD's: nothing destructive happens unless you asked for it.
 
-1. Edit `state.yaml` in your editor or via the GitHub/GitLab web UI
-2. Commit with a meaningful message: `add media share for alice and bob`
-3. Push to main
-4. Pull and apply in DPlaneOS
+| Setting | Default | Meaning |
+|---|---|---|
+| Apply automatically | off | Changes from the repository wait for approval. On: they are applied when fetched. |
+| Also delete what the repository deletes (prune) | off | A resource removed from the repository waits for approval, even with automatic apply. |
+| Undo changes made outside the web interface (self-heal) | off | Off: a change made in a shell or by another tool is committed like a web UI change. On: it is replaced by the repository's version. |
+| Empty-state guard | always | A commit that would remove every resource of a kind this node has (all users, all shares, …) is held, never applied. |
+| Automatic revert | never | A failed apply holds the scope; reverting is your decision. |
 
-The apply fetches the latest commit and runs the reconciler. For small changes (adding a share, changing a quota), the full cycle completes in seconds.
-
-**Via UI:** GitOps page - Pull and Apply button.
-
-**Via API:**
-```bash
-curl -X POST http://nas/api/gitops/apply \
-  -H "X-Session-ID: $SESSION"
-```
-
-**Via CLI (from the NAS itself):**
-```bash
-curl -s -X POST -H "X-Session-ID: $(cat /tmp/session)" \
-  http://localhost/api/gitops/apply
-```
-
-### Changes made in the web UI
-
-A change made in the web UI takes effect immediately and is then written back to the repository as a snapshot commit of the live state ("feat: infrastructure state update via DPlaneOS"). Before committing, DPlaneOS fetches the repository:
-
-- If the repository contains commits that are **not applied to this system yet**, the write-back is refused instead of committing over them (a snapshot of the live state would silently revert those commits). The UI change stays live; the GitOps page shows the refusal. Apply (or review) the pending commits, and the next write-back includes your change.
-- Snapshot commits that were never pushed are regenerated from the live state, so the local clone is reset to the remote when the two have diverged.
-- A failed push or fetch is shown on the GitOps page (`last_commit` in `GET /api/gitops/status`) and broadcast as a `gitops.commit_failed` event; it is never only logged.
-
-The commit the live system corresponds to is reported as `synced_commit` in `GET /api/gitops/status`. It moves forward when this node pushes a snapshot or when an apply completes without deferred items.
-
-### Reviewing the plan before applying
-
-If you want to see what will happen before committing to it:
-
-```bash
-# Pull latest state.yaml without applying
-curl -X POST http://nas/api/gitops/check \
-  -H "X-Session-ID: $SESSION"
-
-# Read the resulting plan
-curl http://nas/api/gitops/plan \
-  -H "X-Session-ID: $SESSION" | jq '.items'
-```
-
-The plan shows each resource with its kind (`CREATE`, `MODIFY`, `DELETE`, `NOP`, `BLOCKED`, `MANUAL`) and a human-readable description of what will change.
+The engine's own rules apply to everything from the repository: deleting a dataset that holds data or a share with open connections is never executed automatically; it waits for manual action.
 
 ---
 
-## Auto-Apply on Push
+## Holds
 
-> **Not implemented yet.** Earlier versions of this guide described polling and webhook-based auto-apply (`/api/gitops/webhook`, an "Auto-apply on change" setting). Neither exists in the daemon. Automatic apply with safe defaults (no self-heal or prune by default, an empty-state guard, retry with backoff, and a hold instead of automatic revert on failure) is planned in [Design 0001](../design/0001-distributed-state-gitops-ha.md), Phase 5 ([ADR-0007](../design/adr/ADR-0007-gitops-defaults.md)).
+A scope is put **on hold** when a commit cannot be taken: its apply failed, a commit is not signed by an allowed key, the file cannot be read, or the empty-state guard stopped it. While on hold:
 
-What happens today:
+- the scope stays on its last good commit; nothing more from the repository is applied to it;
+- an alert is raised (Alerts), and the commit gets a failure status on the provider;
+- this node's own changes are still written (not for signature holds: nothing is written on top of a history that failed verification).
 
-- The drift detector fetches the repository every 5 minutes, fast-forwards the local clone and reports drift between the repository and the live system on the GitOps page.
-- Apply is always explicit: the **Apply** button on the GitOps page or `POST /api/gitops/apply`.
+The scope's line offers **Resume** (try again, after you fixed the cause, for example by pushing a corrected commit) and **Revert**, which writes the file back as it was in the last good commit, as a new commit (or pull request). History is never rewritten.
+
+---
+
+## Signatures
+
+With **Take only commits signed by an allowed key**, every commit after the last reconciled one must be signed by one of the listed SSH keys (allowed-signers format, or bare public keys) or GPG keys. Otherwise the scope is held. Write access to the repository alone can then not change the configuration.
+
+With **Sign this node's commits**, each node signs its commits with its own SSH key (created on first use; its public key is shown on the Git page). Add every node's key to the allowed keys.
+
+---
+
+## Push notifications
+
+Save with **a new webhook secret**; the secret is shown once. In the repository's webhook settings enter `https://<node>/api/gitops/webhook`, content type JSON, and the secret. GitHub, Gitea and Forgejo sign the body with it; GitLab sends it as a token. A valid notification starts a check at once; anything else is refused. Each node that may write a scope can be a webhook target; the others ignore what they do not write.
+
+---
+
+## Conflicts between the web interface and the repository
+
+Configuration Sync shows them with both versions: keep this node's, take the repository's, or edit a combined one. The result is written to the repository by the next cycle. See [HIGH-AVAILABILITY.md](HIGH-AVAILABILITY.md) for the conflict rules between nodes; between a node and the repository the operator always decides.
+
+---
+
+## High availability
+
+Only the writer of a scope talks to Git for it: the group owner for a group, the coordinator for the cluster. After a failover the new owner continues from its own configuration and the repository; nothing is pushed twice, nothing is lost. A node cut off from the cluster keeps working; its changes reach the repository once its scope's writer has them. Changes from the repository enter through the writer and reach the other nodes through configuration sync.
+
+HA settings (cluster, votes, fencing, storage groups) are deliberately not in the repository: a remote change there could split the cluster.
 
 ---
 
@@ -370,7 +284,8 @@ system:
 
 ### What belongs in state.yaml
 
-- Password **hashes** (bcrypt, `$2a$`/`$2b$`/`$2y$`, 60 characters) for local users. Validation rejects anything else in `password_hash`, which catches plain-text passwords pasted by mistake.
+- Secret references (`secret://…`), which DPlaneOS writes itself: the node keeps the secret.
+- Password **hashes** (bcrypt, `$2a$`/`$2b$`/`$2y$`, 60 characters) for local users, if you want the repository to set a password. Validation rejects anything else in `password_hash`, which catches plain-text passwords pasted by mistake.
 - Usernames, email addresses, roles
 - Share paths, permissions, comments
 - NFS client CIDRs
@@ -382,8 +297,8 @@ system:
 
 | Secret | Alternative |
 |--------|-------------|
-| LDAP bind password | Set in Directory settings in the web UI; stored encrypted in the database. `ldap.bind_password` in `state.yaml` is rejected by validation (earlier versions stored it unencrypted, which broke LDAP binds) |
-| ACME DNS API tokens | Set in the DPlaneOS secrets store; referenced by name in state.yaml |
+| LDAP bind password | Set in Directory settings in the web UI; stored encrypted. In `state.yaml` it appears as a reference; anything else is rejected by validation |
+| ACME DNS API tokens | Set in the web UI; they appear as references in `state.yaml` |
 | Docker container passwords/tokens | Use Docker secrets, environment files outside `/var/lib/docker` (on `/persist`), or a secrets manager sidecar |
 | SSH private keys | Reference by path only; key files live on `/persist` outside Git |
 | Webhook secrets | Configured in Settings only |
@@ -427,145 +342,6 @@ chmod 600 /persist/secrets/myapp.env
 
 ---
 
-## Rollback
-
-Rollback is a git operation followed by an apply.
-
-### Revert a single commit
-
-```bash
-git revert abc1234 --no-edit
-git push
-```
-
-Then trigger apply. The reconciler will compute the diff between the reverted state and the live system and return it to the previous configuration.
-
-### Revert to an arbitrary point
-
-```bash
-# Find the commit you want to return to
-git log --oneline
-
-# Reset to that commit (creates a new commit, does not rewrite history)
-git revert HEAD~3..HEAD --no-commit
-git commit -m "revert to state from 3 commits ago"
-git push
-```
-
-### Emergency revert without Git
-
-If Git is inaccessible (network outage, repository issue), you can revert directly from the NAS:
-
-```bash
-cd /var/lib/dplaneos/gitops/repo
-git log --oneline    # Find the previous good commit
-git checkout abc1234 -- state.yaml    # Restore the file
-curl -X POST http://localhost/api/gitops/apply \
-  -H "X-Session-ID: $(cat /tmp/session)"
-```
-
-This applies the previous state without touching the remote repository. Once connectivity is restored, update the remote to match.
-
----
-
-## Pull Request Workflow
-
-For teams or when you want a review step before changes are applied:
-
-### Setup
-
-1. Set DPlaneOS to poll or listen on a non-main branch: `staging`
-2. Protect `main` with required reviews in your repository settings
-3. Apply from `main`; `staging` receives PRs for preview
-
-### Workflow
-
-```
-feature/add-backup-share
-         │
-         │ pull request (human review)
-         ▼
-      staging ──── drift-check only ────► "Plan: CREATE shares/backups"
-         │
-         │ merge after approval
-         ▼
-        main ──────────── apply ─────────► share created on NAS
-```
-
-**Drift check against a branch without applying** is useful for showing the plan in a PR comment. From a CI action in your state repository:
-
-```yaml
-# .github/workflows/plan.yml
-on: [pull_request]
-jobs:
-  plan:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Trigger plan
-        run: |
-          curl -X POST ${{ secrets.NAS_URL }}/api/gitops/check \
-            -H "X-Session-ID: ${{ secrets.NAS_SESSION }}"
-          curl ${{ secrets.NAS_URL }}/api/gitops/plan \
-            -H "X-Session-ID: ${{ secrets.NAS_SESSION }}" | jq '.items'
-```
-
----
-
-## HA Environments
-
-In a two-node HA cluster, both nodes run the GitOps daemon but only the primary node holds active ZFS pools and Docker stacks.
-
-### How apply works in HA
-
-Only the **GitOps writer** acts on the repository: the active node, with quorum, not in subordinate mode and not fencing. On any other node:
-
-- `POST /api/gitops/apply` is refused with HTTP 409 and the reason (for example "standby node");
-- web UI changes are not written back to Git (a standby has no pools imported, so its live state would be pushed as a deletion);
-- the drift detector reports "drift checks run on the GitOps writer" instead of false drift.
-
-Each node has its own database and applies `state.yaml` to its own live state; resources on a storage group's pools are applied by the node that owns the group.
-
-Both nodes must also use the **same secrets key** (`services.dplaneos.secrets.keyFile`), or Git credentials stored by one node cannot be used by the other after a failover. See [HIGH-AVAILABILITY.md](HIGH-AVAILABILITY.md#shared-secrets-key).
-
-### Quorum-gated pool operations
-
-When HA is active, pool ownership operations - `CREATE`, `IMPORT`, `RESHAPE`, and `DESTROY` in the plan - are gated on cluster quorum. An isolated node (one that has lost contact with its peer and all witnesses) will not act on these plan items, regardless of what `state.yaml` says. The operations are **deferred**, not failed: they appear in the plan result as `[DEFERRED no-quorum]` and are retried automatically on the next reconcile cycle once quorum is restored.
-
-This is the sole software-level write guard for replicated-topology clusters (Path B). On shared-storage clusters (Path A'), the SCSI-3 PR hardware reservation is a physical backstop, but the quorum gate fires first in software.
-
-**Operations that are NOT quorum-gated:**
-
-| Operation | Gated on quorum? | Reason |
-|---|---|---|
-| Pool `CREATE` / `IMPORT` / `RESHAPE` / `DESTROY` | Yes | Dual-writer corruption risk |
-| Dataset `CREATE` / `DELETE` / `MODIFY` | No | Dataset lives on already-imported pool |
-| SMB share `CREATE` / `DELETE` | No | Config-only, no block-level risk |
-| NFS export changes | No | Config-only |
-| Docker stack changes | No | No ownership question |
-| User / group changes | No | DB-only |
-| System / network changes | No | No pool ownership question |
-
-If a pool operation is consistently deferred, check cluster quorum status on the HA page before diagnosing the GitOps config.
-
-### Rolling configuration updates
-
-For changes that do not affect storage (adding a user, changing a share comment):
-
-1. Commit and push
-2. Trigger apply via the VIP (the shared database makes the change visible on both nodes)
-
-For changes that affect ZFS (new dataset, new pool):
-
-1. Commit and push
-2. Trigger apply via the VIP on the primary
-3. ZFS replication (if configured) propagates the dataset to the standby on the next replication cycle
-
-For changes that affect the NixOS layer (not state.yaml - actual module changes):
-
-Follow the HA rolling upgrade procedure in [HIGH-AVAILABILITY.md](HIGH-AVAILABILITY.md) instead.
-
----
-
 ## Common Patterns
 
 ### Adding a dataset and share together
@@ -591,7 +367,7 @@ The reconciler creates resources in dependency order: datasets before shares.
 
 ### Adjusting a quota
 
-Change the `quota` field and apply. The reconciler calls `zfs set quota=...` on the dataset. No data is moved or at risk.
+Change the `quota` field and commit; approve it on the Git page (or let automatic apply take it). The reconciler calls `zfs set quota=...` on the dataset. No data is moved or at risk.
 
 ```yaml
 datasets:
@@ -622,7 +398,7 @@ Set `active: false`. The account is suspended but the data and history are retai
 
 ### Running a one-off container
 
-Use a Docker stack with `restart: "no"`. Apply starts the container once. Capture will export it; you can then delete it from `state.yaml` and apply again to remove it.
+Use a Docker stack with `restart: "no"`. Applying it starts the container once; remove it from `state.yaml` afterwards to remove it.
 
 ### Stopped containers are restarted by apply
 
@@ -640,58 +416,30 @@ Remove it from `shares:` and apply. The reconciler computes a DELETE plan item. 
 
 ## Troubleshooting
 
-### Plan shows unexpected DELETE items
+### "No remote of the repository can be reached"
 
-You have resources on the live system that are not in `state.yaml`. Either:
+The page lists each remote with its error. Check the URL, the credential (token scopes: read and write repository contents; for pull requests also pull requests and commit statuses), and for SSH that the host key was accepted (`/var/lib/dplaneos/git/known_hosts`). The node retries with growing intervals (30 s doubling to an hour) and at once on **Sync now**.
 
-1. Run Capture for those resource types and add them to `state.yaml`, or
-2. Set `ignore_extraneous: true` at the top of `state.yaml` to suppress DELETE items for unmanaged resources
+### "The remotes of the repository diverged"
 
-### Apply halts with BLOCKED items
+Two remotes have different histories. Bring them to the same commit (push one to the other); the node does not choose.
 
-A BLOCKED item is a potentially destructive change that requires explicit confirmation. Read the description in the plan - it explains what data is at risk. To approve:
+### "This node is paired: the single-file layout cannot say which node writes what"
 
-```bash
-curl -X POST http://nas/api/gitops/approve \
-  -H "X-Session-ID: $SESSION" \
-  -H "Content-Type: application/json" \
-  -d '{"item_id": "datasets/tank/old-data", "reason": "dataset is empty, confirmed"}'
-```
+Switch to one file per scope. The first cycle writes the scope files; delete the old single file in the repository afterwards.
 
-Then run apply again.
+### A scope is on hold
 
-### Drift detected but nothing changed in state.yaml
+The reason is on the scope's line. Fix the commit in the repository and **Resume**, or **Revert** to the last good commit.
 
-The live system was modified outside of state.yaml (via UI, CLI, or another process). Options:
+### "state.yaml cannot hold these exactly as they are; not written"
 
-1. Run apply to bring the system back into alignment with state.yaml
-2. Run Capture and update state.yaml to reflect the change you made interactively
+A resource has a setting the file format cannot express. The node writes nothing rather than something wrong. Please report it with the resource named in the message.
 
-### Apply fails with "validation errors"
+### A change I made in the repository is not applied
 
-The error message names the exact field and index. Common causes:
+Automatic apply is off (the default): approve it on the scope's line. Deletions also need approval unless prune is on. If the resource was also changed on the node, it is a conflict on the Configuration Sync page.
 
-- Disk path is `/dev/sda` instead of `/dev/disk/by-id/...`
-- `version` field is missing or not `"1"`
-- An enum value is misspelled (e.g., `compress: lz4` instead of `compression: lz4`)
-- Unknown field added (state.yaml uses strict parsing - no extra fields allowed)
+### "Written by another node"
 
-### Repository clone fails
-
-Check:
-1. The deploy key is added to the repository with the correct permissions
-2. The key file at `ssh_key_path` is readable by the `dplaneos` user
-3. The repository URL uses the SSH form (`git@github.com:...`), not HTTPS
-4. The NAS can reach the Git host: `ssh -i /var/lib/dplaneos/gitops/deploy_key -T git@github.com`
-
-### Apply makes unexpected changes
-
-Set `ignore_extraneous: false` only when `state.yaml` is complete and trusted. During initial migration, keep it true to prevent the reconciler from deleting resources you have not yet captured. Review the plan output before every apply.
-
-### Web UI change was not committed to Git
-
-`GET /api/gitops/status` shows the reason in `last_commit.error`:
-
-- "the Git repository has changes that are not applied to this system yet": apply or review the pending commits; the next write-back includes the UI change.
-- "this node is not the GitOps writer": the change was made on an HA standby; make changes through the VIP.
-- push or fetch errors: check the repository credentials and connectivity.
+That scope belongs to another node (its own settings, a storage group it owns, or the cluster scope when it is the coordinator). Look on that node.

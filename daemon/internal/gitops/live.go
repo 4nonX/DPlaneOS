@@ -81,6 +81,7 @@ type LiveUser struct {
 	Email        string
 	Role         string
 	Active       bool
+	Source       string // local, git, ldap, oidc
 }
 
 // LiveGroup is a group from the daemon DB.
@@ -439,7 +440,7 @@ func readLiveNFSExports(db *sql.DB) ([]LiveNFSExport, error) {
 }
 
 func readLiveUsers(db *sql.DB) ([]LiveUser, error) {
-	rows, err := db.Query(`SELECT id, username, password_hash, COALESCE(email,''), COALESCE(role,'user'), active FROM users`)
+	rows, err := db.Query(`SELECT id, username, password_hash, COALESCE(email,''), COALESCE(role,'user'), active, COALESCE(source, 'local') FROM users`)
 	if err != nil {
 		return nil, err
 	}
@@ -449,7 +450,7 @@ func readLiveUsers(db *sql.DB) ([]LiveUser, error) {
 	for rows.Next() {
 		var u LiveUser
 		var active int
-		if err := rows.Scan(&u.ID, &u.Username, &u.PasswordHash, &u.Email, &u.Role, &active); err != nil {
+		if err := rows.Scan(&u.ID, &u.Username, &u.PasswordHash, &u.Email, &u.Role, &active, &u.Source); err != nil {
 			return nil, err
 		}
 		u.Active = active == 1

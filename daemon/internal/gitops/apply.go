@@ -261,9 +261,11 @@ func ApplyPlan(ctx ApplyContext, plan *Plan, desired *DesiredState) (*ApplyResul
 		}
 	}
 
-	// Gap 5: Post-apply convergence check
-	conv, err := ConvergenceCheck(ctx.DB, desired)
-	if err != nil {
+	// Gap 5: Post-apply convergence check. A plan applied without a desired
+	// state (a single deletion) has nothing to converge to.
+	if desired == nil {
+		result.Convergence = "SKIPPED"
+	} else if conv, err := ConvergenceCheck(ctx.DB, desired); err != nil {
 		log.Printf("GITOPS APPLY: convergence check failed: %v", err)
 		result.Convergence = "ERROR"
 	} else {
@@ -1026,9 +1028,9 @@ func reconcileUser(db *sql.DB, username string, du *DesiredUser) error {
 	}
 	
 	// If PasswordHash is empty, we don't update it to avoid wiping existing passwords
-	// unless this is a CREATE.
+	// unless this is a CREATE. A secret reference also keeps the node's password.
 	var err error
-	if du.PasswordHash != "" {
+	if du.PasswordHash != "" && !IsSecretRef(du.PasswordHash) {
 		_, err = db.Exec(`
 			INSERT INTO users (username, password_hash, email, role, active)
 			VALUES ($1, $2, $3, $4, $5)
@@ -1197,13 +1199,15 @@ func reconcileLDAP(db *sql.DB, desired *DesiredLDAP) error {
 		jit = 1
 	}
 
+	// A secret reference keeps the bind password stored (sealed) on this node.
+	bindPassword := sql.NullString{String: desired.BindPassword, Valid: !IsSecretRef(desired.BindPassword)}
 	_, err := db.Exec(`UPDATE ldap_config SET
-		enabled=$1, server=$2, port=$3, use_tls=$4, bind_dn=$5, bind_password=$6, base_dn=$7,
+		enabled=$1, server=$2, port=$3, use_tls=$4, bind_dn=$5, bind_password=COALESCE($6, bind_password), base_dn=$7,
 		user_filter=$8, user_id_attr=$9, user_name_attr=$10, user_email_attr=$11,
 		group_base_dn=$12, group_filter=$13, group_member_attr=$14,
 		jit_provisioning=$15, default_role=$16, sync_interval=$17, timeout=$18,
 		updated_at=NOW() WHERE id=1`,
-		enabled, desired.Server, desired.Port, useTLS, desired.BindDN, desired.BindPassword, desired.BaseDN,
+		enabled, desired.Server, desired.Port, useTLS, desired.BindDN, bindPassword, desired.BaseDN,
 		desired.UserFilter, desired.UserIDAttr, desired.UserNameAttr, desired.UserEmailAttr,
 		desired.GroupBaseDN, desired.GroupFilter, desired.GroupMemberAttr,
 		jit, desired.DefaultRole, desired.SyncInterval, desired.Timeout)
@@ -1248,7 +1252,7 @@ func SyncDB(db *sql.DB, desired *DesiredState) error {
 			VALUES ($1, $2, $3, $4, 'git')
 			ON CONFLICT (username) DO UPDATE SET
 				email=EXCLUDED.email, role=EXCLUDED.role, active=EXCLUDED.active, updated_at=NOW()`,
-			u.Username, u.Email, u.Role, u.Active)
+			u.Username, u.Email, u.Role, boolToInt(u.Active)) // users.active is an integer column
 		if err != nil {
 			return fmt.Errorf("syncing user %q: %w", u.Username, err)
 		}
@@ -1331,7 +1335,7 @@ func SyncDB(db *sql.DB, desired *DesiredState) error {
 		}
 		_, err := tx.Exec(`INSERT INTO nfs_exports (path, clients, options, enabled)
 			VALUES ($1, $2, $3, $4)`,
-			n.Path, n.Clients, n.Options, n.Enabled)
+			n.Path, n.Clients, n.Options, boolToInt(n.Enabled)) // nfs_exports.enabled is an integer column
 		if err != nil {
 			return fmt.Errorf("syncing nfs %q: %w", n.Path, err)
 		}

@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Proposed |
+| **Status** | Accepted; implemented in phase 5 (the outbox is computed as the difference between the store and the reconciled commit, see Design 0001 section 9) |
 | **Date** | 2026-10-05 |
 | **Design** | [Design 0001, section 5.8](../0001-distributed-state-gitops-ha.md) |
 

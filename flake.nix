@@ -239,6 +239,38 @@
           frontendPackage = frontend;
         };
 
+        # A full setup through the API, conflict rules and maintenance
+        # (Design 0001 phase 4).
+        #   nix build .#checks.x86_64-linux.setup -L
+        checks.setup = import ./nixos/tests/setup.nix {
+          inherit nixpkgs system impermanence;
+          daemonPackage = daemon;
+          frontendPackage = frontend;
+        };
+
+        # Hardening (Design 0001 phase 7): slow network, splits and power loss.
+        #   nix build .#checks.x86_64-linux.hardening-{pair,replicated,cluster,standalone} -L
+        checks.hardening-pair = import ./nixos/tests/hardening-pair.nix {
+          inherit nixpkgs system impermanence;
+          daemonPackage = daemon;
+          frontendPackage = frontend;
+        };
+        checks.hardening-replicated = import ./nixos/tests/hardening-replicated.nix {
+          inherit nixpkgs system impermanence;
+          daemonPackage = daemon;
+          frontendPackage = frontend;
+        };
+        checks.hardening-cluster = import ./nixos/tests/hardening-cluster.nix {
+          inherit nixpkgs system impermanence;
+          daemonPackage = daemon;
+          frontendPackage = frontend;
+        };
+        checks.hardening-standalone = import ./nixos/tests/hardening-standalone.nix {
+          inherit nixpkgs system impermanence;
+          daemonPackage = daemon;
+          frontendPackage = frontend;
+        };
+
         # The DPlaneOS Witness appliance joins headlessly.
         #   nix build .#checks.x86_64-linux.witness-appliance -L
         checks.witness-appliance = import ./nixos/tests/witness-appliance.nix {

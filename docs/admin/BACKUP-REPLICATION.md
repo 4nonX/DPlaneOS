@@ -384,8 +384,8 @@ If you use the stock DPlaneOS flake without customization, you only need to know
 
 1. Boot from DPlaneOS ISO and install to replacement boot disk
 2. After first boot, import data pools: `zpool import -a`
-3. Restore `state.yaml` from Git: Settings: GitOps: configure repository
-4. Apply: `POST /api/gitops/apply`
+3. Restore the configuration from Git: System › Git › Configuration repository: add the credentials and the repository, save
+4. The first check lists the repository's configuration as changes waiting on each scope: **Apply** them (or switch on automatic apply for this once)
 5. Restore the PostgreSQL database from backup if needed
 
 ZFS pools on the data disks are completely independent of the boot disk. A boot disk failure does not affect pool data as long as the pool was cleanly exported (or the system crashed cleanly - ZFS's transaction group model tolerates sudden power loss).

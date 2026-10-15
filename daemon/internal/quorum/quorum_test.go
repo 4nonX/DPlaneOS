@@ -173,6 +173,48 @@ func TestParseQuorumtool(t *testing.T) {
 	if ParseQuorumtool("Cannot initialize QUORUM service").Running {
 		t.Error("not running expected")
 	}
+	if s.RingSeq != 0x1d || q.RingSeq != 0x21 || l.RingSeq != 0x22 {
+		t.Errorf("ring seq: %d %d %d", s.RingSeq, q.RingSeq, l.RingSeq)
+	}
+}
+
+func TestParseRingSeq(t *testing.T) {
+	for in, want := range map[string]int64{"1.1d": 0x1d, "3.ff0": 0xff0, "1/92": 92, "": 0, "garbage": 0, "1.zz": 0} {
+		if got := parseRingSeq(in); got != want {
+			t.Errorf("%q: %d, want %d", in, got, want)
+		}
+	}
+}
+
+func TestCoordinatorIsLowestDPlaneMemberOfQuoratePartition(t *testing.T) {
+	cfg := Config{ClusterName: "x", Nodes: []Node{
+		{ID: 1, Name: "pi", Addr: "10.0.0.9", Voter: true},
+		{ID: 2, Name: "nas2", Addr: "10.0.0.2", NodeKey: "kb"},
+		{ID: 3, Name: "nas3", Addr: "10.0.0.3", NodeKey: "kc"},
+	}}
+	st := Status{Running: true, Quorate: true, RingSeq: 40, Members: []Member{
+		{NodeID: 3, Name: "10.0.0.3"}, {NodeID: 2, Name: "10.0.0.2"}, {NodeID: 1, Name: "10.0.0.9"},
+	}}
+	// The voter has the lowest id but holds no configuration.
+	if k, term := coordinator(cfg, st); k != "kb" || term != 40 {
+		t.Fatalf("got %q %d, want kb 40", k, term)
+	}
+	// nas2 left the partition: nas3 coordinates in the new membership.
+	st.Members, st.RingSeq = st.Members[:1], 44
+	st.Members = append(st.Members, Member{NodeID: 1, Name: "10.0.0.9"})
+	if k, term := coordinator(cfg, st); k != "kc" || term != 44 {
+		t.Fatalf("got %q %d, want kc 44", k, term)
+	}
+	// Without quorum nobody coordinates.
+	st.Quorate = false
+	if k, term := coordinator(cfg, st); k != "" || term != 0 {
+		t.Fatalf("no quorum: got %q %d", k, term)
+	}
+	// Only voters in the partition: nobody coordinates.
+	st.Quorate, st.Members = true, []Member{{NodeID: 1, Name: "10.0.0.9"}}
+	if k, _ := coordinator(cfg, st); k != "" {
+		t.Fatalf("voters only: got %q", k)
+	}
 }
 
 // Certificate requests and certificates from NSS are binary (DER).

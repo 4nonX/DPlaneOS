@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -63,6 +65,30 @@ func SavePDUConfig(db *sql.DB, cfg PDUConfig) error {
 			expected_status = excluded.expected_status
 	`, cfg.Enable, cfg.OutletOffURL, method, cfg.Username, cfg.PasswordFile, cfg.TimeoutSecs, cfg.ExpectedStatus)
 	return err
+}
+
+// TestPDU checks that the PDU answers on the host and port of the outlet URL.
+// It cannot call the URL itself: that cuts the power. So it proves that this
+// node reaches the PDU, not that the URL or the credentials are right.
+func TestPDU(cfg PDUConfig) (string, error) {
+	u, err := url.Parse(cfg.OutletOffURL)
+	if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") {
+		return "", fmt.Errorf("the outlet URL %q is not a valid http(s) URL", cfg.OutletOffURL)
+	}
+	host := u.Host
+	if u.Port() == "" {
+		port := "80"
+		if u.Scheme == "https" {
+			port = "443"
+		}
+		host = net.JoinHostPort(u.Hostname(), port)
+	}
+	conn, err := net.DialTimeout("tcp", host, 5*time.Second)
+	if err != nil {
+		return "", fmt.Errorf("the PDU at %s does not answer: %v", host, err)
+	}
+	conn.Close()
+	return fmt.Sprintf("the PDU answers at %s. The outlet URL and credentials are not tested: calling the URL cuts the power", host), nil
 }
 
 // ExecutePDUFencing sends an HTTP command to the PDU to physically cut power to the peer's outlet.

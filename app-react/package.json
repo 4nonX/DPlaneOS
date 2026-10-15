@@ -7,8 +7,9 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "typecheck": "tsc --noEmit",
-    "lint": "eslint src"
+    "typecheck": "tsc --noEmit && tsc --noEmit -p e2e",
+    "lint": "eslint src",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "@fontsource-variable/jetbrains-mono": "^5.2.8",
@@ -24,6 +25,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@playwright/test": "1.55.0",
     "@tanstack/react-query-devtools": "^5.62.7",
     "@tanstack/router-devtools": "^1.93.0",
     "@types/node": "^25.5.0",

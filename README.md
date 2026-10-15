@@ -229,6 +229,7 @@ sudo dplaneos-ota-update
 | [Installation Guide](docs/admin/INSTALLATION-GUIDE.md) | Requirements, ISO install flow, post-install checklist, OTA upgrades |
 | [NixOS Install Guide](nixos/NIXOS-INSTALL-GUIDE.md) | For NixOS beginners: empty hardware to running NAS |
 | [Administrator Guide](docs/admin/ADMIN-GUIDE.md) | Users, roles, permissions, storage, containers, LDAP/AD, security |
+| [Fleet](docs/admin/FLEET.md) | Many nodes in one view; fleet-wide users, groups and settings rolled out canary first; nodes never depend on the manager |
 | [Git-Driven NAS](docs/admin/GITOPS-DRIVEN-NAS.md) | Operating DPlaneOS entirely via state.yaml: bootstrap, auto-apply, rollback, PR workflow, HA |
 | [Backup and Replication](docs/admin/BACKUP-REPLICATION.md) | Snapshots, ZFS send/receive, cloud sync, cold tier, rsync, DB backup, recovery |
 | [High Availability](docs/admin/HIGH-AVAILABILITY.md) | HA is optional and off by default. Clusters, the third vote (see also [Choosing a third vote](docs/admin/THIRD-VOTE.md)), storage groups (shared or replicated), protection layers, planned moves and failover |

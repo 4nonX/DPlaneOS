@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Proposed |
+| **Status** | Accepted; implemented in phases 2 and 4 (default winners) |
 | **Date** | 2026-10-05 |
 | **Design** | [Design 0001, section 5.6](../0001-distributed-state-gitops-ha.md) |
 

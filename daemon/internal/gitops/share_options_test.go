@@ -11,7 +11,9 @@ func TestShareOptionsRoundTrip(t *testing.T) {
 		TimeMachine: true, TimeMachineQuota: "500G", ShadowCopy: true,
 		HostsAllow: "192.168.1.0/24",
 	}
-	yaml := GenerateStateYAML(&LiveState{Shares: []LiveShare{live}})
+	captured := CaptureCategories(&LiveState{Shares: []LiveShare{live}}, []string{"smb"})
+	captured.Version = "1"
+	yaml := PrintStateYAML(captured)
 	for _, want := range []string{`comment: "Time Machine"`, "time_machine: true", `time_machine_quota: "500G"`, "shadow_copy: true", `hosts_allow: "192.168.1.0/24"`} {
 		if !strings.Contains(yaml, want) {
 			t.Errorf("generated state.yaml missing %q:\n%s", want, yaml)

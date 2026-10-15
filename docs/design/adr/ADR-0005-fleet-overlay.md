@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Proposed |
+| **Status** | Accepted; implemented in phase 6 ([FLEET.md](../../admin/FLEET.md)) |
 | **Date** | 2026-10-05 |
 | **Design** | [Design 0001, section 5.7](../0001-distributed-state-gitops-ha.md) |
 
@@ -24,7 +24,15 @@ A storage fabric of hundreds of servers cannot be one consensus domain: a partit
 ## Consequences
 
 - No fleet-wide strong consistency: fleet changes reach remotes when they are reachable.
-- **Status: open question** — role on any node (default) versus a separate product.
+- Decided: a role any node can switch on, not a separate product.
+
+## Implementation (phase 6)
+
+- Remotes are registered with an API token (admin scope) of the remote; the remote's TLS certificate is pinned when it is added.
+- Fleet scope covers users, groups and the shared settings. On the remote, the fleet's version wins and a local change made since is kept as a proposal (section 5.6, cluster/fleet rule); the change is recorded with origin `overlay`.
+- Rollouts in waves with soak time, automatic or manual continuation, three attempts per remote, pause on failure, no automatic revert. On a cluster only the coordinator receives the change; the members get it through the cluster's synchronization.
+- The manager's inventory poll tells each remote who is calling; a remote that has not heard from its manager for five minutes shows "fleet manager unreachable".
+- Not implemented: the manager's own data (remotes, fleet resources, rollouts) is kept on the manager node only, so running the role on a cluster does not make it highly available; the fleet does not own a Git repository. Both are possible follow-ups and do not affect the remotes.
 
 ## Alternatives considered
 
