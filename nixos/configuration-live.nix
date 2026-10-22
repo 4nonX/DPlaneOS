@@ -120,7 +120,7 @@
       docker ps               # List containers
 
     System state is ephemeral (lost on shutdown).
-    To persist daemon config, mount USB labeled "dplane-persist".
+    To keep it, attach an ext4 drive labelled "dplane-persist" and reboot.
 
     Type 'exit' to return to login prompt.
   '';

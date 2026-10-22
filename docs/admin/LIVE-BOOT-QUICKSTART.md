@@ -104,34 +104,29 @@ In the UI:
 
 ## Optional: Enable Persistence
 
-By default, daemon state and config are **lost on shutdown** (ephemeral mode). To preserve daemon configuration across reboots:
+By default, daemon state and config are **lost on shutdown** (ephemeral mode). To keep them across reboots, attach a persistence drive.
 
-### Prepare USB Persistence Drive
+### Prepare the Persistence Drive
 
-1. **Format a USB drive** with ext4 filesystem, labeled `dplane-persist`:
+1. **Format a USB drive** as ext4, labelled `dplane-persist`. This needs Linux, or the live system itself:
    ```bash
-   # Linux
    sudo mkfs.ext4 -L dplane-persist /dev/sdY1
-
-   # macOS
-   diskutil eraseDisk JHFS+ dplane-persist /dev/diskY
    ```
 
-2. **Plug into NAS** alongside the live-boot USB (or after first boot)
-
-3. **Daemon state automatically links** to the persistence drive on next boot
+2. **Attach it and reboot.** At boot, the system waits up to 10 seconds for the drive. From then on, the state below is kept on the drive. A drive attached after boot is used from the next boot.
 
 ### What Persists
 
-- Daemon configuration and settings
-- PostgreSQL data (if applicable)
-- Container state (via Docker volumes on ZFS pool)
+- The daemon's database, settings, secrets key and firewall rules (`/var/lib/dplaneos`)
+- Daemon configuration (`/etc/dplaneos`) and iSCSI targets (`/etc/target`)
+- Network settings made in the UI (the `05-dplane-*` files of `/etc/systemd/network`)
+- Data on ZFS pools persists anyway: it is on the pool's disks
 
 ### What Does NOT Persist
 
-- /var/log (logs lost on shutdown)
-- /tmp (temporary files lost)
-- Container ephemeral layers (data volumes on ZFS pools DO persist)
+- Logs (`/var/log`) and `/tmp`
+- SSH host keys (new ones each boot)
+- Docker images and containers outside ZFS pools
 
 ---
 
@@ -170,10 +165,10 @@ If your pools aren't showing up:
 
 ### "Web UI not responding"
 
-1. Verify daemon is running: `systemctl status dplaneos`
+1. Verify daemon is running: `systemctl status dplaned`
 2. Check firewall: `sudo ufw status` (should be disabled by default)
 3. Verify port 9000 is listening: `netstat -tlnp | grep 9000`
-4. Check logs: `journalctl -u dplaneos -n 50`
+4. Check logs: `journalctl -u dplaned -n 50`
 
 ### "Can't SSH into machine"
 
@@ -183,10 +178,9 @@ If your pools aren't showing up:
 
 ### "Persistence USB not detected"
 
-1. Plug the `dplane-persist` labeled USB into the machine
-2. Wait 10-15 seconds (udev discovery timeout)
-3. Check logs: `journalctl -u dplane-link-persist`
-4. Manual mount: `mkdir -p /mnt/usb-persist && mount /dev/disk/by-label/dplane-persist /mnt/usb-persist`
+1. Check the label: `lsblk -o NAME,LABEL,FSTYPE` must show `dplane-persist` and `ext4`
+2. The drive must be attached at boot; reboot after attaching it
+3. Check the log: `journalctl -b -u dplane-link-persist`
 
 ### System Performance Low
 
@@ -225,8 +219,8 @@ See [Installation Guide](INSTALLATION-GUIDE.md) for permanent disk installation.
 **Q: Is it safe to run live for production use?**  
 A: ZFS is production-grade, but D-PlaneOS in live boot is best for trials or temporary workloads. For permanent deployments, install to disk. Data on ZFS pools is never at risk; only daemon state is ephemeral.
 
-**Q: Can I attach a second persistence USB mid-session?**  
-A: Yes, label it `dplane-persist`, plug it in, and restart the daemon: `systemctl restart dplaneos`
+**Q: Can I attach the persistence drive mid-session?**  
+A: It is used from the next boot. Reboot after attaching it; settings made before then stay in RAM and are lost.
 
 **Q: Can I reboot and keep daemon state?**  
 A: Only if you've attached a `dplane-persist` USB. Without it, state resets after each reboot.

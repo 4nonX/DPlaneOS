@@ -62,7 +62,7 @@ The update runs these steps:
 The same update through the API:
 
 ```bash
-curl -X POST .../api/system/updates/nixos/apply -d '{"version":"v15.2.0"}'   # empty: latest
+curl -X POST .../api/system/updates/nixos/apply -d '{"version":"v16.0.0"}'   # empty: latest
 curl .../api/system/updates/nixos?check=1
 ```
 
@@ -137,7 +137,38 @@ Earlier documentation described A/B partition slots, `dplaneos-ota-update` and s
 - the root filesystem was always `system-a`;
 - nothing built the bundles.
 
-NixOS generations provide the same atomic switch and rollback. The `system-b` partition created by installers before 15.2 is unused (new installs give its space to the system partition). `services.dplaneos.ota.signingKey` has been removed.
+NixOS generations provide the same atomic switch and rollback. The `system-b` partition created by installers before 16.0 is unused (new installs give its space to the system partition). `services.dplaneos.ota.signingKey` has been removed.
+
+---
+
+## Installs from before 16.0
+
+A system installed before 16.0 has no `/etc/dplaneos-source.json` and no system flake, and its Updates page used the A/B scheme. Move it to 16.0 once by hand. From then on the Updates page works as described above.
+
+```bash
+sudo tee /etc/nixos/flake.nix >/dev/null <<'EOF'
+# Managed by DPlaneOS: this machine is built from the DPlaneOS release
+# below plus its hardware configuration (and local.nix, if present).
+{
+  inputs.dplaneos.url = "github:4nonX/DPlaneOS/v16.0.0";
+
+  outputs = { dplaneos, ... }: {
+    nixosConfigurations.dplaneos = dplaneos.nixosConfigurations.dplaneos.extendModules {
+      modules = [ ./hardware-configuration.nix ]
+        ++ (if builtins.pathExists ./local.nix then [ ./local.nix ] else [ ]);
+    };
+  };
+}
+EOF
+sudo nixos-rebuild boot --flake /etc/nixos#dplaneos --impure
+sudo reboot
+```
+
+On arm64, use `dplaneos.nixosConfigurations.dplaneos-arm`. `/etc/nixos/hardware-configuration.nix` was written by the installer.
+
+These systems' partitions are labelled `ESP`, `system-a` and `persist`; installs from 16.0 use `dplaneos-esp`, `dplaneos-system` and `dplaneos-persist`. The rebuild runs on the machine with `--impure`, sees the old labels and mounts by them (`services.dplaneos.legacyPartitionLabels`). If you build the system on another machine, set `services.dplaneos.legacyPartitionLabels = true;` in `/etc/nixos/local.nix`. Without it, the new generation cannot find its disk at boot. In that case, pick the previous generation in the boot menu.
+
+The persisted `/etc/systemd/network` of these systems is copied into place once at the first boot (`dplaneos-networkd-migrate`).
 
 ---
 

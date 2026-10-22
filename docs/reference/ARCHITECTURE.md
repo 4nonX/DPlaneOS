@@ -153,14 +153,16 @@ Every state-changing operation appends to an audit log stored in PostgreSQL. Eac
 DPlaneOS uses NixOS impermanence: the root filesystem (`/`) holds the system (Nix store, generations) and nothing the daemon must keep. All state that must survive reboots lives on a dedicated `/persist` partition.
 
 ```
-Boot disk layout (disko.nix):
-├── ESP                 /boot       (EFI, systemd-boot, one entry per generation)
-├── system-a            /           (ext4, 40 GB: Nix store and NixOS generations)
-└── /persist            /persist    (durable ext4, all runtime state)
+Boot disk layout (disko.nix, partition labels):
+├── dplaneos-esp        /boot       (EFI, systemd-boot, one entry per generation)
+├── dplaneos-system     /           (ext4, 40 GB: Nix store and NixOS generations)
+└── dplaneos-persist    /persist    (durable ext4, all runtime state)
 
 ZFS data disks (separate from boot disk):
 └── tank/               (user data pool, survives any OS reinstall)
 ```
+
+Installs before 16.0 have the partition labels `ESP`, `system-a` and `persist` (and an unused `system-b`); `services.dplaneos.legacyPartitionLabels` mounts them.
 
 The `/persist` partition is bind-mounted into the live filesystem at boot. From the daemon's perspective, it writes to `/var/lib/dplaneos`, `/etc/dplaneos`, `/var/lib/docker`, and similar paths - but these are bind-mounts from `/persist` and always land on the durable partition.
 

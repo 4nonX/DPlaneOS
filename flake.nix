@@ -359,6 +359,18 @@
           frontendPackage = frontend;
         };
 
+        # Installs before 16.0 mount the partition labels ESP/system-a/persist
+        # (nixos/disko.nix, legacyPartitionLabels). Checked at evaluation.
+        checks.partition-labels = let
+          installed = self.nixosConfigurations.${if system == "aarch64-linux" then "dplaneos-arm" else "dplaneos"};
+          legacy    = installed.extendModules { modules = [ { services.dplaneos.legacyPartitionLabels = true; } ]; };
+          devices   = c: map (m: c.config.fileSystems.${m}.device) [ "/" "/boot" "/persist" ];
+          want      = l: map (n: "/dev/disk/by-partlabel/${n}") l;
+        in
+          assert devices installed == want [ "dplaneos-system" "dplaneos-esp" "dplaneos-persist" ];
+          assert devices legacy    == want [ "system-a" "ESP" "persist" ];
+          pkgs.runCommand "dplaneos-partition-labels" { } "touch $out";
+
         devShells.default = pkgs.mkShell {
           buildInputs = with pkgs; [ go gcc musl.dev gopls gotools postgresql git ];
           shellHook = ''
