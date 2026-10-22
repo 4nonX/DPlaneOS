@@ -282,6 +282,27 @@ func recordRepl(db *sql.DB, group, dir, peer, pool, snap string, err error) {
 		group, dir, peer, pool, snap)
 }
 
+// knownBy returns the replication snapshots of pool that peer is known to
+// have: the last one sent to it and the last one received from it (when it
+// owned the group).
+func knownBy(db *sql.DB, group, peer, pool string) []string {
+	rows, err := db.Query(`SELECT last_snapshot FROM group_replication
+		WHERE group_name = $1 AND peer = $2 AND pool = $3 AND last_snapshot <> ''`, group, peer, pool)
+	if err != nil {
+		log.Printf("GROUPS: snapshots known to %s: %v", peer, err)
+		return nil
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var s string
+		if rows.Scan(&s) == nil {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
 // ── Owner side ────────────────────────────────────────────────────────────────
 
 // ReplicateNow replicates every pool of a group to every other candidate now.
@@ -375,6 +396,14 @@ func (m *Manager) replicate(g Group, targets []string) error {
 			recordRepl(m.db, g.Name, "out", t, p.Name, snap, err)
 			if err != nil {
 				errs = append(errs, fmt.Errorf("%s to %s: %w", p.Name, t, err))
+				if base == "" {
+					// The copy does not answer: keep the newest snapshot it is
+					// known to have. Pruned after three intervals, the next
+					// replication there had to resend the whole pool, and a
+					// split there could no longer be kept on this node (VM
+					// test: an owner down longer than three intervals).
+					base = latestCommon(local, knownBy(m.db, g.Name, t, p.Name))
+				}
 				if base != "" {
 					needed[base] = true // keep the base for the next attempt
 				}
