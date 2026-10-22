@@ -3,10 +3,11 @@
 # This module defines the persistent and ephemeral paths for the NAS.
 #
 # Mental model:
-#   /           - ephemeral ext4 (slot A or B). Wiped clean every OTA update.
-#                 Contains only the NixOS system closure (immutable store paths).
+#   /           - ext4 system partition. Updates are NixOS generations on it
+#                 (ota-module.nix); it is not wiped, but state that must
+#                 survive a reinstall of the system partition belongs here:
 #   /persist    - durable ext4. Never wiped. All state lives here.
-#   /nix/store  - populated by NixOS activation. Ephemeral by design.
+#   /nix/store  - the system closures of the boot generations.
 #
 # What survives reboots (bound from /persist/* → live path):
 #   - DPlaneOS databases (main + audit)
@@ -95,6 +96,17 @@
         mode      = "0755";
       }
 
+      # ── iSCSI (LIO) configuration ───────────────────────────────────────
+      # `targetcli saveconfig` writes /etc/target/saveconfig.json; dplaned
+      # replays it at startup (configfs is empty after every boot). On the
+      # slot root it would be lost with the next OTA update.
+      {
+        directory = "/etc/target";
+        user      = "root";
+        group     = "root";
+        mode      = "0700";
+      }
+
       # ── NFS exports state ────────────────────────────────────────────────
       {
         directory = "/var/lib/nfs";
@@ -122,19 +134,11 @@
         mode      = "0755";
       }
 
-      # ── systemd-networkd unit files (DPlaneOS 50-dplane-* managed) ────────
-      # The root ext4 slot is replaced on every OTA update. Without this,
-      # 50-dplane-*.{network,netdev} written by networkdwriter are lost after
-      # the next OTA and network reverts to NixOS defaults on reboot.
-      # NixOS activation writes its own 10-/20- prefixed files into this same
-      # directory; both sets coexist because the bind-mount is set up before
-      # NixOS activation runs.
-      {
-        directory = "/etc/systemd/network";
-        user      = "root";
-        group     = "root";
-        mode      = "0755";
-      }
+      # /etc/systemd/network is NOT persisted: the bind mount hid the files
+      # NixOS links there (99-ethernet-default-dhcp.network), so a new install
+      # never configured its network card. The root filesystem survives
+      # reboots and updates, and the daemon's 05-dplane-* files with it; see
+      # dplaneos-networkd-migrate below for files from the persisted copy.
 
       # ── systemd-networkd lease files ────────────────────────────────────
       {
@@ -167,12 +171,10 @@
     # ── Individual files to bind from /persist ────────────────────────────
     files = [
 
-      # ── DPlaneOS JSON state (v5.0 JSON-to-Nix bridge) ───────────────────
-      # dplane-state.json is written by the daemon on every UI change.
-      # It is read by dplane-generated.nix at nixos-rebuild eval time.
-      # Must survive reboots - without this, all UI-configured network/samba
-      # settings revert to NixOS defaults on every reboot.
-      "/var/lib/dplaneos/dplane-state.json"
+      # dplane-state.json (the daemon's JSON-to-Nix state) lives in the
+      # persisted /var/lib/dplaneos. Listing it here as well linked the file
+      # to itself: the daemon could not read it ("too many levels of
+      # symbolic links") and UI settings were never recorded for rebuilds.
 
       # ── Machine ID ───────────────────────────────────────────────────────
       # A stable machine-id ensures journald cursors survive reboots.
@@ -187,10 +189,9 @@
       "/etc/ssh/ssh_host_ed25519_key"
       "/etc/ssh/ssh_host_ed25519_key.pub"
 
-      # ── ZFS hostid ───────────────────────────────────────────────────────
-      # NixOS writes this from networking.hostId. Persisting avoids
-      # a ZFS "pool was last used by another system" error after slot swap.
-      "/etc/hostid"
+      # /etc/hostid is not listed: NixOS generates it from networking.hostId
+      # on every activation, and the persisted copy collided with it (the
+      # activation step failed with "A file already exists at /etc/hostid").
 
     ]; # files
 
@@ -220,7 +221,7 @@
       ExecStart       = pkgs.writeShellScript "persist-check" ''
         #!/bin/sh
         set -e
-        if ! mountpoint -q /persist; then
+        if ! ${pkgs.util-linux}/bin/mountpoint -q /persist; then
           # Write to all available outputs before halting so operators
           # can diagnose remotely via IPMI SOL, serial console, or journald.
           msg="CRITICAL: /persist is NOT mounted - DPlaneOS cannot start safely."
@@ -240,6 +241,31 @@
           fi
         done
         echo "persist-health-check: OK (/persist is mounted and writable)"
+      '';
+    };
+  };
+
+  # ── Network settings from the formerly persisted /etc/systemd/network ──────
+  # Installs from before this change kept the daemon's 05-dplane-* files in
+  # /persist/etc/systemd/network. Copy them back once, before networkd reads
+  # its configuration; a file already in /etc/systemd/network is newer.
+  systemd.services.dplaneos-networkd-migrate = {
+    description = "DPlaneOS: restore network settings from /persist";
+    wantedBy    = [ "systemd-networkd.service" ];
+    before      = [ "systemd-networkd.service" ];
+    after       = [ "local-fs.target" ];
+    unitConfig.DefaultDependencies = false;
+    unitConfig.ConditionDirectoryNotEmpty = "/persist/etc/systemd/network";
+    serviceConfig = {
+      Type            = "oneshot";
+      RemainAfterExit = true;
+      ExecStart       = pkgs.writeShellScript "dplaneos-networkd-migrate" ''
+        mkdir -p /etc/systemd/network
+        for f in /persist/etc/systemd/network/05-dplane-*; do
+          [ -f "$f" ] || continue
+          t=/etc/systemd/network/$(basename "$f")
+          [ -e "$t" ] || cp -p "$f" "$t"
+        done
       '';
     };
   };

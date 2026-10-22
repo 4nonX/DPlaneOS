@@ -22,6 +22,7 @@
 
 import { ImagesTab, StatsTab, SafeUpdateModal, ConvertRunButton } from '@/components/docker/DockerExtras'
 import { CustomIconsButton } from '@/components/docker/CustomIconsButton'
+import { StackUpdateBadge, StackUpdatePanel } from '@/components/docker/StackUpdates'
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { itemOpacity } from '@/lib/listFilter'
@@ -1607,6 +1608,7 @@ function ComposeManager() {
     stream.start(
       `/api/docker/stacks/stream?name=${encodeURIComponent(selected)}&action=${encodeURIComponent(act)}`,
       () => {
+        // also refreshes ['docker', 'stacks', 'updates'] (last update result)
         qc.invalidateQueries({ queryKey: ['docker', 'stacks'] })
         qc.invalidateQueries({ queryKey: ['docker', 'containers'] })
       }
@@ -1696,7 +1698,7 @@ function ComposeManager() {
               <span style={{ width: 8, height: 8, borderRadius: '50%', background: stackStatusColor(s.status), flexShrink: 0, boxShadow: s.status === 'running' ? `0 0 5px ${stackStatusColor(s.status)}` : 'none' }} />
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontWeight: 600, fontSize: 'var(--text-sm)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.name}</div>
-                <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', marginTop: 1 }}>{s.services?.length ?? 0} services · {s.status}</div>
+                <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', marginTop: 1, display: 'flex', gap: 6 }}>{s.services?.length ?? 0} services · {s.status} <StackUpdateBadge name={s.name} /></div>
               </div>
             </button>
           ))}
@@ -1794,6 +1796,8 @@ function ComposeManager() {
                 )}
               </div>
             </div>
+
+            <StackUpdatePanel name={selected} />
 
             {/* Sub-tabs */}
             <div style={{ display: 'flex', gap: 2, padding: '8px 20px', borderBottom: '1px solid var(--border)' }}>
@@ -1928,6 +1932,10 @@ interface GitRepo {
   last_commit: string
   last_error: string
   enabled: boolean
+  deployed_commit?: string  // deployed only when the commit changes
+  deploy_error?: string
+  has_webhook?: boolean
+  project?: string          // compose project name (git-<name>)
 }
 
 interface GitCredential {
@@ -2384,6 +2392,7 @@ function GitSyncTab() {
   const [pendingOp, setPendingOp] = useState<Record<number, string>>({})
   const [repoStatuses, setRepoStatuses] = useState<Record<number, RepoStatus>>({})
   const [exportData, setExportData] = useState<{ repoId: number; repoName: string; yaml: string } | null>(null)
+  const [webhookInfo, setWebhookInfo] = useState<{ name: string; url: string; secret: string; note: string } | null>(null)
 
   const reposQ = useQuery({
     queryKey: ['git-sync', 'repos'],
@@ -2416,6 +2425,19 @@ function GitSyncTab() {
       setRepoStatuses(prev => ({ ...prev, [id]: { checking: false, behind: false, behindCount: '', recentCommits: [] } }))
       toast.error((e instanceof Error ? e.message : null) ?? 'Status check failed')
     }
+  }
+
+  // Creates (or replaces) the repository's webhook secret; shown once.
+  async function rotateWebhook(id: number) {
+    const repo = repos.find(r => r.id === id)
+    if (repo?.has_webhook && !(await confirm({ title: 'Replace the webhook secret?', message: 'The webhook configured with the current secret stops working.', confirmLabel: 'Replace' }))) return
+    try {
+      const res = await api.post<{ success: boolean; secret?: string; path?: string; note?: string; error?: string }>(
+        `/api/git-sync/repos/webhook-secret?id=${id}`, {})
+      if (!res.success || !res.secret) { toast.error(res.error ?? 'Failed to create the secret'); return }
+      setWebhookInfo({ name: repo?.name ?? String(id), url: `${window.location.origin}${res.path}`, secret: res.secret, note: res.note ?? '' })
+      qc.invalidateQueries({ queryKey: ['git-sync', 'repos'] })
+    } catch (e: unknown) { toast.error((e instanceof Error ? e.message : null) ?? 'Failed to create the secret') }
   }
 
   async function repoAction(id: number, action: 'pull' | 'push' | 'deploy' | 'delete' | 'export') {
@@ -2513,6 +2535,16 @@ function GitSyncTab() {
             </div>
           )}
 
+          {webhookInfo && (
+            <div className="alert alert-info" style={{ marginBottom: 12, fontSize: 'var(--text-sm)', display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <div style={{ fontWeight: 700 }}>Webhook for {webhookInfo.name}</div>
+              <div>Payload URL: <code style={{ fontFamily: 'var(--font-mono)', userSelect: 'all' }}>{webhookInfo.url}</code></div>
+              <div>Secret: <code style={{ fontFamily: 'var(--font-mono)', userSelect: 'all' }}>{webhookInfo.secret}</code></div>
+              <div style={{ color: 'var(--text-secondary)' }}>{webhookInfo.note} A push to the tracked branch syncs the repository and deploys the new commit.</div>
+              <div><button onClick={() => setWebhookInfo(null)} className="btn btn-ghost" style={{ padding: '4px 10px' }}>Done</button></div>
+            </div>
+          )}
+
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             {repos.map(repo => {
               const op = pendingOp[repo.id]
@@ -2553,7 +2585,17 @@ function GitSyncTab() {
                         {repo.cred_name && <span><Icon name="lock" size={11} />{repo.cred_name}</span>}
                         {repo.last_commit && <span style={{ fontFamily: 'var(--font-mono)' }}>{repo.last_commit.slice(0, 12)}</span>}
                         <span>Synced {relativeTime(repo.last_sync_at)}</span>
+                        {repo.project && <span title="compose project">project {repo.project}</span>}
+                        <span title="Auto-sync deploys only when the commit changes">
+                          deployed {repo.deployed_commit ? <span style={{ fontFamily: 'var(--font-mono)' }}>{repo.deployed_commit.slice(0, 12)}</span> : 'nothing yet'}
+                        </span>
+                        {repo.has_webhook && <span><Icon name="webhook" size={11} />webhook</span>}
                       </div>
+                      {repo.deploy_error && (
+                        <div style={{ marginTop: 6, fontSize: 'var(--text-xs)', color: 'var(--error)', fontFamily: 'var(--font-mono)', background: 'color-mix(in srgb, var(--error) 8%, transparent)', padding: '4px 8px', borderRadius: 4, maxHeight: 60, overflow: 'auto' }}>
+                          {repo.deploy_error}
+                        </div>
+                      )}
                       {status?.recentCommits && status.recentCommits.length > 0 && (
                         <div style={{ marginTop: 6, fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--text-tertiary)', lineHeight: 1.6 }}>
                           {status.recentCommits.map((c, i) => <div key={i}>{c}</div>)}
@@ -2579,6 +2621,11 @@ function GitSyncTab() {
                       <Tooltip content="Commit and push changes">
                         <button onClick={() => repoAction(repo.id, 'push')} disabled={!!op} className="btn btn-ghost" style={{ padding: '6px 10px', fontSize: 'var(--text-xs)' }}>
                           {op === 'push' ? '...' : <><Icon name="upload" size={14} />Push</>}
+                        </button>
+                      </Tooltip>
+                      <Tooltip content="Deploy on push: create a webhook secret (GitHub, Gitea/Forgejo, GitLab)">
+                        <button onClick={() => rotateWebhook(repo.id)} disabled={!!op} className="btn btn-ghost" style={{ padding: '6px 10px', fontSize: 'var(--text-xs)' }}>
+                          <Icon name="webhook" size={14} />{repo.has_webhook ? 'New secret' : 'Webhook'}
                         </button>
                       </Tooltip>
                       <Tooltip content="Export running containers as compose YAML into this repo">

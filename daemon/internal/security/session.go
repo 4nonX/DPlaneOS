@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -163,6 +164,10 @@ type SessionUser struct {
 	AAL int
 }
 
+// ErrInvalidSession: no such session, or it expired or was ended. Any other
+// error from ValidateSessionAndGetUser means the lookup itself failed.
+var ErrInvalidSession = errors.New("invalid or expired session")
+
 // ValidateSessionAndGetUser validates a session token and returns the associated user
 func ValidateSessionAndGetUser(sessionToken string) (*SessionUser, error) {
 	if db == nil {
@@ -191,7 +196,7 @@ func ValidateSessionAndGetUser(sessionToken string) (*SessionUser, error) {
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			return nil, fmt.Errorf("invalid or expired session")
+			return nil, ErrInvalidSession
 		}
 		return nil, fmt.Errorf("session validation failed: %w", err)
 	}

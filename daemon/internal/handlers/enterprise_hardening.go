@@ -6,7 +6,6 @@ import (
 	"regexp"
 	"strconv"
 
-	"dplaned/internal/cmdutil"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -343,13 +342,8 @@ func (h *NixOSGuardHandler) ApplyWithWatchdog(w http.ResponseWriter, r *http.Req
 		var err error
 		j.Log("Running nixos-rebuild switch...")
 
-		flakeNix := flakePath + "/flake.nix"
-		var outBytes []byte
-		if _, statErr := os.Stat(flakeNix); statErr == nil {
-			outBytes, err = cmdutil.RunExtreme("nixos-rebuild", "switch", "--flake", flakePath+"#dplaneos")
-		} else {
-			outBytes, err = cmdutil.RunExtreme("nixos-rebuild", "switch")
-		}
+		// Always the system flake (a plain configuration.nix is NixOS's stock one).
+		outBytes, err := rebuildSystem("switch")
 		output = string(outBytes)
 
 		if err != nil {
@@ -384,7 +378,7 @@ func (h *NixOSGuardHandler) ApplyWithWatchdog(w http.ResponseWriter, r *http.Req
 			watchdogActive = false
 			watchdogMu.Unlock()
 
-			rollbackOut, rollbackErr := cmdutil.RunExtreme("nixos-rebuild", "switch", "--rollback")
+			rollbackOut, rollbackErr := runNixosRebuild("switch", "--rollback")
 			if rollbackErr != nil {
 				j.Log(fmt.Sprintf("ERROR: Auto-rollback failed: %v", rollbackErr))
 				j.Fail(fmt.Sprintf("Watchdog timeout & Rollback failed: %v", rollbackErr))
@@ -1003,19 +997,29 @@ func runSMARTScan() {
 		}
 
 		devicePath := "/dev/" + device
+		// -H: the drive's own verdict; NVMe drives have no ATA attributes
+		// and were never checked.
 		smartOut, smartErr := executeCommandWithTimeout(TimeoutMedium, "smartctl", []string{
-			"-A", "-j", devicePath,
+			"-H", "-A", "-j", devicePath,
 		})
 		if smartErr != nil && smartOut == "" {
 			continue // device doesn't support SMART or smartctl unavailable
 		}
 
 		attrs := parseSMARTAttributes(smartOut)
-		if len(attrs) == 0 {
+		hRisk, hReasons, hasHealth := smartHealth(smartOut)
+		if len(attrs) == 0 && !hasHealth {
 			continue
 		}
 
-		risk, reasons := PredictDiskFailure(attrs)
+		risk, reasons := "ok", []string(nil)
+		if len(attrs) > 0 {
+			risk, reasons = PredictDiskFailure(attrs)
+		}
+		if riskRank(hRisk) > riskRank(risk) {
+			risk = hRisk
+		}
+		reasons = append(hReasons, reasons...)
 		if risk == "ok" {
 			// Clear de-dup state so a future failure re-alerts
 			smartAlertMu.Lock()

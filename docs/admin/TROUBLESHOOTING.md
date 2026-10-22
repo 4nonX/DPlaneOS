@@ -115,33 +115,14 @@ The daemon restarts via systemd. Wait 30 seconds, then refresh the browser. The 
 **Fix - Option 2: Interactive recovery CLI**
 ```bash
 sudo dplaneos-recovery
-# Select option 5: Reset Admin Password
+# Select option 5: Reset a User's Password
 ```
 
-**Fix - Option 3: Manual admin reset**
+**Fix - Option 3: Without the menu**
 ```bash
-sudo systemctl stop dplaned
-
-PASS_TMP=$(mktemp)
-chmod 600 "$PASS_TMP"
-printf '%s' 'your-new-password' > "$PASS_TMP"
-
-NEW_HASH=$(python3 -c "
-import bcrypt, sys
-with open(sys.argv[1], 'rb') as f:
-    pw = f.read().strip()
-print(bcrypt.hashpw(pw, bcrypt.gensalt(rounds=12)).decode())
-" "$PASS_TMP")
-rm -f "$PASS_TMP"
-
-sudo -u postgres psql dplaneos -c "
-  INSERT INTO users (id, username, password_hash, display_name, email, active, source)
-  VALUES (1, 'admin', '${NEW_HASH}', 'Administrator', 'admin@localhost', 1, 'local')
-  ON CONFLICT (id) DO UPDATE SET password_hash = EXCLUDED.password_hash;
-"
-
-sudo systemctl start dplaned
+printf '%s\n' 'New-Password-1!' | sudo dplaned -db-dsn "<DSN>" -secrets-key <key> -recover-reset-password admin
 ```
+(`<DSN>` and `<key>`: the `-db-dsn` and `-secrets-key` of `systemctl cat dplaned`.)
 
 ---
 
@@ -672,7 +653,7 @@ The recovery CLI is available on any installed system:
 sudo dplaneos-recovery
 ```
 
-This provides a menu-driven interface for: service restart, database checks, admin password reset, ZFS pool import/export, permission fixes, log viewing, and full diagnostics. It does not require the web UI to be functional.
+This provides a menu-driven interface for: service restart, database checks, password reset and 2FA reset for any local user, ZFS pool import/export, log viewing, and full diagnostics. It does not require the web UI to be functional.
 
 ### Manual Full Reset
 
@@ -682,31 +663,26 @@ DPlaneOS runs on NixOS. A full reset means reinstalling the OS from the ISO and 
 2. After first boot, import data pools: `sudo zpool import -a`
 3. Restore the configuration from Git: System › Git › Configuration repository: add the credentials and the repository, save
 4. The first check lists the repository's configuration as changes waiting on each scope: **Apply** them (or switch on automatic apply for this once); or apply a `state.yaml` file directly with `sudo dplaned --apply-only`
-5. Restore the PostgreSQL database from backup if needed (see [BACKUP-REPLICATION.md](BACKUP-REPLICATION.md))
+5. Restore the configuration: Settings → Maintenance → Stored backups (the daily copy on the pool), see [BACKUP-REPLICATION.md](BACKUP-REPLICATION.md#configuration-backup)
 
 ZFS data pools are on separate disks and are completely unaffected by a boot disk reinstall.
 
-Before reinstalling, back up the PostgreSQL database if the data pools do not hold a ZFS snapshot of it:
-
-```bash
-sudo -u postgres pg_dump dplaneos | gzip > /tmp/dplaneos-db-$(date +%Y%m%d).sql.gz
-# Copy to a safe location before reinstalling
-```
+Before reinstalling, download a configuration backup (Settings → Maintenance) unless a recent daily copy is on a pool (`<pool>/.dplaneos-config/`).
 
 ### Rollback an Upgrade
 
-Updates use an A/B slot system. To revert to the previous version:
+An update that fails its check after the reboot goes back by itself. To go back by hand
+(see [Updates](OTA-UPDATES.md#going-back-by-hand) for setting the flake back too):
 
 ```bash
-# Revert to the previous NixOS generation (other slot)
-sudo dplaneos-ota-update --revert
+sudo nixos-rebuild switch --rollback
 
 # If the system will not boot at all:
 # Select the previous NixOS generation from the systemd-boot menu,
 # press 'd' to set it as default, then Enter to boot it.
 ```
 
-See [OTA-UPDATES.md](OTA-UPDATES.md) for full details on the A/B slot mechanism and automatic post-boot health checks.
+See [OTA-UPDATES.md](OTA-UPDATES.md) for how updates, the check after the reboot and the automatic way back work.
 
 ---
 

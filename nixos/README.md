@@ -78,7 +78,7 @@ sudo nixos-rebuild switch
 | `setup-nixos.sh` | Setup helper: generates host ID, detects boot loader, patches flake.nix |
 | `install.sh` | First-boot installer script: partitions, formats, and installs DPlaneOS to disk |
 | `witness-installer.nix` | Standalone witness-only ISO NixOS config (local builds only: `nix build .#iso-witness`) - replicated topology (Path B) only |
-| `ota-update.sh` | OTA update shell script: A/B slot swap, health check, and auto-revert logic |
+| `dplaneos-update-health.sh` | Check after an update's reboot; goes back to the previous generation when it fails (ota-module.nix) |
 | `NIXOS-INSTALL-GUIDE.md` | Complete step-by-step guide for beginners |
 | `NIXOS-README.md` | Technical reference: rollback, licensing, impermanence, advanced options |
 
@@ -156,7 +156,7 @@ sudo nixos-rebuild switch
 | Component | Details |
 |-----------|---------|
 | **ZFS** | Auto-import, monthly scrub, auto-snapshots (15min/hourly/daily/weekly/monthly) |
-| **DPlaneOS Daemon** | systemd service, OOM-protected (1 GB), **path-agnostic execution**, hardened (ProtectSystem=strict) |
+| **DPlaneOS Daemon** | systemd service, memory-capped (`MemoryMax=1G`, `services.dplaneos.memoryMax`), **path-agnostic execution**, hardened (`NoNewPrivileges`, bounded capabilities; no mount namespace, so ZFS mounts stay visible to Samba and NFS) |
 | **nginx** | Reverse proxy, security headers, PHP blocked |
 | **Docker** | ZFS storage driver, weekly prune |
 | **Samba** | Performance-tuned, dynamic shares via daemon |

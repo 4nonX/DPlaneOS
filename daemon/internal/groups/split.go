@@ -226,13 +226,15 @@ func (m *Manager) keepDivergent(g Group, pool string) (string, error) {
 	if len(local) == 0 {
 		return "", fmt.Errorf("%w: this copy shares no replication snapshot with the owner (it is not a split but a different pool)", ErrCannotKeep)
 	}
-	base := local[len(local)-1]
 	remote, err := m.tr.RemoteSnapshots(g.Owner, g.Name, pool)
 	if err != nil {
 		return "", fmt.Errorf("%w: the owner does not answer: %v", ErrCannotKeep, err)
 	}
-	if !contains(remote, base) {
-		return "", fmt.Errorf("%w: the owner no longer has the common snapshot %s", ErrCannotKeep, base)
+	// The newest snapshot both have: this node's newest may never have
+	// reached the owner (taken just before this node failed).
+	base := latestCommon(local, remote)
+	if base == "" {
+		return "", fmt.Errorf("%w: the owner no longer has a snapshot in common with this copy (newest here: %s)", ErrCannotKeep, local[len(local)-1])
 	}
 	changed, err := m.split.Changed(pool, base)
 	if err != nil {

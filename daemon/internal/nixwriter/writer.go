@@ -21,8 +21,9 @@
 // Caller API is identical to v4 - handlers call Set*() methods and never
 // know or care whether a .nix file or a .json file is being written.
 package nixwriter
- 
+
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -32,14 +33,13 @@ import (
 	"sort"
 	"strings"
 	"sync"
-	"crypto/sha256"
 )
- 
+
 const (
 	// StateJSONPath is the only file the daemon ever writes for NixOS state.
 	// The static dplane-generated.nix reads this file via builtins.fromJSON.
 	StateJSONPath = "/var/lib/dplaneos/dplane-state.json"
- 
+
 	// GeneratedNixPath is where setup-nixos.sh installs the static bridge file.
 	// The daemon does NOT write to this path in v5.
 	GeneratedNixPath = "/etc/nixos/dplane-generated.nix"
@@ -51,7 +51,7 @@ const (
 	// AppliedStatePath stores a copy of the dplane-state.json that was last applied.
 	AppliedStatePath = "/var/lib/dplaneos/dplane-state.applied.json"
 )
- 
+
 // DPlaneState is the complete set of system settings that DPlaneOS can manage
 // on a NixOS host. It is serialised to JSON and read by dplane-generated.nix.
 //
@@ -63,25 +63,25 @@ type DPlaneState struct {
 	// ── System ────────────────────────────────────────────────────────────────
 	Hostname string `json:"hostname,omitempty"`
 	Timezone string `json:"timezone,omitempty"`
- 
+
 	// ── Network ───────────────────────────────────────────────────────────────
 	DNSServers []string `json:"dns_servers,omitempty"`
 	NTPServers []string `json:"ntp_servers,omitempty"`
- 
+
 	// Firewall: complete allowed port lists. Nil = "use NixOS defaults".
 	// Set to an explicit empty list to open no ports (beyond NixOS defaults).
 	FirewallTCP []int `json:"firewall_tcp,omitempty"`
 	FirewallUDP []int `json:"firewall_udp,omitempty"`
- 
+
 	// Static interface configs. Key = interface name (e.g. "eth0").
 	NetworkStatics map[string]NetworkStaticEntry `json:"network_statics,omitempty"`
- 
+
 	// Bond devices. Key = bond name.
 	NetworkBonds map[string]NetworkBondEntry `json:"network_bonds,omitempty"`
- 
+
 	// VLAN devices. Key = vlan interface name (e.g. "eth0.10").
 	NetworkVLANs map[string]NetworkVLANEntry `json:"network_vlans,omitempty"`
- 
+
 	// ── Samba ────────────────────────────────────────────────────────────────
 	SambaWorkgroup        string `json:"samba_workgroup,omitempty"`
 	SambaServerString     string `json:"samba_server_string,omitempty"`
@@ -91,7 +91,7 @@ type DPlaneState struct {
 	SambaSecurityMode     string `json:"samba_security_mode,omitempty"`
 	SambaRealm            string `json:"samba_realm,omitempty"`
 	SambaDomainController string `json:"samba_domain_controller,omitempty"`
- 
+
 	// ── SSH Daemon ────────────────────────────────────────────────────────────
 	// SSHPort overrides the sshd listen port. 0 = unset (NixOS default: 22).
 	SSHPort int `json:"ssh_port,omitempty"`
@@ -126,7 +126,7 @@ type DPlaneState struct {
 	// Applied to NUT when services.dplaneos.ups.enable is set.
 	UPSFinalDelay int    `json:"ups_final_delay,omitempty"`
 	UPSLowBattery int    `json:"ups_low_battery,omitempty"`
-	UPSAction     string `json:"ups_action,omitempty"` // shutdown | hibernate
+	UPSAction     string `json:"ups_action,omitempty"` // shutdown (hibernate in older state files: shut down too)
 }
 
 // IDMAPDomain describes one Active Directory forest's UID/GID mapping.
@@ -138,25 +138,25 @@ type IDMAPDomain struct {
 	Low     int    `json:"low"`     // lowest UID/GID
 	High    int    `json:"high"`    // highest UID/GID
 }
- 
+
 // NetworkStaticEntry describes one statically-configured interface.
 type NetworkStaticEntry struct {
 	CIDR    string `json:"cidr"`    // e.g. "192.168.1.10/24"
 	Gateway string `json:"gateway"` // e.g. "192.168.1.1", may be ""
 }
- 
+
 // NetworkBondEntry describes a bonding interface.
 type NetworkBondEntry struct {
 	Slaves []string `json:"slaves"`
 	Mode   string   `json:"mode"` // e.g. "802.3ad"
 }
- 
+
 // NetworkVLANEntry describes a VLAN sub-interface.
 type NetworkVLANEntry struct {
 	Parent string `json:"parent"` // parent interface, e.g. "eth0"
 	VID    int    `json:"vid"`    // VLAN ID 1-4094
 }
- 
+
 // Writer manages the dplane-state.json file.
 // On non-NixOS systems all writes are no-ops - safe to use everywhere.
 type Writer struct {
@@ -165,7 +165,7 @@ type Writer struct {
 	nixOS bool
 	state DPlaneState
 }
- 
+
 // New returns a Writer targeting jsonPath.
 // If the system is not NixOS, all writes are no-ops.
 func New(jsonPath string) *Writer {
@@ -174,22 +174,22 @@ func New(jsonPath string) *Writer {
 		nixOS: isNixOS(),
 	}
 }
- 
+
 // Default returns a Writer using the standard StateJSONPath.
 func Default() *Writer {
 	return New(StateJSONPath)
 }
- 
+
 // DefaultWriter is an alias for Default(), preserving the v4 call site.
 func DefaultWriter() *Writer {
 	return Default()
 }
- 
+
 func isNixOS() bool {
 	_, err := os.Stat("/etc/NIXOS")
 	return err == nil
 }
- 
+
 // IsNixOS reports whether this system is NixOS.
 func (w *Writer) IsNixOS() bool { return w.nixOS }
 
@@ -244,10 +244,10 @@ func (w *Writer) MarkApplied() error {
 
 // Change represents a single property change in the declarative state.
 type Change struct {
-	Path string      `json:"path"`
-	From any `json:"from"`
-	To   any `json:"to"`
-	Op   string      `json:"op"` // "add", "remove", "modify"
+	Path string `json:"path"`
+	From any    `json:"from"`
+	To   any    `json:"to"`
+	Op   string `json:"op"` // "add", "remove", "modify"
 }
 
 // DiffIntent calculates the differences between the current in-memory state
@@ -272,9 +272,13 @@ func (w *Writer) DiffIntent() ([]Change, error) {
 	// Helper to compare integer slices (Firewall)
 	compareInts := func(path string, from, to []int) {
 		fMap := make(map[int]bool)
-		for _, x := range from { fMap[x] = true }
+		for _, x := range from {
+			fMap[x] = true
+		}
 		tMap := make(map[int]bool)
-		for _, x := range to { tMap[x] = true }
+		for _, x := range to {
+			tMap[x] = true
+		}
 
 		for x := range tMap {
 			if !fMap[x] {
@@ -318,14 +322,14 @@ func (w *Writer) DiffIntent() ([]Change, error) {
 
 	return changes, nil
 }
- 
+
 // State returns a copy of the current in-memory state.
 func (w *Writer) State() DPlaneState {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	return w.state
 }
- 
+
 // LoadFromDisk reads an existing dplane-state.json into memory.
 // Called at daemon startup so in-memory state matches the file on disk.
 // If the file doesn't exist yet, this is a no-op (state starts as zero value).
@@ -344,9 +348,9 @@ func (w *Writer) LoadFromDisk() error {
 	defer w.mu.Unlock()
 	return json.Unmarshal(data, &w.state)
 }
- 
+
 // ── Network setters ──────────────────────────────────────────────────────────
- 
+
 // SetStaticInterface records a static IP assignment for an interface.
 // Pass cidr="" to configure DHCP (removes any static config for the interface).
 func (w *Writer) SetStaticInterface(iface, cidr, gateway string) error {
@@ -368,12 +372,12 @@ func (w *Writer) SetStaticInterface(iface, cidr, gateway string) error {
 	}
 	return w.flushLocked()
 }
- 
+
 // RemoveStaticInterface removes the static IP config for an interface.
 func (w *Writer) RemoveStaticInterface(iface string) error {
 	return w.SetStaticInterface(iface, "", "")
 }
- 
+
 // SetBond records a bond interface configuration.
 func (w *Writer) SetBond(name string, slaves []string, mode string) error {
 	if !validateIface(name) {
@@ -399,7 +403,7 @@ func (w *Writer) SetBond(name string, slaves []string, mode string) error {
 	w.state.NetworkBonds[name] = NetworkBondEntry{Slaves: slaves, Mode: mode}
 	return w.flushLocked()
 }
- 
+
 // RemoveBond removes a bond interface configuration.
 func (w *Writer) RemoveBond(name string) error {
 	w.mu.Lock()
@@ -407,7 +411,7 @@ func (w *Writer) RemoveBond(name string) error {
 	delete(w.state.NetworkBonds, name)
 	return w.flushLocked()
 }
- 
+
 // SetVLAN records a VLAN sub-interface configuration.
 func (w *Writer) SetVLAN(ifName, parent string, vid int) error {
 	if !validateIface(ifName) || !validateIface(parent) {
@@ -424,7 +428,7 @@ func (w *Writer) SetVLAN(ifName, parent string, vid int) error {
 	w.state.NetworkVLANs[ifName] = NetworkVLANEntry{Parent: parent, VID: vid}
 	return w.flushLocked()
 }
- 
+
 // RemoveVLAN removes a VLAN sub-interface configuration.
 func (w *Writer) RemoveVLAN(ifName string) error {
 	w.mu.Lock()
@@ -432,9 +436,9 @@ func (w *Writer) RemoveVLAN(ifName string) error {
 	delete(w.state.NetworkVLANs, ifName)
 	return w.flushLocked()
 }
- 
+
 // ── System setters ───────────────────────────────────────────────────────────
- 
+
 // SetDNS records persistent DNS server configuration.
 func (w *Writer) SetDNS(servers []string) error {
 	for _, s := range servers {
@@ -448,7 +452,7 @@ func (w *Writer) SetDNS(servers []string) error {
 	w.state.DNSServers = servers
 	return w.flushLocked()
 }
- 
+
 // SetHostname records the system hostname.
 func (w *Writer) SetHostname(name string) error {
 	if !validateHostname(name) {
@@ -459,7 +463,7 @@ func (w *Writer) SetHostname(name string) error {
 	w.state.Hostname = name
 	return w.flushLocked()
 }
- 
+
 // SetNTP records NTP server configuration.
 func (w *Writer) SetNTP(servers []string) error {
 	w.mu.Lock()
@@ -468,7 +472,7 @@ func (w *Writer) SetNTP(servers []string) error {
 	w.state.NTPServers = servers
 	return w.flushLocked()
 }
- 
+
 // SetFirewallPorts records allowed TCP/UDP ports.
 // Pass the complete desired lists - this replaces the previous values entirely.
 func (w *Writer) SetFirewallPorts(tcpPorts, udpPorts []int) error {
@@ -480,7 +484,7 @@ func (w *Writer) SetFirewallPorts(tcpPorts, udpPorts []int) error {
 	w.state.FirewallUDP = udpPorts
 	return w.flushLocked()
 }
- 
+
 // SetTimezone records the system timezone.
 func (w *Writer) SetTimezone(tz string) error {
 	if strings.ContainsAny(tz, ";|&$`\\'\"") || len(tz) > 64 {
@@ -491,7 +495,7 @@ func (w *Writer) SetTimezone(tz string) error {
 	w.state.Timezone = tz
 	return w.flushLocked()
 }
- 
+
 // SetZFSArcMax records the ARC size limit in bytes (0 clears it).
 func (w *Writer) SetZFSArcMax(bytes int64) error {
 	if bytes < 0 {
@@ -542,7 +546,7 @@ func (w *Writer) SetTLS(certPath, keyPath string) error {
 
 // SetUPSPolicy records the UPS shutdown policy.
 func (w *Writer) SetUPSPolicy(action string, lowBattery, finalDelay int) error {
-	if action != "shutdown" && action != "hibernate" {
+	if action != "shutdown" {
 		return fmt.Errorf("invalid UPS action: %q", action)
 	}
 	if lowBattery < 1 || lowBattery > 99 || finalDelay < 0 || finalDelay > 600 {
@@ -555,7 +559,7 @@ func (w *Writer) SetUPSPolicy(action string, lowBattery, finalDelay int) error {
 }
 
 // ── Samba setter ─────────────────────────────────────────────────────────────
- 
+
 // SambaGlobalOpts holds global Samba settings.
 type SambaGlobalOpts struct {
 	Workgroup        string
@@ -567,7 +571,7 @@ type SambaGlobalOpts struct {
 	Realm            string
 	DomainController string
 }
- 
+
 // SetSambaGlobals records global Samba settings.
 func (w *Writer) SetSambaGlobals(opts SambaGlobalOpts) error {
 	w.mu.Lock()
@@ -582,9 +586,9 @@ func (w *Writer) SetSambaGlobals(opts SambaGlobalOpts) error {
 	w.state.SambaDomainController = opts.DomainController
 	return w.flushLocked()
 }
- 
+
 // ── HA setter ────────────────────────────────────────────────────────────────
- 
+
 // ── IDMAP / AD setter ─────────────────────────────────────────────────────────
 
 var validIDMAPBackends = map[string]bool{
@@ -633,10 +637,10 @@ type SSHDaemonOpts struct {
 }
 
 var validPermitRootLogin = map[string]bool{
-	"":                    true,
-	"yes":                 true,
-	"no":                  true,
-	"prohibit-password":   true,
+	"":                     true,
+	"yes":                  true,
+	"no":                   true,
+	"prohibit-password":    true,
 	"forced-commands-only": true,
 }
 
@@ -655,44 +659,44 @@ func (w *Writer) SetSSHDaemon(opts SSHDaemonOpts) error {
 	w.state.SSHPermitRootLogin = opts.PermitRootLogin
 	return w.flushLocked()
 }
- 
+
 // ── Core write mechanics ─────────────────────────────────────────────────────
- 
+
 func (w *Writer) flushLocked() error {
 	if !w.nixOS {
 		return nil
 	}
- 
+
 	data, err := json.MarshalIndent(w.state, "", "  ")
 	if err != nil {
 		return fmt.Errorf("nixwriter: marshal state: %w", err)
 	}
- 
+
 	dir := filepath.Dir(w.path)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return fmt.Errorf("nixwriter: mkdir: %w", err)
 	}
- 
+
 	// Atomic write via rename - no partial state ever visible on disk
 	tmp, err := os.CreateTemp(dir, ".dplane-state-*.json.tmp")
 	if err != nil {
 		return fmt.Errorf("nixwriter: create tmp: %w", err)
 	}
 	tmpPath := tmp.Name()
- 
+
 	if _, err := tmp.Write(data); err != nil {
 		tmp.Close()
 		os.Remove(tmpPath)
 		return fmt.Errorf("nixwriter: write tmp: %w", err)
 	}
- 
+
 	// fsync for reliability
 	if err := tmp.Sync(); err != nil {
 		tmp.Close()
 		os.Remove(tmpPath)
 		return fmt.Errorf("nixwriter: sync tmp: %w", err)
 	}
- 
+
 	if err := tmp.Close(); err != nil {
 		os.Remove(tmpPath)
 		return fmt.Errorf("nixwriter: close tmp: %w", err)
@@ -701,12 +705,12 @@ func (w *Writer) flushLocked() error {
 		os.Remove(tmpPath)
 		return fmt.Errorf("nixwriter: rename: %w", err)
 	}
- 
+
 	return nil
 }
- 
+
 // ── Validation helpers ────────────────────────────────────────────────────────
- 
+
 func validateIface(s string) bool {
 	if len(s) == 0 || len(s) > 16 {
 		return false
@@ -719,16 +723,16 @@ func validateIface(s string) bool {
 	}
 	return true
 }
- 
+
 func validateIP(s string) bool {
 	return net.ParseIP(s) != nil
 }
- 
+
 func validateCIDR(s string) bool {
 	_, _, err := net.ParseCIDR(s)
 	return err == nil
 }
- 
+
 func validateHostname(s string) bool {
 	if len(s) == 0 || len(s) > 63 {
 		return false

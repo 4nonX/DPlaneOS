@@ -41,3 +41,19 @@ func RunMigrations(db *sql.DB) error {
 
 	return nil
 }
+
+// LatestVersion is the newest migration this build carries (a backup from
+// a newer schema cannot be restored: migrations only go up).
+func LatestVersion() int64 {
+	entries, err := migrationFiles.ReadDir("migrations")
+	if err != nil {
+		return 0
+	}
+	var latest int64
+	for _, e := range entries {
+		if v, err := goose.NumericComponent(e.Name()); err == nil && v > latest {
+			latest = v
+		}
+	}
+	return latest
+}

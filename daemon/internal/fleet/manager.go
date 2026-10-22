@@ -121,7 +121,8 @@ func (m *Manager) advance(s Settings, r Rollout) {
 	}
 	view := RolloutView{State: r.State, Waves: len(r.Waves), CurrentWave: r.CurrentWave, SoakSecs: r.SoakSecs,
 		AutoAdvance: r.AutoAdvance, WaveDoneAt: r.WaveDoneAt}
-	step := Plan(view, ts, time.Now())
+	now := time.Now()
+	step := Plan(view, ts, now)
 	for id, via := range step.Through {
 		m.setTarget(r.ID, id, TargetDone, "applied through "+via+" (same cluster)", false)
 	}
@@ -165,7 +166,7 @@ func (m *Manager) advance(s Settings, r Rollout) {
 		_ = SetRolloutState(m.db, r.ID, RolloutPaused, step.Pause)
 		log.Printf("FLEET: rollout %s paused: %s", tag, step.Pause)
 	case step.MarkWaveDone:
-		_, _ = m.db.Exec(`UPDATE fleet_rollouts SET wave_done_at = NOW(), updated_at = NOW() WHERE id = $1`, r.ID)
+		_, _ = m.db.Exec(`UPDATE fleet_rollouts SET wave_done_at = $2, updated_at = NOW() WHERE id = $1`, r.ID, now) // the clock Plan compares with
 	case step.Advance:
 		_, _ = m.db.Exec(`UPDATE fleet_rollouts SET current_wave = current_wave + 1, wave_done_at = NULL, updated_at = NOW() WHERE id = $1`, r.ID)
 	case step.Finish:

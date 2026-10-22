@@ -94,18 +94,11 @@ See [High Availability Guide](docs/admin/HIGH-AVAILABILITY.md) for setup, fencin
 
 ## Atomic Updates, Automatic Rollback
 
-The boot disk has two OS slots managed by systemd-boot: Slot A and Slot B. One is active; the other is standby. OTA updates write the new NixOS closure to the standby slot. The active slot is never modified during an update.
+An update builds the new DPlaneOS release as a new NixOS generation (a new boot entry) while the running system is untouched, then reboots into it. The previous generation stays on disk and in the boot menu.
 
-Before rebooting into the new slot, the OTA system writes a pending-revert marker to `/persist/ota/`. If the boot fails or the post-boot health check fails, the marker triggers an automatic revert: the bootloader flips back to the previous slot and the system reboots. No operator intervention is required.
+After the boot, a check runs for up to five minutes: the daemon answers, nginx and PostgreSQL run, every pool imported before the update is imported again, and Samba runs if shares are enabled. If anything fails, the system makes the previous generation the boot default again, restores its flake and reboots into it. No operator intervention is required, and an alert reports the result either way.
 
-The health check fires 90 seconds after boot and verifies four things in sequence:
-
-1. The daemon API responds at `localhost/api/health` (via nginx)
-2. All ZFS pools report ONLINE with no faulted devices (`zpool status`)
-3. PostgreSQL accepts connections and executes `SELECT 1`
-4. Samba responds to `smbcontrol smbd ping`
-
-All four must pass within three retries. On success the marker is cleared and the update is committed. On any failure the revert sequence runs immediately.
+The lab proof is a NixOS VM test (`checks.update`) that boots through systemd-boot, applies a working update (kept) and a broken one (rolled back by itself).
 
 The `/persist` partition is never touched by OTA. PostgreSQL data, container images, Samba state, GitOps repository checkout, SSH host keys: all survive every update unchanged, on a dedicated partition separate from both OS slots.
 

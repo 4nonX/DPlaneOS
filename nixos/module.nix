@@ -26,6 +26,7 @@ let
   secretsFlags = " -secrets-key ${cfg.secrets.keyFile}"
     + lib.optionalString (cfg.secrets.fallbackKeyFile != null)
       " -secrets-key-fallback ${cfg.secrets.fallbackKeyFile}";
+  upsFlag = lib.optionalString (cfg.upsEventGroup != null) " -ups-event-group ${cfg.upsEventGroup}";
 in {
   imports = [
     (lib.mkRemovedOptionModule [ "services" "dplaneos" "ha" ] ''
@@ -62,6 +63,13 @@ in {
       '';
     };
 
+    upsEventGroup = lib.mkOption {
+      type = lib.types.nullOr lib.types.str;
+      default = null;
+      internal = true;
+      description = "Group that may send UPS events to the daemon (set by modules/ups.nix: upsmon's group).";
+    };
+
     socketPath = lib.mkOption {
       type     = lib.types.str;
       default  = "/run/dplaneos/dplaned.sock";
@@ -70,6 +78,19 @@ in {
         Unix socket path for nginx-to-daemon communication.
         nginx proxies /api/ and /ws to this socket; no TCP port is consumed.
         Read-only: changing this would desync the daemon and nginx.
+      '';
+    };
+
+    memoryMax = lib.mkOption {
+      type    = lib.types.str;
+      default = "1G";
+      example = "2G";
+      description = ''
+        systemd MemoryMax for dplaned and the jobs it runs (rsync, rclone,
+        docker compose, zfs send). A leak or a runaway job is stopped at this
+        size instead of pushing the host (and the ZFS ARC) into swap.
+        nixos-rebuild runs in its own unit and does not count. Raise it for
+        very large cloud-sync or rsync jobs.
       '';
     };
 
@@ -213,6 +234,23 @@ in {
 
     # ─── Required system packages ────────────────────────────────────────
     environment.systemPackages = [
+      # Console recovery (password reset, 2FA, services, pools): sudo dplaneos-recovery
+      (pkgs.writeShellApplication {
+        name = "dplaneos-recovery";
+        # errexit off: the menus test exit codes (dialog cancel, inactive units)
+        bashOptions = [ "nounset" "pipefail" ];
+        runtimeInputs = with pkgs; [
+          dialog coreutils gawk gnused gnugrep procps iproute2 systemd nut
+          config.boot.zfs.package
+        ];
+        runtimeEnv = {
+          DPLANED = "${cfg.daemonPackage}/bin/dplaned";
+          DPLANEOS_DSN = cfg.dbDSN;
+          DPLANEOS_SECRETS_KEY = cfg.secrets.keyFile;
+        };
+        text = builtins.readFile ../install/scripts/recovery-cli.sh;
+      })
+      cfg.daemonPackage    # dplaned -recover-... (console recovery without the menu)
       config.boot.zfs.package
       pkgs.docker
       pkgs.docker-compose
@@ -263,7 +301,11 @@ in {
                 esac
                 ;;
             scrub_finish|resilver_finish) SEVERITY="info" ;;
-            io_failure|checksum_failure) SEVERITY="warning" ;;
+            # Subclass names as ZED sends them (ereport.fs.zfs.<name>). The
+            # names matched before (io_failure, checksum_failure) do not exist:
+            # checksum, I/O and permanent data errors never alerted.
+            data|deadman) SEVERITY="critical" ;;
+            checksum|io|probe_failure|delay|authentication) SEVERITY="warning" ;;
             *) SEVERITY="info" ;;
         esac
 
@@ -319,7 +361,48 @@ in {
         allowedTCPPorts      = [ 21 ];
         allowedTCPPortRanges = [ { from = 40000; to = 40100; } ];
       })
+      # Rules from the Firewall page (internal/firewall) live in the nftables
+      # table inet dplaneos_fw, which runs before this firewall: a deny drops
+      # there, an allow marks the packet and is accepted here. Static, so the
+      # page's rules never need a rebuild.
+      (lib.mkIf (!config.networking.nftables.enable) {
+        extraCommands = ''
+          ip46tables -A nixos-fw -m mark --mark 0x1000000/0x1000000 -j nixos-fw-accept
+        '';
+      })
+      (lib.mkIf config.networking.nftables.enable {
+        extraInputRules = "meta mark & 0x01000000 == 0x01000000 accept";
+      })
     ];
+
+    # Loads the Firewall page's rules at boot, before the network is up.
+    systemd.services.dplaneos-firewall = lib.mkIf config.networking.firewall.enable {
+      description = "DPlaneOS firewall rules (Firewall page)";
+      wantedBy    = [ "multi-user.target" ];
+      before      = [ "network-pre.target" ];
+      wants       = [ "network-pre.target" ];
+      after       = [ "firewall.service" "local-fs.target" ];
+      unitConfig  = {
+        DefaultDependencies = false;
+        RequiresMountsFor   = "/var/lib/dplaneos";
+        ConditionPathExists = "/var/lib/dplaneos/firewall.nft";
+      };
+      serviceConfig = {
+        Type            = "oneshot";
+        RemainAfterExit = true;
+        ExecStart       = "${pkgs.nftables}/bin/nft -f /var/lib/dplaneos/firewall.nft";
+      };
+    };
+
+    # The ports this configuration opens, for the Firewall page (read-only there).
+    environment.etc."dplaneos/firewall-system.json".text = builtins.toJSON {
+      enabled            = config.networking.firewall.enable;
+      tcp                = config.networking.firewall.allowedTCPPorts;
+      udp                = config.networking.firewall.allowedUDPPorts;
+      tcp_ranges         = config.networking.firewall.allowedTCPPortRanges;
+      udp_ranges         = config.networking.firewall.allowedUDPPortRanges;
+      trusted_interfaces = config.networking.firewall.trustedInterfaces;
+    };
 
     # ─── nginx reverse proxy ──────────────────────────────────────────────
     services.nginx = {
@@ -418,11 +501,13 @@ in {
       # these packages plus coreutils/findutils/grep/sed/systemd, so anything
       # missing here fails at runtime with "executable file not found".
       path = with pkgs; [
-        coreutils pciutils docker docker-compose postgresql
+        coreutils pciutils docker docker-compose
+        config.services.postgresql.package # pg_dump, pg_restore, psql: same major version as the server
         config.boot.zfs.package          # zfs, zpool (matches the kernel module)
         util-linux                       # lsblk, wipefs, mount, umount, mountpoint, eject, ionice, logger
+        shadow                           # useradd, usermod, userdel, groupadd, groupdel, gpasswd, passwd (file-sharing accounts)
         smartmontools hdparm nvme-cli lsscsi sg3_utils dmidecode ipmitool nut
-        samba                            # smbcontrol, smbstatus, testparm, net, wbinfo
+        config.services.dplaneos.samba.package # smbcontrol, smbstatus, testparm, net, wbinfo
         avahi                            # avahi-daemon --reload (Time Machine discovery)
         nfs-utils acl krb5               # exportfs; getfacl/setfacl; kinit/klist
         iproute2 iputils traceroute dnsutils nftables
@@ -448,10 +533,16 @@ in {
           # (NixOS PostgreSQL has no TCP listener unless enableTCPIP is set), else localhost.
           "/bin/sh -c 'echo \"[dplaned-pre] Checking PostgreSQL connectivity...\"; for i in $(${pkgs.coreutils}/bin/seq 1 30); do if ${pkgs.postgresql}/bin/pg_isready -h ${pgProbeHost} -U dplaneos -d dplaneos 2>&1; then echo \"[dplaned-pre] PostgreSQL ready on attempt $i\"; exit 0; fi; ${pkgs.coreutils}/bin/sleep 1; done; echo \"FATAL: PostgreSQL not ready after 30 seconds\" >&2; exit 1'"
         ];
-        ExecStart       = "/bin/sh -c 'echo \"[dplaned] Starting with DSN: ${cfg.dbDSN}\"; exec ${cfg.daemonPackage}/bin/dplaned -db-dsn \"${cfg.dbDSN}\" -listen ${cfg.socketPath} -socket-group dplaned${smbConfFlag}${secretsFlags}'";
+        ExecStart       = "/bin/sh -c 'echo \"[dplaned] Starting with DSN: ${cfg.dbDSN}\"; exec ${cfg.daemonPackage}/bin/dplaned -db-dsn \"${cfg.dbDSN}\" -listen ${cfg.socketPath} -socket-group dplaned${smbConfFlag}${secretsFlags}${upsFlag}'";
         WorkingDirectory = "/var/lib/dplaneos";
         Restart         = "on-failure";
         RestartSec      = "5s";
+
+        # Memory cap for the daemon and its jobs. When the kernel kills one
+        # job for memory, the daemon keeps running (the default OOMPolicy
+        # would stop the whole service).
+        MemoryMax = cfg.memoryMax;
+        OOMPolicy = "continue";
 
         # Security hardening (matches systemd/dplaned.service)
         NoNewPrivileges       = true;
@@ -481,6 +572,16 @@ in {
         StandardError = "journal";
         SyslogIdentifier = "dplaned";
       };
+    };
+
+    # ─── Docker after the ZFS datasets ────────────────────────────────────
+    # dockerd restarts containers with a restart policy as soon as it starts.
+    # Before the data datasets were mounted it created empty directories in
+    # their place and the apps wrote to the root filesystem, hidden under the
+    # dataset once it mounted (and gone with the next OTA update).
+    systemd.services.docker = {
+      after = [ "zfs-mount.service" "zfs.target" "dplaneos-zfs-gate.service" ];
+      wants = [ "zfs-mount.service" "dplaneos-zfs-gate.service" ];
     };
 
     # ─── ZFS boot gate ────────────────────────────────────────────────────

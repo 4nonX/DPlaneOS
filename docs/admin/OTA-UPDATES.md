@@ -1,232 +1,151 @@
-# DPlaneOS OTA Updates
+# DPlaneOS Updates
 
-DPlaneOS updates are atomic and automatically self-reverting. An update either fully succeeds or the system rolls back to the previous version - there is no partially-upgraded state.
+An update moves an installed system to a newer DPlaneOS release. It builds the release as a new NixOS generation, reboots into it and checks the system. If the check fails, the system goes back to the previous generation by itself. Every older generation also stays selectable in the boot menu.
 
----
-
-## How A/B Slot Updates Work
-
-The boot disk has two OS slots: Slot A and Slot B. At any time, one slot is active (booted) and the other is standby. OTA updates write to the standby slot; the active slot is never touched during an update.
-
-```
-Boot disk:
-├── ESP (/boot)           systemd-boot, slot A/B boot entries
-├── Slot A (ext4)         NixOS system closure (may be active or standby)
-├── Slot B (ext4)         NixOS system closure (may be active or standby)
-├── swap
-└── /persist (ext4)       All durable state - never touched by OTA
-```
-
-The update sequence:
-
-```
-1. Fetch new NixOS closure (from GitHub + Nix cache)
-          │
-2. Write closure to inactive slot (Slot B if A is active)
-          │
-3. Update systemd-boot to boot into the new slot first
-          │
-4. Write pending-revert marker to /persist/ota/
-          │
-5. Reboot into new slot
-          │
-6. 90 seconds after boot: OTA health check fires
-          │
-     ┌────┴────┐
-     │         │
-  PASS       FAIL
-     │         │
-Clear marker  Revert bootloader to previous slot
-              │
-              Reboot into old slot
-              │
-              Clear marker
-```
-
-If the health check passes, the system is on the new version. If it fails, the system is automatically back on the old version without operator intervention.
+Live systems are not updated; boot a newer live image instead.
 
 ---
 
-## What the Health Check Verifies
+## Where the system comes from
 
-The post-boot health check (`dplaneos-ota-health`) verifies four things:
+Each system records the release it was built from in `/etc/dplaneos-source.json`, which holds the flake, the git revision and the version. On an installed system the daemon writes `/etc/nixos/flake.nix` from that record when it starts:
 
-1. **Daemon API** - `GET http://localhost/api/system/health` (via nginx) returns 200 within 10 seconds
-2. **ZFS pool health** - `zpool list` reports all pools as ONLINE; a non-zero exit from `zpool list` also counts as failure
-3. **/persist mounted** - `/persist` is verified as an active mountpoint; not mounted counts as failure
-4. **Samba** (conditional) - if active SMB shares exist in the database, `smbd` must be running; if no shares are configured this check is skipped
-
-If all checks pass, the pending-revert marker is cleared and the update is committed. Any failure triggers the auto-revert sequence immediately.
-
-The check fires 90 seconds after boot by default. This delay gives all services time to start fully. Adjust in `configuration.nix`:
 ```nix
-services.dplaneos.ota.healthCheckDelay = "120s";   # increase if services are slow to start
+# Managed by DPlaneOS: ...
+{
+  inputs.dplaneos.url = "github:4nonX/DPlaneOS/<revision or release tag>";
+  outputs = { dplaneos, ... }: {
+    nixosConfigurations.dplaneos = dplaneos.nixosConfigurations.dplaneos.extendModules {
+      modules = [ ./hardware-configuration.nix ]
+        ++ (if builtins.pathExists ./local.nix then [ ./local.nix ] else [ ]);
+    };
+  };
+}
 ```
 
----
+All rebuilds go through this flake: applying settings, the watchdog apply and updates. If the flake is missing, a rebuild is refused. NixOS's stock `configuration.nix` would otherwise replace DPlaneOS with plain NixOS, so the installer replaces it with one that stops a rebuild without the flake.
 
-## Triggering an Update
+Local additions go in `/etc/nixos/local.nix`, which is an ordinary NixOS module. If you replace `flake.nix` with your own (one without the "Managed by DPlaneOS" header and input line), the Updates page leaves it alone, and you update it yourself.
 
-### Via the UI
-
-Settings: System: Updates: Check for Updates. If an update is available, click **Install Update**.
-
-The UI shows:
-- Current version
-- Available version
-- Changelog
-- Estimated install time
-
-Click **Install and Reboot** to start the process. The system reboots automatically. The UI reconnects once the daemon is responsive on the new slot.
-
-### Via the API
-
-```
-POST /api/ota/check
-# Returns: {"available": true, "version": "10.1.0", "current": "10.0.0"}
-
-POST /api/ota/update
-# Triggers the update; streams progress via WebSocket
-```
-
-### Via the CLI (on the node)
+Settings made in the web UI are stored in `/var/lib/dplaneos/dplane-state.json`. That file is read at evaluation time, so a manual rebuild needs `--impure`:
 
 ```bash
-# Check for available update
-dplaneos-ota-update --check
-
-# Run the update
-sudo dplaneos-ota-update
-
-# Verify-only: build the closure without installing
-sudo dplaneos-ota-update --verify-only
-
-# Force revert to previous slot (manual rollback)
-sudo dplaneos-ota-update --revert
+sudo nixos-rebuild switch --flake /etc/nixos#dplaneos --impure
 ```
 
 ---
 
-## Update Sources
+## Updating
 
-Updates are distributed via GitHub. The OTA script runs:
-```bash
-git -C /var/lib/dplaneos/gitops/dplaneos-src pull origin main
-nixos-rebuild switch --flake .#dplaneos
+On the **Updates** page:
+
+1. Click **Check for updates**. The page asks GitHub for the latest release.
+2. Click **Update to vX.Y.Z**, then **Update and reboot**.
+
+The update runs these steps:
+
+```
+1. Record the running system, the flake, the imported pools and the number
+   of SMB shares                              (/var/lib/dplaneos/update-pending.json)
+2. Point /etc/nixos/flake.nix at the release tag
+3. nixos-rebuild boot --flake /etc/nixos#dplaneos --impure --recreate-lock-file
+      fails → the flake is restored and nothing changes
+4. Reboot (10 seconds after the build)
+5. After the boot, dplaneos-ota-health checks the system (see below)
+      passes → the update is kept
+      fails  → the previous generation becomes the boot default again, the
+               flake is restored, and the machine reboots into it
+6. The daemon sends an alert with the result: upgrade.applied (info) or
+   upgrade.rolled_back (critical)
 ```
 
-The Nix build system handles fetching required store paths from the Nix binary cache. The flake's content-addressed store and lockfile pin provide integrity at the package level.
-
-**Airgap environments:** The ISO contains the full system closure for the version it ships with. Installing from the ISO does not require internet access. OTA updates, however, require Nix cache access to fetch new store paths. Airgap OTA requires a local Nix binary cache or pre-fetched closures.
-
----
-
-## Manual Revert
-
-If the automatic health check fails, the system reverts automatically. If you need to revert manually after a successful update (e.g., discovered a regression after the health check passed):
+The same update through the API:
 
 ```bash
-# From the running system
-sudo dplaneos-ota-update --revert
-# This flips the bootloader to the other slot and reboots
-
-# From the bootloader (if the system won't boot at all)
-# At the systemd-boot menu, select the previous NixOS generation
-# Press 'd' to set it as default, then Enter to boot it
+curl -X POST .../api/system/updates/nixos/apply -d '{"version":"v15.2.0"}'   # empty: latest
+curl .../api/system/updates/nixos?check=1
 ```
-
-The previous slot's closure is always preserved until the next OTA update overwrites it. This means you always have exactly one version of rollback available.
 
 ---
 
-## HA Rolling Upgrade
+## The check after the reboot
 
-In a HA cluster, update both nodes without downtime by updating one at a time:
+`dplaneos-ota-health.timer` starts the check 60 seconds after boot. The check then retries every 15 seconds for up to 5 minutes while services start. It passes when all of the following are true:
+
+- the system booted is the new one, not the previous one;
+- the daemon answers on its socket;
+- nginx is running, and PostgreSQL is running if the database is local;
+- every pool that was imported before the update is imported;
+- Samba is running if SMB shares were enabled.
+
+If the new generation does not boot at all, choose the previous entry in the boot menu. The check then sees the old system and records the update as rolled back.
+
+The result is in `/var/lib/dplaneos/update-result.json`, and the log is in `journalctl -u dplaneos-ota-health`.
+
+---
+
+## Going back by hand
+
+If you find a problem after the check has passed:
+
+```bash
+sudo nixos-rebuild switch --rollback       # previous generation, now and at boot
+sudo sed -i 's|DPlaneOS/v[0-9.]*"|DPlaneOS/v15.1.0"|' /etc/nixos/flake.nix   # the release you went back to
+```
+
+Without the second line, the next rebuild would build the newer release again. If the system does not boot, pick an older generation in the systemd-boot menu.
+
+systemd-boot keeps the two newest generations in the menu (`boot.loader.systemd-boot.configurationLimit`). Garbage collection removes generations older than 14 days.
+
+---
+
+## HA clusters: one node at a time
 
 ```
-1. Place node B (standby) in maintenance mode
+1. Maintenance mode on the standby node (B)
    POST /api/ha/maintenance {"enable": true, "duration_minutes": 120}
-
-2. Trigger OTA on node B
-   # SSH into node B:
-   sudo dplaneos-ota-update
-
-3. Node B reboots, health check runs, update commits
-
-4. Verify node B is healthy
-   GET /api/ha/status  # from node B
-
-5. Initiate a controlled failover (node B becomes primary)
+2. Update B (its Updates page, or POST /api/system/updates/nixos/apply on B)
+3. B reboots and passes its check (GET /api/system/updates/nixos on B: last_result ok)
+4. Controlled failover to B
    POST /api/ha/failover {"dry_run": false}
-
-6. Verify clients are connecting via node B (VIP has moved)
-
-7. Place node A in maintenance mode
-   POST /api/ha/maintenance {"enable": true, "duration_minutes": 120}
-
-8. Trigger OTA on node A
-   sudo dplaneos-ota-update
-
-9. Node A reboots, becomes standby on new version
-
-10. Release maintenance mode on both nodes
-    POST /api/ha/maintenance {"enable": false}
+5. Maintenance mode on A, update A the same way
+6. End maintenance mode on both nodes
+   POST /api/ha/maintenance {"enable": false}
 ```
 
-Total downtime: zero. The VIP moves during the failover step (step 5) but the transition is sub-second for established connections and ~2 seconds for new connections.
+Clients see one move of the virtual IP, in step 4.
 
 ---
 
-## Verify-Only Mode
-
-Run the update process through fetching and building the new closure without rebooting:
-
-```bash
-sudo dplaneos-ota-update --verify-only
-```
-
-This validates that:
-- The new version is fetchable from GitHub
-- All required Nix store paths are available in the cache
-- The closure builds cleanly
-- The new system configuration passes `nixos-rebuild dry-run` checks
-
-Use verify-only before scheduling an update on a production system to confirm the update will succeed.
-
----
-
-## Update Log
-
-OTA update history is stored at `/persist/ota/update.log`. View via:
-
-```bash
-cat /persist/ota/update.log
-```
-
-Or via the UI: Settings: System: Update History.
-
----
-
-## Preventing Unintended Updates
-
-To pin a system to a specific version and prevent automatic updates:
+## Configuration
 
 ```nix
-# In configuration.nix
-services.dplaneos.ota.enable = false;
+services.dplaneos.ota = {
+  enable = true;            # the check after the reboot (off on live systems)
+  healthCheckDelay = "60s"; # when the check starts after boot
+  checkSeconds = 300;       # how long it waits for the system to become healthy
+};
 ```
 
-When `ota.enable = false`, the health check timer does not run. You can still trigger updates manually via `dplaneos-ota-update` but automatic post-boot revert checking is disabled. Use this only if you fully manage the update lifecycle externally.
+---
+
+## Changes from the A/B slot scheme
+
+Earlier documentation described A/B partition slots, `dplaneos-ota-update` and signed update bundles. That scheme never worked:
+
+- it needed boot entries named "DPlaneOS (Slot A/B)" that nothing created;
+- the root filesystem was always `system-a`;
+- nothing built the bundles.
+
+NixOS generations provide the same atomic switch and rollback. The `system-b` partition created by installers before 15.2 is unused (new installs give its space to the system partition). `services.dplaneos.ota.signingKey` has been removed.
 
 ---
 
 ## Troubleshooting
 
-| Symptom | Cause | Resolution |
-|---------|-------|------------|
-| System booted into old version unexpectedly | Health check failed; auto-revert triggered | Check `/persist/ota/update.log`; fix the underlying issue; retry update |
-| Health check passes but services are broken | Check evaluated services that the health check does not test (e.g., NFS, iSCSI) | Run `sudo dplaneos-ota-update --revert` manually; file a bug |
-| Update fails at build step | Nix cache unreachable or store path unavailable | Check internet access; try again; check if the target version was published |
-| Boot hangs after update | Kernel incompatibility with hardware | Boot previous generation from systemd-boot menu; report with hardware details |
-| `dplaneos-ota-update` not found | OTA module not in system closure | Check `services.dplaneos.ota.enable = true` in configuration.nix |
-| `/persist` not mounted at boot | disko or fstab misconfiguration | The persist-health-check service will have failed; check `journalctl -u persist-health-check` |
+| Symptom | Cause | What to do |
+|---|---|---|
+| "The system flake is missing" | System built from an unpublished tree, so the source record has no revision | Write `/etc/nixos/flake.nix` yourself (see above) |
+| Build fails | Release unreachable, or a `local.nix` that does not evaluate | The page shows the build output. Nothing was changed. |
+| Back on the old version after an update | The check failed | Read `update-result.json` for the reason and `journalctl -u dplaneos-ota-health` |
+| Updates page says the flake is not managed | `flake.nix` was replaced by hand | Update with `nix flake update` and `nixos-rebuild` |

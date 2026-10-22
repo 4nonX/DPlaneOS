@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 )
 
 // ShareCRUDHandler handles SMB share CRUD operations
@@ -160,6 +161,9 @@ type shareActionRequest struct {
 	RecycleBin       *bool   `json:"recycle_bin"`
 	HostsAllow       *string `json:"hosts_allow"`
 	HostsDeny        *string `json:"hosts_deny"`
+
+	// GrantAccess gives the share's users access to its folder (share_access.go).
+	GrantAccess bool `json:"grant_access"`
 }
 
 // validateShareOptions checks the per-share option values in a request.
@@ -281,12 +285,13 @@ func (h *ShareCRUDHandler) createShare(w http.ResponseWriter, req shareActionReq
 		return
 	}
 
-	// Regenerate smb.conf
-	h.respondAfterRegen(w, map[string]any{
+	payload := map[string]any{
 		"success": true,
 		"id":      id,
 		"message": fmt.Sprintf("Share %s created", req.Name),
-	})
+	}
+	h.applyGrant(payload, req.GrantAccess, int(id))
+	h.respondAfterRegen(w, payload)
 
 	// GITOPS HOOK: write state back to git
 	gitops.CommitAllAsync(h.db)
@@ -416,10 +421,12 @@ func (h *ShareCRUDHandler) updateShare(w http.ResponseWriter, req shareActionReq
 		return
 	}
 
-	h.respondAfterRegen(w, map[string]any{
+	payload := map[string]any{
 		"success": true,
 		"message": "Share updated",
-	})
+	}
+	h.applyGrant(payload, req.GrantAccess, req.ID)
+	h.respondAfterRegen(w, payload)
 
 	// GITOPS HOOK: write state back to git
 	gitops.CommitAllAsync(h.db)
@@ -578,7 +585,14 @@ func (h *ShareCRUDHandler) RegenerateSMBConf() {
 //
 // err means Samba was not updated; warning means the shares are live but the
 // Time Machine Bonjour advertisement could not be refreshed.
+// smbRegenMu makes reading the shares and writing the configuration one
+// step: the startup run (in the background) and a change through the API
+// must not write an older view last.
+var smbRegenMu sync.Mutex
+
 func (h *ShareCRUDHandler) regenerateSMBConf() (warning string, err error) {
+	smbRegenMu.Lock()
+	defer smbRegenMu.Unlock()
 	shares, err := smbconf.LoadEnabled(h.db)
 	if err != nil {
 		log.Printf("SMB REGEN ERROR: %v", err)
@@ -639,6 +653,9 @@ func (h *ShareCRUDHandler) respondAfterRegen(w http.ResponseWriter, payload map[
 		return
 	}
 	if warning != "" {
+		if prev, _ := payload["warning"].(string); prev != "" {
+			warning = prev + "; " + warning
+		}
 		payload["warning"] = warning
 	}
 	respondJSON(w, http.StatusOK, payload)

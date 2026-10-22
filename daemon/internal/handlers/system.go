@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -18,7 +19,7 @@ import (
 	"dplaned/internal/audit"
 	"dplaned/internal/cmdutil"
 	"dplaned/internal/netlinkx"
-	"dplaned/internal/reconciler"
+	"dplaned/internal/networkdwriter"
 	"dplaned/internal/security"
 )
 
@@ -121,7 +122,7 @@ func (h *SystemHandler) SaveUPSConfig(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		Action    string `json:"action"`    // "shutdown" or "hibernate"
+		Action    string `json:"action"`    // "shutdown" (hibernation is impossible with ZFS: nohibernate)
 		Threshold int    `json:"threshold"` // battery % to trigger
 		Grace     int    `json:"grace"`     // seconds grace period
 	}
@@ -131,8 +132,12 @@ func (h *SystemHandler) SaveUPSConfig(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Validate
-	if req.Action != "shutdown" && req.Action != "hibernate" {
+	if req.Action == "" {
 		req.Action = "shutdown"
+	}
+	if req.Action != "shutdown" {
+		respondErrorSimple(w, "The only UPS action is shutdown: hibernation is not possible with ZFS (the system boots with nohibernate, so a hibernate would leave the machine running until the battery is empty)", http.StatusBadRequest)
+		return
 	}
 	if req.Threshold < 1 || req.Threshold > 99 {
 		req.Threshold = 20
@@ -159,7 +164,7 @@ func (h *SystemHandler) SaveUPSConfig(w http.ResponseWriter, r *http.Request) {
 	conf := fmt.Sprintf(
 		"# DPlaneOS UPS config - do not edit this block manually\n"+
 			"MINSUPPLIES 1\n"+
-			"SHUTDOWNCMD \"/sbin/%s -h now\"\n"+
+			"SHUTDOWNCMD \"/sbin/shutdown -h now\"\n"+
 			"NOTIFYCMD upssched\n"+
 			"POLLFREQ 5\n"+
 			"POLLFREQALERT 5\n"+
@@ -168,7 +173,7 @@ func (h *SystemHandler) SaveUPSConfig(w http.ResponseWriter, r *http.Request) {
 			"RBWARNTIME 43200\n"+
 			"NOCOMMWARNTIME 300\n"+
 			"FINALDELAY %d\n",
-		req.Action, req.Grace,
+		req.Grace,
 	)
 
 	confPath := "/etc/nut/upsmon.d/dplaneos.conf"
@@ -197,10 +202,7 @@ func (h *SystemHandler) SaveUPSConfig(w http.ResponseWriter, r *http.Request) {
 func (h *SystemHandler) GetUPSPolicy(w http.ResponseWriter, r *http.Request) {
 	action, threshold, grace := "shutdown", 20, 30
 	if onNixOS() && NixWriter != nil {
-		st := NixWriter.State()
-		if st.UPSAction != "" {
-			action = st.UPSAction
-		}
+		st := NixWriter.State() // the action is always shutdown (hibernate in older states too)
 		if st.UPSLowBattery > 0 {
 			threshold = st.UPSLowBattery
 		}
@@ -274,7 +276,18 @@ func (h *SystemHandler) handleNetworkGet(w http.ResponseWriter, _ *http.Request,
 	interfaces = networkInterfaces(defaultGW)
 
 	dns := map[string]any{"nameservers": []string{}, "search": []string{}}
-	if content, err := os.ReadFile("/etc/resolv.conf"); err == nil {
+	// With systemd-resolved /etc/resolv.conf only names the local stub
+	// (127.0.0.53); the servers in use are in resolved's own file.
+	resolvConf := "/etc/resolv.conf"
+	if _, err := os.Stat("/run/systemd/resolve/resolv.conf"); err == nil {
+		resolvConf = "/run/systemd/resolve/resolv.conf"
+	}
+	if NetWriter != nil {
+		if d := NetWriter.State().DNS; len(d.Servers) > 0 {
+			dns["configured"] = d
+		}
+	}
+	if content, err := os.ReadFile(resolvConf); err == nil {
 		for line := range strings.SplitSeq(string(content), "\n") {
 			line = strings.TrimSpace(line)
 			if s, ok := strings.CutPrefix(line, "nameserver "); ok {
@@ -348,216 +361,22 @@ func netmaskToCIDR(mask string) int {
 	return prefix
 }
 
-// networkRevertAfter is the confirm window for interface changes; the UI
-// counts down 30 s, the extra seconds cover the confirm request itself.
-const networkRevertAfter = 35 * time.Second
-
 func (h *SystemHandler) handleNetworkPost(w http.ResponseWriter, r *http.Request, user string) {
 	var req map[string]any
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		respondErrorSimple(w, "Invalid request", http.StatusBadRequest)
 		return
 	}
-	action, _ := req["action"].(string)
-
-	if action == "configure" {
-		opStart := time.Now()
-		iface, _ := req["interface"].(string)
-		dhcp, _ := req["dhcp"].(bool)
-		address, _ := req["address"].(string)
-		if address == "" {
-			address, _ = req["ip"].(string)
-		}
-		netmask, _ := req["netmask"].(string)
-		gateway, _ := req["gateway"].(string)
-
-		if !ifaceRe.MatchString(iface) {
-			respondErrorSimple(w, "Invalid interface", http.StatusBadRequest)
-			return
-		}
-		if _, ok := req["mtu"]; ok {
-			respondErrorSimple(w, "Changing the MTU is not supported", http.StatusBadRequest)
-			return
-		}
-		if dhcp && (address != "" || gateway != "") {
-			respondErrorSimple(w, "Use either DHCP or a static address, not both", http.StatusBadRequest)
-			return
-		}
-		if !dhcp {
-			if address == "" {
-				respondErrorSimple(w, "A static configuration needs an address", http.StatusBadRequest)
-				return
-			}
-			// Convert netmask to CIDR if needed
-			if !strings.Contains(address, "/") && netmask != "" {
-				prefix := netmaskToCIDR(netmask)
-				if prefix < 0 {
-					respondErrorSimple(w, "Invalid netmask", http.StatusBadRequest)
-					return
-				}
-				address += "/" + strconv.Itoa(prefix)
-			}
-			if _, _, err := net.ParseCIDR(address); err != nil {
-				respondErrorSimple(w, "Invalid address: use address/prefix or give a netmask", http.StatusBadRequest)
-				return
-			}
-			if gateway != "" && net.ParseIP(gateway) == nil {
-				respondErrorSimple(w, "Invalid gateway", http.StatusBadRequest)
-				return
-			}
-		}
-		// The change is written as a networkd file so it can be reverted if the
-		// operator does not confirm (the UI shows the countdown).
-		if NetWriter == nil || !NetWriter.IsNetworkd() {
-			respondErrorSimple(w, "Interface configuration needs systemd-networkd", http.StatusNotImplemented)
-			return
-		}
-		snap, existed, err := NetWriter.Snapshot(iface)
-		if err != nil {
-			respondOK(w, map[string]any{"success": false, "error": "read current config: " + err.Error()})
-			return
-		}
-		restore := func() error { return NetWriter.Restore(iface, snap, existed) }
-
-		var applyErr error
-		if dhcp {
-			applyErr = NetWriter.SetDHCP(iface, nil)
-		} else if applyErr = netlinkx.AddrReplace(iface, address); applyErr == nil {
-			if gateway != "" {
-				if err := netlinkx.RouteReplace("default", gateway, iface); err != nil {
-					applyErr = fmt.Errorf("default route via %s: %w", gateway, err)
-				}
-			}
-			if applyErr == nil {
-				applyErr = NetWriter.SetStatic(iface, address, gateway, nil)
-			}
-		}
-		if applyErr != nil {
-			if err := restore(); err != nil {
-				log.Printf("network: restore %s after failed configure: %v", iface, err)
-			}
-			audit.LogCommand(audit.LevelInfo, user, "network_configure", []string{iface, address}, false, time.Since(opStart), applyErr)
-			respondOK(w, map[string]any{"success": false, "error": applyErr.Error()})
-			return
-		}
-		audit.LogCommand(audit.LevelInfo, user, "network_configure", []string{iface, address}, true, time.Since(opStart), nil)
-
-		// Boot reconciliation state is saved only once the change is confirmed.
-		commit := func() error {
-			if ReconcilerDB == nil {
-				return nil
-			}
-			if dhcp {
-				return reconciler.SaveDHCP(ReconcilerDB, iface)
-			}
-			return reconciler.SaveStaticIP(ReconcilerDB, iface, address, gateway)
-		}
-		armNetworkRevert(networkRevertAfter, func() {
-			log.Printf("NETWORK ROLLBACK: %s not confirmed, reverting", iface)
-			if err := restore(); err != nil {
-				log.Printf("NETWORK ROLLBACK ERROR: %s: %v", iface, err)
-			}
-		}, commit)
-		respondOK(w, map[string]any{
-			"success":        true,
-			"message":        "Interface configured; confirm to keep it",
-			"revert_seconds": int(networkRevertAfter.Seconds()),
-		})
-		return
+	switch action, _ := req["action"].(string); action {
+	case "configure":
+		configureInterface(w, r, req)
+	case "add", "delete":
+		changeRoute(w, r, action, req)
+	case "set_dns":
+		setDNS(w, r, req)
+	default:
+		respondErrorSimple(w, "Unsupported network action", http.StatusBadRequest)
 	}
-
-	if action == "add" || action == "delete" {
-		destination, _ := req["destination"].(string)
-		gateway, _ := req["gateway"].(string)
-		iface, _ := req["interface"].(string)
-		if !isValidIPOrCIDR(destination) && destination != "default" {
-			respondErrorSimple(w, "Invalid destination", http.StatusBadRequest)
-			return
-		}
-		if gateway != "" && !isValidIPOrCIDR(gateway) {
-			respondErrorSimple(w, "Invalid gateway", http.StatusBadRequest)
-			return
-		}
-		var routeErr error
-		gwStr := strings.Split(gateway, "/")[0]
-		if ifaceRe.MatchString(iface) {
-			routeErr = netlinkx.RouteReplace(destination, gwStr, iface)
-		} else if gateway != "" {
-			routeErr = netlinkx.RouteReplace(destination, gwStr, "")
-		} else {
-			routeErr = fmt.Errorf("interface or gateway required for route add")
-		}
-		if action == "delete" {
-			// route del: fall back to exec - RTM_DELROUTE needs full route match
-			// which requires knowing the exact table entry; exec is safer here
-			delArgs := []string{"route", "del", destination}
-			if gateway != "" {
-				delArgs = append(delArgs, "via", gwStr)
-			}
-			_, routeErr = executeCommand("ip", delArgs)
-		}
-		if routeErr != nil {
-			respondOK(w, map[string]any{"success": false, "error": routeErr.Error()})
-			return
-		}
-		respondOK(w, map[string]any{"success": true})
-		return
-	}
-
-	if action == "set_dns" {
-		// { "action": "set_dns", "nameservers": ["1.1.1.1", "8.8.8.8"], "search": ["example.com"] }
-		var servers []string
-		if raw, ok := req["nameservers"].([]any); ok {
-			for _, s := range raw {
-				ip, _ := s.(string)
-				ip = strings.TrimSpace(ip)
-				if ip == "" {
-					continue
-				}
-				if net.ParseIP(ip) == nil {
-					respondErrorSimple(w, "Invalid DNS server: "+ip, http.StatusBadRequest)
-					return
-				}
-				servers = append(servers, ip)
-			}
-		}
-		if len(servers) == 0 {
-			respondErrorSimple(w, "At least one valid DNS server IP required", http.StatusBadRequest)
-			return
-		}
-		var searchDomains []string
-		if raw, ok := req["search"].([]any); ok {
-			for _, s := range raw {
-				if domain, ok := s.(string); ok && domain != "" {
-					searchDomains = append(searchDomains, strings.TrimSpace(domain))
-				}
-			}
-		}
-		// Write to resolv.conf (imperative - works on Debian/Ubuntu)
-		var resolvConf strings.Builder
-		resolvConf.WriteString("# Generated by DPlaneOS\n")
-		for _, s := range servers {
-			resolvConf.WriteString("nameserver " + s + "\n")
-		}
-		if len(searchDomains) > 0 {
-			resolvConf.WriteString("search " + strings.Join(searchDomains, " ") + "\n")
-		}
-		if NetWriter != nil && NetWriter.IsNetworkd() {
-			// networkd/resolved own resolv.conf (NixOS): the global DNS file applies it.
-			if err := persistDNS(servers); err != nil {
-				respondOK(w, map[string]any{"success": false, "error": err.Error()})
-				return
-			}
-		} else if err := os.WriteFile("/etc/resolv.conf", []byte(resolvConf.String()), 0644); err != nil {
-			respondOK(w, map[string]any{"success": false, "error": "write /etc/resolv.conf: " + err.Error()})
-			return
-		}
-		audit.LogCommand(audit.LevelInfo, user, "dns_set", servers, true, 0, nil)
-		respondOK(w, map[string]any{"success": true, "nameservers": servers, "search": searchDomains})
-		return
-	}
-
-	respondErrorSimple(w, "Unsupported network action", http.StatusBadRequest)
 }
 
 func (h *SystemHandler) GetSystemLogs(w http.ResponseWriter, r *http.Request) {
@@ -815,6 +634,11 @@ func networkInterfaces(defaultGW map[string]string) []map[string]any {
 		_, err := os.Stat("/sys/class/net/" + name + "/" + sub)
 		return err == nil
 	}
+	var st networkdwriter.State
+	var dhcpLive map[string]bool
+	if NetWriter != nil {
+		st, dhcpLive = NetWriter.State(), NetWriter.LiveDHCP()
+	}
 	out := make([]map[string]any, 0, len(ifaces))
 	for _, ifc := range ifaces {
 		e := map[string]any{
@@ -857,6 +681,25 @@ func networkInterfaces(defaultGW map[string]string) []map[string]any {
 		if gw, ok := defaultGW[ifc.Name]; ok {
 			e["gateway"] = gw
 			e["primary"] = true
+		}
+		// How it is configured: from the DPlaneOS configuration when it has
+		// the interface, else from the live addresses (dynamic = DHCP). The
+		// page preselects DHCP from this; without it a static interface
+		// opened with DHCP ticked and saving switched it to DHCP.
+		if master, err := os.Readlink("/sys/class/net/" + ifc.Name + "/master"); err == nil {
+			e["member_of"] = filepath.Base(master)
+		}
+		if NetWriter != nil {
+			if c, ok := st.Interfaces[ifc.Name]; ok {
+				e["managed"], e["dhcp"] = true, c.DHCP
+				if c.Gateway != "" {
+					e["configured_gateway"] = c.Gateway
+				}
+			} else if st.Mentions(ifc.Name) {
+				e["managed"], e["dhcp"] = true, false
+			} else {
+				e["managed"], e["dhcp"] = false, dhcpLive[ifc.Name]
+			}
 		}
 		out = append(out, e)
 	}

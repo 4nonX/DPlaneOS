@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"dplaned/internal/audit"
@@ -20,43 +21,47 @@ import (
 	"github.com/creack/pty"
 )
 
-// streamCompose runs a docker compose command and pipes combined stdout+stderr
-// to an SSE response, one line per event. Returns the process exit error.
-func streamCompose(ctx context.Context, w http.ResponseWriter, flusher http.Flusher, dir string, args []string) error {
+// sseOut writes SSE events while the client is there; once it has gone the
+// writes are dropped. The action itself goes on: a stack half-way through
+// `compose up` must not be killed because a browser tab was closed.
+type sseOut struct {
+	mu      sync.Mutex
+	w       http.ResponseWriter
+	f       http.Flusher
+	clients context.Context // the request's context
+}
+
+func (o *sseOut) send(eventType, data string) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if o.clients.Err() != nil {
+		return
+	}
+	fmt.Fprintf(o.w, "event: %s\ndata: %s\n\n", eventType, strings.ReplaceAll(data, "\n", " "))
+	o.f.Flush()
+}
+
+// streamCompose runs a docker compose command and sends its combined
+// output as events. ctx bounds the command (not the client connection).
+func streamCompose(ctx context.Context, out *sseOut, dir string, args []string) error {
 	cmd := exec.CommandContext(ctx, "docker", args...)
 	cmd.Dir = dir
 
-	// Pipe writer that merges stdout + stderr
 	pr, pw := io.Pipe()
 	cmd.Stdout = pw
 	cmd.Stderr = pw
-
 	if err := cmd.Start(); err != nil {
 		return err
 	}
-
-	// Close pipe writer when process exits so scanner sees EOF
 	waitDone := make(chan error, 1)
 	go func() {
 		err := cmd.Wait()
 		pw.Close()
 		waitDone <- err
 	}()
-
 	scanner := bufio.NewScanner(pr)
 	for scanner.Scan() {
-		line := scanner.Text()
-		fmt.Fprintf(w, "event: output\ndata: %s\n\n", line)
-		flusher.Flush()
-
-		// If client disconnected, stop reading
-		select {
-		case <-ctx.Done():
-			cmd.Process.Kill() //nolint:errcheck
-			pr.Close()
-			return ctx.Err()
-		default:
-		}
+		out.send("output", scanner.Text())
 	}
 	pr.Close()
 	return <-waitDone
@@ -117,12 +122,21 @@ func (h *StackHandler) StreamStackAction(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	unlock, ok := lockStack(name)
+	if !ok {
+		respondErrorSimple(w, fmt.Sprintf("Stack '%s' is busy with another operation", name), http.StatusConflict)
+		return
+	}
+	defer unlock()
+
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("X-Accel-Buffering", "no")
+	out := &sseOut{w: w, f: flusher, clients: r.Context()}
 
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Minute)
+	// Bounded by the server, not by the connection (see sseOut).
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 	defer cancel()
 
 	user := getUserFromRequest(r)
@@ -131,33 +145,25 @@ func (h *StackHandler) StreamStackAction(w http.ResponseWriter, r *http.Request)
 	var runErr error
 	switch action {
 	case "start":
-		runErr = streamCompose(ctx, w, flusher, dir, []string{
-			"compose", "--project-directory", dir, "-f", composePath, "up", "-d", "--remove-orphans",
-		})
+		runErr = streamCompose(ctx, out, dir, stackComposeArgs(name, dir, "up", "-d", "--remove-orphans"))
 	case "stop":
-		runErr = streamCompose(ctx, w, flusher, dir, []string{
-			"compose", "--project-directory", dir, "-f", composePath, "stop",
-		})
+		runErr = streamCompose(ctx, out, dir, stackComposeArgs(name, dir, "stop"))
 	case "restart":
-		runErr = streamCompose(ctx, w, flusher, dir, []string{
-			"compose", "--project-directory", dir, "-f", composePath, "restart",
-		})
+		runErr = streamCompose(ctx, out, dir, stackComposeArgs(name, dir, "restart"))
 	case "down":
-		runErr = streamCompose(ctx, w, flusher, dir, []string{
-			"compose", "--project-directory", dir, "-f", composePath, "down", "--remove-orphans",
-		})
+		runErr = streamCompose(ctx, out, dir, stackComposeArgs(name, dir, "down", "--remove-orphans"))
 	case "update":
-		sendSSEMsg(w, flusher, "output", "==> Pulling latest images...")
-		if err := streamCompose(ctx, w, flusher, dir, []string{
-			"compose", "--project-directory", dir, "-f", composePath, "pull",
-		}); err != nil {
-			runErr = err
-			break
+		// Pull, recreate, wait until every service is up; otherwise back
+		// to the previous images (see updateStack).
+		res := updateStack(ctx, func(s string) { out.send("output", "==> "+s) }, name, stackUpdateOptionsFor(name))
+		recordStackUpdate(name, res)
+		if res.Error != "" {
+			if res.RolledBack {
+				runErr = fmt.Errorf("update failed and was rolled back to the previous images: %s", res.Error)
+			} else {
+				runErr = fmt.Errorf("%s", res.Error)
+			}
 		}
-		sendSSEMsg(w, flusher, "output", "==> Restarting services...")
-		runErr = streamCompose(ctx, w, flusher, dir, []string{
-			"compose", "--project-directory", dir, "-f", composePath, "up", "-d", "--remove-orphans",
-		})
 	}
 
 	duration := time.Since(startTime)
@@ -165,9 +171,9 @@ func (h *StackHandler) StreamStackAction(w http.ResponseWriter, r *http.Request)
 		[]string{name}, runErr == nil, duration, runErr)
 
 	if runErr != nil {
-		sendSSEMsg(w, flusher, "error", runErr.Error())
+		out.send("error", runErr.Error())
 	} else {
-		sendSSEMsg(w, flusher, "done", "")
+		out.send("done", "")
 	}
 }
 
@@ -211,9 +217,7 @@ func (h *StackHandler) StreamStackLogs(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "docker",
-		"compose", "--project-directory", dir, "-f", composePath,
-		"logs", "-f", "--tail", "100")
+	cmd := exec.CommandContext(ctx, "docker", stackComposeArgs(name, dir, "logs", "-f", "--tail", "100")...)
 	cmd.Dir = dir
 
 	pr, pw := io.Pipe()
@@ -311,9 +315,7 @@ func (h *StackHandler) ServiceAction(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "docker",
-		"compose", "--project-directory", dir, "-f", composePath,
-		req.Action, req.Service)
+	cmd := exec.CommandContext(ctx, "docker", stackComposeArgs(req.Stack, dir, req.Action, req.Service)...)
 	cmd.Dir = dir
 	out, err := cmd.CombinedOutput()
 	duration := time.Since(started)

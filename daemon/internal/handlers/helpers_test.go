@@ -30,8 +30,8 @@ import (
 	"dplaned/internal/security"
 
 	"github.com/gorilla/mux"
-	"golang.org/x/crypto/bcrypt"
 	_ "github.com/jackc/pgx/v5/stdlib"
+	"golang.org/x/crypto/bcrypt"
 )
 
 // testDSN returns the DSN of a fresh schema (migrated), or skips the test.
@@ -256,4 +256,11 @@ func addUser(t *testing.T, db *sql.DB, name, password, role string, active bool)
 		t.Fatalf("adding user %s: %v", name, err)
 	}
 	return id
+}
+
+// reset forgets the recorded commands.
+func (f *fakeCmds) reset() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls = nil
 }

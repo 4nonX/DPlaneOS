@@ -6,14 +6,13 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"net"
 	"net/http"
 	"net/mail"
-	"net/smtp"
 	"os"
 	"strings"
 	"time"
 
+	"dplaned/internal/libzfs"
 	"dplaned/internal/secrets"
 	"dplaned/internal/systemd"
 )
@@ -156,14 +155,9 @@ func (h *AlertingHandler) TestSMTP(w http.ResponseWriter, r *http.Request) {
 		}
 		cfg.Password = plain
 	}
-	msg := fmt.Sprintf("From: %s\r\nTo: %s\r\nSubject: DPlaneOS Test Alert\r\n\r\nThis is a test email from DPlaneOS at %s.\r\nIf you received this, SMTP alerting is working correctly.\r\n",
-		cfg.From, cfg.To, time.Now().Format(time.RFC3339))
-	addr := net.JoinHostPort(cfg.Host, fmt.Sprintf("%d", cfg.Port))
-	var auth smtp.Auth
-	if cfg.Username != "" {
-		auth = smtp.PlainAuth("", cfg.Username, cfg.Password, cfg.Host)
-	}
-	if err := smtp.SendMail(addr, auth, cfg.From, strings.Split(cfg.To, ","), []byte(msg)); err != nil {
+	// The same sender as the alerts.
+	if err := sendMail(cfg, "[DPlaneOS] Test alert",
+		"This is a test email from DPlaneOS at "+time.Now().Format(time.RFC3339)+".\nIf you received this, SMTP alerting is working."); err != nil {
 		respondOK(w, map[string]any{"success": false, "error": err.Error()})
 		return
 	}
@@ -209,15 +203,8 @@ func (h *AlertingHandler) sendSMTPAlert(subject, body string) {
 		}
 		cfg.Password = plain
 	}
-	msg := fmt.Sprintf("From: %s\r\nTo: %s\r\nSubject: [DPlaneOS] %s\r\n\r\n%s\r\n",
-		cfg.From, cfg.To, subject, body)
-	addr := net.JoinHostPort(cfg.Host, fmt.Sprintf("%d", cfg.Port))
-	var auth smtp.Auth
-	if cfg.Username != "" {
-		auth = smtp.PlainAuth("", cfg.Username, cfg.Password, cfg.Host)
-	}
 	go func() {
-		if err := smtp.SendMail(addr, auth, cfg.From, strings.Split(cfg.To, ","), []byte(msg)); err != nil {
+		if err := sendMail(cfg, "[DPlaneOS] "+subject, body); err != nil {
 			log.Printf("SMTP ALERT ERROR: %v", err)
 		}
 	}()
@@ -400,14 +387,31 @@ func StartScrubMonitor() {
 					continue
 				}
 				status, _ := executeCommandWithTimeout(TimeoutFast, "zpool_status_one", []string{"status", pool})
-				if strings.Contains(status, "none requested") {
-					// No scrub ever run - alert
-					SendSMTPAlert(
-						"ZFS Scrub Warning: "+pool,
-						fmt.Sprintf("Pool '%s' has never been scrubbed. Schedule regular scrubs to protect your data.", pool),
-					)
+				// Pools are scrubbed monthly (services.zfs.autoScrub); a pool
+				// without any scrub after 40 days is worth a warning. It was
+				// mailed every 6 hours, also for a pool created that day.
+				if strings.Contains(status, "none requested") && poolAge(pool) > 40*24*time.Hour {
+					DispatchAlert("warning", "pool.never_scrubbed", pool,
+						fmt.Sprintf("Pool '%s' has never been scrubbed. Scrubs find and repair damaged data; check the scrub schedule.", pool))
 				}
 			}
 		}
 	}()
+}
+
+// poolAge is how long ago the pool was created (0 when unknown), from the
+// creation property of its root dataset ("Sun Oct 18  3:35 2026").
+func poolAge(pool string) time.Duration {
+	v, err := libzfs.DatasetGet(pool, "creation")
+	if err != nil {
+		return 0
+	}
+	t, err := time.ParseInLocation("Mon Jan _2 15:04 2006", strings.Join(strings.Fields(v), " "), time.Local)
+	if err != nil {
+		t, err = time.ParseInLocation("Mon Jan 2 15:04 2006", strings.Join(strings.Fields(v), " "), time.Local)
+	}
+	if err != nil {
+		return 0
+	}
+	return time.Since(t)
 }

@@ -10,7 +10,7 @@ For the system architecture and design philosophy, see the reference section:
 For deeper dives into operational areas, see the dedicated guides:
 - [Backup and Replication](BACKUP-REPLICATION.md) - ZFS snapshots, replication, Cloud Sync, rsync, database backup
 - [High Availability](HIGH-AVAILABILITY.md) - HA cluster setup, failover, rolling upgrades
-- [OTA Updates](OTA-UPDATES.md) - A/B slot updates, health check, auto-revert, rollback
+- [OTA Updates](OTA-UPDATES.md) - release updates, check after the reboot, automatic way back, manual rollback
 - [Optional Protocols](OPTIONAL-PROTOCOLS.md) - iSCSI, NVMe-oF, FTP/FTPS, MinIO
 - [Alerts and Authentication](ALERTS.md) - SMTP, webhook, Telegram, TOTP 2FA
 
@@ -46,6 +46,8 @@ For deeper dives into operational areas, see the dedicated guides:
 3. Fill in username (lowercase, no spaces), email, and password (12+ characters)
 4. Click **Create**
 5. Assign a role (see Role Management)
+
+Every local user is also a file-sharing account: a system account (UID from 3000, no shell, no home) that SMB and NFS use, logging in to SMB with the same password. The Users page shows this per user (*File sharing*). A user whose password was set where only its hash is known (installer, GitOps, an older version) can use SMB after their next login to the web interface or a password change. Usernames must be lower-case letters, digits, `-` and `_` to become system accounts, and a name a system account already has (e.g. `nginx`) is not used for file sharing. DPlaneOS groups become system groups with the same members (GID from 3000), usable as `@group` in a share's valid users.
 
 ### Assigning Roles
 
@@ -198,7 +200,20 @@ For granular access control beyond standard owner/group permissions, the File Ex
    - Apply changes recursively to directory contents.
 
 > [!IMPORTANT]
-> To use ACLs, the underlying ZFS dataset must have `acltype=posixacl` set. The installer enables this by default for new pools created through the UI.
+> To use ACLs, the underlying ZFS dataset must have `acltype=posix` set. Datasets created on the Datasets page have it; a pool's root dataset does not (OpenZFS on Linux defaults to `off`). Giving a share's users access to its folder (below) turns it on for that dataset, with `xattr=sa`.
+
+## File Sharing (SMB / NFS)
+
+Users log in to SMB shares with their DPlaneOS user name and password (see User Management); NFS clients see files owned by the same UIDs.
+
+**SMB shares** (Shares page):
+- **Valid users**: users and `@groups` allowed in; empty means every user.
+- **Give these users access to the folder** (on by default for a new share): a new folder usually belongs to root, so users could open the share but not write. This sets an inherited POSIX ACL on the folder for the valid users (or the group `users`, which every account is in): read and write, or read for a read-only share. Existing contents keep their permissions; use Files → Manage Permissions for those.
+- **Guest access**: while a share allows guests, users the server does not know are let in as guest (`map to guest = Bad User`). Windows 11 refuses guest logins unless its policy allows them.
+- **Previous Versions**: ZFS snapshots of the share's dataset, including those of child datasets inside it and of schedules with their own prefix (`<prefix>-YYYYMMDD-HHMM`).
+- The server shows up under **Network** in Windows Explorer (WS-Discovery) and in the Finder (Bonjour).
+
+**NFS exports** (NFS page): served as NFSv4.0, 4.1 and 4.2 by default (`services.dplaneos.nfs.minVersion`; macOS mounts only 4.0). NFSv3 (Windows' NFS client, older ESXi) is off; `services.dplaneos.nfs.enableNFSv3 = true` turns it on with fixed helper ports opened in the firewall. New exports use `rw,sync,no_subtree_check,root_squash,crossmnt` (`crossmnt`: child datasets are visible; without it they appear empty). Unknown options are refused before they are saved.
 
 ---
 
@@ -251,6 +266,26 @@ Custom icons are served via `GET /api/assets/custom-icons/<filename>`. The full 
 - **Exec:** click on container → Exec tab → enter `bash` or any command
 - **Remove:** click on container → Delete → confirm
 
+### Compose Stacks
+
+Each stack is a folder in `/var/lib/dplaneos/stacks/<name>/` with its `docker-compose.yml` and `.env`, run as compose project `<name>`. One operation runs per stack at a time; a second one is refused with "busy". An edit is checked with `docker compose config` before it replaces the working file, and if deploying it fails, the previous version is put back and deployed again. A stack's status counts exited services ("partial" when some are down). Actions keep running on the server when the browser tab is closed.
+
+### Updating Stacks
+
+**Update** pulls the stack's images and recreates the services whose image changed, then waits until every service is up: healthy when it has a health check, otherwise running without a restart for 10 seconds. If one is not, the stack goes back to the images it ran before. Before the update the ZFS datasets the stack bind-mounts are snapshotted (`<dataset>@pre-update-<stack>-<time>`, the last 3 kept); with **Roll data back on failure** the data goes back to that snapshot too (what the app wrote since is lost). The result of the last update is shown with the stack.
+
+**Update detection:** every 6 hours (or **Check now**) DPlaneOS asks the registries, through Docker and its registry logins, which image each tag points to now, without pulling, and marks stacks with new images. Images pinned by digest and locally built images are not checked. **Auto-update** (per stack, off by default) updates a stack when new images are found; an update that fails is rolled back and that image is not tried again until the registry has a newer one. Alerts report automatic updates and failures.
+
+### Git-backed Stacks (Git Sync)
+
+A repository's compose file runs as compose project `git-<name>`. Auto-sync fetches the branch and moves the clone to it; a clone with local changes or commits that are not pushed is left alone, with an error, until they are pushed or discarded. A new commit is deployed; the same commit is not deployed again, so a stack stopped on purpose stays stopped. Deploy errors are shown with the repository and raise an alert.
+
+**Deploy on push:** **Webhook** creates a secret (shown once) and the payload URL `/api/git-sync/repos/webhook/<id>`. Add them in GitHub, Gitea/Forgejo (content type `application/json`, push events) or GitLab (secret token); a push to the tracked branch starts a sync and deploys the new commit.
+
+### Sandboxes
+
+Docker → Sandbox clones a dataset (`<pool>/sandboxes/<name>` from a `@sandbox-base-*` snapshot) to try something on a copy, mounted as a volume in a test container. **Destroy** removes the clone and its snapshot; **Cleanup** removes base snapshots whose clone was deleted by other means.
+
 ---
 
 ## System Settings
@@ -259,7 +294,22 @@ Custom icons are served via `GET /api/assets/custom-icons/<filename>`. The full 
 
 Network → configure interface, IP address, gateway, DNS, VLANs, and bonding → **Apply**.
 
-The **Firewall** page is in the Security group. DNS changes apply in 30 seconds and can be rolled back from the same page if connectivity is lost.
+**Every change is confirmed.** A change applies at once; a banner then asks to **Keep** it. Without that within 90 seconds it is reverted, so a change that cuts off the browser undoes itself. One change waits at a time. When you change the address you are connected to, open the interface on the new address (log in again) and confirm there. A change that was not confirmed is also reverted when the daemon restarts or the machine reboots.
+
+**How it is stored.** DPlaneOS writes systemd-networkd files `/etc/systemd/network/05-dplane-<interface>.{network,netdev}` (one per interface it configures) and `/etc/systemd/resolved.conf.d/50-dplane.conf` for DNS; the state is `/var/lib/dplaneos/network-state.json`. They come before the files NixOS generates, so they take precedence; interfaces DPlaneOS does not configure keep the system configuration (DHCP on every Ethernet port by default). No rebuild is needed. The GitOps `system.networking` and `dns_servers` settings use the same files.
+
+- **VLANs** go on an interface or a bond; the parent keeps its address. A VLAN can have an address, DHCP, or none.
+- **Bonds** take their members' place: the members lose their own addresses. A bond created without an address takes over the configuration of its first member that has one. Link monitoring (100 ms) is on, so a failed member is noticed. Note that the bond has its own MAC address, so DHCP may give it a new address. Deleting a bond gives its members back to the system configuration.
+- **DNS** servers and search domains apply to all interfaces.
+
+### Firewall
+
+The **Firewall** page is in the Security group. On NixOS the firewall is part of the system configuration: it opens the ports of the enabled services (listed on the page) and refuses everything else. Rules made on the page apply at once on top of it, in order; the first rule that matches decides:
+
+- **Allow** opens a port, optionally only for a source address or network.
+- **Deny** blocks a port, also one the system opens. To allow SMB only from the office network: *allow 445/tcp from 192.168.10.0/24*, then *deny 445/tcp*.
+
+Like network changes, every rule change is reverted unless confirmed. The rules live in the nftables table `inet dplaneos_fw` (`/var/lib/dplaneos/firewall.nft`, loaded at boot by `dplaneos-firewall.service`). They apply to connections to the server itself; ports published by Docker containers are not affected.
 
 ### Change History
 
@@ -324,22 +374,9 @@ zfs snapshot tank/data@backup-$(date +%Y%m%d)
 # services.zfs.autoSnapshot.enable = true;
 ```
 
-### Database Backup
+### Configuration Backup
 
-The daemon management of PostgreSQL includes automated schema maintenance. For backups, use standard PostgreSQL tools:
-
-```bash
-# Default state location
-/var/lib/dplaneos/pgsql/
-
-# Manual backup (via pg_dump)
-sudo -u postgres pg_dump dplaneos > /backup/dplaneos-$(date +%Y%m%d).sql
-
-# Restore
-sudo systemctl stop dplaned
-sudo -u postgres psql dplaneos < /backup/dplaneos-20260309.sql
-sudo systemctl start dplaned
-```
+Settings → Maintenance downloads the whole configuration (database and settings files) and restores it; a copy is written daily to the first data pool. See [Backup and Replication](BACKUP-REPLICATION.md#configuration-backup).
 
 ### Pool Export/Import
 
@@ -496,23 +533,23 @@ Register DPlaneOS as a confidential client with:
 
 ### Group to Role Mapping
 
-OIDC group names are matched against DPlaneOS role names at each login. Any IdP group whose name exactly matches a DPlaneOS role is assigned to the user. The claim that carries group membership is configurable (default: `groups`).
+OIDC group names are matched against DPlaneOS role names at each login: an IdP group named exactly like a role grants that role. The claim that carries group membership is configurable (default: `groups`); it may be a list or a space- or comma-separated string.
 
-| IdP group | DPlaneOS role matched | Access level |
-|-----------|----------------------|--------------|
-| `dplaneos-admins` | Administrator | Full system access |
-| `storage-operators` | Operator | Storage, Docker, Shares |
-| `domain-users` | User | Files, Dashboard |
-| `auditors` | Viewer | Read-only |
+| IdP group | DPlaneOS role | Access level |
+|-----------|---------------|--------------|
+| `admin` | Administrator | Full system access |
+| `operator` | Operator | Storage, Docker, Shares |
+| `user` | User | Files, Dashboard |
+| `viewer` | Viewer | Read-only |
 
-Groups that do not match any role name are silently ignored. The assignment uses `granted_by = 'oidc-provider'` and is re-evaluated on every login; roles not granted by the IdP are not revoked automatically (they may have been assigned manually).
+Groups that do not match a role name are ignored. Roles granted this way (`granted_by = 'oidc-provider'`) follow the IdP: a role whose group the user no longer has is revoked at the next login. Roles granted locally and the default role of auto-provisioned accounts are never revoked by the IdP. When the token has no groups claim at all (the scope was not granted), roles are left unchanged.
 
 ### User Provisioning
 
 DPlaneOS resolves users in priority order:
 
 1. **Existing OIDC identity link** - the `(issuer, subject)` pair from the IdP is the stable, authoritative key. Matched immediately on subsequent logins regardless of email changes.
-2. **Email-based link** - if no identity link exists, DPlaneOS checks whether a local account shares the same email address and links it. Subsequent logins use the identity link.
+2. **Email-based link** - if no identity link exists and the IdP marks the email as verified (`email_verified: true`), DPlaneOS links the local account with the same email address. An unverified email never links (anyone able to set an email at the IdP could otherwise take over that account). Subsequent logins use the identity link.
 3. **Auto-provision** - if no match and **Auto-provision accounts** is enabled, a new local account is created with `source = 'oidc'` and the configured Default Role assigned.
 
 If **Auto-provision** is disabled and neither of the first two paths match, login is rejected with a "not authorized" error on the login page.

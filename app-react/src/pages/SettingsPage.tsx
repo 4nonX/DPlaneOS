@@ -8,7 +8,7 @@
  * Security: AES-256-GCM key rotation  POST /api/system/secrets/rotate
  * License: activation, status, CE integration
  * Features: enable/disable optional features, hardware requirements
- * Maintenance: DB backup/restore      GET /api/system/db/backup, POST /api/system/db/restore
+ * Maintenance: configuration backup/restore (database and files)
  *
  * Calls:
  *   GET  /api/system/settings              → { success, settings: Record<string,string> }
@@ -23,8 +23,10 @@
  *   GET  /api/system/features              → { success, features: Feature[] }
  *   POST /api/system/features/:id/enable   → { success }
  *   POST /api/system/features/:id/disable  → { success }
- *   GET  /api/system/db/backup             → octet-stream download
- *   POST /api/system/db/restore            → { success }
+ *   GET  /api/system/config/backup?secrets=  → .tar.gz download
+ *   GET  /api/system/config/backup/previous → .tar.gz of the configuration before the last restore
+ *   GET  /api/system/config/restore         → { pending, in_cluster, previous_available, last_result }
+ *   POST /api/system/config/restore         → multipart (backup, secrets, network): check, stage, restart
  */
 
 import { useState, useEffect } from 'react'
@@ -590,36 +592,87 @@ function SecurityTab() {
 }
 
 // ---------------------------------------------------------------------------
-// MaintenanceTab - database backup / restore
+// MaintenanceTab - configuration backup / restore
 // ---------------------------------------------------------------------------
 
+interface RestoreResult {
+  status: string
+  error?: string
+  from_host: string
+  from_version: string
+  backup_created_at: string
+  applied_at: string
+  files: number
+  secrets: boolean
+  network: boolean
+  cluster: boolean
+}
+interface StoredBackup { pool: string; name: string; size: number; created: string }
+interface RestoreStatus {
+  success: boolean
+  pending: boolean
+  in_cluster: boolean
+  previous_available?: boolean
+  last_result?: RestoreResult
+}
+
 function MaintenanceTab() {
+  const qc = useQueryClient()
+  const { confirm, ConfirmDialog } = useConfirm()
+  const [withSecrets, setWithSecrets] = useState(true)
   const [restoreFile, setRestoreFile] = useState<File | null>(null)
+  const [restoreSecrets, setRestoreSecrets] = useState(true)
+  const [restoreNetwork, setRestoreNetwork] = useState(false)
   const [restoring, setRestoring] = useState(false)
 
-  function handleDownload() {
+  const statusQ = useQuery({
+    queryKey: ['system', 'config', 'restore'],
+    queryFn: ({ signal }) => api.get<RestoreStatus>('/api/system/config/restore', signal),
+  })
+  const st = statusQ.data
+  const last = st?.last_result
+  const storedQ = useQuery({
+    queryKey: ['system', 'config', 'backups'],
+    queryFn: ({ signal }) => api.get<{ success: boolean; backups: StoredBackup[] }>('/api/system/config/backups', signal),
+  })
+  const restoreStored = useMutation({
+    mutationFn: (b: StoredBackup) => api.post<{ success: boolean; message?: string }>(
+      `/api/system/config/backups/${encodeURIComponent(b.pool)}/${encodeURIComponent(b.name)}/restore`,
+      { secrets: restoreSecrets, network: restoreNetwork }),
+    onSuccess: (d) => { toast.success(d.message ?? 'Restoring; log in again in a minute.'); qc.invalidateQueries({ queryKey: ['system', 'config', 'restore'] }) },
+    onError: (e: Error) => toast.error(e.message),
+  })
+
+  function download(href: string) {
     const a = document.createElement('a')
-    a.href = '/api/system/db/backup'
+    a.href = href
     a.click()
   }
 
   async function handleRestore() {
     if (!restoreFile) return
+    if (!await confirm({
+      title: 'Restore this configuration?',
+      message: 'The backup is checked first. The daemon then restarts and replaces the current configuration (database and files); everyone has to log in again. The current configuration is kept as a backup you can download or restore.',
+      danger: true,
+      confirmLabel: 'Restore',
+    })) return
     setRestoring(true)
     try {
       const form = new FormData()
       form.append('backup', restoreFile)
-      const res = await fetch('/api/system/db/restore', {
+      form.append('secrets', restoreSecrets ? '1' : '0')
+      form.append('network', restoreNetwork ? '1' : '0')
+      const res = await fetch('/api/system/config/restore', {
         method: 'POST',
         headers: { 'X-Session-ID': getSessionId() ?? '', 'X-User': getUsername() ?? '', 'X-CSRF-Token': getCsrfToken() },
         body: form,
       })
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({ error: res.statusText }))
-        throw new Error(body.error ?? res.statusText)
-      }
-      toast.success('Database restored. Reload the page.')
+      const body = await res.json().catch(() => ({ error: res.statusText }))
+      if (!res.ok || body.success === false) throw new Error(body.error ?? res.statusText)
+      toast.success(body.message ?? 'Restoring; log in again in a minute.')
       setRestoreFile(null)
+      qc.invalidateQueries({ queryKey: ['system', 'config', 'restore'] })
     } catch (e: unknown) {
       toast.error(e instanceof Error ? e.message : 'Restore failed')
     } finally {
@@ -627,50 +680,107 @@ function MaintenanceTab() {
     }
   }
 
+  const small = { fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' } as const
+  const check = { display: 'flex', alignItems: 'center', gap: 8, fontSize: 'var(--text-sm)', marginBottom: 8 } as const
+
   return (
     <div style={{ maxWidth: 620, display: 'flex', flexDirection: 'column', gap: 20, paddingTop: 24 }}>
+      <ConfirmDialog />
       <TuningCard />
       <SecretsStatusCard />
       <div className="card" style={{ padding: 20 }}>
-        <h3 style={{ fontSize: 'var(--text-lg)', fontWeight: 600, marginBottom: 8 }}>Database Backup</h3>
-        <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', marginBottom: 16 }}>
-          Downloads a full <code style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)' }}>pg_dump</code> of
-          the control-plane database (sessions, audit logs, cluster state, all configuration). ZFS pool state is
-          intentionally excluded - it lives in <code style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)' }}>state.yaml</code>.
+        <h3 style={{ fontSize: 'var(--text-lg)', fontWeight: 600, marginBottom: 8 }}>Configuration Backup</h3>
+        <p style={{ ...small, marginBottom: 12 }}>
+          The whole configuration in one file: the database (users, shares, alerts, audit log, all settings
+          stored there) and the settings kept in files (schedules, firewall, certificates, stacks, iSCSI and
+          NVMe-oF, NixOS settings, replication keys, network). Data on the pools is not part of it.
         </p>
-        <button onClick={handleDownload} className="btn btn-primary">
+        <label style={check}>
+          <input type="checkbox" checked={withSecrets} onChange={e => setWithSecrets(e.target.checked)} />
+          Include the secrets key
+        </label>
+        <p style={{ ...small, fontSize: 'var(--text-xs)', marginBottom: 16 }}>
+          Without it, stored passwords (SMB, SMTP, replication, Telegram) can only be opened on this machine.
+          With it, keep the file as safe as the passwords themselves.
+        </p>
+        <button onClick={() => download(`/api/system/config/backup?secrets=${withSecrets ? 1 : 0}`)} className="btn btn-primary">
           <Icon name="download" size={14} /> Download Backup
         </button>
       </div>
 
       <div className="card" style={{ padding: 20 }}>
-        <h3 style={{ fontSize: 'var(--text-lg)', fontWeight: 600, marginBottom: 8 }}>Database Restore</h3>
-        <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', marginBottom: 16 }}>
-          Restores the control-plane database from a backup file. The current database is overwritten.
-          Reload the page after restore completes.
-        </p>
-        <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-          <label className="btn btn-ghost" style={{ cursor: 'pointer' }}>
-            <Icon name="upload" size={14} />
-            {restoreFile ? restoreFile.name : 'Choose .dump file'}
-            <input
-              type="file"
-              accept=".dump"
-              style={{ display: 'none' }}
-              onChange={e => setRestoreFile(e.target.files?.[0] ?? null)}
-            />
-          </label>
-          {restoreFile && (
-            <button
-              onClick={handleRestore}
-              disabled={restoring}
-              className="btn btn-primary"
-              style={{ minWidth: 100 }}
-            >
-              <Icon name="database" size={14} />{restoring ? 'Restoring...' : 'Restore'}
-            </button>
-          )}
-        </div>
+        <h3 style={{ fontSize: 'var(--text-lg)', fontWeight: 600, marginBottom: 8 }}>Configuration Restore</h3>
+        {last && (
+          <div style={{ fontSize: 'var(--text-sm)', marginBottom: 12, color: last.status === 'ok' ? 'var(--success)' : 'var(--error)' }}>
+            {last.status === 'ok'
+              ? `Last restore: backup of ${last.from_host} (${new Date(last.backup_created_at).toLocaleString()}, DPlaneOS ${last.from_version}), applied ${new Date(last.applied_at).toLocaleString()}.`
+              : `Last restore failed: ${last.error}`}
+          </div>
+        )}
+        {st?.pending && <div style={{ ...small, marginBottom: 12 }}>A restore is staged and is applied when the daemon starts.</div>}
+        {st?.in_cluster ? (
+          <p style={small}>This node is a cluster member. Leave the cluster before restoring a configuration.</p>
+        ) : (
+          <>
+            <p style={{ ...small, marginBottom: 12 }}>
+              Replaces the current configuration. A backup from an older DPlaneOS is updated when it is applied;
+              NixOS settings from the backup show as pending under NixOS until you apply them.
+            </p>
+            <label style={check}>
+              <input type="checkbox" checked={restoreSecrets} onChange={e => setRestoreSecrets(e.target.checked)} />
+              Restore the secrets key (if the backup has one)
+            </label>
+            <label style={check}>
+              <input type="checkbox" checked={restoreNetwork} onChange={e => setRestoreNetwork(e.target.checked)} />
+              Restore the network settings (same hardware only: interface names differ elsewhere)
+            </label>
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginTop: 8 }}>
+              <label className="btn btn-ghost" style={{ cursor: 'pointer' }}>
+                <Icon name="upload" size={14} />
+                {restoreFile ? restoreFile.name : 'Choose backup (.tar.gz)'}
+                <input type="file" accept=".gz,.tgz,application/gzip" style={{ display: 'none' }}
+                  onChange={e => setRestoreFile(e.target.files?.[0] ?? null)} />
+              </label>
+              {restoreFile && (
+                <button onClick={handleRestore} disabled={restoring} className="btn btn-primary" style={{ minWidth: 100 }}>
+                  <Icon name="restore" size={14} />{restoring ? 'Checking…' : 'Restore'}
+                </button>
+              )}
+            </div>
+          </>
+        )}
+        {!st?.in_cluster && (
+          <div style={{ marginTop: 16 }}>
+            <div style={{ fontWeight: 600, fontSize: 'var(--text-sm)', marginBottom: 6 }}>Stored backups</div>
+            <p style={{ ...small, fontSize: 'var(--text-xs)', marginBottom: 8 }}>
+              Written daily to the first data pool (<code>.dplaneos-config</code>, newest 14), so they survive the
+              loss of the boot disk: after a reinstall, import the pool and restore from here.
+            </p>
+            {(storedQ.data?.backups ?? []).length === 0
+              ? <div style={{ ...small, fontSize: 'var(--text-xs)' }}>None yet (written 10 minutes after start, then daily, once a pool exists).</div>
+              : (storedQ.data?.backups ?? []).map(b => (
+                <div key={b.pool + b.name} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', borderTop: '1px solid var(--border)', flexWrap: 'wrap' }}>
+                  <span style={{ flex: 1, fontSize: 'var(--text-xs)', fontFamily: 'var(--font-mono)' }}>{b.pool}: {new Date(b.created).toLocaleString()} ({Math.max(1, Math.round(b.size / 1024))} KiB)</span>
+                  <button className="btn btn-ghost" style={{ fontSize: 'var(--text-xs)' }}
+                    onClick={() => download(`/api/system/config/backups/${encodeURIComponent(b.pool)}/${encodeURIComponent(b.name)}`)}>
+                    <Icon name="download" size={13} />Download
+                  </button>
+                  <button className="btn btn-ghost" style={{ fontSize: 'var(--text-xs)' }} disabled={restoreStored.isPending}
+                    onClick={async () => {
+                      if (await confirm({ title: 'Restore this configuration?', message: `The backup of ${new Date(b.created).toLocaleString()} replaces the current configuration; the daemon restarts and everyone has to log in again. The options above (secrets key, network) apply.`, danger: true, confirmLabel: 'Restore' }))
+                        restoreStored.mutate(b)
+                    }}>
+                    <Icon name="restore" size={13} />Restore
+                  </button>
+                </div>
+              ))}
+          </div>
+        )}
+        {st?.previous_available && (
+          <button onClick={() => download('/api/system/config/backup/previous')} className="btn btn-ghost" style={{ marginTop: 12, fontSize: 'var(--text-xs)' }}>
+            <Icon name="history" size={13} /> Download the configuration from before the last restore
+          </button>
+        )}
       </div>
     </div>
   )

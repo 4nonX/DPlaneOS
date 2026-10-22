@@ -121,9 +121,10 @@ The calling code never knows which path is active. From `handlers/` and `gitops/
 
 The daemon runs as root but constrains itself at the systemd unit level:
 
-- `ProtectSystem=strict`: the NixOS system closure is read-only from the daemon's perspective
 - `NoNewPrivileges=true`: the daemon cannot escalate beyond its initial capabilities
-- `MemoryMax=1G`: bounded memory prevents OOM-triggered system instability
+- A bounded capability set (`CAP_SYS_ADMIN`, `CAP_NET_ADMIN`, `CAP_DAC_READ_SEARCH`, `CAP_CHOWN`, `CAP_FOWNER`)
+- `MemoryMax=1G` (`services.dplaneos.memoryMax`) with `OOMPolicy=continue`: the daemon and the jobs it runs are bounded; a job the kernel kills for memory does not stop the daemon. `nixos-rebuild` runs in its own transient unit, outside this limit, and survives a restart of the daemon during the switch
+- No `ProtectSystem`/`PrivateTmp`: in a private mount namespace the ZFS datasets the daemon mounts would stay invisible to Samba, NFS and the host
 
 ### Authentication and Session Model
 
@@ -149,14 +150,12 @@ Every state-changing operation appends to an audit log stored in PostgreSQL. Eac
 
 ## The Persistence Model
 
-DPlaneOS uses NixOS impermanence: the root filesystem (`/`) is ephemeral and is replaced on every OTA update. All state that must survive reboots lives on a dedicated `/persist` partition.
+DPlaneOS uses NixOS impermanence: the root filesystem (`/`) holds the system (Nix store, generations) and nothing the daemon must keep. All state that must survive reboots lives on a dedicated `/persist` partition.
 
 ```
 Boot disk layout (disko.nix):
-├── ESP                 /boot       (EFI, systemd-boot, slot A/B entries)
-├── Slot A              /           (ephemeral ext4, active NixOS closure)
-├── Slot B              /           (ephemeral ext4, standby NixOS closure)
-├── swap
+├── ESP                 /boot       (EFI, systemd-boot, one entry per generation)
+├── system-a            /           (ext4, 40 GB: Nix store and NixOS generations)
 └── /persist            /persist    (durable ext4, all runtime state)
 
 ZFS data disks (separate from boot disk):
@@ -173,7 +172,7 @@ Key items on `/persist`:
 | `/persist/docker/` (bind to `/var/lib/docker`) | Container state, images, overlay2 volumes |
 | `/persist/samba/` (bind to `/var/lib/samba`) | Samba passdb.tdb, secrets, user accounts |
 | `/persist/ssh/` | NixOS SSH host keys (prevents "host key changed" warnings after OTA) |
-| `/persist/ota/` | A/B slot markers, pending-revert marker, OTA log |
+| `/var/lib/dplaneos/update-pending.json`, `update-result.json` | Update waiting for its check after the reboot; result of the last update |
 | `/persist/nixos/` | NixOS UID/GID allocation map (stable ownership across rebuilds) |
 
 ZFS data pools on separate disks are fully independent of this mechanism. A complete reinstall of the boot disk does not touch data pools. After reinstall, run `zpool import -a`.
@@ -207,7 +206,7 @@ Internet / LAN
 
 **Failure mode**: If the node goes down, the NAS is unavailable. Data on ZFS pools is safe as long as the pool was cleanly exported. On restart, dplaned reconnects to PostgreSQL, re-imports ZFS pools (via the ZFS gate service), and resumes all operations.
 
-**Upgrades**: OTA updates write to the inactive boot slot. A reboot activates the new system. If the health check fails, the system automatically reverts.
+**Upgrades**: an update builds the release as a new NixOS generation and reboots into it. If the check after the reboot fails, the system goes back to the previous generation by itself.
 
 ---
 

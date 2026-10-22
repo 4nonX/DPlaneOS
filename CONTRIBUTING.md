@@ -148,7 +148,19 @@ go build -mod=vendor \
   -o ../build/dplaned ./cmd/dplaned/
 ```
 
-The full release procedure (version bump, tag, push sequence) is documented in [.agents/workflows/release.md](.agents/workflows/release.md).
+### Release procedure
+
+Changelog entries are written during development, under `## Unreleased` in [docs/reference/CHANGELOG.md](docs/reference/CHANGELOG.md).
+
+1. On the development branch, commit `release: vX.Y.Z "Name"`: set `VERSION` to `X.Y.Z` and rename `## Unreleased` to `## vX.Y.Z (YYYY-MM-DD) - "Name"`.
+2. Merge into `main`. CI builds and signs every asset (tarballs, installer and live ISOs, witness images, SBOMs) and creates a **draft** release named after the changelog heading, with that section as its notes.
+3. Check the draft, then publish it on the commit CI built:
+   ```bash
+   gh release edit vX.Y.Z --target <main commit> --draft=false --latest
+   ```
+   Publishing creates the tag.
+
+A published release is never rebuilt: CI skips a version that is already published, so a fix needs a new version.
 
 ## Security Requirements for PRs
 

@@ -3,10 +3,15 @@ package handlers
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net"
 	"net/http"
+	"os"
+	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
+	"time"
 )
 
 // ═══════════════════════════════════════════════════════════════
@@ -127,6 +132,95 @@ func validateCHAP(user, pass string) error {
 	return nil
 }
 
+// iscsiSaveFile is where `targetcli saveconfig` writes the LIO configuration
+// (persisted across OTA updates by impermanence.nix).
+var iscsiSaveFile = "/etc/target/saveconfig.json"
+
+// lioConfigDir is the kernel's LIO iSCSI configuration (configfs).
+var lioConfigDir = "/sys/kernel/config/target/iscsi"
+
+// RestoreISCSIConfig loads the saved LIO configuration into the kernel at
+// startup. LIO lives in configfs, which is empty after every boot, and
+// nothing else replays saveconfig.json (NixOS's services.target would replace
+// the file with one built from Nix), so without this every iSCSI target is
+// gone after a reboot. It waits for the zvols to appear (udev creates
+// /dev/zvol links after the pool import) and does nothing when the kernel
+// already has targets (a daemon restart).
+func RestoreISCSIConfig() {
+	data, err := os.ReadFile(iscsiSaveFile)
+	if err != nil {
+		return
+	}
+	if lioHasTargets() {
+		return
+	}
+	waitForDevices(savedBackingDevices(data), 2*time.Minute)
+	out, err := runTargetcli("/", "restoreconfig", iscsiSaveFile)
+	if err != nil {
+		log.Printf("ERROR: iSCSI: restoring %s failed: %v: %s", iscsiSaveFile, err, strings.TrimSpace(out))
+		return
+	}
+	log.Printf("iSCSI: restored the saved targets from %s", iscsiSaveFile)
+}
+
+// saveISCSIConfig writes the LIO configuration to iscsiSaveFile, named
+// explicitly: distributions patch targetcli's default (Debian and Ubuntu save
+// to /etc/rtslib-fb-target), and the restore must read what was written.
+func saveISCSIConfig() (string, error) {
+	// A directory that cannot be created makes targetcli fail; it reports it.
+	_ = os.MkdirAll(filepath.Dir(iscsiSaveFile), 0o700)
+	return runTargetcli("/", "saveconfig", iscsiSaveFile)
+}
+
+// lioHasTargets reports whether the kernel already has iSCSI targets.
+func lioHasTargets() bool {
+	entries, err := os.ReadDir(lioConfigDir)
+	if err != nil {
+		return false
+	}
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), "iqn.") {
+			return true
+		}
+	}
+	return false
+}
+
+// savedBackingDevices lists the block devices of the storage objects in a
+// saveconfig.json.
+func savedBackingDevices(saveconfig []byte) []string {
+	var cfg struct {
+		StorageObjects []struct {
+			Dev string `json:"dev"`
+		} `json:"storage_objects"`
+	}
+	if json.Unmarshal(saveconfig, &cfg) != nil {
+		return nil
+	}
+	var devs []string
+	for _, so := range cfg.StorageObjects {
+		if strings.HasPrefix(so.Dev, "/dev/") {
+			devs = append(devs, so.Dev)
+		}
+	}
+	return devs
+}
+
+// waitForDevices waits until every device exists or the timeout passes. A
+// device that never appears (a pool that is not imported here) only delays
+// the restore; targetcli restores the others.
+func waitForDevices(devs []string, timeout time.Duration) {
+	deadline := time.Now().Add(timeout)
+	for _, d := range devs {
+		for {
+			if _, err := os.Stat(d); err == nil || time.Now().After(deadline) {
+				break
+			}
+			time.Sleep(2 * time.Second)
+		}
+	}
+}
+
 func runTargetcli(args ...string) (string, error) {
 	return executeCommandWithTimeout(TimeoutSlow, "targetcli", args)
 }
@@ -173,6 +267,10 @@ func CreateISCSITarget(w http.ResponseWriter, r *http.Request) {
 		respondErrorSimple(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	if by := blockDeviceExportedBy(req.BackingDev, "", ""); by != "" {
+		respondErrorSimple(w, errBlockDeviceInUse(req.BackingDev, by).Error(), http.StatusConflict)
+		return
+	}
 	if req.PortalPort == 0 {
 		req.PortalPort = 3260
 	}
@@ -217,10 +315,11 @@ func CreateISCSITarget(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Set portal
-	portalAddr := fmt.Sprintf("%s:%d", req.PortalIP, req.PortalPort)
-	runTargetcli(tpgPath+"/portals", "delete", "0.0.0.0", "3260") //nolint - remove default portal
-	if _, err := runTargetcli(tpgPath+"/portals", "create", portalAddr); err != nil {
+	// Set portal. targetcli takes address and port as separate arguments:
+	// "create 0.0.0.0:3260" fails ("Could not create NetworkPortal"), so every
+	// target creation failed here.
+	runTargetcli(tpgPath+"/portals", "delete", "0.0.0.0", "3260") //nolint - remove the default portal (auto_add_default_portal)
+	if _, err := runTargetcli(tpgPath+"/portals", "create", "ip_address="+req.PortalIP, "ip_port="+strconv.Itoa(req.PortalPort)); err != nil {
 		cleanup()
 		respondErrorSimple(w, "Failed to set portal", http.StatusInternalServerError)
 		return
@@ -265,7 +364,7 @@ func CreateISCSITarget(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Save config: without it the target is gone after a reboot.
-	if _, err := runTargetcli("/", "saveconfig"); err != nil {
+	if _, err := saveISCSIConfig(); err != nil {
 		respondOK(w, map[string]any{"success": false, "iqn": req.IQN,
 			"error": "The target is running, but saving the iSCSI configuration failed: it is lost at the next reboot"})
 		return
@@ -302,6 +401,11 @@ func UpdateISCSITarget(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if by := blockDeviceExportedBy(req.BackingDev, "", sanitizeForTargetcli(req.IQN)); by != "" {
+		respondErrorSimple(w, errBlockDeviceInUse(req.BackingDev, by).Error(), http.StatusConflict)
+		return
+	}
+
 	// In LIO (targetcli), the safest way to "update" a target's backing device
 	// without tearing down the entire target is to delete the LUN and re-create it.
 	// This will disconnect active sessions, which is expected for such an operation.
@@ -327,7 +431,7 @@ func UpdateISCSITarget(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, err := runTargetcli("/", "saveconfig"); err != nil {
+	if _, err := saveISCSIConfig(); err != nil {
 		respondOK(w, map[string]any{"success": false, "iqn": req.IQN,
 			"error": "The target is updated, but saving the iSCSI configuration failed: the change is lost at the next reboot"})
 		return
@@ -353,7 +457,7 @@ func DeleteISCSITarget(w http.ResponseWriter, r *http.Request) {
 		respondErrorSimple(w, "Failed to delete target", http.StatusInternalServerError)
 		return
 	}
-	runTargetcli("/", "saveconfig") //nolint
+	saveISCSIConfig() //nolint
 
 	respondOK(w, map[string]any{
 		"success": true,
@@ -420,6 +524,16 @@ func AddISCSIACL(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// On a target that requires CHAP, an initiator without credentials can
+	// never log in: refuse such an ACL rather than add one that looks valid.
+	if req.CHAPUser == "" {
+		out, err := runTargetcli(fmt.Sprintf("/iscsi/%s/tpg1", req.TargetIQN), "get", "attribute", "authentication")
+		if err == nil && strings.Contains(out, "authentication=1") {
+			respondErrorSimple(w, "This target requires CHAP: give the initiator a CHAP user and secret", http.StatusBadRequest)
+			return
+		}
+	}
+
 	aclPath := fmt.Sprintf("/iscsi/%s/tpg1/acls", req.TargetIQN)
 	if _, err := runTargetcli(aclPath, "create", req.InitiatorIQN); err != nil {
 		respondErrorSimple(w, "Failed to add ACL", http.StatusInternalServerError)
@@ -440,7 +554,7 @@ func AddISCSIACL(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if _, err := runTargetcli("/", "saveconfig"); err != nil {
+	if _, err := saveISCSIConfig(); err != nil {
 		respondOK(w, map[string]any{"success": false, "error": "The ACL is active, but saving the iSCSI configuration failed: it is lost at the next reboot"})
 		return
 	}
@@ -472,7 +586,7 @@ func DeleteISCSIACL(w http.ResponseWriter, r *http.Request) {
 		respondErrorSimple(w, "Failed to delete ACL", http.StatusInternalServerError)
 		return
 	}
-	runTargetcli("/", "saveconfig") //nolint
+	saveISCSIConfig() //nolint
 
 	respondOK(w, map[string]any{
 		"success": true,
@@ -575,7 +689,7 @@ func SetISCSIALUAState(w http.ResponseWriter, r *http.Request) {
 		respondErrorSimple(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	runTargetcli("/", "saveconfig") //nolint
+	saveISCSIConfig() //nolint
 
 	respondOK(w, map[string]any{
 		"success":    true,

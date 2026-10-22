@@ -4,8 +4,9 @@ import (
 	"database/sql"
 	"dplaned/internal/gitops"
 	"dplaned/internal/middleware"
-	"dplaned/internal/security"
 	"dplaned/internal/scram"
+	"dplaned/internal/security"
+	"dplaned/internal/shareusers"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -77,6 +78,8 @@ func (h *UserGroupHandler) listUsers(w http.ResponseWriter, r *http.Request) {
 	defer rows.Close()
 
 	var users []map[string]any
+	// File sharing: the system account and SMB status of the last sync.
+	share := shareusers.LastStatus()
 	for rows.Next() {
 		var id, active int
 		var username, email, role, createdAt string
@@ -92,6 +95,9 @@ func (h *UserGroupHandler) listUsers(w http.ResponseWriter, r *http.Request) {
 			"active":     active == 1,
 			"created_at": createdAt,
 		})
+		if st, ok := share[username]; ok {
+			users[len(users)-1]["file_sharing"] = st
+		}
 	}
 	if err := rows.Err(); err != nil {
 		respondError(w, http.StatusInternalServerError, "Error iterating users", err)
@@ -295,12 +301,13 @@ func (h *UserGroupHandler) createUser(w http.ResponseWriter, req userActionReque
 		respondErrorSimple(w, "Failed to assign the role: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
+	setSMBPassword(h.db, req.Username, req.Password)
 
-	respondJSON(w, http.StatusOK, map[string]any{
+	respondJSON(w, http.StatusOK, withWarning(map[string]any{
 		"success": true,
 		"id":      id,
 		"message": fmt.Sprintf("User %s created", req.Username),
-	})
+	}, syncShareIdentities(h.db)))
 
 	// GITOPS HOOK: write state back to git
 	gitops.CommitAllAsync(h.db)
@@ -393,12 +400,13 @@ func (h *UserGroupHandler) updateUser(w http.ResponseWriter, req userActionReque
 			log.Printf("USER UPDATE PASSWORD ERROR: %v", err)
 			return
 		}
+		setSMBPasswordByID(h.db, req.ID, req.Password)
 	}
 
-	respondJSON(w, http.StatusOK, map[string]any{
+	respondJSON(w, http.StatusOK, withWarning(map[string]any{
 		"success": true,
 		"message": "User updated",
-	})
+	}, syncShareIdentities(h.db)))
 
 	// GITOPS HOOK: write state back to git
 	gitops.CommitAllAsync(h.db)
@@ -471,10 +479,10 @@ func (h *UserGroupHandler) deleteUser(w http.ResponseWriter, req userActionReque
 		return
 	}
 
-	respondJSON(w, http.StatusOK, map[string]any{
+	respondJSON(w, http.StatusOK, withWarning(map[string]any{
 		"success": true,
 		"message": "User deleted",
-	})
+	}, syncShareIdentities(h.db)))
 }
 
 // ResetUserPassword - POST /api/users/{id}/reset-password
@@ -554,6 +562,10 @@ func (h *UserGroupHandler) ResetUserPassword(w http.ResponseWriter, r *http.Requ
 	if err != nil {
 		respondErrorSimple(w, "Failed to reset password", http.StatusInternalServerError)
 		return
+	}
+	setSMBPasswordByID(h.db, id, body.TempPassword)
+	if warn := syncShareIdentities(h.db); warn != "" {
+		log.Printf("RESET PASSWORD: %s", warn)
 	}
 
 	// Revoke all sessions so the user must log in with the new temp password
@@ -746,9 +758,9 @@ func (h *UserGroupHandler) groupAction(w http.ResponseWriter, r *http.Request) {
 			respondErrorSimple(w, "Failed to create group", http.StatusInternalServerError)
 			return
 		}
-		respondJSON(w, http.StatusOK, map[string]any{
+		respondJSON(w, http.StatusOK, withWarning(map[string]any{
 			"success": true, "id": id, "message": "Group created",
-		})
+		}, syncShareIdentities(h.db)))
 		gitops.CommitAllAsync(h.db)
 
 	case "update":
@@ -803,9 +815,9 @@ func (h *UserGroupHandler) groupAction(w http.ResponseWriter, r *http.Request) {
 			respondErrorSimple(w, "Failed to update group", http.StatusInternalServerError)
 			return
 		}
-		respondJSON(w, http.StatusOK, map[string]any{
+		respondJSON(w, http.StatusOK, withWarning(map[string]any{
 			"success": true, "message": "Group updated",
-		})
+		}, syncShareIdentities(h.db)))
 		gitops.CommitAllAsync(h.db)
 
 	case "delete":
@@ -831,9 +843,9 @@ func (h *UserGroupHandler) groupAction(w http.ResponseWriter, r *http.Request) {
 			respondErrorSimple(w, "Failed to delete group", http.StatusInternalServerError)
 			return
 		}
-		respondJSON(w, http.StatusOK, map[string]any{
+		respondJSON(w, http.StatusOK, withWarning(map[string]any{
 			"success": true, "message": "Group deleted",
-		})
+		}, syncShareIdentities(h.db)))
 		gitops.CommitAllAsync(h.db)
 
 	default:

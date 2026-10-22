@@ -2,7 +2,8 @@
  * pages/UpdatesPage.tsx - System Updates
  *
  * For Debian/Ubuntu: shows available apt packages, apply-all and apply-security buttons.
- * For NixOS: links to the NixOS rebuild workflow in Settings.
+ * For NixOS: updates the system to a DPlaneOS release (new generation, reboot,
+ * check after the reboot, automatic way back when the check fails).
  *
  * Calls:
  *   GET  /api/system/preflight                  → preflight checks
@@ -10,12 +11,13 @@
  *   GET  /api/system/updates/check              → { job_id } - run apt-get update + list upgradable
  *   POST /api/system/updates/apply              → { job_id } - apt-get upgrade -y
  *   POST /api/system/updates/apply-security     → { job_id } - security-only upgrade
+ *   GET  /api/system/updates/nixos[?check=1]    → NixOS: version, system flake, last result
+ *   POST /api/system/updates/nixos/apply        → NixOS: { job_id } - build the release, reboot
  *   GET  /api/jobs/{id}                         → job status polling
  */
 
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { useNavigate } from '@tanstack/react-router'
 import { api } from '@/lib/api'
 import { Icon } from '@/components/ui/Icon'
 import { ErrorState } from '@/components/ui/ErrorState'
@@ -43,6 +45,22 @@ interface VersionResponse {
 }
 
 interface JobCheckResponse { success: boolean; job_id: string }
+
+interface NixosUpdateResponse {
+  success:           boolean
+  nixos:             boolean
+  flake:             boolean
+  custom?:           boolean
+  ref?:              string
+  version?:          string
+  live?:             boolean
+  pending?:          boolean
+  latest_version?:   string
+  release_url?:      string
+  update_available?: boolean
+  check_error?:      string
+  last_result?:      { status: string; from_version: string; to_version: string; reason?: string; at: string }
+}
 
 interface UpgradablePackage {
   name:            string
@@ -72,7 +90,6 @@ function checkBorder(s: string){ return s === 'pass' ? 'var(--success-border)' :
 
 export function UpdatesPage() {
   const qc       = useQueryClient()
-  const navigate = useNavigate()
 
   // Job state - used for check, apply-all, and apply-security
   const [activeJobId,    setActiveJobId]    = useState<string | null>(null)
@@ -167,7 +184,25 @@ export function UpdatesPage() {
     onError: (e: Error) => toast.error(e.message),
   })
 
-  const busy = checkM.isPending || applyAllM.isPending || applySecM.isPending || jobRunning
+  // ── NixOS: release updates ───────────────────────────────────────────────
+  const [nixCheck, setNixCheck] = useState(false)
+  const nixUpdQ = useQuery({
+    queryKey: ['system', 'updates', 'nixos', nixCheck],
+    queryFn:  ({ signal }) => api.get<NixosUpdateResponse>(`/api/system/updates/nixos${nixCheck ? '?check=1' : ''}`, signal),
+    enabled:  nixosQ.data?.is_nixos === true,
+  })
+  const nixApplyM = useMutation({
+    mutationFn: (version: string) => api.post<JobCheckResponse>('/api/system/updates/nixos/apply', { version }),
+    onSuccess: (data) => {
+      setApplyOutput(null)
+      setActiveJobLabel('System update')
+      setActiveJobId(data.job_id)
+      setJob(data.job_id, 'System update')
+    },
+    onError: (e: Error) => toast.error(e.message),
+  })
+
+  const busy = nixApplyM.isPending || checkM.isPending || applyAllM.isPending || applySecM.isPending || jobRunning
 
   // ── Derived ───────────────────────────────────────────────────────────────
 
@@ -210,21 +245,17 @@ export function UpdatesPage() {
         </div>
       )}
 
-      {/* ── NixOS callout ── */}
+      {/* ── NixOS: release updates ── */}
       {isNixOS ? (
-        <div className="card" style={{
-          display: 'flex', alignItems: 'center', gap: 16, padding: '18px 22px', borderRadius: 'var(--radius-xl)'}}>
-          <Icon name="terminal" size={24} style={{ color: 'var(--primary)', flexShrink: 0 }} />
-          <div style={{ flex: 1 }}>
-            <div style={{ fontWeight: 700, marginBottom: 3 }}>NixOS detected</div>
-            <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>
-              Use <strong>nixos-rebuild switch</strong> via the Settings page to apply configuration and package updates.
-            </div>
-          </div>
-          <button onClick={() => navigate({ to: '/settings' })} className="btn btn-primary">
-            <Icon name="settings" size={15} />Open Settings
-          </button>
-        </div>
+        <NixosUpdates
+          q={nixUpdQ.data}
+          loading={nixUpdQ.isFetching}
+          busy={busy}
+          onCheck={() => { setNixCheck(true); qc.invalidateQueries({ queryKey: ['system', 'updates', 'nixos'] }) }}
+          onApply={(v) => nixApplyM.mutate(v)}
+          jobId={activeJobLabel === 'System update' ? activeJobId : null}
+          onCloseJob={() => setActiveJobId(null)}
+        />
       ) : (
         /* ── Debian/Ubuntu apt update UI ── */
         <>
@@ -369,6 +400,80 @@ export function UpdatesPage() {
           {preflightQ.isError && <ErrorState error={preflightQ.error} onRetry={() => qc.invalidateQueries({ queryKey: ['system', 'preflight'] })} />}
         </>
       )}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// NixOS release updates
+// ---------------------------------------------------------------------------
+
+function NixosUpdates({ q, loading, busy, onCheck, onApply, jobId, onCloseJob }: {
+  q?: NixosUpdateResponse; loading: boolean; busy: boolean
+  onCheck: () => void; onApply: (version: string) => void
+  jobId: string | null; onCloseJob: () => void
+}) {
+  const [confirm, setConfirm] = useState(false)
+  if (!q) return <Skeleton height={120} />
+  const r = q.last_result
+  let blocked = ''
+  if (q.live) blocked = 'This is a live system: boot a newer live image or install DPlaneOS to update.'
+  else if (q.custom) blocked = '/etc/nixos/flake.nix is not managed by DPlaneOS: update it yourself (nix flake update, then nixos-rebuild).'
+  else if (!q.flake) blocked = 'This system has no /etc/nixos/flake.nix yet; the daemon writes it at start on a system built from a published release.'
+  else if (q.pending) blocked = 'An update is waiting for its check after the reboot.'
+  const latest = q.latest_version
+  return (
+    <div className="card" style={{ padding: '18px 22px', borderRadius: 'var(--radius-xl)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
+        <Icon name="system_update" size={22} style={{ color: 'var(--primary)', flexShrink: 0 }} />
+        <div style={{ flex: 1 }}>
+          <div style={{ fontWeight: 700 }}>DPlaneOS {q.version ?? 'unknown'}</div>
+          {q.ref && <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', fontFamily: 'var(--font-mono)' }}>{q.ref}</div>}
+        </div>
+        <button onClick={onCheck} disabled={busy || loading} className="btn btn-ghost">
+          <Icon name="search" size={14} />{loading ? 'Checking…' : 'Check for updates'}
+        </button>
+      </div>
+
+      {r && (
+        <div style={{ fontSize: 'var(--text-sm)', marginBottom: 10, color: r.status === 'ok' ? 'var(--success)' : 'var(--error)' }}>
+          {r.status === 'ok'
+            ? `Last update: ${r.from_version} → ${r.to_version}, checked after the reboot and kept.`
+            : `The update to ${r.to_version} failed its check after the reboot (${r.reason}); the system went back to ${r.from_version}.`}
+        </div>
+      )}
+      {q.check_error && <div style={{ fontSize: 'var(--text-sm)', color: 'var(--error)', marginBottom: 10 }}>{q.check_error}</div>}
+      {blocked && <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', marginBottom: 10 }}>{blocked}</div>}
+
+      {latest && !blocked && (q.update_available ? (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 'var(--text-sm)' }}><strong>{latest}</strong> is available.</span>
+          {q.release_url && (
+            <a href={q.release_url} target="_blank" rel="noreferrer" className="btn btn-ghost" style={{ fontSize: 'var(--text-xs)' }}>
+              <Icon name="open_in_new" size={13} />Release notes
+            </a>
+          )}
+          {confirm ? (
+            <>
+              <span style={{ fontSize: 'var(--text-sm)', color: 'var(--warning)' }}>The system builds the update and then reboots.</span>
+              <button className="btn btn-primary" disabled={busy} onClick={() => { setConfirm(false); onApply(latest) }}>Update and reboot</button>
+              <button className="btn btn-ghost" onClick={() => setConfirm(false)}>Cancel</button>
+            </>
+          ) : (
+            <button className="btn btn-primary" disabled={busy} onClick={() => setConfirm(true)}>
+              <Icon name="system_update" size={14} />Update to {latest}
+            </button>
+          )}
+        </div>
+      ) : <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-tertiary)' }}>Up to date.</div>)}
+
+      <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', marginTop: 12, lineHeight: 1.5 }}>
+        An update builds the release as a new boot entry and reboots. After the reboot the system checks the
+        daemon, the web server, the database, the pools and Samba; if the check fails it goes back to the
+        previous version and reboots again. Older versions stay selectable in the boot menu.
+      </div>
+
+      {jobId && <div style={{ marginTop: 14 }}><JobConsole jobId={jobId} title="System update" onClose={onCloseJob} /></div>}
     </div>
   )
 }

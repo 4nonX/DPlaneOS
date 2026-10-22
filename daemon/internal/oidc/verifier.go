@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	jose "github.com/go-jose/go-jose/v4"
@@ -22,10 +23,13 @@ type Claims struct {
 	Name              string
 	PreferredUsername string
 	Groups            []string
-	Nonce             string
-	IssuedAt          int64
-	Expiry            int64
-	NotBefore         int64
+	// GroupsPresent: the token carried the groups claim (an absent claim is
+	// "unknown", not "no groups": roles must not be revoked then).
+	GroupsPresent bool
+	Nonce         string
+	IssuedAt      int64
+	Expiry        int64
+	NotBefore     int64
 }
 
 // rawClaims mirrors the JWT payload. Audience and email_verified use flexible
@@ -39,7 +43,6 @@ type rawClaims struct {
 	EmailVerified     flexibleBool `json:"email_verified"`
 	Name              string       `json:"name"`
 	PreferredUsername string       `json:"preferred_username"`
-	Groups            []string     `json:"groups"`
 	Nonce             string       `json:"nonce"`
 	IssuedAt          int64        `json:"iat"`
 	Expiry            int64        `json:"exp"`
@@ -147,6 +150,7 @@ func VerifyIDToken(ctx context.Context, ks KeySource, cfg Config, rawIDToken, ex
 	if err := validateClaims(rc, cfg, expectedNonce, time.Now()); err != nil {
 		return nil, err
 	}
+	groups, present := groupsFromPayload(payload, cfg.GroupsClaim)
 
 	return &Claims{
 		Issuer:            rc.Issuer,
@@ -157,7 +161,8 @@ func VerifyIDToken(ctx context.Context, ks KeySource, cfg Config, rawIDToken, ex
 		EmailVerified:     bool(rc.EmailVerified),
 		Name:              rc.Name,
 		PreferredUsername: rc.PreferredUsername,
-		Groups:            rc.Groups,
+		Groups:            groups,
+		GroupsPresent:     present,
 		Nonce:             rc.Nonce,
 		IssuedAt:          rc.IssuedAt,
 		Expiry:            rc.Expiry,
@@ -227,4 +232,31 @@ func validateClaims(rc rawClaims, cfg Config, expectedNonce string, now time.Tim
 	}
 
 	return nil
+}
+
+// groupsFromPayload reads the groups claim: a list of strings, or one string
+// of names separated by spaces or commas. (A fixed "groups" field of type
+// []string ignored the configured claim, and a string-valued claim failed
+// the whole login with a decode error.)
+func groupsFromPayload(payload []byte, claim string) ([]string, bool) {
+	if claim == "" {
+		claim = "groups"
+	}
+	var all map[string]json.RawMessage
+	if json.Unmarshal(payload, &all) != nil {
+		return nil, false
+	}
+	raw, ok := all[claim]
+	if !ok {
+		return nil, false
+	}
+	var list []string
+	if json.Unmarshal(raw, &list) == nil {
+		return list, true
+	}
+	var s string
+	if json.Unmarshal(raw, &s) == nil {
+		return strings.FieldsFunc(s, func(r rune) bool { return r == ' ' || r == ',' }), true
+	}
+	return nil, true // present but neither shape: no groups
 }

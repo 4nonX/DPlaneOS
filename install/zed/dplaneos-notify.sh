@@ -38,7 +38,12 @@ case "$ZEVENT_SUBCLASS" in
     scrub_finish|resilver_finish)
         SEVERITY="info"
         ;;
-    io_failure|checksum_failure)
+    # Subclass names as ZED sends them (ereport.fs.zfs.<name>); the names
+    # matched before (io_failure, checksum_failure) do not exist.
+    data|deadman)
+        SEVERITY="critical"
+        ;;
+    checksum|io|probe_failure|delay|authentication)
         SEVERITY="warning"
         ;;
     *)

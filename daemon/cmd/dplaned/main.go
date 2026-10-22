@@ -6,6 +6,7 @@ import (
 	"crypto/subtle"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -27,6 +28,7 @@ import (
 	"dplaned/internal/audit"
 	"dplaned/internal/bootstrap"
 	"dplaned/internal/config"
+	"dplaned/internal/configbackup"
 	"dplaned/internal/configstore"
 	"dplaned/internal/database"
 	"dplaned/internal/features"
@@ -42,12 +44,14 @@ import (
 	"dplaned/internal/monitoring"
 	"dplaned/internal/networkdwriter"
 	"dplaned/internal/nixwriter"
+	"dplaned/internal/nvmet"
 	"dplaned/internal/persistguard"
 	"dplaned/internal/quorum"
 	"dplaned/internal/reconciler"
 	"dplaned/internal/scram"
 	"dplaned/internal/secrets"
 	"dplaned/internal/security"
+	"dplaned/internal/shareusers"
 	"dplaned/internal/websocket"
 	"dplaned/internal/zfs"
 	"github.com/gorilla/mux"
@@ -78,11 +82,25 @@ func main() {
 	ceTokenFile := flag.String("ce-token-file", "", "Path to Compliance Engine API token file (Phase 6.2)")
 	initOnly := flag.Bool("init-only", false, "Initialize database schema and exit")
 	showVersion := flag.Bool("version", false, "Print version and exit")
+	upsEventGroup := flag.String("ups-event-group", "", "Group that may send UPS events to /run/dplaneos/ups-events.sock (upsmon's notify command; empty: root only)")
+	recoverList := flag.Bool("recover-list-users", false, "Recovery: list local users (role, active, 2FA) and exit")
+	recoverPassword := flag.String("recover-reset-password", "", "Recovery: set this local user's password (read from stdin), activate the account, end its sessions, and exit")
+	recoverTOTP := flag.String("recover-disable-2fa", "", "Recovery: turn off two-factor authentication for this user and exit")
+	recoverRestore := flag.String("recover-restore", "", "Recovery: check and stage this configuration backup (.tar.gz) and exit; restart dplaned to apply it")
+	recoverNetwork := flag.Bool("recover-network", false, "With -recover-restore: restore the network settings too (same hardware only)")
 	flag.Parse()
 
 	if *showVersion {
 		fmt.Printf("DPlaneOS v%s\n", Version)
 		os.Exit(0)
+	}
+
+	// Console recovery (dplaneos-recovery) for an administrator who cannot log in.
+	if *recoverRestore != "" {
+		os.Exit(runRecoveryRestore(*recoverRestore, *configDir, *recoverNetwork))
+	}
+	if *recoverList || *recoverPassword != "" || *recoverTOTP != "" {
+		os.Exit(runRecovery(*dbDSN, *secretsKeyPath, *recoverList, *recoverPassword, *recoverTOTP))
 	}
 
 	// Phase 0: Database Initialization
@@ -291,6 +309,12 @@ func main() {
 		log.Fatalf("%v (DSN %s)", err, *dbDSN)
 	}
 
+	// A configuration restore staged by the previous run (POST
+	// /api/system/config/restore) replaces the database and files first; the
+	// migrations below then bring an older backup up to date.
+	configbackup.SecretsKey = *secretsKeyPath
+	handlers.ApplyStagedRestore(db, *dbDSN)
+
 	// Apply any pending schema migrations, then seed default data.
 	if err := database.RunMigrations(db); err != nil {
 		log.Fatalf("Schema migration failed: %v", err)
@@ -307,7 +331,7 @@ func main() {
 		log.Printf("WARNING: reconciler schema failed: %v", err)
 	}
 
-	// networkdwriter: writes /etc/systemd/network/50-dplane-*.{network,netdev}
+	// networkdwriter: writes /etc/systemd/network/05-dplane-*.{network,netdev}
 	// These files survive reboots AND nixos-rebuild switch with zero extra steps.
 	// Works on every systemd distro: NixOS, Debian, Ubuntu, Arch, RHEL.
 	netWriter := networkdwriter.Default()
@@ -328,14 +352,20 @@ func main() {
 		log.Printf("NixOS detected - JSON state writer active: %s", nixwriter.StateJSONPath)
 	}
 	handlers.SetNixWriter(nixWriter)
+	// The flake rebuilds go through (/etc/nixos/flake.nix), for installs too
+	// that predate it.
+	handlers.EnsureSystemFlake()
 	handlers.SetReconcilerDB(db)
 	handlers.SetRegistryDB(db)
 	handlers.SetGitOpsStatePath(*gitopsStatePath)
 
-	// Boot reconciler: fallback for systems where networkd was not active when
-	// files were written, or for Debian/Ubuntu with NetworkManager instead of networkd.
-	// On NixOS + networkd: this is a no-op (networkd already read the files at boot).
-	go reconciler.Run(db)
+	// Network configuration lives in networkd files (networkdwriter), which
+	// networkd applies at boot. The netlink boot reconciler of earlier
+	// versions added its saved addresses on top of that, so it no longer runs.
+	// A change that was waiting for confirmation when the daemon stopped (or
+	// the machine rebooted) is reverted.
+	handlers.RevertUnconfirmedNetwork()
+	handlers.RestoreFirewallRules()
 
 	// Load or create the HMAC key for audit chain integrity (Phase 1.5)
 	auditKey, err := audit.LoadOrCreateAuditKey("/var/lib/dplaneos/audit.key")
@@ -428,66 +458,6 @@ func main() {
 		}
 	}
 
-	// ── Central Alerting ────────────────────────────────────────────────────────
-	// Dispatchers are wired after wsHub is ready for systemic monitoring coverage.
-
-	// Wire webhook + SMTP senders into the ZFS heartbeat package so that
-	// pool CRITICAL / DEGRADED events also reach webhook and SMTP channels.
-	zfs.SetAlertSenders(
-		func(event, pool, msg string) {
-			handlers.SendWebhookAlert(db, event, "critical", msg,
-				map[string]any{"pool": pool})
-		},
-		handlers.SendSMTPAlert,
-	)
-
-	// Phase 7: ZFS Initialization & Safety Checks
-
-	{
-		// Initialize ZFS pool heartbeat monitoring
-		poolList, err := zfs.DiscoverPools()
-		if err != nil {
-			log.Printf("Warning: Failed to discover ZFS pools: %v", err)
-		} else if len(poolList) > 0 {
-			for _, pool := range poolList {
-				heartbeat := zfs.NewPoolHeartbeat(pool.Name, pool.MountPoint, 30*time.Second)
-				// SAFETY: Stop Docker if the pool goes offline during runtime.
-				// This prevents containers from writing to bare mountpoint directories
-				// on the root FS - the same data-loss scenario the boot gate prevents.
-				heartbeat.StopDockerOnFailure = true
-
-				// CRITICAL callback: Telegram + (webhook/SMTP via sendAlert inside heartbeat)
-				heartbeat.SetErrorCallback(func(poolName string, err error, details map[string]string) {
-					alertErr := alerts.SendAlert(alerts.TelegramAlert{
-						Level:   "CRITICAL",
-						Title:   fmt.Sprintf("ZFS Pool Failure: %s", poolName),
-						Message: err.Error(),
-						Details: details,
-					})
-					if alertErr != nil {
-						log.Printf("Failed to send Telegram alert: %v", alertErr)
-					}
-				})
-
-				// DEGRADED callback: Telegram warning
-				heartbeat.SetDegradedCallback(func(poolName string, err error, details map[string]string) {
-					alertErr := alerts.SendAlert(alerts.TelegramAlert{
-						Level:   "WARNING",
-						Title:   fmt.Sprintf("ZFS Pool Degraded: %s", poolName),
-						Message: err.Error(),
-						Details: details,
-					})
-					if alertErr != nil {
-						log.Printf("Failed to send Telegram degraded alert: %v", alertErr)
-					}
-				})
-
-				heartbeat.Start()
-				defer heartbeat.Stop()
-			}
-		}
-	}
-
 	log.Printf("DPlaneOS Daemon v%s starting...", Version)
 
 	// Initialize WebSocket Hub for real-time monitoring
@@ -555,21 +525,33 @@ func main() {
 
 	// Wire the WS hub and all other dispatchers into the central alert system.
 	handlers.SetAlertDispatchers(
-		func(event, source, msg string) {
-			handlers.SendWebhookAlert(db, event, "critical", msg,
-				map[string]any{"source": source})
+		func(level, event, resource, msg string) {
+			handlers.SendWebhookAlert(db, event, level, msg,
+				map[string]any{"pool": resource, "resource": resource})
 		},
 		handlers.SendSMTPAlert,
-		func(message string) {
-			_ = alerts.SendAlert(alerts.TelegramAlert{
-				Level:   "CRITICAL",
-				Title:   "DPlaneOS Alert",
-				Message: message,
-				Details: nil,
-			})
+		func(level, title, message string) {
+			if err := alerts.SendAlert(alerts.TelegramAlert{
+				Level: strings.ToUpper(level), Title: title, Message: message,
+			}); err != nil {
+				log.Printf("Telegram alert: %v", err)
+			}
 		},
 		wsHub.Broadcast,
 	)
+
+	// Pool health of every imported pool (also pools imported later). A
+	// failed pool stops Docker: containers would write into the empty
+	// mountpoint folders on the root filesystem.
+	zfs.SetAlertDispatch(handlers.DispatchAlert)
+	poolMonitor := zfs.NewPoolMonitor()
+	poolMonitor.StopDockerOnFailure = true
+	poolMonitor.Start(daemonCtx, 30*time.Second)
+
+	// The outcome of an update (written by dplaneos-update-health after the reboot)
+	// and of a configuration restore.
+	handlers.ReportUpdateResult()
+	handlers.FinishRestore(db)
 
 	// Wire WebSocket hub into jobs system for automatic background task updates
 	jobs.SetBroadcastCallback(wsHub.Broadcast)
@@ -677,7 +659,7 @@ func main() {
 	r.Handle("/api/system/ups", permRoute("system", "write", systemHandler.SaveUPSConfig)).Methods("POST")
 	r.Handle("/api/system/ups/policy", permRoute("system", "read", systemHandler.GetUPSPolicy)).Methods("GET")
 	r.Handle("/api/system/network", permRoute("system", "read", systemHandler.HandleNetwork)).Methods("GET")
-	r.Handle("/api/system/network", permRoute("system", "write", systemHandler.HandleNetwork)).Methods("PUT")
+	r.Handle("/api/system/network", permRoute("network", "write", systemHandler.HandleNetwork)).Methods("PUT")
 	r.Handle("/api/system/logs", permRoute("system", "read", systemHandler.GetSystemLogs)).Methods("GET")
 	r.Handle("/api/system/reboot", permRoute("system", "admin", systemHandler.Reboot)).Methods("POST")
 	r.Handle("/api/system/poweroff", permRoute("system", "admin", systemHandler.Poweroff)).Methods("POST")
@@ -759,6 +741,7 @@ func main() {
 	r.Handle("/api/sandbox/create", permRoute("docker", "write", sandboxHandler.CreateSandbox)).Methods("POST")
 	r.Handle("/api/sandbox/list", permRoute("docker", "read", sandboxHandler.ListSandboxes)).Methods("GET")
 	r.Handle("/api/sandbox/destroy", permRoute("docker", "write", sandboxHandler.DestroySandbox)).Methods("DELETE", "POST")
+	r.Handle("/api/sandbox/cleanup", permRoute("docker", "write", sandboxHandler.CleanOrphanVolumes)).Methods("POST")
 
 	// v3.0.0: NixOS Config Guard (only active on NixOS systems)
 	nixosGuardHandler := handlers.NewNixOSGuardHandler(db)
@@ -821,6 +804,9 @@ func main() {
 	r.Handle("/api/git-sync/credentials/branches", permRoute("system", "read", gitReposHandler.ListBranches)).Methods("GET")
 	r.Handle("/api/git-sync/repos/export", permRoute("system", "admin", gitReposHandler.ExportToRepo)).Methods("POST")
 	r.Handle("/api/git-sync/repos/status", permRoute("system", "read", gitReposHandler.StatusRepo)).Methods("GET")
+	r.Handle("/api/git-sync/repos/webhook-secret", permRoute("system", "admin", gitReposHandler.RotateWebhookSecret)).Methods("POST")
+	// Push notifications: no session, the signature authenticates (public path below).
+	r.HandleFunc("/api/git-sync/repos/webhook/{id:[0-9]+}", gitReposHandler.RepoWebhook).Methods("POST")
 	gitReposHandler.StartAutoSync()
 
 	// v5.1: Compose stack management
@@ -832,6 +818,12 @@ func main() {
 	r.Handle("/api/docker/stacks", permRoute("docker", "write", stackHandler.DeleteStack)).Methods("DELETE")
 	r.Handle("/api/docker/stacks/action", permRoute("docker", "write", stackHandler.StackAction)).Methods("POST")
 	r.Handle("/api/docker/stacks/stream", permRoute("docker", "write", stackHandler.StreamStackAction)).Methods("GET")
+	// Updates: with rollback, detection against the registries, auto-update.
+	r.Handle("/api/docker/stacks/update", permRoute("docker", "write", stackHandler.UpdateStackJob)).Methods("POST")
+	r.Handle("/api/docker/stacks/updates", permRoute("docker", "read", stackHandler.GetStackUpdates)).Methods("GET")
+	r.Handle("/api/docker/stacks/updates/check", permRoute("docker", "write", stackHandler.CheckStackUpdatesNow)).Methods("POST")
+	r.Handle("/api/docker/stacks/settings", permRoute("docker", "write", stackHandler.SaveStackSettings)).Methods("PUT")
+	handlers.StartImageUpdateMonitor()
 	r.Handle("/api/docker/stacks/logs/stream", permRoute("docker", "read", stackHandler.StreamStackLogs)).Methods("GET")
 	r.Handle("/api/docker/stacks/services/action", permRoute("docker", "write", stackHandler.ServiceAction)).Methods("POST")
 	r.Handle("/ws/docker/exec", permRoute("docker", "write", handlers.ExecContainer))
@@ -851,9 +843,19 @@ func main() {
 	r.Handle("/api/system/secrets/rotate", permRoute("system", "admin", secretsRotationHandler.RotateKeys)).Methods("POST")
 	r.Handle("/api/system/secrets/status", permRoute("system", "read", http.HandlerFunc(handlers.SecretsStatus))).Methods("GET")
 
-	systemBackupHandler := handlers.NewSystemBackupHandler(*dbDSN)
-	r.Handle("/api/system/db/backup", permRoute("system", "admin", systemBackupHandler.DownloadBackup)).Methods("GET")
-	r.Handle("/api/system/db/restore", permRoute("system", "admin", systemBackupHandler.RestoreBackup)).Methods("POST")
+	systemBackupHandler := handlers.NewSystemBackupHandler(db, *dbDSN)
+	r.Handle("/api/system/config/backup", permRoute("system", "admin", systemBackupHandler.DownloadBackup)).Methods("GET")
+	r.Handle("/api/system/config/backup/previous", permRoute("system", "admin", systemBackupHandler.DownloadPrevious)).Methods("GET")
+	r.Handle("/api/system/config/restore", permRoute("system", "read", systemBackupHandler.RestoreStatus)).Methods("GET")
+	r.Handle("/api/system/config/restore", permRoute("system", "admin", systemBackupHandler.RestoreBackup)).Methods("POST")
+	r.Handle("/api/system/config/restore", permRoute("system", "admin", systemBackupHandler.CancelRestore)).Methods("DELETE")
+	r.Handle("/api/system/config/backups", permRoute("system", "admin", http.HandlerFunc(systemBackupHandler.ListStoredBackups))).Methods("GET")
+	r.Handle("/api/system/config/backups/{pool}/{name}", permRoute("system", "admin", http.HandlerFunc(systemBackupHandler.DownloadStoredBackup))).Methods("GET")
+	r.Handle("/api/system/config/backups/{pool}/{name}/restore", permRoute("system", "admin", http.HandlerFunc(systemBackupHandler.RestoreStoredBackup))).Methods("POST")
+	// UPS events from upsmon (power lost, low battery, ...) become alerts.
+	go handlers.StartUPSEventListener(daemonCtx, "/run/dplaneos/ups-events.sock", *upsEventGroup)
+	// Daily configuration backup on a data pool (survives the loss of the boot disk).
+	handlers.StartAutoConfigBackup(daemonCtx, db, *dbDSN)
 
 	supportBundleHandler := handlers.NewSupportBundleHandler(db, Version)
 	r.Handle("/api/system/support-bundle", permRoute("system", "admin", supportBundleHandler.GenerateBundle)).Methods("POST")
@@ -1111,7 +1113,8 @@ func main() {
 	r.Handle("/api/zfs/delegation/revoke", permRoute("storage", "admin", handlers.RevokeZFSDelegation)).Methods("POST")
 
 	// v3.0.0: Network rollback
-	r.Handle("/api/network/apply", permRoute("network", "write", handlers.ApplyNetworkWithRollback)).Methods("POST")
+	r.Handle("/api/network/pending", permRoute("network", "read", handlers.GetNetworkPending)).Methods("GET")
+	r.Handle("/api/network/revert", permRoute("network", "write", handlers.RevertNetworkNow)).Methods("POST")
 	r.Handle("/api/network/confirm", permRoute("network", "write", handlers.ConfirmNetwork)).Methods("POST")
 
 	// v3.0.0: SMB VFS modules
@@ -1140,6 +1143,7 @@ func main() {
 	r.Handle("/api/zfs/pool/offline", permRoute("storage", "write", zfsHandler.OfflineDisk)).Methods("POST")
 	r.Handle("/api/zfs/pool/export", permRoute("storage", "write", confirmRoute("pool_export", jsonField("pool"), zfsHandler.ExportPool))).Methods("POST")
 	nfsHandler := handlers.NewNFSHandler(db)
+	go nfsHandler.SyncExports()
 	r.Handle("/api/nfs/status", permRoute("shares", "read", nfsHandler.GetNFSStatus)).Methods("GET")
 	r.Handle("/api/nfs/exports", permRoute("shares", "read", nfsHandler.ListNFSExports)).Methods("GET")
 	r.Handle("/api/nfs/exports", permRoute("shares", "write", nfsHandler.CreateNFSExport)).Methods("POST")
@@ -1167,7 +1171,14 @@ func main() {
 	shareCRUDHandler := handlers.NewShareCRUDHandler(db, *smbConfPath)
 	// Rewrite the share config from the DB at startup: after an upgrade (new
 	// per-share columns) or on a fresh live boot the file is stale or a stub.
-	shareCRUDHandler.RegenerateSMBConf()
+	// Accounts first: the share configuration names them (valid users).
+	// In the background: the API must come up even if an account tool is
+	// slow or stuck (after a power loss; each call has a time limit).
+	shareusers.EnableHost()
+	go func() {
+		handlers.SyncShareIdentitiesAtStartup(db)
+		shareCRUDHandler.RegenerateSMBConf()
+	}()
 	r.Handle("/api/shares/list", permRoute("shares", "read", shareCRUDHandler.HandleShares)).Methods("GET")
 	r.Handle("/api/shares", permRoute("shares", "read", shareCRUDHandler.HandleShares)).Methods("GET")
 	r.Handle("/api/shares/by-path", permRoute("shares", "read", shareCRUDHandler.GetSharesByPath)).Methods("GET")
@@ -1235,6 +1246,8 @@ func main() {
 	r.Handle("/api/system/updates/apply", permRoute("system", "admin", handlers.HandleUpdatesApply)).Methods("POST")
 	r.Handle("/api/system/updates/apply-security", permRoute("system", "admin", handlers.HandleUpdatesApplySecurity)).Methods("POST")
 	r.Handle("/api/system/updates/daemon-version", permRoute("system", "read", handlers.HandleDaemonVersion)).Methods("GET")
+	r.Handle("/api/system/updates/nixos", permRoute("system", "read", http.HandlerFunc(handlers.GetSystemUpdate))).Methods("GET")
+	r.Handle("/api/system/updates/nixos/apply", permRoute("system", "admin", http.HandlerFunc(handlers.ApplySystemUpdate))).Methods("POST")
 	r.Handle("/api/system/zfs-gate-status", permRoute("system", "read", systemStatusHandler.HandleZFSGateStatus)).Methods("GET")
 	// v3.0.0: IPMI/BMC sensor data (graceful no-op if ipmitool unavailable)
 	r.Handle("/api/system/ipmi", permRoute("system", "read", systemStatusHandler.HandleIPMISensors)).Methods("GET")
@@ -1413,6 +1426,9 @@ func main() {
 	// Re-install schedule timers from saved schedules. The units embed this
 	// boot's internal token (a fresh one each start), and on NixOS they are
 	// runtime units in /run/systemd/system, which a reboot clears.
+	// LIO and nvmet targets live in configfs, empty after every boot.
+	go handlers.RestoreISCSIConfig()
+	go nvmet.RestoreAtStartup(nvmet.TargetsFile, 2*time.Minute)
 	go func() {
 		alertingHandler.RestoreScrubTimers()
 		snapScheduleHandler.RestoreTimers()
@@ -1519,7 +1535,9 @@ func main() {
 	r.Handle("/api/power/spindown", permRoute("system", "write", powerHandler.SetSpindown)).Methods("POST")
 	r.Handle("/api/power/spindown-now", permRoute("system", "write", powerHandler.SpindownNow)).Methods("POST")
 
-	// Start background monitors
+	// Start background monitors. A schedule left "running" by a restart would
+	// be skipped forever: clear it first.
+	handlers.ResetInterruptedReplicationSchedules()
 	handlers.StartReplicationMonitor()
 	// SMART background monitor: polls every 6 hours, calls DispatchAlert on risk
 	handlers.StartSMARTMonitor()
@@ -1693,6 +1711,9 @@ func main() {
 
 	log.Println("Shutting down gracefully...")
 	daemonCancel() // signal all daemonCtx-aware goroutines to exit
+	// Disarm the watchdog unless another node relies on this one resetting
+	// itself (see ha.Keeper.Stop); otherwise a stopped daemon resets the node.
+	haKeeper.Stop()
 
 	// Audit shutdown
 	audit.Log(audit.AuditLog{
@@ -1742,12 +1763,38 @@ func realIP(r *http.Request) string {
 	return security.RealIP(r)
 }
 
+// rateLimitSweep is when idle clients were last dropped from requestCounts.
+var rateLimitSweep time.Time
+
+// rateLimitExempt: the chunks of a file upload by a signed-in user (the
+// session middleware runs first and put the user in the context). The web UI
+// uploads in 10 MB chunks, about 11 a second on gigabit: counted, every
+// upload of more than ~1 GB failed with 429 halfway.
+func rateLimitExempt(r *http.Request) bool {
+	return r.Method == http.MethodPost && path.Clean(r.URL.Path) == "/api/files/upload" &&
+		r.Context().Value(middleware.UserContextKey) != nil
+}
+
 func rateLimitMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if rateLimitExempt(r) {
+			next.ServeHTTP(w, r)
+			return
+		}
 		ip := realIP(r)
 
 		rateLimitMu.Lock()
 		now := time.Now()
+		// Drop clients without a request in the window, or the map keeps
+		// every address that ever connected.
+		if now.Sub(rateLimitSweep) > timeWindow {
+			for k, ts := range requestCounts {
+				if len(ts) == 0 || now.Sub(ts[len(ts)-1]) >= timeWindow {
+					delete(requestCounts, k)
+				}
+			}
+			rateLimitSweep = now
+		}
 		if timestamps, exists := requestCounts[ip]; exists {
 			// Remove old timestamps
 			var recent []time.Time
@@ -1813,6 +1860,9 @@ func sessionMiddleware(db *sql.DB, internalCronToken string) mux.MiddlewareFunc 
 				// Git push notifications: HMAC signature or token checked by
 				// the handler (internal/handlers/gitops_handler.go)
 				p == "/api/gitops/webhook" ||
+				// Git-backed stack push notifications: HMAC signature or
+				// token checked by the handler (internal/handlers/git_sync_repos.go)
+				strings.HasPrefix(p, "/api/git-sync/repos/webhook/") ||
 				// Third-vote setup: static script, and enrollment checked by the
 				// handlers with the one-time code (internal/handlers/quorum.go)
 				p == "/api/quorum/witness-setup.sh" ||
@@ -1893,19 +1943,18 @@ func sessionMiddleware(db *sql.DB, internalCronToken string) mux.MiddlewareFunc 
 				return
 			}
 
-			// Validate session and get user details
+			// Validate session and get user details. An unknown session is
+			// refused; so is every request while the lookup itself fails (it
+			// used to go on as a "degraded" user that could read everything,
+			// and an unknown session ID was taken for such a failure).
 			sessionUser, err := security.ValidateSessionAndGetUser(sessionID)
+			if errors.Is(err, security.ErrInvalidSession) {
+				http.Error(w, "Unauthorized", http.StatusUnauthorized)
+				return
+			}
 			if err != nil {
-				// DB timeout/unavailable - allow request to proceed
-				// System degraded: only has header auth, no DB session proof
-				log.Printf("WARN: Session DB unavailable (%v) - allowing read-only for %s", err, user)
-				// Allow request with degraded flag
-				ctx := context.WithValue(r.Context(), middleware.UserContextKey, &middleware.User{
-					ID:       0,
-					Username: user,
-					Email:    "",
-				})
-				next.ServeHTTP(w, r.WithContext(ctx))
+				log.Printf("WARN: session lookup failed (%v): request from %s refused", err, user)
+				http.Error(w, "Session check unavailable (database)", http.StatusServiceUnavailable)
 				return
 			}
 

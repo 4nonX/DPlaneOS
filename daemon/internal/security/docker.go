@@ -15,12 +15,16 @@ import (
 var ComposeRoots = []string{"/opt/", "/srv/", "/home/", "/var/lib/dplaneos/", "/mnt/", "/data/", "/tank/", "/pool/"}
 
 var (
-	composeSubcommands = map[string]bool{"up": true, "down": true, "ps": true, "start": true, "stop": true, "restart": true, "pull": true}
-	composeFlags       = map[string]bool{"-d": true, "--remove-orphans": true, "-v": true, "--format": true, "json": true}
-	serviceNameRe      = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$`)
-	dockerCLISubs      = map[string]bool{"ps": true, "stats": true, "inspect": true}
-	dockerCLIFlags     = map[string]bool{"--no-stream": true, "--no-trunc": true, "-a": true, "--all": true}
-	dockerCLIValFlags  = map[string]bool{"--format": true, "--filter": true}
+	composeSubcommands = map[string]bool{"up": true, "down": true, "ps": true, "start": true, "stop": true, "restart": true, "pull": true,
+		"config": true, "images": true}
+	composeFlags = map[string]bool{"-d": true, "--remove-orphans": true, "-v": true, "--format": true, "json": true,
+		"--all": true, "-q": true, "--quiet": true}
+	serviceNameRe = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$`)
+	// composeProjectRe: compose's own rule for project names (-p).
+	composeProjectRe  = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,127}$`)
+	dockerCLISubs     = map[string]bool{"ps": true, "stats": true, "inspect": true}
+	dockerCLIFlags    = map[string]bool{"--no-stream": true, "--no-trunc": true, "-a": true, "--all": true}
+	dockerCLIValFlags = map[string]bool{"--format": true, "--filter": true}
 )
 
 func validComposePath(p string, file bool) error {
@@ -38,7 +42,21 @@ func validComposePath(p string, file bool) error {
 	return fmt.Errorf("compose path %q is outside the allowed directories", p)
 }
 
-// validateDockerCompose: compose [--project-directory DIR] [-f FILE] SUB [flags|services]
+// validEnvFilePath: an --env-file under the compose roots.
+func validEnvFilePath(p string) error {
+	if p == "" || strings.ContainsAny(p, "\x00\n") || !path.IsAbs(p) || path.Clean(p) != p || strings.Contains(p, "..") {
+		return fmt.Errorf("invalid env file path %q", p)
+	}
+	for _, root := range ComposeRoots {
+		if strings.HasPrefix(p, root) {
+			return nil
+		}
+	}
+	return fmt.Errorf("env file %q is outside the allowed directories", p)
+}
+
+// validateDockerCompose: compose [-p NAME] [--project-directory DIR] [-f FILE]...
+// [--env-file FILE] SUB [flags|services]
 func validateDockerCompose(args []string) error {
 	if len(args) < 2 || args[0] != "compose" {
 		return fmt.Errorf("docker_compose: must start with compose")
@@ -55,6 +73,14 @@ func validateDockerCompose(args []string) error {
 			}
 		case "-f":
 			if err := validComposePath(args[i+1], true); err != nil {
+				return err
+			}
+		case "-p":
+			if !composeProjectRe.MatchString(args[i+1]) {
+				return fmt.Errorf("docker_compose: invalid project name %q", args[i+1])
+			}
+		case "--env-file":
+			if err := validEnvFilePath(args[i+1]); err != nil {
 				return err
 			}
 		default:

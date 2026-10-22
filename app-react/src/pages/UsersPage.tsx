@@ -41,6 +41,9 @@ interface User {
   created_at:     string
   last_login_at?: string
   locked_until?:  string
+  active?:        boolean
+  /** System account and SMB status (local users). */
+  file_sharing?:  { uid?: number; smb: boolean; note?: string }
 }
 
 interface Group {
@@ -305,7 +308,7 @@ function UsersTab() {
           <table className="data-table">
             <thead>
               <tr style={{ background: 'rgba(255,255,255,0.03)' }}>
-                {['User', 'Email', 'Role', 'Last Login', 'Status', 'Actions'].map(h => (
+                {['User', 'Email', 'Role', 'Last Login', 'File sharing', 'Status', 'Actions'].map(h => (
                   <th key={h}>{h}</th>
                 ))}
               </tr>
@@ -330,10 +333,19 @@ function UsersTab() {
                   <td style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>{u.email ?? '-'}</td>
                   <td><RoleBadge role={u.role} /></td>
                   <td style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', whiteSpace: 'nowrap' }}>{fmtDate(u.last_login_at)}</td>
+                  <td style={{ fontSize: 'var(--text-xs)' }}>
+                    {u.file_sharing
+                      ? (u.file_sharing.smb
+                          ? <span title={`UID ${u.file_sharing.uid}`} style={{ color: 'var(--success)' }}>SMB and NFS (UID {u.file_sharing.uid})</span>
+                          : <span style={{ color: 'var(--warning)' }}>{u.file_sharing.note ?? 'not available'}</span>)
+                      : <span style={{ color: 'var(--text-tertiary)' }}>-</span>}
+                  </td>
                   <td>
                     {isLocked(u)
                       ? <span className="badge badge-error">Locked</span>
-                      : <span className="badge badge-success">Active</span>
+                      : u.active === false
+                        ? <span className="badge">Disabled</span>
+                        : <span className="badge badge-success">Active</span>
                     }
                   </td>
                   <td>

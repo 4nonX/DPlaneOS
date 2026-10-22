@@ -1,15 +1,12 @@
 package handlers
 
 import (
-	"bytes"
 	"database/sql"
 	"encoding/json"
-	"fmt"
-	"io"
 	"log"
 	"net/http"
-	"time"
 
+	"dplaned/internal/alerts"
 	"dplaned/internal/secrets"
 )
 
@@ -96,9 +93,26 @@ func (h *SettingsHandler) SaveTelegramConfig(w http.ResponseWriter, r *http.Requ
 		respondErrorSimple(w, "Failed to save config", http.StatusInternalServerError)
 		return
 	}
+	// Apply now: alerts used the settings loaded at start until a restart.
+	applyTelegramConfig(tokenToStore, config.ChatID, config.Enabled)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]bool{"success": true})
+}
+
+// applyTelegramConfig makes the alert sender use the saved settings.
+func applyTelegramConfig(sealedToken, chatID string, enabled bool) {
+	if !enabled || sealedToken == "" || chatID == "" {
+		alerts.DisableTelegram()
+		return
+	}
+	token, err := secrets.Open(sealedToken)
+	if err != nil {
+		log.Printf("TELEGRAM: cannot open the bot token: %v", err)
+		alerts.DisableTelegram()
+		return
+	}
+	alerts.InitTelegram(token, chatID)
 }
 
 // TestTelegramConfig tests Telegram connectivity.
@@ -155,25 +169,11 @@ func (h *SettingsHandler) TestTelegramConfig(w http.ResponseWriter, r *http.Requ
 }
 
 // sendTelegramTest sends a test message directly with the provided credentials.
+// It goes through the same sender as the alerts.
 func sendTelegramTest(botToken, chatID string) error {
-	url := "https://api.telegram.org/bot" + botToken + "/sendMessage"
-	payload := map[string]any{
-		"chat_id":    chatID,
-		"text":       "DPlaneOS Telegram Test\n\nYour alert configuration is working correctly.",
-		"parse_mode": "Markdown",
-	}
-	body, _ := json.Marshal(payload)
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Post(url, "application/json", bytes.NewReader(body))
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != 200 {
-		b, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("telegram API error %d: %s", resp.StatusCode, string(b))
-	}
-	return nil
+	return alerts.SendMessage(botToken, chatID, alerts.FormatAlert(alerts.TelegramAlert{
+		Level: "INFO", Title: "DPlaneOS Telegram test", Message: "Your alert configuration is working.",
+	}))
 }
 
 func boolToInt(b bool) int {

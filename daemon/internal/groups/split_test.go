@@ -123,8 +123,21 @@ func TestDiscardKeepsTheChangesOnTheOwner(t *testing.T) {
 	}
 }
 
+// This node's newest snapshot never reached the owner (taken just before
+// it failed): the changes are kept from the newest snapshot both have.
+func TestDiscardKeepsTheChangesFromTheNewestCommonSnapshot(t *testing.T) {
+	tr := &splitTransport{remote: []string{"dplane-1-1", "dplane-2-3"}}
+	m, calls := splitManager(t, "ka", "kb", tr)
+	if _, err := m.DiscardDivergent("data", true); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix((*calls)[0], "changed tank dplane-1-1") || len(tr.sent) != 2 || !strings.HasSuffix(tr.sent[0], " dplane-1-1") {
+		t.Fatalf("calls %v, sent %v", *calls, tr.sent)
+	}
+}
+
 func TestDiscardDoesNothingWhenTheChangesCannotBeKept(t *testing.T) {
-	tr := &splitTransport{remote: []string{"dplane-1-1"}} // the owner pruned the common snapshot
+	tr := &splitTransport{remote: []string{"dplane-2-3"}} // the owner pruned every common snapshot
 	m, _ := splitManager(t, "ka", "kb", tr)
 	_, err := m.DiscardDivergent("data", true)
 	if !errors.Is(err, ErrCannotKeep) || len(tr.sent) != 0 || discardOK(t, m) {
@@ -206,5 +219,35 @@ func TestReplicationRunsOneAtATime(t *testing.T) {
 	wg.Wait()
 	if overlap {
 		t.Fatal("replication runs overlapped")
+	}
+}
+
+// unreachableTransport: a copy that does not answer.
+type unreachableTransport struct{ splitTransport }
+
+func (u *unreachableTransport) RemoteSnapshots(string, string, string) ([]string, error) {
+	return nil, errors.New("connection refused")
+}
+
+// A copy that is down for many intervals keeps its last known snapshot on
+// the owner: here, the one this node received from it when it owned the
+// group (failover), so the split there can be kept when it comes back.
+func TestPruningKeepsTheSnapshotAnUnreachableCopyHas(t *testing.T) {
+	m, _ := splitManager(t, "kb", "kb", &unreachableTransport{})
+	local := []string{"dplane-1-1", "dplane-1-2", "dplane-2-3", "dplane-2-4", "dplane-2-5", "dplane-2-6"}
+	m.repl.Snapshot = func(string, string) error { return nil }
+	m.repl.Snapshots = func(string) ([]string, error) { return local, nil }
+	var destroyed []string
+	m.repl.Destroy = func(_, s string) error { destroyed = append(destroyed, s); return nil }
+	recordRepl(m.db, "data", "in", "ka", "tank", "dplane-1-2", nil)
+	g, err := Get(m.db, "data")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := m.replicate(*g, nil); err == nil {
+		t.Fatal("replication to a copy that does not answer must fail")
+	}
+	if strings.Join(destroyed, ",") != "dplane-1-1,dplane-2-3" {
+		t.Fatalf("destroyed %v: dplane-1-2 (ka's) and the newest three stay", destroyed)
 	}
 }

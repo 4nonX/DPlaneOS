@@ -2,7 +2,6 @@ package bmc
 
 import (
 	"context"
-	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -129,14 +128,9 @@ func probeILO4Unauthenticated(ctx context.Context, host string) (Info, error) {
 }
 
 // probeIPMI runs a quick ipmitool mc info to verify IPMI LAN reachability.
-func probeIPMI(host string) error {
-	// Use a short timeout; no credentials needed to detect IPMI availability
-	client := &http.Client{
-		Timeout: 5 * time.Second,
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12},
-		},
-	}
-	_ = client // probeIPMI uses ipmitool, not HTTP
-	return ipmiRun(8, host, "", "", []string{"mc", "info"})
+// probeIPMI asks the BMC for its controller info over IPMI 2.0 (lanplus). It
+// needs the credentials: BMCs refuse anonymous RMCP+ sessions, so the former
+// credential-less probe never detected an IPMI-only BMC.
+func probeIPMI(host, user, password string) error {
+	return ipmiRun(8, host, user, password, []string{"mc", "info"})
 }

@@ -401,6 +401,7 @@ func (h *OIDCHandler) Callback(w http.ResponseWriter, r *http.Request) {
 		ClientID:     cfg.ClientID,
 		AllowedAlgs:  oidcSplitTrimmed(cfg.AllowedAlgs, ","),
 		RequireNonce: true,
+		GroupsClaim:  cfg.GroupClaim,
 	}
 	claims, err := oidc.VerifyIDToken(ctx, provider, verifyCfg, rawIDToken, nonce)
 	if err != nil {
@@ -417,7 +418,10 @@ func (h *OIDCHandler) Callback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Non-fatal: log but proceed if group-to-role assignment partially fails.
-	if err := h.assignRoles(userID, claims.Groups); err != nil {
+	// Only when the token carries the groups claim (absent = unknown).
+	if !claims.GroupsPresent {
+		log.Printf("OIDC CALLBACK: no %q claim in the token: roles from the IdP left as they are", cfg.GroupClaim)
+	} else if err := h.assignRoles(userID, claims.Groups); err != nil {
 		log.Printf("OIDC CALLBACK: role assign warning user=%d: %v", userID, err)
 	}
 
@@ -600,9 +604,12 @@ func (h *OIDCHandler) resolveUser(cfg *oidcConfigRow, claims *oidc.Claims) (int6
 	}
 
 	// 2. Email-based linking: link the IdP identity to an existing account that
-	// shares the same verified email. Email is informational after this point;
-	// future logins will match via the identity row created here.
-	if claims.Email != "" {
+	// shares the same email, only when the IdP says the email is verified.
+	// Without that check anyone who could set an unverified email at the IdP
+	// (self-registration) took over the local account with that email.
+	// Email is informational after this point; future logins match via the
+	// identity row created here.
+	if claims.Email != "" && claims.EmailVerified {
 		var existID int64
 		var existName string
 		err := h.db.QueryRow(`SELECT id, username FROM users WHERE email = $1 AND active = 1 LIMIT 1`,
@@ -654,7 +661,7 @@ func (h *OIDCHandler) resolveUser(cfg *oidcConfigRow, claims *oidc.Claims) (int6
 	if cfg.DefaultRoleID.Valid {
 		h.db.Exec(`
 			INSERT INTO user_roles (user_id, role_id, granted_by)
-			VALUES ($1, $2, 'oidc-provider')
+			VALUES ($1, $2, 'oidc-default')
 			ON CONFLICT (user_id, role_id) DO NOTHING
 		`, newID, cfg.DefaultRoleID.Int64)
 	}
@@ -664,9 +671,13 @@ func (h *OIDCHandler) resolveUser(cfg *oidcConfigRow, claims *oidc.Claims) (int6
 	return newID, newName, nil
 }
 
-// assignRoles maps IdP group names to local role names and assigns all
-// matching roles to the user. Unrecognized group names are silently skipped.
+// assignRoles makes the user's IdP-granted roles match the IdP groups: a
+// group named like a role grants it, and a role the IdP granted earlier is
+// revoked when the group is gone (before, roles were only ever added, so
+// removing someone from the admin group at the IdP changed nothing).
+// Roles granted locally or as the default role are left alone.
 func (h *OIDCHandler) assignRoles(userID int64, groups []string) error {
+	want := []int64{}
 	for _, group := range groups {
 		var roleID int64
 		err := h.db.QueryRow(`SELECT id FROM roles WHERE name = $1`, group).Scan(&roleID)
@@ -676,6 +687,7 @@ func (h *OIDCHandler) assignRoles(userID int64, groups []string) error {
 		if err != nil {
 			return err
 		}
+		want = append(want, roleID)
 		if _, err := h.db.Exec(`
 			INSERT INTO user_roles (user_id, role_id, granted_by)
 			VALUES ($1, $2, 'oidc-provider')
@@ -683,6 +695,14 @@ func (h *OIDCHandler) assignRoles(userID int64, groups []string) error {
 		`, userID, roleID); err != nil {
 			log.Printf("OIDC: role assign warn user=%d role=%d: %v", userID, roleID, err)
 		}
+	}
+	res, err := h.db.Exec(`DELETE FROM user_roles WHERE user_id = $1 AND granted_by = 'oidc-provider' AND NOT (role_id = ANY($2::bigint[]))`,
+		userID, pgInt64Array(want))
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n > 0 {
+		log.Printf("OIDC: revoked %d role(s) of user %d no longer granted by the IdP's groups", n, userID)
 	}
 	return nil
 }

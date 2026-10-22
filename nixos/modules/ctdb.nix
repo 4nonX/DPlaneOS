@@ -162,7 +162,7 @@ in {
         ExecStartPre = "${pkgs.coreutils}/bin/mkdir -p /var/run/ctdb /var/lib/ctdb/persistent";
         # ctdbd writes its own pidfile in /var/run/ctdb
         ExecStart = ''
-          ${pkgs.samba}/bin/ctdbd \
+          ${config.services.dplaneos.samba.package}/bin/ctdbd \
             --nlist /etc/ctdb/nodes \
             --socket /var/run/ctdb/ctdbd.socket \
             --public-addresses /etc/ctdb/public_addresses \
@@ -174,7 +174,7 @@ in {
             --node-timeout ${toString cfg.nodeTimeout} \
             --recovery-timeout ${toString cfg.recoveryTimeout}
         '';
-        ExecStop = "${pkgs.samba}/bin/ctdb shutdown";
+        ExecStop = "${config.services.dplaneos.samba.package}/bin/ctdb shutdown";
         Restart = "on-failure";
         RestartSec = 5;
       };

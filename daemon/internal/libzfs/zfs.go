@@ -53,6 +53,17 @@ func (e *Error) Error() string {
 
 func libzfsErr(op, msg string) error { return &Error{Op: op, Msg: msg} }
 
+// cmdErr is the error of a failed zfs/zpool command: its output, or the
+// error itself when there is none (a refused command has no output, and
+// the message used to be just "<op> failed").
+func cmdErr(op string, out []byte, err error) error {
+	msg := strings.TrimSpace(string(out))
+	if msg == "" && err != nil {
+		msg = err.Error()
+	}
+	return libzfsErr(op, msg)
+}
+
 // ── Shared operations (subprocess in all build variants) ──────────────────
 // These operations map to complex CLI commands where native libzfs bindings
 // would require significant C nvlist construction. Using the subprocess path
@@ -78,7 +89,7 @@ func VdevAdd(pool, vdevType string, devices []string) error {
 	args = append(args, devices...)
 	out, err := cmdutil.RunMedium("zpool_add", args...)
 	if err != nil {
-		return libzfsErr("VdevAdd", string(out))
+		return cmdErr("VdevAdd", out, err)
 	}
 	return nil
 }
@@ -96,7 +107,7 @@ func VdevAttach(pool, existingDevice, newDevice string) error {
 	}
 	out, err := cmdutil.RunMedium("zpool_attach", "attach", pool, existingDevice, newDevice)
 	if err != nil {
-		return libzfsErr("VdevAttach", string(out))
+		return cmdErr("VdevAttach", out, err)
 	}
 	return nil
 }
@@ -119,7 +130,7 @@ func VdevReplace(pool, oldDevice, newDevice string, force bool) error {
 	args = append(args, pool, oldDevice, newDevice)
 	out, err := cmdutil.RunMedium("zpool_replace", args...)
 	if err != nil {
-		return libzfsErr("VdevReplace", string(out))
+		return cmdErr("VdevReplace", out, err)
 	}
 	return nil
 }
@@ -134,7 +145,7 @@ func VdevRemove(pool, device string) error {
 	}
 	out, err := cmdutil.RunMedium("zpool_remove_device", "remove", pool, device)
 	if err != nil {
-		return libzfsErr("VdevRemove", string(out))
+		return cmdErr("VdevRemove", out, err)
 	}
 	return nil
 }
@@ -149,7 +160,7 @@ func PoolSplit(pool, newPool string) error {
 	}
 	out, err := cmdutil.RunMedium("zpool_split", "split", pool, newPool)
 	if err != nil {
-		return libzfsErr("PoolSplit", string(out))
+		return cmdErr("PoolSplit", out, err)
 	}
 	return nil
 }
@@ -161,7 +172,7 @@ func PoolSplit(pool, newPool string) error {
 func PoolCreate(args []string) error {
 	out, err := cmdutil.RunSlow("zpool_create", args...)
 	if err != nil {
-		return libzfsErr("PoolCreate", string(out))
+		return cmdErr("PoolCreate", out, err)
 	}
 	return nil
 }
@@ -173,7 +184,7 @@ func PoolDestroy(pool string) error {
 	}
 	out, err := cmdutil.RunSlow("zpool_destroy", "destroy", pool)
 	if err != nil {
-		return libzfsErr("PoolDestroy", string(out))
+		return cmdErr("PoolDestroy", out, err)
 	}
 	return nil
 }
@@ -189,7 +200,7 @@ func DatasetRename(oldName, newName string) error {
 	}
 	out, err := cmdutil.RunMedium("zfs_rename", "rename", oldName, newName)
 	if err != nil {
-		return libzfsErr("DatasetRename", string(out))
+		return cmdErr("DatasetRename", out, err)
 	}
 	return nil
 }
@@ -202,7 +213,7 @@ func SnapshotListHolds(snapshot string) ([]HoldEntry, error) {
 	}
 	out, err := cmdutil.RunFast("zfs_holds", "holds", "-H", snapshot)
 	if err != nil {
-		return nil, libzfsErr("SnapshotListHolds", string(out))
+		return nil, cmdErr("SnapshotListHolds", out, err)
 	}
 
 	var holds []HoldEntry

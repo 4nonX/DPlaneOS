@@ -17,11 +17,11 @@
 # TWO-LAYER SPLIT:
 #
 #   NixOS layer (this file) owns:
-#     - services.nfs.server with NFSv4.2 and optional version floor
+#     - services.nfs.server: NFSv4 (version floor minVersion), NFSv3 opt-in
 #     - rpc.idmapd configuration (/etc/idmapd.conf)
 #     - sysctl fs.nfs.nfs4_disable_idmapping = 0
 #     - nfs4-acl-tools in system packages and dplaned PATH (when available in nixpkgs)
-#     - Firewall ports (TCP/UDP 2049, TCP/UDP 111)
+#     - Firewall ports (TCP/UDP 2049; with NFSv3 also 111 and fixed helper ports)
 #
 #   DPlaneOS daemon layer owns:
 #     - /etc/exports contents (written by the NFS handler on every export change)
@@ -48,11 +48,14 @@ let
 
   # NFSv4 version floor for /etc/nfs.conf [nfsd] section.
   # services.nfs.settings uses attrsOf (attrsOf str) - no raw strings.
-  # NFSv4.0 and NFSv3 are disabled when minVersion is 4.1 or 4.2.
-  nfsdVersionSettings =
-    { "vers4" = "y"; "vers4.1" = "y"; "vers4.2" = "y"; }
-    // lib.optionalAttrs (cfg.minVersion == "4.1" || cfg.minVersion == "4.2") { "vers3" = "n"; }
-    // lib.optionalAttrs (cfg.minVersion == "4.2") { "vers4.0" = "n"; };
+  # NFSv3 only with enableNFSv3; NFSv4 minor versions from minVersion up.
+  nfsdVersionSettings = {
+    "vers3"   = if cfg.enableNFSv3 then "y" else "n";
+    "vers4"   = "y";
+    "vers4.0" = if cfg.minVersion == "4" then "y" else "n";
+    "vers4.1" = if cfg.minVersion == "4.2" then "n" else "y";
+    "vers4.2" = "y";
+  };
 
   # nfs4-acl-tools provides nfs4_getfacl / nfs4_setfacl.
   # The package was removed from nixpkgs after 25.05; guard against absence
@@ -84,15 +87,24 @@ in {
 
     minVersion = lib.mkOption {
       type    = lib.types.enum [ "4" "4.1" "4.2" ];
-      default = "4.2";
+      default = "4";
       description = ''
-        Minimum NFS protocol version the server will offer.
-        "4.2" (default): only NFSv4.1 and NFSv4.2, enables server-side copy
-          and sparse file support.
-        "4.1": NFSv4.1 and 4.2; disables NFSv3 and NFSv4.0.
-        "4":   all NFSv4 minor versions; NFSv3 is still disabled.
-        Legacy NFSv3 clients should set this to "4" and add NFSv3 firewall
-        rules manually.
+        Oldest NFSv4 minor version the server offers.
+        "4" (default): NFSv4.0, 4.1 and 4.2. macOS mounts only NFSv4.0 (or v3),
+          so a higher floor shuts Macs out.
+        "4.1": NFSv4.1 and 4.2.
+        "4.2": NFSv4.2 only.
+        NFSv3 is separate: enableNFSv3.
+      '';
+    };
+
+    enableNFSv3 = lib.mkOption {
+      type    = lib.types.bool;
+      default = false;
+      description = ''
+        Also serve NFSv3 (Windows' NFS client, older VMware/ESXi, some
+        appliances). mountd, statd and lockd then use fixed ports (20048,
+        32765, 32768), opened in the firewall with rpcbind (111).
       '';
     };
 
@@ -100,8 +112,9 @@ in {
       type    = lib.types.bool;
       default = true;
       description = ''
-        Open NFS firewall ports: TCP/UDP 2049 (nfsd) and TCP/UDP 111 (portmap/rpcbind).
-        Disable if you manage firewall rules externally.
+        Open the NFS firewall ports: TCP/UDP 2049, and for NFSv3 also rpcbind
+        (111), mountd, statd and lockd. Disable if you manage the firewall
+        rules externally.
       '';
     };
 
@@ -153,9 +166,14 @@ in {
     systemd.services.dplaned.path = lib.mkAfter aclToolsPkgs;
 
     # ── Firewall ──────────────────────────────────────────────────────────
+    # NFSv3 helpers on fixed ports, so the firewall can open them.
+    services.nfs.server.mountdPort = lib.mkIf cfg.enableNFSv3 20048;
+    services.nfs.server.statdPort  = lib.mkIf cfg.enableNFSv3 32765;
+    services.nfs.server.lockdPort  = lib.mkIf cfg.enableNFSv3 32768;
+
     networking.firewall = lib.mkIf cfg.openFirewall {
-      allowedTCPPorts = [ 2049 111 ];
-      allowedUDPPorts = [ 2049 111 ];
+      allowedTCPPorts = [ 2049 ] ++ lib.optionals cfg.enableNFSv3 [ 111 20048 32765 32768 ];
+      allowedUDPPorts = [ 2049 ] ++ lib.optionals cfg.enableNFSv3 [ 111 20048 32765 32768 ];
     };
 
   };

@@ -1,31 +1,37 @@
 /**
- * pages/FirewallPage.tsx - Firewall (Phase 6)
+ * pages/FirewallPage.tsx - Firewall
  *
- * Shows current nftables/iptables status and allows adding allow/deny rules.
- * The daemon uses a simple rule model: action, port, from (optional).
- * "Sync to Nix" writes rules to NixOS configuration.
+ * On NixOS the firewall itself is part of the system configuration (it opens
+ * the ports the configured services need, shown read-only). Rules made here
+ * apply at once on top of it, in order (the first that matches decides): allow
+ * opens a port, optionally only for a source; deny blocks one, also a port
+ * the system opens. Every change is reverted unless confirmed
+ * (PendingChangeBanner), so a rule that locks you out undoes itself.
+ * Elsewhere the page drives ufw.
  *
  * Calls:
- *   GET  /api/firewall/status           → { success, status: "active"|"inactive", rules?: Rule[] }
- *   POST /api/firewall/rule             → { action: "enable"|"disable"|"allow"|"deny", port?, from? }
- *   POST /api/firewall/sync             → commit rules to NixOS config
+ *   GET  /api/firewall/status → { success, status, managed_by?: "nixos", rules: Rule[], system_ports?, rules_loaded? }
+ *   POST /api/firewall/rule   { action: allow|deny, port, proto, from?, comment? }
+ *                             { action: delete, rule_num } | { action: update, rule_num, new_action, port, proto, from?, comment? }
+ *                             { action: enable|disable } (ufw only)
  */
 
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { api } from '@/lib/api'
+import { api, ensureOk } from '@/lib/api'
 import { Icon } from '@/components/ui/Icon'
 import { ErrorState } from '@/components/ui/ErrorState'
 import { Skeleton } from '@/components/ui/LoadingSpinner'
 import { toast } from '@/hooks/useToast'
 import { useConfirm } from '@/components/ui/ConfirmDialog'
+import { PendingChangeBanner, useChangeApplied } from '@/components/network/PendingChangeBanner'
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
 interface FirewallRule {
-  id?:      number | string
+  id:       number
   action:   'allow' | 'deny'
   port?:    string
   from?:    string
@@ -33,167 +39,87 @@ interface FirewallRule {
   comment?: string
 }
 
+interface PortRange { from: number; to: number }
+interface SystemPorts { enabled: boolean; tcp: number[]; udp: number[]; tcp_ranges: PortRange[]; udp_ranges: PortRange[]; trusted_interfaces: string[] }
+
 interface FirewallStatus {
-  success: boolean
-  status:  'active' | 'inactive' | string
-  rules?:  FirewallRule[]
+  success:       boolean
+  status:        'active' | 'inactive' | string
+  managed_by?:   'nixos'
+  rules?:        FirewallRule[]
+  system_ports?: SystemPorts
+  rules_loaded?: boolean
 }
 
+type RuleInput = { action: 'allow' | 'deny'; port: string; from: string; proto: string; comment: string }
+
 // ---------------------------------------------------------------------------
-// Status banner
+// Rule form (add and edit)
 // ---------------------------------------------------------------------------
 
-function StatusBanner({ active, onToggle, pending }: { active: boolean; onToggle: () => void; pending: boolean }) {
+function RuleFields({ value, onChange, onEnter }: { value: RuleInput; onChange: (v: RuleInput) => void; onEnter?: () => void }) {
+  const set = (p: Partial<RuleInput>) => onChange({ ...value, ...p })
+  const enter = (e: React.KeyboardEvent) => { if (e.key === 'Enter') onEnter?.() }
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '16px 22px', background: 'var(--bg-card)', border: `1px solid ${active ? 'var(--success-border)' : 'var(--error-border)'}`, borderRadius: 'var(--radius-xl)', marginBottom: 24 }}>
-      <div style={{ width: 48, height: 48, borderRadius: 'var(--radius-md)', background: active ? 'var(--success-bg)' : 'var(--error-bg)', border: `1px solid ${active ? 'var(--success-border)' : 'var(--error-border)'}`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-        <Icon name={active ? 'shield' : 'shield_with_heart'} size={24} style={{ color: active ? 'var(--success)' : 'var(--error)' }} />
-      </div>
-      <div style={{ flex: 1 }}>
-        <div style={{ fontWeight: 700, fontSize: 'var(--text-lg)', color: active ? 'var(--success)' : 'var(--error)' }}>
-          Firewall {active ? 'Active' : 'Inactive'}
-        </div>
-        <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>
-          {active ? 'nftables rules are applied and protecting the system' : 'No firewall rules are active - all traffic is allowed'}
-        </div>
-      </div>
-      <button onClick={onToggle} disabled={pending} className={active ? 'btn btn-danger' : 'btn btn-primary'}>
-        <Icon name={active ? 'shield_x' : 'shield'} size={15} />
-        {pending ? (active ? 'Disabling…' : 'Enabling…') : (active ? 'Disable' : 'Enable')}
-      </button>
-    </div>
+    <>
+      <label className="field">
+        <span className="field-label">Action</span>
+        <select value={value.action} onChange={e => set({ action: e.target.value as 'allow' | 'deny' })} className="input" style={{ appearance: 'none' }}>
+          <option value="allow">Allow</option>
+          <option value="deny">Deny</option>
+        </select>
+      </label>
+      <label className="field">
+        <span className="field-label">Protocol</span>
+        <select value={value.proto} onChange={e => set({ proto: e.target.value })} className="input" style={{ appearance: 'none' }}>
+          <option value="tcp">tcp</option>
+          <option value="udp">udp</option>
+          <option value="both">tcp+udp</option>
+        </select>
+      </label>
+      <label className="field">
+        <span className="field-label">Port / Range</span>
+        <input value={value.port} onChange={e => set({ port: e.target.value })} onKeyDown={enter} placeholder="80  or  8000-8100"
+          className="input" style={{ fontFamily: 'var(--font-mono)' }} />
+      </label>
+      <label className="field">
+        <span className="field-label">Source (optional)</span>
+        <input value={value.from} onChange={e => set({ from: e.target.value })} onKeyDown={enter} placeholder="192.168.1.0/24 (empty = any)"
+          className="input" style={{ fontFamily: 'var(--font-mono)' }} />
+      </label>
+    </>
   )
 }
 
-// ---------------------------------------------------------------------------
-// AddRuleForm
-// ---------------------------------------------------------------------------
+const emptyRule: RuleInput = { action: 'allow', port: '', from: '', proto: 'tcp', comment: '' }
 
-function AddRuleForm({ onAdd, pending, autoReconcile, setAutoReconcile }: { onAdd: (rule: { action: string; port: string; from: string; proto: string }) => void; pending: boolean; autoReconcile: boolean; setAutoReconcile: (v: boolean) => void }) {
-  const [action, setAction] = useState<'allow' | 'deny'>('allow')
-  const [port,   setPort]   = useState('')
-  const [from,   setFrom]   = useState('')
-  const [proto,  setProto]  = useState('tcp')
-
-  function submit() {
-    if (!port.trim()) { toast.error('Port is required'); return }
-    onAdd({ action, port: port.trim(), from: from.trim(), proto })
-    setPort(''); setFrom('')
-  }
-
+function EditRuleModal({ rule, onClose, onSave, pending }: { rule: FirewallRule; onClose: () => void; onSave: (r: RuleInput) => void; pending: boolean }) {
+  const [v, setV] = useState<RuleInput>({
+    action: rule.action, port: rule.port ?? '', proto: rule.proto ?? 'tcp', comment: rule.comment ?? '',
+    from: rule.from && rule.from !== 'Anywhere' ? rule.from : '',
+  })
   return (
-    <div className="card" style={{ borderRadius: 'var(--radius-lg)', padding: '18px 22px', marginBottom: 24 }}>
-      <div style={{ fontWeight: 700, marginBottom: 14 }}>Add Rule</div>
-      <div style={{ display: 'grid', gridTemplateColumns: '100px 100px 1fr 1fr auto', gap: 10, alignItems: 'end' }}>
-        <label className="field">
-          <span className="field-label">Action</span>
-          <select value={action} onChange={e => setAction(e.target.value as 'allow' | 'deny')} className="input" style={{ appearance: 'none' }}>
-            <option value="allow">Allow</option>
-            <option value="deny">Deny</option>
-          </select>
-        </label>
-
-        <label className="field">
-          <span className="field-label">Protocol</span>
-          <select value={proto} onChange={e => setProto(e.target.value)} className="input" style={{ appearance: 'none' }}>
-            <option value="tcp">tcp</option>
-            <option value="udp">udp</option>
-            <option value="both">tcp+udp</option>
-          </select>
-        </label>
-
-        <label className="field">
-          <span className="field-label">Port / Range</span>
-          <input value={port} onChange={e => setPort(e.target.value)} placeholder="80  or  8000:8100"
-            className="input" style={{ fontFamily: 'var(--font-mono)' }} onKeyDown={e => e.key === 'Enter' && submit()} />
-        </label>
-
-        <label className="field">
-          <span className="field-label">Source IP (optional)</span>
-          <input value={from} onChange={e => setFrom(e.target.value)} placeholder="192.168.1.0/24 or any"
-            className="input" style={{ fontFamily: 'var(--font-mono)' }} onKeyDown={e => e.key === 'Enter' && submit()} />
-        </label>
-
-        <button onClick={submit} disabled={pending} className="btn btn-primary" style={{ alignSelf: 'flex-end' }}>
-          <Icon name="add" size={15} />{pending ? 'Adding…' : 'Add Rule'}
-        </button>
-      </div>
-      <div style={{ marginTop: 12 }}>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>
-          <input type="checkbox" checked={autoReconcile} onChange={e => setAutoReconcile(e.target.checked)} />
-          Reconcile system immediately after adding (NixOS only)
-        </label>
-      </div>
-    </div>
-  )
-}
-
-// ---------------------------------------------------------------------------
-// FirewallPage
-// ---------------------------------------------------------------------------
-
-function EditRuleModal({ rule, onClose, onSave, pending, autoReconcile, setAutoReconcile }: { rule: FirewallRule; onClose: () => void; onSave: (r: { action: string; port: string; from: string; proto: string }) => void; pending: boolean; autoReconcile: boolean; setAutoReconcile: (v: boolean) => void }) {
-  const [action, setAction] = useState<'allow' | 'deny'>(rule.action)
-  const [port,   setPort]   = useState(rule.port || '')
-  const [from,   setFrom]   = useState(rule.from || '')
-  const [proto,  setProto]  = useState(rule.proto || 'tcp')
-
-  function submit() {
-    if (!port.trim()) { toast.error('Port is required'); return }
-    onSave({ action, port: port.trim(), from: from.trim(), proto })
-  }
-
-  return (
-    <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 'var(--z-modal)', backdropFilter: 'blur(4px)' }}>
-      <div className="card" style={{ width: 450, padding: 24, borderRadius: 'var(--radius-xl)', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.3)' }}>
+    <div role="dialog" style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 'var(--z-modal)', backdropFilter: 'blur(4px)' }}>
+      <div className="card" style={{ width: 450, padding: 24, borderRadius: 'var(--radius-xl)' }}>
         <div style={{ fontWeight: 700, fontSize: 'var(--text-lg)', marginBottom: 20, display: 'flex', alignItems: 'center', gap: 10 }}>
-          <Icon name="edit" size={20} style={{ color: 'var(--primary)' }} />
-          Edit Firewall Rule
+          <Icon name="edit" size={20} style={{ color: 'var(--primary)' }} />Edit rule #{rule.id}
         </div>
-
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          <label className="field">
-            <span className="field-label">Action</span>
-            <select value={action} onChange={e => setAction(e.target.value as 'allow' | 'deny')} className="input">
-              <option value="allow">Allow</option>
-              <option value="deny">Deny</option>
-            </select>
-          </label>
-
-          <label className="field">
-            <span className="field-label">Protocol</span>
-            <select value={proto} onChange={e => setProto(e.target.value)} className="input">
-              <option value="tcp">tcp</option>
-              <option value="udp">udp</option>
-              <option value="both">tcp+udp</option>
-            </select>
-          </label>
-
-          <label className="field">
-            <span className="field-label">Port / Range</span>
-            <input value={port} onChange={e => setPort(e.target.value)} placeholder="80" className="input" />
-          </label>
-
-          <label className="field">
-            <span className="field-label">Source IP (optional)</span>
-            <input value={from} onChange={e => setFrom(e.target.value)} placeholder="any" className="input" />
-          </label>
-
-          <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', marginTop: 8 }}>
-            <input type="checkbox" checked={autoReconcile} onChange={e => setAutoReconcile(e.target.checked)} />
-            Apply changes to NixOS immediately
-          </label>
+          <RuleFields value={v} onChange={setV} />
         </div>
-
         <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 24 }}>
           <button onClick={onClose} className="btn btn-ghost">Cancel</button>
-          <button onClick={submit} disabled={pending} className="btn btn-primary">
-            {pending ? 'Saving...' : 'Save Changes'}
+          <button onClick={() => v.port.trim() ? onSave(v) : toast.error('Port is required')} disabled={pending} className="btn btn-primary">
+            {pending ? 'Saving…' : 'Save'}
           </button>
         </div>
       </div>
     </div>
   )
+}
+
+function portList(ports: number[], ranges: PortRange[]): string {
+  return [...ports.map(String), ...ranges.map(r => `${r.from}-${r.to}`)].join(', ') || 'none'
 }
 
 // ---------------------------------------------------------------------------
@@ -202,163 +128,139 @@ function EditRuleModal({ rule, onClose, onSave, pending, autoReconcile, setAutoR
 
 export function FirewallPage() {
   const qc = useQueryClient()
+  const applied = useChangeApplied()
   const [editingRule, setEditingRule] = useState<FirewallRule | null>(null)
-  const [autoReconcile, setAutoReconcile] = useState(false)
+  const [draft, setDraft] = useState<RuleInput>(emptyRule)
   const { confirm, ConfirmDialog } = useConfirm()
-
-  const diffQ = useQuery({
-    queryKey: ['nixos', 'diff-intent'],
-    queryFn: () => api.get<{ changes: Array<{ path: string; to: unknown; from: unknown }> }>('/api/nixos/diff-intent'),
-  })
-
-  const reconcileM = useMutation({
-    mutationFn: () => api.post('/api/nixos/reconcile', {}),
-  })
 
   const statusQ = useQuery({
     queryKey: ['firewall', 'status'],
     queryFn:  ({ signal }) => api.get<FirewallStatus>('/api/firewall/status', signal),
     refetchInterval: 15_000,
   })
+  const nixos = statusQ.data?.managed_by === 'nixos'
 
   const rulesMut = useMutation({
-    mutationFn: (body: Record<string, unknown>) => api.post('/api/firewall/rule', body),
-    onSuccess: async () => {
+    mutationFn: async (body: Record<string, unknown>) =>
+      ensureOk(await api.post<{ success?: boolean; error?: string; message?: string }>('/api/firewall/rule', body)),
+    onSuccess: r => {
       qc.invalidateQueries({ queryKey: ['firewall', 'status'] })
-      qc.invalidateQueries({ queryKey: ['nixos', 'status'] })
-      qc.invalidateQueries({ queryKey: ['nixos', 'diff-intent'] })
-      
-      if (autoReconcile) {
-        toast.info('Rule staged. Triggering NixOS reconciliation...')
-        try {
-          await reconcileM.mutateAsync()
-          toast.success('Changes applied to kernel successfully')
-        } catch (e: unknown) {
-          toast.error(`Reconciliation failed: ${e instanceof Error ? e.message : String(e)}`)
-        }
-      } else {
-        toast.success('Rule staged in configuration. Remember to Reconcile to apply changes.')
-      }
+      if (nixos) applied(r.message ?? 'Applied - confirm to keep it')
+      else toast.success('Firewall updated')
       setEditingRule(null)
     },
     onError: (e: Error) => toast.error(e.message),
   })
 
-  const syncMut = useMutation({
-    mutationFn: () => api.post('/api/firewall/sync', {}),
-    onSuccess: () => {
-      toast.success('Firewall synced to NixOS configuration')
-      qc.invalidateQueries({ queryKey: ['nixos', 'status'] })
-    },
-    onError: (e: Error) => toast.error(e.message),
-  })
-
-  const isActive = statusQ.data?.status === 'active'
-  const rules    = statusQ.data?.rules ?? []
-
   if (statusQ.isLoading) return <Skeleton height={320} />
   if (statusQ.isError)   return <ErrorState error={statusQ.error} onRetry={() => qc.invalidateQueries({ queryKey: ['firewall', 'status'] })} />
 
-  function handleEditSave(updated: { action: string; port: string; from: string; proto: string }) {
-    if (!editingRule) return
-    // To "edit" a ufw rule, we must delete the old one by ID and add the new one
-    // But since the backend SetRule for "delete" takes rule_num (id), we can do it in two steps
-    // or sequential mutations. For simplicity, we sequence them.
-    rulesMut.mutateAsync({ action: 'delete', rule_num: editingRule.id }).then(() => {
-      rulesMut.mutate({ action: updated.action, port: updated.port, from: updated.from || undefined, proto: updated.proto })
-    })
+  const isActive = statusQ.data?.status === 'active'
+  const rules    = statusQ.data?.rules ?? []
+  const sys      = statusQ.data?.system_ports
+
+  function add() {
+    if (!draft.port.trim()) { toast.error('Port is required'); return }
+    rulesMut.mutate({ action: draft.action, port: draft.port.trim(), proto: draft.proto, from: draft.from.trim() || undefined })
+    setDraft(d => ({ ...d, port: '', from: '' }))
   }
 
   return (
     <div style={{ maxWidth: 900 }}>
       {editingRule && (
-        <EditRuleModal
-          rule={editingRule}
-          onClose={() => setEditingRule(null)}
-          onSave={handleEditSave}
-          pending={rulesMut.isPending}
-          autoReconcile={autoReconcile}
-          setAutoReconcile={setAutoReconcile}
+        <EditRuleModal rule={editingRule} onClose={() => setEditingRule(null)} pending={rulesMut.isPending}
+          onSave={v => nixos
+            ? rulesMut.mutate({ action: 'update', rule_num: editingRule.id, new_action: v.action, port: v.port.trim(), proto: v.proto, from: v.from.trim() || undefined })
+            // ufw has no update: delete, then add
+            : rulesMut.mutateAsync({ action: 'delete', rule_num: editingRule.id }).then(() =>
+                rulesMut.mutate({ action: v.action, port: v.port.trim(), proto: v.proto, from: v.from.trim() || undefined }))}
         />
       )}
 
       <div className="page-header">
         <h1 className="page-title">Firewall</h1>
-        <p className="page-subtitle">nftables rules - allow and deny traffic by port and source</p>
+        <p className="page-subtitle">Allow and deny traffic by port and source</p>
       </div>
 
-      <StatusBanner
-        active={isActive}
-        onToggle={() => rulesMut.mutate({ action: isActive ? 'disable' : 'enable' })}
-        pending={rulesMut.isPending}
-      />
+      <PendingChangeBanner />
 
-      <AddRuleForm
-        onAdd={r => rulesMut.mutate({ action: r.action, port: r.port, from: r.from || undefined, proto: r.proto })}
-        pending={rulesMut.isPending}
-        autoReconcile={autoReconcile}
-        setAutoReconcile={setAutoReconcile}
-      />
-
-      {/* Rules table */}
-      <div style={{ marginBottom: 14, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <div style={{ fontWeight: 700 }}>Active Rules ({rules.length})</div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <button onClick={() => qc.invalidateQueries({ queryKey: ['firewall', 'status'] })} className="btn btn-ghost">
-            <Icon name="refresh" size={14} />Refresh
+      {/* Status */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '16px 22px', background: 'var(--bg-card)', border: `1px solid ${isActive ? 'var(--success-border)' : 'var(--error-border)'}`, borderRadius: 'var(--radius-xl)', marginBottom: 24 }}>
+        <Icon name="shield" size={24} style={{ color: isActive ? 'var(--success)' : 'var(--error)' }} />
+        <div style={{ flex: 1 }}>
+          <div style={{ fontWeight: 700, fontSize: 'var(--text-lg)', color: isActive ? 'var(--success)' : 'var(--error)' }}>
+            Firewall {isActive ? 'active' : 'inactive'}
+          </div>
+          <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>
+            {nixos
+              ? 'Incoming connections are refused unless the system configuration or a rule below allows them.'
+              : isActive ? 'ufw rules are applied' : 'No firewall rules are active - all traffic is allowed'}
+          </div>
+        </div>
+        {!nixos && (
+          <button onClick={() => rulesMut.mutate({ action: isActive ? 'disable' : 'enable' })} disabled={rulesMut.isPending} className={isActive ? 'btn btn-danger' : 'btn btn-primary'}>
+            {isActive ? 'Disable' : 'Enable'}
           </button>
-          <button onClick={() => syncMut.mutate()} disabled={syncMut.isPending} className="btn btn-ghost">
-            <Icon name="sync" size={14} />{syncMut.isPending ? 'Syncing…' : 'Sync to NixOS'}
+        )}
+      </div>
+
+      {nixos && sys && (
+        <div className="card" style={{ borderRadius: 'var(--radius-lg)', padding: '16px 22px', marginBottom: 24, fontSize: 'var(--text-sm)' }}>
+          <div style={{ fontWeight: 700, marginBottom: 8 }}>Opened by the system configuration</div>
+          <div style={{ display: 'grid', gridTemplateColumns: '60px 1fr', gap: 6, fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)' }}>
+            <span style={{ color: 'var(--text-tertiary)' }}>TCP</span><span>{portList(sys.tcp, sys.tcp_ranges)}</span>
+            <span style={{ color: 'var(--text-tertiary)' }}>UDP</span><span>{portList(sys.udp, sys.udp_ranges)}</span>
+          </div>
+          <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', marginTop: 8 }}>
+            These follow the services that are enabled. To limit one to some networks, add an allow rule for those networks and then a deny rule for the port.
+          </div>
+        </div>
+      )}
+
+      {/* Add rule */}
+      <div className="card" style={{ borderRadius: 'var(--radius-lg)', padding: '18px 22px', marginBottom: 24 }}>
+        <div style={{ fontWeight: 700, marginBottom: 14 }}>Add Rule</div>
+        <div style={{ display: 'grid', gridTemplateColumns: '100px 110px 1fr 1fr auto', gap: 10, alignItems: 'end' }}>
+          <RuleFields value={draft} onChange={setDraft} onEnter={add} />
+          <button onClick={add} disabled={rulesMut.isPending} className="btn btn-primary">
+            <Icon name="add" size={15} />{rulesMut.isPending ? 'Adding…' : 'Add Rule'}
           </button>
         </div>
+        {nixos && <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', marginTop: 10 }}>Rules apply at once, in this order, and are reverted unless you confirm them.</div>}
       </div>
+
+      {/* Rules */}
+      <div style={{ marginBottom: 14, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div style={{ fontWeight: 700 }}>Rules ({rules.length})</div>
+        <button onClick={() => qc.invalidateQueries({ queryKey: ['firewall', 'status'] })} className="btn btn-ghost">
+          <Icon name="refresh" size={14} />Refresh
+        </button>
+      </div>
+      {nixos && statusQ.data?.rules_loaded === false && rules.length > 0 && (
+        <div className="alert alert-error" style={{ marginBottom: 12 }}>The rules are not loaded in the kernel; check the daemon log.</div>
+      )}
 
       {rules.length > 0 ? (
         <div className="card" style={{ borderRadius: 'var(--radius-lg)', overflow: 'hidden' }}>
           <table className="data-table">
             <thead>
-              <tr style={{ background: 'rgba(255,255,255,0.03)' }}>
-                {['Action', 'Protocol', 'Port', 'Source', ''].map(h => (
-                  <th key={h}>{h}</th>
-                ))}
-              </tr>
+              <tr>{['#', 'Action', 'Protocol', 'Port', 'Source', ''].map(h => <th key={h}>{h}</th>)}</tr>
             </thead>
             <tbody>
-              {rules.map((rule, idx) => (
-                <tr key={rule.id ?? idx}
-                  onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.02)')}
-                  onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
-                  <td>
-                    <span className={rule.action === 'allow' ? 'badge badge-success' : 'badge badge-error'}>
-                      {rule.action.toUpperCase()}
-                    </span>
-                  </td>
-                  <td style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>
-                    {rule.proto ?? 'tcp'}
-                  </td>
-                  <td style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-sm)', fontWeight: 600 }}>
-                    {rule.port ?? '-'}
-                    {diffQ.data?.changes.find(c => c.path.includes('.tcp') && c.to == rule.port) && (
-                      <span className="badge badge-warning" style={{ fontSize: 8, marginLeft: 6 }}>STAGED</span>
-                    )}
-                  </td>
-                  <td style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>
-                    {rule.from ?? 'any'}
-                  </td>
+              {rules.map(rule => (
+                <tr key={rule.id}>
+                  <td style={{ color: 'var(--text-tertiary)' }}>{rule.id}</td>
+                  <td><span className={rule.action === 'allow' ? 'badge badge-success' : 'badge badge-error'}>{rule.action.toUpperCase()}</span></td>
+                  <td style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>{rule.proto === 'both' ? 'tcp+udp' : rule.proto ?? 'tcp'}</td>
+                  <td style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-sm)', fontWeight: 600 }}>{rule.port ?? '-'}</td>
+                  <td style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>{rule.from || 'Anywhere'}</td>
                   <td style={{ textAlign: 'right' }}>
                     <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
-                      <button onClick={() => setEditingRule(rule)}
-                        disabled={rulesMut.isPending}
-                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-tertiary)', padding: 4, borderRadius: 'var(--radius-xs)', display: 'inline-flex' }}
-                        onMouseEnter={e => (e.currentTarget.style.color = 'var(--primary)')}
-                        onMouseLeave={e => (e.currentTarget.style.color = 'var(--text-tertiary)')}>
+                      <button onClick={() => setEditingRule(rule)} disabled={rulesMut.isPending} className="btn btn-ghost btn-xs" aria-label={`Edit rule ${rule.id}`}>
                         <Icon name="edit" size={16} />
                       </button>
-                      <button onClick={async () => { if (await confirm({ title: `Delete rule #${rule.id}?`, message: 'Traffic matching this rule will no longer be blocked or allowed.', danger: true, confirmLabel: 'Delete Rule' })) { rulesMut.mutate({ action: 'delete', rule_num: rule.id }) } }}
-                        disabled={rulesMut.isPending}
-                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-tertiary)', padding: 4, borderRadius: 'var(--radius-xs)', display: 'inline-flex' }}
-                        onMouseEnter={e => (e.currentTarget.style.color = 'var(--error)')}
-                        onMouseLeave={e => (e.currentTarget.style.color = 'var(--text-tertiary)')}>
+                      <button onClick={async () => { if (await confirm({ title: `Delete rule #${rule.id}?`, message: 'Traffic matching this rule is then handled by the next rule or the system configuration.', danger: true, confirmLabel: 'Delete Rule' })) { rulesMut.mutate({ action: 'delete', rule_num: rule.id }) } }}
+                        disabled={rulesMut.isPending} className="btn btn-ghost btn-xs" aria-label={`Delete rule ${rule.id}`}>
                         <Icon name="delete" size={16} />
                       </button>
                     </div>
@@ -369,15 +271,12 @@ export function FirewallPage() {
           </table>
         </div>
       ) : (
-        <div className="card" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '48px 0', gap: 12, borderRadius: 'var(--radius-lg)' }}>
+        <div className="card" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '48px 0', gap: 12, borderRadius: 'var(--radius-lg)' }}>
           <Icon name="shield" size={40} style={{ color: 'var(--text-tertiary)', opacity: 0.4 }} />
-          <div style={{ color: 'var(--text-tertiary)', fontSize: 'var(--text-sm)' }}>No rules configured</div>
-          <div style={{ color: 'var(--text-tertiary)', fontSize: 'var(--text-xs)' }}>Add a rule above to control traffic</div>
+          <div style={{ color: 'var(--text-tertiary)', fontSize: 'var(--text-sm)' }}>No rules</div>
         </div>
       )}
       <ConfirmDialog />
     </div>
   )
 }
-
-

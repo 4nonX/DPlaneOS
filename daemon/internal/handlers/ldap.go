@@ -80,6 +80,7 @@ func (h *LDAPHandler) GetConfig(w http.ResponseWriter, r *http.Request) {
 		ProviderType    string `json:"provider_type"`
 		Realm           string `json:"realm"`
 		DomainJoined    bool   `json:"domain_joined"`
+		Workgroup       string `json:"workgroup"` // Samba workgroup (the NetBIOS domain name for AD)
 	}
 
 	var bindPwd string
@@ -93,6 +94,9 @@ func (h *LDAPHandler) GetConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	cfg.HasPassword = bindPwd != ""
+	if NixWriter != nil {
+		cfg.Workgroup = NixWriter.State().SambaWorkgroup
+	}
 	writeJSON(w, 200, ldapResp{Success: true, Data: cfg})
 }
 
@@ -121,6 +125,9 @@ func (h *LDAPHandler) SaveConfig(w http.ResponseWriter, r *http.Request) {
 		Timeout         int    `json:"timeout"`
 		ProviderType    string `json:"provider_type"` // "openldap", "ad", "active-directory", "apple-od"
 		Realm           string `json:"realm"`
+		// Workgroup: the domain's NetBIOS name (AD); empty = the realm's
+		// first label, the AD default.
+		Workgroup string `json:"workgroup"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, 400, ldapResp{Error: "Invalid request body"})
@@ -233,8 +240,14 @@ func (h *LDAPHandler) SaveConfig(w http.ResponseWriter, r *http.Request) {
 		writer := nixwriter.DefaultWriter()
 		state := writer.State()
 
+		// An AD member's workgroup is the domain's NetBIOS name (it stayed
+		// "WORKGROUP", and the join failed).
+		workgroup := state.SambaWorkgroup
+		if securityMode == "ads" {
+			workgroup = adWorkgroup(req.Workgroup, req.Realm)
+		}
 		err = writer.SetSambaGlobals(nixwriter.SambaGlobalOpts{
-			Workgroup:        state.SambaWorkgroup,
+			Workgroup:        workgroup,
 			ServerString:     state.SambaServerString,
 			TimeMachine:      state.SambaTimeMachine,
 			AllowGuest:       state.SambaAllowGuest,
@@ -570,13 +583,19 @@ func (h *LDAPHandler) SearchUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Search for user using configured filter
-	filter := strings.Replace(cfg.UserFilter, "{username}", req.Username, 1)
-	writeJSON(w, 200, ldapResp{Success: true, Data: map[string]string{
-		"username": req.Username,
-		"filter":   filter,
-		"base_dn":  cfg.BaseDN,
-		"message":  "Search executed - check server logs for results",
+	// Search for the user with the configured filter (before, this only
+	// reported "search executed" without searching).
+	u, err := client.LookupUser(req.Username)
+	if err != nil {
+		writeJSON(w, 200, ldapResp{Success: false, Error: err.Error()})
+		return
+	}
+	writeJSON(w, 200, ldapResp{Success: true, Data: map[string]any{
+		"username":  u.Username,
+		"dn":        u.DN,
+		"email":     u.Email,
+		"full_name": u.FullName,
+		"groups":    u.Groups,
 	}})
 }
 
@@ -1318,7 +1337,8 @@ func syncIDMAPToNixwriter(db *sql.DB) {
 	}
 	if !hasStar && len(domains) > 0 {
 		domains = append([]nixwriter.IDMAPDomain{{
-			Name: "*", Backend: "tdb", Low: 3000, High: 9999,
+			// Clear of the IDs local users and groups get (3000 up, shareusers).
+			Name: "*", Backend: "tdb", Low: 90000000, High: 99999999,
 		}}, domains...)
 	}
 

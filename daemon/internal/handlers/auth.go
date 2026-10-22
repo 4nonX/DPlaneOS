@@ -268,6 +268,25 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 			})
 			return
 		}
+		// Users whose password came without its SMB hash or SCRAM keys
+		// (installer, GitOps, an older version) get them with their next
+		// login; without the keys a SCRAM login cannot succeed.
+		var ntSealed, storedKey string
+		if h.db.QueryRow(`SELECT smb_nt_hash, COALESCE(scram_stored_key, '') FROM users WHERE id = $1`, userID).Scan(&ntSealed, &storedKey) == nil {
+			if ntSealed == "" {
+				setSMBPassword(h.db, req.Username, req.Password)
+				go syncShareIdentities(h.db)
+			}
+			if storedKey == "" {
+				// The salt comes from the password hash: paired nodes that hold
+				// the same password fill in the same keys (a random salt made
+				// their credentials differ, a sync conflict on the user).
+				if keys, err := scram.DeriveFor(req.Password, storedHash); err == nil {
+					h.db.Exec(`UPDATE users SET scram_salt = $1, scram_iterations = $2, scram_stored_key = $3, scram_server_key = $4 WHERE id = $5`, //nolint:errcheck
+						scram.EncodeBase64(keys.Salt), keys.Iterations, scram.EncodeBase64(keys.StoredKey), scram.EncodeBase64(keys.ServerKey), userID)
+				}
+			}
+		}
 	}
 
 	// Generate session token (32 bytes = 64 hex chars)
@@ -557,6 +576,10 @@ func (h *AuthHandler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 			"success": false, "error": "Failed to update password",
 		})
 		return
+	}
+	setSMBPassword(h.db, username, req.NewPassword)
+	if warn := syncShareIdentities(h.db); warn != "" {
+		log.Printf("CHANGE PASSWORD: %s", warn)
 	}
 
 	// Revoke all other sessions - the current session remains active
@@ -1015,9 +1038,8 @@ func (h *AuthHandler) SCRAMVerify(w http.ResponseWriter, r *http.Request) {
 	var userID int
 	var active, mustChange, totpEnabled int
 	err = h.db.QueryRow(
-		`SELECT u.id, u.active, COALESCE(u.must_change_password,0), COALESCE(t.totp_enabled,0)
-		 FROM users u LEFT JOIN totp_secrets t ON t.user_id = u.id
-		 WHERE u.username = $1 LIMIT 1`, ch.Username,
+		`SELECT id, active, COALESCE(must_change_password,0), COALESCE(totp_enabled,0)
+		 FROM users WHERE username = $1 LIMIT 1`, ch.Username,
 	).Scan(&userID, &active, &mustChange, &totpEnabled)
 	if err != nil || active != 1 {
 		fail()

@@ -122,6 +122,11 @@ func handleZEDConnection(
 
 		broadcast("zfs.event."+subclass, eventData, wsLevel)
 
+		// The end of a scan carries no result: read it from the pool.
+		if subclass == "scrub_finish" || subclass == "resilver_finish" {
+			go checkScan(pool, subclass)
+		}
+
 		// Alert dispatch for warning and critical events.
 		if severity == "critical" || severity == "warning" {
 			dispatchAlert("zfs."+severity+"."+subclass, pool, alertMsg)

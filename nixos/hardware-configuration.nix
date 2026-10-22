@@ -29,19 +29,19 @@
   # disko.nix manages the actual partition layout; these entries are
   # generated from it automatically during install.
   # fileSystems."/" = {
-  #   device = "/dev/disk/by-label/system-a";
+  #   device = "/dev/disk/by-label/dplaneos-system";
   #   fsType = "ext4";
   #   options = [ "noatime" "errors=remount-ro" ];
   # };
   #
   # fileSystems."/boot" = {
-  #   device = "/dev/disk/by-label/ESP";
+  #   device = "/dev/disk/by-partlabel/dplaneos-esp";
   #   fsType = "vfat";
   #   options = [ "umask=0077" ];
   # };
   #
   # fileSystems."/persist" = {
-  #   device = "/dev/disk/by-label/persist";
+  #   device = "/dev/disk/by-label/dplaneos-persist";
   #   fsType = "ext4";
   #   options = [ "noatime" "errors=remount-ro" ];
   #   neededForBoot = true;

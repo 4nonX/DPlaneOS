@@ -29,6 +29,8 @@ in {
     # Minimal bootable ISO - console only, no desktop, no Calamares.
     # Server-appropriate: works over serial, IPMI SOL, KVM-over-IP.
     "${modulesPath}/installer/cd-dvd/installation-cd-minimal.nix"
+    # Installer tools, install.sh and the layout (shared with the VM test)
+    ./installer-tools.nix
   ];
 
   # ── Pre-bake the DPlaneOS target closure into the ISO's nix store ────────
@@ -41,18 +43,6 @@ in {
   # Set false to keep ISO smaller; installed system fetches updates normally.
   # Set true if you need the installed system to rebuild itself offline.
   isoImage.includeSystemBuildDependencies = false;
-
-  # ── Installer tools ────────────────────────────────────────────────────────
-  environment.systemPackages = with pkgs; [
-    gum                                          # TUI wizard
-    disko                                        # declarative partitioning
-    python311                                     # system tools
-    (python311.withPackages (ps: [ ps.bcrypt ]))   # password hashing
-    parted gptfdisk util-linux e2fsprogs         # disk tools
-    iproute2 inetutils                           # network / IP detection
-    pciutils lshw                                # hardware enumeration
-    jq bc git
-  ];
 
   # ── Kernel - match appliance pin exactly ──────────────────────────────────
   # Must stay in sync with applianceConfig in flake.nix. A mismatch causes
@@ -77,18 +67,10 @@ in {
   # ── Auto-login and launch installer ───────────────────────────────────────
   services.getty.autologinUser = lib.mkForce "root";
 
-  environment.etc = {
-    "dplaneos-install/install.sh".source     = ./install.sh;
-    "dplaneos-install/install.sh".mode       = "0755";
-    "dplaneos-install/disko.nix".source      = ./disko.nix;
-    "dplaneos-install/disko.nix".mode       = "0644";
-    # Tell install.sh where the pre-built closure lives in the nix store
-    "dplaneos-install/system-path".text      = dplaneosSystem.outPath;
-    "dplaneos-install/system-path".mode      = "0644";
-  };
-
   programs.bash.loginShellInit = ''
-    if [ "$(tty)" = "/dev/tty1" ]; then
+    # The installer starts on the first screen and on the serial console
+    # (headless machines, IPMI serial-over-LAN).
+    if [ "$(tty)" = "/dev/tty1" ] || [ "$(tty)" = "/dev/ttyS0" ]; then
       clear
       exec bash /etc/dplaneos-install/install.sh
     fi
@@ -105,15 +87,7 @@ in {
   users.users.root.password = lib.mkForce "dplaneos";
   users.users.root.initialHashedPassword = lib.mkForce null;
 
-  # ── Documentation - suppress broken python3.11 doc build ─────────────────
-  # nixpkgs 26.05 ships Sphinx 9.1 + docutils 0.22.4 which fail to build
-  # python3.11 HTML docs. NixOS defaults documentation.doc.enable = true,
-  # which causes system-path to pull the .doc output for every systemPackage,
-  # including python311. Disabling doc outputs entirely prevents the broken
-  # derivation from entering the installer closure.
-  documentation.doc.enable    = false;
-  documentation.nixos.enable  = false;
-  environment.extraOutputsToInstall = lib.mkForce [];
+  # Documentation outputs are off in installer-tools.nix (python3.11 docs).
 
   # ── Nix - disable all substituters for true offline operation ─────────────
   nix.settings = {

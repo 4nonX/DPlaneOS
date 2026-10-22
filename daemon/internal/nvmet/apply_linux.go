@@ -3,41 +3,72 @@
 package nvmet
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
+	"encoding/json"
 	"fmt"
-	"log"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
 
-func slug(s string) string {
-	h := sha256.Sum256([]byte(s))
-	return hex.EncodeToString(h[:4])
+// The kernel's nvmet configfs (Documentation/nvme/nvmet... and nvmetcli):
+//
+//	subsystems/<subsystem NQN>/attr_allow_any_host
+//	subsystems/<NQN>/namespaces/<nsid>/{device_path,ana_grpid,enable}
+//	subsystems/<NQN>/allowed_hosts/<host NQN> -> ../../../hosts/<host NQN>
+//	hosts/<host NQN>
+//	ports/<numeric port id>/{addr_trtype,addr_adrfam,addr_traddr,addr_trsvcid}
+//	ports/<id>/subsystems/<NQN> -> ../../../subsystems/<NQN>
+//	ports/<id>/ana_groups/<group id>/ana_state
+//
+// A subsystem's and a host's NQN is the directory name and a port is a
+// number. The former code made directories named dplane-ss-<hash> and wrote
+// a "subsys_nqn" file (read-only: every export failed), named ports
+// dplane-p-<hash> (not a number), wrote ANA groups under the subsystem and
+// always set the address family to IPv4. Which objects DPlaneOS made is now
+// recorded in AppliedFile (/run: cleared with configfs at boot).
+
+// AppliedFile records the subsystems, hosts and ports DPlaneOS created.
+var AppliedFile = "/run/dplaneos/nvmet-applied.json"
+
+type applied struct {
+	Subsystems []string `json:"subsystems"`
+	Hosts      []string `json:"hosts"`
+	Ports      []int    `json:"ports"`
 }
 
-func subsysDirName(nqn string) string {
-	return "dplane-ss-" + slug(nqn)
+func readApplied() applied {
+	var a applied
+	if b, err := os.ReadFile(AppliedFile); err == nil {
+		json.Unmarshal(b, &a) //nolint:errcheck
+	}
+	return a
 }
 
-func portDirName(transport, addr string, port int) string {
-	key := fmt.Sprintf("%s|%s|%d", transport, addr, port)
-	return "dplane-p-" + slug(key)
-}
-
-func hostDirName(hostNQN string) string {
-	return "dplane-h-" + slug(hostNQN)
+func writeApplied(a applied) error {
+	if err := os.MkdirAll(filepath.Dir(AppliedFile), 0o755); err != nil {
+		return err
+	}
+	b, _ := json.Marshal(a)
+	return os.WriteFile(AppliedFile, b, 0o644)
 }
 
 func nvmetRoot() string {
 	return filepath.Join(ConfigfsRoot, "nvmet")
 }
 
-// Apply wipes DPlaneOS-managed nvmet objects and applies exports (empty slice clears target config).
+// Apply removes the DPlaneOS-made nvmet objects and creates the exports
+// (an empty slice clears them). Objects made by hand are left alone.
 func Apply(exports []Export) error {
+	for i := range exports {
+		if err := ValidateExport(&exports[i]); err != nil {
+			return fmt.Errorf("export %q: %w", exports[i].SubsystemNQN, err)
+		}
+	}
 	if err := modprobe(); err != nil {
 		return err
 	}
@@ -45,16 +76,14 @@ func Apply(exports []Export) error {
 	if st, err := os.Stat(root); err != nil || !st.IsDir() {
 		return fmt.Errorf("nvmet configfs not mounted at %s (is configfs mounted?)", root)
 	}
-	if err := teardownDPlane(); err != nil {
+	if err := teardown(readApplied()); err != nil {
 		return fmt.Errorf("nvmet teardown: %w", err)
 	}
+	var a applied
+	defer func() { writeApplied(a) }() //nolint:errcheck
+	ports := map[string]int{}          // transport|addr|port -> id
 	for i := range exports {
-		if err := ValidateExport(&exports[i]); err != nil {
-			return fmt.Errorf("export %q: %w", exports[i].SubsystemNQN, err)
-		}
-	}
-	for _, e := range exports {
-		if err := createExport(&e); err != nil {
+		if err := createExport(&exports[i], &a, ports); err != nil {
 			return err
 		}
 	}
@@ -71,245 +100,213 @@ func modprobe() error {
 	return nil
 }
 
-func teardownDPlane() error {
+func rmdirTree(path string) {
+	// configfs: entries are removed with rmdir (os.RemoveAll would try to
+	// unlink the attribute files).
+	os.Remove(path) //nolint:errcheck
+}
+
+func teardown(a applied) error {
 	root := nvmetRoot()
-	portsDir := filepath.Join(root, "ports")
-	entries, err := os.ReadDir(portsDir)
-	if err != nil {
-		return err
+	for _, id := range a.Ports {
+		p := filepath.Join(root, "ports", strconv.Itoa(id))
+		links, _ := os.ReadDir(filepath.Join(p, "subsystems"))
+		for _, l := range links {
+			os.Remove(filepath.Join(p, "subsystems", l.Name())) //nolint:errcheck
+		}
+		groups, _ := os.ReadDir(filepath.Join(p, "ana_groups"))
+		for _, g := range groups {
+			if g.Name() != "1" { // group 1 belongs to the port
+				rmdirTree(filepath.Join(p, "ana_groups", g.Name()))
+			}
+		}
+		rmdirTree(p)
 	}
-	for _, e := range entries {
-		if !strings.HasPrefix(e.Name(), "dplane-p-") {
-			continue
+	for _, nqn := range a.Subsystems {
+		ss := filepath.Join(root, "subsystems", nqn)
+		if hosts, err := os.ReadDir(filepath.Join(ss, "allowed_hosts")); err == nil {
+			for _, h := range hosts {
+				os.Remove(filepath.Join(ss, "allowed_hosts", h.Name())) //nolint:errcheck
+			}
 		}
-		p := filepath.Join(portsDir, e.Name())
-		subs, _ := os.ReadDir(filepath.Join(p, "subsystems"))
-		for _, s := range subs {
-			_ = os.Remove(filepath.Join(p, "subsystems", s.Name()))
+		if nss, err := os.ReadDir(filepath.Join(ss, "namespaces")); err == nil {
+			for _, n := range nss {
+				np := filepath.Join(ss, "namespaces", n.Name())
+				os.WriteFile(filepath.Join(np, "enable"), []byte("0"), 0o644) //nolint:errcheck
+				rmdirTree(np)
+			}
 		}
-		_ = os.RemoveAll(p)
-	}
-
-	subDir := filepath.Join(root, "subsystems")
-	subs, err := os.ReadDir(subDir)
-	if err != nil {
-		return err
-	}
-	for _, e := range subs {
-		if !strings.HasPrefix(e.Name(), "dplane-ss-") {
-			continue
-		}
-		if err := removeSubsystem(filepath.Join(subDir, e.Name())); err != nil {
-			return err
+		rmdirTree(ss)
+		if _, err := os.Stat(ss); err == nil {
+			return fmt.Errorf("subsystem %s could not be removed (still exported by a port made by hand?)", nqn)
 		}
 	}
-
-	hostDir := filepath.Join(root, "hosts")
-	hents, _ := os.ReadDir(hostDir)
-	for _, e := range hents {
-		if strings.HasPrefix(e.Name(), "dplane-h-") {
-			_ = os.RemoveAll(filepath.Join(hostDir, e.Name()))
-		}
+	for _, h := range a.Hosts {
+		rmdirTree(filepath.Join(root, "hosts", h)) // fails while a hand-made subsystem still allows it: kept
 	}
 	return nil
 }
 
-func removeSubsystem(path string) error {
-	ah := filepath.Join(path, "allowed_hosts")
-	if ents, err := os.ReadDir(ah); err == nil {
-		for _, e := range ents {
-			_ = os.Remove(filepath.Join(ah, e.Name()))
+// portID returns the port for transport/addr/port, creating it when needed.
+func portID(e *Export, a *applied, ports map[string]int) (int, error) {
+	key := fmt.Sprintf("%s|%s|%d", e.Transport, e.ListenAddr, e.ListenPort)
+	if id, ok := ports[key]; ok {
+		return id, nil
+	}
+	root := nvmetRoot()
+	used := map[int]bool{}
+	if ents, err := os.ReadDir(filepath.Join(root, "ports")); err == nil {
+		for _, en := range ents {
+			if id, err := strconv.Atoi(en.Name()); err == nil {
+				used[id] = true
+			}
 		}
 	}
-	ns := filepath.Join(path, "namespaces")
-	if ents, err := os.ReadDir(ns); err == nil {
-		for _, e := range ents {
-			nspath := filepath.Join(ns, e.Name())
-			_ = os.WriteFile(filepath.Join(nspath, "enable"), []byte("0"), 0644)
-			_ = os.RemoveAll(nspath)
+	id := 1
+	for used[id] {
+		id++
+	}
+	p := filepath.Join(root, "ports", strconv.Itoa(id))
+	if err := os.Mkdir(p, 0o755); err != nil {
+		return 0, fmt.Errorf("mkdir port %d: %w", id, err)
+	}
+	a.Ports = append(a.Ports, id)
+	family := "ipv4"
+	if ip := net.ParseIP(e.ListenAddr); ip != nil && ip.To4() == nil {
+		family = "ipv6"
+	}
+	for _, kv := range [][2]string{
+		{"addr_trtype", e.Transport},
+		{"addr_adrfam", family},
+		{"addr_traddr", e.ListenAddr},
+		{"addr_trsvcid", strconv.Itoa(e.ListenPort)},
+	} {
+		if err := os.WriteFile(filepath.Join(p, kv[0]), []byte(kv[1]), 0o644); err != nil {
+			return 0, fmt.Errorf("port %d %s: %w", id, kv[0], err)
 		}
 	}
-	return os.RemoveAll(path)
+	ports[key] = id
+	return id, nil
 }
 
-func createExport(e *Export) error {
+func createExport(e *Export, a *applied, ports map[string]int) error {
 	root := nvmetRoot()
-	ssName := subsysDirName(e.SubsystemNQN)
-	ssPath := filepath.Join(root, "subsystems", ssName)
-	if err := os.Mkdir(ssPath, 0755); err != nil {
-		return fmt.Errorf("mkdir subsystem %s: %w", ssName, err)
+	ssPath := filepath.Join(root, "subsystems", e.SubsystemNQN)
+	if err := os.Mkdir(ssPath, 0o755); err != nil {
+		return fmt.Errorf("mkdir subsystem %s: %w", e.SubsystemNQN, err)
 	}
-	if err := os.WriteFile(filepath.Join(ssPath, "subsys_nqn"), []byte(e.SubsystemNQN), 0644); err != nil {
-		return fmt.Errorf("subsys_nqn: %w", err)
-	}
+	a.Subsystems = append(a.Subsystems, e.SubsystemNQN)
+	allowAny := "0"
 	if e.AllowAnyHost {
-		if err := os.WriteFile(filepath.Join(ssPath, "attr_allow_any_host"), []byte("1"), 0644); err != nil {
-			return fmt.Errorf("attr_allow_any_host: %w", err)
-		}
-	} else {
-		if err := os.WriteFile(filepath.Join(ssPath, "attr_allow_any_host"), []byte("0"), 0644); err != nil {
-			return fmt.Errorf("attr_allow_any_host: %w", err)
-		}
+		allowAny = "1"
+	}
+	if err := os.WriteFile(filepath.Join(ssPath, "attr_allow_any_host"), []byte(allowAny), 0o644); err != nil {
+		return fmt.Errorf("attr_allow_any_host: %w", err)
+	}
+	if !e.AllowAnyHost {
 		for _, hn := range e.HostNQNs {
 			hn = strings.TrimSpace(hn)
-			hname := hostDirName(hn)
-			hpath := filepath.Join(root, "hosts", hname)
-			if err := os.Mkdir(hpath, 0755); err != nil && !os.IsExist(err) {
-				return fmt.Errorf("mkdir host %s: %w", hname, err)
+			hpath := filepath.Join(root, "hosts", hn)
+			if err := os.Mkdir(hpath, 0o755); err == nil {
+				a.Hosts = append(a.Hosts, hn)
+			} else if !os.IsExist(err) {
+				return fmt.Errorf("mkdir host %s: %w", hn, err)
 			}
-			if err := writeHostNQN(hpath, hn); err != nil {
-				return err
-			}
-			link := filepath.Join(ssPath, "allowed_hosts", hname)
-			_ = os.Remove(link)
-			target := filepath.Join("..", "..", "..", "hosts", hname)
-			if err := os.Symlink(target, link); err != nil {
-				return fmt.Errorf("allowed_hosts link %s: %w", hname, err)
+			link := filepath.Join(ssPath, "allowed_hosts", hn)
+			if err := os.Symlink(hpath, link); err != nil && !os.IsExist(err) {
+				return fmt.Errorf("allowed_hosts %s: %w", hn, err)
 			}
 		}
 	}
 
-	nsID := fmt.Sprintf("%d", e.NamespaceID)
-	nsPath := filepath.Join(ssPath, "namespaces", nsID)
-	if err := os.Mkdir(nsPath, 0755); err != nil {
+	nsPath := filepath.Join(ssPath, "namespaces", strconv.Itoa(e.NamespaceID))
+	if err := os.Mkdir(nsPath, 0o755); err != nil {
 		return fmt.Errorf("mkdir namespace: %w", err)
 	}
-	dev := ZvolDevicePath(e.Zvol)
-	if err := os.WriteFile(filepath.Join(nsPath, "device_path"), []byte(dev), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(nsPath, "device_path"), []byte(ZvolDevicePath(e.Zvol)), 0o644); err != nil {
 		return fmt.Errorf("device_path: %w", err)
 	}
 
-	// ANA (Asymmetric Namespace Access): assign this namespace to its ANA group
-	// so NVMe multi-path hosts can steer I/O to the optimized controller.
-	// The kernel creates ana_grpid automatically; we just write the group ID here
-	// before enabling the namespace so the mapping is established atomically.
+	id, err := portID(e, a, ports)
+	if err != nil {
+		return err
+	}
+	pPath := filepath.Join(root, "ports", strconv.Itoa(id))
+
+	// ANA: the namespace joins a group of the port; the state is the port's.
 	if e.ANAEnabled {
 		for _, ag := range e.ANAGroups {
 			if ag.NamespaceID != e.NamespaceID {
 				continue
 			}
-			grpIDStr := fmt.Sprintf("%d", ag.GroupID)
-			if err := os.WriteFile(filepath.Join(nsPath, "ana_grpid"), []byte(grpIDStr), 0644); err != nil {
-				return fmt.Errorf("ana_grpid: %w", err)
-			}
-			// Configure the ANA group state on the subsystem.
-			if err := applyANAGroupState(ssPath, ag.GroupID, ag.State); err != nil {
+			if err := applyANAGroupState(pPath, ag.GroupID, ag.State); err != nil {
 				return fmt.Errorf("ana group state: %w", err)
+			}
+			if err := os.WriteFile(filepath.Join(nsPath, "ana_grpid"), []byte(strconv.Itoa(ag.GroupID)), 0o644); err != nil {
+				return fmt.Errorf("ana_grpid: %w", err)
 			}
 			break
 		}
 	}
 
-	if err := os.WriteFile(filepath.Join(nsPath, "enable"), []byte("1"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(nsPath, "enable"), []byte("1"), 0o644); err != nil {
 		return fmt.Errorf("namespace enable: %w", err)
 	}
-
-	pName := portDirName(e.Transport, e.ListenAddr, e.ListenPort)
-	pPath := filepath.Join(root, "ports", pName)
-	if _, err := os.Stat(pPath); os.IsNotExist(err) {
-		if err := os.Mkdir(pPath, 0755); err != nil {
-			return fmt.Errorf("mkdir port: %w", err)
-		}
-		if err := os.WriteFile(filepath.Join(pPath, "addr_trtype"), []byte(e.Transport), 0644); err != nil {
-			return fmt.Errorf("addr_trtype: %w", err)
-		}
-		if err := os.WriteFile(filepath.Join(pPath, "addr_adrfam"), []byte("ipv4"), 0644); err != nil {
-			return fmt.Errorf("addr_adrfam: %w", err)
-		}
-		if err := os.WriteFile(filepath.Join(pPath, "addr_traddr"), []byte(e.ListenAddr), 0644); err != nil {
-			return fmt.Errorf("addr_traddr: %w", err)
-		}
-		svc := fmt.Sprintf("%d", e.ListenPort)
-		if err := os.WriteFile(filepath.Join(pPath, "addr_trsvcid"), []byte(svc), 0644); err != nil {
-			return fmt.Errorf("addr_trsvcid: %w", err)
-		}
-	}
-	link := filepath.Join(pPath, "subsystems", ssName)
-	_ = os.Remove(link)
-	target := filepath.Join("..", "..", "..", "subsystems", ssName)
-	if err := os.Symlink(target, link); err != nil {
+	if err := os.Symlink(ssPath, filepath.Join(pPath, "subsystems", e.SubsystemNQN)); err != nil {
 		return fmt.Errorf("port subsystem link: %w", err)
 	}
-
 	return nil
-}
-
-func writeHostNQN(hpath, nqn string) error {
-	for _, fname := range []string{"hostnqn", "host_nqn"} {
-		p := filepath.Join(hpath, fname)
-		if err := os.WriteFile(p, []byte(nqn), 0644); err == nil {
-			return nil
-		}
-	}
-	return fmt.Errorf("could not write host NQN in %s", hpath)
 }
 
 // ANAPropagationDelay is the time to wait after writing an ANA state change
 // before proceeding with VIP handoff or pool export. The Linux NVMe target
-// driver commits the state synchronously (the write syscall returns after the
-// kernel has the new state), but the driver then sends an AEN (Asynchronous
-// Event Notification) to each connected host out-of-band. Hosts process the
-// AEN and update their multipath path tables asynchronously. If the VIP is
-// released before hosts have processed the AEN, they see an abrupt path loss
-// instead of a clean Standby transition and emit I/O errors.
-//
-// 200ms is conservative and well within the NVMe-oF recommended AEN processing
-// window. Set to 0 in test environments to avoid slowing unit tests.
+// driver commits the state synchronously, but it then sends an AEN
+// (Asynchronous Event Notification) to each connected host; hosts update
+// their multipath tables asynchronously. Set to 0 in tests.
 var ANAPropagationDelay = 200 * time.Millisecond
 
-// applyANAGroupState creates the ANA group directory under the subsystem and
-// writes the access state. The kernel accepts the state as a string:
-//
-//	"optimized"      → ANA state 1  (Active/Optimized, primary HA node)
-//	"non-optimized"  → ANA state 2  (Active/Non-Optimized, secondary path)
-//	"standby"        → ANA state 14 (Standby, HA standby node)
-//	"inaccessible"   → ANA state 3  (Inaccessible)
-//
-// After writing the state, this function waits ANAPropagationDelay for the
-// kernel's AEN to reach connected hosts before returning. Callers must NOT
-// release the VIP or export pools until this function returns.
-//
-// The ana_groups/ directory and its state file are only present on kernels ≥5.17
-// with nvmet compiled with CONFIG_NVME_TARGET_ANA. Failure is logged but not fatal
-// so that deployments on older kernels still function without ANA.
-func applyANAGroupState(ssPath string, groupID int, state ANAState) error {
-	anaDir := filepath.Join(ssPath, "ana_groups", fmt.Sprintf("%d", groupID))
-	if err := os.MkdirAll(anaDir, 0755); err != nil {
-		return fmt.Errorf("mkdir ana_groups/%d: %w", groupID, err)
+// kernelANAState maps the spec's states to the kernel's names. NVMe ANA has
+// no "standby": a standby HA node that cannot serve I/O is "inaccessible".
+func kernelANAState(s ANAState) string {
+	switch s {
+	case "", ANAOptimized:
+		return "optimized"
+	case ANAStandby:
+		return "inaccessible"
 	}
+	return string(s)
+}
+
+// applyANAGroupState creates ANA group groupID on the port (group 1 always
+// exists) and sets its state, then waits ANAPropagationDelay.
+func applyANAGroupState(portPath string, groupID int, state ANAState) error {
+	anaDir := filepath.Join(portPath, "ana_groups", strconv.Itoa(groupID))
+	if err := os.Mkdir(anaDir, 0o755); err != nil && !os.IsExist(err) {
+		return fmt.Errorf("mkdir ana_groups/%d: %w (no ANA support in the kernel?)", groupID, err)
+	}
+	want := kernelANAState(state)
 	stateFile := filepath.Join(anaDir, "ana_state")
-	stateStr := string(state)
-	if stateStr == "" {
-		stateStr = string(ANAOptimized)
+	if err := os.WriteFile(stateFile, []byte(want), 0o644); err != nil {
+		return fmt.Errorf("write ana_state %q: %w", want, err)
 	}
-	if err := os.WriteFile(stateFile, []byte(stateStr), 0644); err != nil {
-		// ANA may not be compiled into the kernel; log and continue.
-		return fmt.Errorf("write ana_state: %w (is CONFIG_NVME_TARGET_ANA enabled?)", err)
+	if got, err := os.ReadFile(stateFile); err != nil || strings.TrimSpace(string(got)) != want {
+		return fmt.Errorf("ana_state: wrote %q, the kernel reports %q (%v)", want, strings.TrimSpace(string(got)), err)
 	}
-
-	// Read back to confirm the kernel accepted the write. An empty or unreadable
-	// read-back means the kernel silently rejected the state (e.g. CONFIG_NVME_TARGET_ANA
-	// not compiled in, or an invalid state string). A non-empty but different value
-	// is normal: the kernel normalises human names to numeric state codes
-	// (e.g. "standby" -> "14"). We log the normalisation but do not error.
-	written, readErr := os.ReadFile(stateFile)
-	if readErr != nil {
-		return fmt.Errorf("ana_state write could not be verified (read-back failed: %w)", readErr)
-	}
-	got := strings.TrimSpace(string(written))
-	if got == "" {
-		return fmt.Errorf("ana_state write rejected by kernel (empty read-back for state %q)", stateStr)
-	}
-	if got != stateStr {
-		// Kernel normalised the state string to a numeric code; not an error.
-		log.Printf("nvmet: ANA group %d: wrote %q, kernel reflects %q (numeric normalisation)", groupID, stateStr, got)
-	}
-
-	// AEN propagation barrier: wait for connected hosts to receive and process
-	// the state-change notification before the caller proceeds with VIP handoff.
 	if ANAPropagationDelay > 0 {
 		time.Sleep(ANAPropagationDelay)
 	}
-
 	return nil
+}
+
+// configuredNQNs lists the subsystems DPlaneOS made (restore checks it).
+func configuredNQNs() []string {
+	a := readApplied()
+	var out []string
+	for _, n := range a.Subsystems {
+		if _, err := os.Stat(filepath.Join(nvmetRoot(), "subsystems", n)); err == nil {
+			out = append(out, n)
+		}
+	}
+	sort.Strings(out)
+	return out
 }

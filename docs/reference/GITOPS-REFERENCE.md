@@ -338,7 +338,7 @@ Each resource in both desired and live state is compared and assigned a `DiffIte
 | `MODIFY` | Resource exists in both but with different properties. Will be updated. |
 | `DELETE` | Resource exists in live state but not in desired state (and `ignore_extraneous` is false). Will be removed. |
 | `NOP` | Resource matches exactly. No action needed. |
-| `BLOCKED` | Change is potentially destructive (pool topology removal, dataset deletion with data). Requires explicit approval. |
+| `BLOCKED` | Change is potentially destructive (pool removal, deletion of a dataset that holds files, snapshots or children, removal of a share with connected clients). Requires explicit approval; a dataset or pool that holds anything is not destroyed even then. |
 | `MANUAL` | Change cannot be automated (pool shrink, removing a log/cache device from a running pool). Shown in UI for operator action. |
 | `AMBIGUOUS` | Reconciler cannot determine safe intent (e.g., same dataset name, different pool). Requires manual resolution. |
 
@@ -349,8 +349,10 @@ If any item is `BLOCKED` and has not been explicitly approved via `POST /api/git
 To approve a single blocked item:
 ```
 POST /api/gitops/approve
-{"item_id": "datasets/tank/old-data", "reason": "confirmed empty dataset"}
+{"item_id": "shares/media", "reason": "clients notified"}
 ```
+
+**Data is never destroyed.** Git holds the shape of the storage, not its contents. A dataset is destroyed only when it is provably empty: a mounted filesystem with an empty directory, no snapshots and no child datasets (a volume never qualifies, its content cannot be inspected). ZFS's `used` cannot decide this: even an empty filesystem reports about 100 KiB of metadata. A dataset or pool that holds anything stays BLOCKED, and approving it does not change that: the apply fails with what the dataset holds. Destroy it by hand (`zfs destroy -r`) when it is no longer needed; the next apply converges.
 
 ### 5. Execute the Plan
 

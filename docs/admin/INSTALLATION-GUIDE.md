@@ -14,7 +14,8 @@ For a full walkthrough aimed at users who have never touched NixOS, see [NixOS I
 |-----------|---------|
 | CPU | Dual-core x86_64 or ARM64 |
 | RAM | 4 GB |
-| Boot disk | 20 GB SSD (separate from data disks) |
+| Boot disk | 32 GB SSD (separate from data disks; 64 GB and more get a 40 GB system partition) |
+| Firmware | UEFI (the installer refuses legacy BIOS/CSM boot) |
 | Network | 100 Mbps Ethernet |
 
 ### Recommended
@@ -34,7 +35,7 @@ DPlaneOS detects ECC presence via `dmidecode` at startup and shows an advisory n
 
 ### Supported Platform
 
-- **NixOS** (NixOS 26.05, Linux 6.6 LTS, OpenZFS 2.3 LTS) - the only supported platform
+- **NixOS** (NixOS 26.05, Linux 6.12 LTS, OpenZFS 2.3) - the only supported platform
 
 DPlaneOS is a NixOS appliance. For context on why this is intentional, see [NixOS Rationale](../reference/NIXOS-RATIONALE.md). For information on running DPlaneOS on other Linux distributions, see [Porting Guide](../reference/PORTING-GUIDE.md).
 
@@ -43,7 +44,8 @@ DPlaneOS is a NixOS appliance. For context on why this is intentional, see [NixO
 ## Pre-Installation Checklist
 
 - At least two physical drives: one for the OS (boot disk), one or more for data (ZFS pool)
-- A USB stick (2 GB minimum) to write the installer ISO
+- A USB stick (8 GB minimum; the ISO holds the complete system, 3-5 GB) to write the installer ISO
+- UEFI boot enabled in the firmware (CSM / legacy boot off)
 - Static IP configured on the network switch/router (recommended)
 - SSH public key ready (password login is disabled post-install)
 
@@ -58,7 +60,7 @@ From the [latest release](https://github.com/4nonX/DPlaneOS/releases/latest), do
 | Hardware | ISO filename |
 |----------|-------------|
 | x86_64 (Intel/AMD) | `dplaneos-v<version>-installer-amd64.iso` |
-| aarch64 (Raspberry Pi 5, ARM servers) | `dplaneos-v<version>-installer-arm64.iso` |
+| aarch64 (ARM servers with UEFI firmware; a Raspberry Pi 5 only with UEFI firmware such as the EDK2 port) | `dplaneos-v<version>-installer-arm64.iso` |
 
 Each ISO also has a `.sha256` checksum file. Verify before writing:
 
@@ -82,10 +84,10 @@ Replace `/dev/sdX` with your USB device. Double-check with `lsblk` first.
 ### 3. Boot and Install
 
 1. Boot the target machine from the USB stick
-2. A menu appears on `tty1` with three options:
+2. A menu appears on the screen (`tty1`) and on the serial console (`ttyS0`) with three options:
    - **Install DPlaneOS** - installs the full NAS system (offline, no internet required)
    - **Shell** / **Reboot** - diagnostic access
-3. Select "Install DPlaneOS" and follow the prompts: target disk, admin password, boot mode
+3. Select "Install DPlaneOS" and follow the prompts: target disk (at least 32 GB; the USB stick itself is not offered), admin password
 4. The installer partitions the disk, installs the NixOS closure from the ISO, and reboots
 5. Remove the USB stick when prompted
 
@@ -104,7 +106,7 @@ ip addr show
 
 Open `http://<server-ip>/` in a browser. The setup wizard runs automatically on first access. You will:
 
-1. Create the admin account (username + password) - no pre-generated password
+1. Log in with the admin password chosen in the installer (the setup step cannot replace it)
 2. Select disks and configure a storage pool (optional - can skip and do later)
 3. Set hostname and timezone
 
@@ -147,22 +149,19 @@ The NixOS module opens TCP 80 and 443 by default (`services.dplaneos.openFirewal
 
 ## OTA Upgrades
 
-DPlaneOS uses an A/B slot upgrade system. Updates write to the inactive boot slot; if the post-boot health check fails the system automatically reverts to the previous slot.
+An update builds the new release as a new NixOS generation and reboots into it; if the check after the reboot fails, the system goes back to the previous generation by itself. See [Updates](OTA-UPDATES.md).
 
-**Via the web UI (recommended):** Settings - System - Updates - Check for Updates.
+**Via the web UI (recommended):** Updates - Check for updates - Update.
 
 **Via CLI:**
 
 ```bash
-# Pull the latest DPlaneOS flake and rebuild into the inactive slot
-sudo nixos-rebuild switch --flake github:4nonX/DPlaneOS#dplaneos
+# Updates: the Updates page (builds the release, reboots, checks, goes back on failure).
+# A manual rebuild always goes through the system flake:
+sudo nixos-rebuild switch --flake /etc/nixos#dplaneos --impure
 ```
 
-For manual rollback to the previous slot after a committed update:
-
-```bash
-sudo dplaneos-ota-update --revert
-```
+To go back by hand after an update, see [Updates](OTA-UPDATES.md#going-back-by-hand).
 
 ---
 

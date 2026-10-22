@@ -8,9 +8,13 @@
 #   1. Welcome screen
 #   2. Select boot/OS disk
 #   3. Set admin password
-#   4. Select boot mode (UEFI / Legacy BIOS)
+#   4. Check the firmware (UEFI; the system boots with systemd-boot)
 #   5. Confirm and install
 #   6. Complete - show IP and access URL
+#
+# Unattended (automation, the installer's VM test): set DPLANEOS_INSTALL_DISK
+# and DPLANEOS_ADMIN_PASSWORD; the installer then installs without asking and
+# exits with 0 or 1 instead of rebooting.
 # ─────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
@@ -24,14 +28,27 @@ SUCCESS_COLOR="#4ade80"
 ERROR_COLOR="#f87171"
 DIM_COLOR="#6b7280"
 
-INSTALL_DISK=""
-ADMIN_PASS=""
+INSTALL_DISK="${DPLANEOS_INSTALL_DISK:-}"
+ADMIN_PASS="${DPLANEOS_ADMIN_PASSWORD:-}"
+UNATTENDED=""
+[ -n "$INSTALL_DISK" ] && [ -n "$ADMIN_PASS" ] && UNATTENDED=1
 BOOT_MODE=""
 PRIMARY_IP=""
+ROOT_SIZE=""
+
+# The layout (disko.nix): 512 MB ESP, the system partition (Nix store and
+# generations; updates are built there), the rest for /persist.
+MIN_DISK_BYTES=$((32 * 1024 * 1024 * 1024))
 
 log() { echo "[$(date '+%H:%M:%S')] $*" | tee -a "$LOG_FILE"; }
 
 die() {
+    if [ -n "$UNATTENDED" ]; then
+        echo "INSTALL FAILED: $*" | tee -a "$LOG_FILE" >&2
+        echo "--- last lines of $LOG_FILE:" >&2
+        tail -n 40 "$LOG_FILE" >&2
+        exit 1
+    fi
     clear
     gum style \
         --border double \
@@ -86,44 +103,92 @@ show_welcome() {
     esac
 }
 
+# installer_disk prints the disk the installer itself was booted from.
+installer_disk() {
+    local src
+    for m in /iso /run/rootfsbase /nix/.ro-store; do
+        src=$(findmnt -n -o SOURCE "$m" 2>/dev/null | head -1) || true
+        case "$src" in
+            /dev/*) lsblk -n -o PKNAME "$src" 2>/dev/null | head -1; return ;;
+        esac
+    done
+}
+
+# list_disks prints "/dev/NAME SIZEBYTES MODEL" for every disk that can hold
+# the system. TYPE comes before MODEL: a model with spaces (most of them) or
+# none (virtio) shifted the columns, and those disks were not offered.
+list_disks() {
+    local skip name type size model
+    skip=$(installer_disk)
+    while read -r name type size; do
+        [ "$type" = "disk" ] || continue
+        [ "$name" = "$skip" ] && continue
+        case "$name" in zram*|loop*|sr*|fd*) continue ;; esac
+        [ "$size" -ge "$MIN_DISK_BYTES" ] || continue
+        model=$(lsblk -dn -o MODEL "/dev/$name" 2>/dev/null | sed 's/[[:space:]]*$//')
+        echo "/dev/$name $size ${model:-Unknown}"
+    done < <(lsblk -dbn -o NAME,TYPE,SIZE 2>/dev/null)
+}
+
+human_size() {
+    awk -v s="$1" 'BEGIN {
+        if (s >= 1099511627776) printf "%.1f TB", s/1099511627776
+        else printf "%.0f GB", s/1073741824 }'
+}
+
+# root_size: 40 GB on disks of 64 GB and more, 24 GB below (the rest is
+# /persist: database, logs, Docker).
+root_size() {
+    if [ "$1" -ge $((64 * 1024 * 1024 * 1024)) ]; then echo 40G; else echo 24G; fi
+}
+
 select_disk() {
+    local disks=() line name size model
+    while IFS= read -r line; do
+        disks+=("$line")
+    done < <(list_disks)
+
+    if [ -n "$UNATTENDED" ]; then
+        for line in "${disks[@]}"; do
+            read -r name size model <<<"$line"
+            if [ "$name" = "$INSTALL_DISK" ]; then
+                ROOT_SIZE=$(root_size "$size")
+                log "Selected disk: $INSTALL_DISK ($(human_size "$size") $model), system partition $ROOT_SIZE"
+                return
+            fi
+        done
+        die "$INSTALL_DISK is not a usable disk (at least 32 GB, not the installer medium). Usable: ${disks[*]:-none}"
+    fi
+
     clear
     gum style --foreground "$TITLE_COLOR" --bold --margin "1 0 0 1" \
         "Step 1 of 4 - Select boot disk"
     gum style --foreground "$DIM_COLOR" --margin "0 0 1 1" \
-        "This disk will hold the DPlaneOS operating system (A/B slots + persistent state)." \
+        "This disk will hold the DPlaneOS operating system (system + persistent state)." \
         "Your data disks are NOT touched here - ZFS pools are created after install."
 
-    local disk_list=()
-    while IFS= read -r line; do
-        disk_list+=("$line")
-    done < <(lsblk -d -o NAME,SIZE,MODEL,TYPE --noheadings --bytes 2>/dev/null \
-        | awk '$4=="disk" {
-            size=$2+0
-            if (size > 10737418240) {
-                if (size >= 1099511627776)      hr=sprintf("%.0f TB", size/1099511627776)
-                else if (size >= 1073741824)    hr=sprintf("%.0f GB", size/1073741824)
-                else                            hr=sprintf("%.0f MB", size/1048576)
-                model=$3
-                for(i=4;i<=NF-1;i++) model=model" "$i
-                gsub(/[[:space:]]+$/, "", model)
-                if (model == "") model = "Unknown"
-                printf "/dev/%-8s  %-8s  %s\n", $1, hr, model
-            }
-        }' | sort)
-
-    if [ ${#disk_list[@]} -eq 0 ]; then
-        die "No suitable disks found (minimum 10 GB required).\nCheck hardware connections and retry."
+    if [ ${#disks[@]} -eq 0 ]; then
+        die "No suitable disks found (at least 32 GB; the installer medium is not offered).\nCheck hardware connections and retry."
     fi
+
+    local choices=()
+    for line in "${disks[@]}"; do
+        read -r name size model <<<"$line"
+        choices+=("$(printf '%-12s  %-8s  %s' "$name" "$(human_size "$size")" "$model")")
+    done
 
     local selected
     selected=$(gum choose \
         --header "Available disks - select the OS boot disk:" \
         --header.foreground "$TITLE_COLOR" \
         --cursor.foreground "$BORDER_COLOR" \
-        "${disk_list[@]}")
+        "${choices[@]}")
 
     INSTALL_DISK=$(echo "$selected" | awk '{print $1}')
+    for line in "${disks[@]}"; do
+        read -r name size model <<<"$line"
+        [ "$name" = "$INSTALL_DISK" ] && ROOT_SIZE=$(root_size "$size")
+    done
 
     local part_count
     part_count=$(lsblk "$INSTALL_DISK" --noheadings -o TYPE 2>/dev/null \
@@ -141,10 +206,19 @@ select_disk() {
             || show_welcome
     fi
 
-    log "Selected disk: $INSTALL_DISK ($selected)"
+    log "Selected disk: $INSTALL_DISK ($selected), system partition $ROOT_SIZE"
+}
+
+# password_ok: the daemon's policy (8+ characters, upper, lower, digit, symbol).
+password_ok() {
+    [ ${#1} -ge 8 ] && printf '%s' "$1" | grep -qP '(?=.*[A-Z])(?=.*[a-z])(?=.*[0-9])(?=.*[^A-Za-z0-9])'
 }
 
 set_admin_password() {
+    if [ -n "$UNATTENDED" ]; then
+        password_ok "$ADMIN_PASS" || die "DPLANEOS_ADMIN_PASSWORD does not meet the policy (8+ characters with upper and lower case, a digit and a symbol)."
+        return
+    fi
     clear
     gum style --foreground "$TITLE_COLOR" --bold --margin "1 0 0 1" \
         "Step 2 of 4 - Administrator password"
@@ -196,29 +270,17 @@ set_admin_password() {
 }
 
 select_boot_mode() {
-    clear
-    gum style --foreground "$TITLE_COLOR" --bold --margin "1 0 0 1" \
-        "Step 3 of 4 - Boot mode"
-
-    if [ -d /sys/firmware/efi ]; then
-        gum style --foreground "$SUCCESS_COLOR" --margin "0 0 1 1" \
-            "✓  UEFI firmware detected."
-        BOOT_MODE="UEFI (recommended)"
-    else
-        gum style --foreground "$DIM_COLOR" --margin "0 0 1 1" \
-            "UEFI firmware not detected on this system."
-        BOOT_MODE=$(gum choose \
-            --header "Select boot mode:" \
-            --header.foreground "$TITLE_COLOR" \
-            --cursor.foreground "$BORDER_COLOR" \
-            "UEFI (recommended)" \
-            "Legacy BIOS")
+    # The system boots with systemd-boot from the ESP: UEFI only. (A "Legacy
+    # BIOS" choice was offered and installed a system that could not boot.)
+    if [ ! -d /sys/firmware/efi ]; then
+        die "This machine started the installer in legacy BIOS mode.\nDPlaneOS boots with UEFI: enable UEFI in the firmware setup (disable CSM / legacy boot) and start the installer again."
     fi
-
-    log "Boot mode: $BOOT_MODE"
+    BOOT_MODE="UEFI"
+    log "Boot mode: UEFI"
 }
 
 confirm_install() {
+    [ -n "$UNATTENDED" ] && return
     clear
     gum style \
         --border rounded \
@@ -247,6 +309,11 @@ progress_step() {
     local title="$1"
     local cmd="$2"
     log "Starting: $title"
+    if [ -n "$UNATTENDED" ]; then
+        bash -c "$cmd >> $LOG_FILE 2>&1" || die "Step failed: $title (see $LOG_FILE)"
+        log "Complete: $title"
+        return
+    fi
     gum spin \
         --spinner dot \
         --spinner.foreground "$BORDER_COLOR" \
@@ -257,21 +324,43 @@ progress_step() {
 }
 
 run_install() {
-    clear
-    gum style --foreground "$TITLE_COLOR" --bold --margin "1 0 1 1" \
-        "Installing DPlaneOS v${DPLANEOS_VERSION}..."
+    if [ -n "$UNATTENDED" ]; then
+        log "Installing DPlaneOS v${DPLANEOS_VERSION}..."
+    else
+        clear
+        gum style --foreground "$TITLE_COLOR" --bold --margin "1 0 1 1" \
+            "Installing DPlaneOS v${DPLANEOS_VERSION}..."
+    fi
 
     local patched_disko="/tmp/disko-install.nix"
-    sed "s|device = \"/dev/nvme0n1\"|device = \"${INSTALL_DISK}\"|g" \
+    sed -e "s|device = \"/dev/nvme0n1\"|device = \"${INSTALL_DISK}\"|g" \
+        -e "s|size    = \"40G\";|size    = \"${ROOT_SIZE}\";|" \
         "$INSTALL_DIR/disko.nix" > "$patched_disko"
+    if ! grep -q "device = \"${INSTALL_DISK}\"" "$patched_disko" || ! grep -q "size    = \"${ROOT_SIZE}\";" "$patched_disko"; then
+        die "Could not prepare the partition layout for $INSTALL_DISK"
+    fi
+
+    # The system mounts its partitions by label: a second disk with a DPlaneOS
+    # system (an old boot disk) would make them ambiguous at every boot.
+    local other
+    other=$(lsblk -rno PKNAME,PARTLABEL 2>/dev/null \
+        | awk -v d="$(basename "$INSTALL_DISK")" '$1 != d && $2 ~ /^dplaneos-(esp|system|persist)$/ {print "/dev/" $1}' | sort -u | tr '\n' ' ')
+    if [ -n "$other" ]; then
+        die "Another disk already holds a DPlaneOS system: ${other}\nRemove it or wipe it first (two would make the system's partitions ambiguous at boot)."
+    fi
+
+    # The partitioning script was built with the ISO (no Nix evaluation
+    # offline); it works on /dev/dplaneos-install-target. It wipes, partitions,
+    # formats and mounts the disk at /mnt.
+    local disko_script="$INSTALL_DIR/disko-$ROOT_SIZE"
+    [ -e "$disko_script" ] || die "No partitioning script for a $ROOT_SIZE system partition ($disko_script)"
+    progress_step \
+        "Partitioning $INSTALL_DISK (ESP + system + persist)..." \
+        "ln -sfn '$INSTALL_DISK' /dev/dplaneos-install-target && bash '$disko_script' --yes-wipe-all-disks"
 
     progress_step \
-        "Partitioning $INSTALL_DISK (ESP + A/B slots + persist)..." \
-        "disko --mode disko $patched_disko"
-
-    progress_step \
-        "Mounting filesystems..." \
-        "disko --mode mount $patched_disko"
+        "Checking the mounts..." \
+        "mountpoint -q /mnt && mountpoint -q /mnt/boot && mountpoint -q /mnt/persist"
 
     progress_step \
         "Preparing system configuration..." \
@@ -279,21 +368,29 @@ run_install() {
         mkdir -p /mnt/etc/nixos
         cp '$patched_disko' /mnt/etc/nixos/disko.nix
         nixos-generate-config --root /mnt --no-filesystems
+        cat > /mnt/etc/nixos/configuration.nix <<'NIXEOF'
+# DPlaneOS is built from /etc/nixos/flake.nix (the DPlaneOS release plus
+# hardware-configuration.nix and, if present, local.nix), which the daemon
+# writes on first start. A rebuild without the flake would install plain NixOS.
+throw \"DPlaneOS: rebuild with: nixos-rebuild switch --flake /etc/nixos#dplaneos --impure\"
+NIXEOF
         "
 
     local SYSTEM_PATH
     SYSTEM_PATH=$(cat "$INSTALL_DIR/system-path" 2>/dev/null || echo "")
 
     if [ -n "$SYSTEM_PATH" ] && [ -d "$SYSTEM_PATH" ]; then
+        # nixos-install copies the closure from this (the ISO's) store by
+        # using it as a substituter; "--option substitute false" turned that
+        # off and the offline install failed ("no substituter can build it").
+        # The ISO has no network substituters, so nothing is downloaded.
         progress_step \
             "Installing system (offline - reading from ISO nix store)..." \
             "nixos-install \
                 --root /mnt \
                 --system '$SYSTEM_PATH' \
                 --no-root-passwd \
-                --no-channel-copy \
-                --option substitute false \
-                --option binary-caches ''"
+                --no-channel-copy"
     else
         log "WARNING: pre-built closure not found, falling back to online install"
         progress_step \
@@ -312,15 +409,20 @@ run_install() {
     progress_step \
         "Setting admin credentials..." \
         "
+        set -e
         HASH=\$(python3 -c \"
 import bcrypt, sys
 with open(sys.argv[1], 'rb') as f:
-    pw = f.read().strip()
+    pw = f.read()
 print(bcrypt.hashpw(pw, bcrypt.gensalt(rounds=12)).decode())
 \" $_PASS_TMP)
-        mkdir -p /mnt/var/lib/dplaneos
-        printf '%s' \"\$HASH\" > /mnt/var/lib/dplaneos/.first-boot-password
-        chmod 600 /mnt/var/lib/dplaneos/.first-boot-password
+        case \"\$HASH\" in '\$2'*) ;; *) echo 'password hashing failed' >&2; exit 1 ;; esac
+        # On /persist: /var/lib/dplaneos is bind-mounted from there at boot,
+        # which hid a file written to the system partition (the admin was
+        # created without a password).
+        mkdir -p /mnt/persist/var/lib/dplaneos
+        printf '%s' \"\$HASH\" > /mnt/persist/var/lib/dplaneos/.first-boot-password
+        chmod 600 /mnt/persist/var/lib/dplaneos/.first-boot-password
         "
 
     rm -f "$_PASS_TMP"
@@ -334,6 +436,10 @@ print(bcrypt.hashpw(pw, bcrypt.gensalt(rounds=12)).decode())
 }
 
 show_complete() {
+    if [ -n "$UNATTENDED" ]; then
+        log "Installed. The web interface will be at http://${PRIMARY_IP} after the reboot."
+        exit 0
+    fi
     clear
     gum style \
         --border double \
@@ -368,6 +474,10 @@ do_install() {
     run_install
     show_complete
 }
+
+if [ -n "$UNATTENDED" ]; then
+    do_install
+fi
 
 trap '
     echo ""

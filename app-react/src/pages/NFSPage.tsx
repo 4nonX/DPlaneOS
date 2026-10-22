@@ -42,7 +42,7 @@ interface NFSStatusResponse { success: boolean; installed: boolean; active?: boo
 // ExportModal (create / edit)
 // ---------------------------------------------------------------------------
 
-const DEFAULT_OPTIONS = 'rw,sync,no_subtree_check,root_squash'
+const DEFAULT_OPTIONS = 'rw,sync,no_subtree_check,root_squash,crossmnt'
 
 function ExportModal({ existing, onClose, onSaved }: {
   existing?: NFSExport; onClose: () => void; onSaved: () => void
@@ -91,7 +91,7 @@ function ExportModal({ existing, onClose, onSaved }: {
           <input value={options} onChange={e => setOptions(e.target.value)}
             placeholder={DEFAULT_OPTIONS} className="input" style={{ fontFamily: 'var(--font-mono)' }} />
           <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }}>
-            Common: rw/ro, sync/async, no_subtree_check, no_root_squash, root_squash
+            Common: rw/ro, sync/async, no_subtree_check, root_squash/no_root_squash, all_squash with anonuid=/anongid=, crossmnt (child datasets visible), sec=krb5. Unknown options are refused. Clients see files with the UIDs of DPlaneOS users (3000 up).
           </span>
         </label>
         <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>

@@ -34,8 +34,13 @@ func TestNFSValidators(t *testing.T) {
 			t.Errorf("client %q accepted", bad)
 		}
 	}
-	if validateNFSOptions("rw,sync,anonuid=1000") != nil {
+	if validateNFSOptions("rw,sync,anonuid=1000") != nil || validateNFSOptions("ro,sec=krb5p:sys,crossmnt,fsid=7") != nil {
 		t.Error("valid options rejected")
+	}
+	// exportfs skips an export with an unknown option and fails every
+	// reload after that: refused before it is saved.
+	if validateNFSOptions("rw,bogus_opt") == nil || validateNFSOptions("rw,anonuid=x") == nil {
+		t.Error("unknown option accepted")
 	}
 	if validateNFSOptions("rw) *(rw") == nil || validateNFSOptions("rw\n/etc *(rw)") == nil {
 		t.Error("option injection accepted")
@@ -61,7 +66,7 @@ func TestNFSExportLifecycle(t *testing.T) {
 	}
 	id := int(r.body["id"].(float64))
 	b, _ := os.ReadFile(exports)
-	for _, want := range []string{exp + "\t192.168.1.0/24(rw,sync,no_subtree_check,root_squash)", exp + "\t10.0.0.5("} {
+	for _, want := range []string{exp + "\t192.168.1.0/24(rw,sync,no_subtree_check,root_squash,crossmnt)", exp + "\t10.0.0.5("} {
 		if !strings.Contains(string(b), want) {
 			t.Errorf("exports lacks %q:\n%s", want, b)
 		}

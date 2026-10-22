@@ -15,6 +15,7 @@ import (
 	"dplaned/internal/audit"
 	"dplaned/internal/cmdutil"
 	"dplaned/internal/gitops"
+	"dplaned/internal/nfsconf"
 )
 
 // ═══════════════════════════════════════════════════════════════
@@ -72,34 +73,11 @@ func validateNFSPath(path string) error {
 	return sharePathOK(path)
 }
 
-// validateNFSClients checks the clients field
-// Allows: *, 192.168.1.0/24, 10.0.0.1, hostname.local, *.example.com
-var validClient = regexp.MustCompile(`^[\w.*/:@-]+$`)
-
-func validateNFSClients(clients string) error {
-	for c := range strings.FieldsSeq(clients) {
-		if !validClient.MatchString(c) {
-			return fmt.Errorf("invalid client spec: %q", c)
-		}
-	}
-	return nil
-}
-
-// validateNFSOptions checks the options string for injection
-var validOption = regexp.MustCompile(`^[a-zA-Z0-9_=,@.-]+$`)
-
-func validateNFSOptions(opts string) error {
-	for o := range strings.SplitSeq(opts, ",") {
-		o = strings.TrimSpace(o)
-		if o == "" {
-			continue
-		}
-		if !validOption.MatchString(o) {
-			return fmt.Errorf("invalid option: %q", o)
-		}
-	}
-	return nil
-}
+// validateNFSClients / validateNFSOptions: nfsconf's checks (the option list
+// is the exports(5) keyword list: exportfs skips an export with an unknown
+// option, which then failed every later reload).
+func validateNFSClients(clients string) error { return nfsconf.ValidateClients(clients) }
+func validateNFSOptions(opts string) error    { return nfsconf.ValidateOptions(opts) }
 
 // writeExportsFile regenerates /etc/exports from the database
 func (h *NFSHandler) writeExportsFile() error {
@@ -123,10 +101,7 @@ func (h *NFSHandler) writeExportsFile() error {
 			log.Printf("NFS: export %s skipped: %v", path, err)
 			continue
 		}
-		// Format: /path client1(opts) client2(opts) ...
-		for client := range strings.FieldsSeq(clients) {
-			fmt.Fprintf(&sb, "%s\t%s(%s)\n", path, client, options)
-		}
+		sb.WriteString(nfsconf.Lines(path, clients, options))
 	}
 	if err := rows.Err(); err != nil {
 		return fmt.Errorf("nfs_exports scan: %w", err)
@@ -139,6 +114,18 @@ func (h *NFSHandler) writeExportsFile() error {
 		return fmt.Errorf("write %s: %w", nfsExportsPath, err)
 	}
 	return nil
+}
+
+// SyncExports rewrites the exports file from the database and reloads it.
+// Called at startup: the file lives on the system slot, which an OTA update
+// replaces, and it is otherwise only written when an export changes.
+func (h *NFSHandler) SyncExports() {
+	if !nfsInstalled() {
+		return
+	}
+	if err := h.applyExports("system"); err != nil {
+		log.Printf("WARN: NFS exports at startup: %v", err)
+	}
 }
 
 // applyExports writes the exports file and reloads it; the error says which
@@ -269,7 +256,7 @@ func (h *NFSHandler) CreateNFSExport(w http.ResponseWriter, r *http.Request) {
 	if req.Options == "" {
 		// root_squash: a client's root is not root on the export (opt out
 		// per export with no_root_squash where that is really needed).
-		req.Options = "rw,sync,no_subtree_check,root_squash"
+		req.Options = nfsconf.DefaultOptions
 	}
 
 	// Validate

@@ -60,15 +60,11 @@ func RequirePermission(resource, action string) func(http.Handler) http.Handler 
 				})
 				return
 			}
-			// Degraded mode (ID=0): DB unavailable, allow READ, block mutations
+			// A user without an ID (formerly the "degraded" stand-in for a failed
+			// session lookup, which could read everything) is never authorized.
 			if user.ID == 0 {
-				if action == "read" || action == "list" {
-					next.ServeHTTP(w, r)
-					return
-				}
-				respondJSON(w, http.StatusForbidden, map[string]string{
-					"error":   "Forbidden - database unavailable",
-					"message": "Cannot mutate during degraded state",
+				respondJSON(w, http.StatusUnauthorized, map[string]string{
+					"error": "Unauthorized - no valid session",
 				})
 				return
 			}

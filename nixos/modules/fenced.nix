@@ -119,7 +119,9 @@ in {
       serviceConfig = {
         Slice = "dplaneos-fenced.slice";
 
-        Type            = "simple";
+        # notify: dplane-fenced sends READY=1 once its socket accepts and
+        # WATCHDOG=1 keep-alives (see WatchdogSec below).
+        Type            = "notify";
         ExecStart       = "${cfg.package}/bin/dplane-fenced";
         Restart         = "on-failure";
         RestartSec      = "5s";
@@ -161,6 +163,8 @@ in {
         # If fenced hangs (e.g. stuck in a SCSI command), the watchdog kills
         # and restarts it after 60 seconds. Existing APTPL reservations survive
         # the restart because they are stored in the disk controller's NVRAM.
+        # The keep-alives come from its refresh loop (every 30s); a unit with
+        # WatchdogSec whose process never sends them is killed every 60s.
         WatchdogSec   = "60s";
         NotifyAccess  = "main";
 

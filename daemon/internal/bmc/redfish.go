@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 )
@@ -164,29 +165,61 @@ func (c *redfishClient) post(ctx context.Context, path string, body map[string]a
 }
 
 // GetHealth fetches thermal (temperatures, fans) and power data via Redfish.
-func (c *redfishClient) GetHealth(ctx context.Context) (Health, error) {
-	// Find the system and chassis member links from the service root
-	var root struct {
-		Chassis struct {
-			Members []struct{ OdataID string `json:"@odata.id"` } `json:"Members"`
-		} `json:"Chassis"`
-		Systems struct {
-			Members []struct{ OdataID string `json:"@odata.id"` } `json:"Members"`
-		} `json:"Systems"`
-	}
-	if err := c.get(ctx, "/redfish/v1/", &root); err != nil {
-		return Health{}, fmt.Errorf("Redfish root: %w", err)
-	}
+type odataLink struct {
+	OdataID string `json:"@odata.id"`
+}
 
-	h := Health{CollectedAt: time.Now(), OverallStatus: "ok"}
+// rootCollection returns the members of a collection linked from the
+// service root ("Systems", "Chassis", "Managers"). The root holds only a
+// link to each collection ({"@odata.id": "/redfish/v1/Systems"}); reading
+// "Members" from the root itself (as before) found nothing on any BMC that
+// follows the specification, so health and power control never worked.
+func (c *redfishClient) rootCollection(ctx context.Context, name string) ([]string, error) {
+	var root map[string]json.RawMessage
+	if err := c.get(ctx, "/redfish/v1/", &root); err != nil {
+		return nil, fmt.Errorf("Redfish root: %w", err)
+	}
+	var link odataLink
+	if raw, ok := root[name]; !ok || json.Unmarshal(raw, &link) != nil || link.OdataID == "" {
+		return nil, nil
+	}
+	return c.collectionMembers(ctx, link.OdataID)
+}
+
+func (c *redfishClient) collectionMembers(ctx context.Context, path string) ([]string, error) {
+	var coll struct {
+		Members []odataLink `json:"Members"`
+	}
+	if err := c.get(ctx, path, &coll); err != nil {
+		return nil, err
+	}
+	var out []string
+	for _, m := range coll.Members {
+		if m.OdataID != "" {
+			out = append(out, m.OdataID)
+		}
+	}
+	return out, nil
+}
+
+func (c *redfishClient) GetHealth(ctx context.Context) (Health, error) {
+	systems, err := c.rootCollection(ctx, "Systems")
+	if err != nil {
+		return Health{}, err
+	}
+	chassis, _ := c.rootCollection(ctx, "Chassis")
+
+	h := Health{CollectedAt: time.Now(), OverallStatus: "ok", PowerState: PowerUnknown}
 
 	// Fetch system power state
-	if len(root.Systems.Members) > 0 {
+	if len(systems) > 0 {
 		var sys struct {
 			PowerState string `json:"PowerState"`
-			Status     struct{ Health string `json:"Health"` } `json:"Status"`
+			Status     struct {
+				Health string `json:"Health"`
+			} `json:"Status"`
 		}
-		if err := c.get(ctx, root.Systems.Members[0].OdataID, &sys); err == nil {
+		if err := c.get(ctx, systems[0], &sys); err == nil {
 			switch strings.ToLower(sys.PowerState) {
 			case "on":
 				h.PowerState = PowerOn
@@ -204,23 +237,27 @@ func (c *redfishClient) GetHealth(ctx context.Context) (Health, error) {
 	}
 
 	// Fetch thermal and power from chassis
-	for _, member := range root.Chassis.Members {
+	for _, member := range chassis {
 		// Thermal (temperatures + fans)
 		var thermal struct {
 			Temperatures []struct {
 				Name                string  `json:"Name"`
 				ReadingCelsius      float64 `json:"ReadingCelsius"`
 				UpperThresholdFatal float64 `json:"UpperThresholdFatal"`
-				Status              struct{ Health string `json:"Health"` } `json:"Status"`
+				Status              struct {
+					Health string `json:"Health"`
+				} `json:"Status"`
 			} `json:"Temperatures"`
 			Fans []struct {
-				Name        string  `json:"Name"`
-				Reading     float64 `json:"Reading"`
-				ReadingUnits string `json:"ReadingUnits"`
-				Status      struct{ Health string `json:"Health"` } `json:"Status"`
+				Name         string  `json:"Name"`
+				Reading      float64 `json:"Reading"`
+				ReadingUnits string  `json:"ReadingUnits"`
+				Status       struct {
+					Health string `json:"Health"`
+				} `json:"Status"`
 			} `json:"Fans"`
 		}
-		if err := c.get(ctx, member.OdataID+"/Thermal", &thermal); err == nil {
+		if err := c.get(ctx, member+"/Thermal", &thermal); err == nil {
 			for _, t := range thermal.Temperatures {
 				if t.ReadingCelsius == 0 {
 					continue
@@ -258,13 +295,15 @@ func (c *redfishClient) GetHealth(ctx context.Context) (Health, error) {
 		var power struct {
 			PowerConsumedWatts float64 `json:"PowerConsumedWatts"`
 			PowerSupplies      []struct {
-				Name                 string  `json:"Name"`
-				PowerInputWatts      float64 `json:"PowerInputWatts"`
-				LineInputVoltage     float64 `json:"LineInputVoltage"`
-				Status               struct{ Health string `json:"Health"` } `json:"Status"`
+				Name             string  `json:"Name"`
+				PowerInputWatts  float64 `json:"PowerInputWatts"`
+				LineInputVoltage float64 `json:"LineInputVoltage"`
+				Status           struct {
+					Health string `json:"Health"`
+				} `json:"Status"`
 			} `json:"PowerSupplies"`
 		}
-		if err := c.get(ctx, member.OdataID+"/Power", &power); err == nil {
+		if err := c.get(ctx, member+"/Power", &power); err == nil {
 			if power.PowerConsumedWatts > 0 {
 				h.Sensors = append(h.Sensors, Sensor{
 					Name:     "System Power",
@@ -303,43 +342,61 @@ func (c *redfishClient) GetHealth(ctx context.Context) (Health, error) {
 
 // GetEvents fetches recent BMC System Event Log entries via Redfish.
 func (c *redfishClient) GetEvents(ctx context.Context, limit int) ([]Event, error) {
-	var logSvc struct {
-		Members []struct{ OdataID string `json:"@odata.id"` } `json:"Members"`
+	// Log services hang off the system and the managers; the SEL is under the
+	// system on most BMCs and under the manager on iDRAC (the former code
+	// read /redfish/v1/Systems/1/..., which iDRAC does not have).
+	var services []string
+	var parents []string
+	if s, err := c.rootCollection(ctx, "Systems"); err == nil {
+		parents = append(parents, s...)
 	}
-	// Try standard SEL path; fall back to Managers log
-	selPath := "/redfish/v1/Systems/1/LogServices/Sel/Entries"
-	var entries struct {
-		Members []struct {
-			ID       string `json:"Id"`
-			Created  string `json:"Created"`
-			Severity string `json:"Severity"`
-			Message  string `json:"Message"`
-			SensorType string `json:"SensorType"`
-		} `json:"Members"`
+	if m, err := c.rootCollection(ctx, "Managers"); err == nil {
+		parents = append(parents, m...)
 	}
-	if err := c.get(ctx, selPath, &entries); err != nil {
-		// Try event log
-		if err2 := c.get(ctx, "/redfish/v1/Systems/1/LogServices/Log1/Entries", &entries); err2 != nil {
-			_ = logSvc
-			return nil, fmt.Errorf("could not access event log: %v; %v", err, err2)
+	for _, p := range parents {
+		if ls, err := c.collectionMembers(ctx, p+"/LogServices"); err == nil {
+			services = append(services, ls...)
 		}
 	}
-
-	var events []Event
-	for i, m := range entries.Members {
-		if limit > 0 && i >= limit {
-			break
+	// The SEL first, then any other log.
+	sort.SliceStable(services, func(i, j int) bool {
+		return strings.Contains(strings.ToLower(services[i]), "sel") && !strings.Contains(strings.ToLower(services[j]), "sel")
+	})
+	var lastErr error
+	for _, svc := range services {
+		var entries struct {
+			Members []struct {
+				ID         string `json:"Id"`
+				Created    string `json:"Created"`
+				Severity   string `json:"Severity"`
+				Message    string `json:"Message"`
+				SensorType string `json:"SensorType"`
+			} `json:"Members"`
 		}
-		ts, _ := time.Parse(time.RFC3339, m.Created)
-		events = append(events, Event{
-			ID:        m.ID,
-			Timestamp: ts,
-			Severity:  redfishSeverity(m.Severity),
-			Message:   m.Message,
-			Source:    m.SensorType,
-		})
+		if err := c.get(ctx, svc+"/Entries", &entries); err != nil {
+			lastErr = err
+			continue
+		}
+		var events []Event
+		for i, m := range entries.Members {
+			if limit > 0 && i >= limit {
+				break
+			}
+			ts, _ := time.Parse(time.RFC3339, m.Created)
+			events = append(events, Event{
+				ID:        m.ID,
+				Timestamp: ts,
+				Severity:  redfishSeverity(m.Severity),
+				Message:   m.Message,
+				Source:    m.SensorType,
+			})
+		}
+		return events, nil
 	}
-	return events, nil
+	if lastErr == nil {
+		lastErr = fmt.Errorf("the BMC lists no log services")
+	}
+	return nil, fmt.Errorf("could not access the event log: %v", lastErr)
 }
 
 // PowerAction sends a power management command via Redfish.
@@ -354,18 +411,14 @@ func (c *redfishClient) PowerAction(ctx context.Context, systemPath string, acti
 
 // FindSystemPath returns the OData path of the first system (e.g. /redfish/v1/Systems/1).
 func (c *redfishClient) FindSystemPath(ctx context.Context) (string, error) {
-	var root struct {
-		Systems struct {
-			Members []struct{ OdataID string `json:"@odata.id"` } `json:"Members"`
-		} `json:"Systems"`
-	}
-	if err := c.get(ctx, "/redfish/v1/", &root); err != nil {
+	systems, err := c.rootCollection(ctx, "Systems")
+	if err != nil {
 		return "", err
 	}
-	if len(root.Systems.Members) == 0 {
-		return "", fmt.Errorf("no systems found in Redfish service root")
+	if len(systems) == 0 {
+		return "", fmt.Errorf("no systems found in the Redfish Systems collection")
 	}
-	return root.Systems.Members[0].OdataID, nil
+	return systems[0], nil
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────

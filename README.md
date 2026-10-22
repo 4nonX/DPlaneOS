@@ -30,7 +30,7 @@ Feature maturity, honestly:
 | LDAP / Active Directory integration | Beta | Winbind NSS integration shipped in v14.1.0: AD users resolve in `ls -l`, ACLs, and SMB. |
 | OIDC / SSO (Authorization Code + PKCE) | Beta | Keycloak, Authentik, Dex, Entra ID, and any OIDC-compliant provider. |
 | Enterprise Licensing & Compliance Engine | Stable | Ed25519 offline license verification. Optional compliance reporting sidecar. Automatic activation and expiration handling. |
-| A/B OTA updates with auto-revert | Beta | Mechanism is sound, sample size is small. |
+| Updates with automatic rollback (NixOS generations) | Beta | Proven in a NixOS VM test (good update kept, broken update rolled back); no field updates yet. |
 | Live boot (ephemeral, no install needed) | Stable | Trial the software, manage pools, run containers from USB. Full daemon/UI in RAM. Persistence optional via USB. |
 | GitOps reconciliation | Beta | Structural sync (pools, datasets, shares, stacks) and capture-from-live both work. Safety rails (block destroy on used data, block pool destroy unconditionally) are well-tested. Edge cases at the property-coverage frontier still surfacing. |
 | Out-of-band hardware management (BMC) | Beta | Redfish (iLO 5+, iDRAC 9+), iLO 4 legacy REST, generic IPMI. TOFU TLS certificate pinning. Sensors, event log, power management. |
@@ -58,11 +58,11 @@ Reasonable question. The short answer: most of DPlaneOS isn't DPlaneOS.
 
 So what's actually new code?
 
-**The seams.** ~49k lines of Go that tie the above together coherently: ~400 HTTP routes mapping UI intent to allowlisted exec calls, state persisted in PostgreSQL with goose migrations, a reconciler that compares declared state against observed state and handles drift, an HMAC-chained audit log, ZED events surfaced over WebSocket, the A/B OTA flow with health-checked auto-revert, storage groups that move between nodes with quorum, epochs and layered fencing (watchdog, multihost, SCSI-3 PR, power), and configuration that merges between nodes per resource. None of this is exotic computer science. All of it is integration work that nobody else had bothered to do under one roof.
+**The seams.** ~49k lines of Go that tie the above together coherently: ~540 HTTP routes mapping UI intent to allowlisted exec calls, state persisted in PostgreSQL with goose migrations, a reconciler that compares declared state against observed state and handles drift, an HMAC-chained audit log, ZED events surfaced over WebSocket, the A/B OTA flow with health-checked auto-revert, storage groups that move between nodes with quorum, epochs and layered fencing (watchdog, multihost, SCSI-3 PR, power), and configuration that merges between nodes per resource. None of this is exotic computer science. All of it is integration work that nobody else had bothered to do under one roof.
 
-**The interface.** ~30k lines of React 19 / TypeScript: 48 pages, around 67 modal/dialog components, one embedded PTY terminal. Aimed at someone who would rather not memorise `zpool` flags or hand-edit a Samba config.
+**The interface.** ~30k lines of React 19 / TypeScript: over 50 pages, around 67 modal/dialog components, one embedded PTY terminal. Aimed at someone who would rather not memorise `zpool` flags or hand-edit a Samba config.
 
-**The GitOps layer.** A declarative `state.yaml` schema and a bi-directional reconciler that lets you treat a Git repo as the source of truth for the *shape* of your storage: pools, dataset hierarchy and properties (quota, compression, atime, recordsize, encryption, mountpoint), shares, NFS exports, container stacks, users, replication relationships. You can apply changes from Git to the live system, or capture the live state back into Git. What it does *not* manage is the data plane itself: dataset contents, snapshots, and `zfs send` streams stay on ZFS's terms and are backed up out of band. The reconciler is also conservative in the places that matter: pool destruction is always BLOCKED, dataset destruction is BLOCKED whenever `zfs get used` is non-zero, and there's an `ignore_extraneous` flag for partial declarations. A `git push` cannot wipe data; only metadata and configuration. This is the part I'm proudest of and also the part most likely to have rough edges at the property-coverage frontier.
+**The GitOps layer.** A declarative `state.yaml` schema and a bi-directional reconciler that lets you treat a Git repo as the source of truth for the *shape* of your storage: pools, dataset hierarchy and properties (quota, compression, atime, recordsize, encryption, mountpoint), shares, NFS exports, container stacks, users, replication relationships. You can apply changes from Git to the live system, or capture the live state back into Git. What it does *not* manage is the data plane itself: dataset contents, snapshots, and `zfs send` streams stay on ZFS's terms and are backed up out of band. The reconciler is also conservative in the places that matter: pool destruction is always BLOCKED, a dataset is only destroyed when it is provably empty (no files, no snapshots, no children; a volume never), approval or not, and there's an `ignore_extraneous` flag for partial declarations. A `git push` cannot wipe data; only metadata and configuration. This is the part I'm proudest of and also the part most likely to have rough edges at the property-coverage frontier.
 
 That's the honest accounting. DPlaneOS exists because NixOS, OpenZFS, PostgreSQL, and a dozen other projects exist. The work I did is the integration layer and the UX. Both are real work, neither is "building a storage OS from scratch," and pretending otherwise would be insulting to the upstream projects this whole thing rests on.
 
@@ -103,18 +103,18 @@ Full license inventory and attribution in [NOTICE.md](NOTICE.md).
 
 | Area | Capabilities |
 |------|-------------|
-| **Storage** | ZFS pools, datasets, snapshots, `zfs send` replication, native encryption, quotas, S.M.A.R.T., POSIX ACLs, file explorer with chunked uploads |
-| **Hot-swap** | udev detects disk add/remove; daemon auto-imports FAULTED/UNAVAIL pools and suggests vdev replacements in the UI |
+| **Storage** | ZFS pools, datasets, scheduled snapshots (every 15 min to monthly) with retention, `zfs send` replication (raw for encrypted datasets), native encryption, quotas, S.M.A.R.T., POSIX ACLs, file explorer with chunked uploads |
+| **Hot-swap** | udev detects disk add/remove; a returning member of an imported pool is brought back online, an exported pool is re-imported when one of its own disks returns (never a pool from a foreign disk), and the UI suggests vdev replacements |
 | **Sharing** | SMB (with Time Machine via `vfs_fruit`), NFS, iSCSI, NVMe-oF, configured from the UI |
-| **Containers** | Docker, Compose stacks, ephemeral ZFS-clone sandboxes, atomic updates with rollback, in-browser terminal. Intel VA-API hardware transcoding supported (Jellyfin, Plex). |
-| **Network** | Interface config, bonding, VLANs, routing, DNS |
+| **Containers** | Docker, Compose stacks (also deployed from Git, on push), image update detection and optional auto-update, updates that roll back to the previous images when a service does not come up (ZFS snapshot first), ephemeral ZFS-clone sandboxes, in-browser terminal. Intel VA-API hardware transcoding supported (Jellyfin, Plex). |
+| **Network** | Interface config, bonding, VLANs, routing, DNS, firewall rules by source; every change reverts unless confirmed |
 | **Identity** | Local users, LDAP / AD with Winbind NSS integration (AD users visible in `ls -l`, ACLs, SMB), OIDC SSO (Authorization Code + PKCE), TOTP 2FA, SCRAM-SHA-512, API tokens |
-| **Security** | RBAC (4 roles, 34 permissions), HMAC audit chain, CSRF protection, firewall, TLS, allowlist-validated exec calls, govulncheck in CI |
+| **Security** | RBAC (4 roles, 31 permissions), HMAC audit chain, CSRF protection, firewall, TLS, allowlist-validated exec calls, govulncheck in CI |
 | **Hardware** | BMC management via Redfish (iLO 5+, iDRAC 9+), iLO 4, or IPMI. TOFU TLS certificate pinning. Temperature, fan, power sensors. Power management and event log. |
 | **Monitoring** | Prometheus/OpenMetrics at `/metrics`: ZFS pool health (4-level), dataset usage/quota, scrub progress, cluster quorum and storage groups, replication status, BMC sensors, build info |
 | **HA** | Optional, off by default. Pair nodes, form a Corosync cluster, add a third vote (QDevice on a Raspberry Pi/VM, a corosync-only voter, another DPlaneOS system, or a third node), and put pools into storage groups that move between nodes with their shares, apps and a floating address. Shared storage (SAS/SATA shelf, SAN) or replicated ZFS; watchdog self-fencing, ZFS multihost, SCSI-3 PR and optional power fencing. |
 | **System** | Dashboard, logs, UPS (NUT), hardware auto-tuning, cloud sync (rclone), HA node monitoring |
-| **GitOps** | Git-sync repositories, bi-directional reconciliation, drift detection. Manages structure (pools, dataset properties, shares, stacks, users), not data. Destructive operations on used datasets and pools are blocked by default. |
+| **GitOps** | Git-sync repositories, bi-directional reconciliation, drift detection. Manages structure (pools, dataset properties, shares, stacks, users), not data: a dataset or pool that holds anything is never destroyed, even when approved. |
 
 ---
 
@@ -214,8 +214,8 @@ sudo -u postgres psql dplaneos -c "\dt"
 zpool status
 zpool import
 
-# OTA upgrade
-sudo dplaneos-ota-update
+# Updates: Updates page; manual rebuild through the system flake
+sudo nixos-rebuild switch --flake /etc/nixos#dplaneos --impure
 ```
 
 ---
@@ -234,7 +234,7 @@ sudo dplaneos-ota-update
 | [Backup and Replication](docs/admin/BACKUP-REPLICATION.md) | Snapshots, ZFS send/receive, cloud sync, cold tier, rsync, DB backup, recovery |
 | [High Availability](docs/admin/HIGH-AVAILABILITY.md) | HA is optional and off by default. Clusters, the third vote (see also [Choosing a third vote](docs/admin/THIRD-VOTE.md)), storage groups (shared or replicated), protection layers, planned moves and failover |
 | [Integration Guide](docs/admin/INTEGRATION-GUIDE.md) | Prometheus scrape config, Active Directory/Winbind, SMB HA behaviour, NVMe-oF client setup, iSCSI ALUA, GitOps/CI, HA timing, Docker hardware transcoding, GPU passthrough |
-| [OTA Updates](docs/admin/OTA-UPDATES.md) | A/B slots, health check, auto-revert, manual rollback, HA rolling upgrades |
+| [OTA Updates](docs/admin/OTA-UPDATES.md) | Release updates, check after the reboot, automatic rollback, HA one node at a time |
 | [Optional Protocols](docs/admin/OPTIONAL-PROTOCOLS.md) | iSCSI, NVMe-oF, FTP/FTPS, MinIO S3-compatible object store |
 | [Alerts and Authentication](docs/admin/ALERTS.md) | SMTP, webhook, Telegram alerting, TOTP 2FA setup and backup codes |
 | [Troubleshooting](docs/admin/TROUBLESHOOTING.md) | Build failures, ZFS issues, DB init race, Docker behind proxy, ZED setup |

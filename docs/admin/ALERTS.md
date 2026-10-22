@@ -290,15 +290,17 @@ Use a backup code if your authenticator device is lost. After using a backup cod
 
 ### Admin Reset (Account Recovery)
 
-There is no in-app admin path for resetting another user's TOTP. If a non-admin user loses both their authenticator and all backup codes, an admin must disable TOTP directly in the database:
+There is no in-app admin path for resetting another user's TOTP. If a user loses both their authenticator and all backup codes, turn it off on the console:
 
-```sql
-UPDATE totp_secrets SET enabled = 0 WHERE user_id = <id>;
+```bash
+sudo dplaneos-recovery   # option 6: Turn Off a User's Two-Factor Authentication
 ```
+
+(Only clearing `totp_secrets` is not enough: the login checks `users.totp_enabled`.)
 
 This forces re-enrollment on the user's next login.
 
-If user 1 (the local admin) is locked out, use SSH access to the NAS and the `dplaneos-recovery` CLI tool (option 5: Reset Admin Password, available when logged in as root via SSH).
+If user 1 (the local admin) is locked out, use SSH access to the NAS and `sudo dplaneos-recovery` (option 5: Reset a User's Password; option 6 for a lost 2FA device).
 
 ### TOTP API
 

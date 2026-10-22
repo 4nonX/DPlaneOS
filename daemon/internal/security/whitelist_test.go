@@ -253,9 +253,9 @@ func TestIsValidSessionToken(t *testing.T) {
 
 func TestSanitizeOutput(t *testing.T) {
 	tests := []struct {
-		name   string
-		input  string
-		want   string
+		name  string
+		input string
+		want  string
 	}{
 		{
 			name:  "Password in output",
@@ -439,5 +439,27 @@ func TestZpoolOnlineAcceptsStableNames(t *testing.T) {
 	}
 	if err := ValidateCommand("zpool_online", []string{"online", "tank", "-f"}); err == nil {
 		t.Error("option as device accepted")
+	}
+}
+
+// libzfs.DatasetGet (cgo-free build) runs zfs get -H -o value <prop> <ds>.
+func TestZfsGetPropertyAndDataset(t *testing.T) {
+	for _, args := range [][]string{
+		{"get", "-H", "-o", "value", "acltype", "tank/share"},
+		{"get", "-H", "-o", "value", "origin", "tank/sandboxes/x"},
+		{"get", "-H", "-o", "value", "com.sun:auto-snapshot", "tank"},
+	} {
+		if err := ValidateCommand("zfs_get", args); err != nil {
+			t.Errorf("%v: %v", args, err)
+		}
+	}
+	for _, args := range [][]string{
+		{"get", "-H", "-o", "value", "acltype", "tank; rm -rf /"},
+		{"get", "-H", "-o", "value", "ACL TYPE", "tank"},
+		{"get", "-H", "-o", "value", "acltype", "tank", "extra"},
+	} {
+		if err := ValidateCommand("zfs_get", args); err == nil {
+			t.Errorf("%v accepted", args)
+		}
 	}
 }

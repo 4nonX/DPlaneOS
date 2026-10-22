@@ -408,9 +408,9 @@ This is intentional: GitOps owns the desired state, and the desired state for a 
 
 ### Decommissioning a share
 
-Remove it from `shares:` and apply. The reconciler computes a DELETE plan item. If the share has no open sessions, it is removed immediately. If sessions are active, they are disconnected first.
+Remove it from `shares:` and apply. The reconciler computes a DELETE plan item. If the share has no open sessions, it is removed immediately. If clients are connected, the item is `BLOCKED` until they disconnect or you approve it.
 
-**The underlying dataset is not touched.** Removing a share entry only removes the SMB share definition. The data remains. To delete the dataset, also remove it from `datasets:`, which generates a `BLOCKED` item requiring explicit approval.
+**The underlying dataset is not touched.** Removing a share entry only removes the SMB share definition. The data remains. Removing the dataset from `datasets:` deletes it only if it is empty; a dataset that holds files, snapshots or children stays `BLOCKED` even when approved. GitOps never destroys data: run `zfs destroy -r` by hand once you are sure.
 
 ---
 

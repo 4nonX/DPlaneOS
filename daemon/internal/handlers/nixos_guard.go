@@ -85,7 +85,7 @@ func (h *NixOSGuardHandler) DetectNixOS(w http.ResponseWriter, r *http.Request) 
 	nixos := IsNixOS()
 
 	result := map[string]any{
-		"success": true,
+		"success":  true,
 		"is_nixos": nixos,
 	}
 
@@ -241,7 +241,7 @@ func (h *NixOSGuardHandler) Reconcile(w http.ResponseWriter, r *http.Request) {
 
 		// 2. Run rebuild switch
 		j.Log("Executing nixos-rebuild switch...")
-		output, err := cmdutil.RunExtreme("nixos-rebuild", "switch")
+		output, err := rebuildSystem("switch")
 		if err != nil {
 			j.Log("NixOS reconciliation failed!")
 			j.Fail(fmt.Sprintf("Rebuild failed: %v\nOutput: %s", err, output))
@@ -295,23 +295,14 @@ func (h *NixOSGuardHandler) ValidateConfig(w http.ResponseWriter, r *http.Reques
 
 	start := time.Now()
 
-	// Try dry-activate first (validates without applying)
-	var output string
+	// Try dry-activate first (validates without applying). It evaluates the
+	// whole configuration: minutes, not the 60s of executeCommand.
+	var out []byte
 	var err error
 
-	// Check if it's a flake
-	flakeNix := flakePath + "/flake.nix"
-	if _, statErr := os.Stat(flakeNix); statErr == nil {
-		// Flake-based system
-		output, err = executeCommand("nixos-rebuild", []string{
-			"dry-activate", "--flake", flakePath + "#dplaneos",
-		})
-	} else {
-		// Traditional configuration.nix
-		output, err = executeCommand("nixos-rebuild", []string{
-			"dry-activate",
-		})
-	}
+	// Always the system flake (a plain configuration.nix is NixOS's stock one).
+	out, err = rebuildSystem("dry-activate")
+	output := string(out)
 	duration := time.Since(start)
 
 	if err != nil {
@@ -407,9 +398,9 @@ func (h *NixOSGuardHandler) RollbackGeneration(w http.ResponseWriter, r *http.Re
 
 	if req.Generation == "" {
 		// Simple rollback to previous
-		output, err = executeCommand("nixos-rebuild", []string{
-			"switch", "--rollback",
-		})
+		var out []byte
+		out, err = runNixosRebuild("switch", "--rollback")
+		output = string(out)
 	} else {
 		// Validate generation ID (must be numeric)
 		for _, c := range req.Generation {
@@ -423,11 +414,13 @@ func (h *NixOSGuardHandler) RollbackGeneration(w http.ResponseWriter, r *http.Re
 			"--profile", "/nix/var/nix/profiles/system",
 		})
 		if err == nil {
-			// Activate the generation
-			output, err = executeCommand(
-				fmt.Sprintf("/nix/var/nix/profiles/system-%s-link/activate", req.Generation),
-				[]string{},
-			)
+			// Switch to the generation: switch-to-configuration (not just its
+			// activate script) also restarts changed services and makes it
+			// the boot default, as nixos-rebuild switch --rollback does.
+			var out []byte
+			out, err = runInOwnUnit(cmdutil.TimeoutExtreme,
+				fmt.Sprintf("/nix/var/nix/profiles/system-%s-link/bin/switch-to-configuration", req.Generation), "switch")
+			output = string(out)
 		}
 	}
 	duration := time.Since(start)
@@ -455,13 +448,13 @@ func (h *NixOSGuardHandler) RollbackGeneration(w http.ResponseWriter, r *http.Re
 // GET /api/nixos/pre-upgrade-snapshots
 func (h *NixOSGuardHandler) ListPreUpgradeSnapshots(w http.ResponseWriter, r *http.Request) {
 	type snap struct {
-		ID          int64  `json:"id"`
-		Snapshot    string `json:"snapshot"`
-		Pool        string `json:"pool"`
-		CreatedAt   string `json:"created_at"`
-		NixOSApply  string `json:"nixos_apply"`
-		Success     int    `json:"success"`
-		Error       string `json:"error,omitempty"`
+		ID         int64  `json:"id"`
+		Snapshot   string `json:"snapshot"`
+		Pool       string `json:"pool"`
+		CreatedAt  string `json:"created_at"`
+		NixOSApply string `json:"nixos_apply"`
+		Success    int    `json:"success"`
+		Error      string `json:"error,omitempty"`
 	}
 
 	rows, err := h.db.Query(`

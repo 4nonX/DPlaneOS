@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -258,4 +259,24 @@ func errorsIs(err, target error) bool {
 		err = u.Unwrap()
 	}
 	return false
+}
+
+func TestGroupsFromPayload(t *testing.T) {
+	cases := []struct {
+		payload, claim string
+		want           []string
+		present        bool
+	}{
+		{`{"groups":["admin","x"]}`, "", []string{"admin", "x"}, true},
+		{`{"roles":"admin operator"}`, "roles", []string{"admin", "operator"}, true},
+		{`{"groups":"admin,viewer"}`, "groups", []string{"admin", "viewer"}, true},
+		{`{"sub":"x"}`, "groups", nil, false},
+		{`{"groups":{"weird":1}}`, "groups", nil, true},
+	}
+	for _, c := range cases {
+		got, present := groupsFromPayload([]byte(c.payload), c.claim)
+		if present != c.present || strings.Join(got, ",") != strings.Join(c.want, ",") {
+			t.Errorf("%s / %q: got %v %v", c.payload, c.claim, got, present)
+		}
+	}
 }

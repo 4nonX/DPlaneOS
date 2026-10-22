@@ -19,6 +19,17 @@
 let
   cfg = config.services.dplaneos.ups;
   passFile = "/var/lib/dplaneos/nut/upsmon.pass";
+
+  # upsmon runs its notify command as its own user; the daemon's UPS event
+  # socket is writable by that user's group (dplaned -ups-event-group).
+  eventSocket = "/run/dplaneos/ups-events.sock";
+  notifyTypes = [ "ONLINE" "ONBATT" "LOWBATT" "FSD" "COMMOK" "COMMBAD" "SHUTDOWN"
+                  "REPLBATT" "NOCOMM" "NOPARENT" "CAL" "OFF" "BYPASS" "OVER" ];
+  notifyCmd = pkgs.writeShellScript "dplaneos-ups-notify" ''
+    # $1: NUT's message; NOTIFYTYPE and UPSNAME come in the environment.
+    printf 'ups_event:%s:%s:%s\n' "$NOTIFYTYPE" "$UPSNAME" "$1" \
+      | ${pkgs.socat}/bin/socat -t2 - UNIX-CONNECT:${eventSocket} 2>/dev/null || true
+  '';
 in
 {
   options.services.dplaneos.ups = {
@@ -63,9 +74,12 @@ in
     };
 
     action = lib.mkOption {
+      # "hibernate" stays accepted for older state files and shuts down too:
+      # the system boots with nohibernate (ZFS), so a hibernate fails and the
+      # machine would run until the battery is empty.
       type = lib.types.enum [ "shutdown" "hibernate" ];
       default = "shutdown";
-      description = "What to do on low battery. Set from the UPS page.";
+      description = "What to do on low battery: shut down (hibernation is not possible with ZFS).";
     };
   };
 
@@ -73,15 +87,16 @@ in
     power.ups = {
       enable = true;
       mode = "standalone";
-      # No timed events; upssched is only the NOTIFYCMD default.
-      schedulerRules = toString (pkgs.writeText "dplaneos-upssched.conf" ''
-        CMDSCRIPT ${pkgs.coreutils}/bin/true
-      '');
 
       ups.${cfg.name} = {
         inherit (cfg) driver port description;
-        directives = lib.optional (cfg.lowBattery != null)
-          "override.battery.charge.low = ${toString cfg.lowBattery}";
+        # The driver derives "low battery" from battery.charge.low only with
+        # ignorelb (ups.conf(5)); without it the override changes the value
+        # shown and the UPS's own LB flag still decides when to shut down.
+        directives = lib.optionals (cfg.lowBattery != null) [
+          "ignorelb"
+          "override.battery.charge.low = ${toString cfg.lowBattery}"
+        ];
       };
 
       users.upsmon = {
@@ -92,12 +107,19 @@ in
       upsmon.monitor.${cfg.name}.user = "upsmon";
       upsmon.settings = {
         FINALDELAY = cfg.finalDelay;
-        SHUTDOWNCMD =
-          if cfg.action == "hibernate"
-          then "${pkgs.systemd}/bin/systemctl hibernate"
-          else "${pkgs.systemd}/bin/shutdown now";
+        SHUTDOWNCMD = "${pkgs.systemd}/bin/shutdown now";
+        # Every power event goes to the daemon (alerts) as well as the log.
+        # No WALL: upsmon's notify child broadcasts before it runs NOTIFYCMD,
+        # and on low battery the shutdown killed it before the alert went out.
+        NOTIFYCMD = "${notifyCmd}";
+        NOTIFYFLAG = map (t: [ t "SYSLOG+EXEC" ]) notifyTypes;
       };
     };
+
+    warnings = lib.optional (cfg.action == "hibernate")
+      "services.dplaneos.ups.action = \"hibernate\" is not possible with ZFS (nohibernate): the system shuts down instead.";
+
+    services.dplaneos.upsEventGroup = config.power.ups.upsmon.group;
 
     # upsd and upsmon share one generated password; create it before either starts.
     systemd.services.dplaneos-ups-secret = {

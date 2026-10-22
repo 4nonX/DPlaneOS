@@ -66,12 +66,26 @@
   # Kernel explicitly pinned to 6.6 LTS in flake.nix via applianceConfig.
   # NixOS 25.11 default is 6.12; we pin 6.6 for verified ZFS compatibility.
   # Raptor Lake is fully supported from 6.2+.
+  # The ISO installs this prebuilt system as is; the generated
+  # hardware-configuration.nix only applies from the first rebuild. So the
+  # initrd needs drivers for any disk the system may be installed on (SATA,
+  # NVMe, SAS/RAID HBAs, virtio, Hyper-V, VMware, USB, MMC), as on NixOS's own
+  # installer images; with only the H610I's drivers it could not find its root
+  # disk anywhere else (initrd timeout, emergency mode).
+  hardware.enableAllHardware = true;
   boot.initrd.availableKernelModules = [
     "nvme"     # Patriot P300 NVMe boot drive
     "ahci"     # SATA controller for WD/Seagate data drives
     "xhci_pci" # USB 3.x (H610I rear ports)
     "usbhid"   # USB HID (keyboard at install time)
     "sd_mod"   # SCSI disk layer (required by ahci)
+    # Boot disks enableAllHardware leaves out
+    "mpt3sas" "mpi3mr" "megaraid_sas"    # Broadcom/LSI SAS HBAs and MegaRAID
+    "aacraid" "hpsa" "smartpqi"          # Adaptec, HPE Smart Array
+    "usb_storage"                        # USB sticks (uas is included)
+    "sdhci_pci" "mmc_block"              # eMMC / SD
+  ] ++ lib.optionals pkgs.stdenv.hostPlatform.isx86 [
+    "vmw_pvscsi" # VMware ESXi paravirtual SCSI (x86 only: not in the arm64 kernel)
   ];
   boot.kernelModules = lib.optionals pkgs.stdenv.hostPlatform.isx86_64 [
     "kvm-intel" # Intel VT-x virtualisation support (x86_64 only)
@@ -109,7 +123,10 @@
 
   # ZFS ARC: cap at 16 GiB so Docker containers always have headroom.
   # 32 GB RAM - 16 GiB ARC - OS = comfortable margin for containers.
-  boot.kernelParams = [ "zfs.zfs_arc_max=17179869184" ];
+  # The console= entries put kernel messages and a login on the first serial
+  # port as well (headless boxes, IPMI Serial-over-LAN); the last one is the
+  # local screen, which stays the main console.
+  boot.kernelParams = [ "zfs.zfs_arc_max=17179869184" "console=ttyS0,115200n8" "console=tty0" ];
 
   services.zfs.autoScrub = {
     enable   = true;
@@ -123,7 +140,7 @@
   # ─── Ensure /etc/systemd/network exists before the daemon starts ─────────
   # systemd-networkd creates /etc/systemd/network at runtime, but on NixOS
   # the directory may not yet exist when dplaned first tries to write a
-  # 50-dplane-*.network file. This activation script pre-creates it so the
+  # 05-dplane-*.network file. This activation script pre-creates it so the
   # daemon never encounters a "directory not found" error on first network
   # change. ReadWritePaths for this directory is declared in module.nix.
   system.activationScripts.dplaneNetworkDir = {
@@ -132,27 +149,26 @@
   };
 
   # ─── Networking ─────────────────────────────────────────────────────────
-  networking.hostName = "YOUR_HOSTNAME";  # !! REPLACE !!
+  # The installer copies this prebuilt system unchanged, so the default has
+  # to be a valid name ("YOUR_HOSTNAME" came out as "YOURHOSTNAME", also in
+  # Samba). Rename in the web UI or below.
+  networking.hostName = "dplaneos";
 
   # Use systemd-networkd : required for DPlaneOS network management.
-  # DPlaneOS writes /etc/systemd/network/50-dplane-*.{network,netdev} files
+  # DPlaneOS writes /etc/systemd/network/05-dplane-*.{network,netdev} files
   # which survive reboots AND nixos-rebuild switch without any extra steps.
-  # NixOS manages files with lower prefixes (10-, 20-); DPlaneOS uses 50-.
-  # They coexist : NixOS activation never touches files it did not create.
-  networking.useDHCP     = false;
+  # networkd uses the first matching .network file, so 05- comes before the
+  # files NixOS generates. NixOS activation never touches files it did not create.
+  # DHCP on every Ethernet port (networkd's 99-ethernet-default-dhcp), so a
+  # fresh install is reachable whatever its interfaces are called. This used
+  # to be DHCP on enp2s0 only (one board's name): on any other machine the
+  # installed system came up without an address. Addresses set in the web UI
+  # are DPlaneOS files (05-dplane-*) and take precedence over this default.
+  networking.useDHCP     = true;
   networking.useNetworkd = true;
   systemd.network.enable = true;
 
-  # Primary NIC: Realtek RTL8125B 2.5GbE on Gigabyte H610I.
-  # Interface name on this board is typically enp2s0 (verify: ip link show).
-  # DPlaneOS takes over network management after first-boot setup; this
-  # entry only provides initial DHCP connectivity to reach the web UI.
-  systemd.network.networks."10-enp2s0" = {
-    matchConfig.Name   = "enp2s0";
-    networkConfig.DHCP = "yes";
-  };
-
-  # mDNS : allows access via http://YOUR_HOSTNAME.local on the local network.
+  # mDNS : allows access via http://dplaneos.local (the host name) on the local network.
   services.avahi = {
     enable   = true;
     nssmdns4 = true;
@@ -228,30 +244,33 @@
   # Correct image: fosrl/newt (https://github.com/fosrl/newt)
   # The Docker Hub organisation is "fosrl", not "pangolin".
   #
-  # !! FILL IN your values from the Pangolin dashboard before deploying !!
-  virtualisation.oci-containers = {
-    backend = "docker";
-    containers."newt" = {
-      image     = "fosrl/newt:latest";
-      autoStart = true;
-      # host network: Newt needs to reach DPlaneOS via the Unix socket
-      # and expose tunnelled services on the host network interfaces.
-      extraOptions = [ "--network=host" "--restart=unless-stopped" ];
-      environment = {
-        PANGOLIN_ENDPOINT = "https://YOUR_PANGOLIN_DOMAIN";  # !! REPLACE !!
-        NEWT_ID           = "YOUR_NEWT_ID";                  # !! REPLACE !!
-        NEWT_SECRET       = "YOUR_NEWT_SECRET";              # !! REPLACE !!
-      };
-    };
-  };
-
-  # Start Newt only after DPlaneOS daemon is up.
-  # NixOS oci-containers does not have a native dependsOn option; use a
-  # systemd service override instead (the container becomes docker-newt.service).
-  systemd.services."docker-newt" = {
-    after = [ "dplaned.service" ];
-    wants = [ "dplaned.service" ];
-  };
+  # Off by default: the installer copies this system unchanged, and with the
+  # placeholder values every new install pulled the image and ran a tunnel
+  # that could not connect. To use it, uncomment and fill in your values
+  # from the Pangolin dashboard.
+  #
+  # virtualisation.oci-containers = {
+  #   backend = "docker";
+  #   containers."newt" = {
+  #     image     = "fosrl/newt:latest";
+  #     autoStart = true;
+  #     # host network: Newt needs to reach DPlaneOS via the Unix socket
+  #     # and expose tunnelled services on the host network interfaces.
+  #     extraOptions = [ "--network=host" "--restart=unless-stopped" ];
+  #     environment = {
+  #       PANGOLIN_ENDPOINT = "https://YOUR_PANGOLIN_DOMAIN";
+  #       NEWT_ID           = "YOUR_NEWT_ID";
+  #       NEWT_SECRET       = "YOUR_NEWT_SECRET";
+  #     };
+  #   };
+  # };
+  #
+  # # Start Newt only after DPlaneOS daemon is up (the container becomes
+  # # docker-newt.service; oci-containers has no dependsOn option).
+  # systemd.services."docker-newt" = {
+  #   after = [ "dplaned.service" ];
+  #   wants = [ "dplaned.service" ];
+  # };
 
   # ─── DPlaneOS service ──────────────────────────────────────────────────
   services.dplaneos = {
@@ -259,9 +278,9 @@
     openFirewall = true;
     # SSH public key for emergency headless access (password auth is disabled).
     # Example: [ "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA... user@host" ]
-    sshKeys = [
-      "YOUR_SSH_PUBLIC_KEY"  # !! REPLACE !!
-    ];
+    # (Was the placeholder "YOUR_SSH_PUBLIC_KEY", written into root's
+    # authorized_keys on every install.)
+    sshKeys = [ ];
 
     # ─── Samba (SMB) - enabled by default ─────────────────────────────────
     # Core NAS feature: declarative NixOS ownership of the [global] section;

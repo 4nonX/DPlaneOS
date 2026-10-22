@@ -251,7 +251,7 @@ function SMTPTab() {
         <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
           <input type="checkbox" checked={tls} onChange={e => setDirty(d => ({ ...d, tls: e.target.checked }))}
             style={{ width: 15, height: 15, accentColor: 'var(--primary)', cursor: 'pointer' }} />
-          <span style={{ fontSize: 'var(--text-sm)' }}>Use TLS/STARTTLS</span>
+          <span style={{ fontSize: 'var(--text-sm)' }}>Require TLS (STARTTLS; port 465 always uses implicit TLS)</span>
         </label>
 
         <div style={{ display: 'flex', gap: 8, paddingTop: 4 }}>
@@ -345,7 +345,7 @@ function WebhookModal({ onClose, onDone }: { onClose: () => void; onDone: () => 
         </div>
 
         {/* Body template */}
-        <Field label="Body Template" hint="Variables: {{event}}, {{message}}, {{timestamp}}, {{severity}}">
+        <Field label="Body Template" hint="Variables: {{event}}, {{severity}}, {{pool}} (the pool, disk or job), {{message}}, {{hostname}}, {{timestamp}}">
           <textarea value={bodyTpl} onChange={e => setBodyTpl(e.target.value)}
             rows={4} className="input" style={{ fontFamily: 'var(--font-mono)', fontSize: 11, resize: 'vertical', lineHeight: 1.6 }} />
         </Field>

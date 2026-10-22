@@ -22,6 +22,7 @@ import (
 	"dplaned/internal/audit"
 	"dplaned/internal/cmdutil"
 	"dplaned/internal/config"
+	"dplaned/internal/firewall"
 	"dplaned/internal/systemd"
 
 	"crypto/x509"
@@ -59,12 +60,69 @@ func NewSnapshotScheduleHandler() *SnapshotScheduleHandler {
 
 type SnapshotSchedule struct {
 	Dataset       string `json:"dataset"`
-	Frequency     string `json:"frequency"`      // hourly, daily, weekly, monthly
+	Frequency     string `json:"frequency"`      // frequent (every 15 min), hourly, daily, weekly, monthly
 	Retention     int    `json:"retention"`      // number of snapshots to keep (count-based)
-	RetentionDays int    `json:"retention_days"` // destroy snapshots older than N days (0 = disabled)
+	RetentionDays int    `json:"retention_days"` // also destroy snapshots older than N days (0 = disabled)
 	Enabled       bool   `json:"enabled"`
-	Prefix        string `json:"prefix"` // auto-hourly, auto-daily, etc.
-	LastRun       string `json:"last_run,omitempty"`
+	Prefix        string `json:"prefix"`    // empty = auto-<frequency>
+	Recursive     bool   `json:"recursive"` // snapshot (and prune) the child datasets too
+	// TriggerReplication starts replication schedule ReplicationID after each snapshot.
+	TriggerReplication bool   `json:"trigger_replication,omitempty"`
+	ReplicationID      string `json:"replication_id,omitempty"`
+	LastRun            string `json:"last_run,omitempty"`
+}
+
+// snapshotCalendars maps a schedule frequency to its systemd OnCalendar.
+var snapshotCalendars = map[string]string{
+	"frequent": "*-*-* *:00/15:00",
+	"hourly":   "*-*-* *:00:00",
+	"daily":    "*-*-* 02:00:00",
+	"weekly":   "Sun *-*-* 03:00:00",
+	"monthly":  "*-*-01 04:00:00",
+}
+
+// effectivePrefix is the snapshot name prefix a schedule uses. Each frequency
+// gets its own by default, so the hourly pruning never removes daily snapshots.
+func (s SnapshotSchedule) effectivePrefix() string {
+	if s.Prefix != "" {
+		return s.Prefix
+	}
+	return "auto-" + s.Frequency
+}
+
+// validateSnapshotSchedules checks a full schedule list before it is saved.
+func validateSnapshotSchedules(schedules []SnapshotSchedule) error {
+	datasetPattern := regexp.MustCompile(`^[a-zA-Z0-9_\-/.]+$`)
+	prefixPattern := regexp.MustCompile(`^[a-zA-Z0-9_\-]+$`)
+	owner := map[string]string{} // dataset@prefix -> frequency
+	for _, s := range schedules {
+		if !datasetPattern.MatchString(s.Dataset) {
+			return fmt.Errorf("invalid dataset name: %s", s.Dataset)
+		}
+		if _, ok := snapshotCalendars[s.Frequency]; !ok {
+			return fmt.Errorf("invalid frequency %q (frequent, hourly, daily, weekly or monthly)", s.Frequency)
+		}
+		if s.Prefix != "" && !prefixPattern.MatchString(s.Prefix) {
+			return fmt.Errorf("invalid prefix: %s", s.Prefix)
+		}
+		if s.Retention < 1 || s.Retention > 1000 {
+			return fmt.Errorf("retention must be 1-1000")
+		}
+		if s.RetentionDays < 0 || s.RetentionDays > 3650 {
+			return fmt.Errorf("retention days must be 0-3650")
+		}
+		if s.TriggerReplication && s.ReplicationID == "" {
+			return fmt.Errorf("select the replication schedule to trigger for %s", s.Dataset)
+		}
+		// Two schedules with one prefix would prune each other's snapshots.
+		key := s.Dataset + "@" + s.effectivePrefix()
+		if f, dup := owner[key]; dup {
+			return fmt.Errorf("the %s and %s schedules of %s both use the prefix %q; give each its own prefix",
+				f, s.Frequency, s.Dataset, s.effectivePrefix())
+		}
+		owner[key] = s.Frequency
+	}
+	return nil
 }
 
 // ConfigDir is the base directory for DPlaneOS config files.
@@ -110,22 +168,9 @@ func (h *SnapshotScheduleHandler) SaveSchedules(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	// Validate datasets and prefixes - alphanumeric, underscores, hyphens, slashes, dots, @ (snapshots)
-	datasetPattern := regexp.MustCompile(`^[a-zA-Z0-9_\-/.@]+$`)
-	prefixPattern := regexp.MustCompile(`^[a-zA-Z0-9_\-]+$`)
-	for _, s := range schedules {
-		if !datasetPattern.MatchString(s.Dataset) {
-			respondErrorSimple(w, "Invalid dataset name: "+s.Dataset, http.StatusBadRequest)
-			return
-		}
-		if s.Prefix != "" && !prefixPattern.MatchString(s.Prefix) {
-			respondErrorSimple(w, "Invalid prefix: "+s.Prefix, http.StatusBadRequest)
-			return
-		}
-		if s.Retention < 1 || s.Retention > 1000 {
-			respondErrorSimple(w, "Retention must be 1-1000", http.StatusBadRequest)
-			return
-		}
+	if err := validateSnapshotSchedules(schedules); err != nil {
+		respondErrorSimple(w, err.Error(), http.StatusBadRequest)
+		return
 	}
 
 	// Save to file
@@ -176,26 +221,13 @@ func (h *SnapshotScheduleHandler) regenerateCron(schedules []SnapshotSchedule) e
 	// Remove legacy cron file
 	os.Remove("/etc/cron.d/dplaneos-snapshots")
 
-	for _, s := range schedules {
+	for i, s := range schedules {
 		if !s.Enabled {
 			continue
 		}
-		prefix := s.Prefix
-		if prefix == "" {
-			prefix = "auto-" + s.Frequency
-		}
-
-		var onCalendar string
-		switch s.Frequency {
-		case "hourly":
-			onCalendar = "*-*-* *:00:00"
-		case "daily":
-			onCalendar = "*-*-* 02:00:00"
-		case "weekly":
-			onCalendar = "Sun *-*-* 03:00:00"
-		case "monthly":
-			onCalendar = "*-*-01 04:00:00"
-		default:
+		prefix := s.effectivePrefix()
+		onCalendar, ok := snapshotCalendars[s.Frequency]
+		if !ok {
 			continue
 		}
 
@@ -207,6 +239,10 @@ func (h *SnapshotScheduleHandler) regenerateCron(schedules []SnapshotSchedule) e
 			"prefix":         prefix,
 			"retention":      s.Retention,
 			"retention_days": s.RetentionDays,
+			"recursive":      s.Recursive,
+		}
+		if s.TriggerReplication {
+			payloadObj["replication_id"] = s.ReplicationID
 		}
 		payloadBytes, _ := json.Marshal(payloadObj)
 		payload := string(payloadBytes)
@@ -222,9 +258,11 @@ func (h *SnapshotScheduleHandler) regenerateCron(schedules []SnapshotSchedule) e
 			safePayload,
 		)
 
-		// Sanitize dataset name for unit file (no / allowed)
+		// Sanitize dataset name for unit file (no / allowed). The index keeps
+		// the names apart where sanitizing does not (tank/a-b vs tank-a/b, or
+		// two schedules of one dataset and frequency with different prefixes).
 		safeDataset := strings.ReplaceAll(s.Dataset, "/", "-")
-		unitName := fmt.Sprintf("snap-%s-%s", safeDataset, s.Frequency)
+		unitName := fmt.Sprintf("snap-%d-%s-%s", i, safeDataset, s.Frequency)
 
 		err := systemd.InstallTimer(systemd.TimerConfig{
 			Name:        unitName,
@@ -245,23 +283,32 @@ func (h *SnapshotScheduleHandler) RunNow(w http.ResponseWriter, r *http.Request)
 	user := r.Header.Get("X-User")
 
 	var req struct {
-		Dataset string `json:"dataset"`
-		Prefix  string `json:"prefix"`
+		Dataset   string `json:"dataset"`
+		Prefix    string `json:"prefix"`
+		Recursive bool   `json:"recursive"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		respondErrorSimple(w, "Invalid JSON", http.StatusBadRequest)
 		return
 	}
 
-	datasetPattern := regexp.MustCompile(`^[a-zA-Z0-9_\-/.@]+$`)
-	if !datasetPattern.MatchString(req.Dataset) {
+	if !isValidDataset(req.Dataset) {
 		respondErrorSimple(w, "Invalid dataset name", http.StatusBadRequest)
+		return
+	}
+	// A run-now snapshot gets the schedule's prefix (so it is pruned like the
+	// others), or "manual" when none is given; never a name starting with "-".
+	if req.Prefix == "" {
+		req.Prefix = "manual"
+	}
+	if !regexp.MustCompile(`^[a-zA-Z0-9_\-]+$`).MatchString(req.Prefix) {
+		respondErrorSimple(w, "Invalid prefix", http.StatusBadRequest)
 		return
 	}
 
 	snapName := fmt.Sprintf("%s-%s", req.Prefix, time.Now().Format("20060102-1504"))
 	start := time.Now()
-	output, err := cmdutil.RunZFS("zfs", "snapshot", req.Dataset+"@"+snapName)
+	output, err := cmdutil.RunZFS("zfs", snapshotArgs(req.Dataset+"@"+snapName, req.Recursive)...)
 	duration := time.Since(start)
 
 	if err != nil {
@@ -284,22 +331,28 @@ func (h *SnapshotScheduleHandler) RunNow(w http.ResponseWriter, r *http.Request)
 // POST /api/zfs/snapshots/cron-hook
 func (h *SnapshotScheduleHandler) RunCronHook(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Dataset   string `json:"dataset"`
-		Prefix    string `json:"prefix"`
-		Retention int    `json:"retention"`
+		Dataset       string `json:"dataset"`
+		Prefix        string `json:"prefix"`
+		Retention     int    `json:"retention"`
+		RetentionDays int    `json:"retention_days"`
+		Recursive     bool   `json:"recursive"`
+		ReplicationID string `json:"replication_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		respondErrorSimple(w, "Invalid JSON", http.StatusBadRequest)
 		return
 	}
 
-	datasetPattern := regexp.MustCompile(`^[a-zA-Z0-9_\-/.@]+$`)
-	if !datasetPattern.MatchString(req.Dataset) {
+	if !isValidDataset(req.Dataset) {
 		respondErrorSimple(w, "Invalid dataset name", http.StatusBadRequest)
 		return
 	}
 	if req.Prefix == "" {
 		req.Prefix = "auto"
+	}
+	if !regexp.MustCompile(`^[a-zA-Z0-9_\-]+$`).MatchString(req.Prefix) {
+		respondErrorSimple(w, "Invalid prefix", http.StatusBadRequest)
+		return
 	}
 	if req.Retention < 1 {
 		req.Retention = 7
@@ -310,55 +363,116 @@ func (h *SnapshotScheduleHandler) RunCronHook(w http.ResponseWriter, r *http.Req
 
 	// Create snapshot
 	start := time.Now()
-	output, err := cmdutil.RunZFS("zfs", "snapshot", fullName)
+	output, err := cmdutil.RunZFS("zfs", snapshotArgs(fullName, req.Recursive)...)
 	duration := time.Since(start)
 	if err != nil {
 		audit.LogAction("snapshot_cron", "cron", fmt.Sprintf("Failed: %s: %s", fullName, string(output)), false, duration)
+		// Only the audit log knew: no snapshots were taken and no one was told.
+		DispatchAlert("warning", "snapshot.failed", req.Dataset,
+			fmt.Sprintf("Scheduled snapshot %s failed: %s", fullName, strings.TrimSpace(string(output))))
 		respondErrorSimple(w, "Snapshot failed", http.StatusInternalServerError)
 		return
 	}
 	audit.LogAction("snapshot_cron", "cron", fmt.Sprintf("Created %s", fullName), true, duration)
 
-	// Prune old snapshots beyond retention count (best-effort, non-fatal)
-	pruneOldSnapshots(req.Dataset, req.Prefix, req.Retention)
+	// Prune old snapshots beyond retention (best-effort, non-fatal)
+	pruneOldSnapshots(req.Dataset, req.Prefix, req.Retention, req.RetentionDays, req.Recursive, time.Now())
 
 	// Fire post-snapshot replication asynchronously
 	go TriggerPostSnapshotReplication(req.Dataset)
+	if req.ReplicationID != "" {
+		go TriggerReplicationSchedule(req.ReplicationID)
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{"success": true, "snapshot": fullName})
 }
 
-// pruneOldSnapshots destroys snapshots beyond the retention count for a dataset+prefix.
-func pruneOldSnapshots(dataset, prefix string, retention int) {
+// protectedSnapshot reports whether destroying snapshot (with -r: also the
+// same-named snapshots of the children) would remove a replication base.
+func protectedSnapshot(protected map[string]bool, snapshot string, recursive bool) bool {
+	if protected[snapshot] {
+		return true
+	}
+	if !recursive {
+		return false
+	}
+	ds, name, _ := strings.Cut(snapshot, "@")
+	for p := range protected {
+		pds, pname, _ := strings.Cut(p, "@")
+		if pname == name && strings.HasPrefix(pds, ds+"/") {
+			return true
+		}
+	}
+	return false
+}
+
+// snapshotArgs is the `zfs snapshot` argument list; -r snapshots the children
+// atomically with the dataset.
+func snapshotArgs(fullName string, recursive bool) []string {
+	if recursive {
+		return []string{"snapshot", "-r", fullName}
+	}
+	return []string{"snapshot", fullName}
+}
+
+// pruneOldSnapshots destroys the scheduled snapshots of a dataset that are
+// beyond the retention count or, with retentionDays set, older than that many
+// days. Only names written by the scheduler (<prefix>-YYYYMMDD-HHMM) count, so
+// prefix "auto" never touches "auto-daily-..." snapshots. The newest snapshot
+// and replication bases are always kept. Recursive schedules destroy the
+// same-named snapshot of the children with it (-r).
+func pruneOldSnapshots(dataset, prefix string, retention, retentionDays int, recursive bool, now time.Time) {
 	output, err := cmdutil.RunZFS("zfs",
-		"list", "-t", "snapshot", "-o", "name", "-s", "creation", "-H", dataset)
+		"list", "-H", "-p", "-t", "snapshot", "-o", "name,creation", "-s", "creation", "-d", "1", dataset)
 	if err != nil {
+		log.Printf("WARN: pruneOldSnapshots: list %s: %v", dataset, err)
 		return
 	}
-	var matching []string
+	protected, err := replicationBaseSnapshots()
+	if err != nil {
+		log.Printf("WARN: pruneOldSnapshots: %v", err)
+		return
+	}
+	scheduled := regexp.MustCompile(`^` + regexp.QuoteMeta(prefix) + `-[0-9]{8}-[0-9]{4}$`)
+	type snap struct {
+		name    string
+		created time.Time
+	}
+	var matching []snap // oldest first (zfs list -s creation)
 	for line := range strings.SplitSeq(strings.TrimSpace(string(output)), "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
 			continue
 		}
-		// Only consider snapshots with our prefix
-		_, snapPart, ok := strings.Cut(line, "@")
-		if !ok {
+		_, snapPart, ok := strings.Cut(fields[0], "@")
+		if !ok || !scheduled.MatchString(snapPart) {
 			continue
 		}
-		if strings.HasPrefix(snapPart, prefix+"-") {
-			matching = append(matching, line)
+		created, err := parseZFSCreation(fields[1:])
+		if err != nil {
+			continue
 		}
+		matching = append(matching, snap{fields[0], created})
 	}
 
-	// matching is sorted oldest-first (zfs list -s creation)
-	if len(matching) > retention {
-		toDelete := matching[:len(matching)-retention]
-		for _, snap := range toDelete {
-			if _, err := cmdutil.RunZFS("zfs", "destroy", snap); err != nil {
-				log.Printf("WARN: pruneOldSnapshots: failed to destroy %s: %v", snap, err)
-			}
+	cutoff := time.Time{}
+	if retentionDays > 0 {
+		cutoff = now.AddDate(0, 0, -retentionDays)
+	}
+	for i, s := range matching {
+		newest := i == len(matching)-1
+		beyondCount := i < len(matching)-retention
+		tooOld := !cutoff.IsZero() && s.created.Before(cutoff)
+		if newest || !(beyondCount || tooOld) || protectedSnapshot(protected, s.name, recursive) {
+			continue
+		}
+		args := []string{"destroy", s.name}
+		if recursive {
+			args = []string{"destroy", "-r", s.name}
+		}
+		if _, err := cmdutil.RunZFS("zfs", args...); err != nil {
+			log.Printf("WARN: pruneOldSnapshots: failed to destroy %s: %v", s.name, err)
 		}
 	}
 }
@@ -669,8 +783,8 @@ type FirewallHandler struct{}
 func NewFirewallHandler() *FirewallHandler { return &FirewallHandler{} }
 
 func (h *FirewallHandler) GetStatus(w http.ResponseWriter, r *http.Request) {
-	if NixWriter != nil && NixWriter.IsNixOS() {
-		h.GetStatusNixOS(w, r)
+	if onNixOS() {
+		firewallStatusNixOS(w)
 		return
 	}
 	output, err := cmdutil.RunFast("ufw", "status", "numbered")
@@ -693,43 +807,6 @@ func (h *FirewallHandler) GetStatus(w http.ResponseWriter, r *http.Request) {
 		"status":    status,
 		"rules":     rules,     // always a []map - never a raw string
 		"rules_raw": rawOutput, // raw text for debugging
-	})
-}
-
-// GetStatusNixOS provides a ufw-compatible status response from NixWriter state.
-func (h *FirewallHandler) GetStatusNixOS(w http.ResponseWriter, r *http.Request) {
-	state := NixWriter.State()
-	tcp := state.FirewallTCP
-	udp := state.FirewallUDP
-
-	var raw strings.Builder
-	raw.WriteString("Status: active\n\n     To                         Action      From\n     --                         ------      ----\n")
-
-	rules := []map[string]any{}
-	id := 1
-	for _, p := range tcp {
-		portStr := fmt.Sprintf("%d/tcp", p)
-		fmt.Fprintf(&raw, "[%2d] %-25s ALLOW IN    Anywhere\n", id, portStr)
-		rules = append(rules, map[string]any{
-			"id": id, "action": "allow", "port": fmt.Sprintf("%d", p), "proto": "tcp", "from": "Anywhere",
-		})
-		id++
-	}
-	for _, p := range udp {
-		portStr := fmt.Sprintf("%d/udp", p)
-		fmt.Fprintf(&raw, "[%2d] %-25s ALLOW IN    Anywhere\n", id, portStr)
-		rules = append(rules, map[string]any{
-			"id": id, "action": "allow", "port": fmt.Sprintf("%d", p), "proto": "udp", "from": "Anywhere",
-		})
-		id++
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{
-		"success":   true,
-		"status":    "active",
-		"rules":     rules,
-		"rules_raw": raw.String(),
 	})
 }
 
@@ -769,14 +846,26 @@ func (h *FirewallHandler) SetRule(w http.ResponseWriter, r *http.Request) {
 	user := r.Header.Get("X-User")
 
 	var req struct {
-		Action  string `json:"action"`   // allow, deny, delete, enable, disable, reset
+		Action  string `json:"action"`   // allow, deny, delete, update (NixOS), enable, disable
 		Port    string `json:"port"`     // e.g. "80/tcp", "443", "22/tcp"
+		Proto   string `json:"proto"`    // tcp | udp (or in port)
 		From    string `json:"from"`     // source IP/CIDR (optional)
-		RuleNum int    `json:"rule_num"` // for delete
+		Comment string `json:"comment"`  // NixOS
+		RuleNum int    `json:"rule_num"` // for delete / update
+		// update: the new rule's action
+		NewAction string `json:"new_action"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		respondErrorSimple(w, "Invalid JSON", http.StatusBadRequest)
 		return
+	}
+	if onNixOS() {
+		firewallRuleNixOS(w, r, req.Action,
+			firewall.Rule{Action: req.NewAction, Port: req.Port, Proto: req.Proto, From: req.From, Comment: req.Comment}, req.RuleNum)
+		return
+	}
+	if req.Proto != "" && req.Proto != "both" && req.Port != "" && !strings.Contains(req.Port, "/") {
+		req.Port += "/" + req.Proto
 	}
 
 	var args []string
@@ -820,18 +909,7 @@ func (h *FirewallHandler) SetRule(w http.ResponseWriter, r *http.Request) {
 	}
 
 	start := time.Now()
-	var (
-		output []byte
-		err    error
-	)
-	if NixWriter != nil && NixWriter.IsNixOS() {
-		// On NixOS we skip the real ufw command; persistFirewallFromRequest below
-		// will handle the state update.
-		output = []byte("Rule updated (NixOS native)")
-		err = nil
-	} else {
-		output, err = cmdutil.RunMedium("ufw", args...)
-	}
+	output, err := cmdutil.RunMedium("ufw", args...)
 	duration := time.Since(start)
 
 	if err != nil {
@@ -841,12 +919,6 @@ func (h *FirewallHandler) SetRule(w http.ResponseWriter, r *http.Request) {
 	}
 
 	audit.LogAction("firewall", user, fmt.Sprintf("ufw %s", strings.Join(args, " ")), true, duration)
-
-	// On NixOS: persist firewall state to dplane-generated.nix
-	// ufw is not used on NixOS; we translate allow/deny rules to NixOS port lists
-	if NixWriter != nil && NixWriter.IsNixOS() {
-		persistFirewallFromRequest(req.Action, req.Port)
-	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{"success": true, "output": string(output)})
@@ -898,6 +970,10 @@ func (h *CertHandler) ListCerts(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	if onNixOS() { // nginx is configured by NixOS; the certificate is in the bridge state
+		nginxCert = NixWriter.State().TLSCert
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{"success": true, "certs": certs, "active_cert": nginxCert})
 }
@@ -936,6 +1012,16 @@ func (h *CertHandler) DeleteCert(w http.ResponseWriter, r *http.Request) {
 	// 2. Delete files
 	certFile := filepath.Join(configPath("ssl"), req.Name+".crt")
 	keyFile := filepath.Join(configPath("ssl"), req.Name+".key")
+
+	// On NixOS the web server's certificate is in the system configuration
+	// (the guard above reads a file NixOS does not have): deleting it made
+	// nginx fail to start at the next rebuild or reboot, taking the UI down.
+	if onNixOS() {
+		if st := NixWriter.State(); st.TLSCert == certFile || st.TLSKey == keyFile {
+			respondErrorSimple(w, "This certificate is the web interface's; activate another one first", http.StatusForbidden)
+			return
+		}
+	}
 
 	_ = os.Remove(certFile)
 	_ = os.Remove(certFile + ".meta")
@@ -1284,7 +1370,7 @@ func (h *CertHandler) obtainCertificate(domain, name, email string, staging bool
 	}
 
 	j.Progress(map[string]string{"status": "setting_provider", "message": "Setting up HTTP-01 challenge server on port 8080..."})
-	err = client.Challenge.SetHTTP01Provider(http01.NewProviderServer("", "8080"))
+	err = client.Challenge.SetHTTP01Provider(http01.NewProviderServer("127.0.0.1", "8080"))
 	if err != nil {
 		return errors.New("Failed to set challenge provider: " + err.Error())
 	}
@@ -1446,7 +1532,7 @@ func (h *CertHandler) renewDueCertificates(j *jobs.Job) (renewed, failed int) {
 	}
 	if renewed > 0 {
 		// The files keep their names: the web server only has to read them again.
-		if out, err := cmdutil.RunFast("nginx", "-s", "reload"); err != nil {
+		if out, err := reloadWebServer(); err != nil {
 			j.Log("WARN: web server not reloaded: " + strings.TrimSpace(string(out)) + " " + err.Error())
 		}
 	}
@@ -1476,6 +1562,11 @@ func (h *CertHandler) StartACMERenewer(ctx context.Context) {
 			}
 			jobs.Start("acme_renew_all", func(j *jobs.Job) {
 				renewed, failed := h.renewDueCertificates(j)
+				// Only the job log knew; the certificate then expired.
+				if failed > 0 {
+					DispatchAlert("warning", "certificate.renewal_failed", "acme",
+						fmt.Sprintf("%d certificate(s) could not be renewed; they expire within 30 days. See the job log on the Certificates page.", failed))
+				}
 				j.Done(map[string]any{"renewed": renewed, "failed": failed})
 			})
 			timer.Reset(12 * time.Hour)
@@ -1708,56 +1799,12 @@ func (h *PowerMgmtHandler) SpindownNow(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]any{"success": true})
 }
 
-// SyncFirewallToNix reads current ufw rules, extracts simple allow rules,
-// and writes the port list to dplane-generated.nix.
-// POST /api/network/firewall/sync
-// Called by UI after any firewall change to keep NixOS in sync.
+// SyncFirewallToNix is kept for older clients. Rules made on the Firewall page
+// apply at once (FirewallRules); there is nothing to sync. It used to write
+// the port list from the request, and the page sent none, which emptied it.
+// POST /api/firewall/sync
 func (h *FirewallHandler) SyncFirewallToNix(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		respondErrorSimple(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	if NixWriter == nil || !NixWriter.IsNixOS() {
-		respondOK(w, map[string]any{
-			"success": true,
-			"message": "Not on NixOS - sync is a no-op",
-		})
-		return
-	}
-
-	// Accept explicit port list from request body (preferred - UI knows the desired state)
-	var req struct {
-		TCPPorts []int `json:"tcp_ports"` // complete desired TCP allow list
-		UDPPorts []int `json:"udp_ports"` // complete desired UDP allow list
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		respondErrorSimple(w, "Invalid request", http.StatusBadRequest)
-		return
-	}
-
-	// Validate port numbers
-	for _, p := range append(req.TCPPorts, req.UDPPorts...) {
-		if p < 1 || p > 65535 {
-			respondErrorSimple(w, fmt.Sprintf("Invalid port number: %d", p), http.StatusBadRequest)
-			return
-		}
-	}
-
-	if err := NixWriter.SetFirewallPorts(req.TCPPorts, req.UDPPorts); err != nil {
-		respondOK(w, map[string]any{
-			"success": false,
-			"error":   "Failed to write Nix firewall fragment: " + err.Error(),
-		})
-		return
-	}
-
-	log.Printf("[nixwriter] firewall synced: tcp=%v udp=%v", req.TCPPorts, req.UDPPorts)
-	respondOK(w, map[string]any{
-		"success":   true,
-		"tcp_ports": req.TCPPorts,
-		"udp_ports": req.UDPPorts,
-		"message":   "Firewall ports written to dplane-generated.nix - run nixos-rebuild switch to apply",
-	})
+	respondOK(w, map[string]any{"success": true, "message": "Firewall rules apply immediately; nothing to sync"})
 }
 
 // shareWithNginx gives the nginx group read access to a key file and
@@ -1781,4 +1828,15 @@ func shareWithNginx(dir, keyFile string) error {
 		return err
 	}
 	return os.Chmod(keyFile, 0o640)
+}
+
+// reloadWebServer makes nginx read its certificates again. On NixOS nginx
+// runs from a generated configuration that `nginx -s reload` does not find
+// (it signals the pid of the package's default configuration); the unit's
+// reload does it right.
+func reloadWebServer() ([]byte, error) {
+	if onNixOS() {
+		return cmdutil.RunFast("systemctl_reload_nginx", "reload", "nginx.service")
+	}
+	return cmdutil.RunFast("nginx", "-s", "reload")
 }

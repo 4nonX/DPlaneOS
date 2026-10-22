@@ -123,7 +123,11 @@ jobs:
       - name: Install build dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y gcc libc6-dev postgresql-client gcc-aarch64-linux-gnu qemu-user-static libc6-arm64-cross \
+          # pg_dump must match the server (postgres:15): client 15 from the PostgreSQL repository
+          sudo apt-get install -y postgresql-common && sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+          # ahead of Ubuntu's pg_wrapper, which picks the image's local 14 cluster (port 5432)
+          echo /usr/lib/postgresql/15/bin >> "$GITHUB_PATH"
+          sudo apt-get install -y gcc libc6-dev postgresql-client-15 gcc-aarch64-linux-gnu qemu-user-static libc6-arm64-cross \
             zfsutils-linux libzfslinux-dev pkg-config
 
       - name: Run Go Tests
@@ -226,7 +230,11 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y gcc libc6-dev zfsutils-linux postgresql-client python3-bcrypt curl nfs-kernel-server samba targetcli-fb acl ufw ipmitool
+          # pg_dump must match the server (postgres:15): client 15 from the PostgreSQL repository
+          sudo apt-get install -y postgresql-common && sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+          # ahead of Ubuntu's pg_wrapper, which picks the image's local 14 cluster (port 5432)
+          echo /usr/lib/postgresql/15/bin >> "$GITHUB_PATH"
+          sudo apt-get install -y gcc libc6-dev zfsutils-linux postgresql-client-15 python3-bcrypt curl nfs-kernel-server samba targetcli-fb acl ufw ipmitool
           sudo modprobe zfs
 
       - name: Positioning binary for scripts
@@ -273,7 +281,11 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y zfsutils-linux postgresql-client python3-bcrypt
+          # pg_dump must match the server (postgres:15): client 15 from the PostgreSQL repository
+          sudo apt-get install -y postgresql-common && sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+          # ahead of Ubuntu's pg_wrapper, which picks the image's local 14 cluster (port 5432)
+          echo /usr/lib/postgresql/15/bin >> "$GITHUB_PATH"
+          sudo apt-get install -y zfsutils-linux postgresql-client-15 python3-bcrypt
           sudo modprobe zfs
 
       - name: Positioning binary for scripts
@@ -324,7 +336,11 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y zfsutils-linux postgresql-client python3-bcrypt curl python3-bcrypt
+          # pg_dump must match the server (postgres:15): client 15 from the PostgreSQL repository
+          sudo apt-get install -y postgresql-common && sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+          # ahead of Ubuntu's pg_wrapper, which picks the image's local 14 cluster (port 5432)
+          echo /usr/lib/postgresql/15/bin >> "$GITHUB_PATH"
+          sudo apt-get install -y zfsutils-linux postgresql-client-15 python3-bcrypt curl python3-bcrypt
           sudo modprobe zfs
 
       - name: Positioning binary for scripts
@@ -372,7 +388,11 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y zfsutils-linux postgresql-client python3-bcrypt curl nginx nfs-kernel-server samba acl ufw
+          # pg_dump must match the server (postgres:15): client 15 from the PostgreSQL repository
+          sudo apt-get install -y postgresql-common && sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+          # ahead of Ubuntu's pg_wrapper, which picks the image's local 14 cluster (port 5432)
+          echo /usr/lib/postgresql/15/bin >> "$GITHUB_PATH"
+          sudo apt-get install -y zfsutils-linux postgresql-client-15 python3-bcrypt curl nginx nfs-kernel-server samba acl ufw
           sudo modprobe zfs
 
       - name: Positioning binary for scripts
@@ -421,7 +441,11 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y zfsutils-linux postgresql-client python3-bcrypt curl samba acl socat iptables
+          # pg_dump must match the server (postgres:15): client 15 from the PostgreSQL repository
+          sudo apt-get install -y postgresql-common && sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+          # ahead of Ubuntu's pg_wrapper, which picks the image's local 14 cluster (port 5432)
+          echo /usr/lib/postgresql/15/bin >> "$GITHUB_PATH"
+          sudo apt-get install -y zfsutils-linux postgresql-client-15 python3-bcrypt curl samba acl socat iptables
           sudo modprobe zfs
 
       - name: Positioning binary for scripts
@@ -468,7 +492,11 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y zfsutils-linux postgresql-client python3-bcrypt curl samba acl
+          # pg_dump must match the server (postgres:15): client 15 from the PostgreSQL repository
+          sudo apt-get install -y postgresql-common && sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+          # ahead of Ubuntu's pg_wrapper, which picks the image's local 14 cluster (port 5432)
+          echo /usr/lib/postgresql/15/bin >> "$GITHUB_PATH"
+          sudo apt-get install -y zfsutils-linux postgresql-client-15 python3-bcrypt curl samba acl
 
       - name: Positioning binary for scripts
         run: cp build/dplaned-linux-amd64-cgo ./dplaned-ci && chmod +x ./dplaned-ci
@@ -523,7 +551,11 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y zfsutils-linux postgresql-client python3-bcrypt curl git
+          # pg_dump must match the server (postgres:15): client 15 from the PostgreSQL repository
+          sudo apt-get install -y postgresql-common && sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+          # ahead of Ubuntu's pg_wrapper, which picks the image's local 14 cluster (port 5432)
+          echo /usr/lib/postgresql/15/bin >> "$GITHUB_PATH"
+          sudo apt-get install -y zfsutils-linux postgresql-client-15 python3-bcrypt curl git
           sudo modprobe zfs
 
       - name: Positioning binary for scripts
@@ -575,7 +607,12 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y gcc libc6-dev postgresql-client python3-bcrypt curl ipmitool \
+          # pg_dump must match the server (postgres:15); the arm64 image may
+          # not carry the PostgreSQL apt repository the x64 images have.
+          sudo apt-get install -y postgresql-common
+          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+          echo /usr/lib/postgresql/15/bin >> "$GITHUB_PATH"
+          sudo apt-get install -y gcc libc6-dev postgresql-client-15 python3-bcrypt curl ipmitool \
             zfsutils-linux nfs-kernel-server samba acl targetcli-fb
           sudo modprobe zfs
 
@@ -642,7 +679,9 @@ jobs:
           path: flake.lock
 
       - name: Evaluate NixOS modules and checks
-        run: nix flake check --no-build .
+        # One output per Nix process: `nix flake check --no-build` peaked at
+        # 14 GB with all VM checks and was killed on the 16 GB runner.
+        run: bash .github/scripts/eval-flake.sh .
 
   # ════════════════════════════════════════════════════════════════════════════
   # STAGE 5C: LIVE BOOT ISO BUILD - Live boot environment (no installation)
@@ -740,7 +779,7 @@ jobs:
           echo "iso_name=${ISO_NAME}" >> $GITHUB_OUTPUT
           echo "iso_sha=${ISO_NAME}.sha256" >> $GITHUB_OUTPUT
 
-          SYSTEM_PATH=$(nix eval --raw ".#nixosConfigurations.dplaneos-live${{ matrix.system == 'aarch64-linux' && '-arm' || '' }}.config.system.build.toplevel" 2>&1)
+          SYSTEM_PATH=$(nix eval --raw ".#nixosConfigurations.dplaneos-live${{ matrix.system == 'aarch64-linux' && '-arm' || '' }}.config.system.build.toplevel")  # warnings go to the log, not into the path
           if [[ "$SYSTEM_PATH" != /nix/store/* ]]; then
             echo "ERROR: could not resolve dplaneos-live toplevel: $SYSTEM_PATH"; exit 1
           fi
@@ -1253,7 +1292,7 @@ jobs:
           # nix eval --raw coerces the derivation to its outPath (/nix/store/...).
           # The store paths are already present (built during nix build .#iso above)
           # so this is just a metadata lookup, not a rebuild.
-          SYSTEM_PATH=$(nix eval --raw ".#nixosConfigurations.dplaneos-for-iso.config.system.build.toplevel" 2>&1)
+          SYSTEM_PATH=$(nix eval --raw ".#nixosConfigurations.dplaneos-for-iso.config.system.build.toplevel")  # warnings go to the log, not into the path
           echo "System toplevel: $SYSTEM_PATH"
           if [[ "$SYSTEM_PATH" != /nix/store/* ]]; then
             echo "ERROR: could not resolve dplaneos-for-iso toplevel: $SYSTEM_PATH"; exit 1
@@ -1364,7 +1403,7 @@ jobs:
           # is just the ISO derivation itself - the squashfs content is embedded,
           # not tracked as store dependencies. Query the system toplevel that was
           # baked into the squashfs; its closure is the full package inventory.
-          SYSTEM_PATH=$(nix eval --raw ".#nixosConfigurations.dplaneos-arm.config.system.build.toplevel" 2>&1)
+          SYSTEM_PATH=$(nix eval --raw ".#nixosConfigurations.dplaneos-arm.config.system.build.toplevel")  # warnings go to the log, not into the path
           echo "System toplevel: $SYSTEM_PATH"
           if [[ "$SYSTEM_PATH" != /nix/store/* ]]; then
             echo "ERROR: could not resolve dplaneos-arm toplevel: $SYSTEM_PATH"; exit 1

@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"os"
 	"strconv"
 	"strings"
 
 	"dplaned/internal/cmdutil"
+	"dplaned/internal/networkdwriter"
 	"dplaned/internal/nixwriter"
 	"dplaned/internal/nvmet"
 )
@@ -63,7 +65,7 @@ type LiveShare struct {
 	HostsAllow       string
 	HostsDeny        string
 }
- 
+
 // LiveNFSExport is an NFS export from the daemon DB.
 type LiveNFSExport struct {
 	ID      int64
@@ -107,20 +109,19 @@ type LiveReplication struct {
 	Enabled           bool
 }
 
-
 // LiveState is the complete observed system state.
 type LiveState struct {
-	Pools    []LivePool
-	Datasets []LiveDataset
-	Shares   []LiveShare
-	NFS      []LiveNFSExport
-	Stacks      []LiveStack
-	System      *nixwriter.DPlaneState
-	Users       []LiveUser
-	Groups      []LiveGroup
-	Replication []LiveReplication
-	LDAP        *DesiredLDAP
-	ACME        *DesiredACME
+	Pools        []LivePool
+	Datasets     []LiveDataset
+	Shares       []LiveShare
+	NFS          []LiveNFSExport
+	Stacks       []LiveStack
+	System       *nixwriter.DPlaneState
+	Users        []LiveUser
+	Groups       []LiveGroup
+	Replication  []LiveReplication
+	LDAP         *DesiredLDAP
+	ACME         *DesiredACME
 	Certificates []DesiredCertificate
 	SMART        []DesiredSMARTTask
 	// NVMeFabric is the persisted NVMe-oF target list (when fabrics are managed).
@@ -172,7 +173,7 @@ func ReadLiveState(db *sql.DB) (*LiveState, error) {
 	if err != nil {
 		return nil, fmt.Errorf("reading live NFS: %w", err)
 	}
- 
+
 	state.System, err = readLiveSystem()
 	if err != nil {
 		return nil, fmt.Errorf("reading live system: %w", err)
@@ -417,7 +418,7 @@ func readLiveShares(db *sql.DB) ([]LiveShare, error) {
 	}
 	return shares, nil
 }
- 
+
 func readLiveNFSExports(db *sql.DB) ([]LiveNFSExport, error) {
 	rows, err := db.Query(`SELECT id, path, clients, options, enabled FROM nfs_exports ORDER BY id`)
 	if err != nil {
@@ -425,7 +426,7 @@ func readLiveNFSExports(db *sql.DB) ([]LiveNFSExport, error) {
 		return nil, nil
 	}
 	defer rows.Close()
- 
+
 	var exports []LiveNFSExport
 	for rows.Next() {
 		var e LiveNFSExport
@@ -496,6 +497,7 @@ func readLiveSystem() (*nixwriter.DPlaneState, error) {
 		return nil, err
 	}
 	s := w.State()
+	overlayLiveNetwork(&s, networkdwriter.Default().State())
 	return &s, nil
 }
 
@@ -523,19 +525,58 @@ func HasActiveSMBConnections(shareName string) bool {
 	return false
 }
 
-// GetDatasetUsedBytes is a mockable function variable for retrieving dataset usage.
-// In production, it points to the real DatasetUsedBytes implementation.
-var GetDatasetUsedBytes = datasetUsedBytesImpl
+// DatasetEmpty is a mockable function variable reporting whether a dataset
+// holds nothing GitOps could lose by destroying it. When it does not, reason
+// says what it holds ("holds 3 files", "has 2 snapshots", ...).
+var DatasetEmpty = datasetEmptyImpl
 
-// datasetUsedBytesImpl returns the `used` property of a dataset in bytes.
-// Returns an error if the property cannot be read safely.
-func datasetUsedBytesImpl(name string) (uint64, error) {
-	out, err := cmdutil.RunZFS("zfs", "get", "-H", "-p", "-o", "value", "used", name)
+// datasetEmptyImpl: a dataset is empty when it has no child datasets and no
+// snapshots, is a filesystem (a volume's content cannot be inspected) and
+// its mounted directory has no entries. ZFS `used` cannot tell: even a new,
+// empty filesystem reports its metadata (~100 KiB) as used. Not being able to
+// look (not mounted, locked) is an error, never "empty".
+func datasetEmptyImpl(name string) (bool, string, error) {
+	out, err := cmdutil.RunZFS("zfs", "list", "-H", "-r", "-t", "all", "-o", "name,type,mounted,mountpoint", name)
 	if err != nil {
-		return 0, err
+		return false, "", fmt.Errorf("zfs list %s: %v: %s", name, err, strings.TrimSpace(string(out)))
 	}
-	n, err := strconv.ParseUint(strings.TrimSpace(string(out)), 10, 64)
-	return n, err
+	var self []string
+	children, snapshots := 0, 0
+	for line := range strings.SplitSeq(strings.TrimSpace(string(out)), "\n") {
+		f := strings.Split(line, "\t")
+		if len(f) < 4 {
+			continue
+		}
+		switch {
+		case f[0] == name:
+			self = f
+		case f[1] == "bookmark": // no data of its own
+		case f[1] == "snapshot":
+			snapshots++
+		default:
+			children++
+		}
+	}
+	switch {
+	case self == nil:
+		return false, "", fmt.Errorf("dataset %s not found", name)
+	case children > 0:
+		return false, fmt.Sprintf("has %d child dataset(s)", children), nil
+	case snapshots > 0:
+		return false, fmt.Sprintf("has %d snapshot(s)", snapshots), nil
+	case self[1] != "filesystem":
+		return false, "is a " + self[1] + ", whose content cannot be checked", nil
+	case self[2] != "yes":
+		return false, "", fmt.Errorf("dataset %s is not mounted (locked, or canmount=off): its content cannot be checked", name)
+	}
+	entries, err := os.ReadDir(self[3])
+	if err != nil {
+		return false, "", fmt.Errorf("read %s: %v", self[3], err)
+	}
+	if len(entries) > 0 {
+		return false, fmt.Sprintf("holds %d file(s) or folder(s) in %s", len(entries), self[3]), nil
+	}
+	return true, "", nil
 }
 
 func readLDAPConfig(db *sql.DB) (*DesiredLDAP, error) {
