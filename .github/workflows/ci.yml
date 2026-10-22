@@ -123,6 +123,8 @@ jobs:
       - name: Install build dependencies
         run: |
           sudo apt-get update -qq
+          # pg_dump must match the server (postgres:15): client 15 from the PostgreSQL repository
+          sudo apt-get install -y postgresql-common && sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
           sudo apt-get install -y gcc libc6-dev postgresql-client-15 gcc-aarch64-linux-gnu qemu-user-static libc6-arm64-cross \
             zfsutils-linux libzfslinux-dev pkg-config
 
@@ -226,6 +228,8 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update -qq
+          # pg_dump must match the server (postgres:15): client 15 from the PostgreSQL repository
+          sudo apt-get install -y postgresql-common && sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
           sudo apt-get install -y gcc libc6-dev zfsutils-linux postgresql-client-15 python3-bcrypt curl nfs-kernel-server samba targetcli-fb acl ufw ipmitool
           sudo modprobe zfs
 
@@ -273,6 +277,8 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update -qq
+          # pg_dump must match the server (postgres:15): client 15 from the PostgreSQL repository
+          sudo apt-get install -y postgresql-common && sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
           sudo apt-get install -y zfsutils-linux postgresql-client-15 python3-bcrypt
           sudo modprobe zfs
 
@@ -324,6 +330,8 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update -qq
+          # pg_dump must match the server (postgres:15): client 15 from the PostgreSQL repository
+          sudo apt-get install -y postgresql-common && sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
           sudo apt-get install -y zfsutils-linux postgresql-client-15 python3-bcrypt curl python3-bcrypt
           sudo modprobe zfs
 
@@ -372,6 +380,8 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update -qq
+          # pg_dump must match the server (postgres:15): client 15 from the PostgreSQL repository
+          sudo apt-get install -y postgresql-common && sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
           sudo apt-get install -y zfsutils-linux postgresql-client-15 python3-bcrypt curl nginx nfs-kernel-server samba acl ufw
           sudo modprobe zfs
 
@@ -421,6 +431,8 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update -qq
+          # pg_dump must match the server (postgres:15): client 15 from the PostgreSQL repository
+          sudo apt-get install -y postgresql-common && sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
           sudo apt-get install -y zfsutils-linux postgresql-client-15 python3-bcrypt curl samba acl socat iptables
           sudo modprobe zfs
 
@@ -468,6 +480,8 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update -qq
+          # pg_dump must match the server (postgres:15): client 15 from the PostgreSQL repository
+          sudo apt-get install -y postgresql-common && sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
           sudo apt-get install -y zfsutils-linux postgresql-client-15 python3-bcrypt curl samba acl
 
       - name: Positioning binary for scripts
@@ -523,6 +537,8 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update -qq
+          # pg_dump must match the server (postgres:15): client 15 from the PostgreSQL repository
+          sudo apt-get install -y postgresql-common && sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
           sudo apt-get install -y zfsutils-linux postgresql-client-15 python3-bcrypt curl git
           sudo modprobe zfs
 
