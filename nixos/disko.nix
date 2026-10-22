@@ -19,8 +19,9 @@
 # Key properties:
 #   - / holds the Nix store and the NixOS generations. An update builds the
 #     new release as another generation here and boots it (ota-module.nix);
-#     the previous generations stay bootable. (Installs before 15.2 have a
-#     second, unused 20 GB partition "system-b" from the former A/B scheme.)
+#     the previous generations stay bootable. (Installs before 16.0 have a
+#     second, unused 20 GB partition "system-b" from the former A/B scheme,
+#     and the labels ESP, system-a, persist: legacyPartitionLabels below.)
 #     SSH host keys, and all daemon state. See impermanence.nix.
 #   - /boot is the EFI System Partition (one boot entry per generation).
 #   - The remaining ~78 GB goes entirely to /persist : on a 128 GB NVMe
@@ -36,10 +37,36 @@
 #   disko.devices.disk.os.device = "/dev/nvme1n1";
 # ─────────────────────────────────────────────────────────────────────────────
 
-{ ... }:
+{ config, lib, ... }:
 
+let
+  # Installs before 16.0 have the partition labels ESP, system-a and persist
+  # (and an unused system-b). A rebuild runs --impure (OTA-UPDATES.md), so
+  # the machine's own disks can be looked at; pure evaluations (CI, the ISO
+  # images) cannot and get the current labels.
+  hasPartLabel = l: builtins ? currentSystem && builtins.pathExists "/dev/disk/by-partlabel/${l}";
+  legacyDetected = hasPartLabel "system-a" && hasPartLabel "persist" && !(hasPartLabel "dplaneos-system");
+in
 {
-  disko.devices = {
+  options.services.dplaneos.legacyPartitionLabels = lib.mkOption {
+    type        = lib.types.bool;
+    default     = legacyDetected;
+    defaultText = lib.literalExpression "true on a machine whose disk has the partition labels of installs before 16.0";
+    description = ''
+      Mount the system disk by the partition labels of installs before 16.0
+      (ESP, system-a, persist) instead of dplaneos-esp, dplaneos-system and
+      dplaneos-persist. Detected during a rebuild on the machine itself;
+      set it in /etc/nixos/local.nix when building elsewhere.
+    '';
+  };
+
+  config.fileSystems = lib.mkIf config.services.dplaneos.legacyPartitionLabels {
+    "/".device        = lib.mkForce "/dev/disk/by-partlabel/system-a";
+    "/boot".device    = lib.mkForce "/dev/disk/by-partlabel/ESP";
+    "/persist".device = lib.mkForce "/dev/disk/by-partlabel/persist";
+  };
+
+  config.disko.devices = {
 
     disk.os = {
       # ── OS boot disk (Patriot P300 128 GB NVMe) ───────────────────────────
@@ -127,5 +154,5 @@
       }; # content
     }; # disk.os
 
-  }; # disko.devices
+  }; # config.disko.devices
 }

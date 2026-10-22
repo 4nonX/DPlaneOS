@@ -3,8 +3,11 @@ package audit
 import (
 	"crypto/rand"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
+
+	"dplaned/internal/fsutil"
 )
 
 // LoadOrCreateAuditKey reads the 32-byte HMAC key from path.
@@ -16,12 +19,16 @@ func LoadOrCreateAuditKey(path string) ([]byte, error) {
 	// Try to read existing key
 	data, err := os.ReadFile(path)
 	if err == nil {
-		if len(data) != 32 {
+		if len(data) == 32 {
+			return data, nil
+		}
+		if len(data) != 0 {
 			return nil, fmt.Errorf("audit key at %s has wrong length %d (want 32)", path, len(data))
 		}
-		return data, nil
-	}
-	if !os.IsNotExist(err) {
+		// Empty: created by a version before 16.0 and lost in a crash before
+		// it reached the disk. The chain starts again with a new key.
+		log.Printf("WARNING: audit key at %s is empty (lost in a power loss); creating a new one, the audit chain before it cannot be verified", path)
+	} else if !os.IsNotExist(err) {
 		return nil, fmt.Errorf("reading audit key: %w", err)
 	}
 
@@ -35,7 +42,7 @@ func LoadOrCreateAuditKey(path string) ([]byte, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		return nil, fmt.Errorf("creating audit key dir: %w", err)
 	}
-	if err := os.WriteFile(path, key, 0600); err != nil {
+	if err := fsutil.WriteFileDurable(path, key, 0600); err != nil {
 		return nil, fmt.Errorf("writing audit key: %w", err)
 	}
 

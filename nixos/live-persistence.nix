@@ -8,16 +8,22 @@
 #   - Logs (/var/log) are tmpfs
 #   - Tmp (/tmp) is tmpfs
 #
-# Optional persistence:
-#   - Mount USB drive labeled "dplane-persist" if present
-#   - Link daemon state to USB for survival across reboots
-#   - Gracefully degrade to ephemeral if USB not present
-#
-# Implementation uses nix-community/impermanence module for declarative
-# definition of what's ephemeral vs. persistent.
+# Optional persistence: an ext4 drive labelled "dplane-persist" that is
+# attached at boot holds the daemon's state (dplane-link-persist below):
+#   /var/lib/dplaneos   database, settings, secrets key, firewall rules
+#   /etc/dplaneos       daemon configuration
+#   /etc/target         iSCSI targets
+#   network/            the 05-dplane-* files of /etc/systemd/network
+# Without the drive the system runs from RAM as before.
 
 { config, lib, pkgs, ... }:
 
+let
+  # Directories kept on the drive, bind-mounted over the RAM copies.
+  persistedDirs = [ "/var/lib/dplaneos" "/etc/dplaneos" "/etc/target" ];
+  usb   = "/mnt/usb-persist";
+  state = "${usb}/dplaneos-state";
+in
 {
   # ── Root filesystem: ephemeral tmpfs for live boot ───────────────────────
   # Live boot runs entirely in RAM. Root is tmpfs (or overlay on squashfs).
@@ -28,7 +34,6 @@
 
   # ── Ephemeral /persist directory (tmpfs for daemon state) ──────────────────
   # Live boot always uses tmpfs for /persist (no persistent partition).
-  # Optional USB storage can be mounted at /mnt/usb-persist for daemon state.
   fileSystems."/persist" = {
     fsType = "tmpfs";
     neededForBoot = true;
@@ -38,118 +43,93 @@
     ];
   };
 
-  # ── Optional: Mount external USB if present ──────────────────────────────
-  # If a USB drive labeled "dplane-persist" is connected, mount it.
-  # If not present, system still boots (tmpfs fallback).
-  # Device discovery via udev label.
-  fileSystems."/mnt/usb-persist" = lib.mkIf true {
-    device = "/dev/disk/by-label/dplane-persist";
-    fsType = "ext4";
-
-    # Don't fail boot if USB not present
-    options = [
-      "nofail"
-      "x-systemd.device-timeout=5"  # 5s timeout, then continue
-      "x-systemd.automount"
-    ];
-  };
-
   # ── Declare persistent directories (impermanence) ────────────────────────
-  # These directories are preserved either in tmpfs (ephemeral) or
-  # linked to USB (persistent if mounted).
-
+  # /persist is tmpfs here: these survive only until shutdown.
   environment.persistence."/persist" = {
-    # Directories that must be persistent across sessions
     directories = [
       # User/group database (impermanence requires this for stable UIDs/GIDs)
-      # Without this, users assigned ephemeral IDs will be reassigned on reboot
       "/var/lib/nixos"
-
-      # System state (created by services at boot)
       "/var/cache"
       "/var/log"
-
-      # D-PlaneOS daemon state (conditional: only if USB present)
-      # See dplane-link-persist.service below
     ];
-
-    # Critical files
     files = [
       # Machine identity (systemd requires this as a FILE, not a directory)
       "/etc/machine-id"
-
-      # SSH host keys (if user wants to preserve identity)
-      # Note: /etc/ssh is typically read-only from squashfs;
-      # this is a fallback for future install-to-disk scenarios
-      # "/etc/ssh/ssh_host_rsa_key"
-      # "/etc/ssh/ssh_host_ed25519_key"
     ];
   };
 
-  # ── Systemd service: Link daemon state to USB if present ────────────────
-  # On boot, check if USB persist mount succeeded.
-  # If so, bind /var/lib/dplaneos to it for daemon state preservation.
-
+  # ── The persistence drive ────────────────────────────────────────────────
+  # Until 16.0 the drive was mounted and a link /var/lib/dplaneos-persist
+  # made to it, which nothing used: the database and settings stayed in RAM
+  # with the drive attached. Now the drive's directories are bind-mounted
+  # over the state directories before anything reads them (firewall rules,
+  # networkd, PostgreSQL, the daemon).
   systemd.services.dplane-link-persist = {
-    description = "Link D-PlaneOS daemon state to persistent USB storage (if available)";
-    # mountpoint: without it the USB check always failed (command not found
-    # reads as "not mounted") and the state was never linked.
-    path = [ pkgs.util-linux ];
+    description = "Keep D-PlaneOS state on the dplane-persist drive (if attached)";
+    path = [ pkgs.coreutils pkgs.util-linux pkgs.systemd ];
 
-    # Run after:
-    #   - ZFS auto-import (pools ready)
-    #   - USB mount timeout (know if USB is present)
-    # Run before:
-    #   - Daemon startup
-    after = [
-      "dplane-zfs-auto-import.service"
-      "mnt-usb-persist.mount"  # systemd generates this from fileSystems entry
-    ];
-
-    before = [
-      "dplaned.service"
-    ];
-
-    wantedBy = [ "multi-user.target" ];
+    unitConfig.DefaultDependencies = false;
+    after     = [ "local-fs.target" "systemd-udev-trigger.service" ];
+    before    = [ "network-pre.target" "dplaneos-firewall.service" "systemd-networkd.service"
+                  "postgresql.service" "dplaned.service" "shutdown.target" ];
+    conflicts = [ "shutdown.target" ];
+    wantedBy  = [ "multi-user.target" "postgresql.service" "dplaned.service" ];
 
     serviceConfig = {
       Type = "oneshot";
       RemainAfterExit = true;
-      User = "root";
-      Group = "root";
-      StandardOutput = "journal";
-      StandardError = "journal";
     };
 
     script = ''
-      set -e
-      export PATH=${lib.makeBinPath [ pkgs.coreutils pkgs.util-linux ]}:$PATH
-
-      echo "[dplane-link-persist] Checking for USB persistence mount..."
-
-      # Check if USB mount exists and is actually mounted
-      if [ -d /mnt/usb-persist ] && mountpoint -q /mnt/usb-persist; then
-        echo "✓ USB persist mount detected at /mnt/usb-persist"
-
-        # Create state directory on USB
-        mkdir -p /mnt/usb-persist/dplaneos-state
-        mkdir -p /mnt/usb-persist/dplaneos-state/pgsql
-        mkdir -p /mnt/usb-persist/dplaneos-state/docker
-
-        # Link daemon state to USB
-        # Note: daemon service must be configured to use this symlink
-        ln -sfn /mnt/usb-persist/dplaneos-state /var/lib/dplaneos-persist
-
-        echo "✓ Daemon state linked to USB for persistence"
-
-        # Mark that persistence is available
-        touch /run/dplane-persist-available
-
-      else
-        echo "⚠ USB persist mount not available (using tmpfs ephemeral)"
-        echo "  To enable persistence, mount USB labeled 'dplane-persist'"
+      dev=/dev/disk/by-label/dplane-persist
+      # USB drives can take a few seconds to appear.
+      for _ in $(seq 1 20); do [ -e "$dev" ] && break; sleep 0.5; done
+      if [ ! -e "$dev" ]; then
+        echo "no drive labelled dplane-persist: state is kept in RAM until shutdown"
         touch /run/dplane-persist-ephemeral
+        exit 0
       fi
+
+      mkdir -p ${usb}
+      mountpoint -q ${usb} || mount -o noatime "$dev" ${usb}
+      ${lib.concatMapStrings (d: ''
+        mkdir -p "${state}${d}" "${d}"
+        mountpoint -q "${d}" || mount --bind "${state}${d}" "${d}"
+      '') persistedDirs}
+      # Owners and modes of the state directories (first use of a drive).
+      systemd-tmpfiles --create ${lib.concatMapStringsSep " " (d: "--prefix=${d}") persistedDirs}
+
+      # networkd files: copied, not mounted (a mount over the directory
+      # hides the NixOS files in it); saved back by dplane-persist-network.
+      mkdir -p ${state}/network
+      for f in ${state}/network/05-dplane-*; do
+        if [ -e "$f" ]; then cp -a "$f" /etc/systemd/network/; fi
+      done
+
+      echo "state is kept on $dev"
+      touch /run/dplane-persist-available
+    '';
+  };
+
+  # Saves the daemon's network files to the drive whenever they change.
+  systemd.paths.dplane-persist-network = {
+    wantedBy = [ "multi-user.target" ];
+    after    = [ "dplane-link-persist.service" ];
+    unitConfig.ConditionPathExists = "/run/dplane-persist-available";
+    pathConfig.PathChanged = "/etc/systemd/network";
+  };
+  systemd.services.dplane-persist-network = {
+    description = "Save D-PlaneOS network settings to the dplane-persist drive";
+    unitConfig.ConditionPathExists = "/run/dplane-persist-available";
+    serviceConfig.Type = "oneshot";
+    path = [ pkgs.coreutils ];
+    script = ''
+      mkdir -p ${state}/network
+      rm -f ${state}/network/05-dplane-*
+      for f in /etc/systemd/network/05-dplane-*; do
+        if [ -e "$f" ]; then cp -a "$f" ${state}/network/; fi
+      done
+      sync -f ${state}/network
     '';
   };
 
@@ -157,15 +137,8 @@
   environment.etc."dplaneos-live/mode".text = "live-boot";
   environment.etc."dplaneos-live/persist-status".source = "/run/dplane-persist-available";
 
-  # ── Ensure daemon service respects persistence setup ──────────────────
-  # If USB is mounted, daemon should use /var/lib/dplaneos-persist
-  # Otherwise, use tmpfs /var/lib/dplaneos (lost on shutdown)
-  #
-  # This is handled by daemon configuration in applianceConfig (flake.nix),
-  # with fallback to /persist/var/lib/dplaneos for tmpfs case.
-
   systemd.services.dplaned = lib.mkIf (config.services.dplaneos.enable or false) {
-    # Ensure persistence link is created before daemon starts
     after = [ "dplane-link-persist.service" ];
   };
+  systemd.services.postgresql.after = [ "dplane-link-persist.service" ];
 }

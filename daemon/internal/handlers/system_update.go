@@ -115,7 +115,7 @@ func GetSystemUpdate(w http.ResponseWriter, r *http.Request) {
 	respondOK(w, resp)
 }
 
-// ApplySystemUpdate: POST /api/system/updates/nixos/apply { "version": "v15.2.0" }
+// ApplySystemUpdate: POST /api/system/updates/nixos/apply { "version": "v16.0.0" }
 // (empty: the latest release). The machine reboots when the build is done.
 func ApplySystemUpdate(w http.ResponseWriter, r *http.Request) {
 	var req struct {

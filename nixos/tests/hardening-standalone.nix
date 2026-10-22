@@ -40,6 +40,14 @@ pkgs.testers.nixosTest {
     networking.hostName = lib.mkForce "n";
     networking.hostId   = lib.mkForce "aaaa0009";
     boot.kernelParams = [ ];
+    # No background writeback: file data reaches the disk only when it is
+    # synced, so a power loss loses everything that was not (on a fast
+    # machine the 30 s writeback hid this: an unsynced secrets key came back
+    # empty after the power loss, and the daemon never started again).
+    boot.kernel.sysctl = {
+      "vm.dirty_writeback_centisecs" = 0;
+      "vm.dirty_expire_centisecs"    = 8640000;
+    };
     systemd.services.systemd-random-seed.enable = false;
     virtualisation.cores = 2;
     virtualisation.memorySize = 2048;
@@ -157,7 +165,9 @@ pkgs.testers.nixosTest {
             log_matches_live("after a power loss following a rollback")
 
         with subtest("No daemon panics, security refusals or security warnings"):
-            bad = n.execute("journalctl --no-pager -u dplaned | grep -E 'panic:|SECURITY WARNING|security refusal' || true")[1].strip()
+            bad = n.execute("journalctl --no-pager -u dplaned | grep -E 'panic:|SECURITY WARNING|security refusal|is empty \\(lost in a power loss\\)' || true")[1].strip()
+            assert bad == "", bad
+            bad = n.execute("journalctl --no-pager | grep -E 'Activation script snippet .* failed' || true")[1].strip()
             assert bad == "", bad
     except Exception:
         diag()

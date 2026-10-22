@@ -38,6 +38,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"dplaned/internal/fsutil"
 )
 
 // Format identifies the archive layout.
@@ -537,13 +539,9 @@ func ApplyStaged(db *sql.DB, dsn, configDir, version string) *Result {
 			errs = append(errs, p+": "+err.Error())
 			continue
 		}
-		tmp := dst + ".restore-tmp"
-		if err := os.WriteFile(tmp, data, info.Mode().Perm()); err != nil {
-			errs = append(errs, p+": "+err.Error())
-			continue
-		}
-		if err := os.Rename(tmp, dst); err != nil {
-			os.Remove(tmp)
+		// Durable: the restore includes the secrets key, and the database
+		// restored above is sealed with it.
+		if err := fsutil.WriteFileDurable(dst, data, info.Mode().Perm()); err != nil {
 			errs = append(errs, p+": "+err.Error())
 			continue
 		}

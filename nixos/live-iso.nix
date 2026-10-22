@@ -104,17 +104,17 @@
         zpool list                  # List ZFS pools
         zfs list                    # List datasets
         docker ps                   # List containers
-        journalctl -u dplaneos -f   # Follow daemon logs
+        journalctl -u dplaned -f    # Follow daemon logs
 
     💾  PERSISTENCE (Optional)
         System state is ephemeral by default (lost on shutdown).
-        To persist daemon configuration and Docker state:
-          1. Mount USB drive labeled "dplane-persist"
-          2. Daemon state will link to USB automatically on boot
+        To keep the daemon's database, settings and network configuration:
+          1. Format a drive as ext4 labelled "dplane-persist"
+          2. Attach it and reboot: the state is kept there from then on
 
     🛠️  TROUBLESHOOTING
         Check ZFS auto-import: journalctl -u dplane-zfs-auto-import
-        Check daemon status: systemctl status dplaneos
+        Check daemon status: systemctl status dplaned
         Check docker status: systemctl status docker
 
     📖  DOCUMENTATION

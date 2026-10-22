@@ -120,7 +120,7 @@
       docker ps               # List containers
 
     System state is ephemeral (lost on shutdown).
-    To persist daemon config, mount USB labeled "dplane-persist".
+    To keep it, attach an ext4 drive labelled "dplane-persist" and reboot.
 
     Type 'exit' to return to login prompt.
   '';
@@ -163,9 +163,10 @@
     mkdir -p /etc/systemd/network
     mkdir -p /etc/systemd/resolved.conf.d
 
-    # Create required /etc files (empty is fine)
-    touch /etc/crontab
-    touch /etc/exports
+    # Create required /etc files (empty is fine). Only when missing: after
+    # a reboot they can be links into the read-only store (touch fails).
+    [ -e /etc/crontab ] || [ -L /etc/crontab ] || touch /etc/crontab
+    [ -e /etc/exports ] || [ -L /etc/exports ] || touch /etc/exports
   '';
 
   # ── Ensure services start after ZFS auto-import ───────────────────────

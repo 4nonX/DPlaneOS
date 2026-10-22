@@ -6,7 +6,9 @@
 #   3. ZFS pools are auto-discovered and imported
 #   4. Docker engine is operational
 #   5. Root filesystem is ephemeral (tmpfs)
-#   6. System gracefully handles shutdown
+#   6. A drive labelled dplane-persist keeps the database, the settings and
+#      the network files across reboots
+#   7. System gracefully handles shutdown
 #
 # Run locally:
 #   nix build .#checks.x86_64-linux.live-boot -L
@@ -69,7 +71,8 @@ pkgs.testers.nixosTest {
 
     # Four 512 MiB data disks with serials (two mirrors in the smoke test).
     # Pool creation only accepts /dev/disk/by-id paths, which need a serial.
-    virtualisation.emptyDiskImages = map ciDisk [ "dplaneci0" "dplaneci1" "dplaneci2" "dplaneci3" ];
+    # The fifth becomes the dplane-persist drive in the persistence step.
+    virtualisation.emptyDiskImages = map ciDisk [ "dplaneci0" "dplaneci1" "dplaneci2" "dplaneci3" "dplpersist" ];
   };
 
   testScript = ''
@@ -207,12 +210,51 @@ pkgs.testers.nixosTest {
         ip_output = liveSystem.succeed("ip addr show | grep 'inet ' | head -1")
         print(f"Network config: {ip_output}")
 
-    # ── Step 12: Check for data persistence markers ──────────────────────────
-    @test_step("Check persistence markers")
+    # ── Step 12: The dplane-persist drive keeps the daemon's state ───────────
+    def reboot_live():
+        liveSystem.shutdown()
+        liveSystem.start()
+        try:
+            liveSystem.wait_for_unit("dplaned.service")
+            liveSystem.wait_until_succeeds("curl -sf http://localhost/api/system/status >/dev/null", timeout=180)
+        except Exception:
+            dump_diagnostics()
+            print(liveSystem.execute("journalctl -b --no-pager -u dplane-link-persist -u dplane-persist-network")[1])
+            raise
+
+    def post(path, body, headers=""):
+        return liveSystem.succeed(f"curl -s -o /dev/null -w '%{{http_code}}' -X POST http://localhost{path} -H 'Content-Type: application/json' {headers} -d '{body}'").strip()
+
+    def session(password):
+        import json
+        sid = json.loads(liveSystem.succeed(f"curl -s -X POST http://localhost/api/auth/login -H 'Content-Type: application/json' -d '{{\"username\":\"admin\",\"password\":\"{password}\"}}'"))["session_id"]
+        csrf = json.loads(liveSystem.succeed(f"curl -s http://localhost/api/csrf -H 'X-Session-ID: {sid}' -H 'X-User: admin'"))["csrf_token"]
+        return f"-H 'X-Session-ID: {sid}' -H 'X-User: admin' -H 'X-CSRF-Token: {csrf}'"
+
+    @test_step("Persistence drive keeps the daemon's state")
     def check_persistence():
-        # Live environment creates markers for persistent/ephemeral mode
-        ephemeral_marker = liveSystem.succeed("ls /run/dplane-persist-* 2>&1 || echo 'none'")
-        print(f"Persistence mode: {ephemeral_marker}")
+        # No labelled drive at the first boot: state in RAM.
+        liveSystem.succeed("test -e /run/dplane-persist-ephemeral")
+        liveSystem.succeed("${pkgs.e2fsprogs}/bin/mkfs.ext4 -q -L dplane-persist /dev/disk/by-id/virtio-dplpersist")
+
+        reboot_live()
+        liveSystem.succeed("test -e /run/dplane-persist-available")
+        for d in ["/var/lib/dplaneos", "/var/lib/dplaneos/pgsql", "/etc/dplaneos", "/etc/target"]:
+            fs = liveSystem.succeed(f"findmnt -n -o FSTYPE --target {d}").strip()
+            assert fs == "ext4", f"{d} is on {fs}, not on the drive"
+        assert post("/api/system/setup-admin", '{"username":"admin","password":"Persist-Pass-1"}') == "200"
+        # A network change made in the UI (a VLAN, confirmed).
+        auth = session("Persist-Pass-1")
+        assert post("/api/network/vlan", '{"parent":"eth0","vlan_id":42,"ip":"10.0.42.1/24"}', auth) == "200", "create a VLAN"
+        assert post("/api/network/confirm", '{}', auth) == "200", "confirm the VLAN"
+        liveSystem.wait_until_succeeds("ip link show eth0.42", timeout=60)
+        liveSystem.wait_until_succeeds("grep -qs 'Id=42' /mnt/usb-persist/dplaneos-state/network/05-dplane-eth0.42.netdev", timeout=30)
+
+        reboot_live()
+        assert post("/api/system/setup-admin", '{"username":"admin","password":"Someone-Else-1"}') == "409", "the admin from the last boot is gone"
+        assert post("/api/auth/login", '{"username":"admin","password":"Persist-Pass-1"}') == "200", "login with the password from the last boot"
+        liveSystem.succeed("grep -qs 'Id=42' /etc/systemd/network/05-dplane-eth0.42.netdev")
+        liveSystem.wait_until_succeeds("ip -4 addr show eth0.42 | grep -q 10.0.42.1/24", timeout=60)
 
     # ── Step 13: Shutdown and verify clean exit ──────────────────────────────
     @test_step("Clean shutdown")
