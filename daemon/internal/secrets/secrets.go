@@ -7,9 +7,12 @@ import (
 	"encoding/base64"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"path/filepath"
 	"sync"
+
+	"dplaned/internal/fsutil"
 )
 
 var (
@@ -68,6 +71,13 @@ func Init(keyPath string) error {
 	defer mu.Unlock()
 
 	data, err := os.ReadFile(keyPath)
+	if err == nil && len(data) == 0 {
+		// Created by a version before 16.0 (no fsync) and lost in a crash
+		// before it reached the disk. What was sealed with it cannot be
+		// opened by any key; refusing to start would not bring it back.
+		log.Printf("WARNING: secrets key at %s is empty (lost in a power loss); creating a new one. Values sealed with the lost key (SMB passwords, two-factor secrets, stored credentials) must be set again", keyPath)
+		err = os.ErrNotExist
+	}
 	if err == nil {
 		if len(data) != 32 {
 			return fmt.Errorf("secrets key at %s has wrong length %d (want 32)", keyPath, len(data))
@@ -80,11 +90,21 @@ func Init(keyPath string) error {
 		if err := os.MkdirAll(filepath.Dir(keyPath), 0700); err != nil {
 			return fmt.Errorf("creating secrets key dir: %w", err)
 		}
-		if err := os.WriteFile(keyPath, data, 0600); err != nil {
+		if err := fsutil.WriteFileDurable(keyPath, data, 0600); err != nil {
 			return fmt.Errorf("writing secrets key: %w", err)
 		}
 	} else {
 		return fmt.Errorf("reading secrets key: %w", err)
+	}
+
+	// A rotation writes its key to keyPath.new before the database is
+	// re-encrypted and renames it after the commit. After a crash between
+	// the two, the database may hold values sealed with either key.
+	if pending, err := os.ReadFile(keyPath + ".new"); err == nil && len(pending) == 32 {
+		if g, err := newGCM(pending); err == nil {
+			fallbackGCM = g
+			log.Printf("secrets: %s.new from an interrupted key rotation is accepted for opening; rotate the keys again", keyPath)
+		}
 	}
 
 	block, err := aes.NewCipher(data)
@@ -163,13 +183,15 @@ func PrepareRotation(keyPath string) (
 		return base64.StdEncoding.EncodeToString(sealed), nil
 	}
 
+	// The new key is on disk before anything is sealed with it (see Init).
+	pending := keyPath + ".new"
+	if writeErr := fsutil.WriteFileDurable(pending, newKey, 0600); writeErr != nil {
+		err = fmt.Errorf("writing new key: %w", writeErr)
+		return
+	}
+
 	commit = func() error {
-		tmp := keyPath + ".new"
-		if writeErr := os.WriteFile(tmp, newKey, 0600); writeErr != nil {
-			return fmt.Errorf("writing new key: %w", writeErr)
-		}
-		if renameErr := os.Rename(tmp, keyPath); renameErr != nil {
-			os.Remove(tmp)
+		if renameErr := fsutil.RenameDurable(pending, keyPath); renameErr != nil {
 			return fmt.Errorf("installing new key: %w", renameErr)
 		}
 		mu.Lock()
